@@ -5,13 +5,11 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // FuzzVP9EncoderProductionStreamByteParity mirrors
@@ -22,8 +20,8 @@ import (
 //
 // Gated by GOVPX_WITH_ORACLE=1 and a built vpxenc-vp9 binary.
 func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 option-grid byte-parity fuzz")
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 option-grid byte-parity fuzz")
+	vp9test.RequireVpxenc(f)
 	// Each seed is (resBucket, deadlineBucket, cpuBucket, rcBucket, featBucket,
 	// threadsBucket, tileBucket, qBucket).
 	seeds := [][]byte{

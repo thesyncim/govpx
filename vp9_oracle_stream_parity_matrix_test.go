@@ -9,13 +9,11 @@ import (
 	"image"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 stream byte-parity matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 stream byte-parity matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	type streamFixture struct {
 		name   string

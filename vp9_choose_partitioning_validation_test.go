@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx checks the
@@ -20,8 +18,8 @@ func TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE") != "1" {
 		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run choose_partitioning seed parity")
 	}
-	coracletest.SkipWithoutOracle(t, "VP9 choose_partitioning validation")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 choose_partitioning validation")
+	vp9test.RequireVpxencFrameFlags(t)
 	type seedSpec struct {
 		name string
 		data []byte

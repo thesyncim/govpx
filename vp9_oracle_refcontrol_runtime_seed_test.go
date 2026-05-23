@@ -8,16 +8,14 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP9OracleReferenceControlSeedsMatchLibvpx asserts strict byte parity for the
 // pinned RefControl corpus. These schedules exercise per-frame reference
 // update and force/no-reference flags against the libvpx frameflags oracle.
 func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 RefControl regression seeds")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 RefControl regression seeds")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	pass, fail := 0, 0
 	aggSizeDelta := 0
@@ -71,8 +69,8 @@ func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
 // the RuntimeControls speed-8 non-RD seed set. Slower speed lanes remain in the
 // open-lane diagnostic below until they close against libvpx.
 func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 RuntimeControls speed-8 regression seeds")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 RuntimeControls speed-8 regression seeds")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	pass, fail := 0, 0
 	aggSizeDelta := 0
@@ -118,8 +116,8 @@ func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 // each open CPU lane must still materialize at least one measurable seed so
 // coverage cannot silently disappear.
 func TestVP9OracleRuntimeControlOpenGapSeedsRemainReproducible(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control open-gap seeds")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-control open-gap seeds")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	t.Run("RDKeyframeCPU0Neg3", func(t *testing.T) {
 		remeasureVP9RuntimeControlSeedLane(t, func(cpu int8) bool {

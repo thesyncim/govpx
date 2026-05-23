@@ -4,20 +4,18 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"image"
 	"math"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 rate-behavior scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 rate-behavior scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
@@ -103,8 +101,8 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleQHistogramScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 Q histogram scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 Q histogram scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
 	type qHistCase struct {
@@ -237,8 +235,8 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 CBR buffer matrix scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 CBR buffer matrix scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
 	type bufferCase struct {
@@ -328,8 +326,8 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 CBR keyframe variance scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 CBR keyframe variance scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
@@ -372,8 +370,8 @@ func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 rate drop-pressure scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 rate drop-pressure scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 32
 	sources := make([]*image.YCbCr, frames)

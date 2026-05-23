@@ -8,14 +8,11 @@ import (
 	"image"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 two-pass byte-parity scoreboard")
-	coracletest.VpxencVP9(t)
+	vp9test.RequireOracle(t, "VP9 two-pass byte-parity scoreboard")
+	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 64, 64, 6
 	sources := make([]*image.YCbCr, frames)
@@ -28,11 +25,9 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
 	}
 	stats := make([]VP9FirstPassFrameStats, frames)
-	var raw []byte
 	for frame := range frames {
 		src := vp9test.NewPanningYCbCr(width, height, frame)
 		sources[frame] = src
-		raw = vp9test.AppendI420(raw, src)
 		stats[frame], err = statsEnc.CollectFirstPassStats(src,
 			uint64(frame), 1, 0)
 		if err != nil {
@@ -68,16 +63,11 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 		govpxPackets[frame] = append([]byte(nil), result.Data...)
 	}
 
-	ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, width,
-		height, frames,
+	libvpxPackets := vp9test.VpxencTwoPassPackets(t, sources,
 		"--target-bitrate=700",
 		"--min-q=4",
 		"--max-q=56",
 		"--disable-warning-prompt")
-	if err != nil {
-		t.Fatalf("VpxencVP9TwoPassEncodeI420 failed: %v\n%s", err, diag)
-	}
-	libvpxPackets := vp9test.RequireIVFPackets(t, ivf, frames)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 two-pass byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
@@ -92,8 +82,8 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 two-pass constant byte-parity scoreboard")
-	coracletest.VpxencVP9(t)
+	vp9test.RequireOracle(t, "VP9 two-pass constant byte-parity scoreboard")
+	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
@@ -106,11 +96,9 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
 	}
 	stats := make([]VP9FirstPassFrameStats, frames)
-	var raw []byte
 	for frame := range frames {
 		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		sources[frame] = src
-		raw = vp9test.AppendI420(raw, src)
 		stats[frame], err = statsEnc.CollectFirstPassStats(src,
 			uint64(frame), 1, 0)
 		if err != nil {
@@ -146,16 +134,11 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 		govpxPackets[frame] = append([]byte(nil), result.Data...)
 	}
 
-	ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, width,
-		height, frames,
+	libvpxPackets := vp9test.VpxencTwoPassPackets(t, sources,
 		"--target-bitrate=700",
 		"--min-q=4",
 		"--max-q=56",
 		"--disable-warning-prompt")
-	if err != nil {
-		t.Fatalf("VpxencVP9TwoPassEncodeI420 failed: %v\n%s", err, diag)
-	}
-	libvpxPackets := vp9test.RequireIVFPackets(t, ivf, frames)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 two-pass constant byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
@@ -170,8 +153,8 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 frame-flag byte-parity matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 frame-flag byte-parity matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
 	type flagCase struct {
@@ -286,8 +269,8 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 control-cross byte-parity matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 control-cross byte-parity matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const frames = 6
 	type crossCase struct {

@@ -7,13 +7,11 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 selected stream byte parity")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 selected stream byte parity")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	type selectedCase struct {
 		name        string
@@ -343,8 +341,8 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 pinned runtime-control byte parity")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 pinned runtime-control byte parity")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	type runtimeGateCase struct {
@@ -930,8 +928,8 @@ func TestVP9OracleRuntimeControlsPinnedCasesMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 threaded tile byte parity")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 threaded tile byte parity")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, defaultFrames = 1280, 720, 2
 	type threadedCase struct {
@@ -1285,8 +1283,8 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleRealtimeNewModeMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 realtime new-mode byte parity")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 realtime new-mode byte parity")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	type pinnedCase struct {
 		name   string

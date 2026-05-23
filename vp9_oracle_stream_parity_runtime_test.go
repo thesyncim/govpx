@@ -9,13 +9,11 @@ import (
 	"image"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control byte-parity scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-control byte-parity scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	type runtimeCase struct {
@@ -360,8 +358,8 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control constant byte-parity matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-control constant byte-parity matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
@@ -965,8 +963,8 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-resize byte-parity scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-resize byte-parity scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	type resizeCase struct {
 		name          string
@@ -1027,8 +1025,8 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 invisible-frame byte-parity scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 invisible-frame byte-parity scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -1058,8 +1056,8 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 invisible-frame byte-parity gate")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 invisible-frame byte-parity gate")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height = 64, 64
 	sources := []*image.YCbCr{
@@ -1084,8 +1082,8 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-drop byte-parity scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-drop byte-parity scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 24
 	type runtimeDropCase struct {

@@ -10,13 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 frame-flag transitions")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 frame-flag transitions")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
 	opts := vp9OracleCBROptions(width, height, 600)
@@ -109,8 +107,8 @@ func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 reference/update matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 reference/update matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
 	opts := vp9OracleCBROptions(width, height, 650)
@@ -156,8 +154,8 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 odd-size transitions")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 odd-size transitions")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 65, 63, 7
 	opts := vp9OracleCBROptions(width, height, 650)
@@ -240,8 +238,8 @@ func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime bitrate/Q controls")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime bitrate/Q controls")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
 	opts := vp9OracleCBROptions(width, height, 800)
@@ -297,8 +295,8 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control transition parity")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-control transition parity")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
 	opts := vp9OracleCBROptions(width, height, 900)
@@ -329,8 +327,8 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-control matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-control matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
 	type runtimeCase struct {
@@ -653,8 +651,8 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 construction-control matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 construction-control matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 6
 	cases := []struct {
@@ -761,8 +759,8 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 tile/thread controls")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 tile/thread controls")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 1024, 64, 6
 	opts := vp9OracleCBROptions(width, height, 900)
@@ -846,8 +844,8 @@ func TestVP9OracleTemporalControlTransitionsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 temporal flag patterns")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 temporal flag patterns")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
 	cases := []struct {
@@ -893,8 +891,8 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 }
 
 func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 temporal pattern matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 temporal pattern matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
 	cases := []struct {

@@ -6,13 +6,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9RuntimeControlsOpenGapSeeds lists runtime-control schedules that measure
@@ -73,8 +71,8 @@ func vp9RuntimeControlsOpenGapSeed(data []byte) bool {
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9-frameflags binary.
 func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 runtime-control oracle fuzz")
-	coracletest.VpxencVP9FrameFlags(f)
+	vp9test.RequireOracle(f, "VP9 runtime-control oracle fuzz")
+	vp9test.RequireVpxencFrameFlags(f)
 	seeds := [][]byte{
 		// (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action1, action2, ...)
 		{0, 0, 0, 0, 0, 0, 0, 0},

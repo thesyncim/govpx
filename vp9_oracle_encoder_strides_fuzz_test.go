@@ -5,12 +5,10 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // FuzzVP9EncoderRandomStrides mirrors FuzzEncoderRandomStrides for VP9: callers
@@ -22,8 +20,8 @@ import (
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderRandomStrides(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 random-strides fuzz")
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 random-strides fuzz")
+	vp9test.RequireVpxenc(f)
 	// Each seed is (dimBucket, yPadBucket, uPadBucket, vPadBucket, uvAlignBucket).
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0},  // tight 32x32

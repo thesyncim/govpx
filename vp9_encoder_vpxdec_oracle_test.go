@@ -4,13 +4,11 @@ package govpx
 
 import (
 	"bytes"
-	"image"
-	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"image"
+	"testing"
 )
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
@@ -18,10 +16,10 @@ import (
 // internal/coracle/build_vpxdec_vp9.sh). This is a structural acceptance
 // gate: vpxdec parses the frame without error.
 //
-// The coracletest resolver skips on CI hosts that have not built the pinned
+// The vp9test oracle resolver skips on CI hosts that have not built the pinned
 // libvpx VP9 decoder yet.
 func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
@@ -34,7 +32,7 @@ func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -48,7 +46,7 @@ func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -62,7 +60,7 @@ func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -76,7 +74,7 @@ func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -95,7 +93,7 @@ func TestVP9EncoderVpxdecOracleMatchesACInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 70, 70
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
@@ -138,7 +136,7 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -157,7 +155,7 @@ func TestVP9EncoderVpxdecOracleMatchesInterIntraFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	const segID = 3
@@ -186,7 +184,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticSegmentation(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	cases := []struct {
@@ -226,7 +224,7 @@ func TestVP9EncoderVpxdecOracleMatchesStaticForcedReferences(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -252,7 +250,7 @@ func TestVP9EncoderVpxdecOracleMatchesCompoundInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -271,7 +269,7 @@ func TestVP9EncoderVpxdecOracleMatchesNoUpdateLastInterFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesForceGoldenAltRefRefresh(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -290,7 +288,7 @@ func TestVP9EncoderVpxdecOracleMatchesForceGoldenAltRefRefresh(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -315,7 +313,7 @@ func TestVP9EncoderVpxdecOracleMatchesGoldenOnlyInter(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -333,7 +331,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -359,7 +357,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -377,7 +375,7 @@ func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const (
 		w1 = 64
@@ -406,7 +404,7 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -429,7 +427,7 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -449,7 +447,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -468,7 +466,7 @@ func TestVP9EncoderVpxdecOracleMatchesOddIntegerMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatches16x8InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 32, 8
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -487,7 +485,7 @@ func TestVP9EncoderVpxdecOracleMatches16x8InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert64x64InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -506,7 +504,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert32x32InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 32, 32
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -525,7 +523,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert32x32InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesVert16x16InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 16, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -544,7 +542,7 @@ func TestVP9EncoderVpxdecOracleMatchesVert16x16InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesHorz64x64InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -563,7 +561,7 @@ func TestVP9EncoderVpxdecOracleMatchesHorz64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesSplit64x64InterMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -584,7 +582,7 @@ func TestVP9EncoderVpxdecOracleMatchesSplit64x64InterMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -604,7 +602,7 @@ func TestVP9EncoderVpxdecOracleMatchesQuarterPelMotion(t *testing.T) {
 }
 
 func TestVP9EncoderVpxdecOracleMatchesEighthPelMotion(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
@@ -628,7 +626,7 @@ func TestVP9EncoderVpxdecOracleMatchesEighthPelMotion(t *testing.T) {
 // encoder's WriteModesTile dispatches per SB; libvpx must accept the
 // resulting multi-SB tile body.
 func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 128, 64), image.YCbCrSubsampleRatio420)
@@ -657,7 +655,7 @@ func assertVP9EncoderVpxdecI420Match(t *testing.T, width, height int, packets ..
 // loop in WriteModesTile steps mi_row by MiBlockSize across the two rows;
 // libvpx must accept the per-row left_seg_context reset.
 func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 128})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 128), image.YCbCrSubsampleRatio420)
@@ -673,7 +671,7 @@ func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 // against a 256x192 keyframe: a 4x3 SB grid. This exercises the SB walker
 // against a fuller mi grid and entropy-context propagation across both axes.
 func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
 	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
@@ -691,7 +689,7 @@ func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 // decoder may force SPLIT/HORZ/VERT decisions from has_rows /
 // has_cols instead of reading the full tree.
 func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	cases := []struct {
 		name          string
@@ -723,7 +721,7 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 // against the second frame produced by the encoder: a visible LAST/ZeroMv
 // skipped inter frame emitted after the keyframe.
 func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
@@ -744,7 +742,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPublicInterSkip(t *testing.T) {
 // non-intra inter tile shape the public decoder now parses: one
 // LAST/ZeroMv skipped block referencing the prior keyframe.
 func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 64, 64)
@@ -755,7 +753,7 @@ func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
 // public second-frame inter skip path covered on the same edge-clipped
 // dimensions as keyframes.
 func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedPublicInterSkip(t *testing.T) {
-	coracletest.VpxdecVP9(t)
+	vp9test.RequireVpxdec(t)
 
 	cases := []struct {
 		name          string

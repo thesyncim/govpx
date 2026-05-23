@@ -3,8 +3,12 @@
 package vp9test
 
 import (
+	"errors"
 	"fmt"
 	"image"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -20,6 +24,79 @@ type VpxdecOptions struct {
 	InvertTileDecodeOrder      bool
 	SVCSpatialLayerSet         bool
 	SVCSpatialLayer            int
+}
+
+// SpatialSVCConfig is the root-independent libvpx spatial-SVC encoder
+// configuration used by VP9 oracle tests.
+type SpatialSVCConfig struct {
+	Width                    int
+	Height                   int
+	Frames                   int
+	Timebase                 string
+	TotalBitrateKbps         int
+	LayerCount               int
+	ScaleFactors             string
+	LayerBitratesKbps        []int
+	TemporalLayerCount       int
+	TemporalLayeringMode     int
+	KeyFrameInterval         int
+	MinQuantizer             int
+	MaxQuantizer             int
+	LagInFrames              int
+	Threads                  int
+	Speed                    int
+	RateControlEndUsage      int
+	InterLayerPredictionMode int
+}
+
+// RequireOracle skips t unless the external libvpx oracle suite is enabled.
+func RequireOracle(t testing.TB, name string) {
+	t.Helper()
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
+	}
+}
+
+// RequireVpxdec resolves the pinned VP9 vpxdec binary or skips t.
+func RequireVpxdec(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxdecVP9Path()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
+		t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+	}
+	t.Fatalf("VpxdecVP9Path: %v", err)
+	return ""
+}
+
+// RequireVpxenc resolves the pinned VP9 vpxenc binary or skips t.
+func RequireVpxenc(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxencVP9Path()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
+		t.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
+	}
+	t.Fatalf("VpxencVP9Path: %v", err)
+	return ""
+}
+
+// RequireVpxencFrameFlags resolves the VP9 frame-flags helper or skips t.
+func RequireVpxencFrameFlags(t testing.TB) string {
+	t.Helper()
+	path, err := coracle.VpxencVP9FrameFlagsPath()
+	if err == nil {
+		return path
+	}
+	if errors.Is(err, coracle.ErrVpxencVP9FrameFlagsNotBuilt) {
+		t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
+	}
+	t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
+	return ""
 }
 
 func VpxdecI420(t testing.TB, ivf []byte) []byte {
@@ -97,10 +174,7 @@ func VpxencPacketsResult(sources []*image.YCbCr, extraArgs ...string) ([][]byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	var raw []byte
-	for _, src := range sources {
-		raw = AppendI420(raw, src)
-	}
+	raw := appendSourcesI420(nil, sources)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
 		len(sources), extraArgs...)
 	if err != nil {
@@ -116,10 +190,7 @@ func VpxencPacketsResult(sources []*image.YCbCr, extraArgs ...string) ([][]byte,
 func VpxencIVF(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []byte {
 	t.Helper()
 	width, height := requireSameSizeSources(t, "VP9 vpxenc IVF source", sources)
-	var raw []byte
-	for _, src := range sources {
-		raw = AppendI420(raw, src)
-	}
+	raw := appendSourcesI420(nil, sources)
 	ivf, diag, err := coracle.VpxencVP9EncodeI420(raw, width, height,
 		len(sources), extraArgs...)
 	if err != nil {
@@ -131,10 +202,7 @@ func VpxencIVF(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []byte
 func VpxencFirstPassStats(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []FirstPassStats {
 	t.Helper()
 	width, height := requireSameSizeSources(t, "VP9 first-pass source", sources)
-	var raw []byte
-	for _, src := range sources {
-		raw = AppendI420(raw, src)
-	}
+	raw := appendSourcesI420(nil, sources)
 	data, diag, err := coracle.VpxencVP9FirstPassStatsI420(raw, width, height,
 		len(sources), extraArgs...)
 	if err != nil {
@@ -150,10 +218,7 @@ func VpxencFrameFlagPackets(t testing.TB, sources []*image.YCbCr, frameFlags []u
 		t.Fatalf("VP9 frame-flags has %d entries for %d source frames",
 			len(frameFlags), len(sources))
 	}
-	var raw []byte
-	for _, src := range sources {
-		raw = AppendI420(raw, src)
-	}
+	raw := appendSourcesI420(nil, sources)
 	ivf, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
 		height, len(sources), frameFlags, extraArgs...)
 	if err != nil {
@@ -169,10 +234,7 @@ func VpxencFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr, frameFlag
 		t.Fatalf("VP9 frame-flags trace has %d entries for %d source frames",
 			len(frameFlags), len(sources))
 	}
-	var raw []byte
-	for _, src := range sources {
-		raw = AppendI420(raw, src)
-	}
+	raw := appendSourcesI420(nil, sources)
 	ivf, trace, diag, err := coracle.VpxencVP9FrameFlagsTraceI420(raw, width,
 		height, len(sources), frameFlags, extraArgs...)
 	if err != nil {
@@ -221,6 +283,97 @@ func VpxencVariableFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr,
 	}
 	return rows, vpxencPacketsForTraceRows(t, "libvpx VP9 variable", ivf,
 		rows, false)
+}
+
+// VpxencTwoPassIVF runs the pinned VP9 vpxenc binary through pass 1 and pass 2.
+func VpxencTwoPassIVF(t testing.TB, sources []*image.YCbCr, extraArgs ...string) []byte {
+	t.Helper()
+	width, height := requireSameSizeSources(t, "VP9 two-pass source", sources)
+	raw := appendSourcesI420(nil, sources)
+	ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, width, height,
+		len(sources), extraArgs...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 two-pass encode failed: %v\n%s", err, diag)
+	}
+	return ivf
+}
+
+// VpxencTwoPassPackets returns the pass-2 IVF payloads from VpxencTwoPassIVF.
+func VpxencTwoPassPackets(t testing.TB, sources []*image.YCbCr, extraArgs ...string) [][]byte {
+	t.Helper()
+	ivf := VpxencTwoPassIVF(t, sources, extraArgs...)
+	return ParseIVFFrames(t, ivf)
+}
+
+// VpxencFrameFlagCopyReferenceLog runs the VP9 frame-flags helper and returns
+// the generated copy-reference log path.
+func VpxencFrameFlagCopyReferenceLog(t testing.TB, name string,
+	sources []*image.YCbCr, frameFlags []uint32, controlScript []string,
+	extraArgs ...string,
+) string {
+	t.Helper()
+	width, height := requireSameSizeSources(t, "VP9 copy-reference source", sources)
+	if len(frameFlags) > len(sources) {
+		t.Fatalf("VP9 copy-reference frame flags has %d entries for %d source frames",
+			len(frameFlags), len(sources))
+	}
+	logPath := filepath.Join(t.TempDir(), name+".log")
+	args := append([]string(nil), extraArgs...)
+	args = append(args, "--copy-ref-log="+logPath)
+	if len(controlScript) != 0 {
+		args = append(args, "--control-script="+strings.Join(controlScript, ","))
+	}
+	raw := appendSourcesI420(nil, sources)
+	if _, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
+		height, len(sources), frameFlags, args...); err != nil {
+		t.Fatalf("vpxenc-vp9-frameflags copy-reference failed: %v\n%s",
+			err, diag)
+	}
+	return logPath
+}
+
+// SpatialSVCPackets runs libvpx's VP9 spatial-SVC sample encoder and returns
+// one payload per access unit.
+func SpatialSVCPackets(t testing.TB, raw []byte, cfg SpatialSVCConfig) [][]byte {
+	t.Helper()
+	if cfg.Timebase == "" {
+		cfg.Timebase = "1/30"
+	}
+	packets, diag, err := coracle.VP9SpatialSVCPayloadsI420(raw,
+		coracle.VP9SpatialSVCConfig{
+			Width:                    cfg.Width,
+			Height:                   cfg.Height,
+			Frames:                   cfg.Frames,
+			Timebase:                 cfg.Timebase,
+			TotalBitrateKbps:         cfg.TotalBitrateKbps,
+			LayerCount:               cfg.LayerCount,
+			ScaleFactors:             cfg.ScaleFactors,
+			LayerBitratesKbps:        cfg.LayerBitratesKbps,
+			TemporalLayerCount:       cfg.TemporalLayerCount,
+			TemporalLayeringMode:     cfg.TemporalLayeringMode,
+			KeyFrameInterval:         cfg.KeyFrameInterval,
+			MinQuantizer:             cfg.MinQuantizer,
+			MaxQuantizer:             cfg.MaxQuantizer,
+			LagInFrames:              cfg.LagInFrames,
+			Threads:                  cfg.Threads,
+			Speed:                    cfg.Speed,
+			RateControlEndUsage:      cfg.RateControlEndUsage,
+			InterLayerPredictionMode: cfg.InterLayerPredictionMode,
+		})
+	if err != nil {
+		if errors.Is(err, coracle.ErrVP9SpatialSVCEncoderNotBuilt) {
+			t.Skip("set GOVPX_VP9_SPATIAL_SVC_ENCODER to a libvpx v1.16.0 vp9_spatial_svc_encoder binary")
+		}
+		t.Fatalf("VP9SpatialSVCPayloadsI420: %v\n%s", err, diag)
+	}
+	return packets
+}
+
+func appendSourcesI420(dst []byte, sources []*image.YCbCr) []byte {
+	for _, src := range sources {
+		dst = AppendI420(dst, src)
+	}
+	return dst
 }
 
 func vpxencPacketsForTraceRows(t testing.TB, label string, ivf []byte,

@@ -5,12 +5,10 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"image"
-	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"image"
+	"testing"
 )
 
 // vp9RefControlParitySeeds pins reference-control schedules that exercise
@@ -43,8 +41,8 @@ var vp9RefControlParitySeeds = [][]byte{
 // also supports. Gated by GOVPX_WITH_ORACLE=1 plus a built
 // vpxenc-vp9-frameflags binary.
 func FuzzVP9EncoderReferenceControlSequences(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 ref-control sequence fuzz")
-	coracletest.VpxencVP9FrameFlags(f)
+	vp9test.RequireOracle(f, "VP9 ref-control sequence fuzz")
+	vp9test.RequireVpxencFrameFlags(f)
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0, 0, 0},
 		{0, 1, 0, 2, 0, 3, 0, 0},

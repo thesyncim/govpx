@@ -5,12 +5,10 @@ package govpx
 import (
 	"bytes"
 	"crypto/sha256"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9NormalizeFuzzOptionsForLibvpxCLI rewrites VP9EncoderOptions fields that
@@ -150,8 +148,8 @@ func vp9OptionsOpenGapSeed(data []byte) bool {
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary. Without the
 // binary the fuzzer t.Skips cleanly so plain `go test` runs are green.
 func FuzzVP9OracleEncoderOptions(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 option-validation oracle fuzz")
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 option-validation oracle fuzz")
+	vp9test.RequireVpxenc(f)
 	// Seeds mirror FuzzVP9EncoderOptions shape but biased toward configs
 	// the libvpx CLI accepts AND that the govpx VP9 encoder can keyframe
 	// byte-identically to the libvpx CLI under the comparator
@@ -282,7 +280,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 // so the overrides below replace each pin.
 func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts VP9EncoderOptions, src *image.YCbCr) []byte {
 	t.Helper()
-	coracletest.VpxencVP9(t)
+	vp9test.RequireVpxenc(t)
 	extra := vp9LibvpxOracleArgsFromOptions(opts)
 	packets, _, err := vp9test.VpxencPacketsResult([]*image.YCbCr{src}, extra...)
 	if err != nil || len(packets) == 0 {

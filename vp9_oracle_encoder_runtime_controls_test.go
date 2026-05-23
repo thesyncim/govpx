@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP9OracleEncoderRuntimeControls is the VP9 mirror of VP8's
@@ -30,8 +28,8 @@ import (
 // at non-pinned controls are logged with the per-frame scoreboard rows to
 // steer parity work.
 func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 runtime-controls byte-parity gate")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 runtime-controls byte-parity gate")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const (
 		width  = 64

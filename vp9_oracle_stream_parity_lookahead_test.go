@@ -9,13 +9,11 @@ import (
 	"image"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 temporal byte-parity scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 temporal byte-parity scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
 	cases := []struct {
@@ -63,8 +61,8 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 lookahead flush byte-parity scoreboard")
-	coracletest.VpxencVP9(t)
+	vp9test.RequireOracle(t, "VP9 lookahead flush byte-parity scoreboard")
+	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
 	type flushCase struct {
@@ -130,8 +128,8 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 auto-alt-ref visibility scoreboard")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 auto-alt-ref visibility scoreboard")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames, lag = 64, 64, 16, 4
 	sources := vp9test.NewSteppedSources(width, height, frames)
@@ -197,8 +195,8 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 }
 
 func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 auto-alt-ref ARNR byte-parity matrix")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 auto-alt-ref ARNR byte-parity matrix")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	type autoAltRefCase struct {
 		name      string

@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
@@ -12,15 +11,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 spatial SVC oracle scoreboard")
+	vp9test.RequireOracle(t, "VP9 spatial SVC oracle scoreboard")
 
 	const frames = 4
 	for _, tc := range []struct {
@@ -141,7 +137,8 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 				} else if firstMismatch < 0 {
 					firstMismatch = frame
 				}
-				firstDiff := testutil.FirstByteDiff(govpxPacket, libvpxPackets[frame])
+				firstDiff := vp9test.FirstPacketDiff(govpxPacket,
+					libvpxPackets[frame])
 				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%s\n",
 					frame, match, firstDiff, len(govpxPacket),
 					len(libvpxPackets[frame]), govpxSF.count, libvpxSF.count,
@@ -258,34 +255,25 @@ func encodeLibvpxVP9SpatialSVCOracle(t *testing.T,
 	t.Helper()
 	temporalLayerCount, temporalLayeringMode := vp9SpatialSVCOracleTemporalConfig(t,
 		temporal)
-	packets, diag, err := coracle.VP9SpatialSVCPayloadsI420(raw,
-		coracle.VP9SpatialSVCConfig{
-			Width:                    widths[layerCount-1],
-			Height:                   heights[layerCount-1],
-			Frames:                   frames,
-			Timebase:                 "1/30",
-			TotalBitrateKbps:         vp9SpatialSVCOracleTotalBitrate(bitrates, layerCount),
-			LayerCount:               layerCount,
-			ScaleFactors:             vp9SpatialSVCOracleScaleFactors(t, widths, heights, layerCount),
-			LayerBitratesKbps:        vp9SpatialSVCOracleLayerBitrates(t, temporal, bitrates, layerCount),
-			TemporalLayerCount:       temporalLayerCount,
-			TemporalLayeringMode:     temporalLayeringMode,
-			KeyFrameInterval:         128,
-			MinQuantizer:             4,
-			MaxQuantizer:             56,
-			LagInFrames:              0,
-			Threads:                  1,
-			Speed:                    8,
-			RateControlEndUsage:      1,
-			InterLayerPredictionMode: 0,
-		})
-	if err != nil {
-		if errors.Is(err, coracle.ErrVP9SpatialSVCEncoderNotBuilt) {
-			t.Skip("set GOVPX_VP9_SPATIAL_SVC_ENCODER to a libvpx v1.16.0 vp9_spatial_svc_encoder binary")
-		}
-		t.Fatalf("VP9SpatialSVCPayloadsI420: %v\n%s", err, diag)
-	}
-	return packets
+	return vp9test.SpatialSVCPackets(t, raw, vp9test.SpatialSVCConfig{
+		Width:                    widths[layerCount-1],
+		Height:                   heights[layerCount-1],
+		Frames:                   frames,
+		TotalBitrateKbps:         vp9SpatialSVCOracleTotalBitrate(bitrates, layerCount),
+		LayerCount:               layerCount,
+		ScaleFactors:             vp9SpatialSVCOracleScaleFactors(t, widths, heights, layerCount),
+		LayerBitratesKbps:        vp9SpatialSVCOracleLayerBitrates(t, temporal, bitrates, layerCount),
+		TemporalLayerCount:       temporalLayerCount,
+		TemporalLayeringMode:     temporalLayeringMode,
+		KeyFrameInterval:         128,
+		MinQuantizer:             4,
+		MaxQuantizer:             56,
+		LagInFrames:              0,
+		Threads:                  1,
+		Speed:                    8,
+		RateControlEndUsage:      1,
+		InterLayerPredictionMode: 0,
+	})
 }
 
 func vp9SpatialSVCOracleTemporalConfig(t *testing.T,

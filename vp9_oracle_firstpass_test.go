@@ -5,18 +5,16 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"math"
 	"os"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 first-pass stats oracle")
-	coracletest.VpxencVP9(t)
+	vp9test.RequireOracle(t, "VP9 first-pass stats oracle")
+	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 320, 180, 6
 	sources := make([]*image.YCbCr, frames)
@@ -67,8 +65,8 @@ func TestVP9OracleFirstPassStatsSchemaAndTotals(t *testing.T) {
 }
 
 func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 first-pass stats oracle")
-	coracletest.VpxencVP9(t)
+	vp9test.RequireOracle(t, "VP9 first-pass stats oracle")
+	vp9test.RequireVpxenc(t)
 
 	cases := []struct {
 		name       string

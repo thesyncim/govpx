@@ -4,12 +4,10 @@ package govpx
 
 import (
 	"bytes"
-	"image"
-	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"image"
+	"testing"
 )
 
 // FuzzVP9DecoderAgainstLibvpx mirrors FuzzVP8DecoderAgainstLibvpx (F4) for VP9:
@@ -22,9 +20,9 @@ import (
 // seed corpus is built lazily from vpxenc-vp9 so it always reflects whatever
 // the current oracle emits for a small synthetic clip.
 func FuzzVP9DecoderAgainstLibvpx(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 decoder-vs-libvpx fuzz")
-	coracletest.VpxdecVP9(f)
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 decoder-vs-libvpx fuzz")
+	vp9test.RequireVpxdec(f)
+	vp9test.RequireVpxenc(f)
 
 	// Build a 4-frame VP9 IVF seed using vpxenc-vp9 so the corpus
 	// always exercises whatever the current oracle emits.

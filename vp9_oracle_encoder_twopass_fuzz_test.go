@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -22,8 +20,8 @@ import (
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 two-pass byte-parity fuzz")
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 two-pass byte-parity fuzz")
+	vp9test.RequireVpxenc(f)
 	// Each seed is (bitrateBucket, kfBucket, threadsBucket, cpuBucket, framesBucket).
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0},
@@ -51,16 +49,8 @@ func FuzzVP9EncoderTwoPassByteParity(f *testing.F) {
 		// Libvpx VP9 two-pass reference. This keeps the CLI bridge and IVF
 		// parser covered while the govpx stats-to-second-pass comparison is
 		// staged.
-		var raw []byte
-		for _, src := range sources {
-			raw = vp9test.AppendI420(raw, src)
-		}
-		ivf, diag, err := coracle.VpxencVP9TwoPassEncodeI420(raw, cfg.width, cfg.height,
-			len(sources), cfg.extraArgs...)
-		if err != nil {
-			t.Fatalf("vpxenc-vp9 two-pass encode failed: %v\n%s", err, diag)
-		}
-		libvpxFrames := vp9test.ParseIVFFrames(t, ivf)
+		libvpxFrames := vp9test.VpxencTwoPassPackets(t, sources,
+			cfg.extraArgs...)
 		if len(libvpxFrames) == 0 {
 			t.Fatalf("%s: vpxenc-vp9 two-pass produced no frames", label)
 		}

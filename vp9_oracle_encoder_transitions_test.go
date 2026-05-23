@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 // TestVP9OracleEncoderControlTransitions is the VP9 counterpart of
@@ -35,8 +33,8 @@ import (
 // deltas without failing so the test acts as a structured oracle
 // that future parity work can ratchet.
 func TestVP9OracleEncoderControlTransitions(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 control transition byte-parity gate")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 control transition byte-parity gate")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const (
 		fps    = 30
@@ -302,8 +300,8 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 // expresses the invariant that the second-stream packets must match a
 // cold-start encoding when run independently against the oracle.
 func TestVP9OracleEncoderResetTransitions(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 reset/lifetime byte-parity gate")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 reset/lifetime byte-parity gate")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	const (
 		width  = 64

@@ -6,13 +6,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // vp9LongFixtureOpenGapSeeds lists VP9 fuzz-corpus seed payloads whose strict
@@ -95,8 +93,8 @@ func vp9LongFixtureOpenGapSeed(data []byte) bool {
 //
 // Gated by GOVPX_WITH_ORACLE=1 plus a built vpxenc-vp9 binary.
 func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
-	coracletest.SkipWithoutOracle(f, "VP9 long-fixture RC fuzz")
-	coracletest.VpxencVP9(f)
+	vp9test.RequireOracle(f, "VP9 long-fixture RC fuzz")
+	vp9test.RequireVpxenc(f)
 	// Each seed is (rcBucket, bitrateBucket, kfBucket, deadlineBucket, cpuBucket).
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0}, // CBR 300kbps kf=999 realtime cpu8

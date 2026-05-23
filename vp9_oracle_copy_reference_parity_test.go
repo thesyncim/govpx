@@ -5,18 +5,13 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle"
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 )
 
 func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
-	coracletest.SkipWithoutOracle(t, "VP9 copy-reference parity gate")
-	coracletest.VpxencVP9FrameFlags(t)
+	vp9test.RequireOracle(t, "VP9 copy-reference parity gate")
+	vp9test.RequireVpxencFrameFlags(t)
 
 	t.Run("refreshed-references", func(t *testing.T) {
 		const width, height, frames = 64, 64, 5
@@ -34,8 +29,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 
 		extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
 		want := captureLibvpxVP9CopyReferenceChecksums(t,
-			"vp9-copyref-refresh", width, height, sources, nil, script,
-			extraArgs)
+			"vp9-copyref-refresh", sources, nil, script, extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
 			nil, checks)
 		assertCopyReferenceChecksumsEqual(t, got, want)
@@ -62,8 +56,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 
 		extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
 		want := captureLibvpxVP9CopyReferenceChecksums(t,
-			"vp9-copyref-setref-odd", width, height, sources, nil, script,
-			extraArgs)
+			"vp9-copyref-setref-odd", sources, nil, script, extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
 			sets, checks)
 		assertCopyReferenceChecksumsEqual(t, got, want)
@@ -85,8 +78,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 
 		extraArgs := vp9OracleCBRArgs(650, 600, 400, 500, 0)
 		want := captureLibvpxVP9CopyReferenceChecksums(t,
-			"vp9-copyref-post-inter", width, height, sources, nil, script,
-			extraArgs)
+			"vp9-copyref-post-inter", sources, nil, script, extraArgs)
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
 			nil, checks)
 		if !reflect.DeepEqual(got, want) {
@@ -98,28 +90,16 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 }
 
 func captureLibvpxVP9CopyReferenceChecksums(t *testing.T, name string,
-	width, height int, sources []*image.YCbCr, flags []EncodeFlags,
-	script []string, extraArgs []string,
+	sources []*image.YCbCr, flags []EncodeFlags, script []string,
+	extraArgs []string,
 ) []copyReferenceChecksum {
 	t.Helper()
 	if len(flags) > len(sources) {
 		t.Fatalf("VP9 copyref flag count = %d, want <= %d",
 			len(flags), len(sources))
 	}
-	var raw []byte
-	for _, src := range sources {
-		raw = vp9test.AppendI420(raw, src)
-	}
-	logPath := filepath.Join(t.TempDir(), name+".log")
-	args := append([]string(nil), extraArgs...)
-	args = append(args, "--copy-ref-log="+logPath)
-	if len(script) != 0 {
-		args = append(args, "--control-script="+strings.Join(script, ","))
-	}
-	if _, diag, err := coracle.VpxencVP9FrameFlagsEncodeI420(raw, width,
-		height, len(sources), vp9LibvpxFrameFlags(flags), args...); err != nil {
-		t.Fatalf("vpxenc-vp9-frameflags copyref failed: %v\n%s", err, diag)
-	}
+	logPath := vp9test.VpxencFrameFlagCopyReferenceLog(t, name, sources,
+		vp9LibvpxFrameFlags(flags), script, extraArgs...)
 	return readCopyReferenceChecksumLog(t, logPath)
 }
 

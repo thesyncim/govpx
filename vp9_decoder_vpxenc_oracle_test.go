@@ -4,16 +4,14 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
-	coracletest.VpxdecVP9(t)
-	coracletest.VpxencVP9(t)
+	vp9test.RequireVpxdec(t)
+	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
 	frames := []*image.YCbCr{
@@ -42,7 +40,7 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP9VpxencOracleDefaultCQKeyframeBaseQIndex(t *testing.T) {
-	coracletest.VpxencVP9(t)
+	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
 	frame := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
