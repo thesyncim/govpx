@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
@@ -19,7 +19,7 @@ func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	oracle := coracletest.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	paths := findVP8IVFTestData(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
@@ -32,7 +32,7 @@ func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
-			want := coracletest.RunVP8ChecksumOracleFile(t, oracle, path)
+			want := oracle.File(t, path)
 			got := decodeIVFChecksums(t, ivf)
 			if len(got) != len(want) {
 				t.Fatalf("frame count = %d, want %d from libvpx", len(got), len(want))
@@ -54,7 +54,7 @@ func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	oracle := coracletest.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	paths := findVP8IVFTestData(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
@@ -67,7 +67,7 @@ func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
-			want := coracletest.RunVP8ChecksumOracleFile(t, oracle, path)
+			want := oracle.File(t, path)
 			got := decodeIVFIntoChecksums(t, ivf)
 			if len(got) != len(want) {
 				t.Fatalf("DecodeInto frame count = %d, want %d from libvpx", len(got), len(want))
@@ -89,7 +89,7 @@ func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	if !ok {
 		return
 	}
-	oracle := coracletest.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	paths := findInvalidVP8IVFTestData(t, root)
 	if len(paths) == 0 {
 		if os.Getenv("GOVPX_INVALID_TEST_DATA_REQUIRED") == "1" || externalInvalidIVFTestMinimum(t) > 0 {
@@ -101,7 +101,7 @@ func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
-			if err := coracletest.RunVP8ChecksumOracleFileExpectError(t, oracle, path); err == nil {
+			if err := oracle.FileExpectError(t, path); err == nil {
 				t.Fatalf("libvpx oracle decoded invalid VP8 IVF without error")
 			}
 			ivf, err := os.ReadFile(path)
@@ -122,8 +122,8 @@ func TestVP8OracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
 	}
-	oracle := coracletest.ChecksumOracle(t)
-	vpxenc := coracletest.Vpxenc(t)
+	oracle := vp8test.NewChecksumOracle(t)
+	vpxenc := vp8test.Vpxenc(t)
 	dir := t.TempDir()
 
 	cases := []generatedLibvpxCorpusCase{
@@ -149,7 +149,7 @@ func TestVP8OracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
 			assertGeneratedLibvpxCorpusFeatures(t, ivf, tc)
-			want := coracletest.RunVP8ChecksumOracleFile(t, oracle, ivfPath)
+			want := oracle.File(t, ivfPath)
 			got := decodeIVFChecksums(t, ivf)
 			gotInto := decodeIVFIntoChecksums(t, ivf)
 			assertFrameChecksumsEqual(t, "Decode", got, want)

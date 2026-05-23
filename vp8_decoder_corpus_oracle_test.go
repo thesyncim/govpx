@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
@@ -116,9 +116,9 @@ func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generat
 	t.Helper()
 	ivfPath := filepath.Join(dir, tc.name+".ivf")
 	extraArgs := append([]string{"--end-usage=vbr"}, tc.args...)
-	ivf, diag, err := coracle.VpxencVP8EncodeI420(
+	ivf := vp8test.VpxencIVF(t,
 		deterministicI420Bytes(t, tc.width, tc.height, tc.frames),
-		coracle.VpxencVP8Config{
+		vp8test.VpxencConfig{
 			BinaryPath:        vpxenc,
 			Width:             tc.width,
 			Height:            tc.height,
@@ -135,9 +135,6 @@ func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generat
 			ExtraArgs:         extraArgs,
 		},
 	)
-	if err != nil {
-		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
-	}
 	if err := os.WriteFile(ivfPath, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}

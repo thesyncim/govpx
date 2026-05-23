@@ -7,15 +7,15 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx decoder reference-control oracle tests")
 	}
-	oracle := coracletest.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 
 	type refCase struct {
 		name   string
@@ -35,7 +35,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 			var govpxCopies []testutil.FrameChecksum
 			apply := decoderReferenceControlApply(controlFrame, rc.ref, 7, rc.name, &govpxCopies)
 
-			want, libvpxCopies := coracletest.RunVP8ChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-controls-copylog", script, ivf)
+			want, libvpxCopies := oracle.FramesWithControlScript(t, "decode-controls-copylog", script, ivf)
 			got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{}, apply)
 			assertFrameChecksumsEqual(t, "decoder reference controls "+rc.name, got, want)
 			assertFrameChecksumsEqual(t, "decoder copy-reference controls "+rc.name, govpxCopies, libvpxCopies)
@@ -49,7 +49,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceLast, 8, "last", &govpxCopies)
 
-		want, libvpxCopies := coracletest.RunVP8ChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-postproc-controls-copylog", script, ivf)
+		want, libvpxCopies := oracle.FramesWithControlScript(t, "decode-postproc-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessMFQE}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls postprocess", got, want)
 		assertFrameChecksumsEqual(t, "decoder copy-reference controls postprocess", govpxCopies, libvpxCopies)
@@ -62,7 +62,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceGolden, 9, "golden", &govpxCopies)
 
-		want, libvpxCopies := coracletest.RunVP8ChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-error-concealment-controls-copylog", script, ivf)
+		want, libvpxCopies := oracle.FramesWithControlScript(t, "decode-error-concealment-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{ErrorConcealment: true}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls error concealment", got, want)
 		assertFrameChecksumsEqual(t, "decoder copy-reference controls error concealment", govpxCopies, libvpxCopies)
@@ -75,7 +75,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 		var govpxCopies []testutil.FrameChecksum
 		apply := decoderReferenceControlApply(controlFrame, ReferenceAltRef, 10, "altref", &govpxCopies)
 
-		want, libvpxCopies := coracletest.RunVP8ChecksumOracleThreadedControlScriptWithCopyLog(t, oracle, 2, script, ivf)
+		want, libvpxCopies := oracle.ThreadedFramesWithControlScript(t, 2, script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{Threads: 2}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls threaded", got, want)
 		assertFrameChecksumsEqual(t, "decoder copy-reference controls threaded", govpxCopies, libvpxCopies)
@@ -96,7 +96,7 @@ func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
 			len(packets16) + control32: decoderReferenceControlAction(len(packets16)+control32, ReferenceLast, 12, "last", &govpxCopies),
 		}
 
-		want, libvpxCopies := coracletest.RunVP8ChecksumOracleControlScriptWithCopyLog(t, oracle, "decode-controls-copylog", script, ivf)
+		want, libvpxCopies := oracle.FramesWithControlScript(t, "decode-controls-copylog", script, ivf)
 		got := decodeIVFChecksumsWithControlScript(t, ivf, DecoderOptions{}, apply)
 		assertFrameChecksumsEqual(t, "decoder reference controls resolution change", got, want)
 		assertFrameChecksumsEqual(t, "decoder copy-reference controls resolution change", govpxCopies, libvpxCopies)
