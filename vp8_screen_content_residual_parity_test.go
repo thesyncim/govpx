@@ -8,7 +8,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -80,7 +79,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 	}
 	enc.Close()
 
-	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	libvpxTrace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, govpxSources),
 		vp8OracleTraceConfig(
 			vpxencOracle,

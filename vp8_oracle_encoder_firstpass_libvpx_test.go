@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func captureLibvpxFirstPassStats(t *testing.T, vpxenc string, opts EncoderOptions, targetKbps int, frames []Image) []FirstPassFrameStats {
@@ -18,9 +18,9 @@ func captureLibvpxFirstPassStats(t *testing.T, vpxenc string, opts EncoderOption
 	case DeadlineRealtime:
 		deadline = "rt"
 	}
-	data, diag, err := coracle.VpxencVP8FirstPassStatsI420(
+	data, diag, err := vp8test.VpxencVP8FirstPassStatsI420(
 		encoderValidationI420Bytes(t, frames),
-		coracle.VpxencVP8Config{
+		vp8test.VpxencVP8Config{
 			BinaryPath:        vpxenc,
 			Width:             opts.Width,
 			Height:            opts.Height,

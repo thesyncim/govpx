@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -1103,12 +1102,12 @@ func encodeFramesWithLibvpxTwoPassOracleArgs(t *testing.T, vpxenc string, vpxenc
 		sectionArgs = append(sectionArgs, "--maxsection-pct="+strconv.Itoa(opts.TwoPassMaxPct))
 	}
 
-	_, data, diag, err := coracle.VpxencVP8TwoPassEncodeI420(
+	_, data, diag, err := vp8test.VpxencVP8TwoPassEncodeI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8TwoPassConfig{
+		vp8test.VpxencVP8TwoPassConfig{
 			FirstPassBinaryPath:  vpxenc,
 			SecondPassBinaryPath: vpxencOracle,
-			Common: coracle.VpxencVP8Config{
+			Common: vp8test.VpxencVP8Config{
 				Width:             opts.Width,
 				Height:            opts.Height,
 				Frames:            len(sources),

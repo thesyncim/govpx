@@ -8,7 +8,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -48,11 +47,11 @@ func TestVP8OracleRecodeRowParity(t *testing.T) {
 	govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recode-vbr-tight", opts, targetKbps, sources, []string{"--end-usage=vbr"})
 
-	gRows, err := coracle.TraceRowsByFrame(govpxTrace, "recode")
+	gRows, err := vp8test.TraceRowsByFrame(govpxTrace, "recode")
 	if err != nil {
 		t.Fatalf("parse govpx recode rows: %v", err)
 	}
-	lRows, err := coracle.TraceRowsByFrame(libvpxTrace, "recode")
+	lRows, err := vp8test.TraceRowsByFrame(libvpxTrace, "recode")
 	if err != nil {
 		t.Fatalf("parse libvpx recode rows: %v", err)
 	}
@@ -97,13 +96,13 @@ func TestVP8OracleRecodeRowParity(t *testing.T) {
 		if gReason != lReason {
 			t.Errorf("frame %d recode reason govpx=%q libvpx=%q", fi, gReason, lReason)
 		}
-		gFinal := coracle.TraceFloat(g["final_q"])
-		lFinal := coracle.TraceFloat(l["final_q"])
+		gFinal := vp8test.TraceFloat(g["final_q"])
+		lFinal := vp8test.TraceFloat(l["final_q"])
 		if math.Abs(gFinal-lFinal) > 2 {
 			t.Errorf("frame %d recode final_q govpx=%v libvpx=%v exceeds 2 qindex", fi, gFinal, lFinal)
 		}
-		gLoop := coracle.TraceFloat(g["loop_count"])
-		lLoop := coracle.TraceFloat(l["loop_count"])
+		gLoop := vp8test.TraceFloat(g["loop_count"])
+		lLoop := vp8test.TraceFloat(l["loop_count"])
 		if math.Abs(gLoop-lLoop) > 1 {
 			t.Errorf("frame %d recode loop_count govpx=%v libvpx=%v exceeds 1", fi, gLoop, lLoop)
 		}

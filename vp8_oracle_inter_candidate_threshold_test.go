@@ -11,7 +11,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -114,16 +113,16 @@ func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
 
 			govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "diag-thresh-"+tc.name, opts, targetKbps, sources, tc.extraArgs)
-			govpxProjected, err := coracle.ProjectVP8InterCandidateThresholdTrace(govpxTrace)
+			govpxProjected, err := vp8test.ProjectVP8InterCandidateThresholdTrace(govpxTrace)
 			if err != nil {
 				t.Fatalf("ProjectVP8InterCandidateThresholdTrace(govpx): %v", err)
 			}
-			libvpxProjected, err := coracle.ProjectVP8InterCandidateThresholdTrace(libvpxTrace)
+			libvpxProjected, err := vp8test.ProjectVP8InterCandidateThresholdTrace(libvpxTrace)
 			if err != nil {
 				t.Fatalf("ProjectVP8InterCandidateThresholdTrace(libvpx): %v", err)
 			}
 
-			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+			div, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), vp8test.CompareOptions{
 				MaxDivergences: 4096,
 			})
 			if err != nil {
@@ -136,7 +135,7 @@ func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
 
 			fieldHist := map[string]int{}
 			perFrameHist := map[int64]int{}
-			firstByField := map[string]coracle.Divergence{}
+			firstByField := map[string]vp8test.Divergence{}
 			for _, d := range div {
 				if d.Field != "" {
 					fieldHist[d.Field]++

@@ -20,7 +20,8 @@ func TestCodecOracleTestsUseCoracleProcessLibrary(t *testing.T) {
 			t.Fatalf("Glob(%q): %v", pattern, err)
 		}
 		for _, path := range files {
-			assertTestFileDoesNotImport(t, path, "os/exec")
+			assertTestFileDoesNotImport(t, path, "os/exec",
+				"oracle subprocess helpers belong in internal/coracle")
 		}
 	}
 }
@@ -52,12 +53,19 @@ func TestRootOracleTestsUseCodecHarnessPackages(t *testing.T) {
 		t.Fatalf("Glob(%q): %v", "*_test.go", err)
 	}
 	for _, path := range files {
-		assertTestFileDoesNotImport(t, path,
-			"github.com/thesyncim/govpx/internal/coracle/coracletest")
+		for _, importPath := range []string{
+			"github.com/thesyncim/govpx/internal/coracle",
+			"github.com/thesyncim/govpx/internal/coracle/coracletest",
+		} {
+			assertTestFileDoesNotImport(t, path, importPath,
+				"root tests should use internal/testutil/vp8test or internal/testutil/vp9test")
+		}
 	}
 }
 
-func assertTestFileDoesNotImport(t *testing.T, path string, importPath string) {
+func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
+	reason string,
+) {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if err != nil {
@@ -69,7 +77,7 @@ func assertTestFileDoesNotImport(t *testing.T, path string, importPath string) {
 			t.Fatalf("Unquote(%s import): %v", path, err)
 		}
 		if got == importPath {
-			t.Fatalf("%s imports %q; oracle subprocess helpers belong in internal/coracle", path, importPath)
+			t.Fatalf("%s imports %q; %s", path, importPath, reason)
 		}
 	}
 }

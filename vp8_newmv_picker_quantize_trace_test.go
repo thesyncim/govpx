@@ -9,7 +9,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -47,7 +46,7 @@ func TestVP8NewMVPickerQuantizeTraceRows(t *testing.T) {
 		sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 	}
 
-	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	trace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, sources),
 		vp8BestARNRPickerOracleConfig(
 			vpxencOracle,

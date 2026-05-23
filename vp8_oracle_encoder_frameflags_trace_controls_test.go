@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -61,9 +60,9 @@ func TestVP8OracleVpxencFrameFlagsWritesTraceAndRuntimeControls(t *testing.T) {
 		"-",
 	}
 
-	ivfData, traceData, diag, err := coracle.VpxencVP8FrameFlagsEncodeTraceI420(
+	ivfData, traceData, diag, err := vp8test.VpxencVP8FrameFlagsEncodeTraceI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8FrameFlagsConfig{
+		vp8test.VpxencVP8FrameFlagsConfig{
 			BinaryPath:        driver,
 			Width:             width,
 			Height:            height,

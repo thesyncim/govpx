@@ -17,7 +17,7 @@ Last refreshed: 2026-05-24 from `main`.
   - `internal/vp9`: 298 Go files.
   - `internal/vpx`: 11 Go files.
   - `internal/coracle`: 26 Go files.
-  - `internal/testutil`: 27 Go files.
+  - `internal/testutil`: 32 Go files.
 - Test-name clusters:
   - Non-internal tests: 380.
   - Internal tests: 294.
@@ -125,9 +125,11 @@ probability models, or reference semantics into `internal/vpx`.
 `internal/coracle` owns libvpx integration: pinned build scripts, tool-path
 resolution, subprocess wrappers, trace projection/comparison, and scoreboard
 helpers. VP9 root oracle tests use `internal/testutil/vp9test` as the
-codec-specific harness facade, and VP8 root oracle tests use
-`internal/testutil/vp8test` for VP8-specific oracle tool and baseline access;
-default-build tests and production packages must not import coracle.
+codec-specific harness facade. VP8 root oracle tests use
+`internal/testutil/vp8test` for VP8-specific oracle tool resolution, trace
+projection/comparison, vpxenc/vpxdec calls, first-pass and two-pass captures,
+temporal-SVC sample runs, checksum helpers, and JSON baselines. Root tests,
+default-build tests, and production packages must not import coracle directly.
 
 ## Test Categories
 
@@ -190,7 +192,7 @@ This ledger tracks intent, not completed work.
 | --- | --- | --- |
 | Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
 | Root VP9 implementation | 66 root VP9 implementation files remain; VP9 SVC layer-context state now lives in `internal/vp9/encoder`; stale VP9 stderr debug hooks and the always-on non-RD staging predicate are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
-| Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. VP9 root oracle tests no longer import `internal/coracle` or `internal/coracle/coracletest` directly; they use `internal/testutil/vp9test` for oracle gating and tool resolution. VP8 root oracle tests no longer import `internal/coracle/coracletest` directly; they use `internal/testutil/vp8test` for VP8 oracle tool resolution, decoder checksum helpers, and JSON baselines. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
+| Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. VP9 root oracle tests no longer import `internal/coracle` or `internal/coracle/coracletest` directly; they use `internal/testutil/vp9test` for oracle gating and tool resolution. VP8 root oracle tests no longer import `internal/coracle` or `internal/coracle/coracletest` directly; they use `internal/testutil/vp8test` for VP8 oracle tool resolution, trace projection/comparison, vpxenc/vpxdec calls, first-pass and two-pass captures, temporal-SVC sample runs, decoder checksum helpers, and JSON baselines. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 362 top-level root tests remain; many are codec implementation and parity tests; shared VP9 YCbCr/I420/header helpers, IVF payload extraction/building, packet byte-parity diagnostics, synthetic image fixtures, source generators, byte-parity counters, vpxenc packet capture, vpxenc IVF capture, two-pass packet capture, frame-flags packet capture, frame-flags trace packet unpacking, copy-reference log capture, spatial-SVC sample packet capture, first-pass stats parsing/capture, vpxdec I420 decode wrappers, vpxdec WebM/invalid-IVF wrappers, vpxdec acceptance wrappers, panning sources, stream-parity row formatting, rate-scoreboard row parsing/formatting, transition comparison stats, drop-aware stream parity summaries, single-stream scoreboard formatting, drop summaries, hidden-frame and alt-ref refresh counters, auto-alt-ref visibility formatting, and Q histograms now live in `internal/testutil/vp9test`; VP9 external corpus selection and minimum rules now live in `internal/testutil/vp9corpus`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; `internal/vpx/ratecontrol` owns codec-neutral packet-size and percentage arithmetic; `internal/vpx/buffers` owns alignment and I420 encode-buffer sizing. Codec packages keep descriptor syntax, policy constants, and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
 | Tracing/test hooks | Disabled trace state is build-tagged and has zero-size tests; unused VP9 ARNR and unsupported-decoder stderr env hooks are gone; VP8 PhaseStats runtime option plumbing is compiled out of default builds and enabled only with `govpx_phase_stats`. | Keep disabled paths allocation-free and absent from production structs; expand allocation/escape checks when touching hot paths. |

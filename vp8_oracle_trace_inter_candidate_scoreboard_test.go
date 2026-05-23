@@ -9,7 +9,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -85,7 +84,7 @@ func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
 			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
 
-			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+			div, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), vp8test.CompareOptions{
 				MaxDivergences: 4096,
 			})
 			if err != nil {

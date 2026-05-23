@@ -2,9 +2,9 @@
 
 package govpx
 
-import "github.com/thesyncim/govpx/internal/coracle"
+import "github.com/thesyncim/govpx/internal/testutil/vp8test"
 
-func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, targetKbps int, extraEnv []string, extraArgs []string) coracle.VpxencVP8Config {
+func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, targetKbps int, extraEnv []string, extraArgs []string) vp8test.VpxencVP8Config {
 	if targetKbps == 0 {
 		targetKbps = opts.TargetBitrateKbps
 	}
@@ -12,7 +12,7 @@ func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, 
 	if keyFrameInterval == 0 {
 		keyFrameInterval = 999
 	}
-	return coracle.VpxencVP8Config{
+	return vp8test.VpxencVP8Config{
 		BinaryPath:           vpxencOracle,
 		Width:                opts.Width,
 		Height:               opts.Height,
@@ -35,7 +35,7 @@ func vp8OracleTraceConfig(vpxencOracle string, opts EncoderOptions, frames int, 
 	}
 }
 
-func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, frames int, extraEnv []string) coracle.VpxencVP8Config {
+func vp8BestARNRPickerOracleConfig(vpxencOracle string, opts EncoderOptions, frames int, extraEnv []string) vp8test.VpxencVP8Config {
 	return vp8OracleTraceConfig(
 		vpxencOracle,
 		opts,

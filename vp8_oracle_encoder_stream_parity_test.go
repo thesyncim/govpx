@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -1440,7 +1439,7 @@ func encodeFramesWithGovpx(t *testing.T, opts EncoderOptions, sources []Image) [
 // the resulting IVF file.
 func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) [][]byte {
 	t.Helper()
-	cfg := coracle.VpxencVP8Config{
+	cfg := vp8test.VpxencVP8Config{
 		BinaryPath:           vpxencOracle,
 		Width:                opts.Width,
 		Height:               opts.Height,
@@ -1471,7 +1470,7 @@ func encodeFramesWithLibvpxOracle(t *testing.T, vpxencOracle string, _ string, o
 	if !extraArgsContainsKFDist(extraArgs) {
 		cfg.KeyFrameDistSet = true
 	}
-	frames, diag, err := coracle.VpxencVP8OracleFramePayloadsI420(
+	frames, diag, err := vp8test.VpxencVP8OracleFramePayloadsI420(
 		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
 		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)

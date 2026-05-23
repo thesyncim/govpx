@@ -10,7 +10,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -66,7 +65,7 @@ func TestVP8ARNRPickerParity(t *testing.T) {
 	t.Logf("arnr_picker: govpx trace bytes = %d", govpxTraceBuf.Len())
 
 	// --- libvpx side ---------------------------------------------------
-	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	libvpxTrace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, sources),
 		vp8BestARNRPickerOracleConfig(vpxencOracle, opts, len(sources), nil),
 	)

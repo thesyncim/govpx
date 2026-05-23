@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -318,7 +317,7 @@ func captureLibvpxDropAwareTrace(t *testing.T, vpxencOracle string, opts Encoder
 		"--buf-optimal-sz=" + strconv.Itoa(fx.BufferOptimalMs),
 		"--drop-frame=" + strconv.Itoa(fx.LibvpxDropFrame),
 	}
-	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	trace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, sources),
 		vp8OracleTraceConfig(vpxencOracle, opts, len(sources), fx.TargetKbps, nil, extraArgs),
 	)
@@ -358,13 +357,13 @@ func summarizeDropTrace(t *testing.T, trace []byte, totalFrames int) ([]int, map
 	dropForceMaxQP := make(map[int]bool)
 	bufferByFrame := make(map[int]int64, totalFrames)
 	qByFrame := make(map[int]int, totalFrames)
-	rows, err := coracle.TraceRows(trace)
+	rows, err := vp8test.TraceRows(trace)
 	if err != nil {
 		t.Fatalf("parse drop trace: %v", err)
 	}
 	for _, row := range rows {
 		typ, _ := row["type"].(string)
-		idx := int(coracle.TraceFloat(row["frame_index"]))
+		idx := int(vp8test.TraceFloat(row["frame_index"]))
 		switch typ {
 		case "frame":
 			dropped, _ := row["dropped"].(bool)
@@ -373,19 +372,19 @@ func summarizeDropTrace(t *testing.T, trace []byte, totalFrames int) ([]int, map
 				fm, _ := row["force_maxqp"].(bool)
 				dropForceMaxQP[idx] = fm
 				if v, ok := row["buffer_level"]; ok {
-					bufferByFrame[idx] = int64(coracle.TraceFloat(v))
+					bufferByFrame[idx] = int64(vp8test.TraceFloat(v))
 				}
 				qByFrame[idx] = -1
 				continue
 			}
 			if v, ok := row["q_index"]; ok {
-				qByFrame[idx] = int(coracle.TraceFloat(v))
+				qByFrame[idx] = int(vp8test.TraceFloat(v))
 			}
 		case "rate":
 			// Latest rate row for the frame's idx wins; vp8_pack_bitstream
 			// emits a single rate row per frame just before pack.
 			if v, ok := row["buffer_level"]; ok {
-				bufferByFrame[idx] = int64(coracle.TraceFloat(v))
+				bufferByFrame[idx] = int64(vp8test.TraceFloat(v))
 			}
 		}
 	}

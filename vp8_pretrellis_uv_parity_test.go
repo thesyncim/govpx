@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -134,7 +133,7 @@ func runVP8PretrellisUVParity(t *testing.T, vpxencOracle string, seedHash string
 	}
 	enc.Close()
 
-	libvpxTrace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	libvpxTrace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, sources),
 		vp8OracleTraceConfig(
 			vpxencOracle,

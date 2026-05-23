@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
@@ -91,11 +91,11 @@ func FuzzVP8DecoderAgainstLibvpx(f *testing.F) {
 // internal/coracle/build_libvpx.sh.
 func findVpxdecForFuzz(t *testing.T) string {
 	t.Helper()
-	path, err := coracle.VpxdecPath()
+	path, err := vp8test.VpxdecPath()
 	if err == nil {
 		return path
 	}
-	if errors.Is(err, coracle.ErrVpxdecNotBuilt) {
+	if errors.Is(err, vp8test.ErrVpxdecNotBuilt) {
 		t.Skip("vpxdec binary not available; set GOVPX_VPXDEC or run internal/coracle/build_libvpx.sh")
 	}
 	t.Fatalf("VpxdecPath: %v", err)
@@ -165,7 +165,7 @@ func decodeIVFGovpxBestEffort(data []byte) ([][]byte, error) {
 // zero frames while govpx correctly decoded two). Walk per-frame VP8
 // headers to compute libvpx-faithful expected sizes.
 func decodeIVFLibvpxBestEffort(t *testing.T, vpxdec string, data []byte) ([][]byte, error) {
-	raw, _, runErr := coracle.VpxdecVP8DecodeI420(data, coracle.VpxdecVP8Config{BinaryPath: vpxdec})
+	raw, _, runErr := vp8test.VpxdecVP8DecodeI420(data, vp8test.VpxdecVP8Config{BinaryPath: vpxdec})
 	if _, headerErr := testutil.ParseIVFHeader(data); headerErr != nil {
 		// vpxdec also won't produce frames from an unparseable IVF header;
 		// the outcome is "no frames" regardless.

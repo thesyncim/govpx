@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -196,9 +195,9 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 		// First-pass stats: govpx (in-process) vs libvpx (vpxenc pass=1).
 		govpxStats := captureGovpxFirstPassStats(t, opts, cfg.sources)
 
-		fpfData, libvpxIVF, diag, err := coracle.VpxencVP8TwoPassEncodeI420(
+		fpfData, libvpxIVF, diag, err := vp8test.VpxencVP8TwoPassEncodeI420(
 			encoderValidationI420Bytes(t, cfg.sources),
-			coracle.VpxencVP8TwoPassConfig{
+			vp8test.VpxencVP8TwoPassConfig{
 				FirstPassBinaryPath:  vpxenc,
 				SecondPassBinaryPath: vpxencOracle,
 				Common:               vp8TwoPassFuzzVpxencConfig(opts, cfg.targetKbps, len(cfg.sources)),
@@ -229,8 +228,8 @@ func FuzzEncoderTwoPassByteParity(f *testing.F) {
 	})
 }
 
-func vp8TwoPassFuzzVpxencConfig(opts EncoderOptions, targetKbps int, frames int) coracle.VpxencVP8Config {
-	return coracle.VpxencVP8Config{
+func vp8TwoPassFuzzVpxencConfig(opts EncoderOptions, targetKbps int, frames int) vp8test.VpxencVP8Config {
+	return vp8test.VpxencVP8Config{
 		Width:             opts.Width,
 		Height:            opts.Height,
 		Frames:            frames,

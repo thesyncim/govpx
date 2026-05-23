@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -46,7 +45,7 @@ func TestVP8OracleTraceDecisionCompare(t *testing.T) {
 	libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-vbr-panning", opts, targetKbps, sources, []string{"--end-usage=vbr"})
 	govpxProjected := projectVP8EncoderDecisionTrace(t, govpxTrace)
 	libvpxProjected := projectVP8EncoderDecisionTrace(t, libvpxTrace)
-	div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+	div, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), vp8test.CompareOptions{
 		MaxDivergences: 8,
 		NumericFieldTolerances: map[string]float64{
 			// The pushed main branch currently has a stable 112-bit
@@ -62,7 +61,7 @@ func TestVP8OracleTraceDecisionCompare(t *testing.T) {
 		t.Fatalf("CompareOracleTraces returned error: %v", err)
 	}
 	if len(div) != 0 {
-		t.Fatalf("projected encoder decision trace diverged:\n%s", coracle.FormatDivergences(div))
+		t.Fatalf("projected encoder decision trace diverged:\n%s", vp8test.FormatDivergences(div))
 	}
 }
 
@@ -183,7 +182,7 @@ func TestVP8OracleTraceInterCandidateCompare(t *testing.T) {
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-inter-candidates-"+tc.name, tc.opts, targetKbps, sources, tc.extraArgs)
 			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
 			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
-			div, err := coracle.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), coracle.CompareOptions{
+			div, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), vp8test.CompareOptions{
 				MaxDivergences: 16,
 			})
 			if err != nil {
@@ -191,9 +190,9 @@ func TestVP8OracleTraceInterCandidateCompare(t *testing.T) {
 			}
 			if len(div) != 0 {
 				t.Fatalf("projected inter-candidate trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
-					coracle.FormatDivergences(div),
-					coracle.FirstTraceRows(govpxProjected, 14),
-					coracle.FirstTraceRows(libvpxProjected, 14))
+					vp8test.FormatDivergences(div),
+					vp8test.FirstTraceRows(govpxProjected, 14),
+					vp8test.FirstTraceRows(libvpxProjected, 14))
 			}
 		})
 	}
@@ -223,7 +222,7 @@ func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image
 
 func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) []byte {
 	t.Helper()
-	cfg := coracle.VpxencVP8Config{
+	cfg := vp8test.VpxencVP8Config{
 		BinaryPath:        vpxencOracle,
 		Width:             opts.Width,
 		Height:            opts.Height,
@@ -242,7 +241,7 @@ func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts
 		KeyFrameMaxDist:   999,
 		ExtraArgs:         extraArgs,
 	}
-	trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+	trace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
 		t.Fatalf("vpxenc-oracle failed: %v\n%s", err, diag)
@@ -252,7 +251,7 @@ func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts
 
 func projectVP8EncoderDecisionTrace(t *testing.T, trace []byte) []byte {
 	t.Helper()
-	projected, err := coracle.ProjectVP8EncoderDecisionTrace(trace)
+	projected, err := vp8test.ProjectVP8EncoderDecisionTrace(trace)
 	if err != nil {
 		t.Fatalf("ProjectVP8EncoderDecisionTrace: %v", err)
 	}
@@ -261,7 +260,7 @@ func projectVP8EncoderDecisionTrace(t *testing.T, trace []byte) []byte {
 
 func projectVP8InterCandidateTrace(t *testing.T, trace []byte) []byte {
 	t.Helper()
-	projected, err := coracle.ProjectVP8InterCandidateTrace(trace)
+	projected, err := vp8test.ProjectVP8InterCandidateTrace(trace)
 	if err != nil {
 		t.Fatalf("ProjectVP8InterCandidateTrace: %v", err)
 	}
@@ -270,7 +269,7 @@ func projectVP8InterCandidateTrace(t *testing.T, trace []byte) []byte {
 
 func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, wantPicker string) {
 	t.Helper()
-	rows, err := coracle.TraceRowsOfType(trace, "inter_candidate")
+	rows, err := vp8test.TraceRowsOfType(trace, "inter_candidate")
 	if err != nil {
 		t.Fatalf("parse %s inter_candidate rows: %v", side, err)
 	}

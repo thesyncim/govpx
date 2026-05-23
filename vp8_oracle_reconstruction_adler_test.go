@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -87,11 +86,11 @@ func TestVP8OracleReconstructionAdler32Match(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, opts, cfg.fixture.sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "recon-adler-"+cfg.name, opts, targetKbps, cfg.fixture.sources, []string{"--end-usage=cbr"})
 
-			gFrames, err := coracle.TraceFrameRows(govpxTrace)
+			gFrames, err := vp8test.TraceFrameRows(govpxTrace)
 			if err != nil {
 				t.Fatalf("parse govpx trace frames: %v", err)
 			}
-			lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+			lFrames, err := vp8test.TraceFrameRows(libvpxTrace)
 			if err != nil {
 				t.Fatalf("parse libvpx trace frames: %v", err)
 			}
@@ -116,8 +115,8 @@ func TestVP8OracleReconstructionAdler32Match(t *testing.T) {
 				if g["q_index"] != l["q_index"] {
 					t.Errorf("[%s] frame %d q_index govpx=%v libvpx=%v", cfg.name, i, g["q_index"], l["q_index"])
 				}
-				gSize := coracle.TraceFloat(g["size_bytes"])
-				lSize := coracle.TraceFloat(l["size_bytes"])
+				gSize := vp8test.TraceFloat(g["size_bytes"])
+				lSize := vp8test.TraceFloat(l["size_bytes"])
 				if lSize <= 0 {
 					t.Errorf("[%s] frame %d libvpx size_bytes = %v, want >0", cfg.name, i, l["size_bytes"])
 					continue

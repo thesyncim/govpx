@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -71,7 +70,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 			sources[i] = encoderValidationPanningFrame(opts.Width, opts.Height, i)
 		}
 
-		cfg := coracle.VpxencVP8Config{
+		cfg := vp8test.VpxencVP8Config{
 			BinaryPath:           vpxencOracle,
 			Width:                opts.Width,
 			Height:               opts.Height,
@@ -101,7 +100,7 @@ func TestVP8InterCandidateStatePropagation(t *testing.T) {
 				"--arnr-type=2",
 			},
 		}
-		trace, diag, err := coracle.VpxencVP8OracleTraceI420(
+		trace, diag, err := vp8test.VpxencVP8OracleTraceI420(
 			encoderValidationI420Bytes(t, sources), cfg)
 		if err != nil {
 			t.Fatalf("vpxenc-oracle (threads=%d) failed: %v\n%s", threads, err, diag)

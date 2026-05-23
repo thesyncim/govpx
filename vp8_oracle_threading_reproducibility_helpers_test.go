@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // VP8OracleReproducibleRuns is the default re-run count for the VP8 oracle
@@ -127,7 +127,7 @@ const VP8OracleMatchingGovpxMaxRetries = 6
 // behaviour for serial-oracle callers.
 func encodeVP8FramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle string, name string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string, govpxFrames [][]byte) [][]byte {
 	t.Helper()
-	if _, parallel := coracle.VP8VpxencThreadsArg(extraArgs); !parallel {
+	if _, parallel := vp8test.VP8VpxencThreadsArg(extraArgs); !parallel {
 		// Serial oracle invocations are deterministic; one run suffices.
 		return encodeFramesWithLibvpxOracle(t, vpxencOracle, name, opts, targetKbps, sources, extraArgs)
 	}
@@ -184,7 +184,7 @@ func encodeVP8FramesWithLibvpxOracleMatchingGovpx(t *testing.T, vpxencOracle str
 // should keep using the non-strict default.
 func requireVP8OracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) {
 	t.Helper()
-	threads, parallel := coracle.VP8VpxencThreadsArg(extraArgs)
+	threads, parallel := vp8test.VP8VpxencThreadsArg(extraArgs)
 	if !parallel {
 		return
 	}

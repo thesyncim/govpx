@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -79,11 +78,11 @@ func TestVP8OracleARNRBufferAdler(t *testing.T) {
 	// trace.
 	libvpxTrace := captureLibvpxARNRTwoPassEncoderTrace(t, vpxencOracle, opts, targetKbps, sources)
 
-	gFrames, err := coracle.TraceFrameRows(govpxTrace)
+	gFrames, err := vp8test.TraceFrameRows(govpxTrace)
 	if err != nil {
 		t.Fatalf("parse govpx frame rows: %v", err)
 	}
-	lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+	lFrames, err := vp8test.TraceFrameRows(libvpxTrace)
 	if err != nil {
 		t.Fatalf("parse libvpx frame rows: %v", err)
 	}
@@ -106,12 +105,12 @@ func TestVP8OracleARNRBufferAdler(t *testing.T) {
 		return
 	}
 
-	gY := int64(coracle.TraceFloat(gFrame["y_adler32"]))
-	lY := int64(coracle.TraceFloat(lFrame["y_adler32"]))
-	gU := int64(coracle.TraceFloat(gFrame["u_adler32"]))
-	lU := int64(coracle.TraceFloat(lFrame["u_adler32"]))
-	gV := int64(coracle.TraceFloat(gFrame["v_adler32"]))
-	lV := int64(coracle.TraceFloat(lFrame["v_adler32"]))
+	gY := int64(vp8test.TraceFloat(gFrame["y_adler32"]))
+	lY := int64(vp8test.TraceFloat(lFrame["y_adler32"]))
+	gU := int64(vp8test.TraceFloat(gFrame["u_adler32"]))
+	lU := int64(vp8test.TraceFloat(lFrame["u_adler32"]))
+	gV := int64(vp8test.TraceFloat(gFrame["v_adler32"]))
+	lV := int64(vp8test.TraceFloat(lFrame["v_adler32"]))
 	t.Logf("ARNR frame: govpx_trace_index=%d libvpx_trace_index=%d", gIdx, lIdx)
 	t.Logf("ARNR frame: govpx_frame_index=%v libvpx_frame_index=%v", gFrame["frame_index"], lFrame["frame_index"])
 	t.Logf("ARNR frame: govpx_y=%d libvpx_y=%d delta=%d match=%v", gY, lY, gY-lY, gY == lY)
@@ -131,7 +130,7 @@ func findOracleARFFrame(rows []map[string]any) (int, map[string]any) {
 	getPTS := func(row map[string]any) (int64, bool) {
 		for _, key := range []string{"pts", "source_pts", "src_pts", "timestamp"} {
 			if v, ok := row[key]; ok {
-				return int64(coracle.TraceFloat(v)), true
+				return int64(vp8test.TraceFloat(v)), true
 			}
 		}
 		return 0, false
@@ -241,9 +240,9 @@ func captureLibvpxARNRTwoPassEncoderTrace(t *testing.T, vpxencOracle string, opt
 			"--arnr-type=" + strconv.Itoa(opts.ARNRType),
 		},
 	)
-	_, trace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
+	_, trace, diag, err := vp8test.VpxencVP8TwoPassTraceI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8TwoPassConfig{
+		vp8test.VpxencVP8TwoPassConfig{
 			FirstPassBinaryPath:  vpxencOracle,
 			SecondPassBinaryPath: vpxencOracle,
 			Common:               common,

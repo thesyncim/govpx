@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // FuzzVP8EncoderOptions decodes arbitrary fuzz bytes into EncoderOptions
@@ -295,9 +295,9 @@ func tryLibvpxKeyFrameBytes(t *testing.T, opts EncoderOptions) []byte {
 	if opts.NoiseSensitivity > 0 {
 		extraArgs = append(extraArgs, "--noise-sensitivity="+strconv.Itoa(opts.NoiseSensitivity))
 	}
-	frames, _, err := coracle.VpxencVP8OracleFramePayloadsI420(
+	frames, _, err := vp8test.VpxencVP8OracleFramePayloadsI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8Config{
+		vp8test.VpxencVP8Config{
 			Width:                opts.Width,
 			Height:               opts.Height,
 			Frames:               1,

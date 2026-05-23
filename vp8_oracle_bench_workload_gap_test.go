@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -224,9 +223,9 @@ func encodeBenchWorkloadWithVpxenc(t *testing.T, vpxenc string, opts EncoderOpti
 	if opts.StaticThreshold > 0 {
 		extraArgs = append(extraArgs, "--static-thresh="+strconv.Itoa(opts.StaticThreshold))
 	}
-	ivf, diag, err := coracle.VpxencVP8EncodeI420(
+	ivf, diag, err := vp8test.VpxencVP8EncodeI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxencVP8Config{
+		vp8test.VpxencVP8Config{
 			BinaryPath:           vpxenc,
 			Width:                opts.Width,
 			Height:               opts.Height,

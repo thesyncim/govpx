@@ -43,7 +43,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -131,9 +130,9 @@ func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
 	reports := make([]FixtureSecondPassReport, 0, len(fixtures))
 	for _, f := range fixtures {
 		t.Run(f.name, func(t *testing.T) {
-			fpfData, libvpxTrace, diag, err := coracle.VpxencVP8TwoPassTraceI420(
+			fpfData, libvpxTrace, diag, err := vp8test.VpxencVP8TwoPassTraceI420(
 				encoderValidationI420Bytes(t, f.sources),
-				coracle.VpxencVP8TwoPassConfig{
+				vp8test.VpxencVP8TwoPassConfig{
 					FirstPassBinaryPath:  vpxenc,
 					SecondPassBinaryPath: vpxencOracle,
 					Common: vp8OracleTraceConfig(

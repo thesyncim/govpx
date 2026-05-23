@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func encodeLibvpxValidationCorpus(t *testing.T, vpxenc string, tc encoderValidationCase, sources []Image) []byte {
@@ -18,7 +18,7 @@ func encodeLibvpxValidationCorpus(t *testing.T, vpxenc string, tc encoderValidat
 		"--buf-optimal-sz=500",
 	}
 	extraArgs = append(extraArgs, tc.libvpxArgs...)
-	cfg := coracle.VpxencVP8Config{
+	cfg := vp8test.VpxencVP8Config{
 		BinaryPath:        vpxenc,
 		Width:             tc.width,
 		Height:            tc.height,
@@ -36,7 +36,7 @@ func encodeLibvpxValidationCorpus(t *testing.T, vpxenc string, tc encoderValidat
 		KeyFrameMaxDist:   999,
 		ExtraArgs:         extraArgs,
 	}
-	ivf, diag, err := coracle.VpxencVP8EncodeI420(encoderValidationI420Bytes(t, sources), cfg)
+	ivf, diag, err := vp8test.VpxencVP8EncodeI420(encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
 		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
 	}

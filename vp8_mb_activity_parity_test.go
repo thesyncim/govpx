@@ -10,7 +10,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -146,7 +145,7 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 	}
 	enc.Close()
 
-	ivfData, libvpxTrace, diag, err := coracle.VpxencVP8OracleEncodeTraceI420(
+	ivfData, libvpxTrace, diag, err := vp8test.VpxencVP8OracleEncodeTraceI420(
 		encoderValidationI420Bytes(t, sources),
 		vp8OracleTraceConfig(vpxencOracle, opts, len(sources), targetKbps, nil, extraArgs),
 	)

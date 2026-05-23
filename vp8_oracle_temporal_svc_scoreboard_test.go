@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -469,9 +468,9 @@ type libvpxTemporalLayerStat struct {
 
 func captureLibvpxTemporalSVCStats(t *testing.T, svcEncoder string, fx temporalSVCFixtureSpec, sources []Image) libvpxTemporalSVCStats {
 	t.Helper()
-	_, diag, err := coracle.VpxTemporalSVCEncodeI420(
+	_, diag, err := vp8test.VpxTemporalSVCEncodeI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxTemporalSVCConfig{
+		vp8test.VpxTemporalSVCConfig{
 			BinaryPath:         svcEncoder,
 			Width:              fx.Width,
 			Height:             fx.Height,

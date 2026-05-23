@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -31,7 +30,7 @@ import (
 // asserting:
 //
 //  1. The wrapper produces a non-zero frame slice for a known-good scenario.
-//  2. coracle.VP8VpxencThreadsArg() correctly classifies the input.
+//  2. vp8test.VP8VpxencThreadsArg() correctly classifies the input.
 //  3. requireVP8OracleArgsReproducibleOrSerial() emits its log line (verified
 //     indirectly via test-output capture isn't available in standard go
 //     test; we instead exercise the helper's predicate path directly).
@@ -76,16 +75,16 @@ func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
 	}
 
 	// Step 2: parallel-classification predicate is correct.
-	if got, _ := coracle.VP8VpxencThreadsArg([]string{"--threads=4", "--end-usage=cbr"}); got != 4 {
+	if got, _ := vp8test.VP8VpxencThreadsArg([]string{"--threads=4", "--end-usage=cbr"}); got != 4 {
 		t.Errorf("VP8VpxencThreadsArg(--threads=4) = %d, want 4", got)
 	}
-	if _, ok := coracle.VP8VpxencThreadsArg([]string{"--threads=4", "--end-usage=cbr"}); !ok {
+	if _, ok := vp8test.VP8VpxencThreadsArg([]string{"--threads=4", "--end-usage=cbr"}); !ok {
 		t.Errorf("VP8VpxencThreadsArg(--threads=4) parallel=false, want true")
 	}
-	if _, ok := coracle.VP8VpxencThreadsArg([]string{"--threads=1", "--end-usage=cbr"}); ok {
+	if _, ok := vp8test.VP8VpxencThreadsArg([]string{"--threads=1", "--end-usage=cbr"}); ok {
 		t.Errorf("VP8VpxencThreadsArg(--threads=1) parallel=true, want false")
 	}
-	if _, ok := coracle.VP8VpxencThreadsArg([]string{"--end-usage=cbr"}); ok {
+	if _, ok := vp8test.VP8VpxencThreadsArg([]string{"--end-usage=cbr"}); ok {
 		t.Errorf("VP8VpxencThreadsArg(no --threads) parallel=true, want false")
 	}
 

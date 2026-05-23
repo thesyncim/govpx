@@ -10,7 +10,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -440,9 +439,9 @@ func encodeFramesWithLibvpxTemporalSVC(
 	for i := range bitrates {
 		bitrates[i] = bitratesKbps[i]
 	}
-	layers, diag, err := coracle.VpxTemporalSVCPayloadsI420(
+	layers, diag, err := vp8test.VpxTemporalSVCPayloadsI420(
 		encoderValidationI420Bytes(t, sources),
-		coracle.VpxTemporalSVCConfig{
+		vp8test.VpxTemporalSVCConfig{
 			BinaryPath:         svcEncoder,
 			Width:              fx.w,
 			Height:             fx.h,

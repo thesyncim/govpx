@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
@@ -719,7 +718,7 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, _ string, opts Encod
 		invisibleFrames = nil
 	}
 
-	cfg := coracle.VpxencVP8FrameFlagsConfig{
+	cfg := vp8test.VpxencVP8FrameFlagsConfig{
 		BinaryPath:        driver,
 		Width:             opts.Width,
 		Height:            opts.Height,
@@ -742,7 +741,7 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, _ string, opts Encod
 		InvisibleFrames:   invisibleFrames,
 		ExtraArgs:         extraArgs,
 	}
-	frames, diag, err := coracle.VpxencVP8FrameFlagsPayloadsI420(
+	frames, diag, err := vp8test.VpxencVP8FrameFlagsPayloadsI420(
 		encoderValidationI420Bytes(t, sources), cfg)
 	if err != nil {
 		t.Fatalf("vpxenc-frameflags failed: %v\n%s", err, diag)

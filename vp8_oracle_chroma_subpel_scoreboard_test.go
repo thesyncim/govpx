@@ -10,7 +10,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -93,11 +92,11 @@ func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 		}
 		govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
 		libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "chroma-subpel-"+cfg.name, opts, targetKbps, sources, []string{"--end-usage=cbr"})
-		gFrames, err := coracle.TraceFrameRows(govpxTrace)
+		gFrames, err := vp8test.TraceFrameRows(govpxTrace)
 		if err != nil {
 			t.Fatalf("[%s] parse govpx frame rows: %v", cfg.name, err)
 		}
-		lFrames, err := coracle.TraceFrameRows(libvpxTrace)
+		lFrames, err := vp8test.TraceFrameRows(libvpxTrace)
 		if err != nil {
 			t.Fatalf("[%s] parse libvpx frame rows: %v", cfg.name, err)
 		}
@@ -126,8 +125,8 @@ func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 			yMatch := g["y_adler32"] == l["y_adler32"]
 			uMatch := g["u_adler32"] == l["u_adler32"]
 			vMatch := g["v_adler32"] == l["v_adler32"]
-			gQ, lQ := coracle.TraceFloat(g["q_index"]), coracle.TraceFloat(l["q_index"])
-			gSize, lSize := coracle.TraceFloat(g["size_bytes"]), coracle.TraceFloat(l["size_bytes"])
+			gQ, lQ := vp8test.TraceFloat(g["q_index"]), vp8test.TraceFloat(l["q_index"])
+			gSize, lSize := vp8test.TraceFloat(g["size_bytes"]), vp8test.TraceFloat(l["size_bytes"])
 			var sizePct float64
 			if lSize > 0 {
 				sizePct = 100.0 * (gSize - lSize) / lSize
