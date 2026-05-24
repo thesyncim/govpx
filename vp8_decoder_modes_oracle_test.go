@@ -262,7 +262,7 @@ func TestVP8OracleLibvpxPostProcessAllNoiseMatchesDecoder(t *testing.T) {
 
 	want := oracle.FramesMode(t, "decode-postproc-all-noise", ivf)
 	got := decodeIVFChecksumsWithOptions(t, ivf, DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock | PostProcessAddNoise | PostProcessMFQE, PostProcessNoiseLevel: 4})
-	assertFrameChecksumsEqual(t, "legacy postprocess addnoise Decode", got, want)
+	assertFrameChecksumsEqual(t, "all-noise postprocess Decode", got, want)
 }
 
 func TestVP8OracleLibvpxChecksumMatchesDefaultVersionKeyFrames(t *testing.T) {

@@ -1099,7 +1099,7 @@ func TestEncodeIntoAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 		t.Fatalf("second EncodeInto returned error: %v", err)
 	}
 	if result.KeyFrame || result.SceneCut {
-		t.Fatalf("default result = key:%t sceneCut:%t, want legacy interframe", result.KeyFrame, result.SceneCut)
+		t.Fatalf("default result = key:%t sceneCut:%t, want inter frame", result.KeyFrame, result.SceneCut)
 	}
 }
 

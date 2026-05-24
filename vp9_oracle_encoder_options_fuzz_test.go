@@ -32,7 +32,7 @@ import (
 // Fields normalised because govpx applies feature gates libvpx does not
 // (tracked as separate encoder-side divergences; the comparator avoids them
 // here so the option-validation surface stays the regression target):
-//   - AQMode: govpx vp9Equator360AQApplies adds an aspect-ratio / minimum
+//   - AQMode: govpx Equator360 AQ adds an aspect-ratio / minimum
 //     height gate to mode 4 that libvpx applies unconditionally; the
 //     variance / complexity / cyclic-refresh AQ paths also diverge on
 //     sub-superblock frames (16x16, 32x32) because govpx skips the

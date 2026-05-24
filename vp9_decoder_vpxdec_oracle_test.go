@@ -523,7 +523,7 @@ func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
 		gov  VP9DecoderOptions
 	}{
 		{
-			name: "legacy default",
+			name: "default postprocess",
 			lib:  vp9test.VpxdecOptions{PostProcess: true},
 			gov:  VP9DecoderOptions{PostProcessFlags: PostProcessDeblock | PostProcessDemacroblock},
 		},
