@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -67,7 +68,7 @@ func TestVP9SuperframeIndexSplitsFrames(t *testing.T) {
 		{0x04, 0x05, 0x06, 0x07},
 		{0x08},
 	}
-	packet := vp9SuperframePacketForTest(wantFrames...)
+	packet := vp9test.SuperframePacket(t, wantFrames...)
 	sf, err := bitstream.ParseSuperframe(packet)
 	if err != nil {
 		t.Fatalf("bitstream.ParseSuperframe returned error: %v", err)
@@ -89,7 +90,7 @@ func TestVP9SuperframeIndexRejectsInvalidMarker(t *testing.T) {
 }
 
 func TestVP9SuperframeIndexRejectsSizeMismatch(t *testing.T) {
-	packet := vp9SuperframePacketForTest([]byte{0x01}, []byte{0x02})
+	packet := vp9test.SuperframePacket(t, []byte{0x01}, []byte{0x02})
 	marker := packet[len(packet)-1]
 	indexSize := 2 + (int(marker&0x7)+1)*(int((marker>>3)&0x3)+1)
 	indexStart := len(packet) - indexSize

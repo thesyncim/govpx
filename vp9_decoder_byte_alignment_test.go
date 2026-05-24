@@ -2,10 +2,10 @@ package govpx
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 	"unsafe"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
@@ -134,7 +134,7 @@ func TestVP9DecoderByteAlignmentAlignsShowExistingFrame(t *testing.T) {
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned no keyframe")
 	}
-	if err := d.Decode(vp9ShowExistingFramePacketForTest(5)); err != nil {
+	if err := d.Decode(vp9test.ShowExistingFramePacket(5)); err != nil {
 		t.Fatalf("Decode show-existing: %v", err)
 	}
 	frame, ok := d.NextFrame()

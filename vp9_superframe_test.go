@@ -81,7 +81,7 @@ func TestPackVP9SuperframeDecode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	packet := vp9SuperframePacketForTest(key, inter)
+	packet := vp9test.SuperframePacket(t, key, inter)
 	info, err := PeekVP9StreamInfo(packet)
 	if err != nil {
 		t.Fatalf("PeekVP9StreamInfo: %v", err)

@@ -3,6 +3,7 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
 
@@ -99,7 +100,7 @@ func TestVP9DecoderDecryptorDecryptsEncryptedSuperframeIndex(t *testing.T) {
 	const key = byte(0x5a)
 	first := vp9EncodedKeyframeForTest(t, 32, 32, 64)
 	second := vp9EncodedKeyframeForTest(t, 32, 32, 176)
-	packet := vp9SuperframePacketForTest(first, second)
+	packet := vp9test.SuperframePacket(t, first, second)
 	encrypted := xorVP9PacketForTest(packet, key)
 	want := vp9DecodeLastVisibleFrameForTest(t, packet)
 

@@ -4,51 +4,51 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestVP9DecoderRejectsNonProfile0AsNotImplemented(t *testing.T) {
-	var pk vp9BitPacker
-	pk.writeLiteral(2, 2)    // frame_marker = 0b10
-	pk.writeLiteral(1, 2)    // profile = 1
-	pk.writeBit(0)           // show_existing_frame
-	pk.writeBit(0)           // frame_type = KEY
-	pk.writeBit(1)           // show_frame
-	pk.writeBit(0)           // error_resilient
-	pk.writeLiteral(0x49, 8) // sync code 0
-	pk.writeLiteral(0x83, 8) // sync code 1
-	pk.writeLiteral(0x42, 8) // sync code 2
-	pk.writeLiteral(2, 3)    // color_space = CSBT601
-	pk.writeBit(0)           // color_range = StudioRange
-	pk.writeBit(0)           // subsampling_x = 0
-	pk.writeBit(0)           // subsampling_y = 0
-	pk.writeBit(0)           // reserved bit
-	pk.writeLiteral(15, 16)  // width - 1
-	pk.writeLiteral(15, 16)  // height - 1
-	pk.writeBit(0)           // render_flag
-	pk.writeBit(1)           // refresh_frame_context
-	pk.writeBit(0)           // frame_parallel_decoding
-	pk.writeLiteral(0, 2)    // frame_context_idx
-	pk.writeLiteral(0, 6)    // loopfilter filter_level
-	pk.writeLiteral(0, 3)    // loopfilter sharpness
-	pk.writeBit(0)           // mode_ref_delta_enabled
-	pk.writeLiteral(1, 8)    // base_qindex
-	pk.writeBit(0)           // y_dc_delta_q
-	pk.writeBit(0)           // uv_dc_delta_q
-	pk.writeBit(0)           // uv_ac_delta_q
-	pk.writeBit(0)           // seg.enabled
-	pk.writeBit(0)           // log2_tile_rows
-	pk.writeLiteral(0, 16)   // first_partition_size
-	pk.flushByte()
+	var pk vp9test.BitPacker
+	pk.WriteLiteral(2, 2)    // frame_marker = 0b10
+	pk.WriteLiteral(1, 2)    // profile = 1
+	pk.WriteBit(0)           // show_existing_frame
+	pk.WriteBit(0)           // frame_type = KEY
+	pk.WriteBit(1)           // show_frame
+	pk.WriteBit(0)           // error_resilient
+	pk.WriteLiteral(0x49, 8) // sync code 0
+	pk.WriteLiteral(0x83, 8) // sync code 1
+	pk.WriteLiteral(0x42, 8) // sync code 2
+	pk.WriteLiteral(2, 3)    // color_space = CSBT601
+	pk.WriteBit(0)           // color_range = StudioRange
+	pk.WriteBit(0)           // subsampling_x = 0
+	pk.WriteBit(0)           // subsampling_y = 0
+	pk.WriteBit(0)           // reserved bit
+	pk.WriteLiteral(15, 16)  // width - 1
+	pk.WriteLiteral(15, 16)  // height - 1
+	pk.WriteBit(0)           // render_flag
+	pk.WriteBit(1)           // refresh_frame_context
+	pk.WriteBit(0)           // frame_parallel_decoding
+	pk.WriteLiteral(0, 2)    // frame_context_idx
+	pk.WriteLiteral(0, 6)    // loopfilter filter_level
+	pk.WriteLiteral(0, 3)    // loopfilter sharpness
+	pk.WriteBit(0)           // mode_ref_delta_enabled
+	pk.WriteLiteral(1, 8)    // base_qindex
+	pk.WriteBit(0)           // y_dc_delta_q
+	pk.WriteBit(0)           // uv_dc_delta_q
+	pk.WriteBit(0)           // uv_ac_delta_q
+	pk.WriteBit(0)           // seg.enabled
+	pk.WriteBit(0)           // log2_tile_rows
+	pk.WriteLiteral(0, 16)   // first_partition_size
+	pk.FlushByte()
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(pk.buf); !errors.Is(err, ErrVP9NotImplemented) {
+	if err := d.Decode(pk.Bytes()); !errors.Is(err, ErrVP9NotImplemented) {
 		t.Fatalf("Decode profile 1 err = %v, want ErrVP9NotImplemented", err)
 	}
 }
@@ -57,39 +57,39 @@ func TestVP9DecoderRejectsNonProfile0AsNotImplemented(t *testing.T) {
 // profile-0 keyframe header whose first_partition_size points past
 // the packet end is rejected before the reconstruct boundary.
 func TestVP9DecoderRejectsTruncatedCompressedHeader(t *testing.T) {
-	var pk vp9BitPacker
-	pk.writeLiteral(2, 2)    // frame_marker = 0b10
-	pk.writeLiteral(0, 2)    // profile = 0
-	pk.writeBit(0)           // show_existing_frame
-	pk.writeBit(0)           // frame_type = KEY
-	pk.writeBit(1)           // show_frame
-	pk.writeBit(0)           // error_resilient
-	pk.writeLiteral(0x49, 8) // sync code 0
-	pk.writeLiteral(0x83, 8) // sync code 1
-	pk.writeLiteral(0x42, 8) // sync code 2
-	pk.writeLiteral(2, 3)    // color_space = CSBT601 (0b010)
-	pk.writeBit(0)           // color_range = StudioRange
-	pk.writeLiteral(319, 16) // width - 1
-	pk.writeLiteral(239, 16) // height - 1
-	pk.writeBit(0)           // render_flag
-	pk.writeBit(1)           // refresh_frame_context
-	pk.writeBit(0)           // frame_parallel_decoding
-	pk.writeLiteral(1, 2)    // frame_context_idx
-	pk.writeLiteral(8, 6)    // loopfilter filter_level
-	pk.writeLiteral(2, 3)    // loopfilter sharpness
-	pk.writeBit(0)           // mode_ref_delta_enabled
-	pk.writeLiteral(64, 8)   // base_qindex
-	pk.writeBit(0)           // y_dc_delta_q
-	pk.writeBit(0)           // uv_dc_delta_q
-	pk.writeBit(0)           // uv_ac_delta_q
-	pk.writeBit(0)           // seg.enabled
-	pk.writeBit(0)           // log2_tile_rows
-	pk.writeLiteral(42, 16)  // first_partition_size
+	var pk vp9test.BitPacker
+	pk.WriteLiteral(2, 2)    // frame_marker = 0b10
+	pk.WriteLiteral(0, 2)    // profile = 0
+	pk.WriteBit(0)           // show_existing_frame
+	pk.WriteBit(0)           // frame_type = KEY
+	pk.WriteBit(1)           // show_frame
+	pk.WriteBit(0)           // error_resilient
+	pk.WriteLiteral(0x49, 8) // sync code 0
+	pk.WriteLiteral(0x83, 8) // sync code 1
+	pk.WriteLiteral(0x42, 8) // sync code 2
+	pk.WriteLiteral(2, 3)    // color_space = CSBT601 (0b010)
+	pk.WriteBit(0)           // color_range = StudioRange
+	pk.WriteLiteral(319, 16) // width - 1
+	pk.WriteLiteral(239, 16) // height - 1
+	pk.WriteBit(0)           // render_flag
+	pk.WriteBit(1)           // refresh_frame_context
+	pk.WriteBit(0)           // frame_parallel_decoding
+	pk.WriteLiteral(1, 2)    // frame_context_idx
+	pk.WriteLiteral(8, 6)    // loopfilter filter_level
+	pk.WriteLiteral(2, 3)    // loopfilter sharpness
+	pk.WriteBit(0)           // mode_ref_delta_enabled
+	pk.WriteLiteral(64, 8)   // base_qindex
+	pk.WriteBit(0)           // y_dc_delta_q
+	pk.WriteBit(0)           // uv_dc_delta_q
+	pk.WriteBit(0)           // uv_ac_delta_q
+	pk.WriteBit(0)           // seg.enabled
+	pk.WriteBit(0)           // log2_tile_rows
+	pk.WriteLiteral(42, 16)  // first_partition_size
 	// Tail bytes: the compressed header. We need at least 42 bytes
 	// of payload after the uncompressed header for libvpx to accept,
 	// but our parser returns once first_partition_size is read.
-	pk.flushByte()
-	packet := pk.buf
+	pk.FlushByte()
+	packet := pk.Bytes()
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -207,7 +207,7 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after visible keyframe")
 	}
 
-	if err := d.Decode(vp9ShowExistingFramePacketForTest(5)); err != nil {
+	if err := d.Decode(vp9test.ShowExistingFramePacket(5)); err != nil {
 		t.Fatalf("Decode show-existing err = %v, want nil", err)
 	}
 	frame, ok := d.NextFrame()
@@ -233,7 +233,7 @@ func TestVP9DecoderRejectsShowExistingMissingReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	err = d.Decode(vp9ShowExistingFramePacketForTest(0))
+	err = d.Decode(vp9test.ShowExistingFramePacket(0))
 	if !errors.Is(err, ErrInvalidVP9Data) {
 		t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
 	}
@@ -337,7 +337,7 @@ func TestVP9DecoderDecodeIntoShowExistingCopiesReference(t *testing.T) {
 	}
 
 	dst := newTestImage(96, 96)
-	info, err := d.DecodeIntoWithPTS(vp9ShowExistingFramePacketForTest(5), &dst, 7)
+	info, err := d.DecodeIntoWithPTS(vp9test.ShowExistingFramePacket(5), &dst, 7)
 	if err != nil {
 		t.Fatalf("DecodeIntoWithPTS show-existing err = %v, want nil", err)
 	}
@@ -441,7 +441,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 		t.Fatalf("inter LastFrameInfo = %+v, want visible inter metadata", info)
 	}
 
-	if err := d.DecodeWithPTS(vp9ShowExistingFramePacketForTest(5), 300); err != nil {
+	if err := d.DecodeWithPTS(vp9test.ShowExistingFramePacket(5), 300); err != nil {
 		t.Fatalf("DecodeWithPTS show-existing err = %v, want nil", err)
 	}
 	info, ok = d.LastFrameInfo()
@@ -503,7 +503,7 @@ func TestVP9DecoderLastDisplaySizeTracksRenderSize(t *testing.T) {
 			frame.Width, frame.Height)
 	}
 
-	if err := d.DecodeWithPTS(vp9ShowExistingFramePacketForTest(5), 456); err != nil {
+	if err := d.DecodeWithPTS(vp9test.ShowExistingFramePacket(5), 456); err != nil {
 		t.Fatalf("DecodeWithPTS show-existing: %v", err)
 	}
 	if w, h := d.LastDisplaySize(); w != 80 || h != 48 {
@@ -752,7 +752,7 @@ func TestVP9DecoderResetClearsFrameState(t *testing.T) {
 	if _, ok := d.NextFrame(); ok {
 		t.Fatal("NextFrame after Reset returned ok")
 	}
-	if err := d.Decode(vp9ShowExistingFramePacketForTest(0)); !errors.Is(err, ErrInvalidVP9Data) {
+	if err := d.Decode(vp9test.ShowExistingFramePacket(0)); !errors.Is(err, ErrInvalidVP9Data) {
 		t.Fatalf("show-existing after Reset err = %v, want ErrInvalidVP9Data", err)
 	}
 	if err := d.Decode(packet); err != nil {

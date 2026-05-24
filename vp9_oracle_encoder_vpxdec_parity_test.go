@@ -4,11 +4,12 @@ package govpx
 
 import (
 	"bytes"
+	"image"
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"image"
-	"testing"
 )
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
@@ -441,7 +442,7 @@ func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	packet := vp9SuperframePacketForTest(key, inter)
+	packet := vp9test.SuperframePacket(t, key, inter)
 
 	vp9test.VpxdecAccepts(t, "packed superframe", width, height, packet)
 }

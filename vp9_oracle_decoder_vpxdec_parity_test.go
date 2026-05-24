@@ -4,10 +4,11 @@ package govpx
 
 import (
 	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
@@ -887,7 +888,7 @@ func vp9ShowExistingOracleStreamForTest(t *testing.T, width, height int) ([][]by
 	packets := [][]byte{
 		key,
 		inter,
-		vp9ShowExistingFramePacketForTest(5),
+		vp9test.ShowExistingFramePacket(5),
 	}
 	return packets, vp9IVFForTest(width, height, packets...)
 }

@@ -185,6 +185,29 @@ func TestRootVPxOracleTestsUseObjectiveNames(t *testing.T) {
 	}
 }
 
+func TestRootVP9TestsUseHarnessPacketBuilders(t *testing.T) {
+	files, err := filepath.Glob("vp9*_test.go")
+	if err != nil {
+		t.Fatalf("Glob(%q): %v", "vp9*_test.go", err)
+	}
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", path, err)
+		}
+		src := string(data)
+		for _, marker := range []string{
+			"type vp9BitPacker",
+			"func vp9ShowExistingFramePacketForTest",
+			"func vp9SuperframePacketForTest",
+		} {
+			if strings.Contains(src, marker) {
+				t.Fatalf("%s contains root VP9 packet builder %q; use internal/testutil/vp9test", path, marker)
+			}
+		}
+	}
+}
+
 func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 	reason string,
 ) {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
@@ -201,7 +202,7 @@ func TestVP9DecoderExternalFrameBufferShowExistingUsesReferenceBuffer(t *testing
 		t.Fatal("NextFrame returned no keyframe")
 	}
 	keyID := pool.assertOwnsImage(t, keyFrame)
-	if err := d.Decode(vp9ShowExistingFramePacketForTest(5)); err != nil {
+	if err := d.Decode(vp9test.ShowExistingFramePacket(5)); err != nil {
 		t.Fatalf("Decode show-existing: %v", err)
 	}
 	show, ok := d.NextFrame()

@@ -159,7 +159,7 @@ func TestPeekVP9StreamInfoSuperframeReportsFirstFrame(t *testing.T) {
 		t.Fatalf("Encode VP9 inter: %v", err)
 	}
 
-	info, err := PeekVP9StreamInfo(vp9SuperframePacketForTest(key, inter))
+	info, err := PeekVP9StreamInfo(vp9test.SuperframePacket(t, key, inter))
 	if err != nil {
 		t.Fatalf("PeekVP9StreamInfo superframe returned error: %v", err)
 	}
