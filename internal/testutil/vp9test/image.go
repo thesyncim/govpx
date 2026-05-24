@@ -208,10 +208,6 @@ func EqualYCbCr(a *image.YCbCr, b *image.YCbCr, width int, height int) bool {
 		testutil.PlaneEqual(a.Cr, a.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
 }
 
-func FirstPacketDiff(a, b []byte) int {
-	return testutil.FirstByteDiff(a, b)
-}
-
 func ParseHeader(t testing.TB, packet []byte) (vp9dec.UncompressedHeader, int) {
 	t.Helper()
 	var br vp9dec.BitReader

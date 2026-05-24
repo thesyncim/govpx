@@ -6,11 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"image"
-	"math/rand"
 	"os"
 	"sort"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
@@ -25,7 +25,7 @@ import (
 // specific picker site rather than re-instrumenting the recode loop.
 //
 // Method:
-//  1. Encode 2 frames (KF + 1 inter) of makeVP8ScreenTextWindowFrame at
+//  1. Encode 2 frames (KF + 1 inter) of testutil.NewScreenTextWindowYCbCr at
 //     1280x720, ScreenContentMode=1, default Deadline (BestQuality), CBR
 //     2 Mbps. Capture govpx's per-MB inter-mode RD trace.
 //  2. Run the patched libvpx vpxenc-oracle on the same raw I420 source,
@@ -61,7 +61,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := makeScreenTextWindowFrame(width, height, i)
+		yc := testutil.NewScreenTextWindowYCbCr(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,
@@ -242,73 +242,6 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		}
 	}
-}
-
-// makeScreenTextWindowFrame is a verbatim copy of
-// makeVP8ScreenTextWindowFrame so the probe test can call it without
-// taking a dependency on feature_quality_gates_vp8_test.go's helpers.
-// Sync any updates with feature_quality_gates_vp8_test.go:570.
-func makeScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	r := rand.New(rand.NewSource(int64(idx)*4099 + 31))
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			noise := r.Intn(7) - 3
-			v := 28 + noise
-			if v < 0 {
-				v = 0
-			} else if v > 255 {
-				v = 255
-			}
-			row[x] = byte(v)
-		}
-	}
-	const cell = 16
-	const glyph = 8
-	xoff := (idx * glyph) % cell
-	for gy := 0; gy < height; gy += cell {
-		for gx := 0; gx < width; gx += cell {
-			cellHash := (gx/cell)*1103515245 + (gy/cell)*12345
-			on := cellHash&0x07 < 5
-			if !on {
-				continue
-			}
-			lumaHi := byte(208 + (cellHash>>3)&0x1F)
-			lumaLo := byte(168 + (cellHash>>11)&0x1F)
-			x0 := gx + xoff
-			y0 := gy
-			for dy := range glyph {
-				y := y0 + dy
-				if y < 0 || y >= height {
-					continue
-				}
-				row := img.Y[y*img.YStride:]
-				for dx := range glyph {
-					x := x0 + dx
-					if x < 0 || x >= width {
-						continue
-					}
-					if (dx^dy)&1 == 0 {
-						row[x] = lumaHi
-					} else {
-						row[x] = lumaLo
-					}
-				}
-			}
-		}
-	}
-	uvW := (width + 1) >> 1
-	uvH := (height + 1) >> 1
-	for y := range uvH {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvW {
-			cb[x] = byte(128 + ((x+idx)*3)&0x03)
-			cr[x] = byte(128 + ((y+idx*2)*3)&0x03)
-		}
-	}
-	return img
 }
 
 func writeScreenContentI420(t *testing.T, path string, frames []Image) {

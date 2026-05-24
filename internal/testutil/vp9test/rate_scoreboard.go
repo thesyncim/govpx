@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 type RateScoreboardRow struct {
@@ -522,7 +524,7 @@ func FormatDropAwareStreamParityRows(t testing.TB,
 			g.RefreshFrameFlags == l.RefreshFrameFlags
 		fmt.Fprintf(&b, "%d,%t,%t,%d,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d\n",
 			g.FrameIndex, rowMatch, packetMatch,
-			FirstPacketDiff(govpxPackets[i], libvpxPackets[i]),
+			testutil.FirstByteDiff(govpxPackets[i], libvpxPackets[i]),
 			g.Dropped, l.Dropped,
 			len(govpxPackets[i]), len(libvpxPackets[i]), g.BaseQIndex,
 			l.BaseQIndex, g.FrameTargetBits, l.FrameTargetBits,

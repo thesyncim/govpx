@@ -59,7 +59,7 @@ func AssertSegmentByteParity(t testing.TB, label string, got, want [][]byte, mat
 			t.Logf("%s frame %d byte MATCH: len=%d", label, i, len(got[i]))
 			continue
 		}
-		firstDiff := FirstPacketDiff(got[i], want[i])
+		firstDiff := testutil.FirstByteDiff(got[i], want[i])
 		if i >= limit {
 			t.Logf("%s frame %d byte mismatch (not asserted, limit=%d): got_len=%d want_len=%d first_diff=%d got_sha=%s want_sha=%s",
 				label, i, limit, len(got[i]), len(want[i]), firstDiff,
@@ -82,7 +82,7 @@ func AssertPacketByteParity(t testing.TB, label string, got, want []byte) {
 	gotHeader, gotTileStart := ParseHeader(t, got)
 	wantHeader, wantTileStart := ParseHeader(t, want)
 	t.Fatalf("%s packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x\nvpxenc header=%+v tileStart=%d tile=% x\ngovpx packet=% x\nvpxenc packet=% x",
-		label, FirstPacketDiff(got, want),
+		label, testutil.FirstByteDiff(got, want),
 		gotHeader, gotTileStart, got[gotTileStart:],
 		wantHeader, wantTileStart, want[wantTileStart:],
 		got, want)
@@ -168,7 +168,7 @@ func FormatStreamParityRows(t testing.TB, govpxPackets, libvpxPackets [][]byte) 
 		libvpxUncompressed := libvpxTileStart - int(libvpxHeader.FirstPartitionSize)
 		fmt.Fprintf(&b, "%d,%t,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%t,%t,%t,%t,%t,%t,%t,%t\n",
 			i, bytes.Equal(govpxPackets[i], libvpxPackets[i]),
-			FirstPacketDiff(govpxPackets[i], libvpxPackets[i]),
+			testutil.FirstByteDiff(govpxPackets[i], libvpxPackets[i]),
 			len(govpxPackets[i]), len(libvpxPackets[i]),
 			govpxHeader.Quant.BaseQindex, libvpxHeader.Quant.BaseQindex,
 			govpxHeader.RefreshFrameFlags, libvpxHeader.RefreshFrameFlags,

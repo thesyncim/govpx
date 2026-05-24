@@ -56,7 +56,7 @@ func FuzzVP9DecoderAgainstLibvpx(f *testing.F) {
 		}
 		for i := 0; i < minFrames; i++ {
 			if !bytes.Equal(govpxFrames[i], libvpxFrames[i]) {
-				diff := vp9test.FirstPacketDiff(govpxFrames[i], libvpxFrames[i])
+				diff := testutil.FirstByteDiff(govpxFrames[i], libvpxFrames[i])
 				t.Errorf("VP9 frame %d I420 byte mismatch: govpx_len=%d libvpx_len=%d first_diff=%d",
 					i, len(govpxFrames[i]), len(libvpxFrames[i]), diff)
 			}

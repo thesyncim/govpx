@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -912,7 +913,7 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 		}
 		gFirst, gLast := firstLastVP9MiForOracleTest(gGrid)
 		lFirst, lLast := firstLastVP9MiForOracleTest(lGrid)
-		firstByteDiff := vp9test.FirstPacketDiff(govpxPackets[frameIdx],
+		firstByteDiff := testutil.FirstByteDiff(govpxPackets[frameIdx],
 			libvpxPackets[frameIdx])
 		t.Logf("VP9 repeat no-reference-all mode/tx frame %d: first_shape_mismatch=%d first_byte_diff=%d govpx_bytes=%d libvpx_bytes=%d govpx_first=%+v govpx_last=%+v libvpx_first=%+v libvpx_last=%+v",
 			frameIdx, firstMismatch, firstByteDiff,
@@ -1228,7 +1229,7 @@ func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKe
 	govpxFirst, govpxLast := firstLastVP9MiForOracleTest(govpxGrid)
 	libvpxFirst, libvpxLast := firstLastVP9MiForOracleTest(libvpxGrid)
 	t.Fatalf("inter packet diverged firstDiff=%d\ngovpx header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\nvpxenc header=%+v tileStart=%d tile=% x mi0=%+v miLast=%+v\ngovpx packet=% x\nvpxenc packet=% x",
-		vp9test.FirstPacketDiff(govpxInter, libvpxInter),
+		testutil.FirstByteDiff(govpxInter, libvpxInter),
 		gotHeader, gotTileStart, govpxInter[gotTileStart:], govpxFirst, govpxLast,
 		wantHeader, wantTileStart, libvpxInter[wantTileStart:], libvpxFirst,
 		libvpxLast,

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -155,7 +156,7 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := makeRealtimeCPU8PanningFrame(width, height, i)
+		yc := testutil.NewTexturedPanningYCbCr(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,
@@ -347,63 +348,6 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 			}
 		}
 	}
-}
-
-// makeRealtimeCPU8PanningFrame is a verbatim copy of makeVP8PanningFrame from
-// feature_quality_gates_vp8_test.go (which lives in package govpx_test
-// and is not accessible from this package-internal probe). Sync any
-// updates with feature_quality_gates_vp8_test.go:162.
-func makeRealtimeCPU8PanningFrame(width, height, idx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	xoff := idx * 2
-	yoff := idx
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			sx := x + xoff
-			sy := y + yoff
-			gradient := 64 + realtimeCPU8Triangle(sx+sy, 256)/4
-			triX := realtimeCPU8Triangle(sx, 64) / 4
-			triY := realtimeCPU8Triangle(sy, 64) / 4
-			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
-			row[x] = realtimeCPU8Clamp(gradient + triX + triY + texture)
-		}
-	}
-	uvW := (width + 1) >> 1
-	uvH := (height + 1) >> 1
-	for y := range uvH {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvW {
-			sx := 2*x + xoff
-			sy := 2*y + yoff
-			cb[x] = realtimeCPU8Clamp(128 + (realtimeCPU8Triangle(sx, 128)-128)/8)
-			cr[x] = realtimeCPU8Clamp(128 + (realtimeCPU8Triangle(sy, 128)-128)/8)
-		}
-	}
-	return img
-}
-
-func realtimeCPU8Triangle(x, period int) int {
-	if period <= 0 {
-		period = 32
-	}
-	half := period / 2
-	r := ((x % period) + period) % period
-	if r < half {
-		return r * 255 / half
-	}
-	return (period - r) * 255 / half
-}
-
-func realtimeCPU8Clamp(v int) byte {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return byte(v)
 }
 
 func parseRealtimeCPU8FrameRow(trace []byte, frameIdx uint64) map[string]any {

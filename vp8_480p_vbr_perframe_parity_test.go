@@ -78,6 +78,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // vp8480pVBRPerFrameRow pins one (frame_index, govpx_size, govpx_iQ) row
@@ -144,7 +145,7 @@ func runVP8Panning480pGovpx(t *testing.T, target int) (sizes []int, internalQs [
 	dst := make([]byte, bufSize)
 	totalBytes := 0
 	for i := range frames {
-		src := makeVP8VBRPanningFrame(width, height, i)
+		src := testutil.NewTexturedPanningYCbCr(width, height, i)
 		result, err := enc.EncodeInto(dst, govpxImageFromVBRPanningYCbCr(src), uint64(i), 1, 0)
 		if err != nil {
 			t.Fatalf("encode frame %d: %v", i, err)
@@ -186,59 +187,6 @@ func TestVP8VBR480pPerFrameParity(t *testing.T) {
 				row.frame, iqs[row.frame], row.govpxIQ)
 		}
 	}
-}
-
-func makeVP8VBRPanningFrame(width, height, idx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	xoff := idx * 2
-	yoff := idx
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			sx := x + xoff
-			sy := y + yoff
-			gradient := 64 + vp8480pVBRTriangle(sx+sy, 256)/4
-			triX := vp8480pVBRTriangle(sx, 64) / 4
-			triY := vp8480pVBRTriangle(sy, 64) / 4
-			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
-			row[x] = vp8480pVBRClamp(gradient + triX + triY + texture)
-		}
-	}
-	uvW := width >> 1
-	uvH := height >> 1
-	for y := range uvH {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvW {
-			sx := 2*x + xoff
-			sy := 2*y + yoff
-			cb[x] = vp8480pVBRClamp(128 + (vp8480pVBRTriangle(sx, 128)-128)/8)
-			cr[x] = vp8480pVBRClamp(128 + (vp8480pVBRTriangle(sy, 128)-128)/8)
-		}
-	}
-	return img
-}
-
-func vp8480pVBRTriangle(x, period int) int {
-	if period <= 0 {
-		period = 32
-	}
-	half := period / 2
-	r := ((x % period) + period) % period
-	if r < half {
-		return r * 255 / half
-	}
-	return (period - r) * 255 / half
-}
-
-func vp8480pVBRClamp(v int) byte {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return byte(v)
 }
 
 func govpxImageFromVBRPanningYCbCr(src *image.YCbCr) govpx.Image {

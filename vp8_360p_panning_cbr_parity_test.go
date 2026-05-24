@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -25,15 +26,11 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 	)
 	targetKbps := 1200
 
-	// Same source the BD-rate fixture uses (makeVP8PanningFrame in
-	// feature_quality_gates_vp8_test.go; package govpx_test is not
-	// accessible from this package-internal probe; verbatim copy via
-	// makeRealtimeCPU8PanningFrame in vp8_realtime_cpu8_mb_parity_test.go,
-	// which is the same generator the BD-rate fixture uses).
+	// Same source the BD-rate fixture uses.
 	ycbcrSources := make([]*image.YCbCr, frameCount)
 	govpxSources := make([]Image, frameCount)
 	for i := range ycbcrSources {
-		yc := makeRealtimeCPU8PanningFrame(width, height, i)
+		yc := testutil.NewTexturedPanningYCbCr(width, height, i)
 		ycbcrSources[i] = yc
 		govpxSources[i] = Image{
 			Width:   width,

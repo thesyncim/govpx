@@ -4,6 +4,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -614,7 +615,7 @@ func assertVP9RuntimeControlByteParity(t *testing.T, label string,
 			continue
 		}
 		if !bytes.Equal(got[i], want[i]) {
-			diff := vp9test.FirstPacketDiff(got[i], want[i])
+			diff := testutil.FirstByteDiff(got[i], want[i])
 			t.Errorf("VP9 runtime control %s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d",
 				label, i, len(got[i]), len(want[i]), diff)
 		}

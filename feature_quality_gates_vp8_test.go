@@ -40,6 +40,7 @@ import (
 
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // assertLibvpxVP8AbsoluteGate evaluates the absolute govpx-vs-libvpx
@@ -138,53 +139,6 @@ func vp8BDClamp(v int) byte {
 		return 255
 	}
 	return byte(v)
-}
-
-// makeVP8PanningFrame returns a deterministic "panning camera" 4:2:0
-// frame: low-frequency luma gradient + mid-frequency triangle harmonics
-// translating by (+2,+1) per frame, with per-pixel deterministic noise
-// layered on top so the encoder has real high-frequency detail to
-// spend bits on across the CBR ladder. Without the noise the synthetic
-// signal is too smooth and the encoder saturates near a few hundred
-// kbps regardless of target. The seed combines (x,y,idx) so the noise
-// translates with the frame (preserving motion-prediction structure)
-// while still varying frame-to-frame enough to keep inter residual
-// nontrivial.
-func makeVP8PanningFrame(width, height, idx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	xoff := idx * 2
-	yoff := idx
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			sx := x + xoff
-			sy := y + yoff
-			gradient := 64 + vp8BDTriangle(sx+sy, 256)/4
-			triX := vp8BDTriangle(sx, 64) / 4
-			triY := vp8BDTriangle(sy, 64) / 4
-			// Translating high-frequency texture (no per-frame
-			// randomness): a deterministic hash of the *source*
-			// coords gives the panning content enough spatial
-			// detail that the rate-control loop has something to
-			// trade off against, without raising the per-block
-			// entropy so high that the encoder saturates at min-q.
-			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
-			row[x] = vp8BDClamp(gradient + triX + triY + texture)
-		}
-	}
-	uvW := (width + 1) >> 1
-	uvH := (height + 1) >> 1
-	for y := range uvH {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvW {
-			sx := 2*x + xoff
-			sy := 2*y + yoff
-			cb[x] = vp8BDClamp(128 + (vp8BDTriangle(sx, 128)-128)/8)
-			cr[x] = vp8BDClamp(128 + (vp8BDTriangle(sy, 128)-128)/8)
-		}
-	}
-	return img
 }
 
 // makeVP8SportsMotionFrame returns a deterministic high-motion 4:2:0
@@ -496,7 +450,7 @@ func TestVP8FeatureBDRate360pPanningCBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{300, 600, 1200, 2400},
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline:       func(*govpx.EncoderOptions) {},
 			Test:           func(*govpx.EncoderOptions) {},
 		},
@@ -640,7 +594,7 @@ func TestVP8FeatureBDRate720pGoodSSIM(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{1500, 3000, 6000, 12000},
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Tuning = govpx.TuneSSIM
 				o.Deadline = govpx.DeadlineGoodQuality
@@ -686,7 +640,7 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 			RateLadderKbps:         []int{500, 1000, 2000, 4000},
 			RateControlOverride:    govpx.RateControlVBR,
 			RateControlOverrideSet: true,
-			Source:                 func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:                 func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline:               func(*govpx.EncoderOptions) {},
 			Test:                   func(*govpx.EncoderOptions) {},
 		},
@@ -774,7 +728,7 @@ func TestVP8FeatureBDRate1080pPanningSSIMCBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{1500, 3000, 6000, 12000},
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Tuning = govpx.TuneSSIM
 				o.Deadline = govpx.DeadlineGoodQuality
@@ -828,7 +782,7 @@ func TestVP8FeatureBDRate360pScreenContentSSIMCBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{300, 600, 1200, 2400},
-			Source:         func(i int) *image.YCbCr { return makeVP8ScreenTextWindowFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewScreenTextWindowYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Tuning = govpx.TuneSSIM
 				o.Deadline = govpx.DeadlineGoodQuality
@@ -907,97 +861,6 @@ func makeVP8MixedMotionFrame(width, height, idx int) *image.YCbCr {
 	return img
 }
 
-// makeVP8ScreenTextWindowFrame returns a deterministic "screen content"
-// 4:2:0 frame: a black background with 8x8 white glyph blocks arranged
-// on a regular grid that translates deterministically across the frame.
-// The glyphs use a per-cell deterministic on/off pattern so the frame
-// has the sharp luma edges and uniform-region intra-block decisions
-// that characterize real screen captures (text editors, web pages,
-// presentations). The pattern translates by (+8,+0) per frame so motion
-// estimation can lock onto integer-pel offsets (the natural motion mode
-// for synthetic text scrolls) while the intra-mode-tree probabilities
-// the screen-content flag biases (DC/V_PRED dominant, sharp ac edges)
-// get exercised on every block.
-func makeVP8ScreenTextWindowFrame(width, height, idx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	r := rand.New(rand.NewSource(int64(idx)*4099 + 31))
-	// Slightly textured dark-gray background so flat regions still
-	// carry enough residual energy that the encoder has to spend
-	// bits at low Q rungs. Pure black would let the encoder
-	// reconstruct losslessly and collapse the PSNR axis to 100 dB
-	// across the entire ladder, killing the BD-rate fit.
-	for y := range height {
-		row := img.Y[y*img.YStride:]
-		for x := range width {
-			noise := r.Intn(7) - 3
-			row[x] = vp8BDClamp(28 + noise)
-		}
-	}
-	// Glyph grid: 8x8 blocks every 16 pixels, translating by 8 per
-	// frame so the next-frame predictor sees an integer-pel motion
-	// vector half the time and a fresh-coverage 50% the other half.
-	// Glyphs alternate between two near-white luma values per cell
-	// so the residual is not literally a constant and the encoder
-	// has to spend a few bits per active block.
-	const cell = 16
-	const glyph = 8
-	xoff := (idx * glyph) % cell
-	for gy := 0; gy < height; gy += cell {
-		for gx := 0; gx < width; gx += cell {
-			// Deterministic on/off per cell so glyphs form a stable
-			// pattern that motion-compensation can track without
-			// the frame degenerating to a flat tile.
-			cellHash := (gx/cell)*1103515245 + (gy/cell)*12345
-			on := cellHash&0x07 < 5
-			if !on {
-				continue
-			}
-			// Per-cell luma in a narrow [200..240] band: still
-			// pure-text-on-dark-background visually but enough
-			// inter-cell entropy that intra-mode-tree probabilities
-			// have real cost to spend.
-			lumaHi := byte(208 + (cellHash>>3)&0x1F)
-			lumaLo := byte(168 + (cellHash>>11)&0x1F)
-			x0 := gx + xoff
-			y0 := gy
-			for dy := range glyph {
-				y := y0 + dy
-				if y < 0 || y >= height {
-					continue
-				}
-				row := img.Y[y*img.YStride:]
-				for dx := range glyph {
-					x := x0 + dx
-					if x < 0 || x >= width {
-						continue
-					}
-					// Checker the glyph interior so it has real
-					// high-frequency content (the encoder must
-					// pay AC coeffs to reconstruct it).
-					if (dx^dy)&1 == 0 {
-						row[x] = lumaHi
-					} else {
-						row[x] = lumaLo
-					}
-				}
-			}
-		}
-	}
-	// Chroma: very mild deterministic tint so the U/V planes carry
-	// nonzero energy too.
-	uvW := (width + 1) >> 1
-	uvH := (height + 1) >> 1
-	for y := range uvH {
-		cb := img.Cb[y*img.CStride:]
-		cr := img.Cr[y*img.CStride:]
-		for x := range uvW {
-			cb[x] = byte(128 + ((x+idx)*3)&0x03)
-			cr[x] = byte(128 + ((y+idx*2)*3)&0x03)
-		}
-	}
-	return img
-}
-
 // TestVP8FeatureBDRate720pTwoPassVBR drives a 720p translating panning
 // fixture through the VP8 two-pass VBR planning path. The harness
 // pre-computes govpx first-pass stats once over the source, finalizes
@@ -1068,7 +931,7 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{1500, 3000, 6000, 12000},
 			TwoPass:        true,
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline:       func(*govpx.EncoderOptions) {},
 			Test:           func(*govpx.EncoderOptions) {},
 		},
@@ -1188,7 +1051,7 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{500, 1000, 2000, 4000},
-			Source:         func(i int) *image.YCbCr { return makeVP8ScreenTextWindowFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewScreenTextWindowYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.ScreenContentMode = 1
 			},
@@ -1289,7 +1152,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{1000, 2000, 4000, 8000},
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
 				// Pin Speed=8 via libvpx's documented negative-cpu_used
@@ -1547,7 +1410,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 			Frames:         frames,
 			QLadder:        []int{16, 28, 40, 52},
 			RateLadderKbps: []int{1000, 2000, 4000, 8000},
-			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:         func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
 				// Pin Speed=4 via libvpx's documented negative-cpu_used
@@ -1897,7 +1760,7 @@ func TestVP8FeatureBDRate720pARNRHeavyVBR(t *testing.T) {
 			RateLadderKbps:         []int{800, 1500, 3000, 6000},
 			RateControlOverride:    govpx.RateControlVBR,
 			RateControlOverrideSet: true,
-			Source:                 func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
+			Source:                 func(i int) *image.YCbCr { return testutil.NewTexturedPanningYCbCr(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.LookaheadFrames = 16
 				o.AutoAltRef = true

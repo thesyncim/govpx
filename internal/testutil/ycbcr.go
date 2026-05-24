@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"image"
+	"math/rand"
 
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -48,6 +49,125 @@ func NewMotionYCbCr(width, height int) *image.YCbCr {
 		for xx := 0; xx < uvWidth; xx++ {
 			cbRow[xx] = 128
 			crRow[xx] = 128
+		}
+	}
+	return img
+}
+
+// TriangleByte returns a deterministic [0,255] triangle wave with the given
+// period. It is useful for synthetic video fixtures that need smooth
+// gradients without floating-point math.
+func TriangleByte(x, period int) int {
+	if period <= 0 {
+		period = 32
+	}
+	half := period / 2
+	r := ((x % period) + period) % period
+	if r < half {
+		return r * 255 / half
+	}
+	return (period - r) * 255 / half
+}
+
+// ClampByte saturates an integer into the uint8 sample range.
+func ClampByte(v int) byte {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return byte(v)
+}
+
+// NewTexturedPanningYCbCr returns a deterministic "panning camera" 4:2:0
+// frame: low-frequency luma gradient plus mid-frequency triangle harmonics
+// translating by (+2,+1) per frame, with deterministic high-frequency texture
+// layered on top.
+func NewTexturedPanningYCbCr(width, height, frame int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	xoff := frame * 2
+	yoff := frame
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			sx := x + xoff
+			sy := y + yoff
+			gradient := 64 + TriangleByte(sx+sy, 256)/4
+			triX := TriangleByte(sx, 64) / 4
+			triY := TriangleByte(sy, 64) / 4
+			texture := ((sx*1103515245+sy*12345)>>4)&0x0F - 8
+			row[x] = ClampByte(gradient + triX + triY + texture)
+		}
+	}
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			sx := 2*x + xoff
+			sy := 2*y + yoff
+			cb[x] = ClampByte(128 + (TriangleByte(sx, 128)-128)/8)
+			cr[x] = ClampByte(128 + (TriangleByte(sy, 128)-128)/8)
+		}
+	}
+	return img
+}
+
+// NewScreenTextWindowYCbCr returns a deterministic screen-content frame with
+// a textured dark background and translating 8x8 glyph blocks.
+func NewScreenTextWindowYCbCr(width, height, frame int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	r := rand.New(rand.NewSource(int64(frame)*4099 + 31))
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			noise := r.Intn(7) - 3
+			row[x] = ClampByte(28 + noise)
+		}
+	}
+
+	const cell = 16
+	const glyph = 8
+	xoff := (frame * glyph) % cell
+	for gy := 0; gy < height; gy += cell {
+		for gx := 0; gx < width; gx += cell {
+			cellHash := (gx/cell)*1103515245 + (gy/cell)*12345
+			if cellHash&0x07 >= 5 {
+				continue
+			}
+			lumaHi := byte(208 + (cellHash>>3)&0x1F)
+			lumaLo := byte(168 + (cellHash>>11)&0x1F)
+			x0 := gx + xoff
+			y0 := gy
+			for dy := range glyph {
+				y := y0 + dy
+				if y < 0 || y >= height {
+					continue
+				}
+				row := img.Y[y*img.YStride:]
+				for dx := range glyph {
+					x := x0 + dx
+					if x < 0 || x >= width {
+						continue
+					}
+					if (dx^dy)&1 == 0 {
+						row[x] = lumaHi
+					} else {
+						row[x] = lumaLo
+					}
+				}
+			}
+		}
+	}
+
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			cb[x] = byte(128 + ((x+frame)*3)&0x03)
+			cr[x] = byte(128 + ((y+frame*2)*3)&0x03)
 		}
 	}
 	return img

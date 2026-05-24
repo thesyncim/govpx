@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
@@ -274,7 +275,7 @@ func TestVP9EncoderLog2TileRowsWithTileColumnsMatchesSerial(t *testing.T) {
 	}
 	if !bytes.Equal(packet, wantPacket) {
 		t.Fatalf("tile-row packet differs from serial: %d/%d bytes first_diff=%d",
-			len(packet), len(wantPacket), vp9test.FirstPacketDiff(packet, wantPacket))
+			len(packet), len(wantPacket), testutil.FirstByteDiff(packet, wantPacket))
 	}
 
 	h, tileStart := vp9test.ParseHeader(t, packet)

@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strings"
@@ -136,7 +137,7 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 				} else if firstMismatch < 0 {
 					firstMismatch = frame
 				}
-				firstDiff := vp9test.FirstPacketDiff(govpxPacket,
+				firstDiff := testutil.FirstByteDiff(govpxPacket,
 					libvpxPackets[frame])
 				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%s\n",
 					frame, match, firstDiff, len(govpxPacket),

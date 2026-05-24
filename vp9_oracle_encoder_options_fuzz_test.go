@@ -5,6 +5,7 @@ package govpx
 import (
 	"bytes"
 	"crypto/sha256"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -262,7 +263,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 		if gHash != lHash {
 			t.Errorf("keyframe byte mismatch under fuzzed options: govpx_len=%d vpxenc_len=%d first_diff=%d",
 				len(result.Data), len(libvpxKey),
-				vp9test.FirstPacketDiff(result.Data, libvpxKey))
+				testutil.FirstByteDiff(result.Data, libvpxKey))
 		}
 		_ = bytes.Equal // keep import in case future tightening drops first_diff log.
 	})

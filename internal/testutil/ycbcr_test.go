@@ -79,3 +79,41 @@ func TestPlaneEqualComparesVisibleSamples(t *testing.T) {
 		t.Fatal("PlaneEqual reported true after a visible sample changed")
 	}
 }
+
+func TestTriangleByteAndClampByte(t *testing.T) {
+	if got := TriangleByte(0, 8); got != 0 {
+		t.Fatalf("TriangleByte(0, 8) = %d, want 0", got)
+	}
+	if got := TriangleByte(4, 8); got != 255 {
+		t.Fatalf("TriangleByte(4, 8) = %d, want 255", got)
+	}
+	if got := TriangleByte(10, 8); got != 127 {
+		t.Fatalf("TriangleByte wraps = %d, want 127", got)
+	}
+	if got := ClampByte(-1); got != 0 {
+		t.Fatalf("ClampByte(-1) = %d, want 0", got)
+	}
+	if got := ClampByte(256); got != 255 {
+		t.Fatalf("ClampByte(256) = %d, want 255", got)
+	}
+}
+
+func TestSyntheticYCbCrFixturesAreDeterministic(t *testing.T) {
+	panA := NewTexturedPanningYCbCr(16, 16, 3)
+	panB := NewTexturedPanningYCbCr(16, 16, 3)
+	if !PlaneEqual(panA.Y, panA.YStride, panB.Y, panB.YStride, 16, 16) {
+		t.Fatal("NewTexturedPanningYCbCr luma is not deterministic")
+	}
+	if panA.Y[0] == panA.Y[1] && panA.Y[1] == panA.Y[2] {
+		t.Fatal("NewTexturedPanningYCbCr luma collapsed to a flat field")
+	}
+
+	screenA := NewScreenTextWindowYCbCr(32, 32, 2)
+	screenB := NewScreenTextWindowYCbCr(32, 32, 2)
+	if !PlaneEqual(screenA.Y, screenA.YStride, screenB.Y, screenB.YStride, 32, 32) {
+		t.Fatal("NewScreenTextWindowYCbCr luma is not deterministic")
+	}
+	if screenA.Cb[0] == 0 || screenA.Cr[0] == 0 {
+		t.Fatal("NewScreenTextWindowYCbCr chroma was not initialized")
+	}
+}

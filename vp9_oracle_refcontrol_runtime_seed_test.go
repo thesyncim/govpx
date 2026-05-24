@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -46,7 +47,7 @@ func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
 				firstMis = i
 				t.Logf("%s FAIL: first_mismatch_frame=%d got_len=%d want_len=%d first_byte_diff=%d size_delta=%+d",
 					label, i, len(got[i]), len(want[i]),
-					vp9test.FirstPacketDiff(got[i], want[i]),
+					testutil.FirstByteDiff(got[i], want[i]),
 					seedDelta)
 				break
 			}
@@ -96,7 +97,7 @@ func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 		if firstMis >= 0 && firstMis < len(got) && firstMis < len(want) {
 			t.Errorf("%s FAIL: first_mismatch_frame=%d got_len=%d want_len=%d first_byte_diff=%d size_delta=%+d",
 				label, firstMis, len(got[firstMis]), len(want[firstMis]),
-				vp9test.FirstPacketDiff(got[firstMis], want[firstMis]), seedDelta)
+				testutil.FirstByteDiff(got[firstMis], want[firstMis]), seedDelta)
 		} else {
 			t.Errorf("%s FAIL: frame_count_mismatch got=%d want=%d size_delta=%+d",
 				label, len(got), len(want), seedDelta)
@@ -172,7 +173,7 @@ func remeasureVP9RuntimeControlSeedLane(t *testing.T, includeCPU func(int8) bool
 				firstMis = i
 				t.Logf("%s FAIL: first_mismatch_frame=%d got_len=%d want_len=%d first_byte_diff=%d size_delta=%+d",
 					label, i, len(got[i]), len(want[i]),
-					vp9test.FirstPacketDiff(got[i], want[i]),
+					testutil.FirstByteDiff(got[i], want[i]),
 					seedDelta)
 				break
 			}

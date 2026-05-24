@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -33,7 +34,7 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 
 	govpxSources := make([]Image, frameCount)
 	for i := range govpxSources {
-		yc := makeScreenTextWindowFrame(width, height, i)
+		yc := testutil.NewScreenTextWindowYCbCr(width, height, i)
 		govpxSources[i] = Image{
 			Width:   width,
 			Height:  height,
