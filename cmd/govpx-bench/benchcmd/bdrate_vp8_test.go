@@ -12,7 +12,7 @@ import (
 // EncoderOptions so the BD-rate is required to be near zero. The
 // test catches wiring regressions in the VP8 BD-rate harness
 // (operating-ladder sort order, encoder/decoder pairing, IVF totals
-// math) without requiring the slow per-feature gates to fire.
+// math) without requiring the slow BD-rate gates to fire.
 func TestComputeBDRateVP8Smoke(t *testing.T) {
 	t.Parallel()
 	res, err := ComputeBDRateVP8(BDRateOptionsVP8{

@@ -113,20 +113,20 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 	}
 }
 
-// TestFormatFeatureScoreboardRendering pins the column layout of the
-// per-feature scoreboard so a maintainer can rely on its grep-ability
+// TestFormatBDRateObservationsRendering pins the column layout of the
+// BD-rate observation table so a maintainer can rely on its grep-ability
 // in CI logs.
-func TestFormatFeatureScoreboardRendering(t *testing.T) {
-	rows := []FeatureLibvpxObservation{
+func TestFormatBDRateObservationsRendering(t *testing.T) {
+	rows := []LibvpxBDRateObservation{
 		{
-			Feature:                "AltRef",
+			Case:                   "AltRef",
 			GovpxBDRatePct:         -3.6,
 			LibvpxBDRatePct:        math.NaN(),
 			GovpxVsLibvpxBDRatePct: 4.2,
 			GovpxVsLibvpxBDPSNRdB:  -0.3,
 		},
 		{
-			Feature:                "ARNR",
+			Case:                   "ARNR",
 			GovpxBDRatePct:         -1.5,
 			LibvpxBDRatePct:        math.NaN(),
 			GovpxVsLibvpxBDRatePct: math.NaN(),
@@ -134,9 +134,9 @@ func TestFormatFeatureScoreboardRendering(t *testing.T) {
 			LibvpxErr:              errors.New("binary not built"),
 		},
 	}
-	out := FormatFeatureScoreboard(rows)
+	out := FormatBDRateObservations(rows)
 	for _, want := range []string{
-		"Feature", "govpx BD-rate", "libvpx BD-rate", "govpx-vs-libvpx",
+		"Case", "govpx BD-rate", "libvpx BD-rate", "govpx-vs-libvpx",
 		"AltRef", "-3.600%", "+4.200%", "-0.300 dB",
 		"ARNR", "binary not built",
 	} {

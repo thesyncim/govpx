@@ -117,7 +117,7 @@ BD-rate gate (`make verify-bd-rate`) reads additional env vars:
 
 | Variable                             | Purpose                                                                                          |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `GOVPX_BD_RATE_GATES`                | Must be `1` for the slow per-feature VP9 BD-rate gates to run.                                   |
+| `GOVPX_BD_RATE_GATES`                | Must be `1` for the slow VP8/VP9 BD-rate quality gates to run.                                   |
 | `GOVPX_BD_RATE_BUILD_LIBVPX`         | When `1`, missing `vpxenc-vp9-frameflags` triggers a one-shot libvpx build.                       |
 | `GOVPX_BD_RATE_LIBVPX_REQUIRED`      | When `1`, missing libvpx oracle is `t.Fatal` instead of `t.Skip` (CI guard).                     |
 | `GOVPX_VPXENC_VP8_BIN`               | Optional VP8 `vpxenc` path for the VP8 BD-rate gates.                                            |

@@ -159,7 +159,7 @@ func encodeLibvpxBDOperatingPoint(binPath string, raw []byte, opts BDRateOptions
 //	govpx.RateControl{Q,VBR,CBR,CQ}           -> --end-usage={q,vbr,cbr,cq}
 //	govpx.VP9EncoderOptions.TargetBitrateKbps -> --target-bitrate=N
 //
-// Feature flags not exercised by the current per-feature BD-rate gates
+// Encoder flags not exercised by the current BD-rate quality gates
 // (segmentation, ROI map, temporal layers, render size, color tags,
 // runtime drop schedule, etc.) are intentionally not mapped here; add
 // new fields with a `// libvpx token:` citation when those gates land.

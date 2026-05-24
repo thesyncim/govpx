@@ -1,15 +1,13 @@
 package govpx_test
 
-// VP8 BD-rate quality gate. Mirrors the VP9 per-feature BD-rate
-// scoreboard in feature_quality_gates_vp9_test.go but drives the VP8
-// encoder via the BD-rate VP8 harness in
-// cmd/govpx-bench/benchcmd/bdrate_vp8.go.
+// VP8 BD-rate quality gates. These tests drive the VP8 encoder via
+// the BD-rate VP8 harness in cmd/govpx-bench/benchcmd/bdrate_vp8.go.
 //
 // Two checks fire per call:
 //
-//  1. Within-govpx feature on/off BD-rate stays inside a sane
-//     tolerance band (so e.g. a future regression that breaks rate
-//     control and inflates byte count is caught).
+//  1. Within-govpx case-vs-baseline BD-rate stays inside a sane
+//     tolerance band, catching broken option plumbing and rate-control
+//     regressions.
 //  2. Absolute govpx-vs-libvpx BD-rate: govpx VP8 should not need
 //     materially more bitrate than libvpx VP8 at equal PSNR.
 //
@@ -46,38 +44,38 @@ import (
 // assertLibvpxVP8AbsoluteGate evaluates the absolute govpx-vs-libvpx
 // VP8 BD-rate assertion. Mirrors assertLibvpxAbsoluteGate's VP9 form
 // but uses LibvpxVP8Required() instead of LibvpxRequired().
-func assertLibvpxVP8AbsoluteGate(t *testing.T, feature string, res benchcmd.BDRateResult, gate benchcmd.LibvpxAbsoluteGate) {
+func assertLibvpxVP8AbsoluteGate(t *testing.T, label string, res benchcmd.BDRateResult, gate benchcmd.LibvpxAbsoluteGate) {
 	t.Helper()
 	if res.LibvpxErr != nil {
 		if len(res.Libvpx) > 0 {
 			t.Logf("%s libvpx-VP8-reference: cross-metric unavailable (skipping absolute gate): %v libvpx=%v",
-				feature, res.LibvpxErr, res.Libvpx)
+				label, res.LibvpxErr, res.Libvpx)
 			return
 		}
 		if benchcmd.LibvpxVP8Required() {
 			t.Fatalf("%s libvpx VP8 reference required but unavailable: %v",
-				feature, res.LibvpxErr)
+				label, res.LibvpxErr)
 		}
 		t.Logf("%s libvpx VP8 reference unavailable (skipping absolute gate): %v",
-			feature, res.LibvpxErr)
+			label, res.LibvpxErr)
 		return
 	}
 	if len(res.Libvpx) == 0 {
 		if benchcmd.LibvpxVP8Required() {
-			t.Fatalf("%s libvpx VP8 reference required but empty", feature)
+			t.Fatalf("%s libvpx VP8 reference required but empty", label)
 		}
-		t.Logf("%s libvpx VP8 reference empty (skipping absolute gate)", feature)
+		t.Logf("%s libvpx VP8 reference empty (skipping absolute gate)", label)
 		return
 	}
 	t.Logf("%s libvpx-VP8-reference: govpx-vs-libvpx BD-rate=%+0.3f%% BD-PSNR=%+0.3f dB libvpx=%v",
-		feature, res.BDRateGovpxVsLibvpx, res.BDPSNRGovpxVsLibvpx, res.Libvpx)
+		label, res.BDRateGovpxVsLibvpx, res.BDPSNRGovpxVsLibvpx, res.Libvpx)
 	if !math.IsNaN(res.BDRateGovpxVsLibvpx) && res.BDRateGovpxVsLibvpx > gate.MaxBDRateOverLibvpxPct {
 		t.Errorf("%s govpx vs libvpx VP8 BD-rate=%+0.3f%% > %+0.3f%% — govpx trails libvpx by more than the configured ceiling; investigate before tightening the gate",
-			feature, res.BDRateGovpxVsLibvpx, gate.MaxBDRateOverLibvpxPct)
+			label, res.BDRateGovpxVsLibvpx, gate.MaxBDRateOverLibvpxPct)
 	}
 	if !math.IsNaN(res.BDPSNRGovpxVsLibvpx) && res.BDPSNRGovpxVsLibvpx < gate.MinBDPSNRdB {
 		t.Errorf("%s govpx vs libvpx VP8 BD-PSNR=%+0.3f dB < %+0.3f dB — govpx delivers materially less quality than libvpx at equal rate",
-			feature, res.BDPSNRGovpxVsLibvpx, gate.MinBDPSNRdB)
+			label, res.BDPSNRGovpxVsLibvpx, gate.MinBDPSNRdB)
 	}
 }
 
@@ -85,12 +83,12 @@ func assertLibvpxVP8AbsoluteGate(t *testing.T, feature string, res benchcmd.BDRa
 // BD-rate gate cases: it runs ComputeBDRateVP8 with the supplied
 // options, logs the curves, asserts the within-govpx self-comparison
 // is near zero (harness-wiring smoke), asserts the absolute govpx-vs-
-// libvpx gate, and publishes a scoreboard row keyed by the supplied
+// libvpx gate, and publishes an observation row keyed by the supplied
 // label. The local label is also threaded through assertLibvpxVP8
 // AbsoluteGate so per-fixture failures point at the offending case.
-func runVP8BDRateFixture(t *testing.T, label, scoreboardLabel string, opts benchcmd.BDRateOptionsVP8, gate benchcmd.LibvpxAbsoluteGate) {
+func runVP8BDRateFixture(t *testing.T, label, summaryLabel string, opts benchcmd.BDRateOptionsVP8, gate benchcmd.LibvpxAbsoluteGate) {
 	t.Helper()
-	if !benchcmd.FeatureGatesEnabled() {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
 	opts.LibvpxReference = true
@@ -105,8 +103,8 @@ func runVP8BDRateFixture(t *testing.T, label, scoreboardLabel string, opts bench
 			label, res.BDRate, res.Reference, res.Govpx)
 	}
 	assertLibvpxVP8AbsoluteGate(t, label, res, gate)
-	benchcmd.AppendFeatureScoreboardRow(benchcmd.FeatureLibvpxObservation{
-		Feature:                scoreboardLabel,
+	benchcmd.AppendBDRateObservation(benchcmd.LibvpxBDRateObservation{
+		Case:                   summaryLabel,
 		GovpxBDRatePct:         res.BDRate,
 		LibvpxBDRatePct:        math.NaN(),
 		GovpxVsLibvpxBDRatePct: res.BDRateGovpxVsLibvpx,
@@ -126,7 +124,7 @@ func runVP8BDRateFixture(t *testing.T, label, scoreboardLabel string, opts bench
 // byte-exact against libvpx for the matching configuration, so the
 // BD-rate cubic-fit difference must sit within a few percent.
 func TestVP8BDRateBaseline(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
 	const (
@@ -178,10 +176,10 @@ func TestVP8BDRateBaseline(t *testing.T) {
 		MinBDPSNRdB:            -0.5,
 	}
 	assertLibvpxVP8AbsoluteGate(t, "VP8 baseline (QCIF, CBR ladder 100/200/400/800 kbps)", res, baselineGate)
-	// Publish to the per-feature scoreboard so the BD-rate diagnostic
-	// table includes the VP8 row alongside the VP9 ones.
-	benchcmd.AppendFeatureScoreboardRow(benchcmd.FeatureLibvpxObservation{
-		Feature:                "VP8 baseline (QCIF CBR 100/200/400/800)",
+	// Publish to the BD-rate summary so the diagnostic table includes
+	// the VP8 row alongside the VP9 ones.
+	benchcmd.AppendBDRateObservation(benchcmd.LibvpxBDRateObservation{
+		Case:                   "VP8 baseline (QCIF CBR 100/200/400/800)",
 		GovpxBDRatePct:         res.BDRate,
 		LibvpxBDRatePct:        math.NaN(),
 		GovpxVsLibvpxBDRatePct: res.BDRateGovpxVsLibvpx,

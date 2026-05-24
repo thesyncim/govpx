@@ -116,7 +116,7 @@ verify: ci
 # test-quality keeps CI from treating a generic green go test as sufficient
 # for VP9 encoder quality. It runs the canonical PSNR/SSIM fixture gate plus
 # a small libvpx-backed BD-rate subset covering brittle ARNR/AQ/CBR/loop-filter
-# paths; `make test-bdrate-vp9` remains the full per-feature sweep.
+# paths; `make test-bdrate-vp9` remains the full BD-rate sweep.
 test-quality: vp9-vpxdec-tools
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -o $(CORACLE_BUILD)/govpx-bench ./cmd/govpx-bench
 	$(CORACLE_BUILD)/govpx-bench -quality-fixtures -quality-gate -libvpx-vpxenc-vp9="$(VPXENC_VP9)" -auto-libvpx=false
@@ -125,13 +125,13 @@ test-quality: vp9-vpxdec-tools
 		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
 		GOVPX_BD_RATE_LIBVPX_REQUIRED=1 \
 		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
-		$(GO) test -count=1 -v -run 'TestVP9FeatureBDRate(ARNR|PerceptualAQ|CyclicRefresh|LoopFilter)$$' -timeout 360s .
+		$(GO) test -count=1 -v -run 'TestVP9BDRate(ARNR|PerceptualAQ|CyclicRefresh|LoopFilter)$$' -timeout 360s .
 
 verify-production: ci test-oracle test-byte-parity test-scoreboard
 
 verify-decoder-parity: ci test-decoder-oracle
 
-# test-bdrate-vp9 runs the slow per-feature VP9 BD-rate quality gates
+# test-bdrate-vp9 runs the slow VP9 BD-rate quality gates
 # under cmd/govpx-bench/benchcmd. The default short test mode skips
 # these because each measurement takes ~5-15s and the full sweep
 # adds ~30s. Run this target before merging any change that touches
@@ -139,7 +139,7 @@ verify-decoder-parity: ci test-decoder-oracle
 #
 # The target also captures the absolute govpx-vs-libvpx BD-rate
 # reference by driving the libvpx vpxenc-vp9-frameflags helper with
-# matching feature flags; the per-feature scoreboard logged at the
+# the matching encoder flags; the BD-rate summary logged at the
 # end of the run carries `govpx BD-rate | libvpx BD-rate |
 # govpx-vs-libvpx` columns so the absolute gap to libvpx is visible
 # without instrumenting the gate tests. GOVPX_BD_RATE_BUILD_LIBVPX=1
@@ -153,7 +153,7 @@ test-bdrate-vp9: $(VPXENC_VP9_FRAMEFLAGS)
 		GOVPX_BD_RATE_BUILD_LIBVPX=1 \
 		GOVPX_BD_RATE_LIBVPX_REQUIRED=1 \
 		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
-		$(GO) test -count=1 -v -run 'TestVP9FeatureBDRate' -timeout 600s . ./cmd/govpx-bench/benchcmd/
+		$(GO) test -count=1 -v -run 'TestVP9BDRate' -timeout 600s . ./cmd/govpx-bench/benchcmd/
 
 $(VPXENC_VP9_FRAMEFLAGS):
 	internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null

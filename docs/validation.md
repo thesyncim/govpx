@@ -87,7 +87,7 @@ Runs parity scoreboards through the report wrapper without updating baselines.
 
 `make test-bdrate-vp9`
 
-Runs the slower VP9 BD-rate feature sweep. Use it for VP9 AltRef, ARNR, TPL,
+Runs the slower VP9 BD-rate quality sweep. Use it for VP9 AltRef, ARNR, TPL,
 AQ, loop-filter, and quality-affecting encode changes.
 
 `make test-bdrate-vp8`

@@ -6,20 +6,17 @@ import (
 	"os"
 )
 
-// FeatureGateContent labels which synthetic content generator to drive
-// for a feature-quality measurement. Each generator stresses a
-// different VP9 path: PanningContent exercises inter prediction
-// (where AltRef pays off), TextureNoise exercises ARNR (denoising
-// helps reduce bitrate after inter compensation), SharpEdgesContent
-// exercises TPL (text-like content has well-defined high-contrast
-// edges that benefit from look-ahead Q allocation), and VarianceHeavy
-// stresses variance-AQ segmentation by mixing flat and detailed
-// regions across each frame.
-type FeatureGateContent int
+// BDRateContent labels the synthetic content generator used by
+// BD-rate quality measurements. Each generator stresses a different
+// VP9 path: PanningContent exercises inter prediction, TextureNoise
+// exercises ARNR, SharpEdgesContent exercises TPL, and
+// VarianceHeavyContent stresses variance-AQ segmentation by mixing
+// flat and detailed regions across each frame.
+type BDRateContent int
 
 const (
 	// PanningContent is a constant-velocity translating texture.
-	PanningContent FeatureGateContent = iota
+	PanningContent BDRateContent = iota
 	// TextureNoise is a stationary textured field with additive
 	// per-frame noise.
 	TextureNoise
@@ -36,10 +33,9 @@ const (
 	PerceptualContent
 )
 
-// FeatureGateGenerator returns the content generator function for the
-// given label. It returns a generator suitable for direct use as the
+// BDRateGenerator returns a generator suitable for direct use as the
 // BDRateOptions.Source callback.
-func FeatureGateGenerator(kind FeatureGateContent, width, height int) func(int) *image.YCbCr {
+func BDRateGenerator(kind BDRateContent, width, height int) func(int) *image.YCbCr {
 	switch kind {
 	case PanningContent:
 		return func(i int) *image.YCbCr {
@@ -268,10 +264,10 @@ func clampByte(v int) byte {
 	return byte(v)
 }
 
-// FeatureGatesEnabled reports whether the slow per-feature BD-rate
-// gates should run. They're gated behind GOVPX_BD_RATE_GATES=1 so
-// `go test ./...` stays fast in the default short configuration
-// while CI's `make verify-bd-rate` target opts in.
-func FeatureGatesEnabled() bool {
+// BDRateGatesEnabled reports whether the slow BD-rate quality gates
+// should run. They are gated behind GOVPX_BD_RATE_GATES=1 so
+// `go test ./...` stays fast in the default short configuration while
+// CI's BD-rate targets opt in.
+func BDRateGatesEnabled() bool {
 	return os.Getenv("GOVPX_BD_RATE_GATES") == "1"
 }

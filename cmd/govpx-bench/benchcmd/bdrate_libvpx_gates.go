@@ -8,12 +8,11 @@ import (
 	"sync"
 )
 
-// LibvpxAbsoluteGate bundles the thresholds for the absolute-reference
-// govpx-vs-libvpx assertion that accompanies each per-feature BD-rate
-// gate. The Skip mode allows the gate test to t.Skip the libvpx
-// assertion when the helper binary is missing and the build was not
-// requested; this keeps normal local test runs usable until the libvpx
-// oracle has been built.
+// LibvpxAbsoluteGate bundles the thresholds for a govpx-vs-libvpx
+// BD-rate assertion. The gate test may skip the libvpx assertion when
+// the helper binary is missing and the build was not requested; this
+// keeps normal local test runs usable until the libvpx oracle has been
+// built.
 type LibvpxAbsoluteGate struct {
 	// MaxBDRateOverLibvpxPct is the cap on govpx-vs-libvpx BD-rate.
 	// Govpx is "OK" when it stays at or below this percentage worse
@@ -27,31 +26,29 @@ type LibvpxAbsoluteGate struct {
 	MinBDPSNRdB float64
 }
 
-// FeatureLibvpxObservation is the one-row summary printed by
-// reportFeatureGateLibvpxRow into the per-feature scoreboard. Captures
-// govpx feature-on-vs-off BD-rate plus the absolute govpx-vs-libvpx
-// gap so a reviewer can see at-a-glance which features close the
-// libvpx parity gap (and which still trail).
-type FeatureLibvpxObservation struct {
-	Feature string
-	// GovpxBDRatePct is the feature-on-vs-off BD-rate measured
-	// entirely within govpx. Negative is better (govpx saves bitrate
-	// when the feature is enabled).
+// LibvpxBDRateObservation is the one-row summary printed by the
+// BD-rate quality gates. It captures govpx case-vs-baseline BD-rate
+// plus the absolute govpx-vs-libvpx gap so a reviewer can see which
+// codec paths close the libvpx parity gap and which still trail.
+type LibvpxBDRateObservation struct {
+	Case string
+	// GovpxBDRatePct is the case-vs-baseline BD-rate measured
+	// entirely within govpx. Negative is better.
 	GovpxBDRatePct float64
-	// LibvpxBDRatePct is the matching libvpx-vp9 feature-on-vs-off
-	// BD-rate, derived from the libvpx helper's feature-on
-	// (kbps, PSNR-proxy) curve vs govpx's feature-off curve. NaN
+	// LibvpxBDRatePct is the matching libvpx-vp9 case-vs-baseline
+	// BD-rate, derived from the libvpx helper's case
+	// (kbps, PSNR-proxy) curve vs govpx's baseline curve. NaN
 	// when no libvpx reference was produced. (We hold the libvpx
-	// feature-off curve out of the test loop to keep scoreboard
+	// baseline curve out of the test loop to keep the quality gate
 	// cost low; the absolute govpx-vs-libvpx BD-rate is the
 	// substantive number.)
 	LibvpxBDRatePct float64
 	// GovpxVsLibvpxBDRatePct is the absolute govpx-vs-libvpx BD-rate
-	// at the on-feature operating point. Negative means govpx
+	// at the measured operating point. Negative means govpx
 	// outperforms libvpx; positive means govpx trails.
 	GovpxVsLibvpxBDRatePct float64
 	// GovpxVsLibvpxBDPSNRdB is the absolute govpx-vs-libvpx BD-PSNR
-	// at the on-feature operating point. Positive means govpx has
+	// at the measured operating point. Positive means govpx has
 	// more dB at equal rate; negative means govpx has less.
 	GovpxVsLibvpxBDPSNRdB float64
 	// LibvpxErr captures the reason no libvpx curve was produced
@@ -60,18 +57,18 @@ type FeatureLibvpxObservation struct {
 	LibvpxErr error
 }
 
-// FormatFeatureScoreboard renders a per-feature markdown-ish scoreboard
-// table from the observations.
+// FormatBDRateObservations renders a plain text table from the
+// observations.
 //
 // Column layout (matches the task spec):
 //
-//	Feature        | govpx BD-rate | libvpx BD-rate | govpx-vs-libvpx
+//	Case        | govpx BD-rate | libvpx BD-rate | govpx-vs-libvpx
 //
 // Cells render NaN entries as "—" so a missing libvpx oracle is
 // visually obvious rather than poisoning the column-alignment math
 // with floating-point garbage.
-func FormatFeatureScoreboard(rows []FeatureLibvpxObservation) string {
-	header := [4]string{"Feature", "govpx BD-rate", "libvpx BD-rate", "govpx-vs-libvpx (BD-rate / BD-PSNR)"}
+func FormatBDRateObservations(rows []LibvpxBDRateObservation) string {
+	header := [4]string{"Case", "govpx BD-rate", "libvpx BD-rate", "govpx-vs-libvpx (BD-rate / BD-PSNR)"}
 	out := make([][4]string, 0, len(rows)+1)
 	out = append(out, header)
 	for _, r := range rows {
@@ -87,7 +84,7 @@ func FormatFeatureScoreboard(rows []FeatureLibvpxObservation) string {
 			crossCell = fmt.Sprintf("%+0.3f%% / %+0.3f dB",
 				r.GovpxVsLibvpxBDRatePct, r.GovpxVsLibvpxBDPSNRdB)
 		}
-		out = append(out, [4]string{r.Feature, govpxCell, libvpxCell, crossCell})
+		out = append(out, [4]string{r.Case, govpxCell, libvpxCell, crossCell})
 	}
 	widths := [4]int{}
 	for _, r := range out {
@@ -124,28 +121,27 @@ func LibvpxRequired() bool {
 	return os.Getenv("GOVPX_BD_RATE_LIBVPX_REQUIRED") == "1"
 }
 
-// featureScoreboardMu guards the shared scoreboard rows so per-feature
+// bdrateObservationsMu guards the shared observation rows so BD-rate
 // gates can record their numbers concurrently.
 var (
-	featureScoreboardMu   sync.Mutex
-	featureScoreboardRows []FeatureLibvpxObservation
+	bdrateObservationsMu sync.Mutex
+	bdrateObservations   []LibvpxBDRateObservation
 )
 
-// AppendFeatureScoreboardRow records one row for the per-feature
-// scoreboard. The summary diagnostic test prints the table at the end
-// of the BD-rate run.
-func AppendFeatureScoreboardRow(row FeatureLibvpxObservation) {
-	featureScoreboardMu.Lock()
-	defer featureScoreboardMu.Unlock()
-	featureScoreboardRows = append(featureScoreboardRows, row)
+// AppendBDRateObservation records one row for the BD-rate summary. The
+// summary diagnostic test prints the table at the end of the run.
+func AppendBDRateObservation(row LibvpxBDRateObservation) {
+	bdrateObservationsMu.Lock()
+	defer bdrateObservationsMu.Unlock()
+	bdrateObservations = append(bdrateObservations, row)
 }
 
-// FeatureScoreboardRows returns a defensive copy of the rows recorded
+// BDRateObservations returns a defensive copy of the rows recorded
 // so far.
-func FeatureScoreboardRows() []FeatureLibvpxObservation {
-	featureScoreboardMu.Lock()
-	defer featureScoreboardMu.Unlock()
-	out := make([]FeatureLibvpxObservation, len(featureScoreboardRows))
-	copy(out, featureScoreboardRows)
+func BDRateObservations() []LibvpxBDRateObservation {
+	bdrateObservationsMu.Lock()
+	defer bdrateObservationsMu.Unlock()
+	out := make([]LibvpxBDRateObservation, len(bdrateObservations))
+	copy(out, bdrateObservations)
 	return out
 }

@@ -50,7 +50,7 @@ func TestVP9PerceptualAQBDRateContentSweep(t *testing.T) {
 	t.Parallel()
 	type scenario struct {
 		name    string
-		content benchcmd.FeatureGateContent
+		content benchcmd.BDRateContent
 	}
 	scenarios := []scenario{
 		{"PerceptualContent", benchcmd.PerceptualContent},
@@ -61,7 +61,7 @@ func TestVP9PerceptualAQBDRateContentSweep(t *testing.T) {
 	}
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			gen := benchcmd.FeatureGateGenerator(sc.content, 64, 64)
+			gen := benchcmd.BDRateGenerator(sc.content, 64, 64)
 			res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 				Width:                64,
 				Height:               64,
@@ -110,7 +110,7 @@ func TestVP9PerceptualAQBDRateLargerFrameSweep(t *testing.T) {
 	dim := vp9PerceptualAQBDRateLargerSweepDim()
 	type scenario struct {
 		name    string
-		content benchcmd.FeatureGateContent
+		content benchcmd.BDRateContent
 	}
 	scenarios := []scenario{
 		{"PerceptualContent", benchcmd.PerceptualContent},
@@ -121,7 +121,7 @@ func TestVP9PerceptualAQBDRateLargerFrameSweep(t *testing.T) {
 	}
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			gen := benchcmd.FeatureGateGenerator(sc.content, dim, dim)
+			gen := benchcmd.BDRateGenerator(sc.content, dim, dim)
 			res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 				Width:                dim,
 				Height:               dim,

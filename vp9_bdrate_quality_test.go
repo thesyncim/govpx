@@ -1,17 +1,16 @@
 package govpx_test
 
-// Per-feature VP9 BD-rate quality gates. These tests load the BD-rate
-// harness and run it once per feature toggle. They are slow (~25-60s
-// for the full sweep) and so opt-in via the GOVPX_BD_RATE_GATES=1
-// env var. `make verify-bd-rate` sets it.
+// VP9 BD-rate quality gates. These tests load the BD-rate harness and
+// run it once per codec path. They are slow (~25-60s for the full
+// sweep) and so opt-in via the GOVPX_BD_RATE_GATES=1 env var. `make
+// verify-bd-rate` sets it.
 //
 // Each gate asserts both:
 //
-//  1. A within-govpx tolerance band around the observed feature-on
-//     vs feature-off BD-rate (these are the "did the feature flip
-//     direction?" assertions that the prior commits installed).
-//  2. An absolute-reference assertion comparing govpx-with-feature
-//     against libvpx-with-matching-flags via the
+//  1. A within-govpx tolerance band around the observed case-vs-baseline
+//     BD-rate, which catches broken option plumbing and direction changes.
+//  2. An absolute-reference assertion comparing govpx with the case options
+//     against libvpx with the matching flags via the
 //     vpxenc-vp9-frameflags helper. The absolute gate caps govpx's
 //     BD-rate disadvantage vs libvpx and floors govpx's BD-PSNR
 //     disadvantage. These thresholds are set wide today because
@@ -19,8 +18,7 @@ package govpx_test
 //     fixtures is dominated by fixed-overhead headers; they are
 //     ratcheted as the gap closes.
 //
-// Findings recorded in commit "Add libvpx absolute BD-rate reference
-// curves to the quality-gate harness":
+// Current baseline observations:
 //   - Standalone unfiltered AutoAltRef is neutral in the public-Q gate:
 //     libvpx leaves source_alt_ref_pending false here, so govpx must not
 //     emit a hidden bootstrap packet either.
@@ -37,10 +35,10 @@ package govpx_test
 //     wired but stubbed, so govpx must not invent a coding delta.
 //
 // Absolute libvpx-reference gate thresholds (govpx vs libvpx, at the
-// feature-on operating point):
+// measured operating point):
 //
 //   - MaxBDRateOverLibvpxPct: 20% — anchored to the current absolute
-//     gap on synthetic 64x64 fixtures (~5-15% across features). The
+//     gap on synthetic 64x64 fixtures (~5-15% across cases). The
 //     +20% cap leaves headroom for measurement noise on small
 //     fixtures while still catching a regression where govpx
 //     suddenly trails libvpx by 50-100%.
@@ -49,15 +47,14 @@ package govpx_test
 //     the proxy-PSNR axis collapses the per-frame PSNR spread; the
 //     real test of quality regression is the rate axis above.
 //
-// New known-gaps list (from the absolute gate, sized to the
-// thresholds above):
+// Known-gap tracking:
 //   - When `make verify-bd-rate` runs with the libvpx oracle built,
-//     the per-feature scoreboard logged at the end of each test
-//     identifies which feature carries the largest govpx-vs-libvpx
-//     gap. The scoreboard is the primary mechanism for tracking
-//     which features still have headroom: any row where
-//     govpx-vs-libvpx BD-rate exceeds +5% goes onto the known-gaps
-//     list in the next commit message.
+//     the BD-rate summary logged at the end identifies which case
+//     carries the largest govpx-vs-libvpx gap. The summary is the
+//     primary mechanism for tracking which codec paths still have
+//     headroom; any row where govpx-vs-libvpx BD-rate exceeds +5%
+//     should be carried into docs/codec-status.md or a follow-up
+//     parity issue before tightening gates.
 
 import (
 	"image"
@@ -69,7 +66,7 @@ import (
 )
 
 // defaultLibvpxAbsoluteGate is the conservative starting threshold
-// for the govpx-vs-libvpx absolute assertion. Each per-feature gate
+// for the govpx-vs-libvpx absolute assertion. Each BD-rate gate
 // can clone-and-tweak this to express a tighter local cap when the
 // observed numbers warrant.
 var defaultLibvpxAbsoluteGate = benchcmd.LibvpxAbsoluteGate{
@@ -85,66 +82,66 @@ var defaultLibvpxAbsoluteGate = benchcmd.LibvpxAbsoluteGate{
 //   - When the cross deltas are NaN (no overlap), the assertion
 //     logs and skips that single check.
 //   - Otherwise the gate enforces BD-rate ≤ cap and BD-PSNR ≥ floor.
-func assertLibvpxAbsoluteGate(t *testing.T, feature string, res benchcmd.BDRateResult, gate benchcmd.LibvpxAbsoluteGate) {
+func assertLibvpxAbsoluteGate(t *testing.T, label string, res benchcmd.BDRateResult, gate benchcmd.LibvpxAbsoluteGate) {
 	t.Helper()
 	if res.LibvpxErr != nil {
 		if len(res.Libvpx) > 0 {
 			t.Logf("%s libvpx-reference: cross-metric unavailable (skipping absolute gate): %v libvpx=%v",
-				feature, res.LibvpxErr, res.Libvpx)
+				label, res.LibvpxErr, res.Libvpx)
 			return
 		}
 		if benchcmd.LibvpxRequired() {
 			t.Fatalf("%s libvpx reference required but unavailable: %v",
-				feature, res.LibvpxErr)
+				label, res.LibvpxErr)
 		}
 		t.Logf("%s libvpx reference unavailable (skipping absolute gate): %v",
-			feature, res.LibvpxErr)
+			label, res.LibvpxErr)
 		return
 	}
 	if len(res.Libvpx) == 0 {
 		if benchcmd.LibvpxRequired() {
-			t.Fatalf("%s libvpx reference required but empty", feature)
+			t.Fatalf("%s libvpx reference required but empty", label)
 		}
-		t.Logf("%s libvpx reference empty (skipping absolute gate)", feature)
+		t.Logf("%s libvpx reference empty (skipping absolute gate)", label)
 		return
 	}
 	t.Logf("%s libvpx-reference: govpx-vs-libvpx BD-rate=%+0.3f%% BD-PSNR=%+0.3f dB libvpx=%v",
-		feature, res.BDRateGovpxVsLibvpx, res.BDPSNRGovpxVsLibvpx, res.Libvpx)
+		label, res.BDRateGovpxVsLibvpx, res.BDPSNRGovpxVsLibvpx, res.Libvpx)
 	if !math.IsNaN(res.BDRateGovpxVsLibvpx) && res.BDRateGovpxVsLibvpx > gate.MaxBDRateOverLibvpxPct {
 		t.Errorf("%s govpx vs libvpx BD-rate=%+0.3f%% > %+0.3f%% — govpx trails libvpx by more than the configured ceiling; tighten the gate when the gap closes",
-			feature, res.BDRateGovpxVsLibvpx, gate.MaxBDRateOverLibvpxPct)
+			label, res.BDRateGovpxVsLibvpx, gate.MaxBDRateOverLibvpxPct)
 	}
 	if !math.IsNaN(res.BDPSNRGovpxVsLibvpx) && res.BDPSNRGovpxVsLibvpx < gate.MinBDPSNRdB {
 		t.Errorf("%s govpx vs libvpx BD-PSNR=%+0.3f dB < %+0.3f dB — govpx delivers materially less quality than libvpx at equal rate",
-			feature, res.BDPSNRGovpxVsLibvpx, gate.MinBDPSNRdB)
+			label, res.BDPSNRGovpxVsLibvpx, gate.MinBDPSNRdB)
 	}
 }
 
-// recordFeatureScoreboardRow appends a per-feature scoreboard row to a
+// recordBDRateSummaryRow appends a BD-rate summary row to a
 // process-global slice that the diagnostic test prints at the end of
-// the BD-rate run. It exists so each per-feature gate can publish its
+// the BD-rate run. It exists so each BD-rate gate can publish its
 // numbers without coordinating with the diagnostic harness.
-func recordFeatureScoreboardRow(feature string, res benchcmd.BDRateResult) {
-	row := benchcmd.FeatureLibvpxObservation{
-		Feature:                feature,
+func recordBDRateSummaryRow(label string, res benchcmd.BDRateResult) {
+	row := benchcmd.LibvpxBDRateObservation{
+		Case:                   label,
 		GovpxBDRatePct:         res.BDRate,
 		LibvpxBDRatePct:        math.NaN(),
 		GovpxVsLibvpxBDRatePct: res.BDRateGovpxVsLibvpx,
 		GovpxVsLibvpxBDPSNRdB:  res.BDPSNRGovpxVsLibvpx,
 		LibvpxErr:              res.LibvpxErr,
 	}
-	// We don't have a libvpx feature-off curve in the standard run
+	// We don't have a libvpx baseline curve in the standard run
 	// (it would double the libvpx subprocess count); report the
 	// govpx-vs-libvpx cross deltas instead, which is the substantive
 	// absolute-reference number.
-	benchcmd.AppendFeatureScoreboardRow(row)
+	benchcmd.AppendBDRateObservation(row)
 }
 
-func TestVP9FeatureBDRateAltRef(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateAltRef(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -169,7 +166,7 @@ func TestVP9FeatureBDRateAltRef(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v (ref=%v test=%v)", err, res.Reference, res.Govpx)
 	}
 	t.Logf("AltRef BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("AltRef (panning)", res)
+	recordBDRateSummaryRow("AltRef (panning)", res)
 	// libvpx one-pass Q does not set source_alt_ref_pending on this fixture;
 	// govpx mirrors that by keeping standalone unfiltered AutoAltRef neutral.
 	if res.BDRate > 15.0 {
@@ -182,11 +179,11 @@ func TestVP9FeatureBDRateAltRef(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "AltRef", res, defaultLibvpxAbsoluteGate)
 }
 
-func TestVP9FeatureBDRateARNR(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateARNR(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.TextureNoise, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.TextureNoise, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -223,7 +220,7 @@ func TestVP9FeatureBDRateARNR(t *testing.T) {
 			err, res.Reference, res.Govpx, res.Libvpx)
 	}
 	t.Logf("ARNR BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("ARNR (texture+noise)", res)
+	recordBDRateSummaryRow("ARNR (texture+noise)", res)
 	if res.BDRate > -1.0 {
 		t.Errorf("ARNR BD-rate=%.3f%% > -1%%: enabling ARNR must save bitrate on textured/noisy content; the centered temporal filter dropped to a no-op",
 			res.BDRate)
@@ -235,11 +232,11 @@ func TestVP9FeatureBDRateARNR(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "ARNR", res, defaultLibvpxAbsoluteGate)
 }
 
-func TestVP9FeatureBDRateTPL(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateTPL(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.SharpEdgesContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.SharpEdgesContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -264,7 +261,7 @@ func TestVP9FeatureBDRateTPL(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("TPL BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("TPL (sharp edges)", res)
+	recordBDRateSummaryRow("TPL (sharp edges)", res)
 	if res.BDRate > 1.0 {
 		t.Errorf("TPL BD-rate=%.3f%% > +1%%: TPL rdmult deltas must not regress the sharp-edge fixture",
 			res.BDRate)
@@ -282,11 +279,11 @@ func TestVP9FeatureBDRateTPL(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "TPL", res, defaultLibvpxAbsoluteGate)
 }
 
-func TestVP9FeatureBDRateVarianceAQ(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateVarianceAQ(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.VarianceHeavyContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.VarianceHeavyContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -309,7 +306,7 @@ func TestVP9FeatureBDRateVarianceAQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("VarianceAQ BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("VarianceAQ", res)
+	recordBDRateSummaryRow("VarianceAQ", res)
 	if res.BDRate > 5.0 {
 		t.Errorf("VarianceAQ BD-rate=%.3f%% > 5%%: regression vs neutral baseline",
 			res.BDRate)
@@ -321,11 +318,11 @@ func TestVP9FeatureBDRateVarianceAQ(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "VarianceAQ", res, defaultLibvpxAbsoluteGate)
 }
 
-func TestVP9FeatureBDRateEquator360AQ(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateEquator360AQ(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:           64,
 		Height:          64,
@@ -347,7 +344,7 @@ func TestVP9FeatureBDRateEquator360AQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("Equator360 BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("Equator360 AQ", res)
+	recordBDRateSummaryRow("Equator360 AQ", res)
 	if res.BDRate > 5.0 {
 		t.Errorf("Equator360 AQ BD-rate=%.3f%% > 5%%: non-360 content must be neutral",
 			res.BDRate)
@@ -359,11 +356,11 @@ func TestVP9FeatureBDRateEquator360AQ(t *testing.T) {
 	t.Log("Equator360 AQ absolute libvpx gate skipped: this fixture intentionally suppresses govpx AQ_360 on non-360 dimensions, while libvpx --aq-mode=4 still exercises its AQ path")
 }
 
-func TestVP9FeatureBDRatePerceptualAQ(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRatePerceptualAQ(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.PerceptualContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.PerceptualContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:           64,
 		Height:          64,
@@ -385,7 +382,7 @@ func TestVP9FeatureBDRatePerceptualAQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("PerceptualAQ BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("PerceptualAQ", res)
+	recordBDRateSummaryRow("PerceptualAQ", res)
 	if res.BDRate > 2.0 {
 		t.Errorf("PerceptualAQ BD-rate=%.3f%% > 2%%: regression worse than libvpx-faithful port baseline",
 			res.BDRate)
@@ -393,11 +390,11 @@ func TestVP9FeatureBDRatePerceptualAQ(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "PerceptualAQ", res, defaultLibvpxAbsoluteGate)
 }
 
-func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateAltRefAQ(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -422,7 +419,7 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("AltRefAQ BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("AltRefAQ (panning)", res)
+	recordBDRateSummaryRow("AltRefAQ (panning)", res)
 	if res.BDRate > 0.5 {
 		t.Errorf("AltRefAQ BD-rate=%.3f%% > 0.5%%: libvpx v1.16.0 alt-ref AQ is stubbed, so govpx must stay neutral",
 			res.BDRate)
@@ -439,7 +436,7 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "AltRefAQ", res, altRefAQGate)
 }
 
-// TestVP9FeatureBDRateCyclicRefresh pins the libvpx-verbatim cyclic
+// TestVP9BDRateCyclicRefresh pins the libvpx-verbatim cyclic
 // refresh AQ port against libvpx CYCLIC_REFRESH_AQ over panning
 // content. Cyclic refresh is libvpx's default AQ at realtime speed
 // 5+ and only operates under CBR — both Baseline and Test override
@@ -447,11 +444,11 @@ func TestVP9FeatureBDRateAltRefAQ(t *testing.T) {
 // primarily protects the harness from regressing back to invalid-config /
 // duplicate-rate failures; the large BD-rate delta is kept explicit as a
 // known CBR cyclic-refresh mismatch to ratchet separately.
-func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateCyclicRefresh(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.PanningContent, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.PanningContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -484,7 +481,7 @@ func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
 	t.Logf("CyclicRefresh BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
 	t.Logf("CyclicRefresh curves: ref=%v govpx=%v libvpx=%v",
 		res.Reference, res.Govpx, res.Libvpx)
-	recordFeatureScoreboardRow("CyclicRefresh (panning)", res)
+	recordBDRateSummaryRow("CyclicRefresh (panning)", res)
 	// The old failure was invalid-config/degenerate BD input. With the CBR
 	// bitrate ladder fixed, govpx still over-spends cyclic-refresh segments
 	// on this tiny fixture by roughly +98% BD-rate. Keep a finite ceiling so
@@ -503,7 +500,7 @@ func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
 	assertLibvpxAbsoluteGate(t, "CyclicRefresh", res, cyclicGate)
 }
 
-// TestVP9FeatureBDRateLoopFilter exercises the loop-filter strength
+// TestVP9BDRateLoopFilter exercises the loop-filter strength
 // picker port. The baseline disables the loop filter entirely (govpx
 // DisableLoopfilter=VP9LoopfilterDisableAll, which writes
 // FilterLevel=0 in the uncompressed header); the test arm runs the
@@ -516,11 +513,11 @@ func TestVP9FeatureBDRateCyclicRefresh(t *testing.T) {
 // to non-picker code paths.
 //
 // libvpx: vp9_picklpf.c:159-203 (vp9_pick_filter_level dispatcher).
-func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+func TestVP9BDRateLoopFilter(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	gen := benchcmd.FeatureGateGenerator(benchcmd.TextureNoise, 64, 64)
+	gen := benchcmd.BDRateGenerator(benchcmd.TextureNoise, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 		Width:                64,
 		Height:               64,
@@ -543,7 +540,7 @@ func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
 		t.Fatalf("ComputeBDRate err: %v", err)
 	}
 	t.Logf("LoopFilter BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
-	recordFeatureScoreboardRow("LoopFilter (texture+noise)", res)
+	recordBDRateSummaryRow("LoopFilter (texture+noise)", res)
 	// The loop filter should save bitrate on textured content. Use the
 	// same direction-of-effect gate the other "must save bitrate"
 	// features use; the search-based picker isn't wired into the
@@ -569,18 +566,18 @@ func TestVP9FeatureBDRateLoopFilter(t *testing.T) {
 	})
 }
 
-// TestVP9FeatureBDRateScoreboardSummaryIncludesRecordedRows prints the per-feature
-// scoreboard at the end of the BD-rate run. It runs after the gates
-// (alphabetical Z-suffix) so the table reflects every recorded row.
-// Use `make verify-bd-rate` to see the table populated.
-func TestVP9FeatureBDRateScoreboardSummaryIncludesRecordedRows(t *testing.T) {
-	if !benchcmd.FeatureGatesEnabled() {
+// TestVP9BDRateSummaryIncludesRecordedRows prints the BD-rate summary
+// at the end of the run. It runs after the gates (alphabetical
+// Z-suffix) so the table reflects every recorded row. Use `make
+// verify-bd-rate` to see the table populated.
+func TestVP9BDRateSummaryIncludesRecordedRows(t *testing.T) {
+	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
-	rows := benchcmd.FeatureScoreboardRows()
+	rows := benchcmd.BDRateObservations()
 	if len(rows) == 0 {
-		t.Skip("no feature gate rows recorded")
+		t.Skip("no BD-rate observations recorded")
 	}
-	t.Logf("Per-feature BD-rate scoreboard (govpx vs libvpx):\n%s",
-		benchcmd.FormatFeatureScoreboard(rows))
+	t.Logf("BD-rate summary (govpx vs libvpx):\n%s",
+		benchcmd.FormatBDRateObservations(rows))
 }

@@ -58,7 +58,7 @@ func makePanningFrame(width int, height int, index int) govpx.Image {
 // triangleByte returns a deterministic [0,255] triangle wave with the
 // given period. Used by makePanningFrame to construct a smoothly-varying
 // luma/chroma signal without floating-point math. The companion
-// clampByte saturator lives in feature_gates.go.
+// clampByte saturator lives in bdrate_content.go.
 func triangleByte(x int, period int) int {
 	if period <= 0 {
 		period = 32
