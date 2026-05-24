@@ -597,6 +597,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			}
 			rdMult = e.tunedRDMultiplier(rdMult, row, col)
 		}
+		var trace predictedMacroblockCoefficientTrace
+		if oracleTraceBuild {
+			trace = newPretrellisUVTrace(e)
+		}
 		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 			coefProbs:     e.pickerCoefProbs(),
 			src:           mbSource,
@@ -619,7 +623,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 			collectOracle: false,
 			coeffs:        &args.coeffs[index],
 			cacheIn:       cacheIn,
-			trace:         newPretrellisUVTrace(e),
+			trace:         trace,
 		})
 	}
 

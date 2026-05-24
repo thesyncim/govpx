@@ -129,6 +129,10 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	// winner / scratch slot indices when becameBest fires, leaving the
 	// winning candidate's DCTs accessible to the accepted-mode coefficient
 	// build without re-running predict + residual gather + FDCT.
+	var trace predictedMacroblockCoefficientTrace
+	if oracleTraceBuild {
+		trace = newPickerUVQuantizeTrace(e, ctx.mode)
+	}
 	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
 		coefProbs:           e.pickerCoefProbs(),
 		src:                 ctx.src,
@@ -151,7 +155,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 		collectStats:        true,
 		coeffs:              &coeffs,
 		cacheOut:            e.interRDCoeffCacheScratchTarget,
-		trace:               newPickerUVQuantizeTrace(e, ctx.mode),
+		trace:               trace,
 	})
 	rateUV := stats.rateUV
 	rate2 := modeRate + otherCost + stats.rateY + rateUV

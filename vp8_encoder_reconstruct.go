@@ -374,6 +374,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				return 0, ErrInvalidConfig
 			}
 			is4x4 := modes[index].YMode == vp8common.BPred
+			var trace predictedMacroblockCoefficientTrace
+			if oracleTraceBuild {
+				trace = newPretrellisUVTrace(e)
+			}
 			buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 				coefProbs:     &vp8tables.DefaultCoefProbs,
 				src:           src,
@@ -394,7 +398,7 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				optimize:      e.libvpxOptimizeCoefficients(),
 				collectOracle: traceEnabled,
 				coeffs:        &coeffs[index],
-				trace:         newPretrellisUVTrace(e),
+				trace:         trace,
 			})
 			modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
@@ -768,6 +772,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if vp8PhaseStatsEnabled {
 					phaseStats = e.phaseStats()
 				}
+				var trace predictedMacroblockCoefficientTrace
+				if oracleTraceBuild {
+					trace = newPretrellisUVTrace(e)
+				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     e.pickerCoefProbs(),
 					src:           mbSource,
@@ -791,7 +799,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					coeffs:        &coeffs[index],
 					cacheIn:       cacheIn,
 					phaseStats:    phaseStats,
-					trace:         newPretrellisUVTrace(e),
+					trace:         trace,
 				})
 				if is4x4 {
 					if oracleTraceBuild {
