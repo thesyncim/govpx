@@ -1,9 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -25,7 +26,7 @@ func FuzzVP8DecoderDecodeInto(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, packet []byte) {
-		d, err := NewVP8Decoder(DecoderOptions{MaxWidth: 256, MaxHeight: 256})
+		d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{MaxWidth: 256, MaxHeight: 256})
 		if err != nil {
 			t.Fatalf("NewVP8Decoder: %v", err)
 		}
@@ -36,7 +37,7 @@ func FuzzVP8DecoderDecodeInto(f *testing.F) {
 			_ = d.Close()
 		}()
 
-		smallDst := newTestImage(64, 64)
+		smallDst := newVP8FacadeImage(64, 64)
 		smallInfo, err := d.DecodeInto(packet, &smallDst)
 		if err != nil {
 			assertVP8FuzzDecodeError(t, err)
@@ -50,7 +51,7 @@ func FuzzVP8DecoderDecodeInto(f *testing.F) {
 		// have been rejected by the small destination's validForEncode
 		// but accepted by a 256x256 destination.
 		d.Reset()
-		largeDst := newTestImage(256, 256)
+		largeDst := newVP8FacadeImage(256, 256)
 		largeInfo, err := d.DecodeInto(packet, &largeDst)
 		if err != nil {
 			assertVP8FuzzDecodeError(t, err)
@@ -67,13 +68,13 @@ func FuzzVP8DecoderDecodeInto(f *testing.F) {
 func assertVP8FuzzDecodeError(t *testing.T, err error) {
 	t.Helper()
 	switch {
-	case errors.Is(err, ErrInvalidData):
-	case errors.Is(err, ErrNeedKeyFrame):
-	case errors.Is(err, ErrFrameNotReady):
-	case errors.Is(err, ErrFrameRejected):
-	case errors.Is(err, ErrInvalidConfig):
-	case errors.Is(err, ErrBufferTooSmall):
-	case errors.Is(err, ErrClosed):
+	case errors.Is(err, govpx.ErrInvalidData):
+	case errors.Is(err, govpx.ErrNeedKeyFrame):
+	case errors.Is(err, govpx.ErrFrameNotReady):
+	case errors.Is(err, govpx.ErrFrameRejected):
+	case errors.Is(err, govpx.ErrInvalidConfig):
+	case errors.Is(err, govpx.ErrBufferTooSmall):
+	case errors.Is(err, govpx.ErrClosed):
 	default:
 		t.Fatalf("DecodeInto returned unexpected error: %v", err)
 	}
@@ -83,7 +84,7 @@ func assertVP8FuzzDecodeError(t *testing.T, err error) {
 // FrameInfo whose dimensions fit inside the caller's destination dimensions
 // when the frame was visible. Hidden frames carry zero-dimension info and
 // don't write to dst.
-func assertVP8FuzzFrameInfoSane(t *testing.T, info FrameInfo, maxW, maxH int) {
+func assertVP8FuzzFrameInfoSane(t *testing.T, info govpx.FrameInfo, maxW, maxH int) {
 	t.Helper()
 	if !info.ShowFrame {
 		return
@@ -100,7 +101,7 @@ func assertVP8FuzzFrameInfoSane(t *testing.T, info FrameInfo, maxW, maxH int) {
 // assertVP8FuzzDstShapeSane checks that the destination image still has
 // the expected 4:2:0 plane shape after DecodeInto. The decoder is supposed
 // to leave the caller-owned strides intact and never reallocate.
-func assertVP8FuzzDstShapeSane(t *testing.T, dst Image) {
+func assertVP8FuzzDstShapeSane(t *testing.T, dst govpx.Image) {
 	t.Helper()
 	if dst.YStride < dst.Width || dst.UStride < (dst.Width+1)>>1 || dst.VStride < (dst.Width+1)>>1 {
 		t.Fatalf("dst strides shrunk below visible width: y=%d u=%d v=%d w=%d",
@@ -158,15 +159,15 @@ func vp8DecoderFuzzSeeds(tb testing.TB) [][]byte {
 // smoke seeds in that case.
 func vp8FuzzEncodedKeyframe(tb testing.TB, width, height int) []byte {
 	tb.Helper()
-	e, err := NewVP8Encoder(EncoderOptions{
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   500,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
@@ -176,7 +177,7 @@ func vp8FuzzEncodedKeyframe(tb testing.TB, width, height int) []byte {
 	if err != nil {
 		return nil
 	}
-	img := testImage(width, height)
+	img := newVP8FacadeImage(width, height)
 	for i := range img.Y {
 		img.Y[i] = 96
 	}

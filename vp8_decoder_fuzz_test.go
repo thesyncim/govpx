@@ -1,8 +1,9 @@
-package govpx
+package govpx_test
 
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -63,12 +64,12 @@ func FuzzVP8DecoderMalformedPackets(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, packet []byte) {
-		d, err := NewVP8Decoder(DecoderOptions{MaxWidth: 64, MaxHeight: 64})
+		d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{MaxWidth: 64, MaxHeight: 64})
 		if err != nil {
 			t.Fatalf("NewVP8Decoder returned error: %v", err)
 		}
 
-		_, _ = PeekVP8StreamInfo(packet)
+		_, _ = govpx.PeekVP8StreamInfo(packet)
 		_ = d.Decode(packet)
 
 		dst := fuzzDecodeTarget(packet)
@@ -98,16 +99,16 @@ func taintedFuzzPacket(p []byte, off int, mask byte) []byte {
 	return out
 }
 
-func fuzzDecodeTarget(packet []byte) Image {
-	info, err := PeekVP8StreamInfo(packet)
+func fuzzDecodeTarget(packet []byte) govpx.Image {
+	info, err := govpx.PeekVP8StreamInfo(packet)
 	if err == nil && info.KeyFrame && info.Width > 0 && info.Width <= 64 && info.Height > 0 && info.Height <= 64 {
-		return newTestImage(info.Width, info.Height)
+		return newVP8FacadeImage(info.Width, info.Height)
 	}
-	return newTestImage(64, 64)
+	return newVP8FacadeImage(64, 64)
 }
 
 func TestDecoderResetKeepsDecodeHotPathAllocationFree(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
