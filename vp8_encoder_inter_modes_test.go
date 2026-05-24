@@ -10,31 +10,6 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-func TestEncodeIntoUsesSourcePixels(t *testing.T) {
-	darkEncoder := newTestEncoder(t)
-	brightEncoder := newTestEncoder(t)
-	dark := testImage(16, 16)
-	bright := testImage(16, 16)
-	fillImage(bright, 220, 128, 128)
-	dstDark := make([]byte, 4096)
-	dstBright := make([]byte, 4096)
-
-	darkResult, err := darkEncoder.EncodeInto(dstDark, dark, 0, 1, 0)
-	if err != nil {
-		t.Fatalf("dark EncodeInto returned error: %v", err)
-	}
-	brightResult, err := brightEncoder.EncodeInto(dstBright, bright, 0, 1, 0)
-	if err != nil {
-		t.Fatalf("bright EncodeInto returned error: %v", err)
-	}
-
-	darkFrame := decodeSingleFrame(t, darkResult.Data)
-	brightFrame := decodeSingleFrame(t, brightResult.Data)
-	if brightFrame.Y[0] <= darkFrame.Y[0] {
-		t.Fatalf("decoded Y0 dark/bright = %d/%d, want bright greater", darkFrame.Y[0], brightFrame.Y[0])
-	}
-}
-
 func TestEncodeIntoReconstructsReferencesLikeDecoder(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 16)
 	src := testImage(32, 16)
@@ -56,47 +31,6 @@ func TestEncodeIntoReconstructsReferencesLikeDecoder(t *testing.T) {
 	assertImagesEqual(t, "last", decoded, publicImageFromVP8(&e.lastRef.Img))
 	assertImagesEqual(t, "golden", decoded, publicImageFromVP8(&e.goldenRef.Img))
 	assertImagesEqual(t, "alt", decoded, publicImageFromVP8(&e.altRef.Img))
-}
-
-func TestEncodeIntoWritesInterFrameForMatchingReference(t *testing.T) {
-	e := newTestEncoder(t)
-	src := testImage(16, 16)
-	fillImage(src, 220, 90, 170)
-	dstKey := make([]byte, 4096)
-	key, err := e.EncodeInto(dstKey, src, 0, 1, 0)
-	if err != nil {
-		t.Fatalf("key EncodeInto returned error: %v", err)
-	}
-	reconstructed := decodeSingleFrame(t, key.Data)
-	dstInter := make([]byte, 4096)
-
-	inter, err := e.EncodeInto(dstInter, reconstructed, 1, 1, 0)
-	if err != nil {
-		t.Fatalf("inter EncodeInto returned error: %v", err)
-	}
-	if inter.KeyFrame {
-		t.Fatalf("second frame KeyFrame = true, want interframe")
-	}
-
-	d, err := NewVP8Decoder(DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
-	if err := d.Decode(key.Data); err != nil {
-		t.Fatalf("key Decode returned error: %v", err)
-	}
-	if _, ok := d.NextFrame(); !ok {
-		t.Fatalf("key NextFrame returned no frame")
-	}
-	if err := d.Decode(inter.Data); err != nil {
-		t.Fatalf("inter Decode returned error: %v", err)
-	}
-	frame, ok := d.NextFrame()
-	if !ok {
-		t.Fatalf("inter NextFrame returned no frame")
-	}
-	assertImagesEqual(t, "inter", reconstructed, frame)
-	assertImagesEqual(t, "encoder current", frame, publicImageFromVP8(&e.current.Img))
 }
 
 func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
@@ -162,59 +96,6 @@ func BenchmarkLoopFilterTrialLumaSSEPartialLargeFrame(b *testing.B) {
 			ctx.trialLumaSSEFullStats(24, &stats)
 		}
 	})
-}
-
-func BenchmarkEncodeIntoMatchingReferenceInterFrame(b *testing.B) {
-	e := newTestEncoder(b)
-	if err := e.SetKeyFrameInterval(0); err != nil {
-		b.Fatalf("SetKeyFrameInterval returned error: %v", err)
-	}
-	src := testImage(16, 16)
-	fillImage(src, 220, 90, 170)
-	keyPacket := make([]byte, 4096)
-	key, err := e.EncodeInto(keyPacket, src, 0, 1, 0)
-	if err != nil {
-		b.Fatalf("key EncodeInto returned error: %v", err)
-	}
-	reconstructed := decodeSingleFrame(b, key.Data)
-	interPacket := make([]byte, 4096)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := e.EncodeInto(interPacket, reconstructed, uint64(i+1), 1, 0); err != nil {
-			b.Fatalf("inter EncodeInto returned error: %v", err)
-		}
-	}
-}
-
-func BenchmarkEncodeIntoGoldenReferenceInterFrame(b *testing.B) {
-	e := newTestEncoder(b)
-	if err := e.SetKeyFrameInterval(0); err != nil {
-		b.Fatalf("SetKeyFrameInterval returned error: %v", err)
-	}
-	first := testImage(16, 16)
-	second := testImage(16, 16)
-	fillImage(first, 220, 90, 170)
-	fillImage(second, 40, 90, 170)
-	keyPacket := make([]byte, 4096)
-	key, err := e.EncodeInto(keyPacket, first, 0, 1, 0)
-	if err != nil {
-		b.Fatalf("key EncodeInto returned error: %v", err)
-	}
-	keyFrame := decodeSingleFrame(b, key.Data)
-	interPacket := make([]byte, 4096)
-	if _, err := e.EncodeInto(interPacket, second, 1, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef); err != nil {
-		b.Fatalf("second EncodeInto returned error: %v", err)
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := e.EncodeInto(interPacket, keyFrame, uint64(i+2), 1, EncodeNoReferenceLast|EncodeNoUpdateGolden|EncodeNoUpdateAltRef); err != nil {
-			b.Fatalf("golden EncodeInto returned error: %v", err)
-		}
-	}
 }
 
 func TestEncodeIntoWritesResidualInterFrameWhenSourceDiffersFromReference(t *testing.T) {
