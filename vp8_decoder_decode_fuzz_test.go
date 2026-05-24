@@ -1,8 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx"
 )
 
 // FuzzVP8DecoderDecode is the non-oracle valid-input variant of the VP8
@@ -47,7 +49,7 @@ func FuzzVP8DecoderDecode(f *testing.F) {
 			return
 		}
 
-		d, err := NewVP8Decoder(DecoderOptions{MaxWidth: width, MaxHeight: height})
+		d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{MaxWidth: width, MaxHeight: height})
 		if err != nil {
 			t.Fatalf("NewVP8Decoder: %v", err)
 		}
@@ -55,15 +57,15 @@ func FuzzVP8DecoderDecode(f *testing.F) {
 			_ = d.Close()
 		}()
 
-		dst := newTestImage(width, height)
+		dst := newVP8FacadeImage(width, height)
 		info, err := d.DecodeInto(packet, &dst)
 		if err != nil {
 			// A valid encoder output decoded by a matching decoder must
 			// succeed. If it fails, only the documented sentinels are
 			// acceptable; anything else (or a non-sentinel) is a bug.
-			if !errors.Is(err, ErrInvalidData) &&
-				!errors.Is(err, ErrInvalidConfig) &&
-				!errors.Is(err, ErrFrameRejected) {
+			if !errors.Is(err, govpx.ErrInvalidData) &&
+				!errors.Is(err, govpx.ErrInvalidConfig) &&
+				!errors.Is(err, govpx.ErrFrameRejected) {
 				t.Fatalf("DecodeInto on freshly-encoded keyframe returned unexpected error: %v", err)
 			}
 			return
@@ -122,8 +124,8 @@ func FuzzVP8DecoderDecode(f *testing.F) {
 // vp8FuzzYUVNoiseImage builds a width×height I420 image whose plane samples
 // are derived from data via a simple deterministic XOR/rotate scheme. Empty
 // data produces a 128-grey image.
-func vp8FuzzYUVNoiseImage(width, height int, data []byte) Image {
-	img := testImage(width, height)
+func vp8FuzzYUVNoiseImage(width, height int, data []byte) govpx.Image {
+	img := newVP8FacadeImage(width, height)
 	if len(data) == 0 {
 		for i := range img.Y {
 			img.Y[i] = 128
@@ -153,17 +155,17 @@ func vp8FuzzYUVNoiseImage(width, height int, data []byte) Image {
 // suitable for the fuzz harness. Returns (packet, true) on a non-empty
 // emitted keyframe, (nil, false) otherwise. This keeps the fuzz body
 // focused on the decode-side assertions.
-func vp8FuzzEncodeOnce(t *testing.T, width, height int, src Image) ([]byte, bool) {
+func vp8FuzzEncodeOnce(t *testing.T, width, height int, src govpx.Image) ([]byte, bool) {
 	t.Helper()
-	e, err := NewVP8Encoder(EncoderOptions{
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   500,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
@@ -174,7 +176,7 @@ func vp8FuzzEncodeOnce(t *testing.T, width, height int, src Image) ([]byte, bool
 		return nil, false
 	}
 	dst := make([]byte, width*height*4+1024)
-	result, err := e.EncodeInto(dst, src, 0, 1, EncodeForceKeyFrame)
+	result, err := e.EncodeInto(dst, src, 0, 1, govpx.EncodeForceKeyFrame)
 	if err != nil || result.Dropped || len(result.Data) == 0 {
 		return nil, false
 	}

@@ -195,3 +195,30 @@ func assertVP8FacadePlaneEqual(
 		}
 	}
 }
+
+type capturedFramePlanes struct {
+	width  int
+	height int
+	y      []byte
+	u      []byte
+	v      []byte
+}
+
+func captureDecodedPlanes(img govpx.Image) capturedFramePlanes {
+	yWidth, yHeight := img.Width, img.Height
+	y := make([]byte, yWidth*yHeight)
+	for row := range yHeight {
+		copy(y[row*yWidth:(row+1)*yWidth], img.Y[row*img.YStride:row*img.YStride+yWidth])
+	}
+
+	uvWidth := (img.Width + 1) >> 1
+	uvHeight := (img.Height + 1) >> 1
+	u := make([]byte, uvWidth*uvHeight)
+	v := make([]byte, uvWidth*uvHeight)
+	for row := range uvHeight {
+		copy(u[row*uvWidth:(row+1)*uvWidth], img.U[row*img.UStride:row*img.UStride+uvWidth])
+		copy(v[row*uvWidth:(row+1)*uvWidth], img.V[row*img.VStride:row*img.VStride+uvWidth])
+	}
+
+	return capturedFramePlanes{width: yWidth, height: yHeight, y: y, u: u, v: v}
+}

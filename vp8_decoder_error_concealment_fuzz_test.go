@@ -1,8 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx"
 )
 
 // FuzzVP8DecoderErrorConcealment builds a tiny VP8 stream from the fuzz []byte
@@ -77,7 +79,7 @@ func FuzzVP8DecoderErrorConcealment(f *testing.F) {
 		packets[corruptIndex] = corrupted
 
 		// Decode with EC enabled. Sentinel-only errors are acceptable.
-		d, err := NewVP8Decoder(DecoderOptions{
+		d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{
 			ErrorConcealment: true,
 			MaxWidth:         width,
 			MaxHeight:        height,
@@ -126,15 +128,15 @@ func FuzzVP8DecoderErrorConcealment(f *testing.F) {
 // frames (rate control); we tolerate fewer than asked-for packets.
 func decoderECFuzzBuildStream(t *testing.T, width, height, interFrames int, data []byte) [][]byte {
 	t.Helper()
-	e, err := NewVP8Encoder(EncoderOptions{
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   500,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
@@ -150,7 +152,7 @@ func decoderECFuzzBuildStream(t *testing.T, width, height, interFrames int, data
 	out := make([][]byte, 0, interFrames+1)
 
 	keySrc := vp8FuzzYUVNoiseImage(width, height, data)
-	keyResult, err := e.EncodeInto(buf, keySrc, 0, 1, EncodeForceKeyFrame)
+	keyResult, err := e.EncodeInto(buf, keySrc, 0, 1, govpx.EncodeForceKeyFrame)
 	if err != nil || keyResult.Dropped || len(keyResult.Data) == 0 {
 		return nil
 	}
@@ -205,7 +207,7 @@ func decoderECFuzzCorrupt(packet []byte, offset, length int, data []byte) []byte
 // return nil; only "the decoder genuinely cannot continue" cases produce a
 // sentinel.
 func decoderECFuzzAcceptableError(err error) bool {
-	return errors.Is(err, ErrInvalidData) ||
-		errors.Is(err, ErrInvalidConfig) ||
-		errors.Is(err, ErrFrameRejected)
+	return errors.Is(err, govpx.ErrInvalidData) ||
+		errors.Is(err, govpx.ErrInvalidConfig) ||
+		errors.Is(err, govpx.ErrFrameRejected)
 }

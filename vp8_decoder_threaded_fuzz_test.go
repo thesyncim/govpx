@@ -1,9 +1,11 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/govpx"
 )
 
 // FuzzVP8DecoderThreaded drives concurrent VP8 decodes of a stream synthesised
@@ -137,15 +139,15 @@ func vp8DecoderThreadedFuzzWorkerCount(data []byte) int {
 // the iteration without a t.Fatal.
 func vp8DecoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []byte) [][]byte {
 	t.Helper()
-	e, err := NewVP8Encoder(EncoderOptions{
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   500,
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             8,
 		KeyFrameInterval:    120,
 		BufferSizeMs:        600,
@@ -169,9 +171,9 @@ func vp8DecoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []b
 			seed = data[i:]
 		}
 		src := vp8FuzzYUVNoiseImage(width, height, seed)
-		var flag EncodeFlags
+		var flag govpx.EncodeFlags
 		if i == 0 {
-			flag = EncodeForceKeyFrame
+			flag = govpx.EncodeForceKeyFrame
 		}
 		result, err := e.EncodeInto(buf, src, uint64(i), 1, flag)
 		if err != nil || result.Dropped || len(result.Data) == 0 {
@@ -184,7 +186,7 @@ func vp8DecoderThreadedFuzzBuildStream(t *testing.T, width, height int, data []b
 
 func vp8DecoderThreadedFuzzDecodeAll(t *testing.T, width, height int, packets [][]byte) ([]capturedFramePlanes, bool) {
 	t.Helper()
-	d, err := NewVP8Decoder(DecoderOptions{MaxWidth: width, MaxHeight: height})
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{MaxWidth: width, MaxHeight: height})
 	if err != nil {
 		return nil, false
 	}
