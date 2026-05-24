@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"testing"
 
 	govpx "github.com/thesyncim/govpx"
 )
@@ -144,7 +143,7 @@ type BDRateOptionsVP8 struct {
 // encodes the same source through stock vpxenc and computes the
 // absolute govpx-vs-libvpx BD-rate / BD-PSNR. A missing vpxenc binary
 // surfaces as BDRateResult.LibvpxErr without failing the call.
-func ComputeBDRateVP8(t testing.TB, opts BDRateOptionsVP8) (BDRateResult, error) {
+func ComputeBDRateVP8(opts BDRateOptionsVP8) (BDRateResult, error) {
 	if err := validateBDRateOptionsVP8(opts); err != nil {
 		return BDRateResult{}, err
 	}
@@ -558,7 +557,7 @@ func govpxImageFromYCbCrVP8(src *image.YCbCr) govpx.Image {
 // errVpxencVP8NotFound is set on BDRateResult.LibvpxErr when
 // LibvpxReference is requested but the harness cannot locate a
 // vpxenc binary. Callers can use errors.Is to detect this and
-// either t.Skip (default) or t.Fatal (LibvpxRequired).
+// either skip (default) or fail (LibvpxRequired).
 var errVpxencVP8NotFound = errors.New("vpxenc (VP8) binary not found")
 
 // encodeBDLibvpxVP8Curve drives stock libvpx vpxenc at every ladder

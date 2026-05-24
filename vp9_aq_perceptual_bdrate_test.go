@@ -62,7 +62,7 @@ func TestVP9PerceptualAQBDRateContentSweep(t *testing.T) {
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
 			gen := benchcmd.FeatureGateGenerator(sc.content, 64, 64)
-			res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
+			res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 				Width:                64,
 				Height:               64,
 				FPS:                  30,
@@ -122,7 +122,7 @@ func TestVP9PerceptualAQBDRateLargerFrameSweep(t *testing.T) {
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
 			gen := benchcmd.FeatureGateGenerator(sc.content, dim, dim)
-			res, err := benchcmd.ComputeBDRate(t, benchcmd.BDRateOptions{
+			res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
 				Width:                dim,
 				Height:               dim,
 				FPS:                  30,

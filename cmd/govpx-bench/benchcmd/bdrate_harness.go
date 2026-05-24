@@ -6,7 +6,6 @@ import (
 	"image"
 	"math"
 	"sort"
-	"testing"
 
 	govpx "github.com/thesyncim/govpx"
 )
@@ -84,7 +83,7 @@ type BDRateOptions struct {
 	// Skip behaviour:
 	//   - If the helper binary is missing AND BuildLibvpx is false, the
 	//     harness sets LibvpxErr = ErrVpxencVP9FrameFlagsNotBuilt and
-	//     callers should t.Skip().
+	//     callers can skip the external-reference assertion.
 	//   - If BuildLibvpx is true, the harness invokes
 	//     internal/coracle/build_vpxenc_vp9_frameflags.sh and
 	//     hard-fails (LibvpxErr) when the build still does not
@@ -94,7 +93,7 @@ type BDRateOptions struct {
 	// when the vpxenc-vp9-frameflags binary is missing. Without it,
 	// a missing binary surfaces as LibvpxErr and the within-govpx
 	// curves are still returned so callers can decide whether to
-	// t.Skip.
+	// skip the external-reference assertion.
 	BuildLibvpx bool
 }
 
@@ -111,10 +110,10 @@ type BDRateOptions struct {
 // The libvpx curve is appended to BDRateResult.Libvpx along with the
 // govpx-vs-libvpx BD-rate / BD-PSNR cross deltas. A missing helper
 // binary surfaces as BDRateResult.LibvpxErr without failing the call,
-// so callers can either t.Skip or assert based on the per-test
+// so callers can either skip or assert based on the per-test
 // policy. If BuildLibvpx is requested but the build cannot produce a
 // binary, the error is still propagated through LibvpxErr.
-func ComputeBDRate(t testing.TB, opts BDRateOptions) (BDRateResult, error) {
+func ComputeBDRate(opts BDRateOptions) (BDRateResult, error) {
 	if err := validateBDRateOptions(opts); err != nil {
 		return BDRateResult{}, err
 	}

@@ -63,6 +63,48 @@ func TestRootOracleTestsUseCodecHarnessPackages(t *testing.T) {
 	}
 }
 
+func TestDefaultBuildProductionFilesAvoidTestHarnessImports(t *testing.T) {
+	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch path {
+			case ".claude", ".git", "internal/coracle/build", "testdata":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		if testFileHasBuildTag(t, path, "govpx_oracle_trace") ||
+			testFileHasBuildTag(t, path, "govpx_phase_stats") {
+			return nil
+		}
+		for _, importPath := range goFileImports(t, path) {
+			switch importPath {
+			case "testing":
+				if !strings.HasPrefix(path, "internal/testutil/") {
+					t.Fatalf("%s imports testing in the default production build", path)
+				}
+			case "github.com/thesyncim/govpx/internal/testutil":
+				if !strings.HasPrefix(path, "internal/testutil/") {
+					t.Fatalf("%s imports %q in the default production build",
+						path, importPath)
+				}
+			case "github.com/thesyncim/govpx/internal/coracle/coracletest":
+				t.Fatalf("%s imports %q in the default production build",
+					path, importPath)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir(.): %v", err)
+	}
+}
+
 func TestVP9OracleSourceTestsStayTagged(t *testing.T) {
 	oracleProbeText := []string{
 		"libvpx checkout not present under internal/coracle/build",
@@ -118,20 +160,29 @@ func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 
 func testFileImports(t *testing.T, path string, importPath string) bool {
 	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-	if err != nil {
-		t.Fatalf("ParseFile(%s): %v", path, err)
-	}
-	for _, spec := range file.Imports {
-		got, err := strconv.Unquote(spec.Path.Value)
-		if err != nil {
-			t.Fatalf("Unquote(%s import): %v", path, err)
-		}
+	for _, got := range goFileImports(t, path) {
 		if got == importPath {
 			return true
 		}
 	}
 	return false
+}
+
+func goFileImports(t *testing.T, path string) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("ParseFile(%s): %v", path, err)
+	}
+	imports := make([]string, 0, len(file.Imports))
+	for _, spec := range file.Imports {
+		got, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			t.Fatalf("Unquote(%s import): %v", path, err)
+		}
+		imports = append(imports, got)
+	}
+	return imports
 }
 
 func testFileHasBuildTag(t *testing.T, path string, tag string) bool {

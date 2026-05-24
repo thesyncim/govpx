@@ -15,7 +15,7 @@ import (
 // math) without requiring the slow per-feature gates to fire.
 func TestComputeBDRateVP8Smoke(t *testing.T) {
 	t.Parallel()
-	res, err := ComputeBDRateVP8(t, BDRateOptionsVP8{
+	res, err := ComputeBDRateVP8(BDRateOptionsVP8{
 		Width:  64,
 		Height: 64,
 		FPS:    30,
@@ -125,7 +125,7 @@ func TestComputeBDRateVP8Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := good
 			tc.opts(&opts)
-			if _, err := ComputeBDRateVP8(t, opts); err == nil {
+			if _, err := ComputeBDRateVP8(opts); err == nil {
 				t.Fatalf("ComputeBDRateVP8(%s) = nil err, want validation failure", tc.name)
 			}
 		})

@@ -293,7 +293,7 @@ func runVP8BDRateFixture(t *testing.T, label, scoreboardLabel string, opts bench
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
 	}
 	opts.LibvpxReference = true
-	res, err := benchcmd.ComputeBDRateVP8(t, opts)
+	res, err := benchcmd.ComputeBDRateVP8(opts)
 	if err != nil {
 		t.Fatalf("ComputeBDRateVP8(%s) err: %v (ref=%v test=%v)", label, err, res.Reference, res.Govpx)
 	}
@@ -337,7 +337,7 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 		height = 144
 		frames = 24
 	)
-	res, err := benchcmd.ComputeBDRateVP8(t, benchcmd.BDRateOptionsVP8{
+	res, err := benchcmd.ComputeBDRateVP8(benchcmd.BDRateOptionsVP8{
 		Width:           width,
 		Height:          height,
 		FPS:             30,

@@ -14,7 +14,7 @@ import (
 // without requiring the full feature gates to fire.
 func TestComputeBDRateSmoke(t *testing.T) {
 	t.Parallel()
-	res, err := ComputeBDRate(t, BDRateOptions{
+	res, err := ComputeBDRate(BDRateOptions{
 		Width:  64,
 		Height: 64,
 		FPS:    30,
