@@ -213,7 +213,9 @@ This ledger tracks intent, not completed work.
   codec-specific internal test packages. Public VP9 option/control coverage for
   delta-Q-UV, color metadata, render size, and loop-filter disabling now runs
   from `package govpx_test` and checks emitted headers instead of private
-  encoder fields.
+  encoder fields. VP9 variance-partition NN table and inference tests now live
+  in `internal/vp9/encoder`; the root ML partition file keeps only root-local
+  private helper coverage pending the implementation move.
 - Move pure implementation suites after the package boundary moves: coefficient
   costing, speed features, row workers, partition decisions, rate control,
   TPL/ARNR/AQ, loopfilter, decoder motion/context, and allocation contracts are
