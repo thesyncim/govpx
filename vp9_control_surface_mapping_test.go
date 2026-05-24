@@ -1,13 +1,14 @@
-package govpx
+package govpx_test
 
 import (
 	"testing"
 
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/controlsurface"
 )
 
 func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := controlsurface.ExportedMethodSet(t, (*VP9Encoder)(nil))
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9Encoder)(nil))
 	want := map[string]controlsurface.Mapping{
 		"Close":                          {Kind: "lifecycle"},
 		"Codec":                          {Kind: "metadata-api"},
@@ -87,7 +88,7 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 }
 
 func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
-	fields := controlsurface.ExportedFieldSet(t, VP9EncoderOptions{})
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9EncoderOptions{})
 	want := map[string]controlsurface.Mapping{
 		"AdaptiveKeyFrames":   {Kind: "vp9-scene-cut-control"},
 		"AltRefAQ":            {Kind: "libvpx-control", HelperTokens: []string{"altrefaq:", "--alt-ref-aq"}},
@@ -175,7 +176,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 }
 
 func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := controlsurface.ExportedMethodSet(t, (*VP9Decoder)(nil))
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9Decoder)(nil))
 	want := map[string]controlsurface.Mapping{
 		"ClearSVCSpatialLayer":     {Kind: "libvpx-decoder-control"},
 		"Close":                    {Kind: "lifecycle"},
@@ -210,7 +211,7 @@ func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 }
 
 func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
-	fields := controlsurface.ExportedFieldSet(t, VP9DecoderOptions{})
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9DecoderOptions{})
 	want := map[string]controlsurface.Mapping{
 		"ByteAlignment":          {Kind: "libvpx-decoder-control"},
 		"DecodeTileCol":          {Kind: "libvpx-decoder-control"},
@@ -239,7 +240,7 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := controlsurface.ExportedMethodSet(t, (*VP9SpatialSVCEncoder)(nil))
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9SpatialSVCEncoder)(nil))
 	want := map[string]controlsurface.Mapping{
 		"Close":                {Kind: "lifecycle"},
 		"EncodeInto":           {Kind: "vp9-spatial-svc-superframe-api"},
@@ -350,7 +351,7 @@ func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) 
 }
 
 func TestVP9SpatialSVCEncoderOptionsHaveParityMapping(t *testing.T) {
-	fields := controlsurface.ExportedFieldSet(t, VP9SpatialSVCEncoderOptions{})
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9SpatialSVCEncoderOptions{})
 	want := map[string]controlsurface.Mapping{
 		"InterLayerPrediction": {Kind: "vp9-spatial-svc-layer-control"},
 		"LayerCount":           {Kind: "libvpx-vp9-svc-control"},

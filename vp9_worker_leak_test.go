@@ -1,10 +1,12 @@
-package govpx
+package govpx_test
 
 import (
 	"image"
 	"runtime"
 	"testing"
 	"time"
+
+	govpx "github.com/thesyncim/govpx"
 )
 
 // TestVP9WorkerPoolNoGoroutineLeakOnClose spawns several VP9 encoders and
@@ -28,14 +30,14 @@ func TestVP9WorkerPoolNoGoroutineLeakOnClose(t *testing.T) {
 	const iterations = 8
 	for i := range iterations {
 		// Plain tile-threaded encoder.
-		enc, err := NewVP9Encoder(VP9EncoderOptions{
+		enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 			Width:   128,
 			Height:  64,
 			FPS:     30,
 			Threads: 4,
 		})
 		if err != nil {
-			t.Fatalf("NewVP9Encoder[%d]: %v", i, err)
+			t.Fatalf("govpx.NewVP9Encoder[%d]: %v", i, err)
 		}
 		// Push one frame so the tile worker pool gets engaged at least once
 		// before shutdown, mirroring the real-world dispatch ordering.
@@ -49,13 +51,13 @@ func TestVP9WorkerPoolNoGoroutineLeakOnClose(t *testing.T) {
 			t.Fatalf("Close[%d]: %v", i, err)
 		}
 		// Double-Close is allowed and must not leak / panic.
-		if err := enc.Close(); err != ErrClosed {
-			t.Fatalf("double Close[%d] err = %v, want ErrClosed", i, err)
+		if err := enc.Close(); err != govpx.ErrClosed {
+			t.Fatalf("double Close[%d] err = %v, want govpx.ErrClosed", i, err)
 		}
 
 		// RowMT-threaded encoder so the per-tile-column row worker pools
 		// also have to be torn down by Close.
-		rowEnc, err := NewVP9Encoder(VP9EncoderOptions{
+		rowEnc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 			Width:   128,
 			Height:  64,
 			FPS:     30,
@@ -63,7 +65,7 @@ func TestVP9WorkerPoolNoGoroutineLeakOnClose(t *testing.T) {
 			RowMT:   true,
 		})
 		if err != nil {
-			t.Fatalf("NewVP9Encoder(rowMT)[%d]: %v", i, err)
+			t.Fatalf("govpx.NewVP9Encoder(rowMT)[%d]: %v", i, err)
 		}
 		if _, err := rowEnc.Encode(img); err != nil {
 			rowEnc.Close()
@@ -73,15 +75,15 @@ func TestVP9WorkerPoolNoGoroutineLeakOnClose(t *testing.T) {
 			t.Fatalf("rowMT Close[%d]: %v", i, err)
 		}
 
-		dec, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
+		dec, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{Threads: 4})
 		if err != nil {
-			t.Fatalf("NewVP9Decoder[%d]: %v", i, err)
+			t.Fatalf("govpx.NewVP9Decoder[%d]: %v", i, err)
 		}
 		if err := dec.Close(); err != nil {
 			t.Fatalf("Decoder Close[%d]: %v", i, err)
 		}
-		if err := dec.Close(); err != ErrClosed {
-			t.Fatalf("double decoder Close[%d] err = %v, want ErrClosed", i, err)
+		if err := dec.Close(); err != govpx.ErrClosed {
+			t.Fatalf("double decoder Close[%d] err = %v, want govpx.ErrClosed", i, err)
 		}
 	}
 
