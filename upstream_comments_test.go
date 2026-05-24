@@ -1,4 +1,4 @@
-package govpx
+package govpx_test
 
 import (
 	"os"
