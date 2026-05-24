@@ -3,6 +3,12 @@
 package vp8test
 
 import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
@@ -67,31 +73,55 @@ func VpxencFrameFlagsOracle(t testing.TB) string {
 // Frames runs the checksum oracle in normal decode mode.
 func (o Oracle) Frames(t testing.TB, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracle(t, o.path, ivf)
+	path := writeIVF(t, "govpx-keyframe.ivf", ivf)
+	return o.File(t, path)
 }
 
 // FramesMode runs the checksum oracle in a named decode mode.
 func (o Oracle) FramesMode(t testing.TB, mode string, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleMode(t, o.path, mode, ivf)
+	path := writeIVF(t, "govpx-"+mode+".ivf", ivf)
+	return o.FileMode(t, mode, path)
 }
 
 // FramesModeExpectError runs the checksum oracle and returns the decode error.
 func (o Oracle) FramesModeExpectError(t testing.TB, mode string, ivf []byte) error {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleModeExpectError(t, o.path, mode, ivf)
+	path := writeIVF(t, "govpx-"+mode+".ivf", ivf)
+	return o.FileModeExpectError(t, mode, path)
 }
 
 // File runs the checksum oracle against an IVF file path.
 func (o Oracle) File(t testing.TB, path string) []testutil.FrameChecksum {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleFile(t, o.path, path)
+	return o.FileMode(t, "decode", path)
+}
+
+// FileMode runs the checksum oracle in mode against an IVF file path.
+func (o Oracle) FileMode(t testing.TB, mode string, path string) []testutil.FrameChecksum {
+	t.Helper()
+	frames, out, err := coracle.VpxdecVP8ChecksumFile(o.path, mode, path)
+	if err != nil {
+		failChecksumOracle(t, out, err)
+	}
+	return frames
 }
 
 // FileExpectError runs the checksum oracle against an invalid IVF file path.
 func (o Oracle) FileExpectError(t testing.TB, path string) error {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleFileExpectError(t, o.path, path)
+	return o.FileModeExpectError(t, "decode", path)
+}
+
+// FileModeExpectError runs the checksum oracle and returns the process error.
+func (o Oracle) FileModeExpectError(t testing.TB, mode string, path string) error {
+	t.Helper()
+	out, err := coracle.VpxdecVP8ChecksumFileExpectError(o.path, mode, path)
+	var exitErr *exec.ExitError
+	if err != nil && !errors.As(err, &exitErr) {
+		t.Fatalf("libvpx oracle failed to start: %v\n%s", err, out)
+	}
+	return err
 }
 
 // FramesWithControlScript runs a decoder control-script mode and returns both
@@ -100,8 +130,12 @@ func (o Oracle) FramesWithControlScript(t testing.TB, mode string,
 	script []string, ivf []byte,
 ) ([]testutil.FrameChecksum, []testutil.FrameChecksum) {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleControlScriptWithCopyLog(t, o.path,
-		mode, script, ivf)
+	dir := t.TempDir()
+	path := writeIVFInDir(t, dir, "govpx-"+mode+".ivf", ivf)
+	copyLogPath := filepath.Join(dir, "copy-reference.jsonl")
+	args := []string{mode, strings.Join(script, ","), copyLogPath, path}
+	frames := o.Args(t, args)
+	return frames, readCopyReferenceLog(t, copyLogPath)
 }
 
 // ThreadedFramesWithControlScript runs the threaded decoder control-script
@@ -110,8 +144,28 @@ func (o Oracle) ThreadedFramesWithControlScript(t testing.TB,
 	threads int, script []string, ivf []byte,
 ) ([]testutil.FrameChecksum, []testutil.FrameChecksum) {
 	t.Helper()
-	return coracletest.RunVP8ChecksumOracleThreadedControlScriptWithCopyLog(t,
-		o.path, threads, script, ivf)
+	dir := t.TempDir()
+	path := writeIVFInDir(t, dir, "govpx-decode-threaded-controls.ivf", ivf)
+	copyLogPath := filepath.Join(dir, "copy-reference.jsonl")
+	args := []string{
+		"decode-threaded-controls-copylog",
+		strconv.Itoa(threads),
+		strings.Join(script, ","),
+		copyLogPath,
+		path,
+	}
+	frames := o.Args(t, args)
+	return frames, readCopyReferenceLog(t, copyLogPath)
+}
+
+// Args runs the checksum oracle with raw mode arguments.
+func (o Oracle) Args(t testing.TB, args []string) []testutil.FrameChecksum {
+	t.Helper()
+	frames, out, err := coracle.VpxdecVP8ChecksumArgs(o.path, args)
+	if err != nil {
+		failChecksumOracle(t, out, err)
+	}
+	return frames
 }
 
 // UpdateBaselines reports whether oracle scoreboard baselines should be rewritten.
@@ -148,4 +202,38 @@ func VpxdecSummaryIVF(t testing.TB, binary string, ivf []byte) {
 	if err != nil {
 		t.Fatalf("vpxdec failed: %v\n%s", err, diag)
 	}
+}
+
+func writeIVF(t testing.TB, name string, ivf []byte) string {
+	t.Helper()
+	return writeIVFInDir(t, t.TempDir(), name, ivf)
+}
+
+func writeIVFInDir(t testing.TB, dir string, name string, ivf []byte) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	return path
+}
+
+func readCopyReferenceLog(t testing.TB, path string) []testutil.FrameChecksum {
+	t.Helper()
+	frames, data, err := coracle.ReadFrameChecksumJSONLFile(path)
+	if err != nil {
+		if errors.Is(err, testutil.ErrInvalidOracleOutput) {
+			t.Fatalf("libvpx copy-reference log produced invalid output:\n%s", data)
+		}
+		t.Fatalf("ParseFrameChecksumJSONLines copy-reference log returned error: %v", err)
+	}
+	return frames
+}
+
+func failChecksumOracle(t testing.TB, out []byte, err error) {
+	t.Helper()
+	if errors.Is(err, testutil.ErrInvalidOracleOutput) {
+		t.Fatalf("libvpx oracle produced invalid output:\n%s", out)
+	}
+	t.Fatalf("libvpx oracle failed: %v\n%s", err, out)
 }
