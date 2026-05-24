@@ -13,14 +13,14 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// TestVP8OracleCBRDropFrameScoreboard pins govpx-vs-libvpx parity on the CBR
+// TestVP8OracleCBRDropFrameParity pins govpx-vs-libvpx parity on the CBR
 // drop-frame and buffer-pressure decision boundary. Each fixture
 // deliberately under-budgets the channel so both encoders are forced to
 // drop several inter frames; we then verify the drop count, drop indices,
 // per-frame force_maxqp lifecycle, post-drop buffer-level trajectory, and
 // post-drop Q recovery line up.
 //
-// Baseline file: testdata/cbr_drop_scoreboard_baseline.json. The baseline
+// Baseline file: testdata/cbr_drop_parity_baseline.json. The baseline
 // records the govpx-side drop count / indices / mean buffer level / mean
 // post-drop Q so future regressions on the govpx side are caught even when
 // the libvpx oracle drifts within tolerance. Bootstrap with
@@ -39,7 +39,7 @@ import (
 // govpx_oracle_emit_dropped_frame hook + three call sites in
 // vp8/encoder/onyx_if.c (decimation, buffer underrun, post-encode
 // overshoot).
-func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
+func TestVP8OracleCBRDropFrameParity(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle CBR drop-frame scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -123,7 +123,7 @@ func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
 		Fixtures map[string]fixtureSummary `json:"fixtures"`
 	}
 
-	baselinePath := "testdata/cbr_drop_scoreboard_baseline.json"
+	baselinePath := "testdata/cbr_drop_parity_baseline.json"
 	updateBaselines := vp8test.UpdateBaselines()
 	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 

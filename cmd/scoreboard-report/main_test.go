@@ -119,7 +119,7 @@ func TestFormatGapReportFlat(t *testing.T) {
 }
 
 func TestFormatGapReportRawDeltaCount(t *testing.T) {
-	// realtime_candidate_scoreboard.json shape: divergent_rows is the gap.
+	// realtime_candidate_parity_baseline.json shape: divergent_rows is the gap.
 	raw := []byte(`{
 	  "fixtures": {
 	    "rt-cbr-cpu0": {"divergent_rows": 2, "total_rows": 285, "field_hist": {"mv_row":2}}

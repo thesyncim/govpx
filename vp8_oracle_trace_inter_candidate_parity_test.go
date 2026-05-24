@@ -11,27 +11,27 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// scoreboardFixtureSnapshot captures one realtime CPU band's
+// interCandidateParitySnapshot captures one realtime CPU band's
 // inter-candidate divergence summary. JSON shape is the on-disk baseline
 // shape, so we can encode/decode it directly.
-type scoreboardFixtureSnapshot struct {
+type interCandidateParitySnapshot struct {
 	DivergentRows int            `json:"divergent_rows"`
 	TotalRows     int            `json:"total_rows"`
 	FieldHist     map[string]int `json:"field_hist"`
 }
 
-type scoreboardBaseline struct {
-	Fixtures map[string]scoreboardFixtureSnapshot `json:"fixtures"`
+type interCandidateParityBaseline struct {
+	Fixtures map[string]interCandidateParitySnapshot `json:"fixtures"`
 }
 
-// TestVP8OracleTraceInterCandidateScoreboard runs the inter-candidate
+// TestVP8OracleTraceInterCandidateParity runs the inter-candidate
 // trace comparator across a band of realtime CPU presets and turns the
 // resulting [][]Divergence into a scoreboard. Unlike
 // TestVP8OracleTraceInterCandidateCompare, this test does NOT fail on
 // any divergence -- it logs a per-fixture markdown table and asserts only
 // against a baseline so we catch regressions without blocking incremental
 // progress on the realtime path.
-func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
+func TestVP8OracleTraceInterCandidateParity(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -72,7 +72,7 @@ func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 		{name: "realtime-cbr-cpu8", opts: makeOpts(8), extraArgs: []string{"--end-usage=cbr"}},
 	}
 
-	current := scoreboardBaseline{Fixtures: map[string]scoreboardFixtureSnapshot{}}
+	current := interCandidateParityBaseline{Fixtures: map[string]interCandidateParitySnapshot{}}
 
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
@@ -106,7 +106,7 @@ func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 				matchRate = 1.0 - float64(divergentRows)/float64(totalRows)
 			}
 
-			snap := scoreboardFixtureSnapshot{
+			snap := interCandidateParitySnapshot{
 				DivergentRows: divergentRows,
 				TotalRows:     totalRows,
 				FieldHist:     fieldHist,
@@ -115,11 +115,11 @@ func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 
 			t.Logf("scoreboard %s: divergent_rows=%d total_inter_candidate_rows=%d match_rate=%.4f",
 				fx.name, divergentRows, totalRows, matchRate)
-			t.Logf("\n%s", formatScoreboardTable(fx.name, snap, matchRate))
+			t.Logf("\n%s", formatInterCandidateParityTable(fx.name, snap, matchRate))
 		})
 	}
 
-	baselinePath := "testdata/realtime_candidate_scoreboard.json"
+	baselinePath := "testdata/realtime_candidate_parity_baseline.json"
 	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return
@@ -154,7 +154,7 @@ func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
 	}
 }
 
-func formatScoreboardTable(name string, snap scoreboardFixtureSnapshot, matchRate float64) string {
+func formatInterCandidateParityTable(name string, snap interCandidateParitySnapshot, matchRate float64) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "### %s\n", name)
 	fmt.Fprintf(&buf, "| metric | value |\n")

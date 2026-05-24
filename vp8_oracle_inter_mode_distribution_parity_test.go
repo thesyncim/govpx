@@ -14,7 +14,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// TestVP8OracleInterModeDistributionScoreboard captures per-fixture inter-frame
+// TestVP8OracleInterModeDistributionParity captures per-fixture inter-frame
 // mode/ref/skip distribution for govpx and libvpx, emits a side-by-side
 // scoreboard, and gates regression against
 // testdata/inter_mode_distribution_baseline.json. Each fixture's mode pp
@@ -35,7 +35,7 @@ import (
 // surface here, not just in the smaller synthetic fixtures.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
-func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
+func TestVP8OracleInterModeDistributionParity(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle inter-mode distribution scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -138,7 +138,7 @@ func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
 			sources := make([]Image, spec.Frames)
 			for i := range sources {
 				if spec.Kind == fixtureBenchNoise {
-					sources[i] = scoreboardBenchNoiseFrame(spec.Width, spec.Height, i)
+					sources[i] = interModeBenchNoiseFrame(spec.Width, spec.Height, i)
 				} else {
 					sources[i] = encoderValidationPanningFrame(spec.Width, spec.Height, i)
 				}
@@ -152,8 +152,8 @@ func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
 			}
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "interdist-"+spec.Name, opts, spec.TargetKbps, sources, extra)
 
-			gMode, gRefLast, gSkip, gEOB, gTotal := scoreboardInterMacroblockHistogram(t, govpxTrace)
-			lMode, lRefLast, lSkip, lEOB, lTotal := scoreboardInterMacroblockHistogram(t, libvpxTrace)
+			gMode, gRefLast, gSkip, gEOB, gTotal := interModeMacroblockHistogram(t, govpxTrace)
+			lMode, lRefLast, lSkip, lEOB, lTotal := interModeMacroblockHistogram(t, libvpxTrace)
 
 			breakdown := func(m map[string]int, total int) modeBreakdown {
 				if total <= 0 {
@@ -271,10 +271,10 @@ func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
 	t.Logf("inter-mode distribution scoreboard summary:\n%s", summary.String())
 }
 
-// scoreboardBenchNoiseFrame mirrors the cmd/govpx-bench makeBenchmarkFrame
+// interModeBenchNoiseFrame mirrors the cmd/govpx-bench makeBenchmarkFrame
 // pseudo-random pattern. This is the worst-case fixture for ZEROMV-vs-NEW
 // divergence -- the source has no real motion, only per-frame pixel deltas.
-func scoreboardBenchNoiseFrame(width, height, index int) Image {
+func interModeBenchNoiseFrame(width, height, index int) Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
 	img := Image{
@@ -301,10 +301,10 @@ func scoreboardBenchNoiseFrame(width, height, index int) Image {
 	return img
 }
 
-// scoreboardInterMacroblockHistogram counts MB-level mode/ref/skip from the
+// interModeMacroblockHistogram counts MB-level mode/ref/skip from the
 // trace's per-MB rows, returning {mode counts, last-frame count, skip count,
 // eob sum, total inter MBs}. Frame 0 (keyframe) MBs are excluded.
-func scoreboardInterMacroblockHistogram(t *testing.T, trace []byte) (mode map[string]int, lastFrame int, skip int, eobSum int, total int) {
+func interModeMacroblockHistogram(t *testing.T, trace []byte) (mode map[string]int, lastFrame int, skip int, eobSum int, total int) {
 	t.Helper()
 	mode = map[string]int{}
 	scan := bufio.NewScanner(bytes.NewReader(trace))

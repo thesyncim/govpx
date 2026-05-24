@@ -31,14 +31,14 @@ type chromaSubpelBaselineCase struct {
 }
 
 // chromaSubpelBaseline is the baseline shape for the
-// TestVP8OracleChromaSubpelScoreboard scoreboard. Each entry records the
+// TestVP8OracleChromaSubpelParity scoreboard. Each entry records the
 // per-fixture summary scalars; tightening the assertion is a matter of
 // re-running scoreboard-update once a fix lands.
 type chromaSubpelBaseline struct {
 	Cases []chromaSubpelBaselineCase `json:"cases"`
 }
 
-// TestVP8OracleChromaSubpelScoreboard tracks the residual Adler32 byte-identity
+// TestVP8OracleChromaSubpelParity tracks the residual Adler32 byte-identity
 // gap that lives on inter frames at sizes >64x64. The 64x64 byte-identity gate
 // stays in TestVP8OracleReconstructionAdler32Match; this scoreboard pins the
 // 96x96 / 128x128 / 160x96 panning realtime CBR cpu8 cases where keyframes
@@ -51,7 +51,7 @@ type chromaSubpelBaseline struct {
 // the larger fixture corpus uncovers, most likely from the sub-pel filter
 // state at the right frame edge. Closing it requires per-pixel libvpx-side
 // xd->predictor instrumentation to localize.
-func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
+func TestVP8OracleChromaSubpelParity(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle chroma sub-pel scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -177,7 +177,7 @@ func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
 	// Stable case order in the baseline file.
 	sort.Slice(current.Cases, func(i, j int) bool { return current.Cases[i].Name < current.Cases[j].Name })
 
-	baselinePath := "testdata/chroma_subpel_scoreboard_baseline.json"
+	baselinePath := "testdata/chroma_subpel_parity_baseline.json"
 	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return

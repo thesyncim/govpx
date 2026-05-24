@@ -72,7 +72,7 @@ type temporalSVCFixtureSummary struct {
 // (verified by TestTemporalLayeringPatternsMatchLibvpxExample in
 // temporal_test.go).
 //
-// Baseline: testdata/temporal_svc_scoreboard_baseline.json. Bootstrap with
+// Baseline: testdata/temporal_svc_parity_baseline.json. Bootstrap with
 // GOVPX_UPDATE_BASELINES=1.
 //
 // Acceptance bands:
@@ -136,7 +136,7 @@ func TestVP8OracleTemporalSVCParity(t *testing.T) {
 		Fixtures map[string]map[string]any `json:"fixtures"`
 	}
 
-	baselinePath := "testdata/temporal_svc_scoreboard_baseline.json"
+	baselinePath := "testdata/temporal_svc_parity_baseline.json"
 	updateBaselines := vp8test.UpdateBaselines()
 	baseline, baselineExists := vp8test.ReadOptionalJSONBaseline[baselineFile](t, baselinePath)
 

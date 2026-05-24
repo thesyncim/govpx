@@ -35,12 +35,12 @@ type fastInterRefSlot struct {
 //     come from reconstructed pixels, matching libvpx's deferred
 //     vp8_encode_intra4x4block call inside pick_intra4x4block.
 //
-// Result: TestVP8OracleQuantizerHistogramScoreboard's three rt-cpu0/4/8
+// Result: TestVP8OracleQuantizerHistogramParity's three rt-cpu0/4/8
 // 128x128 fixtures dropped from hist_l1=2 to hist_l1=0 (byte-identical
 // per-frame Q histograms vs libvpx). The TestVP8OracleInterModeDistribution
 // 256x256-panning fixture also tightened to l1_pp=0.
 //
-// PIN (residual): 1 inter MB in TestVP8OracleQuantizerHistogramScoreboard's
+// PIN (residual): 1 inter MB in TestVP8OracleQuantizerHistogramParity's
 // good-cpu5-128x128 fixture (frame 5 MB(0,7)) still picks NEWMV/GOLDEN
 // at MV(-120,-76) here while libvpx picks B_PRED at the same MB. Both
 // pickers find the same NEWMV(GOLDEN, -120, -76) candidate (MB(0,7) is
@@ -54,7 +54,7 @@ type fastInterRefSlot struct {
 // top-right corner, or lining up the rate-correction-factor trajectory
 // after a single corner-MB ref-frame divergence.
 //
-// R9-1: TestVP8OracleInterModeDistributionScoreboard's
+// R9-1: TestVP8OracleInterModeDistributionParity's
 // rt-cpu8-1280x720-bench-noise fixture pins the high-resolution mode
 // dispersal at bench scale. The current residual is a NEAREST-heavy
 // distribution with NEAR/NEW under-picked vs libvpx, plus a residual-token

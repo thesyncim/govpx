@@ -162,6 +162,29 @@ func TestCleanedVP9AndBenchFilesDoNotUseTrackerLabels(t *testing.T) {
 	}
 }
 
+func TestRootVPxOracleTestsUseObjectiveNames(t *testing.T) {
+	files, err := filepath.Glob("vp[89]*_test.go")
+	if err != nil {
+		t.Fatalf("Glob(%q): %v", "vp[89]*_test.go", err)
+	}
+	for _, path := range files {
+		if strings.Contains(filepath.Base(path), "scoreboard") {
+			t.Fatalf("%s uses a scoreboard-era filename; root parity tests need objective names", path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", path, err)
+		}
+		for lineNo, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, "func TestVP") &&
+				strings.Contains(line, "Scoreboard") {
+				t.Fatalf("%s:%d uses a scoreboard-era test name",
+					path, lineNo+1)
+			}
+		}
+	}
+}
+
 func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 	reason string,
 ) {

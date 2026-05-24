@@ -14,12 +14,12 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// candidateRateScoreboardSnapshot is the per-fixture summary persisted to
+// candidateRateParitySnapshot is the per-fixture summary persisted to
 // testdata. Each scalar is computed in lockstep across govpx and libvpx
 // inter_candidate rows (matched on frame_index, mb_row, mb_col, picker,
 // mode_index, ref_slot). Aggregate-frame match counts use the per-frame
 // sum of |rate_govpx - rate_libvpx| across all matched candidates.
-type candidateRateScoreboardSnapshot struct {
+type candidateRateParitySnapshot struct {
 	TotalCandidates             int     `json:"total_candidates"`
 	MatchedCandidates           int     `json:"matched_candidates"`
 	UnmatchedGovpxCandidates    int     `json:"unmatched_govpx_candidates"`
@@ -32,11 +32,11 @@ type candidateRateScoreboardSnapshot struct {
 	PerCandidateMatchRate       float64 `json:"per_candidate_match_rate"`
 }
 
-type candidateRateScoreboardBaseline struct {
-	Fixtures map[string]candidateRateScoreboardSnapshot `json:"fixtures"`
+type candidateRateParityBaseline struct {
+	Fixtures map[string]candidateRateParitySnapshot `json:"fixtures"`
 }
 
-// TestVP8OracleCandidateRateScoreboard captures per-candidate rate scalars
+// TestVP8OracleCandidateRateParity captures per-candidate rate scalars
 // from both encoders and reports a per-frame match rate. The fixture
 // matches TestVP8OracleTraceInterCandidateCompare so anyone looking at
 // candidate-row divergences can pivot directly to a rate-only summary.
@@ -48,7 +48,7 @@ type candidateRateScoreboardBaseline struct {
 // the equivalent `rate2` from the fast picker (vp8/encoder/pickinter.c,
 // before update_best_mode). Both encoders flush these rows at frame
 // commit time; this test walks them in lockstep and tabulates the deltas.
-func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
+func TestVP8OracleCandidateRateParity(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -85,13 +85,13 @@ func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
 		{name: "good-quality-rd", opts: opts, extraArgs: []string{"--end-usage=vbr"}},
 	}
 
-	current := candidateRateScoreboardBaseline{Fixtures: map[string]candidateRateScoreboardSnapshot{}}
+	current := candidateRateParityBaseline{Fixtures: map[string]candidateRateParitySnapshot{}}
 
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, fx.opts, sources)
 			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "candidate-rate-"+fx.name, fx.opts, targetKbps, sources, fx.extraArgs)
-			snap := summarizeCandidateRateScoreboard(t, govpxTrace, libvpxTrace)
+			snap := summarizeCandidateRateParity(t, govpxTrace, libvpxTrace)
 			current.Fixtures[fx.name] = snap
 
 			t.Logf("scoreboard %s: total=%d matched=%d (%.4f match) mean_abs=%.2f max_abs=%d frames(agg=%d per_cand=%d / %d)",
@@ -99,11 +99,11 @@ func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
 				snap.TotalCandidates, snap.MatchedCandidates, snap.PerCandidateMatchRate,
 				snap.MeanAbsRateDeltaBits, snap.MaxAbsRateDeltaBits,
 				snap.FramesWithAggregateMatch, snap.FramesWithPerCandidateMatch, snap.FramesCompared)
-			t.Logf("\n%s", formatCandidateRateScoreboardTable(fx.name, snap))
+			t.Logf("\n%s", formatCandidateRateParityTable(fx.name, snap))
 		})
 	}
 
-	baselinePath := "testdata/candidate_rate_scoreboard_baseline.json"
+	baselinePath := "testdata/candidate_rate_parity_baseline.json"
 	base, wrote := vp8test.ReadOrWriteJSONBaseline(t, baselinePath, current)
 	if wrote {
 		return
@@ -237,7 +237,7 @@ type candidateRateKey struct {
 	RefSlot    int
 }
 
-func summarizeCandidateRateScoreboard(t *testing.T, govpxTrace, libvpxTrace []byte) candidateRateScoreboardSnapshot {
+func summarizeCandidateRateParity(t *testing.T, govpxTrace, libvpxTrace []byte) candidateRateParitySnapshot {
 	t.Helper()
 	govpxRows := parseCandidateRateRows(t, govpxTrace)
 	libvpxRows := parseCandidateRateRows(t, libvpxTrace)
@@ -343,7 +343,7 @@ func summarizeCandidateRateScoreboard(t *testing.T, govpxTrace, libvpxTrace []by
 	mean = math.Round(mean*100) / 100
 	matchRate = math.Round(matchRate*10000) / 10000
 
-	return candidateRateScoreboardSnapshot{
+	return candidateRateParitySnapshot{
 		TotalCandidates:             totalCandidates,
 		MatchedCandidates:           matched,
 		UnmatchedGovpxCandidates:    unmatchedGovpx,
@@ -357,7 +357,7 @@ func summarizeCandidateRateScoreboard(t *testing.T, govpxTrace, libvpxTrace []by
 	}
 }
 
-func formatCandidateRateScoreboardTable(name string, snap candidateRateScoreboardSnapshot) string {
+func formatCandidateRateParityTable(name string, snap candidateRateParitySnapshot) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "### %s\n", name)
 	fmt.Fprintf(&buf, "| metric | value |\n|---|---|\n")
