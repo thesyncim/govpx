@@ -404,7 +404,7 @@ type VP9Encoder struct {
 	autoAltRefPendingSet bool
 	autoAltRefEmitted    bool
 	vp9ARNRScratch       image.YCbCr
-	vp9ARNRRefs          [maxARNRFrames]arnrFrameView
+	vp9ARNRRefs          [maxARNRFrames]encoder.TemporalFilterFrame
 
 	vp9ModeDecisionQIndex    uint8
 	vp9ModeDecisionQIndexSet bool

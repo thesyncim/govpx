@@ -9,19 +9,19 @@ Last refreshed: 2026-05-24 from `main`.
 
 - Root Go files: 519.
 - Root test files: 363.
-- Internal Go files: 729.
+- Internal Go files: 731.
 - Root VP8 files: 82 implementation files and 213 test files.
 - Root VP9 files: 65 implementation files and 138 test files.
 - Internal package files:
   - `internal/vp8`: 326 Go files.
-  - `internal/vp9`: 317 Go files.
+  - `internal/vp9`: 319 Go files.
   - `internal/vpx`: 15 Go files.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 41 Go files.
 - Test-name clusters:
   - Non-internal tests: 381.
-  - Internal tests: 313.
-  - Files with `oracle` in the name: 155.
+  - Internal tests: 314.
+  - Files with `oracle` in the name: 140.
   - Files with `parity` in the name: 57.
   - Files with `fuzz` in the name: 45.
   - Files with `bench` in the path: 42.
@@ -35,18 +35,18 @@ Largest root files:
 
 | Lines | File |
 | ---: | --- |
-| 2200 | `vp9_encoder_key_modes.go` |
+| 2201 | `vp9_encoder_key_modes.go` |
 | 2130 | `vp9_speed_features.go` |
-| 1946 | `feature_quality_gates_vp8_test.go` |
 | 1836 | `vp9_decoder.go` |
-| 1793 | `vp9_encoder_inter_modes.go` |
+| 1780 | `feature_quality_gates_vp8_test.go` |
 | 1773 | `vp8_encoder_runtime_controls_test.go` |
+| 1771 | `vp9_encoder_inter_modes.go` |
 | 1723 | `vp8_encoder_config.go` |
-| 1707 | `vp9_spatial_svc_test.go` |
+| 1708 | `vp9_spatial_svc_test.go` |
 | 1651 | `vp9_encoder_inter_partition.go` |
-| 1581 | `vp9_encoder_vpxenc_oracle_test.go` |
+| 1579 | `vp9_encoder_vpxenc_oracle_test.go` |
 | 1548 | `vp9_pick_inter_mode_nonrd.go` |
-| 1518 | `vp8_oracle_encoder_stream_parity_test.go` |
+| 1514 | `vp8_oracle_encoder_stream_parity_test.go` |
 | 1503 | `vp9_decoder_modes.go` |
 | 1488 | `vp8_encoder_twopass_state.go` |
 | 1406 | `vp9_encoder_ratecontrol_test.go` |
@@ -58,13 +58,13 @@ Largest internal files:
 | 1754 | `internal/vp9/encoder/transform_quant.go` |
 | 1483 | `internal/vp9/encoder/transform_quant_test.go` |
 | 1108 | `internal/vp9/encoder/gf_group.go` |
-| 948 | `internal/vp9/encoder/cyclic_refresh.go` |
 | 935 | `internal/vp8/decoder/reconstruct.go` |
-| 928 | `internal/vp8/decoder/postprocess.go` |
+| 929 | `internal/vp9/encoder/cyclic_refresh.go` |
+| 921 | `internal/vp8/decoder/postprocess.go` |
 | 896 | `internal/coracle/oracle_compare_test.go` |
 | 843 | `internal/vp9/tables/coef_probs.go` |
-| 756 | `internal/vp9/encoder/block_yrd.go` |
-| 755 | `internal/vp9/rtp/rtp.go` |
+| 833 | `internal/vp8/encoder/optimize_block_dp_state_test.go` |
+| 793 | `internal/vp9/encoder/temporal_filter.go` |
 
 ## Public Surface Inventory
 
@@ -192,7 +192,7 @@ This ledger tracks intent, not completed work.
 | Area | Current State | Target |
 | --- | --- | --- |
 | Root VP8 implementation | 80 root VP8 implementation files remain. | Public VP8 handle/config in root; private encoder/decoder mechanics under `internal/vp8/encoder` and `internal/vp8/decoder`. |
-| Root VP9 implementation | 65 root VP9 implementation files remain; VP9 SVC layer-context state, Equator360 AQ helpers, variance/complexity AQ segmentation math, frame-context reset/commit/adaptation helpers, first-pass frame analysis, public-quantizer/q-delta helpers, full-pel motion-search helpers, per-SB content/ARF buffer mechanics, and superframe index mechanics now live under `internal/vp9`; stale VP9 stderr debug hooks, the always-on non-RD staging predicate, and the root-private superframe adapter are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
+| Root VP9 implementation | 65 root VP9 implementation files remain; VP9 SVC layer-context state, Equator360 AQ helpers, variance/complexity AQ segmentation math, frame-context reset/commit/adaptation helpers, first-pass frame analysis, public-quantizer/q-delta helpers, full-pel motion-search helpers, per-SB content/ARF buffer mechanics, ARNR temporal-filter windowing/search/prediction/filtering, and superframe index mechanics now live under `internal/vp9`; stale VP9 stderr debug hooks, the always-on non-RD staging predicate, and the root-private superframe adapter are removed. | Public VP9 handle/config in root; private encoder/decoder mechanics under `internal/vp9/encoder` and `internal/vp9/decoder`. |
 | Root oracle process plumbing | VP8 direct `os/exec` test callers and the VP9 spatial-SVC sample runner have been moved behind coracle helpers. `internal/coracle` production code no longer imports `internal/testutil`; neutral IVF parsing/building lives in `internal/vpx/ivf`, and checksum-oracle JSON parsing lives in `internal/vpx/conformance`. VP9 root oracle tests no longer import `internal/coracle` or `internal/coracle/coracletest` directly; they use `internal/testutil/vp9test` for oracle gating, strict-mode env flags, and tool resolution. VP9 corpus-required and minimum-file policy lives in `internal/testutil/vp9corpus`, not in root tests. VP8 root oracle tests no longer import `internal/coracle` or `internal/coracle/coracletest` directly; they use `internal/testutil/vp8test` for VP8 oracle gating across normal tests, strict threaded-oracle quarantine mode, tool resolution, trace projection/comparison, vpxenc/vpxdec calls, first-pass and two-pass captures, temporal-SVC sample runs, checksum subprocess runs, decoder checksum handles, and JSON baselines. Legacy string-path checksum wrappers and task-number bitrate env hooks are gone; `internal/coracle/coracletest` now keeps shared oracle enablement, tool resolution, and baseline helpers only under `govpx_oracle_trace`. | Keep subprocess and fixture mechanics in `internal/coracle`; root tests express behavior/parity only. |
 | Root tests | 363 top-level root tests remain; many are codec implementation and parity tests. A VP8 naming pass converted the feature-gate, ARNR, SVC, speed-feature, threading, runtime-control, split-MV, and chroma-residual comments/subtest labels touched by the current packet from tracker history into objective behavior descriptions. Shared strided-plane append/equality helpers and first-byte-diff diagnostics now live in `internal/testutil`; VP8 external IVF corpus roots, benchmark corpus fallback, limits, source-clip parsing, and minimum rules now live in `internal/testutil/vp8corpus`; VP8 synthetic packet builders now live in `internal/testutil/vp8test`; shared VP9 YCbCr/I420/header helpers, IVF payload extraction/building, packet byte-parity diagnostics, synthetic image fixtures, source generators, byte-parity counters, vpxenc packet capture, vpxenc IVF capture, two-pass packet capture, frame-flags packet capture, frame-flags trace packet unpacking, copy-reference log capture, spatial-SVC sample packet capture, first-pass stats parsing/capture, vpxdec I420 decode wrappers, vpxdec WebM/invalid-IVF wrappers, vpxdec acceptance wrappers, panning sources, stream-parity row formatting, rate-scoreboard row parsing/formatting, transition comparison stats, drop-aware stream parity summaries, single-stream scoreboard formatting, drop summaries, hidden-frame and alt-ref refresh counters, auto-alt-ref visibility formatting, and Q histograms now live in `internal/testutil/vp9test`; VP9 external corpus selection and minimum rules now live in `internal/testutil/vp9corpus`; VP8 and VP9 RTP fuzzers now live beside the internal RTP packages; public-only VP8 and VP9 decoder facade tests plus VP9 facade tests for control-surface mapping, active-map exposure, worker cleanup, last-quantizer metadata, and RTP roundtrips now run from `package govpx_test`; VP9 source-variance filter-search gating, reset-frame-context tests, cyclic-refresh state-machine tests, pure public-quantizer mapping tests, full-pel motion-search tests, and pure per-SB content/ARF buffer tests now live in `internal/vp9/encoder` instead of root same-package tests. | Public facade tests remain in root; implementation tests move beside internal packages; reusable helpers move to `internal/testutil` or `internal/coracle`. |
 | Shared helpers | `internal/vpx/rtp` owns shared RTP fragment packing, marker, and assembly loops; `internal/vpx/ratecontrol` owns codec-neutral packet-size and percentage arithmetic; `internal/vpx/arith` owns integer saturation, checked multiplication, and coordinate clamps; `internal/vpx/buffers` owns alignment, I420 chroma dimensions, plane length, raw frame sizing, I420 plane serialization, and I420 encode-buffer sizing; `internal/vpx/ivf` owns IVF stream parsing/building; `internal/vpx/conformance` owns codec-neutral frame checksum JSON parsing; `internal/testutil` owns shared env integer parsing, corpus-minimum assertions, byte-diff diagnostics, and shared VP8 synthetic YCbCr fixtures used by parity and BD-rate tests; `internal/testutil/rtptest` owns codec-neutral RTP test mechanics while descriptor syntax stays codec-specific. Codec packages keep descriptor syntax, policy constants, and validation. | Add only mechanical shared helpers: RTP fragments, buffers, geometry, validation, arithmetic, and test harness utilities. |
