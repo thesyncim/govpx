@@ -1,6 +1,10 @@
 package testutil
 
-import "image"
+import (
+	"image"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
+)
 
 // NewYCbCr returns a full-frame 4:2:0 image filled with one Y/Cb/Cr sample.
 func NewYCbCr(width, height int, y, cb, cr byte) *image.YCbCr {
@@ -12,8 +16,7 @@ func NewYCbCr(width, height int, y, cb, cr byte) *image.YCbCr {
 			row[xx] = y
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for yy := 0; yy < uvHeight; yy++ {
 		cbRow := img.Cb[yy*img.CStride:]
 		crRow := img.Cr[yy*img.CStride:]
@@ -37,8 +40,7 @@ func NewMotionYCbCr(width, height int) *image.YCbCr {
 			row[xx] = byte((xx*3 + yy*5 + (xx/8)*17 + (yy/8)*29) & 0xff)
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for yy := 0; yy < uvHeight; yy++ {
 		cbRow := img.Cb[yy*img.CStride:]
 		crRow := img.Cr[yy*img.CStride:]
@@ -64,8 +66,7 @@ func ShiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 			out.Y[yy*out.YStride+xx] = src.Y[sy*src.YStride+sx]
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for yy := 0; yy < uvHeight; yy++ {
 		for xx := 0; xx < uvWidth; xx++ {
 			sy := ClampCoord(yy-dy/2, uvHeight)
@@ -95,21 +96,35 @@ func AppendI420Planes(out []byte, width int, height int,
 	u []byte, uStride int,
 	v []byte, vStride int,
 ) []byte {
+	out = AppendPlane(out, y, yStride, width, height)
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	out = AppendPlane(out, u, uStride, uvWidth, uvHeight)
+	out = AppendPlane(out, v, vStride, uvWidth, uvHeight)
+	return out
+}
+
+// AppendPlane appends visible samples from a strided plane.
+func AppendPlane(out []byte, plane []byte, stride int, width int, height int) []byte {
 	for row := range height {
-		start := row * yStride
-		out = append(out, y[start:start+width]...)
-	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
-	for row := range uvHeight {
-		start := row * uStride
-		out = append(out, u[start:start+uvWidth]...)
-	}
-	for row := range uvHeight {
-		start := row * vStride
-		out = append(out, v[start:start+uvWidth]...)
+		start := row * stride
+		out = append(out, plane[start:start+width]...)
 	}
 	return out
+}
+
+// PlaneEqual reports whether two strided planes have identical visible
+// samples.
+func PlaneEqual(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
+	for row := range height {
+		aRow := a[row*aStride:]
+		bRow := b[row*bStride:]
+		for col := range width {
+			if aRow[col] != bRow[col] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ClampCoord clamps a sample coordinate into [0, limit).

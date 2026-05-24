@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
@@ -257,13 +258,13 @@ func TestDecodePostProcessFlagAddNoiseChangesOnlyLuma(t *testing.T) {
 		t.Fatalf("noisy NextFrame returned no frame")
 	}
 
-	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
+	if testutil.PlaneEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
 		t.Fatalf("postprocess noise flag left luma unchanged")
 	}
-	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
+	if !testutil.PlaneEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
 		t.Fatalf("postprocess noise flag changed U plane")
 	}
-	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
+	if !testutil.PlaneEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
 		t.Fatalf("postprocess noise flag changed V plane")
 	}
 }
@@ -294,13 +295,13 @@ func TestDecodePostProcessNoiseChangesOnlyLuma(t *testing.T) {
 		t.Fatalf("noisy NextFrame returned no frame")
 	}
 
-	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
+	if testutil.PlaneEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y, noisyFrame.YStride, 16, 16) {
 		t.Fatalf("postprocess noise left luma unchanged")
 	}
-	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
+	if !testutil.PlaneEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U, noisyFrame.UStride, 8, 8) {
 		t.Fatalf("postprocess noise changed U plane")
 	}
-	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
+	if !testutil.PlaneEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V, noisyFrame.VStride, 8, 8) {
 		t.Fatalf("postprocess noise changed V plane")
 	}
 }

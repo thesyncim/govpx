@@ -49,3 +49,33 @@ func TestAppendI420PlanesPreservesPrefix(t *testing.T) {
 		t.Fatalf("AppendI420Planes = %v, want %v", got, want)
 	}
 }
+
+func TestAppendPlaneUsesVisibleSamples(t *testing.T) {
+	plane := []byte{
+		1, 2, 99,
+		3, 4, 99,
+	}
+	got := AppendPlane([]byte{0xaa}, plane, 3, 2, 2)
+	want := []byte{0xaa, 1, 2, 3, 4}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("AppendPlane = %v, want %v", got, want)
+	}
+}
+
+func TestPlaneEqualComparesVisibleSamples(t *testing.T) {
+	a := []byte{
+		1, 2, 99,
+		3, 4, 99,
+	}
+	b := []byte{
+		1, 2, 42,
+		3, 4, 42,
+	}
+	if !PlaneEqual(a, 3, b, 3, 2, 2) {
+		t.Fatal("PlaneEqual reported false for equal visible samples")
+	}
+	b[4] = 5
+	if PlaneEqual(a, 3, b, 3, 2, 2) {
+		t.Fatal("PlaneEqual reported true after a visible sample changed")
+	}
+}

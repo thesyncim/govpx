@@ -4,7 +4,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func TestVP9DecoderPostProcessOutputsPostFrame(t *testing.T) {
@@ -80,17 +82,16 @@ func TestVP9DecoderPostProcessAddNoiseChangesOnlyLuma(t *testing.T) {
 	if !ok {
 		t.Fatal("noisy NextFrame returned no frame")
 	}
-	uvWidth := (plainFrame.Width + 1) >> 1
-	uvHeight := (plainFrame.Height + 1) >> 1
-	if planeEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y,
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(plainFrame.Width, plainFrame.Height)
+	if testutil.PlaneEqual(plainFrame.Y, plainFrame.YStride, noisyFrame.Y,
 		noisyFrame.YStride, plainFrame.Width, plainFrame.Height) {
 		t.Fatal("VP9 postprocess add-noise left luma unchanged")
 	}
-	if !planeEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U,
+	if !testutil.PlaneEqual(plainFrame.U, plainFrame.UStride, noisyFrame.U,
 		noisyFrame.UStride, uvWidth, uvHeight) {
 		t.Fatal("VP9 postprocess add-noise changed U plane")
 	}
-	if !planeEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V,
+	if !testutil.PlaneEqual(plainFrame.V, plainFrame.VStride, noisyFrame.V,
 		noisyFrame.VStride, uvWidth, uvHeight) {
 		t.Fatal("VP9 postprocess add-noise changed V plane")
 	}
@@ -228,7 +229,7 @@ func TestVP9DecoderPostProcessDeblockAndDemacroblockChangeOutput(t *testing.T) {
 	if !ok {
 		t.Fatal("filtered NextFrame returned no frame")
 	}
-	if planeEqual(plainY, plainFrame.YStride, filteredFrame.Y,
+	if testutil.PlaneEqual(plainY, plainFrame.YStride, filteredFrame.Y,
 		filteredFrame.YStride, width, height) {
 		t.Fatal("deblock+demacroblock postprocess produced identical luma")
 	}
@@ -299,17 +300,16 @@ func TestVP9DecoderErrorConcealmentReturnsPreviousFrameInsteadOfError(t *testing
 	if !ok {
 		t.Fatal("conceal NextFrame after truncated frame returned no frame")
 	}
-	if !planeEqual(previousY, previous.YStride, frame.Y, frame.YStride,
+	if !testutil.PlaneEqual(previousY, previous.YStride, frame.Y, frame.YStride,
 		previous.Width, previous.Height) {
 		t.Fatal("error concealment did not surface previous frame Y")
 	}
-	uvWidth := (previous.Width + 1) >> 1
-	uvHeight := (previous.Height + 1) >> 1
-	if !planeEqual(previousU, previous.UStride, frame.U, frame.UStride,
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(previous.Width, previous.Height)
+	if !testutil.PlaneEqual(previousU, previous.UStride, frame.U, frame.UStride,
 		uvWidth, uvHeight) {
 		t.Fatal("error concealment did not surface previous frame U")
 	}
-	if !planeEqual(previousV, previous.VStride, frame.V, frame.VStride,
+	if !testutil.PlaneEqual(previousV, previous.VStride, frame.V, frame.VStride,
 		uvWidth, uvHeight) {
 		t.Fatal("error concealment did not surface previous frame V")
 	}

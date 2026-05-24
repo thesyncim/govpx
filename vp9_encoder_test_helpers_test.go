@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -329,11 +330,10 @@ func vp9VisibleImageEqual(a, b Image) bool {
 	if a.Width != b.Width || a.Height != b.Height {
 		return false
 	}
-	uvWidth := (a.Width + 1) >> 1
-	uvHeight := (a.Height + 1) >> 1
-	return planeEqual(a.Y, a.YStride, b.Y, b.YStride, a.Width, a.Height) &&
-		planeEqual(a.U, a.UStride, b.U, b.UStride, uvWidth, uvHeight) &&
-		planeEqual(a.V, a.VStride, b.V, b.VStride, uvWidth, uvHeight)
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(a.Width, a.Height)
+	return testutil.PlaneEqual(a.Y, a.YStride, b.Y, b.YStride, a.Width, a.Height) &&
+		testutil.PlaneEqual(a.U, a.UStride, b.U, b.UStride, uvWidth, uvHeight) &&
+		testutil.PlaneEqual(a.V, a.VStride, b.V, b.VStride, uvWidth, uvHeight)
 }
 
 func assertVP9ImageMatchesYCbCr(t *testing.T, name string, got Image, want *image.YCbCr) {

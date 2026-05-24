@@ -3,7 +3,9 @@ package govpx
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func assertCodedBordersExtended(t *testing.T, img *vp8common.Image) {
@@ -53,8 +55,7 @@ func fillVP8Image(img *vp8common.Image, value byte) {
 }
 
 func newTestImage(width int, height int) Image {
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	return Image{
 		Width:   width,
 		Height:  height,
@@ -71,20 +72,8 @@ func publicImageEqualVP8(got Image, want *vp8common.Image) bool {
 	if want == nil || got.Width != want.Width || got.Height != want.Height {
 		return false
 	}
-	uvWidth := (want.Width + 1) >> 1
-	uvHeight := (want.Height + 1) >> 1
-	return planeEqual(got.Y, got.YStride, want.Y, want.YStride, want.Width, want.Height) &&
-		planeEqual(got.U, got.UStride, want.U, want.UStride, uvWidth, uvHeight) &&
-		planeEqual(got.V, got.VStride, want.V, want.VStride, uvWidth, uvHeight)
-}
-
-func planeEqual(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
-	for row := range height {
-		for col := range width {
-			if a[row*aStride+col] != b[row*bStride+col] {
-				return false
-			}
-		}
-	}
-	return true
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(want.Width, want.Height)
+	return testutil.PlaneEqual(got.Y, got.YStride, want.Y, want.YStride, want.Width, want.Height) &&
+		testutil.PlaneEqual(got.U, got.UStride, want.U, want.UStride, uvWidth, uvHeight) &&
+		testutil.PlaneEqual(got.V, got.VStride, want.V, want.VStride, uvWidth, uvHeight)
 }

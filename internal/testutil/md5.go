@@ -4,6 +4,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"hash"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 type PlaneMD5 struct {
@@ -29,8 +31,7 @@ func MD5Plane(plane []byte, stride int, width int, height int) [16]byte {
 }
 
 func MD5Planes(y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, width int, height int) PlaneMD5 {
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	full := md5.New()
 	writePlaneHash(full, y, yStride, width, height)
 	writePlaneHash(full, u, uStride, uvWidth, uvHeight)

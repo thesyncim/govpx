@@ -1,12 +1,12 @@
 package vp9test
 
 import (
-	"bytes"
 	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func NewYCbCr(width, height int, y, u, v byte) *image.YCbCr {
@@ -35,8 +35,7 @@ func NewPanningYCbCr(width, height int, frame int) *image.YCbCr {
 			row[x] = byte(24 + ((x+frame*3)*7+y*11+(x*y+frame*13)%37)%208)
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for y := range uvHeight {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
@@ -92,8 +91,7 @@ func NewChromaHorizontalBandsYCbCr(width, height int) *image.YCbCr {
 	for i := range img.Y {
 		img.Y[i] = 128
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for y := 0; y < uvHeight; y++ {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
@@ -115,8 +113,7 @@ func NewMotionYCbCr(width, height int) *image.YCbCr {
 			row[x] = byte(16 + (x*7+y*11+(x*y)%37)%224)
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for y := 0; y < uvHeight; y++ {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
@@ -137,8 +134,7 @@ func NewCompoundAverageYCbCr(width, height, delta int) *image.YCbCr {
 			row[x] = byte(base + delta)
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for y := 0; y < uvHeight; y++ {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
@@ -164,8 +160,7 @@ func NewCompoundPairYCbCr(width, height int, variant bool) *image.YCbCr {
 			}
 		}
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for y := 0; y < uvHeight; y++ {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
@@ -196,8 +191,7 @@ func AverageYCbCr(a, b *image.YCbCr) *image.YCbCr {
 		}
 	}
 	avgPlane(img.Y, img.YStride, a.Y, a.YStride, b.Y, b.YStride, width, height)
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	avgPlane(img.Cb, img.CStride, a.Cb, a.CStride, b.Cb, b.CStride, uvWidth, uvHeight)
 	avgPlane(img.Cr, img.CStride, a.Cr, a.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
 	return img
@@ -208,20 +202,10 @@ func AppendI420(out []byte, img *image.YCbCr) []byte {
 }
 
 func EqualYCbCr(a *image.YCbCr, b *image.YCbCr, width int, height int) bool {
-	for y := range height {
-		if !bytes.Equal(a.Y[y*a.YStride:][:width], b.Y[y*b.YStride:][:width]) {
-			return false
-		}
-	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
-	for y := range uvHeight {
-		if !bytes.Equal(a.Cb[y*a.CStride:][:uvWidth], b.Cb[y*b.CStride:][:uvWidth]) ||
-			!bytes.Equal(a.Cr[y*a.CStride:][:uvWidth], b.Cr[y*b.CStride:][:uvWidth]) {
-			return false
-		}
-	}
-	return true
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	return testutil.PlaneEqual(a.Y, a.YStride, b.Y, b.YStride, width, height) &&
+		testutil.PlaneEqual(a.Cb, a.CStride, b.Cb, b.CStride, uvWidth, uvHeight) &&
+		testutil.PlaneEqual(a.Cr, a.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
 }
 
 func FirstPacketDiff(a, b []byte) int {

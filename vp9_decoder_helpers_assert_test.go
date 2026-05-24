@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -85,11 +86,7 @@ func vp9VisiblePlanesEqual(a []byte, aStride int, b []byte, bStride int,
 }
 
 func appendVP9YForTest(out []byte, img Image) []byte {
-	for row := range img.Height {
-		start := row * img.YStride
-		out = append(out, img.Y[start:start+img.Width]...)
-	}
-	return out
+	return testutil.AppendPlane(out, img.Y, img.YStride, img.Width, img.Height)
 }
 
 func vp9YRectDiffers(a, b Image, x, y, width, height int) bool {

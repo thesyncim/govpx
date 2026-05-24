@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -572,7 +573,7 @@ func TestEncodeIntoCanForceGoldenAndAltRefRefresh(t *testing.T) {
 	assertImagesEqual(t, "last", decoded[1], publicImageFromVP8(&e.lastRef.Img))
 	assertImagesEqual(t, "golden", decoded[1], publicImageFromVP8(&e.goldenRef.Img))
 	assertImagesEqual(t, "alt", decoded[1], publicImageFromVP8(&e.altRef.Img))
-	if planeEqual(keyFrame.Y, keyFrame.YStride, e.goldenRef.Img.Y, e.goldenRef.Img.YStride, keyFrame.Width, keyFrame.Height) {
+	if testutil.PlaneEqual(keyFrame.Y, keyFrame.YStride, e.goldenRef.Img.Y, e.goldenRef.Img.YStride, keyFrame.Width, keyFrame.Height) {
 		t.Fatalf("golden reference still matches keyframe after forced refresh")
 	}
 }
