@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,7 +96,7 @@ func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 				tc.name, stats)
 			t.Logf("VP9 frame-flag transition rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_TRANSITION_SCOREBOARD_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_TRANSITION_SCOREBOARD_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 frame-flag transition mismatch %s: %s",
 					tc.name, stats)
@@ -144,7 +143,7 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
 				tc.name, stats)
 			t.Logf("VP9 reference/update matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_FLAG_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_FLAG_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 reference/update matrix mismatch %s: %s",
 					tc.name, stats)
@@ -192,7 +191,7 @@ func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 			t.Logf("VP9 odd-size transitions %s: %s", tc.name, stats)
 			t.Logf("VP9 odd-size transition rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_ODD_TRANSITION_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_ODD_TRANSITION_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 odd-size transition mismatch %s: %s",
 					tc.name, stats)
@@ -288,7 +287,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 				libvpxRows[frame].BaseQIndex, wantQ)
 		}
 	}
-	if os.Getenv("GOVPX_VP9_RUNTIME_CONTROL_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_CONTROL_STRICT") &&
 		stats.HasMismatch() {
 		t.Fatalf("strict VP9 runtime bitrate/Q mismatch: %s", stats)
 	}
@@ -320,7 +319,7 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-	if os.Getenv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") &&
 		stats.HasMismatch() {
 		t.Fatalf("strict VP9 runtime-control transition mismatch: %s", stats)
 	}
@@ -641,7 +640,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_RUNTIME_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 runtime-control matrix mismatch %s: %s",
 					tc.name, stats)
@@ -749,7 +748,7 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 construction-control matrix mismatch %s: %s",
 					tc.name, stats)
@@ -788,7 +787,7 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 	if tile2Rows == 0 {
 		t.Fatal("VP9 tile/thread fixture did not expose any shared log2_tile_cols=2 row")
 	}
-	if os.Getenv("GOVPX_VP9_TILE_THREAD_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_TILE_THREAD_STRICT") &&
 		stats.HasMismatch() {
 		t.Fatalf("strict VP9 tile/thread mismatch: %s", stats)
 	}
@@ -881,7 +880,7 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 			t.Logf("VP9 temporal flag patterns %s: %s", tc.name, stats)
 			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal flag-pattern mismatch %s: %s",
 					tc.name, stats)
@@ -938,7 +937,7 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 				tc.name, stats)
 			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
 				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-			if os.Getenv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal pattern matrix mismatch %s: %s",
 					tc.name, stats)

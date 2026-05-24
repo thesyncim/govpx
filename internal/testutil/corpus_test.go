@@ -97,6 +97,21 @@ func TestNonNegativeEnvInt(t *testing.T) {
 	}
 }
 
+func TestEnvFlag(t *testing.T) {
+	t.Setenv("GOVPX_TEST_FLAG", "1")
+	if !EnvFlag("GOVPX_TEST_FLAG") {
+		t.Fatal("EnvFlag did not accept value 1")
+	}
+	t.Setenv("GOVPX_TEST_FLAG", "true")
+	if EnvFlag("GOVPX_TEST_FLAG") {
+		t.Fatal("EnvFlag accepted non-standard value true")
+	}
+	t.Setenv("GOVPX_TEST_FLAG", "")
+	if EnvFlag("GOVPX_TEST_FLAG") {
+		t.Fatal("EnvFlag accepted an empty value")
+	}
+}
+
 func TestSafeCorpusTestName(t *testing.T) {
 	root := filepath.Join("corpus", "root")
 	path := filepath.Join(root, "nested", "vp90-2-05-resize.ivf")

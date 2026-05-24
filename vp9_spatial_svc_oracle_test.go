@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"strings"
 	"testing"
 
@@ -162,7 +161,7 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 			t.Logf("VP9 spatial SVC oracle scoreboard: matches=%d/%d first_mismatch=%d",
 				matches, frames, firstMismatch)
 			t.Logf("VP9 spatial SVC oracle rows:\n%s", rows.String())
-			if os.Getenv("GOVPX_VP9_SPATIAL_SVC_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_SPATIAL_SVC_BYTE_STRICT") &&
 				matches != frames {
 				t.Fatalf("strict VP9 spatial SVC byte parity: matches=%d/%d",
 					matches, frames)

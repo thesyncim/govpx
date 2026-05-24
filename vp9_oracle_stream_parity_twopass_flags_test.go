@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"testing"
 )
 
@@ -74,7 +73,7 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass byte-parity rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
-	if os.Getenv("GOVPX_VP9_TWOPASS_BYTE_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_TWOPASS_BYTE_STRICT") &&
 		matches != frames {
 		t.Fatalf("strict VP9 two-pass byte parity: matches=%d/%d",
 			matches, frames)
@@ -145,7 +144,7 @@ func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass constant byte-parity rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
-	if os.Getenv("GOVPX_VP9_TWOPASS_CONSTANT_BYTE_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_TWOPASS_CONSTANT_BYTE_STRICT") &&
 		matches != frames {
 		t.Fatalf("strict VP9 two-pass constant byte parity: matches=%d/%d",
 			matches, frames)
@@ -255,7 +254,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 						frame, tc.name)
 				}
 			}
-			if os.Getenv("GOVPX_VP9_FLAG_BYTE_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_FLAG_BYTE_MATRIX_STRICT") &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 frame-flag byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -360,7 +359,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 						frame, tc.name)
 				}
 			}
-			if os.Getenv("GOVPX_VP9_CONTROL_CROSS_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_CONTROL_CROSS_BYTE_STRICT") &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 control-cross byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))

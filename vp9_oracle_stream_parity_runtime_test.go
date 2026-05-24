@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"testing"
 )
 
@@ -348,7 +347,7 @@ func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
 				t.Fatalf("strict VP9 pinned runtime-control byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_RUNTIME_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_BYTE_STRICT") &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 runtime-control byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -953,7 +952,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 				t.Fatalf("strict VP9 pinned runtime-control constant byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_RUNTIME_CONSTANT_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_CONSTANT_BYTE_STRICT") &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 runtime-control constant byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -1015,7 +1014,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 				vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 			t.Logf("VP9 runtime resize byte rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
-			if os.Getenv("GOVPX_VP9_RUNTIME_RESIZE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_RESIZE_STRICT") &&
 				(stats.HasMismatch() || matches != len(govpxPackets)) {
 				t.Fatalf("strict VP9 runtime resize parity %s: matches=%d/%d stats=%s",
 					tc.name, matches, len(govpxPackets), stats)
@@ -1048,7 +1047,7 @@ func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
 	t.Logf("VP9 invisible keyframe byte rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
-	if os.Getenv("GOVPX_VP9_INVISIBLE_KEY_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_INVISIBLE_KEY_STRICT") &&
 		(stats.HasMismatch() || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 invisible keyframe parity: matches=%d/%d stats=%s",
 			matches, len(govpxPackets), stats)
@@ -1208,7 +1207,7 @@ func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
 				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
 					tc.name, govpxDrops, libvpxDrops)
 			}
-			if os.Getenv("GOVPX_VP9_RUNTIME_DROP_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_DROP_BYTE_STRICT") &&
 				(matches != len(govpxRows) || stats.HasMismatch()) {
 				t.Fatalf("strict VP9 runtime-drop mismatch %s: matches=%d/%d stats=%s",
 					tc.name, matches, len(govpxRows), stats)

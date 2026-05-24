@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,8 +51,21 @@ type SpatialSVCConfig struct {
 // RequireOracle skips t unless the external libvpx oracle suite is enabled.
 func RequireOracle(t testing.TB, name string) {
 	t.Helper()
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+	if !testutil.EnvFlag("GOVPX_WITH_ORACLE") {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
+	}
+}
+
+// StrictEnv reports whether a VP9 oracle strict-mode environment flag is set.
+func StrictEnv(name string) bool {
+	return testutil.EnvFlag(name)
+}
+
+// RequireEnvFlag skips t unless name is set to 1.
+func RequireEnvFlag(t testing.TB, name, label string) {
+	t.Helper()
+	if !StrictEnv(name) {
+		t.Skip("set " + name + "=1 to run " + label)
 	}
 }
 

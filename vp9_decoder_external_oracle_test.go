@@ -52,14 +52,7 @@ func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
 	}
 	vp9test.RequireVpxdec(t)
 	paths := vp9corpus.FindProfile0WebM(t, root)
-	if len(paths) == 0 {
-		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
-			vp9corpus.Profile0WebMMinimum(t, root) > 0 {
-			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
-		}
-		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
-	}
-	vp9corpus.AssertProfile0WebMMinimum(t, root, paths)
+	vp9corpus.RequireProfile0WebMFiles(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -89,14 +82,7 @@ func TestVP9DecoderOfficialInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	}
 	vp9test.RequireVpxdec(t)
 	paths := vp9corpus.FindIVF(t, root, true)
-	if len(paths) == 0 {
-		if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") == "1" ||
-			vp9corpus.InvalidIVFMinimum(t, root) > 0 {
-			t.Fatalf("no invalid VP90 IVF files found under %s", root)
-		}
-		t.Skipf("no invalid VP90 IVF files found under %s", root)
-	}
-	vp9corpus.AssertInvalidIVFMinimum(t, root, paths)
+	vp9corpus.RequireInvalidIVFFiles(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {

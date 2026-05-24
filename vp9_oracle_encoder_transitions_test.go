@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -323,7 +322,7 @@ func TestVP9OracleEncoderResetTransitions(t *testing.T) {
 			libvpxPackets)
 		t.Logf("VP9 cold-start parity: matches=%d/%d first_mismatch=%d",
 			matches, len(govpxPackets), firstMismatch)
-		if os.Getenv("GOVPX_VP9_TRANSITIONS_STRICT") == "1" &&
+		if vp9test.StrictEnv("GOVPX_VP9_TRANSITIONS_STRICT") &&
 			matches != len(govpxPackets) {
 			t.Fatalf("strict VP9 cold-start parity: matches=%d/%d", matches, len(govpxPackets))
 		}
@@ -349,7 +348,7 @@ func TestVP9OracleEncoderResetTransitions(t *testing.T) {
 			libvpxPackets)
 		t.Logf("VP9 fresh-encoder-after-warmup parity: matches=%d/%d first_mismatch=%d",
 			matches, len(govpxPackets), firstMismatch)
-		if os.Getenv("GOVPX_VP9_TRANSITIONS_STRICT") == "1" &&
+		if vp9test.StrictEnv("GOVPX_VP9_TRANSITIONS_STRICT") &&
 			matches != len(govpxPackets) {
 			t.Fatalf("strict VP9 fresh-encoder-after-warmup parity: matches=%d/%d",
 				matches, len(govpxPackets))
@@ -669,7 +668,7 @@ func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 transition %s rows:\n%s", tc.name,
 		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-	if os.Getenv("GOVPX_VP9_TRANSITIONS_STRICT") == "1" {
+	if vp9test.StrictEnv("GOVPX_VP9_TRANSITIONS_STRICT") {
 		assertVP9TransitionByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}
 }

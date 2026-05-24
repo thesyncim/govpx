@@ -12,7 +12,6 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 	"image"
-	"os"
 	"testing"
 )
 
@@ -240,7 +239,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
 			}
 			t.Logf("VP9 lookahead no-alt-ref matrix %s: byte_matches=%d/%d first_mismatch=%d",
 				tc.name, matches, tc.frames, firstMismatch)
-			if os.Getenv("GOVPX_VP9_LOOKAHEAD_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_LOOKAHEAD_MATRIX_STRICT") &&
 				matches != tc.frames {
 				t.Fatalf("strict VP9 lookahead no-alt-ref matrix %s matched %d/%d packets",
 					tc.name, matches, tc.frames)
@@ -292,7 +291,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 		t.Fatalf("flat keyframe block/skip regression: block_matches=%d/%d skip_matches=%d/%d",
 			blockMatches, len(govpxGrid), skipMatches, len(govpxGrid))
 	}
-	if os.Getenv("GOVPX_VP9_KEYFRAME_MODE_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_KEYFRAME_MODE_STRICT") &&
 		modeMatches != len(govpxGrid) {
 		t.Fatalf("strict VP9 keyframe mode parity matched %d/%d modes",
 			modeMatches, len(govpxGrid))
@@ -351,7 +350,7 @@ func TestVP9EncoderVpxencOracleInterModeDistributionScoreboard(t *testing.T) {
 	}
 	t.Logf("VP9 inter-mode distribution scoreboard: total_mode_distance=%d total_block_distance=%d total_skip_distance=%d",
 		totalModeDistance, totalBlockDistance, totalSkipDistance)
-	if os.Getenv("GOVPX_VP9_MODE_DIST_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_MODE_DIST_STRICT") &&
 		(totalModeDistance != 0 || totalBlockDistance != 0 ||
 			totalSkipDistance != 0) {
 		t.Fatalf("strict VP9 inter-mode distribution mismatch: mode=%d block=%d skip=%d",

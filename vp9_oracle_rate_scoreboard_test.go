@@ -9,7 +9,6 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"image"
 	"math"
-	"os"
 	"testing"
 )
 
@@ -92,7 +91,7 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	if refreshMatches != len(govpxRows) {
 		t.Fatalf("refresh flags matched %d/%d rows", refreshMatches, len(govpxRows))
 	}
-	if os.Getenv("GOVPX_VP9_RATE_SCOREBOARD_STRICT") == "1" {
+	if vp9test.StrictEnv("GOVPX_VP9_RATE_SCOREBOARD_STRICT") {
 		if qDriftMax != 0 || sizePctMax != 0 || bufferPctMax != 0 {
 			t.Fatalf("strict VP9 rate scoreboard drift: max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
 				qDriftMax, sizePctMax, bufferPctMax)
@@ -225,7 +224,7 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 				tc.name, distance, mismatchedBins,
 				vp9test.FormatQHistogram(govpxHist),
 				vp9test.FormatQHistogram(libvpxHist))
-			if os.Getenv("GOVPX_VP9_QHIST_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_QHIST_STRICT") &&
 				distance != 0 {
 				t.Fatalf("strict VP9 Q histogram mismatch %s: distance=%d bins=%d",
 					tc.name, distance, mismatchedBins)
@@ -316,7 +315,7 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
 					tc.name, govpxDrops, libvpxDrops)
 			}
-			if os.Getenv("GOVPX_VP9_BUFFER_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_BUFFER_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 CBR buffer matrix mismatch %s: %s",
 					tc.name, stats)
@@ -443,12 +442,12 @@ func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
 				l.TemporalLayerSync)
 		}
 	}
-	if os.Getenv("GOVPX_VP9_RATE_DROP_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_RATE_DROP_STRICT") &&
 		!vp9test.SameIntSlice(govpxDrops, libvpxDrops) {
 		t.Fatalf("strict VP9 drop indices: govpx=%v libvpx=%v",
 			govpxDrops, libvpxDrops)
 	}
-	if os.Getenv("GOVPX_VP9_RATE_DROP_STRICT") == "1" {
+	if vp9test.StrictEnv("GOVPX_VP9_RATE_DROP_STRICT") {
 		keySizeDelta := govpxRows[0].SizeBytes - libvpxRows[0].SizeBytes
 		if keySizeDelta < 0 {
 			keySizeDelta = -keySizeDelta

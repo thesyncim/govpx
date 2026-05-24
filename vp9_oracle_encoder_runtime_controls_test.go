@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -570,7 +569,7 @@ func runVP9RuntimeControlCase(t *testing.T, opts VP9EncoderOptions,
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 runtime control %s rows:\n%s",
 		tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
-	if os.Getenv("GOVPX_VP9_RUNTIME_CONTROLS_STRICT") == "1" {
+	if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_CONTROLS_STRICT") {
 		assertVP9RuntimeControlByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}
 }

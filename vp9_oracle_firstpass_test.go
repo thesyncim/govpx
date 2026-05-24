@@ -8,7 +8,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"math"
-	"os"
 	"testing"
 )
 
@@ -113,7 +112,7 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 			t.Logf("VP9 first-pass rows %s:\n%s", tc.name,
 				formatVP9FirstPassComparisonRows(govpxStats, libvpxStats))
 			assertVP9FirstPassComparisonShape(t, govpxStats, libvpxStats)
-			if os.Getenv("GOVPX_VP9_FIRSTPASS_STRICT") == "1" {
+			if vp9test.StrictEnv("GOVPX_VP9_FIRSTPASS_STRICT") {
 				assertVP9FirstPassComparisonStrict(t, summary)
 			}
 		})

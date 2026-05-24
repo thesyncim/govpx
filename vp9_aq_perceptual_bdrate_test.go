@@ -2,11 +2,11 @@ package govpx_test
 
 import (
 	"image"
-	"os"
 	"testing"
 
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd"
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // vp9PerceptualAQBDRateFullSweepEnv gates the 256x256 BD-rate diagnostic
@@ -22,7 +22,7 @@ const vp9PerceptualAQBDRateFullSweepEnv = "GOVPX_VP9_AQ_BDRATE_FULL_SWEEP"
 // GOVPX_VP9_AQ_BDRATE_FULL_SWEEP=1 raises the dimension back to 256 so
 // reviewers can rerun the original calibration sweep on SIMD builds.
 func vp9PerceptualAQBDRateLargerSweepDim() int {
-	if os.Getenv(vp9PerceptualAQBDRateFullSweepEnv) == "1" {
+	if testutil.EnvFlag(vp9PerceptualAQBDRateFullSweepEnv) {
 		return 256
 	}
 	return 128

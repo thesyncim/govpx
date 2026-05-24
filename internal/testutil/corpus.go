@@ -101,6 +101,11 @@ func NonNegativeEnvInt(name string) (int, bool, error) {
 	return value, true, nil
 }
 
+// EnvFlag reports whether name is set to the repository's opt-in value, "1".
+func EnvFlag(name string) bool {
+	return os.Getenv(name) == "1"
+}
+
 func SafeCorpusTestName(root string, path string) string {
 	name, err := filepath.Rel(root, path)
 	if err != nil || name == "." {

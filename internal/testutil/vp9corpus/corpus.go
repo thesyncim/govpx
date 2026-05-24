@@ -16,7 +16,7 @@ func IVFRoot(t testing.TB) (string, bool) {
 	if testutil.DefaultVP9TestDataExists() {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
-	if os.Getenv("GOVPX_VP9_TEST_DATA_REQUIRED") == "1" {
+	if testutil.EnvFlag("GOVPX_VP9_TEST_DATA_REQUIRED") {
 		t.Fatalf("GOVPX_VP9_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_TEST_DATA_PATH nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
 	t.Skipf("set GOVPX_VP9_TEST_DATA_PATH to official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
@@ -36,7 +36,7 @@ func InvalidIVFRoot(t testing.TB) (string, bool) {
 	if testutil.DefaultVP9TestDataExists() {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
-	if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") == "1" {
+	if testutil.EnvFlag("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") {
 		t.Fatalf("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED=1 but neither GOVPX_VP9_INVALID_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
 	t.Skipf("set GOVPX_VP9_INVALID_TEST_DATA_PATH to invalid official VP90 IVF data or run make fetch-vp9-test-data to populate %s", testutil.DefaultVP9ExternalTestDataDir)
@@ -57,7 +57,7 @@ func Profile0WebMRoot(t testing.TB) (string, bool) {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	profile0Minimum, _ := minimumFromEnv(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
-	if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") == "1" ||
+	if testutil.EnvFlag("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") ||
 		profile0Minimum > 0 {
 		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
@@ -79,7 +79,7 @@ func ProfileWebMRoot(t testing.TB) (string, bool) {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
 	profileMinimum, _ := minimumFromEnv(t, "GOVPX_VP9_PROFILE_TEST_DATA_MIN")
-	if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") == "1" ||
+	if testutil.EnvFlag("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") ||
 		profileMinimum > 0 {
 		t.Fatalf("VP9 profile WebM test data is required but neither GOVPX_VP9_PROFILE_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
 	}
@@ -112,6 +112,42 @@ func FindProfileWebM(t testing.TB, root string) []string {
 		t.Fatalf("FindVP9ProfileWebMTestData(%q): %v", root, err)
 	}
 	return paths
+}
+
+func RequireInvalidIVFFiles(t testing.TB, root string, paths []string) {
+	t.Helper()
+	if len(paths) == 0 {
+		if testutil.EnvFlag("GOVPX_VP9_INVALID_TEST_DATA_REQUIRED") ||
+			InvalidIVFMinimum(t, root) > 0 {
+			t.Fatalf("no invalid VP90 IVF files found under %s", root)
+		}
+		t.Skipf("no invalid VP90 IVF files found under %s", root)
+	}
+	AssertInvalidIVFMinimum(t, root, paths)
+}
+
+func RequireProfile0WebMFiles(t testing.TB, root string, paths []string) {
+	t.Helper()
+	if len(paths) == 0 {
+		if testutil.EnvFlag("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") ||
+			Profile0WebMMinimum(t, root) > 0 {
+			t.Fatalf("no official VP9 Profile 0 WebM files found under %s", root)
+		}
+		t.Skipf("no official VP9 Profile 0 WebM files found under %s", root)
+	}
+	AssertProfile0WebMMinimum(t, root, paths)
+}
+
+func RequireProfileWebMFiles(t testing.TB, root string, paths []string) {
+	t.Helper()
+	if len(paths) == 0 {
+		if testutil.EnvFlag("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") ||
+			ProfileWebMMinimum(t, root) > 0 {
+			t.Fatalf("no official VP9 profile WebM files found under %s", root)
+		}
+		t.Skipf("no official VP9 profile WebM files found under %s", root)
+	}
+	AssertProfileWebMMinimum(t, root, paths)
 }
 
 func IVFMinimum(t testing.TB, root string) int {

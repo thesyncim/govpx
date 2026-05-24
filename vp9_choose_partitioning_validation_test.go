@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"os"
 	"testing"
 )
 
@@ -15,9 +14,7 @@ import (
 // reference-control seed set against the libvpx frame-flags oracle with
 // choose_partitioning active.
 func TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE") != "1" {
-		t.Skip("set GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE=1 to run choose_partitioning seed parity")
-	}
+	vp9test.RequireEnvFlag(t, "GOVPX_VP9_CHOOSE_PARTITIONING_VALIDATE", "choose_partitioning seed parity")
 	vp9test.RequireOracle(t, "VP9 choose_partitioning validation")
 	vp9test.RequireVpxencFrameFlags(t)
 	type seedSpec struct {

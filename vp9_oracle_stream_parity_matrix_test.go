@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"testing"
 )
 
@@ -1048,7 +1047,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				tc.name == "fixed-q-best-cpu5-constant"
 			denoiserByteCase := tc.name == "noise-sensitivity-constant" ||
 				tc.name == "noise-sensitivity-soft"
-			if os.Getenv("GOVPX_VP9_STREAM_MATRIX_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_STREAM_MATRIX_STRICT") &&
 				!panningByteCase &&
 				!newModeByteCase &&
 				!speedByteCase &&
@@ -1057,25 +1056,25 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				t.Fatalf("strict VP9 stream byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_NEW_MODE_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_NEW_MODE_BYTE_STRICT") &&
 				newModeByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 new-mode byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_SPEED_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_SPEED_BYTE_STRICT") &&
 				speedByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 speed byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_DENOISER_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_DENOISER_BYTE_STRICT") &&
 				denoiserByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 denoiser byte parity %s/%s: matches=%d/%d",
 					tc.name, tc.fixture.name, matches, len(govpxPackets))
 			}
-			if os.Getenv("GOVPX_VP9_PANNING_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_PANNING_BYTE_STRICT") &&
 				panningByteCase &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 panning byte parity %s/%s: matches=%d/%d",

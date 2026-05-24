@@ -69,14 +69,7 @@ func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
 		return
 	}
 	paths := vp9corpus.FindProfileWebM(t, root)
-	if len(paths) == 0 {
-		if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") == "1" ||
-			vp9corpus.ProfileWebMMinimum(t, root) > 0 {
-			t.Fatalf("no official VP9 profile WebM files found under %s", root)
-		}
-		t.Skipf("no official VP9 profile WebM files found under %s", root)
-	}
-	vp9corpus.AssertProfileWebMMinimum(t, root, paths)
+	vp9corpus.RequireProfileWebMFiles(t, root, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {

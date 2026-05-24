@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"os"
 	"testing"
 )
 
@@ -51,7 +50,7 @@ func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
 					fmt.Sprintf("%s frame %d", tc.name, frame),
 					govpxPackets[frame], libvpxPackets[frame])
 			}
-			if os.Getenv("GOVPX_VP9_TEMPORAL_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_BYTE_STRICT") &&
 				matches != len(govpxPackets) {
 				t.Fatalf("strict VP9 temporal byte parity %s: matches=%d/%d",
 					tc.name, matches, len(govpxPackets))
@@ -187,7 +186,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testi
 	if libvpxHidden == 0 {
 		t.Log("libvpx emitted no hidden auto-alt-ref packet for this one-pass scoreboard fixture")
 	}
-	if os.Getenv("GOVPX_VP9_AUTO_ALT_REF_STRICT") == "1" &&
+	if vp9test.StrictEnv("GOVPX_VP9_AUTO_ALT_REF_STRICT") &&
 		(len(govpxPackets) != len(libvpxPackets) || matches != len(govpxPackets)) {
 		t.Fatalf("strict VP9 auto-alt-ref byte parity: matches=%d/%d libvpx_packets=%d",
 			matches, len(govpxPackets), len(libvpxPackets))
@@ -289,7 +288,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 				t.Fatalf("govpx emitted no hidden auto-alt-ref packet for %s",
 					tc.name)
 			}
-			if os.Getenv("GOVPX_VP9_AUTO_ALT_REF_ARNR_BYTE_STRICT") == "1" &&
+			if vp9test.StrictEnv("GOVPX_VP9_AUTO_ALT_REF_ARNR_BYTE_STRICT") &&
 				(len(govpxPackets) != len(libvpxPackets) ||
 					matches != len(govpxPackets)) {
 				t.Fatalf("strict VP9 auto-alt-ref ARNR byte parity %s: matches=%d/%d libvpx_packets=%d",
