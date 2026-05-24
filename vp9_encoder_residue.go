@@ -956,27 +956,18 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 ) int {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 ||
-		dequant[0] == 0 || dequant[1] == 0 || len(coeffs) < maxEob ||
-		len(e.modeScratch) < maxEob || initCtx < 0 || initCtx > 2 {
+	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
-	if qcoeffs != nil && len(qcoeffs) < maxEob {
-		qcoeffs = nil
-	}
-	scan := common.DefaultScanOrders[txSize].Scan
-	for i := range e.modeScratch[:maxEob] {
-		e.modeScratch[i] = 0
-	}
-	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
-	coefModel := &e.fc.CoefProbs[txSize][planeType][1]
-	if e.sf.UseFastCoefCosting != 0 {
-		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel,
-			common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
-			initCtx)
-	}
-	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel,
-		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs,
-		initCtx, eob)
+	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
+		TxSize:     txSize,
+		CoefModel:  &e.fc.CoefProbs[txSize][planeType][1],
+		ScanOrder:  common.DefaultScanOrders[txSize],
+		Dequant:    dequant,
+		Coeffs:     coeffs,
+		QCoeffs:    qcoeffs,
+		InitCtx:    initCtx,
+		Fast:       e.sf.UseFastCoefCosting != 0,
+		TokenCache: &e.modeScratch,
+	})
 }

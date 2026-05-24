@@ -398,7 +398,7 @@ residualLoop:
 		}
 	}
 	if restore {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
 	}
 	if !predOK {
 		return 0, 0, false

@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -160,4 +161,158 @@ func TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
 		return rate + VP9CostBit(probs[2], 0)
 	}
 	return rate + VP9CostBit(probs[2], 1)
+}
+
+// CoeffBlockRateCostInput groups the state needed by libvpx's cost_coeffs
+// path. TokenCache is caller-owned scratch and is cleared up to the active EOB
+// range on every call.
+type CoeffBlockRateCostInput struct {
+	TxSize     common.TxSize
+	CoefModel  *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
+	ScanOrder  common.ScanOrder
+	Dequant    [2]int16
+	Coeffs     []int16
+	QCoeffs    []int16
+	InitCtx    int
+	Fast       bool
+	TokenCache *[1024]byte
+}
+
+// CoeffBlockRateCost ports libvpx cost_coeffs for VP9 encoder RD scoring.
+func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
+	maxEob := vp9dec.MaxEobForTxSize(in.TxSize)
+	if in.TxSize >= common.TxSizes || in.CoefModel == nil ||
+		in.Dequant[0] == 0 || in.Dequant[1] == 0 ||
+		len(in.Coeffs) < maxEob || in.InitCtx < 0 || in.InitCtx > 2 ||
+		in.TokenCache == nil {
+		return 0
+	}
+	if in.QCoeffs != nil && len(in.QCoeffs) < maxEob {
+		in.QCoeffs = nil
+	}
+	scan := in.ScanOrder.Scan
+	neighbors := in.ScanOrder.Neighbors
+	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
+		return 0
+	}
+	for i := range in.TokenCache[:maxEob] {
+		in.TokenCache[i] = 0
+	}
+	if in.Fast {
+		return coeffBlockRateCostFastQ(in, scan, maxEob)
+	}
+	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
+	return coeffBlockRateCostSlowQ(in, scan, neighbors, maxEob, eob)
+}
+
+var coeffCostBandCounts = [common.TxSizes][8]int{
+	{1, 2, 3, 4, 3, 16 - 13, 0},
+	{1, 2, 3, 4, 11, 64 - 21, 0},
+	{1, 2, 3, 4, 11, 256 - 21, 0},
+	{1, 2, 3, 4, 11, 1024 - 21, 0},
+}
+
+func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput, scan, neighbors []int16,
+	maxEob int, eob int,
+) int {
+	if eob <= 0 {
+		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+			EobToken)
+	}
+	if eob > maxEob {
+		eob = maxEob
+	}
+
+	dcAbs, dcSign := CoeffMagnitudeAndSign(in.QCoeffs, 0, in.Coeffs[0],
+		in.Dequant[0], in.TxSize == common.Tx32x32)
+	prevToken, extraCost := CoeffTokenExtraCost(dcAbs, dcSign)
+	rate := extraCost + CoeffTreeTokenCost(
+		(*in.CoefModel)[0][in.InitCtx][:], false, prevToken)
+	in.TokenCache[0] = PtEnergyClass[prevToken]
+
+	band := 1
+	bandLeft := coeffCostBandCounts[in.TxSize][band]
+	for c := 1; c < eob; c++ {
+		if band >= vp9dec.CoefBands {
+			return rate
+		}
+		raster := int(scan[c])
+		absVal, sign := CoeffMagnitudeAndSign(in.QCoeffs, raster,
+			in.Coeffs[raster], in.Dequant[1], in.TxSize == common.Tx32x32)
+		token, extra := CoeffTokenExtraCost(absVal, sign)
+		pt := vp9dec.GetCoefContext(neighbors, in.TokenCache, c)
+		rate += extra + CoeffTreeTokenCost(
+			(*in.CoefModel)[band][pt][:], prevToken == ZeroToken, token)
+		in.TokenCache[raster] = PtEnergyClass[token]
+		if bandLeft > 0 {
+			bandLeft--
+			if bandLeft == 0 {
+				band++
+				if band < len(coeffCostBandCounts[in.TxSize]) {
+					bandLeft = coeffCostBandCounts[in.TxSize][band]
+				}
+			}
+		}
+		prevToken = token
+	}
+	if bandLeft != 0 && band < vp9dec.CoefBands {
+		pt := vp9dec.GetCoefContext(neighbors, in.TokenCache, eob)
+		rate += CoeffTreeTokenCost((*in.CoefModel)[band][pt][:], false,
+			EobToken)
+	}
+	return rate
+}
+
+func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
+	maxEob int,
+) int {
+	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
+	if eob == 0 {
+		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+			EobToken)
+	}
+
+	rate := 0
+	dcAbs, dcSign := CoeffMagnitudeAndSign(in.QCoeffs, 0, in.Coeffs[0],
+		in.Dequant[0], in.TxSize == common.Tx32x32)
+	prevToken, extraCost := CoeffTokenExtraCost(dcAbs, dcSign)
+	rate += extraCost
+	rate += CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+		prevToken)
+
+	bandIdx := 1
+	bandLeft := coeffCostBandCounts[in.TxSize][bandIdx]
+	for c := 1; c < eob; c++ {
+		raster := int(scan[c])
+		absVal, sign := CoeffMagnitudeAndSign(in.QCoeffs, raster,
+			in.Coeffs[raster], in.Dequant[1], in.TxSize == common.Tx32x32)
+		token, extra := CoeffTokenExtraCost(absVal, sign)
+		ctx := 0
+		skipEOB := false
+		if prevToken == ZeroToken {
+			ctx = 1
+			skipEOB = true
+		}
+		rate += extra
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:],
+			skipEOB, token)
+		prevToken = token
+		bandLeft--
+		if bandLeft == 0 {
+			bandIdx++
+			if bandIdx >= len(coeffCostBandCounts[in.TxSize]) {
+				break
+			}
+			bandLeft = coeffCostBandCounts[in.TxSize][bandIdx]
+		}
+	}
+	if bandLeft != 0 {
+		ctx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+		}
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:], false,
+			EobToken)
+	}
+	return rate
 }

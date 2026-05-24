@@ -130,7 +130,7 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	origTx := mi.TxSize
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if e.sf.UseNonrdPickMode != 0 {
-			if vp9ConditionalSkipIntra(mode, best.mode) {
+			if encoder.ConditionalSkipIntra(mode, best.mode) {
 				continue
 			}
 			if bestValid && best.skippable {
@@ -390,14 +390,14 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 			continue
 		}
 		if e.sf.ModeSearchSkipFlags&FlagSkipIntraDirMismatch != 0 &&
-			vp9ConditionalSkipIntra(mode, bestMode) {
+			encoder.ConditionalSkipIntra(mode, bestMode) {
 			continue
 		}
 		// Restore the saved recon so this candidate's prediction starts
 		// from the same neighbour state as the previous candidate
 		// (libvpx vp9_rdopt.c:1108-1109 — `memcpy(tempa,...);
 		// memcpy(templ,...);` before each per-mode pass).
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
 		rate := bmodeCosts[mode]
 		var totalDistortion uint64
 		var totalCoeffRate int
@@ -432,7 +432,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode,
 					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
 					idy+jy, idx+jx, dequant, qindex, coeffs, qcoeffs)
-				totalDistortion += vp9TransformBlockErrorShifted(
+				totalDistortion += encoder.TransformBlockErrorShifted(
 					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob])
 				// libvpx vp9_rdopt.c:1148-1149 + 1156-1157 — coeff_ctx
 				// = combine_entropy_contexts(tempa[idx], templ[idy]);
@@ -486,7 +486,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	// inverse-transform add for the winning mode). This is important for
 	// the following 4x4 sub-block's intra neighbours.
 	if bestValid {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, bestDst)
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, bestDst)
 		for i := 0; i < num4x4W && i < len(aboveCtx) && i < len(bestA); i++ {
 			aboveCtx[i] = bestA[i]
 		}
@@ -494,24 +494,9 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 			leftCtx[i] = bestL[i]
 		}
 	} else {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
 	}
 	return bestMode, bestBlockRD, bestValid
-}
-
-func vp9ConditionalSkipIntra(mode, bestMode common.PredictionMode) bool {
-	switch mode {
-	case common.D117Pred:
-		return bestMode != common.VPred && bestMode != common.D135Pred
-	case common.D63Pred:
-		return bestMode != common.VPred && bestMode != common.D45Pred
-	case common.D207Pred:
-		return bestMode != common.HPred && bestMode != common.D45Pred
-	case common.D153Pred:
-		return bestMode != common.HPred && bestMode != common.D135Pred
-	default:
-		return false
-	}
 }
 
 // vp9KeyframeIntraModeMask returns the libvpx `intra_y_mode_bsize_mask`
@@ -753,7 +738,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 		miRow, miCol, bsize, pd, planeBsize)
 	if max4x4W <= 0 || max4x4H <= 0 {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
 		return 0, false
 	}
 
@@ -766,7 +751,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 			_, _, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, 0, mode,
 				txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc)
 			if !ok {
-				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+				encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 					restoreW, restoreH, saved)
 				return 0, false
 			}
@@ -778,7 +763,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 			// border; mirror that here so partial bottom/right TUs stay valid.
 			if x0 < 0 || y0 < 0 || x0+bs > srcW || y0+bs > srcH {
 				if bs*bs > len(e.modeScratch) {
-					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 						restoreW, restoreH, saved)
 					return 0, false
 				}
@@ -800,7 +785,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 				planeData, stride, x0, y0, bs, bs, yrdTxSize, dequant,
 				encoder.BlockYrdUnknownSSE, e.vp9BlockYrdScratch[:])
 			if !yrd.Valid {
-				vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+				encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 					restoreW, restoreH, saved)
 				return 0, false
 			}
@@ -810,7 +795,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 			visited = true
 		}
 	}
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
 	if !visited {
 		return 0, false
 	}
@@ -922,7 +907,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 		int(key.hdr.Quant.BaseQindex))
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if maxEob > len(e.coefScratch) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 			restoreW, restoreH, saved)
 		return 0, 0, false, false
 	}
@@ -935,7 +920,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
 	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 			restoreW, restoreH, saved)
 		return 0, 0, false, false
 	}
@@ -984,9 +969,9 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			var blockDist uint64
 			var blockSSE uint64
 			if useTxDomainDistortion && hasResidue {
-				blockDist = vp9TransformBlockError(e.txCoeffScratch[:maxEob],
+				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
 					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = vp9TransformBlockEnergy(e.txCoeffScratch[:maxEob], txSize)
+				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob], txSize)
 			} else {
 				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
 				// when transform-domain distortion is disabled, or when eob=0
@@ -997,12 +982,12 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
 					srcH, planeData, stride, txX, txY, bs, bs)
 				if !distOK {
-					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 						restoreW, restoreH, saved)
 					return 0, 0, false, false
 				}
 				blockDist = dist * 16
-				blockSSE = vp9ResidualSSE(e.residueScratch[:bs*bs]) * 16
+				blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
 			}
 			distortion += blockDist
 
@@ -1032,7 +1017,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 				rdZero := encoder.RDCost(e.cbRdmult, encoder.RDDivBits, 0, blockSSE)
 				blockRD := min(rdZero, rdCoded)
 				if blockRD > refBestRD {
-					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 						restoreW, restoreH, saved)
 					return 0, 0, false, false
 				}
@@ -1057,53 +1042,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			}
 		}
 	}
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
 	return distortion, coeffRate, skippable, true
-}
-
-func vp9RestorePlaneRect(data []byte, stride, x0, y0, w, h int, saved []byte) {
-	for y := range h {
-		copy(data[(y0+y)*stride+x0:(y0+y)*stride+x0+w],
-			saved[y*w:(y+1)*w])
-	}
-}
-
-func vp9TransformBlockErrorShifted(coeffs, dqcoeffs []int16) uint64 {
-	return vp9TransformBlockError(coeffs, dqcoeffs, common.Tx4x4)
-}
-
-func vp9TransformBlockEnergy(coeffs []int16, txSize common.TxSize) uint64 {
-	var energy uint64
-	for _, coeff := range coeffs {
-		v := int64(coeff)
-		energy += uint64(v * v)
-	}
-	if txSize != common.Tx32x32 {
-		energy >>= 2
-	}
-	return energy
-}
-
-func vp9ResidualSSE(residue []int16) uint64 {
-	var sse uint64
-	for _, diff := range residue {
-		v := int64(diff)
-		sse += uint64(v * v)
-	}
-	return sse
-}
-
-func vp9TransformBlockError(coeffs, dqcoeffs []int16, txSize common.TxSize) uint64 {
-	n := min(len(coeffs), len(dqcoeffs))
-	var err uint64
-	for i := range n {
-		diff := int64(coeffs[i]) - int64(dqcoeffs[i])
-		err += uint64(diff * diff)
-	}
-	if txSize != common.Tx32x32 {
-		err >>= 2
-	}
-	return err
 }
 
 func (e *VP9Encoder) vp9KeyframeUseTransformDomainDistortion(key *vp9KeyframeEncodeState,
@@ -1469,7 +1409,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 		int(key.hdr.Quant.BaseQindex))
 	maxEob := vp9dec.MaxEobForTxSize(uvTxSize)
 	if maxEob > len(e.coefScratch) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 			restoreW, restoreH, saved)
 		return 0, 0, false, false
 	}
@@ -1485,7 +1425,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
 	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
-		vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 			restoreW, restoreH, saved)
 		return 0, 0, false, false
 	}
@@ -1524,7 +1464,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				qindex, coeffs, qcoeffs)
 
 			if useTxDomainDistortion && hasResidue {
-				distortion += vp9TransformBlockError(e.txCoeffScratch[:maxEob],
+				distortion += encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
 					e.dqCoeffScratch[:maxEob], uvTxSize)
 			} else {
 				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
@@ -1536,7 +1476,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
 					srcH, planeData, stride, txX, txY, bs, bs)
 				if !distOK {
-					vp9RestorePlaneRect(planeData, stride, baseX, baseY,
+					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 						restoreW, restoreH, saved)
 					return 0, 0, false, false
 				}
@@ -1570,7 +1510,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 			}
 		}
 	}
-	vp9RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
 	return rate, distortion, skippable, true
 }
 
@@ -1852,7 +1792,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 					// this 4x4 step.
 				}
 				if useTxDomainDistortion && hasResidue {
-					distortion += vp9TransformBlockError(e.txCoeffScratch[:coeffBlockSlots],
+					distortion += encoder.TransformBlockError(e.txCoeffScratch[:coeffBlockSlots],
 						e.dqCoeffScratch[:coeffBlockSlots], tx)
 				} else {
 					// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,dst)*16
@@ -2016,186 +1956,20 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
 	coeffs, qcoeffs []int16, initCtx int,
 ) int {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if txSize >= common.TxSizes || dequant[0] == 0 || dequant[1] == 0 ||
-		len(coeffs) < maxEob || len(e.modeScratch) < maxEob ||
-		initCtx < 0 || initCtx > 2 || planeType < 0 || planeType > 1 {
+	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
-	if qcoeffs != nil && len(qcoeffs) < maxEob {
-		qcoeffs = nil
-	}
-	scan := scanOrder.Scan
-	neighbors := scanOrder.Neighbors
-	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
-		return 0
-	}
-	for i := range e.modeScratch[:maxEob] {
-		e.modeScratch[i] = 0
-	}
-	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type = planeType (0 = Y, 1 = UV); is_inter = 0 for keyframe/intra.
-	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
-	if e.sf.UseFastCoefCosting != 0 {
-		return e.vp9CoeffBlockRateCostFastQ(txSize, coefModel, scanOrder,
-			dequant, coeffs, qcoeffs, initCtx)
-	}
-	return e.vp9CoeffBlockRateCostSlowQ(txSize, coefModel, scanOrder,
-		dequant, coeffs, qcoeffs, initCtx, eob)
-}
-
-var vp9CoeffCostBandCounts = [common.TxSizes][8]int{
-	{1, 2, 3, 4, 3, 16 - 13, 0},
-	{1, 2, 3, 4, 11, 64 - 21, 0},
-	{1, 2, 3, 4, 11, 256 - 21, 0},
-	{1, 2, 3, 4, 11, 1024 - 21, 0},
-}
-
-// vp9CoeffBlockRateCostSlowQ ports the non-fast arm of libvpx cost_coeffs
-// (vp9/encoder/vp9_rdopt.c:419-459). The second token-cost index is
-// `!previous_token`, which skips the EOB branch immediately after a zero
-// coefficient; charging the full tree there overstates sparse residuals and
-// can move RD mode decisions.
-func (e *VP9Encoder) vp9CoeffBlockRateCostSlowQ(txSize common.TxSize,
-	coefModel *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8,
-	scanOrder common.ScanOrder, dequant [2]int16, coeffs, qcoeffs []int16,
-	initCtx int, eob int,
-) int {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if txSize >= common.TxSizes || coefModel == nil || dequant[0] == 0 ||
-		dequant[1] == 0 || len(coeffs) < maxEob || initCtx < 0 ||
-		initCtx > 2 {
-		return 0
-	}
-	if qcoeffs != nil && len(qcoeffs) < maxEob {
-		qcoeffs = nil
-	}
-	scan := scanOrder.Scan
-	neighbors := scanOrder.Neighbors
-	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
-		return 0
-	}
-	if eob <= 0 {
-		return encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
-			encoder.EobToken)
-	}
-	if eob > maxEob {
-		eob = maxEob
-	}
-
-	dcAbs, dcSign := encoder.CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
-		dequant[0], txSize == common.Tx32x32)
-	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
-	rate := extraCost + encoder.CoeffTreeTokenCost(
-		(*coefModel)[0][initCtx][:], false, prevToken)
-	e.modeScratch[0] = encoder.PtEnergyClass[prevToken]
-
-	band := 1
-	bandLeft := vp9CoeffCostBandCounts[txSize][band]
-	for c := 1; c < eob; c++ {
-		if band >= vp9dec.CoefBands {
-			return rate
-		}
-		raster := int(scan[c])
-		dqv := dequant[1]
-		absVal, sign := encoder.CoeffMagnitudeAndSign(qcoeffs, raster,
-			coeffs[raster], dqv, txSize == common.Tx32x32)
-		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
-		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, c)
-		rate += extra + encoder.CoeffTreeTokenCost(
-			(*coefModel)[band][pt][:], prevToken == encoder.ZeroToken, token)
-		e.modeScratch[raster] = encoder.PtEnergyClass[token]
-		if bandLeft > 0 {
-			bandLeft--
-			if bandLeft == 0 {
-				band++
-				if band < len(vp9CoeffCostBandCounts[txSize]) {
-					bandLeft = vp9CoeffCostBandCounts[txSize][band]
-				}
-			}
-		}
-		prevToken = token
-	}
-	if bandLeft != 0 && band < vp9dec.CoefBands {
-		pt := vp9dec.GetCoefContext(neighbors, &e.modeScratch, eob)
-		rate += encoder.CoeffTreeTokenCost((*coefModel)[band][pt][:], false,
-			encoder.EobToken)
-	}
-	return rate
-}
-
-// vp9CoeffBlockRateCostFastQ ports the use_fast_coef_costing arm of libvpx's
-// cost_coeffs (vp9/encoder/vp9_rdopt.c:387-416). The fast arm advances through
-// band_counts rather than recomputing get_coef_context() for every non-zero AC
-// coefficient, and indexes the token-cost slab with [!prev_token][!prev_token].
-// govpx computes the same token costs on demand from fc.CoefProbs instead of
-// caching x->token_costs.
-func (e *VP9Encoder) vp9CoeffBlockRateCostFastQ(txSize common.TxSize,
-	coefModel *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8,
-	scanOrder common.ScanOrder, dequant [2]int16, coeffs, qcoeffs []int16,
-	initCtx int,
-) int {
-	maxEob := vp9dec.MaxEobForTxSize(txSize)
-	if txSize >= common.TxSizes || coefModel == nil || dequant[0] == 0 ||
-		dequant[1] == 0 || len(coeffs) < maxEob || initCtx < 0 ||
-		initCtx > 2 {
-		return 0
-	}
-	if qcoeffs != nil && len(qcoeffs) < maxEob {
-		qcoeffs = nil
-	}
-	scan := scanOrder.Scan
-	if len(scan) < maxEob {
-		return 0
-	}
-	eob := encoder.CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
-	if eob == 0 {
-		return encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
-			encoder.EobToken)
-	}
-
-	rate := 0
-	dcAbs, dcSign := encoder.CoeffMagnitudeAndSign(qcoeffs, 0, coeffs[0],
-		dequant[0], txSize == common.Tx32x32)
-	prevToken, extraCost := encoder.CoeffTokenExtraCost(dcAbs, dcSign)
-	rate += extraCost
-	rate += encoder.CoeffTreeTokenCost((*coefModel)[0][initCtx][:], false,
-		prevToken)
-
-	bandIdx := 1
-	bandLeft := vp9CoeffCostBandCounts[txSize][bandIdx]
-	for c := 1; c < eob; c++ {
-		raster := int(scan[c])
-		absVal, sign := encoder.CoeffMagnitudeAndSign(qcoeffs, raster,
-			coeffs[raster], dequant[1], txSize == common.Tx32x32)
-		token, extra := encoder.CoeffTokenExtraCost(absVal, sign)
-		ctx := 0
-		skipEOB := false
-		if prevToken == encoder.ZeroToken {
-			ctx = 1
-			skipEOB = true
-		}
-		rate += extra
-		rate += encoder.CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:],
-			skipEOB, token)
-		prevToken = token
-		bandLeft--
-		if bandLeft == 0 {
-			bandIdx++
-			if bandIdx >= len(vp9CoeffCostBandCounts[txSize]) {
-				break
-			}
-			bandLeft = vp9CoeffCostBandCounts[txSize][bandIdx]
-		}
-	}
-	if bandLeft != 0 {
-		ctx := 0
-		if prevToken == encoder.ZeroToken {
-			ctx = 1
-		}
-		rate += encoder.CoeffTreeTokenCost((*coefModel)[bandIdx][ctx][:], false,
-			encoder.EobToken)
-	}
-	return rate
+	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
+		TxSize:     txSize,
+		CoefModel:  &e.fc.CoefProbs[txSize][planeType][0],
+		ScanOrder:  scanOrder,
+		Dequant:    dequant,
+		Coeffs:     coeffs,
+		QCoeffs:    qcoeffs,
+		InitCtx:    initCtx,
+		Fast:       e.sf.UseFastCoefCosting != 0,
+		TokenCache: &e.modeScratch,
+	})
 }
