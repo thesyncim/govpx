@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestVP9OracleRuntimeControlByteParityScoreboard(t *testing.T) {
+func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 runtime-control byte-parity scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -961,7 +961,7 @@ func TestVP9OracleRuntimeControlConstantByteParityMatrix(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
+func TestVP9OracleRuntimeResizeByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 runtime-resize byte-parity scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -1023,7 +1023,7 @@ func TestVP9OracleRuntimeResizeByteParityScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleInvisibleKeyFrameByteParityScoreboard(t *testing.T) {
+func TestVP9OracleInvisibleKeyFrameByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 invisible-frame byte-parity scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -1080,7 +1080,7 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRuntimeDropToggleByteParityScoreboard(t *testing.T) {
+func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 runtime-drop byte-parity scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 

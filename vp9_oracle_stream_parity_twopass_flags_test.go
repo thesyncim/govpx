@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
+func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 two-pass byte-parity scoreboard")
 	vp9test.RequireVpxenc(t)
 
@@ -80,7 +80,7 @@ func TestVP9OracleTwoPassStreamByteParityScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleTwoPassConstantByteParityScoreboard(t *testing.T) {
+func TestVP9OracleTwoPassConstantByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 two-pass constant byte-parity scoreboard")
 	vp9test.RequireVpxenc(t)
 

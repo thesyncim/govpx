@@ -127,12 +127,11 @@ type BDRateOptionsVP8 struct {
 	// sample. For ladders that *are* deterministic, leaving this at 0
 	// preserves the previous single-run behavior (zero cost).
 	//
-	// Task #367 enabled this for the RT cpu_used=8 BD-rate fixture
-	// after #357 widened its gate to +20.0% / -1.2 dB to absorb a
-	// 42.86 -> 44.48 dB run-to-run PSNR-Y spread driven entirely by
-	// libvpx's RT auto-speed wall-clock dependency. With N=3 median
-	// the spread collapses and the gate retightens toward the
-	// post-#341/#342 +10%/-1.0 dB envelope.
+	// Realtime cpu-used=8 fixtures use N=3 to absorb the 42.86 -> 44.48
+	// dB PSNR-Y run-to-run spread driven by libvpx's RT auto-speed
+	// wall-clock dependency. The median keeps the quality gate close to
+	// the deterministic envelope without treating one noisy libvpx
+	// invocation as the reference.
 	LibvpxOracleRuns int
 }
 
@@ -642,14 +641,14 @@ func encodeBDLibvpxVP8Curve(opts BDRateOptionsVP8, ladder []bdOperatingPoint) ([
 // vp8_auto_select_speed (rdopt.c:261) which makes per-frame cpi->Speed
 // decisions off vpx_usec_timer wall-clock measurements. Two consecutive
 // invocations of vpxenc on the same source therefore produce different
-// rate and PSNR even though `--threads=1` is in effect. The task #357
-// audit measured a 42.86 -> 44.48 dB PSNR-Y spread on a single rung,
-// which mapped to a +14.5 pp BD-rate spread (BD-rate=+2.30/+6.94/+16.82
-// across three back-to-back runs). The median-of-N collapses that
-// spread without changing the comparison semantics: we still compare
-// govpx-VP8 against the libvpx behavior under the configured cpu_used
-// value, but we characterize the libvpx distribution rather than a
-// single sample of it.
+// rate and PSNR even though `--threads=1` is in effect. The realtime
+// cpu-used=8 fixture has produced a 42.86 -> 44.48 dB PSNR-Y spread on
+// one rung, which mapped to a +14.5 pp BD-rate spread
+// (BD-rate=+2.30/+6.94/+16.82 across three back-to-back runs). The
+// median-of-N collapses that spread without changing the comparison
+// semantics: we still compare govpx-VP8 against the libvpx behavior
+// under the configured cpu_used value, but we characterize the libvpx
+// distribution rather than a single sample of it.
 //
 // The median is taken per-axis (rate and PSNR sorted independently) so
 // a slow run with high rate doesn't also bias the PSNR sample.

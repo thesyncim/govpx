@@ -139,6 +139,29 @@ func TestVP9OracleSourceTestsStayTagged(t *testing.T) {
 	}
 }
 
+func TestCleanedVP9AndBenchFilesDoNotUseTrackerLabels(t *testing.T) {
+	files := vp9AndBenchGoFiles(t)
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s): %v", path, err)
+		}
+		src := string(data)
+		for _, marker := range []string{"Task #", "task #", "audit #"} {
+			if strings.Contains(src, marker) {
+				t.Fatalf("%s contains tracker-era marker %q", path, marker)
+			}
+		}
+		for lineNo, line := range strings.Split(src, "\n") {
+			if strings.Contains(line, "func TestVP9") &&
+				strings.Contains(line, "Scoreboard") {
+				t.Fatalf("%s:%d contains scoreboard in a VP9 test name",
+					path, lineNo+1)
+			}
+		}
+	}
+}
+
 func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 	reason string,
 ) {
@@ -166,6 +189,36 @@ func testFileImports(t *testing.T, path string, importPath string) bool {
 		}
 	}
 	return false
+}
+
+func vp9AndBenchGoFiles(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob("vp9*.go")
+	if err != nil {
+		t.Fatalf("Glob(%q): %v", "vp9*.go", err)
+	}
+	files = append(files, walkGoFiles(t, filepath.Join("internal", "vp9"))...)
+	files = append(files, walkGoFiles(t, filepath.Join("cmd", "govpx-bench", "benchcmd"))...)
+	return files
+}
+
+func walkGoFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir(%s): %v", root, err)
+	}
+	return files
 }
 
 func goFileImports(t *testing.T, path string) []string {

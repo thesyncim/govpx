@@ -127,7 +127,7 @@ func TestVP9EncoderVpxencOracleMidgrayKeyframeByteParity(t *testing.T) {
 	assertVP9VpxencKeyframeByteParity(t, src)
 }
 
-func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
+func TestVP9EncoderVpxencOracleLookaheadNoAltRefParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 64, 64, 4
@@ -192,7 +192,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
+func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
@@ -249,7 +249,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
+func TestVP9EncoderVpxencOracleFlat64KeyframeModeParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
@@ -299,7 +299,7 @@ func TestVP9EncoderVpxencOracleFlat64KeyframeModeScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderVpxencOracleInterModeDistributionScoreboard(t *testing.T) {
+func TestVP9EncoderVpxencOracleInterModeDistributionParity(t *testing.T) {
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 6

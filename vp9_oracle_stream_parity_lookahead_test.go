@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestVP9OracleTemporalPatternByteParityScoreboard(t *testing.T) {
+func TestVP9OracleTemporalPatternByteParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 temporal byte-parity scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -126,7 +126,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	}
 }
 
-func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibilityScoreboard(t *testing.T) {
+func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 auto-alt-ref visibility scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 

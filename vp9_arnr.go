@@ -180,13 +180,12 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	// avg_frame_qindex. The libvpx-faithful gfu_boost comes from
 	// `define_gf_group`'s call to `compute_arf_boost` (two-pass path) or
 	// the one-pass DEFAULT_GF_BOOST seed (libvpx vp9_ratectrl.c:2082).
-	// Both feeds are now wired (NewVP9Encoder seeds DEFAULT_GF_BOOST
-	// when LookaheadFrames>0; refreshVP9GFGroupIfDue refreshes it from
+	// Both feeds are wired: NewVP9Encoder seeds DEFAULT_GF_BOOST when
+	// LookaheadFrames>0, and refreshVP9GFGroupIfDue refreshes it from
 	// encoder.DefineGFGroup at each GF boundary when two-pass stats are
-	// available). The legacy non-adaptive branch is retained for
-	// streams that explicitly request gfuBoost=0 (e.g. zero-lag
-	// realtime CBR) and for the non-default ARNRType=1/2 directions
-	// which libvpx's adjust_arnr_filter doesn't model.
+	// available. Streams with gfuBoost=0 (for example zero-lag realtime
+	// CBR) use the fixed-window selector, as do non-default ARNRType=1/2
+	// directions that libvpx's adjust_arnr_filter does not model.
 	var backward, forward, strength int
 	useAdaptive := e.rc.gfuBoost > 0
 	if useAdaptive {
@@ -208,8 +207,8 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	}
 	// libvpx's adjust_arnr_filter assumes ARNRType=3 (centered). govpx's
 	// ARNRType=1/2 (backward/forward-only) are non-default modes; honor
-	// the caller's request even under the adaptive path by routing
-	// through the legacy window selector for those modes.
+	// the caller's request even under the adaptive path by routing through
+	// the fixed-window selector for those modes.
 	if !useAdaptive || e.opts.ARNRType != 3 {
 		b, f, ok := vp9enc.TemporalFilterWindow(distance,
 			int(e.lookaheadCount), maxFrames, e.opts.ARNRType)

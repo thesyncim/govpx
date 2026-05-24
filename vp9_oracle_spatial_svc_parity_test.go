@@ -16,7 +16,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
+func TestVP9OracleSpatialSVCParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 spatial SVC oracle scoreboard")
 
 	const frames = 4

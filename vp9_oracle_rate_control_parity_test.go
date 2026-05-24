@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
+func TestVP9OracleRateBehaviorParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 rate-behavior scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -100,7 +100,7 @@ func TestVP9OracleRateBehaviorScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleQHistogramScoreboard(t *testing.T) {
+func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 Q histogram scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -234,7 +234,7 @@ func TestVP9OracleQHistogramScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
+func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 CBR buffer matrix scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -325,7 +325,7 @@ func TestVP9OracleRateBufferMatrixScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
+func TestVP9OracleCBRKeyframeVariancePartitionParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 CBR keyframe variance scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 
@@ -369,7 +369,7 @@ func TestVP9OracleCBRKeyframeVariancePartitionScoreboard(t *testing.T) {
 	}
 }
 
-func TestVP9OracleRateDropPressureScoreboard(t *testing.T) {
+func TestVP9OracleRateDropPressureParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 rate drop-pressure scoreboard")
 	vp9test.RequireVpxencFrameFlags(t)
 

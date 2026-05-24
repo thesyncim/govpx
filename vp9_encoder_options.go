@@ -202,8 +202,9 @@ type VP9EncoderOptions struct {
 	RowMT bool
 
 	// Deadline selects the VP9 speed/quality operating mode. The zero-value
-	// options keep govpx's historical VP9 oracle default of realtime cpu-used 8;
-	// use SetDeadline after construction to force explicit best-quality cpu 0.
+	// options select realtime cpu-used 8, matching the default path most
+	// oracle parity tests exercise; call SetDeadline after construction to
+	// force explicit best-quality cpu 0.
 	Deadline Deadline
 	// CpuUsed selects the libvpx VP9 speed preset in [-9, 9]. VP9 maps this to
 	// abs(cpu-used) internally; the sign is preserved for control parity.
@@ -237,12 +238,12 @@ type VP9EncoderOptions struct {
 	TargetBitrateKbps int
 
 	// RateControlModeSet enables VP9 rate-control bookkeeping. It is explicit
-	// because RateControlVBR is the zero value while the historical VP9 default
-	// is libvpx VPX_Q-style public-Q mode. RateControlCBR drives one-pass CBR
-	// qindex selection, tracks a buffer, and can drop visible inter frames when
-	// DropFrameAllowed is enabled. RateControlVBR, RateControlCQ, and
-	// RateControlQ drive one-pass VP9 rate/quality qindex selection without
-	// frame dropping.
+	// because RateControlVBR is the zero value while the default VP9 option
+	// set uses libvpx VPX_Q-style public-Q mode. RateControlCBR drives
+	// one-pass CBR qindex selection, tracks a buffer, and can drop visible
+	// inter frames when DropFrameAllowed is enabled. RateControlVBR,
+	// RateControlCQ, and RateControlQ drive one-pass VP9 rate/quality qindex
+	// selection without frame dropping.
 	RateControlModeSet bool
 	// RateControlMode selects the VP9 rate-control mode when
 	// RateControlModeSet is true.
@@ -508,7 +509,7 @@ type VP9EncoderOptions struct {
 	NextFrameQIndexSet bool
 
 	// FrameParallelEncoderThreads controls encoder-side frame parallelism.
-	// Zero or one keep the historical single-frame-in-flight scheduling.
+	// Zero or one keeps one source frame in flight.
 	// Values >= 2 enable batched concurrent encoding of up to N visible
 	// source frames at once. Each batch worker receives its own cloned
 	// VP9Encoder state taken at batch entry; ref frames, entropy contexts,
