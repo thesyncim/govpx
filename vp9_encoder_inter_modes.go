@@ -1599,7 +1599,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		refFullDx = int(opts.refMv.Col) >> 3
 		refFullDy = int(opts.refMv.Row) >> 3
 	}
-	mvLimits := vp9EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	mvLimits := encoder.EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
 	mvLimits.SetFullpelSearchRange(refMvForRange)
 	sadAt := func(dx, dy int) (uint64, bool) {
 		if !mvLimits.InFullpelRange(dy, dx) {
@@ -1618,9 +1618,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
 
-	sadPerBit := vp9SADPerBit16(e.vp9EncoderModeDecisionQIndex())
+	sadPerBit := encoder.SADPerBit16(e.vp9EncoderModeDecisionQIndex())
 	scoreMv := func(dx, dy int, sad uint64) uint64 {
-		return sad + uint64(vp9FullPelMVSADCost(dy, dx,
+		return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
 			refFullDy, refFullDx, sadPerBit))
 	}
 	bestSad, ok := sadAt(0, 0)
@@ -1717,12 +1717,12 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			scanMaxDy = searchCenterDy + searchRadius
 		}
 		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-			bestDx, bestDy, bestSad, bestScore = vp9FastDiamondPatternSearchSAD(
+			bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSAD(
 				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 				&mvLimits, sadAt, scoreMv)
 		} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
 			e.sf.Mv.SearchMethod == SearchMethodMesh {
-			bestDx, bestDy, bestSad, bestScore = vp9NStepDiamondSearchSAD(
+			bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSAD(
 				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 				&mvLimits, sadAt, scoreMv)
 		} else {
@@ -1768,27 +1768,4 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			opts.refMv, opts.refMvValid, opts.nonrdSubpelTree)
 	}
 	return mv, bestScore, true
-}
-
-func vp9SADPerBit16(qindex int) int {
-	if qindex < 0 {
-		qindex = 0
-	}
-	if qindex > vp9dec.MaxQ {
-		qindex = vp9dec.MaxQ
-	}
-	q := encoder.ConvertQIndexToQ(qindex)
-	return int(0.0418*q + 2.4107)
-}
-
-func vp9FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
-	row := mvRow - refRow
-	col := mvCol - refCol
-	jointCost := 300
-	if row == 0 && col == 0 {
-		jointCost = 600
-	}
-	cost := jointCost + encoder.MVSADComponentCost(row) + encoder.MVSADComponentCost(col)
-	// libvpx: mvsad_err_cost rounds by VP9_PROB_COST_SHIFT (9).
-	return (cost*sadPerBit + 256) >> 9
 }

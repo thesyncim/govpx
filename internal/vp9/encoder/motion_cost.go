@@ -30,6 +30,29 @@ func MVSADComponentCost(v int) int {
 	return mvSADComponentCosts[v]
 }
 
+func SADPerBit16(qindex int) int {
+	if qindex < 0 {
+		qindex = 0
+	}
+	if qindex > vp9dec.MaxQ {
+		qindex = vp9dec.MaxQ
+	}
+	q := ConvertQIndexToQ(qindex)
+	return int(0.0418*q + 2.4107)
+}
+
+func FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
+	row := mvRow - refRow
+	col := mvCol - refCol
+	jointCost := 300
+	if row == 0 && col == 0 {
+		jointCost = 600
+	}
+	cost := jointCost + MVSADComponentCost(row) + MVSADComponentCost(col)
+	// libvpx: mvsad_err_cost rounds by VP9_PROB_COST_SHIFT (9).
+	return (cost*sadPerBit + 256) >> 9
+}
+
 // UseMvHP mirrors libvpx's use_mv_hp reference-MV threshold.
 func UseMvHP(ref vp9dec.MV) bool {
 	const mvRefThresh = 64

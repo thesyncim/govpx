@@ -32,6 +32,19 @@ type MvLimits struct {
 	RowMax int
 }
 
+func EncoderMvLimits(miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) MvLimits {
+	miW := int(common.Num8x8BlocksWideLookup[bsize])
+	miH := int(common.Num8x8BlocksHighLookup[bsize])
+	return MvLimits{
+		RowMin: -(((miRow + miH) * common.MiSize) + common.VP9InterpExtend),
+		ColMin: -(((miCol + miW) * common.MiSize) + common.VP9InterpExtend),
+		RowMax: (miRows-miRow)*common.MiSize + common.VP9InterpExtend,
+		ColMax: (miCols-miCol)*common.MiSize + common.VP9InterpExtend,
+	}
+}
+
 // MV mirrors libvpx's MV struct (vp9/common/vp9_mv.h). It is the same
 // (row, col) int16 pair as internal/vp9/decoder.MV, so callers can pass
 // decoder motion vectors without conversion.
