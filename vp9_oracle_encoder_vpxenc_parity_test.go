@@ -6,14 +6,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
-	"image"
-	"testing"
 )
 
 func TestVP9EncoderVpxencOracleKeyframeUncompressedHeaderParity(t *testing.T) {
@@ -82,9 +83,9 @@ func TestVP9EncoderVpxencOracleBlackKeyframeCompressedHeaderParity(t *testing.T)
 		t.Fatalf("compressed header size = %d, want vpxenc %d", got, want)
 	}
 
-	govpxComp, govpxFc, govpxUncSize := readVP9CompressedHeaderForOracleTest(t,
+	govpxComp, govpxFc, govpxUncSize := vp9test.ReadCompressedHeader(t,
 		govpxPacket, govpxHeader)
-	libvpxComp, libvpxFc, libvpxUncSize := readVP9CompressedHeaderForOracleTest(t,
+	libvpxComp, libvpxFc, libvpxUncSize := vp9test.ReadCompressedHeader(t,
 		libvpxPacket, libvpxHeader)
 	if govpxComp != libvpxComp {
 		t.Fatalf("compressed header = %+v, want vpxenc %+v", govpxComp, libvpxComp)
@@ -1546,34 +1547,4 @@ func firstLastVP9MiForOracleTest(grid []vp9dec.NeighborMi) (vp9dec.NeighborMi, v
 		return vp9dec.NeighborMi{}, vp9dec.NeighborMi{}
 	}
 	return grid[0], grid[len(grid)-1]
-}
-
-func readVP9CompressedHeaderForOracleTest(t *testing.T, packet []byte,
-	header vp9dec.UncompressedHeader,
-) (vp9dec.CompressedHeader, vp9dec.FrameContext, int) {
-	t.Helper()
-	var br vp9dec.BitReader
-	br.Init(packet)
-	if _, err := vp9dec.ReadUncompressedHeader(&br, nil, nil); err != nil {
-		t.Fatalf("ReadUncompressedHeader: %v", err)
-	}
-	uncSize := br.BytesRead()
-	compEnd := uncSize + int(header.FirstPartitionSize)
-	var cr bitstream.Reader
-	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
-		t.Fatalf("compressed reader Init: %v", err)
-	}
-	var fc vp9dec.FrameContext
-	vp9dec.ResetFrameContext(&fc)
-	compoundAllowed := header.FrameType != common.KeyFrame && !header.IntraOnly &&
-		vp9dec.CompoundReferenceAllowed(vp9dec.FrameRefSignBias(&header))
-	comp := vp9dec.ReadCompressedHeader(&cr, &fc, vp9dec.ReadCompressedHeaderArgs{
-		Lossless:             header.Quant.Lossless,
-		IntraOnly:            header.FrameType == common.KeyFrame || header.IntraOnly,
-		KeyFrame:             header.FrameType == common.KeyFrame,
-		InterpFilter:         header.InterpFilter,
-		AllowHighPrecisionMv: header.AllowHighPrecisionMv,
-		CompoundRefAllowed:   compoundAllowed,
-	})
-	return comp, fc, uncSize
 }

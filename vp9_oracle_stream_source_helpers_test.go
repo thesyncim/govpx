@@ -136,7 +136,7 @@ func captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 			len(rows), len(packets))
 	}
 	for i := range rows {
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -151,7 +151,7 @@ func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 		if rows[i].Dropped {
 			continue
 		}
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

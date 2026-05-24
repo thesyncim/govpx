@@ -3,6 +3,8 @@ package vp9test
 import (
 	"strings"
 	"testing"
+
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestParseRateScoreboardRows(t *testing.T) {
@@ -127,6 +129,34 @@ func TestAutoAltRefVisibilityFormatting(t *testing.T) {
 			t.Fatalf("FormatAutoAltRefVisibilityRows missing %q in:\n%s",
 				want, out)
 		}
+	}
+}
+
+func TestReferenceMaskFromLibvpxFrameFlags(t *testing.T) {
+	const (
+		libvpxNoRefLast = 1 << 16
+		libvpxNoRefGF   = 1 << 17
+		libvpxNoRefARF  = 1 << 21
+	)
+	cases := []struct {
+		name  string
+		flags uint32
+		want  uint8
+	}{
+		{name: "all", want: 1<<uint(vp9dec.LastFrame) |
+			1<<uint(vp9dec.GoldenFrame) | 1<<uint(vp9dec.AltrefFrame)},
+		{name: "golden-altref", flags: libvpxNoRefLast,
+			want: 1<<uint(vp9dec.GoldenFrame) | 1<<uint(vp9dec.AltrefFrame)},
+		{name: "last", flags: libvpxNoRefGF | libvpxNoRefARF,
+			want: 1 << uint(vp9dec.LastFrame)},
+		{name: "none", flags: libvpxNoRefLast | libvpxNoRefGF | libvpxNoRefARF},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ReferenceMaskFromLibvpxFrameFlags(tc.flags); got != tc.want {
+				t.Fatalf("mask = %#x, want %#x", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -185,7 +185,7 @@ func TestRootVPxOracleTestsUseObjectiveNames(t *testing.T) {
 	}
 }
 
-func TestRootVP9TestsUseHarnessPacketBuilders(t *testing.T) {
+func TestRootVP9TestsUseHarnessBitstreamHelpers(t *testing.T) {
 	files, err := filepath.Glob("vp9*_test.go")
 	if err != nil {
 		t.Fatalf("Glob(%q): %v", "vp9*_test.go", err)
@@ -200,9 +200,12 @@ func TestRootVP9TestsUseHarnessPacketBuilders(t *testing.T) {
 			"type vp9BitPacker",
 			"func vp9ShowExistingFramePacketForTest",
 			"func vp9SuperframePacketForTest",
+			"func enrichVP9RateScoreboardRowFromPacket",
+			"func readVP9CompressedHeaderForOracleTest",
+			"func vp9ReferenceMaskFromLibvpxFrameFlags",
 		} {
 			if strings.Contains(src, marker) {
-				t.Fatalf("%s contains root VP9 packet builder %q; use internal/testutil/vp9test", path, marker)
+				t.Fatalf("%s contains root VP9 bitstream helper %q; use internal/testutil/vp9test", path, marker)
 			}
 		}
 	}

@@ -212,7 +212,7 @@ func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 		if len(packets[i]) == 0 {
 			t.Fatalf("govpx VP9 row %d was not dropped but has no packet", i)
 		}
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -265,7 +265,7 @@ func captureGovpxVP9VariablePacketRows(t *testing.T,
 		t.Fatalf("govpx VP9 variable trace rows = %d, want %d", len(rows), len(sources))
 	}
 	for i := range rows {
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -280,7 +280,7 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 		if rows[i].Dropped {
 			continue
 		}
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -293,7 +293,7 @@ func captureLibvpxVP9VariablePacketRows(t *testing.T,
 	rows, packets := vp9test.VpxencVariableFrameFlagTracePackets(t, sources,
 		vp9LibvpxFrameFlags(flags), invisible, extraArgs...)
 	for i := range rows {
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

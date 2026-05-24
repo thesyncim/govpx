@@ -4,13 +4,11 @@ package govpx
 
 import (
 	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"image"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleRateBehaviorParity(t *testing.T) {
@@ -521,59 +519,7 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 		if rows[i].Dropped {
 			continue
 		}
-		enrichVP9RateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows
-}
-
-func enrichVP9RateScoreboardRowFromPacket(t *testing.T, row *vp9test.RateScoreboardRow, packet []byte) {
-	t.Helper()
-	header, _ := vp9test.ParseHeader(t, packet)
-	comp, _, _ := readVP9CompressedHeaderForOracleTest(t, packet, header)
-	row.KeyFrame = header.FrameType == common.KeyFrame
-	row.ShowFrame = header.ShowFrame
-	if header.Width != 0 {
-		row.CodedWidth = int(header.Width)
-	}
-	if header.Height != 0 {
-		row.CodedHeight = int(header.Height)
-	}
-	row.BaseQIndex = int(header.Quant.BaseQindex)
-	row.PublicQuantizer = encoder.QIndexToPublicQuantizer(int(header.Quant.BaseQindex))
-	row.SizeBytes = len(packet)
-	row.SizeBits = len(packet) * 8
-	row.FirstPartitionSize = int(header.FirstPartitionSize)
-	row.RefreshFrameFlags = header.RefreshFrameFlags
-	row.RefreshFrameContext = header.RefreshFrameContext
-	row.ErrorResilient = header.ErrorResilientMode
-	row.FrameParallel = header.FrameParallelDecoding
-	row.FrameContextIdx = int(header.FrameContextIdx)
-	row.TxMode = int(comp.TxMode)
-	row.InterpFilter = int(header.InterpFilter)
-	row.ReferenceMode = int(comp.ReferenceMode)
-	row.CompoundAllowed = header.FrameType != common.KeyFrame && !header.IntraOnly &&
-		vp9dec.CompoundReferenceAllowed(vp9dec.FrameRefSignBias(&header))
-	row.ReferenceMask = vp9ReferenceMaskFromLibvpxFrameFlags(row.Flags)
-	row.LoopFilterLevel = int(header.Loopfilter.FilterLevel)
-	row.TileLog2Cols = int(header.Tile.Log2TileCols)
-	row.TileLog2Rows = int(header.Tile.Log2TileRows)
-}
-
-func vp9ReferenceMaskFromLibvpxFrameFlags(flags uint32) uint8 {
-	const (
-		libvpxNoRefLast = 1 << 16
-		libvpxNoRefGF   = 1 << 17
-		libvpxNoRefARF  = 1 << 21
-	)
-	var mask uint8
-	if flags&libvpxNoRefLast == 0 {
-		mask |= 1 << uint(vp9dec.LastFrame)
-	}
-	if flags&libvpxNoRefGF == 0 {
-		mask |= 1 << uint(vp9dec.GoldenFrame)
-	}
-	if flags&libvpxNoRefARF == 0 {
-		mask |= 1 << uint(vp9dec.AltrefFrame)
-	}
-	return mask
 }
