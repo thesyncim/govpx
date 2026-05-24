@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8corpus"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
@@ -15,16 +16,16 @@ func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx conformance tests")
 	}
-	root, ok := externalIVFTestDataRoot(t, "set GOVPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := vp8corpus.IVFRoot(t)
 	if !ok {
 		return
 	}
 	oracle := vp8test.NewChecksumOracle(t)
-	paths := findVP8IVFTestData(t, root)
+	paths := vp8corpus.FindIVF(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
-	assertExternalIVFTestDataMinimum(t, paths)
+	vp8corpus.AssertIVFMinimum(t, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -50,16 +51,16 @@ func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
 	}
-	root, ok := externalIVFTestDataRoot(t, "set GOVPX_TEST_DATA_PATH to a VP8 IVF file or directory")
+	root, ok := vp8corpus.IVFRoot(t)
 	if !ok {
 		return
 	}
 	oracle := vp8test.NewChecksumOracle(t)
-	paths := findVP8IVFTestData(t, root)
+	paths := vp8corpus.FindIVF(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
-	assertExternalIVFTestDataMinimum(t, paths)
+	vp8corpus.AssertIVFMinimum(t, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {
@@ -85,19 +86,19 @@ func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
 	}
-	root, ok := externalInvalidIVFTestDataRoot(t)
+	root, ok := vp8corpus.InvalidIVFRoot(t)
 	if !ok {
 		return
 	}
 	oracle := vp8test.NewChecksumOracle(t)
-	paths := findInvalidVP8IVFTestData(t, root)
+	paths := vp8corpus.FindInvalidIVF(t, root)
 	if len(paths) == 0 {
-		if os.Getenv("GOVPX_INVALID_TEST_DATA_REQUIRED") == "1" || externalInvalidIVFTestMinimum(t) > 0 {
+		if vp8corpus.InvalidIVFRequired() || vp8corpus.InvalidIVFMinimum(t) > 0 {
 			t.Fatalf("no invalid VP8 IVF files found under %s", root)
 		}
 		t.Skipf("no invalid VP8 IVF files found under %s", root)
 	}
-	assertExternalInvalidIVFTestDataMinimum(t, paths)
+	vp8corpus.AssertInvalidIVFMinimum(t, paths)
 
 	for _, path := range paths {
 		t.Run(testutil.SafeCorpusTestName(root, path), func(t *testing.T) {

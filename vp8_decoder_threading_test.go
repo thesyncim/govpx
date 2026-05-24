@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8corpus"
 )
 
 // TestVP8DecoderThreadingPipelinedMatchesSerial verifies that the libvpx-style
@@ -137,7 +138,7 @@ func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 	if root == "" {
 		t.Skip("set GOVPX_TEST_DATA_PATH to a VP8 IVF conformance corpus")
 	}
-	paths := findVP8IVFTestData(t, root)
+	paths := vp8corpus.FindIVF(t, root)
 	if len(paths) == 0 {
 		t.Fatalf("no VP8 IVF files found under %s", root)
 	}
