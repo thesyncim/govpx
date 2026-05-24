@@ -410,7 +410,7 @@ func TestEncoderThreadsInterFrameAllocatesZero(t *testing.T) {
 			defer e.Close()
 			srcs := make([]Image, frames)
 			for i := range srcs {
-				srcs[i] = makeMultiResAllocFrame(width, height, i)
+				srcs[i] = rateControlTestFrame(width, height, i)
 			}
 			dst := make([]byte, width*height*6+4096)
 			if _, err := e.EncodeInto(dst, srcs[0], 0, 1, 0); err != nil {
