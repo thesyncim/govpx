@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -49,9 +48,7 @@ import (
 //   - vp8_multires_svc_fuzz_test.go (runVP8TemporalSVCFuzzCase) — the
 //     dispatcher whose floor=1 stays in place for generic discovery.
 func TestVP8MultiResSVCPreservesMatchedPrefixFloor(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the SVC matched-prefix pin")
-	}
+	vp8test.RequireOracle(t, "the SVC matched-prefix pin")
 	// Decode seed "1007!c" (the d59809a7 corpus entry) exactly the way the
 	// fuzz dispatcher does, so any future seed-decoder change is caught
 	// against the canonical case shape this test pins.

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -86,9 +85,7 @@ func frameFlagsForLibvpx(f EncodeFlags) uint32 {
 // in the per-frame "byte mismatch (not asserted, ...)" log lines
 // without regressing the strict gate.
 func TestVP8OracleEncoderStreamByteParityFrameFlags(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -323,9 +320,7 @@ func TestVP8OracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityForceKeyFrameAPI(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run force-key API byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "force-key API byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

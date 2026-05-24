@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"strconv"
 	"testing"
 
@@ -38,9 +37,7 @@ func strictByteParityCPUUsed(deadline Deadline, cpuUsed int) int {
 // downstream of those — and is the immediate signal that the plan.md
 // "100% byte parity" target has regressed for that config.
 func TestVP8OracleEncoderStreamByteParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

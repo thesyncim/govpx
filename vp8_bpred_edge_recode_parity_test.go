@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"image"
 	"math/rand"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -102,9 +101,7 @@ func makeBPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 }
 
 func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED edge-grid recode parity")
-	}
+	vp8test.RequireOracle(t, "B_PRED edge-grid recode parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

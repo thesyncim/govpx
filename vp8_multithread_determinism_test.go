@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -102,9 +101,7 @@ func TestVP8GovpxDeterminismThreads4(t *testing.T) {
 // If libvpx is the nondeterminism source, the flake at task #269 attributed
 // to govpx is in fact an oracle artefact.
 func TestVP8LibvpxOracleDeterminismThreads4(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle determinism check")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle determinism check")
 	vpxencOracle := vp8test.VpxencOracle(t)
 	width, height := 854, 480
 	frames := 3

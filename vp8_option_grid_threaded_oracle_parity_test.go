@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -15,9 +14,7 @@ import (
 // bounded number of times to find the matching libvpx-valid bitstream before
 // asserting byte parity.
 func TestVP8ThreadedOptionGridSeedMatchesLibvpxOutput(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the threaded option-grid parity")
-	}
+	vp8test.RequireOracle(t, "the threaded option-grid parity")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	// Materialise the seed#7 input byte-for-byte the same way the

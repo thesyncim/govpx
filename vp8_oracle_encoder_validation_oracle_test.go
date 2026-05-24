@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -12,9 +11,7 @@ import (
 )
 
 func TestVP8OracleEncoderCorpusValidation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle validation")
-	}
+	vp8test.RequireOracle(t, "encoder oracle validation")
 	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 

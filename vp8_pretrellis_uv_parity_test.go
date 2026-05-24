@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"sort"
 	"strconv"
 	"testing"
@@ -17,9 +16,7 @@ import (
 // traces for the 1280x720 ARNR fixtures and reports the first frame-1
 // coefficient divergence in raster order.
 func TestVP8PretrellisUVParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run pre-trellis UV parity")
-	}
+	vp8test.RequireOracle(t, "pre-trellis UV parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

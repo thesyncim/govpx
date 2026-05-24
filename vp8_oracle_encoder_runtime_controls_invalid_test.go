@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -11,9 +10,7 @@ import (
 )
 
 func TestVP8OracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run invalid runtime-control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "invalid runtime-control byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -92,9 +89,7 @@ func TestVP8OracleEncoderStreamByteParityInvalidRuntimeControlsNoop(t *testing.T
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeControlsLongTail(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run long-tail runtime-control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "long-tail runtime-control byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

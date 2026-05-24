@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"testing"
 
@@ -36,9 +35,7 @@ import (
 // bitstream.c:281-290 — surfaces as a byte mismatch with the diff
 // offset pointing at the first divergent partition.
 func TestVP8TokenPartitionsErrorResilientByteParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the token-partition byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "the token-partition byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

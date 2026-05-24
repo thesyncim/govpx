@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,9 +11,7 @@ import (
 )
 
 func TestVP8OracleEncoderStreamByteParityRuntimeTemporalControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime temporal-control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "runtime temporal-control byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

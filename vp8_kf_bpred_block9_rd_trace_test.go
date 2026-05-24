@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"os"
 	"sort"
 	"testing"
 
@@ -21,9 +20,7 @@ import (
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
 //	  go test -tags govpx_oracle_trace -run TestVP8KFBPredBlock9TraceLocalizesRDCostDrift -v
 func TestVP8KFBPredBlock9TraceLocalizesRDCostDrift(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run B_PRED block-9 RD trace")
-	}
+	vp8test.RequireOracle(t, "B_PRED block-9 RD trace")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cases := []struct {

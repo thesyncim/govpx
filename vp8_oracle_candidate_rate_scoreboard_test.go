@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"testing"
 
@@ -50,9 +49,7 @@ type candidateRateScoreboardBaseline struct {
 // before update_best_mode). Both encoders flush these rows at frame
 // commit time; this test walks them in lockstep and tabulates the deltas.
 func TestVP8OracleCandidateRateScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

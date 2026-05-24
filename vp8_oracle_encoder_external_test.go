@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -12,9 +11,7 @@ import (
 )
 
 func TestVP8OracleExternalEncoderTestDataValidation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run external encoder source tests")
-	}
+	vp8test.RequireOracle(t, "external encoder source tests")
 	root, ok := vp8corpus.SourceRoot(t)
 	if !ok {
 		return

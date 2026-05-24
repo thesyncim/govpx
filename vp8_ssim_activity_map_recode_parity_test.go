@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -62,9 +61,7 @@ import (
 //   - govpx vp8_encoder_attempts.go encodeInterFrameWithQuantizerFeedback —
 //     the recode-attempt loop with the in-loop prepareTuningActivityMap
 func TestVP8SSIMActivityMapRecodeBestQualityParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the VP8 SSIM activity-map recode parity replay")
-	}
+	vp8test.RequireOracle(t, "the VP8 SSIM activity-map recode parity replay")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	opts := EncoderOptions{
@@ -222,9 +219,7 @@ func TestVP8SSIMActivityMapRecodeBestQualityParity(t *testing.T) {
 //     tunedZbinAdjustment
 //   - govpx vp8_encoder_attempts.go encodeInterFrameWithQuantizerFeedback
 func TestVP8SSIMActivityMapRecodeGoodQualityParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the VP8 SSIM activity-map recode parity replay")
-	}
+	vp8test.RequireOracle(t, "the VP8 SSIM activity-map recode parity replay")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	opts := EncoderOptions{

@@ -34,9 +34,7 @@ type govpxQuantizerCallTrace struct {
 }
 
 func TestVP8OracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
-	}
+	vp8test.RequireOracle(t, "quantizer metadata parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -83,9 +81,7 @@ func TestVP8OracleEncoderQuantizerMetadataParityAcrossDrops(t *testing.T) {
 }
 
 func TestVP8OracleEncoderQuantizerMetadataParityDropControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run quantizer metadata parity gate")
-	}
+	vp8test.RequireOracle(t, "quantizer metadata parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"os"
 	"strconv"
 	"testing"
 
@@ -12,9 +11,7 @@ import (
 )
 
 func TestVP8OracleTraceDecisionCompare(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle trace comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -66,9 +63,7 @@ func TestVP8OracleTraceDecisionCompare(t *testing.T) {
 }
 
 func TestVP8OracleTraceCandidateRowsPresent(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle trace comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -134,9 +129,7 @@ func TestVP8OracleTraceCandidateRowsPresent(t *testing.T) {
 }
 
 func TestVP8OracleTraceInterCandidateCompare(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle trace comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

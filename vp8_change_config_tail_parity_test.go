@@ -71,9 +71,7 @@ import (
 //   - internal/coracle/build_vpxenc_oracle.sh: oracle_trace.c TU
 //   - ensure_change_config_tail_hook anchor patch.
 func TestVP8ChangeConfigTailParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1")
-	}
+	vp8test.RequireOracle(t, "VP8 oracle tests")
 	driver := vp8test.VpxencFrameFlags(t)
 	const (
 		w          = 640

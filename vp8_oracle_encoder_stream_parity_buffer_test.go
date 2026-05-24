@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,9 +31,7 @@ import (
 // byte-match. Cases that diverge are pinned with `limit:` so the
 // gap stays visible without regressing the strict gate.
 func TestVP8OracleEncoderStreamByteParityBuffer(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -266,9 +263,7 @@ func TestVP8OracleEncoderStreamByteParityBuffer(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "dropped-frame byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -389,9 +384,7 @@ func TestVP8OracleEncoderStreamByteParityBufferActualDrops(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run dropped-frame control-cross byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "dropped-frame control-cross byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -557,9 +550,7 @@ func TestVP8OracleEncoderStreamByteParityBufferActualDropControlCrosses(t *testi
 }
 
 func TestVP8OracleEncoderStreamByteParityRTCExternalRateControl(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run RTC external-rate-control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "RTC external-rate-control byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

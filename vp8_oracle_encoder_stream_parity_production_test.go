@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -15,9 +14,7 @@ import (
 // oracle matrices. In particular, the 1-frame vs 2-frame realtime runs catch
 // cold-start control/config drift before it hides behind longer GOP averages.
 func TestVP8OracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run production byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "production byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	type productionCase struct {
@@ -128,9 +125,7 @@ func TestVP8OracleEncoderStreamByteParityProductionShortRuns(t *testing.T) {
 }
 
 func TestVP8OracleEncoderProductionRuntimeTransitions720p(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-transition oracle")
-	}
+	vp8test.RequireOracle(t, "production runtime-transition oracle")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -225,9 +220,7 @@ func assertProductionTransitionPacketShape(t *testing.T, label string, got, want
 // unused in branches. Both modes encode three frames so the second
 // inter frame sees the post-keyframe overspend drain.
 func TestVP8OracleEncoderStreamByteParityProductionConstantQuality(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run production CQ/Q byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "production CQ/Q byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	type cqCase struct {

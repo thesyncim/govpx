@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"os"
 	"strconv"
 	"testing"
 
@@ -19,9 +18,7 @@ import (
 // the bench path intentionally tracks production byte-rate and quality gaps
 // for the synthetic bench source and WebRTC-style buffer model.
 func TestVP8OracleBenchWorkloadProductionGaps(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run production bench gap checks")
-	}
+	vp8test.RequireOracle(t, "production bench gap checks")
 	vpxenc := vp8test.Vpxenc(t)
 
 	cases := []struct {

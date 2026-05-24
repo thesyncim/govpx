@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"crypto/sha256"
-	"os"
 	"strconv"
 	"testing"
 
@@ -29,9 +28,7 @@ import (
 // (line 1275-1281) and rdopt.c evaluate_inter_mode_rd (rdopt.c:1607-1608
 // for inactive, 1620-1628 for encode_breakout).
 func TestVP8ThreadsValidation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP8 threaded parity validation")
-	}
+	vp8test.RequireOracle(t, "VP8 threaded parity validation")
 	vpxencOracle := vp8test.VpxencOracle(t)
 	for _, threads := range []int{1, 2, 4} {
 		t.Run("threads="+strconv.Itoa(threads), func(t *testing.T) {

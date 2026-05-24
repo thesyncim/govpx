@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"math"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -14,9 +13,7 @@ import (
 // win by comparing per-frame y/u/v Adler32, q_index, and size_bytes against the
 // libvpx oracle on a small panning fixture.
 func TestVP8OracleReconstructionAdler32Match(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle reconstruction comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle reconstruction comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

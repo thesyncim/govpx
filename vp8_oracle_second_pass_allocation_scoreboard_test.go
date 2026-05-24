@@ -88,9 +88,7 @@ type secondPassBaselineFile struct {
 }
 
 func TestVP8OracleSecondPassAllocationScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run second-pass allocation oracle compare")
-	}
+	vp8test.RequireOracle(t, "second-pass allocation oracle compare")
 	vpxenc := vp8test.Vpxenc(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"testing"
 
@@ -23,9 +22,7 @@ import (
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleQuantizerHistogramScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q histogram scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle Q histogram scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

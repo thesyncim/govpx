@@ -43,9 +43,7 @@ import (
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
 //	  go test -tags govpx_oracle_trace -run TestVP8ScreenContentMBParity -v
 func TestVP8ScreenContentMBParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run screen-content MB parity")
-	}
+	vp8test.RequireOracle(t, "screen-content MB parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

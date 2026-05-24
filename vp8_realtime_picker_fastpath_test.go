@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -74,9 +73,7 @@ import (
 //   - task #239 (commit c7efc12d) RD-vs-picker NEWMV step_param split
 //   - task #226 (frame-6 picker audit)
 func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run realtime picker fast-path parity")
-	}
+	vp8test.RequireOracle(t, "realtime picker fast-path parity")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cases := []struct {

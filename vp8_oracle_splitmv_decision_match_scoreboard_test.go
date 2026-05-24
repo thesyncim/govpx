@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 
@@ -32,9 +31,7 @@ import (
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleSplitMVDecisionMatchRate(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle SPLITMV match scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle SPLITMV match scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"os"
 	"slices"
 	"sort"
 	"testing"
@@ -41,9 +40,7 @@ import (
 // this test does not regress on shifts already covered by the
 // existing TestVP8OracleTrace* / TestVP8Oracle*Scoreboard suite.
 func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle threshold-evolution comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle threshold-evolution comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

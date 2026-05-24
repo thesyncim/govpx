@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"testing"
 
@@ -53,9 +52,7 @@ type chromaSubpelBaseline struct {
 // state at the right frame edge. Closing it requires per-pixel libvpx-side
 // xd->predictor instrumentation to localize.
 func TestVP8OracleChromaSubpelScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle chroma sub-pel scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle chroma sub-pel scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

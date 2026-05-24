@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -11,9 +10,7 @@ import (
 )
 
 func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "runtime rate-control mode-transition byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -84,9 +81,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeTransitions(t *te
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode/control cross byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "runtime rate-control mode/control cross byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -204,9 +199,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeControlCrosses(t 
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeRateControlModeLongTailTransitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run runtime rate-control mode-transition long-tail byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "runtime rate-control mode-transition long-tail byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

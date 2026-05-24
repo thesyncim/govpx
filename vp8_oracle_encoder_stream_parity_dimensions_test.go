@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"testing"
 
@@ -43,9 +42,7 @@ import (
 // large mid-range / wide-strip fixtures only run at cpu_used in
 // {4, 8} so the test stays fast in oracle-test.
 func TestVP8OracleEncoderStreamByteParityDimensions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

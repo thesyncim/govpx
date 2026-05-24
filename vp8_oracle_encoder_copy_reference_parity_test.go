@@ -16,9 +16,7 @@ import (
 )
 
 func TestVP8OracleEncoderCopyReferenceFrameParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder reference-copy parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder reference-copy parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	t.Run("refreshed-references", func(t *testing.T) {

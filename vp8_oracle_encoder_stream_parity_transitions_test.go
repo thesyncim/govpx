@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"errors"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,9 +17,7 @@ import (
 // Reset must match a cold start after warm state is discarded, and FlushInto
 // must not perturb the encoded stream when callers drain between input bursts.
 func TestVP8OracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run reset/flush byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "reset/flush byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
@@ -578,9 +575,7 @@ func TestVP8OracleEncoderStreamByteParityResetFlushTransitions(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "two-pass stream byte-parity gate")
 	vpxenc := vp8test.Vpxenc(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 
@@ -800,9 +795,7 @@ func TestVP8OracleEncoderStreamByteParityTwoPassEndToEnd(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityTwoPassSegmentedControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass control-cross byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "two-pass control-cross byte-parity gate")
 	vpxenc := vp8test.Vpxenc(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

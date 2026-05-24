@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"os"
 	"strconv"
 	"testing"
 
@@ -28,9 +27,7 @@ import (
 // (`TestAutoAltRefDriverEmitsHiddenFrame`) continue to pin the govpx-only
 // behaviour.
 func TestVP8OracleARNRBufferAdler(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle ARNR comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle ARNR comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

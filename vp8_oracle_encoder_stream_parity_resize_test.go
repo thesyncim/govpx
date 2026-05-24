@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -51,9 +50,7 @@ import (
 // cold-start variant cannot see — and is allowed to diverge under
 // `limit:` annotations when libvpx's reconfigure has no equivalent.
 func TestVP8OracleEncoderStreamByteParityResize(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -267,9 +264,7 @@ func TestVP8OracleEncoderStreamByteParityResize(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder resize-control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder resize-control byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -356,9 +351,7 @@ func TestVP8OracleEncoderStreamByteParityResizeNonDefaultControls(t *testing.T) 
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder runtime-resize byte-parity gate")
 	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -427,9 +420,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeResizeFrameFlags(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize post-frame byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder runtime-resize post-frame byte-parity gate")
 	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -517,9 +508,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeResizePostFrameCrosses(t *testin
 }
 
 func TestVP8OracleEncoderStreamByteParityRuntimeResizeControlCrosses(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder runtime-resize control byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder runtime-resize control byte-parity gate")
 	frameFlagsDriver := vp8test.VpxencFrameFlags(t)
 
 	const (

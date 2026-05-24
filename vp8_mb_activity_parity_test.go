@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -32,9 +31,7 @@ import (
 //   - vp8/encoder/encodeframe.c:588      x->act_zbin_adj = 0 base init
 //   - vp8/encoder/onyx_if.c:1906         cpi->activity_avg = 90 << 12
 func TestVP8MBActivitySeedsMatchLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run per-MB activity parity")
-	}
+	vp8test.RequireOracle(t, "per-MB activity parity")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cases := []struct {

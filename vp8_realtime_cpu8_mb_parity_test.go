@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"image"
-	"os"
 	"sort"
 	"testing"
 
@@ -142,9 +141,7 @@ import (
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
 //	  go test -tags govpx_oracle_trace -run TestVP8RealtimeCPU8MBParity -v
 func TestVP8RealtimeCPU8MBParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run RT cpu=8 MB parity")
-	}
+	vp8test.RequireOracle(t, "RT cpu=8 MB parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

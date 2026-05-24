@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"sort"
 	"testing"
 
@@ -16,9 +15,7 @@ import (
 // chroma block traces for the 1280x720 BestQuality ARNR fixture and reports
 // the first frame-1 coefficient divergence in raster order.
 func TestVP8ChromaOptimizeBlockParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run chroma optimize_b parity")
-	}
+	vp8test.RequireOracle(t, "chroma optimize_b parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

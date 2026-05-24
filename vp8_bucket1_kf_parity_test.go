@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -53,9 +52,7 @@ import (
 //     (govpx picker honors per-MB tunedZbinAdjustment when segmentation
 //     is enabled — picked up by both CBR and VBR seeds in this cohort).
 func TestVP8Bucket1KFParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the bucket-1 keyframe parity pin")
-	}
+	vp8test.RequireOracle(t, "the bucket-1 keyframe parity pin")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	cases := []struct {

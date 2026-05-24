@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"sort"
 	"testing"
 
@@ -17,9 +16,7 @@ import (
 // distinguishes SPLITMV from NEWMV. It keeps the trace context in test logs and
 // asserts that the expected candidate rows are present on both sides.
 func TestVP8SplitMVRDCandidateTrace(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run SPLITMV RD parity")
-	}
+	vp8test.RequireOracle(t, "SPLITMV RD parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

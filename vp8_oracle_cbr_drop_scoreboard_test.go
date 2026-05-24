@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"testing"
@@ -41,9 +40,7 @@ import (
 // vp8/encoder/onyx_if.c (decimation, buffer underrun, post-encode
 // overshoot).
 func TestVP8OracleCBRDropFrameScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle CBR drop-frame scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle CBR drop-frame scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	fixtures := []cbrDropFixtureSpec{

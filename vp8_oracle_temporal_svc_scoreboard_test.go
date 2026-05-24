@@ -5,7 +5,6 @@ package govpx
 import (
 	"fmt"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -90,9 +89,7 @@ type temporalSVCFixtureSummary struct {
 //     mismatch on the highest-pressure fixture, gated against baseline
 //     drift
 func TestVP8OracleTemporalSVCParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC parity scoreboard")
-	}
+	vp8test.RequireOracle(t, "temporal SVC parity scoreboard")
 	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 
 	type fixtureSpec struct {

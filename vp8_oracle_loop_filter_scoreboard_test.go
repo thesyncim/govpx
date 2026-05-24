@@ -18,7 +18,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"os"
 	"sort"
 	"testing"
 
@@ -71,9 +70,7 @@ type loopFilterBaselineFile struct {
 }
 
 func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run loop-filter header oracle scoreboard")
-	}
+	vp8test.RequireOracle(t, "loop-filter header oracle scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -119,9 +118,7 @@ import (
 //
 //	TestVP8KF1280x720SSIMGoodARNRParity (94eb71d5)
 func TestVP8KF1280x720SSIMBestARNRParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the BestQuality ARNR parity replay")
-	}
+	vp8test.RequireOracle(t, "the BestQuality ARNR parity replay")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	opts := EncoderOptions{

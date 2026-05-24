@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"sort"
 	"testing"
 
@@ -33,9 +32,7 @@ type scoreboardBaseline struct {
 // against a baseline so we catch regressions without blocking incremental
 // progress on the realtime path.
 func TestVP8OracleTraceInterCandidateScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle trace scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

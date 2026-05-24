@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -49,9 +48,7 @@ const improvedMVMatchTolerance = 2.0
 // improvedMVMatchTolerance of the recorded baseline. To bootstrap or
 // refresh the baseline run with GOVPX_UPDATE_BASELINES=1.
 func TestVP8OracleImprovedMVMatchScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run improved-MV scoreboard")
-	}
+	vp8test.RequireOracle(t, "improved-MV scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

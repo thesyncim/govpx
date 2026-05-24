@@ -51,9 +51,7 @@ import (
 //   - testdata/fuzz/FuzzEncoderProductionStreamByteParity/regression_* —
 //     the live corpus this test re-enumerates each run.
 func TestVP8RealtimeCorpusMatchesLibvpxBytes(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the corpus byte-parity test")
-	}
+	vp8test.RequireOracle(t, "the corpus byte-parity test")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	t.Run("corpus", func(t *testing.T) {

@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"math"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -29,9 +28,7 @@ type oracleOutputPacket struct {
 // the emitted stream against libvpx by comparing libvpx-decoded frames and the
 // packet-level encoder decisions that must stay byte-stable enough for WebRTC.
 func TestVP8OracleOutputParityMatrix(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder output parity validation")
-	}
+	vp8test.RequireOracle(t, "encoder output parity validation")
 	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 

@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -45,9 +44,7 @@ import (
 // asserted, ...)" log lines stay visible without regressing the
 // strict gate.
 func TestVP8OracleEncoderStreamByteParityCombo(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -278,9 +275,7 @@ func alternateFlags(total int, a, b EncodeFlags) []EncodeFlags {
 // the per-MB count at 640x480 alone is 1200, which is two orders of
 // magnitude more than the 16x16 cases.
 func TestVP8OracleEncoderStreamByteParityComboBig(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -467,9 +462,7 @@ func TestVP8OracleEncoderStreamByteParityComboBig(t *testing.T) {
 // never fire; the segmented fixture is MB-grid-aligned high-contrast
 // so scene-cut behavior is the most informative cross-axis to pin.
 func TestVP8OracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -609,9 +602,7 @@ func TestVP8OracleEncoderStreamByteParityComboAdaptiveKF(t *testing.T) {
 // row workers and the per-partition writer are active simultaneously,
 // so this cross product is the natural unifying probe.
 func TestVP8OracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -732,9 +723,7 @@ func TestVP8OracleEncoderStreamByteParityComboThreadsTokens(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -802,9 +791,7 @@ func TestVP8OracleEncoderStreamByteParityComboThreadZeroERTokenIsolation(t *test
 // 4 watermark × 3 noise = 12 cases at the base size; one cpu_used
 // variant per noise level rounds out the cpu axis at the boundary.
 func TestVP8OracleEncoderStreamByteParityComboDropDenoiser(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -17,9 +16,7 @@ import (
 // the 1280x720 BestQuality ARNR fixture and reports the first chosen-candidate
 // mismatch in raster order.
 func TestVP8ARNRPickerParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ARNR picker parity")
-	}
+	vp8test.RequireOracle(t, "ARNR picker parity")
 	vpxencOracle := vp8test.VpxencOracle(t)
 	requireOracleTraceBuild(t)
 

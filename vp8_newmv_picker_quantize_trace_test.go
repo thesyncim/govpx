@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -17,9 +16,7 @@ import (
 // must emit per-block rows for frame 1 MB(0,0), including the quant path,
 // zbin state, pre-quant coefficients, post-quant coefficients, and EOB.
 func TestVP8NewMVPickerQuantizeTraceRows(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the NEWMV picker quantize trace comparison")
-	}
+	vp8test.RequireOracle(t, "the NEWMV picker quantize trace comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	opts := EncoderOptions{

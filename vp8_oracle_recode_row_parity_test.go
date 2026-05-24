@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"math"
-	"os"
 	"slices"
 	"testing"
 
@@ -15,9 +14,7 @@ import (
 // driving a tight rate-control fixture that should force frame-size recodes
 // on at least one side and comparing the emitted recode rows.
 func TestVP8OracleRecodeRowParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle recode comparison")
-	}
+	vp8test.RequireOracle(t, "encoder oracle recode comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

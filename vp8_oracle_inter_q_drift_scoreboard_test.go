@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -46,9 +45,7 @@ type qdriftFrameSample struct {
 // future regressions while letting fixes that lower the deltas pass
 // freely.
 func TestVP8OracleInterQDriftScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle Q-drift scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle Q-drift scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

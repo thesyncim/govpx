@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -42,9 +41,7 @@ import (
 // known-good prefix via `limit:`). Cases marked with `limit: -1` log
 // the per-frame status without asserting strict parity.
 func TestVP8OracleEncoderStreamByteParitySegmentation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -277,9 +274,7 @@ func TestVP8OracleEncoderStreamByteParitySegmentation(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityROIMap(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "ROI byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -322,9 +317,7 @@ func TestVP8OracleEncoderStreamByteParityROIMap(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "ROI byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -367,9 +360,7 @@ func TestVP8OracleEncoderStreamByteParityROISimpleDeltaQ(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "ROI byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -463,9 +454,7 @@ func TestVP8OracleEncoderStreamByteParityROISimpleAxes(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "active-map byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -594,9 +583,7 @@ func TestVP8OracleEncoderStreamByteParityActiveMapPatterns(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run active-map byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "active-map byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -662,9 +649,7 @@ func TestVP8OracleEncoderStreamByteParityActiveMapOddDimensions(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "ROI byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -740,9 +725,7 @@ func TestVP8OracleEncoderStreamByteParityROIMapOddDimensions(t *testing.T) {
 }
 
 func TestVP8OracleEncoderStreamByteParityROIMapPatterns(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run ROI byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "ROI byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

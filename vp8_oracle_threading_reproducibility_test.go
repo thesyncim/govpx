@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strings"
 	"testing"
 
@@ -41,9 +40,7 @@ import (
 // the wrapper passes; the strict-mode helper is exercised separately via
 // GOVPX_ORACLE_THREADS_QUARANTINE=strict.
 func TestVP8OracleReproducibilityWrapperHandlesParallelArgs(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx-oracle threading reproducibility wrapper")
-	}
+	vp8test.RequireOracle(t, "libvpx-oracle threading reproducibility wrapper")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	width, height := 96, 96

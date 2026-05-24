@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -32,9 +31,7 @@ import (
 // call. Strict byte parity must hold for every frame; any divergence
 // is asserted unless the case is explicitly pinned with `limit:`.
 func TestVP8OracleEncoderStreamByteParityLossRecovery(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (
@@ -286,9 +283,7 @@ func TestVP8OracleEncoderStreamByteParityLossRecovery(t *testing.T) {
 // per-fixture knobs. No per-frame frame_flags are needed; the driver
 // is the standard vpxenc-oracle binary.
 func TestVP8OracleEncoderStreamByteParityLossStaticOpts(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder stream byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "encoder stream byte-parity gate")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

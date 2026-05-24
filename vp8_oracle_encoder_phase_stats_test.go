@@ -3,16 +3,13 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 func TestVP8OracleEncoderStreamByteParityPhaseStatsNoop(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run PhaseStats byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "PhaseStats byte-parity gate")
 	driver := vp8test.VpxencFrameFlags(t)
 
 	const (

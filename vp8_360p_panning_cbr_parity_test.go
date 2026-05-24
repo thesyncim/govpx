@@ -5,7 +5,6 @@ package govpx
 import (
 	"bytes"
 	"image"
-	"os"
 	"sort"
 	"testing"
 
@@ -15,9 +14,7 @@ import (
 // TestVP8Panning360pMBParity compares govpx and libvpx per-MB mode/ref/MV
 // traces for the 360p panning CBR fixture at the 1200 kbps rung.
 func TestVP8Panning360pMBParity(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run 360p panning CBR MB parity")
-	}
+	vp8test.RequireOracle(t, "360p panning CBR MB parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
 

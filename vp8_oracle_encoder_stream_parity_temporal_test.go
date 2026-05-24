@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -64,9 +63,7 @@ import (
 // the strict gate. limit < 0 silences the gate entirely (used for
 // known-deep gaps where even the first frame diverges).
 func TestVP8OracleEncoderStreamByteParityTemporalSVC(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run temporal SVC byte-parity gate")
-	}
+	vp8test.RequireOracle(t, "temporal SVC byte-parity gate")
 	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 
 	const (

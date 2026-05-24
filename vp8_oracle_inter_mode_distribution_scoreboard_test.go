@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"testing"
 
@@ -37,9 +36,7 @@ import (
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleInterModeDistributionScoreboard(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle inter-mode distribution scoreboard")
-	}
+	vp8test.RequireOracle(t, "encoder oracle inter-mode distribution scoreboard")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	type fixtureKind int

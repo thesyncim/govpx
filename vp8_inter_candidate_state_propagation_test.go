@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"os"
 	"strconv"
 	"testing"
 
@@ -20,9 +19,7 @@ import (
 // libvpx's threaded loop-filter reconstruction feeding a different predictor,
 // not from missing state propagation between NEARESTMV, NEARMV, and NEWMV.
 func TestVP8InterCandidateStatePropagation(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run VP8 inter-candidate state propagation parity")
-	}
+	vp8test.RequireOracle(t, "VP8 inter-candidate state propagation parity")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	type candidateRow struct {
