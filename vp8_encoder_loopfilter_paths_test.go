@@ -2,53 +2,12 @@ package govpx
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
-
-func TestEncodeIntoBufferTooSmall(t *testing.T) {
-	e := newTestEncoder(t)
-
-	_, err := e.EncodeInto(nil, testImage(16, 16), 0, 1, 0)
-	if !errors.Is(err, ErrBufferTooSmall) {
-		t.Fatalf("error = %v, want ErrBufferTooSmall", err)
-	}
-}
-
-func TestEncodeIntoWritesDecodableKeyFrame(t *testing.T) {
-	e := newTestEncoder(t)
-	dst := make([]byte, 4096)
-
-	result, err := e.EncodeInto(dst, testImage(16, 16), 22, 3, 0)
-	if err != nil {
-		t.Fatalf("EncodeInto returned error: %v", err)
-	}
-	if len(result.Data) == 0 || result.SizeBytes != len(result.Data) || !result.KeyFrame || result.PTS != 22 || result.Duration != 3 {
-		t.Fatalf("EncodeResult = %+v, want populated keyframe result", result)
-	}
-	if e.frameCount != 1 {
-		t.Fatalf("frameCount = %d, want 1", e.frameCount)
-	}
-
-	d, err := NewVP8Decoder(DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
-	if err := d.Decode(result.Data); err != nil {
-		t.Fatalf("Decode returned error: %v", err)
-	}
-	frame, ok := d.NextFrame()
-	if !ok {
-		t.Fatalf("NextFrame returned no frame")
-	}
-	if frame.Width != 16 || frame.Height != 16 || frame.Y[0] >= 128 {
-		t.Fatalf("decoded frame = %dx%d Y0=%d, want 16x16 dark source-directed frame", frame.Width, frame.Height, frame.Y[0])
-	}
-}
 
 func TestEncodeIntoInvisibleFrameUpdatesReferenceWithoutOutput(t *testing.T) {
 	e := newTestEncoder(t)

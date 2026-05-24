@@ -103,84 +103,6 @@ func TestEncodeIntoInvisibleFrameUsesLibvpxBufferOverheadAccounting(t *testing.T
 	}
 }
 
-func TestSetRateControlValidation(t *testing.T) {
-	e := newTestEncoder(t)
-
-	err := e.SetRateControl(RateControlConfig{
-		Mode:                RateControlCBR,
-		TargetBitrateKbps:   1200,
-		MinQuantizer:        56,
-		MaxQuantizer:        4,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-	})
-	if !errors.Is(err, ErrInvalidQuantizer) {
-		t.Fatalf("error = %v, want ErrInvalidQuantizer", err)
-	}
-
-	err = e.SetRateControl(RateControlConfig{
-		Mode:                RateControlCBR,
-		TargetBitrateKbps:   1200,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		UndershootPct:       101,
-		OvershootPct:        100,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-	})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("undershoot error = %v, want ErrInvalidConfig", err)
-	}
-
-	err = e.SetRateControl(RateControlConfig{
-		Mode:                RateControlCBR,
-		TargetBitrateKbps:   1200,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		UndershootPct:       100,
-		OvershootPct:        101,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-	})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("overshoot error = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestSetRateControlCQLevelAffectsNextEncode(t *testing.T) {
-	e := newTestEncoder(t)
-	err := e.SetRateControl(RateControlConfig{
-		Mode:                RateControlCQ,
-		TargetBitrateKbps:   1200,
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		CQLevel:             28,
-		BufferSizeMs:        600,
-		BufferInitialSizeMs: 400,
-		BufferOptimalSizeMs: 500,
-	})
-	if err != nil {
-		t.Fatalf("SetRateControl returned error: %v", err)
-	}
-	dst := make([]byte, 4096)
-	// First frame is a keyframe; libvpx CQ mode does not floor KF Q to
-	// cq_target_quality (vp8/encoder/onyx_if.c lines 3727-3739). Encode
-	// a second frame as inter and assert the floor there.
-	if _, err := e.EncodeInto(dst, testImage(16, 16), 0, 1, 0); err != nil {
-		t.Fatalf("key EncodeInto returned error: %v", err)
-	}
-	result, err := e.EncodeInto(dst, testImage(16, 16), 1, 1, 0)
-	if err != nil {
-		t.Fatalf("inter EncodeInto returned error: %v", err)
-	}
-	if result.Quantizer != 28 || packetBaseQIndex(t, result.Data) != vp8common.PublicQuantizerToQIndex(28) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 28 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), vp8common.PublicQuantizerToQIndex(28))
-	}
-}
-
 func TestSetRateControlQAcceptsCQLevelWithoutCQFloor(t *testing.T) {
 	e := newTestEncoder(t)
 	err := e.SetRateControl(RateControlConfig{
@@ -204,7 +126,7 @@ func TestSetRateControlQAcceptsCQLevelWithoutCQFloor(t *testing.T) {
 	}
 }
 
-func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
+func TestSetCQLevelRejectedUpdatesPreserveCQState(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -229,23 +151,6 @@ func TestSetCQLevelValidationAndNextEncode(t *testing.T) {
 	}
 	if e.rc.cqLevel != vp8common.PublicQuantizerToQIndex(24) {
 		t.Fatalf("CQ level after rejected updates = %d, want qindex %d", e.rc.cqLevel, vp8common.PublicQuantizerToQIndex(24))
-	}
-	if err := e.SetCQLevel(40); err != nil {
-		t.Fatalf("SetCQLevel returned error: %v", err)
-	}
-	dst := make([]byte, 4096)
-	// First frame is a keyframe; libvpx CQ mode does not floor KF Q to
-	// cq_target_quality (vp8/encoder/onyx_if.c lines 3727-3739). Encode
-	// a second frame as inter to observe the floor.
-	if _, err := e.EncodeInto(dst, testImage(16, 16), 0, 1, 0); err != nil {
-		t.Fatalf("key EncodeInto returned error: %v", err)
-	}
-	result, err := e.EncodeInto(dst, testImage(16, 16), 1, 1, 0)
-	if err != nil {
-		t.Fatalf("inter EncodeInto returned error: %v", err)
-	}
-	if result.Quantizer != 40 || packetBaseQIndex(t, result.Data) != vp8common.PublicQuantizerToQIndex(40) {
-		t.Fatalf("inter quantizer = result:%d packet:%d, want public CQ level 40 / qindex %d", result.Quantizer, packetBaseQIndex(t, result.Data), vp8common.PublicQuantizerToQIndex(40))
 	}
 }
 

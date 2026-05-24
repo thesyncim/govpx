@@ -88,6 +88,16 @@ func TestNewVP8EncoderValidation(t *testing.T) {
 	}
 }
 
+func TestVP8EncoderEncodeIntoAdvancesFrameCount(t *testing.T) {
+	e := newTestEncoder(t)
+	if _, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 22, 3, 0); err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if e.frameCount != 1 {
+		t.Fatalf("frameCount = %d, want 1", e.frameCount)
+	}
+}
+
 func TestCPUUsedNormalizationMirrorsLibvpxDeadlineClamp(t *testing.T) {
 	base := EncoderOptions{
 		Width:             16,
