@@ -1,40 +1,39 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
 // newVP9MultiResLayerOptions returns a deterministic layer-options
-// configuration at the given dimensions for tests. Using Lossless
-// keeps the encode path independent of rate-control quirks and lets
-// the test assert exact-sample fidelity through a round-trip decode.
-func newVP9MultiResLayerOptions(width, height int) VP9MultiResolutionLayerOptions {
-	return VP9MultiResolutionLayerOptions{
+// configuration at the given dimensions for tests.
+func newVP9MultiResLayerOptions(width, height int) govpx.VP9MultiResolutionLayerOptions {
+	return govpx.VP9MultiResolutionLayerOptions{
 		Width:  width,
 		Height: height,
 	}
 }
 
 func newVP9MultiResEncoderForTest(t *testing.T,
-	layers ...VP9MultiResolutionLayerOptions,
-) *VP9MultiResolutionEncoder {
+	layers ...govpx.VP9MultiResolutionLayerOptions,
+) *govpx.VP9MultiResolutionEncoder {
 	t.Helper()
-	var arr [MaxMultiResLayers]VP9MultiResolutionLayerOptions
+	var arr [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions
 	for i, l := range layers {
 		arr[i] = l
 	}
-	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	enc, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: len(layers),
 		Layers:     arr,
 		FPS:        30,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = enc.Close()
@@ -45,23 +44,23 @@ func newVP9MultiResEncoderForTest(t *testing.T,
 func TestVP9MultiResolutionEncoderRejectsInvalidConfigs(t *testing.T) {
 	cases := []struct {
 		name string
-		opts VP9MultiResolutionEncoderOptions
+		opts govpx.VP9MultiResolutionEncoderOptions
 	}{
 		{
 			name: "zero layers",
-			opts: VP9MultiResolutionEncoderOptions{},
+			opts: govpx.VP9MultiResolutionEncoderOptions{},
 		},
 		{
 			name: "too many layers",
-			opts: VP9MultiResolutionEncoderOptions{
-				LayerCount: MaxMultiResLayers + 1,
+			opts: govpx.VP9MultiResolutionEncoderOptions{
+				LayerCount: govpx.MaxMultiResLayers + 1,
 			},
 		},
 		{
 			name: "non-decreasing widths",
-			opts: VP9MultiResolutionEncoderOptions{
+			opts: govpx.VP9MultiResolutionEncoderOptions{
 				LayerCount: 2,
-				Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+				Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 					{Width: 64, Height: 64},
 					{Width: 64, Height: 64},
 				},
@@ -69,9 +68,9 @@ func TestVP9MultiResolutionEncoderRejectsInvalidConfigs(t *testing.T) {
 		},
 		{
 			name: "increasing height",
-			opts: VP9MultiResolutionEncoderOptions{
+			opts: govpx.VP9MultiResolutionEncoderOptions{
 				LayerCount: 2,
-				Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+				Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 					{Width: 64, Height: 32},
 					{Width: 32, Height: 64},
 				},
@@ -79,9 +78,9 @@ func TestVP9MultiResolutionEncoderRejectsInvalidConfigs(t *testing.T) {
 		},
 		{
 			name: "negative threads",
-			opts: VP9MultiResolutionEncoderOptions{
+			opts: govpx.VP9MultiResolutionEncoderOptions{
 				LayerCount: 1,
-				Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+				Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 					{Width: 64, Height: 64},
 				},
 				Threads: -1,
@@ -89,9 +88,9 @@ func TestVP9MultiResolutionEncoderRejectsInvalidConfigs(t *testing.T) {
 		},
 		{
 			name: "invalid dimension",
-			opts: VP9MultiResolutionEncoderOptions{
+			opts: govpx.VP9MultiResolutionEncoderOptions{
 				LayerCount: 1,
-				Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+				Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 					{Width: 0, Height: 64},
 				},
 			},
@@ -99,13 +98,13 @@ func TestVP9MultiResolutionEncoderRejectsInvalidConfigs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			enc, err := NewVP9MultiResolutionEncoder(c.opts)
+			enc, err := govpx.NewVP9MultiResolutionEncoder(c.opts)
 			if err == nil {
 				_ = enc.Close()
-				t.Fatalf("NewVP9MultiResolutionEncoder(%s) succeeded, want error", c.name)
+				t.Fatalf("govpx.NewVP9MultiResolutionEncoder(%s) succeeded, want error", c.name)
 			}
-			if !errors.Is(err, ErrInvalidConfig) {
-				t.Fatalf("NewVP9MultiResolutionEncoder(%s) err = %v, want ErrInvalidConfig", c.name, err)
+			if !errors.Is(err, govpx.ErrInvalidConfig) {
+				t.Fatalf("govpx.NewVP9MultiResolutionEncoder(%s) err = %v, want govpx.ErrInvalidConfig", c.name, err)
 			}
 		})
 	}
@@ -138,17 +137,17 @@ func TestVP9MultiResolutionEncoderAcceptsDecreasingPyramid(t *testing.T) {
 }
 
 func TestVP9MultiResolutionEncoderEncodesAllLayers(t *testing.T) {
-	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	enc, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: 3,
 		FPS:        30,
-		Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+		Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 			{Width: 128, Height: 96},
 			{Width: 64, Height: 48},
 			{Width: 32, Height: 24},
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
 	src := vp9test.NewYCbCr(128, 96, 90, 100, 110)
@@ -172,9 +171,9 @@ func TestVP9MultiResolutionEncoderEncodesAllLayers(t *testing.T) {
 		if len(res.Data) == 0 || res.Dropped {
 			t.Fatalf("layer %d: empty / dropped frame, res = %+v", i, res)
 		}
-		d, err := NewVP9Decoder(VP9DecoderOptions{})
+		d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 		if err != nil {
-			t.Fatalf("NewVP9Decoder layer %d: %v", i, err)
+			t.Fatalf("govpx.NewVP9Decoder layer %d: %v", i, err)
 		}
 		if err := d.Decode(res.Data); err != nil {
 			t.Fatalf("Decode layer %d: %v", i, err)
@@ -198,20 +197,20 @@ func TestVP9MultiResolutionEncoderRejectsBadEncodeArgs(t *testing.T) {
 	)
 	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	wrongCount := [][]byte{make([]byte, 1<<19)}
-	if _, err := enc.EncodeIntoWithResult(src, wrongCount); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("wrong dsts count err = %v, want ErrInvalidConfig", err)
+	if _, err := enc.EncodeIntoWithResult(src, wrongCount); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("wrong dsts count err = %v, want govpx.ErrInvalidConfig", err)
 	}
 	tooSmall := [][]byte{
 		make([]byte, 1<<19),
-		make([]byte, vp9MinEncodeIntoBuffer-1),
+		make([]byte, 1),
 	}
-	if _, err := enc.EncodeIntoWithResult(src, tooSmall); !errors.Is(err, ErrBufferTooSmall) {
-		t.Fatalf("too-small dst err = %v, want ErrBufferTooSmall", err)
+	if _, err := enc.EncodeIntoWithResult(src, tooSmall); !errors.Is(err, govpx.ErrBufferTooSmall) {
+		t.Fatalf("too-small dst err = %v, want govpx.ErrBufferTooSmall", err)
 	}
 	if _, err := enc.EncodeIntoWithResult(nil, [][]byte{
 		make([]byte, 1<<19), make([]byte, 1<<19),
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("nil src err = %v, want ErrInvalidConfig", err)
+	}); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("nil src err = %v, want govpx.ErrInvalidConfig", err)
 	}
 }
 
@@ -222,14 +221,14 @@ func TestVP9MultiResolutionEncoderClosedReturnsErrClosed(t *testing.T) {
 	_ = enc.Close()
 	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
 	dsts := [][]byte{make([]byte, 1<<18)}
-	if _, err := enc.EncodeIntoWithResult(src, dsts); !errors.Is(err, ErrClosed) {
-		t.Fatalf("encode after close err = %v, want ErrClosed", err)
+	if _, err := enc.EncodeIntoWithResult(src, dsts); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("encode after close err = %v, want govpx.ErrClosed", err)
 	}
-	if _, err := enc.FlushIntoWithResult(dsts); !errors.Is(err, ErrClosed) {
-		t.Fatalf("flush after close err = %v, want ErrClosed", err)
+	if _, err := enc.FlushIntoWithResult(dsts); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("flush after close err = %v, want govpx.ErrClosed", err)
 	}
-	if _, err := enc.LayerEncoder(0); !errors.Is(err, ErrClosed) {
-		t.Fatalf("LayerEncoder after close err = %v, want ErrClosed", err)
+	if _, err := enc.LayerEncoder(0); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("LayerEncoder after close err = %v, want govpx.ErrClosed", err)
 	}
 	// Double-close is a no-op.
 	if err := enc.Close(); err != nil {
@@ -238,16 +237,16 @@ func TestVP9MultiResolutionEncoderClosedReturnsErrClosed(t *testing.T) {
 }
 
 func TestVP9MultiResolutionEncoderForceKeyFrame(t *testing.T) {
-	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	enc, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: 2,
 		FPS:        30,
-		Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+		Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 			{Width: 64, Height: 48},
 			{Width: 32, Height: 24},
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
 	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
@@ -270,8 +269,8 @@ func TestVP9MultiResolutionEncoderForceKeyFrame(t *testing.T) {
 		}
 	}
 	// Force a key frame on every layer.
-	if !enc.IsKeyFrameNext() {
-		// IsKeyFrameNext is false here because we haven't forced yet.
+	if enc.IsKeyFrameNext() {
+		t.Fatalf("IsKeyFrameNext = true before ForceKeyFrame")
 	}
 	enc.ForceKeyFrame()
 	if !enc.IsKeyFrameNext() {
@@ -303,22 +302,22 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 		vp9dsp.PolyphaseScratchSize(width1, height0))
 	vp9dsp.PolyphaseDownscaleI420(scratch, src, width1, height1, resizeScratch)
 
-	ref0, err := NewVP9Encoder(VP9EncoderOptions{
+	ref0, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:  width0,
 		Height: height0,
 		FPS:    30,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder ref0: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder ref0: %v", err)
 	}
 	defer ref0.Close()
-	ref1, err := NewVP9Encoder(VP9EncoderOptions{
+	ref1, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:  width1,
 		Height: height1,
 		FPS:    30,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder ref1: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder ref1: %v", err)
 	}
 	defer ref1.Close()
 
@@ -333,16 +332,16 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 		t.Fatalf("ref1 encode: %v", err)
 	}
 
-	mre, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	mre, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: 2,
 		FPS:        30,
-		Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+		Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 			{Width: width0, Height: height0},
 			{Width: width1, Height: height1},
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer mre.Close()
 	dsts := [][]byte{make([]byte, 1<<19), make([]byte, 1<<19)}
@@ -376,16 +375,16 @@ func TestVP9MultiResolutionEncoderParityVsManualEncoders(t *testing.T) {
 }
 
 func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
-	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	enc, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: 2,
 		FPS:        30,
-		Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+		Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 			{Width: 64, Height: 48},
 			{Width: 32, Height: 24},
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
 	src := vp9test.NewYCbCr(64, 48, 90, 100, 110)
@@ -408,55 +407,18 @@ func TestVP9MultiResolutionEncoderSteadyStateAlloc(t *testing.T) {
 	}
 }
 
-func TestVP9MultiResolutionDownscalePlaneFlatField(t *testing.T) {
-	src := make([]byte, 8*8)
-	for i := range src {
-		src[i] = 128
-	}
-	dst := make([]byte, 4*4)
-	scratch := make([]int32, vp9dsp.PolyphaseScratchSize(4, 8))
-	vp9dsp.PolyphaseFilterPlane(dst, 4, 4, 4, src, 8, 8, 8, scratch)
-	for i, b := range dst {
-		if b != 128 {
-			t.Fatalf("dst[%d] = %d, want 128", i, b)
-		}
-	}
-}
-
-func TestVP9MultiResolutionDownscalePlaneLinearGradient(t *testing.T) {
-	// Linear horizontal gradient should round-trip through the
-	// 8-tap polyphase filter to a coarser monotonically-increasing
-	// gradient. The polyphase filter is not order-preserving in
-	// pathological cases (ringing), but for a 16-sample linear
-	// ramp downscaled to 4 samples it stays monotone.
-	srcW, srcH := 16, 1
-	src := make([]byte, srcW*srcH)
-	for x := range srcW {
-		src[x] = byte(x * 16)
-	}
-	dstW := 4
-	dst := make([]byte, dstW*srcH)
-	scratch := make([]int32, vp9dsp.PolyphaseScratchSize(dstW, srcH))
-	vp9dsp.PolyphaseFilterPlane(dst, dstW, dstW, srcH, src, srcW, srcW, srcH, scratch)
-	for i := 1; i < dstW; i++ {
-		if dst[i] < dst[i-1] {
-			t.Fatalf("downscaled gradient regressed at %d: %v", i, dst)
-		}
-	}
-}
-
 func TestVP9MultiResolutionEncoderRowMTPassthrough(t *testing.T) {
-	enc, err := NewVP9MultiResolutionEncoder(VP9MultiResolutionEncoderOptions{
+	enc, err := govpx.NewVP9MultiResolutionEncoder(govpx.VP9MultiResolutionEncoderOptions{
 		LayerCount: 2,
 		FPS:        30,
 		Threads:    2,
-		Layers: [MaxMultiResLayers]VP9MultiResolutionLayerOptions{
+		Layers: [govpx.MaxMultiResLayers]govpx.VP9MultiResolutionLayerOptions{
 			{Width: 128, Height: 96, RowMT: true},
 			{Width: 64, Height: 48, RowMT: true},
 		},
 	})
 	if err != nil {
-		t.Fatalf("NewVP9MultiResolutionEncoder: %v", err)
+		t.Fatalf("govpx.NewVP9MultiResolutionEncoder: %v", err)
 	}
 	defer enc.Close()
 	src := vp9test.NewYCbCr(128, 96, 90, 100, 110)

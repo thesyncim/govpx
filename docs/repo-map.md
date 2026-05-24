@@ -215,7 +215,10 @@ This ledger tracks intent, not completed work.
   from `package govpx_test` and checks emitted headers instead of private
   encoder fields. VP9 variance-partition NN table and inference tests now live
   in `internal/vp9/encoder`; the root ML partition file keeps only root-local
-  private helper coverage pending the implementation move.
+  private helper coverage pending the implementation move. VP9
+  multi-resolution tests now run from `package govpx_test`; duplicate raw
+  polyphase filter checks were removed from root because `internal/vp9/dsp`
+  owns fuller resize coverage.
 - Move pure implementation suites after the package boundary moves: coefficient
   costing, speed features, row workers, partition decisions, rate control,
   TPL/ARNR/AQ, loopfilter, decoder motion/context, and allocation contracts are
