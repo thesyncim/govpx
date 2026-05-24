@@ -32,71 +32,6 @@ import (
 //                                          from the per-SB counters
 //   - vp9/encoder/vp9_ratectrl.h:118 is_src_frame_alt_ref field
 
-// vp9SbStateMiBlock is the libvpx mi-units-per-content-state-SB constant.
-// libvpx writes counters at SB boundaries with stride
-// (mi_stride >> 3) and row stride (mi_rows >> 3) — see vp9_speed_features.c:680
-// (cpi->content_state_sb_fd alloc) and vp9_encodeframe.c:5367 (sb_offset
-// computation), which equals 8 mi units per SB step.
-const vp9SbStateMiBlock = 8
-
-// vp9ContentStateSbFdSize computes the libvpx allocation size for the per-SB
-// content-state buffer:
-//
-//	(mi_stride >> 3) * ((mi_rows >> 3) + 1) * sizeof(uint8_t)
-//
-// libvpx: vp9_speed_features.c:680.
-func vp9ContentStateSbFdSize(miStride, miRows int) int {
-	if miStride <= 0 || miRows < 0 {
-		return 0
-	}
-	return (miStride >> 3) * ((miRows >> 3) + 1)
-}
-
-// vp9CalcMiSize ports libvpx's calc_mi_size (vp9_onyxc_int.h:416):
-//
-//	static INLINE int calc_mi_size(int len) {
-//	  return len + MI_BLOCK_SIZE;
-//	}
-//
-// MI_BLOCK_SIZE is 8 (vp9_onyxc_int.h:48). mi_stride / mi_size buffers in
-// libvpx are sized as calc_mi_size(mi_cols) / calc_mi_size(mi_rows).
-//
-// libvpx: vp9_onyxc_int.h:416 calc_mi_size,
-// vp9_alloccommon.c:26 *mi_stride = calc_mi_size(*mi_cols).
-func vp9CalcMiSize(length int) int {
-	return length + 8
-}
-
-// vp9MiDimensionsForFrame returns (miCols, miRows, miStride) for the given
-// frame dimensions, mirroring the libvpx common allocation path:
-//
-//	mi_cols  = (width  + MI_SIZE - 1) >> MI_SIZE_LOG2   (==> aligned_width / 8)
-//	mi_rows  = (height + MI_SIZE - 1) >> MI_SIZE_LOG2
-//	mi_stride = calc_mi_size(mi_cols)
-//
-// libvpx: vp9_alloccommon.c:21-27 set_mb_mi.
-func vp9MiDimensionsForFrame(width, height int) (miCols, miRows, miStride int) {
-	miCols = (width + 7) >> 3
-	miRows = (height + 7) >> 3
-	miStride = vp9CalcMiSize(miCols)
-	return
-}
-
-// vp9SbOffsetForMi returns the per-SB index libvpx uses to address
-// count_arf_frame_usage / count_lastgolden_frame_usage / content_state_sb_fd:
-//
-//	((mi_cols + 7) >> 3) * (mi_row >> 3) + (mi_col >> 3)
-//
-// libvpx: vp9_encodeframe.c:5367 sboffset,
-// vp9_encodeframe.c:1232 sb_offset (with the same expression).
-//
-// Note: the buffer is *sized* with mi_stride (= calc_mi_size(mi_cols)) but
-// addressed with ((mi_cols + 7) >> 3); since mi_stride = mi_cols + 8, the
-// addressed range fits trivially inside the allocation.
-func vp9SbOffsetForMi(miRow, miCol, miCols int) int {
-	return ((miCols+7)>>3)*(miRow>>3) + (miCol >> 3)
-}
-
 // vp9EnsureContentStateSbFd allocates cpi->content_state_sb_fd lazily, mirroring
 // libvpx's vp9_speed_features.c:676-683:
 //
@@ -117,8 +52,8 @@ func (e *VP9Encoder) vp9EnsureContentStateSbFd(width, height int) {
 	if e == nil {
 		return
 	}
-	miCols, miRows, miStride := vp9MiDimensionsForFrame(width, height)
-	size := vp9ContentStateSbFdSize(miStride, miRows)
+	miCols, miRows, miStride := encoder.MiDimensionsForFrame(width, height)
+	size := encoder.ContentStateBufferSize(miStride, miRows)
 	if size <= 0 {
 		return
 	}
@@ -148,9 +83,7 @@ func (e *VP9Encoder) vp9ResetContentStateSbFd() {
 	if e == nil || e.contentStateSbFd == nil {
 		return
 	}
-	for i := range e.contentStateSbFd {
-		e.contentStateSbFd[i] = 0
-	}
+	encoder.ResetContentStateBuffer(e.contentStateSbFd)
 }
 
 // vp9UpdateContentStateSbFd ports libvpx vp9_encodeframe.c:1238-1244:
@@ -169,16 +102,7 @@ func (e *VP9Encoder) vp9UpdateContentStateSbFd(sbOffset int, lowSourceSad bool) 
 	if e == nil || e.contentStateSbFd == nil {
 		return
 	}
-	if sbOffset < 0 || sbOffset >= len(e.contentStateSbFd) {
-		return
-	}
-	if lowSourceSad {
-		if e.contentStateSbFd[sbOffset] < 255 {
-			e.contentStateSbFd[sbOffset]++
-		}
-	} else {
-		e.contentStateSbFd[sbOffset] = 0
-	}
+	encoder.UpdateContentStateBuffer(e.contentStateSbFd, sbOffset, lowSourceSad)
 }
 
 // vp9ReadContentStateSbFd ports libvpx vp9_encodeframe.c:1346-1347:
@@ -194,10 +118,7 @@ func (e *VP9Encoder) vp9ReadContentStateSbFd(sbOffset int) uint8 {
 	if e == nil || e.contentStateSbFd == nil {
 		return 0
 	}
-	if sbOffset < 0 || sbOffset >= len(e.contentStateSbFd) {
-		return 0
-	}
-	return e.contentStateSbFd[sbOffset]
+	return encoder.ContentStateAt(e.contentStateSbFd, sbOffset)
 }
 
 // vp9CommitLastSource mirrors the previous-source lookahead slot libvpx exposes
@@ -258,7 +179,7 @@ func (e *VP9Encoder) vp9AvgSourceSADStats(img *image.YCbCr, miCols, miRow, miCol
 		return encoder.AvgSourceSADResult{}, false
 	}
 
-	sbOffset := vp9SbOffsetForMi(sbMiRow, sbMiCol, miCols)
+	sbOffset := encoder.SBOffsetForMi(sbMiRow, sbMiCol, miCols)
 	e.vp9UpdateContentStateSbFd(sbOffset, stats.LowSADForContentState)
 	return stats, true
 }
@@ -346,8 +267,8 @@ func (e *VP9Encoder) vp9EnsureArfFrameUsage(width, height int) {
 	if e == nil {
 		return
 	}
-	miCols, miRows, miStride := vp9MiDimensionsForFrame(width, height)
-	size := vp9ContentStateSbFdSize(miStride, miRows)
+	miCols, miRows, miStride := encoder.MiDimensionsForFrame(width, height)
+	size := encoder.ContentStateBufferSize(miStride, miRows)
 	if size <= 0 {
 		return
 	}
@@ -436,25 +357,15 @@ func (e *VP9Encoder) vp9UpdateAltrefUsage(altRefGfGroup, isSrcFrameAltRef,
 	if e.countArfFrameUsage == nil || e.countLastgoldenFrameUsage == nil {
 		return
 	}
-	sumRefFrameUsage := 0
-	arfFrameUsage := 0
-	if altRefGfGroup && !isSrcFrameAltRef &&
-		!refreshGoldenFrame && !refreshAltRefFrame {
-		for miRow := 0; miRow < miRows; miRow += vp9SbStateMiBlock {
-			for miCol := 0; miCol < miCols; miCol += vp9SbStateMiBlock {
-				sbOffset := vp9SbOffsetForMi(miRow, miCol, miCols)
-				if sbOffset < 0 || sbOffset >= len(e.countArfFrameUsage) ||
-					sbOffset >= len(e.countLastgoldenFrameUsage) {
-					continue
-				}
-				sumRefFrameUsage += int(e.countArfFrameUsage[sbOffset]) +
-					int(e.countLastgoldenFrameUsage[sbOffset])
-				arfFrameUsage += int(e.countArfFrameUsage[sbOffset])
-			}
-		}
-	}
-	if sumRefFrameUsage > 0 {
-		altrefCount := 100.0 * float64(arfFrameUsage) / float64(sumRefFrameUsage)
-		e.rc.percArfUsage = 0.75*e.rc.percArfUsage + 0.25*altrefCount
-	}
+	e.rc.percArfUsage = encoder.UpdateAltRefUsage(encoder.AltRefUsageUpdate{
+		PreviousPercAltRef:        e.rc.percArfUsage,
+		AltRefGFGroup:             altRefGfGroup,
+		IsSrcFrameAltRef:          isSrcFrameAltRef,
+		RefreshGoldenFrame:        refreshGoldenFrame,
+		RefreshAltRefFrame:        refreshAltRefFrame,
+		MiCols:                    miCols,
+		MiRows:                    miRows,
+		CountAltRefFrameUsage:     e.countArfFrameUsage,
+		CountLastGoldenFrameUsage: e.countLastgoldenFrameUsage,
+	})
 }

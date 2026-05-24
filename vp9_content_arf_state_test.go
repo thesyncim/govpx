@@ -8,128 +8,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// TestVP9CalcMiSizeMatchesLibvpx pins the libvpx calc_mi_size identity:
-//
-//	static INLINE int calc_mi_size(int len) {
-//	  return len + MI_BLOCK_SIZE;
-//	}
-//
-// libvpx: vp9/common/vp9_onyxc_int.h:416 calc_mi_size with MI_BLOCK_SIZE == 8.
-func TestVP9CalcMiSizeMatchesLibvpx(t *testing.T) {
-	cases := []struct {
-		in, want int
-	}{
-		{0, 8},
-		{1, 9},
-		{40, 48},
-		{80, 88},
-		{160, 168},
-	}
-	for _, c := range cases {
-		if got := vp9CalcMiSize(c.in); got != c.want {
-			t.Fatalf("vp9CalcMiSize(%d) = %d, want %d (libvpx: vp9_onyxc_int.h:416 len + MI_BLOCK_SIZE)",
-				c.in, got, c.want)
-		}
-	}
-}
-
-// TestVP9MiDimensionsForFrameMatchesLibvpx pins the (mi_cols, mi_rows,
-// mi_stride) triple libvpx computes in set_mb_mi (vp9_alloccommon.c:21-27):
-//
-//	*mi_cols   = (aligned_width  + MI_SIZE - 1) >> MI_SIZE_LOG2;
-//	*mi_rows   = (aligned_height + MI_SIZE - 1) >> MI_SIZE_LOG2;
-//	*mi_stride = calc_mi_size(*mi_cols);
-//
-// MI_SIZE == 8, MI_SIZE_LOG2 == 3. For a 1280x720 frame:
-//
-//	mi_cols   = (1280 + 7) >> 3 = 160
-//	mi_rows   = (720  + 7) >> 3 = 90
-//	mi_stride = 160 + 8         = 168
-func TestVP9MiDimensionsForFrameMatchesLibvpx(t *testing.T) {
-	cases := []struct {
-		w, h                       int
-		wantCols, wantRows, wantSt int
-	}{
-		{16, 16, 2, 2, 10},          // smallest realistic SB
-		{320, 240, 40, 30, 48},      // small
-		{640, 360, 80, 45, 88},      // VGA-class
-		{1280, 720, 160, 90, 168},   // HD
-		{1920, 1080, 240, 135, 248}, // FHD
-	}
-	for _, c := range cases {
-		cols, rows, stride := vp9MiDimensionsForFrame(c.w, c.h)
-		if cols != c.wantCols || rows != c.wantRows || stride != c.wantSt {
-			t.Fatalf("vp9MiDimensionsForFrame(%d,%d) = (%d,%d,%d), want (%d,%d,%d)",
-				c.w, c.h, cols, rows, stride,
-				c.wantCols, c.wantRows, c.wantSt)
-		}
-	}
-}
-
-// TestVP9ContentStateSbFdSizeMatchesLibvpx pins the libvpx vpx_calloc
-// expression at vp9_speed_features.c:680:
-//
-//	(cm->mi_stride >> 3) * ((cm->mi_rows >> 3) + 1) * sizeof(uint8_t)
-//
-// For 1280x720: mi_stride=168, mi_rows=90.
-//
-//	(168 >> 3) * ((90 >> 3) + 1) = 21 * (11+1) = 21 * 12 = 252.
-func TestVP9ContentStateSbFdSizeMatchesLibvpx(t *testing.T) {
-	cases := []struct {
-		w, h     int
-		miStride int
-		miRows   int
-		want     int
-	}{
-		{320, 240, 48, 30, 6 * 4},     // (48>>3) * ((30>>3)+1) = 6 * 4 = 24
-		{640, 360, 88, 45, 11 * 6},    // 11 * 6 = 66
-		{1280, 720, 168, 90, 21 * 12}, // 21 * 12 = 252
-		{1920, 1080, 248, 135, 31 * 17},
-	}
-	for _, c := range cases {
-		_, rows, stride := vp9MiDimensionsForFrame(c.w, c.h)
-		if rows != c.miRows || stride != c.miStride {
-			t.Fatalf("dim check %dx%d: mi_rows/mi_stride = (%d,%d), want (%d,%d)",
-				c.w, c.h, rows, stride, c.miRows, c.miStride)
-		}
-		if got := vp9ContentStateSbFdSize(stride, rows); got != c.want {
-			t.Fatalf("vp9ContentStateSbFdSize(%d,%d) = %d, want %d (libvpx: vp9_speed_features.c:680)",
-				stride, rows, got, c.want)
-		}
-	}
-}
-
-// TestVP9SbOffsetForMiMatchesLibvpx pins the libvpx sboffset addressing used
-// in vp9_encodeframe.c:5367 (count_arf_frame_usage write) and 1232
-// (content_state_sb_fd update):
-//
-//	int sboffset = ((cm->mi_cols + 7) >> 3) * (mi_row >> 3) + (mi_col >> 3);
-//
-// mi_cols=160 (1280-wide frame), miRow=0 / miCol=0 -> 0;
-// miRow=8 / miCol=0 -> 20; miRow=0 / miCol=8 -> 1; miRow=8 / miCol=16 -> 22.
-func TestVP9SbOffsetForMiMatchesLibvpx(t *testing.T) {
-	cases := []struct {
-		miRow, miCol, miCols int
-		want                 int
-	}{
-		{0, 0, 160, 0},
-		{0, 8, 160, 1},
-		{0, 16, 160, 2},
-		{8, 0, 160, 20},
-		{8, 8, 160, 21},
-		{16, 16, 160, 42},
-		// Non-multiple-of-8 mi_cols still rounds the column-stride up:
-		// ((81 + 7) >> 3) == 11, so miRow=8 / miCol=0 -> 11.
-		{8, 0, 81, 11},
-	}
-	for _, c := range cases {
-		if got := vp9SbOffsetForMi(c.miRow, c.miCol, c.miCols); got != c.want {
-			t.Fatalf("vp9SbOffsetForMi(miRow=%d, miCol=%d, miCols=%d) = %d, want %d (libvpx: vp9_encodeframe.c:5367)",
-				c.miRow, c.miCol, c.miCols, got, c.want)
-		}
-	}
-}
-
 // TestVP9EnsureContentStateSbFdAllocatesAtSpeed6 pins the libvpx
 // vp9_speed_features.c:676-683 lazy allocation: the buffer must be allocated
 // when sf.UseSourceSad is set on the realtime speed >= 6 path, and it must be
@@ -150,7 +28,7 @@ func TestVP9EnsureContentStateSbFdAllocatesAtSpeed6(t *testing.T) {
 	if e.contentStateSbFd == nil {
 		t.Fatalf("contentStateSbFd unexpectedly nil after speed-6 realtime configure (libvpx: vp9_speed_features.c:676-683)")
 	}
-	wantSize := vp9ContentStateSbFdSize(168, 90)
+	wantSize := encoder.ContentStateBufferSize(168, 90)
 	if len(e.contentStateSbFd) != wantSize {
 		t.Fatalf("len(contentStateSbFd) = %d, want %d (libvpx vp9_speed_features.c:680: (mi_stride >> 3) * ((mi_rows >> 3) + 1))",
 			len(e.contentStateSbFd), wantSize)
@@ -199,42 +77,6 @@ func TestVP9EnsureContentStateSbFdIdempotent(t *testing.T) {
 	if e.contentStateSbFd[0] != 7 || e.contentStateSbFd[1] != 9 {
 		t.Fatalf("contentStateSbFd contents were stomped by the second configurator pass")
 	}
-}
-
-// TestVP9UpdateContentStateSbFd pins libvpx's
-// vp9_encodeframe.c:1238-1244 increment / reset semantics.
-func TestVP9UpdateContentStateSbFd(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:    640,
-		Height:   360,
-		Deadline: DeadlineRealtime,
-		CpuUsed:  6,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	defer e.Close()
-	if e.contentStateSbFd == nil {
-		t.Fatalf("contentStateSbFd not allocated")
-	}
-
-	// Low SAD repeated: increments, capped at 255.
-	for range 300 {
-		e.vp9UpdateContentStateSbFd(0, true)
-	}
-	if got := e.vp9ReadContentStateSbFd(0); got != 255 {
-		t.Fatalf("after 300 low-SAD increments, contentStateSbFd[0] = %d, want 255 (libvpx: vp9_encodeframe.c:1240-1242 caps at 255)", got)
-	}
-	// High SAD: resets to 0.
-	e.vp9UpdateContentStateSbFd(0, false)
-	if got := e.vp9ReadContentStateSbFd(0); got != 0 {
-		t.Fatalf("after high-SAD reset, contentStateSbFd[0] = %d, want 0 (libvpx: vp9_encodeframe.c:1243-1244)", got)
-	}
-
-	// Out-of-bounds writes are no-ops (libvpx aborts via memory error; govpx
-	// returns silently to keep the helper safe from caller off-by-ones).
-	e.vp9UpdateContentStateSbFd(-1, true)
-	e.vp9UpdateContentStateSbFd(len(e.contentStateSbFd), true)
 }
 
 // TestVP9AvgSourceSADStatsZeroTempSource pins libvpx avg_source_sad's
@@ -327,7 +169,7 @@ func TestVP9EnsureArfFrameUsageAllocatesAtSpeed5VBR(t *testing.T) {
 	if e.countLastgoldenFrameUsage == nil {
 		t.Fatalf("countLastgoldenFrameUsage unexpectedly nil after speed-5 VBR-with-lookahead configure (libvpx: vp9_speed_features.c:839-843)")
 	}
-	wantSize := vp9ContentStateSbFdSize(168, 90)
+	wantSize := encoder.ContentStateBufferSize(168, 90)
 	if len(e.countArfFrameUsage) != wantSize {
 		t.Fatalf("len(countArfFrameUsage) = %d, want %d (libvpx vp9_speed_features.c:836-837)",
 			len(e.countArfFrameUsage), wantSize)
@@ -373,111 +215,6 @@ func TestVP9WriteArfFrameUsage(t *testing.T) {
 	// Out-of-bounds writes are no-ops.
 	e.vp9WriteArfFrameUsage(-1, 7, 7)
 	e.vp9WriteArfFrameUsage(len(e.countArfFrameUsage), 7, 7)
-}
-
-// TestVP9UpdateAltrefUsageMatchesLibvpx pins the libvpx update_altref_usage
-// formula (vp9_ratectrl.c:1802-1819):
-//
-//	altref_count = 100.0 * arf_frame_usage / sum_ref_frame_usage
-//	cpi->rc.perc_arf_usage = 0.75 * cpi->rc.perc_arf_usage + 0.25 * altref_count
-//
-// The gating clause requires
-// alt_ref_gf_group && !is_src_frame_alt_ref &&
-// !refresh_golden_frame && !refresh_alt_ref_frame.
-func TestVP9UpdateAltrefUsageMatchesLibvpx(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              640,
-		Height:             360,
-		Deadline:           DeadlineRealtime,
-		CpuUsed:            5,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlVBR,
-		TargetBitrateKbps:  1000,
-		LookaheadFrames:    8,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	defer e.Close()
-
-	miCols, miRows, _ := vp9MiDimensionsForFrame(640, 360)
-	// Populate the two slabs with deterministic values: half the SBs prefer
-	// ARF, the rest prefer last-golden.
-	for miRow := 0; miRow < miRows; miRow += vp9SbStateMiBlock {
-		for miCol := 0; miCol < miCols; miCol += vp9SbStateMiBlock {
-			off := vp9SbOffsetForMi(miRow, miCol, miCols)
-			e.countArfFrameUsage[off] = 10
-			e.countLastgoldenFrameUsage[off] = 30
-		}
-	}
-	// arf:last_golden ratio = 10:30, so altref_count = 100 * 10 / 40 = 25.
-	// percArfUsage starts at 0; new = 0.75*0 + 0.25*25 = 6.25.
-	e.rc.percArfUsage = 0.0
-	e.vp9UpdateAltrefUsage(true, false, false, false, miCols, miRows)
-	if got := e.rc.percArfUsage; got < 6.24 || got > 6.26 {
-		t.Fatalf("percArfUsage after first update = %g, want 6.25 (libvpx vp9_ratectrl.c:1814-1815)", got)
-	}
-
-	// Second update: percArfUsage = 0.75*6.25 + 0.25*25 = 4.6875 + 6.25 = 10.9375.
-	e.vp9UpdateAltrefUsage(true, false, false, false, miCols, miRows)
-	if got := e.rc.percArfUsage; got < 10.93 || got > 10.94 {
-		t.Fatalf("percArfUsage after second update = %g, want 10.9375 (libvpx vp9_ratectrl.c:1814-1815)", got)
-	}
-
-	// Gating clause: is_src_frame_alt_ref true must skip the update.
-	prev := e.rc.percArfUsage
-	e.vp9UpdateAltrefUsage(true, true, false, false, miCols, miRows)
-	if e.rc.percArfUsage != prev {
-		t.Fatalf("percArfUsage = %g, want unchanged %g (libvpx gate: !is_src_frame_alt_ref)",
-			e.rc.percArfUsage, prev)
-	}
-	// alt_ref_gf_group false: also skips.
-	e.vp9UpdateAltrefUsage(false, false, false, false, miCols, miRows)
-	if e.rc.percArfUsage != prev {
-		t.Fatalf("percArfUsage = %g, want unchanged %g (libvpx gate: alt_ref_gf_group)",
-			e.rc.percArfUsage, prev)
-	}
-	// refresh_golden_frame true: skips.
-	e.vp9UpdateAltrefUsage(true, false, true, false, miCols, miRows)
-	if e.rc.percArfUsage != prev {
-		t.Fatalf("percArfUsage = %g, want unchanged %g (libvpx gate: !refresh_golden_frame)",
-			e.rc.percArfUsage, prev)
-	}
-	// refresh_alt_ref_frame true: skips.
-	e.vp9UpdateAltrefUsage(true, false, false, true, miCols, miRows)
-	if e.rc.percArfUsage != prev {
-		t.Fatalf("percArfUsage = %g, want unchanged %g (libvpx gate: !refresh_alt_ref_frame)",
-			e.rc.percArfUsage, prev)
-	}
-}
-
-// TestVP9UpdateAltrefUsageZeroDenominator pins libvpx vp9_ratectrl.c:1813:
-//
-//	if (sum_ref_frame_usage > 0) { ... }
-//
-// When every per-SB pair is zero, perc_arf_usage is left untouched.
-func TestVP9UpdateAltrefUsageZeroDenominator(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              640,
-		Height:             360,
-		Deadline:           DeadlineRealtime,
-		CpuUsed:            5,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlVBR,
-		TargetBitrateKbps:  1000,
-		LookaheadFrames:    8,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	defer e.Close()
-	miCols, miRows, _ := vp9MiDimensionsForFrame(640, 360)
-	e.rc.percArfUsage = 42.0
-	e.vp9UpdateAltrefUsage(true, false, false, false, miCols, miRows)
-	if e.rc.percArfUsage != 42.0 {
-		t.Fatalf("percArfUsage = %g, want 42.0 unchanged (libvpx gate: sum_ref_frame_usage > 0)",
-			e.rc.percArfUsage)
-	}
 }
 
 // TestVP9Speed5VBRIsSrcFrameAltRefSwitchesPartitionType pins the two libvpx

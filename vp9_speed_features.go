@@ -1860,7 +1860,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			//
 			// govpx is single-layer so the !use_svc clause is always
 			// satisfied. vp9EnsureContentStateSbFd is the libvpx allocation
-			// body, sized from the frame mi grid via vp9MiDimensionsForFrame.
+			// body, sized from the frame mi grid via encoder.MiDimensionsForFrame.
 			e.vp9EnsureContentStateSbFd(ctx.width, ctx.height)
 		}
 		if e.opts.RateControlMode == RateControlCBR && content != vp9ContentScreen {
