@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/rtptest"
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
@@ -402,7 +403,7 @@ func TestPacketizeFrameScalabilityStructureOnlyOnFirstFragment(t *testing.T) {
 		}
 		gotDesc.ScalabilityStructurePresent = true
 		gotDesc.ScalabilityStructure = desc.ScalabilityStructure
-		repeated[i].Payload = mustPackPayloadForTest(t, gotDesc, fragment)
+		repeated[i].Payload = rtptest.MustPackPayload(t, gotDesc, fragment)
 	}
 	got, err = AssembleFrame(repeated)
 	if err != nil {
@@ -501,14 +502,14 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			return p
 		}()},
 		{name: "missing start", payloads: []vpxrtp.PayloadFragment{{
-			Payload: mustPackPayloadForTest(t, PayloadDescriptor{
+			Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
 				EndOfFrame: true,
 			}, []byte{0x01}),
 			Marker: true,
 		}}},
 		{name: "descriptor mismatch", payloads: func() []vpxrtp.PayloadFragment {
 			p := append([]vpxrtp.PayloadFragment(nil), payloads...)
-			p[1].Payload = mustPackPayloadForTest(t, PayloadDescriptor{
+			p[1].Payload = rtptest.MustPackPayload(t, PayloadDescriptor{
 				PictureIDPresent: true,
 				PictureID:        2,
 				EndOfFrame:       false,
@@ -517,7 +518,7 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 		}()},
 		{name: "layer descriptor mismatch", payloads: func() []vpxrtp.PayloadFragment {
 			p := append([]vpxrtp.PayloadFragment(nil), payloads...)
-			p[1].Payload = mustPackPayloadForTest(t, PayloadDescriptor{
+			p[1].Payload = rtptest.MustPackPayload(t, PayloadDescriptor{
 				PictureIDPresent:      true,
 				PictureID:             1,
 				InterPicturePredicted: true,
@@ -541,7 +542,7 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 				Width:             [MaxSpatialLayers]uint16{640},
 				Height:            [MaxSpatialLayers]uint16{360},
 			}
-			p[1].Payload = mustPackPayloadForTest(t, desc, fragment)
+			p[1].Payload = rtptest.MustPackPayload(t, desc, fragment)
 			return p
 		}()},
 	}
@@ -552,15 +553,6 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustPackPayloadForTest(t *testing.T, desc PayloadDescriptor, payload []byte) []byte {
-	t.Helper()
-	packet, err := vpxrtp.PackPayload(desc, payload)
-	if err != nil {
-		t.Fatalf("vpxrtp.PackPayload: %v", err)
-	}
-	return packet
 }
 
 func TestPayloadDescriptorRejectsInvalidConfig(t *testing.T) {

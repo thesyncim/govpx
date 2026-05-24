@@ -1,10 +1,9 @@
 package rtp
 
 import (
-	"bytes"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/rtptest"
 	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
 
@@ -59,58 +58,25 @@ func FuzzRTPVP9RoundTrip(f *testing.F) {
 		if err != nil {
 			return // packetizer rejected the config; not interesting here.
 		}
-		if len(fragments) == 0 {
-			t.Errorf("PacketizeFrame returned 0 fragments for %d-byte frame", len(frame))
-			return
-		}
-		// Marker bit invariant: only the last fragment is marked.
-		for i, fr := range fragments {
-			if (i == len(fragments)-1) != fr.Marker {
-				t.Errorf("fragment %d marker=%v, want %v", i, fr.Marker, i == len(fragments)-1)
-			}
-		}
-		// Start/EndOfFrame invariants on the descriptor; SS only on first.
-		for i, fr := range fragments {
-			d, _, perr := ParsePayloadDescriptor(fr.Payload)
-			if perr != nil {
-				t.Errorf("fragment %d descriptor unparseable: %v", i, perr)
-				return
-			}
-			if (i == 0) != d.StartOfFrame {
-				t.Errorf("fragment %d SOF=%v, want %v", i, d.StartOfFrame, i == 0)
-			}
-			if (i == len(fragments)-1) != d.EndOfFrame {
-				t.Errorf("fragment %d EOF=%v, want %v", i, d.EndOfFrame, i == len(fragments)-1)
-			}
-			if desc.ScalabilityStructurePresent && (i == 0) != d.ScalabilityStructurePresent {
-				t.Errorf("fragment %d ScalabilityStructurePresent=%v, want %v",
-					i, d.ScalabilityStructurePresent, i == 0)
-			}
-		}
-		// Round-trip: assemble back, compare to original frame.
-		assembled, err := AssembleFrame(fragments)
-		if err != nil {
-			t.Errorf("AssembleFrame on clean round-trip returned error: %v", err)
-			return
-		}
-		if !bytes.Equal(assembled, frame) {
-			t.Errorf("round-trip frame mismatch: got %d bytes, want %d bytes (first diff at %d)",
-				len(assembled), len(frame), testutil.FirstByteDiff(assembled, frame))
-		}
-		// Mutation: flip the lowest byte of every fragment and call
-		// AssembleFrame; it must not panic and either returns
-		// a different frame or a typed error.
-		for i := range fragments {
-			mutated := make([]vpxrtp.PayloadFragment, len(fragments))
-			copy(mutated, fragments)
-			if len(mutated[i].Payload) == 0 {
-				continue
-			}
-			body := append([]byte(nil), mutated[i].Payload...)
-			body[len(body)-1] ^= 0xff
-			mutated[i].Payload = body
-			_, _ = AssembleFrame(mutated)
-		}
+		rtptest.CheckPacketizedRoundTrip(t, frame, fragments, AssembleFrame,
+			func(t testing.TB, i, total int, fr vpxrtp.PayloadFragment) bool {
+				d, _, perr := ParsePayloadDescriptor(fr.Payload)
+				if perr != nil {
+					t.Errorf("fragment %d descriptor unparseable: %v", i, perr)
+					return false
+				}
+				if (i == 0) != d.StartOfFrame {
+					t.Errorf("fragment %d SOF=%v, want %v", i, d.StartOfFrame, i == 0)
+				}
+				if (i == total-1) != d.EndOfFrame {
+					t.Errorf("fragment %d EOF=%v, want %v", i, d.EndOfFrame, i == total-1)
+				}
+				if desc.ScalabilityStructurePresent && (i == 0) != d.ScalabilityStructurePresent {
+					t.Errorf("fragment %d ScalabilityStructurePresent=%v, want %v",
+						i, d.ScalabilityStructurePresent, i == 0)
+				}
+				return true
+			})
 	})
 }
 

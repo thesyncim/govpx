@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/rtptest"
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
 )
@@ -312,7 +313,7 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			return p
 		}()},
 		{name: "missing start", payloads: []vpxrtp.PayloadFragment{{
-			Payload: mustPackPayloadForTest(t, PayloadDescriptor{
+			Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
 				PictureIDPresent: true,
 				PictureID:        1,
 			}, []byte{0x01}),
@@ -320,7 +321,7 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 		}}},
 		{name: "descriptor mismatch", payloads: func() []vpxrtp.PayloadFragment {
 			p := append([]vpxrtp.PayloadFragment(nil), payloads...)
-			p[1].Payload = mustPackPayloadForTest(t, PayloadDescriptor{
+			p[1].Payload = rtptest.MustPackPayload(t, PayloadDescriptor{
 				PictureIDPresent: true,
 				PictureID:        2,
 			}, []byte{0x02})
@@ -334,15 +335,6 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustPackPayloadForTest(t *testing.T, desc PayloadDescriptor, payload []byte) []byte {
-	t.Helper()
-	packet, err := vpxrtp.PackPayload(desc, payload)
-	if err != nil {
-		t.Fatalf("vpxrtp.PackPayload: %v", err)
-	}
-	return packet
 }
 
 func TestPayloadDescriptorRejectsInvalidConfig(t *testing.T) {
