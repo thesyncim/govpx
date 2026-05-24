@@ -1,6 +1,10 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
+)
 
 func TestVP9DecoderDecryptorRoundTripsClearKeyFrame(t *testing.T) {
 	packet := vp9EncodedKeyframeForTest(t, 32, 32, 96)
@@ -99,9 +103,9 @@ func TestVP9DecoderDecryptorDecryptsEncryptedSuperframeIndex(t *testing.T) {
 	encrypted := xorVP9PacketForTest(packet, key)
 	want := vp9DecodeLastVisibleFrameForTest(t, packet)
 
-	if sf, err := vp9ParseSuperframe(encrypted); err != nil || sf.count != 0 {
+	if sf, err := bitstream.ParseSuperframe(encrypted); err != nil || sf.Count != 0 {
 		t.Fatalf("encrypted superframe index parsed without decryptor: count=%d err=%v",
-			sf.count, err)
+			sf.Count, err)
 	}
 
 	calls := 0

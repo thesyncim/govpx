@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -67,23 +68,23 @@ func TestVP9SuperframeIndexSplitsFrames(t *testing.T) {
 		{0x08},
 	}
 	packet := vp9SuperframePacketForTest(wantFrames...)
-	sf, err := vp9ParseSuperframe(packet)
+	sf, err := bitstream.ParseSuperframe(packet)
 	if err != nil {
-		t.Fatalf("vp9ParseSuperframe returned error: %v", err)
+		t.Fatalf("bitstream.ParseSuperframe returned error: %v", err)
 	}
-	if sf.count != len(wantFrames) {
-		t.Fatalf("superframe count = %d, want %d", sf.count, len(wantFrames))
+	if sf.Count != len(wantFrames) {
+		t.Fatalf("superframe count = %d, want %d", sf.Count, len(wantFrames))
 	}
 	for i := range wantFrames {
-		if !bytes.Equal(sf.frames[i], wantFrames[i]) {
-			t.Fatalf("frame %d = %v, want %v", i, sf.frames[i], wantFrames[i])
+		if !bytes.Equal(sf.Frames[i], wantFrames[i]) {
+			t.Fatalf("frame %d = %v, want %v", i, sf.Frames[i], wantFrames[i])
 		}
 	}
 }
 
 func TestVP9SuperframeIndexRejectsInvalidMarker(t *testing.T) {
-	if _, err := vp9ParseSuperframe([]byte{0x01, 0xc0}); !errors.Is(err, ErrInvalidVP9Data) {
-		t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	if _, err := bitstream.ParseSuperframe([]byte{0x01, 0xc0}); !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
 	}
 }
 
@@ -96,8 +97,8 @@ func TestVP9SuperframeIndexRejectsSizeMismatch(t *testing.T) {
 	bad = append(bad, 0xff)
 	bad = append(bad, packet[indexStart:]...)
 
-	if _, err := vp9ParseSuperframe(bad); !errors.Is(err, ErrInvalidVP9Data) {
-		t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	if _, err := bitstream.ParseSuperframe(bad); !errors.Is(err, ErrInvalidVP9Data) {
+		t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
 	}
 }
 

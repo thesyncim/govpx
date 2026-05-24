@@ -3,8 +3,10 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
 
 func TestPackVP9SuperframeIntoRoundTrip(t *testing.T) {
@@ -29,15 +31,15 @@ func TestPackVP9SuperframeIntoRoundTrip(t *testing.T) {
 	if dst[len(dst)-1] != marker {
 		t.Fatalf("marker = %#x, want %#x", dst[len(dst)-1], marker)
 	}
-	sf, err := vp9ParseSuperframe(dst)
+	sf, err := bitstream.ParseSuperframe(dst)
 	if err != nil {
-		t.Fatalf("vp9ParseSuperframe: %v", err)
+		t.Fatalf("bitstream.ParseSuperframe: %v", err)
 	}
-	if sf.count != len(frames) {
-		t.Fatalf("superframe count = %d, want %d", sf.count, len(frames))
+	if sf.Count != len(frames) {
+		t.Fatalf("superframe count = %d, want %d", sf.Count, len(frames))
 	}
 	for i := range frames {
-		if !bytes.Equal(sf.frames[i], frames[i]) {
+		if !bytes.Equal(sf.Frames[i], frames[i]) {
 			t.Fatalf("frame %d round-trip mismatch", i)
 		}
 	}

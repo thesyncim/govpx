@@ -5,12 +5,13 @@ package govpx
 import (
 	"bytes"
 	"fmt"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -93,10 +94,10 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					frame, govpxPacket)
 				libvpxSF := parseVP9SpatialSVCOracleSuperframe(t, "libvpx",
 					frame, libvpxPackets[frame])
-				if govpxSF.count != tc.layerCount ||
-					libvpxSF.count != tc.layerCount {
+				if govpxSF.Count != tc.layerCount ||
+					libvpxSF.Count != tc.layerCount {
 					t.Fatalf("frame %d layer counts = govpx:%d libvpx:%d, want %d/%d",
-						frame, govpxSF.count, libvpxSF.count,
+						frame, govpxSF.Count, libvpxSF.Count,
 						tc.layerCount, tc.layerCount)
 				}
 				var govpxLayerBytes, libvpxLayerBytes [VP9MaxSpatialLayers]int
@@ -107,9 +108,9 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					refW := tc.widths[layer]
 					refH := tc.heights[layer]
 					govpxHeader := readVP9SpatialSVCOracleHeader(t, "govpx",
-						frame, layer, govpxSF.frames[layer], refW, refH)
+						frame, layer, govpxSF.Frames[layer], refW, refH)
 					libvpxHeader := readVP9SpatialSVCOracleHeader(t, "libvpx",
-						frame, layer, libvpxSF.frames[layer], refW, refH)
+						frame, layer, libvpxSF.Frames[layer], refW, refH)
 					assertVP9SpatialSVCOracleLayerDimensions(t, "govpx",
 						frame, layer, govpxHeader, tc.widths[layer],
 						tc.heights[layer])
@@ -119,8 +120,8 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					assertVP9SpatialSVCOracleHeaderParity(t, frame,
 						fmt.Sprintf("layer%d", layer), govpxHeader,
 						libvpxHeader)
-					govpxLayerBytes[layer] = len(govpxSF.frames[layer])
-					libvpxLayerBytes[layer] = len(libvpxSF.frames[layer])
+					govpxLayerBytes[layer] = len(govpxSF.Frames[layer])
+					libvpxLayerBytes[layer] = len(libvpxSF.Frames[layer])
 					govpxRefresh[layer] = govpxHeader.RefreshFrameFlags
 					libvpxRefresh[layer] = libvpxHeader.RefreshFrameFlags
 					govpxQ[layer] = int(govpxHeader.Quant.BaseQindex)
@@ -141,7 +142,7 @@ func TestVP9OracleSpatialSVCScoreboard(t *testing.T) {
 					libvpxPackets[frame])
 				fmt.Fprintf(&rows, "%d,%t,%d,%d,%d,%d,%d,%s,%s,%d,%d,%d,%s,%s,%s,%s,%s,%s\n",
 					frame, match, firstDiff, len(govpxPacket),
-					len(libvpxPackets[frame]), govpxSF.count, libvpxSF.count,
+					len(libvpxPackets[frame]), govpxSF.Count, libvpxSF.Count,
 					vp9SpatialSVCOracleJoinInts(
 						govpxLayerBytes[:tc.layerCount]),
 					vp9SpatialSVCOracleJoinInts(
@@ -417,9 +418,9 @@ func vp9SpatialSVCOracleJoinBools(values []bool) string {
 
 func parseVP9SpatialSVCOracleSuperframe(t *testing.T, side string, frame int,
 	packet []byte,
-) vp9SuperframeIndex {
+) bitstream.SuperframeIndex {
 	t.Helper()
-	sf, err := vp9ParseSuperframe(packet)
+	sf, err := bitstream.ParseSuperframe(packet)
 	if err != nil {
 		t.Fatalf("%s frame %d superframe parse: %v", side, frame, err)
 	}

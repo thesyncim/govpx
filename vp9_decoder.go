@@ -745,7 +745,7 @@ func (d *VP9Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 }
 
 func (d *VP9Decoder) decodeVP9PacketWithPTS(packet []byte, pts uint64) error {
-	sf, err := vp9ParseSuperframe(packet)
+	sf, err := bitstream.ParseSuperframe(packet)
 	if err != nil {
 		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
 			d.canConcealVP9Frame() {
@@ -756,12 +756,12 @@ func (d *VP9Decoder) decodeVP9PacketWithPTS(packet []byte, pts uint64) error {
 		}
 		return err
 	}
-	if sf.count == 0 {
+	if sf.Count == 0 {
 		return d.decodeVP9FrameWithPTS(packet, pts)
 	}
-	frameCount := d.vp9SVCFrameCount(sf.count)
+	frameCount := d.vp9SVCFrameCount(sf.Count)
 	for i := range frameCount {
-		if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
+		if err := d.decodeVP9FrameWithPTS(sf.Frames[i], pts); err != nil {
 			return err
 		}
 	}
@@ -970,7 +970,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 		return VP9FrameInfo{}, ErrInvalidConfig
 	}
 	packet = d.decryptVP9Packet(packet)
-	sf, err := vp9ParseSuperframe(packet)
+	sf, err := bitstream.ParseSuperframe(packet)
 	if err != nil {
 		if len(packet) == 0 && d.opts.effectiveErrorConcealment() &&
 			d.canConcealVP9Frame() {
@@ -991,10 +991,10 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 		}
 		return VP9FrameInfo{}, err
 	}
-	if sf.count != 0 {
-		frameCount := d.vp9SVCFrameCount(sf.count)
+	if sf.Count != 0 {
+		frameCount := d.vp9SVCFrameCount(sf.Count)
 		for i := range frameCount {
-			if err := d.decodeVP9FrameWithPTS(sf.frames[i], pts); err != nil {
+			if err := d.decodeVP9FrameWithPTS(sf.Frames[i], pts); err != nil {
 				return VP9FrameInfo{}, err
 			}
 		}

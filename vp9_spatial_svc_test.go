@@ -3,11 +3,12 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"reflect"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -37,15 +38,15 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 		!result.InterLayerPrediction {
 		t.Fatalf("SVC result = %+v", result)
 	}
-	sf, err := vp9ParseSuperframe(result.Data)
+	sf, err := bitstream.ParseSuperframe(result.Data)
 	if err != nil {
-		t.Fatalf("vp9ParseSuperframe: %v", err)
+		t.Fatalf("bitstream.ParseSuperframe: %v", err)
 	}
-	if sf.count != 2 {
-		t.Fatalf("superframe count = %d, want 2", sf.count)
+	if sf.Count != 2 {
+		t.Fatalf("superframe count = %d, want 2", sf.Count)
 	}
-	if !bytes.Equal(sf.frames[0], result.Layers[0].Data) ||
-		!bytes.Equal(sf.frames[1], result.Layers[1].Data) {
+	if !bytes.Equal(sf.Frames[0], result.Layers[0].Data) ||
+		!bytes.Equal(sf.Frames[1], result.Layers[1].Data) {
 		t.Fatal("layer result payloads do not match superframe payloads")
 	}
 	if !result.Layers[0].KeyFrame ||
@@ -83,7 +84,7 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 	}
 
 	var br vp9dec.BitReader
-	br.Init(sf.frames[1])
+	br.Init(sf.Frames[1])
 	upperHeader, err := vp9dec.ReadUncompressedHeader(&br, nil,
 		func(uint8) (uint32, uint32) {
 			return 32, 32
@@ -568,14 +569,14 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 		if err != nil {
 			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
 		}
-		sf, err := vp9ParseSuperframe(result.Data)
+		sf, err := bitstream.ParseSuperframe(result.Data)
 		if err != nil {
-			t.Fatalf("vp9ParseSuperframe[%d]: %v", frame, err)
+			t.Fatalf("bitstream.ParseSuperframe[%d]: %v", frame, err)
 		}
-		if sf.count != 3 || result.LayerCount != 3 ||
+		if sf.Count != 3 || result.LayerCount != 3 ||
 			result.ScalabilityStructure.SpatialLayerCount != 3 {
 			t.Fatalf("access unit %d counts sf=%d result=%d ss=%d",
-				frame, sf.count, result.LayerCount,
+				frame, sf.Count, result.LayerCount,
 				result.ScalabilityStructure.SpatialLayerCount)
 		}
 		if result.Layers[0].SpatialLayerID != 0 ||
@@ -615,7 +616,7 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 		}
 		for layer := range 3 {
 			var br vp9dec.BitReader
-			br.Init(sf.frames[layer])
+			br.Init(sf.Frames[layer])
 			refWidth := uint32(widths[layer])
 			refHeight := uint32(heights[layer])
 			if layer > 0 {

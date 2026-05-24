@@ -2,8 +2,10 @@ package govpx
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
 
 // FuzzVP9DecoderDecode feeds arbitrary bytes to VP9Decoder.Decode and asserts
@@ -90,32 +92,32 @@ func FuzzVP9SuperframeIndex(f *testing.F) {
 	f.Fuzz(func(t *testing.T, packet []byte) {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("vp9ParseSuperframe panicked on %d-byte input: %v", len(packet), r)
+				t.Fatalf("bitstream.ParseSuperframe panicked on %d-byte input: %v", len(packet), r)
 			}
 		}()
-		sf, err := vp9ParseSuperframe(packet)
+		sf, err := bitstream.ParseSuperframe(packet)
 		if err != nil {
 			if !errors.Is(err, ErrInvalidVP9Data) {
-				t.Fatalf("vp9ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+				t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
 			}
 			return
 		}
-		if sf.count < 0 || sf.count > 8 {
-			t.Fatalf("vp9ParseSuperframe count = %d, want [0, 8]", sf.count)
+		if sf.Count < 0 || sf.Count > 8 {
+			t.Fatalf("bitstream.ParseSuperframe count = %d, want [0, 8]", sf.Count)
 		}
 		// Frame slices must reference the packet without overflowing
 		// it. The implementation reads them as subslices, but verify
 		// that here as a fuzz invariant so any future regression
 		// shows up as an immediate test failure.
 		total := 0
-		for i := 0; i < sf.count; i++ {
-			if sf.frames[i] == nil {
+		for i := 0; i < sf.Count; i++ {
+			if sf.Frames[i] == nil {
 				t.Fatalf("frame %d slice is nil", i)
 			}
-			if len(sf.frames[i]) == 0 {
+			if len(sf.Frames[i]) == 0 {
 				t.Fatalf("frame %d slice is empty", i)
 			}
-			total += len(sf.frames[i])
+			total += len(sf.Frames[i])
 		}
 		if total > len(packet) {
 			t.Fatalf("frames total %d exceeds packet %d", total, len(packet))
