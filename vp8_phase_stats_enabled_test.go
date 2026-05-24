@@ -6,7 +6,7 @@ import "testing"
 
 func TestVP8PhaseStatsEnabledRecordsEncodeWork(t *testing.T) {
 	var stats EncoderPhaseStats
-	enc, err := NewVP8Encoder(EncoderOptions{
+	opts := EncoderOptions{
 		Width:             16,
 		Height:            16,
 		FPS:               30,
@@ -14,8 +14,9 @@ func TestVP8PhaseStatsEnabledRecordsEncodeWork(t *testing.T) {
 		Deadline:          DeadlineRealtime,
 		CpuUsed:           -4,
 		KeyFrameInterval:  999,
-		PhaseStats:        &stats,
-	})
+	}
+	opts.PhaseStats = &stats
+	enc, err := NewVP8Encoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP8Encoder: %v", err)
 	}
@@ -37,5 +38,14 @@ func TestVP8PhaseStatsEnabledRecordsEncodeWork(t *testing.T) {
 	}
 	if stats.PacketWriteNS == 0 || stats.LoopFilterPickNS == 0 {
 		t.Fatalf("phase timings = %+v, want packet and loop-filter timings", stats)
+	}
+}
+
+func TestVP8PhaseStatsEnabledOptionSelector(t *testing.T) {
+	var opts EncoderOptions
+	var stats EncoderPhaseStats
+	opts.PhaseStats = &stats
+	if opts.encoderPhaseStatsOptions.PhaseStats != &stats {
+		t.Fatal("PhaseStats selector did not update enabled option storage")
 	}
 }

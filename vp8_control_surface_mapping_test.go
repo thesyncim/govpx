@@ -116,7 +116,6 @@ func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
 		"MinQuantizer":             {Kind: "libvpx-config"},
 		"NoiseSensitivity":         {Kind: "libvpx-control"},
 		"OvershootPct":             {Kind: "libvpx-config"},
-		"PhaseStats":               {Kind: "local-instrumentation"},
 		"QuantizerRangeSet":        {Kind: "libvpx-config-defaulting"},
 		"RateControlMode":          {Kind: "libvpx-config"},
 		"RTCExternalRateControl":   {Kind: "libvpx-control"},

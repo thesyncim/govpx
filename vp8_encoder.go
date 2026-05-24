@@ -351,16 +351,10 @@ type EncoderOptions struct {
 	// For VP8 this disables cyclic refresh and post-encode overshoot recode
 	// while keeping rate-correction-factor updates active.
 	RTCExternalRateControl bool
+	encoderPhaseStatsOptions
 	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
 	// oxcf.encode_breakout for first-pass and inter-frame static skips.
 	StaticThreshold int
-
-	// PhaseStats, when non-nil and built with the govpx_phase_stats tag,
-	// receives coarse per-attempt encoder phase timings and SAD/subpel hot-path
-	// counters during EncodeInto. The caller owns the pointed-to value and may
-	// [EncoderPhaseStats.Reset] it between warmup and measured passes. Normal
-	// builds compile this path out so disabled instrumentation is zero-cost.
-	PhaseStats *EncoderPhaseStats
 }
 
 // EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
@@ -1030,65 +1024,6 @@ type VP8Encoder struct {
 	// Threads=1 so picker / reconstruct hot paths can branch on a
 	// single nil-check before any threading code path executes.
 	rowWorkers *rowWorkerPool
-}
-
-func (e *VP8Encoder) phaseStats() *EncoderPhaseStats {
-	if !vp8PhaseStatsEnabled {
-		return nil
-	}
-	if e == nil {
-		return nil
-	}
-	return e.opts.PhaseStats
-}
-
-func (e *VP8Encoder) phaseStart() int64 {
-	if e.phaseStats() == nil {
-		return 0
-	}
-	return nanotime()
-}
-
-func (e *VP8Encoder) phaseEnd(phase encoderPhase, start int64) {
-	if start == 0 {
-		return
-	}
-	if e.phaseStats() == nil {
-		return
-	}
-	e.phaseEndSlow(phase, start)
-}
-
-func (e *VP8Encoder) phaseEndSlow(phase encoderPhase, start int64) {
-	elapsed := nanotime() - start
-	stats := e.phaseStats()
-	if stats == nil {
-		return
-	}
-	switch phase {
-	case encoderPhaseInterReconstruct:
-		stats.InterReconstructNS += elapsed
-	case encoderPhaseKeyReconstruct:
-		stats.KeyReconstructNS += elapsed
-	case encoderPhaseLoopFilterPick:
-		stats.LoopFilterPickNS += elapsed
-	case encoderPhaseLoopFilterApply:
-		stats.LoopFilterApplyNS += elapsed
-	case encoderPhasePacketWrite:
-		stats.PacketWriteNS += elapsed
-	}
-}
-
-func (e *VP8Encoder) phaseCountAttempt(keyFrame bool) {
-	stats := e.phaseStats()
-	if stats == nil {
-		return
-	}
-	if keyFrame {
-		stats.KeyAttempts++
-	} else {
-		stats.InterAttempts++
-	}
 }
 
 // savedCodingContext mirrors libvpx vp8/encoder/ratectrl.c CODING_CONTEXT.

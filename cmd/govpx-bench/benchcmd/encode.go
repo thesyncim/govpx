@@ -31,10 +31,8 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 
 	encoderOpts := benchmarkEncoderOptions(cfg, deadline)
-	var phaseStats govpx.EncoderPhaseStats
-	if cfg.PhaseTiming && phaseTimingEnabled {
-		encoderOpts.PhaseStats = &phaseStats
-	}
+	var phaseStats phaseStatsState
+	phaseStats.configure(&encoderOpts, cfg.PhaseTiming)
 	enc, err := govpx.NewVP8Encoder(encoderOpts)
 	if err != nil {
 		return benchReport{}, err
@@ -60,7 +58,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		}
 	}
 	enc.Reset()
-	phaseStats.Reset()
+	phaseStats.reset()
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return benchReport{}, err
@@ -177,8 +175,8 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		QuantizerHist: quantizerHistogramMap(&quantHist),
 		Options:       benchSummary(deadlineName),
 	}
-	if cfg.PhaseTiming && phaseTimingEnabled {
-		report.PhaseNS = &phaseStats
+	if stats := phaseStats.report(); stats != nil {
+		report.PhaseNS = stats
 	}
 	if cfg.LibvpxVpxenc != "" {
 		reference, err := runLibvpxBenchmark(cfg, frames, deadlineName)

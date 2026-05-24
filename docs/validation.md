@@ -121,9 +121,10 @@ go test . -run 'TestVP8PhaseStatsDisabled' -count=1
 go test -tags govpx_oracle_trace ./... -run '^$' -count=1
 ```
 
-VP8 phase timing is an opt-in build shape so the default encoder hot path has
-no runtime stats branches. When changing PhaseStats plumbing or
-`cmd/govpx-bench -phase-timing`, also compile and run the tagged shape:
+VP8 phase timing is an opt-in build shape so the default encoder hot path and
+default `EncoderOptions` surface have no runtime stats branches or fields.
+When changing PhaseStats plumbing or `cmd/govpx-bench -phase-timing`, also
+compile and run the tagged shape:
 
 ```sh
 go test -tags govpx_phase_stats . -run 'TestVP8PhaseStatsEnabled' -count=1
