@@ -172,11 +172,7 @@ func (d *VP8Decoder) decryptPacket(packet []byte) []byte {
 	if d.opts.Decryptor == nil || len(packet) == 0 {
 		return packet
 	}
-	if cap(d.decryptedPacket) < len(packet) {
-		d.decryptedPacket = make([]byte, len(packet))
-	} else {
-		d.decryptedPacket = d.decryptedPacket[:len(packet)]
-	}
+	d.decryptedPacket = buffers.EnsureLen(d.decryptedPacket, len(packet))
 	d.opts.Decryptor(d.opts.DecryptorState, packet, d.decryptedPacket, len(packet))
 	return d.decryptedPacket
 }
@@ -1132,45 +1128,17 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	cols := (width + 15) >> 4
 	rows := (height + 15) >> 4
 	count := rows * cols
-	if cap(d.modes) < count {
-		d.modes = make([]vp8dec.MacroblockMode, count)
-	} else {
-		d.modes = d.modes[:count]
-	}
-	if cap(d.prevModes) < count {
-		d.prevModes = make([]vp8dec.MacroblockMode, count)
-	} else {
-		d.prevModes = d.prevModes[:count]
-	}
+	d.modes = buffers.EnsureLen(d.modes, count)
+	d.prevModes = buffers.EnsureLen(d.prevModes, count)
 	// Persistent error-concealment overlap buffer (libvpx pbi->overlaps).
 	// Sized once per workspace resize so concealed inter frames don't
 	// allocate per Decode call (see TestDecodeErrorConcealmentAllocatesZero).
-	if cap(d.ecOverlaps) < count {
-		d.ecOverlaps = make([]vp8dec.ErrorConcealmentOverlap, count)
-	} else {
-		d.ecOverlaps = d.ecOverlaps[:count]
-	}
-	if cap(d.tokens) < count {
-		d.tokens = make([]vp8dec.MacroblockTokens, count)
-	} else {
-		d.tokens = d.tokens[:count]
-	}
-	if cap(d.tokenAbove) < cols {
-		d.tokenAbove = make([]vp8dec.EntropyContextPlanes, cols)
-	} else {
-		d.tokenAbove = d.tokenAbove[:cols]
-	}
-	if cap(d.segmentMap) < count {
-		d.segmentMap = make([]uint8, count)
-	} else {
-		d.segmentMap = d.segmentMap[:count]
-	}
+	d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, count)
+	d.tokens = buffers.EnsureLen(d.tokens, count)
+	d.tokenAbove = buffers.EnsureLen(d.tokenAbove, cols)
+	d.segmentMap = buffers.EnsureLen(d.segmentMap, count)
 	scratchLen := cols * 24
-	if cap(d.postprocScratch) < scratchLen {
-		d.postprocScratch = make([]byte, scratchLen)
-	} else {
-		d.postprocScratch = d.postprocScratch[:scratchLen]
-	}
+	d.postprocScratch = buffers.EnsureLen(d.postprocScratch, scratchLen)
 	flags := d.opts.effectivePostProcessFlags()
 	if flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0 {
 		d.postprocState.EnsureNoise(width)

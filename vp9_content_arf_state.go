@@ -4,6 +4,7 @@ import (
 	"image"
 
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // VP9 per-SB content / ARF / RC state buffers ported verbatim from libvpx
@@ -204,25 +205,9 @@ func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, 
 	if sbCount <= 0 {
 		return encoder.AvgSourceSADResult{}, false
 	}
-	if cap(e.varPartSBContentStateValid) < sbCount {
-		e.varPartSBContentStateValid = make([]bool, sbCount)
-	} else if len(e.varPartSBContentStateValid) < sbCount {
-		tail := e.varPartSBContentStateValid[len(e.varPartSBContentStateValid):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBContentStateValid = e.varPartSBContentStateValid[:sbCount]
-	}
-	if cap(e.varPartSBContentState) < sbCount {
-		e.varPartSBContentState = make([]encoder.ContentStateSB, sbCount)
-	} else if len(e.varPartSBContentState) < sbCount {
-		e.varPartSBContentState = e.varPartSBContentState[:sbCount]
-	}
-	if cap(e.varPartSBZeroTempSADSource) < sbCount {
-		e.varPartSBZeroTempSADSource = make([]bool, sbCount)
-	} else if len(e.varPartSBZeroTempSADSource) < sbCount {
-		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
-	}
+	e.varPartSBContentStateValid = buffers.EnsureLenZeroTail(e.varPartSBContentStateValid, sbCount)
+	e.varPartSBContentState = buffers.EnsureLen(e.varPartSBContentState, sbCount)
+	e.varPartSBZeroTempSADSource = buffers.EnsureLen(e.varPartSBZeroTempSADSource, sbCount)
 	sbMiRow := miRow &^ 7
 	sbMiCol := miCol &^ 7
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)

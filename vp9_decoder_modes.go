@@ -1339,34 +1339,14 @@ func (d *VP9Decoder) vp9OutputPlane(plane int) ([]byte, int) {
 
 func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 	miColsAligned := common.AlignToSB(miCols)
-	if cap(d.aboveSegCtx) < miColsAligned {
-		d.aboveSegCtx = make([]int8, miColsAligned)
-	} else {
-		d.aboveSegCtx = d.aboveSegCtx[:miColsAligned]
-	}
-	if cap(d.leftSegCtx) < common.MiBlockSize {
-		d.leftSegCtx = make([]int8, common.MiBlockSize)
-	} else {
-		d.leftSegCtx = d.leftSegCtx[:common.MiBlockSize]
-	}
+	d.aboveSegCtx = buffers.EnsureLen(d.aboveSegCtx, miColsAligned)
+	d.leftSegCtx = buffers.EnsureLen(d.leftSegCtx, common.MiBlockSize)
 
 	miGridLen := miRows * miCols
 	resetLastSegMap := d.segMapMiRows != miRows || d.segMapMiCols != miCols
-	if cap(d.miGrid) < miGridLen {
-		d.miGrid = make([]vp9dec.NeighborMi, miGridLen)
-	} else {
-		d.miGrid = d.miGrid[:miGridLen]
-	}
-	if cap(d.segMap) < miGridLen {
-		d.segMap = make([]uint8, miGridLen)
-	} else {
-		d.segMap = d.segMap[:miGridLen]
-	}
-	if cap(d.lastSegMap) < miGridLen {
-		d.lastSegMap = make([]uint8, miGridLen)
-	} else {
-		d.lastSegMap = d.lastSegMap[:miGridLen]
-	}
+	d.miGrid = buffers.EnsureLen(d.miGrid, miGridLen)
+	d.segMap = buffers.EnsureLen(d.segMap, miGridLen)
+	d.lastSegMap = buffers.EnsureLen(d.lastSegMap, miGridLen)
 	if resetLastSegMap {
 		for i := range d.lastSegMap {
 			d.lastSegMap[i] = 0
@@ -1379,16 +1359,8 @@ func (d *VP9Decoder) ensureVP9DecoderModeBuffers(miRows, miCols int) {
 		pd := &d.planes[plane]
 		aboveLen := vp9dec.PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
 		leftLen := vp9dec.PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
-		if cap(pd.AboveContext) < aboveLen {
-			pd.AboveContext = make([]uint8, aboveLen)
-		} else {
-			pd.AboveContext = pd.AboveContext[:aboveLen]
-		}
-		if cap(pd.LeftContext) < leftLen {
-			pd.LeftContext = make([]uint8, leftLen)
-		} else {
-			pd.LeftContext = pd.LeftContext[:leftLen]
-		}
+		pd.AboveContext = buffers.EnsureLen(pd.AboveContext, aboveLen)
+		pd.LeftContext = buffers.EnsureLen(pd.LeftContext, leftLen)
 	}
 }
 
@@ -1447,11 +1419,7 @@ func prepareVP9DecoderTileDescs(dst []vp9DecoderTileDesc, tileData []byte,
 	tileRows := 1 << uint(hdr.Tile.Log2TileRows)
 	tileCols := 1 << uint(hdr.Tile.Log2TileCols)
 	nTiles := tileRows * tileCols
-	if cap(dst) < nTiles {
-		dst = make([]vp9DecoderTileDesc, nTiles)
-	} else {
-		dst = dst[:nTiles]
-	}
+	dst = buffers.EnsureLen(dst, nTiles)
 
 	offset := 0
 	for tileRow := range tileRows {

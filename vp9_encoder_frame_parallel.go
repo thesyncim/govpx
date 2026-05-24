@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9FrameParallelScheduler owns the encoder-side concurrent-frame state
@@ -102,40 +103,16 @@ func (s *vp9FrameParallelScheduler) release() {
 // frames with frame-size width x height. The bitstream scratch and result
 // bytes are sized to dstSize (the worst-case allocating buffer).
 func (s *vp9FrameParallelScheduler) ensureCapacity(workers int, dstSize int, width, height int) {
-	if cap(s.workers) < workers {
-		s.workers = make([]VP9Encoder, workers)
-	} else {
-		s.workers = s.workers[:workers]
-	}
-	if cap(s.scratchDst) < workers {
-		s.scratchDst = make([][]byte, workers)
-	} else {
-		s.scratchDst = s.scratchDst[:workers]
-	}
+	s.workers = buffers.EnsureLen(s.workers, workers)
+	s.scratchDst = buffers.EnsureLen(s.scratchDst, workers)
 	for i := range s.scratchDst {
-		if cap(s.scratchDst[i]) < dstSize {
-			s.scratchDst[i] = make([]byte, dstSize)
-		} else {
-			s.scratchDst[i] = s.scratchDst[i][:dstSize]
-		}
+		s.scratchDst[i] = buffers.EnsureLen(s.scratchDst[i], dstSize)
 	}
-	if cap(s.resultsBuf) < workers {
-		s.resultsBuf = make([][]byte, workers)
-	} else {
-		s.resultsBuf = s.resultsBuf[:workers]
-	}
+	s.resultsBuf = buffers.EnsureLen(s.resultsBuf, workers)
 	for i := range s.resultsBuf {
-		if cap(s.resultsBuf[i]) < dstSize {
-			s.resultsBuf[i] = make([]byte, 0, dstSize)
-		} else {
-			s.resultsBuf[i] = s.resultsBuf[i][:0]
-		}
+		s.resultsBuf[i] = buffers.EnsureLen(s.resultsBuf[i], dstSize)[:0]
 	}
-	if cap(s.scratchInputs) < workers {
-		s.scratchInputs = make([]image.YCbCr, workers)
-	} else {
-		s.scratchInputs = s.scratchInputs[:workers]
-	}
+	s.scratchInputs = buffers.EnsureLen(s.scratchInputs, workers)
 	rect := image.Rect(0, 0, width, height)
 	for i := range s.scratchInputs {
 		if s.scratchInputs[i].Rect != rect || len(s.scratchInputs[i].Y) == 0 {
@@ -148,11 +125,7 @@ func (s *vp9FrameParallelScheduler) ensureCapacity(workers int, dstSize int, wid
 	// arrays. miRows*miCols sizes the prev MVs and segment maps to match
 	// vp9_alloc_context_buffers (vp9_alloccommon.c:160) which sizes
 	// cm->prev_mip / cm->cur_mip from cm->mi_rows * cm->mi_cols.
-	if cap(s.parentInputs) < workers {
-		s.parentInputs = make([]vp9FrameParallelBatchInput, workers)
-	} else {
-		s.parentInputs = s.parentInputs[:workers]
-	}
+	s.parentInputs = buffers.EnsureLen(s.parentInputs, workers)
 	miCols := (width + 7) >> 3
 	miRows := (height + 7) >> 3
 	need := miRows * miCols
@@ -393,19 +366,15 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	parentPrevFrameMvRows := e.prevFrameMvRows
 	parentPrevFrameMvCols := e.prevFrameMvCols
 	parentPrevFrameMvsLen := len(e.prevFrameMvs)
-	if cap(scheduler.parentPrevFrameMvsSnapshot) < parentPrevFrameMvsLen {
-		scheduler.parentPrevFrameMvsSnapshot = make([]vp9dec.MvRef, parentPrevFrameMvsLen)
-	}
-	parentPrevFrameMvs := scheduler.parentPrevFrameMvsSnapshot[:parentPrevFrameMvsLen]
+	parentPrevFrameMvs := buffers.EnsureLen(scheduler.parentPrevFrameMvsSnapshot, parentPrevFrameMvsLen)
+	scheduler.parentPrevFrameMvsSnapshot = parentPrevFrameMvs
 	copy(parentPrevFrameMvs, e.prevFrameMvs)
 	parentPrevSegmentMapValid := e.prevSegmentMapValid
 	parentPrevSegmentMapRows := e.prevSegmentMapRows
 	parentPrevSegmentMapCols := e.prevSegmentMapCols
 	parentPrevSegmentMapLen := len(e.prevSegmentMap)
-	if cap(scheduler.parentPrevSegmentMapSnapshot) < parentPrevSegmentMapLen {
-		scheduler.parentPrevSegmentMapSnapshot = make([]uint8, parentPrevSegmentMapLen)
-	}
-	parentPrevSegmentMap := scheduler.parentPrevSegmentMapSnapshot[:parentPrevSegmentMapLen]
+	parentPrevSegmentMap := buffers.EnsureLen(scheduler.parentPrevSegmentMapSnapshot, parentPrevSegmentMapLen)
+	scheduler.parentPrevSegmentMapSnapshot = parentPrevSegmentMap
 	copy(parentPrevSegmentMap, e.prevSegmentMap)
 	parentPrevFrameActiveMapEnabled := e.prevFrameActiveMapEnabled
 	parentLastVP9HeaderFrameType := e.lastVP9HeaderFrameType
@@ -445,20 +414,12 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	e.prevFrameMvsValid = parentPrevFrameMvsValid
 	e.prevFrameMvRows = parentPrevFrameMvRows
 	e.prevFrameMvCols = parentPrevFrameMvCols
-	if cap(e.prevFrameMvs) < len(parentPrevFrameMvs) {
-		e.prevFrameMvs = make([]vp9dec.MvRef, len(parentPrevFrameMvs))
-	} else {
-		e.prevFrameMvs = e.prevFrameMvs[:len(parentPrevFrameMvs)]
-	}
+	e.prevFrameMvs = buffers.EnsureLen(e.prevFrameMvs, len(parentPrevFrameMvs))
 	copy(e.prevFrameMvs, parentPrevFrameMvs)
 	e.prevSegmentMapValid = parentPrevSegmentMapValid
 	e.prevSegmentMapRows = parentPrevSegmentMapRows
 	e.prevSegmentMapCols = parentPrevSegmentMapCols
-	if cap(e.prevSegmentMap) < len(parentPrevSegmentMap) {
-		e.prevSegmentMap = make([]uint8, len(parentPrevSegmentMap))
-	} else {
-		e.prevSegmentMap = e.prevSegmentMap[:len(parentPrevSegmentMap)]
-	}
+	e.prevSegmentMap = buffers.EnsureLen(e.prevSegmentMap, len(parentPrevSegmentMap))
 	copy(e.prevSegmentMap, parentPrevSegmentMap)
 	e.prevFrameActiveMapEnabled = parentPrevFrameActiveMapEnabled
 	e.lastVP9HeaderFrameType = parentLastVP9HeaderFrameType
@@ -643,35 +604,19 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	// images are read-only during a NoUpdate-locked encode, so they may be
 	// shared with the parent.
 	if len(src.prevFrameMvs) > 0 {
-		if cap(w.prevFrameMvs) < len(src.prevFrameMvs) {
-			w.prevFrameMvs = make([]vp9dec.MvRef, len(src.prevFrameMvs))
-		} else {
-			w.prevFrameMvs = w.prevFrameMvs[:len(src.prevFrameMvs)]
-		}
+		w.prevFrameMvs = buffers.EnsureLen(w.prevFrameMvs, len(src.prevFrameMvs))
 		copy(w.prevFrameMvs, src.prevFrameMvs)
 	}
 	if len(src.prevSegmentMap) > 0 {
-		if cap(w.prevSegmentMap) < len(src.prevSegmentMap) {
-			w.prevSegmentMap = make([]uint8, len(src.prevSegmentMap))
-		} else {
-			w.prevSegmentMap = w.prevSegmentMap[:len(src.prevSegmentMap)]
-		}
+		w.prevSegmentMap = buffers.EnsureLen(w.prevSegmentMap, len(src.prevSegmentMap))
 		copy(w.prevSegmentMap, src.prevSegmentMap)
 	}
 	if len(src.activeMap) > 0 {
-		if cap(w.activeMap) < len(src.activeMap) {
-			w.activeMap = make([]uint8, len(src.activeMap))
-		} else {
-			w.activeMap = w.activeMap[:len(src.activeMap)]
-		}
+		w.activeMap = buffers.EnsureLen(w.activeMap, len(src.activeMap))
 		copy(w.activeMap, src.activeMap)
 	}
 	if len(src.contentStateSbFd) > 0 {
-		if cap(w.contentStateSbFd) < len(src.contentStateSbFd) {
-			w.contentStateSbFd = make([]uint8, len(src.contentStateSbFd))
-		} else {
-			w.contentStateSbFd = w.contentStateSbFd[:len(src.contentStateSbFd)]
-		}
+		w.contentStateSbFd = buffers.EnsureLen(w.contentStateSbFd, len(src.contentStateSbFd))
 		copy(w.contentStateSbFd, src.contentStateSbFd)
 		w.contentStateSbFdMiCols = src.contentStateSbFdMiCols
 		w.contentStateSbFdMiRows = src.contentStateSbFdMiRows

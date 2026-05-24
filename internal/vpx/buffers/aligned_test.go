@@ -46,6 +46,53 @@ func TestEnsureCapacityReusesAndGrows(t *testing.T) {
 	}
 }
 
+func TestEnsureLenReusesAndGrowsTypedSlices(t *testing.T) {
+	buf := make([]uint16, 2, 4)
+	buf[0], buf[1] = 7, 8
+	reused := EnsureLen(buf, 4)
+	if len(reused) != 4 || cap(reused) != cap(buf) {
+		t.Fatalf("EnsureLen reused len/cap = %d/%d, want 4/%d",
+			len(reused), cap(reused), cap(buf))
+	}
+	if reused[0] != 7 || reused[1] != 8 {
+		t.Fatalf("EnsureLen cleared existing values: %v", reused[:2])
+	}
+	grown := EnsureLen(buf, 8)
+	if len(grown) != 8 || cap(grown) < 8 {
+		t.Fatalf("EnsureLen grown len/cap = %d/%d, want >=8",
+			len(grown), cap(grown))
+	}
+}
+
+func TestEnsureLenZeroedClearsReusedStorage(t *testing.T) {
+	buf := []int{1, 2, 3, 4}
+	reused := EnsureLenZeroed(buf, 3)
+	if len(reused) != 3 || cap(reused) != cap(buf) {
+		t.Fatalf("EnsureLenZeroed reused len/cap = %d/%d, want 3/%d",
+			len(reused), cap(reused), cap(buf))
+	}
+	for i, v := range reused {
+		if v != 0 {
+			t.Fatalf("EnsureLenZeroed[%d] = %d, want 0", i, v)
+		}
+	}
+}
+
+func TestEnsureLenZeroTailClearsOnlyNewElements(t *testing.T) {
+	buf := make([]int, 2, 4)
+	buf[0], buf[1] = 11, 12
+	buf = buf[:4]
+	buf[2], buf[3] = 21, 22
+	buf = buf[:2]
+	reused := EnsureLenZeroTail(buf, 4)
+	if reused[0] != 11 || reused[1] != 12 {
+		t.Fatalf("EnsureLenZeroTail cleared old values: %v", reused[:2])
+	}
+	if reused[2] != 0 || reused[3] != 0 {
+		t.Fatalf("EnsureLenZeroTail tail = %v, want zeros", reused[2:])
+	}
+}
+
 func TestEnsureAlignedCapacity(t *testing.T) {
 	buf := NewAligned(64, 32)
 	reused := EnsureAlignedCapacity(buf[:32], 48, 32)

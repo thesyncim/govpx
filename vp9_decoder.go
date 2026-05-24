@@ -492,11 +492,7 @@ func (d *VP9Decoder) decryptVP9Packet(packet []byte) []byte {
 	if d.opts.Decryptor == nil || len(packet) == 0 {
 		return packet
 	}
-	if cap(d.decryptedPacket) < len(packet) {
-		d.decryptedPacket = make([]byte, len(packet))
-	} else {
-		d.decryptedPacket = d.decryptedPacket[:len(packet)]
-	}
+	d.decryptedPacket = buffers.EnsureLen(d.decryptedPacket, len(packet))
 	d.opts.Decryptor(d.opts.DecryptorState, packet, d.decryptedPacket, len(packet))
 	return d.decryptedPacket
 }
@@ -1559,17 +1555,9 @@ func (d *VP9Decoder) prepareVP9PostProcess(width, height int) error {
 	rows := (height + 15) >> 4
 	cols := (width + 15) >> 4
 	count := rows * cols
-	if cap(d.postModes) < count {
-		d.postModes = make([]vp8dec.MacroblockMode, count)
-	} else {
-		d.postModes = d.postModes[:count]
-	}
+	d.postModes = buffers.EnsureLen(d.postModes, count)
 	scratchLen := cols * 24
-	if cap(d.postprocScratch) < scratchLen {
-		d.postprocScratch = make([]byte, scratchLen)
-	} else {
-		d.postprocScratch = d.postprocScratch[:scratchLen]
-	}
+	d.postprocScratch = buffers.EnsureLen(d.postprocScratch, scratchLen)
 	flags := d.opts.effectivePostProcessFlags()
 	if flags&PostProcessMFQE != 0 {
 		if err := d.postprocState.EnsureMFQE(width, height); err != nil {

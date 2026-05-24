@@ -34,6 +34,41 @@ func EnsureCapacity(buf []byte, size int) []byte {
 	return buf[:size]
 }
 
+// EnsureLen returns buf sliced to size, growing it with make when needed.
+// Existing elements are not cleared when storage is reused.
+func EnsureLen[S ~[]E, E any](buf S, size int) S {
+	if cap(buf) < size {
+		return make(S, size)
+	}
+	return buf[:size]
+}
+
+// EnsureLenZeroed returns buf sliced to size and cleared. It grows with make
+// when needed; reused storage is zeroed before it is returned.
+func EnsureLenZeroed[S ~[]E, E any](buf S, size int) S {
+	if cap(buf) < size {
+		return make(S, size)
+	}
+	buf = buf[:size]
+	clear(buf)
+	return buf
+}
+
+// EnsureLenZeroTail returns buf sliced to size, clearing only newly exposed
+// elements when the backing storage is reused. Existing elements below the old
+// length are left untouched.
+func EnsureLenZeroTail[S ~[]E, E any](buf S, size int) S {
+	if cap(buf) < size {
+		return make(S, size)
+	}
+	oldLen := len(buf)
+	buf = buf[:size]
+	if oldLen < size {
+		clear(buf[oldLen:size])
+	}
+	return buf
+}
+
 // EnsureAlignedCapacity returns buf sliced to size with an aligned first byte,
 // allocating aligned storage when the current backing array is too small or
 // starts at the wrong boundary.

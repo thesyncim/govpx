@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
@@ -288,34 +289,10 @@ func (e *VP9Encoder) vp9EnsureVarPartSBMotionCaches(miRows, miCols int) int {
 	if sbCount <= 0 {
 		return 0
 	}
-	if cap(e.varPartSBUseMvPart) < sbCount {
-		e.varPartSBUseMvPart = make([]bool, sbCount)
-	} else if len(e.varPartSBUseMvPart) < sbCount {
-		tail := e.varPartSBUseMvPart[len(e.varPartSBUseMvPart):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
-	}
-	if cap(e.varPartSBMvPart) < sbCount {
-		e.varPartSBMvPart = make([]vp9dec.MV, sbCount)
-	} else if len(e.varPartSBMvPart) < sbCount {
-		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
-	}
-	if cap(e.varPartSBPredValid) < sbCount {
-		e.varPartSBPredValid = make([]bool, sbCount)
-	} else if len(e.varPartSBPredValid) < sbCount {
-		tail := e.varPartSBPredValid[len(e.varPartSBPredValid):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
-	}
-	if cap(e.varPartSBPredLast) < sbCount {
-		e.varPartSBPredLast = make([]vp9dec.MV, sbCount)
-	} else if len(e.varPartSBPredLast) < sbCount {
-		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
-	}
+	e.varPartSBUseMvPart = buffers.EnsureLenZeroTail(e.varPartSBUseMvPart, sbCount)
+	e.varPartSBMvPart = buffers.EnsureLen(e.varPartSBMvPart, sbCount)
+	e.varPartSBPredValid = buffers.EnsureLenZeroTail(e.varPartSBPredValid, sbCount)
+	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
 	return sbCount
 }
 
@@ -437,59 +414,13 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	// would destroy partition decisions stamped by earlier SBs in the
 	// same frame (libvpx's xd->mi[]->sb_type grid is persistent across
 	// the encode walk).
-	if cap(e.varPartGrid) < miGridLen {
-		grid := make([]vp9dec.NeighborMi, miGridLen)
-		e.varPartGrid = grid
-	} else if len(e.varPartGrid) < miGridLen {
-		// Grow without zeroing already-stamped cells.
-		tail := e.varPartGrid[len(e.varPartGrid):miGridLen]
-		for i := range tail {
-			tail[i] = vp9dec.NeighborMi{}
-		}
-		e.varPartGrid = e.varPartGrid[:miGridLen]
-	}
-	if cap(e.varPartSBComputed) < sbCount {
-		e.varPartSBComputed = make([]bool, sbCount)
-	} else if len(e.varPartSBComputed) < sbCount {
-		tail := e.varPartSBComputed[len(e.varPartSBComputed):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
-	}
-	if cap(e.varPartSBUseMvPart) < sbCount {
-		e.varPartSBUseMvPart = make([]bool, sbCount)
-	} else if len(e.varPartSBUseMvPart) < sbCount {
-		tail := e.varPartSBUseMvPart[len(e.varPartSBUseMvPart):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
-	}
-	if cap(e.varPartSBMvPart) < sbCount {
-		e.varPartSBMvPart = make([]vp9dec.MV, sbCount)
-	} else if len(e.varPartSBMvPart) < sbCount {
-		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
-	}
-	if cap(e.varPartSBPredValid) < sbCount {
-		e.varPartSBPredValid = make([]bool, sbCount)
-	} else if len(e.varPartSBPredValid) < sbCount {
-		tail := e.varPartSBPredValid[len(e.varPartSBPredValid):sbCount]
-		for i := range tail {
-			tail[i] = false
-		}
-		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
-	}
-	if cap(e.varPartSBPredLast) < sbCount {
-		e.varPartSBPredLast = make([]vp9dec.MV, sbCount)
-	} else if len(e.varPartSBPredLast) < sbCount {
-		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
-	}
-	if cap(e.varPartSBVarLow) < sbCount {
-		e.varPartSBVarLow = make([][25]uint8, sbCount)
-	} else if len(e.varPartSBVarLow) < sbCount {
-		e.varPartSBVarLow = e.varPartSBVarLow[:sbCount]
-	}
+	e.varPartGrid = buffers.EnsureLenZeroTail(e.varPartGrid, miGridLen)
+	e.varPartSBComputed = buffers.EnsureLenZeroTail(e.varPartSBComputed, sbCount)
+	e.varPartSBUseMvPart = buffers.EnsureLenZeroTail(e.varPartSBUseMvPart, sbCount)
+	e.varPartSBMvPart = buffers.EnsureLen(e.varPartSBMvPart, sbCount)
+	e.varPartSBPredValid = buffers.EnsureLenZeroTail(e.varPartSBPredValid, sbCount)
+	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
+	e.varPartSBVarLow = buffers.EnsureLen(e.varPartSBVarLow, sbCount)
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3
 	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)

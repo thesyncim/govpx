@@ -369,11 +369,7 @@ func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
 		return
 	}
 	need := miRows * miCols
-	if cap(e.prevFrameMvs) < need {
-		e.prevFrameMvs = make([]vp9dec.MvRef, need)
-	} else {
-		e.prevFrameMvs = e.prevFrameMvs[:need]
-	}
+	e.prevFrameMvs = buffers.EnsureLen(e.prevFrameMvs, need)
 	for i := range need {
 		mi := e.miGrid[i]
 		e.prevFrameMvs[i] = vp9dec.MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
@@ -391,11 +387,7 @@ func (e *VP9Encoder) refreshVP9EncoderSegmentMap(miRows, miCols int) {
 		e.prevSegmentMapCols = 0
 		return
 	}
-	if cap(e.prevSegmentMap) < need {
-		e.prevSegmentMap = make([]uint8, need)
-	} else {
-		e.prevSegmentMap = e.prevSegmentMap[:need]
-	}
+	e.prevSegmentMap = buffers.EnsureLen(e.prevSegmentMap, need)
 	for i := range need {
 		e.prevSegmentMap[i] = e.miGrid[i].SegmentID
 	}
@@ -421,28 +413,10 @@ func (e *VP9Encoder) useVP9EncoderPrevSegmentMap(miRows, miCols int) bool {
 
 func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	miColsAligned := common.AlignToSB(miCols)
-	if cap(e.aboveSegCtx) < miColsAligned {
-		e.aboveSegCtx = make([]int8, miColsAligned)
-	} else {
-		e.aboveSegCtx = e.aboveSegCtx[:miColsAligned]
-		for i := range e.aboveSegCtx {
-			e.aboveSegCtx[i] = 0
-		}
-	}
-	if cap(e.leftSegCtx) < common.MiBlockSize {
-		e.leftSegCtx = make([]int8, common.MiBlockSize)
-	} else {
-		e.leftSegCtx = e.leftSegCtx[:common.MiBlockSize]
-	}
+	e.aboveSegCtx = buffers.EnsureLenZeroed(e.aboveSegCtx, miColsAligned)
+	e.leftSegCtx = buffers.EnsureLen(e.leftSegCtx, common.MiBlockSize)
 	miGridLen := miRows * miCols
-	if cap(e.miGrid) < miGridLen {
-		e.miGrid = make([]vp9dec.NeighborMi, miGridLen)
-	} else {
-		e.miGrid = e.miGrid[:miGridLen]
-		for i := range e.miGrid {
-			e.miGrid[i] = vp9dec.NeighborMi{}
-		}
-	}
+	e.miGrid = buffers.EnsureLenZeroed(e.miGrid, miGridLen)
 	// varPartGrid / varPartSBComputed are allocated lazily inside
 	// vp9EnsureSBPartitionChosen so the steady-state encode path
 	// (which currently does not invoke the libvpx choose_partitioning
@@ -514,26 +488,14 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
 	e.ensureVP9LeafKeyframeDecisionCache(miRows, miCols)
 	e.ensureVP9KeyframePartitionDecisionCache(miRows, miCols)
-	if cap(e.partitionReconScratch) < vp9MaxPartitionReconScratchStack {
-		e.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratchStack)
-	} else {
-		e.partitionReconScratch = e.partitionReconScratch[:vp9MaxPartitionReconScratchStack]
-	}
+	e.partitionReconScratch = buffers.EnsureLen(e.partitionReconScratch, vp9MaxPartitionReconScratchStack)
 	e.partitionReconScratchTop = 0
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		aboveLen := vp9dec.PlaneEntropyLen(miColsAligned, pd.SubsamplingX)
 		leftLen := vp9dec.PlaneEntropyLen(common.MiBlockSize, pd.SubsamplingY)
-		if cap(pd.AboveContext) < aboveLen {
-			pd.AboveContext = make([]uint8, aboveLen)
-		} else {
-			pd.AboveContext = pd.AboveContext[:aboveLen]
-		}
-		if cap(pd.LeftContext) < leftLen {
-			pd.LeftContext = make([]uint8, leftLen)
-		} else {
-			pd.LeftContext = pd.LeftContext[:leftLen]
-		}
+		pd.AboveContext = buffers.EnsureLen(pd.AboveContext, aboveLen)
+		pd.LeftContext = buffers.EnsureLen(pd.LeftContext, leftLen)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9RowWorkerPool is the per-tile-column pool of row goroutines that drive
@@ -117,35 +118,13 @@ func (s *vp9RowEncoderState) reset(parent *VP9Encoder) {
 		return
 	}
 	s.parent = parent
-	if cap(s.leftSegCtx) < vp9MiBlockSize() {
-		s.leftSegCtx = make([]int8, vp9MiBlockSize())
-	} else {
-		s.leftSegCtx = s.leftSegCtx[:vp9MiBlockSize()]
-		for i := range s.leftSegCtx {
-			s.leftSegCtx[i] = 0
-		}
-	}
+	s.leftSegCtx = buffers.EnsureLenZeroed(s.leftSegCtx, vp9MiBlockSize())
 	for plane := range vp9dec.MaxMbPlane {
 		leftLen := vp9dec.PlaneEntropyLen(vp9MiBlockSize(), parent.planes[plane].SubsamplingY)
-		if cap(s.planeLeftCtx[plane]) < leftLen {
-			s.planeLeftCtx[plane] = make([]uint8, leftLen)
-		} else {
-			s.planeLeftCtx[plane] = s.planeLeftCtx[plane][:leftLen]
-			for i := range s.planeLeftCtx[plane] {
-				s.planeLeftCtx[plane][i] = 0
-			}
-		}
+		s.planeLeftCtx[plane] = buffers.EnsureLenZeroed(s.planeLeftCtx[plane], leftLen)
 	}
-	if cap(s.partitionReconScratch) < vp9MaxPartitionReconScratchStack {
-		s.partitionReconScratch = make([]byte, vp9MaxPartitionReconScratchStack)
-	} else {
-		s.partitionReconScratch = s.partitionReconScratch[:vp9MaxPartitionReconScratchStack]
-	}
-	if cap(s.interPredictScratch) < vp9MaxPartitionReconScratch {
-		s.interPredictScratch = make([]byte, vp9MaxPartitionReconScratch)
-	} else {
-		s.interPredictScratch = s.interPredictScratch[:vp9MaxPartitionReconScratch]
-	}
+	s.partitionReconScratch = buffers.EnsureLen(s.partitionReconScratch, vp9MaxPartitionReconScratchStack)
+	s.interPredictScratch = buffers.EnsureLen(s.interPredictScratch, vp9MaxPartitionReconScratch)
 	s.counts = encoder.FrameCounts{}
 }
 
