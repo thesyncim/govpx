@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	ivfstream "github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
 // ErrVP9SpatialSVCEncoderNotBuilt is returned when the harness cannot find
@@ -120,7 +120,7 @@ func VP9SpatialSVCPayloadsI420(raw []byte, cfg VP9SpatialSVCConfig) (frames [][]
 	if err != nil {
 		return nil, diag, err
 	}
-	frames, err = testutil.IVFFramePayloads(ivf)
+	frames, err = ivfstream.FramePayloads(ivf)
 	if err != nil {
 		return nil, diag, err
 	}

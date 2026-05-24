@@ -1,260 +1,75 @@
 package testutil
 
-import (
-	"bytes"
-	"encoding/binary"
-)
+import "github.com/thesyncim/govpx/internal/vpx/ivf"
 
 const (
-	IVFFileHeaderSize  = 32
-	IVFFrameHeaderSize = 12
+	IVFFileHeaderSize  = ivf.FileHeaderSize
+	IVFFrameHeaderSize = ivf.FrameHeaderSize
 )
 
 var (
 	// IVFFourCCVP8 is the IVF stream fourcc used by VP8 payloads.
-	IVFFourCCVP8 = [4]byte{'V', 'P', '8', '0'}
+	IVFFourCCVP8 = ivf.FourCCVP8
 	// IVFFourCCVP9 is the IVF stream fourcc used by VP9 payloads.
-	IVFFourCCVP9 = [4]byte{'V', 'P', '9', '0'}
+	IVFFourCCVP9 = ivf.FourCCVP9
 )
 
 var (
-	ErrInvalidIVF        = errString("govpx: invalid IVF data")
-	ErrUnsupportedFourCC = errString("govpx: unsupported IVF fourcc")
+	ErrInvalidIVF        = ivf.ErrInvalid
+	ErrUnsupportedFourCC = ivf.ErrUnsupportedFourCC
 )
 
-type IVFHeader struct {
-	FourCC [4]byte
-
-	Width  int
-	Height int
-
-	TimebaseNumerator   uint32
-	TimebaseDenominator uint32
-
-	FrameCount uint32
-}
-
-type IVFFrame struct {
-	Index     int
-	Timestamp uint64
-	Data      []byte
-}
+type IVFHeader = ivf.Header
+type IVFFrame = ivf.Frame
 
 func ParseIVFHeader(data []byte) (IVFHeader, error) {
-	if len(data) < IVFFileHeaderSize {
-		return IVFHeader{}, ErrInvalidIVF
-	}
-	if data[0] != 'D' || data[1] != 'K' || data[2] != 'I' || data[3] != 'F' {
-		return IVFHeader{}, ErrInvalidIVF
-	}
-	headerSize := binary.LittleEndian.Uint16(data[6:8])
-	if headerSize != IVFFileHeaderSize {
-		return IVFHeader{}, ErrInvalidIVF
-	}
-
-	var fourcc [4]byte
-	copy(fourcc[:], data[8:12])
-	if fourcc != IVFFourCCVP8 && fourcc != IVFFourCCVP9 {
-		return IVFHeader{}, ErrUnsupportedFourCC
-	}
-
-	width := int(binary.LittleEndian.Uint16(data[12:14]))
-	height := int(binary.LittleEndian.Uint16(data[14:16]))
-	if width <= 0 || height <= 0 {
-		return IVFHeader{}, ErrInvalidIVF
-	}
-
-	return IVFHeader{
-		FourCC:              fourcc,
-		Width:               width,
-		Height:              height,
-		TimebaseDenominator: binary.LittleEndian.Uint32(data[16:20]),
-		TimebaseNumerator:   binary.LittleEndian.Uint32(data[20:24]),
-		FrameCount:          binary.LittleEndian.Uint32(data[24:28]),
-	}, nil
+	return ivf.ParseHeader(data)
 }
 
 func FirstIVFFrameOffset(data []byte) (int, error) {
-	if _, err := ParseIVFHeader(data); err != nil {
-		return 0, err
-	}
-	return IVFFileHeaderSize, nil
+	return ivf.FirstFrameOffset(data)
 }
 
 func NextIVFFrame(data []byte, offset int, index int) (IVFFrame, int, error) {
-	if offset < IVFFileHeaderSize || offset > len(data) {
-		return IVFFrame{}, offset, ErrInvalidIVF
-	}
-	if offset == len(data) {
-		return IVFFrame{}, offset, ErrInvalidIVF
-	}
-	if len(data)-offset < IVFFrameHeaderSize {
-		return IVFFrame{}, offset, ErrInvalidIVF
-	}
-
-	size := int(binary.LittleEndian.Uint32(data[offset : offset+4]))
-	timestamp := binary.LittleEndian.Uint64(data[offset+4 : offset+12])
-	payloadOff := offset + IVFFrameHeaderSize
-	next := payloadOff + size
-	if size < 0 || next < payloadOff || next > len(data) {
-		return IVFFrame{}, offset, ErrInvalidIVF
-	}
-
-	return IVFFrame{
-		Index:     index,
-		Timestamp: timestamp,
-		Data:      data[payloadOff:next],
-	}, next, nil
+	return ivf.NextFrame(data, offset, index)
 }
 
 func CountIVFFrames(data []byte) (int, error) {
-	offset, err := FirstIVFFrameOffset(data)
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for offset < len(data) {
-		_, next, err := NextIVFFrame(data, offset, count)
-		if err != nil {
-			return 0, err
-		}
-		offset = next
-		count++
-	}
-	return count, nil
+	return ivf.CountFrames(data)
 }
 
-// IVFFrames returns every frame header and payload slice in data.
 func IVFFrames(data []byte) ([]IVFFrame, error) {
-	offset, err := FirstIVFFrameOffset(data)
-	if err != nil {
-		return nil, err
-	}
-	var frames []IVFFrame
-	for i := 0; offset < len(data); i++ {
-		frame, next, err := NextIVFFrame(data, offset, i)
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame)
-		offset = next
-	}
-	return frames, nil
+	return ivf.Frames(data)
 }
 
-// IVFFramePayloads returns copies of each frame payload in data.
 func IVFFramePayloads(data []byte) ([][]byte, error) {
-	frames, err := IVFFrames(data)
-	if err != nil {
-		return nil, err
-	}
-	out := make([][]byte, len(frames))
-	for i := range frames {
-		out[i] = bytes.Clone(frames[i].Data)
-	}
-	return out, nil
+	return ivf.FramePayloads(data)
 }
 
-// IVFFramePayloadViews returns each frame payload as a slice backed by data.
 func IVFFramePayloadViews(data []byte) ([][]byte, error) {
-	frames, err := IVFFrames(data)
-	if err != nil {
-		return nil, err
-	}
-	out := make([][]byte, len(frames))
-	for i := range frames {
-		out[i] = frames[i].Data
-	}
-	return out, nil
+	return ivf.FramePayloadViews(data)
 }
 
-// IVFFramePayloadSizeSummary counts payload bytes and frames without copying.
 func IVFFramePayloadSizeSummary(data []byte) (total int, frames int, err error) {
-	offset, err := FirstIVFFrameOffset(data)
-	if err != nil {
-		return 0, 0, err
-	}
-	for offset < len(data) {
-		frame, next, err := NextIVFFrame(data, offset, frames)
-		if err != nil {
-			return 0, 0, err
-		}
-		total += len(frame.Data)
-		frames++
-		offset = next
-	}
-	return total, frames, nil
+	return ivf.FramePayloadSizeSummary(data)
 }
 
-type errString string
-
-func (e errString) Error() string {
-	return string(e)
-}
-
-// WriteIVFHeader writes the 32-byte IVF file header for one of the
-// supported codecs ("VP80" or "VP90"). Mirrors the layout libvpx's
-// IVF writer emits — required for vpxdec --codec=vp9 to recognize
-// the stream.
 func WriteIVFHeader(h IVFHeader) []byte {
-	var buf [IVFFileHeaderSize]byte
-	buf[0], buf[1], buf[2], buf[3] = 'D', 'K', 'I', 'F'
-	binary.LittleEndian.PutUint16(buf[4:6], 0)                  // version
-	binary.LittleEndian.PutUint16(buf[6:8], IVFFileHeaderSize)  // header_size
-	copy(buf[8:12], h.FourCC[:])                                // fourcc
-	binary.LittleEndian.PutUint16(buf[12:14], uint16(h.Width))  // width
-	binary.LittleEndian.PutUint16(buf[14:16], uint16(h.Height)) // height
-	binary.LittleEndian.PutUint32(buf[16:20], h.TimebaseDenominator)
-	binary.LittleEndian.PutUint32(buf[20:24], h.TimebaseNumerator)
-	binary.LittleEndian.PutUint32(buf[24:28], h.FrameCount)
-	// buf[28:32] reserved, leave zeroed.
-	return buf[:]
+	return ivf.WriteHeader(h)
 }
 
-// WriteIVFFrame writes the 12-byte per-frame header followed by
-// the frame payload. Mirrors libvpx's vpxenc IVF emit shape:
-//
-//	[ size_uint32_le ][ pts_uint64_le ][ payload[size] ]
 func WriteIVFFrame(payload []byte, pts uint64) []byte {
-	out := make([]byte, IVFFrameHeaderSize+len(payload))
-	binary.LittleEndian.PutUint32(out[0:4], uint32(len(payload)))
-	binary.LittleEndian.PutUint64(out[4:12], pts)
-	copy(out[12:], payload)
-	return out
+	return ivf.WriteFrame(payload, pts)
 }
 
-// BuildIVF writes one IVF stream with monotonically increasing frame
-// timestamps starting at zero.
 func BuildIVF(h IVFHeader, payloads [][]byte) []byte {
-	h.FrameCount = uint32(len(payloads))
-	size := IVFFileHeaderSize
-	for _, payload := range payloads {
-		size += IVFFrameHeaderSize + len(payload)
-	}
-	out := make([]byte, 0, size)
-	out = append(out, WriteIVFHeader(h)...)
-	for i, payload := range payloads {
-		out = append(out, WriteIVFFrame(payload, uint64(i))...)
-	}
-	return out
+	return ivf.Build(h, payloads)
 }
 
-// BuildVP8IVF writes a VP8 IVF stream for tests that already have
-// compressed frame payloads.
 func BuildVP8IVF(width int, height int, den uint32, num uint32, payloads [][]byte) []byte {
-	header := IVFHeader{
-		FourCC:              IVFFourCCVP8,
-		Width:               width,
-		Height:              height,
-		TimebaseDenominator: den,
-		TimebaseNumerator:   num,
-	}
-	return BuildIVF(header, payloads)
+	return ivf.BuildVP8(width, height, den, num, payloads)
 }
 
-// BuildSingleFrameVP8IVF writes a VP8 IVF stream with one compressed payload.
 func BuildSingleFrameVP8IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
-	payloads := [][]byte{payload}
-	return BuildVP8IVF(width, height, den, num, payloads)
+	return ivf.BuildSingleFrameVP8(width, height, den, num, payload)
 }

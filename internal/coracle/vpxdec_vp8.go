@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/vpx/conformance"
 )
 
 var errOraclePathEmpty = errors.New("coracle: oracle path is empty")
@@ -45,7 +45,7 @@ func VpxdecVP8DecodeI420(ivf []byte, cfg VpxdecVP8Config) (raw []byte, diag []by
 
 // VpxdecVP8ChecksumArgs runs the VP8 checksum oracle with args and parses its
 // JSONL frame checksums. diag always contains combined stdout/stderr.
-func VpxdecVP8ChecksumArgs(oracle string, args []string) (frames []testutil.FrameChecksum, diag []byte, err error) {
+func VpxdecVP8ChecksumArgs(oracle string, args []string) (frames []conformance.FrameChecksum, diag []byte, err error) {
 	if oracle == "" {
 		return nil, nil, errOraclePathEmpty
 	}
@@ -54,7 +54,7 @@ func VpxdecVP8ChecksumArgs(oracle string, args []string) (frames []testutil.Fram
 	if err != nil {
 		return nil, out, err
 	}
-	frames, err = testutil.ParseFrameChecksumJSONLines(out)
+	frames, err = conformance.ParseFrameChecksumJSONLines(out)
 	if err != nil {
 		return nil, out, fmt.Errorf("coracle: parse VP8 checksum oracle output: %w", err)
 	}
@@ -62,7 +62,7 @@ func VpxdecVP8ChecksumArgs(oracle string, args []string) (frames []testutil.Fram
 }
 
 // VpxdecVP8ChecksumFile runs the VP8 checksum oracle mode against an IVF file.
-func VpxdecVP8ChecksumFile(oracle string, mode string, path string) (frames []testutil.FrameChecksum, diag []byte, err error) {
+func VpxdecVP8ChecksumFile(oracle string, mode string, path string) (frames []conformance.FrameChecksum, diag []byte, err error) {
 	return VpxdecVP8ChecksumArgs(oracle, []string{mode, path})
 }
 
@@ -79,12 +79,12 @@ func VpxdecVP8ChecksumFileExpectError(oracle string, mode string, path string) (
 
 // ReadFrameChecksumJSONLFile reads a checksum JSONL file produced by one of the
 // oracle helpers.
-func ReadFrameChecksumJSONLFile(path string) (frames []testutil.FrameChecksum, data []byte, err error) {
+func ReadFrameChecksumJSONLFile(path string) (frames []conformance.FrameChecksum, data []byte, err error) {
 	data, err = os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	frames, err = testutil.ParseFrameChecksumJSONLines(data)
+	frames, err = conformance.ParseFrameChecksumJSONLines(data)
 	if err != nil {
 		return nil, data, fmt.Errorf("coracle: parse frame checksum log: %w", err)
 	}

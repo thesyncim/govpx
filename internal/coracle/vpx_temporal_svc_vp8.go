@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	ivfstream "github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
 // VpxTemporalSVCConfig describes libvpx's vpx_temporal_svc_encoder example
@@ -79,7 +79,7 @@ func VpxTemporalSVCPayloadsI420(raw []byte, cfg VpxTemporalSVCConfig) (layers []
 	}
 	layers = make([][][]byte, len(ivfs))
 	for i, ivf := range ivfs {
-		layers[i], err = testutil.IVFFramePayloads(ivf)
+		layers[i], err = ivfstream.FramePayloads(ivf)
 		if err != nil {
 			return nil, diag, err
 		}

@@ -2,18 +2,13 @@ package testutil
 
 import (
 	"crypto/md5"
-	"encoding/hex"
 	"hash"
 
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
+	"github.com/thesyncim/govpx/internal/vpx/conformance"
 )
 
-type PlaneMD5 struct {
-	Y    [16]byte
-	U    [16]byte
-	V    [16]byte
-	Full [16]byte
-}
+type PlaneMD5 = conformance.PlaneMD5
 
 func MD5Plane(plane []byte, stride int, width int, height int) [16]byte {
 	if width <= 0 || height <= 0 || stride < width {
@@ -47,9 +42,7 @@ func MD5Planes(y []byte, yStride int, u []byte, uStride int, v []byte, vStride i
 }
 
 func MD5Hex(sum [16]byte) string {
-	dst := make([]byte, 32)
-	hex.Encode(dst, sum[:])
-	return string(dst)
+	return conformance.MD5Hex(sum)
 }
 
 func writePlaneHash(h hash.Hash, plane []byte, stride int, width int, height int) {

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	ivfstream "github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
 // VpxencVP8Config describes a VP8 vpxenc-family run over raw I420 frames.
@@ -107,7 +107,7 @@ func VpxencVP8OracleFramePayloadsI420(raw []byte, cfg VpxencVP8Config) (frames [
 	if err != nil {
 		return nil, diag, err
 	}
-	frames, err = testutil.IVFFramePayloads(ivf)
+	frames, err = ivfstream.FramePayloads(ivf)
 	if err != nil {
 		return nil, diag, err
 	}
@@ -279,7 +279,7 @@ func VpxencVP8FrameFlagsPayloadsI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) 
 	if err != nil {
 		return nil, diag, err
 	}
-	frames, err = testutil.IVFFramePayloads(ivf)
+	frames, err = ivfstream.FramePayloads(ivf)
 	if err != nil {
 		return nil, diag, err
 	}
