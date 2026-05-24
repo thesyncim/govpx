@@ -2,7 +2,6 @@ package govpx
 
 import (
 	"image"
-	"math"
 
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -10,7 +9,8 @@ import (
 
 // libvpx parity references for the VP9 first-pass collector:
 //   - vp9/encoder/vp9_firstpass.c:1353 vp9_first_pass (the macro-block-level
-//     analysis loop this file paraphrases without a Lagrangian RD path).
+//     analysis loop internal/vp9/encoder paraphrases without a Lagrangian RD
+//     path).
 //   - vp9/encoder/vp9_firstpass_stats.h:20 FIRSTPASS_STATS (the on-disk
 //     packet layout that VP9FirstPassFrameStats mirrors field-for-field).
 //   - vp9/encoder/vp9_firstpass.c:759 first_pass_stat_calc (the
@@ -69,17 +69,6 @@ func (e *VP9Encoder) CollectFirstPassStats(img *image.YCbCr, pts uint64, duratio
 func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64) VP9FirstPassFrameStats {
 	width := e.opts.Width
 	height := e.opts.Height
-	mbCols := (width + 15) >> 4
-	mbRows := (height + 15) >> 4
-	mbs := mbCols * mbRows
-	if mbs <= 0 {
-		return VP9FirstPassFrameStats{
-			Frame:    e.vp9FirstPassCount,
-			Duration: float64(duration),
-			Count:    1,
-		}
-	}
-
 	src, srcStride, _, _ := vp9EncoderSourcePlane(img, 0)
 	hasLast := e.vp9FirstPassCount > 0 &&
 		vp9FirstPassImageMatches(&e.vp9FirstPassLast, width, height)
@@ -88,116 +77,20 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 	last, lastStride, _, _ := vp9EncoderSourcePlane(&e.vp9FirstPassLast, 0)
 	gf, gfStride, _, _ := vp9EncoderSourcePlane(&e.vp9FirstPassGF, 0)
 
-	intraError := uint64(0)
-	codedError := uint64(0)
-	srCodedError := uint64(0)
-	interCount := 0
-	secondRefCount := 0
-	neutralCount := 0
-	intraLowCount := 0
-	intraHighCount := 0
-	intraSmoothCount := 0
-	intraFactor := 0.0
-	brightnessFactor := 0.0
-	var motion encoder.FirstPassMotionAccumulator
-
-	for mbRow := range mbRows {
-		for mbCol := range mbCols {
-			x := mbCol << 4
-			y := mbRow << 4
-			w := min(16, width-x)
-			h := min(16, height-y)
-			if w <= 0 || h <= 0 {
-				continue
-			}
-			intraRaw := encoder.BlockSourceVariance128(src, srcStride, x, y, w, h)
-			logIntra := math.Log(float64(intraRaw) + 1.0)
-			if logIntra < 10.0 {
-				intraFactor += 1.0 + ((10.0 - logIntra) * 0.05)
-			} else {
-				intraFactor += 1.0
-			}
-			if src[y*srcStride+x] < encoder.FirstPassDarkThresh && logIntra < 9.0 {
-				brightnessFactor += 1.0 +
-					0.01*float64(encoder.FirstPassDarkThresh-src[y*srcStride+x])
-			} else {
-				brightnessFactor += 1.0
-			}
-			intra := intraRaw + encoder.FirstPassIntraPenalty
-			intraError += intra
-			thisErr := intra
-			bestRow := int16(0)
-			bestCol := int16(0)
-			lastErr := ^uint64(0)
-
-			if hasLast {
-				bestErr, rowQ3, colQ3 := encoder.FirstPassMotionSearch(src, srcStride,
-					last, lastStride, x, y, w, h, width, height)
-				if rowQ3 != 0 || colQ3 != 0 {
-					bestErr += encoder.FirstPassNewMVModePenalty
-				}
-				lastErr = bestErr
-				if bestErr <= thisErr {
-					if ((intra-encoder.FirstPassIntraPenalty)*9 <= bestErr*10) &&
-						intra < 2*encoder.FirstPassIntraPenalty {
-						neutralCount++
-					}
-					thisErr = bestErr
-					bestRow = rowQ3
-					bestCol = colQ3
-					interCount++
-					motion.Add(rowQ3, colQ3, mbRow, mbCol, mbRows, mbCols)
-				}
-			}
-			if hasGF {
-				gfErr, _, _ := encoder.FirstPassMotionSearch(src, srcStride, gf,
-					gfStride, x, y, w, h, width, height)
-				srCodedError += gfErr
-				if gfErr < lastErr && gfErr < intra {
-					secondRefCount++
-				}
-			} else {
-				srCodedError += thisErr
-			}
-			if bestRow == 0 && bestCol == 0 && thisErr == intra {
-				if intraRaw < 16 {
-					intraSmoothCount++
-				}
-				if intraRaw < 512 {
-					intraLowCount++
-				} else {
-					intraHighCount++
-				}
-			}
-			codedError += thisErr
-		}
-	}
-
-	mbsF := float64(mbs)
-	minErr := 200 * math.Sqrt(mbsF)
-	stats := VP9FirstPassFrameStats{
-		Frame:            e.vp9FirstPassCount,
-		IntraError:       (float64(intraError>>8) + minErr) / mbsF,
-		CodedError:       (float64(codedError>>8) + minErr) / mbsF,
-		SRCodedError:     (float64(srCodedError>>8) + minErr) / mbsF,
-		PcntInter:        float64(interCount) / mbsF,
-		PcntSecondRef:    float64(secondRefCount) / mbsF,
-		PcntNeutral:      float64(neutralCount) / mbsF,
-		PcntIntraLow:     float64(intraLowCount) / mbsF,
-		PcntIntraHigh:    float64(intraHighCount) / mbsF,
-		IntraSmoothPct:   float64(intraSmoothCount) / mbsF,
-		InactiveZoneRows: 0,
-		InactiveZoneCols: 0,
-		Duration:         float64(duration),
-		Count:            1,
-		SpatialLayerID:   0,
-	}
-	stats.Weight = (intraFactor / mbsF) * (brightnessFactor / mbsF)
-	if stats.Weight < 0.1 {
-		stats.Weight = 0.1
-	}
-	motion.Finish(&stats, mbs)
-	return stats
+	return encoder.AnalyzeFirstPassFrame(encoder.FirstPassFrameAnalysis{
+		Width:        width,
+		Height:       height,
+		Frame:        e.vp9FirstPassCount,
+		Duration:     duration,
+		SourceY:      src,
+		SourceStride: srcStride,
+		HasLast:      hasLast,
+		LastY:        last,
+		LastStride:   lastStride,
+		HasGolden:    hasGF,
+		GoldenY:      gf,
+		GoldenStride: gfStride,
+	})
 }
 
 func ensureVP9FirstPassImage(img *image.YCbCr, width int, height int) {

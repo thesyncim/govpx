@@ -1,5 +1,7 @@
 package encoder
 
+import "math"
+
 const (
 	// FirstPassIntraPenalty mirrors libvpx vp9_firstpass.c
 	// INTRA_MODE_PENALTY (=1024 LL).
@@ -25,6 +27,153 @@ type FirstPassMotionAccumulator struct {
 	count      int
 	newCount   int
 	lastPacked uint32
+}
+
+// FirstPassFrameAnalysis carries the source and optional reference planes for
+// one VP9 first-pass frame-analysis row.
+type FirstPassFrameAnalysis struct {
+	Width  int
+	Height int
+
+	Frame    uint64
+	Duration uint64
+
+	SourceY      []byte
+	SourceStride int
+
+	HasLast    bool
+	LastY      []byte
+	LastStride int
+
+	HasGolden    bool
+	GoldenY      []byte
+	GoldenStride int
+}
+
+// AnalyzeFirstPassFrame computes a libvpx-shaped VP9 FIRSTPASS_STATS row for
+// one source frame.
+func AnalyzeFirstPassFrame(a FirstPassFrameAnalysis) FirstPassFrameStats {
+	mbCols := (a.Width + 15) >> 4
+	mbRows := (a.Height + 15) >> 4
+	mbs := mbCols * mbRows
+	if mbs <= 0 {
+		return FirstPassFrameStats{
+			Frame:    a.Frame,
+			Duration: float64(a.Duration),
+			Count:    1,
+		}
+	}
+
+	intraError := uint64(0)
+	codedError := uint64(0)
+	srCodedError := uint64(0)
+	interCount := 0
+	secondRefCount := 0
+	neutralCount := 0
+	intraLowCount := 0
+	intraHighCount := 0
+	intraSmoothCount := 0
+	intraFactor := 0.0
+	brightnessFactor := 0.0
+	var motion FirstPassMotionAccumulator
+
+	for mbRow := range mbRows {
+		for mbCol := range mbCols {
+			x := mbCol << 4
+			y := mbRow << 4
+			w := min(16, a.Width-x)
+			h := min(16, a.Height-y)
+			if w <= 0 || h <= 0 {
+				continue
+			}
+			intraRaw := BlockSourceVariance128(a.SourceY, a.SourceStride, x, y, w, h)
+			logIntra := math.Log(float64(intraRaw) + 1.0)
+			if logIntra < 10.0 {
+				intraFactor += 1.0 + ((10.0 - logIntra) * 0.05)
+			} else {
+				intraFactor += 1.0
+			}
+			if a.SourceY[y*a.SourceStride+x] < FirstPassDarkThresh && logIntra < 9.0 {
+				brightnessFactor += 1.0 +
+					0.01*float64(FirstPassDarkThresh-a.SourceY[y*a.SourceStride+x])
+			} else {
+				brightnessFactor += 1.0
+			}
+			intra := intraRaw + FirstPassIntraPenalty
+			intraError += intra
+			thisErr := intra
+			bestRow := int16(0)
+			bestCol := int16(0)
+			lastErr := ^uint64(0)
+
+			if a.HasLast {
+				bestErr, rowQ3, colQ3 := FirstPassMotionSearch(a.SourceY, a.SourceStride,
+					a.LastY, a.LastStride, x, y, w, h, a.Width, a.Height)
+				if rowQ3 != 0 || colQ3 != 0 {
+					bestErr += FirstPassNewMVModePenalty
+				}
+				lastErr = bestErr
+				if bestErr <= thisErr {
+					if ((intra-FirstPassIntraPenalty)*9 <= bestErr*10) &&
+						intra < 2*FirstPassIntraPenalty {
+						neutralCount++
+					}
+					thisErr = bestErr
+					bestRow = rowQ3
+					bestCol = colQ3
+					interCount++
+					motion.Add(rowQ3, colQ3, mbRow, mbCol, mbRows, mbCols)
+				}
+			}
+			if a.HasGolden {
+				gfErr, _, _ := FirstPassMotionSearch(a.SourceY, a.SourceStride,
+					a.GoldenY, a.GoldenStride, x, y, w, h, a.Width, a.Height)
+				srCodedError += gfErr
+				if gfErr < lastErr && gfErr < intra {
+					secondRefCount++
+				}
+			} else {
+				srCodedError += thisErr
+			}
+			if bestRow == 0 && bestCol == 0 && thisErr == intra {
+				if intraRaw < 16 {
+					intraSmoothCount++
+				}
+				if intraRaw < 512 {
+					intraLowCount++
+				} else {
+					intraHighCount++
+				}
+			}
+			codedError += thisErr
+		}
+	}
+
+	mbsF := float64(mbs)
+	minErr := 200 * math.Sqrt(mbsF)
+	stats := FirstPassFrameStats{
+		Frame:            a.Frame,
+		IntraError:       (float64(intraError>>8) + minErr) / mbsF,
+		CodedError:       (float64(codedError>>8) + minErr) / mbsF,
+		SRCodedError:     (float64(srCodedError>>8) + minErr) / mbsF,
+		PcntInter:        float64(interCount) / mbsF,
+		PcntSecondRef:    float64(secondRefCount) / mbsF,
+		PcntNeutral:      float64(neutralCount) / mbsF,
+		PcntIntraLow:     float64(intraLowCount) / mbsF,
+		PcntIntraHigh:    float64(intraHighCount) / mbsF,
+		IntraSmoothPct:   float64(intraSmoothCount) / mbsF,
+		InactiveZoneRows: 0,
+		InactiveZoneCols: 0,
+		Duration:         float64(a.Duration),
+		Count:            1,
+		SpatialLayerID:   0,
+	}
+	stats.Weight = (intraFactor / mbsF) * (brightnessFactor / mbsF)
+	if stats.Weight < 0.1 {
+		stats.Weight = 0.1
+	}
+	motion.Finish(&stats, mbs)
+	return stats
 }
 
 func (a *FirstPassMotionAccumulator) Add(rowQ3 int16, colQ3 int16,
