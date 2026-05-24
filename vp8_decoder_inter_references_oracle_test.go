@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -13,9 +12,7 @@ import (
 )
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newSizedTestEncoder(t, 16, 32)
@@ -50,9 +47,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoBPredCandidateInterFrame(t *tes
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
@@ -100,9 +95,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoEightTokenPartitions(t *testing
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)
@@ -160,9 +153,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInvisibleReferenceFrame(t *test
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)
@@ -216,9 +207,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoNoUpdateLastInterFrame(t *testi
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)
@@ -267,9 +256,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGoldenReferenceInterFrame(t *te
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e, err := NewVP8Encoder(EncoderOptions{
@@ -339,9 +326,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoGFCBRBoost(t *testing.T) {
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)
@@ -393,9 +378,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoAltReferenceInterFrame(t *testi
 }
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoPreservedAltReferenceInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)

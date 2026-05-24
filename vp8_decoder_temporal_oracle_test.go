@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,9 +14,7 @@ import (
 )
 
 func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	e := newTestEncoder(t)
@@ -55,9 +52,7 @@ func TestVP8OracleLibvpxChecksumMatchesEncodeIntoInterFrame(t *testing.T) {
 }
 
 func TestVP8OracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
@@ -106,9 +101,7 @@ func TestVP8OracleLibvpxChecksumMatchesTemporalBaseLayer(t *testing.T) {
 }
 
 func TestVP8OracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx oracle checksum tests")
-	}
+	vp8test.RequireOracle(t, "libvpx oracle checksum tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	for _, tc := range temporalOracleTestCases() {
@@ -152,9 +145,7 @@ func TestVP8OracleLibvpxChecksumMatchesTemporalFullSequence(t *testing.T) {
 }
 
 func TestVP8OracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx temporal SVC oracle tests")
-	}
+	vp8test.RequireOracle(t, "libvpx temporal SVC oracle tests")
 	oracle := vp8test.NewChecksumOracle(t)
 	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 

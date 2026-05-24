@@ -13,9 +13,7 @@ import (
 )
 
 func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx conformance tests")
-	}
+	vp8test.RequireOracle(t, "external libvpx conformance tests")
 	root, ok := vp8corpus.IVFRoot(t)
 	if !ok {
 		return
@@ -48,9 +46,7 @@ func TestVP8OracleExternalIVFTestDataMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run external libvpx DecodeInto conformance tests")
-	}
+	vp8test.RequireOracle(t, "external libvpx DecodeInto conformance tests")
 	root, ok := vp8corpus.IVFRoot(t)
 	if !ok {
 		return
@@ -83,9 +79,7 @@ func TestVP8OracleExternalIVFTestDataDecodeIntoMatchesLibvpx(t *testing.T) {
 }
 
 func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run external invalid libvpx conformance tests")
-	}
+	vp8test.RequireOracle(t, "external invalid libvpx conformance tests")
 	root, ok := vp8corpus.InvalidIVFRoot(t)
 	if !ok {
 		return
@@ -120,9 +114,7 @@ func TestVP8OracleExternalInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 }
 
 func TestVP8OracleGeneratedLibvpxCorpusMatchesLibvpx(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run generated libvpx conformance tests")
-	}
+	vp8test.RequireOracle(t, "generated libvpx conformance tests")
 	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 	dir := t.TempDir()

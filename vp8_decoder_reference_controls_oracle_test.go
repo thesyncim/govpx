@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"os"
 	"strconv"
 	"testing"
 
@@ -12,9 +11,7 @@ import (
 )
 
 func TestVP8OracleLibvpxDecoderReferenceControls(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run libvpx decoder reference-control oracle tests")
-	}
+	vp8test.RequireOracle(t, "libvpx decoder reference-control oracle tests")
 	oracle := vp8test.NewChecksumOracle(t)
 
 	type refCase struct {

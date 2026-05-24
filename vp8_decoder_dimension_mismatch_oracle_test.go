@@ -5,10 +5,10 @@ package govpx
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestFuzzVP8DecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes exercises the dimension-mismatch decoder path: synthesize the f4f81f7d2e022caf-family mutation (IVF
@@ -18,9 +18,7 @@ import (
 // (slicer wanted 10.4 MB/frame) and govpx_frames=2. After #308 both
 // sides report 2 frames and byte-identical I420.
 func TestFuzzVP8DecoderAgainstLibvpxDimensionMismatchMatchesFrameSizes(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx dimension mismatch parity")
-	}
+	vp8test.RequireOracle(t, "decoder-vs-libvpx dimension mismatch parity")
 	vpxdec := findVpxdecForFuzz(t)
 	fixture, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
 	if err != nil {
