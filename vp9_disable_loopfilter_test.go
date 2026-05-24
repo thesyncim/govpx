@@ -1,33 +1,36 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9EncoderRejectsInvalidDisableLoopfilter(t *testing.T) {
-	opts := VP9EncoderOptions{
+	opts := govpx.VP9EncoderOptions{
 		Width:             64,
 		Height:            64,
 		FPS:               30,
-		DisableLoopfilter: VP9DisableLoopfilter(3),
+		DisableLoopfilter: govpx.VP9DisableLoopfilter(3),
 	}
-	if _, err := NewVP9Encoder(opts); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("DisableLoopfilter=3 err = %v, want ErrInvalidConfig", err)
+	if _, err := govpx.NewVP9Encoder(opts); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("DisableLoopfilter=3 err = %v, want govpx.ErrInvalidConfig", err)
 	}
 }
 
 func TestVP9EncoderDisableLoopfilterAllZerosFilterLevel(t *testing.T) {
 	const width, height = 64, 64
-	e, err := NewVP9Encoder(VP9EncoderOptions{
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:             width,
 		Height:            height,
 		FPS:               30,
-		DisableLoopfilter: VP9LoopfilterDisableAll,
+		DisableLoopfilter: govpx.VP9LoopfilterDisableAll,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
 	n, err := e.EncodeInto(vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
@@ -42,14 +45,14 @@ func TestVP9EncoderDisableLoopfilterAllZerosFilterLevel(t *testing.T) {
 
 func TestVP9EncoderDisableLoopfilterInterOnlyAffectsNonKeyFrames(t *testing.T) {
 	const width, height = 64, 64
-	e, err := NewVP9Encoder(VP9EncoderOptions{
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:             width,
 		Height:            height,
 		FPS:               30,
-		DisableLoopfilter: VP9LoopfilterDisableInter,
+		DisableLoopfilter: govpx.VP9LoopfilterDisableInter,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, 65536)
 	// Keyframe should still carry a non-zero filter level (the encoder
@@ -80,28 +83,47 @@ func TestVP9EncoderDisableLoopfilterInterOnlyAffectsNonKeyFrames(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderSetDisableLoopfilterUpdatesOption(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
+func TestVP9EncoderRuntimeDisableLoopfilterAffectsHeaders(t *testing.T) {
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
-	if err := e.SetDisableLoopfilter(VP9LoopfilterDisableAll); err != nil {
+	if err := e.SetDisableLoopfilter(govpx.VP9LoopfilterDisableAll); err != nil {
 		t.Fatalf("SetDisableLoopfilter(All): %v", err)
 	}
-	if e.opts.DisableLoopfilter != VP9LoopfilterDisableAll {
-		t.Fatalf("opts.DisableLoopfilter = %d, want All",
-			e.opts.DisableLoopfilter)
+	hdr := encodeVP9HeaderForDisableLoopfilterTest(t, e)
+	if hdr.Loopfilter.FilterLevel != 0 {
+		t.Fatalf("DisableAll FilterLevel = %d, want 0", hdr.Loopfilter.FilterLevel)
 	}
-	if err := e.SetDisableLoopfilter(VP9LoopfilterEnabled); err != nil {
+
+	e, err = govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
+	if err != nil {
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
+	}
+	if err := e.SetDisableLoopfilter(govpx.VP9LoopfilterEnabled); err != nil {
 		t.Fatalf("SetDisableLoopfilter(Enabled): %v", err)
 	}
-	if e.opts.DisableLoopfilter != VP9LoopfilterEnabled {
-		t.Fatalf("opts.DisableLoopfilter = %d, want Enabled",
-			e.opts.DisableLoopfilter)
+	hdr = encodeVP9HeaderForDisableLoopfilterTest(t, e)
+	if hdr.Loopfilter.FilterLevel == 0 {
+		t.Fatalf("Enabled FilterLevel = 0, want non-zero")
 	}
-	if err := e.SetDisableLoopfilter(VP9DisableLoopfilter(3)); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetDisableLoopfilter(3) err = %v, want ErrInvalidConfig", err)
+	if err := e.SetDisableLoopfilter(govpx.VP9DisableLoopfilter(3)); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetDisableLoopfilter(3) err = %v, want govpx.ErrInvalidConfig", err)
 	}
+}
+
+func encodeVP9HeaderForDisableLoopfilterTest(t *testing.T, e *govpx.VP9Encoder) vp9dec.UncompressedHeader {
+	t.Helper()
+	dst := make([]byte, 65536)
+	n, err := e.EncodeInto(vp9test.NewYCbCr(64, 64, 128, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("EncodeInto: %v", err)
+	}
+	if n <= 0 {
+		t.Fatalf("EncodeInto wrote %d bytes", n)
+	}
+	hdr, _ := vp9test.ParseHeader(t, dst[:n])
+	return hdr
 }
 
 func copyTo(dst []byte, src []byte) ([]byte, bool) {

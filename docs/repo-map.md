@@ -210,7 +210,10 @@ This ledger tracks intent, not completed work.
   codec-owned internals once the private implementation moves.
 - Extract shared VP9 fixtures next: decoder helper files, I420 fixtures, packet
   builders, and encoder test helpers belong in `internal/testutil/vp9test` or
-  codec-specific internal test packages.
+  codec-specific internal test packages. Public VP9 option/control coverage for
+  delta-Q-UV, color metadata, render size, and loop-filter disabling now runs
+  from `package govpx_test` and checks emitted headers instead of private
+  encoder fields.
 - Move pure implementation suites after the package boundary moves: coefficient
   costing, speed features, row workers, partition decisions, rate control,
   TPL/ARNR/AQ, loopfilter, decoder motion/context, and allocation contracts are
