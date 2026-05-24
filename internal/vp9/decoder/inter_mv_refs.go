@@ -294,17 +294,6 @@ func InterPredictSourceMargins(subpelX, subpelY int) (left, right, top, bottom i
 	return left, right, top, bottom
 }
 
-// ClampInt returns v saturated to [lo, hi].
-func ClampInt(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
 // BoolInt returns 1 for true and 0 for false, matching libvpx count updates.
 func BoolInt(v bool) int {
 	if v {

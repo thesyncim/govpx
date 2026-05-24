@@ -31,6 +31,7 @@ import (
 	"math"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 const (
@@ -485,19 +486,6 @@ func (s *TPLState) deriveFrameR0(slab *TPLFrameStats) {
 	slab.R0 = float64(intraBase) / float64(mcDepBase)
 }
 
-func tplClampCoord(v, limit int) int {
-	switch {
-	case limit <= 0:
-		return 0
-	case v < 0:
-		return 0
-	case v >= limit:
-		return limit - 1
-	default:
-		return v
-	}
-}
-
 // TPLBlockSelfVariance returns the simple per-SB luma variance proxy.  We
 // use sum-of-squares minus mean*mean so the metric remains stable on flat
 // constant SBs (returns zero).
@@ -508,10 +496,10 @@ func TPLBlockSelfVariance(src *image.YCbCr, sbRow, sbCol int) uint32 {
 	x0 := sbCol << TPLSBSizeLog2
 	var sum, sse int
 	for r := range TPLSBSize {
-		yy := tplClampCoord(y0+r, h)
+		yy := arith.ClampCoord(y0+r, h)
 		row := src.Y[yy*src.YStride:]
 		for c := range TPLSBSize {
-			xx := tplClampCoord(x0+c, w)
+			xx := arith.ClampCoord(x0+c, w)
 			v := int(row[xx])
 			sum += v
 			sse += v * v
@@ -579,13 +567,13 @@ func TPLBlockSAD(src, ref *image.YCbCr, srcY, srcX, refY, refX,
 	srcW, srcH, refW, refH int) uint32 {
 	var sad uint32
 	for r := range TPLSBSize {
-		sy := tplClampCoord(srcY+r, srcH)
-		ry := tplClampCoord(refY+r, refH)
+		sy := arith.ClampCoord(srcY+r, srcH)
+		ry := arith.ClampCoord(refY+r, refH)
 		srcRow := src.Y[sy*src.YStride:]
 		refRow := ref.Y[ry*ref.YStride:]
 		for c := range TPLSBSize {
-			sx := tplClampCoord(srcX+c, srcW)
-			rx := tplClampCoord(refX+c, refW)
+			sx := arith.ClampCoord(srcX+c, srcW)
+			rx := arith.ClampCoord(refX+c, refW)
 			diff := int(srcRow[sx]) - int(refRow[rx])
 			if diff < 0 {
 				diff = -diff

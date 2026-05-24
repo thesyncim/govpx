@@ -7,6 +7,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
@@ -786,11 +787,11 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 				yrdSrcX = 0
 				yrdSrcY = 0
 				for yy := range bs {
-					sy := vp9ClampSourceCoord(y0+yy, srcH)
+					sy := arith.ClampCoord(y0+yy, srcH)
 					srcRow := src[sy*srcStride:]
 					dstRow := yrdSrc[yy*bs:]
 					for xx := range bs {
-						sx := vp9ClampSourceCoord(x0+xx, srcW)
+						sx := arith.ClampCoord(x0+xx, srcW)
 						dstRow[xx] = srcRow[sx]
 					}
 				}

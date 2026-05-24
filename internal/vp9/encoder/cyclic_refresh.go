@@ -2,6 +2,7 @@ package encoder
 
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
@@ -558,7 +559,7 @@ func (cr *CyclicRefreshState) Setup(args CyclicRefreshSetupArgs) {
 	// vp9_compute_rd_mult_based_on_qindex: KF wins, then ARF/GF when
 	// refreshing, else inter.  CR runs after the encoder has resolved
 	// refresh flags, so we recompute the same bucket here.
-	qindex2 := clamp(args.BaseQindex+args.YDcDeltaQ+cr.QIndexDelta[1], 0, vp9dec.MaxQ)
+	qindex2 := arith.ClampInt(args.BaseQindex+args.YDcDeltaQ+cr.QIndexDelta[1], 0, vp9dec.MaxQ)
 	frameType := RDFrameTypeFor(args.FrameIsKey, args.IsSrcFrameAltRef,
 		args.RefreshGoldenFrame, args.RefreshAltRefFrame)
 	cr.RDMult = ComputeRDMult(qindex2, frameType)
@@ -740,7 +741,7 @@ func (cr *CyclicRefreshState) UpdateSegmentPostencode(miRow, miCol, bw, bh int, 
 	if segID > CyclicRefreshSegmentBoost2 {
 		return
 	}
-	q := clamp(baseQindex+cr.QIndexDelta[segID], 0, vp9dec.MaxQ)
+	q := arith.ClampInt(baseQindex+cr.QIndexDelta[segID], 0, vp9dec.MaxQ)
 	for y := range ymis {
 		for x := range xmis {
 			off := blIndex + y*cr.MICols + x
@@ -907,8 +908,8 @@ func (cr *CyclicRefreshState) SegmentationParams(baseQIndex int) vp9dec.Segmenta
 		}
 		cr.QIndexDelta[2] = cr.ComputeDeltaQ(baseQIndex, ratio2, false)
 	}
-	delta1 := clampInt(cr.QIndexDelta[1], -255, 255)
-	delta2 := clampInt(cr.QIndexDelta[2], -255, 255)
+	delta1 := arith.ClampInt(cr.QIndexDelta[1], -255, 255)
+	delta2 := arith.ClampInt(cr.QIndexDelta[2], -255, 255)
 	if delta1 != 0 {
 		seg.FeatureMask[CyclicRefreshSegmentBoost1] |= 1 << uint(vp9dec.SegLvlAltQ)
 		seg.FeatureData[CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = int16(delta1)
@@ -923,26 +924,6 @@ func (cr *CyclicRefreshState) SegmentationParams(baseQIndex int) vp9dec.Segmenta
 func absInt16(v int16) int16 {
 	if v < 0 {
 		return -v
-	}
-	return v
-}
-
-func clampInt(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
 	}
 	return v
 }

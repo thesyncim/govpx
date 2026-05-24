@@ -88,3 +88,39 @@ func TestCheckedMul(t *testing.T) {
 		}
 	}
 }
+
+func TestClampInt(t *testing.T) {
+	tests := []struct {
+		v, lo, hi int
+		want      int
+	}{
+		{v: -3, lo: 0, hi: 7, want: 0},
+		{v: 4, lo: 0, hi: 7, want: 4},
+		{v: 9, lo: 0, hi: 7, want: 7},
+	}
+	for _, tt := range tests {
+		if got := ClampInt(tt.v, tt.lo, tt.hi); got != tt.want {
+			t.Fatalf("ClampInt(%d, %d, %d) = %d, want %d",
+				tt.v, tt.lo, tt.hi, got, tt.want)
+		}
+	}
+}
+
+func TestClampCoord(t *testing.T) {
+	tests := []struct {
+		v, limit int
+		want     int
+	}{
+		{v: -1, limit: 5, want: 0},
+		{v: 0, limit: 5, want: 0},
+		{v: 3, limit: 5, want: 3},
+		{v: 5, limit: 5, want: 4},
+		{v: 3, limit: 0, want: 0},
+	}
+	for _, tt := range tests {
+		if got := ClampCoord(tt.v, tt.limit); got != tt.want {
+			t.Fatalf("ClampCoord(%d, %d) = %d, want %d",
+				tt.v, tt.limit, got, tt.want)
+		}
+	}
+}

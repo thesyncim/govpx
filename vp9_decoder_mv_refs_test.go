@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 func vp9InterPredictorWithBorderForTest(src []byte, srcStride, srcWidth, srcHeight int,
@@ -37,11 +38,11 @@ func vp9InterPredictorWithBorderForTest(src []byte, srcStride, srcWidth, srcHeig
 		startX := srcX - left
 		startY := srcY - top
 		for y := range extRows {
-			sy := vp9dec.ClampInt(startY+y, 0, srcHeight-1)
+			sy := arith.ClampInt(startY+y, 0, srcHeight-1)
 			srcRow := src[sy*srcStride:]
 			dstRow := scratch[y*extStride:]
 			for x := range extStride {
-				sx := vp9dec.ClampInt(startX+x, 0, srcWidth-1)
+				sx := arith.ClampInt(startX+x, 0, srcWidth-1)
 				dstRow[x] = srcRow[sx]
 			}
 		}

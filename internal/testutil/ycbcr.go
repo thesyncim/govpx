@@ -3,6 +3,7 @@ package testutil
 import (
 	"image"
 
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
@@ -61,16 +62,16 @@ func ShiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 		image.YCbCrSubsampleRatio420)
 	for yy := 0; yy < height; yy++ {
 		for xx := 0; xx < width; xx++ {
-			sy := ClampCoord(yy-dy, height)
-			sx := ClampCoord(xx-dx, width)
+			sy := arith.ClampCoord(yy-dy, height)
+			sx := arith.ClampCoord(xx-dx, width)
 			out.Y[yy*out.YStride+xx] = src.Y[sy*src.YStride+sx]
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	for yy := 0; yy < uvHeight; yy++ {
 		for xx := 0; xx < uvWidth; xx++ {
-			sy := ClampCoord(yy-dy/2, uvHeight)
-			sx := ClampCoord(xx-dx/2, uvWidth)
+			sy := arith.ClampCoord(yy-dy/2, uvHeight)
+			sx := arith.ClampCoord(xx-dx/2, uvWidth)
 			out.Cb[yy*out.CStride+xx] = src.Cb[sy*src.CStride+sx]
 			out.Cr[yy*out.CStride+xx] = src.Cr[sy*src.CStride+sx]
 		}
@@ -125,18 +126,4 @@ func PlaneEqual(a []byte, aStride int, b []byte, bStride int, width int, height 
 		}
 	}
 	return true
-}
-
-// ClampCoord clamps a sample coordinate into [0, limit).
-func ClampCoord(v, limit int) int {
-	switch {
-	case limit <= 0:
-		return 0
-	case v < 0:
-		return 0
-	case v >= limit:
-		return limit - 1
-	default:
-		return v
-	}
 }

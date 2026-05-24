@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
@@ -300,11 +301,11 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		return hasDiff
 	}
 	for y := range bs {
-		sy := vp9ClampSourceCoord(y0+y, srcH)
+		sy := arith.ClampCoord(y0+y, srcH)
 		srcRow := src[sy*srcStride:]
 		dstRow := dst[y*dstStride:]
 		for x := range bs {
-			sx := vp9ClampSourceCoord(x0+x, srcW)
+			sx := arith.ClampCoord(x0+x, srcW)
 			diff := int(srcRow[sx]) - int(dstRow[x])
 			e.residueScratch[y*bs+x] = int16(diff)
 			if diff != 0 {
@@ -313,16 +314,6 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		}
 	}
 	return hasDiff
-}
-
-func vp9ClampSourceCoord(v, limit int) int {
-	if v < 0 {
-		return 0
-	}
-	if v >= limit {
-		return limit - 1
-	}
-	return v
 }
 
 func vp9CopySourceRectClamped(dst []byte, dstStride int, src []byte,
@@ -353,11 +344,11 @@ func vp9CopySourceRectClamped(dst []byte, dstStride int, src []byte,
 		return
 	}
 	for y := range h {
-		sy := vp9ClampSourceCoord(y0+y, srcH)
+		sy := arith.ClampCoord(y0+y, srcH)
 		dstRow := dst[(y0+y)*dstStride+x0:]
 		srcRow := src[sy*srcStride:]
 		for x := range w {
-			sx := vp9ClampSourceCoord(x0+x, srcW)
+			sx := arith.ClampCoord(x0+x, srcW)
 			dstRow[x] = srcRow[sx]
 		}
 	}
@@ -383,11 +374,11 @@ func vp9PredictionSSEClamped(src []byte, srcStride, srcW, srcH int,
 		return score
 	}
 	for y := range bs {
-		sy := vp9ClampSourceCoord(y0+y, srcH)
+		sy := arith.ClampCoord(y0+y, srcH)
 		srcRow := src[sy*srcStride:]
 		predRow := pred[y*predStride:]
 		for x := range bs {
-			sx := vp9ClampSourceCoord(x0+x, srcW)
+			sx := arith.ClampCoord(x0+x, srcW)
 			diff := int(srcRow[sx]) - int(predRow[x])
 			score += uint64(diff * diff)
 		}

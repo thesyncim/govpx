@@ -1,5 +1,7 @@
 package encoder
 
+import "github.com/thesyncim/govpx/internal/vpx/arith"
+
 const (
 	sceneCutMinimumReferenceSSEPerMB = 16 * 16 * 64 * 64
 	sceneCutHighReferenceSSEPerMB    = 16 * 16 * 48 * 48
@@ -69,11 +71,11 @@ func MacroblockLumaSSE(src, ref LumaPlane, mbRow, mbCol int) int {
 	baseX := mbCol * 16
 	sse := 0
 	for row := range 16 {
-		srcY := sceneCutClampCoord(baseY+row, src.Height)
-		refY := sceneCutClampCoord(baseY+row, ref.Height)
+		srcY := arith.ClampCoord(baseY+row, src.Height)
+		refY := arith.ClampCoord(baseY+row, ref.Height)
 		for col := range 16 {
-			srcX := sceneCutClampCoord(baseX+col, src.Width)
-			refX := sceneCutClampCoord(baseX+col, ref.Width)
+			srcX := arith.ClampCoord(baseX+col, src.Width)
+			refX := arith.ClampCoord(baseX+col, ref.Width)
 			diff := int(src.Pixels[srcY*src.Stride+srcX]) -
 				int(ref.Pixels[refY*ref.Stride+refX])
 			sse += diff * diff
@@ -90,9 +92,9 @@ func MacroblockMeanLumaSSE(src LumaPlane, mbRow, mbCol int) int {
 	sum := 0
 	sse := 0
 	for row := range 16 {
-		srcY := sceneCutClampCoord(baseY+row, src.Height)
+		srcY := arith.ClampCoord(baseY+row, src.Height)
 		for col := range 16 {
-			srcX := sceneCutClampCoord(baseX+col, src.Width)
+			srcX := arith.ClampCoord(baseX+col, src.Width)
 			v := int(src.Pixels[srcY*src.Stride+srcX])
 			sum += v
 			sse += v * v
@@ -103,17 +105,4 @@ func MacroblockMeanLumaSSE(src LumaPlane, mbRow, mbCol int) int {
 		return 0
 	}
 	return variance
-}
-
-func sceneCutClampCoord(v, limit int) int {
-	if limit <= 0 {
-		return 0
-	}
-	if v < 0 {
-		return 0
-	}
-	if v >= limit {
-		return limit - 1
-	}
-	return v
 }

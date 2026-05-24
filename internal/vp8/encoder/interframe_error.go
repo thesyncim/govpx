@@ -3,6 +3,7 @@ package encoder
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 // MacroblockChromaSSE returns the combined U/V SSE for the visible chroma
@@ -73,13 +74,7 @@ func MacroblockLumaVarianceSSE(src SourceImage, ref *vp8common.Image, mbRow int,
 }
 
 func clampEncodeCoord(v int, limit int) int {
-	if v < 0 {
-		return 0
-	}
-	if v >= limit {
-		return limit - 1
-	}
-	return v
+	return arith.ClampCoord(v, limit)
 }
 
 // ClampEncodeCoord clamps a VP8 encoder source/reference coordinate to the

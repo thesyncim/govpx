@@ -55,3 +55,26 @@ func CheckedMul(a int, b int) (int, bool) {
 	}
 	return a * b, true
 }
+
+// ClampInt returns v saturated to [lo, hi].
+func ClampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// ClampCoord clamps a sample coordinate into [0, limit). A non-positive
+// limit returns zero.
+func ClampCoord(v, limit int) int {
+	if v < 0 || limit <= 0 {
+		return 0
+	}
+	if v >= limit {
+		return limit - 1
+	}
+	return v
+}
