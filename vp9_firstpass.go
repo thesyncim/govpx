@@ -16,21 +16,8 @@ import (
 //   - vp9/encoder/vp9_firstpass.c:759 first_pass_stat_calc (the
 //     accumulator-to-FIRSTPASS_STATS finalization step).
 //
-// The Q3 motion-vector convention, intra penalty, new-MV penalty, and
-// search range are libvpx-pinned constants below.
-const (
-	// libvpx: vp9/encoder/vp9_firstpass.c INTRA_MODE_PENALTY (=1024 LL)
-	vp9FirstPassIntraPenalty = 1024
-	// libvpx: vp9/encoder/vp9_firstpass.c NEW_MV_MODE_PENALTY (=32)
-	vp9FirstPassNewMVModePenalty = 32
-	// libvpx: vp9/encoder/vp9_firstpass.c FIRST_PASS_Q (search range
-	// derives from speed features but caps at 4 in the lowest-resolution
-	// fixture; libvpx defaults to a wider range via the motion search
-	// driver — see TODO at vp9_first_pass_motion_search below).
-	vp9FirstPassSearchRange = 4
-	// libvpx: vp9/encoder/vp9_firstpass.c DARK_THRESH (=64)
-	vp9FirstPassDarkThresh = 64
-)
+// The Q3 motion-vector convention, intra penalty, new-MV penalty, and search
+// radius live in internal/vp9/encoder with the motion-analysis helpers.
 
 // VP9FirstPassFrameStats mirrors libvpx VP9 FIRSTPASS_STATS for one analyzed
 // source frame or for the finalized sequence total.
@@ -112,7 +99,7 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 	intraSmoothCount := 0
 	intraFactor := 0.0
 	brightnessFactor := 0.0
-	var motion vp9FirstPassMotionAccumulator
+	var motion encoder.FirstPassMotionAccumulator
 
 	for mbRow := range mbRows {
 		for mbCol := range mbCols {
@@ -130,13 +117,13 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 			} else {
 				intraFactor += 1.0
 			}
-			if src[y*srcStride+x] < vp9FirstPassDarkThresh && logIntra < 9.0 {
+			if src[y*srcStride+x] < encoder.FirstPassDarkThresh && logIntra < 9.0 {
 				brightnessFactor += 1.0 +
-					0.01*float64(vp9FirstPassDarkThresh-src[y*srcStride+x])
+					0.01*float64(encoder.FirstPassDarkThresh-src[y*srcStride+x])
 			} else {
 				brightnessFactor += 1.0
 			}
-			intra := intraRaw + vp9FirstPassIntraPenalty
+			intra := intraRaw + encoder.FirstPassIntraPenalty
 			intraError += intra
 			thisErr := intra
 			bestRow := int16(0)
@@ -144,26 +131,26 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 			lastErr := ^uint64(0)
 
 			if hasLast {
-				bestErr, rowQ3, colQ3 := vp9FirstPassMotionSearch(src, srcStride,
+				bestErr, rowQ3, colQ3 := encoder.FirstPassMotionSearch(src, srcStride,
 					last, lastStride, x, y, w, h, width, height)
 				if rowQ3 != 0 || colQ3 != 0 {
-					bestErr += vp9FirstPassNewMVModePenalty
+					bestErr += encoder.FirstPassNewMVModePenalty
 				}
 				lastErr = bestErr
 				if bestErr <= thisErr {
-					if ((intra-vp9FirstPassIntraPenalty)*9 <= bestErr*10) &&
-						intra < 2*vp9FirstPassIntraPenalty {
+					if ((intra-encoder.FirstPassIntraPenalty)*9 <= bestErr*10) &&
+						intra < 2*encoder.FirstPassIntraPenalty {
 						neutralCount++
 					}
 					thisErr = bestErr
 					bestRow = rowQ3
 					bestCol = colQ3
 					interCount++
-					motion.add(rowQ3, colQ3, mbRow, mbCol, mbRows, mbCols)
+					motion.Add(rowQ3, colQ3, mbRow, mbCol, mbRows, mbCols)
 				}
 			}
 			if hasGF {
-				gfErr, _, _ := vp9FirstPassMotionSearch(src, srcStride, gf,
+				gfErr, _, _ := encoder.FirstPassMotionSearch(src, srcStride, gf,
 					gfStride, x, y, w, h, width, height)
 				srCodedError += gfErr
 				if gfErr < lastErr && gfErr < intra {
@@ -209,111 +196,8 @@ func (e *VP9Encoder) computeVP9FirstPassStats(img *image.YCbCr, duration uint64)
 	if stats.Weight < 0.1 {
 		stats.Weight = 0.1
 	}
-	motion.finish(&stats, mbs)
+	motion.Finish(&stats, mbs)
 	return stats
-}
-
-type vp9FirstPassMotionAccumulator struct {
-	sumRow     int64
-	sumCol     int64
-	sumRowAbs  int64
-	sumColAbs  int64
-	sumRowSq   int64
-	sumColSq   int64
-	sumIn      int64
-	count      int
-	newCount   int
-	lastPacked uint32
-}
-
-func (a *vp9FirstPassMotionAccumulator) add(rowQ3 int16, colQ3 int16, mbRow int, mbCol int, mbRows int, mbCols int) {
-	if rowQ3 == 0 && colQ3 == 0 {
-		return
-	}
-	row := int32(rowQ3)
-	col := int32(colQ3)
-	a.sumRow += int64(row)
-	a.sumCol += int64(col)
-	a.sumRowAbs += int64(abs32(row))
-	a.sumColAbs += int64(abs32(col))
-	a.sumRowSq += int64(row) * int64(row)
-	a.sumColSq += int64(col) * int64(col)
-	a.count++
-	packed := (uint32(uint16(rowQ3)) << 16) | uint32(uint16(colQ3))
-	if packed != a.lastPacked {
-		a.newCount++
-	}
-	a.lastPacked = packed
-	if mbRow < mbRows/2 {
-		if row > 0 {
-			a.sumIn--
-		} else if row < 0 {
-			a.sumIn++
-		}
-	} else if mbRow > mbRows/2 {
-		if row > 0 {
-			a.sumIn++
-		} else if row < 0 {
-			a.sumIn--
-		}
-	}
-	if mbCol < mbCols/2 {
-		if col > 0 {
-			a.sumIn--
-		} else if col < 0 {
-			a.sumIn++
-		}
-	} else if mbCol > mbCols/2 {
-		if col > 0 {
-			a.sumIn++
-		} else if col < 0 {
-			a.sumIn--
-		}
-	}
-}
-
-func (a *vp9FirstPassMotionAccumulator) finish(stats *VP9FirstPassFrameStats, blocks int) {
-	if stats == nil || a.count == 0 || blocks <= 0 {
-		return
-	}
-	count := float64(a.count)
-	stats.MVr = float64(a.sumRow) / count
-	stats.MVrAbs = float64(a.sumRowAbs) / count
-	stats.MVc = float64(a.sumCol) / count
-	stats.MVcAbs = float64(a.sumColAbs) / count
-	sumRow := float64(a.sumRow)
-	sumCol := float64(a.sumCol)
-	stats.MVrv = (float64(a.sumRowSq) - ((sumRow * sumRow) / count)) / count
-	stats.MVcv = (float64(a.sumColSq) - ((sumCol * sumCol) / count)) / count
-	stats.MVInOutCount = float64(a.sumIn) / float64(a.count*2)
-	stats.PcntMotion = float64(a.count) / float64(blocks)
-	stats.NewMVCount = float64(a.newCount) / float64(blocks)
-}
-
-func vp9FirstPassMotionSearch(src []byte, srcStride int, ref []byte, refStride int,
-	x int, y int, w int, h int, width int, height int,
-) (best uint64, bestRowQ3 int16, bestColQ3 int16) {
-	best = ^uint64(0)
-	for dy := -vp9FirstPassSearchRange; dy <= vp9FirstPassSearchRange; dy++ {
-		refY := y + dy
-		if refY < 0 || refY+h > height {
-			continue
-		}
-		for dx := -vp9FirstPassSearchRange; dx <= vp9FirstPassSearchRange; dx++ {
-			refX := x + dx
-			if refX < 0 || refX+w > width {
-				continue
-			}
-			err := encoder.BlockSSE(src, srcStride, ref, refStride,
-				x, y, refX, refY, w, h)
-			if err < best {
-				best = err
-				bestRowQ3 = int16(dy << 3)
-				bestColQ3 = int16(dx << 3)
-			}
-		}
-	}
-	return best, bestRowQ3, bestColQ3
 }
 
 func ensureVP9FirstPassImage(img *image.YCbCr, width int, height int) {
