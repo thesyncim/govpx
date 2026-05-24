@@ -18,8 +18,8 @@ import (
 // TestVP8ScreenContentMBParity performs the per-MB localization of
 // the inter-mode RD-picker divergence on a 720p screen-content (synthetic
 // glyph-translation) fixture, replaying the same source the BD-rate gate
-// (TestVP8FeatureBDRate720pScreenContentCBR) drives. The fixture exposes a
-// +36% BD-rate gap that #340 traced to mid-Q (Q=62) bit-spend overshoot at
+// (TestVP8BDRate720pScreenContentCBR) drives. The fixture exposes a
+// +36% BD-rate gap traced to mid-Q (Q=62) bit-spend overshoot at
 // attempt 2 of the recode loop; this probe pins the FIRST per-MB mode
 // flip that diverges between govpx and libvpx so the fix can target a
 // specific picker site rather than re-instrumenting the recode loop.

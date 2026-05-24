@@ -15,7 +15,7 @@ import (
 
 // TestVP8RealtimeCPU8MBParity performs the per-MB localization of any
 // inter-mode picker divergence on the 720p panning realtime cpu_used=8
-// CBR fixture (TestVP8FeatureBDRate720pRealtimeCpu8CBR pinned at
+// CBR fixture (TestVP8BDRate720pRealtimeCpu8CBR pinned at
 // +6.94% BD-rate / -0.95 dB BD-PSNR; gate is +10% / -1.0 dB so the
 // fixture passes its quality-gate by design). The screen-content
 // BestQuality fixture's analogous +36% gap was closed by porting the
@@ -127,14 +127,11 @@ import (
 //     residual rd_threshes[] state divergence is a downstream consequence
 //     of this designed autoSpeed-pin trade-off.
 //
-// The fixture's +10% BD-rate / -1.0 dB BD-PSNR gate was explicitly sized
-// to absorb this expected ~7%/-1.0 dB spread (see
-// feature_quality_gates_vp8_test.go:829-838). No port from libvpx exists
-// to close the gap further without unpinning the autoSpeed compensation
-// (which would re-introduce the wall-clock byte-parity flake) or porting
-// libvpx's full per-mode rd_thresh_mult evolution path (which would
-// require a separate audit of the cyclic-refresh / segment-quantizer
-// interactions that govpx layers on top of libvpx's table).
+// The BD-rate gate in vp8_bdrate_quality_test.go uses the deterministic
+// negative-cpu-used path for the public quality check. No port from libvpx
+// closes this wall-clock-sensitive autoSpeed gap further without unpinning
+// the compensation (which would re-introduce the byte-parity flake) or
+// porting libvpx's full per-mode rd_thresh_mult evolution path.
 //
 // Logging-only; always passes. To run:
 //

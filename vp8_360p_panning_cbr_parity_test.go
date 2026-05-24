@@ -44,7 +44,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 		}
 	}
 
-	// Match TestVP8FeatureBDRate360pPanningCBR encoder options:
+	// Match TestVP8BDRate360pPanningCBR encoder options:
 	// QLadder/RateLadder ([16,28,40,52] / [300,600,1200,2400]) under
 	// the default GoodQuality/CpuUsed=0 path with CBR rate control.
 	opts := EncoderOptions{

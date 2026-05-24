@@ -165,9 +165,10 @@ $(VPXENC_VP9_FRAMEFLAGS):
 # assertion from a soft-skip to t.Fatal.
 test-bdrate-vp8: $(VPXENC)
 	GOCACHE="$(GOCACHE)" GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+		GOVPX_BD_RATE_GATES=1 \
 		GOVPX_VPXENC_VP8_BIN="$(VPXENC)" \
 		GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 \
-		$(GO) test -count=1 -v -run 'TestVP8FeatureQualityBDRate' -timeout 1200s . ./cmd/govpx-bench/benchcmd/
+		$(GO) test -count=1 -v -run 'TestVP8BDRate' -timeout 1200s . ./cmd/govpx-bench/benchcmd/
 
 $(VPXENC):
 	internal/coracle/build_vpxenc.sh >/dev/null
