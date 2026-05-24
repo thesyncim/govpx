@@ -12,14 +12,8 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-func BuildIVF(width, height int, packets ...[]byte) []byte {
-	return testutil.BuildIVF(testutil.IVFHeader{
-		FourCC:              testutil.IVFFourCCVP9,
-		Width:               width,
-		Height:              height,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-	}, packets)
+func BuildVP9IVF(width, height int, packets ...[]byte) []byte {
+	return testutil.BuildVP9IVF(width, height, 30, 1, packets)
 }
 
 func MD5Hex(data []byte) string {

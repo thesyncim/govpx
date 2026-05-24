@@ -106,7 +106,7 @@ func vpxdecI420(ivf []byte) (out []byte, diag []byte, err error) {
 
 func VpxdecAccepts(t testing.TB, label string, width, height int, packets ...[]byte) {
 	t.Helper()
-	out, err := coracle.VpxdecVP9Decode(BuildIVF(width, height, packets...))
+	out, err := coracle.VpxdecVP9Decode(BuildVP9IVF(width, height, packets...))
 	if err != nil {
 		t.Fatalf("vpxdec-vp9 rejected %s: %v\nvpxdec:\n%s", label, err, out)
 	}

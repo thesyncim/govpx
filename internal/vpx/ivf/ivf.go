@@ -253,8 +253,27 @@ func BuildVP8(width int, height int, den uint32, num uint32, payloads [][]byte) 
 	return Build(header, payloads)
 }
 
+// BuildVP9 writes a VP9 IVF stream for tests that already have
+// compressed frame payloads.
+func BuildVP9(width int, height int, den uint32, num uint32, payloads [][]byte) []byte {
+	header := Header{
+		FourCC:              FourCCVP9,
+		Width:               width,
+		Height:              height,
+		TimebaseDenominator: den,
+		TimebaseNumerator:   num,
+	}
+	return Build(header, payloads)
+}
+
 // BuildSingleFrameVP8 writes a VP8 IVF stream with one compressed payload.
 func BuildSingleFrameVP8(width int, height int, den uint32, num uint32, payload []byte) []byte {
 	payloads := [][]byte{payload}
 	return BuildVP8(width, height, den, num, payloads)
+}
+
+// BuildSingleFrameVP9 writes a VP9 IVF stream with one compressed payload.
+func BuildSingleFrameVP9(width int, height int, den uint32, num uint32, payload []byte) []byte {
+	payloads := [][]byte{payload}
+	return BuildVP9(width, height, den, num, payloads)
 }

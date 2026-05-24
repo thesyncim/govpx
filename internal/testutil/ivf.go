@@ -70,6 +70,14 @@ func BuildVP8IVF(width int, height int, den uint32, num uint32, payloads [][]byt
 	return ivf.BuildVP8(width, height, den, num, payloads)
 }
 
+func BuildVP9IVF(width int, height int, den uint32, num uint32, payloads [][]byte) []byte {
+	return ivf.BuildVP9(width, height, den, num, payloads)
+}
+
 func BuildSingleFrameVP8IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
 	return ivf.BuildSingleFrameVP8(width, height, den, num, payload)
+}
+
+func BuildSingleFrameVP9IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
+	return ivf.BuildSingleFrameVP9(width, height, den, num, payload)
 }

@@ -893,7 +893,7 @@ func vp9ShowExistingOracleStreamForTest(t *testing.T, width, height int) ([][]by
 }
 
 func vp9IVFForTest(width, height int, packets ...[]byte) []byte {
-	return vp9test.BuildIVF(width, height, packets...)
+	return vp9test.BuildVP9IVF(width, height, packets...)
 }
 
 func vp9DecodeVisibleI420ForTest(t *testing.T, packets ...[]byte) []byte {

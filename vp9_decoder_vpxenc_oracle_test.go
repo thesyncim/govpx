@@ -26,7 +26,7 @@ func TestVP9DecoderVpxencOracleProfile0StreamMatchesLibvpx(t *testing.T) {
 	)
 	assertVpxencVP9StreamInfo(t, packets)
 
-	ivf := vp9test.BuildIVF(width, height, packets...)
+	ivf := vp9test.BuildVP9IVF(width, height, packets...)
 	want := vp9test.VpxdecI420(t, ivf)
 	got, err := decodeVP9IVFVisibleI420(ivf)
 	if err != nil {

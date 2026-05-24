@@ -132,6 +132,26 @@ func TestBuildVP8IVF(t *testing.T) {
 	}
 }
 
+func TestBuildVP9IVF(t *testing.T) {
+	data := BuildVP9IVF(16, 16, 30, 1, [][]byte{{1, 2}, {3}})
+	header, err := ParseIVFHeader(data)
+	if err != nil {
+		t.Fatalf("ParseIVFHeader returned error: %v", err)
+	}
+	if header.FourCC != IVFFourCCVP9 || header.Width != 16 || header.Height != 16 ||
+		header.TimebaseDenominator != 30 || header.TimebaseNumerator != 1 ||
+		header.FrameCount != 2 {
+		t.Fatalf("header = %+v", header)
+	}
+	payloads, err := IVFFramePayloads(data)
+	if err != nil {
+		t.Fatalf("IVFFramePayloads returned error: %v", err)
+	}
+	if !bytes.Equal(payloads[0], []byte{1, 2}) || !bytes.Equal(payloads[1], []byte{3}) {
+		t.Fatalf("payloads = %v", payloads)
+	}
+}
+
 func TestParseIVFRejectsUnsupportedFourCC(t *testing.T) {
 	data := makeIVF(16, 16, 30, 1, [][]byte{{1}})
 	// VP80 and VP90 are both accepted; pick an unrelated fourcc to
