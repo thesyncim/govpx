@@ -6,6 +6,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func newTestEncoder(tb testing.TB) *VP8Encoder {
@@ -326,8 +327,8 @@ func shiftImageRightOne(src Image) Image {
 	}
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
-	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 	return dst
 }
 

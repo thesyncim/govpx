@@ -180,20 +180,13 @@ func NewCompoundPairYCbCr(width, height int, variant bool) *image.YCbCr {
 func AverageYCbCr(a, b *image.YCbCr) *image.YCbCr {
 	width, height := a.Rect.Dx(), a.Rect.Dy()
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	avgPlane := func(dst []byte, dstStride int, ap []byte, aStride int, bp []byte, bStride int, w, h int) {
-		for y := 0; y < h; y++ {
-			dstRow := dst[y*dstStride:]
-			aRow := ap[y*aStride:]
-			bRow := bp[y*bStride:]
-			for x := 0; x < w; x++ {
-				dstRow[x] = byte((int(aRow[x]) + int(bRow[x]) + 1) >> 1)
-			}
-		}
-	}
-	avgPlane(img.Y, img.YStride, a.Y, a.YStride, b.Y, b.YStride, width, height)
+	buffers.CopyPlane(img.Y, img.YStride, a.Y, a.YStride, width, height)
+	buffers.AveragePlaneInto(img.Y, img.YStride, b.Y, b.YStride, width, height)
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	avgPlane(img.Cb, img.CStride, a.Cb, a.CStride, b.Cb, b.CStride, uvWidth, uvHeight)
-	avgPlane(img.Cr, img.CStride, a.Cr, a.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
+	buffers.CopyPlane(img.Cb, img.CStride, a.Cb, a.CStride, uvWidth, uvHeight)
+	buffers.AveragePlaneInto(img.Cb, img.CStride, b.Cb, b.CStride, uvWidth, uvHeight)
+	buffers.CopyPlane(img.Cr, img.CStride, a.Cr, a.CStride, uvWidth, uvHeight)
+	buffers.AveragePlaneInto(img.Cr, img.CStride, b.Cr, b.CStride, uvWidth, uvHeight)
 	return img
 }
 

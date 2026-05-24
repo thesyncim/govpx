@@ -6,6 +6,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func copyBPredBlockToSource(block []byte, blockStride int, dst Image, mbRow int, mbCol int, blockIndex int) {
@@ -110,9 +111,9 @@ func BenchmarkSelectInterFrameReferenceMotionVectorZeroCost(b *testing.B) {
 		src.V[i] = 170
 	}
 	last := testVP8Frame(b, 64, 64, 0, 0, 0)
-	copyPlane(last.Img.Y, last.Img.YStride, src.Y, src.YStride, src.Width, src.Height)
-	copyPlane(last.Img.U, last.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1)
-	copyPlane(last.Img.V, last.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	buffers.CopyPlane(last.Img.Y, last.Img.YStride, src.Y, src.YStride, src.Width, src.Height)
+	buffers.CopyPlane(last.Img.U, last.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	buffers.CopyPlane(last.Img.V, last.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1)
 	last.ExtendBorders()
 	golden := testVP8Frame(b, 64, 64, 40, 90, 170)
 	alt := testVP8Frame(b, 64, 64, 48, 90, 170)

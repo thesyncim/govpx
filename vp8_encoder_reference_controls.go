@@ -5,6 +5,7 @@ import (
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // SetReferenceFrame replaces ref with src. ref must be ReferenceLast,
@@ -193,11 +194,11 @@ func clonePublicImage(src Image) Image {
 }
 
 func copyPublicToPublicImage(dst *Image, src Image) {
-	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
-	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
 // referenceFrameBuffer maps the public reference selector to the encoder-owned

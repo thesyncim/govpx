@@ -1,6 +1,9 @@
 package encoder
 
-import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
+)
 
 // Ported from libvpx v1.16.0 vp8/encoder/lookahead.c
 // vp8_lookahead_push and vp8/common/extend.c
@@ -60,9 +63,9 @@ func copyActivePlaneRect(dst []byte, dstStride int, src []byte, srcStride int, w
 // 16-aligned coded area from the visible edge, then extends VP8 reference
 // borders.
 func CopySourceToFrameBuffer(dst *vp8common.FrameBuffer, src SourceImage) {
-	copyPlane(dst.Img.Y, dst.Img.YStride, src.Y, src.YStride, src.Width, src.Height)
-	copyPlane(dst.Img.U, dst.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1)
-	copyPlane(dst.Img.V, dst.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	buffers.CopyPlane(dst.Img.Y, dst.Img.YStride, src.Y, src.YStride, src.Width, src.Height)
+	buffers.CopyPlane(dst.Img.U, dst.Img.UStride, src.U, src.UStride, (src.Width+1)>>1, (src.Height+1)>>1)
+	buffers.CopyPlane(dst.Img.V, dst.Img.VStride, src.V, src.VStride, (src.Width+1)>>1, (src.Height+1)>>1)
 	PadFrameVisibleToCoded(&dst.Img)
 	dst.ExtendBorders()
 }
@@ -93,11 +96,5 @@ func padPlaneVisibleToCoded(plane []byte, stride int, width int, height int, cod
 	lastRow := plane[(height-1)*stride:]
 	for y := height; y < codedHeight; y++ {
 		copy(plane[y*stride:y*stride+codedWidth], lastRow[:codedWidth])
-	}
-}
-
-func copyPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
-	for y := range height {
-		copy(dst[y*dstStride:y*dstStride+width], src[y*srcStride:y*srcStride+width])
 	}
 }

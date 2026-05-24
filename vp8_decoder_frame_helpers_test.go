@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func decodeFrameSequence(t *testing.T, packets ...[]byte) []Image {
@@ -29,11 +30,11 @@ func decodeFrameSequence(t *testing.T, packets ...[]byte) []Image {
 
 func cloneImage(src Image) Image {
 	dst := testImage(src.Width, src.Height)
-	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
-	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 	return dst
 }
 

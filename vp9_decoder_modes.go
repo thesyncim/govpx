@@ -850,10 +850,10 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 					continue
 				}
 				if avg {
-					avgPlane(dst[y0*dstStride+x0:], dstStride,
+					buffers.AveragePlaneInto(dst[y0*dstStride+x0:], dstStride,
 						src[y0*srcStride+x0:], srcStride, w, h)
 				} else {
-					copyPlane(dst[y0*dstStride+x0:], dstStride,
+					buffers.CopyPlane(dst[y0*dstStride+x0:], dstStride,
 						src[y0*srcStride+x0:], srcStride, w, h)
 				}
 				continue

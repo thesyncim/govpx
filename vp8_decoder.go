@@ -5,6 +5,7 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // PostProcessFlag selects optional libvpx-style decoder postprocessing.
@@ -1110,37 +1111,21 @@ func publicImageFromVP8(src *vp8common.Image) Image {
 }
 
 func copyVP8ImageToPublic(dst *Image, src *vp8common.Image) {
-	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
 	uvWidth := (src.Width + 1) >> 1
 	uvHeight := (src.Height + 1) >> 1
-	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
-	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
 // copyPublicImageToVP8 copies only visible samples into a bordered VP8 image;
 // callers that install a reference must extend borders afterwards.
 func copyPublicImageToVP8(dst *vp8common.Image, src Image) {
-	copyPlane(dst.Y, dst.YStride, src.Y, src.YStride, dst.Width, dst.Height)
+	buffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, dst.Width, dst.Height)
 	uvWidth := (dst.Width + 1) >> 1
 	uvHeight := (dst.Height + 1) >> 1
-	copyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
-	copyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
-}
-
-func copyPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
-	for row := range height {
-		copy(dst[row*dstStride:row*dstStride+width], src[row*srcStride:row*srcStride+width])
-	}
-}
-
-func avgPlane(dst []byte, dstStride int, src []byte, srcStride int, width int, height int) {
-	for row := range height {
-		dstRow := dst[row*dstStride:]
-		srcRow := src[row*srcStride:]
-		for col := range width {
-			dstRow[col] = byte((int(dstRow[col]) + int(srcRow[col]) + 1) >> 1)
-		}
-	}
+	buffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
 func (d *VP8Decoder) ensureWorkspace(width int, height int) {
