@@ -1,6 +1,7 @@
 package buffers
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"unsafe"
@@ -97,6 +98,44 @@ func TestChroma420Dimensions(t *testing.T) {
 			t.Fatalf("Chroma420Dimensions(%d, %d) = %dx%d, want %dx%d",
 				tt.width, tt.height, gotWidth, gotHeight, tt.wantWidth, tt.wantHeight)
 		}
+	}
+}
+
+func TestI420PlaneSerialization(t *testing.T) {
+	y := []byte{
+		1, 2, 3, 99,
+		4, 5, 6, 99,
+		7, 8, 9, 99,
+	}
+	u := []byte{
+		10, 11, 99,
+		12, 13, 99,
+	}
+	v := []byte{
+		20, 21, 99,
+		22, 23, 99,
+	}
+	want := []byte{
+		1, 2, 3,
+		4, 5, 6,
+		7, 8, 9,
+		10, 11,
+		12, 13,
+		20, 21,
+		22, 23,
+	}
+
+	got := AppendI420Planes(nil, 3, 3, y, 4, u, 3, v, 3)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("AppendI420Planes = %v, want %v", got, want)
+	}
+
+	var buf bytes.Buffer
+	if err := WriteI420Planes(&buf, 3, 3, y, 4, u, 3, v, 3); err != nil {
+		t.Fatalf("WriteI420Planes returned error: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Fatalf("WriteI420Planes = %v, want %v", buf.Bytes(), want)
 	}
 }
 

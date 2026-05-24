@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	govpx "github.com/thesyncim/govpx"
+	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func makeBenchmarkFrame(width int, height int, index int) govpx.Image {
@@ -125,24 +126,8 @@ func averageReferenceQuality(psnrSum float64, ssimSum float64, count int, err er
 }
 
 func writeI420Frame(dst *os.File, frame govpx.Image) error {
-	if err := writePlane(dst, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
-		return err
-	}
-	uvWidth := (frame.Width + 1) >> 1
-	uvHeight := (frame.Height + 1) >> 1
-	if err := writePlane(dst, frame.U, frame.UStride, uvWidth, uvHeight); err != nil {
-		return err
-	}
-	return writePlane(dst, frame.V, frame.VStride, uvWidth, uvHeight)
-}
-
-func writePlane(dst *os.File, plane []byte, stride int, width int, height int) error {
-	for row := range height {
-		if _, err := dst.Write(plane[row*stride : row*stride+width]); err != nil {
-			return err
-		}
-	}
-	return nil
+	return vpxbuf.WriteI420Planes(dst, frame.Width, frame.Height,
+		frame.Y, frame.YStride, frame.U, frame.UStride, frame.V, frame.VStride)
 }
 
 func parseIVFFrameSizes(ivf []byte) ([]int, error) {

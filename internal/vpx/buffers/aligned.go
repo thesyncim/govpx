@@ -1,6 +1,7 @@
 package buffers
 
 import (
+	"io"
 	"unsafe"
 
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
@@ -118,6 +119,50 @@ func I420FrameSize(width, height int) (int, bool) {
 		return 0, false
 	}
 	return y + 2*uv, true
+}
+
+// AppendPlane appends the visible rows of a strided plane to dst.
+func AppendPlane(dst []byte, plane []byte, stride, width, height int) []byte {
+	for row := range height {
+		off := row * stride
+		dst = append(dst, plane[off:off+width]...)
+	}
+	return dst
+}
+
+// WritePlane writes the visible rows of a strided plane.
+func WritePlane(w io.Writer, plane []byte, stride, width, height int) error {
+	for row := range height {
+		off := row * stride
+		if _, err := w.Write(plane[off : off+width]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AppendI420Planes appends one packed I420 frame in Y, U, V order.
+func AppendI420Planes(dst []byte, width, height int,
+	y []byte, yStride int, u []byte, uStride int, v []byte, vStride int,
+) []byte {
+	dst = AppendPlane(dst, y, yStride, width, height)
+	uvWidth, uvHeight := Chroma420Dimensions(width, height)
+	dst = AppendPlane(dst, u, uStride, uvWidth, uvHeight)
+	return AppendPlane(dst, v, vStride, uvWidth, uvHeight)
+}
+
+// WriteI420Planes writes one packed I420 frame in Y, U, V order.
+func WriteI420Planes(w io.Writer, width, height int,
+	y []byte, yStride int, u []byte, uStride int, v []byte, vStride int,
+) error {
+	if err := WritePlane(w, y, yStride, width, height); err != nil {
+		return err
+	}
+	uvWidth, uvHeight := Chroma420Dimensions(width, height)
+	if err := WritePlane(w, u, uStride, uvWidth, uvHeight); err != nil {
+		return err
+	}
+	return WritePlane(w, v, vStride, uvWidth, uvHeight)
 }
 
 // I420EncodeBufferSize returns a conservative output buffer size for codecs

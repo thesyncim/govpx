@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
+	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // TestVP8ScreenContentMBParity performs the per-MB localization of
@@ -318,27 +319,12 @@ func writeScreenContentI420(t *testing.T, path string, frames []Image) {
 	}
 	defer file.Close()
 	for i, frame := range frames {
-		if err := writeScreenContentPlane(file, frame.Y, frame.YStride, frame.Width, frame.Height); err != nil {
-			t.Fatalf("write frame %d Y: %v", i, err)
-		}
-		uvW := (frame.Width + 1) >> 1
-		uvH := (frame.Height + 1) >> 1
-		if err := writeScreenContentPlane(file, frame.U, frame.UStride, uvW, uvH); err != nil {
-			t.Fatalf("write frame %d U: %v", i, err)
-		}
-		if err := writeScreenContentPlane(file, frame.V, frame.VStride, uvW, uvH); err != nil {
-			t.Fatalf("write frame %d V: %v", i, err)
+		if err := vpxbuf.WriteI420Planes(file, frame.Width, frame.Height,
+			frame.Y, frame.YStride, frame.U, frame.UStride,
+			frame.V, frame.VStride); err != nil {
+			t.Fatalf("write frame %d I420: %v", i, err)
 		}
 	}
-}
-
-func writeScreenContentPlane(file *os.File, plane []byte, stride int, width int, height int) error {
-	for row := range height {
-		if _, err := file.Write(plane[row*stride : row*stride+width]); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // logScreenContentInterCandidateScoreboardAt parses both traces for inter_candidate

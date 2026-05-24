@@ -13,6 +13,7 @@ import (
 
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/coracle"
+	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // encodeBDLibvpxCurve drives the libvpx vpxenc-vp9-frameflags helper
@@ -23,7 +24,7 @@ import (
 // dominated by the rate gap and not by decoder-frontend artefacts.
 //
 // A missing helper binary returns ErrVpxencVP9FrameFlagsNotBuilt
-// (wrapped) so callers can either run -build-libvpx or t.Skip.
+// (wrapped) so callers can either run -build-libvpx or skip the assertion.
 func encodeBDLibvpxCurve(opts BDRateOptions, ladder []bdOperatingPoint) ([]QualityPoint, error) {
 	binPath, err := resolveLibvpxVP9FrameFlagsBinary(opts.BuildLibvpx)
 	if err != nil {
@@ -332,24 +333,22 @@ func writeI420ToBytes(frames []*image.YCbCr, width, height int) ([]byte, error) 
 	if len(frames) == 0 {
 		return nil, errors.New("no source frames")
 	}
-	uvW := (width + 1) >> 1
-	uvH := (height + 1) >> 1
-	frameSize := width*height + 2*uvW*uvH
-	out := make([]byte, 0, frameSize*len(frames))
+	frameSize, ok := vpxbuf.I420FrameSize(width, height)
+	if !ok {
+		return nil, fmt.Errorf("invalid I420 dimensions %dx%d", width, height)
+	}
+	capHint := 0
+	if frameSize <= int(^uint(0)>>1)/len(frames) {
+		capHint = frameSize * len(frames)
+	}
+	out := make([]byte, 0, capHint)
 	for i, f := range frames {
 		if f.Rect.Dx() != width || f.Rect.Dy() != height {
 			return nil, fmt.Errorf("frame %d size %dx%d != harness size %dx%d",
 				i, f.Rect.Dx(), f.Rect.Dy(), width, height)
 		}
-		for y := range height {
-			out = append(out, f.Y[y*f.YStride:y*f.YStride+width]...)
-		}
-		for y := range uvH {
-			out = append(out, f.Cb[y*f.CStride:y*f.CStride+uvW]...)
-		}
-		for y := range uvH {
-			out = append(out, f.Cr[y*f.CStride:y*f.CStride+uvW]...)
-		}
+		out = vpxbuf.AppendI420Planes(out, width, height,
+			f.Y, f.YStride, f.Cb, f.CStride, f.Cr, f.CStride)
 	}
 	return out, nil
 }
