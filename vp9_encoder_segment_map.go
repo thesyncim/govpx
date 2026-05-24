@@ -113,9 +113,9 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 			return segID, true
 		}
 	}
-	if e.opts.AQMode == VP9AQEquator360 && vp9Equator360AQApplies(e.opts.Width, e.opts.Height) {
+	if e.opts.AQMode == VP9AQEquator360 && encoder.Equator360AQApplies(e.opts.Width, e.opts.Height) {
 		miRows := (e.opts.Height + 7) >> 3
-		segID := vp9Equator360AQSegmentID(miRow, miRows)
+		segID := encoder.Equator360AQSegmentID(miRow, miRows)
 		if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 			return vp9ActiveMapSegmentInactive, true
 		}

@@ -160,8 +160,8 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		}
 		return seg
 	}
-	if e.opts.AQMode == VP9AQEquator360 && vp9Equator360AQApplies(e.opts.Width, e.opts.Height) {
-		seg := vp9Equator360AQSegmentationParams(baseQIndex, intraFrame)
+	if e.opts.AQMode == VP9AQEquator360 && encoder.Equator360AQApplies(e.opts.Width, e.opts.Height) {
+		seg := encoder.Equator360AQSegmentationParams(baseQIndex, intraFrame)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}

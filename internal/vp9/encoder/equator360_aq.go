@@ -1,14 +1,11 @@
-package govpx
+package encoder
 
-import (
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
-)
+import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 
-// vp9Equator360AQRateRatios mirrors libvpx's rate_ratio[] in
+// equator360AQRateRatios mirrors libvpx's rate_ratio[] in
 // vp9_aq_360.c. The same per-segment ratio array as the Variance AQ
 // table; libvpx reuses it for the equator-biased segments.
-var vp9Equator360AQRateRatios = [vp9dec.MaxSegments]struct {
+var equator360AQRateRatios = [vp9dec.MaxSegments]struct {
 	num int
 	den int
 }{
@@ -22,7 +19,7 @@ var vp9Equator360AQRateRatios = [vp9dec.MaxSegments]struct {
 	{1, 1},
 }
 
-// vp9Equator360AQApplies reports whether the configured frame
+// Equator360AQApplies reports whether the configured frame
 // dimensions are plausibly a 360 (equirectangular) projection.
 // Equirectangular 360 has a 2:1 aspect ratio (full sphere mapped
 // to a rectangle). When the source aspect ratio is well outside
@@ -32,7 +29,7 @@ var vp9Equator360AQRateRatios = [vp9dec.MaxSegments]struct {
 // curve. The 1.5:1 floor is wide enough to cover stereoscopic
 // half-and-half 360 layouts while still rejecting square / 16:9 /
 // 4:3 panel sources.
-func vp9Equator360AQApplies(width, height int) bool {
+func Equator360AQApplies(width, height int) bool {
 	if width <= 0 || height <= 0 {
 		return false
 	}
@@ -51,12 +48,12 @@ func vp9Equator360AQApplies(width, height int) bool {
 	return true
 }
 
-// vp9Equator360AQSegmentID returns the segment index libvpx's
+// Equator360AQSegmentID returns the segment index libvpx's
 // vp9_360aq_segment_id assigns to the given mode-info row. Equatorial
 // rows take segment 0 (no boost), the temperate band takes segment 1,
 // and the polar caps take segment 2. The other segment slots remain
 // unused; libvpx's reference implementation only fills 3 segments.
-func vp9Equator360AQSegmentID(miRow, miRows int) uint8 {
+func Equator360AQSegmentID(miRow, miRows int) uint8 {
 	if miRow < 0 {
 		miRow = 0
 	}
@@ -72,7 +69,7 @@ func vp9Equator360AQSegmentID(miRow, miRows int) uint8 {
 	return 0
 }
 
-// vp9Equator360AQSegmentationParams builds the per-segment AltQ deltas
+// Equator360AQSegmentationParams builds the per-segment AltQ deltas
 // libvpx emits for AQ_360. The FeatureMask + FeatureData slots are
 // populated on every frame so the encoder's local dequant table
 // (built from this seg by SetupSegmentationDequant) matches the
@@ -87,18 +84,18 @@ func vp9Equator360AQSegmentID(miRow, miRows int) uint8 {
 // dequantizes using the inherited per-segment deltas, drifting the
 // loop filter state and tanking decoded PSNR. The fix mirrors
 // libvpx's behavior where cm->seg is a persistent struct.
-func vp9Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.SegmentationParams {
+func Equator360AQSegmentationParams(baseQIndex int, intraFrame bool) vp9dec.SegmentationParams {
 	seg := vp9dec.SegmentationParams{
 		Enabled:   true,
 		UpdateMap: true,
 		AbsDelta:  false,
 	}
-	initVP9SegmentationProbDefaults(&seg)
-	for i, ratio := range vp9Equator360AQRateRatios {
+	initSegmentationProbDefaults(&seg)
+	for i, ratio := range equator360AQRateRatios {
 		if ratio.num == ratio.den {
 			continue
 		}
-		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
+		delta := ComputeQDeltaByRate(0, 255, false, baseQIndex,
 			ratio.num, ratio.den)
 		if baseQIndex != 0 && baseQIndex+delta == 0 {
 			delta = -baseQIndex + 1
