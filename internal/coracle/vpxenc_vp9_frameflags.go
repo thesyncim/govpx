@@ -96,7 +96,7 @@ func runVpxencVP9FrameFlagsI420WithFrameSizes(raw []byte, frameSizes []VpxencVP9
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		want, err = checkedVP9I420Add(want, frameSize)
+		want, err = checkedI420Add("VP9 vpxenc", want, frameSize)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -135,7 +135,7 @@ func runVpxencVP9FrameFlagsI420(raw []byte, width int, height int, frames int, f
 	if len(frameFlags) > frames {
 		return nil, nil, nil, fmt.Errorf("coracle: VP9 frame-flags has %d entries for %d frames", len(frameFlags), frames)
 	}
-	want, err := checkedVP9I420Mul(frameSize, frames)
+	want, err := checkedI420Mul("VP9 vpxenc", frameSize, frames)
 	if err != nil {
 		return nil, nil, nil, err
 	}

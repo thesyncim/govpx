@@ -81,29 +81,55 @@ func RoundUp(v, align int) int {
 	return v + align - r
 }
 
+// PlaneLen returns the backing bytes needed for rows of a visible-width plane
+// stored in a larger stride. It counts only the visible bytes on the last row.
+func PlaneLen(stride, rows, visibleWidth int) int {
+	if rows <= 0 {
+		return 0
+	}
+	return stride*(rows-1) + visibleWidth
+}
+
+// Chroma420Dimensions returns the 4:2:0 chroma plane dimensions for a luma
+// rectangle of width by height pixels.
+func Chroma420Dimensions(width, height int) (int, int) {
+	uvWidth := width/2 + width%2
+	uvHeight := height/2 + height%2
+	return uvWidth, uvHeight
+}
+
+// I420FrameSize returns the raw bytes needed for one packed I420 frame.
+// The boolean is false for invalid dimensions or int overflow.
+func I420FrameSize(width, height int) (int, bool) {
+	if width <= 0 || height <= 0 {
+		return 0, false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if width > maxInt/height {
+		return 0, false
+	}
+	y := width * height
+	uvWidth, uvHeight := Chroma420Dimensions(width, height)
+	if uvWidth > maxInt/uvHeight {
+		return 0, false
+	}
+	uv := uvWidth * uvHeight
+	if uv > (maxInt-y)/2 {
+		return 0, false
+	}
+	return y + 2*uv, true
+}
+
 // I420EncodeBufferSize returns a conservative output buffer size for codecs
 // that encode one I420 frame into a caller-provided byte slice. The estimate
 // is max(minSize, headerSlack+4*rawI420Bytes) and reports
 // [vpxerrors.ErrInvalidConfig] on invalid dimensions or int overflow.
 func I420EncodeBufferSize(width, height, headerSlack, minSize int) (int, error) {
-	if width <= 0 || height <= 0 || headerSlack < 0 || minSize < 0 {
+	raw420, ok := I420FrameSize(width, height)
+	if !ok || headerSlack < 0 || minSize < 0 {
 		return 0, vpxerrors.ErrInvalidConfig
 	}
 	maxInt := int(^uint(0) >> 1)
-	if width > maxInt/height {
-		return 0, vpxerrors.ErrInvalidConfig
-	}
-	y := width * height
-	uvWidth := (width + 1) / 2
-	uvHeight := (height + 1) / 2
-	if uvWidth > maxInt/uvHeight {
-		return 0, vpxerrors.ErrInvalidConfig
-	}
-	uv := uvWidth * uvHeight
-	if uv > (maxInt-y)/2 {
-		return 0, vpxerrors.ErrInvalidConfig
-	}
-	raw420 := y + 2*uv
 	if raw420 > (maxInt-headerSlack)/4 {
 		return 0, vpxerrors.ErrInvalidConfig
 	}

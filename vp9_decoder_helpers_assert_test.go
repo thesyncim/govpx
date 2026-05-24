@@ -9,6 +9,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
@@ -122,8 +123,7 @@ func assertVP9FilledFrame(t *testing.T, got Image, width, height int,
 		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
 			got.Width, got.Height, width, height)
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	assertVP9PlaneFilled(t, "Y", got.Y, got.YStride, width, height, yValue)
 	assertVP9PlaneFilled(t, "U", got.U, got.UStride, uvWidth, uvHeight, uValue)
 	assertVP9PlaneFilled(t, "V", got.V, got.VStride, uvWidth, uvHeight, vValue)
@@ -137,8 +137,7 @@ func assertVP9FilledFrameWithin(t *testing.T, got Image, width, height int,
 		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
 			got.Width, got.Height, width, height)
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	assertVP9PlaneFilledWithin(t, "Y", got.Y, got.YStride, width, height,
 		yValue, tolerance)
 	assertVP9PlaneFilledWithin(t, "U", got.U, got.UStride, uvWidth, uvHeight,
@@ -154,9 +153,10 @@ func assertVP9PlaneFilled(t *testing.T, name string, plane []byte,
 	if stride < width {
 		t.Fatalf("%s stride = %d, want at least %d", name, stride, width)
 	}
-	if len(plane) < planeLen(stride, height, width) {
+	wantLen := buffers.PlaneLen(stride, height, width)
+	if len(plane) < wantLen {
 		t.Fatalf("%s plane len = %d, want at least %d",
-			name, len(plane), planeLen(stride, height, width))
+			name, len(plane), wantLen)
 	}
 	for row := range height {
 		for col := range width {
@@ -175,9 +175,10 @@ func assertVP9PlaneFilledWithin(t *testing.T, name string, plane []byte,
 	if stride < width {
 		t.Fatalf("%s stride = %d, want at least %d", name, stride, width)
 	}
-	if len(plane) < planeLen(stride, height, width) {
+	wantLen := buffers.PlaneLen(stride, height, width)
+	if len(plane) < wantLen {
 		t.Fatalf("%s plane len = %d, want at least %d",
-			name, len(plane), planeLen(stride, height, width))
+			name, len(plane), wantLen)
 	}
 	for row := range height {
 		for col := range width {

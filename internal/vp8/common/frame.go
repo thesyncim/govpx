@@ -95,9 +95,12 @@ func (fb *FrameBuffer) Resize(width int, height int, border int, align int) erro
 	fb.Img.VOrigin = layout.vOff
 	fb.Img.YBorder = border
 	fb.Img.UVBorder = layout.uvBorder
-	fb.Img.Y = fb.buf[layout.yPlaneOff+layout.yOff : layout.yPlaneOff+layout.yOff+planeLen(layout.yStride, layout.codedHeight, layout.codedWidth)]
-	fb.Img.U = fb.buf[layout.uPlaneOff+layout.uOff : layout.uPlaneOff+layout.uOff+planeLen(layout.uStride, layout.uvHeight, layout.uvWidth)]
-	fb.Img.V = fb.buf[layout.vPlaneOff+layout.vOff : layout.vPlaneOff+layout.vOff+planeLen(layout.vStride, layout.uvHeight, layout.uvWidth)]
+	yLen := buffers.PlaneLen(layout.yStride, layout.codedHeight, layout.codedWidth)
+	uLen := buffers.PlaneLen(layout.uStride, layout.uvHeight, layout.uvWidth)
+	vLen := buffers.PlaneLen(layout.vStride, layout.uvHeight, layout.uvWidth)
+	fb.Img.Y = fb.buf[layout.yPlaneOff+layout.yOff : layout.yPlaneOff+layout.yOff+yLen]
+	fb.Img.U = fb.buf[layout.uPlaneOff+layout.uOff : layout.uPlaneOff+layout.uOff+uLen]
+	fb.Img.V = fb.buf[layout.vPlaneOff+layout.vOff : layout.vPlaneOff+layout.vOff+vLen]
 	return nil
 }
 
@@ -201,10 +204,3 @@ func computeLayout(width int, height int, border int, align int) (frameLayout, e
 }
 
 const maxFrameDimension = 16383
-
-func planeLen(stride int, rows int, visibleWidth int) int {
-	if rows <= 0 {
-		return 0
-	}
-	return stride*(rows-1) + visibleWidth
-}

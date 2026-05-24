@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // libvpx parity references for the VP9 first-pass collector:
@@ -328,10 +329,9 @@ func vp9FirstPassImageMatches(img *image.YCbCr, width int, height int) bool {
 		img.SubsampleRatio != image.YCbCrSubsampleRatio420 {
 		return false
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	return img.YStride >= width && img.CStride >= uvWidth &&
-		len(img.Y) >= ycbcrPlaneLen(img.YStride, width, height) &&
-		len(img.Cb) >= ycbcrPlaneLen(img.CStride, uvWidth, uvHeight) &&
-		len(img.Cr) >= ycbcrPlaneLen(img.CStride, uvWidth, uvHeight)
+		len(img.Y) >= buffers.PlaneLen(img.YStride, height, width) &&
+		len(img.Cb) >= buffers.PlaneLen(img.CStride, uvHeight, uvWidth) &&
+		len(img.Cr) >= buffers.PlaneLen(img.CStride, uvHeight, uvWidth)
 }

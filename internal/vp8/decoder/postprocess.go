@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // intSignShiftDec is the right-shift count that splats an int's sign
@@ -647,24 +648,16 @@ func validPostProcessImage(img *common.Image) bool {
 	if img.Width <= 0 || img.Height <= 0 || img.CodedWidth <= 0 || img.CodedHeight <= 0 {
 		return false
 	}
-	uvWidth := (img.Width + 1) >> 1
-	uvHeight := (img.Height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(img.Width, img.Height)
 	return img.YBorder >= 17 && img.UVBorder >= 9 &&
 		len(img.YFull) != 0 && len(img.UFull) != 0 && len(img.VFull) != 0 &&
 		img.YOrigin >= 0 && img.UOrigin >= 0 && img.VOrigin >= 0 &&
 		img.YStride >= img.CodedWidth+2*img.YBorder &&
 		img.UStride >= ((img.CodedWidth+1)>>1)+2*img.UVBorder &&
 		img.VStride >= ((img.CodedWidth+1)>>1)+2*img.UVBorder &&
-		len(img.Y) >= planeLen(img.YStride, img.CodedHeight, img.CodedWidth) &&
-		len(img.U) >= planeLen(img.UStride, uvHeight, uvWidth) &&
-		len(img.V) >= planeLen(img.VStride, uvHeight, uvWidth)
-}
-
-func planeLen(stride int, height int, width int) int {
-	if height <= 0 {
-		return 0
-	}
-	return (height-1)*stride + width
+		len(img.Y) >= buffers.PlaneLen(img.YStride, img.CodedHeight, img.CodedWidth) &&
+		len(img.U) >= buffers.PlaneLen(img.UStride, uvHeight, uvWidth) &&
+		len(img.V) >= buffers.PlaneLen(img.VStride, uvHeight, uvWidth)
 }
 
 func copyPostProcessImage(dst *common.Image, src *common.Image) {

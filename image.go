@@ -1,5 +1,7 @@
 package govpx
 
+import "github.com/thesyncim/govpx/internal/vpx/buffers"
+
 // Image is an I420/YV12-style planar 8-bit 4:2:0 image.
 //
 // Plane slices may include stride padding. Width and Height define the
@@ -32,26 +34,18 @@ func (img Image) validForEncode(width int, height int) bool {
 	if width <= 0 || height <= 0 {
 		return false
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	if img.YStride < width || img.UStride < uvWidth || img.VStride < uvWidth {
 		return false
 	}
-	if len(img.Y) < planeLen(img.YStride, height, width) {
+	if len(img.Y) < buffers.PlaneLen(img.YStride, height, width) {
 		return false
 	}
-	if len(img.U) < planeLen(img.UStride, uvHeight, uvWidth) {
+	if len(img.U) < buffers.PlaneLen(img.UStride, uvHeight, uvWidth) {
 		return false
 	}
-	if len(img.V) < planeLen(img.VStride, uvHeight, uvWidth) {
+	if len(img.V) < buffers.PlaneLen(img.VStride, uvHeight, uvWidth) {
 		return false
 	}
 	return true
-}
-
-func planeLen(stride int, rows int, visibleWidth int) int {
-	if rows <= 0 {
-		return 0
-	}
-	return stride*(rows-1) + visibleWidth
 }

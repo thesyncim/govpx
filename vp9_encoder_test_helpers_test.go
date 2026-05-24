@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 const (
@@ -302,7 +303,7 @@ func assertVP9VisibleYContrast(t *testing.T, got Image, width, height int, minDe
 		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
 			got.Width, got.Height, width, height)
 	}
-	if got.YStride < width || len(got.Y) < planeLen(got.YStride, height, width) {
+	if got.YStride < width || len(got.Y) < buffers.PlaneLen(got.YStride, height, width) {
 		t.Fatalf("Y plane shape = len %d stride %d, want %dx%d",
 			len(got.Y), got.YStride, width, height)
 	}
@@ -373,11 +374,10 @@ func assertVP9VisibleChromaContrast(t *testing.T, got Image, width, height int, 
 		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
 			got.Width, got.Height, width, height)
 	}
-	uvWidth := (width + 1) >> 1
-	uvHeight := (height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
 	if got.UStride < uvWidth || got.VStride < uvWidth ||
-		len(got.U) < planeLen(got.UStride, uvHeight, uvWidth) ||
-		len(got.V) < planeLen(got.VStride, uvHeight, uvWidth) {
+		len(got.U) < buffers.PlaneLen(got.UStride, uvHeight, uvWidth) ||
+		len(got.V) < buffers.PlaneLen(got.VStride, uvHeight, uvWidth) {
 		t.Fatalf("UV plane shape = U len %d stride %d, V len %d stride %d, want %dx%d",
 			len(got.U), got.UStride, len(got.V), got.VStride, uvWidth, uvHeight)
 	}

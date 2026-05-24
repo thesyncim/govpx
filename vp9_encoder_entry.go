@@ -2,6 +2,8 @@ package govpx
 
 import (
 	"image"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
@@ -17,23 +19,15 @@ func (e *VP9Encoder) validateVP9EncoderSource(img *image.YCbCr) error {
 	if img.YStride < e.opts.Width || img.CStride < (e.opts.Width+1)/2 {
 		return ErrInvalidConfig
 	}
-	if len(img.Y) < ycbcrPlaneLen(img.YStride, e.opts.Width, e.opts.Height) {
+	if len(img.Y) < buffers.PlaneLen(img.YStride, e.opts.Height, e.opts.Width) {
 		return ErrInvalidConfig
 	}
-	uvWidth := (e.opts.Width + 1) / 2
-	uvHeight := (e.opts.Height + 1) / 2
-	if len(img.Cb) < ycbcrPlaneLen(img.CStride, uvWidth, uvHeight) ||
-		len(img.Cr) < ycbcrPlaneLen(img.CStride, uvWidth, uvHeight) {
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(e.opts.Width, e.opts.Height)
+	if len(img.Cb) < buffers.PlaneLen(img.CStride, uvHeight, uvWidth) ||
+		len(img.Cr) < buffers.PlaneLen(img.CStride, uvHeight, uvWidth) {
 		return ErrInvalidConfig
 	}
 	return nil
-}
-
-func ycbcrPlaneLen(stride, width, height int) int {
-	if width <= 0 || height <= 0 {
-		return 0
-	}
-	return (height-1)*stride + width
 }
 
 // LastQuantizer mirrors libvpx's VP9E_GET_LAST_QUANTIZER /

@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/encodeframe.c and
@@ -146,28 +147,20 @@ func validSourceImage(src SourceImage) bool {
 	if src.Width <= 0 || src.Height <= 0 {
 		return false
 	}
-	uvWidth := (src.Width + 1) >> 1
-	uvHeight := (src.Height + 1) >> 1
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(src.Width, src.Height)
 	if src.YStride < src.Width || src.UStride < uvWidth || src.VStride < uvWidth {
 		return false
 	}
-	if len(src.Y) < sourcePlaneLen(src.YStride, src.Height, src.Width) {
+	if len(src.Y) < buffers.PlaneLen(src.YStride, src.Height, src.Width) {
 		return false
 	}
-	if len(src.U) < sourcePlaneLen(src.UStride, uvHeight, uvWidth) {
+	if len(src.U) < buffers.PlaneLen(src.UStride, uvHeight, uvWidth) {
 		return false
 	}
-	if len(src.V) < sourcePlaneLen(src.VStride, uvHeight, uvWidth) {
+	if len(src.V) < buffers.PlaneLen(src.VStride, uvHeight, uvWidth) {
 		return false
 	}
 	return true
-}
-
-func sourcePlaneLen(stride int, rows int, visibleWidth int) int {
-	if rows <= 0 {
-		return 0
-	}
-	return stride*(rows-1) + visibleWidth
 }
 
 func clampCoord(v int, limit int) int {

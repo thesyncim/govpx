@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // ErrVpxencVP9NotBuilt is returned when the harness can't find the
@@ -47,7 +49,7 @@ func VpxencVP9EncodeI420(raw []byte, width int, height int, frames int, extraArg
 	if frames <= 0 {
 		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc frame count %d must be positive", frames)
 	}
-	want, err := checkedVP9I420Mul(frameSize, frames)
+	want, err := checkedI420Mul("VP9 vpxenc", frameSize, frames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -122,7 +124,7 @@ func VpxencVP9FirstPassStatsI420(raw []byte, width int, height int, frames int, 
 	if frames <= 0 {
 		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc first-pass frame count %d must be positive", frames)
 	}
-	want, err := checkedVP9I420Mul(frameSize, frames)
+	want, err := checkedI420Mul("VP9 vpxenc", frameSize, frames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -195,7 +197,7 @@ func VpxencVP9TwoPassEncodeI420(raw []byte, width int, height int, frames int, e
 	if frames <= 0 {
 		return nil, nil, fmt.Errorf("coracle: VP9 vpxenc two-pass frame count %d must be positive", frames)
 	}
-	want, err := checkedVP9I420Mul(frameSize, frames)
+	want, err := checkedI420Mul("VP9 vpxenc", frameSize, frames)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -270,33 +272,9 @@ func vpxencVP9I420FrameSize(width int, height int) (int, error) {
 	if width <= 0 || height <= 0 {
 		return 0, fmt.Errorf("coracle: invalid VP9 vpxenc dimensions %dx%d", width, height)
 	}
-	y, err := checkedVP9I420Mul(width, height)
-	if err != nil {
-		return 0, err
-	}
-	uvWidth := width/2 + width%2
-	uvHeight := height/2 + height%2
-	uv, err := checkedVP9I420Mul(uvWidth, uvHeight)
-	if err != nil {
-		return 0, err
-	}
-	chroma, err := checkedVP9I420Mul(uv, 2)
-	if err != nil {
-		return 0, err
-	}
-	return checkedVP9I420Add(y, chroma)
-}
-
-func checkedVP9I420Mul(a int, b int) (int, error) {
-	if a != 0 && b > int(^uint(0)>>1)/a {
+	size, ok := buffers.I420FrameSize(width, height)
+	if !ok {
 		return 0, errors.New("coracle: VP9 vpxenc I420 size overflows int")
 	}
-	return a * b, nil
-}
-
-func checkedVP9I420Add(a int, b int) (int, error) {
-	if b > int(^uint(0)>>1)-a {
-		return 0, errors.New("coracle: VP9 vpxenc I420 size overflows int")
-	}
-	return a + b, nil
+	return size, nil
 }

@@ -61,6 +61,77 @@ func TestSliceAlignmentHelpers(t *testing.T) {
 	}
 }
 
+func TestPlaneLen(t *testing.T) {
+	tests := []struct {
+		name                    string
+		stride, rows, rowPixels int
+		want                    int
+	}{
+		{name: "last row has no padding", stride: 16, rows: 4, rowPixels: 13, want: 61},
+		{name: "single row", stride: 16, rows: 1, rowPixels: 13, want: 13},
+		{name: "empty", stride: 16, rows: 0, rowPixels: 13, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PlaneLen(tt.stride, tt.rows, tt.rowPixels)
+			if got != tt.want {
+				t.Fatalf("PlaneLen(%d, %d, %d) = %d, want %d",
+					tt.stride, tt.rows, tt.rowPixels, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChroma420Dimensions(t *testing.T) {
+	tests := []struct {
+		width, height int
+		wantWidth     int
+		wantHeight    int
+	}{
+		{width: 640, height: 360, wantWidth: 320, wantHeight: 180},
+		{width: 641, height: 361, wantWidth: 321, wantHeight: 181},
+	}
+	for _, tt := range tests {
+		gotWidth, gotHeight := Chroma420Dimensions(tt.width, tt.height)
+		if gotWidth != tt.wantWidth || gotHeight != tt.wantHeight {
+			t.Fatalf("Chroma420Dimensions(%d, %d) = %dx%d, want %dx%d",
+				tt.width, tt.height, gotWidth, gotHeight, tt.wantWidth, tt.wantHeight)
+		}
+	}
+}
+
+func TestI420FrameSize(t *testing.T) {
+	got, ok := I420FrameSize(641, 361)
+	if !ok {
+		t.Fatalf("I420FrameSize returned false")
+	}
+	const want = 641*361 + 2*321*181
+	if got != want {
+		t.Fatalf("I420FrameSize(641, 361) = %d, want %d", got, want)
+	}
+}
+
+func TestI420FrameSizeRejectsInvalidDimensions(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	tests := []struct {
+		name          string
+		width, height int
+	}{
+		{name: "zero width", width: 0, height: 16},
+		{name: "negative height", width: 16, height: -1},
+		{name: "luma overflow", width: maxInt, height: 2},
+		{name: "chroma overflow", width: maxInt, height: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := I420FrameSize(tt.width, tt.height)
+			if ok {
+				t.Fatalf("I420FrameSize(%d, %d) returned ok", tt.width, tt.height)
+			}
+		})
+	}
+}
+
 func TestI420EncodeBufferSize(t *testing.T) {
 	got, err := I420EncodeBufferSize(64, 32, 4096, 65536)
 	if err != nil {

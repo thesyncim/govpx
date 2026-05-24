@@ -3,6 +3,8 @@ package coracle
 import (
 	"errors"
 	"fmt"
+
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func validateI420Raw(codec string, raw []byte, width int, height int, frames int) error {
@@ -28,21 +30,11 @@ func i420FrameSize(codec string, width int, height int) (int, error) {
 	if width <= 0 || height <= 0 {
 		return 0, fmt.Errorf("coracle: invalid %s dimensions %dx%d", codec, width, height)
 	}
-	y, err := checkedI420Mul(codec, width, height)
-	if err != nil {
-		return 0, err
+	size, ok := buffers.I420FrameSize(width, height)
+	if !ok {
+		return 0, errors.New("coracle: " + codec + " I420 size overflows int")
 	}
-	uvWidth := width/2 + width%2
-	uvHeight := height/2 + height%2
-	uv, err := checkedI420Mul(codec, uvWidth, uvHeight)
-	if err != nil {
-		return 0, err
-	}
-	chroma, err := checkedI420Mul(codec, uv, 2)
-	if err != nil {
-		return 0, err
-	}
-	return checkedI420Add(codec, y, chroma)
+	return size, nil
 }
 
 func checkedI420Mul(codec string, a int, b int) (int, error) {
