@@ -144,17 +144,18 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		} else {
 			anchorQindex = e.varianceAQDeltaQindex
 		}
-		seg := vp9VarianceAQSegmentationParams(anchorQindex, e.opts.ScreenContentMode)
+		filmContent := e.opts.ScreenContentMode == int8(VP9ScreenContentFilm)
+		seg := encoder.VarianceAQSegmentationParams(anchorQindex, filmContent)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
 		return seg
 	}
 	if e.opts.AQMode == VP9AQComplexity {
-		if e.vp9ComplexityAQSB64TargetRate() < vp9ComplexityAQMinSB64TargetRate {
+		if e.vp9ComplexityAQSB64TargetRate() < encoder.ComplexityAQMinSB64TargetRate {
 			return vp9dec.SegmentationParams{}
 		}
-		seg := vp9ComplexityAQSegmentationParams(baseQIndex)
+		seg := encoder.ComplexityAQSegmentationParams(baseQIndex)
 		if e.activeMapEnabled && !intraFrame {
 			vp9EnableActiveMapSegmentation(&seg)
 		}
@@ -237,160 +238,6 @@ func initVP9SegmentationProbDefaults(seg *vp9dec.SegmentationParams) {
 	for i := range vp9dec.PredictionProbs {
 		seg.PredProbs[i] = vp9dec.MaxProb
 	}
-}
-
-func vp9VarianceAQSegmentationParams(baseQIndex int, screenContentMode int8) vp9dec.SegmentationParams {
-	seg := vp9dec.SegmentationParams{
-		Enabled:    true,
-		UpdateMap:  true,
-		UpdateData: true,
-		AbsDelta:   false,
-	}
-	initVP9SegmentationProbDefaults(&seg)
-	ratios := vp9VarianceAQRateRatiosForContent(screenContentMode)
-	for i, ratio := range ratios {
-		if ratio.num == ratio.den {
-			continue
-		}
-		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
-			ratio.num, ratio.den)
-		if baseQIndex != 0 && baseQIndex+delta == 0 {
-			delta = -baseQIndex + 1
-		}
-		if delta < -255 {
-			delta = -255
-		} else if delta > 255 {
-			delta = 255
-		}
-		seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
-		seg.FeatureData[i][vp9dec.SegLvlAltQ] = int16(delta)
-	}
-	return seg
-}
-
-// vp9VarianceAQRateRatiosForContent returns the per-segment rate
-// ratios used to derive variance-AQ Q deltas. Default video uses
-// libvpx's table where the highest-variance segment (index 4) is
-// pushed up in Q by a 3:4 ratio. VP9ScreenContentFilm clamps that
-// segment back to 1:1, preserving film-grain texture by leaving the
-// high-variance blocks at the base Q.
-func vp9VarianceAQRateRatiosForContent(screenContentMode int8) [vp9dec.MaxSegments]struct {
-	num int
-	den int
-} {
-	if screenContentMode == int8(VP9ScreenContentFilm) {
-		return vp9VarianceAQRateRatiosFilm
-	}
-	return vp9VarianceAQRateRatios
-}
-
-var vp9VarianceAQRateRatios = [vp9dec.MaxSegments]struct {
-	num int
-	den int
-}{
-	{5, 2},
-	{2, 1},
-	{3, 2},
-	{1, 1},
-	{3, 4},
-	{1, 1},
-	{1, 1},
-	{1, 1},
-}
-
-// vp9VarianceAQRateRatiosFilm is the FILM-content variant of
-// vp9VarianceAQRateRatios. Segments 0..2 keep their low-variance Q
-// boost so flat areas are still coded cleanly; segment 4 is held at
-// 1:1 instead of 3:4 so the encoder leaves the high-variance grain
-// blocks at the base Q and the grain texture survives quantization.
-var vp9VarianceAQRateRatiosFilm = [vp9dec.MaxSegments]struct {
-	num int
-	den int
-}{
-	{5, 2},
-	{2, 1},
-	{3, 2},
-	{1, 1},
-	{1, 1},
-	{1, 1},
-	{1, 1},
-	{1, 1},
-}
-
-const (
-	vp9ComplexityAQSegments          = 5
-	vp9ComplexityAQDefaultSegment    = 3
-	vp9ComplexityAQStrengths         = 3
-	vp9ComplexityAQMinSB64TargetRate = 256
-	vp9ComplexityAQLowVarThreshold   = 10.0
-)
-
-var vp9ComplexityAQRateRatios = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]struct {
-	num int
-	den int
-}{
-	{{7, 4}, {5, 4}, {21, 20}, {1, 1}, {9, 10}},
-	{{2, 1}, {3, 2}, {23, 20}, {1, 1}, {17, 20}},
-	{{5, 2}, {7, 4}, {5, 4}, {1, 1}, {4, 5}},
-}
-
-var vp9ComplexityAQTransitions = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]struct {
-	num int
-	den int
-}{
-	{{15, 100}, {30, 100}, {55, 100}, {2, 1}, {100, 1}},
-	{{20, 100}, {40, 100}, {65, 100}, {2, 1}, {100, 1}},
-	{{25, 100}, {50, 100}, {75, 100}, {2, 1}, {100, 1}},
-}
-
-var vp9ComplexityAQVarThresholds = [vp9ComplexityAQStrengths][vp9ComplexityAQSegments]float64{
-	{-4.0, -3.0, -2.0, 100.0, 100.0},
-	{-3.5, -2.5, -1.5, 100.0, 100.0},
-	{-3.0, -2.0, -1.0, 100.0, 100.0},
-}
-
-func vp9ComplexityAQSegmentationParams(baseQIndex int) vp9dec.SegmentationParams {
-	seg := vp9dec.SegmentationParams{
-		Enabled:    true,
-		UpdateMap:  true,
-		UpdateData: true,
-		AbsDelta:   false,
-	}
-	initVP9SegmentationProbDefaults(&seg)
-	strength := vp9ComplexityAQStrength(baseQIndex)
-	for i, ratio := range vp9ComplexityAQRateRatios[strength] {
-		if i == vp9ComplexityAQDefaultSegment || ratio.num == ratio.den {
-			continue
-		}
-		delta := encoder.ComputeQDeltaByRate(0, 255, false, baseQIndex,
-			ratio.num, ratio.den)
-		if baseQIndex != 0 && baseQIndex+delta == 0 {
-			delta = -baseQIndex + 1
-		}
-		if baseQIndex+delta <= 0 {
-			continue
-		}
-		if delta < -255 {
-			delta = -255
-		} else if delta > 255 {
-			delta = 255
-		}
-		seg.FeatureMask[i] |= 1 << uint(vp9dec.SegLvlAltQ)
-		seg.FeatureData[i][vp9dec.SegLvlAltQ] = int16(delta)
-	}
-	return seg
-}
-
-func vp9ComplexityAQStrength(baseQIndex int) int {
-	baseQuant := int(vp9dec.VpxAcQuant(baseQIndex, 0, vp9dec.BitDepth8)) / 4
-	strength := 0
-	if baseQuant > 10 {
-		strength++
-	}
-	if baseQuant > 25 {
-		strength++
-	}
-	return strength
 }
 
 func vp9EnableActiveMapSegmentation(seg *vp9dec.SegmentationParams) {

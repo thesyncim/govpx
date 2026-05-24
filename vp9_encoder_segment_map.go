@@ -71,7 +71,7 @@ func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
 
 func (e *VP9Encoder) vp9StaticSegmentIDForMap() uint8 {
 	if e != nil && e.opts.AQMode == VP9AQComplexity {
-		return vp9ComplexityAQDefaultSegment
+		return encoder.ComplexityAQDefaultSegment
 	}
 	if e == nil || e.opts.Segmentation.SegmentID >= vp9dec.MaxSegments {
 		return 0
@@ -194,7 +194,7 @@ func (e *VP9Encoder) vp9VarianceAQSegmentID(img *image.YCbCr,
 	} else if energy > 1 {
 		energy = 1
 	}
-	return vp9VarianceAQSegmentIDFromEnergy(energy), true
+	return encoder.VarianceAQSegmentIDFromEnergy(energy), true
 }
 
 func (e *VP9Encoder) applyVP9ComplexityAQSegment(inter *vp9InterEncodeState,
@@ -229,7 +229,7 @@ func (e *VP9Encoder) vp9ComplexityAQSegmentID(img *image.YCbCr,
 		return 0, false
 	}
 	sb64TargetRate := e.vp9ComplexityAQSB64TargetRate()
-	if sb64TargetRate < vp9ComplexityAQMinSB64TargetRate {
+	if sb64TargetRate < encoder.ComplexityAQMinSB64TargetRate {
 		return 0, false
 	}
 	src, stride, width, height := vp9EncoderSourcePlane(img, 0)
@@ -257,22 +257,8 @@ func (e *VP9Encoder) vp9ComplexityAQSegmentID(img *image.YCbCr,
 	}
 	targetRate := int((int64(sb64TargetRate) * int64(xmis) *
 		int64(ymis) * 256) / (8 * 8))
-	if targetRate <= 0 {
-		return 0, false
-	}
-	if projectedRate < 0 {
-		projectedRate = 0
-	}
-	strength := vp9ComplexityAQStrength(e.vp9EncoderModeDecisionQIndex())
-	for i, transition := range vp9ComplexityAQTransitions[strength] {
-		if int64(projectedRate)*int64(transition.den) <
-			int64(targetRate)*int64(transition.num) &&
-			logVar < vp9ComplexityAQLowVarThreshold+
-				vp9ComplexityAQVarThresholds[strength][i] {
-			return uint8(i), true
-		}
-	}
-	return vp9ComplexityAQSegments - 1, true
+	return encoder.ComplexityAQSegmentID(logVar, projectedRate, targetRate,
+		e.vp9EncoderModeDecisionQIndex())
 }
 
 func (e *VP9Encoder) vp9ComplexityAQSB64TargetRate() int {
@@ -300,23 +286,6 @@ func (e *VP9Encoder) vp9MiCols() int {
 		return 0
 	}
 	return (e.opts.Width + 7) >> 3
-}
-
-func vp9VarianceAQSegmentIDFromEnergy(energy int) uint8 {
-	switch {
-	case energy <= -4:
-		return 0
-	case energy <= -3:
-		return 1
-	case energy <= -2:
-		return 1
-	case energy <= -1:
-		return 2
-	case energy <= 0:
-		return 3
-	default:
-		return 4
-	}
 }
 
 func vp9SourceMatchesReferenceMI(src *image.YCbCr, ref *vp9ReferenceFrame,

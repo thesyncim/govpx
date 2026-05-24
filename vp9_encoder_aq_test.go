@@ -296,11 +296,11 @@ func TestVP9EncoderComplexityAQEmitsSegmentation(t *testing.T) {
 	seg := keyHeader.Seg
 	if !vp9dec.SegFeatureActive(&seg, 0, vp9dec.SegLvlAltQ) ||
 		!vp9dec.SegFeatureActive(&seg, 4, vp9dec.SegLvlAltQ) ||
-		vp9dec.SegFeatureActive(&seg, vp9ComplexityAQDefaultSegment,
+		vp9dec.SegFeatureActive(&seg, vp9enc.ComplexityAQDefaultSegment,
 			vp9dec.SegLvlAltQ) {
 		t.Fatalf("complexity AQ AltQ masks = %02x/%02x/%02x, want adjusted segments around neutral",
 			seg.FeatureMask[0],
-			seg.FeatureMask[vp9ComplexityAQDefaultSegment],
+			seg.FeatureMask[vp9enc.ComplexityAQDefaultSegment],
 			seg.FeatureMask[4])
 	}
 	if got := vp9dec.GetSegData(&seg, 0, vp9dec.SegLvlAltQ); got >= 0 {
