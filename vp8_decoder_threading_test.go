@@ -134,9 +134,9 @@ func TestVP8DecoderThreadingDecodeIntoMatchesSerial(t *testing.T) {
 // directory; the libvpx oracle is not required (we compare two govpx
 // runs against each other, not against libvpx checksums).
 func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
-	root := os.Getenv("GOVPX_TEST_DATA_PATH")
-	if root == "" {
-		t.Skip("set GOVPX_TEST_DATA_PATH to a VP8 IVF conformance corpus")
+	root, ok := vp8corpus.IVFRoot(t)
+	if !ok {
+		return
 	}
 	paths := vp8corpus.FindIVF(t, root)
 	if len(paths) == 0 {
@@ -186,13 +186,7 @@ func TestVP8DecoderThreadingExternalCorpusMatchesSerial(t *testing.T) {
 // largest VP8 conformance vector available locally and contrasts the
 // serial path with Threads=2/4. Skipped when the corpus is not present.
 func BenchmarkVP8DecoderThreading(b *testing.B) {
-	root := os.Getenv("GOVPX_TEST_DATA_PATH")
-	if root == "" {
-		root = "internal/coracle/build/test-data/vp8"
-	}
-	if _, err := os.Stat(root); err != nil {
-		b.Skip("VP8 conformance corpus not available")
-	}
+	root := vp8corpus.BenchmarkIVFRoot(b)
 	candidates := []string{
 		"vp80-01-intra-1411.ivf",
 		"vp80-00-comprehensive-014.ivf",

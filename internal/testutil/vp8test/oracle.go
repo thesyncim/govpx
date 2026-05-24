@@ -84,6 +84,13 @@ func VpxencFrameFlagsOracle(t testing.TB) string {
 	return path
 }
 
+// StrictThreadedOracleQuarantine reports whether VP8 oracle tests should fail
+// immediately when a vpxenc invocation asks libvpx to encode with threads>=2.
+func StrictThreadedOracleQuarantine() bool {
+	mode := os.Getenv("GOVPX_ORACLE_THREADS_QUARANTINE")
+	return mode == "strict"
+}
+
 // Frames runs the checksum oracle in normal decode mode.
 func (o Oracle) Frames(t testing.TB, ivf []byte) []testutil.FrameChecksum {
 	t.Helper()

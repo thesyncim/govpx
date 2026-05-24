@@ -8,6 +8,8 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
+const DefaultIVFTestDataDir = "internal/coracle/build/test-data/vp8"
+
 func IVFRoot(t testing.TB) (string, bool) {
 	t.Helper()
 	root := os.Getenv("GOVPX_TEST_DATA_PATH")
@@ -19,6 +21,22 @@ func IVFRoot(t testing.TB) (string, bool) {
 	}
 	t.Skip("set GOVPX_TEST_DATA_PATH to a VP8 IVF file or directory")
 	return "", false
+}
+
+func BenchmarkIVFRoot(t testing.TB) string {
+	t.Helper()
+	root := os.Getenv("GOVPX_TEST_DATA_PATH")
+	if root == "" {
+		root = DefaultIVFTestDataDir
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Skip("VP8 conformance corpus not available")
+	}
+	if !info.IsDir() && !info.Mode().IsRegular() {
+		t.Skipf("%s is not a VP8 IVF file or corpus directory", root)
+	}
+	return root
 }
 
 func InvalidIVFRoot(t testing.TB) (string, bool) {

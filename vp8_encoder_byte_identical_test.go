@@ -3,9 +3,9 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"os"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 // TestEncoderByteIdenticalHash drives a deterministic 720p realtime cpu-used=8
@@ -25,12 +25,7 @@ func TestEncoderByteIdenticalHash(t *testing.T) {
 		width  = 1280
 		height = 720
 	)
-	frames := 60
-	if v := os.Getenv("GOVPX_BYTEID_FRAMES"); v != "" {
-		if n, err := fmt.Sscanf(v, "%d", &frames); err != nil || n != 1 {
-			t.Fatalf("GOVPX_BYTEID_FRAMES=%q: %v", v, err)
-		}
-	}
+	frames := testutil.EnvIntDefault(t, "GOVPX_BYTEID_FRAMES", 60)
 
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               width,

@@ -10,7 +10,6 @@ package govpx
 // threaded libvpx output.
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -195,7 +194,7 @@ func requireVP8OracleArgsReproducibleOrSerial(t *testing.T, extraArgs []string) 
 		"as suspect until the oracle has been independently verified " +
 		"reproducible at this scenario (see " +
 		"encodeVP8FramesWithLibvpxOracleReproducible)."
-	if os.Getenv("GOVPX_ORACLE_THREADS_QUARANTINE") == "strict" {
+	if vp8test.StrictThreadedOracleQuarantine() {
 		t.Fatal(msg)
 	}
 	t.Logf("%s", msg)

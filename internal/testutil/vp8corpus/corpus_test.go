@@ -36,6 +36,14 @@ func TestVP8CorpusInvalidRootFallsBackToValidCorpus(t *testing.T) {
 	}
 }
 
+func TestVP8CorpusBenchmarkRootUsesExplicitEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GOVPX_TEST_DATA_PATH", dir)
+	if root := BenchmarkIVFRoot(t); root != dir {
+		t.Fatalf("BenchmarkIVFRoot = %q, want %q", root, dir)
+	}
+}
+
 func TestVP8CorpusFindIVFUsesLimitsAndInvalidPrefix(t *testing.T) {
 	dir := t.TempDir()
 	validA := filepath.Join(dir, "a.ivf")
