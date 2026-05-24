@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 const (
@@ -567,12 +568,12 @@ func (e *VP9Encoder) vp9EncoderPlaneContextOffsets(miRow, miCol int) (
 
 func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	layout := common.NewFrameLayout(width, height)
-	e.reconYFull = ensureVP9AlignedPlaneCapacity(e.reconYFull, layout.YFullLen)
-	e.reconUFull = ensureVP9AlignedPlaneCapacity(e.reconUFull, layout.UVFullLen)
-	e.reconVFull = ensureVP9AlignedPlaneCapacity(e.reconVFull, layout.UVFullLen)
-	fillVP9Plane(e.reconYFull, 128)
-	fillVP9Plane(e.reconUFull, 128)
-	fillVP9Plane(e.reconVFull, 128)
+	e.reconYFull = buffers.EnsureAlignedCapacity(e.reconYFull, layout.YFullLen, 32)
+	e.reconUFull = buffers.EnsureAlignedCapacity(e.reconUFull, layout.UVFullLen, 32)
+	e.reconVFull = buffers.EnsureAlignedCapacity(e.reconVFull, layout.UVFullLen, 32)
+	buffers.Fill(e.reconYFull, 128)
+	buffers.Fill(e.reconUFull, 128)
+	buffers.Fill(e.reconVFull, 128)
 	e.reconY = e.reconYFull[layout.YOrigin:]
 	e.reconU = e.reconUFull[layout.UVOrigin:]
 	e.reconV = e.reconVFull[layout.UVOrigin:]

@@ -26,6 +26,28 @@ func NewAligned(size int, align int) []byte {
 	return buf[off : off+size]
 }
 
+// EnsureCapacity returns buf sliced to size, growing it with make when needed.
+func EnsureCapacity(buf []byte, size int) []byte {
+	if cap(buf) < size {
+		return make([]byte, size)
+	}
+	return buf[:size]
+}
+
+// EnsureAlignedCapacity returns buf sliced to size with an aligned first byte,
+// allocating aligned storage when the current backing array is too small or
+// starts at the wrong boundary.
+func EnsureAlignedCapacity(buf []byte, size int, align int) []byte {
+	if cap(buf) < size {
+		return NewAligned(size, align)
+	}
+	buf = buf[:size]
+	if !ByteSliceAligned(buf, align) {
+		return NewAligned(size, align)
+	}
+	return buf
+}
+
 // ByteSliceAligned reports whether buf starts on an align-byte boundary.
 func ByteSliceAligned(buf []byte, align int) bool {
 	if align <= 1 || len(buf) == 0 {
@@ -139,6 +161,13 @@ func WritePlane(w io.Writer, plane []byte, stride, width, height int) error {
 		}
 	}
 	return nil
+}
+
+// Fill writes value to every byte in buf.
+func Fill(buf []byte, value byte) {
+	for i := range buf {
+		buf[i] = value
+	}
 }
 
 // AppendI420Planes appends one packed I420 frame in Y, U, V order.

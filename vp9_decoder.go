@@ -332,9 +332,9 @@ func (f *vp9ReferenceFrame) storeWithRender(src Image, renderWidth, renderHeight
 func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
 	renderWidth, renderHeight, bitDepth int,
 ) {
-	f.y = ensureVP9PlaneCapacity(f.y, len(src.Y))
-	f.u = ensureVP9PlaneCapacity(f.u, len(src.U))
-	f.v = ensureVP9PlaneCapacity(f.v, len(src.V))
+	f.y = buffers.EnsureCapacity(f.y, len(src.Y))
+	f.u = buffers.EnsureCapacity(f.u, len(src.U))
+	f.v = buffers.EnsureCapacity(f.v, len(src.V))
 	copy(f.y, src.Y)
 	copy(f.u, src.U)
 	copy(f.v, src.V)
@@ -387,13 +387,6 @@ func (f *vp9ReferenceFrame) bitDepthValue() int {
 		return f.bitDepth
 	}
 	return int(vp9dec.Bits8)
-}
-
-func ensureVP9PlaneCapacity(buf []byte, n int) []byte {
-	if cap(buf) < n {
-		return make([]byte, n)
-	}
-	return buf[:n]
 }
 
 // NewVP9Decoder creates a VP9 decoder with validated options. The
@@ -1346,11 +1339,11 @@ func (d *VP9Decoder) prepareVP9OutputFrameWithExternal(width, height int,
 
 	layout := common.NewDecoderFrameLayout(width, height, d.opts.ByteAlignment)
 	align := common.DecoderFrameAlignment(d.opts.ByteAlignment)
-	d.frameYFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameYFull,
+	d.frameYFull = buffers.EnsureAlignedCapacity(d.frameYFull,
 		layout.YFullLen, align)
-	d.frameUFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameUFull,
+	d.frameUFull = buffers.EnsureAlignedCapacity(d.frameUFull,
 		layout.UVFullLen, align)
-	d.frameVFull = ensureVP9AlignedPlaneCapacityWithAlignment(d.frameVFull,
+	d.frameVFull = buffers.EnsureAlignedCapacity(d.frameVFull,
 		layout.UVFullLen, align)
 	layout = common.NewDecoderFrameLayoutForPlanes(width, height,
 		d.opts.ByteAlignment, d.frameYFull, d.frameUFull, d.frameVFull)
@@ -1386,9 +1379,9 @@ func (d *VP9Decoder) prepareVP9ExternalOutputFrame(width, height int) error {
 func (d *VP9Decoder) installVP9OutputFrameLayout(width, height int,
 	layout common.FrameLayout,
 ) {
-	fillVP9Plane(d.frameYFull, 128)
-	fillVP9Plane(d.frameUFull, 128)
-	fillVP9Plane(d.frameVFull, 128)
+	buffers.Fill(d.frameYFull, 128)
+	buffers.Fill(d.frameUFull, 128)
+	buffers.Fill(d.frameVFull, 128)
 	d.frameYOrigin = layout.YOrigin
 	d.frameUOrigin = layout.UOrigin
 	d.frameVOrigin = layout.VOrigin
@@ -1544,7 +1537,7 @@ func copyVP9PostPlane(dst []byte, dstStride, codedWidth, codedHeight int,
 		dstRow := dst[y*dstStride:]
 		copy(dstRow[:width], src[y*srcStride:y*srcStride+width])
 		if codedWidth > width {
-			fillVP9Plane(dstRow[width:codedWidth], dstRow[width-1])
+			buffers.Fill(dstRow[width:codedWidth], dstRow[width-1])
 		}
 	}
 	if height == 0 {
@@ -1631,21 +1624,6 @@ func (d *VP9Decoder) prepareVP9PostProcessModes(rows, cols int) {
 	}
 }
 
-func ensureVP9AlignedPlaneCapacity(buf []byte, n int) []byte {
-	return ensureVP9AlignedPlaneCapacityWithAlignment(buf, n, 32)
-}
-
-func ensureVP9AlignedPlaneCapacityWithAlignment(buf []byte, n, align int) []byte {
-	if cap(buf) < n {
-		return buffers.NewAligned(n, align)
-	}
-	buf = buf[:n]
-	if !buffers.ByteSliceAligned(buf, align) {
-		return buffers.NewAligned(n, align)
-	}
-	return buf
-}
-
 func vp9ImagePlanesAligned(img Image, align int) bool {
 	if align <= 1 {
 		return true
@@ -1653,12 +1631,6 @@ func vp9ImagePlanesAligned(img Image, align int) bool {
 	return buffers.ByteSliceAligned(img.Y, align) &&
 		buffers.ByteSliceAligned(img.U, align) &&
 		buffers.ByteSliceAligned(img.V, align)
-}
-
-func fillVP9Plane(buf []byte, value byte) {
-	for i := range buf {
-		buf[i] = value
-	}
 }
 
 // refDims returns the dimensions of a stored VP9 reference slot. Frames

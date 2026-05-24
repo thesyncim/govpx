@@ -32,6 +32,40 @@ func TestNewAlignedZeroSize(t *testing.T) {
 	}
 }
 
+func TestEnsureCapacityReusesAndGrows(t *testing.T) {
+	buf := make([]byte, 3, 8)
+	reused := EnsureCapacity(buf, 6)
+	if len(reused) != 6 || cap(reused) != cap(buf) {
+		t.Fatalf("EnsureCapacity reused len/cap = %d/%d, want 6/%d",
+			len(reused), cap(reused), cap(buf))
+	}
+	grown := EnsureCapacity(buf, 16)
+	if len(grown) != 16 || cap(grown) < 16 {
+		t.Fatalf("EnsureCapacity grown len/cap = %d/%d, want >=16",
+			len(grown), cap(grown))
+	}
+}
+
+func TestEnsureAlignedCapacity(t *testing.T) {
+	buf := NewAligned(64, 32)
+	reused := EnsureAlignedCapacity(buf[:32], 48, 32)
+	if len(reused) != 48 || !ByteSliceAligned(reused, 32) {
+		t.Fatalf("EnsureAlignedCapacity reused len=%d aligned=%v",
+			len(reused), ByteSliceAligned(reused, 32))
+	}
+
+	unalignedBase := make([]byte, 96)
+	unaligned := unalignedBase[1:33]
+	if ByteSliceAligned(unaligned, 32) {
+		t.Skip("test allocation happened to make the offset aligned")
+	}
+	realigned := EnsureAlignedCapacity(unaligned, 32, 32)
+	if len(realigned) != 32 || !ByteSliceAligned(realigned, 32) {
+		t.Fatalf("EnsureAlignedCapacity realigned len=%d aligned=%v",
+			len(realigned), ByteSliceAligned(realigned, 32))
+	}
+}
+
 func TestAlign(t *testing.T) {
 	if got := Align(65, 8); got != 72 {
 		t.Fatalf("Align(65, 8) = %d, want 72", got)
@@ -59,6 +93,14 @@ func TestSliceAlignmentHelpers(t *testing.T) {
 	}
 	if !ByteSliceAligned(nil, 64) {
 		t.Fatalf("nil slice should be treated as aligned")
+	}
+}
+
+func TestFill(t *testing.T) {
+	buf := []byte{1, 2, 3, 4}
+	Fill(buf, 9)
+	if !bytes.Equal(buf, []byte{9, 9, 9, 9}) {
+		t.Fatalf("Fill = %v, want all 9", buf)
 	}
 }
 
