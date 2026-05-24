@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// BenchmarkVP9EncodeCPUUsed measures govpx's per-frame encode time at the
-// four cpu_used values cited in the speed-features port task: 0, 4, 6, 8.
+// BenchmarkVP9EncodeCPUUsed measures govpx's per-frame encode time across
+// representative cpu_used lanes: 0, 4, 6, 8.
 // Frame size is 640x360 in line with the realtime CBR oracle target. The
 // benchmark uses the panning-YCbCr synthetic source so the cost of source
 // allocation is shared across cpu_used buckets.

@@ -132,7 +132,7 @@ func (e *VP9Encoder) applyVP9KeyFrameFilter(img *image.YCbCr) *image.YCbCr {
 	// centerIdx as 0 because distance == -1 means no backward frames.
 	refs[0] = vp9enc.TemporalFilterFrameFromYCbCr(img)
 	for frame := 1; frame < framesToBlur; frame++ {
-		entry, ok := e.peekVP9Lookahead(frame - 1)
+		entry, ok := e.peekVP9LookaheadAt(frame - 1)
 		if !ok {
 			return img
 		}
@@ -233,7 +233,7 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	refs := e.vp9ARNRRefs[:framesToBlur:framesToBlur]
 	startFrame := distance + forward
 	for frame := range framesToBlur {
-		entry, ok := e.peekVP9Lookahead(startFrame - frame)
+		entry, ok := e.peekVP9LookaheadAt(startFrame - frame)
 		if !ok {
 			return false
 		}
@@ -242,15 +242,4 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	dst := vp9enc.TemporalFilterFrameFromYCbCr(&e.vp9ARNRScratch)
 	vp9enc.IterateTemporalFilter(&dst, refs, backward, strength)
 	return true
-}
-
-func (e *VP9Encoder) peekVP9Lookahead(offset int) (*vp9LookaheadEntry, bool) {
-	if !e.vp9LookaheadEnabled() || offset < 0 || offset >= int(e.lookaheadCount) {
-		return nil, false
-	}
-	idx := int(e.lookaheadRead) + offset
-	if idx >= len(e.lookahead) {
-		idx -= len(e.lookahead)
-	}
-	return &e.lookahead[idx], true
 }

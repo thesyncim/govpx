@@ -163,15 +163,13 @@ func writeUncompressedHeaderInter(w *BitWriter, h *vp9dec.UncompressedHeader,
 // flag wins; subsequent flags emit 0. If no flag sets, the explicit
 // (width-1, height-1) literals follow, then the render-flag bit.
 //
-// Task #167 audit: this routine was confirmed byte-exact with libvpx
-// for the RefControl seed #5 (9c3e08e8) byte-4 divergence — the
-// fuzz fixture has frame dims = LAST ref dims, so iteration 0 emits
-// a single 1 bit and breaks (matching libvpx). The proximate byte-4
-// divergence is bit 33 (write_interp_filter, vp9_bitstream.c:855-862,
-// filter demoted by fix_interp_filter from per-block switchable_interp
-// counts), the same root cause attributed by task #156 for the
-// RuntimeControls seed #8 case. The bit cascades are pinned by
-// TestWriteFrameSizeWithRefsCascadeBitExact in header_writer_test.go.
+// This routine is byte-exact with libvpx for the frame-size-with-refs path:
+// when the current frame dimensions match LAST, iteration 0 emits a single
+// set bit and breaks. Known nearby byte-position drift comes from
+// write_interp_filter (vp9_bitstream.c:855-862), where fix_interp_filter can
+// demote the frame filter from per-block switchable_interp counts. The bit
+// cascades are pinned by TestWriteFrameSizeWithRefsCascadeBitExact in
+// header_writer_test.go.
 //
 // Differences from libvpx that are intentional / structurally
 // equivalent (no observable wire effect under any sane encode):

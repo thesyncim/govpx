@@ -26,7 +26,7 @@ import (
 // RowMT option is engaged and a tile-column body is about to dispatch
 // rows. Workers persist for the encoder's lifetime; shutdownPool closes
 // the start channels and the goroutines drain. Worker count is clamped to
-// min(rowMTThreads, sbRows) per the task's dispatch rule.
+// min(rowMTThreads, sbRows) per the row-MT dispatch rule.
 type vp9RowWorkerPool struct {
 	workers []vp9RowEncoderState
 

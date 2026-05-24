@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// vp9LongFixtureOpenGapSeeds lists VP9 fuzz-corpus seed payloads whose strict
+// vp9LongFixtureParityGapSeeds lists VP9 fuzz-corpus seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
 // Each entry cites the libvpx file:line that drives the divergence so the
 // corresponding port has a concrete starting point.
@@ -68,7 +68,7 @@ import (
 //
 // Reverting any entry here must be paired with the corresponding direct libvpx
 // port.
-var vp9LongFixtureOpenGapSeeds = [][]byte{
+var vp9LongFixtureParityGapSeeds = [][]byte{
 	{0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 1},
 	{1, 0, 0, 0, 0},
@@ -76,8 +76,8 @@ var vp9LongFixtureOpenGapSeeds = [][]byte{
 	{0, 2, 0, 0, 2},
 }
 
-func vp9LongFixtureOpenGapSeed(data []byte) bool {
-	for _, seed := range vp9LongFixtureOpenGapSeeds {
+func vp9LongFixtureParityGapSeed(data []byte) bool {
+	for _, seed := range vp9LongFixtureParityGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -108,8 +108,8 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if vp9LongFixtureOpenGapSeed(data) {
-			t.Skip("seed tracks an open VP9 parity gap; see vp9LongFixtureOpenGapSeeds")
+		if vp9LongFixtureParityGapSeed(data) {
+			t.Skip("seed tracks a known VP9 parity gap; see vp9LongFixtureParityGapSeeds")
 		}
 		cfg := newVP9LongFixtureFuzzCase(data)
 		opts := cfg.buildOpts()

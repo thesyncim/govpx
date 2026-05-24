@@ -474,10 +474,10 @@ func TestVP9CyclicRefreshSegmentIDBoostedMirrorsLibvpx(t *testing.T) {
 	}
 }
 
-// TestVP9EncoderKeyframeStubProducesParseableBitstream: the constant
+// TestVP9EncoderConstantKeyframeProducesParseableBitstream: the constant
 // source-backed keyframe path emits oracle-shaped Block32x32 / Tx16 DC
 // skip leaves whose every layer parses cleanly through the decoder.
-func TestVP9EncoderKeyframeStubProducesParseableBitstream(t *testing.T) {
+func TestVP9EncoderConstantKeyframeProducesParseableBitstream(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	got, err := e.Encode(img)

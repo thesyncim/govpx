@@ -55,7 +55,7 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 	return opts
 }
 
-// vp9OptionsOpenGapSeeds lists VP9 options-fuzz seed payloads whose strict
+// vp9OptionsParityGapSeeds lists VP9 options-fuzz seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
 // Each entry cites the libvpx file:line that drives the divergence so the
 // corresponding port can remove one entry at a time.
@@ -120,12 +120,12 @@ func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptio
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing.
-var vp9OptionsOpenGapSeeds = [][]byte{
+var vp9OptionsParityGapSeeds = [][]byte{
 	{0x00, 0x30, 0x31, 0x30},
 }
 
-func vp9OptionsOpenGapSeed(data []byte) bool {
-	for _, seed := range vp9OptionsOpenGapSeeds {
+func vp9OptionsParityGapSeed(data []byte) bool {
+	for _, seed := range vp9OptionsParityGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -158,7 +158,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 	// govpx CBR rate-controller / cpu_used speed-feature divergences
 	// described in vp9NormalizeFuzzOptionsForLibvpxCLI are NOT in the seed
 	// corpus -- those red configurations live as separate encoder-side
-	// open-gap list so the seed corpus stays green and any new red seed
+	// parity-gap list so the seed corpus stays green and any new red seed
 	// captures genuinely new option-validation surface fallout. Byte
 	// layouts decode via vp9EncoderOptionsFromFuzz (see
 	// vp9_encoder_fuzz_test.go).
@@ -227,8 +227,8 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 				t.Fatalf("NewVP9Encoder panicked on %d-byte input: %v", len(data), r)
 			}
 		}()
-		if vp9OptionsOpenGapSeed(data) {
-			t.Skip("seed tracks an open VP9 parity gap; see vp9OptionsOpenGapSeeds")
+		if vp9OptionsParityGapSeed(data) {
+			t.Skip("seed tracks a known VP9 parity gap; see vp9OptionsParityGapSeeds")
 		}
 		opts := vp9NormalizeFuzzOptionsForLibvpxCLI(vp9EncoderOptionsFromFuzz(data))
 		e, err := NewVP9Encoder(opts)

@@ -44,10 +44,10 @@ import "math"
 //     unconditionally (vp9_twopass.go:272) and exposes no option to
 //     raise it; in libvpx, the recursive ARF case is only entered when
 //     enable_auto_arf >= 2, which also flips cpi->multi_layer_arf=1
-//     (vp9_encoder.c:6157). Audited at task #126: no fuzz seed or test
-//     fixture sets EnableAutoARF != 1 or MultiLayerARF=true; the
-//     C-oracle command lines use --auto-alt-ref in {0,1} only. Port
-//     when govpx surfaces a multi-layer ARF option.
+//     (vp9_encoder.c:6157). govpx currently keeps EnableAutoARF at 1
+//     and MultiLayerARF false; the C-oracle command lines use
+//     --auto-alt-ref in {0,1} only. Port when govpx surfaces a multi-layer
+//     ARF option.
 //   - kf_zeromotion_pct STATIC_MOTION_THRESH consumer in
 //     pick_kf_q_bound_two_pass (vp9_ratectrl.c:1378). The
 //     find_next_key_frame accumulator that feeds this is not yet
@@ -845,15 +845,12 @@ func DefineGFGroupStructure(gf *GFGroup, in GFGroupInputs) {
 	}
 
 	// libvpx: find_arf_order(cpi, gf_group, &frame_index, layer_depth, 1, gop_frames)
-	// Multi-ARF deeper recursion deferred (see file header). We provide a
-	// per-call closure for calc_arf_boost when allowed_max_layer_depth>1.
-	// Audited at task #126: with EnableAutoARF=1 pinned and
-	// MultiLayerARF=false, both find_arf_order entries (depth=1 with
+	// Multi-ARF deeper recursion is unreachable while EnableAutoARF is 1
+	// and MultiLayerARF is false: both find_arf_order entries (depth=1 with
 	// allowed_max=0 when SourceAltRefPending=false, depth=2 with
 	// allowed_max=1 when SourceAltRefPending=true) hit
 	// `depth > allowed_max_layer_depth` and take the leaf branch. The
-	// closure below is never invoked under current govpx options; left in
-	// place so the recursion lights up cleanly when multi-layer ARF lands.
+	// closure below exists for the eventual multi-layer ARF path.
 	calcArfBoost := func(fFrames, bFrames int) int {
 		// libvpx call site (find_arf_order line ~2185) passes
 		// arfShowIdx == twopass_stats_in advanced by `mid` frames from
@@ -931,10 +928,10 @@ func AllocateGFGroupBits(gf *GFGroup, in GFGroupInputs,
 		totNormFrameScore = CalculateGroupScore(in, avScore, normalFrames)
 	}
 
-	// Multi-layer ARF branch deferred — see file-header TODO. We always
-	// take the single-ARF branch (allocate normal-frame bits uniformly
-	// across leaves, with the last-frame reduction redistributed to the
-	// middle slot per libvpx's bitstream-parity rule).
+	// Multi-layer ARF allocation is unreachable while EnableAutoARF is 1 and
+	// MultiLayerARF is false. The active single-ARF branch allocates normal
+	// frame bits uniformly across leaves, with the last-frame reduction
+	// redistributed to the middle slot per libvpx's bitstream-parity rule.
 	lastFrameReduction := 0
 	for i := range normalFrames {
 		// libvpx vp9_firstpass.c:2509-2516 — input_stats() advance plus

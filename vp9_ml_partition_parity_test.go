@@ -16,7 +16,7 @@ import (
 //
 // Reference-control oracle context:
 //
-//	9 of 10 RefControl open-gap seeds diverge at byte 9 of the inter
+//	9 of 10 RefControl parity-gap seeds diverge at byte 9 of the inter
 //	frame (FirstPartitionSize literal). ML non-RD measurements pin
 //	per-seed aggregate size_delta in the -179..+295 byte range.
 

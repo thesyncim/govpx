@@ -1372,8 +1372,8 @@ func QuantizeB32x32(coeff []int16, qindex int, dequant [2]int16, scan []int16, d
 //
 // (vpx_dsp/quantize.c:269) only fits in int16 for |q*dq/2| <= 32767, so
 // dqcoeff can wrap whenever q*dq exceeds 65534 (e.g. dq=1828, |q|>=36).
-// Recovering q from int16-wrapped dqcoeff drifts in exactly the high-
-// frequency Tx32x32 bands flagged by task #158.
+// Recovering q from int16-wrapped dqcoeff drifts in high-frequency Tx32x32
+// bands, so callers that score coefficients need the signed qcoeff values.
 func QuantizeB32x32WithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
 	qcoeff, dqcoeff []int16,
 ) int {

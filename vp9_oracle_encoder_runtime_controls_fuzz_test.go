@@ -13,14 +13,14 @@ import (
 	"testing"
 )
 
-// vp9RuntimeControlsOpenGapSeeds lists runtime-control schedules that measure
-// open VP9 parity gaps. The seed shape is
+// vp9RuntimeControlsParityGapSeeds lists runtime-control schedules that measure
+// known VP9 parity gaps. The seed shape is
 // (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action...),
 // and one-byte entries are corpus aliases produced by testutil.ByteCursor
 // wrap-around. Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
-// them while the remaining open lanes stay reproducible.
-var vp9RuntimeControlsOpenGapSeeds = [][]byte{
+// them while the remaining parity-gap lanes stay reproducible.
+var vp9RuntimeControlsParityGapSeeds = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},
 	{1, 0, 0, 1, 0, 0, 1, 0},
@@ -37,19 +37,19 @@ var vp9RuntimeControlsOpenGapSeeds = [][]byte{
 
 // vp9RuntimeControlsSpeed8ParitySeeds is the subset that byte-matches libvpx
 // with no env flags. Keep it in the regular fuzz seed corpus while the
-// remaining cpu=0/-3 and speed-4 seeds stay in the open-gap list.
+// remaining cpu=0/-3 and speed-4 seeds stay in the parity-gap list.
 var vp9RuntimeControlsSpeed8ParitySeeds = [][]byte{
 	{1, 1, 2, 0, 3, 1, 1, 0},
 	{0x32},
 }
 
-func vp9RuntimeControlsOpenGapSeed(data []byte) bool {
+func vp9RuntimeControlsParityGapSeed(data []byte) bool {
 	for _, seed := range vp9RuntimeControlsSpeed8ParitySeeds {
 		if bytes.Equal(data, seed) {
 			return false
 		}
 	}
-	for _, seed := range vp9RuntimeControlsOpenGapSeeds {
+	for _, seed := range vp9RuntimeControlsParityGapSeeds {
 		if bytes.Equal(data, seed) {
 			return true
 		}
@@ -99,7 +99,7 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if vp9RuntimeControlsOpenGapSeed(data) {
+		if vp9RuntimeControlsParityGapSeed(data) {
 			t.Skip("open VP9 runtime-control parity seed")
 		}
 		tc := vp9OracleRuntimeFuzzCaseFromBytes(data)
