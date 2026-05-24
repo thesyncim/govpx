@@ -369,13 +369,12 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 		t.Errorf("VP8 baseline-vs-baseline BD-rate=%+0.3f%% outside ±5%% — harness wiring regression suspected (ref=%v test=%v)",
 			res.BDRate, res.Reference, res.Govpx)
 	}
-	// Task #357 retighten: post-#341/#342 the QCIF baseline measures
-	// govpx-vs-libvpx BD-rate=-1.561% (govpx ahead by ~1.6%). Tighten
-	// the per-fixture gate from the +5.0% default to -1.0% (observed
-	// -1.561% plus +0.5% headroom for cubic-fit jitter). govpx is now
-	// required to beat libvpx by at least 1.0% on this QCIF CBR ladder;
-	// any regression that loses the post-#341 byte-exact match flow on
-	// matching configs trips the gate immediately.
+	// The QCIF baseline measures govpx-vs-libvpx BD-rate=-1.561% (govpx
+	// ahead by ~1.6%). The per-fixture gate is tightened from the +5.0%
+	// default to -1.0% (observed -1.561% plus +0.5% headroom for cubic-fit
+	// jitter). govpx is required to beat libvpx by at least 1.0% on this
+	// QCIF CBR ladder; any regression that loses the byte-exact match flow
+	// on matching configs trips the gate immediately.
 	baselineGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -1.0,
 		MinBDPSNRdB:            -0.5,
@@ -399,12 +398,13 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 // motion vectors. Frame count kept at 16 so the libvpx oracle finishes
 // in a few seconds per ladder point.
 //
-// Task #353 audit (no port lands; gate stays at the default +5.0%
-// ceiling; pin the +1.111% steady state so the next audit cycle starts
-// from the same number):
+// The 360p panning fixture has no behavior change here; the gate stays at
+// the default +5.0% ceiling and the +1.111% steady state is recorded so the
+// next audit cycle starts from the same number:
 //
-//   - Pre-#341 BD-rate: +0.976%. Post-#341 BD-rate: +1.111% (+0.13pp).
-//     Both sit well inside the +5.0% gate ceiling (+3.9pp headroom).
+//   - Before the intra/inter picker fixes BD-rate was +0.976%; after them
+//     it is +1.111% (+0.13pp). Both sit well inside the +5.0% gate ceiling
+//     (+3.9pp headroom).
 //
 //   - Per-rung rate / PSNR-Y:
 //
@@ -453,39 +453,35 @@ func TestVP8FeatureBDRateBaseline(t *testing.T) {
 //     converges on different mode/MV/skip subsets at non-extremal Q
 //     because the rd_threshes[] state from the keyframe + the
 //     cyclic-refresh segment-Q biases evolve slightly differently
-//     between the two encoders (same state-drift cascade family as
-//     task #343 / #344 — the RD picker is exquisitely sensitive to
-//     transient bytestream-bit-budget noise that the keyframe encode
-//     does not control).
+//     between the two encoders (same state-drift cascade family as the
+//     realtime fast-picker and two-pass VBR pins: the RD picker is
+//     exquisitely sensitive to transient bytestream-bit-budget noise that
+//     the keyframe encode does not control).
 //
-//   - The audit hands back the same finding family as task #343
-//     (cpu_used=8 RT fast-picker, +6.94% pinned), task #344 (720p
-//     two-pass VBR, +5.503% pinned), and the post-#341 sweep on this
-//     fixture (+0.976% → +1.111%): the residual gap is steady-state
-//     state-drift cascading from the picker's exquisite Q-sensitivity
-//     at saturated near-min-Q operating points. No libvpx port closes
-//     it short of disabling cyclic refresh (which would re-introduce
-//     other byte-parity flakes) or porting the entire rd_thresh_mult
-//     evolution path (separate audit, not a single-fixture fix).
+//   - The audit hands back the same finding family as the cpu_used=8 RT
+//     fast-picker pin (+6.94%), the 720p two-pass VBR pin (+5.503%), and
+//     this fixture's own +0.976% → +1.111% sweep: the residual gap is
+//     steady-state state-drift cascading from the picker's Q-sensitivity at
+//     saturated near-min-Q operating points. No libvpx port closes it short
+//     of disabling cyclic refresh (which would re-introduce other
+//     byte-parity flakes) or porting the entire rd_thresh_mult evolution
+//     path (separate audit, not a single-fixture fix).
 //
 //   - +1.111% is well inside the +5.0% gate ceiling. A real regression on
 //     this fixture would land outside the +5% band immediately. Any future
-//     improvement that drops the BD-rate below +1.0% should retighten
-//     this fixture's per-gate (per task #342 policy: drop by 2pp below
-//     the measured steady state when an improvement crosses the
-//     >2pp-improvement threshold).
+//     improvement that drops the BD-rate below +1.0% should retighten this
+//     fixture's gate to roughly 2pp below the measured steady state.
 func TestVP8FeatureBDRate360pPanningCBR(t *testing.T) {
 	const (
 		width  = 640
 		height = 360
 		frames = 16
 	)
-	// Task #357 retighten: post-#341/#342 the 360p panning fixture
-	// measures govpx-vs-libvpx BD-rate=+1.111%. Tighten the gate from
-	// the +5.0% default to +3.1% (observed +1.111% plus +2.0% headroom
-	// for cubic-fit jitter on the 16-frame ladder). Any future
-	// regression that drives govpx more than ~2% over libvpx on this
-	// 360p panning CBR ladder trips the gate immediately.
+	// The 360p panning fixture measures govpx-vs-libvpx BD-rate=+1.111%.
+	// Tighten the gate from the +5.0% default to +3.1% (observed +1.111%
+	// plus +2.0% headroom for cubic-fit jitter on the 16-frame ladder).
+	// Any future regression that drives govpx more than ~2% over libvpx on
+	// this 360p panning CBR ladder trips the gate immediately.
 	panning360Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 3.1,
 		MinBDPSNRdB:            -0.5,
@@ -519,13 +515,13 @@ func TestVP8FeatureBDRate720pSportsCBR(t *testing.T) {
 		height = 720
 		frames = 12
 	)
-	// Task #357 retighten: post-#341/#342 the 720p sports-motion fixture
-	// measures govpx-vs-libvpx BD-rate=-3.212% (govpx ahead by ~3.2%).
-	// Tighten the gate from the +5.0% default to -2.7% (observed
-	// -3.212% plus +0.5% headroom for cubic-fit jitter). govpx is now
-	// required to beat libvpx by at least 2.7% on this 720p sports CBR
-	// ladder; any regression that loses the post-#341 inter-mode RD
-	// flow on textured high-motion content trips the gate immediately.
+	// The 720p sports-motion fixture measures govpx-vs-libvpx
+	// BD-rate=-3.212% (govpx ahead by ~3.2%). Tighten the gate from the
+	// +5.0% default to -2.7% (observed -3.212% plus +0.5% headroom for
+	// cubic-fit jitter). govpx is required to beat libvpx by at least 2.7%
+	// on this 720p sports CBR ladder; any regression that loses the
+	// inter-mode RD flow on textured high-motion content trips the gate
+	// immediately.
 	sportsGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -2.7,
 		MinBDPSNRdB:            -0.5,
@@ -560,39 +556,34 @@ func TestVP8FeatureBDRate720pSportsCBR(t *testing.T) {
 // rate-control loop has room to actually distinguish them — at higher
 // targets (4 Mbps+) the encoder saturates near min-q on this fixture
 // and all rungs collapse to nearly identical produced rates, killing
-// the BD-rate fit. The task asked for VBR 2M/4M/8M/16M kbps but the
-// synthetic fixture cannot honor that span; the rate axis the cubic
+// the BD-rate fit. Higher VBR rungs such as 2M/4M/8M/16M kbps cannot
+// be honored by this synthetic fixture; the rate axis the cubic
 // fit operates on is the produced rate, not the target, so the rung
 // values are validation ballast as long as the actual produced rates
 // span enough range for a well-conditioned fit.
 //
-// Task #342 retightening: after the task #341 tteob==0 rate2 backout
-// port into estimateInterIntraModeRDScore, the per-MB inter-vs-intra
-// RD picker dropped the rate2 inflation for flat-Y inter-loop intra
-// candidates. On this static-then-motion fixture the static phase has
-// long stretches of flat-Y MBs where libvpx's tteob==0 backout fires;
-// govpx now matches that path, and the resulting BD-rate measurement
-// collapsed from -0.854% to -10.689% (-9.84pp improvement). Retighten
-// the per-fixture gate from the default +5.0% ceiling to -8.0% so
-// govpx is now required to beat libvpx by at least 8% on this fixture
-// (measured -10.689% plus +2.0% headroom for cubic-fit jitter). Any
-// future regression that loses the static-phase intra-skip flow on
-// this fixture (e.g. an inter-loop RD picker change that re-inflates
-// tteob==0 candidates) trips the gate immediately.
+// After the tteob==0 rate2 backout port into
+// estimateInterIntraModeRDScore, the per-MB inter-vs-intra RD picker
+// dropped the rate2 inflation for flat-Y inter-loop intra candidates. On
+// this static-then-motion fixture the static phase has long stretches of
+// flat-Y MBs where libvpx's tteob==0 backout fires; govpx now matches that
+// path, and the resulting BD-rate measurement collapsed from -0.854% to
+// -10.689% (-9.84pp improvement). The per-fixture gate is tightened from
+// the default +5.0% ceiling to -8.0% so govpx is required to beat libvpx by
+// at least 8% on this fixture (measured -10.689% plus +2.0% headroom for
+// cubic-fit jitter). Any future regression that loses the static-phase
+// intra-skip flow on this fixture trips the gate immediately.
 func TestVP8FeatureBDRate1080pStaticMotionVBR(t *testing.T) {
 	const (
 		width  = 1920
 		height = 1080
 		frames = 12
 	)
-	// Task #357 retighten: the post-#341/#342 measurement is steady at
-	// -10.689% BD-rate (vs the -10.689% pinned at #342 — no drift).
-	// Tighten the per-fixture gate from the #342 -8.0% ceiling to
-	// -10.1% (observed -10.689% plus +0.5% headroom for cubic-fit
-	// jitter). govpx is now required to beat libvpx by at least 10.1%
-	// on this static-then-motion VBR fixture; any regression that
-	// loses the post-#341 static-phase intra-skip flow trips the gate
-	// immediately.
+	// The measurement is steady at -10.689% BD-rate. Tighten the
+	// per-fixture gate from -8.0% to -10.1% (observed -10.689% plus +0.5%
+	// headroom for cubic-fit jitter). govpx is required to beat libvpx by
+	// at least 10.1% on this static-then-motion VBR fixture; any regression
+	// that loses the static-phase intra-skip flow trips the gate immediately.
 	staticMotionGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -10.1,
 		MinBDPSNRdB:            -0.5,
@@ -628,14 +619,13 @@ func TestVP8FeatureBDRate720pGoodSSIM(t *testing.T) {
 		height = 720
 		frames = 12
 	)
-	// Task #357 retighten: post-#341/#342 the 720p panning tune=ssim
-	// fixture measures govpx-vs-libvpx BD-rate=-9.286% (govpx ahead by
-	// ~9.3%). Tighten the gate from the +5.0% default to -8.7%
-	// (observed -9.286% plus +0.5% headroom for cubic-fit jitter near
-	// the transparent-PSNR upper rungs). govpx is now required to beat
-	// libvpx by at least 8.7% on the SSIM-tuned RD path; any
-	// regression that loses the post-#341 activity-masked picker flow
-	// trips the gate immediately.
+	// The 720p panning tune=ssim fixture measures govpx-vs-libvpx
+	// BD-rate=-9.286% (govpx ahead by ~9.3%). Tighten the gate from the
+	// +5.0% default to -8.7% (observed -9.286% plus +0.5% headroom for
+	// cubic-fit jitter near the transparent-PSNR upper rungs). govpx is
+	// required to beat libvpx by at least 8.7% on the SSIM-tuned RD path;
+	// any regression that loses the activity-masked picker flow trips the
+	// gate immediately.
 	ssimGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -8.7,
 		MinBDPSNRdB:            -0.5,
@@ -674,12 +664,12 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 		height = 480
 		frames = 16
 	)
-	// Task #357 retighten: post-#341/#342 the 480p panning VBR fixture
-	// measures govpx-vs-libvpx BD-rate=+0.645%. Tighten the gate from
-	// the +5.0% default to +2.6% (observed +0.645% plus +2.0% headroom
-	// for cubic-fit jitter on the single-pass VBR ladder). Any future
-	// regression that drives govpx more than ~2% over libvpx on the
-	// single-pass VBR rate-control axis trips the gate immediately.
+	// The 480p panning VBR fixture measures govpx-vs-libvpx
+	// BD-rate=+0.645%. Tighten the gate from the +5.0% default to +2.6%
+	// (observed +0.645% plus +2.0% headroom for cubic-fit jitter on the
+	// single-pass VBR ladder). Any future regression that drives govpx more
+	// than ~2% over libvpx on the single-pass VBR rate-control axis trips
+	// the gate immediately.
 	vbr480Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 2.6,
 		MinBDPSNRdB:            -0.5,
@@ -703,9 +693,9 @@ func TestVP8FeatureBDRate480pVBR(t *testing.T) {
 		vbr480Gate)
 }
 
-// TestVP8FeatureBDRate480pSportsSSIMVBR (task #383, fixture F15) widens
-// the SSIM-tune coverage at a smaller resolution than the existing 720p
-// SSIM fixture (TestVP8FeatureBDRate720pGoodSSIM). It pairs the
+// TestVP8FeatureBDRate480pSportsSSIMVBR widens the SSIM-tune coverage at
+// a smaller resolution than the existing 720p SSIM fixture
+// (TestVP8FeatureBDRate720pGoodSSIM). It pairs the
 // high-motion sports source (textured background + fast foreground
 // "ball") with --tune=ssim under a single-pass VBR ladder, so the
 // activity-masking RD path is exercised against a non-CBR rate-control
@@ -717,10 +707,10 @@ func TestVP8FeatureBDRate480pSportsSSIMVBR(t *testing.T) {
 		height = 480
 		frames = 16
 	)
-	// Task #383 initial measurement: BD-rate=-0.339% / BD-PSNR=+0.019 dB
+	// Initial measurement: BD-rate=-0.339% / BD-PSNR=+0.019 dB
 	// (govpx essentially at parity with libvpx on the 480p sports VBR
-	// SSIM ladder). Per #357 rules govpx trails by less than 1% in
-	// absolute terms, so set the ceiling at +1.7% (observed +|-0.339|
+	// SSIM ladder). Govpx trails by less than 1% in absolute terms, so set
+	// the ceiling at +1.7% (observed +|-0.339|
 	// plus +1.4% headroom for cubic-fit jitter on a 16-frame VBR ladder)
 	// and the BD-PSNR floor at -0.5 dB (standard).
 	ssim480Gate := benchcmd.LibvpxAbsoluteGate{
@@ -752,9 +742,8 @@ func TestVP8FeatureBDRate480pSportsSSIMVBR(t *testing.T) {
 		ssim480Gate)
 }
 
-// TestVP8FeatureBDRate1080pPanningSSIMCBR (task #383, fixture F16) fills
-// the larger-resolution SSIM-tune coverage cell (F5 covers 720p, this
-// covers 1080p). The 1080p panning source has the same MV pattern as
+// TestVP8FeatureBDRate1080pPanningSSIMCBR fills the larger-resolution
+// SSIM-tune coverage cell. The 1080p panning source has the same MV pattern as
 // the F5 fixture but at 2.25x the pixel count, so cubic-fit jitter from
 // activity-masking on bigger frames is observable. CBR ladder mirrors
 // F5's ladder so the larger-resolution measurement is comparable.
@@ -764,14 +753,13 @@ func TestVP8FeatureBDRate1080pPanningSSIMCBR(t *testing.T) {
 		height = 1080
 		frames = 12
 	)
-	// Task #383 initial measurement: BD-rate=+1.186% / BD-PSNR=+0.151 dB
+	// Initial measurement: BD-rate=+1.186% / BD-PSNR=+0.151 dB
 	// (govpx slightly trails libvpx on the 1080p panning CBR SSIM
 	// ladder, compared to govpx's -9.286% lead on the 720p panning SSIM
 	// fixture F5: at 1080p the activity-masking RD path encounters more
-	// MBs per frame and the cubic-fit jitter widens). Per #357 rules
-	// set the ceiling at +3.2% (observed +1.186% plus +2.0% headroom for
-	// cubic-fit jitter on the 12-frame 1080p ladder) and the BD-PSNR
-	// floor at -0.5 dB (standard).
+	// MBs per frame and the cubic-fit jitter widens). Set the ceiling at
+	// +3.2% (observed +1.186% plus +2.0% headroom for cubic-fit jitter on
+	// the 12-frame 1080p ladder) and the BD-PSNR floor at -0.5 dB.
 	ssim1080Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 3.2,
 		MinBDPSNRdB:            -0.5,
@@ -799,12 +787,11 @@ func TestVP8FeatureBDRate1080pPanningSSIMCBR(t *testing.T) {
 		ssim1080Gate)
 }
 
-// TestVP8FeatureBDRate360pScreenContentSSIMCBR (task #383, fixture F17)
-// combines --tune=ssim with --screen-content-mode=1 at 360p to exercise
-// the intersection of the activity-masking RD path with the
-// screen-content semantic gating (UV-delta-Q, cyclic-refresh,
-// buffer-debt floor, limit_q_cbr_inter floor). The existing 720p
-// screen-content CBR fixture
+// TestVP8FeatureBDRate360pScreenContentSSIMCBR combines --tune=ssim with
+// --screen-content-mode=1 at 360p to exercise the intersection of the
+// activity-masking RD path with the screen-content semantic gating
+// (UV-delta-Q, cyclic-refresh, buffer-debt floor, limit_q_cbr_inter floor).
+// The existing 720p screen-content CBR fixture
 // (TestVP8FeatureBDRate720pScreenContentCBR) runs at the libvpx default
 // --tune=psnr; this fixture additionally pins Tuning to TuneSSIM so the
 // libvpx oracle emits --tune=ssim alongside --screen-content-mode=1.
@@ -814,15 +801,15 @@ func TestVP8FeatureBDRate360pScreenContentSSIMCBR(t *testing.T) {
 		height = 360
 		frames = 16
 	)
-	// Task #383 initial measurement: BD-rate=+2.668% / BD-PSNR=+0.070 dB
+	// Initial measurement: BD-rate=+2.668% / BD-PSNR=+0.070 dB
 	// (govpx trails libvpx on the 360p screen-content tune=ssim CBR
 	// ladder). The pure-PSNR-tune sibling at 720p
 	// (TestVP8FeatureBDRate720pScreenContentCBR) sits at +9.704% with
 	// the gate set at +11.5%; this smaller-resolution SSIM-tune variant
 	// avoids the prob_intra_coded equilibrium that dominates the 720p
 	// residual (the 360p frame has 4x fewer MBs so the recode loop
-	// converges sooner). Per #357 rules set the ceiling at +4.7%
-	// (observed +2.668% plus +2.0% headroom for cubic-fit jitter on
+	// converges sooner). Set the ceiling at +4.7% (observed +2.668% plus
+	// +2.0% headroom for cubic-fit jitter on
 	// the sparse screen-content rate axis) and the BD-PSNR floor at
 	// -0.6 dB to match the 720p screen-content fixture (the same
 	// near-transparent upper-rung dynamic that drives the wider
@@ -1033,8 +1020,8 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	// but the cubic-fit aggregation through 4 ladder points where the
 	// upper rung approaches PSNR transparency (~47 dB) amplifies the
 	// fit residual to a steady-state +5.137% BD-rate measurement on
-	// this 16-frame 720p panning fixture. Task #287 ported every
-	// float-vs-int arithmetic-order divergence the libvpx
+	// this 16-frame 720p panning fixture. The float-vs-int arithmetic-order
+	// cleanup ported every divergence the libvpx
 	// define_gf_group / kfBitsTarget / assignStdFrameBits paths
 	// touched (saturate_cast_double_to_int helper, divide-before-
 	// multiply in alt_kf_bits, double-domain Boost*group_bits/
@@ -1050,10 +1037,10 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	// The within-govpx baseline-vs-test BD-rate is still expected to
 	// be near zero (checked by runVP8BDRateFixture).
 	//
-	// Task #344 (post-#341 audit): the measured value drifted to
-	// +5.503% after the intra-in-inter-loop tteob==0 rate2 backout
-	// landed (vp8_encoder_inter_modes_rd_intra.go: estimateInterIntraModeRDScore).
-	// Per-rung diff vs pre-#341 govpx:
+	// After the intra-in-inter-loop tteob==0 rate2 backout landed
+	// (vp8_encoder_inter_modes_rd_intra.go:
+	// estimateInterIntraModeRDScore), the measured value drifted to
+	// +5.503%. Per-rung diff vs the previous govpx baseline:
 	//   target=1500: 609.795 -> 617.985 kbps  (+8.19, +1.34%) PSNR -0.002dB
 	//   target=3000: 1496.34 -> 1496.34 kbps  (byte-identical)
 	//   target=6000: 2931.81 -> 2931.81 kbps  (byte-identical)
@@ -1062,10 +1049,10 @@ func TestVP8FeatureBDRate720pTwoPassVBR(t *testing.T) {
 	// Q-floor where the picker's mode choices collapse near-zero
 	// residual. The +1.34% bottom-rung rate shift amplifies through
 	// the 4-point cubic fit into a +0.37pp BD-rate move (5.137% ->
-	// 5.503%). The shift is intentional: #341 made the picker faithful
-	// to libvpx vp8/encoder/rdopt.c:1684-1714 (tteob==0 mode-backout),
-	// so the only correct action is to keep the 6.0% headroom and
-	// document the post-#341 steady state. Gate still passes by ~0.5%.
+	// 5.503%). The shift is intentional: the picker now matches libvpx
+	// vp8/encoder/rdopt.c:1684-1714 (tteob==0 mode-backout), so the correct
+	// action is to keep the 6.0% headroom and document the steady state.
+	// Gate still passes by ~0.5%.
 	twoPassGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 6.0,
 		MinBDPSNRdB:            -0.5,
@@ -1105,7 +1092,7 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// content) so the produced-rate curve compresses near
 	// ~4 Mbps regardless of target. Widen the per-fixture gate to
 	// 37.6% (vs 5% default) to absorb the consequent cubic-fit jitter
-	// after task #291's fix to the libvpx oracle CLI mapper
+	// after the libvpx oracle CLI mapper fix
 	// (cmd/govpx-bench/benchcmd/bdrate_vp8.go libvpxVP8BDCLIArgs +
 	// libvpxVP8BDCLIArgsTwoPass: pass --screen-content-mode=N when
 	// govpx.EncoderOptions.ScreenContentMode is set so the libvpx
@@ -1115,8 +1102,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// govpx's screen_content_mode=1, masking a real ~36% BD-rate
 	// gap as a more flattering ~20% gap.
 	//
-	// Task #293 instrumented both encoders' VP8 regulators to confirm
-	// the four libvpx screen-content semantic sites — UV-delta-Q
+	// Regulator traces confirm the four libvpx screen-content semantic
+	// sites — UV-delta-Q
 	// (vp8_quantize.c:469), cyclic-refresh MB-budget scaling
 	// (onyx_if.c:509-528), buffer-debt floor (onyx_if.c:4533), and the
 	// limit_q_cbr_inter Q-decrease floor (ratectrl.c:1297-1300) — are
@@ -1143,8 +1130,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// (Q=119 → 62 → 26 → 13), so govpx settles at a higher Q with a
 	// smaller frame and libvpx settles at a lower Q matching target.
 	//
-	// Task #341 ported libvpx vp8/encoder/rdopt.c calculate_final_rd_costs
-	// (lines 1684-1714) `tteob == 0` rate2 backout into govpx's
+	// Govpx ports libvpx vp8/encoder/rdopt.c calculate_final_rd_costs
+	// (lines 1684-1714) `tteob == 0` rate2 backout into its
 	// intra-in-inter-loop RD picker (estimateInterIntraModeRDScore).
 	// libvpx drops `rate_y + rate_uv` from the rate2 cost when every Y AC
 	// coefficient and every UV coefficient quantizes to zero and replaces
@@ -1171,9 +1158,9 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// require porting the libvpx coefficient-rate / token-cost ladder
 	// quirks that drive the residual rate gap below 10%.
 	//
-	// Task #352 bisect (vp8_screen_content_residual_parity_test.go)
-	// extends the task #341 per-MB probe across frames 2-11 and pins
-	// the residual divergence-seed at frame 2 MB(0,1). Frame 1 stays
+	// The screen-content residual parity test extends the per-MB probe
+	// across frames 2-11 and pins the residual divergence seed at frame 2
+	// MB(0,1). Frame 1 stays
 	// byte-exact (0 mismatches); frame 2 has 1326/3600 MB mode
 	// mismatches (1220 with govpx ZEROMV+GOLDEN where libvpx picks
 	// intra). Root cause: prob_intra_coded self-reinforcing
@@ -1185,8 +1172,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 	// clamped because every Q produces the same all-skip
 	// ZEROMV-GOLDEN pattern at prob_intra=1. The libvpx-side
 	// mechanism that admits intra candidates against prob_intra=1
-	// (breaking out of the equilibrium) is not yet localized; see
-	// the task #352 docstring for the next-step audit plan.
+	// (breaking out of the equilibrium) is not yet localized; see the
+	// screen-content residual parity test for the next-step audit plan.
 	screenContentGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 11.5,
 		MinBDPSNRdB:            -0.6,
@@ -1215,9 +1202,8 @@ func TestVP8FeatureBDRate720pScreenContentCBR(t *testing.T) {
 // TestVP8FeatureBDRate720pRealtimeCpu8CBR drives a 720p panning fixture
 // through the realtime-deadline cpu_used=8 path under a CBR ladder.
 // Speed >= 8 disables further sub-pixel refinement steps and improved
-// MV prediction in libvpx; #275's existing fixtures cover lower
-// cpu-used values (the default 0). This is the realtime/cpu-8
-// coverage cell.
+// MV prediction in libvpx; existing fixtures cover lower cpu-used values
+// (the default 0). This is the realtime/cpu-8 coverage cell.
 func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	const (
 		width  = 1280
@@ -1232,27 +1218,28 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	// govpx implements the libvpx-ported speed cascade but the cubic
 	// fit on this short ladder amplifies the per-frame Q drift.
 	//
-	// Task #357 audit: back-to-back runs of this fixture show large
-	// run-to-run variance driven entirely by the libvpx oracle side
+	// Back-to-back runs of this fixture show large run-to-run variance
+	// driven entirely by the libvpx oracle side
 	// (govpx-side ref==test curves are bit-identical across runs).
 	// The libvpx vpxenc --rt --cpu-used=8 path makes per-inter-frame
 	// wall-clock-budget decisions in its real-time auto-speed
 	// cascade (vp8/encoder/onyx_if.c), and on a 16-frame 720p panning
 	// source those decisions ripple through to PSNR-Y at the mid rungs.
-	// Three consecutive runs in the task #357 audit measured:
+	// Three consecutive runs measured:
 	//   run A: govpx-vs-libvpx BD-rate=+2.299%, BD-PSNR=-0.372 dB
 	//   run B: govpx-vs-libvpx BD-rate=+6.935%, BD-PSNR=-0.952 dB
 	//   run C: govpx-vs-libvpx BD-rate=+16.821%, BD-PSNR=-0.875 dB
 	// Libvpx produced PSNR at the 4 Mbps rung varied 42.858 -> 44.477
 	// dB across runs B and C on identical source.
 	//
-	// Task #367 mitigation: libvpx vp8_auto_select_speed (rdopt.c:261)
-	// reads cpi->avg_encode_time, a vpx_usec_timer wall-clock
+	// The mitigation is to avoid libvpx vp8_auto_select_speed
+	// (rdopt.c:261), which reads cpi->avg_encode_time, a vpx_usec_timer
+	// wall-clock
 	// measurement, and adapts cpi->Speed accordingly. Two consecutive
 	// vpxenc invocations on the same source produce different
 	// cpi->Speed trajectories and therefore different rate/PSNR for
-	// every operating point. Empirical task #367 audit at the
-	// previous CpuUsed=+8 setting (which engages auto-select) showed
+	// every operating point. Empirical runs at the previous CpuUsed=+8
+	// setting (which engages auto-select) showed
 	// median-of-3 with the new harness shim still produced run-to-run
 	// BD-rate spreads of -6.7% / +13.4% / +672% across three audit
 	// runs (the 4 Mbps PSNR-Y rung varied 36.6 -> 42.9 -> 44.5 dB),
@@ -1273,22 +1260,21 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 	// LibvpxOracleRuns=3 is kept as belt-and-suspenders against
 	// residual oracle-side variance from sources outside auto-select
 	// (e.g. MT-LF jitter, NEON kernel race in tiny accumulators on
-	// Apple Silicon). With both mitigations the post-#341/#342
-	// +10.0% / -1.0 dB envelope holds across N>=3 audit runs on
-	// arm64-darwin and the #357 gate widen-to-+20% is rolled back.
+	// Apple Silicon). With both mitigations the +10.0% / -1.0 dB envelope
+	// holds across N>=3 audit runs on arm64-darwin and the temporary
+	// widen-to-+20% gate is rolled back.
 	//
-	// Task #382 retighten: with the #367 mitigations in place the
-	// fixture now measures govpx-vs-libvpx BD-rate=-0.817% /
+	// With the mitigations in place the fixture now measures
+	// govpx-vs-libvpx BD-rate=-0.817% /
 	// BD-PSNR=+0.000 dB on this arm64-darwin host (median-of-3 libvpx
 	// runs collapse to the govpx-aligned trajectory on every ladder
-	// rung). The post-#367 +10.0% envelope leaves ~10pp of dead
-	// headroom that masks any future regression in the negative-
+	// rung). The +10.0% envelope leaves ~10pp of dead headroom that masks
+	// any future regression in the negative-
 	// cpu_used / median-of-3 path. Tighten MaxBDRateOverLibvpxPct
 	// from +10.0% to +1.2% (observed -0.817% + 2.0pp positive-ceiling
-	// headroom per the task #357 retighten rule, rounded to one
-	// decimal). MinBDPSNRdB stays at -1.0 dB so a residual oracle-
-	// side cold-PSNR tail outside the BD-rate axis still has the
-	// post-#367 buffer.
+	// headroom, rounded to one decimal). MinBDPSNRdB stays at -1.0 dB so
+	// a residual oracle-side cold-PSNR tail outside the BD-rate axis still
+	// has buffer.
 	realtimeCpu8Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 1.2,
 		MinBDPSNRdB:            -1.0,
@@ -1306,22 +1292,20 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
-				// Task #367: pin Speed=8 via libvpx's documented
-				// negative-cpu_used escape (vp8/encoder/encodeframe.c
-				// :686-687); avoids vp8_auto_select_speed's
-				// wall-clock variance on both the govpx and the
-				// libvpx side of the comparison. Govpx mirrors the
-				// same branch at vp8_encoder_config.go:710-713.
+				// Pin Speed=8 via libvpx's documented negative-cpu_used
+				// escape (vp8/encoder/encodeframe.c:686-687); avoids
+				// vp8_auto_select_speed's wall-clock variance on both
+				// sides of the comparison. Govpx mirrors the same branch at
+				// vp8_encoder_config.go:710-713.
 				o.CpuUsed = -8
 			},
 			Test: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
 				o.CpuUsed = -8
 			},
-			// Task #367: belt-and-suspenders median-of-3 against
-			// residual oracle-side variance (NEON kernel race,
-			// MT-LF jitter on threads>=2, etc.) outside the
-			// auto-speed wall-clock path.
+			// Belt-and-suspenders median-of-3 against residual oracle-side
+			// variance (NEON kernel race, MT-LF jitter on threads>=2,
+			// etc.) outside the auto-speed wall-clock path.
 			LibvpxOracleRuns: 3,
 		},
 		realtimeCpu8Gate)
@@ -1330,24 +1314,22 @@ func TestVP8FeatureBDRate720pRealtimeCpu8CBR(t *testing.T) {
 // TestVP8FeatureBDRate720pTokenParts4CBR drives a 720p sports-motion
 // fixture through a CBR ladder with token-partitions=2 (vpxenc maps
 // 2 -> 4 token partitions). This exercises the parallel-tokens header
-// byte layout introduced in #251 and the per-partition arithmetic
-// encoder init: the resulting bitstream has 4 token partitions packed
-// after the first-partition header, and the libvpx reference must
-// match the per-partition byte budget.
+// byte layout and the per-partition arithmetic encoder init: the resulting
+// bitstream has 4 token partitions packed after the first-partition header,
+// and the libvpx reference must match the per-partition byte budget.
 func TestVP8FeatureBDRate720pTokenParts4CBR(t *testing.T) {
 	const (
 		width  = 1280
 		height = 720
 		frames = 12
 	)
-	// Task #357 retighten: post-#341/#342 the 720p sports-motion
-	// token-parts=4 fixture measures govpx-vs-libvpx BD-rate=-1.223%
-	// (govpx ahead by ~1.2%). Tighten the gate from the +5.0% default
-	// to -0.7% (observed -1.223% plus +0.5% headroom for cubic-fit
-	// jitter). govpx is now required to beat libvpx by at least 0.7%
-	// on the 4-token-partition CBR path; any regression that loses
-	// the post-#341 per-partition byte budget alignment trips the
-	// gate immediately.
+	// The 720p sports-motion token-parts=4 fixture measures
+	// govpx-vs-libvpx BD-rate=-1.223% (govpx ahead by ~1.2%). Tighten the
+	// gate from the +5.0% default to -0.7% (observed -1.223% plus +0.5%
+	// headroom for cubic-fit jitter). govpx is required to beat libvpx by
+	// at least 0.7% on the 4-token-partition CBR path; any regression that
+	// loses the per-partition byte budget alignment trips the gate
+	// immediately.
 	tokenParts4Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -0.7,
 		MinBDPSNRdB:            -0.5,
@@ -1375,53 +1357,50 @@ func TestVP8FeatureBDRate720pTokenParts4CBR(t *testing.T) {
 		tokenParts4Gate)
 }
 
-// Task #370 expansion — four fixtures added to broaden BD-rate coverage
-// over the pre-#370 10-fixture set:
+// Four fixtures broaden BD-rate coverage over the original 10-fixture set:
 //
 //   - F11 1080p sports CBR cpu=-3: pairs with the existing 720p sports
 //     CBR fixture (#3) on a higher-resolution rung with slower-RD
 //     cpu=-3, closing the high-res / slower-RD coverage gap. The
-//     pre-#370 set had no 1080p CBR coverage.
+//     original set had no 1080p CBR coverage.
 //   - F12 480p mixed-motion VBR: covers the bursty static<->motion
 //     rate-control adaptation axis. The 1080p static-then-motion VBR
-//     fixture (#4) has a single transition; this one alternates every
+//     static-then-motion fixture has a single transition; this one alternates every
 //     4 frames so the rate controller has to absorb repeated phase
 //     boundaries.
 //   - F13 720p RT cpu=4 CBR: fills the mid-realtime gap between the
-//     cpu=8 fixture (#9, max-speed RT) and the good-quality default
+//     cpu=8 fixture (max-speed RT) and the good-quality default
 //     (cpu=0). cpu=4 sits at the libvpx "balanced" realtime preset.
 //   - F14 640p denoise-heavy VBR: exercises the YUV temporal denoiser
 //     (NoiseSensitivity=3 aggressive YUV denoise) + Sharpness=4
-//     loop-filter tuning over a noisy sports-motion source. No pre-#370
+//     loop-filter tuning over a noisy sports-motion source. No earlier
 //     fixture engages NoiseSensitivity or Sharpness against the libvpx
 //     oracle, leaving the camera-noise / loop-filter axes unmonitored.
 //     ARNR (LookaheadFrames+AutoAltRef path) is covered separately by
-//     TestVP8FeatureBDRate720pARNRHeavyVBR after task #377 taught the
-//     BD-rate harness to skip hidden alt-ref packets in the per-frame
-//     PSNR pairing pass (PeekVP8StreamInfo show_frame check) and to
-//     pair visible packets to source frames by the encoder-echoed PTS,
-//     which is robust to the alt-ref scheduler's hidden/visible
-//     interleaving.
+//     TestVP8FeatureBDRate720pARNRHeavyVBR after the BD-rate harness learned
+//     to skip hidden alt-ref packets in the per-frame PSNR pairing pass
+//     (PeekVP8StreamInfo show_frame check) and to pair visible packets to
+//     source frames by the encoder-echoed PTS, which is robust to the
+//     alt-ref scheduler's hidden/visible interleaving.
 
 // TestVP8FeatureBDRate1080pSportsCpu3CBR drives a 1080p sports-motion
 // fixture through a CBR ladder with cpu_used=-3 (slower good-quality
 // preset, more RD iterations than cpu=0). Higher-resolution and
-// slower-RD counterpart to #3 (720p sports CBR cpu=0).
+// slower-RD counterpart to the 720p sports CBR cpu=0 fixture.
 func TestVP8FeatureBDRate1080pSportsCpu3CBR(t *testing.T) {
 	const (
 		width  = 1920
 		height = 1080
 		frames = 8
 	)
-	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=-3.427%
-	// BD-PSNR=+0.176 dB on the 1080p sports CBR cpu=-3 ladder at task
-	// #370 capture. govpx beats libvpx by ~3.4%, so per the #357 rules
-	// the gate is set negative: -2.9% (observed -3.427% plus +0.5%
-	// headroom for cubic-fit jitter on the 8-frame ladder). Any
-	// regression that loses the post-#341 cpu=-3 slower-RD picker flow
-	// at 1080p trips the gate immediately. Frame count is fixed at 8
-	// because 1080p x 4 rungs x 2 oracles is the most expensive fixture
-	// in the suite (~7 min wall-clock per gate run).
+	// Initial measurement: govpx-vs-libvpx BD-rate=-3.427% /
+	// BD-PSNR=+0.176 dB on the 1080p sports CBR cpu=-3 ladder. govpx
+	// beats libvpx by ~3.4%, so the gate is set negative: -2.9% (observed
+	// -3.427% plus +0.5% headroom for cubic-fit jitter on the 8-frame
+	// ladder). Any regression that loses the cpu=-3 slower-RD picker flow at
+	// 1080p trips the gate immediately. Frame count is fixed at 8 because
+	// 1080p x 4 rungs x 2 oracles is the most expensive fixture in the suite
+	// (~7 min wall-clock per gate run).
 	sportsCpu3Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: -2.9,
 		MinBDPSNRdB:            -0.5,
@@ -1452,20 +1431,20 @@ func TestVP8FeatureBDRate1080pSportsCpu3CBR(t *testing.T) {
 // TestVP8FeatureBDRate480pMixedMotionVBR drives a 480p mixed-motion
 // fixture (alternating slow/fast phases every 4 frames) through a VBR
 // ladder. Tests the rate controller's per-frame adaptation across
-// repeated motion-energy phase boundaries, an axis the pre-#370 set
-// only touched once (#4, single static->motion transition).
+// repeated motion-energy phase boundaries, an axis the original set only
+// touched once with a single static->motion transition.
 func TestVP8FeatureBDRate480pMixedMotionVBR(t *testing.T) {
 	const (
 		width  = 854
 		height = 480
 		frames = 16
 	)
-	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=+2.230%
-	// BD-PSNR=+0.356 dB on the 480p mixed-motion VBR ladder. govpx
-	// trails libvpx by ~2.2% on this fixture (small positive). Per
-	// #357 rules a positive-residual fixture gets +2% headroom over
-	// the observed value: ceiling +4.2% (observed +2.230% plus +2.0%
-	// headroom for cubic-fit jitter on the bursty rate-control path).
+	// Initial measurement: govpx-vs-libvpx BD-rate=+2.230% /
+	// BD-PSNR=+0.356 dB on the 480p mixed-motion VBR ladder. govpx trails
+	// libvpx by ~2.2% on this fixture (small positive). Positive-residual
+	// fixtures get +2% headroom over the observed value: ceiling +4.2%
+	// (observed +2.230% plus +2.0% headroom for cubic-fit jitter on the
+	// bursty rate-control path).
 	mixedMotionGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 4.2,
 		MinBDPSNRdB:            -0.5,
@@ -1491,7 +1470,7 @@ func TestVP8FeatureBDRate480pMixedMotionVBR(t *testing.T) {
 
 // TestVP8FeatureBDRate720pRealtimeCpu4CBR drives a 720p panning fixture
 // through the realtime-deadline cpu_used=4 path under a CBR ladder.
-// Mid-speed realtime counterpart to #9 (cpu=8, max RT). cpu=4 is the
+// Mid-speed realtime counterpart to the cpu=8 max-RT fixture. cpu=4 is the
 // libvpx "balanced" realtime preset and exercises the speed cascade
 // at a different threshold than the cpu=8 case.
 func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
@@ -1500,20 +1479,19 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 		height = 720
 		frames = 16
 	)
-	// Task #370 introduction. The cpu=8 sibling (#9) widened to
-	// +20%/-1.2 dB after a libvpx-oracle wall-clock variance audit
-	// found a ±14pp BD-rate spread across three back-to-back runs;
-	// this cpu=4 fixture has the same realtime auto-speed cascade
-	// (vp8/encoder/onyx_if.c) and shows the same wall-clock-budget
+	// The cpu=8 sibling widened to +20%/-1.2 dB after a libvpx-oracle
+	// wall-clock variance audit found a ±14pp BD-rate spread across three
+	// back-to-back runs; this cpu=4 fixture has the same realtime auto-speed
+	// cascade (vp8/encoder/onyx_if.c) and shows the same wall-clock-budget
 	// variance pattern.
 	//
-	// Task #370 audit captured four samples back-to-back:
+	// Four samples captured back-to-back:
 	//   sample 1: BD-rate=-26.090%, BD-PSNR=-0.207 dB (cold libvpx oracle)
 	//   sample 2: BD-rate= +6.854%, BD-PSNR=-0.955 dB
 	//   sample 3: BD-rate= +6.854%, BD-PSNR=-0.955 dB
 	//   sample 4: BD-rate= +6.854%, BD-PSNR=-0.955 dB
 	//
-	// Task #376 audit at the same +4 setting (one month later):
+	// Later audit at the same +4 setting:
 	//   sample 1: BD-rate= -7.401%, BD-PSNR=+0.781 dB
 	//   sample 2: BD-rate= +27.137%, BD-PSNR=+2.776 dB
 	//   sample 3: BD-rate= +254.149%, BD-PSNR=+2.963 dB (cold libvpx)
@@ -1526,8 +1504,8 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 	// bit-identical across every sample; the entire spread is on the
 	// libvpx oracle side.
 	//
-	// Task #376 mitigation (mirrors #367 for the cpu=8 sibling):
-	// pin both sides at the documented libvpx negative-cpu_used
+	// Mitigation mirrors the cpu=8 sibling: pin both sides at the documented
+	// libvpx negative-cpu_used
 	// escape (vp8/encoder/encodeframe.c:686-687: oxcf.cpu_used < 0
 	// bypasses vp8_auto_select_speed and pins cpi->Speed = -cpu_used)
 	// to remove the wall-clock dependency, plus LibvpxOracleRuns=3
@@ -1537,27 +1515,24 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 	// the thousandth (libvpx curve 33.783 / 37.718 / 42.800 /
 	// 47.185 dB at 1887 / 3552 / 5042 / 7315 kbps). The +6.24% is a
 	// real Speed=4 algorithmic gap — not auto-speed noise — and is
-	// the static target for follow-up porting (analog of #361/#362/
-	// #363/#364 targeted Speed-gate ports, but at cpu_used+1=5
-	// realistic Speed only the HEX gate already ported via #361
-	// fires; the remaining +6.24% gap is below Speed=5 cascade-only
+	// the static target for follow-up porting (analogous to the targeted
+	// Speed-gate ports, but at cpu_used+1=5 realistic Speed only the HEX
+	// gate fires; the remaining +6.24% gap is below Speed=5 cascade-only
 	// territory and sits at the realtime Speed=4 RD-vs-fast picker
-	// decisions). +10.0% / -1.0 dB envelope per the post-#341/#342
-	// /#367 project default; +3.7pp headroom over the observed
-	// +6.240% absorbs cubic-fit jitter on this short 16-frame ladder.
+	// decisions). The +10.0% / -1.0 dB envelope leaves +3.7pp headroom over
+	// the observed +6.240% to absorb cubic-fit jitter on this short
+	// 16-frame ladder.
 	//
-	// Task #382 retighten: with #376's CpuUsed=-4 + LibvpxOracleRuns=3
-	// mitigation chain landed the fixture's BD-rate is deterministic
-	// at govpx-vs-libvpx +6.240% / -0.868 dB across runs. The #376
-	// +10.0% project-default ceiling carries +3.76pp of dead
-	// headroom over the steady-state value; tighten the BD-rate gate
-	// to +8.3% (observed +6.240% + 2.0pp positive-ceiling headroom
-	// per the task #357 retighten rule, rounded to one decimal). The
-	// BD-PSNR floor stays at -1.0 dB — the observed -0.868 dB sits
-	// near that band, and tightening PSNR further risks tripping the
-	// gate on cubic-fit jitter at the lower ladder rungs where
-	// libvpx's Speed=4 fast picker delivers a 0.7-1.2 dB PSNR-Y
-	// advantage that the rate axis trades against.
+	// With CpuUsed=-4 + LibvpxOracleRuns=3 the fixture's BD-rate is
+	// deterministic at govpx-vs-libvpx +6.240% / -0.868 dB across runs.
+	// The +10.0% ceiling carries +3.76pp of dead headroom over the
+	// steady-state value; tighten the BD-rate gate to +8.3% (observed
+	// +6.240% + 2.0pp positive-ceiling headroom, rounded to one decimal).
+	// The BD-PSNR floor stays at -1.0 dB because the observed -0.868 dB sits
+	// near that band, and tightening PSNR further risks tripping the gate on
+	// cubic-fit jitter at the lower ladder rungs where libvpx's Speed=4 fast
+	// picker delivers a 0.7-1.2 dB PSNR-Y advantage that the rate axis trades
+	// against.
 	realtimeCpu4Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 8.3,
 		MinBDPSNRdB:            -1.0,
@@ -1575,11 +1550,10 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 			Source:         func(i int) *image.YCbCr { return makeVP8PanningFrame(width, height, i) },
 			Baseline: func(o *govpx.EncoderOptions) {
 				o.Deadline = govpx.DeadlineRealtime
-				// Task #376: pin Speed=4 via libvpx's documented
-				// negative-cpu_used escape (vp8/encoder/encodeframe.c
-				// :686-687); avoids vp8_auto_select_speed's wall-clock
-				// variance on both the govpx and the libvpx side of the
-				// comparison. Govpx mirrors the same branch at
+				// Pin Speed=4 via libvpx's documented negative-cpu_used
+				// escape (vp8/encoder/encodeframe.c:686-687); avoids
+				// vp8_auto_select_speed's wall-clock variance on both
+				// sides of the comparison. Govpx mirrors the same branch at
 				// vp8_encoder_config.go:710-713.
 				o.CpuUsed = -4
 			},
@@ -1587,10 +1561,9 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 				o.Deadline = govpx.DeadlineRealtime
 				o.CpuUsed = -4
 			},
-			// Task #376: belt-and-suspenders median-of-3 against
-			// residual oracle-side variance (NEON kernel race,
-			// MT-LF jitter on threads>=2, etc.) outside the
-			// auto-speed wall-clock path.
+			// Belt-and-suspenders median-of-3 against residual oracle-side
+			// variance (NEON kernel race, MT-LF jitter on threads>=2,
+			// etc.) outside the auto-speed wall-clock path.
 			LibvpxOracleRuns: 3,
 		},
 		realtimeCpu4Gate)
@@ -1600,7 +1573,7 @@ func TestVP8FeatureBDRate720pRealtimeCpu4CBR(t *testing.T) {
 // fixture through a VBR ladder with the YUV temporal denoiser engaged
 // (NoiseSensitivity=3 aggressive YUV denoise, the libvpx default for
 // camera-noise removal in VBR streaming) and the loop-filter Sharpness
-// set to 4. Pre-#370 fixtures all leave NoiseSensitivity at 0 and
+// set to 4. Earlier fixtures all leave NoiseSensitivity at 0 and
 // Sharpness at the libvpx default; this is the only fixture today that
 // engages the denoiser / loop-filter-sharpness path against the libvpx
 // oracle.
@@ -1610,15 +1583,14 @@ func TestVP8FeatureBDRate640pDenoiseSharpVBR(t *testing.T) {
 		height = 360
 		frames = 24
 	)
-	// Task #370 introduction. Measured govpx-vs-libvpx BD-rate=-0.010%
-	// BD-PSNR=+0.022 dB on the 640p denoise+sharp VBR ladder — govpx
-	// sits essentially on top of libvpx (the YUV denoiser path is
-	// byte-faithful to libvpx vp8/encoder/denoising.c). Per #357
-	// rules the near-zero residual takes a symmetric +2.0% / -0.5 dB
-	// band: ceiling +2.0% (observed -0.010% rounded to +2.0% upper
-	// headroom for cubic-fit jitter). A real regression that loses
-	// the denoiser bit-allocation behaviour or the loop-filter
-	// sharpness ramping trips the gate immediately.
+	// Initial measurement: govpx-vs-libvpx BD-rate=-0.010% /
+	// BD-PSNR=+0.022 dB on the 640p denoise+sharp VBR ladder. Govpx sits
+	// essentially on top of libvpx (the YUV denoiser path is byte-faithful
+	// to libvpx vp8/encoder/denoising.c). The near-zero residual takes a
+	// symmetric +2.0% / -0.5 dB band: ceiling +2.0% (observed -0.010%
+	// rounded to +2.0% upper headroom for cubic-fit jitter). A real
+	// regression that loses the denoiser bit-allocation behaviour or the
+	// loop-filter sharpness ramping trips the gate immediately.
 	denoiseSharpGate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 2.0,
 		MinBDPSNRdB:            -0.5,
@@ -1661,7 +1633,7 @@ func TestVP8FeatureBDRate640pDenoiseSharpVBR(t *testing.T) {
 // (8 directions cycling across cells) at low contrast so the picker
 // considers B_PRED on those MBs but the residual is small. The flat
 // bands stay near-uniform so most MBs in the frame are flat-Y and
-// satisfy the tteob==0 condition that #347's port targets (libvpx
+// satisfy the tteob==0 condition that the B_PRED backout targets (libvpx
 // vp8/encoder/rdopt.c:1687-1714 B_PRED rate2 backout). The whole
 // pattern shifts by 1 pixel diagonally per frame: motion estimation
 // finds tiny residual at integer-pel offsets so inter zero-MV is not
@@ -1745,7 +1717,7 @@ func makeVP8BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 			// (so B_PRED is the natural intra winner per block) but
 			// the residual amplitude at mid-Q quantizes near zero on
 			// many MBs, which is exactly the tteob==0 regime that
-			// #347 targets.
+			// targets.
 			lumaHi := byte(128 + (hash>>3)&0x0F)
 			lumaLo := byte(112 - (hash>>11)&0x0F)
 			renderBlock(dir, gx+xoff, gy+yoff, lumaHi, lumaLo)
@@ -1773,10 +1745,10 @@ func makeVP8BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 // and the mid-bitrate CBR ladder (500/1000/2000/4000 kbps), the picker
 // exercises the inter-vs-B_PRED RD comparison heavily, including the
 // per-MB call into predictBestBPredLumaModeRDWithRDConstantsAndEOBs
-// that #347 added (B_PRED-in-inter tteob==0 rate2 backout, libvpx
+// that added the B_PRED-in-inter tteob==0 rate2 backout, libvpx
 // rdopt.c:1687-1714).
 //
-// Task #368 baseline: the fixture measures govpx-vs-libvpx
+// Baseline measurement: the fixture measures govpx-vs-libvpx
 // BD-rate=+24.271% / BD-PSNR=+0.047 dB on the 1280x720 CBR ladder
 // 500/1000/2000/4000 kbps over 12 frames. Per-rung govpx_rate vs
 // libvpx_rate:
@@ -1796,25 +1768,25 @@ func makeVP8BPredEdgeGridFrame(width, height, idx int) *image.YCbCr {
 // libvpx delivers at its own top rung, and the BD-rate cubic-fit
 // interprets the asymmetric quality-vs-bitrate trade as a rate cost.
 //
-// #347 port impact on this fixture: zero measurable BD-rate change.
-// The B_PRED tteob==0 backout that #347 lands requires bPredEOBCount +
-// uvEOBSum == 0 (every Y AC quantum and every UV quantum on a B_PRED
+// B_PRED tteob==0 port impact on this fixture: zero measurable BD-rate
+// change. The backout requires bPredEOBCount + uvEOBSum == 0 (every Y AC
+// quantum and every UV quantum on a B_PRED
 // candidate falls to zero). The directional 4x4 edges in this fixture
 // ensure the B_PRED candidate always carries non-zero AC residual
 // before quantization, so the tteob==0 condition never fires here
 // either. Probe verification: replacing `tteob := bPredEOBCount +
 // uvEOBSum` with `tteob := 1 + uvEOBSum` (force the backout off)
 // produces byte-identical encode bytes/PSNR across all four ladder
-// rungs. The #347 port remains quality-neutral on synthetic
-// B_PRED-favorable content under the chosen ladder; what this fixture
+// rungs. The port remains quality-neutral on synthetic B_PRED-favorable
+// content under the chosen ladder; what this fixture
 // *does* exercise is the broader B_PRED-in-inter RD path
 // (predictBestBPredLumaModeRDWithRDConstantsAndEOBs's per-block 4x4
 // picker, the bPredEOBCount return path, and the estimateInterIntra
 // ModeRDScore B_PRED branch's scoring against the inter candidates),
 // so any regression on the B_PRED scoring flow trips the gate.
 //
-// Task #384 per-iter audit: the earlier +24-25% floor was caused by the
-// VP8 BD-rate harness comparing govpx's zero-value DeadlineBestQuality
+// Per-iteration audit: the earlier +24-25% floor was caused by the VP8
+// BD-rate harness comparing govpx's zero-value DeadlineBestQuality
 // against libvpx `vpxenc --good`. After the harness pins govpx's empty
 // Baseline/Test callbacks to DeadlineGoodQuality, the 4000kbps recode
 // trajectory is identical through the previously divergent frames:
@@ -1835,9 +1807,9 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 		height = 720
 		frames = 12
 	)
-	// Task #384 retighten: after the VP8 BD harness default-deadline fix,
-	// govpx-vs-libvpx measures +6.443% / +0.086 dB. Keep the standard
-	// +2pp positive-ceiling headroom and round to one decimal so a future
+	// After the VP8 BD harness default-deadline fix, govpx-vs-libvpx
+	// measures +6.443% / +0.086 dB. Keep the standard +2pp
+	// positive-ceiling headroom and round to one decimal so a future
 	// speed-bucket drift or B_PRED/SPLITMV scoring regression trips this
 	// fixture before it re-enters the old +24-25% band.
 	bpredGate := benchcmd.LibvpxAbsoluteGate{
@@ -1863,26 +1835,25 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 
 // TestVP8FeatureBDRate720pARNRHeavyVBR drives a 720p panning fixture
 // through the full LookaheadFrames+AutoAltRef+ARNR* alt-ref filtering
-// path under a VBR ladder. This is the fixture #370 originally
-// scoped as F14 ("ARNR-heavy") but had to defer: the pre-#377
-// BD-rate harness paired per-frame PSNR by output-packet ordinal,
+// path under a VBR ladder. The original BD-rate harness paired per-frame
+// PSNR by output-packet ordinal,
 // which collapses when the alt-ref scheduler interleaves hidden
 // alt-ref packets (libvpx VPX_FRAME_IS_INVISIBLE) with the deferred
-// visible frames they wrap. The post-#377 harness peeks each VP8
-// frame tag (PeekVP8StreamInfo) to skip hidden packets in PSNR
-// pairing while still counting their bytes in the rate axis, and
-// pairs visible packets to source frames by the encoder-echoed PTS
-// so hidden/visible interleaving is transparent to the cubic fit.
+// visible frames they wrap. The current harness peeks each VP8 frame tag
+// (PeekVP8StreamInfo) to skip hidden packets in PSNR pairing while still
+// counting their bytes in the rate axis, and pairs visible packets to source
+// frames by the encoder-echoed PTS so hidden/visible interleaving is
+// transparent to the cubic fit.
 //
 // Knob set is the libvpx good-quality ARNR-heavy recipe (matches
 // the `--good --lag-in-frames=16 --auto-alt-ref=1
 // --arnr-maxframes=7 --arnr-strength=3 --arnr-type=3` invocation
 // libvpx ships as the recommended VBR ARNR preset in
 // vp8/encoder/onyx_if.c temporal_filter defaults), so the gate
-// observes the full alt-ref temporal-filter path that pre-#377
-// fixtures left uncovered.
+// observes the full alt-ref temporal-filter path that earlier fixtures left
+// uncovered.
 //
-// Task #377 introduction: measured govpx-vs-libvpx BD-rate=-9.384%
+// Initial measurement: govpx-vs-libvpx BD-rate=-9.384%
 // BD-PSNR=+1.254 dB on the 720p panning VBR ladder
 // (800/1500/3000/6000 kbps, 24 frames). govpx beats libvpx by
 // 9.38% on this configuration; per-rung the govpx PSNR
@@ -1891,7 +1862,7 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 // within ~1.2%. The win comes from the byte-exact ARNR temporal
 // filter (vp8_encoder_arnr.go applyARNRFilter mirrors libvpx
 // vp8_temporal_filter_prepare_c exactly) combined with the
-// post-#341 tteob==0 picker intra-skip path firing on the
+// tteob==0 picker intra-skip path firing on the
 // alt-ref-filtered (denoised) source. Run-to-run determinism is
 // confirmed: back-to-back invocations produce byte-identical
 // curves (no median-of-N needed here — the alt-ref scheduler is
@@ -1901,8 +1872,8 @@ func TestVP8FeatureBDRate720pBPredEdgeGridCBR(t *testing.T) {
 // Gate is set to the measured value plus +1.38% headroom for
 // cubic-fit jitter (MaxBDRateOverLibvpxPct = -8.0% — govpx must
 // continue to beat libvpx by at least 8% on this fixture) and the
-// standard -0.5 dB BD-PSNR floor. Mirrors the #357 retighten cadence
-// where 1080pStaticMotionVBR's -10.689% measured drove a -10.1%
+// standard -0.5 dB BD-PSNR floor. Mirrors the retighten cadence where
+// 1080pStaticMotionVBR's -10.689% measured drove a -10.1%
 // gate (+0.59% headroom).
 func TestVP8FeatureBDRate720pARNRHeavyVBR(t *testing.T) {
 	const (

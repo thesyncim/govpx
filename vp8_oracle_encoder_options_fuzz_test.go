@@ -39,9 +39,9 @@ func FuzzVP8EncoderOptions(f *testing.F) {
 		{0x00},
 		// Plausible 32×16 CBR config. The 17th byte is the errorRes
 		// byte (bit 0 = ErrorResilient, bit 1 = ErrorResilientPartitions).
-		// Legacy seeds explicitly set it to 0x00 so cursor wrap-around
-		// at byte[0] does not silently flip a different path on top of
-		// the originally-intended axis.
+		// Short corpus seeds explicitly set it to 0x00 so cursor
+		// wrap-around at byte[0] does not silently flip a different path
+		// on top of the intended axis.
 		{0x00, 0x20, 0x00, 0x10, 0x00, 0x1e, 0x02, 0xbc, 0x00, 0x00, 0x04, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00},
 		// Out-of-range.
 		{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
@@ -177,8 +177,8 @@ func vp8EncoderOptionsFromFuzz(data []byte) (EncoderOptions, bool) {
 	// Bit 1 toggles ErrorResilientPartitions (VPX_ERROR_RESILIENT_PARTITIONS,
 	// libvpx vp8/encoder/onyx_if.c:3946 — flips refresh_entropy_probs
 	// and exercises the independent_coef_context_savings branch). On
-	// 16-byte seeds the cursor wraps and this lands at byte 0, which
-	// preserves the legacy 16-byte seeds' behaviour (ErrorResilient=false).
+	// 16-byte seeds the cursor wraps and this lands at byte 0, preserving
+	// the existing corpus seed behavior (ErrorResilient=false).
 	errorResByte := r.Next()
 	errorRes := errorResByte&0x01 != 0
 	errorResPart := errorResByte&0x02 != 0

@@ -16,15 +16,15 @@ import (
 // inter-mode picker divergence on the 720p panning realtime cpu_used=8
 // CBR fixture (TestVP8FeatureBDRate720pRealtimeCpu8CBR pinned at
 // +6.94% BD-rate / -0.95 dB BD-PSNR; gate is +10% / -1.0 dB so the
-// fixture passes its quality-gate by design). Task #341 closed an
-// analogous +36% gap on the screen-content BestQuality fixture by
-// porting the tteob==0 rate2 backout into the intra-in-inter-loop RD
-// picker. The RT cpu=8 path uses the FAST picker (Speed>=8 disables the
-// RD path entirely via vp8_set_speed_features), so the #341 fix
+// fixture passes its quality-gate by design). The screen-content
+// BestQuality fixture's analogous +36% gap was closed by porting the
+// tteob==0 rate2 backout into the intra-in-inter-loop RD picker. The RT
+// cpu=8 path uses the FAST picker (Speed>=8 disables the RD path entirely
+// via vp8_set_speed_features), so that fix
 // (estimateInterIntraModeRDScore in vp8_encoder_inter_modes_rd_intra.go)
 // is not exercised on this fixture.
 //
-// TASK #348 AUDIT (not a port; insight only):
+// Realtime cpu=8 MB audit (not a port; insight only):
 //
 // Per-MB tracing pinpointed the root cause at frame 2 MB(0,0), NOT at
 // frame 3 MB(0,1) as initially hypothesised. The picker enters MB(0,0)
@@ -53,9 +53,9 @@ import (
 // reads via libvpxCPUUsed > 6. At cpu_used=8 RT frame 2 the live
 // libvpx cpi->Speed has auto-evolved to 9 (per the picker_entry trace's
 // `speed` field), but govpx's autoSpeed evolution lands at a value <= 6
-// (the task #278 inter-frame budget/3 wall-clock pin keeps duration in
-// the libvpx Speed=0 stable region, which inhibits the Speed+=2 branch
-// of vp8_auto_select_speed). The autoSpeed divergence drives the
+// (the inter-frame budget/3 wall-clock pin keeps duration in the libvpx
+// Speed=0 stable region, which inhibits the Speed+=2 branch of
+// vp8_auto_select_speed). The autoSpeed divergence drives the
 // improved_mv_pred gate divergence which drives the NEWMV MV
 // divergence which drives the bit-budget divergence which drives the
 // downstream q_index / rd_thresh cascades observed at frame 3+.
@@ -72,10 +72,9 @@ import (
 //
 // A correct port requires aligning govpx's autoSpeed evolution to
 // libvpx's per-frame cpi->Speed evolution at large resolutions under
-// the task #278 inter-frame timing pin. That is a separate
-// vp8_auto_select_speed audit, not a single-line gate fix. Task #348
-// closes with the bisect insight + the structured next-step plan
-// recorded here; no port lands.
+// the inter-frame timing pin. That is a separate vp8_auto_select_speed
+// audit, not a single-line gate fix. This test records the bisect insight
+// and structured next-step plan; no port lands here.
 //
 // libvpx fast-picker rate model (vp8/encoder/pickinter.c
 // vp8_pick_inter_mode + evaluate_inter_mode, lines 471-514, 843-1102):
@@ -91,7 +90,7 @@ import (
 // estimateFastInterModeScoreHot / estimateFastIntraModeScore
 // (vp8_encoder_inter_rd.go:264, vp8_encoder_inter_modes_fast_helpers.go:38).
 //
-// AUDIT FINDING (this task):
+// Audit finding:
 //
 // At the 2000 kbps middle rung, the picker matches BYTE-EXACT for the
 // first 2 frames across all 3600 MBs (0 mode / 0 ref / 0 mv mismatches,
@@ -115,9 +114,9 @@ import (
 //     q=106).
 //  3. The +6.935% BD-rate gap is the integral of these state-drift
 //     cascades over 16 frames at 1000/4000/8000 kbps rungs. It is NOT
-//     a single fixable rate-accounting bug analogous to the #341
-//     tteob==0 backout: the fast picker has no coefficient-rate stage
-//     where such a backout would apply.
+//     a single fixable rate-accounting bug analogous to the tteob==0
+//     backout: the fast picker has no coefficient-rate stage where such
+//     a backout would apply.
 //  4. The cpu_used=8 path runs vp8_auto_select_speed (encodeframe.c:689),
 //     whose Speed evolution is wall-clock-dependent in libvpx. Govpx's
 //     interFrameAutoSpeedTimingCompensation pins inter-frame duration to
@@ -131,7 +130,7 @@ import (
 // to absorb this expected ~7%/-1.0 dB spread (see
 // feature_quality_gates_vp8_test.go:829-838). No port from libvpx exists
 // to close the gap further without unpinning the autoSpeed compensation
-// (which would re-introduce the task #278 byte-parity flake) or porting
+// (which would re-introduce the wall-clock byte-parity flake) or porting
 // libvpx's full per-mode rd_thresh_mult evolution path (which would
 // require a separate audit of the cyclic-refresh / segment-quantizer
 // interactions that govpx layers on top of libvpx's table).

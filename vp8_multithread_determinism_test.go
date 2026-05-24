@@ -13,7 +13,7 @@ import (
 
 // TestVP8GovpxDeterminismThreads4 is the regression sentinel for the
 // vp8_auto_select_speed wall-clock timing-dependence bug discovered while
-// investigating task #269's mutation-sweep flake for FuzzEncoderProductionStream
+// investigating the mutation-sweep flake for FuzzEncoderProductionStream
 // ByteParity seed#8 (854×480 RT threads=4 cpu_used=0). Before the fix, the
 // `nowMonotonicNS()` deltas observed in finishAutoSpeedTiming() rose into
 // the millisecond range under heavy parallel-process host contention; the
@@ -98,8 +98,8 @@ func TestVP8GovpxDeterminismThreads4(t *testing.T) {
 // TestVP8LibvpxOracleDeterminismThreads4 runs the libvpx
 // vpxenc-oracle subprocess 20 times for the same input/options and checks
 // whether the oracle itself produces deterministic bytes when threads=4.
-// If libvpx is the nondeterminism source, the flake at task #269 attributed
-// to govpx is in fact an oracle artefact.
+// If libvpx is the nondeterminism source, the flake attributed to govpx is in
+// fact an oracle artefact.
 func TestVP8LibvpxOracleDeterminismThreads4(t *testing.T) {
 	vp8test.RequireOracle(t, "libvpx oracle determinism check")
 	vpxencOracle := vp8test.VpxencOracle(t)

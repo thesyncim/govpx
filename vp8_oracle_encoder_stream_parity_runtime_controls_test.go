@@ -285,7 +285,7 @@ func TestVP8OracleEncoderStreamByteParityRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name: "frame-drop-allow-legacy-bool-stored-watermark",
+			name: "frame-drop-realtime-target-bool-stored-watermark",
 			fx:   panning64,
 			opts: func() EncoderOptions {
 				opts := baseOpts(panning64)

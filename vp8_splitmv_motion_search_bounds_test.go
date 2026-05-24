@@ -7,8 +7,8 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// TestVP8SPLITMVMotionSearchBounds pins task #300's audit of the
-// SPLITMV per-label motion search bounds.
+// TestVP8SPLITMVMotionSearchBounds pins the SPLITMV per-label motion
+// search bounds.
 //
 // libvpx v1.16.0 vp8/encoder/rdopt.c:1199-1303 vp8_rd_pick_best_mbsegmentation
 // runs rd_check_segment inside one of two branches:
@@ -26,29 +26,29 @@ import (
 //     before BLOCK_8X16, BLOCK_16X8 and BLOCK_4X4 and restored afterwards
 //     (rdopt.c:1297-1301).
 //
-// Before task #300, govpx's selectMotion in vp8_encoder_inter_split.go applied
-// the speed-mode intersection unconditionally for partitions 0, 1 and 3 even
-// in best mode. On the 1280x720 SSIM-best screen-content cohort (sibling
-// pins #297 / #293 / #299 ARNR audit), bestRefMV at MB(0,0) frame 1 is the
-// zero vector, which collapsed govpx's per-label diamond_search_sad reach
-// from the wide UMV window (e.g. [-16, +704] rows × [-16, +1264] cols at
-// MB(0,0) of 1280x720) down to [-MAX_FULL_PEL_VAL, +MAX_FULL_PEL_VAL] =
-// [-255, +255] in every direction. Sibling NEWMV / NEARESTMV picker
+// The old govpx selectMotion path in vp8_encoder_inter_split.go applied the
+// speed-mode intersection unconditionally for partitions 0, 1 and 3 even in
+// best mode. On the 1280x720 SSIM-best screen-content cohort, bestRefMV at
+// MB(0,0) frame 1 is the zero vector, which collapsed govpx's per-label
+// diamond_search_sad reach from the wide UMV window (e.g. [-16, +704] rows ×
+// [-16, +1264] cols at MB(0,0) of 1280x720) down to
+// [-MAX_FULL_PEL_VAL, +MAX_FULL_PEL_VAL] = [-255, +255] in every direction.
+// Sibling NEWMV / NEARESTMV picker
 // branches were unaffected since they use the libvpx-faithful
 // vp8enc.InterFrameFullPixelSearchBounds at vp8_rd_pick_inter_mode (rdopt.c:
 // 2045-2073). The asymmetric reach loss biased the SPLITMV per-label
 // diamond search toward shallower MVs than libvpx, lowering SPLITMV's RD
 // score and skewing the mode picker toward whole-block NEWMV. That
-// matches the per-frame mode histogram task #297 captured:
+// matches the captured per-frame mode histogram:
 //
 //	govpx (pre-fix):  3482 NEARESTMV + 116 SPLITMV + 2 NEWMV
 //	libvpx:            295 NEARESTMV + 664 SPLITMV + 1 NEWMV
 //
-// Task #300 plumbs the compressor speed through splitMotionShapeContext into
-// splitMotionSubsetContext and switches the per-label bounds selection on it:
-// best mode uses vp8enc.InterFrameUMVOnlyFullPixelSearchBounds (wide MB-scope UMV)
-// for all four shapes; speed mode keeps the partition-2 wide-UMV special
-// case and the intersection for partitions 0/1/3.
+// The current path plumbs the compressor speed through splitMotionShapeContext
+// into splitMotionSubsetContext and switches the per-label bounds selection on
+// it: best mode uses vp8enc.InterFrameUMVOnlyFullPixelSearchBounds (wide
+// MB-scope UMV) for all four shapes; speed mode keeps the partition-2
+// wide-UMV special case and the intersection for partitions 0/1/3.
 func TestVP8SPLITMVMotionSearchBounds(t *testing.T) {
 	t.Run("BestModeUsesWideUMVBoundsForAllPartitions", testVP8SplitMVBestModeWideUMV)
 	t.Run("SpeedModePreservesIntersectionForNonBlock8x8", testVP8SplitMVSpeedModeIntersected)

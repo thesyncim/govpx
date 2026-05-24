@@ -6,8 +6,8 @@ import (
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
 
-// Task #252 — deep audit of vp8_temporal_filter_iterate_c outer-loop
-// plumbing. Complements the per-component pins in
+// This test pins vp8_temporal_filter_iterate_c outer-loop plumbing.
+// It complements the per-component pins in
 // vp8_arnr_temporal_filter_parity_test.go (apply, window, fixed_divide)
 // with a byte-exact whole-iterate assertion against a libvpx-verbatim
 // transcription of vp8/encoder/temporal_filter.c:188-346.
@@ -40,9 +40,8 @@ import (
 // 1<<2, 1<<4) and span the libvpx-validated range. strength > 6 is
 // rejected by vp8/vp8_cx_iface.c validate_config.
 //
-// Per the task brief these are the "3 ARNR-armed seeds (different
-// arnr strength settings) asserting byte parity through the alt-ref-
-// emit frame".
+// The seed set covers three ARNR-armed configurations with different
+// strength settings and asserts byte parity through the alt-ref emit frame.
 
 // vp8encSourceImageForARNRIteration constructs the minimal vp8enc.SourceImage
 // the ARNR iterate path consumes. iterateTemporalFilter only reads

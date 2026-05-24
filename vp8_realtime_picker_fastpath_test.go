@@ -9,13 +9,13 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// TestVP8RealtimePickerCPUFastpathParity pins task #244: the RT-mode
-// vp8_pick_inter_mode fast-path gates for cpu_used = -12, -8, -4. These are
-// the negative-cpu_used values that bypass vp8_auto_select_speed in libvpx
-// encodeframe.c:686-687 and pin cpi->Speed = -cpu_used (positive 12, 8, 4
-// respectively). At Speed > 3 the libvpx RT picker is the SOLE mode-
-// decision path (sf->RD = 0 in onyx_if.c:946-949 Mode==2 branch), so any
-// gate divergence in pickinter.c surfaces as immediate byte mismatch.
+// TestVP8RealtimePickerCPUFastpathParity pins the RT-mode
+// vp8_pick_inter_mode fast-path gates for cpu_used = -12, -8, -4. These
+// are the negative-cpu_used values that bypass vp8_auto_select_speed in
+// libvpx encodeframe.c:686-687 and pin cpi->Speed = -cpu_used (positive
+// 12, 8, 4 respectively). At Speed > 3 the libvpx RT picker is the sole
+// mode-decision path (sf->RD = 0 in onyx_if.c:946-949 Mode==2 branch), so
+// any gate divergence in pickinter.c surfaces as immediate byte mismatch.
 //
 // LIBVPX REFERENCES (v1.16.0):
 //
@@ -51,14 +51,13 @@ import (
 //	  libvpxCPUUsed() >= 12, matching the Speed=12 cutoff exactly for
 //	  cpu_used = -12.
 //
-// AUDIT FINDING (this task):
+// Audit finding:
 //
 // No divergence. govpx's gates match libvpx verbatim at all three cpu
 // values. Byte-parity is asserted across cpu_used=-12, -8, -4 at 320x240
-// CBR / RT / 8 panning frames against the libvpx oracle. Task #232's
-// improved-MV further_steps fix (commit 8d313a30) had already pinned the
-// only pickinter.c divergence in this cpu range; the remaining picker
-// gates were already faithful from task #226's frame-6 audit and earlier.
+// CBR / RT / 8 panning frames against the libvpx oracle. The improved-MV
+// further_steps split had already pinned the only pickinter.c divergence
+// in this cpu range; the remaining picker gates were already faithful.
 //
 // This test exists as a regression sentinel: a future change to the
 // negative-cpu_used / Speed mapping in libvpxCPUUsed,
@@ -66,12 +65,6 @@ import (
 // libvpxInterFrameFurtherSteps, libvpxInterFrameImprovedMVPrediction*, or
 // fastZeroMVLastAdjustmentEligible would re-open this audit and surface
 // here before it cascades into the option-grid fuzz cohort.
-//
-// TASK REFERENCES:
-//
-//   - task #232 (commit 8d313a30) RD-vs-picker further_steps split
-//   - task #239 (commit c7efc12d) RD-vs-picker NEWMV step_param split
-//   - task #226 (frame-6 picker audit)
 func TestVP8RealtimePickerCPUFastpathParity(t *testing.T) {
 	vp8test.RequireOracle(t, "realtime picker fast-path parity")
 	vpxencOracle := vp8test.VpxencOracle(t)

@@ -12,8 +12,8 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
-// TestVP8ChangeConfigTailParity pins task #209's diagnostic finding:
-// the cpi-LEVEL state at the end of libvpx's vp8_change_config tail is
+// TestVP8ChangeConfigTailParity pins a diagnostic finding: the cpi-level
+// state at the end of libvpx's vp8_change_config tail is
 // IDENTICAL between the "with noise:0" and "without noise:0" runs of the
 // 640x360 serial noise0_inter_diverge production runtime-control fuzz seed.
 // Therefore the residual 240-byte gap on frame 1 is NOT caused by any
@@ -52,10 +52,9 @@ import (
 // captured by this dump - likely in per-MB picker state (RD threshold
 // multipliers, error_bins, mbs_tested_so_far, mode_test_hit_counts) that
 // vp8_set_speed_features reseeds when Speed is reset by the extra
-// vp8_change_config calls. That follow-up audit needs a per-MB tracer
-// (which #206 is building); task #209's contribution is the
-// change_config_tail diagnostic infrastructure that lets future audits
-// produce the kind of field-level diff this test materializes.
+// vp8_change_config calls. A follow-up audit needs a per-MB tracer; this
+// change_config_tail diagnostic hook lets future audits produce the
+// field-level diff this test materializes.
 //
 // libvpx source references (v1.16.0):
 //   - vp8/encoder/onyx_if.c:1448-1753 vp8_change_config (the dump fires

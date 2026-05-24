@@ -64,31 +64,31 @@ import (
 // byte-equivalent to libvpx's "run optimize_b on zero-qcoeff" no-op
 // path for this cohort.
 //
-// CROSS-REFERENCE — this audit is ORTHOGONAL to task #324 (chroma
-// coeff[] FDCT-residual-input divergence) and task #329 (trellis
-// DP-state byte-faithfulness):
+// Cross-reference: this audit is orthogonal to the chroma coeff[]
+// FDCT-residual-input divergence and the trellis DP-state byte-faithfulness
+// pin:
 //
-//  1. Task #324 pinned: the 4720 divergent chroma post-trellis qcoeff
-//     triples on frame 1 are 100% downstream of differing `coeff[]`
+//  1. The chroma-residual pin shows the 4720 divergent chroma
+//     post-trellis qcoeff triples on frame 1 are 100% downstream of
+//     differing `coeff[]`
 //     (post-FDCT, pre-quant) inputs. Zero have identical coeff and
 //     diverging qcoeff — so the trellis cost computation IS
 //     byte-faithful.
 //
-//  2. Task #329 pinned: the DP-state arrays (tokens[i][j].rate,
+//  2. The trellis DP-state pin shows the arrays (tokens[i][j].rate,
 //     .error, .next, .token, .qc + bestMask[2] + final_eob + final
 //     qcoeff) the trellis writes are byte-equal to a libvpx-verbatim
 //     re-implementation across the ±1 chroma DC keep/drop scenarios.
 //
-//  3. Task #331 (this audit) pins: the trace iteration-count gap is a
-//     pure trace artifact (govpx skips emit when tteob==0; libvpx
-//     emits even though optimize_b is a no-op on those blocks). No
-//     byte-exact impact.
+//  3. This test pins that the trace iteration-count gap is a pure trace
+//     artifact (govpx skips emit when tteob==0; libvpx emits even though
+//     optimize_b is a no-op on those blocks). No byte-exact impact.
 //
 // The remaining ~5-byte ARNR pin-hold residual lives in the UPSTREAM
 // chroma residual (`coeff` FDCT input) divergence at MBs where BOTH
 // sides DO run chroma encode (2259 shared MBs, 976 divergent rows),
-// which task #324's recorded root cause attributes to the per-MB MODE
-// PICKER. Specifically:
+// which the chroma-residual audit attributes to the per-MB mode picker.
+// Specifically:
 //
 //	BestARNR cohort frame 1 MB(0,1):
 //	  govpx picks NEARESTMV  (mv=(8,16), LAST_FRAME, partition=N/A)
@@ -115,7 +115,7 @@ import (
 // reconstruction (TestVP8KF1280x720SSIMBestARNRParity pins frame
 // 0 SHA = 1d9045fcee167c5f), so the chroma reference plane data is
 // byte-identical. The chroma sub-pel filter (sixtap at sub-pel
-// (xoff=0, yoff=4)) is byte-faithful per task #292's exhaustive
+// (xoff=0, yoff=4)) is byte-faithful per the exhaustive chroma sub-pel
 // sweep. The 4x4-tile-vs-8x8-single-call decomposition is
 // mathematically identical for a separable filter (cf. libvpx
 // filter.c:71-109 filter_block2d_second_pass).
@@ -133,8 +133,8 @@ import (
 // is that they do not — the upstream chroma residual at MB(0,1) and
 // at every other shared chroma block diverges.
 //
-// CHARTER (continues from task #324's directive): the chroma
-// upstream-residual root cause sits in either:
+// Remaining investigation surface: the chroma upstream-residual root cause
+// sits in either:
 //   - the picker mode-pick (govpx NEARESTMV vs libvpx SPLITMV at MBs
 //     with all-same effective MV — the picker scores them
 //     differently because the chroma residual estimate inside the

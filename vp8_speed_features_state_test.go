@@ -5,10 +5,9 @@ import "testing"
 // TestVP8SpeedFeaturesPerFrameStateResetMirror pins the per-frame
 // zero-resets that libvpx `vp8_set_speed_features` performs at every
 // invocation (called from `vp8_initialize_rd_consts` at the top of
-// every frame's encode via encodeframe.c:721). Task #182 audited
-// onyx_if.c:768-1087 and confirmed govpx mirrors every reset
-// byte-faithfully at Speed=4 realtime; this test locks the mapping
-// so a future refactor cannot silently regress the parity.
+// every frame's encode via encodeframe.c:721). The mapping mirrors
+// onyx_if.c:768-1087 byte-faithfully at Speed=4 realtime; this test locks
+// the reset contract so a future refactor cannot silently regress parity.
 //
 // libvpx field → govpx mirror (libvpx v1.16.0, file:line):
 //

@@ -6,16 +6,15 @@ import (
 
 // vp8_arnr_temporal_filter_parity_test.go pins the verbatim port of the
 // VP8 ARNR (motion-compensated temporal alt-ref filter) path against
-// libvpx v1.16.0. Task #175 audit substrate — anchors the NEGATIVE
-// FINDING that the historical "854x480 threads=2 ARNR + bitrate
-// interaction at multi-thread boundaries" surface (formerly task #27)
-// is byte-clean today.
+// libvpx v1.16.0. It anchors the negative finding that the
+// "854x480 threads=2 ARNR + bitrate interaction at multi-thread
+// boundaries" surface is byte-clean today.
 //
 // Surface recap:
 //
-//	The original task #27 cited a divergence on 854x480 fixtures when
-//	threads > 1 was combined with non-zero ARNR knobs and a VBR/CBR
-//	target bitrate. The active failing seed was
+//	The original divergence appeared on 854x480 fixtures when threads > 1
+//	was combined with non-zero ARNR knobs and a VBR/CBR target bitrate.
+//	The active failing seed was
 //	testdata/fuzz/FuzzEncoderProductionStreamByteParity/
 //	  regression_w854h480_threads4_vbr_inter_diverge
 //	(854x480 threads=4 VBR, no auto-alt-ref) which diverged on the
@@ -28,11 +27,11 @@ import (
 //	inter-frame writer. Closed by commit 91c8d589 ("Port libvpx VP8 MT
 //	ymode/uv_mode_count helper-history bias verbatim").
 //
-//	Post-fix, the regression seed AND the explicit 854x480 threads=2 +
+//	Post-fix, the regression seed and the explicit 854x480 threads=2 +
 //	ARNR + {CBR, VBR} sweep through arnrMax in {1, 2, 3} and arnrStr in
 //	{1, 2, 3} all reach full byte parity across the 3-frame
-//	FuzzEncoderProductionStreamByteParity fixture (verified at task
-//	#175 audit time, 2026-05-18).
+//	FuzzEncoderProductionStreamByteParity fixture (verified on
+//	2026-05-18).
 //
 //	The auto-alt-ref / ARNR firing path itself is gated upstream by
 //	`oxcf.play_alternate && source_alt_ref_pending && arnr_max_frames
@@ -108,9 +107,9 @@ import (
 //     cpi->alt_ref_buffer is byte-identical to the raw lookahead
 //     buffer in this single-frame case.
 //
-// All five layers are verbatim ports as of task #175 audit time. The
-// 854x480 threads=2 + ARNR + bitrate surface is closed; future
-// regression on any layer should be caught by the pins below.
+// All five layers are verbatim ports. The 854x480 threads=2 + ARNR +
+// bitrate surface is closed; future regression on any layer should be
+// caught by the pins below.
 
 // TestVP8TemporalFilterApplyByteExact pins vp8_temporal_filter_apply_c's
 // integer formula against the explicit libvpx reference at

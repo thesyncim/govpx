@@ -209,16 +209,7 @@ func EqualYCbCr(a *image.YCbCr, b *image.YCbCr, width int, height int) bool {
 }
 
 func FirstPacketDiff(a, b []byte) int {
-	n := min(len(a), len(b))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
+	return testutil.FirstByteDiff(a, b)
 }
 
 func ParseHeader(t testing.TB, packet []byte) (vp9dec.UncompressedHeader, int) {

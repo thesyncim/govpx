@@ -9,8 +9,8 @@ import (
 // TestVP8SpeedFeaturesCascadeMirrorsLibvpx pins the verbatim mirror of
 // libvpx `vp8_set_speed_features` (vp8/encoder/onyx_if.c lines 768-1087)
 // across the realtime cpi->Speed cascade for cpu_used in {-3, -4, -5,
-// -7, -8, -9, -10, -12, -14, -15}. Task #223 closure: the audit walks
-// each Speed-gated assignment that libvpx case 2 (Mode==MODE_REALTIME)
+// -7, -8, -9, -10, -12, -14, -15}. The audit walks each Speed-gated
+// assignment that libvpx case 2 (Mode==MODE_REALTIME)
 // performs and asserts the govpx mirror returns the identical SF state
 // for every Speed value in 3..15.
 //
@@ -345,10 +345,10 @@ func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpx(t *testing.T) {
 // TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpxAllDeadlines pins the
 // libvpx rdopt.c NEWMV step_param/further_steps cascade
 // (vp8/encoder/rdopt.c:2034/2086) across every RD-on deadline+cpu_used
-// combination. This is the broader audit closure for task #232 (and
-// task #239): the picker-vs-RD split must hold not just for Realtime
-// cpu_used<=3 (covered by TestVP8SpeedFeaturesRDPathStepParamMirrors-
-// Libvpx above) but for the full RD-on surface:
+// combination. The picker-vs-RD split must hold not just for Realtime
+// cpu_used<=3 (covered by
+// TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpx above) but for the full
+// RD-on surface:
 //
 //   - BestQuality + any cpu_used (Speed = cpu_used pass-through;
 //     libvpx onyx_if.c:1481-1484 sets compressor_speed=0 with no
@@ -359,16 +359,14 @@ func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpx(t *testing.T) {
 //   - Realtime + cpu_used<=3 (already covered above, included here
 //     for the cross-deadline invariant check).
 //
-// Task #232 closure: the BestQuality+cpu_used>=8 cohort was the
-// regression site (regression_option_grid_022b3ed5). Speed stayed at
-// cpu_used (e.g. 8) but sf.RD=1, so the RD path was selected with
-// step_param=sf.first_step=0 and further_steps=max-1-step. Before the
-// #232 fix, adjustedForImprovedMVStart routed cpi->Speed through
+// The BestQuality+cpu_used>=8 cohort was the regression site. Speed stayed
+// at cpu_used (e.g. 8) but sf.RD=1, so the RD path was selected with
+// step_param=sf.first_step=0 and further_steps=max-1-step. The earlier
+// adjustedForImprovedMVStart path routed cpi->Speed through
 // libvpxInterFrameFurtherSteps (which applies pickinter.c:1005-1008's
-// Speed>=8 short-circuit), silently capping further_steps to 0 on
-// every MB with sr>0 from improved_mv_pred. This test pins the verbatim
-// rdopt.c:2086 formula for BestQuality+cpu>=8 plus every other RD-on
-// cohort.
+// Speed>=8 short-circuit), silently capping further_steps to 0 on every MB
+// with sr>0 from improved_mv_pred. This test pins the verbatim rdopt.c:2086
+// formula for BestQuality+cpu>=8 plus every other RD-on cohort.
 //
 // libvpx rdopt.c:2034: step_param = cpi->sf.first_step  (no speed_adjust)
 // libvpx rdopt.c:2086: further_steps = (sf->max_step_search_steps - 1) - step_param
@@ -409,7 +407,7 @@ func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpxAllDeadlines(t *testing.T) 
 	// Speed>3).
 	cases := []rdCase{
 		// BestQuality: first_step=0 for all cpu_used. further=8-1-0=7.
-		// The cpu_used>=8 cohort is the task #232 regression site.
+		// The cpu_used>=8 cohort is the regression site.
 		{name: "best-cpu-0", deadline: DeadlineBestQuality, cpuUsed: 0, wantStep: 0, wantFurther: 7},
 		{name: "best-cpu-4", deadline: DeadlineBestQuality, cpuUsed: 4, wantStep: 0, wantFurther: 7},
 		{name: "best-cpu-8", deadline: DeadlineBestQuality, cpuUsed: 8, wantStep: 0, wantFurther: 7},
@@ -460,7 +458,7 @@ func TestVP8SpeedFeaturesRDPathStepParamMirrorsLibvpxAllDeadlines(t *testing.T) 
 
 // TestVP8SpeedFeaturesAdjustedImprovedMVStartMirrorsLibvpxBothPaths pins
 // the picker-vs-RD split applied by adjustedForImprovedMVStart after
-// vp8_mv_pred returns a non-zero sr. This is the task #232 fix surface:
+// vp8_mv_pred returns a non-zero sr. This is the fix surface:
 //
 //   - RD path (rdopt.c:2076/2086): if sr > step_param then
 //     step_param = sr; further_steps = max-1-step_param  (no Speed>=8 cap).
@@ -485,7 +483,7 @@ func TestVP8SpeedFeaturesAdjustedImprovedMVStartMirrorsLibvpxBothPaths(t *testin
 		wantRD      bool
 	}
 	cases := []adjCase{
-		// BestQuality+cpu_used=8 (#232 regression cohort). RD path:
+		// BestQuality+cpu_used=8 regression cohort. RD path:
 		// step_param = sr (since fullPixelSpeedAdjust=0 under RD, and
 		// initial fullPixelSearchParam=first_step=0; any sr>0 bumps).
 		// further_steps = max(7-sr, 0). NO Speed>=8 short-circuit.
@@ -614,15 +612,14 @@ func itoaPositive(v int) string {
 	return string(buf[i:])
 }
 
-// TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed pins the
-// task #361 libvpx-realistic HEX/iterative_sub_pixel gate. The gate
-// mirrors the task #350 improved_mv_pred gate pattern: at cpu_used > 0
-// RT after frame 0, govpx's auto-select Speed is pinned to its stable
-// Speed=0 region by interFrameAutoSpeedTimingCompensation while libvpx's
-// cpi->Speed evolves to cpu_used+1. Targeting the search_method gate at
-// the libvpx-realistic Speed (without disturbing the rest of the speed
-// cascade) flips NSTEP+iterative → HEX+step for the cpu_used > 0 RT
-// path that previously sat at NSTEP+iterative under the pin.
+// TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed pins the libvpx-realistic
+// HEX/iterative_sub_pixel gate. The gate mirrors the improved_mv_pred gate
+// pattern: at cpu_used > 0 RT after frame 0, govpx's auto-select Speed is
+// pinned to its stable Speed=0 region by interFrameAutoSpeedTimingCompensation
+// while libvpx's cpi->Speed evolves to cpu_used+1. Targeting the
+// search_method gate at the libvpx-realistic Speed (without disturbing the
+// rest of the speed cascade) flips NSTEP+iterative → HEX+step for the
+// cpu_used > 0 RT path that previously sat at NSTEP+iterative under the pin.
 //
 // Pre-first-frame (frameCount==0) and cpu_used <= 0 RT keep the
 // non-realistic gate semantics so the cold-start path and the
@@ -653,15 +650,14 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 		{
 			// cpu_used=8 RT after first frame: gate escalates to
 			// cpu_used+1=9. Speed > 4 is true → HEX. The Step
-			// transition that task-361 originally coupled to the HEX
-			// gate is now owned by task-362's libvpxRealtime
-			// CPISpeedForSubPelSearchGate; once that lands the
+			// transition that originally moved with the HEX gate is now
+			// owned by libvpxRealtimeCPISpeedForSubPelSearchGate; the
 			// fractional path further escalates past Step to Half via
-			// task-363's libvpxRealtimeCPISpeedForQuarterPelGate
-			// (Speed > 8). So at cpu_used=8 frameCount=1 RT the final
-			// fractionalSearch is Half (not Step). This case still pins
-			// that the HEX gate itself fires; the post-Step transitions
-			// are pinned in the task-362 and task-363 audit cohorts.
+			// libvpxRealtimeCPISpeedForQuarterPelGate (Speed > 8). So at
+			// cpu_used=8 frameCount=1 RT the final fractionalSearch is
+			// Half (not Step). This case still pins that the HEX gate
+			// itself fires; the post-Step transitions are pinned by the
+			// sub-pel and quarter-pel gate tests.
 			name:           "rt-cpu8-post-first-frame",
 			deadline:       DeadlineRealtime,
 			cpuUsed:        8,
@@ -701,7 +697,7 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 		{
 			// Non-realtime (good quality): gate falls back to
 			// libvpxCPUUsed() because the non-realtime branch in the
-			// gate function returns early. No change from the pre-#361
+			// gate function returns early. No change from the previous
 			// behavior on the good-quality path.
 			name:           "good-cpu8-post-first-frame",
 			deadline:       DeadlineGoodQuality,
@@ -727,7 +723,7 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 			cfg := e.interAnalysisSearchConfig()
 			gotHex := cfg.fullPixelSearch == interAnalysisFullPixelSearchHex
 			if gotHex != tc.wantHexAfterRT {
-				t.Errorf("search_method=HEX = %t, want %t (task #361 gate at libvpx-realistic Speed > 4)", gotHex, tc.wantHexAfterRT)
+				t.Errorf("search_method=HEX = %t, want %t (libvpx-realistic Speed > 4)", gotHex, tc.wantHexAfterRT)
 			}
 			gotStep := cfg.fractionalSearch == interAnalysisFractionalSearchStep
 			if gotStep != tc.wantStepFracRT {

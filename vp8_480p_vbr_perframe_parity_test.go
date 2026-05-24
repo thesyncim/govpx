@@ -1,10 +1,10 @@
 package govpx_test
 
-// Task #354: audit of the 480p panning VBR fixture (#6 in the post-#341
-// VP8 sweep). At GOVPX_BD_RATE_GATES=1 the fixture's absolute govpx-vs-
+// This audit pins the 480p panning VBR fixture. At
+// GOVPX_BD_RATE_GATES=1 the fixture's absolute govpx-vs-
 // libvpx BD-rate measures +0.645% / -0.043 dB BD-PSNR — the smallest
 // remaining positive in the 10-fixture cohort and the only positive
-// post-#341 (the others either match or beat libvpx).
+// fixture in that cohort (the others either match or beat libvpx).
 //
 // Per-rung curves at the time of this pin:
 //
@@ -35,7 +35,7 @@ package govpx_test
 //   14 1125       1238        -113   11       11
 //   15 2123       1396        +727   8        10
 //
-// Root-cause localization (this task's contribution):
+// Root-cause localization:
 //
 //   1. Frames 0-2 are byte-identical between govpx and libvpx (matching
 //      sizes AND matching internal qindex), confirming the keyframe and
@@ -58,12 +58,11 @@ package govpx_test
 //      libvpx's iQ=18 — a 6-step gap that costs ~500 bytes per frame.
 //
 //   4. The same-Q +41-byte gap at f3 is consistent with the existing
-//      ARNR audit chain pin-hold (task #316 chroma-trellis rdmult
-//      divergence, lineage #313 → #314 → #316 → #318 → #319 → #329 →
-//      #330) — an inter-frame MB-decision divergence at high-Q boundary
-//      conditions. The 480p panning VBR fixture exposes the same gap
-//      through the VBR regulator's bigger downstream amplification, but
-//      the underlying MB divergence is upstream of rate control.
+//      ARNR chroma-trellis divergence: an inter-frame MB-decision gap
+//      at high-Q boundary conditions. The 480p panning VBR fixture
+//      exposes the same gap through the VBR regulator's bigger downstream
+//      amplification, but the underlying MB divergence is upstream of
+//      rate control.
 //
 // Closing this fixture's +0.645% therefore requires resolving the
 // existing same-Q-bytes-differ ARNR pin-hold, not VBR rate-control

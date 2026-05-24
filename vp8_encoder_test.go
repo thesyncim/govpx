@@ -443,10 +443,10 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
 	// 854x480 (1620 MBs) falls below the large-frame gate but above the
-	// medium-frame gate (mbs >= 200) introduced for task #208's libvpx-
-	// faithful KF avg_encode_time semantics. Expect duration pinned to
-	// budget/3 so the next frame's vp8_auto_select_speed lands in the
-	// Speed=0 stable band, matching libvpx's measured ~12us/MB encode time.
+	// medium-frame gate (mbs >= 200) for libvpx-faithful keyframe
+	// avg_encode_time semantics. Expect duration pinned to budget/3 so the
+	// next frame's vp8_auto_select_speed lands in the Speed=0 stable band,
+	// matching libvpx's measured ~12us/MB encode time.
 	if want := budget / 3; e.avgEncodeTime != want || e.avgPickModeTime != want/2 {
 		t.Fatalf("854x480 mid-size key autospeed timers = encode:%d pick:%d, want pinned encode:%d pick:%d",
 			e.avgEncodeTime, e.avgPickModeTime, want, want/2)
@@ -481,7 +481,7 @@ func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
 	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
 	e.finishAutoSpeedTiming(true)
 	// 800x600 with cpu_used=4 falls outside the large-frame gate but above
-	// the medium-frame gate (task #208). Expect the Speed=0 stable-band pin.
+	// the medium-frame gate. Expect the Speed=0 stable-band pin.
 	if want := budget / 3; e.avgEncodeTime != want || e.avgPickModeTime != want/2 {
 		t.Fatalf("svga cpu4 key autospeed timers = encode:%d pick:%d, want pinned encode:%d pick:%d",
 			e.avgEncodeTime, e.avgPickModeTime, want, want/2)

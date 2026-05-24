@@ -4,31 +4,15 @@ import (
 	"crypto/sha256"
 	"errors"
 	"testing"
-)
 
-// vp8SVCFirstByteDiff returns the byte offset of the first
-// divergence between a and b, or -1 if the prefixes match up to
-// min(len(a), len(b)). Inline here so the regression test stays
-// untagged (the oracle-tagged firstByteDiff lives in
-// vp8_oracle_encoder_stream_parity_test.go).
-func vp8SVCFirstByteDiff(a, b []byte) int {
-	n := min(len(b), len(a))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
+	"github.com/thesyncim/govpx/internal/testutil"
+)
 
 // vp8_multires_svc_parity_test.go exercises the previously
 // uncovered VP8 multi-resolution simulcast + SVC + temporal-layer paths.
 // Background:
 //
-//   - Task #79 audited the libvpx multi-resolution encoder code surface
+//   - The multi-resolution audit covered the libvpx encoder code surface
 //     (vp8/encoder/onyx_if.c:vp8_create_compressor multi_resolution
 //     arm, vp8/encoder/mr_dissim.c, vpx/src/vpx_encoder.c
 //     vpx_codec_enc_init_multi_ver). govpx does not expose a parent/
@@ -37,7 +21,7 @@ func vp8SVCFirstByteDiff(a, b []byte) int {
 //     mirroring the WebRTC simulcast pattern in
 //     examples/webrtc-vp8/main.go.
 //
-//   - Task #195 audited libvpx VP8 SVC/temporal-layer rate control
+//   - The SVC audit covered libvpx VP8 SVC/temporal-layer rate control
 //     (vp8/encoder/onyx_if.c cpi->oxcf.number_of_layers,
 //     cpi->oxcf.target_bitrate[], cpi->oxcf.layer_id[]). govpx exposes
 //     this via TemporalScalabilityConfig +
@@ -55,18 +39,15 @@ func vp8SVCFirstByteDiff(a, b []byte) int {
 // target shapes against govpx-internal byte-stability (the same bytes
 // every run, no oracle binary required).
 //
-// Task #358 verification (post-#341/#347 RD picker changes):
-// The intra-in-inter tteob==0 rate2 backout (commit 09a4cc91) and the
-// frame-2 MB(0,0) NEWMV rd_thresh pin (commit 5f9805a3) both modify
-// the inter-mode RD picker path that SVC base+enhancement layers
-// traverse at cpu_used=-3. All three fixtures here
-// (multires-2layer-simulcast cpu=-3, svc-2layer-2temporal cpu=-3,
-// svc-2temporal-cpu-3) re-pin clean post-#341/#347: simulcast +
-// SVC + temporal-layer paths remain byte-deterministic. The runtime
-// SetTemporalLayerID override path (TestVP8TemporalLayerIDOverride)
-// and the per-encoder independence path
-// (TestVP8MultiResIndependentEncoders) also re-verify clean.
-// No regression introduced by the #341/#347 RD changes.
+// Verification after the inter-mode RD picker updates: the intra-in-inter
+// tteob==0 rate2 backout and the frame-2 MB(0,0) NEWMV rd_thresh pin both
+// modify the path that SVC base+enhancement layers traverse at cpu_used=-3.
+// All three fixtures here (multires-2layer-simulcast cpu=-3,
+// svc-2layer-2temporal cpu=-3, svc-2temporal-cpu-3) re-pin clean:
+// simulcast + SVC + temporal-layer paths remain byte-deterministic. The
+// runtime SetTemporalLayerID override path (TestVP8TemporalLayerIDOverride)
+// and the per-encoder independence path (TestVP8MultiResIndependentEncoders)
+// also re-verify clean.
 
 // vp8MultiResSVCLayer is one rendition of a VP8 simulcast cluster.
 // Fields mirror the WebRTC simulcast example in examples/webrtc-vp8.
@@ -274,8 +255,8 @@ func vp8TemporalSVCStreams(
 	return streams
 }
 
-// TestVP8MultiResSVCParityBaseline plants the byte-parity
-// floor for the three target shapes flagged in tasks #79 and #195:
+// TestVP8MultiResSVCParityBaseline plants the byte-parity floor for the
+// three multi-resolution and temporal-layer target shapes:
 //
 //  1. multi-resolution simulcast (parent 640x360 + child 320x180,
 //     two independent VP8Encoder instances driven from the same
@@ -313,7 +294,7 @@ func TestVP8MultiResSVCParityBaseline(t *testing.T) {
 				if ha != hb {
 					t.Errorf("layer %d (%q) frame %d non-deterministic: len_a=%d len_b=%d first_diff=%d",
 						i, l.Name, f, len(runA[i][f]), len(runB[i][f]),
-						vp8SVCFirstByteDiff(runA[i][f], runB[i][f]))
+						testutil.FirstByteDiff(runA[i][f], runB[i][f]))
 				}
 			}
 		}
@@ -342,7 +323,7 @@ func TestVP8MultiResSVCParityBaseline(t *testing.T) {
 				if ha != hb {
 					t.Errorf("svc layer %d frame %d non-deterministic: len_a=%d len_b=%d first_diff=%d",
 						layer, f, len(runA[layer][f]), len(runB[layer][f]),
-						vp8SVCFirstByteDiff(runA[layer][f], runB[layer][f]))
+						testutil.FirstByteDiff(runA[layer][f], runB[layer][f]))
 				}
 			}
 		}
@@ -368,7 +349,7 @@ func TestVP8MultiResSVCParityBaseline(t *testing.T) {
 				if ha != hb {
 					t.Errorf("svc-3frame layer %d frame %d non-deterministic: len_a=%d len_b=%d first_diff=%d",
 						layer, f, len(runA[layer][f]), len(runB[layer][f]),
-						vp8SVCFirstByteDiff(runA[layer][f], runB[layer][f]))
+						testutil.FirstByteDiff(runA[layer][f], runB[layer][f]))
 				}
 			}
 		}
@@ -379,9 +360,8 @@ func TestVP8MultiResSVCParityBaseline(t *testing.T) {
 // override path (VP8E_SET_TEMPORAL_LAYER_ID). After
 // SetTemporalLayerID(L), every emitted frame must carry
 // TemporalLayerID == L until SetTemporalScalability replaces the
-// pattern. Task #195's audit covered the static (pattern-driven) path;
-// this test pins the runtime override path that the audit did not
-// exercise.
+// pattern. The static pattern-driven path is covered by the SVC parity
+// tests; this test pins the runtime override path.
 func TestVP8TemporalLayerIDOverride(t *testing.T) {
 	bitrates := [5]int{280, 420, 700, 0, 0}
 	opts := EncoderOptions{
@@ -478,7 +458,7 @@ func TestVP8MultiResIndependentEncoders(t *testing.T) {
 				t.Errorf("layer %d (%q) frame %d schedule-dependent: interleaved_len=%d ref_len=%d first_diff=%d",
 					i, l.Name, f,
 					len(interleaved[i][f]), len(refStreams[i][f]),
-					vp8SVCFirstByteDiff(interleaved[i][f], refStreams[i][f]))
+					testutil.FirstByteDiff(interleaved[i][f], refStreams[i][f]))
 			}
 		}
 	}
