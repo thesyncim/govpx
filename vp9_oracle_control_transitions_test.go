@@ -5,6 +5,7 @@ package govpx
 import (
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"image"
 	"strconv"
 	"strings"
@@ -222,7 +223,7 @@ func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 		t.Fatalf("frame 5 target bits = %d, want above frame 4 target %d after fps drop",
 			rows[5].FrameTargetBits, rows[4].FrameTargetBits)
 	}
-	wantQ := vp9PublicQuantizerToQIndex(20)
+	wantQ := encoder.PublicQuantizerToQIndex(20)
 	for frame := 4; frame <= 9; frame++ {
 		if rows[frame].Dropped {
 			continue
@@ -275,7 +276,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 		t.Fatalf("frame 2 target bitrate: govpx=%d libvpx=%d, want 300/300",
 			govpxRows[2].TargetBitrateKbps, libvpxRows[2].TargetBitrateKbps)
 	}
-	wantQ := vp9PublicQuantizerToQIndex(20)
+	wantQ := encoder.PublicQuantizerToQIndex(20)
 	for frame := 4; frame < frames; frame++ {
 		if govpxRows[frame].Dropped || libvpxRows[frame].Dropped {
 			continue

@@ -624,14 +624,14 @@ func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOpti
 
 func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOptions) {
 	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(opts)
-	best := vp9PublicQuantizerToQIndex(minQ)
-	worst := vp9PublicQuantizerToQIndex(maxQ)
+	best := encoder.PublicQuantizerToQIndex(minQ)
+	worst := encoder.PublicQuantizerToQIndex(maxQ)
 	if best > worst {
 		best = worst
 	}
 	rc.bestQuality = uint8(best)
 	rc.worstQuality = uint8(worst)
-	rc.cqLevel = uint8(vp9PublicQuantizerToQIndex(cqLevel))
+	rc.cqLevel = uint8(encoder.PublicQuantizerToQIndex(cqLevel))
 	rc.clampQuantizerHistory()
 }
 

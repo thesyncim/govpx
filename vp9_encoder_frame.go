@@ -737,7 +737,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		resultSize = 0
 		resultRefreshFlags = 0
 	}
-	publicQuantizer := vp9QIndexToPublicQuantizer(qindex)
+	publicQuantizer := encoder.QIndexToPublicQuantizer(qindex)
 	if !postDrop {
 		e.lastQuantizerInternal = qindex
 		e.lastQuantizerPublic = publicQuantizer

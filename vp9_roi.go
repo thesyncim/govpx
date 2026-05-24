@@ -1,6 +1,9 @@
 package govpx
 
-import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+import (
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 type vp9ROIMapState struct {
 	enabled         bool
@@ -81,7 +84,8 @@ func (e *VP9Encoder) SetROIMap(m *ROIMap) error {
 		// libvpx ranges: delta_q/delta_lf ±63, skip [0,1], ref_frame
 		// [-1, 3] (vp9_encoder.c:699-704).  govpx widens the lower
 		// ref_frame bound to 0 (treated as -1 below).
-		if dq < -maxQuantizer || dq > maxQuantizer ||
+		if dq < -encoder.MaxPublicQuantizer ||
+			dq > encoder.MaxPublicQuantizer ||
 			dlf < -63 || dlf > 63 || st != 0 ||
 			skip < 0 || skip > 1 ||
 			ref < -1 || ref > 3 {
@@ -173,7 +177,7 @@ func (r *vp9ROIMapState) segmentationParams() vp9dec.SegmentationParams {
 
 func vp9ROIQuantizerDeltaToQIndex(delta int) int {
 	if delta < 0 {
-		return -vp9PublicQuantizerToQIndex(-delta)
+		return -encoder.PublicQuantizerToQIndex(-delta)
 	}
-	return vp9PublicQuantizerToQIndex(delta)
+	return encoder.PublicQuantizerToQIndex(delta)
 }

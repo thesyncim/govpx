@@ -635,7 +635,7 @@ func TestVP9EncoderSetRealtimeTargetUpdatesQuantizerBounds(t *testing.T) {
 		t.Fatalf("Encode: %v", err)
 	}
 	h, _ := vp9test.ParseHeader(t, packet)
-	if got, want := int(h.Quant.BaseQindex), vp9PublicQuantizerToQIndex(20); got != want {
+	if got, want := int(h.Quant.BaseQindex), encoder.PublicQuantizerToQIndex(20); got != want {
 		t.Fatalf("BaseQindex = %d, want %d", got, want)
 	}
 }
@@ -1032,9 +1032,9 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 		t.Fatalf("RC-Q SetCQLevel: %v", err)
 	}
 	if e.opts.CQLevel != 24 ||
-		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(24)) {
+		e.rc.cqLevel != uint8(encoder.PublicQuantizerToQIndex(24)) {
 		t.Fatalf("RC-Q CQ update = opts:%d rc:%d, want 24/%d",
-			e.opts.CQLevel, e.rc.cqLevel, vp9PublicQuantizerToQIndex(24))
+			e.opts.CQLevel, e.rc.cqLevel, encoder.PublicQuantizerToQIndex(24))
 	}
 
 	oldRC := e.rc
@@ -1049,10 +1049,10 @@ func TestVP9EncoderSetCQLevelUpdatesPublicQAndRateControl(t *testing.T) {
 		t.Fatalf("reset SetCQLevel: %v", err)
 	}
 	if e.opts.CQLevel != 0 ||
-		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(vp9DefaultCQLevel)) {
+		e.rc.cqLevel != uint8(encoder.PublicQuantizerToQIndex(vp9DefaultCQLevel)) {
 		t.Fatalf("reset CQ state = opts:%d rc:%d, want 0/%d",
 			e.opts.CQLevel, e.rc.cqLevel,
-			vp9PublicQuantizerToQIndex(vp9DefaultCQLevel))
+			encoder.PublicQuantizerToQIndex(vp9DefaultCQLevel))
 	}
 }
 
@@ -1266,7 +1266,7 @@ func TestVP9EncoderSetRateControlSwitchesModeAtomically(t *testing.T) {
 	if !e.opts.RateControlModeSet || e.opts.RateControlMode != RateControlCQ ||
 		!e.rc.enabled || e.rc.mode != RateControlCQ ||
 		e.opts.TargetBitrateKbps != 700 || e.rc.bitsPerFrame != 23333 ||
-		e.rc.cqLevel != uint8(vp9PublicQuantizerToQIndex(20)) {
+		e.rc.cqLevel != uint8(encoder.PublicQuantizerToQIndex(20)) {
 		t.Fatalf("CQ rate control state = opts:%+v rc:%+v, want enabled CQ 700kbps cq20",
 			e.opts, e.rc)
 	}

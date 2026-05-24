@@ -4,6 +4,7 @@ import (
 	"image"
 
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 const (
@@ -51,8 +52,8 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		return ErrInvalidConfig
 	}
 	if target.MinQuantizer < 0 || target.MaxQuantizer < 0 ||
-		target.MinQuantizer > maxQuantizer ||
-		target.MaxQuantizer > maxQuantizer {
+		target.MinQuantizer > encoder.MaxPublicQuantizer ||
+		target.MaxQuantizer > encoder.MaxPublicQuantizer {
 		return ErrInvalidQuantizer
 	}
 	frameDropRequested := target.FrameDrop != RealtimeFrameDropUnchanged

@@ -7,6 +7,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"image"
 	"math"
 	"testing"
@@ -538,7 +539,7 @@ func enrichVP9RateScoreboardRowFromPacket(t *testing.T, row *vp9test.RateScorebo
 		row.CodedHeight = int(header.Height)
 	}
 	row.BaseQIndex = int(header.Quant.BaseQindex)
-	row.PublicQuantizer = vp9QIndexToPublicQuantizer(int(header.Quant.BaseQindex))
+	row.PublicQuantizer = encoder.QIndexToPublicQuantizer(int(header.Quant.BaseQindex))
 	row.SizeBytes = len(packet)
 	row.SizeBits = len(packet) * 8
 	row.FirstPartitionSize = int(header.FirstPartitionSize)

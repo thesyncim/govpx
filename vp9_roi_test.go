@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9EncoderSetROIMapValidationAndCopy(t *testing.T) {
@@ -33,7 +34,7 @@ func TestVP9EncoderSetROIMapValidationAndCopy(t *testing.T) {
 		t.Fatalf("ROI state = enabled:%t dims:%dx%d, want true %dx%d",
 			e.roi.enabled, e.roi.rows, e.roi.cols, rows, cols)
 	}
-	if got, want := e.roi.deltaQuantizer[1], int16(-vp9PublicQuantizerToQIndex(10)); got != want {
+	if got, want := e.roi.deltaQuantizer[1], int16(-encoder.PublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("ROI delta q[1] = %d, want %d", got, want)
 	}
 	if got := e.roi.deltaLoopFilter[1]; got != 3 {
@@ -269,7 +270,7 @@ func TestVP9EncoderROIMapInterBlocksUseSegmentMap(t *testing.T) {
 			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData,
 			header.Seg.AbsDelta)
 	}
-	if got, want := header.Seg.FeatureData[1][vp9dec.SegLvlAltQ], int16(-vp9PublicQuantizerToQIndex(10)); got != want {
+	if got, want := header.Seg.FeatureData[1][vp9dec.SegLvlAltQ], int16(-encoder.PublicQuantizerToQIndex(10)); got != want {
 		t.Fatalf("ROI header alt-q[1] = %d, want %d", got, want)
 	}
 	if got := header.Seg.FeatureData[1][vp9dec.SegLvlAltLf]; got != 3 {

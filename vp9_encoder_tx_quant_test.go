@@ -651,29 +651,6 @@ func TestVP9EncoderDefaultInterQuantizerUsesPinnedCQBaseQIndex(t *testing.T) {
 	}
 }
 
-func TestVP9PublicQuantizerMappingMatchesLibvpxTable(t *testing.T) {
-	want := []int{
-		0, 4, 8, 12, 16, 20, 24, 28,
-		32, 36, 40, 44, 48, 52, 56, 60,
-		64, 68, 72, 76, 80, 84, 88, 92,
-		96, 100, 104, 108, 112, 116, 120, 124,
-		128, 132, 136, 140, 144, 148, 152, 156,
-		160, 164, 168, 172, 176, 180, 184, 188,
-		192, 196, 200, 204, 208, 212, 216, 220,
-		224, 228, 232, 236, 240, 244, 249, 255,
-	}
-	for q, qindex := range want {
-		if got := vp9PublicQuantizerToQIndex(q); got != qindex {
-			t.Fatalf("vp9PublicQuantizerToQIndex(%d) = %d, want %d",
-				q, got, qindex)
-		}
-		if got := vp9QIndexToPublicQuantizer(qindex); got != q {
-			t.Fatalf("vp9QIndexToPublicQuantizer(%d) = %d, want %d",
-				qindex, got, q)
-		}
-	}
-}
-
 func TestVP9EncoderPublicFixedQuantizerControlsQIndex(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -694,7 +671,7 @@ func TestVP9EncoderPublicFixedQuantizerControlsQIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	wantQIndex := vp9PublicQuantizerToQIndex(20)
+	wantQIndex := vp9enc.PublicQuantizerToQIndex(20)
 	keyHeader, _ := vp9test.ParseHeader(t, key)
 	if got := int(keyHeader.Quant.BaseQindex); got != wantQIndex {
 		t.Fatalf("key BaseQindex = %d, want %d", got, wantQIndex)

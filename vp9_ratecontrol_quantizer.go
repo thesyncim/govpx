@@ -278,7 +278,7 @@ func (rc *vp9RateControlState) cbrActiveQuantizerBounds(intraOnly bool, refreshF
 		if frameIndex > 0 {
 			activeBest = encoder.KFActiveQuality(int(rc.avgFrameQIndexKey))
 			if int64(rc.codedWidth)*int64(rc.codedHeight) <= 352*288 {
-				activeBest += vp9ComputeQDelta(best, worst, activeBest, 75, 100)
+				activeBest += encoder.ComputeQDelta(best, worst, activeBest, 75, 100)
 			}
 		}
 	} else {
@@ -316,7 +316,7 @@ func (rc *vp9RateControlState) applyVP9RefreshActiveBestBias(activeBest int, int
 		return activeBest
 	}
 	if rc.framePeriodicBoost {
-		activeBest += vp9ComputeQDelta(best, worst, activeBest, 3, 4)
+		activeBest += encoder.ComputeQDelta(best, worst, activeBest, 3, 4)
 	}
 	if activeBest < best {
 		activeBest = best
@@ -336,12 +336,12 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 	activeBest := best
 	if intraOnly {
 		if rc.mode == RateControlQ {
-			activeBest = max(cqLevel+vp9ComputeQDelta(best, worst, cqLevel,
+			activeBest = max(cqLevel+encoder.ComputeQDelta(best, worst, cqLevel,
 				1, 4), best)
 		} else {
 			activeBest = encoder.KFActiveQuality(int(rc.avgFrameQIndexKey))
 			if int64(rc.codedWidth)*int64(rc.codedHeight) <= 352*288 {
-				activeBest += vp9ComputeQDelta(best, worst,
+				activeBest += encoder.ComputeQDelta(best, worst,
 					activeBest, 75, 100)
 			}
 		}
@@ -363,14 +363,14 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 				num = 2
 				den = 5
 			}
-			activeBest = max(cqLevel+vp9ComputeQDelta(best, worst,
+			activeBest = max(cqLevel+encoder.ComputeQDelta(best, worst,
 				cqLevel, num, den), best)
 		default:
 			activeBest = encoder.GFActiveQuality(qBasis)
 		}
 	} else if rc.mode == RateControlQ {
-		num, den := vp9PublicQModeInterRate(frameIndex)
-		activeBest = max(cqLevel+vp9ComputeQDelta(best, worst, cqLevel,
+		num, den := encoder.PublicQModeInterRate(frameIndex)
+		activeBest = max(cqLevel+encoder.ComputeQDelta(best, worst, cqLevel,
 			num, den), best)
 	} else {
 		if frameIndex > 1 {

@@ -214,8 +214,8 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 			if traceRateSelection {
 				minQ, maxQ, _ := vp9NormalizedPublicQuantizers(e.opts)
 				e.recordVP9OracleRateSelectionTrace(
-					vp9PublicQuantizerToQIndex(minQ),
-					vp9PublicQuantizerToQIndex(maxQ),
+					encoder.PublicQuantizerToQIndex(minQ),
+					encoder.PublicQuantizerToQIndex(maxQ),
 					1, false, 0)
 			}
 		}
@@ -225,9 +225,9 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 
 func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, refreshFlags uint8) int {
 	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(e.opts)
-	best := vp9PublicQuantizerToQIndex(minQ)
-	worst := vp9PublicQuantizerToQIndex(maxQ)
-	cq := vp9PublicQuantizerToQIndex(cqLevel)
+	best := encoder.PublicQuantizerToQIndex(minQ)
+	worst := encoder.PublicQuantizerToQIndex(maxQ)
+	cq := encoder.PublicQuantizerToQIndex(cqLevel)
 	if best >= worst {
 		return best
 	}
@@ -240,29 +240,17 @@ func (e *VP9Encoder) vp9EncoderPublicQModeQIndex(isKey, intraOnly bool, refreshF
 	} else if refreshFlags&(1<<vp9GoldenRefSlot) != 0 {
 		num, den = 1, 2
 	} else {
-		num, den = vp9PublicQModeInterRate(e.frameIndex)
+		num, den = encoder.PublicQModeInterRate(e.frameIndex)
 	}
-	qindex := min(max(cq+vp9ComputeQDelta(best, worst, cq, num, den), best), worst)
+	qindex := min(max(cq+encoder.ComputeQDelta(best, worst, cq, num, den), best), worst)
 	return qindex
-}
-
-func vp9PublicQModeInterRate(frameIndex int) (num int, den int) {
-	switch frameIndex & 7 {
-	case 0:
-		return 1, 2
-	case 2, 6:
-		return 85, 100
-	case 4:
-		return 7, 10
-	default:
-		return 1, 1
-	}
 }
 
 func validateVP9PublicQuantizerOptions(opts VP9EncoderOptions) error {
 	if opts.MinQuantizer < 0 || opts.MaxQuantizer < 0 || opts.CQLevel < 0 ||
-		opts.MinQuantizer > maxQuantizer || opts.MaxQuantizer > maxQuantizer ||
-		opts.CQLevel > maxQuantizer {
+		opts.MinQuantizer > encoder.MaxPublicQuantizer ||
+		opts.MaxQuantizer > encoder.MaxPublicQuantizer ||
+		opts.CQLevel > encoder.MaxPublicQuantizer {
 		return ErrInvalidQuantizer
 	}
 	if (opts.MinQuantizer != 0 || opts.MaxQuantizer != 0) &&
@@ -296,34 +284,6 @@ func vp9NormalizedPublicQuantizers(opts VP9EncoderOptions) (minQ, maxQ, cqLevel 
 		}
 	}
 	return minQ, maxQ, cqLevel
-}
-
-func vp9PublicQuantizerToQIndex(q int) int {
-	return vp9QuantizerToQIndex[min(max(q, 0), maxQuantizer)]
-}
-
-func vp9QIndexToPublicQuantizer(qIndex int) int {
-	for q, translated := range vp9QuantizerToQIndex {
-		if translated >= qIndex {
-			return q
-		}
-	}
-	return maxQuantizer
-}
-
-func vp9ComputeQDelta(best, worst, qindex, num, den int) int {
-	return encoder.ComputeQDelta(best, worst, qindex, num, den)
-}
-
-var vp9QuantizerToQIndex = [maxQuantizer + 1]int{
-	0, 4, 8, 12, 16, 20, 24, 28,
-	32, 36, 40, 44, 48, 52, 56, 60,
-	64, 68, 72, 76, 80, 84, 88, 92,
-	96, 100, 104, 108, 112, 116, 120, 124,
-	128, 132, 136, 140, 144, 148, 152, 156,
-	160, 164, 168, 172, 176, 180, 184, 188,
-	192, 196, 200, 204, 208, 212, 216, 220,
-	224, 228, 232, 236, 240, 244, 249, 255,
 }
 
 // vp9InterModeScore / vp9ModeDecisionScore / vp9AddModeDecisionRate /
