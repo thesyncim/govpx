@@ -1,28 +1,13 @@
-package govpx
+package encoder
 
 import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// reset_frame_context is the 2-bit VP9 uncompressed-header field that
-// controls how per-frame entropy state inherits or resets between
-// frames. The matrix is:
-//
-//	0 — no reset; the current frame inherits frame_context_idx as is
-//	1 — no reset (reserved/idem; libvpx treats 0 and 1 identically)
-//	2 — reset the slot at frame_context_idx (intra-only: collapses to slot 0)
-//	3 — reset every frame_context to libvpx defaults
-//
-// The test below drives the four values through the writer/reader
-// round-trip and through the encoder's prepareVP9EncoderFrameContext
-// state machine. error_resilient_mode is left off so the
-// reset_frame_context bits are actually emitted.
-
-func TestVP9ResetFrameContextHeaderRoundTrip(t *testing.T) {
+func TestResetFrameContextHeaderRoundTrip(t *testing.T) {
 	for _, value := range []uint8{0, 1, 2, 3} {
 		t.Run(resetFrameContextName(value), func(t *testing.T) {
 			want := vp9dec.UncompressedHeader{
@@ -44,8 +29,8 @@ func TestVP9ResetFrameContextHeaderRoundTrip(t *testing.T) {
 			want.Quant.BaseQindex = 64
 
 			buf := make([]byte, 128)
-			w := vp9enc.NewBitWriter(buf)
-			n := vp9enc.WriteIntraOnlyUncompressedHeader(w, &want)
+			w := NewBitWriter(buf)
+			n := WriteIntraOnlyUncompressedHeader(w, &want)
 			if n <= 0 {
 				t.Fatalf("WriteIntraOnlyUncompressedHeader: returned %d", n)
 			}
@@ -64,18 +49,13 @@ func TestVP9ResetFrameContextHeaderRoundTrip(t *testing.T) {
 	}
 }
 
-// TestVP9ResetFrameContextErrorResilientSkipsField pins the libvpx
-// rule that error_resilient_mode=1 suppresses the reset_frame_context
-// emit. The parser then leaves the field zero.
-func TestVP9ResetFrameContextErrorResilientSkipsField(t *testing.T) {
+func TestResetFrameContextErrorResilientSkipsField(t *testing.T) {
 	hdr := vp9dec.UncompressedHeader{
 		Profile:            common.Profile0,
 		FrameType:          common.InterFrame,
 		ShowFrame:          false,
 		ErrorResilientMode: true,
 		IntraOnly:          true,
-		// ResetFrameContext = 3 would normally be emitted, but
-		// error_resilient_mode suppresses the bits entirely.
 		ResetFrameContext:  3,
 		RefreshFrameFlags:  0xff,
 		Width:              320,
@@ -87,8 +67,8 @@ func TestVP9ResetFrameContextErrorResilientSkipsField(t *testing.T) {
 	hdr.Quant.BaseQindex = 64
 
 	buf := make([]byte, 128)
-	w := vp9enc.NewBitWriter(buf)
-	n := vp9enc.WriteIntraOnlyUncompressedHeader(w, &hdr)
+	w := NewBitWriter(buf)
+	n := WriteIntraOnlyUncompressedHeader(w, &hdr)
 	if n <= 0 {
 		t.Fatalf("WriteIntraOnlyUncompressedHeader: returned %d", n)
 	}
@@ -107,26 +87,19 @@ func TestVP9ResetFrameContextErrorResilientSkipsField(t *testing.T) {
 	}
 }
 
-// TestVP9ResetFrameContextPrepareMatrix drives the encoder's
-// prepareVP9EncoderFrameContext state machine for each of the four
-// reset_frame_context values and asserts the surviving frame-context
-// slots match libvpx's decoder semantics. After the call, the
-// active e.fc must equal e.frameContexts[idx] (the slot the prepared
-// frame is bound to).
-func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
+func TestPrepareFrameContextResetMatrix(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
 		reset             uint8
 		intraOnly         bool
 		errorResilient    bool
-		wantSlotReset     []int // slots expected to be reset
-		wantSlotPreserved []int // slots expected to keep their seed
-		wantIdx           int   // expected returned frame_context_idx
+		wantSlotReset     []int
+		wantSlotPreserved []int
+		wantIdx           int
 	}{
 		{
 			name:              "0_no_reset_inter",
 			reset:             0,
-			intraOnly:         false,
 			wantSlotReset:     nil,
 			wantSlotPreserved: []int{0, 1, 2, 3},
 			wantIdx:           1,
@@ -134,7 +107,6 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		{
 			name:              "1_no_reset_inter",
 			reset:             1,
-			intraOnly:         false,
 			wantSlotReset:     nil,
 			wantSlotPreserved: []int{0, 1, 2, 3},
 			wantIdx:           1,
@@ -142,7 +114,6 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		{
 			name:              "2_inter_resets_indexed_slot",
 			reset:             2,
-			intraOnly:         false,
 			wantSlotReset:     []int{1},
 			wantSlotPreserved: []int{0, 2, 3},
 			wantIdx:           1,
@@ -158,7 +129,6 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		{
 			name:              "3_resets_every_slot",
 			reset:             3,
-			intraOnly:         false,
 			wantSlotReset:     []int{0, 1, 2, 3},
 			wantSlotPreserved: nil,
 			wantIdx:           0,
@@ -166,7 +136,6 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		{
 			name:              "error_resilient_resets_every_slot",
 			reset:             0,
-			intraOnly:         false,
 			errorResilient:    true,
 			wantSlotReset:     []int{0, 1, 2, 3},
 			wantSlotPreserved: nil,
@@ -174,27 +143,9 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e, err := NewVP9Encoder(VP9EncoderOptions{
-				Width: 64, Height: 64,
-				ErrorResilient: tc.errorResilient,
-			})
-			if err != nil {
-				t.Fatalf("NewVP9Encoder: %v", err)
-			}
-			t.Cleanup(func() { _ = e.Close() })
-
-			// Seed every frame_context slot to a recognisable shape so
-			// "reset" vs "preserved" can be distinguished. The seed is
-			// libvpx's defaults followed by a per-slot stamp on
-			// Nmvc.Joints[0] — a value that ResetFrameContext clobbers
-			// back to its default.
-			for i := range e.frameContexts {
-				vp9dec.ResetFrameContext(&e.frameContexts[i])
-				e.frameContexts[i].Nmvc.Joints[0] = byte(0x10 + i)
-			}
-			var defaultFc vp9dec.FrameContext
-			vp9dec.ResetFrameContext(&defaultFc)
-			defaultProbe := defaultFc.Nmvc.Joints[0]
+			var frameContexts [common.FrameContexts]vp9dec.FrameContext
+			seedFrameContexts(&frameContexts, 0x10)
+			defaultProbe := defaultFrameContextProbe()
 
 			hdr := vp9dec.UncompressedHeader{
 				FrameType:          common.InterFrame,
@@ -203,13 +154,13 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 				ResetFrameContext:  tc.reset,
 				FrameContextIdx:    1,
 			}
-			idx := e.prepareVP9EncoderFrameContext(&hdr)
+			idx, active := PrepareFrameContext(&frameContexts, &hdr)
 			if idx != tc.wantIdx {
-				t.Fatalf("prepareVP9EncoderFrameContext idx = %d, want %d",
+				t.Fatalf("PrepareFrameContext idx = %d, want %d",
 					idx, tc.wantIdx)
 			}
 			for _, slot := range tc.wantSlotReset {
-				got := e.frameContexts[slot].Nmvc.Joints[0]
+				got := frameContexts[slot].Nmvc.Joints[0]
 				if got != defaultProbe {
 					t.Errorf("slot %d Nmvc.Joints[0] = %#x, want default %#x (slot should be reset)",
 						slot, got, defaultProbe)
@@ -217,58 +168,86 @@ func TestVP9ResetFrameContextPrepareMatrix(t *testing.T) {
 			}
 			for _, slot := range tc.wantSlotPreserved {
 				wantProbe := byte(0x10 + slot)
-				got := e.frameContexts[slot].Nmvc.Joints[0]
+				got := frameContexts[slot].Nmvc.Joints[0]
 				if got != wantProbe {
 					t.Errorf("slot %d Nmvc.Joints[0] = %#x, want %#x (slot should be preserved)",
 						slot, got, wantProbe)
 				}
 			}
-			// e.fc tracks the slot the prepared frame is bound to.
-			activeProbe := e.fc.Nmvc.Joints[0]
-			activeSlotProbe := e.frameContexts[idx].Nmvc.Joints[0]
-			if activeProbe != activeSlotProbe {
+			if activeProbe := active.Nmvc.Joints[0]; activeProbe != frameContexts[idx].Nmvc.Joints[0] {
 				t.Errorf("active fc probe = %#x, want slot %d probe %#x",
-					activeProbe, idx, activeSlotProbe)
+					activeProbe, idx, frameContexts[idx].Nmvc.Joints[0])
 			}
 		})
 	}
 }
 
-// TestVP9ResetFrameContextKeyframeAlwaysResetsAll covers the libvpx
-// invariant that keyframes always reset every frame_context regardless
-// of the reset_frame_context value (the field is not transmitted on
-// keyframes). Even when ResetFrameContext is 0 the prepare step must
-// clobber every slot.
-func TestVP9ResetFrameContextKeyframeAlwaysResetsAll(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	t.Cleanup(func() { _ = e.Close() })
-
-	for i := range e.frameContexts {
-		vp9dec.ResetFrameContext(&e.frameContexts[i])
-		e.frameContexts[i].Nmvc.Joints[0] = byte(0x20 + i)
-	}
-	var defaultFc vp9dec.FrameContext
-	vp9dec.ResetFrameContext(&defaultFc)
-	defaultProbe := defaultFc.Nmvc.Joints[0]
+func TestPrepareFrameContextKeyframeAlwaysResetsAll(t *testing.T) {
+	var frameContexts [common.FrameContexts]vp9dec.FrameContext
+	seedFrameContexts(&frameContexts, 0x20)
+	defaultProbe := defaultFrameContextProbe()
 
 	hdr := vp9dec.UncompressedHeader{
 		FrameType:         common.KeyFrame,
-		ResetFrameContext: 0, // libvpx does not transmit on KEY; ignored anyway
+		ResetFrameContext: 0,
 		FrameContextIdx:   2,
 	}
-	idx := e.prepareVP9EncoderFrameContext(&hdr)
+	idx, active := PrepareFrameContext(&frameContexts, &hdr)
 	if idx != 0 {
-		t.Fatalf("prepareVP9EncoderFrameContext on KEY = %d, want 0", idx)
+		t.Fatalf("PrepareFrameContext on KEY = %d, want 0", idx)
 	}
-	for i := range e.frameContexts {
-		if got := e.frameContexts[i].Nmvc.Joints[0]; got != defaultProbe {
+	for i := range frameContexts {
+		if got := frameContexts[i].Nmvc.Joints[0]; got != defaultProbe {
 			t.Errorf("KEY slot %d Nmvc.Joints[0] = %#x, want default %#x",
 				i, got, defaultProbe)
 		}
 	}
+	if active.Nmvc.Joints[0] != defaultProbe {
+		t.Fatalf("active context probe = %#x, want default %#x",
+			active.Nmvc.Joints[0], defaultProbe)
+	}
+}
+
+func TestCommitFrameContextHonorsRefreshFlagAndSlotBounds(t *testing.T) {
+	var frameContexts [common.FrameContexts]vp9dec.FrameContext
+	seedFrameContexts(&frameContexts, 0x30)
+	active := frameContexts[0]
+	active.Nmvc.Joints[0] = 0xaa
+
+	CommitFrameContext(&frameContexts, active,
+		&vp9dec.UncompressedHeader{RefreshFrameContext: false}, 2)
+	if got := frameContexts[2].Nmvc.Joints[0]; got != 0x32 {
+		t.Fatalf("no-refresh slot changed to %#x", got)
+	}
+
+	CommitFrameContext(&frameContexts, active,
+		&vp9dec.UncompressedHeader{RefreshFrameContext: true}, -1)
+	CommitFrameContext(&frameContexts, active,
+		&vp9dec.UncompressedHeader{RefreshFrameContext: true}, common.FrameContexts)
+	if got := frameContexts[0].Nmvc.Joints[0]; got != 0x30 {
+		t.Fatalf("out-of-range commit changed slot 0 to %#x", got)
+	}
+
+	CommitFrameContext(&frameContexts, active,
+		&vp9dec.UncompressedHeader{RefreshFrameContext: true}, 2)
+	if got := frameContexts[2].Nmvc.Joints[0]; got != 0xaa {
+		t.Fatalf("refreshed slot probe = %#x, want active probe 0xaa", got)
+	}
+}
+
+func seedFrameContexts(frameContexts *[common.FrameContexts]vp9dec.FrameContext,
+	base byte,
+) {
+	for i := range frameContexts {
+		vp9dec.ResetFrameContext(&frameContexts[i])
+		frameContexts[i].Nmvc.Joints[0] = base + byte(i)
+	}
+}
+
+func defaultFrameContextProbe() byte {
+	var defaultFc vp9dec.FrameContext
+	vp9dec.ResetFrameContext(&defaultFc)
+	return defaultFc.Nmvc.Joints[0]
 }
 
 func resetFrameContextName(v uint8) string {

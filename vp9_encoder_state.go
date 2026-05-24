@@ -26,38 +26,17 @@ func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
 }
 
 func (e *VP9Encoder) resetVP9EncoderFrameContexts() {
-	for i := range e.frameContexts {
-		vp9dec.ResetFrameContext(&e.frameContexts[i])
-	}
-	e.fc = e.frameContexts[0]
+	e.fc = encoder.ResetFrameContexts(&e.frameContexts)
 }
 
 func (e *VP9Encoder) prepareVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader) int {
-	idx := int(hdr.FrameContextIdx)
-	if idx >= common.FrameContexts {
-		idx = 0
-	}
-	if hdr.FrameType == common.KeyFrame ||
-		hdr.ErrorResilientMode || hdr.ResetFrameContext == 3 {
-		e.resetVP9EncoderFrameContexts()
-		idx = 0
-	} else if hdr.IntraOnly && hdr.ResetFrameContext == 2 {
-		vp9dec.ResetFrameContext(&e.frameContexts[idx])
-		idx = 0
-	} else if hdr.IntraOnly {
-		idx = 0
-	} else if hdr.ResetFrameContext == 2 {
-		vp9dec.ResetFrameContext(&e.frameContexts[idx])
-	}
-	e.fc = e.frameContexts[idx]
+	idx, fc := encoder.PrepareFrameContext(&e.frameContexts, hdr)
+	e.fc = fc
 	return idx
 }
 
 func (e *VP9Encoder) commitVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader, idx int) {
-	if idx < 0 || idx >= common.FrameContexts || !hdr.RefreshFrameContext {
-		return
-	}
-	e.frameContexts[idx] = e.fc
+	encoder.CommitFrameContext(&e.frameContexts, e.fc, hdr, idx)
 }
 
 func (e *VP9Encoder) updateVP9NonrdModeCostFrameContext(frameIsIntra bool) {
@@ -83,9 +62,7 @@ func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
 		hdr.ErrorResilientMode || hdr.FrameParallelDecoding {
 		return
 	}
-	pre := &e.frameContexts[idx]
-	bridge := encoder.FrameCountsForDecoder(counts)
-	vp9dec.AdaptFrameContextWithCounts(&e.fc, pre, &bridge, hdr, txMode,
+	encoder.AdaptFrameContext(&e.fc, &e.frameContexts, hdr, idx, counts, txMode,
 		e.lastVP9HeaderValid && e.lastVP9HeaderFrameType == common.KeyFrame)
 }
 
