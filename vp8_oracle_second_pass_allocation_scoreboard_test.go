@@ -43,6 +43,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp8corpus"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -415,16 +416,17 @@ func loadExternalSecondPassFixtures(t *testing.T) []secondPassFixture {
 			t.Logf("external second-pass fixture %s not present at %s; skipping", s.fixtureName, s.path)
 			continue
 		}
-		clip, ok := readExternalEncoderClip(t, s.path, s.maxFrames)
+		clip, ok := vp8corpus.ReadSourceClip(t, s.path, s.maxFrames)
 		if !ok {
 			t.Logf("external second-pass fixture %s not a supported source clip; skipping", s.fixtureName)
 			continue
 		}
+		frames := vp8SourceClipImages(clip)
 		out = append(out, secondPassFixture{
 			name:       s.fixtureName,
-			opts:       s.baseOpts(clip.width, clip.height, clip.fps),
+			opts:       s.baseOpts(clip.Width, clip.Height, clip.FPS),
 			targetKbps: s.targetKbps,
-			sources:    clip.frames,
+			sources:    frames,
 		})
 	}
 	return out
