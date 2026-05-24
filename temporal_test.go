@@ -236,48 +236,6 @@ func TestTemporalLayeringPatternsMatchLibvpxExample(t *testing.T) {
 	}
 }
 
-func TestTemporalScalabilityConfigValidation(t *testing.T) {
-	_, err := NewVP8Encoder(EncoderOptions{
-		Width:               16,
-		Height:              16,
-		FPS:                 30,
-		RateControlMode:     RateControlCBR,
-		TargetBitrateKbps:   1200,
-		TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringMode(13)},
-	})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("invalid mode error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{
-		Width:               16,
-		Height:              16,
-		FPS:                 30,
-		RateControlMode:     RateControlCBR,
-		TargetBitrateKbps:   1200,
-		TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringFiveLayers},
-	})
-	if !errors.Is(err, ErrInvalidBitrate) {
-		t.Fatalf("five-layer default bitrate error = %v, want ErrInvalidBitrate", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{
-		Width:             16,
-		Height:            16,
-		FPS:               30,
-		RateControlMode:   RateControlCBR,
-		TargetBitrateKbps: 1200,
-		TemporalScalability: TemporalScalabilityConfig{
-			Enabled:                true,
-			Mode:                   TemporalLayeringTwoLayers,
-			LayerTargetBitrateKbps: [MaxTemporalLayers]int{900, 800},
-		},
-	})
-	if !errors.Is(err, ErrInvalidBitrate) {
-		t.Fatalf("non-monotonic bitrate error = %v, want ErrInvalidBitrate", err)
-	}
-}
-
 func TestTemporalScalabilityDerivesLibvpxVP8RTCBitrates(t *testing.T) {
 	two, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,

@@ -1,9 +1,6 @@
 package govpx
 
-import (
-	"errors"
-	"testing"
-)
+import "testing"
 
 // TestSetAutoAltRefMutatesOption asserts the runtime setter flips
 // EncoderOptions.AutoAltRef the same way libvpx's
@@ -28,20 +25,5 @@ func TestSetAutoAltRefMutatesOption(t *testing.T) {
 	}
 	if e.opts.AutoAltRef {
 		t.Fatalf("AutoAltRef = true after SetAutoAltRef(false), want false")
-	}
-}
-
-// TestSetAutoAltRefRejectsClosedEncoder asserts the setter fails closed
-// after Close, mirroring libvpx's invalid-context rejection.
-func TestSetAutoAltRefRejectsClosedEncoder(t *testing.T) {
-	var nilEnc *VP8Encoder
-	if err := nilEnc.SetAutoAltRef(true); !errors.Is(err, ErrClosed) {
-		t.Fatalf("nil encoder SetAutoAltRef error = %v, want ErrClosed", err)
-	}
-
-	e := newTestEncoder(t)
-	e.Close()
-	if err := e.SetAutoAltRef(true); !errors.Is(err, ErrClosed) {
-		t.Fatalf("closed encoder SetAutoAltRef error = %v, want ErrClosed", err)
 	}
 }

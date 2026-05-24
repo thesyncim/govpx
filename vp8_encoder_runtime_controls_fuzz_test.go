@@ -1,9 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -39,15 +40,15 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 		}()
 
 		const width, height = 64, 64
-		e, err := NewVP8Encoder(EncoderOptions{
+		e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 			Width:               width,
 			Height:              height,
 			FPS:                 30,
-			RateControlMode:     RateControlCBR,
+			RateControlMode:     govpx.RateControlCBR,
 			TargetBitrateKbps:   500,
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
-			Deadline:            DeadlineRealtime,
+			Deadline:            govpx.DeadlineRealtime,
 			CpuUsed:             8,
 			KeyFrameInterval:    120,
 			BufferSizeMs:        600,
@@ -59,7 +60,7 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 		}
 
 		dst := make([]byte, width*height*4+1024)
-		img := testImage(width, height)
+		img := newVP8FacadeImage(width, height)
 		for i := range img.Y {
 			img.Y[i] = byte((i * 7) & 0xFF)
 		}
@@ -95,7 +96,7 @@ func FuzzVP8EncoderRuntimeControls(f *testing.F) {
 // applyVP8FuzzRuntimeControl invokes one of the encoder's Set* methods chosen
 // by the next fuzz byte. Every method must surface bad arguments as a
 // returned error; panics are caught by the f.Fuzz wrapper.
-func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCursor, src Image) {
+func applyVP8FuzzRuntimeControl(t *testing.T, e *govpx.VP8Encoder, r *testutil.ByteCursor, src govpx.Image) {
 	t.Helper()
 	const numSetters = 23
 	pick := int(r.Next()) % numSetters
@@ -104,8 +105,13 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCur
 	case 0:
 		err = e.SetBitrateKbps(int(r.U16LE()))
 	case 1:
-		err = e.SetRateControl(RateControlConfig{
-			Mode:                []RateControlMode{RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ}[r.Next()%4],
+		err = e.SetRateControl(govpx.RateControlConfig{
+			Mode: []govpx.RateControlMode{
+				govpx.RateControlCBR,
+				govpx.RateControlVBR,
+				govpx.RateControlCQ,
+				govpx.RateControlQ,
+			}[r.Next()%4],
 			TargetBitrateKbps:   50 + int(r.U16LE()%3950),
 			MinQuantizer:        int(r.Next() % 64),
 			MaxQuantizer:        int(r.Next() % 64),
@@ -135,11 +141,15 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCur
 	case 10:
 		err = e.SetFrameDropAllowed(r.Next()&1 == 1)
 	case 11:
-		err = e.SetDeadline([]Deadline{DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality}[r.Next()%3])
+		err = e.SetDeadline([]govpx.Deadline{
+			govpx.DeadlineRealtime,
+			govpx.DeadlineGoodQuality,
+			govpx.DeadlineBestQuality,
+		}[r.Next()%3])
 	case 12:
 		err = e.SetCPUUsed(int(int8(r.Next()%33)) - 16)
 	case 13:
-		err = e.SetTuning(Tuning(r.Next() % 4))
+		err = e.SetTuning(govpx.Tuning(r.Next() % 4))
 	case 14:
 		err = e.SetKeyFrameInterval(int(r.Next()))
 	case 15:
@@ -152,11 +162,15 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCur
 		// Pick one of the three valid reference selectors so the parity
 		// path is reached; bit selector with multiple bits set must be
 		// rejected by SetReferenceFrame.
-		ref := []ReferenceFrame{ReferenceLast, ReferenceGolden, ReferenceAltRef,
-			ReferenceFrame(r.Next())}[r.Next()%4]
+		ref := []govpx.ReferenceFrame{
+			govpx.ReferenceLast,
+			govpx.ReferenceGolden,
+			govpx.ReferenceAltRef,
+			govpx.ReferenceFrame(r.Next()),
+		}[r.Next()%4]
 		err = e.SetReferenceFrame(ref, src)
 	case 19:
-		err = e.SetRealtimeTarget(RealtimeTarget{
+		err = e.SetRealtimeTarget(govpx.RealtimeTarget{
 			BitrateKbps:  int(r.U16LE() % 4000),
 			MinQuantizer: int(r.Next() % 64),
 			MaxQuantizer: int(r.Next() % 64),
@@ -170,10 +184,10 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCur
 		}
 		err = e.SetActiveMap(amap, rows, cols)
 	case 21:
-		err = e.SetTemporalScalability(TemporalScalabilityConfig{
+		err = e.SetTemporalScalability(govpx.TemporalScalabilityConfig{
 			Enabled:                r.Next()&1 == 1,
-			Mode:                   TemporalLayeringMode(r.Next() % 5),
-			LayerTargetBitrateKbps: [MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
+			Mode:                   govpx.TemporalLayeringMode(r.Next() % 5),
+			LayerTargetBitrateKbps: [govpx.MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
 		})
 	case 22:
 		err = e.SetTemporalLayerID(int(r.Next() % 5))
@@ -189,12 +203,12 @@ func applyVP8FuzzRuntimeControl(t *testing.T, e *VP8Encoder, r *testutil.ByteCur
 func assertVP8FuzzRuntimeControlError(t *testing.T, err error) {
 	t.Helper()
 	switch {
-	case errors.Is(err, ErrInvalidConfig):
-	case errors.Is(err, ErrInvalidBitrate):
-	case errors.Is(err, ErrInvalidQuantizer):
-	case errors.Is(err, ErrBufferTooSmall):
-	case errors.Is(err, ErrFrameNotReady):
-	case errors.Is(err, ErrClosed):
+	case errors.Is(err, govpx.ErrInvalidConfig):
+	case errors.Is(err, govpx.ErrInvalidBitrate):
+	case errors.Is(err, govpx.ErrInvalidQuantizer):
+	case errors.Is(err, govpx.ErrBufferTooSmall):
+	case errors.Is(err, govpx.ErrFrameNotReady):
+	case errors.Is(err, govpx.ErrClosed):
 	default:
 		t.Fatalf("VP8 runtime call returned unexpected error: %v", err)
 	}
