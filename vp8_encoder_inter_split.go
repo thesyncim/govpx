@@ -1008,10 +1008,6 @@ func splitMotionPartitionBlockSize(partition int) (int, int) {
 	}
 }
 
-func fillInterFrameSplitSubset(mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector) {
-	fillInterFrameSplitSubsetWithMode(mode, subset, mv, vp8common.New4x4)
-}
-
 func fillInterFrameSplitSubsetWithMode(mode *vp8enc.InterFrameMacroblockMode, subset int, mv vp8enc.MotionVector, firstMode vp8common.BPredictionMode) {
 	if mode == nil || mode.Partition >= vp8tables.NumMBSplits {
 		return

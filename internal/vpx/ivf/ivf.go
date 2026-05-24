@@ -271,9 +271,3 @@ func BuildSingleFrameVP8(width int, height int, den uint32, num uint32, payload 
 	payloads := [][]byte{payload}
 	return BuildVP8(width, height, den, num, payloads)
 }
-
-// BuildSingleFrameVP9 writes a VP9 IVF stream with one compressed payload.
-func BuildSingleFrameVP9(width int, height int, den uint32, num uint32, payload []byte) []byte {
-	payloads := [][]byte{payload}
-	return BuildVP9(width, height, den, num, payloads)
-}

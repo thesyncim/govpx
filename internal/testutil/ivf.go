@@ -38,10 +38,6 @@ func CountIVFFrames(data []byte) (int, error) {
 	return ivf.CountFrames(data)
 }
 
-func IVFFrames(data []byte) ([]IVFFrame, error) {
-	return ivf.Frames(data)
-}
-
 func IVFFramePayloads(data []byte) ([][]byte, error) {
 	return ivf.FramePayloads(data)
 }
@@ -76,8 +72,4 @@ func BuildVP9IVF(width int, height int, den uint32, num uint32, payloads [][]byt
 
 func BuildSingleFrameVP8IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
 	return ivf.BuildSingleFrameVP8(width, height, den, num, payload)
-}
-
-func BuildSingleFrameVP9IVF(width int, height int, den uint32, num uint32, payload []byte) []byte {
-	return ivf.BuildSingleFrameVP9(width, height, den, num, payload)
 }

@@ -53,8 +53,7 @@ import (
 //     pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2296-2299 duplicate-NEARESTMV dedup →
 //     pickVP9InterReferenceModeNonRD
-//   - vp9_pickmode.c:2318-2330 search_filter_ref filter sweep →
-//     vp9SearchFilterRef in vp9_pick_inter_mode_nonrd_filter.go
+//   - vp9_pickmode.c:2318-2330 switchable filter sweep eligibility.
 //   - vp9_pickmode.c:2336    vp9_build_inter_predictors_sby + var/sse
 //     → vp9InterPredictionVarianceSSE
 //   - vp9_pickmode.c:2346    model_rd_for_sb_y →

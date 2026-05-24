@@ -6,13 +6,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"image"
-	"os"
 	"sort"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
-	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // TestVP8ScreenContentMBParity performs the per-MB localization of
@@ -240,22 +238,6 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 		// Inter-candidate scoreboard dump for the first divergent MB.
 		if frameIdx == 1 && firstDiv[0] >= 0 {
 			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
-		}
-	}
-}
-
-func writeScreenContentI420(t *testing.T, path string, frames []Image) {
-	t.Helper()
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("Create %s: %v", path, err)
-	}
-	defer file.Close()
-	for i, frame := range frames {
-		if err := vpxbuf.WriteI420Planes(file, frame.Width, frame.Height,
-			frame.Y, frame.YStride, frame.U, frame.UStride,
-			frame.V, frame.VStride); err != nil {
-			t.Fatalf("write frame %d I420: %v", i, err)
 		}
 	}
 }

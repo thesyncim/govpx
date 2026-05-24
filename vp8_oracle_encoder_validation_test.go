@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"math"
-	"os"
 	"strconv"
 	"testing"
 
@@ -241,16 +240,6 @@ func encodeGopvxValidationCorpus(t *testing.T, tc encoderValidationCase, sources
 		quality:    qualityMetricsForFrames(t, sources, decoded),
 		outputKbps: encoderValidationOutputKbps(outputBytes, tc.fps, len(sources)),
 	}
-}
-
-func writeEncoderValidationI420(t *testing.T, path string, frames []Image) {
-	t.Helper()
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("Create %s returned error: %v", path, err)
-	}
-	defer file.Close()
-	writeEncoderValidationI420To(t, file, frames)
 }
 
 func encoderValidationI420Bytes(t *testing.T, frames []Image) []byte {
