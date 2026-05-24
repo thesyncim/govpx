@@ -116,9 +116,9 @@ func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generat
 	t.Helper()
 	ivfPath := filepath.Join(dir, tc.name+".ivf")
 	extraArgs := append([]string{"--end-usage=vbr"}, tc.args...)
-	ivf := vp8test.VpxencIVF(t,
+	ivf, diag, err := vp8test.VpxencVP8EncodeI420(
 		deterministicI420Bytes(t, tc.width, tc.height, tc.frames),
-		vp8test.VpxencConfig{
+		vp8test.VpxencVP8Config{
 			BinaryPath:        vpxenc,
 			Width:             tc.width,
 			Height:            tc.height,
@@ -135,6 +135,9 @@ func generateLibvpxCorpusIVF(t *testing.T, vpxenc string, dir string, tc generat
 			ExtraArgs:         extraArgs,
 		},
 	)
+	if err != nil {
+		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
+	}
 	if err := os.WriteFile(ivfPath, ivf, 0o600); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}

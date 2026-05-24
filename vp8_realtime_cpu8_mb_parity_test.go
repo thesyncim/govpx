@@ -8,7 +8,6 @@ import (
 	"image"
 	"os"
 	"sort"
-	"strconv"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -141,7 +140,6 @@ import (
 // Logging-only; always passes. To run:
 //
 //	GOVPX_WITH_ORACLE=1 GOVPX_VPXENC_ORACLE=/path/to/vpxenc-oracle \
-//	  GOVPX_TASK343_TARGET_KBPS=1000 \
 //	  go test -tags govpx_oracle_trace -run TestVP8RealtimeCPU8MBParity -v
 func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
@@ -156,11 +154,6 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 		frameCount = 16
 	)
 	targetKbps := 2000
-	if v := os.Getenv("GOVPX_TASK343_TARGET_KBPS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			targetKbps = n
-		}
-	}
 
 	// Same source the BD-rate fixture uses.
 	ycbcrSources := make([]*image.YCbCr, frameCount)

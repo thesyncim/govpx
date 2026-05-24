@@ -7,7 +7,6 @@ import (
 	"image"
 	"math/rand"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
@@ -115,13 +114,6 @@ func TestVP8BPredEdgeGridRecodeParity(t *testing.T) {
 		frames = 12
 	)
 	targetKbps := 4000
-	if env := os.Getenv("GOVPX_TASK384_TARGET_KBPS"); env != "" {
-		n, err := strconv.Atoi(env)
-		if err != nil || n <= 0 {
-			t.Fatalf("invalid GOVPX_TASK384_TARGET_KBPS=%q", env)
-		}
-		targetKbps = n
-	}
 
 	sources := make([]Image, frames)
 	for i := range frames {

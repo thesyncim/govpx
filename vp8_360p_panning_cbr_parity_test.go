@@ -7,14 +7,13 @@ import (
 	"image"
 	"os"
 	"sort"
-	"strconv"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
 // TestVP8Panning360pMBParity compares govpx and libvpx per-MB mode/ref/MV
-// traces for the 360p panning CBR fixture at a selected bitrate rung.
+// traces for the 360p panning CBR fixture at the 1200 kbps rung.
 func TestVP8Panning360pMBParity(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run 360p panning CBR MB parity")
@@ -28,11 +27,6 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 		frameCount = 16
 	)
 	targetKbps := 1200
-	if v := os.Getenv("GOVPX_TASK353_TARGET_KBPS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			targetKbps = n
-		}
-	}
 
 	// Same source the BD-rate fixture uses (makeVP8PanningFrame in
 	// feature_quality_gates_vp8_test.go; package govpx_test is not

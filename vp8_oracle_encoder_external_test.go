@@ -35,7 +35,7 @@ func TestVP8OracleExternalEncoderTestDataValidation(t *testing.T) {
 	if !ok {
 		return
 	}
-	oracle := vp8test.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 	paths := findExternalEncoderTestData(t, root)
 	if len(paths) == 0 {
@@ -75,7 +75,7 @@ func TestVP8OracleExternalEncoderTestDataValidation(t *testing.T) {
 
 			got := encodeGopvxValidationCorpus(t, tc, clip.frames)
 			gotChecksums := decodeIVFChecksums(t, got.ivf)
-			wantChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, got.ivf)
+			wantChecksums := oracle.Frames(t, got.ivf)
 			assertFrameChecksumsEqual(t, "external govpx encode decoded by libvpx", gotChecksums, wantChecksums)
 			assertGopvxEncoderValidationFeatures(t, got.ivf, tc)
 			assertEncoderValidationQuality(t, "external govpx", got.quality, tc.minPSNR, tc.minSSIM, tc.minFramePSNR, tc.minFrameSSIM)
@@ -83,7 +83,7 @@ func TestVP8OracleExternalEncoderTestDataValidation(t *testing.T) {
 
 			libvpxIVF := encodeLibvpxValidationCorpus(t, vpxenc, tc, clip.frames)
 			libvpxGotChecksums := decodeIVFChecksums(t, libvpxIVF)
-			libvpxWantChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, libvpxIVF)
+			libvpxWantChecksums := oracle.Frames(t, libvpxIVF)
 			assertFrameChecksumsEqual(t, "external libvpx encode decoded by govpx", libvpxGotChecksums, libvpxWantChecksums)
 			libvpxQuality := qualityMetricsForIVF(t, libvpxIVF, clip.frames)
 			libvpxOutputKbps := encoderValidationOutputKbps(len(libvpxIVF)-testutil.IVFFileHeaderSize-len(clip.frames)*testutil.IVFFrameHeaderSize, tc.fps, len(clip.frames))

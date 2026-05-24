@@ -168,9 +168,9 @@ func TestVP8OracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 	for i := range sources {
 		sources[i] = rateControlTestFrame(width, height, i)
 	}
-	ivfs, diag := vp8test.TemporalSVCIVFs(t,
+	ivfs, diag, err := vp8test.VpxTemporalSVCEncodeI420(
 		encoderValidationI420Bytes(t, sources),
-		vp8test.TemporalSVCConfig{
+		vp8test.VpxTemporalSVCConfig{
 			BinaryPath:         svcEncoder,
 			Width:              width,
 			Height:             height,
@@ -184,6 +184,9 @@ func TestVP8OracleLibvpxTemporalSVCExampleStreams(t *testing.T) {
 			LayerBitratesKbps:  []int{720, 1200},
 		},
 	)
+	if err != nil {
+		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, diag)
+	}
 	stats := parseTemporalSVCExampleLayerStats(t, string(diag), 2)
 	assertGovpxTemporalAccountingMatchesLibvpxExample(t, sources, stats)
 

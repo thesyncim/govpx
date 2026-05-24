@@ -15,7 +15,7 @@ func TestVP8OracleEncoderCorpusValidation(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder oracle validation")
 	}
-	oracle := vp8test.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 
 	cases := []encoderValidationCase{
@@ -95,13 +95,13 @@ func TestVP8OracleEncoderCorpusValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := encoderValidationFrames(tc)
 			got := encodeGopvxValidationCorpus(t, tc, sources)
-			wantChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, got.ivf)
+			wantChecksums := oracle.Frames(t, got.ivf)
 			gotChecksums := decodeIVFChecksums(t, got.ivf)
 			assertFrameChecksumsEqual(t, "govpx encode decoded by libvpx", gotChecksums, wantChecksums)
 			assertGopvxEncoderValidationFeatures(t, got.ivf, tc)
 
 			libvpxIVF := encodeLibvpxValidationCorpus(t, vpxenc, tc, sources)
-			libvpxWantChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, libvpxIVF)
+			libvpxWantChecksums := oracle.Frames(t, libvpxIVF)
 			libvpxGotChecksums := decodeIVFChecksums(t, libvpxIVF)
 			assertFrameChecksumsEqual(t, "libvpx encode decoded by govpx", libvpxGotChecksums, libvpxWantChecksums)
 			libvpxQuality := qualityMetricsForIVF(t, libvpxIVF, sources)

@@ -10,14 +10,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-// VpxencConfig is the root-independent VP8 vpxenc configuration used by
-// oracle tests.
-type VpxencConfig = coracle.VpxencVP8Config
-
-// TemporalSVCConfig is the libvpx temporal SVC sample-encoder configuration
-// used by oracle tests.
-type TemporalSVCConfig = coracle.VpxTemporalSVCConfig
-
 // Oracle is a resolved VP8 libvpx checksum oracle.
 type Oracle struct {
 	path string
@@ -26,14 +18,8 @@ type Oracle struct {
 // NewChecksumOracle resolves the VP8 checksum oracle or skips t.
 func NewChecksumOracle(t testing.TB) Oracle {
 	t.Helper()
-	return Oracle{path: ChecksumOracle(t)}
-}
-
-// ChecksumOracle resolves the VP8 checksum oracle binary or skips t.
-func ChecksumOracle(t testing.TB) string {
-	t.Helper()
 	path := coracletest.ChecksumOracle(t)
-	return path
+	return Oracle{path: path}
 }
 
 // Vpxenc resolves the pinned VP8 vpxenc binary or skips t.
@@ -128,27 +114,6 @@ func (o Oracle) ThreadedFramesWithControlScript(t testing.TB,
 		o.path, threads, script, ivf)
 }
 
-// RunVP8ChecksumOracle runs the checksum oracle in normal decode mode.
-func RunVP8ChecksumOracle(t testing.TB, oracle string, ivf []byte) []testutil.FrameChecksum {
-	t.Helper()
-	frames := coracletest.RunVP8ChecksumOracle(t, oracle, ivf)
-	return frames
-}
-
-// RunVP8ChecksumOracleFile runs the checksum oracle against an IVF file path.
-func RunVP8ChecksumOracleFile(t testing.TB, oracle string, path string) []testutil.FrameChecksum {
-	t.Helper()
-	frames := coracletest.RunVP8ChecksumOracleFile(t, oracle, path)
-	return frames
-}
-
-// RunVP8ChecksumOracleFileExpectError returns the oracle error for an invalid IVF path.
-func RunVP8ChecksumOracleFileExpectError(t testing.TB, oracle string, path string) error {
-	t.Helper()
-	err := coracletest.RunVP8ChecksumOracleFileExpectError(t, oracle, path)
-	return err
-}
-
 // UpdateBaselines reports whether oracle scoreboard baselines should be rewritten.
 func UpdateBaselines() bool {
 	update := coracletest.UpdateBaselines()
@@ -173,26 +138,6 @@ func ReadOptionalJSONBaseline[T any](t testing.TB, path string) (T, bool) {
 func WriteJSONBaseline(t testing.TB, path string, v any) {
 	t.Helper()
 	coracletest.WriteJSONBaseline(t, path, v)
-}
-
-// VpxencIVF encodes raw I420 with the pinned VP8 vpxenc wrapper.
-func VpxencIVF(t testing.TB, raw []byte, cfg VpxencConfig) []byte {
-	t.Helper()
-	ivf, diag, err := coracle.VpxencVP8EncodeI420(raw, cfg)
-	if err != nil {
-		t.Fatalf("vpxenc failed: %v\n%s", err, diag)
-	}
-	return ivf
-}
-
-// TemporalSVCIVFs encodes raw I420 with libvpx's temporal SVC sample encoder.
-func TemporalSVCIVFs(t testing.TB, raw []byte, cfg TemporalSVCConfig) ([][]byte, []byte) {
-	t.Helper()
-	ivfs, diag, err := coracle.VpxTemporalSVCEncodeI420(raw, cfg)
-	if err != nil {
-		t.Fatalf("vpx_temporal_svc_encoder failed: %v\n%s", err, diag)
-	}
-	return ivfs, diag
 }
 
 // VpxdecSummaryIVF runs vpxdec's summary path and fails t on decode errors.

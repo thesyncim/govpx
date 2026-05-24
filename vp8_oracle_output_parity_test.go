@@ -32,7 +32,7 @@ func TestVP8OracleOutputParityMatrix(t *testing.T) {
 	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run encoder output parity validation")
 	}
-	oracle := vp8test.ChecksumOracle(t)
+	oracle := vp8test.NewChecksumOracle(t)
 	vpxenc := vp8test.Vpxenc(t)
 
 	const (
@@ -95,8 +95,8 @@ func TestVP8OracleOutputParityMatrix(t *testing.T) {
 			got := encodeGopvxValidationCorpus(t, validation, sources)
 			want := encodeLibvpxValidationCorpus(t, vpxenc, validation, sources)
 
-			gotChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, got.ivf)
-			wantChecksums := vp8test.RunVP8ChecksumOracle(t, oracle, want)
+			gotChecksums := oracle.Frames(t, got.ivf)
+			wantChecksums := oracle.Frames(t, want)
 			assertFrameChecksumsEqual(t, "encoded output decoded by libvpx", gotChecksums, wantChecksums)
 
 			gotPackets := oracleOutputPackets(t, got.ivf)
