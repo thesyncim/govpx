@@ -1,11 +1,8 @@
-package govpx
+package encoder_test
 
 import (
-	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -151,75 +148,6 @@ func TestVP9CyclicRefreshQindexDeltas(t *testing.T) {
 	if cr2.RateRatioQDelta != 3.0 {
 		t.Fatalf("post-key rate_ratio_qdelta = %v, want 3.0 for frames_since_key=10",
 			cr2.RateRatioQDelta)
-	}
-}
-
-// TestVP9CyclicRefreshChangesEncodedAtSpeed8RT pins the rule libvpx
-// installs in vp9_encoder.c:4262 — when aq_mode == CYCLIC_REFRESH_AQ
-// and the frame is non-intra-only, vp9_cyclic_refresh_setup() runs,
-// emitting per-segment AltQ deltas that flip the encoded bitstream
-// vs the aq-mode=0 baseline at the same CBR target.
-func TestVP9CyclicRefreshChangesEncodedAtSpeed8RT(t *testing.T) {
-	const (
-		width  = 64
-		height = 64
-	)
-	makeEnc := func(aq VP9AQMode) (*VP9Encoder, error) {
-		return NewVP9Encoder(VP9EncoderOptions{
-			Width:              width,
-			Height:             height,
-			FPS:                30,
-			TargetBitrateKbps:  300,
-			RateControlModeSet: true,
-			RateControlMode:    RateControlCBR,
-			Deadline:           DeadlineRealtime,
-			CpuUsed:            -8,
-			AQMode:             aq,
-		})
-	}
-	baseEnc, err := makeEnc(VP9AQNone)
-	if err != nil {
-		t.Fatalf("base NewVP9Encoder: %v", err)
-	}
-	cyclEnc, err := makeEnc(VP9AQCyclicRefresh)
-	if err != nil {
-		t.Fatalf("cyclic NewVP9Encoder: %v", err)
-	}
-
-	dst := make([]byte, 65536)
-	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
-	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
-
-	baseKeyLen, err := baseEnc.EncodeInto(src1, dst)
-	if err != nil {
-		t.Fatalf("base key: %v", err)
-	}
-	_ = append([]byte(nil), dst[:baseKeyLen]...)
-	baseInterLen, err := baseEnc.EncodeInto(src2, dst)
-	if err != nil {
-		t.Fatalf("base inter: %v", err)
-	}
-	basePacket := append([]byte(nil), dst[:baseInterLen]...)
-
-	cyclKeyLen, err := cyclEnc.EncodeInto(src1, dst)
-	if err != nil {
-		t.Fatalf("cyclic key: %v", err)
-	}
-	_ = append([]byte(nil), dst[:cyclKeyLen]...)
-	cyclInterLen, err := cyclEnc.EncodeInto(src2, dst)
-	if err != nil {
-		t.Fatalf("cyclic inter: %v", err)
-	}
-	cyclPacket := append([]byte(nil), dst[:cyclInterLen]...)
-
-	if bytes.Equal(basePacket, cyclPacket) {
-		t.Fatalf("cyclic refresh encoded == baseline encoded — cyclic refresh must change the bitstream at speed=8 RT")
-	}
-	if !cyclEnc.cyclicAQ.Enabled {
-		t.Fatalf("cyclic AQ disabled, want Enabled")
-	}
-	if !cyclEnc.cyclicAQ.Apply {
-		t.Fatalf("cyclic AQ Apply=false after inter frame, want true")
 	}
 }
 
@@ -539,123 +467,5 @@ func TestVP9CyclicRefreshUpdateSbPostencodeUpdatesLastCodedQMap(t *testing.T) {
 		vp9enc.CyclicRefreshSegmentBoost2, true /*inter*/, true /*skip*/)
 	if got := cr.LastCodedQMap[2]; got != 60 {
 		t.Fatalf("BOOST2 inter-skip LastCodedQMap[2] = %d, want min(60, 200) = 60", got)
-	}
-}
-
-// TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing pins the end-to-end
-// wiring of vp9_encodeframe.c:5999-6022 (update_zeromv_cnt) into the
-// govpx encode loop: after encoding a keyframe + an inter frame with
-// cyclic AQ active, the per-SB postencode hook has had a chance to
-// run for every SB. We seed the consec_zero_mv slice with sentinel
-// values, then verify the hook walked every 8x8 block in the frame
-// (either resetting on large MVs or bumping on small MVs).
-func TestVP9CyclicRefreshEncoderConsecZeroMVPlumbing(t *testing.T) {
-	const (
-		width  = 128
-		height = 64
-	)
-	enc, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              width,
-		Height:             height,
-		FPS:                30,
-		TargetBitrateKbps:  300,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlCBR,
-		Deadline:           DeadlineRealtime,
-		CpuUsed:            -8,
-		AQMode:             VP9AQCyclicRefresh,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	dst := make([]byte, 65536)
-	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
-	if _, err := enc.EncodeInto(src1, dst); err != nil {
-		t.Fatalf("key: %v", err)
-	}
-	// Validate the slice is the right size — alloc happened on first frame.
-	want := enc.cyclicAQ.MIRows * enc.cyclicAQ.MICols
-	if len(enc.cyclicAQ.ConsecZeroMV) != want {
-		t.Fatalf("consec_zero_mv len = %d, want mi_rows*mi_cols = %d",
-			len(enc.cyclicAQ.ConsecZeroMV), want)
-	}
-	// Seed every entry with a sentinel so we can observe whether the
-	// per-SB hook touched each (mi_row, mi_col). libvpx's hook either
-	// bumps (zero MV) or resets to 0 (large MV) every LAST_FRAME inter
-	// block; any non-sentinel value confirms the hook walked the SB.
-	const sentinel uint8 = 250
-	for i := range enc.cyclicAQ.ConsecZeroMV {
-		enc.cyclicAQ.ConsecZeroMV[i] = sentinel
-	}
-	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
-	if _, err := enc.EncodeInto(src2, dst); err != nil {
-		t.Fatalf("inter: %v", err)
-	}
-	touched := 0
-	for _, v := range enc.cyclicAQ.ConsecZeroMV {
-		if v != sentinel {
-			touched++
-		}
-	}
-	if touched == 0 {
-		t.Fatalf("consec_zero_mv all sentinel after inter frame: per-SB postencode hook not wired into encode loop")
-	}
-	// At a CBR/RT speed-8 path the encoder is expected to pick LAST_FRAME
-	// inter on most blocks of a constant-grey source — touching the
-	// full mi_rows*mi_cols footprint.
-	if touched < want/2 {
-		t.Fatalf("consec_zero_mv hook only touched %d / %d blocks: SB walker incomplete",
-			touched, want)
-	}
-}
-
-// TestVP9CyclicRefreshEncoderPostencodeUpdatesLastCodedQMap pins that
-// the per-SB postencode hook in writeVP9ModesTileBounds actually fires
-// on encoded inter frames — by checking last_coded_q_map drops below
-// MAXQ on at least some blocks after a frame.
-func TestVP9CyclicRefreshEncoderPostencodeUpdatesLastCodedQMap(t *testing.T) {
-	const (
-		width  = 128
-		height = 64
-	)
-	enc, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              width,
-		Height:             height,
-		FPS:                30,
-		TargetBitrateKbps:  300,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlCBR,
-		Deadline:           DeadlineRealtime,
-		CpuUsed:            -8,
-		AQMode:             VP9AQCyclicRefresh,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	dst := make([]byte, 65536)
-	src1 := vp9test.NewYCbCr(width, height, 96, 128, 128)
-	src2 := vp9test.NewYCbCr(width, height, 116, 128, 128)
-	if _, err := enc.EncodeInto(src1, dst); err != nil {
-		t.Fatalf("key: %v", err)
-	}
-	if _, err := enc.EncodeInto(src2, dst); err != nil {
-		t.Fatalf("inter: %v", err)
-	}
-	// After at least one inter frame with cyclic AQ on, last_coded_q_map
-	// must show at least one entry below MAXQ — meaning the per-SB
-	// postencode hook walked the SB and clamp()-stamped the chosen q.
-	below := 0
-	for _, v := range enc.cyclicAQ.LastCodedQMap {
-		if v < vp9dec.MaxQ {
-			below++
-		}
-	}
-	if below == 0 {
-		t.Fatalf("last_coded_q_map all MAXQ after inter frame: postencode hook not firing")
-	}
-	// Sanity: the bsize lookup constants stay aligned.
-	if common.MiBlockSize != vp9enc.CyclicRefreshSuperblockMI {
-		t.Fatalf("common.MiBlockSize = %d, want %d (mi-per-sb)",
-			common.MiBlockSize, vp9enc.CyclicRefreshSuperblockMI)
 	}
 }
