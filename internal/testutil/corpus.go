@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"testing"
 )
 
 const (
@@ -101,9 +102,58 @@ func NonNegativeEnvInt(name string) (int, bool, error) {
 	return value, true, nil
 }
 
+// EnvInt returns a non-negative integer environment value, or zero when unset.
+func EnvInt(t testing.TB, name string) int {
+	t.Helper()
+	value, _, err := NonNegativeEnvInt(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+// EnvIntDefault returns a non-negative integer environment value, or fallback
+// when unset.
+func EnvIntDefault(t testing.TB, name string, fallback int) int {
+	t.Helper()
+	value, set := EnvIntStatus(t, name)
+	if !set {
+		return fallback
+	}
+	return value
+}
+
+// EnvIntStatus returns a non-negative integer environment value and whether it
+// was set.
+func EnvIntStatus(t testing.TB, name string) (int, bool) {
+	t.Helper()
+	value, set, err := NonNegativeEnvInt(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value, set
+}
+
 // EnvFlag reports whether name is set to the repository's opt-in value, "1".
 func EnvFlag(name string) bool {
 	return os.Getenv(name) == "1"
+}
+
+// EnvMinimumSource names the explicit environment override when it is set, or
+// falls back to the default source label used by a corpus floor.
+func EnvMinimumSource(envName, fallback string) string {
+	if os.Getenv(envName) != "" {
+		return envName
+	}
+	return fallback
+}
+
+// AssertCorpusMinimum checks that got satisfies a corpus floor.
+func AssertCorpusMinimum(t testing.TB, label string, got, minimum int, source string) {
+	t.Helper()
+	if minimum > 0 && got < minimum {
+		t.Fatalf("%s count = %d, want at least %d from %s", label, got, minimum, source)
+	}
 }
 
 func SafeCorpusTestName(root string, path string) string {

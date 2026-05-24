@@ -62,45 +62,32 @@ func InvalidIVFRequired() bool {
 
 func IVFMinimum(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_TEST_DATA_MIN")
+	return testutil.EnvInt(t, "GOVPX_TEST_DATA_MIN")
 }
 
 func InvalidIVFMinimum(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_INVALID_TEST_DATA_MIN")
+	return testutil.EnvInt(t, "GOVPX_INVALID_TEST_DATA_MIN")
 }
 
 func AssertIVFMinimum(t testing.TB, paths []string) {
 	t.Helper()
-	minimum := IVFMinimum(t)
-	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("VP8 IVF test data count = %d, want at least %d from GOVPX_TEST_DATA_MIN", len(paths), minimum)
-	}
+	testutil.AssertCorpusMinimum(t, "VP8 IVF test data", len(paths),
+		IVFMinimum(t), "GOVPX_TEST_DATA_MIN")
 }
 
 func AssertInvalidIVFMinimum(t testing.TB, paths []string) {
 	t.Helper()
-	minimum := InvalidIVFMinimum(t)
-	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("invalid VP8 IVF test data count = %d, want at least %d from GOVPX_INVALID_TEST_DATA_MIN", len(paths), minimum)
-	}
+	testutil.AssertCorpusMinimum(t, "invalid VP8 IVF test data", len(paths),
+		InvalidIVFMinimum(t), "GOVPX_INVALID_TEST_DATA_MIN")
 }
 
 func ivfLimit(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_TEST_DATA_LIMIT")
+	return testutil.EnvInt(t, "GOVPX_TEST_DATA_LIMIT")
 }
 
 func invalidIVFLimit(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_INVALID_TEST_DATA_LIMIT")
-}
-
-func envInt(t testing.TB, name string) int {
-	t.Helper()
-	value, _, err := testutil.NonNegativeEnvInt(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value
+	return testutil.EnvInt(t, "GOVPX_INVALID_TEST_DATA_LIMIT")
 }

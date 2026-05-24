@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/coracle"
+	"github.com/thesyncim/govpx/internal/coracle/coracletest"
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
@@ -51,9 +52,7 @@ type SpatialSVCConfig struct {
 // RequireOracle skips t unless the external libvpx oracle suite is enabled.
 func RequireOracle(t testing.TB, name string) {
 	t.Helper()
-	if !testutil.EnvFlag("GOVPX_WITH_ORACLE") {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
-	}
+	coracletest.SkipWithoutOracle(t, name)
 }
 
 // StrictEnv reports whether a VP9 oracle strict-mode environment flag is set.
@@ -72,43 +71,19 @@ func RequireEnvFlag(t testing.TB, name, label string) {
 // RequireVpxdec resolves the pinned VP9 vpxdec binary or skips t.
 func RequireVpxdec(t testing.TB) string {
 	t.Helper()
-	path, err := coracle.VpxdecVP9Path()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxdecVP9NotBuilt) {
-		t.Skip("vpxdec-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-	}
-	t.Fatalf("VpxdecVP9Path: %v", err)
-	return ""
+	return coracletest.VpxdecVP9(t)
 }
 
 // RequireVpxenc resolves the pinned VP9 vpxenc binary or skips t.
 func RequireVpxenc(t testing.TB) string {
 	t.Helper()
-	path, err := coracle.VpxencVP9Path()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
-		t.Skip("vpxenc-vp9 not built; run internal/coracle/build_vpxdec_vp9.sh")
-	}
-	t.Fatalf("VpxencVP9Path: %v", err)
-	return ""
+	return coracletest.VpxencVP9(t)
 }
 
 // RequireVpxencFrameFlags resolves the VP9 frame-flags helper or skips t.
 func RequireVpxencFrameFlags(t testing.TB) string {
 	t.Helper()
-	path, err := coracle.VpxencVP9FrameFlagsPath()
-	if err == nil {
-		return path
-	}
-	if errors.Is(err, coracle.ErrVpxencVP9FrameFlagsNotBuilt) {
-		t.Skip("vpxenc-vp9-frameflags not built; run internal/coracle/build_vpxenc_vp9_frameflags.sh")
-	}
-	t.Fatalf("VpxencVP9FrameFlagsPath: %v", err)
-	return ""
+	return coracletest.VpxencVP9FrameFlags(t)
 }
 
 func VpxdecI420(t testing.TB, ivf []byte) []byte {

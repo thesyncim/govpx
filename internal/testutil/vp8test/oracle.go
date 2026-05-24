@@ -24,15 +24,13 @@ type Oracle struct {
 // RequireOracle skips t unless the external libvpx oracle suite is enabled.
 func RequireOracle(t testing.TB, name string) {
 	t.Helper()
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
-	}
+	coracletest.SkipWithoutOracle(t, name)
 }
 
 // RequireOracleF skips f unless the external libvpx oracle suite is enabled.
 func RequireOracleF(f *testing.F, name string) {
 	f.Helper()
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+	if !coracletest.OracleEnabled() {
 		f.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
 	}
 }

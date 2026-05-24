@@ -56,7 +56,7 @@ func Profile0WebMRoot(t testing.TB) (string, bool) {
 	if testutil.DefaultVP9TestDataExists() {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
-	profile0Minimum, _ := minimumFromEnv(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
+	profile0Minimum, _ := testutil.EnvIntStatus(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN")
 	if testutil.EnvFlag("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_REQUIRED") ||
 		profile0Minimum > 0 {
 		t.Fatalf("VP9 Profile 0 WebM test data is required but neither GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
@@ -78,7 +78,7 @@ func ProfileWebMRoot(t testing.TB) (string, bool) {
 	if testutil.DefaultVP9TestDataExists() {
 		return testutil.DefaultVP9ExternalTestDataDir, true
 	}
-	profileMinimum, _ := minimumFromEnv(t, "GOVPX_VP9_PROFILE_TEST_DATA_MIN")
+	profileMinimum, _ := testutil.EnvIntStatus(t, "GOVPX_VP9_PROFILE_TEST_DATA_MIN")
 	if testutil.EnvFlag("GOVPX_VP9_PROFILE_TEST_DATA_REQUIRED") ||
 		profileMinimum > 0 {
 		t.Fatalf("VP9 profile WebM test data is required but neither GOVPX_VP9_PROFILE_TEST_DATA_PATH, GOVPX_VP9_TEST_DATA_PATH, nor %s is present", testutil.DefaultVP9ExternalTestDataDir)
@@ -152,7 +152,7 @@ func RequireProfileWebMFiles(t testing.TB, root string, paths []string) {
 
 func IVFMinimum(t testing.TB, root string) int {
 	t.Helper()
-	minimum, set := minimumFromEnv(t, "GOVPX_VP9_TEST_DATA_MIN")
+	minimum, set := testutil.EnvIntStatus(t, "GOVPX_VP9_TEST_DATA_MIN")
 	if set {
 		return minimum
 	}
@@ -184,49 +184,33 @@ func ProfileWebMMinimum(t testing.TB, root string) int {
 func AssertIVFMinimum(t testing.TB, root string, paths []string) {
 	t.Helper()
 	minimum := IVFMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 decoder corpus floor"
-		if os.Getenv("GOVPX_VP9_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP90 IVF test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
+	source := testutil.EnvMinimumSource("GOVPX_VP9_TEST_DATA_MIN",
+		"default VP9 decoder corpus floor")
+	testutil.AssertCorpusMinimum(t, "VP90 IVF test data", len(paths), minimum, source)
 }
 
 func AssertInvalidIVFMinimum(t testing.TB, root string, paths []string) {
 	t.Helper()
 	minimum := InvalidIVFMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 invalid decoder corpus floor"
-		if os.Getenv("GOVPX_VP9_INVALID_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_INVALID_TEST_DATA_MIN"
-		}
-		t.Fatalf("invalid VP90 IVF test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
+	source := testutil.EnvMinimumSource("GOVPX_VP9_INVALID_TEST_DATA_MIN",
+		"default VP9 invalid decoder corpus floor")
+	testutil.AssertCorpusMinimum(t, "invalid VP90 IVF test data", len(paths), minimum, source)
 }
 
 func AssertProfile0WebMMinimum(t testing.TB, root string, paths []string) {
 	t.Helper()
 	minimum := Profile0WebMMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 Profile 0 WebM corpus floor"
-		if os.Getenv("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP9 Profile 0 WebM test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
+	source := testutil.EnvMinimumSource("GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_MIN",
+		"default VP9 Profile 0 WebM corpus floor")
+	testutil.AssertCorpusMinimum(t, "VP9 Profile 0 WebM test data", len(paths), minimum, source)
 }
 
 func AssertProfileWebMMinimum(t testing.TB, root string, paths []string) {
 	t.Helper()
 	minimum := ProfileWebMMinimum(t, root)
-	if minimum > 0 && len(paths) < minimum {
-		source := "default VP9 profile WebM corpus floor"
-		if os.Getenv("GOVPX_VP9_PROFILE_TEST_DATA_MIN") != "" {
-			source = "GOVPX_VP9_PROFILE_TEST_DATA_MIN"
-		}
-		t.Fatalf("VP9 profile WebM test data count = %d, want at least %d from %s", len(paths), minimum, source)
-	}
+	source := testutil.EnvMinimumSource("GOVPX_VP9_PROFILE_TEST_DATA_MIN",
+		"default VP9 profile WebM corpus floor")
+	testutil.AssertCorpusMinimum(t, "VP9 profile WebM test data", len(paths), minimum, source)
 }
 
 func ivfLimit(t testing.TB, invalid bool) int {
@@ -235,22 +219,22 @@ func ivfLimit(t testing.TB, invalid bool) int {
 	if invalid {
 		name = "GOVPX_VP9_INVALID_TEST_DATA_LIMIT"
 	}
-	return envInt(t, name)
+	return testutil.EnvInt(t, name)
 }
 
 func profile0WebMLimit(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_LIMIT")
+	return testutil.EnvInt(t, "GOVPX_VP9_PROFILE0_WEBM_TEST_DATA_LIMIT")
 }
 
 func profileWebMLimit(t testing.TB) int {
 	t.Helper()
-	return envInt(t, "GOVPX_VP9_PROFILE_TEST_DATA_LIMIT")
+	return testutil.EnvInt(t, "GOVPX_VP9_PROFILE_TEST_DATA_LIMIT")
 }
 
 func corpusMinimum(t testing.TB, root, envName string, defaultMinimum int) int {
 	t.Helper()
-	minimum, set := minimumFromEnv(t, envName)
+	minimum, set := testutil.EnvIntStatus(t, envName)
 	if set {
 		return minimum
 	}
@@ -259,22 +243,4 @@ func corpusMinimum(t testing.TB, root, envName string, defaultMinimum int) int {
 		return 0
 	}
 	return defaultMinimum
-}
-
-func minimumFromEnv(t testing.TB, name string) (int, bool) {
-	t.Helper()
-	value, set, err := testutil.NonNegativeEnvInt(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value, set
-}
-
-func envInt(t testing.TB, name string) int {
-	t.Helper()
-	value, _, err := testutil.NonNegativeEnvInt(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return value
 }

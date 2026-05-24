@@ -97,6 +97,28 @@ func TestNonNegativeEnvInt(t *testing.T) {
 	}
 }
 
+func TestEnvIntDefault(t *testing.T) {
+	const name = "GOVPX_TEST_LIMIT_DEFAULT_FOR_TESTUTIL"
+	if got := EnvIntDefault(t, name, 7); got != 7 {
+		t.Fatalf("unset EnvIntDefault = %d, want 7", got)
+	}
+	t.Setenv(name, "5")
+	if got := EnvIntDefault(t, name, 7); got != 5 {
+		t.Fatalf("set EnvIntDefault = %d, want 5", got)
+	}
+}
+
+func TestEnvMinimumSource(t *testing.T) {
+	const name = "GOVPX_TEST_MINIMUM_SOURCE_FOR_TESTUTIL"
+	if got := EnvMinimumSource(name, "default floor"); got != "default floor" {
+		t.Fatalf("unset EnvMinimumSource = %q", got)
+	}
+	t.Setenv(name, "2")
+	if got := EnvMinimumSource(name, "default floor"); got != name {
+		t.Fatalf("set EnvMinimumSource = %q, want %q", got, name)
+	}
+}
+
 func TestEnvFlag(t *testing.T) {
 	t.Setenv("GOVPX_TEST_FLAG", "1")
 	if !EnvFlag("GOVPX_TEST_FLAG") {

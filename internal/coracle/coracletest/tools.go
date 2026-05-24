@@ -12,9 +12,14 @@ import (
 // enabled for the local run.
 func SkipWithoutOracle(t testing.TB, name string) {
 	t.Helper()
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+	if !OracleEnabled() {
 		t.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
 	}
+}
+
+// OracleEnabled reports whether the libvpx-backed oracle suite is enabled.
+func OracleEnabled() bool {
+	return os.Getenv("GOVPX_WITH_ORACLE") == "1"
 }
 
 // ChecksumOracle resolves the VP8 checksum oracle binary or skips the test

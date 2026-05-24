@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil"
 )
 
 type SourceClip struct {
@@ -80,7 +82,7 @@ func IsSourcePath(path string) bool {
 
 func SourceFrameLimit(t testing.TB) int {
 	t.Helper()
-	limit := envIntDefault(t, "GOVPX_ENCODER_TEST_DATA_FRAMES", 6)
+	limit := testutil.EnvIntDefault(t, "GOVPX_ENCODER_TEST_DATA_FRAMES", 6)
 	if limit == 0 {
 		t.Fatalf("GOVPX_ENCODER_TEST_DATA_FRAMES must be positive")
 	}
@@ -89,10 +91,9 @@ func SourceFrameLimit(t testing.TB) int {
 
 func AssertSourceMinimum(t testing.TB, paths []string) {
 	t.Helper()
-	minimum := envIntDefault(t, "GOVPX_ENCODER_TEST_DATA_MIN", 0)
-	if minimum > 0 && len(paths) < minimum {
-		t.Fatalf("encoder source test data count = %d, want at least %d from GOVPX_ENCODER_TEST_DATA_MIN", len(paths), minimum)
-	}
+	testutil.AssertCorpusMinimum(t, "encoder source test data", len(paths),
+		testutil.EnvIntDefault(t, "GOVPX_ENCODER_TEST_DATA_MIN", 0),
+		"GOVPX_ENCODER_TEST_DATA_MIN")
 }
 
 func ReadSourceClip(t testing.TB, path string, maxFrames int) (SourceClip, bool) {
@@ -120,31 +121,7 @@ func SourceTargetKbps(width int, height int, fps int) int {
 
 func sourceLimit(t testing.TB) int {
 	t.Helper()
-	return envIntDefault(t, "GOVPX_ENCODER_TEST_DATA_LIMIT", 0)
-}
-
-func envIntDefault(t testing.TB, name string, fallback int) int {
-	t.Helper()
-	value, set, err := envIntStatus(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !set {
-		return fallback
-	}
-	return value
-}
-
-func envIntStatus(name string) (int, bool, error) {
-	raw := os.Getenv(name)
-	if raw == "" {
-		return 0, false, nil
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil || value < 0 {
-		return 0, true, errors.New(name + " = " + strconv.Quote(raw) + ", want a non-negative integer")
-	}
-	return value, true, nil
+	return testutil.EnvIntDefault(t, "GOVPX_ENCODER_TEST_DATA_LIMIT", 0)
 }
 
 func readY4MClip(t testing.TB, path string, maxFrames int) (SourceClip, bool) {
