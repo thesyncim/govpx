@@ -65,6 +65,15 @@ final integration gate for behavior-sensitive release work.
 
 Runs the libvpx-backed oracle suite. Use this for behavior-sensitive
 encoder/decoder changes when full production verification would be excessive.
+It also runs the tagged VP9 internal source/blob oracle checks, so default
+`go test ./...` stays free of libvpx checkout probes and oracle-asset skips.
+
+`make test-vp9-internal-oracle`
+
+Runs only the tagged VP9 internal oracle checks for generated tables, DSP
+kernels, token costs, and source-derived constants. Use this when touching
+`internal/vp9` tables, DSP kernels, probability costs, or intra-extension
+metadata without needing the whole root oracle suite.
 
 `make test-byte-parity`
 

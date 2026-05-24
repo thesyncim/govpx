@@ -83,7 +83,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-scoreboard update-scoreboards vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-vp9-internal-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-scoreboard update-scoreboards vp9-dsp-oracle
 
 all: ci
 
@@ -240,7 +240,7 @@ pgo-check:
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -pgo="$(PGO_PROFILE)" -o /tmp/govpx-bench-pgo-check ./cmd/govpx-bench
 	rm -f /tmp/govpx-bench-pgo-check
 
-test-oracle: oracle-tools vp9-vpxdec-tools fetch-test-data
+test-oracle: oracle-tools vp9-vpxdec-tools fetch-test-data test-vp9-internal-oracle
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -270,6 +270,13 @@ test-oracle: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_MIN="$(VP8_ENCODER_SOURCE_MIN)" \
 	GOVPX_ENCODER_TEST_DATA_FRAMES="$(VP8_ENCODER_SOURCE_FRAMES)" \
 	$(GO) test . -run 'Test(VP8Oracle|VPxOracle|Oracle|VP9EncoderVpxdecOracleAccepts|VP9DecoderVpxdecOracleMatches|VP9DecoderOfficial|VP9DecoderThreadingOfficial)' -count=1 -timeout 10m
+
+VP9_INTERNAL_ORACLE_TESTS := Test(DSPMatchesLibvpx|VP9CostTokens(MatchesLibvpxOracle|SkipMatchesCostTokens)|VP9ProbCostMatchesLibvpxSource|PtEnergyClassMatchesLibvpxSource|ExtendModesMatchLibvpxSource|DefaultNmvContextMatchesLibvpxSource|QuantTablesMatchLibvpxSource|ScanTablesMatchLibvpxSource|FilterTablesMatchLibvpxSource|VpxNormMatchesLibvpxSource|DefaultProbsMatchLibvpxSource|DefaultCoefProbsMatchLibvpxSource|DetokTablesMatchLibvpxSource|Mode2CounterMatchesLibvpxSource|CounterToContextMatchesLibvpxSource|MvRefBlocksMatchLibvpxSource)$$
+
+test-vp9-internal-oracle: vp9-vpxdec-tools
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	$(GO) test -tags govpx_oracle_trace ./internal/vp9/tables ./internal/vp9/encoder ./internal/vp9/decoder ./internal/vp9/dsp -run '$(VP9_INTERNAL_ORACLE_TESTS)' -count=1 -timeout 5m
 
 SCOREBOARD_TESTS := TestVP8OracleReconstructionAdler32Match|TestVP8OracleRecodeRowParity|TestVP8OracleARNRBufferAdler|TestVP8OracleQuantizerHistogramScoreboard|TestVP8OracleInterDecisionMatchRate|TestVP8OracleSplitMVDecisionMatchRate|TestVP8OracleTraceInterCandidateScoreboard|TestVP8OracleInterQDriftScoreboard|TestVP8OracleLoopFilterHeaderMatchRate|TestVP8OracleSecondPassAllocationScoreboard|TestVP8OracleChromaSubpelScoreboard|TestVP8OracleImprovedMVMatchScoreboard|TestVP8OracleCBRDropFrameScoreboard|TestVP8OracleCandidateRateScoreboard|TestVP8OracleInterModeDistributionScoreboard|TestVP8OracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParityScoreboard|ConstantByteParityMatrix)
 BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzVP8OracleEncoderRuntimeControlTransitions

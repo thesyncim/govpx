@@ -63,6 +63,40 @@ func TestRootOracleTestsUseCodecHarnessPackages(t *testing.T) {
 	}
 }
 
+func TestVP9OracleSourceTestsStayTagged(t *testing.T) {
+	oracleProbeText := []string{
+		"libvpx checkout not present under internal/coracle/build",
+		"libvpx VP9 checkout not present under internal/coracle/build",
+		"bash internal/coracle/build_",
+	}
+	err := filepath.WalkDir(filepath.Join("internal", "vp9"), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		src := string(data)
+		for _, probe := range oracleProbeText {
+			if !strings.Contains(src, probe) {
+				continue
+			}
+			if !testFileHasBuildTag(t, path, "govpx_oracle_trace") {
+				t.Fatalf("%s probes libvpx oracle/source assets outside the govpx_oracle_trace build", path)
+			}
+			break
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir(internal/vp9): %v", err)
+	}
+}
+
 func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 	reason string,
 ) {
