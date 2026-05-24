@@ -336,8 +336,8 @@ func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
 		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
 		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
 		dstRows := len(dst) / dstStride
-		if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
-			!vp9VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
+		if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!encoder.VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
 			return 0, 0, 0, 0, false
 		}
 		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
@@ -450,7 +450,7 @@ func (e *VP9Encoder) vp9InterPredictionSubpelVariance(inter *vp9InterEncodeState
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
 		return 0, false
 	}
 	preX := x0 + (int(mv.Col) >> 3)

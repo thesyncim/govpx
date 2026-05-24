@@ -759,7 +759,7 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 
 	// libvpx vp9_encodeframe.c:4685 — `int hasRows = mi_row + ms <
 	// cm->mi_rows; int hasCols = mi_col + ms < cm->mi_cols;` is implicit
-	// in vp9PartitionRateCost via the hasRows / hasCols parameters; at
+	// in encoder.PartitionRateCost via the hasRows / hasCols parameters; at
 	// the dispatcher level both are true (we early-returned above on
 	// force_horz_split / force_vert_split).
 	hasRows := miRow+ms < miRows
@@ -801,7 +801,7 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	// libvpx vp9_encodeframe.c:4686 — this_rdc.rate +=
 	// cpi->partition_cost[pl][PARTITION_NONE];
 	// libvpx 4687: this_rdc.rdcost = RDCOST(...).
-	noneRateCost := vp9PartitionRateCost(rateCostProbs, plCtx,
+	noneRateCost := encoder.PartitionRateCost(rateCostProbs, plCtx,
 		common.PartitionNone, hasRows, hasCols)
 	noneScore := e.vp9AddModeDecisionRate(noneDecision.score, noneRateCost,
 		qindex)

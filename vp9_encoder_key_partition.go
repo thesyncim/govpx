@@ -73,7 +73,7 @@ func (e *VP9Encoder) pickVP9KeyframeTexturePartitionBlockSize(key *vp9KeyframeEn
 	y0 := miRow * common.MiSize
 	blockW := int(common.Num4x4BlocksWideLookup[root]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[root]) * 4
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
 		return common.BlockInvalid, false
 	}
 	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
@@ -143,7 +143,7 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			partition == common.PartitionVert) {
 			continue
 		}
-		partRate := vp9PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
+		partRate := encoder.PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
 		refBestRD := uint64(^uint64(0))
 		if bestValid {
 			refRate := bestRate
@@ -339,7 +339,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, key, nil) {
 		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
-	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
+	horzSize, vertSize, splitSize, ok := encoder.SquareInterPartitionSizes(bsize)
 	if !ok || splitSize < common.Block8x8 {
 		return common.BlockInvalid, false
 	}
@@ -356,7 +356,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
 		return common.BlockInvalid, false
 	}
 	threshold := vp9KeyframeVariancePartitionThreshold(key.dq.Y[0][1], bsize)

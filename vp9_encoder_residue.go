@@ -226,8 +226,8 @@ func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
 	if predStride > 0 {
 		predH = len(pred) / predStride
 	}
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
-		!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!encoder.VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
 		return false
 	}
 	segID := vp9EncoderMiSegmentID(mi)
@@ -261,8 +261,8 @@ func (e *VP9Encoder) vp9StaticThresholdChromaBreakout(inter *vp9InterEncodeState
 		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
 		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
 		predH := len(pred) / predStride
-		if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
-			!vp9VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
+		if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!encoder.VisibleBlockFits(x0, y0, blockW, blockH, predStride, predH) {
 			return false
 		}
 		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, pred,

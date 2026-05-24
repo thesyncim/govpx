@@ -99,7 +99,7 @@ func (e *VP9Encoder) vp9SearchFilterRef(inter *vp9InterEncodeState,
 		// tuple without re-applying vp9_get_switchable_rate.)
 		// libvpx: vp9_pickmode.c:1539 pf_rate[filter] +=
 		//   vp9_get_switchable_rate(cpi, xd);
-		filterRate := rateY + vp9SwitchableInterpRateCost(
+		filterRate := rateY + encoder.SwitchableInterpRateCost(
 			vp9InterModeCostFrameContext(inter),
 			switchableCtx, filter)
 		// libvpx: vp9_pickmode.c:1540 cost = RDCOST(x->rdmult, x->rddiv,

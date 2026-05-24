@@ -850,7 +850,7 @@ func vp9InterInterpFilterRateCost(inter *vp9InterEncodeState, fc *vp9dec.FrameCo
 	if vp9InterFrameInterpFilter(inter) != vp9dec.InterpSwitchable {
 		return 0
 	}
-	return vp9SwitchableInterpRateCost(fc, ctx, filter)
+	return encoder.SwitchableInterpRateCost(fc, ctx, filter)
 }
 
 func vp9MvHasSubpel(mv vp9dec.MV) bool {

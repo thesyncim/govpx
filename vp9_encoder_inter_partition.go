@@ -6,24 +6,12 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-func vp9SquareInterPartitionSizes(root common.BlockSize) (common.BlockSize, common.BlockSize, common.BlockSize, bool) {
-	switch root {
-	case common.Block64x64, common.Block32x32, common.Block16x16:
-		return common.SubsizeLookup[common.PartitionHorz][root],
-			common.SubsizeLookup[common.PartitionVert][root],
-			common.SubsizeLookup[common.PartitionSplit][root],
-			true
-	default:
-		return common.BlockInvalid, common.BlockInvalid, common.BlockInvalid, false
-	}
-}
-
 func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	miRows, miCols, miRow, miCol int, root common.BlockSize,
 ) common.BlockSize {
-	horzSize, vertSize, splitSize, ok := vp9InterRDPartitionSizes(root)
+	horzSize, vertSize, splitSize, ok := encoder.InterRDPartitionSizes(root)
 	if !ok {
 		return root
 	}
@@ -187,14 +175,14 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	bestSize := root
 	bestScore := e.vp9AddModeDecisionRate(full.score,
-		vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
+		encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
 			hasRows, hasCols), qindex)
 
 	if hasRows {
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
+				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestScore = score
@@ -206,7 +194,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
+				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestScore = score
@@ -218,7 +206,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
 			miRows, miCols, miRow, miCol, splitSize); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				vp9PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
+				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
 					hasRows, hasCols), qindex)
 			if score < bestScore {
 				bestSize = splitSize
@@ -264,7 +252,7 @@ func (e *VP9Encoder) vp9InterPreferVarianceRoot(inter *vp9InterEncodeState,
 	}
 	variance := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH)
-	threshold := vp9RealtimeVariancePartitionThreshold64(inter.dq.Y[0][1],
+	threshold := encoder.RealtimeVariancePartitionThreshold64(inter.dq.Y[0][1],
 		srcW, srcH)
 	return variance < threshold
 }
@@ -848,7 +836,7 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter) {
 		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
-	horzSize, vertSize, splitSize, ok := vp9SquareInterPartitionSizes(bsize)
+	horzSize, vertSize, splitSize, ok := encoder.SquareInterPartitionSizes(bsize)
 	if !ok || splitSize < common.Block8x8 {
 		return common.BlockInvalid, false
 	}
@@ -870,20 +858,20 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
-		!vp9VisibleBlockFits(x0, y0, blockW, blockH, refW, refH) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!encoder.VisibleBlockFits(x0, y0, blockW, blockH, refW, refH) {
 		return common.BlockInvalid, false
 	}
 	if bsize == common.Block64x64 {
 		sad := encoder.BlockSAD(src, srcStride, ref, refStride,
 			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
-		sadThreshold := vp9CBRVariancePartitionSADThreshold(inter.dq.Y[0][1],
+		sadThreshold := encoder.CBRVariancePartitionSADThreshold(inter.dq.Y[0][1],
 			srcW, srcH)
 		if sad < sadThreshold {
 			return common.BlockInvalid, false
 		}
 	}
-	threshold := vp9CBRVariancePartitionThreshold(inter.dq.Y[0][1],
+	threshold := encoder.CBRVariancePartitionThreshold(inter.dq.Y[0][1],
 		srcW, srcH, bsize, e.rc.avgFrameQIndexInter)
 	variance := encoder.BlockDiffVariance(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, blockW, blockH)
@@ -967,95 +955,11 @@ func (e *VP9Encoder) vp9FixedPublicQuantizer() bool {
 	return minQ == maxQ && minQ > 0
 }
 
-func vp9CBRVariancePartitionThreshold(yAcDequant int16, width, height int,
-	bsize common.BlockSize, avgInterQ uint8,
-) uint64 {
-	if yAcDequant <= 0 {
-		return 0
-	}
-	base := uint64(yAcDequant)
-	if width <= 640 && height <= 480 {
-		base = (5 * base) >> 2
-	}
-	switch {
-	case width <= 352 && height <= 288:
-		switch bsize {
-		case common.Block64x64:
-			return base >> 3
-		case common.Block32x32:
-			return base >> 1
-		case common.Block16x16:
-			threshold := base << 3
-			if avgInterQ > 220 {
-				return threshold << 2
-			}
-			if avgInterQ > 200 {
-				return threshold << 1
-			}
-			return threshold
-		}
-	case width < 1280 && height < 720:
-		if bsize == common.Block32x32 {
-			return (5 * base) >> 2
-		}
-	case width < 1920 && height < 1080:
-		if bsize == common.Block32x32 {
-			return base << 1
-		}
-	default:
-		if bsize == common.Block32x32 {
-			return (5 * base) >> 1
-		}
-	}
-	if bsize == common.Block16x16 {
-		return base << 8
-	}
-	return base
-}
-
-func vp9CBRVariancePartitionSADThreshold(yAcDequant int16, width, height int) uint64 {
-	if width <= 352 && height <= 288 {
-		return 10
-	}
-	threshold := max(int(yAcDequant)<<1, 1000)
-	return uint64(threshold)
-}
-
-func vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height int) bool {
-	return x0 >= 0 && y0 >= 0 && blockW > 0 && blockH > 0 &&
-		x0+blockW <= width && y0+blockH <= height
-}
-
-func vp9RealtimeVariancePartitionThreshold64(yAcDequant int16, width, height int) uint64 {
-	if yAcDequant <= 0 {
-		return 0
-	}
-	base := uint64(yAcDequant)
-	if width <= 640 && height <= 480 {
-		base = (5 * base) >> 2
-	}
-	return base
-}
-
 type vp9InterPartitionRD struct {
 	target     common.BlockSize
 	rate       int
 	distortion uint64
 	score      uint64
-}
-
-func vp9InterRDPartitionSizes(root common.BlockSize) (common.BlockSize, common.BlockSize, common.BlockSize, bool) {
-	switch root {
-	case common.Block64x64, common.Block32x32, common.Block16x16:
-		return common.SubsizeLookup[common.PartitionHorz][root],
-			common.SubsizeLookup[common.PartitionVert][root],
-			common.SubsizeLookup[common.PartitionSplit][root],
-			true
-	case common.Block8x8:
-		return common.Block8x4, common.Block4x8, common.Block4x4, true
-	default:
-		return common.BlockInvalid, common.BlockInvalid, common.BlockInvalid, false
-	}
 }
 
 func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
@@ -1105,7 +1009,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionNone(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rd.rate += vp9PartitionRateCost(rateCostProbs, ctx,
+	rd.rate += encoder.PartitionRateCost(rateCostProbs, ctx,
 		common.PartitionNone, hasRows, hasCols)
 	rd.score = e.vp9InterModeScore(rd.distortion, rd.rate, qindex)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
@@ -1138,7 +1042,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionRect(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rate += vp9PartitionRateCost(rateCostProbs, ctx, partition, hasRows, hasCols)
+	rate += encoder.PartitionRateCost(rateCostProbs, ctx, partition, hasRows, hasCols)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root, partition, child)
 	return vp9InterPartitionRD{
 		target:     child,
@@ -1183,7 +1087,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rate += vp9PartitionRateCost(rateCostProbs, ctx,
+	rate += encoder.PartitionRateCost(rateCostProbs, ctx,
 		common.PartitionSplit, hasRows, hasCols)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
 		common.PartitionSplit, child)
@@ -1204,7 +1108,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
 			miRow, miCol, root)
 	}
-	horzSize, vertSize, splitSize, ok := vp9InterRDPartitionSizes(root)
+	horzSize, vertSize, splitSize, ok := encoder.InterRDPartitionSizes(root)
 	if !ok {
 		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
 			miRow, miCol, root)
@@ -1584,68 +1488,5 @@ func (e *VP9Encoder) restoreVP9PartitionReconSnapshot(snap vp9PartitionReconSnap
 func (e *VP9Encoder) releaseVP9PartitionReconSnapshot(snap vp9PartitionReconSnapshot) {
 	if e.partitionReconScratchTop == snap.end {
 		e.partitionReconScratchTop = snap.top
-	}
-}
-
-func vp9PartitionRateCost(
-	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	ctx int, partition common.PartitionType, hasRows, hasCols bool,
-) int {
-	if partitionProbs == nil || ctx < 0 || ctx >= common.PartitionContexts {
-		return 0
-	}
-	probs := partitionProbs[ctx]
-	switch {
-	case hasRows && hasCols:
-		switch partition {
-		case common.PartitionNone:
-			return encoder.VP9CostBit(probs[0], 0)
-		case common.PartitionHorz:
-			return encoder.VP9CostBit(probs[0], 1) +
-				encoder.VP9CostBit(probs[1], 0)
-		case common.PartitionVert:
-			return encoder.VP9CostBit(probs[0], 1) +
-				encoder.VP9CostBit(probs[1], 1) +
-				encoder.VP9CostBit(probs[2], 0)
-		case common.PartitionSplit:
-			return encoder.VP9CostBit(probs[0], 1) +
-				encoder.VP9CostBit(probs[1], 1) +
-				encoder.VP9CostBit(probs[2], 1)
-		}
-	case !hasRows && hasCols:
-		bit := 0
-		if partition == common.PartitionSplit {
-			bit = 1
-		}
-		return encoder.VP9CostBit(probs[1], bit)
-	case hasRows && !hasCols:
-		bit := 0
-		if partition == common.PartitionSplit {
-			bit = 1
-		}
-		return encoder.VP9CostBit(probs[2], bit)
-	}
-	return 0
-}
-
-func vp9SwitchableInterpRateCost(fc *vp9dec.FrameContext, ctx int,
-	filter vp9dec.InterpFilter,
-) int {
-	if fc == nil || ctx < 0 || ctx >= len(fc.SwitchableInterpProb) ||
-		filter >= vp9dec.InterpSwitchable {
-		return 0
-	}
-	probs := fc.SwitchableInterpProb[ctx]
-	switch filter {
-	case vp9dec.InterpEighttap:
-		return encoder.VP9CostBit(probs[0], 0)
-	case vp9dec.InterpEighttapSmooth:
-		return encoder.VP9CostBit(probs[0], 1) +
-			encoder.VP9CostBit(probs[1], 0)
-	case vp9dec.InterpEighttapSharp:
-		return encoder.VP9CostBit(probs[0], 1) +
-			encoder.VP9CostBit(probs[1], 1)
-	default:
-		return 0
 	}
 }

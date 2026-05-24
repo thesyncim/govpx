@@ -1066,7 +1066,7 @@ func (e *VP9Encoder) vp9KeyframeUseTransformDomainDistortion(key *vp9KeyframeEnc
 	y0 := miRow * common.MiSize
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-	if !vp9VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
 		return false
 	}
 	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
