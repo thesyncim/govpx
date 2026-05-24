@@ -26,7 +26,7 @@ func TestDecodeIntoCopiesSupportedKeyFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	dst := newVP8DecodeIntoImage(16, 16)
+	dst := newVP8FacadeImage(16, 16)
 
 	info, err := d.DecodeIntoWithPTS(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true), &dst, 88)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestDecodeIntoFrameInfoReportsQuantizerAndReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	dst := newVP8DecodeIntoImage(16, 16)
+	dst := newVP8FacadeImage(16, 16)
 	keyPacket := vp8test.KeyFramePacketWithFirstPartition(16, 16, vp8test.FirstPartitionWithBaseQIndex(20))
 
 	key, err := d.DecodeIntoWithPTS(keyPacket, &dst, 100)
@@ -108,8 +108,8 @@ func TestDecodeIntoInvisibleFrameDoesNotCopyOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP8Decoder returned error: %v", err)
 	}
-	dst := newVP8DecodeIntoImage(16, 16)
-	fillVP8DecodeIntoImage(dst, 7, 8, 9)
+	dst := newVP8FacadeImage(16, 16)
+	fillVP8FacadeImage(dst, 7, 8, 9)
 
 	info, err := d.DecodeIntoWithPTS(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, false), &dst, 88)
 	if err != nil {
@@ -139,7 +139,7 @@ func TestDecodeIntoRejectsInvalidImage(t *testing.T) {
 	}
 }
 
-func newVP8DecodeIntoImage(width int, height int) govpx.Image {
+func newVP8FacadeImage(width int, height int) govpx.Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
 	return govpx.Image{
@@ -154,7 +154,7 @@ func newVP8DecodeIntoImage(width int, height int) govpx.Image {
 	}
 }
 
-func fillVP8DecodeIntoImage(img govpx.Image, y byte, u byte, v byte) {
+func fillVP8FacadeImage(img govpx.Image, y byte, u byte, v byte) {
 	for i := range img.Y {
 		img.Y[i] = y
 	}
@@ -163,5 +163,35 @@ func fillVP8DecodeIntoImage(img govpx.Image, y byte, u byte, v byte) {
 	}
 	for i := range img.V {
 		img.V[i] = v
+	}
+}
+
+func assertVP8FacadeImagesEqual(t *testing.T, name string, want govpx.Image, got govpx.Image) {
+	t.Helper()
+	if got.Width != want.Width || got.Height != want.Height {
+		t.Fatalf("%s dimensions = %dx%d, want %dx%d", name, got.Width, got.Height, want.Width, want.Height)
+	}
+	assertVP8FacadePlaneEqual(t, name+" Y", want.Y, want.YStride, got.Y, got.YStride, want.Width, want.Height)
+	uvWidth := (want.Width + 1) >> 1
+	uvHeight := (want.Height + 1) >> 1
+	assertVP8FacadePlaneEqual(t, name+" U", want.U, want.UStride, got.U, got.UStride, uvWidth, uvHeight)
+	assertVP8FacadePlaneEqual(t, name+" V", want.V, want.VStride, got.V, got.VStride, uvWidth, uvHeight)
+}
+
+func assertVP8FacadePlaneEqual(
+	t *testing.T, name string,
+	want []byte, wantStride int,
+	got []byte, gotStride int,
+	width int, height int,
+) {
+	t.Helper()
+	for row := range height {
+		wantRow := want[row*wantStride : row*wantStride+width]
+		gotRow := got[row*gotStride : row*gotStride+width]
+		for col := range width {
+			if gotRow[col] != wantRow[col] {
+				t.Fatalf("%s[%d,%d] = %d, want %d", name, row, col, gotRow[col], wantRow[col])
+			}
+		}
 	}
 }

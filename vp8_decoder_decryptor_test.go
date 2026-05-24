@@ -1,9 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -16,7 +17,7 @@ import (
 func TestVP8DecoderDecryptorRoundTripsClearKeyFrame(t *testing.T) {
 	packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
 
-	plain, err := NewVP8Decoder(DecoderOptions{})
+	plain, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
 	if err != nil {
 		t.Fatalf("plain NewVP8Decoder error = %v", err)
 	}
@@ -31,7 +32,7 @@ func TestVP8DecoderDecryptorRoundTripsClearKeyFrame(t *testing.T) {
 	identity := func(state any, src, dst []byte, count int) {
 		copy(dst[:count], src[:count])
 	}
-	dec, err := NewVP8Decoder(DecoderOptions{Decryptor: identity})
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{Decryptor: identity})
 	if err != nil {
 		t.Fatalf("decryptor NewVP8Decoder error = %v", err)
 	}
@@ -64,7 +65,7 @@ func TestVP8DecoderDecryptorCallbackIsInvoked(t *testing.T) {
 		calls++
 		copy(dst[:count], src[:count])
 	}
-	dec, err := NewVP8Decoder(DecoderOptions{Decryptor: identity})
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{Decryptor: identity})
 	if err != nil {
 		t.Fatalf("NewVP8Decoder error = %v", err)
 	}
