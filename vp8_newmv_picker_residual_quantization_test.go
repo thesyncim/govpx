@@ -3,9 +3,9 @@
 package govpx
 
 import (
-	"os"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 )
@@ -15,9 +15,7 @@ import (
 // predictor, residual, FDCT, and zbin state that feed picker-side Y
 // quantization, then logs the per-block EOB shape used by the RD estimate.
 func TestVP8NewMVPickerResidualQuantization(t *testing.T) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		t.Skip("set GOVPX_WITH_ORACLE=1 to run the NEWMV picker residual quantization check")
-	}
+	vp8test.RequireOracle(t, "the NEWMV picker residual quantization check")
 
 	opts := EncoderOptions{
 		Width:             1280,

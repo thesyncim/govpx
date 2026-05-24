@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -24,9 +23,7 @@ import (
 // fuzz-generated YStride / UStride / VStride padding values. If
 // the encoder correctly walks strides, the two outputs match.
 func FuzzEncoderRandomStrides(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run random-strides fuzz")
-	}
+	vp8test.RequireOracleF(f, "random-strides fuzz")
 	// Each seed is (dimBucket, yPadBucket, uPadBucket, vPadBucket,
 	// uAlignBucket, vAlignBucket).
 	seeds := [][]byte{

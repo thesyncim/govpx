@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,9 +34,7 @@ import (
 // with a `limit:` case in vp8_oracle_encoder_stream_parity_frame_flags_test.go)
 // rather than relying on a fuzz seed alone.
 func FuzzEncoderFrameFlags(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run frame-flags fuzz parity")
-	}
+	vp8test.RequireOracleF(f, "frame-flags fuzz parity")
 
 	seeds := [][]byte{
 		// Force-KF on frame 1 (smallest scenario that produces both a real key

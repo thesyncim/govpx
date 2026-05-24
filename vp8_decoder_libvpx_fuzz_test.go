@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -22,9 +21,7 @@ import (
 // corruption, and partition-size truncation. Divergent inputs land in
 // testdata/fuzz/FuzzVP8DecoderAgainstLibvpx and replay as regression tests.
 func FuzzVP8DecoderAgainstLibvpx(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run decoder-vs-libvpx fuzz")
-	}
+	vp8test.RequireOracleF(f, "decoder-vs-libvpx fuzz")
 
 	smoke, err := hex.DecodeString(testutil.LibvpxEncodedSmokeIVFHex)
 	if err != nil {

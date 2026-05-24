@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"errors"
-	"os"
 	"strconv"
 	"testing"
 
@@ -33,9 +32,7 @@ import (
 // Mirrors FuzzVP9EncoderOptions in shape and adds the libvpx
 // keyframe-byte-parity comparator.
 func FuzzVP8EncoderOptions(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run option-validation fuzz")
-	}
+	vp8test.RequireOracleF(f, "option-validation fuzz")
 	seeds := [][]byte{
 		nil,
 		{},

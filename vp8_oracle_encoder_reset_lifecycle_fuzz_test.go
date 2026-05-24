@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -46,9 +45,7 @@ import (
 // driver, so the libvpx parity arm is exercisable when a segment
 // happens to omit Reset() and runs from cold.
 func FuzzEncoderResetLifecycle(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run reset-lifecycle fuzz parity")
-	}
+	vp8test.RequireOracleF(f, "reset-lifecycle fuzz parity")
 	seeds := [][]byte{
 		// (dimBucket, cpuBucket, targetBucket) then op stream.
 		// Op bytes pack op-kind in low nibble, value selector in high.

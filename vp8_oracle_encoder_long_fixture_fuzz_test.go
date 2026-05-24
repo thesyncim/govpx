@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"testing"
 
@@ -81,9 +80,7 @@ func longFixtureSeedDeferred(data []byte) bool {
 // scoreboard baseline land in testdata/fuzz/ as future regression
 // seeds; iterations that regress the keyframe parity fail hard.
 func FuzzEncoderLongFixtureRateControl(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run long-fixture RC fuzz")
-	}
+	vp8test.RequireOracleF(f, "long-fixture RC fuzz")
 	// Each seed is (rcBucket, bitrateBucket, kfBucket, bufBucket,
 	// fixtureBucket, deadlineBucket, cpuBucket).
 	seeds := [][]byte{

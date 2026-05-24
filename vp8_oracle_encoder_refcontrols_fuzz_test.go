@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,9 +27,7 @@ import (
 // without competing with the broader runtime-control fuzzer for
 // regression-coverage attention.
 func FuzzEncoderReferenceControlSequences(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run ref-control sequence fuzz")
-	}
+	vp8test.RequireOracleF(f, "ref-control sequence fuzz")
 	seeds := [][]byte{
 		{0, 0, 0, 0, 0, 0, 0, 0},                 // all-default
 		{0, 1, 0, 2, 0, 3, 0, 0},                 // SET last/golden/altref

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
-	"os"
 	"strconv"
 	"testing"
 
@@ -145,9 +144,7 @@ func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []Firs
 // the govpx encodes; expect roughly half a second per iteration
 // on the seed corpus.
 func FuzzEncoderTwoPassByteParity(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run two-pass byte-parity fuzz")
-	}
+	vp8test.RequireOracleF(f, "two-pass byte-parity fuzz")
 	// Each seed is consumed in newTwoPassFuzzCase order:
 	// byte0→targetKbps, byte1→cpuUsed, byte2→kfInterval, byte3→arnrMax,
 	// byte4→threads, byte5→frames. Each byte is mod len(pool).

@@ -4,7 +4,6 @@ package govpx
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -43,9 +42,7 @@ import (
 //     (matchLimit=0); shape 1/2 inherit the strict-byte parity matrix
 //     pinned by TestVP8OracleEncoderStreamByteParityTemporalSVC.
 func FuzzVP8MultiResSVCByteParity(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run multi-res/SVC byte-parity fuzz")
-	}
+	vp8test.RequireOracleF(f, "multi-res/SVC byte-parity fuzz")
 	// Seed corpus: cover all three shapes × the three cpu_used
 	// presets × the documented mode-selector range, plus a handful of
 	// production-shape thread/error-resilient permutations.

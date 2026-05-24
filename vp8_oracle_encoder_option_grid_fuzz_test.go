@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"strconv"
 	"testing"
 
@@ -29,9 +28,7 @@ import (
 // testdata/fuzz/FuzzEncoderProductionStreamByteParity and replay as ordinary
 // go test regressions.
 func FuzzEncoderProductionStreamByteParity(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run option-grid byte-parity fuzz")
-	}
+	vp8test.RequireOracleF(f, "option-grid byte-parity fuzz")
 	// Each seed is (resBucket, deadlineBucket, cpuBucket, rcBucket, featBucket,
 	// tokenPartBucket, threadsBucket, sharpBucket, tuneBucket, arnrBucket,
 	// errorResBucket). The errorResBucket byte rolls error_resilient

@@ -5,7 +5,6 @@ package govpx
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,9 +26,7 @@ import (
 // so the case generator caps frames at 2–4 on the heaviest resolutions and
 // reuses the same per-frame action pool.
 func FuzzVP8OracleEncoderProductionRuntimeControls(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run production runtime-control fuzz parity")
-	}
+	vp8test.RequireOracleF(f, "production runtime-control fuzz parity")
 	seeds := [][]byte{
 		// (resolution-bucket, threads-bucket, frames, cpu, kind, then actions)
 		{0, 0, 0, 0, 0, 0, 1, 2, 3},

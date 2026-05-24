@@ -29,6 +29,14 @@ func RequireOracle(t testing.TB, name string) {
 	}
 }
 
+// RequireOracleF skips f unless the external libvpx oracle suite is enabled.
+func RequireOracleF(f *testing.F, name string) {
+	f.Helper()
+	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
+		f.Skip("set GOVPX_WITH_ORACLE=1 to run " + name)
+	}
+}
+
 // NewChecksumOracle resolves the VP8 checksum oracle or skips t.
 func NewChecksumOracle(t testing.TB) Oracle {
 	t.Helper()

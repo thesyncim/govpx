@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,9 +21,7 @@ import (
 // to testdata/fuzz/FuzzVP8OracleEncoderRuntimeControlTransitions, and those corpus
 // files are replayed by ordinary go test runs as regression tests.
 func FuzzVP8OracleEncoderRuntimeControlTransitions(f *testing.F) {
-	if os.Getenv("GOVPX_WITH_ORACLE") != "1" {
-		f.Skip("set GOVPX_WITH_ORACLE=1 to run runtime-control fuzz parity")
-	}
+	vp8test.RequireOracleF(f, "runtime-control fuzz parity")
 	seeds := [][]byte{
 		{0, 0, 1, 2, 3, 4, 5, 6, 7, 8},
 		{0, 2, 7, 7, 7, 3, 5, 1, 4, 6, 8},
