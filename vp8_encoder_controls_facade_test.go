@@ -8,6 +8,100 @@ import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 )
 
+func TestVP8EncoderRejectsInvalidOptions(t *testing.T) {
+	valid := govpx.EncoderOptions{
+		Width:             640,
+		Height:            480,
+		FPS:               30,
+		TargetBitrateKbps: 1200,
+	}
+	tests := []struct {
+		name string
+		edit func(*govpx.EncoderOptions)
+		want error
+	}{
+		{name: "missing bitrate", edit: func(opts *govpx.EncoderOptions) {
+			opts.TargetBitrateKbps = 0
+		}, want: govpx.ErrInvalidBitrate},
+		{name: "bad quantizer range", edit: func(opts *govpx.EncoderOptions) {
+			opts.MinQuantizer = 60
+			opts.MaxQuantizer = 4
+		}, want: govpx.ErrInvalidQuantizer},
+		{name: "zero width", edit: func(opts *govpx.EncoderOptions) {
+			opts.Width = 0
+		}, want: govpx.ErrInvalidConfig},
+		{name: "too many token partitions", edit: func(opts *govpx.EncoderOptions) {
+			opts.TokenPartitions = 4
+		}, want: govpx.ErrInvalidConfig},
+		{name: "cq level above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.RateControlMode = govpx.RateControlCQ
+			opts.MinQuantizer = 4
+			opts.MaxQuantizer = 56
+			opts.CQLevel = 64
+		}, want: govpx.ErrInvalidQuantizer},
+		{name: "constant-quality level above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.RateControlMode = govpx.RateControlQ
+			opts.MinQuantizer = 4
+			opts.MaxQuantizer = 56
+			opts.CQLevel = 64
+		}, want: govpx.ErrInvalidQuantizer},
+		{name: "negative max intra bitrate", edit: func(opts *govpx.EncoderOptions) {
+			opts.MaxIntraBitratePct = -1
+		}, want: govpx.ErrInvalidConfig},
+		{name: "negative golden-frame CBR boost", edit: func(opts *govpx.EncoderOptions) {
+			opts.GFCBRBoostPct = -1
+		}, want: govpx.ErrInvalidConfig},
+		{name: "undershoot percent above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.UndershootPct = 101
+		}, want: govpx.ErrInvalidConfig},
+		{name: "overshoot percent above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.OvershootPct = 101
+		}, want: govpx.ErrInvalidConfig},
+		{name: "screen content mode above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.ScreenContentMode = 3
+		}, want: govpx.ErrInvalidConfig},
+		{name: "bad tuning mode", edit: func(opts *govpx.EncoderOptions) {
+			opts.Tuning = govpx.Tuning(2)
+		}, want: govpx.ErrInvalidConfig},
+		{name: "noise sensitivity above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.NoiseSensitivity = 7
+		}, want: govpx.ErrInvalidConfig},
+		{name: "ARNR max frames above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.ARNRMaxFrames = 16
+		}, want: govpx.ErrInvalidConfig},
+		{name: "ARNR type above range", edit: func(opts *govpx.EncoderOptions) {
+			opts.ARNRType = 4
+		}, want: govpx.ErrInvalidConfig},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := valid
+			tt.edit(&opts)
+			_, err := govpx.NewVP8Encoder(opts)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("NewVP8Encoder error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestVP8EncoderAcceptsHighDenoiseARNRBounds(t *testing.T) {
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
+		Width:             640,
+		Height:            480,
+		FPS:               30,
+		TargetBitrateKbps: 1200,
+		NoiseSensitivity:  6,
+		ARNRMaxFrames:     15,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+}
+
 func TestVP8EncoderEncodeIntoRejectsSmallBuffer(t *testing.T) {
 	e := newVP8FacadeEncoder(t)
 
@@ -171,6 +265,8 @@ func TestVP8EncoderRuntimeControlsRejectInvalidConfig(t *testing.T) {
 		{"SetNoiseSensitivity out of range", func() error { return e.SetNoiseSensitivity(7) }},
 		{"SetARNR max frames out of range", func() error { return e.SetARNR(16, 3, 3) }},
 		{"SetARNR type zero", func() error { return e.SetARNR(3, 3, 0) }},
+		{"SetMaxIntraBitratePct negative", func() error { return e.SetMaxIntraBitratePct(-1) }},
+		{"SetGFCBRBoostPct negative", func() error { return e.SetGFCBRBoostPct(-1) }},
 		{"SetDeadline invalid", func() error { return e.SetDeadline(govpx.Deadline(-1)) }},
 		{"SetCPUUsed out of range", func() error { return e.SetCPUUsed(17) }},
 		{"SetKeyFrameInterval negative", func() error { return e.SetKeyFrameInterval(-1) }},
@@ -183,6 +279,9 @@ func TestVP8EncoderRuntimeControlsRejectInvalidConfig(t *testing.T) {
 		{"SetRealtimeTarget oversized width", func() error {
 			return e.SetRealtimeTarget(govpx.RealtimeTarget{Width: 1 << 30, Height: 16})
 		}},
+		{"SetRealtimeTarget bad frame-drop mode", func() error {
+			return e.SetRealtimeTarget(govpx.RealtimeTarget{FrameDrop: govpx.RealtimeFrameDropMode(99)})
+		}},
 	}
 	for _, check := range checks {
 		if err := check.fn(); !errors.Is(err, govpx.ErrInvalidConfig) {
@@ -192,6 +291,73 @@ func TestVP8EncoderRuntimeControlsRejectInvalidConfig(t *testing.T) {
 
 	if err := e.SetRealtimeTarget(govpx.RealtimeTarget{Width: 16, Height: 16}); err != nil {
 		t.Fatalf("same-resolution SetRealtimeTarget returned error: %v", err)
+	}
+}
+
+func TestVP8EncoderSetBitrateKbpsRejectsConfiguredBounds(t *testing.T) {
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   1000,
+		MinBitrateKbps:      500,
+		MaxBitrateKbps:      1500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+
+	if err := e.SetBitrateKbps(499); !errors.Is(err, govpx.ErrInvalidBitrate) {
+		t.Fatalf("below-min error = %v, want ErrInvalidBitrate", err)
+	}
+	if err := e.SetBitrateKbps(1501); !errors.Is(err, govpx.ErrInvalidBitrate) {
+		t.Fatalf("above-max error = %v, want ErrInvalidBitrate", err)
+	}
+	if err := e.SetBitrateKbps(1200); err != nil {
+		t.Fatalf("in-range SetBitrateKbps returned error: %v", err)
+	}
+}
+
+func TestVP8EncoderSetRealtimeTargetRejectsInvalidCQBounds(t *testing.T) {
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     govpx.RateControlCQ,
+		TargetBitrateKbps:   1200,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		CQLevel:             24,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetRealtimeTarget(govpx.RealtimeTarget{MinQuantizer: 30}); !errors.Is(err, govpx.ErrInvalidQuantizer) {
+		t.Fatalf("SetRealtimeTarget error = %v, want ErrInvalidQuantizer", err)
+	}
+}
+
+func TestVP8EncoderSetMaxIntraBitratePctAffectsKeyFrameTarget(t *testing.T) {
+	e := newVP8FacadeEncoder(t)
+	if err := e.SetMaxIntraBitratePct(150); err != nil {
+		t.Fatalf("SetMaxIntraBitratePct returned error: %v", err)
+	}
+
+	result, err := e.EncodeInto(make([]byte, 4096), newVP8FacadeImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	if result.FrameTargetBits != 9199 {
+		t.Fatalf("key target bits = %d, want raw-rate-capped 150%% intra target 9199", result.FrameTargetBits)
 	}
 }
 

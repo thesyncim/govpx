@@ -185,25 +185,7 @@ func TestSetCQLevelValidationAppliesToRateControlQ(t *testing.T) {
 	}
 }
 
-func TestSetMaxIntraBitratePctAffectsNextKeyFrame(t *testing.T) {
-	e := newTestEncoder(t)
-	if err := e.SetMaxIntraBitratePct(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetMaxIntraBitratePct error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetMaxIntraBitratePct(150); err != nil {
-		t.Fatalf("SetMaxIntraBitratePct returned error: %v", err)
-	}
-	result, err := e.EncodeInto(make([]byte, 4096), testImage(16, 16), 0, 1, 0)
-	if err != nil {
-		t.Fatalf("EncodeInto returned error: %v", err)
-	}
-	want := (e.rc.bitsPerFrame * 150) / 100
-	if result.FrameTargetBits != want {
-		t.Fatalf("key target bits = %d, want %d", result.FrameTargetBits, want)
-	}
-}
-
-func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
+func TestSetGFCBRBoostPctAffectsGoldenRefreshTarget(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -218,9 +200,6 @@ func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("NewVP8Encoder returned error: %v", err)
-	}
-	if err := e.SetGFCBRBoostPct(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetGFCBRBoostPct error = %v, want ErrInvalidConfig", err)
 	}
 	if err := e.SetGFCBRBoostPct(50); err != nil {
 		t.Fatalf("SetGFCBRBoostPct returned error: %v", err)
@@ -272,7 +251,7 @@ func TestSetRTCExternalRateControlRemainsEnabledAfterDisable(t *testing.T) {
 	}
 }
 
-func TestSetRealtimeTargetRejectsCQBoundsWithoutMutation(t *testing.T) {
+func TestSetRealtimeTargetInvalidCQBoundsDoNotMutateState(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,
@@ -301,7 +280,7 @@ func TestSetRealtimeTargetRejectsCQBoundsWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestSetBitrateKbpsHonorsConfiguredBounds(t *testing.T) {
+func TestSetBitrateKbpsInvalidUpdatesDoNotMutateTarget(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{
 		Width:               16,
 		Height:              16,

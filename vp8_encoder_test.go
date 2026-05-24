@@ -1,90 +1,14 @@
 package govpx
 
-import (
-	"errors"
-	"testing"
-)
+import "testing"
 
-func TestNewVP8EncoderValidation(t *testing.T) {
-	_, err := NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30})
-	if !errors.Is(err, ErrInvalidBitrate) {
-		t.Fatalf("error = %v, want ErrInvalidBitrate", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, MinQuantizer: 60, MaxQuantizer: 4})
-	if !errors.Is(err, ErrInvalidQuantizer) {
-		t.Fatalf("error = %v, want ErrInvalidQuantizer", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 0, Height: 480, FPS: 30, TargetBitrateKbps: 1200})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, TokenPartitions: 4})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("token partition error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, RateControlMode: RateControlCQ, TargetBitrateKbps: 1200, MinQuantizer: 4, MaxQuantizer: 56, CQLevel: 64})
-	if !errors.Is(err, ErrInvalidQuantizer) {
-		t.Fatalf("CQ level error = %v, want ErrInvalidQuantizer", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, RateControlMode: RateControlQ, TargetBitrateKbps: 1200, MinQuantizer: 4, MaxQuantizer: 56, CQLevel: 64})
-	if !errors.Is(err, ErrInvalidQuantizer) {
-		t.Fatalf("Q CQ level error = %v, want ErrInvalidQuantizer", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, MaxIntraBitratePct: -1})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("max intra bitrate error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, GFCBRBoostPct: -1})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("GF CBR boost error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, UndershootPct: 101})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("undershoot pct error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, OvershootPct: 101})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("overshoot pct error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ScreenContentMode: 3})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("screen content mode error = %v, want ErrInvalidConfig", err)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, Tuning: Tuning(2)})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("tuning error = %v, want ErrInvalidConfig", err)
-	}
-
+func TestNewVP8EncoderDefaultsARNRTypeToLibvpxCentered(t *testing.T) {
 	e, err := NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, NoiseSensitivity: 6, ARNRMaxFrames: 15})
 	if err != nil {
 		t.Fatalf("libvpx high denoise/ARNR bounds returned error: %v", err)
 	}
 	if e.opts.ARNRType != 3 {
 		t.Fatalf("default ARNR type = %d, want libvpx centered type 3", e.opts.ARNRType)
-	}
-
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, NoiseSensitivity: 7})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("noise sensitivity error = %v, want ErrInvalidConfig", err)
-	}
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ARNRMaxFrames: 16})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("ARNR max frames error = %v, want ErrInvalidConfig", err)
-	}
-	_, err = NewVP8Encoder(EncoderOptions{Width: 640, Height: 480, FPS: 30, TargetBitrateKbps: 1200, ARNRType: 4})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("ARNR type error = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -525,9 +449,6 @@ func TestSetRealtimeTargetFrameDropMode(t *testing.T) {
 	if !e.rc.dropFrameAllowed || !e.opts.DropFrameAllowed || e.rc.dropFramesWaterMark != 75 {
 		t.Fatalf("enabled frame drop = rc:%t opts:%t mark:%d, want true/true/75",
 			e.rc.dropFrameAllowed, e.opts.DropFrameAllowed, e.rc.dropFramesWaterMark)
-	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{FrameDrop: RealtimeFrameDropMode(99)}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("invalid frame drop mode error = %v, want ErrInvalidConfig", err)
 	}
 }
 

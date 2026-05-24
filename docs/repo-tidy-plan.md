@@ -28,6 +28,12 @@ Current lane split: this session owns VP8 and VP9 cleanup work again. Parallel
 lanes may still take narrow packets, but every safe point must keep the
 cross-codec package boundaries, tests, and documentation coherent.
 
+Safe points should be substantial. Prefer one larger, coherent commit that
+removes a visible class of root pollution, moves a meaningful boundary, or
+deletes a real compatibility/test/oracle seam over several tiny commits that
+only shuffle one or two assertions. Small edits are fine while staging, but
+they should be batched into an impact-bearing safe point before commit/push.
+
 1. Inventory and guardrails: maintain file clusters, large-file exceptions,
    protected gates, and no-overlap ownership notes.
 2. Public facade: keep user-facing APIs small, explicit, documented, and
