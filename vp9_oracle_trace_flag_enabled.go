@@ -5,6 +5,8 @@ package govpx
 import (
 	"encoding/json"
 	"io"
+
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 const vp9OracleTraceBuild = true
@@ -152,4 +154,77 @@ func (e *VP9Encoder) emitVP9OracleFrameTrace(row vp9OracleFrameSummary) {
 	}
 	_, _ = state.writer.Write(encoded)
 	_, _ = state.writer.Write([]byte{'\n'})
+}
+
+func (e *VP9Encoder) emitVP9OracleDroppedFrameTrace(flags EncodeFlags, width, height uint32, temporalFrame temporalFrame, dropReason vp9DropReason) {
+	if !e.vp9OracleTraceEnabled() {
+		return
+	}
+	e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
+		Row:                "vp9_frame",
+		FrameIndex:         e.frameIndex,
+		Flags:              uint32(flags),
+		Dropped:            true,
+		DropReason:         vp9DropReasonString(dropReason),
+		ShowFrame:          true,
+		CodedWidth:         int(width),
+		CodedHeight:        int(height),
+		TemporalLayerID:    temporalFrame.LayerID,
+		TemporalLayerCount: temporalFrame.LayerCount,
+		TemporalLayerSync:  temporalFrame.LayerSync,
+		TL0PICIDX:          temporalFrame.TL0PICIDX,
+		TargetBitrateKbps:  e.rc.targetBitrateKbps,
+		FrameTargetBits:    e.rc.frameTargetBits,
+		BufferLevelBits:    e.rc.bufferLevelBits,
+		BufferOptimalBits:  e.rc.bufferOptimalBits,
+	})
+}
+
+func (e *VP9Encoder) emitVP9OracleEncodedFrameTrace(encodedFrameIndex int, flags EncodeFlags, header *vp9dec.UncompressedHeader, txMode int, referenceMode int, compoundAllowed bool, result VP9EncodeResult, encodedBytes int) {
+	if !e.vp9OracleTraceEnabled() {
+		return
+	}
+	activeBestQ, activeWorstQ, rateCorrectionFactor, recodeAllowed,
+		recodeLoopCount := e.vp9OracleRateSelectionTrace()
+	e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
+		Row:                  "vp9_frame",
+		FrameIndex:           encodedFrameIndex,
+		Flags:                uint32(flags),
+		KeyFrame:             result.KeyFrame,
+		IntraOnly:            result.IntraOnly,
+		ShowFrame:            header.ShowFrame,
+		Droppable:            result.Droppable,
+		CodedWidth:           int(header.Width),
+		CodedHeight:          int(header.Height),
+		BaseQIndex:           int(header.Quant.BaseQindex),
+		PublicQuantizer:      result.Quantizer,
+		SizeBytes:            encodedBytes,
+		FirstPartitionSize:   int(header.FirstPartitionSize),
+		RefreshFrameFlags:    header.RefreshFrameFlags,
+		RefreshFrameContext:  header.RefreshFrameContext,
+		ErrorResilient:       header.ErrorResilientMode,
+		FrameParallel:        header.FrameParallelDecoding,
+		FrameContextIdx:      header.FrameContextIdx,
+		TxMode:               txMode,
+		InterpFilter:         int(header.InterpFilter),
+		ReferenceMode:        referenceMode,
+		CompoundAllowed:      compoundAllowed,
+		ReferenceMask:        vp9InterReferenceMask(flags),
+		LoopFilterLevel:      int(header.Loopfilter.FilterLevel),
+		TemporalLayerID:      result.TemporalLayerID,
+		TemporalLayerCount:   result.TemporalLayerCount,
+		TemporalLayerSync:    result.TemporalLayerSync,
+		TL0PICIDX:            result.TL0PICIDX,
+		TargetBitrateKbps:    result.TargetBitrateKbps,
+		FrameTargetBits:      result.FrameTargetBits,
+		BufferLevelBits:      result.BufferLevelBits,
+		BufferOptimalBits:    e.rc.bufferOptimalBits,
+		ActiveBestQ:          activeBestQ,
+		ActiveWorstQ:         activeWorstQ,
+		RateCorrectionFactor: rateCorrectionFactor,
+		RecodeAllowed:        recodeAllowed,
+		RecodeLoopCount:      recodeLoopCount,
+		TileLog2Cols:         int(header.Tile.Log2TileCols),
+		TileLog2Rows:         int(header.Tile.Log2TileRows),
+	})
 }

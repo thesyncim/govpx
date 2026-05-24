@@ -25,6 +25,7 @@ func TestVPxOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
 		{name: "vp8 coefficient trace", size: unsafe.Sizeof(predictedMacroblockCoefficientTrace{})},
 		{name: "vp9 oracle state", size: unsafe.Sizeof(vp9OracleTraceState{})},
 		{name: "vp9 oracle holder", size: unsafe.Sizeof(vp9OracleTraceHolder{})},
+		{name: "vp9 frame summary", size: unsafe.Sizeof(vp9OracleFrameSummary{})},
 	}
 	for _, tc := range cases {
 		if tc.size != 0 {
@@ -153,6 +154,8 @@ func TestVPxOracleTraceDisabledHelpersAllocateZero(t *testing.T) {
 		disabledTraceFloatSink += correction
 		disabledTraceBoolSink = disabledTraceBoolSink || recode
 		vp9.emitVP9OracleFrameTrace(vp9OracleFrameSummary{})
+		vp9.emitVP9OracleDroppedFrameTrace(0, 0, 0, temporalFrame{}, vp9DropNone)
+		vp9.emitVP9OracleEncodedFrameTrace(0, 0, nil, 0, 0, false, VP9EncodeResult{}, 0)
 		vp9d.markVP9Unsupported()
 	})
 	if allocs != 0 {

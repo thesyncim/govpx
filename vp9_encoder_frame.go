@@ -130,25 +130,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
 			firstPassStats := e.twoPass.statsForFrame()
 			e.twoPass.finishFrame()
-			if vp9OracleTraceBuild && e.vp9OracleTraceEnabled() {
-				e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
-					Row:                "vp9_frame",
-					FrameIndex:         e.frameIndex,
-					Flags:              uint32(flags),
-					Dropped:            true,
-					DropReason:         vp9DropReasonString(dropReason),
-					ShowFrame:          true,
-					CodedWidth:         int(width),
-					CodedHeight:        int(height),
-					TemporalLayerID:    temporalFrame.LayerID,
-					TemporalLayerCount: temporalFrame.LayerCount,
-					TemporalLayerSync:  temporalFrame.LayerSync,
-					TL0PICIDX:          temporalFrame.TL0PICIDX,
-					TargetBitrateKbps:  e.rc.targetBitrateKbps,
-					FrameTargetBits:    e.rc.frameTargetBits,
-					BufferLevelBits:    e.rc.bufferLevelBits,
-					BufferOptimalBits:  e.rc.bufferOptimalBits,
-				})
+			if vp9OracleTraceBuild {
+				e.emitVP9OracleDroppedFrameTrace(flags, width, height, temporalFrame, dropReason)
 			}
 			e.vp9FinishKeyFrameDistance(false)
 			e.frameIndex++
@@ -775,50 +758,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1
 	}
-	if vp9OracleTraceBuild && e.vp9OracleTraceEnabled() {
-		activeBestQ, activeWorstQ, rateCorrectionFactor, recodeAllowed,
-			recodeLoopCount := e.vp9OracleRateSelectionTrace()
-		e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
-			Row:                  "vp9_frame",
-			FrameIndex:           encodedFrameIndex,
-			Flags:                uint32(flags),
-			KeyFrame:             isKey,
-			IntraOnly:            intraOnly,
-			ShowFrame:            header.ShowFrame,
-			Droppable:            result.Droppable,
-			CodedWidth:           int(header.Width),
-			CodedHeight:          int(header.Height),
-			BaseQIndex:           int(header.Quant.BaseQindex),
-			PublicQuantizer:      result.Quantizer,
-			SizeBytes:            n,
-			FirstPartitionSize:   int(header.FirstPartitionSize),
-			RefreshFrameFlags:    header.RefreshFrameFlags,
-			RefreshFrameContext:  header.RefreshFrameContext,
-			ErrorResilient:       header.ErrorResilientMode,
-			FrameParallel:        header.FrameParallelDecoding,
-			FrameContextIdx:      header.FrameContextIdx,
-			TxMode:               int(txMode),
-			InterpFilter:         int(header.InterpFilter),
-			ReferenceMode:        int(referenceMode),
-			CompoundAllowed:      compoundAllowed,
-			ReferenceMask:        vp9InterReferenceMask(flags),
-			LoopFilterLevel:      int(header.Loopfilter.FilterLevel),
-			TemporalLayerID:      result.TemporalLayerID,
-			TemporalLayerCount:   result.TemporalLayerCount,
-			TemporalLayerSync:    result.TemporalLayerSync,
-			TL0PICIDX:            result.TL0PICIDX,
-			TargetBitrateKbps:    result.TargetBitrateKbps,
-			FrameTargetBits:      result.FrameTargetBits,
-			BufferLevelBits:      result.BufferLevelBits,
-			BufferOptimalBits:    e.rc.bufferOptimalBits,
-			ActiveBestQ:          activeBestQ,
-			ActiveWorstQ:         activeWorstQ,
-			RateCorrectionFactor: rateCorrectionFactor,
-			RecodeAllowed:        recodeAllowed,
-			RecodeLoopCount:      recodeLoopCount,
-			TileLog2Cols:         int(header.Tile.Log2TileCols),
-			TileLog2Rows:         int(header.Tile.Log2TileRows),
-		})
+	if vp9OracleTraceBuild {
+		e.emitVP9OracleEncodedFrameTrace(encodedFrameIndex, flags, header,
+			int(txMode), int(referenceMode), compoundAllowed, result, n)
 	}
 	// libvpx vp9/encoder/vp9_encoder.c:5567 clears
 	// cpi->ext_refresh_frame_flags_pending at the tail of

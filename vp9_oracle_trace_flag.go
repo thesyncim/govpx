@@ -2,55 +2,15 @@
 
 package govpx
 
+import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+
 const vp9OracleTraceBuild = false
 
 type vp9OracleTraceState struct{}
 
 type vp9OracleTraceHolder struct{}
 
-type vp9OracleFrameSummary struct {
-	Row                  string
-	FrameIndex           int
-	Flags                uint32
-	Dropped              bool
-	DropReason           string
-	KeyFrame             bool
-	IntraOnly            bool
-	ShowFrame            bool
-	Droppable            bool
-	CodedWidth           int
-	CodedHeight          int
-	BaseQIndex           int
-	PublicQuantizer      int
-	SizeBytes            int
-	FirstPartitionSize   int
-	RefreshFrameFlags    uint8
-	RefreshFrameContext  bool
-	ErrorResilient       bool
-	FrameParallel        bool
-	FrameContextIdx      uint8
-	TxMode               int
-	InterpFilter         int
-	ReferenceMode        int
-	CompoundAllowed      bool
-	ReferenceMask        uint8
-	LoopFilterLevel      int
-	TemporalLayerID      int
-	TemporalLayerCount   int
-	TemporalLayerSync    bool
-	TL0PICIDX            uint8
-	TargetBitrateKbps    int
-	FrameTargetBits      int
-	BufferLevelBits      int
-	BufferOptimalBits    int
-	ActiveBestQ          int
-	ActiveWorstQ         int
-	RateCorrectionFactor float64
-	RecodeAllowed        bool
-	RecodeLoopCount      int
-	TileLog2Cols         int
-	TileLog2Rows         int
-}
+type vp9OracleFrameSummary struct{}
 
 func (e *VP9Encoder) resetVP9OracleTraceState() {}
 
@@ -63,6 +23,12 @@ func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(int, int, float64, bool, 
 
 func (e *VP9Encoder) vp9OracleRateSelectionTrace() (int, int, float64, bool, int) {
 	return 0, 0, 0, false, 0
+}
+
+func (e *VP9Encoder) emitVP9OracleDroppedFrameTrace(EncodeFlags, uint32, uint32, temporalFrame, vp9DropReason) {
+}
+
+func (e *VP9Encoder) emitVP9OracleEncodedFrameTrace(int, EncodeFlags, *vp9dec.UncompressedHeader, int, int, bool, VP9EncodeResult, int) {
 }
 
 func (e *VP9Encoder) emitVP9OracleFrameTrace(vp9OracleFrameSummary) {}
