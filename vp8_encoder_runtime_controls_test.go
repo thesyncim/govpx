@@ -256,50 +256,7 @@ func TestSetGFCBRBoostPctValidationAndNextEncode(t *testing.T) {
 	}
 }
 
-func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
-	e := newTestEncoder(t)
-	if err := e.SetTokenPartitions(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetTokenPartitions negative error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetTokenPartitions(4); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetTokenPartitions out-of-range error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetSharpness(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetSharpness negative error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetSharpness(8); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetSharpness out-of-range error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetStaticThreshold(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetStaticThreshold negative error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetScreenContentMode(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetScreenContentMode negative error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetScreenContentMode(3); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetScreenContentMode out-of-range error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetNoiseSensitivity(7); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetNoiseSensitivity out-of-range error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetARNR(16, 3, 3); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetARNR max-frames error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetARNR(3, 3, 0); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetARNR type-zero error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetTokenPartitions(int(vp8common.EightPartition)); err != nil {
-		t.Fatalf("SetTokenPartitions returned error: %v", err)
-	}
-	if err := e.SetSharpness(3); err != nil {
-		t.Fatalf("SetSharpness returned error: %v", err)
-	}
-	if err := e.SetStaticThreshold(1); err != nil {
-		t.Fatalf("SetStaticThreshold returned error: %v", err)
-	}
-	if err := e.SetScreenContentMode(1); err != nil {
-		t.Fatalf("SetScreenContentMode returned error: %v", err)
-	}
+func TestSetRTCExternalRateControlRemainsEnabledAfterDisable(t *testing.T) {
 	rtc := newTestEncoder(t)
 	if err := rtc.SetRTCExternalRateControl(true); err != nil {
 		t.Fatalf("SetRTCExternalRateControl(true) returned error: %v", err)
@@ -312,38 +269,6 @@ func TestSetVP8RuntimeControlsValidationAndNextEncode(t *testing.T) {
 	}
 	if !rtc.opts.RTCExternalRateControl {
 		t.Fatalf("RTCExternalRateControl = false after disable request, want sticky true")
-	}
-	if err := e.SetAdaptiveKeyFrames(true); err != nil {
-		t.Fatalf("SetAdaptiveKeyFrames returned error: %v", err)
-	}
-	if err := e.SetNoiseSensitivity(6); err != nil {
-		t.Fatalf("SetNoiseSensitivity returned error: %v", err)
-	}
-	if err := e.SetARNR(15, 6, 3); err != nil {
-		t.Fatalf("SetARNR returned error: %v", err)
-	}
-
-	result, err := e.EncodeInto(make([]byte, 8192), testImage(16, 16), 0, 1, 0)
-	if err != nil {
-		t.Fatalf("EncodeInto returned error: %v", err)
-	}
-	state := packetState(t, result.Data)
-	if state.TokenPartition != vp8common.EightPartition {
-		t.Fatalf("token partition = %d, want eight", state.TokenPartition)
-	}
-	if state.LoopFilter.SharpnessLevel != 0 {
-		t.Fatalf("key sharpness = %d, want libvpx keyframe sharpness 0", state.LoopFilter.SharpnessLevel)
-	}
-	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
-		t.Fatalf("segmentation = %+v, want static-threshold map/data update", state.Segmentation)
-	}
-	inter, err := e.EncodeInto(make([]byte, 8192), publicImageFromVP8(&e.lastRef.Img), 1, 1, 0)
-	if err != nil {
-		t.Fatalf("inter EncodeInto returned error: %v", err)
-	}
-	interState := packetState(t, inter.Data)
-	if interState.LoopFilter.SharpnessLevel != 3 {
-		t.Fatalf("inter sharpness = %d, want runtime sharpness 3", interState.LoopFilter.SharpnessLevel)
 	}
 }
 
@@ -1353,20 +1278,9 @@ func TestEncodeIntoRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
 	}
 }
 
-func TestSetRealtimeTargetValidatesResolutionChange(t *testing.T) {
+func TestSetRealtimeTargetSameSizePreservesDimensions(t *testing.T) {
 	e := newTestEncoder(t)
 
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: -1, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("negative width error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 16, Height: -1}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("negative height error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: maxVP8Dimension + 1, Height: 16}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("overflowing width error = %v, want ErrInvalidConfig", err)
-	}
-	// Same-size echo must still be accepted so bitrate-only BWE updates that
-	// happen to carry the current dimensions validate cleanly.
 	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 16, Height: 16}); err != nil {
 		t.Fatalf("same resolution returned error: %v", err)
 	}
@@ -1442,20 +1356,6 @@ func TestSetRealtimeTargetResizesDrainedLookaheadBuffers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("post-resize FlushInto: %v", err)
 		}
-	}
-}
-
-func TestEncoderRuntimeControlValidation(t *testing.T) {
-	e := newTestEncoder(t)
-
-	if err := e.SetDeadline(Deadline(-1)); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("deadline error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetCPUUsed(17); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("cpu-used error = %v, want ErrInvalidConfig", err)
-	}
-	if err := e.SetKeyFrameInterval(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("keyframe interval error = %v, want ErrInvalidConfig", err)
 	}
 }
 

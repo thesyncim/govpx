@@ -153,3 +153,95 @@ func TestVP8EncoderSetCQLevelValidationAndNextEncode(t *testing.T) {
 			result.Quantizer, vp8PacketBaseQIndex(t, result.Data), wantQIndex)
 	}
 }
+
+func TestVP8EncoderRuntimeControlsRejectInvalidConfig(t *testing.T) {
+	e := newVP8FacadeEncoder(t)
+
+	checks := []struct {
+		name string
+		fn   func() error
+	}{
+		{"SetTokenPartitions negative", func() error { return e.SetTokenPartitions(-1) }},
+		{"SetTokenPartitions out of range", func() error { return e.SetTokenPartitions(4) }},
+		{"SetSharpness negative", func() error { return e.SetSharpness(-1) }},
+		{"SetSharpness out of range", func() error { return e.SetSharpness(8) }},
+		{"SetStaticThreshold negative", func() error { return e.SetStaticThreshold(-1) }},
+		{"SetScreenContentMode negative", func() error { return e.SetScreenContentMode(-1) }},
+		{"SetScreenContentMode out of range", func() error { return e.SetScreenContentMode(3) }},
+		{"SetNoiseSensitivity out of range", func() error { return e.SetNoiseSensitivity(7) }},
+		{"SetARNR max frames out of range", func() error { return e.SetARNR(16, 3, 3) }},
+		{"SetARNR type zero", func() error { return e.SetARNR(3, 3, 0) }},
+		{"SetDeadline invalid", func() error { return e.SetDeadline(govpx.Deadline(-1)) }},
+		{"SetCPUUsed out of range", func() error { return e.SetCPUUsed(17) }},
+		{"SetKeyFrameInterval negative", func() error { return e.SetKeyFrameInterval(-1) }},
+		{"SetRealtimeTarget negative width", func() error {
+			return e.SetRealtimeTarget(govpx.RealtimeTarget{Width: -1, Height: 16})
+		}},
+		{"SetRealtimeTarget negative height", func() error {
+			return e.SetRealtimeTarget(govpx.RealtimeTarget{Width: 16, Height: -1})
+		}},
+		{"SetRealtimeTarget oversized width", func() error {
+			return e.SetRealtimeTarget(govpx.RealtimeTarget{Width: 1 << 30, Height: 16})
+		}},
+	}
+	for _, check := range checks {
+		if err := check.fn(); !errors.Is(err, govpx.ErrInvalidConfig) {
+			t.Fatalf("%s error = %v, want ErrInvalidConfig", check.name, err)
+		}
+	}
+
+	if err := e.SetRealtimeTarget(govpx.RealtimeTarget{Width: 16, Height: 16}); err != nil {
+		t.Fatalf("same-resolution SetRealtimeTarget returned error: %v", err)
+	}
+}
+
+func TestVP8EncoderRuntimeControlsAffectNextPacket(t *testing.T) {
+	e := newVP8FacadeEncoder(t)
+	if err := e.SetTokenPartitions(3); err != nil {
+		t.Fatalf("SetTokenPartitions returned error: %v", err)
+	}
+	if err := e.SetSharpness(3); err != nil {
+		t.Fatalf("SetSharpness returned error: %v", err)
+	}
+	if err := e.SetStaticThreshold(1); err != nil {
+		t.Fatalf("SetStaticThreshold returned error: %v", err)
+	}
+	if err := e.SetScreenContentMode(1); err != nil {
+		t.Fatalf("SetScreenContentMode returned error: %v", err)
+	}
+	if err := e.SetAdaptiveKeyFrames(true); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames returned error: %v", err)
+	}
+	if err := e.SetNoiseSensitivity(6); err != nil {
+		t.Fatalf("SetNoiseSensitivity returned error: %v", err)
+	}
+	if err := e.SetARNR(15, 6, 3); err != nil {
+		t.Fatalf("SetARNR returned error: %v", err)
+	}
+
+	dst := make([]byte, 8192)
+	result, err := e.EncodeInto(dst, newVP8FacadeImage(16, 16), 0, 1, 0)
+	if err != nil {
+		t.Fatalf("EncodeInto returned error: %v", err)
+	}
+	state := vp8PacketStateHeader(t, result.Data)
+	if state.TokenPartition != vp8common.EightPartition {
+		t.Fatalf("token partition = %d, want eight", state.TokenPartition)
+	}
+	if state.LoopFilter.SharpnessLevel != 0 {
+		t.Fatalf("key sharpness = %d, want libvpx keyframe sharpness 0", state.LoopFilter.SharpnessLevel)
+	}
+	if !state.Segmentation.Enabled || !state.Segmentation.UpdateMap || !state.Segmentation.UpdateData {
+		t.Fatalf("segmentation = %+v, want static-threshold map/data update", state.Segmentation)
+	}
+
+	interSource := decodeVP8FacadeFrame(t, result.Data)
+	inter, err := e.EncodeInto(dst, interSource, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("inter EncodeInto returned error: %v", err)
+	}
+	interState := vp8PacketStateHeader(t, inter.Data)
+	if interState.LoopFilter.SharpnessLevel != 3 {
+		t.Fatalf("inter sharpness = %d, want runtime sharpness 3", interState.LoopFilter.SharpnessLevel)
+	}
+}
