@@ -265,9 +265,9 @@ internal/vp9/tables       VP9 entropy / scan / quant / probability constants
 internal/coracle          pinned libvpx oracle build and comparison helpers
 cmd/govpx-bench           encode/decode benchmark CLI
 cmd/govpx-oracle          oracle wrapper command
-cmd/scoreboard-report     oracle scoreboard runner
+cmd/parity-report         oracle parity report runner
 examples/webrtc-vp8       separate-module WebRTC example
-testdata                  oracle scoreboard baselines
+testdata                  oracle parity baselines
 ```
 
 ## Contributing

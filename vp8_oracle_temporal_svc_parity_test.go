@@ -673,7 +673,7 @@ func rateMismatchPct(actualKbps, targetKbps float64) float64 {
 }
 
 // flattenTemporalSVCSummary expands a fixture summary plus its per-layer
-// rows into a single flat key->value map. The cmd/scoreboard-report
+// rows into a single flat key->value map. The cmd/parity-report
 // tool renders one column per metric per fixture, so we want all
 // per-layer fields at the top level with a "l<N>_" prefix.
 //

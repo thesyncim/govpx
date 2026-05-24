@@ -45,7 +45,7 @@ cross-codec package boundaries, tests, and documentation coherent.
    reference behavior, and codec-specific controls in their codec packages.
    Shared helpers need focused unit tests that do not require libvpx binaries.
 6. Oracle harness extraction: move libvpx path resolution, process wrappers,
-   trace parsing, scoreboarding helpers, and fixture plumbing into
+   trace parsing, parity reporting helpers, and fixture plumbing into
    `internal/coracle` or `internal/vpx/testharness`. Root tests should describe
    public behavior, not carry oracle implementation details.
 7. Test suite hygiene: rename historical task/audit tests into objective
@@ -60,7 +60,7 @@ cross-codec package boundaries, tests, and documentation coherent.
     status, validation, and hard-to-read parity notes under `docs/`.
 11. Parity and feature-gap improvement: after the structure is stable, use the
     cleaner package and test boundaries to close the highest-value VP8/VP9
-    parity gaps documented by the current scoreboards.
+    parity gaps documented by the current parity reports.
 
 ## Safe-Point Gate
 

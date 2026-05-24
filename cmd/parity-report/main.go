@@ -1,13 +1,13 @@
-// scoreboard-report runs the govpx scoreboard tests via `go test -json` and
-// renders a clean per-test summary plus the reference baseline JSON for each
-// scoreboard, instead of the raw verbose go-test output.
+// parity-report runs the govpx oracle parity report tests via `go test -json`
+// and renders a clean per-test summary plus the reference baseline JSON for
+// each report, instead of the raw verbose go-test output.
 //
 // Usage (typically invoked from the Makefile):
 //
-//	go run ./cmd/scoreboard-report -- ./... -run 'TestOracleX|...' -count=1 -timeout 10m
+//	go run ./cmd/parity-report -- ./... -run 'TestOracleX|...' -count=1 -timeout 10m
 //
 // All flag args after `--` are forwarded to `go test`; this tool injects
-// `-json` and `-v`. Verbose go-test output is captured to .scoreboard.log
+// `-json` and `-v`. Verbose go-test output is captured to .parity-report.log
 // next to the working directory; the structured summary is written to stdout.
 package main
 
@@ -61,7 +61,7 @@ type testState struct {
 	skipped bool
 }
 
-const logFileName = ".scoreboard.log"
+const logFileName = ".parity-report.log"
 
 func main() {
 	args := os.Args[1:]
@@ -72,7 +72,7 @@ func main() {
 
 	logFile, err := os.Create(logFileName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "scoreboard-report: create log: %v\n", err)
+		fmt.Fprintf(os.Stderr, "parity-report: create log: %v\n", err)
 		os.Exit(2)
 	}
 	defer logFile.Close()
@@ -81,11 +81,11 @@ func main() {
 	cmd.Stderr = os.Stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "scoreboard-report: pipe: %v\n", err)
+		fmt.Fprintf(os.Stderr, "parity-report: pipe: %v\n", err)
 		os.Exit(2)
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "scoreboard-report: start: %v\n", err)
+		fmt.Fprintf(os.Stderr, "parity-report: start: %v\n", err)
 		os.Exit(2)
 	}
 
@@ -105,7 +105,7 @@ func main() {
 		if ev.Test == "" {
 			continue
 		}
-		// Track top-level scoreboard tests only (no '/').
+		// Track top-level report tests only (no '/').
 		if strings.Contains(ev.Test, "/") {
 			continue
 		}
@@ -132,7 +132,7 @@ func main() {
 		}
 	}
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		fmt.Fprintf(os.Stderr, "scoreboard-report: scan: %v\n", err)
+		fmt.Fprintf(os.Stderr, "parity-report: scan: %v\n", err)
 	}
 	waitErr := cmd.Wait()
 

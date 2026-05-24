@@ -26,7 +26,7 @@ type FixtureImprovedMVReport struct {
 
 // improvedMVBaseline matches the on-disk schema used by every other
 // scoreboard baseline JSON: a top-level `"fixtures"` map keyed by
-// fixture name, so cmd/scoreboard-report can render it uniformly.
+// fixture name, so cmd/parity-report can render it uniformly.
 type improvedMVBaseline struct {
 	Fixtures map[string]FixtureImprovedMVReport `json:"fixtures"`
 }

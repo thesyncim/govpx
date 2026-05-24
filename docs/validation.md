@@ -24,7 +24,7 @@ architecture-tagged files, or shared code used by both SIMD and pure-Go paths.
 `make test-trace`
 
 Compile-only oracle-trace gate. Run it after moving tagged trace files,
-scoreboard helpers, or oracle-only instrumentation.
+parity report helpers, or oracle-only instrumentation.
 
 ## CI Gate
 
@@ -60,7 +60,7 @@ reconstruction, threading, reference, error-concealment, or postprocess changes.
 
 `make verify-production`
 
-Runs `make ci`, oracle tests, byte-parity checks, and scoreboards. This is the
+Runs `make ci`, oracle tests, byte-parity checks, and parity reports. This is the
 final integration gate for behavior-sensitive release work.
 
 `make test-oracle`
@@ -81,9 +81,9 @@ metadata without needing the whole root oracle suite.
 
 Runs strict byte-parity gates under the oracle trace build.
 
-`make test-scoreboard`
+`make test-parity-report`
 
-Runs parity scoreboards through the report wrapper without updating baselines.
+Runs parity reports through the report wrapper without updating baselines.
 
 `make test-bdrate-vp9`
 
@@ -169,7 +169,7 @@ merging the final integration sweep.
 
 ## Baseline Rules
 
-Do not run `update-scoreboards`, set `GOVPX_UPDATE_BASELINES=1`, or update
+Do not run `update-parity-baselines`, set `GOVPX_UPDATE_BASELINES=1`, or update
 parity baselines just to make tests pass. Baseline changes require a separate
 explicit packet whose purpose is to update the baseline after the behavior
 change has been reviewed.

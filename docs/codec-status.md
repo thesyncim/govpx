@@ -77,5 +77,5 @@ packets return `ErrInvalidVP9Data`.
 
 The validation gates build or use pinned libvpx tools under
 `internal/coracle/build`. The normal test suite does not require those tools;
-oracle and production gates do. Do not update parity baselines or scoreboards as
+oracle and production gates do. Do not update parity baselines or parity reports as
 part of structural cleanup.

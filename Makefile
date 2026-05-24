@@ -83,7 +83,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-vp9-internal-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-scoreboard update-scoreboards vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-vp9-internal-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-parity-report update-parity-baselines vp9-dsp-oracle
 
 all: ci
 
@@ -127,7 +127,7 @@ test-quality: vp9-vpxdec-tools
 		GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
 		$(GO) test -count=1 -v -run 'TestVP9BDRate(ARNR|PerceptualAQ|CyclicRefresh|LoopFilter)$$' -timeout 360s .
 
-verify-production: ci test-oracle test-byte-parity test-scoreboard
+verify-production: ci test-oracle test-byte-parity test-parity-report
 
 verify-decoder-parity: ci test-decoder-oracle
 
@@ -279,7 +279,7 @@ test-vp9-internal-oracle: vp9-vpxdec-tools
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	$(GO) test -tags govpx_oracle_trace ./internal/vp9/tables ./internal/vp9/encoder ./internal/vp9/decoder ./internal/vp9/dsp -run '$(VP9_INTERNAL_ORACLE_TESTS)' -count=1 -timeout 5m
 
-SCOREBOARD_TESTS := TestVP8OracleReconstructionAdler32Match|TestVP8OracleRecodeRowParity|TestVP8OracleARNRBufferAdler|TestVP8OracleQuantizerHistogramParity|TestVP8OracleInterDecisionMatchRate|TestVP8OracleSplitMVDecisionMatchRate|TestVP8OracleTraceInterCandidateParity|TestVP8OracleInterQDriftParity|TestVP8OracleLoopFilterHeaderMatchRate|TestVP8OracleSecondPassAllocationParity|TestVP8OracleChromaSubpelParity|TestVP8OracleImprovedMVMatchParity|TestVP8OracleCBRDropFrameParity|TestVP8OracleCandidateRateParity|TestVP8OracleInterModeDistributionParity|TestVP8OracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParity|ConstantByteParityMatrix)
+PARITY_REPORT_TESTS := TestVP8OracleReconstructionAdler32Match|TestVP8OracleRecodeRowParity|TestVP8OracleARNRBufferAdler|TestVP8OracleQuantizerHistogramParity|TestVP8OracleInterDecisionMatchRate|TestVP8OracleSplitMVDecisionMatchRate|TestVP8OracleTraceInterCandidateParity|TestVP8OracleInterQDriftParity|TestVP8OracleLoopFilterHeaderMatchRate|TestVP8OracleSecondPassAllocationParity|TestVP8OracleChromaSubpelParity|TestVP8OracleImprovedMVMatchParity|TestVP8OracleCBRDropFrameParity|TestVP8OracleCandidateRateParity|TestVP8OracleInterModeDistributionParity|TestVP8OracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParity|ConstantByteParityMatrix)
 BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzVP8OracleEncoderRuntimeControlTransitions
 FUZZTIME ?= 30s
 FUZZPARALLEL ?= 1
@@ -313,7 +313,7 @@ fuzz-controls: oracle-tools fetch-test-data
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) test -tags govpx_oracle_trace . -run '^$$' -fuzz '^FuzzVP8OracleEncoderRuntimeControlTransitions$$' -fuzztime '$(FUZZTIME)' -parallel '$(FUZZPARALLEL)' -timeout 30m
 
-test-scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
+test-parity-report: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -325,9 +325,9 @@ test-scoreboard: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
-	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+	$(GO) run ./cmd/parity-report -- -tags govpx_oracle_trace . -run '$(PARITY_REPORT_TESTS)' -count=1 -timeout 10m
 
-update-scoreboards: oracle-tools fetch-test-data
+update-parity-baselines: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
 	GOVPX_WITH_ORACLE=1 \
@@ -339,7 +339,7 @@ update-scoreboards: oracle-tools fetch-test-data
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
-	$(GO) run ./cmd/scoreboard-report -- -tags govpx_oracle_trace . -run '$(SCOREBOARD_TESTS)' -count=1 -timeout 10m
+	$(GO) run ./cmd/parity-report -- -tags govpx_oracle_trace . -run '$(PARITY_REPORT_TESTS)' -count=1 -timeout 10m
 
 test-decoder-oracle: oracle-tools vp9-vpxdec-tools fetch-vp8-test-data fetch-vp9-test-data
 	GOCACHE="$(GOCACHE)" \

@@ -10,7 +10,7 @@ func TestCleanBodyStripsFrameworkLinesAndPrefix(t *testing.T) {
 		"=== RUN   TestX",
 		"=== PAUSE TestX",
 		"=== CONT  TestX",
-		"    oracle_x_test.go:120: scoreboard summary:",
+		"    oracle_x_test.go:120: parity report summary:",
 		"        | fixture | metric |",
 		"        |---|---|",
 		"        | good-cpu3 | 99% |",
@@ -36,7 +36,7 @@ func TestCleanBodyStripsFrameworkLinesAndPrefix(t *testing.T) {
 		t.Errorf("file:line prefix not stripped:\n%s", got)
 	}
 	for _, want := range []string{
-		"scoreboard summary:",
+		"parity report summary:",
 		"| fixture | metric |",
 		"|---|---|",
 		"| good-cpu3 | 99% |",

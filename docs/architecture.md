@@ -52,7 +52,7 @@ decision, probability models, or reference semantics there just because VP8 and
 VP9 have similarly named concepts.
 
 `internal/coracle` contains pinned libvpx build scripts, oracle binary
-discovery, process wrappers, trace projection/comparison, and scoreboarding
+discovery, process wrappers, trace projection/comparison, and parity reporting
 helpers. The `internal/coracle/coracletest` package is the test-facing harness
 for resolving libvpx tools and running VP8 oracle processes. Production codec
 packages must not import oracle or test-harness packages. Root-package tests
