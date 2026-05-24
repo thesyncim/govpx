@@ -129,6 +129,12 @@ func SourceVarianceAreaPerPixel(src []byte, srcStride int, srcX, srcY, w, h int)
 	return uint((variance + (pixels >> 1)) / pixels)
 }
 
+// InterSkipFilterSearch reports whether source variance gates this block out
+// of multi-interp-filter RD search.
+func InterSkipFilterSearch(srcVariance uint, threshold uint) bool {
+	return threshold > 0 && srcVariance < threshold
+}
+
 // BlockSADNoLimitOffsets dispatches to a size-specialized SAD kernel when the
 // block dimensions match a VP9 search block.
 func BlockSADNoLimitOffsets(src []byte, srcOff, srcStride int,

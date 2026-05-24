@@ -237,24 +237,3 @@ func (e *VP9Encoder) vp9InterPartitionFixed() (common.BlockSize, bool) {
 	}
 	return e.sf.AlwaysThisBlockSize, true
 }
-
-// vp9InterSkipFilterSearch returns true when SPEED_FEATURES.disable_filter_search_var_thresh
-// gates this block out of the multi-interp-filter RD search.  libvpx skips
-// the alternative filters when the source variance is below the threshold —
-// at that quality level the additional RD pass cannot reorder filters.
-//
-// libvpx: vp9/encoder/vp9_rdopt.c (single_motion_search /
-// rd_pick_inter_mode) — when sf->disable_filter_search_var_thresh > 0 the
-// non-EIGHTTAP filters are pruned for low-variance blocks.
-//
-// The gate stays at zero (no skip) for cpu_used <= 3 because
-// set_rt_speed_feature_framesize_dependent only raises it from speed 4
-// onward.  When the SF is zero govpx returns false so the existing
-// behaviour is preserved — the rdmult port keeps byte parity for the slow
-// paths.
-func (e *VP9Encoder) vp9InterSkipFilterSearch(srcVariance uint) bool {
-	if e == nil || e.sf.DisableFilterSearchVarThresh == 0 {
-		return false
-	}
-	return srcVariance < e.sf.DisableFilterSearchVarThresh
-}

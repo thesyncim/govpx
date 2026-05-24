@@ -74,6 +74,18 @@ func TestSourceVarianceAreaPerPixel(t *testing.T) {
 	}
 }
 
+func TestInterSkipFilterSearch(t *testing.T) {
+	if InterSkipFilterSearch(0, 0) {
+		t.Fatal("zero threshold skipped filter search")
+	}
+	if !InterSkipFilterSearch(99, 100) {
+		t.Fatal("variance below threshold did not skip filter search")
+	}
+	if InterSkipFilterSearch(100, 100) {
+		t.Fatal("variance at threshold skipped filter search")
+	}
+}
+
 var blockSSEBenchmarkSink uint64
 
 func BenchmarkBlockSSE64x64(b *testing.B) {

@@ -1094,7 +1094,8 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		len(allFilters) > 1 {
 		sourceVariance := encoder.SourceVarianceAreaPerPixel(src, srcStride,
 			x0, y0, scoreW, scoreH)
-		if e.vp9InterSkipFilterSearch(sourceVariance) {
+		if encoder.InterSkipFilterSearch(sourceVariance,
+			e.sf.DisableFilterSearchVarThresh) {
 			allFilters = allFilters[:1]
 		}
 	}
