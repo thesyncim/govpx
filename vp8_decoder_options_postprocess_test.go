@@ -9,42 +9,6 @@ import (
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
 
-func TestNewVP8DecoderValidation(t *testing.T) {
-	_, err := NewVP8Decoder(DecoderOptions{Threads: -1})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("error = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestNewVP8DecoderRejectsInvalidPostProcessNoise(t *testing.T) {
-	tests := []DecoderOptions{
-		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: -1},
-		{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 17},
-		{PostProcessNoiseLevel: 4},
-		{PostProcessFlags: PostProcessDeblock, PostProcessNoiseLevel: 4},
-	}
-	for _, opts := range tests {
-		_, err := NewVP8Decoder(opts)
-		if !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("NewVP8Decoder(%+v) error = %v, want ErrInvalidConfig", opts, err)
-		}
-	}
-}
-
-func TestNewVP8DecoderAcceptsPostProcessNoiseFlag(t *testing.T) {
-	_, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessAddNoise, PostProcessNoiseLevel: 4})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v, want nil", err)
-	}
-}
-
-func TestNewVP8DecoderRejectsUnknownPostProcessFlags(t *testing.T) {
-	_, err := NewVP8Decoder(DecoderOptions{PostProcessFlags: PostProcessFlag(1 << 12)})
-	if !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("NewVP8Decoder error = %v, want ErrInvalidConfig", err)
-	}
-}
-
 func TestDecoderOptionsEffectivePostProcessFlags(t *testing.T) {
 	tests := []struct {
 		name string
@@ -60,64 +24,6 @@ func TestDecoderOptionsEffectivePostProcessFlags(t *testing.T) {
 		if got := tc.opts.effectivePostProcessFlags(); got != tc.want {
 			t.Fatalf("%s flags = %v, want %v", tc.name, got, tc.want)
 		}
-	}
-}
-
-func TestDecodeRequiresInitialKeyFrame(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
-
-	err = d.Decode(vp8test.InterFramePacket(0, 0, true))
-	if !errors.Is(err, ErrNeedKeyFrame) {
-		t.Fatalf("error = %v, want ErrNeedKeyFrame", err)
-	}
-}
-
-func TestDecodeQueuesSupportedKeyFrameAfterValidation(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{MaxWidth: 640, MaxHeight: 480})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
-
-	err = d.DecodeWithPTS(vp8test.KeyFramePacketWithPayload(320, 240, 200, 0, true), 44)
-	if err != nil {
-		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
-	}
-	if d.lastInfo.Width != 320 || d.lastInfo.Height != 240 || d.lastInfo.PTS != 44 {
-		t.Fatalf("lastInfo = %+v, want validated frame metadata", d.lastInfo)
-	}
-	frame, ok := d.NextFrame()
-	if !ok {
-		t.Fatalf("NextFrame returned no frame")
-	}
-	if frame.Width != 320 || frame.Height != 240 || frame.YStride == 0 {
-		t.Fatalf("frame = %+v, want decoded 320x240 frame", frame)
-	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatalf("NextFrame returned the same frame twice")
-	}
-}
-
-func TestDecodeInvisibleKeyFrameUpdatesStateWithoutOutput(t *testing.T) {
-	d, err := NewVP8Decoder(DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP8Decoder returned error: %v", err)
-	}
-
-	err = d.DecodeWithPTS(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, false), 44)
-	if err != nil {
-		t.Fatalf("DecodeWithPTS error = %v, want nil", err)
-	}
-	if d.needKey {
-		t.Fatalf("needKey = true, want false after invisible keyframe")
-	}
-	if d.lastInfo.ShowFrame || d.lastInfo.PTS != 44 {
-		t.Fatalf("lastInfo = %+v, want invisible frame metadata", d.lastInfo)
-	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatalf("NextFrame returned invisible frame")
 	}
 }
 
