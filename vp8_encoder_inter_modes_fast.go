@@ -233,9 +233,11 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			}
 			var motionStats interFrameMotionSearchStats
 			var stats *interFrameMotionSearchStats
-			if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
-				motionStats.phase = phaseStats
-				stats = &motionStats
+			if vp8PhaseStatsEnabled {
+				if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+					motionStats.phase = phaseStats
+					stats = &motionStats
+				}
 			}
 			searcher := interFrameMotionVectorSearch{
 				src:         src,
@@ -497,9 +499,11 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			}
 			var motionStats interFrameMotionSearchStats
 			var stats *interFrameMotionSearchStats
-			if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
-				motionStats.phase = phaseStats
-				stats = &motionStats
+			if vp8PhaseStatsEnabled {
+				if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+					motionStats.phase = phaseStats
+					stats = &motionStats
+				}
 			}
 			searcher := interFrameMotionVectorSearch{
 				src:         src,
@@ -801,9 +805,11 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			}
 			var motionStats interFrameMotionSearchStats
 			var stats *interFrameMotionSearchStats
-			if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
-				motionStats.phase = phaseStats
-				stats = &motionStats
+			if vp8PhaseStatsEnabled {
+				if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+					motionStats.phase = phaseStats
+					stats = &motionStats
+				}
 			}
 			searcher := interFrameMotionVectorSearch{
 				src:         src,

@@ -764,6 +764,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					}
 					rdMult = e.tunedRDMultiplier(rdMult, row, col)
 				}
+				var phaseStats *EncoderPhaseStats
+				if vp8PhaseStatsEnabled {
+					phaseStats = e.phaseStats()
+				}
 				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
 					coefProbs:     e.pickerCoefProbs(),
 					src:           mbSource,
@@ -786,7 +790,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					collectOracle: traceEnabled,
 					coeffs:        &coeffs[index],
 					cacheIn:       cacheIn,
-					phaseStats:    e.phaseStats(),
+					phaseStats:    phaseStats,
 					trace:         newPretrellisUVTrace(e),
 				})
 				if is4x4 {
@@ -868,8 +872,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	// Lane D: cache is now fully populated for the consumer (packet writer).
 	e.interCoefTokenCountsValid = true
 	e.interCoefTokenRecordsValid = true
-	if stats := e.phaseStats(); stats != nil {
-		stats.InterCoefTokenRecords += int64(len(e.interCoefTokenRecords.Records))
+	if vp8PhaseStatsEnabled {
+		if stats := e.phaseStats(); stats != nil {
+			stats.InterCoefTokenRecords += int64(len(e.interCoefTokenRecords.Records))
+		}
 	}
 	e.lastInterReconstructWorkerCount = 1
 	return totalRate, nil

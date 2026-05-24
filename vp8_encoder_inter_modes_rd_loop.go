@@ -59,9 +59,11 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
 			var motionStats interFrameMotionSearchStats
 			var stats *interFrameMotionSearchStats
-			if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
-				motionStats.phase = phaseStats
-				stats = &motionStats
+			if vp8PhaseStatsEnabled {
+				if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+					motionStats.phase = phaseStats
+					stats = &motionStats
+				}
 			}
 			searcher := interFrameMotionVectorSearch{
 				src:         src,

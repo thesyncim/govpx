@@ -264,8 +264,10 @@ func (e *VP8Encoder) installLoopFilterSegmentLF(segmentation vp8enc.Segmentation
 
 func (ctx *loopFilterPickContext) pickFast(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
-	if stats := e.phaseStats(); stats != nil {
-		return ctx.pickFastStats(seedLevel, minLevel, stats)
+	if vp8PhaseStatsEnabled {
+		if stats := e.phaseStats(); stats != nil {
+			return ctx.pickFastStats(seedLevel, minLevel, stats)
+		}
 	}
 	return ctx.pickFastNoStats(seedLevel, minLevel)
 }
@@ -368,8 +370,10 @@ func (ctx *loopFilterPickContext) pickFastStats(seedLevel uint8, minLevel int, s
 
 func (ctx *loopFilterPickContext) pickFull(seedLevel uint8, minLevel int) (uint8, error) {
 	e := ctx.encoder
-	if stats := e.phaseStats(); stats != nil {
-		return ctx.pickFullStats(seedLevel, minLevel, stats)
+	if vp8PhaseStatsEnabled {
+		if stats := e.phaseStats(); stats != nil {
+			return ctx.pickFullStats(seedLevel, minLevel, stats)
+		}
 	}
 	return ctx.pickFullNoStats(seedLevel, minLevel)
 }
@@ -698,15 +702,21 @@ func (ctx *loopFilterPickContext) cachedFullLumaSSEStats(level int, ssErr *[vp8c
 // segmentation can still produce nonzero per-MB levels during scoring.
 func (ctx *loopFilterPickContext) trialLumaSSE(level int, partial bool) int {
 	e := ctx.encoder
-	stats := e.phaseStats()
-	if partial {
-		if stats != nil {
-			return ctx.trialLumaSSEPartialStats(level, stats)
+	if vp8PhaseStatsEnabled {
+		stats := e.phaseStats()
+		if partial {
+			if stats != nil {
+				return ctx.trialLumaSSEPartialStats(level, stats)
+			}
+			return ctx.trialLumaSSEPartial(level)
 		}
-		return ctx.trialLumaSSEPartial(level)
+		if stats != nil {
+			return ctx.trialLumaSSEFullStats(level, stats)
+		}
+		return ctx.trialLumaSSEFull(level)
 	}
-	if stats != nil {
-		return ctx.trialLumaSSEFullStats(level, stats)
+	if partial {
+		return ctx.trialLumaSSEPartial(level)
 	}
 	return ctx.trialLumaSSEFull(level)
 }

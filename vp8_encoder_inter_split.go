@@ -1099,9 +1099,11 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		}
 		var motionStats interFrameMotionSearchStats
 		var stats *interFrameMotionSearchStats
-		if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
-			motionStats.phase = phaseStats
-			stats = &motionStats
+		if vp8PhaseStatsEnabled {
+			if phaseStats := e.phaseStats(); phaseStats != nil && !e.threadedRowsActive {
+				motionStats.phase = phaseStats
+				stats = &motionStats
+			}
 		}
 		fullMV, fullCost := selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src, ref.Img, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs, stats)
 		count = appendInterAnalysisMotionCandidate(candidates, count, ref, fullMV)
