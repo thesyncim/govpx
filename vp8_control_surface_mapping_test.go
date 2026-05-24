@@ -1,13 +1,14 @@
-package govpx
+package govpx_test
 
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/controlsurface"
 )
 
 func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := controlsurface.ExportedMethodSet(t, (*VP8Encoder)(nil))
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP8Encoder)(nil))
 	want := map[string]controlsurface.Mapping{
 		"Close":                 {Kind: "lifecycle"},
 		"CollectFirstPassStats": {Kind: "libvpx-first-pass-oracle"},
@@ -69,7 +70,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 }
 
 func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
-	methods := controlsurface.ExportedMethodSet(t, (*VP8Decoder)(nil))
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP8Decoder)(nil))
 	want := map[string]controlsurface.Mapping{
 		"Close":                {Kind: "lifecycle"},
 		"CopyReferenceFrame":   {Kind: "libvpx-decoder-control", HelperTokens: []string{"copyref:"}},
@@ -90,7 +91,7 @@ func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 }
 
 func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
-	fields := controlsurface.ExportedFieldSet(t, EncoderOptions{})
+	fields := controlsurface.ExportedFieldSet(t, govpx.EncoderOptions{})
 	want := map[string]controlsurface.Mapping{
 		"AdaptiveKeyFrames":        {Kind: "libvpx-config"},
 		"ARNRMaxFrames":            {Kind: "libvpx-control"},
@@ -143,7 +144,7 @@ func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
 }
 
 func TestVP8DecoderOptionsFieldsHaveParityMapping(t *testing.T) {
-	fields := controlsurface.ExportedFieldSet(t, DecoderOptions{})
+	fields := controlsurface.ExportedFieldSet(t, govpx.DecoderOptions{})
 	want := map[string]controlsurface.Mapping{
 		"Decryptor":              {Kind: "libvpx-decoder-control"},
 		"DecryptorState":         {Kind: "libvpx-decoder-control"},
