@@ -3,6 +3,7 @@ package encoder
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // CYCLIC_REFRESH_AQ — verbatim port of libvpx v1.16.0
@@ -152,40 +153,15 @@ func (cr *CyclicRefreshState) Alloc(miRows, miCols int) {
 		cr.MICols = 0
 		return
 	}
-	if cap(cr.RefreshMap) < n {
-		cr.RefreshMap = make([]int8, n)
-	} else {
-		cr.RefreshMap = cr.RefreshMap[:n]
-		for i := range cr.RefreshMap {
-			cr.RefreshMap[i] = 0
-		}
-	}
-	if cap(cr.LastCodedQMap) < n {
-		cr.LastCodedQMap = make([]uint8, n)
-	} else {
-		cr.LastCodedQMap = cr.LastCodedQMap[:n]
-	}
+	cr.RefreshMap = buffers.EnsureLenZeroed(cr.RefreshMap, n)
+	cr.LastCodedQMap = buffers.EnsureLen(cr.LastCodedQMap, n)
 	// libvpx: vp9_aq_cyclicrefresh.c:49 — memset to MAXQ.
 	for i := range cr.LastCodedQMap {
 		cr.LastCodedQMap[i] = vp9dec.MaxQ
 	}
-	if cap(cr.SegMap) < n {
-		cr.SegMap = make([]uint8, n)
-	} else {
-		cr.SegMap = cr.SegMap[:n]
-		for i := range cr.SegMap {
-			cr.SegMap[i] = 0
-		}
-	}
+	cr.SegMap = buffers.EnsureLenZeroed(cr.SegMap, n)
 	// libvpx: vp9_c:2180-2183 — vpx_calloc(consec_zero_mv).
-	if cap(cr.ConsecZeroMV) < n {
-		cr.ConsecZeroMV = make([]uint8, n)
-	} else {
-		cr.ConsecZeroMV = cr.ConsecZeroMV[:n]
-		for i := range cr.ConsecZeroMV {
-			cr.ConsecZeroMV[i] = 0
-		}
-	}
+	cr.ConsecZeroMV = buffers.EnsureLenZeroed(cr.ConsecZeroMV, n)
 	cr.MIRows = miRows
 	cr.MICols = miCols
 	// libvpx: vp9_aq_cyclicrefresh.c:50-51.

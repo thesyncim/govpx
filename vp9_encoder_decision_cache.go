@@ -3,15 +3,12 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 func (e *VP9Encoder) ensureVP9LeafKeyframeDecisionCache(miRows, miCols int) {
 	n := miRows * miCols
-	if cap(e.vp9LeafKeyframeDecisions) < n {
-		e.vp9LeafKeyframeDecisions = make([]vp9LeafKeyframeDecisionEntry, n)
-	} else {
-		e.vp9LeafKeyframeDecisions = e.vp9LeafKeyframeDecisions[:n]
-	}
+	e.vp9LeafKeyframeDecisions = buffers.EnsureLen(e.vp9LeafKeyframeDecisions, n)
 	e.vp9LeafKeyframeDecisionsRows = miRows
 	e.vp9LeafKeyframeDecisionsCols = miCols
 	e.resetVP9LeafKeyframeDecisionCache()
@@ -29,11 +26,7 @@ func (e *VP9Encoder) resetVP9LeafKeyframeDecisionCache() {
 
 func (e *VP9Encoder) ensureVP9KeyframePartitionDecisionCache(miRows, miCols int) {
 	n := miRows * miCols * int(common.BlockSizes)
-	if cap(e.vp9KeyframePartitionDecisions) < n {
-		e.vp9KeyframePartitionDecisions = make([]vp9KeyframePartitionDecisionEntry, n)
-	} else {
-		e.vp9KeyframePartitionDecisions = e.vp9KeyframePartitionDecisions[:n]
-	}
+	e.vp9KeyframePartitionDecisions = buffers.EnsureLen(e.vp9KeyframePartitionDecisions, n)
 	e.vp9KeyframePartitionDecisionsRows = miRows
 	e.vp9KeyframePartitionDecisionsCols = miCols
 	e.vp9KeyframePartitionDecisionsVer++
@@ -150,11 +143,7 @@ func (e *VP9Encoder) storeVP9LeafKeyframeDecision(miRow, miCol int,
 // reset at frame boundaries via vp9_zero(cm->mip).
 func (e *VP9Encoder) ensureVP9LeafInterDecisionCache(miRows, miCols int) {
 	n := miRows * miCols
-	if cap(e.vp9LeafInterDecisions) < n {
-		e.vp9LeafInterDecisions = make([]vp9LeafInterDecisionEntry, n)
-	} else {
-		e.vp9LeafInterDecisions = e.vp9LeafInterDecisions[:n]
-	}
+	e.vp9LeafInterDecisions = buffers.EnsureLen(e.vp9LeafInterDecisions, n)
 	e.vp9LeafInterDecisionsRows = miRows
 	e.vp9LeafInterDecisionsCols = miCols
 	e.vp9LeafInterDecisionsVer++

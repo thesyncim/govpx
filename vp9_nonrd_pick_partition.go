@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9_nonrd_pick_partition.go ports the ML_BASED_PARTITION branch of libvpx
@@ -183,10 +184,7 @@ func vp9BuildPaddedPlane(buf *vp9PaddedLastFrameBuffer,
 	stride = w + 2*vp9MLPartitionBorder
 	rows := h + 2*vp9MLPartitionBorder
 	needed := stride * rows
-	if cap(buf.pixels) < needed {
-		buf.pixels = make([]uint8, needed)
-	}
-	buf.pixels = buf.pixels[:needed]
+	buf.pixels = buffers.EnsureLen(buf.pixels, needed)
 	buf.stride = stride
 	buf.rows = rows
 	buf.w = w

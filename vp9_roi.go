@@ -3,6 +3,7 @@ package govpx
 import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 type vp9ROIMapState struct {
@@ -113,11 +114,7 @@ func (e *VP9Encoder) SetROIMap(m *ROIMap) error {
 			return ErrInvalidConfig
 		}
 	}
-	if cap(e.roi.segmentID) < count {
-		next.segmentID = make([]uint8, count)
-	} else {
-		next.segmentID = e.roi.segmentID[:count]
-	}
+	next.segmentID = buffers.EnsureLen(e.roi.segmentID, count)
 	copy(next.segmentID, m.SegmentID[:count])
 	e.roi = next
 	return nil

@@ -319,14 +319,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	}
 
 	// Stage the results slab for this batch.
-	if cap(scheduler.results) < batch {
-		scheduler.results = make([]vp9FrameParallelResult, batch)
-	} else {
-		scheduler.results = scheduler.results[:batch]
-	}
-	for i := range scheduler.results {
-		scheduler.results[i] = vp9FrameParallelResult{}
-	}
+	scheduler.results = buffers.EnsureLenZeroed(scheduler.results, batch)
 
 	// Dispatch helper workers (1..N-1) on goroutines.
 	scheduler.wg.Add(batch - 1)

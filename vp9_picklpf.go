@@ -46,6 +46,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9PickLpfMaxFilterLevel mirrors libvpx vp9_picklpf.c:37-44 get_max_filter_level.
@@ -531,11 +532,7 @@ func (e *VP9Encoder) vp9EncoderRunFullImagePicker(
 	// last_frame_uf before any try_filter_frame call.
 	layout := common.NewFrameLayout(int(hdr.Width), int(hdr.Height))
 	yVisibleLen := layout.YStride * layout.YHeight
-	if cap(e.vp9LpfReconYBackup) < yVisibleLen {
-		e.vp9LpfReconYBackup = make([]byte, yVisibleLen)
-	} else {
-		e.vp9LpfReconYBackup = e.vp9LpfReconYBackup[:yVisibleLen]
-	}
+	e.vp9LpfReconYBackup = buffers.EnsureLen(e.vp9LpfReconYBackup, yVisibleLen)
 	copy(e.vp9LpfReconYBackup, e.reconYFull[layout.YOrigin:layout.YOrigin+yVisibleLen])
 	srcY, srcStride, srcW, srcH := vp9EncoderSourcePlane(img, 0)
 	scorer := vp9PickLpfProductionScorer{

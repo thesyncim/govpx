@@ -1271,14 +1271,7 @@ func (d *VP9Decoder) prepareVP9CurrentFrameMvs(hdr *vp9dec.UncompressedHeader) {
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
 	need := miRows * miCols
-	if cap(d.curFrameMvs) < need {
-		d.curFrameMvs = make([]vp9dec.MvRef, need)
-	} else {
-		d.curFrameMvs = d.curFrameMvs[:need]
-		for i := range d.curFrameMvs {
-			d.curFrameMvs[i] = vp9dec.MvRef{}
-		}
-	}
+	d.curFrameMvs = buffers.EnsureLenZeroed(d.curFrameMvs, need)
 	d.usePrevFrameMvs = d.lastHeaderValid &&
 		!hdr.ErrorResilientMode &&
 		hdr.Width == d.lastHeader.Width &&

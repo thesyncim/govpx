@@ -3,6 +3,7 @@ package govpx
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 type vp9LoopFilterPlane uint8
@@ -238,11 +239,7 @@ func (p *vp9DecoderTileWorkerPool) ensureRowMTSync(tileCols, sbRows int) {
 	if p == nil || tileCols <= 0 || sbRows <= 0 {
 		return
 	}
-	if cap(p.rowMTSyncs) < tileCols {
-		p.rowMTSyncs = make([]vp9RowMTSync, tileCols)
-	} else {
-		p.rowMTSyncs = p.rowMTSyncs[:tileCols]
-	}
+	p.rowMTSyncs = buffers.EnsureLen(p.rowMTSyncs, tileCols)
 	for i := range p.rowMTSyncs {
 		p.rowMTSyncs[i].reset(sbRows)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 type vp9CountTileSeed struct {
@@ -232,11 +233,7 @@ func (p *vp9TileWorkerPool) ensureRowMTSync(sbRows int) {
 	if p == nil || p.workerCount <= 0 || sbRows <= 0 {
 		return
 	}
-	if cap(p.rowMTSyncs) < p.workerCount {
-		p.rowMTSyncs = make([]vp9RowMTSync, p.workerCount)
-	} else {
-		p.rowMTSyncs = p.rowMTSyncs[:p.workerCount]
-	}
+	p.rowMTSyncs = buffers.EnsureLen(p.rowMTSyncs, p.workerCount)
 	for i := range p.rowMTSyncs {
 		p.rowMTSyncs[i].reset(sbRows)
 	}
@@ -290,14 +287,7 @@ func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
 			p.rowWorkerPools[i] = nil
 		}
 	}
-	if cap(p.rowWorkerPools) < p.workerCount {
-		p.rowWorkerPools = make([]*vp9RowWorkerPool, p.workerCount)
-	} else {
-		p.rowWorkerPools = p.rowWorkerPools[:p.workerCount]
-		for i := range p.rowWorkerPools {
-			p.rowWorkerPools[i] = nil
-		}
-	}
+	p.rowWorkerPools = buffers.EnsureLenZeroed(p.rowWorkerPools, p.workerCount)
 	for i := 0; i < p.workerCount; i++ {
 		p.rowWorkerPools[i] = newVP9RowWorkerPool(rowThreads)
 		if p.rowWorkerPools[i] != nil {
@@ -669,22 +659,14 @@ func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
 		return
 	}
 	if n := len(w.vp9LeafInterDecisions); n > 0 {
-		if cap(e.vp9LeafInterDecisions) < n {
-			e.vp9LeafInterDecisions = make([]vp9LeafInterDecisionEntry, n)
-		} else {
-			e.vp9LeafInterDecisions = e.vp9LeafInterDecisions[:n]
-		}
+		e.vp9LeafInterDecisions = buffers.EnsureLen(e.vp9LeafInterDecisions, n)
 		copy(e.vp9LeafInterDecisions, w.vp9LeafInterDecisions)
 		e.vp9LeafInterDecisionsRows = w.vp9LeafInterDecisionsRows
 		e.vp9LeafInterDecisionsCols = w.vp9LeafInterDecisionsCols
 		e.vp9LeafInterDecisionsVer = w.vp9LeafInterDecisionsVer
 	}
 	if n := len(w.vp9LeafKeyframeDecisions); n > 0 {
-		if cap(e.vp9LeafKeyframeDecisions) < n {
-			e.vp9LeafKeyframeDecisions = make([]vp9LeafKeyframeDecisionEntry, n)
-		} else {
-			e.vp9LeafKeyframeDecisions = e.vp9LeafKeyframeDecisions[:n]
-		}
+		e.vp9LeafKeyframeDecisions = buffers.EnsureLen(e.vp9LeafKeyframeDecisions, n)
 		copy(e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions)
 		e.vp9LeafKeyframeDecisionsRows = w.vp9LeafKeyframeDecisionsRows
 		e.vp9LeafKeyframeDecisionsCols = w.vp9LeafKeyframeDecisionsCols
@@ -777,21 +759,9 @@ func (e *VP9Encoder) ensureVP9CountWorkers(workers int) {
 	if workers <= 0 {
 		return
 	}
-	if cap(e.vp9CountWorkers) < workers {
-		e.vp9CountWorkers = make([]VP9Encoder, workers)
-	} else {
-		e.vp9CountWorkers = e.vp9CountWorkers[:workers]
-	}
-	if cap(e.vp9CountCounts) < workers {
-		e.vp9CountCounts = make([]encoder.FrameCounts, workers)
-	} else {
-		e.vp9CountCounts = e.vp9CountCounts[:workers]
-	}
-	if cap(e.vp9CountJobs) < workers {
-		e.vp9CountJobs = make([]vp9CountTileJob, workers)
-	} else {
-		e.vp9CountJobs = e.vp9CountJobs[:workers]
-	}
+	e.vp9CountWorkers = buffers.EnsureLen(e.vp9CountWorkers, workers)
+	e.vp9CountCounts = buffers.EnsureLen(e.vp9CountCounts, workers)
+	e.vp9CountJobs = buffers.EnsureLen(e.vp9CountJobs, workers)
 }
 
 func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRows, miCols int) {

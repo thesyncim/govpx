@@ -1,5 +1,7 @@
 package encoder
 
+import "github.com/thesyncim/govpx/internal/vpx/buffers"
+
 // VP9 perceptual adaptive quantization (AQ_MODE=PERCEPTUAL_AQ).
 //
 // This file is a verbatim port of libvpx v1.16.0's perceptual AQ
@@ -138,11 +140,7 @@ func (s *PerceptualAQState) PrepareFrame(img *image.YCbCr, baseQIndex int, showF
 	s.mbRows = mbRows
 	s.mbCols = mbCols
 	total := mbRows * mbCols
-	if cap(s.mbWienerVariance) < total {
-		s.mbWienerVariance = make([]int64, total)
-	} else {
-		s.mbWienerVariance = s.mbWienerVariance[:total]
-	}
+	s.mbWienerVariance = buffers.EnsureLen(s.mbWienerVariance, total)
 	// libvpx: set_mb_wiener_variance (vp9_encoder.c:5178). Iterates
 	// every (mb_row, mb_col), Hadamard-transforms the 16x16 block
 	// against a zero predictor, zeros the DC, sorts |AC|, picks the
@@ -221,11 +219,7 @@ func (s *PerceptualAQState) PrepareFrame(img *image.YCbCr, baseQIndex int, showF
 	// once per BLOCK_64X64 SB inside encode_rd_sb. We materialize the
 	// per-SB segment assignments up-front so the encoder's segment
 	// lookup is O(1) per query.
-	if cap(s.segments) < sbCount {
-		s.segments = make([]uint8, sbCount)
-	} else {
-		s.segments = s.segments[:sbCount]
-	}
+	s.segments = buffers.EnsureLen(s.segments, sbCount)
 	for sbRow := range sbRows {
 		for sbCol := range sbCols {
 			s.segments[sbRow*sbCols+sbCol] = perceptualWienerVarSegment(

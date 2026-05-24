@@ -975,11 +975,7 @@ func (d *VP9Decoder) vp9ExtendInterPredictSource(src []byte, srcStride int,
 	srcOffset int,
 ) ([]byte, int, int) {
 	need := extStride * extRows
-	if cap(d.interPredictScratch) < need {
-		d.interPredictScratch = make([]byte, need)
-	} else {
-		d.interPredictScratch = d.interPredictScratch[:need]
-	}
+	d.interPredictScratch = buffers.EnsureLen(d.interPredictScratch, need)
 	// libvpx: vp9/decoder/vp9_decodeframe.c:458 build_mc_border splits
 	// each row into a left memset (clamped to src[0]), a center memcpy
 	// of in-bounds pixels, and a right memset (clamped to src[w-1]).
