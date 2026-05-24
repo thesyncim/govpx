@@ -16,8 +16,8 @@ import "math"
 // `assign_std_frame_bits` consumes it at line 2175. Porting the same
 // saturating cast (rather than the prior pure-int truncation) keeps
 // the float-order arithmetic of the libvpx pass-2 GF/ARF allocator
-// byte-identical against the reference; that was the +5.14% BD-rate
-// drift flagged by task #283 and tightened here by task #287.
+// byte-identical against the reference; this path carried a +5.14%
+// BD-rate drift before the arithmetic order was aligned.
 //
 // Returns an int64 so the caller can compose it back into the
 // int64-typed `gfGroupBits` / `kfGroupBitsRemaining` fields; the
@@ -273,8 +273,8 @@ func (t *twoPassState) defineGFGroup(frame uint64, altRefInterval int, useAltRef
 		// the multiply first in int64 (`boost*gfGroupBits/allocationChunks`)
 		// produces a different rounding because the intermediate
 		// product is integer-truncated rather than carrying the
-		// fractional bits forward — that order divergence drove the
-		// +5.14% govpx-vs-libvpx BD-rate flagged by task #283.
+		// fractional bits forward; that order divergence drove the
+		// +5.14% govpx-vs-libvpx BD-rate gap.
 		gfBits := max(libvpxSaturateCastDoubleToInt(
 			float64(boost)*(float64(gfGroupBits)/float64(allocationChunks))), 0)
 		if modFrameErr*float64(gfInterval) < gfGroupErr {
@@ -667,9 +667,9 @@ func (t *twoPassState) assignStdFrameBits(modErr float64, maxBits int64) int64 {
 	//       (double)cpi->twopass.gf_group_bits * err_fraction);
 	// saturate_cast_double_to_int clamps at INT_MAX before truncating
 	// toward zero. Port the helper so the upper clamp matches libvpx
-	// for high-rate two-pass curves; on the 720p VBR ladder this is
-	// part of the float-order alignment task #287 brought from
-	// +5.14% BD-rate over libvpx down into single-digit territory.
+	// for high-rate two-pass curves; on the 720p VBR ladder this is part
+	// of the float-order alignment that brought the +5.14% BD-rate gap
+	// down into single-digit territory.
 	target := libvpxSaturateCastDoubleToInt(float64(t.gfGroupBits) * errFraction)
 	if target < 0 {
 		target = 0

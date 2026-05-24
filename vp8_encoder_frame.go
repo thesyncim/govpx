@@ -505,7 +505,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// cohort) and the gf_overspend_bits / frames_till_gf_update_due
 		// drain (calc_pframe_target_size) uses the wrong denominator,
 		// inflating non_gf_bitrate_adjustment and shifting the regulated
-		// Q by 1 step at the next inter-recode. See task #235.
+		// Q by 1 step at the next inter-recode.
 		e.rc.baselineGFInterval = cbrOnePassGFCliffInterval
 	}
 	// In pass 2, the GF-boundary decision is made inside vp8_second_pass

@@ -183,7 +183,7 @@ func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *Macroblock
 	// cast at line 27 is safe for realistic |q[0]*dq| <= ~32767*8). When ANY
 	// EOB in the pair is > 1, idct_dequant_full_2x_neon is used and the
 	// dequant multiplication wraps to int16 via vmulq_s16 (line 115). The
-	// wrap matters precisely when |q[0]*dq| >= 32768 — e.g. task #360
+	// wrap matters precisely when |q[0]*dq| >= 32768 — e.g. the
 	// frame-7 MB(1,1) chroma U-block-18 has q[0]=289 * UVDC=132 = 38148
 	// which wraps to int16 -27388, yielding all-zero post-clip pixels rather
 	// than the all-255 produced by an int32 DC-only path.

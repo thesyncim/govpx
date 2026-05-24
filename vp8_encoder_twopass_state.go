@@ -799,7 +799,7 @@ func (t *twoPassState) prepareKFGroup(frame uint64) {
 	// and centered with the `/= 2` rule. Previously govpx used the
 	// degenerate `len(stats) - frame` span, which under-budgeted the
 	// first KF group and over-budgeted subsequent ones on multi-KF
-	// streams (audit #6 in task #178). Route through the libvpx
+	// streams. Route through the libvpx
 	// walker so the kf_group_err / kf_group_bits /
 	// section_intra_rating / section_max_qfactor accumulators
 	// integrate over the same span libvpx uses for the active KF
@@ -998,8 +998,7 @@ func (t *twoPassState) kfBitsTarget(frame uint64, kfModErr float64) int64 {
 		// multiply first (`bits_left * kfModErr / errorLeft`) yields
 		// the same algebraic value but a different IEEE-754 rounding,
 		// and on the 720p two-pass VBR ladder this is the dominant
-		// contributor to the +5.14% govpx-vs-libvpx BD-rate drift the
-		// task #287 sweep was widening the gate to 10% for. Port the
+		// contributor to the +5.14% govpx-vs-libvpx BD-rate drift. Port the
 		// libvpx ordering verbatim so the KF target is byte-for-byte
 		// identical against the reference encoder.
 		altKFBits := int64(float64(t.bitsLeft) * (kfModErr / t.errorLeft))

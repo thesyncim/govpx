@@ -63,25 +63,26 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	// (seeded as maxInt() in selectRDInterFrameModeDecision); the libvpx
 	// initial sentinel is INT_MAX so the empty-cap path is identical.
 	//
-	// Task #303 audit (rules out cap semantic as the BestARNR/GoodARNR
-	// pin-hold root cause; relocates to upstream NEWMV picker quantize):
+	// Cap-semantic audit (rules out this SPLITMV cap as the
+	// BestARNR/GoodARNR pin-hold root cause; relocates to upstream NEWMV
+	// picker quantize):
 	//
-	// Task #298 localized the BestARNR -5-byte and GoodARNR -6-byte ARNR
+	// The BestARNR -5-byte and GoodARNR -6-byte ARNR pins localize
 	// pin-holds to a SPLITMV picker dropout at MB(0,0) frame 1: govpx's
 	// selectInterFrameSplitModeRDScore returns ok=false (no partition
 	// shape commits) while libvpx's vp8_rd_pick_best_mbsegmentation
-	// succeeds and SPLITMV wins the mode-loop. Task #298 narrowed the
-	// proximate cap value to govpx ctx.bestYRD = 73707 (NEWMV.yrd) vs
+	// succeeds and SPLITMV wins the mode-loop. The proximate cap value is
+	// govpx ctx.bestYRD = 73707 (NEWMV.yrd) vs
 	// libvpx best_mode.yrd = 129509, the gap being a 27280-bit deficit
 	// in govpx's NEWMV picker rate_y for the same MV (8,16) / same ref /
 	// same source — govpx's picker quantize emitting all-zero Y qcoeff
 	// while libvpx's emits enough non-zero Y to yield rate_y=34799.
 	//
-	// Task #303 charter was to fix the cap semantic itself, on the
-	// hypothesis that govpx applies a TIGHTER per-partition cap than
-	// libvpx. Direct cross-reference of the cap ladder against libvpx
+	// The original hypothesis was that govpx applies a tighter
+	// per-partition cap than libvpx. Direct cross-reference of the cap
+	// ladder against libvpx
 	// rdopt.c:1199-1335 + 1726-1748 + 1974-2006 confirms the semantic
-	// is already byte-faithful (task #217 audit standing):
+	// is already byte-faithful:
 	//
 	//   - Cap value source (libvpx best_mode.yrd, set in update_best_mode
 	//     at rdopt.c:1734-1736): RDCOST(rdmult, rddiv, rate2 - rate_uv -
@@ -136,11 +137,9 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	//
 	// Conclusion: the cap semantic in this file is libvpx-faithful and
 	// the BestARNR/GoodARNR pin-hold cannot be closed without fixing the
-	// NEWMV picker Y quantize at MB(0,0) frame 1. Recharter to task
-	// #304+ for the per-Y-block picker-side qcoeff oracle trace required
-	// to localize the (residual layer | quantize layer) divergence —
-	// task #298's intended next step that was deferred while #303
-	// validated the cap.
+	// NEWMV picker Y quantize at MB(0,0) frame 1. The required next step is
+	// the per-Y-block picker-side qcoeff oracle trace that localizes the
+	// divergence to the residual or quantize layer.
 	if ctx == nil {
 		return interSplitModeRDResult{}, false
 	}
@@ -331,7 +330,7 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	// coefficient rebuild's packet skip state. Libvpx keeps rd_inter4x4_uv's
 	// token rate here even when the accepted MB is ultimately packet-skipped.
 	//
-	// Task #218: libvpx vp8/encoder/rdopt.c:1700 calculate_final_rd_costs
+	// libvpx vp8/encoder/rdopt.c:1700 calculate_final_rd_costs
 	// fires the per-MB skip backout strictly on `tteob == 0`, where for
 	// SPLITMV (has_y2_block=0) tteob counts Y blocks with eobs[i] > 0 plus
 	// the sum of UV eob counts. govpx's previous gate appended

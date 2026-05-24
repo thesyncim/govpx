@@ -79,7 +79,7 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 		}
 	}
 	cfg.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(furtherStepsSpeed, int(cfg.fullPixelSearchParam)))
-	// Task #350: improved_mv_pred uses the libvpx-realistic cpi->Speed
+	// improved_mv_pred uses the libvpx-realistic cpi->Speed
 	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
 	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForImprovedMVPred
 	// Gate comment for the rationale: clamping autoSpeed itself would
@@ -91,7 +91,7 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
-	// Task #361: search_method=HEX / iterative_sub_pixel=0 gate uses the
+	// search_method=HEX / iterative_sub_pixel=0 uses the
 	// libvpx-realistic cpi->Speed (cpu_used+1 at cpu_used > 0 RT after
 	// frame 0) rather than the pin-suppressed e.autoSpeed. See
 	// libvpxRealtimeCPISpeedForHEXSearchGate comment for the rationale:
@@ -101,19 +101,18 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	// disturbing the rest of the speed cascade. The cpu_used == 0 RT path
 	// (byte-parity gate) keeps the realistic Speed at libvpxCPUUsed()=4,
 	// below the Speed > 4 threshold, so NSTEP+iterative are preserved
-	// and the task #272 campaign sentinel + task #332 threads validation
-	// sentinel byte-parity hold.
+	// and the pinned byte-parity sentinels hold.
 	hexSearchSpeed := e.libvpxRealtimeCPISpeedForHEXSearchGate()
-	// Task #362: the Speed > 4 (iterative_sub_pixel disable, libvpx
+	// The Speed > 4 (iterative_sub_pixel disable, libvpx
 	// onyx_if.c:954) and Speed >= 15 (half_pixel_search disable, line
 	// 1023) fractional sub-pel gates use the libvpx-realistic cpi->Speed
 	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
 	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForSubPelSearch
 	// Gate comment for the rationale: clamping autoSpeed itself would
-	// cascade every other Speed-conditioned feature simultaneously (the
-	// task #350 audit established that at cpu_used=8 → ~+28923% BD-rate).
+	// cascade every other Speed-conditioned feature simultaneously (at
+	// cpu_used=8 this pushed the BD-rate fixture into a ~+28923% cliff).
 	// The intermediate Speed > 8 gate (quarter_pixel_search disable, line
-	// 1012) was ported earlier under task #363 via
+	// 1012) is handled by
 	// libvpxRealtimeCPISpeedForQuarterPelGate — that helper returns the
 	// same libvpx-realistic Speed under the same guards, so its branch
 	// remains independent here. For cpu_used <= 0 RT / non-RT /
@@ -127,11 +126,11 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	if subPelGateSpeed > 4 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
-	// Task #363: quarter_pixel_search disable (libvpx onyx_if.c:1012, the
+	// quarter_pixel_search disable (libvpx onyx_if.c:1012, the
 	// `Speed > 8` gate) consults the libvpx-realistic cpi->Speed
 	// (cpu_used+1 at cpu_used > 0 RT after the cold-start frame) rather
 	// than the pin-suppressed e.autoSpeed. Same targeted-gate pattern as
-	// task #350's improved_mv_pred port — clamping autoSpeed itself
+	// the improved_mv_pred port: clamping autoSpeed itself
 	// would cascade every other Speed-conditioned feature into the
 	// cpu_used+1 path simultaneously and crater BD-rate. See
 	// libvpxRealtimeCPISpeedForQuarterPelGate comment for rationale.
@@ -320,9 +319,9 @@ func libvpxInterFrameImprovedMVPredictionForFeatureSpeed(deadline Deadline, spee
 	// cpi->Speed. govpx mirrors this with `speed <= 6` where `speed` is
 	// the autoSpeed value flowing through libvpxCPUUsed -- which tracks
 	// libvpx's cpi->Speed evolution per vp8_auto_select_speed
-	// (rdopt.c:261-316), modulo the task #278 inter-frame wall-clock pin.
-	// Task #348 audit: a residual divergence at the task-343 720p RT
-	// cpu=8 fixture frame 2 MB(0,0) NEWMV traces back to govpx's
+	// (rdopt.c:261-316), modulo the deterministic inter-frame wall-clock
+	// pin. A residual divergence at the 720p realtime cpu=8 fixture frame
+	// 2 MB(0,0) NEWMV traces back to govpx's
 	// autoSpeed staying in the Speed=0 stable region while libvpx's
 	// cpi->Speed auto-evolved to 9 — the line-957 gate sees different
 	// inputs on the two sides and improved_mv_pred ends up enabled on
@@ -407,7 +406,7 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
-	// Task #364: feed the libvpx-realistic cpi->Speed only into the
+	// Feed the libvpx-realistic cpi->Speed only into the
 	// adaptive error-bin gate. The full multiplier table still tracks
 	// e.libvpxCPUUsed() / e.autoSpeed so the rest of the speed-feature
 	// cascade (search method, fractional search, quarter-pixel, recode
@@ -554,7 +553,7 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		// collapses Speed=0 to the cold-start default of 4 (see
 		// libvpxInterModeThresholdMultipliersForCPISpeed).
 		//
-		// Task #378: the seven mode_check_freq_map_* speed_map lookups
+		// The seven mode_check_freq_map_* speed_map lookups
 		// (vp8/encoder/onyx_if.c lines 860-887) consult the libvpx-realistic
 		// cpi->Speed (cpu_used+1 at cpu_used > 0 RT after frame 0) rather
 		// than the pin-suppressed e.autoSpeed. See
@@ -755,7 +754,7 @@ type libvpxInterModeThresholdContext struct {
 	errorBins       *[1024]uint32
 	// errorBinGateSpeed overrides the cpi->Speed value that gates the
 	// adaptive error-bin RD threshold adjustment (libvpx onyx_if.c:957
-	// `if (Speed > 6)`). Task #364 audit: at cpu_used > 0 RT the wall-
+	// `if (Speed > 6)`). At cpu_used > 0 RT the wall-
 	// clock-driven libvpx cpi->Speed climbs to cpu_used+1 while govpx's
 	// timing-pinned e.autoSpeed stays at 4-5; clamping autoSpeed itself
 	// cascades every other Speed-conditioned feature simultaneously, so
@@ -826,7 +825,7 @@ func libvpxInterModeThresholdMultipliersForCPISpeed(deadline Deadline, cpiSpeed 
 		mult[libvpxThrNearest2] >>= shift
 		mult[libvpxThrNear2] >>= shift
 	}
-	// Task #364: gate the adaptive error-bin RD-threshold adjustment on
+	// Gate the adaptive error-bin RD-threshold adjustment on
 	// the libvpx-realistic cpi->Speed when the caller supplies one via
 	// context.errorBinGateSpeed. libvpx's vp8_set_speed_features runs
 	// every frame on the wall-clock-evolved cpi->Speed (rdopt.c:163 →

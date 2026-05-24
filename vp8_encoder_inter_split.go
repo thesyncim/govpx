@@ -440,7 +440,7 @@ func (ctx *splitMotionSubsetContext) selectMotion() (vp8enc.MotionVector, vp8com
 	// govpx mirrors both shapes: in best mode every partition uses the
 	// wide UMV window; in speed mode only partition 2 (BLOCK_8X8) does,
 	// and the secondary partitions intersect with bestRefMV±MAX_FULL_PEL_
-	// VAL. Prior to task #300 the intersection fired in best mode too,
+	// VAL. Earlier code intersected the window in best mode too,
 	// truncating the SPLITMV per-label diamond search at MB(0,0) frame 1
 	// for partitions 0/1/3 on the 1280x720 SSIM-best cohort and biasing
 	// the picker away from SPLITMV.

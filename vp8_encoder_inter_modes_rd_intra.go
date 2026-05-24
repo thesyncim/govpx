@@ -135,8 +135,8 @@ func (e *VP8Encoder) estimateInterIntraModeRDScore(src vp8enc.SourceImage, qInde
 	// adds the skip-flag delta in their place. Without this, govpx
 	// charges DC_PRED / V_PRED / H_PRED / TM_PRED the full coefficient
 	// rate even when every Y AC and every UV coefficient quantizes to
-	// zero — measured +20826-bit rate inflation on flat-Y screen-content
-	// MBs (1280x720 task #341 fixture, frame 1 MB(5,0) DC_PRED:
+	// zero; the 1280x720 screen-content fixture measured +20826-bit rate
+	// inflation on flat-Y MBs (frame 1 MB(5,0) DC_PRED:
 	// govpx rate=20838 vs libvpx rate=1012), driving the picker to spend
 	// bits on NEWMV+LAST candidates whose `became_best=true` flip leaves
 	// libvpx with DC_PRED+all-zero coefficients. Mirror libvpx verbatim.

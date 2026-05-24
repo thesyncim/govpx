@@ -318,9 +318,9 @@ func (e *VP8Encoder) assignInterFrameStaticSegmentsForQuantizer(src vp8enc.Sourc
 // pickinter.c:1230 (denoiser increase_denoising guard) — are also Speed-
 // agnostic. The only gate on libvpx VP8 skin consumption is
 // !cpi->oxcf.screen_content_mode, which the ScreenContentMode branch below
-// already mirrors verbatim (task #338).
+// already mirrors verbatim.
 //
-// Confirmation pin (task #380): no Speed-gated branch exists in libvpx
+// Confirmation pin: no Speed-gated branch exists in libvpx
 // v1.16.0 vp8/encoder/pickinter.c for the skin-detect short-circuit; do
 // not add one. Any future Speed gate here would be a heuristic divergence
 // from the libvpx reference.

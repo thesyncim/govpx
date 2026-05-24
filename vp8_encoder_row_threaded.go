@@ -312,8 +312,8 @@ func (rs *rowEncoderState) encodeThreadedKeyFrameMacroblock(args *threadedKeyRow
 		// vp8_activity_masking → adjust_act_zbin at encodeframe.c
 		// line 423 for THIS MB), and REWRITES block[i].zbin_extra from
 		// THIS MB's act_zbin_adj. The picker then quantizes with the
-		// just-refreshed value, NOT the stale prev-MB value. Mirror
-		// that here. Closes task #262.
+		// just-refreshed value, NOT the stale prev-MB value. Mirror that
+		// here.
 		pickActZbinAdj := rs.pickerActZbinAdj
 		if args.segmentation.Enabled {
 			pickActZbinAdj = actZbinAdj
@@ -560,8 +560,8 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	// vp8_encode_inter16x16 runs regardless, regenerating coefficients via
 	// the regular quantizer + optimize_mb trellis. Mirror that: only the
 	// real x->skip sources (inactive map + staticBreakout) gate the encode
-	// short-circuit, not the picker's MBSkipCoeff signal. Closes the
-	// BestARNR / GoodARNR ARNR pin holds (task #332).
+	// short-circuit, not the picker's MBSkipCoeff signal. This closes the
+	// BestARNR / GoodARNR ARNR pins.
 	isInactiveMB := e.interMacroblockInactive(row, col, args.cols)
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
 		(isInactiveMB || staticBreakout)

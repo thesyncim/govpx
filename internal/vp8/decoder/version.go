@@ -28,7 +28,7 @@ func VersionSkipsLoopFilter(version int) bool {
 // vp8/decoder/decodeframe.c always overwrites it, so the bitstream value is
 // the effective filter_type. We pass the header through unchanged to mirror
 // that libvpx-observed behavior. Earlier code applied an unconditional SIMPLE
-// override here; task #295 fixed the resulting decoder divergence (the LF
+// override here; that caused a decoder divergence (the LF
 // kernel diverged when a version-1 stream specified NORMAL in its bitstream).
 func LoopFilterHeaderForVersion(_ int, header LoopFilterHeader) LoopFilterHeader {
 	return header

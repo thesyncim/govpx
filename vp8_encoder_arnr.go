@@ -62,8 +62,8 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, distance int) bo
 	// libvpx VP8: the alt-ref buffer's U and V are written by the per-MB
 	// normalization at :307-332 every time. Earlier govpx revisions
 	// carried a `doChroma := flags&EncodeInvisibleFrame != 0 ||
-	// ARNRStrength > 4` heuristic that skipped chroma; per task #233 and
-	// the libvpx-verbatim mandate that gate is removed, and chroma is
+	// ARNRStrength > 4` heuristic that skipped chroma; to keep the
+	// filter libvpx-verbatim that gate is removed, and chroma is
 	// always filtered to match vp8_temporal_filter_iterate_c byte-exactly.
 	refs, centerIdx, ok := e.arnrFilterRefs(distance, backward, forward)
 	if !ok {

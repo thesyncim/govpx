@@ -211,7 +211,7 @@ func (e *VP8Encoder) Reset() {
 	// auto_key here, govpx's first-keyframe `kf_bitrate_adjustment` uses
 	// the unclamped two-second estimate while libvpx clamps to
 	// `key_freq`, diverging the first inter frame's per-frame target
-	// (see task #202 regression seed
+	// (see regression seed
 	// regression_vbr_300kbps_kf30_splitmv_defbuf_rt_cpu0_fbab04f4).
 	e.rc.autoKeyFrames = !e.keyFramesDisabled && e.opts.KeyFrameInterval > 0
 	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, e.opts.TwoPassMinPct)

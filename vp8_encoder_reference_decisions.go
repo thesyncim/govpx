@@ -218,8 +218,8 @@ func (e *VP8Encoder) updateGFActiveMap(refreshGolden bool, modes []vp8enc.InterF
 // Temporal scalability and invisible (alt-ref) frames stay excluded —
 // libvpx does not exercise the auto-key recode in those cohorts.
 //
-// Task #337 closure note: the long-fixture fuzz harness was running
-// govpx with AdaptiveKeyFrames=false but driving libvpx with
+// Harness note: the long-fixture fuzz harness was running govpx with
+// AdaptiveKeyFrames=false but driving libvpx with
 // `--kf-min-dist=0 --kf-max-dist=KeyFrameInterval` (auto_key=1). The
 // gate was correct; the harness now sets AdaptiveKeyFrames=true so it
 // drives the same libvpx control path it asks the C oracle to use.
@@ -637,13 +637,13 @@ func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
 	// subsequent forced keyframes read the live cliff interval regardless of
 	// Mode. The govpx baselineGFInterval field tracks that live cliff value;
 	// when it's set (>0) we use it for the next vp8_setup_key_frame read.
-	// The empirical confirmation captured in the task-263 trace: vpxenc's
+	// Empirical confirmation: vpxenc's
 	// --cpu-used flag triggers update_extracfg → vp8_change_config, and the
 	// init_state diagnostic for 128x128 BestQuality CBR shows
-	// "baseline_gf_interval":7 (NOT 40) after that reset. Task #263 reverts
-	// the part of task #235 that extended the gf_interval_onepass_cbr seed
-	// to good/best CBR at first-KF time; the live-cliff carry it added stays
-	// intact for the mid-stream KF case task #235 originally closed.
+	// "baseline_gf_interval":7 (NOT 40) after that reset. This reverts the
+	// good/best CBR first-keyframe extension of the gf_interval_onepass_cbr
+	// seed; the live-cliff carry stays intact for the mid-stream keyframe
+	// case it was introduced to preserve.
 	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
 		if e.rc.onePassAutoGold {
 			return 1

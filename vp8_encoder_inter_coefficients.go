@@ -142,8 +142,8 @@ func (e *VP8Encoder) consumeInterRDCoeffCache() *interRDCoeffCacheState {
 // match guards against accidental cross-MB reuse if the picker scratch
 // outlives a frame.
 //
-// Task #288 audit (negative): the task brief hypothesised that omissions
-// from this cache key (splitPartition / splitPartitionValid / rdMult /
+// Negative audit: the cache-key hypothesis was that omissions from this
+// key (splitPartition / splitPartitionValid / rdMult /
 // rdDiv / predictor identity) leaked picker-vs-accepted drift through as
 // identical-aggregate-eob single-coeff flips on UV blocks 20/23 scan-pos
 // 2 (the #284 ARNR-audit fingerprint). The recommended remediation was
@@ -603,13 +603,13 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 	// 2*avg)`. So the value libvpx emits at optimize_b time IS the
 	// activity-lifted rdMult — which is `tunedRDMultiplier(rdMult, mbRow,
 	// mbCol)` on the govpx side, NOT the raw vp8enc.RDConstantsWithZbin
-	// output. Task #316's bisect reported govpx=326 vs libvpx=551 at
+	// output. The chroma optimize_b bisect reported govpx=326 vs libvpx=551 at
 	// MB(0,0); the 326/551 ratio resolves to MB(0,0)'s textured-block
 	// activity ratio (~1.69x), not a real rdmult divergence — it's a
 	// trace-emit asymmetry, with govpx emitting the pre-activity-masking
 	// value and libvpx emitting the post-activity-masking value.
 	//
-	// Task #319 fix: emit the activity-lifted value (which is the value
+	// Emit the activity-lifted value (which is the value
 	// actually consumed by vp8enc.OptimizeQuantizedBlockWithRDConstants) so the
 	// post-trellis-bisect comparator sees the same scalar on both sides.
 	traceRDMult, traceRDDiv := 0, 0

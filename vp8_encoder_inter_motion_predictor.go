@@ -64,7 +64,7 @@ func (search interAnalysisSearchConfig) adjustedForImprovedMVStart(start interFr
 		// libvpxInterFrameFurtherSteps here would silently cap
 		// further_steps to 0 in the BestQuality+cpu_used>=8 RD-path cohort
 		// (sr>0 from improved_mv_pred), diverging frame-N MB modes from
-		// libvpx vp8_rd_pick_inter_mode (task #232 fuzz seed
+		// libvpx vp8_rd_pick_inter_mode (fuzz seed
 		// regression_option_grid_022b3ed5).
 		if search.fullPixelFinalRefine {
 			further := max(interFrameMaxMVSearchSteps-1-stepParam, 0)

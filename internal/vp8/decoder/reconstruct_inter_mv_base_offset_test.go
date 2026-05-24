@@ -9,7 +9,7 @@ import (
 // TestReconstructWholeMVInterMacroblockMVBaseOffsetMB0MV816 pins the
 // MV->reference-plane base-offset arithmetic used by the encoder picker and
 // the decoder grid path at MB(0,0) for the integer-pel motion vector
-// MV=(row=8, col=16). Task #309 audit (sister to task #304):
+// MV=(row=8, col=16).
 //
 //	libvpx v1.16.0 vp8/common/reconinter.c:297-356 computes
 //	  ptr = ptr_base + (mv_row >> 3) * pre_stride + (mv_col >> 3);
@@ -30,7 +30,7 @@ import (
 // This test pins that invariant at the decoder API surface so a future
 // regression in either the MV >> 3 fold, the mbRow*16/mbCol*16 anchor, or
 // the yOrigin add surfaces as an explicit failure rather than as a silent
-// picker-side residual divergence (task #298 / #304).
+// picker-side residual divergence.
 func TestReconstructWholeMVInterMacroblockMVBaseOffsetMB0MV816(t *testing.T) {
 	const width, height = 64, 48
 	fb, err := common.NewFrameBuffer(width, height, 32, 32)

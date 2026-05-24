@@ -254,17 +254,17 @@ type oracleTraceRecodeIterRow struct {
 	// Pre-savings raw frame rate (libvpx `totalrate >> 8` at the end of
 	// vp8_encode_frame, encodeframe.c:941) and the per-component entropy
 	// savings subtracted from it (vp8_estimate_entropy_savings). Exposed
-	// at per-iter granularity so a Q-level picker divergence (the task
-	// #212 frame 4 iter 6 Q=9 finding) can be split into a picker
+	// at per-iter granularity so a Q-level picker divergence (frame 4
+	// iter 6 Q=9) can be split into a picker
 	// raw-rate component vs a coef-prob / ref-frame entropy-savings
 	// component, both at the same input Q on both sides.
 	RawRate             int `json:"raw_rate"`
 	CoefSavingsBits     int `json:"coef_savings_bits"`
 	RefFrameSavingsBits int `json:"ref_frame_savings_bits"`
-	// Task #365: per-iter rfct (count_mb_ref_frame_usage) and the
+	// Per-iter rfct (count_mb_ref_frame_usage) and the
 	// pre-iter prob_intra/last/gf used by the picker's vp8_calc_ref_frame_costs.
 	// These pin which iteration first admits an intra candidate against the
-	// inherited prob_intra=1 equilibrium that #352 localized.
+	// inherited prob_intra=1 equilibrium localized by the rate trace.
 	RfctIntra      int `json:"rfct_intra"`
 	RfctLast       int `json:"rfct_last"`
 	RfctGolden     int `json:"rfct_golden"`
@@ -279,7 +279,7 @@ type oracleTraceRecodeIterRow struct {
 
 // oracleTraceMBIterRateRow is a per-(iter, mb_row, mb_col) trace row capturing
 // the picker's chosen-mode rate at every recode iteration, not just the final
-// accepted iter. Mirrors task #218: at iter 6 Q=9 on the
+// accepted iter. At iter 6 Q=9 on the
 // regression_general_64x64_300kbps_spm8_f9_src0_0bb41d74 seed, govpx's
 // per-MB picker reports raw_rate=3175 vs libvpx's raw_rate=3116 — a 59-bit
 // drift accumulated across the 16 MBs of the 64x64 frame. The standard
@@ -360,7 +360,7 @@ type oracleTraceMBRow struct {
 	//   - ActivityAvg : cpi->activity_avg from calc_av_activity (line 156
 	//     / 164) at TuneSSIM. Defaults to 90<<12 from
 	//     vp8_create_compressor (onyx_if.c:1906) for PSNR runs.
-	// These were added in task #210 to localize the first diverging MB on
+	// These fields localize the first diverging MB on
 	// the residual 1280x720 SSIM seeds (94eb71d5, 19981bff) where the
 	// per-MB tracer was missing the activity-masking quartet.
 	MBActivity  uint32 `json:"mb_activity"`
@@ -418,7 +418,8 @@ type oracleTraceLastRefWindowRow struct {
 // pre-trellis snapshot (oracleTracePretrellisUVRow) so the bisect can
 // identify which scan_pos optimize_b flipped one way on libvpx and a
 // different way on govpx — the cohort of ±1 DC keep/drop divergences
-// pinpointed by task #314 (encoder qcoeff diff: 2241/3600 MBs on frame
+// pinpointed by the chroma trellis trace (encoder qcoeff diff:
+// 2241/3600 MBs on frame
 // 1, 2115 chroma-only, 85% DC-only). Gated by the govpx_oracle_trace
 // build tag plus GOVPX_ORACLE_CHROMA_OPTIMIZE_B=1 on both sides.
 type oracleTraceChromaOptimizeBRow struct {
@@ -441,9 +442,9 @@ type oracleTraceChromaOptimizeBRow struct {
 // coeff snapshot of a single UV block (16..23) on the accepted-path encode.
 // Mirrors the libvpx-side {"type":"pretrellis_uv_qcoeff",...} row emitted
 // by govpx_oracle_emit_pretrellis_uv (oracle_trace.c). Used to localize
-// the ARNR pin-hold (task #207 / #227) after the #282-#294 static-
-// inspection campaign exhausted candidate predictor / residual / quantize
-// / RC drift sources; the static audits confirmed the govpx ports of
+// the ARNR pin-hold after static inspections exhausted candidate
+// predictor / residual / quantize / RC drift sources; those audits
+// confirmed the govpx ports of
 // vp8_subtract_mbuv / vp8_short_fdct8x4 / vp8_regular_quantize_b are
 // byte-faithful, so the surviving -5/-6-byte gap must surface as a per-
 // position qcoeff divergence at the trellis input. Gated by the
@@ -929,7 +930,7 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 	}
 	state := e.oracleTraceState()
 	emitOracleTraceRow(state.writer, &row)
-	// Task #218: emit per-MB rate snapshots for THIS iter from the still-live
+	// Emit per-MB rate snapshots for THIS iter from the still-live
 	// mbBuffer. The buffer holds the just-completed iter's chosen-mode rate
 	// per MB; the next iter's encodeInterFrameAttempt /
 	// encodeKeyFrameAttempt resets it via resetOracleMBTraceBuffer. Without
@@ -955,7 +956,7 @@ func (e *VP8Encoder) emitOracleRecodeIterTrace(summary oracleTraceRecodeIterSumm
 		}
 		emitOracleTraceRow(state.writer, &iterRow)
 	}
-	// Task #373/#374: emit every inter-candidate row for THIS iter before the
+	// Emit every inter-candidate row for THIS iter before the
 	// next attempt resets the candidate buffer. The accepted-frame flush keeps
 	// a fallback path for direct unit tests and non-loop captures, but real
 	// traced inter frames should carry iter/Q here so recode-loop candidate
@@ -1138,7 +1139,7 @@ func (e *VP8Encoder) emitOraclePickerUVQuantizeTrace(mbRow int, mbCol int, block
 // is 1 when the MB picker picked an intra mode for this UV block. The
 // row's primary purpose is to surface (block, scan_pos) where libvpx
 // drops a ±1 qcoeff and govpx keeps it (or vice versa), localizing the
-// task #314 chroma trellis divergence to specific Viterbi positions.
+// chroma trellis divergence to specific Viterbi positions.
 func (e *VP8Encoder) emitOracleChromaOptimizeBTrace(mbRow int, mbCol int, block int, coeff *[16]int16, qcoeff *[16]int16, dqcoeff *[16]int16, dequant *[16]int16, eob int, rdMult int, rdDiv int, intra bool) {
 	if !e.oracleTraceChromaOptimizeBDumpEnabled() {
 		return

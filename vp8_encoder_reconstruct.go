@@ -309,8 +309,8 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			// refreshed zbin_extra — i.e., NOT the stale previous-MB
 			// value. Mirror that path here: when segmentation is
 			// enabled, the picker sees the current MB's actZbinAdj.
-			// Closes task #262 (cohort: 19981bff, 22f3d67c, 788d442c,
-			// 94eb71d5).
+			// This covers the SSIM keyframe cohorts 19981bff,
+			// 22f3d67c, 788d442c, and 94eb71d5.
 			if segmentation.Enabled {
 				pickActZbinAdj = actZbinAdj
 			}
@@ -723,9 +723,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// breakoutSkip only on the two real x->skip sources:
 			// inactiveMB (active-map) and staticBreakout (encode_breakout).
 			//
-			// Closes the BestARNR -5 / GoodARNR -6 byte pin holds at
+			// Closes the BestARNR -5 / GoodARNR -6 byte pins at
 			// threads=1, threads=2, and threads=4 on the 19981bff /
-			// 22f3d67c / 788d442c cohort (task #332). Discovery: at
+			// 22f3d67c / 788d442c cohort. Discovery: at
 			// threads=1, the entire picker scoreboard (mode/ref/mv) is
 			// byte-identical to libvpx for all 3600 frame-1 MBs; the only
 			// divergent state is MB(17,79) SPLITMV/LAST where govpx's

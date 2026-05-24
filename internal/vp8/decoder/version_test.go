@@ -11,7 +11,7 @@ func TestInterPredictionConfigForVersion(t *testing.T) {
 		ok      bool
 	}{
 		// LoopFilterHeaderForVersion must pass the header through unchanged
-		// (task #295): libvpx's vp8_setup_version sets filter_type as a default,
+		// libvpx's vp8_setup_version sets filter_type as a default,
 		// but the bitstream filter_type read in decodeframe.c always overwrites
 		// it, so the bitstream value is the effective filter_type.
 		{version: 0, lfType: NormalLoopFilter, ok: true},

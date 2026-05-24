@@ -194,7 +194,7 @@ func buildMultiKFStats() []FirstPassFrameStats {
 //  3. From frame 90, return frames_to_key == 30 (final KF group spans
 //     90..119, with the end-of-stats path tail-incrementing).
 //
-// Before task #192, prepareKFGroup used `len(stats) - frame`, which
+// The old prepareKFGroup implementation used `len(stats) - frame`, which
 // would mis-budget the first group at 120 and the second at 90 —
 // under-budgeting the first group and over-budgeting the rest.
 func TestLibvpxFindNextKeyFrameWalkMultiKFSequence(t *testing.T) {
@@ -220,9 +220,9 @@ func TestLibvpxFindNextKeyFrameWalkMultiKFSequence(t *testing.T) {
 }
 
 // TestTwoPassPrepareKFGroupHonorsNaturalKFOnMultiKFStream pins the
-// task #192 fix: prepareKFGroup must seed framesToKeyRemaining and
-// kfGroupErrorLeft using the libvpx find_next_key_frame walk, not
-// the degenerate `len(stats) - frame` span. On the multi-KF stream
+// libvpx find_next_key_frame walk: prepareKFGroup must seed
+// framesToKeyRemaining and kfGroupErrorLeft from the walk, not the
+// degenerate `len(stats) - frame` span. On the multi-KF stream
 // with scene cuts at frame 30 and 90, the first KF group must span
 // 30 frames (not 120), the second 60 frames (not 90), and the third
 // 30 frames.

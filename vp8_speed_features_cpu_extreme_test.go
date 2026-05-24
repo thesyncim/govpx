@@ -448,7 +448,7 @@ func TestVP8ExtremeCPUUsedSimpleLoopFilterStaysOff(t *testing.T) {
 // EncodeInto pipeline end-to-end at the extreme realtime cpu_used tier
 // across the two production resolutions (1280x720 and 854x480), with two
 // frames each (one keyframe + one inter). The test is a smoke gate: the
-// speed-feature state computed by the other Task #247 tests must produce
+// speed-feature state computed by the focused cpu-used tests must produce
 // a valid bitstream without runtime errors at every cpu_used in the
 // extreme tier. Any panic or error in the encode loop would surface a
 // missing-port or a mis-wired Speed-cascade branch.

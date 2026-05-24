@@ -7,7 +7,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// Task #241 audit pins for the encoder-side coef-probability writer against
+// TestCoefficientProbabilityWriterPinsLibvpxUpdateCosts pins the
+// encoder-side coef-probability writer against
 // libvpx v1.16.0 vp8/encoder/bitstream.c update_coef_probs2 +
 // vp8_update_coef_probs (lines 865-950) and pack_coef_probs (lines 953-982).
 //
