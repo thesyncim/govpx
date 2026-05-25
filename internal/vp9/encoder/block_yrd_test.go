@@ -268,6 +268,102 @@ func TestVP9ModelRdForSbYUsesCalculateTxSizeBranches(t *testing.T) {
 	}
 }
 
+func TestVP9ModelRdForSbYLargeSkipsIdenticalPrediction(t *testing.T) {
+	const w, h = 32, 32
+	var src [w * h]byte
+	var pred [w * h]byte
+	for i := range src {
+		src[i] = 128
+		pred[i] = 128
+	}
+
+	res := ModelRdForSbYLarge(ModelRdForSbYLargeArgs{
+		BSize:      common.Block32x32,
+		Dequant:    [2]int16{128, 128},
+		Src:        src[:],
+		SrcStride:  w,
+		Pred:       pred[:],
+		PredStride: w,
+		TxMode:     common.TxModeSelect,
+		Speed:      8,
+		Width:      w,
+		Height:     h,
+	})
+	if !res.Valid {
+		t.Fatal("ModelRdForSbYLarge returned invalid result")
+	}
+	if res.VarY != 0 || res.SSEY != 0 {
+		t.Fatalf("VarY/SSEY = %d/%d, want 0/0 for identical block",
+			res.VarY, res.SSEY)
+	}
+	if res.SkipTxfm != SkipTxfmAcDc {
+		t.Fatalf("SkipTxfm = %d, want AC_DC", res.SkipTxfm)
+	}
+	if res.TxSize < common.Tx8x8 {
+		t.Fatalf("TxSize = %d, want at least TX_8X8", res.TxSize)
+	}
+	if res.Rate != 0 || res.Dist != 0 {
+		t.Fatalf("Rate/Dist = %d/%d, want 0/0", res.Rate, res.Dist)
+	}
+}
+
+func TestVP9ModelRdForSbYLargeRejectsSingleHotTileSkip(t *testing.T) {
+	const w, h = 32, 32
+	var src [w * h]byte
+	var pred [w * h]byte
+	for i := range src {
+		src[i] = 128
+		pred[i] = 128
+	}
+	for y := range 8 {
+		for x := range 8 {
+			if (x+y)&1 == 0 {
+				src[y*w+x] = 0
+			} else {
+				src[y*w+x] = 255
+			}
+		}
+	}
+
+	res := ModelRdForSbYLarge(ModelRdForSbYLargeArgs{
+		BSize:      common.Block32x32,
+		Dequant:    [2]int16{32, 32},
+		Src:        src[:],
+		SrcStride:  w,
+		Pred:       pred[:],
+		PredStride: w,
+		TxMode:     common.TxModeSelect,
+		Speed:      8,
+		Width:      w,
+		Height:     h,
+	})
+	if !res.Valid {
+		t.Fatal("ModelRdForSbYLarge returned invalid result")
+	}
+	if res.SkipTxfm == SkipTxfmAcDc {
+		t.Fatal("SkipTxfm = AC_DC, want hot 8x8 tile to keep Y residue live")
+	}
+	if res.Rate <= 0 || res.Dist <= 0 {
+		t.Fatalf("Rate/Dist = %d/%d, want positive RD for hot tile",
+			res.Rate, res.Dist)
+	}
+}
+
+func TestVP9ModelRdACThresholdFactorMirrorsLibvpx(t *testing.T) {
+	if got := modelRdACThresholdFactor(8, 640, 480, 4); got != 4 {
+		t.Fatalf("factor small-frame = %d, want 4", got)
+	}
+	if got := modelRdACThresholdFactor(8, 1280, 720, 4); got != 2 {
+		t.Fatalf("factor large-frame = %d, want 2", got)
+	}
+	if got := modelRdACThresholdFactor(7, 640, 480, 4); got != 1 {
+		t.Fatalf("factor speed7 = %d, want 1", got)
+	}
+	if got := modelRdACThresholdFactor(8, 640, 480, 5); got != 1 {
+		t.Fatalf("factor norm-sum5 = %d, want 1", got)
+	}
+}
+
 // TestVP9BlockErrorFPZero pins libvpx vp9_rdopt.c:334-345: when coeff ==
 // dqcoeff the per-element diff is zero, so error = 0 regardless of
 // magnitude. The hand-computed expected value is 0.

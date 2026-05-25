@@ -320,7 +320,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
 	sourceVariance := ^uint(0)
 	if e.sf.ShortCircuitFlatBlocks != 0 || e.sf.LimitNewmvEarlyExit != 0 ||
-		e.opts.AQMode == VP9AQCyclicRefresh {
+		e.opts.AQMode == VP9AQCyclicRefresh || e.vp9UseModelYrdLargeBlock(bsize) {
 		if v, ok := e.vp9NonrdSourceVariance(inter, miRow, miCol, bsize); ok {
 			sourceVariance = v
 		}
@@ -1042,6 +1042,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			dequantU = inter.dq.Uv[segID]
 			dequantV = inter.dq.Uv[segID]
 		}
+		useModelYrdLarge := e.vp9UseModelYrdLargeBlock(bsize) &&
+			!encoder.CyclicRefreshSegmentIDBoosted(segID) &&
+			inter.baseQindex != 0
 
 		// libvpx: vp9_pickmode.c:2318-2410. Filter candidates are scored
 		// through model_rd_for_sb_y and the block_yrd refinement below, so
@@ -1076,13 +1079,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bestSseSoFar = sseY
 			}
 
-			// libvpx vp9_pickmode.c:2346 model_rd_for_sb_y — produces
-			// (rate_y, dist_y) in libvpx's prob-cost / shifted-domain
-			// distortion units. govpx ports the kernel in
-			// internal/vp9/encoder.ModelRdForSbY. The kernel also
-			// produces tx_size via calculate_tx_size (libvpx
-			// vp9_pickmode.c:660-680); block_yrd consumes
-			// min(tx_size, TX_16X16).
+			// libvpx vp9_pickmode.c:2338-2348 dispatches CBR large
+			// blocks through model_rd_for_sb_y_large, otherwise through
+			// model_rd_for_sb_y. Both produce (rate_y, dist_y) in
+			// prob-cost / shifted-domain distortion units and a tx_size
+			// for the block_yrd refinement below.
 			rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 				BSize:           bsize,
 				QIndex:          segQIndex,
@@ -1095,6 +1096,39 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
 				ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 			})
+			if useModelYrdLarge {
+				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+				dst, dstStride := e.vp9EncoderReconPlane(0)
+				x0 := miCol * common.MiSize
+				y0 := miRow * common.MiSize
+				large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
+					BSize:           bsize,
+					Dequant:         dequantY,
+					Src:             src,
+					SrcStride:       srcStride,
+					SrcX:            x0,
+					SrcY:            y0,
+					Pred:            dst,
+					PredStride:      dstStride,
+					PredX:           x0,
+					PredY:           y0,
+					TxMode:          frameTxMode,
+					SourceVariance:  uint64(sourceVariance),
+					SegmentID:       segID,
+					CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+					Speed:           e.vp9SpeedFeatureCPUUsed(),
+					Width:           e.opts.Width,
+					Height:          e.opts.Height,
+				})
+				if large.Valid {
+					rateY = large.Rate
+					distY = large.Dist
+					varY = large.VarY
+					sseY = large.SSEY
+					mrdTxSize = large.TxSize
+				}
+			}
 
 			// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
 			// (rd_computed=1 from the model_rd call above, and

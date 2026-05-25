@@ -85,7 +85,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			cur.Skip = 1
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
 			uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-				miRow, miCol, reconBsize, tile, &cur, forcedRefFrame, forcedRef)
+				miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
 			segID = vp9EncoderMiSegmentID(&cur)
 			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 			if hasResidue {

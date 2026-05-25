@@ -687,28 +687,37 @@ type CyclicRefreshPostencodeResult struct {
 	ClearRefreshGolden bool
 }
 
-// UpdateSegment mirrors vp9_cyclic_refresh_update_segment() from
-// vp9_aq_cyclicrefresh.c:161-223. The mode picker initially labels a block
-// from the prepared cyclic map; after the mode decision is known, libvpx may
-// reset that provisional boosted segment to BASE, promote a cheap zero-motion
-// inter block to BOOST2, or leave it as BOOST1. The realized segment is written
-// back to both the current segmentation map and the cyclic refresh map.
-func (cr *CyclicRefreshState) UpdateSegment(args CyclicRefreshUpdateSegmentArgs) uint8 {
+type CyclicRefreshResolvedSegment struct {
+	SegmentID       uint8
+	RefreshMapValue int8
+	BlockIndex      int
+	XMis            int
+	YMis            int
+}
+
+// ResolveSegment runs the segment-id decision from
+// vp9_cyclic_refresh_update_segment without mutating the refresh or
+// segmentation maps. Encoders use this during count-only walks so the
+// measured segment-map coding costs see the same segment IDs the real
+// encode pass will commit.
+func (cr *CyclicRefreshState) ResolveSegment(
+	args CyclicRefreshUpdateSegmentArgs,
+) (CyclicRefreshResolvedSegment, bool) {
 	if cr.MIRows <= 0 || cr.MICols <= 0 || args.MIRow < 0 || args.MICol < 0 ||
 		args.MIRow >= cr.MIRows || args.MICol >= cr.MICols ||
 		args.BSize < common.Block4x4 || args.BSize >= common.BlockSizes {
-		return args.SegmentID
+		return CyclicRefreshResolvedSegment{}, false
 	}
 	xmis := min(cr.MICols-args.MICol, int(common.Num8x8BlocksWideLookup[args.BSize]))
 	ymis := min(cr.MIRows-args.MIRow, int(common.Num8x8BlocksHighLookup[args.BSize]))
 	if xmis <= 0 || ymis <= 0 {
-		return args.SegmentID
+		return CyclicRefreshResolvedSegment{}, false
 	}
 
 	blockIndex := args.MIRow*cr.MICols + args.MICol
 	if blockIndex < 0 || blockIndex >= len(cr.RefreshMap) ||
 		blockIndex >= len(cr.SegMap) {
-		return args.SegmentID
+		return CyclicRefreshResolvedSegment{}, false
 	}
 	refreshThisBlock := cyclicRefreshCandidateSegment(cr, args)
 	if args.RateControlIsVBR && args.RefFrame == vp9dec.GoldenFrame {
@@ -734,19 +743,40 @@ func (cr *CyclicRefreshState) UpdateSegment(args CyclicRefreshUpdateSegmentArgs)
 		newMapValue = 1
 	}
 
-	for y := range ymis {
-		row := blockIndex + y*cr.MICols
-		for x := range xmis {
+	return CyclicRefreshResolvedSegment{
+		SegmentID:       segmentID,
+		RefreshMapValue: newMapValue,
+		BlockIndex:      blockIndex,
+		XMis:            xmis,
+		YMis:            ymis,
+	}, true
+}
+
+// UpdateSegment mirrors vp9_cyclic_refresh_update_segment() from
+// vp9_aq_cyclicrefresh.c:161-223. The mode picker initially labels a block
+// from the prepared cyclic map; after the mode decision is known, libvpx may
+// reset that provisional boosted segment to BASE, promote a cheap zero-motion
+// inter block to BOOST2, or leave it as BOOST1. The realized segment is written
+// back to both the current segmentation map and the cyclic refresh map.
+func (cr *CyclicRefreshState) UpdateSegment(args CyclicRefreshUpdateSegmentArgs) uint8 {
+	resolved, ok := cr.ResolveSegment(args)
+	if !ok {
+		return args.SegmentID
+	}
+
+	for y := range resolved.YMis {
+		row := resolved.BlockIndex + y*cr.MICols
+		for x := range resolved.XMis {
 			off := row + x
 			if off >= 0 && off < len(cr.RefreshMap) {
-				cr.RefreshMap[off] = newMapValue
+				cr.RefreshMap[off] = resolved.RefreshMapValue
 			}
 			if off >= 0 && off < len(cr.SegMap) {
-				cr.SegMap[off] = segmentID
+				cr.SegMap[off] = resolved.SegmentID
 			}
 		}
 	}
-	return segmentID
+	return resolved.SegmentID
 }
 
 type CyclicRefreshUpdateSegmentArgs struct {

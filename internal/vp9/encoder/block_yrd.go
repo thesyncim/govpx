@@ -218,6 +218,295 @@ type TxSizeForcesArgs struct {
 	ScreenContent   bool
 }
 
+type ModelRdForSbYLargeArgs struct {
+	BSize   common.BlockSize
+	Dequant [2]int16
+
+	Src        []byte
+	SrcStride  int
+	SrcX       int
+	SrcY       int
+	Pred       []byte
+	PredStride int
+	PredX      int
+	PredY      int
+
+	TxMode            common.TxMode
+	SourceVariance    uint64
+	SegmentID         uint8
+	CyclicRefreshAQ   bool
+	ScreenContent     bool
+	ZeroTempSADSource bool
+
+	Speed  int
+	Width  int
+	Height int
+}
+
+type ModelRdForSbYLargeResult struct {
+	Rate     int
+	Dist     int64
+	VarY     uint64
+	SSEY     uint64
+	SkipTxfm SkipTxfmFlag
+	TxSize   common.TxSize
+	Valid    bool
+}
+
+// ModelRdForSbYLarge ports libvpx model_rd_for_sb_y_large
+// (vp9_pickmode.c:439-643) for the 8-bit Y plane. The large-block kernel
+// differs from ModelRdForSbY by testing every 8x8/16x16/32x32 transform unit
+// before declaring the whole Y plane skippable; that prevents a single
+// high-energy tile from being hidden by a low whole-block average.
+func ModelRdForSbYLarge(args ModelRdForSbYLargeArgs) ModelRdForSbYLargeResult {
+	var res ModelRdForSbYLargeResult
+	if args.BSize < common.Block8x8 || args.BSize >= common.BlockSizes ||
+		args.SrcStride <= 0 || args.PredStride <= 0 {
+		return res
+	}
+	bwLog2 := int(common.BWidthLog2Lookup[args.BSize])
+	bhLog2 := int(common.BHeightLog2Lookup[args.BSize])
+	blockW := 4 << uint(bwLog2)
+	blockH := 4 << uint(bhLog2)
+	if !modelRdWindowFits(args.Src, args.SrcStride, args.SrcX, args.SrcY,
+		blockW, blockH) ||
+		!modelRdWindowFits(args.Pred, args.PredStride, args.PredX, args.PredY,
+			blockW, blockH) {
+		return res
+	}
+
+	var sse8x8 [64]uint32
+	var sum8x8 [64]int
+	var var8x8 [64]uint32
+	sse, sum, ok := modelRdBlockVariance8x8(args.Src, args.SrcStride,
+		args.SrcX, args.SrcY, args.Pred, args.PredStride, args.PredX,
+		args.PredY, blockW, blockH, sse8x8[:], sum8x8[:], var8x8[:])
+	if !ok {
+		return res
+	}
+
+	sumSqr := uint32((int64(sum) * int64(sum)) >> uint(bwLog2+bhLog2+4))
+	varY := modelRdAbsDiff32(sse, sumSqr)
+	res.VarY = uint64(varY)
+	res.SSEY = uint64(sse)
+
+	dcQuant := uint32(args.Dequant[0])
+	acQuant := uint32(args.Dequant[1])
+	dcThr := int64(dcQuant*dcQuant) >> 6
+	acThr := int64(acQuant*acQuant) >> 6
+	acThr *= int64(modelRdACThresholdFactor(args.Speed, args.Width,
+		args.Height, modelRdAbsInt(sum)>>uint(bwLog2+bhLog2)))
+
+	txSize := CalculateTxSize(CalculateTxSizeArgs{
+		BSize:           args.BSize,
+		TxMode:          args.TxMode,
+		VarY:            uint64(varY),
+		SSEY:            uint64(sse),
+		ACThreshold:     acThr,
+		SourceVariance:  args.SourceVariance,
+		CyclicRefreshAQ: args.CyclicRefreshAQ,
+		SegmentID:       args.SegmentID,
+		ScreenContent:   args.ScreenContent,
+	})
+	if txSize < common.Tx8x8 {
+		txSize = common.Tx8x8
+	}
+	res.TxSize = txSize
+
+	if args.ScreenContent && args.ZeroTempSADSource && args.SourceVariance == 0 {
+		dcThr <<= 1
+	}
+
+	num8x8 := 1 << uint(bwLog2+bhLog2-2)
+	sseTx := sse8x8[:]
+	varTx := var8x8[:]
+	numTx := num8x8
+	var sse16x16 [16]uint32
+	var sum16x16 [16]int
+	var var16x16 [16]uint32
+	if txSize >= common.Tx16x16 {
+		modelRdAggregateVariance(bwLog2, bhLog2, common.Tx8x8,
+			sse8x8[:], sum8x8[:], var16x16[:], sse16x16[:], sum16x16[:])
+		sseTx = sse16x16[:]
+		varTx = var16x16[:]
+		numTx = num8x8 >> 2
+	}
+	var sse32x32 [4]uint32
+	var sum32x32 [4]int
+	var var32x32 [4]uint32
+	if txSize == common.Tx32x32 {
+		modelRdAggregateVariance(bwLog2, bhLog2, common.Tx16x16,
+			sse16x16[:], sum16x16[:], var32x32[:], sse32x32[:], sum32x32[:])
+		sseTx = sse32x32[:]
+		varTx = var32x32[:]
+		numTx = num8x8 >> 4
+	}
+
+	skipDc := false
+	res.SkipTxfm = modelRdLargeSkipTxfm(sse, varY, sseTx, varTx, numTx,
+		acThr, dcThr)
+	if res.SkipTxfm == SkipTxfmNone &&
+		modelRdLargeDCSkippable(sse, varY, sseTx, varTx, numTx, dcThr) {
+		skipDc = true
+	}
+
+	if res.SkipTxfm == SkipTxfmAcDc {
+		res.Rate = 0
+		res.Dist = int64(uint64(sse) << 4)
+		res.Valid = true
+		return res
+	}
+
+	nLog2 := uint(common.NumPelsLog2Lookup[args.BSize])
+	if !skipDc {
+		dcRate, dcDist := ModelRDFromVarLapndz(sse-varY, nLog2, dcQuant>>3)
+		res.Rate = dcRate >> 1
+		res.Dist = dcDist << 3
+	} else {
+		res.Rate = 0
+		res.Dist = int64(uint64(sse-varY) << 4)
+	}
+	acRate, acDist := ModelRDFromVarLapndz(varY, nLog2, acQuant>>3)
+	res.Rate += acRate
+	res.Dist += acDist << 4
+	res.Valid = true
+	return res
+}
+
+func modelRdWindowFits(buf []byte, stride, x, y, w, h int) bool {
+	if len(buf) == 0 || stride <= 0 || x < 0 || y < 0 || w <= 0 || h <= 0 {
+		return false
+	}
+	if x+w > stride {
+		return false
+	}
+	return (y+h)*stride <= len(buf)
+}
+
+func modelRdBlockVariance8x8(src []byte, srcStride, srcX, srcY int,
+	pred []byte, predStride, predX, predY, w, h int,
+	sse8x8 []uint32, sum8x8 []int, var8x8 []uint32,
+) (uint32, int, bool) {
+	if w%8 != 0 || h%8 != 0 {
+		return 0, 0, false
+	}
+	k := 0
+	var totalSSE uint32
+	totalSum := 0
+	for y := 0; y < h; y += 8 {
+		for x := 0; x < w; x += 8 {
+			if k >= len(sse8x8) || k >= len(sum8x8) || k >= len(var8x8) {
+				return 0, 0, false
+			}
+			var blockSSE uint32
+			blockSum := 0
+			for yy := range 8 {
+				srcRow := src[(srcY+y+yy)*srcStride+srcX+x:]
+				predRow := pred[(predY+y+yy)*predStride+predX+x:]
+				for xx := range 8 {
+					diff := int(srcRow[xx]) - int(predRow[xx])
+					blockSum += diff
+					blockSSE += uint32(diff * diff)
+				}
+			}
+			sse8x8[k] = blockSSE
+			sum8x8[k] = blockSum
+			sumSqr := uint32((int64(blockSum) * int64(blockSum)) >> 6)
+			var8x8[k] = modelRdAbsDiff32(blockSSE, sumSqr)
+			totalSSE += blockSSE
+			totalSum += blockSum
+			k++
+		}
+	}
+	return totalSSE, totalSum, true
+}
+
+func modelRdAggregateVariance(bwLog2, bhLog2 int, txSize common.TxSize,
+	inSSE []uint32, inSum []int, outVar []uint32, outSSE []uint32, outSum []int,
+) {
+	unitSize := common.TxsizeToBsize[txSize]
+	nw := 1 << uint(bwLog2-int(common.BWidthLog2Lookup[unitSize]))
+	nh := 1 << uint(bhLog2-int(common.BHeightLog2Lookup[unitSize]))
+	k := 0
+	for y := 0; y < nh; y += 2 {
+		for x := 0; x < nw; x += 2 {
+			idx := y*nw + x
+			sse := inSSE[idx] + inSSE[idx+1] +
+				inSSE[idx+nw] + inSSE[idx+nw+1]
+			sum := inSum[idx] + inSum[idx+1] +
+				inSum[idx+nw] + inSum[idx+nw+1]
+			outSSE[k] = sse
+			outSum[k] = sum
+			shift := int(common.BWidthLog2Lookup[unitSize]) +
+				int(common.BHeightLog2Lookup[unitSize]) + 6
+			sumSqr := uint32((int64(sum) * int64(sum)) >> uint(shift))
+			outVar[k] = modelRdAbsDiff32(sse, sumSqr)
+			k++
+		}
+	}
+}
+
+func modelRdLargeSkipTxfm(sse, varY uint32, sseTx, varTx []uint32, num int,
+	acThr, dcThr int64,
+) SkipTxfmFlag {
+	acTest := true
+	dcTest := true
+	for k := range num {
+		if !(int64(varTx[k]) < acThr || varY == 0) {
+			acTest = false
+			break
+		}
+	}
+	for k := range num {
+		if !(int64(sseTx[k]-varTx[k]) < dcThr || sse == varY) {
+			dcTest = false
+			break
+		}
+	}
+	if acTest {
+		if dcTest {
+			return SkipTxfmAcDc
+		}
+		return SkipTxfmAcOnly
+	}
+	return SkipTxfmNone
+}
+
+func modelRdLargeDCSkippable(sse, varY uint32, sseTx, varTx []uint32,
+	num int, dcThr int64,
+) bool {
+	for k := range num {
+		if !(int64(sseTx[k]-varTx[k]) < dcThr || sse == varY) {
+			return false
+		}
+	}
+	return true
+}
+
+func modelRdACThresholdFactor(speed, width, height int, normSum int) int {
+	if speed >= 8 && normSum < 5 {
+		if width <= 640 && height <= 480 {
+			return 4
+		}
+		return 2
+	}
+	return 1
+}
+
+func modelRdAbsDiff32(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
+func modelRdAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 // CalculateTxSize ports libvpx vp9_pickmode.c:363-393. It is shared by the
 // non-RD model_rd_for_sb_y path and the root encoder's later tx-size picker so
 // the AQ/screen-content transform-size rules do not drift apart.

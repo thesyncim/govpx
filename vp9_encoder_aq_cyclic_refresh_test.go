@@ -135,7 +135,7 @@ func TestVP9EncoderCyclicRefreshInterSegmentUpdateUsesPickedMode(t *testing.T) {
 		distortion: 0,
 	}
 
-	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{},
+	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{}, nil,
 		4, 4, 0, 0, common.Block16x16, &mi, decision)
 	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
 		t.Fatalf("SegmentID = %d, want BOOST2 after cheap zero-motion LAST decision", mi.SegmentID)
@@ -176,14 +176,69 @@ func TestVP9EncoderCyclicRefreshInterSegmentUpdateLeavesCountPassReadOnly(t *tes
 	}
 
 	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{counts: &vp9enc.FrameCounts{}},
+		nil,
 		4, 4, 0, 0, common.Block16x16, &mi, decision)
-	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost1 {
-		t.Fatalf("SegmentID = %d, want unchanged during count pass", mi.SegmentID)
+	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegmentID = %d, want simulated BOOST2 during count pass", mi.SegmentID)
 	}
 	if e.cyclicAQ.SegMap[0] != 0 {
 		t.Fatalf("SegMap[0] = %d, want unchanged during count pass", e.cyclicAQ.SegMap[0])
 	}
 	if e.cyclicAQ.RefreshMap[0] != 1 {
 		t.Fatalf("RefreshMap[0] = %d, want unchanged during count pass", e.cyclicAQ.RefreshMap[0])
+	}
+}
+
+func TestVP9EncoderCyclicRefreshInterSegmentUpdateRefreshesTemporalPrediction(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			AQMode: VP9AQCyclicRefresh,
+		},
+		prevSegmentMap: []uint8{
+			vp9enc.CyclicRefreshSegmentBoost2,
+			vp9enc.CyclicRefreshSegmentBoost2,
+			vp9enc.CyclicRefreshSegmentBoost2,
+			vp9enc.CyclicRefreshSegmentBoost2,
+		},
+		prevSegmentMapRows:  2,
+		prevSegmentMapCols:  2,
+		prevSegmentMapValid: true,
+	}
+	e.sf.UseNonrdPickMode = 1
+	e.cyclicAQ = vp9enc.CyclicRefreshState{
+		Enabled:        true,
+		Apply:          true,
+		ContentMode:    true,
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	e.cyclicAQ.Alloc(2, 2)
+	seg := vp9dec.SegmentationParams{
+		Enabled:        true,
+		UpdateMap:      true,
+		TemporalUpdate: true,
+	}
+	mi := vp9dec.NeighborMi{
+		SegmentID:      vp9enc.CyclicRefreshSegmentBoost1,
+		SegIDPredicted: 0,
+	}
+	decision := vp9InterModeDecision{
+		refFrame:   vp9dec.LastFrame,
+		mv:         [2]vp9dec.MV{{}},
+		rate:       10,
+		distortion: 0,
+	}
+
+	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{}, &seg,
+		2, 2, 0, 0, common.Block16x16, &mi, decision)
+	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegmentID = %d, want BOOST2", mi.SegmentID)
+	}
+	if mi.SegIDPredicted != 1 {
+		t.Fatalf("SegIDPredicted = %d, want temporal match after segment update",
+			mi.SegIDPredicted)
 	}
 }

@@ -104,10 +104,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
-	forcedRefFrame int8, forcedRef bool,
+	seg *vp9dec.SegmentationParams, forcedRefFrame int8, forcedRef bool,
 ) (common.PredictionMode, bool) {
 	interDecision, ok := e.prepareVP9InterPredictionBlock(inter, miRows, miCols,
-		miRow, miCol, bsize, tile, mi, forcedRefFrame, forcedRef)
+		miRow, miCol, bsize, tile, mi, seg, forcedRefFrame, forcedRef)
 	if !ok {
 		return common.DcPred, false
 	}
@@ -300,7 +300,7 @@ func vp9StaticThresholds(threshold int, yDequant [2]int16,
 func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
-	forcedRefFrame int8, forcedRef bool,
+	seg *vp9dec.SegmentationParams, forcedRefFrame int8, forcedRef bool,
 ) (vp9InterModeDecision, bool) {
 	if mi == nil {
 		return vp9InterModeDecision{}, false
@@ -370,8 +370,8 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		return vp9InterModeDecision{}, false
 	}
 	if pickedValid {
-		e.vp9UpdateCyclicRefreshInterSegment(inter, miRows, miCols, miRow, miCol,
-			bsize, mi, picked)
+		e.vp9UpdateCyclicRefreshInterSegment(inter, seg, miRows, miCols,
+			miRow, miCol, bsize, mi, picked)
 	}
 	if pickedValid && picked.intra {
 		mi.Mode = picked.mode

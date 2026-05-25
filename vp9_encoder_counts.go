@@ -231,6 +231,31 @@ func (e *VP9Encoder) countVP9SegmentMapBlock(miRows, miCols int,
 	if predicted == 0 {
 		tUnpredCounts[segID]++
 	}
+	e.setVP9SegmentMapPredicted(miRows, miCols, miRow, miCol, mi.SbType,
+		predicted)
+}
+
+func (e *VP9Encoder) setVP9SegmentMapPredicted(miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, predicted uint8,
+) {
+	if e == nil || bsize < common.Block4x4 || bsize >= common.BlockSizes ||
+		miRow < 0 || miCol < 0 || miRow >= miRows || miCol >= miCols {
+		return
+	}
+	bw := min(miCols-miCol, int(common.Num8x8BlocksWideLookup[bsize]))
+	bh := min(miRows-miRow, int(common.Num8x8BlocksHighLookup[bsize]))
+	if bw <= 0 || bh <= 0 {
+		return
+	}
+	for y := range bh {
+		row := (miRow + y) * miCols
+		for x := range bw {
+			idx := row + miCol + x
+			if idx >= 0 && idx < len(e.miGrid) {
+				e.miGrid[idx].SegIDPredicted = predicted
+			}
+		}
+	}
 }
 
 func vp9CalcSegTreeProbs(segCounts [vp9dec.MaxSegments]uint32,

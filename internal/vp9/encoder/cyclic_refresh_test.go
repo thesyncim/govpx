@@ -112,6 +112,45 @@ func TestVP9CyclicRefreshUpdateSegmentPromotesCheapZeroMotionInterBlock(t *testi
 	}
 }
 
+func TestVP9CyclicRefreshResolveSegmentDoesNotMutateMaps(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	cr.Alloc(4, 4)
+	cr.RefreshMap[0] = 1
+
+	resolved, ok := cr.ResolveSegment(vp9enc.CyclicRefreshUpdateSegmentArgs{
+		MIRow:            0,
+		MICol:            0,
+		BSize:            common.Block16x16,
+		SegmentID:        vp9enc.CyclicRefreshSegmentBoost1,
+		RefFrame:         vp9dec.LastFrame,
+		Rate:             10,
+		IsInter:          true,
+		UseNonrdPickMode: true,
+	})
+	if !ok {
+		t.Fatal("ResolveSegment returned !ok")
+	}
+	if resolved.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegmentID = %d, want BOOST2", resolved.SegmentID)
+	}
+	if resolved.RefreshMapValue != -int8(cr.TimeForRefresh) {
+		t.Fatalf("RefreshMapValue = %d, want -TimeForRefresh",
+			resolved.RefreshMapValue)
+	}
+	if cr.SegMap[0] != vp9enc.CyclicRefreshSegmentBase {
+		t.Fatalf("SegMap[0] = %d, want unchanged BASE", cr.SegMap[0])
+	}
+	if cr.RefreshMap[0] != 1 {
+		t.Fatalf("RefreshMap[0] = %d, want unchanged candidate marker", cr.RefreshMap[0])
+	}
+}
+
 // TestVP9CyclicRefreshUpdateSegmentSkipResetsBoostedBlock pins
 // vp9_cyclic_refresh_update_segment(): non-RD boosted blocks are reset to BASE
 // when the picked mode skips transform coding.

@@ -100,17 +100,17 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 }
 
 func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mi *vp9dec.NeighborMi, decision vp9InterModeDecision,
+	seg *vp9dec.SegmentationParams, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, decision vp9InterModeDecision,
 ) {
-	if e == nil || inter == nil || mi == nil || inter.counts != nil ||
+	if e == nil || inter == nil || mi == nil ||
 		e.opts.AQMode != VP9AQCyclicRefresh || !e.vp9InterUsesNonrdPickmode() ||
 		!e.cyclicAQ.Enabled || !e.cyclicAQ.Apply || !e.cyclicAQ.ContentMode ||
 		e.cyclicAQ.MIRows != miRows || e.cyclicAQ.MICols != miCols {
 		return
 	}
 	isInter := !decision.intra && decision.refFrame > vp9dec.IntraFrame
-	segID := e.cyclicAQ.UpdateSegment(encoder.CyclicRefreshUpdateSegmentArgs{
+	args := encoder.CyclicRefreshUpdateSegmentArgs{
 		MIRow:            miRow,
 		MICol:            miCol,
 		BSize:            bsize,
@@ -124,11 +124,27 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeSta
 		Skip:             decision.skip,
 		UseNonrdPickMode: true,
 		RateControlIsVBR: e.rc.mode == RateControlVBR,
-	})
+	}
+	segID := mi.SegmentID
+	if inter.counts != nil {
+		if resolved, ok := e.cyclicAQ.ResolveSegment(args); ok {
+			segID = resolved.SegmentID
+		}
+	} else {
+		segID = e.cyclicAQ.UpdateSegment(args)
+	}
 	if segID >= vp9dec.MaxSegments {
 		segID = 0
 	}
 	mi.SegmentID = segID
+	if seg != nil && seg.Enabled && seg.UpdateMap {
+		if seg.TemporalUpdate {
+			mi.SegIDPredicted = e.vp9EncoderSegmentMapPredicted(miRows, miCols,
+				miRow, miCol, bsize, segID)
+		} else {
+			mi.SegIDPredicted = segID
+		}
+	}
 }
 
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {

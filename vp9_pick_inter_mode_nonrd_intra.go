@@ -28,6 +28,17 @@ func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
 		blockW, blockH), true
 }
 
+func (e *VP9Encoder) vp9UseModelYrdLargeBlock(bsize common.BlockSize) bool {
+	if e == nil || !e.opts.RateControlModeSet ||
+		e.opts.RateControlMode != RateControlCBR {
+		return false
+	}
+	if e.vp9SpeedFeatureCPUUsed() < 7 {
+		return bsize > common.Block32x32
+	}
+	return bsize >= common.Block32x32
+}
+
 // vp9NonrdEstimateIntraFallback ports the intra-fallback section inside
 // libvpx's vp9_pick_inter_mode (vp9_pickmode.c:2525-2648). It walks
 // intra_mode_list (DC_PRED, V_PRED, H_PRED, TM_PRED) and computes a
