@@ -34,8 +34,12 @@ deletes a real compatibility/test/oracle seam over several tiny commits that
 only shuffle one or two assertions. Small edits are fine while staging, but
 they should be batched into an impact-bearing safe point before commit/push.
 When the work is mechanical and safe to verify, target five-figure line-scale
-packets rather than hundreds of lines; a smaller commit needs an explicit reason
-such as hot-path risk, oracle baseline risk, or an unavoidable dependency edge.
+packets. For file splits, package moves, harness extraction, test-suite
+renames, dead-code deletion, and documentation refreshes, batch work until
+`git diff --stat` is roughly 50,000 or more changed lines before the safe-point
+commit unless a smaller boundary is needed for hot-path risk, oracle baseline
+risk, or an unavoidable dependency edge. Do not pad commits with cosmetic churn:
+the size target exists to make each commit materially reduce repo complexity.
 
 1. Inventory and guardrails: maintain file clusters, large-file exceptions,
    protected gates, and no-overlap ownership notes.
@@ -67,9 +71,11 @@ such as hot-path risk, oracle baseline risk, or an unavoidable dependency edge.
    unreferenced diagnostics after focused tests prove coverage remains.
 10. Documentation rewrite: keep README short; put API, architecture, codec
     status, validation, and hard-to-read parity notes under `docs/`.
-11. Parity and feature-gap improvement: after the structure is stable, use the
-    cleaner package and test boundaries to close the highest-value VP8/VP9
-    parity gaps documented by the current parity reports.
+11. Parity and feature-gap improvement: keep VP8 on the same structural,
+    test-hygiene, API, and zero-cost instrumentation track. For VP9, prioritize
+    implementing missing encoder/decoder features and closing the highest-value
+    parity gaps documented by current parity reports, using the pinned libvpx
+    baseline as the source of truth and preserving Go-style package ownership.
 
 ## Safe-Point Gate
 
