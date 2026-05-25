@@ -369,6 +369,10 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	} else {
 		return vp9InterModeDecision{}, false
 	}
+	if pickedValid {
+		e.vp9UpdateCyclicRefreshInterSegment(inter, miRows, miCols, miRow, miCol,
+			bsize, mi, picked)
+	}
 	if pickedValid && picked.intra {
 		mi.Mode = picked.mode
 		mi.Mv = [2]vp9dec.MV{}

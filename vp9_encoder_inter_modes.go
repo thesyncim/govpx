@@ -546,6 +546,7 @@ type vp9InterModeDecision struct {
 	rate           int
 	distortion     uint64
 	score          uint64
+	skip           bool
 }
 
 type vp9KeyframeModeDecision struct {

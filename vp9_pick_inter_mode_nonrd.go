@@ -1302,6 +1302,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				rate:           rate,
 				distortion:     finalDist,
 				score:          score,
+				skip:           isSkip || xSkip,
 			}
 
 			scoredIntoOrig := false

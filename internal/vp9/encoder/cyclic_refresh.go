@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -30,6 +31,7 @@ const (
 	// MI_BLOCK_SIZE — superblock size in 8x8 mi units.
 	// libvpx: vp9/common/vp9_onyxc_int.h MI_BLOCK_SIZE = 8
 	CyclicRefreshSuperblockMI = 8
+	cyclicRefreshMaxInt64     = int64(1<<63 - 1)
 )
 
 // CyclicRefreshSegmentIDBoosted reports whether segmentID is one of libvpx's
@@ -37,6 +39,27 @@ const (
 func CyclicRefreshSegmentIDBoosted(segmentID uint8) bool {
 	return segmentID == CyclicRefreshSegmentBoost1 ||
 		segmentID == CyclicRefreshSegmentBoost2
+}
+
+func cyclicRefreshCandidateSegment(cr *CyclicRefreshState,
+	args CyclicRefreshUpdateSegmentArgs,
+) uint8 {
+	largeMotion := args.MvRow > cr.MotionThresh || args.MvRow < -cr.MotionThresh ||
+		args.MvCol > cr.MotionThresh || args.MvCol < -cr.MotionThresh
+	distTooHigh := false
+	if args.Dist > uint64(cyclicRefreshMaxInt64) {
+		distTooHigh = true
+	} else {
+		distTooHigh = int64(args.Dist) > cr.ThreshDistSB
+	}
+	if distTooHigh && (largeMotion || !args.IsInter) {
+		return CyclicRefreshSegmentBase
+	}
+	if args.BSize >= common.Block16x16 && int64(args.Rate) < cr.ThreshRateSB &&
+		args.IsInter && args.MvRow == 0 && args.MvCol == 0 && cr.RateBoostFac > 10 {
+		return CyclicRefreshSegmentBoost2
+	}
+	return CyclicRefreshSegmentBoost1
 }
 
 // CyclicRefreshState mirrors libvpx's struct CYCLIC_REFRESH from
@@ -662,6 +685,84 @@ type CyclicRefreshPostencodeResult struct {
 	SetGoldenUpdate    bool
 	ForceGoldenRefresh bool
 	ClearRefreshGolden bool
+}
+
+// UpdateSegment mirrors vp9_cyclic_refresh_update_segment() from
+// vp9_aq_cyclicrefresh.c:161-223. The mode picker initially labels a block
+// from the prepared cyclic map; after the mode decision is known, libvpx may
+// reset that provisional boosted segment to BASE, promote a cheap zero-motion
+// inter block to BOOST2, or leave it as BOOST1. The realized segment is written
+// back to both the current segmentation map and the cyclic refresh map.
+func (cr *CyclicRefreshState) UpdateSegment(args CyclicRefreshUpdateSegmentArgs) uint8 {
+	if cr.MIRows <= 0 || cr.MICols <= 0 || args.MIRow < 0 || args.MICol < 0 ||
+		args.MIRow >= cr.MIRows || args.MICol >= cr.MICols ||
+		args.BSize < common.Block4x4 || args.BSize >= common.BlockSizes {
+		return args.SegmentID
+	}
+	xmis := min(cr.MICols-args.MICol, int(common.Num8x8BlocksWideLookup[args.BSize]))
+	ymis := min(cr.MIRows-args.MIRow, int(common.Num8x8BlocksHighLookup[args.BSize]))
+	if xmis <= 0 || ymis <= 0 {
+		return args.SegmentID
+	}
+
+	blockIndex := args.MIRow*cr.MICols + args.MICol
+	if blockIndex < 0 || blockIndex >= len(cr.RefreshMap) ||
+		blockIndex >= len(cr.SegMap) {
+		return args.SegmentID
+	}
+	refreshThisBlock := cyclicRefreshCandidateSegment(cr, args)
+	if args.RateControlIsVBR && args.RefFrame == vp9dec.GoldenFrame {
+		refreshThisBlock = CyclicRefreshSegmentBase
+	}
+
+	segmentID := args.SegmentID
+	if args.UseNonrdPickMode && CyclicRefreshSegmentIDBoosted(segmentID) {
+		segmentID = refreshThisBlock
+		if args.Skip {
+			segmentID = CyclicRefreshSegmentBase
+		}
+	}
+
+	newMapValue := cr.RefreshMap[blockIndex]
+	if CyclicRefreshSegmentIDBoosted(segmentID) {
+		newMapValue = int8(-cr.TimeForRefresh)
+	} else if refreshThisBlock != CyclicRefreshSegmentBase {
+		if cr.RefreshMap[blockIndex] == 1 {
+			newMapValue = 0
+		}
+	} else {
+		newMapValue = 1
+	}
+
+	for y := range ymis {
+		row := blockIndex + y*cr.MICols
+		for x := range xmis {
+			off := row + x
+			if off >= 0 && off < len(cr.RefreshMap) {
+				cr.RefreshMap[off] = newMapValue
+			}
+			if off >= 0 && off < len(cr.SegMap) {
+				cr.SegMap[off] = segmentID
+			}
+		}
+	}
+	return segmentID
+}
+
+type CyclicRefreshUpdateSegmentArgs struct {
+	MIRow            int
+	MICol            int
+	BSize            common.BlockSize
+	SegmentID        uint8
+	RefFrame         int8
+	MvRow            int16
+	MvCol            int16
+	Rate             int
+	Dist             uint64
+	IsInter          bool
+	Skip             bool
+	UseNonrdPickMode bool
+	RateControlIsVBR bool
 }
 
 // SetGoldenUpdate mirrors

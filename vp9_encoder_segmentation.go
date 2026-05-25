@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -96,6 +97,38 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		RefreshAltRefFrame: false,
 	})
 	e.cyclicAQ.Apply = e.cyclicAQ.ApplyCyclicRefresh && e.cyclicAQ.TargetNumSegBlocks > 0
+}
+
+func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, decision vp9InterModeDecision,
+) {
+	if e == nil || inter == nil || mi == nil || inter.counts != nil ||
+		e.opts.AQMode != VP9AQCyclicRefresh || !e.vp9InterUsesNonrdPickmode() ||
+		!e.cyclicAQ.Enabled || !e.cyclicAQ.Apply || !e.cyclicAQ.ContentMode ||
+		e.cyclicAQ.MIRows != miRows || e.cyclicAQ.MICols != miCols {
+		return
+	}
+	isInter := !decision.intra && decision.refFrame > vp9dec.IntraFrame
+	segID := e.cyclicAQ.UpdateSegment(encoder.CyclicRefreshUpdateSegmentArgs{
+		MIRow:            miRow,
+		MICol:            miCol,
+		BSize:            bsize,
+		SegmentID:        mi.SegmentID,
+		RefFrame:         decision.refFrame,
+		MvRow:            decision.mv[0].Row,
+		MvCol:            decision.mv[0].Col,
+		Rate:             decision.rate,
+		Dist:             decision.distortion,
+		IsInter:          isInter,
+		Skip:             decision.skip,
+		UseNonrdPickMode: true,
+		RateControlIsVBR: e.rc.mode == RateControlVBR,
+	})
+	if segID >= vp9dec.MaxSegments {
+		segID = 0
+	}
+	mi.SegmentID = segID
 }
 
 func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex int) vp9dec.SegmentationParams {

@@ -3,6 +3,7 @@ package encoder_test
 import (
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
@@ -68,6 +69,155 @@ func TestVP9CyclicRefreshSegmentationCounts(t *testing.T) {
 	cr.PrepareFrame(true, miRows, miCols)
 	if cr.SBIndex == prevIdx && cr.TargetNumSegBlocks > 0 {
 		t.Fatalf("sb_index = %d unchanged across frames, want rotation", cr.SBIndex)
+	}
+}
+
+// TestVP9CyclicRefreshUpdateSegmentPromotesCheapZeroMotionInterBlock pins the
+// candidate_refresh_aq() BOOST2 branch from vp9_aq_cyclicrefresh.c:80-84 and
+// the realized-map write from vp9_cyclic_refresh_update_segment().
+func TestVP9CyclicRefreshUpdateSegmentPromotesCheapZeroMotionInterBlock(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	cr.Alloc(4, 4)
+
+	segID := cr.UpdateSegment(vp9enc.CyclicRefreshUpdateSegmentArgs{
+		MIRow:            0,
+		MICol:            0,
+		BSize:            common.Block16x16,
+		SegmentID:        vp9enc.CyclicRefreshSegmentBoost1,
+		RefFrame:         vp9dec.LastFrame,
+		Rate:             10,
+		IsInter:          true,
+		UseNonrdPickMode: true,
+		RateControlIsVBR: false,
+	})
+	if segID != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("segment_id = %d, want BOOST2 for cheap zero-motion inter block", segID)
+	}
+	for row := range 2 {
+		for col := range 2 {
+			idx := row*cr.MICols + col
+			if cr.SegMap[idx] != vp9enc.CyclicRefreshSegmentBoost2 {
+				t.Fatalf("SegMap[%d] = %d, want BOOST2", idx, cr.SegMap[idx])
+			}
+			if cr.RefreshMap[idx] != -int8(cr.TimeForRefresh) {
+				t.Fatalf("RefreshMap[%d] = %d, want -TimeForRefresh", idx, cr.RefreshMap[idx])
+			}
+		}
+	}
+}
+
+// TestVP9CyclicRefreshUpdateSegmentSkipResetsBoostedBlock pins
+// vp9_cyclic_refresh_update_segment(): non-RD boosted blocks are reset to BASE
+// when the picked mode skips transform coding.
+func TestVP9CyclicRefreshUpdateSegmentSkipResetsBoostedBlock(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	cr.Alloc(4, 4)
+	cr.RefreshMap[0] = 1
+
+	segID := cr.UpdateSegment(vp9enc.CyclicRefreshUpdateSegmentArgs{
+		MIRow:            0,
+		MICol:            0,
+		BSize:            common.Block8x8,
+		SegmentID:        vp9enc.CyclicRefreshSegmentBoost1,
+		RefFrame:         vp9dec.LastFrame,
+		IsInter:          true,
+		Skip:             true,
+		UseNonrdPickMode: true,
+	})
+	if segID != vp9enc.CyclicRefreshSegmentBase {
+		t.Fatalf("segment_id = %d, want BASE for skipped boosted block", segID)
+	}
+	if cr.SegMap[0] != vp9enc.CyclicRefreshSegmentBase {
+		t.Fatalf("SegMap[0] = %d, want BASE", cr.SegMap[0])
+	}
+	if cr.RefreshMap[0] != 0 {
+		t.Fatalf("RefreshMap[0] = %d, want cleanup candidate 0", cr.RefreshMap[0])
+	}
+}
+
+// TestVP9CyclicRefreshUpdateSegmentRejectsLargeMotionAndIntra pins
+// candidate_refresh_aq(): high distortion rejects refresh when the block is
+// intra or carries a motion vector above motion_thresh.
+func TestVP9CyclicRefreshUpdateSegmentRejectsLargeMotionAndIntra(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		isInter bool
+		mvRow   int16
+		mvCol   int16
+	}{
+		{name: "large-motion", isInter: true, mvRow: 40, mvCol: 0},
+		{name: "intra", isInter: false, mvRow: 0, mvCol: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := &vp9enc.CyclicRefreshState{
+				TimeForRefresh: 7,
+				ThreshRateSB:   1000,
+				ThreshDistSB:   100,
+				MotionThresh:   32,
+				RateBoostFac:   15,
+			}
+			cr.Alloc(2, 2)
+			segID := cr.UpdateSegment(vp9enc.CyclicRefreshUpdateSegmentArgs{
+				MIRow:            0,
+				MICol:            0,
+				BSize:            common.Block8x8,
+				SegmentID:        vp9enc.CyclicRefreshSegmentBoost1,
+				RefFrame:         vp9dec.LastFrame,
+				MvRow:            tc.mvRow,
+				MvCol:            tc.mvCol,
+				Dist:             101,
+				IsInter:          tc.isInter,
+				UseNonrdPickMode: true,
+			})
+			if segID != vp9enc.CyclicRefreshSegmentBase {
+				t.Fatalf("segment_id = %d, want BASE", segID)
+			}
+			if cr.RefreshMap[0] != 1 {
+				t.Fatalf("RefreshMap[0] = %d, want not-candidate marker 1", cr.RefreshMap[0])
+			}
+		})
+	}
+}
+
+// TestVP9CyclicRefreshUpdateSegmentRejectsVBRGoldenRefresh pins the
+// vp9_cyclic_refresh_update_segment() VBR/GOLDEN_FRAME refresh veto.
+func TestVP9CyclicRefreshUpdateSegmentRejectsVBRGoldenRefresh(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	cr.Alloc(2, 2)
+
+	segID := cr.UpdateSegment(vp9enc.CyclicRefreshUpdateSegmentArgs{
+		MIRow:            0,
+		MICol:            0,
+		BSize:            common.Block8x8,
+		SegmentID:        vp9enc.CyclicRefreshSegmentBoost1,
+		RefFrame:         vp9dec.GoldenFrame,
+		IsInter:          true,
+		UseNonrdPickMode: true,
+		RateControlIsVBR: true,
+	})
+	if segID != vp9enc.CyclicRefreshSegmentBase {
+		t.Fatalf("segment_id = %d, want BASE for VBR golden-frame refresh", segID)
+	}
+	if cr.RefreshMap[0] != 1 {
+		t.Fatalf("RefreshMap[0] = %d, want not-candidate marker 1", cr.RefreshMap[0])
 	}
 }
 

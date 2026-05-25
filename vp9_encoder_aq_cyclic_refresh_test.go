@@ -1,10 +1,12 @@
 package govpx
 
 import (
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
-	"testing"
 )
 
 func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
@@ -104,5 +106,84 @@ func TestVP9EncoderCyclicRefreshAQEmitsSegmentation(t *testing.T) {
 	}
 	if _, ok := dec.NextFrame(); !ok {
 		t.Fatal("NextFrame inter returned !ok")
+	}
+}
+
+func TestVP9EncoderCyclicRefreshInterSegmentUpdateUsesPickedMode(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			AQMode: VP9AQCyclicRefresh,
+		},
+	}
+	e.sf.UseNonrdPickMode = 1
+	e.cyclicAQ = vp9enc.CyclicRefreshState{
+		Enabled:        true,
+		Apply:          true,
+		ContentMode:    true,
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	e.cyclicAQ.Alloc(4, 4)
+	mi := vp9dec.NeighborMi{SegmentID: vp9enc.CyclicRefreshSegmentBoost1}
+	decision := vp9InterModeDecision{
+		refFrame:   vp9dec.LastFrame,
+		mv:         [2]vp9dec.MV{{}},
+		rate:       10,
+		distortion: 0,
+	}
+
+	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{},
+		4, 4, 0, 0, common.Block16x16, &mi, decision)
+	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegmentID = %d, want BOOST2 after cheap zero-motion LAST decision", mi.SegmentID)
+	}
+	if e.cyclicAQ.SegMap[0] != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegMap[0] = %d, want BOOST2", e.cyclicAQ.SegMap[0])
+	}
+	if e.cyclicAQ.RefreshMap[0] != -int8(e.cyclicAQ.TimeForRefresh) {
+		t.Fatalf("RefreshMap[0] = %d, want -TimeForRefresh", e.cyclicAQ.RefreshMap[0])
+	}
+}
+
+func TestVP9EncoderCyclicRefreshInterSegmentUpdateLeavesCountPassReadOnly(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			AQMode: VP9AQCyclicRefresh,
+		},
+	}
+	e.sf.UseNonrdPickMode = 1
+	e.cyclicAQ = vp9enc.CyclicRefreshState{
+		Enabled:        true,
+		Apply:          true,
+		ContentMode:    true,
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	e.cyclicAQ.Alloc(4, 4)
+	e.cyclicAQ.RefreshMap[0] = 1
+	mi := vp9dec.NeighborMi{SegmentID: vp9enc.CyclicRefreshSegmentBoost1}
+	decision := vp9InterModeDecision{
+		refFrame:   vp9dec.LastFrame,
+		mv:         [2]vp9dec.MV{{}},
+		rate:       10,
+		distortion: 0,
+	}
+
+	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{counts: &vp9enc.FrameCounts{}},
+		4, 4, 0, 0, common.Block16x16, &mi, decision)
+	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost1 {
+		t.Fatalf("SegmentID = %d, want unchanged during count pass", mi.SegmentID)
+	}
+	if e.cyclicAQ.SegMap[0] != 0 {
+		t.Fatalf("SegMap[0] = %d, want unchanged during count pass", e.cyclicAQ.SegMap[0])
+	}
+	if e.cyclicAQ.RefreshMap[0] != 1 {
+		t.Fatalf("RefreshMap[0] = %d, want unchanged during count pass", e.cyclicAQ.RefreshMap[0])
 	}
 }
