@@ -82,11 +82,11 @@ func (d PayloadDescriptor) Size() (int, error) {
 	}
 	size := 1
 	if d.PictureIDPresent {
-		if d.PictureID15Bit {
-			size += 2
-		} else {
-			size++
+		pidSize, err := d.pictureID().Size()
+		if err != nil {
+			return 0, err
 		}
+		size += pidSize
 	}
 	if d.LayerIndicesPresent {
 		size++
@@ -147,14 +147,11 @@ func (d PayloadDescriptor) MarshalInto(dst []byte) (int, error) {
 	dst[0] = first
 	off := 1
 	if d.PictureIDPresent {
-		if d.PictureID15Bit {
-			dst[off] = 0x80 | byte(d.PictureID>>8)
-			dst[off+1] = byte(d.PictureID)
-			off += 2
-		} else {
-			dst[off] = byte(d.PictureID)
-			off++
+		n, err := d.pictureID().MarshalInto(dst[off:])
+		if err != nil {
+			return 0, err
 		}
+		off += n
 	}
 	if d.LayerIndicesPresent {
 		layer := d.TemporalID<<5 | d.SpatialID<<1
@@ -189,16 +186,7 @@ func (d PayloadDescriptor) MarshalInto(dst []byte) (int, error) {
 
 // Marshal returns d as a newly allocated VP9 RTP payload descriptor.
 func (d PayloadDescriptor) Marshal() ([]byte, error) {
-	need, err := d.Size()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, need)
-	_, err = d.MarshalInto(out)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return vpxrtp.MarshalDescriptor(d)
 }
 
 // ParsePayloadDescriptor parses the VP9 RTP payload descriptor at the
@@ -225,21 +213,12 @@ func ParsePayloadDescriptor(packet []byte) (PayloadDescriptor, []byte, error) {
 
 	off := 1
 	if d.PictureIDPresent {
-		if off >= len(packet) {
-			return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+		pid, n, err := vpxrtp.ParsePictureID(packet[off:], vpxerrors.ErrInvalidVP9Data)
+		if err != nil {
+			return PayloadDescriptor{}, nil, err
 		}
-		pid := packet[off]
-		off++
-		if pid&0x80 != 0 {
-			if off >= len(packet) {
-				return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
-			}
-			d.PictureID15Bit = true
-			d.PictureID = uint16(pid&0x7f)<<8 | uint16(packet[off])
-			off++
-		} else {
-			d.PictureID = uint16(pid)
-		}
+		d.setPictureID(pid)
+		off += n
 	}
 	if d.LayerIndicesPresent {
 		if off >= len(packet) {
@@ -484,19 +463,8 @@ func sameScalabilityStructure(a, b ScalabilityStructure) bool {
 }
 
 func (d PayloadDescriptor) validate() error {
-	if d.PictureID15Bit && !d.PictureIDPresent {
-		return vpxerrors.ErrInvalidConfig
-	}
-	if d.PictureIDPresent {
-		if d.PictureID15Bit {
-			if d.PictureID > 0x7fff {
-				return vpxerrors.ErrInvalidConfig
-			}
-		} else if d.PictureID > 0x7f {
-			return vpxerrors.ErrInvalidConfig
-		}
-	} else if d.PictureID != 0 {
-		return vpxerrors.ErrInvalidConfig
+	if err := d.pictureID().Validate(); err != nil {
+		return err
 	}
 	if d.FlexibleMode && !d.PictureIDPresent {
 		return vpxerrors.ErrInvalidConfig
@@ -531,6 +499,20 @@ func (d PayloadDescriptor) validate() error {
 		return vpxerrors.ErrInvalidConfig
 	}
 	return nil
+}
+
+func (d PayloadDescriptor) pictureID() vpxrtp.PictureID {
+	return vpxrtp.PictureID{
+		Present:    d.PictureIDPresent,
+		Value:      d.PictureID,
+		FifteenBit: d.PictureID15Bit,
+	}
+}
+
+func (d *PayloadDescriptor) setPictureID(pid vpxrtp.PictureID) {
+	d.PictureIDPresent = pid.Present
+	d.PictureID = pid.Value
+	d.PictureID15Bit = pid.FifteenBit
 }
 
 func (ss ScalabilityStructure) size() (int, error) {

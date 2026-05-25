@@ -20,6 +20,108 @@ type PayloadDescriptor interface {
 	MarshalInto([]byte) (int, error)
 }
 
+// MarshalDescriptor returns desc as a newly allocated RTP payload descriptor.
+// Codec packages own descriptor syntax; this helper owns the repeated
+// size-allocate-marshal shape.
+func MarshalDescriptor[D PayloadDescriptor](desc D) ([]byte, error) {
+	need, err := desc.Size()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, need)
+	_, err = desc.MarshalInto(out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PictureID is the shared RFC VPx RTP PictureID encoding. VP8 and VP9 expose
+// codec-specific descriptor structs, but the PictureID wire format is the same:
+// one byte for 7-bit IDs or two bytes with the high marker bit set for 15-bit
+// IDs.
+type PictureID struct {
+	Present    bool
+	Value      uint16
+	FifteenBit bool
+}
+
+// Size returns the number of bytes needed for p, or zero when no PictureID is
+// present.
+func (p PictureID) Size() (int, error) {
+	if err := p.Validate(); err != nil {
+		return 0, err
+	}
+	if !p.Present {
+		return 0, nil
+	}
+	if p.FifteenBit {
+		return 2, nil
+	}
+	return 1, nil
+}
+
+// MarshalInto writes p into dst and returns the number of bytes written.
+func (p PictureID) MarshalInto(dst []byte) (int, error) {
+	need, err := p.Size()
+	if err != nil {
+		return 0, err
+	}
+	if need == 0 {
+		return 0, nil
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	if p.FifteenBit {
+		dst[0] = 0x80 | byte(p.Value>>8)
+		dst[1] = byte(p.Value)
+		return 2, nil
+	}
+	dst[0] = byte(p.Value)
+	return 1, nil
+}
+
+// Validate rejects impossible PictureID field combinations.
+func (p PictureID) Validate() error {
+	if p.FifteenBit && !p.Present {
+		return vpxerrors.ErrInvalidConfig
+	}
+	if p.Present {
+		if p.FifteenBit {
+			if p.Value > 0x7fff {
+				return vpxerrors.ErrInvalidConfig
+			}
+		} else if p.Value > 0x7f {
+			return vpxerrors.ErrInvalidConfig
+		}
+	} else if p.Value != 0 {
+		return vpxerrors.ErrInvalidConfig
+	}
+	return nil
+}
+
+// ParsePictureID parses a present PictureID field and returns the value and
+// number of bytes consumed. invalidData preserves the codec-specific parse
+// sentinel used by the caller.
+func ParsePictureID(packet []byte, invalidData error) (PictureID, int, error) {
+	if len(packet) == 0 {
+		return PictureID{}, 0, invalidData
+	}
+	pid := packet[0]
+	if pid&0x80 == 0 {
+		return PictureID{Present: true, Value: uint16(pid)}, 1, nil
+	}
+	if len(packet) < 2 {
+		return PictureID{}, 0, invalidData
+	}
+	return PictureID{
+		Present:    true,
+		Value:      uint16(pid&0x7f)<<8 | uint16(packet[1]),
+		FifteenBit: true,
+	}, 2, nil
+}
+
 // PacketDescriptor returns the codec RTP payload descriptor and its byte
 // length for fragment index i of fragments. Codec packages own the descriptor
 // syntax and per-fragment state such as VP8 start-of-partition or VP9

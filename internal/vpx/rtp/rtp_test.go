@@ -76,6 +76,22 @@ func TestPackPayload(t *testing.T) {
 	}
 }
 
+func TestMarshalDescriptor(t *testing.T) {
+	got, err := MarshalDescriptor(testDescriptor{data: []byte{0x80, 0x01}})
+	if err != nil {
+		t.Fatalf("MarshalDescriptor: %v", err)
+	}
+	if !bytes.Equal(got, []byte{0x80, 0x01}) {
+		t.Fatalf("MarshalDescriptor = % x, want 80 01", got)
+	}
+	if _, err := MarshalDescriptor(testDescriptor{sizeErr: vpxerrors.ErrInvalidConfig}); !errors.Is(err, vpxerrors.ErrInvalidConfig) {
+		t.Fatalf("size error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := MarshalDescriptor(testDescriptor{data: []byte{1}, marshalErr: vpxerrors.ErrInvalidData}); !errors.Is(err, vpxerrors.ErrInvalidData) {
+		t.Fatalf("marshal error = %v, want ErrInvalidData", err)
+	}
+}
+
 func TestPackPayloadIntoShortBuffer(t *testing.T) {
 	desc := testDescriptor{data: []byte{0x80, 0x01}}
 	need, err := PackPayloadInto(make([]byte, 2), desc, []byte{0xaa})
@@ -84,6 +100,89 @@ func TestPackPayloadIntoShortBuffer(t *testing.T) {
 	}
 	if need != 3 {
 		t.Fatalf("short buffer need = %d, want 3", need)
+	}
+}
+
+func TestPictureIDMarshalAndParse(t *testing.T) {
+	cases := []struct {
+		name string
+		id   PictureID
+		want []byte
+	}{
+		{
+			name: "absent",
+			id:   PictureID{},
+			want: nil,
+		},
+		{
+			name: "seven bit",
+			id:   PictureID{Present: true, Value: 17},
+			want: []byte{17},
+		},
+		{
+			name: "fifteen bit",
+			id:   PictureID{Present: true, Value: 0x1234, FifteenBit: true},
+			want: []byte{0x92, 0x34},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			size, err := tc.id.Size()
+			if err != nil {
+				t.Fatalf("Size: %v", err)
+			}
+			if size != len(tc.want) {
+				t.Fatalf("Size = %d, want %d", size, len(tc.want))
+			}
+			dst := make([]byte, size)
+			n, err := tc.id.MarshalInto(dst)
+			if err != nil {
+				t.Fatalf("MarshalInto: %v", err)
+			}
+			if n != len(tc.want) || !bytes.Equal(dst[:n], tc.want) {
+				t.Fatalf("MarshalInto = n:%d bytes:% x, want %d/% x",
+					n, dst[:n], len(tc.want), tc.want)
+			}
+			if !tc.id.Present {
+				return
+			}
+			got, consumed, err := ParsePictureID(dst, vpxerrors.ErrInvalidData)
+			if err != nil {
+				t.Fatalf("ParsePictureID: %v", err)
+			}
+			if consumed != len(tc.want) || got != tc.id {
+				t.Fatalf("ParsePictureID = (%+v,%d), want (%+v,%d)",
+					got, consumed, tc.id, len(tc.want))
+			}
+		})
+	}
+}
+
+func TestPictureIDRejectsInvalidValues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		id   PictureID
+	}{
+		{name: "fifteen bit without present", id: PictureID{FifteenBit: true}},
+		{name: "hidden value", id: PictureID{Value: 1}},
+		{name: "seven bit overflow", id: PictureID{Present: true, Value: 0x80}},
+		{name: "fifteen bit overflow", id: PictureID{Present: true, Value: 0x8000, FifteenBit: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.id.Size(); !errors.Is(err, vpxerrors.ErrInvalidConfig) {
+				t.Fatalf("Size error = %v, want ErrInvalidConfig", err)
+			}
+			if _, err := tc.id.MarshalInto(make([]byte, 2)); !errors.Is(err, vpxerrors.ErrInvalidConfig) {
+				t.Fatalf("MarshalInto error = %v, want ErrInvalidConfig", err)
+			}
+		})
+	}
+}
+
+func TestParsePictureIDRejectsTruncatedFifteenBitID(t *testing.T) {
+	_, _, err := ParsePictureID([]byte{0x80}, vpxerrors.ErrInvalidVP9Data)
+	if !errors.Is(err, vpxerrors.ErrInvalidVP9Data) {
+		t.Fatalf("ParsePictureID error = %v, want ErrInvalidVP9Data", err)
 	}
 }
 
