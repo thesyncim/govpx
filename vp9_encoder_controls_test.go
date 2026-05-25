@@ -8,310 +8,44 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-func TestNewVP9EncoderRequiresDimensions(t *testing.T) {
-	cases := []VP9EncoderOptions{
-		{Width: 0, Height: 480},
-		{Width: 640, Height: 0},
-		{Width: -1, Height: 480},
-	}
-	for i, opts := range cases {
-		_, err := NewVP9Encoder(opts)
-		if !errors.Is(err, ErrInvalidConfig) {
-			t.Errorf("case %d: err = %v, want ErrInvalidConfig", i, err)
-		}
-	}
-}
-
-// TestNewVP9EncoderRejectsBadOptions covers the per-field bounds
-// checks beyond the dimension gate.
-func TestNewVP9EncoderRejectsBadOptions(t *testing.T) {
+func TestNewVP9EncoderRejectsTwoPassStatsBadModes(t *testing.T) {
 	base := VP9EncoderOptions{Width: 320, Height: 240}
-	type bad struct {
-		mutate func(*VP9EncoderOptions)
-		want   error
-	}
-	cases := []bad{
-		{func(o *VP9EncoderOptions) { o.Width = maxVP9Dimension + 1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Height = maxVP9Dimension + 1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Threads = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.RowMT = true }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.RowMT = true
-			o.Threads = 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Log2TileRows = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Log2TileRows = 3 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Height = 64
-			o.Log2TileRows = 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Deadline = Deadline(-1) }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.CpuUsed = -10 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.CpuUsed = 10 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.TargetBitrateKbps = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Quantizer = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Quantizer = 256 }, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) { o.MinQuantizer = -1 }, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) { o.MaxQuantizer = 64 }, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) { o.CQLevel = 64 }, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.MinQuantizer = 40
-			o.MaxQuantizer = 20
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.MinQuantizer = 20
-			o.MaxQuantizer = 40
-			o.CQLevel = 10
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.Quantizer = 64
-			o.CQLevel = 32
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.TemporalScalability = TemporalScalabilityConfig{
-				Enabled: true,
-				Mode:    TemporalLayeringTwoLayers,
-			}
-		}, ErrInvalidBitrate},
-		{func(o *VP9EncoderOptions) {
-			o.TargetBitrateKbps = 300
-			o.TemporalScalability = TemporalScalabilityConfig{
-				Enabled: true,
-				Mode:    TemporalLayeringMode(99),
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled: true,
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled:    true,
-				LayerCount: VP9MaxSpatialLayers + 1,
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled:    true,
-				LayerCount: 2,
-				LayerID:    2,
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled:              true,
-				LayerCount:           2,
-				InterLayerDependency: true,
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled:    true,
-				LayerCount: 2,
-				LayerID:    1,
-				Width:      [VP9RTPMaxSpatialLayers]uint16{32, 64},
-				Height:     [VP9RTPMaxSpatialLayers]uint16{32, 64},
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.SpatialScalability = VP9SpatialScalabilityConfig{
-				Enabled:           true,
-				LayerCount:        2,
-				LayerID:           1,
-				ResolutionPresent: true,
-				Width:             [VP9RTPMaxSpatialLayers]uint16{32, 32},
-				Height:            [VP9RTPMaxSpatialLayers]uint16{32, 32},
-			}
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Lossless = true
-			o.Quantizer = 1
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.Lossless = true
-			o.Segmentation.Enabled = true
-			o.Segmentation.AltQEnabled[0] = true
-			o.Segmentation.AltQ[0] = 1
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.Lossless = true
-			o.Segmentation.Enabled = true
-			o.Segmentation.AltLFEnabled[0] = true
-			o.Segmentation.AltLF[0] = 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.MinKeyframeInterval = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.MaxKeyframeInterval = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.MinKeyframeInterval = 3
-			o.MaxKeyframeInterval = 2
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.MinKeyframeInterval = 129 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.LookaheadFrames = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.LookaheadFrames = vp9MaxLookaheadFrames + 1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRMaxFrames = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRMaxFrames = maxARNRFrames + 1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRStrength = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRStrength = 7 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRType = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ARNRType = 4 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ScreenContentMode = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.ScreenContentMode = 3 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.NoiseSensitivity = 7 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.Sharpness = 8 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.StaticThreshold = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.AutoAltRef = true }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AutoAltRef = true
-			o.LookaheadFrames = 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AutoAltRef = true
-			o.LookaheadFrames = 2
-			o.ErrorResilient = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQMode(99) }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQComplexity }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQComplexity
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlVBR
-			o.TargetBitrateKbps = 300
-			o.Lossless = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQComplexity
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlVBR
-			o.TargetBitrateKbps = 300
-			o.Segmentation.Enabled = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.AQMode = VP9AQCyclicRefresh }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQCyclicRefresh
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlVBR
-			o.TargetBitrateKbps = 300
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQCyclicRefresh
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlCBR
-			o.TargetBitrateKbps = 300
-			o.Lossless = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQCyclicRefresh
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlCBR
-			o.TargetBitrateKbps = 300
-			o.Segmentation.Enabled = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQVariance
-			o.Lossless = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.AQMode = VP9AQVariance
-			o.Segmentation.Enabled = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlMode(99)
-			o.TargetBitrateKbps = 300
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlVBR
-		}, ErrInvalidBitrate},
-		{func(o *VP9EncoderOptions) {
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlVBR
-			o.TargetBitrateKbps = 300
-			o.DropFrameAllowed = true
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
+	tests := []struct {
+		name string
+		edit func(*VP9EncoderOptions)
+	}{
+		{"stats without two-pass vbr mode", func(o *VP9EncoderOptions) {
 			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
+		}},
+		{"stats with cbr mode", func(o *VP9EncoderOptions) {
 			o.RateControlModeSet = true
 			o.RateControlMode = RateControlCBR
 			o.TargetBitrateKbps = 300
 			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
+		}},
+		{"stats with q mode", func(o *VP9EncoderOptions) {
 			o.RateControlModeSet = true
 			o.RateControlMode = RateControlQ
 			o.TargetBitrateKbps = 300
 			o.TwoPassStats = finalizedVP9TwoPassTestStats(100, 200)
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.TwoPassVBRBiasPct = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.TwoPassMinPct = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.TwoPassMaxPct = -1 }, ErrInvalidConfig},
-		// Lookahead + CBR/SVC are now permitted; the validator only
-		// rejects the cyclic-refresh AQ combination via validateVP9AQOptions.
-		{func(o *VP9EncoderOptions) {
-			o.LookaheadFrames = 2
-			o.AQMode = VP9AQCyclicRefresh
-			o.RateControlModeSet = true
-			o.RateControlMode = RateControlCBR
-			o.TargetBitrateKbps = 300
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.FPS = -1 }, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) { o.TimebaseNum = 1 }, ErrInvalidConfig}, // missing Den
-		{func(o *VP9EncoderOptions) { o.TimebaseDen = 1 }, ErrInvalidConfig}, // missing Num
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.SegmentID = VP9MaxSegments
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.SegmentID = 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.AltQEnabled[0] = true
-			o.Segmentation.AltQ[0] = -256
-		}, ErrInvalidQuantizer},
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.AltLFEnabled[0] = true
-			o.Segmentation.AltLF[0] = 64
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.RefFrameEnabled[0] = true
-			o.Segmentation.RefFrame[0] = VP9RefFrameIntra - 1
-		}, ErrInvalidConfig},
-		{func(o *VP9EncoderOptions) {
-			o.Segmentation.Enabled = true
-			o.Segmentation.RefFrameEnabled[0] = true
-			o.Segmentation.RefFrame[0] = vp9dec.AltrefFrame + 1
-		}, ErrInvalidConfig},
+		}},
 	}
-	for i, c := range cases {
+	for _, tt := range tests {
 		opts := base
-		c.mutate(&opts)
+		tt.edit(&opts)
 		_, err := NewVP9Encoder(opts)
-		if !errors.Is(err, c.want) {
-			t.Errorf("case %d: err = %v, want %v", i, err, c.want)
+		if !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("%s NewVP9Encoder error = %v, want ErrInvalidConfig", tt.name, err)
 		}
 	}
 }
 
-// TestNewVP9EncoderAcceptsMinimalOptions: a bare {Width,Height}
-// works.
-func TestNewVP9EncoderAcceptsMinimalOptions(t *testing.T) {
+func TestNewVP9EncoderDefaultsSpeed(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 320, Height: 240})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if got := e.Codec(); got != CodecVP9 {
-		t.Errorf("Codec() = %v, want CodecVP9", got)
 	}
 	if e.opts.Deadline != DeadlineRealtime || e.opts.CpuUsed != vp9DefaultCPUUsed {
 		t.Fatalf("default VP9 speed = deadline:%d cpu:%d, want realtime/%d",

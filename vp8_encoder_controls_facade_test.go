@@ -361,6 +361,25 @@ func TestVP8EncoderSetMaxIntraBitratePctAffectsKeyFrameTarget(t *testing.T) {
 	}
 }
 
+func TestVP8EncoderRateControlTracksReachableTargetsAcrossClip(t *testing.T) {
+	low := encodeVP8FacadeRateControlClip(t, 25)
+	high := encodeVP8FacadeRateControlClip(t, 35)
+
+	if low.bitrateErrorPct < -35 || low.bitrateErrorPct > 35 {
+		t.Fatalf("25kbps bitrate error = %.2f%%, want within +/-35%%", low.bitrateErrorPct)
+	}
+	if high.bitrateErrorPct < -35 || high.bitrateErrorPct > 35 {
+		t.Fatalf("35kbps bitrate error = %.2f%%, want within +/-35%%", high.bitrateErrorPct)
+	}
+	if high.outputBytes <= low.outputBytes {
+		t.Fatalf("output bytes = low:%d high:%d, want higher target to emit more bits", low.outputBytes, high.outputBytes)
+	}
+	if high.meanQuantizer >= low.meanQuantizer {
+		t.Fatalf("mean quantizers = low:%.2f high:%.2f, want higher target to use lower quantizer",
+			low.meanQuantizer, high.meanQuantizer)
+	}
+}
+
 func TestVP8EncoderRuntimeControlsAffectNextPacket(t *testing.T) {
 	e := newVP8FacadeEncoder(t)
 	if err := e.SetTokenPartitions(3); err != nil {
@@ -410,4 +429,84 @@ func TestVP8EncoderRuntimeControlsAffectNextPacket(t *testing.T) {
 	if interState.LoopFilter.SharpnessLevel != 3 {
 		t.Fatalf("inter sharpness = %d, want runtime sharpness 3", interState.LoopFilter.SharpnessLevel)
 	}
+}
+
+type vp8FacadeRateControlClipResult struct {
+	outputBytes     int
+	bitrateErrorPct float64
+	meanQuantizer   float64
+}
+
+func encodeVP8FacadeRateControlClip(t testing.TB, targetKbps int) vp8FacadeRateControlClipResult {
+	t.Helper()
+	const (
+		width  = 32
+		height = 32
+		fps    = 30
+		frames = 20
+	)
+	e, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 fps,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   targetKbps,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		Deadline:            govpx.DeadlineGoodQuality,
+		CpuUsed:             0,
+		KeyFrameInterval:    120,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+
+	dst := make([]byte, 4096)
+	outputBytes := 0
+	quantizerSum := 0
+	encodedFrames := 0
+	for i := range frames {
+		result, err := e.EncodeInto(dst, newVP8FacadeRateControlFrame(width, height, i), uint64(i), 1, 0)
+		if err != nil {
+			t.Fatalf("EncodeInto frame %d returned error: %v", i, err)
+		}
+		if result.Dropped {
+			continue
+		}
+		outputBytes += result.SizeBytes
+		quantizerSum += result.Quantizer
+		encodedFrames++
+	}
+	if encodedFrames != frames {
+		t.Fatalf("encoded frames = %d, want %d", encodedFrames, frames)
+	}
+
+	outputKbps := float64(outputBytes*8*fps) / float64(frames*1000)
+	errorPct := (outputKbps - float64(targetKbps)) * 100 / float64(targetKbps)
+	return vp8FacadeRateControlClipResult{
+		outputBytes:     outputBytes,
+		bitrateErrorPct: errorPct,
+		meanQuantizer:   float64(quantizerSum) / float64(encodedFrames),
+	}
+}
+
+func newVP8FacadeRateControlFrame(width int, height int, index int) govpx.Image {
+	img := newVP8FacadeImage(width, height)
+	for row := range height {
+		for col := range width {
+			img.Y[row*img.YStride+col] = byte(32 + ((row*3 + col*5 + index*7) & 191))
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for row := range uvHeight {
+		for col := range uvWidth {
+			img.U[row*img.UStride+col] = byte(96 + ((row*2 + col + index*3) & 63))
+			img.V[row*img.VStride+col] = byte(144 + ((row + col*2 + index*5) & 63))
+		}
+	}
+	return img
 }

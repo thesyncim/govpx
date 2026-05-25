@@ -33,6 +33,9 @@ removes a visible class of root pollution, moves a meaningful boundary, or
 deletes a real compatibility/test/oracle seam over several tiny commits that
 only shuffle one or two assertions. Small edits are fine while staging, but
 they should be batched into an impact-bearing safe point before commit/push.
+When the work is mechanical and safe to verify, target five-figure line-scale
+packets rather than hundreds of lines; a smaller commit needs an explicit reason
+such as hot-path risk, oracle baseline risk, or an unavoidable dependency edge.
 
 1. Inventory and guardrails: maintain file clusters, large-file exceptions,
    protected gates, and no-overlap ownership notes.
