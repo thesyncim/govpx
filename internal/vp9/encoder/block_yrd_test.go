@@ -153,6 +153,121 @@ func TestVP9BlockYrdRateScaling(t *testing.T) {
 	}
 }
 
+func TestVP9CalculateTxSizeMirrorsLibvpxAQAndScreenForces(t *testing.T) {
+	cases := []struct {
+		name string
+		args CalculateTxSizeArgs
+		want common.TxSize
+	}{
+		{
+			name: "default-textured-64x64-caps-to-tx16",
+			args: CalculateTxSizeArgs{
+				BSize:  common.Block64x64,
+				TxMode: common.TxModeSelect,
+				SSEY:   1 << 20, VarY: 1 << 14,
+			},
+			want: common.Tx16x16,
+		},
+		{
+			name: "cyclic-refresh-flat-source-lifts-tx16-cap",
+			args: CalculateTxSizeArgs{
+				BSize:  common.Block64x64,
+				TxMode: common.TxModeSelect,
+				SSEY:   1 << 20, VarY: 1 << 14,
+				CyclicRefreshAQ: true,
+			},
+			want: common.Tx32x32,
+		},
+		{
+			name: "cyclic-refresh-boosted-segment-forces-tx8",
+			args: CalculateTxSizeArgs{
+				BSize:  common.Block64x64,
+				TxMode: common.TxModeSelect,
+				SSEY:   1 << 20, VarY: 1 << 14,
+				SourceVariance:  1 << 14,
+				CyclicRefreshAQ: true,
+				SegmentID:       CyclicRefreshSegmentBoost1,
+			},
+			want: common.Tx8x8,
+		},
+		{
+			name: "screen-content-forces-tx4-over-tx8",
+			args: CalculateTxSizeArgs{
+				BSize:  common.Block16x16,
+				TxMode: common.TxModeSelect,
+				SSEY:   1 << 10, VarY: 1 << 16,
+				ACThreshold:   100,
+				ScreenContent: true,
+			},
+			want: common.Tx4x4,
+		},
+		{
+			name: "fixed-tx-mode-skips-select-only-forces",
+			args: CalculateTxSizeArgs{
+				BSize:  common.Block64x64,
+				TxMode: common.Allow32x32,
+				SSEY:   1 << 20, VarY: 1 << 14,
+				CyclicRefreshAQ: true,
+				SegmentID:       CyclicRefreshSegmentBoost1,
+				ScreenContent:   true,
+			},
+			want: common.Tx32x32,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CalculateTxSize(tc.args); got != tc.want {
+				t.Fatalf("CalculateTxSize = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVP9ModelRdForSbYUsesCalculateTxSizeBranches(t *testing.T) {
+	dequant := [2]int16{128, 128}
+	cases := []struct {
+		name string
+		args ModelRdForSbYArgs
+		want common.TxSize
+	}{
+		{
+			name: "cyclic-refresh-boosted-inter-forces-tx8",
+			args: ModelRdForSbYArgs{
+				BSize:   common.Block64x64,
+				QIndex:  64,
+				Dequant: dequant,
+				VarY:    1 << 14, SSEY: 1 << 20,
+				TxMode:          common.TxModeSelect,
+				SourceVariance:  1 << 14,
+				CyclicRefreshAQ: true,
+				SegmentID:       CyclicRefreshSegmentBoost1,
+			},
+			want: common.Tx8x8,
+		},
+		{
+			name: "screen-content-small-block-forces-tx4",
+			args: ModelRdForSbYArgs{
+				BSize:   common.Block16x16,
+				QIndex:  64,
+				Dequant: dequant,
+				VarY:    1 << 16, SSEY: 1 << 10,
+				TxMode:         common.TxModeSelect,
+				SourceVariance: 1 << 16,
+				ScreenContent:  true,
+			},
+			want: common.Tx4x4,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, txSize := ModelRdForSbY(tc.args)
+			if txSize != tc.want {
+				t.Fatalf("ModelRdForSbY txSize = %d, want %d", txSize, tc.want)
+			}
+		})
+	}
+}
+
 // TestVP9BlockErrorFPZero pins libvpx vp9_rdopt.c:334-345: when coeff ==
 // dqcoeff the per-element diff is zero, so error = 0 regardless of
 // magnitude. The hand-computed expected value is 0.

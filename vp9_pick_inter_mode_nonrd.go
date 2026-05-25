@@ -319,7 +319,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	sceneChangeDetected := e.rc.highSourceSAD
 	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
 	sourceVariance := ^uint(0)
-	if e.sf.ShortCircuitFlatBlocks != 0 || e.sf.LimitNewmvEarlyExit != 0 {
+	if e.sf.ShortCircuitFlatBlocks != 0 || e.sf.LimitNewmvEarlyExit != 0 ||
+		e.opts.AQMode == VP9AQCyclicRefresh {
 		if v, ok := e.vp9NonrdSourceVariance(inter, miRow, miCol, bsize); ok {
 			sourceVariance = v
 		}
@@ -511,6 +512,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	qindex := e.vp9EncoderModeDecisionQIndex()
+	frameTxMode := vp9InterFrameTxMode(inter)
 	lowvarHighsumdiff := false
 	lowvarHighsumdiffSet := false
 	newmvDiffBiasInputs := func() (bool, bool, bool, bool) {
@@ -1027,14 +1029,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			bsize < common.Block32x32
 
 		// segId for dequant lookup.
+		segID := e.vp9PartitionSegmentID(miRow, miCol,
+			e.vp9StaticSegmentIDForMap(), inter.img, inter)
+		if segID >= vp9dec.MaxSegments {
+			segID = 0
+		}
+		segQIndex := e.vp9SegmentQIndex(inter, segID)
 		var dequantY [2]int16
 		var dequantU, dequantV [2]int16
 		if inter.dq != nil {
-			// Realtime nonrd uses the SB segment id (0 when segmentation
-			// is off).
-			dequantY = inter.dq.Y[0]
-			dequantU = inter.dq.Uv[0]
-			dequantV = inter.dq.Uv[0]
+			dequantY = inter.dq.Y[segID]
+			dequantU = inter.dq.Uv[segID]
+			dequantV = inter.dq.Uv[segID]
 		}
 
 		// libvpx: vp9_pickmode.c:2318-2410. Filter candidates are scored
@@ -1077,8 +1083,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// produces tx_size via calculate_tx_size (libvpx
 			// vp9_pickmode.c:660-680); block_yrd consumes
 			// min(tx_size, TX_16X16).
-			rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(bsize, qindex,
-				dequantY, varY, sseY, 0)
+			rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+				BSize:           bsize,
+				QIndex:          segQIndex,
+				Dequant:         dequantY,
+				VarY:            varY,
+				SSEY:            sseY,
+				TxMode:          frameTxMode,
+				SourceVariance:  uint64(sourceVariance),
+				SegmentID:       segID,
+				CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+				ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+			})
 
 			// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
 			// (rd_computed=1 from the model_rd call above, and

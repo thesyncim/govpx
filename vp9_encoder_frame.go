@@ -422,6 +422,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			compoundRefs:     compoundRefs,
 			interpFilter:     header.InterpFilter,
 			lossless:         header.Quant.Lossless,
+			txMode:           txMode,
 			baseQindex:       int(header.Quant.BaseQindex),
 			isSrcFrameAltRef: srcFrameAltRef,
 			showFrame:        showFrame,
@@ -460,6 +461,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Quant.Lossless, e.sf.FrameParameterUpdate != 0, counts); reducedTxMode != txMode {
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+		if interState != nil {
+			interState.txMode = txMode
+		}
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,

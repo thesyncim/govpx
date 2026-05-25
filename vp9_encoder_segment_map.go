@@ -89,6 +89,18 @@ func (e *VP9Encoder) vp9PartitionSegmentID(miRow int, miCol int,
 	return staticSegID
 }
 
+func (e *VP9Encoder) vp9SegmentQIndex(inter *vp9InterEncodeState, segmentID uint8) int {
+	baseQIndex := e.vp9EncoderModeDecisionQIndex()
+	if inter != nil {
+		baseQIndex = inter.baseQindex
+	}
+	if segmentID >= vp9dec.MaxSegments {
+		return baseQIndex
+	}
+	return vp9dec.GetSegmentQindex(&e.vp9HeaderScratch.Seg, int(segmentID),
+		baseQIndex)
+}
+
 func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 	img *image.YCbCr, inter *vp9InterEncodeState,
 ) (uint8, bool) {

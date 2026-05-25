@@ -41,6 +41,7 @@ type vp9InterEncodeState struct {
 	compoundRefs     vp9dec.CompoundFrameRefs
 	interpFilter     vp9dec.InterpFilter
 	lossless         bool
+	txMode           common.TxMode
 	counts           *encoder.FrameCounts
 	isSrcFrameAltRef bool
 	showFrame        bool

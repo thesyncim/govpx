@@ -112,8 +112,7 @@ func TestVP9EncoderFrameTxModeFromCountsLibvpxSelectLadder(t *testing.T) {
 
 // TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode pins
 // vp9EncoderFrameTxMode against the libvpx vp9/encoder/
-// vp9_encodeframe.c:4334-4345 select_tx_mode truth table for the
-// realtime cpu_used=8 surface that drives govpx's byte-parity matrix.
+// vp9_encodeframe.c:4334-4345 select_tx_mode truth table.
 // The KEY_FRAME && use_nonrd_pick_mode -> ALLOW_16X16 clamp is the
 // signature change a843f45d introduced; intra-only frames now route
 // through the non-key dispatch (libvpx's `cm->frame_type == KEY_FRAME`
@@ -154,12 +153,14 @@ func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 		// RT speed=1..4 also see USE_FULL_RD -> TX_MODE_SELECT
 		// (vp9_encodeframe.c:4340-4342).
 		{name: "keyframe-rt-cpu1-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 1, isKey: true, want: common.TxModeSelect},
-		// Non-key inter at RT speed=1: tx_size_search_method =
-		// USE_LARGESTALL -> ALLOW_32X32. Pinned at TX_MODE_SELECT in
-		// govpx's vp9EncoderFrameTxMode (libvpx fallthrough) to preserve
-		// byte parity against the established golden corpus — see the
-		// comment block in vp9_encoder.go documenting the inter pin.
-		{name: "inter-rt-cpu1-keeps-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 1, want: common.TxModeSelect},
+		// Non-key inter at RT speed=1..3: tx_size_search_method =
+		// USE_LARGESTALL -> ALLOW_32X32.
+		{name: "inter-rt-cpu1-uses-allow32x32", deadline: DeadlineRealtime, cpuUsed: 1, want: common.Allow32x32},
+		{name: "inter-rt-cpu3-uses-allow32x32", deadline: DeadlineRealtime, cpuUsed: 3, want: common.Allow32x32},
+		// RT speed=4 switches non-key inter to USE_TX_8X8 -> TX_MODE_SELECT.
+		{name: "inter-rt-cpu4-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: 4, want: common.TxModeSelect},
+		// GOOD speed=4 keeps USE_LARGESTALL -> ALLOW_32X32.
+		{name: "inter-good-cpu4-uses-allow32x32", deadline: DeadlineGoodQuality, cpuUsed: 4, want: common.Allow32x32},
 		{name: "intra-only-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, intraOnly: true, want: common.TxModeSelect},
 		{name: "inter-uses-tx-mode-select", deadline: DeadlineRealtime, cpuUsed: vp9DefaultCPUUsed, want: common.TxModeSelect},
 	} {

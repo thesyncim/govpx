@@ -1,9 +1,11 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9InterCalculateTxSizeMirrorsLibvpx(t *testing.T) {
@@ -204,15 +206,15 @@ func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
 			want: common.Tx8x8,
 		},
 		{
-			// acThr <= 0 disables the screen-content force regardless of
-			// residVar — govpx returns acThr=0 when the quantizer plumb
-			// is unavailable.
-			name:     "screen-content-zero-acthr-keeps-tx8",
+			// libvpx casts ac_thr to unsigned in the comparison. If the
+			// caller supplies zero, any non-zero (var >> 5) still forces
+			// Tx4x4.
+			name:     "screen-content-zero-acthr-still-forces-tx4",
 			screen:   true,
 			tx:       common.Tx8x8,
 			bsize:    common.Block16x16,
 			residVar: 1 << 16, acThr: 0, limitTx: true,
-			want: common.Tx8x8,
+			want: common.Tx4x4,
 		},
 	}
 	for _, tc := range cases {
@@ -228,6 +230,35 @@ func TestVP9InterTxApplyForcesMirrorsLibvpx(t *testing.T) {
 				t.Fatalf("vp9InterTxApplyForces = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestVP9InterCalculateTxAcThrUsesSegmentQIndex(t *testing.T) {
+	seg := vp9dec.SegmentationParams{Enabled: true}
+	seg.FeatureMask[vp9enc.CyclicRefreshSegmentBoost1] =
+		1 << uint(vp9dec.SegLvlAltQ)
+	seg.FeatureData[vp9enc.CyclicRefreshSegmentBoost1][vp9dec.SegLvlAltQ] = -40
+	e := &VP9Encoder{}
+	e.vp9HeaderScratch.Seg = seg
+
+	var dq vp9dec.DequantTables
+	vp9dec.SetupSegmentationDequant(&seg, vp9dec.SetupSegmentationDequantArgs{
+		BaseQindex: 100,
+		BitDepth:   vp9dec.Bits8,
+	}, &dq)
+	inter := &vp9InterEncodeState{
+		dq:         &dq,
+		baseQindex: 100,
+	}
+	got := e.vp9InterCalculateTxAcThr(inter, vp9enc.CyclicRefreshSegmentBoost1)
+	_, want := vp9enc.ModelRdQuantThresholds(60,
+		dq.Y[vp9enc.CyclicRefreshSegmentBoost1])
+	if got != want {
+		t.Fatalf("vp9InterCalculateTxAcThr = %d, want segment-q threshold %d",
+			got, want)
+	}
+	if got := e.vp9SegmentQIndex(inter, vp9enc.CyclicRefreshSegmentBoost1); got != 60 {
+		t.Fatalf("vp9SegmentQIndex = %d, want 60", got)
 	}
 }
 

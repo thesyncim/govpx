@@ -112,11 +112,17 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	intraTxSize := common.MaxTxsizeLookup[bsize]
 	// libvpx reads cpi->common.tx_mode here; govpx derives the same
 	// biggest tx via TxModeToBiggestTxSize using the live frame tx_mode.
-	frameTxMode := e.vp9EncoderFrameTxMode(false, false, inter.lossless)
+	frameTxMode := vp9InterFrameTxMode(inter)
 	biggestTx := common.TxModeToBiggestTxSize[frameTxMode]
 	if biggestTx < intraTxSize {
 		intraTxSize = biggestTx
 	}
+	segID := e.vp9PartitionSegmentID(miRow, miCol,
+		e.vp9StaticSegmentIDForMap(), inter.img, inter)
+	if segID >= vp9dec.MaxSegments {
+		segID = 0
+	}
+	segQIndex := e.vp9SegmentQIndex(inter, segID)
 
 	// libvpx vp9_rd.c:103 fills cpi->mbmode_cost from
 	// fc->y_mode_prob[1], and the nonrd intra fallback consumes that table
@@ -166,7 +172,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	}
 	dequantY := [2]int16{}
 	if inter.dq != nil {
-		dequantY = inter.dq.Y[0]
+		dequantY = inter.dq.Y[segID]
 	}
 	useSimpleIntraBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
 		bsize < common.Block32x32
@@ -234,8 +240,19 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			if !ok {
 				continue
 			}
-			rateY, distY, _, _ := encoder.ModelRdForSbY(bsize, qindex, dequantY,
-				variance, sse, 1)
+			rateY, distY, _, _ := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+				BSize:           bsize,
+				QIndex:          segQIndex,
+				Dequant:         dequantY,
+				VarY:            variance,
+				SSEY:            sse,
+				IsIntra:         true,
+				TxMode:          frameTxMode,
+				SourceVariance:  uint64(sourceVariance),
+				SegmentID:       segID,
+				CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+				ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+			})
 			coeffRate = rateY
 			distortion = uint64(distY)
 		} else {

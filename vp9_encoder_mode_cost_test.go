@@ -214,15 +214,13 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 		AllowHighPrecisionMv: interHeader.AllowHighPrecisionMv,
 		CompoundRefAllowed:   false,
 	})
-	// CpuUsed=-3 is GOOD speed=3 which keeps frame_parameter_update=1
-	// (vp9_speed_features.c:929), so the libvpx-faithful TX_MODE_SELECT
-	// post-encode demotion ladder at vp9_encodeframe.c:5911-5944 runs
-	// here. On this 8x8 checker pattern only Tx8x8 ever wins for the
-	// inter frame (count16x16_lp == count16x16_16x16p == count32x32 ==
-	// count4x4 == 0), so the ALLOW_8X8 leg at :5930-5933 fires and the
-	// frame_tx_mode literal is Allow8x8 instead of TxModeSelect.
-	if out.TxMode != common.Allow8x8 {
-		t.Fatalf("TxMode = %d, want Allow8x8 (libvpx vp9_encodeframe.c:5930-5933 demotion)", out.TxMode)
+	// CpuUsed=-3 is GOOD speed=3. libvpx's per-frame speed features set
+	// tx_size_search_method=USE_LARGESTALL for this non-key frame
+	// (vp9_speed_features.c:361), so select_tx_mode returns ALLOW_32X32
+	// directly (vp9_encodeframe.c:4338-4339). The post-encode demotion
+	// ladder only runs when cm->tx_mode == TX_MODE_SELECT.
+	if out.TxMode != common.Allow32x32 {
+		t.Fatalf("TxMode = %d, want Allow32x32 (libvpx vp9_encodeframe.c:4338-4339)", out.TxMode)
 	}
 
 	d := decodeVP9KeyInterForTest(t, key, inter)

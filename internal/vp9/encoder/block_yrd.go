@@ -168,26 +168,129 @@ const (
 
 const BlockYrdUnknownSSE = uint64(1<<63 - 1)
 
+// ModelRdForSbYArgs is the libvpx model_rd_for_sb_y input surface used by
+// realtime non-RD mode picking.
+type ModelRdForSbYArgs struct {
+	BSize   common.BlockSize
+	QIndex  int
+	Dequant [2]int16
+	VarY    uint64
+	SSEY    uint64
+
+	// IsIntra controls calculate_tx_size's var_thresh branch. The inter
+	// picker passes false; the non-RD intra fallback passes true.
+	IsIntra bool
+
+	TxMode          common.TxMode
+	SourceVariance  uint64
+	SegmentID       uint8
+	CyclicRefreshAQ bool
+	ScreenContent   bool
+}
+
+// CalculateTxSizeArgs is the explicit Go form of libvpx
+// calculate_tx_size(cpi, bsize, xd, var, sse, ac_thr, source_variance,
+// is_intra) from vp9_pickmode.c:363-393.
+type CalculateTxSizeArgs struct {
+	BSize           common.BlockSize
+	TxMode          common.TxMode
+	VarY            uint64
+	SSEY            uint64
+	ACThreshold     int64
+	SourceVariance  uint64
+	IsIntra         bool
+	CyclicRefreshAQ bool
+	SegmentID       uint8
+	ScreenContent   bool
+}
+
+// TxSizeForcesArgs describes the post-candidate transform-size forces in
+// calculate_tx_size: cyclic-refresh boosted segments, the Tx16x16 cap, and
+// screen-content Tx4x4 forcing.
+type TxSizeForcesArgs struct {
+	TxSize          common.TxSize
+	BSize           common.BlockSize
+	VarY            uint64
+	ACThreshold     int64
+	LimitTx         bool
+	CyclicRefreshAQ bool
+	SegmentID       uint8
+	ScreenContent   bool
+}
+
+// CalculateTxSize ports libvpx vp9_pickmode.c:363-393. It is shared by the
+// non-RD model_rd_for_sb_y path and the root encoder's later tx-size picker so
+// the AQ/screen-content transform-size rules do not drift apart.
+func CalculateTxSize(args CalculateTxSizeArgs) common.TxSize {
+	if args.BSize >= common.BlockSizes {
+		return common.Tx4x4
+	}
+	txMode := args.TxMode
+	if txMode >= common.TxModes {
+		txMode = common.TxModeSelect
+	}
+	maxTx := common.MaxTxsizeLookup[args.BSize]
+	biggestForMode := common.TxModeToBiggestTxSize[txMode]
+	if maxTx > biggestForMode {
+		maxTx = biggestForMode
+	}
+	varThresh := uint64(1)
+	if args.IsIntra {
+		varThresh = 0
+		if args.ACThreshold > 0 {
+			varThresh = uint64(args.ACThreshold)
+		}
+	}
+	limitTx := true
+	if args.CyclicRefreshAQ &&
+		(args.SourceVariance == 0 || args.VarY < varThresh) {
+		limitTx = false
+	}
+	if txMode != common.TxModeSelect {
+		return maxTx
+	}
+	txSize := common.Tx8x8
+	if args.SSEY > args.VarY<<2 {
+		txSize = maxTx
+	}
+	return ApplyTxSizeForces(TxSizeForcesArgs{
+		TxSize:          txSize,
+		BSize:           args.BSize,
+		VarY:            args.VarY,
+		ACThreshold:     args.ACThreshold,
+		LimitTx:         limitTx,
+		CyclicRefreshAQ: args.CyclicRefreshAQ,
+		SegmentID:       args.SegmentID,
+		ScreenContent:   args.ScreenContent,
+	})
+}
+
+// ApplyTxSizeForces ports the force/cap tail of libvpx calculate_tx_size
+// (vp9_pickmode.c:380-388) for callers that have already selected a candidate
+// transform size by another scoring path.
+func ApplyTxSizeForces(args TxSizeForcesArgs) common.TxSize {
+	txSize := args.TxSize
+	if args.CyclicRefreshAQ && args.LimitTx &&
+		CyclicRefreshSegmentIDBoosted(args.SegmentID) {
+		txSize = common.Tx8x8
+	} else if txSize > common.Tx16x16 && args.LimitTx {
+		txSize = common.Tx16x16
+	}
+	acThr := uint64(0)
+	if args.ACThreshold > 0 {
+		acThr = uint64(args.ACThreshold)
+	}
+	if args.ScreenContent && txSize == common.Tx8x8 &&
+		args.BSize <= common.Block16x16 && (args.VarY>>5) > acThr {
+		txSize = common.Tx4x4
+	}
+	return txSize
+}
+
 // ModelRdForSbY ports model_rd_for_sb_y (vp9_pickmode.c:645-726) verbatim.
-// Inputs:
+// It returns libvpx's (rate, dist) tuple for the RDCOST comparison, the
+// SKIP_TXFM_* flag, and the tx_size chosen by calculate_tx_size.
 //
-//   - bsize: block size.
-//   - dequant: Y-plane (dc, ac) dequantizers from inter.dq.Y[segId].
-//   - varY, sseY: pre-computed variance/SSE between src and dst (the
-//     inter prediction).
-//   - isIntra: 0 for inter, 1 for intra (controls the tx_size threshold;
-//     the inter picker always passes 0).
-//
-// Outputs:
-//
-//   - outRateSum, outDistSum: libvpx's (rate, dist) tuple suitable for the
-//     RDCOST comparison.
-//   - skipTxfm: SKIP_TXFM_* flag; the picker forwards it to the bitstream
-//     writer when this candidate wins.
-//
-// libvpx's calculate_tx_size + the quant_thred-based skip test are folded
-// in; the simplified path here omits the AQ_CYCLIC_REFRESH branch and the
-// VP9E_CONTENT_SCREEN branch because the realtime fuzz seeds disable both.
 // dc_thr/ac_thr derive from `zbin[0|1]^2 >> 6` (the libvpx p->quant_thred
 // initializer at vp9_quantize.c:264-265 sets quant_thred = zbin*zbin; the
 // shift by 6 in model_rd_for_sb_y normalizes it). govpx mirrors the qzbin
@@ -204,77 +307,70 @@ const BlockYrdUnknownSSE = uint64(1<<63 - 1)
 // bsize >= BLOCK_8X8 (the realtime picker never invokes mode decision
 // at sub-8x8). For BLOCK_4X4 the n_log2 == 4 path is still well-defined
 // but tx_size would clamp to TX_4X4 — not exercised here.
-func ModelRdForSbY(bsize common.BlockSize, qindex int, dequant [2]int16,
-	varY, sseY uint64, isIntra int,
-) (outRateSum int, outDistSum int64, skipTxfm SkipTxfmFlag, txSize common.TxSize) {
+func ModelRdForSbY(args ModelRdForSbYArgs) (outRateSum int, outDistSum int64,
+	skipTxfm SkipTxfmFlag, txSize common.TxSize,
+) {
 	// libvpx: dc_thr = p->quant_thred[0] >> 6; ac_thr = p->quant_thred[1] >> 6;
 	// quant_thred[i] = zbin[i]*zbin[i] (vp9_quantize.c:264-265).
-	dcQuant := uint32(dequant[0])
-	acQuant := uint32(dequant[1])
-	dcThr, acThr := ModelRdQuantThresholds(qindex, dequant)
+	dcQuant := uint32(args.Dequant[0])
+	acQuant := uint32(args.Dequant[1])
+	dcThr, acThr := ModelRdQuantThresholds(args.QIndex, args.Dequant)
 
-	// libvpx: tx_size = calculate_tx_size(...). For TX_MODE_SELECT path:
-	//   tx_size = (sse > (var << 2)) ? min(max_txsize, biggest_tx) : TX_8X8;
-	// govpx: nonrd_pickmode runs with tx_mode TX_MODE_SELECT, so port the
-	// SELECT branch verbatim. The cyclic-refresh / screen-content tweaks
-	// fold into !isIntra == 1 callers.
-	varThresh := uint64(1)
-	if isIntra != 0 {
-		// var_thresh = (unsigned int)ac_thr (vp9_pickmode.c:369).
-		varThresh = uint64(acThr)
-	}
-	_ = varThresh
-	// tx_size = min(max_txsize_lookup[bsize], TX_32X32 (TX_MODE_SELECT
-	// biggest is TX_32X32)) when sse > var*4 else TX_8X8.
-	maxTx := common.MaxTxsizeLookup[bsize]
-	if sseY > (varY << 2) {
-		txSize = min(maxTx, common.Tx32x32)
-	} else {
-		txSize = common.Tx8x8
-	}
+	txSize = CalculateTxSize(CalculateTxSizeArgs{
+		BSize:           args.BSize,
+		TxMode:          args.TxMode,
+		VarY:            args.VarY,
+		SSEY:            args.SSEY,
+		ACThreshold:     acThr,
+		SourceVariance:  args.SourceVariance,
+		IsIntra:         args.IsIntra,
+		CyclicRefreshAQ: args.CyclicRefreshAQ,
+		SegmentID:       args.SegmentID,
+		ScreenContent:   args.ScreenContent,
+	})
 
 	// libvpx: skippable test on the per-tx-unit (var_tx, sse_tx) — pre-
 	// divided by num_blk via the num_blk_log2 shift. govpx mirrors the
 	// shifts exactly.
 	unitSize := common.TxsizeToBsize[txSize]
-	numBlkLog2 := (common.BWidthLog2Lookup[bsize] - common.BWidthLog2Lookup[unitSize]) +
-		(common.BHeightLog2Lookup[bsize] - common.BHeightLog2Lookup[unitSize])
-	sseTx := sseY >> uint(numBlkLog2)
-	varTx := varY >> uint(numBlkLog2)
+	numBlkLog2 := (common.BWidthLog2Lookup[args.BSize] - common.BWidthLog2Lookup[unitSize]) +
+		(common.BHeightLog2Lookup[args.BSize] - common.BHeightLog2Lookup[unitSize])
+	sseTx := args.SSEY >> uint(numBlkLog2)
+	varTx := args.VarY >> uint(numBlkLog2)
 
 	skipTxfm = SkipTxfmNone
 	skipDc := false
 	// libvpx vp9_pickmode.c:682-689 — ac quantizable to zero?
-	if varTx < uint64(acThr) || varY == 0 {
+	if varTx < uint64(acThr) || args.VarY == 0 {
 		skipTxfm = SkipTxfmAcOnly
 		// dc quantizable to zero?
-		if sseTx-varTx < uint64(dcThr) || sseY == varY {
+		if sseTx-varTx < uint64(dcThr) || args.SSEY == args.VarY {
 			skipTxfm = SkipTxfmAcDc
 		}
-	} else if sseTx-varTx < uint64(dcThr) || sseY == varY {
+	} else if sseTx-varTx < uint64(dcThr) || args.SSEY == args.VarY {
 		skipDc = true
 	}
 
 	if skipTxfm == SkipTxfmAcDc {
 		// libvpx vp9_pickmode.c:692-696 — full Y skip.
 		outRateSum = 0
-		outDistSum = int64(sseY << 4)
+		outDistSum = int64(args.SSEY << 4)
 		return
 	}
 
-	nLog2 := uint(common.NumPelsLog2Lookup[bsize])
+	nLog2 := uint(common.NumPelsLog2Lookup[args.BSize])
 	if !skipDc {
 		// libvpx: vp9_model_rd_from_var_lapndz(sse - var, n_log2, dc_quant >> 3, ...);
-		dcRate, dcDist := ModelRDFromVarLapndz(uint32(sseY-varY), nLog2, dcQuant>>3)
+		dcRate, dcDist := ModelRDFromVarLapndz(uint32(args.SSEY-args.VarY), nLog2, dcQuant>>3)
 		outRateSum = dcRate >> 1
 		outDistSum = dcDist << 3
 	} else {
 		outRateSum = 0
-		outDistSum = int64((sseY - varY) << 4)
+		outDistSum = int64((args.SSEY - args.VarY) << 4)
 	}
 
 	// libvpx: vp9_model_rd_from_var_lapndz(var, n_log2, ac_quant >> 3, ...);
-	acRate, acDist := ModelRDFromVarLapndz(uint32(varY), nLog2, acQuant>>3)
+	acRate, acDist := ModelRDFromVarLapndz(uint32(args.VarY), nLog2, acQuant>>3)
 	outRateSum += acRate
 	outDistSum += acDist << 4
 	return

@@ -458,7 +458,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	sourceVar, residualVar, _ := e.vp9InterTxSourceAndResidualVar(inter, miRow,
 		miCol, bsize, sse)
 	if e.vp9InterUsesNonrdPickmode() {
-		return e.vp9InterCalculateTxSize(bsize, common.TxModeSelect, sse,
+		return e.vp9InterCalculateTxSize(bsize, vp9InterFrameTxMode(inter), sse,
 			residualVar, sourceVar, acThr, segmentID)
 	}
 	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
@@ -550,27 +550,16 @@ func (e *VP9Encoder) vp9InterTxApplyForces(tx common.TxSize, bsize common.BlockS
 	if e == nil {
 		return tx
 	}
-	// Boosted-segment Tx8x8 force (vp9_pickmode.c:380-382).
-	if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
-		encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
-		tx = common.Tx8x8
-	} else if tx > common.Tx16x16 && limitTx {
-		// Tx16x16 cap (vp9_pickmode.c:383-384) — kept for parity even
-		// though govpx already caps Tx16x16 in the picker; libvpx's
-		// helper applies the cap unconditionally here.
-		tx = common.Tx16x16
-	}
-	// Screen-content Tx4x4 force (vp9_pickmode.c:386-388). libvpx gates
-	// the force on (var >> 5) > (unsigned int)ac_thr — acThr is
-	// signed-int64 in govpx; cast through uint64 mirrors the libvpx
-	// unsigned compare. acThr <= 0 disables the force (govpx returns
-	// acThr == 0 when the quantizer plumbing is unavailable).
-	if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
-		tx == common.Tx8x8 && bsize <= common.Block16x16 &&
-		acThr > 0 && (residualVar>>5) > uint64(acThr) {
-		tx = common.Tx4x4
-	}
-	return tx
+	return encoder.ApplyTxSizeForces(encoder.TxSizeForcesArgs{
+		TxSize:          tx,
+		BSize:           bsize,
+		VarY:            residualVar,
+		ACThreshold:     acThr,
+		LimitTx:         limitTx,
+		CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+		SegmentID:       segmentID,
+		ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+	})
 }
 
 // vp9InterCalculateTxAcThr ports libvpx's
@@ -594,7 +583,7 @@ func (e *VP9Encoder) vp9InterCalculateTxAcThr(inter *vp9InterEncodeState,
 		int(segmentID) >= len(inter.dq.Y) {
 		return 0
 	}
-	_, acThr := encoder.ModelRdQuantThresholds(e.vp9EncoderModeDecisionQIndex(),
+	_, acThr := encoder.ModelRdQuantThresholds(e.vp9SegmentQIndex(inter, segmentID),
 		inter.dq.Y[segmentID])
 	return acThr
 }
@@ -754,41 +743,17 @@ func (e *VP9Encoder) vp9InterCalculateTxSize(bsize common.BlockSize,
 	txMode common.TxMode, sse, residualVar, sourceVar uint64, acThr int64,
 	segmentID uint8,
 ) common.TxSize {
-	maxTx := common.MaxTxsizeLookup[bsize]
-	biggestForMode := common.TxModeToBiggestTxSize[txMode]
-	if maxTx > biggestForMode {
-		maxTx = biggestForMode
-	}
-	// var_thresh = is_intra ? ac_thr : 1 — inter path: 1.
-	limitTx := true
-	if e.opts.AQMode == VP9AQCyclicRefresh &&
-		(sourceVar == 0 || residualVar == 0) {
-		limitTx = false
-	}
-	var txSize common.TxSize
-	if txMode == common.TxModeSelect {
-		if sse > residualVar<<2 {
-			txSize = maxTx
-		} else {
-			txSize = common.Tx8x8
-		}
-		if e.opts.AQMode == VP9AQCyclicRefresh && limitTx &&
-			encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
-			txSize = common.Tx8x8
-		} else if txSize > common.Tx16x16 && limitTx {
-			txSize = common.Tx16x16
-		}
-		// VP9E_CONTENT_SCREEN: force Tx4x4 over Tx8x8 for large variance,
-		// vp9_pickmode.c:386-388.
-		if e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
-			txSize == common.Tx8x8 && bsize <= common.Block16x16 &&
-			acThr > 0 && (residualVar>>5) > uint64(acThr) {
-			txSize = common.Tx4x4
-		}
-	} else {
-		txSize = maxTx
-	}
-	return txSize
+	return encoder.CalculateTxSize(encoder.CalculateTxSizeArgs{
+		BSize:           bsize,
+		TxMode:          txMode,
+		VarY:            residualVar,
+		SSEY:            sse,
+		ACThreshold:     acThr,
+		SourceVariance:  sourceVar,
+		CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+		SegmentID:       segmentID,
+		ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+	})
 }
 
 func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
