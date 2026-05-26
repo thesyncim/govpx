@@ -307,14 +307,19 @@ type VP9Encoder struct {
 	// tx_size <= TX_16X16 for nonrd_pickmode (vp9_pickmode.c:2361) so
 	// the TX_8X8 / TX_4X4 paths fit within this allocation too.
 	vp9BlockYrdScratch [16384]int16
-	dqScratch          vp9dec.DequantTables
-	frameCounts        encoder.FrameCounts
-	vp9HeaderScratch   vp9dec.UncompressedHeader
-	vp9InterIntraHdr   vp9dec.UncompressedHeader
-	vp9CountWorkers    []VP9Encoder
-	vp9CountCounts     []encoder.FrameCounts
-	vp9CountJobs       []vp9CountTileJob
-	vp9TilePool        *vp9TileWorkerPool
+	// cyclicPost{IsInter,MvRow,MvCol} back vp9_cyclic_refresh_postencode's
+	// low-content walk without per-frame allocation on typical mi grids.
+	cyclicPostIsInter []uint8
+	cyclicPostMvRow   []int16
+	cyclicPostMvCol   []int16
+	dqScratch         vp9dec.DequantTables
+	frameCounts       encoder.FrameCounts
+	vp9HeaderScratch  vp9dec.UncompressedHeader
+	vp9InterIntraHdr  vp9dec.UncompressedHeader
+	vp9CountWorkers   []VP9Encoder
+	vp9CountCounts    []encoder.FrameCounts
+	vp9CountJobs      []vp9CountTileJob
+	vp9TilePool       *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
 	// at the leaf-write site so the count pre-pass populates entries and
 	// the bitstream write pass reuses them without re-running the inter-

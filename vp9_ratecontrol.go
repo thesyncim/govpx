@@ -95,6 +95,16 @@ type vp9RateControlState struct {
 	// the first frame after a golden/altref refresh.
 	framesSinceGolden uint16
 	framesTillGF      uint8
+	// framesTillGFUpdateDue mirrors libvpx RATE_CONTROL::frames_till_gf_update_due
+	// for one-pass CBR cyclic-refresh golden cadence.
+	framesTillGFUpdateDue int
+	// framesToKey mirrors libvpx RATE_CONTROL::frames_to_key.
+	framesToKey int
+	// avgFrameLowMotion mirrors libvpx RATE_CONTROL::avg_frame_low_motion (0-100).
+	avgFrameLowMotion int
+	// refreshGoldenFrame mirrors cpi->refresh_golden_frame for the current
+	// encode pass after vp9_rc_get_one_pass_cbr_params schedules a GF update.
+	refreshGoldenFrame bool
 	// altRefGFGroup mirrors libvpx RATE_CONTROL::alt_ref_gf_group.
 	// vp9_pick_inter_mode's usable_ref_frame and VBR/lag candidate gates
 	// read it to keep ARF groups from being treated like ordinary GF-only
@@ -754,6 +764,8 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
 	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
 	rc.postOnePassVBRRefresh(refreshFlags)
+	rc.postOnePassCBRGoldenCadence(refreshFlags)
+	rc.decrementFramesToKey(showFrame)
 	rc.totalActualBits += int64(encodedBits)
 	if showFrame {
 		rc.totalTargetBits += int64(rc.bitsPerFrame)

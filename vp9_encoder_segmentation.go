@@ -51,7 +51,7 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFram
 		RateControlIsVBR:     e.rc.mode == RateControlVBR,
 		RefreshGoldenFrame:   refreshFlags&(1<<vp9GoldenRefSlot) != 0,
 		AvgFrameQindexInter:  int(e.rc.avgFrameQIndexInter),
-		AvgFrameLowMotion:    100,
+		AvgFrameLowMotion:    e.rc.avgFrameLowMotion,
 		FramesSinceKey:       int(e.rc.framesSinceKey),
 		BestQuality:          int(e.rc.bestQuality),
 		AvgFrameBandwidth:    e.rc.bitsPerFrame,
@@ -102,7 +102,7 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		// realtime call paths.  The CR RDMult therefore lands in the
 		// inter bucket which is what libvpx's realtime CR runs evaluate.
 		IsSrcFrameAltRef:   false,
-		RefreshGoldenFrame: false,
+		RefreshGoldenFrame: e.rc.refreshGoldenFrame,
 		RefreshAltRefFrame: false,
 	})
 	e.cyclicAQ.Apply = e.cyclicAQ.ApplyCyclicRefresh && e.cyclicAQ.TargetNumSegBlocks > 0

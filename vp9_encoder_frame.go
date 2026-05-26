@@ -106,9 +106,16 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	showFrame := flags&EncodeInvisibleFrame == 0
 	srcFrameAltRef := isSrcFrameAltRef && showFrame && !isKey && !intraOnly
 	e.rc.isSrcFrameAltRef = srcFrameAltRef
+	e.rc.seedFramesToKey(e.opts.MaxKeyframeInterval, isKey)
+	e.rc.prepareOnePassCBRCyclicGoldenFrame(isKey, intraOnly,
+		e.opts.AQMode, &e.cyclicAQ, e.opts.GFCBRBoostPct,
+		e.extRefresh.flagsPending)
 	refreshFlags := uint8(0xff)
 	if !isKey {
 		refreshFlags = e.vp9InterRefreshFrameFlags(flags)
+		if e.rc.refreshGoldenFrame && flags&vp9ExternalRefreshCtlFlags == 0 {
+			refreshFlags |= 1 << vp9GoldenRefSlot
+		}
 		if srcFrameAltRef && flags&vp9ExternalRefreshCtlFlags == 0 {
 			// libvpx check_src_altref(): overlay/source-altref frames
 			// preserve LAST and become GOLDEN for subsequent frames.
@@ -652,6 +659,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			return VP9EncodeResult{}, ErrInvalidVP9Data
 		}
 	}
+	cyclicForRC, clearGolden := e.vp9CyclicRefreshPostencodeFromMiGrid(
+		miRows, miCols, header, isKey, intraOnly)
+	if clearGolden {
+		header.RefreshFrameFlags &^= 1 << vp9GoldenRefSlot
+	}
 	e.refreshVP9EncoderSegmentMap(miRows, miCols)
 	e.prevSegmentation = header.Seg
 	e.prevSegmentationValid = true
@@ -675,27 +687,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if postDrop {
 		e.rc.postEncodeDropFrame()
 	} else {
-		var cyclicForRC *encoder.CyclicRefreshState
-		if !isKey && !intraOnly && e.opts.AQMode == VP9AQCyclicRefresh &&
-			e.cyclicAQ.Enabled && e.cyclicAQ.Apply {
-			// libvpx: vp9_cyclic_refresh_postencode() runs before
-			// rc_update_rate_correction_factors so the rate model sees the
-			// realized segment population for this frame.
-			res := e.cyclicAQ.Postencode(encoder.CyclicRefreshPostencodeArgs{
-				UseSVC:                      false,
-				ExtRefreshFrameFlagsPending: false,
-				GfCBRBoostPct:               e.opts.GFCBRBoostPct,
-				ResizePending:               false,
-				RefreshGoldenFrame:          header.RefreshFrameFlags&(1<<vp9GoldenRefSlot) != 0,
-				FramesSinceKey:              int(e.rc.framesSinceKey),
-				FramesSinceGolden:           int(e.rc.framesSinceGolden),
-			})
-			_ = res // golden-refresh gating is plumbed separately.
-			cyclicForRC = &e.cyclicAQ
-		}
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 			header.RefreshFrameFlags, macroblocks,
 			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC)
+		if !isKey && !intraOnly {
+			e.rc.computeFrameLowMotion(miRows, miCols,
+				func(miRow, miCol int) *vp9dec.NeighborMi {
+					return e.vp9MiAt(miRows, miCols, miRow, miCol)
+				})
+		}
 	}
 	e.lastFrameDropped = postDrop
 	if header.ShowFrame {
