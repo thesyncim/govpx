@@ -84,13 +84,17 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 			cur.Skip = 1
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
-			uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+			interDecision, chosenUvMode, residue := e.prepareVP9InterBlockResidue(inter, miRows, miCols,
 				miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+			uvMode, hasResidue = chosenUvMode, residue
 			segID = vp9EncoderMiSegmentID(&cur)
 			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 			if hasResidue {
 				cur.Skip = 0
 			}
+			interDecision.skip = cur.Skip != 0
+			e.vp9UpdateCyclicRefreshInterSegment(inter, seg, miRows, miCols,
+				miRow, miCol, reconBsize, &cur, interDecision)
 		}
 		if !segmentSkip {
 			if hasResidue {
@@ -413,6 +417,9 @@ func (e *VP9Encoder) vp9EncoderBlockSegmentID(seg *vp9dec.SegmentationParams,
 		}
 	}
 	predicted := segID
+	if inter != nil {
+		predicted = 0
+	}
 	if seg.TemporalUpdate {
 		predicted = e.vp9EncoderSegmentMapPredicted(miRows, miCols,
 			miRow, miCol, bsize, segID)

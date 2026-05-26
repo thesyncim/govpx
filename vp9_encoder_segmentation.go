@@ -138,7 +138,7 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeSta
 			mi.SegIDPredicted = e.vp9EncoderSegmentMapPredicted(miRows, miCols,
 				miRow, miCol, bsize, segID)
 		} else {
-			mi.SegIDPredicted = segID
+			mi.SegIDPredicted = 0
 		}
 	}
 }

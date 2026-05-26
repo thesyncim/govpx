@@ -181,8 +181,10 @@ func TestVP9OracleCyclicRefreshSegmentationHeaderFlagsParity(t *testing.T) {
 			temporalMatches++
 		}
 	}
-	t.Logf("cyclic refresh segmentation temporal_update matched %d/3 inter frames (open parity lane)",
-		temporalMatches)
+	if temporalMatches != 3 {
+		t.Fatalf("cyclic refresh segmentation temporal_update matched %d/3 inter frames, want 3/3",
+			temporalMatches)
+	}
 }
 
 func TestVP9OracleCyclicRefreshKeyframeSeedsMatchLibvpx(t *testing.T) {

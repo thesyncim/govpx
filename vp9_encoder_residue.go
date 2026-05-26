@@ -105,11 +105,11 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
 	seg *vp9dec.SegmentationParams, forcedRefFrame int8, forcedRef bool,
-) (common.PredictionMode, bool) {
+) (vp9InterModeDecision, common.PredictionMode, bool) {
 	interDecision, ok := e.prepareVP9InterPredictionBlock(inter, miRows, miCols,
 		miRow, miCol, bsize, tile, mi, seg, forcedRefFrame, forcedRef)
 	if !ok {
-		return common.DcPred, false
+		return vp9InterModeDecision{}, common.DcPred, false
 	}
 	if interDecision.intra {
 		mi.Mode = interDecision.mode
@@ -123,7 +123,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if uvMode < common.DcPred || int(uvMode) >= common.IntraModes {
 			uvMode = interDecision.mode
 		}
-		return uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+		return interDecision, uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
 			miRows, miCols, miRow, miCol, bsize, mi, uvMode)
 	}
 	if e.opts.AQMode == VP9AQComplexity {
@@ -139,7 +139,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
 		miRow, miCol, bsize, mi) {
-		return common.DcPred, false
+		return interDecision, common.DcPred, false
 	}
 	if e.opts.AQMode != VP9AQComplexity {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
@@ -152,7 +152,9 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			mi.Mv = [2]vp9dec.MV{}
 			mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
-			return intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
+			interDecision.intra = true
+			interDecision.mode = intra.mode
+			return interDecision, intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
 				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
 		}
 	}
@@ -190,7 +192,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	return common.DcPred, hasResidue
+	return interDecision, common.DcPred, hasResidue
 }
 
 func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
@@ -368,10 +370,6 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		inter.ref = &e.refFrames[refSlot]
 	} else {
 		return vp9InterModeDecision{}, false
-	}
-	if pickedValid {
-		e.vp9UpdateCyclicRefreshInterSegment(inter, seg, miRows, miCols,
-			miRow, miCol, bsize, mi, picked)
 	}
 	if pickedValid && picked.intra {
 		mi.Mode = picked.mode
