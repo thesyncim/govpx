@@ -175,6 +175,18 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 		return qindex
 	}
 	qindex := e.opts.Quantizer
+	var cyclic *encoder.CyclicRefreshState
+	var encodeSpeed int
+	if e.opts.AQMode == VP9AQCyclicRefresh && e.cyclicAQ.Enabled {
+		cyclic = &e.cyclicAQ
+		encodeSpeed = e.vp9SpeedFeatureCPUUsed()
+	}
+	applyCyclicLimitQ := func(q int) int {
+		if cyclic != nil && cyclic.ApplyCyclicRefresh && !isKey && !intraOnly && e.rc.enabled {
+			cyclic.LimitQ(int(e.rc.q1Frame), &q)
+		}
+		return q
+	}
 	if qindex == 0 {
 		if e.rc.enabled {
 			if e.rc.mode == RateControlCBR {
@@ -184,13 +196,13 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 					var correctionFactor float64
 					qindex, activeBest, activeWorst, correctionFactor =
 						e.rc.cbrQuantizerWithBounds(isKey || intraOnly,
-							refreshFlags, e.frameIndex, macroblocks)
+							refreshFlags, e.frameIndex, macroblocks, cyclic, encodeSpeed)
 					e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
 						correctionFactor, e.rc.onePassRecodeAllowed(), 0)
-					return qindex
+					return applyCyclicLimitQ(qindex)
 				}
 				qindex = e.rc.cbrQuantizer(isKey || intraOnly, refreshFlags,
-					e.frameIndex, macroblocks)
+					e.frameIndex, macroblocks, cyclic, encodeSpeed)
 			} else {
 				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
 					refreshFlags)
@@ -200,13 +212,13 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 					var correctionFactor float64
 					qindex, activeBest, activeWorst, correctionFactor =
 						e.rc.vbrQuantizerWithBounds(isKey || intraOnly,
-							refreshFlags, e.frameIndex, macroblocks)
+							refreshFlags, e.frameIndex, macroblocks, cyclic, encodeSpeed)
 					e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
 						correctionFactor, e.rc.onePassRecodeAllowed(), 0)
-					return qindex
+					return applyCyclicLimitQ(qindex)
 				}
 				qindex = e.rc.vbrQuantizer(isKey || intraOnly, refreshFlags,
-					e.frameIndex, macroblocks)
+					e.frameIndex, macroblocks, cyclic, encodeSpeed)
 			}
 		} else {
 			qindex = e.vp9EncoderPublicQModeQIndex(isKey, intraOnly,
@@ -219,6 +231,9 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 					1, false, 0)
 			}
 		}
+	}
+	if cyclic != nil && cyclic.ApplyCyclicRefresh && !isKey && !intraOnly && e.rc.enabled {
+		return applyCyclicLimitQ(qindex)
 	}
 	return qindex
 }

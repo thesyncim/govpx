@@ -217,35 +217,36 @@ func (rc *vp9RateControlState) clampIFrameTargetBits(target int) int {
 	return target
 }
 
-func (rc *vp9RateControlState) cbrQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) int {
+func (rc *vp9RateControlState) cbrQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int, cyclic *encoder.CyclicRefreshState, encodeSpeed int) int {
 	if !rc.enabled || rc.mode != RateControlCBR || macroblocks <= 0 {
 		return int(rc.bestQuality)
 	}
 	activeBest, activeWorst := rc.cbrActiveQuantizerBounds(intraOnly, refreshFlags, frameIndex)
-	q := encoder.RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
-		activeBest, activeWorst, rc.rateCorrectionFactor(intraOnly, refreshFlags))
+	correctionFactor := rc.rateCorrectionFactor(intraOnly, refreshFlags)
+	q := vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor, cyclic, encodeSpeed)
 	return rc.adjustCBRQuantizer(q, refreshFlags)
 }
 
-func (rc *vp9RateControlState) cbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
+func (rc *vp9RateControlState) cbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int, cyclic *encoder.CyclicRefreshState, encodeSpeed int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
 	if !rc.enabled || rc.mode != RateControlCBR || macroblocks <= 0 {
 		best := int(rc.bestQuality)
 		return best, best, int(rc.worstQuality), 1
 	}
 	activeBest, activeWorst = rc.cbrActiveQuantizerBounds(intraOnly, refreshFlags, frameIndex)
 	correctionFactor = rc.rateCorrectionFactor(intraOnly, refreshFlags)
-	q = encoder.RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
-		activeBest, activeWorst, correctionFactor)
+	q = vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor, cyclic, encodeSpeed)
 	return rc.adjustCBRQuantizer(q, refreshFlags), activeBest, activeWorst, correctionFactor
 }
 
-func (rc *vp9RateControlState) vbrQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) int {
+func (rc *vp9RateControlState) vbrQuantizer(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int, cyclic *encoder.CyclicRefreshState, encodeSpeed int) int {
 	q, _, _, _ := rc.vbrQuantizerWithBounds(intraOnly, refreshFlags,
-		frameIndex, macroblocks)
+		frameIndex, macroblocks, cyclic, encodeSpeed)
 	return q
 }
 
-func (rc *vp9RateControlState) vbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
+func (rc *vp9RateControlState) vbrQuantizerWithBounds(intraOnly bool, refreshFlags uint8, frameIndex int, macroblocks int, cyclic *encoder.CyclicRefreshState, encodeSpeed int) (q int, activeBest int, activeWorst int, correctionFactor float64) {
 	if !rc.enabled || rc.mode == RateControlCBR || macroblocks <= 0 {
 		best := int(rc.bestQuality)
 		return best, best, int(rc.worstQuality), 1
@@ -256,9 +257,23 @@ func (rc *vp9RateControlState) vbrQuantizerWithBounds(intraOnly bool, refreshFla
 	if rc.mode == RateControlQ {
 		return activeBest, activeBest, activeWorst, correctionFactor
 	}
-	q = encoder.RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
-		activeBest, activeWorst, correctionFactor)
+	q = vp9RegulatedQuantizer(intraOnly, rc.frameTargetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor, cyclic, encodeSpeed)
 	return q, activeBest, activeWorst, correctionFactor
+}
+
+// vp9RegulatedQuantizer selects the frame qindex. When cyclic refresh is
+// active on an inter frame, libvpx's vp9_rc_regulate_q uses
+// vp9_cyclic_refresh_rc_bits_per_mb instead of vp9_rc_bits_per_mb.
+func vp9RegulatedQuantizer(intraOnly bool, targetBits int, macroblocks int, activeBest, activeWorst int, correctionFactor float64, cyclic *encoder.CyclicRefreshState, encodeSpeed int) int {
+	if cyclic != nil && cyclic.Enabled && cyclic.ApplyCyclicRefresh && !intraOnly {
+		return encoder.RegulatedQuantizerWithBitsPerMB(intraOnly, targetBits, macroblocks,
+			activeBest, activeWorst, func(qindex int) int {
+				return cyclic.RCBitsPerMB(qindex, intraOnly, encodeSpeed, correctionFactor)
+			})
+	}
+	return encoder.RegulatedQuantizer(intraOnly, targetBits, macroblocks,
+		activeBest, activeWorst, correctionFactor)
 }
 
 func (rc *vp9RateControlState) onePassRecodeAllowed() bool {

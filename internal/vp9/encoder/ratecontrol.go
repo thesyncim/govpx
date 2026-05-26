@@ -47,16 +47,26 @@ func MacroblockCount(miRows, miCols int) int {
 // RegulatedQuantizer selects the qindex whose projected bits-per-macroblock
 // best meets targetBits inside [activeBest, activeWorst].
 func RegulatedQuantizer(intraOnly bool, targetBits int, macroblocks int, activeBest int, activeWorst int, correctionFactor float64) int {
-	if macroblocks <= 0 || targetBits <= 0 {
+	return RegulatedQuantizerWithBitsPerMB(intraOnly, targetBits, macroblocks,
+		activeBest, activeWorst, func(qindex int) int {
+			return BitsPerMB(intraOnly, qindex, correctionFactor)
+		})
+}
+
+// RegulatedQuantizerWithBitsPerMB is the libvpx vp9_rc_regulate_q search with
+// a caller-supplied bits-per-macroblock model. Cyclic refresh passes
+// vp9_cyclic_refresh_rc_bits_per_mb here; the default path uses BitsPerMB.
+func RegulatedQuantizerWithBitsPerMB(intraOnly bool, targetBits int, macroblocks int, activeBest int, activeWorst int, bitsPerMB func(qindex int) int) int {
+	if macroblocks <= 0 || targetBits <= 0 || bitsPerMB == nil {
 		return activeBest
 	}
 	targetBitsPerMB := int((uint64(targetBits) << bPerMBNormBits) / uint64(macroblocks))
 	q := activeWorst
 	lastError := maxInt()
 	for i := activeBest; i <= activeWorst; i++ {
-		bitsPerMB := BitsPerMB(intraOnly, i, correctionFactor)
-		diffBits := targetBitsPerMB - bitsPerMB
-		if bitsPerMB <= targetBitsPerMB {
+		bpm := bitsPerMB(i)
+		diffBits := targetBitsPerMB - bpm
+		if bpm <= targetBitsPerMB {
 			if diffBits <= lastError {
 				q = i
 			} else {

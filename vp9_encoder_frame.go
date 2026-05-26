@@ -197,6 +197,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// is available; alt-ref / hidden frames are excluded for parity
 	// with libvpx's restriction.
 	e.populateVP9TPLForFrame(!showFrame || flags&EncodeForceAltRefFrame != 0, img)
+	e.vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFrame, miRows, miCols,
+		macroblocks, refreshFlags, header.Quant.Lossless)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags,
 		refreshFlags, macroblocks)
 	if e.rc.enabled {

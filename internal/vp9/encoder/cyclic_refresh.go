@@ -1,6 +1,8 @@
 package encoder
 
 import (
+	"math"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
@@ -238,6 +240,41 @@ func (cr *CyclicRefreshState) ResetResize() {
 // ComputeDeltaQ mirrors compute_deltaq() from
 // vp9_aq_cyclicrefresh.c:90-99. Translates a rate-ratio target into a
 // qindex delta, clamped to -max_qdelta_perc * q / 100.
+// RCBitsPerMB mirrors vp9_cyclic_refresh_rc_bits_per_mb
+// (vp9_aq_cyclicrefresh.c:137-156). It blends base and boosted segment
+// bits-per-macroblock using weight_segment for vp9_rc_regulate_q.
+func (cr *CyclicRefreshState) RCBitsPerMB(qindex int, intraOnly bool, encodeSpeed int, correctionFactor float64) int {
+	if cr == nil {
+		return BitsPerMB(intraOnly, qindex, correctionFactor)
+	}
+	if qindex < 0 {
+		qindex = 0
+	} else if qindex > vp9dec.MaxQ {
+		qindex = vp9dec.MaxQ
+	}
+	var deltaq int
+	if encodeSpeed < 8 {
+		deltaq = cr.ComputeDeltaQ(qindex, cr.RateRatioQDelta, intraOnly)
+	} else {
+		deltaq = -(cr.MaxQDeltaPerc * qindex) / 200
+	}
+	boostedQ := qindex + deltaq
+	if boostedQ < 0 {
+		boostedQ = 0
+	} else if boostedQ > vp9dec.MaxQ {
+		boostedQ = vp9dec.MaxQ
+	}
+	base := float64(BitsPerMB(intraOnly, qindex, correctionFactor))
+	boosted := float64(BitsPerMB(intraOnly, boostedQ, correctionFactor))
+	w := cr.WeightSegment
+	if w < 0 {
+		w = 0
+	} else if w > 1 {
+		w = 1
+	}
+	return int(math.Round((1-w)*base + w*boosted))
+}
+
 func (cr *CyclicRefreshState) ComputeDeltaQ(q int, rateFactor float64, intraFrame bool) int {
 	// libvpx: vp9_aq_cyclicrefresh.c:93 — vp9_compute_qdelta_by_rate(rc, frame_type, q, rate_factor, bit_depth).
 	deltaq := CyclicRefreshComputeQDeltaByRate(q, rateFactor, intraFrame)

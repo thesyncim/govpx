@@ -405,6 +405,51 @@ func TestVP9CyclicRefreshLimitQ(t *testing.T) {
 	}
 }
 
+// TestVP9CyclicRefreshRCBitsPerMBMatchesWeightedAverage pins
+// vp9_cyclic_refresh_rc_bits_per_mb (vp9_aq_cyclicrefresh.c:137-156).
+func TestVP9CyclicRefreshRCBitsPerMBMatchesWeightedAverage(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		MaxQDeltaPerc:   60,
+		RateRatioQDelta: 2.0,
+		WeightSegment:   0.25,
+	}
+	q := 64
+	base := vp9enc.BitsPerMB(false, q, 1.0)
+	deltaq := cr.ComputeDeltaQ(q, cr.RateRatioQDelta, false)
+	boosted := vp9enc.BitsPerMB(false, q+deltaq, 1.0)
+	want := int((1-cr.WeightSegment)*float64(base) + cr.WeightSegment*float64(boosted) + 0.5)
+	if got := cr.RCBitsPerMB(q, false, 4, 1.0); got != want {
+		t.Fatalf("RCBitsPerMB = %d, want weighted average %d", got, want)
+	}
+	fast := -(cr.MaxQDeltaPerc * q) / 200
+	fastBoosted := vp9enc.BitsPerMB(false, q+fast, 1.0)
+	wantFast := int((1-cr.WeightSegment)*float64(base) + cr.WeightSegment*float64(fastBoosted) + 0.5)
+	if got := cr.RCBitsPerMB(q, false, 8, 1.0); got != wantFast {
+		t.Fatalf("speed>=8 RCBitsPerMB = %d, want %d", got, wantFast)
+	}
+}
+
+// TestVP9CyclicRefreshRegulatedQuantizerUsesSegmentWeightedModel verifies
+// cyclic refresh shifts regulate_q toward a coarser q when boosted segments
+// inflate the projected bits-per-macroblock.
+func TestVP9CyclicRefreshRegulatedQuantizerUsesSegmentWeightedModel(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{
+		Enabled:            true,
+		ApplyCyclicRefresh: true,
+		MaxQDeltaPerc:      60,
+		RateRatioQDelta:    2.0,
+		WeightSegment:      0.5,
+	}
+	plain := vp9enc.RegulatedQuantizer(false, 4000, 16, 12, 64, 1.0)
+	weighted := vp9enc.RegulatedQuantizerWithBitsPerMB(false, 4000, 16, 12, 64,
+		func(qindex int) int {
+			return cr.RCBitsPerMB(qindex, false, 4, 1.0)
+		})
+	if weighted <= plain {
+		t.Fatalf("weighted q=%d, plain q=%d; want coarser q with segment boost", weighted, plain)
+	}
+}
+
 // TestVP9CyclicRefreshPostencodeCountsActualSegBlocks pins
 // vp9_aq_cyclicrefresh.c:271-288 — after encoding, the actual segment
 // 1 / 2 counts come from a walk over the segmentation map.

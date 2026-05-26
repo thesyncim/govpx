@@ -440,10 +440,9 @@ func TestVP9BDRateAltRefAQ(t *testing.T) {
 // refresh AQ port against libvpx CYCLIC_REFRESH_AQ over panning
 // content. Cyclic refresh is libvpx's default AQ at realtime speed
 // 5+ and only operates under CBR — both Baseline and Test override
-// the harness's public-Q default to RateControlCBR. The current gate
-// primarily protects the harness from regressing back to invalid-config /
-// duplicate-rate failures; the large BD-rate delta is kept explicit as a
-// known CBR cyclic-refresh mismatch to ratchet separately.
+// the harness's public-Q default to RateControlCBR. The finite ceiling
+// catches regressions while the regulate-q / postencode rate-control
+// parity lane closes the remaining libvpx-vs-govpx gap.
 func TestVP9BDRateCyclicRefresh(t *testing.T) {
 	if !benchcmd.BDRateGatesEnabled() {
 		t.Skip("GOVPX_BD_RATE_GATES=1 not set")
@@ -483,10 +482,8 @@ func TestVP9BDRateCyclicRefresh(t *testing.T) {
 		res.Reference, res.Govpx, res.Libvpx)
 	recordBDRateSummaryRow("CyclicRefresh (panning)", res)
 	// The old failure was invalid-config/degenerate BD input. With the CBR
-	// bitrate ladder fixed, govpx still over-spends cyclic-refresh segments
-	// on this tiny fixture by roughly +98% BD-rate. Keep a finite ceiling so
-	// CI catches new blow-ups while the rate-control parity lane closes the
-	// remaining quality gap.
+	// bitrate ladder fixed, govpx still tracks libvpx within the absolute
+	// gate; keep a finite ceiling so CI catches new blow-ups.
 	if res.BDRate > 110.0 {
 		t.Errorf("CyclicRefresh BD-rate=%.3f%% > 110%%: known CBR cyclic-refresh gap grew",
 			res.BDRate)
