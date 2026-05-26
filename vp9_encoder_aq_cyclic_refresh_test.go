@@ -148,7 +148,32 @@ func TestVP9EncoderCyclicRefreshInterSegmentUpdateUsesPickedMode(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderCyclicRefreshInterSegmentUpdateLeavesCountPassReadOnly(t *testing.T) {
+func TestVP9CyclicRefreshMapsRestoredAfterCountPassSnapshot(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{AQMode: VP9AQCyclicRefresh},
+	}
+	e.cyclicAQ = vp9enc.CyclicRefreshState{
+		Enabled: true,
+		Apply:   true,
+	}
+	e.cyclicAQ.Alloc(4, 4)
+	e.cyclicAQ.SegMap[0] = vp9enc.CyclicRefreshSegmentBoost1
+	e.cyclicAQ.RefreshMap[0] = 1
+	if !e.saveVP9CyclicRefreshMapsForCounts() {
+		t.Fatal("saveVP9CyclicRefreshMapsForCounts = false")
+	}
+	e.cyclicAQ.SegMap[0] = vp9enc.CyclicRefreshSegmentBoost2
+	e.cyclicAQ.RefreshMap[0] = -7
+	e.restoreVP9CyclicRefreshMapsAfterCounts(true)
+	if e.cyclicAQ.SegMap[0] != vp9enc.CyclicRefreshSegmentBoost1 {
+		t.Fatalf("SegMap[0] = %d, want restored BOOST1", e.cyclicAQ.SegMap[0])
+	}
+	if e.cyclicAQ.RefreshMap[0] != 1 {
+		t.Fatalf("RefreshMap[0] = %d, want restored 1", e.cyclicAQ.RefreshMap[0])
+	}
+}
+
+func TestVP9EncoderCyclicRefreshInterSegmentUpdateMutatesMapsDuringEncode(t *testing.T) {
 	e := &VP9Encoder{
 		opts: VP9EncoderOptions{
 			AQMode: VP9AQCyclicRefresh,
@@ -179,13 +204,13 @@ func TestVP9EncoderCyclicRefreshInterSegmentUpdateLeavesCountPassReadOnly(t *tes
 		nil,
 		4, 4, 0, 0, common.Block16x16, &mi, decision)
 	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBoost2 {
-		t.Fatalf("SegmentID = %d, want simulated BOOST2 during count pass", mi.SegmentID)
+		t.Fatalf("SegmentID = %d, want BOOST2 after cheap zero-motion LAST decision", mi.SegmentID)
 	}
-	if e.cyclicAQ.SegMap[0] != 0 {
-		t.Fatalf("SegMap[0] = %d, want unchanged during count pass", e.cyclicAQ.SegMap[0])
+	if e.cyclicAQ.SegMap[0] != vp9enc.CyclicRefreshSegmentBoost2 {
+		t.Fatalf("SegMap[0] = %d, want BOOST2 written to cyclic map", e.cyclicAQ.SegMap[0])
 	}
-	if e.cyclicAQ.RefreshMap[0] != 1 {
-		t.Fatalf("RefreshMap[0] = %d, want unchanged during count pass", e.cyclicAQ.RefreshMap[0])
+	if e.cyclicAQ.RefreshMap[0] != -int8(e.cyclicAQ.TimeForRefresh) {
+		t.Fatalf("RefreshMap[0] = %d, want -TimeForRefresh", e.cyclicAQ.RefreshMap[0])
 	}
 }
 

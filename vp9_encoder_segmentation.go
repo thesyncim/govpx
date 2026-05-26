@@ -128,14 +128,7 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeSta
 		UseNonrdPickMode: true,
 		RateControlIsVBR: e.rc.mode == RateControlVBR,
 	}
-	segID := mi.SegmentID
-	if inter.counts != nil {
-		if resolved, ok := e.cyclicAQ.ResolveSegment(args); ok {
-			segID = resolved.SegmentID
-		}
-	} else {
-		segID = e.cyclicAQ.UpdateSegment(args)
-	}
+	segID := e.cyclicAQ.UpdateSegment(args)
 	if segID >= vp9dec.MaxSegments {
 		segID = 0
 	}
@@ -371,6 +364,7 @@ func (e *VP9Encoder) vp9ReuseStableSegmentationState(seg *vp9dec.SegmentationPar
 		seg.UpdateData = false
 	}
 	if prev.Enabled && seg.UpdateMap &&
+		e.opts.AQMode != VP9AQCyclicRefresh &&
 		e.vp9SegmentMapMatchesPrevious(miRows, miCols, inter) {
 		seg.UpdateMap = false
 		seg.TemporalUpdate = prev.TemporalUpdate

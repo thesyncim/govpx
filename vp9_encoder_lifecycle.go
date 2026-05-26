@@ -16,7 +16,17 @@ type VP9Encoder struct {
 	rc           vp9RateControlState
 	twoPass      vp9TwoPassState
 	cyclicAQ     encoder.CyclicRefreshState
-	perceptualAQ encoder.PerceptualAQState
+	// cyclicCountMapSnap* reuse buffers for saveVP9CyclicRefreshMapsForCounts
+	// so steady-state cyclic inter frames stay allocation-free.
+	cyclicCountSegMapSnap     []uint8
+	cyclicCountRefreshMapSnap []int8
+	// lastSegMapChooser* capture the most recent chooser costs for tests.
+	lastSegMapChooserNoPredCost   int
+	lastSegMapChooserTPredCost    int
+	lastSegMapChooserTemporal     bool
+	lastSegMapChooserNoPredCounts [vp9dec.MaxSegments]uint32
+	lastSegMapChooserMiHist       [vp9dec.MaxSegments]uint32
+	perceptualAQ                  encoder.PerceptualAQState
 	vp9OracleTraceHolder
 	// spatialScalabilityLocked is set for encoders owned by
 	// VP9SpatialSVCEncoder; the parent owns spatial layer metadata.
