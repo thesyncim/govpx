@@ -64,7 +64,7 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFram
 // (vp9/encoder/vp9_aq_cyclicrefresh.c:596-680) after the base qindex
 // is known. UpdateParameters runs earlier via
 // vp9UpdateCyclicRefreshParameters.
-func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bool, miRows, miCols, macroblocks int, header *vp9dec.UncompressedHeader) {
+func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bool, miRows, miCols, macroblocks int, header *vp9dec.UncompressedHeader, srcFrameAltRef bool, refreshFlags uint8) {
 	if e == nil || !e.cyclicAQ.Enabled {
 		e.cyclicAQ.Apply = false
 		return
@@ -93,17 +93,11 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		// encoded SB by vp9CyclicRefreshUpdateEncodedSb so this frame
 		// sees the previous frame's stationarity history.
 		ConsecZeroMv: e.cyclicAQ.ConsecZeroMV,
-		// CR runs on visible inter frames only (see early-returns above),
-		// so is_src_frame_alt_ref is always false here.  The refresh
-		// flags are not yet known at this point in govpx (RefreshFrame
-		// is set later in EncodeInto), so we conservatively pass false
-		// for both — matching libvpx's path because cyclic_refresh_setup
-		// runs before refresh_golden/alt are finalised in many of its
-		// realtime call paths.  The CR RDMult therefore lands in the
-		// inter bucket which is what libvpx's realtime CR runs evaluate.
-		IsSrcFrameAltRef:   false,
-		RefreshGoldenFrame: e.rc.refreshGoldenFrame,
-		RefreshAltRefFrame: false,
+		// Feed the resolved refresh mask into setup so RDMult tracks
+		// the same frame-type bucket as libvpx's cyclic_refresh_setup.
+		IsSrcFrameAltRef:   srcFrameAltRef,
+		RefreshGoldenFrame: refreshFlags&(1<<vp9GoldenRefSlot) != 0,
+		RefreshAltRefFrame: refreshFlags&(1<<vp9AltRefSlot) != 0,
 	})
 	e.cyclicAQ.Apply = e.cyclicAQ.ApplyCyclicRefresh && e.cyclicAQ.TargetNumSegBlocks > 0
 }

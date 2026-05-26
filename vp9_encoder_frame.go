@@ -379,7 +379,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
-	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols, macroblocks, header)
+	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols, macroblocks, header, srcFrameAltRef, refreshFlags)
 	if e.opts.AQMode == VP9AQPerceptual {
 		e.perceptualAQ.PrepareFrame(img, int(header.Quant.BaseQindex), showFrame)
 	}
