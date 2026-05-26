@@ -673,9 +673,27 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if postDrop {
 		e.rc.postEncodeDropFrame()
 	} else {
+		var cyclicForRC *encoder.CyclicRefreshState
+		if !isKey && !intraOnly && e.opts.AQMode == VP9AQCyclicRefresh &&
+			e.cyclicAQ.Enabled && e.cyclicAQ.Apply {
+			// libvpx: vp9_cyclic_refresh_postencode() runs before
+			// rc_update_rate_correction_factors so the rate model sees the
+			// realized segment population for this frame.
+			res := e.cyclicAQ.Postencode(encoder.CyclicRefreshPostencodeArgs{
+				UseSVC:                      false,
+				ExtRefreshFrameFlagsPending: false,
+				GfCBRBoostPct:               e.opts.GFCBRBoostPct,
+				ResizePending:               false,
+				RefreshGoldenFrame:          header.RefreshFrameFlags&(1<<vp9GoldenRefSlot) != 0,
+				FramesSinceKey:              int(e.rc.framesSinceKey),
+				FramesSinceGolden:           int(e.rc.framesSinceGolden),
+			})
+			_ = res // golden-refresh gating is plumbed separately.
+			cyclicForRC = &e.cyclicAQ
+		}
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 			header.RefreshFrameFlags, macroblocks,
-			e.vp9AltRefEnabledForRateControlStats())
+			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC)
 	}
 	e.lastFrameDropped = postDrop
 	if header.ShowFrame {

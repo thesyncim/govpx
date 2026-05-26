@@ -745,12 +745,12 @@ func vp9DropReasonString(reason vp9DropReason) string {
 	}
 }
 
-func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, altRefEnabled bool) {
+func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, altRefEnabled bool, cyclic *encoder.CyclicRefreshState) {
 	if !rc.enabled {
 		return
 	}
 	encodedBits := vpxrc.EncodedSizeBits(sizeBytes)
-	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks)
+	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks, cyclic)
 	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
 	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
 	rc.postOnePassVBRRefresh(refreshFlags)

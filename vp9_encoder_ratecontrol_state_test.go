@@ -24,7 +24,7 @@ func TestVP9RateControlVBRGoldenUsesGFARFCorrectionFactor(t *testing.T) {
 	macroblocks := encoder.MacroblockCount((64+7)>>3, (64+7)>>3)
 	actualBits := encoder.EstimatedBitsAtQ(false, qindex, macroblocks, 1) * 2
 	rc.updateRateCorrectionFactor(actualBits, qindex, false,
-		1<<vp9GoldenRefSlot, macroblocks)
+		1<<vp9GoldenRefSlot, macroblocks, nil)
 	if rc.rateCorrectionFactors[encoder.RateFactorGFARFStd] <= 1 {
 		t.Fatalf("GF/ARF correction factor = %.3f, want updated above 1",
 			rc.rateCorrectionFactors[encoder.RateFactorGFARFStd])

@@ -567,7 +567,7 @@ func (rc *vp9RateControlState) setRateCorrectionFactor(intraOnly bool, refreshFl
 	rc.rateCorrectionFactors[level] = min(max(factor, encoder.MinBPBFactor), encoder.MaxBPBFactor)
 }
 
-func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int) {
+func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, cyclic *encoder.CyclicRefreshState) {
 	if actualBits <= 0 || macroblocks <= 0 {
 		return
 	}
@@ -579,6 +579,9 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 	level := rc.rateFactorLevel(intraOnly, refreshFlags)
 	rateCorrectionFactor := rc.rateCorrectionFactor(intraOnly, refreshFlags)
 	projectedBits := encoder.EstimatedBitsAtQ(intraOnly, qindex, macroblocks, rateCorrectionFactor)
+	if cyclic != nil && cyclic.Enabled && cyclic.Apply && !intraOnly {
+		projectedBits = vp9CyclicRefreshEstimateBitsAtQ(qindex, macroblocks, rateCorrectionFactor, cyclic)
+	}
 	correctionFactor := 100
 	if projectedBits > encoder.FrameOverhead {
 		correctionFactor = int((100 * int64(actualBits)) / int64(projectedBits))
@@ -612,6 +615,63 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 		rateCorrectionFactor *= float64(correctionFactor) / 100
 	}
 	rc.setRateCorrectionFactor(intraOnly, refreshFlags, rateCorrectionFactor)
+}
+
+// vp9CyclicRefreshEstimateBitsAtQ mirrors libvpx's
+// vp9_cyclic_refresh_estimate_bits_at_q (vp9_aq_cyclicrefresh.c:105-129).
+// It estimates the encoded bits by taking a segment-weighted average of the
+// base and boosted qindices using the realized (ActualNumSeg{1,2}Blocks)
+// counts from the just-encoded frame.
+func vp9CyclicRefreshEstimateBitsAtQ(baseQindex int, macroblocks int, correctionFactor float64, cr *encoder.CyclicRefreshState) int {
+	if cr == nil || macroblocks <= 0 {
+		return encoder.EstimatedBitsAtQ(false, baseQindex, macroblocks, correctionFactor)
+	}
+	num8x8 := macroblocks << 2
+	if num8x8 <= 0 {
+		return encoder.EstimatedBitsAtQ(false, baseQindex, macroblocks, correctionFactor)
+	}
+	w1 := float64(cr.ActualNumSeg1Blocks) / float64(num8x8)
+	w2 := float64(cr.ActualNumSeg2Blocks) / float64(num8x8)
+	if w1 < 0 {
+		w1 = 0
+	}
+	if w2 < 0 {
+		w2 = 0
+	}
+	if w1+w2 > 1 {
+		// Defensive: corrupt counts shouldn't blow up the estimate.
+		scale := 1 / (w1 + w2)
+		w1 *= scale
+		w2 *= scale
+	}
+	q1 := baseQindex + cr.QIndexDelta[encoder.CyclicRefreshSegmentBoost1]
+	q2 := baseQindex + cr.QIndexDelta[encoder.CyclicRefreshSegmentBoost2]
+	if q1 < 0 {
+		q1 = 0
+	} else if q1 > 255 {
+		q1 = 255
+	}
+	if q2 < 0 {
+		q2 = 0
+	} else if q2 > 255 {
+		q2 = 255
+	}
+	// FrameType is always inter here (cyclic refresh is inter-only), so intraOnly=false.
+	base := float64(encoder.EstimatedBitsAtQ(false, baseQindex, macroblocks, correctionFactor))
+	seg1 := float64(encoder.EstimatedBitsAtQ(false, q1, macroblocks, correctionFactor))
+	seg2 := float64(encoder.EstimatedBitsAtQ(false, q2, macroblocks, correctionFactor))
+	est := (1-w1-w2)*base + w1*seg1 + w2*seg2
+	if est < 0 {
+		return encoder.FrameOverhead
+	}
+	if est > float64(maxInt()) {
+		return maxInt()
+	}
+	v := int(est + 0.5) // round() equivalent for non-negative values.
+	if v < encoder.FrameOverhead {
+		return encoder.FrameOverhead
+	}
+	return v
 }
 
 func vp9BoostedInterRefresh(refreshFlags uint8) bool {
