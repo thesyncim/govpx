@@ -220,12 +220,10 @@ func (bp *vp9BestPickmode) reset() {
 //     zero_seen dedup, and sub-pel-to-full-pel rounding.
 //
 //   - libvpx's block_yrd (vp9_pickmode.c:728-854) refines (rate, dist)
-//     with Hadamard + quantize_fp + satd. govpx still uses model_rd as
-//     the proxy for that refinement; under speed=8 with
-//     sf->use_simple_block_yrd=1 libvpx itself bypasses block_yrd for
-//     bsize < BLOCK_32X32, so the gap only shows for the four 32x32 /
-//     64x64 partition leaves on these seeds.
-//     TODO: port block_yrd full kernel (Phase E1b).
+//     with Hadamard + quantize_fp + satd. govpx calls
+//     internal/vp9/encoder.BlockYrd when runBlockYrd is true; under
+//     speed=8 with sf->use_simple_block_yrd=1 libvpx bypasses block_yrd
+//     for bsize < BLOCK_32X32, matching the early-return gate here.
 //
 // The model_rd_for_sb_y substrate is the only non-RD scoring path here; old
 // SSE-only staging code has been removed now that the libvpx-shaped path is
