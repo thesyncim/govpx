@@ -204,6 +204,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// is available; alt-ref / hidden frames are excluded for parity
 	// with libvpx's restriction.
 	e.populateVP9TPLForFrame(!showFrame || flags&EncodeForceAltRefFrame != 0, img)
+	e.vp9LatchCyclicResizeForFrame(isKey, intraOnly)
 	e.vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFrame, miRows, miCols,
 		macroblocks, refreshFlags, header.Quant.Lossless)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags,
@@ -659,11 +660,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			return VP9EncodeResult{}, ErrInvalidVP9Data
 		}
 	}
-	cyclicForRC, clearGolden := e.vp9CyclicRefreshPostencodeFromMiGrid(
+	cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
 		miRows, miCols, header, isKey, intraOnly)
-	if clearGolden {
-		header.RefreshFrameFlags &^= 1 << vp9GoldenRefSlot
-	}
+	e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
 	e.refreshVP9EncoderSegmentMap(miRows, miCols)
 	e.prevSegmentation = header.Seg
 	e.prevSegmentationValid = true
@@ -722,6 +721,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.forceKeyFrame = false
 	}
 	e.vp9LatchDeadlineModePreviousFrame()
+	e.cyclicResizeFramePending = false
 	// Consume the head TPL slab now that this frame has committed.  The
 	// pass refills the new tail on the next populate call.
 	if e.vp9TPLEnabled() {

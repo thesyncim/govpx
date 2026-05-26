@@ -81,7 +81,7 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		FrameIsKey:        false,
 		FrameIsIntraOnly:  false,
 		TemporalLayerID:   0,
-		ResizePending:     false,
+		ResizePending:     e.cyclicResizeFramePending,
 		HighSourceSad:     e.rc.highSourceSAD,
 		ScreenContent:     screen,
 		NoiseLevelMedium:  noiseMedium,

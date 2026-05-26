@@ -41,7 +41,7 @@ func (e *VP9Encoder) vp9NoiseEstimateRefreshEnabled() {
 		AqModeCyclicRefresh: e.opts.AQMode == VP9AQCyclicRefresh,
 		Speed:               e.vp9SpeedFeatureCPUUsed(),
 		ResizeStateOrig:     true,
-		ResizePending:       false,
+		ResizePending:       e.cyclicResizeFramePending,
 		ScreenContent:       vp9ResolveContent(e.opts.ScreenContentMode) == vp9ContentScreen,
 		Width:               e.opts.Width,
 		Height:              e.opts.Height,

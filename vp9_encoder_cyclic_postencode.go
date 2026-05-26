@@ -12,17 +12,18 @@ func (e *VP9Encoder) vp9CyclicRefreshPostencodeFromMiGrid(
 	miRows, miCols int,
 	header *vp9dec.UncompressedHeader,
 	isKey, intraOnly bool,
-) (cyclicForRC *encoder.CyclicRefreshState, clearGolden bool) {
+) (cyclicForRC *encoder.CyclicRefreshState, res encoder.CyclicRefreshPostencodeResult) {
 	if e == nil || header == nil || isKey || intraOnly ||
 		e.opts.AQMode != VP9AQCyclicRefresh ||
 		!e.cyclicAQ.Enabled || !e.cyclicAQ.Apply ||
 		!e.cyclicAQ.ContentMode || !header.Seg.Enabled {
-		return nil, false
+		return nil, res
 	}
 	n := miRows * miCols
 	if n <= 0 {
-		return nil, false
+		return nil, res
 	}
+	resizePending := e.cyclicResizeFramePending
 	isInter := buffersEnsureUint8(&e.cyclicPostIsInter, n)
 	mvRow := buffersEnsureInt16(&e.cyclicPostMvRow, n)
 	mvCol := buffersEnsureInt16(&e.cyclicPostMvCol, n)
@@ -48,11 +49,11 @@ func (e *VP9Encoder) vp9CyclicRefreshPostencodeFromMiGrid(
 			}
 		}
 	}
-	res := e.cyclicAQ.Postencode(encoder.CyclicRefreshPostencodeArgs{
+	res = e.cyclicAQ.Postencode(encoder.CyclicRefreshPostencodeArgs{
 		UseSVC:                      false,
 		ExtRefreshFrameFlagsPending: e.extRefresh.flagsPending,
 		GfCBRBoostPct:               e.opts.GFCBRBoostPct,
-		ResizePending:               false,
+		ResizePending:               resizePending,
 		RefreshGoldenFrame:          header.RefreshFrameFlags&(1<<vp9GoldenRefSlot) != 0,
 		FramesSinceKey:              int(e.rc.framesSinceKey),
 		FramesSinceGolden:           int(e.rc.framesSinceGolden),
@@ -60,7 +61,7 @@ func (e *VP9Encoder) vp9CyclicRefreshPostencodeFromMiGrid(
 		MvRow:                       mvRow,
 		MvCol:                       mvCol,
 	})
-	return &e.cyclicAQ, res.ClearRefreshGolden
+	return &e.cyclicAQ, res
 }
 
 func buffersEnsureUint8(dst *[]uint8, n int) []uint8 {

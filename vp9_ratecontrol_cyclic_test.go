@@ -65,6 +65,35 @@ func TestVP9ComputeFrameLowMotionMatchesLibvpxEMA(t *testing.T) {
 	}
 }
 
+func TestVP9ApplyCyclicRefreshPostencodeResizeSchedulesGolden(t *testing.T) {
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		TargetBitrateKbps:  300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            -8,
+		AQMode:             VP9AQCyclicRefresh,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	t.Cleanup(func() { _ = enc.Close() })
+	hdr := &vp9dec.UncompressedHeader{}
+	enc.applyCyclicRefreshPostencodeResult(hdr, vp9enc.CyclicRefreshPostencodeResult{
+		SetGoldenUpdate:    true,
+		ForceGoldenRefresh: true,
+	})
+	if hdr.RefreshFrameFlags&(1<<vp9GoldenRefSlot) == 0 {
+		t.Fatal("expected golden refresh flag after forced resize postencode")
+	}
+	if enc.rc.framesTillGFUpdateDue <= 0 {
+		t.Fatalf("framesTillGFUpdateDue = %d, want > 0 after SetGoldenUpdate", enc.rc.framesTillGFUpdateDue)
+	}
+}
+
 func TestVP9CyclicRefreshPostencodeClearsGoldenOnLowContent(t *testing.T) {
 	cr := &vp9enc.CyclicRefreshState{}
 	cr.Configure(true, 64, 64)

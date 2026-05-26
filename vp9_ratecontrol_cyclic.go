@@ -104,3 +104,37 @@ func (rc *vp9RateControlState) decrementFramesToKey(showFrame bool) {
 	}
 	rc.framesToKey--
 }
+
+// applyCyclicRefreshPostencodeResult mirrors the libvpx tail of
+// vp9_cyclic_refresh_postencode (vp9_aq_cyclicrefresh.c:294-317) applied
+// after the frame is coded and before reference buffers refresh: optional
+// golden veto, resize-driven set_golden_update + forced golden refresh.
+func (e *VP9Encoder) applyCyclicRefreshPostencodeResult(
+	header *vp9dec.UncompressedHeader,
+	res encoder.CyclicRefreshPostencodeResult,
+) {
+	if e == nil || header == nil {
+		return
+	}
+	if res.ClearRefreshGolden {
+		header.RefreshFrameFlags &^= 1 << vp9GoldenRefSlot
+	}
+	if res.SetGoldenUpdate {
+		interval := e.cyclicAQ.SetGoldenUpdate(encoder.CyclicRefreshSetGoldenUpdateArgs{
+			RateControlIsVBR:  e.rc.mode == RateControlVBR,
+			AvgFrameLowMotion: e.rc.avgFrameLowMotion,
+			FramesSinceKey:    int(e.rc.framesSinceKey),
+		})
+		if interval <= 0 {
+			interval = 40
+		}
+		e.rc.baselineGFInterval = uint8(min(interval, 255))
+		e.rc.framesTillGFUpdateDue = interval
+		if e.rc.framesToKey > 0 && e.rc.framesTillGFUpdateDue > e.rc.framesToKey {
+			e.rc.framesTillGFUpdateDue = e.rc.framesToKey
+		}
+	}
+	if res.ForceGoldenRefresh {
+		header.RefreshFrameFlags |= 1 << vp9GoldenRefSlot
+	}
+}

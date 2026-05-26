@@ -312,14 +312,21 @@ type VP9Encoder struct {
 	cyclicPostIsInter []uint8
 	cyclicPostMvRow   []int16
 	cyclicPostMvCol   []int16
-	dqScratch         vp9dec.DequantTables
-	frameCounts       encoder.FrameCounts
-	vp9HeaderScratch  vp9dec.UncompressedHeader
-	vp9InterIntraHdr  vp9dec.UncompressedHeader
-	vp9CountWorkers   []VP9Encoder
-	vp9CountCounts    []encoder.FrameCounts
-	vp9CountJobs      []vp9CountTileJob
-	vp9TilePool       *vp9TileWorkerPool
+	// cyclicResizePending mirrors libvpx cpi->resize_pending for cyclic
+	// refresh: set by applyVP9ResolutionChange (SetRealtimeTarget resize)
+	// and latched into cyclicResizeFramePending for the next encode.
+	cyclicResizePending bool
+	// cyclicResizeFramePending is true only on the first encoded frame
+	// after a resize (setup ResetResize + postencode forced GF).
+	cyclicResizeFramePending bool
+	dqScratch                vp9dec.DequantTables
+	frameCounts              encoder.FrameCounts
+	vp9HeaderScratch         vp9dec.UncompressedHeader
+	vp9InterIntraHdr         vp9dec.UncompressedHeader
+	vp9CountWorkers          []VP9Encoder
+	vp9CountCounts           []encoder.FrameCounts
+	vp9CountJobs             []vp9CountTileJob
+	vp9TilePool              *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
 	// at the leaf-write site so the count pre-pass populates entries and
 	// the bitstream write pass reuses them without re-running the inter-

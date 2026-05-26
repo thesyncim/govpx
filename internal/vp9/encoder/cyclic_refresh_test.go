@@ -453,6 +453,24 @@ func TestVP9CyclicRefreshRegulatedQuantizerUsesSegmentWeightedModel(t *testing.T
 // TestVP9CyclicRefreshPostencodeCountsActualSegBlocks pins
 // vp9_aq_cyclicrefresh.c:271-288 — after encoding, the actual segment
 // 1 / 2 counts come from a walk over the segmentation map.
+func TestVP9CyclicRefreshPostencodeResizeForcesGoldenUpdate(t *testing.T) {
+	cr := &vp9enc.CyclicRefreshState{}
+	cr.Configure(true, 64, 64)
+	cr.Alloc(8, 8)
+	cr.ContentMode = true
+	cr.PercentRefresh = 10
+	res := cr.Postencode(vp9enc.CyclicRefreshPostencodeArgs{
+		ResizePending: true,
+	})
+	if !res.SetGoldenUpdate || !res.ForceGoldenRefresh {
+		t.Fatalf("resize postencode: SetGoldenUpdate=%v ForceGoldenRefresh=%v, want both true",
+			res.SetGoldenUpdate, res.ForceGoldenRefresh)
+	}
+	if res.ClearRefreshGolden {
+		t.Fatal("resize postencode must not clear golden")
+	}
+}
+
 func TestVP9CyclicRefreshPostencodeCountsActualSegBlocks(t *testing.T) {
 	cr := &vp9enc.CyclicRefreshState{}
 	cr.Configure(true, 64, 64)
