@@ -1153,7 +1153,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			finalRate := rateY
 			finalDist := uint64(distY)
 			blockYrdFired := false
-			if !useSimpleBlockYrd {
+			runBlockYrd := !useSimpleBlockYrd || bsize >= common.Block32x32
+			if runBlockYrd {
 				txClamp := min(mrdTxSize, common.Tx16x16)
 				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
 				dst, dstStride := e.vp9EncoderReconPlane(0)
@@ -1233,7 +1234,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// skipBitOff / skipBitOn into the two sides, which shifted the
 			// skip-vs-non-skip break-even point by (skipBitOff -
 			// skipBitOn) * rdmult — a context-dependent over/under-skip.
-			useSkipCheck := !useSimpleBlockYrd && !blockYrdFired
+			useSkipCheck := !blockYrdFired
 			isSkip := blockYrdFired // skippable=true counts as the skip branch
 			if useSkipCheck {
 				rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
