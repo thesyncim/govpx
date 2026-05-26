@@ -7,6 +7,27 @@ import (
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
+func TestVP9CBRCyclicGoldenFrameSeedsIntervalOnKeyframeWithoutRefreshBit(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled: true,
+		mode:    RateControlCBR,
+	}
+	cr := &vp9enc.CyclicRefreshState{
+		Enabled:         true,
+		PercentRefresh:  10,
+		ContentMode:     true,
+		MaxQDeltaPerc:   60,
+		RateRatioQDelta: 2.0,
+	}
+	rc.prepareOnePassCBRCyclicGoldenFrame(true, false, VP9AQCyclicRefresh, cr, 0, false)
+	if rc.refreshGoldenFrame {
+		t.Fatal("refreshGoldenFrame set on key, want interval seed only")
+	}
+	if rc.framesTillGFUpdateDue != 40 {
+		t.Fatalf("framesTillGFUpdateDue = %d, want 40 on key", rc.framesTillGFUpdateDue)
+	}
+}
+
 func TestVP9CBRCyclicGoldenFrameSchedulesRefreshAtInterval(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled: true,
@@ -34,6 +55,18 @@ func TestVP9CBRCyclicGoldenFrameSchedulesRefreshAtInterval(t *testing.T) {
 	rc.prepareOnePassCBRCyclicGoldenFrame(false, false, VP9AQCyclicRefresh, cr, 0, false)
 	if rc.refreshGoldenFrame {
 		t.Fatal("expected no golden refresh while countdown active")
+	}
+}
+
+func TestVP9CBRCyclicGoldenCadenceDecrementsOnKeyframeRefresh(t *testing.T) {
+	rc := &vp9RateControlState{
+		enabled:               true,
+		mode:                  RateControlCBR,
+		framesTillGFUpdateDue: 40,
+	}
+	rc.postOnePassCBRGoldenCadence(0xff)
+	if rc.framesTillGFUpdateDue != 39 {
+		t.Fatalf("framesTillGFUpdateDue = %d, want 39 after key golden refresh", rc.framesTillGFUpdateDue)
 	}
 }
 

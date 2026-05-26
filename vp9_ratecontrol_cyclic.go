@@ -7,9 +7,12 @@ import (
 
 // prepareOnePassCBRCyclicGoldenFrame mirrors libvpx
 // vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2518-2529): when
-// frames_till_gf_update_due == 0 on a cyclic-refresh CBR inter frame,
-// install baseline_gf_interval via vp9_cyclic_refresh_set_golden_update
-// and schedule a golden refresh for this frame.
+// frames_till_gf_update_due == 0, install baseline_gf_interval via
+// vp9_cyclic_refresh_set_golden_update. libvpx sets refresh_golden_frame
+// for both key and inter frames in that block, but only inter frames use
+// the scheduled bit in the refresh mask; the key path already refreshes
+// all references. Seeding the countdown on the key frame is required so
+// the first inter frame does not immediately re-trigger a GF refresh.
 func (rc *vp9RateControlState) prepareOnePassCBRCyclicGoldenFrame(
 	isKey, intraOnly bool,
 	aqMode VP9AQMode,
@@ -18,7 +21,7 @@ func (rc *vp9RateControlState) prepareOnePassCBRCyclicGoldenFrame(
 	extRefreshPending bool,
 ) {
 	rc.refreshGoldenFrame = false
-	if rc == nil || !rc.enabled || rc.mode != RateControlCBR || isKey || intraOnly {
+	if rc == nil || !rc.enabled || rc.mode != RateControlCBR || intraOnly {
 		return
 	}
 	if aqMode != VP9AQCyclicRefresh || cyclic == nil || !cyclic.Enabled {
@@ -43,7 +46,9 @@ func (rc *vp9RateControlState) prepareOnePassCBRCyclicGoldenFrame(
 	if rc.framesToKey > 0 && rc.framesTillGFUpdateDue > rc.framesToKey {
 		rc.framesTillGFUpdateDue = rc.framesToKey
 	}
-	rc.refreshGoldenFrame = true
+	if !isKey {
+		rc.refreshGoldenFrame = true
+	}
 }
 
 func (rc *vp9RateControlState) seedFramesToKey(maxKeyframeInterval int, isKey bool) {
@@ -62,11 +67,20 @@ func (rc *vp9RateControlState) postOnePassCBRGoldenCadence(refreshFlags uint8) {
 	}
 	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	// libvpx update_golden_frame_stats (vp9_ratectrl.c:1759-1784): a golden
+	// refresh still decrements frames_till_gf_update_due; only the non-golden
+	// path bumps frames_since_golden.
+	if refreshGolden {
+		if rc.framesTillGFUpdateDue > 0 {
+			rc.framesTillGFUpdateDue--
+		}
+		return
+	}
+	if refreshAlt {
+		return
+	}
 	if rc.framesTillGFUpdateDue > 0 {
 		rc.framesTillGFUpdateDue--
-	}
-	if refreshGolden || refreshAlt {
-		return
 	}
 }
 
