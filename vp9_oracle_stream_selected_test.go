@@ -140,6 +140,18 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			strictBytes: true,
 		},
 		{
+			name:   "cbr-cyclic-rt-speed8-panning-keyframe-64",
+			width:  64,
+			height: 64,
+			frames: 1,
+			opts:   vp9OracleCyclicRefreshCBROptions(64, 64, 700),
+			extraArgs: vp9OracleCyclicRefreshCBRArgs(700, 600, 400, 500,
+				0),
+			source:      vp9test.NewPanningYCbCr,
+			exactPrefix: 1,
+			strictBytes: true,
+		},
+		{
 			name:      "active-map-fixed-q-constant-320",
 			width:     320,
 			height:    180,
