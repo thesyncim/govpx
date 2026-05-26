@@ -154,6 +154,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
 			interDecision.intra = true
 			interDecision.mode = intra.mode
+			interDecision.rate = intra.rate
 			return interDecision, intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
 				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
 		}

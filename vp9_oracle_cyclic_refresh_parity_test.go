@@ -133,6 +133,24 @@ func TestVP9OracleCyclicRefreshCBRRealtimeRateParity(t *testing.T) {
 		t.Fatalf("keyframe refresh flags: govpx=0x%x libvpx=0x%x",
 			govpxRows[0].RefreshFrameFlags, libvpxRows[0].RefreshFrameFlags)
 	}
+	// Strengthened non-strict gates for the stabilized cyclic lane.
+	if refreshMatches != len(govpxRows) {
+		t.Fatalf("refresh flags mismatch: got %d/%d want %d/%d",
+			refreshMatches, len(govpxRows), len(govpxRows), len(govpxRows))
+	}
+	if targetMatches < 6 {
+		t.Fatalf("frame_target parity regressed: got %d/%d want >= 6/10",
+			targetMatches, len(govpxRows))
+	}
+	if qDriftMax > 1 {
+		t.Fatalf("base_qindex drift regressed: max_q=%.0f want <= 1", qDriftMax)
+	}
+	if sizePctMax > 5.0 {
+		t.Fatalf("inter size drift regressed: max_size_pct=%.2f want <= 5.00", sizePctMax)
+	}
+	if bufferPctMax > 1.0 {
+		t.Fatalf("buffer drift regressed: max_buffer_pct=%.2f want <= 1.00", bufferPctMax)
+	}
 	if vp9test.StrictEnv("GOVPX_VP9_CYCLIC_SCOREBOARD_STRICT") {
 		if refreshMatches != len(govpxRows) ||
 			targetMatches != len(govpxRows) || qDriftMax != 0 ||

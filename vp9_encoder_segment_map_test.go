@@ -44,3 +44,55 @@ func TestVP9SegmentMapCountStampsPredictedForFollowingContext(t *testing.T) {
 			temporalCounts[0][1])
 	}
 }
+
+func TestVP9EncoderBlockSegmentIDInterUsesBinaryPredFlag(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			Segmentation: VP9SegmentationOptions{
+				Enabled:   true,
+				SegmentID: 3,
+			},
+		},
+		prevSegmentMap:      []uint8{3},
+		prevSegmentMapRows:  1,
+		prevSegmentMapCols:  1,
+		prevSegmentMapValid: true,
+	}
+	seg := &vp9dec.SegmentationParams{
+		Enabled:        true,
+		UpdateMap:      true,
+		TemporalUpdate: false,
+	}
+	segID, predicted := e.vp9EncoderBlockSegmentID(seg, 1, 1, 0, 0,
+		common.Block8x8, false, nil, &vp9InterEncodeState{})
+	if segID != 3 {
+		t.Fatalf("segID = %d, want static segment 3", segID)
+	}
+	if predicted != 0 {
+		t.Fatalf("predicted = %d, want binary 0 when temporal_update=0 on inter", predicted)
+	}
+}
+
+func TestVP9EncoderBlockSegmentIDKeyframeCarriesSegmentLiteral(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			Segmentation: VP9SegmentationOptions{
+				Enabled:   true,
+				SegmentID: 4,
+			},
+		},
+	}
+	seg := &vp9dec.SegmentationParams{
+		Enabled:        true,
+		UpdateMap:      true,
+		TemporalUpdate: false,
+	}
+	segID, predicted := e.vp9EncoderBlockSegmentID(seg, 1, 1, 0, 0,
+		common.Block8x8, false, nil, nil)
+	if segID != 4 {
+		t.Fatalf("segID = %d, want static segment 4", segID)
+	}
+	if predicted != segID {
+		t.Fatalf("predicted = %d, want segment literal %d on keyframe path", predicted, segID)
+	}
+}
