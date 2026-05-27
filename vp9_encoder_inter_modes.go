@@ -624,6 +624,16 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 
+	// libvpx vp9_encodeframe.c:5347-5357 — REFERENCE_PARTITION still calls
+	// choose_partitioning() before nonrd_select_partition() to stamp
+	// x->variance_low for short_circuit_low_temp_var even though the
+	// partition tree comes from the reference picker. govpx only ran
+	// choose_partitioning on VAR_BASED_PARTITION; mirror libvpx here.
+	if inter != nil && e.sf.ShortCircuitLowTempVar != 0 &&
+		!e.vp9RealtimeVariancePartitionEnabled() {
+		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter)
+	}
+
 	// libvpx restricts usable_ref_frame at speed >= 8 to LAST_FRAME for
 	// the steady-state inter-block hot path: frames_since_golden > 120
 	// or low last_sb_high_content triggers
@@ -632,11 +642,13 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// sf.short_circuit_low_temp_var (3 at speed 8 CBR non-screen) short-
 	// circuits non-LAST refs on low-temporal-variance blocks via
 	// force_skip_low_temp_var. govpx caches libvpx's per-SB variance_low
-	// map from choose_partitioning and applies the LAST-only fan from that
-	// exact signal when it exists; before the cache is available it keeps the
-	// historical LAST-only fallback for the threaded warm path. Frames that
-	// explicitly mask out LAST (e.g. EncodeNoReferenceLast for altref-only
-	// inter) must keep the full ref set so a fallback ref can still be picked.
+	// map from choose_partitioning and applies the LAST-only fan only when
+	// that map is stamped for the block (choose_partitioning is called for
+	// REFERENCE_PARTITION too — vp9_encodeframe.c:5348). When the cache is
+	// still cold, keep the threaded warm-path LAST-only fallback. Frames that
+	// explicitly mask out LAST (e.g.
+	// EncodeNoReferenceLast for altref-only inter) must keep the full ref set
+	// so a fallback ref can still be picked.
 	// libvpx: vp9/encoder/vp9_pickmode.c:1962-1985 (usable_ref_frame),
 	// vp9_speed_features.c:774 (ShortCircuitLowTempVar = 3 at speed 8
 	// CBR non-screen).
@@ -645,7 +657,11 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	forceSkipLowTempVar, forceSkipLowTempKnown :=
 		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
 	if !forceSkipLowTempKnown && e.sf.ShortCircuitLowTempVar >= 1 {
-		forceSkipLowTempVar = true
+		sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, miRow&^7, miCol&^7)
+		if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) ||
+			!e.varPartSBComputed[sbIdx] {
+			forceSkipLowTempVar = true
+		}
 	}
 	if encoder.NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
 		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
@@ -691,21 +707,33 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	bestSet := false
 	var best vp9InterModeDecision
-	// useNonrd: route the speed-feature-selected realtime path through
-	// the libvpx-shaped ref_mode_set[] loop in vp9_pick_inter_mode_nonrd.go.
-	// When the low-temporal-variance shortcut above has reduced the usable
-	// set to LAST-only, temporarily narrow inter.refMask so the nonrd picker
-	// sees the same usable_ref_frame scope libvpx would.
+	// useNonrd: route through vp9_pick_inter_mode_nonrd.go. When
+	// choose_partitioning stamped variance_low for this leaf, mirror libvpx
+	// by clamping usable refs to LAST for that block only (via refMask +
+	// maxUsableRef inside the nonrd picker). Do not assume low-variance
+	// when the cache is unset.
 	//
 	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
-	if useNonrd && len(refFrameSet) > 0 {
+	if useNonrd {
 		savedRefMask := inter.refMask
-		if len(refFrameSet) != len(refFramesAll) {
-			var narrowed uint8
-			for _, refFrame := range refFrameSet {
-				narrowed |= 1 << uint(refFrame)
+		blockForceSkip, blockForceSkipKnown :=
+			e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
+		narrowLastOnly := false
+		if blockForceSkipKnown {
+			narrowLastOnly = encoder.NonrdForceLastReference(
+				e.sf.ShortCircuitLowTempVar, e.sf.UseNonrdPickMode != 0,
+				blockForceSkip)
+		} else if e.sf.ShortCircuitLowTempVar >= 1 {
+			sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, miRow&^7, miCol&^7)
+			if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) ||
+				!e.varPartSBComputed[sbIdx] {
+				narrowLastOnly = true
 			}
-			inter.refMask &= narrowed
+		}
+		if narrowLastOnly {
+			if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
+				inter.refMask &= 1 << uint(vp9dec.LastFrame)
+			}
 		}
 		decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
 			miRows, miCols, miRow, miCol, bsize)
@@ -714,7 +742,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			best = decision
 			bestSet = true
 		}
-	} else {
+	} else if len(refFrameSet) > 0 {
 		for _, refFrame := range refFrameSet {
 			refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
 			if !ok {

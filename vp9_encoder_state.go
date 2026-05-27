@@ -475,6 +475,15 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	if cap(e.varPartSBZeroTempSADSource) >= sbCount {
 		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
 	}
+	if cap(e.varPartSBLastHighContentValid) >= sbCount {
+		e.varPartSBLastHighContentValid = e.varPartSBLastHighContentValid[:sbCount]
+		for i := range e.varPartSBLastHighContentValid {
+			e.varPartSBLastHighContentValid[i] = false
+		}
+	}
+	if cap(e.varPartSBLastHighContent) >= sbCount {
+		e.varPartSBLastHighContent = e.varPartSBLastHighContent[:sbCount]
+	}
 	e.varPartFrameValid = false
 	// Invalidate the per-frame border-padded source mirror so the next
 	// choose_partitioning inter call rebuilds it from the current frame's

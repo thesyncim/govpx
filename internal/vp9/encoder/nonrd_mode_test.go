@@ -166,12 +166,12 @@ func TestNonrdForceLastReference(t *testing.T) {
 func TestNonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 	if got := NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, ContentStateLowSadLowSumdiff,
-		true, true, false); !got {
+		true, true, false, false, false); !got {
 		t.Fatalf("scene-change precheck = false, want true")
 	}
 	if got := NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, ContentStateLowSadLowSumdiff,
-		true, false, false); got {
+		true, false, false, false, false); got {
 		t.Fatalf("non-scene precheck = true, want false")
 	}
 }
@@ -179,12 +179,12 @@ func TestNonrdIntraFallbackPrecheckSceneChangeBypassesInterGates(t *testing.T) {
 func TestNonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.T) {
 	if got := NonrdIntraFallbackPrecheck(30, 20, true,
 		common.Block64x64, ContentStateLowSadLowSumdiff,
-		false, false, false); got {
+		false, false, false, false, false); got {
 		t.Fatalf("low-temp precheck = true, want false")
 	}
 	if got := NonrdIntraFallbackPrecheck(30, 20, true,
 		common.Block64x64, ContentStateVeryHighSad,
-		false, false, false); !got {
+		false, false, false, false, false); !got {
 		t.Fatalf("very-high-SAD precheck = false, want true")
 	}
 }
@@ -192,12 +192,12 @@ func TestNonrdIntraFallbackPrecheckVeryHighSadBypassesLowTempSkip(t *testing.T) 
 func TestNonrdIntraFallbackPrecheckScreenFlatBypassesInterGates(t *testing.T) {
 	if got := NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, ContentStateLowSadLowSumdiff,
-		true, false, true); !got {
+		true, false, true, false, false); !got {
 		t.Fatalf("screen-flat precheck = false, want true")
 	}
 	if got := NonrdIntraFallbackPrecheck(10, 20, true,
 		common.Block64x64, ContentStateLowSadLowSumdiff,
-		true, false, false); got {
+		true, false, false, false, false); got {
 		t.Fatalf("non-screen-flat precheck = true, want false")
 	}
 }

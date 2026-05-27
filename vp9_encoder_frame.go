@@ -278,7 +278,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// (encode_with_recode_loop → loopfilter_frame → vp9_pack_bitstream).
 	header.Loopfilter = e.vp9EncoderLoopFilterParams(qindex, isKey, intraOnly,
 		resetLoopfilterDeltas, header.Quant.Lossless,
-		header.Seg.Enabled, e.opts.Sharpness,
+		e.vp9SegEnabledForLoopfilter(isKey, intraOnly), e.opts.Sharpness,
 		e.opts.Width, e.opts.Height, common.TxModeSelect)
 	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
 		header.Loopfilter.FilterLevel = 0
@@ -380,7 +380,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		baseMi.InterpFilter = uint8(vp9dec.InterpEighttap)
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
-	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols, macroblocks, header, srcFrameAltRef, refreshFlags)
+	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols,
+		macroblocks, header, srcFrameAltRef, refreshFlags)
 	if e.opts.AQMode == VP9AQPerceptual {
 		e.perceptualAQ.PrepareFrame(img, int(header.Quant.BaseQindex), showFrame)
 	}

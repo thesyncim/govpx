@@ -38,11 +38,10 @@ import (
 //   - do_rect = 0 (libvpx vp9_encodeframe.c:4633 + 4660-4661 — speed >= 5
 //     disables rectangular partitions; use_ml_based_partitioning forces it).
 //     The ML picker only chooses between PARTITION_NONE and PARTITION_SPLIT.
-//   - auto_min_max_partition_size is OFF in the ML_BASED_PARTITION case
-//     (libvpx vp9_speed_features.c:825-826 sets partition_search_type =
-//     ML_BASED_PARTITION but does not set auto_min_max_partition_size). The
-//     min/max are pinned to BLOCK_8X8 / BLOCK_64X64 at the dispatcher (libvpx
-//     vp9_encodeframe.c:5315-5316 x->max/min_partition_size).
+//   - auto_min_max_partition_size is enabled at speed >= 5 (libvpx
+//     vp9_speed_features.c:233). ML_BASED dispatch pins x->max/min to
+//     BLOCK_64X64 / BLOCK_8X8 (vp9_encodeframe.c:5315-5316); do_split is
+//     cleared at BLOCK_8X8 so 4x4 leaves are never emitted on this lane.
 //   - Forced edge splits at frame boundary: when (mi_row + ms >= mi_rows) the
 //     horz split is forced; symmetric for col. The ML picker honours these
 //     forced edges by mirroring the partition_horz/vert/none flags from
@@ -622,6 +621,26 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 	// && !force_vert_split.
 	partitionNoneAllowed := !forceHorzSplit && !forceVertSplit
 
+	// libvpx vp9_encodeframe.c:4644-4653 — auto_min_max_partition_size gate.
+	// ML_BASED dispatch pins max/min to 64x64/8x8 (vp9_encodeframe.c:5315-5316).
+	maxPartitionSize := e.sf.DefaultMaxPartitionSize
+	minPartitionSize := e.sf.DefaultMinPartitionSize
+	if e.sf.PartitionSearchType == MlBasedPartition {
+		maxPartitionSize = common.Block64x64
+		minPartitionSize = common.Block8x8
+	}
+	if maxPartitionSize == 0 {
+		maxPartitionSize = common.Block64x64
+	}
+	if minPartitionSize == 0 {
+		minPartitionSize = common.Block4x4
+	}
+	if e.sf.AutoMinMaxPartitionSize != AutoMinMaxNotInUse {
+		partitionNoneAllowed = partitionNoneAllowed &&
+			bsize <= maxPartitionSize && bsize >= minPartitionSize
+		doSplit = doSplit && bsize > minPartitionSize
+	}
+
 	// libvpx vp9_encodeframe.c:4660-4667 — ML predictor dispatch.
 	if partitionNoneAllowed && doSplit {
 		pred := vp9MLPredictVarPartitioning(bsize, miRow, miCol, ctx)
@@ -732,6 +751,23 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	forceHorzSplit := miRow+ms >= miRows
 	forceVertSplit := miCol+ms >= miCols
 	partitionNoneAllowed := !forceHorzSplit && !forceVertSplit
+	maxPartitionSize := e.sf.DefaultMaxPartitionSize
+	minPartitionSize := e.sf.DefaultMinPartitionSize
+	if e.sf.PartitionSearchType == MlBasedPartition {
+		maxPartitionSize = common.Block64x64
+		minPartitionSize = common.Block8x8
+	}
+	if maxPartitionSize == 0 {
+		maxPartitionSize = common.Block64x64
+	}
+	if minPartitionSize == 0 {
+		minPartitionSize = common.Block4x4
+	}
+	if e.sf.AutoMinMaxPartitionSize != AutoMinMaxNotInUse {
+		partitionNoneAllowed = partitionNoneAllowed &&
+			bsize <= maxPartitionSize && bsize >= minPartitionSize
+		doSplit = doSplit && bsize > minPartitionSize
+	}
 	if !partitionNoneAllowed || !doSplit {
 		return common.BlockInvalid, false
 	}

@@ -122,6 +122,44 @@ func (e *VP9Encoder) vp9ReadContentStateSbFd(sbOffset int) uint8 {
 	return encoder.ContentStateAt(e.contentStateSbFd, sbOffset)
 }
 
+// vp9EnsureSBLastHighContentCached snapshots content_state_sb_fd into the
+// per-SB cache before avg_source_sad updates it for the current frame.
+func (e *VP9Encoder) vp9EnsureSBLastHighContentCached(miRows, miCols, miRow, miCol int) {
+	if e == nil {
+		return
+	}
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if sbCount <= 0 {
+		return
+	}
+	e.varPartSBLastHighContent = buffers.EnsureLen(e.varPartSBLastHighContent, sbCount)
+	e.varPartSBLastHighContentValid = buffers.EnsureLenZeroTail(
+		e.varPartSBLastHighContentValid, sbCount)
+	sbMiRow := miRow &^ 7
+	sbMiCol := miCol &^ 7
+	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if sbIdx < 0 || sbIdx >= sbCount || e.varPartSBLastHighContentValid[sbIdx] {
+		return
+	}
+	sbOffset := encoder.SBOffsetForMi(sbMiRow, sbMiCol, miCols)
+	e.varPartSBLastHighContent[sbIdx] = e.vp9ReadContentStateSbFd(sbOffset)
+	e.varPartSBLastHighContentValid[sbIdx] = true
+}
+
+// vp9LastSBHighContentForPick returns the libvpx x->last_sb_high_content
+// value for the SB containing (miRow, miCol).
+func (e *VP9Encoder) vp9LastSBHighContentForPick(miRows, miCols, miRow, miCol int) uint8 {
+	if e == nil {
+		return 0
+	}
+	e.vp9EnsureSBLastHighContentCached(miRows, miCols, miRow, miCol)
+	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, miRow&^7, miCol&^7)
+	if sbIdx < 0 || sbIdx >= len(e.varPartSBLastHighContent) {
+		return 0
+	}
+	return e.varPartSBLastHighContent[sbIdx]
+}
+
 // vp9CommitLastSource mirrors the previous-source lookahead slot libvpx exposes
 // to avg_source_sad through cpi->Last_Source.
 //

@@ -786,6 +786,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	varPartSBLastHighContent := w.varPartSBLastHighContent
+	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
@@ -821,6 +823,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.varPartSBLastHighContent = varPartSBLastHighContent
+	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
 	w.intProSrcBordered = intProSrcBordered
@@ -866,6 +870,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	varPartSBLastHighContent := w.varPartSBLastHighContent
+	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
@@ -898,6 +904,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.varPartSBLastHighContent = varPartSBLastHighContent
+	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
 	w.intProSrcBordered = intProSrcBordered

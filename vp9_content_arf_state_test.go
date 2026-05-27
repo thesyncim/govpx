@@ -406,3 +406,46 @@ func TestVP9AltrefOnepassIsSrcFrameAltRefForcesFixed64x64(t *testing.T) {
 		}
 	}
 }
+
+func TestVP9PanningCyclicContentStateSbFdAfterFrame1(t *testing.T) {
+	const width, height = 64, 64
+	opts := VP9EncoderOptions{
+		Width: width, Height: height,
+		RateControlMode: RateControlCBR, RateControlModeSet: true,
+		TargetBitrateKbps: 700, Deadline: DeadlineRealtime,
+		CpuUsed: -8, AQMode: VP9AQCyclicRefresh,
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	for i := 0; i < 2; i++ {
+		if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, i)); err != nil {
+			t.Fatalf("Encode frame %d: %v", i, err)
+		}
+	}
+	if e.contentStateSbFd == nil {
+		t.Fatal("contentStateSbFd nil after 2 frames")
+	}
+	var max, sum int
+	for _, v := range e.contentStateSbFd {
+		sum += int(v)
+		if int(v) > max {
+			max = int(v)
+		}
+	}
+	t.Logf("after frame 1 encode, content_state_sb_fd max=%d sum=%d buf=%v rdmult=%d cyclicRDMult=%d",
+		max, sum, e.contentStateSbFd, e.rc.rdmult, e.cyclicAQ.RDMult)
+	// Panning motion keeps frame-to-frame SAD high, so libvpx resets the
+	// accumulator every SB — max can legitimately stay 0 on this seed.
+	if e.sf.UseSourceSad == 0 {
+		t.Fatal("UseSourceSad disabled at speed 8")
+	}
+	if !e.lastSourceValid {
+		t.Fatal("lastSourceValid false after keyframe + inter frame")
+	}
+	if len(e.varPartSBContentStateValid) == 0 || !e.varPartSBContentStateValid[0] {
+		t.Fatal("avg_source_sad cache not populated during encode")
+	}
+}

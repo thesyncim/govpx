@@ -10,12 +10,12 @@ import (
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
 type VP9Encoder struct {
-	opts         VP9EncoderOptions
-	closed       bool
-	temporal     temporalState
-	rc           vp9RateControlState
-	twoPass      vp9TwoPassState
-	cyclicAQ     encoder.CyclicRefreshState
+	opts     VP9EncoderOptions
+	closed   bool
+	temporal temporalState
+	rc       vp9RateControlState
+	twoPass  vp9TwoPassState
+	cyclicAQ encoder.CyclicRefreshState
 	// cyclicCountMapSnap* reuse buffers for saveVP9CyclicRefreshMapsForCounts
 	// so steady-state cyclic inter frames stay allocation-free.
 	cyclicCountSegMapSnap     []uint8
@@ -173,8 +173,13 @@ type VP9Encoder struct {
 	varPartSBContentState      []encoder.ContentStateSB
 	varPartSBContentStateValid []bool
 	varPartSBZeroTempSADSource []bool
-	varPartTreeScratch         encoder.V64x64
-	varPartTreeLowResScratch   [16]encoder.V16x16
+	// varPartSBLastHighContent caches x->last_sb_high_content per SB before
+	// avg_source_sad mutates content_state_sb_fd (vp9_encodeframe.c:1346-1347
+	// read precedes vp9_encodeframe.c:1238-1244 update).
+	varPartSBLastHighContent      []uint8
+	varPartSBLastHighContentValid []bool
+	varPartTreeScratch            encoder.V64x64
+	varPartTreeLowResScratch      [16]encoder.V16x16
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane

@@ -148,6 +148,38 @@ func TestVP9EncoderCyclicRefreshInterSegmentUpdateUsesPickedMode(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderCyclicRefreshInterSegmentUpdateUsesPickerSkip(t *testing.T) {
+	// libvpx vp9_aq_cyclicrefresh.c:196 resets boosted segment_id when
+	// encode_breakout_test sets x->skip (vp9_pickmode.c:1026), not when
+	// block_yrd would later mark the block skippable via skip_txfm.
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{AQMode: VP9AQCyclicRefresh},
+	}
+	e.sf.UseNonrdPickMode = 1
+	e.cyclicAQ = vp9enc.CyclicRefreshState{
+		Enabled:        true,
+		Apply:          true,
+		ContentMode:    true,
+		TimeForRefresh: 7,
+		ThreshRateSB:   1000,
+		ThreshDistSB:   100,
+		MotionThresh:   32,
+		RateBoostFac:   15,
+	}
+	e.cyclicAQ.Alloc(4, 4)
+	mi := vp9dec.NeighborMi{SegmentID: vp9enc.CyclicRefreshSegmentBoost1}
+	decision := vp9InterModeDecision{
+		refFrame: vp9dec.LastFrame,
+		skip:     true,
+	}
+
+	e.vp9UpdateCyclicRefreshInterSegment(&vp9InterEncodeState{}, nil,
+		4, 4, 0, 0, common.Block16x16, &mi, decision)
+	if mi.SegmentID != vp9enc.CyclicRefreshSegmentBase {
+		t.Fatalf("SegmentID = %d, want BASE when picker skip is set", mi.SegmentID)
+	}
+}
+
 func TestVP9CyclicRefreshMapsRestoredAfterCountPassSnapshot(t *testing.T) {
 	e := &VP9Encoder{
 		opts: VP9EncoderOptions{AQMode: VP9AQCyclicRefresh},

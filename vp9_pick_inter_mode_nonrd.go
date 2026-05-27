@@ -8,6 +8,40 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
+// vp9NonrdPickTrace captures per-block picker diagnostics for oracle tests.
+// Only populated when frameIndex==2 and miRow==0 && miCol==3.
+type vp9NonrdPickTrace struct {
+	PredMvSad       [vp9dec.MaxRefFrames]uint64
+	RefSkipMask     int
+	MaxUsableRef    int8
+	ForceSkip       bool
+	SseZeromvNorm   uint64
+	BestRef         int8
+	BestMode        common.PredictionMode
+	BestScore       uint64
+	GoldenSkipFires bool
+	PickSegID       uint8
+	CyclicBoosted   bool
+	ActiveRDMult    int
+	LastNearScore   uint64
+	LastNewScore    uint64
+	GoldenNewScore  uint64
+	LastNearRate    int
+	LastNearDist    uint64
+	LastNearSSE     uint64
+	LastNearSkip    bool
+	GoldenNewRate   int
+	GoldenNewDist   uint64
+	GoldenNewSSE    uint64
+	GoldenNewSkip   bool
+	SegQIndex       int
+	LastNearestMv   vp9dec.MV
+	LastNearMv      vp9dec.MV
+	GoldenNewMv     vp9dec.MV
+}
+
+var vp9NonrdPickTraceLast vp9NonrdPickTrace
+
 // vp9_pick_inter_mode_nonrd.go ports libvpx v1.16.0's realtime nonrd inter-mode
 // picker (vp9_pickmode.c::vp9_pick_inter_mode) verbatim. The realtime picker is
 // dramatically simpler than the full RD search: it walks a small, fixed
@@ -307,13 +341,44 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			maxUsableRef = vp9dec.LastFrame
 		}
 	}
-	forceSkipLowTempVar := e.vp9VarPartForceSkipLowTempVar(miCols, miRow,
-		miCol, bsize)
+	contentState := encoder.ContentStateInvalid
+	if state, ok := e.vp9SourceSADContentState(inter.img, miRows, miCols,
+		miRow, miCol); ok {
+		contentState = state
+	}
+	forceSkipLowTempVar, forceSkipKnown :=
+		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
+	if !forceSkipKnown && e.sf.ShortCircuitLowTempVar >= 1 {
+		sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, miRow&^7, miCol&^7)
+		if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) ||
+			!e.varPartSBComputed[sbIdx] {
+			forceSkipLowTempVar = true
+		}
+	}
 	if encoder.NonrdForceLastReference(e.sf.ShortCircuitLowTempVar,
 		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		maxUsableRef = vp9dec.LastFrame
 	}
-	useGoldenNonzeromv := refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
+	// libvpx vp9_pickmode.c:1974-1976 — disable_golden_ref clamps
+	// usable_ref_frame to LAST on low-motion / non-very-high-sad blocks.
+	if e.sf.DisableGoldenRef != 0 &&
+		(contentState != encoder.ContentStateVeryHighSad ||
+			e.rc.avgFrameLowMotion < 60) {
+		maxUsableRef = vp9dec.LastFrame
+	}
+	// libvpx vp9_pickmode.c:1982-1985 — speed>=8 one-pass realtime gate
+	// that clamps usable_ref_frame to LAST based on the per-SB
+	// last_sb_high_content counter.
+	if e.vp9SpeedFeatureCPUUsed() >= 8 {
+		lastSBHighContent := e.vp9LastSBHighContentForPick(miRows, miCols,
+			miRow, miCol)
+		if int(e.rc.framesSinceGolden)+1 < int(lastSBHighContent) ||
+			lastSBHighContent > 40 || e.rc.framesSinceGolden > 120 {
+			maxUsableRef = vp9dec.LastFrame
+		}
+	}
+	useGoldenNonzeromv := (e.refFrameFlags&encoder.GoldFlag) != 0 &&
+		refSlotValid[vp9dec.GoldenFrame] && !forceSkipLowTempVar
 	sceneChangeDetected := e.rc.highSourceSAD
 	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
 	sourceVariance := ^uint(0)
@@ -386,6 +451,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			refRows := len(refBuf) / refStride
 
 			if useMvPredSearchSeed || useMvPredCandidateSet {
+				// libvpx: vp9_pickmode.c:1298-1302 — skip vp9_mv_pred for
+				// GOLDEN when force_skip_low_temp_var is set, and for
+				// scaled refs or sub-8x8 blocks.
+				if forceSkipLowTempVar && r == vp9dec.GoldenFrame {
+					continue
+				}
+				if bsize < common.Block8x8 {
+					continue
+				}
 				// libvpx: vp9_rd.c:602-606 — populate pred_mv[0..2]
 				// from ref_mvs[ref][0], ref_mvs[ref][1],
 				// x->pred_mv[ref]. govpx derives ref_mvs[ref][0..1]
@@ -532,7 +606,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// loop and clearing it on every exit.  Inline save/restore (no defer)
 	// preserves the alloc-parity gate.
 	prevCbRdmult := e.cbRdmult
-	if e.tpl.Enabled && bsize < common.BlockSizes {
+	pickSegRD := e.vp9PartitionSegmentID(miRow, miCol,
+		e.vp9StaticSegmentIDForMap(), inter.img, inter)
+	cyclicBoosted := e.opts.AQMode == VP9AQCyclicRefresh &&
+		e.cyclicAQ.Enabled && e.cyclicAQ.Apply &&
+		pickSegRD < vp9dec.MaxSegments &&
+		encoder.CyclicRefreshSegmentIDBoosted(pickSegRD) &&
+		e.cyclicAQ.RDMult > 0
+	// libvpx vp9_encodeframe.c:4417-4419 — nonrd_pick_sb_modes overrides
+	// x->rdmult with cr->rdmult on cyclic-refresh boosted segments.
+	if cyclicBoosted {
+		e.cbRdmult = e.cyclicAQ.RDMult
+	} else if e.tpl.Enabled && bsize < common.BlockSizes {
 		baseRdmult := e.rc.rdmult
 		if baseRdmult <= 0 {
 			baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
@@ -891,12 +976,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if refMvValid {
 				refMv = refMvOpt
 			}
-			if useGoldenNonzeromv && refFrame == vp9dec.LastFrame {
-				if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
-					bsize, refFrame, mv); ok {
-					predMvSad[vp9dec.LastFrame] = sad
-				}
-			}
 		} else if thisMode == common.NearestMv || thisMode == common.NearMv {
 			// libvpx: vp9_pickmode.c:2302 — mi->mv[0] is set from
 			// frame_mv[this_mode][ref_frame], which find_predictors
@@ -928,9 +1007,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !modeChecked[prior][refFrame] {
 					continue
 				}
-				if !frameMvValid[prior][refFrame] {
-					continue
-				}
 				if frameMv[thisMode][refFrame] == frameMv[prior][refFrame] &&
 					frameMv[prior][refFrame] == (vp9dec.MV{}) {
 					skipThisMv = true
@@ -951,6 +1027,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		if thisMode != common.NearestMv && frameMvValid[common.NearestMv][refFrame] {
 			if mv == frameMv[common.NearestMv][refFrame] {
 				continue
+			}
+		}
+
+		// libvpx: vp9_pickmode.c:2284-2293 — refresh pred_mv_sad[LAST]
+		// after NEWMV search so reference masking on later GOLDEN
+		// candidates sees the NEWMV SAD, not just the vp9_mv_pred scan.
+		if useGoldenNonzeromv && thisMode == common.NewMv &&
+			refFrame == vp9dec.LastFrame {
+			if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
+				bsize, refFrame, mv); ok {
+				predMvSad[vp9dec.LastFrame] = sad
 			}
 		}
 
@@ -1049,6 +1136,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// interpolation-filter selection uses the same quantizer-aware RD
 		// surface as the final mode decision.
 		// Per-candidate inner: evaluate distortion and rate.
+		scoredThisMode := false
 		for _, filter := range filters {
 			var cand vp9InterModeDecision
 			// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
@@ -1058,6 +1146,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if !ok {
 				continue
 			}
+			scoredThisMode = true
 
 			// libvpx: vp9_pickmode.c:2349-2354 — save normalised sse
 			// for (LAST, ZEROMV). The shift is log2 of the total
@@ -1416,9 +1505,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx: vp9_pickmode.c:2458 mode_checked[this_mode][ref_frame] = 1.
 		// Tracks per-(mode, ref) that a candidate has been scored so the
 		// dedup at 2269-2278 can skip duplicate-MV candidates on subsequent
-		// iterations. Marked AFTER the inner filter loop so the candidate
-		// counts as scored when at least one filter sweep completed.
-		modeChecked[thisMode][refFrame] = true
+		// iterations. Only mark when at least one filter sweep completed;
+		// libvpx never reaches mode_checked on early-continue paths.
+		if scoredThisMode {
+			modeChecked[thisMode][refFrame] = true
+		}
 
 		// libvpx: vp9_pickmode.c:2478-2480 — encode_breakout / x->skip
 		// early-break. Once a candidate fired encode_breakout_test (x->skip

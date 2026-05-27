@@ -61,7 +61,8 @@ func NonrdScreenZeroLastBias(screen, sceneChangeDetected,
 // non-RD intra-mode fallback sweep.
 func NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
 	forceSkipLowTempVar bool, bsize common.BlockSize,
-	contentState ContentStateSB, xSkip, sceneChangeDetected, screenFlat bool,
+	contentState ContentStateSB, xSkip, sceneChangeDetected, screenFlat,
+	skipLowSourceSAD, lowvarHighsumdiff bool,
 ) bool {
 	if screenFlat || sceneChangeDetected {
 		return true
@@ -74,6 +75,11 @@ func NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
 	}
 	if forceSkipLowTempVar && bsize >= common.Block32x32 &&
 		contentState != ContentStateVeryHighSad {
+		return false
+	}
+	// libvpx vp9_pickmode.c:2533-2534 — skip_low_source_sad and
+	// lowvar_highsumdiff block the normal intra-fallback path.
+	if skipLowSourceSAD || lowvarHighsumdiff {
 		return false
 	}
 	return true

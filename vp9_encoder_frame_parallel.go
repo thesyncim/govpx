@@ -507,6 +507,8 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	varPartSBLastHighContent := w.varPartSBLastHighContent
+	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
 	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
@@ -556,6 +558,8 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.varPartSBLastHighContent = varPartSBLastHighContent
+	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
 	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc

@@ -64,6 +64,37 @@ func (e *VP9Encoder) vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFram
 // (vp9/encoder/vp9_aq_cyclicrefresh.c:596-680) after the base qindex
 // is known. UpdateParameters runs earlier via
 // vp9UpdateCyclicRefreshParameters.
+// vp9SegEnabledForLoopfilter reports whether cm->seg.enabled is true for
+// vp9_picklpf's cyclic-refresh 5/8 scale at the pre-tile loopfilter
+// placeholder. header.Seg is not wired yet at that site; cyclic refresh's
+// Apply latch is the earliest faithful signal.
+func (e *VP9Encoder) vp9SegEnabledForLoopfilter(isKey, intraOnly bool) bool {
+	if e == nil || isKey || intraOnly {
+		return false
+	}
+	if e.opts.Segmentation.Enabled || e.roi.enabled || e.activeMapEnabled {
+		return true
+	}
+	switch e.opts.AQMode {
+	case VP9AQVariance:
+		return !e.vp9VarianceAQRateControlFixedQ() || e.activeMapEnabled
+	case VP9AQComplexity:
+		return e.vp9ComplexityAQSB64TargetRate() >= encoder.ComplexityAQMinSB64TargetRate
+	case VP9AQEquator360:
+		return encoder.Equator360AQApplies(e.opts.Width, e.opts.Height)
+	case VP9AQPerceptual:
+		return true
+	case VP9AQCyclicRefresh:
+		// Apply is latched in vp9PrepareCyclicRefreshFrame; ApplyCyclicRefresh
+		// from vp9UpdateCyclicRefreshParameters is available earlier for the
+		// loopfilter placeholder (libvpx vp9_picklpf.c:113 uses cm->seg.enabled
+		// after cyclic setup has decided the frame will carry a segment map).
+		return e.cyclicAQ.Enabled && e.cyclicAQ.ApplyCyclicRefresh &&
+			e.cyclicAQ.ContentMode
+	}
+	return false
+}
+
 func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bool, miRows, miCols, macroblocks int, header *vp9dec.UncompressedHeader, srcFrameAltRef bool, refreshFlags uint8) {
 	if e == nil || !e.cyclicAQ.Enabled {
 		e.cyclicAQ.Apply = false
@@ -100,6 +131,18 @@ func (e *VP9Encoder) vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame bo
 		RefreshAltRefFrame: refreshFlags&(1<<vp9AltRefSlot) != 0,
 	})
 	e.cyclicAQ.Apply = e.cyclicAQ.ApplyCyclicRefresh && e.cyclicAQ.TargetNumSegBlocks > 0
+	e.vp9ApplyCyclicRefreshRDMult(isKey, intraOnly)
+}
+
+// vp9ApplyCyclicRefreshRDMult is a no-op on rc.rdmult. libvpx stores
+// cr->rdmult in CYCLIC_REFRESH but applies it only per block when
+// cyclic_refresh_segment_id_boosted() is true (vp9_encodeframe.c:1958-1962,
+// 4417-4419). The frame-level cpi->rd.RDMULT from vp9_initialize_rd_consts
+// remains in effect for base-segment mode scoring; govpx mirrors that via
+// pickVP9InterReferenceModeNonRD's cbRdmult override on boosted segments.
+func (e *VP9Encoder) vp9ApplyCyclicRefreshRDMult(isKey, intraOnly bool) {
+	_ = isKey
+	_ = intraOnly
 }
 
 func (e *VP9Encoder) vp9UpdateCyclicRefreshInterSegment(inter *vp9InterEncodeState,

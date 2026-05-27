@@ -220,6 +220,14 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	if miRow >= miRows || miCol >= miCols {
 		return
 	}
+	// libvpx vp9_encodeframe.c:5259-5262 — avg_source_sad runs once per 64x64
+	// SB at encode_nonrd_sb_row entry before partition/mode picking.
+	if inter != nil && kind == vp9ModeTreeInterSource &&
+		bsize == common.Block64x64 && inter.img != nil &&
+		e.sf.UseSourceSad != 0 {
+		e.vp9EnsureSBLastHighContentCached(miRows, miCols, miRow, miCol)
+		_, _ = e.vp9SourceSADState(inter.img, miRows, miCols, miRow, miCol)
+	}
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
 	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,

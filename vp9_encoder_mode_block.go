@@ -92,7 +92,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			if hasResidue {
 				cur.Skip = 0
 			}
-			interDecision.skip = cur.Skip != 0
+			// libvpx vp9_encodeframe.c:1809-1810 passes x->skip from
+			// encode_breakout_test only (vp9_pickmode.c:1026), not the
+			// block_yrd skip bit or post-tokenize mi->skip.
 			e.vp9UpdateCyclicRefreshInterSegment(inter, seg, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, interDecision)
 		}

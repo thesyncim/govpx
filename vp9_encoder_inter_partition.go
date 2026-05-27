@@ -75,6 +75,24 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 					return picked
 				}
 			}
+		} else if root >= common.Block8x8 && root < common.BlockSizes {
+			// libvpx ML_BASED dispatch pins min_partition_size to BLOCK_8X8
+			// (vp9_encodeframe.c:5316). nonrd_pick_partition clears do_split
+			// at 8x8; govpx's recursive writeVP9ModesSb walker re-enters
+			// this dispatcher at 8x8 — commit the leaf instead of falling
+			// through to the recursive RD partition search below.
+			return root
+		}
+	}
+	// libvpx REFERENCE_PARTITION: choose_partitioning stamps varPartGrid,
+	// then nonrd_select_partition walks it (vp9_encodeframe.c:5348-5357).
+	// govpx maps that walk onto writeVP9ModesSb via vp9VarPartDecisionFor.
+	if e.sf.PartitionSearchType == ReferencePartition && inter != nil {
+		if e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter) {
+			if picked, ok := e.vp9NonrdSelectPartitionBlockSize(inter, tile,
+				partitionProbs, miRows, miCols, miRow, miCol, root); ok {
+				return picked
+			}
 		}
 	}
 	if varianceSize, ok := e.pickVP9CBRVariancePartitionBlockSize(inter,
@@ -390,6 +408,12 @@ func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
 		i2 := ((miRow + 2) & 0x7) >> 1
 		return varianceLow[encoder.PosShift16x16[i][j]] != 0 &&
 			varianceLow[encoder.PosShift16x16[i2][j]] != 0, true
+	case common.Block8x8, common.Block4x4:
+		// libvpx get_force_skip_low_temp_var (vp9_pickmode.c:1452-1496) has
+		// no BLOCK_8X8/BLOCK_4X4 branch and returns 0. Returning ok=false
+		// here made the warm-path refMask clamp fire on every 8x8 leaf even
+		// after choose_partitioning stamped the SB cache.
+		return false, true
 	}
 	return false, false
 }
@@ -520,6 +544,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		args.AvgFrameQIndexInter = int(e.rc.avgFrameQIndexInter)
 		args.UseSourceSAD = e.sf.UseSourceSad != 0
 		args.ScreenContent = e.opts.ScreenContentMode == int8(VP9ScreenContentScreen)
+		e.vp9EnsureSBLastHighContentCached(miRows, miCols, sbMiRow, sbMiCol)
 		if sadState, ok := e.vp9SourceSADState(inter.img,
 			miRows, miCols, sbMiRow, sbMiCol); ok {
 			args.ContentState = sadState.ContentState
@@ -747,6 +772,67 @@ func (e *VP9Encoder) vp9VarPartDecisionFor(miCols, miRow, miCol int,
 		// PartitionInvalid: defensive fallback for an illegal subsize
 		// at this outer bsize.
 		return common.BlockInvalid, false
+	}
+}
+
+// vp9NonrdSelectPartitionBlockSize ports the partition-size dispatch of
+// libvpx nonrd_select_partition (vp9_encodeframe.c:4859-4898) for govpx's
+// recursive writeVP9ModesSb walker. Mode picking stays in
+// pickVP9InterReferenceMode; this helper only decides how far to split.
+func (e *VP9Encoder) vp9NonrdSelectPartitionBlockSize(
+	inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (common.BlockSize, bool) {
+	if inter == nil || !e.varPartFrameValid || len(e.varPartGrid) == 0 {
+		return common.BlockInvalid, false
+	}
+	idx := miRow*miCols + miCol
+	if idx < 0 || idx >= len(e.varPartGrid) {
+		return common.BlockInvalid, false
+	}
+	subsize := e.varPartGrid[idx].SbType
+	if bsize < common.Block8x8 {
+		subsize = common.Block4x4
+	}
+	if bsize >= common.BlockSizes || subsize >= common.BlockSizes {
+		return common.BlockInvalid, false
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	if bsl < 0 || bsl >= len(common.PartitionLookup) {
+		return common.BlockInvalid, false
+	}
+	partition := common.PartitionLookup[bsl][subsize]
+	subsizeRef := common.Block16x16
+	if e.sf.AdaptPartitionSourceSad != 0 {
+		subsizeRef = common.Block8x8
+	}
+	tryMLPick := func() (common.BlockSize, bool) {
+		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+			miRow, miCol); mlCtx != nil {
+			if picked, ok := e.vp9NonrdPickPartition(mlCtx, miRows, miCols,
+				miRow, miCol, bsize); ok {
+				return picked, true
+			}
+			if picked, ok := e.vp9NonrdPickPartitionRDFallback(inter, tile,
+				partitionProbs, miRows, miCols, miRow, miCol, bsize); ok {
+				return picked, true
+			}
+		}
+		return common.BlockInvalid, false
+	}
+	switch {
+	case bsize == common.Block32x32 && subsize == common.Block32x32:
+		return tryMLPick()
+	case bsize == common.Block32x32 && partition != common.PartitionNone &&
+		subsize >= subsizeRef:
+		return tryMLPick()
+	case bsize == common.Block16x16 && partition != common.PartitionNone:
+		return tryMLPick()
+	default:
+		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
 }
 
