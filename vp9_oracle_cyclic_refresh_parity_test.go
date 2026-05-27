@@ -303,6 +303,19 @@ func TestVP9OracleCyclicRefreshInterParityGapSeedsRemainMeasurable(t *testing.T)
 					t.Logf("%s first-diff window govpx: %s", label, vp9OracleHexWindow(got[i], diff))
 					t.Logf("%s first-diff window libvpx: %s", label, vp9OracleHexWindow(want[i], diff))
 				}
+				if gHdrEnd > 0 && lHdrEnd > 0 &&
+					gHdrEnd+int(gHdr.FirstPartitionSize) <= len(got[i]) &&
+					lHdrEnd+int(lHdr.FirstPartitionSize) <= len(want[i]) {
+					gComp := got[i][gHdrEnd : gHdrEnd+int(gHdr.FirstPartitionSize)]
+					lComp := want[i][lHdrEnd : lHdrEnd+int(lHdr.FirstPartitionSize)]
+					compDiff := testutil.FirstByteDiff(gComp, lComp)
+					t.Logf("%s comp header diff: first_byte_diff=%d len=%d/%d",
+						label, compDiff, len(gComp), len(lComp))
+					if compDiff >= 0 {
+						t.Logf("%s comp window govpx: %s", label, vp9OracleHexWindow(gComp, compDiff))
+						t.Logf("%s comp window libvpx: %s", label, vp9OracleHexWindow(lComp, compDiff))
+					}
+				}
 				t.Logf("%s govpx hdr: show=%v type=%v intra=%v refresh=0x%x q=%d seg={en:%v map:%v data:%v abs:%v temp:%v} first_part=%d hdr_end=%d",
 					label, gHdr.ShowFrame, gHdr.FrameType, gHdr.IntraOnly,
 					gHdr.RefreshFrameFlags, gHdr.Quant.BaseQindex,

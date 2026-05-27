@@ -259,6 +259,30 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Quant.YDcDeltaQ == 0 &&
 		header.Quant.UvDcDeltaQ == 0 &&
 		header.Quant.UvAcDeltaQ == 0
+	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
+	// libvpx vp9_picklpf.c:159 — the picker reads sf.lpf_pick to
+	// choose between LPF_PICK_FROM_FULL_IMAGE (default at speeds
+	// 0-2), LPF_PICK_FROM_Q (speed 3+), and LPF_PICK_MINIMAL_LPF.
+	//
+	// govpx writes a placeholder FilterLevel (the closed-form FROM_Q
+	// value) into the uncompressed header before tile encoding; once
+	// the tiles populate the reconstruction buffer the full-image /
+	// sub-image search runs (vp9EncoderRunFullImagePicker below) and
+	// the uncompressed header is re-written in place with the picked
+	// level. The filter_level field is a 6-bit literal at a stable
+	// bit position (internal/vp9/encoder/header_writer.go:384
+	// EncodeLoopfilterWithPrev), so the byte length of the
+	// uncompressed header is invariant under filter_level and the
+	// re-write keeps compressed_header / tile offsets stable. This
+	// matches libvpx's order at vp9_encoder.c:5391-5467
+	// (encode_with_recode_loop → loopfilter_frame → vp9_pack_bitstream).
+	header.Loopfilter = e.vp9EncoderLoopFilterParams(qindex, isKey, intraOnly,
+		resetLoopfilterDeltas, header.Quant.Lossless,
+		header.Seg.Enabled, e.opts.Sharpness,
+		e.opts.Width, e.opts.Height, common.TxModeSelect)
+	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
+		header.Loopfilter.FilterLevel = 0
+	}
 	if isKey {
 		header.FrameType = common.KeyFrame
 		header.RefreshFrameFlags = 0xff
@@ -363,22 +387,6 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	seg := e.vp9EncoderSegmentationParams(isKey || intraOnly,
 		int(header.Quant.BaseQindex))
 	e.vp9CarryActiveMapDisableSegmentation(&seg, isKey || intraOnly)
-
-	resetLoopfilterDeltas := isKey || intraOnly || e.opts.ErrorResilient
-	// libvpx vp9_picklpf.c:159 — the picker reads sf.lpf_pick to
-	// choose between LPF_PICK_FROM_FULL_IMAGE (default at speeds
-	// 0-2), LPF_PICK_FROM_Q (speed 3+), and LPF_PICK_MINIMAL_LPF.
-	//
-	// NOTE: The FROM_Q path applies a 5/8 scale under one-pass CBR cyclic-refresh
-	// AQ when segmentation is enabled. That requires the finalized `seg.Enabled`,
-	// so compute loopfilter params after segmentation is decided.
-	header.Loopfilter = e.vp9EncoderLoopFilterParams(qindex, isKey, intraOnly,
-		resetLoopfilterDeltas, header.Quant.Lossless,
-		seg.Enabled, e.opts.Sharpness,
-		e.opts.Width, e.opts.Height, common.TxModeSelect)
-	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
-		header.Loopfilter.FilterLevel = 0
-	}
 
 	dq := &e.dqScratch
 	var keyState *vp9KeyframeEncodeState
