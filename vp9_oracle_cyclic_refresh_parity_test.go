@@ -257,13 +257,84 @@ func TestVP9OracleCyclicRefreshInterParityGapSeedsRemainMeasurable(t *testing.T)
 		if len(got) < 2 || len(want) < 2 {
 			t.Fatalf("%s need inter frames", label)
 		}
+		const (
+			width  = 64
+			height = 64
+		)
+		gKeyHdr, _ := readVP9OracleKeyHeaderWithLen(t, "govpx", got[0], width, height)
+		lKeyHdr, _ := readVP9OracleKeyHeaderWithLen(t, "libvpx", want[0], width, height)
 		matches := 0
 		aggDelta := 0
+		loggedFirstMismatch := false
 		for i := 1; i < len(got) && i < len(want); i++ {
 			delta := len(got[i]) - len(want[i])
 			aggDelta += delta
 			if bytes.Equal(got[i], want[i]) {
 				matches++
+				continue
+			}
+			if !loggedFirstMismatch {
+				loggedFirstMismatch = true
+				diff := testutil.FirstByteDiff(got[i], want[i])
+				gHdr, gHdrEnd := readVP9OraclePacketHeaderWithLen(t, "govpx", i, got[i], &gKeyHdr, width, height)
+				lHdr, lHdrEnd := readVP9OraclePacketHeaderWithLen(t, "libvpx", i, want[i], &lKeyHdr, width, height)
+				minHdrEnd := gHdrEnd
+				if lHdrEnd < minHdrEnd {
+					minHdrEnd = lHdrEnd
+				}
+				minFirstPart := int(gHdr.FirstPartitionSize)
+				if int(lHdr.FirstPartitionSize) < minFirstPart {
+					minFirstPart = int(lHdr.FirstPartitionSize)
+				}
+				section := "tile_payload"
+				if diff >= 0 {
+					switch {
+					case diff < minHdrEnd:
+						section = "uncompressed_header"
+					case diff < minHdrEnd+minFirstPart:
+						section = "compressed_header"
+					default:
+						section = "tile_payload"
+					}
+				}
+				t.Logf("%s first inter mismatch frame=%d first_byte_diff=%d section=%s len=%d/%d delta=%+d",
+					label, i, diff, section, len(got[i]), len(want[i]), delta)
+				if diff >= 0 {
+					t.Logf("%s first-diff window govpx: %s", label, vp9OracleHexWindow(got[i], diff))
+					t.Logf("%s first-diff window libvpx: %s", label, vp9OracleHexWindow(want[i], diff))
+				}
+				t.Logf("%s govpx hdr: show=%v type=%v intra=%v refresh=0x%x q=%d seg={en:%v map:%v data:%v abs:%v temp:%v} first_part=%d hdr_end=%d",
+					label, gHdr.ShowFrame, gHdr.FrameType, gHdr.IntraOnly,
+					gHdr.RefreshFrameFlags, gHdr.Quant.BaseQindex,
+					gHdr.Seg.Enabled, gHdr.Seg.UpdateMap, gHdr.Seg.UpdateData, gHdr.Seg.AbsDelta, gHdr.Seg.TemporalUpdate,
+					gHdr.FirstPartitionSize, gHdrEnd)
+				t.Logf("%s libvpx hdr: show=%v type=%v intra=%v refresh=0x%x q=%d seg={en:%v map:%v data:%v abs:%v temp:%v} first_part=%d hdr_end=%d",
+					label, lHdr.ShowFrame, lHdr.FrameType, lHdr.IntraOnly,
+					lHdr.RefreshFrameFlags, lHdr.Quant.BaseQindex,
+					lHdr.Seg.Enabled, lHdr.Seg.UpdateMap, lHdr.Seg.UpdateData, lHdr.Seg.AbsDelta, lHdr.Seg.TemporalUpdate,
+					lHdr.FirstPartitionSize, lHdrEnd)
+				if section == "uncompressed_header" {
+					// Dump additional header fields so the next parity fix can target the exact
+					// uncompressed-header bit that diverged.
+					t.Logf("%s govpx hdr extras: existing=%v slot=%d err_res=%v reset_fc=%d refresh_fc=%v fc_idx=%d fp=%v allow_hp=%v interp=%v tile=%+v inter_ref=%+v lf=%+v quant=%+v",
+						label,
+						gHdr.ShowExistingFrame, gHdr.ExistingFrameSlot,
+						gHdr.ErrorResilientMode, gHdr.ResetFrameContext,
+						gHdr.RefreshFrameContext, gHdr.FrameContextIdx, gHdr.FrameParallelDecoding,
+						gHdr.AllowHighPrecisionMv, gHdr.InterpFilter, gHdr.Tile, gHdr.InterRef,
+						gHdr.Loopfilter, gHdr.Quant)
+					t.Logf("%s govpx seg probs: temp=%v tree=%v pred=%v",
+						label, gHdr.Seg.TemporalUpdate, gHdr.Seg.TreeProbs, gHdr.Seg.PredProbs)
+					t.Logf("%s libvpx hdr extras: existing=%v slot=%d err_res=%v reset_fc=%d refresh_fc=%v fc_idx=%d fp=%v allow_hp=%v interp=%v tile=%+v inter_ref=%+v lf=%+v quant=%+v",
+						label,
+						lHdr.ShowExistingFrame, lHdr.ExistingFrameSlot,
+						lHdr.ErrorResilientMode, lHdr.ResetFrameContext,
+						lHdr.RefreshFrameContext, lHdr.FrameContextIdx, lHdr.FrameParallelDecoding,
+						lHdr.AllowHighPrecisionMv, lHdr.InterpFilter, lHdr.Tile, lHdr.InterRef,
+						lHdr.Loopfilter, lHdr.Quant)
+					t.Logf("%s libvpx seg probs: temp=%v tree=%v pred=%v",
+						label, lHdr.Seg.TemporalUpdate, lHdr.Seg.TreeProbs, lHdr.Seg.PredProbs)
+				}
 			}
 		}
 		t.Logf("%s inter byte parity %d/%d total_size_delta=%+d (open lane)",
@@ -272,6 +343,43 @@ func TestVP9OracleCyclicRefreshInterParityGapSeedsRemainMeasurable(t *testing.T)
 			t.Logf("%s WARNING: full inter byte parity — consider promoting seed to vp9CyclicRefreshParitySeeds strict corpus", label)
 		}
 	}
+}
+
+func vp9OracleHexWindow(packet []byte, off int) string {
+	if len(packet) == 0 {
+		return "empty"
+	}
+	if off < 0 {
+		off = 0
+	}
+	start := off - 8
+	if start < 0 {
+		start = 0
+	}
+	end := off + 9
+	if end > len(packet) {
+		end = len(packet)
+	}
+	rel := off - start
+	if rel < 0 {
+		rel = 0
+	}
+	if rel >= end-start {
+		rel = (end - start) - 1
+	}
+	return fmt.Sprintf("bytes[%d:%d] (diff@+%d)=0x%x", start, end, rel, packet[start:end])
+}
+
+func readVP9OracleKeyHeaderWithLen(t *testing.T, side string, packet []byte, width, height int) (vp9dec.UncompressedHeader, int) {
+	t.Helper()
+	var br vp9dec.BitReader
+	br.Init(packet)
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, nil,
+		func(uint8) (uint32, uint32) { return uint32(width), uint32(height) })
+	if err != nil {
+		t.Fatalf("%s ReadUncompressedHeader keyframe: %v", side, err)
+	}
+	return hdr, br.BytesRead()
 }
 
 func readVP9OraclePacketHeader(t *testing.T, side string, frame int,
@@ -289,4 +397,21 @@ func readVP9OraclePacketHeader(t *testing.T, side string, frame int,
 		t.Fatalf("%s ReadUncompressedHeader frame %d: %v", side, frame, err)
 	}
 	return hdr
+}
+
+func readVP9OraclePacketHeaderWithLen(t *testing.T, side string, frame int,
+	packet []byte, key *vp9dec.UncompressedHeader, width, height int,
+) (vp9dec.UncompressedHeader, int) {
+	t.Helper()
+	if key == nil {
+		t.Fatalf("%s frame %d: nil key header", side, frame)
+	}
+	var br vp9dec.BitReader
+	br.Init(packet)
+	hdr, err := vp9dec.ReadUncompressedHeader(&br, key,
+		func(uint8) (uint32, uint32) { return uint32(width), uint32(height) })
+	if err != nil {
+		t.Fatalf("%s ReadUncompressedHeader frame %d: %v", side, frame, err)
+	}
+	return hdr, br.BytesRead()
 }

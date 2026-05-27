@@ -360,7 +360,8 @@ func (e *VP9Encoder) vp9ReuseStableSegmentationState(seg *vp9dec.SegmentationPar
 		return
 	}
 	prev := e.prevSegmentation
-	if prev.Enabled && vp9SegmentationDataEqual(seg, &prev) {
+	if prev.Enabled && e.opts.AQMode != VP9AQCyclicRefresh &&
+		vp9SegmentationDataEqual(seg, &prev) {
 		seg.UpdateData = false
 	}
 	if prev.Enabled && seg.UpdateMap &&
