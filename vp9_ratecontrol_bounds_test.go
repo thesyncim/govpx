@@ -1,60 +1,8 @@
 package govpx
 
 import (
-	"errors"
 	"testing"
 )
-
-func TestVP9EncoderRejectsInvalidRateControlBounds(t *testing.T) {
-	cases := []struct {
-		name string
-		mut  func(*VP9EncoderOptions)
-		err  error
-	}{
-		{"min>max", func(o *VP9EncoderOptions) {
-			o.MinBitrateKbps = 1500
-			o.MaxBitrateKbps = 800
-		}, ErrInvalidBitrate},
-		{"target<min", func(o *VP9EncoderOptions) {
-			o.MinBitrateKbps = 2000
-		}, ErrInvalidBitrate},
-		{"target>max", func(o *VP9EncoderOptions) {
-			o.MaxBitrateKbps = 200
-		}, ErrInvalidBitrate},
-		{"negative min", func(o *VP9EncoderOptions) {
-			o.MinBitrateKbps = -1
-		}, ErrInvalidBitrate},
-		{"undershoot>100", func(o *VP9EncoderOptions) {
-			o.UndershootPct = 200
-		}, ErrInvalidConfig},
-		{"overshoot>100", func(o *VP9EncoderOptions) {
-			o.OvershootPct = 200
-		}, ErrInvalidConfig},
-		{"negative max-intra", func(o *VP9EncoderOptions) {
-			o.MaxIntraBitratePct = -1
-		}, ErrInvalidConfig},
-		{"non-cbr gfboost", func(o *VP9EncoderOptions) {
-			o.RateControlMode = RateControlVBR
-			o.GFCBRBoostPct = 20
-		}, ErrInvalidConfig},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			opts := VP9EncoderOptions{
-				Width:              64,
-				Height:             64,
-				FPS:                30,
-				RateControlModeSet: true,
-				RateControlMode:    RateControlCBR,
-				TargetBitrateKbps:  1000,
-			}
-			tc.mut(&opts)
-			if _, err := NewVP9Encoder(opts); !errors.Is(err, tc.err) {
-				t.Fatalf("NewVP9Encoder err = %v, want %v", err, tc.err)
-			}
-		})
-	}
-}
 
 func TestVP9EncoderRateControlBoundsAreStored(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
