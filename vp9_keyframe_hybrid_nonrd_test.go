@@ -98,7 +98,7 @@ func TestVP9KeyframeVariancePartitionRequiresNonRDRow(t *testing.T) {
 	}
 }
 
-func TestVP9KeyframeRDPartitionRequiresVarBasedRDRow(t *testing.T) {
+func TestVP9KeyframeRDPartitionCoversSearchAndVarBasedRows(t *testing.T) {
 	key := &vp9KeyframeEncodeState{
 		hdr: &vp9dec.UncompressedHeader{FrameType: common.KeyFrame},
 		dq:  &vp9dec.DequantTables{},
@@ -107,6 +107,8 @@ func TestVP9KeyframeRDPartitionRequiresVarBasedRDRow(t *testing.T) {
 	e.opts = VP9EncoderOptions{
 		Width:              128,
 		Height:             64,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            1,
 		RateControlModeSet: true,
 		RateControlMode:    RateControlQ,
 		TargetBitrateKbps:  700,
@@ -124,14 +126,19 @@ func TestVP9KeyframeRDPartitionRequiresVarBasedRDRow(t *testing.T) {
 
 	e.sf.UseNonrdPickMode = 0
 	e.sf.PartitionSearchType = SearchPartition
+	if !e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("keyframe RD partition disabled for search partition")
+	}
+	e.opts.CpuUsed = -3
 	if e.vp9KeyframeRDPartitionEnabled(key) {
-		t.Fatalf("keyframe RD partition enabled for generic search partition")
+		t.Fatalf("keyframe RD partition enabled for negative-cpu search partition")
 	}
 
+	e.opts.CpuUsed = 1
 	key.lossless = true
 	e.sf.PartitionSearchType = VarBasedPartition
-	if e.vp9KeyframeRDPartitionEnabled(key) {
-		t.Fatalf("lossless keyframe enabled RD partition")
+	if !e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("lossless keyframe disabled RD partition")
 	}
 }
 

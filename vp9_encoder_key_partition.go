@@ -110,9 +110,10 @@ type vp9KeyframePartitionRD struct {
 }
 
 // pickVP9KeyframeRDPartitionBlockSize mirrors libvpx's RD-row keyframe
-// partition picker for the small fixed-Q realtime lane where speed features
-// request VAR_BASED_PARTITION but use_nonrd_pick_mode is still false. In that
-// row libvpx reaches rd_pick_partition, not choose_partitioning.
+// partition picker for the realtime non-negative-cpu search-partition keyframe
+// lane and the small fixed-Q realtime lane where speed features request
+// VAR_BASED_PARTITION but use_nonrd_pick_mode is still false. In both rows
+// libvpx reaches rd_pick_partition, not choose_partitioning.
 func (e *VP9Encoder) pickVP9KeyframeRDPartitionBlockSize(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
@@ -745,11 +746,17 @@ func (e *VP9Encoder) vp9KeyframeRDRefinementEnabled() bool {
 
 func (e *VP9Encoder) vp9KeyframeRDPartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	if key == nil || key.hdr == nil || key.dq == nil ||
-		key.hdr.FrameType != common.KeyFrame || key.lossless {
+		key.hdr.FrameType != common.KeyFrame || e.sf.UseNonrdPickMode != 0 {
 		return false
 	}
-	return e.sf.UseNonrdPickMode == 0 && e.vp9KeyframeRDRefinementEnabled() &&
-		e.sf.PartitionSearchType == VarBasedPartition
+	switch e.sf.PartitionSearchType {
+	case SearchPartition:
+		return e.opts.Deadline == DeadlineRealtime && e.opts.CpuUsed >= 0
+	case VarBasedPartition:
+		return e.vp9KeyframeRDRefinementEnabled()
+	default:
+		return false
+	}
 }
 
 func vp9KeyframeSquareBlockSizeForRegion(miRows, miCols, miRow, miCol int,

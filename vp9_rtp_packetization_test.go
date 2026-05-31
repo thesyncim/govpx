@@ -8,7 +8,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-func TestVP9RTPFacadePacketizeAssembleEncodedFrame(t *testing.T) {
+func TestVP9RTPPacketizeAssembleEncodedFrame(t *testing.T) {
 	const width, height = 64, 64
 	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {

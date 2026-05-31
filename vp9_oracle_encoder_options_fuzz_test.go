@@ -21,61 +21,22 @@ import (
 //
 // Deferred seeds:
 //
-//   - "\x00010" (bytes 0x00,0x30,0x31,0x30) — circular-reader fuzz config
-//     resolves to width=16, height=208, fps=50, cpu_used=1,
-//     Deadline=GoodQuality, Lossless=true, MaxQ=48, MaxKeyframeInterval=49,
-//     TargetBitrateKbps=792. Bisection (cpu8 alone, realtime alone, no-
-//     lossless, width/height sweeps) reproduces the divergence in every
-//     permutation EXCEPT cpu_used=8 + Deadline=Realtime, which matches
-//     byte-for-byte — so the divergence is governed by the (cpu_used=1,
-//     Deadline=GoodQuality) speed-features cascade, not by the lossless
-//     flag, the narrow 16x208 aspect, or the partition picker on partial
-//     SBs. Bytes 0..19 of the keyframe match (frame_marker, sync code,
-//     color config, frame size, loopfilter delta block with refDeltas[]={1,
-//     0,-1,-1}, base_qindex=0, segmentation=disabled, tile_info,
-//     first_partition_size=2). The 2-byte compressed header is identical
-//     (govpx and vpxenc both collapse to the no-update floor because
-//     lossless forces TxMode=ONLY_4X4 and skips encode_txfm_probs at
-//     vp9_bitstream.c:1341-1344). Divergence is entirely in the tile
-//     payload: govpx emits 7 tile bytes including the stop-encode marker
-//     fix-up, vpxenc emits 8.
+//   - "\x00010" (bytes 0x00,0x30,0x31,0x30) resolves to width=16,
+//     height=208, fps=50, cpu_used=1, Deadline=Realtime, RateControl=CBR,
+//     and TargetBitrateKbps=50. The speed-feature path is libvpx
+//     set_rt_speed_feature_framesize_independent speed >= 1
+//     (vp9/encoder/vp9_speed_features.c:452+) via the realtime dispatcher at
+//     vp9_speed_features.c:1042.
 //
-//     Root cause is the libvpx set_good_speed_feature_framesize_independent
-//     speed >= 1 cascade at vp9/encoder/vp9_speed_features.c:272-317 plus
-//     the GOOD-mode dispatch at vp9_speed_features.c:1030
-//     vp9_set_speed_features_framesize_independent →
-//     set_good_speed_feature_framesize_independent. govpx covers cpu_used
-//     =8 + DeadlineRealtime well (the existing seed corpus and the
-//     keyframe byte-parity unit tests both fix cpu_used=8 + rt).
-//
-//     The GOOD speed=1 SF cascade itself IS now ported verbatim into
-//     vp9_speed_features.go:1183-1237 (intra_y_mode_mask[TX_16X16]=INTRA
-//     _DC_H_V, intra_uv_mode_mask[TX_32X32]=INTRA_DC_H_V,
-//     use_square_partition_only=!frame_is_intra_only,
-//     allow_txfm_domain_distortion, tx_domain_thresh, trellis_opt_tx_rd,
-//     less_rectangular_check, use_rd_breakout, mode_skip_start,
-//     recode_tolerance_low/high, use_accurate_subpel_search=USE_4_TAPS).
-//     The keyframe Y-mode picker now gates on sf->nonrd_keyframe instead
-//     of an invented intra_y_mode_bsize_mask fallback, so RD-path GOOD-
-//     mode keyframes evaluate all 10 modes per libvpx vp9_rdopt.c:1383
-//     rd_pick_intra_sby_mode.
-//
-//     The residual divergence is the keyframe RD partition picker.
-//     libvpx's rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667)
-//     recursively evaluates PARTITION_NONE / HORZ / VERT / SPLIT under RD
-//     cost for every superblock, with edge-clipped frames forcing
-//     PARTITION_SPLIT or PARTITION_VERT (vp9_encodeframe.c:3691-3703
-//     force_horz_split / force_vert_split). govpx's keyframe partition
-//     picker is the hand-coded vp9KeyframeSourceBlockSizeForRegion
-//     heuristic (vp9_encoder.go:4971) which commits to a deterministic
-//     block size per region without an RD comparison. For 16x208 the
-//     partition trees the two encoders pick differ at the very first SB
-//     because libvpx force-splits the right half (mi_col+mi_step >
-//     mi_cols) and recurses while govpx returns Block16x16 directly. The
-//     resulting partition-token stream diverges in the first tile-body
-//     byte (offset 20). Closing this seed requires a direct
-//     vp9_rd_pick_partition + ml_predict_var_rd_partitioning +
-//     ml_prune_rect_partition port.
+//     govpx now routes search-partition keyframes through its RD partition
+//     scorer, which brings the uncompressed header, first_partition_size, and
+//     compressed-header bytes in line with libvpx for this seed. The residual
+//     divergence is the tile partition/mode token stream: libvpx's
+//     rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667) still picks a
+//     finer rectangular tree for the narrow 16x208 frame than govpx's current
+//     scalar RD scorer. Closing this seed requires finishing the
+//     rd_pick_partition scoring details, especially rectangular leaf scoring
+//     and pruning behavior.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing.
@@ -90,6 +51,52 @@ func vp9OptionsParityGapSeed(data []byte) bool {
 		}
 	}
 	return false
+}
+
+func TestVP9OracleRealtimeCPU1KeyframePartitionHeaderParity(t *testing.T) {
+	vp9test.RequireOracle(t, "VP9 realtime cpu=1 keyframe partition header parity")
+	vp9test.RequireVpxenc(t)
+
+	seed := []byte{0x00, 0x30, 0x31, 0x30}
+	opts := vp9oracle.NormalizeFuzzOptionsForLibvpxCLI(
+		vp9EncoderOptionsFromFuzz(seed))
+	src := vp9test.NewYCbCr(opts.Width, opts.Height, 128, 128, 128)
+
+	enc, err := govpx.NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	got, err := enc.Encode(src)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	want := tryVP9LibvpxKeyFrameBytes(t, opts, src)
+	if len(want) == 0 {
+		t.Fatal("vpxenc-vp9 rejected realtime cpu=1 keyframe seed")
+	}
+	gotHeader, gotTileStart := vp9test.ParseHeader(t, got)
+	wantHeader, wantTileStart := vp9test.ParseHeader(t, want)
+	vp9oracle.AssertKeyframeHeaderParity(t, gotHeader, wantHeader)
+
+	gotComp, gotFC, gotUncSize := vp9test.ReadCompressedHeader(t, got, gotHeader)
+	wantComp, wantFC, wantUncSize := vp9test.ReadCompressedHeader(t, want,
+		wantHeader)
+	if gotComp != wantComp {
+		t.Fatalf("compressed header = %+v, want vpxenc %+v", gotComp, wantComp)
+	}
+	if gotFC != wantFC {
+		t.Fatal("frame context after compressed header diverged from vpxenc")
+	}
+	gotCompBytes := got[gotUncSize:gotTileStart]
+	wantCompBytes := want[wantUncSize:wantTileStart]
+	if !bytes.Equal(gotCompBytes, wantCompBytes) {
+		t.Fatalf("compressed header bytes = % x, want vpxenc % x",
+			gotCompBytes, wantCompBytes)
+	}
+	if !bytes.Equal(got, want) {
+		t.Logf("realtime cpu=1 keyframe tile payload still diverges: govpx_len=%d vpxenc_len=%d first_diff=%d",
+			len(got), len(want), testutil.FirstByteDiff(got, want))
+	}
 }
 
 // FuzzVP9OracleEncoderOptions complements FuzzVP9EncoderOptions (which only
