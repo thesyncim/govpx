@@ -76,6 +76,42 @@ func TestVP9EncoderEncodeIntoWithFlagsForceKeyFrameOneShot(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSetKeyFrameIntervalControlsCadence(t *testing.T) {
+	const width, height = 64, 64
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetKeyFrameInterval(2); err != nil {
+		t.Fatalf("SetKeyFrameInterval(2): %v", err)
+	}
+	dst := make([]byte, 65536)
+	results := make([]govpx.VP9EncodeResult, 3)
+	for frame := range results {
+		src := vp9test.NewYCbCr(width, height, uint8(96+frame), 128, 128)
+		results[frame], err = e.EncodeIntoWithResult(src, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+	}
+	if !results[0].KeyFrame || results[1].KeyFrame || !results[2].KeyFrame {
+		t.Fatalf("keyframe cadence = [%t %t %t], want [true false true]",
+			results[0].KeyFrame, results[1].KeyFrame, results[2].KeyFrame)
+	}
+	if err := e.SetKeyFrameInterval(-1); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameInterval(-1) err = %v, want govpx.ErrInvalidConfig", err)
+	}
+	if err := e.SetKeyFrameIntervalRange(3, 2); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameIntervalRange(3,2) err = %v, want govpx.ErrInvalidConfig", err)
+	}
+	if err := e.SetKeyFrameIntervalRange(2, 2); err != nil {
+		t.Fatalf("SetKeyFrameIntervalRange(2,2): %v", err)
+	}
+	if err := e.SetKeyFrameInterval(1); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetKeyFrameInterval(1) below active min err = %v, want govpx.ErrInvalidConfig", err)
+	}
+}
+
 func TestVP9EncoderAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 	const width, height = 64, 64
 	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
@@ -98,6 +134,59 @@ func TestVP9EncoderAdaptiveKeyFramesDisabledByDefault(t *testing.T) {
 	}
 	if inter.KeyFrame {
 		t.Fatal("default VP9 scene-cut frame became keyframe")
+	}
+}
+
+func TestVP9EncoderSetAdaptiveKeyFramesControlsSceneCut(t *testing.T) {
+	const width, height = 64, 64
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MaxKeyframeInterval: 999,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetAdaptiveKeyFrames(true); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames(true): %v", err)
+	}
+	dst := make([]byte, 65536)
+	if _, err := e.EncodeIntoWithResult(
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst); err != nil {
+		t.Fatalf("Encode key: %v", err)
+	}
+	cut, err := e.EncodeIntoWithResult(
+		vp9test.NewYCbCr(width, height, 240, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode scene cut: %v", err)
+	}
+	if !cut.KeyFrame {
+		t.Fatal("runtime-enabled adaptive scene cut did not keyframe")
+	}
+
+	e, err = govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		MaxKeyframeInterval: 999,
+		AdaptiveKeyFrames:   true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder enabled: %v", err)
+	}
+	if err := e.SetAdaptiveKeyFrames(false); err != nil {
+		t.Fatalf("SetAdaptiveKeyFrames(false): %v", err)
+	}
+	if _, err := e.EncodeIntoWithResult(
+		vp9test.NewYCbCr(width, height, 16, 128, 128), dst); err != nil {
+		t.Fatalf("Encode disabled key: %v", err)
+	}
+	inter, err := e.EncodeIntoWithResult(
+		vp9test.NewYCbCr(width, height, 240, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("Encode disabled scene cut: %v", err)
+	}
+	if inter.KeyFrame {
+		t.Fatal("runtime-disabled adaptive scene cut became keyframe")
 	}
 }
 

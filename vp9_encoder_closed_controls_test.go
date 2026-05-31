@@ -2,10 +2,31 @@ package govpx_test
 
 import (
 	"errors"
+	"image"
 	"testing"
 
 	govpx "github.com/thesyncim/govpx"
 )
+
+func TestVP9EncoderEncodeAfterCloseReturnsErrClosed(t *testing.T) {
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 320, Height: 240})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	img := image.NewYCbCr(image.Rect(0, 0, 320, 240), image.YCbCrSubsampleRatio420)
+	if _, err := e.Encode(img); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("Encode after Close err = %v, want govpx.ErrClosed", err)
+	}
+	if _, err := e.EncodeInto(img, make([]byte, 1024)); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("EncodeInto after Close err = %v, want govpx.ErrClosed", err)
+	}
+	if _, err := e.FlushInto(make([]byte, 1024)); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("FlushInto after Close err = %v, want govpx.ErrClosed", err)
+	}
+}
 
 func TestVP9EncoderSetRealtimeTargetClosed(t *testing.T) {
 	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64})

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -271,65 +270,6 @@ func TestVP9EncoderSetScreenContentMode(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderSetKeyFrameInterval(t *testing.T) {
-	const width, height = 64, 64
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if err := e.SetKeyFrameInterval(2); err != nil {
-		t.Fatalf("SetKeyFrameInterval(2): %v", err)
-	}
-	if e.opts.MinKeyframeInterval != 0 || e.opts.MaxKeyframeInterval != 2 {
-		t.Fatalf("keyframe interval range = %d/%d, want 0/2",
-			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
-	}
-	dst := make([]byte, 65536)
-	results := make([]VP9EncodeResult, 3)
-	for frame := range results {
-		src := vp9test.NewYCbCr(width, height, uint8(96+frame), 128, 128)
-		results[frame], err = e.EncodeIntoWithResult(src, dst)
-		if err != nil {
-			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
-		}
-	}
-	if !results[0].KeyFrame || results[1].KeyFrame || !results[2].KeyFrame {
-		t.Fatalf("keyframe cadence = [%t %t %t], want [true false true]",
-			results[0].KeyFrame, results[1].KeyFrame, results[2].KeyFrame)
-	}
-	before := e.opts.MaxKeyframeInterval
-	if err := e.SetKeyFrameInterval(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetKeyFrameInterval(-1) err = %v, want ErrInvalidConfig", err)
-	}
-	if e.opts.MaxKeyframeInterval != before {
-		t.Fatal("invalid SetKeyFrameInterval mutated encoder")
-	}
-	if err := e.SetKeyFrameInterval(0); err != nil {
-		t.Fatalf("SetKeyFrameInterval(0): %v", err)
-	}
-	if e.opts.MinKeyframeInterval != 0 || e.opts.MaxKeyframeInterval != 0 {
-		t.Fatalf("keyframe interval reset = %d/%d, want 0/0",
-			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
-	}
-	if err := e.SetKeyFrameIntervalRange(2, 2); err != nil {
-		t.Fatalf("SetKeyFrameIntervalRange(2,2): %v", err)
-	}
-	if e.opts.MinKeyframeInterval != 2 || e.opts.MaxKeyframeInterval != 2 {
-		t.Fatalf("keyframe interval range = %d/%d, want 2/2",
-			e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval)
-	}
-	beforeMin, beforeMax := e.opts.MinKeyframeInterval, e.opts.MaxKeyframeInterval
-	if err := e.SetKeyFrameIntervalRange(3, 2); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetKeyFrameIntervalRange(3,2) err = %v, want ErrInvalidConfig", err)
-	}
-	if e.opts.MinKeyframeInterval != beforeMin || e.opts.MaxKeyframeInterval != beforeMax {
-		t.Fatal("invalid SetKeyFrameIntervalRange mutated encoder")
-	}
-	if err := e.SetKeyFrameInterval(1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetKeyFrameInterval(1) below active min err = %v, want ErrInvalidConfig", err)
-	}
-}
-
 func TestVP9EncoderSetARNR(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -471,19 +411,6 @@ func TestVP9EncoderNoiseSensitivityDenoisesInterChroma(t *testing.T) {
 	}
 	if got := e.denoiser.source.Cr[0]; got != 160 {
 		t.Fatalf("denoised encoder source Cr[0] = %d, want 160", got)
-	}
-}
-
-// TestVP9EncoderClose: after Close, Encode/EncodeInto return
-// ErrClosed.
-func TestVP9EncoderClose(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 320, Height: 240})
-	if err := e.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	img := image.NewYCbCr(image.Rect(0, 0, 320, 240), image.YCbCrSubsampleRatio420)
-	if _, err := e.Encode(img); !errors.Is(err, ErrClosed) {
-		t.Errorf("Encode after Close err = %v, want ErrClosed", err)
 	}
 }
 

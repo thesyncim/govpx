@@ -38,22 +38,3 @@ func TestVP9EncoderAdaptiveKeyFramesPromotesSceneCutResetsCounter(t *testing.T) 
 			e.framesSinceKey)
 	}
 }
-
-func TestVP9EncoderSetAdaptiveKeyFramesUpdatesOptions(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if err := e.SetAdaptiveKeyFrames(true); err != nil {
-		t.Fatalf("SetAdaptiveKeyFrames(true): %v", err)
-	}
-	if !e.opts.AdaptiveKeyFrames {
-		t.Fatal("SetAdaptiveKeyFrames(true) did not update options")
-	}
-	if err := e.SetAdaptiveKeyFrames(false); err != nil {
-		t.Fatalf("SetAdaptiveKeyFrames(false): %v", err)
-	}
-	if e.opts.AdaptiveKeyFrames {
-		t.Fatal("SetAdaptiveKeyFrames(false) did not update options")
-	}
-}
