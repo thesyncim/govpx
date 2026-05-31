@@ -7,11 +7,11 @@ Last refreshed: 2026-05-31 from `main`.
 
 ## Current Counts
 
-- Root Go files: 744.
-- Root test files: 580.
+- Root Go files: 748.
+- Root test files: 583.
 - Internal Go files: 760.
 - Root VP8 files: 82 implementation files and 320 test files.
-- Root VP9 files: 73 implementation/facade files and 250 test files.
+- Root VP9 files: 74 implementation/public-adapter files and 253 test files.
 - Internal package files:
   - `internal/vp8`: 326 Go files.
   - `internal/vp9`: 327 Go files.
@@ -19,10 +19,10 @@ Last refreshed: 2026-05-31 from `main`.
   - `internal/coracle`: 26 Go files.
   - `internal/testutil`: 60 Go files.
 - Test-name clusters:
-  - Non-internal tests: 604.
+  - Non-internal tests: 607.
   - Internal tests: 326.
   - Test files with `oracle` in the name: 192.
-  - Test files with `parity` in the name: 92.
+  - Test files with `parity` in the name: 97.
   - Files with `fuzz` in the name: 48.
   - Test files with `bench` in the path: 28.
 
@@ -157,6 +157,9 @@ speed-feature, AQ, runtime-segmentation, SVC runtime-control, and benchmark CLI
 tests have been split into behavior-named files. These are package-local
 mechanical splits only; the next cleanup pass should move implementation and
 oracle-owned suites out of root instead of adding more root test surface.
+The current VP9 naming pass removes root public-adapter suffixes and
+historical stream-centric oracle filenames in favor of public-behavior and
+encoder-oracle names, while preserving package boundaries and test bodies.
 
 ## Protected Gates
 
