@@ -1,33 +1,29 @@
-//go:build govpx_oracle_trace
-
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
 
-// TestVP9OracleEncoderRuntimeControlsAllocationGate pins the steady-state
+// TestVP9EncoderRuntimeControlsAllocationGate pins the steady-state
 // allocation profile of the runtime Set* surface. After warmup, calling each
 // covered setter must not allocate. This complements the trace/byte
 // parity check by guarding regressions in the runtime control hot path.
-//
-// The test is gated under the oracle build tag for source colocation with
-// the rest of the runtime-control coverage, but it does not actually run
-// the libvpx oracle and therefore costs <1s.
-func TestVP9OracleEncoderRuntimeControlsAllocationGate(t *testing.T) {
+func TestVP9EncoderRuntimeControlsAllocationGate(t *testing.T) {
 	const width, height = 64, 64
 
-	makeEncoder := func(t *testing.T) *VP9Encoder {
+	makeEncoder := func(t *testing.T) *govpx.VP9Encoder {
 		t.Helper()
-		opts := vp9OracleCBROptions(width, height, 600)
-		e, err := NewVP9Encoder(opts)
+		opts := vp9oracle.CBROptions(width, height, 600)
+		e, err := govpx.NewVP9Encoder(opts)
 		if err != nil {
 			t.Fatalf("NewVP9Encoder: %v", err)
 		}
-		size, err := vp9AllocatingEncodeBufferSize(width, height)
+		size, err := vp9oracle.EncodeBufferSize(width, height)
 		if err != nil {
-			t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
+			t.Fatalf("EncodeBufferSize: %v", err)
 		}
 		dst := make([]byte, size)
 		img := vp9test.NewPanningYCbCr(width, height, 0)
@@ -39,110 +35,110 @@ func TestVP9OracleEncoderRuntimeControlsAllocationGate(t *testing.T) {
 
 	allocCases := []struct {
 		name string
-		call func(t *testing.T, e *VP9Encoder)
+		call func(t *testing.T, e *govpx.VP9Encoder)
 	}{
-		{"SetBitrateKbps", func(t *testing.T, e *VP9Encoder) {
+		{"SetBitrateKbps", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetBitrateKbps(700); err != nil {
 				t.Fatalf("SetBitrateKbps: %v", err)
 			}
 		}},
-		{"SetCQLevel", func(t *testing.T, e *VP9Encoder) {
+		{"SetCQLevel", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetCQLevel(30); err != nil {
 				t.Fatalf("SetCQLevel: %v", err)
 			}
 		}},
-		{"SetCPUUsed", func(t *testing.T, e *VP9Encoder) {
+		{"SetCPUUsed", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetCPUUsed(4); err != nil {
 				t.Fatalf("SetCPUUsed: %v", err)
 			}
 		}},
-		{"SetSharpness", func(t *testing.T, e *VP9Encoder) {
+		{"SetSharpness", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetSharpness(4); err != nil {
 				t.Fatalf("SetSharpness: %v", err)
 			}
 		}},
-		{"SetStaticThreshold", func(t *testing.T, e *VP9Encoder) {
+		{"SetStaticThreshold", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetStaticThreshold(200); err != nil {
 				t.Fatalf("SetStaticThreshold: %v", err)
 			}
 		}},
-		{"SetMinGFInterval", func(t *testing.T, e *VP9Encoder) {
+		{"SetMinGFInterval", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetMinGFInterval(8); err != nil {
 				t.Fatalf("SetMinGFInterval: %v", err)
 			}
 		}},
-		{"SetMaxGFInterval", func(t *testing.T, e *VP9Encoder) {
+		{"SetMaxGFInterval", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetMaxGFInterval(16); err != nil {
 				t.Fatalf("SetMaxGFInterval: %v", err)
 			}
 		}},
-		{"SetMaxInterBitratePct", func(t *testing.T, e *VP9Encoder) {
+		{"SetMaxInterBitratePct", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetMaxInterBitratePct(200); err != nil {
 				t.Fatalf("SetMaxInterBitratePct: %v", err)
 			}
 		}},
-		{"SetMaxIntraBitratePct", func(t *testing.T, e *VP9Encoder) {
+		{"SetMaxIntraBitratePct", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetMaxIntraBitratePct(200); err != nil {
 				t.Fatalf("SetMaxIntraBitratePct: %v", err)
 			}
 		}},
-		{"SetGFCBRBoostPct", func(t *testing.T, e *VP9Encoder) {
+		{"SetGFCBRBoostPct", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetGFCBRBoostPct(50); err != nil {
 				t.Fatalf("SetGFCBRBoostPct: %v", err)
 			}
 		}},
-		{"SetFramePeriodicBoost", func(t *testing.T, e *VP9Encoder) {
+		{"SetFramePeriodicBoost", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetFramePeriodicBoost(true); err != nil {
 				t.Fatalf("SetFramePeriodicBoost: %v", err)
 			}
 		}},
-		{"SetAltRefAQ", func(t *testing.T, e *VP9Encoder) {
+		{"SetAltRefAQ", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetAltRefAQ(true); err != nil {
 				t.Fatalf("SetAltRefAQ: %v", err)
 			}
 		}},
-		{"SetPostEncodeDrop", func(t *testing.T, e *VP9Encoder) {
+		{"SetPostEncodeDrop", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetPostEncodeDrop(true); err != nil {
 				t.Fatalf("SetPostEncodeDrop: %v", err)
 			}
 		}},
-		{"SetDisableOvershootMaxQCBR", func(t *testing.T, e *VP9Encoder) {
+		{"SetDisableOvershootMaxQCBR", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetDisableOvershootMaxQCBR(true); err != nil {
 				t.Fatalf("SetDisableOvershootMaxQCBR: %v", err)
 			}
 		}},
-		{"SetNextFrameQIndex", func(t *testing.T, e *VP9Encoder) {
+		{"SetNextFrameQIndex", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetNextFrameQIndex(128); err != nil {
 				t.Fatalf("SetNextFrameQIndex: %v", err)
 			}
 		}},
-		{"SetDeltaQUV", func(t *testing.T, e *VP9Encoder) {
+		{"SetDeltaQUV", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetDeltaQUV(4); err != nil {
 				t.Fatalf("SetDeltaQUV: %v", err)
 			}
 		}},
-		{"SetDisableLoopfilter", func(t *testing.T, e *VP9Encoder) {
-			if err := e.SetDisableLoopfilter(VP9LoopfilterDisableInter); err != nil {
+		{"SetDisableLoopfilter", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetDisableLoopfilter(govpx.VP9LoopfilterDisableInter); err != nil {
 				t.Fatalf("SetDisableLoopfilter: %v", err)
 			}
 		}},
-		{"SetFrameParallelDecoding", func(t *testing.T, e *VP9Encoder) {
+		{"SetFrameParallelDecoding", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetFrameParallelDecoding(false); err != nil {
 				t.Fatalf("SetFrameParallelDecoding: %v", err)
 			}
 		}},
-		{"SetRTCExternalRateControl", func(t *testing.T, e *VP9Encoder) {
+		{"SetRTCExternalRateControl", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetRTCExternalRateControl(true); err != nil {
 				t.Fatalf("SetRTCExternalRateControl: %v", err)
 			}
 		}},
-		{"SetColorSpace", func(t *testing.T, e *VP9Encoder) {
-			if err := e.SetColorSpace(VP9ColorSpace(4)); err != nil {
+		{"SetColorSpace", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetColorSpace(govpx.VP9ColorSpace(4)); err != nil {
 				t.Fatalf("SetColorSpace: %v", err)
 			}
 		}},
-		{"SetColorRange", func(t *testing.T, e *VP9Encoder) {
-			if err := e.SetColorRange(VP9ColorRangeFull); err != nil {
+		{"SetColorRange", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetColorRange(govpx.VP9ColorRangeFull); err != nil {
 				t.Fatalf("SetColorRange: %v", err)
 			}
 		}},

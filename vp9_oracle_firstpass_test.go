@@ -1,10 +1,11 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"fmt"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"math"
@@ -79,16 +80,16 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewVP9Encoder(VP9EncoderOptions{
+			enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 				Width:  tc.width,
 				Height: tc.height,
 				FPS:    30,
 			})
 			if err != nil {
-				t.Fatalf("NewVP9Encoder: %v", err)
+				t.Fatalf("govpx.NewVP9Encoder: %v", err)
 			}
 
-			govpxRows := make([]VP9FirstPassFrameStats, tc.frames)
+			govpxRows := make([]govpx.VP9FirstPassFrameStats, tc.frames)
 			sources := make([]*image.YCbCr, tc.frames)
 			for frame := range tc.frames {
 				src := vp9test.NewPanningYCbCr(tc.width, tc.height, frame)
@@ -99,7 +100,7 @@ func TestVP9OracleFirstPassStatsCompare(t *testing.T) {
 					t.Fatalf("CollectFirstPassStats[%d]: %v", frame, err)
 				}
 			}
-			govpxStats := FinalizeVP9FirstPassStats(govpxRows)
+			govpxStats := govpx.FinalizeVP9FirstPassStats(govpxRows)
 			libvpxStats := vp9test.VpxencFirstPassStats(t, sources,
 				"--target-bitrate="+fmt.Sprint(tc.targetKbps))
 			if len(govpxStats) != len(libvpxStats) {
@@ -141,7 +142,7 @@ func (s vp9FirstPassComparisonSummary) String() string {
 		s.MaxNewMV, s.MaxMVAbs, s.MaxNoiseEnergy, s.MaxInactiveZone)
 }
 
-func summarizeVP9FirstPassComparison(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) vp9FirstPassComparisonSummary {
+func summarizeVP9FirstPassComparison(govpxStats []govpx.VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) vp9FirstPassComparisonSummary {
 	var s vp9FirstPassComparisonSummary
 	n := min(len(govpxStats), len(libvpxStats))
 	for i := range n {
@@ -179,7 +180,7 @@ func summarizeVP9FirstPassComparison(govpxStats []VP9FirstPassFrameStats, libvpx
 	return s
 }
 
-func formatVP9FirstPassComparisonRows(govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) string {
+func formatVP9FirstPassComparisonRows(govpxStats []govpx.VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "row,total,govpx_frame,libvpx_frame,govpx_intra,libvpx_intra,intra_rel,govpx_coded,libvpx_coded,coded_rel,govpx_sr,libvpx_sr,sr_rel,govpx_inter,libvpx_inter,govpx_motion,libvpx_motion,govpx_second,libvpx_second,govpx_newmv,libvpx_newmv")
 	n := min(len(govpxStats), len(libvpxStats))
@@ -200,7 +201,7 @@ func formatVP9FirstPassComparisonRows(govpxStats []VP9FirstPassFrameStats, libvp
 	return b.String()
 }
 
-func assertVP9FirstPassComparisonShape(t *testing.T, govpxStats []VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) {
+func assertVP9FirstPassComparisonShape(t *testing.T, govpxStats []govpx.VP9FirstPassFrameStats, libvpxStats []vp9test.FirstPassStats) {
 	t.Helper()
 	for i := range govpxStats {
 		g := govpxStats[i]

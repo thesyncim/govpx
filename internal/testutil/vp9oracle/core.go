@@ -1,17 +1,47 @@
-//go:build govpx_oracle_trace
-
 package vp9oracle
 
 import (
-	"bytes"
 	"image"
+	"strconv"
 	"testing"
 
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
+
+func EncodeBufferSize(width, height int) (int, error) {
+	return vpxbuffers.I420EncodeBufferSize(width, height, 4096, 65536)
+}
+
+func CBROptions(width, height, targetKbps int) govpx.VP9EncoderOptions {
+	return govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   targetKbps,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	}
+}
+
+func CBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) []string {
+	return []string{
+		"--end-usage=cbr",
+		"--target-bitrate=" + strconv.Itoa(targetKbps),
+		"--buf-sz=" + strconv.Itoa(bufSizeMs),
+		"--buf-initial-sz=" + strconv.Itoa(bufInitialMs),
+		"--buf-optimal-sz=" + strconv.Itoa(bufOptimalMs),
+		"--drop-frame=" + strconv.Itoa(dropFrame),
+		"--exact-fps-timebase",
+	}
+}
 
 func EncodeFramesWithGovpx(t testing.TB, opts govpx.VP9EncoderOptions,
 	sources []*image.YCbCr, flags []govpx.EncodeFlags,
@@ -30,9 +60,9 @@ func EncodeFramesWithGovpx(t testing.TB, opts govpx.VP9EncoderOptions,
 	}
 	defer enc.Close()
 
-	dstSize, err := vpxbuffers.I420EncodeBufferSize(width, height, 4096, 65536)
+	dstSize, err := EncodeBufferSize(width, height)
 	if err != nil {
-		t.Fatalf("I420EncodeBufferSize: %v", err)
+		t.Fatalf("EncodeBufferSize: %v", err)
 	}
 	dst := make([]byte, dstSize)
 	out := make([][]byte, 0, len(sources))
@@ -120,17 +150,6 @@ func NormalizeEncodeFlags(flags govpx.EncodeFlags) govpx.EncodeFlags {
 		flags &^= govpx.EncodeNoUpdateAltRef
 	}
 	return flags
-}
-
-func AssertEncoderVpxdecI420Match(t *testing.T, width, height int, packets ...[]byte) {
-	t.Helper()
-	want := vp9test.VpxdecI420(t, vp9test.BuildVP9IVF(width, height, packets...))
-	got := DecodeVisibleI420(t, packets...)
-	if !bytes.Equal(got, want) {
-		t.Fatalf("I420 mismatch for encoder stream\nlibvpx=%s\ngovpx=%s",
-			vp9test.MD5Hex(want),
-			vp9test.MD5Hex(got))
-	}
 }
 
 func DecodeVisibleI420(t testing.TB, packets ...[]byte) []byte {

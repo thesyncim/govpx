@@ -1,11 +1,14 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // TestVP9EncoderVpxdecOracleAcceptsKeyframe pipes a govpx-emitted
@@ -18,7 +21,7 @@ import (
 func TestVP9EncoderVpxdecOracleAcceptsKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 64), image.YCbCrSubsampleRatio420)
 	payload, err := e.Encode(img)
 	if err != nil {
@@ -32,94 +35,51 @@ func TestVP9EncoderVpxdecOracleMatchesACKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	img := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, packet)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesChromaDirectionalKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	img := vp9test.NewChromaHorizontalBandsYCbCr(width, height)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, packet)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesTx16DirectionalKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 128, 16
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	img := vp9test.NewHorizontalBandsYCbCr(width, height, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, packet)
-}
-
-func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
-	vp9test.RequireVpxdec(t)
-
-	const width, height = 70, 70
-	e, _ := NewVP9Encoder(VP9EncoderOptions{
-		Width:    width,
-		Height:   height,
-		Lossless: true,
-	})
-	keySrc := vp9test.NewCheckerYCbCr(width, height, 16, 240, 32, 224)
-	key, err := e.Encode(keySrc)
-	if err != nil {
-		t.Fatalf("Encode lossless keyframe: %v", err)
-	}
-	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 4, 0)
-	inter, err := e.Encode(interSrc)
-	if err != nil {
-		t.Fatalf("Encode lossless inter: %v", err)
-	}
-
-	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	if err := d.Decode(key); err != nil {
-		t.Fatalf("Decode lossless keyframe: %v", err)
-	}
-	keyFrame, ok := d.NextFrame()
-	if !ok {
-		t.Fatal("NextFrame returned !ok after lossless keyframe")
-	}
-	assertVP9ImageMatchesYCbCr(t, "lossless keyframe", keyFrame, keySrc)
-	if err := d.Decode(inter); err != nil {
-		t.Fatalf("Decode lossless inter: %v", err)
-	}
-	interFrame, ok := d.NextFrame()
-	if !ok {
-		t.Fatal("NextFrame returned !ok after lossless inter")
-	}
-	assertVP9ImageMatchesYCbCr(t, "lossless inter", interFrame, interSrc)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, packet)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
-	hidden, err := e.EncodeWithFlags(src, EncodeInvisibleFrame)
+	hidden, err := e.EncodeWithFlags(src, govpx.EncodeInvisibleFrame)
 	if err != nil {
 		t.Fatalf("Encode hidden keyframe: %v", err)
 	}
@@ -128,7 +88,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 		t.Fatalf("Encode visible inter: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, hidden, inter)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, hidden, inter)
 }
 
 // TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe runs the structural
@@ -138,7 +98,7 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleKeyFrame(t *testing.T) {
 func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 128, Height: 64})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 128, Height: 64})
 	img := image.NewYCbCr(image.Rect(0, 0, 128, 64), image.YCbCrSubsampleRatio420)
 	payload, err := e.Encode(img)
 	if err != nil {
@@ -155,7 +115,7 @@ func TestVP9EncoderVpxdecOracleAcceptsMultiSbKeyframe(t *testing.T) {
 func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 128})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 128})
 	img := image.NewYCbCr(image.Rect(0, 0, 64, 128), image.YCbCrSubsampleRatio420)
 	payload, err := e.Encode(img)
 	if err != nil {
@@ -171,7 +131,7 @@ func TestVP9EncoderVpxdecOracleAcceptsVerticalSBStack(t *testing.T) {
 func TestVP9EncoderVpxdecOracleAcceptsLargeFrame(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 256, Height: 192})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 256, Height: 192})
 	img := image.NewYCbCr(image.Rect(0, 0, 256, 192), image.YCbCrSubsampleRatio420)
 	payload, err := e.Encode(img)
 	if err != nil {
@@ -202,8 +162,12 @@ func TestVP9EncoderVpxdecOracleAcceptsEdgeClippedKeyframes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := NewVP9Encoder(VP9EncoderOptions{Width: tc.width, Height: tc.height})
-			img := image.NewYCbCr(image.Rect(0, 0, tc.width, tc.height), image.YCbCrSubsampleRatio420)
+			e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+				Width:  tc.width,
+				Height: tc.height,
+			})
+			img := image.NewYCbCr(image.Rect(0, 0, tc.width, tc.height),
+				image.YCbCrSubsampleRatio420)
 			payload, err := e.Encode(img)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)

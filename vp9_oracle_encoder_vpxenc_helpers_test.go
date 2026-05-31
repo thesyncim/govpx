@@ -166,64 +166,6 @@ func decodeVP9MiGridForOracleTest(t *testing.T, packet []byte) []vp9dec.Neighbor
 	return grid
 }
 
-func assertVP9VpxencFrameFlagsByteParityWithOptions(t *testing.T,
-	frames []*image.YCbCr, flags []EncodeFlags, opts VP9EncoderOptions,
-	extraArgs []string,
-) {
-	t.Helper()
-	if len(frames) == 0 {
-		t.Fatal("empty VP9 frame-flags oracle sequence")
-	}
-	if len(flags) > len(frames) {
-		t.Fatalf("frame flag count = %d, want <= %d", len(flags), len(frames))
-	}
-	width := frames[0].Rect.Dx()
-	height := frames[0].Rect.Dy()
-	for i, frame := range frames {
-		if frame.Rect.Dx() != width || frame.Rect.Dy() != height {
-			t.Fatalf("frame %d dimension mismatch: got %dx%d want %dx%d",
-				i, frame.Rect.Dx(), frame.Rect.Dy(), width, height)
-		}
-	}
-
-	opts.Width = width
-	opts.Height = height
-	e, err := NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
-	if err != nil {
-		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
-	}
-	dst := make([]byte, dstSize)
-	govpxPackets := make([][]byte, len(frames))
-	for i, frame := range frames {
-		var encodeFlags EncodeFlags
-		if i < len(flags) {
-			encodeFlags = flags[i]
-		}
-		if encodeFlags&EncodeInvisibleFrame != 0 {
-			t.Fatalf("frame %d uses EncodeInvisibleFrame, which has no libvpx frame-flag bit", i)
-		}
-		result, err := e.EncodeIntoWithFlagsResult(frame, dst, encodeFlags)
-		if err != nil {
-			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
-		}
-		if result.Dropped {
-			t.Fatalf("EncodeIntoWithFlagsResult frame %d unexpectedly dropped", i)
-		}
-		govpxPackets[i] = append([]byte(nil), result.Data...)
-	}
-
-	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, frames,
-		vp9LibvpxFrameFlags(flags), extraArgs...)
-	for i, got := range govpxPackets {
-		vp9test.AssertPacketByteParity(t, fmt.Sprintf("frame %d", i), got,
-			libvpxPackets[i])
-	}
-}
-
 func assertVP9InterPacketByteParity(t *testing.T, govpxKey, govpxInter, libvpxKey, libvpxInter []byte) {
 	t.Helper()
 	if bytes.Equal(govpxInter, libvpxInter) {
