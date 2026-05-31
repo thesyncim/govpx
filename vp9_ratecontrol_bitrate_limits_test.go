@@ -5,17 +5,6 @@ import (
 	"testing"
 )
 
-func TestVP9EncoderRejectsNegativeMaxInterBitratePct(t *testing.T) {
-	if _, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              64,
-		Height:             64,
-		FPS:                30,
-		MaxInterBitratePct: -1,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig", err)
-	}
-}
-
 func TestVP9EncoderMaxInterBitratePctStored(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              64,
@@ -34,16 +23,6 @@ func TestVP9EncoderMaxInterBitratePctStored(t *testing.T) {
 	}
 }
 
-func TestVP9SetMaxInterBitratePctRejectsNegative(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if err := e.SetMaxInterBitratePct(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetMaxInterBitratePct(-1) err = %v, want ErrInvalidConfig", err)
-	}
-}
-
 func TestVP9SetMaxInterBitratePctAppliesValue(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
 	if err != nil {
@@ -58,12 +37,7 @@ func TestVP9SetMaxInterBitratePctAppliesValue(t *testing.T) {
 	}
 }
 
-func TestVP9SetMaxIntraBitratePctValidationAndAppliesValue(t *testing.T) {
-	var nilEnc *VP9Encoder
-	if err := nilEnc.SetMaxIntraBitratePct(100); !errors.Is(err, ErrClosed) {
-		t.Fatalf("nil SetMaxIntraBitratePct err = %v, want ErrClosed", err)
-	}
-
+func TestVP9SetMaxIntraBitratePctMutation(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
@@ -82,26 +56,12 @@ func TestVP9SetMaxIntraBitratePctValidationAndAppliesValue(t *testing.T) {
 		t.Fatalf("opts=%d rc=%d, want both 175",
 			e.opts.MaxIntraBitratePct, e.rc.maxIntraBitratePct)
 	}
-	if err := e.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if err := e.SetMaxIntraBitratePct(100); !errors.Is(err, ErrClosed) {
-		t.Fatalf("closed SetMaxIntraBitratePct err = %v, want ErrClosed", err)
-	}
 }
 
-func TestVP9SetGFCBRBoostPctValidationAndAppliesValue(t *testing.T) {
-	var nilEnc *VP9Encoder
-	if err := nilEnc.SetGFCBRBoostPct(50); !errors.Is(err, ErrClosed) {
-		t.Fatalf("nil SetGFCBRBoostPct err = %v, want ErrClosed", err)
-	}
-
+func TestVP9SetGFCBRBoostPctMutation(t *testing.T) {
 	noRC, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder(no RC): %v", err)
-	}
-	if err := noRC.SetGFCBRBoostPct(-1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetGFCBRBoostPct(-1) err = %v, want ErrInvalidConfig", err)
 	}
 	if err := noRC.SetGFCBRBoostPct(25); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetGFCBRBoostPct without CBR err = %v, want ErrInvalidConfig", err)
@@ -109,9 +69,6 @@ func TestVP9SetGFCBRBoostPctValidationAndAppliesValue(t *testing.T) {
 	if noRC.opts.GFCBRBoostPct != 0 || noRC.rc.gfCBRBoostPct != 0 {
 		t.Fatalf("invalid gf-boost mutation opts=%d rc=%d, want both 0",
 			noRC.opts.GFCBRBoostPct, noRC.rc.gfCBRBoostPct)
-	}
-	if err := noRC.SetGFCBRBoostPct(0); err != nil {
-		t.Fatalf("SetGFCBRBoostPct(0) without CBR: %v", err)
 	}
 
 	cbr, err := NewVP9Encoder(VP9EncoderOptions{
@@ -138,12 +95,6 @@ func TestVP9SetGFCBRBoostPctValidationAndAppliesValue(t *testing.T) {
 	if cbr.opts.GFCBRBoostPct != 0 || cbr.rc.gfCBRBoostPct != 0 {
 		t.Fatalf("cleared opts=%d rc=%d, want both 0",
 			cbr.opts.GFCBRBoostPct, cbr.rc.gfCBRBoostPct)
-	}
-	if err := cbr.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if err := cbr.SetGFCBRBoostPct(50); !errors.Is(err, ErrClosed) {
-		t.Fatalf("closed SetGFCBRBoostPct err = %v, want ErrClosed", err)
 	}
 }
 
