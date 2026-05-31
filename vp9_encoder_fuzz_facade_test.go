@@ -1,11 +1,11 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // FuzzVP9EncoderOptions feeds arbitrary bytes to a deterministic
@@ -35,7 +35,7 @@ func FuzzVP9EncoderOptions(f *testing.F) {
 			}
 		}()
 		opts := vp9EncoderOptionsFromFuzz(data)
-		e, err := NewVP9Encoder(opts)
+		e, err := govpx.NewVP9Encoder(opts)
 		if err != nil {
 			assertVP9FuzzEncoderConstructError(t, err)
 			return
@@ -47,12 +47,7 @@ func FuzzVP9EncoderOptions(f *testing.F) {
 		// encoder does not panic on a valid input. Output is
 		// discarded.
 		img := vp9test.NewYCbCr(opts.Width, opts.Height, 128, 128, 128)
-		size, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
-		if err != nil {
-			return
-		}
-		dst := make([]byte, size)
-		if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+		if _, err := e.Encode(img); err != nil {
 			assertVP9FuzzEncoderRuntimeError(t, err)
 		}
 	})
@@ -81,12 +76,12 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 			}
 		}()
 
-		e, err := NewVP9Encoder(VP9EncoderOptions{
+		e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 			Width:               64,
 			Height:              64,
 			FPS:                 30,
 			RateControlModeSet:  true,
-			RateControlMode:     RateControlCBR,
+			RateControlMode:     govpx.RateControlCBR,
 			TargetBitrateKbps:   500,
 			BufferSizeMs:        600,
 			BufferInitialSizeMs: 400,
@@ -98,18 +93,13 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 		if err != nil {
 			t.Fatalf("NewVP9Encoder: %v", err)
 		}
-		size, err := vp9AllocatingEncodeBufferSize(64, 64)
-		if err != nil {
-			t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
-		}
-		dst := make([]byte, size)
 		img := vp9test.NewYCbCr(64, 64, 96, 128, 128)
 
-		r := testutil.NewByteCursor(data)
+		r := newVP9FuzzReader(data)
 		// Encode one frame first to warm the encoder so the runtime
 		// controls hit the in-flight path rather than the not-yet-
 		// initialised path.
-		if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+		if _, err := e.Encode(img); err != nil {
 			assertVP9FuzzEncoderRuntimeError(t, err)
 		}
 		// Drive a small bounded sequence of runtime controls. We
@@ -124,7 +114,7 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 			if r.Remaining() == 0 {
 				break
 			}
-			if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+			if _, err := e.Encode(img); err != nil {
 				assertVP9FuzzEncoderRuntimeError(t, err)
 			}
 		}
@@ -134,14 +124,15 @@ func FuzzVP9EncoderRuntimeControls(f *testing.F) {
 // vp9EncoderOptionsFromFuzz pulls a structured VP9EncoderOptions value out of
 // fuzz bytes. The mapping is intentionally bounded so the validator path is
 // reachable for almost every input.
-func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
-	r := testutil.NewByteCursor(data)
+func vp9EncoderOptionsFromFuzz(data []byte) govpx.VP9EncoderOptions {
+	r := newVP9FuzzReader(data)
 	width := 16 + int(r.Next()%64)*4  // 16..268, multiples of 4
 	height := 16 + int(r.Next()%64)*4 // same
 	fps := 1 + int(r.Next()%60)       // 1..60
 	cpuUsed := int8(r.Next()%19) - 9  // -9..9
-	mode := []RateControlMode{
-		RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ,
+	mode := []govpx.RateControlMode{
+		govpx.RateControlCBR, govpx.RateControlVBR, govpx.RateControlCQ,
+		govpx.RateControlQ,
 	}[r.Next()%4]
 	target := 50 + int(r.U16LE()%3950) // 50..4000
 	cq := int(r.Next() % 64)           // 0..63
@@ -155,14 +146,15 @@ func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 	sharp := r.Next() % 8        // 0..7
 	threads := int(r.Next() % 8) // 0..7
 	tileRows := int8(r.Next() % 4)
-	deadline := []Deadline{
-		DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality,
+	deadline := []govpx.Deadline{
+		govpx.DeadlineRealtime, govpx.DeadlineGoodQuality,
+		govpx.DeadlineBestQuality,
 	}[r.Next()%3]
-	colorSpace := VP9ColorSpace(r.Next() % 8)
-	colorRange := VP9ColorRange(r.Next() % 2)
-	dlf := VP9DisableLoopfilter(r.Next() % 3)
-	aq := VP9AQMode(r.Next() % 7)
-	return VP9EncoderOptions{
+	colorSpace := govpx.VP9ColorSpace(r.Next() % 8)
+	colorRange := govpx.VP9ColorRange(r.Next() % 2)
+	dlf := govpx.VP9DisableLoopfilter(r.Next() % 3)
+	aq := govpx.VP9AQMode(r.Next() % 7)
+	return govpx.VP9EncoderOptions{
 		Width:                    width,
 		Height:                   height,
 		FPS:                      fps,
@@ -206,7 +198,7 @@ func vp9EncoderOptionsFromFuzz(data []byte) VP9EncoderOptions {
 // applyVP9FuzzRuntimeControl invokes one of the encoder's Set* methods chosen
 // by the next fuzz byte. Every method must surface bad arguments as a
 // returned error; panics are caught by the f.Fuzz wrapper.
-func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCursor) {
+func applyVP9FuzzRuntimeControl(t *testing.T, e *govpx.VP9Encoder, r *vp9FuzzReader) {
 	t.Helper()
 	const numSetters = 40
 	pick := int(r.Next()) % numSetters
@@ -215,8 +207,11 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 	case 0:
 		err = e.SetBitrateKbps(50 + int(r.U16LE()%3950))
 	case 1:
-		err = e.SetRateControl(RateControlConfig{
-			Mode:                []RateControlMode{RateControlCBR, RateControlVBR, RateControlCQ, RateControlQ}[r.Next()%4],
+		err = e.SetRateControl(govpx.RateControlConfig{
+			Mode: []govpx.RateControlMode{
+				govpx.RateControlCBR, govpx.RateControlVBR,
+				govpx.RateControlCQ, govpx.RateControlQ,
+			}[r.Next()%4],
 			TargetBitrateKbps:   50 + int(r.U16LE()%3950),
 			MinQuantizer:        int(r.Next() % 64),
 			MaxQuantizer:        int(r.Next() % 64),
@@ -230,7 +225,7 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 	case 2:
 		err = e.SetCQLevel(int(r.Next() % 64))
 	case 3:
-		err = e.SetAQMode(VP9AQMode(r.Next() % 8))
+		err = e.SetAQMode(govpx.VP9AQMode(r.Next() % 8))
 	case 4:
 		err = e.SetLossless(r.Next()&1 == 1)
 	case 5:
@@ -244,11 +239,14 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 		}
 		err = e.SetActiveMap(amap, rows, cols)
 	case 7:
-		err = e.SetDeadline([]Deadline{DeadlineRealtime, DeadlineGoodQuality, DeadlineBestQuality}[r.Next()%3])
+		err = e.SetDeadline([]govpx.Deadline{
+			govpx.DeadlineRealtime, govpx.DeadlineGoodQuality,
+			govpx.DeadlineBestQuality,
+		}[r.Next()%3])
 	case 8:
 		err = e.SetCPUUsed(int(int8(r.Next()%19)) - 9)
 	case 9:
-		err = e.SetTuning(Tuning(r.Next() % 4))
+		err = e.SetTuning(govpx.Tuning(r.Next() % 4))
 	case 10:
 		err = e.SetRowMT(r.Next()&1 == 1)
 	case 11:
@@ -270,16 +268,16 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 	case 18:
 		err = e.SetRTCExternalRateControl(r.Next()&1 == 1)
 	case 19:
-		err = e.SetColorSpace(VP9ColorSpace(r.Next() % 8))
+		err = e.SetColorSpace(govpx.VP9ColorSpace(r.Next() % 8))
 	case 20:
-		err = e.SetColorRange(VP9ColorRange(r.Next() % 2))
+		err = e.SetColorRange(govpx.VP9ColorRange(r.Next() % 2))
 	case 21:
 		err = e.SetRenderSize(int(r.U16LE()%2048)+1, int(r.U16LE()%2048)+1)
 	case 22:
 		levels := []int{255, 0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 99}
 		err = e.SetTargetLevel(levels[int(r.Next())%len(levels)])
 	case 23:
-		err = e.SetDisableLoopfilter(VP9DisableLoopfilter(r.Next() % 4))
+		err = e.SetDisableLoopfilter(govpx.VP9DisableLoopfilter(r.Next() % 4))
 	case 24:
 		err = e.SetDeltaQUV(int(int8(r.Next())%32) - 16)
 	case 25:
@@ -305,17 +303,17 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 	case 35:
 		err = e.SetARNR(int(r.Next()%17), int(r.Next()%8), int(r.Next()%4))
 	case 36:
-		err = e.SetRealtimeTarget(RealtimeTarget{
+		err = e.SetRealtimeTarget(govpx.RealtimeTarget{
 			BitrateKbps:  int(r.U16LE() % 4000),
 			MinQuantizer: int(r.Next() % 64),
 			MaxQuantizer: int(r.Next() % 64),
 		})
 	case 37:
 		layers := int(r.Next()%4) + 1
-		err = e.SetTemporalScalability(TemporalScalabilityConfig{
+		err = e.SetTemporalScalability(govpx.TemporalScalabilityConfig{
 			Enabled:                layers > 1,
-			Mode:                   TemporalLayeringMode(r.Next() % 5),
-			LayerTargetBitrateKbps: [MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
+			Mode:                   govpx.TemporalLayeringMode(r.Next() % 5),
+			LayerTargetBitrateKbps: [govpx.MaxTemporalLayers]int{200, 400, 800, 1200, 1600},
 		})
 		_ = layers
 	case 38:
@@ -328,14 +326,45 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *VP9Encoder, r *testutil.ByteCur
 	}
 }
 
+type vp9FuzzReader struct {
+	data []byte
+	off  int
+}
+
+func newVP9FuzzReader(data []byte) vp9FuzzReader {
+	return vp9FuzzReader{data: data}
+}
+
+func (r *vp9FuzzReader) Remaining() int {
+	if r.off >= len(r.data) {
+		return 0
+	}
+	return len(r.data) - r.off
+}
+
+func (r *vp9FuzzReader) Next() byte {
+	if r.off >= len(r.data) {
+		return 0
+	}
+	b := r.data[r.off]
+	r.off++
+	return b
+}
+
+func (r *vp9FuzzReader) U16LE() uint16 {
+	lo := uint16(r.Next())
+	hi := uint16(r.Next())
+	return lo | hi<<8
+}
+
 // assertVP9FuzzEncoderConstructError pins the set of errors NewVP9Encoder may
 // return for arbitrary inputs.
 func assertVP9FuzzEncoderConstructError(t *testing.T, err error) {
 	t.Helper()
 	switch {
-	case errors.Is(err, ErrInvalidConfig):
-	case errors.Is(err, ErrInvalidBitrate):
-	case errors.Is(err, ErrInvalidQuantizer):
+	case errors.Is(err, govpx.ErrInvalidConfig):
+	case errors.Is(err, govpx.ErrInvalidBitrate):
+	case errors.Is(err, govpx.ErrInvalidQuantizer):
 	default:
 		t.Fatalf("NewVP9Encoder returned unexpected error: %v", err)
 	}
@@ -348,12 +377,12 @@ func assertVP9FuzzEncoderConstructError(t *testing.T, err error) {
 func assertVP9FuzzEncoderRuntimeError(t *testing.T, err error) {
 	t.Helper()
 	switch {
-	case errors.Is(err, ErrInvalidConfig):
-	case errors.Is(err, ErrInvalidBitrate):
-	case errors.Is(err, ErrInvalidQuantizer):
-	case errors.Is(err, ErrBufferTooSmall):
-	case errors.Is(err, ErrFrameNotReady):
-	case errors.Is(err, ErrClosed):
+	case errors.Is(err, govpx.ErrInvalidConfig):
+	case errors.Is(err, govpx.ErrInvalidBitrate):
+	case errors.Is(err, govpx.ErrInvalidQuantizer):
+	case errors.Is(err, govpx.ErrBufferTooSmall):
+	case errors.Is(err, govpx.ErrFrameNotReady):
+	case errors.Is(err, govpx.ErrClosed):
 	default:
 		t.Fatalf("VP9 runtime call returned unexpected error: %v", err)
 	}

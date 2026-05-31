@@ -1,13 +1,9 @@
 package govpx
 
 import (
-	"bytes"
-	"errors"
 	"runtime"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -62,72 +58,7 @@ func TestVP9DecoderPrepareIntraOnlyFrameContextResetSemantics(t *testing.T) {
 	}
 }
 
-func TestVP9SuperframeIndexSplitsFrames(t *testing.T) {
-	wantFrames := [][]byte{
-		{0x82, 0x49, 0x83},
-		{0x04, 0x05, 0x06, 0x07},
-		{0x08},
-	}
-	packet := vp9test.SuperframePacket(t, wantFrames...)
-	sf, err := bitstream.ParseSuperframe(packet)
-	if err != nil {
-		t.Fatalf("bitstream.ParseSuperframe returned error: %v", err)
-	}
-	if sf.Count != len(wantFrames) {
-		t.Fatalf("superframe count = %d, want %d", sf.Count, len(wantFrames))
-	}
-	for i := range wantFrames {
-		if !bytes.Equal(sf.Frames[i], wantFrames[i]) {
-			t.Fatalf("frame %d = %v, want %v", i, sf.Frames[i], wantFrames[i])
-		}
-	}
-}
-
-func TestVP9SuperframeIndexRejectsInvalidMarker(t *testing.T) {
-	if _, err := bitstream.ParseSuperframe([]byte{0x01, 0xc0}); !errors.Is(err, ErrInvalidVP9Data) {
-		t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
-	}
-}
-
-func TestVP9SuperframeIndexRejectsSizeMismatch(t *testing.T) {
-	packet := vp9test.SuperframePacket(t, []byte{0x01}, []byte{0x02})
-	marker := packet[len(packet)-1]
-	indexSize := 2 + (int(marker&0x7)+1)*(int((marker>>3)&0x3)+1)
-	indexStart := len(packet) - indexSize
-	bad := append([]byte{}, packet[:indexStart]...)
-	bad = append(bad, 0xff)
-	bad = append(bad, packet[indexStart:]...)
-
-	if _, err := bitstream.ParseSuperframe(bad); !errors.Is(err, ErrInvalidVP9Data) {
-		t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
-	}
-}
-
-// TestVP9DecoderSetRowMTValidation: SetRowMT(true) requires Threads > 1
-// at construction. SetLoopFilterOpt has the same constraint.
-func TestVP9DecoderSetRowMTValidation(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	defer d.Close()
-	if err := d.SetRowMT(true); !errors.Is(err, ErrInvalidConfig) {
-		t.Errorf("single-threaded SetRowMT(true) err = %v, want ErrInvalidConfig", err)
-	}
-	if err := d.SetLoopFilterOpt(true); !errors.Is(err, ErrInvalidConfig) {
-		t.Errorf("single-threaded SetLoopFilterOpt(true) err = %v, want ErrInvalidConfig",
-			err)
-	}
-	// Disabling is always permitted.
-	if err := d.SetRowMT(false); err != nil {
-		t.Errorf("SetRowMT(false) on single-threaded decoder err = %v, want nil",
-			err)
-	}
-	if err := d.SetLoopFilterOpt(false); err != nil {
-		t.Errorf("SetLoopFilterOpt(false) on single-threaded decoder err = %v, want nil",
-			err)
-	}
-
+func TestVP9DecoderRuntimeThreadingControlsUpdateState(t *testing.T) {
 	threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: 2})
 	if err != nil {
 		t.Fatalf("threaded NewVP9Decoder: %v", err)
@@ -156,16 +87,6 @@ func TestVP9DecoderSetRowMTValidation(t *testing.T) {
 	}
 	if threaded.vp9TilePool.rowMTArmed {
 		t.Errorf("threaded SetRowMT(false) did not disarm tile pool")
-	}
-
-	if err := threaded.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if err := threaded.SetRowMT(true); !errors.Is(err, ErrClosed) {
-		t.Errorf("closed SetRowMT err = %v, want ErrClosed", err)
-	}
-	if err := threaded.SetLoopFilterOpt(true); !errors.Is(err, ErrClosed) {
-		t.Errorf("closed SetLoopFilterOpt err = %v, want ErrClosed", err)
 	}
 }
 

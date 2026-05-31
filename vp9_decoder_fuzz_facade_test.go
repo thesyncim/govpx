@@ -1,11 +1,11 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
 
 // FuzzVP9DecoderDecode feeds arbitrary bytes to VP9Decoder.Decode and asserts
@@ -19,7 +19,9 @@ func FuzzVP9DecoderDecode(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, packet []byte) {
-		d, err := NewVP9Decoder(VP9DecoderOptions{MaxWidth: 256, MaxHeight: 256})
+		d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			MaxWidth: 256, MaxHeight: 256,
+		})
 		if err != nil {
 			t.Fatalf("NewVP9Decoder: %v", err)
 		}
@@ -55,7 +57,9 @@ func FuzzVP9DecoderDecodeInto(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, packet []byte) {
-		d, err := NewVP9Decoder(VP9DecoderOptions{MaxWidth: 256, MaxHeight: 256})
+		d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			MaxWidth: 256, MaxHeight: 256,
+		})
 		if err != nil {
 			t.Fatalf("NewVP9Decoder: %v", err)
 		}
@@ -65,62 +69,16 @@ func FuzzVP9DecoderDecodeInto(f *testing.F) {
 			}
 			_ = d.Close()
 		}()
-		dst := newTestImage(64, 64)
+		dst := newVP9TestImageForTest(64, 64)
 		if _, err := d.DecodeInto(packet, &dst); err != nil {
 			assertVP9FuzzDecodeError(t, err)
 		}
 		// Run a second DecodeInto pass with a larger destination so
 		// the path that may have rejected the dst before is reached
 		// after a state-carry frame.
-		dst2 := newTestImage(256, 256)
+		dst2 := newVP9TestImageForTest(256, 256)
 		if _, err := d.DecodeInto(packet, &dst2); err != nil {
 			assertVP9FuzzDecodeError(t, err)
-		}
-	})
-}
-
-// FuzzVP9SuperframeIndex feeds arbitrary bytes to the VP9 superframe-index
-// parser used during Decode dispatch. The parser must classify any input as
-// either a valid superframe (count > 0), a non-superframe (count == 0), or
-// ErrInvalidVP9Data — and never panic.
-func FuzzVP9SuperframeIndex(f *testing.F) {
-	seeds := vp9SuperframeFuzzSeeds()
-	for _, seed := range seeds {
-		f.Add(seed)
-	}
-
-	f.Fuzz(func(t *testing.T, packet []byte) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("bitstream.ParseSuperframe panicked on %d-byte input: %v", len(packet), r)
-			}
-		}()
-		sf, err := bitstream.ParseSuperframe(packet)
-		if err != nil {
-			if !errors.Is(err, ErrInvalidVP9Data) {
-				t.Fatalf("bitstream.ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
-			}
-			return
-		}
-		if sf.Count < 0 || sf.Count > 8 {
-			t.Fatalf("bitstream.ParseSuperframe count = %d, want [0, 8]", sf.Count)
-		}
-		// Frame slices must reference the packet without overflowing
-		// it. The implementation reads them as subslices, but verify
-		// that here as a fuzz invariant so any future regression
-		// shows up as an immediate test failure.
-		total := 0
-		for i := 0; i < sf.Count; i++ {
-			if sf.Frames[i] == nil {
-				t.Fatalf("frame %d slice is nil", i)
-			}
-			if len(sf.Frames[i]) == 0 {
-				t.Fatalf("frame %d slice is empty", i)
-			}
-			total += len(sf.Frames[i])
-		}
-		if total > len(packet) {
-			t.Fatalf("frames total %d exceeds packet %d", total, len(packet))
 		}
 	})
 }
@@ -131,11 +89,11 @@ func FuzzVP9SuperframeIndex(f *testing.F) {
 func assertVP9FuzzDecodeError(t *testing.T, err error) {
 	t.Helper()
 	switch {
-	case errors.Is(err, ErrInvalidVP9Data):
-	case errors.Is(err, ErrVP9NotImplemented):
-	case errors.Is(err, ErrFrameRejected):
-	case errors.Is(err, ErrInvalidConfig):
-	case errors.Is(err, ErrClosed):
+	case errors.Is(err, govpx.ErrInvalidVP9Data):
+	case errors.Is(err, govpx.ErrVP9NotImplemented):
+	case errors.Is(err, govpx.ErrFrameRejected):
+	case errors.Is(err, govpx.ErrInvalidConfig):
+	case errors.Is(err, govpx.ErrClosed):
 	default:
 		t.Fatalf("Decode returned unexpected error: %v", err)
 	}
@@ -177,31 +135,12 @@ func vp9DecoderFuzzSeeds(tb testing.TB) [][]byte {
 	return seeds
 }
 
-// vp9SuperframeFuzzSeeds returns inputs aimed at the superframe-index parser
-// surface: real superframes, valid markers without bodies, and corrupt
-// trailing-index packets.
-func vp9SuperframeFuzzSeeds() [][]byte {
-	return [][]byte{
-		nil,
-		{},
-		{0},
-		{0xc0},
-		{0xc0, 0x00},
-		{0xc0, 0x00, 0xc0},
-		{0xc1, 0x01, 0x01, 0xc1},
-		{0xc7, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc7},
-		{0xff},
-		// Two 1-byte frames with valid index.
-		{0x01, 0x02, 0xc1, 0x01, 0x01, 0xc1},
-	}
-}
-
 // vp9FuzzEncodedKeyframe encodes a single visible VP9 keyframe with the public
 // encoder at a fixed quantizer for use as a fuzz seed. Returns nil if the
 // encoder is unavailable so the fuzz harness still runs on smoke seeds.
 func vp9FuzzEncodedKeyframe(tb testing.TB, width, height int) []byte {
 	tb.Helper()
-	e, err := NewVP9Encoder(VP9EncoderOptions{
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:     width,
 		Height:    height,
 		Quantizer: 64,
@@ -209,14 +148,10 @@ func vp9FuzzEncodedKeyframe(tb testing.TB, width, height int) []byte {
 	if err != nil {
 		return nil
 	}
-	dstSize, err := vp9AllocatingEncodeBufferSize(width, height)
-	if err != nil {
+	defer e.Close()
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 96, 128, 128))
+	if err != nil || len(packet) == 0 {
 		return nil
 	}
-	dst := make([]byte, dstSize)
-	result, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, 96, 128, 128), dst)
-	if err != nil || len(result.Data) == 0 {
-		return nil
-	}
-	return append([]byte(nil), result.Data...)
+	return append([]byte(nil), packet...)
 }

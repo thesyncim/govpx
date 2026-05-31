@@ -46,3 +46,61 @@ func TestPackSuperframeIndexIntoRejectsInvalid(t *testing.T) {
 		t.Fatalf("short dst need = %d, want 4", need)
 	}
 }
+
+func TestParseSuperframeSplitsFrames(t *testing.T) {
+	wantFrames := [][]byte{
+		{0x82, 0x49, 0x83},
+		{0x04, 0x05, 0x06, 0x07},
+		{0x08},
+	}
+	need, err := SuperframeSize(wantFrames...)
+	if err != nil {
+		t.Fatalf("SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := PackSuperframeInto(packet, wantFrames...)
+	if err != nil {
+		t.Fatalf("PackSuperframeInto: %v", err)
+	}
+	sf, err := ParseSuperframe(packet[:n])
+	if err != nil {
+		t.Fatalf("ParseSuperframe returned error: %v", err)
+	}
+	if sf.Count != len(wantFrames) {
+		t.Fatalf("superframe count = %d, want %d", sf.Count, len(wantFrames))
+	}
+	for i := range wantFrames {
+		if !bytes.Equal(sf.Frames[i], wantFrames[i]) {
+			t.Fatalf("frame %d = %v, want %v", i, sf.Frames[i], wantFrames[i])
+		}
+	}
+}
+
+func TestParseSuperframeRejectsInvalidMarker(t *testing.T) {
+	if _, err := ParseSuperframe([]byte{0x01, 0xc0}); !errors.Is(err, vpxerrors.ErrInvalidVP9Data) {
+		t.Fatalf("ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	}
+}
+
+func TestParseSuperframeRejectsSizeMismatch(t *testing.T) {
+	need, err := SuperframeSize([]byte{0x01}, []byte{0x02})
+	if err != nil {
+		t.Fatalf("SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := PackSuperframeInto(packet, []byte{0x01}, []byte{0x02})
+	if err != nil {
+		t.Fatalf("PackSuperframeInto: %v", err)
+	}
+	packet = packet[:n]
+	marker := packet[len(packet)-1]
+	indexSize := 2 + (int(marker&0x7)+1)*(int((marker>>3)&0x3)+1)
+	indexStart := len(packet) - indexSize
+	bad := append([]byte{}, packet[:indexStart]...)
+	bad = append(bad, 0xff)
+	bad = append(bad, packet[indexStart:]...)
+
+	if _, err := ParseSuperframe(bad); !errors.Is(err, vpxerrors.ErrInvalidVP9Data) {
+		t.Fatalf("ParseSuperframe err = %v, want ErrInvalidVP9Data", err)
+	}
+}

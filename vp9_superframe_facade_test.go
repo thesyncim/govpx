@@ -1,10 +1,11 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"errors"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
@@ -15,12 +16,12 @@ func TestPackVP9SuperframeIntoRoundTrip(t *testing.T) {
 		bytes.Repeat([]byte{0x55}, 256),
 		{0x08},
 	}
-	need, err := VP9SuperframeSize(frames...)
+	need, err := govpx.VP9SuperframeSize(frames...)
 	if err != nil {
 		t.Fatalf("VP9SuperframeSize: %v", err)
 	}
 	dst := make([]byte, need)
-	n, err := PackVP9SuperframeInto(dst, frames...)
+	n, err := govpx.PackVP9SuperframeInto(dst, frames...)
 	if err != nil {
 		t.Fatalf("PackVP9SuperframeInto: %v", err)
 	}
@@ -46,21 +47,21 @@ func TestPackVP9SuperframeIntoRoundTrip(t *testing.T) {
 }
 
 func TestPackVP9SuperframeRejectsInvalidInput(t *testing.T) {
-	if _, err := VP9SuperframeSize(); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := govpx.VP9SuperframeSize(); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("empty frame list error = %v, want ErrInvalidConfig", err)
 	}
 	tooMany := make([][]byte, 9)
 	for i := range tooMany {
 		tooMany[i] = []byte{byte(i + 1)}
 	}
-	if _, err := VP9SuperframeSize(tooMany...); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := govpx.VP9SuperframeSize(tooMany...); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("too many frames error = %v, want ErrInvalidConfig", err)
 	}
-	if _, err := VP9SuperframeSize([]byte{1}, nil); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := govpx.VP9SuperframeSize([]byte{1}, nil); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("empty frame error = %v, want ErrInvalidConfig", err)
 	}
-	need, err := PackVP9SuperframeInto(make([]byte, 1), []byte{1}, []byte{2})
-	if !errors.Is(err, ErrBufferTooSmall) {
+	need, err := govpx.PackVP9SuperframeInto(make([]byte, 1), []byte{1}, []byte{2})
+	if !errors.Is(err, govpx.ErrBufferTooSmall) {
 		t.Fatalf("short dst error = %v, want ErrBufferTooSmall", err)
 	}
 	if need != 6 {
@@ -70,7 +71,7 @@ func TestPackVP9SuperframeRejectsInvalidInput(t *testing.T) {
 
 func TestPackVP9SuperframeDecode(t *testing.T) {
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 32, 128, 128)
 	interSrc := vp9test.NewYCbCr(width, height, 144, 96, 224)
 	key, err := e.Encode(keySrc)
@@ -82,14 +83,14 @@ func TestPackVP9SuperframeDecode(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 	packet := vp9test.SuperframePacket(t, key, inter)
-	info, err := PeekVP9StreamInfo(packet)
+	info, err := govpx.PeekVP9StreamInfo(packet)
 	if err != nil {
 		t.Fatalf("PeekVP9StreamInfo: %v", err)
 	}
 	if !info.Superframe || info.SuperframeFrames != 2 || !info.KeyFrame {
 		t.Fatalf("stream info = %+v, want two-frame superframe starting with keyframe", info)
 	}
-	d, _ := NewVP9Decoder(VP9DecoderOptions{})
+	d, _ := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode packed superframe: %v", err)
 	}
@@ -97,5 +98,5 @@ func TestPackVP9SuperframeDecode(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after packed superframe")
 	}
-	assertVP9FilledFrameWithin(t, frame, width, height, 144, 96, 224, 32)
+	assertVP9FilledFrameWithinForTest(t, frame, width, height, 144, 96, 224, 32)
 }

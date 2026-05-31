@@ -143,6 +143,23 @@ func assertVP9FilledFrameForTest(t testing.TB, got govpx.Image, width int, heigh
 	assertVP9PlaneFilledForTest(t, "V", got.V, got.VStride, uvWidth, uvHeight, vValue)
 }
 
+func assertVP9FilledFrameWithinForTest(t testing.TB, got govpx.Image,
+	width int, height int, yValue byte, uValue byte, vValue byte, tolerance byte,
+) {
+	t.Helper()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("frame dimensions = %dx%d, want %dx%d",
+			got.Width, got.Height, width, height)
+	}
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	assertVP9PlaneFilledWithinForTest(t, "Y", got.Y, got.YStride, width, height,
+		yValue, tolerance)
+	assertVP9PlaneFilledWithinForTest(t, "U", got.U, got.UStride, uvWidth, uvHeight,
+		uValue, tolerance)
+	assertVP9PlaneFilledWithinForTest(t, "V", got.V, got.VStride, uvWidth, uvHeight,
+		vValue, tolerance)
+}
+
 func assertVP9PlaneFilledForTest(t testing.TB, name string, plane []byte,
 	stride int, width int, height int, want byte,
 ) {
@@ -165,6 +182,29 @@ func assertVP9PlaneFilledForTest(t testing.TB, name string, plane []byte,
 	}
 }
 
+func assertVP9PlaneFilledWithinForTest(t testing.TB, name string, plane []byte,
+	stride int, width int, height int, want byte, tolerance byte,
+) {
+	t.Helper()
+	if stride < width {
+		t.Fatalf("%s stride = %d, want at least %d", name, stride, width)
+	}
+	wantLen := buffers.PlaneLen(stride, height, width)
+	if len(plane) < wantLen {
+		t.Fatalf("%s plane len = %d, want at least %d",
+			name, len(plane), wantLen)
+	}
+	for row := range height {
+		for col := range width {
+			got := plane[row*stride+col]
+			if vp9AbsByteDiffForTest(got, want) > tolerance {
+				t.Fatalf("%s[%d,%d] = %d, want %d +/- %d",
+					name, row, col, got, want, tolerance)
+			}
+		}
+	}
+}
+
 func assertVP9PlaneAlignedForTest(t testing.TB, name string, plane []byte,
 	alignment int,
 ) {
@@ -177,6 +217,13 @@ func assertVP9PlaneAlignedForTest(t testing.TB, name string, plane []byte,
 		t.Fatalf("%s plane pointer %#x is not %d-byte aligned",
 			name, ptr, alignment)
 	}
+}
+
+func vp9AbsByteDiffForTest(a byte, b byte) byte {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }
 
 func vp9VisiblePlanesEqualForTest(a []byte, aStride int, b []byte, bStride int,
