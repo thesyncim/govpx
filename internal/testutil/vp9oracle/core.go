@@ -48,6 +48,34 @@ func CBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) [
 	}
 }
 
+func CyclicRefreshCBROptions(width, height, targetKbps int) govpx.VP9EncoderOptions {
+	opts := CBROptions(width, height, targetKbps)
+	opts.AQMode = govpx.VP9AQCyclicRefresh
+	opts.Deadline = govpx.DeadlineRealtime
+	opts.CpuUsed = -8
+	return opts
+}
+
+func CyclicRefreshCBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) []string {
+	return append(CBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame),
+		"--cpu-used=8",
+		"--aq-mode=3",
+	)
+}
+
+func CyclicRefreshCBRVpxencArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) []string {
+	return []string{
+		"--end-usage=cbr",
+		"--target-bitrate=" + strconv.Itoa(targetKbps),
+		"--buf-sz=" + strconv.Itoa(bufSizeMs),
+		"--buf-initial-sz=" + strconv.Itoa(bufInitialMs),
+		"--buf-optimal-sz=" + strconv.Itoa(bufOptimalMs),
+		"--drop-frame=" + strconv.Itoa(dropFrame),
+		"--cpu-used=8",
+		"--aq-mode=3",
+	}
+}
+
 func DropFrameArg(opts govpx.VP9EncoderOptions) int {
 	if !opts.DropFrameAllowed {
 		return 0

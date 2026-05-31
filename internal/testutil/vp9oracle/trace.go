@@ -110,6 +110,56 @@ func CaptureStreamParityPacketsWithHooks(t testing.TB,
 	return govpxPackets, libvpxPackets
 }
 
+func CaptureStreamParityPacketsWithFrameHooks(t testing.TB,
+	opts govpx.VP9EncoderOptions, sources []*image.YCbCr,
+	flags []govpx.EncodeFlags, extraArgs []string,
+	beforeFrame EncoderHook, afterFrame EncoderHook,
+) ([][]byte, [][]byte) {
+	t.Helper()
+	width, height := validateFixedSources(t, "VP9 stream parity", sources, flags)
+	opts.Width = width
+	opts.Height = height
+	enc, err := govpx.NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	dstSize, err := EncodeBufferSize(width, height)
+	if err != nil {
+		t.Fatalf("EncodeBufferSize: %v", err)
+	}
+	dst := make([]byte, dstSize)
+	govpxPackets := make([][]byte, len(sources))
+	for i, src := range sources {
+		if beforeFrame != nil {
+			beforeFrame(enc, i)
+		}
+		var f govpx.EncodeFlags
+		if i < len(flags) {
+			f = flags[i]
+		}
+		if f&govpx.EncodeInvisibleFrame != 0 {
+			t.Fatalf("frame %d uses EncodeInvisibleFrame, which has no VP9 libvpx flag bit", i)
+		}
+		result, err := enc.EncodeIntoWithFlagsResult(src, dst, f)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
+		}
+		if result.Dropped {
+			t.Fatalf("EncodeIntoWithFlagsResult frame %d unexpectedly dropped", i)
+		}
+		if afterFrame != nil {
+			afterFrame(enc, i)
+		}
+		govpxPackets[i] = append([]byte(nil), result.Data...)
+	}
+
+	libvpxPackets := vp9test.VpxencFrameFlagPackets(t, sources,
+		LibvpxFrameFlags(flags), extraArgs...)
+	return govpxPackets, libvpxPackets
+}
+
 func CaptureGovpxStreamParityPacketRowsWithHooks(t testing.TB,
 	opts govpx.VP9EncoderOptions, sources []*image.YCbCr,
 	flags []govpx.EncodeFlags, beforeFrame EncoderHook,

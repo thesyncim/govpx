@@ -105,8 +105,8 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			width:       64,
 			height:      64,
 			frames:      1,
-			opts:        vp9SelectedCyclicRefreshCBROptions(64, 64, 700),
-			extraArgs:   vp9SelectedCyclicRefreshCBRArgs(700, 600, 400, 500, 0),
+			opts:        vp9oracle.CyclicRefreshCBROptions(64, 64, 700),
+			extraArgs:   vp9oracle.CyclicRefreshCBRArgs(700, 600, 400, 500, 0),
 			source:      vp9test.NewPanningYCbCr,
 			exactPrefix: 1,
 			strictBytes: true,
@@ -265,20 +265,4 @@ func TestVP9OracleStreamSelectedCasesMatchLibvpx(t *testing.T) {
 			}
 		})
 	}
-}
-
-func vp9SelectedCyclicRefreshCBROptions(width, height, targetKbps int) govpx.VP9EncoderOptions {
-	opts := vp9oracle.CBROptions(width, height, targetKbps)
-	opts.AQMode = govpx.VP9AQCyclicRefresh
-	opts.Deadline = govpx.DeadlineRealtime
-	opts.CpuUsed = -8
-	return opts
-}
-
-func vp9SelectedCyclicRefreshCBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) []string {
-	return append(vp9oracle.CBRArgs(targetKbps, bufSizeMs, bufInitialMs,
-		bufOptimalMs, dropFrame),
-		"--cpu-used=8",
-		"--aq-mode=3",
-	)
 }
