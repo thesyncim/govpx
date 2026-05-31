@@ -273,7 +273,7 @@ func externalRefreshFlagsPending(flags EncodeFlags) bool {
 // mask. Callers must only invoke this when externalRefreshFlagsPending
 // returns true; the libvpx default (no user flags) is encoded
 // elsewhere because it depends on encoder-internal state
-// (goldenCBRRefresh, temporal SVC scoreboard, etc.).
+// (goldenCBRRefresh, temporal SVC parity report, etc.).
 func libvpxExternalRefreshMask(flags EncodeFlags) (refreshLast bool, refreshGolden bool, refreshAltRef bool) {
 	const (
 		vp8LastFrame  = 1

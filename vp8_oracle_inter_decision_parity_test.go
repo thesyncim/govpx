@@ -20,7 +20,7 @@ import (
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle MB decision match scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle MB decision match parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -201,7 +201,7 @@ func TestVP8OracleInterDecisionMatchRate(t *testing.T) {
 			r.ModeMatchPct, r.RefFrameMatchPct, r.MVMatchPct,
 			r.SkipMatchPct, r.SegmentIDMatchPct, r.EOBSumMatchPct)
 	}
-	t.Logf("inter MB decision match-rate scoreboard:\n%s", summary.String())
+	t.Logf("inter MB decision match-rate parity report:\n%s", summary.String())
 }
 
 // mbDecision is the subset of an oracle "mb" trace row used for match-rate

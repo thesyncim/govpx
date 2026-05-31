@@ -13,7 +13,7 @@ import (
 )
 
 // TestVP8Bucket1KFParity pins byte-exact parity on the three bucket-1 fuzz
-// seeds for the 1280x720 SSIM keyframe path. The parity scoreboard reported a
+// seeds for the 1280x720 SSIM keyframe path. The parity report recorded a
 // "+33 first_part / +49 total" keyframe divergence for these seeds; refreshing
 // the keyframe picker zbin_extra under segmentation_enabled closes the
 // residual gap.

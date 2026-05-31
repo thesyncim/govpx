@@ -38,7 +38,7 @@ import (
 // mb ordering, mode picker drift) makes the streams shift relative to
 // each other we log the histogram for diagnosis but do not fail, so
 // this test does not regress on shifts already covered by the
-// existing TestVP8OracleTrace* / TestVP8Oracle*Scoreboard suite.
+// existing TestVP8OracleTrace* / TestVP8Oracle*Trace suite.
 func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
 	vp8test.RequireOracle(t, "encoder oracle threshold-evolution comparison")
 	vpxencOracle := vp8test.VpxencOracle(t)
@@ -151,7 +151,7 @@ func TestVP8OracleInterCandidateThresholdEvolution(t *testing.T) {
 
 			// Identifying fields whose divergence means the streams have
 			// shifted relative to each other (different MB / mode order
-			// already reported by other scoreboards). When any of these
+			// already reported by other parity reports). When any of these
 			// fire, threshold mismatches downstream are byproducts of the
 			// shift, not threshold-mutation drift, so we keep the failure
 			// output descriptive without asserting the threshold-only path.

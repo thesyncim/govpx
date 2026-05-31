@@ -54,7 +54,7 @@ import (
 //     mismatch on the highest-pressure fixture, gated against baseline
 //     drift
 func TestVP8OracleTemporalSVCParity(t *testing.T) {
-	vp8test.RequireOracle(t, "temporal SVC parity scoreboard")
+	vp8test.RequireOracle(t, "temporal SVC parity report")
 	svcEncoder := vp8test.VpxTemporalSVCEncoder(t)
 
 	type fixtureSpec struct {

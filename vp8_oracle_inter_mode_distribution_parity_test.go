@@ -16,27 +16,27 @@ import (
 
 // TestVP8OracleInterModeDistributionParity captures per-fixture inter-frame
 // mode/ref/skip distribution for govpx and libvpx, emits a side-by-side
-// scoreboard, and gates regression against
+// parity report, and gates regression against
 // testdata/inter_mode_distribution_baseline.json. Each fixture's mode pp
 // (percentage-points) deltas from libvpx must stay within +/- 4pp of the
 // recorded baseline; the L1 mode-distribution distance must not grow by
 // more than 6pp; and the EOB-sum-ratio must not move more than 0.10 farther
 // from parity.
 //
-// The scoreboard originated as the r7-b diagnosis of the +74% inter-frame
+// The parity report originated as the r7-b diagnosis of the +74% inter-frame
 // gap at speed 8 RT CBR (govpx over-picked NEAR/NEW vs libvpx's
 // NEAREST/ZEROMV). The R8 sweep closed the bulk of that gap; the
 // small-fixture baselines sit at L1=0pp. The high-resolution 720p fixture
 // intentionally records the remaining bench-scale residual so future changes
 // still have a stable line to beat instead of a stale impossible target. The
-// rt-cpu8-1280x720-bench-noise fixture (R9-1) extends the scoreboard
+// rt-cpu8-1280x720-bench-noise fixture (R9-1) extends the parity report
 // to the resolution and frame budget the cmd/govpx-bench harness
 // targets so future regressions in the high-resolution picker path
 // surface here, not just in the smaller synthetic fixtures.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleInterModeDistributionParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle inter-mode distribution scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle inter-mode distribution parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	type fixtureKind int
@@ -66,10 +66,10 @@ func TestVP8OracleInterModeDistributionParity(t *testing.T) {
 		// for ZEROMV-vs-NEW divergence).
 		{128, 128, DeadlineRealtime, 8, 30, 1200, 8, 30, fixtureBenchNoise, "rt-cpu8-128x128-bench-noise"},
 		{256, 256, DeadlineRealtime, 8, 30, 1200, 8, 30, fixtureBenchNoise, "rt-cpu8-256x256-bench-noise"},
-		// 720p fixture (R9-1): pins the mode-distribution scoreboard at the
+		// 720p fixture (R9-1): pins the mode-distribution parity report at the
 		// resolution the bench runs at (1280x720 cpu=8 RT CBR, 1500 kbps).
 		// This is the resolution where the prior +52pp / 1.37x interframe
-		// overshoot was observed; the scoreboard tracks the picker's mode
+		// overshoot was observed; the parity report tracks the picker's mode
 		// dispersal here so inter-mode regressions surface at the bench
 		// scale, not just the small synthetic fixtures above.
 		{1280, 720, DeadlineRealtime, 8, 30, 1500, 8, 999, fixtureBenchNoise, "rt-cpu8-1280x720-bench-noise"},
@@ -206,7 +206,7 @@ func TestVP8OracleInterModeDistributionParity(t *testing.T) {
 				EOBSumRatio:   eobRatio,
 			}
 			if data, err := json.MarshalIndent(report, "", "  "); err == nil {
-				t.Logf("scoreboard %s:\n%s", spec.Name, data)
+				t.Logf("parity report %s:\n%s", spec.Name, data)
 			}
 			currentBaseline.Fixtures[spec.Name] = baselineEntry{
 				Diff:        diff,
@@ -268,7 +268,7 @@ func TestVP8OracleInterModeDistributionParity(t *testing.T) {
 			r.Libvpx.ZEROMV, r.Libvpx.NEARESTMV, r.Libvpx.NEARMV, r.Libvpx.NEWMV,
 			r.L1Pp, r.EOBSumRatio)
 	}
-	t.Logf("inter-mode distribution scoreboard summary:\n%s", summary.String())
+	t.Logf("inter-mode distribution parity summary:\n%s", summary.String())
 }
 
 // interModeBenchNoiseFrame mirrors the cmd/govpx-bench makeBenchmarkFrame
@@ -346,7 +346,7 @@ func interModeMacroblockHistogram(t *testing.T, trace []byte) (mode map[string]i
 		total++
 	}
 	if err := scan.Err(); err != nil {
-		t.Fatalf("scoreboard scan trace: %v", err)
+		t.Fatalf("parity report scan trace: %v", err)
 	}
 	return mode, lastFrame, skip, eobSum, total
 }

@@ -95,7 +95,7 @@ func MotionVectorErrorCost(mv MotionVector, ref MotionVector, probs *[2][tables.
 // formulas only agree when ref is an exact full-pel multiple of 1/8 (i.e.
 // ref&1 == 0); otherwise they differ by one 1/4-pel index, which biases the
 // subpel candidate ranking and shows up as block_mv match-rate deficits on
-// the SPLITMV scoreboard whenever bestRefMV is fractional.
+// the SPLITMV parity report whenever bestRefMV is fractional.
 //
 // mv is in 1/8-pel; ref is in 1/8-pel. The returned cost is the
 // MVC-formatted RD-shaped error cost (i.e. ((mvcost[row]+mvcost[col])*error_per_bit+128)>>8).
@@ -188,7 +188,7 @@ func (t *MotionVectorCostTables) buildComponent(component int, probs []uint8) {
 // for the unfavourable rounding direction. That off-by-one leaks into the
 // SPLITMV per-label diamond search and biases it toward the wrong full-pel
 // site whenever bestRefMV is fractional, which shows up as block_mv and
-// partition deficits on the SPLITMV scoreboard.
+// partition deficits on the SPLITMV parity report.
 func MotionVectorSADCost(mv MotionVector, ref MotionVector, sadPerBit int) int {
 	row := clampMVFullPixelComponent((int(mv.Row) >> 3) - (int(ref.Row) >> 3))
 	col := clampMVFullPixelComponent((int(mv.Col) >> 3) - (int(ref.Col) >> 3))

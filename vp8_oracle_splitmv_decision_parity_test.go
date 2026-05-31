@@ -31,7 +31,7 @@ import (
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleSplitMVDecisionMatchRate(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle SPLITMV match scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle SPLITMV match parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -222,7 +222,7 @@ func TestVP8OracleSplitMVDecisionMatchRate(t *testing.T) {
 			r.ModeMatchPct, r.SplitMVPickMatchPct,
 			r.PartitionMatchPct, r.BlockMVMatchPct, r.SegmentIDMatchPct)
 	}
-	t.Logf("SPLITMV decision match-rate scoreboard:\n%s", summary.String())
+	t.Logf("SPLITMV decision match-rate parity report:\n%s", summary.String())
 }
 
 // splitMVDecision is the subset of an oracle "mb" trace row used for SPLITMV

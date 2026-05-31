@@ -7,7 +7,7 @@ import (
 )
 
 // TestEncoderThreadsProducesIdenticalBitstream pins the byte-for-byte
-// invariant the parity scoreboards depend on at Threads=1: this must
+// invariant the parity reports depend on at Threads=1: this must
 // stay byte-identical to the historical serial macroblock loop forever.
 // Threads=0 is normalised to 1 by the option validator so it lands on
 // the same path. Threads>=2 may diverge once the row-threaded

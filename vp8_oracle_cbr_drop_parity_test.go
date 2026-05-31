@@ -40,7 +40,7 @@ import (
 // vp8/encoder/onyx_if.c (decimation, buffer underrun, post-encode
 // overshoot).
 func TestVP8OracleCBRDropFrameParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle CBR drop-frame scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle CBR drop-frame parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	fixtures := []cbrDropFixtureSpec{
@@ -275,7 +275,7 @@ func TestVP8OracleCBRDropFrameParity(t *testing.T) {
 			r.name, r.s.GovpxDroppedCount, r.s.LibvpxDroppedCount, r.s.Jaccard,
 			r.s.ForceMaxQPDivergences, r.s.BufferLevelMeanAbsPct, r.s.BufferLevelMaxAbsPct, r.s.PostDropQMaxDrift)
 	}
-	t.Logf("CBR drop scoreboard summary:\n%s", summary.String())
+	t.Logf("CBR drop parity summary:\n%s", summary.String())
 }
 
 // captureGovpxDropAwareTrace runs govpx with oracle tracing enabled while
@@ -304,7 +304,7 @@ func captureGovpxDropAwareTrace(t *testing.T, opts EncoderOptions, sources []Ima
 // captureLibvpxDropAwareTrace runs the patched vpxenc-oracle with
 // drop-frames-water-mark configured so the libvpx side actually drops
 // frames; the standard captureLibvpxEncoderTrace omits buffer / drop knobs
-// and pins min/max-q at 4/56 which is too narrow for this scoreboard.
+// and pins min/max-q at 4/56 which is too narrow for this parity report.
 func captureLibvpxDropAwareTrace(t *testing.T, vpxencOracle string, opts EncoderOptions, fx cbrDropFixtureSpec, sources []Image) []byte {
 	t.Helper()
 	extraArgs := []string{
@@ -555,7 +555,7 @@ func abs(x int) int {
 	return x
 }
 
-// cbrDropFixtureSpec carries the per-fixture knobs for the drop scoreboard.
+// cbrDropFixtureSpec carries the per-fixture knobs for the drop parity report.
 // It is named at file scope so captureLibvpxDropAwareTrace can take it
 // without an awkward inline struct literal echo.
 type cbrDropFixtureSpec struct {

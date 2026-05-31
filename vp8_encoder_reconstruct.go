@@ -726,7 +726,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// Closes the BestARNR -5 / GoodARNR -6 byte pins at
 			// threads=1, threads=2, and threads=4 on the 19981bff /
 			// 22f3d67c / 788d442c cohort. Discovery: at
-			// threads=1, the entire picker scoreboard (mode/ref/mv) is
+			// threads=1, the entire picker parity report (mode/ref/mv) is
 			// byte-identical to libvpx for all 3600 frame-1 MBs; the only
 			// divergent state is MB(17,79) SPLITMV/LAST where govpx's
 			// picker tteob==0 short-circuit zeroed the qcoeff while

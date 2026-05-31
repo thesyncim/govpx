@@ -196,7 +196,7 @@ func TestVP8Panning360pMBParity(t *testing.T) {
 				}
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
-			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateTraceAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		} else {
 			t.Logf("panning_360p_cbr frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}

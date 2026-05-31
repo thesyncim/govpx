@@ -21,7 +21,7 @@ import (
 //
 // Every fuzz iteration asserts full byte-exact parity (matchLimit=0) across
 // all frames at every resolution. The matchLimit=1 keyframe-only floor and
-// matched-prefix scoreboard convention used during the §5 cascade are now
+// matched-prefix parity report convention used during the §5 cascade are now
 // retired. Autospeed determinism, libvpx-oracle reproducibility retries, and
 // the matchLimit tightening sweep closed the residual production-resolution
 // slack, so the gate is uniformly strict. Divergences land in
@@ -46,7 +46,7 @@ func FuzzEncoderProductionStreamByteParity(f *testing.F) {
 		{3, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0}, // realtime cpu-3 64x64 VBR
 		{4, 0, 0, 0, 0, 2, 1, 0, 0, 0, 0}, // realtime cpu0 96x96 CBR token=4 threads=2
 		{5, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0}, // good cpu4 128x128 sharpness=4
-		// Production-resolution seeds (keyframe floor + scoreboard).
+		// Production-resolution seeds (keyframe floor + parity report).
 		{7, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0},  // realtime 320x240 threads=2
 		{8, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0},  // realtime 640x360 threads=2
 		{9, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0},  // realtime 854x480 threads=4

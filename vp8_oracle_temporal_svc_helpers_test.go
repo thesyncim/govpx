@@ -381,7 +381,7 @@ func rateMismatchPct(actualKbps, targetKbps float64) float64 {
 // per-layer fields at the top level with a "l<N>_" prefix.
 //
 // Acceptance-band fields (whose name ends in _match_pct or contains
-// _delta_pct) are recognized by scoreboard-report's classify() and
+// _delta_pct) are recognized by parity-report's classify() and
 // rendered as "Npp" gap cells.
 func flattenTemporalSVCSummary(s temporalSVCFixtureSummary) map[string]any {
 	out := map[string]any{

@@ -14,7 +14,7 @@ import (
 // TestVP8OracleARNRBufferAdler instruments the ARNR alt-ref buffer parity gap.
 // govpx is documented as not yet byte-exact on ARNR, so this test only fails
 // hard when neither side fires the ARNR path; otherwise it logs per-side
-// frame indices and y/u/v Adler32 deltas as a scoreboard.
+// frame indices and y/u/v Adler32 deltas as a parity report.
 //
 // libvpx's vp8/encoder/ratectrl.c calc_gf_params() unconditionally clears
 // `source_alt_ref_pending` whenever `cpi->pass != 2`, so one-pass libvpx
@@ -23,7 +23,7 @@ import (
 // libvpx via `--passes=2 --pass=1`/`--pass=2`) is the only way to exercise
 // the auto-ARF scheduler symmetrically. The two-pass fixture here is the
 // libvpx-faithful comparison; the one-pass fallback is preserved as a
-// scoreboard so the synthetic one-pass driver tests
+// parity report so the synthetic one-pass driver tests
 // (`TestAutoAltRefDriverEmitsHiddenFrame`) continue to pin the govpx-only
 // behaviour.
 func TestVP8OracleARNRBufferAdler(t *testing.T) {
@@ -88,16 +88,16 @@ func TestVP8OracleARNRBufferAdler(t *testing.T) {
 	lIdx, lFrame := findOracleARFFrame(lFrames)
 
 	if gFrame == nil && lFrame == nil {
-		t.Logf("ARNR scoreboard (two-pass): both sides emitted zero ARF frames; auto-ARF gate stayed closed on this fixture (govpx_frames=%d libvpx_frames=%d)", len(gFrames), len(lFrames))
+		t.Logf("ARNR parity report (two-pass): both sides emitted zero ARF frames; auto-ARF gate stayed closed on this fixture (govpx_frames=%d libvpx_frames=%d)", len(gFrames), len(lFrames))
 		return
 	}
 	if gFrame == nil {
-		t.Logf("ARNR scoreboard (two-pass): govpx emitted no ARF frame; libvpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
+		t.Logf("ARNR parity report (two-pass): govpx emitted no ARF frame; libvpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
 			lIdx, lFrame["frame_index"], lFrame["y_adler32"], lFrame["u_adler32"], lFrame["v_adler32"])
 		return
 	}
 	if lFrame == nil {
-		t.Logf("ARNR scoreboard (two-pass): libvpx emitted no ARF frame; govpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
+		t.Logf("ARNR parity report (two-pass): libvpx emitted no ARF frame; govpx ARF at trace_index=%d frame_index=%v y=%v u=%v v=%v",
 			gIdx, gFrame["frame_index"], gFrame["y_adler32"], gFrame["u_adler32"], gFrame["v_adler32"])
 		return
 	}

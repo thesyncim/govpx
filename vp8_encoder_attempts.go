@@ -661,7 +661,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	cfg.IndependentContexts = e.opts.ErrorResilientPartitions
 	// Match libvpx's normal interframe shape: LAST advances by default while
 	// golden/altref remain long-lived references unless a future policy
-	// (auto-GF, temporal SVC scoreboard, FORCE_GF/FORCE_ARF flags) updates
+	// (auto-GF, temporal SVC parity report, FORCE_GF/FORCE_ARF flags) updates
 	// them. When the caller provides any of the per-frame update flags,
 	// libvpx vp8/vp8_cx_iface.c:vp8e_set_frame_flags routes the request
 	// through vp8_update_reference which rewrites cm->refresh_*_frame from
@@ -672,7 +672,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if refreshLast, refreshGolden, refreshAltRef, ok := e.currentExternalRefreshMask(); ok {
 		cfg.RefreshLast, cfg.RefreshGolden, cfg.RefreshAltRef = refreshLast, refreshGolden, refreshAltRef
 	} else if temporalActive {
-		// The temporal SVC layer manager passes the per-layer scoreboard
+		// The temporal SVC layer manager passes the per-layer parity report
 		// in flags. libvpx only rewrites the refresh mask when NO_UPD_*
 		// or FORCE_* flags are present; NO_REF_* alone still uses the
 		// normal LAST-only inter-frame default.

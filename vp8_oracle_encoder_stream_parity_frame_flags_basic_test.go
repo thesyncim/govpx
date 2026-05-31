@@ -101,7 +101,7 @@ func TestVP8OracleEncoderStreamByteParityFrameFlags(t *testing.T) {
 		{name: "no-upd-last-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
 		{name: "no-upd-last-realtime-cpu0-32x32", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning32, flags: []EncodeFlags{0, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast, EncodeNoUpdateLast}},
 		// EncodeNoUpdateGolden / EncodeNoUpdateAltRef on every inter
-		// frame. Together with the existing temporal SVC scoreboard
+		// frame. Together with the existing temporal SVC parity report
 		// tests these pin the per-flag refresh accounting through
 		// the libvpx upd-mask semantics described above.
 		{name: "no-upd-gf-realtime-cpu0-16x16", deadline: DeadlineRealtime, cpuUsed: 0, fx: panning16, flags: repeatFlag(frames-1, EncodeNoUpdateGolden)},

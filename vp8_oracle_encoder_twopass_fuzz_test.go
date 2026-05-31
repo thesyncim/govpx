@@ -80,7 +80,7 @@ var defaultFirstPassLooseTolerances = firstPassLooseTolerances{
 // the first-pass MV-accumulator divergence.
 //
 // Returns (maxField, maxAbsValue) for diagnostic reporting; callers
-// inspect the returned values to log a scoreboard summary alongside
+// inspect the returned values to log a parity summary alongside
 // the per-field t.Errorf failures.
 func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []FirstPassFrameStats, tols firstPassLooseTolerances) (string, float64) {
 	t.Helper()
@@ -129,7 +129,7 @@ func compareFirstPassStatsLoose(t *testing.T, label string, govpx, libvpx []Firs
 // FuzzEncoderTwoPassByteParity drives both libvpx and govpx through a full
 // two-pass VBR encode, asserting pass-2 keyframe byte parity strictly and
 // logging first-pass stats divergences plus inter-frame pass-2 mismatches
-// under the matched-prefix-length scoreboard convention.
+// under the matched-prefix-length parity report convention.
 //
 // First-pass stats are tolerance-compared today by
 // TestVP8OracleFirstPassStatsCompare only for a tightly-pinned (cpu=0,

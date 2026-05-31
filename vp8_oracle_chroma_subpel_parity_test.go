@@ -31,16 +31,16 @@ type chromaSubpelBaselineCase struct {
 }
 
 // chromaSubpelBaseline is the baseline shape for the
-// TestVP8OracleChromaSubpelParity scoreboard. Each entry records the
+// TestVP8OracleChromaSubpelParity parity report. Each entry records the
 // per-fixture summary scalars; tightening the assertion is a matter of
-// re-running scoreboard-update once a fix lands.
+// re-running parity-report update once a fix lands.
 type chromaSubpelBaseline struct {
 	Cases []chromaSubpelBaselineCase `json:"cases"`
 }
 
 // TestVP8OracleChromaSubpelParity tracks the residual Adler32 byte-identity
 // gap that lives on inter frames at sizes >64x64. The 64x64 byte-identity gate
-// stays in TestVP8OracleReconstructionAdler32Match; this scoreboard pins the
+// stays in TestVP8OracleReconstructionAdler32Match; this parity report pins the
 // 96x96 / 128x128 / 160x96 panning realtime CBR cpu8 cases where keyframes
 // remain byte-identical and Q matches every frame, but inter-frame y/u/v
 // Adler32 still differ. Subagent localized the residual to the chroma
@@ -52,7 +52,7 @@ type chromaSubpelBaseline struct {
 // state at the right frame edge. Closing it requires per-pixel libvpx-side
 // xd->predictor instrumentation to localize.
 func TestVP8OracleChromaSubpelParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle chroma sub-pel scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle chroma sub-pel parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

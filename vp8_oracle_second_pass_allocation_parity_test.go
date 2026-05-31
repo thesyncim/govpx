@@ -26,7 +26,7 @@ package govpx
 //
 // External fixtures get an additional hard 90% target_match floor enforced
 // against the baseline: once a fixture has cleared 90% it must stay there.
-// Below 90% the test surfaces a t.Logf diagnosis so the scoreboard makes
+// Below 90% the test surfaces a t.Logf diagnosis so the parity report makes
 // the gap visible without silently widening the per-frame tolerance.
 //
 // All work is gated behind GOVPX_WITH_ORACLE=1. External fixtures skip
@@ -158,7 +158,7 @@ func TestVP8OracleSecondPassAllocationParity(t *testing.T) {
 			libvpxRows := secondPassRateRowsFromTrace(t, libvpxTrace)
 			report, diffs := scoreSecondPassAlloc(f.name, govpxRows, libvpxRows)
 			reports = append(reports, report)
-			t.Logf("second-pass scoreboard: %s frames=%d q_match=%.2f%% target_match=%.2f%% maxQΔ=%d maxTargetRelΔ=%.4f",
+			t.Logf("second-pass parity report: %s frames=%d q_match=%.2f%% target_match=%.2f%% maxQΔ=%d maxTargetRelΔ=%.4f",
 				report.Name, report.FrameTotal,
 				report.QMatchPct, report.TargetMatchPct,
 				report.MaxQIndexDelta, report.MaxTargetRelDelta)
@@ -291,7 +291,7 @@ func enforceSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) 
 	// External corpus fixtures get a stricter floor enforcement once their
 	// baseline is at or above 90% target_match_pct. Below that, the
 	// baseline-relative `tol` regression check still applies and the
-	// shortfall is surfaced via a t.Logf diagnosis so the scoreboard makes
+	// shortfall is surfaced via a t.Logf diagnosis so the parity report makes
 	// the gap visible without silently widening tolerances.
 	const externalFloorPct = 90.0
 	for _, r := range reports {
@@ -324,7 +324,7 @@ func enforceSecondPassBaseline(t *testing.T, reports []FixtureSecondPassReport) 
 					baseline.QMatchPct, r.MaxQIndexDelta)
 			}
 			if r.TargetMatchPct < externalFloorPct {
-				t.Logf("DIAGNOSIS %s: target_match_pct = %.4f%% below 90%% floor; pass-2 govpx target consistently undershoots libvpx (qΔmax=%d targetRelΔmax=%.4f). Root cause TBD — see commit message / scoreboard diagnostic logs.",
+				t.Logf("target-match shortfall %s: target_match_pct = %.4f%% below 90%% floor; pass-2 govpx target consistently undershoots libvpx (qΔmax=%d targetRelΔmax=%.4f); inspect the parity report logs before tightening this gate.",
 					r.Name, r.TargetMatchPct, r.MaxQIndexDelta, r.MaxTargetRelDelta)
 			}
 		}

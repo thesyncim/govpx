@@ -12,7 +12,7 @@ import (
 )
 
 // FixtureImprovedMVReport is the per-fixture row of the improved-MV
-// predictor scoreboard. It captures the per-MB match rate of the
+// predictor parity report. It captures the per-MB match rate of the
 // improved-MV start fields on NEWMV inter MBs that took the improved-MV
 // predictor path on either side.
 type FixtureImprovedMVReport struct {
@@ -25,7 +25,7 @@ type FixtureImprovedMVReport struct {
 }
 
 // improvedMVBaseline matches the on-disk schema used by every other
-// scoreboard baseline JSON: a top-level `"fixtures"` map keyed by
+// parity baseline JSON: a top-level `"fixtures"` map keyed by
 // fixture name, so cmd/parity-report can render it uniformly.
 type improvedMVBaseline struct {
 	Fixtures map[string]FixtureImprovedMVReport `json:"fixtures"`
@@ -34,7 +34,7 @@ type improvedMVBaseline struct {
 const improvedMVBaselinePath = "testdata/improved_mv_match_rate_baseline.json"
 
 // improvedMVMatchTolerance is the absolute slack (percentage points)
-// the scoreboard allows below the recorded baseline before failing.
+// the parity report allows below the recorded baseline before failing.
 const improvedMVMatchTolerance = 2.0
 
 // TestVP8OracleImprovedMVMatchParity captures govpx + libvpx oracle traces for
@@ -44,11 +44,11 @@ const improvedMVMatchTolerance = 2.0
 // improved_mv_col, improved_mv_sr) on NEWMV inter MBs that took the
 // improved-MV start path on either side.
 //
-// This is a tripwire scoreboard: each percentage must stay within
+// This is a tripwire parity report: each percentage must stay within
 // improvedMVMatchTolerance of the recorded baseline. To bootstrap or
 // refresh the baseline run with GOVPX_UPDATE_BASELINES=1.
 func TestVP8OracleImprovedMVMatchParity(t *testing.T) {
-	vp8test.RequireOracle(t, "improved-MV scoreboard")
+	vp8test.RequireOracle(t, "improved-MV parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -155,7 +155,7 @@ func checkImprovedMVPctNoRegression(t *testing.T, fixture string, field string, 
 	}
 }
 
-// improvedMVRow is the projected NEWMV inter MB used by the scoreboard.
+// improvedMVRow is the projected NEWMV inter MB used by the parity report.
 type improvedMVRow struct {
 	frameIndex int64
 	mbRow      int

@@ -26,13 +26,13 @@ type interCandidateParityBaseline struct {
 
 // TestVP8OracleTraceInterCandidateParity runs the inter-candidate
 // trace comparator across a band of realtime CPU presets and turns the
-// resulting [][]Divergence into a scoreboard. Unlike
+// resulting [][]Divergence into a parity report. Unlike
 // TestVP8OracleTraceInterCandidateCompare, this test does NOT fail on
 // any divergence -- it logs a per-fixture markdown table and asserts only
 // against a baseline so we catch regressions without blocking incremental
 // progress on the realtime path.
 func TestVP8OracleTraceInterCandidateParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle trace parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -77,7 +77,7 @@ func TestVP8OracleTraceInterCandidateParity(t *testing.T) {
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
 			govpxTrace := captureGovpxEncoderTrace(t, fx.opts, sources)
-			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "scoreboard-"+fx.name, fx.opts, targetKbps, sources, fx.extraArgs)
+			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "parity-report-"+fx.name, fx.opts, targetKbps, sources, fx.extraArgs)
 			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
 			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
 
@@ -113,7 +113,7 @@ func TestVP8OracleTraceInterCandidateParity(t *testing.T) {
 			}
 			current.Fixtures[fx.name] = snap
 
-			t.Logf("scoreboard %s: divergent_rows=%d total_inter_candidate_rows=%d match_rate=%.4f",
+			t.Logf("parity report %s: divergent_rows=%d total_inter_candidate_rows=%d match_rate=%.4f",
 				fx.name, divergentRows, totalRows, matchRate)
 			t.Logf("\n%s", formatInterCandidateParityTable(fx.name, snap, matchRate))
 		})

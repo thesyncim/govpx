@@ -15,14 +15,14 @@ import (
 )
 
 // TestVP8OracleQuantizerHistogramParity captures per-fixture Q histograms for
-// govpx and libvpx and emits a side-by-side scoreboard. Regression-gated
+// govpx and libvpx and emits a side-by-side parity report. Regression-gated
 // against testdata/q_histogram_baseline.json: each fixture's mean Q must stay
 // within 1.5 of the recorded baseline, and the L1 distance between govpx's and
 // libvpx's histograms must not grow by more than 8 frames of drift.
 //
 // Bootstrap with GOVPX_UPDATE_BASELINES=1 to seed the file.
 func TestVP8OracleQuantizerHistogramParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle Q histogram scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle Q histogram parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -124,7 +124,7 @@ func TestVP8OracleQuantizerHistogramParity(t *testing.T) {
 				LibvpxQHist: libvpxHist,
 			}
 			if data, err := json.MarshalIndent(report, "", "  "); err == nil {
-				t.Logf("scoreboard %s:\n%s", spec.Name, data)
+				t.Logf("parity report %s:\n%s", spec.Name, data)
 			}
 
 			l1 := histL1(govpxHist, libvpxHist)
@@ -166,7 +166,7 @@ func TestVP8OracleQuantizerHistogramParity(t *testing.T) {
 		fmt.Fprintf(&summary, "%s,%.3f,%.3f,%d,%d,%d\n",
 			r.Name, r.GovpxQMean, r.LibvpxQMean, r.GovpxQMax, r.LibvpxQMax, l1)
 	}
-	t.Logf("Q histogram scoreboard summary:\n%s", summary.String())
+	t.Logf("Q histogram parity summary:\n%s", summary.String())
 }
 
 func computeQHistogramFromTrace(t *testing.T, trace []byte) (hist [128]int, qMin int, qMax int, qMean float64) {

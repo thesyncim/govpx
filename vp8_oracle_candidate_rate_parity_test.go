@@ -49,7 +49,7 @@ type candidateRateParityBaseline struct {
 // before update_best_mode). Both encoders flush these rows at frame
 // commit time; this test walks them in lockstep and tabulates the deltas.
 func TestVP8OracleCandidateRateParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle trace scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle trace parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -94,7 +94,7 @@ func TestVP8OracleCandidateRateParity(t *testing.T) {
 			snap := summarizeCandidateRateParity(t, govpxTrace, libvpxTrace)
 			current.Fixtures[fx.name] = snap
 
-			t.Logf("scoreboard %s: total=%d matched=%d (%.4f match) mean_abs=%.2f max_abs=%d frames(agg=%d per_cand=%d / %d)",
+			t.Logf("parity report %s: total=%d matched=%d (%.4f match) mean_abs=%.2f max_abs=%d frames(agg=%d per_cand=%d / %d)",
 				fx.name,
 				snap.TotalCandidates, snap.MatchedCandidates, snap.PerCandidateMatchRate,
 				snap.MeanAbsRateDeltaBits, snap.MaxAbsRateDeltaBits,
@@ -146,7 +146,7 @@ func TestVP8OracleCandidateRateParity(t *testing.T) {
 }
 
 // candidateRateRow is a minimal projection of inter_candidate trace rows
-// for the rate scoreboard. The match key is the tuple
+// for the rate parity report. The match key is the tuple
 // (frame_index, mb_row, mb_col, picker, mode_index, ref_slot).
 type candidateRateRow struct {
 	FrameIndex int64
@@ -177,7 +177,7 @@ func parseCandidateRateRows(t *testing.T, trace []byte) []candidateRateRow {
 		// row only when the candidate's RD score evaluates to a finite
 		// value (this_rd != INT_MAX). govpx records extra pre-RD outcomes
 		// (`skipped_no_ref`, `skipped_threshold`, etc.) for diagnostics.
-		// Restrict the rate scoreboard to libvpx's emission contract so
+		// Restrict the rate parity report to libvpx's emission contract so
 		// the per-frame match metric is computed on the same candidate
 		// set on both sides.
 		if outcome, _ := row["outcome"].(string); outcome != "tested" {
@@ -245,7 +245,7 @@ func summarizeCandidateRateParity(t *testing.T, govpxTrace, libvpxTrace []byte) 
 	for i, r := range libvpxRows {
 		key := candidateRateKey{r.FrameIndex, r.MBRow, r.MBCol, r.Picker, r.ModeIndex, r.RefSlot}
 		// Last-write-wins: identical keys can occur if the picker
-		// re-evaluates a mode. Existing scoreboard data shows this is
+		// re-evaluates a mode. Existing parity report data shows this is
 		// rare; the comparator absorbs it by overwriting.
 		libIndex[key] = i
 	}

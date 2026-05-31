@@ -45,7 +45,7 @@ type qdriftFrameSample struct {
 // future regressions while letting fixes that lower the deltas pass
 // freely.
 func TestVP8OracleInterQDriftParity(t *testing.T) {
-	vp8test.RequireOracle(t, "encoder oracle Q-drift scoreboard")
+	vp8test.RequireOracle(t, "encoder oracle Q-drift parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (

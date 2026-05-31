@@ -77,7 +77,7 @@ func longFixtureSeedDeferred(data []byte) bool {
 // must match at least 1 frame (the keyframe) byte-for-byte; later
 // frames are logged with their matched-prefix length and divergence
 // position. Iterations that find a longer matched prefix than the
-// scoreboard baseline land in testdata/fuzz/ as future regression
+// parity baseline land in testdata/fuzz/ as future regression
 // seeds; iterations that regress the keyframe parity fail hard.
 func FuzzEncoderLongFixtureRateControl(f *testing.F) {
 	vp8test.RequireOracleF(f, "long-fixture RC fuzz")

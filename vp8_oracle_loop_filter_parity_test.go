@@ -2,7 +2,7 @@
 
 package govpx
 
-// Loop-filter header oracle scoreboard.
+// Loop-filter header oracle parity report.
 //
 // TestVP8OracleLoopFilterHeaderMatchRate captures the per-frame loop-filter header
 // from both govpx and the libvpx oracle on a panning corpus across a deadline x
@@ -26,7 +26,7 @@ import (
 
 const loopFilterMatchRateBaselinePath = "testdata/loop_filter_match_rate_baseline.json"
 
-// loopFilterFrameRow is the slice of trace fields the loop-filter scoreboard
+// loopFilterFrameRow is the slice of trace fields the loop-filter parity report
 // inspects. Captured separately on each side so missing fields can be
 // interpreted as zeros (per the doc).
 type loopFilterFrameRow struct {
@@ -41,7 +41,7 @@ type loopFilterFrameRow struct {
 	Update         bool
 }
 
-// FixtureLFReport is the per-fixture scoreboard summary. The percentages are
+// FixtureLFReport is the per-fixture parity summary. The percentages are
 // expressed in [0, 100] and rounded to two decimals when emitted to the log
 // table; the on-disk baseline keeps the raw float so 100% / 99.99% don't
 // flap a regression.
@@ -70,7 +70,7 @@ type loopFilterBaselineFile struct {
 }
 
 func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
-	vp8test.RequireOracle(t, "loop-filter header oracle scoreboard")
+	vp8test.RequireOracle(t, "loop-filter header oracle parity report")
 	vpxencOracle := vp8test.VpxencOracle(t)
 
 	const (
@@ -155,7 +155,7 @@ func TestVP8OracleLoopFilterHeaderMatchRate(t *testing.T) {
 			libvpxRows := loopFilterFrameRowsFromTrace(t, libvpxTrace)
 			report := scoreLoopFilterFrames(f.name, govpxRows, libvpxRows)
 			reports = append(reports, report)
-			t.Logf("loop-filter scoreboard: %s frames=%d level=%.2f%% sharp=%.2f%% refdeltas=%.2f%% modedeltas=%.2f%% enabled=%.2f%% update=%.2f%%",
+			t.Logf("loop-filter parity report: %s frames=%d level=%.2f%% sharp=%.2f%% refdeltas=%.2f%% modedeltas=%.2f%% enabled=%.2f%% update=%.2f%%",
 				report.Name, report.FrameTotal,
 				report.LevelMatchPct, report.SharpnessMatchPct,
 				report.RefDeltasMatchPct, report.ModeDeltasMatchPct,

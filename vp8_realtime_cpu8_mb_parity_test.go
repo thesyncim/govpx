@@ -324,8 +324,8 @@ func TestVP8RealtimeCPU8MBParity(t *testing.T) {
 				}
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
-			// Inter-candidate scoreboard for FIRST_DIV.
-			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			// Inter-candidate parity report for FIRST_DIV.
+			logScreenContentInterCandidateTraceAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		} else {
 			t.Logf("realtime_cpu8 frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}

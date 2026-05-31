@@ -11,7 +11,7 @@ import (
 
 const updateBaselinesEnv = "GOVPX_UPDATE_BASELINES"
 
-// UpdateBaselines reports whether oracle scoreboard baselines should be
+// UpdateBaselines reports whether oracle parity baselines should be
 // rewritten for the current test run.
 func UpdateBaselines() bool {
 	return os.Getenv(updateBaselinesEnv) == "1"

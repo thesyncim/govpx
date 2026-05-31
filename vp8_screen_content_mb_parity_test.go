@@ -31,7 +31,7 @@ import (
 //  3. Diff per-MB (mb_row, mb_col, mode, ref_frame, mv) for the FIRST
 //     inter frame (frame_index=1).
 //  4. Histogram the divergent-mode picks (govpx vs libvpx) and log the
-//     first divergent MB's full RD-scoreboard candidate dump.
+//     first divergent MB's full RD candidate parity dump.
 //
 // This test is logging-only (always passes); it pins the localization
 // state on stdout so the next iteration can target a specific picker
@@ -126,7 +126,7 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 	t.Logf("screen_content_mb govpx_trace_bytes=%d libvpx_trace_bytes=%d",
 		govpxTraceBuf.Len(), len(libvpxTrace))
 
-	// Per-MB scoreboard analysis on the inter frame (frame_index=1).
+	// Per-MB parity report analysis on the inter frame (frame_index=1).
 	for _, frameIdx := range []uint64{0, 1} {
 		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
 		lRows := parseMBActivityRowsForFrame(libvpxTrace, frameIdx)
@@ -235,21 +235,21 @@ func TestVP8ScreenContentMBParity(t *testing.T) {
 			t.Logf("screen_content_mb frame%d NO_DIV; all MBs match (mode, ref, mv)", frameIdx)
 		}
 
-		// Inter-candidate scoreboard dump for the first divergent MB.
+		// Inter-candidate parity report dump for the first divergent MB.
 		if frameIdx == 1 && firstDiv[0] >= 0 {
-			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateTraceAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		}
 	}
 }
 
-// logScreenContentInterCandidateScoreboardAt parses both traces for inter_candidate
+// logScreenContentInterCandidateTraceAt parses both traces for inter_candidate
 // rows at (frameIndex, mbRow, mbCol) and emits a side-by-side dump of the
-// per-mode RD scoreboard (rate, distortion, RDCOST, became_best). This is
-// the localized scoreboard the next-iteration fix targets.
-func logScreenContentInterCandidateScoreboardAt(t *testing.T, gov, lib []byte, frameIdx uint64, mb [2]int) {
+// per-mode RD values (rate, distortion, RDCOST, became_best). This is the
+// localized parity trace the next-iteration fix targets.
+func logScreenContentInterCandidateTraceAt(t *testing.T, gov, lib []byte, frameIdx uint64, mb [2]int) {
 	gCands := parseScreenContentInterCandidatesForMB(gov, frameIdx, mb)
 	lCands := parseScreenContentInterCandidatesForMB(lib, frameIdx, mb)
-	t.Logf("screen_content_mb frame%d MB(%d,%d) inter_candidate scoreboard:", frameIdx, mb[0], mb[1])
+	t.Logf("screen_content_mb frame%d MB(%d,%d) inter_candidate parity report:", frameIdx, mb[0], mb[1])
 	t.Logf("  govpx_candidates=%d libvpx_candidates=%d", len(gCands), len(lCands))
 	// Index by mode_index for side-by-side dump.
 	gByIdx := map[int]map[string]any{}

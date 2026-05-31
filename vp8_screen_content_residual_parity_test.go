@@ -14,7 +14,7 @@ import (
 // TestVP8ScreenContentResidualParity compares govpx and libvpx per-MB traces
 // for the 12-frame screen-content CBR fixture. The test is logging-only: it
 // reports the first mode/ref/MV divergence and dumps the matching inter-mode
-// candidate scoreboard so parity work has an objective, reproducible target.
+// candidate parity report so parity work has an objective, reproducible target.
 //
 // To run:
 //
@@ -204,11 +204,11 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 				}
 				t.Logf("  %-15s govpx=%v libvpx=%v%s", f, gv, lv, marker)
 			}
-			logScreenContentInterCandidateScoreboardAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
+			logScreenContentInterCandidateTraceAt(t, govpxTraceBuf.Bytes(), libvpxTrace, frameIdx, firstDiv)
 		}
 
 		// Once we've found the first divergent frame, stop dumping
-		// scoreboards (the downstream frames inherit the divergence).
+		// parity reports (the downstream frames inherit the divergence).
 		t.Logf("screen_content_residual FIRST_DIVERGENT_FRAME=%d", frameIdx)
 		break
 	}

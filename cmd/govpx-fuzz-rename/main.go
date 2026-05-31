@@ -55,7 +55,7 @@ var dispatch = map[string]classifier{
 	"FuzzVP8DecoderAgainstLibvpx":                   classifyDecoderAgainstLibvpx,
 	// VP9 fuzz family — sibling targets registered here mirror their VP8
 	// counterparts. Classifiers reuse the same body shape so the resulting
-	// regression filenames carry the same scoreboard semantics.
+	// regression filenames carry the same parity report semantics.
 	"FuzzRTPVP9RoundTrip":                      constantCase("vp9_rtp"),
 	"FuzzVP9OracleEncoderOptions":              constantCase("vp9_options"),
 	"FuzzVP9OracleEncoderRuntimeControls":      constantCase("vp9_runtime_controls"),

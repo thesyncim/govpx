@@ -25,7 +25,7 @@ import (
 //     logs "libvpx CLI rejected (comparator inapplicable)" and
 //     returns. Not yet a hard error because vpxenc CLI rejection
 //     doesn't surface a single error class that maps cleanly to
-//     govpx's sentinels; the data is scoreboarded for a future
+//     govpx's sentinels; the data is tracked for a future
 //     tightening pass.
 //   - Both accept → keyframe bytes must SHA-256 match.
 //

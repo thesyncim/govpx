@@ -253,7 +253,7 @@ const (
 	// here makes govpx shrink LESS than libvpx does, leaving an inflated
 	// per-frame target that pulls the regulated Q below libvpx's. Closing
 	// this gap is required for post_drop_q parity on the 30f tight-buffer
-	// CBR fixture; see the panning-30f-80kbps drop scoreboard.
+	// CBR fixture; see the panning-30f-80kbps drop parity report.
 	defaultRateControlUndershootPct = 100
 	defaultRateControlOvershootPct  = 100
 	maxRateControlUndershootPct     = 100

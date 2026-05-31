@@ -189,7 +189,7 @@ func (o Oracle) Args(t testing.TB, args []string) []testutil.FrameChecksum {
 	return frames
 }
 
-// UpdateBaselines reports whether oracle scoreboard baselines should be rewritten.
+// UpdateBaselines reports whether oracle parity baselines should be rewritten.
 func UpdateBaselines() bool {
 	update := coracletest.UpdateBaselines()
 	return update
