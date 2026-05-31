@@ -1,9 +1,11 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
@@ -15,15 +17,15 @@ func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
 
 	const width, height, frames = 64, 64, 6
 	sources := make([]*image.YCbCr, frames)
-	statsEnc, err := NewVP9Encoder(VP9EncoderOptions{
+	statsEnc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:  width,
 		Height: height,
 		FPS:    30,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
+		t.Fatalf("govpx.NewVP9Encoder(firstpass): %v", err)
 	}
-	stats := make([]VP9FirstPassFrameStats, frames)
+	stats := make([]govpx.VP9FirstPassFrameStats, frames)
 	for frame := range frames {
 		src := vp9test.NewPanningYCbCr(width, height, frame)
 		sources[frame] = src
@@ -34,19 +36,19 @@ func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
 		}
 	}
 
-	enc, err := NewVP9Encoder(VP9EncoderOptions{
+	enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:              width,
 		Height:             height,
 		FPS:                30,
 		RateControlModeSet: true,
-		RateControlMode:    RateControlVBR,
+		RateControlMode:    govpx.RateControlVBR,
 		TargetBitrateKbps:  700,
 		MinQuantizer:       4,
 		MaxQuantizer:       56,
-		TwoPassStats:       FinalizeVP9FirstPassStats(stats),
+		TwoPassStats:       govpx.FinalizeVP9FirstPassStats(stats),
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder(secondpass): %v", err)
+		t.Fatalf("govpx.NewVP9Encoder(secondpass): %v", err)
 	}
 	dst := make([]byte, 1<<20)
 	govpxPackets := make([][]byte, frames)
@@ -86,15 +88,15 @@ func TestVP9OracleTwoPassConstantByteParity(t *testing.T) {
 
 	const width, height, frames = 64, 64, 4
 	sources := make([]*image.YCbCr, frames)
-	statsEnc, err := NewVP9Encoder(VP9EncoderOptions{
+	statsEnc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:  width,
 		Height: height,
 		FPS:    30,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
+		t.Fatalf("govpx.NewVP9Encoder(firstpass): %v", err)
 	}
-	stats := make([]VP9FirstPassFrameStats, frames)
+	stats := make([]govpx.VP9FirstPassFrameStats, frames)
 	for frame := range frames {
 		src := vp9test.NewYCbCr(width, height, 128, 128, 128)
 		sources[frame] = src
@@ -105,19 +107,19 @@ func TestVP9OracleTwoPassConstantByteParity(t *testing.T) {
 		}
 	}
 
-	enc, err := NewVP9Encoder(VP9EncoderOptions{
+	enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:              width,
 		Height:             height,
 		FPS:                30,
 		RateControlModeSet: true,
-		RateControlMode:    RateControlVBR,
+		RateControlMode:    govpx.RateControlVBR,
 		TargetBitrateKbps:  700,
 		MinQuantizer:       4,
 		MaxQuantizer:       56,
-		TwoPassStats:       FinalizeVP9FirstPassStats(stats),
+		TwoPassStats:       govpx.FinalizeVP9FirstPassStats(stats),
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder(secondpass): %v", err)
+		t.Fatalf("govpx.NewVP9Encoder(secondpass): %v", err)
 	}
 	dst := make([]byte, 1<<20)
 	govpxPackets := make([][]byte, frames)
@@ -158,7 +160,7 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 	const width, height, frames = 64, 64, 6
 	type flagCase struct {
 		name        string
-		flags       []EncodeFlags
+		flags       []govpx.EncodeFlags
 		exactPrefix int
 		exactFrames []int
 		strictBytes bool
@@ -166,66 +168,66 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 	cases := []flagCase{
 		{
 			name:        "force-key-frame1",
-			flags:       vp9OracleFlagAt(frames, 1, EncodeForceKeyFrame),
+			flags:       vp9oracle.FlagAt(frames, 1, govpx.EncodeForceKeyFrame),
 			exactPrefix: 2,
 			exactFrames: []int{5},
 		},
 		{
 			name:        "force-key-frame3",
-			flags:       vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame),
+			flags:       vp9oracle.FlagAt(frames, 3, govpx.EncodeForceKeyFrame),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-last",
-			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateLast),
+			flags:       vp9oracle.RepeatInterFlag(frames, govpx.EncodeNoUpdateLast),
 			exactPrefix: 2,
 		},
 		{
 			name:        "repeat-no-update-golden",
-			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateGolden),
+			flags:       vp9oracle.RepeatInterFlag(frames, govpx.EncodeNoUpdateGolden),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-altref",
-			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateAltRef),
+			flags:       vp9oracle.RepeatInterFlag(frames, govpx.EncodeNoUpdateAltRef),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-all",
-			flags:       vp9OracleRepeatInterFlag(frames, vp9NoUpdateRefFlags),
+			flags:       vp9oracle.RepeatInterFlag(frames, vp9oracle.NoUpdateRefFlags),
 			exactPrefix: 5,
 		},
 		{
 			name: "repeat-no-reference-golden-altref",
-			flags: vp9OracleRepeatInterFlag(frames,
-				EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			flags: vp9oracle.RepeatInterFlag(frames,
+				govpx.EncodeNoReferenceGolden|govpx.EncodeNoReferenceAltRef),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name: "repeat-no-reference-all",
-			flags: vp9OracleRepeatInterFlag(frames,
-				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			flags: vp9oracle.RepeatInterFlag(frames,
+				govpx.EncodeNoReferenceLast|govpx.EncodeNoReferenceGolden|govpx.EncodeNoReferenceAltRef),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name:        "repeat-no-update-entropy",
-			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateEntropy),
+			flags:       vp9oracle.RepeatInterFlag(frames, govpx.EncodeNoUpdateEntropy),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
 		{
 			name:        "force-ref-refresh-transitions",
-			flags:       vp9OracleRefRefreshTransitions(frames),
+			flags:       vp9oracle.RefRefreshTransitions(frames),
 			exactPrefix: 3,
 		},
 		{
 			name:        "alternating-reference-controls",
-			flags:       vp9OracleAlternatingReferenceControls(frames),
+			flags:       vp9oracle.AlternatingReferenceControls(frames),
 			exactPrefix: 6,
 			strictBytes: true,
 		},
@@ -234,8 +236,8 @@ func TestVP9OracleEncoderStreamByteParityFrameFlagsMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := vp9test.NewSteppedSources(width, height, frames)
-			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
-				VP9EncoderOptions{}, sources, tc.flags, nil)
+			govpxPackets, libvpxPackets := vp9oracle.CaptureStreamParityPackets(t,
+				govpx.VP9EncoderOptions{}, sources, tc.flags, nil)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 frame-flag byte-parity matrix %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
@@ -276,8 +278,8 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 		name        string
 		width       int
 		height      int
-		opts        VP9EncoderOptions
-		flags       []EncodeFlags
+		opts        govpx.VP9EncoderOptions
+		flags       []govpx.EncodeFlags
 		extraArgs   []string
 		exactPrefix int
 		strictBytes bool
@@ -287,11 +289,11 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			name:   "fixed-q-no-update-all",
 			width:  64,
 			height: 64,
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				MinQuantizer: 20,
 				MaxQuantizer: 20,
 			},
-			flags: vp9OracleRepeatInterFlag(frames, vp9NoUpdateRefFlags),
+			flags: vp9oracle.RepeatInterFlag(frames, vp9oracle.NoUpdateRefFlags),
 			extraArgs: []string{
 				"--min-q=20",
 				"--max-q=20",
@@ -302,19 +304,19 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			name:        "cbr-force-key-frame3",
 			width:       64,
 			height:      64,
-			opts:        vp9OracleCBROptions(64, 64, 700),
-			flags:       vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame),
-			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			opts:        vp9oracle.CBROptions(64, 64, 700),
+			flags:       vp9oracle.FlagAt(frames, 3, govpx.EncodeForceKeyFrame),
+			extraArgs:   vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 			exactPrefix: 4,
 		},
 		{
 			name:   "error-resilient-no-update-entropy",
 			width:  64,
 			height: 64,
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				ErrorResilient: true,
 			},
-			flags:       vp9OracleRepeatInterFlag(frames, EncodeNoUpdateEntropy),
+			flags:       vp9oracle.RepeatInterFlag(frames, govpx.EncodeNoUpdateEntropy),
 			extraArgs:   []string{"--error-resilient=1"},
 			exactPrefix: 6,
 			strictBytes: true,
@@ -323,20 +325,20 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 			name:   "cbr-no-reference-all",
 			width:  64,
 			height: 64,
-			opts:   vp9OracleCBROptions(64, 64, 700),
-			flags: vp9OracleRepeatInterFlag(frames,
-				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			extraArgs:   vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			opts:   vp9oracle.CBROptions(64, 64, 700),
+			flags: vp9oracle.RepeatInterFlag(frames,
+				govpx.EncodeNoReferenceLast|govpx.EncodeNoReferenceGolden|govpx.EncodeNoReferenceAltRef),
+			extraArgs:   vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 			exactPrefix: 3,
 		},
 		{
 			name:   "tile-columns-ref-refresh",
 			width:  1024,
 			height: 64,
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Threads: 4,
 			},
-			flags:       vp9OracleRefRefreshTransitions(frames),
+			flags:       vp9oracle.RefRefreshTransitions(frames),
 			extraArgs:   []string{"--tile-columns=2"},
 			exactPrefix: 3,
 		},
@@ -345,7 +347,7 @@ func TestVP9OracleEncoderStreamByteParityControlCrossMatrix(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := vp9test.NewSteppedSources(tc.width, tc.height, frames)
-			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
+			govpxPackets, libvpxPackets := vp9oracle.CaptureStreamParityPackets(t,
 				tc.opts, sources, tc.flags, tc.extraArgs)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)

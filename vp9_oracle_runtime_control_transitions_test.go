@@ -1,8 +1,10 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"image"
@@ -11,13 +13,13 @@ import (
 
 func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 10
-	opts := vp9OracleCBROptions(width, height, 900)
+	opts := vp9oracle.CBROptions(width, height, 900)
 	opts.DropFrameAllowed = true
 	opts.DropFrameWaterMark = 60
-	sources := newVP9OracleTransitionSources(width, height, frames)
-	rows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
-		func(enc *VP9Encoder, frame int) {
-			vp9ApplyRuntimeControlTransition(t, enc, frame)
+	sources := vp9oracle.TransitionSources(width, height, frames)
+	rows := vp9oracle.CaptureRateTraceRowsWithHooks(t, opts, sources, nil,
+		func(enc *govpx.VP9Encoder, frame int) {
+			vp9oracle.ApplyRuntimeControlTransition(t, enc, frame)
 		})
 
 	if len(rows) != frames {
@@ -50,17 +52,17 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 8
-	opts := vp9OracleCBROptions(width, height, 800)
-	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
-		func(enc *VP9Encoder, frame int) {
+	opts := vp9oracle.CBROptions(width, height, 800)
+	sources := vp9oracle.TransitionSources(width, height, frames)
+	govpxRows := vp9oracle.CaptureRateTraceRowsWithHooks(t, opts, sources, nil,
+		func(enc *govpx.VP9Encoder, frame int) {
 			switch frame {
 			case 2:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}); err != nil {
+				if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 300}); err != nil {
 					t.Fatalf("SetRealtimeTarget bitrate at frame %d: %v", frame, err)
 				}
 			case 4:
-				if err := enc.SetRealtimeTarget(RealtimeTarget{
+				if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
 					MinQuantizer: 20,
 					MaxQuantizer: 20,
 				}); err != nil {
@@ -68,14 +70,14 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 				}
 			}
 		})
-	extraArgs := append(vp9OracleCBRArgs(800, 600, 400, 500, 0),
+	extraArgs := append(vp9oracle.CBRArgs(800, 600, 400, 500, 0),
 		"--target-bitrate-schedule=2:300",
 		"--min-q-schedule=4:20",
 		"--max-q-schedule=4:20")
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 	t.Logf("VP9 runtime bitrate/Q controls: %s", stats)
 	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
 		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
@@ -107,24 +109,24 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
-	opts := vp9OracleCBROptions(width, height, 900)
+	opts := vp9oracle.CBROptions(width, height, 900)
 	opts.DropFrameAllowed = true
 	opts.DropFrameWaterMark = 60
-	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
-		func(enc *VP9Encoder, frame int) {
-			vp9ApplyRuntimeControlTransition(t, enc, frame)
+	sources := vp9oracle.TransitionSources(width, height, frames)
+	govpxRows := vp9oracle.CaptureRateTraceRowsWithHooks(t, opts, sources, nil,
+		func(enc *govpx.VP9Encoder, frame int) {
+			vp9oracle.ApplyRuntimeControlTransition(t, enc, frame)
 		})
-	extraArgs := append(vp9OracleCBRArgs(900, 600, 400, 500, 60),
+	extraArgs := append(vp9oracle.CBRArgs(900, 600, 400, 500, 60),
 		"--target-bitrate-schedule=2:300",
 		"--min-q-schedule=4:20",
 		"--max-q-schedule=4:20",
 		"--fps-schedule=5:15",
 		"--drop-frame-schedule=6:0,8:60")
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
 		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
@@ -141,26 +143,26 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 12
 	type runtimeCase struct {
 		name      string
-		opts      VP9EncoderOptions
-		apply     func(*testing.T, *VP9Encoder, int)
+		opts      govpx.VP9EncoderOptions
+		apply     func(*testing.T, *govpx.VP9Encoder, int)
 		extraArgs []string
 	}
-	baseOpts := func(targetKbps int) VP9EncoderOptions {
-		return vp9OracleCBROptions(width, height, targetKbps)
+	baseOpts := func(targetKbps int) govpx.VP9EncoderOptions {
+		return vp9oracle.CBROptions(width, height, targetKbps)
 	}
 	cases := []runtimeCase{
 		{
 			name: "bitrate-only-two-step",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 300",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 300",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 300}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 900",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 900}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 900",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 900}))
 				}
 			},
 			extraArgs: []string{
@@ -170,18 +172,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		{
 			name: "q-band-only-two-step",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 10-50",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 10-50",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 10,
 							MaxQuantizer: 50,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 4-56",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 4-56",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
@@ -195,18 +197,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		{
 			name: "fixed-q-runtime-window",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed q 20",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed q 20",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 20,
 							MaxQuantizer: 20,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 4-56",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 4-56",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
@@ -220,15 +222,15 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		{
 			name: "fps-only-two-step",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fps 15",
-						enc.SetRealtimeTarget(RealtimeTarget{FPS: 15}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fps 15",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 15}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget fps 30",
-						enc.SetRealtimeTarget(RealtimeTarget{FPS: 30}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fps 30",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 30}))
 				}
 			},
 			extraArgs: []string{
@@ -238,14 +240,14 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		{
 			name: "buffer-model-two-step",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRateControlBuffer tight",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer tight",
 						enc.SetRateControlBuffer(400, 300, 350))
 				case 8:
-					mustVP9Runtime(t, "SetRateControlBuffer restore",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer restore",
 						enc.SetRateControlBuffer(600, 400, 500))
 				}
 			},
@@ -258,18 +260,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		{
 			name: "bitrate-fps-no-temporal",
 			opts: baseOpts(700),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate/fps low",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate/fps low",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps: 400,
 							FPS:         15,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate/fps restore",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate/fps restore",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps: 700,
 							FPS:         30,
 						}))
@@ -282,7 +284,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "drop-frame-toggle",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := baseOpts(120)
 				opts.BufferSizeMs = 400
 				opts.BufferInitialSizeMs = 300
@@ -290,18 +292,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget drop enabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropEnabled,
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget drop enabled",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
+							FrameDrop: govpx.RealtimeFrameDropEnabled,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget drop disabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropDisabled,
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget drop disabled",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
+							FrameDrop: govpx.RealtimeFrameDropDisabled,
 						}))
 				}
 			},
@@ -315,7 +317,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "fixed-q-drop-frame-toggle",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := baseOpts(120)
 				opts.BufferSizeMs = 400
 				opts.BufferInitialSizeMs = 300
@@ -325,18 +327,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop enabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropEnabled,
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed-q drop enabled",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
+							FrameDrop: govpx.RealtimeFrameDropEnabled,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop disabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropDisabled,
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed-q drop disabled",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
+							FrameDrop: govpx.RealtimeFrameDropDisabled,
 						}))
 				}
 			},
@@ -352,7 +354,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "q-band-restores-after-drop-pressure",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := baseOpts(140)
 				opts.BufferSizeMs = 400
 				opts.BufferInitialSizeMs = 300
@@ -361,18 +363,18 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed q under drop",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed q under drop",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 20,
 							MaxQuantizer: 20,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget q band restore after drop",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band restore after drop",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
@@ -389,32 +391,32 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "combined-bitrate-fps-q-drop",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := baseOpts(700)
 				opts.DropFrameAllowed = true
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			apply: func(t *testing.T, enc *VP9Encoder, frame int) {
+			apply: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget combined low",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget combined low",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps:  300,
 							FPS:          15,
 							MinQuantizer: 10,
 							MaxQuantizer: 50,
-							FrameDrop:    RealtimeFrameDropEnabled,
+							FrameDrop:    govpx.RealtimeFrameDropEnabled,
 						}))
 				case 8:
-					mustVP9Runtime(t, "SetRealtimeTarget combined restored",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget combined restored",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps:  700,
 							FPS:          30,
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
-							FrameDrop:    RealtimeFrameDropDisabled,
+							FrameDrop:    govpx.RealtimeFrameDropDisabled,
 						}))
 				}
 			},
@@ -431,20 +433,20 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateTraceRowsWithHooks(t, tc.opts,
+			sources := vp9oracle.TransitionSources(width, height, frames)
+			govpxRows := vp9oracle.CaptureRateTraceRowsWithHooks(t, tc.opts,
 				sources, nil,
-				func(enc *VP9Encoder, frame int) {
+				func(enc *govpx.VP9Encoder, frame int) {
 					tc.apply(t, enc, frame)
 				})
-			extraArgs := append(vp9OracleCBRArgs(tc.opts.TargetBitrateKbps,
+			extraArgs := append(vp9oracle.CBRArgs(tc.opts.TargetBitrateKbps,
 				tc.opts.BufferSizeMs, tc.opts.BufferInitialSizeMs,
-				tc.opts.BufferOptimalSizeMs, vp9OracleDropFrameArg(tc.opts)),
+				tc.opts.BufferOptimalSizeMs, vp9oracle.DropFrameArg(tc.opts)),
 				tc.extraArgs...)
-			libvpxRows := captureLibvpxVP9RateTraceRows(t, width,
+			libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width,
 				height, sources, nil, extraArgs)
 
-			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 			t.Logf("VP9 runtime-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
@@ -465,17 +467,17 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 6
 	cases := []struct {
 		name      string
-		opts      VP9EncoderOptions
+		opts      govpx.VP9EncoderOptions
 		extraArgs []string
 	}{
 		{
 			name:      "public-q-default",
-			opts:      VP9EncoderOptions{Width: width, Height: height},
+			opts:      govpx.VP9EncoderOptions{Width: width, Height: height},
 			extraArgs: nil,
 		},
 		{
 			name: "public-q-band-cq30",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:        width,
 				Height:       height,
 				MinQuantizer: 10,
@@ -486,7 +488,7 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "public-lossless",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:    width,
 				Height:   height,
 				Lossless: true,
@@ -495,7 +497,7 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name: "error-resilient-kf2",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:               width,
 				Height:              height,
 				ErrorResilient:      true,
@@ -505,35 +507,35 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 		},
 		{
 			name:      "cbr-buffer-default",
-			opts:      vp9OracleCBROptions(width, height, 700),
-			extraArgs: vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			opts:      vp9oracle.CBROptions(width, height, 700),
+			extraArgs: vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 		},
 		{
 			name: "cbr-tight-q-band",
-			opts: func() VP9EncoderOptions {
-				opts := vp9OracleCBROptions(width, height, 700)
+			opts: func() govpx.VP9EncoderOptions {
+				opts := vp9oracle.CBROptions(width, height, 700)
 				opts.MinQuantizer = 10
 				opts.MaxQuantizer = 50
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q=10", "--max-q=50"),
 		},
 		{
 			name: "cbr-fixed-q20",
-			opts: func() VP9EncoderOptions {
-				opts := vp9OracleCBROptions(width, height, 700)
+			opts: func() govpx.VP9EncoderOptions {
+				opts := vp9oracle.CBROptions(width, height, 700)
 				opts.MinQuantizer = 20
 				opts.MaxQuantizer = 20
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q=20", "--max-q=20"),
 		},
 		{
 			name: "cbr-tight-buffer-drop",
-			opts: func() VP9EncoderOptions {
-				opts := vp9OracleCBROptions(width, height, 140)
+			opts: func() govpx.VP9EncoderOptions {
+				opts := vp9oracle.CBROptions(width, height, 140)
 				opts.BufferSizeMs = 400
 				opts.BufferInitialSizeMs = 300
 				opts.BufferOptimalSizeMs = 350
@@ -541,18 +543,18 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 				opts.DropFrameWaterMark = 60
 				return opts
 			}(),
-			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 60),
+			extraArgs: vp9oracle.CBRArgs(140, 400, 300, 350, 60),
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources, nil)
-			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+			sources := vp9oracle.TransitionSources(width, height, frames)
+			govpxRows := vp9oracle.CaptureRateTraceRows(t, tc.opts, sources, nil)
+			libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 				sources, nil, tc.extraArgs)
 
-			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 			t.Logf("VP9 construction-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
@@ -571,16 +573,16 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 1024, 64, 6
-	opts := vp9OracleCBROptions(width, height, 900)
+	opts := vp9oracle.CBROptions(width, height, 900)
 	opts.Threads = 4
-	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
-	extraArgs := append(vp9OracleCBRArgs(900, 600, 400, 500, 0),
+	sources := vp9oracle.TransitionSources(width, height, frames)
+	govpxRows := vp9oracle.CaptureRateTraceRows(t, opts, sources, nil)
+	extraArgs := append(vp9oracle.CBRArgs(900, 600, 400, 500, 0),
 		"--tile-columns=2")
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
-	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 	t.Logf("VP9 tile/thread controls: %s", stats)
 	t.Logf("VP9 tile/thread control rows:\n%s",
 		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
@@ -609,13 +611,13 @@ func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 		vp9test.NewYCbCr(width, height, 188, 96, 224),
 		vp9test.NewYCbCr(width, height, 188, 96, 224),
 	}
-	flags := []EncodeFlags{
+	flags := []govpx.EncodeFlags{
 		0,
-		EncodeInvisibleFrame | EncodeForceAltRefFrame | EncodeNoUpdateLast |
-			EncodeNoUpdateGolden | EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
-		EncodeNoReferenceLast | EncodeNoReferenceGolden | EncodeNoUpdateLast,
+		govpx.EncodeInvisibleFrame | govpx.EncodeForceAltRefFrame | govpx.EncodeNoUpdateLast |
+			govpx.EncodeNoUpdateGolden | govpx.EncodeNoReferenceGolden | govpx.EncodeNoReferenceAltRef,
+		govpx.EncodeNoReferenceLast | govpx.EncodeNoReferenceGolden | govpx.EncodeNoUpdateLast,
 	}
-	rows := captureVP9RateTraceRows(t, VP9EncoderOptions{
+	rows := vp9oracle.CaptureRateTraceRows(t, govpx.VP9EncoderOptions{
 		Width:  width,
 		Height: height,
 	}, sources, flags)
@@ -627,7 +629,7 @@ func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 			rows[0].KeyFrame, rows[0].ShowFrame)
 	}
 	if rows[1].ShowFrame || rows[1].Dropped ||
-		rows[1].RefreshFrameFlags != 1<<vp9AltRefSlot {
+		rows[1].RefreshFrameFlags != vp9oracle.AltRefRefreshMask {
 		t.Fatalf("frame 1 hidden row = show:%t dropped:%t refresh:%#x, want hidden ALTREF refresh",
 			rows[1].ShowFrame, rows[1].Dropped, rows[1].RefreshFrameFlags)
 	}

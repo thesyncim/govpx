@@ -91,6 +91,16 @@ func CaptureStreamParityPacketRowsWithHooks(t testing.TB,
 	return govpxRows, govpxPackets, libvpxRows, libvpxPackets
 }
 
+func CaptureStreamParityPackets(t testing.TB,
+	opts govpx.VP9EncoderOptions, sources []*image.YCbCr,
+	flags []govpx.EncodeFlags, extraArgs []string,
+) ([][]byte, [][]byte) {
+	t.Helper()
+	_, govpxPackets, _, libvpxPackets := CaptureStreamParityPacketRowsWithHooks(t,
+		opts, sources, flags, extraArgs, nil)
+	return govpxPackets, libvpxPackets
+}
+
 func CaptureGovpxStreamParityPacketRowsWithHooks(t testing.TB,
 	opts govpx.VP9EncoderOptions, sources []*image.YCbCr,
 	flags []govpx.EncodeFlags, beforeFrame EncoderHook,

@@ -11,6 +11,9 @@ import (
 	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
+// AltRefRefreshMask is the VP9 refresh-frame mask bit for the ALTREF slot.
+const AltRefRefreshMask uint8 = 1 << 2
+
 func EncodeBufferSize(width, height int) (int, error) {
 	return vpxbuffers.I420EncodeBufferSize(width, height, 4096, 65536)
 }
@@ -44,10 +47,63 @@ func CBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) [
 	}
 }
 
+func DropFrameArg(opts govpx.VP9EncoderOptions) int {
+	if !opts.DropFrameAllowed {
+		return 0
+	}
+	return opts.DropFrameWaterMark
+}
+
+func MustRuntime(t testing.TB, name string, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+}
+
+func ApplyRuntimeControlTransition(t testing.TB, enc *govpx.VP9Encoder, frame int) {
+	t.Helper()
+	switch frame {
+	case 2:
+		if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 300}); err != nil {
+			t.Fatalf("SetRealtimeTarget bitrate at frame %d: %v", frame, err)
+		}
+	case 4:
+		if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+			MinQuantizer: 20,
+			MaxQuantizer: 20,
+		}); err != nil {
+			t.Fatalf("SetRealtimeTarget quantizers at frame %d: %v", frame, err)
+		}
+	case 5:
+		if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 15}); err != nil {
+			t.Fatalf("SetRealtimeTarget fps at frame %d: %v", frame, err)
+		}
+	case 6:
+		if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+			FrameDrop: govpx.RealtimeFrameDropDisabled,
+		}); err != nil {
+			t.Fatalf("SetRealtimeTarget disable drop at frame %d: %v", frame, err)
+		}
+	case 8:
+		if err := enc.SetFrameDropAllowed(true); err != nil {
+			t.Fatalf("SetFrameDropAllowed at frame %d: %v", frame, err)
+		}
+	}
+}
+
 func TransitionSources(width, height, frames int) []*image.YCbCr {
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
 		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
+	}
+	return sources
+}
+
+func TransitionPanningSources(width, height, count, offset int) []*image.YCbCr {
+	sources := make([]*image.YCbCr, count)
+	for i := range sources {
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i+offset)
 	}
 	return sources
 }
