@@ -96,6 +96,35 @@ func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
 	}
 }
 
+func vp9SyncNonrdIntraFallbackEdges(dst []byte, dstStride, dstX, dstY int,
+	ref []byte, refStride, refX, refY, w, h int,
+) {
+	if len(dst) == 0 || len(ref) == 0 || dstStride <= 0 || refStride <= 0 ||
+		w <= 0 || h <= 0 {
+		return
+	}
+	dstRows := len(dst) / dstStride
+	refRows := len(ref) / refStride
+	if dstX < 0 || dstY < 0 || refX < 0 || refY < 0 ||
+		dstX+w > dstStride || refX+w > refStride ||
+		dstY+h > dstRows || refY+h > refRows {
+		return
+	}
+	if dstY > 0 && refY > 0 {
+		copy(dst[(dstY-1)*dstStride+dstX:(dstY-1)*dstStride+dstX+w],
+			ref[(refY-1)*refStride+refX:(refY-1)*refStride+refX+w])
+	}
+	if dstX > 0 && refX > 0 {
+		for row := range h {
+			dst[(dstY+row)*dstStride+dstX-1] =
+				ref[(refY+row)*refStride+refX-1]
+		}
+	}
+	if dstX > 0 && dstY > 0 && refX > 0 && refY > 0 {
+		dst[(dstY-1)*dstStride+dstX-1] = ref[(refY-1)*refStride+refX-1]
+	}
+}
+
 func (e *VP9Encoder) vp9NonrdPredMVSAD(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
 ) (uint64, bool) {

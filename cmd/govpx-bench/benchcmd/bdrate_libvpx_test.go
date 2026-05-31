@@ -74,12 +74,17 @@ func TestLibvpxVP9FrameFlagsCLIArgsMapping(t *testing.T) {
 		{
 			name: "Cyclic refresh CBR",
 			apply: func(o *govpx.VP9EncoderOptions) {
+				o.Deadline = govpx.DeadlineRealtime
+				o.CpuUsed = 8
 				o.RateControlModeSet = true
 				o.RateControlMode = govpx.RateControlCBR
 				o.TargetBitrateKbps = 320
 				o.AQMode = govpx.VP9AQCyclicRefresh
 			},
-			wants:  []string{"--end-usage=cbr", "--target-bitrate=320", "--aq-mode=3"},
+			wants: []string{
+				"--deadline=rt", "--cpu-used=8",
+				"--end-usage=cbr", "--target-bitrate=320", "--aq-mode=3",
+			},
 			absent: []string{"--cq-level="},
 		},
 	}

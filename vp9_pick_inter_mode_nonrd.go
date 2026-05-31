@@ -8,40 +8,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// vp9NonrdPickTrace captures per-block picker diagnostics for oracle tests.
-// Only populated when frameIndex==2 and miRow==0 && miCol==3.
-type vp9NonrdPickTrace struct {
-	PredMvSad       [vp9dec.MaxRefFrames]uint64
-	RefSkipMask     int
-	MaxUsableRef    int8
-	ForceSkip       bool
-	SseZeromvNorm   uint64
-	BestRef         int8
-	BestMode        common.PredictionMode
-	BestScore       uint64
-	GoldenSkipFires bool
-	PickSegID       uint8
-	CyclicBoosted   bool
-	ActiveRDMult    int
-	LastNearScore   uint64
-	LastNewScore    uint64
-	GoldenNewScore  uint64
-	LastNearRate    int
-	LastNearDist    uint64
-	LastNearSSE     uint64
-	LastNearSkip    bool
-	GoldenNewRate   int
-	GoldenNewDist   uint64
-	GoldenNewSSE    uint64
-	GoldenNewSkip   bool
-	SegQIndex       int
-	LastNearestMv   vp9dec.MV
-	LastNearMv      vp9dec.MV
-	GoldenNewMv     vp9dec.MV
-}
-
-var vp9NonrdPickTraceLast vp9NonrdPickTrace
-
 // vp9_pick_inter_mode_nonrd.go ports libvpx v1.16.0's realtime nonrd inter-mode
 // picker (vp9_pickmode.c::vp9_pick_inter_mode) verbatim. The realtime picker is
 // dramatically simpler than the full RD search: it walks a small, fixed
@@ -573,7 +539,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// frame_mv[NEWMV][ref] is left invalid; search_new_mv fills it
 		// lazily inside the main loop when NEWMV is visited.
 	}
-
 	// libvpx: vp9_pickmode.c:1711 uint8_t mode_checked[MB_MODE_COUNT][MAX_REF_FRAMES].
 	// Tracks per-(mode, ref) which candidates have already been scored so
 	// the dedup at vp9_pickmode.c:2269-2278 can skip duplicate-MV
@@ -648,7 +613,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	predFilterSearch := vp9NonrdPredFilterSearch(frameInterp,
 		e.sf.CbPredFilterSearch, miRow, miCol, bsize, e.frameIndex)
 
-	// libvpx: vp9_pickmode.c:1759 unsigned int best_sse_sofar = UINT_MAX;
+	pickSegID := e.vp9PartitionSegmentID(miRow, miCol,
+		e.vp9StaticSegmentIDForMap(), inter.img, inter)
+	if pickSegID >= vp9dec.MaxSegments {
+		pickSegID = 0
+	}
+	pickSegQIndex := e.vp9SegmentQIndex(inter, pickSegID)
+
+	// libvpx: vp9_pickmode.c:1759 unsigned int best_sse_sofar = UINT_MAX.
 	bestSseSoFar := uint64(1<<63 - 1)
 	bestSet := false
 	var best vp9InterModeDecision
@@ -787,6 +759,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			continue
 		}
 
+		// libvpx: vp9_pickmode.c:2186-2193 — skip non-zero GOLDEN candidates
+		// when force_skip_low_temp_var is set (zeromv may still be visited).
+		if forceSkipLowTempVar && refFrame == vp9dec.GoldenFrame &&
+			frameMvValid[thisMode][refFrame] &&
+			frameMv[thisMode][refFrame] != (vp9dec.MV{}) {
+			continue
+		}
+
+		// libvpx: vp9_pickmode.c:2195-2201 — skip LAST NEWMV on low-variance
+		// blocks unless content is very high SAD.
+		if contentState != encoder.ContentStateVeryHighSad &&
+			(e.sf.ShortCircuitLowTempVar >= 2 ||
+				(e.sf.ShortCircuitLowTempVar == 1 &&
+					bsize == common.Block64x64)) &&
+			forceSkipLowTempVar && refFrame == vp9dec.LastFrame &&
+			thisMode == common.NewMv {
+			continue
+		}
+
 		// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking.
 		// libvpx's ref_frame_skip_mask is populated lazily as candidates
 		// are visited. govpx pre-computes pred_mv_sad above and applies
@@ -915,6 +906,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		var mv vp9dec.MV
 		var refMv vp9dec.MV
 		if thisMode == common.NewMv {
+			if refFrame > vp9dec.LastFrame && gfTemporalRef &&
+				e.opts.RateControlMode == RateControlCBR &&
+				bsize < common.Block16x16 {
+				continue
+			}
 			var gotMv vp9dec.MV
 			var ok bool
 			refMvOpt := vp9dec.MV{}
@@ -926,6 +922,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				refMv:           refMvOpt,
 				refMvValid:      refMvValid,
 				nonrdSubpelTree: true,
+			}
+			if bestSet {
+				mvOpts.nonrdPrecheck = func(fullpelMv vp9dec.MV) bool {
+					rateModeMv := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
+						interModeCtx, common.NewMv, fullpelMv, refMvOpt, inter.allowHP)
+					precheckRD := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+						rateModeMv, 0)
+					return precheckRD <= best.score
+				}
 			}
 			// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
 			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
@@ -946,24 +951,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				miRow, miCol, bsize, refFrame, mvOpts)
 			if !ok {
 				continue
-			}
-			// libvpx combined_motion_search returns false after MV search when
-			// the NEWMV mode+MV signalling cost alone exceeds best_rdc_sofar:
-			//
-			//   rv = !(RDCOST(rdmult, rddiv, rate_mv + rate_mode, 0) >
-			//          best_rd_sofar)
-			//
-			// That prevents periodic-motion blocks from carrying an expensive
-			// NEWMV into the full candidate scoring when NEAREST/NEAR/ZERO has
-			// already won cheaply. encoder.InterModeRateCost folds both the
-			// inter mode bit cost and MV bit cost, matching rate_mv+rate_mode.
-			if bestSet {
-				rateModeMv := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
-					interModeCtx, common.NewMv, gotMv, refMvOpt, inter.allowHP)
-				if encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
-					rateModeMv, 0) > best.score {
-					continue
-				}
 			}
 			mv = gotMv
 			// libvpx vp9_pickmode.c:2302 mi->mv[0] = frame_mv[NEWMV][ref];
@@ -1114,12 +1101,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			bsize < common.Block32x32
 
 		// segId for dequant lookup.
-		segID := e.vp9PartitionSegmentID(miRow, miCol,
-			e.vp9StaticSegmentIDForMap(), inter.img, inter)
-		if segID >= vp9dec.MaxSegments {
-			segID = 0
-		}
-		segQIndex := e.vp9SegmentQIndex(inter, segID)
+		segID := pickSegID
+		segQIndex := pickSegQIndex
 		var dequantY [2]int16
 		var dequantU, dequantV [2]int16
 		if inter.dq != nil {
@@ -1131,6 +1114,99 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			!encoder.CyclicRefreshSegmentIDBoosted(segID) &&
 			inter.baseQindex != 0
 
+		// libvpx vp9_pickmode.c:1499-1575 search_filter_ref — when multiple
+		// switchable filters are evaluated, libvpx picks the winner from
+		// RDCOST(model_rd rate + switchable filter cost, model_rd dist)
+		// alone. block_yrd, the skip-vs-non-skip compare, encode_breakout,
+		// and the outer rate finalize all run once afterward on the winner.
+		var (
+			searchFilterPick bool
+			searchVarY       uint64
+			searchSSEY       uint64
+			searchRateY      int
+			searchDistY      int64
+			searchMrdTxSize  common.TxSize
+		)
+		if len(filters) > 1 {
+			bestFilterCost := uint64(math.MaxUint64)
+			var searchFilter vp9dec.InterpFilter
+			searchOK := false
+			for _, filter := range filters {
+				varY, sseY, ok := e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
+					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				if !ok {
+					continue
+				}
+				rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+					BSize:           bsize,
+					QIndex:          segQIndex,
+					Dequant:         dequantY,
+					VarY:            varY,
+					SSEY:            sseY,
+					TxMode:          frameTxMode,
+					SourceVariance:  uint64(sourceVariance),
+					SegmentID:       segID,
+					CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+				})
+				if useModelYrdLarge {
+					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+					dst, dstStride := e.vp9EncoderReconPlane(0)
+					x0 := miCol * common.MiSize
+					y0 := miRow * common.MiSize
+					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
+						BSize:           bsize,
+						Dequant:         dequantY,
+						Src:             src,
+						SrcStride:       srcStride,
+						SrcX:            x0,
+						SrcY:            y0,
+						Pred:            dst,
+						PredStride:      dstStride,
+						PredX:           x0,
+						PredY:           y0,
+						TxMode:          frameTxMode,
+						SourceVariance:  uint64(sourceVariance),
+						SegmentID:       segID,
+						CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+						ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+						Speed:           e.vp9SpeedFeatureCPUUsed(),
+						Width:           e.opts.Width,
+						Height:          e.opts.Height,
+					})
+					if large.Valid {
+						rateY = large.Rate
+						distY = large.Dist
+						varY = large.VarY
+						sseY = large.SSEY
+						mrdTxSize = large.TxSize
+					}
+				}
+				interpFilterCost := 0
+				if vp9MvHasSubpel(mv) {
+					interpFilterCost = vp9InterInterpFilterRateCost(inter,
+						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+				}
+				filterCost := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+					rateY+interpFilterCost, uint64(distY))
+				if !searchOK || filterCost < bestFilterCost {
+					searchOK = true
+					bestFilterCost = filterCost
+					searchFilter = filter
+					searchVarY = varY
+					searchSSEY = sseY
+					searchRateY = rateY
+					searchDistY = distY
+					searchMrdTxSize = mrdTxSize
+				}
+			}
+			if !searchOK {
+				continue
+			}
+			filters = []vp9dec.InterpFilter{searchFilter}
+			searchFilterPick = true
+		}
+
 		// libvpx: vp9_pickmode.c:2318-2410. Filter candidates are scored
 		// through model_rd_for_sb_y and the block_yrd refinement below, so
 		// interpolation-filter selection uses the same quantizer-aware RD
@@ -1139,10 +1215,74 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		scoredThisMode := false
 		for _, filter := range filters {
 			var cand vp9InterModeDecision
-			// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
-			// vp9_pickmode.c:2346 model_rd_for_sb_y.
-			varY, sseY, ok := e.vp9InterPredictionVarianceSSE(inter, miRows,
-				miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+			var varY, sseY uint64
+			var rateY int
+			var distY int64
+			var mrdTxSize common.TxSize
+			var ok bool
+			if searchFilterPick {
+				varY = searchVarY
+				sseY = searchSSEY
+				rateY = searchRateY
+				distY = searchDistY
+				mrdTxSize = searchMrdTxSize
+				_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
+					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				searchFilterPick = false
+			} else {
+				// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
+				// vp9_pickmode.c:2346 model_rd_for_sb_y.
+				varY, sseY, ok = e.vp9InterPredictionVarianceSSE(inter, miRows,
+					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				if !ok {
+					continue
+				}
+				rateY, distY, _, mrdTxSize = encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+					BSize:           bsize,
+					QIndex:          segQIndex,
+					Dequant:         dequantY,
+					VarY:            varY,
+					SSEY:            sseY,
+					TxMode:          frameTxMode,
+					SourceVariance:  uint64(sourceVariance),
+					SegmentID:       segID,
+					CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+				})
+				if useModelYrdLarge {
+					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+					dst, dstStride := e.vp9EncoderReconPlane(0)
+					x0 := miCol * common.MiSize
+					y0 := miRow * common.MiSize
+					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
+						BSize:           bsize,
+						Dequant:         dequantY,
+						Src:             src,
+						SrcStride:       srcStride,
+						SrcX:            x0,
+						SrcY:            y0,
+						Pred:            dst,
+						PredStride:      dstStride,
+						PredX:           x0,
+						PredY:           y0,
+						TxMode:          frameTxMode,
+						SourceVariance:  uint64(sourceVariance),
+						SegmentID:       segID,
+						CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
+						ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+						Speed:           e.vp9SpeedFeatureCPUUsed(),
+						Width:           e.opts.Width,
+						Height:          e.opts.Height,
+					})
+					if large.Valid {
+						rateY = large.Rate
+						distY = large.Dist
+						varY = large.VarY
+						sseY = large.SSEY
+						mrdTxSize = large.TxSize
+					}
+				}
+			}
 			if !ok {
 				continue
 			}
@@ -1164,57 +1304,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			//   best_sse_sofar = sse_y;
 			if sseY < bestSseSoFar {
 				bestSseSoFar = sseY
-			}
-
-			// libvpx vp9_pickmode.c:2338-2348 dispatches CBR large
-			// blocks through model_rd_for_sb_y_large, otherwise through
-			// model_rd_for_sb_y. Both produce (rate_y, dist_y) in
-			// prob-cost / shifted-domain distortion units and a tx_size
-			// for the block_yrd refinement below.
-			rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
-				BSize:           bsize,
-				QIndex:          segQIndex,
-				Dequant:         dequantY,
-				VarY:            varY,
-				SSEY:            sseY,
-				TxMode:          frameTxMode,
-				SourceVariance:  uint64(sourceVariance),
-				SegmentID:       segID,
-				CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
-				ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-			})
-			if useModelYrdLarge {
-				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-				dst, dstStride := e.vp9EncoderReconPlane(0)
-				x0 := miCol * common.MiSize
-				y0 := miRow * common.MiSize
-				large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
-					BSize:           bsize,
-					Dequant:         dequantY,
-					Src:             src,
-					SrcStride:       srcStride,
-					SrcX:            x0,
-					SrcY:            y0,
-					Pred:            dst,
-					PredStride:      dstStride,
-					PredX:           x0,
-					PredY:           y0,
-					TxMode:          frameTxMode,
-					SourceVariance:  uint64(sourceVariance),
-					SegmentID:       segID,
-					CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
-					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-					Speed:           e.vp9SpeedFeatureCPUUsed(),
-					Width:           e.opts.Width,
-					Height:          e.opts.Height,
-				})
-				if large.Valid {
-					rateY = large.Rate
-					distY = large.Dist
-					varY = large.VarY
-					sseY = large.SSEY
-					mrdTxSize = large.TxSize
-				}
 			}
 
 			// libvpx vp9_pickmode.c:2358-2374 — when block_yrd runs
@@ -1321,7 +1410,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// skipBitOff / skipBitOn into the two sides, which shifted the
 			// skip-vs-non-skip break-even point by (skipBitOff -
 			// skipBitOn) * rdmult — a context-dependent over/under-skip.
-			useSkipCheck := !blockYrdFired
+			useSkipCheck := !blockYrdFired && !useSimpleBlockYrd
 			isSkip := blockYrdFired // skippable=true counts as the skip branch
 			if useSkipCheck {
 				rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
@@ -1406,7 +1495,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				sourceVariance, sseY) {
 				score <<= 2
 			}
-
 			// libvpx vp9_pickmode.c:2414-2422 — vp9_NEWMV_diff_bias.
 			// Gated on (rc_mode == VPX_CBR && speed >= 5 && content
 			// != VP9E_CONTENT_SCREEN). govpx mirrors the gate at the
@@ -1547,8 +1635,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 
-	e.cbRdmult = prevCbRdmult
-
 	// libvpx: vp9_pickmode.c:2525-2655 — intra-fallback section inside
 	// vp9_pick_inter_mode. After the inter-mode RD scan completes, libvpx
 	// walks intra_mode_list (DC_PRED, V_PRED, H_PRED, TM_PRED) and scores
@@ -1571,14 +1657,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var pickPred []byte
 	pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol := 0, 0, 0
 	if reuseInterPred && reuseMLCtx != nil {
+		if e.frameIndex > 1 {
+			// libvpx's reusable pd->dst surface carries reconstructed
+			// neighbor edges after the first inter frame. Keep govpx's
+			// ML prediction buffer in step before intra fallback reads
+			// H/V/DC reference samples from that surface.
+			vp9SyncNonrdIntraFallbackEdges(livePred, livePredStride, livePredX, livePredY,
+				predPlane, predStride, predX, predY, predW, predH)
+		}
 		pickPred = livePred
 		pickPredStride = livePredStride
 		pickPredOriginMiRow = reuseMLCtx.sbMiRow
 		pickPredOriginMiCol = reuseMLCtx.sbMiCol
 	}
 	const qidxSkipThresh = 115
-	skipEncode := e.sf.SkipEncodeSb != 0 && e.frameIndex > 1 &&
-		qindex < qidxSkipThresh
+	skipEncode := e.sf.SkipEncodeFrame != 0 && e.frameIndex > 1 &&
+		pickSegQIndex < qidxSkipThresh
 	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
 		miRows, miCols, miRow, miCol, bsize, qindex,
 		above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
@@ -1629,6 +1723,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			predW, predH, e.nonrdBestPredScratch[:])
 	}
 	if !bestSet {
+		e.cbRdmult = prevCbRdmult
 		return vp9InterModeDecision{}, false
 	}
 
@@ -1684,5 +1779,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 
+	e.cbRdmult = prevCbRdmult
 	return best, true
 }

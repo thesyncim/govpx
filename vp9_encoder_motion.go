@@ -360,14 +360,35 @@ func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
 // fn_ptr[bsize].vf call inside model_rd_for_sb_y (vp9_pickmode.c:661-666)
 // which produces (var, sse). The realtime nonrd picker consumes both.
 //
-// libvpx scores from border-padded YV12 refs (vp9_build_inter_predictors_sby)
-// while block_yrd reads the same predictor buffer afterward. For EIGHTTAP
-// govpx uses the bordered subpel variance substrate for (var, sse) but still
-// writes luma prediction into the recon buffer for block_yrd.
+// libvpx model_rd_for_sb_y always scores from vp9_build_inter_predictors_sby
+// (search_filter_ref uses the same builder). Motion search keeps the bordered
+// subpel variance substrate via vp9InterPredictionSubpelVariance.
 func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
 	filter vp9dec.InterpFilter,
+) (variance, sse uint64, ok bool) {
+	return e.vp9InterPredictionVarianceSSEOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mode, refFrame, mv, filter, false)
+}
+
+// vp9InterPredictionVarianceSSEForFilterSearch mirrors libvpx
+// search_filter_ref's vp9_build_inter_predictors_sby + vf path.
+func (e *VP9Encoder) vp9InterPredictionVarianceSSEForFilterSearch(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter,
+) (variance, sse uint64, ok bool) {
+	return e.vp9InterPredictionVarianceSSEOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mode, refFrame, mv, filter, true)
+}
+
+func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, _ bool,
 ) (variance, sse uint64, ok bool) {
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	dst, dstStride := e.vp9EncoderReconPlane(0)
@@ -394,24 +415,8 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	if inter != nil && inter.ref != nil && inter.ref.valid {
-		switch filter {
-		case vp9dec.InterpEighttap:
-			if varY, sseY, ok2 := e.vp9InterPredictionBorderedSubpelVarianceSSE(
-				inter, miRow, miCol, bsize, refFrame, mv); ok2 &&
-				e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol,
-					bsize, &mi) {
-				return varY, sseY, true
-			}
-		default:
-			if varY, sseY, ok2 := e.vp9InterPredictionBorderedConvolveVarianceSSE(
-				inter, miRow, miCol, bsize, refFrame, mv, filter,
-				src, srcStride, dst, dstStride, x0, y0, scoreW, scoreH); ok2 {
-				return varY, sseY, true
-			}
-		}
-	}
-	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+	if !e.predictVP9InterBlockLumaOnly(inter, miRows, miCols, miRow, miCol,
+		bsize, &mi) {
 		return 0, 0, false
 	}
 	variance, sse = encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,

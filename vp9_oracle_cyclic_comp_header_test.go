@@ -28,7 +28,7 @@ func TestVP9OracleCyclicRefreshCompressedHeaderContextDiff(t *testing.T) {
 	got := encodeVP9FramesWithGovpx(t, opts, sources, nil)
 	want := vp9test.VpxencFrameFlagPackets(t, sources, vp9LibvpxFrameFlags(nil), extraArgs...)
 
-	const frame = 1
+	const frame = 2
 	gKey, _ := readVP9OracleKeyHeaderWithLen(t, "govpx", got[0], width, height)
 	lKey, _ := readVP9OracleKeyHeaderWithLen(t, "libvpx", want[0], width, height)
 	gHdr := readVP9OraclePacketHeader(t, "govpx", frame, got[frame], &gKey, width, height)
@@ -117,7 +117,7 @@ func TestVP9OracleCyclicRefreshPanningInterMiGridDiff(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 cyclic refresh panning MI grid diff")
 	vp9test.RequireVpxencFrameFlags(t)
 
-	const width, height, frames = 64, 64, 3
+	const width, height, frames = 64, 64, 10
 	sources := make([]*image.YCbCr, frames)
 	for i := range sources {
 		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
@@ -130,7 +130,7 @@ func TestVP9OracleCyclicRefreshPanningInterMiGridDiff(t *testing.T) {
 	gotGrids := decodeVP9SequenceMiGridsForOracleTest(t, got)
 	wantGrids := decodeVP9SequenceMiGridsForOracleTest(t, want)
 
-	for frame := 1; frame <= 2; frame++ {
+	for frame := 1; frame < frames; frame++ {
 		gGrid := gotGrids[frame]
 		lGrid := wantGrids[frame]
 		if len(gGrid) != len(lGrid) {

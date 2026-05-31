@@ -17,8 +17,8 @@ import (
 )
 
 // vp9CyclicRefreshParitySeeds pins realtime speed-8 CBR cyclic-AQ schedules.
-// Frame 0 (key) byte-matches libvpx; inter frames remain in the open parity
-// lane until the cyclic refresh encode path closes.
+// Keyframes and inter frames byte-match libvpx for the pinned realtime cyclic
+// refresh schedules.
 var vp9CyclicRefreshParitySeeds = [][]byte{
 	// (dimBucket=64, frames=6, source=panning)
 	{0, 1, 0},
@@ -243,8 +243,8 @@ func TestVP9OracleCyclicRefreshKeyframeSeedsMatchLibvpx(t *testing.T) {
 	}
 }
 
-func TestVP9OracleCyclicRefreshInterParityGapSeedsRemainMeasurable(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 cyclic refresh inter parity-gap seeds")
+func TestVP9OracleCyclicRefreshInterSeedsMatchLibvpx(t *testing.T) {
+	vp9test.RequireOracle(t, "VP9 cyclic refresh inter byte parity seeds")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	for idx, seed := range vp9CyclicRefreshParitySeeds {
@@ -350,10 +350,11 @@ func TestVP9OracleCyclicRefreshInterParityGapSeedsRemainMeasurable(t *testing.T)
 				}
 			}
 		}
-		t.Logf("%s inter byte parity %d/%d total_size_delta=%+d (open lane)",
+		t.Logf("%s inter byte parity %d/%d total_size_delta=%+d",
 			label, matches, len(got)-1, aggDelta)
-		if matches == len(got)-1 {
-			t.Logf("%s WARNING: full inter byte parity — consider promoting seed to vp9CyclicRefreshParitySeeds strict corpus", label)
+		if matches != len(got)-1 || aggDelta != 0 {
+			t.Fatalf("%s inter byte parity regressed: matches=%d/%d total_size_delta=%+d",
+				label, matches, len(got)-1, aggDelta)
 		}
 	}
 }

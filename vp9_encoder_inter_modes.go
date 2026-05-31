@@ -1540,6 +1540,7 @@ type vp9InterMvSearchOptions struct {
 	refMvValid      bool
 	nonrdSubpelTree bool
 	useMvPart       bool
+	nonrdPrecheck   func(vp9dec.MV) bool
 }
 
 func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
@@ -1786,6 +1787,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
 	vp9dec.ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
 	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
+	if opts.nonrdPrecheck != nil && !opts.nonrdPrecheck(mv) {
+		return vp9dec.MV{}, bestScore, false
+	}
 	// SPEED_FEATURES.mv.subpel_force_stop == FULL_PEL — libvpx skips
 	// vp9_find_best_sub_pixel_tree* entirely. govpx mirrors that gate here.
 	//

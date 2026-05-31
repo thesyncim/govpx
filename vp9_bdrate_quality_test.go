@@ -462,12 +462,16 @@ func TestVP9BDRateCyclicRefresh(t *testing.T) {
 		BuildLibvpx:          benchcmd.LibvpxBuildRequested(),
 		Baseline: func(o *govpx.VP9EncoderOptions) {
 			// libvpx CBR + aq-mode=0 baseline.
+			o.Deadline = govpx.DeadlineRealtime
+			o.CpuUsed = 8
 			o.RateControlModeSet = true
 			o.RateControlMode = govpx.RateControlCBR
 			o.AQMode = govpx.VP9AQNone
 		},
 		Test: func(o *govpx.VP9EncoderOptions) {
 			// libvpx CBR + aq-mode=3 (CYCLIC_REFRESH_AQ).
+			o.Deadline = govpx.DeadlineRealtime
+			o.CpuUsed = 8
 			o.RateControlModeSet = true
 			o.RateControlMode = govpx.RateControlCBR
 			o.AQMode = govpx.VP9AQCyclicRefresh

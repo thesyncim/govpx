@@ -112,9 +112,10 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	skipLowSourceSAD := contentState == encoder.ContentStateLowSadLowSumdiff ||
 		contentState == encoder.ContentStateLowSadHighSumdiff
 	lowvarHighsumdiff := contentState == encoder.ContentStateLowVarHighSumdiff
-	if !encoder.NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
+	precheckPass := encoder.NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh,
 		forceSkipLowTempVar, bsize, contentState, xSkip, e.rc.highSourceSAD,
-		screenFlat, skipLowSourceSAD, lowvarHighsumdiff) {
+		screenFlat, skipLowSourceSAD, lowvarHighsumdiff)
+	if !precheckPass {
 		// libvpx: the gate at vp9_pickmode.c:2527-2534 also fires when
 		// best_rdc.rdcost == INT64_MAX (no inter winner). The caller
 		// invokes this helper only after an inter winner exists, so that

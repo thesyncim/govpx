@@ -63,6 +63,21 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	return counts
 }
 
+func vp9SkipEncodeFrameFromCounts(header *vp9dec.UncompressedHeader, counts *encoder.FrameCounts) int {
+	if header == nil || counts == nil || header.FrameType == common.KeyFrame || !header.ShowFrame {
+		return 0
+	}
+	var intraCount, interCount uint32
+	for i := range common.IntraInterContexts {
+		intraCount += counts.IntraInter[i][0]
+		interCount += counts.IntraInter[i][1]
+	}
+	if intraCount<<2 < interCount {
+		return 1
+	}
+	return 0
+}
+
 func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int,
 	tileInfo vp9dec.TileInfo,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,

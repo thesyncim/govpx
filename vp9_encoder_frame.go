@@ -568,6 +568,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if err != nil {
 		return VP9EncodeResult{}, err
 	}
+	e.sf.SkipEncodeFrame = 0
+	if e.sf.SkipEncodeSb != 0 {
+		e.sf.SkipEncodeFrame = vp9SkipEncodeFrameFromCounts(header, counts)
+	}
 	n := tileStart + tileSize
 	// Post-tile loop-filter strength picker. The reconstruction
 	// buffer (e.reconYFull) is now populated with the unfiltered
