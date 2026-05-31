@@ -134,3 +134,27 @@ func TestVP9KeyframeRDPartitionRequiresVarBasedRDRow(t *testing.T) {
 		t.Fatalf("lossless keyframe enabled RD partition")
 	}
 }
+
+func TestVP9KeyframeRDPartitionBreakoutThresholds(t *testing.T) {
+	var e VP9Encoder
+	e.sf.PartitionSearchBreakoutThr.Dist = 1 << 19
+	e.sf.PartitionSearchBreakoutThr.Rate = 80
+
+	dist, rate := e.vp9KeyframeRDPartitionBreakoutThresholds(common.Block8x8)
+	if dist != 1<<13 {
+		t.Fatalf("Block8x8 dist threshold = %d, want %d", dist, 1<<13)
+	}
+	if rate != 80*int(common.NumPelsLog2Lookup[common.Block8x8]) {
+		t.Fatalf("Block8x8 rate threshold = %d, want %d",
+			rate, 80*int(common.NumPelsLog2Lookup[common.Block8x8]))
+	}
+
+	dist, rate = e.vp9KeyframeRDPartitionBreakoutThresholds(common.Block64x64)
+	if dist != 1<<19 {
+		t.Fatalf("Block64x64 dist threshold = %d, want %d", dist, 1<<19)
+	}
+	if rate != 80*int(common.NumPelsLog2Lookup[common.Block64x64]) {
+		t.Fatalf("Block64x64 rate threshold = %d, want %d",
+			rate, 80*int(common.NumPelsLog2Lookup[common.Block64x64]))
+	}
+}

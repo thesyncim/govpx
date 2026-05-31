@@ -227,13 +227,15 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		miRow, miCol, root)
 	bestSet := false
 	var best vp9KeyframePartitionRD
+	distBreakoutThr, rateBreakoutThr := e.vp9KeyframeRDPartitionBreakoutThresholds(root)
+	doRect := true
 	consider := func(partition common.PartitionType,
-		score func(bool, bool) (vp9KeyframePartitionRD, bool),
-	) {
+		refBestRD uint64, score func(uint64, bool, bool) (vp9KeyframePartitionRD, bool),
+	) (vp9KeyframePartitionRD, bool, bool) {
 		restoreBase()
-		rd, ok := score(true, false)
+		rd, ok := score(refBestRD, true, false)
 		if !ok {
-			return
+			return vp9KeyframePartitionRD{}, false, false
 		}
 		rd.partition = partition
 		rd.target = common.SubsizeLookup[partition][root]
@@ -244,43 +246,77 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			hasRows, hasCols)
 		rd.score = encoder.RDCost(rdmult, encoder.RDDivBits, rd.rate,
 			rd.distortion)
-		if !bestSet || rd.score < best.score ||
-			(rd.score == best.score && rd.rate < best.rate) {
+		improved := !bestSet || rd.score < best.score
+		if improved {
 			best = rd
 			bestSet = true
 		}
+		return rd, true, improved
 	}
 	if noneAllowed {
-		consider(common.PartitionNone, func(apply, store bool) (vp9KeyframePartitionRD, bool) {
-			rd, ok := e.scoreVP9KeyframeRDPartitionLeafForTree(key, tile,
-				miRows, miCols, miRow, miCol, root, txMode, bestRD, apply, store)
-			if ok && apply {
-				e.updateVP9PartitionContextForChoice(miRow, miCol, root,
-					common.PartitionNone, root)
-			}
-			return rd, ok
-		})
+		consider(common.PartitionNone, bestRD,
+			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
+				rd, ok := e.scoreVP9KeyframeRDPartitionLeafForTree(key, tile,
+					miRows, miCols, miRow, miCol, root, txMode, refBestRD, apply, store)
+				if ok && apply {
+					e.updateVP9PartitionContextForChoice(miRow, miCol, root,
+						common.PartitionNone, root)
+				}
+				return rd, ok
+			})
 	}
 	if doSplit {
-		consider(common.PartitionSplit, func(apply, store bool) (vp9KeyframePartitionRD, bool) {
-			return e.scoreVP9KeyframeRDPartitionSplit(key, tile, partitionProbs,
-				miRows, miCols, miRow, miCol, root, splitSize, txMode,
-				bestRD, apply, store)
-		})
+		splitBestRD := bestRD
+		if bestSet {
+			splitBestRD = best.score
+		}
+		splitRD, splitOK, splitImproved := consider(common.PartitionSplit, splitBestRD,
+			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
+				return e.scoreVP9KeyframeRDPartitionSplit(key, tile, partitionProbs,
+					miRows, miCols, miRow, miCol, root, splitSize, txMode,
+					refBestRD, apply, store)
+			})
+		if splitOK {
+			if splitImproved {
+				if best.distortion < distBreakoutThr>>2 ||
+					(best.distortion < distBreakoutThr &&
+						best.rate < rateBreakoutThr) {
+					doRect = false
+				}
+			} else if e.sf.LessRectangularCheck != 0 &&
+				(root > e.sf.UseSquareOnlyThreshHigh ||
+					best.distortion < distBreakoutThr) {
+				doRect = doRect && !noneAllowed
+			}
+			_ = splitRD
+		}
 	}
-	if horzAllowed {
-		consider(common.PartitionHorz, func(apply, store bool) (vp9KeyframePartitionRD, bool) {
-			return e.scoreVP9KeyframeRDPartitionRect(key, tile, miRows, miCols,
-				miRow, miCol, root, horzSize, common.PartitionHorz, bs, 0,
-				txMode, bestRD, apply, store)
-		})
+	if horzAllowed && doRect {
+		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
+			common.PartitionHorz, hasRows, hasCols)
+		consider(common.PartitionHorz, e.vp9KeyframeRDPartitionRectBestRD(
+			rdmult, bestRD, best, bestSet, partRate),
+			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
+				return e.scoreVP9KeyframeRDPartitionRect(key, tile, miRows, miCols,
+					miRow, miCol, root, horzSize, common.PartitionHorz, bs, 0,
+					txMode, refBestRD, apply, store)
+			})
+		if best.partition == common.PartitionHorz &&
+			e.sf.LessRectangularCheck != 0 &&
+			root > e.sf.UseSquareOnlyThreshHigh {
+			doRect = false
+		}
 	}
-	if vertAllowed {
-		consider(common.PartitionVert, func(apply, store bool) (vp9KeyframePartitionRD, bool) {
-			return e.scoreVP9KeyframeRDPartitionRect(key, tile, miRows, miCols,
-				miRow, miCol, root, vertSize, common.PartitionVert, 0, bs,
-				txMode, bestRD, apply, store)
-		})
+	if vertAllowed && doRect {
+		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
+			common.PartitionVert, hasRows, hasCols)
+		consider(common.PartitionVert, e.vp9KeyframeRDPartitionRectBestRD(
+			rdmult, bestRD, best, bestSet, partRate),
+			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
+				return e.scoreVP9KeyframeRDPartitionRect(key, tile, miRows, miCols,
+					miRow, miCol, root, vertSize, common.PartitionVert, 0, bs,
+					txMode, refBestRD, apply, store)
+			})
 	}
 	if !bestSet {
 		restoreBase()
@@ -412,6 +448,33 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionRect(key *vp9KeyframeEncodeState
 		e.updateVP9PartitionContextForChoice(miRow, miCol, root, partition, child)
 	}
 	return out, true
+}
+
+func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockSize) (uint64, int) {
+	distBreakoutThr := e.sf.PartitionSearchBreakoutThr.Dist
+	rateBreakoutThr := e.sf.PartitionSearchBreakoutThr.Rate
+	if root < common.BlockSizes {
+		shift := 8 - (int(common.BWidthLog2Lookup[root]) +
+			int(common.BHeightLog2Lookup[root]))
+		if shift > 0 {
+			distBreakoutThr >>= uint(shift)
+		}
+		rateBreakoutThr *= int(common.NumPelsLog2Lookup[root])
+	}
+	return uint64(distBreakoutThr), rateBreakoutThr
+}
+
+func (e *VP9Encoder) vp9KeyframeRDPartitionRectBestRD(rdmult int,
+	fallback uint64, best vp9KeyframePartitionRD, bestSet bool, partRate int,
+) uint64 {
+	if !bestSet {
+		return fallback
+	}
+	rate := best.rate - partRate
+	if rate < 0 {
+		rate = 0
+	}
+	return encoder.RDCost(rdmult, encoder.RDDivBits, rate, best.distortion)
 }
 
 func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeafForTree(key *vp9KeyframeEncodeState,
