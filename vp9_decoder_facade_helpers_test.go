@@ -14,6 +14,7 @@ import (
 const (
 	vp9DefaultBaseQIndexForTest      = 37
 	vp9DefaultInterBaseQIndexForTest = 128
+	vp9SteadyStateAllocRunsForTest   = 25
 )
 
 func vp9EncodedKeyframeForTest(t testing.TB, width int, height int, y byte) []byte {

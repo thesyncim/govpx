@@ -1,21 +1,20 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
-	"unsafe"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestNewVP9DecoderRejectsInvalidByteAlignment(t *testing.T) {
 	cases := []int{-1, 1, 16, 31, 33, 48, 2048}
 	for _, alignment := range cases {
-		_, err := NewVP9Decoder(VP9DecoderOptions{
+		_, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 			ByteAlignment: alignment,
 		})
-		if !errors.Is(err, ErrInvalidConfig) {
+		if !errors.Is(err, govpx.ErrInvalidConfig) {
 			t.Errorf("ByteAlignment=%d err = %v, want ErrInvalidConfig",
 				alignment, err)
 		}
@@ -23,7 +22,7 @@ func TestNewVP9DecoderRejectsInvalidByteAlignment(t *testing.T) {
 }
 
 func TestVP9DecoderSetByteAlignmentValidation(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -31,12 +30,9 @@ func TestVP9DecoderSetByteAlignmentValidation(t *testing.T) {
 		if err := d.SetByteAlignment(alignment); err != nil {
 			t.Fatalf("SetByteAlignment(%d): %v", alignment, err)
 		}
-		if got := d.opts.ByteAlignment; got != alignment {
-			t.Fatalf("SetByteAlignment(%d) stored %d", alignment, got)
-		}
 	}
 	for _, alignment := range []int{-1, 1, 16, 48, 2048} {
-		if err := d.SetByteAlignment(alignment); !errors.Is(err, ErrInvalidConfig) {
+		if err := d.SetByteAlignment(alignment); !errors.Is(err, govpx.ErrInvalidConfig) {
 			t.Fatalf("SetByteAlignment(%d) err = %v, want ErrInvalidConfig",
 				alignment, err)
 		}
@@ -44,18 +40,18 @@ func TestVP9DecoderSetByteAlignmentValidation(t *testing.T) {
 	if err := d.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := d.SetByteAlignment(64); !errors.Is(err, ErrClosed) {
+	if err := d.SetByteAlignment(64); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("closed SetByteAlignment err = %v, want ErrClosed", err)
 	}
-	var nilDecoder *VP9Decoder
-	if err := nilDecoder.SetByteAlignment(64); !errors.Is(err, ErrClosed) {
+	var nilDecoder *govpx.VP9Decoder
+	if err := nilDecoder.SetByteAlignment(64); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("nil SetByteAlignment err = %v, want ErrClosed", err)
 	}
 }
 
 func TestVP9DecoderByteAlignmentAlignsVisiblePlanes(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{ByteAlignment: 128})
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{ByteAlignment: 128})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -67,15 +63,15 @@ func TestVP9DecoderByteAlignmentAlignsVisiblePlanes(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned no visible frame")
 	}
-	assertVP9NeutralFrame(t, frame, 64, 64)
-	assertVP9PlaneAligned(t, "Y", frame.Y, 128)
-	assertVP9PlaneAligned(t, "U", frame.U, 128)
-	assertVP9PlaneAligned(t, "V", frame.V, 128)
+	assertVP9NeutralFrameForTest(t, frame, 64, 64)
+	assertVP9PlaneAlignedForTest(t, "Y", frame.Y, 128)
+	assertVP9PlaneAlignedForTest(t, "U", frame.U, 128)
+	assertVP9PlaneAlignedForTest(t, "V", frame.V, 128)
 }
 
 func TestVP9DecoderSetByteAlignmentAppliesToFutureFrames(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -96,25 +92,25 @@ func TestVP9DecoderSetByteAlignmentAppliesToFutureFrames(t *testing.T) {
 	if !ok {
 		t.Fatal("aligned NextFrame returned no visible frame")
 	}
-	assertVP9PlaneAligned(t, "Y", frame.Y, 256)
-	assertVP9PlaneAligned(t, "U", frame.U, 256)
-	assertVP9PlaneAligned(t, "V", frame.V, 256)
+	assertVP9PlaneAlignedForTest(t, "Y", frame.Y, 256)
+	assertVP9PlaneAlignedForTest(t, "U", frame.U, 256)
+	assertVP9PlaneAlignedForTest(t, "V", frame.V, 256)
 }
 
 func TestVP9DecoderByteAlignmentPreservesPixels(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 96, 80, 0, common.DcPred)
+	packet := vp9EncodedKeyframeForTest(t, 96, 80, 128)
 	want := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
-		VP9DecoderOptions{}, packet)
+		govpx.VP9DecoderOptions{}, packet)
 	got := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
-		VP9DecoderOptions{ByteAlignment: 512}, packet)
-	assertVP9ImagesEqual(t, want, got)
-	assertVP9PlaneAligned(t, "Y", got.Y, 512)
-	assertVP9PlaneAligned(t, "U", got.U, 512)
-	assertVP9PlaneAligned(t, "V", got.V, 512)
+		govpx.VP9DecoderOptions{ByteAlignment: 512}, packet)
+	assertVP9ImagesEqualForTest(t, want, got)
+	assertVP9PlaneAlignedForTest(t, "Y", got.Y, 512)
+	assertVP9PlaneAlignedForTest(t, "U", got.U, 512)
+	assertVP9PlaneAlignedForTest(t, "V", got.V, 512)
 }
 
 func TestVP9DecoderByteAlignmentAlignsShowExistingFrame(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
@@ -123,7 +119,7 @@ func TestVP9DecoderByteAlignmentAlignsShowExistingFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	d, err := NewVP9Decoder(VP9DecoderOptions{ByteAlignment: 256})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{ByteAlignment: 256})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -141,17 +137,17 @@ func TestVP9DecoderByteAlignmentAlignsShowExistingFrame(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned no show-existing frame")
 	}
-	assertVP9NeutralFrame(t, frame, 64, 64)
-	assertVP9PlaneAligned(t, "Y", frame.Y, 256)
-	assertVP9PlaneAligned(t, "U", frame.U, 256)
-	assertVP9PlaneAligned(t, "V", frame.V, 256)
+	assertVP9NeutralFrameForTest(t, frame, 64, 64)
+	assertVP9PlaneAlignedForTest(t, "Y", frame.Y, 256)
+	assertVP9PlaneAlignedForTest(t, "U", frame.U, 256)
+	assertVP9PlaneAlignedForTest(t, "V", frame.V, 256)
 }
 
 func TestVP9DecoderByteAlignmentAlignsPostProcessedFrame(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		ByteAlignment:    128,
-		PostProcessFlags: PostProcessDeblock,
+		PostProcessFlags: govpx.PostProcessDeblock,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
@@ -164,19 +160,7 @@ func TestVP9DecoderByteAlignmentAlignsPostProcessedFrame(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned no visible frame")
 	}
-	assertVP9PlaneAligned(t, "Y", frame.Y, 128)
-	assertVP9PlaneAligned(t, "U", frame.U, 128)
-	assertVP9PlaneAligned(t, "V", frame.V, 128)
-}
-
-func assertVP9PlaneAligned(t *testing.T, name string, plane []byte, alignment int) {
-	t.Helper()
-	if len(plane) == 0 {
-		t.Fatalf("%s plane is empty", name)
-	}
-	ptr := uintptr(unsafe.Pointer(&plane[0]))
-	if ptr%uintptr(alignment) != 0 {
-		t.Fatalf("%s plane pointer %#x is not %d-byte aligned",
-			name, ptr, alignment)
-	}
+	assertVP9PlaneAlignedForTest(t, "Y", frame.Y, 128)
+	assertVP9PlaneAlignedForTest(t, "U", frame.U, 128)
+	assertVP9PlaneAlignedForTest(t, "V", frame.V, 128)
 }
