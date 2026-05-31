@@ -420,3 +420,114 @@ func TestVP9EncoderRejectsInvalidRateControlBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestVP9EncoderValidatesGFIntervalBounds(t *testing.T) {
+	constructorCases := []struct {
+		name string
+		opts govpx.VP9EncoderOptions
+		err  error
+	}{
+		{
+			name: "negative min",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MinGFInterval: -1,
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "negative max",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MaxGFInterval: -1,
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "libvpx max lag minus one",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MaxGFInterval: 24,
+			},
+		},
+		{
+			name: "above libvpx max lag minus one",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MaxGFInterval: 25,
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "max one",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MaxGFInterval: 1,
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "min above max",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MinGFInterval: 12,
+				MaxGFInterval: 8,
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+	}
+	for _, tc := range constructorCases {
+		t.Run("constructor/"+tc.name, func(t *testing.T) {
+			_, err := govpx.NewVP9Encoder(tc.opts)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("NewVP9Encoder err = %v, want %v", err, tc.err)
+			}
+		})
+	}
+
+	setterCases := []struct {
+		name string
+		opts govpx.VP9EncoderOptions
+		set  func(*govpx.VP9Encoder) error
+		err  error
+	}{
+		{
+			name: "min above max",
+			opts: govpx.VP9EncoderOptions{
+				Width: 64, Height: 64, FPS: 30,
+				MaxGFInterval: 6,
+			},
+			set: func(e *govpx.VP9Encoder) error {
+				return e.SetMinGFInterval(10)
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "max oversized",
+			opts: govpx.VP9EncoderOptions{Width: 64, Height: 64, FPS: 30},
+			set: func(e *govpx.VP9Encoder) error {
+				return e.SetMaxGFInterval(25)
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+		{
+			name: "max one",
+			opts: govpx.VP9EncoderOptions{Width: 64, Height: 64, FPS: 30},
+			set: func(e *govpx.VP9Encoder) error {
+				return e.SetMaxGFInterval(1)
+			},
+			err: govpx.ErrInvalidConfig,
+		},
+	}
+	for _, tc := range setterCases {
+		t.Run("runtime/"+tc.name, func(t *testing.T) {
+			e, err := govpx.NewVP9Encoder(tc.opts)
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			if err := tc.set(e); !errors.Is(err, tc.err) {
+				t.Fatalf("setter err = %v, want %v", err, tc.err)
+			}
+		})
+	}
+}

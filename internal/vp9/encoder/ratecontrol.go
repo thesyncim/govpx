@@ -47,10 +47,26 @@ func MacroblockCount(miRows, miCols int) int {
 // RegulatedQuantizer selects the qindex whose projected bits-per-macroblock
 // best meets targetBits inside [activeBest, activeWorst].
 func RegulatedQuantizer(intraOnly bool, targetBits int, macroblocks int, activeBest int, activeWorst int, correctionFactor float64) int {
-	return RegulatedQuantizerWithBitsPerMB(intraOnly, targetBits, macroblocks,
-		activeBest, activeWorst, func(qindex int) int {
-			return BitsPerMB(intraOnly, qindex, correctionFactor)
-		})
+	if macroblocks <= 0 || targetBits <= 0 {
+		return activeBest
+	}
+	targetBitsPerMB := int((uint64(targetBits) << bPerMBNormBits) / uint64(macroblocks))
+	q := activeWorst
+	lastError := maxInt()
+	for i := activeBest; i <= activeWorst; i++ {
+		bpm := BitsPerMB(intraOnly, i, correctionFactor)
+		diffBits := targetBitsPerMB - bpm
+		if bpm <= targetBitsPerMB {
+			if diffBits <= lastError {
+				q = i
+			} else {
+				q = i - 1
+			}
+			break
+		}
+		lastError = -diffBits
+	}
+	return min(max(q, activeBest), activeWorst)
 }
 
 // RegulatedQuantizerWithBitsPerMB is the libvpx vp9_rc_regulate_q search with
@@ -65,6 +81,33 @@ func RegulatedQuantizerWithBitsPerMB(intraOnly bool, targetBits int, macroblocks
 	lastError := maxInt()
 	for i := activeBest; i <= activeWorst; i++ {
 		bpm := bitsPerMB(i)
+		diffBits := targetBitsPerMB - bpm
+		if bpm <= targetBitsPerMB {
+			if diffBits <= lastError {
+				q = i
+			} else {
+				q = i - 1
+			}
+			break
+		}
+		lastError = -diffBits
+	}
+	return min(max(q, activeBest), activeWorst)
+}
+
+// RegulatedQuantizerWithCyclicRefresh is the libvpx vp9_rc_regulate_q search
+// using vp9_cyclic_refresh_rc_bits_per_mb for the per-q projection. It keeps
+// the production cyclic-refresh path concrete instead of routing every qindex
+// probe through a function value.
+func RegulatedQuantizerWithCyclicRefresh(intraOnly bool, targetBits int, macroblocks int, activeBest int, activeWorst int, cyclic *CyclicRefreshState, encodeSpeed int, correctionFactor float64) int {
+	if macroblocks <= 0 || targetBits <= 0 || cyclic == nil {
+		return activeBest
+	}
+	targetBitsPerMB := int((uint64(targetBits) << bPerMBNormBits) / uint64(macroblocks))
+	q := activeWorst
+	lastError := maxInt()
+	for i := activeBest; i <= activeWorst; i++ {
+		bpm := cyclic.RCBitsPerMB(i, intraOnly, encodeSpeed, correctionFactor)
 		diffBits := targetBitsPerMB - bpm
 		if bpm <= targetBitsPerMB {
 			if diffBits <= lastError {

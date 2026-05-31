@@ -71,6 +71,35 @@ func TestRegulatedQuantizerRespectsActiveRange(t *testing.T) {
 	}
 }
 
+func TestRegulatedQuantizerMatchesBitsPerMBModel(t *testing.T) {
+	cases := []struct {
+		name             string
+		intraOnly        bool
+		targetBits       int
+		macroblocks      int
+		activeBest       int
+		activeWorst      int
+		correctionFactor float64
+	}{
+		{name: "inter low target", targetBits: 4000, macroblocks: 16, activeBest: 12, activeWorst: 64, correctionFactor: 1.0},
+		{name: "inter high correction", targetBits: 9000, macroblocks: 48, activeBest: 8, activeWorst: 160, correctionFactor: 2.5},
+		{name: "intra", intraOnly: true, targetBits: 12000, macroblocks: 64, activeBest: 4, activeWorst: 180, correctionFactor: 0.75},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := RegulatedQuantizer(tc.intraOnly, tc.targetBits, tc.macroblocks,
+				tc.activeBest, tc.activeWorst, tc.correctionFactor)
+			want := RegulatedQuantizerWithBitsPerMB(tc.intraOnly, tc.targetBits,
+				tc.macroblocks, tc.activeBest, tc.activeWorst, func(qindex int) int {
+					return BitsPerMB(tc.intraOnly, qindex, tc.correctionFactor)
+				})
+			if got != want {
+				t.Fatalf("RegulatedQuantizer = %d, callback model = %d", got, want)
+			}
+		})
+	}
+}
+
 func TestComputeQDeltaByRateDirection(t *testing.T) {
 	if got := ComputeQDeltaByRate(0, 255, false, 96, 0, 1); got != 0 {
 		t.Fatalf("invalid ratio delta = %d, want 0", got)

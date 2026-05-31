@@ -441,10 +441,16 @@ func TestVP9CyclicRefreshRegulatedQuantizerUsesSegmentWeightedModel(t *testing.T
 		WeightSegment:      0.5,
 	}
 	plain := vp9enc.RegulatedQuantizer(false, 4000, 16, 12, 64, 1.0)
-	weighted := vp9enc.RegulatedQuantizerWithBitsPerMB(false, 4000, 16, 12, 64,
+	weightedViaCallback := vp9enc.RegulatedQuantizerWithBitsPerMB(false, 4000, 16, 12, 64,
 		func(qindex int) int {
 			return cr.RCBitsPerMB(qindex, false, 4, 1.0)
 		})
+	weighted := vp9enc.RegulatedQuantizerWithCyclicRefresh(false, 4000, 16,
+		12, 64, cr, 4, 1.0)
+	if weighted != weightedViaCallback {
+		t.Fatalf("concrete q=%d, callback q=%d; want identical cyclic-refresh regulate_q",
+			weighted, weightedViaCallback)
+	}
 	if weighted <= plain {
 		t.Fatalf("weighted q=%d, plain q=%d; want coarser q with segment boost", weighted, plain)
 	}

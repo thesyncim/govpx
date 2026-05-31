@@ -101,28 +101,27 @@ func idct32x32Residual(input []int16, residual *[1024]int16, rowLimit int) {
 // of a 2-D hybrid 4x4 inverse transform. txType selects the
 // (row, column) kernel pair the same way iht4x4_16AddScalar does.
 func iht4x4Residual(input []int16, residual *[16]int16, txType int) {
-	rowKernel := idct4
-	colKernel := idct4
-	switch txType {
-	case 1: // ADST_DCT
-		colKernel = Iadst4
-	case 2: // DCT_ADST
-		rowKernel = Iadst4
-	case 3: // ADST_ADST
-		rowKernel = Iadst4
-		colKernel = Iadst4
-	}
+	rowAdst := txType == 2 || txType == 3
+	colAdst := txType == 1 || txType == 3
 
 	var out [16]int16
 	for i := range 4 {
-		rowKernel(input[i*4:i*4+4], out[i*4:i*4+4])
+		if rowAdst {
+			Iadst4(input[i*4:i*4+4], out[i*4:i*4+4])
+		} else {
+			idct4(input[i*4:i*4+4], out[i*4:i*4+4])
+		}
 	}
 	var tempIn, tempOut [4]int16
 	for i := range 4 {
 		for j := range 4 {
 			tempIn[j] = out[j*4+i]
 		}
-		colKernel(tempIn[:], tempOut[:])
+		if colAdst {
+			Iadst4(tempIn[:], tempOut[:])
+		} else {
+			idct4(tempIn[:], tempOut[:])
+		}
 		residual[0*4+i] = tempOut[0]
 		residual[1*4+i] = tempOut[1]
 		residual[2*4+i] = tempOut[2]
@@ -133,28 +132,27 @@ func iht4x4Residual(input []int16, residual *[16]int16, txType int) {
 // iht8x8Residual fills residual[64] (row-major) with the int16 result
 // of a 2-D hybrid 8x8 inverse transform.
 func iht8x8Residual(input []int16, residual *[64]int16, txType int) {
-	rowKernel := idct8
-	colKernel := idct8
-	switch txType {
-	case 1:
-		colKernel = iadst8
-	case 2:
-		rowKernel = iadst8
-	case 3:
-		rowKernel = iadst8
-		colKernel = iadst8
-	}
+	rowAdst := txType == 2 || txType == 3
+	colAdst := txType == 1 || txType == 3
 
 	var out [64]int16
 	for i := range 8 {
-		rowKernel(input[i*8:i*8+8], out[i*8:i*8+8])
+		if rowAdst {
+			iadst8(input[i*8:i*8+8], out[i*8:i*8+8])
+		} else {
+			idct8(input[i*8:i*8+8], out[i*8:i*8+8])
+		}
 	}
 	var tempIn, tempOut [8]int16
 	for i := range 8 {
 		for j := range 8 {
 			tempIn[j] = out[j*8+i]
 		}
-		colKernel(tempIn[:], tempOut[:])
+		if colAdst {
+			iadst8(tempIn[:], tempOut[:])
+		} else {
+			idct8(tempIn[:], tempOut[:])
+		}
 		for j := range 8 {
 			residual[j*8+i] = tempOut[j]
 		}

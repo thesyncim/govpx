@@ -81,20 +81,32 @@ func iadst8(input, output []int16) {
 	output[7] = -int16(x1)
 }
 
-// iht8x8_64Add is the shared 2-D dispatch body for Iht8x8_64Add. The
-// row and column kernels are passed in so the caller can compose any
-// (DCT, ADST) pair without this function knowing the dispatch table.
-func iht8x8_64Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
+// iht8x8_64Add applies a 2-D inverse transform to an 8x8 coefficient
+// block and adds the result onto dest. The transform pair is selected
+// by txType: (DCT_DCT, ADST_DCT, DCT_ADST, ADST_ADST). Mirrors
+// vp9_iht8x8_64_add_c.
+func iht8x8_64Add(input []int16, dest []uint8, stride int, txType int) {
+	rowAdst := txType == 2 || txType == 3
+	colAdst := txType == 1 || txType == 3
+
 	var out [64]int16
 	for i := range 8 {
-		rowKernel(input[i*8:i*8+8], out[i*8:i*8+8])
+		if rowAdst {
+			iadst8(input[i*8:i*8+8], out[i*8:i*8+8])
+		} else {
+			idct8(input[i*8:i*8+8], out[i*8:i*8+8])
+		}
 	}
 	var tempIn, tempOut [8]int16
 	for i := range 8 {
 		for j := range 8 {
 			tempIn[j] = out[j*8+i]
 		}
-		colKernel(tempIn[:], tempOut[:])
+		if colAdst {
+			iadst8(tempIn[:], tempOut[:])
+		} else {
+			idct8(tempIn[:], tempOut[:])
+		}
 		for j := range 8 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 5))
@@ -109,14 +121,5 @@ func iht8x8_64Add(rowKernel, colKernel func(in, out []int16), input []int16, des
 // Scalar reference; the exported Iht8x8_64Add wrapper is in
 // idct_dispatch_*.go.
 func iht8x8_64AddScalar(input []int16, dest []uint8, stride int, txType int) {
-	switch txType {
-	case 0: // DCT_DCT
-		iht8x8_64Add(idct8, idct8, input, dest, stride)
-	case 1: // ADST_DCT: row pass DCT, col pass ADST
-		iht8x8_64Add(idct8, iadst8, input, dest, stride)
-	case 2: // DCT_ADST: row pass ADST, col pass DCT
-		iht8x8_64Add(iadst8, idct8, input, dest, stride)
-	case 3: // ADST_ADST
-		iht8x8_64Add(iadst8, iadst8, input, dest, stride)
-	}
+	iht8x8_64Add(input, dest, stride, txType)
 }

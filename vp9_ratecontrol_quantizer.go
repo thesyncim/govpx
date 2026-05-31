@@ -267,10 +267,9 @@ func (rc *vp9RateControlState) vbrQuantizerWithBounds(intraOnly bool, refreshFla
 // vp9_cyclic_refresh_rc_bits_per_mb instead of vp9_rc_bits_per_mb.
 func vp9RegulatedQuantizer(intraOnly bool, targetBits int, macroblocks int, activeBest, activeWorst int, correctionFactor float64, cyclic *encoder.CyclicRefreshState, encodeSpeed int) int {
 	if cyclic != nil && cyclic.Enabled && cyclic.ApplyCyclicRefresh && !intraOnly {
-		return encoder.RegulatedQuantizerWithBitsPerMB(intraOnly, targetBits, macroblocks,
-			activeBest, activeWorst, func(qindex int) int {
-				return cyclic.RCBitsPerMB(qindex, intraOnly, encodeSpeed, correctionFactor)
-			})
+		return encoder.RegulatedQuantizerWithCyclicRefresh(intraOnly,
+			targetBits, macroblocks, activeBest, activeWorst, cyclic,
+			encodeSpeed, correctionFactor)
 	}
 	return encoder.RegulatedQuantizer(intraOnly, targetBits, macroblocks,
 		activeBest, activeWorst, correctionFactor)

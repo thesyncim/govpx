@@ -174,6 +174,42 @@ func TestVP9IhtFullSimdAgreement(t *testing.T) {
 	}
 }
 
+func TestVP9IhtFullNoAlloc(t *testing.T) {
+	var input [256]int16
+	for i := range input {
+		input[i] = int16((i*17)%257 - 128)
+	}
+	var dest [16 * 32]uint8
+	for i := range dest {
+		dest[i] = uint8((i * 19) & 0xff)
+	}
+
+	for _, c := range vp9IhtFullCases() {
+		t.Run(c.name, func(t *testing.T) {
+			stride := c.size + 3
+			in := input[:c.size*c.size]
+			out := dest[:stride*c.size]
+
+			for _, path := range []struct {
+				name string
+				fn   func([]int16, []uint8, int, int)
+			}{
+				{name: "dispatch", fn: c.wrapper},
+				{name: "scalar", fn: c.reference},
+			} {
+				t.Run(path.name, func(t *testing.T) {
+					allocs := testing.AllocsPerRun(100, func() {
+						path.fn(in, out, stride, c.txType)
+					})
+					if allocs != 0 {
+						t.Fatalf("%s/%s: got %v allocs/op, want 0", c.name, path.name, allocs)
+					}
+				})
+			}
+		})
+	}
+}
+
 func samplePositions(maxPos, count int, r *rand.Rand) []int {
 	if count >= maxPos {
 		out := make([]int, maxPos)

@@ -41,17 +41,28 @@ func Iadst4(input, output []int16) {
 // block and adds the result onto dest. The transform pair is selected
 // by txType: (DCT_DCT, ADST_DCT, DCT_ADST, ADST_ADST). Mirrors
 // vp9_iht4x4_16_add_c.
-func iht4x4_16Add(rowKernel, colKernel func(in, out []int16), input []int16, dest []uint8, stride int) {
+func iht4x4_16Add(input []int16, dest []uint8, stride int, txType int) {
+	rowAdst := txType == 2 || txType == 3
+	colAdst := txType == 1 || txType == 3
+
 	var out [16]int16
 	for i := range 4 {
-		rowKernel(input[i*4:i*4+4], out[i*4:i*4+4])
+		if rowAdst {
+			Iadst4(input[i*4:i*4+4], out[i*4:i*4+4])
+		} else {
+			idct4(input[i*4:i*4+4], out[i*4:i*4+4])
+		}
 	}
 	var tempIn, tempOut [4]int16
 	for i := range 4 {
 		for j := range 4 {
 			tempIn[j] = out[j*4+i]
 		}
-		colKernel(tempIn[:], tempOut[:])
+		if colAdst {
+			Iadst4(tempIn[:], tempOut[:])
+		} else {
+			idct4(tempIn[:], tempOut[:])
+		}
 		for j := range 4 {
 			pos := j*stride + i
 			dest[pos] = clipPixelAdd(dest[pos], roundPowerOfTwo(int32(tempOut[j]), 4))
@@ -67,14 +78,5 @@ func iht4x4_16Add(rowKernel, colKernel func(in, out []int16), input []int16, des
 // Scalar reference; the exported Iht4x4_16Add wrapper is in
 // idct_dispatch_*.go.
 func iht4x4_16AddScalar(input []int16, dest []uint8, stride int, txType int) {
-	switch txType {
-	case 0: // DCT_DCT
-		iht4x4_16Add(idct4, idct4, input, dest, stride)
-	case 1: // ADST_DCT: row pass DCT, col pass ADST
-		iht4x4_16Add(idct4, Iadst4, input, dest, stride)
-	case 2: // DCT_ADST: row pass ADST, col pass DCT
-		iht4x4_16Add(Iadst4, idct4, input, dest, stride)
-	case 3: // ADST_ADST
-		iht4x4_16Add(Iadst4, Iadst4, input, dest, stride)
-	}
+	iht4x4_16Add(input, dest, stride, txType)
 }
