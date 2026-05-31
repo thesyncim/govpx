@@ -67,6 +67,9 @@ func TestVP9BestDeadlineKeepsBestSpeedDefaults(t *testing.T) {
 	if !e.vp9KeyframeRDRefinementEnabled() {
 		t.Fatalf("keyframe RD refinement disabled, want enabled for BEST")
 	}
+	if got := e.vp9EncoderFrameTxMode(true, false, false); got != common.TxModeSelect {
+		t.Fatalf("keyframe tx mode = %d, want TxModeSelect", got)
+	}
 }
 
 func TestVP9DeadlineModeTransitionForcesRealtimeKeyframe(t *testing.T) {

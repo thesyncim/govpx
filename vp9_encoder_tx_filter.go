@@ -150,6 +150,9 @@ func (e *VP9Encoder) vp9SelectTxModeSpeedFeatures(isKey, intraOnly bool) (useNon
 		}
 		return useNonrd, txSearch
 	}
+	if mode == vp9ModeBest {
+		return false, UseFullRD
+	}
 	// GOOD path. libvpx vp9_speed_features.c:1042 dispatch.
 	// libvpx vp9_speed_features.c:929-940 best-quality default:
 	//   tx_size_search_method = USE_FULL_RD.

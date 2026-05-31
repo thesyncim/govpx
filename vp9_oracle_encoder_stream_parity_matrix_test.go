@@ -441,7 +441,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactFrames: []int{1, 2, 3},
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "error-resilient-constant-720p",
@@ -548,7 +549,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			fixture:     stepped320,
 			frames:      4,
 			flags:       vp9OracleRepeatInterFlag(4, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			exactPrefix: 0,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:        "no-reference-all-panning",

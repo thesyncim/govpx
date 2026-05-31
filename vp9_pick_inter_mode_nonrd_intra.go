@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
 )
 
 func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
@@ -142,6 +143,25 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		segID = 0
 	}
 	segQIndex := e.vp9SegmentQIndex(inter, segID)
+	pdY := &e.planes[0]
+	planeBsizeY := vp9dec.GetPlaneBlockSize(bsize, pdY)
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pdY, planeBsizeY)
+	if max4x4W <= 0 || max4x4H <= 0 {
+		return vp9InterIntraDecision{}, false
+	}
+	predTxSize := common.MaxTxsizeLookup[bsize]
+	for predTxSize > common.Tx4x4 {
+		step := 1 << uint(predTxSize)
+		if max4x4W >= step && max4x4H >= step &&
+			max4x4W%step == 0 && max4x4H%step == 0 {
+			break
+		}
+		predTxSize--
+	}
+	if predTxSize < intraTxSize {
+		intraTxSize = predTxSize
+	}
 
 	// libvpx vp9_rd.c:103 fills cpi->mbmode_cost from
 	// fc->y_mode_prob[1], and the nonrd intra fallback consumes that table
@@ -232,7 +252,6 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		coeffRate := 0
 		skippable := false
 		var sse, variance uint64
-		predTxSize := common.MaxTxsizeLookup[bsize]
 		predData, predStride, predX, predY := []byte(nil), 0, 0, 0
 		var ok bool
 		if len(pickPred) != 0 && pickPredStride > 0 {
@@ -295,19 +314,44 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 		})
 		mi.TxSize = modelTxSize
+		if mi.TxSize > predTxSize {
+			mi.TxSize = predTxSize
+		}
 		coeffRate = rateY
 		distortion = uint64(distY)
 		if !useSimpleIntraBlockYrd {
 			txYrd := min(mi.TxSize, common.Tx16x16)
-			src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-			blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-			blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+			src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+			blockW := max4x4W * 4
+			blockH := max4x4H * 4
+			yrdSrc := src
+			yrdSrcStride := srcStride
+			yrdSrcX := miCol * common.MiSize
+			yrdSrcY := miRow * common.MiSize
+			if yrdSrcX+blockW > srcW || yrdSrcY+blockH > srcH {
+				if blockW*blockH > len(e.blockScratch) {
+					continue
+				}
+				yrdSrc = e.blockScratch[:blockW*blockH]
+				yrdSrcStride = blockW
+				yrdSrcX = 0
+				yrdSrcY = 0
+				for yy := range blockH {
+					sy := arith.ClampCoord(miRow*common.MiSize+yy, srcH)
+					srcRow := src[sy*srcStride:]
+					dstRow := yrdSrc[yy*blockW:]
+					for xx := range blockW {
+						sx := arith.ClampCoord(miCol*common.MiSize+xx, srcW)
+						dstRow[xx] = srcRow[sx]
+					}
+				}
+			}
 			// libvpx's intra fallback initializes `this_sse` to INT64_MAX
 			// before the mode loop and passes it unchanged to block_yrd
 			// after model_rd_for_sb_y. Preserve that unknown-SSE path so
 			// skippable intra candidates score with zero distortion here.
-			byrd := encoder.BlockYrd(src, srcStride,
-				miCol*common.MiSize, miRow*common.MiSize,
+			byrd := encoder.BlockYrd(yrdSrc, yrdSrcStride,
+				yrdSrcX, yrdSrcY,
 				predData, predStride, predX, predY,
 				blockW, blockH, txYrd, dequantY, encoder.BlockYrdUnknownSSE,
 				e.vp9BlockYrdScratch[:])
