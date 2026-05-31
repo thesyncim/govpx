@@ -1,12 +1,13 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -24,9 +25,9 @@ func TestVP9OracleReferenceControlSeedsMatchLibvpx(t *testing.T) {
 		sum := sha256.Sum256(seed)
 		label := fmt.Sprintf("refctrl-#%d-%s", idx, hex.EncodeToString(sum[:4]))
 		tc := newVP9RefControlsFuzzCase(seed)
-		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+		got := vp9oracle.EncodeFramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
-			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
+			vp9oracle.LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		if seedByteIdentical(got, want) {
@@ -82,9 +83,9 @@ func TestVP9OracleRuntimeControlSpeed8SeedsMatchLibvpx(t *testing.T) {
 		if tc.opts.CpuUsed != -8 {
 			t.Fatalf("%s materialised cpu=%d, want speed-8 nonrd cpu=-8", label, tc.opts.CpuUsed)
 		}
-		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+		got := vp9oracle.EncodeFramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
-			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
+			vp9oracle.LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		if seedByteIdentical(got, want) {
@@ -149,9 +150,9 @@ func remeasureVP9RuntimeControlSeedLane(t *testing.T, includeCPU func(int8) bool
 		}
 		t.Logf("%s w=%d h=%d frames=%d cpu=%d flags=%v",
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
-		got := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+		got := vp9oracle.EncodeFramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		want := vp9test.VpxencFrameFlagPackets(t, tc.sources,
-			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
+			vp9oracle.LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		seedDelta := seedSizeDelta(got, want)
 		aggSizeDelta += seedDelta
 		measured++

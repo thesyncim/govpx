@@ -1,11 +1,12 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func TestVP9DecoderOfficialIVFTestDataMatchesLibvpx(t *testing.T) {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
 			want := vp9test.VpxdecI420(t, ivf)
-			got, err := decodeVP9IVFVisibleI420(ivf)
+			got, err := vp9oracle.DecodeIVFVisibleI420(ivf)
 			if err != nil {
 				t.Fatalf("Decode VP90 IVF returned error: %v", err)
 			}
@@ -61,7 +62,7 @@ func TestVP9DecoderOfficialProfile0WebMTestDataMatchesLibvpx(t *testing.T) {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
 			want := vp9test.VpxdecWebMI420(t, webm)
-			got, err := decodeVP9WebMVisibleI420(webm)
+			got, err := vp9oracle.DecodeWebMVisibleI420(webm)
 			if err != nil {
 				t.Fatalf("Decode VP9 Profile 0 WebM returned error: %v", err)
 			}
@@ -91,7 +92,7 @@ func TestVP9DecoderOfficialInvalidIVFTestDataRejectedLikeLibvpx(t *testing.T) {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
 			vp9test.VpxdecRejectsI420(t, ivf)
-			if err := decodeVP9IVFExpectErrorForTest(ivf); err == nil {
+			if err := vp9oracle.DecodeIVFExpectError(ivf); err == nil {
 				t.Fatalf("Decode accepted invalid VP90 IVF that libvpx rejected")
 			}
 		})

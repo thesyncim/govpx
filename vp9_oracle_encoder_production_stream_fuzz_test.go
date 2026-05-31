@@ -1,11 +1,13 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -47,7 +49,7 @@ func FuzzVP9EncoderProductionStreamByteParity(f *testing.F) {
 			label, opts.Width, opts.Height, opts.CpuUsed, opts.Threads,
 			cfg.tileCols, len(sources))
 
-		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
+		govpxFrames := vp9oracle.EncodeFramesWithGovpx(t, opts, sources, nil)
 		libvpxFrames := vp9test.VpxencPackets(t, sources, cfg.extraArgs...)
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
@@ -122,13 +124,13 @@ func newVP9OptionGridFuzzCase(data []byte) vp9OptionGridFuzzCase {
 	return c
 }
 
-func (c *vp9OptionGridFuzzCase) buildOpts() VP9EncoderOptions {
-	opts := VP9EncoderOptions{
+func (c *vp9OptionGridFuzzCase) buildOpts() govpx.VP9EncoderOptions {
+	opts := govpx.VP9EncoderOptions{
 		Width:               c.width,
 		Height:              c.height,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlQ,
+		RateControlMode:     govpx.RateControlQ,
 		TargetBitrateKbps:   700,
 		MinQuantizer:        c.minQ,
 		MaxQuantizer:        c.maxQ,
@@ -136,7 +138,7 @@ func (c *vp9OptionGridFuzzCase) buildOpts() VP9EncoderOptions {
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
 		BufferOptimalSizeMs: 500,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             c.cpuUsed,
 		Threads:             c.threads,
 		MaxKeyframeInterval: 128,

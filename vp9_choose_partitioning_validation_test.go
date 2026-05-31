@@ -1,11 +1,12 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -39,9 +40,9 @@ func TestVP9ChoosePartitioningReferenceControlSeedsMatchLibvpx(t *testing.T) {
 			tc := newVP9RefControlsFuzzCase(s.data)
 			sum := sha256.Sum256(s.data)
 			label := fmt.Sprintf("choose-partitioning-%s-%s", s.name, hex.EncodeToString(sum[:4]))
-			govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+			govpxFrames := vp9oracle.EncodeFramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 			libvpxFrames := vp9test.VpxencFrameFlagPackets(t, tc.sources,
-				vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
+				vp9oracle.LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 			vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 		})
 	}

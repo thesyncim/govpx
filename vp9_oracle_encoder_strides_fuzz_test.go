@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
@@ -56,7 +57,7 @@ func FuzzVP9EncoderRandomStrides(f *testing.F) {
 		t.Logf("%s w=%d h=%d yStride=%d cStride=%d",
 			label, dim.w, dim.h, padded.YStride, padded.CStride)
 
-		govpxFrames := encodeVP9OracleFramesWithGovpx(t, opts, []*image.YCbCr{padded}, nil)
+		govpxFrames := vp9oracle.EncodeFramesWithGovpx(t, opts, []*image.YCbCr{padded}, nil)
 		libvpxFrames := vp9test.VpxencPackets(t, []*image.YCbCr{tight})
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})

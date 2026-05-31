@@ -1,10 +1,11 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -107,13 +108,13 @@ func (c *vp9TwoPassFuzzCase) buildSources() []*image.YCbCr {
 	return vp9test.NewPanningSources(c.width, c.height, c.frames)
 }
 
-func (c *vp9TwoPassFuzzCase) buildOpts() VP9EncoderOptions {
-	return VP9EncoderOptions{
+func (c *vp9TwoPassFuzzCase) buildOpts() govpx.VP9EncoderOptions {
+	return govpx.VP9EncoderOptions{
 		Width:               c.width,
 		Height:              c.height,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlVBR,
+		RateControlMode:     govpx.RateControlVBR,
 		TargetBitrateKbps:   c.targetKbps,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
@@ -121,7 +122,7 @@ func (c *vp9TwoPassFuzzCase) buildOpts() VP9EncoderOptions {
 		MinQuantizer:        4,
 		MaxQuantizer:        56,
 		MaxKeyframeInterval: c.kfInterval,
-		Deadline:            DeadlineGoodQuality,
+		Deadline:            govpx.DeadlineGoodQuality,
 		CpuUsed:             int8(c.cpuUsed),
 		Threads:             c.threads,
 	}

@@ -1,12 +1,14 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -120,7 +122,7 @@ func FuzzVP9EncoderLongFixtureRateControl(f *testing.F) {
 		t.Logf("%s rc=%v kbps=%d kf=%d cpu=%d frames=%d",
 			label, opts.RateControlMode, cfg.targetKbps, cfg.kfInterval, cfg.cpuUsed, len(sources))
 
-		govpxFrames := encodeVP9FramesWithGovpx(t, opts, sources, nil)
+		govpxFrames := vp9oracle.EncodeFramesWithGovpx(t, opts, sources, nil)
 		libvpxFrames := vp9test.VpxencPackets(t, sources, cfg.extraArgs...)
 
 		prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
@@ -135,18 +137,18 @@ type vp9LongFixtureFuzzCase struct {
 	frames     int
 	targetKbps int
 	kfInterval int
-	rcMode     RateControlMode
-	deadline   Deadline
+	rcMode     govpx.RateControlMode
+	deadline   govpx.Deadline
 	cpuUsed    int
 	extraArgs  []string
 }
 
 func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
 	r := testutil.NewByteCursor(data)
-	rcPool := [...]RateControlMode{RateControlCBR, RateControlVBR}
+	rcPool := [...]govpx.RateControlMode{govpx.RateControlCBR, govpx.RateControlVBR}
 	kbpsPool := [...]int{300, 700, 1200}
 	kfPool := [...]int{999, 30, 60}
-	deadlinePool := [...]Deadline{DeadlineRealtime, DeadlineGoodQuality}
+	deadlinePool := [...]govpx.Deadline{govpx.DeadlineRealtime, govpx.DeadlineGoodQuality}
 	cpuPool := [...]int{8, 4, 0}
 
 	c := vp9LongFixtureFuzzCase{
@@ -160,7 +162,7 @@ func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
 		cpuUsed:    cpuPool[r.Pick(len(cpuPool))],
 	}
 	endUsage := "cbr"
-	if c.rcMode == RateControlVBR {
+	if c.rcMode == govpx.RateControlVBR {
 		endUsage = "vbr"
 	}
 	// Align oracle buffer + drop-frame knobs with the govpx-side opts
@@ -181,15 +183,15 @@ func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
 		"--buf-optimal-sz=500",
 		"--drop-frame=0",
 	}
-	if c.deadline == DeadlineGoodQuality {
+	if c.deadline == govpx.DeadlineGoodQuality {
 		// vpxenc-vp9 defaults to --rt; override only for good-quality.
 		c.extraArgs = append(c.extraArgs, "--good")
 	}
 	return c
 }
 
-func (c *vp9LongFixtureFuzzCase) buildOpts() VP9EncoderOptions {
-	return VP9EncoderOptions{
+func (c *vp9LongFixtureFuzzCase) buildOpts() govpx.VP9EncoderOptions {
+	return govpx.VP9EncoderOptions{
 		Width:               c.width,
 		Height:              c.height,
 		FPS:                 30,

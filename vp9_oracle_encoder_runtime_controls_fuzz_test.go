@@ -1,12 +1,14 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"strconv"
@@ -16,8 +18,8 @@ import (
 // vp9RuntimeControlsParityGapSeeds lists runtime-control schedules that measure
 // known VP9 parity gaps. The seed shape is
 // (dimBucket, framesBucket, cpuBucket, kfFlagPos, refFlagPos, action...),
-// and one-byte entries are corpus aliases produced by testutil.ByteCursor
-// wrap-around. Speed-8 entries that already match libvpx live in
+// and one-byte entries are corpus aliases produced by the wrapping byte reader.
+// Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
 // them while the remaining parity-gap lanes stay reproducible.
 var vp9RuntimeControlsParityGapSeeds = [][]byte{
@@ -108,24 +110,24 @@ func FuzzVP9OracleEncoderRuntimeControls(f *testing.F) {
 		t.Logf("%s w=%d h=%d frames=%d cpu=%d flags=%v",
 			label, tc.opts.Width, tc.opts.Height, len(tc.sources), tc.opts.CpuUsed, tc.flags)
 
-		govpxFrames := encodeVP9FramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
+		govpxFrames := vp9oracle.EncodeFramesWithGovpx(t, tc.opts, tc.sources, tc.flags)
 		libvpxFrames := vp9test.VpxencFrameFlagPackets(t, tc.sources,
-			vp9LibvpxFrameFlags(tc.flags), tc.extraArgs...)
+			vp9oracle.LibvpxFrameFlags(tc.flags), tc.extraArgs...)
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
 }
 
 type vp9OracleRuntimeFuzzCase struct {
 	name      string
-	opts      VP9EncoderOptions
+	opts      govpx.VP9EncoderOptions
 	sources   []*image.YCbCr
-	flags     []EncodeFlags
+	flags     []govpx.EncodeFlags
 	extraArgs []string
 }
 
 // vp9OracleRuntimeFuzzCaseFromBytes materialises a fuzz seed into a VP9
-// runtime-control case. Each byte selects a bucket index off a wrapping
-// cursor so even short seeds yield a fully-specified case.
+// runtime-control case. Each byte selects a bucket index off a wrapping reader
+// so even short seeds yield a fully-specified case.
 func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 	r := testutil.NewByteCursor(data)
 	dims := [...]struct {
@@ -144,12 +146,12 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 	kfPos := r.Pick(frames)
 	refPos := r.Pick(frames)
 
-	opts := VP9EncoderOptions{
+	opts := govpx.VP9EncoderOptions{
 		Width:               dim.w,
 		Height:              dim.h,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlQ,
+		RateControlMode:     govpx.RateControlQ,
 		TargetBitrateKbps:   700,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
@@ -159,27 +161,27 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 		MaxKeyframeInterval: 128,
 		CpuUsed:             int8(cpuUsed),
 		CQLevel:             32,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 	}
 	sources := vp9test.NewPanningSources(dim.w, dim.h, frames)
-	flags := make([]EncodeFlags, frames)
+	flags := make([]govpx.EncodeFlags, frames)
 
 	// Sprinkle a key-frame flag and an optional reference-update flag.
 	if kfPos > 0 && kfPos < frames {
-		flags[kfPos] |= EncodeForceKeyFrame
+		flags[kfPos] |= govpx.EncodeForceKeyFrame
 	}
 	if refPos > 0 && refPos < frames {
 		switch r.Pick(5) {
 		case 0:
-			flags[refPos] |= EncodeNoUpdateLast
+			flags[refPos] |= govpx.EncodeNoUpdateLast
 		case 1:
-			flags[refPos] |= EncodeNoUpdateGolden
+			flags[refPos] |= govpx.EncodeNoUpdateGolden
 		case 2:
-			flags[refPos] |= EncodeNoUpdateAltRef
+			flags[refPos] |= govpx.EncodeNoUpdateAltRef
 		case 3:
-			flags[refPos] |= EncodeNoReferenceLast
+			flags[refPos] |= govpx.EncodeNoReferenceLast
 		case 4:
-			flags[refPos] |= EncodeNoReferenceGolden | EncodeNoReferenceAltRef
+			flags[refPos] |= govpx.EncodeNoReferenceGolden | govpx.EncodeNoReferenceAltRef
 		}
 	}
 	// Per-frame action permutations are encoded into remaining bytes. We
@@ -187,27 +189,26 @@ func vp9OracleRuntimeFuzzCaseFromBytes(data []byte) vp9OracleRuntimeFuzzCase {
 	for i := 1; i < frames; i++ {
 		switch r.Pick(4) {
 		case 1:
-			flags[i] |= EncodeNoUpdateEntropy
+			flags[i] |= govpx.EncodeNoUpdateEntropy
 		case 2:
-			flags[i] |= EncodeForceGoldenFrame
+			flags[i] |= govpx.EncodeForceGoldenFrame
 		case 3:
-			flags[i] |= EncodeForceAltRefFrame
+			flags[i] |= govpx.EncodeForceAltRefFrame
 		}
 	}
 	// libvpx vp9/vp9_cx_iface.c:1394-1398 rejects FORCE_GF + NO_UPD_GF and
 	// FORCE_ARF + NO_UPD_ARF on the same frame as "Conflicting flags." The
 	// vpxenc-vp9-frameflags oracle propagates that VPX_CODEC_INVALID_PARAM as
 	// an exit-status failure, so the materialiser would deadlock the parity
-	// comparator before ever exercising the encoder. govpx's
-	// normalizeVP9EncodeFlags (vp9_encoder.c:set_ext_overrides semantics:
-	// FORCE wins because vp9_apply_encoding_flags' upd mask treats FORCE_GF
-	// as "refresh all minus NO_UPD bits" and the conflict check would have
-	// rejected the input upstream) drops the NO_UPD_GF/NO_UPD_ARF bit when
-	// the matching FORCE_GF/FORCE_ARF bit is set. Apply the same resolution
-	// at materialisation so both encoders see identical, libvpx-acceptable
-	// flag schedules for every fuzz iteration.
+	// comparator before ever exercising the encoder. The external-test
+	// normalizer mirrors vp9_encoder.c:set_ext_overrides semantics: FORCE wins
+	// because vp9_apply_encoding_flags' upd mask treats FORCE_GF as "refresh
+	// all minus NO_UPD bits", and libvpx would have rejected the conflicting
+	// input upstream. Apply the same resolution at materialisation so both
+	// encoders see identical, libvpx-acceptable flag schedules for every fuzz
+	// iteration.
 	for i := range flags {
-		flags[i] = normalizeVP9EncodeFlags(flags[i])
+		flags[i] = vp9oracle.NormalizeEncodeFlags(flags[i])
 	}
 
 	extraArgs := []string{

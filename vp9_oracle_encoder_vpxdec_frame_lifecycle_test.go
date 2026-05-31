@@ -1,17 +1,21 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
+
+const vp9OracleLastRefSlot = 0
 
 func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
 	altSrc := vp9test.NewYCbCr(width, height, 188, 96, 224)
 	key, err := e.Encode(keySrc)
@@ -19,25 +23,25 @@ func TestVP9EncoderVpxdecOracleMatchesInvisibleAltRefRefresh(t *testing.T) {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 	hidden, err := e.EncodeWithFlags(altSrc,
-		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
-			EncodeNoUpdateGolden|EncodeNoReferenceGolden|EncodeNoReferenceAltRef)
+		govpx.EncodeInvisibleFrame|govpx.EncodeForceAltRefFrame|govpx.EncodeNoUpdateLast|
+			govpx.EncodeNoUpdateGolden|govpx.EncodeNoReferenceGolden|govpx.EncodeNoReferenceAltRef)
 	if err != nil {
 		t.Fatalf("Encode hidden ALTREF refresh: %v", err)
 	}
 	inter, err := e.EncodeWithFlags(altSrc,
-		EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoUpdateLast)
+		govpx.EncodeNoReferenceLast|govpx.EncodeNoReferenceGolden|govpx.EncodeNoUpdateLast)
 	if err != nil {
 		t.Fatalf("Encode visible ALTREF-only inter: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, key, hidden, inter)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, key, hidden, inter)
 }
 
 func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	src := vp9test.NewYCbCr(width, height, 91, 143, 37)
 	key, err := e.Encode(src)
 	if err != nil {
@@ -48,7 +52,7 @@ func TestVP9EncoderVpxdecOracleMatchesShowExistingFrame(t *testing.T) {
 		t.Fatalf("EncodeShowExistingFrame: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, key, show)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, key, show)
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
@@ -60,7 +64,7 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 		w2 = 96
 		h2 = 80
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: w1, Height: h1})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: w1, Height: h1})
 	key, err := e.Encode(vp9test.NewYCbCr(w1, h1, 72, 128, 128))
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
@@ -69,7 +73,7 @@ func TestVP9EncoderVpxdecOracleAcceptsRuntimeResize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode inter: %v", err)
 	}
-	if err := e.SetRealtimeTarget(RealtimeTarget{Width: w2, Height: h2}); err != nil {
+	if err := e.SetRealtimeTarget(govpx.RealtimeTarget{Width: w2, Height: h2}); err != nil {
 		t.Fatalf("SetRealtimeTarget resize: %v", err)
 	}
 	resized, err := e.Encode(vp9test.NewYCbCr(w2, h2, 111, 123, 211))
@@ -84,7 +88,7 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 16, 128, 128)
 	src := vp9test.NewYCbCr(width, height, 83, 141, 209)
 	key, err := e.Encode(keySrc)
@@ -95,19 +99,19 @@ func TestVP9EncoderVpxdecOracleMatchesIntraOnlyShowExisting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeIntraOnlyFrame: %v", err)
 	}
-	show, err := e.EncodeShowExistingFrame(vp9LastRefSlot)
+	show, err := e.EncodeShowExistingFrame(vp9OracleLastRefSlot)
 	if err != nil {
 		t.Fatalf("EncodeShowExistingFrame LAST: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, key, hidden, show)
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, key, hidden, show)
 }
 
 func TestVP9EncoderVpxdecOracleAcceptsPackedSuperframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 32, 128, 128)
 	interSrc := vp9test.NewYCbCr(width, height, 144, 96, 224)
 	key, err := e.Encode(keySrc)
