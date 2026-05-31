@@ -139,6 +139,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
 		miRow, miCol, bsize, mi) {
+		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, true)
 		return interDecision, common.DcPred, false
 	}
 	if e.opts.AQMode != VP9AQComplexity {
@@ -155,6 +156,8 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			interDecision.intra = true
 			interDecision.mode = intra.mode
 			interDecision.rate = intra.rate
+			interDecision.score = intra.score
+			e.vp9AccumulateBlockFilterDiff(inter, intra.score, true)
 			return interDecision, intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
 				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
 		}
@@ -193,6 +196,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			}
 		}
 	}
+	e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
 	return interDecision, common.DcPred, hasResidue
 }
 
@@ -305,6 +309,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
 	seg *vp9dec.SegmentationParams, forcedRefFrame int8, forcedRef bool,
 ) (vp9InterModeDecision, bool) {
+	e.vp9ClearBlockFilterRDScores()
 	if mi == nil {
 		return vp9InterModeDecision{}, false
 	}
@@ -323,7 +328,7 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.RefFrame = [2]int8{forcedRefFrame, vp9dec.NoRefFrame}
 		if decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, forcedRefFrame, 0, vp9FullRDRefState{},
-			0, false); ok {
+			0, false, nil); ok {
 			picked = decision
 			picked.refFrame = forcedRefFrame
 			picked.secondRefFrame = vp9dec.NoRefFrame

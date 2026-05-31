@@ -1095,30 +1095,6 @@ func (e *VP9Encoder) vp9CBRVariancePartitionEnabled(inter *vp9InterEncodeState) 
 	return true
 }
 
-// vp9VarianceAQRateControlFixedQ reports whether the rate-control
-// configuration pins quality to a fixed quantizer (no rate-driven
-// base qindex adjustment available). Variance-AQ scales its
-// per-segment deltas down in this mode to avoid blowing the
-// fixed-Q quality anchor up on flat / near-flat content; with a
-// CBR/VBR controller the rate loop absorbs the swing instead.
-func (e *VP9Encoder) vp9VarianceAQRateControlFixedQ() bool {
-	if e == nil {
-		return false
-	}
-	if e.opts.Quantizer != 0 {
-		return true
-	}
-	if e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlQ {
-		return true
-	}
-	if !e.opts.RateControlModeSet {
-		// Public-Q (no rate control) is govpx's default; it pins
-		// qindex via the CQ ladder the same way RateControlQ does.
-		return true
-	}
-	return false
-}
-
 func (e *VP9Encoder) vp9FixedPublicQuantizer() bool {
 	if e.opts.Quantizer != 0 {
 		return true

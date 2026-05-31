@@ -544,9 +544,9 @@ func vp9FixInterpFilter(currentFilter vp9dec.InterpFilter,
 // The gate is identical to the demotion gate (sf.frame_parameter_update):
 // libvpx hangs both off the same if-block at vp9_encodeframe.c:5846. mbs is
 // the libvpx cm->MBs which govpx tracks as encoder.MacroblockCount(miRows, miCols).
-// Per-block contributions land in vp9FilterDiff via
-// vp9_encodeframe.c:1881 once the per-block 3-filter RD path produces signal;
-// today vp9FilterDiff stays zero so this update is a no-op stable point.
+// Per-block contributions land in vp9FilterDiff through the full-RD mode
+// picker, mirroring vp9_encodeframe.c:1881 once the final leaf decision is
+// known.
 func (e *VP9Encoder) vp9UpdateFilterThreshesPostEncode(isKey, intraOnly,
 	isSrcFrameAltRef, refreshGolden, refreshAlt bool, mbs int,
 ) {
@@ -843,6 +843,113 @@ func vp9InterInterpFilterRateCost(inter *vp9InterEncodeState, fc *vp9dec.FrameCo
 		return 0
 	}
 	return encoder.SwitchableInterpRateCost(fc, ctx, filter)
+}
+
+const vp9UnsetFilterRDScore = ^uint64(0)
+
+const (
+	vp9MaxFilterDiff = int64(^uint64(0) >> 1)
+	vp9MinFilterDiff = -vp9MaxFilterDiff - 1
+)
+
+func vp9InitFilterRDScores(scores *[vp9dec.SwitchableFilterContexts]uint64) {
+	if scores == nil {
+		return
+	}
+	for i := range scores {
+		scores[i] = vp9UnsetFilterRDScore
+	}
+}
+
+func vp9RecordFilterRDScore(scores *[vp9dec.SwitchableFilterContexts]uint64,
+	filter vp9dec.InterpFilter, fixedScore, switchableScore uint64,
+) {
+	if scores == nil || filter >= vp9dec.InterpBilinear {
+		return
+	}
+	filterIdx := int(filter)
+	if fixedScore < scores[filterIdx] {
+		scores[filterIdx] = fixedScore
+	}
+	if switchableScore < scores[vp9dec.SwitchableFilters] {
+		scores[vp9dec.SwitchableFilters] = switchableScore
+	}
+}
+
+func vp9FilterDiffFromScores(bestScore, filterScore uint64) int64 {
+	if bestScore >= filterScore {
+		delta := bestScore - filterScore
+		if delta > uint64(vp9MaxFilterDiff) {
+			return vp9MaxFilterDiff
+		}
+		return int64(delta)
+	}
+	delta := filterScore - bestScore
+	if delta >= uint64(vp9MaxFilterDiff)+1 {
+		return vp9MinFilterDiff
+	}
+	return -int64(delta)
+}
+
+func (e *VP9Encoder) vp9ShouldCollectInterFilterRD(inter *vp9InterEncodeState,
+	useNonrd bool,
+) bool {
+	if e == nil || inter == nil {
+		return false
+	}
+	if e.sf.FrameParameterUpdate == 0 || useNonrd {
+		return false
+	}
+	if inter.counts == nil {
+		return false
+	}
+	return vp9InterFrameInterpFilter(inter) == vp9dec.InterpSwitchable
+}
+
+func (e *VP9Encoder) vp9StoreBlockFilterRDScores(
+	scores *[vp9dec.SwitchableFilterContexts]uint64,
+) {
+	if e == nil || scores == nil {
+		return
+	}
+	e.vp9BlockFilterRDScores = *scores
+	e.vp9BlockFilterRDValid = true
+}
+
+func (e *VP9Encoder) vp9ClearBlockFilterRDScores() {
+	if e == nil {
+		return
+	}
+	e.vp9BlockFilterRDValid = false
+	e.vp9BlockFilterRDScores = [vp9dec.SwitchableFilterContexts]uint64{}
+}
+
+func (e *VP9Encoder) vp9AccumulateBlockFilterDiff(inter *vp9InterEncodeState,
+	bestScore uint64, skip bool,
+) {
+	if e == nil || inter == nil || !e.vp9BlockFilterRDValid {
+		return
+	}
+	if inter.counts == nil || skip {
+		e.vp9ClearBlockFilterRDScores()
+		return
+	}
+	for i, score := range e.vp9BlockFilterRDScores {
+		if score == vp9UnsetFilterRDScore {
+			continue
+		}
+		e.vp9FilterDiff[i] += vp9FilterDiffFromScores(bestScore, score)
+	}
+	e.vp9ClearBlockFilterRDScores()
+}
+
+func addVP9FilterDiff(dst, src *[vp9dec.SwitchableFilterContexts]int64) {
+	if dst == nil || src == nil {
+		return
+	}
+	for i := range dst {
+		dst[i] += src[i]
+	}
 }
 
 func vp9MvHasSubpel(mv vp9dec.MV) bool {

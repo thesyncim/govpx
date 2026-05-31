@@ -120,6 +120,31 @@ func TestIterateTemporalFilterKeepsSingleCenterReference(t *testing.T) {
 	}
 }
 
+func TestIterateTemporalFilterHonorsZeroStrength(t *testing.T) {
+	img := solidTemporalFilterImage(32, 32, 100, 128, 128)
+	ref := solidTemporalFilterImage(32, 32, 104, 128, 128)
+	wantY := append([]byte(nil), img.Y...)
+
+	dst := TemporalFilterFrameFromYCbCr(img)
+	refs := []TemporalFilterFrame{
+		TemporalFilterFrameFromYCbCr(img),
+		TemporalFilterFrameFromYCbCr(ref),
+	}
+	IterateTemporalFilter(&dst, refs, 0, 0)
+
+	if !bytes.Equal(img.Y, wantY) {
+		t.Fatal("strength zero pulled luma toward the non-center reference")
+	}
+
+	strong := solidTemporalFilterImage(32, 32, 100, 128, 128)
+	dst = TemporalFilterFrameFromYCbCr(strong)
+	refs[0] = TemporalFilterFrameFromYCbCr(strong)
+	IterateTemporalFilter(&dst, refs, 0, 3)
+	if bytes.Equal(strong.Y, wantY) {
+		t.Fatal("strength-sensitive fixture did not change at strength three")
+	}
+}
+
 func TestTemporalFilterBlockHelpersClampEdges(t *testing.T) {
 	src := []byte{
 		10, 20,

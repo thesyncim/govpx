@@ -339,8 +339,8 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			}
 			return target
 		}
-		if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() &&
-			key != nil && key.img != nil && e.vp9DynamicSegmentMapActive() {
+		if e.opts.AQMode == VP9AQVariance && key != nil && key.img != nil &&
+			e.vp9DynamicSegmentMapActive() {
 			if segmentSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
 				miRows, miCols, miRow, miCol, root, key.img, nil); ok {
 				return commitKeyframeTarget(segmentSize)

@@ -19,12 +19,7 @@ func (e *VP9Encoder) vp9DynamicSegmentMapActive() bool {
 	if e.cyclicAQ.Enabled && e.cyclicAQ.Apply {
 		return true
 	}
-	// Variance-AQ is suppressed in fixed-Q / pure-Q mode because the
-	// rate controller cannot absorb its per-segment qindex shifts;
-	// matching the suppression here keeps the segment-aware partition
-	// splitter and segment-map writer from emitting per-block segment
-	// IDs that the segmentation header would otherwise be carrying.
-	if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() {
+	if e.opts.AQMode == VP9AQVariance {
 		return true
 	}
 	return false
@@ -51,7 +46,7 @@ func (e *VP9Encoder) vp9ActiveSegmentMapCodingChooser() bool {
 		return false
 	}
 	// All dynamic segment-map producers: ROI, active-map, cyclic-AQ
-	// (when apply gate fires), variance-AQ (non-fixed-Q), plus the
+	// (when apply gate fires), variance-AQ, plus the
 	// AQ modes whose segmentationParams always set UpdateMap=true
 	// (complexity, equator360, perceptual). Mirrors libvpx's blanket
 	// chooser invocation in encode_segmentation.
@@ -117,7 +112,7 @@ func (e *VP9Encoder) vp9DynamicSegmentID(miRow int, miCol int,
 		}
 		return segID, true
 	}
-	if e.opts.AQMode == VP9AQVariance && !e.vp9VarianceAQRateControlFixedQ() {
+	if e.opts.AQMode == VP9AQVariance {
 		if segID, ok := e.vp9VarianceAQSegmentID(img, miRow, miCol); ok {
 			if segID == vp9ActiveMapSegmentActive && activeMapNeedsSegment {
 				return vp9ActiveMapSegmentInactive, true

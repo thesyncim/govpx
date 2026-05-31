@@ -173,6 +173,12 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 		e.lookaheadCount == 0 {
 		return false
 	}
+	// libvpx only runs vp9_temporal_filter for alt-ref frames outside
+	// REALTIME mode. Realtime VBR may still schedule a one-pass ARF, but
+	// the ARNR controls do not filter its source buffer.
+	if vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeRealtime {
+		return false
+	}
 	distance := int(e.lookaheadCount) - 1
 	// libvpx vp9/encoder/vp9_temporal_filter.c:1255 adjust_arnr_filter
 	// drives the adaptive temporal-filter strength + symmetric window

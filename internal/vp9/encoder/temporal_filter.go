@@ -265,7 +265,7 @@ func processVP9ARNRBlock32(dst *TemporalFilterFrame, refs []TemporalFilterFrame,
 		vp9ARNRBuildPredictor32(predY[:], predU[:], predV[:], ref,
 			blockX, blockY, blockUVX, blockUVY, use32, refMV, blkMVs)
 		applyVP9TemporalFilter32(srcY[:], predY[:], srcU[:], predU[:],
-			srcV[:], predV[:], min(strength+3, 6), blkFW, use32,
+			srcV[:], predV[:], strength, blkFW, use32,
 			accumulator[:1024], count[:1024],
 			accumulator[1024:1280], count[1024:1280],
 			accumulator[1280:1536], count[1280:1536])

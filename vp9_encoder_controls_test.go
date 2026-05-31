@@ -275,6 +275,7 @@ func TestVP9EncoderSetARNR(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:           width,
 		Height:          height,
+		Deadline:        DeadlineGoodQuality,
 		LookaheadFrames: 4,
 		AutoAltRef:      true,
 		ARNRMaxFrames:   1,

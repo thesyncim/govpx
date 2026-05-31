@@ -637,6 +637,13 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
 	// libvpx: vp9_speed_features.h:447 sf->use_nonrd_pick_mode.
 	useNonrd := e.vp9InterUsesNonrdPickmode()
+	collectFilterRD := e.vp9ShouldCollectInterFilterRD(inter, useNonrd)
+	var filterRDScores [vp9dec.SwitchableFilterContexts]uint64
+	var filterRDScoresPtr *[vp9dec.SwitchableFilterContexts]uint64
+	if collectFilterRD {
+		vp9InitFilterRDScores(&filterRDScores)
+		filterRDScoresPtr = &filterRDScores
+	}
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
@@ -781,7 +788,8 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			}
 			decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
 				miRow, miCol, bsize, refFrame, refRate,
-				fullRDRefs[refFrame], bestScoreSoFar, bestSet)
+				fullRDRefs[refFrame], bestScoreSoFar, bestSet,
+				filterRDScoresPtr)
 			if !ok {
 				continue
 			}
@@ -845,11 +853,17 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	if !e.vp9InterCompoundEnabled() {
 		correctFullRDNewMV()
 		finishFullRD()
+		if collectFilterRD && bestSet {
+			e.vp9StoreBlockFilterRDScores(&filterRDScores)
+		}
 		return best, bestSet
 	}
 	if sourceAltRefOverlay {
 		correctFullRDNewMV()
 		finishFullRD()
+		if collectFilterRD && bestSet {
+			e.vp9StoreBlockFilterRDScores(&filterRDScores)
+		}
 		return best, bestSet
 	}
 	if inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference {
@@ -868,7 +882,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			decision, ok := e.pickVP9CompoundInterMode(inter, tile, miRows, miCols,
 				miRow, miCol, bsize, [2]int8{refFrame, secondRefFrame},
 				[2]int{refSlot, secondRefSlot}, refRate,
-				best.score, bestSet)
+				best.score, bestSet, filterRDScoresPtr)
 			if !ok {
 				continue
 			}
@@ -881,6 +895,9 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	correctFullRDNewMV()
 	finishFullRD()
+	if collectFilterRD && bestSet {
+		e.vp9StoreBlockFilterRDScores(&filterRDScores)
+	}
 	return best, bestSet
 }
 
@@ -1014,6 +1031,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrame [2]int8, refSlot [2]int, refRate int,
 	bestScoreSoFar uint64, bestScoreSoFarSet bool,
+	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil || bsize < common.Block8x8 {
 		return vp9InterModeDecision{}, false
@@ -1077,10 +1095,11 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	) {
 		modeIndex, modeIndexValid := encoder.FullRDModeIndex(mode,
 			refFrame[0], refFrame[1])
+		filterRate := vp9InterInterpFilterRateCost(inter, &inter.selectFc,
+			switchableCtx, filter)
 		rate := refRate +
 			encoder.InterModeRateCostN(&inter.selectFc, interModeCtx, mode,
-				mv, refMv, 2, inter.allowHP) +
-			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
+				mv, refMv, 2, inter.allowHP) + filterRate
 		cand := vp9InterModeDecision{
 			refFrame:       refFrame[0],
 			secondRefFrame: refFrame[1],
@@ -1101,6 +1120,11 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 			(cand.score == best.score && cand.rate < best.rate) {
 			best = cand
 			bestSet = true
+		}
+		if filterRDScores != nil {
+			fixedRate := cand.rate - filterRate
+			fixedScore := e.vp9InterModeScore(cand.distortion, fixedRate, qindex)
+			vp9RecordFilterRDScore(filterRDScores, filter, fixedScore, cand.score)
 		}
 	}
 
@@ -1194,6 +1218,7 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrame int8, refRate int,
 	refState vp9FullRDRefState, bestScoreSoFar uint64, bestScoreSoFarSet bool,
+	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil || inter.ref == nil || !inter.ref.valid ||
 		refFrame <= vp9dec.IntraFrame {
@@ -1293,10 +1318,11 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
 		modeIndex, modeIndexValid := encoder.FullRDSingleModeIndex(mode, refFrame)
+		filterRate := vp9InterInterpFilterRateCost(inter, &inter.selectFc,
+			switchableCtx, filter)
 		rate := refRate +
 			encoder.InterModeRateCost(&inter.selectFc, interModeCtx, mode,
-				mv, refMv, inter.allowHP) +
-			vp9InterInterpFilterRateCost(inter, &inter.selectFc, switchableCtx, filter)
+				mv, refMv, inter.allowHP) + filterRate
 		cand := vp9InterModeDecision{
 			mode:         mode,
 			mv:           [2]vp9dec.MV{mv},
@@ -1322,6 +1348,11 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			(cand.score == best.score && cand.rate < best.rate) {
 			best = cand
 			bestSet = true
+		}
+		if filterRDScores != nil {
+			fixedRate := cand.rate - filterRate
+			fixedScore := e.vp9InterModeScore(cand.distortion, fixedRate, qindex)
+			vp9RecordFilterRDScore(filterRDScores, filter, fixedScore, cand.score)
 		}
 	}
 

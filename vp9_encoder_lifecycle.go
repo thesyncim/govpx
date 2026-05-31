@@ -425,6 +425,13 @@ type VP9Encoder struct {
 	// (vp9_encodeframe.c:5890-5891).
 	vp9FilterDiff [vp9dec.SwitchableFilterContexts]int64
 
+	// vp9BlockFilterRDScores carries the current final leaf's full-RD
+	// interpolation-filter score table from the picker to the residue write
+	// site. It is transient and consumed before the decision enters the
+	// same-frame leaf cache.
+	vp9BlockFilterRDScores [vp9dec.SwitchableFilterContexts]uint64
+	vp9BlockFilterRDValid  bool
+
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
 	lookaheadWrite uint8

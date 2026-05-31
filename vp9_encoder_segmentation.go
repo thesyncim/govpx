@@ -77,7 +77,7 @@ func (e *VP9Encoder) vp9SegEnabledForLoopfilter(isKey, intraOnly bool) bool {
 	}
 	switch e.opts.AQMode {
 	case VP9AQVariance:
-		return !e.vp9VarianceAQRateControlFixedQ() || e.activeMapEnabled
+		return true
 	case VP9AQComplexity:
 		return e.vp9ComplexityAQSB64TargetRate() >= encoder.ComplexityAQMinSB64TargetRate
 	case VP9AQEquator360:
@@ -195,29 +195,6 @@ func (e *VP9Encoder) vp9EncoderSegmentationParams(intraFrame bool, baseQIndex in
 		return seg
 	}
 	if e.opts.AQMode == VP9AQVariance {
-		// In fixed-Q / pure-Q mode the rate controller cannot
-		// absorb variance-AQ's per-segment qindex shifts: the
-		// low-variance bonus segments over-spend bits on flat
-		// regions, the segment map and segment-aware partition
-		// splits add overhead, and the user-chosen quality anchor
-		// is left unanchored. Suppress map/data updates in that
-		// mode — variance-AQ becomes a header-only no-op rather than
-		// the +70%+ BD-rate regression that the buggy v1 implementation
-		// produced on synthetic half-flat content. Rate-controlled
-		// pipelines (CBR/VBR) still get the perceptual benefit
-		// because the rate loop compensates for the qindex shift.
-		if e.vp9VarianceAQRateControlFixedQ() {
-			if e.activeMapEnabled && !intraFrame {
-				seg := vp9dec.SegmentationParams{
-					Enabled:   true,
-					UpdateMap: true,
-				}
-				initVP9SegmentationProbDefaults(&seg)
-				vp9EnableActiveMapSegmentation(&seg)
-				return seg
-			}
-			return vp9dec.SegmentationParams{Enabled: true}
-		}
 		// libvpx's vp9_aq_variance.c only recomputes the per-segment
 		// AltQ deltas on intra / alt-ref / golden frames; the deltas
 		// persist on the shared cm->seg between frames so inter

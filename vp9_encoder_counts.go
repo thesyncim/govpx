@@ -15,6 +15,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 ) *encoder.FrameCounts {
 	counts := &e.frameCounts
 	*counts = encoder.FrameCounts{}
+	e.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}
 
 	var countKey *vp9KeyframeEncodeState
 	if key != nil {

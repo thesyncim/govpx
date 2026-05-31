@@ -8,10 +8,6 @@ import (
 
 func TestVP9EncoderVarianceAQEmitsSegmentation(t *testing.T) {
 	const width, height = 64, 64
-	// Variance-AQ is suppressed in pure-Q / fixed-Q mode because the
-	// rate controller can't absorb the per-segment qindex swings;
-	// drive a CBR config so the perceptual AQ path stays wired and
-	// the bitstream segmentation gets emitted.
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              width,
 		Height:             height,

@@ -11,9 +11,6 @@ import (
 
 func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 	const width, height = 64, 64
-	// Use a CBR rate-control config so variance-AQ stays wired —
-	// the AQ path is suppressed under pure-Q / fixed-Q because the
-	// rate controller cannot absorb the per-segment qindex swings.
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:              width,
 		Height:             height,

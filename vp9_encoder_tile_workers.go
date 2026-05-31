@@ -567,6 +567,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &e.vp9CountCounts[i])
+		addVP9FilterDiff(&e.vp9FilterDiff, &e.vp9CountWorkers[i].vp9FilterDiff)
 	}
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&e.vp9CountWorkers[0])
@@ -612,6 +613,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	pool.waitHelperWorkers()
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
+		addVP9FilterDiff(&e.vp9FilterDiff, &pool.workers[i].vp9FilterDiff)
 	}
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&pool.workers[0])

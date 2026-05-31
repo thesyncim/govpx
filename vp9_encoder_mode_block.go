@@ -19,8 +19,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)
 	useDynamicMap := vp9ModeTreeUsesInterSegmentMap(kind)
 	var segmentImg *image.YCbCr
-	if kind == vp9ModeTreeKeyframeSource && e.opts.AQMode == VP9AQVariance &&
-		!e.vp9VarianceAQRateControlFixedQ() && key != nil {
+	if kind == vp9ModeTreeKeyframeSource && e.opts.AQMode == VP9AQVariance && key != nil {
 		useDynamicMap = true
 		segmentImg = key.img
 	}

@@ -22,8 +22,9 @@ package govpx_test
 //   - Standalone unfiltered AutoAltRef is neutral in the public-Q gate:
 //     libvpx leaves source_alt_ref_pending false here, so govpx must not
 //     emit a hidden bootstrap packet either.
-//   - ARNR on/off is measured in the realtime VBR lane where libvpx's
-//     one-pass ARF scheduler actually fires; gate requires ≤ -1%.
+//   - ARNR controls are measured in the realtime VBR lane where libvpx's
+//     one-pass ARF scheduler fires but alt-ref temporal filtering is gated
+//     off; gate requires neutral rate.
 //   - TPL on/off is neutral on the 64x64 sharp-edge fixture today even
 //     though the per-SB rdmult deltas fire; gate at ≤ +1% to catch
 //     regressions without inventing a savings claim for the tiny fixture.
@@ -221,12 +222,12 @@ func TestVP9BDRateARNR(t *testing.T) {
 	}
 	t.Logf("ARNR BD-rate=%.3f%% BD-PSNR=%.3f dB", res.BDRate, res.BDPSNR)
 	recordBDRateSummaryRow("ARNR (texture+noise)", res)
-	if res.BDRate > -1.0 {
-		t.Errorf("ARNR BD-rate=%.3f%% > -1%%: enabling ARNR must save bitrate on textured/noisy content; the centered temporal filter dropped to a no-op",
+	if math.Abs(res.BDRate) > 1.0 {
+		t.Errorf("ARNR BD-rate=%.3f%% outside ±1%%: realtime VBR schedules one-pass ARF but libvpx does not run alt-ref temporal filtering in REALTIME mode",
 			res.BDRate)
 	}
 	if res.BDRate < -20.0 {
-		t.Errorf("ARNR BD-rate=%.3f%% < -20%%: implausibly large saving, check harness",
+		t.Errorf("ARNR BD-rate=%.3f%% < -20%%: implausibly large delta, check harness",
 			res.BDRate)
 	}
 	assertLibvpxAbsoluteGate(t, "ARNR", res, defaultLibvpxAbsoluteGate)
