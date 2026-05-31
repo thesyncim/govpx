@@ -180,27 +180,15 @@ residualLoop:
 				predOK = false
 				break residualLoop
 			}
-			copyW := bs
-			copyH := bs
-			if x0 >= srcW || y0 >= srcH {
-				continue
+			blockSSE, blockSum, blockCount, ok := vp9AccumulateIntraResidualStats(
+				src, srcStride, srcW, srcH, x0, y0, dst, dstStride, bs)
+			if !ok {
+				predOK = false
+				break residualLoop
 			}
-			if x0+copyW > srcW {
-				copyW = srcW - x0
-			}
-			if y0+copyH > srcH {
-				copyH = srcH - y0
-			}
-			for y := 0; y < copyH; y++ {
-				srcRow := src[(y0+y)*srcStride+x0:]
-				dstRow := dst[y*dstStride:]
-				for x := 0; x < copyW; x++ {
-					diff := int(srcRow[x]) - int(dstRow[x])
-					sse += uint64(diff * diff)
-					sum += int64(diff)
-					count++
-				}
-			}
+			sse += blockSSE
+			sum += blockSum
+			count += blockCount
 		}
 	}
 	if !predOK {
@@ -252,27 +240,14 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchLiveNoRestore(key *v
 			if !ok {
 				return 0, 0, false
 			}
-			copyW := bs
-			copyH := bs
-			if x0 >= srcW || y0 >= srcH {
-				continue
+			blockSSE, blockSum, blockCount, ok := vp9AccumulateIntraResidualStats(
+				src, srcStride, srcW, srcH, x0, y0, dst, dstStride, bs)
+			if !ok {
+				return 0, 0, false
 			}
-			if x0+copyW > srcW {
-				copyW = srcW - x0
-			}
-			if y0+copyH > srcH {
-				copyH = srcH - y0
-			}
-			for y := 0; y < copyH; y++ {
-				srcRow := src[(y0+y)*srcStride+x0:]
-				dstRow := dst[y*dstStride:]
-				for x := 0; x < copyW; x++ {
-					diff := int(srcRow[x]) - int(dstRow[x])
-					sse += uint64(diff * diff)
-					sum += int64(diff)
-					count++
-				}
-			}
+			sse += blockSSE
+			sum += blockSum
+			count += blockCount
 		}
 	}
 	if count == 0 {
@@ -348,27 +323,15 @@ residualLoop:
 				predOK = false
 				break residualLoop
 			}
-			copyW := bs
-			copyH := bs
-			if x0 >= srcW || y0 >= srcH {
-				continue
+			blockSSE, blockSum, blockCount, ok := vp9AccumulateIntraResidualStats(
+				src, srcStride, srcW, srcH, x0, y0, dst, dstStride, bs)
+			if !ok {
+				predOK = false
+				break residualLoop
 			}
-			if x0+copyW > srcW {
-				copyW = srcW - x0
-			}
-			if y0+copyH > srcH {
-				copyH = srcH - y0
-			}
-			for y := 0; y < copyH; y++ {
-				srcRow := src[(y0+y)*srcStride+x0:]
-				dstRow := dst[y*dstStride:]
-				for x := 0; x < copyW; x++ {
-					diff := int(srcRow[x]) - int(dstRow[x])
-					sse += uint64(diff * diff)
-					sum += int64(diff)
-					count++
-				}
-			}
+			sse += blockSSE
+			sum += blockSum
+			count += blockCount
 		}
 	}
 	if restore {
@@ -385,6 +348,45 @@ residualLoop:
 		return sse, sse - meanSquare, true
 	}
 	return sse, meanSquare - sse, true
+}
+
+func vp9AccumulateIntraResidualStats(src []byte, srcStride, srcW, srcH int,
+	x0, y0 int, pred []byte, predStride, bs int,
+) (sse uint64, sum int64, count uint64, ok bool) {
+	if len(src) == 0 || srcStride <= 0 || srcW <= 0 || srcH <= 0 ||
+		len(pred) == 0 || predStride <= 0 || bs <= 0 {
+		return 0, 0, 0, false
+	}
+	if srcW > srcStride || bs > predStride {
+		return 0, 0, 0, false
+	}
+	if (srcH-1)*srcStride+srcW > len(src) ||
+		(bs-1)*predStride+bs > len(pred) {
+		return 0, 0, 0, false
+	}
+	for y := 0; y < bs; y++ {
+		sy := y0 + y
+		if sy < 0 {
+			sy = 0
+		} else if sy >= srcH {
+			sy = srcH - 1
+		}
+		srcRow := src[sy*srcStride:]
+		predRow := pred[y*predStride:]
+		for x := 0; x < bs; x++ {
+			sx := x0 + x
+			if sx < 0 {
+				sx = 0
+			} else if sx >= srcW {
+				sx = srcW - 1
+			}
+			diff := int(srcRow[sx]) - int(predRow[x])
+			sse += uint64(diff * diff)
+			sum += int64(diff)
+			count++
+		}
+	}
+	return sse, sum, count, true
 }
 
 func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,

@@ -385,6 +385,13 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		}
 	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
+		if kind == vp9ModeTreeInterSource && inter != nil &&
+			e.sf.PartitionSearchType == MlBasedPartition &&
+			(root == common.Block64x64 || root == common.Block32x32 ||
+				root == common.Block16x16 || root == common.Block8x8) {
+			return e.pickVP9InterPartitionBlockSize(inter, tile, partitionProbs,
+				miRows, miCols, miRow, miCol, root)
+		}
 		return target
 	}
 	return e.pickVP9InterPartitionBlockSize(inter, tile, partitionProbs,

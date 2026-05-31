@@ -184,6 +184,29 @@ func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
 	}
 }
 
+func TestVP9IntraResidualStatsExtendSourceEdges(t *testing.T) {
+	src := []byte{
+		1, 2, 3, 200,
+		4, 5, 6, 201,
+		7, 8, 9, 202,
+	}
+	pred := make([]byte, 4*4)
+	sse, sum, count, ok := vp9AccumulateIntraResidualStats(
+		src, 4, 3, 3, 1, 1, pred, 4, 4)
+	if !ok {
+		t.Fatal("vp9AccumulateIntraResidualStats returned !ok")
+	}
+	if count != 16 {
+		t.Fatalf("count = %d, want 16 from full transform block", count)
+	}
+	if sum != 128 {
+		t.Fatalf("sum = %d, want 128 from visible-edge extension", sum)
+	}
+	if sse != 1054 {
+		t.Fatalf("sse = %d, want 1054 from visible-edge extension", sse)
+	}
+}
+
 func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
 	keySrc := vp9test.NewYCbCr(32, 32, 128, 128, 128)
