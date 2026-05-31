@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	"image"
 	"testing"
 )
 
@@ -77,26 +76,6 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntegerTopRightBorderNewMvStream(t *t
 	}
 }
 
-func vp9ShowExistingOracleStreamForTest(t *testing.T, width, height int) ([][]byte, []byte) {
-	t.Helper()
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
-	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	key, err := e.Encode(img)
-	if err != nil {
-		t.Fatalf("Encode keyframe: %v", err)
-	}
-	inter, err := e.Encode(img)
-	if err != nil {
-		t.Fatalf("Encode inter: %v", err)
-	}
-	packets := [][]byte{
-		key,
-		inter,
-		vp9test.ShowExistingFramePacket(5),
-	}
-	return packets, vp9IVFForTest(width, height, packets...)
-}
-
 func vp9IVFForTest(width, height int, packets ...[]byte) []byte {
 	return vp9test.BuildVP9IVF(width, height, packets...)
 }
@@ -122,26 +101,6 @@ func vp9DecodeVisibleI420WithOptionsForTest(t *testing.T,
 		}
 		if frame, ok := d.NextFrame(); ok {
 			out = appendVP9I420(out, frame)
-		}
-	}
-	return out
-}
-
-func vp9DecodeIntoVisibleI420ForTest(t *testing.T, width, height int, packets ...[]byte) []byte {
-	t.Helper()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	dst := newTestImage(width, height)
-	var out []byte
-	for i, packet := range packets {
-		info, err := d.DecodeInto(packet, &dst)
-		if err != nil {
-			t.Fatalf("DecodeInto packet %d: %v", i, err)
-		}
-		if info.ShowFrame {
-			out = appendVP9I420(out, dst)
 		}
 	}
 	return out

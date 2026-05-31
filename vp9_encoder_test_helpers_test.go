@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -50,24 +51,8 @@ func assertVP9InterMotionBlockForTest(t *testing.T, name string,
 }
 
 func shiftedVP9ReferenceYCbCrForTest(ref Image, dx, dy int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
-	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeDx, planeDy int) {
-		for y := range height {
-			dstRow := dst[y*dstStride:]
-			sy := clampVP9IntForTest(y+planeDy, 0, height-1)
-			srcRow := src[sy*srcStride:]
-			for x := range width {
-				sx := clampVP9IntForTest(x+planeDx, 0, width-1)
-				dstRow[x] = srcRow[sx]
-			}
-		}
-	}
-	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height, dx, dy)
-	uvWidth := (ref.Width + 1) >> 1
-	uvHeight := (ref.Height + 1) >> 1
-	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, dx>>1, dy>>1)
-	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, dx>>1, dy>>1)
-	return img
+	return vp9test.ShiftedI420(ref.Width, ref.Height,
+		ref.Y, ref.U, ref.V, ref.YStride, ref.UStride, ref.VStride, dx, dy)
 }
 
 func vp9ImageFromYCbCrForTest(img *image.YCbCr) Image {
@@ -118,95 +103,21 @@ func decodeVP9TwoFrameInterMiGridForOracleTest(t *testing.T, key, inter []byte) 
 }
 
 func splitShiftedVP9ReferenceYCbCrForTest(ref Image, leftDx, rightDx int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
-	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeLeftDx, planeRightDx int) {
-		splitX := width / 2
-		for y := range height {
-			dstRow := dst[y*dstStride:]
-			srcRow := src[y*srcStride:]
-			for x := range width {
-				dx := planeLeftDx
-				if x >= splitX {
-					dx = planeRightDx
-				}
-				sx := clampVP9IntForTest(x+dx, 0, width-1)
-				dstRow[x] = srcRow[sx]
-			}
-		}
-	}
-	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height, leftDx, rightDx)
-	uvWidth := (ref.Width + 1) >> 1
-	uvHeight := (ref.Height + 1) >> 1
-	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, leftDx>>1, rightDx>>1)
-	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, leftDx>>1, rightDx>>1)
-	return img
+	return vp9test.SplitXShiftedI420(ref.Width, ref.Height,
+		ref.Y, ref.U, ref.V, ref.YStride, ref.UStride, ref.VStride, leftDx, rightDx)
 }
 
 func splitYShiftedVP9ReferenceYCbCrForTest(ref Image, topDy, bottomDy int) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
-	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height, planeTopDy, planeBottomDy int) {
-		splitY := height / 2
-		for y := range height {
-			dy := planeTopDy
-			if y >= splitY {
-				dy = planeBottomDy
-			}
-			sy := clampVP9IntForTest(y+dy, 0, height-1)
-			dstRow := dst[y*dstStride:]
-			srcRow := src[sy*srcStride:]
-			for x := range width {
-				dstRow[x] = srcRow[x]
-			}
-		}
-	}
-	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height, topDy, bottomDy)
-	uvWidth := (ref.Width + 1) >> 1
-	uvHeight := (ref.Height + 1) >> 1
-	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight, topDy>>1, bottomDy>>1)
-	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight, topDy>>1, bottomDy>>1)
-	return img
+	return vp9test.SplitYShiftedI420(ref.Width, ref.Height,
+		ref.Y, ref.U, ref.V, ref.YStride, ref.UStride, ref.VStride, topDy, bottomDy)
 }
 
 func quadrantShiftedVP9ReferenceYCbCrForTest(ref Image,
 	topLeft, topRight, bottomLeft, bottomRight image.Point,
 ) *image.YCbCr {
-	img := image.NewYCbCr(image.Rect(0, 0, ref.Width, ref.Height), image.YCbCrSubsampleRatio420)
-	shiftPlane := func(dst []byte, dstStride int, src []byte, srcStride, width, height int,
-		tl, tr, bl, br image.Point,
-	) {
-		splitX := width / 2
-		splitY := height / 2
-		for y := range height {
-			dstRow := dst[y*dstStride:]
-			for x := range width {
-				shift := tl
-				if y >= splitY {
-					shift = bl
-					if x >= splitX {
-						shift = br
-					}
-				} else if x >= splitX {
-					shift = tr
-				}
-				srcX := clampVP9IntForTest(x+shift.X, 0, width-1)
-				srcY := clampVP9IntForTest(y+shift.Y, 0, height-1)
-				dstRow[x] = src[srcY*srcStride+srcX]
-			}
-		}
-	}
-	shiftPlane(img.Y, img.YStride, ref.Y, ref.YStride, ref.Width, ref.Height,
+	return vp9test.QuadrantShiftedI420(ref.Width, ref.Height,
+		ref.Y, ref.U, ref.V, ref.YStride, ref.UStride, ref.VStride,
 		topLeft, topRight, bottomLeft, bottomRight)
-	uvWidth := (ref.Width + 1) >> 1
-	uvHeight := (ref.Height + 1) >> 1
-	uvTopLeft := image.Point{X: topLeft.X >> 1, Y: topLeft.Y >> 1}
-	uvTopRight := image.Point{X: topRight.X >> 1, Y: topRight.Y >> 1}
-	uvBottomLeft := image.Point{X: bottomLeft.X >> 1, Y: bottomLeft.Y >> 1}
-	uvBottomRight := image.Point{X: bottomRight.X >> 1, Y: bottomRight.Y >> 1}
-	shiftPlane(img.Cb, img.CStride, ref.U, ref.UStride, uvWidth, uvHeight,
-		uvTopLeft, uvTopRight, uvBottomLeft, uvBottomRight)
-	shiftPlane(img.Cr, img.CStride, ref.V, ref.VStride, uvWidth, uvHeight,
-		uvTopLeft, uvTopRight, uvBottomLeft, uvBottomRight)
-	return img
 }
 
 func predictedVP9ReferenceYCbCrForTest(t *testing.T, ref Image, mv vp9dec.MV) *image.YCbCr {
@@ -270,16 +181,6 @@ func decodeVP9KeyInterForTest(t *testing.T, key, inter []byte) *VP9Decoder {
 		t.Fatalf("Decode inter: %v", err)
 	}
 	return d
-}
-
-func clampVP9IntForTest(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
 }
 
 // TestNewVP9EncoderRequiresDimensions: Width and Height must both be

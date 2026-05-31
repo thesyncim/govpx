@@ -354,10 +354,16 @@ func NormalizeEncodeFlags(flags govpx.EncodeFlags) govpx.EncodeFlags {
 
 func DecodeVisibleI420(t testing.TB, packets ...[]byte) []byte {
 	t.Helper()
-	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	return DecodeVisibleI420WithOptions(t, govpx.VP9DecoderOptions{}, packets...)
+}
+
+func DecodeVisibleI420WithOptions(t testing.TB, opts govpx.VP9DecoderOptions, packets ...[]byte) []byte {
+	t.Helper()
+	d, err := govpx.NewVP9Decoder(opts)
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
+	defer d.Close()
 	var out []byte
 	for i, packet := range packets {
 		if err := d.Decode(packet); err != nil {
@@ -368,6 +374,111 @@ func DecodeVisibleI420(t testing.TB, packets ...[]byte) []byte {
 		}
 	}
 	return out
+}
+
+func DecodeIntoVisibleI420(t testing.TB, width, height int, packets ...[]byte) []byte {
+	t.Helper()
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	dst := NewImage(width, height)
+	var out []byte
+	for i, packet := range packets {
+		info, err := d.DecodeInto(packet, &dst)
+		if err != nil {
+			t.Fatalf("DecodeInto packet %d: %v", i, err)
+		}
+		if info.ShowFrame {
+			out = AppendI420(out, &dst)
+		}
+	}
+	return out
+}
+
+func DecodeLastVisibleFrame(t testing.TB, packets ...[]byte) govpx.Image {
+	t.Helper()
+	return DecodeLastVisibleFrameWithOptions(t, govpx.VP9DecoderOptions{}, packets...)
+}
+
+func DecodeLastVisibleFrameWithOptions(t testing.TB,
+	opts govpx.VP9DecoderOptions, packets ...[]byte,
+) govpx.Image {
+	t.Helper()
+	d, err := govpx.NewVP9Decoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	var last govpx.Image
+	ok := false
+	for i, packet := range packets {
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode packet %d: %v", i, err)
+		}
+		if frame, frameOK := d.NextFrame(); frameOK {
+			last = CloneImage(frame)
+			ok = true
+		}
+	}
+	if !ok {
+		t.Fatal("packet sequence did not publish a visible frame")
+	}
+	return last
+}
+
+func EncodedKeyframe(t testing.TB, width, height int, y byte) []byte {
+	t.Helper()
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:     width,
+		Height:    height,
+		Quantizer: 37,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder %dx%d: %v", width, height, err)
+	}
+	defer e.Close()
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, y, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode %dx%d keyframe: %v", width, height, err)
+	}
+	if len(packet) == 0 {
+		t.Fatalf("Encode %dx%d keyframe returned empty packet", width, height)
+	}
+	return packet
+}
+
+func SVCStyleSuperframe(t testing.TB) []byte {
+	t.Helper()
+	return vp9test.SuperframePacket(t,
+		EncodedKeyframe(t, 32, 32, 80),
+		EncodedKeyframe(t, 64, 64, 160),
+	)
+}
+
+func ShowExistingStream(t testing.TB, width, height int) ([][]byte, []byte) {
+	t.Helper()
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	key, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	inter, err := e.Encode(img)
+	if err != nil {
+		t.Fatalf("Encode inter: %v", err)
+	}
+	packets := [][]byte{
+		key,
+		inter,
+		vp9test.ShowExistingFramePacket(5),
+	}
+	return packets, vp9test.BuildVP9IVF(width, height, packets...)
 }
 
 func DecodeIVFVisibleI420(ivf []byte) ([]byte, error) {
@@ -464,6 +575,15 @@ func NewImage(width int, height int) govpx.Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
+}
+
+func CloneImage(src govpx.Image) govpx.Image {
+	dst := NewImage(src.Width, src.Height)
+	uvWidth, uvHeight := (src.Width+1)>>1, (src.Height+1)>>1
+	vpxbuffers.CopyPlane(dst.Y, dst.YStride, src.Y, src.YStride, src.Width, src.Height)
+	vpxbuffers.CopyPlane(dst.U, dst.UStride, src.U, src.UStride, uvWidth, uvHeight)
+	vpxbuffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
+	return dst
 }
 
 func PackI420(img *govpx.Image) []byte {

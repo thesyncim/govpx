@@ -207,3 +207,37 @@ func AssertEncoderVpxdecI420Match(t testing.TB, width, height int, packets ...[]
 			vp9test.MD5Hex(got))
 	}
 }
+
+func AssertImageMatchesYCbCr(t testing.TB, name string, got govpx.Image, want *image.YCbCr) {
+	t.Helper()
+	width := want.Rect.Dx()
+	height := want.Rect.Dy()
+	if got.Width != width || got.Height != height {
+		t.Fatalf("%s dimensions = %dx%d, want %dx%d",
+			name, got.Width, got.Height, width, height)
+	}
+	assertPlaneMatches(t, name, "Y", got.Y, got.YStride, want.Y, want.YStride,
+		width, height)
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	assertPlaneMatches(t, name, "U", got.U, got.UStride, want.Cb, want.CStride,
+		uvWidth, uvHeight)
+	assertPlaneMatches(t, name, "V", got.V, got.VStride, want.Cr, want.CStride,
+		uvWidth, uvHeight)
+}
+
+func assertPlaneMatches(t testing.TB, name, plane string,
+	got []byte, gotStride int, want []byte, wantStride int, width, height int,
+) {
+	t.Helper()
+	for y := range height {
+		gotRow := got[y*gotStride:]
+		wantRow := want[y*wantStride:]
+		for x := range width {
+			if gotRow[x] != wantRow[x] {
+				t.Fatalf("%s %s[%d,%d] = %d, want %d",
+					name, plane, y, x, gotRow[x], wantRow[x])
+			}
+		}
+	}
+}

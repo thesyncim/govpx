@@ -1,8 +1,10 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -11,7 +13,7 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 70, 70
-	e, _ := NewVP9Encoder(VP9EncoderOptions{
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:    width,
 		Height:   height,
 		Lossless: true,
@@ -21,14 +23,16 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode lossless keyframe: %v", err)
 	}
-	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 4, 0)
+	ref := vp9oracle.DecodeLastVisibleFrame(t, key)
+	interSrc := vp9test.ShiftedI420(ref.Width, ref.Height,
+		ref.Y, ref.U, ref.V, ref.YStride, ref.UStride, ref.VStride, 4, 0)
 	inter, err := e.Encode(interSrc)
 	if err != nil {
 		t.Fatalf("Encode lossless inter: %v", err)
 	}
 
-	assertVP9EncoderVpxdecI420Match(t, width, height, key, inter)
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	vp9oracle.AssertEncoderVpxdecI420Match(t, width, height, key, inter)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -39,7 +43,7 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after lossless keyframe")
 	}
-	assertVP9ImageMatchesYCbCr(t, "lossless keyframe", keyFrame, keySrc)
+	vp9oracle.AssertImageMatchesYCbCr(t, "lossless keyframe", keyFrame, keySrc)
 	if err := d.Decode(inter); err != nil {
 		t.Fatalf("Decode lossless inter: %v", err)
 	}
@@ -47,5 +51,5 @@ func TestVP9EncoderVpxdecOracleMatchesLosslessKeyAndInter(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after lossless inter")
 	}
-	assertVP9ImageMatchesYCbCr(t, "lossless inter", interFrame, interSrc)
+	vp9oracle.AssertImageMatchesYCbCr(t, "lossless inter", interFrame, interSrc)
 }
