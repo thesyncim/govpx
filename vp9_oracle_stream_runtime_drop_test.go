@@ -1,10 +1,13 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
@@ -14,13 +17,13 @@ func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
 	const width, height, frames = 64, 64, 24
 	type runtimeDropCase struct {
 		name      string
-		opts      VP9EncoderOptions
-		before    func(*testing.T, *VP9Encoder, int)
+		opts      govpx.VP9EncoderOptions
+		before    func(*testing.T, *govpx.VP9Encoder, int)
 		extraArgs []string
 		wantDrop  bool
 	}
-	dropOpts := func(targetKbps int) VP9EncoderOptions {
-		opts := vp9OracleCBROptions(width, height, targetKbps)
+	dropOpts := func(targetKbps int) govpx.VP9EncoderOptions {
+		opts := vp9oracle.CBROptions(width, height, targetKbps)
 		opts.BufferSizeMs = 400
 		opts.BufferInitialSizeMs = 300
 		opts.BufferOptimalSizeMs = 350
@@ -31,78 +34,84 @@ func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
 		{
 			name: "drop-frame-toggle",
 			opts: dropOpts(120),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget drop enabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropEnabled,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						FrameDrop: govpx.RealtimeFrameDropEnabled,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget drop enabled: %v", err)
+					}
 				case 14:
-					mustVP9Runtime(t, "SetRealtimeTarget drop disabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropDisabled,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						FrameDrop: govpx.RealtimeFrameDropDisabled,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget drop disabled: %v", err)
+					}
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(120, 400, 300, 350, 0),
+			extraArgs: append(vp9oracle.CBRArgs(120, 400, 300, 350, 0),
 				"--drop-frame-schedule=3:60,14:0"),
 			wantDrop: true,
 		},
 		{
 			name: "fixed-q-drop-frame-toggle",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := dropOpts(140)
 				opts.MinQuantizer = 20
 				opts.MaxQuantizer = 20
 				return opts
 			}(),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 2:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop enabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropEnabled,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						FrameDrop: govpx.RealtimeFrameDropEnabled,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget fixed-q drop enabled: %v", err)
+					}
 				case 14:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed-q drop disabled",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							FrameDrop: RealtimeFrameDropDisabled,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						FrameDrop: govpx.RealtimeFrameDropDisabled,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget fixed-q drop disabled: %v", err)
+					}
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 0),
+			extraArgs: append(vp9oracle.CBRArgs(140, 400, 300, 350, 0),
 				"--min-q=20", "--max-q=20",
 				"--drop-frame-schedule=2:60,14:0"),
 			wantDrop: true,
 		},
 		{
 			name: "fixed-q-window-under-drop-pressure",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := dropOpts(140)
 				opts.DropFrameAllowed = true
 				return opts
 			}(),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 4:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed q under drop",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							MinQuantizer: 20,
-							MaxQuantizer: 20,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						MinQuantizer: 20,
+						MaxQuantizer: 20,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget fixed q under drop: %v", err)
+					}
 				case 14:
-					mustVP9Runtime(t, "SetRealtimeTarget q band restore after drop",
-						enc.SetRealtimeTarget(RealtimeTarget{
-							MinQuantizer: 4,
-							MaxQuantizer: 56,
-						}))
+					if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+						MinQuantizer: 4,
+						MaxQuantizer: 56,
+					}); err != nil {
+						t.Fatalf("SetRealtimeTarget q band restore after drop: %v", err)
+					}
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 60),
+			extraArgs: append(vp9oracle.CBRArgs(140, 400, 300, 350, 60),
 				"--min-q-schedule=4:20,14:4",
 				"--max-q-schedule=4:20,14:56"),
 			wantDrop: true,
@@ -111,14 +120,14 @@ func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
+			sources := vp9oracle.TransitionSources(width, height, frames)
 			govpxRows, govpxPackets, libvpxRows, libvpxPackets :=
-				captureVP9StreamParityPacketRowsWithHooks(t, tc.opts,
+				vp9oracle.CaptureStreamParityPacketRowsWithHooks(t, tc.opts,
 					sources, nil, tc.extraArgs,
-					func(enc *VP9Encoder, frame int) {
+					func(enc *govpx.VP9Encoder, frame int) {
 						tc.before(t, enc, frame)
 					})
-			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 			matches, packetMatches, dropMatches, firstMismatch :=
 				vp9test.CountByteParityMatchesWithDrops(t, govpxRows, govpxPackets,
 					libvpxRows, libvpxPackets)
