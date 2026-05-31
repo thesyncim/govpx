@@ -99,38 +99,36 @@ func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 		width  = 128
 		height = 64
 	)
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Deadline: DeadlineGoodQuality,
+		CpuUsed:  -3,
+	})
 	keySrc := vp9test.NewMotionYCbCr(width, height)
-	key, err := e.Encode(keySrc)
-	if err != nil {
+	if _, err := e.Encode(keySrc); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
-	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 7, 0)
-	inter, err := e.Encode(interSrc)
-	if err != nil {
-		t.Fatalf("Encode inter: %v", err)
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 7, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
 	}
-	if err := d.Decode(key); err != nil {
-		t.Fatalf("Decode keyframe: %v", err)
-	}
-	if _, ok := d.NextFrame(); !ok {
-		t.Fatal("NextFrame returned !ok after keyframe")
-	}
-	if err := d.Decode(inter); err != nil {
-		t.Fatalf("Decode inter: %v", err)
-	}
+	e.sf.Mv.SearchMethod = SearchMethodFastDiamond
 	want := vp9dec.MV{Col: 56}
-	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
-		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
-			got.Mode, got.Mv[0], want)
+	got, _, ok := e.pickVP9InterMvWithOptions(inter, 8, 16,
+		0, 0, common.Block64x64, vp9dec.LastFrame,
+		vp9InterMvSearchOptions{seed: want, seedValid: true})
+	if !ok {
+		t.Fatal("odd-integer NEWMV search returned !ok")
 	}
-	if _, ok := d.NextFrame(); !ok {
-		t.Fatal("NextFrame returned !ok after odd-MV inter frame")
+	if got != want {
+		t.Fatalf("odd-integer NEWMV = %+v, want %+v", got, want)
 	}
 }
 

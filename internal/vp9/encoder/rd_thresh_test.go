@@ -12,7 +12,7 @@ import (
 // libvpx vp9_rd.c:703-744 column-by-column adjustments.
 func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
 	var rd RDThreshState
-	rd.SetRDSpeedThresholds(4)
+	rd.SetRDSpeedThresholds(4, false)
 	cases := []struct {
 		mode ThrMode
 		want int
@@ -61,7 +61,7 @@ func TestVP9SetRDSpeedThresholdsAdaptive(t *testing.T) {
 // apply uniformly.
 func TestVP9SetRDSpeedThresholdsNonAdaptive(t *testing.T) {
 	var rd RDThreshState
-	rd.SetRDSpeedThresholds(0)
+	rd.SetRDSpeedThresholds(0, false)
 	if got := rd.threshMult[vp9ThrNearestMV]; got != 0 {
 		t.Errorf("threshMult[NEARESTMV] non-adaptive = %d, want 0", got)
 	}
@@ -73,6 +73,30 @@ func TestVP9SetRDSpeedThresholdsNonAdaptive(t *testing.T) {
 	}
 	if got := rd.threshMult[vp9ThrDC]; got != 1000 {
 		t.Errorf("threshMult[DC] non-adaptive = %d, want 1000", got)
+	}
+}
+
+func TestVP9SetRDSpeedThresholdsBestQuality(t *testing.T) {
+	var rd RDThreshState
+	rd.SetRDSpeedThresholds(4, true)
+	cases := []struct {
+		mode ThrMode
+		want int
+	}{
+		{vp9ThrNearestMV, 300},
+		{vp9ThrDC, 500},
+		{vp9ThrNewMV, 500},
+		{vp9ThrCompNearLA, 1000},
+		{vp9ThrCompNewLA, 1500},
+		{vp9ThrZeroMV, 1500},
+		{vp9ThrCompZeroLA, 2000},
+		{vp9ThrD45Pred, 2000},
+	}
+	for _, c := range cases {
+		if got := rd.threshMult[c.mode]; got != c.want {
+			t.Errorf("best-quality threshMult[%d] = %d, want %d",
+				c.mode, got, c.want)
+		}
 	}
 }
 
@@ -187,7 +211,7 @@ func TestVP9FullRDCorrectNewMVMode(t *testing.T) {
 // (govpx does not surface the sub-8x8 picker).
 func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 	var rd RDThreshState
-	rd.SetRDSpeedThresholds(4)
+	rd.SetRDSpeedThresholds(4, false)
 	rd.SetBlockThresholds(64, 0)
 
 	// Sub-8x8 rows stay zero because govpx does not run the sub-8x8 RD
@@ -217,7 +241,7 @@ func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 
 func TestVP9FullRDModeThresholdZerosFrontSchedule(t *testing.T) {
 	var rd RDThreshState
-	rd.SetRDSpeedThresholds(4)
+	rd.SetRDSpeedThresholds(4, false)
 	rd.SetBlockThresholds(64, 0)
 	rd.InitFreqFact()
 	for mode := ThrMode(0); mode <= FullRDLastNewMVIndex; mode++ {

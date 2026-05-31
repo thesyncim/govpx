@@ -279,12 +279,14 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// chains rd_pick_intra_sby_mode (which runs the per-block
 			// tx_size RD via super_block_yrd -> choose_tx_size_from_rd
 			// when cm->tx_mode == TX_MODE_SELECT) before
-			// rd_pick_intra_sbuv_mode. govpx's pickVP9KeyframeMode picks
-			// the Y mode under a Tx16x16-capped scorer; here we run the
-			// per-block tx_size RD pick on top so mi.TxSize is RD-optimal
-			// across {Tx32x32, Tx16x16, Tx8x8, Tx4x4} subject to
-			// sf.TxSizeSearchDepth bounds, matching choose_tx_size_from_rd.
-			if !useNonRDKeyframeMode && !keyDecisionReplayed && bsize >= common.Block8x8 {
+			// rd_pick_intra_sbuv_mode. When pickVP9KeyframeMode already
+			// ran that full-RD path, keep its chosen tx_size; otherwise
+			// layer the standalone tx picker on top of the simpler mode
+			// score so TxSize still follows choose_tx_size_from_rd.
+			modePickerChoseTx := e.sf.TxSizeSearchMethod == UseFullRD &&
+				e.vp9KeyframeRDRefinementEnabled()
+			if !useNonRDKeyframeMode && !keyDecisionReplayed &&
+				!modePickerChoseTx && bsize >= common.Block8x8 {
 				e.pickVP9KeyframeBlockTxSize(key, tile, miRows, miCols,
 					miRow, miCol, reconBsize, &cur, txMode)
 			}

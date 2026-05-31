@@ -149,7 +149,8 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	//
 	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
 	// sibling not surfaced here).
-	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh)
+	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh,
+		vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeBest)
 	e.rdThresh.SetBlockThresholds(qindex, 0)
 	if !e.rdThresh.Initialized() {
 		e.rdThresh.InitFreqFact()

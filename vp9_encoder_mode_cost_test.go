@@ -170,7 +170,12 @@ func TestVP9EncoderInterTxScoringKeepsActiveResidual(t *testing.T) {
 	// the default speed=8 path uses VAR_BASED_PARTITION + NonrdPickmode which
 	// commits root SB size and never reaches the Block8x8 leaf this test
 	// asserts.
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
+	e, _ := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Deadline: DeadlineGoodQuality,
+		CpuUsed:  -3,
+	})
 	keySrc := vp9test.NewYCbCr(width, height, 96, 128, 128)
 	key, err := e.Encode(keySrc)
 	if err != nil {

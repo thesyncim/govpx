@@ -587,7 +587,7 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 
 	origTx := mi.TxSize
 	best := vp9KeyframeTxRDResult{txSize: common.TxSize(startTx)}
-	bestScore := uint64(^uint64(0))
+	bestScore := refBestRD
 	bestValid := false
 	prevScore := uint64(0)
 	prevValid := false
@@ -614,15 +614,15 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 			scoreRate = txRate + skip1
 		}
 		score := encoder.RDCost(rdmult, encoder.RDDivBits, scoreRate, distortion)
-		if !bestValid || score < bestScore {
-			best = vp9KeyframeTxRDResult{
-				txSize:        tx,
-				rate:          rate,
-				rateTokenOnly: coeffRate,
-				distortion:    distortion,
-				skippable:     skippable,
-			}
-			bestScore = score
+		cand := vp9KeyframeTxRDResult{
+			txSize:        tx,
+			rate:          rate,
+			rateTokenOnly: coeffRate,
+			distortion:    distortion,
+			skippable:     skippable,
+		}
+		if tx == common.TxSize(startTx) {
+			best = cand
 			bestValid = true
 		}
 		if score < txRefBestRD {
@@ -631,6 +631,11 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 		if e.sf.TxSizeSearchBreakout != 0 &&
 			((n < startTx && prevValid && score > prevScore) || skippable) {
 			break
+		}
+		if score < bestScore {
+			best = cand
+			bestScore = score
+			bestValid = true
 		}
 		prevScore = score
 		prevValid = true

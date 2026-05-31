@@ -321,13 +321,13 @@ func (s *RDThreshState) InitFreqFact() {
 //	  rd->thresh_mult[THR_DC] += 1000;
 //	  ...
 //	}
-//
-// `mode == BEST` is a libvpx-only quality preset that govpx does not surface
-// for this encoder path, so the BEST=-500 leg collapses to 0.
-func (rd *RDThreshState) SetRDSpeedThresholds(adaptiveRdThresh int) {
-	// Reset all entries to 0 (govpx never runs BEST).
+func (rd *RDThreshState) SetRDSpeedThresholds(adaptiveRdThresh int, bestQuality bool) {
 	for i := range rd.threshMult {
-		rd.threshMult[i] = 0
+		if bestQuality {
+			rd.threshMult[i] = -500
+		} else {
+			rd.threshMult[i] = 0
+		}
 	}
 
 	if adaptiveRdThresh != 0 {

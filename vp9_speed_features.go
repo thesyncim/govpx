@@ -160,12 +160,11 @@ const (
 )
 
 // vp9ResolveDeadlineMode maps govpx Deadline to the libvpx MODE picked by the
-// SPEED_FEATURES dispatcher. DeadlineBestQuality maps to GOOD (libvpx's GOOD
-// path serves the best-quality preset for cpu_used==0), DeadlineGoodQuality to
-// GOOD, and DeadlineRealtime to REALTIME, matching govpx's existing oracle
-// rate-control routing.
+// SPEED_FEATURES dispatcher.
 func vp9ResolveDeadlineMode(d Deadline) vp9DeadlineMode {
 	switch d {
+	case DeadlineBestQuality:
+		return vp9ModeBest
 	case DeadlineRealtime:
 		return vp9ModeRealtime
 	default:

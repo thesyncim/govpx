@@ -315,7 +315,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactFrames: []int{1, 2, 3},
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-rt-cpu0-constant",
@@ -356,7 +357,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-rt-cpu5-constant",
@@ -418,7 +420,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-best-cpu5-constant",
@@ -438,7 +441,7 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactFrames: []int{1, 2, 3},
 		},
 		{
 			name:    "error-resilient-constant-720p",
