@@ -268,17 +268,16 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 		count32x32 += counts.TxMode.P32x32[i][common.Tx32x32]
 	}
 	// libvpx vp9_encodeframe.c:5930-5933 — ALLOW_8X8 demotion: no
-	// 4x4 anywhere, and no count larger than 8x8 anywhere. The
-	// matching reset_skip_tx_size(cm, TX_8X8) at libvpx
-	// vp9_encodeframe.c:5933 (defined at :4310-4321) is realised by
-	// the caller's baseMi.TxSize update + second counts pass.
+	// 4x4 anywhere, and no count larger than 8x8 anywhere. The caller
+	// mirrors reset_skip_tx_size(cm, TX_8X8) by clamping the cached
+	// leaf decisions before replaying the frame with the reduced mode.
 	if count4x4 == 0 && count16x16Lp == 0 && count16x16p16x16 == 0 &&
 		count32x32 == 0 {
 		return common.Allow8x8
 	}
 	// libvpx vp9_encodeframe.c:5934-5937 — ONLY_4X4 demotion: no
 	// 8x8 / 16x16 / 32x32 hits anywhere (only 4x4 was selected).
-	// reset_skip_tx_size(cm, TX_4X4) at :5937.
+	// The caller mirrors reset_skip_tx_size(cm, TX_4X4) at :5937.
 	if count8x8p8x8 == 0 && count16x16p16x16 == 0 &&
 		count8x8Lp == 0 && count16x16Lp == 0 && count32x32 == 0 {
 		return common.Only4x4
@@ -293,7 +292,7 @@ func vp9EncoderFrameTxModeFromCounts(txMode common.TxMode, lossless bool,
 	}
 	// libvpx vp9_encodeframe.c:5940-5943 — ALLOW_16X16 demotion:
 	// p32x32 only ever picked Tx16x16 (no 32x32, no 8x8 demotion
-	// from p32x32), and no 4x4 anywhere.
+	// from p32x32), and no 4x4 anywhere. The caller mirrors
 	// reset_skip_tx_size(cm, TX_16X16) at :5942.
 	if count32x32 == 0 && count8x8Lp == 0 && count4x4 == 0 {
 		return common.Allow16x16

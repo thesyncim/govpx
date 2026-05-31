@@ -39,6 +39,38 @@ func TestVP9LeafKeyframeDecisionCache(t *testing.T) {
 	}
 }
 
+func TestVP9LeafDecisionTxSizeClamp(t *testing.T) {
+	var e VP9Encoder
+	e.ensureVP9LeafInterDecisionCache(2, 2)
+	e.ensureVP9LeafKeyframeDecisionCache(2, 2)
+
+	interDecision := vp9InterModeDecision{
+		intra:  true,
+		mode:   common.DcPred,
+		txSize: common.Tx32x32,
+	}
+	e.storeVP9LeafInterDecision(0, 0, common.Block64x64, interDecision)
+	keyDecision := vp9KeyframeModeDecision{
+		mode:   common.HPred,
+		txSize: common.Tx16x16,
+		uvMode: common.DcPred,
+	}
+	e.storeVP9LeafKeyframeDecision(1, 1, common.Block16x16, keyDecision)
+
+	e.clampVP9LeafDecisionTxSizes(common.Tx8x8)
+
+	if got, ok := e.lookupVP9LeafInterDecision(0, 0, common.Block64x64); !ok {
+		t.Fatalf("inter lookup miss after clamp")
+	} else if got.txSize != common.Tx8x8 {
+		t.Fatalf("inter tx size = %v, want %v", got.txSize, common.Tx8x8)
+	}
+	if got, ok := e.lookupVP9LeafKeyframeDecision(1, 1, common.Block16x16); !ok {
+		t.Fatalf("keyframe lookup miss after clamp")
+	} else if got.txSize != common.Tx8x8 {
+		t.Fatalf("keyframe tx size = %v, want %v", got.txSize, common.Tx8x8)
+	}
+}
+
 func TestVP9TileEncodeWorkerPreservesCountDecisionCaches(t *testing.T) {
 	var src VP9Encoder
 	vp9dec.SetupBlockPlanes(&src.planes, 1, 1)

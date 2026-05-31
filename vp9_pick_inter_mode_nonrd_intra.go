@@ -216,8 +216,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		// (vp9_pickmode.c:747-758), so do not run the transform RD kernel
 		// in that case.
 		mi.Mode = thisMode
-		txYrd := min(intraTxSize, common.Tx16x16)
-		mi.TxSize = txYrd
+		mi.TxSize = intraTxSize
 		var distortion uint64
 		coeffRate := 0
 		skippable := false
@@ -258,7 +257,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
-		rateY, distY, _, _ := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+		rateY, distY, _, modelTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 			BSize:           bsize,
 			QIndex:          segQIndex,
 			Dequant:         dequantY,
@@ -271,9 +270,11 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
 			ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 		})
+		mi.TxSize = modelTxSize
 		coeffRate = rateY
 		distortion = uint64(distY)
 		if !useSimpleIntraBlockYrd {
+			txYrd := min(mi.TxSize, common.Tx16x16)
 			src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
 			blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 			blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4

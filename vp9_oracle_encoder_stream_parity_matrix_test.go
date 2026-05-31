@@ -534,8 +534,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			},
 			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			extraArgs:   []string{"--tune-content=screen"},
-			exactPrefix: 2,
-			exactFrames: []int{4},
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:        "no-reference-all-stepped-320",

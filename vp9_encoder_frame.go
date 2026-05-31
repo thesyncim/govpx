@@ -476,6 +476,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		header.Quant.Lossless, e.sf.FrameParameterUpdate != 0, counts); reducedTxMode != txMode {
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
+		e.clampVP9LeafDecisionTxSizes(baseMi.TxSize)
 		if interState != nil {
 			interState.txMode = txMode
 		}

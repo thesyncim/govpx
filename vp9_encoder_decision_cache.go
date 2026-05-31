@@ -132,6 +132,34 @@ func (e *VP9Encoder) storeVP9LeafKeyframeDecision(miRow, miCol int,
 	}
 }
 
+// clampVP9LeafDecisionTxSizes mirrors libvpx reset_skip_tx_size after
+// frame-level tx_mode demotion. The source function walks the committed
+// mi_grid_visible entries and lowers any tx_size above the new ceiling; in
+// govpx the leaf decision caches are the committed mode-info replay surface.
+func (e *VP9Encoder) clampVP9LeafDecisionTxSizes(maxTxSize common.TxSize) {
+	if maxTxSize >= common.TxSizes {
+		return
+	}
+	for i := range e.vp9LeafInterDecisions {
+		entry := &e.vp9LeafInterDecisions[i]
+		if !entry.valid || entry.version != e.vp9LeafInterDecisionsVer {
+			continue
+		}
+		if entry.decision.txSize > maxTxSize {
+			entry.decision.txSize = maxTxSize
+		}
+	}
+	for i := range e.vp9LeafKeyframeDecisions {
+		entry := &e.vp9LeafKeyframeDecisions[i]
+		if !entry.valid || entry.version != e.vp9LeafKeyframeDecisionsVer {
+			continue
+		}
+		if entry.decision.txSize > maxTxSize {
+			entry.decision.txSize = maxTxSize
+		}
+	}
+}
+
 // ensureVP9LeafInterDecisionCache sizes the per-frame leaf-write picker
 // decision cache to the current miGrid extent. Called from
 // ensureVP9EncoderModeBuffers so the cache always tracks the active frame.
