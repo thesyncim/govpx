@@ -1,10 +1,10 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
@@ -29,28 +29,6 @@ func TestVP9DecoderPostProcessOutputsPostFrame(t *testing.T) {
 	}
 	if &frame.Y[0] == &d.frameY[0] {
 		t.Fatal("postprocessed output aliases VP9 reconstruction buffer")
-	}
-}
-
-func TestVP9DecoderDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{PostProcessFlags: PostProcessDeblock})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	dst := newTestImage(64, 64)
-	packet := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
-	info, err := d.DecodeInto(packet, &dst)
-	if err != nil {
-		t.Fatalf("DecodeInto: %v", err)
-	}
-	if !info.ShowFrame || info.Width != 64 || info.Height != 64 {
-		t.Fatalf("VP9FrameInfo = %+v, want visible 64x64 frame", info)
-	}
-	if !publicImageEqualVP8(dst, &d.post.Img) {
-		t.Fatal("DecodeInto output does not match VP9 postprocess buffer")
-	}
-	if _, ok := d.NextFrame(); ok {
-		t.Fatal("DecodeInto queued a frame for NextFrame")
 	}
 }
 

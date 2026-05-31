@@ -1,9 +1,10 @@
 package govpx
 
 import (
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	"testing"
 )
 
 func TestVP9DecoderInterTileParseSteadyStateAlloc(t *testing.T) {

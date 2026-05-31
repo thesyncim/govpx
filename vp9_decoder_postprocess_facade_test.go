@@ -7,6 +7,7 @@ import (
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
@@ -81,6 +82,74 @@ func TestVP9DecoderPostProcessSteadyStateAlloc(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("VP9 postprocess steady-state allocs = %f, want 0", allocs)
+	}
+}
+
+func TestVP9DecoderDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
+	packet := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
+	opts := govpx.VP9DecoderOptions{PostProcessFlags: govpx.PostProcessDeblock}
+
+	d, err := govpx.NewVP9Decoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Decoder DecodeInto: %v", err)
+	}
+	dst := newVP9TestImageForTest(64, 64)
+	info, err := d.DecodeInto(packet, &dst)
+	if err != nil {
+		t.Fatalf("DecodeInto: %v", err)
+	}
+	if !info.ShowFrame || info.Width != 64 || info.Height != 64 {
+		t.Fatalf("VP9FrameInfo = %+v, want visible 64x64 frame", info)
+	}
+	if _, ok := d.NextFrame(); ok {
+		t.Fatal("DecodeInto queued a frame for NextFrame")
+	}
+
+	ref, err := govpx.NewVP9Decoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Decoder reference: %v", err)
+	}
+	if err := ref.Decode(packet); err != nil {
+		t.Fatalf("reference Decode: %v", err)
+	}
+	want, ok := ref.NextFrame()
+	if !ok {
+		t.Fatal("reference NextFrame returned no frame")
+	}
+	assertVP9ImagesEqualForTest(t, want, dst)
+}
+
+func TestVP9DecoderPostprocessNoisePRNGDeterministic(t *testing.T) {
+	const width, height = 64, 64
+	packet := vp9test.StubPacket(t, width, height, 0, common.DcPred)
+	runOnce := func() []byte {
+		d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			PostProcessFlags:      govpx.PostProcessAddNoise,
+			PostProcessNoiseLevel: 4,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Decoder: %v", err)
+		}
+		if err := d.Decode(packet); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+		frame, ok := d.NextFrame()
+		if !ok {
+			t.Fatal("NextFrame returned no frame")
+		}
+		out := make([]byte, len(frame.Y))
+		copy(out, frame.Y)
+		return out
+	}
+	a := runOnce()
+	b := runOnce()
+	if len(a) != len(b) {
+		t.Fatalf("frame Y lengths differ: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("noise output diverges at byte %d: %d vs %d", i, a[i], b[i])
+		}
 	}
 }
 

@@ -1,9 +1,9 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )

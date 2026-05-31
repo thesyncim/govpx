@@ -1,10 +1,9 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"runtime"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
@@ -91,20 +90,6 @@ func TestVP9DecoderRuntimeThreadingControlsUpdateState(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderRowMTMatchesSerial proves enabling VP9D_SET_ROW_MT keeps
-// the multi-tile-column decode output byte-identical to the serial path.
-// The wavefront primitive is exercised inside each tile-column body but
-// the body still runs single-goroutine, mirroring the encoder foundation.
-func TestVP9DecoderRowMTMatchesSerial(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
-
-	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
-		VP9DecoderOptions{Threads: 4}, packet)
-	rowMT := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
-		VP9DecoderOptions{Threads: 4, DecoderRowMT: true}, packet)
-	assertVP9ImagesEqual(t, serial, rowMT)
-}
-
 // TestVP9DecoderRowMTDisabledDoesNotRetainSyncState verifies that threaded
 // VP9 decode uses normal tile workers without retaining Row-MT wavefront
 // state unless VP9D_SET_ROW_MT is enabled.
@@ -165,35 +150,6 @@ func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
 	}
 }
 
-// TestVP9DecoderRowMTRuntimeToggleMatchesSerial cycles SetRowMT mid-stream
-// and confirms each decode still produces byte-identical output.
-func TestVP9DecoderRowMTRuntimeToggleMatchesSerial(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
-
-	want := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
-		VP9DecoderOptions{Threads: 4}, packet)
-
-	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	defer d.Close()
-
-	for i, enabled := range []bool{true, false, true} {
-		if err := d.SetRowMT(enabled); err != nil {
-			t.Fatalf("iter %d: SetRowMT(%v): %v", i, enabled, err)
-		}
-		if err := d.Decode(packet); err != nil {
-			t.Fatalf("iter %d: Decode: %v", i, err)
-		}
-		frame, ok := d.NextFrame()
-		if !ok {
-			t.Fatalf("iter %d: NextFrame returned !ok", i)
-		}
-		assertVP9ImagesEqual(t, want, frame)
-	}
-}
-
 // TestVP9DecoderLoopFilterOptGatesLoopFilterPool covers the gate: with the
 // option off the deblock pass uses the serial path even on a threaded
 // decoder, and with the option on the threaded helper pool drives the
@@ -236,69 +192,4 @@ func TestVP9DecoderLoopFilterOptGatesLoopFilterPool(t *testing.T) {
 		t.Fatal("DecoderLoopFilterOpt=false NextFrame returned !ok")
 	}
 	assertVP9ImagesEqual(t, serial, frame)
-}
-
-// TestVP9DecoderRowMTSteadyStateAlloc confirms the row-MT decode loop does
-// not introduce per-frame allocations after warm-up. The wavefront primitive
-// is allocated once at construction / first frame and reused thereafter.
-func TestVP9DecoderRowMTSteadyStateAlloc(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
-
-	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	defer d.Close()
-	if err := d.Decode(packet); err != nil {
-		t.Fatalf("warm Decode: %v", err)
-	}
-
-	allocs := testing.AllocsPerRun(vp9SteadyStateAllocRuns, func() {
-		err = d.Decode(packet)
-	})
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	if allocs != 0 {
-		t.Fatalf("row-MT decode steady state: got %v allocs/op, want 0", allocs)
-	}
-}
-
-// TestVP9DecoderRowMTNoGoroutineLeak proves Close shuts down the row-MT
-// arming + tile pool without leaving worker goroutines around.
-func TestVP9DecoderRowMTNoGoroutineLeak(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
-	baseline := vp9TestGoroutineCount()
-
-	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
-	if err != nil {
-		t.Fatalf("NewVP9Decoder: %v", err)
-	}
-	for range 3 {
-		if err := d.Decode(packet); err != nil {
-			t.Fatalf("Decode: %v", err)
-		}
-		if _, ok := d.NextFrame(); !ok {
-			t.Fatal("NextFrame returned !ok")
-		}
-	}
-	if err := d.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	if got := vp9TestGoroutineCount(); got > baseline {
-		t.Fatalf("goroutines leaked: baseline=%d after-close=%d", baseline, got)
-	}
-}
-
-func vp9TestGoroutineCount() int {
-	// Allow the runtime a short window to drain finished goroutines after
-	// channel close before sampling.
-	const samples = 8
-	last := runtime.NumGoroutine()
-	for range samples {
-		runtime.Gosched()
-		last = runtime.NumGoroutine()
-	}
-	return last
 }

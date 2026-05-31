@@ -1,13 +1,13 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // TestVP9DecoderThreadingOfficialIVFMatchesSerial extends the VP9 decoder
