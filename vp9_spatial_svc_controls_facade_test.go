@@ -1,16 +1,18 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9SpatialSVCEncoderSetInterLayerPrediction(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Lossless: true},
 			{Width: 64, Height: 64, Lossless: true},
 		},
@@ -65,69 +67,69 @@ func TestVP9SpatialSVCEncoderSetInterLayerPrediction(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
-	base := VP9SpatialSVCEncoderOptions{
+	base := govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32},
 			{Width: 64, Height: 64},
 		},
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*VP9SpatialSVCEncoderOptions)
+		mutate func(*govpx.VP9SpatialSVCEncoderOptions)
 	}{
-		{name: "zero layers", mutate: func(o *VP9SpatialSVCEncoderOptions) { o.LayerCount = 0 }},
-		{name: "one layer", mutate: func(o *VP9SpatialSVCEncoderOptions) { o.LayerCount = 1 }},
-		{name: "too many layers", mutate: func(o *VP9SpatialSVCEncoderOptions) {
-			o.LayerCount = VP9MaxSpatialLayers + 1
+		{name: "zero layers", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) { o.LayerCount = 0 }},
+		{name: "one layer", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) { o.LayerCount = 1 }},
+		{name: "too many layers", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
+			o.LayerCount = govpx.VP9MaxSpatialLayers + 1
 		}},
-		{name: "preset spatial config", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+		{name: "preset spatial config", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[0].SpatialScalability.Enabled = true
 		}},
-		{name: "lookahead", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+		{name: "lookahead", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[0].LookaheadFrames = 2
 		}},
-		{name: "drop frames", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+		{name: "drop frames", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[0].DropFrameAllowed = true
 		}},
-		{name: "non increasing", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+		{name: "non increasing", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[1].Width = 32
 			o.Layers[1].Height = 32
 		}},
-		{name: "invalid inter-layer scale", mutate: func(o *VP9SpatialSVCEncoderOptions) {
+		{name: "invalid inter-layer scale", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.InterLayerPrediction = true
 			o.Layers[1].Width = 544
 			o.Layers[1].Height = 544
 		}},
-		{name: "temporal enabled on one layer", mutate: func(o *VP9SpatialSVCEncoderOptions) {
-			o.Layers[1].TemporalScalability = TemporalScalabilityConfig{
+		{name: "temporal enabled on one layer", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
+			o.Layers[1].TemporalScalability = govpx.TemporalScalabilityConfig{
 				Enabled: true,
-				Mode:    TemporalLayeringTwoLayers,
+				Mode:    govpx.TemporalLayeringTwoLayers,
 			}
 		}},
-		{name: "temporal mode mismatch", mutate: func(o *VP9SpatialSVCEncoderOptions) {
-			o.Layers[0].TemporalScalability = TemporalScalabilityConfig{
+		{name: "temporal mode mismatch", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
+			o.Layers[0].TemporalScalability = govpx.TemporalScalabilityConfig{
 				Enabled: true,
-				Mode:    TemporalLayeringTwoLayers,
+				Mode:    govpx.TemporalLayeringTwoLayers,
 			}
-			o.Layers[1].TemporalScalability = TemporalScalabilityConfig{
+			o.Layers[1].TemporalScalability = govpx.TemporalScalabilityConfig{
 				Enabled: true,
-				Mode:    TemporalLayeringThreeLayers,
+				Mode:    govpx.TemporalLayeringThreeLayers,
 			}
 		}},
 	} {
 		opts := base
 		tc.mutate(&opts)
-		if _, err := NewVP9SpatialSVCEncoder(opts); !errors.Is(err, ErrInvalidConfig) {
+		if _, err := govpx.NewVP9SpatialSVCEncoder(opts); !errors.Is(err, govpx.ErrInvalidConfig) {
 			t.Fatalf("%s error = %v, want ErrInvalidConfig", tc.name, err)
 		}
 	}
 
-	svc, err := NewVP9SpatialSVCEncoder(base)
+	svc, err := govpx.NewVP9SpatialSVCEncoder(base)
 	if err != nil {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
-	if _, err := svc.LayerEncoder(2); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := svc.LayerEncoder(2); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("LayerEncoder invalid err = %v, want ErrInvalidConfig", err)
 	}
 	layer, err := svc.LayerEncoder(1)
@@ -137,21 +139,21 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	if err := layer.SetSharpness(5); err != nil {
 		t.Fatalf("layer SetSharpness: %v", err)
 	}
-	if err := layer.SetSpatialLayerID(0); !errors.Is(err, ErrInvalidConfig) {
+	if err := layer.SetSpatialLayerID(0); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("locked layer SetSpatialLayerID err = %v, want ErrInvalidConfig", err)
 	}
-	if err := layer.SetSpatialScalability(VP9SpatialScalabilityConfig{}); !errors.Is(err, ErrInvalidConfig) {
+	if err := layer.SetSpatialScalability(govpx.VP9SpatialScalabilityConfig{}); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("locked layer SetSpatialScalability err = %v, want ErrInvalidConfig", err)
 	}
-	if err := layer.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrInvalidConfig) {
+	if err := layer.SetTemporalScalability(govpx.TemporalScalabilityConfig{}); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("locked layer SetTemporalScalability err = %v, want ErrInvalidConfig", err)
 	}
-	if err := layer.SetTemporalLayerID(0); !errors.Is(err, ErrInvalidConfig) {
+	if err := layer.SetTemporalLayerID(0); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("locked layer SetTemporalLayerID err = %v, want ErrInvalidConfig", err)
 	}
-	invalidScale, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	invalidScale, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32},
 			{Width: 544, Height: 544},
 		},
@@ -159,7 +161,7 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9SpatialSVCEncoder invalid-scale-independent: %v", err)
 	}
-	if err := invalidScale.SetInterLayerPrediction(true); !errors.Is(err, ErrInvalidConfig) {
+	if err := invalidScale.SetInterLayerPrediction(true); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("SetInterLayerPrediction invalid scale err = %v, want ErrInvalidConfig", err)
 	}
 	if err := invalidScale.Close(); err != nil {
@@ -168,32 +170,32 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 	if err := svc.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, err := svc.LayerEncoder(0); !errors.Is(err, ErrClosed) {
+	if _, err := svc.LayerEncoder(0); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("LayerEncoder after close err = %v, want ErrClosed", err)
 	}
-	if _, err := svc.EncodeIntoWithResult(nil, nil); !errors.Is(err, ErrClosed) {
+	if _, err := svc.EncodeIntoWithResult(nil, nil); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("EncodeIntoWithResult after close err = %v, want ErrClosed", err)
 	}
-	if err := svc.SetTemporalScalability(TemporalScalabilityConfig{}); !errors.Is(err, ErrClosed) {
+	if err := svc.SetTemporalScalability(govpx.TemporalScalabilityConfig{}); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("SetTemporalScalability after close err = %v, want ErrClosed", err)
 	}
-	if err := svc.SetTemporalLayerID(0); !errors.Is(err, ErrClosed) {
+	if err := svc.SetTemporalLayerID(0); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("SetTemporalLayerID after close err = %v, want ErrClosed", err)
 	}
-	if err := svc.SetInterLayerPrediction(true); !errors.Is(err, ErrClosed) {
+	if err := svc.SetInterLayerPrediction(true); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("SetInterLayerPrediction after close err = %v, want ErrClosed", err)
 	}
-	var nilSVC *VP9SpatialSVCEncoder
-	if err := nilSVC.SetInterLayerPrediction(true); !errors.Is(err, ErrClosed) {
+	var nilSVC *govpx.VP9SpatialSVCEncoder
+	if err := nilSVC.SetInterLayerPrediction(true); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("SetInterLayerPrediction on nil err = %v, want ErrClosed", err)
 	}
 }
 
 func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, TargetBitrateKbps: 300},
 			{Width: 64, Height: 64, TargetBitrateKbps: 700},
 		},
@@ -201,13 +203,13 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
-	if err := svc.SetTemporalScalability(TemporalScalabilityConfig{
+	if err := svc.SetTemporalScalability(govpx.TemporalScalabilityConfig{
 		Enabled: true,
-		Mode:    TemporalLayeringTwoLayers,
+		Mode:    govpx.TemporalLayeringTwoLayers,
 	}); err != nil {
 		t.Fatalf("SetTemporalScalability: %v", err)
 	}
-	if err := svc.SetTemporalLayerID(2); !errors.Is(err, ErrInvalidConfig) {
+	if err := svc.SetTemporalLayerID(2); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("SetTemporalLayerID invalid err = %v, want ErrInvalidConfig", err)
 	}
 
@@ -267,16 +269,16 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 			t.Fatalf("temporal scalability structure frame %d = %+v",
 				frame, baseDesc.ScalabilityStructure)
 		}
-		wantGroups := [2]VP9RTPPictureGroup{
+		wantGroups := [2]govpx.VP9RTPPictureGroup{
 			{
 				TemporalID:          0,
 				ReferenceIndexCount: 1,
-				ReferenceIndices:    [VP9RTPMaxReferenceIndices]uint8{2},
+				ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{2},
 			},
 			{
 				TemporalID:          1,
 				ReferenceIndexCount: 2,
-				ReferenceIndices:    [VP9RTPMaxReferenceIndices]uint8{1, 2},
+				ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{1, 2},
 			},
 		}
 		for i, want := range wantGroups {
@@ -304,13 +306,13 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderInitialTemporalOptions(t *testing.T) {
-	temporal := TemporalScalabilityConfig{
+	temporal := govpx.TemporalScalabilityConfig{
 		Enabled: true,
-		Mode:    TemporalLayeringTwoLayers,
+		Mode:    govpx.TemporalLayeringTwoLayers,
 	}
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{
 				Width:               32,
 				Height:              32,

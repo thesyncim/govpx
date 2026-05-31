@@ -2,6 +2,7 @@ package govpx_test
 
 import (
 	"bytes"
+	"image"
 	"testing"
 	"unsafe"
 
@@ -82,6 +83,53 @@ func newVP9TestImageForTest(width int, height int) govpx.Image {
 		UStride: uvWidth,
 		VStride: uvWidth,
 	}
+}
+
+func vp9ImageFromYCbCrForTest(img *image.YCbCr) govpx.Image {
+	return govpx.Image{
+		Width:   img.Rect.Dx(),
+		Height:  img.Rect.Dy(),
+		Y:       img.Y,
+		U:       img.Cb,
+		V:       img.Cr,
+		YStride: img.YStride,
+		UStride: img.CStride,
+		VStride: img.CStride,
+	}
+}
+
+func cloneVP9PublicImageForTest(src govpx.Image) govpx.Image {
+	dst := govpx.Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       make([]byte, len(src.Y)),
+		U:       make([]byte, len(src.U)),
+		V:       make([]byte, len(src.V)),
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+	copy(dst.Y, src.Y)
+	copy(dst.U, src.U)
+	copy(dst.V, src.V)
+	return dst
+}
+
+func finalizedVP9TwoPassStatsForTest(errors ...float64) []govpx.VP9FirstPassFrameStats {
+	rows := make([]govpx.VP9FirstPassFrameStats, len(errors))
+	for i, err := range errors {
+		rows[i] = govpx.VP9FirstPassFrameStats{
+			Frame:        uint64(i),
+			Weight:       1,
+			IntraError:   err * 2,
+			CodedError:   err,
+			SRCodedError: err,
+			PcntInter:    0.9,
+			Duration:     1,
+			Count:        1,
+		}
+	}
+	return govpx.FinalizeVP9FirstPassStats(rows)
 }
 
 func fillVP9PublicImageForTest(img *govpx.Image, value byte) {

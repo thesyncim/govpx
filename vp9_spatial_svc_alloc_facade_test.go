@@ -1,18 +1,20 @@
-package govpx
+package govpx_test
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
-	cbrLayer := func(width, height, kbps int) VP9EncoderOptions {
-		return VP9EncoderOptions{
+	cbrLayer := func(width, height, kbps int) govpx.VP9EncoderOptions {
+		return govpx.VP9EncoderOptions{
 			Width:               width,
 			Height:              height,
 			RateControlModeSet:  true,
-			RateControlMode:     RateControlCBR,
+			RateControlMode:     govpx.RateControlCBR,
 			TargetBitrateKbps:   kbps,
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
@@ -20,14 +22,14 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 			Threads:             2,
 		}
 	}
-	vbrLayer := func(width, height, kbps int) VP9EncoderOptions {
+	vbrLayer := func(width, height, kbps int) govpx.VP9EncoderOptions {
 		opts := cbrLayer(width, height, kbps)
-		opts.RateControlMode = RateControlVBR
+		opts.RateControlMode = govpx.RateControlVBR
 		return opts
 	}
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			cbrLayer(32, 32, 300),
 			vbrLayer(64, 64, 700),
 		},
@@ -35,7 +37,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
 	}
-	stats := finalizedVP9TwoPassTestStats(100, 120, 90, 110)
+	stats := finalizedVP9TwoPassStatsForTest(100, 120, 90, 110)
 	activeOut := make([]uint8, 4)
 
 	tests := []struct {
@@ -44,7 +46,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 	}{
 		{name: "SetInterLayerPrediction", fn: func() error { return svc.SetInterLayerPrediction(true) }},
 		{name: "SetLayerCQLevel", fn: func() error { return svc.SetLayerCQLevel(1, 24) }},
-		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, VP9AQComplexity) }},
+		{name: "SetLayerAQMode", fn: func() error { return svc.SetLayerAQMode(1, govpx.VP9AQComplexity) }},
 		{name: "SetLayerAutoAltRefFalse", fn: func() error { return svc.SetLayerAutoAltRef(0, false) }},
 		{name: "SetLayerFrameParallelDecoding", fn: func() error {
 			return svc.SetLayerFrameParallelDecoding(0, false)
@@ -62,26 +64,26 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerMaxInterBitratePct", fn: func() error { return svc.SetLayerMaxInterBitratePct(1, 220) }},
 		{name: "SetLayerGFCBRBoostPct", fn: func() error { return svc.SetLayerGFCBRBoostPct(0, 45) }},
 		{name: "SetLayerRealtimeTarget", fn: func() error {
-			return svc.SetLayerRealtimeTarget(0, RealtimeTarget{
+			return svc.SetLayerRealtimeTarget(0, govpx.RealtimeTarget{
 				BitrateKbps:  360,
 				FPS:          24,
 				Width:        32,
 				Height:       32,
 				MinQuantizer: 6,
 				MaxQuantizer: 54,
-				FrameDrop:    RealtimeFrameDropEnabled,
+				FrameDrop:    govpx.RealtimeFrameDropEnabled,
 			})
 		}},
 		{name: "SetLayerTwoPassStats", fn: func() error { return svc.SetLayerTwoPassStats(1, stats) }},
-		{name: "SetLayerDeadline", fn: func() error { return svc.SetLayerDeadline(0, DeadlineRealtime) }},
+		{name: "SetLayerDeadline", fn: func() error { return svc.SetLayerDeadline(0, govpx.DeadlineRealtime) }},
 		{name: "SetLayerCPUUsed", fn: func() error { return svc.SetLayerCPUUsed(0, 4) }},
-		{name: "SetLayerTuning", fn: func() error { return svc.SetLayerTuning(0, TuneSSIM) }},
-		{name: "SetLayerColorSpace", fn: func() error { return svc.SetLayerColorSpace(0, VP9ColorSpaceBT709) }},
-		{name: "SetLayerColorRange", fn: func() error { return svc.SetLayerColorRange(0, VP9ColorRangeFull) }},
+		{name: "SetLayerTuning", fn: func() error { return svc.SetLayerTuning(0, govpx.TuneSSIM) }},
+		{name: "SetLayerColorSpace", fn: func() error { return svc.SetLayerColorSpace(0, govpx.VP9ColorSpaceBT709) }},
+		{name: "SetLayerColorRange", fn: func() error { return svc.SetLayerColorRange(0, govpx.VP9ColorRangeFull) }},
 		{name: "SetLayerRenderSize", fn: func() error { return svc.SetLayerRenderSize(0, 30, 28) }},
 		{name: "SetLayerTargetLevel", fn: func() error { return svc.SetLayerTargetLevel(0, 31) }},
 		{name: "SetLayerDisableLoopfilter", fn: func() error {
-			return svc.SetLayerDisableLoopfilter(0, VP9LoopfilterDisableInter)
+			return svc.SetLayerDisableLoopfilter(0, govpx.VP9LoopfilterDisableInter)
 		}},
 		{name: "SetLayerLossless", fn: func() error { return svc.SetLayerLossless(0, true) }},
 		{name: "SetLayerScreenContentMode", fn: func() error { return svc.SetLayerScreenContentMode(0, 1) }},
@@ -125,10 +127,10 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderSteadyStateNoAlloc(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32},
 			{Width: 64, Height: 64},
 		},
@@ -146,7 +148,7 @@ func TestVP9SpatialSVCEncoderSteadyStateNoAlloc(t *testing.T) {
 			t.Fatalf("warmup EncodeIntoWithResult %d: %v", i, err)
 		}
 	}
-	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRunsForTest, func() {
 		if _, err := svc.EncodeIntoWithResult(srcs, dst); err != nil {
 			t.Fatalf("alloc run EncodeIntoWithResult: %v", err)
 		}
