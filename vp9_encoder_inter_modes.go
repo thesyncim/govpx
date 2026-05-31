@@ -7,11 +7,13 @@ import (
 )
 
 type vp9InterIntraDecision struct {
-	mode   common.PredictionMode
-	uvMode common.PredictionMode
-	txSize common.TxSize
-	rate   int
-	score  uint64
+	mode     common.PredictionMode
+	uvMode   common.PredictionMode
+	txSize   common.TxSize
+	rate     int
+	score    uint64
+	skip     bool
+	skipTxfm encoder.SkipTxfmFlag
 }
 
 func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
@@ -71,22 +73,6 @@ func (e *VP9Encoder) pickVP9ForcedInterIntraMode(inter *vp9InterEncodeState,
 		func(*vp9dec.NeighborMi, *vp9dec.NeighborMi) int { return 0 })
 }
 
-var vp9NoReferenceIntraModes = [...]common.PredictionMode{
-	common.DcPred,
-	common.VPred,
-	common.HPred,
-	common.TmPred,
-}
-
-func vp9NoReferenceIntraModeCount(bsize common.BlockSize, screenContentMode int8) int {
-	// Mirrors the realtime VP9 intra_y_mode_bsize_mask used when inter refs
-	// are disabled: non-screen content only keeps DC for blocks above 16x16.
-	if screenContentMode != 1 && bsize > common.Block16x16 {
-		return 1
-	}
-	return 3
-}
-
 func (e *VP9Encoder) vp9InterIntraKeyframeState(inter *vp9InterEncodeState) vp9KeyframeEncodeState {
 	hdr := &e.vp9InterIntraHdr
 	*hdr = vp9dec.UncompressedHeader{
@@ -114,91 +100,6 @@ func (e *VP9Encoder) vp9InterIntraKeyframeState(inter *vp9InterEncodeState) vp9K
 	}
 	hdr.Quant.BaseQindex = int16(e.vp9EncoderModeDecisionQIndex())
 	return vp9KeyframeEncodeState{hdr: hdr}
-}
-
-func (e *VP9Encoder) pickVP9NoReferenceIntraMode(inter *vp9InterEncodeState,
-	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, maxTx common.TxSize, segmentID uint8,
-) (vp9InterIntraDecision, bool) {
-	if inter == nil || bsize < common.Block8x8 {
-		return vp9InterIntraDecision{}, false
-	}
-	var left *vp9dec.NeighborMi
-	if miCol > tile.MiColStart {
-		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
-	}
-	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
-
-	keyLike := e.vp9InterIntraKeyframeState(inter)
-
-	sg := common.SizeGroupLookup[bsize]
-	var yModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
-		common.IntraModeTree[:])
-	qindex := e.vp9EncoderModeDecisionQIndex()
-	rateBase := encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
-	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
-	modeCount := vp9NoReferenceIntraModeCount(bsize, e.opts.ScreenContentMode)
-
-	bestSet := false
-	var best vp9InterIntraDecision
-	for i := range modeCount {
-		mode := vp9NoReferenceIntraModes[i]
-		txSize, txOK := e.pickVP9NoReferenceIntraTxSize(&keyLike, tile,
-			miRows, miCols, miRow, miCol, bsize, maxTx, mode)
-		if !txOK {
-			continue
-		}
-		mi := vp9dec.NeighborMi{
-			SbType:    bsize,
-			SegmentID: segmentID,
-			TxSize:    txSize,
-		}
-		distortion, coeffRate, skippable, scoreOK := e.scoreVP9KeyframeModeTransformRD(
-			&keyLike, mode, tile, miRows, miCols, miRow, miCol, bsize, &mi)
-		if !scoreOK {
-			continue
-		}
-		rate := rateBase + yModeCosts[mode]
-		if skippable {
-			rate += encoder.VP9CostBit(skipProb, 1)
-		} else {
-			rate += coeffRate + encoder.VP9CostBit(skipProb, 0)
-		}
-		cand := vp9InterIntraDecision{
-			mode:   mode,
-			uvMode: mode,
-			txSize: txSize,
-			rate:   rate,
-			score:  e.vp9ModeDecisionScore(distortion, rate, qindex),
-		}
-		if !bestSet || cand.score < best.score ||
-			(cand.score == best.score && cand.rate < best.rate) {
-			best = cand
-			bestSet = true
-		}
-	}
-	return best, bestSet
-}
-
-func (e *VP9Encoder) pickVP9NoReferenceIntraTxSize(key *vp9KeyframeEncodeState,
-	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, maxTx common.TxSize, mode common.PredictionMode,
-) (common.TxSize, bool) {
-	maxTx = min(clampVP9TxSizeForBlock(maxTx, bsize), common.Tx16x16)
-	if maxTx <= common.Tx4x4 {
-		return maxTx, true
-	}
-	predTx := common.MaxTxsizeLookup[bsize]
-	sse, variance, ok := e.vp9NoReferenceIntraResidualStats(key, mode, predTx,
-		tile, miRows, miCols, miRow, miCol, bsize)
-	if !ok {
-		return maxTx, false
-	}
-	if sse > variance<<2 {
-		return maxTx, true
-	}
-	return common.Tx8x8, true
 }
 
 func (e *VP9Encoder) vp9NoReferenceIntraResidualStats(key *vp9KeyframeEncodeState,

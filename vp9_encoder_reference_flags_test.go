@@ -218,7 +218,7 @@ func TestVP9EncoderEncodeIntoWithFlagsForceClearsSameSlotNoUpdate(t *testing.T) 
 	}
 }
 
-func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) {
+func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastMasksLastBlocks(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
@@ -257,10 +257,8 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastCanUseGolden(t *testing.T) 
 	if len(d.miGrid) == 0 {
 		t.Fatal("decoder MI grid is empty after GOLDEN-only inter")
 	}
-	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.GoldenFrame {
-		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want GOLDEN",
-			got.RefFrame[0], got.Mode, got.Mv[0])
-	}
+	assertVP9DecodedGridAvoidsReferences(t, d.miGrid, vp9dec.LastFrame,
+		vp9dec.AltrefFrame)
 }
 
 func TestVP9EncoderEncodeIntoWithFlagsNoReferenceAllStaysInterIntra(t *testing.T) {
@@ -301,7 +299,7 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceAllStaysInterIntra(t *testing.T
 	}
 }
 
-func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testing.T) {
+func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenMasksLastAndGoldenBlocks(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
@@ -320,6 +318,13 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testi
 	if err != nil {
 		t.Fatalf("Encode ALTREF-only inter: %v", err)
 	}
+	info, err := PeekVP9StreamInfo(inter)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo: %v", err)
+	}
+	if info.KeyFrame {
+		t.Fatal("NoReferenceLast|NoReferenceGolden forced a keyframe despite usable ALTREF")
+	}
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -333,9 +338,26 @@ func TestVP9EncoderEncodeIntoWithFlagsNoReferenceLastGoldenCanUseAltRef(t *testi
 	if len(d.miGrid) == 0 {
 		t.Fatal("decoder MI grid is empty after ALTREF-only inter")
 	}
-	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.AltrefFrame {
-		t.Fatalf("top-left inter = ref %d mode %d mv %+v, want ALTREF reference",
-			got.RefFrame[0], got.Mode, got.Mv[0])
+	assertVP9DecodedGridAvoidsReferences(t, d.miGrid, vp9dec.LastFrame,
+		vp9dec.GoldenFrame)
+}
+
+func assertVP9DecodedGridAvoidsReferences(t *testing.T, grid []vp9dec.NeighborMi,
+	forbidden ...int8,
+) {
+	t.Helper()
+	for miIdx, mi := range grid {
+		for _, ref := range mi.RefFrame {
+			if ref == vp9dec.NoRefFrame || ref == vp9dec.IntraFrame {
+				continue
+			}
+			for _, blocked := range forbidden {
+				if ref == blocked {
+					t.Fatalf("MI %d used forbidden reference %d: mode=%d refs=%v mv=%+v",
+						miIdx, blocked, mi.Mode, mi.RefFrame, mi.Mv[0])
+				}
+			}
+		}
 	}
 }
 

@@ -9,9 +9,26 @@ import (
 func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) bool {
-	if e.sf.ReuseInterPredSby == 0 ||
-		e.sf.PartitionSearchType != MlBasedPartition ||
-		bsize < common.Block8x8 || bsize >= common.BlockSizes {
+	if e.sf.ReuseInterPredSby == 0 || bsize < common.Block8x8 ||
+		bsize >= common.BlockSizes {
+		return false
+	}
+	if e.sf.PartitionSearchType == ReferencePartition {
+		if !e.varPartFrameValid || len(e.varPartGrid) == 0 {
+			return false
+		}
+		idx := miRow*miCols + miCol
+		if miRows <= 0 || miCols <= 0 || miRow < 0 || miCol < 0 ||
+			miRow >= miRows || miCol >= miCols ||
+			idx < 0 || idx >= len(e.varPartGrid) ||
+			e.varPartGrid[idx].SbType != bsize {
+			return false
+		}
+		return bsize == common.Block64x64 ||
+			bsize == common.Block64x32 ||
+			bsize == common.Block32x64
+	}
+	if e.sf.PartitionSearchType != MlBasedPartition {
 		return false
 	}
 

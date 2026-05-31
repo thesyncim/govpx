@@ -632,7 +632,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var reuseMLCtx *vp9MLPartitionContext
 	var livePred []byte
 	livePredStride, livePredX, livePredY := 0, 0, 0
-	if reuseInterPred {
+	if reuseInterPred && e.sf.PartitionSearchType == MlBasedPartition {
 		reuseMLCtx = e.vp9MLPickPartitionEntry(inter, miRows, miCols,
 			miRow, miCol)
 		if reuseMLCtx == nil || !reuseMLCtx.pickPredReady {
@@ -648,6 +648,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		e.vp9NonrdLumaPredRect(miRow, miCol, bsize)
 	if !predOK {
 		reuseInterPred = false
+	}
+	if reuseInterPred && reuseMLCtx == nil {
+		livePred = predPlane
+		livePredStride = predStride
+		livePredX = predX
+		livePredY = predY
 	}
 	if reuseInterPred && (livePredX < 0 || livePredY < 0 ||
 		livePredX+predW > livePredStride ||
@@ -1793,13 +1799,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			uvMode:         intra.uvMode,
 			rate:           intra.rate,
 			score:          intra.score,
+			skip:           intra.skip,
+			skipTxfm:       intra.skipTxfm,
 		}
 		bestSet = true
 		bp.bestMode = intra.mode
 		bp.bestRefFrame = vp9dec.IntraFrame
 		bp.bestSecondRefFrame = vp9dec.NoRefFrame
 		bp.bestIntraTxSize = intra.txSize
-		bp.bestModeSkipTxfm = 0
+		bp.bestModeSkipTxfm = uint8(intra.skipTxfm)
+		bp.winner = best
+		bp.winnerSet = true
 	}
 	if bestSet && !best.intra && reuseInterPred && origPredValid {
 		// libvpx: vp9_pickmode.c:2888-2912 restores pd->dst to orig_dst,

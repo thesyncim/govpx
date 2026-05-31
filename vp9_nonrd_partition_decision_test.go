@@ -66,3 +66,54 @@ func TestVP9MLPickPartitionEntryUsesLastBufferWhenLastRefMasked(t *testing.T) {
 		t.Fatalf("ML partition ctx SB = (%d,%d), want (0,0)", ctx.sbMiRow, ctx.sbMiCol)
 	}
 }
+
+func TestVP9ReferencePartitionPredPixelReadyDirectLeaves(t *testing.T) {
+	e := &VP9Encoder{}
+	e.sf.ReuseInterPredSby = 1
+	e.sf.PartitionSearchType = ReferencePartition
+
+	const miRows, miCols = 8, 8
+	setGrid := func(bsize common.BlockSize, valid bool) {
+		e.varPartFrameValid = valid
+		e.varPartGrid = make([]vp9dec.NeighborMi, miRows*miCols)
+		e.varPartGrid[0].SbType = bsize
+	}
+
+	for _, bsize := range []common.BlockSize{
+		common.Block64x64,
+		common.Block64x32,
+		common.Block32x64,
+	} {
+		setGrid(bsize, true)
+		if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, bsize) {
+			t.Fatalf("ReferencePartition %v pred_pixel_ready = false, want true for direct nonrd_select_partition leaf", bsize)
+		}
+	}
+
+	setGrid(common.Block32x32, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block32x32) {
+		t.Fatal("ReferencePartition Block32x32 pred_pixel_ready = true, want false because libvpx delegates it to nonrd_pick_partition")
+	}
+
+	setGrid(common.Block64x64, false)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("ReferencePartition without a valid var-part frame marked pred_pixel_ready")
+	}
+
+	setGrid(common.Block32x32, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("ReferencePartition mismatched var-part leaf marked pred_pixel_ready")
+	}
+
+	e.sf.ReuseInterPredSby = 0
+	setGrid(common.Block64x64, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("ReferencePartition with ReuseInterPredSby=0 marked pred_pixel_ready")
+	}
+
+	e.sf.ReuseInterPredSby = 1
+	e.sf.PartitionSearchType = MlBasedPartition
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("ML partition without ML context marked pred_pixel_ready")
+	}
+}

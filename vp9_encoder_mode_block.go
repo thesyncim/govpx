@@ -40,24 +40,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		segmentSkip := vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 		forcedRefFrame, forcedRef := vp9EncoderForcedSegmentRefFrame(seg, segID)
 		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
-		noUsableInterRefs := kind == vp9ModeTreeInterSource && inter != nil &&
-			inter.refMask == 0
-		if !forcedIntra && noUsableInterRefs {
-			forcedIntra = true
-		}
 		if forcedIntra {
 			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			cur.InterpFilter = uint8(vp9dec.SwitchableFilters)
-			var intra vp9InterIntraDecision
-			var ok bool
-			if noUsableInterRefs {
-				intra, ok = e.pickVP9NoReferenceIntraMode(inter, tile,
-					miRows, miCols, miRow, miCol, reconBsize, cur.TxSize,
-					cur.SegmentID)
-			} else {
-				intra, ok = e.pickVP9ForcedInterIntraMode(inter, tile,
-					miRows, miCols, miRow, miCol, reconBsize, cur.TxSize)
-			}
+			intra, ok := e.pickVP9ForcedInterIntraMode(inter, tile,
+				miRows, miCols, miRow, miCol, reconBsize, cur.TxSize)
 			if ok {
 				cur.Mode = intra.mode
 				uvMode = intra.uvMode

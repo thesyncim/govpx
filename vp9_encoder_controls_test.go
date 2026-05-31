@@ -256,18 +256,6 @@ func TestVP9EncoderSetScreenContentMode(t *testing.T) {
 		t.Fatal("invalid SetScreenContentMode mutated encoder")
 	}
 
-	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 0); got != 1 {
-		t.Fatalf("default 32x32 no-ref intra mode count = %d, want 1", got)
-	}
-	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 1); got != 3 {
-		t.Fatalf("screen 32x32 no-ref intra mode count = %d, want 3", got)
-	}
-	if got := vp9NoReferenceIntraModeCount(common.Block32x32, 2); got != 1 {
-		t.Fatalf("film 32x32 no-ref intra mode count = %d, want 1", got)
-	}
-	if got := vp9NoReferenceIntraModeCount(common.Block16x16, 0); got != 3 {
-		t.Fatalf("default 16x16 no-ref intra mode count = %d, want 3", got)
-	}
 }
 
 func TestVP9EncoderSetARNR(t *testing.T) {
