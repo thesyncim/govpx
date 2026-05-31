@@ -1,13 +1,14 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
-	"bytes"
 	"image"
 	"math"
 	"testing"
 
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
@@ -21,12 +22,12 @@ func TestVP9OracleRateBehaviorParity(t *testing.T) {
 		sources[i] = vp9test.NewYCbCr(width, height, uint8(96+i*11), 128, 128)
 	}
 
-	opts := VP9EncoderOptions{
+	opts := govpx.VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   700,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
@@ -36,7 +37,7 @@ func TestVP9OracleRateBehaviorParity(t *testing.T) {
 		MaxKeyframeInterval: 128,
 		DropFrameAllowed:    false,
 		DropFrameWaterMark:  0,
-		TemporalScalability: TemporalScalabilityConfig{},
+		TemporalScalability: govpx.TemporalScalabilityConfig{},
 	}
 	extraArgs := []string{
 		"--end-usage=cbr",
@@ -48,8 +49,8 @@ func TestVP9OracleRateBehaviorParity(t *testing.T) {
 		"--exact-fps-timebase",
 	}
 
-	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height, sources,
+	govpxRows := vp9oracle.CaptureRateTraceRows(t, opts, sources, nil)
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height, sources,
 		nil, extraArgs)
 	if len(govpxRows) != len(libvpxRows) {
 		t.Fatalf("rate rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
@@ -105,52 +106,52 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 	const width, height, frames = 64, 64, 12
 	type qHistCase struct {
 		name      string
-		opts      VP9EncoderOptions
-		flags     []EncodeFlags
+		opts      govpx.VP9EncoderOptions
+		flags     []govpx.EncodeFlags
 		extraArgs []string
 	}
 	cases := []qHistCase{
 		{
 			name:      "cbr-panning",
-			opts:      vp9OracleCBROptions(width, height, 700),
-			extraArgs: vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			opts:      vp9oracle.CBROptions(width, height, 700),
+			extraArgs: vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 		},
 		{
 			name: "cbr-force-key",
-			opts: vp9OracleCBROptions(width, height, 650),
-			flags: vp9OracleFlagAt(frames, 5,
-				EncodeForceKeyFrame),
-			extraArgs: vp9OracleCBRArgs(650, 600, 400, 500, 0),
+			opts: vp9oracle.CBROptions(width, height, 650),
+			flags: vp9oracle.FlagAt(frames, 5,
+				govpx.EncodeForceKeyFrame),
+			extraArgs: vp9oracle.CBRArgs(650, 600, 400, 500, 0),
 		},
 		{
 			name: "fixed-q-window",
-			opts: func() VP9EncoderOptions {
-				opts := vp9OracleCBROptions(width, height, 700)
+			opts: func() govpx.VP9EncoderOptions {
+				opts := vp9oracle.CBROptions(width, height, 700)
 				opts.MinQuantizer = 20
 				opts.MaxQuantizer = 20
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q=20", "--max-q=20"),
 		},
 		{
 			name: "cbr-cyclic-aq",
-			opts: func() VP9EncoderOptions {
-				opts := vp9OracleCBROptions(width, height, 700)
-				opts.AQMode = VP9AQCyclicRefresh
+			opts: func() govpx.VP9EncoderOptions {
+				opts := vp9oracle.CBROptions(width, height, 700)
+				opts.AQMode = govpx.VP9AQCyclicRefresh
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--aq-mode=3"),
 		},
 		{
 			name: "vbr-panning",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:               width,
 				Height:              height,
 				FPS:                 30,
 				RateControlModeSet:  true,
-				RateControlMode:     RateControlVBR,
+				RateControlMode:     govpx.RateControlVBR,
 				TargetBitrateKbps:   700,
 				MinQuantizer:        4,
 				MaxQuantizer:        56,
@@ -165,12 +166,12 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 		},
 		{
 			name: "cq-panning",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:               width,
 				Height:              height,
 				FPS:                 30,
 				RateControlModeSet:  true,
-				RateControlMode:     RateControlCQ,
+				RateControlMode:     govpx.RateControlCQ,
 				TargetBitrateKbps:   700,
 				MinQuantizer:        4,
 				MaxQuantizer:        56,
@@ -187,12 +188,12 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 		},
 		{
 			name: "q-panning",
-			opts: VP9EncoderOptions{
+			opts: govpx.VP9EncoderOptions{
 				Width:               width,
 				Height:              height,
 				FPS:                 30,
 				RateControlModeSet:  true,
-				RateControlMode:     RateControlQ,
+				RateControlMode:     govpx.RateControlQ,
 				TargetBitrateKbps:   700,
 				MinQuantizer:        4,
 				MaxQuantizer:        56,
@@ -210,10 +211,10 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources,
+			sources := vp9oracle.TransitionSources(width, height, frames)
+			govpxRows := vp9oracle.CaptureRateTraceRows(t, tc.opts, sources,
 				tc.flags)
-			libvpxRows := captureLibvpxVP9RateTraceRows(t, width,
+			libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width,
 				height, sources, tc.flags, tc.extraArgs)
 			govpxHist := vp9test.QHistogram(govpxRows)
 			libvpxHist := vp9test.QHistogram(libvpxRows)
@@ -239,12 +240,12 @@ func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 	const width, height, frames = 64, 64, 12
 	type bufferCase struct {
 		name      string
-		opts      VP9EncoderOptions
+		opts      govpx.VP9EncoderOptions
 		extraArgs []string
 		wantDrop  bool
 	}
-	cbrOpts := func(targetKbps, bufSize, bufInitial, bufOptimal, drop int) VP9EncoderOptions {
-		opts := vp9OracleCBROptions(width, height, targetKbps)
+	cbrOpts := func(targetKbps, bufSize, bufInitial, bufOptimal, drop int) govpx.VP9EncoderOptions {
+		opts := vp9oracle.CBROptions(width, height, targetKbps)
 		opts.BufferSizeMs = bufSize
 		opts.BufferInitialSizeMs = bufInitial
 		opts.BufferOptimalSizeMs = bufOptimal
@@ -258,40 +259,40 @@ func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 		{
 			name:      "low-bitrate-tight-buffer-no-drop",
 			opts:      cbrOpts(140, 400, 300, 350, 0),
-			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 0),
+			extraArgs: vp9oracle.CBRArgs(140, 400, 300, 350, 0),
 		},
 		{
 			name:      "low-bitrate-tight-buffer-drop",
 			opts:      cbrOpts(140, 400, 300, 350, 60),
-			extraArgs: vp9OracleCBRArgs(140, 400, 300, 350, 60),
+			extraArgs: vp9oracle.CBRArgs(140, 400, 300, 350, 60),
 			wantDrop:  true,
 		},
 		{
 			name:      "large-buffer-highrate",
 			opts:      cbrOpts(1200, 2000, 1500, 1800, 0),
-			extraArgs: vp9OracleCBRArgs(1200, 2000, 1500, 1800, 0),
+			extraArgs: vp9oracle.CBRArgs(1200, 2000, 1500, 1800, 0),
 		},
 		{
 			name: "fixed-q-drop-pressure",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := cbrOpts(140, 400, 300, 350, 60)
 				opts.MinQuantizer = 20
 				opts.MaxQuantizer = 20
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(140, 400, 300, 350, 60),
+			extraArgs: append(vp9oracle.CBRArgs(140, 400, 300, 350, 60),
 				"--min-q=20", "--max-q=20"),
 			wantDrop: true,
 		},
 		{
 			name: "wide-q-drop-pressure",
-			opts: func() VP9EncoderOptions {
+			opts: func() govpx.VP9EncoderOptions {
 				opts := cbrOpts(100, 300, 200, 250, 80)
 				opts.MinQuantizer = 0
 				opts.MaxQuantizer = 63
 				return opts
 			}(),
-			extraArgs: append(vp9OracleCBRArgs(100, 300, 200, 250, 80),
+			extraArgs: append(vp9oracle.CBRArgs(100, 300, 200, 250, 80),
 				"--min-q=0", "--max-q=63"),
 			wantDrop: true,
 		},
@@ -299,11 +300,11 @@ func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources, nil)
-			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+			sources := vp9oracle.TransitionSources(width, height, frames)
+			govpxRows := vp9oracle.CaptureRateTraceRows(t, tc.opts, sources, nil)
+			libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 				sources, nil, tc.extraArgs)
-			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 			govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 			libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
 			t.Logf("VP9 CBR buffer matrix trace %s: %s govpx_drops=%v libvpx_drops=%v",
@@ -332,12 +333,12 @@ func TestVP9OracleCBRKeyframeVariancePartitionParity(t *testing.T) {
 	for i := range sources {
 		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
-	opts := vp9OracleCBROptions(width, height, 600)
-	flags := vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame)
-	extraArgs := vp9OracleCBRArgs(600, 600, 400, 500, 0)
+	opts := vp9oracle.CBROptions(width, height, 600)
+	flags := vp9oracle.FlagAt(frames, 3, govpx.EncodeForceKeyFrame)
+	extraArgs := vp9oracle.CBRArgs(600, 600, 400, 500, 0)
 
-	govpxRows := captureVP9RateTraceRows(t, opts, sources, flags)
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
+	govpxRows := vp9oracle.CaptureRateTraceRows(t, opts, sources, flags)
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height,
 		sources, flags, extraArgs)
 	if len(govpxRows) != frames || len(libvpxRows) != frames {
 		t.Fatalf("CBR keyframe variance rows: govpx=%d libvpx=%d, want %d/%d",
@@ -377,12 +378,12 @@ func TestVP9OracleRateDropPressureParity(t *testing.T) {
 		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
 	}
 
-	opts := VP9EncoderOptions{
+	opts := govpx.VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   120,
 		BufferSizeMs:        400,
 		BufferInitialSizeMs: 300,
@@ -402,8 +403,8 @@ func TestVP9OracleRateDropPressureParity(t *testing.T) {
 		"--drop-frame=60",
 	}
 
-	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
-	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height, sources,
+	govpxRows := vp9oracle.CaptureRateTraceRows(t, opts, sources, nil)
+	libvpxRows := vp9oracle.CaptureLibvpxRateTraceRows(t, width, height, sources,
 		nil, extraArgs)
 	if len(govpxRows) != len(libvpxRows) {
 		t.Fatalf("drop-pressure rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
@@ -461,65 +462,4 @@ func TestVP9OracleRateDropPressureParity(t *testing.T) {
 				keySizeDelta, keyFirstPartDelta)
 		}
 	}
-}
-
-func captureVP9RateTraceRows(t *testing.T, opts VP9EncoderOptions,
-	sources []*image.YCbCr, flags []EncodeFlags,
-) []vp9test.RateTraceRow {
-	return captureVP9RateTraceRowsWithHooks(t, opts, sources, flags, nil)
-}
-
-func captureVP9RateTraceRowsWithHooks(t *testing.T, opts VP9EncoderOptions,
-	sources []*image.YCbCr, flags []EncodeFlags,
-	beforeFrame func(*VP9Encoder, int),
-) []vp9test.RateTraceRow {
-	t.Helper()
-	var trace bytes.Buffer
-	enc, err := NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	enc.setVP9OracleTraceWriter(&trace)
-	dstSize, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
-	if err != nil {
-		t.Fatalf("vp9AllocatingEncodeBufferSize: %v", err)
-	}
-	dst := make([]byte, dstSize)
-	for i, src := range sources {
-		if beforeFrame != nil {
-			beforeFrame(enc, i)
-		}
-		var f EncodeFlags
-		if i < len(flags) {
-			f = flags[i]
-		}
-		if _, err := enc.EncodeIntoWithFlagsResult(src, dst, f); err != nil {
-			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
-		}
-	}
-	return vp9test.ParseRateTraceRows(t, trace.Bytes())
-}
-
-func captureLibvpxVP9RateTraceRows(t *testing.T, width int, height int,
-	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
-) []vp9test.RateTraceRow {
-	t.Helper()
-	if len(sources) == 0 {
-		t.Fatal("empty VP9 libvpx rate-trace source")
-	}
-	for i, src := range sources {
-		if src.Rect.Dx() != width || src.Rect.Dy() != height {
-			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
-				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
-		}
-	}
-	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
-		vp9LibvpxFrameFlags(flags), extraArgs...)
-	for i := range rows {
-		if rows[i].Dropped {
-			continue
-		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
-	}
-	return rows
 }

@@ -1,24 +1,26 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"strings"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 	const width, height = 64, 64
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
 
 	var trace bytes.Buffer
-	e.setVP9OracleTraceWriter(&trace)
+	e.SetOracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	result, err := e.EncodeIntoWithResult(
 		vp9test.NewYCbCr(width, height, 128, 128, 128), dst)
@@ -40,10 +42,7 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 		}
 	}
 
-	e.setVP9OracleTraceWriter(nil)
-	if e.vp9OracleTraceEnabled() {
-		t.Fatal("trace active after disabling writer")
-	}
+	e.SetOracleTraceWriter(nil)
 	trace.Reset()
 	if _, err := e.EncodeIntoWithResult(
 		vp9test.NewYCbCr(width, height, 160, 128, 128), dst); err != nil {
@@ -56,12 +55,12 @@ func TestVP9OracleTraceWriterEmitsFrameRows(t *testing.T) {
 
 func TestVP9OracleTraceWriterEmitsCBRRateFields(t *testing.T) {
 	const width, height = 64, 64
-	e, err := NewVP9Encoder(VP9EncoderOptions{
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 30,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   700,
 		BufferSizeMs:        600,
 		BufferInitialSizeMs: 400,
@@ -70,11 +69,11 @@ func TestVP9OracleTraceWriterEmitsCBRRateFields(t *testing.T) {
 		MaxQuantizer:        56,
 	})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
 
 	var trace bytes.Buffer
-	e.setVP9OracleTraceWriter(&trace)
+	e.SetOracleTraceWriter(&trace)
 	dst := make([]byte, 65536)
 	if _, err := e.EncodeIntoWithResult(
 		vp9test.NewYCbCr(width, height, 128, 128, 128), dst); err != nil {

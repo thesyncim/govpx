@@ -85,17 +85,35 @@ func TestVPxOracleTraceDisabledZeroSizeFieldsDoNotTrailHotStructs(t *testing.T) 
 }
 
 func TestVPxOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) {
-	typ := reflect.TypeOf(&VP8Encoder{})
-	methods := []string{
-		"SetOracleTraceWriter",
-		"SetOracleTracePredictorDump",
-		"SetOracleTracePretrellisUVDump",
-		"SetOracleTraceChromaOptimizeBDump",
-		"SetOracleTracePickerUVQuantizeDump",
+	cases := []struct {
+		name    string
+		typ     reflect.Type
+		methods []string
+	}{
+		{
+			name: "VP8Encoder",
+			typ:  reflect.TypeOf(&VP8Encoder{}),
+			methods: []string{
+				"SetOracleTraceWriter",
+				"SetOracleTracePredictorDump",
+				"SetOracleTracePretrellisUVDump",
+				"SetOracleTraceChromaOptimizeBDump",
+				"SetOracleTracePickerUVQuantizeDump",
+			},
+		},
+		{
+			name: "VP9Encoder",
+			typ:  reflect.TypeOf(&VP9Encoder{}),
+			methods: []string{
+				"SetOracleTraceWriter",
+			},
+		},
 	}
-	for _, name := range methods {
-		if _, ok := typ.MethodByName(name); ok {
-			t.Fatalf("VP8Encoder exposes %s in default builds", name)
+	for _, tc := range cases {
+		for _, name := range tc.methods {
+			if _, ok := tc.typ.MethodByName(name); ok {
+				t.Fatalf("%s exposes %s in default builds", tc.name, name)
+			}
 		}
 	}
 }

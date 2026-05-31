@@ -7,6 +7,7 @@ import (
 
 	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
@@ -41,6 +42,14 @@ func CBRArgs(targetKbps, bufSizeMs, bufInitialMs, bufOptimalMs, dropFrame int) [
 		"--drop-frame=" + strconv.Itoa(dropFrame),
 		"--exact-fps-timebase",
 	}
+}
+
+func TransitionSources(width, height, frames int) []*image.YCbCr {
+	sources := make([]*image.YCbCr, frames)
+	for i := range sources {
+		sources[i] = vp9test.NewPanningYCbCr(width, height, i)
+	}
+	return sources
 }
 
 func EncodeFramesWithGovpx(t testing.TB, opts govpx.VP9EncoderOptions,
@@ -142,6 +151,10 @@ func FrameFlagsForLibvpx(f govpx.EncodeFlags) uint32 {
 	return out
 }
 
+func RateTraceFlagMapper(flags uint32) uint32 {
+	return FrameFlagsForLibvpx(govpx.EncodeFlags(flags))
+}
+
 const NoUpdateRefFlags govpx.EncodeFlags = govpx.EncodeNoUpdateLast |
 	govpx.EncodeNoUpdateGolden | govpx.EncodeNoUpdateAltRef
 
@@ -179,6 +192,18 @@ func RefRefreshTransitions(frames int) []govpx.EncodeFlags {
 	}
 	if frames > 6 {
 		flags[6] = govpx.EncodeForceGoldenFrame | govpx.EncodeNoUpdateLast
+	}
+	return flags
+}
+
+func AlternatingReferenceControls(frames int) []govpx.EncodeFlags {
+	flags := make([]govpx.EncodeFlags, frames)
+	for i := 1; i < frames; i++ {
+		if i&1 == 0 {
+			flags[i] = govpx.EncodeNoUpdateGolden | govpx.EncodeNoReferenceAltRef
+		} else {
+			flags[i] = govpx.EncodeNoUpdateAltRef | govpx.EncodeNoReferenceGolden
+		}
 	}
 	return flags
 }
