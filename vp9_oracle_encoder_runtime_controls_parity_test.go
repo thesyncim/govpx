@@ -1,8 +1,10 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"strconv"
 	"testing"
@@ -34,30 +36,30 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 		target = 600
 	)
 
-	baseOpts := func() VP9EncoderOptions {
-		return vp9OracleCBROptions(width, height, target)
+	baseOpts := func() govpx.VP9EncoderOptions {
+		return vp9oracle.CBROptions(width, height, target)
 	}
 	baseArgs := func() []string {
-		return vp9OracleCBRArgs(target, 600, 400, 500, 0)
+		return vp9oracle.CBRArgs(target, 600, 400, 500, 0)
 	}
 
-	cases := []vp9RuntimeControlCase{
+	cases := []vp9oracle.RuntimeControlCase{
 		{
-			name:      "set-bitrate-kbps",
-			applyAt:   4,
-			scriptTok: "bitrate:300",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetBitrateKbps", e.SetBitrateKbps(300))
+			Name:        "set-bitrate-kbps",
+			ApplyAt:     4,
+			ScriptToken: "bitrate:300",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetBitrateKbps", e.SetBitrateKbps(300))
 			},
 		},
 		{
-			name:    "set-rate-control-vbr",
-			applyAt: 4,
-			scriptTok: "endusage:vbr+bitrate:" + strconv.Itoa(target) +
+			Name:    "set-rate-control-vbr",
+			ApplyAt: 4,
+			ScriptToken: "endusage:vbr+bitrate:" + strconv.Itoa(target) +
 				"+minq:4+maxq:56+undershoot:100+overshoot:100+bufsz:6000+bufinit:4000+bufopt:5000",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRateControl(VBR)", e.SetRateControl(RateControlConfig{
-					Mode:                RateControlVBR,
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRateControl(VBR)", e.SetRateControl(govpx.RateControlConfig{
+					Mode:                govpx.RateControlVBR,
 					TargetBitrateKbps:   target,
 					MinQuantizer:        4,
 					MaxQuantizer:        56,
@@ -70,291 +72,291 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 			},
 		},
 		{
-			name:      "set-cq-level",
-			applyAt:   4,
-			scriptTok: "cq:30",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetCQLevel(30)", e.SetCQLevel(30))
+			Name:        "set-cq-level",
+			ApplyAt:     4,
+			ScriptToken: "cq:30",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetCQLevel(30)", e.SetCQLevel(30))
 			},
 		},
 		{
-			name:      "set-aq-mode-variance",
-			applyAt:   4,
-			scriptTok: "aq:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetAQMode(Variance)", e.SetAQMode(VP9AQVariance))
+			Name:        "set-aq-mode-variance",
+			ApplyAt:     4,
+			ScriptToken: "aq:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetAQMode(Variance)", e.SetAQMode(govpx.VP9AQVariance))
 			},
 		},
 		{
-			name:      "set-aq-mode-complexity",
-			applyAt:   4,
-			scriptTok: "aq:2",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetAQMode(Complexity)", e.SetAQMode(VP9AQComplexity))
+			Name:        "set-aq-mode-complexity",
+			ApplyAt:     4,
+			ScriptToken: "aq:2",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetAQMode(Complexity)", e.SetAQMode(govpx.VP9AQComplexity))
 			},
 		},
 		{
-			name:      "set-aq-mode-cyclic",
-			applyAt:   4,
-			scriptTok: "aq:3",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetAQMode(Cyclic)", e.SetAQMode(VP9AQCyclicRefresh))
+			Name:        "set-aq-mode-cyclic",
+			ApplyAt:     4,
+			ScriptToken: "aq:3",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetAQMode(Cyclic)", e.SetAQMode(govpx.VP9AQCyclicRefresh))
 			},
 		},
 		{
-			name:      "set-tuning-ssim",
-			applyAt:   4,
-			scriptTok: "tune:ssim",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetTuning(SSIM)", e.SetTuning(TuneSSIM))
+			Name:        "set-tuning-ssim",
+			ApplyAt:     4,
+			ScriptToken: "tune:ssim",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetTuning(SSIM)", e.SetTuning(govpx.TuneSSIM))
 			},
 		},
 		{
-			name:      "set-sharpness",
-			applyAt:   4,
-			scriptTok: "sharpness:4",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetSharpness(4)", e.SetSharpness(4))
+			Name:        "set-sharpness",
+			ApplyAt:     4,
+			ScriptToken: "sharpness:4",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetSharpness(4)", e.SetSharpness(4))
 			},
 		},
 		{
-			name:      "set-noise-sensitivity",
-			applyAt:   4,
-			scriptTok: "noise:2",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetNoiseSensitivity(2)", e.SetNoiseSensitivity(2))
+			Name:        "set-noise-sensitivity",
+			ApplyAt:     4,
+			ScriptToken: "noise:2",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetNoiseSensitivity(2)", e.SetNoiseSensitivity(2))
 			},
 		},
 		{
-			name:      "set-static-threshold",
-			applyAt:   4,
-			scriptTok: "static:200",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetStaticThreshold(200)", e.SetStaticThreshold(200))
+			Name:        "set-static-threshold",
+			ApplyAt:     4,
+			ScriptToken: "static:200",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetStaticThreshold(200)", e.SetStaticThreshold(200))
 			},
 		},
 		{
-			name:      "set-screen-content-on",
-			applyAt:   4,
-			scriptTok: "screen:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetScreenContent(1)", e.SetScreenContentMode(1))
+			Name:        "set-screen-content-on",
+			ApplyAt:     4,
+			ScriptToken: "screen:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetScreenContent(1)", e.SetScreenContentMode(1))
 			},
 		},
 		{
-			name:      "set-deadline-good",
-			applyAt:   4,
-			scriptTok: "deadline:good",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetDeadline(GoodQuality)", e.SetDeadline(DeadlineGoodQuality))
+			Name:        "set-deadline-good",
+			ApplyAt:     4,
+			ScriptToken: "deadline:good",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetDeadline(GoodQuality)", e.SetDeadline(govpx.DeadlineGoodQuality))
 			},
 		},
 		{
-			name:      "set-cpu-used",
-			applyAt:   4,
-			scriptTok: "cpu:4",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetCPUUsed(4)", e.SetCPUUsed(4))
+			Name:        "set-cpu-used",
+			ApplyAt:     4,
+			ScriptToken: "cpu:4",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetCPUUsed(4)", e.SetCPUUsed(4))
 			},
 		},
 		{
-			name:      "set-frame-parallel-off",
-			applyAt:   4,
-			scriptTok: "frame-parallel:0",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetFrameParallelDecoding(false)", e.SetFrameParallelDecoding(false))
+			Name:        "set-frame-parallel-off",
+			ApplyAt:     4,
+			ScriptToken: "frame-parallel:0",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetFrameParallelDecoding(false)", e.SetFrameParallelDecoding(false))
 			},
 		},
 		{
-			name:      "set-rtc-external-rc",
-			applyAt:   4,
-			scriptTok: "rtc:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
+			Name:        "set-rtc-external-rc",
+			ApplyAt:     4,
+			ScriptToken: "rtc:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRTCExternalRateControl(true)", e.SetRTCExternalRateControl(true))
 			},
 		},
 		{
-			name:      "set-color-space-bt709",
-			applyAt:   4,
-			scriptTok: "colorspace:4",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetColorSpace(BT709)", e.SetColorSpace(VP9ColorSpace(4)))
+			Name:        "set-color-space-bt709",
+			ApplyAt:     4,
+			ScriptToken: "colorspace:4",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetColorSpace(BT709)", e.SetColorSpace(govpx.VP9ColorSpace(4)))
 			},
 		},
 		{
-			name:      "set-color-range-full",
-			applyAt:   4,
-			scriptTok: "colorrange:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetColorRange(full)", e.SetColorRange(VP9ColorRangeFull))
+			Name:        "set-color-range-full",
+			ApplyAt:     4,
+			ScriptToken: "colorrange:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetColorRange(full)", e.SetColorRange(govpx.VP9ColorRangeFull))
 			},
 		},
 		{
-			name:      "set-render-size",
-			applyAt:   4,
-			scriptTok: "rendersize:64x64",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRenderSize(64,64)", e.SetRenderSize(64, 64))
+			Name:        "set-render-size",
+			ApplyAt:     4,
+			ScriptToken: "rendersize:64x64",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRenderSize(64,64)", e.SetRenderSize(64, 64))
 			},
 		},
 		{
-			name:      "set-target-level-unconstrained",
-			applyAt:   4,
-			scriptTok: "targetlevel:255",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetTargetLevel(255)", e.SetTargetLevel(255))
+			Name:        "set-target-level-unconstrained",
+			ApplyAt:     4,
+			ScriptToken: "targetlevel:255",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetTargetLevel(255)", e.SetTargetLevel(255))
 			},
 		},
 		{
-			name:      "set-target-level-auto",
-			applyAt:   4,
-			scriptTok: "targetlevel:0",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetTargetLevel(0=auto)", e.SetTargetLevel(0))
+			Name:        "set-target-level-auto",
+			ApplyAt:     4,
+			ScriptToken: "targetlevel:0",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetTargetLevel(0=auto)", e.SetTargetLevel(0))
 			},
 		},
 		{
-			name:      "set-disable-loopfilter-inter",
-			applyAt:   4,
-			scriptTok: "disableloopfilter:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetDisableLoopfilter(Inter)", e.SetDisableLoopfilter(VP9LoopfilterDisableInter))
+			Name:        "set-disable-loopfilter-inter",
+			ApplyAt:     4,
+			ScriptToken: "disableloopfilter:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetDisableLoopfilter(Inter)", e.SetDisableLoopfilter(govpx.VP9LoopfilterDisableInter))
 			},
 		},
 		{
-			name:      "set-delta-q-uv",
-			applyAt:   4,
-			scriptTok: "deltaquv:4",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetDeltaQUV(4)", e.SetDeltaQUV(4))
+			Name:        "set-delta-q-uv",
+			ApplyAt:     4,
+			ScriptToken: "deltaquv:4",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetDeltaQUV(4)", e.SetDeltaQUV(4))
 			},
 		},
 		{
-			name:      "set-max-inter-bitrate-pct",
-			applyAt:   4,
-			scriptTok: "maxinter:200",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetMaxInterBitratePct(200)", e.SetMaxInterBitratePct(200))
+			Name:        "set-max-inter-bitrate-pct",
+			ApplyAt:     4,
+			ScriptToken: "maxinter:200",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetMaxInterBitratePct(200)", e.SetMaxInterBitratePct(200))
 			},
 		},
 		{
-			name:      "set-max-intra-bitrate-pct",
-			applyAt:   4,
-			scriptTok: "maxintra:200",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetMaxIntraBitratePct(200)", e.SetMaxIntraBitratePct(200))
+			Name:        "set-max-intra-bitrate-pct",
+			ApplyAt:     4,
+			ScriptToken: "maxintra:200",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetMaxIntraBitratePct(200)", e.SetMaxIntraBitratePct(200))
 			},
 		},
 		{
-			name:      "set-gf-cbr-boost-pct",
-			applyAt:   4,
-			scriptTok: "gfboost:50",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetGFCBRBoostPct(50)", e.SetGFCBRBoostPct(50))
+			Name:        "set-gf-cbr-boost-pct",
+			ApplyAt:     4,
+			ScriptToken: "gfboost:50",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetGFCBRBoostPct(50)", e.SetGFCBRBoostPct(50))
 			},
 		},
 		{
-			name:      "set-min-gf-interval",
-			applyAt:   4,
-			scriptTok: "mingf:8",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetMinGFInterval(8)", e.SetMinGFInterval(8))
+			Name:        "set-min-gf-interval",
+			ApplyAt:     4,
+			ScriptToken: "mingf:8",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetMinGFInterval(8)", e.SetMinGFInterval(8))
 			},
 		},
 		{
-			name:      "set-max-gf-interval",
-			applyAt:   4,
-			scriptTok: "maxgf:16",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetMaxGFInterval(16)", e.SetMaxGFInterval(16))
+			Name:        "set-max-gf-interval",
+			ApplyAt:     4,
+			ScriptToken: "maxgf:16",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetMaxGFInterval(16)", e.SetMaxGFInterval(16))
 			},
 		},
 		{
-			name:      "set-frame-periodic-boost",
-			applyAt:   4,
-			scriptTok: "periodicboost:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetFramePeriodicBoost(true)", e.SetFramePeriodicBoost(true))
+			Name:        "set-frame-periodic-boost",
+			ApplyAt:     4,
+			ScriptToken: "periodicboost:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetFramePeriodicBoost(true)", e.SetFramePeriodicBoost(true))
 			},
 		},
 		{
-			name:      "set-altref-aq",
-			applyAt:   4,
-			scriptTok: "altrefaq:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetAltRefAQ(true)", e.SetAltRefAQ(true))
+			Name:        "set-altref-aq",
+			ApplyAt:     4,
+			ScriptToken: "altrefaq:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetAltRefAQ(true)", e.SetAltRefAQ(true))
 			},
 		},
 		{
-			name:      "set-postencode-drop",
-			applyAt:   4,
-			scriptTok: "postdrop:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetPostEncodeDrop(true)", e.SetPostEncodeDrop(true))
+			Name:        "set-postencode-drop",
+			ApplyAt:     4,
+			ScriptToken: "postdrop:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetPostEncodeDrop(true)", e.SetPostEncodeDrop(true))
 			},
 		},
 		{
-			name:      "set-disable-overshoot-maxq-cbr",
-			applyAt:   4,
-			scriptTok: "disovershoot:1",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetDisableOvershootMaxQCBR(true)", e.SetDisableOvershootMaxQCBR(true))
+			Name:        "set-disable-overshoot-maxq-cbr",
+			ApplyAt:     4,
+			ScriptToken: "disovershoot:1",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetDisableOvershootMaxQCBR(true)", e.SetDisableOvershootMaxQCBR(true))
 			},
 		},
 		{
-			name:      "set-next-frame-qindex",
-			applyAt:   4,
-			scriptTok: "qonepass:128",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetNextFrameQIndex(128)", e.SetNextFrameQIndex(128))
+			Name:        "set-next-frame-qindex",
+			ApplyAt:     4,
+			ScriptToken: "qonepass:128",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetNextFrameQIndex(128)", e.SetNextFrameQIndex(128))
 			},
 		},
 		{
-			name:      "set-frame-drop-allowed",
-			applyAt:   4,
-			scriptTok: "drop:60",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetFrameDropAllowed(true)", e.SetFrameDropAllowed(true))
+			Name:        "set-frame-drop-allowed",
+			ApplyAt:     4,
+			ScriptToken: "drop:60",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetFrameDropAllowed(true)", e.SetFrameDropAllowed(true))
 			},
 		},
 		{
-			name:      "set-rate-control-buffer",
-			applyAt:   4,
-			scriptTok: "bufsz:8000+bufinit:5000+bufopt:6000",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRateControlBuffer", e.SetRateControlBuffer(8000, 5000, 6000))
+			Name:        "set-rate-control-buffer",
+			ApplyAt:     4,
+			ScriptToken: "bufsz:8000+bufinit:5000+bufopt:6000",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRateControlBuffer", e.SetRateControlBuffer(8000, 5000, 6000))
 			},
 		},
 		{
-			name:      "set-realtime-target-bitrate",
-			applyAt:   4,
-			scriptTok: "bitrate:400",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRealtimeTarget(bitrate)", e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 400}))
+			Name:        "set-realtime-target-bitrate",
+			ApplyAt:     4,
+			ScriptToken: "bitrate:400",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRealtimeTarget(bitrate)", e.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 400}))
 			},
 		},
 		{
-			name:      "set-realtime-target-quantizers",
-			applyAt:   4,
-			scriptTok: "minq:32+maxq:32",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRealtimeTarget(q)", e.SetRealtimeTarget(RealtimeTarget{MinQuantizer: 32, MaxQuantizer: 32}))
+			Name:        "set-realtime-target-quantizers",
+			ApplyAt:     4,
+			ScriptToken: "minq:32+maxq:32",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRealtimeTarget(q)", e.SetRealtimeTarget(govpx.RealtimeTarget{MinQuantizer: 32, MaxQuantizer: 32}))
 			},
 		},
 		{
-			name:      "set-realtime-target-fps",
-			applyAt:   4,
-			scriptTok: "fps:15",
-			apply: func(t *testing.T, e *VP9Encoder) {
-				mustVP9Runtime(t, "SetRealtimeTarget(fps)", e.SetRealtimeTarget(RealtimeTarget{FPS: 15}))
+			Name:        "set-realtime-target-fps",
+			ApplyAt:     4,
+			ScriptToken: "fps:15",
+			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
+				vp9oracle.MustRuntime(t, "SetRealtimeTarget(fps)", e.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 15}))
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			runVP9RuntimeControlCase(t, baseOpts(), baseArgs(), width, height, frames, tc)
+		t.Run(tc.Name, func(t *testing.T) {
+			vp9oracle.RunRuntimeControlCase(t, baseOpts(), baseArgs(), width, height, frames, tc)
 		})
 	}
 }
