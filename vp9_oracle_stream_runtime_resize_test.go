@@ -1,10 +1,13 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleRuntimeResizeByteParity(t *testing.T) {
@@ -31,27 +34,28 @@ func TestVP9OracleRuntimeResizeByteParity(t *testing.T) {
 			sources := vp9test.NewRuntimeResizeSources(tc.initialWidth,
 				tc.initialHeight, tc.nextWidth, tc.nextHeight,
 				tc.resizeFrame, frames)
-			opts := VP9EncoderOptions{
+			opts := govpx.VP9EncoderOptions{
 				Width:        tc.initialWidth,
 				Height:       tc.initialHeight,
 				MinQuantizer: 32,
 				MaxQuantizer: 32,
 			}
-			before := func(enc *VP9Encoder, frame int) {
+			before := func(enc *govpx.VP9Encoder, frame int) {
 				if frame != tc.resizeFrame {
 					return
 				}
-				mustVP9Runtime(t, "SetRealtimeTarget resize",
-					enc.SetRealtimeTarget(RealtimeTarget{
-						Width:  tc.nextWidth,
-						Height: tc.nextHeight,
-					}))
+				if err := enc.SetRealtimeTarget(govpx.RealtimeTarget{
+					Width:  tc.nextWidth,
+					Height: tc.nextHeight,
+				}); err != nil {
+					t.Fatalf("SetRealtimeTarget resize: %v", err)
+				}
 			}
-			govpxRows, govpxPackets := captureGovpxVP9VariablePacketRows(t,
+			govpxRows, govpxPackets := vp9oracle.CaptureVariablePacketRows(t,
 				opts, sources, nil, before)
-			libvpxRows, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
+			libvpxRows, libvpxPackets := vp9oracle.CaptureLibvpxVariablePacketRows(t,
 				sources, nil, nil, extraArgs)
-			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
 			t.Logf("VP9 runtime resize byte-parity trace %s: matches=%d/%d first_mismatch=%d stats=%s",

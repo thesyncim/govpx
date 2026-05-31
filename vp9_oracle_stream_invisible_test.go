@@ -1,12 +1,15 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"fmt"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9OracleInvisibleKeyFrameByteParity(t *testing.T) {
@@ -17,14 +20,14 @@ func TestVP9OracleInvisibleKeyFrameByteParity(t *testing.T) {
 	sources := []*image.YCbCr{
 		vp9test.NewYCbCr(width, height, 96, 128, 128),
 	}
-	flags := []EncodeFlags{EncodeInvisibleFrame}
-	govpxRows, govpxPackets := captureGovpxVP9VariablePacketRows(t,
-		VP9EncoderOptions{Width: width, Height: height, MinQuantizer: 32, MaxQuantizer: 32},
+	flags := []govpx.EncodeFlags{govpx.EncodeInvisibleFrame}
+	govpxRows, govpxPackets := vp9oracle.CaptureVariablePacketRows(t,
+		govpx.VP9EncoderOptions{Width: width, Height: height, MinQuantizer: 32, MaxQuantizer: 32},
 		sources, flags, nil)
-	libvpxRows, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
+	libvpxRows, libvpxPackets := vp9oracle.CaptureLibvpxVariablePacketRows(t,
 		sources, flags, []bool{true},
 		[]string{"--cq-level=32", "--min-q=32", "--max-q=32"})
-	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
 	t.Logf("VP9 invisible keyframe byte-parity trace: matches=%d/%d first_mismatch=%d stats=%s",
@@ -48,11 +51,11 @@ func TestVP9OracleInvisibleKeyFrameStrictByteParity(t *testing.T) {
 	sources := []*image.YCbCr{
 		vp9test.NewYCbCr(width, height, 96, 128, 128),
 	}
-	flags := []EncodeFlags{EncodeInvisibleFrame}
-	_, govpxPackets := captureGovpxVP9VariablePacketRows(t,
-		VP9EncoderOptions{Width: width, Height: height, MinQuantizer: 32, MaxQuantizer: 32},
+	flags := []govpx.EncodeFlags{govpx.EncodeInvisibleFrame}
+	_, govpxPackets := vp9oracle.CaptureVariablePacketRows(t,
+		govpx.VP9EncoderOptions{Width: width, Height: height, MinQuantizer: 32, MaxQuantizer: 32},
 		sources, flags, nil)
-	_, libvpxPackets := captureLibvpxVP9VariablePacketRows(t,
+	_, libvpxPackets := vp9oracle.CaptureLibvpxVariablePacketRows(t,
 		sources, flags, []bool{true},
 		[]string{"--cq-level=32", "--min-q=32", "--max-q=32"})
 	if len(govpxPackets) != len(libvpxPackets) {
