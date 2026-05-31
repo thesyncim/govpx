@@ -1,8 +1,10 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -47,11 +49,11 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 	fxBig := fixture{name: "panning-640x480", w: 640, h: 480}
 	fx720 := fixture{name: "panning-1280x720", w: 1280, h: 720}
 
-	baseOpts := func(fx fixture) VP9EncoderOptions {
-		return vp9OracleCBROptions(fx.w, fx.h, target)
+	baseOpts := func(fx fixture) govpx.VP9EncoderOptions {
+		return vp9oracle.CBROptions(fx.w, fx.h, target)
 	}
 	baseArgs := func() []string {
-		return vp9OracleCBRArgs(target, 600, 400, 500, 0)
+		return vp9oracle.CBRArgs(target, 600, 400, 500, 0)
 	}
 
 	cases := []vp9TransitionCase{
@@ -102,19 +104,19 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "aq-off-variance-complexity-cyclic-off",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				2:  vp9StepAQ(VP9AQVariance),
-				5:  vp9StepAQ(VP9AQComplexity),
-				8:  vp9StepAQ(VP9AQCyclicRefresh),
-				11: vp9StepAQ(VP9AQNone),
+				2:  vp9StepAQ(govpx.VP9AQVariance),
+				5:  vp9StepAQ(govpx.VP9AQComplexity),
+				8:  vp9StepAQ(govpx.VP9AQCyclicRefresh),
+				11: vp9StepAQ(govpx.VP9AQNone),
 			},
 		},
 		{
 			name: "aq-off-equator360-perceptual-off",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3:  vp9StepAQ(VP9AQEquator360),
-				6:  vp9StepAQ(VP9AQPerceptual),
-				10: vp9StepAQ(VP9AQNone),
+				3:  vp9StepAQ(govpx.VP9AQEquator360),
+				6:  vp9StepAQ(govpx.VP9AQPerceptual),
+				10: vp9StepAQ(govpx.VP9AQNone),
 			},
 		},
 
@@ -143,8 +145,8 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "rate-control-cbr-vbr-cbr",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				4: vp9StepRateControlMode(RateControlVBR, target),
-				9: vp9StepRateControlMode(RateControlCBR, target),
+				4: vp9StepRateControlMode(govpx.RateControlVBR, target),
+				9: vp9StepRateControlMode(govpx.RateControlCBR, target),
 			},
 		},
 
@@ -189,8 +191,8 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "color-space-then-range",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3: vp9StepColorSpace(VP9ColorSpace(4)), // BT.709
-				8: vp9StepColorRange(VP9ColorRangeFull),
+				3: vp9StepColorSpace(govpx.VP9ColorSpace(4)), // BT.709
+				8: vp9StepColorRange(govpx.VP9ColorRangeFull),
 			},
 		},
 
@@ -199,8 +201,8 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "loopfilter-inter-then-all",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3: vp9StepDisableLoopfilter(VP9LoopfilterDisableInter),
-				8: vp9StepDisableLoopfilter(VP9LoopfilterDisableAll),
+				3: vp9StepDisableLoopfilter(govpx.VP9LoopfilterDisableInter),
+				8: vp9StepDisableLoopfilter(govpx.VP9LoopfilterDisableAll),
 			},
 		},
 
@@ -220,7 +222,7 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "aq-deltaquv-noise-triple",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3: vp9StepAQ(VP9AQVariance),
+				3: vp9StepAQ(govpx.VP9AQVariance),
 				6: vp9StepDeltaQUV(4),
 				9: vp9StepNoiseSensitivity(2),
 			},
@@ -241,7 +243,7 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "deadline-then-cpu",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3: vp9StepDeadline(DeadlineGoodQuality),
+				3: vp9StepDeadline(govpx.DeadlineGoodQuality),
 				8: vp9StepCPUUsed(0),
 			},
 		},
@@ -251,7 +253,7 @@ func TestVP9OracleEncoderControlTransitions(t *testing.T) {
 			name: "tuning-then-sharpness",
 			fx:   fxBase,
 			updates: map[int]vp9ControlStep{
-				3: vp9StepTuning(TuneSSIM),
+				3: vp9StepTuning(govpx.TuneSSIM),
 				8: vp9StepSharpness(4),
 			},
 		},

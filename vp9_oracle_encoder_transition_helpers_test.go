@@ -1,12 +1,11 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
-	"bytes"
-	"github.com/thesyncim/govpx/internal/testutil"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"image"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,7 +26,7 @@ type vp9TransitionCase struct {
 // control change at a single frame. Steps compose so a single frame can
 // toggle multiple controls atomically.
 type vp9ControlStep struct {
-	apply       func(*testing.T, *VP9Encoder)
+	apply       func(*testing.T, *govpx.VP9Encoder)
 	scriptToken string
 }
 
@@ -36,7 +35,7 @@ type vp9ControlStep struct {
 // separated tokens per frame entry.
 func vp9StepCompose(steps ...vp9ControlStep) vp9ControlStep {
 	tokens := make([]string, 0, len(steps))
-	calls := make([]func(*testing.T, *VP9Encoder), 0, len(steps))
+	calls := make([]func(*testing.T, *govpx.VP9Encoder), 0, len(steps))
 	for _, s := range steps {
 		if s.scriptToken != "" {
 			tokens = append(tokens, s.scriptToken)
@@ -46,7 +45,7 @@ func vp9StepCompose(steps ...vp9ControlStep) vp9ControlStep {
 		}
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
 			for _, c := range calls {
 				c(t, e)
 			}
@@ -57,17 +56,17 @@ func vp9StepCompose(steps ...vp9ControlStep) vp9ControlStep {
 
 func vp9StepBitrate(kbps int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetBitrateKbps", e.SetBitrateKbps(kbps))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetBitrateKbps", e.SetBitrateKbps(kbps))
 		},
 		scriptToken: "bitrate:" + strconv.Itoa(kbps),
 	}
 }
 
-func vp9StepAQ(mode VP9AQMode) vp9ControlStep {
+func vp9StepAQ(mode govpx.VP9AQMode) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetAQMode", e.SetAQMode(mode))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetAQMode", e.SetAQMode(mode))
 		},
 		scriptToken: "aq:" + strconv.Itoa(int(mode)),
 	}
@@ -75,8 +74,8 @@ func vp9StepAQ(mode VP9AQMode) vp9ControlStep {
 
 func vp9StepScreenContent(mode int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetScreenContentMode", e.SetScreenContentMode(mode))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetScreenContentMode", e.SetScreenContentMode(mode))
 		},
 		scriptToken: "screen:" + strconv.Itoa(mode),
 	}
@@ -84,26 +83,26 @@ func vp9StepScreenContent(mode int) vp9ControlStep {
 
 func vp9StepKFInterval(frames int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetKeyFrameInterval", e.SetKeyFrameInterval(frames))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetKeyFrameInterval", e.SetKeyFrameInterval(frames))
 		},
 		scriptToken: "kfmax:" + strconv.Itoa(frames),
 	}
 }
 
-func vp9StepRateControlMode(mode RateControlMode, kbps int) vp9ControlStep {
+func vp9StepRateControlMode(mode govpx.RateControlMode, kbps int) vp9ControlStep {
 	endUsage := "cbr"
 	switch mode {
-	case RateControlVBR:
+	case govpx.RateControlVBR:
 		endUsage = "vbr"
-	case RateControlCQ:
+	case govpx.RateControlCQ:
 		endUsage = "cq"
-	case RateControlQ:
+	case govpx.RateControlQ:
 		endUsage = "q"
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetRateControl", e.SetRateControl(RateControlConfig{
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetRateControl", e.SetRateControl(govpx.RateControlConfig{
 				Mode:                mode,
 				TargetBitrateKbps:   kbps,
 				MinQuantizer:        4,
@@ -126,8 +125,8 @@ func vp9StepPostEncodeDrop(on bool) vp9ControlStep {
 		v = 1
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetPostEncodeDrop", e.SetPostEncodeDrop(on))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetPostEncodeDrop", e.SetPostEncodeDrop(on))
 		},
 		scriptToken: "postdrop:" + strconv.Itoa(v),
 	}
@@ -139,8 +138,8 @@ func vp9StepDisableOvershootMaxQCBR(on bool) vp9ControlStep {
 		v = 1
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetDisableOvershootMaxQCBR", e.SetDisableOvershootMaxQCBR(on))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetDisableOvershootMaxQCBR", e.SetDisableOvershootMaxQCBR(on))
 		},
 		scriptToken: "disovershoot:" + strconv.Itoa(v),
 	}
@@ -148,8 +147,8 @@ func vp9StepDisableOvershootMaxQCBR(on bool) vp9ControlStep {
 
 func vp9StepTargetLevel(level int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetTargetLevel", e.SetTargetLevel(level))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetTargetLevel", e.SetTargetLevel(level))
 		},
 		scriptToken: "targetlevel:" + strconv.Itoa(level),
 	}
@@ -157,8 +156,8 @@ func vp9StepTargetLevel(level int) vp9ControlStep {
 
 func vp9StepMinGFInterval(n int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetMinGFInterval", e.SetMinGFInterval(n))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetMinGFInterval", e.SetMinGFInterval(n))
 		},
 		scriptToken: "mingf:" + strconv.Itoa(n),
 	}
@@ -166,35 +165,35 @@ func vp9StepMinGFInterval(n int) vp9ControlStep {
 
 func vp9StepMaxGFInterval(n int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetMaxGFInterval", e.SetMaxGFInterval(n))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetMaxGFInterval", e.SetMaxGFInterval(n))
 		},
 		scriptToken: "maxgf:" + strconv.Itoa(n),
 	}
 }
 
-func vp9StepColorSpace(cs VP9ColorSpace) vp9ControlStep {
+func vp9StepColorSpace(cs govpx.VP9ColorSpace) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetColorSpace", e.SetColorSpace(cs))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetColorSpace", e.SetColorSpace(cs))
 		},
 		scriptToken: "colorspace:" + strconv.Itoa(int(cs)),
 	}
 }
 
-func vp9StepColorRange(cr VP9ColorRange) vp9ControlStep {
+func vp9StepColorRange(cr govpx.VP9ColorRange) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetColorRange", e.SetColorRange(cr))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetColorRange", e.SetColorRange(cr))
 		},
 		scriptToken: "colorrange:" + strconv.Itoa(int(cr)),
 	}
 }
 
-func vp9StepDisableLoopfilter(mode VP9DisableLoopfilter) vp9ControlStep {
+func vp9StepDisableLoopfilter(mode govpx.VP9DisableLoopfilter) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetDisableLoopfilter", e.SetDisableLoopfilter(mode))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetDisableLoopfilter", e.SetDisableLoopfilter(mode))
 		},
 		scriptToken: "disableloopfilter:" + strconv.Itoa(int(mode)),
 	}
@@ -202,8 +201,8 @@ func vp9StepDisableLoopfilter(mode VP9DisableLoopfilter) vp9ControlStep {
 
 func vp9StepCPUUsed(cpu int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetCPUUsed", e.SetCPUUsed(cpu))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetCPUUsed", e.SetCPUUsed(cpu))
 		},
 		scriptToken: "cpu:" + strconv.Itoa(cpu),
 	}
@@ -211,8 +210,8 @@ func vp9StepCPUUsed(cpu int) vp9ControlStep {
 
 func vp9StepSharpness(s uint8) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetSharpness", e.SetSharpness(s))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetSharpness", e.SetSharpness(s))
 		},
 		scriptToken: "sharpness:" + strconv.Itoa(int(s)),
 	}
@@ -220,8 +219,8 @@ func vp9StepSharpness(s uint8) vp9ControlStep {
 
 func vp9StepDeltaQUV(d int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetDeltaQUV", e.SetDeltaQUV(d))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetDeltaQUV", e.SetDeltaQUV(d))
 		},
 		scriptToken: "deltaquv:" + strconv.Itoa(d),
 	}
@@ -229,8 +228,8 @@ func vp9StepDeltaQUV(d int) vp9ControlStep {
 
 func vp9StepNoiseSensitivity(n int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetNoiseSensitivity", e.SetNoiseSensitivity(n))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetNoiseSensitivity", e.SetNoiseSensitivity(n))
 		},
 		scriptToken: "noise:" + strconv.Itoa(n),
 	}
@@ -238,8 +237,8 @@ func vp9StepNoiseSensitivity(n int) vp9ControlStep {
 
 func vp9StepRateControlBuffer(sizeMs, initMs, optMs int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetRateControlBuffer",
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetRateControlBuffer",
 				e.SetRateControlBuffer(sizeMs, initMs, optMs))
 		},
 		scriptToken: "bufsz:" + strconv.Itoa(sizeMs) +
@@ -248,30 +247,30 @@ func vp9StepRateControlBuffer(sizeMs, initMs, optMs int) vp9ControlStep {
 	}
 }
 
-func vp9StepDeadline(d Deadline) vp9ControlStep {
+func vp9StepDeadline(d govpx.Deadline) vp9ControlStep {
 	tok := "rt"
 	switch d {
-	case DeadlineGoodQuality:
+	case govpx.DeadlineGoodQuality:
 		tok = "good"
-	case DeadlineBestQuality:
+	case govpx.DeadlineBestQuality:
 		tok = "best"
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetDeadline", e.SetDeadline(d))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetDeadline", e.SetDeadline(d))
 		},
 		scriptToken: "deadline:" + tok,
 	}
 }
 
-func vp9StepTuning(tu Tuning) vp9ControlStep {
+func vp9StepTuning(tu govpx.Tuning) vp9ControlStep {
 	tok := "psnr"
-	if tu == TuneSSIM {
+	if tu == govpx.TuneSSIM {
 		tok = "ssim"
 	}
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetTuning", e.SetTuning(tu))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetTuning", e.SetTuning(tu))
 		},
 		scriptToken: "tune:" + tok,
 	}
@@ -279,8 +278,8 @@ func vp9StepTuning(tu Tuning) vp9ControlStep {
 
 func vp9StepMaxInterBitratePct(p int) vp9ControlStep {
 	return vp9ControlStep{
-		apply: func(t *testing.T, e *VP9Encoder) {
-			mustVP9Runtime(t, "SetMaxInterBitratePct", e.SetMaxInterBitratePct(p))
+		apply: func(t *testing.T, e *govpx.VP9Encoder) {
+			vp9oracle.MustRuntime(t, "SetMaxInterBitratePct", e.SetMaxInterBitratePct(p))
 		},
 		scriptToken: "maxinter:" + strconv.Itoa(p),
 	}
@@ -290,20 +289,20 @@ func vp9StepMaxInterBitratePct(p int) vp9ControlStep {
 // the resulting packets and trace rows, and compares them. It logs
 // the per-frame trace for failure triage and asserts byte parity
 // under GOVPX_VP9_TRANSITIONS_STRICT=1.
-func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
+func runVP9TransitionCase(t *testing.T, opts govpx.VP9EncoderOptions,
 	extraArgs []string, width, height, frames int, tc vp9TransitionCase,
 ) {
 	t.Helper()
-	sources := vp9OracleTransitionPanningSources(width, height, frames, 0)
-	flags := make([]EncodeFlags, frames)
+	sources := vp9oracle.TransitionPanningSources(width, height, frames, 0)
+	flags := make([]govpx.EncodeFlags, frames)
 
-	before := func(enc *VP9Encoder, frame int) {
+	before := func(enc *govpx.VP9Encoder, frame int) {
 		if step, ok := tc.updates[frame]; ok && step.apply != nil {
 			step.apply(t, enc)
 		}
 	}
 
-	govpxRows, govpxPackets := captureGovpxVP9StreamParityPacketRowsWithHooks(t,
+	govpxRows, govpxPackets := vp9oracle.CaptureGovpxStreamParityPacketRowsWithHooks(t,
 		opts, sources, flags, before)
 
 	scriptMap := make(map[int]string, len(tc.updates))
@@ -313,59 +312,18 @@ func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 	libvpxArgs := append([]string(nil), extraArgs...)
 	libvpxArgs = append(libvpxArgs, tc.extraArgs...)
 	libvpxArgs = append(libvpxArgs,
-		"--control-script="+strings.Join(vp9RuntimeControlScript(frames, scriptMap), ","))
+		"--control-script="+strings.Join(vp9oracle.RuntimeControlScript(frames, scriptMap), ","))
 
-	libvpxRows, libvpxPackets := captureLibvpxVP9StreamParityPacketRows(t,
+	libvpxRows, libvpxPackets := vp9oracle.CaptureLibvpxStreamParityPacketRows(t,
 		sources, flags, libvpxArgs)
 
-	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
+	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9oracle.RateTraceFlagMapper)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets, libvpxPackets)
 	t.Logf("VP9 transition %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 transition %s rows:\n%s", tc.name,
 		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	if vp9test.StrictEnv("GOVPX_VP9_TRANSITIONS_STRICT") {
-		assertVP9TransitionByteParity(t, tc.name, govpxPackets, libvpxPackets)
+		vp9oracle.AssertRuntimeControlByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}
-}
-
-// assertVP9TransitionByteParity is the strict-mode gate: every visible
-// packet must match libvpx byte-for-byte and drop classifications must
-// agree. Failure messages include the byte length, first-diff offset, and
-// per-frame index so triage doesn't require a hex viewer.
-func assertVP9TransitionByteParity(t *testing.T, label string, got, want [][]byte) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("VP9 transition %s packet count: got=%d want=%d",
-			label, len(got), len(want))
-	}
-	for i := range got {
-		gotEmpty := len(got[i]) == 0
-		wantEmpty := len(want[i]) == 0
-		if gotEmpty != wantEmpty {
-			t.Errorf("VP9 transition %s frame %d drop mismatch: got_empty=%t want_empty=%t",
-				label, i, gotEmpty, wantEmpty)
-			continue
-		}
-		if gotEmpty {
-			continue
-		}
-		if !bytes.Equal(got[i], want[i]) {
-			diff := testutil.FirstByteDiff(got[i], want[i])
-			t.Errorf("VP9 transition %s frame %d byte mismatch: got_len=%d want_len=%d first_diff=%d",
-				label, i, len(got[i]), len(want[i]), diff)
-		}
-	}
-}
-
-// vp9OracleTransitionPanningSources builds a panning I420 sequence of
-// `count` frames starting at the given frame offset. The frames have
-// non-trivial motion so rate-control bookkeeping and AQ have something to
-// chew on across frames.
-func vp9OracleTransitionPanningSources(width, height, count, offset int) []*image.YCbCr {
-	sources := make([]*image.YCbCr, count)
-	for i := range sources {
-		sources[i] = vp9test.NewPanningYCbCr(width, height, i+offset)
-	}
-	return sources
 }
