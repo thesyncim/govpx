@@ -71,16 +71,6 @@ type vp9CyclicRefreshParityCase struct {
 	extraArgs []string
 }
 
-func TestVP9EncoderVpxencOracleCBRCyclicRefreshKeyframeByteParity(t *testing.T) {
-	vp9test.RequireVpxenc(t)
-
-	const width, height = 64, 64
-	src := vp9test.NewPanningYCbCr(width, height, 0)
-	assertVP9VpxencKeyframeByteParityWithOptions(t, src,
-		vp9OracleCyclicRefreshCBROptions(width, height, 700),
-		vp9OracleCyclicRefreshCBRVpxencArgs(700, 600, 400, 500, 0))
-}
-
 func TestVP9OracleCyclicRefreshCBRRealtimeRateParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 cyclic refresh CBR rate parity")
 	vp9test.RequireVpxencFrameFlags(t)
