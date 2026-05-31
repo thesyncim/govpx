@@ -460,11 +460,14 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		return e.vp9InterCalculateTxSize(bsize, vp9InterFrameTxMode(inter), sse,
 			residualVar, sourceVar, acThr, segmentID)
 	}
-	if maxTx == common.Tx8x8 && sse > pixels*512 && activity > pixels*128 {
+	useTxRDSearch := vp9InterFrameTxMode(inter) == common.TxModeSelect &&
+		e.sf.TxSizeSearchMethod == UseTx8x8
+	if !useTxRDSearch && maxTx == common.Tx8x8 &&
+		sse > pixels*512 && activity > pixels*128 {
 		return e.vp9InterTxApplyForces(maxTx, bsize, residualVar, acThr,
 			limitTx, segmentID)
 	}
-	if sse <= pixels*512 || activity <= pixels*16 {
+	if !useTxRDSearch && (sse <= pixels*512 || activity <= pixels*16) {
 		// libvpx vp9_pickmode.c:371-384: in the CYCLIC_REFRESH_AQ flat
 		// region (limit_tx=0) the Tx16x16 ceiling is dropped, so the
 		// picker can return maxTx (up to Tx32x32) directly without
@@ -499,6 +502,9 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	bestScore := uint64(^uint64(0))
 	bestRate := int(^uint(0) >> 1)
 	minTx := max(maxTx-1, common.Tx4x4)
+	if useTxRDSearch {
+		minTx = vp9InterTxRDSearchMin(maxTx, e.sf.TxSizeSearchDepth, bsize)
+	}
 	for txi := int(maxTx); txi >= int(minTx); txi-- {
 		tx := common.TxSize(txi)
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
@@ -521,6 +527,19 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	return e.vp9InterTxApplyForces(bestTx, bsize, residualVar, acThr,
 		limitTx, segmentID)
+}
+
+func vp9InterTxRDSearchMin(maxTx common.TxSize, depth int,
+	bsize common.BlockSize,
+) common.TxSize {
+	endTx := int(maxTx) - depth
+	if endTx < int(common.Tx4x4) {
+		endTx = int(common.Tx4x4)
+	}
+	if bsize > common.Block32x32 {
+		endTx = min(endTx+1, int(maxTx))
+	}
+	return common.TxSize(endTx)
 }
 
 // vp9InterTxApplyForces folds in the libvpx-verbatim boosted-segment

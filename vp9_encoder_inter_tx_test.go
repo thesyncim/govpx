@@ -262,6 +262,46 @@ func TestVP9InterCalculateTxAcThrUsesSegmentQIndex(t *testing.T) {
 	}
 }
 
+func TestVP9InterTxRDSearchDepthMirrorsLibvpx(t *testing.T) {
+	tests := []struct {
+		name    string
+		maxTx   common.TxSize
+		depth   int
+		bsize   common.BlockSize
+		wantMin common.TxSize
+	}{
+		{
+			name:    "tx8-depth-reaches-tx4",
+			maxTx:   common.Tx8x8,
+			depth:   2,
+			bsize:   common.Block8x8,
+			wantMin: common.Tx4x4,
+		},
+		{
+			name:    "tx16-depth-reaches-tx4",
+			maxTx:   common.Tx16x16,
+			depth:   2,
+			bsize:   common.Block16x16,
+			wantMin: common.Tx4x4,
+		},
+		{
+			name:    "block64-bumps-end-up-one",
+			maxTx:   common.Tx32x32,
+			depth:   2,
+			bsize:   common.Block64x64,
+			wantMin: common.Tx16x16,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := vp9InterTxRDSearchMin(tt.maxTx, tt.depth, tt.bsize)
+			if got != tt.wantMin {
+				t.Fatalf("vp9InterTxRDSearchMin = %d, want %d", got, tt.wantMin)
+			}
+		})
+	}
+}
+
 // TestVP9CyclicRefreshSegmentIDBoostedMirrorsLibvpx pins the
 // cyclic_refresh_segment_id_boosted port at libvpx
 // vp9/encoder/vp9_aq_cyclicrefresh.h:127-130.
