@@ -307,6 +307,14 @@ type ModelRdForSbYLargeResult struct {
 	Valid    bool
 }
 
+type ModelRdForSbYLargeEarlyTermArgs struct {
+	UVBSize  common.BlockSize
+	UVTxSize common.TxSize
+	Dequant  [2][2]int16
+	Var      [2]uint64
+	SSE      [2]uint64
+}
+
 // ModelRdForSbYLarge ports libvpx model_rd_for_sb_y_large
 // (vp9_pickmode.c:439-643) for the 8-bit Y plane. The large-block kernel
 // differs from ModelRdForSbY by testing every 8x8/16x16/32x32 transform unit
@@ -425,6 +433,41 @@ func ModelRdForSbYLarge(args ModelRdForSbYLargeArgs) ModelRdForSbYLargeResult {
 	res.Dist += acDist << 4
 	res.Valid = true
 	return res
+}
+
+// ModelRdForSbYLargeEarlyTerm ports the UV transform-skip test at the
+// end of libvpx model_rd_for_sb_y_large. The caller has already proved the
+// Y plane is SKIP_TXFM_AC_DC and supplied the U/V variances after building
+// the chroma predictors for the same candidate.
+func ModelRdForSbYLargeEarlyTerm(args ModelRdForSbYLargeEarlyTermArgs) bool {
+	if args.UVBSize >= common.BlockSizes || args.UVTxSize >= common.TxSizes {
+		return false
+	}
+	unitSize := common.TxsizeToBsize[args.UVTxSize]
+	uvBW := int(common.BWidthLog2Lookup[args.UVBSize])
+	uvBH := int(common.BHeightLog2Lookup[args.UVBSize])
+	unitBW := int(common.BWidthLog2Lookup[unitSize])
+	unitBH := int(common.BHeightLog2Lookup[unitSize])
+	scaleShift := (uvBW - unitBW) + (uvBH - unitBH)
+	if scaleShift < 0 || scaleShift > 6 {
+		return false
+	}
+	thresholdShift := uint(6 - scaleShift)
+	for plane := range 2 {
+		dequant := args.Dequant[plane]
+		dcThr := uint64(int64(dequant[0])*int64(dequant[0])) >> thresholdShift
+		acThr := uint64(int64(dequant[1])*int64(dequant[1])) >> thresholdShift
+		variance := args.Var[plane]
+		sse := args.SSE[plane]
+		if sse < variance {
+			return false
+		}
+		if !((variance < acThr || variance == 0) &&
+			(sse-variance < dcThr || sse == variance)) {
+			return false
+		}
+	}
+	return true
 }
 
 func modelRdWindowFits(buf []byte, stride, x, y, w, h int) bool {

@@ -343,6 +343,44 @@ func TestVP9ModelRdForSbYLargeSkipsIdenticalPrediction(t *testing.T) {
 	}
 }
 
+func TestVP9ModelRdForSbYLargeEarlyTermRequiresBothChromaPlanes(t *testing.T) {
+	args := ModelRdForSbYLargeEarlyTermArgs{
+		UVBSize:  common.Block16x16,
+		UVTxSize: common.Tx8x8,
+		Dequant: [2][2]int16{
+			{64, 64},
+			{64, 64},
+		},
+		Var: [2]uint64{0, 0},
+		SSE: [2]uint64{0, 0},
+	}
+	if !ModelRdForSbYLargeEarlyTerm(args) {
+		t.Fatal("early-term = false, want true when U and V are fully skippable")
+	}
+
+	args.Var[1] = 1 << 20
+	args.SSE[1] = 1 << 20
+	if ModelRdForSbYLargeEarlyTerm(args) {
+		t.Fatal("early-term = true, want false when V keeps chroma residue live")
+	}
+}
+
+func TestVP9ModelRdForSbYLargeEarlyTermRejectsInvalidVariance(t *testing.T) {
+	args := ModelRdForSbYLargeEarlyTermArgs{
+		UVBSize:  common.Block16x16,
+		UVTxSize: common.Tx8x8,
+		Dequant: [2][2]int16{
+			{64, 64},
+			{64, 64},
+		},
+		Var: [2]uint64{10, 0},
+		SSE: [2]uint64{9, 0},
+	}
+	if ModelRdForSbYLargeEarlyTerm(args) {
+		t.Fatal("early-term = true, want false when chroma SSE is below variance")
+	}
+}
+
 func TestVP9ModelRdForSbYLargeRejectsSingleHotTileSkip(t *testing.T) {
 	const w, h = 32, 32
 	var src [w * h]byte

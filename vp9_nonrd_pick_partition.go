@@ -695,9 +695,11 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 //
 //   - PARTITION_SPLIT (libvpx vp9_encodeframe.c:4713-4746): four
 //     recursive calls to nonrd_pick_partition at the split sub-bsize.
-//     govpx's equivalent is scoreVP9InterPartitionSplit which iterates
-//     pickVP9InterReferenceMode over the 4 sub-blocks and sums RDCOSTs.
-//     Adds cpi->partition_cost[pl][PARTITION_SPLIT] at line 4715.
+//     govpx's equivalent is scoreVP9NonrdMLPartitionSplit: it keeps the
+//     recursive ML predictor / NONE-vs-SPLIT fallback shape and deliberately
+//     does not enter the generic inter RD splitter, because speed-8 libvpx
+//     has rectangular partitions disabled on this lane. Adds
+//     cpi->partition_cost[pl][PARTITION_SPLIT] at line 4715.
 //
 // The picker commits to whichever candidate has the lower aggregate
 // RDCOST. On a tie (or scorer failure on the split candidate) we fall
@@ -733,9 +735,6 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	if inter == nil {
 		return common.BlockInvalid, false
 	}
-	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
-		miRow, miCol)
-	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 
 	// libvpx vp9_encodeframe.c:4608 — const int ms =
 	// num_8x8_blocks_wide_lookup[bsize] / 2.
@@ -772,15 +771,9 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 		return common.BlockInvalid, false
 	}
 
-	splitSize, ok := vp9MLSplitSize(bsize)
-	if !ok {
+	if _, ok := vp9MLSplitSize(bsize); !ok {
 		return common.BlockInvalid, false
 	}
-
-	// libvpx vp9_encodeframe.c:4685 / 4714 —
-	// partition_plane_context(xd, mi_row, mi_col, bsize).
-	plCtx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
-		miRow, miCol, bsize)
 
 	// Source for partition rate-cost probabilities mirrors the RD
 	// path at vp9_encoder.go:5892-5895 — prefer the pre-WriteCompressed-
@@ -791,84 +784,262 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 		rateCostProbs = &inter.selectFc.PartitionProb
 	}
 
-	// libvpx vp9_encodeframe.c:4685 — `int hasRows = mi_row + ms <
-	// cm->mi_rows; int hasCols = mi_col + ms < cm->mi_cols;` is implicit
-	// in encoder.PartitionRateCost via the hasRows / hasCols parameters; at
-	// the dispatcher level both are true (we early-returned above on
-	// force_horz_split / force_vert_split).
-	hasRows := miRow+ms < miRows
-	hasCols := miCol+ms < miCols
-
 	qindex := e.vp9EncoderModeDecisionQIndex()
-
-	// Snapshot the mi grid so the per-candidate scorers do not leak
-	// state across the NONE/SPLIT compare. libvpx's PC_TREE substrate
-	// achieves the same isolation; govpx mirrors with snapshotVP9MiRect.
-	rootRows := int(common.Num8x8BlocksHighLookup[bsize])
-	rootCols := int(common.Num8x8BlocksWideLookup[bsize])
-	var saved [64]vp9dec.NeighborMi
-	rows, cols, snapOK := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
-		rootRows, rootCols, saved[:])
+	snap, snapOK := e.saveVP9NonrdMLPartitionSnapshot(inter, miRows, miCols,
+		miRow, miCol, bsize)
 	if !snapOK {
 		return common.BlockInvalid, false
 	}
-	defer e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols,
-		saved[:])
 
-	savedRef := inter.ref
-
-	// libvpx vp9_encodeframe.c:4676-4707 — PARTITION_NONE candidate.
-	// libvpx 4677: nonrd_pick_sb_modes(cpi, tile_data, x, mi_row, mi_col,
-	// &this_rdc, bsize, ctx);
-	// govpx equivalent: pickVP9InterReferenceMode (routes to
-	// vp9_pick_inter_mode_nonrd.go::pickVP9InterReferenceModeNonRD when
-	// sf->use_nonrd_pick_mode != 0). Returns vp9InterModeDecision.score
-	// which is the libvpx RDCOST(rdmult, rddiv, rate, dist).
-	noneDecision, noneOK := e.pickVP9InterReferenceMode(inter, tile,
-		miRows, miCols, miRow, miCol, bsize)
-	inter.ref = savedRef
-	if !noneOK {
-		// libvpx: this_rdc.rate == INT_MAX path (vp9_encodeframe.c:4684);
-		// best_rdc stays unset. Fall back to the variance picker.
+	rd, ok := e.scoreVP9NonrdMLPartitionCompare(inter, tile, rateCostProbs,
+		miRows, miCols, miRow, miCol, bsize, qindex)
+	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	e.releaseVP9NonrdMLPartitionSnapshot(snap)
+	if !ok {
 		return common.BlockInvalid, false
 	}
-	// libvpx vp9_encodeframe.c:4686 — this_rdc.rate +=
-	// cpi->partition_cost[pl][PARTITION_NONE];
-	// libvpx 4687: this_rdc.rdcost = RDCOST(...).
-	noneRateCost := encoder.PartitionRateCost(rateCostProbs, plCtx,
-		common.PartitionNone, hasRows, hasCols)
-	noneScore := e.vp9AddModeDecisionRate(noneDecision.score, noneRateCost,
-		qindex)
+	return rd.target, true
+}
 
-	// Restore the mi grid (the NONE scorer wrote leaf decisions for the
-	// current bsize) before running the SPLIT scorer so the SPLIT scorer
-	// sees the pre-candidate state libvpx's PC_TREE substrate would.
-	e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
+type vp9NonrdMLPartitionSnapshot struct {
+	ref      *vp9ReferenceFrame
+	recon    vp9PartitionReconSnapshot
+	pickPred vp9MLPickPredSnapshot
+	context  vp9PartitionContextSnapshot
+	mi       [64]vp9dec.NeighborMi
+	miRows   int
+	miCols   int
+	miRow    int
+	miCol    int
+	rows     int
+	cols     int
+	ok       bool
+}
 
-	// libvpx vp9_encodeframe.c:4713-4746 — PARTITION_SPLIT candidate.
-	// libvpx 4715: sum_rdc.rate += cpi->partition_cost[pl][PARTITION_-
-	// SPLIT];
-	// libvpx 4718-4736: for (i = 0; i < 4; ++i) nonrd_pick_partition(...,
-	// subsize, &this_rdc, ...);
-	// govpx equivalent: scoreVP9InterPartitionSplit recursively scores the
-	// split subtree, sums child rate/distortion, and adds this level's split
-	// partition token.
-	splitRD, splitOK := e.scoreVP9InterPartitionSplit(inter, tile,
+func (e *VP9Encoder) saveVP9NonrdMLPartitionSnapshot(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9NonrdMLPartitionSnapshot, bool) {
+	var snap vp9NonrdMLPartitionSnapshot
+	if inter == nil {
+		return snap, false
+	}
+	recon, ok := e.saveVP9PartitionReconSnapshot(miRow, miCol, bsize)
+	if !ok {
+		return snap, false
+	}
+	rootRows := int(common.Num8x8BlocksHighLookup[bsize])
+	rootCols := int(common.Num8x8BlocksWideLookup[bsize])
+	rows, cols, miOK := e.snapshotVP9MiRect(miRows, miCols, miRow, miCol,
+		rootRows, rootCols, snap.mi[:])
+	context, ctxOK := e.snapshotVP9PartitionContexts(miRow, miCol, bsize)
+	if !miOK || !ctxOK {
+		e.releaseVP9PartitionReconSnapshot(recon)
+		return snap, false
+	}
+	snap.ref = inter.ref
+	snap.recon = recon
+	snap.pickPred = e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
+		miRow, miCol)
+	snap.context = context
+	snap.miRows = miRows
+	snap.miCols = miCols
+	snap.miRow = miRow
+	snap.miCol = miCol
+	snap.rows = rows
+	snap.cols = cols
+	snap.ok = true
+	return snap, true
+}
+
+func (e *VP9Encoder) restoreVP9NonrdMLPartitionSnapshot(
+	inter *vp9InterEncodeState,
+	snap vp9NonrdMLPartitionSnapshot,
+) {
+	if !snap.ok || inter == nil {
+		return
+	}
+	e.restoreVP9MiRect(snap.miRows, snap.miCols, snap.miRow, snap.miCol,
+		snap.rows, snap.cols, snap.mi[:])
+	e.restoreVP9PartitionContexts(snap.context)
+	e.restoreVP9MLPickPredSnapshot(snap.pickPred)
+	e.restoreVP9PartitionReconSnapshotPixels(snap.recon)
+	inter.ref = snap.ref
+}
+
+func (e *VP9Encoder) releaseVP9NonrdMLPartitionSnapshot(
+	snap vp9NonrdMLPartitionSnapshot,
+) {
+	if !snap.ok {
+		return
+	}
+	e.releaseVP9PartitionReconSnapshot(snap.recon)
+}
+
+func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
+	inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	qindex int,
+) (vp9InterPartitionRD, bool) {
+	if bsize < common.Block8x8 {
+		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow, miCol, bsize)
+	}
+	if bsize >= common.BlockSizes {
+		return vp9InterPartitionRD{}, false
+	}
+	ctx := e.vp9MLPickPartitionEntry(inter, miRows, miCols, miRow, miCol)
+	if ctx == nil || !ctx.ready {
+		return vp9InterPartitionRD{}, false
+	}
+	picked, ok := e.vp9NonrdPickPartition(ctx, miRows, miCols, miRow,
+		miCol, bsize)
+	if !ok {
+		return e.scoreVP9NonrdMLPartitionCompare(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, bsize, qindex)
+	}
+	if picked == bsize {
+		hasRows, hasCols := vp9NonrdPartitionHasRowsCols(miRows, miCols,
+			miRow, miCol, bsize)
+		return e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, bsize, hasRows, hasCols,
+			qindex)
+	}
+	splitSize, splitOK := vp9MLSplitSize(bsize)
+	if splitOK && picked == splitSize {
+		hasRows, hasCols := vp9NonrdPartitionHasRowsCols(miRows, miCols,
+			miRow, miCol, bsize)
+		return e.scoreVP9NonrdMLPartitionSplit(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, bsize, splitSize, hasRows,
+			hasCols, qindex)
+	}
+	return vp9InterPartitionRD{}, false
+}
+
+func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
+	inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	qindex int,
+) (vp9InterPartitionRD, bool) {
+	splitSize, ok := vp9MLSplitSize(bsize)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
+	hasRows, hasCols := vp9NonrdPartitionHasRowsCols(miRows, miCols,
+		miRow, miCol, bsize)
+	snap, snapOK := e.saveVP9NonrdMLPartitionSnapshot(inter, miRows, miCols,
+		miRow, miCol, bsize)
+	if !snapOK {
+		return vp9InterPartitionRD{}, false
+	}
+
+	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	noneRD, noneOK := e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+		miRows, miCols, miRow, miCol, bsize, hasRows, hasCols, qindex)
+
+	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	splitRD, splitOK := e.scoreVP9NonrdMLPartitionSplit(inter, tile,
 		rateCostProbs, miRows, miCols, miRow, miCol, bsize, splitSize,
 		hasRows, hasCols, qindex)
-	inter.ref = savedRef
-	if !splitOK {
-		// libvpx: sum of sub-block this_rdc.rate == INT_MAX path. With
-		// only NONE available, commit NONE.
-		return bsize, true
+
+	bestTarget := common.BlockInvalid
+	if noneOK {
+		bestTarget = bsize
+	}
+	if splitOK && (!noneOK || splitRD.score < noneRD.score) {
+		bestTarget = splitSize
+	}
+	if bestTarget == common.BlockInvalid {
+		e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+		e.releaseVP9NonrdMLPartitionSnapshot(snap)
+		return vp9InterPartitionRD{}, false
 	}
 
-	// libvpx vp9_encodeframe.c:4738 — if (sum_rdc.rdcost <
-	// best_rdc.rdcost) pc_tree->partitioning = PARTITION_SPLIT.
-	if splitRD.score < noneScore {
-		return splitSize, true
+	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	var committed vp9InterPartitionRD
+	var committedOK bool
+	switch bestTarget {
+	case bsize:
+		committed, committedOK = e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, bsize, hasRows, hasCols,
+			qindex)
+	case splitSize:
+		committed, committedOK = e.scoreVP9NonrdMLPartitionSplit(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, bsize, splitSize, hasRows,
+			hasCols, qindex)
 	}
-	return bsize, true
+	if !committedOK {
+		e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+		e.releaseVP9NonrdMLPartitionSnapshot(snap)
+		return vp9InterPartitionRD{}, false
+	}
+	e.releaseVP9NonrdMLPartitionSnapshot(snap)
+	return committed, true
+}
+
+func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
+	inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds,
+	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	miRows, miCols, miRow, miCol int,
+	root, child common.BlockSize,
+	hasRows, hasCols bool,
+	qindex int,
+) (vp9InterPartitionRD, bool) {
+	rate := 0
+	var distortion uint64
+	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
+		miRow, miCol, root)
+	rate += encoder.PartitionRateCost(rateCostProbs, ctx,
+		common.PartitionSplit, hasRows, hasCols)
+	if child < common.Block8x8 {
+		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+			miRow, miCol, child)
+		if !ok {
+			return vp9InterPartitionRD{}, false
+		}
+		rate += rd.rate
+		distortion += rd.distortion
+	} else {
+		stepMi := int(common.Num8x8BlocksWideLookup[child])
+		for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
+			for colOff := 0; colOff <= stepMi; colOff += stepMi {
+				if miRow+rowOff >= miRows || miCol+colOff >= miCols {
+					continue
+				}
+				rd, ok := e.scoreVP9NonrdMLPartitionTree(inter, tile,
+					rateCostProbs, miRows, miCols, miRow+rowOff,
+					miCol+colOff, child, qindex)
+				if !ok {
+					return vp9InterPartitionRD{}, false
+				}
+				rate += rd.rate
+				distortion += rd.distortion
+			}
+		}
+	}
+	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
+		common.PartitionSplit, child)
+	return vp9InterPartitionRD{
+		target:     child,
+		rate:       rate,
+		distortion: distortion,
+		score:      e.vp9InterModeScore(distortion, rate, qindex),
+	}, true
+}
+
+func vp9NonrdPartitionHasRowsCols(miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+) (bool, bool) {
+	ms := int(common.Num8x8BlocksWideLookup[bsize]) / 2
+	return miRow+ms < miRows, miCol+ms < miCols
 }
 
 // vp9MLSplitSize maps an ML-eligible bsize to its split (PARTITION_SPLIT) sub-

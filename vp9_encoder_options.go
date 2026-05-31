@@ -10,7 +10,7 @@ const (
 	vp9EncoderBlockCoeffSlots        = 256 * vp9EncoderTxCoeffSlots
 	vp9MinEncodeIntoBuffer           = 64
 	vp9MaxPartitionReconScratch      = 64*64 + 2*32*32
-	vp9MaxPartitionReconScratchStack = vp9MaxPartitionReconScratch +
+	vp9MaxPartitionReconScratchStack = 2*vp9MaxPartitionReconScratch +
 		32*32 + 2*16*16 +
 		16*16 + 2*8*8 +
 		8*8 + 2*4*4 +

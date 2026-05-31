@@ -1444,6 +1444,9 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeSta
 	var splitScore uint64
 	for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
 		for colOff := 0; colOff <= stepMi; colOff += stepMi {
+			if miRow+rowOff >= miRows || miCol+colOff >= miCols {
+				continue
+			}
 			decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 				miRow+rowOff, miCol+colOff, child)
 			if !ok {
