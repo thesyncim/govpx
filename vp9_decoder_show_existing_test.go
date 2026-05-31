@@ -1,13 +1,15 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 96})
 	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
@@ -18,7 +20,7 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -36,7 +38,7 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after show-existing frame")
 	}
-	assertVP9NeutralFrame(t, frame, 96, 96)
+	assertVP9NeutralFrameForTest(t, frame, 96, 96)
 
 	if err := d.Decode(inter); err != nil {
 		t.Fatalf("Decode inter after show-existing err = %v, want nil", err)
@@ -45,19 +47,19 @@ func TestVP9DecoderShowExistingFrameUsesReferenceSlot(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after visible inter frame")
 	}
-	assertVP9NeutralFrame(t, frame, 96, 96)
+	assertVP9NeutralFrameForTest(t, frame, 96, 96)
 }
 
 // TestVP9DecoderRejectsShowExistingMissingReference rejects a show-
 // existing packet before any frame has refreshed the requested slot.
 
 func TestVP9DecoderRejectsShowExistingMissingReference(t *testing.T) {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	err = d.Decode(vp9test.ShowExistingFramePacket(0))
-	if !errors.Is(err, ErrInvalidVP9Data) {
+	if !errors.Is(err, govpx.ErrInvalidVP9Data) {
 		t.Fatalf("Decode err = %v, want ErrInvalidVP9Data", err)
 	}
 	w, h := d.LastFrameSize()
@@ -68,6 +70,3 @@ func TestVP9DecoderRejectsShowExistingMissingReference(t *testing.T) {
 		t.Fatal("NextFrame published output for invalid show-existing frame")
 	}
 }
-
-// TestVP9DecoderDecodeIntoCopiesVisibleFrame mirrors the VP8
-// caller-owned-output path for the VP9 reconstruction slice.

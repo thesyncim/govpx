@@ -1,22 +1,23 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
 	"unsafe"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestNewVP9DecoderRejectsPartialExternalFrameBufferCallbacks(t *testing.T) {
 	pool := newVP9ExternalFrameBufferPoolForTest()
-	for _, opts := range []VP9DecoderOptions{
+	for _, opts := range []govpx.VP9DecoderOptions{
 		{GetFrameBuffer: pool.get},
 		{ReleaseFrameBuffer: pool.release},
 	} {
-		_, err := NewVP9Decoder(opts)
-		if !errors.Is(err, ErrInvalidConfig) {
+		_, err := govpx.NewVP9Decoder(opts)
+		if !errors.Is(err, govpx.ErrInvalidConfig) {
 			t.Fatalf("NewVP9Decoder(%+v) err = %v, want ErrInvalidConfig",
 				opts, err)
 		}
@@ -25,28 +26,28 @@ func TestNewVP9DecoderRejectsPartialExternalFrameBufferCallbacks(t *testing.T) {
 
 func TestVP9DecoderSetFrameBufferFunctionsValidation(t *testing.T) {
 	pool := newVP9ExternalFrameBufferPoolForTest()
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.SetFrameBufferFunctions(nil, pool.release); !errors.Is(err, ErrInvalidConfig) {
+	if err := d.SetFrameBufferFunctions(nil, pool.release); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("nil get err = %v, want ErrInvalidConfig", err)
 	}
-	if err := d.SetFrameBufferFunctions(pool.get, nil); !errors.Is(err, ErrInvalidConfig) {
+	if err := d.SetFrameBufferFunctions(pool.get, nil); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("nil release err = %v, want ErrInvalidConfig", err)
 	}
 	if err := d.SetFrameBufferFunctions(pool.get, pool.release); err != nil {
 		t.Fatalf("SetFrameBufferFunctions: %v", err)
 	}
 
-	packet := vp9StubPacketForTest(t, 96, 80, 0, common.DcPred)
+	packet := vp9EncodedKeyframeForTest(t, 96, 80, 128)
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned no visible frame")
 	}
-	if err := d.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, ErrInvalidConfig) {
+	if err := d.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("post-init SetFrameBufferFunctions err = %v, want ErrInvalidConfig", err)
 	}
 	d.Reset()
@@ -56,19 +57,20 @@ func TestVP9DecoderSetFrameBufferFunctionsValidation(t *testing.T) {
 	if err := d.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := d.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, ErrClosed) {
+	if err := d.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("closed SetFrameBufferFunctions err = %v, want ErrClosed", err)
 	}
-	var nilDecoder *VP9Decoder
-	if err := nilDecoder.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, ErrClosed) {
+	var nilDecoder *govpx.VP9Decoder
+	if err := nilDecoder.SetFrameBufferFunctions(pool.get, pool.release); !errors.Is(err, govpx.ErrClosed) {
 		t.Fatalf("nil SetFrameBufferFunctions err = %v, want ErrClosed", err)
 	}
 }
 
 func TestVP9DecoderExternalFrameBufferPublishesAlignedPixelsAndReleases(t *testing.T) {
 	pool := newVP9ExternalFrameBufferPoolForTest()
-	packet := vp9StubPacketForTest(t, 96, 80, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{
+	packet := vp9EncodedKeyframeForTest(t, 96, 80, 128)
+	want := vp9DecodeLastVisibleFrameForTest(t, packet)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		ByteAlignment:      128,
 		GetFrameBuffer:     pool.get,
 		ReleaseFrameBuffer: pool.release,
@@ -85,10 +87,10 @@ func TestVP9DecoderExternalFrameBufferPublishesAlignedPixelsAndReleases(t *testi
 	if !ok {
 		t.Fatal("NextFrame returned no visible frame")
 	}
-	assertVP9NeutralFrame(t, frame, 96, 80)
-	assertVP9PlaneAligned(t, "Y", frame.Y, 128)
-	assertVP9PlaneAligned(t, "U", frame.U, 128)
-	assertVP9PlaneAligned(t, "V", frame.V, 128)
+	assertVP9ImagesEqualForTest(t, want, frame)
+	assertVP9PlaneAlignedForTest(t, "Y", frame.Y, 128)
+	assertVP9PlaneAlignedForTest(t, "U", frame.U, 128)
+	assertVP9PlaneAlignedForTest(t, "V", frame.V, 128)
 	id := pool.assertOwnsImage(t, frame)
 	if !pool.inUse[id] {
 		t.Fatalf("frame buffer %d released while frame is still current", id)
@@ -112,8 +114,8 @@ func TestVP9DecoderExternalFrameBufferPublishesAlignedPixelsAndReleases(t *testi
 
 func TestVP9DecoderExternalFrameBufferReleasesPreviousKeyOnRefresh(t *testing.T) {
 	pool := newVP9ExternalFrameBufferPoolForTest()
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		GetFrameBuffer:     pool.get,
 		ReleaseFrameBuffer: pool.release,
 	})
@@ -157,16 +159,16 @@ func TestVP9DecoderExternalFrameBufferReleasesPreviousKeyOnRefresh(t *testing.T)
 }
 
 func TestVP9DecoderExternalFrameBufferRejectsShortBuffer(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
 	releaseCalled := false
-	d, err := NewVP9Decoder(VP9DecoderOptions{
-		GetFrameBuffer: func(minSize int) (VP9ExternalFrameBuffer, error) {
-			return VP9ExternalFrameBuffer{
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+		GetFrameBuffer: func(minSize int) (govpx.VP9ExternalFrameBuffer, error) {
+			return govpx.VP9ExternalFrameBuffer{
 				Data:    make([]byte, minSize-1),
 				Private: 1,
 			}, nil
 		},
-		ReleaseFrameBuffer: func(VP9ExternalFrameBuffer) {
+		ReleaseFrameBuffer: func(govpx.VP9ExternalFrameBuffer) {
 			releaseCalled = true
 		},
 	})
@@ -174,7 +176,7 @@ func TestVP9DecoderExternalFrameBufferRejectsShortBuffer(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	defer d.Close()
-	if err := d.Decode(packet); !errors.Is(err, ErrInvalidConfig) {
+	if err := d.Decode(packet); !errors.Is(err, govpx.ErrInvalidConfig) {
 		t.Fatalf("Decode err = %v, want ErrInvalidConfig", err)
 	}
 	if releaseCalled {
@@ -184,8 +186,8 @@ func TestVP9DecoderExternalFrameBufferRejectsShortBuffer(t *testing.T) {
 
 func TestVP9DecoderExternalFrameBufferShowExistingUsesReferenceBuffer(t *testing.T) {
 	pool := newVP9ExternalFrameBufferPoolForTest()
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
-	d, err := NewVP9Decoder(VP9DecoderOptions{
+	packet := vp9EncodedKeyframeForTest(t, 64, 64, 128)
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		GetFrameBuffer:     pool.get,
 		ReleaseFrameBuffer: pool.release,
 	})
@@ -216,7 +218,7 @@ func TestVP9DecoderExternalFrameBufferShowExistingUsesReferenceBuffer(t *testing
 	if got, want := len(pool.gets), 1; got != want {
 		t.Fatalf("get callbacks after show-existing = %d, want %d", got, want)
 	}
-	assertVP9ImagesEqual(t, keyFrame, show)
+	assertVP9ImagesEqualForTest(t, keyFrame, show)
 
 	d.Reset()
 	if got, want := len(pool.releases), 1; got != want {
@@ -241,7 +243,7 @@ func newVP9ExternalFrameBufferPoolForTest() *vp9ExternalFrameBufferPoolForTest {
 	}
 }
 
-func (p *vp9ExternalFrameBufferPoolForTest) get(minSize int) (VP9ExternalFrameBuffer, error) {
+func (p *vp9ExternalFrameBufferPoolForTest) get(minSize int) (govpx.VP9ExternalFrameBuffer, error) {
 	id := p.nextID
 	p.nextID++
 	p.gets = append(p.gets, minSize)
@@ -249,10 +251,10 @@ func (p *vp9ExternalFrameBufferPoolForTest) get(minSize int) (VP9ExternalFrameBu
 	data = data[1:]
 	p.buffers[id] = data
 	p.inUse[id] = true
-	return VP9ExternalFrameBuffer{Data: data, Private: id}, nil
+	return govpx.VP9ExternalFrameBuffer{Data: data, Private: id}, nil
 }
 
-func (p *vp9ExternalFrameBufferPoolForTest) release(buffer VP9ExternalFrameBuffer) {
+func (p *vp9ExternalFrameBufferPoolForTest) release(buffer govpx.VP9ExternalFrameBuffer) {
 	id, ok := buffer.Private.(int)
 	if !ok {
 		p.doubleRelease = true
@@ -265,7 +267,7 @@ func (p *vp9ExternalFrameBufferPoolForTest) release(buffer VP9ExternalFrameBuffe
 	p.releases = append(p.releases, id)
 }
 
-func (p *vp9ExternalFrameBufferPoolForTest) assertOwnsImage(t *testing.T, img Image) int {
+func (p *vp9ExternalFrameBufferPoolForTest) assertOwnsImage(t *testing.T, img govpx.Image) int {
 	t.Helper()
 	yID, ok := p.ownerID(img.Y)
 	if !ok {

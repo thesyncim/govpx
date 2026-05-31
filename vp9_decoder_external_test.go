@@ -1,4 +1,4 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
 )
@@ -44,12 +45,12 @@ func TestVP9DecoderOfficialIVFTestDataThreadedMatchesSerial(t *testing.T) {
 				t.Fatalf("ReadFile returned error: %v", err)
 			}
 			want, err := decodeVP9IVFVisibleI420WithOptions(ivf,
-				VP9DecoderOptions{})
+				govpx.VP9DecoderOptions{})
 			if err != nil {
 				t.Fatalf("serial Decode VP90 IVF returned error: %v", err)
 			}
 			got, err := decodeVP9IVFVisibleI420WithOptions(ivf,
-				VP9DecoderOptions{Threads: 3})
+				govpx.VP9DecoderOptions{Threads: 3})
 			if err != nil {
 				t.Fatalf("threaded Decode VP90 IVF returned error: %v", err)
 			}
@@ -85,13 +86,13 @@ func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
 				t.Fatalf("official VP9 profile WebM contained no VP9 packets")
 			}
 
-			d, err := NewVP9Decoder(VP9DecoderOptions{})
+			d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 			if err != nil {
 				t.Fatalf("NewVP9Decoder returned error: %v", err)
 			}
 			for i, packet := range packets {
 				err := d.Decode(packet)
-				if errors.Is(err, ErrVP9NotImplemented) {
+				if errors.Is(err, govpx.ErrVP9NotImplemented) {
 					return
 				}
 				if err != nil {
@@ -106,12 +107,8 @@ func TestVP9DecoderOfficialProfileWebMTestDataReturnsUnsupported(t *testing.T) {
 	}
 }
 
-func decodeVP9IVFVisibleI420(ivf []byte) ([]byte, error) {
-	return decodeVP9IVFVisibleI420WithOptions(ivf, VP9DecoderOptions{})
-}
-
-func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts VP9DecoderOptions) (out []byte, err error) {
-	d, err := NewVP9Decoder(opts)
+func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts govpx.VP9DecoderOptions) (out []byte, err error) {
+	d, err := govpx.NewVP9Decoder(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -133,57 +130,9 @@ func decodeVP9IVFVisibleI420WithOptions(ivf []byte, opts VP9DecoderOptions) (out
 			return nil, err
 		}
 		if img, ok := d.NextFrame(); ok {
-			out = appendVP9I420(out, img)
+			out = appendVP9I420ForTest(out, img)
 		}
 		offset = next
 	}
 	return out, nil
-}
-
-func decodeVP9WebMVisibleI420(webm []byte) ([]byte, error) {
-	packets, err := testutil.ExtractVP9WebMPackets(webm)
-	if err != nil {
-		return nil, err
-	}
-	if len(packets) == 0 {
-		return nil, ErrInvalidVP9Data
-	}
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		return nil, err
-	}
-	var out []byte
-	for _, packet := range packets {
-		if err := d.Decode(packet); err != nil {
-			return nil, err
-		}
-		if img, ok := d.NextFrame(); ok {
-			out = appendVP9I420(out, img)
-		}
-	}
-	return out, nil
-}
-
-func decodeVP9IVFExpectErrorForTest(ivf []byte) error {
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
-	if err != nil {
-		return err
-	}
-	if !testutil.VP9IVFHeaderLooksValid(ivf) {
-		return testutil.ErrInvalidIVF
-	}
-	offset := testutil.IVFFileHeaderSize
-	var firstErr error
-	for inputIndex := 0; offset < len(ivf); inputIndex++ {
-		frame, next, err := testutil.NextIVFFrame(ivf, offset, inputIndex)
-		if err != nil {
-			return err
-		}
-		if err := d.Decode(frame.Data); err != nil {
-			firstErr = err
-			break
-		}
-		offset = next
-	}
-	return firstErr
 }

@@ -1,13 +1,15 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 96})
 	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
@@ -18,7 +20,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -43,7 +45,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 		info.RenderWidth != 96 || info.RenderHeight != 96 ||
 		info.BitDepth != 8 ||
 		!info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != vp9DefaultBaseQIndex || info.RefreshFrameFlags != 0xff || info.PTS != 100 {
+		info.Quantizer != vp9DefaultBaseQIndexForTest || info.RefreshFrameFlags != 0xff || info.PTS != 100 {
 		t.Fatalf("key LastFrameInfo = %+v, want visible keyframe metadata", info)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -61,7 +63,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 		info.RenderWidth != 96 || info.RenderHeight != 96 ||
 		info.BitDepth != 8 ||
 		info.KeyFrame || !info.ShowFrame || info.ShowExistingFrame ||
-		info.Quantizer != vp9DefaultInterBaseQIndex || info.RefreshFrameFlags != 1 || info.PTS != 200 {
+		info.Quantizer != vp9DefaultInterBaseQIndexForTest || info.RefreshFrameFlags != 1 || info.PTS != 200 {
 		t.Fatalf("inter LastFrameInfo = %+v, want visible inter metadata", info)
 	}
 
@@ -82,7 +84,7 @@ func TestVP9DecoderLastFrameInfoTracksDecodedPackets(t *testing.T) {
 }
 
 func TestVP9DecoderLastDisplaySizeTracksRenderSize(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width: 96, Height: 64,
 		RenderWidth: 80, RenderHeight: 48,
 	})
@@ -95,7 +97,7 @@ func TestVP9DecoderLastDisplaySizeTracksRenderSize(t *testing.T) {
 		t.Fatalf("Encode keyframe: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -146,7 +148,7 @@ func TestVP9DecoderLastDisplaySizeTracksRenderSize(t *testing.T) {
 }
 
 func TestVP9DecoderLastControlsBeforeDecode(t *testing.T) {
-	var nilDec *VP9Decoder
+	var nilDec *govpx.VP9Decoder
 	if _, ok := nilDec.LastFrameCorrupted(); ok {
 		t.Fatal("nil decoder LastFrameCorrupted ok = true, want false")
 	}
@@ -157,7 +159,7 @@ func TestVP9DecoderLastControlsBeforeDecode(t *testing.T) {
 		t.Fatal("nil decoder LastBitDepth ok = true, want false")
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -173,7 +175,7 @@ func TestVP9DecoderLastControlsBeforeDecode(t *testing.T) {
 }
 
 func TestVP9DecoderLastControlsTrackDecodedPackets(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 96})
 	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	key, err := e.Encode(img)
 	if err != nil {
@@ -184,7 +186,7 @@ func TestVP9DecoderLastControlsTrackDecodedPackets(t *testing.T) {
 		t.Fatalf("Encode inter: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -248,8 +250,8 @@ func TestVP9DecoderLastControlsTrackDecodedPackets(t *testing.T) {
 // and Decode on the same metadata path.
 
 func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
-	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
+	e64, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64})
+	e96, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 64})
 	img64 := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	img96 := vp9test.NewYCbCr(96, 64, 128, 128, 128)
 	key64, err := e64.Encode(img64)
@@ -261,7 +263,7 @@ func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
 		t.Fatalf("Encode 96x64 keyframe: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{RejectResolutionChange: true})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{RejectResolutionChange: true})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -272,7 +274,7 @@ func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after initial keyframe")
 	}
 	err = d.Decode(key96)
-	if !errors.Is(err, ErrFrameRejected) {
+	if !errors.Is(err, govpx.ErrFrameRejected) {
 		t.Fatalf("resolution-change Decode err = %v, want ErrFrameRejected", err)
 	}
 	w, h := d.LastFrameSize()
@@ -285,8 +287,8 @@ func TestVP9DecoderRejectsConfiguredResolutionChange(t *testing.T) {
 // libvpx-style reallocating behavior for VP9 keyframe size changes.
 
 func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
-	e64, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	e96, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 64})
+	e64, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 64, Height: 64})
+	e96, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 64})
 	img64 := vp9test.NewYCbCr(64, 64, 128, 128, 128)
 	img96 := vp9test.NewYCbCr(96, 64, 128, 128, 128)
 	key64, err := e64.Encode(img64)
@@ -298,7 +300,7 @@ func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
 		t.Fatalf("Encode 96x64 keyframe: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -315,21 +317,21 @@ func TestVP9DecoderAcceptsResolutionChangeByDefault(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned !ok after resolution-change keyframe")
 	}
-	assertVP9NeutralFrame(t, frame, 96, 64)
+	assertVP9NeutralFrameForTest(t, frame, 96, 64)
 }
 
 // TestVP9DecoderResetClearsFrameState keeps VP9 reset semantics aligned
 // with the VP8 decoder API.
 
 func TestVP9DecoderResetClearsFrameState(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 96, Height: 96})
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 96})
 	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)
 	packet, err := e.Encode(img)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -349,7 +351,7 @@ func TestVP9DecoderResetClearsFrameState(t *testing.T) {
 	if _, ok := d.NextFrame(); ok {
 		t.Fatal("NextFrame after Reset returned ok")
 	}
-	if err := d.Decode(vp9test.ShowExistingFramePacket(0)); !errors.Is(err, ErrInvalidVP9Data) {
+	if err := d.Decode(vp9test.ShowExistingFramePacket(0)); !errors.Is(err, govpx.ErrInvalidVP9Data) {
 		t.Fatalf("show-existing after Reset err = %v, want ErrInvalidVP9Data", err)
 	}
 	if err := d.Decode(packet); err != nil {
