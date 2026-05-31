@@ -89,6 +89,52 @@ func TestVP9EncoderEncodeIntoWithFlagsForceGoldenAltRefRefreshesSlots(t *testing
 	}
 }
 
+func TestVP9EncoderInterReferenceMaskPrunesAliasedRefreshSlots(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if e.refMap[vp9LastRefSlot] == 0 ||
+		e.refMap[vp9LastRefSlot] != e.refMap[vp9GoldenRefSlot] ||
+		e.refMap[vp9LastRefSlot] != e.refMap[vp9AltRefSlot] {
+		t.Fatalf("keyframe ref map = %v, want all slots aliased", e.refMap)
+	}
+	if got, want := e.vp9InterReferenceMaskForFrame(0),
+		uint8(1<<uint(vp9dec.LastFrame)); got != want {
+		t.Fatalf("implicit inter reference mask = %#x, want LAST only %#x",
+			got, want)
+	}
+
+	explicitNoLast := EncodeNoReferenceLast
+	if got, want := e.vp9InterReferenceMaskForFrame(explicitNoLast),
+		uint8(1<<uint(vp9dec.GoldenFrame)|1<<uint(vp9dec.AltrefFrame)); got != want {
+		t.Fatalf("explicit no-LAST reference mask = %#x, want %#x", got, want)
+	}
+}
+
+func TestVP9EncoderSetReferenceFrameBreaksReferenceAlias(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := vp9test.NewYCbCr(width, height, 64, 128, 128)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	golden := vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(width, height, 192, 128, 128))
+	if err := e.SetReferenceFrame(ReferenceGolden, golden); err != nil {
+		t.Fatalf("SetReferenceFrame GOLDEN: %v", err)
+	}
+	if e.refMap[vp9GoldenRefSlot] == e.refMap[vp9LastRefSlot] {
+		t.Fatalf("GOLDEN ref map still aliases LAST: %v", e.refMap)
+	}
+	want := uint8(1<<uint(vp9dec.LastFrame) | 1<<uint(vp9dec.GoldenFrame))
+	if got := e.vp9InterReferenceMaskForFrame(0); got != want {
+		t.Fatalf("reference mask after external GOLDEN = %#x, want %#x",
+			got, want)
+	}
+}
+
 func TestVP9EncoderEncodeIntoWithFlagsForceGoldenCanSkipLastUpdate(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})

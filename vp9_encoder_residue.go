@@ -131,7 +131,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			bsize, mi.TxSize, mi.SegmentID)
 		projectedRate := interDecision.rate
 		if _, coeffRate, hasTxResidue, ok := e.scoreVP9InterTxCandidate(inter,
-			miRows, miCols, miRow, miCol, bsize, mi.TxSize); ok && hasTxResidue {
+			miRows, miCols, miRow, miCol, bsize, mi.TxSize, true); ok && hasTxResidue {
 			projectedRate += coeffRate
 		}
 		e.applyVP9ComplexityAQSegment(inter, miRow, miCol, bsize, mi,
@@ -509,7 +509,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		tx := common.TxSize(txi)
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		distortion, coeffRate, hasResidue, ok := e.scoreVP9InterTxCandidate(inter,
-			miRows, miCols, miRow, miCol, bsize, tx)
+			miRows, miCols, miRow, miCol, bsize, tx, false)
 		if !ok {
 			continue
 		}
@@ -819,17 +819,22 @@ func vp9AbsInt(v int) int {
 }
 
 func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize, lumaTx common.TxSize,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	lumaTx common.TxSize, includeChroma bool,
 ) (distortion uint64, rate int, hasResidue bool, ok bool) {
 	if inter == nil || inter.dq == nil {
 		return 0, 0, false, false
+	}
+	planeLimit := 1
+	if includeChroma {
+		planeLimit = vp9dec.MaxMbPlane
 	}
 	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 	var aboveCtx [vp9dec.MaxMbPlane][16]uint8
 	var leftCtx [vp9dec.MaxMbPlane][16]uint8
 	var aboveLen [vp9dec.MaxMbPlane]int
 	var leftLen [vp9dec.MaxMbPlane]int
-	for plane := range 1 {
+	for plane := 0; plane < planeLimit; plane++ {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
@@ -848,7 +853,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 		}
 	}
 
-	for plane := range 1 {
+	for plane := 0; plane < planeLimit; plane++ {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {

@@ -23,10 +23,50 @@ var bigDiamondPatternCandidateCounts = [MaxMvSearchSteps]int{
 	4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
 }
 
+var hexPatternCandidates = [MaxMvSearchSteps][8]fullpelPatternCandidate{
+	{{-1, -1}, {0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}},
+	{{-1, -2}, {1, -2}, {2, 0}, {1, 2}, {-1, 2}, {-2, 0}},
+	{{-2, -4}, {2, -4}, {4, 0}, {2, 4}, {-2, 4}, {-4, 0}},
+	{{-4, -8}, {4, -8}, {8, 0}, {4, 8}, {-4, 8}, {-8, 0}},
+	{{-8, -16}, {8, -16}, {16, 0}, {8, 16}, {-8, 16}, {-16, 0}},
+	{{-16, -32}, {16, -32}, {32, 0}, {16, 32}, {-16, 32}, {-32, 0}},
+	{{-32, -64}, {32, -64}, {64, 0}, {32, 64}, {-32, 64}, {-64, 0}},
+	{{-64, -128}, {64, -128}, {128, 0}, {64, 128}, {-64, 128}, {-128, 0}},
+	{{-128, -256}, {128, -256}, {256, 0}, {128, 256}, {-128, 256}, {-256, 0}},
+	{{-256, -512}, {256, -512}, {512, 0}, {256, 512}, {-256, 512}, {-512, 0}},
+	{{-512, -1024}, {512, -1024}, {1024, 0}, {512, 1024}, {-512, 1024}, {-1024, 0}},
+}
+
+var hexPatternCandidateCounts = [MaxMvSearchSteps]int{
+	8, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+}
+
 func FastDiamondPatternSearchSAD(startDx, startDy int,
 	startSad, startScore uint64, stepParam int, limits *MvLimits,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	return fastPatternSearchSAD(startDx, startDy, startSad, startScore,
+		stepParam, limits, sadAt, scoreMv,
+		&bigDiamondPatternCandidateCounts, &bigDiamondPatternCandidates)
+}
+
+func FastHexPatternSearchSAD(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
+	return fastPatternSearchSAD(startDx, startDy, startSad, startScore,
+		stepParam, limits, sadAt, scoreMv,
+		&hexPatternCandidateCounts, &hexPatternCandidates)
+}
+
+func fastPatternSearchSAD(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *MvLimits,
+	sadAt func(dx, dy int) (uint64, bool),
+	scoreMv func(dx, dy int, sad uint64) uint64,
+	candidateCounts *[MaxMvSearchSteps]int,
+	candidates *[MaxMvSearchSteps][8]fullpelPatternCandidate,
 ) (int, int, uint64, uint64) {
 	searchParam := max(max(MaxMvSearchSteps-2, stepParam), 0)
 	if searchParam >= MaxMvSearchSteps {
@@ -72,13 +112,13 @@ func FastDiamondPatternSearchSAD(startDx, startDy int,
 	k := -1
 	for s := bestInitS; s >= 0; s-- {
 		bestSite := -1
-		numCandidates := bigDiamondPatternCandidateCounts[s]
+		numCandidates := candidateCounts[s]
 		for i := range numCandidates {
-			c := bigDiamondPatternCandidates[s][i]
+			c := candidates[s][i]
 			checkBetter(s, i, br+c.row, bc+c.col, &bestSite)
 		}
 		if bestSite != -1 {
-			c := bigDiamondPatternCandidates[s][bestSite]
+			c := candidates[s][bestSite]
 			br += c.row
 			bc += c.col
 			k = bestSite
@@ -97,12 +137,12 @@ func FastDiamondPatternSearchSAD(startDx, startDy int,
 			}
 			bestSite = -1
 			for _, site := range next {
-				c := bigDiamondPatternCandidates[s][site]
+				c := candidates[s][site]
 				checkBetter(s, site, br+c.row, bc+c.col, &bestSite)
 			}
 			if bestSite != -1 {
 				k = bestSite
-				c := bigDiamondPatternCandidates[s][k]
+				c := candidates[s][k]
 				br += c.row
 				bc += c.col
 			}

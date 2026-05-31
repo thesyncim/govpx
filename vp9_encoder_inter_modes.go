@@ -911,6 +911,7 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 			mode:           mode,
 			mv:             mv,
 			interpFilter:   filter,
+			txSize:         common.TxSizes,
 			rate:           rate,
 			distortion:     distortion,
 			score:          e.vp9InterModeScore(distortion, rate, qindex),
@@ -1061,6 +1062,11 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	e.cbRdmult = baseRdmult
 	useResidualScore := e.vp9InterPreferVarianceRoot(inter, miRows, miCols,
 		miRow, miCol, bsize)
+	if e.sf.UseNonrdPickMode == 0 &&
+		vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeRealtime &&
+		e.vp9SpeedFeatureCPUUsed() >= 4 {
+		useResidualScore = true
+	}
 	// SPEED_FEATURES.inter_mode_mask gates which inter modes the picker
 	// evaluates per block size. At higher cpu_used libvpx drops NEARMV/NEWMV
 	// on large blocks (INTER_NEAREST_NEW_ZERO). Reading the per-bsize mask
@@ -1093,15 +1099,17 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			mode:         mode,
 			mv:           [2]vp9dec.MV{mv},
 			interpFilter: filter,
+			txSize:       common.TxSizes,
 			rate:         rate,
 			distortion:   distortion,
 			score:        e.vp9InterModeScore(distortion, rate, qindex),
 		}
-		if useResidualScore && refFrame == vp9dec.LastFrame {
-			if rdDist, rdRate, ok := e.scoreVP9InterModeResidual(inter, miRows,
+		if useResidualScore {
+			if rdDist, rdRate, rdTxSize, ok := e.scoreVP9InterModeResidual(inter, miRows,
 				miCols, miRow, miCol, bsize, mode, refFrame, mv, filter); ok {
 				cand.distortion = rdDist
 				cand.rate = rate + rdRate
+				cand.txSize = rdTxSize
 				cand.score = e.vp9InterModeScore(cand.distortion, cand.rate, qindex)
 			}
 		}
@@ -1369,6 +1377,7 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 				mv:             candMi.Mv,
 				bmi:            candMi.Bmi,
 				interpFilter:   filter,
+				txSize:         common.Tx4x4,
 				rate:           rate,
 				distortion:     distortion,
 				score:          e.vp9InterModeScore(distortion, rate, qindex),
@@ -1376,7 +1385,7 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 			if e.sf.UseNonrdPickMode == 0 {
 				if rdDist, rdRate, hasResidue, ok := e.scoreVP9InterTxCandidate(
 					inter, miRows, miCols, miRow, miCol, bsize,
-					common.Tx4x4); ok {
+					common.Tx4x4, true); ok {
 					if !hasResidue {
 						rdRate = 0
 					}
@@ -1564,9 +1573,9 @@ func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
 	filter vp9dec.InterpFilter,
-) (uint64, int, bool) {
+) (uint64, int, common.TxSize, bool) {
 	if inter == nil || inter.dq == nil {
-		return 0, 0, false
+		return 0, 0, common.TxSizes, false
 	}
 	txSize := clampVP9TxSizeForBlock(common.Tx16x16, bsize)
 	mi := vp9dec.NeighborMi{
@@ -1581,17 +1590,17 @@ func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
 		Mv: [2]vp9dec.MV{mv},
 	}
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
-		return 0, 0, false
+		return 0, 0, common.TxSizes, false
 	}
 	distortion, rate, hasResidue, ok := e.scoreVP9InterTxCandidate(inter,
-		miRows, miCols, miRow, miCol, bsize, txSize)
+		miRows, miCols, miRow, miCol, bsize, txSize, true)
 	if !ok {
-		return 0, 0, false
+		return 0, 0, common.TxSizes, false
 	}
 	if !hasResidue {
 		rate = 0
 	}
-	return distortion, rate, true
+	return distortion, rate, txSize, true
 }
 
 func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
@@ -1709,10 +1718,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// When no hint is installed this branch is a nil-check.
 		//
 		// libvpx: SPEED_FEATURES.mv.search_method picks the
-		// fast-diamond / bigdia / NSTEP dispatcher (vp9_mcomp.c:2875). At
-		// cpu_used=8 the configurator pins FAST_DIAMOND, which caps the
-		// effective search radius to a 4-pel fan. Read that field here
-		// instead of always running the full 16-pel search.
+		// fast-hex / fast-diamond / NSTEP dispatcher (vp9_mcomp.c:2875).
+		// Read that field here instead of always running the square fan.
 		searchRadius := e.vp9InterSearchRadius()
 		if refFrame == vp9dec.LastFrame {
 			if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
@@ -1749,6 +1756,10 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
 			bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSAD(
+				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+				&mvLimits, sadAt, scoreMv)
+		} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
+			bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSAD(
 				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 				&mvLimits, sadAt, scoreMv)
 		} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||

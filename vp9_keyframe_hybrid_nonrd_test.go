@@ -158,3 +158,20 @@ func TestVP9KeyframeRDPartitionBreakoutThresholds(t *testing.T) {
 			rate, 80*int(common.NumPelsLog2Lookup[common.Block64x64]))
 	}
 }
+
+func TestVP9KeyframeRDRectAllowedAfterSplitMiss(t *testing.T) {
+	var e VP9Encoder
+
+	if !e.vp9KeyframeRDRectAllowedAfterSplitMiss(common.Block8x8, true, true) {
+		t.Fatalf("Block8x8 split miss suppressed sub-8 rectangular candidates")
+	}
+	if e.vp9KeyframeRDRectAllowedAfterSplitMiss(common.Block16x16, true, true) {
+		t.Fatalf("Block16x16 split miss kept rectangular candidates with NONE allowed")
+	}
+	if !e.vp9KeyframeRDRectAllowedAfterSplitMiss(common.Block16x16, false, true) {
+		t.Fatalf("edge split miss suppressed rectangular candidates")
+	}
+	if e.vp9KeyframeRDRectAllowedAfterSplitMiss(common.Block8x8, true, false) {
+		t.Fatalf("disabled rectangular search was re-enabled")
+	}
+}

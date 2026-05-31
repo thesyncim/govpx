@@ -286,7 +286,8 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			} else if e.sf.LessRectangularCheck != 0 &&
 				(root > e.sf.UseSquareOnlyThreshHigh ||
 					best.distortion < distBreakoutThr) {
-				doRect = doRect && !noneAllowed
+				doRect = e.vp9KeyframeRDRectAllowedAfterSplitMiss(root,
+					noneAllowed, doRect)
 			}
 			_ = splitRD
 		}
@@ -388,15 +389,25 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionSplit(key *vp9KeyframeEncodeStat
 		out.rate += rd.rate
 		out.distortion += rd.distortion
 	} else {
+		rdmult := e.vp9KeyframePartitionRDMul(miRow, miCol, root)
 		stepMi := int(common.Num8x8BlocksWideLookup[child])
 		for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
 			for colOff := 0; colOff <= stepMi; colOff += stepMi {
 				if miRow+rowOff >= miRows || miCol+colOff >= miCols {
 					continue
 				}
+				childBestRD := bestRD
+				if bestRD != ^uint64(0) {
+					usedRD := encoder.RDCost(rdmult, encoder.RDDivBits,
+						out.rate, out.distortion)
+					if usedRD >= bestRD {
+						return vp9KeyframePartitionRD{}, false
+					}
+					childBestRD = bestRD - usedRD
+				}
 				rd, ok := e.scoreVP9KeyframeRDPartitionTree(key, tile,
 					partitionProbs, miRows, miCols, miRow+rowOff,
-					miCol+colOff, child, txMode, bestRD, true, store)
+					miCol+colOff, child, txMode, childBestRD, true, store)
 				if !ok {
 					return vp9KeyframePartitionRD{}, false
 				}
@@ -462,6 +473,22 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockS
 		rateBreakoutThr *= int(common.NumPelsLog2Lookup[root])
 	}
 	return uint64(distBreakoutThr), rateBreakoutThr
+}
+
+func (e *VP9Encoder) vp9KeyframeRDRectAllowedAfterSplitMiss(root common.BlockSize,
+	noneAllowed, doRect bool,
+) bool {
+	if !doRect {
+		return false
+	}
+	if !noneAllowed {
+		return true
+	}
+	// Keep sub-8 rectangular candidates reachable for the fixed-Q RD keyframe
+	// refinement path. libvpx's full RD_COST state can keep these candidates
+	// live at BLOCK_8X8 boundaries; govpx's scalar scorer otherwise prunes
+	// them early and loses byte parity on forced keyframes.
+	return root == common.Block8x8
 }
 
 func (e *VP9Encoder) vp9KeyframeRDPartitionRectBestRD(rdmult int,

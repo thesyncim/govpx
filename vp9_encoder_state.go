@@ -122,6 +122,39 @@ func vp9InterReferenceMask(flags EncodeFlags) uint8 {
 	return mask
 }
 
+func (e *VP9Encoder) vp9InterReferenceMaskForFrame(flags EncodeFlags) uint8 {
+	mask := vp9InterReferenceMask(flags)
+	const explicitNoRef = EncodeNoReferenceLast | EncodeNoReferenceGolden |
+		EncodeNoReferenceAltRef
+	if e == nil || flags&explicitNoRef != 0 {
+		return mask
+	}
+	return e.vp9PruneAliasedInterReferenceMask(mask)
+}
+
+func (e *VP9Encoder) vp9PruneAliasedInterReferenceMask(mask uint8) uint8 {
+	if e == nil {
+		return mask
+	}
+	if e.vp9ReferenceSlotsAlias(vp9GoldenRefSlot, vp9LastRefSlot) {
+		mask &^= 1 << uint(vp9dec.GoldenFrame)
+	}
+	if e.vp9ReferenceSlotsAlias(vp9AltRefSlot, vp9LastRefSlot) ||
+		e.vp9ReferenceSlotsAlias(vp9AltRefSlot, vp9GoldenRefSlot) {
+		mask &^= 1 << uint(vp9dec.AltrefFrame)
+	}
+	return mask
+}
+
+func (e *VP9Encoder) vp9ReferenceSlotsAlias(slot, other int) bool {
+	if slot < 0 || slot >= len(e.refValid) || other < 0 ||
+		other >= len(e.refValid) {
+		return false
+	}
+	return e.refValid[slot] && e.refValid[other] &&
+		e.refMap[slot] != 0 && e.refMap[slot] == e.refMap[other]
+}
+
 func vp9AllInterReferencesDisabled(flags EncodeFlags) bool {
 	const allNoRef = EncodeNoReferenceLast | EncodeNoReferenceGolden | EncodeNoReferenceAltRef
 	return flags&allNoRef == allNoRef
@@ -257,7 +290,7 @@ func (e *VP9Encoder) vp9ShouldEncodeKeyFrame(flags EncodeFlags) bool {
 }
 
 func (e *VP9Encoder) hasVP9UsableInterReference(flags EncodeFlags) bool {
-	mask := vp9InterReferenceMask(flags)
+	mask := e.vp9InterReferenceMaskForFrame(flags)
 	for _, refFrame := range [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
 		slot, ok := vp9EncoderReferenceSlot(refFrame)
 		if ok && mask&(1<<uint(refFrame)) != 0 && e.refFrames[slot].valid {
@@ -272,7 +305,7 @@ func (e *VP9Encoder) validateVP9InterSegmentationReferences(flags EncodeFlags) e
 	if !seg.Enabled {
 		return nil
 	}
-	mask := vp9InterReferenceMask(flags)
+	mask := e.vp9InterReferenceMaskForFrame(flags)
 	for i := range VP9MaxSegments {
 		if !seg.RefFrameEnabled[i] {
 			continue
@@ -305,6 +338,11 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 	if refreshFlags != 0 {
 		e.subpelRefBorderedValid = false
 	}
+	refMapID := 0
+	if refreshFlags != 0 {
+		e.nextRefMapID++
+		refMapID = e.nextRefMapID
+	}
 	for slot := range e.refValid {
 		if refreshFlags&(1<<uint(slot)) == 0 {
 			continue
@@ -312,6 +350,7 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 		e.refWidth[slot] = header.Width
 		e.refHeight[slot] = header.Height
 		e.refValid[slot] = true
+		e.refMap[slot] = refMapID
 		e.refSignBias[slot] = vp9EncoderRefreshRefSignBias(slot, header, flags)
 		if e.reconFrame.Width != 0 && e.reconFrame.Height != 0 {
 			e.refFrames[slot].store(e.reconFrame)

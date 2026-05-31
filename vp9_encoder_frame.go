@@ -336,7 +336,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.vp9RestoreEncodeParamsFilterThreshes()
 	header.InterpFilter = e.vp9EncoderFrameInterpFilter(isKey, header.IntraOnly,
 		header.Quant.Lossless)
-	if !isKey && !header.IntraOnly && vp9InterReferenceMask(flags) == 0 {
+	interRefMask := e.vp9InterReferenceMaskForFrame(flags)
+	if !isKey && !header.IntraOnly && interRefMask == 0 {
 		header.InterpFilter = vp9dec.InterpSwitchable
 	}
 	// libvpx vp9/encoder/vp9_encodeframe.c:5876-5877 — when the frame
@@ -423,7 +424,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			img:              img,
 			dq:               dq,
 			ref:              &e.refFrames[0],
-			refMask:          vp9InterReferenceMask(flags),
+			refMask:          interRefMask,
 			allowHP:          header.AllowHighPrecisionMv,
 			selectFc:         e.fc,
 			modeCostFc:       nonrdModeCostFc,

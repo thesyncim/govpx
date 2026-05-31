@@ -1138,6 +1138,10 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		e.refWidth[slot] = lower.refWidth[slot]
 		e.refHeight[slot] = lower.refHeight[slot]
 		e.refValid[slot] = true
+		e.refMap[slot] = lower.refMap[slot]
+		if e.nextRefMapID < lower.refMap[slot] {
+			e.nextRefMapID = lower.refMap[slot]
+		}
 		e.refSignBias[slot] = 0
 	}
 	lowerLayerID := e.opts.SpatialScalability.LayerID
@@ -1150,6 +1154,8 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		e.refWidth[vp9LastRefSlot] = lower.refWidth[lowerLayerSlot]
 		e.refHeight[vp9LastRefSlot] = lower.refHeight[lowerLayerSlot]
 		e.refValid[vp9LastRefSlot] = true
+		e.nextRefMapID++
+		e.refMap[vp9LastRefSlot] = e.nextRefMapID
 		e.refSignBias[vp9LastRefSlot] = 0
 	}
 	return true

@@ -107,9 +107,13 @@ func TestVP9EncoderStaticRefFrameSegmentForcesGoldenReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	key, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128))
+	keySrc := vp9test.NewYCbCr(width, height, 72, 128, 128)
+	key, err := e.Encode(keySrc)
 	if err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if err := e.SetReferenceFrame(ReferenceGolden, vp9ImageFromYCbCrForTest(keySrc)); err != nil {
+		t.Fatalf("SetReferenceFrame GOLDEN: %v", err)
 	}
 	keyHeader, _ := vp9test.ParseHeader(t, key)
 	assertVP9StaticRefFrameSegmentationHeaderForTest(t, keyHeader.Seg, segID,
@@ -156,6 +160,10 @@ func TestVP9EncoderStaticInterRefSegmentKeepsInterSyntax(t *testing.T) {
 	}
 	if _, err := e.Encode(vp9test.NewYCbCr(width, height, 72, 128, 128)); err != nil {
 		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if err := e.SetReferenceFrame(ReferenceGolden,
+		vp9ImageFromYCbCrForTest(vp9test.NewYCbCr(width, height, 72, 128, 128))); err != nil {
+		t.Fatalf("SetReferenceFrame GOLDEN: %v", err)
 	}
 	if _, err := e.Encode(vp9test.NewCheckerYCbCr(width, height, 16, 240, 96, 224)); err != nil {
 		t.Fatalf("Encode inter: %v", err)

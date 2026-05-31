@@ -211,9 +211,11 @@ type VP9Encoder struct {
 
 	// refWidth / refHeight mirror the encoder-side VP9 reference map so
 	// inter headers can emit write_frame_size_with_refs without allocating.
-	refWidth  [common.RefFrames]uint32
-	refHeight [common.RefFrames]uint32
-	refValid  [common.RefFrames]bool
+	refWidth     [common.RefFrames]uint32
+	refHeight    [common.RefFrames]uint32
+	refValid     [common.RefFrames]bool
+	refMap       [common.RefFrames]int
+	nextRefMapID int
 
 	// planes carries coefficient entropy contexts for source-backed frames.
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane

@@ -1637,6 +1637,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				mode:           thisMode,
 				mv:             [2]vp9dec.MV{mv},
 				interpFilter:   filter,
+				txSize:         mrdTxSize,
 				rate:           rate,
 				distortion:     finalDist,
 				score:          score,
@@ -1677,6 +1678,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bp.bestRefFrame = cand.refFrame
 				bp.bestSecondRefFrame = vp9dec.NoRefFrame
 				bp.bestPredFilter = cand.interpFilter
+				bp.bestTxSize = cand.txSize
 				bp.bestModeSkipTxfm = uint8(cand.skipTxfm)
 				bp.winner = cand
 				bp.winnerSet = true

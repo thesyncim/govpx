@@ -20,6 +20,19 @@ func TestFastDiamondPatternSearchSADFindsLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestFastHexPatternSearchSADFindsLocalMinimum(t *testing.T) {
+	limits := MvLimits{RowMin: -16, RowMax: 16, ColMin: -16, ColMax: 16}
+	sadAt, scoreMv := quadraticSearchSurface(6, -3)
+	startSad, _ := sadAt(0, 0)
+
+	dx, dy, sad, score := FastHexPatternSearchSAD(0, 0,
+		startSad, startSad, 0, &limits, sadAt, scoreMv)
+	if dx != 6 || dy != -3 || sad != 0 || score != 0 {
+		t.Fatalf("fast hex = dx=%d dy=%d sad=%d score=%d, want 6/-3/0/0",
+			dx, dy, sad, score)
+	}
+}
+
 func TestNStepDiamondSearchSADFindsLocalMinimum(t *testing.T) {
 	limits := MvLimits{RowMin: -32, RowMax: 32, ColMin: -32, ColMax: 32}
 	sadAt, scoreMv := quadraticSearchSurface(-7, 6)

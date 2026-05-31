@@ -1162,7 +1162,9 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 		e.refHeight[slot] = 0
 		e.refFrames[slot].img = Image{}
 		e.refFrames[slot].valid = false
+		e.refMap[slot] = 0
 	}
+	e.nextRefMapID = 0
 	e.lfRefDeltas = [vp9dec.MaxRefLfDeltas]int8{}
 	e.lfModeDeltas = [vp9dec.MaxModeLfDeltas]int8{}
 	if e.opts.AQMode == VP9AQCyclicRefresh {
