@@ -219,6 +219,7 @@ func TestVP9FullRDModeThresholdZerosFrontSchedule(t *testing.T) {
 	var rd RDThreshState
 	rd.SetRDSpeedThresholds(4)
 	rd.SetBlockThresholds(64, 0)
+	rd.InitFreqFact()
 	for mode := ThrMode(0); mode <= FullRDLastNewMVIndex; mode++ {
 		if got := rd.FullRDModeRDThreshold(common.Block16x16, mode, false, false); got != 0 {
 			t.Fatalf("full-RD threshold for front-schedule mode %d = %d, want 0", mode, got)
@@ -231,6 +232,18 @@ func TestVP9FullRDModeThresholdZerosFrontSchedule(t *testing.T) {
 	doubled := rd.FullRDModeRDThreshold(common.Block16x16, vp9ThrNearMV, true, true)
 	if doubled != near<<1 {
 		t.Fatalf("full-RD skippable scheduled threshold = %d, want %d", doubled, near<<1)
+	}
+	if !rd.FullRDModeSkipped(uint64(near-1), common.Block16x16,
+		vp9ThrNearMV, false, false) {
+		t.Fatalf("full-RD threshold gate did not skip below threshold")
+	}
+	if rd.FullRDModeSkipped(uint64(near), common.Block16x16,
+		vp9ThrNearMV, false, false) {
+		t.Fatalf("full-RD threshold gate skipped at threshold")
+	}
+	if !rd.FullRDModeSkipped(uint64((near<<1)-1), common.Block16x16,
+		vp9ThrNearMV, true, true) {
+		t.Fatalf("full-RD scheduled skippable gate did not use doubled threshold")
 	}
 }
 

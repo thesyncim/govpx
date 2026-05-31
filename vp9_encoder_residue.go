@@ -322,7 +322,8 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		inter.ref = &e.refFrames[refSlot]
 		mi.RefFrame = [2]int8{forcedRefFrame, vp9dec.NoRefFrame}
 		if decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
-			miRow, miCol, bsize, forcedRefFrame, 0, 0, false); ok {
+			miRow, miCol, bsize, forcedRefFrame, 0, vp9FullRDRefState{},
+			0, false); ok {
 			picked = decision
 			picked.refFrame = forcedRefFrame
 			picked.secondRefFrame = vp9dec.NoRefFrame

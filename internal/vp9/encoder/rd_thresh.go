@@ -508,6 +508,18 @@ func (rd *RDThreshState) FullRDModeRDThreshold(bsize common.BlockSize,
 	return modeRDThresh
 }
 
+// FullRDModeSkipped applies the full-RD rd_less_than_thresh gate for one
+// vp9_mode_order entry.
+func (rd *RDThreshState) FullRDModeSkipped(bestRD uint64,
+	bsize common.BlockSize, modeIndex ThrMode,
+	bestModeSkippable, scheduleModeSearch bool,
+) bool {
+	modeRDThresh := rd.FullRDModeRDThreshold(bsize, modeIndex,
+		bestModeSkippable, scheduleModeSearch)
+	return RDLessThanThresh(bestRD, modeRDThresh,
+		rd.ThreshFreqFact(bsize, modeIndex))
+}
+
 // UpdateFullRDThreshFact mirrors libvpx vp9_update_rd_thresh_fact from
 // vp9_rd.c. Unlike the realtime non-RD picker's per-ref update helper below,
 // full-RD updates every mode slot for a small block-size neighborhood around
