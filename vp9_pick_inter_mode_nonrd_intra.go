@@ -304,7 +304,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			best = vp9InterIntraDecision{
 				mode:   thisMode,
 				uvMode: thisMode,
-				txSize: intraTxSize,
+				txSize: mi.TxSize,
 				rate:   rate,
 				score:  score,
 			}

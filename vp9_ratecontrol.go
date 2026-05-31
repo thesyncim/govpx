@@ -6,6 +6,13 @@ import (
 	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
+const (
+	// libvpx VP9 defaults these to 25 in vp9/vp9_cx_iface.c. VP8 defaults
+	// them to 100, so keep VP9's zero-value mapping codec-owned here.
+	defaultVP9RateControlUndershootPct = 25
+	defaultVP9RateControlOvershootPct  = 25
+)
+
 type vp9RateControlState struct {
 	enabled bool
 	mode    RateControlMode
@@ -452,14 +459,14 @@ func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timin
 }
 
 // applyBitrateBoundsFromOptions stores the libvpx VP9 rate-control bound
-// settings into rc. Zero undershoot/overshoot select libvpx's VP9 default of
-// 100, matching vpxenc's behavior. GFCBRBoostPct is honored only in CBR mode
-// to match libvpx's VP9E_SET_GF_CBR_BOOST_PCT scope.
+// settings into rc. Zero undershoot/overshoot select libvpx's VP9 defaults.
+// GFCBRBoostPct is honored only in CBR mode to match libvpx's
+// VP9E_SET_GF_CBR_BOOST_PCT scope.
 func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOptions) {
 	rc.minBitrateKbps = opts.MinBitrateKbps
 	rc.maxBitrateKbps = opts.MaxBitrateKbps
-	rc.undershootPct = uint8(vpxrc.NormalizePercent(opts.UndershootPct, defaultRateControlUndershootPct))
-	rc.configuredOvershootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultRateControlOvershootPct))
+	rc.undershootPct = uint8(vpxrc.NormalizePercent(opts.UndershootPct, defaultVP9RateControlUndershootPct))
+	rc.configuredOvershootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultVP9RateControlOvershootPct))
 	rc.overshootPct = rc.configuredOvershootPct
 	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
 	rc.maxInterBitratePct = opts.MaxInterBitratePct
@@ -632,7 +639,7 @@ func (rc *vp9RateControlState) effectiveConfiguredOvershootPct() uint8 {
 	if rc.overshootPct != 0 {
 		return rc.overshootPct
 	}
-	return uint8(defaultRateControlOvershootPct)
+	return uint8(defaultVP9RateControlOvershootPct)
 }
 
 func vp9LibvpxFrameRate(timing timingState) float64 {

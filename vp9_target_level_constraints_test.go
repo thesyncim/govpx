@@ -40,9 +40,10 @@ func TestVP9SetTargetLevelRecomputesRateControl(t *testing.T) {
 	}
 	defer e.Close()
 
-	if e.rc.effectiveBitrateKbps != 30000 || e.rc.overshootPct != 100 {
-		t.Fatalf("initial RC = %d kbps overshoot %d, want 30000/100",
-			e.rc.effectiveBitrateKbps, e.rc.overshootPct)
+	if e.rc.effectiveBitrateKbps != 30000 || e.rc.overshootPct != defaultVP9RateControlOvershootPct {
+		t.Fatalf("initial RC = %d kbps overshoot %d, want 30000/%d",
+			e.rc.effectiveBitrateKbps, e.rc.overshootPct,
+			defaultVP9RateControlOvershootPct)
 	}
 	if err := e.SetTargetLevel(30); err != nil {
 		t.Fatalf("SetTargetLevel(30): %v", err)
@@ -54,9 +55,10 @@ func TestVP9SetTargetLevelRecomputesRateControl(t *testing.T) {
 	if err := e.SetTargetLevel(255); err != nil {
 		t.Fatalf("SetTargetLevel(255): %v", err)
 	}
-	if e.rc.effectiveBitrateKbps != 30000 || e.rc.overshootPct != 100 {
-		t.Fatalf("unconstrained RC = %d kbps overshoot %d, want 30000/100",
-			e.rc.effectiveBitrateKbps, e.rc.overshootPct)
+	if e.rc.effectiveBitrateKbps != 30000 || e.rc.overshootPct != defaultVP9RateControlOvershootPct {
+		t.Fatalf("unconstrained RC = %d kbps overshoot %d, want 30000/%d",
+			e.rc.effectiveBitrateKbps, e.rc.overshootPct,
+			defaultVP9RateControlOvershootPct)
 	}
 }
 

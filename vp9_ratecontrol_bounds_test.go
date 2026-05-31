@@ -48,13 +48,13 @@ func TestVP9EncoderDefaultUndershootOvershootMatchLibvpx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if e.rc.undershootPct != defaultRateControlUndershootPct {
+	if e.rc.undershootPct != defaultVP9RateControlUndershootPct {
 		t.Fatalf("default undershoot = %d, want %d",
-			e.rc.undershootPct, defaultRateControlUndershootPct)
+			e.rc.undershootPct, defaultVP9RateControlUndershootPct)
 	}
-	if e.rc.overshootPct != defaultRateControlOvershootPct {
+	if e.rc.overshootPct != defaultVP9RateControlOvershootPct {
 		t.Fatalf("default overshoot = %d, want %d",
-			e.rc.overshootPct, defaultRateControlOvershootPct)
+			e.rc.overshootPct, defaultVP9RateControlOvershootPct)
 	}
 }
 
