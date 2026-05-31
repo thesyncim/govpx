@@ -43,6 +43,60 @@ const (
 	NoiseLevelHigh   NoiseLevel = 3
 )
 
+// ChromaCheckArgs describes the libvpx chroma_check inputs after the caller
+// has measured the luma and chroma SAD values for the partition prepass
+// predictor.
+type ChromaCheckArgs struct {
+	YSAD  uint64
+	UVSAD [2]uint64
+
+	IsKeyFrame          bool
+	Speed               int
+	ScreenContent       bool
+	SceneChangeDetected bool
+
+	BaseQIndex             int
+	VariancePartThreshMult int
+	Width                  int
+	Height                 int
+	ContentState           ContentStateSB
+	NoiseEstimateEnabled   bool
+	NoiseLevel             NoiseLevel
+	AvgFrameQIndexInter    int
+	Disable16x16PartNonkey bool
+}
+
+// ChromaCheck ports vp9_encodeframe.c::chroma_check. It intentionally lives
+// with the variance-partition code because libvpx derives color_sensitivity
+// from the same prepass predictor and threshold state.
+func ChromaCheck(args ChromaCheckArgs) [2]bool {
+	var sensitive [2]bool
+	if args.IsKeyFrame {
+		return sensitive
+	}
+	if args.Speed > 8 {
+		thresholds := setVBPThresholds(args.BaseQIndex,
+			args.VariancePartThreshMult, args.Speed, args.Width, args.Height,
+			false, args.ContentState, args.NoiseEstimateEnabled,
+			args.NoiseLevel, args.AvgFrameQIndexInter,
+			args.Disable16x16PartNonkey)
+		if args.YSAD > uint64(thresholds[1]) &&
+			(!args.NoiseEstimateEnabled || args.NoiseLevel < NoiseLevelMedium) {
+			return sensitive
+		}
+	}
+
+	shift := uint(2)
+	if args.ScreenContent && args.SceneChangeDetected {
+		shift = 5
+	}
+	limit := args.YSAD >> shift
+	for plane := range sensitive {
+		sensitive[plane] = args.UVSAD[plane] > limit
+	}
+	return sensitive
+}
+
 // yDequantAC returns the libvpx cpi->y_dequant[q][1] (luma AC dequant) for
 // the given 8-bit profile-0 qindex. libvpx populates the table from
 // ac_qlookup at vp9/encoder/vp9_quantize.c vp9_init_quantizer; the [1] slot

@@ -547,6 +547,7 @@ type vp9InterModeDecision struct {
 	distortion     uint64
 	score          uint64
 	skip           bool
+	skipTxfm       encoder.SkipTxfmFlag
 }
 
 type vp9KeyframeModeDecision struct {

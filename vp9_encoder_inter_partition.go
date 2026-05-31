@@ -311,6 +311,8 @@ func (e *VP9Encoder) vp9EnsureVarPartSBMotionCaches(miRows, miCols int) int {
 	e.varPartSBMvPart = buffers.EnsureLen(e.varPartSBMvPart, sbCount)
 	e.varPartSBPredValid = buffers.EnsureLenZeroTail(e.varPartSBPredValid, sbCount)
 	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
+	e.varPartSBColorSensitivity = buffers.EnsureLenZeroTail(
+		e.varPartSBColorSensitivity, sbCount)
 	return sbCount
 }
 
@@ -342,6 +344,22 @@ func (e *VP9Encoder) vp9VarPartSBPredMv(miCols, miRow, miCol int,
 		return vp9dec.MV{}, false
 	}
 	return e.varPartSBPredLast[idx], true
+}
+
+func (e *VP9Encoder) vp9VarPartSBColorSensitivity(miCols, miRow, miCol int) (
+	[2]bool, bool,
+) {
+	if e == nil {
+		return [2]bool{}, false
+	}
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if idx < 0 || idx >= len(e.varPartSBColorSensitivity) ||
+		idx >= len(e.varPartSBComputed) || !e.varPartSBComputed[idx] {
+		return [2]bool{}, false
+	}
+	return e.varPartSBColorSensitivity[idx], true
 }
 
 func (e *VP9Encoder) vp9VarPartForceSkipLowTempVar(miCols, miRow, miCol int,
@@ -418,6 +436,125 @@ func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
 	return false, false
 }
 
+func (e *VP9Encoder) vp9RecordVarPartSBColorSensitivity(miRows, miCols int,
+	sbMiRow, sbMiCol, sbIdx int, inter *vp9InterEncodeState,
+	args *encoder.ChoosePartitioningArgs,
+) {
+	if e == nil || inter == nil || inter.img == nil || args == nil ||
+		sbIdx < 0 || sbIdx >= len(e.varPartSBColorSensitivity) {
+		return
+	}
+	subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow, sbMiCol, miRows, miCols)
+	if subBsize >= common.BlockSizes || len(args.PlaneDst) == 0 ||
+		args.DstStride <= 0 {
+		e.varPartSBColorSensitivity[sbIdx] = [2]bool{}
+		return
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	blockW := int(common.Num4x4BlocksWideLookup[subBsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[subBsize]) * 4
+	x0 := sbMiCol * common.MiSize
+	y0 := sbMiRow * common.MiSize
+	if !vp9PlaneWindowFits(src, srcStride, x0, y0, blockW, blockH) ||
+		!encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!vp9PlaneWindowOffsetFits(args.PlaneDst, args.DstStride,
+			args.PlaneDstOff, blockW, blockH) {
+		e.varPartSBColorSensitivity[sbIdx] = [2]bool{}
+		return
+	}
+	ySad := encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
+		args.PlaneDst, args.PlaneDstOff, args.DstStride, blockW, blockH,
+		^uint64(0))
+	uvSad, ok := e.vp9VarPartChromaSAD(inter, miRows, miCols, sbMiRow,
+		sbMiCol, subBsize, args.PartitionRefFrame, args.PartitionMV)
+	if !ok {
+		e.varPartSBColorSensitivity[sbIdx] = [2]bool{}
+		return
+	}
+	sensitivity := encoder.ChromaCheck(encoder.ChromaCheckArgs{
+		YSAD:                   ySad,
+		UVSAD:                  uvSad,
+		Speed:                  e.vp9SpeedFeatureCPUUsed(),
+		ScreenContent:          e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+		SceneChangeDetected:    e.rc.highSourceSAD,
+		BaseQIndex:             args.BaseQIndex,
+		VariancePartThreshMult: args.VariancePartThreshMult,
+		Width:                  args.FrameWidth,
+		Height:                 args.FrameHeight,
+		ContentState:           args.ContentState,
+		NoiseEstimateEnabled:   args.NoiseEstimateEnabled,
+		NoiseLevel:             args.NoiseLevel,
+		AvgFrameQIndexInter:    args.AvgFrameQIndexInter,
+		Disable16x16PartNonkey: args.Disable16x16PartNonkey,
+	})
+	e.varPartSBColorSensitivity[sbIdx] = sensitivity
+}
+
+func (e *VP9Encoder) vp9VarPartChromaSAD(inter *vp9InterEncodeState,
+	miRows, miCols, sbMiRow, sbMiCol int, bsize common.BlockSize,
+	refFrame int8, mv vp9dec.MV,
+) ([2]uint64, bool) {
+	var sad [2]uint64
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         common.ZeroMv,
+		InterpFilter: uint8(vp9dec.InterpBilinear),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, sbMiRow, sbMiCol,
+		bsize, &mi) {
+		return sad, false
+	}
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return sad, false
+		}
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		dst, dstStride := e.vp9EncoderReconPlane(plane)
+		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		x0 := (sbMiCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (sbMiRow * common.MiSize) >> pd.SubsamplingY
+		if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!vp9PlaneWindowFits(src, srcStride, x0, y0, blockW, blockH) ||
+			!vp9PlaneWindowFits(dst, dstStride, x0, y0, blockW, blockH) {
+			return sad, false
+		}
+		sad[plane-1] = encoder.BlockSAD(src, srcStride, dst, dstStride,
+			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+	}
+	return sad, true
+}
+
+func vp9PlaneWindowFits(buf []byte, stride, x0, y0, w, h int) bool {
+	if len(buf) == 0 || stride <= 0 || x0 < 0 || y0 < 0 || w <= 0 || h <= 0 {
+		return false
+	}
+	if x0+w > stride {
+		return false
+	}
+	off := y0*stride + x0
+	last := off + (h-1)*stride + w
+	return off >= 0 && last <= len(buf)
+}
+
+func vp9PlaneWindowOffsetFits(buf []byte, stride, off, w, h int) bool {
+	if len(buf) == 0 || stride <= 0 || off < 0 || w <= 0 || h <= 0 {
+		return false
+	}
+	if w > stride {
+		return false
+	}
+	last := off + (h-1)*stride + w
+	return last <= len(buf)
+}
+
 // vp9EnsureSBPartitionChosen runs encoder.ChoosePartitioning for the 64x64 SB
 // containing (miRow, miCol) iff it hasn't been computed this frame.
 // Writes the partition tree into e.varPartGrid and marks
@@ -445,6 +582,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.varPartSBPredValid = buffers.EnsureLenZeroTail(e.varPartSBPredValid, sbCount)
 	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
 	e.varPartSBVarLow = buffers.EnsureLen(e.varPartSBVarLow, sbCount)
+	e.varPartSBColorSensitivity = buffers.EnsureLenZeroTail(
+		e.varPartSBColorSensitivity, sbCount)
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3
 	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
@@ -464,7 +603,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		MiCols:                 miCols,
 		MiRow:                  sbMiRow,
 		MiCol:                  sbMiCol,
-		Speed:                  int(e.opts.CpuUsed),
+		Speed:                  e.vp9SpeedFeatureCPUUsed(),
 		ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar,
 		PartitionRefFrame:      vp9dec.LastFrame,
 		VarianceLow:            &e.varPartSBVarLow[sbIdx],
@@ -615,7 +754,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 						LastRef:                e.lastBordered.Pixels,
 						LastRefOff:             (refOriginY+y0)*refStrideB + (refOriginX + x0),
 						LastRefStride:          refStrideB,
-						Speed:                  int(e.opts.CpuUsed),
+						Speed:                  e.vp9SpeedFeatureCPUUsed(),
 						ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar != 0,
 						// MvLimits: full-pel limits derived from the
 						// SB origin's distance to the bordered frame
@@ -685,6 +824,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	}
 
 	encoder.ChoosePartitioning(args)
+	if inter != nil {
+		e.vp9RecordVarPartSBColorSensitivity(miRows, miCols, sbMiRow, sbMiCol,
+			sbIdx, inter, &args)
+	}
 	e.varPartSBComputed[sbIdx] = true
 	e.varPartFrameValid = true
 	return true

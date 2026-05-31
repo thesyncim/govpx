@@ -4,6 +4,36 @@ import (
 	"testing"
 )
 
+func TestVP9ChromaCheckMarksOnlyPlanesAboveThreshold(t *testing.T) {
+	got := ChromaCheck(ChromaCheckArgs{
+		YSAD:  100,
+		UVSAD: [2]uint64{26, 25},
+		Speed: 8,
+		Width: 64, Height: 64,
+		VariancePartThreshMult: 1,
+	})
+	if !got[0] {
+		t.Fatal("U sensitivity = false, want true when uv_sad > y_sad >> 2")
+	}
+	if got[1] {
+		t.Fatal("V sensitivity = true, want false when uv_sad == y_sad >> 2")
+	}
+}
+
+func TestVP9ChromaCheckSpeedAboveEightCanSkipHighLumaSad(t *testing.T) {
+	got := ChromaCheck(ChromaCheckArgs{
+		YSAD:  1 << 30,
+		UVSAD: [2]uint64{1 << 29, 1 << 29},
+		Speed: 9,
+		Width: 128, Height: 64,
+		BaseQIndex:             37,
+		VariancePartThreshMult: 1,
+	})
+	if got[0] || got[1] {
+		t.Fatalf("sensitivity = %v, want both false when speed>8 high y_sad skips chroma_check", got)
+	}
+}
+
 // TestVP9SetVBPThresholdsKeyframe verifies the libvpx set_vbp_thresholds
 // keyframe branch (vp9/encoder/vp9_encodeframe.c:582-586) against hand-checked
 // constants. The formula is:

@@ -475,6 +475,12 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	if cap(e.varPartSBZeroTempSADSource) >= sbCount {
 		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
 	}
+	if cap(e.varPartSBColorSensitivity) >= sbCount {
+		e.varPartSBColorSensitivity = e.varPartSBColorSensitivity[:sbCount]
+		for i := range e.varPartSBColorSensitivity {
+			e.varPartSBColorSensitivity[i] = [2]bool{}
+		}
+	}
 	if cap(e.varPartSBLastHighContentValid) >= sbCount {
 		e.varPartSBLastHighContentValid = e.varPartSBLastHighContentValid[:sbCount]
 		for i := range e.varPartSBLastHighContentValid {

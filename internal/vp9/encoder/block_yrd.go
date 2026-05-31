@@ -188,6 +188,60 @@ type ModelRdForSbYArgs struct {
 	ScreenContent   bool
 }
 
+// ModelRdForSbUVArgs is the chroma-plane companion to ModelRdForSbY. It
+// mirrors libvpx model_rd_for_sb_uv's scalar inputs after the caller has
+// built the U/V predictors and measured each plane's variance/SSE.
+type ModelRdForSbUVArgs struct {
+	BSize     common.BlockSize
+	Sensitive [2]bool
+	Var       [2]uint64
+	SSE       [2]uint64
+	Dequant   [2][2]int16
+	VarY      uint64
+	SSEY      uint64
+}
+
+// ModelRdForSbUV ports model_rd_for_sb_uv from vp9_pickmode.c. For each
+// color-sensitive chroma plane it adds the same DC and AC Laplace-model RD
+// costs used by model_rd_for_sb_y, and returns the libvpx-mutated total
+// variance/SSE accumulators.
+func ModelRdForSbUV(args ModelRdForSbUVArgs) (
+	rate int, dist int64, totalVar uint64, totalSSE uint64,
+) {
+	totalVar = args.VarY
+	totalSSE = args.SSEY
+	if args.BSize >= common.BlockSizes {
+		return 0, 0, totalVar, totalSSE
+	}
+	nLog2 := uint(common.NumPelsLog2Lookup[args.BSize])
+	for plane := range 2 {
+		if !args.Sensitive[plane] {
+			continue
+		}
+		variance := args.Var[plane]
+		sse := args.SSE[plane]
+		if sse < variance {
+			continue
+		}
+		totalVar += variance
+		totalSSE += sse
+
+		dequant := args.Dequant[plane]
+		dcQuant := uint32(dequant[0])
+		acQuant := uint32(dequant[1])
+		dcRate, dcDist := ModelRDFromVarLapndz(uint32(sse-variance), nLog2,
+			dcQuant>>3)
+		rate += dcRate >> 1
+		dist += dcDist << 3
+
+		acRate, acDist := ModelRDFromVarLapndz(uint32(variance), nLog2,
+			acQuant>>3)
+		rate += acRate
+		dist += acDist << 4
+	}
+	return rate, dist, totalVar, totalSSE
+}
+
 // CalculateTxSizeArgs is the explicit Go form of libvpx
 // calculate_tx_size(cpi, bsize, xd, var, sse, ac_thr, source_variance,
 // is_intra) from vp9_pickmode.c:363-393.

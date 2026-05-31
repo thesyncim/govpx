@@ -44,6 +44,42 @@ func TestVP9BlockYrdSkippableOnIdenticalPrediction(t *testing.T) {
 	}
 }
 
+func TestVP9ModelRdForSbUVSensitivePlane(t *testing.T) {
+	args := ModelRdForSbUVArgs{
+		BSize:     common.Block16x16,
+		Sensitive: [2]bool{true, false},
+		Var:       [2]uint64{4000, 9000},
+		SSE:       [2]uint64{5000, 12000},
+		Dequant: [2][2]int16{
+			{16, 24},
+			{18, 26},
+		},
+		VarY: 100,
+		SSEY: 200,
+	}
+	gotRate, gotDist, gotVar, gotSSE := ModelRdForSbUV(args)
+
+	nLog2 := uint(common.NumPelsLog2Lookup[args.BSize])
+	dcRate, dcDist := ModelRDFromVarLapndz(uint32(args.SSE[0]-args.Var[0]),
+		nLog2, uint32(args.Dequant[0][0])>>3)
+	acRate, acDist := ModelRDFromVarLapndz(uint32(args.Var[0]),
+		nLog2, uint32(args.Dequant[0][1])>>3)
+	wantRate := (dcRate >> 1) + acRate
+	wantDist := (dcDist << 3) + (acDist << 4)
+	if gotRate != wantRate {
+		t.Errorf("rate = %d, want %d", gotRate, wantRate)
+	}
+	if gotDist != wantDist {
+		t.Errorf("dist = %d, want %d", gotDist, wantDist)
+	}
+	if gotVar != args.VarY+args.Var[0] {
+		t.Errorf("total var = %d, want %d", gotVar, args.VarY+args.Var[0])
+	}
+	if gotSSE != args.SSEY+args.SSE[0] {
+		t.Errorf("total sse = %d, want %d", gotSSE, args.SSEY+args.SSE[0])
+	}
+}
+
 func TestVP9BlockYrdSkippableWithUnknownSSEKeepsEobRate(t *testing.T) {
 	const bw, bh = 32, 32
 	var src [bw * bh]byte

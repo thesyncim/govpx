@@ -259,6 +259,46 @@ func TestVP9EnsureSBPartitionChosenThreadsHighSourceSAD(t *testing.T) {
 	}
 }
 
+func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
+	const width, height = 64, 64
+	const miRows, miCols = 8, 8
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		CpuUsed: 8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	e.sf.VariancePartThreshMult = 1
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	ref := vp9test.NewYCbCr(width, height, 128, 128, 128)
+	src := vp9test.NewYCbCr(width, height, 128, 255, 128)
+	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+
+	var dq vp9dec.DequantTables
+	inter := &vp9InterEncodeState{
+		img:        src,
+		dq:         &dq,
+		ref:        &e.refFrames[0],
+		refMask:    1 << uint(vp9dec.LastFrame),
+		baseQindex: 37,
+	}
+	if !e.vp9EnsureSBPartitionChosen(miRows, miCols, 0, 0, nil, inter) {
+		t.Fatal("vp9EnsureSBPartitionChosen returned false")
+	}
+	got, ok := e.vp9VarPartSBColorSensitivity(miCols, 0, 0)
+	if !ok {
+		t.Fatal("color sensitivity cache was not marked valid")
+	}
+	if !got[0] || got[1] {
+		t.Fatalf("color sensitivity = %v, want U-only sensitivity", got)
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	const width, height = 160, 96
 	const miRows, miCols = 12, 20

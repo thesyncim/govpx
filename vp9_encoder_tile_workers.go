@@ -786,6 +786,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
 	subpelRefBordered := w.subpelRefBordered
@@ -823,6 +824,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
 	w.subpelRefBordered = subpelRefBordered
@@ -870,6 +872,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
+	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
 	subpelRefBordered := w.subpelRefBordered
@@ -904,6 +907,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
+	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
 	w.subpelRefBordered = subpelRefBordered

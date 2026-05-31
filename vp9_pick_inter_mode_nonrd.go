@@ -325,6 +325,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		e.sf.UseNonrdPickMode != 0, forceSkipLowTempVar) {
 		maxUsableRef = vp9dec.LastFrame
 	}
+	colorSensitivity, colorSensitivityOK := e.vp9VarPartSBColorSensitivity(
+		miCols, miRow, miCol)
 	// libvpx vp9_pickmode.c:1974-1976 — disable_golden_ref clamps
 	// usable_ref_frame to LAST on low-motion / non-very-high-sad blocks.
 	if e.sf.DisableGoldenRef != 0 &&
@@ -1125,6 +1127,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			searchSSEY       uint64
 			searchRateY      int
 			searchDistY      int64
+			searchSkipTxfm   encoder.SkipTxfmFlag
 			searchMrdTxSize  common.TxSize
 		)
 		if len(filters) > 1 {
@@ -1137,7 +1140,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !ok {
 					continue
 				}
-				rateY, distY, _, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+				rateY, distY, skipTxfm, mrdTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 					BSize:           bsize,
 					QIndex:          segQIndex,
 					Dequant:         dequantY,
@@ -1179,6 +1182,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						distY = large.Dist
 						varY = large.VarY
 						sseY = large.SSEY
+						skipTxfm = large.SkipTxfm
 						mrdTxSize = large.TxSize
 					}
 				}
@@ -1197,6 +1201,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					searchSSEY = sseY
 					searchRateY = rateY
 					searchDistY = distY
+					searchSkipTxfm = skipTxfm
 					searchMrdTxSize = mrdTxSize
 				}
 			}
@@ -1218,6 +1223,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			var varY, sseY uint64
 			var rateY int
 			var distY int64
+			var modelSkipTxfm encoder.SkipTxfmFlag
 			var mrdTxSize common.TxSize
 			var ok bool
 			if searchFilterPick {
@@ -1225,6 +1231,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				sseY = searchSSEY
 				rateY = searchRateY
 				distY = searchDistY
+				modelSkipTxfm = searchSkipTxfm
 				mrdTxSize = searchMrdTxSize
 				_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
 					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
@@ -1237,7 +1244,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !ok {
 					continue
 				}
-				rateY, distY, _, mrdTxSize = encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
+				rateY, distY, modelSkipTxfm, mrdTxSize = encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 					BSize:           bsize,
 					QIndex:          segQIndex,
 					Dequant:         dequantY,
@@ -1279,6 +1286,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						distY = large.Dist
 						varY = large.VarY
 						sseY = large.SSEY
+						modelSkipTxfm = large.SkipTxfm
 						mrdTxSize = large.TxSize
 					}
 				}
@@ -1329,6 +1337,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			finalRate := rateY
 			finalDist := uint64(distY)
 			blockYrdFired := false
+			skipTxfm := modelSkipTxfm
 			runBlockYrd := !useSimpleBlockYrd || bsize >= common.Block32x32
 			if runBlockYrd {
 				txClamp := min(mrdTxSize, common.Tx16x16)
@@ -1369,6 +1378,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							finalRate = 0
 							finalDist = uint64(byrd.SSE)
 							blockYrdFired = true
+							skipTxfm = encoder.SkipTxfmAcDc
 						} else {
 							// libvpx vp9_pickmode.c:2365-2374 — the
 							// non-skippable branch runs the RDCOST
@@ -1376,6 +1386,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							// dist) and the model_rd-derived sseY.
 							finalRate = byrd.Rate
 							finalDist = uint64(byrd.Dist)
+							skipTxfm = encoder.SkipTxfmNone
 							// blockYrdFired stays false: the RDCOST
 							// compare below still runs.
 						}
@@ -1423,6 +1434,35 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					finalRate = 0
 					finalDist = thisSse
 					isSkip = true
+					skipTxfm = encoder.SkipTxfmAcDc
+				}
+			}
+
+			// libvpx vp9_pickmode.c:2388-2402 — color-sensitive SBs add
+			// chroma model RD to inter candidates before the final mode/ref
+			// rate terms. The color_sensitivity flags come from
+			// choose_partitioning's chroma_check prepass.
+			if colorSensitivityOK &&
+				(colorSensitivity[0] || colorSensitivity[1]) {
+				varU, sseU, varV, sseV, uvOk := e.vp9NonrdUVVarianceSSE(
+					inter, miRows, miCols, miRow, miCol, bsize, thisMode,
+					refFrame, mv, filter)
+				uvBsize := vp9dec.GetPlaneBlockSize(bsize, &e.planes[1])
+				if uvOk && uvBsize < common.BlockSizes {
+					uvRate, uvDist, totalVar, totalSSE := encoder.ModelRdForSbUV(
+						encoder.ModelRdForSbUVArgs{
+							BSize:     uvBsize,
+							Sensitive: colorSensitivity,
+							Var:       [2]uint64{varU, varV},
+							SSE:       [2]uint64{sseU, sseV},
+							Dequant:   [2][2]int16{dequantU, dequantV},
+							VarY:      varY,
+							SSEY:      sseY,
+						})
+					finalRate += uvRate
+					finalDist += uint64(uvDist)
+					varY = totalVar
+					sseY = totalSSE
 				}
 			}
 
@@ -1529,6 +1569,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				distortion:     finalDist,
 				score:          score,
 				skip:           isSkip || xSkip,
+				skipTxfm:       skipTxfm,
 			}
 
 			scoredIntoOrig := false
@@ -1564,6 +1605,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bp.bestRefFrame = cand.refFrame
 				bp.bestSecondRefFrame = vp9dec.NoRefFrame
 				bp.bestPredFilter = cand.interpFilter
+				bp.bestModeSkipTxfm = uint8(cand.skipTxfm)
 				bp.winner = cand
 				bp.winnerSet = true
 				// libvpx: vp9_pickmode.c:2462 best_early_term =

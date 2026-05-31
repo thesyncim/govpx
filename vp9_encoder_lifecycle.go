@@ -173,6 +173,7 @@ type VP9Encoder struct {
 	varPartSBContentState      []encoder.ContentStateSB
 	varPartSBContentStateValid []bool
 	varPartSBZeroTempSADSource []bool
+	varPartSBColorSensitivity  [][2]bool
 	// varPartSBLastHighContent caches x->last_sb_high_content per SB before
 	// avg_source_sad mutates content_state_sb_fd (vp9_encodeframe.c:1346-1347
 	// read precedes vp9_encodeframe.c:1238-1244 update).
