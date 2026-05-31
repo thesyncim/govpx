@@ -1,59 +1,18 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"crypto/sha256"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
-	"strconv"
 	"testing"
-)
 
-// vp9NormalizeFuzzOptionsForLibvpxCLI rewrites VP9EncoderOptions fields that
-// the vpxenc-vp9 CLI cannot express, OR that exercise govpx code paths with
-// known feature-gate divergences from libvpx, so the govpx encode and the
-// libvpx CLI keyframe stay comparable under FuzzVP9OracleEncoderOptions.
-// Mirrors the VP8 sibling fix that pinned min/max-q to defaultRateControlConfig
-// values before handing them to vpxenc-oracle (see
-// vp8_oracle_encoder_options_fuzz_test.go) but generalises to every fuzzed knob
-// without a clean CLI mapping or matching encoder semantics.
-//
-// Fields rewritten because the libvpx CLI has no equivalent control:
-//   - DeltaQUV: no --delta-q-uv CLI flag; libvpx default is 0.
-//   - ColorRange: no --color-range CLI flag; libvpx default is studio (0).
-//   - MinBitrateKbps, MaxBitrateKbps: govpx runtime clamps consumed only by
-//     SetBitrateKbps after construction; libvpx CLI has no equivalent. Zero
-//     these so the first-keyframe path is identical on both sides.
-//   - AdaptiveKeyFrames: govpx-only one-pass scene-cut promoter; the first
-//     forced keyframe path is unaffected, so this is precautionary.
-//
-// Fields normalised because govpx applies feature gates libvpx does not
-// (tracked as separate encoder-side divergences; the comparator avoids them
-// here so the option-validation surface stays the regression target):
-//   - AQMode: govpx Equator360 AQ adds an aspect-ratio / minimum
-//     height gate to mode 4 that libvpx applies unconditionally; the
-//     variance / complexity / cyclic-refresh AQ paths also diverge on
-//     sub-superblock frames (16x16, 32x32) because govpx skips the
-//     segmentation header when there is only one SB to segment while libvpx
-//     still emits the segmentation update bits. Force VP9AQNone (=0) so the
-//     comparator never exercises an AQ path.
-//   - NoiseSensitivity: libvpx vp9_denoiser modifies the source plane before
-//     encode for any non-zero value; govpx's denoiser is only wired into the
-//     inter path so keyframe bytes diverge even when both honour the control.
-//     Force to 0.
-func vp9NormalizeFuzzOptionsForLibvpxCLI(opts VP9EncoderOptions) VP9EncoderOptions {
-	opts.DeltaQUV = 0
-	opts.ColorRange = VP9ColorRangeStudio
-	opts.MinBitrateKbps = 0
-	opts.MaxBitrateKbps = 0
-	opts.AdaptiveKeyFrames = false
-	opts.AQMode = VP9AQNone
-	opts.NoiseSensitivity = 0
-	return opts
-}
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 // vp9OptionsParityGapSeeds lists VP9 options-fuzz seed payloads whose strict
 // byte parity is gated behind libvpx VP9 features govpx has not yet ported.
@@ -156,7 +115,7 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 	// byte-identically to the libvpx CLI under the comparator
 	// normalisation above. Configurations that intentionally exercise the
 	// govpx CBR rate-controller / cpu_used speed-feature divergences
-	// described in vp9NormalizeFuzzOptionsForLibvpxCLI are NOT in the seed
+	// described in vp9oracle.NormalizeFuzzOptionsForLibvpxCLI are NOT in the seed
 	// corpus -- those red configurations live as separate encoder-side
 	// parity-gap list so the seed corpus stays green and any new red seed
 	// captures genuinely new option-validation surface fallout. Byte
@@ -230,8 +189,8 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 		if vp9OptionsParityGapSeed(data) {
 			t.Skip("seed tracks a known VP9 parity gap; see vp9OptionsParityGapSeeds")
 		}
-		opts := vp9NormalizeFuzzOptionsForLibvpxCLI(vp9EncoderOptionsFromFuzz(data))
-		e, err := NewVP9Encoder(opts)
+		opts := vp9oracle.NormalizeFuzzOptionsForLibvpxCLI(vp9EncoderOptionsFromFuzz(data))
+		e, err := govpx.NewVP9Encoder(opts)
 		if err != nil {
 			assertVP9FuzzEncoderConstructError(t, err)
 			return
@@ -240,17 +199,12 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 			t.Fatal("NewVP9Encoder returned nil encoder without error")
 		}
 		src := vp9test.NewYCbCr(opts.Width, opts.Height, 128, 128, 128)
-		size, err := vp9AllocatingEncodeBufferSize(opts.Width, opts.Height)
-		if err != nil {
-			return
-		}
-		dst := make([]byte, size)
-		result, err := e.EncodeIntoWithResult(src, dst)
+		got, err := e.Encode(src)
 		if err != nil {
 			assertVP9FuzzEncoderRuntimeError(t, err)
 			return
 		}
-		if len(result.Data) == 0 {
+		if len(got) == 0 {
 			return
 		}
 		libvpxKey := tryVP9LibvpxKeyFrameBytes(t, opts, src)
@@ -258,12 +212,12 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 			t.Logf("vpxenc-vp9 rejected fuzzed config (comparator inapplicable, logged-only)")
 			return
 		}
-		gHash := sha256.Sum256(result.Data)
+		gHash := sha256.Sum256(got)
 		lHash := sha256.Sum256(libvpxKey)
 		if gHash != lHash {
 			t.Errorf("keyframe byte mismatch under fuzzed options: govpx_len=%d vpxenc_len=%d first_diff=%d",
-				len(result.Data), len(libvpxKey),
-				testutil.FirstByteDiff(result.Data, libvpxKey))
+				len(got), len(libvpxKey),
+				testutil.FirstByteDiff(got, libvpxKey))
 		}
 		_ = bytes.Equal // keep import in case future tightening drops first_diff log.
 	})
@@ -279,148 +233,13 @@ func FuzzVP9OracleEncoderOptions(f *testing.F) {
 // --tile-columns=0 --tile-rows=0 --auto-alt-ref=0 --lag-in-frames=0 --row-mt=0
 // --fps=30/1); duplicate args appended via extra are last-wins inside vpxenc,
 // so the overrides below replace each pin.
-func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts VP9EncoderOptions, src *image.YCbCr) []byte {
+func tryVP9LibvpxKeyFrameBytes(t *testing.T, opts govpx.VP9EncoderOptions, src *image.YCbCr) []byte {
 	t.Helper()
 	vp9test.RequireVpxenc(t)
-	extra := vp9LibvpxOracleArgsFromOptions(opts)
+	extra := vp9oracle.LibvpxArgsFromOptions(opts)
 	packets, _, err := vp9test.VpxencPacketsResult([]*image.YCbCr{src}, extra...)
 	if err != nil || len(packets) == 0 {
 		return nil
 	}
 	return append([]byte(nil), packets[0]...)
-}
-
-// vp9LibvpxOracleArgsFromOptions builds the vpxenc-vp9 extra-arg slice for a
-// fuzzed VP9EncoderOptions value. Each conditional matches a govpx field
-// that has a libvpx CLI flag; fields without one are normalised away ahead of
-// the fuzz comparator via vp9NormalizeFuzzOptionsForLibvpxCLI. The arg order
-// trails VpxencVP9EncodeI420's pinned defaults so duplicate-key last-wins
-// overrides the baseline.
-func vp9LibvpxOracleArgsFromOptions(opts VP9EncoderOptions) []string {
-	args := make([]string, 0, 32)
-
-	switch opts.Deadline {
-	case DeadlineBestQuality:
-		args = append(args, "--best")
-	case DeadlineGoodQuality:
-		args = append(args, "--good")
-	case DeadlineRealtime:
-		args = append(args, "--rt")
-	}
-
-	switch opts.RateControlMode {
-	case RateControlCBR:
-		args = append(args, "--end-usage=cbr")
-	case RateControlVBR:
-		args = append(args, "--end-usage=vbr")
-	case RateControlCQ:
-		args = append(args, "--end-usage=cq")
-	case RateControlQ:
-		args = append(args, "--end-usage=q")
-	}
-
-	// Resolve the effective min/max quantizer the same way
-	// vp9NormalizedPublicQuantizers does inside NewVP9Encoder, so the
-	// libvpx CLI receives the operating quantizer range govpx will
-	// actually use. Without this, fuzz inputs with MinQ==MaxQ==0 force
-	// libvpx to operate at Q=0 while govpx silently defaults to
-	// vp9DefaultMinQuantizer..vp9DefaultMaxQuantizer.
-	effMinQ, effMaxQ, effCQ := vp9NormalizedPublicQuantizers(opts)
-	args = append(args,
-		"--min-q="+strconv.Itoa(effMinQ),
-		"--max-q="+strconv.Itoa(effMaxQ),
-		"--cq-level="+strconv.Itoa(effCQ),
-	)
-
-	args = append(args,
-		"--cpu-used="+strconv.Itoa(int(opts.CpuUsed)),
-		"--target-bitrate="+strconv.Itoa(opts.TargetBitrateKbps),
-		"--threads="+strconv.Itoa(opts.Threads),
-		"--tile-rows="+strconv.Itoa(int(opts.Log2TileRows)),
-		"--aq-mode="+strconv.Itoa(int(opts.AQMode)),
-		"--sharpness="+strconv.Itoa(int(opts.Sharpness)),
-		"--noise-sensitivity="+strconv.Itoa(int(opts.NoiseSensitivity)),
-		"--disable-loopfilter="+strconv.Itoa(int(opts.DisableLoopfilter)),
-		"--color-space="+vp9LibvpxColorSpaceArg(opts.ColorSpace),
-		"--tune-content="+vp9LibvpxTuneContentArg(opts.ScreenContentMode),
-		"--undershoot-pct="+strconv.Itoa(opts.UndershootPct),
-		"--overshoot-pct="+strconv.Itoa(opts.OvershootPct),
-		"--max-intra-rate="+strconv.Itoa(opts.MaxIntraBitratePct),
-		"--max-inter-rate="+strconv.Itoa(opts.MaxInterBitratePct),
-		"--buf-sz="+strconv.Itoa(opts.BufferSizeMs),
-		"--buf-initial-sz="+strconv.Itoa(opts.BufferInitialSizeMs),
-		"--buf-optimal-sz="+strconv.Itoa(opts.BufferOptimalSizeMs),
-	)
-
-	if opts.MinKeyframeInterval > 0 {
-		args = append(args, "--kf-min-dist="+strconv.Itoa(opts.MinKeyframeInterval))
-	}
-	if opts.MaxKeyframeInterval > 0 {
-		args = append(args, "--kf-max-dist="+strconv.Itoa(opts.MaxKeyframeInterval))
-	}
-
-	if opts.Lossless {
-		args = append(args, "--lossless=1")
-	} else {
-		args = append(args, "--lossless=0")
-	}
-
-	if opts.ErrorResilient {
-		args = append(args, "--error-resilient=1")
-	} else {
-		args = append(args, "--error-resilient=0")
-	}
-
-	// FrameParallelDecodingSet=false means "keep libvpx default" (1, on).
-	// FrameParallelDecodingSet=true forwards the chosen value explicitly.
-	if opts.FrameParallelDecodingSet {
-		if opts.FrameParallelDecoding {
-			args = append(args, "--frame-parallel=1")
-		} else {
-			args = append(args, "--frame-parallel=0")
-		}
-	}
-
-	if opts.FPS > 0 {
-		args = append(args, "--fps="+strconv.Itoa(opts.FPS)+"/1")
-	}
-
-	return args
-}
-
-// vp9LibvpxColorSpaceArg maps a VP9ColorSpace value to the corresponding
-// vpxenc --color-space CLI token. The libvpx CLI parser names match the help
-// output exactly (see vpxenc-vp9 --help "VP9 Specific Options").
-func vp9LibvpxColorSpaceArg(cs VP9ColorSpace) string {
-	switch cs {
-	case VP9ColorSpaceBT601:
-		return "bt601"
-	case VP9ColorSpaceBT709:
-		return "bt709"
-	case VP9ColorSpaceSMPTE170:
-		return "smpte170"
-	case VP9ColorSpaceSMPTE240:
-		return "smpte240"
-	case VP9ColorSpaceBT2020:
-		return "bt2020"
-	case VP9ColorSpaceReserved:
-		return "reserved"
-	case VP9ColorSpaceSRGB:
-		return "sRGB"
-	default:
-		return "unknown"
-	}
-}
-
-// vp9LibvpxTuneContentArg maps the fuzzed VP9 ScreenContentMode int8 onto the
-// vpxenc-vp9 --tune-content CLI token set (default/screen/film).
-func vp9LibvpxTuneContentArg(mode int8) string {
-	switch mode {
-	case 1:
-		return "screen"
-	case 2:
-		return "film"
-	default:
-		return "default"
-	}
 }
