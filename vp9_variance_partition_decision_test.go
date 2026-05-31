@@ -259,6 +259,46 @@ func TestVP9EnsureSBPartitionChosenThreadsHighSourceSAD(t *testing.T) {
 	}
 }
 
+func TestVP9KeyframeNonRDUsesChoosePartitioning(t *testing.T) {
+	const width, height = 64, 64
+	const miRows, miCols = 8, 8
+
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:    width,
+		Height:   height,
+		Deadline: DeadlineRealtime,
+		CpuUsed:  8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	const baseQ = 37
+	e.vp9ApplySpeedFeatures(e.vp9PerFrameSpeedContext(vp9PerFrameSpeedContextArgs{
+		IsKey:      true,
+		IntraOnly:  true,
+		ShowFrame:  true,
+		BaseQIndex: baseQ,
+	}))
+	key := &vp9KeyframeEncodeState{
+		img: vp9test.NewPanningYCbCr(width, height, 0),
+		hdr: &vp9dec.UncompressedHeader{
+			FrameType: common.KeyFrame,
+			Quant:     vp9dec.QuantizationParams{BaseQindex: baseQ},
+		},
+		dq: &vp9dec.DequantTables{},
+	}
+	if !e.vp9KeyframeChoosePartitioningEnabled(key) {
+		t.Fatalf("keyframe choose_partitioning disabled for realtime non-RD row")
+	}
+	got, ok := e.pickVP9KeyframeVariancePartitionBlockSize(key,
+		miRows, miCols, 0, 0, common.Block64x64)
+	if !ok || got != common.Block8x8 {
+		t.Fatalf("keyframe partition = (%v, %v), want (Block8x8, true)", got, ok)
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	const width, height = 64, 64
 	const miRows, miCols = 8, 8

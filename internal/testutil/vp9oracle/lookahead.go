@@ -66,8 +66,9 @@ func CaptureGovpxAutoAltRefPacketRows(t testing.TB,
 		t.Fatalf("govpx auto-alt-ref trace rows = %d, packets = %d",
 			len(rows), len(packets))
 	}
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -78,11 +79,12 @@ func CaptureLibvpxAutoAltRefPacketRows(t testing.TB,
 	t.Helper()
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources, nil,
 		extraArgs...)
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

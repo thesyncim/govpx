@@ -31,11 +31,13 @@ func TestVP9OracleCyclicRefreshCompressedHeaderContextDiff(t *testing.T) {
 	const frame = 2
 	gKey, _ := readVP9OracleKeyHeaderWithLen(t, "govpx", got[0], width, height)
 	lKey, _ := readVP9OracleKeyHeaderWithLen(t, "libvpx", want[0], width, height)
-	gHdr := readVP9OraclePacketHeader(t, "govpx", frame, got[frame], &gKey, width, height)
-	lHdr := readVP9OraclePacketHeader(t, "libvpx", frame, want[frame], &lKey, width, height)
+	gHdr, gUnc := readVP9OraclePacketHeaderWithLen(t, "govpx", frame, got[frame],
+		&gKey, width, height)
+	lHdr, lUnc := readVP9OraclePacketHeaderWithLen(t, "libvpx", frame, want[frame],
+		&lKey, width, height)
 
-	gComp, gFC, gUnc := vp9test.ReadCompressedHeader(t, got[frame], gHdr)
-	lComp, lFC, lUnc := vp9test.ReadCompressedHeader(t, want[frame], lHdr)
+	gComp, gFC, _ := vp9test.ReadCompressedHeaderAt(t, got[frame], gHdr, gUnc)
+	lComp, lFC, _ := vp9test.ReadCompressedHeaderAt(t, want[frame], lHdr, lUnc)
 
 	t.Logf("unc=%d/%d first_part=%d/%d tx_mode govpx=%d libvpx=%d ref_mode govpx=%d libvpx=%d",
 		gUnc, lUnc, gHdr.FirstPartitionSize, lHdr.FirstPartitionSize,

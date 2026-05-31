@@ -13,13 +13,24 @@ func ReadCompressedHeader(t testing.TB, packet []byte,
 	header vp9dec.UncompressedHeader,
 ) (vp9dec.CompressedHeader, vp9dec.FrameContext, int) {
 	t.Helper()
-	var br vp9dec.BitReader
-	br.Init(packet)
-	if _, err := vp9dec.ReadUncompressedHeader(&br, nil, nil); err != nil {
-		t.Fatalf("ReadUncompressedHeader: %v", err)
+	var state HeaderStreamState
+	_, uncSize, _ := state.ParsePacketHeader(t, packet)
+	return ReadCompressedHeaderAt(t, packet, header, uncSize)
+}
+
+func ReadCompressedHeaderAt(t testing.TB, packet []byte,
+	header vp9dec.UncompressedHeader, uncSize int,
+) (vp9dec.CompressedHeader, vp9dec.FrameContext, int) {
+	t.Helper()
+	if uncSize < 0 || uncSize > len(packet) {
+		t.Fatalf("uncompressed header size %d outside packet len %d",
+			uncSize, len(packet))
 	}
-	uncSize := br.BytesRead()
 	compEnd := uncSize + int(header.FirstPartitionSize)
+	if compEnd < uncSize || compEnd > len(packet) {
+		t.Fatalf("compressed header end %d outside packet len %d",
+			compEnd, len(packet))
+	}
 	var cr vp9bits.Reader
 	if err := cr.Init(packet[uncSize:compEnd]); err != nil {
 		t.Fatalf("compressed reader Init: %v", err)
@@ -39,10 +50,79 @@ func ReadCompressedHeader(t testing.TB, packet []byte,
 	return comp, fc, uncSize
 }
 
+type HeaderStreamState struct {
+	prev     vp9dec.UncompressedHeader
+	havePrev bool
+
+	refWidth  [vp9common.RefFrames]uint32
+	refHeight [vp9common.RefFrames]uint32
+}
+
+func (s *HeaderStreamState) ParsePacketHeader(t testing.TB,
+	packet []byte,
+) (vp9dec.UncompressedHeader, int, int) {
+	t.Helper()
+	var br vp9dec.BitReader
+	br.Init(packet)
+	var prev *vp9dec.UncompressedHeader
+	if s.havePrev {
+		prev = &s.prev
+	}
+	h, err := vp9dec.ReadUncompressedHeader(&br, prev,
+		func(slot uint8) (uint32, uint32) {
+			if int(slot) >= len(s.refWidth) {
+				return 0, 0
+			}
+			return s.refWidth[slot], s.refHeight[slot]
+		})
+	if err != nil {
+		t.Fatalf("ReadUncompressedHeader: %v", err)
+	}
+	uncSize := br.BytesRead()
+	tileStart := uncSize + int(h.FirstPartitionSize)
+	if tileStart < uncSize || tileStart > len(packet) {
+		t.Fatalf("tile start %d outside packet len %d", tileStart, len(packet))
+	}
+	s.noteHeader(h)
+	return h, uncSize, tileStart
+}
+
+func (s *HeaderStreamState) noteHeader(h vp9dec.UncompressedHeader) {
+	if h.ShowExistingFrame {
+		return
+	}
+	for slot := range vp9common.RefFrames {
+		if h.RefreshFrameFlags&(1<<uint(slot)) != 0 {
+			s.refWidth[slot] = h.Width
+			s.refHeight[slot] = h.Height
+		}
+	}
+	s.prev = h
+	s.havePrev = true
+}
+
+func (s *HeaderStreamState) EnrichRateTraceRowFromPacket(t testing.TB,
+	row *RateTraceRow, packet []byte,
+) {
+	t.Helper()
+	header, uncSize, _ := s.ParsePacketHeader(t, packet)
+	enrichRateTraceRowFromParsedPacket(t, row, packet, header, uncSize)
+}
+
 func EnrichRateTraceRowFromPacket(t testing.TB, row *RateTraceRow, packet []byte) {
 	t.Helper()
-	header, _ := ParseHeader(t, packet)
-	comp, _, _ := ReadCompressedHeader(t, packet, header)
+	var state HeaderStreamState
+	state.EnrichRateTraceRowFromPacket(t, row, packet)
+}
+
+func enrichRateTraceRowFromParsedPacket(t testing.TB, row *RateTraceRow,
+	packet []byte, header vp9dec.UncompressedHeader, uncSize int,
+) {
+	t.Helper()
+	var comp vp9dec.CompressedHeader
+	if !header.ShowExistingFrame {
+		comp, _, _ = ReadCompressedHeaderAt(t, packet, header, uncSize)
+	}
 	row.KeyFrame = header.FrameType == vp9common.KeyFrame
 	row.ShowFrame = header.ShowFrame
 	if header.Width != 0 {

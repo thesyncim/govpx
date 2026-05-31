@@ -499,7 +499,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
+func TestVP9EncoderKeyframeSignalsHorizontalModeOnNonRDLeaf(t *testing.T) {
 	const width, height = 128, 16
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	img := vp9test.NewHorizontalBandsYCbCr(width, height, 128, 128)
@@ -519,11 +519,11 @@ func TestVP9EncoderKeyframeSignalsTx16HorizontalMode(t *testing.T) {
 		t.Fatalf("decoder MI grid len = %d, want second SB-row block", len(d.miGrid))
 	}
 	got := d.miGrid[8]
-	if got.SbType != common.Block32x16 {
-		t.Fatalf("second block size = %d, want Block32x16", got.SbType)
+	if got.SbType != common.Block8x8 {
+		t.Fatalf("second block size = %d, want Block8x8", got.SbType)
 	}
-	if got.TxSize != common.Tx16x16 {
-		t.Fatalf("second block tx size = %d, want Tx16x16", got.TxSize)
+	if got.TxSize != common.Tx8x8 {
+		t.Fatalf("second block tx size = %d, want Tx8x8", got.TxSize)
 	}
 	if got.Mode != common.HPred {
 		t.Fatalf("second block mode = %d, want HPred", got.Mode)

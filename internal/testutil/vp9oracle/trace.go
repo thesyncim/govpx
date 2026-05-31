@@ -70,11 +70,12 @@ func CaptureLibvpxRateTraceRows(t testing.TB, width int, height int,
 	}
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
 		LibvpxFrameFlags(flags), extraArgs...)
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows
 }
@@ -206,6 +207,7 @@ func CaptureGovpxStreamParityPacketRowsWithHooks(t testing.TB,
 	if len(rows) != len(sources) {
 		t.Fatalf("govpx VP9 trace rows = %d, want %d", len(rows), len(sources))
 	}
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
@@ -213,7 +215,7 @@ func CaptureGovpxStreamParityPacketRowsWithHooks(t testing.TB,
 		if len(packets[i]) == 0 {
 			t.Fatalf("govpx VP9 row %d was not dropped but has no packet", i)
 		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -224,11 +226,12 @@ func CaptureLibvpxStreamParityPacketRows(t testing.TB,
 	t.Helper()
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
 		LibvpxFrameFlags(flags), extraArgs...)
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -275,8 +278,9 @@ func CaptureVariablePacketRows(t testing.TB, opts govpx.VP9EncoderOptions,
 	if len(rows) != len(sources) {
 		t.Fatalf("govpx VP9 variable trace rows = %d, want %d", len(rows), len(sources))
 	}
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -291,8 +295,9 @@ func CaptureLibvpxVariablePacketRows(t testing.TB,
 	}
 	rows, packets := vp9test.VpxencVariableFrameFlagTracePackets(t, sources,
 		LibvpxFrameFlags(flags), invisible, extraArgs...)
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

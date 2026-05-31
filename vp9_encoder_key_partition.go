@@ -824,7 +824,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	//
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition
 	// reads xd->mi[]->sb_type to drive the encode walk.
-	if e.vp9RealtimeVariancePartitionEnabled() &&
+	if e.vp9KeyframeChoosePartitioningEnabled(key) &&
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, key, nil) {
 		return e.vp9VarPartDecisionFor(miCols, miRow, miCol, bsize)
 	}
@@ -878,18 +878,26 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 }
 
 // vp9KeyframeVariancePartitionEnabled mirrors libvpx's keyframe
-// choose_partitioning gate. A realtime speed can set
-// sf->partition_search_type = VAR_BASED_PARTITION while still using the RD
-// superblock row when sf->use_nonrd_pick_mode is false; that RD row only
-// consumes choose_partitioning for non-keyframes. Keyframes reach
-// choose_partitioning through the non-RD row.
+// choose_partitioning gate. A realtime speed can set either
+// VAR_BASED_PARTITION or REFERENCE_PARTITION; both non-RD rows call
+// choose_partitioning before nonrd_use_partition for keyframes.
 //
-// libvpx: vp9/encoder/vp9_encodeframe.c:4259-4260 and :5323-5328.
+// libvpx: vp9/encoder/vp9_encodeframe.c:5304-5357.
 func (e *VP9Encoder) vp9KeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {
 	return key != nil && key.dq != nil && key.hdr != nil &&
 		key.hdr.FrameType == common.KeyFrame && !key.lossless &&
-		e.rc.enabled && e.sf.UseNonrdPickMode != 0 &&
-		e.vp9RealtimeVariancePartitionEnabled()
+		e.sf.UseNonrdPickMode != 0 &&
+		e.vp9KeyframeChoosePartitioningEnabled(key)
+}
+
+func (e *VP9Encoder) vp9KeyframeChoosePartitioningEnabled(key *vp9KeyframeEncodeState) bool {
+	if e == nil || key == nil || key.dq == nil || key.hdr == nil ||
+		key.hdr.FrameType != common.KeyFrame || key.lossless ||
+		e.sf.UseNonrdPickMode == 0 {
+		return false
+	}
+	return e.sf.PartitionSearchType == VarBasedPartition ||
+		e.sf.PartitionSearchType == ReferencePartition
 }
 
 func vp9KeyframeVariancePartitionThreshold(yAcDequant int16, bsize common.BlockSize) uint64 {

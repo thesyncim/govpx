@@ -80,7 +80,6 @@ func TestVP9KeyframeVariancePartitionRequiresNonRDRow(t *testing.T) {
 		dq:  &vp9dec.DequantTables{},
 	}
 	var e VP9Encoder
-	e.rc.enabled = true
 	e.sf.PartitionSearchType = VarBasedPartition
 
 	if e.vp9KeyframeVariancePartitionEnabled(key) {
@@ -90,6 +89,11 @@ func TestVP9KeyframeVariancePartitionRequiresNonRDRow(t *testing.T) {
 	e.sf.UseNonrdPickMode = 1
 	if !e.vp9KeyframeVariancePartitionEnabled(key) {
 		t.Fatalf("keyframe variance partition disabled on non-RD var-based row")
+	}
+
+	e.sf.PartitionSearchType = ReferencePartition
+	if !e.vp9KeyframeVariancePartitionEnabled(key) {
+		t.Fatalf("keyframe variance partition disabled on non-RD reference row")
 	}
 
 	key.lossless = true

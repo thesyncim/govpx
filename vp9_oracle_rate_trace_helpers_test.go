@@ -64,11 +64,12 @@ func captureLibvpxVP9RateTraceRows(t *testing.T, width int, height int,
 	}
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
 		vp9LibvpxFrameFlags(flags), extraArgs...)
+	var headers vp9test.HeaderStreamState
 	for i := range rows {
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
+		headers.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows
 }
