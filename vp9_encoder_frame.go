@@ -498,6 +498,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// (libvpx vp9_bitstream.c:1356 ; govpx WriteCompressedHeaderFromCounts)
 	// reads the post-demotion InterpFilter, matching libvpx wire bits.
 	header.InterpFilter = vp9FixInterpFilter(header.InterpFilter, counts)
+	if !isKey && !intraOnly {
+		referenceMode = encoder.CollapseReferenceModeFromCounts(referenceMode,
+			&counts.ReferenceMode)
+		if interState != nil {
+			interState.referenceMode = referenceMode
+		}
+	}
 	// libvpx's tile-write pass reads cm->interp_filter via
 	// vp9_bitstream.c:306-314 to decide whether each block emits a
 	// per-block switchable_interp literal. govpx mirrors that through

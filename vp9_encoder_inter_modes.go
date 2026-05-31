@@ -568,6 +568,20 @@ const vp9InterNearestNearZeroMask = (1 << uint(common.NearestMv)) |
 	(1 << uint(common.NearMv)) |
 	(1 << uint(common.ZeroMv))
 
+var vp9SingleRefInterModeOrder = [...]common.PredictionMode{
+	common.NearestMv,
+	common.NewMv,
+	common.NearMv,
+	common.ZeroMv,
+}
+
+var vp9CompoundInterModeOrder = [...]common.PredictionMode{
+	common.ZeroMv,
+	common.NearestMv,
+	common.NearMv,
+	common.NewMv,
+}
+
 type vp9KeyframeModeDecision struct {
 	mode   common.PredictionMode
 	bmi    [4]vp9dec.Bmi
@@ -774,32 +788,38 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			bestSet = true
 		}
 	} else if len(refFrameSet) > 0 {
-		for _, refFrame := range refFrameSet {
-			refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
-			if !ok {
-				continue
-			}
-			inter.ref = &e.refFrames[refSlot]
-			refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
-				inter.referenceMode, inter.compoundRefs, refFrame)
-			bestScoreSoFar := uint64(0)
-			if bestSet {
-				bestScoreSoFar = best.score
-			}
-			decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
-				miRow, miCol, bsize, refFrame, refRate,
-				fullRDRefs[refFrame], bestScoreSoFar, bestSet,
-				filterRDScoresPtr)
-			if !ok {
-				continue
-			}
-			decision.refFrame = refFrame
-			decision.secondRefFrame = vp9dec.NoRefFrame
-			decision.refSlot = refSlot
-			if !bestSet || decision.score < best.score ||
-				(decision.score == best.score && decision.rate < best.rate) {
-				best = decision
-				bestSet = true
+		if bsize >= common.Block8x8 {
+			best, bestSet = e.pickVP9FullRDInterReferenceMode(inter, tile,
+				miRows, miCols, miRow, miCol, bsize, refFrameSet,
+				fullRDRefs, sourceAltRefOverlay, filterRDScoresPtr)
+		} else {
+			for _, refFrame := range refFrameSet {
+				refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+				if !ok {
+					continue
+				}
+				inter.ref = &e.refFrames[refSlot]
+				refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
+					inter.referenceMode, inter.compoundRefs, refFrame)
+				bestScoreSoFar := uint64(0)
+				if bestSet {
+					bestScoreSoFar = best.score
+				}
+				decision, ok := e.pickVP9InterMode(inter, tile, miRows, miCols,
+					miRow, miCol, bsize, refFrame, refRate,
+					fullRDRefs[refFrame], bestScoreSoFar, bestSet,
+					filterRDScoresPtr)
+				if !ok {
+					continue
+				}
+				decision.refFrame = refFrame
+				decision.secondRefFrame = vp9dec.NoRefFrame
+				decision.refSlot = refSlot
+				if !bestSet || decision.score < best.score ||
+					(decision.score == best.score && decision.rate < best.rate) {
+					best = decision
+					bestSet = true
+				}
 			}
 		}
 	}
@@ -859,6 +879,14 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 		return best, bestSet
 	}
 	if sourceAltRefOverlay {
+		correctFullRDNewMV()
+		finishFullRD()
+		if collectFilterRD && bestSet {
+			e.vp9StoreBlockFilterRDScores(&filterRDScores)
+		}
+		return best, bestSet
+	}
+	if !useNonrd && bsize >= common.Block8x8 {
 		correctFullRDNewMV()
 		finishFullRD()
 		if collectFilterRD && bestSet {
@@ -944,6 +972,198 @@ func (e *VP9Encoder) vp9CompoundReferencePair(inter *vp9InterEncodeState,
 		return fixedRef, fixedSlot, varRef, varSlot, true
 	}
 	return varRef, varSlot, fixedRef, fixedSlot, true
+}
+
+func vp9FullRDReferenceInSet(refFrameSet []int8, refFrame int8) bool {
+	for _, enabled := range refFrameSet {
+		if enabled == refFrame {
+			return true
+		}
+	}
+	return false
+}
+
+func vp9FullRDApplyBestRefSkipMask(refSkipMask *[2]uint8, refFrame int8) {
+	if refSkipMask == nil {
+		return
+	}
+	switch refFrame {
+	case vp9dec.LastFrame:
+		refSkipMask[0] |= (1 << uint(vp9dec.GoldenFrame)) |
+			(1 << uint(vp9dec.AltrefFrame)) |
+			(1 << uint(vp9dec.IntraFrame))
+	case vp9dec.GoldenFrame:
+		refSkipMask[0] |= (1 << uint(vp9dec.LastFrame)) |
+			(1 << uint(vp9dec.AltrefFrame)) |
+			(1 << uint(vp9dec.IntraFrame))
+	case vp9dec.AltrefFrame:
+		refSkipMask[0] |= (1 << uint(vp9dec.LastFrame)) |
+			(1 << uint(vp9dec.GoldenFrame)) |
+			(1 << uint(vp9dec.IntraFrame))
+	}
+}
+
+func vp9FullRDRefSkipped(refSkipMask [2]uint8, refFrame, secondRefFrame int8) bool {
+	if refFrame < 0 || refFrame >= 8 {
+		return false
+	}
+	second := secondRefFrame
+	if second < 0 {
+		second = 0
+	}
+	if second >= 8 {
+		return false
+	}
+	return refSkipMask[0]&(1<<uint(refFrame)) != 0 &&
+		refSkipMask[1]&(1<<uint(second)) != 0
+}
+
+func vp9FullRDZeroMVModeAllowed(mode common.PredictionMode,
+	candidateZero, nearestZero, nearZero bool,
+	nearCost, nearestCost, zeroCost int,
+) bool {
+	if !candidateZero {
+		return true
+	}
+	switch mode {
+	case common.NearMv:
+		return nearCost <= zeroCost
+	case common.NearestMv:
+		return nearestCost <= zeroCost
+	case common.ZeroMv:
+		if nearestZero && zeroCost >= nearestCost {
+			return false
+		}
+		if nearZero && zeroCost >= nearCost {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *VP9Encoder) vp9FullRDCompoundReferenceSlots(inter *vp9InterEncodeState,
+	refFrames [2]int8,
+) ([2]int, bool) {
+	var slots [2]int
+	if inter == nil {
+		return slots, false
+	}
+	fixedRef := inter.compoundRefs.CompFixedRef
+	fixedIdx := int(inter.refSignBias[fixedRef])
+	if fixedIdx < 0 || fixedIdx > 1 || refFrames[fixedIdx] != fixedRef {
+		return slots, false
+	}
+	varRef := refFrames[1-fixedIdx]
+	if varRef != inter.compoundRefs.CompVarRef[0] &&
+		varRef != inter.compoundRefs.CompVarRef[1] {
+		return slots, false
+	}
+	var ok bool
+	slots[0], ok = e.vp9InterReferenceSlot(inter, refFrames[0])
+	if !ok {
+		return slots, false
+	}
+	slots[1], ok = e.vp9InterReferenceSlot(inter, refFrames[1])
+	if !ok {
+		return slots, false
+	}
+	return slots, true
+}
+
+func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrameSet []int8,
+	fullRDRefs [vp9dec.MaxRefFrames]vp9FullRDRefState,
+	sourceAltRefOverlay bool,
+	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
+) (vp9InterModeDecision, bool) {
+	if inter == nil || bsize < common.Block8x8 {
+		return vp9InterModeDecision{}, false
+	}
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	compoundAllowed := e.vp9InterCompoundEnabled() && !sourceAltRefOverlay &&
+		inter.compoundAllowed && inter.referenceMode != vp9dec.SingleReference
+
+	bestSet := false
+	var best vp9InterModeDecision
+	refSkipMask := [2]uint8{0, 1}
+	modeSkipStart := e.sf.ModeSkipStart + 1
+	for midx, def := range encoder.FullRDModeOrder {
+		if midx == modeSkipStart && bestSet {
+			vp9FullRDApplyBestRefSkipMask(&refSkipMask, best.refFrame)
+		}
+		refFrame := def.RefFrame[0]
+		secondRefFrame := def.RefFrame[1]
+		if refFrame <= vp9dec.IntraFrame {
+			continue
+		}
+		if vp9FullRDRefSkipped(refSkipMask, refFrame, secondRefFrame) {
+			continue
+		}
+		bestScoreSoFar := uint64(0)
+		if bestSet {
+			bestScoreSoFar = best.score
+		}
+		modeOrder := [1]common.PredictionMode{def.Mode}
+		if secondRefFrame <= vp9dec.IntraFrame {
+			if !vp9FullRDReferenceInSet(refFrameSet, refFrame) {
+				continue
+			}
+			refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
+			if !ok {
+				continue
+			}
+			inter.ref = &e.refFrames[refSlot]
+			refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
+				inter.referenceMode, inter.compoundRefs, refFrame)
+			decision, ok := e.pickVP9InterModeWithOrder(inter, tile,
+				miRows, miCols, miRow, miCol, bsize, refFrame, refRate,
+				fullRDRefs[refFrame], bestScoreSoFar, bestSet,
+				filterRDScores, modeOrder[:])
+			if !ok {
+				continue
+			}
+			decision.refFrame = refFrame
+			decision.secondRefFrame = vp9dec.NoRefFrame
+			decision.refSlot = refSlot
+			if !bestSet || decision.score < best.score ||
+				(decision.score == best.score && decision.rate < best.rate) {
+				best = decision
+				bestSet = true
+			}
+			continue
+		}
+		if !compoundAllowed {
+			continue
+		}
+		refFrames := [2]int8{refFrame, secondRefFrame}
+		refSlots, ok := e.vp9FullRDCompoundReferenceSlots(inter, refFrames)
+		if !ok {
+			continue
+		}
+		refRate, ok := encoder.CompoundRefRateCost(&inter.selectFc, above, left,
+			inter.referenceMode, inter.compoundRefs, inter.refSignBias,
+			refFrames)
+		if !ok {
+			continue
+		}
+		decision, ok := e.pickVP9CompoundInterModeWithOrder(inter, tile,
+			miRows, miCols, miRow, miCol, bsize, refFrames, refSlots,
+			refRate, bestScoreSoFar, bestSet, filterRDScores, modeOrder[:])
+		if !ok {
+			continue
+		}
+		if !bestSet || decision.score < best.score ||
+			(decision.score == best.score && decision.rate < best.rate) {
+			best = decision
+			bestSet = true
+		}
+	}
+	return best, bestSet
 }
 
 func (e *VP9Encoder) vp9FullRDRefStates(inter *vp9InterEncodeState,
@@ -1032,6 +1252,55 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 	bsize common.BlockSize, refFrame [2]int8, refSlot [2]int, refRate int,
 	bestScoreSoFar uint64, bestScoreSoFarSet bool,
 	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
+) (vp9InterModeDecision, bool) {
+	return e.pickVP9CompoundInterModeWithOrder(inter, tile, miRows, miCols,
+		miRow, miCol, bsize, refFrame, refSlot, refRate, bestScoreSoFar,
+		bestScoreSoFarSet, filterRDScores, vp9CompoundInterModeOrder[:])
+}
+
+func (e *VP9Encoder) vp9FullRDCompoundZeroMVAllowed(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mode common.PredictionMode, refFrame [2]int8,
+	interModeCtx int, mv [2]vp9dec.MV,
+) bool {
+	if mode != common.NearMv && mode != common.NearestMv && mode != common.ZeroMv {
+		return true
+	}
+	nearCost := encoder.InterModeRateCostN(&inter.selectFc, interModeCtx,
+		common.NearMv, [2]vp9dec.MV{}, [2]vp9dec.MV{}, 2, inter.allowHP)
+	nearestCost := encoder.InterModeRateCostN(&inter.selectFc, interModeCtx,
+		common.NearestMv, [2]vp9dec.MV{}, [2]vp9dec.MV{}, 2, inter.allowHP)
+	zeroCost := encoder.InterModeRateCostN(&inter.selectFc, interModeCtx,
+		common.ZeroMv, [2]vp9dec.MV{}, [2]vp9dec.MV{}, 2, inter.allowHP)
+	var nearest, near [2]vp9dec.MV
+	nearestOK := true
+	nearOK := true
+	for ref := range 2 {
+		var ok bool
+		nearest[ref], ok = e.vp9EncoderInterModeCandidateMv(tile, miRows,
+			miCols, miRow, miCol, bsize, common.NearestMv, refFrame[ref],
+			inter.allowHP, inter.refSignBias)
+		nearestOK = nearestOK && ok
+		near[ref], ok = e.vp9EncoderInterModeCandidateMv(tile, miRows,
+			miCols, miRow, miCol, bsize, common.NearMv, refFrame[ref],
+			inter.allowHP, inter.refSignBias)
+		nearOK = nearOK && ok
+	}
+	return vp9FullRDZeroMVModeAllowed(mode,
+		mv[0] == (vp9dec.MV{}) && mv[1] == (vp9dec.MV{}),
+		nearestOK && nearest[0] == (vp9dec.MV{}) &&
+			nearest[1] == (vp9dec.MV{}),
+		nearOK && near[0] == (vp9dec.MV{}) &&
+			near[1] == (vp9dec.MV{}),
+		nearCost, nearestCost, zeroCost)
+}
+
+func (e *VP9Encoder) pickVP9CompoundInterModeWithOrder(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrame [2]int8, refSlot [2]int, refRate int,
+	bestScoreSoFar uint64, bestScoreSoFarSet bool,
+	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
+	modeOrder []common.PredictionMode,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil || bsize < common.Block8x8 {
 		return vp9InterModeDecision{}, false
@@ -1128,58 +1397,64 @@ func (e *VP9Encoder) pickVP9CompoundInterMode(inter *vp9InterEncodeState,
 		}
 	}
 
-	if modeAllowed(common.ZeroMv) {
-		if !fullRDModeSkipped(common.ZeroMv) {
-			e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
-				refFrame, refSlot, common.ZeroMv, [2]vp9dec.MV{},
-				[2]vp9dec.MV{}, consider)
-		}
-	}
-
-	for _, mode := range [...]common.PredictionMode{common.NearestMv, common.NearMv} {
+	for _, mode := range modeOrder {
 		if !modeAllowed(mode) {
 			continue
 		}
 		if fullRDModeSkipped(mode) {
 			continue
 		}
-		var mv [2]vp9dec.MV
-		ok := true
-		for ref := range 2 {
-			mv[ref], ok = e.vp9EncoderInterModeCandidateMv(tile,
-				miRows, miCols, miRow, miCol, bsize, mode,
-				refFrame[ref], inter.allowHP, inter.refSignBias)
-			if !ok {
-				break
+		switch mode {
+		case common.ZeroMv:
+			if !e.vp9FullRDCompoundZeroMVAllowed(inter, tile, miRows, miCols,
+				miRow, miCol, bsize, mode, refFrame, interModeCtx,
+				[2]vp9dec.MV{}) {
+				continue
 			}
-		}
-		if ok {
 			e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
-				refFrame, refSlot, mode, mv, [2]vp9dec.MV{}, consider)
-		}
-	}
-
-	if modeAllowed(common.NewMv) && !fullRDModeSkipped(common.NewMv) {
-		var newMv, newRefMv [2]vp9dec.MV
-		newOK := true
-		newHasMotion := false
-		for ref := range 2 {
-			inter.ref = &e.refFrames[refSlot[ref]]
-			newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
-				miRow, miCol, bsize, refFrame[ref], vp9InterMvSearchOptions{})
-			if !newOK {
-				break
+				refFrame, refSlot, mode, [2]vp9dec.MV{},
+				[2]vp9dec.MV{}, consider)
+		case common.NearestMv, common.NearMv:
+			var mv [2]vp9dec.MV
+			ok := true
+			for ref := range 2 {
+				mv[ref], ok = e.vp9EncoderInterModeCandidateMv(tile,
+					miRows, miCols, miRow, miCol, bsize, mode,
+					refFrame[ref], inter.allowHP, inter.refSignBias)
+				if !ok {
+					break
+				}
 			}
-			if newMv[ref] != (vp9dec.MV{}) {
-				newHasMotion = true
+			if ok {
+				if !e.vp9FullRDCompoundZeroMVAllowed(inter, tile, miRows, miCols,
+					miRow, miCol, bsize, mode, refFrame, interModeCtx, mv) {
+					continue
+				}
+				e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
+					refFrame, refSlot, mode, mv, [2]vp9dec.MV{}, consider)
 			}
-			newRefMv[ref], _ = e.vp9EncoderInterModeCandidateMv(tile,
-				miRows, miCols, miRow, miCol, bsize, common.NewMv,
-				refFrame[ref], inter.allowHP, inter.refSignBias)
-		}
-		if newOK && newHasMotion {
-			e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
-				refFrame, refSlot, common.NewMv, newMv, newRefMv, consider)
+		case common.NewMv:
+			var newMv, newRefMv [2]vp9dec.MV
+			newOK := true
+			newHasMotion := false
+			for ref := range 2 {
+				inter.ref = &e.refFrames[refSlot[ref]]
+				newMv[ref], _, newOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
+					miRow, miCol, bsize, refFrame[ref], vp9InterMvSearchOptions{})
+				if !newOK {
+					break
+				}
+				if newMv[ref] != (vp9dec.MV{}) {
+					newHasMotion = true
+				}
+				newRefMv[ref], _ = e.vp9EncoderInterModeCandidateMv(tile,
+					miRows, miCols, miRow, miCol, bsize, common.NewMv,
+					refFrame[ref], inter.allowHP, inter.refSignBias)
+			}
+			if newOK && newHasMotion {
+				e.evalVP9CompoundMode(inter, miRows, miCols, miRow, miCol, bsize,
+					refFrame, refSlot, mode, newMv, newRefMv, consider)
+			}
 		}
 	}
 	e.cbRdmult = prevCbRdmult
@@ -1219,6 +1494,44 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 	bsize common.BlockSize, refFrame int8, refRate int,
 	refState vp9FullRDRefState, bestScoreSoFar uint64, bestScoreSoFarSet bool,
 	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
+) (vp9InterModeDecision, bool) {
+	return e.pickVP9InterModeWithOrder(inter, tile, miRows, miCols,
+		miRow, miCol, bsize, refFrame, refRate, refState, bestScoreSoFar,
+		bestScoreSoFarSet, filterRDScores, vp9SingleRefInterModeOrder[:])
+}
+
+func (e *VP9Encoder) vp9FullRDSingleZeroMVAllowed(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
+	interModeCtx int, mv vp9dec.MV,
+) bool {
+	if mode != common.NearMv && mode != common.NearestMv && mode != common.ZeroMv {
+		return true
+	}
+	nearCost := encoder.InterModeRateCost(&inter.selectFc, interModeCtx,
+		common.NearMv, vp9dec.MV{}, vp9dec.MV{}, inter.allowHP)
+	nearestCost := encoder.InterModeRateCost(&inter.selectFc, interModeCtx,
+		common.NearestMv, vp9dec.MV{}, vp9dec.MV{}, inter.allowHP)
+	zeroCost := encoder.InterModeRateCost(&inter.selectFc, interModeCtx,
+		common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, inter.allowHP)
+	nearest, nearestOK := e.vp9EncoderInterModeCandidateMv(tile, miRows,
+		miCols, miRow, miCol, bsize, common.NearestMv, refFrame,
+		inter.allowHP, inter.refSignBias)
+	near, nearOK := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
+		miRow, miCol, bsize, common.NearMv, refFrame, inter.allowHP,
+		inter.refSignBias)
+	return vp9FullRDZeroMVModeAllowed(mode, mv == (vp9dec.MV{}),
+		nearestOK && nearest == (vp9dec.MV{}),
+		nearOK && near == (vp9dec.MV{}),
+		nearCost, nearestCost, zeroCost)
+}
+
+func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, refFrame int8, refRate int,
+	refState vp9FullRDRefState, bestScoreSoFar uint64, bestScoreSoFarSet bool,
+	filterRDScores *[vp9dec.SwitchableFilterContexts]uint64,
+	modeOrder []common.PredictionMode,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil || inter.ref == nil || !inter.ref.valid ||
 		refFrame <= vp9dec.IntraFrame {
@@ -1460,6 +1773,10 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 		if sourceAltRefOverlay && mv != (vp9dec.MV{}) {
 			return
 		}
+		if !e.vp9FullRDSingleZeroMVAllowed(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, mode, refFrame, interModeCtx, mv) {
+			return
+		}
 		filters := pickFilters(mode, mv, refIsLast)
 		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
@@ -1480,10 +1797,11 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	evaluateFixedMVMode(common.NearestMv)
-
-	if modeAllowed(common.NewMv) && !refState.skipNewMv &&
-		!fullRDModeSkipped(common.NewMv) {
+	evaluateNewMVMode := func() {
+		if !modeAllowed(common.NewMv) || refState.skipNewMv ||
+			fullRDModeSkipped(common.NewMv) {
+			return
+		}
 		refMv, refMvOK := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
 			miRow, miCol, bsize, common.NewMv, refFrame, inter.allowHP,
 			inter.refSignBias)
@@ -1511,23 +1829,40 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 						consider(common.NewMv, mv, refMv, filter, distortion)
 					}
 				}
-			} else {
-				for _, filter := range filters {
-					distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-						miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
-					)
-					if ok {
-						consider(common.NewMv, mv, refMv, filter, distortion)
-					}
+				return
+			}
+			for _, filter := range filters {
+				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
+					miRow, miCol, bsize, common.NewMv, refFrame, mv, filter,
+				)
+				if ok {
+					consider(common.NewMv, mv, refMv, filter, distortion)
 				}
 			}
 		}
 	}
-	evaluateFixedMVMode(common.NearMv)
-	if modeAllowed(common.ZeroMv) && !fullRDModeSkipped(common.ZeroMv) {
+	evaluateZeroMVMode := func() {
+		if !modeAllowed(common.ZeroMv) || fullRDModeSkipped(common.ZeroMv) {
+			return
+		}
+		if !e.vp9FullRDSingleZeroMVAllowed(inter, tile, miRows, miCols,
+			miRow, miCol, bsize, common.ZeroMv, refFrame, interModeCtx,
+			vp9dec.MV{}) {
+			return
+		}
 		for _, filter := range pickFilters(common.ZeroMv, vp9dec.MV{}, refIsLast) {
 			consider(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{}, filter,
 				zeroDistortion)
+		}
+	}
+	for _, mode := range modeOrder {
+		switch mode {
+		case common.NearestMv, common.NearMv:
+			evaluateFixedMVMode(mode)
+		case common.NewMv:
+			evaluateNewMVMode()
+		case common.ZeroMv:
+			evaluateZeroMVMode()
 		}
 	}
 	e.cbRdmult = prevCbRdmult

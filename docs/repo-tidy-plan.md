@@ -76,6 +76,13 @@ the size target exists to make each commit materially reduce repo complexity.
     implementing missing encoder/decoder features and closing the highest-value
     parity gaps documented by current parity reports, using the pinned libvpx
     baseline as the source of truth and preserving Go-style package ownership.
+    VP9 Profile 0 byte parity is part of the definition of done, not a
+    secondary cleanup note: full-RD mode search, motion search, rate control,
+    dynamic resize/drop behavior, compressed-header probability updates,
+    decoder reconstruction, and oracle coverage must be closed with focused
+    tests or oracle gates. Safe-point commits in this lane must implement a
+    real missing feature or parity gap; do not substitute shortcuts, TODO-only
+    commits, baseline churn, or cosmetic reshuffles for feature completion.
 
 ## Safe-Point Gate
 

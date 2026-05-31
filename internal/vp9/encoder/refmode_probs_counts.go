@@ -33,6 +33,33 @@ type ReferenceModeCounts struct {
 	CompRef [common.RefContexts][2]uint32
 }
 
+// CollapseReferenceModeFromCounts mirrors libvpx's post-encode
+// reference-mode demotion. If REFERENCE_MODE_SELECT observed only single-ref
+// or only compound-ref blocks, the frame-level mode is reduced and comp_inter
+// counts are cleared so the compressed header omits impossible updates.
+func CollapseReferenceModeFromCounts(mode vp9dec.ReferenceMode,
+	counts *ReferenceModeCounts,
+) vp9dec.ReferenceMode {
+	if mode != vp9dec.ReferenceModeSelect || counts == nil {
+		return mode
+	}
+	var singleCount, compoundCount uint32
+	for i := range counts.CompInter {
+		singleCount += counts.CompInter[i][0]
+		compoundCount += counts.CompInter[i][1]
+	}
+	switch {
+	case compoundCount == 0:
+		counts.CompInter = [common.CompInterContexts][2]uint32{}
+		return vp9dec.SingleReference
+	case singleCount == 0:
+		counts.CompInter = [common.CompInterContexts][2]uint32{}
+		return vp9dec.CompoundReference
+	default:
+		return mode
+	}
+}
+
 // WriteReferenceModeProbsFromCounts mirrors the comp_inter /
 // single_ref / comp_ref update block of write_uncompressed_header.
 // Caller has already emitted the per-frame reference_mode bits.
