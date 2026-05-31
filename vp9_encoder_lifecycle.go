@@ -306,6 +306,7 @@ type VP9Encoder struct {
 	varianceAQDeltaQindexSet bool
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	blockQCoeffs   [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	coefScratch    [1024]int16
 	qCoefScratch   [1024]int16
 	residueScratch [1024]int16

@@ -414,6 +414,71 @@ func TestForwardHTHybridTransformsProduceDirectionalCoefficients(t *testing.T) {
 	}
 }
 
+func TestForwardHT8x8HybridRampMatchesLibvpx(t *testing.T) {
+	var in [64]int16
+	for i := range in {
+		in[i] = int16(((i*37 + 13) % 255) - 127)
+	}
+	cases := []struct {
+		name   string
+		txType common.TxType
+		want   [64]int16
+	}{
+		{
+			name:   "ADST_DCT",
+			txType: common.AdstDct,
+			want: [64]int16{
+				-261, -375, -796, 220, -171, 167, 380, 52,
+				482, 890, -8, -1082, 277, -38, -105, 100,
+				-577, -148, -2633, 607, 88, -547, -55, -374,
+				-363, -1389, -52, 1356, -122, 277, 38, 344,
+				157, 124, 97, 163, -769, -407, 651, -213,
+				-297, -477, -576, 33, -1079, 877, -553, -280,
+				-126, -557, 150, 257, 646, 630, -128, -134,
+				-90, -226, -241, 41, -544, 28, -682, 836,
+			},
+		},
+		{
+			name:   "DCT_ADST",
+			txType: common.DctAdst,
+			want: [64]int16{
+				14, 274, -1202, -231, -609, -342, -71, -77,
+				76, 696, -53, -309, -45, 37, -348, -182,
+				-135, -232, -2635, 405, -434, -423, -331, -578,
+				328, -1775, 169, 948, -501, 474, 46, 586,
+				-4, 467, 932, 248, -533, -209, 124, -255,
+				-40, -243, -273, -299, -853, 1024, -631, -247,
+				60, -409, 82, -436, 757, 401, 2, 516,
+				-11, 309, 141, 314, -238, -294, -1033, 311,
+			},
+		},
+		{
+			name:   "ADST_ADST",
+			txType: common.AdstAdst,
+			want: [64]int16{
+				-20, 28, -863, -143, -463, -313, 115, 39,
+				92, 968, 940, -655, 129, 63, -97, 81,
+				-256, 1065, -2358, -392, -40, -674, -347, -785,
+				215, -1339, -1317, 607, -178, 118, -93, 338,
+				89, 120, 170, 657, -285, -760, 381, -119,
+				-6, -102, -513, 247, -1383, 474, -395, -583,
+				83, -640, -370, -367, 109, 695, 269, 79,
+				43, -39, -193, 230, -428, 76, -1093, 321,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got [64]int16
+			ForwardHT8x8Into(in[:], 8, tc.txType, got[:])
+			if got != tc.want {
+				t.Fatalf("ForwardHT8x8Into mismatch\ngot  %v\nwant %v",
+					got, tc.want)
+			}
+		})
+	}
+}
+
 func TestForwardHTSmallHybridTransformsDoNotAllocate(t *testing.T) {
 	var in4 [16]int16
 	for i := range in4 {

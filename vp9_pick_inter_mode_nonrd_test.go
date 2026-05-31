@@ -84,3 +84,41 @@ func TestVP9VarPartForceSkipLowTempVarOK(t *testing.T) {
 		t.Fatalf("computed low cache force=%v ok=%v, want true/true", force, ok)
 	}
 }
+
+func TestVP9UseModelYrdLargeBlockContentStateGate(t *testing.T) {
+	e := &VP9Encoder{
+		opts: VP9EncoderOptions{
+			RateControlMode:    RateControlCBR,
+			RateControlModeSet: true,
+			CpuUsed:            8,
+		},
+	}
+	if !e.vp9UseModelYrdLargeBlock(common.Block32x32,
+		encoder.ContentStateLowSadLowSumdiff) {
+		t.Fatal("speed8 low-content Block32x32 = false, want true")
+	}
+	if e.vp9UseModelYrdLargeBlock(common.Block32x32,
+		encoder.ContentStateVeryHighSad) {
+		t.Fatal("speed8 very-high-SAD Block32x32 = true, want false")
+	}
+	if !e.vp9UseModelYrdLargeBlock(common.Block64x64,
+		encoder.ContentStateVeryHighSad) {
+		t.Fatal("speed8 very-high-SAD Block64x64 = false, want true")
+	}
+
+	e.opts.CpuUsed = 6
+	if e.vp9UseModelYrdLargeBlock(common.Block32x32,
+		encoder.ContentStateInvalid) {
+		t.Fatal("speed6 Block32x32 = true, want false")
+	}
+	if !e.vp9UseModelYrdLargeBlock(common.Block64x64,
+		encoder.ContentStateInvalid) {
+		t.Fatal("speed6 Block64x64 = false, want true")
+	}
+
+	e.opts.RateControlModeSet = false
+	if e.vp9UseModelYrdLargeBlock(common.Block64x64,
+		encoder.ContentStateInvalid) {
+		t.Fatal("rate-control-disabled Block64x64 = true, want false")
+	}
+}

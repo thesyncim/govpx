@@ -95,6 +95,47 @@ func TestWriteCoefBlockSingleOne(t *testing.T) {
 	}
 }
 
+func TestWriteCoefBlockPrefersQCoeffMagnitude(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	scan := tables.DefaultScan4x4[:]
+	neigh := tables.DefaultScan4x4Neighbors[:]
+	dq := [2]int16{128, 128}
+
+	coeffs := make([]int16, 16)
+	qcoeffs := make([]int16, 16)
+	qcoeffs[scan[0]] = 512
+
+	buf := make([]byte, 256)
+	var bw bitstream.Writer
+	bw.Start(buf)
+	if err := WriteCoefBlock(&bw, WriteCoefBlockArgs{
+		TxSize:    common.Tx4x4,
+		DequantDC: dq[0],
+		DequantAC: dq[1],
+		Scan:      scan,
+		Neighbors: neigh,
+		Coeffs:    coeffs,
+		QCoeffs:   qcoeffs,
+		Fc:        &fc,
+	}); err != nil {
+		t.Fatalf("WriteCoefBlock: %v", err)
+	}
+	size, err := bw.Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	var r bitstream.Reader
+	if err := r.Init(buf[:size]); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	dqcoeff := make([]int16, 16)
+	got := vp9dec.DecodeCoefs(&r, common.Tx4x4, 0, 0, dq, 0, scan, neigh, &fc, dqcoeff)
+	if got != 1 {
+		t.Fatalf("eob = %d, want 1 from qcoeff even though dqcoeff is zero", got)
+	}
+}
+
 // TestWriteCoefBlockZeroRunThenOne: scan position 0 is zero, scan
 // position 1 has the AC dequant (absVal=1), then EOB.
 func TestWriteCoefBlockZeroRunThenOne(t *testing.T) {

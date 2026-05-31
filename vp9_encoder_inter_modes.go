@@ -7,13 +7,17 @@ import (
 )
 
 type vp9InterIntraDecision struct {
-	mode     common.PredictionMode
-	uvMode   common.PredictionMode
-	txSize   common.TxSize
-	rate     int
-	score    uint64
-	skip     bool
-	skipTxfm encoder.SkipTxfmFlag
+	mode       common.PredictionMode
+	uvMode     common.PredictionMode
+	txSize     common.TxSize
+	rate       int
+	score      uint64
+	skip       bool
+	skipTxfm   encoder.SkipTxfmFlag
+	predData   []byte
+	predStride int
+	predX      int
+	predY      int
 }
 
 func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,

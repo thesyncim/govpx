@@ -77,6 +77,12 @@ type WriteCoefSbArgs struct {
 	// MaxEobForTxSize(txSize) entries. (r, c) are 4x4-unit indices into
 	// the plane.
 	GetCoeffs func(plane int, r, c int, txSize common.TxSize) []int16
+
+	// GetQCoeffs optionally returns the signed quantized coefficient
+	// buffer in raster order for the same tx block. This mirrors libvpx
+	// tokenize_b reading p->qcoeff; callers that only have dqcoeff can
+	// leave it nil and fall back to magnitude recovery from Coeffs.
+	GetQCoeffs func(plane int, r, c int, txSize common.TxSize) []int16
 }
 
 // scanForTxSize returns the default scan/neighbors pair for `tx`.
@@ -183,6 +189,10 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 				}
 
 				coeffs := a.GetCoeffs(plane, r, c, txSize)
+				var qcoeffs []int16
+				if a.GetQCoeffs != nil {
+					qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
+				}
 				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
 					TxSize:          txSize,
 					PlaneType:       planeType,
@@ -192,6 +202,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					Scan:            scan,
 					Neighbors:       neighbors,
 					Coeffs:          coeffs,
+					QCoeffs:         qcoeffs,
 					Fc:              a.Fc,
 					CoefBranchStats: a.CoefBranchStats,
 					InitCtx:         initCtx,
@@ -201,7 +212,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 
 				eob := 0
 				for i := 0; i < vp9dec.MaxEobForTxSize(txSize); i++ {
-					if coeffs[scan[i]] != 0 {
+					if CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
 						eob = i + 1
 					}
 				}

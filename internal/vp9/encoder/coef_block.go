@@ -25,6 +25,12 @@ type WriteCoefBlockArgs struct {
 	// order (indexed by scan[c]).
 	Coeffs []int16
 
+	// QCoeffs are the signed quantized coefficients in raster order.
+	// When supplied, coefficient tokens are derived from qcoeff exactly
+	// like libvpx's tokenize_b; Coeffs remain the reconstructed dqcoeff
+	// plane consumed by inverse transforms and legacy callers.
+	QCoeffs []int16
+
 	// Fc carries the active per-frame coefficient probabilities.
 	Fc *vp9dec.FrameCoefProbs
 
@@ -52,18 +58,13 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	maxEob := vp9dec.MaxEobForTxSize(a.TxSize)
 	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)
 	dq := [2]int16{a.DequantDC, a.DequantAC}
-	dqShift := uint(0)
-	if a.TxSize == common.Tx32x32 {
-		dqShift = 1
+	qcoeffs := a.QCoeffs
+	if len(qcoeffs) < maxEob {
+		qcoeffs = nil
 	}
 
 	// Find EOB position: one past the last non-zero coefficient.
-	eob := 0
-	for i := range maxEob {
-		if a.Coeffs[a.Scan[i]] != 0 {
-			eob = i + 1
-		}
-	}
+	eob := CoeffBlockEOB(a.Scan, maxEob, a.Coeffs, qcoeffs)
 
 	coefModel := &a.Fc[a.TxSize][a.PlaneType][a.IsInter]
 	var tokenCache [1024]uint8
@@ -87,7 +88,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 
 		// ZERO inner loop: mirror the decoder, which reads only the
 		// ZERO bit (no fresh EOB) for each zero in a run.
-		for a.Coeffs[a.Scan[c]] == 0 {
+		for !CoeffBlockHasCoeff(a.Scan, c, a.Coeffs, qcoeffs) {
 			recordCoefBranch(branchStats, 1, 0)
 			bw.Write(0, uint32(probs[1])) // ZERO
 			tokenCache[a.Scan[c]] = 0
@@ -108,18 +109,12 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		bw.Write(1, uint32(probs[1])) // not ZERO
 
 		raster := a.Scan[c]
-		coeff := a.Coeffs[raster]
 		dqv := dq[1]
 		if c == 0 {
 			dqv = dq[0]
 		}
-		absCoeff := coeff
-		sign := 0
-		if absCoeff < 0 {
-			absCoeff = -absCoeff
-			sign = 1
-		}
-		absVal := coefTokenAbsVal(absCoeff, dqv, dqShift)
+		absVal, sign := CoeffMagnitudeAndSign(qcoeffs, int(raster),
+			a.Coeffs[raster], dqv, a.TxSize == common.Tx32x32)
 		writeTokenForCoeff(bw, probs[:], absVal, sign, branchStats)
 
 		switch {
@@ -140,15 +135,6 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		}
 	}
 	return nil
-}
-
-func coefTokenAbsVal(absCoeff, dqv int16, dqShift uint) int {
-	num := int(absCoeff) << dqShift
-	den := int(dqv)
-	if dqShift != 0 {
-		return (num + den - 1) / den
-	}
-	return num / den
 }
 
 func coefBranchStatsSlot(

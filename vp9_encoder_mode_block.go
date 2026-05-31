@@ -220,6 +220,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 					return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
 				},
+				GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+					return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)
+				},
 			})
 		}
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
@@ -353,6 +356,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			CoefBranchStats: vp9CoefBranchStats(counts),
 			GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 				return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
+			},
+			GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
+				return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)
 			},
 		})
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)

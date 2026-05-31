@@ -88,9 +88,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
+				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
 					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
-					dequant, qindex, coeffs) {
+					dequant, qindex, coeffs, qcoeffs) {
 					hasResidue = true
 				}
 				blockIdx += blockStep
@@ -189,8 +190,9 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			for cc := 0; cc < max4x4W; cc += step {
 				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
 				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				if e.prepareVP9InterTxResidue(inter, pd, plane, txSize,
-					miRow, miCol, rr, cc, dequant, coeffs) {
+				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				if e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
+					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs) {
 					hasResidue = true
 				}
 			}

@@ -484,7 +484,7 @@ func TestVP9EncoderKeyframeTx16HybridResidue(t *testing.T) {
 	var coeffs [vp9EncoderTxCoeffSlots]int16
 	if !e.prepareVP9KeyframeTxResidue(key, &e.planes[0], 0, common.HPred,
 		common.Tx16x16, tile, 2, 4, 0, 2, common.Block16x16, 0, 0,
-		[2]int16{4, 4}, 0, coeffs[:]) {
+		[2]int16{4, 4}, 0, coeffs[:], nil) {
 		t.Fatal("Tx16 HPred residue returned false, want nonzero hybrid-transform coefficients")
 	}
 	nonzeroAC := false

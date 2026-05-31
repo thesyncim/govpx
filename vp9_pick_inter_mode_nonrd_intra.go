@@ -28,12 +28,15 @@ func (e *VP9Encoder) vp9NonrdSourceVariance(inter *vp9InterEncodeState,
 		blockW, blockH), true
 }
 
-func (e *VP9Encoder) vp9UseModelYrdLargeBlock(bsize common.BlockSize) bool {
+func (e *VP9Encoder) vp9UseModelYrdLargeBlock(bsize common.BlockSize,
+	contentState encoder.ContentStateSB,
+) bool {
 	if e == nil || !e.opts.RateControlModeSet ||
 		e.opts.RateControlMode != RateControlCBR {
 		return false
 	}
-	if e.vp9SpeedFeatureCPUUsed() < 7 {
+	if e.vp9SpeedFeatureCPUUsed() < 7 ||
+		contentState == encoder.ContentStateVeryHighSad {
 		return bsize > common.Block32x32
 	}
 	return bsize >= common.Block32x32
@@ -70,6 +73,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	bsize common.BlockSize, qindex int,
 	above, left *vp9dec.NeighborMi,
 	sourceVariance uint, bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
+	sceneChangeDetected, highNumBlocksWithMotion bool,
 	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
 	skipEncode bool,
 ) (vp9InterIntraDecision, bool) {
@@ -167,6 +171,9 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	intraMaskBits := vp9KeyframeIntraModeMask(&e.sf, bsize)
 	bestSet := false
 	var best vp9InterIntraDecision
+	bestRDCostForThresh := bestInterScore
+	var livePredData []byte
+	livePredStride, livePredX, livePredY := 0, 0, 0
 
 	keyLike := e.vp9InterIntraKeyframeState(inter)
 	mi := vp9dec.NeighborMi{
@@ -204,10 +211,14 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		}
 		modeIndex := encoder.ModeIdxTable[vp9dec.IntraFrame][modeOffset]
 		modeRdThresh := e.rdThresh.Threshold(bsize, modeIndex)
-		if encoder.RDLessThanThresh(bestInterScore, modeRdThresh,
-			e.rdThresh.ThreshFreqFact(bsize, modeIndex)) &&
-			e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-			continue
+		if encoder.RDLessThanThresh(bestRDCostForThresh, modeRdThresh,
+			e.rdThresh.ThreshFreqFact(bsize, modeIndex)) {
+			screenBaseLayerMotion := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
+				(!e.svc.UseSvc || e.svc.SpatialLayerID == 0) &&
+				(sceneChangeDetected || highNumBlocksWithMotion)
+			if !screenBaseLayerMotion {
+				continue
+			}
 		}
 		// libvpx vp9_pickmode.c:2607-2611 — compute_intra_yprediction,
 		// model_rd_for_sb_y, then block_yrd. For speed-8 non-key blocks
@@ -226,9 +237,9 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		var ok bool
 		if len(pickPred) != 0 && pickPredStride > 0 {
 			// libvpx: compute_intra_yprediction reads and writes the live
-			// pd->dst surface that reuse_inter_pred_sby maintains for this
-			// SB. When x->skip_encode is set, libvpx takes the intra
-			// predictor reference edges from the source plane instead.
+			// pd->dst surface for this SB. When x->skip_encode is set,
+			// libvpx takes the intra predictor reference edges from the
+			// source plane instead.
 			if skipEncode {
 				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
 				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(
@@ -248,8 +259,17 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			predY = (miRow - pickPredOriginMiRow) * common.MiSize
 		}
 		if !ok {
-			sse, variance, ok = e.vp9NoReferenceIntraResidualStatsNoRestore(&keyLike,
-				thisMode, predTxSize, tile, miRows, miCols, miRow, miCol, bsize)
+			if skipEncode {
+				recon, reconStride := e.vp9EncoderReconPlane(0)
+				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(
+					&keyLike, thisMode, predTxSize, tile, miRows, miCols,
+					miRow, miCol, bsize, recon, reconStride, 0, 0,
+					src, srcStride, 0, 0)
+			} else {
+				sse, variance, ok = e.vp9NoReferenceIntraResidualStatsNoRestore(&keyLike,
+					thisMode, predTxSize, tile, miRows, miCols, miRow, miCol, bsize)
+			}
 			predData, predStride = e.vp9EncoderReconPlane(0)
 			predX = miCol * common.MiSize
 			predY = miRow * common.MiSize
@@ -257,6 +277,10 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		if !ok {
 			continue
 		}
+		livePredData = predData
+		livePredStride = predStride
+		livePredX = predX
+		livePredY = predY
 		rateY, distY, _, modelTxSize := encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 			BSize:           bsize,
 			QIndex:          segQIndex,
@@ -278,10 +302,14 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
 			blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 			blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+			// libvpx's intra fallback initializes `this_sse` to INT64_MAX
+			// before the mode loop and passes it unchanged to block_yrd
+			// after model_rd_for_sb_y. Preserve that unknown-SSE path so
+			// skippable intra candidates score with zero distortion here.
 			byrd := encoder.BlockYrd(src, srcStride,
 				miCol*common.MiSize, miRow*common.MiSize,
 				predData, predStride, predX, predY,
-				blockW, blockH, txYrd, dequantY, sse,
+				blockW, blockH, txYrd, dequantY, encoder.BlockYrdUnknownSSE,
 				e.vp9BlockYrdScratch[:])
 			if !byrd.Valid {
 				continue
@@ -325,6 +353,9 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 				skipTxfm: skipTxfm,
 			}
 			bestSet = true
+			if score < bestRDCostForThresh {
+				bestRDCostForThresh = score
+			}
 		}
 	}
 	// Note: libvpx's non-luma walk (vp9_pickmode.c:2622-2630) only fires
@@ -334,6 +365,10 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	if !bestSet || best.score >= bestInterScore {
 		return vp9InterIntraDecision{}, false
 	}
+	best.predData = livePredData
+	best.predStride = livePredStride
+	best.predX = livePredX
+	best.predY = livePredY
 	return best, true
 }
 

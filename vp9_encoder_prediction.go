@@ -203,17 +203,18 @@ func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize)
 	// memset.s loop instead of bounds-checked stores.
 	// libvpx: vp9/encoder/vp9_quantize.c:36-37 — memset(qcoeff_ptr, 0, ...).
 	clear(e.blockCoeffs[plane][:n])
+	clear(e.blockQCoeffs[plane][:n])
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
-	qindex int, out []int16,
+	qindex int, out, qOut []int16,
 ) bool {
 	return e.prepareVP9KeyframeTxResidueWithQ(key, pd, plane, mode, txSize,
 		tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
-		dequant, qindex, out, nil)
+		dequant, qindex, out, qOut)
 }
 
 // prepareVP9KeyframeTxResidueWithQ mirrors prepareVP9KeyframeTxResidue and
@@ -638,6 +639,31 @@ func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 		copy(coeffs, e.blockCoeffs[plane][coeffBase:coeffBase+maxEob])
 	}
 	return coeffs
+}
+
+func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
+	bsize common.BlockSize, r, c int, tx common.TxSize,
+) []int16 {
+	qcoeffs := e.qCoefScratch[:vp9dec.MaxEobForTxSize(tx)]
+	for i := range qcoeffs {
+		qcoeffs[i] = 0
+	}
+	if plane < 0 || plane >= vp9dec.MaxMbPlane {
+		return qcoeffs
+	}
+	pd := &e.planes[plane]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return qcoeffs
+	}
+	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+	maxEob := vp9dec.MaxEobForTxSize(tx)
+	if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
+		coeffBase+maxEob <= len(e.blockQCoeffs[plane]) {
+		copy(qcoeffs, e.blockQCoeffs[plane][coeffBase:coeffBase+maxEob])
+	}
+	return qcoeffs
 }
 
 func (e *VP9Encoder) vp9EncoderReconPlane(plane int) ([]byte, int) {

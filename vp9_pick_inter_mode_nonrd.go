@@ -355,7 +355,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	highNumBlocksWithMotion := e.rc.highNumBlocksWithMotion
 	sourceVariance := ^uint(0)
 	if e.sf.ShortCircuitFlatBlocks != 0 || e.sf.LimitNewmvEarlyExit != 0 ||
-		e.opts.AQMode == VP9AQCyclicRefresh || e.vp9UseModelYrdLargeBlock(bsize) {
+		e.opts.AQMode == VP9AQCyclicRefresh ||
+		e.vp9UseModelYrdLargeBlock(bsize, contentState) {
 		if v, ok := e.vp9NonrdSourceVariance(inter, miRow, miCol, bsize); ok {
 			sourceVariance = v
 		}
@@ -1130,7 +1131,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			dequantU = inter.dq.Uv[segID]
 			dequantV = inter.dq.Uv[segID]
 		}
-		useModelYrdLarge := e.vp9UseModelYrdLargeBlock(bsize) &&
+		useModelYrdLarge := e.vp9UseModelYrdLargeBlock(bsize, contentState) &&
 			!encoder.CyclicRefreshSegmentIDBoosted(segID) &&
 			inter.baseQindex != 0
 
@@ -1186,24 +1187,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					x0 := miCol * common.MiSize
 					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
-						BSize:           bsize,
-						Dequant:         dequantY,
-						Src:             src,
-						SrcStride:       srcStride,
-						SrcX:            x0,
-						SrcY:            y0,
-						Pred:            dst,
-						PredStride:      dstStride,
-						PredX:           x0,
-						PredY:           y0,
-						TxMode:          frameTxMode,
-						SourceVariance:  uint64(sourceVariance),
-						SegmentID:       segID,
-						CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
-						ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-						Speed:           e.vp9SpeedFeatureCPUUsed(),
-						Width:           e.opts.Width,
-						Height:          e.opts.Height,
+						BSize:             bsize,
+						Dequant:           dequantY,
+						Src:               src,
+						SrcStride:         srcStride,
+						SrcX:              x0,
+						SrcY:              y0,
+						Pred:              dst,
+						PredStride:        dstStride,
+						PredX:             x0,
+						PredY:             y0,
+						TxMode:            frameTxMode,
+						SourceVariance:    uint64(sourceVariance),
+						SegmentID:         segID,
+						CyclicRefreshAQ:   e.opts.AQMode == VP9AQCyclicRefresh,
+						ScreenContent:     e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+						ZeroTempSADSource: zeroTempSADSource,
+						Speed:             e.vp9SpeedFeatureCPUUsed(),
+						Width:             e.opts.Width,
+						Height:            e.opts.Height,
 					})
 					if large.Valid {
 						rateY = large.Rate
@@ -1330,24 +1332,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					x0 := miCol * common.MiSize
 					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
-						BSize:           bsize,
-						Dequant:         dequantY,
-						Src:             src,
-						SrcStride:       srcStride,
-						SrcX:            x0,
-						SrcY:            y0,
-						Pred:            dst,
-						PredStride:      dstStride,
-						PredX:           x0,
-						PredY:           y0,
-						TxMode:          frameTxMode,
-						SourceVariance:  uint64(sourceVariance),
-						SegmentID:       segID,
-						CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
-						ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
-						Speed:           e.vp9SpeedFeatureCPUUsed(),
-						Width:           e.opts.Width,
-						Height:          e.opts.Height,
+						BSize:             bsize,
+						Dequant:           dequantY,
+						Src:               src,
+						SrcStride:         srcStride,
+						SrcX:              x0,
+						SrcY:              y0,
+						Pred:              dst,
+						PredStride:        dstStride,
+						PredX:             x0,
+						PredY:             y0,
+						TxMode:            frameTxMode,
+						SourceVariance:    uint64(sourceVariance),
+						SegmentID:         segID,
+						CyclicRefreshAQ:   e.opts.AQMode == VP9AQCyclicRefresh,
+						ScreenContent:     e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+						ZeroTempSADSource: zeroTempSADSource,
+						Speed:             e.vp9SpeedFeatureCPUUsed(),
+						Width:             e.opts.Width,
+						Height:            e.opts.Height,
 					})
 					if large.Valid {
 						rateY = large.Rate
@@ -1796,11 +1799,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		pickPredOriginMiCol = reuseMLCtx.sbMiCol
 	}
 	const qidxSkipThresh = 115
-	skipEncode := e.sf.SkipEncodeFrame != 0 && e.frameIndex > 1 &&
-		pickSegQIndex < qidxSkipThresh
+	skipEncode := e.sf.SkipEncodeFrame != 0 && pickSegQIndex < qidxSkipThresh
 	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
 		miRows, miCols, miRow, miCol, bsize, qindex,
 		above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
+		sceneChangeDetected, highNumBlocksWithMotion,
 		pickPred, pickPredStride, pickPredOriginMiRow,
 		pickPredOriginMiCol, skipEncode); intraFires {
 		// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
@@ -1826,6 +1829,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		bp.bestModeSkipTxfm = uint8(intra.skipTxfm)
 		bp.winner = best
 		bp.winnerSet = true
+		if reuseInterPred && len(intra.predData) != 0 && intra.predStride > 0 {
+			vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:],
+				intra.predData, intra.predStride, intra.predX, intra.predY,
+				predW, predH)
+			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
+				livePredY, predW, predH, e.nonrdBestPredScratch[:])
+			vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
+				predW, predH, e.nonrdBestPredScratch[:])
+		}
 	}
 	if bestSet && !best.intra && reuseInterPred && origPredValid {
 		// libvpx: vp9_pickmode.c:2888-2912 restores pd->dst to orig_dst,
@@ -1845,11 +1857,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
 				livePredY, predW, predH, predScratch)
 		}
-	} else if bestSet && best.intra && reuseInterPred {
-		vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:], livePred,
-			livePredStride, livePredX, livePredY, predW, predH)
-		vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
-			predW, predH, e.nonrdBestPredScratch[:])
 	}
 	if !bestSet {
 		e.cbRdmult = prevCbRdmult
