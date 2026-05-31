@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"runtime"
 	"testing"
 
@@ -95,7 +96,7 @@ func TestVP9DecoderRuntimeThreadingControlsUpdateState(t *testing.T) {
 // The wavefront primitive is exercised inside each tile-column body but
 // the body still runs single-goroutine, mirroring the encoder foundation.
 func TestVP9DecoderRowMTMatchesSerial(t *testing.T) {
-	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 
 	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		VP9DecoderOptions{Threads: 4}, packet)
@@ -108,7 +109,7 @@ func TestVP9DecoderRowMTMatchesSerial(t *testing.T) {
 // VP9 decode uses normal tile workers without retaining Row-MT wavefront
 // state unless VP9D_SET_ROW_MT is enabled.
 func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
-	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
 	if err != nil {
@@ -167,7 +168,7 @@ func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
 // TestVP9DecoderRowMTRuntimeToggleMatchesSerial cycles SetRowMT mid-stream
 // and confirms each decode still produces byte-identical output.
 func TestVP9DecoderRowMTRuntimeToggleMatchesSerial(t *testing.T) {
-	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 
 	want := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		VP9DecoderOptions{Threads: 4}, packet)
@@ -241,7 +242,7 @@ func TestVP9DecoderLoopFilterOptGatesLoopFilterPool(t *testing.T) {
 // not introduce per-frame allocations after warm-up. The wavefront primitive
 // is allocated once at construction / first frame and reused thereafter.
 func TestVP9DecoderRowMTSteadyStateAlloc(t *testing.T) {
-	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
 	if err != nil {
@@ -266,7 +267,7 @@ func TestVP9DecoderRowMTSteadyStateAlloc(t *testing.T) {
 // TestVP9DecoderRowMTNoGoroutineLeak proves Close shuts down the row-MT
 // arming + tile pool without leaving worker goroutines around.
 func TestVP9DecoderRowMTNoGoroutineLeak(t *testing.T) {
-	packet := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 	baseline := vp9TestGoroutineCount()
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})

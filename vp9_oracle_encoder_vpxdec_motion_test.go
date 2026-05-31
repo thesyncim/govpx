@@ -191,7 +191,7 @@ func TestVP9EncoderVpxdecOracleMatchesEighthPelMotion(t *testing.T) {
 func TestVP9EncoderVpxdecOracleAcceptsInterSkipFrame(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 64, 64)
 	vp9test.VpxdecAccepts(t, "the inter skip frame", 64, 64, key, inter)
 }

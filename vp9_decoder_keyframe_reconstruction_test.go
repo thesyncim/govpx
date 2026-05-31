@@ -3,6 +3,7 @@ package govpx
 import (
 	"bytes"
 	"errors"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestVP9DecoderDecodesZeroResidueKeyframe(t *testing.T) {
 // 127 for the visible luma samples.
 
 func TestVP9DecoderDecodesVerticalIntraPredictionFrame(t *testing.T) {
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.VPred)
+	packet := vp9test.StubPacket(t, 64, 64, 0, common.VPred)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {

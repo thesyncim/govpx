@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -23,7 +24,7 @@ func TestVP9DecoderPostprocessNoisePRNGDeterministic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewVP9Decoder: %v", err)
 		}
-		packet := vp9StubPacketForTest(t, width, height, 0, common.DcPred)
+		packet := vp9test.StubPacket(t, width, height, 0, common.DcPred)
 		if err := d.Decode(packet); err != nil {
 			t.Fatalf("Decode: %v", err)
 		}
@@ -60,7 +61,7 @@ func TestVP9MFQEFaithfulWalkerSeedsDstWithCurrent(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	const width, height = 64, 64
-	if err := d.Decode(vp9StubPacketForTest(t, width, height, 0, common.DcPred)); err != nil {
+	if err := d.Decode(vp9test.StubPacket(t, width, height, 0, common.DcPred)); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
 	if _, ok := d.NextFrame(); !ok {

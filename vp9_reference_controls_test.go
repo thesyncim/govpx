@@ -200,7 +200,7 @@ func TestVP9DecoderCopyReferenceFrameCopiesSelectedReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder returned error: %v", err)
 	}
-	key := vp9StubPacketForTest(t, width, height, 0, common.DcPred)
+	key := vp9test.StubPacket(t, width, height, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe returned error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestVP9DecoderCopyCurrentFrameCopiesWithoutConsumingQueue(t *testing.T) {
 		t.Fatalf("CopyCurrentFrame before decode error = %v, want ErrInvalidConfig", err)
 	}
 
-	key := vp9StubPacketForTest(t, width, height, 0, common.VPred)
+	key := vp9test.StubPacket(t, width, height, 0, common.VPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe returned error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestVP9DecoderCopyCurrentFrameCopiesWithoutConsumingQueue(t *testing.T) {
 
 func TestVP9DecoderCopyCurrentFrameAfterDecodeInto(t *testing.T) {
 	const width, height = 33, 31
-	packet := vp9StubPacketForTest(t, width, height, 0, common.VPred)
+	packet := vp9test.StubPacket(t, width, height, 0, common.VPred)
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder returned error: %v", err)
@@ -296,7 +296,7 @@ func TestVP9DecoderReferenceFrameValidation(t *testing.T) {
 	if err := d.CopyReferenceFrame(ReferenceLast, &dst); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("CopyReferenceFrame before decode error = %v, want ErrInvalidConfig", err)
 	}
-	if err := d.Decode(vp9StubPacketForTest(t, 16, 16, 0, common.DcPred)); err != nil {
+	if err := d.Decode(vp9test.StubPacket(t, 16, 16, 0, common.DcPred)); err != nil {
 		t.Fatalf("Decode keyframe returned error: %v", err)
 	}
 	if _, ok := d.NextFrame(); !ok {

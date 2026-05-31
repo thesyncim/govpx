@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"os"
 	"path/filepath"
 	"testing"
@@ -139,7 +140,7 @@ func TestVP9DecoderThreadingOfficialProfile0TileColumnsUseWorkers(t *testing.T) 
 }
 
 func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
-	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
+	key := vp9test.MultiTileStubPacket(t, 1024, 64, 2)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
 
 	serial, err := NewVP9Decoder(VP9DecoderOptions{})
@@ -187,7 +188,7 @@ func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
 }
 
 func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T) {
-	key := vp9MultiTileStubPacketWithFrameParallelForTest(t, 1024, 64, 2,
+	key := vp9test.MultiTileStubPacketWithFrameParallel(t, 1024, 64, 2,
 		false)
 	inter := vp9InterSkipFrameTilesWithFrameParallelForTest(t, 1024, 64, 2,
 		false)
@@ -239,7 +240,7 @@ func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T)
 }
 
 func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
-	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 2)
+	key := vp9test.MultiTileStubPacket(t, 1024, 64, 2)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 2)
 	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4})
 	if err != nil {

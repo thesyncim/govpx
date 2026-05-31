@@ -32,7 +32,7 @@ func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterMapReuseStream(t *test
 func TestVP9DecoderVpxdecOracleMatchesInterIntraSkipStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterIntraFrameForTest(t, common.VPred, common.DcPred, true, 0)
 	ivf := vp9IVFForTest(64, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)
@@ -48,7 +48,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntraSkipStream(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesInterIntraResidualStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterIntraFrameForTest(t, common.DcPred, common.DcPred, false, 32)
 	ivf := vp9IVFForTest(64, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)

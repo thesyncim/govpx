@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"testing"
 )
@@ -10,7 +11,7 @@ func TestVP9DecoderInterTileParseSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestVP9DecoderInterIntraSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -278,7 +279,7 @@ func TestVP9DecoderInterResidueSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -303,7 +304,7 @@ func TestVP9DecoderLoopFilteredInterResidueSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}

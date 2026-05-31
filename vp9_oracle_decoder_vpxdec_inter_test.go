@@ -288,7 +288,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundInterSubpelSwitchableSmoothNewMvSt
 func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 96, 96, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 96, 96, 0, common.DcPred)
 	inter := vp9InterSkipFrameForTest(t, 96, 96)
 	ivf := vp9IVFForTest(96, 96, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)
@@ -304,7 +304,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSkipEdgeStream(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterResidueFrameForTest(t, 64, 64, 32)
 	ivf := vp9IVFForTest(64, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)
@@ -320,7 +320,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterResidualStream(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredInterResidualStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	inter := vp9InterResidueFrameLoopFilterForTest(t, 64, 64, 32, 32)
 	ivf := vp9IVFForTest(64, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)
@@ -364,7 +364,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterResidualEdgeStream(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			key := vp9StubPacketForTest(t, tc.width, tc.height, 0, common.DcPred)
+			key := vp9test.StubPacket(t, tc.width, tc.height, 0, common.DcPred)
 			inter := vp9InterResidueFrameForTest(t, tc.width, tc.height, 32)
 			ivf := vp9IVFForTest(tc.width, tc.height, key, inter)
 			want := vp9test.VpxdecI420(t, ivf)
@@ -526,7 +526,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterSubpelTopRightBorderNewMvStream(t *te
 func TestVP9DecoderVpxdecOracleMatchesTiledInterSkipStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	key := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 	inter := vp9InterSkipFrameTilesForTest(t, 1024, 64, 1)
 	ivf := vp9IVFForTest(1024, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)

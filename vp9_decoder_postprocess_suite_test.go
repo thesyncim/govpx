@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -12,7 +13,7 @@ func TestVP9DecoderPostProcessOutputsPostFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	packet := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(packet); err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestVP9DecoderDecodeIntoPostProcessCopiesPostFrame(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	dst := newTestImage(64, 64)
-	packet := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	packet := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	info, err := d.DecodeInto(packet, &dst)
 	if err != nil {
 		t.Fatalf("DecodeInto: %v", err)

@@ -83,7 +83,7 @@ func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesInvertTileDecodeOrderControl(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	packet := vp9MultiTileModePacketForTest(t, 1024, 64, 1,
+	packet := vp9test.MultiTileModePacket(t, 1024, 64, 1,
 		[]common.PredictionMode{common.DcPred, common.VPred})
 	ivf := vp9IVFForTest(1024, 64, packet)
 	want := vp9test.VpxdecI420WithOptions(t, ivf,

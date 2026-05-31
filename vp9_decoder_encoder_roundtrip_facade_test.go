@@ -7,6 +7,28 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
+func TestVP9DecoderDecodesSyntheticMultiTileKeyframe(t *testing.T) {
+	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
+
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	err = d.Decode(packet)
+	if err != nil {
+		t.Fatalf("Decode err = %v, want nil", err)
+	}
+	w, h := d.LastFrameSize()
+	if w != 1024 || h != 64 {
+		t.Fatalf("LastFrameSize() = (%d, %d), want (1024, 64)", w, h)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok after visible multi-tile keyframe")
+	}
+	assertVP9NeutralFrameForTest(t, frame, 1024, 64)
+}
+
 func TestVP9DecoderDecodesEncoderKeyframeModeTile(t *testing.T) {
 	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 96, Height: 96})
 	img := vp9test.NewYCbCr(96, 96, 128, 128, 128)

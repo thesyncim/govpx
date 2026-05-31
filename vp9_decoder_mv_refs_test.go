@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -61,7 +62,7 @@ func TestVP9DecoderReconstructsInterSkipEdgeFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 96, 96, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 96, 96, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode edge keyframe: %v", err)
 	}
@@ -88,7 +89,7 @@ func TestVP9DecoderReconstructsInterSkipTiledFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9MultiTileStubPacketForTest(t, 1024, 64, 1)
+	key := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode tiled keyframe: %v", err)
 	}

@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"bytes"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"testing"
@@ -12,7 +13,7 @@ func TestVP9DecoderParsesInterSkipModeTile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}

@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -12,7 +13,7 @@ func TestVP9DecoderFrameContextSlotsTrackInterHeaderUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestVP9DecoderFrameContextNoRefreshDoesNotPersistUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestVP9DecoderResetClearsFrameContextSlots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9StubPacketForTest(t, 64, 64, 0, common.DcPred)
+	key := vp9test.StubPacket(t, 64, 64, 0, common.DcPred)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
