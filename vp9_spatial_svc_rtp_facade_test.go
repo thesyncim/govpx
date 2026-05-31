@@ -1,18 +1,20 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Lossless: true},
 			{Width: 64, Height: 64, Lossless: true},
 		},
@@ -38,11 +40,11 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 		t.Fatalf("packetization size = packets:%d bytes:%d, want fragmented payloads",
 			packets, payloadBytes)
 	}
-	shortPackets := make([]RTPPayloadFragment, packets-1)
+	shortPackets := make([]govpx.RTPPayloadFragment, packets-1)
 	payloadBuf := make([]byte, payloadBytes)
 	gotPackets, gotBytes, err := result.PacketizeRTPInto(shortPackets,
 		payloadBuf, mtu)
-	if !errors.Is(err, ErrBufferTooSmall) {
+	if !errors.Is(err, govpx.ErrBufferTooSmall) {
 		t.Fatalf("short PacketizeRTPInto err = %v, want ErrBufferTooSmall", err)
 	}
 	if gotPackets != packets || gotBytes != payloadBytes {
@@ -50,7 +52,7 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 			gotPackets, gotBytes, packets, payloadBytes)
 	}
 
-	payloads := make([]RTPPayloadFragment, packets)
+	payloads := make([]govpx.RTPPayloadFragment, packets)
 	n, used, err := result.PacketizeRTPInto(payloads, payloadBuf, mtu)
 	if err != nil {
 		t.Fatalf("PacketizeRTPInto: %v", err)
@@ -59,15 +61,15 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 		t.Fatalf("PacketizeRTPInto returned = %d/%d, want %d/%d",
 			n, used, packets, payloadBytes)
 	}
-	var byLayer [VP9MaxSpatialLayers][]RTPPayloadFragment
-	var seen [VP9MaxSpatialLayers]int
+	var byLayer [govpx.VP9MaxSpatialLayers][]govpx.RTPPayloadFragment
+	var seen [govpx.VP9MaxSpatialLayers]int
 	prevSpatial := uint8(0)
 	for i, payload := range payloads {
 		if len(payload.Payload) > mtu {
 			t.Fatalf("payload %d length = %d, exceeds mtu %d",
 				i, len(payload.Payload), mtu)
 		}
-		desc, _, err := ParseVP9RTPPayloadDescriptor(payload.Payload)
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
 		if err != nil {
 			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
 		}
@@ -99,7 +101,7 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 		byLayer[layerID] = append(byLayer[layerID], payload)
 	}
 	for layerID := 0; layerID < int(result.LayerCount); layerID++ {
-		assembled, err := AssembleVP9RTPFrame(byLayer[layerID])
+		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layerID])
 		if err != nil {
 			t.Fatalf("AssembleVP9RTPFrame layer %d: %v", layerID, err)
 		}
@@ -118,10 +120,10 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 }
 
 func TestVP9SpatialSVCRTPPacketizeSteadyStateNoAlloc(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32},
 			{Width: 64, Height: 64},
 		},
@@ -143,12 +145,12 @@ func TestVP9SpatialSVCRTPPacketizeSteadyStateNoAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RTPPacketizationSize: %v", err)
 	}
-	payloads := make([]RTPPayloadFragment, packets)
+	payloads := make([]govpx.RTPPayloadFragment, packets)
 	payloadBuf := make([]byte, payloadBytes)
 	if _, _, err := result.PacketizeRTPInto(payloads, payloadBuf, mtu); err != nil {
 		t.Fatalf("warmup PacketizeRTPInto: %v", err)
 	}
-	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
+	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRunsForTest, func() {
 		n, used, err := result.PacketizeRTPInto(payloads, payloadBuf, mtu)
 		if err != nil {
 			t.Fatalf("alloc run PacketizeRTPInto: %v", err)

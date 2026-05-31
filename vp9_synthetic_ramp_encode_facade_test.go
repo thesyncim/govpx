@@ -1,10 +1,12 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"image"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx"
 )
 
 // makeSyntheticRampFrame mirrors makeBenchmarkFrame from the govpx-bench
@@ -41,19 +43,19 @@ func makeSyntheticRampFrame(width, height, index int) *image.YCbCr {
 // the synthetic ramp. Values match parityFor's "realtime" branch in
 // cmd/govpx-bench/benchcmd/config.go (fps=30, threads=1, mode="realtime")
 // composed with the bench's CpuUsed=0 default.
-func vp9SyntheticRampOptions(width, height, bitrateKbps int) VP9EncoderOptions {
+func vp9SyntheticRampOptions(width, height, bitrateKbps int) govpx.VP9EncoderOptions {
 	const fps = 30
 	maxIntraBitratePct := max(600*fps/20, 300)
-	return VP9EncoderOptions{
+	return govpx.VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
 		FPS:                 fps,
 		Threads:             1,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		CpuUsed:             0,
 		TargetBitrateKbps:   bitrateKbps,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		MinQuantizer:        2,
 		MaxQuantizer:        56,
 		MaxKeyframeInterval: 3000,
@@ -88,12 +90,13 @@ func TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames(t *testing.T) {
 		bitrateKbps = 2000
 		nFrames     = 10
 	)
-	enc, err := NewVP9Encoder(vp9SyntheticRampOptions(width, height, bitrateKbps))
+	enc, err := govpx.NewVP9Encoder(
+		vp9SyntheticRampOptions(width, height, bitrateKbps))
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, max(4096, width*height*6))
-	dec, err := NewVP9Decoder(VP9DecoderOptions{})
+	dec, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -111,7 +114,7 @@ func TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames(t *testing.T) {
 			continue
 		}
 		if _, err := dec.DecodeInto(result.Data, &decoded); err != nil {
-			if errors.Is(err, ErrInvalidVP9Data) {
+			if errors.Is(err, govpx.ErrInvalidVP9Data) {
 				t.Fatalf("frame %d rejected with ErrInvalidVP9Data: encoder emitted malformed bitstream", i)
 			}
 			t.Fatalf("DecodeInto frame %d: %v", i, err)
@@ -141,13 +144,12 @@ func TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames(t *testing.T) {
 	}
 }
 
-// TestVP9SyntheticRampDecodes covers Bug 2: 640x360 / 600 kbps emits a
-// packet the decoder previously rejected with ErrInvalidVP9Data. The
-// regression assertion here is that every emitted (non-dropped) packet
-// decodes cleanly.
+// TestVP9SyntheticRampDecodes covers the 640x360 / 600 kbps realtime-CBR
+// configuration that previously emitted a packet rejected as invalid VP9 data.
+// The regression assertion is that every emitted non-dropped packet decodes.
 func TestVP9SyntheticRampDecodes(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping VP9 synthetic-ramp decode repro in -short mode")
+		t.Skip("skipping VP9 synthetic-ramp decode test in -short mode")
 	}
 	const (
 		width       = 640
@@ -155,12 +157,13 @@ func TestVP9SyntheticRampDecodes(t *testing.T) {
 		bitrateKbps = 600
 		nFrames     = 10
 	)
-	enc, err := NewVP9Encoder(vp9SyntheticRampOptions(width, height, bitrateKbps))
+	enc, err := govpx.NewVP9Encoder(
+		vp9SyntheticRampOptions(width, height, bitrateKbps))
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	dst := make([]byte, max(4096, width*height*6))
-	dec, err := NewVP9Decoder(VP9DecoderOptions{})
+	dec, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -177,7 +180,7 @@ func TestVP9SyntheticRampDecodes(t *testing.T) {
 		}
 		any = true
 		if _, err := dec.DecodeInto(result.Data, &decoded); err != nil {
-			if errors.Is(err, ErrInvalidVP9Data) {
+			if errors.Is(err, govpx.ErrInvalidVP9Data) {
 				t.Fatalf("frame %d rejected with ErrInvalidVP9Data: encoder emitted malformed bitstream", i)
 			}
 			t.Fatalf("DecodeInto frame %d: %v", i, err)
@@ -188,7 +191,7 @@ func TestVP9SyntheticRampDecodes(t *testing.T) {
 	}
 }
 
-func vp9SyntheticRampLumaPSNR(src *image.YCbCr, dst *Image) float64 {
+func vp9SyntheticRampLumaPSNR(src *image.YCbCr, dst *govpx.Image) float64 {
 	width := dst.Width
 	height := dst.Height
 	var sse uint64
@@ -207,10 +210,10 @@ func vp9SyntheticRampLumaPSNR(src *image.YCbCr, dst *Image) float64 {
 	return 10 * math.Log10(65025.0/mse)
 }
 
-func newSyntheticRampDecodeBuffer(width, height int) Image {
+func newSyntheticRampDecodeBuffer(width, height int) govpx.Image {
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	return Image{
+	return govpx.Image{
 		Width:   width,
 		Height:  height,
 		Y:       make([]byte, width*height),

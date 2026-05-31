@@ -1,20 +1,24 @@
-package govpx
+package govpx_test
 
 import (
 	"bytes"
+	"image"
+	"testing"
+
+	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"image"
-	"testing"
 )
 
+const vp9GoldenReferenceRefreshFlagForTest = uint8(1 << 1)
+
 func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           2,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Lossless: true},
 			{Width: 64, Height: 64, Lossless: true},
 		},
@@ -63,7 +67,7 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 		t.Fatalf("enhancement layer result = %+v", result.Layers[1])
 	}
 	if got, want := result.Layers[1].RefreshFrameFlags,
-		uint8(1<<vp9GoldenRefSlot); got != want {
+		vp9GoldenReferenceRefreshFlagForTest; got != want {
 		t.Fatalf("enhancement refresh flags = %#x, want GOLDEN %#x", got, want)
 	}
 
@@ -94,7 +98,7 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 		t.Fatalf("enhancement header = %+v, want visible 64x64 inter frame", upperHeader)
 	}
 
-	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
@@ -105,11 +109,11 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 	if !ok {
 		t.Fatal("NextFrame returned no frame")
 	}
-	assertVP9FilledFrameWithin(t, frame, 64, 64, 90, 100, 110, 0)
+	assertVP9FilledFrameWithinForTest(t, frame, 64, 64, 90, 100, 110, 0)
 }
 
 func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
-	var nilSVC *VP9SpatialSVCEncoder
+	var nilSVC *govpx.VP9SpatialSVCEncoder
 	_, _, ok := nilSVC.LastLayerQuantizers()
 	for i, valid := range ok {
 		if valid {
@@ -117,9 +121,9 @@ func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
 		}
 	}
 
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Quantizer: 64},
 			{Width: 64, Height: 64, Quantizer: 128},
 		},
@@ -152,7 +156,7 @@ func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
 				result.Layers[i].InternalQuantizer)
 		}
 	}
-	for i := int(result.LayerCount); i < VP9MaxSpatialLayers; i++ {
+	for i := int(result.LayerCount); i < govpx.VP9MaxSpatialLayers; i++ {
 		if ok[i] || public[i] != 0 || internal[i] != 0 {
 			t.Fatalf("unused quantizer[%d] = (%d,%d,%t), want zeros/false",
 				i, public[i], internal[i], ok[i])
@@ -171,9 +175,9 @@ func TestVP9SpatialSVCEncoderLastLayerQuantizers(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderIndependentLayers(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount: 2,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Lossless: true},
 			{Width: 64, Height: 64, Lossless: true},
 		},
@@ -201,10 +205,10 @@ func TestVP9SpatialSVCEncoderIndependentLayers(t *testing.T) {
 }
 
 func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
 		LayerCount:           3,
 		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
 			{Width: 32, Height: 32, Lossless: true},
 			{Width: 64, Height: 64, Lossless: true},
 			{Width: 128, Height: 128, Lossless: true},
@@ -312,7 +316,7 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 			}
 		}
 		if frame == 0 {
-			decoder, err := NewVP9Decoder(VP9DecoderOptions{})
+			decoder, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
 			if err != nil {
 				t.Fatalf("NewVP9Decoder: %v", err)
 			}
@@ -323,7 +327,7 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 			if !ok {
 				t.Fatal("NextFrame returned no frame")
 			}
-			assertVP9FilledFrameWithin(t, top, 128, 128, y, 120, 136, 0)
+			assertVP9FilledFrameWithinForTest(t, top, 128, 128, y, 120, 136, 0)
 		}
 	}
 }
