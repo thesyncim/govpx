@@ -142,6 +142,47 @@ func FrameFlagsForLibvpx(f govpx.EncodeFlags) uint32 {
 	return out
 }
 
+const NoUpdateRefFlags govpx.EncodeFlags = govpx.EncodeNoUpdateLast |
+	govpx.EncodeNoUpdateGolden | govpx.EncodeNoUpdateAltRef
+
+func FlagAt(frames, index int, flag govpx.EncodeFlags) []govpx.EncodeFlags {
+	flags := make([]govpx.EncodeFlags, frames)
+	if uint(index) < uint(frames) {
+		flags[index] = flag
+	}
+	return flags
+}
+
+func RepeatInterFlag(frames int, flag govpx.EncodeFlags) []govpx.EncodeFlags {
+	flags := make([]govpx.EncodeFlags, frames)
+	for i := 1; i < frames; i++ {
+		flags[i] = flag
+	}
+	return flags
+}
+
+func RepeatAllFramesFlag(frames int, flag govpx.EncodeFlags) []govpx.EncodeFlags {
+	flags := make([]govpx.EncodeFlags, frames)
+	for i := range flags {
+		flags[i] = flag
+	}
+	return flags
+}
+
+func RefRefreshTransitions(frames int) []govpx.EncodeFlags {
+	flags := make([]govpx.EncodeFlags, frames)
+	if frames > 2 {
+		flags[2] = govpx.EncodeForceGoldenFrame | govpx.EncodeNoUpdateLast
+	}
+	if frames > 4 {
+		flags[4] = govpx.EncodeForceAltRefFrame | govpx.EncodeNoUpdateGolden
+	}
+	if frames > 6 {
+		flags[6] = govpx.EncodeForceGoldenFrame | govpx.EncodeNoUpdateLast
+	}
+	return flags
+}
+
 func NormalizeEncodeFlags(flags govpx.EncodeFlags) govpx.EncodeFlags {
 	if flags&govpx.EncodeForceGoldenFrame != 0 {
 		flags &^= govpx.EncodeNoUpdateGolden
