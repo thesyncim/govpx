@@ -1,63 +1,17 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"fmt"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
-
-func TestVP9OracleTemporalPatternByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 temporal byte-parity trace")
-	vp9test.RequireVpxencFrameFlags(t)
-
-	const width, height, frames, targetKbps = 64, 64, 16, 700
-	cases := []struct {
-		name        string
-		mode        TemporalLayeringMode
-		exactPrefix int
-	}{
-		{name: "two-layer", mode: TemporalLayeringTwoLayers, exactPrefix: 1},
-		{name: "three-layer-default", mode: TemporalLayeringThreeLayers, exactPrefix: 1},
-		{name: "three-layer-no-inter-layer-prediction", mode: TemporalLayeringThreeLayersNoInterLayerPrediction, exactPrefix: 1},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			pattern, ok := temporalLayeringPattern(tc.mode)
-			if !ok {
-				t.Fatalf("temporalLayeringPattern(%d) failed", tc.mode)
-			}
-			opts := vp9OracleCBROptions(width, height, targetKbps)
-			opts.TemporalScalability = vp9OracleTemporalConfig(tc.mode,
-				targetKbps)
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			flags := vp9OracleTemporalPatternFlags(pattern, frames)
-			extraArgs := append(vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0),
-				vp9OracleTemporalArgs(t, tc.mode, targetKbps)...)
-			govpxPackets, libvpxPackets := captureVP9StreamParityPackets(t,
-				opts, sources, flags, extraArgs)
-			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
-				libvpxPackets)
-			t.Logf("VP9 temporal byte-parity trace %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
-				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
-			t.Logf("VP9 temporal byte-parity rows %s:\n%s", tc.name,
-				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
-			for frame := 0; frame < tc.exactPrefix; frame++ {
-				vp9test.AssertPacketByteParity(t,
-					fmt.Sprintf("%s frame %d", tc.name, frame),
-					govpxPackets[frame], libvpxPackets[frame])
-			}
-			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_BYTE_STRICT") &&
-				matches != len(govpxPackets) {
-				t.Fatalf("strict VP9 temporal byte parity %s: matches=%d/%d",
-					tc.name, matches, len(govpxPackets))
-			}
-		})
-	}
-}
 
 func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 lookahead flush byte-parity trace")
@@ -98,8 +52,8 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := vp9test.NewSteppedSources(width, height, tc.frames)
-			govpxPackets := captureVP9LookaheadPacketsWithFlushesForOracleTest(t,
-				VP9EncoderOptions{LookaheadFrames: tc.lag}, sources, tc.flushAfter)
+			govpxPackets := vp9oracle.CaptureLookaheadPacketsWithFlushes(t,
+				govpx.VP9EncoderOptions{LookaheadFrames: tc.lag}, sources, tc.flushAfter)
 			libvpxPackets := vp9test.VpxencPackets(t, sources,
 				fmt.Sprintf("--lag-in-frames=%d", tc.lag), "--auto-alt-ref=0")
 			if len(govpxPackets) != len(libvpxPackets) {
@@ -132,12 +86,12 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 
 	const width, height, frames, lag = 64, 64, 16, 4
 	sources := vp9test.NewSteppedSources(width, height, frames)
-	govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
-		VP9EncoderOptions{
-			Deadline:           DeadlineRealtime,
+	govpxRows, govpxPackets := vp9oracle.CaptureGovpxAutoAltRefPacketRows(t,
+		govpx.VP9EncoderOptions{
+			Deadline:           govpx.DeadlineRealtime,
 			CpuUsed:            4,
 			RateControlModeSet: true,
-			RateControlMode:    RateControlVBR,
+			RateControlMode:    govpx.RateControlVBR,
 			TargetBitrateKbps:  300,
 			LookaheadFrames:    lag,
 			AutoAltRef:         true,
@@ -145,7 +99,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 			ARNRStrength:       3,
 			ARNRType:           3,
 		}, sources)
-	libvpxRows, libvpxPackets := captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t,
+	libvpxRows, libvpxPackets := vp9oracle.CaptureLibvpxAutoAltRefPacketRows(t,
 		sources,
 		"--deadline=rt",
 		"--cpu-used=4",
@@ -176,8 +130,8 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 	t.Logf("VP9 auto-alt-ref visibility trace: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d govpx_altref_refresh=%d libvpx_altref_refresh=%d",
 		len(govpxPackets), len(libvpxPackets), limit, matches, firstMismatch,
 		govpxHidden, libvpxHidden,
-		vp9test.CountAltRefRefreshRows(govpxRows, 1<<vp9AltRefSlot),
-		vp9test.CountAltRefRefreshRows(libvpxRows, 1<<vp9AltRefSlot))
+		vp9test.CountAltRefRefreshRows(govpxRows, vp9oracle.AltRefRefreshMask),
+		vp9test.CountAltRefRefreshRows(libvpxRows, vp9oracle.AltRefRefreshMask))
 	t.Logf("VP9 auto-alt-ref visibility rows:\n%s",
 		vp9test.FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows))
 	if govpxHidden == 0 {
@@ -239,12 +193,12 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 			for i := range sources {
 				sources[i] = tc.source(tc.width, tc.height, i)
 			}
-			govpxRows, govpxPackets := captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t,
-				VP9EncoderOptions{
-					Deadline:           DeadlineRealtime,
+			govpxRows, govpxPackets := vp9oracle.CaptureGovpxAutoAltRefPacketRows(t,
+				govpx.VP9EncoderOptions{
+					Deadline:           govpx.DeadlineRealtime,
 					CpuUsed:            4,
 					RateControlModeSet: true,
-					RateControlMode:    RateControlVBR,
+					RateControlMode:    govpx.RateControlVBR,
 					TargetBitrateKbps:  tc.targetKbs,
 					LookaheadFrames:    tc.lag,
 					AutoAltRef:         true,
@@ -252,7 +206,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefARNRMatrix(t *testing.T) {
 					ARNRStrength:       3,
 					ARNRType:           tc.arnrType,
 				}, sources)
-			libvpxRows, libvpxPackets := captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t,
+			libvpxRows, libvpxPackets := vp9oracle.CaptureLibvpxAutoAltRefPacketRows(t,
 				sources,
 				"--deadline=rt",
 				"--cpu-used=4",

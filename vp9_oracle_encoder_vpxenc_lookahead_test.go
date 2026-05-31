@@ -4,13 +4,13 @@ package govpx_test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	govpx "github.com/thesyncim/govpx"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
 	"image"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9EncoderVpxencOracleLookaheadNoAltRefParity(t *testing.T) {
@@ -22,39 +22,8 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefParity(t *testing.T) {
 		sources[i] = vp9test.NewYCbCr(width, height, byte(80+i*24), 128, 128)
 	}
 
-	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
-		Width:           width,
-		Height:          height,
-		LookaheadFrames: 2,
-	})
-	if err != nil {
-		t.Fatalf("govpx.NewVP9Encoder: %v", err)
-	}
-	dst := make([]byte, 65536)
-	govpxPackets := make([][]byte, 0, frames)
-	for i, src := range sources {
-		result, err := e.EncodeIntoWithResult(src, dst)
-		if errors.Is(err, govpx.ErrFrameNotReady) {
-			continue
-		}
-		if err != nil {
-			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
-		}
-		govpxPackets = append(govpxPackets, append([]byte(nil), result.Data...))
-	}
-	for {
-		result, err := e.FlushIntoWithResult(dst)
-		if errors.Is(err, govpx.ErrFrameNotReady) {
-			break
-		}
-		if err != nil {
-			t.Fatalf("FlushIntoWithResult: %v", err)
-		}
-		govpxPackets = append(govpxPackets, append([]byte(nil), result.Data...))
-	}
-	if len(govpxPackets) != frames {
-		t.Fatalf("govpx lookahead packets = %d, want %d", len(govpxPackets), frames)
-	}
+	govpxPackets := vp9oracle.CaptureLookaheadPackets(t,
+		govpx.VP9EncoderOptions{LookaheadFrames: 2}, sources)
 
 	libvpxPackets := vp9test.VpxencPackets(t, sources,
 		"--lag-in-frames=2", "--auto-alt-ref=0")
@@ -99,7 +68,7 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixParity(t *testing.T) {
 					byte(72+i*19), 128, 128)
 			}
 
-			govpxPackets := captureVP9LookaheadPacketsForOracleTest(t,
+			govpxPackets := vp9oracle.CaptureLookaheadPackets(t,
 				govpx.VP9EncoderOptions{LookaheadFrames: tc.lag}, sources)
 			libvpxPackets := vp9test.VpxencPackets(t, sources,
 				fmt.Sprintf("--lag-in-frames=%d", tc.lag),
@@ -133,58 +102,4 @@ func TestVP9EncoderVpxencOracleLookaheadNoAltRefMatrixParity(t *testing.T) {
 			}
 		})
 	}
-}
-
-func captureVP9LookaheadPacketsForOracleTest(t *testing.T, opts govpx.VP9EncoderOptions,
-	sources []*image.YCbCr,
-) [][]byte {
-	t.Helper()
-	if len(sources) == 0 {
-		t.Fatal("empty VP9 lookahead source")
-	}
-	width := sources[0].Rect.Dx()
-	height := sources[0].Rect.Dy()
-	for i, src := range sources {
-		if src.Rect.Dx() != width || src.Rect.Dy() != height {
-			t.Fatalf("source %d dimension mismatch: got %dx%d want %dx%d",
-				i, src.Rect.Dx(), src.Rect.Dy(), width, height)
-		}
-	}
-	opts.Width = width
-	opts.Height = height
-	e, err := govpx.NewVP9Encoder(opts)
-	if err != nil {
-		t.Fatalf("govpx.NewVP9Encoder: %v", err)
-	}
-	dstSize, err := vpxbuffers.I420EncodeBufferSize(width, height, 4096, 65536)
-	if err != nil {
-		t.Fatalf("I420EncodeBufferSize: %v", err)
-	}
-	dst := make([]byte, dstSize)
-	packets := make([][]byte, 0, len(sources))
-	for i, src := range sources {
-		result, err := e.EncodeIntoWithResult(src, dst)
-		if errors.Is(err, govpx.ErrFrameNotReady) {
-			continue
-		}
-		if err != nil {
-			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
-		}
-		packets = append(packets, append([]byte(nil), result.Data...))
-	}
-	for {
-		result, err := e.FlushIntoWithResult(dst)
-		if errors.Is(err, govpx.ErrFrameNotReady) {
-			break
-		}
-		if err != nil {
-			t.Fatalf("FlushIntoWithResult: %v", err)
-		}
-		packets = append(packets, append([]byte(nil), result.Data...))
-	}
-	if len(packets) != len(sources) {
-		t.Fatalf("VP9 lookahead packets = %d, want %d",
-			len(packets), len(sources))
-	}
-	return packets
 }
