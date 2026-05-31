@@ -10,7 +10,10 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-const vp9EncoderInterAllocRunsForTest = 3
+const (
+	vp9EncoderKeyframeAllocRunsForTest = 10
+	vp9EncoderInterAllocRunsForTest    = 3
+)
 
 func TestVP9EncoderTileRowsSteadyStateAlloc(t *testing.T) {
 	const width, height = 1024, 128

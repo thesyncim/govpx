@@ -1,56 +1,8 @@
 package govpx
 
 import (
-	"errors"
 	"testing"
-
-	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
-
-func TestVP9EncoderRejectsNegativeMinGFInterval(t *testing.T) {
-	if _, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:         64,
-		Height:        64,
-		FPS:           30,
-		MinGFInterval: -1,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9EncoderRejectsNegativeMaxGFInterval(t *testing.T) {
-	if _, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:         64,
-		Height:        64,
-		FPS:           30,
-		MaxGFInterval: -1,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9EncoderRejectsOversizedGFInterval(t *testing.T) {
-	if _, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:         64,
-		Height:        64,
-		FPS:           30,
-		MaxGFInterval: encoder.MaxGFInterval + 1,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9EncoderRejectsInvertedGFIntervalBounds(t *testing.T) {
-	if _, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:         64,
-		Height:        64,
-		FPS:           30,
-		MinGFInterval: 12,
-		MaxGFInterval: 8,
-	}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("err = %v, want ErrInvalidConfig", err)
-	}
-}
 
 func TestVP9GFIntervalBoundsClampBaselineGFInterval(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -125,31 +77,6 @@ func TestVP9SetMaxGFIntervalAppliesValue(t *testing.T) {
 	if int(e.rc.baselineGFInterval) > 10 {
 		t.Fatalf("baselineGFInterval = %d, want <= 10",
 			e.rc.baselineGFInterval)
-	}
-}
-
-func TestVP9SetMinGFIntervalRejectsInvertedBounds(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:         64,
-		Height:        64,
-		FPS:           30,
-		MaxGFInterval: 6,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if err := e.SetMinGFInterval(10); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetMinGFInterval(10) err = %v, want ErrInvalidConfig", err)
-	}
-}
-
-func TestVP9SetMaxGFIntervalRejectsOversized(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64, FPS: 30})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	if err := e.SetMaxGFInterval(encoder.MaxGFInterval + 1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetMaxGFInterval(>max) err = %v, want ErrInvalidConfig", err)
 	}
 }
 

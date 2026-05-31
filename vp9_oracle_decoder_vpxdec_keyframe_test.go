@@ -11,7 +11,7 @@ import (
 func TestVP9DecoderVpxdecOracleMatchesIntraResidualKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 32)
+	packet := vp9test.SkipResidueKeyframe(t, 64, 64, true, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
 	want := vp9test.VpxdecI420(t, ivf)
 

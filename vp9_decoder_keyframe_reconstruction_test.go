@@ -10,7 +10,7 @@ import (
 )
 
 func TestVP9DecoderDecodesZeroResidueKeyframe(t *testing.T) {
-	packet := vp9SkipZeroKeyframeForTest(t, 64, 64, true)
+	packet := vp9test.SkipZeroKeyframe(t, 64, 64, true)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestVP9DecoderDecodesVerticalIntraPredictionFrame(t *testing.T) {
 // propagates the raised edge through the rest of the frame.
 
 func TestVP9DecoderDecodesNonZeroResidueKeyframe(t *testing.T) {
-	packet := vp9SkipResidueKeyframeForTest(t, 64, 64, true, 32)
+	packet := vp9test.SkipResidueKeyframe(t, 64, 64, true, 32)
 
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
@@ -218,8 +218,3 @@ func TestVP9DecoderThreadedLoopFilterMatchesSerial(t *testing.T) {
 		})
 	}
 }
-
-// TestVP9DecoderRejectsMissingResidueTokens proves skip=0 blocks now
-// reach the coefficient reader. The packet stops after mode-info,
-// which was enough for the old mode-only parser but is not a complete
-// VP9 tile.
