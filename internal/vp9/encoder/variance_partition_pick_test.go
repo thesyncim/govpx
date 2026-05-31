@@ -153,7 +153,11 @@ func TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource(t *testing
 		dst := make([]uint8, 64*64)
 		for i := range src {
 			src[i] = 100
-			dst[i] = 100
+			if zeroTemp {
+				dst[i] = 100
+			} else {
+				dst[i] = 0
+			}
 		}
 		rc := ChoosePartitioning(ChoosePartitioningArgs{
 			MiGrid:                 grid,
@@ -186,6 +190,67 @@ func TestVP9ChoosePartitioningScreenForceSplitHonorsZeroTempSADSource(t *testing
 	}
 	if got := pick(false); got == common.Block64x64 {
 		t.Fatalf("moving screen source SbType = Block64x64, want split")
+	}
+}
+
+func TestVP9ChoosePartitioningLowYSADEarlyReturns64x64(t *testing.T) {
+	const miRows, miCols = 8, 8
+	grid := make([]vp9dec.NeighborMi, miRows*miCols)
+	src := make([]uint8, 64*64)
+	dst := make([]uint8, 64*64)
+	for i := range src {
+		src[i] = 90
+		dst[i] = 90
+	}
+	src[0] = 255
+	var varianceLow [25]uint8
+	rc := ChoosePartitioning(ChoosePartitioningArgs{
+		MiGrid:                 grid,
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  0,
+		MiCol:                  0,
+		FrameWidth:             640,
+		FrameHeight:            360,
+		PlaneSrc:               src,
+		SrcStride:              64,
+		PlaneDst:               dst,
+		DstStride:              64,
+		IsKeyFrame:             false,
+		Speed:                  8,
+		VariancePartThreshMult: 1,
+		BaseQIndex:             37,
+		VarianceLow:            &varianceLow,
+	})
+	if rc != 0 {
+		t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
+	}
+	if grid[0].SbType != common.Block64x64 {
+		t.Fatalf("grid[0].SbType = %v, want Block64x64", grid[0].SbType)
+	}
+	if varianceLow[0] != 1 {
+		t.Fatalf("varianceLow[0] = %d, want 1 from y_sad early return",
+			varianceLow[0])
+	}
+}
+
+func TestVP9ChoosePartitioningSADReplicatesVisibleEdge(t *testing.T) {
+	src := []uint8{
+		10, 20,
+		30, 40,
+	}
+	dst := []uint8{
+		9, 18,
+		27, 36,
+	}
+	got, ok := choosePartitioningBlockSAD(src, 2, dst, 2,
+		common.Block32x32, 1, 2)
+	if !ok {
+		t.Fatal("choosePartitioningBlockSAD edge ok = false, want true")
+	}
+	const want = uint64(32*1 + 32*31*3)
+	if got != want {
+		t.Fatalf("edge SAD = %d, want %d", got, want)
 	}
 }
 

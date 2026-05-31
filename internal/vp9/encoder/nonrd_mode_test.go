@@ -247,6 +247,92 @@ func TestNonrdScreenZeroLastBias(t *testing.T) {
 	}
 }
 
+func TestNonrdSkipScreenContentCandidate(t *testing.T) {
+	zeroMV := vp9dec.MV{}
+	nonZeroMV := vp9dec.MV{Col: 4}
+	cases := []struct {
+		name              string
+		screen            bool
+		sourceSADReady    bool
+		refFrame          int8
+		mv                vp9dec.MV
+		mvValid           bool
+		sourceVariance    uint
+		zeroTempSADSource bool
+		want              bool
+	}{
+		{
+			name:              "stationary source skips nonzero motion",
+			screen:            true,
+			sourceSADReady:    true,
+			refFrame:          vp9dec.LastFrame,
+			mv:                nonZeroMV,
+			mvValid:           true,
+			zeroTempSADSource: true,
+			want:              true,
+		},
+		{
+			name:              "moving flat source skips zero last",
+			screen:            true,
+			sourceSADReady:    true,
+			refFrame:          vp9dec.LastFrame,
+			mv:                zeroMV,
+			mvValid:           true,
+			zeroTempSADSource: false,
+			want:              true,
+		},
+		{
+			name:              "moving flat source keeps zero golden",
+			screen:            true,
+			sourceSADReady:    true,
+			refFrame:          vp9dec.GoldenFrame,
+			mv:                zeroMV,
+			mvValid:           true,
+			zeroTempSADSource: false,
+		},
+		{
+			name:           "no source sad skips nonzero flat",
+			screen:         true,
+			refFrame:       vp9dec.LastFrame,
+			mv:             nonZeroMV,
+			mvValid:        true,
+			sourceVariance: 0,
+			want:           true,
+		},
+		{
+			name:              "nonflat source keeps zero last",
+			screen:            true,
+			sourceSADReady:    true,
+			refFrame:          vp9dec.LastFrame,
+			mv:                zeroMV,
+			mvValid:           true,
+			sourceVariance:    1,
+			zeroTempSADSource: false,
+		},
+		{
+			name:           "non-screen keeps candidate",
+			refFrame:       vp9dec.LastFrame,
+			mv:             nonZeroMV,
+			mvValid:        true,
+			sourceVariance: 0,
+		},
+		{
+			name:           "invalid mv waits for later candidate gate",
+			screen:         true,
+			refFrame:       vp9dec.LastFrame,
+			sourceVariance: 0,
+		},
+	}
+	for _, tc := range cases {
+		got := NonrdSkipScreenContentCandidate(tc.screen, tc.sourceSADReady,
+			tc.refFrame, tc.mv, tc.mvValid, tc.sourceVariance,
+			tc.zeroTempSADSource)
+		if got != tc.want {
+			t.Fatalf("%s: skip = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestNeighborIsInter(t *testing.T) {
 	if NeighborIsInter(nil) {
 		t.Fatalf("nil neighbor is inter")

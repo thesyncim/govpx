@@ -340,13 +340,14 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 	// libvpx: vp9_encodeframe.c:1400-1550 — inter / keyframe predictor.
 	var dst []uint8
 	var dp int
+	var ySAD uint64
+	ySADValid := false
 	if !isKeyFrame {
 		// Inter frame: govpx callers pass the zero-MV LAST predictor in
-		// args.PlaneDst (the dst of vp9_build_inter_predictors_sb after
-		// vp9_int_pro_motion_estimation returns a zero MV). The y_sad
-		// short-circuits (line 1505-1536) inspect the SAD between source
-		// and predictor; we don't have y_sad without int_pro_motion, so
-		// the SAD fast paths are skipped here.
+		// args.PlaneDst, or the int-pro predictor when the caller ran
+		// vp9_int_pro_motion_estimation. The y_sad short-circuit below
+		// inspects the same source-vs-predictor surface libvpx stores in
+		// xd->plane[0].dst after vp9_build_inter_predictors_sb.
 		if len(a.PlaneDst) == 0 {
 			// Without a predictor, fall through to keyframe-style
 			// VP9_VAR_OFFS predictor and process the SB.
@@ -355,11 +356,25 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		} else {
 			dst = a.PlaneDst[a.PlaneDstOff:]
 			dp = a.DstStride
+			bsize := choosePartitioningInterSADBSize(a.MiRows, a.MiCols,
+				a.MiRow, a.MiCol)
+			ySAD, ySADValid = choosePartitioningBlockSAD(src, sp, dst, dp,
+				bsize, pixelsWide, pixelsHigh)
 		}
 	} else {
 		// libvpx: vp9_encodeframe.c:1538-1539 — d = VP9_VAR_OFFS, dp = 0.
 		dst = varOffs64[:]
 		dp = 0
+	}
+	if ySADValid && !a.CyclicRefreshSegmentIdBoosted &&
+		int64(ySAD) < aux.ThresholdSAD &&
+		a.MiCol+4 < a.MiCols && a.MiRow+4 < a.MiRows {
+		setBlockSize(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
+			common.Block64x64)
+		if a.VarianceLow != nil {
+			a.VarianceLow[0] = 1
+		}
+		return 0
 	}
 
 	// libvpx: vp9_encodeframe.c:1552-1553 — vt2 allocation for low_res
@@ -657,4 +672,58 @@ func varianceLowBlockSizeAt(a ChoosePartitioningArgs, miRow, miCol int) common.B
 		return common.BlockInvalid
 	}
 	return a.MiGrid[off].SbType
+}
+
+func choosePartitioningInterSADBSize(miRows, miCols, miRow, miCol int) common.BlockSize {
+	bsize := int(common.Block32x32)
+	if miCol+4 < miCols {
+		bsize += 2
+	}
+	if miRow+4 < miRows {
+		bsize++
+	}
+	if bsize < int(common.Block32x32) || bsize > int(common.Block64x64) {
+		return common.BlockInvalid
+	}
+	return common.BlockSize(bsize)
+}
+
+func choosePartitioningBlockSAD(src []uint8, sp int, dst []uint8, dp int,
+	bsize common.BlockSize, pixelsWide, pixelsHigh int,
+) (uint64, bool) {
+	if bsize >= common.BlockSizes || sp <= 0 || dp < 0 ||
+		len(src) == 0 || len(dst) == 0 ||
+		pixelsWide <= 0 || pixelsHigh <= 0 {
+		return 0, false
+	}
+	bw := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	bh := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	if bw <= 0 || bh <= 0 {
+		return 0, false
+	}
+	if pixelsWide >= bw && pixelsHigh >= bh &&
+		dp > 0 && len(src) >= (bh-1)*sp+bw && len(dst) >= (bh-1)*dp+bw {
+		return BlockSADOffsets(src, 0, sp, dst, 0, dp, bw, bh, ^uint64(0)), true
+	}
+	if len(src) < (pixelsHigh-1)*sp+pixelsWide || dp <= 0 ||
+		len(dst) < (pixelsHigh-1)*dp+pixelsWide {
+		return 0, false
+	}
+	maxX := pixelsWide - 1
+	maxY := pixelsHigh - 1
+	var sad uint64
+	for y := range bh {
+		yy := min(y, maxY)
+		srcRow := src[yy*sp:]
+		dstRow := dst[yy*dp:]
+		for x := range bw {
+			xx := min(x, maxX)
+			diff := int(srcRow[xx]) - int(dstRow[xx])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += uint64(diff)
+		}
+	}
+	return sad, true
 }

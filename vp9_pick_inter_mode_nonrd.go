@@ -308,9 +308,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 	contentState := encoder.ContentStateInvalid
-	if state, ok := e.vp9SourceSADContentState(inter.img, miRows, miCols,
+	sourceSADReady := false
+	zeroTempSADSource := false
+	if stats, ok := e.vp9SourceSADState(inter.img, miRows, miCols,
 		miRow, miCol); ok {
-		contentState = state
+		contentState = stats.ContentState
+		sourceSADReady = true
+		zeroTempSADSource = stats.ZeroTempSADSource
 	}
 	forceSkipLowTempVar, forceSkipKnown :=
 		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
@@ -757,6 +761,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx: vp9_pickmode.c:2128 if (!(cpi->ref_frame_flags &
 		//   ref_frame_to_flag(ref_frame))) continue;
 		// govpx: the refMask check inside vp9InterReferenceSlot covers this.
+
+		// libvpx: vp9_pickmode.c:2130-2147 — screen-content candidate
+		// pruning. When one-pass source SAD is live, stationary SBs skip
+		// non-zero motion checks and moving flat SBs skip zero-LAST.
+		// Without source SAD, flat blocks skip non-zero motion checks.
+		if encoder.NonrdSkipScreenContentCandidate(
+			e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
+			sourceSADReady, refFrame, frameMv[thisMode][refFrame],
+			frameMvValid[thisMode][refFrame], sourceVariance,
+			zeroTempSADSource) {
+			continue
+		}
 
 		// libvpx: vp9_pickmode.c:2150 inter_mode_mask gate.
 		if !modeAllowed(thisMode) {

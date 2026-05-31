@@ -57,6 +57,25 @@ func NonrdScreenZeroLastBias(screen, sceneChangeDetected,
 		sourceVariance == 0 && sseY > 0
 }
 
+// NonrdSkipScreenContentCandidate mirrors the screen-content candidate
+// pruning in libvpx's realtime non-RD inter picker.
+func NonrdSkipScreenContentCandidate(screen, sourceSADReady bool,
+	refFrame int8, mv vp9dec.MV, mvValid bool,
+	sourceVariance uint, zeroTempSADSource bool,
+) bool {
+	if !screen {
+		return false
+	}
+	nonZeroMV := mvValid && mv != (vp9dec.MV{})
+	zeroMV := mvValid && mv == (vp9dec.MV{})
+	if sourceSADReady {
+		return (nonZeroMV && zeroTempSADSource) ||
+			(zeroMV && sourceVariance == 0 &&
+				refFrame == vp9dec.LastFrame && !zeroTempSADSource)
+	}
+	return nonZeroMV && sourceVariance == 0
+}
+
 // NonrdIntraFallbackPrecheck mirrors the inexpensive gates before the
 // non-RD intra-mode fallback sweep.
 func NonrdIntraFallbackPrecheck(bestInterScore, interModeThresh uint64,
