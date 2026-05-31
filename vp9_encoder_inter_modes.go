@@ -132,10 +132,10 @@ func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchNoRestore(key *vp9Ke
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	scratch []byte, scratchStride, originMiRow, originMiCol int,
 ) (sse uint64, variance uint64, ok bool) {
-	return e.vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key, mode,
+	ref, refStride := e.vp9EncoderReconPlane(0)
+	return e.vp9NoReferenceIntraResidualStatsScratchLiveNoRestore(key, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize,
-		scratch, scratchStride, originMiRow, originMiCol,
-		scratch, scratchStride, originMiRow, originMiCol)
+		scratch, scratchStride, originMiRow, originMiCol, ref, refStride)
 }
 
 func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchRefNoRestore(key *vp9KeyframeEncodeState,
@@ -205,6 +205,75 @@ residualLoop:
 	}
 	if !predOK {
 		return 0, 0, false
+	}
+	if count == 0 {
+		return 0, 0, false
+	}
+	meanSquare := uint64((sum * sum) / int64(count))
+	if sse >= meanSquare {
+		return sse, sse - meanSquare, true
+	}
+	return sse, meanSquare - sse, true
+}
+
+func (e *VP9Encoder) vp9NoReferenceIntraResidualStatsScratchLiveNoRestore(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, txSize common.TxSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	scratch []byte, scratchStride, originMiRow, originMiCol int,
+	ref []byte, refStride int,
+) (sse uint64, variance uint64, ok bool) {
+	if key == nil || key.hdr == nil || key.img == nil || int(mode) >= common.IntraModes {
+		return 0, 0, false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if len(src) == 0 || srcStride <= 0 || len(scratch) == 0 ||
+		scratchStride <= 0 || len(ref) == 0 || refStride <= 0 {
+		return 0, 0, false
+	}
+	max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
+		miRow, miCol, bsize, pd, planeBsize)
+	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	originX := originMiCol * common.MiSize
+	originY := originMiRow * common.MiSize
+	var sum int64
+	var count uint64
+	for rr := 0; rr < max4x4H; rr += step {
+		for cc := 0; cc < max4x4W; cc += step {
+			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTxScratchLive(
+				key.hdr, pd, mode, txSize, tile, miRows, miCols,
+				miRow, miCol, bsize, rr, cc,
+				scratch, scratchStride, originX, originY, ref, refStride)
+			if !ok {
+				return 0, 0, false
+			}
+			copyW := bs
+			copyH := bs
+			if x0 >= srcW || y0 >= srcH {
+				continue
+			}
+			if x0+copyW > srcW {
+				copyW = srcW - x0
+			}
+			if y0+copyH > srcH {
+				copyH = srcH - y0
+			}
+			for y := 0; y < copyH; y++ {
+				srcRow := src[(y0+y)*srcStride+x0:]
+				dstRow := dst[y*dstStride:]
+				for x := 0; x < copyW; x++ {
+					diff := int(srcRow[x]) - int(dstRow[x])
+					sse += uint64(diff * diff)
+					sum += int64(diff)
+					count++
+				}
+			}
+		}
 	}
 	if count == 0 {
 		return 0, 0, false

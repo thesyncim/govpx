@@ -635,11 +635,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	reuseInterPred := e.vp9NonrdReuseInterPredReady(inter, miRows, miCols,
 		miRow, miCol, bsize)
 	var reuseMLCtx *vp9MLPartitionContext
+	if e.sf.PartitionSearchType == MlBasedPartition {
+		reuseMLCtx = e.vp9MLPickPartitionEntry(inter, miRows, miCols,
+			miRow, miCol)
+	}
 	var livePred []byte
 	livePredStride, livePredX, livePredY := 0, 0, 0
 	if reuseInterPred && e.sf.PartitionSearchType == MlBasedPartition {
-		reuseMLCtx = e.vp9MLPickPartitionEntry(inter, miRows, miCols,
-			miRow, miCol)
 		if reuseMLCtx == nil || !reuseMLCtx.pickPredReady {
 			reuseInterPred = false
 		} else {
@@ -1792,9 +1794,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	}
 	var pickPred []byte
 	pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol := 0, 0, 0
-	if reuseInterPred && reuseMLCtx != nil {
-		pickPred = livePred
-		pickPredStride = livePredStride
+	if reuseMLCtx != nil && reuseMLCtx.pickPredReady {
+		pickPred = reuseMLCtx.pickPred[:]
+		pickPredStride = 64
 		pickPredOriginMiRow = reuseMLCtx.sbMiRow
 		pickPredOriginMiCol = reuseMLCtx.sbMiCol
 	}

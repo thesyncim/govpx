@@ -596,6 +596,108 @@ func (e *VP9Encoder) predictVP9KeyframeTxGeneric(hdr *vp9dec.UncompressedHeader,
 	return dst, dstStride, x0, y0, true
 }
 
+func (e *VP9Encoder) predictVP9KeyframeTxScratchLive(hdr *vp9dec.UncompressedHeader,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int,
+	dstData []byte, dstStride int, dstOriginX, dstOriginY int,
+	refData []byte, refStride int,
+) (dst []byte, stride, x0, y0 int, ok bool) {
+	stride = dstStride
+	if hdr == nil || pd == nil || dstStride <= 0 || len(dstData) == 0 ||
+		refStride <= 0 || len(refData) == 0 || int(mode) >= common.IntraModes {
+		return nil, 0, 0, 0, false
+	}
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return nil, 0, 0, 0, false
+	}
+	rows := len(dstData) / dstStride
+	refRows := len(refData) / refStride
+	alignedWidth := buffers.Align(int(hdr.Width), 8)
+	alignedHeight := buffers.Align(int(hdr.Height), 8)
+	planeWidth := alignedWidth >> pd.SubsamplingX
+	planeHeight := alignedHeight >> pd.SubsamplingY
+	baseX := (miCol * common.MiSize) >> pd.SubsamplingX
+	baseY := (miRow * common.MiSize) >> pd.SubsamplingY
+	x0 = baseX + blockCol4x4*4
+	y0 = baseY + blockRow4x4*4
+	originX := dstOriginX >> pd.SubsamplingX
+	originY := dstOriginY >> pd.SubsamplingY
+	localX := x0 - originX
+	localY := y0 - originY
+
+	bs := 4 << uint(txSize)
+	if localX < 0 || localY < 0 || localX+bs > dstStride || localY+bs > rows {
+		return nil, 0, 0, 0, false
+	}
+
+	readEdge := func(px, py int) uint8 {
+		if lx, ly := px-originX, py-originY; lx >= 0 && ly >= 0 &&
+			lx < dstStride && ly < rows {
+			return dstData[ly*dstStride+lx]
+		}
+		if py < 0 {
+			py = 0
+		} else if py >= refRows {
+			py = refRows - 1
+		}
+		if px < 0 {
+			px = 0
+		} else if px >= refStride {
+			px = refStride - 1
+		}
+		return refData[py*refStride+px]
+	}
+
+	bounds := vp9dec.BlockBoundsEdgesForMI(miRows, miCols, miRow, miCol, bsize)
+	leftAvailable := blockCol4x4 != 0 || miCol > tile.MiColStart
+	left := e.intraScratch.Left[:bs]
+	if leftAvailable {
+		for i := range bs {
+			sy := y0 + i
+			if bounds.MbToBottomEdge < 0 && sy >= planeHeight {
+				sy = planeHeight - 1
+			}
+			left[i] = readEdge(x0-1, sy)
+		}
+	}
+
+	upAvailable := blockRow4x4 != 0 || miRow > 0
+	above := e.intraScratch.Above[1 : 1+2*bs]
+	aboveLeft := uint8(127)
+	if upAvailable {
+		for i := range 2 * bs {
+			above[i] = readEdge(x0+i, y0-1)
+		}
+		if leftAvailable {
+			aboveLeft = readEdge(x0-1, y0-1)
+		}
+	}
+
+	planeBlock4x4W := vp9IntraPredictWidth4x4(bsize, planeBsize, pd)
+	txw := 1 << uint(txSize)
+	rightAvailable := blockCol4x4+txw < planeBlock4x4W
+	dst = dstData[localY*dstStride+localX:]
+	vp9dec.BuildIntraPredictorsWithScratch(vp9dec.BuildIntraPredictorsArgs{
+		Dst:            dst,
+		DstStride:      dstStride,
+		Mode:           mode,
+		TxSize:         txSize,
+		Edges:          vp9dec.IntraEdgeRefs{Above: above, AboveLeft: aboveLeft, Left: left},
+		UpAvailable:    upAvailable,
+		LeftAvailable:  leftAvailable,
+		RightAvailable: rightAvailable,
+		FrameWidth:     planeWidth,
+		FrameHeight:    planeHeight,
+		X0:             x0,
+		Y0:             y0,
+		MbToRightEdge:  bounds.MbToRightEdge,
+		MbToBottomEdge: bounds.MbToBottomEdge,
+	}, &e.intraScratch)
+	return dst, dstStride, x0, y0, true
+}
+
 func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,
 	plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int,
