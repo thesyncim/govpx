@@ -1,10 +1,12 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
 	"fmt"
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9oracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"testing"
 )
@@ -16,57 +18,57 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 	const width, height, frames = 64, 64, 10
 	type runtimeCase struct {
 		name        string
-		opts        VP9EncoderOptions
-		flags       []EncodeFlags
-		before      func(*testing.T, *VP9Encoder, int)
+		opts        govpx.VP9EncoderOptions
+		flags       []govpx.EncodeFlags
+		before      func(*testing.T, *govpx.VP9Encoder, int)
 		extraArgs   []string
 		exactPrefix int
 		exactFrames []int
 		strictBytes bool
 	}
-	baseOpts := func(targetKbps int) VP9EncoderOptions {
-		return vp9OracleCBROptions(width, height, targetKbps)
+	baseOpts := func(targetKbps int) govpx.VP9EncoderOptions {
+		return vp9oracle.CBROptions(width, height, targetKbps)
 	}
 	cases := []runtimeCase{
 		{
 			name: "bitrate-only-two-step",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 300",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 300",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 300}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 900",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 900}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 900",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 900}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--target-bitrate-schedule=3:300,7:900"),
 			exactPrefix: 1,
 		},
 		{
 			name: "q-band-only-two-step",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 10-50",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 10-50",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 10,
 							MaxQuantizer: 50,
 						}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 4-56",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 4-56",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q-schedule=3:10,7:4",
 				"--max-q-schedule=3:50,7:56"),
 			exactPrefix: 1,
@@ -74,24 +76,24 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name: "fixed-q-runtime-window",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed q 20",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed q 20",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 20,
 							MaxQuantizer: 20,
 						}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 4-56",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 4-56",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q-schedule=3:20,7:4",
 				"--max-q-schedule=3:20,7:56"),
 			exactPrefix: 1,
@@ -99,36 +101,36 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name: "fps-only-two-step",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fps 15",
-						enc.SetRealtimeTarget(RealtimeTarget{FPS: 15}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fps 15",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 15}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget fps 30",
-						enc.SetRealtimeTarget(RealtimeTarget{FPS: 30}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fps 30",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 30}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--fps-schedule=3:15,7:30"),
 			exactPrefix: 1,
 		},
 		{
 			name: "buffer-model-two-step",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRateControlBuffer tight",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer tight",
 						enc.SetRateControlBuffer(400, 300, 350))
 				case 7:
-					mustVP9Runtime(t, "SetRateControlBuffer restore",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer restore",
 						enc.SetRateControlBuffer(600, 400, 500))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--buf-sz-schedule=3:400,7:600",
 				"--buf-initial-sz-schedule=3:300,7:400",
 				"--buf-optimal-sz-schedule=3:350,7:500"),
@@ -137,20 +139,20 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name: "combined-bitrate-fps-q",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget combined low",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget combined low",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps:  300,
 							FPS:          15,
 							MinQuantizer: 10,
 							MaxQuantizer: 50,
 						}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget combined restore",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget combined restore",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							BitrateKbps:  700,
 							FPS:          30,
 							MinQuantizer: 4,
@@ -158,7 +160,7 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 						}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--target-bitrate-schedule=3:300,7:700",
 				"--fps-schedule=3:15,7:30",
 				"--min-q-schedule=3:10,7:4",
@@ -168,19 +170,19 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name:  "bitrate-with-force-key",
 			opts:  baseOpts(700),
-			flags: vp9OracleFlagAt(frames, 4, EncodeForceKeyFrame),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			flags: vp9oracle.FlagAt(frames, 4, govpx.EncodeForceKeyFrame),
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 300",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 300}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 300",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 300}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget bitrate 700",
-						enc.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 700}))
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget bitrate 700",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 700}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--target-bitrate-schedule=3:300,7:700"),
 			exactPrefix: 1,
 			exactFrames: []int{4},
@@ -188,25 +190,25 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name:  "fixed-q-with-no-update-all",
 			opts:  baseOpts(700),
-			flags: vp9OracleRepeatInterFlag(frames, vp9NoUpdateRefFlags),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			flags: vp9oracle.RepeatInterFlag(frames, vp9oracle.NoUpdateRefFlags),
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRealtimeTarget fixed q 20",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget fixed q 20",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 20,
 							MaxQuantizer: 20,
 						}))
 				case 7:
-					mustVP9Runtime(t, "SetRealtimeTarget q band 4-56",
-						enc.SetRealtimeTarget(RealtimeTarget{
+					vp9oracle.MustRuntime(t, "SetRealtimeTarget q band 4-56",
+						enc.SetRealtimeTarget(govpx.RealtimeTarget{
 							MinQuantizer: 4,
 							MaxQuantizer: 56,
 						}))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--min-q-schedule=3:20,7:4",
 				"--max-q-schedule=3:20,7:56"),
 			exactPrefix: 1,
@@ -214,20 +216,20 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name: "buffer-with-no-reference-all",
 			opts: baseOpts(700),
-			flags: vp9OracleRepeatInterFlag(frames,
-				EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			flags: vp9oracle.RepeatInterFlag(frames,
+				govpx.EncodeNoReferenceLast|govpx.EncodeNoReferenceGolden|govpx.EncodeNoReferenceAltRef),
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 3:
-					mustVP9Runtime(t, "SetRateControlBuffer tight",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer tight",
 						enc.SetRateControlBuffer(400, 300, 350))
 				case 7:
-					mustVP9Runtime(t, "SetRateControlBuffer restore",
+					vp9oracle.MustRuntime(t, "SetRateControlBuffer restore",
 						enc.SetRateControlBuffer(600, 400, 500))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--buf-sz-schedule=3:400,7:600",
 				"--buf-initial-sz-schedule=3:300,7:400",
 				"--buf-optimal-sz-schedule=3:350,7:500"),
@@ -236,78 +238,78 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 		{
 			name: "active-map-checker-toggle",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 1:
-					activeMap, rows, cols := vp9OracleActiveMap(width,
+					activeMap, rows, cols := vp9oracle.ActiveMap(width,
 						height, "checker")
-					mustVP9Runtime(t, "SetActiveMap checker",
+					vp9oracle.MustRuntime(t, "SetActiveMap checker",
 						enc.SetActiveMap(activeMap, rows, cols))
 				case 7:
-					mustVP9Runtime(t, "SetActiveMap nil",
+					vp9oracle.MustRuntime(t, "SetActiveMap nil",
 						enc.SetActiveMap(nil, 0, 0))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,active:checker,-,-,-,-,-,active:off,-,-"),
 			exactPrefix: 1,
 		},
 		{
 			name: "roi-border-toggle",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 1:
-					mustVP9Runtime(t, "SetROIMap border1",
-						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+					vp9oracle.MustRuntime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9oracle.ROIMap(width, height, "border1")))
 				case 7:
-					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+					vp9oracle.MustRuntime(t, "SetROIMap nil", enc.SetROIMap(nil))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,roi:border1,-,-,-,-,-,roi:off,-,-"),
 			exactPrefix: 1,
 		},
 		{
 			name: "active-roi-combined-toggle",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 1:
-					activeMap, rows, cols := vp9OracleActiveMap(width,
+					activeMap, rows, cols := vp9oracle.ActiveMap(width,
 						height, "checker")
-					mustVP9Runtime(t, "SetActiveMap checker",
+					vp9oracle.MustRuntime(t, "SetActiveMap checker",
 						enc.SetActiveMap(activeMap, rows, cols))
-					mustVP9Runtime(t, "SetROIMap border1",
-						enc.SetROIMap(vp9OracleROIMap(width, height, "border1")))
+					vp9oracle.MustRuntime(t, "SetROIMap border1",
+						enc.SetROIMap(vp9oracle.ROIMap(width, height, "border1")))
 				case 7:
-					mustVP9Runtime(t, "SetActiveMap nil",
+					vp9oracle.MustRuntime(t, "SetActiveMap nil",
 						enc.SetActiveMap(nil, 0, 0))
-					mustVP9Runtime(t, "SetROIMap nil", enc.SetROIMap(nil))
+					vp9oracle.MustRuntime(t, "SetROIMap nil", enc.SetROIMap(nil))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,active:checker+roi:border1,-,-,-,-,-,active:off+roi:off,-,-"),
 			exactPrefix: 1,
 		},
 		{
 			name: "noise-sensitivity-toggle",
 			opts: baseOpts(700),
-			before: func(t *testing.T, enc *VP9Encoder, frame int) {
+			before: func(t *testing.T, enc *govpx.VP9Encoder, frame int) {
 				t.Helper()
 				switch frame {
 				case 1:
-					mustVP9Runtime(t, "SetNoiseSensitivity 3",
+					vp9oracle.MustRuntime(t, "SetNoiseSensitivity 3",
 						enc.SetNoiseSensitivity(3))
 				case 7:
-					mustVP9Runtime(t, "SetNoiseSensitivity 0",
+					vp9oracle.MustRuntime(t, "SetNoiseSensitivity 0",
 						enc.SetNoiseSensitivity(0))
 				}
 			},
-			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
+			extraArgs: append(vp9oracle.CBRArgs(700, 600, 400, 500, 0),
 				"--control-script=-,noise:3,-,-,-,-,-,noise:0,-,-"),
 			exactPrefix: 1,
 		},
@@ -315,10 +317,10 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxPackets, libvpxPackets := captureVP9StreamParityPacketsWithHooks(t,
+			sources := vp9oracle.TransitionSources(width, height, frames)
+			govpxPackets, libvpxPackets := vp9oracle.CaptureStreamParityPacketsWithHooks(t,
 				tc.opts, sources, tc.flags, tc.extraArgs,
-				func(enc *VP9Encoder, frame int) {
+				func(enc *govpx.VP9Encoder, frame int) {
 					tc.before(t, enc, frame)
 				})
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
