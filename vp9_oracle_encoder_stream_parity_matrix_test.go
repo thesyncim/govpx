@@ -120,16 +120,17 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 	}
 
 	type streamCase struct {
-		name        string
-		fixture     streamFixture
-		frames      int
-		opts        VP9EncoderOptions
-		flags       []EncodeFlags
-		extraArgs   []string
-		exactPrefix int
-		exactFrames []int
-		strictBytes bool
-		tileJobs    int
+		name            string
+		fixture         streamFixture
+		frames          int
+		opts            VP9EncoderOptions
+		flags           []EncodeFlags
+		extraArgs       []string
+		exactPrefix     int
+		exactFrames     []int
+		firstPartFrames []int
+		strictBytes     bool
+		tileJobs        int
 	}
 	cases := []streamCase{
 		{
@@ -552,12 +553,13 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			exactPrefix: 0,
 		},
 		{
-			name:        "fixed-q-no-reference-all-panning-320",
-			fixture:     panning320,
-			frames:      4,
-			flags:       vp9OracleRepeatInterFlag(4, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			extraArgs:   []string{"--min-q=20", "--max-q=20"},
-			exactPrefix: 0,
+			name:            "fixed-q-no-reference-all-panning-320",
+			fixture:         panning320,
+			frames:          4,
+			flags:           vp9OracleRepeatInterFlag(4, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
+			extraArgs:       []string{"--min-q=20", "--max-q=20"},
+			exactPrefix:     0,
+			firstPartFrames: []int{2, 3},
 			opts: VP9EncoderOptions{
 				MinQuantizer: 20,
 				MaxQuantizer: 20,
@@ -1014,6 +1016,15 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 					vp9test.AssertPacketByteParity(t,
 						fmt.Sprintf("%s frame %d", tc.name, frame),
 						govpxPackets[frame], libvpxPackets[frame])
+				}
+			}
+			for _, frame := range tc.firstPartFrames {
+				govpxHeader, _ := vp9test.ParseHeader(t, govpxPackets[frame])
+				libvpxHeader, _ := vp9test.ParseHeader(t, libvpxPackets[frame])
+				if govpxHeader.FirstPartitionSize != libvpxHeader.FirstPartitionSize {
+					t.Fatalf("%s frame %d first partition size: govpx=%d libvpx=%d",
+						tc.name, frame, govpxHeader.FirstPartitionSize,
+						libvpxHeader.FirstPartitionSize)
 				}
 			}
 			if tc.strictBytes && matches != len(govpxPackets) {

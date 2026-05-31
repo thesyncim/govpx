@@ -714,7 +714,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		//
 		// low_res predicate: libvpx vp9_encodeframe.c:1311.
 		lowRes := srcW <= 352 && srcH <= 288
-		if refSlot, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
+		if refSlot, ok := e.vp9PartitionReferenceSlot(vp9dec.LastFrame); ok {
 			refPx, refStride, refW, refH := vp9ReferenceVisiblePlane(
 				&e.refFrames[refSlot], 0)
 			if len(refPx) > 0 && refStride > 0 &&
@@ -843,6 +843,17 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.varPartSBComputed[sbIdx] = true
 	e.varPartFrameValid = true
 	return true
+}
+
+func (e *VP9Encoder) vp9PartitionReferenceSlot(refFrame int8) (int, bool) {
+	slot, ok := vp9EncoderReferenceSlot(refFrame)
+	if !ok {
+		return 0, false
+	}
+	if !e.refFrames[slot].valid {
+		return 0, false
+	}
+	return slot, true
 }
 
 // vp9VarPartDecisionFor reads xd->mi[(miRow*miCols+miCol)].sb_type and

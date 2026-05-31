@@ -160,6 +160,33 @@ func TestVP9EnsureSBPartitionChosenThreadsNoiseEstimate(t *testing.T) {
 	}
 }
 
+func TestVP9PartitionReferenceSlotIgnoresCodingRefMask(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		CpuUsed: 8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	src := vp9test.NewMotionYCbCr(width, height)
+	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(src)
+
+	inter := &vp9InterEncodeState{
+		refMask: 1 << uint(vp9dec.GoldenFrame),
+	}
+	if _, ok := e.vp9InterReferenceSlot(inter, vp9dec.LastFrame); ok {
+		t.Fatal("vp9InterReferenceSlot accepted LAST despite the coding ref mask")
+	}
+	if slot, ok := e.vp9PartitionReferenceSlot(vp9dec.LastFrame); !ok || slot != vp9LastRefSlot {
+		t.Fatalf("vp9PartitionReferenceSlot = (%d, %t), want (%d, true)",
+			slot, ok, vp9LastRefSlot)
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenUsesCyclicRefreshSegmentQ(t *testing.T) {
 	const width, height = 640, 480
 	const miRows, miCols = 60, 80

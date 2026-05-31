@@ -123,6 +123,41 @@ func TestAvgSourceSADContentStates(t *testing.T) {
 	}
 }
 
+func TestAvgSourceSADEdgeExtendsBottomBorder(t *testing.T) {
+	const width = 320
+	const height = 180
+	const stride = width
+	last := makeFilledPlane(width, height, 10)
+	source := makeFilledPlane(width, height, 10)
+	for x := range width {
+		source[(height-1)*stride+x] = 20
+	}
+
+	got, ok := AvgSourceSAD(AvgSourceSADArgs{
+		SourceY:           source,
+		SourceYStride:     stride,
+		LastSourceY:       last,
+		LastSourceYStride: stride,
+		Width:             width,
+		Height:            height,
+		MIRow:             16,
+		MICol:             0,
+	})
+	if !ok {
+		t.Fatal("AvgSourceSAD returned !ok for partial bottom superblock")
+	}
+	const wantSAD = uint64(13 * 64 * 10)
+	if got.SourceSAD != wantSAD {
+		t.Fatalf("SourceSAD = %d, want %d", got.SourceSAD, wantSAD)
+	}
+	if got.ContentState != ContentStateLowSadHighSumdiff {
+		t.Fatalf("ContentState = %v, want %v", got.ContentState, ContentStateLowSadHighSumdiff)
+	}
+	if got.ZeroTempSADSource {
+		t.Fatal("ZeroTempSADSource = true, want false")
+	}
+}
+
 func makeFilledPlane(width, height int, value byte) []byte {
 	p := make([]byte, width*height)
 	for i := range p {

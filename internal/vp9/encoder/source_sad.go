@@ -98,14 +98,13 @@ func AvgSourceSAD(args AvgSourceSADArgs) (AvgSourceSADResult, bool) {
 	sbMICol := args.MICol &^ 7
 	x0 := sbMICol * 8
 	y0 := sbMIRow * 8
-	if x0 < 0 || y0 < 0 || x0+64 > args.Width || y0+64 > args.Height {
+	if x0 < 0 || y0 < 0 || x0 >= args.Width || y0 >= args.Height ||
+		!avgSourceSADPlaneOK(args.SourceY, args.SourceYStride, args.Width, args.Height) ||
+		!avgSourceSADPlaneOK(args.LastSourceY, args.LastSourceYStride, args.Width, args.Height) {
 		return AvgSourceSADResult{}, false
 	}
 
-	tmpSAD := BlockSAD(args.SourceY, args.SourceYStride,
-		args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
-	tmpVariance, tmpSSE := BlockDiffVarianceSSE(args.SourceY, args.SourceYStride,
-		args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64)
+	tmpSAD, tmpVariance, tmpSSE := avgSourceSAD64(args, x0, y0)
 	sumdiffSquare := tmpSSE - tmpVariance
 
 	const avgSourceSADThreshold uint64 = 10000
@@ -137,4 +136,48 @@ func AvgSourceSAD(args AvgSourceSADArgs) (AvgSourceSADResult, bool) {
 		SourceVariance:         tmpVariance,
 		SourceReferenceSumDiff: sumdiffSquare,
 	}, true
+}
+
+func avgSourceSADPlaneOK(plane []byte, stride, width, height int) bool {
+	return width > 0 && height > 0 && stride >= width &&
+		len(plane) >= (height-1)*stride+width
+}
+
+func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint64) {
+	if x0+64 <= args.Width && y0+64 <= args.Height {
+		sad = BlockSAD(args.SourceY, args.SourceYStride,
+			args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
+		variance, sse = BlockDiffVarianceSSE(args.SourceY, args.SourceYStride,
+			args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64)
+		return sad, variance, sse
+	}
+
+	var sum int64
+	for y := range 64 {
+		sy := y0 + y
+		if sy >= args.Height {
+			sy = args.Height - 1
+		}
+		srcRow := args.SourceY[sy*args.SourceYStride:]
+		refRow := args.LastSourceY[sy*args.LastSourceYStride:]
+		for x := range 64 {
+			sx := x0 + x
+			if sx >= args.Width {
+				sx = args.Width - 1
+			}
+			diff := int(srcRow[sx]) - int(refRow[sx])
+			if diff < 0 {
+				sad += uint64(-diff)
+			} else {
+				sad += uint64(diff)
+			}
+			sum += int64(diff)
+			sse += uint64(diff * diff)
+		}
+	}
+	meanSquares := uint64((sum * sum) >> 12)
+	if sse > meanSquares {
+		variance = sse - meanSquares
+	}
+	return sad, variance, sse
 }
