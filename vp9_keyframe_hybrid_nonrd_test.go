@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9RealtimeSpeed5KeyframeHybridNonRDDispatch(t *testing.T) {
@@ -70,5 +71,66 @@ func TestVP9KeyframeHybridNonRDIntraModeGate(t *testing.T) {
 	e.sf.UseNonrdPickMode = 0
 	if e.useVP9KeyframeNonRDIntraMode(common.Block64x64) {
 		t.Fatalf("Block64x64 used non-RD without use_nonrd_pick_mode")
+	}
+}
+
+func TestVP9KeyframeVariancePartitionRequiresNonRDRow(t *testing.T) {
+	key := &vp9KeyframeEncodeState{
+		hdr: &vp9dec.UncompressedHeader{FrameType: common.KeyFrame},
+		dq:  &vp9dec.DequantTables{},
+	}
+	var e VP9Encoder
+	e.rc.enabled = true
+	e.sf.PartitionSearchType = VarBasedPartition
+
+	if e.vp9KeyframeVariancePartitionEnabled(key) {
+		t.Fatalf("keyframe variance partition enabled without use_nonrd_pick_mode")
+	}
+
+	e.sf.UseNonrdPickMode = 1
+	if !e.vp9KeyframeVariancePartitionEnabled(key) {
+		t.Fatalf("keyframe variance partition disabled on non-RD var-based row")
+	}
+
+	key.lossless = true
+	if e.vp9KeyframeVariancePartitionEnabled(key) {
+		t.Fatalf("lossless keyframe enabled variance partition")
+	}
+}
+
+func TestVP9KeyframeRDPartitionRequiresVarBasedRDRow(t *testing.T) {
+	key := &vp9KeyframeEncodeState{
+		hdr: &vp9dec.UncompressedHeader{FrameType: common.KeyFrame},
+		dq:  &vp9dec.DequantTables{},
+	}
+	var e VP9Encoder
+	e.opts = VP9EncoderOptions{
+		Width:              128,
+		Height:             64,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlQ,
+		TargetBitrateKbps:  700,
+	}
+	e.sf.PartitionSearchType = VarBasedPartition
+
+	if !e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("keyframe RD partition disabled on fixed-Q var-based RD row")
+	}
+
+	e.sf.UseNonrdPickMode = 1
+	if e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("keyframe RD partition enabled on non-RD row")
+	}
+
+	e.sf.UseNonrdPickMode = 0
+	e.sf.PartitionSearchType = SearchPartition
+	if e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("keyframe RD partition enabled for generic search partition")
+	}
+
+	key.lossless = true
+	e.sf.PartitionSearchType = VarBasedPartition
+	if e.vp9KeyframeRDPartitionEnabled(key) {
+		t.Fatalf("lossless keyframe enabled RD partition")
 	}
 }

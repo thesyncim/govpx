@@ -72,9 +72,9 @@ func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 		e.vp9ApplySpeedFeatures(ctx)
 	}
 	// applyKeyFrameSF rebuilds the SF using the default (key-frame, intra-only)
-	// context. vp9RealtimeVariancePartitionEnabled is consumed by the keyframe
-	// var-partition gate (vp9_encoder.go:5753 vp9CBRKeyframeVariancePartitionEnabled),
-	// so it must be inspected with the same context.
+	// context. The keyframe partition gate combines this with
+	// use_nonrd_pick_mode, so the raw variance-partition speed feature is
+	// still inspected with the same context.
 	applyKeyFrameSF := func() {
 		e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
 	}

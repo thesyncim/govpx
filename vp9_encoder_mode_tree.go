@@ -231,7 +231,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
 	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,
-		bsize, tile, partitionProbs, kind, key, inter)
+		bsize, tile, partitionProbs, txMode, kind, key, inter)
 	partition := common.PartitionLookup[bsl][target]
 	if counts := vp9EncodeCountsForState(key, inter); counts != nil {
 		ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
@@ -321,7 +321,8 @@ func vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol int, root common.Blo
 func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	root common.BlockSize, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
-	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+	txMode common.TxMode, kind vp9ModeTreeKind, key *vp9KeyframeEncodeState,
+	inter *vp9InterEncodeState,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
@@ -346,6 +347,11 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		if varianceSize, ok := e.pickVP9KeyframeVariancePartitionBlockSize(key,
 			miRows, miCols, miRow, miCol, root); ok {
 			return commitKeyframeTarget(varianceSize)
+		}
+		if rdSize, ok := e.pickVP9KeyframeRDPartitionBlockSize(key, tile,
+			partitionProbs, miRows, miCols, miRow, miCol, root,
+			txMode); ok {
+			return commitKeyframeTarget(rdSize)
 		}
 		if e.sf.UseNonrdPickMode == 0 && e.vp9KeyframeRDRefinementEnabled() {
 			if textureSize, ok := e.pickVP9KeyframeTexturePartitionBlockSize(key,
