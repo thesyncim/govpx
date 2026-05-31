@@ -1,8 +1,10 @@
-package govpx
+package govpx_test
 
 import (
 	"errors"
 	"testing"
+
+	govpx "github.com/thesyncim/govpx"
 )
 
 // TestVP9EncoderGetActiveMapMirrorsLibvpx pins the libvpx-faithful
@@ -14,12 +16,11 @@ import (
 //     bit into the 16x16 output byte.
 func TestVP9EncoderGetActiveMapMirrorsLibvpx(t *testing.T) {
 	const width, height = 64, 32
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows, mbCols := (height+15)>>4, (width+15)>>4
 	out := make([]uint8, mbRows*mbCols)
 
 	// Initially disabled: every byte must be 1 (libvpx memset(!enabled)).
@@ -77,12 +78,11 @@ func TestVP9EncoderGetActiveMapMirrorsLibvpx(t *testing.T) {
 // (vp9/encoder/vp9_encoder.c:751 set + 777 get).
 func TestVP9EncoderGetActiveMapRoundTripsSetActiveMap(t *testing.T) {
 	const width, height = 32, 32
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows, mbCols := (height+15)>>4, (width+15)>>4
 	patterns := [][]uint8{
 		{1, 0, 0, 1},
 		{0, 1, 1, 0},
@@ -112,39 +112,39 @@ func TestVP9EncoderGetActiveMapRoundTripsSetActiveMap(t *testing.T) {
 
 // TestVP9EncoderGetActiveMapValidationRejectsBadDims pins libvpx's row/col
 // dimension check (vp9_encoder.c:779): mismatched dimensions return -1.
-// govpx maps that to ErrInvalidConfig.
+// govpx maps that to govpx.ErrInvalidConfig.
 func TestVP9EncoderGetActiveMapValidationRejectsBadDims(t *testing.T) {
 	const width, height = 32, 32
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: width, Height: height})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
-	mbRows := encoderMacroblockRows(height)
-	mbCols := encoderMacroblockCols(width)
+	mbRows, mbCols := (height+15)>>4, (width+15)>>4
 	out := make([]uint8, mbRows*mbCols)
-	if err := e.GetActiveMap(out, mbRows-1, mbCols); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("GetActiveMap with wrong rows = %v, want ErrInvalidConfig", err)
+	if err := e.GetActiveMap(out, mbRows-1, mbCols); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("GetActiveMap with wrong rows = %v, want govpx.ErrInvalidConfig", err)
 	}
-	if err := e.GetActiveMap(out, mbRows, mbCols+1); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("GetActiveMap with wrong cols = %v, want ErrInvalidConfig", err)
+	if err := e.GetActiveMap(out, mbRows, mbCols+1); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("GetActiveMap with wrong cols = %v, want govpx.ErrInvalidConfig", err)
 	}
 	short := make([]uint8, mbRows*mbCols-1)
-	if err := e.GetActiveMap(short, mbRows, mbCols); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("GetActiveMap with short slice = %v, want ErrInvalidConfig", err)
+	if err := e.GetActiveMap(short, mbRows, mbCols); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("GetActiveMap with short slice = %v, want govpx.ErrInvalidConfig", err)
 	}
 }
 
 // TestVP9EncoderGetActiveMapClosedReturnsErrClosed pins the lifecycle gate.
 func TestVP9EncoderGetActiveMapClosedReturnsErrClosed(t *testing.T) {
-	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 16, Height: 16})
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{Width: 16, Height: 16})
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
-	mbRows := encoderMacroblockRows(16)
-	mbCols := encoderMacroblockCols(16)
+	mbRows, mbCols := (16+15)>>4, (16+15)>>4
 	out := make([]uint8, mbRows*mbCols)
-	e.closed = true
-	if err := e.GetActiveMap(out, mbRows, mbCols); !errors.Is(err, ErrClosed) {
-		t.Fatalf("closed encoder GetActiveMap = %v, want ErrClosed", err)
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := e.GetActiveMap(out, mbRows, mbCols); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("closed encoder GetActiveMap = %v, want govpx.ErrClosed", err)
 	}
 }
