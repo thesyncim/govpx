@@ -102,6 +102,86 @@ func TestVP9ModeIdxTableMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestVP9FullRDModeOrderMatchesLibvpx(t *testing.T) {
+	cases := []struct {
+		index ThrMode
+		mode  common.PredictionMode
+		ref   [2]int8
+	}{
+		{vp9ThrNearestMV, common.NearestMv, [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNearestA, common.NearestMv, [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNearestG, common.NearestMv, [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+		{vp9ThrDC, common.DcPred, [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNewMV, common.NewMv, [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNewA, common.NewMv, [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNewG, common.NewMv, [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+		{vp9ThrNearMV, common.NearMv, [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+		{vp9ThrZeroMV, common.ZeroMv, [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+		{vp9ThrCompNewLA, common.NewMv, [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}},
+		{vp9ThrD45Pred, common.D45Pred, [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	}
+	for _, tc := range cases {
+		got := FullRDModeOrder[tc.index]
+		if got.Mode != tc.mode || got.RefFrame != tc.ref {
+			t.Fatalf("FullRDModeOrder[%d] = {%d %v}, want {%d %v}",
+				tc.index, got.Mode, got.RefFrame, tc.mode, tc.ref)
+		}
+		idx, ok := FullRDModeIndex(tc.mode, tc.ref[0], tc.ref[1])
+		if !ok {
+			t.Fatalf("FullRDModeIndex(%d,%v) not found", tc.mode, tc.ref)
+		}
+		if idx != tc.index {
+			t.Fatalf("FullRDModeIndex(%d,%v) = %d, want %d",
+				tc.mode, tc.ref, idx, tc.index)
+		}
+		if tc.ref[1] == vp9dec.NoRefFrame && tc.ref[0] > vp9dec.IntraFrame {
+			singleIdx, ok := FullRDSingleModeIndex(tc.mode, tc.ref[0])
+			if !ok {
+				t.Fatalf("FullRDSingleModeIndex(%d,%d) not found", tc.mode, tc.ref[0])
+			}
+			if singleIdx != tc.index {
+				t.Fatalf("FullRDSingleModeIndex(%d,%d) = %d, want %d",
+					tc.mode, tc.ref[0], singleIdx, tc.index)
+			}
+		}
+	}
+}
+
+func TestVP9FullRDCorrectNewMVMode(t *testing.T) {
+	nearest := [2]vp9dec.MV{{Row: 8, Col: 16}, {Row: -8, Col: 4}}
+	near := [2]vp9dec.MV{{Row: 12, Col: 20}, {Row: -4, Col: 2}}
+	validBoth := [2]bool{true, true}
+	if got := FullRDCorrectNewMVMode(common.NewMv,
+		[2]vp9dec.MV{nearest[0]}, false, nearest, near,
+		validBoth, validBoth); got != common.NearestMv {
+		t.Fatalf("single NEWMV matching nearest corrected to %d, want NEARESTMV", got)
+	}
+	if got := FullRDCorrectNewMVMode(common.NewMv,
+		[2]vp9dec.MV{near[0]}, false, nearest, near,
+		validBoth, validBoth); got != common.NearMv {
+		t.Fatalf("single NEWMV matching near corrected to %d, want NEARMV", got)
+	}
+	if got := FullRDCorrectNewMVMode(common.NewMv,
+		[2]vp9dec.MV{}, false, nearest, near,
+		validBoth, validBoth); got != common.ZeroMv {
+		t.Fatalf("single zero NEWMV corrected to %d, want ZEROMV", got)
+	}
+	if got := FullRDCorrectNewMVMode(common.NewMv, nearest, true,
+		nearest, near, validBoth, validBoth); got != common.NearestMv {
+		t.Fatalf("compound NEWMV matching nearest corrected to %d, want NEARESTMV", got)
+	}
+	if got := FullRDCorrectNewMVMode(common.NewMv,
+		[2]vp9dec.MV{nearest[0], near[1]}, true,
+		nearest, near, validBoth, validBoth); got != common.NewMv {
+		t.Fatalf("compound partial nearest match corrected to %d, want NEWMV", got)
+	}
+	if got := FullRDCorrectNewMVMode(common.NearestMv,
+		[2]vp9dec.MV{near[0]}, false, nearest, near,
+		validBoth, validBoth); got != common.NearestMv {
+		t.Fatalf("non-NEWMV corrected to %d, want original mode", got)
+	}
+}
+
 // TestVP9SetBlockThresholdsPopulatesGEBlock8x8 verifies set_block_thresholds
 // fills the bsize>=BLOCK_8X8 rows with finite values; sub-8x8 rows stay zero
 // (govpx does not surface the sub-8x8 picker).
@@ -135,6 +215,25 @@ func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 	}
 }
 
+func TestVP9FullRDModeThresholdZerosFrontSchedule(t *testing.T) {
+	var rd RDThreshState
+	rd.SetRDSpeedThresholds(4)
+	rd.SetBlockThresholds(64, 0)
+	for mode := ThrMode(0); mode <= FullRDLastNewMVIndex; mode++ {
+		if got := rd.FullRDModeRDThreshold(common.Block16x16, mode, false, false); got != 0 {
+			t.Fatalf("full-RD threshold for front-schedule mode %d = %d, want 0", mode, got)
+		}
+	}
+	near := rd.FullRDModeRDThreshold(common.Block16x16, vp9ThrNearMV, false, false)
+	if near <= 0 {
+		t.Fatalf("full-RD threshold for NEARMV = %d, want positive", near)
+	}
+	doubled := rd.FullRDModeRDThreshold(common.Block16x16, vp9ThrNearMV, true, true)
+	if doubled != near<<1 {
+		t.Fatalf("full-RD skippable scheduled threshold = %d, want %d", doubled, near<<1)
+	}
+}
+
 // TestVP9RDLessThanThreshFires verifies the gate's fire condition.
 func TestVP9RDLessThanThreshFires(t *testing.T) {
 	// bestRd=10, thresh=100, fact=32 ⇒ rhs = 100*32>>5 = 100. 10<100 → true.
@@ -148,6 +247,27 @@ func TestVP9RDLessThanThreshFires(t *testing.T) {
 	// INT_MAX thresh always fires (libvpx vp9_rd.h:195).
 	if !RDLessThanThresh(1<<62, 1<<31-1, 32) {
 		t.Error("expected fire for INT_MAX thresh")
+	}
+}
+
+func TestVP9UpdateFullRDThreshFactTouchesNeighborBlockSizes(t *testing.T) {
+	var rd RDThreshState
+	rd.InitFreqFact()
+	rd.UpdateFullRDThreshFact(common.Block16x16, vp9ThrNewMV, 4)
+
+	for bs := common.Block16x8; bs <= common.Block32x16; bs++ {
+		if got := rd.threshFreqFact[bs][vp9ThrNewMV]; got != 30 {
+			t.Fatalf("best-mode fact for block size %d = %d, want 30", bs, got)
+		}
+		if got := rd.threshFreqFact[bs][vp9ThrNearMV]; got != 33 {
+			t.Fatalf("loser fact for block size %d = %d, want 33", bs, got)
+		}
+	}
+	if got := rd.threshFreqFact[common.Block8x8][vp9ThrNewMV]; got != 32 {
+		t.Fatalf("outside-neighborhood fact changed to %d, want 32", got)
+	}
+	if got := rd.threshFreqFact[common.Block32x32][vp9ThrNewMV]; got != 32 {
+		t.Fatalf("outside-neighborhood fact changed to %d, want 32", got)
 	}
 }
 

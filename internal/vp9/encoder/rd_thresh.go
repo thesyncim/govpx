@@ -108,6 +108,121 @@ var ModeIdxTable = [vp9dec.MaxRefFrames][4]ThrMode{
 	{vp9ThrNearestA, vp9ThrNearA, vp9ThrZeroA, vp9ThrNewA},
 }
 
+// FullRDLastNewMVIndex mirrors LAST_NEW_MV_INDEX in vp9_rdopt.c. Full-RD mode
+// thresholds are forced to zero through this entry so the nearest/new/intra-DC
+// front of the schedule is always evaluated before adaptive pruning starts.
+const FullRDLastNewMVIndex ThrMode = vp9ThrNewG
+
+// FullRDModeDefinition mirrors libvpx's MODE_DEFINITION used by
+// vp9_rd_pick_inter_mode_sb.
+type FullRDModeDefinition struct {
+	Mode     common.PredictionMode
+	RefFrame [2]int8
+}
+
+// FullRDModeOrder mirrors vp9_rdopt.c::vp9_mode_order. The enum index is also
+// the THR_MODES index consumed by rd->threshes and thresh_freq_fact.
+var FullRDModeOrder = [vp9MaxModes]FullRDModeDefinition{
+	{Mode: common.NearestMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NearestMv, RefFrame: [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NearestMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.DcPred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.NewMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NewMv, RefFrame: [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NewMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.NearMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NearMv, RefFrame: [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+	{Mode: common.NearMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.ZeroMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}},
+	{Mode: common.ZeroMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.NoRefFrame}},
+	{Mode: common.ZeroMv, RefFrame: [2]int8{vp9dec.AltrefFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.NearestMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}},
+	{Mode: common.NearestMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame}},
+
+	{Mode: common.TmPred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+
+	{Mode: common.NearMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}},
+	{Mode: common.NewMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}},
+	{Mode: common.NearMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame}},
+	{Mode: common.NewMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame}},
+
+	{Mode: common.ZeroMv, RefFrame: [2]int8{vp9dec.LastFrame, vp9dec.AltrefFrame}},
+	{Mode: common.ZeroMv, RefFrame: [2]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame}},
+
+	{Mode: common.HPred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.VPred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D135Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D207Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D153Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D63Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D117Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+	{Mode: common.D45Pred, RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}},
+}
+
+// FullRDModeIndex maps a candidate mode/ref pair to libvpx's full-RD
+// vp9_mode_order index. The returned value is a THR_MODES index.
+func FullRDModeIndex(mode common.PredictionMode, refFrame, secondRefFrame int8) (ThrMode, bool) {
+	for i, def := range FullRDModeOrder {
+		if def.Mode == mode &&
+			def.RefFrame[0] == refFrame &&
+			def.RefFrame[1] == secondRefFrame {
+			return ThrMode(i), true
+		}
+	}
+	return 0, false
+}
+
+// FullRDSingleModeIndex maps an inter single-ref mode directly through
+// libvpx's mode_idx table. It is the hot-path sibling of FullRDModeIndex for
+// the common single-reference full-RD loop.
+func FullRDSingleModeIndex(mode common.PredictionMode, refFrame int8) (ThrMode, bool) {
+	if refFrame <= vp9dec.IntraFrame || refFrame >= vp9dec.MaxRefFrames {
+		return 0, false
+	}
+	offset := ModeOffsetInter(mode)
+	if offset < 0 || offset >= len(ModeIdxTable[refFrame]) {
+		return 0, false
+	}
+	return ModeIdxTable[refFrame][offset], true
+}
+
+// FullRDCorrectNewMVMode mirrors the post-pick correction in
+// vp9_rd_pick_inter_mode_sb that relabels a NEWMV winner when its selected MV
+// exactly matches the cheaper nearest, near, or zero-motion mode.
+func FullRDCorrectNewMVMode(mode common.PredictionMode, mv [2]vp9dec.MV,
+	compound bool, nearest, near [2]vp9dec.MV,
+	nearestValid, nearValid [2]bool,
+) common.PredictionMode {
+	if mode != common.NewMv {
+		return mode
+	}
+	if fullRDMVsMatch(mv, nearest, nearestValid, compound) {
+		return common.NearestMv
+	}
+	if fullRDMVsMatch(mv, near, nearValid, compound) {
+		return common.NearMv
+	}
+	if mv[0] == (vp9dec.MV{}) && (!compound || mv[1] == (vp9dec.MV{})) {
+		return common.ZeroMv
+	}
+	return mode
+}
+
+func fullRDMVsMatch(mv, ref [2]vp9dec.MV, valid [2]bool, compound bool) bool {
+	if !valid[0] || mv[0] != ref[0] {
+		return false
+	}
+	if compound {
+		return valid[1] && mv[1] == ref[1]
+	}
+	return true
+}
+
 // ModeOffsetInter maps an inter prediction-mode value (NEARESTMV..NEWMV)
 // to the [0,3] offset libvpx's mode_idx table expects. Mirrors
 // INTER_OFFSET(mode) at vp9_pickmode.c:2240 (defined in vp9_blockd.h).
@@ -375,6 +490,57 @@ func RDLessThanThresh(bestRd uint64, thresh, threshFact int) bool {
 		return false
 	}
 	return bestRd < uint64(lhs)
+}
+
+// FullRDModeRDThreshold returns the rd_less_than_thresh base threshold for a
+// full-RD mode-order entry. libvpx clears mode_threshold[0..LAST_NEW_MV_INDEX]
+// before it computes the adaptive thresholds, so those modes are never skipped.
+func (rd *RDThreshState) FullRDModeRDThreshold(bsize common.BlockSize,
+	modeIndex ThrMode, bestModeSkippable, scheduleModeSearch bool,
+) int {
+	modeRDThresh := 0
+	if modeIndex > FullRDLastNewMVIndex {
+		modeRDThresh = rd.Threshold(bsize, modeIndex)
+	}
+	if bestModeSkippable && scheduleModeSearch {
+		modeRDThresh <<= 1
+	}
+	return modeRDThresh
+}
+
+// UpdateFullRDThreshFact mirrors libvpx vp9_update_rd_thresh_fact from
+// vp9_rd.c. Unlike the realtime non-RD picker's per-ref update helper below,
+// full-RD updates every mode slot for a small block-size neighborhood around
+// the selected block.
+func (rd *RDThreshState) UpdateFullRDThreshFact(bsize common.BlockSize,
+	bestModeIndex ThrMode, adaptiveRdThresh int,
+) {
+	if adaptiveRdThresh <= 0 || bsize >= common.BlockSizes {
+		return
+	}
+	topMode := vp9MaxModes
+	if bsize < common.Block8x8 {
+		topMode = 6
+	}
+	minSize := bsize - 1
+	if minSize < common.Block4x4 {
+		minSize = common.Block4x4
+	}
+	maxSize := bsize + 2
+	if maxSize > common.Block64x64 {
+		maxSize = common.Block64x64
+	}
+	cap := adaptiveRdThresh * vp9RDThreshMaxFact
+	for mode := range topMode {
+		for bs := minSize; bs <= maxSize; bs++ {
+			fact := &rd.threshFreqFact[bs][mode]
+			if ThrMode(mode) == bestModeIndex {
+				*fact -= *fact >> 4
+			} else {
+				*fact = min(*fact+vp9RDThreshInc, cap)
+			}
+		}
+	}
 }
 
 // UpdateThreshFreqFact is the verbatim port of libvpx's
