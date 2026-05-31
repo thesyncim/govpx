@@ -141,3 +141,56 @@ func TestVP9DecoderDecodeTileColFilterIgnoredForSingleTileFrames(t *testing.T) {
 	}
 	assertVP9NeutralFrameForTest(t, frame, 1024, 64)
 }
+
+func TestVP9DecoderSetDecodeTileFiltersAcceptNegativeClear(t *testing.T) {
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+
+	if err := d.SetDecodeTileRow(3); err != nil {
+		t.Fatalf("SetDecodeTileRow(3): %v", err)
+	}
+	if err := d.SetDecodeTileRow(-7); err != nil {
+		t.Fatalf("SetDecodeTileRow(-7): %v", err)
+	}
+	if err := d.SetDecodeTileCol(2); err != nil {
+		t.Fatalf("SetDecodeTileCol(2): %v", err)
+	}
+	if err := d.SetDecodeTileCol(-7); err != nil {
+		t.Fatalf("SetDecodeTileCol(-7): %v", err)
+	}
+	if err := d.SetDecodeTileRow(64); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetDecodeTileRow(64) err = %v, want ErrInvalidConfig", err)
+	}
+	if err := d.SetDecodeTileCol(64); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("SetDecodeTileCol(64) err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestVP9DecoderSetDecodeTileColNegativeClearRestoresFullFrame(t *testing.T) {
+	packet := vp9test.MultiTileModePacket(t, 1024, 64, 1,
+		[]common.PredictionMode{common.DcPred, common.VPred})
+	want := vp9DecodeLastVisibleFrameForTest(t, packet)
+
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.SetDecodeTileCol(0); err != nil {
+		t.Fatalf("SetDecodeTileCol(0): %v", err)
+	}
+	if err := d.SetDecodeTileCol(-1); err != nil {
+		t.Fatalf("SetDecodeTileCol(-1): %v", err)
+	}
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode after clearing tile filter: %v", err)
+	}
+	got, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok")
+	}
+	assertVP9ImagesEqualForTest(t, want, got)
+}

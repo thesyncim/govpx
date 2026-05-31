@@ -53,6 +53,60 @@ func TestVP9DecoderPostProcessAddNoiseChangesOnlyLuma(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderPostProcessDeblockAndDemacroblockChangeOutput(t *testing.T) {
+	const width, height = 64, 64
+	packet := vp9test.ColumnResidueKeyframe(t, width, height, 8, 32)
+
+	plain, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder plain: %v", err)
+	}
+	if err := plain.Decode(packet); err != nil {
+		t.Fatalf("plain Decode: %v", err)
+	}
+	plainFrame, ok := plain.NextFrame()
+	if !ok {
+		t.Fatal("plain NextFrame returned no frame")
+	}
+	plainY := append([]byte(nil), plainFrame.Y...)
+
+	filtered, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+		PostProcessFlags: govpx.PostProcessDeblock | govpx.PostProcessDemacroblock,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder filtered: %v", err)
+	}
+	if err := filtered.Decode(packet); err != nil {
+		t.Fatalf("filtered Decode: %v", err)
+	}
+	filteredFrame, ok := filtered.NextFrame()
+	if !ok {
+		t.Fatal("filtered NextFrame returned no frame")
+	}
+	if testutil.PlaneEqual(plainY, plainFrame.YStride, filteredFrame.Y,
+		filteredFrame.YStride, width, height) {
+		t.Fatal("deblock+demacroblock postprocess produced identical luma")
+	}
+
+	totalDiff, count := 0, 0
+	for y := range height {
+		for x := range width {
+			a := int(plainY[y*plainFrame.YStride+x])
+			b := int(filteredFrame.Y[y*filteredFrame.YStride+x])
+			if a > b {
+				totalDiff += a - b
+			} else {
+				totalDiff += b - a
+			}
+			count++
+		}
+	}
+	mad := float64(totalDiff) / float64(count)
+	if mad > 40 {
+		t.Fatalf("postprocess MAD = %.2f, want bounded perturbation (<= 40)", mad)
+	}
+}
+
 func TestVP9DecoderPostProcessSteadyStateAlloc(t *testing.T) {
 	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		PostProcessFlags: govpx.PostProcessDeblock |

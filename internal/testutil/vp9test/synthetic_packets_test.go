@@ -50,3 +50,14 @@ func TestSyntheticMultiTileModePacketHeader(t *testing.T) {
 		t.Fatalf("FrameType = %d, want keyframe", header.FrameType)
 	}
 }
+
+func TestColumnResidueKeyframeHeader(t *testing.T) {
+	packet := ColumnResidueKeyframe(t, 64, 64, 32, 8)
+	header, _ := ParseHeader(t, packet)
+	if header.Loopfilter.FilterLevel != 32 {
+		t.Fatalf("loop filter level = %d, want 32", header.Loopfilter.FilterLevel)
+	}
+	if header.Quant.BaseQindex != 1 {
+		t.Fatalf("base qindex = %d, want 1", header.Quant.BaseQindex)
+	}
+}
