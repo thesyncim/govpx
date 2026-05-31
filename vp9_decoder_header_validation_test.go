@@ -21,7 +21,3 @@ func TestVP9DecoderRejectsMissingResidueTokens(t *testing.T) {
 		t.Fatalf("LastFrameSize() = (%d, %d), want (0, 0)", w, h)
 	}
 }
-
-// TestVP9DecoderDecodeSteadyStateAlloc keeps the public header +
-// tile/residual parse and intra reconstruct output path allocation-free after
-// construction.

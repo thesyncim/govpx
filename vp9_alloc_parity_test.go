@@ -1,9 +1,11 @@
-package govpx
+package govpx_test
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
+
+	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 // TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity pins the steady-state
@@ -20,30 +22,30 @@ import (
 func TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity(t *testing.T) {
 	cases := []struct {
 		name string
-		opts func() VP9EncoderOptions
+		opts func() govpx.VP9EncoderOptions
 	}{
 		// libvpx pattern: vpxenc --rt --cpu-used=8 --target-bitrate=600 at
 		// 640x360. Mirrors parityFor(realtime) in benchcmd/config.go.
 		{"realtime-bench-parity", defaultVP9AllocParityOpts},
 		// Equator 360 enables segmentation but reuses the existing
 		// segment-history slabs (vp9_segmentation.c); no per-frame allocs.
-		{"equator360-aq", func() VP9EncoderOptions {
+		{"equator360-aq", func() govpx.VP9EncoderOptions {
 			o := defaultVP9AllocParityOpts()
-			o.AQMode = VP9AQEquator360
+			o.AQMode = govpx.VP9AQEquator360
 			return o
 		}},
 		// Variance AQ mirrors libvpx vp9_aq_variance.c which keeps its
 		// segment map and rate cost LUTs on the CPI; per-frame work is
 		// limited to integer arithmetic.
-		{"variance-aq", func() VP9EncoderOptions {
+		{"variance-aq", func() govpx.VP9EncoderOptions {
 			o := defaultVP9AllocParityOpts()
-			o.AQMode = VP9AQVariance
+			o.AQMode = govpx.VP9AQVariance
 			return o
 		}},
 		// Tile-threaded count workers share their slab via the encoder's
 		// vp9TileWorkerPool (libvpx pattern:
 		// vp9_create_compressor allocates VPxWorker[] once).
-		{"threads-2", func() VP9EncoderOptions {
+		{"threads-2", func() govpx.VP9EncoderOptions {
 			o := defaultVP9AllocParityOpts()
 			o.Threads = 2
 			return o
@@ -56,22 +58,22 @@ func TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity(t *testing.T) {
 	}
 }
 
-func defaultVP9AllocParityOpts() VP9EncoderOptions {
+func defaultVP9AllocParityOpts() govpx.VP9EncoderOptions {
 	// Mirrors cmd/govpx-bench/benchcmd/vp9_encode.go::vp9BenchmarkEncoderOptions
 	// for cfg{Width:640,Height:360,FPS:30,BitrateKbps:600,Mode:"realtime",
 	// CpuUsed:8}. Keeping the gate co-located with bench parity makes it
 	// easy to spot drift between the alloc-free contract and the bench
 	// CBR knobs.
-	return VP9EncoderOptions{
+	return govpx.VP9EncoderOptions{
 		Width:               640,
 		Height:              360,
 		FPS:                 30,
 		Threads:             1,
 		CpuUsed:             8,
-		Deadline:            DeadlineRealtime,
+		Deadline:            govpx.DeadlineRealtime,
 		TargetBitrateKbps:   600,
 		RateControlModeSet:  true,
-		RateControlMode:     RateControlCBR,
+		RateControlMode:     govpx.RateControlCBR,
 		MinQuantizer:        2,
 		MaxQuantizer:        56,
 		MaxKeyframeInterval: 3000,
@@ -88,12 +90,12 @@ func defaultVP9AllocParityOpts() VP9EncoderOptions {
 	}
 }
 
-func measureVP9EncodeAllocsAtBenchParity(t *testing.T, opts VP9EncoderOptions) {
+func measureVP9EncodeAllocsAtBenchParity(t *testing.T, opts govpx.VP9EncoderOptions) {
 	t.Helper()
 	const frames = 16
-	e, err := NewVP9Encoder(opts)
+	e, err := govpx.NewVP9Encoder(opts)
 	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
+		t.Fatalf("govpx.NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
 	dst := make([]byte, opts.Width*opts.Height*6+4096)

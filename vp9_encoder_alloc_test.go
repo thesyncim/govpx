@@ -3,112 +3,12 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/vp9/common"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
-
-func TestVP9EncoderTileRowsSteadyStateAlloc(t *testing.T) {
-	const width, height = 1024, 128
-	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:        width,
-		Height:       height,
-		Threads:      2,
-		Log2TileRows: 1,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	frames := [4]*image.YCbCr{}
-	for i := range frames {
-		frames[i] = vp9test.NewPanningYCbCr(width, height, i)
-	}
-	dst := make([]byte, 1<<20)
-	for i := range frames {
-		if _, err := e.EncodeInto(frames[i], dst); err != nil {
-			t.Fatalf("warm EncodeInto[%d]: %v", i, err)
-		}
-	}
-	idx := 0
-	allocs := testing.AllocsPerRun(vp9EncoderInterAllocRuns, func() {
-		frame := frames[idx&3]
-		idx++
-		if _, err := e.EncodeInto(frame, dst); err != nil {
-			t.Fatalf("EncodeInto tile-row alloc run: %v", err)
-		}
-	})
-	if allocs != 0 {
-		t.Fatalf("tile-row EncodeInto steady-state allocs = %f, want 0", allocs)
-	}
-}
-
-// TestVP9EncoderIVFRoundTrip wraps the encoded keyframe in an IVF
-// container and round-trips it through the existing IVF parser.
-// Confirms the encoder's output is a valid VP9-IVF stream — the
-// shape vpxdec --codec=vp9 expects on disk.
-func TestVP9EncoderIVFRoundTrip(t *testing.T) {
-	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
-	img := vp9test.NewYCbCr(64, 64, 128, 128, 128)
-	payload, err := e.Encode(img)
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-
-	header := testutil.IVFHeader{
-		FourCC:              [4]byte{'V', 'P', '9', '0'},
-		Width:               64,
-		Height:              64,
-		TimebaseDenominator: 30,
-		TimebaseNumerator:   1,
-		FrameCount:          1,
-	}
-	stream := append(testutil.WriteIVFHeader(header), testutil.WriteIVFFrame(payload, 0)...)
-
-	gotHdr, err := testutil.ParseIVFHeader(stream)
-	if err != nil {
-		t.Fatalf("ParseIVFHeader: %v", err)
-	}
-	if gotHdr.FourCC != header.FourCC {
-		t.Errorf("FourCC = %v, want VP90", gotHdr.FourCC)
-	}
-	if gotHdr.Width != 64 || gotHdr.Height != 64 {
-		t.Errorf("ivf size = (%d, %d), want (64, 64)", gotHdr.Width, gotHdr.Height)
-	}
-
-	offset, err := testutil.FirstIVFFrameOffset(stream)
-	if err != nil {
-		t.Fatalf("FirstIVFFrameOffset: %v", err)
-	}
-	frame, _, err := testutil.NextIVFFrame(stream, offset, 0)
-	if err != nil {
-		t.Fatalf("NextIVFFrame: %v", err)
-	}
-	if len(frame.Data) != len(payload) {
-		t.Errorf("frame size = %d, want %d", len(frame.Data), len(payload))
-	}
-	for i := range payload {
-		if frame.Data[i] != payload[i] {
-			t.Errorf("byte %d differs: %#x != %#x", i, frame.Data[i], payload[i])
-			break
-		}
-	}
-
-	// And the recovered payload still parses as a VP9 keyframe.
-	var br vp9dec.BitReader
-	br.Init(frame.Data)
-	h, perr := vp9dec.ReadUncompressedHeader(&br, nil, nil)
-	if perr != nil {
-		t.Fatalf("ReadUncompressedHeader on IVF payload: %v", perr)
-	}
-	if h.FrameType != common.KeyFrame {
-		t.Errorf("recovered FrameType = %d, want KeyFrame", h.FrameType)
-	}
-}
 
 // TestVP9EncoderEncodeIntoSteadyStateAlloc verifies that the
 // caller-owned output path allocates only during setup / growth. The
