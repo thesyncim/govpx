@@ -352,6 +352,9 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.Bmi = cached.bmi
 		mi.RefFrame = [2]int8{cached.refFrame, cached.secondRefFrame}
 		mi.InterpFilter = uint8(cached.interpFilter)
+		if cached.txSize < common.TxSizes {
+			mi.TxSize = cached.txSize
+		}
 		if !cached.intra {
 			inter.ref = &e.refFrames[cached.refSlot]
 		}
@@ -364,6 +367,9 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		mi.Bmi = decision.bmi
 		mi.RefFrame = [2]int8{decision.refFrame, decision.secondRefFrame}
 		mi.InterpFilter = uint8(decision.interpFilter)
+		if decision.txSize < common.TxSizes {
+			mi.TxSize = decision.txSize
+		}
 		if !decision.intra {
 			inter.ref = &e.refFrames[decision.refSlot]
 		}

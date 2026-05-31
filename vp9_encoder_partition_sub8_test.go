@@ -277,6 +277,20 @@ func TestVP9EncoderInterSub8x8DecisionPreservesBmiCounts(t *testing.T) {
 	}
 }
 
+func TestVP9InterModeDecisionMiCarriesChosenTxSize(t *testing.T) {
+	decision := vp9InterModeDecision{
+		refFrame:       vp9dec.LastFrame,
+		secondRefFrame: vp9dec.NoRefFrame,
+		mode:           common.ZeroMv,
+		interpFilter:   vp9dec.InterpEighttap,
+		txSize:         common.Tx16x16,
+	}
+	got := vp9InterModeDecisionMi(common.Block64x64, decision)
+	if got.TxSize != common.Tx16x16 {
+		t.Fatalf("TxSize = %v, want %v", got.TxSize, common.Tx16x16)
+	}
+}
+
 func TestVP9EncoderInterSub8x8FallbackPopulatesBmiForWrite(t *testing.T) {
 	var e VP9Encoder
 	inter := &vp9InterEncodeState{allowHP: true}

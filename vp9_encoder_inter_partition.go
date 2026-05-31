@@ -1511,7 +1511,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeSta
 }
 
 func vp9InterModeDecisionMi(bsize common.BlockSize, decision vp9InterModeDecision) vp9dec.NeighborMi {
-	return vp9dec.NeighborMi{
+	mi := vp9dec.NeighborMi{
 		SbType:       bsize,
 		Mode:         decision.mode,
 		RefFrame:     [2]int8{decision.refFrame, decision.secondRefFrame},
@@ -1519,6 +1519,10 @@ func vp9InterModeDecisionMi(bsize common.BlockSize, decision vp9InterModeDecisio
 		Bmi:          decision.bmi,
 		InterpFilter: uint8(decision.interpFilter),
 	}
+	if decision.txSize < common.TxSizes {
+		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
+	}
+	return mi
 }
 
 func (e *VP9Encoder) snapshotVP9MiRect(miRows, miCols, miRow, miCol, rows, cols int,

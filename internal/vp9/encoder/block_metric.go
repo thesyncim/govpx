@@ -2,6 +2,14 @@ package encoder
 
 import vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 
+// BlockDiffStats is the raw per-pixel error accumulation for a prediction
+// block.
+type BlockDiffStats struct {
+	Sum   int64
+	SSE   uint64
+	Count uint64
+}
+
 // BlockSAD returns the sum of absolute differences for a source/reference
 // rectangle. Size-specialized VP9 DSP kernels are used when available.
 func BlockSAD(src []byte, srcStride int, ref []byte, refStride int,
@@ -73,26 +81,100 @@ func BlockDiffVariance(src []byte, srcStride int, ref []byte, refStride int,
 func BlockDiffVarianceSSE(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int,
 ) (uint64, uint64) {
-	var sum int64
-	var sse uint64
+	stats := blockDiffStats(src, srcStride, ref, refStride, srcX, srcY,
+		refX, refY, w, h)
+	return blockDiffVarianceFromStats(stats), stats.SSE
+}
+
+// BlockDiffVarianceSSEClampedSource returns variance and SSE for a full
+// prediction block while extending source reads at the visible frame edge.
+// libvpx's VP9 encoder scores edge blocks through YV12 source buffers whose
+// invisible padding has already been filled from the visible edge; callers
+// that only have an image-visible source slice can use this helper to get the
+// same arithmetic without materializing a padded copy.
+func BlockDiffVarianceSSEClampedSource(src []byte, srcStride, srcW, srcH int,
+	ref []byte, refStride int, srcX, srcY, refX, refY, w, h int,
+) (variance, sse uint64, ok bool) {
+	stats, ok := BlockDiffStatsClampedSource(src, srcStride, srcW, srcH,
+		ref, refStride, srcX, srcY, refX, refY, w, h)
+	if !ok {
+		return 0, 0, false
+	}
+	variance = blockDiffVarianceFromStats(stats)
+	return variance, stats.SSE, true
+}
+
+// BlockDiffStatsClampedSource accumulates full-block prediction residuals
+// while extending source reads at the visible frame edge.
+func BlockDiffStatsClampedSource(src []byte, srcStride, srcW, srcH int,
+	ref []byte, refStride int, srcX, srcY, refX, refY, w, h int,
+) (BlockDiffStats, bool) {
+	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 ||
+		srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 ||
+		srcX < 0 || srcY < 0 || refX < 0 || refY < 0 ||
+		srcW > srcStride || refX+w > refStride {
+		return BlockDiffStats{}, false
+	}
+	if (srcH-1)*srcStride+srcW > len(src) ||
+		(refY+h-1)*refStride+refX+w > len(ref) {
+		return BlockDiffStats{}, false
+	}
+	if srcX+w <= srcW && srcY+h <= srcH {
+		return blockDiffStats(src, srcStride, ref, refStride,
+			srcX, srcY, refX, refY, w, h), true
+	}
+
+	var stats BlockDiffStats
+	stats.Count = uint64(w * h)
+	for y := range h {
+		sy := srcY + y
+		if sy >= srcH {
+			sy = srcH - 1
+		}
+		srcRow := src[sy*srcStride:]
+		refRow := ref[(refY+y)*refStride+refX:]
+		for x := range w {
+			sx := srcX + x
+			if sx >= srcW {
+				sx = srcW - 1
+			}
+			diff := int64(int(srcRow[sx]) - int(refRow[x]))
+			stats.Sum += diff
+			stats.SSE += uint64(diff * diff)
+		}
+	}
+	return stats, true
+}
+
+func blockDiffStats(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) BlockDiffStats {
+	var stats BlockDiffStats
+	if w <= 0 || h <= 0 {
+		return stats
+	}
+	stats.Count = uint64(w * h)
 	for y := range h {
 		srcRow := src[(srcY+y)*srcStride+srcX:]
 		refRow := ref[(refY+y)*refStride+refX:]
 		for x := range w {
 			diff := int64(int(srcRow[x]) - int(refRow[x]))
-			sum += diff
-			sse += uint64(diff * diff)
+			stats.Sum += diff
+			stats.SSE += uint64(diff * diff)
 		}
 	}
-	n := int64(w * h)
-	if n <= 0 {
-		return 0, sse
+	return stats
+}
+
+func blockDiffVarianceFromStats(stats BlockDiffStats) uint64 {
+	if stats.Count == 0 {
+		return 0
 	}
-	meanSquares := uint64((sum * sum) / n)
-	if sse <= meanSquares {
-		return 0, sse
+	meanSquares := uint64((stats.Sum * stats.Sum) / int64(stats.Count))
+	if stats.SSE <= meanSquares {
+		return 0
 	}
-	return sse - meanSquares, sse
+	return stats.SSE - meanSquares
 }
 
 // BlockSourceVariance128 returns the variance of source samples around 128.

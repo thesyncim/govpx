@@ -181,7 +181,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 1,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-force-key-stepped-320",
@@ -334,7 +335,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 				"--max-q=20",
 				"--disable-warning-prompt",
 			},
-			exactPrefix: 0,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "fixed-q-rt-cpu-neg3-constant",
@@ -550,7 +552,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			fixture:     panning64,
 			frames:      6,
 			flags:       vp9OracleRepeatInterFlag(6, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
-			exactPrefix: 0,
+			exactPrefix: 6,
+			strictBytes: true,
 		},
 		{
 			name:            "fixed-q-no-reference-all-panning-320",
@@ -558,7 +561,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			frames:          4,
 			flags:           vp9OracleRepeatInterFlag(4, EncodeNoReferenceLast|EncodeNoReferenceGolden|EncodeNoReferenceAltRef),
 			extraArgs:       []string{"--min-q=20", "--max-q=20"},
-			exactPrefix:     0,
+			exactPrefix:     4,
+			strictBytes:     true,
 			firstPartFrames: []int{2, 3},
 			opts: VP9EncoderOptions{
 				MinQuantizer: 20,
@@ -883,7 +887,8 @@ func TestVP9OracleEncoderStreamByteParityMatrix(t *testing.T) {
 			}(),
 			extraArgs: append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				"--aq-mode=3"),
-			exactPrefix: 1,
+			exactPrefix: 4,
+			strictBytes: true,
 		},
 		{
 			name:    "variance-aq-panning",

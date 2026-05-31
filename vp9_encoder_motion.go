@@ -399,12 +399,6 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	dstRows := len(dst) / dstStride
-	scoreW, scoreH, vok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
-		srcW, srcH, dstStride, dstRows)
-	if !vok {
-		return 0, 0, false
-	}
 	mi := vp9dec.NeighborMi{
 		SbType:       bsize,
 		Mode:         mode,
@@ -419,9 +413,8 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
 		bsize, &mi) {
 		return 0, 0, false
 	}
-	variance, sse = encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
-		x0, y0, x0, y0, scoreW, scoreH)
-	return variance, sse, true
+	return encoder.BlockDiffVarianceSSEClampedSource(src, srcStride, srcW, srcH,
+		dst, dstStride, x0, y0, x0, y0, blockW, blockH)
 }
 
 func (e *VP9Encoder) vp9InterPredictionBorderedConvolveVarianceSSE(
