@@ -210,9 +210,10 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 		{
 			Name:        "set-target-level-auto",
 			ApplyAt:     4,
-			ScriptToken: "targetlevel:0",
+			ScriptToken: "targetlevel:1",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
-				vp9oracle.MustRuntime(t, "SetTargetLevel(0=auto)", e.SetTargetLevel(0))
+				vp9oracle.MustRuntime(t, "SetTargetLevel(auto)",
+					e.SetTargetLevel(govpx.VP9TargetLevelAuto))
 			},
 		},
 		{

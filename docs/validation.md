@@ -41,7 +41,8 @@ Run `make ci` before committing changes that touch:
 - decoder or encoder behavior;
 - RTP packetization or assembly;
 - stream-info parsing;
-- rate control, frame flags, reference semantics, or postprocess controls;
+- rate control, target levels, frame flags, reference semantics, or
+  postprocess controls;
 - PGO-tracked hot-path source files.
 
 ## Oracle And Production Gates

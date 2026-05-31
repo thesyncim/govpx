@@ -43,6 +43,7 @@ type vp9OracleFrameSummary struct {
 	TemporalLayerSync    bool    `json:"temporal_layer_sync"`
 	TL0PICIDX            uint8   `json:"tl0_pic_idx"`
 	TargetBitrateKbps    int     `json:"target_bitrate_kbps"`
+	EffectiveTargetKbps  int     `json:"effective_target_bitrate_kbps"`
 	FrameTargetBits      int     `json:"frame_target_bits"`
 	BufferLevelBits      int     `json:"buffer_level_bits"`
 	BufferOptimalBits    int     `json:"buffer_optimal_bits"`
@@ -161,22 +162,23 @@ func (e *VP9Encoder) emitVP9OracleDroppedFrameTrace(flags EncodeFlags, width, he
 		return
 	}
 	e.emitVP9OracleFrameTrace(vp9OracleFrameSummary{
-		Row:                "vp9_frame",
-		FrameIndex:         e.frameIndex,
-		Flags:              uint32(flags),
-		Dropped:            true,
-		DropReason:         vp9DropReasonString(dropReason),
-		ShowFrame:          true,
-		CodedWidth:         int(width),
-		CodedHeight:        int(height),
-		TemporalLayerID:    temporalFrame.LayerID,
-		TemporalLayerCount: temporalFrame.LayerCount,
-		TemporalLayerSync:  temporalFrame.LayerSync,
-		TL0PICIDX:          temporalFrame.TL0PICIDX,
-		TargetBitrateKbps:  e.rc.targetBitrateKbps,
-		FrameTargetBits:    e.rc.frameTargetBits,
-		BufferLevelBits:    e.rc.bufferLevelBits,
-		BufferOptimalBits:  e.rc.bufferOptimalBits,
+		Row:                 "vp9_frame",
+		FrameIndex:          e.frameIndex,
+		Flags:               uint32(flags),
+		Dropped:             true,
+		DropReason:          vp9DropReasonString(dropReason),
+		ShowFrame:           true,
+		CodedWidth:          int(width),
+		CodedHeight:         int(height),
+		TemporalLayerID:     temporalFrame.LayerID,
+		TemporalLayerCount:  temporalFrame.LayerCount,
+		TemporalLayerSync:   temporalFrame.LayerSync,
+		TL0PICIDX:           temporalFrame.TL0PICIDX,
+		TargetBitrateKbps:   e.rc.targetBitrateKbps,
+		EffectiveTargetKbps: e.rc.effectiveBitrateKbps,
+		FrameTargetBits:     e.rc.frameTargetBits,
+		BufferLevelBits:     e.rc.bufferLevelBits,
+		BufferOptimalBits:   e.rc.bufferOptimalBits,
 	})
 }
 
@@ -216,6 +218,7 @@ func (e *VP9Encoder) emitVP9OracleEncodedFrameTrace(encodedFrameIndex int, flags
 		TemporalLayerSync:    result.TemporalLayerSync,
 		TL0PICIDX:            result.TL0PICIDX,
 		TargetBitrateKbps:    result.TargetBitrateKbps,
+		EffectiveTargetKbps:  e.rc.effectiveBitrateKbps,
 		FrameTargetBits:      result.FrameTargetBits,
 		BufferLevelBits:      result.BufferLevelBits,
 		BufferOptimalBits:    e.rc.bufferOptimalBits,

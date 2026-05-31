@@ -45,7 +45,7 @@ func TestVP9EncoderSetScreenContentModeMutatesOptionState(t *testing.T) {
 }
 
 func TestVP9EncoderTargetLevelStoredByConstructorAndSetter(t *testing.T) {
-	for _, level := range []int{0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 255} {
+	for _, level := range []int{0, 1, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 255} {
 		e, err := NewVP9Encoder(VP9EncoderOptions{
 			Width:       64,
 			Height:      64,
@@ -80,7 +80,7 @@ func TestVP9EncoderTargetLevelStoredByConstructorAndSetter(t *testing.T) {
 	}
 }
 
-func TestVP9EncoderRejectedTargetLevelDoesNotMutateOptionState(t *testing.T) {
+func TestVP9EncoderInvalidTargetLevelDoesNotMutateOptionState(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:  3840,
 		Height: 2160,
@@ -89,11 +89,14 @@ func TestVP9EncoderRejectedTargetLevelDoesNotMutateOptionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
-	if err := e.SetTargetLevel(40); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("SetTargetLevel(40) err = %v, want ErrInvalidConfig", err)
+	if err := e.SetTargetLevel(40); err != nil {
+		t.Fatalf("SetTargetLevel(40): %v", err)
 	}
-	if e.opts.TargetLevel != 0 {
-		t.Fatalf("opts.TargetLevel = %d, want 0 after rejected setter",
+	if err := e.SetTargetLevel(12); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetTargetLevel(12) err = %v, want ErrInvalidConfig", err)
+	}
+	if e.opts.TargetLevel != 40 {
+		t.Fatalf("opts.TargetLevel = %d, want 40 after rejected setter",
 			e.opts.TargetLevel)
 	}
 	if err := e.SetTargetLevel(62); err != nil {

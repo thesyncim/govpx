@@ -102,6 +102,7 @@ func TestLibvpxArgsFromOptionsIncludesEffectiveOverrides(t *testing.T) {
 		OvershootPct:             30,
 		MaxIntraBitratePct:       100,
 		MaxInterBitratePct:       200,
+		TargetLevel:              31,
 	})
 	for _, want := range []string{
 		"--rt",
@@ -120,6 +121,7 @@ func TestLibvpxArgsFromOptionsIncludesEffectiveOverrides(t *testing.T) {
 		"--kf-min-dist=2",
 		"--kf-max-dist=16",
 		"--fps=30/1",
+		"--target-level=31",
 	} {
 		if !slices.Contains(args, want) {
 			t.Fatalf("LibvpxArgsFromOptions missing %q in %v", want, args)

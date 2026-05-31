@@ -326,7 +326,9 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 		return
 	}
 	miCols := (e.opts.Width + 7) >> 3
-	tileInfo := vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
+	tileInfo := vp9EncoderTileInfoForTargetLevel(miCols, e.opts.Width,
+		e.opts.Height, e.opts.Threads, e.opts.Log2TileRows,
+		e.opts.TargetLevel)
 	if tileInfo.Log2TileRows != 0 {
 		return
 	}

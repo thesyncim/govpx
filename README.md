@@ -94,7 +94,7 @@ Profile 0 packets and valid Profile 0 superframes only.
 
 | Capability | Knobs |
 | --- | --- |
-| Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, frame dropping, buffer model, min/max quantizers, max intra bitrate |
+| Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, VP9 target-level constraints, frame dropping, buffer model, min/max quantizers, max intra bitrate |
 | Realtime controls | Error resilience, temporal/spatial scalability signaling, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
 | Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless` / `SetLossless`, multi-threaded row encode |
 
@@ -182,6 +182,10 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   bitrate-only BWE updates do not accidentally disable dropping. VP9 explicit
   CBR accepts bitrate/FPS/size, frame-drop, and public quantizer runtime
   updates.
+- Use `SetTargetLevel` when a VP9 stream must fit a fixed level. Fixed levels
+  adapt encoder decisions in the libvpx style; they are not constructor-time
+  geometry rejection gates. Use level `1` for libvpx-style auto level
+  decisions and `255` for no fixed level constraint.
 - Drive caller-driven runtime resolution change through
   `SetRealtimeTarget` by setting a new `Width` / `Height` pair:
   size-dependent buffers are resized in place (capacity is reused), the

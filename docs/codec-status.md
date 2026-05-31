@@ -54,9 +54,9 @@ Supported public scope:
   byte alignment, decryptor callback, postprocess flags, error concealment, and
   spatial-SVC superframe filtering;
 - encoder Profile 0 flags, superframes, spatial-SVC signaling, tile settings,
-  row-MT settings, color/render metadata, segmentation, lossless mode, AQ
-  modes, first-pass/two-pass stats, show-existing frames, and intra-only
-  packets.
+  row-MT settings, target-level constraints, color/render metadata,
+  segmentation, lossless mode, AQ modes, first-pass/two-pass stats,
+  show-existing frames, and intra-only packets.
 
 Out of scope:
 

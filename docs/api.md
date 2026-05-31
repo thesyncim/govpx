@@ -86,9 +86,9 @@ mode, AQ modes, and first-pass/two-pass stats.
 
 VP9 rate control reports the requested `TargetBitrateKbps`, but its internal
 frame budgets and CBR buffers mirror libvpx's raw-target-rate cap for Profile 0
-sources. Runtime `SetRateControlBuffer` accepts literal zero values: max and
-optimal buffers fall back to `target_bandwidth/8`, while the initial buffer can
-be zero.
+sources and fixed target-level bitrate caps. Runtime `SetRateControlBuffer`
+accepts literal zero values: max and optimal buffers fall back to
+`target_bandwidth/8`, while the initial buffer can be zero.
 
 ## Runtime Controls
 
@@ -100,6 +100,11 @@ Common runtime controls include:
 - `SetFrameDropAllowed` for runtime frame-drop policy.
 - `SetPostEncodeDrop` for VP9 CBR post-encode drops when a packed inter frame
   would underflow the CBR buffer.
+- `SetTargetLevel` for VP9 level-constrained encode decisions. Fixed levels
+  adapt internal bitrate, overshoot, quantizer, GF interval, and tile-column
+  limits instead of rejecting otherwise valid source geometry; level `1`
+  selects libvpx-style auto level decisions, and `255` disables fixed level
+  constraints.
 - `ForceKeyFrame` for sticky PLI/FIR-style requests.
 - `SetReferenceFrame` and `CopyReferenceFrame` for LAST/GOLDEN/ALTREF buffers.
 

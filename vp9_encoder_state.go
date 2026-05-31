@@ -220,12 +220,19 @@ func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
 }
 
 func vp9EncoderTileInfo(miCols, threads int, log2TileRows int8) vp9dec.TileInfo {
+	return vp9EncoderTileInfoForTargetLevel(miCols, 0, 0, threads,
+		log2TileRows, VP9TargetLevelUnconstrained)
+}
+
+func vp9EncoderTileInfoForTargetLevel(miCols, width, height, threads int, log2TileRows int8, targetLevel int) vp9dec.TileInfo {
 	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
 	log2Cols := minLog2
 	if threads > 1 {
 		log2Cols = max(log2Cols, vp9CeilLog2(threads))
 	}
 	log2Cols = min(log2Cols, maxLog2)
+	log2Cols = vp9TargetLevelClampLog2TileCols(targetLevel, width, height,
+		minLog2, log2Cols)
 	return vp9dec.TileInfo{
 		Log2TileCols: log2Cols,
 		Log2TileRows: int(log2TileRows),

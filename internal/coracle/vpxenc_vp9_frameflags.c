@@ -782,6 +782,7 @@ struct vp9_runtime_control_context {
   int *min_q;
   int *max_q;
   int *cq_level;
+  int *target_level;
   int frame_idx;
   FILE *copy_ref_log;
   int config_changed;
@@ -934,9 +935,9 @@ static void apply_vp9_runtime_control_token(
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_RENDER_SIZE");
     }
   } else if (starts_with(token, "targetlevel:")) {
+    *ctx->target_level = control_value_int(token, "targetlevel:");
     if (vpx_codec_control(ctx->ctx, VP9E_SET_TARGET_LEVEL,
-                          (unsigned)control_value_int(token,
-                                                      "targetlevel:"))) {
+                          (unsigned)*ctx->target_level)) {
       die_codec_msg(ctx->ctx, "runtime VP9E_SET_TARGET_LEVEL");
     }
   } else if (starts_with(token, "disableloopfilter:")) {
@@ -1068,7 +1069,7 @@ static void apply_vp9_runtime_controls(
     int *target_kbps, int *fps_num, int *buffer_size_ms,
     int *buffer_initial_ms, int *buffer_optimal_ms,
     int *drop_frame_water_mark, int *undershoot_pct, int *overshoot_pct,
-    int *min_q, int *max_q, int *cq_level, int frame_idx,
+    int *min_q, int *max_q, int *cq_level, int *target_level, int frame_idx,
     FILE *copy_ref_log, const char *entry) {
   if (!entry || !*entry || strcmp(entry, "-") == 0) return;
   char buf[1024];
@@ -1081,7 +1082,8 @@ static void apply_vp9_runtime_controls(
   struct vp9_runtime_control_context ctx = {
       codec_ctx, cfg, deadline, target_kbps, fps_num, buffer_size_ms,
       buffer_initial_ms, buffer_optimal_ms, drop_frame_water_mark,
-      undershoot_pct, overshoot_pct, min_q, max_q, cq_level, frame_idx,
+      undershoot_pct, overshoot_pct, min_q, max_q, cq_level, target_level,
+      frame_idx,
       copy_ref_log, 0};
   char *start = buf;
   for (;;) {
@@ -1100,9 +1102,29 @@ static double vp9_trace_frame_rate(int fps_num, int fps_den) {
   return fps > 180.0 ? 30.0 : fps;
 }
 
+static int vp9_trace_target_level_average_kbps(int target_level) {
+  switch (target_level) {
+    case LEVEL_1: return 200;
+    case LEVEL_1_1: return 800;
+    case LEVEL_2: return 1800;
+    case LEVEL_2_1: return 3600;
+    case LEVEL_3: return 7200;
+    case LEVEL_3_1: return 12000;
+    case LEVEL_4: return 18000;
+    case LEVEL_4_1: return 30000;
+    case LEVEL_5: return 60000;
+    case LEVEL_5_1: return 120000;
+    case LEVEL_5_2: return 180000;
+    case LEVEL_6: return 180000;
+    case LEVEL_6_1: return 240000;
+    case LEVEL_6_2: return 480000;
+    default: return 0;
+  }
+}
+
 static int vp9_trace_effective_target_kbps(int target_kbps, int width,
                                            int height, int fps_num,
-                                           int fps_den) {
+                                           int fps_den, int target_level) {
   if (target_kbps <= 0 || width <= 0 || height <= 0) return target_kbps;
   double fps = vp9_trace_frame_rate(fps_num, fps_den);
   if (fps <= 0.0) return target_kbps;
@@ -1113,6 +1135,9 @@ static int vp9_trace_effective_target_kbps(int target_kbps, int width,
     effective = raw_target_rate;
   }
   if (effective > 1000000) effective = 1000000;
+  int level_avg = vp9_trace_target_level_average_kbps(target_level);
+  int level_max = level_avg * 8 / 10;
+  if (level_max > 0 && effective > level_max) effective = level_max;
   return effective;
 }
 
@@ -1721,7 +1746,7 @@ int main(int argc, char **argv) {
       exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
   if (frame_duration <= 0) frame_duration = 1;
   int effective_target_kbps = vp9_trace_effective_target_kbps(
-      target_kbps, width, height, fps_num, fps_den);
+      target_kbps, width, height, fps_num, fps_den, target_level);
   int target_bandwidth_bits = effective_target_kbps * 1000;
   int bits_per_frame =
       vp9_trace_bits_per_frame(effective_target_kbps, fps_num, fps_den);
@@ -1746,7 +1771,7 @@ int main(int argc, char **argv) {
             &ctx, &cfg, &deadline, &target_kbps, &fps_num, &buffer_size_ms,
             &buffer_initial_ms, &buffer_optimal_ms, &drop_frame_water_mark,
             &undershoot_pct, &overshoot_pct, &min_q, &max_q, &cq_level,
-            frame_idx, copy_ref_log, control_script[frame_idx]);
+            &target_level, frame_idx, copy_ref_log, control_script[frame_idx]);
       }
       if (target_bitrate_schedule &&
           target_bitrate_schedule[frame_idx] >= 0) {
@@ -1804,7 +1829,8 @@ int main(int argc, char **argv) {
           exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
       if (frame_duration <= 0) frame_duration = 1;
       effective_target_kbps = vp9_trace_effective_target_kbps(
-          target_kbps, (int)cfg.g_w, (int)cfg.g_h, fps_num, fps_den);
+          target_kbps, (int)cfg.g_w, (int)cfg.g_h, fps_num, fps_den,
+          target_level);
       target_bandwidth_bits = effective_target_kbps * 1000;
       bits_per_frame =
           vp9_trace_bits_per_frame(effective_target_kbps, fps_num, fps_den);
@@ -1933,6 +1959,7 @@ int main(int argc, char **argv) {
                 "\"coded_width\":%u,\"coded_height\":%u,"
                 "\"base_qindex\":%d,\"size_bytes\":%zu,"
                 "\"size_bits\":%zu,\"target_bitrate_kbps\":%d,"
+                "\"effective_target_bitrate_kbps\":%d,"
                 "\"frame_target_bits\":%d,"
                 "\"buffer_level_bits\":%lld,"
                 "\"buffer_optimal_bits\":%lld,"
@@ -1946,6 +1973,7 @@ int main(int argc, char **argv) {
                 (pkt->data.frame.flags & VPX_FRAME_IS_KEY) ? "true" : "false",
                 show_frame ? "true" : "false", cfg.g_w, cfg.g_h, qindex,
                 pkt->data.frame.sz, pkt->data.frame.sz * 8, target_kbps,
+                effective_target_kbps,
                 frame_target_bits,
                 (long long)buffer_level_bits, (long long)buffer_optimal_bits,
                 temporal_layer_id, temporal_layer_count, temporal_tl0,
@@ -1972,6 +2000,7 @@ int main(int argc, char **argv) {
               "\"base_qindex\":0,"
               "\"size_bytes\":0,\"size_bits\":0,"
               "\"target_bitrate_kbps\":%d,"
+              "\"effective_target_bitrate_kbps\":%d,"
               "\"frame_target_bits\":%d,"
               "\"buffer_level_bits\":%lld,"
               "\"buffer_optimal_bits\":%lld,"
@@ -1982,6 +2011,7 @@ int main(int argc, char **argv) {
               "\"tl0_pic_idx\":0,"
               "\"temporal_layer_sync\":false}\n",
               frame_idx, frame_flags, cfg.g_w, cfg.g_h, target_kbps,
+              effective_target_kbps,
               frame_target_bits,
               (long long)buffer_level_bits, (long long)buffer_optimal_bits,
               temporal_layer_id, temporal_layer_count);

@@ -122,6 +122,11 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			if err := nextRC.setBitrateKbps(nextBitrateKbps, nextTiming); err != nil {
 				return err
 			}
+			nextOpts := e.opts
+			nextOpts.Width = nextWidth
+			nextOpts.Height = nextHeight
+			nextRC.setGFIntervalsFromOptions(nextOpts)
+			nextRC.initOnePassVBRState(nextTiming)
 			rateModelChanged = true
 		}
 		switch target.FrameDrop {
@@ -763,13 +768,12 @@ func (e *VP9Encoder) SetRenderSize(width, height int) error {
 	return nil
 }
 
-// SetTargetLevel mirrors libvpx's VP9E_SET_TARGET_LEVEL control. level
-// must be one of the canonical VP9 level codes (10, 11, 20, 21, 30, 31,
-// 40, 41, 50, 51, 52, 60, 61, 62), or 255 (no constraint) or 0 (auto).
-// The encoder additionally checks the configured width/height/fps/
-// TargetBitrateKbps against the level's max macroblock rate, max
-// picture size, and max bitrate; configurations that exceed any limit
-// are rejected with [ErrInvalidConfig].
+// SetTargetLevel mirrors libvpx's VP9E_SET_TARGET_LEVEL control. level must
+// be one of the canonical VP9 level codes (10, 11, 20, 21, 30, 31, 40, 41,
+// 50, 51, 52, 60, 61, 62), [VP9TargetLevelUnspecified],
+// [VP9TargetLevelAuto], or [VP9TargetLevelUnconstrained]. Fixed levels adapt
+// internal rate-control, quantizer, GF interval, and tile-column limits; they
+// do not reject otherwise valid dimensions or bitrates.
 func (e *VP9Encoder) SetTargetLevel(level int) error {
 	if e == nil || e.closed {
 		return ErrClosed
@@ -777,12 +781,26 @@ func (e *VP9Encoder) SetTargetLevel(level int) error {
 	if err := validateVP9TargetLevel(level); err != nil {
 		return err
 	}
-	probe := e.opts
-	probe.TargetLevel = level
-	if err := validateVP9TargetLevelLimits(probe); err != nil {
-		return err
+	nextOpts := e.opts
+	nextOpts.TargetLevel = level
+	nextRC := e.rc
+	rateModelChanged := false
+	if nextRC.enabled {
+		nextRC.applyBitrateBoundsFromOptions(nextOpts)
+		nextRC.setQuantizerBoundsFromOptions(nextOpts)
+		if err := nextRC.setBitrateKbps(nextRC.targetBitrateKbps,
+			e.vp9TimingState()); err != nil {
+			return err
+		}
+		rateModelChanged = true
 	}
-	e.opts.TargetLevel = level
+	e.opts = nextOpts
+	e.rc = nextRC
+	if rateModelChanged {
+		e.twoPass.configureWithCorpus(e.opts.TwoPassStats, e.rc.bitsPerFrame,
+			e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
+			e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
+	}
 	return nil
 }
 
@@ -869,7 +887,7 @@ func (e *VP9Encoder) SetGFCBRBoostPct(pct int) error {
 }
 
 // SetMinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control.
-// interval must be in [0, 16]; zero restores libvpx's
+// interval must be in [0, 24]; zero restores libvpx's
 // framerate-derived default. Forwards to
 // [VP9EncoderOptions.MinGFInterval].
 func (e *VP9Encoder) SetMinGFInterval(interval int) error {
@@ -881,15 +899,15 @@ func (e *VP9Encoder) SetMinGFInterval(interval int) error {
 		return err
 	}
 	e.opts.MinGFInterval = interval
-	e.rc.minGFInterval = uint8(interval)
 	if e.rc.enabled {
+		e.rc.setGFIntervalsFromOptions(e.opts)
 		e.rc.initOnePassVBRState(e.vp9TimingState())
 	}
 	return nil
 }
 
 // SetMaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control.
-// interval must be in [0, 16]; zero restores libvpx's
+// interval must be zero or in [2, 24]; zero restores libvpx's
 // framerate-derived default. Forwards to
 // [VP9EncoderOptions.MaxGFInterval].
 func (e *VP9Encoder) SetMaxGFInterval(interval int) error {
@@ -901,8 +919,8 @@ func (e *VP9Encoder) SetMaxGFInterval(interval int) error {
 		return err
 	}
 	e.opts.MaxGFInterval = interval
-	e.rc.maxGFInterval = uint8(interval)
 	if e.rc.enabled {
+		e.rc.setGFIntervalsFromOptions(e.opts)
 		e.rc.initOnePassVBRState(e.vp9TimingState())
 	}
 	return nil

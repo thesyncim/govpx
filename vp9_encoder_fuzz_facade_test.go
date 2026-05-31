@@ -274,7 +274,7 @@ func applyVP9FuzzRuntimeControl(t *testing.T, e *govpx.VP9Encoder, r *vp9FuzzRea
 	case 21:
 		err = e.SetRenderSize(int(r.U16LE()%2048)+1, int(r.U16LE()%2048)+1)
 	case 22:
-		levels := []int{255, 0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 99}
+		levels := []int{255, 1, 0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 99}
 		err = e.SetTargetLevel(levels[int(r.Next())%len(levels)])
 	case 23:
 		err = e.SetDisableLoopfilter(govpx.VP9DisableLoopfilter(r.Next() % 4))

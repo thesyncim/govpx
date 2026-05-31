@@ -98,6 +98,9 @@ func LibvpxArgsFromOptions(opts govpx.VP9EncoderOptions) []string {
 	if opts.FPS > 0 {
 		args = append(args, "--fps="+strconv.Itoa(opts.FPS)+"/1")
 	}
+	if opts.TargetLevel != 0 {
+		args = append(args, "--target-level="+strconv.Itoa(opts.TargetLevel))
+	}
 
 	return args
 }

@@ -446,14 +446,15 @@ type VP9EncoderOptions struct {
 	RenderWidth  int
 	RenderHeight int
 
-	// TargetLevel constrains encode decisions to respect a specific VP9
-	// level's macroblock-rate, picture-size, bitrate, and decoder-model
-	// limits. Mirrors libvpx's VP9E_SET_TARGET_LEVEL control. Valid
-	// values are 255 (unconstrained, the default), 0 (auto), and the
-	// canonical level codes 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52,
-	// 60, 61, 62 (Level N.M encoded as 10*N + M). The current port only
-	// accepts and stores the value; level-aware encode decisions are not
-	// yet wired.
+	// TargetLevel constrains encode decisions to respect a fixed VP9 level.
+	// Mirrors libvpx's VP9E_SET_TARGET_LEVEL control. Valid values are 255
+	// (unconstrained), 1 (auto), 0 (unspecified), and the canonical level
+	// codes 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62 (Level
+	// N.M encoded as 10*N + M). Fixed levels clamp the effective
+	// rate-control target to 80% of the level average bitrate, clamp
+	// overshoot, force worst quantizer to public q63, raise the golden-frame
+	// interval floor, and limit tile columns. They do not reject otherwise
+	// valid dimensions or bitrates.
 	TargetLevel int
 
 	// DisableLoopfilter suppresses the in-loop deblock filter. Mirrors
@@ -472,14 +473,14 @@ type VP9EncoderOptions struct {
 
 	// MinGFInterval mirrors libvpx's VP9E_SET_MIN_GF_INTERVAL control. It
 	// bounds the encoder-selected golden-frame interval from below. Valid
-	// values are in [0, 16]; zero leaves libvpx's framerate-
+	// values are in [0, 24]; zero leaves libvpx's framerate-
 	// derived default in place.
 	MinGFInterval int
 	// MaxGFInterval mirrors libvpx's VP9E_SET_MAX_GF_INTERVAL control. It
 	// bounds the encoder-selected golden-frame interval from above. Valid
-	// values are in [0, 16]; zero leaves libvpx's framerate-
-	// derived default in place. When both bounds are non-zero,
-	// MinGFInterval must not exceed MaxGFInterval.
+	// values are zero or in [2, 24]; zero leaves libvpx's framerate-
+	// derived default in place. When both bounds are non-zero, MinGFInterval
+	// must not exceed MaxGFInterval.
 	MaxGFInterval int
 
 	// FramePeriodicBoost mirrors libvpx's VP9E_SET_FRAME_PERIODIC_BOOST

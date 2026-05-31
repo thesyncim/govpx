@@ -145,6 +145,40 @@ func TestVP9EncoderVpxencOracleRawTargetRateClampKeyframeByteParity(t *testing.T
 	vp9oracle.AssertKeyframeByteParityWithOptions(t, src, opts, args)
 }
 
+func TestVP9EncoderVpxencOracleTargetLevelClampKeyframeByteParity(t *testing.T) {
+	vp9test.RequireVpxenc(t)
+
+	const width, height = 64, 64
+	src := vp9test.NewYCbCr(width, height, 96, 128, 128)
+	opts := govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   10_000,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        20,
+		TargetLevel:         10,
+		MaxKeyframeInterval: 128,
+	}
+	args := []string{
+		"--end-usage=cbr",
+		"--target-bitrate=10000",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+		"--min-q=4",
+		"--max-q=20",
+		"--target-level=10",
+	}
+	vp9oracle.AssertKeyframeByteParityWithOptions(t, src, opts, args)
+}
+
 func TestVP9EncoderVpxencOracleChecker320KeyframeByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 

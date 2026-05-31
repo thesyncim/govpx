@@ -193,7 +193,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	} else {
 		header.Render = vp9dec.RenderSize{Width: width, Height: height}
 	}
-	header.Tile = vp9EncoderTileInfo(miCols, e.opts.Threads, e.opts.Log2TileRows)
+	header.Tile = vp9EncoderTileInfoForTargetLevel(miCols, int(width), int(height), e.opts.Threads,
+		e.opts.Log2TileRows, e.opts.TargetLevel)
 	macroblocks := encoder.MacroblockCount(miRows, miCols)
 	// TPL runs before the qindex is finalised so its per-SB rdmult delta
 	// can scale the keyframe mode picker's Lagrangian search.  Unlike

@@ -9,50 +9,6 @@ import (
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-// TestVP9CyclicRefreshCBRPanningInterTemporalUpdate logs the segment-map
-// chooser outcome on the panning fixture (open parity lane vs libvpx spatial).
-func TestVP9CyclicRefreshCBRPanningInterTemporalUpdate(t *testing.T) {
-	const width, height = 64, 64
-	enc, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:              width,
-		Height:             height,
-		FPS:                30,
-		TargetBitrateKbps:  700,
-		RateControlModeSet: true,
-		RateControlMode:    RateControlCBR,
-		Deadline:           DeadlineRealtime,
-		CpuUsed:            -8,
-		AQMode:             VP9AQCyclicRefresh,
-	})
-	if err != nil {
-		t.Fatalf("NewVP9Encoder: %v", err)
-	}
-	t.Cleanup(func() { _ = enc.Close() })
-	keyPkt, err := enc.Encode(vp9test.NewPanningYCbCr(width, height, 0))
-	if err != nil {
-		t.Fatalf("key: %v", err)
-	}
-	keyHeader, _ := vp9test.ParseHeader(t, keyPkt)
-	pkt, err := enc.Encode(vp9test.NewPanningYCbCr(width, height, 1))
-	if err != nil {
-		t.Fatalf("inter: %v", err)
-	}
-	var br vp9dec.BitReader
-	br.Init(pkt)
-	hdr, err := vp9dec.ReadUncompressedHeader(&br, &keyHeader,
-		func(uint8) (uint32, uint32) { return width, height })
-	if err != nil {
-		t.Fatalf("ReadUncompressedHeader: %v", err)
-	}
-	if !hdr.Seg.Enabled || !hdr.Seg.UpdateMap {
-		t.Fatalf("seg header enabled=%t updateMap=%t", hdr.Seg.Enabled, hdr.Seg.UpdateMap)
-	}
-	t.Logf("panning cyclic inter frame 1: temporal_update=%t noPredCost=%d tPredCost=%d noPredCounts=%v chooserMiHist=%v (libvpx wants spatial)",
-		hdr.Seg.TemporalUpdate, enc.lastSegMapChooserNoPredCost,
-		enc.lastSegMapChooserTPredCost, enc.lastSegMapChooserNoPredCounts,
-		enc.lastSegMapChooserMiHist)
-}
-
 // TestVP9CyclicRefreshCBRInterKeepsUpdateMapOnPanning verifies cyclic
 // refresh does not reuse the stable-segmentation update_map=false shortcut
 // that libvpx never applies to cyclic-AQ apply frames.

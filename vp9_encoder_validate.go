@@ -79,9 +79,6 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if err := validateVP9TargetLevel(opts.TargetLevel); err != nil {
 		return err
 	}
-	if err := validateVP9TargetLevelLimits(opts); err != nil {
-		return err
-	}
 	if opts.DisableLoopfilter > VP9LoopfilterDisableAll {
 		return ErrInvalidConfig
 	}
@@ -222,83 +219,6 @@ func validateVP9RenderSizeOptions(opts VP9EncoderOptions) error {
 		return ErrInvalidConfig
 	}
 	if w > (1<<16) || h > (1<<16) {
-		return ErrInvalidConfig
-	}
-	return nil
-}
-
-// vp9ValidTargetLevels lists the canonical VP9 level codes libvpx
-// accepts. 255 disables the constraint, 0 selects auto, and the
-// remainder are level N.M encoded as 10*N + M.
-var vp9ValidTargetLevels = [...]int{
-	0, 10, 11, 20, 21, 30, 31, 40, 41, 50, 51, 52, 60, 61, 62, 255,
-}
-
-// validateVP9TargetLevel mirrors libvpx's ctrl_set_target_level value
-// check.
-func validateVP9TargetLevel(level int) error {
-	for _, v := range vp9ValidTargetLevels {
-		if level == v {
-			return nil
-		}
-	}
-	return ErrInvalidConfig
-}
-
-// vp9LevelLimits mirrors the per-level macroblock-rate, luma
-// picture-size, and bitrate limits from libvpx's vp9_level_def_t table
-// (vp9/encoder/vp9_level.c). Levels not represented here have no
-// configured limit and pass the configuration gate unchanged.
-type vp9LevelLimits struct {
-	maxLumaSampleRate  uint64 // samples (luma pixels) per second
-	maxLumaPictureSize uint64 // luma samples per picture
-	maxBitrateKbps     int    // peak rate, kbps
-}
-
-var vp9TargetLevelTable = map[int]vp9LevelLimits{
-	10: {maxLumaSampleRate: 829440, maxLumaPictureSize: 36864, maxBitrateKbps: 200},
-	11: {maxLumaSampleRate: 2764800, maxLumaPictureSize: 73728, maxBitrateKbps: 800},
-	20: {maxLumaSampleRate: 4608000, maxLumaPictureSize: 122880, maxBitrateKbps: 1800},
-	21: {maxLumaSampleRate: 9216000, maxLumaPictureSize: 245760, maxBitrateKbps: 3600},
-	30: {maxLumaSampleRate: 20736000, maxLumaPictureSize: 552960, maxBitrateKbps: 7200},
-	31: {maxLumaSampleRate: 36864000, maxLumaPictureSize: 983040, maxBitrateKbps: 12000},
-	40: {maxLumaSampleRate: 83558400, maxLumaPictureSize: 2228224, maxBitrateKbps: 18000},
-	41: {maxLumaSampleRate: 160432128, maxLumaPictureSize: 2228224, maxBitrateKbps: 30000},
-	50: {maxLumaSampleRate: 311951360, maxLumaPictureSize: 8912896, maxBitrateKbps: 60000},
-	51: {maxLumaSampleRate: 588251136, maxLumaPictureSize: 8912896, maxBitrateKbps: 120000},
-	52: {maxLumaSampleRate: 1176502272, maxLumaPictureSize: 8912896, maxBitrateKbps: 180000},
-	60: {maxLumaSampleRate: 1176502272, maxLumaPictureSize: 35651584, maxBitrateKbps: 180000},
-	61: {maxLumaSampleRate: 2353004544, maxLumaPictureSize: 35651584, maxBitrateKbps: 240000},
-	62: {maxLumaSampleRate: 4706009088, maxLumaPictureSize: 35651584, maxBitrateKbps: 480000},
-}
-
-// validateVP9TargetLevelLimits enforces the VP9 level's luma sample-rate,
-// luma picture-size, and peak bitrate ceilings against the configured
-// width/height/fps/target-bitrate triple. Levels 0 (auto) and 255 (no
-// constraint) skip the check. Levels listed in vp9TargetLevelTable
-// without configured FPS use the timebase-derived rate, falling back to
-// the libvpx default 30 fps when neither FPS nor timebase are set.
-func validateVP9TargetLevelLimits(opts VP9EncoderOptions) error {
-	limits, ok := vp9TargetLevelTable[opts.TargetLevel]
-	if !ok {
-		return nil
-	}
-	if opts.Width <= 0 || opts.Height <= 0 {
-		return nil
-	}
-	picture := uint64(opts.Width) * uint64(opts.Height)
-	if picture > limits.maxLumaPictureSize {
-		return ErrInvalidConfig
-	}
-	timing := vp9TimingStateFromOptions(opts)
-	if timing.timebaseNum > 0 && timing.timebaseDen > 0 {
-		// rate = picture * timebaseDen / timebaseNum (samples/sec)
-		rate := picture * uint64(timing.timebaseDen) / uint64(timing.timebaseNum)
-		if rate > limits.maxLumaSampleRate {
-			return ErrInvalidConfig
-		}
-	}
-	if opts.TargetBitrateKbps > 0 && opts.TargetBitrateKbps > limits.maxBitrateKbps {
 		return ErrInvalidConfig
 	}
 	return nil

@@ -42,6 +42,11 @@ func TestVPxOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 	}{
 		{name: "VP8Encoder", typ: reflect.TypeOf(VP8Encoder{}), field: "oracleTrace"},
 		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "oracleTrace"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserNoPredCost"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserTPredCost"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserTemporal"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserNoPredCounts"},
+		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserMiHist"},
 		{name: "VP9Decoder", typ: reflect.TypeOf(VP9Decoder{}), field: "leafTrace"},
 	}
 	for _, tc := range cases {

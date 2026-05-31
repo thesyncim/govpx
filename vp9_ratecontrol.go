@@ -35,13 +35,15 @@ type vp9RateControlState struct {
 	decimationFactor    uint8
 	decimationCount     uint8
 
-	minBitrateKbps     int
-	maxBitrateKbps     int
-	undershootPct      uint8
-	overshootPct       uint8
-	maxIntraBitratePct int
-	maxInterBitratePct int
-	gfCBRBoostPct      int
+	minBitrateKbps         int
+	maxBitrateKbps         int
+	undershootPct          uint8
+	configuredOvershootPct uint8
+	overshootPct           uint8
+	maxIntraBitratePct     int
+	maxInterBitratePct     int
+	gfCBRBoostPct          int
+	targetLevel            int
 
 	// minGFInterval and maxGFInterval mirror libvpx's
 	// VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL controls. Zero
@@ -321,15 +323,21 @@ func validateVP9InterRateBound(maxInterPct int) error {
 	return nil
 }
 
+const vp9MaxGFIntervalControl = 24 // libvpx MAX_LAG_BUFFERS - 1
+
 // validateVP9GFIntervalBounds enforces the libvpx
 // VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL invariants. Both
-// values must lie in [0, encoder.MaxGFInterval]; when both are non-zero, the
-// minimum must not exceed the maximum.
+// values must lie in [0, MAX_LAG_BUFFERS-1]; a non-zero maximum must be at
+// least 2; when both bounds are non-zero, the minimum must not exceed the
+// maximum.
 func validateVP9GFIntervalBounds(minGF, maxGF int) error {
 	if minGF < 0 || maxGF < 0 {
 		return ErrInvalidConfig
 	}
-	if minGF > encoder.MaxGFInterval || maxGF > encoder.MaxGFInterval {
+	if minGF > vp9MaxGFIntervalControl || maxGF > vp9MaxGFIntervalControl {
+		return ErrInvalidConfig
+	}
+	if maxGF > 0 && maxGF < 2 {
 		return ErrInvalidConfig
 	}
 	if minGF > 0 && maxGF > 0 && minGF > maxGF {
@@ -451,15 +459,16 @@ func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOpti
 	rc.minBitrateKbps = opts.MinBitrateKbps
 	rc.maxBitrateKbps = opts.MaxBitrateKbps
 	rc.undershootPct = uint8(vpxrc.NormalizePercent(opts.UndershootPct, defaultRateControlUndershootPct))
-	rc.overshootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultRateControlOvershootPct))
+	rc.configuredOvershootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultRateControlOvershootPct))
+	rc.overshootPct = rc.configuredOvershootPct
 	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
 	rc.maxInterBitratePct = opts.MaxInterBitratePct
+	rc.targetLevel = opts.TargetLevel
 	rc.gfCBRBoostPct = 0
 	if rc.mode == RateControlCBR {
 		rc.gfCBRBoostPct = opts.GFCBRBoostPct
 	}
-	rc.minGFInterval = uint8(opts.MinGFInterval)
-	rc.maxGFInterval = uint8(opts.MaxGFInterval)
+	rc.setGFIntervalsFromOptions(opts)
 	rc.framePeriodicBoost = opts.FramePeriodicBoost
 	rc.altRefAQ = opts.AltRefAQ
 	rc.postEncodeDrop = opts.PostEncodeDrop && rc.mode == RateControlCBR
@@ -533,6 +542,8 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	}
 	kbps = rc.clampBitrateKbps(kbps)
 	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, timing)
+	effectiveKbps = vp9TargetLevelClampBitrateKbps(rc.targetLevel,
+		effectiveKbps)
 	targetBits, ok := arith.CheckedMul(effectiveKbps, 1000)
 	if !ok {
 		return ErrInvalidBitrate
@@ -558,6 +569,8 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	rc.targetBitrateKbps = kbps
 	rc.effectiveBitrateKbps = effectiveKbps
 	rc.targetBandwidthBits = targetBits
+	rc.overshootPct = vp9TargetLevelClampOvershootPct(rc.targetLevel,
+		effectiveKbps, rc.effectiveConfiguredOvershootPct())
 	rc.bitsPerFrame = bitsPerFrame
 	rc.frameTargetBits = bitsPerFrame
 	rc.setLibvpxFrameRate(timing)
@@ -610,6 +623,16 @@ func (rc *vp9RateControlState) setLibvpxFrameRate(timing timingState) {
 	}
 	rc.frameRateNum = int(fps*1_000_000 + 0.5)
 	rc.frameRateDen = 1_000_000
+}
+
+func (rc *vp9RateControlState) effectiveConfiguredOvershootPct() uint8 {
+	if rc.configuredOvershootPct != 0 {
+		return rc.configuredOvershootPct
+	}
+	if rc.overshootPct != 0 {
+		return rc.overshootPct
+	}
+	return uint8(defaultRateControlOvershootPct)
 }
 
 func vp9LibvpxFrameRate(timing timingState) float64 {
@@ -695,6 +718,7 @@ func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOpti
 	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(opts)
 	best := encoder.PublicQuantizerToQIndex(minQ)
 	worst := encoder.PublicQuantizerToQIndex(maxQ)
+	worst = vp9TargetLevelWorstQuality(opts.TargetLevel, worst)
 	if best > worst {
 		best = worst
 	}
@@ -702,6 +726,14 @@ func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOpti
 	rc.worstQuality = uint8(worst)
 	rc.cqLevel = uint8(encoder.PublicQuantizerToQIndex(cqLevel))
 	rc.clampQuantizerHistory()
+}
+
+func (rc *vp9RateControlState) setGFIntervalsFromOptions(opts VP9EncoderOptions) {
+	minGF, maxGF := vp9TargetLevelGFIntervals(opts.TargetLevel,
+		opts.Width, opts.Height,
+		opts.MinGFInterval, opts.MaxGFInterval)
+	rc.minGFInterval = uint8(minGF)
+	rc.maxGFInterval = uint8(maxGF)
 }
 
 func (rc *vp9RateControlState) clampQuantizerHistory() {

@@ -80,6 +80,28 @@ func TestVP9SetMaxGFIntervalAppliesValue(t *testing.T) {
 	}
 }
 
+func TestVP9SetMaxGFIntervalAcceptsLibvpxUpperBound(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if err := e.SetMaxGFInterval(vp9MaxGFIntervalControl); err != nil {
+		t.Fatalf("SetMaxGFInterval(%d): %v", vp9MaxGFIntervalControl, err)
+	}
+	if e.opts.MaxGFInterval != vp9MaxGFIntervalControl ||
+		int(e.rc.maxGFInterval) != vp9MaxGFIntervalControl {
+		t.Fatalf("opts=%d rc=%d, want both %d", e.opts.MaxGFInterval,
+			e.rc.maxGFInterval, vp9MaxGFIntervalControl)
+	}
+}
+
 func TestVP9GFIntervalClampsRuntimeOnePassVBRGoldenInterval(t *testing.T) {
 	rc := &vp9RateControlState{
 		enabled:            true,

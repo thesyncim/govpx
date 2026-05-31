@@ -57,6 +57,11 @@ func TestVP9EncoderRuntimeControlsAllocationGate(t *testing.T) {
 				t.Fatalf("SetRateControlBuffer: %v", err)
 			}
 		}},
+		{"SetTargetLevel", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetTargetLevel(30); err != nil {
+				t.Fatalf("SetTargetLevel: %v", err)
+			}
+		}},
 		{"SetCQLevel", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetCQLevel(30); err != nil {
 				t.Fatalf("SetCQLevel: %v", err)

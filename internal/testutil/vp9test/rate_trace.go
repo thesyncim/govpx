@@ -26,6 +26,7 @@ type RateTraceRow struct {
 	SizeBits             int     `json:"size_bits"`
 	FirstPartitionSize   int     `json:"first_partition_size"`
 	TargetBitrateKbps    int     `json:"target_bitrate_kbps"`
+	EffectiveTargetKbps  int     `json:"effective_target_bitrate_kbps"`
 	FrameTargetBits      int     `json:"frame_target_bits"`
 	BufferLevelBits      int     `json:"buffer_level_bits"`
 	BufferOptimalBits    int     `json:"buffer_optimal_bits"`
@@ -90,11 +91,11 @@ func PctDelta(got int, want int) float64 {
 
 func FormatRateTraceRows(govpxRows, libvpxRows []RateTraceRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,govpx_flags,libvpx_flags,govpx_drop,libvpx_drop,govpx_key,libvpx_key,govpx_show,libvpx_show,govpx_width,libvpx_width,govpx_height,libvpx_height,govpx_q,libvpx_q,govpx_public_q,libvpx_public_q,govpx_active_best_q,libvpx_active_best_q,govpx_active_worst_q,libvpx_active_worst_q,govpx_rate_correction,libvpx_rate_correction,govpx_recode_allowed,libvpx_recode_allowed,govpx_recode_loops,libvpx_recode_loops,govpx_bytes,libvpx_bytes,govpx_bits,libvpx_bits,govpx_first_part,libvpx_first_part,govpx_target,libvpx_target,govpx_frame_target,libvpx_frame_target,govpx_buffer,libvpx_buffer,govpx_buffer_opt,libvpx_buffer_opt,govpx_refresh,libvpx_refresh,govpx_refresh_ctx,libvpx_refresh_ctx,govpx_tx,libvpx_tx,govpx_filter,libvpx_filter,govpx_refmode,libvpx_refmode,govpx_refmask,libvpx_refmask,govpx_lf,libvpx_lf,govpx_tile_cols,libvpx_tile_cols,govpx_tid,libvpx_tid,govpx_tlayers,libvpx_tlayers,govpx_tl0,libvpx_tl0,govpx_tsync,libvpx_tsync")
+	fmt.Fprintln(&b, "frame,govpx_flags,libvpx_flags,govpx_drop,libvpx_drop,govpx_key,libvpx_key,govpx_show,libvpx_show,govpx_width,libvpx_width,govpx_height,libvpx_height,govpx_q,libvpx_q,govpx_public_q,libvpx_public_q,govpx_active_best_q,libvpx_active_best_q,govpx_active_worst_q,libvpx_active_worst_q,govpx_rate_correction,libvpx_rate_correction,govpx_recode_allowed,libvpx_recode_allowed,govpx_recode_loops,libvpx_recode_loops,govpx_bytes,libvpx_bytes,govpx_bits,libvpx_bits,govpx_first_part,libvpx_first_part,govpx_target,libvpx_target,govpx_effective_target,libvpx_effective_target,govpx_frame_target,libvpx_frame_target,govpx_buffer,libvpx_buffer,govpx_buffer_opt,libvpx_buffer_opt,govpx_refresh,libvpx_refresh,govpx_refresh_ctx,libvpx_refresh_ctx,govpx_tx,libvpx_tx,govpx_filter,libvpx_filter,govpx_refmode,libvpx_refmode,govpx_refmask,libvpx_refmask,govpx_lf,libvpx_lf,govpx_tile_cols,libvpx_tile_cols,govpx_tid,libvpx_tid,govpx_tlayers,libvpx_tlayers,govpx_tl0,libvpx_tl0,govpx_tsync,libvpx_tsync")
 	for i := range govpxRows {
 		g := govpxRows[i]
 		l := libvpxRows[i]
-		fmt.Fprintf(&b, "%d,%#x,%#x,%t,%t,%t,%t,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6g,%.6g,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%t,%t,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%t,%t\n",
+		fmt.Fprintf(&b, "%d,%#x,%#x,%t,%t,%t,%t,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.6g,%.6g,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%#x,%t,%t,%d,%d,%d,%d,%d,%d,%#x,%#x,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%t,%t\n",
 			g.FrameIndex, g.Flags, l.Flags, g.Dropped, l.Dropped, g.KeyFrame,
 			l.KeyFrame, g.ShowFrame, l.ShowFrame, g.CodedWidth, l.CodedWidth,
 			g.CodedHeight, l.CodedHeight, g.BaseQIndex, l.BaseQIndex,
@@ -103,8 +104,9 @@ func FormatRateTraceRows(govpxRows, libvpxRows []RateTraceRow) string {
 			l.RateCorrectionFactor, g.RecodeAllowed, l.RecodeAllowed,
 			g.RecodeLoopCount, l.RecodeLoopCount, g.SizeBytes, l.SizeBytes,
 			g.SizeBits, l.SizeBits, g.FirstPartitionSize, l.FirstPartitionSize,
-			g.TargetBitrateKbps, l.TargetBitrateKbps, g.FrameTargetBits,
-			l.FrameTargetBits, g.BufferLevelBits, l.BufferLevelBits,
+			g.TargetBitrateKbps, l.TargetBitrateKbps, g.EffectiveTargetKbps,
+			l.EffectiveTargetKbps, g.FrameTargetBits, l.FrameTargetBits,
+			g.BufferLevelBits, l.BufferLevelBits,
 			g.BufferOptimalBits, l.BufferOptimalBits, g.RefreshFrameFlags,
 			l.RefreshFrameFlags, g.RefreshFrameContext, l.RefreshFrameContext,
 			g.TxMode, l.TxMode, g.InterpFilter, l.InterpFilter,
@@ -119,15 +121,15 @@ func FormatRateTraceRows(govpxRows, libvpxRows []RateTraceRow) string {
 
 func FormatSingleRateTraceRows(rows []RateTraceRow) string {
 	var b bytes.Buffer
-	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
+	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,effective_target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
 	for _, row := range rows {
-		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
+		fmt.Fprintf(&b, "%d,%#x,%t,%s,%t,%t,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%#x,%t,%d,%d,%d,%#x,%d,%d,%d,%d,%d,%t\n",
 			row.FrameIndex, row.Flags, row.Dropped, row.DropReason, row.KeyFrame,
 			row.ShowFrame, row.CodedWidth, row.CodedHeight, row.BaseQIndex,
 			row.PublicQuantizer, row.SizeBytes, row.SizeBits,
 			row.FirstPartitionSize, row.TargetBitrateKbps,
-			row.FrameTargetBits, row.BufferLevelBits, row.RefreshFrameFlags,
-			row.RefreshFrameContext, row.TxMode, row.InterpFilter,
+			row.EffectiveTargetKbps, row.FrameTargetBits, row.BufferLevelBits,
+			row.RefreshFrameFlags, row.RefreshFrameContext, row.TxMode, row.InterpFilter,
 			row.ReferenceMode, row.ReferenceMask, row.LoopFilterLevel,
 			row.TileLog2Cols, row.TemporalLayerID, row.TemporalLayerCount,
 			row.TL0PICIDX, row.TemporalLayerSync)
@@ -255,6 +257,7 @@ func CompareTransitionRows(t testing.TB, govpxRows, libvpxRows []RateTraceRow,
 			stats.FirstPartitionMismatches++
 		}
 		if g.TargetBitrateKbps != l.TargetBitrateKbps ||
+			g.EffectiveTargetKbps != l.EffectiveTargetKbps ||
 			g.FrameTargetBits != l.FrameTargetBits {
 			stats.TargetMismatches++
 		}

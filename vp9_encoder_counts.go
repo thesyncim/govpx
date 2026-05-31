@@ -153,8 +153,6 @@ func (e *VP9Encoder) vp9ChooseSegmentMapCodingMethod(seg *vp9dec.SegmentationPar
 		seg.TemporalUpdate = true
 		seg.TreeProbs = tPredTree
 		seg.PredProbs = predProbs
-		e.recordVP9SegmentMapChooserDecision(noPredCost, tPredCost, true,
-			noPredCounts, miRows, miCols)
 		return
 	}
 	seg.TemporalUpdate = false
@@ -162,38 +160,6 @@ func (e *VP9Encoder) vp9ChooseSegmentMapCodingMethod(seg *vp9dec.SegmentationPar
 	for i := range seg.PredProbs {
 		seg.PredProbs[i] = vp9dec.MaxProb
 	}
-	e.recordVP9SegmentMapChooserDecision(noPredCost, tPredCost, false,
-		noPredCounts, miRows, miCols)
-}
-
-func (e *VP9Encoder) recordVP9SegmentMapChooserDecision(noPredCost, tPredCost int,
-	temporal bool, noPredCounts [vp9dec.MaxSegments]uint32, miRows, miCols int,
-) {
-	if e == nil {
-		return
-	}
-	e.lastSegMapChooserNoPredCost = noPredCost
-	e.lastSegMapChooserTPredCost = tPredCost
-	e.lastSegMapChooserTemporal = temporal
-	e.lastSegMapChooserNoPredCounts = noPredCounts
-	e.lastSegMapChooserMiHist = e.vp9SegmentMapChooserMiHist(miRows, miCols)
-}
-
-func (e *VP9Encoder) vp9SegmentMapChooserMiHist(miRows, miCols int) [vp9dec.MaxSegments]uint32 {
-	var hist [vp9dec.MaxSegments]uint32
-	if e == nil || miRows <= 0 || miCols <= 0 || len(e.miGrid) < miRows*miCols {
-		return hist
-	}
-	for miRow := range miRows {
-		row := e.miGrid[miRow*miCols:]
-		for miCol := range miCols {
-			id := row[miCol].SegmentID
-			if id < vp9dec.MaxSegments {
-				hist[id]++
-			}
-		}
-	}
-	return hist
 }
 
 func (e *VP9Encoder) countVP9SegmentMapSB(miRows, miCols int,

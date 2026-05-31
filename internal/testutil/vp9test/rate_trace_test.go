@@ -10,7 +10,7 @@ import (
 func TestParseRateTraceRows(t *testing.T) {
 	trace := []byte(strings.Join([]string{
 		`{"row":"build_info","frame_index":99}`,
-		`{"row":"vp9_frame","frame_index":0,"flags":17,"key_frame":true,"show_frame":true,"coded_width":64,"coded_height":32,"base_qindex":22,"public_quantizer":8,"size_bytes":11,"first_partition_size":7,"target_bitrate_kbps":500,"frame_target_bits":900,"buffer_level_bits":1000,"buffer_optimal_bits":1100,"refresh_frame_flags":7,"refresh_frame_context":true,"tx_mode":1,"interp_filter":2,"reference_mode":3,"reference_mask":5,"loop_filter_level":4,"temporal_layer_id":1,"temporal_layer_count":2,"temporal_layer_sync":true,"tl0_pic_idx":9,"recode_allowed":true,"recode_loop_count":2,"active_best_q":18,"active_worst_q":40,"rate_correction_factor":1.25,"tile_log2_cols":1,"tile_log2_rows":0}`,
+		`{"row":"vp9_frame","frame_index":0,"flags":17,"key_frame":true,"show_frame":true,"coded_width":64,"coded_height":32,"base_qindex":22,"public_quantizer":8,"size_bytes":11,"first_partition_size":7,"target_bitrate_kbps":500,"effective_target_bitrate_kbps":450,"frame_target_bits":900,"buffer_level_bits":1000,"buffer_optimal_bits":1100,"refresh_frame_flags":7,"refresh_frame_context":true,"tx_mode":1,"interp_filter":2,"reference_mode":3,"reference_mask":5,"loop_filter_level":4,"temporal_layer_id":1,"temporal_layer_count":2,"temporal_layer_sync":true,"tl0_pic_idx":9,"recode_allowed":true,"recode_loop_count":2,"active_best_q":18,"active_worst_q":40,"rate_correction_factor":1.25,"tile_log2_cols":1,"tile_log2_rows":0}`,
 		`{"row":"vp9_frame","frame_index":1,"dropped":true,"drop_reason":"watermark_decimation","size_bytes":0,"size_bits":32,"base_qindex":300}`,
 		"",
 	}, "\n"))
@@ -26,6 +26,10 @@ func TestParseRateTraceRows(t *testing.T) {
 	}
 	if first.SizeBits != 88 {
 		t.Fatalf("first row SizeBits = %d, want fallback from bytes", first.SizeBits)
+	}
+	if first.EffectiveTargetKbps != 450 {
+		t.Fatalf("first row EffectiveTargetKbps = %d, want 450",
+			first.EffectiveTargetKbps)
 	}
 	if !first.RefreshFrameContext || first.RefreshFrameFlags != 7 ||
 		first.TemporalLayerID != 1 || first.TL0PICIDX != 9 ||
@@ -177,6 +181,7 @@ func TestRateTraceFormatting(t *testing.T) {
 		SizeBits:             80,
 		FirstPartitionSize:   7,
 		TargetBitrateKbps:    400,
+		EffectiveTargetKbps:  320,
 		FrameTargetBits:      800,
 		BufferLevelBits:      900,
 		BufferOptimalBits:    1000,
@@ -209,6 +214,7 @@ func TestRateTraceFormatting(t *testing.T) {
 		SizeBits:             88,
 		FirstPartitionSize:   8,
 		TargetBitrateKbps:    400,
+		EffectiveTargetKbps:  320,
 		FrameTargetBits:      810,
 		BufferLevelBits:      910,
 		BufferOptimalBits:    1010,
@@ -225,6 +231,7 @@ func TestRateTraceFormatting(t *testing.T) {
 	out := FormatRateTraceRows(govpxRows, libvpxRows)
 	for _, want := range []string{
 		"frame,govpx_flags,libvpx_flags",
+		"govpx_target,libvpx_target,govpx_effective_target,libvpx_effective_target",
 		"0,0x1,0x2,false,false,true,true,true,true,64,64,64,64,20,21",
 		",1.5,1.25,false,false,0,0,10,11,80,88",
 		",0x7,0x3,true,false,1,2,2,1,3,2,0x5,0x6",
@@ -251,6 +258,7 @@ func TestSingleRateTraceFormatting(t *testing.T) {
 		SizeBits:             0,
 		FirstPartitionSize:   0,
 		TargetBitrateKbps:    300,
+		EffectiveTargetKbps:  280,
 		FrameTargetBits:      700,
 		BufferLevelBits:      800,
 		RefreshFrameFlags:    4,
@@ -272,7 +280,7 @@ func TestSingleRateTraceFormatting(t *testing.T) {
 	for _, want := range []string{
 		"frame,flags,drop,reason,key,show,width,height",
 		"3,0x5,true,watermark_decimation,false,false,64,32,44,18",
-		",300,700,800,0x4,true,1,2,3,0x5,11,1,2,3,9,true",
+		",300,280,700,800,0x4,true,1,2,3,0x5,11,1,2,3,9,true",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("FormatSingleRateTraceRows missing %q in:\n%s",
@@ -294,6 +302,7 @@ func TestCompareTransitionRows(t *testing.T) {
 		SizeBits:             80,
 		FirstPartitionSize:   7,
 		TargetBitrateKbps:    300,
+		EffectiveTargetKbps:  300,
 		FrameTargetBits:      600,
 		BufferLevelBits:      900,
 		BufferOptimalBits:    1000,
@@ -325,6 +334,7 @@ func TestCompareTransitionRows(t *testing.T) {
 		SizeBits:             100,
 		FirstPartitionSize:   9,
 		TargetBitrateKbps:    400,
+		EffectiveTargetKbps:  350,
 		FrameTargetBits:      650,
 		BufferLevelBits:      1000,
 		BufferOptimalBits:    1100,
