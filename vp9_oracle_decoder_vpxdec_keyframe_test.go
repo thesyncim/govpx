@@ -41,7 +41,7 @@ func TestVP9DecoderVpxdecOracleMatchesSegmentedAltQKeyframe(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesLoopFilteredKeyframe(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
 	want := vp9test.VpxdecI420(t, ivf)
 

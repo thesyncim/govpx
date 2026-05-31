@@ -3,6 +3,8 @@ package govpx
 import (
 	"bytes"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 func TestVP9DecoderDecodeIntoScaledZeroMvInterFrame(t *testing.T) {
@@ -67,7 +69,7 @@ func TestVP9DecoderDecodeIntoCopiesInterSkipFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	dst := newTestImage(64, 64)
 	info, err := d.DecodeInto(key, &dst)
 	if err != nil {

@@ -50,7 +50,7 @@ func TestVP9DecoderReconstructsInterSkipFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestVP9DecoderReconstructsScaledNearestMvInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+	if err := d.Decode(vp9test.ColumnResidueKeyframe(t, 128, 128, 0, 32)); err != nil {
 		t.Fatalf("Decode scaled nearest seed keyframe: %v", err)
 	}
 	if _, ok := d.NextFrame(); !ok {
@@ -201,7 +201,7 @@ func TestVP9DecoderReconstructsScaledNearMvInterFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+	if err := d.Decode(vp9test.ColumnResidueKeyframe(t, 128, 128, 0, 32)); err != nil {
 		t.Fatalf("Decode scaled nearmv seed keyframe: %v", err)
 	}
 	if _, ok := d.NextFrame(); !ok {

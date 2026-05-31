@@ -1,9 +1,13 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestVP9DecoderLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
@@ -24,7 +28,7 @@ func TestVP9DecoderLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
 }
 
 func TestVP9DecoderThreadedLoopFilteredKeyframeSteadyStateAlloc(t *testing.T) {
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 3})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)

@@ -1,13 +1,17 @@
 package govpx
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+)
 
 func TestVP9DecoderInterNearestMvSteadyStateAlloc(t *testing.T) {
 	d, err := NewVP9Decoder(VP9DecoderOptions{})
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}

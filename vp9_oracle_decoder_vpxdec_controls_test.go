@@ -12,7 +12,7 @@ import (
 func TestVP9DecoderVpxdecOracleMatchesSkipLoopFilterControl(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
 	want := vp9test.VpxdecI420WithOptions(t, ivf,
 		vp9test.VpxdecOptions{SkipLoopFilter: true})
@@ -32,7 +32,7 @@ func TestVP9DecoderVpxdecOracleMatchesSkipLoopFilterControl(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesPostProcessControls(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	ivf := vp9IVFForTest(64, 64, packet)
 	for _, tc := range []struct {
 		name string

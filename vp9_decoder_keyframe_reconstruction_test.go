@@ -117,8 +117,8 @@ func TestVP9DecoderReconstructsSegmentedAltQKeyframe(t *testing.T) {
 }
 
 func TestVP9DecoderAppliesLoopFilterKeyframe(t *testing.T) {
-	unfilteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 0)
-	filteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	unfilteredPacket := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
+	filteredPacket := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 
 	unfiltered := vp9DecodeLastVisibleFrameForTest(t, unfilteredPacket)
 	filtered := vp9DecodeLastVisibleFrameForTest(t, filteredPacket)
@@ -133,8 +133,8 @@ func TestVP9DecoderAppliesLoopFilterKeyframe(t *testing.T) {
 }
 
 func TestVP9DecoderSkipLoopFilterMatchesUnfilteredReconstruction(t *testing.T) {
-	unfilteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 0)
-	filteredPacket := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	unfilteredPacket := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
+	filteredPacket := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 
 	unfiltered := vp9DecodeLastVisibleFrameForTest(t, unfilteredPacket)
 	filtered := vp9DecodeLastVisibleFrameForTest(t, filteredPacket)
@@ -148,7 +148,7 @@ func TestVP9DecoderSkipLoopFilterMatchesUnfilteredReconstruction(t *testing.T) {
 }
 
 func TestVP9DecoderSetSkipLoopFilterTogglesRuntimeControl(t *testing.T) {
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 	filtered := vp9DecodeLastVisibleFrameForTest(t, packet)
 	unfiltered := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		VP9DecoderOptions{SkipLoopFilter: true}, packet)
@@ -190,7 +190,7 @@ func TestVP9DecoderSetSkipLoopFilterTogglesRuntimeControl(t *testing.T) {
 }
 
 func TestVP9DecoderThreadedLoopFilterMatchesSerial(t *testing.T) {
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	inter := vp9InterMotionMvFrameLoopFilterForTest(t, common.ZeroMv, 32)
 
 	cases := []struct {
@@ -200,7 +200,7 @@ func TestVP9DecoderThreadedLoopFilterMatchesSerial(t *testing.T) {
 		{
 			name: "keyframe",
 			packets: [][]byte{
-				vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32),
+				vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32),
 			},
 		},
 		{

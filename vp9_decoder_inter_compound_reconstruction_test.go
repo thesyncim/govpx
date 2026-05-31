@@ -2,9 +2,11 @@ package govpx
 
 import (
 	"bytes"
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
-	"testing"
 )
 
 func TestVP9DecoderReconstructsCompoundInterSkipFrame(t *testing.T) {
@@ -12,7 +14,7 @@ func TestVP9DecoderReconstructsCompoundInterSkipFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}

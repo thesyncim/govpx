@@ -1,16 +1,18 @@
 package govpx
 
 import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
-	"testing"
 )
 
 func seedVP9CompoundMotionRefsForTest(t *testing.T, d *VP9Decoder, width, height int) {
 	t.Helper()
-	key := vp9ColumnResidueKeyframeForMotionTest(t, width, height)
+	key := vp9test.ColumnResidueKeyframe(t, width, height, 0, 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, width, height,
 		1<<uint(vp9CompoundAltrefSlotForTest), 96)
 	if err := d.Decode(key); err != nil {
@@ -32,7 +34,7 @@ func seedVP9CompoundMotionRefsForTest(t *testing.T, d *VP9Decoder, width, height
 
 func seedVP9CompoundTripleRefsForTest(t *testing.T, d *VP9Decoder, width, height int) {
 	t.Helper()
-	key := vp9ColumnResidueKeyframeForMotionTest(t, width, height)
+	key := vp9test.ColumnResidueKeyframe(t, width, height, 0, 32)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, width, height,
 		1<<uint(vp9CompoundGoldenSlotForTest), 32)
 	altref := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, width, height,

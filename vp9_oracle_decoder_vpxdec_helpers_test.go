@@ -13,7 +13,7 @@ import (
 func TestVP9DecoderVpxdecOracleMatchesSegmentedAltrefInterMapReuseStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
 		1<<uint(vp9CompoundAltrefSlotForTest), 96)
 	seed := vp9SegmentedAltrefInterSkipFrameForTest(t)
@@ -64,7 +64,7 @@ func TestVP9DecoderVpxdecOracleMatchesInterIntraResidualStream(t *testing.T) {
 func TestVP9DecoderVpxdecOracleMatchesInterIntegerTopRightBorderNewMvStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	inter := vp9InterIntegerTopRightBorderNewMvFrameForTest(t)
 	ivf := vp9IVFForTest(64, 64, key, inter)
 	want := vp9test.VpxdecI420(t, ivf)

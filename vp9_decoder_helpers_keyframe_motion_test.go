@@ -1,33 +1,14 @@
 package govpx
 
 import (
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
-	"testing"
 )
-
-func vp9ColumnResidueKeyframeForMotionTest(t *testing.T, width, height int) []byte {
-	t.Helper()
-	return vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, width, height, 0)
-}
-
-func vp9ColumnResidueKeyframeForMotionLoopFilterTest(t *testing.T,
-	width, height int, filterLevel uint8,
-) []byte {
-	t.Helper()
-	return vp9ColumnResidueIntraFrameForMotionTest(t, vp9ColumnResidueIntraFrameArgs{
-		Width:             width,
-		Height:            height,
-		KeyFrame:          true,
-		ShowFrame:         true,
-		RefreshFrameFlags: 0xff,
-		FilterLevel:       filterLevel,
-		DCCoeff:           32,
-	})
-}
 
 type vp9ColumnResidueIntraFrameArgs struct {
 	Width             int

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
@@ -14,7 +15,7 @@ func TestVP9DecoderReconstructsInterSubpelNewMvFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestVP9DecoderReconstructsInterSubpelNearestMvFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestVP9DecoderReconstructsInterSubpelSwitchableSharpNearestMvFrame(t *testi
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -157,7 +158,7 @@ func TestVP9DecoderReconstructsInterSubpelTopRightBorderNewMvFrame(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -195,7 +196,7 @@ func TestVP9DecoderReconstructsInterIntegerTopRightBorderNewMvFrame(t *testing.T
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -237,7 +238,7 @@ func assertVP9DecoderReconstructsInterSubpelNewMvFilter(t *testing.T,
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -402,7 +403,7 @@ func TestVP9DecoderDecodeIntoInterSubpelNewMvFrame(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	dst := newTestImage(96, 96)
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if _, err := d.DecodeInto(key, &dst); err != nil {
 		t.Fatalf("DecodeInto keyframe: %v", err)
 	}
@@ -471,7 +472,7 @@ func TestVP9DecoderDecodeIntoInterNearestMvFrame(t *testing.T) {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
 	dst := newTestImage(64, 64)
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if _, err := d.DecodeInto(key, &dst); err != nil {
 		t.Fatalf("DecodeInto keyframe: %v", err)
 	}

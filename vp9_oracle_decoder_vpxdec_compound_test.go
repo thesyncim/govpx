@@ -11,7 +11,7 @@ import (
 func TestVP9DecoderVpxdecOracleMatchesCompoundGoldenAltrefNewMvStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
 		1<<uint(vp9CompoundGoldenSlotForTest), 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -31,7 +31,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundGoldenAltrefNewMvStream(t *testing
 func TestVP9DecoderVpxdecOracleMatchesCompoundFixedGoldenSignBiasNewMvStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
 		1<<uint(vp9CompoundGoldenSlotForTest), 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -51,7 +51,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundFixedGoldenSignBiasNewMvStream(t *
 func TestVP9DecoderVpxdecOracleMatchesCompoundFixedLastSignBiasNewMvStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	golden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
 		1<<uint(vp9CompoundGoldenSlotForTest), 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
@@ -71,7 +71,7 @@ func TestVP9DecoderVpxdecOracleMatchesCompoundFixedLastSignBiasNewMvStream(t *te
 func TestVP9DecoderVpxdecOracleMatchesCompoundInterReferenceModeSelectNewMvStream(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	hidden := vp9ColumnResidueHiddenIntraOnlyFrameForTest(t, 64, 64,
 		1<<uint(vp9CompoundAltrefSlotForTest), 96)
 	inter := vp9CompoundInterReferenceModeSelectNewMvFrameForTest(t)

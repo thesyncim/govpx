@@ -85,7 +85,7 @@ func TestVP9DecoderScaledNearestMvInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+	if err := d.Decode(vp9test.ColumnResidueKeyframe(t, 128, 128, 0, 32)); err != nil {
 		t.Fatalf("Decode scaled nearest seed keyframe: %v", err)
 	}
 	inter := vp9ScaledInterNearestMvFrameForTest(t)
@@ -109,7 +109,7 @@ func TestVP9DecoderScaledNearMvInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	if err := d.Decode(vp9ColumnResidueKeyframeForMotionTest(t, 128, 128)); err != nil {
+	if err := d.Decode(vp9test.ColumnResidueKeyframe(t, 128, 128, 0, 32)); err != nil {
 		t.Fatalf("Decode scaled near seed keyframe: %v", err)
 	}
 	inter := vp9ScaledInterNearMvFrameForTest(t)
@@ -158,7 +158,7 @@ func TestVP9DecoderCompoundInterSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestVP9DecoderLoopFilteredInterMotionSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestVP9DecoderInterNewMvSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestVP9DecoderInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestVP9DecoderInterSubpelBorderSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9TopRightResidueKeyframeForNewMvTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 64, 64, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestVP9DecoderInterSubpelSwitchableSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	if err := d.Decode(key); err != nil {
 		t.Fatalf("Decode keyframe: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestVP9DecoderDecodeIntoInterSubpelNewMvSteadyStateAlloc(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Decoder: %v", err)
 	}
-	key := vp9InteriorResidueKeyframeForSubpelTest(t)
+	key := vp9test.ColumnResidueKeyframe(t, 96, 96, 0, 32)
 	dst := newTestImage(96, 96)
 	if _, err := d.DecodeInto(key, &dst); err != nil {
 		t.Fatalf("DecodeInto keyframe: %v", err)

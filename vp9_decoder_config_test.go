@@ -155,7 +155,7 @@ func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
 // decoder, and with the option on the threaded helper pool drives the
 // U / V plane deblock.
 func TestVP9DecoderLoopFilterOptGatesLoopFilterPool(t *testing.T) {
-	packet := vp9ColumnResidueKeyframeForMotionLoopFilterTest(t, 64, 64, 32)
+	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 
 	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		VP9DecoderOptions{}, packet)
