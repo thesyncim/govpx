@@ -39,7 +39,7 @@ func ReadCompressedHeader(t testing.TB, packet []byte,
 	return comp, fc, uncSize
 }
 
-func EnrichRateScoreboardRowFromPacket(t testing.TB, row *RateScoreboardRow, packet []byte) {
+func EnrichRateTraceRowFromPacket(t testing.TB, row *RateTraceRow, packet []byte) {
 	t.Helper()
 	header, _ := ParseHeader(t, packet)
 	comp, _, _ := ReadCompressedHeader(t, packet, header)

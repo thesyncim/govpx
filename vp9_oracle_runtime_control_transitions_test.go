@@ -15,7 +15,7 @@ func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 	opts.DropFrameAllowed = true
 	opts.DropFrameWaterMark = 60
 	sources := newVP9OracleTransitionSources(width, height, frames)
-	rows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+	rows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
 		func(enc *VP9Encoder, frame int) {
 			vp9ApplyRuntimeControlTransition(t, enc, frame)
 		})
@@ -42,7 +42,7 @@ func TestVP9OracleRuntimeControlTransitionsMatchLibvpx(t *testing.T) {
 		}
 	}
 	t.Logf("VP9 runtime control transition rows:\n%s",
-		vp9test.FormatSingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateTraceRows(rows))
 }
 
 func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
@@ -52,7 +52,7 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 8
 	opts := vp9OracleCBROptions(width, height, 800)
 	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+	govpxRows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
 		func(enc *VP9Encoder, frame int) {
 			switch frame {
 			case 2:
@@ -72,13 +72,13 @@ func TestVP9OracleRuntimeBitrateAndQuantizerControlsMatchLibvpx(t *testing.T) {
 		"--target-bitrate-schedule=2:300",
 		"--min-q-schedule=4:20",
 		"--max-q-schedule=4:20")
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
 	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 runtime bitrate/Q controls: %s", stats)
 	t.Logf("VP9 runtime bitrate/Q rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	if govpxRows[2].TargetBitrateKbps != 300 ||
 		libvpxRows[2].TargetBitrateKbps != 300 {
 		t.Fatalf("frame 2 target bitrate: govpx=%d libvpx=%d, want 300/300",
@@ -111,7 +111,7 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 	opts.DropFrameAllowed = true
 	opts.DropFrameWaterMark = 60
 	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+	govpxRows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
 		func(enc *VP9Encoder, frame int) {
 			vp9ApplyRuntimeControlTransition(t, enc, frame)
 		})
@@ -121,13 +121,13 @@ func TestVP9OracleRuntimeControlTransitionSeedsMatchLibvpx(t *testing.T) {
 		"--max-q-schedule=4:20",
 		"--fps-schedule=5:15",
 		"--drop-frame-schedule=6:0,8:60")
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
 	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 runtime-control transition parity: %s", stats)
 	t.Logf("VP9 runtime-control transition parity rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_TRANSITION_STRICT") &&
 		stats.HasMismatch() {
 		t.Fatalf("strict VP9 runtime-control transition mismatch: %s", stats)
@@ -432,7 +432,7 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRowsWithHooks(t, tc.opts,
+			govpxRows := captureVP9RateTraceRowsWithHooks(t, tc.opts,
 				sources, nil,
 				func(enc *VP9Encoder, frame int) {
 					tc.apply(t, enc, frame)
@@ -441,14 +441,14 @@ func TestVP9OracleRuntimeControlMatrixMatchesLibvpx(t *testing.T) {
 				tc.opts.BufferSizeMs, tc.opts.BufferInitialSizeMs,
 				tc.opts.BufferOptimalSizeMs, vp9OracleDropFrameArg(tc.opts)),
 				tc.extraArgs...)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width,
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width,
 				height, sources, nil, extraArgs)
 
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 runtime-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 runtime-control matrix rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 runtime-control matrix mismatch %s: %s",
@@ -548,15 +548,15 @@ func TestVP9OracleConstructionControlMatrixMatchesLibvpx(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources, nil)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources, nil)
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, nil, tc.extraArgs)
 
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 construction-control matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 construction-control matrix rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_CONSTRUCTION_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 construction-control matrix mismatch %s: %s",
@@ -574,16 +574,16 @@ func TestVP9OracleTileThreadControlsMatchLibvpx(t *testing.T) {
 	opts := vp9OracleCBROptions(width, height, 900)
 	opts.Threads = 4
 	sources := newVP9OracleTransitionSources(width, height, frames)
-	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
 	extraArgs := append(vp9OracleCBRArgs(900, 600, 400, 500, 0),
 		"--tile-columns=2")
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 		sources, nil, extraArgs)
 
 	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	t.Logf("VP9 tile/thread controls: %s", stats)
 	t.Logf("VP9 tile/thread control rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	tile2Rows := 0
 	for i := range govpxRows {
 		if govpxRows[i].Dropped || libvpxRows[i].Dropped {
@@ -615,7 +615,7 @@ func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 			EncodeNoUpdateGolden | EncodeNoReferenceGolden | EncodeNoReferenceAltRef,
 		EncodeNoReferenceLast | EncodeNoReferenceGolden | EncodeNoUpdateLast,
 	}
-	rows := captureVP9RateScoreboardRows(t, VP9EncoderOptions{
+	rows := captureVP9RateTraceRows(t, VP9EncoderOptions{
 		Width:  width,
 		Height: height,
 	}, sources, flags)
@@ -636,5 +636,5 @@ func TestVP9OracleInvisibleFrameVisibilityMatchesLibvpx(t *testing.T) {
 			rows[2].ShowFrame, rows[2].Dropped)
 	}
 	t.Logf("VP9 invisible-frame visibility rows:\n%s",
-		vp9test.FormatSingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateTraceRows(rows))
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 )
 
-type RateScoreboardRow struct {
+type RateTraceRow struct {
 	FrameIndex           int     `json:"frame_index"`
 	Flags                uint32  `json:"flags"`
 	Dropped              bool    `json:"dropped"`
@@ -53,14 +53,14 @@ type RateScoreboardRow struct {
 	TileLog2Rows         int     `json:"tile_log2_rows"`
 }
 
-func ParseRateScoreboardRows(t testing.TB, trace []byte) []RateScoreboardRow {
+func ParseRateTraceRows(t testing.TB, trace []byte) []RateTraceRow {
 	t.Helper()
-	rows := make([]RateScoreboardRow, 0, bytes.Count(trace, []byte("\n")))
+	rows := make([]RateTraceRow, 0, bytes.Count(trace, []byte("\n")))
 	scan := bufio.NewScanner(bytes.NewReader(trace))
 	for scan.Scan() {
 		var raw struct {
 			Row string `json:"row"`
-			RateScoreboardRow
+			RateTraceRow
 		}
 		if err := json.Unmarshal(scan.Bytes(), &raw); err != nil {
 			t.Fatalf("VP9 rate trace row is not valid JSON: %v\n%s", err, scan.Bytes())
@@ -68,7 +68,7 @@ func ParseRateScoreboardRows(t testing.TB, trace []byte) []RateScoreboardRow {
 		if raw.Row != "vp9_frame" {
 			continue
 		}
-		row := raw.RateScoreboardRow
+		row := raw.RateTraceRow
 		if row.SizeBits == 0 && row.SizeBytes != 0 {
 			row.SizeBits = row.SizeBytes * 8
 		}
@@ -88,7 +88,7 @@ func PctDelta(got int, want int) float64 {
 	return math.Abs(float64(got-want)) * 100 / den
 }
 
-func FormatRateScoreboardRows(govpxRows, libvpxRows []RateScoreboardRow) string {
+func FormatRateTraceRows(govpxRows, libvpxRows []RateTraceRow) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "frame,govpx_flags,libvpx_flags,govpx_drop,libvpx_drop,govpx_key,libvpx_key,govpx_show,libvpx_show,govpx_width,libvpx_width,govpx_height,libvpx_height,govpx_q,libvpx_q,govpx_public_q,libvpx_public_q,govpx_active_best_q,libvpx_active_best_q,govpx_active_worst_q,libvpx_active_worst_q,govpx_rate_correction,libvpx_rate_correction,govpx_recode_allowed,libvpx_recode_allowed,govpx_recode_loops,libvpx_recode_loops,govpx_bytes,libvpx_bytes,govpx_bits,libvpx_bits,govpx_first_part,libvpx_first_part,govpx_target,libvpx_target,govpx_frame_target,libvpx_frame_target,govpx_buffer,libvpx_buffer,govpx_buffer_opt,libvpx_buffer_opt,govpx_refresh,libvpx_refresh,govpx_refresh_ctx,libvpx_refresh_ctx,govpx_tx,libvpx_tx,govpx_filter,libvpx_filter,govpx_refmode,libvpx_refmode,govpx_refmask,libvpx_refmask,govpx_lf,libvpx_lf,govpx_tile_cols,libvpx_tile_cols,govpx_tid,libvpx_tid,govpx_tlayers,libvpx_tlayers,govpx_tl0,libvpx_tl0,govpx_tsync,libvpx_tsync")
 	for i := range govpxRows {
@@ -117,7 +117,7 @@ func FormatRateScoreboardRows(govpxRows, libvpxRows []RateScoreboardRow) string 
 	return b.String()
 }
 
-func FormatSingleRateScoreboardRows(rows []RateScoreboardRow) string {
+func FormatSingleRateTraceRows(rows []RateTraceRow) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "frame,flags,drop,reason,key,show,width,height,q,public_q,bytes,bits,first_part,target,frame_target,buffer,refresh,refresh_ctx,tx,filter,refmode,refmask,lf,tile_cols,tid,tlayers,tl0,tsync")
 	for _, row := range rows {
@@ -135,7 +135,7 @@ func FormatSingleRateScoreboardRows(rows []RateScoreboardRow) string {
 	return b.String()
 }
 
-type RateScoreboardFlagMapper func(uint32) uint32
+type RateTraceFlagMapper func(uint32) uint32
 
 type TransitionStats struct {
 	Rows                     int
@@ -189,8 +189,8 @@ func (s TransitionStats) String() string {
 		s.MaxBufferOptimalDeltaPct)
 }
 
-func CompareTransitionRows(t testing.TB, govpxRows, libvpxRows []RateScoreboardRow,
-	libvpxFlags RateScoreboardFlagMapper,
+func CompareTransitionRows(t testing.TB, govpxRows, libvpxRows []RateTraceRow,
+	libvpxFlags RateTraceFlagMapper,
 ) TransitionStats {
 	t.Helper()
 	if len(govpxRows) == 0 || len(libvpxRows) == 0 {
@@ -309,7 +309,7 @@ func CompareTransitionRows(t testing.TB, govpxRows, libvpxRows []RateScoreboardR
 	return stats
 }
 
-func DroppedFrameIndices(rows []RateScoreboardRow) []int {
+func DroppedFrameIndices(rows []RateTraceRow) []int {
 	out := make([]int, 0, len(rows))
 	for _, row := range rows {
 		if row.Dropped {
@@ -319,7 +319,7 @@ func DroppedFrameIndices(rows []RateScoreboardRow) []int {
 	return out
 }
 
-func DropReasonCount(rows []RateScoreboardRow, reason string) int {
+func DropReasonCount(rows []RateTraceRow, reason string) int {
 	count := 0
 	for _, row := range rows {
 		if row.DropReason == reason {
@@ -329,7 +329,7 @@ func DropReasonCount(rows []RateScoreboardRow, reason string) int {
 	return count
 }
 
-func CountHiddenRows(rows []RateScoreboardRow) int {
+func CountHiddenRows(rows []RateTraceRow) int {
 	count := 0
 	for _, row := range rows {
 		if !row.Dropped && !row.ShowFrame {
@@ -339,7 +339,7 @@ func CountHiddenRows(rows []RateScoreboardRow) int {
 	return count
 }
 
-func CountAltRefRefreshRows(rows []RateScoreboardRow, altRefMask uint8) int {
+func CountAltRefRefreshRows(rows []RateTraceRow, altRefMask uint8) int {
 	count := 0
 	for _, row := range rows {
 		if !row.Dropped && !row.KeyFrame && row.RefreshFrameFlags&altRefMask != 0 {
@@ -361,7 +361,7 @@ func SameIntSlice(a, b []int) bool {
 	return true
 }
 
-func QHistogram(rows []RateScoreboardRow) [256]int {
+func QHistogram(rows []RateTraceRow) [256]int {
 	var hist [256]int
 	for _, row := range rows {
 		if row.Dropped {
@@ -407,7 +407,7 @@ func FormatQHistogram(hist [256]int) string {
 	return b.String()
 }
 
-func FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows []RateScoreboardRow) string {
+func FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows []RateTraceRow) string {
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "packet,govpx_frame,libvpx_frame,govpx_show,libvpx_show,govpx_key,libvpx_key,govpx_refresh,libvpx_refresh,govpx_q,libvpx_q,govpx_bytes,libvpx_bytes,govpx_first_part,libvpx_first_part")
 	limit := len(govpxRows)
@@ -415,8 +415,8 @@ func FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows []RateScoreboardRow) s
 		limit = len(libvpxRows)
 	}
 	for i := 0; i < limit; i++ {
-		g, gok := rateScoreboardRowAt(govpxRows, i)
-		l, lok := rateScoreboardRowAt(libvpxRows, i)
+		g, gok := rateTraceRowAt(govpxRows, i)
+		l, lok := rateTraceRowAt(libvpxRows, i)
 		fmt.Fprintf(&b, "%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
 			i,
 			optionalInt(gok, g.FrameIndex),
@@ -437,9 +437,9 @@ func FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows []RateScoreboardRow) s
 	return b.String()
 }
 
-func rateScoreboardRowAt(rows []RateScoreboardRow, i int) (RateScoreboardRow, bool) {
+func rateTraceRowAt(rows []RateTraceRow, i int) (RateTraceRow, bool) {
 	if i < 0 || i >= len(rows) {
-		return RateScoreboardRow{}, false
+		return RateTraceRow{}, false
 	}
 	return rows[i], true
 }
@@ -466,8 +466,8 @@ func optionalHex(ok bool, v uint8) string {
 }
 
 func CountByteParityMatchesWithDrops(t testing.TB,
-	govpxRows []RateScoreboardRow, govpxPackets [][]byte,
-	libvpxRows []RateScoreboardRow, libvpxPackets [][]byte,
+	govpxRows []RateTraceRow, govpxPackets [][]byte,
+	libvpxRows []RateTraceRow, libvpxPackets [][]byte,
 ) (matches int, packetMatches int, dropMatches int, firstMismatch int) {
 	t.Helper()
 	if len(govpxRows) != len(libvpxRows) ||
@@ -502,8 +502,8 @@ func CountByteParityMatchesWithDrops(t testing.TB,
 }
 
 func FormatDropAwareStreamParityRows(t testing.TB,
-	govpxRows []RateScoreboardRow, govpxPackets [][]byte,
-	libvpxRows []RateScoreboardRow, libvpxPackets [][]byte,
+	govpxRows []RateTraceRow, govpxPackets [][]byte,
+	libvpxRows []RateTraceRow, libvpxPackets [][]byte,
 ) string {
 	t.Helper()
 	var b bytes.Buffer

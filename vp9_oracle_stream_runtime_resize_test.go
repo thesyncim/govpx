@@ -8,7 +8,7 @@ import (
 )
 
 func TestVP9OracleRuntimeResizeByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 runtime-resize byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 runtime-resize byte-parity trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	type resizeCase struct {
@@ -54,10 +54,10 @@ func TestVP9OracleRuntimeResizeByteParity(t *testing.T) {
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
-			t.Logf("VP9 runtime resize byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d stats=%s",
+			t.Logf("VP9 runtime resize byte-parity trace %s: matches=%d/%d first_mismatch=%d stats=%s",
 				tc.name, matches, len(govpxPackets), firstMismatch, stats)
 			t.Logf("VP9 runtime resize rate rows %s:\n%s", tc.name,
-				vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			t.Logf("VP9 runtime resize byte rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 			if vp9test.StrictEnv("GOVPX_VP9_RUNTIME_RESIZE_STRICT") &&

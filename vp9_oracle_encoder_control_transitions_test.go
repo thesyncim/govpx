@@ -19,12 +19,12 @@ import (
 // even when each control is individually pinned by
 // vp9_oracle_encoder_runtime_controls_test.go.
 //
-// Each subtest also captures the per-frame scoreboard rows so a
+// Each subtest also captures the per-frame trace rows so a
 // failure mode that drives a row-level delta without crossing the
 // strict byte threshold still surfaces in the test log.
 //
 // Strict byte parity is opt-in through
-// GOVPX_VP9_TRANSITIONS_STRICT=1; the default build logs scoreboard
+// GOVPX_VP9_TRANSITIONS_STRICT=1; the default build logs trace
 // deltas without failing so the test acts as a structured oracle
 // that future parity work can ratchet.
 func TestVP9OracleEncoderControlTransitions(t *testing.T) {

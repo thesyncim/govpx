@@ -21,7 +21,7 @@ import (
 // Strict parity is gated by GOVPX_VP9_RUNTIME_CONTROLS_STRICT=1; the default
 // build runs the gate and logs row deltas so per-control regressions show up
 // in test output even when the build is not in strict mode. Byte mismatches
-// at non-pinned controls are logged with the per-frame scoreboard rows to
+// at non-pinned controls are logged with the per-frame trace rows to
 // steer parity work.
 func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 runtime-controls byte-parity gate")

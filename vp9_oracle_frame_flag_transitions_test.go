@@ -84,14 +84,14 @@ func TestVP9OracleFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, tc.flags)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			govpxRows := captureVP9RateTraceRows(t, opts, sources, tc.flags)
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, tc.flags, extraArgs)
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 frame-flag transitions %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 frame-flag transition rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_TRANSITION_SCOREBOARD_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 frame-flag transition mismatch %s: %s",
@@ -131,14 +131,14 @@ func TestVP9OracleFrameFlagReferenceUpdateMatrixMatchesLibvpx(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
 			flags := vp9OracleRepeatInterFlag(frames, tc.flag)
-			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, flags)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			govpxRows := captureVP9RateTraceRows(t, opts, sources, flags)
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, flags, extraArgs)
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 reference/update matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 reference/update matrix rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_FLAG_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 reference/update matrix mismatch %s: %s",
@@ -180,13 +180,13 @@ func TestVP9OracleOddSizeFrameFlagTransitionsMatchLibvpx(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, tc.flags)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			govpxRows := captureVP9RateTraceRows(t, opts, sources, tc.flags)
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, tc.flags, extraArgs)
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 odd-size transitions %s: %s", tc.name, stats)
 			t.Logf("VP9 odd-size transition rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_ODD_TRANSITION_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 odd-size transition mismatch %s: %s",

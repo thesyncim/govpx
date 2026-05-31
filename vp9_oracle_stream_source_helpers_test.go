@@ -85,7 +85,7 @@ func drainVP9LookaheadFlushForOracleTest(t *testing.T, enc *VP9Encoder, dst []by
 
 func captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr,
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	if len(sources) == 0 {
 		t.Fatal("empty VP9 auto-alt-ref source")
@@ -130,20 +130,20 @@ func captureGovpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 		}
 		packets = append(packets, append([]byte(nil), result.Data...))
 	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace.Bytes())
+	rows := vp9test.ParseRateTraceRows(t, trace.Bytes())
 	if len(rows) != len(packets) {
 		t.Fatalf("govpx auto-alt-ref trace rows = %d, packets = %d",
 			len(rows), len(packets))
 	}
 	for i := range rows {
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
 
 func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 	sources []*image.YCbCr, extraArgs ...string,
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources, nil,
 		extraArgs...)
@@ -151,7 +151,7 @@ func captureLibvpxVP9AutoAltRefPacketRowsForOracleTest(t *testing.T,
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

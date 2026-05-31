@@ -108,7 +108,7 @@ func encodeSuiteCases(name string) ([]encodeSuiteCase, error) {
 	case "webrtc":
 		// Realtime streaming budgets across mobile-ish to broadcaster
 		// resolutions; mirrors the WebRTC simulcast ladder rates from
-		// the project's stream-parity scoreboard.
+		// the project's stream-parity trace.
 		return []encodeSuiteCase{
 			{name: "rt-180p-150k-60f", width: 320, height: 180, frames: 60, fps: 30, bitrateKbps: 150, mode: "realtime"},
 			{name: "rt-360p-500k-60f", width: 640, height: 360, frames: 60, fps: 30, bitrateKbps: 500, mode: "realtime"},

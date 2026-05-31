@@ -62,7 +62,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 		assertCopyReferenceChecksumsEqual(t, got, want)
 	})
 
-	t.Run("post-inter-refresh-scoreboard", func(t *testing.T) {
+	t.Run("post-inter-refresh-trace", func(t *testing.T) {
 		const width, height, frames = 64, 64, 5
 		opts := vp9OracleCBROptions(width, height, 650)
 		sources := newVP9OracleTransitionSources(width, height, frames)
@@ -82,7 +82,7 @@ func TestVP9OracleCopyReferenceFrameParity(t *testing.T) {
 		got := captureGovpxVP9CopyReferenceChecksums(t, opts, sources, nil,
 			nil, checks)
 		if !reflect.DeepEqual(got, want) {
-			t.Logf("VP9 post-inter CopyReferenceFrame scoreboard\n govpx: %s\nlibvpx: %s",
+			t.Logf("VP9 post-inter CopyReferenceFrame trace\n govpx: %s\nlibvpx: %s",
 				formatCopyReferenceChecksums(got),
 				formatCopyReferenceChecksums(want))
 		}

@@ -66,7 +66,7 @@ func vp9OracleIntCSV(values []int) string {
 	return b.String()
 }
 
-func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9test.RateScoreboardRow, expected []expectedTemporalRow, layers int) {
+func assertVP9TemporalMetadataRows(t *testing.T, rows []vp9test.RateTraceRow, expected []expectedTemporalRow, layers int) {
 	t.Helper()
 	if len(rows) != len(expected) {
 		t.Fatalf("temporal metadata rows = %d, want %d", len(rows), len(expected))

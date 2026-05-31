@@ -287,8 +287,8 @@ func vp9StepMaxInterBitratePct(p int) vp9ControlStep {
 }
 
 // runVP9TransitionCase drives both encoders through tc.updates, captures
-// the resulting packets and scoreboard rows, and compares them. It logs
-// the per-frame scoreboard for failure triage and asserts byte parity
+// the resulting packets and trace rows, and compares them. It logs
+// the per-frame trace for failure triage and asserts byte parity
 // under GOVPX_VP9_TRANSITIONS_STRICT=1.
 func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 	extraArgs []string, width, height, frames int, tc vp9TransitionCase,
@@ -323,7 +323,7 @@ func runVP9TransitionCase(t *testing.T, opts VP9EncoderOptions,
 	t.Logf("VP9 transition %s: matches=%d/%d first_mismatch=%d stats=%s",
 		tc.name, matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 transition %s rows:\n%s", tc.name,
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	if vp9test.StrictEnv("GOVPX_VP9_TRANSITIONS_STRICT") {
 		assertVP9TransitionByteParity(t, tc.name, govpxPackets, libvpxPackets)
 	}

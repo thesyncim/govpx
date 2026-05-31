@@ -330,7 +330,7 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 	// enabled, populate the per-SB partition cache on first call into
 	// this SB and read the partition decision back from
 	// e.varPartGrid. Falls through to the legacy single-level picker
-	// below when the gate is off (default) so existing scoreboard
+	// below when the gate is off (default) so existing trace
 	// tests stay green.
 	//
 	// libvpx ref: vp9/encoder/vp9_encodeframe.c:5470 nonrd_use_partition

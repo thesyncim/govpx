@@ -92,7 +92,7 @@ func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
 	want := map[string]controlsurface.Mapping{
 		"AdaptiveKeyFrames":   {Kind: "vp9-scene-cut-control"},
 		"AltRefAQ":            {Kind: "libvpx-control", HelperTokens: []string{"altrefaq:", "--alt-ref-aq"}},
-		"AQMode":              {Kind: "libvpx-vp9-aq-mode-scoreboard"},
+		"AQMode":              {Kind: "libvpx-vp9-aq-mode-trace"},
 		"ARNRMaxFrames":       {Kind: "libvpx-control", HelperTokens: []string{"arnrmax:", "--arnr-maxframes"}},
 		"ARNRStrength":        {Kind: "libvpx-control", HelperTokens: []string{"arnrstrength:", "--arnr-strength"}},
 		"ARNRType":            {Kind: "libvpx-control", HelperTokens: []string{"arnrtype:", "--arnr-type"}},

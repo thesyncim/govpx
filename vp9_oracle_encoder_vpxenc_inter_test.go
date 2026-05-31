@@ -59,7 +59,7 @@ func TestVP9EncoderVpxencOracleInterModeDistributionParity(t *testing.T) {
 			i, modeDistance, blockDistance, skipDistance,
 			g.String(), l.String())
 	}
-	t.Logf("VP9 inter-mode distribution scoreboard: total_mode_distance=%d total_block_distance=%d total_skip_distance=%d",
+	t.Logf("VP9 inter-mode distribution trace: total_mode_distance=%d total_block_distance=%d total_skip_distance=%d",
 		totalModeDistance, totalBlockDistance, totalSkipDistance)
 	if vp9test.StrictEnv("GOVPX_VP9_MODE_DIST_STRICT") &&
 		(totalModeDistance != 0 || totalBlockDistance != 0 ||

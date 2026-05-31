@@ -223,7 +223,7 @@ func (e *VP9Encoder) vp9CommitExtOverridesAfterEncode() {
 // (vp9/encoder/vp9_bitstream.c reads the post-override refresh state when
 // emitting the inter uncompressed header). Returns ok=false when no
 // override is pending so the caller can fall back to the encoder-internal
-// refresh decision (one-pass VBR golden refresh, temporal SVC scoreboard,
+// refresh decision (one-pass VBR golden refresh, temporal SVC trace,
 // CBR rate-control golden refresh) the same way libvpx does: the libvpx
 // encoder body initialises refresh_*_frame from those internal sources
 // BEFORE set_ext_overrides copies the user override on top.

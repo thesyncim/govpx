@@ -8,7 +8,7 @@ import (
 )
 
 func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 runtime-drop byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 runtime-drop byte-parity trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 24
@@ -124,7 +124,7 @@ func TestVP9OracleRuntimeDropToggleByteParity(t *testing.T) {
 					libvpxRows, libvpxPackets)
 			govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 			libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
-			t.Logf("VP9 runtime-drop byte-parity scoreboard %s: rows=%d matches=%d packet_matches=%d drop_matches=%d first_mismatch=%d govpx_drops=%v libvpx_drops=%v transition=%s",
+			t.Logf("VP9 runtime-drop byte-parity trace %s: rows=%d matches=%d packet_matches=%d drop_matches=%d first_mismatch=%d govpx_drops=%v libvpx_drops=%v transition=%s",
 				tc.name, len(govpxRows), matches, packetMatches, dropMatches,
 				firstMismatch, govpxDrops, libvpxDrops, stats)
 			t.Logf("VP9 runtime-drop byte-parity rows %s:\n%s", tc.name,

@@ -200,7 +200,7 @@ func TestRootVP9TestsUseHarnessBitstreamHelpers(t *testing.T) {
 			"type vp9BitPacker",
 			"func vp9ShowExistingFramePacketForTest",
 			"func vp9SuperframePacketForTest",
-			"func enrichVP9RateScoreboardRowFromPacket",
+			"func enrichVP9RateTraceRowFromPacket",
 			"func readVP9CompressedHeaderForOracleTest",
 			"func vp9ReferenceMaskFromLibvpxFrameFlags",
 		} {

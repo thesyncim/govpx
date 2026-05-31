@@ -10,7 +10,7 @@ import (
 )
 
 func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 two-pass byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 two-pass byte-parity trace")
 	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 64, 64, 6
@@ -69,7 +69,7 @@ func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
 		"--disable-warning-prompt")
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
-	t.Logf("VP9 two-pass byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
+	t.Logf("VP9 two-pass byte-parity trace: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass byte-parity rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
@@ -81,7 +81,7 @@ func TestVP9OracleTwoPassStreamByteParity(t *testing.T) {
 }
 
 func TestVP9OracleTwoPassConstantByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 two-pass constant byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 two-pass constant byte-parity trace")
 	vp9test.RequireVpxenc(t)
 
 	const width, height, frames = 64, 64, 4
@@ -140,7 +140,7 @@ func TestVP9OracleTwoPassConstantByteParity(t *testing.T) {
 		"--disable-warning-prompt")
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
-	t.Logf("VP9 two-pass constant byte-parity scoreboard: matches=%d/%d first_mismatch=%d",
+	t.Logf("VP9 two-pass constant byte-parity trace: matches=%d/%d first_mismatch=%d",
 		matches, frames, firstMismatch)
 	t.Logf("VP9 two-pass constant byte-parity rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))

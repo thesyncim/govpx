@@ -12,7 +12,7 @@ import (
 )
 
 func TestVP9OracleRateBehaviorParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 rate-behavior scoreboard")
+	vp9test.RequireOracle(t, "VP9 rate-behavior trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -48,8 +48,8 @@ func TestVP9OracleRateBehaviorParity(t *testing.T) {
 		"--exact-fps-timebase",
 	}
 
-	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height, sources,
+	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height, sources,
 		nil, extraArgs)
 	if len(govpxRows) != len(libvpxRows) {
 		t.Fatalf("rate rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
@@ -82,24 +82,24 @@ func TestVP9OracleRateBehaviorParity(t *testing.T) {
 		bufferPctMax = math.Max(bufferPctMax, vp9test.PctDelta(g.BufferLevelBits, l.BufferLevelBits))
 	}
 
-	t.Logf("VP9 CBR rate scoreboard: rows=%d refresh_matches=%d/%d max_q_drift=%.0f max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f",
+	t.Logf("VP9 CBR rate trace: rows=%d refresh_matches=%d/%d max_q_drift=%.0f max_size_delta_pct=%.2f max_buffer_delta_pct=%.2f",
 		len(govpxRows), refreshMatches, len(govpxRows), qDriftMax, sizePctMax,
 		bufferPctMax)
-	t.Logf("VP9 CBR rate scoreboard rows:\n%s", vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+	t.Logf("VP9 CBR rate trace rows:\n%s", vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 
 	if refreshMatches != len(govpxRows) {
 		t.Fatalf("refresh flags matched %d/%d rows", refreshMatches, len(govpxRows))
 	}
-	if vp9test.StrictEnv("GOVPX_VP9_RATE_SCOREBOARD_STRICT") {
+	if vp9test.StrictEnv("GOVPX_VP9_RATE_TRACE_STRICT") {
 		if qDriftMax != 0 || sizePctMax != 0 || bufferPctMax != 0 {
-			t.Fatalf("strict VP9 rate scoreboard drift: max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
+			t.Fatalf("strict VP9 rate trace drift: max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
 				qDriftMax, sizePctMax, bufferPctMax)
 		}
 	}
 }
 
 func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 Q histogram scoreboard")
+	vp9test.RequireOracle(t, "VP9 Q histogram trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -211,15 +211,15 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources,
+			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources,
 				tc.flags)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width,
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width,
 				height, sources, tc.flags, tc.extraArgs)
 			govpxHist := vp9test.QHistogram(govpxRows)
 			libvpxHist := vp9test.QHistogram(libvpxRows)
 			distance, mismatchedBins := vp9test.HistogramDistance(govpxHist,
 				libvpxHist)
-			t.Logf("VP9 Q histogram scoreboard %s: distance=%d mismatched_bins=%d govpx=%s libvpx=%s",
+			t.Logf("VP9 Q histogram trace %s: distance=%d mismatched_bins=%d govpx=%s libvpx=%s",
 				tc.name, distance, mismatchedBins,
 				vp9test.FormatQHistogram(govpxHist),
 				vp9test.FormatQHistogram(libvpxHist))
@@ -233,7 +233,7 @@ func TestVP9OracleQuantizerHistogramParity(t *testing.T) {
 }
 
 func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 CBR buffer matrix scoreboard")
+	vp9test.RequireOracle(t, "VP9 CBR buffer matrix trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 12
@@ -300,16 +300,16 @@ func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, tc.opts, sources, nil)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			govpxRows := captureVP9RateTraceRows(t, tc.opts, sources, nil)
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, nil, tc.extraArgs)
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 			libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
-			t.Logf("VP9 CBR buffer matrix scoreboard %s: %s govpx_drops=%v libvpx_drops=%v",
+			t.Logf("VP9 CBR buffer matrix trace %s: %s govpx_drops=%v libvpx_drops=%v",
 				tc.name, stats, govpxDrops, libvpxDrops)
 			t.Logf("VP9 CBR buffer matrix rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if tc.wantDrop && (len(govpxDrops) == 0 || len(libvpxDrops) == 0) {
 				t.Fatalf("drop fixture %s did not drop on both sides: govpx=%v libvpx=%v",
 					tc.name, govpxDrops, libvpxDrops)
@@ -324,7 +324,7 @@ func TestVP9OracleRateBufferMatrixParity(t *testing.T) {
 }
 
 func TestVP9OracleCBRKeyframeVariancePartitionParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 CBR keyframe variance scoreboard")
+	vp9test.RequireOracle(t, "VP9 CBR keyframe variance trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 4
@@ -336,15 +336,15 @@ func TestVP9OracleCBRKeyframeVariancePartitionParity(t *testing.T) {
 	flags := vp9OracleFlagAt(frames, 3, EncodeForceKeyFrame)
 	extraArgs := vp9OracleCBRArgs(600, 600, 400, 500, 0)
 
-	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, flags)
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+	govpxRows := captureVP9RateTraceRows(t, opts, sources, flags)
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 		sources, flags, extraArgs)
 	if len(govpxRows) != frames || len(libvpxRows) != frames {
 		t.Fatalf("CBR keyframe variance rows: govpx=%d libvpx=%d, want %d/%d",
 			len(govpxRows), len(libvpxRows), frames, frames)
 	}
 	t.Logf("VP9 CBR keyframe variance rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	for _, frame := range [...]int{0, 3} {
 		g := govpxRows[frame]
 		l := libvpxRows[frame]
@@ -368,7 +368,7 @@ func TestVP9OracleCBRKeyframeVariancePartitionParity(t *testing.T) {
 }
 
 func TestVP9OracleRateDropPressureParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 rate drop-pressure scoreboard")
+	vp9test.RequireOracle(t, "VP9 rate drop-pressure trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 32
@@ -402,18 +402,18 @@ func TestVP9OracleRateDropPressureParity(t *testing.T) {
 		"--drop-frame=60",
 	}
 
-	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height, sources,
+	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height, sources,
 		nil, extraArgs)
 	if len(govpxRows) != len(libvpxRows) {
 		t.Fatalf("drop-pressure rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
 	}
 	govpxDrops := vp9test.DroppedFrameIndices(govpxRows)
 	libvpxDrops := vp9test.DroppedFrameIndices(libvpxRows)
-	t.Logf("VP9 CBR drop-pressure scoreboard: govpx_drops=%v libvpx_drops=%v",
+	t.Logf("VP9 CBR drop-pressure trace: govpx_drops=%v libvpx_drops=%v",
 		govpxDrops, libvpxDrops)
 	t.Logf("VP9 CBR drop-pressure rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	if len(libvpxDrops) == 0 {
 		t.Fatal("drop-pressure fixture did not make libvpx drop any frames")
 	}
@@ -463,16 +463,16 @@ func TestVP9OracleRateDropPressureParity(t *testing.T) {
 	}
 }
 
-func captureVP9RateScoreboardRows(t *testing.T, opts VP9EncoderOptions,
+func captureVP9RateTraceRows(t *testing.T, opts VP9EncoderOptions,
 	sources []*image.YCbCr, flags []EncodeFlags,
-) []vp9test.RateScoreboardRow {
-	return captureVP9RateScoreboardRowsWithHooks(t, opts, sources, flags, nil)
+) []vp9test.RateTraceRow {
+	return captureVP9RateTraceRowsWithHooks(t, opts, sources, flags, nil)
 }
 
-func captureVP9RateScoreboardRowsWithHooks(t *testing.T, opts VP9EncoderOptions,
+func captureVP9RateTraceRowsWithHooks(t *testing.T, opts VP9EncoderOptions,
 	sources []*image.YCbCr, flags []EncodeFlags,
 	beforeFrame func(*VP9Encoder, int),
-) []vp9test.RateScoreboardRow {
+) []vp9test.RateTraceRow {
 	t.Helper()
 	var trace bytes.Buffer
 	enc, err := NewVP9Encoder(opts)
@@ -497,15 +497,15 @@ func captureVP9RateScoreboardRowsWithHooks(t *testing.T, opts VP9EncoderOptions,
 			t.Fatalf("EncodeIntoWithFlagsResult frame %d: %v", i, err)
 		}
 	}
-	return vp9test.ParseRateScoreboardRows(t, trace.Bytes())
+	return vp9test.ParseRateTraceRows(t, trace.Bytes())
 }
 
-func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
+func captureLibvpxVP9RateTraceRows(t *testing.T, width int, height int,
 	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
-) []vp9test.RateScoreboardRow {
+) []vp9test.RateTraceRow {
 	t.Helper()
 	if len(sources) == 0 {
-		t.Fatal("empty VP9 libvpx rate-scoreboard source")
+		t.Fatal("empty VP9 libvpx rate-trace source")
 	}
 	for i, src := range sources {
 		if src.Rect.Dx() != width || src.Rect.Dy() != height {
@@ -519,7 +519,7 @@ func captureLibvpxVP9RateScoreboardRows(t *testing.T, width int, height int,
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows
 }

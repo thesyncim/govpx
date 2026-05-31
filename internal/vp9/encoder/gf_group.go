@@ -147,7 +147,7 @@ const (
 
 // GFGroupInputs aggregates every libvpx state field define_gf_group
 // reads. The struct lets us call the analyzer as a pure function from
-// tests / oracle scoreboards while threading the same data through the
+// tests / oracle traces while threading the same data through the
 // real encoder path.
 //
 // libvpx parity references for each field are inline.

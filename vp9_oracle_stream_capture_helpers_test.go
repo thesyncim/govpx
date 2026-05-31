@@ -138,7 +138,7 @@ func assertVP9OracleThreadedTileWriterUsed(t *testing.T, enc *VP9Encoder,
 func captureVP9StreamParityPacketRowsWithHooks(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
 	extraArgs []string, beforeFrame func(*VP9Encoder, int),
-) ([]vp9test.RateScoreboardRow, [][]byte, []vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte, []vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	govpxRows, govpxPackets := captureGovpxVP9StreamParityPacketRowsWithHooks(t,
 		opts, sources, flags, beforeFrame)
@@ -150,7 +150,7 @@ func captureVP9StreamParityPacketRowsWithHooks(t *testing.T,
 func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
 	beforeFrame func(*VP9Encoder, int),
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	if len(sources) == 0 {
 		t.Fatal("empty VP9 stream parity source")
@@ -201,7 +201,7 @@ func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 		}
 		packets[i] = append([]byte(nil), result.Data...)
 	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace.Bytes())
+	rows := vp9test.ParseRateTraceRows(t, trace.Bytes())
 	if len(rows) != len(sources) {
 		t.Fatalf("govpx VP9 trace rows = %d, want %d", len(rows), len(sources))
 	}
@@ -212,7 +212,7 @@ func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 		if len(packets[i]) == 0 {
 			t.Fatalf("govpx VP9 row %d was not dropped but has no packet", i)
 		}
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -220,7 +220,7 @@ func captureGovpxVP9StreamParityPacketRowsWithHooks(t *testing.T,
 func captureGovpxVP9VariablePacketRows(t *testing.T,
 	opts VP9EncoderOptions, sources []*image.YCbCr, flags []EncodeFlags,
 	beforeFrame func(*VP9Encoder, int),
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	if len(sources) == 0 {
 		t.Fatal("empty VP9 variable-size stream source")
@@ -260,19 +260,19 @@ func captureGovpxVP9VariablePacketRows(t *testing.T,
 		}
 		packets[i] = append([]byte(nil), result.Data...)
 	}
-	rows := vp9test.ParseRateScoreboardRows(t, trace.Bytes())
+	rows := vp9test.ParseRateTraceRows(t, trace.Bytes())
 	if len(rows) != len(sources) {
 		t.Fatalf("govpx VP9 variable trace rows = %d, want %d", len(rows), len(sources))
 	}
 	for i := range rows {
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
 
 func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 	sources []*image.YCbCr, flags []EncodeFlags, extraArgs []string,
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	rows, packets := vp9test.VpxencFrameFlagTracePackets(t, sources,
 		vp9LibvpxFrameFlags(flags), extraArgs...)
@@ -280,7 +280,7 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 		if rows[i].Dropped {
 			continue
 		}
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }
@@ -288,12 +288,12 @@ func captureLibvpxVP9StreamParityPacketRows(t *testing.T,
 func captureLibvpxVP9VariablePacketRows(t *testing.T,
 	sources []*image.YCbCr, flags []EncodeFlags, invisible []bool,
 	extraArgs []string,
-) ([]vp9test.RateScoreboardRow, [][]byte) {
+) ([]vp9test.RateTraceRow, [][]byte) {
 	t.Helper()
 	rows, packets := vp9test.VpxencVariableFrameFlagTracePackets(t, sources,
 		vp9LibvpxFrameFlags(flags), invisible, extraArgs...)
 	for i := range rows {
-		vp9test.EnrichRateScoreboardRowFromPacket(t, &rows[i], packets[i])
+		vp9test.EnrichRateTraceRowFromPacket(t, &rows[i], packets[i])
 	}
 	return rows, packets
 }

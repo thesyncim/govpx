@@ -10,7 +10,7 @@ import (
 )
 
 func TestVP9OracleInvisibleKeyFrameByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 invisible-frame byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 invisible-frame byte-parity trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height = 64, 64
@@ -27,10 +27,10 @@ func TestVP9OracleInvisibleKeyFrameByteParity(t *testing.T) {
 	stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 	matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 		libvpxPackets)
-	t.Logf("VP9 invisible keyframe byte-parity scoreboard: matches=%d/%d first_mismatch=%d stats=%s",
+	t.Logf("VP9 invisible keyframe byte-parity trace: matches=%d/%d first_mismatch=%d stats=%s",
 		matches, len(govpxPackets), firstMismatch, stats)
 	t.Logf("VP9 invisible keyframe rate rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 	t.Logf("VP9 invisible keyframe byte rows:\n%s",
 		vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
 	if vp9test.StrictEnv("GOVPX_VP9_INVISIBLE_KEY_STRICT") &&

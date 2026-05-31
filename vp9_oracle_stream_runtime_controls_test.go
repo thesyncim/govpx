@@ -10,7 +10,7 @@ import (
 )
 
 func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 runtime-control byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 runtime-control byte-parity trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames = 64, 64, 10
@@ -323,7 +323,7 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 				})
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
-			t.Logf("VP9 runtime-control byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
+			t.Logf("VP9 runtime-control byte-parity trace %s: matches=%d/%d first_mismatch=%d exact_prefix=%d exact_frames=%v",
 				tc.name, matches, len(govpxPackets), firstMismatch,
 				tc.exactPrefix, tc.exactFrames)
 			t.Logf("VP9 runtime-control byte-parity rows %s:\n%s",

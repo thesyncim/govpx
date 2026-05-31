@@ -93,8 +93,8 @@ func TestVP9OracleCyclicRefreshCBRRealtimeRateParity(t *testing.T) {
 	opts := vp9OracleCyclicRefreshCBROptions(width, height, 700)
 	extraArgs := vp9OracleCyclicRefreshCBRArgs(700, 600, 400, 500, 0)
 
-	govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
-	libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height, sources,
+	govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
+	libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height, sources,
 		nil, extraArgs)
 	if len(govpxRows) != len(libvpxRows) {
 		t.Fatalf("rate rows: govpx=%d libvpx=%d", len(govpxRows), len(libvpxRows))
@@ -120,11 +120,11 @@ func TestVP9OracleCyclicRefreshCBRRealtimeRateParity(t *testing.T) {
 		bufferPctMax = math.Max(bufferPctMax,
 			vp9test.PctDelta(g.BufferLevelBits, l.BufferLevelBits))
 	}
-	t.Logf("VP9 cyclic CBR scoreboard: rows=%d refresh=%d/%d targets=%d/%d max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
+	t.Logf("VP9 cyclic CBR trace: rows=%d refresh=%d/%d targets=%d/%d max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
 		len(govpxRows), refreshMatches, len(govpxRows), targetMatches,
 		len(govpxRows), qDriftMax, sizePctMax, bufferPctMax)
-	t.Logf("VP9 cyclic CBR scoreboard rows:\n%s",
-		vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+	t.Logf("VP9 cyclic CBR trace rows:\n%s",
+		vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 
 	// Cyclic refresh may schedule golden updates on different frames than
 	// libvpx until postencode/resize parity fully closes; keyframe refresh
@@ -155,7 +155,7 @@ func TestVP9OracleCyclicRefreshCBRRealtimeRateParity(t *testing.T) {
 		if refreshMatches != len(govpxRows) ||
 			targetMatches != len(govpxRows) || qDriftMax != 0 ||
 			sizePctMax != 0 || bufferPctMax != 0 {
-			t.Fatalf("strict cyclic scoreboard drift: refresh=%d/%d targets=%d/%d max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
+			t.Fatalf("strict cyclic trace drift: refresh=%d/%d targets=%d/%d max_q=%.0f max_size_pct=%.2f max_buffer_pct=%.2f",
 				refreshMatches, len(govpxRows), targetMatches, len(govpxRows),
 				qDriftMax, sizePctMax, bufferPctMax)
 		}

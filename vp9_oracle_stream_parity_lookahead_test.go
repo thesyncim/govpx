@@ -11,7 +11,7 @@ import (
 )
 
 func TestVP9OracleTemporalPatternByteParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 temporal byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 temporal byte-parity trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames, targetKbps = 64, 64, 16, 700
@@ -41,7 +41,7 @@ func TestVP9OracleTemporalPatternByteParity(t *testing.T) {
 				opts, sources, flags, extraArgs)
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
-			t.Logf("VP9 temporal byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
+			t.Logf("VP9 temporal byte-parity trace %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			t.Logf("VP9 temporal byte-parity rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
@@ -60,7 +60,7 @@ func TestVP9OracleTemporalPatternByteParity(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 lookahead flush byte-parity scoreboard")
+	vp9test.RequireOracle(t, "VP9 lookahead flush byte-parity trace")
 	vp9test.RequireVpxenc(t)
 
 	const width, height = 64, 64
@@ -108,7 +108,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 			}
 			matches, firstMismatch := vp9test.CountByteParityMatches(govpxPackets,
 				libvpxPackets)
-			t.Logf("VP9 lookahead flush byte-parity scoreboard %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
+			t.Logf("VP9 lookahead flush byte-parity trace %s: matches=%d/%d first_mismatch=%d exact_prefix=%d",
 				tc.name, matches, len(govpxPackets), firstMismatch, tc.exactPrefix)
 			t.Logf("VP9 lookahead flush byte-parity rows %s:\n%s", tc.name,
 				vp9test.FormatStreamParityRows(t, govpxPackets, libvpxPackets))
@@ -127,7 +127,7 @@ func TestVP9OracleEncoderStreamByteParityLookaheadFlushBursts(t *testing.T) {
 }
 
 func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 auto-alt-ref visibility scoreboard")
+	vp9test.RequireOracle(t, "VP9 auto-alt-ref visibility trace")
 	vp9test.RequireVpxencFrameFlags(t)
 
 	const width, height, frames, lag = 64, 64, 16, 4
@@ -173,7 +173,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 			firstMismatch = i
 		}
 	}
-	t.Logf("VP9 auto-alt-ref visibility scoreboard: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d govpx_altref_refresh=%d libvpx_altref_refresh=%d",
+	t.Logf("VP9 auto-alt-ref visibility trace: govpx_packets=%d libvpx_packets=%d compare=%d matches=%d first_mismatch=%d govpx_hidden=%d libvpx_hidden=%d govpx_altref_refresh=%d libvpx_altref_refresh=%d",
 		len(govpxPackets), len(libvpxPackets), limit, matches, firstMismatch,
 		govpxHidden, libvpxHidden,
 		vp9test.CountAltRefRefreshRows(govpxRows, 1<<vp9AltRefSlot),
@@ -184,7 +184,7 @@ func TestVP9OracleEncoderStreamByteParityAutoAltRefVisibility(t *testing.T) {
 		t.Fatal("govpx emitted no hidden auto-alt-ref packet")
 	}
 	if libvpxHidden == 0 {
-		t.Log("libvpx emitted no hidden auto-alt-ref packet for this one-pass scoreboard fixture")
+		t.Log("libvpx emitted no hidden auto-alt-ref packet for this one-pass trace fixture")
 	}
 	if vp9test.StrictEnv("GOVPX_VP9_AUTO_ALT_REF_STRICT") &&
 		(len(govpxPackets) != len(libvpxPackets) || matches != len(govpxPackets)) {

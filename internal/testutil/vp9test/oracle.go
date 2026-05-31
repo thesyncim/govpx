@@ -214,7 +214,7 @@ func VpxencFrameFlagPackets(t testing.TB, sources []*image.YCbCr, frameFlags []u
 	return RequireIVFPackets(t, ivf, len(sources))
 }
 
-func VpxencFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr, frameFlags []uint32, extraArgs ...string) ([]RateScoreboardRow, [][]byte) {
+func VpxencFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr, frameFlags []uint32, extraArgs ...string) ([]RateTraceRow, [][]byte) {
 	t.Helper()
 	width, height := requireSameSizeSources(t, "VP9 frame-flags trace source", sources)
 	if len(frameFlags) > len(sources) {
@@ -227,7 +227,7 @@ func VpxencFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr, frameFlag
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags trace failed: %v\n%s", err, diag)
 	}
-	rows := ParseRateScoreboardRows(t, trace)
+	rows := ParseRateTraceRows(t, trace)
 	if len(rows) != len(sources) {
 		t.Fatalf("libvpx VP9 trace rows = %d, want %d", len(rows), len(sources))
 	}
@@ -236,7 +236,7 @@ func VpxencFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr, frameFlag
 
 func VpxencVariableFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr,
 	frameFlags []uint32, invisibleFrames []bool, extraArgs ...string,
-) ([]RateScoreboardRow, [][]byte) {
+) ([]RateTraceRow, [][]byte) {
 	t.Helper()
 	if len(sources) == 0 {
 		t.Fatal("empty VP9 variable-size frame-flags trace source")
@@ -263,7 +263,7 @@ func VpxencVariableFrameFlagTracePackets(t testing.TB, sources []*image.YCbCr,
 	if err != nil {
 		t.Fatalf("vpxenc-vp9-frameflags variable trace failed: %v\n%s", err, diag)
 	}
-	rows := ParseRateScoreboardRows(t, trace)
+	rows := ParseRateTraceRows(t, trace)
 	if len(rows) != len(sources) {
 		t.Fatalf("libvpx VP9 variable trace rows = %d, want %d",
 			len(rows), len(sources))
@@ -364,7 +364,7 @@ func appendSourcesI420(dst []byte, sources []*image.YCbCr) []byte {
 }
 
 func vpxencPacketsForTraceRows(t testing.TB, label string, ivf []byte,
-	rows []RateScoreboardRow, allowDropped bool,
+	rows []RateTraceRow, allowDropped bool,
 ) [][]byte {
 	t.Helper()
 	packets := make([][]byte, len(rows))

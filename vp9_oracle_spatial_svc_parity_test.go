@@ -17,7 +17,7 @@ import (
 )
 
 func TestVP9OracleSpatialSVCParity(t *testing.T) {
-	vp9test.RequireOracle(t, "VP9 spatial SVC oracle scoreboard")
+	vp9test.RequireOracle(t, "VP9 spatial SVC oracle trace")
 
 	const frames = 4
 	for _, tc := range []struct {
@@ -160,7 +160,7 @@ func TestVP9OracleSpatialSVCParity(t *testing.T) {
 					vp9SpatialSVCOracleJoinBools(govpxKey[:tc.layerCount]),
 					vp9SpatialSVCOracleJoinBools(libvpxKey[:tc.layerCount]))
 			}
-			t.Logf("VP9 spatial SVC oracle scoreboard: matches=%d/%d first_mismatch=%d",
+			t.Logf("VP9 spatial SVC oracle trace: matches=%d/%d first_mismatch=%d",
 				matches, frames, firstMismatch)
 			t.Logf("VP9 spatial SVC oracle rows:\n%s", rows.String())
 			if vp9test.StrictEnv("GOVPX_VP9_SPATIAL_SVC_BYTE_STRICT") &&

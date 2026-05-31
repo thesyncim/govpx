@@ -9,7 +9,7 @@ import (
 
 // TestVP9OracleEncoderRuntimeControlsAllocationGate pins the steady-state
 // allocation profile of the runtime Set* surface. After warmup, calling each
-// covered setter must not allocate. This complements the scoreboard/byte
+// covered setter must not allocate. This complements the trace/byte
 // parity check by guarding regressions in the runtime control hot path.
 //
 // The test is gated under the oracle build tag for source colocation with

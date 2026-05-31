@@ -7,7 +7,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-func TestParseRateScoreboardRows(t *testing.T) {
+func TestParseRateTraceRows(t *testing.T) {
 	trace := []byte(strings.Join([]string{
 		`{"row":"build_info","frame_index":99}`,
 		`{"row":"vp9_frame","frame_index":0,"flags":17,"key_frame":true,"show_frame":true,"coded_width":64,"coded_height":32,"base_qindex":22,"public_quantizer":8,"size_bytes":11,"first_partition_size":7,"target_bitrate_kbps":500,"frame_target_bits":900,"buffer_level_bits":1000,"buffer_optimal_bits":1100,"refresh_frame_flags":7,"refresh_frame_context":true,"tx_mode":1,"interp_filter":2,"reference_mode":3,"reference_mask":5,"loop_filter_level":4,"temporal_layer_id":1,"temporal_layer_count":2,"temporal_layer_sync":true,"tl0_pic_idx":9,"recode_allowed":true,"recode_loop_count":2,"active_best_q":18,"active_worst_q":40,"rate_correction_factor":1.25,"tile_log2_cols":1,"tile_log2_rows":0}`,
@@ -15,9 +15,9 @@ func TestParseRateScoreboardRows(t *testing.T) {
 		"",
 	}, "\n"))
 
-	rows := ParseRateScoreboardRows(t, trace)
+	rows := ParseRateTraceRows(t, trace)
 	if len(rows) != 2 {
-		t.Fatalf("len(ParseRateScoreboardRows) = %d, want 2", len(rows))
+		t.Fatalf("len(ParseRateTraceRows) = %d, want 2", len(rows))
 	}
 	first := rows[0]
 	if first.FrameIndex != 0 || first.Flags != 17 || !first.KeyFrame ||
@@ -39,8 +39,8 @@ func TestParseRateScoreboardRows(t *testing.T) {
 	}
 }
 
-func TestRateScoreboardHelpers(t *testing.T) {
-	rows := []RateScoreboardRow{
+func TestRateTraceHelpers(t *testing.T) {
+	rows := []RateTraceRow{
 		{FrameIndex: 0, BaseQIndex: 22},
 		{FrameIndex: 1, Dropped: true, DropReason: "watermark_decimation", BaseQIndex: 23},
 		{FrameIndex: 2, BaseQIndex: 22},
@@ -54,14 +54,14 @@ func TestRateScoreboardHelpers(t *testing.T) {
 	if got := DropReasonCount(rows, "watermark_decimation"); got != 1 {
 		t.Fatalf("DropReasonCount = %d, want 1", got)
 	}
-	if got := CountHiddenRows([]RateScoreboardRow{
+	if got := CountHiddenRows([]RateTraceRow{
 		{FrameIndex: 0, ShowFrame: true},
 		{FrameIndex: 1, ShowFrame: false},
 		{FrameIndex: 2, ShowFrame: false, Dropped: true},
 	}); got != 1 {
 		t.Fatalf("CountHiddenRows = %d, want 1", got)
 	}
-	if got := CountAltRefRefreshRows([]RateScoreboardRow{
+	if got := CountAltRefRefreshRows([]RateTraceRow{
 		{FrameIndex: 0, KeyFrame: true, RefreshFrameFlags: 4},
 		{FrameIndex: 1, RefreshFrameFlags: 4},
 		{FrameIndex: 2, Dropped: true, RefreshFrameFlags: 4},
@@ -93,7 +93,7 @@ func TestRateScoreboardHelpers(t *testing.T) {
 }
 
 func TestAutoAltRefVisibilityFormatting(t *testing.T) {
-	govpxRows := []RateScoreboardRow{{
+	govpxRows := []RateTraceRow{{
 		FrameIndex:         0,
 		ShowFrame:          true,
 		KeyFrame:           true,
@@ -109,7 +109,7 @@ func TestAutoAltRefVisibilityFormatting(t *testing.T) {
 		SizeBytes:          8,
 		FirstPartitionSize: 4,
 	}}
-	libvpxRows := []RateScoreboardRow{{
+	libvpxRows := []RateTraceRow{{
 		FrameIndex:         0,
 		ShowFrame:          true,
 		KeyFrame:           true,
@@ -160,8 +160,8 @@ func TestReferenceMaskFromLibvpxFrameFlags(t *testing.T) {
 	}
 }
 
-func TestRateScoreboardFormatting(t *testing.T) {
-	govpxRows := []RateScoreboardRow{{
+func TestRateTraceFormatting(t *testing.T) {
+	govpxRows := []RateTraceRow{{
 		FrameIndex:           0,
 		Flags:                1,
 		KeyFrame:             true,
@@ -193,7 +193,7 @@ func TestRateScoreboardFormatting(t *testing.T) {
 		TL0PICIDX:            9,
 		TemporalLayerSync:    true,
 	}}
-	libvpxRows := []RateScoreboardRow{{
+	libvpxRows := []RateTraceRow{{
 		FrameIndex:           0,
 		Flags:                2,
 		KeyFrame:             true,
@@ -222,7 +222,7 @@ func TestRateScoreboardFormatting(t *testing.T) {
 		TL0PICIDX:            9,
 	}}
 
-	out := FormatRateScoreboardRows(govpxRows, libvpxRows)
+	out := FormatRateTraceRows(govpxRows, libvpxRows)
 	for _, want := range []string{
 		"frame,govpx_flags,libvpx_flags",
 		"0,0x1,0x2,false,false,true,true,true,true,64,64,64,64,20,21",
@@ -230,13 +230,13 @@ func TestRateScoreboardFormatting(t *testing.T) {
 		",0x7,0x3,true,false,1,2,2,1,3,2,0x5,0x6",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("FormatRateScoreboardRows missing %q in:\n%s", want, out)
+			t.Fatalf("FormatRateTraceRows missing %q in:\n%s", want, out)
 		}
 	}
 }
 
-func TestSingleRateScoreboardFormatting(t *testing.T) {
-	rows := []RateScoreboardRow{{
+func TestSingleRateTraceFormatting(t *testing.T) {
+	rows := []RateTraceRow{{
 		FrameIndex:           3,
 		Flags:                5,
 		Dropped:              true,
@@ -268,21 +268,21 @@ func TestSingleRateScoreboardFormatting(t *testing.T) {
 		RateCorrectionFactor: 1.2,
 	}}
 
-	out := FormatSingleRateScoreboardRows(rows)
+	out := FormatSingleRateTraceRows(rows)
 	for _, want := range []string{
 		"frame,flags,drop,reason,key,show,width,height",
 		"3,0x5,true,watermark_decimation,false,false,64,32,44,18",
 		",300,700,800,0x4,true,1,2,3,0x5,11,1,2,3,9,true",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("FormatSingleRateScoreboardRows missing %q in:\n%s",
+			t.Fatalf("FormatSingleRateTraceRows missing %q in:\n%s",
 				want, out)
 		}
 	}
 }
 
 func TestCompareTransitionRows(t *testing.T) {
-	govpxRows := []RateScoreboardRow{{
+	govpxRows := []RateTraceRow{{
 		FrameIndex:           0,
 		Flags:                1,
 		KeyFrame:             true,
@@ -313,7 +313,7 @@ func TestCompareTransitionRows(t *testing.T) {
 		TL0PICIDX:            9,
 		RateCorrectionFactor: 1.1,
 	}}
-	libvpxRows := []RateScoreboardRow{{
+	libvpxRows := []RateTraceRow{{
 		FrameIndex:           0,
 		Flags:                9,
 		KeyFrame:             false,
@@ -373,12 +373,12 @@ func TestCompareTransitionRows(t *testing.T) {
 }
 
 func TestDropAwareStreamParityRows(t *testing.T) {
-	govpxRows := []RateScoreboardRow{
+	govpxRows := []RateTraceRow{
 		{FrameIndex: 0, BaseQIndex: 20, FrameTargetBits: 100, BufferLevelBits: 200, RefreshFrameFlags: 7, FirstPartitionSize: 5},
 		{FrameIndex: 1, Dropped: true},
 		{FrameIndex: 2, BaseQIndex: 30, FrameTargetBits: 110, BufferLevelBits: 210, RefreshFrameFlags: 3, FirstPartitionSize: 4},
 	}
-	libvpxRows := []RateScoreboardRow{
+	libvpxRows := []RateTraceRow{
 		{FrameIndex: 0, BaseQIndex: 20, FrameTargetBits: 100, BufferLevelBits: 200, RefreshFrameFlags: 7, FirstPartitionSize: 5},
 		{FrameIndex: 1, Dropped: true},
 		{FrameIndex: 2, BaseQIndex: 31, FrameTargetBits: 111, BufferLevelBits: 211, RefreshFrameFlags: 1, FirstPartitionSize: 6},

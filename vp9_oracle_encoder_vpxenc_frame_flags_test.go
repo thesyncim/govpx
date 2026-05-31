@@ -183,7 +183,7 @@ func TestVP9EncoderVpxencFrameFlagsRepeatNoReferenceAllModeTxShape(t *testing.T)
 			len(govpxPackets[frameIdx]), len(libvpxPackets[frameIdx]),
 			gFirst, gLast, lFirst, lLast)
 	}
-	t.Logf("VP9 repeat no-reference-all mode/tx scoreboard: shape=%d/%d mode=%d/%d tx=%d/%d skip=%d/%d ref=%d/%d",
+	t.Logf("VP9 repeat no-reference-all mode/tx trace: shape=%d/%d mode=%d/%d tx=%d/%d skip=%d/%d ref=%d/%d",
 		matchedShape, totalShape, matchedMode, totalMode, matchedTx, totalTx,
 		matchedSkip, totalSkip, matchedRef, totalRef)
 	if matchedShape != totalShape {

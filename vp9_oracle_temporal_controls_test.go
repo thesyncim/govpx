@@ -11,7 +11,7 @@ func TestVP9OracleTemporalControlTransitionsMatchLibvpx(t *testing.T) {
 	const width, height, frames = 64, 64, 9
 	opts := vp9OracleCBROptions(width, height, 600)
 	sources := newVP9OracleTransitionSources(width, height, frames)
-	rows := captureVP9RateScoreboardRowsWithHooks(t, opts, sources, nil,
+	rows := captureVP9RateTraceRowsWithHooks(t, opts, sources, nil,
 		func(enc *VP9Encoder, frame int) {
 			switch frame {
 			case 2:
@@ -53,7 +53,7 @@ func TestVP9OracleTemporalControlTransitionsMatchLibvpx(t *testing.T) {
 			rows[7].TemporalLayerCount, rows[8].TemporalLayerCount)
 	}
 	t.Logf("VP9 temporal control transition rows:\n%s",
-		vp9test.FormatSingleRateScoreboardRows(rows))
+		vp9test.FormatSingleRateTraceRows(rows))
 }
 
 func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
@@ -80,12 +80,12 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 				Mode:    tc.mode,
 			}
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+			govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
 			flags := vp9OracleTemporalPatternFlags(pattern, frames)
 			expected := buildExpectedTemporalPattern(pattern, frames)
 			extraArgs := append(vp9OracleCBRArgs(700, 600, 400, 500, 0),
 				vp9OracleTemporalArgs(t, tc.mode, 700)...)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, flags, extraArgs)
 			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
 				pattern.Layers)
@@ -93,7 +93,7 @@ func TestVP9OracleTemporalFlagPatternsMatchLibvpx(t *testing.T) {
 			stats := vp9test.CompareTransitionRows(t, govpxRows, libvpxRows, vp9OracleLibvpxFrameFlags)
 			t.Logf("VP9 temporal flag patterns %s: %s", tc.name, stats)
 			t.Logf("VP9 temporal flag-pattern rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_PATTERN_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal flag-pattern mismatch %s: %s",
@@ -136,12 +136,12 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 			opts.TemporalScalability = vp9OracleTemporalConfig(tc.mode,
 				targetKbps)
 			sources := newVP9OracleTransitionSources(width, height, frames)
-			govpxRows := captureVP9RateScoreboardRows(t, opts, sources, nil)
+			govpxRows := captureVP9RateTraceRows(t, opts, sources, nil)
 			flags := vp9OracleTemporalPatternFlags(pattern, frames)
 			expected := buildExpectedTemporalPattern(pattern, frames)
 			extraArgs := append(vp9OracleCBRArgs(targetKbps, 600, 400, 500, 0),
 				vp9OracleTemporalArgs(t, tc.mode, targetKbps)...)
-			libvpxRows := captureLibvpxVP9RateScoreboardRows(t, width, height,
+			libvpxRows := captureLibvpxVP9RateTraceRows(t, width, height,
 				sources, flags, extraArgs)
 			assertVP9TemporalMetadataRows(t, libvpxRows, expected,
 				pattern.Layers)
@@ -150,7 +150,7 @@ func TestVP9OracleTemporalPatternMatrixMatchesLibvpx(t *testing.T) {
 			t.Logf("VP9 temporal pattern matrix %s: %s",
 				tc.name, stats)
 			t.Logf("VP9 temporal pattern matrix rows %s:\n%s",
-				tc.name, vp9test.FormatRateScoreboardRows(govpxRows, libvpxRows))
+				tc.name, vp9test.FormatRateTraceRows(govpxRows, libvpxRows))
 			if vp9test.StrictEnv("GOVPX_VP9_TEMPORAL_MATRIX_STRICT") &&
 				stats.HasMismatch() {
 				t.Fatalf("strict VP9 temporal pattern matrix mismatch %s: %s",
