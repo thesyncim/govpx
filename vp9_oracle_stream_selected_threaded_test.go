@@ -94,7 +94,7 @@ func TestVP9OracleStreamSelectedThreadedAndActiveMapCasesMatchLibvpx(t *testing.
 				if frame != 1 {
 					return
 				}
-				activeMap, rows, cols := vp9OracleActiveMap(320, 180, "checker")
+				activeMap, rows, cols := vp9test.ActiveMap(320, 180, "checker")
 				mustVP9Runtime(t, "SetActiveMap checker",
 					enc.SetActiveMap(activeMap, rows, cols))
 			},

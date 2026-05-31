@@ -242,7 +242,7 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 				t.Helper()
 				switch frame {
 				case 1:
-					activeMap, rows, cols := vp9oracle.ActiveMap(width,
+					activeMap, rows, cols := vp9test.ActiveMap(width,
 						height, "checker")
 					vp9oracle.MustRuntime(t, "SetActiveMap checker",
 						enc.SetActiveMap(activeMap, rows, cols))
@@ -279,7 +279,7 @@ func TestVP9OracleRuntimeControlByteParity(t *testing.T) {
 				t.Helper()
 				switch frame {
 				case 1:
-					activeMap, rows, cols := vp9oracle.ActiveMap(width,
+					activeMap, rows, cols := vp9test.ActiveMap(width,
 						height, "checker")
 					vp9oracle.MustRuntime(t, "SetActiveMap checker",
 						enc.SetActiveMap(activeMap, rows, cols))

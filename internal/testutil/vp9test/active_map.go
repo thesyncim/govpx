@@ -1,10 +1,11 @@
-//go:build govpx_oracle_trace
+package vp9test
 
-package govpx
+import "github.com/thesyncim/govpx/internal/vpx/geometry"
 
-func vp9OracleActiveMap(width int, height int, pattern string) ([]uint8, int, int) {
-	rows := encoderMacroblockRows(height)
-	cols := encoderMacroblockCols(width)
+// ActiveMap returns a VP9 active-map fixture and its macroblock dimensions.
+func ActiveMap(width int, height int, pattern string) ([]uint8, int, int) {
+	rows := geometry.MacroblockRows(height)
+	cols := geometry.MacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
 	for row := 0; row < rows; row++ {
 		for col := 0; col < cols; col++ {

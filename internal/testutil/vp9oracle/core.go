@@ -9,7 +9,6 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vpxbuffers "github.com/thesyncim/govpx/internal/vpx/buffers"
-	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 // AltRefRefreshMask is the VP9 refresh-frame mask bit for the ALTREF slot.
@@ -291,40 +290,6 @@ func AlternatingReferenceControls(frames int) []govpx.EncodeFlags {
 		}
 	}
 	return flags
-}
-
-func ActiveMap(width, height int, pattern string) ([]uint8, int, int) {
-	rows := geometry.MacroblockRows(height)
-	cols := geometry.MacroblockCols(width)
-	activeMap := make([]uint8, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
-			idx := row*cols + col
-			switch pattern {
-			case "all":
-				activeMap[idx] = 1
-			case "checker":
-				if (row+col)&1 == 0 {
-					activeMap[idx] = 1
-				}
-			case "left-off":
-				if col != 0 {
-					activeMap[idx] = 1
-				}
-			case "right-off":
-				if col != cols-1 {
-					activeMap[idx] = 1
-				}
-			case "border-off":
-				if row != 0 && col != 0 && row != rows-1 && col != cols-1 {
-					activeMap[idx] = 1
-				}
-			default:
-				panic("unknown VP9 active-map pattern")
-			}
-		}
-	}
-	return activeMap, rows, cols
 }
 
 func ROIMap(width, height int, pattern string) *govpx.ROIMap {

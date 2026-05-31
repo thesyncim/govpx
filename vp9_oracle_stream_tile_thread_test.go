@@ -32,7 +32,7 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 		if frame != 1 {
 			return
 		}
-		activeMap, rows, cols := vp9OracleActiveMap(width, height, "checker")
+		activeMap, rows, cols := vp9test.ActiveMap(width, height, "checker")
 		mustVP9Runtime(t, "SetActiveMap checker",
 			enc.SetActiveMap(activeMap, rows, cols))
 	}
