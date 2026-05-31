@@ -1094,6 +1094,49 @@ static void apply_vp9_runtime_controls(
   flush_vp9_runtime_config(&ctx);
 }
 
+static double vp9_trace_frame_rate(int fps_num, int fps_den) {
+  if (fps_num <= 0 || fps_den <= 0) return 0.0;
+  double fps = (double)fps_num / (double)fps_den;
+  return fps > 180.0 ? 30.0 : fps;
+}
+
+static int vp9_trace_effective_target_kbps(int target_kbps, int width,
+                                           int height, int fps_num,
+                                           int fps_den) {
+  if (target_kbps <= 0 || width <= 0 || height <= 0) return target_kbps;
+  double fps = vp9_trace_frame_rate(fps_num, fps_den);
+  if (fps <= 0.0) return target_kbps;
+  int raw_target_rate =
+      (int)((int64_t)width * height * 8 * 3 * fps / 1000.0);
+  int effective = target_kbps;
+  if (raw_target_rate > 0 && effective > raw_target_rate) {
+    effective = raw_target_rate;
+  }
+  if (effective > 1000000) effective = 1000000;
+  return effective;
+}
+
+static int vp9_trace_bits_per_frame(int effective_kbps, int fps_num,
+                                    int fps_den) {
+  double fps = vp9_trace_frame_rate(fps_num, fps_den);
+  if (effective_kbps <= 0 || fps <= 0.0) return 0;
+  return (int)((double)effective_kbps * 1000.0 / fps + 0.5);
+}
+
+static int64_t vp9_trace_maximum_buffer_bits(int effective_kbps,
+                                             int target_bandwidth_bits,
+                                             int buffer_size_ms) {
+  if (buffer_size_ms == 0) return target_bandwidth_bits / 8;
+  return (int64_t)effective_kbps * buffer_size_ms;
+}
+
+static int64_t vp9_trace_optimal_buffer_bits(int effective_kbps,
+                                             int target_bandwidth_bits,
+                                             int buffer_optimal_ms) {
+  if (buffer_optimal_ms == 0) return target_bandwidth_bits / 8;
+  return (int64_t)effective_kbps * buffer_optimal_ms;
+}
+
 static uint8_t vp9_packet_first_byte_with_show_frame(uint8_t first,
                                                      int show_frame) {
   if ((first & 0xc0u) != 0x80u) {
@@ -1677,10 +1720,17 @@ int main(int argc, char **argv) {
   int frame_duration =
       exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
   if (frame_duration <= 0) frame_duration = 1;
-  int bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
-  int64_t buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
-  int64_t buffer_level_bits = (int64_t)target_kbps * buffer_initial_ms;
-  int64_t buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
+  int effective_target_kbps = vp9_trace_effective_target_kbps(
+      target_kbps, width, height, fps_num, fps_den);
+  int target_bandwidth_bits = effective_target_kbps * 1000;
+  int bits_per_frame =
+      vp9_trace_bits_per_frame(effective_target_kbps, fps_num, fps_den);
+  int64_t buffer_size_bits = vp9_trace_maximum_buffer_bits(
+      effective_target_kbps, target_bandwidth_bits, buffer_size_ms);
+  int64_t buffer_level_bits =
+      (int64_t)effective_target_kbps * buffer_initial_ms;
+  int64_t buffer_optimal_bits = vp9_trace_optimal_buffer_bits(
+      effective_target_kbps, target_bandwidth_bits, buffer_optimal_ms);
   int total_emitted = 0;
   int temporal_ref_layer[3] = {0, 0, 0};
   int temporal_tl0_pic_idx = 0;
@@ -1743,7 +1793,7 @@ int main(int argc, char **argv) {
         config_changed = 1;
       }
       if (min_q > max_q) die_msg("runtime min-q exceeds max-q");
-      if (buffer_size_ms <= 0 || buffer_initial_ms < 0 ||
+      if (buffer_size_ms < 0 || buffer_initial_ms < 0 ||
           buffer_optimal_ms < 0) {
         die_msg("invalid runtime buffer model");
       }
@@ -1753,9 +1803,15 @@ int main(int argc, char **argv) {
       frame_duration =
           exact_fps_timebase ? 1 : (fps_den * 1000) / fps_num;
       if (frame_duration <= 0) frame_duration = 1;
-      bits_per_frame = (target_kbps * 1000 * fps_den) / fps_num;
-      buffer_size_bits = (int64_t)target_kbps * buffer_size_ms;
-      buffer_optimal_bits = (int64_t)target_kbps * buffer_optimal_ms;
+      effective_target_kbps = vp9_trace_effective_target_kbps(
+          target_kbps, (int)cfg.g_w, (int)cfg.g_h, fps_num, fps_den);
+      target_bandwidth_bits = effective_target_kbps * 1000;
+      bits_per_frame =
+          vp9_trace_bits_per_frame(effective_target_kbps, fps_num, fps_den);
+      buffer_size_bits = vp9_trace_maximum_buffer_bits(
+          effective_target_kbps, target_bandwidth_bits, buffer_size_ms);
+      buffer_optimal_bits = vp9_trace_optimal_buffer_bits(
+          effective_target_kbps, target_bandwidth_bits, buffer_optimal_ms);
       if (buffer_level_bits > buffer_size_bits) {
         buffer_level_bits = buffer_size_bits;
       }

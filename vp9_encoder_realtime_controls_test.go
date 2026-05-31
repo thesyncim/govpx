@@ -121,6 +121,51 @@ func TestVP9EncoderSetRealtimeTargetResizeForcesKeyFrame(t *testing.T) {
 	assertVP9FilledFrameWithin(t, frame, w2, h2, 111, 123, 211, 1)
 }
 
+func TestVP9EncoderSetRealtimeTargetResizeRecomputesRateControl(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  10_000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.rc.effectiveBitrateKbps != 2949 || e.rc.bitsPerFrame != 98300 {
+		t.Fatalf("initial effective rate = %d/%d, want 2949/98300",
+			e.rc.effectiveBitrateKbps, e.rc.bitsPerFrame)
+	}
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: 32, Height: 32}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	if e.opts.Width != 32 || e.opts.Height != 32 ||
+		e.rc.codedWidth != 32 || e.rc.codedHeight != 32 {
+		t.Fatalf("resize state = opts:%dx%d rc:%dx%d, want 32x32 on both",
+			e.opts.Width, e.opts.Height, e.rc.codedWidth, e.rc.codedHeight)
+	}
+	if e.rc.targetBitrateKbps != 10_000 ||
+		e.rc.effectiveBitrateKbps != 737 ||
+		e.rc.targetBandwidthBits != 737000 ||
+		e.rc.bitsPerFrame != 24567 {
+		t.Fatalf("resized rate = target:%d effective:%d bandwidth:%d bpf:%d, want 10000/737/737000/24567",
+			e.rc.targetBitrateKbps, e.rc.effectiveBitrateKbps,
+			e.rc.targetBandwidthBits, e.rc.bitsPerFrame)
+	}
+	if e.rc.bufferSizeBits != 4_422_000 ||
+		e.rc.bufferInitialBits != 2_948_000 ||
+		e.rc.bufferOptimalBits != 3_685_000 {
+		t.Fatalf("resized buffers = size:%d initial:%d optimal:%d, want raw-capped defaults",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits,
+			e.rc.bufferOptimalBits)
+	}
+	if !e.forceKeyFrame {
+		t.Fatal("resize did not force the next VP9 frame to keyframe")
+	}
+}
+
 func TestVP9EncoderSetRealtimeTargetValidationNoMutation(t *testing.T) {
 	const width, height = 64, 64
 	cases := []struct {

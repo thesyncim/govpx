@@ -84,6 +84,12 @@ superframes, show-existing frames, intra-only packets, spatial-layer signaling,
 tile settings, row-MT settings, color/render metadata, segmentation, lossless
 mode, AQ modes, and first-pass/two-pass stats.
 
+VP9 rate control reports the requested `TargetBitrateKbps`, but its internal
+frame budgets and CBR buffers mirror libvpx's raw-target-rate cap for Profile 0
+sources. Runtime `SetRateControlBuffer` accepts literal zero values: max and
+optimal buffers fall back to `target_bandwidth/8`, while the initial buffer can
+be zero.
+
 ## Runtime Controls
 
 Common runtime controls include:

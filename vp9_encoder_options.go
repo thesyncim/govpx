@@ -233,8 +233,12 @@ type VP9EncoderOptions struct {
 	StaticThreshold int
 
 	// TargetBitrateKbps is a non-negative bitrate hint for profile 0 encode
-	// configuration. When RateControlModeSet is false, the packet path keeps
-	// the existing public-Q mode and only stores this value as metadata.
+	// configuration. VP9 reports the requested value, while its internal
+	// frame-budget and buffer math follow libvpx's raw-target-rate cap:
+	// width * height * 8 * 3 * frame_rate / 1000 kbps, with frame rates
+	// above 180 Hz treated as 30 Hz. When RateControlModeSet is false, the
+	// packet path keeps the existing public-Q mode and only stores this
+	// value as metadata.
 	TargetBitrateKbps int
 
 	// RateControlModeSet enables VP9 rate-control bookkeeping. It is explicit
@@ -249,7 +253,10 @@ type VP9EncoderOptions struct {
 	// RateControlModeSet is true.
 	RateControlMode RateControlMode
 	// BufferSizeMs, BufferInitialSizeMs, and BufferOptimalSizeMs configure the
-	// VP9 CBR virtual buffer. Zero values use libvpx defaults.
+	// VP9 CBR virtual buffer. Zero option values use libvpx's default config
+	// values; SetRateControlBuffer can still pass literal zero values at
+	// runtime to select libvpx's target_bandwidth/8 maximum and optimal
+	// buffers.
 	BufferSizeMs        int
 	BufferInitialSizeMs int
 	BufferOptimalSizeMs int

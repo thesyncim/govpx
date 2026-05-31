@@ -10,14 +10,15 @@ type vp9RateControlState struct {
 	enabled bool
 	mode    RateControlMode
 
-	targetBitrateKbps   int
-	targetBandwidthBits int
-	bitsPerFrame        int
-	frameTargetBits     int
-	minFrameBandwidth   int
-	maxFrameBandwidth   int
-	frameRateNum        int
-	frameRateDen        int
+	targetBitrateKbps    int
+	effectiveBitrateKbps int
+	targetBandwidthBits  int
+	bitsPerFrame         int
+	frameTargetBits      int
+	minFrameBandwidth    int
+	maxFrameBandwidth    int
+	frameRateNum         int
+	frameRateDen         int
 
 	bufferSizeMs        int
 	bufferInitialSizeMs int
@@ -26,8 +27,8 @@ type vp9RateControlState struct {
 	bufferInitialBits   int
 	bufferOptimalBits   int
 	bufferLevelBits     int
-	codedWidth          uint16
-	codedHeight         uint16
+	codedWidth          int
+	codedHeight         int
 
 	dropFrameAllowed    bool
 	dropFramesWaterMark uint8
@@ -531,7 +532,8 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 		return ErrInvalidBitrate
 	}
 	kbps = rc.clampBitrateKbps(kbps)
-	targetBits, ok := arith.CheckedMul(kbps, 1000)
+	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, timing)
+	targetBits, ok := arith.CheckedMul(effectiveKbps, 1000)
 	if !ok {
 		return ErrInvalidBitrate
 	}
@@ -539,24 +541,26 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	if bitsPerFrame <= 0 {
 		return ErrInvalidBitrate
 	}
-	bufferSizeBits, ok := arith.CheckedMul(kbps, rc.bufferSizeMs)
+	bufferSizeBits, ok := vp9MaximumBufferBitsForBitrate(effectiveKbps,
+		targetBits, rc.bufferSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bufferInitialBits, ok := arith.CheckedMul(kbps, rc.bufferInitialSizeMs)
+	bufferInitialBits, ok := arith.CheckedMul(effectiveKbps, rc.bufferInitialSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bufferOptimalBits, ok := arith.CheckedMul(kbps, rc.bufferOptimalSizeMs)
+	bufferOptimalBits, ok := vp9OptimalBufferBitsForBitrate(effectiveKbps,
+		targetBits, rc.bufferOptimalSizeMs)
 	if !ok {
 		return ErrInvalidBitrate
 	}
 	rc.targetBitrateKbps = kbps
+	rc.effectiveBitrateKbps = effectiveKbps
 	rc.targetBandwidthBits = targetBits
 	rc.bitsPerFrame = bitsPerFrame
 	rc.frameTargetBits = bitsPerFrame
-	rc.frameRateNum = timing.timebaseDen
-	rc.frameRateDen = timing.timebaseNum * timing.frameDuration
+	rc.setLibvpxFrameRate(timing)
 	rc.bufferSizeBits = bufferSizeBits
 	rc.bufferInitialBits = bufferInitialBits
 	rc.bufferOptimalBits = bufferOptimalBits
@@ -567,39 +571,87 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 }
 
 func computeVP9BitsPerFrame(targetBandwidthBits int, timing timingState) int {
-	if targetBandwidthBits <= 0 || timing.timebaseNum <= 0 ||
-		timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
 		return 0
 	}
-	num := int64(targetBandwidthBits) * int64(timing.timebaseNum) *
-		int64(timing.frameDuration)
-	den := int64(timing.timebaseDen)
-	if den <= 0 {
-		return 0
+	return vpxrc.BitsPerFrame(targetBandwidthBits, fps, 0, 0, 0)
+}
+
+func (rc *vp9RateControlState) libvpxClampToRawTargetRate(kbps int, timing timingState) int {
+	if kbps <= 0 {
+		return kbps
 	}
-	v := num / den
-	if v > int64(maxInt()) {
-		return 0
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
+		return kbps
 	}
-	return int(v)
+	return vpxrc.ClampToRawTargetRateKbps(kbps, rc.codedWidth,
+		rc.codedHeight, 8, fps)
+}
+
+func (rc *vp9RateControlState) setLibvpxFrameRate(timing timingState) {
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
+		rc.frameRateNum = 0
+		rc.frameRateDen = 0
+		return
+	}
+	if outputFrameRate(timing) > 180 {
+		rc.frameRateNum = 30
+		rc.frameRateDen = 1
+		return
+	}
+	if timing.timebaseNum > 0 && timing.timebaseDen > 0 &&
+		timing.frameDuration > 0 {
+		rc.frameRateNum = timing.timebaseDen
+		rc.frameRateDen = timing.timebaseNum * timing.frameDuration
+		return
+	}
+	rc.frameRateNum = int(fps*1_000_000 + 0.5)
+	rc.frameRateDen = 1_000_000
+}
+
+func vp9LibvpxFrameRate(timing timingState) float64 {
+	fps := outputFrameRate(timing)
+	if fps > 180 {
+		return 30
+	}
+	return fps
+}
+
+func vp9MaximumBufferBitsForBitrate(kbps int, targetBandwidthBits int, sizeMs int) (int, bool) {
+	if sizeMs == 0 {
+		return targetBandwidthBits / 8, true
+	}
+	return arith.CheckedMul(kbps, sizeMs)
+}
+
+func vp9OptimalBufferBitsForBitrate(kbps int, targetBandwidthBits int, optimalMs int) (int, bool) {
+	if optimalMs == 0 {
+		return targetBandwidthBits / 8, true
+	}
+	return arith.CheckedMul(kbps, optimalMs)
 }
 
 func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) error {
 	if !rc.enabled {
 		return nil
 	}
-	if sizeMs <= 0 || initialMs < 0 || optimalMs < 0 {
+	if sizeMs < 0 || initialMs < 0 || optimalMs < 0 {
 		return ErrInvalidConfig
 	}
-	sizeBits, ok := arith.CheckedMul(rc.targetBitrateKbps, sizeMs)
+	sizeBits, ok := vp9MaximumBufferBitsForBitrate(rc.effectiveBitrateKbps,
+		rc.targetBandwidthBits, sizeMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
-	initialBits, ok := arith.CheckedMul(rc.targetBitrateKbps, initialMs)
+	initialBits, ok := arith.CheckedMul(rc.effectiveBitrateKbps, initialMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
-	optimalBits, ok := arith.CheckedMul(rc.targetBitrateKbps, optimalMs)
+	optimalBits, ok := vp9OptimalBufferBitsForBitrate(rc.effectiveBitrateKbps,
+		rc.targetBandwidthBits, optimalMs)
 	if !ok {
 		return ErrInvalidConfig
 	}
@@ -824,14 +876,14 @@ func (rc *vp9RateControlState) setFrameSize(width int, height int) {
 	if height < 0 {
 		height = 0
 	}
-	if width > int(^uint16(0)) {
-		width = int(^uint16(0))
+	if width > maxVP9Dimension {
+		width = maxVP9Dimension
 	}
-	if height > int(^uint16(0)) {
-		height = int(^uint16(0))
+	if height > maxVP9Dimension {
+		height = maxVP9Dimension
 	}
-	rc.codedWidth = uint16(width)
-	rc.codedHeight = uint16(height)
+	rc.codedWidth = width
+	rc.codedHeight = height
 	rc.updateFrameBandwidthBounds()
 }
 
@@ -843,8 +895,8 @@ func (rc *vp9RateControlState) updateFrameBandwidthBounds() {
 	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > rc.minFrameBandwidth {
 		rc.minFrameBandwidth = rc.bitsPerFrame >> 5
 	}
-	miRows := (int(rc.codedHeight) + 7) >> 3
-	miCols := (int(rc.codedWidth) + 7) >> 3
+	miRows := (rc.codedHeight + 7) >> 3
+	miCols := (rc.codedWidth + 7) >> 3
 	mbs := encoder.MacroblockCount(miRows, miCols)
 	maxByMB := 0
 	if mbs > 0 {

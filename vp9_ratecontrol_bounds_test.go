@@ -119,6 +119,84 @@ func TestVP9SetBitrateKbpsClampsToBounds(t *testing.T) {
 	}
 }
 
+func TestVP9RateControlAppliesRawTargetRateClamp(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              32,
+		Height:             32,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  10_000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.rc.targetBitrateKbps != 10_000 || e.opts.TargetBitrateKbps != 10_000 {
+		t.Fatalf("requested bitrate = opts:%d rc:%d, want 10000/10000",
+			e.opts.TargetBitrateKbps, e.rc.targetBitrateKbps)
+	}
+	if e.rc.effectiveBitrateKbps != 737 ||
+		e.rc.targetBandwidthBits != 737000 ||
+		e.rc.bitsPerFrame != 24567 {
+		t.Fatalf("effective rate = kbps:%d bandwidth:%d bpf:%d, want 737/737000/24567",
+			e.rc.effectiveBitrateKbps, e.rc.targetBandwidthBits,
+			e.rc.bitsPerFrame)
+	}
+	if e.rc.bufferSizeBits != 4_422_000 ||
+		e.rc.bufferInitialBits != 2_948_000 ||
+		e.rc.bufferOptimalBits != 3_685_000 ||
+		e.rc.bufferLevelBits != 2_948_000 {
+		t.Fatalf("buffer model = size:%d initial:%d optimal:%d level:%d, want effective-bitrate defaults",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits,
+			e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
+	}
+
+	if err := e.SetBitrateKbps(300); err != nil {
+		t.Fatalf("SetBitrateKbps below raw cap: %v", err)
+	}
+	if e.rc.targetBitrateKbps != 300 || e.rc.effectiveBitrateKbps != 300 ||
+		e.rc.bitsPerFrame != 10000 {
+		t.Fatalf("below-cap rate = target:%d effective:%d bpf:%d, want 300/300/10000",
+			e.rc.targetBitrateKbps, e.rc.effectiveBitrateKbps,
+			e.rc.bitsPerFrame)
+	}
+}
+
+func TestVP9BitsPerFrameRoundsLikeLibvpx(t *testing.T) {
+	timing := timingState{timebaseNum: 1, timebaseDen: 60, frameDuration: 1}
+	if got := computeVP9BitsPerFrame(100_000, timing); got != 1667 {
+		t.Fatalf("computeVP9BitsPerFrame(100k@60) = %d, want 1667", got)
+	}
+	if got := computeVP9BitsPerFrame(900_000,
+		timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1}); got != 30000 {
+		t.Fatalf("computeVP9BitsPerFrame(900k@30) = %d, want 30000", got)
+	}
+	if got := computeVP9BitsPerFrame(900_000,
+		timingState{timebaseNum: 1, timebaseDen: 300, frameDuration: 1}); got != 30000 {
+		t.Fatalf("computeVP9BitsPerFrame(900k@300 fallback) = %d, want 30000", got)
+	}
+}
+
+func TestVP9RateControlUsesLibvpxFrameRateFallbackAbove180Hz(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              32,
+		Height:             32,
+		FPS:                300,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  10_000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	if e.rc.effectiveBitrateKbps != 737 || e.rc.bitsPerFrame != 24567 ||
+		e.rc.frameRateNum != 30 || e.rc.frameRateDen != 1 {
+		t.Fatalf("fallback rate state = effective:%d bpf:%d fps:%d/%d, want 737/24567/30/1",
+			e.rc.effectiveBitrateKbps, e.rc.bitsPerFrame,
+			e.rc.frameRateNum, e.rc.frameRateDen)
+	}
+}
+
 func TestVP9OvershootCeilGrowsWithPct(t *testing.T) {
 	cases := []struct {
 		bpf, pct, want int

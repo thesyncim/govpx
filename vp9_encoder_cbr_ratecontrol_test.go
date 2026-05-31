@@ -340,9 +340,26 @@ func TestVP9EncoderSetRateControlBufferUpdatesBufferModel(t *testing.T) {
 			e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
 	}
 
+	e.rc.bufferLevelBits = 100000
+	if err := e.SetRateControlBuffer(0, 0, 0); err != nil {
+		t.Fatalf("SetRateControlBuffer zero geometry: %v", err)
+	}
+	if e.opts.BufferSizeMs != 0 || e.opts.BufferInitialSizeMs != 0 ||
+		e.opts.BufferOptimalSizeMs != 0 {
+		t.Fatalf("zero buffer opts = %d/%d/%d, want 0/0/0",
+			e.opts.BufferSizeMs, e.opts.BufferInitialSizeMs,
+			e.opts.BufferOptimalSizeMs)
+	}
+	if e.rc.bufferSizeBits != 37500 || e.rc.bufferInitialBits != 0 ||
+		e.rc.bufferOptimalBits != 37500 || e.rc.bufferLevelBits != 37500 {
+		t.Fatalf("zero buffer bits = size:%d initial:%d optimal:%d level:%d, want 37500/0/37500/37500",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits,
+			e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
+	}
+
 	oldRC := e.rc
 	oldOpts := e.opts
-	if err := e.SetRateControlBuffer(0, 100, 150); !errors.Is(err, ErrInvalidConfig) {
+	if err := e.SetRateControlBuffer(-1, 100, 150); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid SetRateControlBuffer err = %v, want ErrInvalidConfig", err)
 	}
 	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) {

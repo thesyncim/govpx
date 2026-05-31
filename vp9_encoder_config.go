@@ -98,32 +98,47 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 			return err
 		}
 	}
-	nextTemporal := e.temporal
-	if target.BitrateKbps > 0 && nextTemporal.enabled {
-		if err := nextTemporal.refreshBitrate(target.BitrateKbps); err != nil {
-			return err
-		}
+	nextWidth := e.opts.Width
+	nextHeight := e.opts.Height
+	if target.Width > 0 {
+		nextWidth = target.Width
+		nextHeight = target.Height
 	}
 	nextTiming := e.vp9TimingState()
 	if target.FPS > 0 {
 		nextTiming = timingState{timebaseNum: 1, timebaseDen: target.FPS, frameDuration: 1}
 	}
 	nextRC := e.rc
+	rateModelChanged := false
 	if nextRC.enabled {
+		if target.Width > 0 {
+			nextRC.setFrameSize(nextWidth, nextHeight)
+		}
 		nextBitrateKbps := nextRC.targetBitrateKbps
 		if target.BitrateKbps > 0 {
 			nextBitrateKbps = target.BitrateKbps
 		}
-		if target.BitrateKbps > 0 || target.FPS > 0 {
+		if target.BitrateKbps > 0 || target.FPS > 0 || target.Width > 0 {
 			if err := nextRC.setBitrateKbps(nextBitrateKbps, nextTiming); err != nil {
 				return err
 			}
+			rateModelChanged = true
 		}
 		switch target.FrameDrop {
 		case RealtimeFrameDropEnabled:
 			nextRC.setFrameDropAllowed(true, e.opts.DropFrameWaterMark)
 		case RealtimeFrameDropDisabled:
 			nextRC.setFrameDropAllowed(false, e.opts.DropFrameWaterMark)
+		}
+	}
+	nextTemporal := e.temporal
+	if target.BitrateKbps > 0 && nextTemporal.enabled {
+		nextTemporalBitrateKbps := target.BitrateKbps
+		if nextRC.enabled {
+			nextTemporalBitrateKbps = nextRC.targetBitrateKbps
+		}
+		if err := nextTemporal.refreshBitrate(nextTemporalBitrateKbps); err != nil {
+			return err
 		}
 	}
 
@@ -141,6 +156,9 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	}
 	if target.BitrateKbps > 0 {
 		e.opts.TargetBitrateKbps = target.BitrateKbps
+		if nextRC.enabled {
+			e.opts.TargetBitrateKbps = nextRC.targetBitrateKbps
+		}
 		if e.temporal.enabled {
 			e.temporal = nextTemporal
 			e.opts.TemporalScalability = e.temporal.config
@@ -158,6 +176,11 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		if e.rc.dropFrameAllowed && e.opts.DropFrameWaterMark <= 0 {
 			e.opts.DropFrameWaterMark = int(e.rc.dropFramesWaterMark)
 		}
+	}
+	if nextRC.enabled && rateModelChanged {
+		e.twoPass.configureWithCorpus(e.opts.TwoPassStats, e.rc.bitsPerFrame,
+			e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
+			e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
 	}
 	if target.MinQuantizer != 0 || target.MaxQuantizer != 0 {
 		e.opts.MinQuantizer = nextMinQuantizer
@@ -1012,7 +1035,9 @@ func (e *VP9Encoder) SetFrameDropAllowed(enabled bool) error {
 // SetRateControlBuffer changes the VP9 CBR virtual buffer geometry without
 // changing bitrate. The encoder must have been created with VP9 CBR rate
 // control enabled. Existing buffer level is preserved and clamped to the new
-// maximum buffer size.
+// maximum buffer size. Passing zero for sizeMs or optimalMs uses libvpx's
+// target_bandwidth/8 fallback; passing zero for initialMs sets an empty
+// starting buffer.
 func (e *VP9Encoder) SetRateControlBuffer(sizeMs, initialMs, optimalMs int) error {
 	if e == nil || e.closed {
 		return ErrClosed

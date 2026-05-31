@@ -42,6 +42,21 @@ func TestVP9EncoderRuntimeControlsAllocationGate(t *testing.T) {
 				t.Fatalf("SetBitrateKbps: %v", err)
 			}
 		}},
+		{"SetRealtimeTargetBitrate", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetRealtimeTarget(govpx.RealtimeTarget{BitrateKbps: 700}); err != nil {
+				t.Fatalf("SetRealtimeTarget bitrate: %v", err)
+			}
+		}},
+		{"SetRealtimeTargetFPS", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetRealtimeTarget(govpx.RealtimeTarget{FPS: 30}); err != nil {
+				t.Fatalf("SetRealtimeTarget FPS: %v", err)
+			}
+		}},
+		{"SetRateControlBuffer", func(t *testing.T, e *govpx.VP9Encoder) {
+			if err := e.SetRateControlBuffer(0, 0, 0); err != nil {
+				t.Fatalf("SetRateControlBuffer: %v", err)
+			}
+		}},
 		{"SetCQLevel", func(t *testing.T, e *govpx.VP9Encoder) {
 			if err := e.SetCQLevel(30); err != nil {
 				t.Fatalf("SetCQLevel: %v", err)
