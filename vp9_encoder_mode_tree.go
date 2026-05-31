@@ -40,11 +40,13 @@ type vp9InterEncodeState struct {
 	refSignBias      [vp9dec.MaxRefFrames]uint8
 	compoundRefs     vp9dec.CompoundFrameRefs
 	interpFilter     vp9dec.InterpFilter
+	predInterpFilter vp9dec.InterpFilter
 	lossless         bool
 	txMode           common.TxMode
 	counts           *encoder.FrameCounts
 	isSrcFrameAltRef bool
 	showFrame        bool
+	predFilterValid  bool
 	// baseQindex mirrors libvpx's cm->base_qindex for the current frame.
 	// Used by encoder.ChoosePartitioning to drive set_vbp_thresholds without
 	// reverse-looking up from dq.Y[0][1] (which is wrong when

@@ -1137,7 +1137,6 @@ func (e *VP9Encoder) pickVP9InterMode(inter *vp9InterEncodeState,
 			allFilters = allFilters[:1]
 		}
 	}
-
 	// libvpx: vp9_pickmode.c:1731-1880 — realtime (nonrd) per-mode filter
 	// selection.  filter_ref starts as cm->interp_filter and is overwritten
 	// from above/left inter neighbours when default_interp_filter != BILINEAR.
@@ -1313,7 +1312,7 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 			mode == common.NearMv
 	}
 
-	filters := vp9InterInterpFilterCandidates(inter)
+	filters := e.vp9Sub8InterpFilterCandidates(inter, miRow, miCol, bsize)
 	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
 	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
 	bestSet := false
@@ -1403,6 +1402,44 @@ func (e *VP9Encoder) pickVP9Sub8InterMode(inter *vp9InterEncodeState,
 		}
 	}
 	return best, bestSet
+}
+
+func (e *VP9Encoder) vp9Sub8InterpFilterCandidates(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+) []vp9dec.InterpFilter {
+	filters := vp9InterInterpFilterCandidates(inter)
+	if len(filters) <= 1 {
+		return filters
+	}
+	if e.sf.DisableFilterSearchVarThresh > 0 && inter != nil && inter.img != nil {
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+		blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+		x0 := miCol * common.MiSize
+		y0 := miRow * common.MiSize
+		scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0,
+			blockW, blockH, srcW, srcH, srcW, srcH)
+		if ok && len(src) != 0 && srcStride > 0 {
+			sourceVariance := encoder.SourceVarianceAreaPerPixel(src, srcStride,
+				x0, y0, scoreW, scoreH)
+			if encoder.InterSkipFilterSearch(sourceVariance,
+				e.sf.DisableFilterSearchVarThresh) {
+				return vp9EighttapInterpFilterOrder[:]
+			}
+		}
+	}
+	if e.sf.AdaptivePredInterpFilter == 1 && inter != nil && inter.predFilterValid &&
+		inter.predInterpFilter < vp9dec.InterpSwitchable {
+		return vp9InterpFilterOrderForSingle(inter.predInterpFilter)
+	}
+	if e.sf.AdaptivePredInterpFilter == 2 {
+		if inter != nil && inter.predFilterValid &&
+			inter.predInterpFilter < vp9dec.InterpSwitchable {
+			return vp9InterpFilterOrderForSingle(inter.predInterpFilter)
+		}
+		return vp9EighttapInterpFilterOrder[:]
+	}
+	return filters
 }
 
 func (e *VP9Encoder) fillVP9Sub8InterBmi(mi *vp9dec.NeighborMi,

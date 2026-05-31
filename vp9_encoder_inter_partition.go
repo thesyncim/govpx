@@ -117,6 +117,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	}
 	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
 	savedRef := inter.ref
+	savedPredFilter := inter.predInterpFilter
+	savedPredFilterValid := inter.predFilterValid
 	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
 		miRow, miCol)
 	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
@@ -143,7 +145,13 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		inter.ref = savedRef
 		return splitSize
 	}
-
+	if root == common.Block8x8 && e.sf.AdaptivePredInterpFilter != 0 {
+		inter.predInterpFilter = full.interpFilter
+		if full.intra || inter.predInterpFilter >= vp9dec.InterpSwitchable {
+			inter.predInterpFilter = vp9dec.InterpEighttap
+		}
+		inter.predFilterValid = true
+	}
 	// libvpx VAR_BASED_PARTITION (set at RT speed >= 4) decides the
 	// partition up front in vp9_choose_partitioning and DOES NOT compare
 	// horz/vert/split RD scores against the root: nonrd_use_partition
@@ -159,6 +167,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if e.sf.PartitionSearchType == VarBasedPartition {
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		inter.ref = savedRef
+		inter.predInterpFilter = savedPredFilter
+		inter.predFilterValid = savedPredFilterValid
 		return root
 	}
 
@@ -234,6 +244,8 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	inter.ref = savedRef
+	inter.predInterpFilter = savedPredFilter
+	inter.predFilterValid = savedPredFilterValid
 	return bestSize
 }
 
@@ -1116,10 +1128,12 @@ func (e *VP9Encoder) vp9FixedPublicQuantizer() bool {
 }
 
 type vp9InterPartitionRD struct {
-	target     common.BlockSize
-	rate       int
-	distortion uint64
-	score      uint64
+	target            common.BlockSize
+	predInterpFilter  vp9dec.InterpFilter
+	rate              int
+	distortion        uint64
+	score             uint64
+	predFilterPresent bool
 }
 
 func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
@@ -1133,11 +1147,17 @@ func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize,
 		vp9InterModeDecisionMi(bsize, decision))
+	predFilter := decision.interpFilter
+	if decision.intra || predFilter >= vp9dec.InterpSwitchable {
+		predFilter = vp9dec.InterpEighttap
+	}
 	return vp9InterPartitionRD{
-		target:     bsize,
-		rate:       decision.rate,
-		distortion: decision.distortion,
-		score:      decision.score,
+		target:            bsize,
+		predInterpFilter:  predFilter,
+		rate:              decision.rate,
+		distortion:        decision.distortion,
+		score:             decision.score,
+		predFilterPresent: true,
 	}, true
 }
 
@@ -1285,6 +1305,8 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	}
 	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
 	savedRef := inter.ref
+	savedPredFilter := inter.predInterpFilter
+	savedPredFilterValid := inter.predFilterValid
 	pickPredSnap := e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
 		miRow, miCol)
 	ctxSnap, ctxOK := e.snapshotVP9PartitionContexts(miRow, miCol, root)
@@ -1296,6 +1318,8 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		inter.ref = savedRef
+		inter.predInterpFilter = savedPredFilter
+		inter.predFilterValid = savedPredFilterValid
 		return vp9InterPartitionRD{}, false
 	}
 	restoreBase := func() {
@@ -1305,25 +1329,40 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 		e.restoreVP9PartitionReconSnapshotPixels(reconSnap)
 		inter.ref = savedRef
+		inter.predInterpFilter = savedPredFilter
+		inter.predFilterValid = savedPredFilterValid
 	}
 
 	bestSet := false
 	var best vp9InterPartitionRD
-	consider := func(score func() (vp9InterPartitionRD, bool)) {
-		restoreBase()
-		rd, ok := score()
-		if ok && (!bestSet || rd.score < best.score ||
-			(rd.score == best.score && rd.rate < best.rate)) {
+	updateBest := func(rd vp9InterPartitionRD) {
+		if !bestSet || rd.score < best.score ||
+			(rd.score == best.score && rd.rate < best.rate) {
 			best = rd
 			bestSet = true
 		}
 	}
-	consider(func() (vp9InterPartitionRD, bool) {
-		return e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
-			miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
-	})
+	consider := func(score func() (vp9InterPartitionRD, bool)) {
+		restoreBase()
+		rd, ok := score()
+		if ok {
+			updateBest(rd)
+		}
+	}
+	restoreBase()
+	noneRD, noneOK := e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+		miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
+	if noneOK {
+		updateBest(noneRD)
+	}
+	predFromNone := root == common.Block8x8 && e.sf.AdaptivePredInterpFilter != 0 &&
+		noneOK && noneRD.predFilterPresent
 	if hasRows && hasCols {
 		consider(func() (vp9InterPartitionRD, bool) {
+			if predFromNone {
+				inter.predInterpFilter = noneRD.predInterpFilter
+				inter.predFilterValid = true
+			}
 			return e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
 				miRows, miCols, miRow, miCol, root, splitSize,
 				hasRows, hasCols, qindex)
@@ -1331,6 +1370,10 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	}
 	if hasRows {
 		consider(func() (vp9InterPartitionRD, bool) {
+			if predFromNone {
+				inter.predInterpFilter = noneRD.predInterpFilter
+				inter.predFilterValid = true
+			}
 			return e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
 				miRows, miCols, miRow, miCol, root, horzSize,
 				common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
@@ -1338,6 +1381,10 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	}
 	if hasCols {
 		consider(func() (vp9InterPartitionRD, bool) {
+			if predFromNone {
+				inter.predInterpFilter = noneRD.predInterpFilter
+				inter.predFilterValid = true
+			}
 			return e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
 				miRows, miCols, miRow, miCol, root, vertSize,
 				common.PartitionVert, 0, bs, hasRows, hasCols, qindex)
@@ -1356,14 +1403,26 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		committed, ok = e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
 	case splitSize:
+		if predFromNone {
+			inter.predInterpFilter = noneRD.predInterpFilter
+			inter.predFilterValid = true
+		}
 		committed, ok = e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, splitSize,
 			hasRows, hasCols, qindex)
 	case horzSize:
+		if predFromNone {
+			inter.predInterpFilter = noneRD.predInterpFilter
+			inter.predFilterValid = true
+		}
 		committed, ok = e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, horzSize,
 			common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
 	case vertSize:
+		if predFromNone {
+			inter.predInterpFilter = noneRD.predInterpFilter
+			inter.predFilterValid = true
+		}
 		committed, ok = e.scoreVP9InterPartitionRect(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, vertSize,
 			common.PartitionVert, 0, bs, hasRows, hasCols, qindex)
@@ -1376,6 +1435,8 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		return vp9InterPartitionRD{}, false
 	}
 	e.restoreVP9MLPickPredSnapshot(pickPredSnap)
+	inter.predInterpFilter = savedPredFilter
+	inter.predFilterValid = savedPredFilterValid
 	e.partitionReconScratchTop = reconSnap.top
 	return committed, true
 }

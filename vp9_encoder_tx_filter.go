@@ -737,6 +737,19 @@ var (
 	vp9BilinearInterpFilterOrder = [...]vp9dec.InterpFilter{vp9dec.InterpBilinear}
 )
 
+func vp9InterpFilterOrderForSingle(filter vp9dec.InterpFilter) []vp9dec.InterpFilter {
+	switch filter {
+	case vp9dec.InterpEighttapSmooth:
+		return vp9SmoothInterpFilterOrder[:]
+	case vp9dec.InterpEighttapSharp:
+		return vp9SharpInterpFilterOrder[:]
+	case vp9dec.InterpBilinear:
+		return vp9BilinearInterpFilterOrder[:]
+	default:
+		return vp9EighttapInterpFilterOrder[:]
+	}
+}
+
 // vp9NonrdFilterRef mirrors libvpx's filter_ref derivation in
 // vp9_pickmode.c:1874-1880. filter_ref starts as cm->interp_filter; when
 // sf.default_interp_filter != BILINEAR, it is overwritten from the first

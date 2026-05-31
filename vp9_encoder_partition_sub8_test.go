@@ -328,6 +328,50 @@ func TestVP9EncoderInterSub8x8WriteModeFollowsBmi3(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSub8AdaptivePredInterpFilterCandidates(t *testing.T) {
+	var e VP9Encoder
+	inter := &vp9InterEncodeState{
+		interpFilter:     vp9dec.InterpSwitchable,
+		predInterpFilter: vp9dec.InterpEighttapSmooth,
+		predFilterValid:  true,
+		allowHP:          true,
+		referenceMode:    vp9dec.SingleReference,
+		compoundAllowed:  false,
+		compoundRefs:     vp9dec.SetupCompoundReferenceMode([vp9dec.MaxRefFrames]uint8{}),
+		refSignBias:      [vp9dec.MaxRefFrames]uint8{},
+		isSrcFrameAltRef: false,
+		showFrame:        true,
+		modeCostFcValid:  false,
+		baseQindex:       32,
+	}
+
+	e.sf.AdaptivePredInterpFilter = 2
+	got := e.vp9Sub8InterpFilterCandidates(inter, 0, 0, common.Block4x4)
+	if len(got) != 1 || got[0] != vp9dec.InterpEighttapSmooth {
+		t.Fatalf("adaptive_pred_interp_filter=2 filters = %v, want [EighttapSmooth]", got)
+	}
+
+	inter.predFilterValid = false
+	got = e.vp9Sub8InterpFilterCandidates(inter, 0, 0, common.Block4x4)
+	if len(got) != 1 || got[0] != vp9dec.InterpEighttap {
+		t.Fatalf("missing predicted filter candidates = %v, want [Eighttap]", got)
+	}
+
+	e.sf.AdaptivePredInterpFilter = 1
+	got = e.vp9Sub8InterpFilterCandidates(inter, 0, 0, common.Block4x4)
+	if len(got) != 3 {
+		t.Fatalf("adaptive_pred_interp_filter=1 without parent filters = %v, want full switchable set", got)
+	}
+
+	inter.predFilterValid = true
+	inter.img = vp9test.NewYCbCr(8, 8, 128, 128, 128)
+	e.sf.DisableFilterSearchVarThresh = 100
+	got = e.vp9Sub8InterpFilterCandidates(inter, 0, 0, common.Block4x4)
+	if len(got) != 1 || got[0] != vp9dec.InterpEighttap {
+		t.Fatalf("low-variance sub8 filters = %v, want [Eighttap]", got)
+	}
+}
+
 func TestVP9EncoderInterSub8x8NewMvCountsPerBmi(t *testing.T) {
 	var e VP9Encoder
 	var counts vp9enc.FrameCounts
