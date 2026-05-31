@@ -1,9 +1,10 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"bytes"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
@@ -88,14 +89,14 @@ func decodeVP9IVFGovpxBestEffort(data []byte) ([][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	d, err := NewVP9Decoder(VP9DecoderOptions{
+	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		MaxWidth:  header.Width,
 		MaxHeight: header.Height,
 	})
 	if err != nil {
 		return nil, err
 	}
-	dst := newTestImage(header.Width, header.Height)
+	dst := newVP9OracleImage(header.Width, header.Height)
 	var frames [][]byte
 	for frameIndex := 0; offset < len(data); frameIndex++ {
 		frame, next, err := testutil.NextIVFFrame(data, offset, frameIndex)
@@ -115,7 +116,7 @@ func decodeVP9IVFGovpxBestEffort(data []byte) ([][]byte, error) {
 		if !info.ShowFrame {
 			continue
 		}
-		frames = append(frames, packTightI420(&dst))
+		frames = append(frames, packVP9OracleI420(&dst))
 	}
 	return frames, nil
 }
@@ -137,7 +138,7 @@ func decodeVP9IVFLibvpxBestEffort(t *testing.T, data []byte) ([][]byte, error) {
 		// vpxdec may have written some frames before erroring.
 		return nil, err
 	}
-	frameSize := i420FrameSize(header.Width, header.Height)
+	frameSize := vp9OracleI420FrameSize(header.Width, header.Height)
 	if frameSize <= 0 || len(raw) < frameSize {
 		return nil, nil
 	}

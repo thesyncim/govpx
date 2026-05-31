@@ -1,10 +1,11 @@
 //go:build govpx_oracle_trace
 
-package govpx
+package govpx_test
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
@@ -40,7 +41,7 @@ func FuzzVP9EncoderRandomStrides(f *testing.F) {
 		if !ok {
 			return
 		}
-		opts := VP9EncoderOptions{
+		opts := govpx.VP9EncoderOptions{
 			Width:        dim.w,
 			Height:       dim.h,
 			FPS:          30,
@@ -48,14 +49,14 @@ func FuzzVP9EncoderRandomStrides(f *testing.F) {
 			MaxQuantizer: 56,
 			CQLevel:      32,
 			CpuUsed:      8,
-			Deadline:     DeadlineRealtime,
+			Deadline:     govpx.DeadlineRealtime,
 		}
 		sum := sha256.Sum256(data)
 		label := "fuzz-vp9-strides-" + hex.EncodeToString(sum[:4])
 		t.Logf("%s w=%d h=%d yStride=%d cStride=%d",
 			label, dim.w, dim.h, padded.YStride, padded.CStride)
 
-		govpxFrames := encodeVP9FramesWithGovpx(t, opts, []*image.YCbCr{padded}, nil)
+		govpxFrames := encodeVP9OracleFramesWithGovpx(t, opts, []*image.YCbCr{padded}, nil)
 		libvpxFrames := vp9test.VpxencPackets(t, []*image.YCbCr{tight})
 		vp9test.AssertSegmentByteParity(t, label, govpxFrames, libvpxFrames, 0)
 	})
