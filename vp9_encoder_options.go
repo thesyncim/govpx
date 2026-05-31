@@ -487,9 +487,10 @@ type VP9EncoderOptions struct {
 	AltRefAQ bool
 
 	// PostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR control.
-	// When true (and CBR rate control is enabled), inter frames that
-	// overshoot the frame target while the buffer level fell below the
-	// configured drop watermark are dropped from the visible output.
+	// When true (and CBR rate control is enabled), visible inter frames
+	// whose packed size would underflow the CBR buffer are dropped from the
+	// output after encoding. This is separate from DropFrameAllowed, which
+	// controls the pre-encode watermark dropper.
 	PostEncodeDrop bool
 
 	// DisableOvershootMaxQCBR mirrors libvpx's

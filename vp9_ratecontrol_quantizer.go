@@ -507,6 +507,9 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 	if intraOnly {
 		return worst
 	}
+	if rc.forceMaxQ {
+		return worst
+	}
 	bufferLevel := rc.bufferLevelBits
 	criticalLevel := rc.bufferOptimalBits >> 3
 	ambientQP := int(rc.avgFrameQIndexInter)

@@ -61,6 +61,15 @@ func (e *VP9Encoder) vp9SceneDetectionOnePass(src *image.YCbCr,
 	}
 }
 
+func (e *VP9Encoder) vp9CarryPostEncodeDroppedSceneChange() {
+	if e == nil || !e.rc.lastPostEncodeDroppedSceneChange {
+		return
+	}
+	e.rc.highSourceSAD = true
+	e.sf.UseSourceSad = 0
+	e.rc.lastPostEncodeDroppedSceneChange = false
+}
+
 func (e *VP9Encoder) shouldEncodeVP9SceneCutKeyFrame(src *image.YCbCr,
 	flags EncodeFlags, temporalEnabled bool, rows int, cols int,
 ) bool {

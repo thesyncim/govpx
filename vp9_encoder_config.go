@@ -911,10 +911,11 @@ func (e *VP9Encoder) SetAltRefAQ(enabled bool) error {
 }
 
 // SetPostEncodeDrop mirrors libvpx's VP9E_SET_POSTENCODE_DROP_CBR
-// control. Requires CBR rate control. When enabled, inter frames that
-// overshoot their target while the buffer level fell below the
-// configured watermark are dropped from the visible output after the
-// encode completes. Forwards to [VP9EncoderOptions.PostEncodeDrop].
+// control. Requires CBR rate control. When enabled, visible inter frames
+// whose packed size would underflow the CBR buffer are dropped from the
+// output after encoding. This is separate from [VP9Encoder.SetFrameDropAllowed],
+// which controls the pre-encode watermark dropper. Forwards to
+// [VP9EncoderOptions.PostEncodeDrop].
 func (e *VP9Encoder) SetPostEncodeDrop(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed

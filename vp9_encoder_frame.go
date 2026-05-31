@@ -251,6 +251,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			IsSrcFrameAltRef:   srcFrameAltRef,
 			BaseQIndex:         qindex,
 		}))
+		e.vp9CarryPostEncodeDroppedSceneChange()
 	}
 	header.Quant.BaseQindex = int16(qindex)
 	header.Quant.UvDcDeltaQ = int8(e.opts.DeltaQUV)
@@ -519,6 +520,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		interState.interpFilter = header.InterpFilter
 	}
 
+	restorePostDropContext := e.rc.enabled && e.rc.mode == RateControlCBR &&
+		e.rc.postEncodeDrop
+	var postDropFC vp9dec.FrameContext
+	var postDropFrameContexts [common.FrameContexts]vp9dec.FrameContext
+	if restorePostDropContext {
+		postDropFC = e.fc
+		postDropFrameContexts = e.frameContexts
+	}
+
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:                header.Quant.Lossless,
 		TxMode:                  txMode,
@@ -662,44 +672,48 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.vp9UpdateFilterThreshesPostEncode(isKey, header.IntraOnly,
 			srcFrameAltRef, refreshGolden, refreshAlt, macroblocks)
 	}
-	e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
 	var firstPassStats VP9FirstPassFrameStats
 	twoPassTargetBits := 0
 	if header.ShowFrame {
 		firstPassStats = e.twoPass.statsForFrame()
 		twoPassTargetBits = e.vp9TwoPassFrameTarget
 	}
-	if header.RefreshFrameFlags != 0 {
-		if !e.applyVP9EncoderLoopFilter(header, &seg) {
-			return VP9EncodeResult{}, ErrInvalidVP9Data
-		}
-	}
-	cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
-		miRows, miCols, header, isKey, intraOnly)
-	e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
-	e.refreshVP9EncoderSegmentMap(miRows, miCols)
-	e.prevSegmentation = header.Seg
-	e.prevSegmentationValid = true
-	e.prevFrameActiveMapEnabled = e.activeMapEnabled
-	e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
-	e.refreshVP9EncoderRefs(header, flags)
-	e.finishVP9DenoiserFrame(header, img)
-	e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
-	e.commitVP9EncoderFrameContext(header, frameContextIdx)
-	e.lastVP9HeaderFrameType = header.FrameType
-	e.lastVP9HeaderValid = true
-	// libvpx vp9/encoder/vp9_encodeframe.c:5650 writes cm->tx_mode at the
-	// top of vp9_encode_frame_internal; the value persists across frames so
-	// the final else branch of select_tx_mode (vp9_encodeframe.c:4344) can
-	// read back the previous frame's tx_mode. Mirror that commit here once
-	// the per-frame encode (including the post-encode demotion at
-	// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
-	e.prevFrameTxMode = txMode
 	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
-		header.ShowFrame, vpxrc.EncodedSizeBits(n))
+		header.ShowFrame, qindex, vpxrc.EncodedSizeBits(n))
 	if postDrop {
-		e.rc.postEncodeDropFrame()
+		if restorePostDropContext {
+			e.fc = postDropFC
+			e.frameContexts = postDropFrameContexts
+		}
+		e.rc.postEncodeDropFrame(qindex)
 	} else {
+		e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
+		if header.RefreshFrameFlags != 0 {
+			if !e.applyVP9EncoderLoopFilter(header, &seg) {
+				return VP9EncodeResult{}, ErrInvalidVP9Data
+			}
+		}
+		cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
+			miRows, miCols, header, isKey, intraOnly)
+		e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
+		e.refreshVP9EncoderSegmentMap(miRows, miCols)
+		e.prevSegmentation = header.Seg
+		e.prevSegmentationValid = true
+		e.prevFrameActiveMapEnabled = e.activeMapEnabled
+		e.refreshVP9EncoderMvRefs(isKey || intraOnly, miRows, miCols)
+		e.refreshVP9EncoderRefs(header, flags)
+		e.finishVP9DenoiserFrame(header, img)
+		e.commitVP9EncoderLoopFilterDeltas(&header.Loopfilter, resetLoopfilterDeltas)
+		e.commitVP9EncoderFrameContext(header, frameContextIdx)
+		e.lastVP9HeaderFrameType = header.FrameType
+		e.lastVP9HeaderValid = true
+		// libvpx vp9/encoder/vp9_encodeframe.c:5650 writes cm->tx_mode at the
+		// top of vp9_encode_frame_internal; the value persists across frames so
+		// the final else branch of select_tx_mode (vp9_encodeframe.c:4344) can
+		// read back the previous frame's tx_mode. Mirror that commit here once
+		// the per-frame encode (including the post-encode demotion at
+		// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
+		e.prevFrameTxMode = txMode
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 			header.RefreshFrameFlags, macroblocks,
 			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC)
@@ -723,9 +737,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.twoPass.finishFrameWithActual(projected)
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
-	e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
-		vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
-		vpxrc.EncodedSizeBits(n), e.vp9TemporalBufferConfig())
+	if postDrop {
+		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
+	} else {
+		e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
+			vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
+			vpxrc.EncodedSizeBits(n), e.vp9TemporalBufferConfig())
+	}
 	e.vp9FinishKeyFrameDistance(isKey)
 	encodedFrameIndex := e.frameIndex
 	if header.ShowFrame {
@@ -749,11 +767,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	resultRefreshFlags := header.RefreshFrameFlags
 	if postDrop {
 		// Discard the encoded payload and clear refresh-frame metadata so
-		// downstream consumers treat the frame as dropped. Reference-slot
-		// rolling back has already occurred through postEncodeDropFrame's
-		// rate-control bookkeeping; ref-state side effects on the decoder
-		// reference pool persist by design to keep the encoder's
-		// frame-context probabilities stable for the next frame.
+		// downstream consumers treat the frame as dropped. The post-drop
+		// decision is made before reference slots, segment maps, and frame
+		// contexts commit, matching libvpx's restore-and-return path.
 		resultData = nil
 		resultSize = 0
 		resultRefreshFlags = 0

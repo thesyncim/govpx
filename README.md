@@ -121,6 +121,7 @@ returns no more data.
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
 | Toggle frame dropping | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
+| Toggle VP9 CBR post-encode drops | `SetPostEncodeDrop` |
 | Runtime rate-control replacement | `SetRateControl` |
 | Two-pass encode | `CollectFirstPassStats`, `govpx.FinalizeFirstPassStats`, `SetTwoPassStats` |
 | Reference buffer control | `SetReferenceFrame`, `CopyReferenceFrame` |

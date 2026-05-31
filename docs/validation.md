@@ -121,6 +121,14 @@ oracle hooks, debug counters, tracing, or caller-owned buffer paths:
 go test ./... -run 'Alloc|Allocs' -count=1
 ```
 
+For VP9 CBR post-encode drop behavior, pair the feature tests with the runtime
+allocation gate so the optional path does not charge ordinary `EncodeInto`
+calls:
+
+```sh
+go test . -run 'PostEncodeDrop|RuntimeControlsAllocationGate' -count=1
+```
+
 For disabled tracing or testing hooks, prove the default production build first:
 no `govpx_oracle_trace` tag and no `GOVPX_*` oracle or trace environment
 variables. Then compile the trace-tag build:

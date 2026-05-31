@@ -55,9 +55,16 @@ type vp9RateControlState struct {
 	// control but its VP9 alt-ref AQ implementation is a no-op.
 	altRefAQ bool
 	// postEncodeDrop mirrors VP9E_SET_POSTENCODE_DROP_CBR. When set,
-	// inter frames overshooting the target while the buffer is below the
-	// drop watermark are dropped from the visible output.
+	// visible inter frames whose encoded size would underflow the CBR
+	// buffer are dropped after packing.
 	postEncodeDrop bool
+	// forceMaxQ mirrors RATE_CONTROL::force_max_q. The post-encode drop
+	// path sets it so the next CBR frame is encoded at worstQuality; the
+	// frame q picker consumes and clears it.
+	forceMaxQ bool
+	// lastPostEncodeDroppedSceneChange mirrors
+	// RATE_CONTROL::last_post_encode_dropped_scene_change.
+	lastPostEncodeDroppedSceneChange bool
 	// disableOvershootMaxQCBR mirrors
 	// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR. When set, the CBR active-worst
 	// promotion to worstQuality in the critical buffer region is
@@ -742,6 +749,7 @@ func (rc *vp9RateControlState) postDropFrame() {
 	rc.rc1Frame = 0
 	rc.lastQInter = rc.q1Frame
 	rc.incrementFramesSinceKey()
+	rc.decrementFramesToKey(true)
 }
 
 func vp9DropReasonString(reason vp9DropReason) string {
@@ -774,56 +782,39 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 		rc.bufferSizeBits, encodedBits)
 }
 
-// vp9PostEncodeDropOvershootFactor scales frameTargetBits when deciding
-// whether to drop a CBR inter frame after encoding it. Mirrors libvpx
-// VP9E_SET_POSTENCODE_DROP_CBR's overshoot trigger which fires when the
-// actual frame bits exceed roughly 8x the frame target while the buffer
-// dropped below the configured watermark.
-const vp9PostEncodeDropOvershootFactor = 8
-
 // shouldPostEncodeDrop mirrors libvpx's CBR post-encode drop check. The
-// drop fires for inter frames when (a) post-encode drop is enabled, (b)
-// CBR drop is allowed with a configured watermark, (c) the encoded
-// bits exceed the frame-target overshoot threshold, and (d) the
-// post-encode buffer level has fallen below the drop watermark or
-// turned negative.
-func (rc *vp9RateControlState) shouldPostEncodeDrop(intraOnly bool, showFrame bool, encodedBits int) bool {
+// drop fires for visible inter frames when the packed frame would make
+// buffer_level + avg_frame_bandwidth - frame_size negative. libvpx gates
+// the call on base_qindex < worst_quality so the max-q recovery frame is
+// allowed to pass through.
+func (rc *vp9RateControlState) shouldPostEncodeDrop(intraOnly bool, showFrame bool, qindex int, encodedBits int) bool {
 	if rc == nil || !rc.enabled || !rc.postEncodeDrop || intraOnly || !showFrame {
 		return false
 	}
-	if rc.mode != RateControlCBR || !rc.dropFrameAllowed ||
-		rc.dropFramesWaterMark == 0 || rc.bufferOptimalBits <= 0 {
+	if rc.mode != RateControlCBR || qindex >= int(rc.worstQuality) {
 		return false
 	}
-	target := rc.frameTargetBits
-	if target <= 0 {
-		return false
-	}
-	overshootBits := target * vp9PostEncodeDropOvershootFactor
-	if encodedBits <= overshootBits {
-		return false
-	}
-	dropMark := int(rc.dropFramesWaterMark) * rc.bufferOptimalBits / 100
-	level := vp9PostEncodeBufferLevel(rc.bufferLevelBits, rc.bufferSizeBits,
-		encodedBits)
-	return level < 0 || level < dropMark
+	level := arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	level = arith.SaturatingSub(level, encodedBits)
+	return level < 0
 }
 
 // postEncodeDropFrame rolls rate-control state forward as if the
-// just-encoded frame had been dropped: the buffer level credits the
-// per-frame bandwidth, the visible frame counter advances, and the
-// rate-correction / qindex history reverts to the pre-encode snapshot.
-// Mirrors libvpx's CBR post-encode drop bookkeeping.
-func (rc *vp9RateControlState) postEncodeDropFrame() {
+// just-encoded frame had been dropped. The CBR buffer has already been
+// credited by preEncodeFrame, so the encoded bits are not charged and the
+// buffer is not credited a second time.
+func (rc *vp9RateControlState) postEncodeDropFrame(qindex int) {
 	if rc == nil || !rc.enabled {
 		return
 	}
 	rc.rc2Frame = 0
 	rc.rc1Frame = 0
-	rc.lastQInter = rc.q1Frame
-	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
-	rc.clampBuffer()
+	rc.lastQInter = uint8(arith.ClampInt(qindex, int(rc.bestQuality), int(rc.worstQuality)))
+	rc.avgFrameQIndexInter = rc.worstQuality
+	rc.forceMaxQ = true
+	rc.lastPostEncodeDroppedSceneChange = rc.highSourceSAD
 	rc.incrementFramesSinceKey()
+	rc.decrementFramesToKey(true)
 }
 
 func (rc *vp9RateControlState) setFrameSize(width int, height int) {

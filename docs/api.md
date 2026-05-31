@@ -92,6 +92,8 @@ Common runtime controls include:
   changes.
 - `SetRateControl` for replacing the public rate-control configuration.
 - `SetFrameDropAllowed` for runtime frame-drop policy.
+- `SetPostEncodeDrop` for VP9 CBR post-encode drops when a packed inter frame
+  would underflow the CBR buffer.
 - `ForceKeyFrame` for sticky PLI/FIR-style requests.
 - `SetReferenceFrame` and `CopyReferenceFrame` for LAST/GOLDEN/ALTREF buffers.
 
