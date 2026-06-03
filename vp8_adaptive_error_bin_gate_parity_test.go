@@ -19,11 +19,15 @@ import (
 // this feature instead of clamping e.autoSpeed and disturbing every other
 // Speed-conditioned decision.
 func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
-	// cpu_used=8 realtime, frameCount=2, autoSpeed stable at 4.
-	// libvpxCPUUsed returns autoSpeed=4, so without the gate-specific Speed
-	// the error-bin path stays inert.
+	// cpu_used=8 realtime, frameCount=2, autoSpeed stable at 4, on a
+	// 1280x720 = 3600-MB frame. That is at/above the
+	// libvpxRealtimeAutoSelectSpeedRamps boundary, so vp8_auto_select_speed's
+	// measured time crosses the compression budget and cpi->Speed ramps to
+	// cpu_used+1 = 9 — the regime this gate models. libvpxCPUUsed still
+	// returns autoSpeed=4, so without the gate-specific Speed the error-bin
+	// path stays inert.
 	e := &VP8Encoder{
-		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 320, Height: 240},
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 1280, Height: 720},
 		rc:         rateControlState{currentQuantizer: 40},
 		frameCount: 2,
 		autoSpeed:  4,
@@ -33,6 +37,21 @@ func TestVP8AdaptiveErrorBinGateUsesRealisticSpeed(t *testing.T) {
 	}
 	if got := e.libvpxRealtimeCPISpeedForErrorBinGate(); got != 9 {
 		t.Fatalf("libvpxRealtimeCPISpeedForErrorBinGate = %d, want libvpx-realistic cpu_used+1 = 9", got)
+	}
+
+	// Below the ramp boundary (64x64 = 16 MBs) vp8_auto_select_speed keeps
+	// cpi->Speed at the realtime floor of 4, so the gate must surface the real
+	// autoSpeed rather than the cpu_used+1 ramp. Running the adaptive
+	// error-bin path here would diverge from libvpx (which is at Speed 4) and
+	// break the tiny cpu_used=8 RT byte-parity fixtures.
+	eTiny := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 64, Height: 64},
+		rc:         rateControlState{currentQuantizer: 40},
+		frameCount: 2,
+		autoSpeed:  4,
+	}
+	if got := eTiny.libvpxRealtimeCPISpeedForErrorBinGate(); got != 4 {
+		t.Fatalf("tiny-frame error-bin gate = %d, want autoSpeed=4 (no ramp below the auto-select boundary)", got)
 	}
 
 	// Seed the previous-frame error_bins so the percentile-bisection

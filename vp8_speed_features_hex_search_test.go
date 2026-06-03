@@ -23,6 +23,13 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 		wantGateSpeed  int
 		wantHexAfterRT bool
 		wantStepFracRT bool
+		// width/height drive libvpxRealtimeAutoSelectSpeedRamps: the
+		// realistic cpu_used+1 ramp only applies at/above the ~1500-MB
+		// auto-select boundary. Zero (the early-return cases) leaves the
+		// frame geometry irrelevant.
+		width     int
+		height    int
+		autoSpeed int
 	}{
 		{
 			// cpu_used=8 RT pre-first-frame: gate falls back to
@@ -38,8 +45,9 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 			wantStepFracRT: false,
 		},
 		{
-			// cpu_used=8 RT after first frame: gate escalates to
-			// cpu_used+1=9. Speed > 4 is true → HEX. The Step
+			// cpu_used=8 RT after first frame on a large (720p = 3600-MB)
+			// frame: at/above the auto-select ramp boundary the gate
+			// escalates to cpu_used+1=9. Speed > 4 is true → HEX. The Step
 			// transition that originally moved with the HEX gate is now
 			// owned by libvpxRealtimeCPISpeedForSubPelSearchGate; the
 			// fractional path further escalates past Step to Half via
@@ -48,12 +56,33 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 			// Half (not Step). This case still pins that the HEX gate
 			// itself fires; the post-Step transitions are pinned by the
 			// sub-pel and quarter-pel gate tests.
-			name:           "rt-cpu8-post-first-frame",
+			name:           "rt-cpu8-post-first-frame-large",
 			deadline:       DeadlineRealtime,
 			cpuUsed:        8,
 			frameCount:     1,
+			width:          1280,
+			height:         720,
 			wantGateSpeed:  9,
 			wantHexAfterRT: true,
+			wantStepFracRT: false,
+		},
+		{
+			// cpu_used=8 RT after first frame on a tiny (64x64 = 16-MB)
+			// frame: below the auto-select ramp boundary, so the gate must
+			// surface the real autoSpeed (=4) instead of the cpu_used+1
+			// ramp. Speed > 4 is false → NSTEP+iterative preserved, matching
+			// libvpx which keeps cpi->Speed at the realtime floor of 4 for
+			// frames that encode in microseconds. This is the corrected
+			// behavior behind the tiny cpu_used=8 RT byte-parity fix.
+			name:           "rt-cpu8-post-first-frame-tiny",
+			deadline:       DeadlineRealtime,
+			cpuUsed:        8,
+			frameCount:     1,
+			width:          64,
+			height:         64,
+			autoSpeed:      4,
+			wantGateSpeed:  4,
+			wantHexAfterRT: false,
 			wantStepFracRT: false,
 		},
 		{
@@ -104,8 +133,11 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 				opts: EncoderOptions{
 					Deadline: tc.deadline,
 					CpuUsed:  tc.cpuUsed,
+					Width:    tc.width,
+					Height:   tc.height,
 				},
 				frameCount: tc.frameCount,
+				autoSpeed:  tc.autoSpeed,
 			}
 			if got := e.libvpxRealtimeCPISpeedForHEXSearchGate(); got != tc.wantGateSpeed {
 				t.Errorf("libvpxRealtimeCPISpeedForHEXSearchGate() = %d, want %d", got, tc.wantGateSpeed)

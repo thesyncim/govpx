@@ -808,6 +808,44 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 // Returns the Speed value that should feed the `Speed > 4` gate. For
 // non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
 // returns the actual libvpxCPUUsed() so existing semantics carry forward.
+// libvpxRealtimeAutoSelectSpeedRamps reports whether libvpx's
+// vp8_auto_select_speed (vp8/encoder/rdopt.c:261) would have ramped
+// cpi->Speed up toward cpu_used+1 for the current frame geometry, which is
+// the precondition for the realistic-speed gate overrides below.
+//
+// vp8_auto_select_speed only takes its `Speed += 2 / Speed += 4` ramp
+// branches when a frame's measured wall-clock encode time exceeds the
+// per-frame compression budget,
+// milliseconds_for_compress = (1000000 / framerate) * (16 - cpu_used) / 16.
+// On the project's hosts each encoded MB costs ~12us (the same calibration
+// behind interFrameAutoSpeedTimingCompensation / mediumAutoSpeedKeyFrame
+// TimingCompensation), so a frame's encode time only crosses the budget once
+// it has on the order of ~1500 MBs (e.g. 720p = 3600 MBs ramps; the cpu=8
+// 720p traces observe cpi->Speed reaching 9 by frame 2). Tiny frames encode
+// in microseconds, far below the budget, so vp8_auto_select_speed keeps
+// cpi->Speed clamped to the realtime floor of 4 — and govpx's own autoSpeed
+// already lands at 4 for them.
+//
+// Below the ramp boundary govpx's e.autoSpeed already equals libvpx's actual
+// cpi->Speed, so the gates must surface that real value instead of the
+// cpu_used+1 ramp; otherwise govpx runs speed-9 search features (HEX, mode-
+// check throttle, quarter-pel skip) while libvpx runs speed-4 — the exact
+// divergence that broke byte parity on the tiny positive-cpu_used=8 realtime
+// fixtures (verified: govpx at a fixed Speed 4 is byte-exact with libvpx's
+// auto-selected Speed 4 there). At and above the boundary govpx pins its own
+// autoSpeed into the stable region for determinism while libvpx's measured
+// time pushes cpi->Speed up, so the gates restore the realistic cpu_used+1.
+//
+// The boundary is size-only (not the threads>=2 clause of
+// interFrameAutoSpeedTimingCompensation): threads change determinism, not
+// whether libvpx's measured time crosses the budget, so a threaded tiny
+// frame still runs at the Speed-4 floor.
+func (e *VP8Encoder) libvpxRealtimeAutoSelectSpeedRamps() bool {
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
+	return rows*cols >= 1500
+}
+
 func (e *VP8Encoder) libvpxRealtimeCPISpeedForHEXSearchGate() int {
 	speed := e.libvpxCPUUsed()
 	if e.opts.Deadline != DeadlineRealtime {
@@ -821,6 +859,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForHEXSearchGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -881,6 +922,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForImprovedMVPredGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -943,6 +987,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForQuarterPelGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -1016,6 +1063,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForSubPelSearchGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -1078,6 +1128,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -1136,6 +1189,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForZeroMVLastAdjGate() int {
 	if e.frameCount == 0 {
 		return speed
 	}
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed
@@ -1159,6 +1215,9 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForModeCheckFreqGate() int {
 		return speed
 	}
 	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
+	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
+		return speed
+	}
 	realistic := min(cpuUsed+1, 16)
 	if speed > realistic {
 		return speed

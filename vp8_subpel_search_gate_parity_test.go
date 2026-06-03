@@ -131,7 +131,11 @@ func TestVP8SubPelSearchGateRealisticSpeedAfterColdStart(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(cpuUsedTag(tc.cpuUsed)+"/"+tc.gateThreshold, func(t *testing.T) {
-			e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: tc.cpuUsed}}
+			// 1280x720 = 3600 MBs >= the libvpxRealtimeAutoSelectSpeedRamps
+			// boundary, so vp8_auto_select_speed's measured time crosses the
+			// compression budget and cpi->Speed ramps toward cpu_used+1 — the
+			// regime these realistic-speed gates model.
+			e := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: tc.cpuUsed, Width: 1280, Height: 720}}
 			// Simulate post-cold-start state: autoSpeed = 4 (libvpx
 			// vp8_auto_select_speed cold-start branch), frameCount = 1.
 			e.autoSpeed = 4
@@ -142,6 +146,20 @@ func TestVP8SubPelSearchGateRealisticSpeedAfterColdStart(t *testing.T) {
 			cfg := e.interAnalysisSearchConfig()
 			if got := cfg.fractionalSearch; got != tc.wantFractnl {
 				t.Errorf("fractionalSearch = %d, want %d (%s; libvpx onyx_if.c:1064-1071)", got, tc.wantFractnl, tc.gateThreshold)
+			}
+
+			// Below the ramp boundary (64x64 = 16 MBs) the frame encodes in
+			// microseconds, far under the compression budget, so
+			// vp8_auto_select_speed keeps cpi->Speed at the realtime floor of
+			// 4. The gate must surface that real autoSpeed, not the cpu_used+1
+			// ramp — otherwise govpx runs speed-9 search features while libvpx
+			// runs speed-4, the divergence that broke the tiny cpu_used=8 RT
+			// byte-parity fixtures.
+			tiny := &VP8Encoder{opts: EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: tc.cpuUsed, Width: 64, Height: 64}}
+			tiny.autoSpeed = 4
+			tiny.frameCount = 1
+			if got := tiny.libvpxRealtimeCPISpeedForSubPelSearchGate(); got != 4 {
+				t.Errorf("tiny-frame subpel gate = %d, want autoSpeed=4 (no ramp below the auto-select boundary)", got)
 			}
 		})
 	}
