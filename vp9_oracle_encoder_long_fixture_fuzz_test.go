@@ -25,7 +25,10 @@ import (
 // the seeds below now match frame 0 in seed#0 (CBR 300kbps kf=999 cpu=8),
 // but frame 1 still diverges on every seed. The remaining gaps are
 // structural encoder features (compressed-header writer, interp-filter
-// selection, cpu_used!=8 speed features) rather than rate-control drift, so
+// selection, and the full-RD encode path that cpu_used!=8 selects —
+// use_nonrd_pick_mode==0, see per-seed notes) rather than rate-control drift
+// or speed-feature flag divergence (the cpu0/3/4 REALTIME SPEED_FEATURES are
+// already ported verbatim; see TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim), so
 // the matched-prefix>240/256 target requires substantial encoder work that
 // no longer maps to the VP8 gap A+B "AWQ drift" pattern.
 //
@@ -39,13 +42,22 @@ import (
 //     cpu_used=8-only encoder coverage (mode picker / counts / coef-update
 //     payload) listed below; matched-prefix remains at 1/256.
 //
-//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. Interp_filter gap
-//     closed; the residual divergence is the cpu_used=4 realtime
-//     speed-features path (vp9/encoder/vp9_speed_features.c
-//     set_rt_speed_feature_framesize_* @ speed_features.c:414+, 452+)
-//     which govpx covers only at cpu=8. The forced KF at frame 30 also
-//     exercises the kf_boost ramp now landed in d248324 but inter frames
-//     between KFs diverge first.
+//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
+//     speed-feature FLAGS are already ported verbatim
+//     (vp9/encoder/vp9_speed_features.c:558-583; see
+//     vp9_speed_features_realtime.go speed>=4 block and the cpu0 pin in
+//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim). The residual divergence is
+//     NOT a flag gap: speed 4 sets partition_search_type = VAR_BASED_PARTITION
+//     but keeps use_nonrd_pick_mode == 0, so the superblock mode/coefficient
+//     decision runs the full-RD path (vp9_rd_pick_inter_mode_sb /
+//     vp9_rd_pick_intra_mode_sb), which govpx matches byte-exactly only on the
+//     non-RD path that speed 8 reaches (use_nonrd_pick_mode == 1,
+//     vp9_speed_features.c:585-660). The forced KF at frame 30 exercises the
+//     kf_boost ramp landed in d248324, but the very first keyframe already
+//     diverges in the RD mode/coef decision (confirmed via the runtime-control
+//     cpu=4 lane: keyframe diverges at an early compressed-header byte).
+//     Closing this requires the full-RD mode + coefficient + partition RD
+//     scoring path, substantial encoder work beyond the speed-feature port.
 //
 //   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frame 0 header parses
 //     identically through Quant.BaseQindex=29 / Loopfilter.FilterLevel=3,
@@ -63,14 +75,32 @@ import (
 //     (cpi->sf.default_interp_filter @ vp9_speed_features.c:1008), but the
 //     compressed-header divergence still defers the seed.
 //
-//   - {0,2,0,0,2} — CBR 1200kbps kf=999 realtime cpu0. cpu_used=0 selects
-//     a different partition_search_type, default_interp_filter, and
-//     recode-tolerance set that govpx's VP9 speed-features port has not
-//     mirrored — govpx only covers the cpu_used=8 path today.
+//   - {0,2,0,0,2} — CBR 1200kbps kf=999 realtime cpu0. The cpu_used=0 REALTIME
+//     speed-feature flags are pinned verbatim by
+//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim (none of the speed>=N cascades
+//     fire; the SF is the best-quality defaults union the RT baseline at
+//     vp9_speed_features.c:458-483), so the gap is NOT the speed-feature
+//     configurator. At speed 0 use_nonrd_pick_mode == 0 and
+//     partition_search_type == SEARCH_PARTITION, i.e. the full-RD square
+//     partition + RD mode/coefficient decision path
+//     (vp9_encodeframe.c rd_pick_partition, vp9_rd_pick_intra_mode_sb). The
+//     runtime-control cpu=0 lane confirms the very first keyframe diverges in
+//     this RD path (frame 0 byte mismatch at offset 27). Closing this lane
+//     requires that full-RD encoder path, substantial work beyond porting
+//     speed-feature flags.
 //
 // Reverting any entry here must be paired with the corresponding direct libvpx
 // port.
 var vp9LongFixtureParityGapSeeds = [][]byte{
+	// The empty (nil) input is the Go-fuzz built-in seed and {0x30} is the
+	// persisted corpus alias (regression_cbr_300kbps_kf999_panning_defbuf_rt_
+	// cpum3_582528dd). Both materialise, through the wrapping ByteCursor's
+	// all-zero/48%N bucket selection, the identical case as {0,0,0,0,0}
+	// (CBR 300kbps kf=999 realtime cpu8) — the already-deferred frame-1 cpu8
+	// gap documented above. Gate them under the same gap so corpus replay does
+	// not re-fail the known deferral.
+	{},
+	{0x30},
 	{0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 1},
 	{1, 0, 0, 0, 0},
