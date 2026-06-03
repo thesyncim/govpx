@@ -550,8 +550,16 @@ func (rc *vp9RateControlState) cbrActiveWorstQuantizer(intraOnly bool, frameInde
 	return activeWorst
 }
 
+// adjustCBRQuantizer ports libvpx adjust_q_cbr (vp9_ratectrl.c:679-700): the
+// anti-resonance clamp between the previous two frame Qs applies unless
+// gf_cbr_boost_pct is set AND the frame refreshes golden/altref. With
+// gf_cbr_boost_pct == 0 the clamp applies on every inter frame, including
+// golden-refresh frames. The reset_high_source_sad guard is not modeled here.
 func (rc *vp9RateControlState) adjustCBRQuantizer(q int, refreshFlags uint8) int {
-	if rc.rc1Frame*rc.rc2Frame == -1 && rc.q1Frame != rc.q2Frame && refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) == 0 {
+	// libvpx: !gf_cbr_boost_pct || !(refresh_alt_ref_frame || refresh_golden_frame).
+	boostGate := rc.gfCBRBoostPct == 0 ||
+		refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) == 0
+	if rc.rc1Frame*rc.rc2Frame == -1 && rc.q1Frame != rc.q2Frame && boostGate {
 		low := int(rc.q1Frame)
 		high := int(rc.q2Frame)
 		if low > high {

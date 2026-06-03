@@ -6,13 +6,17 @@ import (
 )
 
 // prepareOnePassCBRCyclicGoldenFrame mirrors libvpx
-// vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2518-2529): when
-// frames_till_gf_update_due == 0, install baseline_gf_interval via
-// vp9_cyclic_refresh_set_golden_update. libvpx sets refresh_golden_frame
-// for both key and inter frames in that block, but only inter frames use
-// the scheduled bit in the refresh mask; the key path already refreshes
-// all references. Seeding the countdown on the key frame is required so
-// the first inter frame does not immediately re-trigger a GF refresh.
+// vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2518-2530): when
+// frames_till_gf_update_due == 0, install baseline_gf_interval. For the
+// CYCLIC_REFRESH_AQ mode the interval comes from
+// vp9_cyclic_refresh_set_golden_update (vp9_ratectrl.c:2519-2520); otherwise
+// it is the midpoint of the configured GF-interval range,
+// (min_gf_interval + max_gf_interval) / 2 (vp9_ratectrl.c:2521-2523). libvpx
+// then seeds frames_till_gf_update_due, clamps it to frames_to_key, and sets
+// refresh_golden_frame for both key and inter frames; only inter frames use
+// the scheduled bit in the refresh mask, since the key path already refreshes
+// all references. Seeding the countdown on the key frame is required so the
+// first inter frame does not immediately re-trigger a GF refresh.
 func (rc *vp9RateControlState) prepareOnePassCBRCyclicGoldenFrame(
 	isKey, intraOnly bool,
 	aqMode VP9AQMode,
@@ -24,22 +28,33 @@ func (rc *vp9RateControlState) prepareOnePassCBRCyclicGoldenFrame(
 	if rc == nil || !rc.enabled || rc.mode != RateControlCBR || intraOnly {
 		return
 	}
-	if aqMode != VP9AQCyclicRefresh || cyclic == nil || !cyclic.Enabled {
-		return
-	}
 	if extRefreshPending || gfCBRBoostPct != 0 {
 		return
 	}
 	if rc.framesTillGFUpdateDue != 0 {
 		return
 	}
-	interval := cyclic.SetGoldenUpdate(encoder.CyclicRefreshSetGoldenUpdateArgs{
-		RateControlIsVBR:  false,
-		AvgFrameLowMotion: rc.avgFrameLowMotion,
-		FramesSinceKey:    int(rc.framesSinceKey),
-	})
-	if interval <= 0 {
-		interval = 40
+	cyclicEnabled := aqMode == VP9AQCyclicRefresh && cyclic != nil && cyclic.Enabled
+	var interval int
+	if cyclicEnabled {
+		// vp9_ratectrl.c:2519-2520.
+		interval = cyclic.SetGoldenUpdate(encoder.CyclicRefreshSetGoldenUpdateArgs{
+			RateControlIsVBR:  false,
+			AvgFrameLowMotion: rc.avgFrameLowMotion,
+			FramesSinceKey:    int(rc.framesSinceKey),
+		})
+		if interval <= 0 {
+			interval = 40
+		}
+	} else {
+		// vp9_ratectrl.c:2521-2523: baseline_gf_interval =
+		// (min_gf_interval + max_gf_interval) / 2. initOnePassVBRState already
+		// computes that midpoint into baselineGFInterval using the same
+		// min/max defaults from vp9_rc_set_gf_interval_range.
+		interval = int(rc.baselineGFInterval)
+		if interval <= 0 {
+			interval = (encoder.MinGFInterval + encoder.MaxGFInterval) >> 1
+		}
 	}
 	rc.baselineGFInterval = uint8(min(interval, 255))
 	rc.framesTillGFUpdateDue = interval

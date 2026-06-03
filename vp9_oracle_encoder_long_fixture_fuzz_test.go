@@ -34,7 +34,7 @@ import (
 //
 // Deferred seeds:
 //
-//   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frames 0-9 are now
+//   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frames 0-11 are now
 //     byte-exact. The earlier frame-1 / frame-4 non-RD inter divergence was
 //     closed: cpu_used=8 (w*h <= 352*288) selects ML_BASED_PARTITION
 //     (vp9_speed_features.c:762-763,825-826), whose nonrd dispatch
@@ -49,12 +49,17 @@ import (
 //     which flipped inter blocks to intra at frame 4. Fixed by gating the
 //     extra stamping pass on REFERENCE_PARTITION only and pinning the
 //     ML_BASED force_skip_low_temp_var lookup to the libvpx all-zero
-//     variance_low result. The remaining divergence is at frame 10, an
-//     uncompressed-header refresh_frame_flags mismatch (govpx 0x1 vs libvpx
-//     0x3): libvpx issues a golden-frame refresh that govpx does not, i.e. the
-//     one-pass CBR golden-frame update interval (frames_till_gf_update_due,
-//     vp9_ratectrl.c) — rate-control GF-group state, a distinct concern from
-//     the nonrd mode picker.
+//     variance_low result. The frame-10 uncompressed-header refresh_frame_flags
+//     mismatch (govpx 0x1 vs libvpx 0x3) was then closed by porting the
+//     non-cyclic-refresh one-pass CBR golden-frame schedule: with aq_mode=NO_AQ
+//     vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2521-2528) seeds
+//     baseline_gf_interval = (min_gf_interval + max_gf_interval)/2 = (4+16)/2 =
+//     10, so frames_till_gf_update_due fires refresh_golden at frame 10 and
+//     re-seeds 10 (next at frame 20). The remaining divergence is at frame 12,
+//     a 1-qindex rate-control drift (govpx base_qindex=144 vs libvpx=145) that
+//     surfaces in the accumulated active_worst_quality / rate_correction_factor
+//     trajectory after the frame-10 golden refresh — an RC quantizer-feedback
+//     concern distinct from the GF-interval scheduling, not yet root-caused.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
@@ -116,9 +121,9 @@ var vp9LongFixtureParityGapSeeds = [][]byte{
 	// persisted corpus alias (regression_cbr_300kbps_kf999_panning_defbuf_rt_
 	// cpum3_582528dd). Both materialise, through the wrapping ByteCursor's
 	// all-zero/48%N bucket selection, the identical case as {0,0,0,0,0}
-	// (CBR 300kbps kf=999 realtime cpu8) — the already-deferred frame-1 cpu8
-	// gap documented above. Gate them under the same gap so corpus replay does
-	// not re-fail the known deferral.
+	// (CBR 300kbps kf=999 realtime cpu8) — the already-deferred frame-12 cpu8
+	// rate-control q drift documented above. Gate them under the same gap so
+	// corpus replay does not re-fail the known deferral.
 	{},
 	{0x30},
 	{0, 0, 0, 0, 0},
