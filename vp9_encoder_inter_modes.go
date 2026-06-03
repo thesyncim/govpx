@@ -601,13 +601,24 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
 
-	// libvpx vp9_encodeframe.c:5347-5357 — REFERENCE_PARTITION still calls
+	// libvpx vp9_encodeframe.c:5347-5358 — REFERENCE_PARTITION still calls
 	// choose_partitioning() before nonrd_select_partition() to stamp
-	// x->variance_low for short_circuit_low_temp_var even though the
-	// partition tree comes from the reference picker. govpx only ran
-	// choose_partitioning on VAR_BASED_PARTITION; mirror libvpx here.
+	// x->variance_low (and x->color_sensitivity via chroma_check) for the
+	// downstream nonrd picker even though the partition tree comes from the
+	// reference picker. libvpx restricts this choose_partitioning prepass to
+	// the VAR_BASED_PARTITION (vp9_encodeframe.c:5309) and REFERENCE_PARTITION
+	// (vp9_encodeframe.c:5348) cases only — the ML_BASED_PARTITION
+	// (vp9_encodeframe.c:5314, get_estimated_pred + nonrd_pick_partition) and
+	// FIXED_PARTITION (vp9_encodeframe.c:5324, set_fixed_partitioning) cases
+	// never call choose_partitioning, so x->color_sensitivity stays at the
+	// per-SB reset value [0,0] (vp9_encodeframe.c:5245-5246). Gate this extra
+	// stamping pass on REFERENCE_PARTITION specifically (the VAR_BASED case
+	// stamps through its own dispatch); the previous `!VarBased` test wrongly
+	// fired it for ML_BASED_PARTITION (cpu_used=8, w*h <= 352*288), inflating
+	// the nonrd inter candidate's RD with a spurious UV chroma term and
+	// flipping inter blocks to intra.
 	if inter != nil && e.sf.ShortCircuitLowTempVar != 0 &&
-		!e.vp9RealtimeVariancePartitionEnabled() {
+		e.sf.PartitionSearchType == ReferencePartition {
 		e.vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol, nil, inter)
 	}
 

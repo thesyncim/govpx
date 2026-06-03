@@ -34,13 +34,27 @@ import (
 //
 // Deferred seeds:
 //
-//   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frame 0 matches (post
-//     d248324). Frame 1 still diverges; the interp_filter gap (SWITCHABLE
-//     per vp9/encoder/vp9_speed_features.c:1008) is closed — govpx now
-//     reads sf.DefaultInterpFilter into the uncompressed header — but the
-//     residual divergence on frame 1 stems from the remaining
-//     cpu_used=8-only encoder coverage (mode picker / counts / coef-update
-//     payload) listed below; matched-prefix remains at 1/256.
+//   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frames 0-9 are now
+//     byte-exact. The earlier frame-1 / frame-4 non-RD inter divergence was
+//     closed: cpu_used=8 (w*h <= 352*288) selects ML_BASED_PARTITION
+//     (vp9_speed_features.c:762-763,825-826), whose nonrd dispatch
+//     (vp9_encodeframe.c:5313-5321, get_estimated_pred + nonrd_pick_partition)
+//     never calls choose_partitioning, so libvpx leaves x->color_sensitivity
+//     at the per-SB reset [0,0] (vp9_encodeframe.c:5245-5246) and
+//     x->variance_low all-zero (only memset/written inside choose_partitioning
+//     @ vp9_encodeframe.c:1336). govpx was running its choose_partitioning
+//     prepass (chroma_check @ vp9_encodeframe.c:1165-1199) for every
+//     non-VAR_BASED path, spuriously flagging color_sensitivity[V] and adding
+//     a UV model-RD term (vp9_pickmode.c:2388-2402) to nonrd inter candidates,
+//     which flipped inter blocks to intra at frame 4. Fixed by gating the
+//     extra stamping pass on REFERENCE_PARTITION only and pinning the
+//     ML_BASED force_skip_low_temp_var lookup to the libvpx all-zero
+//     variance_low result. The remaining divergence is at frame 10, an
+//     uncompressed-header refresh_frame_flags mismatch (govpx 0x1 vs libvpx
+//     0x3): libvpx issues a golden-frame refresh that govpx does not, i.e. the
+//     one-pass CBR golden-frame update interval (frames_till_gf_update_due,
+//     vp9_ratectrl.c) — rate-control GF-group state, a distinct concern from
+//     the nonrd mode picker.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim

@@ -388,6 +388,17 @@ func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
 	if e == nil || e.sf.ShortCircuitLowTempVar == 0 {
 		return false, false
 	}
+	// libvpx ML_BASED_PARTITION (cpu_used=8, w*h <= 352*288) reaches the
+	// nonrd picker via get_estimated_pred + nonrd_pick_partition
+	// (vp9_encodeframe.c:5313-5321) and never calls choose_partitioning, so
+	// x->variance_low stays at its calloc/reset all-zero value: every
+	// get_force_skip_low_temp_var lookup (vp9_pickmode.c:1452-1496) returns 0.
+	// Mirror that as a known force_skip=false rather than letting the cold-SB
+	// cache fall through to the choose_partitioning warm-path heuristic, which
+	// defaults a missing stamp to force_skip=true.
+	if e.sf.PartitionSearchType == MlBasedPartition {
+		return false, true
+	}
 	sbMiRow := (miRow >> 3) << 3
 	sbMiCol := (miCol >> 3) << 3
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
