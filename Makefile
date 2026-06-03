@@ -17,6 +17,10 @@ VPXENC_ORACLE := $(CORACLE_BUILD)/vpxenc-oracle
 VPXENC_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-frameflags
 VPXENC_FRAMEFLAGS_ORACLE := $(CORACLE_BUILD)/vpxenc-frameflags-oracle
 VPXDEC := $(CORACLE_BUILD)/vpxdec
+# SIMD-disabled (generic-gnu) VP8 binaries for the fair pure-Go-vs-pure-C
+# byte-parity lane. See internal/coracle/build_vpxenc_purec.sh.
+VPXENC_PUREC := $(CORACLE_BUILD)/vpxenc-purec
+VPXDEC_PUREC := $(CORACLE_BUILD)/vpxdec-purec
 VPXDEC_VP9 := $(CORACLE_BUILD)/vpxdec-vp9
 VPXENC_VP9 := $(CORACLE_BUILD)/vpxenc-vp9
 VPXENC_VP9_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-vp9-frameflags
@@ -83,7 +87,7 @@ VP9_DECODER_PROFILE0_WEBM_FILES ?= \
 VP9_DSP_ORACLE_BIN := $(CORACLE_BUILD)/govpx-vp9-dsp-oracle
 VP9_DSP_TESTDATA := internal/vp9/dsp/testdata/dsp_oracle.bin
 
-.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-vp9-internal-oracle test-byte-parity fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-parity-report update-parity-baselines vp9-dsp-oracle
+.PHONY: all ci pre-commit fmtcheck test test-purego test-trace test-conformance pgo-refresh pgo-update-fingerprint pgo-check verify verify-production verify-decoder-parity test-bdrate-vp9 test-bdrate-vp8 test-quality test-oracle test-vp9-internal-oracle test-byte-parity test-byte-parity-purec vpxenc-purec fuzz-controls fuzz-rename test-decoder-oracle oracle-tools oracle-bins vp9-vpxdec-tools fetch-test-data fetch-vp8-test-data fetch-vp9-test-data fetch-encoder-test-data test-parity-report update-parity-baselines vp9-dsp-oracle
 
 all: ci
 
@@ -298,6 +302,27 @@ test-byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
 	$(GO) test -tags govpx_oracle_trace . -run '$(BYTE_PARITY_TESTS)' -count=1 -timeout 15m
+
+# Fair pure-Go-vs-pure-C VP8 byte-parity lane. Both sides are scalar: govpx is
+# built with `-tags purego` (no assembly) and the oracle is the generic-gnu
+# (SIMD-disabled) vpxenc-purec. A divergence here is an algorithm difference,
+# not a SIMD-rounding artifact. The host-ISA asm-vs-asm lane stays test-byte-parity.
+# Scoped to VP8 oracle tests that use the plain vpxenc oracle (vpxenc-purec
+# carries no frameflags/VP9 patch), so frameflags/VP9 byte-parity stays on the
+# asm lane until pure-C frameflags/VP9 oracles exist.
+VP8_PUREC_BYTE_PARITY_TESTS := TestVP8OracleEncoder(StreamByteParityTiming|StreamByteParityExtended|QuantizerMetadataParity)
+
+vpxenc-purec:
+	sh internal/coracle/build_vpxenc_purec.sh >/dev/null
+
+test-byte-parity-purec: vpxenc-purec
+	GOCACHE="$(GOCACHE)" \
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" \
+	GOVPX_WITH_ORACLE=1 \
+	GOVPX_VPXDEC="$(VPXDEC_PUREC)" \
+	GOVPX_VPXENC="$(VPXENC_PUREC)" \
+	GOVPX_VPXENC_ORACLE="$(VPXENC_PUREC)" \
+	$(GO) test -tags 'govpx_oracle_trace purego' . -run '$(VP8_PUREC_BYTE_PARITY_TESTS)' -count=1 -timeout 15m
 
 fuzz-controls: oracle-tools fetch-test-data
 	GOCACHE="$(GOCACHE)" \

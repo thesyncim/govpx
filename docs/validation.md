@@ -80,7 +80,24 @@ metadata without needing the whole root oracle suite.
 
 `make test-byte-parity`
 
-Runs strict byte-parity gates under the oracle trace build.
+Runs strict byte-parity gates under the oracle trace build. This compares
+govpx's host-ISA assembly build against the host-ISA (NEON/SSE) libvpx oracle —
+the fair asm-vs-asm lane.
+
+`make test-byte-parity-purec`
+
+Fair pure-Go-vs-pure-C VP8 byte-parity lane. govpx is built with `-tags purego`
+(no assembly) and the oracle is `vpxenc-purec`, a SIMD-disabled (`generic-gnu`)
+libvpx built by `internal/coracle/build_vpxenc_purec.sh`. Both sides are scalar,
+so a divergence here is an algorithm difference rather than a SIMD-rounding
+artifact. Keep the two lanes separate: pure-Go vs generic-gnu here; Go+asm vs
+host-ISA in `test-byte-parity`. Scoped to VP8 oracle tests that use the plain
+vpxenc oracle (the pure-C binary carries no frameflags/VP9 patch).
+
+Known gap: this lane is currently red on the positive `cpu_used=8` realtime
+cases (`StreamByteParityTiming/realtime-cbr-cpu8-*`,
+`StreamByteParityExtended/*-cpu8-*`) — a genuine algorithmic divergence
+confirmed identical under both the asm and pure-C lanes, not a SIMD artifact.
 
 `make test-parity-report`
 
