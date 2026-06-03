@@ -1401,11 +1401,33 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 // quarantine path). At threads >= 2, the row-worker pool's scheduling
 // interleaves with `nowMonotonicNS()` reads inside `finishAutoSpeed
 // Timing()` and the IIR avg_encode_time can cross the libvpx Speed=0
-// stable boundary at any MB count, not just at MBs >= 1500. The
-// threads >= 2 branch of this gate pins per-inter-frame duration to
-// budget/3 (same strategy as the >=1500-MB branch and the medium-KF
-// pin), making the next frame's auto-select land in the Speed=0 stable
-// region deterministically regardless of scheduler pressure.
+// stable boundary, not just at MBs >= 1500. The threads >= 2 branch of
+// this gate pins per-inter-frame duration to budget/3 (same strategy as
+// the >=1500-MB branch and the medium-KF pin), making the next frame's
+// auto-select land in the Speed=0 stable region deterministically
+// regardless of scheduler pressure.
+//
+// The threads>=2 pin shares the medium-keyframe 200-MB floor
+// (mediumAutoSpeedKeyFrameTimingCompensation). Below that floor the
+// budget/3 pin OVER-states the frame's true encode cost: at the project's
+// ~12us/MB host calibration a sub-200-MB frame encodes in well under
+// budget/10, so libvpx's own avg_pick_mode_time/avg_encode_time stay near
+// zero and vp8_auto_select_speed keeps cpi->Speed wherever the previous
+// frame (or vp8_change_config's cpu_used reseed) left it. Pinning a tiny
+// threaded frame to budget/3 instead seeds a large IIR avg_pick_mode_time,
+// so the next frame after a runtime vp8_change_config (which reseeds
+// cpi->Speed = cpu_used = 0) re-runs auto-select through the decrement
+// branch and clamps Speed back up to the realtime floor of 4 — while the
+// libvpx oracle (and govpx's own serial / sub-1500-MB path, which use real
+// near-zero wall-clock) leave Speed at 0. That spurious Speed 0->4 step
+// cascaded into the mode-check-freq / rd_thresh_mult speed_map lookups and
+// made the threaded picker test GOLDEN on the frames where a runtime
+// control fired, diverging the byte stream from libvpx on the 64x64
+// token-partitions-runtime-roundtrip-threads2 suite (frame 2 onward).
+// Gating the threads>=2 pin on the same 200-MB floor restores the real
+// near-zero wall-clock for tiny threaded frames so their auto-select
+// matches the libvpx oracle, while 640x360+ threaded fuzz seeds keep the
+// determinism pin.
 //
 // The threads<=1 + MBs<1500 case still skips the pin because (a) the
 // existing canonical libvpx-reference outputs at those small resolutions
@@ -1417,22 +1439,33 @@ func (e *VP8Encoder) interFrameAutoSpeedTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
 	}
-	if e.opts.Threads >= 2 {
-		return true
-	}
 	rows := geometry.MacroblockRows(e.opts.Height)
 	cols := geometry.MacroblockCols(e.opts.Width)
 	mbs := rows * cols
+	if e.opts.Threads >= 2 && mbs >= libvpxAutoSpeedTimingPinMinMBs {
+		return true
+	}
 	return mbs >= 1500
 }
+
+// libvpxAutoSpeedTimingPinMinMBs is the per-frame macroblock-count floor
+// above which govpx pins its auto-select wall-clock sample to the libvpx
+// Speed-stable budget/3 region instead of reading raw wall-clock.
+// Empirically calibrated against the libvpx oracle (~12us per MB on the
+// project's test hosts): at 200 MBs the frame's true encode time sits
+// comfortably above the vp8_auto_select_speed Speed=0 stable lower bound
+// for ms_for_compress in [30000, 60000], so the pin reproduces libvpx's
+// actual measurement. Below this floor a frame encodes in microseconds and
+// libvpx's own avg_encode_time / avg_pick_mode_time stay near zero, so
+// govpx must read real wall-clock there to match. Shared by the
+// medium-keyframe pin and the threads>=2 inter-frame pin.
+const libvpxAutoSpeedTimingPinMinMBs = 200
 
 // mediumAutoSpeedKeyFrameTimingCompensation returns true when the encoder
 // runs in realtime+positive-cpu_used mode and the frame is large enough
 // that libvpx's actual wall-clock keyframe measurement would push
 // cpi->avg_encode_time into the vp8_auto_select_speed Speed=0 stable
-// region. Empirically calibrated against the libvpx oracle (~12us per MB
-// on the project's test hosts); 200 MBs sits comfortably above the
-// Speed-stable lower bound for ms_for_compress in [30000, 60000].
+// region. See libvpxAutoSpeedTimingPinMinMBs for the calibration.
 func (e *VP8Encoder) mediumAutoSpeedKeyFrameTimingCompensation() bool {
 	if !e.libvpxAutoSelectSpeedActive() {
 		return false
@@ -1440,7 +1473,7 @@ func (e *VP8Encoder) mediumAutoSpeedKeyFrameTimingCompensation() bool {
 	rows := geometry.MacroblockRows(e.opts.Height)
 	cols := geometry.MacroblockCols(e.opts.Width)
 	mbs := rows * cols
-	return mbs >= 200
+	return mbs >= libvpxAutoSpeedTimingPinMinMBs
 }
 
 func (e *VP8Encoder) resetAutoSpeedTiming() {
