@@ -237,6 +237,21 @@ func newVP9LongFixtureFuzzCase(data []byte) vp9LongFixtureFuzzCase {
 		"--buf-initial-sz=400",
 		"--buf-optimal-sz=500",
 		"--drop-frame=0",
+		// Pin vpxenc-vp9's encoder timebase to 1/30 so libvpx derives
+		// cpi->framerate == 30 exactly. Without this the binary keeps its
+		// default 1/1000 (millisecond) output timebase: --fps=30/1 then
+		// quantizes the per-frame duration to 33 ms, so vp9_new_framerate
+		// (vp9_encoder.c:5774, 10000000.0/this_duration) sees framerate
+		// 1000/33 = 30.303 and vp9_rc_update_framerate (vp9_ratectrl.c:2655,
+		// round(target_bandwidth/framerate)) rounds avg_frame_bandwidth to
+		// 9900 instead of 10000. govpx (FPS=30) correctly uses 10000, so the
+		// 1-bit-per-frame target gap (e.g. CBR 300 kbps: libvpx 8663 vs govpx
+		// 8750) accumulates through the CBR quantizer feedback and first
+		// flips a base_qindex at frame 12 of seed {0,0,0,0,0}. The shared
+		// vp9oracle.CBRArgs helper already pins this via --exact-fps-timebase
+		// for the dedicated frame-flags driver; the long-fixture fuzz drives
+		// stock vpxenc-vp9, whose equivalent knob is --timebase.
+		"--timebase=1/30",
 	}
 	if c.deadline == govpx.DeadlineGoodQuality {
 		// vpxenc-vp9 defaults to --rt; override only for good-quality.
