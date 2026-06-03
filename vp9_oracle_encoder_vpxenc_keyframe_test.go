@@ -273,6 +273,85 @@ func TestVP9EncoderVpxencOracleCBRKeyframeByteParity(t *testing.T) {
 	})
 }
 
+// TestVP9EncoderVpxencOracleFullRDCPU0KeyframeByteParity pins the keyframe
+// (frame 0) of the {0,2,0,0,2} long-fixture gap seed (CBR 1200kbps kf=999
+// realtime cpu0). cpu_used=0 runs the full-RD keyframe path
+// (use_nonrd_pick_mode==0, partition_search_type==SEARCH_PARTITION:
+// vp9_encodeframe.c rd_pick_partition + vp9_rd_pick_intra_mode_sb), which now
+// byte-matches libvpx. Guards against regressing the foundational keyframe
+// milestone; the seed itself stays deferred on its frame-1 inter gap.
+func TestVP9EncoderVpxencOracleFullRDCPU0KeyframeByteParity(t *testing.T) {
+	vp9test.RequireVpxenc(t)
+
+	const width, height = 64, 64
+	src := vp9test.NewPanningYCbCr(width, height, 0)
+	vp9oracle.AssertKeyframeByteParityWithOptions(t, src, govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   1200,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 999,
+		Deadline:            govpx.DeadlineRealtime,
+		CpuUsed:             0,
+	}, []string{
+		"--end-usage=cbr",
+		"--target-bitrate=1200",
+		"--cpu-used=0",
+		"--kf-min-dist=0",
+		"--kf-max-dist=999",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+	})
+}
+
+// TestVP9EncoderVpxencOracleFullRDCPU4KeyframeByteParity pins the keyframe
+// (frame 0) of the {0,1,1,0,1} long-fixture gap seed (CBR 700kbps kf=30
+// realtime cpu4). cpu_used=4 keeps use_nonrd_pick_mode==0 (VAR_BASED_PARTITION
+// but full-RD mode/coef decision), so frame 0 exercises the same full-RD
+// keyframe path. Guards the keyframe milestone; the seed stays deferred on its
+// frame-1 inter gap.
+func TestVP9EncoderVpxencOracleFullRDCPU4KeyframeByteParity(t *testing.T) {
+	vp9test.RequireVpxenc(t)
+
+	const width, height = 64, 64
+	src := vp9test.NewPanningYCbCr(width, height, 0)
+	vp9oracle.AssertKeyframeByteParityWithOptions(t, src, govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   700,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 30,
+		Deadline:            govpx.DeadlineRealtime,
+		CpuUsed:             4,
+	}, []string{
+		"--end-usage=cbr",
+		"--target-bitrate=700",
+		"--cpu-used=4",
+		"--kf-min-dist=0",
+		"--kf-max-dist=30",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+	})
+}
+
 func TestVP9EncoderVpxencOracleLosslessKeyframeByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
