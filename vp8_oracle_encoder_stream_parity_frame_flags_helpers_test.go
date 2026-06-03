@@ -219,11 +219,23 @@ func encodeFramesWithFrameFlagsDriver(t *testing.T, driver, _ string, opts Encod
 		invisibleFrames = nil
 	}
 
+	var frameSizes [][2]int
+	for _, src := range sources {
+		if src.Width != opts.Width || src.Height != opts.Height {
+			frameSizes = make([][2]int, len(sources))
+			for i, s := range sources {
+				frameSizes[i] = [2]int{s.Width, s.Height}
+			}
+			break
+		}
+	}
+
 	cfg := vp8test.VpxencVP8FrameFlagsConfig{
 		BinaryPath:        driver,
 		Width:             opts.Width,
 		Height:            opts.Height,
 		Frames:            len(sources),
+		FrameSizes:        frameSizes,
 		FPSNum:            opts.FPS,
 		FPSDen:            1,
 		TargetBitrateKbps: targetKbps,

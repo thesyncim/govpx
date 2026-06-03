@@ -1,6 +1,7 @@
 package coracle
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,6 +62,13 @@ type VpxencVP8FrameFlagsConfig struct {
 	FrameFlags        []uint32
 	InvisibleFrames   []bool
 	ExtraArgs         []string
+	// FrameSizes, when non-nil, lists the per-input-frame I420 dimensions for
+	// runtime-resize parity runs where successive frames change size. It must
+	// hold exactly Frames entries. Width/Height still describe the initial
+	// coded dimensions handed to vpxenc; the resize:WxH runtime controls in
+	// ExtraArgs drive the dimension changes inside the helper. When nil the
+	// raw stream is validated as a uniform Width x Height x Frames block.
+	FrameSizes [][2]int
 }
 
 // VpxencVP8TwoPassConfig describes a VP8 two-pass vpxenc run that shares one
@@ -237,7 +245,15 @@ func vpxencVP8TwoPassI420(raw []byte, cfg VpxencVP8TwoPassConfig, trace bool) (v
 // VpxencVP8FrameFlagsEncodeI420 encodes raw I420 frames with the VP8
 // vpxenc-frameflags helper and returns the IVF stream.
 func VpxencVP8FrameFlagsEncodeI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (ivf []byte, diag []byte, err error) {
-	if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
+	if len(cfg.FrameSizes) != 0 {
+		if len(cfg.FrameSizes) != cfg.Frames {
+			return nil, nil, fmt.Errorf("coracle: VP8 vpxenc has %d frame sizes for %d frames",
+				len(cfg.FrameSizes), cfg.Frames)
+		}
+		if err := validateI420RawFrameSizes("VP8 vpxenc", raw, cfg.FrameSizes); err != nil {
+			return nil, nil, err
+		}
+	} else if err := validateI420Raw("VP8 vpxenc", raw, cfg.Width, cfg.Height, cfg.Frames); err != nil {
 		return nil, nil, err
 	}
 	bin := cfg.BinaryPath
@@ -246,6 +262,10 @@ func VpxencVP8FrameFlagsEncodeI420(raw []byte, cfg VpxencVP8FrameFlagsConfig) (i
 		if err != nil {
 			return nil, nil, err
 		}
+	}
+	if len(cfg.FrameSizes) != 0 {
+		return runVpxencVP8I420FrameSizes(raw, bin, "govpx-vpxenc-vp8-frameflags-*",
+			cfg.Width, cfg.Height, cfg.Frames, cfg.FrameSizes, cfg.vpxencArgs)
 	}
 	return runVpxencVP8I420(raw, bin, "govpx-vpxenc-vp8-frameflags-*",
 		cfg.Width, cfg.Height, cfg.Frames, cfg.vpxencArgs)
@@ -294,6 +314,22 @@ func runVpxencVP8I420(raw []byte, bin string, tempPattern string, width int, hei
 	return out.ivf, out.diag, nil
 }
 
+// runVpxencVP8I420FrameSizes is the variable-frame-size counterpart to
+// runVpxencVP8I420. frameSizes lists the per-input-frame I420 dimensions; the
+// concatenated raw stream is validated against their summed size rather than a
+// uniform width x height x frames block. width/height are still the initial
+// coded dimensions handed to the helper.
+func runVpxencVP8I420FrameSizes(raw []byte, bin string, tempPattern string, width int, height int, frames int, frameSizes [][2]int, argsFor func(inPath string, outPath string) []string) (ivf []byte, diag []byte, err error) {
+	if err := validateI420RawFrameSizes("VP8 vpxenc", raw, frameSizes); err != nil {
+		return nil, nil, err
+	}
+	out, err := runVpxencVP8I420FilesValidated(raw, bin, tempPattern, width, height, frames, argsFor, false, nil)
+	if err != nil {
+		return nil, out.diag, err
+	}
+	return out.ivf, out.diag, nil
+}
+
 func runVpxencVP8TraceI420(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, extraEnv []string) (trace []byte, diag []byte, err error) {
 	out, err := runVpxencVP8I420Files(raw, bin, tempPattern, width, height, frames, argsFor, true, extraEnv)
 	if err != nil {
@@ -313,6 +349,13 @@ func runVpxencVP8I420Files(raw []byte, bin string, tempPattern string, width int
 	if err := validateI420Raw("VP8 vpxenc", raw, width, height, frames); err != nil {
 		return vpxencVP8RunOutput{}, err
 	}
+	return runVpxencVP8I420FilesValidated(raw, bin, tempPattern, width, height, frames, argsFor, trace, extraEnv)
+}
+
+// runVpxencVP8I420FilesValidated is runVpxencVP8I420Files without the uniform
+// frame-size precondition; callers that feed a variable-frame-size raw stream
+// validate it themselves before invoking this.
+func runVpxencVP8I420FilesValidated(raw []byte, bin string, tempPattern string, width int, height int, frames int, argsFor func(inPath string, outPath string) []string, trace bool, extraEnv []string) (vpxencVP8RunOutput, error) {
 	dir, err := os.MkdirTemp("", tempPattern)
 	if err != nil {
 		return vpxencVP8RunOutput{}, err

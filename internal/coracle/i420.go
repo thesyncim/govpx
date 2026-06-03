@@ -26,6 +26,32 @@ func validateI420Raw(codec string, raw []byte, width int, height int, frames int
 	return nil
 }
 
+// validateI420RawFrameSizes validates that raw holds exactly one I420 frame for
+// each width/height pair in frameSizes, concatenated in order. It is the
+// variable-frame-size counterpart to validateI420Raw and is used for runtime
+// resize parity runs where successive input frames change dimensions.
+func validateI420RawFrameSizes(codec string, raw []byte, frameSizes [][2]int) error {
+	if len(frameSizes) == 0 {
+		return fmt.Errorf("coracle: %s variable frame-size run has no frames", codec)
+	}
+	want := 0
+	for _, size := range frameSizes {
+		frameSize, err := i420FrameSize(codec, size[0], size[1])
+		if err != nil {
+			return err
+		}
+		want, err = checkedI420Add(codec, want, frameSize)
+		if err != nil {
+			return err
+		}
+	}
+	if len(raw) != want {
+		return fmt.Errorf("coracle: %s variable frame-size raw I420 size = %d, want %d for %d frames",
+			codec, len(raw), want, len(frameSizes))
+	}
+	return nil
+}
+
 func i420FrameSize(codec string, width int, height int) (int, error) {
 	if width <= 0 || height <= 0 {
 		return 0, fmt.Errorf("coracle: invalid %s dimensions %dx%d", codec, width, height)
