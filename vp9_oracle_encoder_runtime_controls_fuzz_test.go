@@ -22,6 +22,35 @@ import (
 // Speed-8 entries that already match libvpx live in
 // vp9RuntimeControlsSpeed8ParitySeeds so the main fuzz target still exercises
 // them while the remaining parity-gap lanes stay reproducible.
+//
+// Root cause of the remaining cpu!=8 lanes (cpuPool = {0, -3, -8, 4}; gap
+// seeds select speed 0, 3 and 4):
+//
+// The libvpx REALTIME SPEED_FEATURES flags for speeds 0/3/4 are already ported
+// verbatim (set_rt_speed_feature_framesize_independent /
+// _framesize_dependent, vp9/encoder/vp9_speed_features.c:452-483, 544-556,
+// 558-583; the speed-0 flag set is pinned byte-for-byte by
+// TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim). The divergence is therefore NOT
+// a speed-feature flag gap. It is the full-RD encode path that speeds 0-4
+// select (sf.use_nonrd_pick_mode == 0; speed 8 alone sets it to 1 at
+// vp9_speed_features.c:585-660 and so reaches the non-RD pick mode govpx
+// matches byte-exactly):
+//
+//   - speed 0/3 use SEARCH_PARTITION / square-partition RD search
+//     (vp9/encoder/vp9_encodeframe.c rd_pick_partition) with full RD intra
+//     mode decision on the keyframe.
+//   - speed 4 sets partition_search_type = VAR_BASED_PARTITION
+//     (vp9_speed_features.c:582) but still runs RD mode/coef decisions
+//     (use_nonrd_pick_mode == 0), so it diverges in the same RD path.
+//
+// Observed: the very first keyframe (frame 0) already diverges. At cpu=-3
+// (speed 3) the 64x64 keyframe is byte-length-identical to libvpx but a byte
+// at offset ~17 differs — a pure RD mode/coefficient decision difference, not
+// a structural/feature difference. At cpu=0 the keyframe is one byte longer
+// (2727 vs 2726, first diff @27). Closing these lanes requires the full-RD
+// keyframe/inter mode + coefficient + partition RD scoring path
+// (vp9_rd_pick_inter_mode_sb / vp9_rd_pick_intra_mode_sb + rd_pick_partition),
+// which is substantial encoder work beyond the speed-feature configurator.
 var vp9RuntimeControlsParityGapSeeds = [][]byte{
 	{0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 2, 1, 0, 0},
