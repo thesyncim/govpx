@@ -59,15 +59,21 @@ import (
 //     Closing this requires the full-RD mode + coefficient + partition RD
 //     scoring path, substantial encoder work beyond the speed-feature port.
 //
-//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frame 0 header parses
-//     identically through Quant.BaseQindex=29 / Loopfilter.FilterLevel=3,
-//     but the compressed-header first_partition_size diverges (govpx=2 vs
-//     libvpx=107). govpx's encoder.WriteCompressedHeaderFromCounts emits a
-//     minimal compressed header for VBR keyframes; libvpx writes the full
-//     coef-update / tx-mode payload
-//     (vp9/encoder/vp9_bitstream.c write_compressed_header
-//     @ vp9_bitstream.c:826-973). Porting this touches CoefUpdateMode and
-//     SkipTx16PlusCoefUpdates plumbing and is a substantial encoder change.
+//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frames 0 and 1 are
+//     byte-exact (keyframe qidx=29 lf=3 len=3237; first inter qidx=65 lf=10
+//     len=2389). The one-pass-VBR per-frame quantizer feedback that drove the
+//     frame-2 BaseQindex/FilterLevel divergence (govpx 113/15 vs libvpx
+//     131/18) was ported: vp9_calc_pframe_target_size_one_pass_vbr now scales
+//     non-boosted inter targets by baseline_gf_interval/(gf_interval+af_ratio-1)
+//     (vp9_ratectrl.c:2027-2045), and vp9_rc_update_rate_correction_factors now
+//     indexes damped_adjustment[] by the one-pass gf_group rf_level
+//     (INTER_NORMAL) instead of the frame-type level (vp9_ratectrl.c:755-756,
+//     784-786). With those ports frame 2 now selects the same BaseQindex=131 /
+//     FilterLevel=18 as libvpx. The residual frame-2 byte gap (govpx 1255 vs
+//     libvpx 1219 at identical q/lf, first_partition_size 34 vs 37) is a
+//     downstream encoder difference in the mode/coefficient-count payload, not
+//     rate control; closing it requires the full-RD/coef-update path owned
+//     elsewhere.
 //
 //   - {1,1,1,1,0} — VBR 700kbps kf=30 good-quality cpu8. Same compressed-
 //     header gap as the previous seed plus the GoodQuality speed-features
