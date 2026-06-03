@@ -147,13 +147,19 @@ func (e *VP9Encoder) restoreVP9MLPickPredSnapshot(snap vp9MLPickPredSnapshot) {
 
 // vp9MLPartitionBorder is the per-side edge-replication padding the ML
 // picker needs in front of LAST_FRAME so the int-pro estimator's `ref_buf -
-// (bw>>1)` peek (libvpx vp9_mcomp.c:2317) stays in-bounds. With bw=64 the
-// peek reads 32 pixels before the SB origin; libvpx side this is handled
-// by YV12_BUFFER_CONFIG's 160-pixel border (libvpx vpx_scale/yv12config.h:
-// 26 — VP9_ENC_BORDER_IN_PIXELS=160). govpx allocates a per-SB padded
-// scratch with 64 pixels on each side (sufficient for the entire BLOCK_64X64
-// search_width = 128 plus header alignment).
-const vp9MLPartitionBorder = 64
+// (bw>>1)` peek (libvpx vp9_mcomp.c:2317) and the get_estimated_pred
+// inter-predictor's clamped 64x64 read window both stay in-bounds. libvpx
+// gives every YV12_BUFFER_CONFIG plane a VP9_ENC_BORDER_IN_PIXELS=160 border
+// (libvpx vpx_scale/yv12config.h:26); clamp_mv_to_umv_border_sb
+// (vp9_reconinter.c:91-111) guarantees the prediction MV never reads past
+// that border. govpx mirrors the 160-pixel border so the same clamp keeps
+// the convolve source inside the padded plane for partial superblocks.
+const vp9MLPartitionBorder = 160
+
+// vp9MLPartitionSbMi is the BLOCK_64X64 superblock size in mi units
+// (MI_BLOCK_SIZE = 64 / MI_SIZE = 8). It feeds the mb_to_*_edge formulas
+// (libvpx vp9_onyxc_int.h:425/427 set_mi_row_col, bw = bh = 8 mi).
+const vp9MLPartitionSbMi = 8
 
 // vp9PaddedLastFrameBuffer is a per-encoder scratch for building the
 // border-padded LAST_FRAME copy the int-pro motion search reads against.
@@ -364,12 +370,18 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 		LastRefOff:    (refOriginY+y0)*paddedRefStride + (refOriginX + x0),
 		LastRefStride: paddedRefStride,
 		Speed:         speed,
-		MvLimits: encoder.MvLimits{
-			ColMin: -(x0 + vp9MLPartitionBorder),
-			ColMax: lastW - x0 + vp9MLPartitionBorder,
-			RowMin: -(y0 + vp9MLPartitionBorder),
-			RowMax: lastH - y0 + vp9MLPartitionBorder,
-		},
+		// x->mv_limits is the BLOCK_64X64 UMV window set by set_offsets
+		// (libvpx vp9_encodeframe.c:296-299 + 5109), not the padding
+		// border. EncoderMvLimits ports that formula verbatim.
+		MvLimits: encoder.EncoderMvLimits(miRows, miCols, sbMiRow, sbMiCol, common.Block64x64),
+		// xd->mb_to_*_edge for the BLOCK_64X64 SB (bw = bh = 8 mi),
+		// in 1/8-pel units (libvpx vp9_onyxc_int.h:424-427 set_mi_row_col).
+		// These bound clamp_mv_to_umv_border_sb inside the inter-predictor
+		// convolve so its 64x64 read window stays inside the padded plane.
+		MbToTopEdge:    -((sbMiRow * common.MiSize) * 8),
+		MbToBottomEdge: (miRows - vp9MLPartitionSbMi - sbMiRow) * common.MiSize * 8,
+		MbToLeftEdge:   -((sbMiCol * common.MiSize) * 8),
+		MbToRightEdge:  (miCols - vp9MLPartitionSbMi - sbMiCol) * common.MiSize * 8,
 	}
 	// Inter call path: encoder.GetEstimatedPred handles the keyframe branch on
 	// isKeyFrame=true. Inter dispatch goes through the int-pro search +

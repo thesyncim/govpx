@@ -109,6 +109,16 @@ type GetEstimatedPredInterInput struct {
 	// Full-pel UMV-window limits the int-pro motion search clamps
 	// against (mirrored on libvpx's MACROBLOCK.mv_limits).
 	MvLimits MvLimits
+
+	// xd->mb_to_*_edge for the BLOCK_64X64 SB, in 1/8-pel units
+	// (libvpx vp9_onyxc_int.h:424-427 set_mi_row_col). These bound the
+	// clamp_mv_to_umv_border_sb call inside the inter-predictor convolve
+	// (vp9_reconinter.c:105-108) so the 64x64 read window stays inside the
+	// reference buffer's VP9_ENC_BORDER_IN_PIXELS border.
+	MbToLeftEdge   int
+	MbToRightEdge  int
+	MbToTopEdge    int
+	MbToBottomEdge int
 }
 
 // RefFrameSlot mirrors libvpx's ref-frame enum
@@ -276,16 +286,53 @@ func GetEstimatedPredSubBsize(miRow, miCol, miRows, miCols int) common.BlockSize
 // libvpx's clamp_mv_to_umv_border_sb (vp9_reconinter.c:93-109) does
 // this with respect to xd->mb_to_*_edge; the substrate test below
 // pins the no-MV identity case which is always in-bounds.
+// vp9ClampInt ports libvpx's clamp() macro (vpx_dsp/vpx_dsp_common.h):
+// VPXMAX(low, VPXMIN(value, high)).
+func vp9ClampInt(value, low, high int) int {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
+}
+
 func BuildEstimatedPredLuma64x64(
 	estPred []uint8,
 	ref []uint8, refOff, refStride int,
 	mv decoder.MV,
+	mbToLeftEdge, mbToRightEdge, mbToTopEdge, mbToBottomEdge int,
 ) {
-	// scaled_mv.row / scaled_mv.col == mv.row / mv.col in the
+	// clamp_mv_to_umv_border_sb (libvpx vp9_reconinter.c:91-111) for the
+	// luma plane (bw = bh = 64, ss_x = ss_y = 0). The Q4 doubling
+	// (clamped_mv = mv * (1 << (1 - ss))) is the (mv << 1) below; the
+	// clamp then bounds the Q4 MV against the UMV border so the convolve's
+	// 64x64 read window stays inside the reference buffer's
+	// VP9_ENC_BORDER_IN_PIXELS=160 border (vpx_scale/yv12config.h:26).
+	//
+	//   const int spel_left   = (VP9_INTERP_EXTEND + bw) << SUBPEL_BITS;
+	//   const int spel_right  = spel_left - SUBPEL_SHIFTS;
+	//   const int spel_top    = (VP9_INTERP_EXTEND + bh) << SUBPEL_BITS;
+	//   const int spel_bottom = spel_top - SUBPEL_SHIFTS;
+	// with VP9_INTERP_EXTEND=4 (yv12config.h:25), SUBPEL_BITS=4 and
+	// SUBPEL_SHIFTS=16 (vpx_dsp/vpx_filter.h:23-25); bw = bh = 64.
+	const (
+		vp9InterpExtend = 4
+		subpelBits      = tables.SubpelBits
+		subpelShifts    = 1 << subpelBits
+		predBlock       = 64
+		spelLeft        = (vp9InterpExtend + predBlock) << subpelBits
+		spelRight       = spelLeft - subpelShifts
+		spelTop         = (vp9InterpExtend + predBlock) << subpelBits
+		spelBottom      = spelTop - subpelShifts
+	)
+	// scaled_mv.row / scaled_mv.col == mv_q4.row / mv_q4.col in the
 	// no-scale luma path after clamp_mv_to_umv_border_sb maps 1/8-pel
-	// MV units into Q4 (1/16-pel) units.
-	mvQ4Row := int(mv.Row) << 1
-	mvQ4Col := int(mv.Col) << 1
+	// MV units into Q4 (1/16-pel) units. ss_x = ss_y = 0, so the
+	// (1 << (1 - ss)) factor on both the MV and the edges is 2.
+	mvQ4Row := vp9ClampInt(int(mv.Row)<<1, mbToTopEdge*2-spelTop, mbToBottomEdge*2+spelBottom)
+	mvQ4Col := vp9ClampInt(int(mv.Col)<<1, mbToLeftEdge*2-spelLeft, mbToRightEdge*2+spelRight)
 	subpelX := mvQ4Col & tables.SubpelMask
 	subpelY := mvQ4Row & tables.SubpelMask
 	pre := refOff + (mvQ4Row>>tables.SubpelBits)*refStride + (mvQ4Col >> tables.SubpelBits)
@@ -340,7 +387,8 @@ func GetEstimatedPred(
 		refStride = in.LastRefStride
 	}
 
-	BuildEstimatedPredLuma64x64(estPred, ref, refOff, refStride, mv)
+	BuildEstimatedPredLuma64x64(estPred, ref, refOff, refStride, mv,
+		in.MbToLeftEdge, in.MbToRightEdge, in.MbToTopEdge, in.MbToBottomEdge)
 	return chosenRef, mv
 }
 
