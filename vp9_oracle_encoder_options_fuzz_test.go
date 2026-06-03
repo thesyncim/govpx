@@ -19,30 +19,29 @@ import (
 // Each entry cites the libvpx file:line that drives the divergence so the
 // corresponding port can remove one entry at a time.
 //
-// Deferred seeds:
+// Deferred seeds: none currently.
+//
+// History:
 //
 //   - "\x00010" (bytes 0x00,0x30,0x31,0x30) resolves to width=16,
 //     height=208, fps=50, cpu_used=1, Deadline=Realtime, RateControl=CBR,
-//     and TargetBitrateKbps=50. The speed-feature path is libvpx
-//     set_rt_speed_feature_framesize_independent speed >= 1
-//     (vp9/encoder/vp9_speed_features.c:452+) via the realtime dispatcher at
-//     vp9_speed_features.c:1042.
-//
-//     govpx now routes search-partition keyframes through its RD partition
-//     scorer, which brings the uncompressed header, first_partition_size, and
-//     compressed-header bytes in line with libvpx for this seed. The residual
-//     divergence is the tile partition/mode token stream: libvpx's
-//     rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667) still picks a
-//     finer rectangular tree for the narrow 16x208 frame than govpx's current
-//     scalar RD scorer. Closing this seed requires finishing the
-//     rd_pick_partition scoring details, especially rectangular leaf scoring
-//     and pruning behavior.
+//     and TargetBitrateKbps=50. The residual divergence was the tile
+//     partition/mode token stream: libvpx's rd_pick_partition keeps
+//     PARTITION_HORZ/PARTITION_VERT live at the image edges even after the
+//     square-vs-split breakout clears do_rect, via the
+//     `(do_rect || vp9_active_h_edge(...))` /
+//     `(do_rect || vp9_active_v_edge(...))` gates
+//     (vp9/encoder/vp9_encodeframe.c:4034 and :4084, with the active-edge
+//     helpers at vp9/encoder/vp9_rdopt.c:3375 and :3403). govpx's RD
+//     partition scorer was missing that active-edge term, so it split the
+//     narrow 16x208 keyframe into 16x16 leaves instead of the 32x64
+//     PARTITION_VERT columns libvpx emits. Porting vp9_active_h_edge /
+//     vp9_active_v_edge into the keyframe RD partition gate closed the seed to
+//     byte parity.
 //
 // Reverting any entry here must be paired with the corresponding verbatim
 // libvpx port landing.
-var vp9OptionsParityGapSeeds = [][]byte{
-	{0x00, 0x30, 0x31, 0x30},
-}
+var vp9OptionsParityGapSeeds = [][]byte{}
 
 func vp9OptionsParityGapSeed(data []byte) bool {
 	for _, seed := range vp9OptionsParityGapSeeds {

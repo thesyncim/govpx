@@ -292,7 +292,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			_ = splitRD
 		}
 	}
-	if horzAllowed && doRect {
+	if horzAllowed && (doRect || vp9ActiveHEdge(miRow, bs, miRows)) {
 		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
 			common.PartitionHorz, hasRows, hasCols)
 		consider(common.PartitionHorz, e.vp9KeyframeRDPartitionRectBestRD(
@@ -308,7 +308,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			doRect = false
 		}
 	}
-	if vertAllowed && doRect {
+	if vertAllowed && (doRect || vp9ActiveVEdge(miCol, bs, miCols)) {
 		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
 			common.PartitionVert, hasRows, hasCols)
 		consider(common.PartitionVert, e.vp9KeyframeRDPartitionRectBestRD(
@@ -459,6 +459,38 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionRect(key *vp9KeyframeEncodeState
 		e.updateVP9PartitionContextForChoice(miRow, miCol, root, partition, child)
 	}
 	return out, true
+}
+
+// vp9ActiveHEdge mirrors libvpx vp9_active_h_edge
+// (vp9/encoder/vp9_rdopt.c:3375). It reports whether the [mi_row,
+// mi_row+mi_step) span straddles the top or bottom image edge so that
+// rd_pick_partition keeps PARTITION_HORZ live even after the square-vs-split
+// breakout has cleared do_rect (vp9_encodeframe.c:4034). The two-pass
+// inactive-zone bar adjustment (oxcf.pass == 2) is omitted here because the RD
+// keyframe partition path only runs in the one-pass deadlines, where
+// top_edge/bottom_edge keep their image-boundary defaults.
+func vp9ActiveHEdge(miRow, miStep, miRows int) bool {
+	topEdge := 0
+	bottomEdge := miRows
+	if (topEdge >= miRow && topEdge < miRow+miStep) ||
+		(bottomEdge >= miRow && bottomEdge < miRow+miStep) {
+		return true
+	}
+	return false
+}
+
+// vp9ActiveVEdge mirrors libvpx vp9_active_v_edge
+// (vp9/encoder/vp9_rdopt.c:3403); see vp9ActiveHEdge for the one-pass caveat.
+// It keeps PARTITION_VERT live at the left/right image edges
+// (vp9_encodeframe.c:4084).
+func vp9ActiveVEdge(miCol, miStep, miCols int) bool {
+	leftEdge := 0
+	rightEdge := miCols
+	if (leftEdge >= miCol && leftEdge < miCol+miStep) ||
+		(rightEdge >= miCol && rightEdge < miCol+miStep) {
+		return true
+	}
+	return false
 }
 
 func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockSize) (uint64, int) {
