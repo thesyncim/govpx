@@ -718,7 +718,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.prevFrameTxMode = txMode
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
 			header.RefreshFrameFlags, macroblocks,
-			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC)
+			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
+			e.vp9DampedAdjustmentRFLevel())
 		if !isKey && !intraOnly {
 			e.rc.computeFrameLowMotion(miRows, miCols,
 				func(miRow, miCol int) *vp9dec.NeighborMi {

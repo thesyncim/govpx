@@ -225,6 +225,25 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 	}
 }
 
+// vp9DampedAdjustmentRFLevel returns the rate-factor level libvpx uses to index
+// rc->damped_adjustment[] in vp9_rc_update_rate_correction_factors, which is
+// cpi->twopass.gf_group.rf_level[cpi->twopass.gf_group.index]. In one-pass mode
+// the gf_group is never populated, so this is INTER_NORMAL for every frame
+// regardless of its frame type (unlike the rate_correction_factors get/set
+// level, which keys on the frame type). In two-pass mode it tracks the active
+// gf-group entry.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:755-756.
+func (e *VP9Encoder) vp9DampedAdjustmentRFLevel() int {
+	if e.twoPass.enabled() && e.twoPass.gfGroupActive {
+		idx := int(e.twoPass.gfGroup.Index)
+		if idx >= 0 && idx < len(e.twoPass.gfGroup.RFLevel) {
+			return int(e.twoPass.gfGroup.RFLevel[idx])
+		}
+	}
+	return encoder.RateFactorInterNormal
+}
+
 // buildVP9GFGroupInputs snapshots the encoder + RC state into the pure
 // inputs encoder.DefineGFGroup consumes. Mirrors libvpx's VP9_COMP / RATE_CONTROL
 // / TWO_PASS field reads at the define_gf_group call site.

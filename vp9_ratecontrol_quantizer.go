@@ -155,30 +155,35 @@ func (rc *vp9RateControlState) onePassVBRKeyFrameTargetBits() int {
 	return rc.clampIFrameTargetBits(int(target))
 }
 
+// onePassVBRInterFrameTargetBits ports libvpx
+// vp9_calc_pframe_target_size_one_pass_vbr (vp9_ratectrl.c:2027-2045). The
+// target is avg_frame_bandwidth * baseline_gf_interval /
+// (baseline_gf_interval + af_ratio - 1), with an extra af_ratio multiplier in
+// the numerator on boosted (golden/altref refresh) frames. The gf interval and
+// af_ratio are taken verbatim from rc->baseline_gf_interval /
+// rc->af_ratio_onepass_vbr (already clamped by vp9_set_gf_update_one_pass_vbr);
+// the libvpx source does no further interval clamping here.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:2027-2045.
 func (rc *vp9RateControlState) onePassVBRInterFrameTargetBits(refreshFlags uint8) int {
-	if !vp9BoostedInterRefresh(refreshFlags) {
-		return rc.applyVP9MaxInterBound(rc.perFrameBandwidthTargetBits())
+	afRatio := int(rc.afRatioOnePassVBR)
+	if afRatio <= 0 {
+		afRatio = encoder.DefaultAFRatioOnePassVBR
 	}
 	interval := int(rc.baselineGFInterval)
 	if interval <= 0 {
 		interval = (encoder.MinGFInterval + encoder.MaxGFInterval) >> 1
 	}
-	if rc.minGFInterval > 0 && interval < int(rc.minGFInterval) {
-		interval = int(rc.minGFInterval)
+	den := int64(interval) + int64(afRatio) - 1
+	var target int64
+	if vp9BoostedInterRefresh(refreshFlags) {
+		target = int64(rc.bitsPerFrame) * int64(interval) * int64(afRatio)
+	} else {
+		target = int64(rc.bitsPerFrame) * int64(interval)
 	}
-	if rc.maxGFInterval > 0 && interval > int(rc.maxGFInterval) {
-		interval = int(rc.maxGFInterval)
+	if den > 0 {
+		target /= den
 	}
-	afRatio := int(rc.afRatioOnePassVBR)
-	if afRatio <= 0 {
-		afRatio = encoder.DefaultAFRatioOnePassVBR
-	}
-	den := interval + afRatio - 1
-	if den <= 0 {
-		return rc.applyVP9MaxInterBound(rc.clampPFrameTargetBits(rc.bitsPerFrame))
-	}
-	target := int64(rc.bitsPerFrame) * int64(interval) * int64(afRatio)
-	target /= int64(den)
 	if target > int64(maxInt()) {
 		target = int64(maxInt())
 	}
@@ -584,7 +589,7 @@ func (rc *vp9RateControlState) setRateCorrectionFactor(intraOnly bool, refreshFl
 	rc.rateCorrectionFactors[level] = min(max(factor, encoder.MinBPBFactor), encoder.MaxBPBFactor)
 }
 
-func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, cyclic *encoder.CyclicRefreshState) {
+func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, cyclic *encoder.CyclicRefreshState, dampedRFLevel int) {
 	if actualBits <= 0 || macroblocks <= 0 {
 		return
 	}
@@ -593,7 +598,13 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 	} else if qindex > 255 {
 		qindex = 255
 	}
-	level := rc.rateFactorLevel(intraOnly, refreshFlags)
+	// libvpx indexes damped_adjustment by the gf_group rf_level
+	// (cpi->twopass.gf_group.rf_level[cpi->twopass.gf_group.index]), NOT by
+	// the frame-type rate-factor level used for the rate_correction_factors
+	// get/set. In one-pass mode the gf_group is never populated, so this is
+	// always INTER_NORMAL regardless of frame type; threading it in keeps the
+	// two-pass path on its real rf_level.
+	// libvpx: vp9/encoder/vp9_ratectrl.c:755-756, 784-786.
 	rateCorrectionFactor := rc.rateCorrectionFactor(intraOnly, refreshFlags)
 	projectedBits := encoder.EstimatedBitsAtQ(intraOnly, qindex, macroblocks, rateCorrectionFactor)
 	if cyclic != nil && cyclic.Enabled && cyclic.Apply && !intraOnly {
@@ -604,10 +615,10 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 		correctionFactor = int((100 * int64(actualBits)) / int64(projectedBits))
 	}
 	adjustmentLimit := 1.0
-	if rc.dampedAdjustment[level] {
+	if rc.dampedAdjustment[dampedRFLevel] {
 		adjustmentLimit = 0.25 + 0.5*math.Min(1, math.Abs(math.Log10(0.01*float64(correctionFactor))))
 	} else {
-		rc.dampedAdjustment[level] = true
+		rc.dampedAdjustment[dampedRFLevel] = true
 	}
 
 	rc.q2Frame = rc.q1Frame
