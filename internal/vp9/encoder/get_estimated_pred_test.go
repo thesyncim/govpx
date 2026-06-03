@@ -68,7 +68,9 @@ func TestVP9BuildEstimatedPredLuma64x64ZeroMVCopy(t *testing.T) {
 		}
 	}
 	estPred := make([]uint8, 64*64)
-	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 0})
+	// Edges = 0: the spel border slack (>= 1072 Q4) keeps the small test
+	// MVs below unclamped, so this exercises the identity copy path.
+	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 0}, 0, 0, 0, 0)
 	for y := range 64 {
 		for x := range 64 {
 			want := ref[y*stride+x]
@@ -94,7 +96,8 @@ func TestVP9BuildEstimatedPredLuma64x64FullPelShift(t *testing.T) {
 	}
 	estPred := make([]uint8, 64*64)
 	// MV in 1/8-pel: col=64 -> Q4 col=128 -> full-pel offset 8.
-	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 64})
+	// Edges = 0: spel_right slack (1072 Q4) > 128, so col stays unclamped.
+	BuildEstimatedPredLuma64x64(estPred, ref, 0, stride, decoder.MV{Row: 0, Col: 64}, 0, 0, 0, 0)
 	// pre += (col_q4 >> 4) = 8 -> ref[y][8..71] -> estPred[y][0..63].
 	for y := range 64 {
 		for x := range 64 {
