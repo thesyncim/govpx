@@ -42,6 +42,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
 		if forcedIntra {
 			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+			// libvpx vp9_pickmode.c:2644-2645 — intra blocks park mv[0]/mv[1]
+			// at INVALID_MV for the NEWMV-diff-bias neighbour check.
+			cur.Mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
 			cur.InterpFilter = uint8(vp9dec.SwitchableFilters)
 			intra, ok := e.pickVP9ForcedInterIntraMode(inter, tile,
 				miRows, miCols, miRow, miCol, reconBsize, cur.TxSize)

@@ -17,6 +17,14 @@ type MV struct {
 	Col int16
 }
 
+// InvalidMV mirrors libvpx's INVALID_MV (0x80008000) read as an int_mv.
+// Its as_int layout is {row, col} = {(int16)0x8000, (int16)0x8000}, i.e.
+// {-32768, -32768}. libvpx parks intra-coded blocks' mv[0]/mv[1] at this
+// sentinel (vp9/encoder/vp9_pickmode.c:2644-2645) so neighbour-MV consumers
+// such as vp9_NEWMV_diff_bias can reject it via the
+// `mv[0].as_int != INVALID_MV` check (vp9_pickmode.c:1327,1332).
+var InvalidMV = MV{Row: int16(-0x8000), Col: int16(-0x8000)}
+
 // ReadMvComponent mirrors libvpx's read_mv_component.
 //
 // Decodes one axis of an MV delta. The encoded value is sign-magnitude

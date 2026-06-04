@@ -310,17 +310,17 @@ func NewmvDiffBias(thisMode common.PredictionMode, rdCost uint64,
 		//     above_row = xd->above_mi->mv[0].as_mv.row;
 		//     above_col = xd->above_mi->mv[0].as_mv.col;
 		//   }
-		// libvpx's INVALID_MV literal is 0x80008000; govpx neighbour MVs are
-		// always valid when the neighbour MI exists (the encoder zeroes the
-		// MV slot when the neighbour is intra), so the validity check
-		// reduces to (aboveMi != nil).
-		if aboveMi != nil {
+		// libvpx's INVALID_MV literal is 0x80008000. Intra-coded neighbours
+		// park mv[0] at INVALID_MV (vp9_pickmode.c:2644-2645), so above_mv_valid
+		// is FALSE for an intra above neighbour and that block's (0,0) MV does
+		// NOT enter the al_mv average — matching libvpx exactly.
+		if aboveMi != nil && aboveMi.Mv[0] != vp9dec.InvalidMV {
 			aboveMvValid = true
 			aboveRow = int(aboveMi.Mv[0].Row)
 			aboveCol = int(aboveMi.Mv[0].Col)
 		}
 		// libvpx: vp9_pickmode.c:1327-1331 — read left neighbour MV.
-		if leftMi != nil {
+		if leftMi != nil && leftMi.Mv[0] != vp9dec.InvalidMV {
 			leftMvValid = true
 			leftRow = int(leftMi.Mv[0].Row)
 			leftCol = int(leftMi.Mv[0].Col)

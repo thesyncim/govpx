@@ -114,7 +114,10 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if interDecision.intra {
 		mi.Mode = interDecision.mode
-		mi.Mv = [2]vp9dec.MV{}
+		// libvpx: vp9/encoder/vp9_pickmode.c:2644-2645 — intra winners park
+		// mv[0]/mv[1] at INVALID_MV so the NEWMV-diff-bias neighbour check
+		// (vp9_pickmode.c:1327,1332) rejects them.
+		mi.Mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
 		if interDecision.txSize < common.TxSizes {
@@ -159,7 +162,8 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
 			mi.Mode = intra.mode
-			mi.Mv = [2]vp9dec.MV{}
+			// libvpx vp9_pickmode.c:2644-2645 — intra winner mv sentinel.
+			mi.Mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
 			mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
 			interDecision.intra = true
@@ -396,7 +400,8 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 	}
 	if pickedValid && picked.intra {
 		mi.Mode = picked.mode
-		mi.Mv = [2]vp9dec.MV{}
+		// libvpx vp9_pickmode.c:2644-2645 — intra winner mv sentinel.
+		mi.Mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
 		if picked.txSize < common.TxSizes {
