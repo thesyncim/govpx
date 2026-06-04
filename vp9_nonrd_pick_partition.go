@@ -1009,8 +1009,11 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 	var distortion uint64
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rate += encoder.PartitionRateCost(rateCostProbs, ctx,
-		common.PartitionSplit, hasRows, hasCols)
+	// libvpx nonrd_pick_partition adds the unconditional full-tree
+	// cpi->partition_cost[pl][PARTITION_SPLIT] (vp9_encodeframe.c:4715), not
+	// the writer's hasRows/hasCols-clamped form. See
+	// vp9_fullrd_partition_cost.go.
+	rate += RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit)
 	if child < common.Block8x8 {
 		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
 			miRow, miCol, child)
