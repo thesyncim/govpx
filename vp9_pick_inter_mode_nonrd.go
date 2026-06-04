@@ -1052,19 +1052,32 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 
 		// libvpx: vp9_pickmode.c:2318-2330 — pred_filter_search. When the
-		// MV has subpel bits and pred_filter_search is on and the ref is
-		// LAST (or one of the special GOLDEN cases — SVC or VBR — which
-		// govpx does not surface here), libvpx runs search_filter_ref
-		// which sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} (filter_end =
-		// EIGHTTAP_SMOOTH; EIGHTTAP_SHARP is NOT evaluated in the realtime
-		// path). Otherwise libvpx locks to
-		// filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
+		// MV has subpel bits and pred_filter_search is on, libvpx runs
+		// search_filter_ref which sweeps {EIGHTTAP, EIGHTTAP_SMOOTH}
+		// (filter_end = EIGHTTAP_SMOOTH; EIGHTTAP_SHARP is NOT evaluated in
+		// the realtime path). The ref gate is LAST_FRAME, OR GOLDEN_FRAME
+		// when !force_mv_inter_layer && (use_svc || rc_mode == VPX_VBR):
+		//
+		//   if ((this_mode == NEWMV || filter_ref == SWITCHABLE) &&
+		//       pred_filter_search &&
+		//       (ref_frame == LAST_FRAME ||
+		//        (ref_frame == GOLDEN_FRAME && !force_mv_inter_layer &&
+		//         (cpi->use_svc || cpi->oxcf.rc_mode == VPX_VBR))) &&
+		//       (((mi->mv[0].as_mv.row | mi->mv[0].as_mv.col) & 0x07) != 0))
+		//
+		// govpx is single-layer (use_svc == 0, force_mv_inter_layer == 0),
+		// so the GOLDEN leg reduces to rc_mode == VPX_VBR. Otherwise libvpx
+		// locks to filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
 		//
 		// libvpx: vp9_pickmode.c:1523-1525 search_filter_ref filter loop.
 		// libvpx: vp9_pickmode.c:2330 mi->interp_filter fallback.
+		filterSweepRefOK := refFrame == vp9dec.LastFrame ||
+			(refFrame == vp9dec.GoldenFrame &&
+				e.opts.RateControlModeSet &&
+				e.opts.RateControlMode == RateControlVBR)
 		var filters []vp9dec.InterpFilter
 		switch {
-		case predFilterSearch && refFrame == vp9dec.LastFrame &&
+		case predFilterSearch && filterSweepRefOK &&
 			(thisMode == common.NewMv || filterRef == vp9dec.InterpSwitchable) &&
 			vp9MvHasSubpel(mv):
 			filters = vp9NonrdSwitchableInterpFilterOrder[:]

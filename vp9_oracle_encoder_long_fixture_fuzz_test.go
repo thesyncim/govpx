@@ -89,21 +89,32 @@ import (
 //     Closing this requires the full-RD mode + coefficient + partition RD
 //     scoring path, substantial encoder work beyond the speed-feature port.
 //
-//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frames 0 and 1 are
-//     byte-exact (keyframe qidx=29 lf=3 len=3237; first inter qidx=65 lf=10
-//     len=2389). The one-pass-VBR per-frame quantizer feedback that drove the
+//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frames 0-39 are now
+//     byte-exact. The one-pass-VBR per-frame quantizer feedback that drove the
 //     frame-2 BaseQindex/FilterLevel divergence (govpx 113/15 vs libvpx
 //     131/18) was ported: vp9_calc_pframe_target_size_one_pass_vbr now scales
 //     non-boosted inter targets by baseline_gf_interval/(gf_interval+af_ratio-1)
 //     (vp9_ratectrl.c:2027-2045), and vp9_rc_update_rate_correction_factors now
 //     indexes damped_adjustment[] by the one-pass gf_group rf_level
 //     (INTER_NORMAL) instead of the frame-type level (vp9_ratectrl.c:755-756,
-//     784-786). With those ports frame 2 now selects the same BaseQindex=131 /
-//     FilterLevel=18 as libvpx. The residual frame-2 byte gap (govpx 1255 vs
-//     libvpx 1219 at identical q/lf, first_partition_size 34 vs 37) is a
-//     downstream encoder difference in the mode/coefficient-count payload, not
-//     rate control; closing it requires the full-RD/coef-update path owned
-//     elsewhere.
+//     784-786). With those ports frame 2 selected the same BaseQindex=131 /
+//     FilterLevel=18 as libvpx. The residual frame-2 mode/coefficient gap
+//     (govpx 1255 vs libvpx 1219, first_partition_size 34 vs 37) was then
+//     closed: the non-RD pred_filter_search ref gate
+//     (vp9_pickmode.c:2318-2323) sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} not only
+//     for LAST_FRAME but also for GOLDEN_FRAME when
+//     !force_mv_inter_layer && (use_svc || rc_mode == VPX_VBR). govpx only
+//     surfaced the LAST_FRAME leg, so under VBR it scored every GOLDEN NEWMV
+//     subpel candidate with EIGHTTAP only; at frame 2 block (mi 0,1) this made
+//     LAST+NEWMV (filt=smooth, score 25790474) beat GOLDEN+NEWMV (filt locked
+//     EIGHTTAP, score 26088304), whereas libvpx swept GOLDEN to EIGHTTAP_SMOOTH
+//     (score 24657805) and picked GOLDEN. Adding the GOLDEN-under-VBR leg to
+//     the filter-sweep ref gate (force_mv_inter_layer / use_svc are SVC-only,
+//     0 here) makes the candidate decision byte-exact. The remaining
+//     divergence is at frame 40, a golden-refresh frame (refresh_frame_flags
+//     0x3) where govpx regulates BaseQindex=94/FilterLevel=12 vs libvpx 120/16
+//     — a one-pass-VBR golden-boost / quantizer drift gap, not yet
+//     root-caused, distinct from the closed non-RD filter-sweep issue.
 //
 //   - {1,1,1,1,0} — VBR 700kbps kf=30 good-quality cpu8. Same compressed-
 //     header gap as the previous seed plus the GoodQuality speed-features
