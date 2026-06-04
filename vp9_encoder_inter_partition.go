@@ -1529,11 +1529,23 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeSta
 }
 
 func vp9InterModeDecisionMi(bsize common.BlockSize, decision vp9InterModeDecision) vp9dec.NeighborMi {
+	mv := decision.mv
+	if decision.intra {
+		// libvpx: vp9/encoder/vp9_pickmode.c:2644-2645 — when the intra
+		// fallback wins inside vp9_pick_inter_mode, libvpx parks both MV
+		// slots at INVALID_MV (mi->mv[0] = mi->mv[1] = INVALID_MV). The MV
+		// is never read for intra blocks via the ref-frame-guarded
+		// ADD_MV_REF_LIST scan, but vp9_NEWMV_diff_bias inspects raw
+		// neighbour mv[0] and rejects INVALID_MV (vp9_pickmode.c:1327,1332),
+		// so this sentinel keeps that bias's above/left validity check
+		// byte-exact with libvpx.
+		mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
+	}
 	mi := vp9dec.NeighborMi{
 		SbType:       bsize,
 		Mode:         decision.mode,
 		RefFrame:     [2]int8{decision.refFrame, decision.secondRefFrame},
-		Mv:           decision.mv,
+		Mv:           mv,
 		Bmi:          decision.bmi,
 		InterpFilter: uint8(decision.interpFilter),
 	}

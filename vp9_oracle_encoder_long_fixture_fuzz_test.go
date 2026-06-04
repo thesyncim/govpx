@@ -79,10 +79,31 @@ import (
 //     vp9_pick_inter_mode result directly; its only intra evaluation is the
 //     inter-mode picker's own intra fallback (vp9_pickmode.c:2527-2648), which
 //     already declined intra here. Gated the residue-time pickVP9InterIntraMode
-//     on !vp9InterUsesNonrdPickmode(). Frames 0-80 are now byte-exact; the new
-//     frontier is frame 81, a golden-refresh frame (frames_since_golden=0) where
-//     the legitimate nonrd intra fallback fires at blocks (0,5) and (3,4) — a
-//     distinct golden-refresh divergence not yet root-caused.
+//     on !vp9InterUsesNonrdPickmode(). The frame-81 divergence (a golden-refresh
+//     frame) was then closed: govpx stored intra-coded blocks' neighbour MV slot
+//     as (0,0), but libvpx parks intra winners at INVALID_MV (0x80008000) inside
+//     vp9_pick_inter_mode (vp9_pickmode.c:2644-2645) and again at the segment-
+//     forced / RD intra-fallback sites. At frame 81 block (1,5), the NEWMV-diff-
+//     bias (vp9_pickmode.c:1309-1372, gated CBR+speed>=5) averages the above/left
+//     neighbour MVs but skips slots equal to INVALID_MV (vp9_pickmode.c:1327,
+//     1332). The above neighbour (0,5) was intra; libvpx therefore averaged only
+//     the left MV (34,216) → col_diff=2, no bias, and NEWMV (mv 60,214) won. govpx
+//     treated the intra above as valid (0,0), averaged to (17,108) → col_diff=-106
+//     > 48, fired the 3/2 RDCost penalty (28921603 → 43382404), and lost NEWMV to
+//     NEARESTMV (30119807). Fixed by adding decoder.InvalidMV and parking intra
+//     leaves' mv[0]/mv[1] at it in vp9InterModeDecisionMi + the residue-pass intra
+//     commits (vp9_encoder_residue.go) + the forced-intra path
+//     (vp9_encoder_mode_block.go), and making NewmvDiffBias reject INVALID_MV
+//     neighbours (mv_pred.go) — verbatim with libvpx's `!= INVALID_MV` check. The
+//     INVALID_MV sentinel is never read for intra blocks via the ref-frame-guarded
+//     ADD_MV_REF_LIST scan, so MV-ref stacks and prev-frame temporal MVs are
+//     unaffected. Frames 0-85 are now byte-exact; the new frontier is frame 86,
+//     another golden-refresh frame, where block (3,4) picks NEARESTMV mv (8,14) in
+//     govpx but NEARMV in libvpx — libvpx's find_mv_refs near candidate resolves to
+//     (8,14) (== nearest, a duplicate) whereas govpx's frame_mv[NEARMV][LAST] is
+//     (6,266). This is a reference-MV-stack (find_mv_refs) candidate-order/value
+//     divergence at (3,4), distinct from the closed intra-MV-sentinel issue, not
+//     yet root-caused.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
