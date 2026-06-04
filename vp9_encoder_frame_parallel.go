@@ -354,7 +354,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	parentRefValid := e.refValid
 	parentRefWidth := e.refWidth
 	parentRefHeight := e.refHeight
-	parentRefSignBias := e.refSignBias
+	parentRefFrameIndex := e.refFrameIndex
 	parentPrevFrameMvsValid := e.prevFrameMvsValid
 	parentPrevFrameMvRows := e.prevFrameMvRows
 	parentPrevFrameMvCols := e.prevFrameMvCols
@@ -403,7 +403,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	e.refValid = parentRefValid
 	e.refWidth = parentRefWidth
 	e.refHeight = parentRefHeight
-	e.refSignBias = parentRefSignBias
+	e.refFrameIndex = parentRefFrameIndex
 	e.prevFrameMvsValid = parentPrevFrameMvsValid
 	e.prevFrameMvRows = parentPrevFrameMvRows
 	e.prevFrameMvCols = parentPrevFrameMvCols

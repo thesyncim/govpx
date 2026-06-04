@@ -69,9 +69,24 @@ var vp9RuntimeControlsParityGapSeeds = [][]byte{
 // vp9RuntimeControlsSpeed8ParitySeeds is the subset that byte-matches libvpx
 // with no env flags. Keep it in the regular fuzz seed corpus while the
 // remaining cpu=0/-3 and speed-4 seeds stay in the parity-gap list.
+//
+// The {0, 0, 2, 0, 0, 2, 3, 4} schedule (64x64, frames=4, cpu=-8 / speed 8;
+// frame 1 FORCE_GF, frame 2 FORCE_ALTREF, frame 3 plain inter) was previously
+// a cpu=-8 non-RD parity gap: frame 3 diverged at uncompressed-header byte 3,
+// the ALTREF ref_frame_sign_bias bit (govpx 1, libvpx 0). The encoder used to
+// stamp a per-buffer sign bias of 1 whenever EncodeForceAltRefFrame refreshed
+// the ALTREF slot — a non-libvpx heuristic. libvpx set_ref_sign_bias
+// (vp9/encoder/vp9_encoder.c:4806-4821) instead computes the bias per frame as
+// cur_frame_index < ref_buf->frame_index, and on the one-pass realtime /
+// externally-flag-driven path arf_src_offset (set_frame_index,
+// vp9_encoder.c:5029-5038) is 0, so a FORCE_ALTREF buffer refreshed at an
+// earlier display frame always has a lower frame_index than the frame
+// referencing it: sign bias 0. Porting set_ref_sign_bias verbatim
+// (vp9_encoder_state.go vp9InterRefSignBias) closed the lane byte-exactly.
 var vp9RuntimeControlsSpeed8ParitySeeds = [][]byte{
 	{1, 1, 2, 0, 3, 1, 1, 0},
 	{0x32},
+	{0, 0, 2, 0, 0, 2, 3, 4},
 }
 
 func vp9RuntimeControlsParityGapSeed(data []byte) bool {

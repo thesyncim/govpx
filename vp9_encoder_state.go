@@ -211,12 +211,38 @@ func (e *VP9Encoder) vp9OnePassVBRSourceAltRefOverlay(inter *vp9InterEncodeState
 		e.opts.RateControlMode == RateControlVBR
 }
 
+// vp9InterRefSignBias mirrors libvpx set_ref_sign_bias
+// (vp9/encoder/vp9_encoder.c:4806-4821), invoked from
+// encode_frame_to_data_rate (vp9_encoder.c:5297) for every non
+// show_existing_frame. libvpx computes the per-frame sign bias as
+//
+//	cm->ref_frame_sign_bias[ref_frame] =
+//	    cur_frame_index < ref_cnt_buf->frame_index;
+//
+// where cur_frame_index is the current frame's buffer frame_index and
+// ref_cnt_buf->frame_index is the frame_index stamped on the referenced
+// buffer when it was created (set_frame_index, vp9_encoder.c:5029-5038:
+// frame_index = current_video_frame + arf_src_offset). For the one-pass
+// realtime / non-RD path arf_src_offset is 0, so frame_index ==
+// current_video_frame and the bias is set iff the current frame indexes a
+// reference buffer stamped with a later video frame number. govpx stamps
+// each ref slot with the encoder's frameIndex (current_video_frame) at
+// refresh time, so this reproduces the libvpx comparison exactly.
+//
+// Note: this is NOT the FORCE_ARF flag — libvpx derives the bias purely
+// from frame ordering, so a buffer refreshed under EncodeForceAltRefFrame
+// in display order still gets sign bias 0 when later referenced.
 func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
-	return [3]uint8{
-		e.refSignBias[vp9LastRefSlot],
-		e.refSignBias[vp9GoldenRefSlot],
-		e.refSignBias[vp9AltRefSlot],
+	cur := e.frameIndex
+	var bias [3]uint8
+	for i, slot := range [3]int{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
+		// libvpx guards on ref_cnt_buf != NULL; an unrefreshed slot keeps
+		// the previous value (which defaults to 0 for VP9_COMMON).
+		if e.refValid[slot] && cur < e.refFrameIndex[slot] {
+			bias[i] = 1
+		}
 	}
+	return bias
 }
 
 func vp9EncoderTileInfo(miCols, threads int, log2TileRows int8) vp9dec.TileInfo {
@@ -358,7 +384,12 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 		e.refHeight[slot] = header.Height
 		e.refValid[slot] = true
 		e.refMap[slot] = refMapID
-		e.refSignBias[slot] = vp9EncoderRefreshRefSignBias(slot, header, flags)
+		// libvpx set_frame_index (vp9_encoder.c:5029-5038) stamps the freshly
+		// reconstructed buffer with frame_index = current_video_frame +
+		// arf_src_offset. arf_src_offset is 0 on the one-pass realtime /
+		// non-RD path, so the stamp is just the current video frame number.
+		// vp9InterRefSignBias reads this back to reproduce set_ref_sign_bias.
+		e.refFrameIndex[slot] = e.frameIndex
 		if e.reconFrame.Width != 0 && e.reconFrame.Height != 0 {
 			e.refFrames[slot].store(e.reconFrame)
 		}
@@ -395,16 +426,6 @@ func (e *VP9Encoder) ensureLastBordered() {
 	common.YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
 		common.VP9EncBorderInPixels)
 	e.lastBorderedValid = true
-}
-
-func vp9EncoderRefreshRefSignBias(slot int, header *vp9dec.UncompressedHeader, flags EncodeFlags) uint8 {
-	if header == nil || header.FrameType == common.KeyFrame || header.IntraOnly {
-		return 0
-	}
-	if slot == vp9AltRefSlot && flags&EncodeForceAltRefFrame != 0 {
-		return 1
-	}
-	return 0
 }
 
 func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
