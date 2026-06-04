@@ -370,10 +370,15 @@ func (e *VP9Encoder) pickVP9InterIntraModeCore(inter *vp9InterEncodeState,
 	}
 
 	keyLike := e.vp9InterIntraKeyframeState(inter)
-	sg := common.SizeGroupLookup[bsize]
+	// libvpx scores the Y intra mode inside vp9_rd_pick_inter_mode_sb with
+	// cpi->mbmode_cost[mi->mode] = cost_tokens(fc->y_mode_prob[1])
+	// (vp9_rdopt.c:3864; table built at vp9_rd.c:103). The size-group index is
+	// the literal constant 1 — NOT size_group_lookup[bsize], which only drives
+	// the bitstream writer (write_intra_mode). Keying the RD cost on the
+	// per-bsize size group diverged from libvpx for every block in size group
+	// != 1 (BLOCK_16X16 and larger). See vp9_fullrd_intra.go.
 	var yModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(yModeCosts[:], inter.selectFc.YModeProb[sg][:],
-		common.IntraModeTree[:])
+	vp9FullRDInterIntraYModeCosts(yModeCosts[:], &inter.selectFc)
 
 	bestSet := false
 	var best vp9InterIntraDecision
@@ -417,9 +422,11 @@ func (e *VP9Encoder) pickVP9InterIntraUvMode(key *vp9KeyframeEncodeState,
 	if key == nil || fc == nil || yMode < common.DcPred || int(yMode) >= common.IntraModes {
 		return common.DcPred, 0, 0, false
 	}
+	// libvpx UV intra rate is intra_uv_mode_cost[INTER_FRAME][y_mode][uv_mode]
+	// = cost_tokens(fc->uv_mode_prob[y_mode]) (vp9_rd.c:107-108, consumed at
+	// vp9_rdopt.c:1496). See vp9_fullrd_intra.go.
 	var uvModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(uvModeCosts[:], fc.UvModeProb[yMode][:],
-		common.IntraModeTree[:])
+	vp9FullRDIntraUVModeCosts(uvModeCosts[:], vp9FullRDInterFrame, yMode, fc)
 	bestSet := false
 	bestMode := common.DcPred
 	var bestDist uint64
