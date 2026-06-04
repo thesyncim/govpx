@@ -142,11 +142,44 @@ import (
 //     configurator. At speed 0 use_nonrd_pick_mode == 0 and
 //     partition_search_type == SEARCH_PARTITION, i.e. the full-RD square
 //     partition + RD mode/coefficient decision path
-//     (vp9_encodeframe.c rd_pick_partition, vp9_rd_pick_intra_mode_sb). The
-//     runtime-control cpu=0 lane confirms the very first keyframe diverges in
-//     this RD path (frame 0 byte mismatch at offset 27). Closing this lane
-//     requires that full-RD encoder path, substantial work beyond porting
-//     speed-feature flags.
+//     (vp9_encodeframe.c rd_pick_partition, vp9_rd_pick_intra_mode_sb /
+//     vp9_rd_pick_inter_mode_sb).
+//
+//     SCOUT 2026-06-04 (main 4df8dab8): the KEYFRAME (frame 0) is now
+//     BYTE-EXACT for this seed's exact config (incl. --timebase=1/30):
+//     govpx vs vpxenc-vp9 both 3345 bytes, FirstByteDiff == -1, with
+//     BaseQindex=16, FirstPartitionSize=104, FilterLevel=12 all matching;
+//     pinned by TestVP9EncoderVpxencOracleFullRDCPU0KeyframeByteParity. The
+//     prior "frame 0 byte mismatch at offset 27" note is STALE — the full-RD
+//     keyframe intra + tx + coef RD path was closed by the cost-primitive
+//     sweep. The FIRST divergence is now FRAME 1, the first INTER frame:
+//     frame 1 govpx q=145 fps(FirstPartitionSize)=5  FilterLevel=20
+//     frame 1 libvpx q=145 fps(FirstPartitionSize)=31 FilterLevel=14
+//     BaseQindex matches (rate control through frame-1 q-selection is correct);
+//     the uncompressed-header TxMode=TX_MODE_SELECT(4), ReferenceMode=
+//     SINGLE_REFERENCE(0), InterpFilter=SWITCHABLE(4) and allow_hp all match.
+//     The first BYTE divergence is uncompressed-header byte 4 (the FilterLevel
+//     field: govpx 0xf1 vs libvpx 0xf0), and the FirstPartitionSize bytes 8-9
+//     also differ (govpx 00 14 vs libvpx 00 7c). Both FilterLevel and
+//     FirstPartitionSize are DERIVED quantities: FilterLevel from
+//     vp9_pick_filter_level over the reconstructed frame, FirstPartitionSize
+//     from the compressed-header probability deltas (derived from per-block
+//     mode/mv/coef counts). govpx's tiny FirstPartitionSize=5 vs libvpx's 31
+//     means govpx codes frame 1 as almost all SKIP / zero-residual blocks
+//     while libvpx codes real residual — i.e. the per-block full-RD INTER
+//     mode/MV decisions at frame 1, SB0, block (0,0) diverge upstream.
+//
+//     This is NOT a keyframe issue and NOT a small self-contained fix. It is
+//     the all-or-nothing-per-frame full-RD INTER engine
+//     (vp9_rdopt.c vp9_rd_pick_inter_mode_sb + single_motion_search:2673 +
+//     full_pixel_diamond @ vp9_mcomp.c:2487 + vp9_get_mvpred_var variance
+//     re-scoring @ :1454, then filter/tx/coef RD accumulation feeding
+//     get_interp_filter @ vp9_encodeframe.c:5846 and the prob deltas). See the
+//     vp9-fullrd-inter-bisection memory note: the verified prerequisite fixes
+//     are step_param=0 for full-RD (vp9_encoder.c:3728 not called on the
+//     no-recode RT path) + the variance-rescoring diamond port; these must all
+//     land together. Closing this seed requires porting the COMPLETE full-RD
+//     inter pipeline to bit-exactness as one effort, beyond a single-fix agent.
 //
 // Reverting any entry here must be paired with the corresponding direct libvpx
 // port.
