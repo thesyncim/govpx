@@ -58,6 +58,14 @@ type vp9RateControlState struct {
 	minGFInterval uint8
 	maxGFInterval uint8
 
+	// resolvedMinGFInterval / resolvedMaxGFInterval mirror libvpx's
+	// rc->min_gf_interval / rc->max_gf_interval after
+	// vp9_rc_set_gf_interval_range applies the framerate-derived defaults and
+	// any control overrides. vp9_set_gf_update_one_pass_vbr reads them to
+	// re-derive the per-golden-group baseline interval.
+	resolvedMinGFInterval int
+	resolvedMaxGFInterval int
+
 	// framePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST. When set,
 	// the active-best Q is reduced harder on periodic GF/ALTREF refreshes.
 	framePeriodicBoost bool
@@ -152,6 +160,16 @@ type vp9RateControlState struct {
 	baselineGFInterval  uint8
 	facActiveWorstInter uint16
 	facActiveWorstGF    uint16
+
+	// rollingTargetBits / rollingActualBits mirror libvpx
+	// RATE_CONTROL::rolling_target_bits / rolling_actual_bits: short rolling
+	// EMA monitors of per-frame target vs. coded size, seeded at
+	// avg_frame_bandwidth and updated only on inter frames
+	// (vp9_ratectrl.c:392-393, 1931-1934). vp9_set_gf_update_one_pass_vbr
+	// reads their ratio (rate_err) to adjust the one-pass-VBR golden interval
+	// and gf boost once current_video_frame > 30 (vp9_ratectrl.c:2090-2110).
+	rollingTargetBits int
+	rollingActualBits int
 
 	// gfuBoost mirrors libvpx's rc->gfu_boost, the cumulative ARF/GF group
 	// boost computed by define_gf_group via compute_arf_boost. govpx
@@ -775,7 +793,18 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
 		maxInterval = minInterval
 	}
+	rc.resolvedMinGFInterval = minInterval
+	rc.resolvedMaxGFInterval = maxInterval
 	rc.baselineGFInterval = uint8((minInterval + maxInterval) >> 1)
+	// libvpx seeds the rolling monitors at avg_frame_bandwidth in vp9_rc_init
+	// (vp9_ratectrl.c:392-393). Mirror that once the per-frame bandwidth is
+	// known; leave any non-zero (already-running) values untouched so a
+	// runtime config change does not reset the EMA mid-stream.
+	if rc.rollingTargetBits == 0 && rc.rollingActualBits == 0 &&
+		rc.bitsPerFrame > 0 {
+		rc.rollingTargetBits = rc.bitsPerFrame
+		rc.rollingActualBits = rc.bitsPerFrame
+	}
 }
 
 // beginFrameWithRefresh is the beginFrame variant that lets CBR mode apply
@@ -862,6 +891,7 @@ func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qi
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks, cyclic, dampedRFLevel)
 	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
 	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
+	rc.updateRollingBits(intraOnly, encodedBits)
 	rc.postOnePassVBRRefresh(refreshFlags)
 	rc.postOnePassCBRGoldenCadence(refreshFlags)
 	rc.decrementFramesToKey(showFrame)

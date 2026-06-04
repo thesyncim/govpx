@@ -369,12 +369,21 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 		if rc.framesSinceKey > 1 {
 			qBasis = min(int(rc.avgFrameQIndexInter), activeWorst)
 		}
+		// libvpx get_gf_active_quality indexes the GF min-q tables by
+		// rc->gfu_boost (vp9_ratectrl.c:906-919); for the one-pass VBR path
+		// rc->gfu_boost is (re)computed per golden group by
+		// vp9_set_gf_update_one_pass_vbr, so thread the live boost through
+		// instead of the DEFAULT_GF_BOOST=2000 default.
+		gfBoost := int(rc.gfuBoost)
+		if gfBoost <= 0 {
+			gfBoost = encoder.DefaultGFBoost
+		}
 		switch rc.mode {
 		case RateControlCQ:
 			if qBasis < cqLevel {
 				qBasis = cqLevel
 			}
-			activeBest = (encoder.GFActiveQuality(qBasis) * 15) >> 4
+			activeBest = (encoder.GFActiveQualityWithBoost(qBasis, gfBoost) * 15) >> 4
 		case RateControlQ:
 			num := 1
 			den := 2
@@ -385,7 +394,7 @@ func (rc *vp9RateControlState) vbrActiveQuantizerBounds(intraOnly bool, refreshF
 			activeBest = max(cqLevel+encoder.ComputeQDelta(best, worst,
 				cqLevel, num, den), best)
 		default:
-			activeBest = encoder.GFActiveQuality(qBasis)
+			activeBest = encoder.GFActiveQualityWithBoost(qBasis, gfBoost)
 		}
 	} else if rc.mode == RateControlQ {
 		num, den := encoder.PublicQModeInterRate(frameIndex)
@@ -460,8 +469,88 @@ func (rc *vp9RateControlState) activeCQLevelOnePass() int {
 	return level
 }
 
-func (rc *vp9RateControlState) onePassVBRGoldenRefreshDue() bool {
-	return rc.enabled && rc.mode != RateControlCBR && rc.framesTillGF == 0
+// updateRollingBits mirrors the inter-frame rolling-monitor EMA update in
+// vp9_rc_postencode_update (vp9_ratectrl.c:1929-1939). Only inter frames feed
+// the short rolling_{target,actual}_bits monitors; intra-only frames leave
+// them unchanged. ROUND64_POWER_OF_TWO(x, 2) == (x + 2) >> 2.
+func (rc *vp9RateControlState) updateRollingBits(intraOnly bool, encodedBits int) {
+	if rc == nil || !rc.enabled || intraOnly {
+		return
+	}
+	rc.rollingTargetBits = int((int64(rc.rollingTargetBits)*3 +
+		int64(rc.frameTargetBits) + 2) >> 2)
+	rc.rollingActualBits = int((int64(rc.rollingActualBits)*3 +
+		int64(encodedBits) + 2) >> 2)
+}
+
+// setGFUpdateOnePassVBR ports libvpx vp9_set_gf_update_one_pass_vbr
+// (vp9_ratectrl.c:2077-2127) for the non-SVC, non-cyclic-refresh one-pass VBR
+// path. When the golden countdown reaches zero it recomputes the GF interval,
+// af_ratio, and gfu_boost for the new golden group, re-seeds the countdown,
+// and arms refresh_golden_frame. Once current_video_frame > 30 the gfu_boost
+// and af_ratio are damped by avg_frame_low_motion (and the rolling-bits
+// rate_err), which lowers the golden-frame target and lifts the regulated q on
+// later golden refreshes. The cyclic-refresh golden-update branch
+// (CYCLIC_REFRESH_AQ) and the altref-onepass arming are SVC/auto-arf only and
+// do not apply to the realtime cpu8 lane here.
+//
+// libvpx: vp9/encoder/vp9_ratectrl.c:2077-2127.
+func (rc *vp9RateControlState) setGFUpdateOnePassVBR(currentVideoFrame int) {
+	if rc == nil || !rc.enabled || rc.mode == RateControlCBR {
+		return
+	}
+	if rc.framesTillGF != 0 {
+		return
+	}
+	rateErr := 1.0
+	rc.gfuBoost = uint16(encoder.DefaultGFBoost)
+	// Non-cyclic-refresh path: baseline_gf_interval =
+	// VPXMIN(20, VPXMAX(10, (min_gf_interval + max_gf_interval) / 2)).
+	baseline := min(20, max(10, (rc.resolvedMinGFInterval+rc.resolvedMaxGFInterval)/2))
+	rc.afRatioOnePassVBR = 10
+	if rc.rollingTargetBits > 0 {
+		rateErr = float64(rc.rollingActualBits) / float64(rc.rollingTargetBits)
+	}
+	if currentVideoFrame > 30 {
+		worst := int(rc.worstQuality)
+		if int(rc.avgFrameQIndexInter) > (7*worst)>>3 && rateErr > 3.5 {
+			baseline = min(15, (3*baseline)>>1)
+		} else if rc.avgFrameLowMotion > 0 && rc.avgFrameLowMotion < 20 {
+			baseline = max(6, baseline>>1)
+		}
+		if rc.avgFrameLowMotion > 0 {
+			boost := encoder.DefaultGFBoost * (rc.avgFrameLowMotion << 1) /
+				(rc.avgFrameLowMotion + 100)
+			if boost < 500 {
+				boost = 500
+			}
+			rc.gfuBoost = uint16(boost)
+		} else if rc.avgFrameLowMotion == 0 && rateErr > 1.0 {
+			rc.gfuBoost = uint16(encoder.DefaultGFBoost >> 1)
+		}
+		rc.afRatioOnePassVBR = uint8(min(15, max(5, 3*int(rc.gfuBoost)/400)))
+	}
+	rc.baselineGFInterval = uint8(baseline)
+	// constrain_gf_key_freq_onepass_vbr is 1 by default (vp9_ratectrl.c:424).
+	rc.adjustGFIntFrameConstraint(rc.framesToKey)
+	rc.framesTillGF = rc.baselineGFInterval
+	rc.refreshGoldenFrame = true
+}
+
+// adjustGFIntFrameConstraint ports adjust_gfint_frame_constraint
+// (vp9_ratectrl.c:2058-2075): keep the golden interval consistent with the
+// remaining frames-to-key budget.
+func (rc *vp9RateControlState) adjustGFIntFrameConstraint(frameConstraint int) {
+	gi := int(rc.baselineGFInterval)
+	if frameConstraint <= (7*gi)>>2 && frameConstraint > gi {
+		gi = frameConstraint >> 1
+		if gi < 5 {
+			gi = frameConstraint
+		}
+	} else if gi > frameConstraint {
+		gi = frameConstraint
+	}
+	rc.baselineGFInterval = uint8(gi)
 }
 
 func (rc *vp9RateControlState) setRuntimeOnePassVBRGoldenCadence(prev vp9RateControlState) {
@@ -491,12 +580,15 @@ func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
 	return interval
 }
 
+// postOnePassVBRRefresh mirrors the golden countdown decrement in
+// update_golden_frame_stats (vp9_ratectrl.c:1759-1784): a golden-refresh frame
+// still decrements frames_till_gf_update_due, and so does a non-altref frame;
+// only a pure altref frame leaves the countdown alone. The re-seed itself is
+// performed at frame begin by setGFUpdateOnePassVBR (vp9_ratectrl.c:2115),
+// mirroring libvpx's begin-of-frame vp9_set_gf_update_one_pass_vbr.
 func (rc *vp9RateControlState) postOnePassVBRRefresh(refreshFlags uint8) {
 	if !rc.enabled || rc.mode == RateControlCBR {
 		return
-	}
-	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 && rc.framesTillGF == 0 {
-		rc.framesTillGF = rc.runtimeOnePassVBRGoldenInterval()
 	}
 	if refreshFlags&(1<<vp9GoldenRefSlot) != 0 ||
 		refreshFlags&(1<<vp9AltRefSlot) == 0 {

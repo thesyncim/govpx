@@ -189,12 +189,10 @@ func (e *VP9Encoder) vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 	if mask, ok := e.vp9ExtOverrideRefreshMask(); ok {
 		return mask
 	}
-	refresh := vp9InterRefreshFrameFlags(flags)
-	if flags&vp9ExternalRefreshCtlFlags == 0 &&
-		e.rc.onePassVBRGoldenRefreshDue() {
-		refresh |= 1 << vp9GoldenRefSlot
-	}
-	return refresh
+	// The one-pass VBR golden refresh bit is now armed by
+	// setGFUpdateOnePassVBR via rc.refreshGoldenFrame (caller ORs it into the
+	// mask), mirroring libvpx's begin-of-frame vp9_set_gf_update_one_pass_vbr.
+	return vp9InterRefreshFrameFlags(flags)
 }
 
 func vp9InterFrameContextIdx(refreshFlags uint8) uint8 {

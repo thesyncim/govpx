@@ -110,6 +110,17 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.rc.prepareOnePassCBRCyclicGoldenFrame(isKey, intraOnly,
 		e.opts.AQMode, &e.cyclicAQ, e.opts.GFCBRBoostPct,
 		e.extRefresh.flagsPending)
+	// libvpx vp9_rc_get_one_pass_vbr_params (vp9_ratectrl.c:2143) runs
+	// vp9_set_gf_update_one_pass_vbr for every frame (key or inter): when the
+	// golden countdown reaches zero it recomputes the GF interval / af_ratio /
+	// gfu_boost for the new group, re-seeds the countdown, and arms
+	// refresh_golden_frame. The external-refresh override path keeps the
+	// caller-supplied mask authoritative.
+	if e.rc.enabled && e.rc.mode != RateControlCBR && !intraOnly &&
+		!e.twoPass.enabled() && flags&vp9ExternalRefreshCtlFlags == 0 {
+		e.rc.refreshGoldenFrame = false
+		e.rc.setGFUpdateOnePassVBR(e.frameIndex)
+	}
 	refreshFlags := uint8(0xff)
 	if !isKey {
 		refreshFlags = e.vp9InterRefreshFrameFlags(flags)
