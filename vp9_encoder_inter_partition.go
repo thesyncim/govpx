@@ -203,16 +203,17 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		miRow, miCol, root)
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	bestSize := root
+	// libvpx scores partition candidates with the unconditional full-tree
+	// cost (cpi->partition_cost[pl][type]); the hasRows/hasCols-clamped form
+	// is only for the bitstream writer. See vp9_fullrd_partition_cost.go.
 	bestScore := e.vp9AddModeDecisionRate(full.score,
-		encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionNone,
-			hasRows, hasCols), qindex)
+		RDPartitionCost(rateCostProbs, ctx, common.PartitionNone), qindex)
 
 	if hasRows {
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionHorz,
-					hasRows, hasCols), qindex)
+				RDPartitionCost(rateCostProbs, ctx, common.PartitionHorz), qindex)
 			if score < bestScore {
 				bestScore = score
 				bestSize = horzSize
@@ -223,8 +224,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionVert,
-					hasRows, hasCols), qindex)
+				RDPartitionCost(rateCostProbs, ctx, common.PartitionVert), qindex)
 			if score < bestScore {
 				bestScore = score
 				bestSize = vertSize
@@ -235,8 +235,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
 			miRows, miCols, miRow, miCol, splitSize); ok {
 			score = e.vp9AddModeDecisionRate(score,
-				encoder.PartitionRateCost(rateCostProbs, ctx, common.PartitionSplit,
-					hasRows, hasCols), qindex)
+				RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit), qindex)
 			if score < bestScore {
 				bestSize = splitSize
 			}
@@ -1187,8 +1186,11 @@ func (e *VP9Encoder) scoreVP9InterPartitionNone(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rd.rate += encoder.PartitionRateCost(rateCostProbs, ctx,
-		common.PartitionNone, hasRows, hasCols)
+	// libvpx rd_pick_partition adds the UNCONDITIONAL full-tree partition
+	// cost (cpi->partition_cost[pl][PARTITION_NONE], vp9_encodeframe.c:3826),
+	// not the writer's hasRows/hasCols-clamped form. See
+	// vp9_fullrd_partition_cost.go.
+	rd.rate += RDPartitionCost(rateCostProbs, ctx, common.PartitionNone)
 	rd.score = e.vp9InterModeScore(rd.distortion, rd.rate, qindex)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
 		common.PartitionNone, root)
@@ -1220,7 +1222,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionRect(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rate += encoder.PartitionRateCost(rateCostProbs, ctx, partition, hasRows, hasCols)
+	// libvpx rd_pick_partition uses the unconditional full-tree partition
+	// cost for HORZ/VERT (cpi->partition_cost[pl][partition],
+	// vp9_encodeframe.c:4035, :4085), not the writer's clamped form.
+	rate += RDPartitionCost(rateCostProbs, ctx, partition)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root, partition, child)
 	return vp9InterPartitionRD{
 		target:     child,
@@ -1265,8 +1270,10 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	}
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
-	rate += encoder.PartitionRateCost(rateCostProbs, ctx,
-		common.PartitionSplit, hasRows, hasCols)
+	// libvpx rd_pick_partition adds the unconditional full-tree PARTITION_SPLIT
+	// cost (cpi->partition_cost[pl][PARTITION_SPLIT], vp9_encodeframe.c:3969),
+	// not the writer's clamped form.
+	rate += RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit)
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
 		common.PartitionSplit, child)
 	return vp9InterPartitionRD{

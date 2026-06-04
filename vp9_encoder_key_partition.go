@@ -242,8 +242,11 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		if partition == common.PartitionNone {
 			rd.target = root
 		}
-		rd.rate += encoder.PartitionRateCost(partitionProbs, ctx, partition,
-			hasRows, hasCols)
+		// libvpx rd_pick_partition adds cpi->partition_cost[pl][partition], the
+		// unconditional full-tree cost (vp9_encodeframe.c:3826/3969/4035/4085),
+		// not the writer's hasRows/hasCols-clamped form. See
+		// vp9_fullrd_partition_cost.go.
+		rd.rate += RDPartitionCost(partitionProbs, ctx, partition)
 		rd.score = encoder.RDCost(rdmult, encoder.RDDivBits, rd.rate,
 			rd.distortion)
 		improved := !bestSet || rd.score < best.score
@@ -293,8 +296,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		}
 	}
 	if horzAllowed && (doRect || vp9ActiveHEdge(miRow, bs, miRows)) {
-		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
-			common.PartitionHorz, hasRows, hasCols)
+		partRate := RDPartitionCost(partitionProbs, ctx, common.PartitionHorz)
 		consider(common.PartitionHorz, e.vp9KeyframeRDPartitionRectBestRD(
 			rdmult, bestRD, best, bestSet, partRate),
 			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
@@ -309,8 +311,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		}
 	}
 	if vertAllowed && (doRect || vp9ActiveVEdge(miCol, bs, miCols)) {
-		partRate := encoder.PartitionRateCost(partitionProbs, ctx,
-			common.PartitionVert, hasRows, hasCols)
+		partRate := RDPartitionCost(partitionProbs, ctx, common.PartitionVert)
 		consider(common.PartitionVert, e.vp9KeyframeRDPartitionRectBestRD(
 			rdmult, bestRD, best, bestSet, partRate),
 			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
@@ -362,8 +363,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 	}
 	committed.partition = best.partition
 	committed.target = best.target
-	committed.rate += encoder.PartitionRateCost(partitionProbs, ctx, best.partition,
-		hasRows, hasCols)
+	committed.rate += RDPartitionCost(partitionProbs, ctx, best.partition)
 	committed.score = encoder.RDCost(rdmult, encoder.RDDivBits, committed.rate,
 		committed.distortion)
 	if store {
@@ -613,8 +613,6 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 		rdmult = e.getVP9TPLRDMultDelta(miRow, miCol, 1, 1, rdmult)
 	}
 	bsl := int(common.BWidthLog2Lookup[common.Block8x8])
-	hasRows := miRow < miRows
-	hasCols := miCol < miCols
 
 	bestSize := common.BlockInvalid
 	bestScore := uint64(^uint64(0))
@@ -638,7 +636,9 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8RDPartitionBlockSize(key *vp9KeyframeE
 			partition == common.PartitionVert) {
 			continue
 		}
-		partRate := encoder.PartitionRateCost(&probs, ctx, partition, hasRows, hasCols)
+		// Unconditional full-tree partition cost (cpi->partition_cost[pl][type]),
+		// matching libvpx rd_pick_partition. See vp9_fullrd_partition_cost.go.
+		partRate := RDPartitionCost(&probs, ctx, partition)
 		refBestRD := uint64(^uint64(0))
 		if bestValid {
 			refRate := bestRate
