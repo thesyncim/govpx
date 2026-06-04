@@ -67,7 +67,16 @@ func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
 	assertVP9FilledFrameWithin(t, frame, 96, 80, 201, 44, 19, 64)
 }
 
-func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
+// TestVP9EncoderInterSceneCutLeafMatchesNonrdPicker pins the libvpx-faithful
+// nonrd decision for a hard scene cut (black keyframe followed by a flat-gray
+// 64x64 inter frame). The default govpx encoder runs cpu_used=8 REALTIME, where
+// sf->use_nonrd_pick_mode == 1 and sf->max_intra_bsize == BLOCK_32X32
+// (vp9_speed_features.c:571). The 64x64 leaf therefore never enters
+// vp9_pick_inter_mode's intra fallback (gated by bsize <= max_intra_bsize at
+// vp9_pickmode.c:2533), and the nonrd path performs no second intra re-decode
+// (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435). vpxenc v1.16.0 confirms
+// the leaf is coded inter LAST NEARESTMV here, not intra.
+func TestVP9EncoderInterSceneCutLeafMatchesNonrdPicker(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
 	keySrc := vp9test.NewYCbCr(width, height, 0, 0, 0)
@@ -82,16 +91,19 @@ func TestVP9EncoderInterPicksIntraBlockForSceneCut(t *testing.T) {
 	}
 
 	d := decodeVP9KeyInterForTest(t, key, inter)
-	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.IntraFrame ||
-		got.Mode != common.DcPred || got.Skip != 1 {
-		t.Fatalf("top-left inter-frame intra = ref %d mode %d skip %d, want IntraFrame/DcPred skip=1",
+	if got := d.miGrid[0]; got.RefFrame[0] != vp9dec.LastFrame ||
+		got.Mode != common.NearestMv {
+		t.Fatalf("top-left inter-frame leaf = ref %d mode %d skip %d, want LastFrame/NearestMv (inter)",
 			got.RefFrame[0], got.Mode, got.Skip)
 	}
 	frame, ok := d.NextFrame()
 	if !ok {
-		t.Fatal("NextFrame returned !ok after inter-frame intra")
+		t.Fatal("NextFrame returned !ok after inter frame")
 	}
-	assertVP9FilledFrame(t, frame, width, height, 128, 128, 128)
+	// The leaf is inter-predicted from the black keyframe plus a coded
+	// residual, so the reconstructed flat-gray frame lands near (not exactly
+	// at) 128. Allow a small lossy-reconstruction tolerance.
+	assertVP9FilledFrameWithin(t, frame, width, height, 128, 128, 128, 8)
 }
 
 func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
