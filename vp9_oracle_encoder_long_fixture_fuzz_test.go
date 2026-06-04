@@ -69,8 +69,20 @@ import (
 //     model SSE by b_width_log2 + b_height_log2 (per 4x4 sub-block, vp9_pickmode.c
 //     :2351-2353); govpx's NonrdNormalizeSSE shifted by num_pels_log2 (per pixel,
 //     4 bits larger), making the value 16x too small so it spuriously tripped the
-//     <500 skip. Fixed to the 4x4-block shift. Frames 0-57 are now byte-exact; the
-//     remaining divergence is at frame 58, not yet root-caused.
+//     <500 skip. Fixed to the 4x4-block shift. Frames 0-57 are now byte-exact.
+//     The frame-58 divergence was an extra govpx-only intra re-decode: on the
+//     realtime nonrd path govpx ran pickVP9InterIntraMode (a full-RD-style intra
+//     picker) at residue/encode time in prepareVP9InterBlockResidue and let it
+//     override the leaf inter decision — at frame 58 block (5,3) it flipped a
+//     GOLDEN NEARESTMV pick to intra TM_PRED. libvpx's nonrd path
+//     (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435) commits the
+//     vp9_pick_inter_mode result directly; its only intra evaluation is the
+//     inter-mode picker's own intra fallback (vp9_pickmode.c:2527-2648), which
+//     already declined intra here. Gated the residue-time pickVP9InterIntraMode
+//     on !vp9InterUsesNonrdPickmode(). Frames 0-80 are now byte-exact; the new
+//     frontier is frame 81, a golden-refresh frame (frames_since_golden=0) where
+//     the legitimate nonrd intra fallback fires at blocks (0,5) and (3,4) — a
+//     distinct golden-refresh divergence not yet root-caused.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim

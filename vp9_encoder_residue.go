@@ -147,7 +147,15 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 			bsize, mi.TxSize, mi.SegmentID)
 	}
-	if !inter.lossless && !forcedRef {
+	// libvpx routes the realtime nonrd inter frame purely through
+	// vp9_pick_inter_mode (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435),
+	// whose own intra fallback (vp9_pickmode.c:2527-2648) is the only intra
+	// evaluation. There is no second intra re-decode at residue/encode time in
+	// that path, so the picker's committed inter/intra decision is final. Only
+	// the full-RD path (vp9_rd_pick_inter_mode_sb) evaluates intra alongside the
+	// inter modes, which this secondary picker models. Gating on !useNonrd keeps
+	// the nonrd leaf decision untouched here.
+	if !inter.lossless && !forcedRef && !e.vp9InterUsesNonrdPickmode() {
 		if intra, ok := e.pickVP9InterIntraMode(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, interDecision.score); ok {
 			mi.Mode = intra.mode
