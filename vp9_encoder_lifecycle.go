@@ -235,8 +235,14 @@ type VP9Encoder struct {
 	reconU     []byte
 	reconV     []byte
 
-	refFrames   [common.RefFrames]vp9ReferenceFrame
-	refSignBias [common.RefFrames]uint8
+	refFrames [common.RefFrames]vp9ReferenceFrame
+	// refFrameIndex stamps each reference-frame-map slot with the encoder's
+	// frameIndex (current_video_frame) at the moment it was refreshed,
+	// mirroring libvpx set_frame_index (vp9/encoder/vp9_encoder.c:5029-5038).
+	// vp9InterRefSignBias reads it back to reproduce set_ref_sign_bias
+	// (vp9_encoder.c:4806-4821): sign bias is set iff the current frame
+	// references a buffer stamped with a later video-frame number.
+	refFrameIndex [common.RefFrames]int
 
 	// extRefresh mirrors the libvpx VP9_COMP ext_refresh_*_frame and
 	// refresh_*_frame state machine (vp9_encoder.h:650-660). It is

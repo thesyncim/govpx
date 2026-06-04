@@ -1142,7 +1142,10 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		if e.nextRefMapID < lower.refMap[slot] {
 			e.nextRefMapID = lower.refMap[slot]
 		}
-		e.refSignBias[slot] = 0
+		// Imported lower-layer buffers share the current display frame, so
+		// vp9InterRefSignBias yields bias 0 (cur == refFrameIndex), matching
+		// the old per-buffer refSignBias=0.
+		e.refFrameIndex[slot] = e.frameIndex
 	}
 	lowerLayerID := e.opts.SpatialScalability.LayerID
 	if lowerLayerID > 0 {
@@ -1156,7 +1159,7 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		e.refValid[vp9LastRefSlot] = true
 		e.nextRefMapID++
 		e.refMap[vp9LastRefSlot] = e.nextRefMapID
-		e.refSignBias[vp9LastRefSlot] = 0
+		e.refFrameIndex[vp9LastRefSlot] = e.frameIndex
 	}
 	return true
 }
