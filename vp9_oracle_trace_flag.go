@@ -18,6 +18,10 @@ func (e *VP9Encoder) vp9OracleTraceEnabled() bool { return false }
 
 func (e *VP9Encoder) resetVP9OracleRateSelectionTrace() {}
 
+func (e *VP9Encoder) recordVP9FullRDFirstInterMv(int, int, int, int8, int, int) {}
+
+func (e *VP9Encoder) vp9FullRDFirstInterMv() (int, int, bool) { return 0, 0, false }
+
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(int, int, float64, bool, int) {
 }
 
