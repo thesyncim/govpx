@@ -51,6 +51,10 @@ import (
 //     pickVP9InterMvWithOptions*
 //   - vp9_pickmode.c:2269-2278 mode_checked × zero-MV dedup →
 //     pickVP9InterReferenceModeNonRD
+//   - vp9_pickmode.c:2284-2293 pred_mv_sad[LAST] NEWMV-winner refresh,
+//     ordered BEFORE the duplicate-NEARESTMV dedup →
+//     pickVP9InterReferenceModeNonRD (feeds the GOLDEN reference_masking
+//     2× gate at vp9_pickmode.c:2212)
 //   - vp9_pickmode.c:2296-2299 duplicate-NEARESTMV dedup →
 //     pickVP9InterReferenceModeNonRD
 //   - vp9_pickmode.c:2318-2330 switchable filter sweep eligibility.
@@ -1028,26 +1032,37 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 		}
 
-		// libvpx: vp9_pickmode.c:2296-2299 — duplicate-NEARESTMV dedup.
-		//   if (this_mode != NEARESTMV && !comp_pred &&
-		//       frame_mv[this_mode][ref_frame].as_int ==
-		//           frame_mv[NEARESTMV][ref_frame].as_int)
-		//     continue;
-		// Verbatim port using the pre-computed frame_mv table.
-		if thisMode != common.NearestMv && frameMvValid[common.NearestMv][refFrame] {
-			if mv == frameMv[common.NearestMv][refFrame] {
-				continue
-			}
-		}
-
 		// libvpx: vp9_pickmode.c:2284-2293 — refresh pred_mv_sad[LAST]
-		// after NEWMV search so reference masking on later GOLDEN
-		// candidates sees the NEWMV SAD, not just the vp9_mv_pred scan.
+		// after the NEWMV search. CRITICAL ORDERING: libvpx runs this BEFORE
+		// the duplicate-NEARESTMV `continue` at vp9_pickmode.c:2296-2299. When
+		// the LAST/NEWMV search resolves to the same MV as NEARESTMV that
+		// candidate is later pruned as a duplicate, but libvpx has already
+		// committed x->pred_mv_sad[LAST_FRAME] = best_pred_sad from the inline
+		// SAD at the NEWMV winner. Performing this update only after the
+		// duplicate-NEAREST continue (the prior govpx order) loses the
+		// refresh, leaving pred_mv_sad[LAST] at the stale vp9_mv_pred value;
+		// that flips the GOLDEN reference_masking 2x gate
+		// (vp9_pickmode.c:2212, pred_mv_sad[GOLDEN] > pred_mv_sad[LAST] << 1)
+		// for subsequent GOLDEN non-zero-MV candidates, spuriously keeping
+		// GOLDEN NEAREST/NEAR/NEW in the candidate set.
 		if useGoldenNonzeromv && thisMode == common.NewMv &&
 			refFrame == vp9dec.LastFrame {
 			if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
 				bsize, refFrame, mv); ok {
 				predMvSad[vp9dec.LastFrame] = sad
+			}
+		}
+
+		// libvpx: vp9_pickmode.c:2296-2299 — duplicate-NEARESTMV dedup.
+		//   if (this_mode != NEARESTMV && !comp_pred &&
+		//       frame_mv[this_mode][ref_frame].as_int ==
+		//           frame_mv[NEARESTMV][ref_frame].as_int)
+		//     continue;
+		// Verbatim port using the pre-computed frame_mv table. Runs AFTER the
+		// pred_mv_sad[LAST] refresh above so the NEWMV SAD is committed first.
+		if thisMode != common.NearestMv && frameMvValid[common.NearestMv][refFrame] {
+			if mv == frameMv[common.NearestMv][refFrame] {
+				continue
 			}
 		}
 

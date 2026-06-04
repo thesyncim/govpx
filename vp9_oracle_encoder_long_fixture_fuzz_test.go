@@ -34,101 +34,34 @@ import (
 //
 // Deferred seeds:
 //
-//   - {0,0,0,0,0} — CBR 300kbps kf=999 realtime cpu8. Frames 0-11 are now
-//     byte-exact. The earlier frame-1 / frame-4 non-RD inter divergence was
-//     closed: cpu_used=8 (w*h <= 352*288) selects ML_BASED_PARTITION
-//     (vp9_speed_features.c:762-763,825-826), whose nonrd dispatch
-//     (vp9_encodeframe.c:5313-5321, get_estimated_pred + nonrd_pick_partition)
-//     never calls choose_partitioning, so libvpx leaves x->color_sensitivity
-//     at the per-SB reset [0,0] (vp9_encodeframe.c:5245-5246) and
-//     x->variance_low all-zero (only memset/written inside choose_partitioning
-//     @ vp9_encodeframe.c:1336). govpx was running its choose_partitioning
-//     prepass (chroma_check @ vp9_encodeframe.c:1165-1199) for every
-//     non-VAR_BASED path, spuriously flagging color_sensitivity[V] and adding
-//     a UV model-RD term (vp9_pickmode.c:2388-2402) to nonrd inter candidates,
-//     which flipped inter blocks to intra at frame 4. Fixed by gating the
-//     extra stamping pass on REFERENCE_PARTITION only and pinning the
-//     ML_BASED force_skip_low_temp_var lookup to the libvpx all-zero
-//     variance_low result. The frame-10 uncompressed-header refresh_frame_flags
-//     mismatch (govpx 0x1 vs libvpx 0x3) was then closed by porting the
-//     non-cyclic-refresh one-pass CBR golden-frame schedule: with aq_mode=NO_AQ
-//     vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2521-2528) seeds
-//     baseline_gf_interval = (min_gf_interval + max_gf_interval)/2 = (4+16)/2 =
-//     10, so frames_till_gf_update_due fires refresh_golden at frame 10 and
-//     re-seeds 10 (next at frame 20). The frame-12 1-qindex rate-control drift
-//     (govpx base_qindex=144 vs libvpx=145) was then closed by matching libvpx's
-//     IEEE-754 evaluation order in vp9_rc_update_rate_correction_factors: libvpx
-//     computes rate_correction_factor = (rcf * correction_factor) / 100 with the
-//     multiply before the divide-by-100 (vp9_ratectrl.c:814,822), whereas govpx
-//     evaluated rcf *= cf/100 (dividing first), and the accumulated rounding
-//     flipped the regulated q by one at frame 12. The next divergence was at
-//     frame 20 (2nd golden refresh): block (0,0) picked LAST+NEWMV in govpx but
-//     GOLDEN+ZEROMV in libvpx because govpx pruned the GOLDEN reference via the
-//     CBR thresh_skip_golden gate (vp9_pickmode.c:2122-2125). That gate compares
-//     sse_zeromv_normalized against 500, where libvpx normalizes the (LAST,ZEROMV)
-//     model SSE by b_width_log2 + b_height_log2 (per 4x4 sub-block, vp9_pickmode.c
-//     :2351-2353); govpx's NonrdNormalizeSSE shifted by num_pels_log2 (per pixel,
-//     4 bits larger), making the value 16x too small so it spuriously tripped the
-//     <500 skip. Fixed to the 4x4-block shift. Frames 0-57 are now byte-exact.
-//     The frame-58 divergence was an extra govpx-only intra re-decode: on the
-//     realtime nonrd path govpx ran pickVP9InterIntraMode (a full-RD-style intra
-//     picker) at residue/encode time in prepareVP9InterBlockResidue and let it
-//     override the leaf inter decision — at frame 58 block (5,3) it flipped a
-//     GOLDEN NEARESTMV pick to intra TM_PRED. libvpx's nonrd path
-//     (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435) commits the
-//     vp9_pick_inter_mode result directly; its only intra evaluation is the
-//     inter-mode picker's own intra fallback (vp9_pickmode.c:2527-2648), which
-//     already declined intra here. Gated the residue-time pickVP9InterIntraMode
-//     on !vp9InterUsesNonrdPickmode(). The frame-81 divergence (a golden-refresh
-//     frame) was then closed: govpx stored intra-coded blocks' neighbour MV slot
-//     as (0,0), but libvpx parks intra winners at INVALID_MV (0x80008000) inside
-//     vp9_pick_inter_mode (vp9_pickmode.c:2644-2645) and again at the segment-
-//     forced / RD intra-fallback sites. At frame 81 block (1,5), the NEWMV-diff-
-//     bias (vp9_pickmode.c:1309-1372, gated CBR+speed>=5) averages the above/left
-//     neighbour MVs but skips slots equal to INVALID_MV (vp9_pickmode.c:1327,
-//     1332). The above neighbour (0,5) was intra; libvpx therefore averaged only
-//     the left MV (34,216) → col_diff=2, no bias, and NEWMV (mv 60,214) won. govpx
-//     treated the intra above as valid (0,0), averaged to (17,108) → col_diff=-106
-//     > 48, fired the 3/2 RDCost penalty (28921603 → 43382404), and lost NEWMV to
-//     NEARESTMV (30119807). Fixed by adding decoder.InvalidMV and parking intra
-//     leaves' mv[0]/mv[1] at it in vp9InterModeDecisionMi + the residue-pass intra
-//     commits (vp9_encoder_residue.go) + the forced-intra path
-//     (vp9_encoder_mode_block.go), and making NewmvDiffBias reject INVALID_MV
-//     neighbours (mv_pred.go) — verbatim with libvpx's `!= INVALID_MV` check. The
-//     INVALID_MV sentinel is never read for intra blocks via the ref-frame-guarded
-//     ADD_MV_REF_LIST scan, so MV-ref stacks and prev-frame temporal MVs are
-//     unaffected. Frames 0-85 are now byte-exact; the frontier is frame 86.
-//     ROOT-CAUSE (corrected; the earlier find_mv_refs/(3,4) lead was a red
-//     herring — block (3,4)'s NEARESTMV-vs-NEARMV flip is only a DOWNSTREAM
-//     consequence): the single first-diverging block in frame 86 is block
-//     (2,4), where govpx picks GOLDEN+NEARESTMV and libvpx picks
-//     LAST+NEARESTMV. Both resolve the SAME mv (36,264) (a near-tie); only the
-//     reference frame differs. LAST→slot0=frame85, GOLDEN→slot1=frame80;
-//     mv (36,264) (~33 px right of an 8x8 block at pixel x=32 in a 64-wide
-//     frame) points fully OUTSIDE the frame, so BOTH candidates predict from
-//     border-extended reference pixels. find_mv_refs is byte-IDENTICAL across
-//     the govpx encoder, the govpx decoder, and the libvpx-stream decode (verified
-//     neighbour-by-neighbour incl. the INVALID_MV intra neighbour at (0,4)); the
-//     CBR golden-skip gate (sse_zeromv_normalized=120692 >> 500), reference_masking
-//     (pred_mv_sad[G]=5891 < pred_mv_sad[L]<<1=6422), and the bias_golden<<3
-//     mode_rd_thresh gate (frames_since_golden=5>4, applied but best_rdc not below
-//     threshold) all match libvpx and correctly do NOT skip GOLDEN. The divergence
-//     is purely model_rd_for_sb_y (vp9_pickmode.c:2346) scoring: govpx GOLDEN
-//     NEARESTMV score=42241271 (var=596657 sse=598877 dist=75776 rate=132192) vs
-//     LAST NEARESTMV score=42275307 (var=369214 sse=377291 dist=78976 rate=134382),
-//     a 0.08% margin that flips the pick. govpx's ModelRdForSbY is libvpx-verbatim;
-//     the GOLDEN prediction's higher variance but smaller DC residual (sse-var=2220
-//     vs LAST 8077) legitimately yields a lower model dist. Since model_rd + MVs are
-//     byte-faithful, the residual numeric gap must come from the GOLDEN (frame-80)
-//     reference BORDER-EXTENSION / out-of-frame inter-prediction pixels feeding
-//     var/sse — a reference-buffer / reconstructVP9InterPredictBlock concern, NOT
-//     find_mv_refs. PROOF: forcing govpx to skip GOLDEN at block (2,4) makes the
-//     whole 256-frame stream byte-exact (matched-prefix 86→256/256), confirming
-//     (2,4)'s LAST-vs-GOLDEN selection is the SOLE divergence. Next agent: chase
-//     the GOLDEN out-of-frame prediction var/sse at frame 86 block (2,4) mv (36,264)
-//     vs libvpx's model_rd inputs (vp9/encoder/vp9_pickmode.c:2336
-//     vp9_build_inter_predictors_sby + vp9/common/vp9_reconinter.c border-extend),
-//     NOT find_mv_refs.
+//   - {0,0,0,0,0} (+ {} and {0x30} aliases) — CBR 300kbps kf=999
+//     realtime cpu8. CLOSED: now byte-exact for all 256 frames. The final
+//     divergence at frame 86 block (2,4) — govpx picked
+//     GOLDEN+NEARESTMV(36,264) where libvpx picked LAST+NEARESTMV(36,264)
+//     — was an out-of-order pred_mv_sad[LAST] refresh in the nonrd
+//     inter picker. libvpx (vp9_pickmode.c:2284-2293) recomputes
+//     x->pred_mv_sad[LAST_FRAME] from the NEWMV-winner SAD BEFORE the
+//     duplicate-NEARESTMV `continue` (vp9_pickmode.c:2296-2299); when the
+//     LAST/NEWMV search resolves to the NEARESTMV MV the candidate is
+//     pruned as a duplicate but the refreshed SAD is already committed.
+//     govpx performed that update AFTER the duplicate-NEAREST continue, so
+//     for this block the LAST/NEWMV candidate (mv 36,264 == NEARESTMV) was
+//     pruned first and pred_mv_sad[LAST] stayed at the stale vp9_mv_pred
+//     scan value (3211) instead of the NEWMV value (2821). The GOLDEN
+//     reference_masking 2x gate (vp9_pickmode.c:2212, pred_mv_sad[GOLDEN]
+//     5891 > pred_mv_sad[LAST] << 1) therefore evaluated 5891 > 6422 (false,
+//     GOLDEN kept) instead of libvpx's 5891 > 5642 (true, GOLDEN pruned),
+//     leaving GOLDEN NEAREST/NEAR/NEW in the candidate set where govpx's
+//     GOLDEN NEARESTMV then won a model_rd near-tie (42241271 vs LAST
+//     42275307). Fixed by moving the pred_mv_sad[LAST] refresh ahead of the
+//     duplicate-NEARESTMV check in pickVP9InterReferenceModeNonRD
+//     (vp9_pick_inter_mode_nonrd.go), matching libvpx's ordering verbatim.
+//     The earlier border-extension / model_rd var/sse lead was a red
+//     herring: every candidate BOTH encoders evaluate has byte-identical
+//     var/sse — the divergence was purely which GOLDEN candidates survive
+//     reference_masking. NOTE: shared nonrd-picker code; verified zero
+//     regression on the VP9 encoder + decoder oracle suites and that
+//     {1,0,0,0,0} stays 256/256.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
@@ -224,16 +157,13 @@ import (
 // Reverting any entry here must be paired with the corresponding direct libvpx
 // port.
 var vp9LongFixtureParityGapSeeds = [][]byte{
-	// The empty (nil) input is the Go-fuzz built-in seed and {0x30} is the
-	// persisted corpus alias (regression_cbr_300kbps_kf999_panning_defbuf_rt_
-	// cpum3_582528dd). Both materialise, through the wrapping ByteCursor's
-	// all-zero/48%N bucket selection, the identical case as {0,0,0,0,0}
-	// (CBR 300kbps kf=999 realtime cpu8) — the already-deferred frame-12 cpu8
-	// rate-control q drift documented above. Gate them under the same gap so
-	// corpus replay does not re-fail the known deferral.
-	{},
-	{0x30},
-	{0, 0, 0, 0, 0},
+	// {0,0,0,0,0} (CBR 300kbps kf=999 realtime cpu8), together with the
+	// Go-fuzz built-in nil seed {} and the persisted corpus alias {0x30}
+	// (regression_cbr_300kbps_kf999_panning_defbuf_rt_cpum3_582528dd) that
+	// materialise the identical case through the ByteCursor bucket
+	// selection, are now CLOSED (byte-exact for all 256 frames) by the
+	// nonrd pred_mv_sad[LAST] ordering fix documented above; they are no
+	// longer deferred.
 	{0, 1, 1, 0, 1},
 	{1, 1, 1, 1, 0},
 	{0, 2, 0, 0, 2},
