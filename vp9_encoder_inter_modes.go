@@ -1763,6 +1763,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		mvOpts := vp9InterMvSearchOptions{
 			refMv:      refMv,
 			refMvValid: refMvOK,
+			fullRD:     true,
 		}
 		if refState.mvPredState.valid {
 			mvOpts.seed = refState.mvPredState.seed
@@ -2138,6 +2139,7 @@ type vp9InterMvSearchOptions struct {
 	refMvValid      bool
 	nonrdSubpelTree bool
 	useMvPart       bool
+	fullRD          bool
 	nonrdPrecheck   func(vp9dec.MV) bool
 }
 
@@ -2278,105 +2280,126 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 		return false
 	}
-	if opts.seedValid {
-		seedDx := int(opts.seed.Col) >> 3
-		seedDy := int(opts.seed.Row) >> 3
-		seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
-		if sad, ok := sadAt(seedDx, seedDy); ok {
-			bestSad = sad
-			bestScore = scoreMv(seedDx, seedDy, bestSad)
-			bestDx = seedDx
-			bestDy = seedDy
-			seededStart = true
-			searchCenterDx = seedDx
-			searchCenterDy = seedDy
-			searchFromSeed = true
+	if opts.fullRD {
+		// Full-RD single_motion_search (vp9_rdopt.c:2563) on the no-recode
+		// realtime path: step_param = cpi->mv_step_param == 0 (set_mv_search_
+		// params @ vp9_encoder.c:3728 is never called when recode_loop ==
+		// DISALLOW_RECODE), and vp9_full_pixel_search NSTEP dispatches to
+		// full_pixel_diamond (vp9_mcomp.c:2916/2486), which re-scores every
+		// candidate (and the final) with vp9_get_mvpred_var (variance, not
+		// SAD; :1454). This is distinct from sf.mv.fullpel_search_step_param
+		// (=6), which the NONRD path passes (vp9_pickmode.c:171); the full-RD
+		// path must NOT use the SF field.
+		var newSad uint64
+		bestDx, bestDy, newSad, ok = e.vp9FullRDFullPelMv(inter, miRows, miCols,
+			miRow, miCol, bsize, refFrame, opts, &mvLimits, sadAt, sadPerBit,
+			refFullDy, refFullDx)
+		if !ok {
+			return vp9dec.MV{}, 0, false
 		}
-	}
-
-	if !(opts.useMvPart && seededStart) {
-		// MV-hint biasing: when a multi-resolution lower-resolution layer
-		// has supplied a scaled MV hint for this SB, evaluate it as an
-		// extra candidate before the (0,0)-centered fan. The hint can
-		// land outside the local 16-pixel radius (libvpx-style cross-
-		// resolution motion correlation regularly produces hints that
-		// exceed the realtime search radius); when that happens the
-		// search radius widens to encompass the hint so the refinement
-		// step can still walk a local fan around the winning candidate.
-		// When no hint is installed this branch is a nil-check.
-		//
-		// libvpx: SPEED_FEATURES.mv.search_method picks the
-		// fast-hex / fast-diamond / NSTEP dispatcher (vp9_mcomp.c:2875).
-		// Read that field here instead of always running the square fan.
-		searchRadius := e.vp9InterSearchRadius()
-		if refFrame == vp9dec.LastFrame {
-			if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
-				if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
-					searchCenterDx = hintDx
-					searchCenterDy = hintDy
-				}
-				// Widen the search radius so the refinement loop can
-				// walk a small fan around the hint when it wins.
-				absDx := hintDx
-				if absDx < 0 {
-					absDx = -absDx
-				}
-				absDy := hintDy
-				if absDy < 0 {
-					absDy = -absDy
-				}
-				if absDx > searchRadius {
-					searchRadius = absDx
-				}
-				if absDy > searchRadius {
-					searchRadius = absDy
-				}
+		bestSad = newSad
+		bestScore = scoreMv(bestDx, bestDy, bestSad)
+	} else {
+		if opts.seedValid {
+			seedDx := int(opts.seed.Col) >> 3
+			seedDy := int(opts.seed.Row) >> 3
+			seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
+			if sad, ok := sadAt(seedDx, seedDy); ok {
+				bestSad = sad
+				bestScore = scoreMv(seedDx, seedDy, bestSad)
+				bestDx = seedDx
+				bestDy = seedDy
+				seededStart = true
+				searchCenterDx = seedDx
+				searchCenterDy = seedDy
+				searchFromSeed = true
 			}
 		}
 
-		scanMinDx, scanMaxDx := -searchRadius, searchRadius
-		scanMinDy, scanMaxDy := -searchRadius, searchRadius
-		if searchFromSeed {
-			scanMinDx = searchCenterDx - searchRadius
-			scanMaxDx = searchCenterDx + searchRadius
-			scanMinDy = searchCenterDy - searchRadius
-			scanMaxDy = searchCenterDy + searchRadius
-		}
-		if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-			bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSAD(
-				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-				&mvLimits, sadAt, scoreMv)
-		} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
-			bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSAD(
-				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-				&mvLimits, sadAt, scoreMv)
-		} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
-			e.sf.Mv.SearchMethod == SearchMethodMesh {
-			bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSAD(
-				bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-				&mvLimits, sadAt, scoreMv)
-		} else {
-			// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
-			// step so the fan covers +/-searchRadius without exceeding it.
-			coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
-			for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
-				for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
-					eval(dx, dy)
+		if !(opts.useMvPart && seededStart) {
+			// MV-hint biasing: when a multi-resolution lower-resolution layer
+			// has supplied a scaled MV hint for this SB, evaluate it as an
+			// extra candidate before the (0,0)-centered fan. The hint can
+			// land outside the local 16-pixel radius (libvpx-style cross-
+			// resolution motion correlation regularly produces hints that
+			// exceed the realtime search radius); when that happens the
+			// search radius widens to encompass the hint so the refinement
+			// step can still walk a local fan around the winning candidate.
+			// When no hint is installed this branch is a nil-check.
+			//
+			// libvpx: SPEED_FEATURES.mv.search_method picks the
+			// fast-hex / fast-diamond / NSTEP dispatcher (vp9_mcomp.c:2875).
+			// Read that field here instead of always running the square fan.
+			searchRadius := e.vp9InterSearchRadius()
+			if refFrame == vp9dec.LastFrame {
+				if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
+					if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
+						searchCenterDx = hintDx
+						searchCenterDy = hintDy
+					}
+					// Widen the search radius so the refinement loop can
+					// walk a small fan around the hint when it wins.
+					absDx := hintDx
+					if absDx < 0 {
+						absDx = -absDx
+					}
+					absDy := hintDy
+					if absDy < 0 {
+						absDy = -absDy
+					}
+					if absDx > searchRadius {
+						searchRadius = absDx
+					}
+					if absDy > searchRadius {
+						searchRadius = absDy
+					}
 				}
 			}
-			for step := coarseStep >> 1; step >= 1; step >>= 1 {
-				improved := true
-				for improved {
-					improved = false
-					centerDx, centerDy := bestDx, bestDy
-					for dy := centerDy - step; dy <= centerDy+step; dy += step {
-						for dx := centerDx - step; dx <= centerDx+step; dx += step {
-							if dx < scanMinDx || dx > scanMaxDx ||
-								dy < scanMinDy || dy > scanMaxDy {
-								continue
-							}
-							if eval(dx, dy) {
-								improved = true
+
+			scanMinDx, scanMaxDx := -searchRadius, searchRadius
+			scanMinDy, scanMaxDy := -searchRadius, searchRadius
+			if searchFromSeed {
+				scanMinDx = searchCenterDx - searchRadius
+				scanMaxDx = searchCenterDx + searchRadius
+				scanMinDy = searchCenterDy - searchRadius
+				scanMaxDy = searchCenterDy + searchRadius
+			}
+			if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
+				bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSAD(
+					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+					&mvLimits, sadAt, scoreMv)
+			} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
+				bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSAD(
+					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+					&mvLimits, sadAt, scoreMv)
+			} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
+				e.sf.Mv.SearchMethod == SearchMethodMesh {
+				bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSAD(
+					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
+					&mvLimits, sadAt, scoreMv)
+			} else {
+				// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
+				// step so the fan covers +/-searchRadius without exceeding it.
+				coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
+				for dy := scanMinDy; dy <= scanMaxDy; dy += coarseStep {
+					for dx := scanMinDx; dx <= scanMaxDx; dx += coarseStep {
+						eval(dx, dy)
+					}
+				}
+				for step := coarseStep >> 1; step >= 1; step >>= 1 {
+					improved := true
+					for improved {
+						improved = false
+						centerDx, centerDy := bestDx, bestDy
+						for dy := centerDy - step; dy <= centerDy+step; dy += step {
+							for dx := centerDx - step; dx <= centerDx+step; dx += step {
+								if dx < scanMinDx || dx > scanMaxDx ||
+									dy < scanMinDy || dy > scanMaxDy {
+									continue
+								}
+								if eval(dx, dy) {
+									improved = true
+								}
 							}
 						}
 					}

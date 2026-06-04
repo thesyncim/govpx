@@ -63,6 +63,15 @@ type vp9OracleTraceState struct {
 	rateCorrectionFactor float64
 	recodeAllowed        bool
 	recodeLoopCount      int
+
+	// fullRDFirstInterMv* captures the full-pel MV the verbatim full-RD
+	// full_pixel_diamond selected for the FIRST full-RD single-ref NEWMV
+	// search at frame 1, SB0, block (0,0) (the documented first inter
+	// divergence). Used by TestVP9EncoderFullRDFrame1SB0FullPelMvParity to
+	// pin the wiring against libvpx's single_motion_search tmp_mv.
+	fullRDFirstInterMvValid bool
+	fullRDFirstInterMvRow   int
+	fullRDFirstInterMvCol   int
 }
 
 type vp9OracleTraceHolder struct {
@@ -118,6 +127,32 @@ func (e *VP9Encoder) resetVP9OracleRateSelectionTrace() {
 	state.rateCorrectionFactor = 0
 	state.recodeAllowed = false
 	state.recodeLoopCount = 0
+}
+
+func (e *VP9Encoder) recordVP9FullRDFirstInterMv(frameIndex, miRow, miCol int,
+	refFrame int8, mvRow, mvCol int,
+) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.fullRDFirstInterMvValid {
+		return
+	}
+	if frameIndex != 1 || miRow != 0 || miCol != 0 {
+		return
+	}
+	state.fullRDFirstInterMvValid = true
+	state.fullRDFirstInterMvRow = mvRow
+	state.fullRDFirstInterMvCol = mvCol
+}
+
+// vp9FullRDFirstInterMv returns the captured frame-1 SB0 (0,0) full-pel MV
+// (row, col) selected by the full-RD full_pixel_diamond, valid only in
+// govpx_oracle_trace builds after a frame-1 encode.
+func (e *VP9Encoder) vp9FullRDFirstInterMv() (row, col int, ok bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.fullRDFirstInterMvValid {
+		return 0, 0, false
+	}
+	return state.fullRDFirstInterMvRow, state.fullRDFirstInterMvCol, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {
