@@ -37,13 +37,19 @@ func NonrdForceLastReference(shortCircuitLowTempVar int,
 		(shortCircuitLowTempVar == 1 || shortCircuitLowTempVar == 3)
 }
 
-// NonrdNormalizeSSE converts a block SSE to a per-pixel score for valid VP9
-// block sizes.
+// NonrdNormalizeSSE computes libvpx's sse_zeromv_normalized for the
+// (LAST, ZEROMV) candidate: the block SSE shifted right by
+// b_width_log2_lookup[bsize] + b_height_log2_lookup[bsize] — i.e. SSE per
+// 4x4 sub-block, NOT per pixel (vp9/encoder/vp9_pickmode.c:2351-2353). The
+// CBR GOLDEN_FRAME skip gate (vp9_pickmode.c:2122-2125) compares this against
+// thresh_skip_golden=500; using the per-pixel num_pels_log2 shift instead
+// (4 bits larger) makes the value 16x too small and spuriously skips the
+// golden reference on blocks where libvpx still searches it.
 func NonrdNormalizeSSE(sse uint64, bsize common.BlockSize) uint64 {
 	if bsize < common.Block4x4 || bsize >= common.BlockSizes {
 		return sse
 	}
-	return sse >> uint(common.NumPelsLog2Lookup[bsize])
+	return sse >> uint(common.BWidthLog2Lookup[bsize]+common.BHeightLog2Lookup[bsize])
 }
 
 // NonrdScreenZeroLastBias matches the screen-content bias toward zero-motion

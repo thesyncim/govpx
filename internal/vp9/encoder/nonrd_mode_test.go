@@ -202,13 +202,17 @@ func TestNonrdIntraFallbackPrecheckScreenFlatBypassesInterGates(t *testing.T) {
 	}
 }
 
-func TestNonrdNormalizeSSEUsesPixelCount(t *testing.T) {
+func TestNonrdNormalizeSSEUses4x4BlockCount(t *testing.T) {
+	// libvpx sse_zeromv_normalized = sse_y >> (b_width_log2 + b_height_log2)
+	// (vp9_pickmode.c:2351-2353): SSE per 4x4 sub-block, not per pixel.
 	const sse = 4096
-	if got := NonrdNormalizeSSE(sse, common.Block16x16); got != 16 {
-		t.Fatalf("16x16 normalized SSE = %d, want 16", got)
+	// 16x16 = 4x4 sub-blocks -> shift 2+2 = 4 -> 4096 >> 4 = 256.
+	if got := NonrdNormalizeSSE(sse, common.Block16x16); got != 256 {
+		t.Fatalf("16x16 normalized SSE = %d, want 256", got)
 	}
-	if got := NonrdNormalizeSSE(sse, common.Block8x8); got != 64 {
-		t.Fatalf("8x8 normalized SSE = %d, want 64", got)
+	// 8x8 = 2x2 sub-blocks -> shift 1+1 = 2 -> 4096 >> 2 = 1024.
+	if got := NonrdNormalizeSSE(sse, common.Block8x8); got != 1024 {
+		t.Fatalf("8x8 normalized SSE = %d, want 1024", got)
 	}
 	if got := NonrdNormalizeSSE(sse, common.BlockSizes); got != sse {
 		t.Fatalf("invalid-block normalized SSE = %d, want %d", got, sse)

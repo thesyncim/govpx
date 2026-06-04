@@ -61,16 +61,16 @@ import (
 //     computes rate_correction_factor = (rcf * correction_factor) / 100 with the
 //     multiply before the divide-by-100 (vp9_ratectrl.c:814,822), whereas govpx
 //     evaluated rcf *= cf/100 (dividing first), and the accumulated rounding
-//     flipped the regulated q by one at frame 12. Frames 0-19 are now byte-exact.
-//     The remaining divergence is at frame 20, the SECOND golden refresh (rf=3):
-//     base_qindex (143), loop_filter (22), refresh_frame_flags, frame_context_idx
-//     (0) and frame_parallel all MATCH libvpx, but the compressed-header
-//     first_partition_size differs (govpx 6 vs libvpx 10) — libvpx codes ~4 extra
-//     bytes of FORWARD probability updates. With frame_parallel_decoding_mode=1
-//     backward adaptation is off, so the frame context evolves only via forward
-//     updates (all matched through frame 19); the frame-20 divergence is in the
-//     compressed-header prob-update cost decision / symbol counts on the second
-//     golden-refresh frame, distinct from the RC drift, not yet root-caused.
+//     flipped the regulated q by one at frame 12. The next divergence was at
+//     frame 20 (2nd golden refresh): block (0,0) picked LAST+NEWMV in govpx but
+//     GOLDEN+ZEROMV in libvpx because govpx pruned the GOLDEN reference via the
+//     CBR thresh_skip_golden gate (vp9_pickmode.c:2122-2125). That gate compares
+//     sse_zeromv_normalized against 500, where libvpx normalizes the (LAST,ZEROMV)
+//     model SSE by b_width_log2 + b_height_log2 (per 4x4 sub-block, vp9_pickmode.c
+//     :2351-2353); govpx's NonrdNormalizeSSE shifted by num_pels_log2 (per pixel,
+//     4 bits larger), making the value 16x too small so it spuriously tripped the
+//     <500 skip. Fixed to the 4x4-block shift. Frames 0-57 are now byte-exact; the
+//     remaining divergence is at frame 58, not yet root-caused.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
