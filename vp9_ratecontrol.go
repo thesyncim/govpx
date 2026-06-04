@@ -779,10 +779,16 @@ func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
 		return
 	}
 	rc.afRatioOnePassVBR = encoder.DefaultAFRatioOnePassVBR
-	if rc.mode == RateControlQ {
-		rc.baselineGFInterval = encoder.FixedGFInterval
-		return
-	}
+	// libvpx vp9_rc_init (vp9/encoder/vp9_ratectrl.c:445) seeds
+	// rc->baseline_gf_interval = (min_gf_interval + max_gf_interval) / 2
+	// unconditionally for every rc_mode. The VPX_Q-only special case at
+	// vp9_ratectrl.c:446-447 assigns FIXED_GF_INTERVAL to
+	// rc->static_scene_max_gf_interval — a *different* field — not to
+	// baseline_gf_interval, so one-pass VPX_Q must derive baseline_gf_interval
+	// from the (min + max) midpoint exactly like the VBR path. The previous
+	// FixedGFInterval=8 short-circuit made the realtime golden-frame cadence
+	// fire at current_video_frame 8 instead of libvpx's 10, diverging the
+	// refresh_frame_flags (and downstream golden buffer) from frame 8 onward.
 	minInterval := vp9DefaultMinGFInterval(timing)
 	maxInterval := vp9DefaultMaxGFInterval(timing, minInterval)
 	if rc.minGFInterval > 0 {

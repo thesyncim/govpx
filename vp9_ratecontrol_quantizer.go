@@ -566,18 +566,37 @@ func (rc *vp9RateControlState) setRuntimeOnePassVBRGoldenCadence(prev vp9RateCon
 	}
 }
 
+// runtimeOnePassVBRGoldenInterval ports the non-cyclic baseline_gf_interval
+// recompute in libvpx vp9_set_gf_update_one_pass_vbr
+// (vp9/encoder/vp9_ratectrl.c:2086-2087): when frames_till_gf_update_due hits
+// 0 and aq_mode != CYCLIC_REFRESH_AQ,
+//
+//	rc->baseline_gf_interval =
+//	    VPXMIN(20, VPXMAX(10, (rc->min_gf_interval + rc->max_gf_interval) / 2));
+//
+// The interval is recomputed from min/max each cycle rather than read back
+// from the stored baseline, and is clamped into [10, 20] — not into
+// [min_gf_interval, max_gf_interval]. The later avg_frame_low_motion /
+// rate_err adjustments (vp9_ratectrl.c:2092-2114) only apply once
+// current_video_frame > 30, so the steady-state realtime cadence is this
+// midpoint-clamped value.
 func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
-	interval := rc.baselineGFInterval
-	if interval == 0 {
-		interval = (encoder.MinGFInterval + encoder.MaxGFInterval) >> 1
+	minGF := int(rc.minGFInterval)
+	maxGF := int(rc.maxGFInterval)
+	if minGF == 0 {
+		minGF = encoder.MinGFInterval
 	}
-	if rc.minGFInterval > 0 && interval < rc.minGFInterval {
-		interval = rc.minGFInterval
+	if maxGF == 0 {
+		maxGF = encoder.MaxGFInterval
 	}
-	if rc.maxGFInterval > 0 && interval > rc.maxGFInterval {
-		interval = rc.maxGFInterval
+	interval := (minGF + maxGF) / 2
+	if interval < 10 {
+		interval = 10
 	}
-	return interval
+	if interval > 20 {
+		interval = 20
+	}
+	return uint8(interval)
 }
 
 // postOnePassVBRRefresh mirrors the golden countdown decrement in
