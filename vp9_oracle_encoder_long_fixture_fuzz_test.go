@@ -101,32 +101,26 @@ import (
 //     Closing this requires the full-RD mode + coefficient + partition RD
 //     scoring path, substantial encoder work beyond the speed-feature port.
 //
-//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. Frames 0-39 are now
-//     byte-exact. The one-pass-VBR per-frame quantizer feedback that drove the
-//     frame-2 BaseQindex/FilterLevel divergence (govpx 113/15 vs libvpx
-//     131/18) was ported: vp9_calc_pframe_target_size_one_pass_vbr now scales
-//     non-boosted inter targets by baseline_gf_interval/(gf_interval+af_ratio-1)
-//     (vp9_ratectrl.c:2027-2045), and vp9_rc_update_rate_correction_factors now
-//     indexes damped_adjustment[] by the one-pass gf_group rf_level
-//     (INTER_NORMAL) instead of the frame-type level (vp9_ratectrl.c:755-756,
-//     784-786). With those ports frame 2 selected the same BaseQindex=131 /
-//     FilterLevel=18 as libvpx. The residual frame-2 mode/coefficient gap
-//     (govpx 1255 vs libvpx 1219, first_partition_size 34 vs 37) was then
-//     closed: the non-RD pred_filter_search ref gate
-//     (vp9_pickmode.c:2318-2323) sweeps {EIGHTTAP, EIGHTTAP_SMOOTH} not only
-//     for LAST_FRAME but also for GOLDEN_FRAME when
-//     !force_mv_inter_layer && (use_svc || rc_mode == VPX_VBR). govpx only
-//     surfaced the LAST_FRAME leg, so under VBR it scored every GOLDEN NEWMV
-//     subpel candidate with EIGHTTAP only; at frame 2 block (mi 0,1) this made
-//     LAST+NEWMV (filt=smooth, score 25790474) beat GOLDEN+NEWMV (filt locked
-//     EIGHTTAP, score 26088304), whereas libvpx swept GOLDEN to EIGHTTAP_SMOOTH
-//     (score 24657805) and picked GOLDEN. Adding the GOLDEN-under-VBR leg to
-//     the filter-sweep ref gate (force_mv_inter_layer / use_svc are SVC-only,
-//     0 here) makes the candidate decision byte-exact. The remaining
-//     divergence is at frame 40, a golden-refresh frame (refresh_frame_flags
-//     0x3) where govpx regulates BaseQindex=94/FilterLevel=12 vs libvpx 120/16
-//     — a one-pass-VBR golden-boost / quantizer drift gap, not yet
-//     root-caused, distinct from the closed non-RD filter-sweep issue.
+//   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. CLOSED: now byte-exact
+//     for all 256 frames. The final divergence at frame 40 (the first
+//     golden-refresh after current_video_frame > 30, refresh_frame_flags 0x3:
+//     govpx BaseQindex=94/FilterLevel=12 vs libvpx 120/16) was a missing
+//     one-pass-VBR per-golden-group recompute. govpx held af_ratio=10 /
+//     baseline_gf_interval=10 / gfu_boost=DEFAULT_GF_BOOST(2000) for every
+//     golden group, but libvpx vp9_set_gf_update_one_pass_vbr
+//     (vp9_ratectrl.c:2077-2127) — run at every frame begin inside
+//     vp9_rc_get_one_pass_vbr_params — damps gfu_boost and af_ratio once
+//     current_video_frame > 30: with avg_frame_low_motion≈34, gfu_boost =
+//     VPXMAX(500, 2000*(lm<<1)/(lm+100)) and af_ratio = VPXMIN(15, VPXMAX(5,
+//     3*gfu_boost/400)), which drops the boosted golden target
+//     (avg_frame_bandwidth*gi*af/(gi+af-1)) and lifts the regulated q. Ported
+//     verbatim: setGFUpdateOnePassVBR recomputes the GF interval / af_ratio /
+//     gfu_boost and re-seeds frames_till_gf_update_due at frame begin (with the
+//     rolling_{target,actual}_bits EMA monitors, vp9_ratectrl.c:392-393,
+//     1931-1934, feeding rate_err), the golden countdown decrement now lives in
+//     update_golden_frame_stats (vp9_ratectrl.c:1759-1784), and the GF
+//     active-best now indexes get_gf_active_quality by the live gfu_boost
+//     (vp9_ratectrl.c:906-919) instead of the 2000 default.
 //
 //   - {1,1,1,1,0} — VBR 700kbps kf=30 good-quality cpu8. Same compressed-
 //     header gap as the previous seed plus the GoodQuality speed-features
@@ -162,7 +156,6 @@ var vp9LongFixtureParityGapSeeds = [][]byte{
 	{0x30},
 	{0, 0, 0, 0, 0},
 	{0, 1, 1, 0, 1},
-	{1, 0, 0, 0, 0},
 	{1, 1, 1, 1, 0},
 	{0, 2, 0, 0, 2},
 }
