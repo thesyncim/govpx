@@ -72,6 +72,14 @@ type vp9OracleTraceState struct {
 	fullRDFirstInterMvValid bool
 	fullRDFirstInterMvRow   int
 	fullRDFirstInterMvCol   int
+
+	// fullRDFirstInterSubpelMv* captures the SUBPEL MV (1/8-pel) the full-RD
+	// single_motion_search produced for the frame-1 SB0 64x64 (0,0) NEWMV
+	// (libvpx vp9_rdopt.c:2728 find_fractional_mv_step result). Pins the
+	// subpel-refine step.
+	fullRDFirstInterSubpelMvValid bool
+	fullRDFirstInterSubpelMvRow   int
+	fullRDFirstInterSubpelMvCol   int
 }
 
 type vp9OracleTraceHolder struct {
@@ -153,6 +161,32 @@ func (e *VP9Encoder) vp9FullRDFirstInterMv() (row, col int, ok bool) {
 		return 0, 0, false
 	}
 	return state.fullRDFirstInterMvRow, state.fullRDFirstInterMvCol, true
+}
+
+func (e *VP9Encoder) recordVP9FullRDFirstInterSubpelMv(frameIndex, miRow, miCol int,
+	refFrame int8, mvRow, mvCol int,
+) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.fullRDFirstInterSubpelMvValid {
+		return
+	}
+	if frameIndex != 1 || miRow != 0 || miCol != 0 {
+		return
+	}
+	state.fullRDFirstInterSubpelMvValid = true
+	state.fullRDFirstInterSubpelMvRow = mvRow
+	state.fullRDFirstInterSubpelMvCol = mvCol
+}
+
+// vp9FullRDFirstInterSubpelMv returns the captured frame-1 SB0 (0,0) subpel MV
+// (row, col in 1/8-pel) from the full-RD single_motion_search, valid only in
+// govpx_oracle_trace builds after a frame-1 encode.
+func (e *VP9Encoder) vp9FullRDFirstInterSubpelMv() (row, col int, ok bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.fullRDFirstInterSubpelMvValid {
+		return 0, 0, false
+	}
+	return state.fullRDFirstInterSubpelMvRow, state.fullRDFirstInterSubpelMvCol, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {
