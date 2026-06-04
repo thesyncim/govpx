@@ -97,13 +97,38 @@ import (
 //     neighbours (mv_pred.go) — verbatim with libvpx's `!= INVALID_MV` check. The
 //     INVALID_MV sentinel is never read for intra blocks via the ref-frame-guarded
 //     ADD_MV_REF_LIST scan, so MV-ref stacks and prev-frame temporal MVs are
-//     unaffected. Frames 0-85 are now byte-exact; the new frontier is frame 86,
-//     another golden-refresh frame, where block (3,4) picks NEARESTMV mv (8,14) in
-//     govpx but NEARMV in libvpx — libvpx's find_mv_refs near candidate resolves to
-//     (8,14) (== nearest, a duplicate) whereas govpx's frame_mv[NEARMV][LAST] is
-//     (6,266). This is a reference-MV-stack (find_mv_refs) candidate-order/value
-//     divergence at (3,4), distinct from the closed intra-MV-sentinel issue, not
-//     yet root-caused.
+//     unaffected. Frames 0-85 are now byte-exact; the frontier is frame 86.
+//     ROOT-CAUSE (corrected; the earlier find_mv_refs/(3,4) lead was a red
+//     herring — block (3,4)'s NEARESTMV-vs-NEARMV flip is only a DOWNSTREAM
+//     consequence): the single first-diverging block in frame 86 is block
+//     (2,4), where govpx picks GOLDEN+NEARESTMV and libvpx picks
+//     LAST+NEARESTMV. Both resolve the SAME mv (36,264) (a near-tie); only the
+//     reference frame differs. LAST→slot0=frame85, GOLDEN→slot1=frame80;
+//     mv (36,264) (~33 px right of an 8x8 block at pixel x=32 in a 64-wide
+//     frame) points fully OUTSIDE the frame, so BOTH candidates predict from
+//     border-extended reference pixels. find_mv_refs is byte-IDENTICAL across
+//     the govpx encoder, the govpx decoder, and the libvpx-stream decode (verified
+//     neighbour-by-neighbour incl. the INVALID_MV intra neighbour at (0,4)); the
+//     CBR golden-skip gate (sse_zeromv_normalized=120692 >> 500), reference_masking
+//     (pred_mv_sad[G]=5891 < pred_mv_sad[L]<<1=6422), and the bias_golden<<3
+//     mode_rd_thresh gate (frames_since_golden=5>4, applied but best_rdc not below
+//     threshold) all match libvpx and correctly do NOT skip GOLDEN. The divergence
+//     is purely model_rd_for_sb_y (vp9_pickmode.c:2346) scoring: govpx GOLDEN
+//     NEARESTMV score=42241271 (var=596657 sse=598877 dist=75776 rate=132192) vs
+//     LAST NEARESTMV score=42275307 (var=369214 sse=377291 dist=78976 rate=134382),
+//     a 0.08% margin that flips the pick. govpx's ModelRdForSbY is libvpx-verbatim;
+//     the GOLDEN prediction's higher variance but smaller DC residual (sse-var=2220
+//     vs LAST 8077) legitimately yields a lower model dist. Since model_rd + MVs are
+//     byte-faithful, the residual numeric gap must come from the GOLDEN (frame-80)
+//     reference BORDER-EXTENSION / out-of-frame inter-prediction pixels feeding
+//     var/sse — a reference-buffer / reconstructVP9InterPredictBlock concern, NOT
+//     find_mv_refs. PROOF: forcing govpx to skip GOLDEN at block (2,4) makes the
+//     whole 256-frame stream byte-exact (matched-prefix 86→256/256), confirming
+//     (2,4)'s LAST-vs-GOLDEN selection is the SOLE divergence. Next agent: chase
+//     the GOLDEN out-of-frame prediction var/sse at frame 86 block (2,4) mv (36,264)
+//     vs libvpx's model_rd inputs (vp9/encoder/vp9_pickmode.c:2336
+//     vp9_build_inter_predictors_sby + vp9/common/vp9_reconinter.c border-extend),
+//     NOT find_mv_refs.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
