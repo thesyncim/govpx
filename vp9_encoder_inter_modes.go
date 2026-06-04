@@ -2423,5 +2423,17 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			miRow, miCol, bsize, refFrame, mv, bestSad, bestScore,
 			opts.refMv, opts.refMvValid, opts.nonrdSubpelTree)
 	}
+	if opts.fullRD {
+		// libvpx single_motion_search tail stores tmp_mv->as_mv as
+		// x->pred_mv[ref] (vp9_rdopt.c:2738), the SUBPEL result that becomes
+		// vp9_mv_pred's third candidate for subsequent blocks. The full-pel MV
+		// (pre-subpel) was pinned earlier for the SB0 (0,0) full-pel parity
+		// test; pin the refined MV here for the SB0 64x64 subpel parity test
+		// (no-op in non-trace builds). The candidate[2] propagation itself is
+		// held back pending the holistic single-pass rd_pick_partition port —
+		// see vp9InterMvPredStateForRef.
+		e.recordVP9FullRDFirstInterSubpelMv(e.frameIndex, miRow, miCol,
+			refFrame, int(mv.Row), int(mv.Col))
+	}
 	return mv, bestScore, true
 }
