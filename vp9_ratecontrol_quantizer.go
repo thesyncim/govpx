@@ -645,10 +645,16 @@ func (rc *vp9RateControlState) updateRateCorrectionFactor(actualBits int, qindex
 
 	if correctionFactor > 102 {
 		correctionFactor = int(100 + float64(correctionFactor-100)*adjustmentLimit)
-		rateCorrectionFactor *= float64(correctionFactor) / 100
+		// libvpx evaluates (rate_correction_factor * correction_factor) / 100
+		// with correction_factor an int (vp9/encoder/vp9_ratectrl.c:814): the
+		// multiply happens before the divide-by-100, so the IEEE-754 rounding
+		// differs from rcf *= cf/100 (which rounds cf/100 first). Over a long
+		// CBR run this accumulates and can flip the regulated q by one qindex.
+		rateCorrectionFactor = rateCorrectionFactor * float64(correctionFactor) / 100
 	} else if correctionFactor < 99 {
 		correctionFactor = int(100 - float64(100-correctionFactor)*adjustmentLimit)
-		rateCorrectionFactor *= float64(correctionFactor) / 100
+		// libvpx: vp9/encoder/vp9_ratectrl.c:822, same (rcf * cf) / 100 ordering.
+		rateCorrectionFactor = rateCorrectionFactor * float64(correctionFactor) / 100
 	}
 	rc.setRateCorrectionFactor(intraOnly, refreshFlags, rateCorrectionFactor)
 }

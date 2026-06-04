@@ -55,11 +55,22 @@ import (
 //     vp9_rc_get_one_pass_cbr_params (vp9_ratectrl.c:2521-2528) seeds
 //     baseline_gf_interval = (min_gf_interval + max_gf_interval)/2 = (4+16)/2 =
 //     10, so frames_till_gf_update_due fires refresh_golden at frame 10 and
-//     re-seeds 10 (next at frame 20). The remaining divergence is at frame 12,
-//     a 1-qindex rate-control drift (govpx base_qindex=144 vs libvpx=145) that
-//     surfaces in the accumulated active_worst_quality / rate_correction_factor
-//     trajectory after the frame-10 golden refresh — an RC quantizer-feedback
-//     concern distinct from the GF-interval scheduling, not yet root-caused.
+//     re-seeds 10 (next at frame 20). The frame-12 1-qindex rate-control drift
+//     (govpx base_qindex=144 vs libvpx=145) was then closed by matching libvpx's
+//     IEEE-754 evaluation order in vp9_rc_update_rate_correction_factors: libvpx
+//     computes rate_correction_factor = (rcf * correction_factor) / 100 with the
+//     multiply before the divide-by-100 (vp9_ratectrl.c:814,822), whereas govpx
+//     evaluated rcf *= cf/100 (dividing first), and the accumulated rounding
+//     flipped the regulated q by one at frame 12. Frames 0-19 are now byte-exact.
+//     The remaining divergence is at frame 20, the SECOND golden refresh (rf=3):
+//     base_qindex (143), loop_filter (22), refresh_frame_flags, frame_context_idx
+//     (0) and frame_parallel all MATCH libvpx, but the compressed-header
+//     first_partition_size differs (govpx 6 vs libvpx 10) — libvpx codes ~4 extra
+//     bytes of FORWARD probability updates. With frame_parallel_decoding_mode=1
+//     backward adaptation is off, so the frame context evolves only via forward
+//     updates (all matched through frame 19); the frame-20 divergence is in the
+//     compressed-header prob-update cost decision / symbol counts on the second
+//     golden-refresh frame, distinct from the RC drift, not yet root-caused.
 //
 //   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
 //     speed-feature FLAGS are already ported verbatim
