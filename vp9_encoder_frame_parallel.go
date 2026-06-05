@@ -302,6 +302,27 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	e.opts.FrameParallelDecodingSet = true
 	e.opts.FrameParallelDecoding = true
 
+	// Pre-advance the parent's nonrd MV-entropy cost-table build state across
+	// the whole batch BEFORE cloning, so each helper clone inherits the
+	// post-build flag. libvpx rebuilds x->nmvcost (vp9_build_nmv_cost_table,
+	// vp9_rd.c:439-443) on the first non-intra frame whose
+	// current_video_frame&7 == 1, and the table then stays built (it is never
+	// re-zeroed). In a serial encode a build, once it fires, is visible to
+	// every later frame; here the helper clones are taken before worker 0
+	// (slot 0) runs, so a build at slot 0 — or at any earlier slot than a
+	// helper — would otherwise be lost to the helper. This batch is guaranteed
+	// keyframe-free (a forced KF or the very first frame takes the serial path,
+	// see the decline checks above), so every slot is a non-intra frame and
+	// replaying its build gate here against the batch-frozen entropy context
+	// e.fc is byte-equivalent to the serial order. The replay is monotonic and
+	// idempotent: worker 0 re-runs the same update in-place below, and the flag
+	// (once set) persists to subsequent batches.
+	for i := 0; i < batch; i++ {
+		e.frameIndex = baseFrameIndex + i
+		e.updateVP9NonrdMvCostFrameContext(false)
+	}
+	e.frameIndex = baseFrameIndex
+
 	// Clone the parent state into each worker. Worker 0 stays in place and
 	// becomes the "post-batch" parent state; workers 1..N-1 are independent
 	// deep clones that own their reconstruction buffers and mode buffers.

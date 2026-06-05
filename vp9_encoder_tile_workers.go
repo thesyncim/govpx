@@ -21,6 +21,7 @@ type vp9CountTileSeed struct {
 	interImg           *image.YCbCr
 	interSelectFc      vp9dec.FrameContext
 	interModeCostFc    vp9dec.FrameContext
+	interMvCostFc      vp9dec.FrameContext
 	interCompoundRefs  vp9dec.CompoundFrameRefs
 	interRefSignBias   [vp9dec.MaxRefFrames]uint8
 	counts             *encoder.FrameCounts
@@ -32,6 +33,7 @@ type vp9CountTileSeed struct {
 	interCompound      bool
 	interLossless      bool
 	interModeCostValid bool
+	interMvCostBuilt   bool
 	hasKey             bool
 	hasKeyHeader       bool
 	hasInter           bool
@@ -519,6 +521,8 @@ func vp9CountTileSeedForState(key *vp9KeyframeEncodeState,
 		seed.interSelectFc = inter.selectFc
 		seed.interModeCostFc = inter.modeCostFc
 		seed.interModeCostValid = inter.modeCostFcValid
+		seed.interMvCostFc = inter.mvCostFc
+		seed.interMvCostBuilt = inter.mvCostFcBuilt
 		seed.interCompoundRefs = inter.compoundRefs
 		seed.interRefSignBias = inter.refSignBias
 		seed.interRefMask = inter.refMask
@@ -1003,6 +1007,8 @@ func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,
 			selectFc:        seed.interSelectFc,
 			modeCostFc:      seed.interModeCostFc,
 			modeCostFcValid: seed.interModeCostValid,
+			mvCostFc:        seed.interMvCostFc,
+			mvCostFcBuilt:   seed.interMvCostBuilt,
 			referenceMode:   seed.interReferenceMode,
 			compoundAllowed: seed.interCompound,
 			refSignBias:     seed.interRefSignBias,
@@ -1056,6 +1062,8 @@ func prepareVP9EncodeTileJob(job *vp9EncodeTileJob, worker *VP9Encoder,
 			selectFc:        seed.interSelectFc,
 			modeCostFc:      seed.interModeCostFc,
 			modeCostFcValid: seed.interModeCostValid,
+			mvCostFc:        seed.interMvCostFc,
+			mvCostFcBuilt:   seed.interMvCostBuilt,
 			referenceMode:   seed.interReferenceMode,
 			compoundAllowed: seed.interCompound,
 			refSignBias:     seed.interRefSignBias,

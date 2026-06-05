@@ -106,13 +106,29 @@ type VP9Encoder struct {
 	// Reset on every keyframe via ResetFrameContext.
 	frameContexts [common.FrameContexts]vp9dec.FrameContext
 	fc            vp9dec.FrameContext
-	// vp9NonrdModeCostFc mirrors the mode/MV/filter cost tables libvpx stores
+	// vp9NonrdModeCostFc mirrors the mode/filter cost tables libvpx stores
 	// on VP9_COMP for the realtime nonrd path. vp9_initialize_rd_consts
-	// refreshes those tables on keyframes, on non-nonrd frames, and on
-	// current_video_frame&7 == 1; nonrd pickmode reuses the snapshot between
-	// refreshes.
+	// (vp9_rd.c:435-437) refreshes fill_mode_costs on keyframes, on non-nonrd
+	// frames, and on current_video_frame&7 == 1; nonrd pickmode reuses the
+	// snapshot between refreshes.
 	vp9NonrdModeCostFc      vp9dec.FrameContext
 	vp9NonrdModeCostFcValid bool
+	// vp9NonrdMvCostFc mirrors the x->nmvcost MV-entropy cost table libvpx
+	// rebuilds via vp9_build_nmv_cost_table. Unlike fill_mode_costs, that
+	// rebuild is additionally guarded by !frame_is_intra_only
+	// (vp9_rd.c:439-443): it runs only on (!use_nonrd_pick_mode ||
+	// current_video_frame&7 == 1) AND a non-intra frame. The table is
+	// vpx_calloc'd (zeroed) at create time (vp9_encoder.c:2441) and only
+	// populated by that build, so until the first non-intra build runs the
+	// nonrd subpel motion search costs MVs with a ZERO entropy table. This
+	// state is reachable when two adjacent keyframes precede the first inter
+	// frame (a forced KF at frame 1): neither keyframe builds the table and
+	// the first inter frame (frame 2, &7 != 1) does not either, so its NEWMV
+	// subpel refinement runs with zero MV cost (picking lowest pure variance).
+	// vp9NonrdMvCostFcValid stays false until the first build; while false the
+	// subpel MV cost is zero, matching the calloc'd table.
+	vp9NonrdMvCostFc      vp9dec.FrameContext
+	vp9NonrdMvCostFcValid bool
 	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
 	// adaptation, which uses a distinct after-key update factor.
 	lastVP9HeaderFrameType common.FrameType

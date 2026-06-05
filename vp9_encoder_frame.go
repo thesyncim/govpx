@@ -371,6 +371,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 	e.updateVP9NonrdModeCostFrameContext(isKey || header.IntraOnly)
 	nonrdModeCostFc := e.vp9NonrdModeCostFrameContext()
+	nonrdMvCostFc, nonrdMvCostBuilt := e.vp9NonrdMvCostFrameContext()
 
 	txMode := e.vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
 	baseMi := vp9dec.NeighborMi{
@@ -442,6 +443,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			selectFc:         e.fc,
 			modeCostFc:       nonrdModeCostFc,
 			modeCostFcValid:  true,
+			mvCostFc:         nonrdMvCostFc,
+			mvCostFcBuilt:    nonrdMvCostBuilt,
 			referenceMode:    referenceMode,
 			compoundAllowed:  compoundAllowed,
 			refSignBias:      refSignBias,

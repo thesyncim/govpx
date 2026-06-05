@@ -30,11 +30,30 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return best, bestScore
 	}
 	maxIters := e.vp9InterSubpelIters()
+	// libvpx costs subpel MVs with x->nmvcost (vp9_mcomp.c mv_err_cost ->
+	// mv_cost). That table is vpx_calloc'd to zero and only (re)built by
+	// vp9_build_nmv_cost_table on non-intra frames satisfying the
+	// fill_mode_costs gate (vp9_rd.c:439-443). For the full-RD path
+	// (!use_nonrd_pick_mode) that gate fires on every non-intra frame so the
+	// table is always populated; only the nonrd path can leave it at the
+	// vpx_calloc'd zero state, the state reached on the first inter frame after
+	// two adjacent keyframes where neither keyframe builds the table and the
+	// first inter frame (current_video_frame&7 != 1) does not either. In that
+	// nonrd-unbuilt case the MV-entropy cost is exactly zero; the full-RD path
+	// keeps the live cost FrameContext so its subpel scoring is unchanged.
+	mvCostFc, mvCostBuilt := vp9InterMvCostFrameContext(inter)
 	mvCost := func(mv vp9dec.MV) uint64 {
 		if !refMvValid {
 			return 0
 		}
 		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
+		if nonrdSubpelTree {
+			if !mvCostBuilt {
+				return 0
+			}
+			return encoder.SubpelMVErrorCost(mvCostFc, mv, refMv, allowHP,
+				errorPerBit)
+		}
 		return encoder.SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
 			refMv, allowHP, errorPerBit)
 	}

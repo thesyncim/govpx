@@ -27,14 +27,20 @@ type vp9KeyframeEncodeState struct {
 }
 
 type vp9InterEncodeState struct {
-	img              *image.YCbCr
-	dq               *vp9dec.DequantTables
-	ref              *vp9ReferenceFrame
-	refMask          uint8
-	allowHP          bool
-	selectFc         vp9dec.FrameContext
-	modeCostFc       vp9dec.FrameContext
-	modeCostFcValid  bool
+	img             *image.YCbCr
+	dq              *vp9dec.DequantTables
+	ref             *vp9ReferenceFrame
+	refMask         uint8
+	allowHP         bool
+	selectFc        vp9dec.FrameContext
+	modeCostFc      vp9dec.FrameContext
+	modeCostFcValid bool
+	// mvCostFc / mvCostFcBuilt mirror the x->nmvcost MV-entropy cost table
+	// (libvpx vp9_build_nmv_cost_table). When mvCostFcBuilt is false the nonrd
+	// subpel motion search costs MVs with a zero entropy table (the calloc'd
+	// default), as on the first inter frame after two adjacent keyframes.
+	mvCostFc         vp9dec.FrameContext
+	mvCostFcBuilt    bool
 	referenceMode    vp9dec.ReferenceMode
 	compoundAllowed  bool
 	refSignBias      [vp9dec.MaxRefFrames]uint8
@@ -70,6 +76,42 @@ func vp9InterModeCostFrameContext(inter *vp9InterEncodeState) *vp9dec.FrameConte
 		return &inter.modeCostFc
 	}
 	return &inter.selectFc
+}
+
+// vp9InterMvCostFrameContext returns the MV-entropy cost FrameContext and
+// whether libvpx's x->nmvcost table has been built at least once. When the
+// second return is false, the nonrd subpel search must use zero MV cost
+// (matching the calloc'd table), not the live/mode-cost probabilities.
+func vp9InterMvCostFrameContext(inter *vp9InterEncodeState) (*vp9dec.FrameContext, bool) {
+	if inter == nil {
+		return nil, false
+	}
+	if inter.mvCostFcBuilt {
+		return &inter.mvCostFc, true
+	}
+	return nil, false
+}
+
+// vp9NonrdInterModeRateCost ports libvpx's nonrd inter mode + MV rate, which
+// reads cpi->inter_mode_cost[ctx][INTER_OFFSET(mode)] (the inter-mode-tree
+// bits) plus rate_mv = vp9_mv_bit_cost(..., x->mvcost). Both cpi->inter_mode_cost
+// (vp9_build_inter_mode_cost) and x->nmvcost (vp9_build_nmv_cost_table) are
+// rebuilt together under the same !frame_is_intra_only guard inside
+// vp9_initialize_rd_consts (vp9_rd.c:439-444), and both live in arrays that are
+// zero-initialised at create time. So until the first non-intra build runs —
+// the state on the first inter frame after two adjacent keyframes — the entire
+// inter mode + MV rate is exactly zero. mvCostFcBuilt tracks that build; when
+// it is false the cost is zero (matching libvpx's zeroed tables), and when true
+// the MV bits use the frozen MV-cost FrameContext's Nmvc and the mode bits use
+// the same frozen context's inter-mode probabilities.
+func vp9NonrdInterModeRateCost(inter *vp9InterEncodeState, ctx int,
+	mode common.PredictionMode, mv, refMv vp9dec.MV,
+) int {
+	mvCostFc, built := vp9InterMvCostFrameContext(inter)
+	if !built {
+		return 0
+	}
+	return encoder.InterModeRateCost(mvCostFc, ctx, mode, mv, refMv, inter.allowHP)
 }
 
 func vp9InterSignBias(inter *vp9InterEncodeState) [vp9dec.MaxRefFrames]uint8 {
