@@ -323,12 +323,18 @@ func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState
 	// coef_probs[tx_size][plane_type=1 (UV)][ref=1 (inter)] — the token_costs
 	// slab vp9_optimize_b indexes (vp9_encodemb.c:103-104).
 	coefModel := &e.fc.CoefProbs[txSize][1][1]
-	trellis := func(coeff, qcoeff, dqcoeff []int16, eob int) int {
-		return encoder.VP9OptimizeB(1 /*plane UV*/, 1 /*ref inter*/, txSize,
-			coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
-			scan.Scan, scan.Neighbors, coefModel,
-			int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
-			0 /*segment_id*/, &e.modeScratch)
+	// libvpx gates vp9_optimize_b on do_trellis_opt (vp9_rdopt.c:797-802); RT
+	// speed >= 1 (cpu4) disables the trellis (DISABLE_TRELLIS_OPT,
+	// vp9_speed_features.c:488). nil closure skips it. cpu0 keeps it enabled.
+	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
+	if e.vp9DoTrellisOptInterY(txSize) {
+		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
+			return encoder.VP9OptimizeB(1 /*plane UV*/, 1 /*ref inter*/, txSize,
+				coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
+				scan.Scan, scan.Neighbors, coefModel,
+				int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				0 /*segment_id*/, &e.modeScratch)
+		}
 	}
 	// useLp32x32RD=true: super_block_uvrd runs inside the full-RD mode-selection
 	// path where rd_pick_sb_modes forces x->use_lp32x32fdct=1
