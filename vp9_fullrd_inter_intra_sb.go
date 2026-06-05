@@ -748,13 +748,20 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 	// coef_probs[tx_size][plane_type][ref=0 (intra)] — the token_costs slab
 	// vp9_optimize_b indexes (vp9_encodemb.c:103-104).
 	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
-	trellis := func(coeff, qcoeff, dqcoeff []int16, eob int) int {
-		// e.modeScratch is the ENTROPY_CONTEXT token_cache[1024]
-		// (vp9_encodemb.c:72); the cost_coeffs call after this re-clears it.
-		return encoder.VP9OptimizeB(plane, 0 /*ref intra*/, txSize, coeffCtx,
-			coeff, qcoeff, dqcoeff, eob, dequant, scan.Scan, scan.Neighbors,
-			coefModel, int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
-			0 /*segment_id*/, &e.modeScratch)
+	// libvpx gates vp9_optimize_b on do_trellis_opt (vp9_rdopt.c:797-802 for the
+	// inter-frame intra block path too). RT speed >= 1 (cpu4) disables it
+	// (DISABLE_TRELLIS_OPT, vp9_speed_features.c:488); cpu0 keeps it enabled. A
+	// nil closure skips the trellis and keeps the raw quantizer output.
+	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
+	if e.vp9DoTrellisOptInterY(txSize) {
+		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
+			// e.modeScratch is the ENTROPY_CONTEXT token_cache[1024]
+			// (vp9_encodemb.c:72); the cost_coeffs call after this re-clears it.
+			return encoder.VP9OptimizeB(plane, 0 /*ref intra*/, txSize, coeffCtx,
+				coeff, qcoeff, dqcoeff, eob, dequant, scan.Scan, scan.Neighbors,
+				coefModel, int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				0 /*segment_id*/, &e.modeScratch)
+		}
 	}
 	// useLp32x32RD=true: super_block_yrd runs inside the full-RD mode-selection
 	// path where rd_pick_sb_modes forces x->use_lp32x32fdct=1

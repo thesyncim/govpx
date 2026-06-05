@@ -149,25 +149,33 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		}
 	}
 
-	// Pin: the deep driver closes at least the leading z-order prefix of 13
-	// leaves (mi(0,0)..mi(3,0)) libvpx-exact (mode/ref/interp/mv). This is the
-	// milestone reached by porting the model_rd_for_sb interp-filter loop + the
-	// handle_inter_mode ref_best_rd breakouts (vp9InterUseDeepRDRefBestRD): the
-	// genuine super_block_yrd txfm-RD early-exit prunes NEW/NEAR exactly as
-	// libvpx, and the MODEL rd/2 breakout drops candidates whose genuine RD is
-	// (artificially) low — both load-bearing for the per-leaf decision. Asserting
-	// a floor (not the exact count) lets future frontier work raise the prefix
-	// without editing this test, while catching a regression below the milestone.
+	// Pin: the deep driver closes at least the leading z-order prefix of 46
+	// leaves libvpx-exact (mode/ref/interp/mv). The milestone jumped 13 -> 46 by
+	// disabling the coefficient trellis (vp9_optimize_b) in the genuine inter
+	// super_block_yrd / super_block_uvrd producers for REALTIME speed >= 1
+	// (cpu4): libvpx's do_trellis_opt returns 0 there because the speed feature
+	// sets trellis_opt_tx_rd.method = DISABLE_TRELLIS_OPT (vp9_speed_features.c:
+	// 485-488) and optimize_coefficients = 0 (vp9_speed_features.c:553). The
+	// producers previously ran the trellis UNCONDITIONALLY (correct only for the
+	// cpu0 {0,2,0,0,2} seed, where speed 0 keeps ENABLE_TRELLIS_OPT), which
+	// wrongly zeroed AC coefficients libvpx keeps and flipped per-leaf decisions
+	// deep in the SB. The first such flip was mi(2,3): with the trellis disabled
+	// govpx's NEARMV (18,-6) yrd no longer undercuts NEWMV, so mi(2,3) commits
+	// NEWMV (52,-58) EIGHTTAP exactly as libvpx, and the matched prefix advances
+	// through it to mi(7,2). Asserting a floor (not the exact count) lets future
+	// frontier work raise the prefix without editing this test, while catching a
+	// regression below the milestone.
 	//
-	// First divergence after the milestone: mi(2,3) — govpx commits NEARMV
-	// (18,-6) EIGHTTAP_SMOOTH (this_rd=38853581) where libvpx commits NEWMV
-	// (52,-58) EIGHTTAP (this_rd=39552399). Both reduce to a genuine 8x8 TX_4X4
-	// yrd precision gap: NEARMV's genuine yrd is rate_y=61922 dist_y=114880 in
-	// govpx vs rate_y=75885 dist_y=93652 in libvpx (libvpx ground truth, $TMPDIR
-	// vpxenc handle_inter_mode fprintf 2026-06-05), so govpx scores NEARMV below
-	// NEWMV and lets it win. The mode-pre-filtering mechanism is correct; the
-	// frontier is now the genuine sub-block-tx producer for deep-in-SB 8x8 leaves.
-	const minPrefix = 13
+	// First divergence after the milestone: mi(7,2) — the lone whole-8x8 INTRA
+	// DC leaf. libvpx commits DC_PRED intra (mode=0, ref=INTRA, uv=DC, TX_4X4),
+	// but govpx commits NEWMV (mode=13) ref=LAST EIGHTTAP_SMOOTH mv=(-26,60)
+	// (libvpx ground truth, $TMPDIR vpxenc encode_b fprintf 2026-06-05). The
+	// genuine intra-vs-inter RD for the inter frame's >=8x8 intra block is the
+	// next frontier: the intra DC RD must beat every inter candidate here, which
+	// requires the genuine intra-sb producer (vp9_fullrd_inter_intra_sb.go) to be
+	// threaded into the >=8x8 leaf decision (it is verified standalone but not yet
+	// the committed score for this path).
+	const minPrefix = 46
 	if matched < minPrefix {
 		fd := "none"
 		if firstDiffSet {
@@ -175,8 +183,9 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		}
 		t.Fatalf("deep use-partition closed z-order prefix = %d (< %d); "+
 			"first diverging leaf mi(%s). The genuine MV search / pred-mv "+
-			"threading or the model_rd_for_sb + ref_best_rd breakout "+
-			"(vp9InterUseDeepRDRefBestRD) regressed.", matched, minPrefix, fd)
+			"threading, the model_rd_for_sb + ref_best_rd breakout "+
+			"(vp9InterUseDeepRDRefBestRD), or the do_trellis_opt gate "+
+			"(vp9DoTrellisOptInterY) regressed.", matched, minPrefix, fd)
 	}
 	t.Logf("deep use-partition: %d/64 leading z-order leaves libvpx-exact "+
 		"(mode/ref/interp/mv); first divergence at mi(%d,%d)",
