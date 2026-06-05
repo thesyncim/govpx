@@ -414,6 +414,34 @@ func (e *VP9Encoder) vp9LookupDeepInterRDDecision(miRow, miCol int,
 	return e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize)
 }
 
+// vp9LookupDeepInterRDDecisionForWrite is the write-descent replay entry that
+// reconciles the sub-8x8 key mismatch. The deep recursion stores each leaf at
+// its actual bsize, but the writer's prepareVP9InterBlockResidue runs at
+// reconBsize == ModeInfoDecodeBSize(bsize), which folds every sub-8x8 leaf
+// (BLOCK_4X4/8X4/4X8) to BLOCK_8X8. When the BLOCK_8X8 lookup misses and the
+// committed mi grid records a sub-8x8 SbType at this position (the deep
+// recursion's fillVP9MiGrid leaf commit), retry the lookup at that real
+// sub-8x8 bsize so the wrapper's committed bmi quartet is replayed verbatim
+// (else the sub-8x8 model re-fill collapses the segment NEWMV/NEAREST MVs to
+// ZEROMV). Off / replay-disabled returns a miss.
+func (e *VP9Encoder) vp9LookupDeepInterRDDecisionForWrite(miRows, miCols,
+	miRow, miCol int, bsize common.BlockSize,
+) (vp9InterModeDecision, bool) {
+	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+		return vp9InterModeDecision{}, false
+	}
+	if d, ok := e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize); ok {
+		return d, true
+	}
+	if vp9InterUseDeepRDSub8x8 && bsize == common.Block8x8 {
+		if mi := e.vp9MiAt(miRows, miCols, miRow, miCol); mi != nil &&
+			mi.SbType < common.Block8x8 {
+			return e.lookupVP9LeafInterRDDecision(miRow, miCol, mi.SbType)
+		}
+	}
+	return vp9InterModeDecision{}, false
+}
+
 // vp9LookupDeepInterPartition is the flag-gated read entry the writer's region
 // picker uses to descend the deep-RD search's committed partition tree. A hit
 // means pickVP9InterPartitionRD already decided this node; the writer returns the

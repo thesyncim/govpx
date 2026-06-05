@@ -520,6 +520,24 @@ type VP9Encoder struct {
 	// fall back to the per-frame rd.rdmult.
 	cbRdmult int
 
+	// fullRDPredMv mirrors libvpx's MACROBLOCK::pred_mv[MAX_REF_FRAMES]
+	// (vp9/encoder/vp9_block.h). The full-RD inter NEWMV single_motion_search
+	// tail stores its SUBPEL result here (vp9_rdopt.c:2750
+	// x->pred_mv[ref] = tmp_mv->as_mv); the next-smaller block's vp9_mv_pred
+	// (vp9_rd.c:613 pred_mv[2] = x->pred_mv[ref_frame]) reads it as the third
+	// motion-vector-predictor candidate to seed mvp_full. The depth-first
+	// rd_pick_partition recursion snapshots/restores it across partition arms
+	// (store_pred_mv/load_pred_mv, vp9_encodeframe.c:3913/3932) so each child
+	// arm seeds from the parent NONE block's NEWMV. Reset to the INT16_MAX
+	// sentinel (vp9InterPredMvSentinel) per-SB (vp9_encodeframe.c:4215-4218).
+	// Consumed ONLY when vp9InterUseDeepRDSub8x8 is active (the full deep-RD
+	// inter stack the production cpu0/cpu4 enable turns on together with the
+	// deep partition recursion + genuine this_rd); the deep-partition-only
+	// SEARCH->WRITE round-trip harness and production (flags off) keep
+	// candidate[2] sourced from the var-part cache, so those paths are
+	// byte-identical.
+	fullRDPredMv [vp9dec.MaxRefFrames]vp9dec.MV
+
 	// rdThresh carries libvpx's RD-thresh / per-tile thresh_freq_fact
 	// state. Lazily allocated by vp9EncoderInitializeRDConsts on first
 	// frame init. Mirrors:
