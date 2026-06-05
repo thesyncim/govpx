@@ -1918,7 +1918,9 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 				cand.distortion = grd.Distortion
 				cand.rate = grd.Rate
 				cand.txSize = grd.TxSize
-				cand.skip = grd.Skip2
+				// libvpx vp9_rdopt.c:4149,4173 — committed mi->skip =
+				// best_skip2 || best_mode_skippable.
+				cand.skip = grd.Skip2 || grd.Skippable
 				cand.score = grd.ThisRD
 			}
 		}
@@ -1981,9 +1983,14 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			rate:         grd.Rate,
 			distortion:   grd.Distortion,
 			score:        grd.ThisRD,
-			skip:         grd.Skip2,
-			rdModeIndex:  modeIndex,
-			rdModeValid:  modeIndexValid,
+			// libvpx vp9_rdopt.c:4149,4173 commits mi->skip =
+			// best_skip2 || best_mode_skippable, so the committed block skip is
+			// this_skip2 OR skippable (Y+UV both zero after the tx-RD). Carrying
+			// only Skip2 here dropped the skippable case (e.g. {0,1,1,0,1}
+			// frame-1 mi(2,0)/mi(5,3): Skippable blocks libvpx codes skip).
+			skip:        grd.Skip2 || grd.Skippable,
+			rdModeIndex: modeIndex,
+			rdModeValid: modeIndexValid,
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {

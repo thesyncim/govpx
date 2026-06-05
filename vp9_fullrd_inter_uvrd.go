@@ -215,6 +215,13 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 		}
 	}
 
+	// libvpx x->block_tx_domain applies to all planes (vp9_rdopt.c:561-600 is
+	// plane-agnostic); for cpu4 it is forced to 1, so the inter UV-RD distortion
+	// must be transform-domain too, in lockstep with the Y producer. Gated behind
+	// vp9InterUseDeepRDTxDomainDistortion (default OFF) — see the Y producer.
+	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
+			bsize)
 	var rate int
 	var dist uint64
 	var sse uint64
@@ -238,18 +245,28 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 				txSize, miRow, miCol, rr, cc, dequant, qindex, initCtx,
 				coeffs, qcoeffs)
 
-			// sse = sum_squares(src_diff) * 16 (vp9_rdopt.c:757-765).
-			blockSSE := encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
-			sse += blockSSE
-
-			// dist = pixel_sse(src, recon) * 16 (vp9_rdopt.c:681-689). When
-			// eob==0 the predictor stays in recon, reducing to pixel_sse(src,pred).
-			blockDist, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
-				srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
-			if !distOK {
-				return encoder.FullRDTxCandidate{}
+			var blockDist uint64
+			var blockSSE uint64
+			if useTxDomain && hasResidue {
+				// Transform domain (vp9_rdopt.c:571-600): dist = vp9_block_error
+				// >> shift, sse = sum(coeff^2) >> shift (shift==2 for tx<32x32).
+				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
+					e.dqCoeffScratch[:maxEob], txSize)
+				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
+					txSize)
+			} else {
+				// Pixel domain: sse = sum_squares(src_diff) * 16
+				// (vp9_rdopt.c:757-765); dist = pixel_sse(src, recon) * 16
+				// (vp9_rdopt.c:681-689), reducing to pixel_sse(src, pred) at eob==0.
+				bd, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
+					srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
+				if !distOK {
+					return encoder.FullRDTxCandidate{}
+				}
+				blockDist = bd * 16
+				blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
 			}
-			blockDist *= 16
+			sse += blockSSE
 			dist += blockDist
 
 			// block_rd_txfm zero-rate early-exit (vp9_rdopt.c:820-824): rd =

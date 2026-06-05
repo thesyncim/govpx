@@ -63,22 +63,22 @@ import (
 //     regression on the VP9 encoder + decoder oracle suites and that
 //     {1,0,0,0,0} stays 256/256.
 //
-//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. The cpu_used=4 REALTIME
-//     speed-feature FLAGS are already ported verbatim
-//     (vp9/encoder/vp9_speed_features.c:558-583; see
-//     vp9_speed_features_realtime.go speed>=4 block and the cpu0 pin in
-//     TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim). The residual divergence is
-//     NOT a flag gap: speed 4 sets partition_search_type = VAR_BASED_PARTITION
-//     but keeps use_nonrd_pick_mode == 0, so the superblock mode/coefficient
-//     decision runs the full-RD path (vp9_rd_pick_inter_mode_sb /
-//     vp9_rd_pick_intra_mode_sb), which govpx matches byte-exactly only on the
-//     non-RD path that speed 8 reaches (use_nonrd_pick_mode == 1,
-//     vp9_speed_features.c:585-660). The forced KF at frame 30 exercises the
-//     kf_boost ramp landed in d248324, but the very first keyframe already
-//     diverges in the RD mode/coef decision (confirmed via the runtime-control
-//     cpu=4 lane: keyframe diverges at an early compressed-header byte).
-//     Closing this requires the full-RD mode + coefficient + partition RD
-//     scoring path, substantial encoder work beyond the speed-feature port.
+//   - {0,1,1,0,1} — CBR 700kbps kf=30 realtime cpu4. speed 4 sets
+//     partition_search_type = VAR_BASED_PARTITION but keeps use_nonrd_pick_mode
+//     == 0, so the superblock mode/coefficient decision runs the full-RD path
+//     (vp9_rd_pick_inter_mode_sb / vp9_rd_pick_intra_mode_sb). PROGRESS: the
+//     keyframe (frame 0) is byte-exact
+//     (TestVP9EncoderVpxencOracleFullRDCPU4KeyframeByteParity), and frame 1 (the
+//     first inter frame) is now ALSO byte-exact on the deep full-RD use-partition
+//     path — the first byte-exact full-RD inter frame — closing the seed's
+//     matched-frame prefix to 2 (keyframe + first inter frame). Pinned by
+//     TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity behind
+//     vp9InterUseDeepRDUsePartition + vp9InterUseDeepRDRefBestRD +
+//     vp9InterUseDeepRDTxDomainDistortion (all default OFF, so the PRODUCTION
+//     long-fixture path for this seed is unchanged and the seed stays deferred
+//     here). The remaining full-clip gap is the per-frame full-RD inter pipeline
+//     wired on by default + the later frames' RC/golden interaction; the frame-1
+//     closure is the prerequisite milestone.
 //
 //   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. CLOSED: now byte-exact
 //     for all 256 frames. The final divergence at frame 40 (the first
