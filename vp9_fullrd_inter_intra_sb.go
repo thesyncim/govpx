@@ -170,6 +170,20 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 	var yModeCost [common.IntraModes]int
 	vp9FullRDInterIntraYModeCosts(yModeCost[:], &inter.selectFc)
 
+	// libvpx restricts the intra Y-mode set via the speed feature
+	// mode_skip_mask[INTRA_FRAME] |= ~intra_y_mode_mask[max_txsize_lookup[bsize]]
+	// (vp9_rdopt.c:3623-3624): a Y mode whose bit is clear in the mask is masked
+	// out of the mode loop (the `mode_skip_mask[ref_frame] & (1<<this_mode)`
+	// continue at vp9_rdopt.c:3698) and never reaches the intra arm. For cpu4
+	// realtime this is INTRA_DC_H_V at every tx size except TX_32X32 (INTRA_DC)
+	// (vp9_speed_features.c:563-567); cpu0 leaves it at INTRA_ALL. Mirror the
+	// gate here so the producer evaluates exactly the Y modes libvpx does.
+	maxTxSize := common.MaxTxsizeLookup[bsize]
+	yModeMask := sfIntraAll
+	if int(maxTxSize) < len(e.sf.IntraYModeMask) && e.sf.IntraYModeMask[maxTxSize] != 0 {
+		yModeMask = e.sf.IntraYModeMask[maxTxSize]
+	}
+
 	// intra_cost_penalty = vp9_get_intra_cost_penalty(bsize, base_qindex,
 	// y_dc_delta_q) (vp9_rdopt.c:3487-3488, applied at :3865-3866 for oblique
 	// modes). qdelta is cm->y_dc_delta_q; for this realtime path the segment
@@ -203,6 +217,11 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 	// the first-seen of equal-RD modes survives). Walking numeric order would
 	// diverge on both for blocks whose winner is not DC.
 	for _, mode := range vp9FullRDInterIntraYModeOrder {
+		// intra_y_mode_mask gate (vp9_rdopt.c:3623-3624 + :3698): a Y mode whose
+		// bit is clear is masked out of the loop and never evaluated.
+		if yModeMask&(1<<uint(mode)) == 0 {
+			continue
+		}
 		// super_block_yrd on the intra residual for this Y mode
 		// (vp9_rdopt.c:3839). best_rd tightens to the running min RD so the
 		// transform-RD early-exit fires as libvpx's does.
@@ -324,11 +343,26 @@ func (e *VP9Encoder) vp9FullRDInterIntraChooseUVMode(inter *vp9InterEncodeState,
 	vp9FullRDIntraUVModeCosts(uvModeCost[:], vp9FullRDInterFrame, yMode,
 		&inter.selectFc)
 
+	// intra_uv_mode_mask gate (rd_pick_intra_sbuv_mode, vp9_rdopt.c:1481): a UV
+	// mode whose bit is clear in intra_uv_mode_mask[uv_tx] is skipped. For cpu4
+	// realtime this is INTRA_DC at every uv_tx (vp9_speed_features.c:565), so the
+	// chroma search collapses to DC_PRED exactly like the use_uv_intra_rd_estimate
+	// rd_sbuv_dcpred path (vp9_rdopt.c:1515-1531, which super_block_uvrd's DC at
+	// INT64_MAX — identical here since DC is the first mode and is seeded with the
+	// INT64_MAX best_rd). cpu0 leaves it at INTRA_ALL.
+	uvMask := sfIntraAll
+	if int(uvTx) < len(e.sf.IntraUvModeMask) && e.sf.IntraUvModeMask[uvTx] != 0 {
+		uvMask = e.sf.IntraUvModeMask[uvTx]
+	}
+
 	best := vp9FullRDInterIntraUVChoice{}
 	bestSet := false
 	bestRD := ^uint64(0) // best_rd = INT64_MAX (vp9_rdopt.c:1476)
 
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
+		if uvMask&(1<<uint(mode)) == 0 {
+			continue
+		}
 		// super_block_uvrd over U+V at uv_tx (vp9_rdopt.c:1491). The tokenonly
 		// transform rate + distortion + skippable, with the best_rd early-exit.
 		tokenRate, dist, skippable, ok := e.vp9FullRDInterIntraUVRD(inter,

@@ -48,10 +48,12 @@ var vp9UsePartitionSeed0_1_1_0_1Frame1 = [64][7]int{
 //
 // Flag default is OFF, so production and every other VP9 oracle gate are
 // byte-identical (the seed stays in vp9LongFixtureParityGapSeeds); this test
-// flips it locally. It is the progress anchor for closing the FIRST byte-exact
-// full-RD inter frame: the prefix that matches grows as the remaining frontier
-// (the handle_inter_mode model_rd_for_sb filter-loop ref_best_rd breakouts that
-// prune NEAR/NEW before their genuine RD, vp9_rdopt.c:3155) lands.
+// flips it locally. With the genuine larger-block intra producer threaded in
+// (pickVP9FullRDInterIntraLeaf), the entire 64-leaf SB committed (mode, ref,
+// interp, mv) DECOMPOSITION now matches libvpx. (The full frame-1 bitstream is
+// not yet byte-exact: the residual coefficient coding still diverges — govpx
+// emits ~30 extra token bytes — which is the next frontier; the committed mode
+// decomposition this test pins is the prerequisite for it.)
 func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 	const width, height = 64, 64
 
@@ -149,33 +151,29 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		}
 	}
 
-	// Pin: the deep driver closes at least the leading z-order prefix of 46
-	// leaves libvpx-exact (mode/ref/interp/mv). The milestone jumped 13 -> 46 by
+	// Pin: the deep driver closes the ENTIRE 64-leaf z-order SB libvpx-exact
+	// (mode/ref/interp/mv) — frame-1 SB0's committed mode decomposition is FULLY
+	// CLOSED (the residual coefficient bitstream is the next frontier). The prefix
+	// climbed in stages: 13 -> 46 by
 	// disabling the coefficient trellis (vp9_optimize_b) in the genuine inter
-	// super_block_yrd / super_block_uvrd producers for REALTIME speed >= 1
-	// (cpu4): libvpx's do_trellis_opt returns 0 there because the speed feature
-	// sets trellis_opt_tx_rd.method = DISABLE_TRELLIS_OPT (vp9_speed_features.c:
-	// 485-488) and optimize_coefficients = 0 (vp9_speed_features.c:553). The
-	// producers previously ran the trellis UNCONDITIONALLY (correct only for the
-	// cpu0 {0,2,0,0,2} seed, where speed 0 keeps ENABLE_TRELLIS_OPT), which
-	// wrongly zeroed AC coefficients libvpx keeps and flipped per-leaf decisions
-	// deep in the SB. The first such flip was mi(2,3): with the trellis disabled
-	// govpx's NEARMV (18,-6) yrd no longer undercuts NEWMV, so mi(2,3) commits
-	// NEWMV (52,-58) EIGHTTAP exactly as libvpx, and the matched prefix advances
-	// through it to mi(7,2). Asserting a floor (not the exact count) lets future
-	// frontier work raise the prefix without editing this test, while catching a
-	// regression below the milestone.
-	//
-	// First divergence after the milestone: mi(7,2) — the lone whole-8x8 INTRA
-	// DC leaf. libvpx commits DC_PRED intra (mode=0, ref=INTRA, uv=DC, TX_4X4),
-	// but govpx commits NEWMV (mode=13) ref=LAST EIGHTTAP_SMOOTH mv=(-26,60)
-	// (libvpx ground truth, $TMPDIR vpxenc encode_b fprintf 2026-06-05). The
-	// genuine intra-vs-inter RD for the inter frame's >=8x8 intra block is the
-	// next frontier: the intra DC RD must beat every inter candidate here, which
-	// requires the genuine intra-sb producer (vp9_fullrd_inter_intra_sb.go) to be
-	// threaded into the >=8x8 leaf decision (it is verified standalone but not yet
-	// the committed score for this path).
-	const minPrefix = 46
+	// super_block_yrd / super_block_uvrd producers for REALTIME speed >= 1 (cpu4,
+	// do_trellis_opt == 0 via DISABLE_TRELLIS_OPT + optimize_coefficients = 0,
+	// vp9_speed_features.c:485-488,553), then 46 -> 64 by wiring the genuine
+	// larger-block intra RD producer (vp9FullRDInterIntraSB, the
+	// ref_frame==INTRA_FRAME arm of vp9_rd_pick_inter_mode_sb) into the >= 8x8
+	// leaf score (pickVP9FullRDInterIntraLeaf), so the lone whole-8x8 INTRA leaf
+	// at mi(7,2) commits DC_PRED intra (mode=0, ref=INTRA, uv=DC, TX_4X4, mv=0)
+	// exactly as libvpx — its intra DC this_rd (42633654) beats NEARESTMV
+	// (51074099), NEWMV(-26,60) (43705965) and NEARMV (44857337) on the identical
+	// post-ref/post-skip-bit RD basis (libvpx ground truth, $TMPDIR vpxenc
+	// rd_pick_inter_mode_sb intra-arm fprintf 2026-06-05: rate_y=98860 dist_y=77516
+	// rate_uv=14341 dist_uv=7663 mbmode_cost=489 uv_mode_cost=560 rate2=116746
+	// dist2=85179 ref_cost=2473 skip0=23). The committed intra mv is 0
+	// (vp9_rdopt.c:3990, the full-RD intra arm, NOT the nonrd INVALID_MV at
+	// vp9_pickmode.c:2645). Asserting a floor (not the exact count) lets future
+	// frontier work (later SBs / later frames) extend without editing this test,
+	// while catching a regression below the milestone.
+	const minPrefix = 64
 	if matched < minPrefix {
 		fd := "none"
 		if firstDiffSet {
@@ -187,9 +185,15 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 			"(vp9InterUseDeepRDRefBestRD), or the do_trellis_opt gate "+
 			"(vp9DoTrellisOptInterY) regressed.", matched, minPrefix, fd)
 	}
-	t.Logf("deep use-partition: %d/64 leading z-order leaves libvpx-exact "+
-		"(mode/ref/interp/mv); first divergence at mi(%d,%d)",
-		matched, firstDiff[0], firstDiff[1])
+	if matched >= 64 {
+		t.Logf("deep use-partition: %d/64 z-order leaves libvpx-exact "+
+			"(mode/ref/interp/mv) — frame-1 SB0 mode decomposition FULLY CLOSED",
+			matched)
+	} else {
+		t.Logf("deep use-partition: %d/64 leading z-order leaves libvpx-exact "+
+			"(mode/ref/interp/mv); first divergence at mi(%d,%d)",
+			matched, firstDiff[0], firstDiff[1])
+	}
 }
 
 // vp9SB64ZOrder8x8 returns the 64 (miRow, miCol) positions of a 64x64 superblock
