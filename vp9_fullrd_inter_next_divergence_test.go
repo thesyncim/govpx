@@ -110,38 +110,79 @@ var vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder = []nextDivBlock{
 		}},
 
 	// ---- 16x16(0,1): mi(0,2),(0,3),(1,2),(1,3) — FIRST post-16x16(0,0) quad ----
+	// Per-sub MVs added from the libvpx ground-truth (GOVPX_BMI_TRACE encode_b
+	// dump of the md5 c41fc299 oracle stream): the decoder-replicated bmi[0..3]
+	// as_mv array. For 4x8 (bsize 1) bmi[0]/bmi[1] are the two distinct columns;
+	// for 8x4 (bsize 2) bmi[0]==bmi[1] (the first row, replicated). These MVs are
+	// now byte-exact in govpx (the sub-8x8 NEWMV write-reference fix), so the gate
+	// pins them.
 	{miRow: 0, miCol: 2, bsize: 0, mode: 11, ref0: 1, ref1: -1, interp: 0,
 		bmiSet: true, bmi: [4]nextDivBmi{
-			{mode: 13}, {mode: 13}, {mode: 10}, {mode: 11}, // NEW,NEW,NEAREST,NEAR
+			{mode: 13, mv: vp9dec.MV{Row: 24, Col: -8}}, // NEW
+			{mode: 13, mv: vp9dec.MV{Row: 16, Col: 8}},  // NEW
+			{mode: 10, mv: vp9dec.MV{Row: 24, Col: -8}}, // NEAREST
+			{mode: 11, mv: vp9dec.MV{Row: 16, Col: 8}},  // NEAR
 		}},
 	{miRow: 0, miCol: 3, bsize: 2, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}}, // NEW,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: -8, Col: 40}},
+			{mode: 13, mv: vp9dec.MV{Row: -8, Col: 40}},
+		}},
 	{miRow: 1, miCol: 2, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}}, // NEW,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 16, Col: 10}},
+			{mode: 13, mv: vp9dec.MV{Row: 1, Col: 9}},
+		}},
 	{miRow: 1, miCol: 3, bsize: 3, mode: 13, ref0: 1, ref1: -1, interp: 0,
 		mv: vp9dec.MV{Row: 0, Col: 8}},
 
 	// ---- 16x16(1,0): mi(2,0),(2,1),(3,0),(3,1) ----
 	{miRow: 2, miCol: 0, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 10}, {mode: 13}}}, // NEAREST,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEAREST,NEW
+			{mode: 10, mv: vp9dec.MV{Row: 9, Col: 15}},
+			{mode: 13, mv: vp9dec.MV{Row: 19, Col: 0}},
+		}},
 	{miRow: 2, miCol: 1, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}}, // NEW,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 12, Col: -1}},
+			{mode: 13, mv: vp9dec.MV{Row: 8, Col: 0}},
+		}},
 	{miRow: 3, miCol: 0, bsize: 2, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}}, // NEW,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 1, Col: 16}},
+			{mode: 13, mv: vp9dec.MV{Row: 1, Col: 16}},
+		}},
 	{miRow: 3, miCol: 1, bsize: 0, mode: 11, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{
-			{mode: 13}, {mode: 10}, {mode: 13}, {mode: 11}, // NEW,NEAREST,NEW,NEAR
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEAREST,NEW,NEAR
+			{mode: 13, mv: vp9dec.MV{Row: 8, Col: 0}},
+			{mode: 10, mv: vp9dec.MV{Row: 8, Col: 0}},
+			{mode: 13, mv: vp9dec.MV{Row: 16, Col: 8}},
+			{mode: 11, mv: vp9dec.MV{Row: 8, Col: 0}},
 		}},
 
 	// ---- 16x16(1,1): mi(2,2),(2,3),(3,2),(3,3) ----
 	{miRow: 2, miCol: 2, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 11}, {mode: 13}}}, // NEAR,NEW
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEAR,NEW
+			{mode: 11, mv: vp9dec.MV{Row: 8, Col: 0}},
+			{mode: 13, mv: vp9dec.MV{Row: 17, Col: -5}},
+		}},
 	{miRow: 2, miCol: 3, bsize: 0, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}, {mode: 13}, {mode: 13}}},
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW,NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 14, Col: 1}},
+			{mode: 13, mv: vp9dec.MV{Row: 24, Col: -16}},
+			{mode: 13, mv: vp9dec.MV{Row: 3, Col: 32}},
+			{mode: 13, mv: vp9dec.MV{Row: -15, Col: 31}},
+		}},
 	{miRow: 3, miCol: 2, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}},
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 9, Col: -2}},
+			{mode: 13, mv: vp9dec.MV{Row: 9, Col: 8}},
+		}},
 	{miRow: 3, miCol: 3, bsize: 1, mode: 13, ref0: 1, ref1: -1, interp: 0,
-		bmiSet: true, bmi: [4]nextDivBmi{{mode: 13}, {mode: 13}}},
+		bmiSet: true, bmi: [4]nextDivBmi{ // NEW,NEW
+			{mode: 13, mv: vp9dec.MV{Row: 17, Col: 0}},
+			{mode: 13, mv: vp9dec.MV{Row: 5, Col: 16}},
+		}},
 }
 
 // nextDivClassifyPath returns the distinct libvpx code-path label a committed
@@ -385,12 +426,19 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	// The 16x16(0,0) quad (indices 0..3) is the original closed milestone. The
 	// sub-8x8 SPLIT-vs-VERT partition-context fix (encode_sb update_partition_context
 	// replay for non-last split siblings, vp9_encoder_inter_partition.go
-	// scoreVP9InterPartitionSplit) closed mi(0,2)/(0,3)/(1,2) (indices 4..6) — the
-	// {0,2,0,0,2} frame-1 SB0 frontier advanced from mi(1,2) to mi(1,3). Lock the
-	// closed prefix [0..closedPrefixLen) as a hard regression gate; the walk below
-	// reports the first divergence past it (currently mi(1,3): an 8x8 NONE NEWMV
-	// motion-search MV gap, NOT a partition-shape gap).
-	const closedPrefixLen = 7 // indices 0..6 closed: 16x16(0,0) quad + mi(0,2)/(0,3)/(1,2)
+	// scoreVP9InterPartitionSplit) closed mi(0,2)/(0,3)/(1,2) (indices 4..6). The
+	// sub-8x8 NEWMV write-reference fix (vp9EncoderBestInterRefMvs now differences
+	// every NEWMV against the block-level NEAREST ref_mvs[ref][0], matching libvpx
+	// pack_inter_mode_mvs vp9/encoder/vp9_bitstream.c:328-339, NOT the committed
+	// block mode) closed mi(1,3) and the remaining indices 7..15: the whole
+	// embedded top-left-32x32 window (the four 16x16 quads, all 16 leaves) is now
+	// byte-exact, with the per-sub bmi MVs pinned. Lock the entire window
+	// [0..closedPrefixLen) as a hard regression gate; the walk below reports the
+	// first divergence past it. The current frontier is mi(1,6) (top-right 32x32,
+	// outside this window) — a PARTITION-shape divergence (govpx commits 8x8 NEWMV
+	// where libvpx splits to 4x4 NEARESTMV), a distinct gap from the MV-coding one
+	// this entry just closed.
+	const closedPrefixLen = 16 // all four 16x16 quads of the top-left 32x32 closed
 	for i := 0; i < closedPrefixLen; i++ {
 		b := vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[i]
 		m := mi(b.miRow, b.miCol)
@@ -399,8 +447,8 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 				i, b.miRow, b.miCol, diffs, nextDivFmtCommitted(m), nextDivFmtWant(b))
 		}
 	}
-	t.Logf("closed prefix [0..%d] (16x16(0,0) quad + mi(0,2)/(0,3)/(1,2)): byte-exact",
-		closedPrefixLen-1)
+	t.Logf("closed prefix [0..%d] (top-left 32x32: all four 16x16 quads, 16 leaves "+
+		"incl. per-sub bmi MVs): byte-exact", closedPrefixLen-1)
 
 	// ---- WALK the rest of SB0 in encode order; report the first divergence ----
 	t.Logf("frame-1 SB0 post-closed-prefix walk (encode order), deep engine committed vs libvpx:")
@@ -425,10 +473,23 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	}
 
 	if firstDivIdx < 0 {
-		t.Logf("NO divergence found in the embedded encode-order window (%d leaves); "+
-			"the deep engine matches libvpx for every leaf transcribed here — extend "+
-			"the encode-order table to the next 32x32 to find the frontier",
+		t.Logf("NO divergence in the embedded top-left-32x32 window (%d leaves): the deep "+
+			"engine matches libvpx for every leaf transcribed here.",
 			len(vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder))
+		// The frontier has moved into the NEXT 32x32 (top-right). Ground truth from
+		// the GOVPX_BMI_TRACE encode_b dump of the md5 c41fc299 oracle stream places
+		// the first divergence at mi(1,6): libvpx commits a 4x4 SPLIT whose last sub
+		// is NEARESTMV mv(-7,39); govpx commits a whole 8x8 NEWMV mv(8,-1). This is a
+		// PARTITION-shape divergence (SPLIT-vs-NONE at the 8x8 node), a distinct gap
+		// from the sub-8x8 NEWMV write-reference MV-coding bug just closed. Surface it
+		// as the precise next frontier so the parent can aim the next integration.
+		fr := mi(1, 6)
+		t.Logf("NEXT FRONTIER (outside embedded window): mi(1,6) in the top-right 32x32")
+		t.Logf("  libvpx-committed: bsize=0(4x4) mode=NEARESTMV ref0=LAST mv(-7,39) "+
+			"[4x4 SPLIT, last-sub NEARESTMV]")
+		t.Logf("  govpx-committed : %s", nextDivFmtCommitted(fr))
+		t.Logf("  DISTINCT PATH NEEDED: 8x8-node PARTITION_SPLIT-vs-PARTITION_NONE RD "+
+			"(govpx keeps the 8x8 NONE NEWMV where libvpx splits to 4x4)")
 		return
 	}
 
