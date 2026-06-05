@@ -83,6 +83,18 @@ type VP9Encoder struct {
 	// frameIndex tracks the frame number for the key-frame cadence
 	// gate. Mirrors libvpx's cpi->common.current_video_frame.
 	frameIndex int
+
+	// sourceTS mirrors the libvpx source-timestamp bookkeeping that drives
+	// adjust_frame_rate (vp9/encoder/vp9_encoder.c:5753). The implicit per-call
+	// PTS is vp9PTS (incremented once per encode call, duration 1), converted to
+	// ticks through the current g_timebase ratio. adjust_frame_rate re-derives
+	// cpi->framerate from the inter-frame timestamp delta, which is how a
+	// mid-stream fps change actually reaches rate control.
+	sourceTS encoderSourceTimestampState
+	// vp9PTS is the implicit presentation timestamp in timebase units, matching
+	// the vpxenc driver's `pts += frame_duration` (frame_duration == 1 under the
+	// exact-fps timebase). It advances once per encode call.
+	vp9PTS uint64
 	// framesSinceKey tracks committed and dropped frames since the last
 	// keyframe for adaptive keyframe min-distance gating.
 	framesSinceKey uint16
@@ -655,6 +667,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		rc:            rc,
 		svc:           encoder.DefaultSVCState(),
 		refFrameFlags: encoder.AllRefFlags,
+		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,

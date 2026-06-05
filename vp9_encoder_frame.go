@@ -106,6 +106,12 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	showFrame := flags&EncodeInvisibleFrame == 0
 	srcFrameAltRef := isSrcFrameAltRef && showFrame && !isKey && !intraOnly
 	e.rc.isSrcFrameAltRef = srcFrameAltRef
+	// libvpx adjust_frame_rate (vp9_encoder.c:6306) runs at the top of
+	// vp9_get_compressed_data for visible frames, before
+	// vp9_rc_get_one_pass_{cbr,vbr}_params. It re-derives cpi->framerate from the
+	// source-timestamp cadence and refreshes rc->avg_frame_bandwidth, which is
+	// how a mid-stream fps change reaches the per-frame bit budget.
+	e.vp9AdjustFrameRate(showFrame)
 	e.rc.seedFramesToKey(e.opts.MaxKeyframeInterval, isKey)
 	e.rc.prepareOnePassCBRCyclicGoldenFrame(isKey, intraOnly,
 		e.opts.AQMode, &e.cyclicAQ, e.opts.GFCBRBoostPct,

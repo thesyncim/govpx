@@ -158,6 +158,10 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 		e.opts.FPS = target.FPS
 		e.opts.TimebaseNum = 1
 		e.opts.TimebaseDen = target.FPS
+		// libvpx recomputes oxcf->g_timebase_in_ts in set_encoder_config on the
+		// enc_config_set; the new ratio only changes cpi->framerate once the next
+		// adjust_frame_rate observes the new source-timestamp delta.
+		e.vp9RefreshSourceTimestampRatio(nextTiming)
 	}
 	if target.BitrateKbps > 0 {
 		e.opts.TargetBitrateKbps = target.BitrateKbps
