@@ -244,7 +244,7 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 		return false
 	}
 	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, txType, dequant, qindex,
-		out, qOut, key.lossless, false)
+		out, qOut, key.lossless, false, false)
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
@@ -272,7 +272,7 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 		return false
 	}
 	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, true)
+		out, qOut, inter.lossless, true, false)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
@@ -396,7 +396,7 @@ func vp9PredictionSSEClamped(src []byte, srcStride, srcW, srcH int,
 // 92-123 (fp_32x32) all write qcoeff_ptr + dqcoeff_ptr in lockstep.
 func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
-	out, qOut []int16, lossless bool, useFastQuant bool,
+	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
 ) bool {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
@@ -440,7 +440,14 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 			// RD variant is the FP-path companion in libvpx, so it only
 			// applies when this caller is on the fast (vp9_quantize_fp)
 			// branch.
-			if useFastQuant && e.sf.UseLp32x32Fdct != 0 {
+			//
+			// useLp32x32RD overrides this for the full-RD MODE-SELECTION path:
+			// rd_pick_sb_modes (vp9_encodeframe.c:1994) unconditionally sets
+			// x->use_lp32x32fdct = 1 ("lower precision, but faster, 32x32 fdct
+			// for mode selection") before super_block_yrd, regardless of the
+			// speed feature. The final encode pass (encode_superblock) restores
+			// x->use_lp32x32fdct = sf->use_lp32x32fdct (vp9_encodeframe.c:6063).
+			if useLp32x32RD || (useFastQuant && e.sf.UseLp32x32Fdct != 0) {
 				encoder.ForwardDCT32x32RDInto(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
 			} else {
 				encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])

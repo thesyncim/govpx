@@ -80,6 +80,14 @@ type vp9OracleTraceState struct {
 	fullRDFirstInterSubpelMvValid bool
 	fullRDFirstInterSubpelMvRow   int
 	fullRDFirstInterSubpelMvCol   int
+
+	// fullRDInterYRD* captures the genuine inter super_block_yrd
+	// (choose_tx_size_from_rd) result the vp9FullRDInterSuperBlockYRD
+	// producer computes for the frame-1 SB0 64x64 root NEWMV (ref=LAST,
+	// mv=(12,4), filt=EIGHTTAP_SMOOTH). Used by the inter-yrd parity test to
+	// pin tx_size/best_rd + per-tx-size arrays against the libvpx capture.
+	fullRDInterYRDValid bool
+	fullRDInterYRD      vp9FullRDInterYRDResult
 }
 
 type vp9OracleTraceHolder struct {
@@ -187,6 +195,34 @@ func (e *VP9Encoder) vp9FullRDFirstInterSubpelMv() (row, col int, ok bool) {
 		return 0, 0, false
 	}
 	return state.fullRDFirstInterSubpelMvRow, state.fullRDFirstInterSubpelMvCol, true
+}
+
+// recordVP9FullRDInterYRD stores the genuine inter super_block_yrd producer
+// result for the frame-1 SB0 (0,0) 64x64 NEWMV. Gated to that one block so the
+// first matching candidate (the EIGHTTAP_SMOOTH NEWMV) is captured.
+func (e *VP9Encoder) recordVP9FullRDInterYRD(frameIndex, miRow, miCol int,
+	res vp9FullRDInterYRDResult,
+) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.fullRDInterYRDValid {
+		return
+	}
+	if frameIndex != 1 || miRow != 0 || miCol != 0 || !res.Valid {
+		return
+	}
+	state.fullRDInterYRDValid = true
+	state.fullRDInterYRD = res
+}
+
+// vp9FullRDInterYRD returns the captured frame-1 SB0 (0,0) 64x64 NEWMV
+// super_block_yrd producer result, valid only in govpx_oracle_trace builds
+// after a frame-1 encode.
+func (e *VP9Encoder) vp9FullRDInterYRD() (vp9FullRDInterYRDResult, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.fullRDInterYRDValid {
+		return vp9FullRDInterYRDResult{}, false
+	}
+	return state.fullRDInterYRD, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {
