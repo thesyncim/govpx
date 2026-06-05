@@ -96,6 +96,14 @@ type vp9OracleTraceState struct {
 	// the Y/UV components against the libvpx capture.
 	fullRDInterThisRDValid bool
 	fullRDInterThisRD      vp9FullRDInterThisRDResult
+
+	// fullRDSub8x8* captures the genuine sub-8x8 joint RD producer's per-label
+	// decomposition (encode_inter_mb_segment + set_and_cost_bmi_mvs) and the
+	// per-sub-block NEWMV motion search result for the frame-1 SB0 16x16(0,0)
+	// child at mi=(0,1) BLOCK_4X4 ref=LAST EIGHTTAP. Used by the sub-8x8 parity
+	// test to pin the producer against the libvpx capture.
+	fullRDSub8x8Valid bool
+	fullRDSub8x8      vp9Sub8x8Capture
 }
 
 type vp9OracleTraceHolder struct {
@@ -259,6 +267,27 @@ func (e *VP9Encoder) vp9CapturedFullRDInterThisRD() (vp9FullRDInterThisRDResult,
 		return vp9FullRDInterThisRDResult{}, false
 	}
 	return state.fullRDInterThisRD, true
+}
+
+// recordVP9FullRDSub8x8 stores the genuine sub-8x8 producer capture (first
+// matching call wins).
+func (e *VP9Encoder) recordVP9FullRDSub8x8(cap vp9Sub8x8Capture) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.fullRDSub8x8Valid {
+		return
+	}
+	state.fullRDSub8x8Valid = true
+	state.fullRDSub8x8 = cap
+}
+
+// vp9CapturedFullRDSub8x8 returns the captured frame-1 SB0 16x16(0,0) child
+// sub-8x8 producer decomposition, valid only in govpx_oracle_trace builds.
+func (e *VP9Encoder) vp9CapturedFullRDSub8x8() (vp9Sub8x8Capture, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.fullRDSub8x8Valid {
+		return vp9Sub8x8Capture{}, false
+	}
+	return state.fullRDSub8x8, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {

@@ -35,6 +35,12 @@ func (e *VP9Encoder) vp9FullRDInterYRD() (vp9FullRDInterYRDResult, bool) {
 func (e *VP9Encoder) recordVP9FullRDInterThisRD(int, int, int, vp9FullRDInterThisRDResult) {
 }
 
+func (e *VP9Encoder) recordVP9FullRDSub8x8(vp9Sub8x8Capture) {}
+
+func (e *VP9Encoder) vp9CapturedFullRDSub8x8() (vp9Sub8x8Capture, bool) {
+	return vp9Sub8x8Capture{}, false
+}
+
 func (e *VP9Encoder) vp9CapturedFullRDInterThisRD() (vp9FullRDInterThisRDResult, bool) {
 	return vp9FullRDInterThisRDResult{}, false
 }
