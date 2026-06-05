@@ -10,6 +10,31 @@ import (
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
+// vp9EncoderBestInterRefMvs returns the per-ref MV that the bitstream MV coder
+// (WriteInterBlock / countVP9NewMv) differences each NEWMV against. libvpx's
+// pack_inter_mode_mvs writes BOTH a whole-block NEWMV and every sub-8x8 NEWMV
+// sub-block against the block-level NEAREST candidate
+// x->mbmi_ext->ref_mvs[ref_frame][0] (vp9/encoder/vp9_bitstream.c:328-330 for
+// the sub-8x8 idx loop and :337-339 for the whole-block NEWMV) — i.e. always
+// the index-[0] (NEAREST) candidate of vp9_find_mv_refs, irrespective of the
+// committed block mode. The decoder mirrors this exactly: for a NEWMV sub-block
+// it seeds best_ref_mvs from dec_find_mv_refs(NEWMV, sb_type, block=-1)[0]
+// (vp9/decoder/vp9_decodemv.c:748-752, reproduced in vp9_decoder_modes.go:607-616),
+// and for a whole-block NEWMV from ref_mvs[ref][refmv_count-1==0 for NEWMV's
+// early-break] (vp9_decodemv.c:776-781).
+//
+// Therefore the write/count reference MV must be computed with mode == NEWMV
+// (the index-[0] NEAREST), NOT with the committed block mode mi.Mode. Passing
+// mi.Mode was wrong for a sub-8x8 leaf whose block-level mode is NEARMV
+// (mi.Mode == bmi[3].as_mode): InterModeMvCandidate(.., NEARMV) returns the
+// NEAR candidate ref_mvs[1] instead of the NEAREST ref_mvs[0], so every NEWMV
+// sub-block of that leaf was differenced against the wrong reference and the
+// decoder reconstructed each MV shifted by (ref_mvs[1] - ref_mvs[0]). That
+// corruption then propagated into the NEAREST chain of subsequent blocks. Using
+// NEWMV here makes the encoder's write reference byte-identical to the decoder's
+// read reference for both sub-8x8 and whole-block NEWMV. (For NEARESTMV/NEWMV
+// blocks the result is unchanged: both already resolve to ref_mvs[0]. For
+// NEARMV/ZEROMV whole blocks no MV is written, so the value is unused.)
 func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi, allowHP bool, signBias [vp9dec.MaxRefFrames]uint8,
@@ -24,7 +49,7 @@ func (e *VP9Encoder) vp9EncoderBestInterRefMvs(tile vp9dec.TileBounds,
 	}
 	for ref := 0; ref < halves; ref++ {
 		if cand, ok := e.vp9EncoderInterModeCandidateMv(tile, miRows, miCols,
-			miRow, miCol, bsize, mi.Mode, mi.RefFrame[ref], allowHP,
+			miRow, miCol, bsize, common.NewMv, mi.RefFrame[ref], allowHP,
 			signBias); ok {
 			best[ref] = cand
 		}
