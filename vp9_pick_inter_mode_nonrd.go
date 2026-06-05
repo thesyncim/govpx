@@ -952,8 +952,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 			if bestSet {
 				mvOpts.nonrdPrecheck = func(fullpelMv vp9dec.MV) bool {
-					rateModeMv := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
-						interModeCtx, common.NewMv, fullpelMv, refMvOpt, inter.allowHP)
+					rateModeMv := vp9NonrdInterModeRateCost(inter,
+						interModeCtx, common.NewMv, fullpelMv, refMvOpt)
 					precheckRD := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
 						rateModeMv, 0)
 					return precheckRD <= best.score
@@ -1593,8 +1593,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// libvpx vp9_pickmode.c:2405-2410 — finalize the
 			// (rate, dist) tuple by adding rate_mv + inter_mode_cost
 			// + ref_frame_cost + the chosen skip bit.
-			interModeBitCost := encoder.InterModeRateCost(vp9InterModeCostFrameContext(inter),
-				interModeCtx, thisMode, mv, refMv, inter.allowHP)
+			interModeBitCost := vp9NonrdInterModeRateCost(inter,
+				interModeCtx, thisMode, mv, refMv)
 			interpFilterCost := 0
 			if vp9MvHasSubpel(mv) {
 				interpFilterCost = vp9InterInterpFilterRateCost(inter,

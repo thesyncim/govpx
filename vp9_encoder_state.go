@@ -46,6 +46,7 @@ func (e *VP9Encoder) updateVP9NonrdModeCostFrameContext(frameIsIntra bool) {
 		e.vp9NonrdModeCostFc = e.fc
 		e.vp9NonrdModeCostFcValid = true
 	}
+	e.updateVP9NonrdMvCostFrameContext(frameIsIntra)
 }
 
 func (e *VP9Encoder) vp9NonrdModeCostFrameContext() vp9dec.FrameContext {
@@ -53,6 +54,35 @@ func (e *VP9Encoder) vp9NonrdModeCostFrameContext() vp9dec.FrameContext {
 		return e.vp9NonrdModeCostFc
 	}
 	return e.fc
+}
+
+// updateVP9NonrdMvCostFrameContext mirrors libvpx's vp9_build_nmv_cost_table
+// refresh inside vp9_initialize_rd_consts (vp9_rd.c:435-443). The MV-entropy
+// cost table is rebuilt only when the fill_mode_costs gate
+// (!use_nonrd_pick_mode || current_video_frame&7 == 1 || KEY_FRAME) holds AND
+// the frame is non-intra (the inner !frame_is_intra_only guard). KEY_FRAME is
+// always intra, so the KEY_FRAME leg never rebuilds the MV cost; the table
+// stays at its vpx_calloc'd zero state until the first non-intra build, which
+// vp9NonrdMvCostFcValid tracks.
+func (e *VP9Encoder) updateVP9NonrdMvCostFrameContext(frameIsIntra bool) {
+	if frameIsIntra {
+		return
+	}
+	if e.sf.UseNonrdPickMode == 0 || e.frameIndex&0x07 == 1 {
+		e.vp9NonrdMvCostFc = e.fc
+		e.vp9NonrdMvCostFcValid = true
+	}
+}
+
+// vp9NonrdMvCostFrameContext returns the frozen MV-entropy cost FrameContext
+// and whether the underlying x->nmvcost table has been built at least once.
+// When false, the nonrd motion search must cost MVs with zero entropy
+// (the calloc'd table), not with the live/mode-cost FrameContext probabilities.
+func (e *VP9Encoder) vp9NonrdMvCostFrameContext() (vp9dec.FrameContext, bool) {
+	if e.vp9NonrdMvCostFcValid {
+		return e.vp9NonrdMvCostFc, true
+	}
+	return e.fc, false
 }
 
 func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
