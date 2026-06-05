@@ -104,6 +104,15 @@ type vp9OracleTraceState struct {
 	// test to pin the producer against the libvpx capture.
 	fullRDSub8x8Valid bool
 	fullRDSub8x8      vp9Sub8x8Capture
+
+	// sub8x8Wrapper* captures the genuine sub-8x8 wrapper's committed segment for
+	// the frame-1 SB0 16x16(0,0) child at mi=(0,1): the live-derived (NOT injected)
+	// segment Y rate (bsi->r) + filter, used to pin the sibling entropy-context
+	// propagation (mi(0,0)'s encode_b stamp seeding mi(0,1)'s rd_pick_best_sub8x8
+	// t_left). First matching mi=(0,1) commit wins.
+	sub8x8WrapperValid bool
+	sub8x8WrapperR     int
+	sub8x8WrapperFltr  vp9dec.InterpFilter
 }
 
 type vp9OracleTraceHolder struct {
@@ -288,6 +297,33 @@ func (e *VP9Encoder) vp9CapturedFullRDSub8x8() (vp9Sub8x8Capture, bool) {
 		return vp9Sub8x8Capture{}, false
 	}
 	return state.fullRDSub8x8, true
+}
+
+// recordVP9Sub8x8WrapperCommit stores the genuine sub-8x8 wrapper's live-derived
+// committed segment Y rate + filter for mi=(0,1) (first matching commit wins).
+func (e *VP9Encoder) recordVP9Sub8x8WrapperCommit(miRow, miCol, segR int,
+	filter vp9dec.InterpFilter,
+) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.sub8x8WrapperValid {
+		return
+	}
+	if miRow != 0 || miCol != 1 {
+		return
+	}
+	state.sub8x8WrapperValid = true
+	state.sub8x8WrapperR = segR
+	state.sub8x8WrapperFltr = filter
+}
+
+// vp9CapturedSub8x8WrapperCommit returns the captured mi=(0,1) committed segment
+// Y rate + filter, valid only in govpx_oracle_trace builds.
+func (e *VP9Encoder) vp9CapturedSub8x8WrapperCommit() (int, vp9dec.InterpFilter, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.sub8x8WrapperValid {
+		return 0, 0, false
+	}
+	return state.sub8x8WrapperR, state.sub8x8WrapperFltr, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {

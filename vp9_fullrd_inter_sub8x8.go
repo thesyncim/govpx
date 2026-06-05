@@ -76,7 +76,14 @@ type vp9Sub8x8SegResult struct {
 	Skippable    bool   // vp9_is_skippable_in_plane(BLOCK_8X8, 0)
 	Labels       [4]vp9Sub8x8Label
 	Bmi          [4]vp9dec.Bmi // the per-sub bmi quartet (mode + mv)
-	Valid        bool
+	// SegEntropy is the 8x8 block's plane[0] above/left entropy context AFTER all
+	// labels are coded (the running t_above[2]/t_left[2] at segment end,
+	// vp9_rdopt.c:2398-2399). The partition recursion's encode_sb stamps this into
+	// pd->above_context/left_context so the next sibling 8x8's sub-8x8 RD seed
+	// reads it (vp9_encodeframe.c:2167-2218 save_context/restore_context +
+	// :4163-4166 encode_sb for split children with index != 3).
+	SegEntropy vp9Sub8x8SegmentEntropy
+	Valid      bool
 }
 
 // (The vp9_rd_pick_inter_mode_sub8x8 wrapper — driving rdPickBestSub8x8Mode over
@@ -328,6 +335,9 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 
 	res.SegmentRD = thisSegmentRD
 	res.Bmi = mi.Bmi
+	// segEnt now holds the running t_above[2]/t_left[2] after the last label's
+	// selected mode (vp9_rdopt.c:2398-2399 memcpy(t_above, rdstat[block].ta)).
+	res.SegEntropy = segEnt
 	// vp9_is_skippable_in_plane(BLOCK_8X8, 0): skippable iff every 4x4 sub-block
 	// eob == 0 (vp9_rdopt.c:2422). Track via the per-label anyEob.
 	res.Skippable = true

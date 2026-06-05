@@ -41,7 +41,12 @@ type vp9Sub8x8WrapperResult struct {
 	thisRD       uint64 // rd_cost->rdcost
 	skippable    bool
 	skip2        bool
-	valid        bool
+	// segEntropy is the committed segment's plane[0] above/left entropy context
+	// after all sub-blocks are coded; the partition recursion stamps it into
+	// pd->above_context/left_context so the next sibling 8x8 reads it
+	// (vp9_encodeframe.c encode_sb / save_context-restore_context).
+	segEntropy vp9Sub8x8SegmentEntropy
+	valid      bool
 }
 
 // rdPickInterModeSub8x8 ports vp9_rd_pick_inter_mode_sub8x8 for the single-ref
@@ -255,9 +260,15 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 				thisRD:       thisRD,
 				skippable:    skippable,
 				skip2:        skip2,
+				segEntropy:   segBest.SegEntropy,
 				valid:        true,
 			}
 			bestSet = true
+			// Oracle-trace pin: record the live-derived committed segment Y rate
+			// (bsi->r) + filter for mi=(0,1) so the wrapper test can assert the
+			// sibling entropy-context propagation closed the rate gap. Zero-cost in
+			// non-trace builds.
+			e.recordVP9Sub8x8WrapperCommit(miRow, miCol, segBest.R, segBestFilter)
 		}
 	}
 

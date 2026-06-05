@@ -41,6 +41,12 @@ func (e *VP9Encoder) vp9CapturedFullRDSub8x8() (vp9Sub8x8Capture, bool) {
 	return vp9Sub8x8Capture{}, false
 }
 
+func (e *VP9Encoder) recordVP9Sub8x8WrapperCommit(int, int, int, vp9dec.InterpFilter) {}
+
+func (e *VP9Encoder) vp9CapturedSub8x8WrapperCommit() (int, vp9dec.InterpFilter, bool) {
+	return 0, 0, false
+}
+
 func (e *VP9Encoder) vp9CapturedFullRDInterThisRD() (vp9FullRDInterThisRDResult, bool) {
 	return vp9FullRDInterThisRDResult{}, false
 }

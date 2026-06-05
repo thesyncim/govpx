@@ -235,3 +235,27 @@ func (e *VP9Encoder) vp9Sub8x8SeedEntropy(ent *vp9Sub8x8SegmentEntropy,
 		ent.left[1] = pd.LeftContext[lo+1]
 	}
 }
+
+// vp9Sub8x8StampEntropy writes the committed 8x8 block's segment entropy context
+// back into the plane[0] above/left context. This is the entropy-context half of
+// libvpx's encode_sb / encode_superblock → vp9_foreach_transformed_block →
+// vp9_set_contexts (vp9/encoder/vp9_encodeframe.c:4163-4166, the split children
+// with pc_tree->index != 3): after a sub-8x8 leaf is committed during the SPLIT
+// recursion, its plane entropy context is stamped so the next sibling 8x8's
+// rd_pick_best_sub8x8_mode seed (memcpy(t_above, pd->above_context),
+// vp9_rdopt.c:2120-2121) reads it. ent.above[0..1]/left[0..1] are the running
+// t_above[2]/t_left[2] at segment end (vp9_rdopt.c:2398-2399).
+func (e *VP9Encoder) vp9Sub8x8StampEntropy(ent *vp9Sub8x8SegmentEntropy,
+	miRow, miCol int,
+) {
+	pd := &e.planes[0]
+	aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	if ao := aboveOff[0]; ao >= 0 && ao+2 <= len(pd.AboveContext) {
+		pd.AboveContext[ao] = ent.above[0]
+		pd.AboveContext[ao+1] = ent.above[1]
+	}
+	if lo := leftOff[0]; lo >= 0 && lo+2 <= len(pd.LeftContext) {
+		pd.LeftContext[lo] = ent.left[0]
+		pd.LeftContext[lo+1] = ent.left[1]
+	}
+}

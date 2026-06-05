@@ -494,6 +494,14 @@ type vp9InterModeDecision struct {
 	skipTxfm       encoder.SkipTxfmFlag
 	rdModeIndex    encoder.ThrMode
 	rdModeValid    bool
+	// segEntropy carries the genuine sub-8x8 wrapper's committed plane[0]
+	// entropy context (t_above[2]/t_left[2] at segment end). The partition
+	// recursion stamps it into pd->above_context/left_context after the leaf
+	// commits so the next sibling 8x8's sub-8x8 RD seed reads it
+	// (vp9_encodeframe.c encode_sb + vp9_rdopt.c:2120-2121 seed). Only set on the
+	// deep-RD sub-8x8 inter path; segEntropyValid gates the stamp.
+	segEntropy      vp9Sub8x8SegmentEntropy
+	segEntropyValid bool
 }
 
 type vp9InterMvPredState struct {
@@ -814,19 +822,21 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 				miRow, miCol, bsize, ^uint64(0), true); ok {
 				refSlot, _ := e.vp9InterReferenceSlot(inter, seg.refFrame)
 				best = vp9InterModeDecision{
-					refFrame:       seg.refFrame,
-					secondRefFrame: vp9dec.NoRefFrame,
-					refSlot:        refSlot,
-					mode:           seg.mode,
-					mv:             seg.mv,
-					bmi:            seg.bmi,
-					interpFilter:   seg.interpFilter,
-					txSize:         common.Tx4x4,
-					uvMode:         seg.uvMode,
-					rate:           seg.rate,
-					distortion:     seg.distortion,
-					score:          seg.thisRD,
-					skip:           seg.skip2,
+					refFrame:        seg.refFrame,
+					secondRefFrame:  vp9dec.NoRefFrame,
+					refSlot:         refSlot,
+					mode:            seg.mode,
+					mv:              seg.mv,
+					bmi:             seg.bmi,
+					interpFilter:    seg.interpFilter,
+					txSize:          common.Tx4x4,
+					uvMode:          seg.uvMode,
+					rate:            seg.rate,
+					distortion:      seg.distortion,
+					score:           seg.thisRD,
+					skip:            seg.skip2,
+					segEntropy:      seg.segEntropy,
+					segEntropyValid: true,
 				}
 				bestSet = true
 			}
@@ -2352,6 +2362,58 @@ func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
 		rate = 0
 	}
 	return distortion, rate, txSize, !hasResidue, true
+}
+
+// vp9CommitInterLeafEntropyContext stamps a committed inter leaf's plane entropy
+// context (pd->above_context/left_context) for all planes, the entropy half of
+// libvpx encode_b → encode_superblock → vp9_foreach_transformed_block →
+// vp9_set_contexts (vp9/encoder/vp9_encodeframe.c:4163 encode_sb on split
+// children with pc_tree->index != 3). The deep-RD recursion scores leaves with
+// local-copy entropy contexts, so the committed leaf's context must be stamped
+// here for the next sibling 8x8's rd_pick_best_sub8x8_mode / super_block_yrd seed
+// (memcpy(t_above, pd->above_context), vp9_rdopt.c:2120-2121,872) to read it.
+//
+// Sub-8x8 leaves carry the running segment context (decision.segEntropy, plane[0]
+// only — the sub-8x8 luma seed); 8x8+ leaves are reconstructed once (predict +
+// per-tx (eob>0)) to recover the committed all-plane context. mi must already be
+// filled into the grid by the caller; this only updates the context.
+func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	decision vp9InterModeDecision,
+) {
+	if decision.intra {
+		return
+	}
+	if decision.segEntropyValid {
+		ent := decision.segEntropy
+		e.vp9Sub8x8StampEntropy(&ent, miRow, miCol)
+		return
+	}
+	// 8x8+ inter leaf: rebuild the committed predictor and walk the per-tx
+	// transform units writing (eob>0) into the global plane context, exactly as
+	// scoreVP9InterTxCandidate does into its local copies (vp9_encoder_residue.go)
+	// but committing the result. mirrors vp9_set_contexts. Point inter.ref at the
+	// committed reference's slot so predictVP9InterBlock's validity gate passes
+	// regardless of the last-evaluated ref left in inter.ref; restore after.
+	savedRef := inter.ref
+	defer func() { inter.ref = savedRef }()
+	if refSlot, ok := e.vp9InterReferenceSlot(inter, decision.refFrame); ok {
+		inter.ref = &e.refFrames[refSlot]
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		TxSize:       decision.txSize,
+		Mode:         decision.mode,
+		InterpFilter: uint8(decision.interpFilter),
+		RefFrame:     [2]int8{decision.refFrame, decision.secondRefFrame},
+		Mv:           decision.mv,
+		Bmi:          decision.bmi,
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+		return
+	}
+	e.stampVP9InterLeafTxContext(inter, miRows, miCols, miRow, miCol, bsize,
+		decision.txSize, decision.skip)
 }
 
 func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,

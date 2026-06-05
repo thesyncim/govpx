@@ -3,6 +3,7 @@
 package govpx
 
 import (
+	"io"
 	"testing"
 
 	vp9test "github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -52,6 +53,9 @@ func TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
+	// Enable the oracle-trace capture so recordVP9Sub8x8WrapperCommit stores the
+	// live committed segment rate for mi(0,1) (the writer output is unused here).
+	e.SetOracleTraceWriter(io.Discard)
 	srcs := vp9test.NewPanningSources(width, height, 2)
 	var frames [][]byte
 	for i, s := range srcs {
@@ -108,5 +112,37 @@ func TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed(t *testing.T) {
 			t.Fatalf("mi(0,1).bmi[%d] = {mode=%d mv=%v}, want {mode=%d mv=%v}",
 				i, mi01.Bmi[i].AsMode, mi01.Bmi[i].AsMv[0], w.mode, w.mv)
 		}
+	}
+
+	// Sibling entropy-context propagation pin: the wrapper's LIVE-derived
+	// committed segment for mi(0,1) must reproduce libvpx's bsi->r exactly. mi(0,0)
+	// (the left-sibling 8x8) is encode_b-stamped before mi(0,1)'s
+	// rd_pick_best_sub8x8_mode runs, so its plane entropy context seeds mi(0,1)'s
+	// t_left = [1,1] (vp9_rdopt.c:2120-2121 memcpy(t_above, pd->above_context);
+	// vp9_encodeframe.c:4163 encode_sb on split children with index != 3).
+	//
+	// libvpx ground truth (vpxenc-vp9 cpu0 CBR 1200 kbps kf=999 fps 30, the
+	// panning source; TEMPORARY fprintf in rd_pick_best_sub8x8_mode +
+	// encode_inter_mb_segment, reverted): for the committed EIGHTTAP BLOCK_4X4
+	// segment the four labels brate = 3989 + 5226 + 11906 + 33832 = 54953
+	// (byrate 3229 + 4466 + 7296 + 33072 = 48063) with the per-label seed/threading
+	//   blk0 SEED ta=[0,0] tl=[1,1] -> byrate 3229; blk1 ta=[1,0] tl=[1,1] -> 4466;
+	//   blk2 ta=[1,1] tl=[1,1] -> 7296; blk3 ta=[1,1] tl=[1,1] -> 33072.
+	// Before the fix the live seed was tl=[0,0] (mi(0,0) not stamped), inflating
+	// blk0 byrate 3229->3626 and blk2 7296->7596 (the +697 brate gap 54953->55650).
+	const wantSegR = 54953
+	gotSegR, gotFltr, ok := e.vp9CapturedSub8x8WrapperCommit()
+	if !ok {
+		t.Fatal("no sub-8x8 wrapper commit captured for mi(0,1); the live deep-RD " +
+			"sub-8x8 leaf did not commit at mi=(0,1)")
+	}
+	if gotFltr != vp9dec.InterpEighttap {
+		t.Errorf("mi(0,1) committed filter = %d, want EIGHTTAP", gotFltr)
+	}
+	if gotSegR != wantSegR {
+		t.Errorf("mi(0,1) committed segment bsi->r = %d, want %d (sibling "+
+			"entropy-context propagation: mi(0,0) encode_b stamp must seed "+
+			"mi(0,1) t_left=[1,1]; a stale t_left=[0,0] gives 55650, the +697 gap)",
+			gotSegR, wantSegR)
 	}
 }

@@ -966,6 +966,76 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 	return distortion, rate, hasResidue, true
 }
 
+// stampVP9InterLeafTxContext walks a committed inter block's per-tx transform
+// units (all planes) and writes (eob>0) into the GLOBAL plane entropy context
+// pd->above_context/left_context. This is the commit-time half of
+// scoreVP9InterTxCandidate (which writes only local copies) and mirrors libvpx
+// vp9_set_contexts (vp9/common/vp9_blockd.h) invoked per block by
+// vp9_foreach_transformed_block inside encode_b. The predictor for the committed
+// mode must already be in pd->dst (predictVP9InterBlock). When the block is coded
+// skip, libvpx's encode_b resets the context to zero (reset_skip_context); this
+// reproduces that by stamping 0 across the footprint.
+func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, lumaTx common.TxSize,
+	skip bool,
+) {
+	if inter == nil || inter.dq == nil {
+		return
+	}
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		txSize := lumaTx
+		dequant := inter.dq.Y[0]
+		if plane > 0 {
+			txSize = vp9dec.GetUvTxSize(bsize, lumaTx, pd)
+			dequant = inter.dq.Uv[0]
+		}
+		aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
+		leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
+		ao := aboveOffsets[plane]
+		lo := leftOffsets[plane]
+		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, bsize, pd, planeBsize)
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob > len(e.coefScratch) {
+			continue
+		}
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				hasCtx := uint8(0)
+				if !skip {
+					coeffs := e.coefScratch[:maxEob]
+					qcoeffs := e.qCoefScratch[:maxEob]
+					for i := range coeffs {
+						coeffs[i] = 0
+						qcoeffs[i] = 0
+					}
+					if e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
+						miRow, miCol, rr, cc, dequant, coeffs, qcoeffs) {
+						hasCtx = 1
+					}
+				}
+				for i := 0; i < step && cc+i < aboveLen; i++ {
+					if ao >= 0 && ao+cc+i < len(pd.AboveContext) {
+						pd.AboveContext[ao+cc+i] = hasCtx
+					}
+				}
+				for i := 0; i < step && rr+i < leftLen; i++ {
+					if lo >= 0 && lo+rr+i < len(pd.LeftContext) {
+						pd.LeftContext[lo+rr+i] = hasCtx
+					}
+				}
+			}
+		}
+	}
+}
+
 func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int,

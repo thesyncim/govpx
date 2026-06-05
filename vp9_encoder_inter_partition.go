@@ -1191,6 +1191,21 @@ func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize,
 		vp9InterModeDecisionMi(bsize, decision))
+	// Entropy-context stamp (encode_sb): libvpx's partition recursion encode_b's
+	// each committed non-last split child (pc_tree->index != 3) before the next
+	// sibling's rd_pick_sb_modes, so the sibling's seed (memcpy(t_above,
+	// pd->above_context), vp9_rdopt.c:2120-2121,872) reads the just-coded block's
+	// plane entropy context (vp9_encodeframe.c:4163 encode_sb +
+	// save_context/restore_context :2167-2218). govpx's deep-RD recursion scores
+	// without an intervening encode_b, so stamp the committed leaf's context here;
+	// the partition-context snapshot/restore now carries the entropy context
+	// across trials, and pickVP9InterPartitionRD's final restore is seg-only so
+	// the stamp persists for the next sibling. Gated behind the deep sub-8x8 flag
+	// (production keeps the model stand-in and never reaches this stamp).
+	if vp9InterUseDeepRDSub8x8 {
+		e.vp9CommitInterLeafEntropyContext(inter, miRows, miCols, miRow, miCol,
+			bsize, decision)
+	}
 	// SEARCH->WRITE replay: when the depth-first RD recursion is the active
 	// partition decision, commit this leaf's full picker decision keyed by
 	// (miRow, miCol, bsize) so the bitstream write descent replays it instead
@@ -1550,16 +1565,21 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	// performs the single stamp — eliminating the double-update that desynced
 	// the decoded partition tree (the BLOCKER 1 "invalid VP9 data" failure).
 	//
-	// DEFERRED (RD parity, not serialization): libvpx's SPLIT loop stamps split
-	// children 0..2 via encode_sb (pc_tree->index != 3 guard at :4143) so each
-	// child's partition_plane_context is visible to the next sibling DURING
-	// rd_pick_partition scoring; govpx's per-child neutrality here does not
-	// propagate that intra-loop sibling context, which can only shift the deep
-	// recursion's internal RD cost (never the mi grid or decodability). It is
-	// reconciled when pickVP9InterPartitionRD becomes the real production
-	// decision (a later step); the bitstream writer already replays the correct
-	// sibling propagation (child 0 stamps -> child 1 reads) at emit time.
-	e.restoreVP9PartitionContexts(ctxSnap)
+	// ENTROPY-context sibling propagation (RD parity): libvpx's SPLIT loop
+	// encode_sb's split children 0..2 (pc_tree->index != 3 guard,
+	// vp9_encodeframe.c:4163) so each child's plane entropy context
+	// (above_context/left_context) is visible to the next sibling's
+	// rd_pick_best_sub8x8_mode seed (memcpy(t_above, pd->above_context),
+	// vp9_rdopt.c:2120-2121). encode_sb runs AFTER the function's per-arm
+	// restore_context calls, so the committed stamp is NOT undone — the next
+	// sibling reads it. Therefore restore ONLY the partition seg context here (for
+	// serializer neutrality, see above) and LEAVE the entropy context carrying the
+	// committed arm's stamp (scoreVP9InterPartitionLeaf stamped the sub-8x8 leaf's
+	// segment context; for larger arms the committed scorer left the block's own
+	// context). The per-trial restoreBase() above still restores BOTH so trials
+	// stay isolated. Gated: production never captured the entropy snapshot
+	// (snap.entOK false), so restoreVP9PartitionContexts == seg-only there.
+	e.restoreVP9PartitionSegContextsOnly(ctxSnap)
 	// SEARCH->WRITE: record this node's committed partition (child block size)
 	// so the writer's region picker descends the search's tree rather than
 	// re-deciding the node via pickVP9InterPartitionBlockSize, whose early-exits
@@ -1720,6 +1740,19 @@ type vp9PartitionContextSnapshot struct {
 	leftLen    int
 	above      [common.MiBlockSize]int8
 	left       [common.MiBlockSize]int8
+	// Per-plane entropy context (pd->above_context/left_context) over the block's
+	// footprint, the entropy-context half of libvpx save_context/restore_context
+	// (vp9/encoder/vp9_encodeframe.c:2167-2218). Saved/restored alongside the
+	// partition seg context so SPLIT-trial entropy stamps don't leak across
+	// trials. Captured ONLY on the deep-RD sub-8x8 path (entOK gates restore;
+	// production never sets it so the entropy context is left untouched).
+	entOK       bool
+	entAbove    [vp9dec.MaxMbPlane][16]uint8
+	entLeft     [vp9dec.MaxMbPlane][16]uint8
+	entAboveOff [vp9dec.MaxMbPlane]int
+	entLeftOff  [vp9dec.MaxMbPlane]int
+	entAboveLen [vp9dec.MaxMbPlane]int
+	entLeftLen  [vp9dec.MaxMbPlane]int
 }
 
 func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
@@ -1746,10 +1779,55 @@ func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
 		e.aboveSegCtx[snap.aboveStart:snap.aboveStart+snap.aboveLen])
 	copy(snap.left[:snap.leftLen],
 		e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen])
+	// Per-plane entropy context — the entropy half of libvpx save_context
+	// (vp9_encodeframe.c:2207-2218). Captured only when the deep sub-8x8 inter
+	// path is active (it is the only consumer of the entropy-context restore).
+	if vp9InterUseDeepRDSub8x8 {
+		aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+		ok := true
+		for plane := range vp9dec.MaxMbPlane {
+			pd := &e.planes[plane]
+			planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+			if planeBsize >= common.BlockSizes {
+				ok = false
+				break
+			}
+			aw := int(common.Num4x4BlocksWideLookup[planeBsize])
+			ah := int(common.Num4x4BlocksHighLookup[planeBsize])
+			if aw > len(snap.entAbove[plane]) || ah > len(snap.entLeft[plane]) {
+				ok = false
+				break
+			}
+			ao := aboveOff[plane]
+			lo := leftOff[plane]
+			if ao < 0 || ao+aw > len(pd.AboveContext) ||
+				lo < 0 || lo+ah > len(pd.LeftContext) {
+				ok = false
+				break
+			}
+			copy(snap.entAbove[plane][:aw], pd.AboveContext[ao:ao+aw])
+			copy(snap.entLeft[plane][:ah], pd.LeftContext[lo:lo+ah])
+			snap.entAboveOff[plane] = ao
+			snap.entLeftOff[plane] = lo
+			snap.entAboveLen[plane] = aw
+			snap.entLeftLen[plane] = ah
+		}
+		snap.entOK = ok
+	}
 	return snap, true
 }
 
 func (e *VP9Encoder) restoreVP9PartitionContexts(snap vp9PartitionContextSnapshot) {
+	e.restoreVP9PartitionSegContextsOnly(snap)
+	e.restoreVP9PartitionEntropyContextsOnly(snap)
+}
+
+// restoreVP9PartitionSegContextsOnly restores just the partition seg context
+// (above_seg_context/left_seg_context). Used at node finalisation, where the seg
+// context must return to the entry snapshot for serializer neutrality (see the
+// long comment at the pickVP9InterPartitionRD tail) while the entropy context is
+// left carrying the committed encode_sb stamp for the next sibling.
+func (e *VP9Encoder) restoreVP9PartitionSegContextsOnly(snap vp9PartitionContextSnapshot) {
 	if snap.aboveLen > 0 && snap.aboveStart >= 0 &&
 		snap.aboveStart+snap.aboveLen <= len(e.aboveSegCtx) {
 		copy(e.aboveSegCtx[snap.aboveStart:snap.aboveStart+snap.aboveLen],
@@ -1759,6 +1837,29 @@ func (e *VP9Encoder) restoreVP9PartitionContexts(snap vp9PartitionContextSnapsho
 		snap.leftStart+snap.leftLen <= len(e.leftSegCtx) {
 		copy(e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen],
 			snap.left[:snap.leftLen])
+	}
+}
+
+// restoreVP9PartitionEntropyContextsOnly restores the per-plane entropy context
+// (pd->above_context/left_context), the entropy half of libvpx restore_context
+// (vp9_encodeframe.c:2178-2188). Only restored when the snapshot captured it
+// (deep sub-8x8 inter path); production leaves the entropy context untouched.
+func (e *VP9Encoder) restoreVP9PartitionEntropyContextsOnly(snap vp9PartitionContextSnapshot) {
+	if !snap.entOK {
+		return
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		aw := snap.entAboveLen[plane]
+		ah := snap.entLeftLen[plane]
+		ao := snap.entAboveOff[plane]
+		lo := snap.entLeftOff[plane]
+		if aw > 0 && ao >= 0 && ao+aw <= len(pd.AboveContext) {
+			copy(pd.AboveContext[ao:ao+aw], snap.entAbove[plane][:aw])
+		}
+		if ah > 0 && lo >= 0 && lo+ah <= len(pd.LeftContext) {
+			copy(pd.LeftContext[lo:lo+ah], snap.entLeft[plane][:ah])
+		}
 	}
 }
 
