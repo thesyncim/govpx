@@ -353,6 +353,29 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			mi.InterpFilter = uint8(decision.interpFilter)
 			pickedValid = true
 		}
+	} else if cached, ok := e.vp9LookupDeepInterRDDecision(miRow, miCol, bsize); ok {
+		// SEARCH->WRITE replay (vp9InterUseDeepRDPartition only): the
+		// depth-first full-RD partition search (pickVP9InterPartitionRD)
+		// already committed this leaf's decision into the deep cache as it
+		// filled the mi grid. Replay it verbatim so the writer emits exactly
+		// what the search chose, instead of re-running pickVP9InterReferenceMode
+		// with a different x->pred_mv / interp-filter context than the search
+		// ran (the bug that committed garbage MVs to the deep recursion's
+		// leaves). libvpx replays the cached mbmi at write_modes_b without
+		// re-picking (vp9/encoder/vp9_bitstream.c).
+		picked = cached
+		mi.Mode = cached.mode
+		mi.Mv = cached.mv
+		mi.Bmi = cached.bmi
+		mi.RefFrame = [2]int8{cached.refFrame, cached.secondRefFrame}
+		mi.InterpFilter = uint8(cached.interpFilter)
+		if cached.txSize < common.TxSizes {
+			mi.TxSize = cached.txSize
+		}
+		if !cached.intra {
+			inter.ref = &e.refFrames[cached.refSlot]
+		}
+		pickedValid = true
 	} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, bsize); ok {
 		// libvpx: vp9/encoder/vp9_bitstream.c::write_modes_b reads the
 		// stored picker decision from mi[0]->mbmi without re-invoking

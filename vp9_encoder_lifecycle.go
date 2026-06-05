@@ -375,6 +375,28 @@ type VP9Encoder struct {
 	vp9LeafInterDecisionsRows int
 	vp9LeafInterDecisionsCols int
 	vp9LeafInterDecisionsVer  uint32
+	// vp9LeafInterRDDecisions is the SEARCH->WRITE replay cache for the
+	// depth-first full-RD inter partition recursion (pickVP9InterPartitionRD).
+	// Populated only while vp9InterUseDeepRDPartition is active: the search
+	// commits each chosen leaf's vp9InterModeDecision as it fills the mi grid,
+	// and the bitstream write descent replays the cached decision instead of
+	// re-picking it with a desynced x->pred_mv context. Unused (never
+	// populated) when the flag is off, so production stays byte-identical.
+	vp9LeafInterRDDecisions     []vp9LeafInterRDDecisionEntry
+	vp9LeafInterRDDecisionsRows int
+	vp9LeafInterRDDecisionsCols int
+	vp9LeafInterRDDecisionsVer  uint32
+	// vp9InterPartitionRDDecisions is the partition-tree half of the deep
+	// full-RD inter SEARCH->WRITE replay (the leaf-mode half is
+	// vp9LeafInterRDDecisions). pickVP9InterPartitionRD records its committed
+	// per-node child block size here so the writer descends the search's tree
+	// instead of re-deciding each node with its divergent early-exit picker.
+	// Allocated/used only under vp9InterUseDeepRDPartition; production leaves it
+	// nil. Mirrors vp9KeyframePartitionDecisions.
+	vp9InterPartitionRDDecisions     []vp9InterPartitionRDDecisionEntry
+	vp9InterPartitionRDDecisionsRows int
+	vp9InterPartitionRDDecisionsCols int
+	vp9InterPartitionRDDecisionsVer  uint32
 	// vp9LeafKeyframeDecisions mirrors the same count-pass to write-pass
 	// replay for intra keyframe leaves. The stored values are just the mode
 	// decisions; residue and entropy contexts are rebuilt in each pass.

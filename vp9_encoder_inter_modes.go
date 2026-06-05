@@ -571,6 +571,61 @@ type vp9LeafInterDecisionEntry struct {
 	valid    bool
 }
 
+// vp9InterPartitionRDDecisionEntry stores the partition (child block size)
+// chosen by the depth-first full-RD inter search (pickVP9InterPartitionRD) at
+// one tree node, keyed by (version, root). It is the partition-tree half of the
+// SEARCH->WRITE replay (the leaf-mode half is vp9LeafInterRDDecisionEntry).
+//
+// It exists because pickVP9InterPartitionRD's per-node decision and the writer's
+// own per-node partition picker (pickVP9InterPartitionBlockSize) do NOT always
+// agree: the latter carries early-exits the recursion lacks (e.g. the
+// full.distortion==0 PARTITION_NONE shortcut at
+// vp9_encoder_inter_partition.go:132), so on perfectly-predicted planted motion
+// the writer would descend NONE while the search committed VERT — leaving the
+// writer reading the leaf cache at a block size the search never wrote. Caching
+// the search's per-node partition and having the writer descend THAT tree keeps
+// the partition geometry and the leaf-mode keys in lock-step.
+//
+// Populated and consumed ONLY when vp9InterUseDeepRDPartition is active;
+// production (flag off) never allocates or reads it, so the flag-off path stays
+// byte-identical. Mirrors vp9KeyframePartitionDecisionEntry.
+//
+// libvpx: rd_pick_partition writes the chosen partition into the PC_TREE /
+// mi_grid once per SB; the writer replays that tree at write_modes_sb
+// (vp9/encoder/vp9_bitstream.c) rather than re-deciding it.
+type vp9InterPartitionRDDecisionEntry struct {
+	version uint32
+	root    common.BlockSize
+	target  common.BlockSize
+	valid   bool
+}
+
+// vp9LeafInterRDDecisionEntry stores one committed leaf decision produced by
+// the depth-first full-RD inter partition search (pickVP9InterPartitionRD).
+// It is the SEARCH->WRITE replay surface for the deep recursion: the search
+// commits each chosen leaf's full vp9InterModeDecision here as it fills the mi
+// grid (scoreVP9InterPartitionLeaf), and the bitstream write descent
+// (prepareVP9InterPredictionBlock) reads the cached decision back for that mi
+// position + block size instead of re-running pickVP9InterReferenceMode with a
+// different x->pred_mv / interp-filter context than the search ran. This is the
+// govpx analog of libvpx running rd_pick_partition once per SB and replaying
+// the cached per-leaf mbmi at write_modes_b time (vp9/encoder/vp9_bitstream.c)
+// rather than re-picking.
+//
+// The cache is populated and consumed ONLY when vp9InterUseDeepRDPartition is
+// active (an opt-in serialization/test flag, default false); production encodes
+// (flag off) never touch it, so the flag-off path stays byte-identical. Keyed
+// by (version, bsize): the version stamp invalidates stale cross-frame entries
+// and the bsize discriminator guards a re-entry at a different block size than
+// the prior commit (e.g. the search's NONE-arm 64x64 leaf vs the SPLIT-arm
+// 32x32 leaf sharing the same top-left mi position).
+type vp9LeafInterRDDecisionEntry struct {
+	version  uint32
+	bsize    common.BlockSize
+	decision vp9InterModeDecision
+	valid    bool
+}
+
 func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,

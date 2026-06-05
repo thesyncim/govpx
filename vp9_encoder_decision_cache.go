@@ -240,6 +240,197 @@ func (e *VP9Encoder) storeVP9LeafInterDecision(miRow, miCol int,
 	}
 }
 
+// ensureVP9LeafInterRDDecisionCache sizes the depth-first full-RD inter
+// SEARCH->WRITE replay cache to the current miGrid extent and bumps the version
+// stamp so stale prior-frame entries can't masquerade as fresh. It mirrors
+// ensureVP9LeafInterDecisionCache; the two caches are kept separate so the
+// flag-off production path (which only uses vp9LeafInterDecisions) is never
+// perturbed by the deep recursion's commits.
+//
+// libvpx: rd_pick_partition runs once per SB and stores the committed per-leaf
+// mbmi into mi_grid_visible (vp9/encoder/vp9_encodeframe.c); write_modes_b reads
+// it back without recomputation (vp9/encoder/vp9_bitstream.c).
+func (e *VP9Encoder) ensureVP9LeafInterRDDecisionCache(miRows, miCols int) {
+	n := miRows * miCols
+	e.vp9LeafInterRDDecisions = buffers.EnsureLen(e.vp9LeafInterRDDecisions, n)
+	e.vp9LeafInterRDDecisionsRows = miRows
+	e.vp9LeafInterRDDecisionsCols = miCols
+	e.vp9LeafInterRDDecisionsVer++
+	if e.vp9LeafInterRDDecisionsVer == 0 {
+		for i := range e.vp9LeafInterRDDecisions {
+			e.vp9LeafInterRDDecisions[i] = vp9LeafInterRDDecisionEntry{}
+		}
+		e.vp9LeafInterRDDecisionsVer = 1
+	}
+}
+
+// lookupVP9LeafInterRDDecision returns the committed deep-RD search decision for
+// (miRow, miCol, bsize) if pickVP9InterPartitionRD committed one in the current
+// frame's search pass. The bitstream write descent consumes it to replay the
+// search's leaf choice without re-picking. A miss returns false (caller falls
+// back to the normal pick path). Only called while vp9InterUseDeepRDPartition is
+// active.
+func (e *VP9Encoder) lookupVP9LeafInterRDDecision(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9InterModeDecision, bool) {
+	if e.vp9LeafInterRDDecisionsCols <= 0 {
+		return vp9InterModeDecision{}, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafInterRDDecisionsRows ||
+		miCol >= e.vp9LeafInterRDDecisionsCols {
+		return vp9InterModeDecision{}, false
+	}
+	off := miRow*e.vp9LeafInterRDDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafInterRDDecisions) {
+		return vp9InterModeDecision{}, false
+	}
+	entry := &e.vp9LeafInterRDDecisions[off]
+	if !entry.valid || entry.version != e.vp9LeafInterRDDecisionsVer ||
+		entry.bsize != bsize {
+		return vp9InterModeDecision{}, false
+	}
+	return entry.decision, true
+}
+
+// storeVP9LeafInterRDDecision commits the deep-RD search's chosen leaf decision
+// for (miRow, miCol, bsize). Called from scoreVP9InterPartitionLeaf (gated on
+// vp9InterUseDeepRDPartition) as it fills the mi grid. The depth-first search
+// re-runs the winning partition arm last, so the final store at each key the
+// writer actually descends is the committed (winning) leaf's decision; losing
+// trial arms leave entries at block sizes the writer never reads back.
+func (e *VP9Encoder) storeVP9LeafInterRDDecision(miRow, miCol int,
+	bsize common.BlockSize, decision vp9InterModeDecision,
+) {
+	if e.vp9LeafInterRDDecisionsCols <= 0 {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafInterRDDecisionsRows ||
+		miCol >= e.vp9LeafInterRDDecisionsCols {
+		return
+	}
+	off := miRow*e.vp9LeafInterRDDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafInterRDDecisions) {
+		return
+	}
+	e.vp9LeafInterRDDecisions[off] = vp9LeafInterRDDecisionEntry{
+		version:  e.vp9LeafInterRDDecisionsVer,
+		bsize:    bsize,
+		decision: decision,
+		valid:    true,
+	}
+}
+
+// ensureVP9InterPartitionRDDecisionCache sizes the deep full-RD inter
+// SEARCH->WRITE partition-tree cache to (miRows*miCols*BlockSizes) and bumps the
+// version stamp to invalidate stale prior-frame entries. Mirrors
+// ensureVP9KeyframePartitionDecisionCache; allocated only under
+// vp9InterUseDeepRDPartition.
+func (e *VP9Encoder) ensureVP9InterPartitionRDDecisionCache(miRows, miCols int) {
+	n := miRows * miCols * int(common.BlockSizes)
+	e.vp9InterPartitionRDDecisions = buffers.EnsureLen(e.vp9InterPartitionRDDecisions, n)
+	e.vp9InterPartitionRDDecisionsRows = miRows
+	e.vp9InterPartitionRDDecisionsCols = miCols
+	e.vp9InterPartitionRDDecisionsVer++
+	if e.vp9InterPartitionRDDecisionsVer == 0 {
+		for i := range e.vp9InterPartitionRDDecisions {
+			e.vp9InterPartitionRDDecisions[i] = vp9InterPartitionRDDecisionEntry{}
+		}
+		e.vp9InterPartitionRDDecisionsVer = 1
+	}
+}
+
+// lookupVP9InterPartitionRDDecision returns the deep-RD search's committed child
+// block size for node (miRow, miCol, root) if pickVP9InterPartitionRD committed
+// one this frame. The writer's region picker reads it to descend the search's
+// partition tree without re-deciding the node. Mirrors
+// lookupVP9KeyframePartitionDecision.
+func (e *VP9Encoder) lookupVP9InterPartitionRDDecision(miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, bool) {
+	if e.vp9InterPartitionRDDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return common.BlockInvalid, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9InterPartitionRDDecisionsRows ||
+		miCol >= e.vp9InterPartitionRDDecisionsCols {
+		return common.BlockInvalid, false
+	}
+	off := (miRow*e.vp9InterPartitionRDDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9InterPartitionRDDecisions) {
+		return common.BlockInvalid, false
+	}
+	entry := &e.vp9InterPartitionRDDecisions[off]
+	if !entry.valid || entry.version != e.vp9InterPartitionRDDecisionsVer ||
+		entry.root != root {
+		return common.BlockInvalid, false
+	}
+	return entry.target, true
+}
+
+// storeVP9InterPartitionRDDecision commits the deep-RD search's chosen child
+// block size for node (miRow, miCol, root). Called at each pickVP9InterPartitionRD
+// node as it returns its committed decision; the depth-first commit pass re-runs
+// the winning arm last, so for every node the writer actually descends the final
+// store is the committed (winning) partition. Mirrors
+// storeVP9KeyframePartitionDecision.
+func (e *VP9Encoder) storeVP9InterPartitionRDDecision(miRow, miCol int,
+	root, target common.BlockSize,
+) {
+	if e.vp9InterPartitionRDDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9InterPartitionRDDecisionsRows ||
+		miCol >= e.vp9InterPartitionRDDecisionsCols {
+		return
+	}
+	off := (miRow*e.vp9InterPartitionRDDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9InterPartitionRDDecisions) {
+		return
+	}
+	e.vp9InterPartitionRDDecisions[off] = vp9InterPartitionRDDecisionEntry{
+		version: e.vp9InterPartitionRDDecisionsVer,
+		root:    root,
+		target:  target,
+		valid:   true,
+	}
+}
+
+// vp9LookupDeepInterRDDecision is the flag-gated read entry the bitstream write
+// descent uses to replay a committed deep-RD leaf decision. When
+// vp9InterUseDeepRDPartition is off it returns a miss unconditionally, so the
+// write path falls through to its normal pick/lookup chain and production stays
+// byte-identical (the deep cache is never even allocated in that case).
+func (e *VP9Encoder) vp9LookupDeepInterRDDecision(miRow, miCol int,
+	bsize common.BlockSize,
+) (vp9InterModeDecision, bool) {
+	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+		return vp9InterModeDecision{}, false
+	}
+	return e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize)
+}
+
+// vp9LookupDeepInterPartition is the flag-gated read entry the writer's region
+// picker uses to descend the deep-RD search's committed partition tree. A hit
+// means pickVP9InterPartitionRD already decided this node; the writer returns the
+// cached child size verbatim rather than re-deciding via
+// pickVP9InterPartitionBlockSize (whose early-exits can diverge). The first
+// visit per SB (the root, count pre-pass) misses, so the caller falls through
+// and runs the search, which populates the whole subtree; every later visit
+// hits. Off / replay-disabled returns a miss, restoring the re-decide path.
+func (e *VP9Encoder) vp9LookupDeepInterPartition(miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, bool) {
+	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+		return common.BlockInvalid, false
+	}
+	return e.lookupVP9InterPartitionRDDecision(miRow, miCol, root)
+}
+
 func (e *VP9Encoder) fillVP9MiGrid(miRows, miCols, r, c int, bsize common.BlockSize, mi vp9dec.NeighborMi) {
 	rows := int(common.Num8x8BlocksHighLookup[bsize])
 	cols := int(common.Num8x8BlocksWideLookup[bsize])
