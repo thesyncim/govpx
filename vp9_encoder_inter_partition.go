@@ -195,51 +195,37 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if inter != nil {
 		rateCostProbs = &inter.selectFc.PartitionProb
 	}
-	bsl := int(common.BWidthLog2Lookup[root])
-	bs := (1 << uint(bsl)) / 4
-	hasRows := miRow+bs < miRows
-	hasCols := miCol+bs < miCols
 	ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 		miRow, miCol, root)
 	qindex := e.vp9EncoderModeDecisionQIndex()
-	bestSize := root
-	// libvpx scores partition candidates with the unconditional full-tree
-	// cost (cpi->partition_cost[pl][type]); the hasRows/hasCols-clamped form
-	// is only for the bitstream writer. See vp9_fullrd_partition_cost.go.
-	bestScore := e.vp9AddModeDecisionRate(full.score,
+	// PARTITION_NONE seed: the parent leaf RD already computed above as `full`
+	// (rd_pick_sb_modes for pc_tree->none, vp9_encodeframe.c:3819). libvpx
+	// scores partition candidates with the unconditional full-tree cost
+	// (cpi->partition_cost[pl][type]); the hasRows/hasCols-clamped form is only
+	// for the bitstream writer. See vp9_fullrd_partition_cost.go.
+	noneScore := e.vp9AddModeDecisionRate(full.score,
 		RDPartitionCost(rateCostProbs, ctx, common.PartitionNone), qindex)
 
-	if hasRows {
-		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
-			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
-			score = e.vp9AddModeDecisionRate(score,
-				RDPartitionCost(rateCostProbs, ctx, common.PartitionHorz), qindex)
-			if score < bestScore {
-				bestScore = score
-				bestSize = horzSize
-			}
-		}
-	}
-	if hasCols {
-		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
-			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {
-			score = e.vp9AddModeDecisionRate(score,
-				RDPartitionCost(rateCostProbs, ctx, common.PartitionVert), qindex)
-			if score < bestScore {
-				bestScore = score
-				bestSize = vertSize
-			}
-		}
-	}
-	if hasRows && hasCols {
-		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
-			miRows, miCols, miRow, miCol, splitSize); ok {
-			score = e.vp9AddModeDecisionRate(score,
-				RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit), qindex)
-			if score < bestScore {
-				bestSize = splitSize
-			}
-		}
+	// Full-RD inter path: delegate the NONE/HORZ/VERT/SPLIT square-partition
+	// search to the depth-first rd_pick_partition skeleton
+	// (rdPickVP9InterPartition, vp9_encoder_inter_partition_rd.go). Gated on
+	// PartitionSearchType==SearchPartition so only the full-RD inter path
+	// reaches it (the FixedPartition / ML / REFERENCE / VAR / nonrd dispatches
+	// all returned above). Step (a) of the port: this is a structural no-op —
+	// the skeleton reproduces the shallow-RD tail's decision byte-for-byte.
+	//
+	// libvpx ref: rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667).
+	bestSize := root
+	if e.sf.PartitionSearchType == SearchPartition {
+		node := newVP9InterPartitionRDNode(root)
+		bestSize = e.rdPickVP9InterPartition(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, horzSize, vertSize, splitSize,
+			noneScore, vp9InterPartitionRD{
+				target:     root,
+				rate:       full.rate,
+				distortion: full.distortion,
+				score:      full.score,
+			}, &node, qindex)
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	inter.ref = savedRef
