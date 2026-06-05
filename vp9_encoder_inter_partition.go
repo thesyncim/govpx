@@ -217,15 +217,32 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// libvpx ref: rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667).
 	bestSize := root
 	if e.sf.PartitionSearchType == SearchPartition {
-		node := newVP9InterPartitionRDNode(root)
-		bestSize = e.rdPickVP9InterPartition(inter, tile, rateCostProbs,
-			miRows, miCols, miRow, miCol, root, horzSize, vertSize, splitSize,
-			noneScore, vp9InterPartitionRD{
-				target:     root,
-				rate:       full.rate,
-				distortion: full.distortion,
-				score:      full.score,
-			}, &node, qindex)
+		if vp9InterUseDeepRDPartition {
+			// Opt-in (default OFF, set only by serialization tests): route the
+			// decision through the genuine depth-first pickVP9InterPartitionRD
+			// recursion instead of the no-op skeleton. The recursion fills the
+			// mi grid with the full per-quadrant partition tree that the
+			// writeVP9ModesSb walker re-derives via PartitionLookup[mi.SbType],
+			// and is partition-context-neutral (it restores e.above/leftSegCtx
+			// to its entry state) so the writer owns the single canonical
+			// UpdatePartitionContext stamp. This branch does NOT change the
+			// production decision (vp9InterUseDeepRDPartition stays false);
+			// enabling it as the real partition decision is a later step.
+			if rd, ok := e.pickVP9InterPartitionRD(inter, tile, rateCostProbs,
+				miRows, miCols, miRow, miCol, root); ok {
+				bestSize = rd.target
+			}
+		} else {
+			node := newVP9InterPartitionRDNode(root)
+			bestSize = e.rdPickVP9InterPartition(inter, tile, rateCostProbs,
+				miRows, miCols, miRow, miCol, root, horzSize, vertSize, splitSize,
+				noneScore, vp9InterPartitionRD{
+					target:     root,
+					rate:       full.rate,
+					distortion: full.distortion,
+					score:      full.score,
+				}, &node, qindex)
+		}
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	inter.ref = savedRef
@@ -1429,6 +1446,35 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	inter.predInterpFilter = savedPredFilter
 	inter.predFilterValid = savedPredFilterValid
 	e.partitionReconScratchTop = reconSnap.top
+	// Partition-context neutrality: the committed scorer above filled the mi
+	// grid (which the bitstream writer re-derives the partition tree from) but
+	// also left e.aboveSegCtx/e.leftSegCtx stamped with the chosen partition's
+	// update via updateVP9PartitionContextForChoice. In govpx the RD picker and
+	// the writeVP9ModesSb serializer share the SAME above/left segmentation
+	// context arrays, whereas in libvpx the rd_pick_partition pass restores the
+	// context after every arm (restore_context at vp9_encodeframe.c:3872 NONE,
+	// :3995 SPLIT, :4079 HORZ, :4125 VERT) and performs the one canonical
+	// update_partition_context only via the final encode_sb at :4148
+	// (encode_sb -> update_partition_context, :2318). govpx splits that into two
+	// passes: the picker fills the mi grid here, and writeVP9ModesSb re-derives
+	// the partition tree from mi.SbType and runs the single canonical
+	// UpdatePartitionContext from a clean per-tile reset
+	// (vp9_bitstream.c write_modes). Restoring the entry-state snapshot makes
+	// this function net context-neutral so the writer's WritePartitionForBlock
+	// reads the correct pre-decision context and its own UpdatePartitionContext
+	// performs the single stamp — eliminating the double-update that desynced
+	// the decoded partition tree (the BLOCKER 1 "invalid VP9 data" failure).
+	//
+	// DEFERRED (RD parity, not serialization): libvpx's SPLIT loop stamps split
+	// children 0..2 via encode_sb (pc_tree->index != 3 guard at :4143) so each
+	// child's partition_plane_context is visible to the next sibling DURING
+	// rd_pick_partition scoring; govpx's per-child neutrality here does not
+	// propagate that intra-loop sibling context, which can only shift the deep
+	// recursion's internal RD cost (never the mi grid or decodability). It is
+	// reconciled when pickVP9InterPartitionRD becomes the real production
+	// decision (a later step); the bitstream writer already replays the correct
+	// sibling propagation (child 0 stamps -> child 1 reads) at emit time.
+	e.restoreVP9PartitionContexts(ctxSnap)
 	return committed, true
 }
 
