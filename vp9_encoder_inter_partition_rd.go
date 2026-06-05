@@ -88,6 +88,39 @@ var vp9InterDeepRDReplayWrites = true
 // exactly as libvpx single_motion_search does (vp9_rdopt.c:2613-2675).
 var vp9InterUseDeepRDUsePartition = false
 
+// vp9InterUseDeepRDRefBestRD threads the running best RD (the mode loop's
+// best_rd / ref_best_rd) as the genuine per-candidate handle_inter_mode budget
+// and applies the handle_inter_mode early breakouts, instead of always running
+// the genuine RD with an INFINITE budget. This is the FOUNDATIONAL libvpx
+// mode-pre-filtering mechanism: in vp9_rd_pick_inter_mode_sb the mode loop
+// passes best_rd into every handle_inter_mode call (vp9_rdopt.c:3872-3877), and
+// handle_inter_mode prunes (returns INT64_MAX, the caller `continue`s at :3881)
+// when:
+//
+//   - the rate-only RD already exceeds the budget and the mode is not NEARESTMV
+//     (vp9_rdopt.c:2994-2996), OR
+//   - (use_rd_breakout) the per-filter / post-filter MODEL rd/2 exceeds the
+//     budget (vp9_rdopt.c:3103-3108, :3180-3187), OR
+//   - super_block_yrd / super_block_uvrd early-exit their txfm RD accumulator
+//     past the budget and return rate==INT_MAX / is_cost_valid==0
+//     (vp9_rdopt.c:846-849, :3214-3218, :3227-3233).
+//
+// The third breakout is the one that closes long-fixture seed {0,1,1,0,1}
+// frame-1 SB0 mi(1,1): after NEARESTMV commits best_rd=33898630, NEWMV(16,-6)'s
+// genuine TX_8X8 yrd accumulates this_rd=36.3M > 33.9M, so super_block_yrd
+// early-exits and (tx_size_search_breakout) skips TX_4X4 → NEWMV is pruned and
+// NEARESTMV (8,14) SMOOTH wins (libvpx ground truth, $TMPDIR vpxenc fprintf at
+// handle_inter_mode/block_rd_txfm 2026-06-05). Without the budget govpx ran
+// NEWMV's full RD at the smaller TX_4X4 (this_rd=28.4M) and let it win.
+//
+// Default false: production and the model-score deep-RD serialization tests are
+// byte/decision identical. The genuine producers already implement the budget
+// early-exit (vp9_fullrd_inter_yrd.go / _uvrd.go); this flag only switches the
+// mode loop from feeding them ^uint64(0) to feeding them the running best, and
+// makes a pruned candidate (grd.Valid==false) drop out of the loop the way
+// libvpx's `continue` does.
+var vp9InterUseDeepRDRefBestRD = false
+
 // vp9_encoder_inter_partition_rd.go stands up the depth-first
 // rd_pick_partition recursion skeleton for the full-RD INTER path
 // (libvpx vp9/encoder/vp9_encodeframe.c:3667 rd_pick_partition). It is the
