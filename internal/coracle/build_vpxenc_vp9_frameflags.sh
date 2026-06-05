@@ -12,7 +12,7 @@ build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-v1.16.0-vpxdec-vp9"
 bin=${GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN:-"$build_dir/vpxenc-vp9-frameflags"}
 config_stamp="$src_dir/.govpx-vpxenc-vp9-frameflags-config"
-want_config="vpxenc-vp9-frameflags-2026-05-20-r21"
+want_config="vpxenc-vp9-frameflags-2026-06-05-r22-gfboost-vp9ctrl"
 
 mkdir -p "$build_dir"
 

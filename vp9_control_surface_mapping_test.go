@@ -83,6 +83,14 @@ func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetTuning":                      {Kind: "libvpx-control", HelperTokens: []string{"tune:"}},
 		"SetTwoPassStats":                {Kind: "libvpx-two-pass"},
 	}
+	// SetOracleTraceWriter is compiled only under the govpx_oracle_trace build
+	// tag (vp9_oracle_trace_flag_enabled.go); it is a zero-cost diagnostic hook
+	// with no libvpx control mapping, mirroring VP8Encoder.SetOracleTraceWriter
+	// in vp8_control_surface_mapping_test.go. Register it conditionally so the
+	// mapping holds in both build configurations.
+	if _, ok := methods["SetOracleTraceWriter"]; ok {
+		want["SetOracleTraceWriter"] = controlsurface.Mapping{Kind: "oracle-trace"}
+	}
 	controlsurface.AssertPublicMethodMappings(t, "VP9Encoder", methods, want)
 	controlsurface.AssertVP9FrameFlagsDriverTokens(t, want)
 }

@@ -336,7 +336,19 @@ func (e *VP9Encoder) validateVP9InterSegmentationReferences(flags EncodeFlags) e
 	if !seg.Enabled {
 		return nil
 	}
-	mask := e.vp9InterReferenceMaskForFrame(flags)
+	// Use the unpruned reference mask here, not vp9InterReferenceMaskForFrame.
+	// libvpx never rejects a SEG_LVL_REF_FRAME-forced reference that aliases
+	// another slot: get_ref_frame_flags (vp9/encoder/vp9_encoder.c:4321) drops
+	// GOLDEN/ALTREF from cpi->ref_frame_flags when they alias LAST, but the RD
+	// loop still has a valid (non-NULL) ref buffer for the forced segment and
+	// simply skips the unsearchable refs via ref_frame_skip_mask
+	// (vp9/encoder/vp9_rdopt.c:3554-3576), falling back to intra rather than
+	// erroring. Pruning the validation mask (regressed by the speed4 alias-prune
+	// in 89f5c7c3) over-rejected segment-forced GOLDEN/ALTREF on the first inter
+	// frame after a keyframe, where all three slots alias the keyframe. We still
+	// honor explicit EncodeNoReference* disables (encoded in the unpruned mask)
+	// and the slot-validity guard below for genuinely unavailable references.
+	mask := vp9InterReferenceMask(flags)
 	for i := range VP9MaxSegments {
 		if !seg.RefFrameEnabled[i] {
 			continue
