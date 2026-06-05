@@ -4,10 +4,58 @@ package govpx
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
+	"sync"
 
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
+
+var vp9GTTraceOnce sync.Once
+var vp9GTTraceEnabled bool
+
+// vp9TraceCommitBlock emits one committed-block line per leaf at the bitstream
+// write commit point, mirroring the libvpx encode_b GTBLK probe so a govpx run
+// can be diffed against the captured libvpx ground truth. Compile-elided in
+// production (vp9OracleTraceBuild==false) and silent unless GOVPX_GT_TRACE is
+// set in the environment.
+func (e *VP9Encoder) vp9TraceCommitBlock(frameIndex, miRow, miCol int,
+	mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
+) {
+	vp9GTTraceOnce.Do(func() {
+		vp9GTTraceEnabled = os.Getenv("GOVPX_GT_TRACE") != ""
+	})
+	if !vp9GTTraceEnabled || mi == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"GTBLK f=%d mi=%d,%d bs=%d mode=%d uv=%d r0=%d r1=%d if=%d skip=%d tx=%d mv0=%d,%d mv1=%d,%d\n",
+		frameIndex, miRow, miCol, int(mi.SbType), int(mi.Mode), int(uvMode),
+		int(mi.RefFrame[0]), int(mi.RefFrame[1]), int(mi.InterpFilter),
+		int(mi.Skip), int(mi.TxSize),
+		mi.Mv[0].Row, mi.Mv[0].Col, mi.Mv[1].Row, mi.Mv[1].Col)
+}
+
+// vp9TraceCommitBlockPre is the count-pre-pass twin of vp9TraceCommitBlock,
+// tagged GTBLKPRE so the two passes can be compared.
+func (e *VP9Encoder) vp9TraceCommitBlockPre(frameIndex, miRow, miCol int,
+	mi *vp9dec.NeighborMi, uvMode common.PredictionMode,
+) {
+	vp9GTTraceOnce.Do(func() {
+		vp9GTTraceEnabled = os.Getenv("GOVPX_GT_TRACE") != ""
+	})
+	if !vp9GTTraceEnabled || mi == nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"GTBLKPRE f=%d mi=%d,%d bs=%d mode=%d uv=%d r0=%d r1=%d if=%d skip=%d tx=%d mv0=%d,%d mv1=%d,%d\n",
+		frameIndex, miRow, miCol, int(mi.SbType), int(mi.Mode), int(uvMode),
+		int(mi.RefFrame[0]), int(mi.RefFrame[1]), int(mi.InterpFilter),
+		int(mi.Skip), int(mi.TxSize),
+		mi.Mv[0].Row, mi.Mv[0].Col, mi.Mv[1].Row, mi.Mv[1].Col)
+}
 
 const vp9OracleTraceBuild = true
 

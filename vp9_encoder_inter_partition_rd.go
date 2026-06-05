@@ -70,6 +70,24 @@ var vp9InterUseDeepRDSub8x8 = false
 // search committed), demonstrating the cache is what fixes it.
 var vp9InterDeepRDReplayWrites = true
 
+// vp9InterUseDeepRDUsePartition drives the VAR_BASED_PARTITION full-RD inter
+// leaf path (cpu_used==4 realtime, e.g. long-fixture seed {0,1,1,0,1}) through
+// the GENUINE per-leaf RD: the libvpx-faithful single_motion_search step_param
+// + search-method dispatch (vp9FullRDFullPelMv) AND the genuine per-mode this_rd
+// scoring (vp9FullRDInterThisRD via vp9InterUseDeepRDThisRDScore). This is the
+// rd_use_partition driver wiring (libvpx vp9_encodeframe.c:2566 — choose_-
+// partitioning's variance partition fed into rd_pick_sb_modes per 8x8 leaf).
+//
+// Default false: production keeps the model-RD leaf score AND the cpu0-style
+// fixed (step_param=0, NSTEP-diamond) full-RD motion search, so production and
+// the cpu0 {0,2,0,0,2} pins (TestVP9EncoderFullRDFrame1SB0*MvParity) stay
+// byte/decision identical. When true, vp9FullRDFullPelMv honours
+// e.sf.Mv.SearchMethod (FAST_HEX for cpu4) and computes step_param via the
+// auto_mv_step_size + adaptive_motion_search boffset path
+// (FullRdSingleMotionStepParam @ internal/vp9/encoder/fullrd_motion_search.go),
+// exactly as libvpx single_motion_search does (vp9_rdopt.c:2613-2675).
+var vp9InterUseDeepRDUsePartition = false
+
 // vp9_encoder_inter_partition_rd.go stands up the depth-first
 // rd_pick_partition recursion skeleton for the full-RD INTER path
 // (libvpx vp9/encoder/vp9_encodeframe.c:3667 rd_pick_partition). It is the

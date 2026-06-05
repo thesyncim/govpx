@@ -2,7 +2,10 @@
 
 package govpx
 
-import vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+)
 
 const vp9OracleTraceBuild = false
 
@@ -71,3 +74,9 @@ func (e *VP9Encoder) emitVP9OracleEncodedFrameTrace(int, EncodeFlags, *vp9dec.Un
 }
 
 func (e *VP9Encoder) emitVP9OracleFrameTrace(vp9OracleFrameSummary) {}
+
+func (e *VP9Encoder) vp9TraceCommitBlock(int, int, int, *vp9dec.NeighborMi, common.PredictionMode) {
+}
+
+func (e *VP9Encoder) vp9TraceCommitBlockPre(int, int, int, *vp9dec.NeighborMi, common.PredictionMode) {
+}

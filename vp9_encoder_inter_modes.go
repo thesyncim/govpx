@@ -507,7 +507,13 @@ type vp9InterModeDecision struct {
 type vp9InterMvPredState struct {
 	seed    vp9dec.MV
 	predSad uint64
-	valid   bool
+	// maxMvContext is x->max_mv_context[ref] (libvpx vp9_rd.c:618 max_mv
+	// tracker, surfaced from MvPredScanCandidates as max(|row|,|col|)>>3 across
+	// the input candidates). It feeds the full-RD single_motion_search
+	// step_param auto_mv_step_size average (vp9_rdopt.c:2619-2621). Threaded only
+	// for the deep full-RD use-partition path.
+	maxMvContext int
+	valid        bool
 }
 
 type vp9FullRDRefState struct {
@@ -1742,7 +1748,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		// which were stabilized on the model-score leaf decisions), so this
 		// branch is never taken and cand.score stays the model score →
 		// byte-identical output.
-		if vp9InterUseDeepRDThisRDScore {
+		if vp9InterUseDeepRDThisRDScore || vp9InterUseDeepRDUsePartition {
 			if grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
 				filter); grd.Valid {
 				cand.distortion = grd.Distortion
@@ -1930,10 +1936,14 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		if refState.mvPredState.valid {
 			mvOpts.seed = refState.mvPredState.seed
 			mvOpts.seedValid = true
+			mvOpts.maxMvContext = refState.mvPredState.maxMvContext
+			mvOpts.predSad = refState.mvPredState.predSad
 		} else if state, ok := e.vp9InterMvPredStateForRef(inter, tile,
 			miRows, miCols, miRow, miCol, bsize, refFrame); ok {
 			mvOpts.seed = state.seed
 			mvOpts.seedValid = true
+			mvOpts.maxMvContext = state.maxMvContext
+			mvOpts.predSad = state.predSad
 		}
 		if mv, _, ok := e.pickVP9InterMvWithOptions(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, mvOpts); ok {
@@ -2281,7 +2291,7 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 	// SEARCH->WRITE round-trip harness (model leaves, no genuine this_rd) keeps
 	// the var-part choose_partitioning pred_mv cache, and production (all flags
 	// off) is byte-identical.
-	if vp9InterUseDeepRDSub8x8 {
+	if vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition {
 		if pm := e.fullRDPredMv[refFrame]; pm != vp9InterPredMvSentinel {
 			candidates[2] = encoder.MvPredInputCandidate{MV: pm, Valid: true}
 		}
@@ -2302,9 +2312,10 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 		return vp9InterMvPredState{}, false
 	}
 	return vp9InterMvPredState{
-		seed:    candidates[result.BestIndex].MV,
-		predSad: result.BestSad,
-		valid:   true,
+		seed:         candidates[result.BestIndex].MV,
+		predSad:      result.BestSad,
+		maxMvContext: result.MaxMvContext,
+		valid:        true,
 	}, true
 }
 
@@ -2316,7 +2327,13 @@ type vp9InterMvSearchOptions struct {
 	nonrdSubpelTree bool
 	useMvPart       bool
 	fullRD          bool
-	nonrdPrecheck   func(vp9dec.MV) bool
+	// maxMvContext is x->max_mv_context[ref] for the full-RD step_param
+	// auto_mv_step_size average; predSad is x->pred_mv_sad[ref] for the
+	// adaptive_motion_search tlevel bump (both consumed only on the deep
+	// vp9InterUseDeepRDUsePartition path).
+	maxMvContext  int
+	predSad       uint64
+	nonrdPrecheck func(vp9dec.MV) bool
 }
 
 func (e *VP9Encoder) pickVP9InterMvWithOptions(inter *vp9InterEncodeState,
@@ -2673,8 +2690,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// (pre-subpel) was pinned earlier for the SB0 (0,0) full-pel parity
 		// test; pin the refined MV here for the SB0 64x64 subpel parity test
 		// (no-op in non-trace builds).
-		if vp9InterUseDeepRDSub8x8 && refFrame > vp9dec.IntraFrame &&
-			int(refFrame) < len(e.fullRDPredMv) {
+		if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+			refFrame > vp9dec.IntraFrame && int(refFrame) < len(e.fullRDPredMv) {
 			e.fullRDPredMv[refFrame] = mv
 		}
 		e.recordVP9FullRDFirstInterSubpelMv(e.frameIndex, miRow, miCol,

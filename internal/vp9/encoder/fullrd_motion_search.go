@@ -177,6 +177,50 @@ func FullRdSingleMotionStepParam(mvStepParam, maxMvContext int,
 	return mvStepParam
 }
 
+// FullRdSingleMotionStepParamAdaptive layers libvpx single_motion_search's
+// adaptive_motion_search step_param bump (vp9_rdopt.c:2626-2638) on top of
+// FullRdSingleMotionStepParam:
+//
+//	if (cpi->sf.adaptive_motion_search && bsize < BLOCK_64X64) {
+//	  const int boffset =
+//	      2 * (b_width_log2_lookup[BLOCK_64X64] -
+//	           VPXMIN(b_height_log2_lookup[bsize], b_width_log2_lookup[bsize]));
+//	  step_param = VPXMAX(step_param, boffset);
+//	}
+//	if (cpi->sf.adaptive_motion_search) {
+//	  int tlevel = x->pred_mv_sad[ref] >> (bwl + bhl + 4);
+//	  if (tlevel < 5) step_param += 2;
+//	}
+//
+// bWidthLog2_64x64 is b_width_log2_lookup[BLOCK_64X64] (== 4, in 4x4-block
+// units). bWidthLog2Bsize / bHeightLog2Bsize are b_{width,height}_log2_lookup
+// for the current bsize (also in 4x4-block units — the caller converts from
+// govpx's pixel-log2 tables by subtracting 2). isBlock64 reports bsize ==
+// BLOCK_64X64 (the bsize < BLOCK_64X64 guard). predMvSad is x->pred_mv_sad[ref];
+// the tlevel shift is (bwl + bhl + 4) in those same 4x4-block-log2 units.
+func FullRdSingleMotionStepParamAdaptive(stepParam int, adaptiveMotionSearch,
+	isBlock64 bool, bWidthLog2_64x64, bWidthLog2Bsize, bHeightLog2Bsize,
+	predMvSad int,
+) int {
+	if adaptiveMotionSearch && !isBlock64 {
+		minLog2 := bHeightLog2Bsize
+		if bWidthLog2Bsize < minLog2 {
+			minLog2 = bWidthLog2Bsize
+		}
+		boffset := 2 * (bWidthLog2_64x64 - minLog2)
+		if boffset > stepParam {
+			stepParam = boffset
+		}
+	}
+	if adaptiveMotionSearch {
+		tlevel := predMvSad >> uint(bWidthLog2Bsize+bHeightLog2Bsize+4)
+		if tlevel < 5 {
+			stepParam += 2
+		}
+	}
+	return stepParam
+}
+
 // DiamondSearchResult is the output of DiamondSearchSAD: the best full-pel MV
 // (relative to the search-buffer origin, in the same {row, col} integer-pel
 // units libvpx's MV uses), the best SAD (the bestsad return of

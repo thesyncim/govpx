@@ -68,15 +68,80 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 
 	sadAtRC := func(row, col int) (uint64, bool) { return sadAt(col, row) }
 
-	// libvpx vp9_full_pixel_search:2916-2919 — full_pixel_diamond(...,
-	// step_param=cpi->mv_step_param(0), MAX_MVSEARCH_STEPS-1-step_param,
-	// do_refine=1, ...).
-	const stepParam = 0
-	furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
-	res := encoder.FullPixelDiamond(mvpRow, mvpCol, startMvSad, stepParam,
-		sadPerBit, furtherSteps, true, refRow, refCol, mvLimits, sadAtRC, varAt)
+	// libvpx single_motion_search step_param (vp9_rdopt.c:2613-2638):
+	//   - cpi->mv_step_param == 0 on the no-recode RT path: set_mv_search_params
+	//     (vp9_encoder.c:3858) is reached only inside the RESIZE_DYNAMIC branch,
+	//     so mv_step_param keeps its 0 init for both cpu0 and cpu4 (verified by
+	//     fprintf ground truth).
+	//   - auto_mv_step_size (cpu4 RT, off for cpu0) averages it with
+	//     init_search_range(max_mv_context[ref]).
+	//   - adaptive_motion_search (cpu4 RT, off for cpu0) bumps it to the per-bsize
+	//     boffset (== 6 for BLOCK_8X8) and adds the tlevel<5 term.
+	// Flag OFF (production + cpu0 {0,2,0,0,2} pins): step_param stays 0 and the
+	// NSTEP full_pixel_diamond runs exactly as before.
+	stepParam := 0
+	searchMethod := e.sf.Mv.SearchMethod
+	if vp9InterUseDeepRDUsePartition {
+		const mvStepParam = 0 // no-recode RT runtime cpi->mv_step_param
+		stepParam = encoder.FullRdSingleMotionStepParam(mvStepParam,
+			opts.maxMvContext, e.sf.Mv.AutoMvStepSize != 0,
+			e.vp9HeaderScratch.ShowFrame)
+		// common.B{Width,Height}Log2Lookup are already in 4x4-block units
+		// (BLOCK_8X8 == 1, BLOCK_64X64 == 4), matching libvpx b_*_log2_lookup
+		// directly (the "pixels" doc comment is a misnomer).
+		bwl := int(common.BWidthLog2Lookup[bsize])
+		bhl := int(common.BHeightLog2Lookup[bsize])
+		stepParam = encoder.FullRdSingleMotionStepParamAdaptive(stepParam,
+			e.sf.AdaptiveMotionSearch != 0, bsize == common.Block64x64,
+			int(common.BWidthLog2Lookup[common.Block64x64]), bwl, bhl,
+			int(opts.predSad))
+	} else {
+		// Flag OFF: the production/cpu0 path used the fixed NSTEP diamond
+		// regardless of the SF method. Preserve that exactly.
+		searchMethod = SearchMethodNStep
+	}
 
-	bestDx, bestDy = res.BestCol, res.BestRow
+	switch searchMethod {
+	case SearchMethodFastHex, SearchMethodFastDiamond, SearchMethodHex,
+		SearchMethodBigDia, SearchMethodSquare:
+		// libvpx vp9_full_pixel_search (vp9_mcomp.c:2898-2913): the pattern
+		// searches (FAST_HEX/FAST_DIAMOND/HEX/BIGDIA/SQUARE) run SAD-based hex/
+		// diamond patterns over the source vs reference; the final MV is the
+		// pattern result (the trailing vp9_get_mvpred_var at :2948 only rescores
+		// the returned var, never the MV). startScore is the SAD+mvsad cost at
+		// mvp_full so the pattern's running-best compare uses the same baseline.
+		startScore := startSad + uint64(encoder.FullPelMVSADCost(mvpRow, mvpCol,
+			refRow>>3, refCol>>3, sadPerBit))
+		scoreMv := func(dx, dy int, sad uint64) uint64 {
+			return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
+				refRow>>3, refCol>>3, sadPerBit))
+		}
+		switch searchMethod {
+		case SearchMethodFastHex:
+			bestDx, bestDy, _, _ = encoder.FastHexPatternSearchSAD(mvpCol, mvpRow,
+				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+		case SearchMethodFastDiamond:
+			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSAD(mvpCol,
+				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+		default:
+			// HEX/BIGDIA/SQUARE not exercised by the current gap seeds; fall
+			// back to the NSTEP diamond so behaviour stays defined.
+			furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
+			res := encoder.FullPixelDiamond(mvpRow, mvpCol, startMvSad, stepParam,
+				sadPerBit, furtherSteps, true, refRow, refCol, mvLimits, sadAtRC,
+				varAt)
+			bestDx, bestDy = res.BestCol, res.BestRow
+		}
+	default:
+		// NSTEP / MESH (cpu0): libvpx vp9_full_pixel_search:2916-2919 —
+		// full_pixel_diamond(..., step_param, MAX_MVSEARCH_STEPS-1-step_param,
+		// do_refine=1, ...) with the variance-rescoring diamond.
+		furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
+		res := encoder.FullPixelDiamond(mvpRow, mvpCol, startMvSad, stepParam,
+			sadPerBit, furtherSteps, true, refRow, refCol, mvLimits, sadAtRC,
+			varAt)
+		bestDx, bestDy = res.BestCol, res.BestRow
+	}
 	if sad, sadOK := sadAt(bestDx, bestDy); sadOK {
 		bestSad = sad
 	} else {

@@ -170,6 +170,16 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		} else {
 			countVP9InterIntraMode(counts, bsize, cur.Mode)
 		}
+		// Compile-elided per-block ground-truth probe (govpx_oracle_trace builds
+		// only; silent unless GOVPX_GT_TRACE is set). Fire once per leaf on the
+		// real bitstream pass (count pre-pass keeps inter.counts != nil).
+		if vp9OracleTraceBuild && kind == vp9ModeTreeInterSource && inter != nil {
+			if inter.counts == nil {
+				e.vp9TraceCommitBlock(e.frameIndex, miRow, miCol, &cur, uvMode)
+			} else {
+				e.vp9TraceCommitBlockPre(e.frameIndex, miRow, miCol, &cur, uvMode)
+			}
+		}
 		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
 			Seg:              seg,
 			Mi:               &cur,
