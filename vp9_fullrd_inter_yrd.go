@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"math"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -255,6 +257,45 @@ func (e *VP9Encoder) vp9FullRDInterSuperBlockYRDForMi(inter *vp9InterEncodeState
 	}
 }
 
+// vp9InterUseTransformDomainDistortion mirrors libvpx's x->block_tx_domain
+// computation (vp9/encoder/vp9_encodeframe.c:2036-2049) for the inter Y plane.
+// When sf.tx_domain_thresh and sf.trellis_opt_tx_rd.thresh are both <= 0 (the
+// REALTIME speed >= 1 case, vp9_speed_features.c:486-489) the else branch
+// returns sf.allow_txfm_domain_distortion directly. When a positive threshold
+// is configured (GOOD-quality path), it gates on log_block_var >= thresh,
+// reusing the same source-variance metric as the keyframe helper.
+func (e *VP9Encoder) vp9InterUseTransformDomainDistortion(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+) bool {
+	if e == nil || e.sf.AllowTxfmDomainDistortion == 0 {
+		return false
+	}
+	// libvpx vp9_encodeframe.c:2036 — only compute the log-variance gate when a
+	// positive threshold is set; otherwise block_tx_domain = allow (== true
+	// here, since AllowTxfmDomainDistortion != 0).
+	if e.sf.TxDomainThresh <= 0 && e.sf.TrellisOptTxRd.Thresh <= 0 {
+		return true
+	}
+	if inter == nil || inter.img == nil || bsize >= common.BlockSizes {
+		return false
+	}
+	src, stride, width, height := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || stride <= 0 || width <= 0 || height <= 0 {
+		return false
+	}
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, width, height) {
+		return false
+	}
+	variance := encoder.BlockSourceVariance128(src, stride, x0, y0, blockW, blockH)
+	scaled := float64(variance*256) /
+		float64(uint64(1)<<uint(common.NumPelsLog2Lookup[bsize]))
+	return math.Log(scaled+1.0) >= e.sf.TxDomainThresh
+}
+
 const rdCostMaxLocal = ^uint64(0)
 
 // vp9FullRDInterRD1 recomputes rd[m][1] for an already-produced candidate m,
@@ -355,6 +396,25 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 		}
 	}
 
+	// libvpx vp9/encoder/vp9_encodeframe.c:2036-2049 — x->block_tx_domain
+	// selects transform-domain distortion (vp9_block_error on coeff/dqcoeff)
+	// over pixel-domain (pixel_sse on recon) inside block_rd_txfm
+	// (vp9_rdopt.c:571-600). For REALTIME speed >= 1 (cpu4) the speed feature
+	// sets allow_txfm_domain_distortion=1 with tx_domain_thresh=0 and
+	// trellis_opt_tx_rd.thresh=0 (vp9_speed_features.c:486-489), so the else
+	// branch (line 2048) forces block_tx_domain = 1 unconditionally.
+	//
+	// Wired behind vp9InterUseDeepRDTxDomainDistortion (default OFF): the Y-RD
+	// transform-domain dist matches libvpx per-tx exactly (mi(0,4) frame-1 of
+	// {0,1,1,0,1}: TX_8X8 d=56334 sse=119666, TX_4X4 d=46797 sse=119991). It
+	// MUST be enabled in lockstep with the matching UV-RD transform-domain path
+	// (vp9FullRDInterUVPlaneTxCandidate, same flag): Y-only inverts the
+	// NEARESTMV-vs-NEARMV this_rd tie at that leaf, while Y+UV together pick
+	// NEARMV/TX_4X4 exactly as libvpx. The flag stays OFF by default so the
+	// pixel-domain producers (and the cpu0 {0,2,0,0,2} YRD pins) are unchanged.
+	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
+			bsize)
 	var rate int
 	var dist uint64
 	var sse uint64
@@ -377,26 +437,37 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 			// vp9_xform_quant + vp9_optimize_b (trellis) + inverse-add into
 			// recon (vp9_rdopt.c:792-795) with the REGULAR quantizer (quantize_b)
 			// at the segment qindex. gatherVP9TxResidual leaves the src-pred diff
-			// in e.residueScratch.
+			// in e.residueScratch; the forward DCT lands in e.txCoeffScratch and
+			// the dequantized coeffs in e.dqCoeffScratch.
 			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
 				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
 
-			// sse = sum_squares(src_diff) * 16 (vp9_rdopt.c:757-765). The
-			// diff was just written by gatherVP9TxResidual; for the
-			// no-clamp 64x64-in-64x64 case the full bs*bs energy applies.
-			blockSSE := encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
-			sse += blockSSE
-
-			// dist = pixel_sse(src, recon) * 16 (vp9_rdopt.c:681-689). When
-			// eob==0 (hasResidue==false) prepareVP9InterTxResidueWithQ leaves
-			// the predictor in recon, so this reduces to pixel_sse(src,pred),
-			// matching the eob==0 dist path (vp9_rdopt.c:601-690 with eob==0).
-			blockDist, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
-				srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
-			if !distOK {
-				return encoder.FullRDTxCandidate{}
+			var blockDist uint64
+			var blockSSE uint64
+			if useTxDomain && hasResidue {
+				// libvpx vp9_rdopt.c:571-600 (block_tx_domain && eob):
+				// dist = vp9_block_error(coeff, dqcoeff) >> shift,
+				// sse  = sum(coeff^2)              >> shift, with shift==2
+				// for tx != 32x32. TransformBlockError / TransformBlockEnergy
+				// fold in that shift.
+				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
+					e.dqCoeffScratch[:maxEob], txSize)
+				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
+					txSize)
+			} else {
+				// Pixel domain (block_tx_domain==0 or eob==0): dist =
+				// pixel_sse(src, recon) * 16, sse = sum_squares(src_diff) * 16
+				// (vp9_rdopt.c:601-690, 757-765). eob==0 leaves the predictor in
+				// recon so dist reduces to pixel_sse(src, pred).
+				bd, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
+					srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
+				if !distOK {
+					return encoder.FullRDTxCandidate{}
+				}
+				blockDist = bd * 16
+				blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
 			}
-			blockDist *= 16
+			sse += blockSSE
 			dist += blockDist
 
 			// block_rd_txfm early-exit on accumulated zero-rate rd before the

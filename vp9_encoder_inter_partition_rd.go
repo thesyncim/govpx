@@ -88,6 +88,32 @@ var vp9InterDeepRDReplayWrites = true
 // exactly as libvpx single_motion_search does (vp9_rdopt.c:2613-2675).
 var vp9InterUseDeepRDUsePartition = false
 
+// vp9InterUseDeepRDTxDomainDistortion switches the genuine inter super_block_yrd
+// producer (vp9FullRDInterYPlaneTxCandidate) from pixel-domain distortion
+// (pixel_sse on the inverse-added recon) to TRANSFORM-domain distortion
+// (vp9_block_error on coeff/dqcoeff >> shift), matching libvpx's x->block_tx_domain
+// path (vp9/encoder/vp9_encodeframe.c:2041-2048; vp9_rdopt.c:571-600). For
+// REALTIME speed >= 1 (cpu4) libvpx forces block_tx_domain = 1
+// (allow_txfm_domain_distortion=1, tx_domain_thresh=0, vp9_speed_features.c:
+// 486-489), so the producer's per-tx-size dist/sse should be transform-domain.
+//
+// It drives BOTH the Y producer (vp9FullRDInterYPlaneTxCandidate) and the UV
+// producer (vp9FullRDInterUVPlaneTxCandidate) plus the writer's zcoeff_blk
+// recompute, which all must use the same distortion domain block_rd_txfm did.
+// With it ON the per-tx-size dist/sse reproduce libvpx exactly (verified for
+// {0,1,1,0,1} frame-1 mi(0,4): TX_8X8 d=56334 sse=119666, TX_4X4 d=46797
+// sse=119991, byte-identical to the libvpx choose_tx_size_from_rd capture), and
+// Y+UV together pick NEARMV/TX_4X4 exactly as libvpx — the headline enabler of
+// the first byte-exact full-RD inter frame (see
+// TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity). Y-domain alone would
+// invert the NEARESTMV-vs-NEARMV this_rd tie, so the flag toggles all three
+// sites at once.
+//
+// Default false: production and the cpu0 {0,2,0,0,2} YRD pins
+// (TestVP9FullRDInterYRDFrame1SB0Parity, allow_txfm_domain_distortion==0 at
+// speed 0) keep the pixel-domain producers, so they are byte/decision identical.
+var vp9InterUseDeepRDTxDomainDistortion = false
+
 // vp9InterUseDeepRDRefBestRD threads the running best RD (the mode loop's
 // best_rd / ref_best_rd) as the genuine per-candidate handle_inter_mode budget
 // and applies the handle_inter_mode early breakouts, instead of always running

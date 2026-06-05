@@ -153,8 +153,24 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		return interDecision, common.DcPred, false
 	}
 	if e.opts.AQMode != VP9AQComplexity {
-		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
-			bsize, mi.TxSize, mi.SegmentID)
+		// libvpx vp9/encoder/vp9_encodeframe.c:6100 encode_superblock reads the
+		// tx_size the full-RD mode search committed into mi->tx_size
+		// (vp9_rd_pick_inter_mode_sb -> super_block_yrd choose_tx_size_from_rd,
+		// vp9_rdopt.c). It does NOT re-derive the tx_size at encode time. On the
+		// deep full-RD use-partition path the committed leaf decision already
+		// carries that choose_tx_size_from_rd tx_size (interDecision.txSize); the
+		// realtime pickVP9InterTxSize heuristic that the nonrd path uses would
+		// override it with a different size (e.g. mi(1,3) frame-1 of {0,1,1,0,1}:
+		// full-RD commits TX_8X8 but the realtime picker returns TX_4X4), which
+		// flips the per-block tx_size field AND the residual token decomposition.
+		// Gate on the deep flag so production (flag off) keeps the nonrd picker
+		// byte-for-byte.
+		if vp9InterUseDeepRDUsePartition && interDecision.txSize < common.TxSizes {
+			mi.TxSize = interDecision.txSize
+		} else {
+			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
+				bsize, mi.TxSize, mi.SegmentID)
+		}
 	}
 	// libvpx routes the realtime nonrd inter frame purely through
 	// vp9_pick_inter_mode (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435),
@@ -185,6 +201,32 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		bsize, interDecision)
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
+	// libvpx vp9/encoder/vp9_rdopt.c:4149,4173 commits mi->skip = best_skip2 ||
+	// best_mode_skippable; encode_superblock then leaves mi->skip set and
+	// vp9_encode_sb/tokenize emit no residual for the whole block (the skip bit
+	// codes it). On the deep full-RD use-partition path the committed decision
+	// already carries that skip flag; honour it directly instead of re-deriving
+	// skip from the re-quantized residual (which would code chroma/Y residual
+	// for a block libvpx codes skip — e.g. {0,1,1,0,1} frame-1 mi(2,0)/mi(5,3)).
+	// The predictor is already on the recon plane (predictVP9InterBlock), so a
+	// skip block's reconstruction is the predictor, matching libvpx. Gate on the
+	// deep flag so production keeps deriving skip from the residue.
+	if vp9InterUseDeepRDUsePartition && interDecision.skip {
+		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
+		return interDecision, common.DcPred, false
+	}
+	// libvpx encode_block (vp9/encoder/vp9_encodemb.c:580) forces the Y-plane
+	// transform unit's eob to 0 when the full-RD mode search marked it in
+	// x->zcoeff_blk[tx_size][block] (rd1 > rd2: coding the residual costs more
+	// than skipping it). On the deep full-RD use-partition path the committed
+	// leaf's predictor is already on the recon plane, so recompute that
+	// per-block decision here and apply it to the FP-quant tokenize pass; the
+	// nonrd path (flag off) keeps coding every nonzero block as before.
+	var zcoeff vp9InterZcoeffBlk
+	if vp9InterUseDeepRDUsePartition && !inter.lossless {
+		zcoeff, _ = e.vp9ComputeInterLeafZcoeffBlk(inter, miRows, miCols,
+			miRow, miCol, bsize, mi.TxSize, uint8(segID))
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -206,6 +248,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
+				// libvpx zcoeff_blk zero-forcing is luma-only (plane == 0,
+				// vp9_encodemb.c:580). A forced block keeps eob 0 (no tokens)
+				// and leaves the predictor in recon (no inverse-add), so skip
+				// the FP quantize/tokenize for it entirely.
+				if plane == 0 && zcoeff.valid {
+					if idx := rr*full4x4W + cc; idx >= 0 &&
+						idx < len(zcoeff.flags) && zcoeff.flags[idx] {
+						continue
+					}
+				}
 				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
 				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
@@ -1075,12 +1127,25 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 ) int {
-	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
+	return e.vp9InterCoeffBlockRateCostQFc(&e.fc, txSize, planeType, dequant,
+		coeffs, qcoeffs, initCtx)
+}
+
+// vp9InterCoeffBlockRateCostQFc is vp9InterCoeffBlockRateCostQ with an explicit
+// frame context, so the zcoeff_blk recompute can cost coefficients with the
+// search-time (pre-compressed-header-update) coef probs (inter.selectFc) rather
+// than the live e.fc that the header writer mutates between the count and write
+// passes.
+func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFc(fc *vp9dec.FrameContext,
+	txSize common.TxSize, planeType int, dequant [2]int16,
+	coeffs, qcoeffs []int16, initCtx int,
+) int {
+	if fc == nil || txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
 	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
 		TxSize:     txSize,
-		CoefModel:  &e.fc.CoefProbs[txSize][planeType][1],
+		CoefModel:  &fc.CoefProbs[txSize][planeType][1],
 		ScanOrder:  common.DefaultScanOrders[txSize],
 		Dequant:    dequant,
 		Coeffs:     coeffs,
