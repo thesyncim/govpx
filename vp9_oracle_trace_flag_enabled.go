@@ -88,6 +88,14 @@ type vp9OracleTraceState struct {
 	// pin tx_size/best_rd + per-tx-size arrays against the libvpx capture.
 	fullRDInterYRDValid bool
 	fullRDInterYRD      vp9FullRDInterYRDResult
+
+	// fullRDInterThisRD* captures the genuine per-candidate this_rd
+	// (handle_inter_mode + the rd_pick_inter_mode_sb skip pick) the
+	// vp9FullRDInterThisRD assembly computes for the same frame-1 SB0 64x64
+	// NEWMV candidate. Used by the inter-this_rd parity test to pin this_rd +
+	// the Y/UV components against the libvpx capture.
+	fullRDInterThisRDValid bool
+	fullRDInterThisRD      vp9FullRDInterThisRDResult
 }
 
 type vp9OracleTraceHolder struct {
@@ -223,6 +231,34 @@ func (e *VP9Encoder) vp9FullRDInterYRD() (vp9FullRDInterYRDResult, bool) {
 		return vp9FullRDInterYRDResult{}, false
 	}
 	return state.fullRDInterYRD, true
+}
+
+// recordVP9FullRDInterThisRD stores the genuine per-candidate this_rd assembly
+// result for the frame-1 SB0 (0,0) 64x64 NEWMV. Gated to that one block so the
+// first matching candidate (the EIGHTTAP_SMOOTH NEWMV) is captured.
+func (e *VP9Encoder) recordVP9FullRDInterThisRD(frameIndex, miRow, miCol int,
+	res vp9FullRDInterThisRDResult,
+) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.fullRDInterThisRDValid {
+		return
+	}
+	if frameIndex != 1 || miRow != 0 || miCol != 0 || !res.Valid {
+		return
+	}
+	state.fullRDInterThisRDValid = true
+	state.fullRDInterThisRD = res
+}
+
+// vp9CapturedFullRDInterThisRD returns the captured frame-1 SB0 (0,0) 64x64
+// NEWMV genuine per-candidate this_rd assembly result, valid only in
+// govpx_oracle_trace builds after a frame-1 encode.
+func (e *VP9Encoder) vp9CapturedFullRDInterThisRD() (vp9FullRDInterThisRDResult, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.fullRDInterThisRDValid {
+		return vp9FullRDInterThisRDResult{}, false
+	}
+	return state.fullRDInterThisRD, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {

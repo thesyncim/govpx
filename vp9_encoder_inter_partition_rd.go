@@ -23,6 +23,25 @@ var vp9InterPredMvSentinel = vp9dec.MV{Row: int16(0x7fff), Col: int16(0x7fff)}
 // deep recursion's serialization.
 var vp9InterUseDeepRDPartition = false
 
+// vp9InterUseDeepRDThisRDScore gates the GENUINE per-mode this_rd assembly
+// (vp9FullRDInterThisRD: super_block_yrd + super_block_uvrd + mode/MV/filter/ref
+// rate + the rd_pick_inter_mode_sb skip pick) into the inter mode loop's
+// candidate score, REPLACING the model-RD vp9InterModeScore approximation.
+//
+// Default false: production AND the deep-RD partition serialization tests
+// (which were stabilized against the model-score leaf decisions) keep scoring
+// with vp9InterModeScore, so both stay byte/decision identical. This flag is
+// the seam for the FINAL step — enabling the genuine per-mode RD end-to-end
+// (the partition recursion + planted-test re-derivation) — without disturbing
+// the in-flight deep recursion. The standalone assembly is pinned against
+// libvpx independently via the oracle-trace path
+// (TestVP9FullRDInterThisRDFrame1SB0Parity), so it is verified regardless of
+// this flag's default.
+//
+// libvpx: vp9/encoder/vp9_rdopt.c:3445 vp9_rd_pick_inter_mode_sb scores every
+// candidate with the genuine handle_inter_mode this_rd, not a model.
+var vp9InterUseDeepRDThisRDScore = false
+
 // vp9InterDeepRDReplayWrites controls whether the bitstream write descent
 // replays the deep-RD SEARCH->WRITE leaf decision cache
 // (vp9LookupDeepInterRDDecision) instead of re-picking each leaf. Default true:
