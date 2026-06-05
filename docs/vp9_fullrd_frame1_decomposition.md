@@ -8,7 +8,7 @@ first inter frame) for the three full-RD seeds still deferred in
 |------|--------|-----|------|-----------------------|--------|
 | `{0,2,0,0,2}` | CBR 1200 kbps kf=999 realtime | 0 | full-RD | `SEARCH_PARTITION` (0) | no |
 | `{0,1,1,0,1}` | CBR 700 kbps kf=30 realtime  | 4 | full-RD | `VAR_BASED_PARTITION` (3) | no |
-| `{1,1,1,1,0}` | VBR 700 kbps kf=30 good-qual | 8 | full-RD | `SEARCH_PARTITION` (0) | **yes** |
+| `{1,1,1,1,0}` | VBR 700 kbps kf=30 good-qual **(TWO-PASS)** | 8 | full-RD | `SEARCH_PARTITION` (0) | **no** |
 
 All three are **confirmed full-RD** (`use_nonrd_pick_mode == 0`); none is
 non-RD. The fixtures are 64x64 → a single 64x64 superblock per frame (SB0), an
@@ -208,6 +208,23 @@ GOLDEN/ALTREF, EIGHTTAP_SHARP, ≥16x16 inter blocks.
 ---
 
 ## Seed `{1,1,1,1,0}` (cpu8, good-quality, SEARCH_PARTITION) — frame 1 SB0
+
+> **CORRECTION (2026-06-05, supersedes the rest of this section).** A direct
+> `$TMPDIR` vpxenc capture (probe md5 == stock oracle, non-mutating) DISPROVED
+> the recode premise below. Ground truth, authoritatively pinned in
+> `vp9_oracle_recode_seed_1_1_1_1_0_test.go`: this seed is **TWO-PASS** VBR
+> (`--good` overrides `--rt` → `passes==2`), there is **NO recode** (good speed
+> sets `recode_loop==ALLOW_RECODE_KFMAXBW`, below the dummy-pack gate; 0 recodes
+> across all 256 frames), committed **KF q=16, frame-1 q=39** (NOT 54/83), and
+> the committed map has **ONE** intra block (mi(1,7) DC), not two — histograms
+> (q=39): mode {NEW:46, NEAREST:13, NEAR:4, intra:1}, interp {eighttap:36,
+> smooth:26, sharp:1}. The REAL blocker is **one-pass-vs-two-pass q selection**:
+> the fuzz harness supplies no first-pass stats, so govpx runs one-pass VBR
+> while libvpx runs two-pass, and q diverges at the **keyframe** (govpx 29 vs
+> libvpx 16) → matched-prefix **0/256**. So `{1,1,1,1,0}` is blocked by the
+> two-pass VBR q path, NOT the full-RD inter engine — defer it from the
+> inter-engine campaign. The (incorrect) recode narrative is retained below
+> only for history.
 
 Dispatch shows frame 1 **twice**: `base_q=54` then `base_q=83`. Good-quality
 runs a **recode loop** (`vp9_encoder.c` recode: encode at q=54 → reject →
