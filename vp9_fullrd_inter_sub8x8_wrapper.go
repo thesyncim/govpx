@@ -41,10 +41,16 @@ type vp9Sub8x8WrapperResult struct {
 	thisRD       uint64 // rd_cost->rdcost
 	skippable    bool
 	skip2        bool
+	// intra is set when the committed decision is the INTRA_FRAME sub-8x8 mode
+	// (vp9_ref_order ref_index 5). When true bmi[].as_mode holds the per-sub-block
+	// intra Y mode, mode = bmi[3].as_mode, refFrame = INTRA_FRAME, interpFilter =
+	// SWITCHABLE_FILTERS, mv = 0 (vp9_rdopt.c:4759-4766).
+	intra bool
 	// segEntropy is the committed segment's plane[0] above/left entropy context
 	// after all sub-blocks are coded; the partition recursion stamps it into
 	// pd->above_context/left_context so the next sibling 8x8 reads it
-	// (vp9_encodeframe.c encode_sb / save_context-restore_context).
+	// (vp9_encodeframe.c encode_sb / save_context-restore_context). For the intra
+	// commit it is the post-coding plane[0] context from rd_pick_intra4x4block.
 	segEntropy vp9Sub8x8SegmentEntropy
 	valid      bool
 }
@@ -272,12 +278,152 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 		}
 	}
 
+	// --- INTRA evaluation (vp9_ref_order ref_index 5: INTRA_FRAME, evaluated
+	// AFTER every inter ref). Ports the ref_frame==INTRA_FRAME branch of
+	// vp9_rd_pick_inter_mode_sub8x8 (vp9_rdopt.c:4511-4528) + the shared
+	// ref-signalling/skip/RDCOST/commit tail (vp9_rdopt.c:4707-4775).
+	inter.ref = savedRef
+	if intraRes, intraCap, ok := e.rdPickInterSub8x8Intra(inter, tile, miRows,
+		miCols, miRow, miCol, bsize, above, left, rdmult, rddiv, bestRD,
+		bestRDValid); ok {
+		better := !bestSet
+		if bestSet && (!bestRDValid || intraRes.thisRD < bestRD) {
+			better = true
+		}
+		if better {
+			bestRD = intraRes.thisRD
+			bestRDValid = true
+			bestRes = intraRes
+			bestSet = true
+			// Oracle-trace pin: record the committed intra leaf (mi=(1,0)) so the
+			// wrapper test can assert the intra Y/UV rate + per-sub-block modes match
+			// libvpx. Zero-cost in non-trace builds.
+			e.recordVP9Sub8x8IntraCommit(intraCap)
+		}
+	}
+
 	if !bestSet {
 		return vp9Sub8x8WrapperResult{}, false
 	}
 	// vp9_rd_pick_inter_mode_sub8x8 finalisation (vp9_rdopt.c:4894-4906):
 	// mi->mv[0] = bmi[3].as_mv[0]; second-ref mv zeroed (no second ref here).
 	return bestRes, true
+}
+
+// rdPickInterSub8x8Intra ports the ref_frame==INTRA_FRAME arm of
+// vp9_rd_pick_inter_mode_sub8x8 (vp9_rdopt.c:4511-4528) plus the shared
+// ref-signalling + no-skip-flag + RDCOST tail (vp9_rdopt.c:4707-4742), returning
+// a wrapper result with the intra mode committed. bestRD/bestRDValid are the
+// running best after the inter ref loop; intra's rd_pick_intra_sub_8x8_y_mode
+// early-exits against bestRD (vp9_rdopt.c:4513-4514).
+func (e *VP9Encoder) rdPickInterSub8x8Intra(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, above, left *vp9dec.NeighborMi, rdmult, rddiv int,
+	bestRD uint64, bestRDValid bool,
+) (vp9Sub8x8WrapperResult, vp9Sub8x8IntraCapture, bool) {
+	// Build the mi the intra Y search writes its per-sub-block bmi modes into and
+	// the predictor reads (sb_type = the sub-8x8 shape so the per-4x4 grid drives).
+	mi := vp9dec.NeighborMi{
+		SbType:   bsize,
+		TxSize:   common.Tx4x4,
+		RefFrame: [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame},
+	}
+
+	yBudget := ^uint64(0)
+	if bestRDValid {
+		yBudget = bestRD
+	}
+	// rate, rate_y, distortion_y = rd_pick_intra_sub_8x8_y_mode(... best_rd).
+	// If its returned RD >= best_rd, skip intra (vp9_rdopt.c:4513-4514).
+	yRes, ok := e.rdPickInterSub8x8IntraYMode(inter, tile, miRows, miCols,
+		miRow, miCol, bsize, &mi, rdmult, yBudget)
+	if !ok {
+		return vp9Sub8x8WrapperResult{}, vp9Sub8x8IntraCapture{}, false
+	}
+	if bestRDValid && yRes.rd >= bestRD {
+		return vp9Sub8x8WrapperResult{}, vp9Sub8x8IntraCapture{}, false
+	}
+
+	// rate2 = rate; rate2 += intra_cost_penalty; distortion2 = distortion_y.
+	rate2 := yRes.rate
+	// vp9_get_intra_cost_penalty(cpi, bsize, cm->base_qindex, cm->y_dc_delta_q)
+	// (vp9_rdopt.c:4356). bsize <= BLOCK_8X8 → reduction_fac 4. y_dc_delta_q is 0
+	// in govpx (vp9_encoder_rd.go:130).
+	intraPenalty := encoder.IntraCostPenalty(e.vp9EncoderModeDecisionQIndex(), 0,
+		bsize, e.noiseEstimate.Enabled, e.noiseEstimate.ExtractLevel())
+	rate2 += intraPenalty
+	distortion2 := yRes.distortion
+
+	// choose_intra_uv_mode (once): rate_uv_intra, rate_uv (tokenonly), dist_uv.
+	uv, ok := e.vp9Sub8x8IntraUVRD(inter, tile, miRows, miCols, miRow, miCol,
+		mi.Mode, rdmult)
+	if !ok {
+		return vp9Sub8x8WrapperResult{}, vp9Sub8x8IntraCapture{}, false
+	}
+	rate2 += uv.rate
+	rateUV := uv.rateTokenOnly
+	distortion2 += uv.distortion
+
+	// ref-frame signalling (single-ref branch): rate2 += ref_costs_single[INTRA]
+	// = vp9_cost_bit(intra_inter_p, 0) (estimate_ref_frame_costs vp9_rdopt.c:2471,
+	// consumed at vp9_rdopt.c:4710).
+	rate2 += encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
+
+	// no-skip flag (vp9_rdopt.c:4736-4738): for INTRA the skip path takes the
+	// else branch — rate2 += skip_cost0 (no skip override).
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	rate2 += encoder.VP9CostBit(skipProb, 0)
+
+	thisRD := encoder.RDCost(rdmult, rddiv, rate2, distortion2)
+
+	res := vp9Sub8x8WrapperResult{
+		bmi:  yRes.bmi,
+		mode: yRes.mode,
+		mv:   [2]vp9dec.MV{},
+		// libvpx vp9_rdopt.c:4765 — mi->interp_filter = SWITCHABLE_FILTERS for the
+		// committed intra block (== vp9dec.SwitchableFilters; the decoder stamps the
+		// same in intra_driver.go).
+		refFrame:     vp9dec.IntraFrame,
+		interpFilter: vp9dec.InterpFilter(vp9dec.SwitchableFilters),
+		uvMode:       uv.mode,
+		rate:         rate2,
+		distortion:   distortion2,
+		thisRD:       thisRD,
+		skippable:    yRes.rateY == 0 && rateUV == 0,
+		skip2:        false,
+		intra:        true,
+		segEntropy:   yRes.segEntropy,
+		valid:        true,
+	}
+	cap := vp9Sub8x8IntraCapture{
+		MiRow: miRow, MiCol: miCol, Bsize: bsize,
+		Mode: yRes.mode,
+		Bmi: [4]common.PredictionMode{yRes.bmi[0].AsMode, yRes.bmi[1].AsMode,
+			yRes.bmi[2].AsMode, yRes.bmi[3].AsMode},
+		UVMode:     uv.mode,
+		Rate:       rate2,
+		YRate:      yRes.rate,
+		UVRate:     uv.rate,
+		Distortion: distortion2,
+		ThisRD:     thisRD,
+	}
+	return res, cap, true
+}
+
+// vp9Sub8x8IntraCapture holds the committed intra sub-8x8 leaf decomposition for
+// the oracle-trace pin (frame-1 SB0 16x16(0,0) child at mi=(1,0) BLOCK_8X4 INTRA).
+type vp9Sub8x8IntraCapture struct {
+	MiRow      int
+	MiCol      int
+	Bsize      common.BlockSize
+	Mode       common.PredictionMode
+	Bmi        [4]common.PredictionMode
+	UVMode     common.PredictionMode
+	Rate       int    // rate2 (the committed rd_cost->rate)
+	YRate      int    // rd_pick_intra_sub_8x8_y_mode *rate (incl. mbmode_cost)
+	UVRate     int    // rate_uv_intra (tokenonly + uv mode cost)
+	Distortion uint64 // distortion2
+	ThisRD     uint64 // this_rd
 }
 
 // vp9Sub8x8UVRDResult is the sub-8x8 chroma RD (super_block_uvrd on BLOCK_8X8).

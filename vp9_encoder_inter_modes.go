@@ -813,15 +813,20 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 		} else if vp9InterUseDeepRDSub8x8 {
 			// GENUINE sub-8x8 joint RD: vp9_rd_pick_inter_mode_sub8x8 iterates the
 			// usable refs + switchable filters internally (one call), unlike the
-			// per-ref model loop below. Budget is INT64_MAX here (the partition
-			// recursion's running best is not threaded into the leaf yet; an
-			// infinite budget disables the early-exits but yields the same best
-			// decision). Falls back to the model loop only when the wrapper
-			// reports !ok (e.g. the intra sub-8x8 case it does not yet handle).
+			// per-ref model loop below. The INTRA_FRAME arm (ref_index 5) is now
+			// ported too, so the wrapper can commit a sub-8x8 intra leaf. Budget is
+			// INT64_MAX here (the partition recursion's running best is not threaded
+			// into the leaf yet; an infinite budget disables the early-exits but
+			// yields the same best decision). Falls back to the model loop only when
+			// the wrapper reports !ok.
 			if seg, ok := e.rdPickInterModeSub8x8(inter, tile, miRows, miCols,
 				miRow, miCol, bsize, ^uint64(0), true); ok {
-				refSlot, _ := e.vp9InterReferenceSlot(inter, seg.refFrame)
+				refSlot := -1
+				if !seg.intra {
+					refSlot, _ = e.vp9InterReferenceSlot(inter, seg.refFrame)
+				}
 				best = vp9InterModeDecision{
+					intra:           seg.intra,
 					refFrame:        seg.refFrame,
 					secondRefFrame:  vp9dec.NoRefFrame,
 					refSlot:         refSlot,
@@ -2382,6 +2387,17 @@ func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState
 	decision vp9InterModeDecision,
 ) {
 	if decision.intra {
+		// Sub-8x8 intra leaf: the genuine wrapper carries the post-coding plane[0]
+		// entropy context (t_above[2]/t_left[2] left by rd_pick_intra4x4block,
+		// vp9_rdopt.c:1280-1282) so the next sibling 8x8's seed reads it, exactly as
+		// libvpx encode_sb stamps pd->above_context/left_context after the intra
+		// block is reconstructed. 8x8+ intra leaves do not set segEntropyValid (the
+		// >=8x8 intra path is the model stand-in and is not threaded here).
+		if vp9InterUseDeepRDSub8x8 && bsize < common.Block8x8 &&
+			decision.segEntropyValid {
+			ent := decision.segEntropy
+			e.vp9Sub8x8StampEntropy(&ent, miRow, miCol)
+		}
 		return
 	}
 	if decision.segEntropyValid {

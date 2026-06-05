@@ -113,6 +113,15 @@ type vp9OracleTraceState struct {
 	sub8x8WrapperValid bool
 	sub8x8WrapperR     int
 	sub8x8WrapperFltr  vp9dec.InterpFilter
+
+	// sub8x8Intra* captures the genuine sub-8x8 wrapper's committed INTRA leaf for
+	// the frame-1 SB0 16x16(0,0) child at mi=(1,0) BLOCK_8X4: the chosen Y mode +
+	// per-sub-block bmi modes + UV mode + the intra Y rate (rate incl. mbmode_cost),
+	// the intra Y token rate, the UV rate, distortion and this_rd. Pins the
+	// rd_pick_intra_sub_8x8_y_mode + choose_intra_uv_mode port against libvpx
+	// ground truth. First matching mi=(1,0) intra commit wins.
+	sub8x8IntraValid bool
+	sub8x8IntraData  vp9Sub8x8IntraCapture
 }
 
 type vp9OracleTraceHolder struct {
@@ -324,6 +333,34 @@ func (e *VP9Encoder) vp9CapturedSub8x8WrapperCommit() (int, vp9dec.InterpFilter,
 		return 0, 0, false
 	}
 	return state.sub8x8WrapperR, state.sub8x8WrapperFltr, true
+}
+
+// recordVP9Sub8x8IntraCommit stores the genuine sub-8x8 wrapper's committed INTRA
+// leaf decomposition for the frame-1 SB0 16x16(0,0) child at mi=(1,0). LAST
+// matching mi=(1,0) intra commit wins: the deep recursion evaluates the three
+// sub-8x8 shapes (SPLIT/HORZ/VERT) then re-runs the WINNING shape last, so the
+// final overwrite is the committed (BLOCK_8X4 HORZ) intra leaf rather than an
+// earlier losing trial shape.
+func (e *VP9Encoder) recordVP9Sub8x8IntraCommit(cap vp9Sub8x8IntraCapture) {
+	state := e.vp9OracleTraceState()
+	if state == nil {
+		return
+	}
+	if cap.MiRow != 1 || cap.MiCol != 0 {
+		return
+	}
+	state.sub8x8IntraValid = true
+	state.sub8x8IntraData = cap
+}
+
+// vp9CapturedSub8x8IntraCommit returns the captured mi=(1,0) committed intra leaf
+// decomposition, valid only in govpx_oracle_trace builds.
+func (e *VP9Encoder) vp9CapturedSub8x8IntraCommit() (vp9Sub8x8IntraCapture, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.sub8x8IntraValid {
+		return vp9Sub8x8IntraCapture{}, false
+	}
+	return state.sub8x8IntraData, true
 }
 
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(activeBestQ int, activeWorstQ int, rateCorrectionFactor float64, recodeAllowed bool, recodeLoopCount int) {
