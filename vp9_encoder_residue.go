@@ -114,10 +114,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	if interDecision.intra {
 		mi.Mode = interDecision.mode
-		// libvpx: vp9/encoder/vp9_pickmode.c:2644-2645 — intra winners park
-		// mv[0]/mv[1] at INVALID_MV so the NEWMV-diff-bias neighbour check
-		// (vp9_pickmode.c:1327,1332) rejects them.
-		mi.Mv = [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
+		// Committed intra-block mv sentinel. The NONRD picker
+		// (vp9/encoder/vp9_pickmode.c:2644-2645) parks mv[0]/mv[1] at INVALID_MV;
+		// the FULL-RD picker (vp9/encoder/vp9_rdopt.c:3990, the
+		// `if (ref_frame == INTRA_FRAME) mi->mv[0].as_int = 0;` best-mode commit)
+		// parks mv[0] at 0 ("required for left and above block mv"). Both keep the
+		// NEWMV-diff-bias neighbour check byte-exact (INVALID_MV is rejected,
+		// mv==0 is a valid zero candidate), but the committed value differs and is
+		// read back by the neighbour MV scan, so the path must match: cpu4 full-RD
+		// commits 0, cpu>=5 nonrd commits INVALID_MV.
+		mi.Mv = e.vp9InterIntraCommitMv()
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
 		if interDecision.txSize < common.TxSizes {

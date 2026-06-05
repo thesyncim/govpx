@@ -53,6 +53,26 @@ func (e *VP9Encoder) pickVP9InterIntraMode(inter *vp9InterEncodeState,
 	return decision, true
 }
 
+// vp9InterIntraCommitMv returns the mv[0]/mv[1] sentinel a committed >= BLOCK_8X8
+// intra leaf is stamped with, branching on libvpx's picker path:
+//
+//   - NONRD (vp9_pick_inter_mode, vp9/encoder/vp9_pickmode.c:2644-2645): both mv
+//     slots = INVALID_MV.
+//   - FULL-RD (vp9_rd_pick_inter_mode_sb, vp9/encoder/vp9_rdopt.c:3990): mv[0] = 0
+//     ("required for left and above block mv"); mv[1] is left at the loop value
+//     (also 0, set at vp9_rdopt.c:3821 before super_block_yrd).
+//
+// The committed value is read back by the neighbour MV-prediction scan
+// (find_mv_refs / above-left ADD_MV_REF_LIST), so the path must match the speed
+// configuration that produced the decision: cpu_used==4 runs the full-RD mode
+// search (use_nonrd_pick_mode is set only at cpu_used>=5), so it commits 0.
+func (e *VP9Encoder) vp9InterIntraCommitMv() [2]vp9dec.MV {
+	if e.vp9InterUsesNonrdPickmode() {
+		return [2]vp9dec.MV{vp9dec.InvalidMV, vp9dec.InvalidMV}
+	}
+	return [2]vp9dec.MV{}
+}
+
 func (e *VP9Encoder) vp9InterIntraResidualLooksSceneCut(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize,
 ) bool {
@@ -1130,6 +1150,117 @@ func (e *VP9Encoder) vp9FullRDCompoundReferenceSlots(inter *vp9InterEncodeState,
 	return slots, true
 }
 
+// pickVP9FullRDInterIntraLeaf runs the GENUINE larger-block (>= BLOCK_8X8) intra
+// RD producer (vp9FullRDInterIntraSB — the ref_frame==INTRA_FRAME arm of
+// vp9_rd_pick_inter_mode_sb, vp9_rdopt.c:3781-3867) and assembles the final
+// per-mode this_rd exactly as the rd_pick_inter_mode_sb caller does for an intra
+// candidate (vp9_rdopt.c:3888-3929), so it competes with the inter candidates on
+// the identical post-ref/post-skip-bit RD basis the inter this_rd uses
+// (vp9_fullrd_inter_thisrd.go folds the same ref_costs_single + skip-flag bit).
+//
+// libvpx caller arithmetic for the intra branch (verbatim):
+//   - rate2 := producer.Rate2 (= rate_y + mbmode_cost + rate_uv_intra +
+//     intra_cost_penalty, vp9_rdopt.c:3864-3866)
+//   - rate2 += ref_costs_single[INTRA_FRAME] (= vp9_cost_bit(intra_inter_p, 0),
+//     vp9_rdopt.c:2451, added at :3893)
+//   - skip-flag bit (vp9_rdopt.c:3896-3926): for INTRA the skip2 path
+//     (:3907-3922) is gated on ref_frame != INTRA_FRAME so it never runs; the
+//     branch is `if (skippable) { rate2 -= rate_y+rate_uv; rate2 += skip1; }
+//     else { rate2 += skip0; }`
+//   - this_rd := RDCOST(x->rdmult, x->rddiv, rate2, distortion2) (:3929)
+//
+// (The recon-gated rd_variance_adjustment / film bias at :3932-3963 fire only for
+// the VOD content==FILM recon!=NULL path; the realtime full-RD path passes
+// recon==NULL, so they are omitted, matching vp9FullRDInterThisRD.)
+//
+// budgetRD is the running best_rd the producer's super_block_yrd early-exit
+// consumes (best.score when a candidate is already set, ^uint64(0) otherwise),
+// mirroring the best_rd threaded into super_block_yrd at vp9_rdopt.c:3840.
+//
+// Returns the committed intra leaf as a vp9InterModeDecision (intra=true,
+// ref=INTRA, interp=SWITCHABLE_FILTERS, the producer's y_mode/uv_mode/tx_size,
+// and the final this_rd as score). The flag gate lives at the call site.
+func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, above, left *vp9dec.NeighborMi, budgetRD uint64,
+) (vp9InterModeDecision, bool) {
+	if inter == nil || bsize < common.Block8x8 {
+		return vp9InterModeDecision{}, false
+	}
+	// Prime x->rdmult to the per-SB cb_rdmult (get_rdmult_delta /
+	// vp9_encodeframe.c:4245-4248) exactly as the inter pickers
+	// (pickVP9InterModeWithOrder) do, so the intra RDCOST consumes the same
+	// multiplier the competing inter candidates did. Save/restore inline to
+	// preserve the alloc-parity gate.
+	prevCbRdmult := e.cbRdmult
+	defer func() { e.cbRdmult = prevCbRdmult }()
+	qindex := e.vp9EncoderModeDecisionQIndex()
+	baseRdmult := e.rc.rdmult
+	if baseRdmult <= 0 {
+		baseRdmult = encoder.ComputeRDMultBasedOnQindex(qindex, encoder.RDFrameInter)
+	}
+	if bsize < common.BlockSizes && e.tpl.Enabled {
+		bwMi := int(common.Num8x8BlocksWideLookup[bsize])
+		bhMi := int(common.Num8x8BlocksHighLookup[bsize])
+		baseRdmult = e.getVP9TPLRDMultDelta(miRow, miCol, bhMi, bwMi, baseRdmult)
+	}
+	if baseRdmult <= 0 {
+		baseRdmult = 1
+	}
+	e.cbRdmult = baseRdmult
+
+	res, ok := e.vp9FullRDInterIntraSB(inter, tile, miRows, miCols, miRow, miCol,
+		bsize, e.cbRdmult, budgetRD)
+	if !ok || !res.Valid {
+		return vp9InterModeDecision{}, false
+	}
+	rddiv := encoder.RDDivBits
+
+	// rate2 := producer.Rate2 (rate_y + mbmode_cost + rate_uv_intra + penalty).
+	rate2 := res.Rate2
+	dist2 := res.Distortion2
+
+	// rate2 += ref_costs_single[INTRA_FRAME] (vp9_rdopt.c:3893).
+	rate2 += encoder.IntraInterRateCost(&inter.selectFc, above, left, 0)
+
+	// skip-flag bit (vp9_rdopt.c:3896-3926). For INTRA the skip2 branch is gated
+	// out (ref_frame != INTRA_FRAME), so skippable ? back-out-coeff + skip1 :
+	// skip0. The producer's RateUV is rate_uv_tokenonly (the coeff rate to back
+	// out alongside rate_y, matching `rate2 -= (rate_y + rate_uv)`).
+	skipProb := e.fc.SkipProbs[vp9dec.GetSkipContext(above, left)]
+	if res.Skippable {
+		rate2 -= res.RateY + res.RateUV
+		rate2 += encoder.VP9CostBit(skipProb, 1)
+	} else {
+		rate2 += encoder.VP9CostBit(skipProb, 0)
+	}
+
+	thisRD := encoder.RDCost(e.cbRdmult, rddiv, rate2, dist2)
+
+	modeIndex, modeIndexValid := encoder.FullRDModeIndex(res.YMode,
+		vp9dec.IntraFrame, vp9dec.NoRefFrame)
+	return vp9InterModeDecision{
+		intra:          true,
+		refFrame:       vp9dec.IntraFrame,
+		secondRefFrame: vp9dec.NoRefFrame,
+		refSlot:        -1,
+		mode:           res.YMode,
+		// libvpx vp9_rdopt.c:3990,3994 — committed full-RD intra block parks
+		// mv[0]=0 and interp_filter=SWITCHABLE_FILTERS. The commit path
+		// (prepareVP9InterBlockResidue → vp9InterIntraCommitMv) stamps mv=0 for the
+		// full-RD path (vs the nonrd INVALID_MV); decision.mv stays zero here.
+		interpFilter: vp9dec.InterpFilter(vp9dec.SwitchableFilters),
+		txSize:       res.TxSize,
+		uvMode:       res.UvMode,
+		rate:         rate2,
+		distortion:   dist2,
+		score:        thisRD,
+		skip:         res.Skippable,
+		rdModeIndex:  modeIndex,
+		rdModeValid:  modeIndexValid,
+	}, true
+}
+
 func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrameSet []int8,
@@ -1152,13 +1283,46 @@ func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	var best vp9InterModeDecision
 	refSkipMask := [2]uint8{0, 1}
 	modeSkipStart := e.sf.ModeSkipStart + 1
+	// vp9_rd_pick_inter_mode_sb evaluates the INTRA_FRAME candidates (DC at
+	// vp9_mode_order index 3, then TM / H / V / obliques) inline in the SAME mode
+	// loop as the inter candidates, competing on the identical this_rd
+	// (vp9_rdopt.c:3781-3867,3982). The genuine larger-block intra producer
+	// (vp9FullRDInterIntraSB) sweeps the whole speed-feature-masked intra Y/UV
+	// mode set in one call, so it is run ONCE at the first INTRA entry the loop
+	// reaches (DC, index 3) with the running best_rd as the super_block_yrd
+	// budget, and the remaining INTRA entries are subsumed. Gated behind the deep
+	// full-RD flags (production OFF keeps the model-stand-in intra re-decode in
+	// prepareVP9InterBlockResidue, so production byte-parity is untouched).
+	intraEvaluated := false
 	for midx, def := range encoder.FullRDModeOrder {
 		if midx == modeSkipStart && bestSet {
 			vp9FullRDApplyBestRefSkipMask(&refSkipMask, best.refFrame)
 		}
 		refFrame := def.RefFrame[0]
 		secondRefFrame := def.RefFrame[1]
-		if refFrame <= vp9dec.IntraFrame {
+		if refFrame == vp9dec.IntraFrame {
+			if intraEvaluated ||
+				!(vp9InterUseDeepRDUsePartition || vp9InterUseDeepRDThisRDScore) {
+				continue
+			}
+			intraEvaluated = true
+			budgetRD := ^uint64(0)
+			if bestSet {
+				budgetRD = best.score
+			}
+			decision, ok := e.pickVP9FullRDInterIntraLeaf(inter, tile, miRows,
+				miCols, miRow, miCol, bsize, above, left, budgetRD)
+			if !ok {
+				continue
+			}
+			if !bestSet || decision.score < best.score ||
+				(decision.score == best.score && decision.rate < best.rate) {
+				best = decision
+				bestSet = true
+			}
+			continue
+		}
+		if refFrame < vp9dec.IntraFrame {
 			continue
 		}
 		if vp9FullRDRefSkipped(refSkipMask, refFrame, secondRefFrame) {
