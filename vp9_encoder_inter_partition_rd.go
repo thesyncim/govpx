@@ -16,6 +16,13 @@ import (
 // is written but never read.
 var vp9InterPredMvSentinel = vp9dec.MV{Row: int16(0x7fff), Col: int16(0x7fff)}
 
+// vp9InterUseDeepRDPartition selects the genuine depth-first
+// pickVP9InterPartitionRD recursion over the shallow rdPickVP9InterPartition
+// skeleton inside pickVP9InterPartitionBlockSize. Default false keeps the
+// production path on the proven-no-op skeleton; tests flip it to exercise the
+// deep recursion's serialization.
+var vp9InterUseDeepRDPartition = false
+
 // vp9_encoder_inter_partition_rd.go stands up the depth-first
 // rd_pick_partition recursion skeleton for the full-RD INTER path
 // (libvpx vp9/encoder/vp9_encodeframe.c:3667 rd_pick_partition). It is the
