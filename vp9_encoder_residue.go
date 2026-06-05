@@ -353,7 +353,8 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			mi.InterpFilter = uint8(decision.interpFilter)
 			pickedValid = true
 		}
-	} else if cached, ok := e.vp9LookupDeepInterRDDecision(miRow, miCol, bsize); ok {
+	} else if cached, cok := e.vp9LookupDeepInterRDDecisionForWrite(miRows, miCols,
+		miRow, miCol, bsize); cok {
 		// SEARCH->WRITE replay (vp9InterUseDeepRDPartition only): the
 		// depth-first full-RD partition search (pickVP9InterPartitionRD)
 		// already committed this leaf's decision into the deep cache as it

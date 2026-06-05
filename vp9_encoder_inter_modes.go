@@ -802,7 +802,36 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			best, bestSet = e.pickVP9FullRDInterReferenceMode(inter, tile,
 				miRows, miCols, miRow, miCol, bsize, refFrameSet,
 				fullRDRefs, sourceAltRefOverlay, filterRDScoresPtr)
-		} else {
+		} else if vp9InterUseDeepRDSub8x8 {
+			// GENUINE sub-8x8 joint RD: vp9_rd_pick_inter_mode_sub8x8 iterates the
+			// usable refs + switchable filters internally (one call), unlike the
+			// per-ref model loop below. Budget is INT64_MAX here (the partition
+			// recursion's running best is not threaded into the leaf yet; an
+			// infinite budget disables the early-exits but yields the same best
+			// decision). Falls back to the model loop only when the wrapper
+			// reports !ok (e.g. the intra sub-8x8 case it does not yet handle).
+			if seg, ok := e.rdPickInterModeSub8x8(inter, tile, miRows, miCols,
+				miRow, miCol, bsize, ^uint64(0), true); ok {
+				refSlot, _ := e.vp9InterReferenceSlot(inter, seg.refFrame)
+				best = vp9InterModeDecision{
+					refFrame:       seg.refFrame,
+					secondRefFrame: vp9dec.NoRefFrame,
+					refSlot:        refSlot,
+					mode:           seg.mode,
+					mv:             seg.mv,
+					bmi:            seg.bmi,
+					interpFilter:   seg.interpFilter,
+					txSize:         common.Tx4x4,
+					uvMode:         seg.uvMode,
+					rate:           seg.rate,
+					distortion:     seg.distortion,
+					score:          seg.thisRD,
+					skip:           seg.skip2,
+				}
+				bestSet = true
+			}
+		}
+		if !bestSet && bsize < common.Block8x8 {
 			for _, refFrame := range refFrameSet {
 				refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
 				if !ok {
@@ -2227,7 +2256,21 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 	if refCount >= 2 {
 		candidates[1] = encoder.MvPredInputCandidate{MV: refList[1], Valid: true}
 	}
-	if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, refFrame); ok {
+	// candidate[2] = x->pred_mv[ref] (vp9_rd.c:613). On the full-RD deep inter
+	// engine this is the NEWMV subpel result the parent (larger) block left in
+	// e.fullRDPredMv[ref] (threaded via store_pred_mv/load_pred_mv across
+	// partition arms); a sentinel (INT16_MAX) value means "no prior NEWMV" and
+	// vp9_mv_pred skips it (Valid:false). Gated on the full deep stack
+	// (vp9InterUseDeepRDSub8x8, which the production cpu0/cpu4 enable also
+	// turns on with deep partition + this_rd): the deep-partition-only
+	// SEARCH->WRITE round-trip harness (model leaves, no genuine this_rd) keeps
+	// the var-part choose_partitioning pred_mv cache, and production (all flags
+	// off) is byte-identical.
+	if vp9InterUseDeepRDSub8x8 {
+		if pm := e.fullRDPredMv[refFrame]; pm != vp9InterPredMvSentinel {
+			candidates[2] = encoder.MvPredInputCandidate{MV: pm, Valid: true}
+		}
+	} else if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, refFrame); ok {
 		candidates[2] = encoder.MvPredInputCandidate{MV: predMv, Valid: true}
 	}
 	maxPartitionSize := e.sf.DefaultMaxPartitionSize
@@ -2543,13 +2586,19 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	if opts.fullRD {
 		// libvpx single_motion_search tail stores tmp_mv->as_mv as
-		// x->pred_mv[ref] (vp9_rdopt.c:2738), the SUBPEL result that becomes
-		// vp9_mv_pred's third candidate for subsequent blocks. The full-pel MV
+		// x->pred_mv[ref] (vp9_rdopt.c:2750), the SUBPEL result that becomes
+		// vp9_mv_pred's third candidate (pred_mv[2], vp9_rd.c:613) for
+		// subsequent (smaller) blocks in the depth-first recursion. Thread it
+		// into e.fullRDPredMv[ref] when the deep recursion is active so the
+		// next block's vp9InterMvPredStateForRef seeds mvp_full from it. Gated:
+		// production (flag off) never reads fullRDPredMv. The full-pel MV
 		// (pre-subpel) was pinned earlier for the SB0 (0,0) full-pel parity
 		// test; pin the refined MV here for the SB0 64x64 subpel parity test
-		// (no-op in non-trace builds). The candidate[2] propagation itself is
-		// held back pending the holistic single-pass rd_pick_partition port —
-		// see vp9InterMvPredStateForRef.
+		// (no-op in non-trace builds).
+		if vp9InterUseDeepRDSub8x8 && refFrame > vp9dec.IntraFrame &&
+			int(refFrame) < len(e.fullRDPredMv) {
+			e.fullRDPredMv[refFrame] = mv
+		}
 		e.recordVP9FullRDFirstInterSubpelMv(e.frameIndex, miRow, miCol,
 			refFrame, int(mv.Row), int(mv.Col))
 	}

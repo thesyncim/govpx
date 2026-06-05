@@ -16,6 +16,17 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	if !ok {
 		return root
 	}
+	// libvpx vp9_encodeframe.c:4215-4218 — each 64x64 SB resets
+	// x->pred_mv[MAX_REF_FRAMES] to the INT16_MAX sentinel before
+	// rd_pick_partition. Mirror that per-SB reset for the full-RD pred_mv
+	// thread (the genuine depth-first recursion's candidate[2] source). Gated on
+	// the full deep stack (vp9InterUseDeepRDSub8x8): the deep-partition-only
+	// round-trip harness and production keep candidate[2] on the var-part cache.
+	if vp9InterUseDeepRDSub8x8 && root == common.Block64x64 {
+		for i := range e.fullRDPredMv {
+			e.fullRDPredMv[i] = vp9InterPredMvSentinel
+		}
+	}
 	// SPEED_FEATURES.partition_search_type == FIXED_PARTITION (cpu_used=8
 	// realtime in libvpx) pins the whole SB to sf.AlwaysThisBlockSize. We
 	// only honour it for square block sizes that fit; otherwise fall through
@@ -1387,6 +1398,20 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		inter.predFilterValid = savedPredFilterValid
 	}
 
+	// store_pred_mv/load_pred_mv thread (vp9_encodeframe.c:3913/3932/4071/4121):
+	// snapshot the parent's pred_mv at node entry, restore it before the NONE
+	// search (so NONE's vp9_mv_pred candidate[2] sees the parent value), capture
+	// the post-NONE pred_mv (store_pred_mv on ctx==pc_tree->none), and reload it
+	// before each child arm (load_pred_mv). Gated: production (flag off) never
+	// touches fullRDPredMv, so this snapshot/restore is inert there.
+	entryPredMv := e.fullRDPredMv
+	var nonePredMv [vp9dec.MaxRefFrames]vp9dec.MV
+	loadNonePredMv := func() {
+		if vp9InterUseDeepRDSub8x8 {
+			e.fullRDPredMv = nonePredMv
+		}
+	}
+
 	bestSet := false
 	var best vp9InterPartitionRD
 	updateBest := func(rd vp9InterPartitionRD) {
@@ -1398,14 +1423,21 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	}
 	consider := func(score func() (vp9InterPartitionRD, bool)) {
 		restoreBase()
+		loadNonePredMv()
 		rd, ok := score()
 		if ok {
 			updateBest(rd)
 		}
 	}
 	restoreBase()
+	if vp9InterUseDeepRDSub8x8 {
+		e.fullRDPredMv = entryPredMv
+	}
 	noneRD, noneOK := e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
 		miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
+	// store_pred_mv(x, ctx==pc_tree->none): capture x->pred_mv as left by the
+	// NONE mode loop's single_motion_search (vp9_encodeframe.c:3913).
+	nonePredMv = e.fullRDPredMv
 	if noneOK {
 		updateBest(noneRD)
 	}
@@ -1449,14 +1481,19 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		e.partitionReconScratchTop = reconSnap.top
 		return vp9InterPartitionRD{}, false
 	}
-
 	restoreBase()
 	var committed vp9InterPartitionRD
 	switch best.target {
 	case root:
+		// NONE re-run: reseed pred_mv from the parent value (entry) so the
+		// re-run's vp9_mv_pred reproduces the search's NEWMV exactly.
+		if vp9InterUseDeepRDSub8x8 {
+			e.fullRDPredMv = entryPredMv
+		}
 		committed, ok = e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, hasRows, hasCols, qindex)
 	case splitSize:
+		loadNonePredMv()
 		if predFromNone {
 			inter.predInterpFilter = noneRD.predInterpFilter
 			inter.predFilterValid = true
@@ -1465,6 +1502,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 			miRows, miCols, miRow, miCol, root, splitSize,
 			hasRows, hasCols, qindex)
 	case horzSize:
+		loadNonePredMv()
 		if predFromNone {
 			inter.predInterpFilter = noneRD.predInterpFilter
 			inter.predFilterValid = true
@@ -1473,6 +1511,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 			miRows, miCols, miRow, miCol, root, horzSize,
 			common.PartitionHorz, bs, 0, hasRows, hasCols, qindex)
 	case vertSize:
+		loadNonePredMv()
 		if predFromNone {
 			inter.predInterpFilter = noneRD.predInterpFilter
 			inter.predFilterValid = true
