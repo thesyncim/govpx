@@ -415,6 +415,16 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			miRow, miCol, root))
 	}
 	if kind == vp9ModeTreeInterSource && inter != nil {
+		// SEARCH->WRITE replay: once the deep full-RD recursion has committed
+		// this SB's partition tree, descend exactly that tree. A hit returns the
+		// search's committed child size; the root's first visit (count pre-pass)
+		// misses and falls through to pickVP9InterPartitionBlockSize, which runs
+		// the recursion and populates the whole subtree's partition + leaf
+		// caches. Off / replay-disabled: miss -> the writer re-decides each node
+		// (production path, byte-identical).
+		if cached, ok := e.vp9LookupDeepInterPartition(miRow, miCol, root); ok {
+			return cached
+		}
 		if edgeSize, ok := vp9InterEdgeBlockSizeForRegion(miRows, miCols,
 			miRow, miCol, root); ok {
 			target = edgeSize

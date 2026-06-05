@@ -84,6 +84,52 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 			return root
 		}
 	}
+	// Deep full-RD inter partition (opt-in vp9InterUseDeepRDPartition, default
+	// OFF). When active and the SB is on the SearchPartition path, the genuine
+	// depth-first pickVP9InterPartitionRD recursion is the UNCONDITIONAL
+	// partition decision: route to it here, BEFORE the shallow early-exits
+	// below (full.distortion==0 -> NONE, variance/textured-split shortcuts). On
+	// perfectly-predicted planted motion those shortcuts return NONE without
+	// ever running the recursion, which left the SEARCH->WRITE caches unpopulated
+	// for that SB and forced the writer to re-pick the leaf (the architecture
+	// bug). Running the recursion here populates the per-node partition cache and
+	// per-leaf decision cache for the whole SB, and returns the recursion's own
+	// committed root target so the writer descends exactly that tree. The
+	// recursion is partition-context-neutral (it restores e.above/leftSegCtx), so
+	// the writer still owns the single canonical UpdatePartitionContext stamp.
+	// Flag OFF: skipped entirely; the shallow tail below is byte-identical to
+	// production. libvpx ref: rd_pick_partition (vp9_encodeframe.c:3667).
+	if vp9InterUseDeepRDPartition && e.sf.PartitionSearchType == SearchPartition &&
+		inter != nil {
+		deepRateCostProbs := &inter.selectFc.PartitionProb
+		// Run the recursion unconditionally (under the flag) so the SEARCH->WRITE
+		// caches are populated for this SB. When replay is enabled, return the
+		// recursion's committed root target so the writer descends exactly the
+		// search's tree. When replay is DISABLED (the negative-control path),
+		// fall through to the shallow early-exits below: the cache still holds the
+		// search's commit, but the writer re-decides the partition independently —
+		// reproducing the WRITE-diverges-from-SEARCH bug the caches fix.
+		//
+		// pickVP9InterPartitionRD's committed scorer leaves inter.ref / pred-filter
+		// pointing at the last committed leaf; the shallow tail snapshots and
+		// restores these itself, so restore the entry state here too (mirrors the
+		// old dispatch's post-recursion restore) before returning or falling
+		// through.
+		hoistSavedRef := inter.ref
+		hoistSavedPredFilter := inter.predInterpFilter
+		hoistSavedPredFilterValid := inter.predFilterValid
+		rd, ok := e.pickVP9InterPartitionRD(inter, tile, deepRateCostProbs,
+			miRows, miCols, miRow, miCol, root)
+		inter.ref = hoistSavedRef
+		inter.predInterpFilter = hoistSavedPredFilter
+		inter.predFilterValid = hoistSavedPredFilterValid
+		if vp9InterDeepRDReplayWrites {
+			if ok {
+				return rd.target
+			}
+			return root
+		}
+	}
 	// libvpx REFERENCE_PARTITION: choose_partitioning stamps varPartGrid,
 	// then nonrd_select_partition walks it (vp9_encodeframe.c:5348-5357).
 	// govpx maps that walk onto writeVP9ModesSb via vp9VarPartDecisionFor.
@@ -212,37 +258,24 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// PartitionSearchType==SearchPartition so only the full-RD inter path
 	// reaches it (the FixedPartition / ML / REFERENCE / VAR / nonrd dispatches
 	// all returned above). Step (a) of the port: this is a structural no-op —
-	// the skeleton reproduces the shallow-RD tail's decision byte-for-byte.
+	// the skeleton reproduces the shallow-RD tail's decision byte-for-byte. The
+	// opt-in genuine depth-first recursion (vp9InterUseDeepRDPartition) is
+	// dispatched earlier, before the shallow early-exits, so it is the
+	// unconditional partition decision when active; this skeleton is the flag-OFF
+	// production path.
 	//
 	// libvpx ref: rd_pick_partition (vp9/encoder/vp9_encodeframe.c:3667).
 	bestSize := root
 	if e.sf.PartitionSearchType == SearchPartition {
-		if vp9InterUseDeepRDPartition {
-			// Opt-in (default OFF, set only by serialization tests): route the
-			// decision through the genuine depth-first pickVP9InterPartitionRD
-			// recursion instead of the no-op skeleton. The recursion fills the
-			// mi grid with the full per-quadrant partition tree that the
-			// writeVP9ModesSb walker re-derives via PartitionLookup[mi.SbType],
-			// and is partition-context-neutral (it restores e.above/leftSegCtx
-			// to its entry state) so the writer owns the single canonical
-			// UpdatePartitionContext stamp. This branch does NOT change the
-			// production decision (vp9InterUseDeepRDPartition stays false);
-			// enabling it as the real partition decision is a later step.
-			if rd, ok := e.pickVP9InterPartitionRD(inter, tile, rateCostProbs,
-				miRows, miCols, miRow, miCol, root); ok {
-				bestSize = rd.target
-			}
-		} else {
-			node := newVP9InterPartitionRDNode(root)
-			bestSize = e.rdPickVP9InterPartition(inter, tile, rateCostProbs,
-				miRows, miCols, miRow, miCol, root, horzSize, vertSize, splitSize,
-				noneScore, vp9InterPartitionRD{
-					target:     root,
-					rate:       full.rate,
-					distortion: full.distortion,
-					score:      full.score,
-				}, &node, qindex)
-		}
+		node := newVP9InterPartitionRDNode(root)
+		bestSize = e.rdPickVP9InterPartition(inter, tile, rateCostProbs,
+			miRows, miCols, miRow, miCol, root, horzSize, vertSize, splitSize,
+			noneScore, vp9InterPartitionRD{
+				target:     root,
+				rate:       full.rate,
+				distortion: full.distortion,
+				score:      full.score,
+			}, &node, qindex)
 	}
 	e.restoreVP9PartitionReconSnapshot(reconSnap)
 	inter.ref = savedRef
@@ -1147,6 +1180,19 @@ func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize,
 		vp9InterModeDecisionMi(bsize, decision))
+	// SEARCH->WRITE replay: when the depth-first RD recursion is the active
+	// partition decision, commit this leaf's full picker decision keyed by
+	// (miRow, miCol, bsize) so the bitstream write descent replays it instead
+	// of re-picking with a different x->pred_mv context. The recursion re-runs
+	// the winning arm last, so the final store at each key the writer descends
+	// is the committed leaf's decision; this mirrors the fillVP9MiGrid commit
+	// above, which already populates the mi grid the writer reads back. Gated:
+	// production (flag off) never stores (cache slice is nil → no-op).
+	// libvpx: rd_pick_partition's encode_b writes the chosen mbmi into
+	// mi_grid_visible once; write_modes_b replays it (vp9_bitstream.c).
+	if vp9InterUseDeepRDPartition {
+		e.storeVP9LeafInterRDDecision(miRow, miCol, bsize, decision)
+	}
 	predFilter := decision.interpFilter
 	if decision.intra || predFilter >= vp9dec.InterpSwitchable {
 		predFilter = vp9dec.InterpEighttap
@@ -1475,6 +1521,16 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	// decision (a later step); the bitstream writer already replays the correct
 	// sibling propagation (child 0 stamps -> child 1 reads) at emit time.
 	e.restoreVP9PartitionContexts(ctxSnap)
+	// SEARCH->WRITE: record this node's committed partition (child block size)
+	// so the writer's region picker descends the search's tree rather than
+	// re-deciding the node via pickVP9InterPartitionBlockSize, whose early-exits
+	// (e.g. full.distortion==0 -> NONE) can diverge from the recursion's choice.
+	// The depth-first commit re-runs the winning arm last, so for every node the
+	// writer descends this is the final (winning) store. Gated: production (flag
+	// off) never stores (cache nil -> no-op).
+	if vp9InterUseDeepRDPartition {
+		e.storeVP9InterPartitionRDDecision(miRow, miCol, root, committed.target)
+	}
 	return committed, true
 }
 

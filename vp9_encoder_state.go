@@ -608,6 +608,14 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	// fresh for every SB on every frame). See vp9_nonrd_pick_partition.go.
 	e.vp9ResetMLPartitionCache(miRows, miCols)
 	e.ensureVP9LeafInterDecisionCache(miRows, miCols)
+	// The depth-first full-RD inter SEARCH->WRITE replay cache is allocated
+	// only when its opt-in flag is active; production (flag off) leaves the
+	// slice nil so storeVP9LeafInterRDDecision / lookupVP9LeafInterRDDecision
+	// early-return and the path stays byte-identical.
+	if vp9InterUseDeepRDPartition {
+		e.ensureVP9LeafInterRDDecisionCache(miRows, miCols)
+		e.ensureVP9InterPartitionRDDecisionCache(miRows, miCols)
+	}
 	e.ensureVP9LeafKeyframeDecisionCache(miRows, miCols)
 	e.ensureVP9KeyframePartitionDecisionCache(miRows, miCols)
 	e.partitionReconScratch = buffers.EnsureLen(e.partitionReconScratch, vp9MaxPartitionReconScratchStack)

@@ -23,6 +23,17 @@ var vp9InterPredMvSentinel = vp9dec.MV{Row: int16(0x7fff), Col: int16(0x7fff)}
 // deep recursion's serialization.
 var vp9InterUseDeepRDPartition = false
 
+// vp9InterDeepRDReplayWrites controls whether the bitstream write descent
+// replays the deep-RD SEARCH->WRITE leaf decision cache
+// (vp9LookupDeepInterRDDecision) instead of re-picking each leaf. Default true:
+// when the deep recursion is active the writer replays the search's committed
+// decision. It is consulted ONLY after the vp9InterUseDeepRDPartition gate has
+// already passed (so it is never read in production, where the deep flag is
+// off). A round-trip test flips it to false to prove that disabling the replay
+// resurrects the re-pick bug (the write pass picks a different MV/mode than the
+// search committed), demonstrating the cache is what fixes it.
+var vp9InterDeepRDReplayWrites = true
+
 // vp9_encoder_inter_partition_rd.go stands up the depth-first
 // rd_pick_partition recursion skeleton for the full-RD INTER path
 // (libvpx vp9/encoder/vp9_encodeframe.c:3667 rd_pick_partition). It is the
