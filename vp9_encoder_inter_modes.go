@@ -1667,6 +1667,19 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 				cand.score = e.vp9InterModeScore(cand.distortion, cand.rate, qindex)
 			}
 		}
+		// Oracle-trace-only: run the genuine inter super_block_yrd producer for
+		// the frame-1 SB0 64x64 NEWMV (ref=LAST, EIGHTTAP_SMOOTH) and stash the
+		// result for the inter-yrd parity test. Compile-elided in production
+		// (vp9OracleTraceBuild is a false const there, so the whole block is
+		// dead-code-eliminated); never wired into the cand score this step.
+		if vp9OracleTraceBuild && e.frameIndex == 1 && miRow == 0 && miCol == 0 &&
+			bsize == common.Block64x64 && mode == common.NewMv &&
+			refFrame == vp9dec.LastFrame && filter == vp9dec.InterpEighttapSmooth &&
+			mv.Row == 12 && mv.Col == 4 {
+			res := e.vp9FullRDInterSuperBlockYRD(inter, miRows, miCols, miRow,
+				miCol, bsize, mode, refFrame, mv, filter, e.cbRdmult, ^uint64(0))
+			e.recordVP9FullRDInterYRD(e.frameIndex, miRow, miCol, res)
+		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {
 			best = cand
