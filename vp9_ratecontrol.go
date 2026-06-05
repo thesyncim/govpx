@@ -27,6 +27,18 @@ type vp9RateControlState struct {
 	frameRateNum         int
 	frameRateDen         int
 
+	// framerate mirrors libvpx VP9_COMP::framerate, the dynamic frame rate
+	// driven by the source-timestamp deltas in adjust_frame_rate
+	// (vp9/encoder/vp9_encoder.c:5753). It is seeded from the configured
+	// timebase and then re-derived per show-frame; bitsPerFrame
+	// (rc->avg_frame_bandwidth) is recomputed from it in vp9_rc_update_framerate
+	// (vp9_ratectrl.c:2650). A mid-stream fps change does NOT snap
+	// bitsPerFrame to the new fps at config time — vp9_change_config keeps the
+	// old cpi->framerate (vp9_encoder.c:2135 passes the unchanged value); the
+	// new rate only takes effect once adjust_frame_rate observes the new
+	// timebase-derived source-timestamp delta on the next encoded frame.
+	framerate float64
+
 	bufferSizeMs        int
 	bufferInitialSizeMs int
 	bufferOptimalSizeMs int
@@ -573,7 +585,16 @@ func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) erro
 	if !ok {
 		return ErrInvalidBitrate
 	}
-	bitsPerFrame := computeVP9BitsPerFrame(targetBits, timing)
+	// libvpx derives rc->avg_frame_bandwidth from cpi->framerate, not from the
+	// configured timebase, in vp9_rc_update_framerate (vp9_ratectrl.c:2655).
+	// Seed rc.framerate from the timebase on the first configuration and reuse
+	// the running dynamic value afterwards so a mid-stream fps change does not
+	// snap the per-frame bandwidth before adjust_frame_rate observes the new
+	// source-timestamp delta.
+	if rc.framerate <= 0 {
+		rc.framerate = vp9LibvpxFrameRate(timing)
+	}
+	bitsPerFrame := computeVP9BitsPerFrameAtRate(targetBits, rc.framerate)
 	if bitsPerFrame <= 0 {
 		return ErrInvalidBitrate
 	}
@@ -616,6 +637,17 @@ func computeVP9BitsPerFrame(targetBandwidthBits int, timing timingState) int {
 	return vpxrc.BitsPerFrame(targetBandwidthBits, fps, 0, 0, 0)
 }
 
+// computeVP9BitsPerFrameAtRate mirrors libvpx vp9_rc_update_framerate
+// (vp9_ratectrl.c:2655): avg_frame_bandwidth = round(target_bandwidth /
+// framerate). The framerate is the dynamic cpi->framerate, clamped to 30 only
+// for the degenerate framerate < 0.1 case handled by vp9LibvpxFrameRate.
+func computeVP9BitsPerFrameAtRate(targetBandwidthBits int, framerate float64) int {
+	if framerate <= 0 {
+		return 0
+	}
+	return vpxrc.BitsPerFrame(targetBandwidthBits, framerate, 0, 0, 0)
+}
+
 func (rc *vp9RateControlState) libvpxClampToRawTargetRate(kbps int, timing timingState) int {
 	if kbps <= 0 {
 		return kbps
@@ -648,6 +680,51 @@ func (rc *vp9RateControlState) setLibvpxFrameRate(timing timingState) {
 	}
 	rc.frameRateNum = int(fps*1_000_000 + 0.5)
 	rc.frameRateDen = 1_000_000
+}
+
+// vp9NewFramerate mirrors libvpx vp9_new_framerate (vp9/encoder/vp9_encoder.c:1410)
+// followed by vp9_rc_update_framerate (vp9_ratectrl.c:2650). It re-derives the
+// per-frame bandwidth (rc->avg_frame_bandwidth = bitsPerFrame), the min/max
+// frame bandwidths, and the framerate-derived GF interval range from the new
+// dynamic framerate. It deliberately does NOT touch buffer_level /
+// bits_off_target — those are recomputed only on a buffer-geometry change in
+// vp9_set_rc_buffer_sizes, not on a framerate change.
+func (rc *vp9RateControlState) vp9NewFramerate(framerate float64) {
+	if !rc.enabled {
+		return
+	}
+	if framerate < 0.1 {
+		framerate = 30
+	}
+	rc.framerate = framerate
+	bitsPerFrame := computeVP9BitsPerFrameAtRate(rc.targetBandwidthBits, framerate)
+	if bitsPerFrame <= 0 {
+		return
+	}
+	rc.bitsPerFrame = bitsPerFrame
+	rc.frameTargetBits = bitsPerFrame
+	rc.updateFrameBandwidthBounds()
+	rc.setGFIntervalRangeFromFramerate(framerate)
+}
+
+// setGFIntervalRangeFromFramerate re-derives the framerate-default GF interval
+// range, mirroring vp9_rc_set_gf_interval_range (vp9_ratectrl.c:2597) as called
+// from the tail of vp9_rc_update_framerate. Explicit VP9E_SET_*_GF_INTERVAL
+// overrides (rc.minGFInterval / rc.maxGFInterval) keep precedence, matching the
+// override handling in initOnePassVBRState.
+func (rc *vp9RateControlState) setGFIntervalRangeFromFramerate(framerate float64) {
+	minInterval := vp9DefaultMinGFIntervalAtRate(rc.codedWidth, rc.codedHeight, framerate)
+	maxInterval := vp9DefaultMaxGFIntervalAtRate(framerate, minInterval)
+	if rc.minGFInterval > 0 {
+		minInterval = int(rc.minGFInterval)
+	}
+	if rc.maxGFInterval > 0 {
+		maxInterval = max(int(rc.maxGFInterval), minInterval)
+	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
+		maxInterval = minInterval
+	}
+	rc.resolvedMinGFInterval = minInterval
+	rc.resolvedMaxGFInterval = maxInterval
 }
 
 func (rc *vp9RateControlState) effectiveConfiguredOvershootPct() uint8 {

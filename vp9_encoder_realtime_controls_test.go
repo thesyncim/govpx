@@ -24,9 +24,17 @@ func TestVP9EncoderSetRealtimeTargetUpdatesExplicitVBR(t *testing.T) {
 	if err := e.SetRealtimeTarget(RealtimeTarget{BitrateKbps: 600, FPS: 60}); err != nil {
 		t.Fatalf("SetRealtimeTarget: %v", err)
 	}
+	// libvpx vp9_change_config (vp9/encoder/vp9_encoder.c:2135) calls
+	// vp9_new_framerate(cpi, cpi->framerate) with the UNCHANGED cpi->framerate on
+	// every vpx_codec_enc_config_set: an fps change does not snap
+	// rc->avg_frame_bandwidth at config time. cpi->framerate (and thus the
+	// per-frame bandwidth) is only re-derived from the new timebase by
+	// adjust_frame_rate on the next encoded frame. So immediately after the
+	// 30->60 fps change the per-frame bandwidth is still 600000/30 = 20000, not
+	// 600000/60 = 10000.
 	if e.opts.TargetBitrateKbps != 600 || e.rc.targetBitrateKbps != 600 ||
-		e.rc.bitsPerFrame != 10000 {
-		t.Fatalf("rate state after target = opts:%d rc:%d bits:%d, want 600/600/10000",
+		e.rc.bitsPerFrame != 20000 {
+		t.Fatalf("rate state after target = opts:%d rc:%d bits:%d, want 600/600/20000",
 			e.opts.TargetBitrateKbps, e.rc.targetBitrateKbps, e.rc.bitsPerFrame)
 	}
 }

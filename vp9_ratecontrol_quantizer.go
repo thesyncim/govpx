@@ -855,6 +855,52 @@ func vp9DefaultMaxGFInterval(timing timingState, minInterval int) int {
 	return interval
 }
 
+// vp9DefaultMinGFIntervalAtRate mirrors libvpx vp9_rc_get_default_min_gf_interval
+// (vp9/encoder/vp9_ratectrl.c:348) verbatim, including the 4K-20fps factor_safe
+// guard. The dynamic adjust_frame_rate path feeds a floating framerate, so this
+// takes the rate directly rather than reconstructing an integer timebase.
+func vp9DefaultMinGFIntervalAtRate(width, height int, framerate float64) int {
+	const factorSafe = 3840.0 * 2160.0 * 20.0
+	factor := float64(width) * float64(height) * framerate
+	defaultInterval := vp9ClampGFInterval(int(roundHalfAwayFromZero(framerate*0.125)),
+		encoder.MinGFInterval, encoder.MaxGFInterval)
+	if factor <= factorSafe {
+		return defaultInterval
+	}
+	scaled := int(roundHalfAwayFromZero(float64(encoder.MinGFInterval) * factor / factorSafe))
+	if scaled > defaultInterval {
+		return scaled
+	}
+	return defaultInterval
+}
+
+// vp9DefaultMaxGFIntervalAtRate mirrors libvpx vp9_rc_get_default_max_gf_interval
+// (vp9/encoder/vp9_ratectrl.c:367) verbatim.
+func vp9DefaultMaxGFIntervalAtRate(framerate float64, minInterval int) int {
+	interval := min(encoder.MaxGFInterval, int(roundHalfAwayFromZero(framerate*0.75)))
+	interval += interval & 1
+	if interval < minInterval {
+		return minInterval
+	}
+	return interval
+}
+
+func vp9ClampGFInterval(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// roundHalfAwayFromZero matches C round(): ties go away from zero. The framerate
+// inputs here are always positive, so this reduces to floor(x + 0.5).
+func roundHalfAwayFromZero(x float64) float64 {
+	return math.Floor(x + 0.5)
+}
+
 func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool) {
 	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, false)
 }
