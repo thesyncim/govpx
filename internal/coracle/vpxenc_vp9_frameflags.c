@@ -895,9 +895,14 @@ static void apply_vp9_runtime_control_token(
       die_codec_msg(ctx->ctx, "runtime VP8E_SET_MAX_INTRA_BITRATE_PCT");
     }
   } else if (starts_with(token, "gfboost:")) {
-    if (vpx_codec_control(ctx->ctx, VP8E_SET_GF_CBR_BOOST_PCT,
+    /* libvpx vpxenc.c vp9_arg_ctrl_map (vpxenc.c:592) drives --gf-cbr-boost on
+       VP9 through VP9E_SET_GF_CBR_BOOST_PCT, a distinct control id from VP8's
+       VP8E_SET_GF_CBR_BOOST_PCT (vpx/vp8cx.h:311 vs :607). The VP9 encoder only
+       registers VP9E_SET_GF_CBR_BOOST_PCT (vp9/vp9_cx_iface.c:2147), so the VP8
+       id returns VPX_CODEC_INCAPABLE here. */
+    if (vpx_codec_control(ctx->ctx, VP9E_SET_GF_CBR_BOOST_PCT,
                           (unsigned)control_value_int(token, "gfboost:"))) {
-      die_codec_msg(ctx->ctx, "runtime VP8E_SET_GF_CBR_BOOST_PCT");
+      die_codec_msg(ctx->ctx, "runtime VP9E_SET_GF_CBR_BOOST_PCT");
     }
   } else if (starts_with(token, "frame-parallel:")) {
     if (vpx_codec_control(ctx->ctx, VP9E_SET_FRAME_PARALLEL_DECODING,
@@ -1643,10 +1648,12 @@ int main(int argc, char **argv) {
       vpx_codec_control(&ctx, VP8E_SET_MAX_INTRA_BITRATE_PCT,
                         (unsigned)max_intra_rate))
     die_codec_msg(&ctx, "VP8E_SET_MAX_INTRA_BITRATE_PCT");
+  /* VP9 uses VP9E_SET_GF_CBR_BOOST_PCT (vpxenc.c:592 vp9_arg_ctrl_map); the
+     VP8E_ id is a distinct control unimplemented by the VP9 codec. */
   if (gf_cbr_boost >= 0 &&
-      vpx_codec_control(&ctx, VP8E_SET_GF_CBR_BOOST_PCT,
+      vpx_codec_control(&ctx, VP9E_SET_GF_CBR_BOOST_PCT,
                         (unsigned)gf_cbr_boost))
-    die_codec_msg(&ctx, "VP8E_SET_GF_CBR_BOOST_PCT");
+    die_codec_msg(&ctx, "VP9E_SET_GF_CBR_BOOST_PCT");
   if (frame_parallel >= 0 &&
       vpx_codec_control(&ctx, VP9E_SET_FRAME_PARALLEL_DECODING,
                         (unsigned)frame_parallel))

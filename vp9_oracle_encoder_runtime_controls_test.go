@@ -79,9 +79,19 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 				vp9oracle.MustRuntime(t, "SetCQLevel(30)", e.SetCQLevel(30))
 			},
 		},
+		// AQ-mode cases apply the control at frame 0 (pre-stream). govpx's
+		// VP9Encoder.SetAQMode only accepts the change before the first coded
+		// frame and returns ErrInvalidConfig afterward (vp9_encoder_config.go
+		// SetAQMode; contract pinned by vp9_encoder_runtime_ratecontrol_test.go),
+		// because enabling/disabling AQ allocates or tears down its segment map.
+		// libvpx's VP9E_SET_AQ_MODE (vp9/vp9_cx_iface.c:1054 ctrl_set_aq_mode ->
+		// update_extra_cfg -> vp9_change_config) would accept it at any frame, but
+		// govpx does not surface a mid-stream AQ reconfiguration, so the supported
+		// path is to arm the mode before frame 0. The libvpx driver applies the
+		// matching aq:N token at frame 0 as well.
 		{
 			Name:        "set-aq-mode-variance",
-			ApplyAt:     4,
+			ApplyAt:     0,
 			ScriptToken: "aq:1",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
 				vp9oracle.MustRuntime(t, "SetAQMode(Variance)", e.SetAQMode(govpx.VP9AQVariance))
@@ -89,7 +99,7 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 		},
 		{
 			Name:        "set-aq-mode-complexity",
-			ApplyAt:     4,
+			ApplyAt:     0,
 			ScriptToken: "aq:2",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
 				vp9oracle.MustRuntime(t, "SetAQMode(Complexity)", e.SetAQMode(govpx.VP9AQComplexity))
@@ -97,7 +107,7 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 		},
 		{
 			Name:        "set-aq-mode-cyclic",
-			ApplyAt:     4,
+			ApplyAt:     0,
 			ScriptToken: "aq:3",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
 				vp9oracle.MustRuntime(t, "SetAQMode(Cyclic)", e.SetAQMode(govpx.VP9AQCyclicRefresh))
@@ -192,9 +202,12 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			// The frameflags driver parses rendersize as slash-separated ints
+			// (parse_slash_ints, vpxenc_vp9_frameflags.c) and forwards them to
+			// VP9E_SET_RENDER_SIZE as a {width, height} pair.
 			Name:        "set-render-size",
 			ApplyAt:     4,
-			ScriptToken: "rendersize:64x64",
+			ScriptToken: "rendersize:64/64",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
 				vp9oracle.MustRuntime(t, "SetRenderSize(64,64)", e.SetRenderSize(64, 64))
 			},
@@ -305,9 +318,17 @@ func TestVP9OracleEncoderRuntimeControls(t *testing.T) {
 			},
 		},
 		{
+			// libvpx VP9E_SET_QUANTIZER_ONE_PASS (vp9/vp9_cx_iface.c:2105
+			// ctrl_set_quantizer_one_pass) takes a quantizer in [0, 63] and
+			// rejects anything above 63 with VPX_CODEC_INVALID_PARAM. It then
+			// maps that quantizer to an internal qindex via quantizer_to_qindex
+			// (vp9/encoder/vp9_quantize.c:315), where quantizer 32 -> qindex 128.
+			// govpx's SetNextFrameQIndex consumes a raw qindex in [0, 255], so we
+			// drive the libvpx side at quantizer 32 and the govpx side at the
+			// equivalent qindex 128 to target the same next-frame qindex.
 			Name:        "set-next-frame-qindex",
 			ApplyAt:     4,
-			ScriptToken: "qonepass:128",
+			ScriptToken: "qonepass:32",
 			Apply: func(t testing.TB, e *govpx.VP9Encoder) {
 				vp9oracle.MustRuntime(t, "SetNextFrameQIndex(128)", e.SetNextFrameQIndex(128))
 			},
