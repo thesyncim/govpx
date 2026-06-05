@@ -63,6 +63,15 @@ func MvBitCost(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHP bool) int {
 	return (raw*mvCostWeight + 64) >> 7
 }
 
+// MvBitCostSub mirrors libvpx's vp9_mv_bit_cost with MV_COST_WEIGHT_SUB (120),
+// the weight set_and_cost_bmi_mvs uses for sub-8x8 segment MVs
+// (vp9/encoder/vp9_rdopt.c:1574,1578; vp9/encoder/vp9_rd.h:39).
+func MvBitCostSub(mv, ref vp9dec.MV, ctx *vp9dec.NmvContext, allowHP bool) int {
+	const mvCostWeightSub = 120
+	raw := MvCostWithHP(mv, ref, ctx, allowHP)
+	return (raw*mvCostWeightSub + 64) >> 7
+}
+
 // IntraInterRateCost returns the probability cost of coding the intra/inter
 // decision bit for the supplied neighbors.
 func IntraInterRateCost(fc *vp9dec.FrameContext,

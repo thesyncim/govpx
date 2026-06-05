@@ -1724,6 +1724,11 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
 				filter)
 			e.recordVP9FullRDInterThisRD(e.frameIndex, miRow, miCol, grd)
+			// Genuine sub-8x8 joint RD producer verification (gated-off path):
+			// reproduce the frame-1 SB0 16x16(0,0) child mi=(0,1) BLOCK_4X4
+			// ref=LAST per-label RD + the block-2 NEWMV search against the libvpx
+			// ground truth. Same compile-elided site.
+			e.vp9TraceSub8x8Producer(inter, tile, miRows, miCols)
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {

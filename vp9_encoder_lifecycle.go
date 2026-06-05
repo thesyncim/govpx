@@ -332,9 +332,13 @@ type VP9Encoder struct {
 	coefScratch    [1024]int16
 	qCoefScratch   [1024]int16
 	residueScratch [1024]int16
-	txCoeffScratch [1024]int16
-	qCoeffScratch  [1024]int16
-	dqCoeffScratch [1024]int16
+	// sub8x8PredScratch backs the genuine sub-8x8 RD producer's per-label
+	// inter predictor (vp9_fullrd_inter_sub8x8_segment.go, encode_inter_mb_segment).
+	// Allocated lazily; only used behind the gated-off deep sub-8x8 path.
+	sub8x8PredScratch []byte
+	txCoeffScratch    [1024]int16
+	qCoeffScratch     [1024]int16
+	dqCoeffScratch    [1024]int16
 	// vp9BlockYrdScratch backs encoder.BlockYrd's src_diff + per-tx-unit
 	// coeff/qcoeff/dqcoeff scratch. Sized for the realtime nonrd worst
 	// case: BLOCK_64X64 + TX_16X16 = 4096 src_diff + 16 tx units × 256

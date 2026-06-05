@@ -42,6 +42,23 @@ var vp9InterUseDeepRDPartition = false
 // candidate with the genuine handle_inter_mode this_rd, not a model.
 var vp9InterUseDeepRDThisRDScore = false
 
+// vp9InterUseDeepRDSub8x8 gates the GENUINE sub-8x8 joint-motion RD producer
+// (rdPickInterModeSub8x8 → rdPickBestSub8x8Mode + encodeInterMbSegment, the
+// verbatim port of vp9_rd_pick_inter_mode_sub8x8 + rd_pick_best_sub8x8_mode)
+// into the production sub-8x8 leaf decision, REPLACING the pickVP9Sub8InterMode
+// model stand-in (vp9_encoder_inter_modes.go:1944) that only scores
+// ZEROMV/NEARESTMV/NEARMV with the SSE model and never runs the NEWMV joint
+// search.
+//
+// Default false: production keeps the model stand-in, so production byte-parity
+// is untouched. This flag is the seam for the FINAL step (wiring the genuine
+// sub-8x8 RD + pred_mv into the partition decision so govpx commits the same
+// SPLIT/HORZ/VERT sub-8x8 partitions libvpx does). The standalone producer is
+// pinned against libvpx independently via the oracle-trace path
+// (TestVP9FullRDSub8x8Frame1Parity), so it is verified regardless of this
+// flag's default.
+var vp9InterUseDeepRDSub8x8 = false
+
 // vp9InterDeepRDReplayWrites controls whether the bitstream write descent
 // replays the deep-RD SEARCH->WRITE leaf decision cache
 // (vp9LookupDeepInterRDDecision) instead of re-picking each leaf. Default true:

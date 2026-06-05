@@ -41,6 +41,21 @@ func SADPerBit16(qindex int) int {
 	return int(0.0418*q + 2.4107)
 }
 
+// SADPerBit4 mirrors libvpx's x->sadperbit4 (init_me_luts_bd,
+// vp9/encoder/vp9_rd.c:171: bit4lut[i] = (int)(0.063 * q + 2.742)). It is the
+// SAD-per-bit weight the sub-8x8 NEWMV full-pixel search uses (x->sadperbit4 at
+// vp9_rdopt.c:2174), distinct from sadperbit16.
+func SADPerBit4(qindex int) int {
+	if qindex < 0 {
+		qindex = 0
+	}
+	if qindex > vp9dec.MaxQ {
+		qindex = vp9dec.MaxQ
+	}
+	q := ConvertQIndexToQ(qindex)
+	return int(0.063*q + 2.742)
+}
+
 func FullPelMVSADCost(mvRow, mvCol, refRow, refCol, sadPerBit int) int {
 	row := mvRow - refRow
 	col := mvCol - refCol
