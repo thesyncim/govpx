@@ -381,22 +381,33 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	const miCols = 8
 	mi := func(r, c int) *vp9dec.NeighborMi { return &d.miGrid[r*miCols+c] }
 
-	// ---- HARD GATE: the closed 16x16(0,0) quad must still byte-match ----
-	for _, b := range vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[:4] {
+	// ---- HARD GATE: the closed prefix must still byte-match ----
+	// The 16x16(0,0) quad (indices 0..3) is the original closed milestone. The
+	// sub-8x8 SPLIT-vs-VERT partition-context fix (encode_sb update_partition_context
+	// replay for non-last split siblings, vp9_encoder_inter_partition.go
+	// scoreVP9InterPartitionSplit) closed mi(0,2)/(0,3)/(1,2) (indices 4..6) — the
+	// {0,2,0,0,2} frame-1 SB0 frontier advanced from mi(1,2) to mi(1,3). Lock the
+	// closed prefix [0..closedPrefixLen) as a hard regression gate; the walk below
+	// reports the first divergence past it (currently mi(1,3): an 8x8 NONE NEWMV
+	// motion-search MV gap, NOT a partition-shape gap).
+	const closedPrefixLen = 7 // indices 0..6 closed: 16x16(0,0) quad + mi(0,2)/(0,3)/(1,2)
+	for i := 0; i < closedPrefixLen; i++ {
+		b := vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[i]
 		m := mi(b.miRow, b.miCol)
 		if diffs := nextDivLeafDiff(m, b); len(diffs) != 0 {
-			t.Fatalf("REGRESSION: 16x16(0,0) child mi(%d,%d) diverged %v\n  got  %s\n  want %s",
-				b.miRow, b.miCol, diffs, nextDivFmtCommitted(m), nextDivFmtWant(b))
+			t.Fatalf("REGRESSION: closed-prefix leaf [%d] mi(%d,%d) diverged %v\n  got  %s\n  want %s",
+				i, b.miRow, b.miCol, diffs, nextDivFmtCommitted(m), nextDivFmtWant(b))
 		}
 	}
-	t.Logf("16x16(0,0) quad mi(0,0)/(0,1)/(1,0)/(1,1): byte-exact (closed milestone re-pinned)")
+	t.Logf("closed prefix [0..%d] (16x16(0,0) quad + mi(0,2)/(0,3)/(1,2)): byte-exact",
+		closedPrefixLen-1)
 
 	// ---- WALK the rest of SB0 in encode order; report the first divergence ----
-	t.Logf("frame-1 SB0 post-16x16(0,0) walk (encode order), deep engine committed vs libvpx:")
+	t.Logf("frame-1 SB0 post-closed-prefix walk (encode order), deep engine committed vs libvpx:")
 	firstDivIdx := -1
 	for idx, b := range vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder {
-		if idx < 4 {
-			continue // 16x16(0,0) quad already asserted
+		if idx < closedPrefixLen {
+			continue // closed prefix already asserted as a hard gate
 		}
 		m := mi(b.miRow, b.miCol)
 		diffs := nextDivLeafDiff(m, b)

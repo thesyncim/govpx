@@ -1341,6 +1341,32 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 				}
 				rate += rd.rate
 				distortion += rd.distortion
+				// libvpx encode_sb (vp9_encodeframe.c:4223-4233) runs after each
+				// committed split child whose pc_tree->index != 3 (z-order children
+				// 0/1/2), stamping update_partition_context (:2330-2331) so the NEXT
+				// sibling's partition_plane_context (:3715) reads it. The deep
+				// recursion's pickVP9InterPartitionRD is net partition-context-neutral
+				// (its tail restoreVP9PartitionSegContextsOnly reverts the committed
+				// stamp for SB-level serializer neutrality) — correct at the SB root
+				// but WRONG between split siblings: without re-applying child 0's
+				// stamp, child 2 (e.g. mi(1,2) under the 16x16 at mi(0,2)) reads
+				// partition_plane_context == 0 instead of libvpx's pl == 1, costing
+				// HORZ/VERT/SPLIT with the wrong cpi->partition_cost[pl][*] and
+				// flipping the sub-8x8 SPLIT-vs-VERT pick. Replay the committed
+				// child's encode_sb partition-context stamp for the non-last children
+				// (z-order index != 3); the enclosing node's tail restore reverts the
+				// whole subtree for SB neutrality.
+				childIdx := 0
+				if rowOff != 0 {
+					childIdx += 2
+				}
+				if colOff != 0 {
+					childIdx++
+				}
+				if childIdx != 3 {
+					e.stampVP9CommittedInterPartitionContext(miRows, miCols,
+						miRow+rowOff, miCol+colOff, child)
+				}
 			}
 		}
 	}
@@ -1358,6 +1384,66 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 		distortion: distortion,
 		score:      e.vp9InterModeScore(distortion, rate, qindex),
 	}, true
+}
+
+// stampVP9CommittedInterPartitionContext replays libvpx's encode_sb partition-
+// context update (vp9_encodeframe.c:2265-2332) for the committed subtree rooted
+// at (miRow, miCol, bsize), so the next split sibling's partition_plane_context
+// reflects this just-committed node. It walks the deep-RD committed partition
+// cache (the same per-node (miRow,miCol,root)->target the bitstream writer
+// descends) and, at each node, stamps update_partition_context(subsize, bsize)
+// under the SAME guard the writer/encode_sb use: bsize >= 8x8 AND (bsize == 8x8
+// OR the node did not split). Mirrors the writeVP9ModesSb tail
+// (vp9_encoder_mode_tree.go:328-332) but stamp-only (no bitstream emission, no
+// re-pick). The enclosing node's snapshot/restore reverts this for SB-level
+// serializer neutrality (see the pickVP9InterPartitionRD tail comment).
+func (e *VP9Encoder) stampVP9CommittedInterPartitionContext(miRows, miCols,
+	miRow, miCol int, bsize common.BlockSize,
+) {
+	if miRow >= miRows || miCol >= miCols || bsize < common.Block8x8 {
+		return
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << uint(bsl)) / 4
+	target, ok := e.vp9LookupDeepInterPartition(miRow, miCol, bsize)
+	if !ok {
+		// No committed cache entry (node not scored through the recursion); fall
+		// back to the node's mi-grid sb_type so the partition is still derivable.
+		mi := e.vp9MiAt(miRows, miCols, miRow, miCol)
+		if mi == nil {
+			return
+		}
+		target = mi.SbType
+		if target > bsize {
+			target = bsize
+		}
+	}
+	if int(bsl) >= len(common.PartitionLookup) ||
+		int(target) >= len(common.PartitionLookup[bsl]) {
+		return
+	}
+	partition := common.PartitionLookup[bsl][target]
+	subsize := common.SubsizeLookup[partition][bsize]
+	// Recurse into a larger SPLIT node so its children stamp themselves (the
+	// last child included — there is no inter-sibling read pending below this
+	// already-committed subtree, so the full subtree must be stamped to match
+	// encode_sb's recursive descent).
+	if partition == common.PartitionSplit && bsize > common.Block8x8 {
+		e.stampVP9CommittedInterPartitionContext(miRows, miCols, miRow, miCol,
+			subsize)
+		e.stampVP9CommittedInterPartitionContext(miRows, miCols, miRow, miCol+bs,
+			subsize)
+		e.stampVP9CommittedInterPartitionContext(miRows, miCols, miRow+bs, miCol,
+			subsize)
+		e.stampVP9CommittedInterPartitionContext(miRows, miCols, miRow+bs,
+			miCol+bs, subsize)
+	}
+	// libvpx encode_sb (vp9_encodeframe.c:2330-2331): stamp for non-split nodes
+	// and for every 8x8 node (whose SPLIT is to sub-8x8 leaves, no recursion).
+	if bsize == common.Block8x8 || partition != common.PartitionSplit {
+		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx, miRow, miCol,
+			subsize, vp9dec.PartitionContextUpdateWidth(bs))
+	}
 }
 
 func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
