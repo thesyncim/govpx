@@ -14,20 +14,27 @@ import (
 // TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed pins the genuine sub-8x8
 // joint-RD wrapper (rdPickInterModeSub8x8) + the candidate[2] pred_mv thread +
 // the SEARCH->WRITE sub-8x8 replay end-to-end: with the full deep-RD inter
-// stack enabled, the {0,2,0,0,2} (CBR 1200 kbps kf=999 cpu0 realtime) frame-1
-// SB0 16x16(0,0) top-left two 8x8 blocks commit exactly the partition + per-sub
-// modes/MVs libvpx commits.
+// stack enabled, the (CBR 1200 kbps kf=999 cpu0 realtime) frame-1 SB0 16x16(0,0)
+// FOUR 8x8 children commit exactly the partition + per-sub modes/MVs libvpx
+// commits — including the bottom-left INTRA sub-8x8 leaf.
 //
 // libvpx ground truth (vpxenc-vp9 + TEMPORARY fprintf in encode_b /
-// vp9_rd_pick_inter_mode_sub8x8, reverted), frame 1:
+// vp9_rd_pick_inter_mode_sub8x8 / rd_pick_intra_sub_8x8_y_mode, reverted),
+// frame 1, decoded mi grid (miCols=8):
 //   - mi(0,0): BLOCK_8X8 NONE, NEWMV mv=(9,15), ref=LAST, EIGHTTAP, tx=TX_8X8.
 //   - mi(0,1): BLOCK_4X4 (PARTITION_SPLIT), bmi = [NEARESTMV(9,15),
 //     NEARESTMV(9,15), NEWMV(9,4), NEARESTMV(9,4)], ref=LAST, EIGHTTAP.
-//
-// These two blocks are the verified reach of the genuine sub-8x8 inter engine.
-// The 16x16(0,0) bottom-left children (mi(1,0) HORZ/8x4 INTRA, mi(1,1)
-// VERT/4x8) need the intra sub-8x8 path (rd_pick_intra_sub_8x8_y_mode), which
-// the wrapper does not yet port, so they are not asserted here.
+//   - mi(1,0): BLOCK_8X4 (PARTITION_HORZ) INTRA, bmi modes =
+//     [V_PRED, V_PRED, DC_PRED, DC_PRED], mi.mode=DC_PRED, uv_mode=D63_PRED,
+//     interp=SWITCHABLE_FILTERS. The committed intra arm:
+//     rd_pick_intra_sub_8x8_y_mode rate=109851 (incl. mbmode_cost) /
+//     rate_y(tok)=106638 / distortion_y=44385; choose_intra_uv_mode
+//     rate_uv_intra=8813 / rate_uv(tok)=5972 / dist_uv=5712; intra_cost_penalty
+//     225; ref_costs_single[INTRA]+skip_cost0 = 2496; rate2=121385 dist2=50097
+//     this_rd=39404006 (rdmult=139158 rddiv=7).
+//   - mi(1,1): BLOCK_4X8 (PARTITION_VERT) INTER NEWMV, ref=LAST,
+//     EIGHTTAP_SMOOTH, bmi = [NEARESTMV(9,4), NEWMV(16,-8), NEARESTMV(9,4),
+//     NEWMV(16,-8)].
 func TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
@@ -144,5 +151,97 @@ func TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed(t *testing.T) {
 			"entropy-context propagation: mi(0,0) encode_b stamp must seed "+
 			"mi(0,1) t_left=[1,1]; a stale t_left=[0,0] gives 55650, the +697 gap)",
 			gotSegR, wantSegR)
+	}
+
+	// --- mi(1,0): the committed INTRA sub-8x8 leaf (BLOCK_8X4, PARTITION_HORZ).
+	// The decoded mi grid must reproduce libvpx's intra Y modes + UV mode exactly,
+	// and the wrapper's live intra capture must reproduce the intra Y/UV rate +
+	// this_rd (rd_pick_intra_sub_8x8_y_mode + choose_intra_uv_mode port).
+	mi10 := d.miGrid[1*miCols+0]
+	if mi10.SbType != common.Block8x4 ||
+		mi10.RefFrame[0] != int8(vp9dec.IntraFrame) ||
+		mi10.Mode != common.DcPred ||
+		mi10.InterpFilter != uint8(vp9dec.SwitchableFilters) {
+		t.Fatalf("mi(1,0) = {sb=%d mode=%d ref=%d interp=%d}, want "+
+			"{Block8x4 DC_PRED INTRA SWITCHABLE_FILTERS}", mi10.SbType, mi10.Mode,
+			mi10.RefFrame[0], mi10.InterpFilter)
+	}
+	wantMi10Bmi := [4]common.PredictionMode{
+		common.VPred, common.VPred, common.DcPred, common.DcPred,
+	}
+	for i, w := range wantMi10Bmi {
+		if mi10.Bmi[i].AsMode != w {
+			t.Fatalf("mi(1,0).bmi[%d].mode = %d, want %d (intra sub-block mode)",
+				i, mi10.Bmi[i].AsMode, w)
+		}
+	}
+
+	// Wrapper intra capture pins (rd_pick_intra_sub_8x8_y_mode +
+	// choose_intra_uv_mode ground truth, see the function docstring).
+	intra, ok := e.vp9CapturedSub8x8IntraCommit()
+	if !ok {
+		t.Fatal("no sub-8x8 intra commit captured for mi(1,0); the deep-RD wrapper " +
+			"did not commit an INTRA sub-8x8 leaf at mi=(1,0)")
+	}
+	if intra.Bsize != common.Block8x4 {
+		t.Errorf("mi(1,0) intra bsize = %d, want Block8x4", intra.Bsize)
+	}
+	if intra.Mode != common.DcPred {
+		t.Errorf("mi(1,0) intra Y mode = %d, want DC_PRED", intra.Mode)
+	}
+	if intra.Bmi != wantMi10Bmi {
+		t.Errorf("mi(1,0) intra bmi modes = %v, want %v", intra.Bmi, wantMi10Bmi)
+	}
+	if intra.UVMode != common.D63Pred {
+		t.Errorf("mi(1,0) intra UV mode = %d, want D63_PRED", intra.UVMode)
+	}
+	// libvpx rd_pick_intra_sub_8x8_y_mode *rate = 109851 (cost incl. mbmode_cost);
+	// choose_intra_uv_mode rate_uv_intra = 8813; rate2 = 121385; dist2 = 50097;
+	// this_rd = 39404006 (BLOCK_8X4, rdmult=139158 rddiv=7).
+	if intra.YRate != 109851 {
+		t.Errorf("mi(1,0) intra Y rate = %d, want 109851 "+
+			"(rd_pick_intra_sub_8x8_y_mode *rate)", intra.YRate)
+	}
+	if intra.UVRate != 8813 {
+		t.Errorf("mi(1,0) intra UV rate = %d, want 8813 (rate_uv_intra)",
+			intra.UVRate)
+	}
+	if intra.Rate != 121385 {
+		t.Errorf("mi(1,0) intra rate2 = %d, want 121385", intra.Rate)
+	}
+	if intra.Distortion != 50097 {
+		t.Errorf("mi(1,0) intra distortion2 = %d, want 50097", intra.Distortion)
+	}
+	if intra.ThisRD != 39404006 {
+		t.Errorf("mi(1,0) intra this_rd = %d, want 39404006", intra.ThisRD)
+	}
+
+	// --- mi(1,1): the committed INTER sub-8x8 leaf (BLOCK_4X8, PARTITION_VERT).
+	// The intra evaluation never beats inter here (it returns early per
+	// vp9_rdopt.c:1337). mi(1,1) byte-matches only once mi(1,0)'s intra commit +
+	// the post-coding entropy-context stamp are correct (else mi(1,1)'s sub-8x8
+	// search diverges on the wrong sibling context).
+	mi11 := d.miGrid[1*miCols+1]
+	if mi11.SbType != common.Block4x8 || mi11.Mode != common.NewMv ||
+		mi11.RefFrame[0] != int8(vp9dec.LastFrame) ||
+		mi11.InterpFilter != uint8(vp9dec.InterpEighttapSmooth) {
+		t.Fatalf("mi(1,1) = {sb=%d mode=%d ref=%d interp=%d}, want "+
+			"{Block4x8 NEWMV LAST EIGHTTAP_SMOOTH}", mi11.SbType, mi11.Mode,
+			mi11.RefFrame[0], mi11.InterpFilter)
+	}
+	wantMi11Bmi := [4]struct {
+		mode common.PredictionMode
+		mv   vp9dec.MV
+	}{
+		{common.NearestMv, vp9dec.MV{Row: 9, Col: 4}},
+		{common.NewMv, vp9dec.MV{Row: 16, Col: -8}},
+		{common.NearestMv, vp9dec.MV{Row: 9, Col: 4}},
+		{common.NewMv, vp9dec.MV{Row: 16, Col: -8}},
+	}
+	for i, w := range wantMi11Bmi {
+		if mi11.Bmi[i].AsMode != w.mode || mi11.Bmi[i].AsMv[0] != w.mv {
+			t.Fatalf("mi(1,1).bmi[%d] = {mode=%d mv=%v}, want {mode=%d mv=%v}",
+				i, mi11.Bmi[i].AsMode, mi11.Bmi[i].AsMv[0], w.mode, w.mv)
+		}
 	}
 }

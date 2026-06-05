@@ -434,12 +434,47 @@ func (e *VP9Encoder) vp9LookupDeepInterRDDecisionForWrite(miRows, miCols,
 		return d, true
 	}
 	if vp9InterUseDeepRDSub8x8 && bsize == common.Block8x8 {
-		if mi := e.vp9MiAt(miRows, miCols, miRow, miCol); mi != nil &&
-			mi.SbType < common.Block8x8 {
-			return e.lookupVP9LeafInterRDDecision(miRow, miCol, mi.SbType)
+		// The deep recursion committed exactly one leaf per (miRow, miCol): the
+		// winning partition arm re-runs last, so the stored entry IS the committed
+		// sub-8x8 leaf. The mode-info-footprint lookup above used BLOCK_8X8 (the
+		// recon bsize that folds all sub-8x8 shapes), so it misses whenever the
+		// committed shape is BLOCK_8X4 / BLOCK_4X8 (and even BLOCK_4X4 once the mi
+		// grid is wiped between the count pre-pass and the write pass —
+		// resetVP9EncoderCodingState zeroes e.miGrid, so reading mi.SbType is
+		// unreliable). Recover the committed leaf at its OWN stored sub-8x8 bsize
+		// directly from the entry instead of trusting the wiped mi grid.
+		if d, sub, ok := e.peekVP9LeafInterRDDecisionSub8x8(miRow, miCol); ok &&
+			sub < common.Block8x8 {
+			return d, true
 		}
 	}
 	return vp9InterModeDecision{}, false
+}
+
+// peekVP9LeafInterRDDecisionSub8x8 returns the committed leaf decision and its
+// stored bsize for (miRow, miCol) regardless of a bsize-key match, used by the
+// write descent to recover a sub-8x8 leaf when the BLOCK_8X8 mode-info lookup
+// misses and the mi grid SbType is unreliable (wiped between passes). Only the
+// current frame's version is honoured.
+func (e *VP9Encoder) peekVP9LeafInterRDDecisionSub8x8(miRow, miCol int,
+) (vp9InterModeDecision, common.BlockSize, bool) {
+	if e.vp9LeafInterRDDecisionsCols <= 0 {
+		return vp9InterModeDecision{}, common.BlockInvalid, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9LeafInterRDDecisionsRows ||
+		miCol >= e.vp9LeafInterRDDecisionsCols {
+		return vp9InterModeDecision{}, common.BlockInvalid, false
+	}
+	off := miRow*e.vp9LeafInterRDDecisionsCols + miCol
+	if off < 0 || off >= len(e.vp9LeafInterRDDecisions) {
+		return vp9InterModeDecision{}, common.BlockInvalid, false
+	}
+	entry := &e.vp9LeafInterRDDecisions[off]
+	if !entry.valid || entry.version != e.vp9LeafInterRDDecisionsVer {
+		return vp9InterModeDecision{}, common.BlockInvalid, false
+	}
+	return entry.decision, entry.bsize, true
 }
 
 // vp9LookupDeepInterPartition is the flag-gated read entry the writer's region
