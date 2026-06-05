@@ -1637,6 +1637,27 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		}
 		return ^uint64(0)
 	}
+	// vp9FullRDInterThisRDInput holds the per-SB context the genuine per-mode
+	// this_rd assembly (handle_inter_mode + the rd_pick_inter_mode_sb skip pick)
+	// needs. The genuine assembly is consulted ONLY on the
+	// vp9InterUseDeepRDPartition-on branch (and the oracle-trace pin); in
+	// production (flag off) it is never invoked, so this is inert state.
+	thisRDInput := vp9FullRDInterThisRDInput{
+		tile:          tile,
+		miRows:        miRows,
+		miCols:        miCols,
+		miRow:         miRow,
+		miCol:         miCol,
+		bsize:         bsize,
+		refFrame:      refFrame,
+		interModeCtx:  interModeCtx,
+		refRate:       refRate,
+		switchableCtx: switchableCtx,
+		above:         above,
+		left:          left,
+		rdmult:        e.cbRdmult,
+		refBestRDInf:  true,
+	}
 	consider := func(mode common.PredictionMode, mv, refMv vp9dec.MV,
 		filter vp9dec.InterpFilter, distortion uint64,
 	) {
@@ -1667,11 +1688,32 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 				cand.score = e.vp9InterModeScore(cand.distortion, cand.rate, qindex)
 			}
 		}
-		// Oracle-trace-only: run the genuine inter super_block_yrd producer for
-		// the frame-1 SB0 64x64 NEWMV (ref=LAST, EIGHTTAP_SMOOTH) and stash the
-		// result for the inter-yrd parity test. Compile-elided in production
+		// Deep full-RD inter (opt-in vp9InterUseDeepRDThisRDScore): score the
+		// candidate with the GENUINE per-mode this_rd assembled exactly as
+		// libvpx's handle_inter_mode + rd_pick_inter_mode_sb skip pick
+		// (vp9_fullrd_inter_thisrd.go) over the real Y-RD (super_block_yrd) +
+		// UV-RD (super_block_uvrd) + mode/MV/filter/ref rate, instead of the
+		// model-RD vp9InterModeScore approximation. PRODUCTION-NEUTRAL: the flag
+		// is off in production (and in the deep-RD partition serialization tests,
+		// which were stabilized on the model-score leaf decisions), so this
+		// branch is never taken and cand.score stays the model score →
+		// byte-identical output.
+		if vp9InterUseDeepRDThisRDScore {
+			if grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
+				filter); grd.Valid {
+				cand.distortion = grd.Distortion
+				cand.rate = grd.Rate
+				cand.txSize = grd.TxSize
+				cand.skip = grd.Skip2
+				cand.score = grd.ThisRD
+			}
+		}
+		// Oracle-trace-only: run the genuine inter super_block_yrd producer and
+		// the full per-mode this_rd assembly for the frame-1 SB0 64x64 NEWMV
+		// (ref=LAST, EIGHTTAP_SMOOTH) and stash both for the inter-yrd /
+		// inter-this_rd parity tests. Compile-elided in production
 		// (vp9OracleTraceBuild is a false const there, so the whole block is
-		// dead-code-eliminated); never wired into the cand score this step.
+		// dead-code-eliminated).
 		if vp9OracleTraceBuild && e.frameIndex == 1 && miRow == 0 && miCol == 0 &&
 			bsize == common.Block64x64 && mode == common.NewMv &&
 			refFrame == vp9dec.LastFrame && filter == vp9dec.InterpEighttapSmooth &&
@@ -1679,6 +1721,9 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			res := e.vp9FullRDInterSuperBlockYRD(inter, miRows, miCols, miRow,
 				miCol, bsize, mode, refFrame, mv, filter, e.cbRdmult, ^uint64(0))
 			e.recordVP9FullRDInterYRD(e.frameIndex, miRow, miCol, res)
+			grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
+				filter)
+			e.recordVP9FullRDInterThisRD(e.frameIndex, miRow, miCol, grd)
 		}
 		if !bestSet || cand.score < best.score ||
 			(cand.score == best.score && cand.rate < best.rate) {

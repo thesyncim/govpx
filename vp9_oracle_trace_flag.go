@@ -32,6 +32,13 @@ func (e *VP9Encoder) vp9FullRDInterYRD() (vp9FullRDInterYRDResult, bool) {
 	return vp9FullRDInterYRDResult{}, false
 }
 
+func (e *VP9Encoder) recordVP9FullRDInterThisRD(int, int, int, vp9FullRDInterThisRDResult) {
+}
+
+func (e *VP9Encoder) vp9CapturedFullRDInterThisRD() (vp9FullRDInterThisRDResult, bool) {
+	return vp9FullRDInterThisRDResult{}, false
+}
+
 func (e *VP9Encoder) recordVP9OracleRateSelectionTrace(int, int, float64, bool, int) {
 }
 
