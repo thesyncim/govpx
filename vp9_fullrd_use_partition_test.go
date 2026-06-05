@@ -56,8 +56,16 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 	const width, height = 64, 64
 
 	saved := vp9InterUseDeepRDUsePartition
-	defer func() { vp9InterUseDeepRDUsePartition = saved }()
+	savedRBR := vp9InterUseDeepRDRefBestRD
+	defer func() {
+		vp9InterUseDeepRDUsePartition = saved
+		vp9InterUseDeepRDRefBestRD = savedRBR
+	}()
 	vp9InterUseDeepRDUsePartition = true
+	// Thread the running best_rd as the genuine handle_inter_mode budget so the
+	// mode-pre-filtering breakouts (super_block_yrd txfm-RD early-exit etc.)
+	// prune NEW/NEAR exactly as libvpx — the mechanism that closes mi(1,1).
+	vp9InterUseDeepRDRefBestRD = true
 
 	opts := VP9EncoderOptions{
 		Width:               width,
@@ -141,12 +149,25 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		}
 	}
 
-	// Pin: the deep driver closes at least the leading prefix through mi(0,1)
-	// (the first three z-order leaves mi(0,0), mi(0,1), mi(1,0) are libvpx-exact:
-	// genuine NEWMV search + NEAREST/NEAR pred-mv threading). Asserting a floor
-	// (not the exact count) lets future frontier work raise the prefix without
-	// editing this test, while still catching a regression below the milestone.
-	const minPrefix = 3
+	// Pin: the deep driver closes at least the leading z-order prefix of 13
+	// leaves (mi(0,0)..mi(3,0)) libvpx-exact (mode/ref/interp/mv). This is the
+	// milestone reached by porting the model_rd_for_sb interp-filter loop + the
+	// handle_inter_mode ref_best_rd breakouts (vp9InterUseDeepRDRefBestRD): the
+	// genuine super_block_yrd txfm-RD early-exit prunes NEW/NEAR exactly as
+	// libvpx, and the MODEL rd/2 breakout drops candidates whose genuine RD is
+	// (artificially) low — both load-bearing for the per-leaf decision. Asserting
+	// a floor (not the exact count) lets future frontier work raise the prefix
+	// without editing this test, while catching a regression below the milestone.
+	//
+	// First divergence after the milestone: mi(2,3) — govpx commits NEARMV
+	// (18,-6) EIGHTTAP_SMOOTH (this_rd=38853581) where libvpx commits NEWMV
+	// (52,-58) EIGHTTAP (this_rd=39552399). Both reduce to a genuine 8x8 TX_4X4
+	// yrd precision gap: NEARMV's genuine yrd is rate_y=61922 dist_y=114880 in
+	// govpx vs rate_y=75885 dist_y=93652 in libvpx (libvpx ground truth, $TMPDIR
+	// vpxenc handle_inter_mode fprintf 2026-06-05), so govpx scores NEARMV below
+	// NEWMV and lets it win. The mode-pre-filtering mechanism is correct; the
+	// frontier is now the genuine sub-block-tx producer for deep-in-SB 8x8 leaves.
+	const minPrefix = 13
 	if matched < minPrefix {
 		fd := "none"
 		if firstDiffSet {
@@ -154,7 +175,8 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		}
 		t.Fatalf("deep use-partition closed z-order prefix = %d (< %d); "+
 			"first diverging leaf mi(%s). The genuine MV search / pred-mv "+
-			"threading regressed.", matched, minPrefix, fd)
+			"threading or the model_rd_for_sb + ref_best_rd breakout "+
+			"(vp9InterUseDeepRDRefBestRD) regressed.", matched, minPrefix, fd)
 	}
 	t.Logf("deep use-partition: %d/64 leading z-order leaves libvpx-exact "+
 		"(mode/ref/interp/mv); first divergence at mi(%d,%d)",

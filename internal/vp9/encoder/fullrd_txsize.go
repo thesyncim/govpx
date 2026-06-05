@@ -50,6 +50,13 @@ type FullRDTxResult struct {
 
 const rdCostMax = ^uint64(0)
 
+// FullRDTxRateInvalid is libvpx's INT_MAX rate sentinel for an exit_early
+// tx_size (txfm_rd_in_plane sets *rate = INT_MAX, vp9_rdopt.c:879). When
+// choose_tx_size_from_rd's selected best_tx is an early-exited tx, it reports
+// this rate back, and super_block_yrd's caller treats rate_y == INT_MAX as the
+// whole-block prune (handle_inter_mode :3214-3218 returns INT64_MAX).
+const FullRDTxRateInvalid = int(^uint32(0) >> 1) // math.MaxInt32
+
 // txSizeRDCost expands libvpx RDCOST(x->rdmult, x->rddiv, rate, dist)
 // (vp9_rdopt.c via vp9_rd.h:29-30) saturating at the INT64_MAX sentinel
 // the C uses for invalid candidates.
@@ -120,9 +127,15 @@ func FullRDChooseTxSize(
 		// txfm_rd_in_plane outputs (vp9_rdopt.c:963-967). exit_early
 		// maps to !Valid -> r[n][0]=INT_MAX, d[n]=INT64_MAX.
 		if !c.Valid {
-			// r[n][0] == INT_MAX: line 970 leaves r[n][1]=r[n][0];
-			// line 973 sets rd[n][*]=INT64_MAX. We skip selection;
-			// d/sse stay 0 but are never read for this n.
+			// libvpx txfm_rd_in_plane exit_early -> r[n][0]=INT_MAX,
+			// d[n]=INT64_MAX (vp9_rdopt.c:879-882). Line 970 keeps
+			// r[n][1]=r[n][0]=INT_MAX (the `r[n][0] < INT_MAX` guard fails);
+			// line 973 sets rd[n][*]=INT64_MAX. Storing INT_MAX here is what
+			// makes a best_tx that lands on this (early-exited) tx report
+			// rate=INT_MAX back to the caller, so the whole yrd is pruned
+			// (vp9_rdopt.c:3214-3218). d/sse stay 0 but are never read.
+			r[n][0] = FullRDTxRateInvalid
+			r[n][1] = FullRDTxRateInvalid
 			s[n] = false
 			rd[n][0] = rdCostMax
 			rd[n][1] = rdCostMax

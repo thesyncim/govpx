@@ -1791,6 +1791,42 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			vp9RecordFilterRDScore(filterRDScores, filter, fixedScore, cand.score)
 		}
 	}
+	// considerMode is the libvpx handle_inter_mode path (model filter-loop +
+	// ref_best_rd breakouts → genuine RD for the model-selected filter), used in
+	// place of the per-filter `consider` loop when vp9InterUseDeepRDRefBestRD is
+	// on. It evaluates ONE filter genuinely (the model's pick) and prunes the
+	// mode entirely when handle_inter_mode returns INT64_MAX. Mirrors the
+	// vp9_rd_pick_inter_mode_sb mode loop's `this_rd == INT64_MAX -> continue`
+	// then `this_rd < best_rd` best update (vp9_rdopt.c:3881, :3982-4002).
+	considerMode := func(mode common.PredictionMode, mv, refMv vp9dec.MV) {
+		in := thisRDInput
+		budget := bestScoreForGate()
+		refBestRDInf := budget == ^uint64(0)
+		res := e.vp9HandleInterMode(inter, in, mode, mv, refMv, src, srcStride,
+			x0, y0, scoreW, scoreH, budget, refBestRDInf)
+		if res.Pruned {
+			return
+		}
+		grd := res.RD
+		modeIndex, modeIndexValid := encoder.FullRDSingleModeIndex(mode, refFrame)
+		cand := vp9InterModeDecision{
+			mode:         mode,
+			mv:           [2]vp9dec.MV{mv},
+			interpFilter: res.Filter,
+			txSize:       grd.TxSize,
+			rate:         grd.Rate,
+			distortion:   grd.Distortion,
+			score:        grd.ThisRD,
+			skip:         grd.Skip2,
+			rdModeIndex:  modeIndex,
+			rdModeValid:  modeIndexValid,
+		}
+		if !bestSet || cand.score < best.score ||
+			(cand.score == best.score && cand.rate < best.rate) {
+			best = cand
+			bestSet = true
+		}
+	}
 
 	zeroDistortion := encoder.BlockSSE(src, srcStride, ref, refStride,
 		x0, y0, x0, y0, scoreW, scoreH)
@@ -1900,6 +1936,13 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			miRow, miCol, bsize, mode, refFrame, interModeCtx, mv) {
 			return
 		}
+		// libvpx handle_inter_mode runs the interp-filter MODEL loop internally
+		// and evaluates the genuine RD once; considerMode mirrors that and prunes
+		// via the ref_best_rd breakouts. NEARESTMV/NEARMV use mv == ref mv.
+		if vp9InterUseDeepRDRefBestRD {
+			considerMode(mode, mv, mv)
+			return
+		}
 		filters := pickFilters(mode, mv, refIsLast)
 		if !vp9MvHasSubpel(mv) {
 			distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
@@ -1947,6 +1990,10 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		}
 		if mv, _, ok := e.pickVP9InterMvWithOptions(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, mvOpts); ok {
+			if vp9InterUseDeepRDRefBestRD {
+				considerMode(common.NewMv, mv, refMv)
+				return
+			}
 			filters := pickFilters(common.NewMv, mv, refIsLast)
 			if !vp9MvHasSubpel(mv) {
 				distortion, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
@@ -1976,6 +2023,10 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		if !e.vp9FullRDSingleZeroMVAllowed(inter, tile, miRows, miCols,
 			miRow, miCol, bsize, common.ZeroMv, refFrame, interModeCtx,
 			vp9dec.MV{}) {
+			return
+		}
+		if vp9InterUseDeepRDRefBestRD {
+			considerMode(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{})
 			return
 		}
 		for _, filter := range pickFilters(common.ZeroMv, vp9dec.MV{}, refIsLast) {

@@ -229,6 +229,14 @@ func (e *VP9Encoder) vp9FullRDInterSuperBlockYRDForMi(inter *vp9InterEncodeState
 		true /*isInter*/, inter.lossless, e.sf.TxSizeSearchBreakout != 0,
 		inter.txMode == common.TxModeSelect, refBestRD)
 
+	// libvpx: if the selected tx reports rate==INT_MAX (the tx_size loop broke
+	// on an early-exited largest tx, vp9_rdopt.c:1007), super_block_yrd's caller
+	// treats *rate_y == INT_MAX as the whole-block prune (handle_inter_mode
+	// :3214-3218 returns INT64_MAX). Map that to an invalid yrd result.
+	if res.Rate == encoder.FullRDTxRateInvalid {
+		return vp9FullRDInterYRDResult{}
+	}
+
 	return vp9FullRDInterYRDResult{
 		TxSize:     res.TxSize,
 		Rate:       res.Rate,
