@@ -70,19 +70,19 @@ type vp9FullRDInterYRDResult struct {
 //
 // (start_tx=TX_32X32, end_tx=TX_16X16 per the TX_MODE_SELECT depth-2 path.)
 //
-// This producer reproduces the SELECTED tx_size, best_rd, and the TX_16X16
-// per-tx-size tuple byte-exactly. The TX_32X32 candidate diverges by a small
-// amount (this producer: r0=6541317 d=5530544) because libvpx's super_block_yrd
-// runs vp9_optimize_b (trellis coefficient optimization) on each transform
-// block — sf.trellis_opt_tx_rd.method == ENABLE_TRELLIS_OPT is set for the
-// realtime mode-selection path (vp9_speed_features.c:975-976, then not reset
-// for RT speed 0), and block_rd_txfm calls vp9_optimize_b
-// (vp9_rdopt.c:793) after vp9_xform_quant. govpx has no VP9 trellis port yet,
-// so the post-trellis dqcoeff (and hence the 32x32 dist/rate) is not matched.
-// For THIS block trellis does not change the TX_16X16 result nor flip the
-// winner, so the selected tx_size + best_rd are exact; the TX_32X32 loser
-// candidate differs. Wiring vp9_optimize_b is the next prerequisite for
-// general-case parity (and for the production wire-in that flips decisions).
+// This producer reproduces the SELECTED tx_size, best_rd, and the FULL
+// per-tx-size table (incl. the TX_32X32 loser) byte-exactly. libvpx's
+// super_block_yrd runs vp9_optimize_b (trellis coefficient optimization) on
+// each transform block — sf.trellis_opt_tx_rd.method == ENABLE_TRELLIS_OPT is
+// set for the realtime mode-selection path (vp9_speed_features.c:975-976, then
+// not reset for RT speed 0), and block_rd_txfm calls vp9_optimize_b
+// (vp9_rdopt.c:793) after vp9_xform_quant. The producer wires the verbatim
+// port (encoder.VP9OptimizeB, internal/vp9/encoder/fullrd_trellis.go) into the
+// txfm_rd_in_plane path, so the optimized dqcoeff/eob feed both the distortion
+// and the cost_coeffs rate: the TX_32X32 candidate now matches libvpx exactly
+// (r0=6466064 d=5642240; pre-trellis it was r0=6541317 d=5530544). Trellis
+// does not flip the winner for THIS block, so the selected tx_size + best_rd
+// (TX_16X16, 2188910183) are unchanged.
 func (e *VP9Encoder) vp9FullRDInterSuperBlockYRD(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
@@ -356,11 +356,18 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 				coeffs[i] = 0
 				qcoeffs[i] = 0
 			}
-			// vp9_xform_quant + inverse-add into recon (vp9_rdopt.c:792-795)
-			// with the REGULAR quantizer (quantize_b) at the segment qindex.
-			// gatherVP9TxResidual leaves the src-pred diff in e.residueScratch.
+			// coeff_ctx = combine_entropy_contexts(t_left[blk_row],
+			// t_above[blk_col]) (vp9_rdopt.c:709-710) feeds BOTH vp9_optimize_b
+			// (the trellis) and cost_coeffs, so it must be computed before the
+			// transform/quant/trellis below.
+			initCtx := vp9dec.GetEntropyContext(txSize,
+				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+			// vp9_xform_quant + vp9_optimize_b (trellis) + inverse-add into
+			// recon (vp9_rdopt.c:792-795) with the REGULAR quantizer (quantize_b)
+			// at the segment qindex. gatherVP9TxResidual leaves the src-pred diff
+			// in e.residueScratch.
 			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
-				miRow, miCol, rr, cc, dequant, qindex, coeffs, qcoeffs)
+				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
 
 			// sse = sum_squares(src_diff) * 16 (vp9_rdopt.c:757-765). The
 			// diff was just written by gatherVP9TxResidual; for the
@@ -390,8 +397,8 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 				}
 			}
 
-			initCtx := vp9dec.GetEntropyContext(txSize,
-				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+			// cost_coeffs over the trellis-optimised qcoeff/dqcoeff with the
+			// same coeff_ctx (vp9_rdopt.c:826).
 			blockRate := e.vp9InterCoeffBlockRateCostQ(txSize, 0, dequant,
 				coeffs, qcoeffs, initCtx)
 			rate += blockRate
@@ -443,10 +450,18 @@ type uint64OrInt = int
 // vp9_quantize_fp path, qindex 0) — full-RD super_block_yrd runs through
 // vp9_xform_quant whose quantizer is the regular quantize_b (sf->use_quant_fp
 // == 0 on the full-RD path, vp9_speed_features.c:954).
+//
+// After quantization it runs the verbatim vp9_optimize_b trellis
+// (encoder.VP9OptimizeB) — block_rd_txfm calls vp9_optimize_b between
+// vp9_xform_quant and dist_block for the RT full-RD mode-selection path
+// (vp9_rdopt.c:793, do_trellis_opt → ENABLE_TRELLIS_OPT). coeffCtx is the
+// combine_entropy_contexts value (== the cost_coeffs coeff_ctx); rdmult is
+// x->rdmult. The trellis mutates qcoeff/dqcoeff so the inverse-add (recon) and
+// the cost_coeffs rate consume the optimised coefficients.
 func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
-	out, qOut []int16,
+	coeffCtx int, out, qOut []int16,
 ) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, 0, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
@@ -457,13 +472,27 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
+	scan := common.DefaultScanOrders[txSize]
+	// coef_probs[tx_size][plane_type=0 (Y)][ref=1 (inter)] — the token_costs
+	// slab vp9_optimize_b indexes (vp9_encodemb.c:103-104).
+	coefModel := &e.fc.CoefProbs[txSize][0][1]
+	trellis := func(coeff, qcoeff, dqcoeff []int16, eob int) int {
+		// e.modeScratch is the ENTROPY_CONTEXT token_cache[1024]
+		// (vp9_encodemb.c:72); reused by the cost_coeffs call after this, which
+		// re-clears it.
+		return encoder.VP9OptimizeB(0 /*plane Y*/, 1 /*ref inter*/, txSize,
+			coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
+			scan.Scan, scan.Neighbors, coefModel,
+			int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+			0 /*segment_id*/, &e.modeScratch)
+	}
 	// useLp32x32RD=true: super_block_yrd runs inside the full-RD
 	// mode-selection path, where rd_pick_sb_modes forces x->use_lp32x32fdct=1
 	// (vp9_encodeframe.c:1994) so 32x32 uses vpx_fdct32x32_rd regardless of
 	// the speed feature.
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct,
+	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct,
 		dequant, qindex, out, qOut, inter.lossless,
-		false /*useFastQuant*/, true /*useLp32x32RD*/)
+		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
 }
 
 // vp9FullRDInterTxBlockPixelSSE returns pixel_sse(src, dst) (vp9_rdopt.c:523)

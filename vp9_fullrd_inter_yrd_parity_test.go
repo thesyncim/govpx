@@ -44,13 +44,14 @@ import (
 // for this exact block/config is best_rd=2188910183, tx=TX_16X16 — the prompt
 // value was stale. The capture above is the ground truth.)
 //
-// The TX_32X32 LOSER candidate's r0/d are NOT pinned here: libvpx runs
-// vp9_optimize_b (trellis) on the 32x32 transform blocks
+// The full per-tx-size table is now pinned byte-exact, INCLUDING the TX_32X32
+// loser. libvpx runs vp9_optimize_b (trellis) on the 32x32 transform blocks
 // (sf.trellis_opt_tx_rd.method==ENABLE_TRELLIS_OPT for the RT mode-selection
-// path) and govpx has no VP9 trellis port, so its post-trellis 32x32 dqcoeff
-// (libvpx r0=6466064 d=5642240) is not matched (producer: r0=6541317
-// d=5530544). Trellis does NOT flip the winner here, so tx_size + best_rd +
-// TX_16X16 tuple are exact; porting vp9_optimize_b closes the 32x32 leaf.
+// path); the producer wires the verbatim port (encoder.VP9OptimizeB) into the
+// txfm_rd_in_plane path, so its post-trellis 32x32 dqcoeff/eob reproduce
+// libvpx's r0=6466064 d=5642240 exactly (before the trellis wire-in the
+// producer yielded r0=6541317 d=5530544 — pure trellis divergence). Trellis
+// does NOT flip the winner here, so tx_size=TX_16X16 + best_rd are unchanged.
 //
 // NOTE: this pins ONLY the standalone producer. It is not wired into
 // pickVP9InterModeWithOrder / vp9InterModeScore (that flips decisions and is
@@ -157,17 +158,23 @@ func TestVP9FullRDInterSuperBlockYRDFrame1SB0Parity(t *testing.T) {
 		t.Errorf("TX_16X16 skip = true, want false")
 	}
 
-	// TX_32X32 (a LOSER) is produced and valid; its sse (residual energy, tx-
-	// independent) is pinned byte-exact. Its r0/d are NOT pinned to libvpx
-	// because libvpx runs vp9_optimize_b (trellis) on the 32x32 blocks and
-	// govpx has no VP9 trellis port yet — see vp9FullRDInterSuperBlockYRD doc.
-	// libvpx (post-trellis): r0=6466064 d=5642240. This producer (no trellis):
-	// r0=6541317 d=5530544. The divergence does NOT flip the winner: TX_32X32
-	// rd1 stays > TX_16X16 rd1 under both, so tx_size=TX_16X16 and best_rd are
-	// exact. This assertion guards that TX_32X32 is the only divergent leaf.
+	// TX_32X32 (a LOSER) per-tx-size txfm_rd_in_plane tuple — now pinned
+	// byte-exact to libvpx. The producer runs the verbatim vp9_optimize_b
+	// trellis (encoder.VP9OptimizeB) on each 32x32 transform block, exactly as
+	// block_rd_txfm does (vp9_rdopt.c:793, do_trellis_opt → ENABLE_TRELLIS_OPT
+	// for the RT full-RD mode-selection path), so the optimised dqcoeff/eob
+	// reproduce libvpx's post-trellis r0=6466064 d=5642240. (Before the trellis
+	// port the producer yielded r0=6541317 d=5530544; the divergence was pure
+	// trellis — identical fdct coeff/qcoeff, only post-quant dqcoeff differed.)
 	c32 := res.Cand[common.Tx32x32]
 	if !c32.Valid {
 		t.Fatal("TX_32X32 candidate invalid")
+	}
+	if c32.Rate != 6466064 {
+		t.Errorf("TX_32X32 r0 = %d, want libvpx (trellis'd) 6466064", c32.Rate)
+	}
+	if c32.Dist != 5642240 {
+		t.Errorf("TX_32X32 d = %d, want libvpx (trellis'd) 5642240", c32.Dist)
 	}
 	if c32.SSE != 84109680 {
 		t.Errorf("TX_32X32 sse = %d, want 84109680 (tx-independent residual "+
@@ -176,10 +183,18 @@ func TestVP9FullRDInterSuperBlockYRDFrame1SB0Parity(t *testing.T) {
 	if c32.Skip {
 		t.Errorf("TX_32X32 skip = true, want false")
 	}
+	// r1 = r0 + r_tx_size[TX_32X32] (221) must match libvpx's 6466285.
+	if got := c32.Rate + 221; got != 6466285 {
+		t.Errorf("TX_32X32 r1 = %d, want libvpx 6466285", got)
+	}
 	// The 32x32 candidate must still lose to 16x16 (decision robustness): its
-	// RDCOST rd1 must exceed the selected best_rd.
+	// RDCOST rd1 must exceed the selected best_rd. With the trellis'd values
+	// this is the exact libvpx rd1 = 2479703768.
 	rd32 := encoder.RDCost(139158, encoder.RDDivBits,
 		c32.Rate+221 /*r_tx_size[TX_32X32]*/ +23 /*s0*/, c32.Dist)
+	if rd32 != 2479703768 {
+		t.Errorf("TX_32X32 rd1 = %d, want libvpx 2479703768", rd32)
+	}
 	if rd32 <= res.BestRD {
 		t.Errorf("TX_32X32 rd1 = %d must exceed selected best_rd = %d "+
 			"(winner robustness)", rd32, res.BestRD)

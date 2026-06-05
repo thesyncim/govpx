@@ -398,6 +398,24 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
 	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
 ) bool {
+	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
+		dequant, qindex, out, qOut, lossless, useFastQuant, useLp32x32RD, nil)
+}
+
+// quantizeVP9TxResidualWithQTrellis is quantizeVP9TxResidualWithQ with an
+// optional trellis hook (libvpx block_rd_txfm runs vp9_optimize_b between
+// vp9_xform_quant and the inverse transform / dist_block, vp9_rdopt.c:792-795).
+// When trellis is non-nil it is called after quantization with the pre-quant
+// forward-transform coefficients, the quantizer's qcoeff/dqcoeff, and the
+// pre-trellis eob, and must return the optimised eob (mutating qcoeff/dqcoeff
+// in place). The inverse transform and the out/qOut copies then reflect the
+// optimised coefficients, exactly as dist_block / cost_coeffs consume them.
+// When trellis is nil this is byte-identical to quantizeVP9TxResidualWithQ.
+func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
+	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
+	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
+) bool {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
@@ -490,6 +508,19 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 	}
 	if eob == 0 {
 		return false
+	}
+	// libvpx block_rd_txfm runs vp9_optimize_b (trellis) here, between
+	// vp9_xform_quant and the inverse transform consumed by dist_block
+	// (vp9_rdopt.c:793-795). The trellis mutates qcoeff/dqcoeff (in scratch)
+	// and returns the optimised eob; both the inverse transform below and the
+	// out/qOut copies then reflect the optimised coefficients. Requires qcoeff
+	// (qBuf), so callers wanting trellis must request qOut.
+	if trellis != nil && wantQ {
+		eob = trellis(e.txCoeffScratch[:maxEob], e.qCoeffScratch[:maxEob],
+			e.dqCoeffScratch[:maxEob], eob)
+		if eob == 0 {
+			return false
+		}
 	}
 	copy(out[:maxEob], e.dqCoeffScratch[:maxEob])
 	if wantQ {
