@@ -13,15 +13,15 @@ import (
 // milestone pin for the {0,1,1,0,1} long-fixture parity-gap seed (CBR 700 kbps
 // kf=30 realtime cpu4, VAR_BASED_PARTITION, one-pass q=145). With the deep
 // full-RD use-partition stack enabled, govpx serializes the FULL 256-frame
-// fixture and reproduces frames 0..19 byte-identically to the pinned libvpx
+// fixture and reproduces frames 0..29 byte-identically to the pinned libvpx
 // v1.16.0 vpxenc-vp9 oracle — advancing the seed's matched-frame prefix from 1
-// (keyframe only) to >= 20 (keyframe + the first nineteen inter frames). This
-// proves the genuine full-RD inter engine GENERALIZES across frames: frame 2
-// references frame 1's now-byte-exact reconstruction, and frames 3..19 exercise
-// the GOLDEN refresh cadence, changing q, and the accumulated frame-context
-// probability adaptation. The decoder-side FrameContext entering frame 20 is
-// byte-identical between the govpx and libvpx streams (backward adaptation
-// across 1..19 is correct).
+// (keyframe only) to >= 30 (keyframe + the first twenty-nine inter frames, up to
+// the next key frame). This proves the genuine full-RD inter engine GENERALIZES
+// across frames: frame 2 references frame 1's now-byte-exact reconstruction, and
+// frames 3..29 exercise the GOLDEN refresh cadence, changing q, and the
+// accumulated frame-context probability adaptation. The decoder-side
+// FrameContext entering each inter frame is byte-identical between the govpx and
+// libvpx streams (backward adaptation across 1..29 is correct).
 //
 // Frame 8 (the prior frontier, SB(0,0) mi(0,4) full-RD intra-vs-NEWMV-LAST) is
 // now closed by the x->skip_encode search-context freeze (vp9_encoder_skip_-
@@ -59,22 +59,34 @@ import (
 // NEWMV-LAST commits mv=(2,18), byte-exact with libvpx). Closing frame 10 also
 // closed frames 11..19, advancing the matched-frame prefix from 10 to 20.
 //
-// Frame 20 is the NEW first divergence and a DISTINCT class (NOT intra,
-// NOT a mode-search bug): SB(0,0) mi(1,3) BLOCK_8X8. The per-mode this_rd values
-// for LAST match libvpx byte-for-byte (NEARESTMV-LAST 1746567, NEWMV-LAST
-// 1610012), but the GOLDEN(ref=2) and ALTREF(ref=3) candidate scores are
-// SWAPPED between govpx and libvpx: govpx's NEARESTMV-ref2 scores 2031170 and
-// NEARESTMV-ref3 scores 1631465, whereas libvpx's NEARESTMV-GOLDEN(ref=2) scores
-// 1631465 and NEARESTMV-ALTREF(ref=3) scores 2031170. The reconstructions of
-// frames 0..19 are byte-identical, so the divergence is which past frame each of
-// the GOLDEN / ALTREF reference slots points to at frame 20 — a reference-buffer
-// refresh / slot-assignment cadence divergence, not a mode/intra RD divergence.
-// libvpx commits NEARMV-ALTREF mv=(0,0) this_rd=1022271 at mi(1,3); govpx, whose
-// ALTREF slot holds libvpx's GOLDEN content, commits NEARMV-LAST mv=(16,-2).
-// (See vp9/encoder/vp9_rdopt.c rd_pick_inter_mode_sb + the golden/altref refresh
-// cadence in vp9_ratectrl.c / vp9_encoder.c get_ref_frame_flags.)
+// Frame 20 was the NEW first divergence (SB(0,0) mi(1,3) BLOCK_8X8) and is now
+// CLOSED. The reference-management is NOT at fault: a private fprintf trace of
+// libvpx's per-frame refresh_{last,golden,alt_ref}_frame, ref_frame_map[] and
+// get_ref_frame_flags (vp9_encoder.c:3324-3393,4321-4339) confirms govpx and
+// libvpx assign IDENTICAL buffers entering frame 20 — GOLDEN holds the frame-10
+// recon (refreshed on the baseline_gf_interval=10 CBR cadence at frames 0/10/20,
+// vp9_ratectrl.c:2518-2530), ALTREF holds the keyframe (refreshed only at the
+// key frame; no ARF on this lag-0 realtime config), LAST holds frame 19. The
+// per-ref candidate this_rd values also MATCH libvpx (NEARESTMV-LAST 1746567,
+// NEARESTMV-GOLDEN 2031170, NEARESTMV-ALTREF 1631465) — the earlier "swapped
+// GOLDEN/ALTREF" reading was wrong. The real divergence: govpx never evaluated
+// NEWMV-ALTREF. pickVP9InterMvWithOptions (the MV-search wrapper) drops a (0,0)
+// motion-search result (mv == MV{} -> !ok). libvpx's full-RD single-ref NEWMV
+// (vp9_rdopt.c:2922-2929) rejects ONLY the INVALID_MV sentinel, so a (0,0) NEWMV
+// is a legitimate distinct candidate (it codes a zero MV difference, unlike
+// ZEROMV). At mi(1,3) libvpx's NEWMV-ALTREF search returns (0,0) (this_rd
+// 1041546); that made best an ALTREF mode at midx == mode_skip_start, so
+// ALT_REF_MODE_MASK opened the ALTREF single-ref modes and NEARMV-ALTREF(0,0)
+// won (this_rd 1022271). govpx dropped NEWMV-ALTREF=(0,0), so best stayed
+// NEWMV-LAST, LAST_FRAME_MODE_MASK masked GOLDEN/ALTREF, and govpx committed
+// NEARMV-LAST mv=(16,-2). The fix calls the allow-zero search
+// (pickVP9InterMvAllowZero) on the deep full-RD path so the zero NEWMV is scored
+// exactly as libvpx; the non-RD leaf keeps the wrapper. This closed frames
+// 20..29, advancing the matched-frame prefix 20 -> 30 (frame 30 is the next key
+// frame and a fresh, distinct intra-class frontier). vp9_encoder_inter_modes.go
+// (evaluateNewMVMode).
 //
-// The closure required four libvpx-faithful ports on top of the already-closed
+// The closure required eight libvpx-faithful ports on top of the already-closed
 // 64/64 committed-mode decomposition (TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1):
 //
 //  1. The writer reads the full-RD-committed tx_size (interDecision.txSize from
@@ -128,8 +140,20 @@ import (
 //     modes are still evaluated, exactly as before. vp9_fullrd_inter_intra_sb.go
 //     (vp9FullRDInterIntraSBState + per-mode EvalMode) + vp9_encoder_inter_-
 //     modes.go (pickVP9FullRDInterReferenceMode intra branch).
+//  8. The full-RD NEWMV keeps a (0,0) motion-search result. libvpx's single-ref
+//     NEWMV (vp9_rdopt.c:2922-2929) rejects only the INVALID_MV sentinel, so a
+//     (0,0) NEWMV is a legitimate distinct candidate. govpx's MV-search wrapper
+//     pickVP9InterMvWithOptions drops a zero MV (mv == MV{} -> !ok), which is
+//     correct for the non-RD leaf it serves but wrong for the full-RD path:
+//     evaluateNewMVMode now calls the allow-zero search (pickVP9InterMvAllowZero)
+//     on the vp9InterUseDeepRDRefBestRD branch. This closed frame 20 (mi(1,3):
+//     NEWMV-ALTREF=(0,0) makes best an ALTREF mode at mode_skip_start, opening
+//     ALT_REF_MODE_MASK so NEARMV-ALTREF(0,0) wins, this_rd 1022271) and frames
+//     21..29, advancing the matched-frame prefix 20 -> 30. The non-RD path keeps
+//     the wrapper, so the {0,0,0,0,0}/{1,0,0,0,0} non-RD seeds are unaffected.
+//     vp9_encoder_inter_modes.go (evaluateNewMVMode).
 //
-// All seven are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
+// All eight are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
 // vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion,
 // vp9InterUseDeepRDIntraSkipEncode), default OFF, so production and every other
 // VP9 oracle gate stay byte-identical; the seed stays in
@@ -180,9 +204,9 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	// Encode the FULL {0,1,1,0,1} long fixture (256 panning frames) so the pin
 	// asserts the generalized matched-frame prefix, not just the first inter
 	// frame. With the deep full-RD use-partition stack the engine reproduces
-	// frames 0..19 byte-for-byte; frame 20 is the first divergence (mi(1,3)
-	// GOLDEN/ALTREF reference-slot swap — see the header), so the prefix is
-	// exactly 20.
+	// frames 0..29 byte-for-byte; frame 30 is the first divergence (the next key
+	// frame, a fresh intra-class frontier — see the header), so the prefix is
+	// exactly 30.
 	const fixtureFrames = 256
 	sources := vp9test.NewPanningSources(width, height, fixtureFrames)
 	dst := make([]byte, 1<<20)
@@ -230,24 +254,27 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 		t.Fatalf("frame 0 (keyframe) byte mismatch at offset %d", fd)
 	}
 
-	// The seed's matched-frame prefix must reach >= 20: frames 0 (keyframe) and
-	// 1..19 (inter frames referencing the now-byte-exact reconstructions) all
+	// The seed's matched-frame prefix must reach >= 30: frames 0 (keyframe) and
+	// 1..29 (inter frames referencing the now-byte-exact reconstructions) all
 	// serialize byte-for-byte. Frame 10 closed via the intra mode_skip_start /
 	// ref_frame_skip_mask gate (the standalone intra producer now evaluates each
 	// intra Y mode at its own vp9_mode_order position under the ref_frame_skip_-
 	// mask, so the late intra modes — H_PRED etc. — are suppressed once an inter
 	// mode wins, vp9_fullrd_inter_intra_sb.go); that also closed frames 11..19.
-	// Frame 20 is the new first divergence (mi(1,3): the GOLDEN(ref=2)/ALTREF
-	// (ref=3) reference-slot contents are swapped vs libvpx, so the NEAR/NEW
-	// GOLDEN/ALTREF candidate scores swap and the committed ref flips — a
-	// reference-buffer refresh cadence divergence, NOT a mode/intra RD bug; see
-	// the header). Asserting >= 20 (was 10) proves the genuine full-RD inter
-	// engine GENERALIZES across the GOLDEN-refresh cadence and the accumulated
-	// entropy-context adaptation through the first nineteen inter frames.
+	// Frame 20 closed via the NEWMV zero-MV fix (evaluateNewMVMode now calls the
+	// allow-zero MV search on the full-RD path, so NEWMV-ALTREF=(0,0) is scored
+	// like libvpx vp9_rdopt.c:2922-2929 instead of being dropped by the non-RD
+	// wrapper's mv==MV{} guard; that lets best become an ALTREF mode at
+	// mode_skip_start, opening ALT_REF_MODE_MASK so NEARMV-ALTREF(0,0) wins — see
+	// the header); that also closed frames 21..29. Frame 30 is the new first
+	// divergence (the next key frame, a distinct intra-class frontier). Asserting
+	// >= 30 (was 20) proves the genuine full-RD inter engine GENERALIZES across
+	// the GOLDEN-refresh cadence and the accumulated entropy-context adaptation
+	// through the first twenty-nine inter frames, up to the next key frame.
 	prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
-	if prefix < 20 {
-		t.Fatalf("matched-frame prefix = %d, want >= 20 (frame 0 keyframe + "+
-			"frames 1..19 inter all byte-exact)", prefix)
+	if prefix < 30 {
+		t.Fatalf("matched-frame prefix = %d, want >= 30 (frame 0 keyframe + "+
+			"frames 1..29 inter all byte-exact)", prefix)
 	}
 	t.Logf("{0,1,1,0,1} full-RD inter engine generalizes; "+
 		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes)",
