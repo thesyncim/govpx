@@ -242,6 +242,23 @@ type VP9Encoder struct {
 	// planes carries coefficient entropy contexts for source-backed frames.
 	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
+	// vp9SBEntropyAbove / vp9SBEntropyLeft snapshot the plane entropy context
+	// (pd->above_context / pd->left_context) at 64x64 superblock entry, for the
+	// libvpx x->skip_encode search-context freeze. On the deep full-RD
+	// use-partition path, when sf->skip_encode_frame is set and base_qindex <
+	// QIDX_SKIP_THRESH, libvpx's per-leaf intermediate encode_superblock (the
+	// output_enabled==0 RD-search-phase encode) early-returns BEFORE updating
+	// the entropy context (vp9/encoder/vp9_encodeframe.c:6112-6115), so every
+	// leaf in the SB runs its RD search against the SB-entry context rather than
+	// the running committed context. govpx fuses search+commit per leaf, so it
+	// restores the live context to this SB-entry snapshot around each leaf's RD
+	// search and re-threads it for the real coefficient commit. See
+	// vp9SnapshotSBSearchEntropy / vp9WithSBSearchEntropy.
+	vp9SBEntropyAbove   [vp9dec.MaxMbPlane][]uint8
+	vp9SBEntropyLeft    [vp9dec.MaxMbPlane][]uint8
+	vp9SBEntropyValid   bool
+	vp9SBEntropySaveBuf [vp9dec.MaxMbPlane][]uint8
+
 	intraScratch             vp9dec.IntraPredictorScratch
 	modeScratch              [1024]byte
 	blockScratch             [64 * 64]byte
