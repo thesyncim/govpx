@@ -3,7 +3,6 @@
 package govpx
 
 import (
-	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -12,11 +11,18 @@ import (
 
 // TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity is the headline
 // milestone pin for the {0,1,1,0,1} long-fixture parity-gap seed (CBR 700 kbps
-// kf=30 realtime cpu4, VAR_BASED_PARTITION, one-pass q=145): the FIRST byte-exact
-// full-RD inter frame. With the deep full-RD use-partition stack enabled, govpx
-// serializes frame 1 (the first inter frame) byte-identically to the pinned
-// libvpx v1.16.0 vpxenc-vp9 oracle, advancing the seed's matched-frame prefix
-// from 1 (keyframe only) to >= 2 (keyframe + first inter frame).
+// kf=30 realtime cpu4, VAR_BASED_PARTITION, one-pass q=145). With the deep
+// full-RD use-partition stack enabled, govpx serializes the FULL 256-frame
+// fixture and reproduces frames 0..7 byte-identically to the pinned libvpx
+// v1.16.0 vpxenc-vp9 oracle — advancing the seed's matched-frame prefix from 1
+// (keyframe only) to >= 8 (keyframe + the first seven inter frames). This proves
+// the genuine full-RD inter engine GENERALIZES across frames: frame 2 references
+// frame 1's now-byte-exact reconstruction, and frames 3..7 exercise the GOLDEN
+// refresh cadence, changing q, and the accumulated frame-context probability
+// adaptation. The decoder-side FrameContext entering frame 8 is byte-identical
+// between the govpx and libvpx streams (backward adaptation across 1..7 is
+// correct); frame 8 is the first divergence (SB(0,0) mi(0,4) full-RD intra-vs-
+// NEWMV-LAST — see vp9InterUseDeepRDIntraSkipEncode for the precise root cause).
 //
 // The closure required four libvpx-faithful ports on top of the already-closed
 // 64/64 committed-mode decomposition (TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1):
@@ -40,12 +46,21 @@ import (
 //     (vp9_rdopt.c:4149,4173); the writer codes a skip block (no Y/UV residual,
 //     recon == predictor) instead of re-deriving skip from the re-quantized
 //     residual.
+//  5. The inter-frame intra RD producer applies x->skip_encode (set for cpu4 at
+//     base_qindex < QIDX_SKIP_THRESH, vp9_rdopt.c:3519): the intra prediction
+//     reads its neighbour samples from the SOURCE plane, the inverse transform is
+//     not added back into recon, and dist_block scores in the transform domain
+//     with the mean_quant_error model term (vp9_encodemb.c:840-934,
+//     vp9_rdopt.c:589-600). Without it govpx's intra DC residual at frame-8
+//     mi(0,4) inverted (coeff[0] 412 vs 604); with it the intra coeffs and
+//     distortion are byte-exact with libvpx. (See vp9InterUseDeepRDIntraSkipEncode.)
 //
-// All four are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
-// vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion), default OFF,
-// so production and every other VP9 oracle gate stay byte-identical; the seed
-// stays in vp9LongFixtureParityGapSeeds (its production path is unchanged). This
-// test flips them locally.
+// All five are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
+// vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion,
+// vp9InterUseDeepRDIntraSkipEncode), default OFF, so production and every other
+// VP9 oracle gate stay byte-identical; the seed stays in
+// vp9LongFixtureParityGapSeeds (its production path is unchanged). This test
+// flips them locally.
 func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
@@ -54,14 +69,17 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	saved := vp9InterUseDeepRDUsePartition
 	savedRBR := vp9InterUseDeepRDRefBestRD
 	savedTD := vp9InterUseDeepRDTxDomainDistortion
+	savedSE := vp9InterUseDeepRDIntraSkipEncode
 	defer func() {
 		vp9InterUseDeepRDUsePartition = saved
 		vp9InterUseDeepRDRefBestRD = savedRBR
 		vp9InterUseDeepRDTxDomainDistortion = savedTD
+		vp9InterUseDeepRDIntraSkipEncode = savedSE
 	}()
 	vp9InterUseDeepRDUsePartition = true
 	vp9InterUseDeepRDRefBestRD = true
 	vp9InterUseDeepRDTxDomainDistortion = true
+	vp9InterUseDeepRDIntraSkipEncode = true
 
 	opts := VP9EncoderOptions{
 		Width:               width,
@@ -85,10 +103,13 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	}
 	defer e.Close()
 
-	sources := []*image.YCbCr{
-		vp9test.NewPanningYCbCr(width, height, 0),
-		vp9test.NewPanningYCbCr(width, height, 1),
-	}
+	// Encode the FULL {0,1,1,0,1} long fixture (256 panning frames) so the pin
+	// asserts the generalized matched-frame prefix, not just the first inter
+	// frame. With the deep full-RD use-partition stack the engine reproduces
+	// frames 0..7 byte-for-byte; frame 8 is the first divergence (mi(0,4) intra
+	// vs NEWMV — see the deep-flag notes), so the prefix is exactly 8.
+	const fixtureFrames = 256
+	sources := vp9test.NewPanningSources(width, height, fixtureFrames)
 	dst := make([]byte, 1<<20)
 	govpxFrames := make([][]byte, 0, len(sources))
 	for i := range sources {
@@ -134,13 +155,20 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 		t.Fatalf("frame 0 (keyframe) byte mismatch at offset %d", fd)
 	}
 
-	// The seed's matched-frame prefix must reach >= 2 (was 1 = keyframe only).
+	// The seed's matched-frame prefix must reach >= 8: frames 0 (keyframe) and
+	// 1..7 (inter frames referencing the now-byte-exact reconstructions) all
+	// serialize byte-for-byte. Frame 8 is the first divergence (mi(0,4) full-RD
+	// intra-vs-NEWMV; the intra coeffs/distortion are byte-exact with libvpx
+	// after the skip_encode port, the residual gap is the rd_use_partition
+	// per-leaf entropy-context reset). Asserting >= 8 (was 2) proves the genuine
+	// full-RD inter engine GENERALIZES across the GOLDEN-refresh cadence and the
+	// accumulated entropy-context adaptation, not just the first inter frame.
 	prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
-	if prefix < 2 {
-		t.Fatalf("matched-frame prefix = %d, want >= 2 (frame 0 keyframe + "+
-			"frame 1 first inter frame both byte-exact)", prefix)
+	if prefix < 8 {
+		t.Fatalf("matched-frame prefix = %d, want >= 8 (frame 0 keyframe + "+
+			"frames 1..7 inter all byte-exact)", prefix)
 	}
-	t.Logf("{0,1,1,0,1} frame-1 first byte-exact full-RD inter frame; "+
+	t.Logf("{0,1,1,0,1} full-RD inter engine generalizes; "+
 		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes)",
 		prefix, len(govpxFrames[0]), len(govpxFrames[1]))
 }

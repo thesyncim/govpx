@@ -147,6 +147,48 @@ var vp9InterUseDeepRDTxDomainDistortion = false
 // libvpx's `continue` does.
 var vp9InterUseDeepRDRefBestRD = false
 
+// vp9InterUseDeepRDIntraSkipEncode applies libvpx's x->skip_encode behavior to
+// the inter-frame intra RD producer (vp9FullRDInterIntraSB). vp9_rd_pick_inter_
+// mode_sb sets x->skip_encode = sf->skip_encode_frame && x->q_index <
+// QIDX_SKIP_THRESH (vp9/encoder/vp9_rdopt.c:3519; QIDX_SKIP_THRESH == 115,
+// vp9_rd.h:36) at the top of the inter-frame mode search — but rd_pick_intra_
+// mode_sb (the KEYFRAME path) forces it to 0 (vp9_rdopt.c:3231), which is why
+// the keyframe intra producer never needs this. When x->skip_encode is set,
+// vp9_encode_block_intra (vp9/encoder/vp9_encodemb.c:840-843, 886/902/918/934)
+// changes the intra producer in three coupled ways:
+//
+//  1. The intra prediction reads its above/left/above-left NEIGHBOUR samples
+//     from the SOURCE plane (p->src.buf) instead of the reconstruction
+//     (pd->dst.buf): the predict ref pointer is `x->skip_encode ? src : dst`.
+//  2. The inverse transform is NOT added back into the recon — `if
+//     (!x->skip_encode && *eob)` gates idctNxN_add — so the block's recon
+//     stays at the source-based prediction (later intra blocks in the SB then
+//     predict from THAT).
+//  3. dist_block scores in the transform domain with the skip_encode model
+//     adjustment: out_dist += mean_quant_error >> 4, out_sse += mean_quant_
+//     error, where mean_quant_error = (dequant[1]^2 << ss_txfrm_size) >>
+//     (shift + 2) (vp9_rdopt.c:589-600, gated on x->skip_encode &&
+//     !is_inter_block). The transform-domain branch itself is gated on
+//     x->block_tx_domain (already wired via vp9InterUseDeepRDTxDomainDistortion
+//     for the inter producers).
+//
+// This is the {0,1,1,0,1} frame-8 mi(0,4) frontier: at base_qindex 112 (< 115)
+// with sf->skip_encode_frame == 1, govpx's intra producer predicted DC=79 from
+// recon while libvpx predicted from source, inverting the DC residual (govpx
+// coeff[0]=412 vs libvpx 604) so intra (govpx) beat NEWMV-LAST mv=(-12,52)
+// instead of losing to it (libvpx ground truth, $TMPDIR vpxenc fprintf at
+// vp9_rdopt.c block_rd_txfm / dist_block 2026-06-06).
+//
+// Default false: production and every keyframe/cpu0 producer (skip_encode==0)
+// are byte/decision identical. Enabled in lockstep with the deep use-partition
+// stack by the {0,1,1,0,1} byte-parity test.
+var vp9InterUseDeepRDIntraSkipEncode = false
+
+// vp9QIdxSkipThresh mirrors libvpx's QIDX_SKIP_THRESH (vp9/encoder/vp9_rd.h:36),
+// the base_qindex below which x->skip_encode is armed when sf->skip_encode_frame
+// is set (vp9_rdopt.c:3519).
+const vp9QIdxSkipThresh = 115
+
 // vp9_encoder_inter_partition_rd.go stands up the depth-first
 // rd_pick_partition recursion skeleton for the full-RD INTER path
 // (libvpx vp9/encoder/vp9_encodeframe.c:3667 rd_pick_partition). It is the

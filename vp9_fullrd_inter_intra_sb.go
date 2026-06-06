@@ -195,6 +195,14 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 		int(keyLike.hdr.Quant.YDcDeltaQ), bsize,
 		e.noiseEstimate.Enabled, e.noiseEstimate.ExtractLevel())
 
+	// x->skip_encode = sf->skip_encode_frame && x->q_index < QIDX_SKIP_THRESH
+	// (vp9_rdopt.c:3519; QIDX_SKIP_THRESH == 115). Gated behind the deep flag so
+	// production (and the keyframe path, where skip_encode is forced 0) is
+	// unaffected. See vp9InterUseDeepRDIntraSkipEncode for the three coupled
+	// effects on the intra producer.
+	skipEncode := vp9InterUseDeepRDIntraSkipEncode &&
+		e.sf.SkipEncodeFrame != 0 && segQIndex < vp9QIdxSkipThresh
+
 	// rate_uv_intra[uv_tx] / rate_uv_tokenonly[uv_tx] / dist_uv[uv_tx] /
 	// skip_uv[uv_tx] / mode_uv[uv_tx] are memoised per uv_tx in libvpx
 	// (vp9_rdopt.c:3480-3483,3529) so choose_intra_uv_mode runs at most once per
@@ -226,7 +234,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 		// (vp9_rdopt.c:3839). best_rd tightens to the running min RD so the
 		// transform-RD early-exit fires as libvpx's does.
 		yRD, ok := e.vp9FullRDInterIntraSuperBlockYRD(inter, &keyLike, tile,
-			miRows, miCols, miRow, miCol, bsize, mode, rdmult, bestRD)
+			miRows, miCols, miRow, miCol, bsize, mode, rdmult, bestRD, skipEncode)
 		if !ok || !yRD.Valid {
 			// rate_y == INT_MAX -> continue (vp9_rdopt.c:3844).
 			continue
@@ -241,7 +249,8 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 		// choose_intra_uv_mode (vp9_rdopt.c:3851-3855), memoised per uv_tx.
 		if !uvCacheValid[uvTx] {
 			choice, uvOK := e.vp9FullRDInterIntraChooseUVMode(inter, &keyLike,
-				tile, miRows, miCols, miRow, miCol, bsize, mode, uvTx, rdmult)
+				tile, miRows, miCols, miRow, miCol, bsize, mode, uvTx, rdmult,
+				skipEncode)
 			if !uvOK {
 				continue
 			}
@@ -335,7 +344,7 @@ type vp9FullRDInterIntraUVChoice struct {
 func (e *VP9Encoder) vp9FullRDInterIntraChooseUVMode(inter *vp9InterEncodeState,
 	keyLike *vp9KeyframeEncodeState, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	yMode common.PredictionMode, uvTx common.TxSize, rdmult int,
+	yMode common.PredictionMode, uvTx common.TxSize, rdmult int, skipEncode bool,
 ) (vp9FullRDInterIntraUVChoice, bool) {
 	// intra_uv_mode_cost[INTER_FRAME][y_mode][uv_mode] = cost_tokens(
 	// fc->uv_mode_prob[y_mode]) (vp9_rdopt.c:1496; table vp9_rd.c:107-108).
@@ -367,7 +376,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraChooseUVMode(inter *vp9InterEncodeState,
 		// transform rate + distortion + skippable, with the best_rd early-exit.
 		tokenRate, dist, skippable, ok := e.vp9FullRDInterIntraUVRD(inter,
 			keyLike, tile, miRows, miCols, miRow, miCol, bsize, mode, uvTx,
-			rdmult, bestRD)
+			rdmult, bestRD, skipEncode)
 		if !ok {
 			// super_block_uvrd returned 0 (is_cost_valid == 0) -> continue.
 			continue
@@ -405,12 +414,13 @@ func (e *VP9Encoder) vp9FullRDInterIntraUVRD(inter *vp9InterEncodeState,
 	keyLike *vp9KeyframeEncodeState, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	uvMode common.PredictionMode, uvTx common.TxSize, rdmult int, refBestRD uint64,
+	skipEncode bool,
 ) (rate int, distortion uint64, skippable bool, ok bool) {
 	skippable = true
 	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
 		c := e.vp9FullRDInterIntraPlaneTxCandidate(inter, keyLike, tile,
 			miRows, miCols, miRow, miCol, bsize, plane, uvMode, uvTx, rdmult,
-			refBestRD)
+			refBestRD, skipEncode)
 		if !c.Valid {
 			// pnrate == INT_MAX -> is_cost_valid = 0 (vp9_rdopt.c:1450).
 			return 0, 0, false, false
@@ -432,7 +442,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraUVRD(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9FullRDInterIntraSuperBlockYRD(inter *vp9InterEncodeState,
 	keyLike *vp9KeyframeEncodeState, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mode common.PredictionMode, rdmult int, refBestRD uint64,
+	mode common.PredictionMode, rdmult int, refBestRD uint64, skipEncode bool,
 ) (vp9FullRDInterYRDResult, bool) {
 	pd := &e.planes[0]
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -519,7 +529,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraSuperBlockYRD(inter *vp9InterEncodeState
 			restoreW, restoreH, saved)
 		c := e.vp9FullRDInterIntraPlaneTxCandidate(inter, keyLike, tile,
 			miRows, miCols, miRow, miCol, bsize, 0 /*plane Y*/, mode, tx,
-			rdmult, bestRD)
+			rdmult, bestRD, skipEncode)
 		cand[n] = c
 		if c.Valid {
 			if rd1 := vp9FullRDInterIntraRD1(cand, txSizeCostRow, n, rdmult,
@@ -586,7 +596,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 	keyLike *vp9KeyframeEncodeState, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, plane int,
 	mode common.PredictionMode, txSize common.TxSize, rdmult int,
-	refBestRD uint64,
+	refBestRD uint64, skipEncode bool,
 ) encoder.FullRDTxCandidate {
 	if plane < 0 || plane >= vp9dec.MaxMbPlane || int(mode) >= common.IntraModes {
 		return encoder.FullRDTxCandidate{}
@@ -665,21 +675,40 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 			// transform, quantize (regular), trellis, inverse-add in place.
 			hasResidue := e.prepareVP9InterIntraTxResidueFullRD(keyLike, pd,
 				plane, mode, txSize, tile, miRows, miCols, miRow, miCol, bsize,
-				rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
+				rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs, skipEncode)
 
-			// sse = sum_squares(src_diff) * 16 (vp9_rdopt.c:757-765). The diff
-			// was just written by gatherVP9TxResidual.
-			blockSSE := encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
-			sse += blockSSE
-
-			// dist = pixel_sse(src, recon) * 16 (vp9_rdopt.c:766-768). When
-			// eob==0 the predictor stays in recon, reducing to pixel_sse(src,pred).
-			blockDist, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
-				srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
-			if !distOK {
-				return encoder.FullRDTxCandidate{}
+			var blockDist uint64
+			var blockSSE uint64
+			if skipEncode && hasResidue {
+				// x->skip_encode (vp9_rdopt.c:571-600, block_tx_domain && eob):
+				// dist = vp9_block_error(coeff, dqcoeff) >> shift; sse =
+				// sum(coeff^2) >> shift, then the skip_encode model adjustment
+				// (vp9_rdopt.c:589-600, gated on x->skip_encode &&
+				// !is_inter_block): out_dist += mean_quant_error >> 4, out_sse +=
+				// mean_quant_error. block_tx_domain is forced 1 for REALTIME speed
+				// >= 1 (the same gate vp9InterUseDeepRDTxDomainDistortion wires for
+				// the inter producers), so when skip_encode holds it always does.
+				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
+					e.dqCoeffScratch[:maxEob], txSize)
+				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
+					txSize)
+				meanQErr := vp9SkipEncodeMeanQuantError(dequant[1], txSize)
+				blockDist += meanQErr >> 4
+				blockSSE += meanQErr
+			} else {
+				// dist = pixel_sse(src, recon) * 16 (vp9_rdopt.c:766-768). When
+				// eob==0 the predictor stays in recon, reducing to
+				// pixel_sse(src, pred). sse = sum_squares(src_diff) * 16
+				// (vp9_rdopt.c:757-765).
+				blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
+				bd, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
+					srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)
+				if !distOK {
+					return encoder.FullRDTxCandidate{}
+				}
+				blockDist = bd * 16
 			}
-			blockDist *= 16
+			sse += blockSSE
 			dist += blockDist
 
 			// block_rd_txfm zero-rate early-exit (vp9_rdopt.c:820-824).
@@ -735,6 +764,21 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 	}
 }
 
+// vp9SkipEncodeMeanQuantError mirrors libvpx's skip_encode distortion model
+// term (vp9/encoder/vp9_rdopt.c:591-599): mean_quant_error = (dequant[1]^2 <<
+// ss_txfrm_size) >> (shift + 2), with ss_txfrm_size = tx_size << 1 and shift =
+// (tx_size == TX_32X32) ? 0 : 2. The caller adds (mean_quant_error >> 4) to
+// out_dist and mean_quant_error to out_sse. dequant[1] is the plane AC dequant.
+func vp9SkipEncodeMeanQuantError(dequantAC int16, txSize common.TxSize) uint64 {
+	ssTxfrmSize := uint(txSize) << 1
+	shift := uint(2)
+	if txSize == common.Tx32x32 {
+		shift = 0
+	}
+	dq := uint64(int64(dequantAC) * int64(dequantAC))
+	return (dq << ssTxfrmSize) >> (shift + 2)
+}
+
 // prepareVP9InterIntraTxResidueFullRD is the intra per-tx-block residue builder
 // for the inter-frame intra branch. It mirrors the keyframe
 // prepareVP9KeyframeTxResidueWithQ (intra-predict → subtract → forward DCT/ADST
@@ -753,10 +797,30 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
-	qindex int, coeffCtx int, out, qOut []int16,
+	qindex int, coeffCtx int, out, qOut []int16, skipEncode bool,
 ) bool {
-	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(keyLike.hdr, pd, plane, mode,
-		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
+	var dst []byte
+	var stride, x0, y0 int
+	var ok bool
+	if skipEncode {
+		// x->skip_encode: vp9_predict_intra_block reads its neighbour samples from
+		// the SOURCE plane (p->src.buf), not the recon (vp9_encodemb.c:840-843,
+		// ref = x->skip_encode ? src : dst). The prediction is still WRITTEN into
+		// the recon plane (dst), so pass dst = recon, ref = source.
+		reconData, reconStride := e.vp9EncoderReconPlane(plane)
+		srcPix, srcStr, _, _ := vp9EncoderSourcePlane(keyLike.img, plane)
+		if len(reconData) == 0 || reconStride <= 0 || len(srcPix) == 0 || srcStr <= 0 {
+			return false
+		}
+		dst, stride, x0, y0, ok = e.predictVP9KeyframeTxGeneric(keyLike.hdr, pd,
+			plane, mode, txSize, tile, miRows, miCols, miRow, miCol, bsize,
+			blockRow4x4, blockCol4x4, reconData, reconStride, srcPix, srcStr,
+			0, 0, 0, 0)
+	} else {
+		dst, stride, x0, y0, ok = e.predictVP9KeyframeTx(keyLike.hdr, pd, plane,
+			mode, txSize, tile, miRows, miCols, miRow, miCol, bsize,
+			blockRow4x4, blockCol4x4)
+	}
 	if !ok {
 		return false
 	}
@@ -797,12 +861,35 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 				0 /*segment_id*/, &e.modeScratch)
 		}
 	}
+	// x->skip_encode gates the inverse-transform-add: `if (!x->skip_encode &&
+	// *eob)` (vp9_encodemb.c:886/902/918/934). When skip_encode the recon keeps
+	// the (source-neighbour) prediction so later intra blocks in the SB predict
+	// from it. quantizeVP9TxResidualWithQTrellis always inverse-adds into dst, so
+	// snapshot the predicted tx-unit and restore it after quant to leave the
+	// recon at the prediction.
+	bs := 4 << uint(txSize)
+	var predSnap []byte
+	if skipEncode {
+		if bs*bs > len(e.intraSkipPredScratch) {
+			return false
+		}
+		predSnap = e.intraSkipPredScratch[:bs*bs]
+		for r := 0; r < bs; r++ {
+			copy(predSnap[r*bs:(r+1)*bs], dst[r*stride:r*stride+bs])
+		}
+	}
 	// useLp32x32RD=true: super_block_yrd runs inside the full-RD mode-selection
 	// path where rd_pick_sb_modes forces x->use_lp32x32fdct=1
 	// (vp9_encodeframe.c:1994).
-	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
+	res := e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
 		dequant, qindex, out, qOut, keyLike.lossless,
 		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
+	if skipEncode {
+		for r := 0; r < bs; r++ {
+			copy(dst[r*stride:r*stride+bs], predSnap[r*bs:(r+1)*bs])
+		}
+	}
+	return res
 }
 
 // vp9FullRDInterIntraRD1 recomputes rd[m][1] for an already-produced INTRA
