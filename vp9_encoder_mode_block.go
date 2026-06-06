@@ -73,8 +73,20 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 			cur.Skip = 1
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
-			interDecision, chosenUvMode, residue := e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-				miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+			// libvpx x->skip_encode search-context freeze: run the leaf's RD
+			// search + zcoeff_blk decision against the SB-entry entropy context
+			// (frozen because the search-phase intermediate encode never advances
+			// it, vp9_encodeframe.c:6112-6115), then re-thread the running context
+			// so WriteCoefSb commits the real coefficient context. No-op when
+			// skip_encode is not armed (snapshot invalid), so frame-1 / production
+			// keep the running-threaded search context.
+			var interDecision vp9InterModeDecision
+			var chosenUvMode common.PredictionMode
+			var residue bool
+			e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
+				interDecision, chosenUvMode, residue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+					miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+			})
 			uvMode, hasResidue = chosenUvMode, residue
 			segID = vp9EncoderMiSegmentID(&cur)
 			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)

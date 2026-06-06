@@ -272,6 +272,19 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 		e.vp9EnsureSBLastHighContentCached(miRows, miCols, miRow, miCol)
 		_, _ = e.vp9SourceSADState(inter.img, miRows, miCols, miRow, miCol)
 	}
+	// libvpx x->skip_encode search-context freeze (vp9_encodeframe.c:6112-6115):
+	// when skip_encode is armed the per-leaf RD-search-phase encode never
+	// advances the entropy context, so every leaf in this 64x64 SB searches
+	// against the SB-entry context. Snapshot it here before any leaf is searched
+	// or committed. Gated on vp9InterUseDeepRDUsePartition + skip_encode active
+	// (no-op otherwise, so production / frame-1 are unaffected). See
+	// vp9_encoder_skip_encode_search_ctx.go.
+	if bsize == common.Block64x64 && kind == vp9ModeTreeInterSource &&
+		e.vp9SkipEncodeSearchCtxActive(inter) {
+		e.vp9SnapshotSBSearchEntropy(miCol)
+	} else if bsize == common.Block64x64 {
+		e.vp9SBEntropyValid = false
+	}
 	bsl := int(common.BWidthLog2Lookup[bsize])
 	bs := (1 << uint(bsl)) / 4
 	target := e.pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol,

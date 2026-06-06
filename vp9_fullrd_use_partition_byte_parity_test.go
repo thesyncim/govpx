@@ -13,16 +13,43 @@ import (
 // milestone pin for the {0,1,1,0,1} long-fixture parity-gap seed (CBR 700 kbps
 // kf=30 realtime cpu4, VAR_BASED_PARTITION, one-pass q=145). With the deep
 // full-RD use-partition stack enabled, govpx serializes the FULL 256-frame
-// fixture and reproduces frames 0..7 byte-identically to the pinned libvpx
+// fixture and reproduces frames 0..9 byte-identically to the pinned libvpx
 // v1.16.0 vpxenc-vp9 oracle — advancing the seed's matched-frame prefix from 1
-// (keyframe only) to >= 8 (keyframe + the first seven inter frames). This proves
+// (keyframe only) to >= 10 (keyframe + the first nine inter frames). This proves
 // the genuine full-RD inter engine GENERALIZES across frames: frame 2 references
-// frame 1's now-byte-exact reconstruction, and frames 3..7 exercise the GOLDEN
+// frame 1's now-byte-exact reconstruction, and frames 3..9 exercise the GOLDEN
 // refresh cadence, changing q, and the accumulated frame-context probability
-// adaptation. The decoder-side FrameContext entering frame 8 is byte-identical
-// between the govpx and libvpx streams (backward adaptation across 1..7 is
-// correct); frame 8 is the first divergence (SB(0,0) mi(0,4) full-RD intra-vs-
-// NEWMV-LAST — see vp9InterUseDeepRDIntraSkipEncode for the precise root cause).
+// adaptation. The decoder-side FrameContext entering frame 10 is byte-identical
+// between the govpx and libvpx streams (backward adaptation across 1..9 is
+// correct).
+//
+// Frame 8 (the prior frontier, SB(0,0) mi(0,4) full-RD intra-vs-NEWMV-LAST) is
+// now closed by the x->skip_encode search-context freeze (vp9_encoder_skip_-
+// encode_search_ctx.go): when sf->skip_encode_frame is set (computed per frame
+// from the previous frame's intra/inter counts, get_skip_encode_frame,
+// vp9/encoder/vp9_encodeframe.c:5380-5391) and base_qindex < QIDX_SKIP_THRESH,
+// libvpx's RD-search-phase intermediate encode_superblock (output_enabled==0)
+// early-returns BEFORE advancing the entropy context (vp9_encodeframe.c:6112-
+// 6115), so every leaf in the SB runs its RD search against the SB-ENTRY entropy
+// context, not the running committed context. For frame 8 sf->skip_encode_frame
+// flips to 1 (qidx=112), so libvpx searched mi(0,4) with left_context=0 and
+// NEWMV-LAST mv=(-12,52) won; govpx had threaded mi(0,3)'s committed
+// left_context=1 into the search, inflating the NEWMV coefficient cost so DC
+// intra won. The freeze decouples the per-leaf search context (frozen) from the
+// commit context (still threaded for the bitstream + next SB), matching libvpx
+// exactly. Frame 1 (sf->skip_encode_frame==0, qidx=145, previous frame is the
+// all-intra keyframe) is unaffected — its leaves still search the running
+// threaded context, byte-for-byte as before.
+//
+// Frame 10 is the NEW first divergence (SB(0,0) mi(0,4) full-RD intra-vs-NEWMV-
+// LAST again, but a DISTINCT root cause): the entropy context is now correct
+// (govpx searches mi(0,4) with left=[0,0], matching libvpx) and govpx's
+// NEWMV-LAST mv=(2,18) this_rd is byte-identical to libvpx (4883058), but
+// govpx's intra producer picks H_PRED with this_rd=4845079 (dist=4587) while
+// libvpx's best intra is DC_PRED with this_rd=5058519 (dist=5359) — so govpx's
+// intra wins (4845079 < 4883058) where libvpx's loses (5058519 > 4883058). The
+// frontier is the inter-frame intra Y-mode RD (the H_PRED distortion under
+// x->skip_encode source-prediction), not the partition / entropy-context layer.
 //
 // The closure required four libvpx-faithful ports on top of the already-closed
 // 64/64 committed-mode decomposition (TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1):
@@ -54,8 +81,15 @@ import (
 //     vp9_rdopt.c:589-600). Without it govpx's intra DC residual at frame-8
 //     mi(0,4) inverted (coeff[0] 412 vs 604); with it the intra coeffs and
 //     distortion are byte-exact with libvpx. (See vp9InterUseDeepRDIntraSkipEncode.)
+//  6. The x->skip_encode SEARCH-context freeze (encode_superblock early-return
+//     at vp9_encodeframe.c:6112-6115): the per-leaf RD-search-phase intermediate
+//     encode never advances pd->above_context / pd->left_context when
+//     sf->skip_encode_frame is armed, so every leaf in the SB searches against
+//     the SB-entry entropy context, decoupled from the (still-threaded) commit
+//     context. This closed frame 8 (mi(0,4): NEWMV-LAST mv=(-12,52) over DC
+//     intra). vp9_encoder_skip_encode_search_ctx.go.
 //
-// All five are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
+// All six are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
 // vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion,
 // vp9InterUseDeepRDIntraSkipEncode), default OFF, so production and every other
 // VP9 oracle gate stay byte-identical; the seed stays in
@@ -106,8 +140,8 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	// Encode the FULL {0,1,1,0,1} long fixture (256 panning frames) so the pin
 	// asserts the generalized matched-frame prefix, not just the first inter
 	// frame. With the deep full-RD use-partition stack the engine reproduces
-	// frames 0..7 byte-for-byte; frame 8 is the first divergence (mi(0,4) intra
-	// vs NEWMV — see the deep-flag notes), so the prefix is exactly 8.
+	// frames 0..9 byte-for-byte; frame 10 is the first divergence (mi(0,4) intra
+	// H_PRED vs NEWMV-LAST — see the header), so the prefix is exactly 10.
 	const fixtureFrames = 256
 	sources := vp9test.NewPanningSources(width, height, fixtureFrames)
 	dst := make([]byte, 1<<20)
@@ -155,18 +189,22 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 		t.Fatalf("frame 0 (keyframe) byte mismatch at offset %d", fd)
 	}
 
-	// The seed's matched-frame prefix must reach >= 8: frames 0 (keyframe) and
-	// 1..7 (inter frames referencing the now-byte-exact reconstructions) all
-	// serialize byte-for-byte. Frame 8 is the first divergence (mi(0,4) full-RD
-	// intra-vs-NEWMV; the intra coeffs/distortion are byte-exact with libvpx
-	// after the skip_encode port, the residual gap is the rd_use_partition
-	// per-leaf entropy-context reset). Asserting >= 8 (was 2) proves the genuine
-	// full-RD inter engine GENERALIZES across the GOLDEN-refresh cadence and the
-	// accumulated entropy-context adaptation, not just the first inter frame.
+	// The seed's matched-frame prefix must reach >= 10: frames 0 (keyframe) and
+	// 1..9 (inter frames referencing the now-byte-exact reconstructions) all
+	// serialize byte-for-byte. Frame 8 closed via the x->skip_encode search-
+	// context freeze (the per-leaf RD search reads the SB-entry entropy context,
+	// not the running committed context, when sf->skip_encode_frame is armed —
+	// vp9_encoder_skip_encode_search_ctx.go). Frame 10 is the new first
+	// divergence (mi(0,4) full-RD intra H_PRED beats NEWMV-LAST mv=(2,18) in
+	// govpx by ~0.8% — the inter NEWMV this_rd is byte-identical to libvpx, the
+	// gap is the inter-frame intra Y-mode RD). Asserting >= 10 (was 8) proves the
+	// genuine full-RD inter engine GENERALIZES across the GOLDEN-refresh cadence
+	// and the accumulated entropy-context adaptation, not just the first inter
+	// frame.
 	prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
-	if prefix < 8 {
-		t.Fatalf("matched-frame prefix = %d, want >= 8 (frame 0 keyframe + "+
-			"frames 1..7 inter all byte-exact)", prefix)
+	if prefix < 10 {
+		t.Fatalf("matched-frame prefix = %d, want >= 10 (frame 0 keyframe + "+
+			"frames 1..9 inter all byte-exact)", prefix)
 	}
 	t.Logf("{0,1,1,0,1} full-RD inter engine generalizes; "+
 		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes)",
