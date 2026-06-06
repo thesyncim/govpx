@@ -548,13 +548,32 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	// (22.85M) — exactly as libvpx (ground truth: private $TMPDIR vpxenc
 	// GOVPX_MI16_TRACE, IVF md5 c41fc299 == oracle).
 	//
+	// The sub-8x8 seg_mvs[4][MAX_REF_FRAMES] NEWMV cache fix (the per-sub-block
+	// NEWMV motion search now runs ONCE per (block, ref) and is reused across the
+	// 8x8 block's three switchable filters — the verbatim port of libvpx's
+	// function-scope seg_mvs init at vp9/encoder/vp9_rdopt.c:4327/4343-4346 +
+	// the :2170 INVALID_MV guard) closed mi(2,5) (index 25) AND mi(3,4)/(3,5)/(2,6)
+	// (indices 26..28): indices 0..28 are now byte-exact. Before the fix govpx's
+	// segMvs cache was local to each rdPickBestSub8x8Mode (per-filter) call, so the
+	// NEW search re-ran per filter from that filter's own (filter-dependent)
+	// committed-prior-block seed and converged to a different MV. At mi(2,5) the
+	// SMOOTH filter's last sub-block (block 3) NEW search seeded from SMOOTH's
+	// block-2 NEAREST(20,0) and found mv(16,7) (brdcost 8340098) instead of the
+	// cached filt-0 result mv(24,-16) (brdcost 2993736), inflating SMOOTH's
+	// segment_rd to 19116869 (vs libvpx 13770507) so SMOOTH lost to SHARP — govpx
+	// committed the SHARP segment bmi=[NEW,NEAR,NEAR,NEW]. With the shared cache
+	// SMOOTH's block 3 reuses (24,-16), segment_rd=13770507 wins (tmp_rd 14364375 <
+	// SHARP 15447581 < EIGHTTAP 15875012), and govpx commits bmi=[NEW(20,0),
+	// NEAR(13,0),NEAREST(20,0),NEW(24,-16)] + SMOOTH — exactly libvpx (ground truth:
+	// private $TMPDIR vpxenc GTSUB, IVF md5 c41fc299 == oracle).
+	//
 	// Lock the entire closed window [0..closedPrefixLen) as a hard regression gate;
 	// the walk below reports the first divergence past it. The current frontier is
-	// mi(2,5) (index 25) — a sub-8x8 SPLIT per-bmi/interp divergence (govpx commits
-	// bmi[2] NEAR mv(13,0) + SHARP filter where libvpx commits bmi[2] NEAREST
-	// mv(20,0) + SMOOTH filter), a distinct gap from the partition-seed one this
-	// entry just closed.
-	const closedPrefixLen = 25 // top-left 32x32 (0..15) + top-right through mi(2,4)
+	// mi(2,7) (index 29) — a NONE-vs-SPLIT partition divergence (govpx keeps an 8x8
+	// NONE NEWMV mv(18,-7) where libvpx splits to 8x4 HORZ committing NEAREST(23,-8)
+	// + EIGHTTAP), a distinct partition-decision gap from the per-filter seg_mvs one
+	// this entry just closed.
+	const closedPrefixLen = 29 // top-left 32x32 (0..15) + top-right through mi(2,6)
 	for i := 0; i < closedPrefixLen; i++ {
 		b := vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[i]
 		m := mi(b.miRow, b.miCol)
@@ -564,8 +583,9 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 		}
 	}
 	t.Logf("closed prefix [0..%d] byte-exact (top-left 32x32 all four 16x16 quads + "+
-		"top-right 32x32 through mi(2,4), incl. mi(1,6) SPLIT closure and per-sub "+
-		"bmi MVs)", closedPrefixLen-1)
+		"top-right 32x32 through mi(2,6), incl. mi(1,6) SPLIT closure, per-sub bmi "+
+		"MVs, and the mi(2,5)/(2,6) seg_mvs cross-filter NEW-search cache closure)",
+		closedPrefixLen-1)
 
 	// ---- WALK the rest of SB0 in encode order; report the first divergence ----
 	t.Logf("frame-1 SB0 post-closed-prefix walk (encode order), deep engine committed vs libvpx:")
