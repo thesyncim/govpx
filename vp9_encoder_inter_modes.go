@@ -2233,8 +2233,28 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			mvOpts.maxMvContext = state.maxMvContext
 			mvOpts.predSad = state.predSad
 		}
-		if mv, _, ok := e.pickVP9InterMvWithOptions(inter, miRows, miCols,
-			miRow, miCol, bsize, refFrame, mvOpts); ok {
+		// libvpx single-ref NEWMV (vp9_rdopt.c:2922-2929) keeps the motion-search
+		// result whenever it is not the INVALID_MV sentinel — a (0,0) NEWMV is a
+		// legitimate distinct candidate (it codes a zero MV difference, unlike
+		// ZEROMV). The realtime/non-RD picker (vp9_pickmode.c) rejects only
+		// INVALID_MV too, but govpx's pickVP9InterMvWithOptions wrapper additionally
+		// drops a zero MV; that extra drop is correct for the non-RD leaf it was
+		// written for but WRONG for the full-RD handle_inter_mode emulation, where
+		// dropping NEWMV-ALTREF=(0,0) prevented best from ever becoming an ALTREF
+		// mode at mode_skip_start, so the ALT_REF_MODE_MASK never opened and the
+		// winning NEARMV-ALTREF(0,0) was skipped ({0,1,1,0,1} frame-20 mi(1,3)).
+		// On the full-RD path call the allow-zero search directly so the zero NEWMV
+		// is evaluated exactly as libvpx does; the non-RD path keeps the wrapper.
+		var mvSearched vp9dec.MV
+		var mvOK bool
+		if vp9InterUseDeepRDRefBestRD {
+			mvSearched, _, mvOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
+				miRow, miCol, bsize, refFrame, mvOpts)
+		} else {
+			mvSearched, _, mvOK = e.pickVP9InterMvWithOptions(inter, miRows, miCols,
+				miRow, miCol, bsize, refFrame, mvOpts)
+		}
+		if mv := mvSearched; mvOK {
 			if vp9InterUseDeepRDRefBestRD {
 				considerMode(common.NewMv, mv, refMv)
 				return
