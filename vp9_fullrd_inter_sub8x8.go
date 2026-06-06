@@ -246,6 +246,29 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 						thisMv = searchMv
 						segMvs[block] = searchMv
 						segMvsValid[block] = true
+						// libvpx rd_pick_best_sub8x8_mode (vp9/encoder/vp9_rdopt.c:
+						// 2259): x->pred_mv[mi->ref_frame[0]] = *new_mv — every NEW
+						// sub-block's subpel search result overwrites x->pred_mv[ref],
+						// so after the segment the value is the LAST sub-block's NEW MV.
+						// This is the same x->pred_mv that single_motion_search writes
+						// (:2750); the depth-first recursion threads it across sibling
+						// blocks as vp9_mv_pred's third candidate (pred_mv[2], vp9_rd.c:
+						// 613) for the next (smaller-or-equal) block. govpx mirrors that
+						// here so a sibling committed as a sub-8x8 SPLIT leaves the
+						// sub-8x8 last-NEW MV in fullRDPredMv (not the stale 8x8-NONE
+						// search result), matching the seed libvpx feeds the next 8x8
+						// NONE leaf. Without this, the next leaf's NEWMV search seeds
+						// from the wrong candidate and can converge to a spuriously
+						// better MV, flipping its NONE-vs-SPLIT partition pick (the
+						// {0,2,0,0,2} mi(1,6) divergence: govpx kept an 8x8 NONE NEWMV
+						// where libvpx splits to 4x4). Gated on the deep stack exactly
+						// like the single_motion_search write; production (flags off)
+						// never reads fullRDPredMv so it is inert there.
+						if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+							refFrame > vp9dec.IntraFrame &&
+							int(refFrame) < len(e.fullRDPredMv) {
+							e.fullRDPredMv[refFrame] = searchMv
+						}
 					}
 				}
 
