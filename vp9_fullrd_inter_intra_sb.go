@@ -136,23 +136,59 @@ type vp9FullRDInterIntraSBResult struct {
 	Valid            bool
 }
 
-// vp9FullRDInterIntraSB runs the genuine larger-block intra RD search for an
-// inter-frame block at bsize in {8x8,16x16,32x32,64x64}. It returns the min-RD
-// intra {y_mode, uv_mode, rate, distortion, rd}.
+// vp9FullRDInterIntraSBState carries the per-block constants and the running
+// memoised state of the larger-block inter-frame intra RD search across the
+// individual Y-mode evaluations. libvpx evaluates the INTRA_FRAME candidates at
+// their distinct vp9_mode_order indices interleaved with the inter candidates
+// (DC at index 3; TM/H/V/obliques at indices >= mode_skip_start), so the
+// caller must be able to evaluate one intra Y mode at a time at its own
+// mode_order position — the mode_skip_start / ref_frame_skip_mask gate
+// (vp9_rdopt.c:3679-3696) can suppress the late intra modes once an inter mode
+// is the running best. This state is the persistent context that single-mode
+// evaluation threads:
 //
-// inter carries the live frame context the picker is using (inter.selectFc ==
-// the frame's entropy/coef probs, inter.dq == the dequant tables, inter.img ==
-// the source). rdmult is x->rdmult (e.cbRdmult on the live path); rddiv is the
-// libvpx constant RD_DIV_BITS (encoder.RDDivBits). refBestRD is best_rd, the
-// running budget super_block_yrd's early-exit consumes (^uint64(0) when the
-// picker has no budget yet).
-func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
+//   - keyLike / yModeCost / yModeMask / intraCostPenalty / skipEncode / rdmult
+//     are the per-block constants computed once at init.
+//   - uvCache / uvCacheValid are the per-uv_tx choose_intra_uv_mode memo
+//     (vp9_rdopt.c:3480-3483,3529 rate_uv_intra[uv_tx]) shared across all Y
+//     modes — the FIRST Y mode reaching a uv_tx populates it (keyed on that Y
+//     mode's uv_mode_cost row), later modes reuse it.
+//   - best / bestSet / bestRD are the running min-RD intra decision and the
+//     super_block_yrd early-exit budget, tightening as modes are evaluated.
+type vp9FullRDInterIntraSBState struct {
+	keyLike          vp9KeyframeEncodeState
+	yModeCost        [common.IntraModes]int
+	yModeMask        int
+	intraCostPenalty int
+	skipEncode       bool
+	rdmult           int
+	tile             vp9dec.TileBounds
+	miRows, miCols   int
+	miRow, miCol     int
+	bsize            common.BlockSize
+
+	uvCache      [common.TxSizes]vp9FullRDInterIntraUVChoice
+	uvCacheValid [common.TxSizes]bool
+
+	best    vp9FullRDInterIntraSBResult
+	bestSet bool
+	bestRD  uint64
+	valid   bool
+}
+
+// vp9FullRDInterIntraSBInit builds the per-block search state for the
+// larger-block inter-frame intra RD search (the constant setup that was the
+// preamble of vp9_rd_pick_inter_mode_sb's INTRA arm, vp9_rdopt.c:3781-3838).
+// refBestRD seeds the running super_block_yrd early-exit budget. Returns
+// valid==false when the block cannot be searched (no recon / dequant / source).
+func (e *VP9Encoder) vp9FullRDInterIntraSBInit(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, rdmult int, refBestRD uint64,
-) (vp9FullRDInterIntraSBResult, bool) {
+) vp9FullRDInterIntraSBState {
+	st := vp9FullRDInterIntraSBState{bestRD: refBestRD}
 	if inter == nil || inter.dq == nil || bsize < common.Block8x8 ||
 		bsize >= common.BlockSizes {
-		return vp9FullRDInterIntraSBResult{}, false
+		return st
 	}
 	// A keyframe-like state wraps the source + dequant + header so the
 	// per-tx-block intra prediction / residue helpers (which were written for
@@ -162,7 +198,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 	// producers read them.
 	keyLike := e.vp9InterIntraKeyframeState(inter)
 	if keyLike.hdr == nil || keyLike.img == nil || keyLike.dq == nil {
-		return vp9FullRDInterIntraSBResult{}, false
+		return st
 	}
 
 	// cpi->mbmode_cost[mi->mode] = cost_tokens(fc->y_mode_prob[1])
@@ -203,18 +239,157 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 	skipEncode := vp9InterUseDeepRDIntraSkipEncode &&
 		e.sf.SkipEncodeFrame != 0 && segQIndex < vp9QIdxSkipThresh
 
-	// rate_uv_intra[uv_tx] / rate_uv_tokenonly[uv_tx] / dist_uv[uv_tx] /
-	// skip_uv[uv_tx] / mode_uv[uv_tx] are memoised per uv_tx in libvpx
-	// (vp9_rdopt.c:3480-3483,3529) so choose_intra_uv_mode runs at most once per
-	// uv_tx across the whole intra-mode loop. The producer mirrors that with a
-	// per-uv_tx cache keyed by TX_SIZE.
-	var uvCache [common.TxSizes]vp9FullRDInterIntraUVChoice
-	var uvCacheValid [common.TxSizes]bool
+	st.keyLike = keyLike
+	st.yModeCost = yModeCost
+	st.yModeMask = yModeMask
+	st.intraCostPenalty = intraCostPenalty
+	st.skipEncode = skipEncode
+	st.rdmult = rdmult
+	st.tile = tile
+	st.miRows = miRows
+	st.miCols = miCols
+	st.miRow = miRow
+	st.miCol = miCol
+	st.bsize = bsize
+	st.valid = true
+	return st
+}
 
-	best := vp9FullRDInterIntraSBResult{}
-	bestSet := false
-	bestRD := refBestRD
+// vp9FullRDInterIntraSBEvalMode evaluates ONE intra Y mode against the running
+// state, mirroring exactly one trip through the INTRA_FRAME arm of
+// vp9_rd_pick_inter_mode_sb's mode loop (super_block_yrd → choose_intra_uv_mode
+// → rate2/distortion2/this_rd, vp9_rdopt.c:3839-3867,3929). budgetRD is best_rd
+// at this mode's mode_order position (it tightens as the interleaved inter
+// modes win); the super_block_yrd early-exit consumes max(budgetRD, st.bestRD)
+// so the producer never searches looser than libvpx's running best_rd. The
+// running min-RD intra decision is updated in st.best.
+func (e *VP9Encoder) vp9FullRDInterIntraSBEvalMode(
+	inter *vp9InterEncodeState, st *vp9FullRDInterIntraSBState,
+	mode common.PredictionMode, budgetRD uint64,
+) {
+	if st == nil || !st.valid {
+		return
+	}
+	// intra_y_mode_mask gate (vp9_rdopt.c:3623-3624 + :3698): a Y mode whose
+	// bit is clear is masked out of the loop and never evaluated.
+	if st.yModeMask&(1<<uint(mode)) == 0 {
+		return
+	}
+	// best_rd threaded into super_block_yrd is the running min (vp9_rdopt.c:3840
+	// passes best_rd, which only ever tightens). Take the tighter of the
+	// caller's budget at this mode_order position and the intra-local best.
+	bestRD := budgetRD
+	if st.bestSet && st.bestRD < bestRD {
+		bestRD = st.bestRD
+	}
 
+	// super_block_yrd on the intra residual for this Y mode (vp9_rdopt.c:3839).
+	yRD, ok := e.vp9FullRDInterIntraSuperBlockYRD(inter, &st.keyLike, st.tile,
+		st.miRows, st.miCols, st.miRow, st.miCol, st.bsize, mode, st.rdmult,
+		bestRD, st.skipEncode)
+	if !ok || !yRD.Valid {
+		// rate_y == INT_MAX -> continue (vp9_rdopt.c:3844).
+		return
+	}
+
+	// uv_tx = uv_txsize_lookup[bsize][mi->tx_size][...] (vp9_rdopt.c:3846).
+	uvTx := vp9dec.GetUvTxSize(st.bsize, yRD.TxSize, &e.planes[1])
+	if uvTx >= common.TxSizes {
+		return
+	}
+
+	// choose_intra_uv_mode (vp9_rdopt.c:3851-3855), memoised per uv_tx.
+	if !st.uvCacheValid[uvTx] {
+		choice, uvOK := e.vp9FullRDInterIntraChooseUVMode(inter, &st.keyLike,
+			st.tile, st.miRows, st.miCols, st.miRow, st.miCol, st.bsize, mode,
+			uvTx, st.rdmult, st.skipEncode)
+		if !uvOK {
+			return
+		}
+		st.uvCache[uvTx] = choice
+		st.uvCacheValid[uvTx] = true
+	}
+	uv := st.uvCache[uvTx]
+	if !uv.Valid {
+		return
+	}
+
+	// rate_uv = rate_uv_tokenonly[uv_tx]; distortion_uv = dist_uv[uv_tx];
+	// skippable = skippable && skip_uv[uv_tx] (vp9_rdopt.c:3859-3861).
+	rateUV := uv.RateTokenOnly
+	distUV := uv.Dist
+	skippable := yRD.Skippable && uv.Skippable
+
+	// rate2 = rate_y + mbmode_cost[mode] + rate_uv_intra[uv_tx]
+	// (vp9_rdopt.c:3864). rate_uv_intra is the FULL chroma rate (tokenonly +
+	// uv_mode bits); mbmode_cost is the Y mbmode bits.
+	modeCost := st.yModeCost[mode] + uv.ModeCost
+	rate2 := yRD.Rate + modeCost + rateUV
+	// intra_cost_penalty for oblique modes (vp9_rdopt.c:3865-3866).
+	penalty := 0
+	if mode != common.DcPred && mode != common.TmPred {
+		penalty = st.intraCostPenalty
+		rate2 += penalty
+	}
+	dist2 := yRD.Distortion + distUV
+
+	// this_rd = RDCOST(x->rdmult, x->rddiv, rate2, distortion2)
+	// (vp9_rdopt.c:3929). This is the intra-mode RD the per-mode search
+	// minimises (the ref/skip-flag bits the caller folds in afterwards do not
+	// reorder the intra Y/chroma-mode selection, which is driven by this RD).
+	rd := encoder.RDCost(st.rdmult, encoder.RDDivBits, rate2, dist2)
+
+	cand := vp9FullRDInterIntraSBResult{
+		YMode:            mode,
+		UvMode:           uv.Mode,
+		TxSize:           yRD.TxSize,
+		UvTxSize:         uvTx,
+		RateY:            yRD.Rate,
+		DistY:            yRD.Distortion,
+		RateUV:           rateUV,
+		DistUV:           distUV,
+		ModeCost:         modeCost,
+		IntraCostPenalty: penalty,
+		Rate2:            rate2,
+		Distortion2:      dist2,
+		RD:               rd,
+		Skippable:        skippable,
+		Valid:            true,
+	}
+	if !st.bestSet || cand.RD < st.best.RD {
+		st.best = cand
+		st.bestSet = true
+		if rd < st.bestRD {
+			st.bestRD = rd
+		}
+	}
+}
+
+// vp9FullRDInterIntraSB runs the genuine larger-block intra RD search for an
+// inter-frame block at bsize in {8x8,16x16,32x32,64x64}, evaluating the FULL
+// speed-feature-masked intra Y-mode set in one call. It returns the min-RD
+// intra {y_mode, uv_mode, rate, distortion, rd}. This whole-set entry point is
+// used where libvpx's mode_skip_start does not suppress any intra mode (e.g.
+// cpu0, where sf->mode_skip_start == MAX_MODES so every intra mode_order entry
+// is reached before the ref_frame_skip_mask can be applied). Callers that must
+// honour the mode_skip_start gate (cpu4 realtime) drive vp9FullRDInterIntraSB-
+// EvalMode per intra mode_order position instead.
+//
+// inter carries the live frame context the picker is using (inter.selectFc ==
+// the frame's entropy/coef probs, inter.dq == the dequant tables, inter.img ==
+// the source). rdmult is x->rdmult (e.cbRdmult on the live path); rddiv is the
+// libvpx constant RD_DIV_BITS (encoder.RDDivBits). refBestRD is best_rd, the
+// running budget super_block_yrd's early-exit consumes (^uint64(0) when the
+// picker has no budget yet).
+func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, rdmult int, refBestRD uint64,
+) (vp9FullRDInterIntraSBResult, bool) {
+	st := e.vp9FullRDInterIntraSBInit(inter, tile, miRows, miCols, miRow, miCol,
+		bsize, rdmult, refBestRD)
+	if !st.valid {
+		return vp9FullRDInterIntraSBResult{}, false
+	}
 	// Iterate the Y modes in libvpx's vp9_mode_order INTRA_FRAME sequence
 	// (vp9_rdopt.c:91-131), not numeric order. The order is load-bearing for
 	// two reasons that both reduce to "the first mode_order entry wins": (1) the
@@ -225,94 +400,9 @@ func (e *VP9Encoder) vp9FullRDInterIntraSB(inter *vp9InterEncodeState,
 	// the first-seen of equal-RD modes survives). Walking numeric order would
 	// diverge on both for blocks whose winner is not DC.
 	for _, mode := range vp9FullRDInterIntraYModeOrder {
-		// intra_y_mode_mask gate (vp9_rdopt.c:3623-3624 + :3698): a Y mode whose
-		// bit is clear is masked out of the loop and never evaluated.
-		if yModeMask&(1<<uint(mode)) == 0 {
-			continue
-		}
-		// super_block_yrd on the intra residual for this Y mode
-		// (vp9_rdopt.c:3839). best_rd tightens to the running min RD so the
-		// transform-RD early-exit fires as libvpx's does.
-		yRD, ok := e.vp9FullRDInterIntraSuperBlockYRD(inter, &keyLike, tile,
-			miRows, miCols, miRow, miCol, bsize, mode, rdmult, bestRD, skipEncode)
-		if !ok || !yRD.Valid {
-			// rate_y == INT_MAX -> continue (vp9_rdopt.c:3844).
-			continue
-		}
-
-		// uv_tx = uv_txsize_lookup[bsize][mi->tx_size][...] (vp9_rdopt.c:3846).
-		uvTx := vp9dec.GetUvTxSize(bsize, yRD.TxSize, &e.planes[1])
-		if uvTx >= common.TxSizes {
-			continue
-		}
-
-		// choose_intra_uv_mode (vp9_rdopt.c:3851-3855), memoised per uv_tx.
-		if !uvCacheValid[uvTx] {
-			choice, uvOK := e.vp9FullRDInterIntraChooseUVMode(inter, &keyLike,
-				tile, miRows, miCols, miRow, miCol, bsize, mode, uvTx, rdmult,
-				skipEncode)
-			if !uvOK {
-				continue
-			}
-			uvCache[uvTx] = choice
-			uvCacheValid[uvTx] = true
-		}
-		uv := uvCache[uvTx]
-		if !uv.Valid {
-			continue
-		}
-
-		// rate_uv = rate_uv_tokenonly[uv_tx]; distortion_uv = dist_uv[uv_tx];
-		// skippable = skippable && skip_uv[uv_tx] (vp9_rdopt.c:3859-3861).
-		rateUV := uv.RateTokenOnly
-		distUV := uv.Dist
-		skippable := yRD.Skippable && uv.Skippable
-
-		// rate2 = rate_y + mbmode_cost[mode] + rate_uv_intra[uv_tx]
-		// (vp9_rdopt.c:3864). rate_uv_intra is the FULL chroma rate (tokenonly +
-		// uv_mode bits); mbmode_cost is the Y mbmode bits.
-		modeCost := yModeCost[mode] + uv.ModeCost
-		rate2 := yRD.Rate + modeCost + rateUV
-		// intra_cost_penalty for oblique modes (vp9_rdopt.c:3865-3866).
-		penalty := 0
-		if mode != common.DcPred && mode != common.TmPred {
-			penalty = intraCostPenalty
-			rate2 += penalty
-		}
-		dist2 := yRD.Distortion + distUV
-
-		// this_rd = RDCOST(x->rdmult, x->rddiv, rate2, distortion2)
-		// (vp9_rdopt.c:3929). This is the intra-mode RD the per-mode search
-		// minimises (the ref/skip-flag bits the caller folds in afterwards do not
-		// reorder the intra Y/chroma-mode selection, which is driven by this RD).
-		rd := encoder.RDCost(rdmult, encoder.RDDivBits, rate2, dist2)
-
-		cand := vp9FullRDInterIntraSBResult{
-			YMode:            mode,
-			UvMode:           uv.Mode,
-			TxSize:           yRD.TxSize,
-			UvTxSize:         uvTx,
-			RateY:            yRD.Rate,
-			DistY:            yRD.Distortion,
-			RateUV:           rateUV,
-			DistUV:           distUV,
-			ModeCost:         modeCost,
-			IntraCostPenalty: penalty,
-			Rate2:            rate2,
-			Distortion2:      dist2,
-			RD:               rd,
-			Skippable:        skippable,
-			Valid:            true,
-		}
-		if !bestSet || cand.RD < best.RD {
-			best = cand
-			bestSet = true
-			if rd < bestRD {
-				bestRD = rd
-			}
-		}
+		e.vp9FullRDInterIntraSBEvalMode(inter, &st, mode, refBestRD)
 	}
-	return best, bestSet
+	return st.best, st.bestSet
 }
 
 // vp9FullRDInterIntraUVChoice is the per-uv_tx output of choose_intra_uv_mode

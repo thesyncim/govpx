@@ -1180,20 +1180,13 @@ func (e *VP9Encoder) vp9FullRDCompoundReferenceSlots(inter *vp9InterEncodeState,
 // Returns the committed intra leaf as a vp9InterModeDecision (intra=true,
 // ref=INTRA, interp=SWITCHABLE_FILTERS, the producer's y_mode/uv_mode/tx_size,
 // and the final this_rd as score). The flag gate lives at the call site.
-func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
-	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, above, left *vp9dec.NeighborMi, budgetRD uint64,
-) (vp9InterModeDecision, bool) {
-	if inter == nil || bsize < common.Block8x8 {
-		return vp9InterModeDecision{}, false
-	}
-	// Prime x->rdmult to the per-SB cb_rdmult (get_rdmult_delta /
-	// vp9_encodeframe.c:4245-4248) exactly as the inter pickers
-	// (pickVP9InterModeWithOrder) do, so the intra RDCOST consumes the same
-	// multiplier the competing inter candidates did. Save/restore inline to
-	// preserve the alloc-parity gate.
-	prevCbRdmult := e.cbRdmult
-	defer func() { e.cbRdmult = prevCbRdmult }()
+// vp9FullRDInterIntraPrimeRdmult primes e.cbRdmult to the per-SB cb_rdmult
+// (get_rdmult_delta / vp9_encodeframe.c:4245-4248) exactly as the inter pickers
+// (pickVP9InterModeWithOrder) do, so the intra RDCOST consumes the same
+// multiplier the competing inter candidates did. Returns the primed value.
+func (e *VP9Encoder) vp9FullRDInterIntraPrimeRdmult(miRow, miCol int,
+	bsize common.BlockSize,
+) int {
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	baseRdmult := e.rc.rdmult
 	if baseRdmult <= 0 {
@@ -1208,10 +1201,18 @@ func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
 		baseRdmult = 1
 	}
 	e.cbRdmult = baseRdmult
+	return baseRdmult
+}
 
-	res, ok := e.vp9FullRDInterIntraSB(inter, tile, miRows, miCols, miRow, miCol,
-		bsize, e.cbRdmult, budgetRD)
-	if !ok || !res.Valid {
+// vp9FullRDInterIntraFoldDecision assembles the final per-mode this_rd for an
+// intra candidate exactly as the rd_pick_inter_mode_sb caller does
+// (vp9_rdopt.c:3888-3929): it folds ref_costs_single[INTRA_FRAME] and the
+// skip-flag bit onto the producer's rate2/distortion2 and forms the competing
+// vp9InterModeDecision. rdmult is the primed cb_rdmult.
+func (e *VP9Encoder) vp9FullRDInterIntraFoldDecision(inter *vp9InterEncodeState,
+	res vp9FullRDInterIntraSBResult, above, left *vp9dec.NeighborMi, rdmult int,
+) (vp9InterModeDecision, bool) {
+	if !res.Valid {
 		return vp9InterModeDecision{}, false
 	}
 	rddiv := encoder.RDDivBits
@@ -1235,7 +1236,7 @@ func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
 		rate2 += encoder.VP9CostBit(skipProb, 0)
 	}
 
-	thisRD := encoder.RDCost(e.cbRdmult, rddiv, rate2, dist2)
+	thisRD := encoder.RDCost(rdmult, rddiv, rate2, dist2)
 
 	modeIndex, modeIndexValid := encoder.FullRDModeIndex(res.YMode,
 		vp9dec.IntraFrame, vp9dec.NoRefFrame)
@@ -1261,6 +1262,26 @@ func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
 	}, true
 }
 
+func (e *VP9Encoder) pickVP9FullRDInterIntraLeaf(inter *vp9InterEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, above, left *vp9dec.NeighborMi, budgetRD uint64,
+) (vp9InterModeDecision, bool) {
+	if inter == nil || bsize < common.Block8x8 {
+		return vp9InterModeDecision{}, false
+	}
+	// Save/restore inline to preserve the alloc-parity gate.
+	prevCbRdmult := e.cbRdmult
+	defer func() { e.cbRdmult = prevCbRdmult }()
+	rdmult := e.vp9FullRDInterIntraPrimeRdmult(miRow, miCol, bsize)
+
+	res, ok := e.vp9FullRDInterIntraSB(inter, tile, miRows, miCols, miRow, miCol,
+		bsize, rdmult, budgetRD)
+	if !ok || !res.Valid {
+		return vp9InterModeDecision{}, false
+	}
+	return e.vp9FullRDInterIntraFoldDecision(inter, res, above, left, rdmult)
+}
+
 func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, refFrameSet []int8,
@@ -1283,17 +1304,29 @@ func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	var best vp9InterModeDecision
 	refSkipMask := [2]uint8{0, 1}
 	modeSkipStart := e.sf.ModeSkipStart + 1
-	// vp9_rd_pick_inter_mode_sb evaluates the INTRA_FRAME candidates (DC at
-	// vp9_mode_order index 3, then TM / H / V / obliques) inline in the SAME mode
-	// loop as the inter candidates, competing on the identical this_rd
-	// (vp9_rdopt.c:3781-3867,3982). The genuine larger-block intra producer
-	// (vp9FullRDInterIntraSB) sweeps the whole speed-feature-masked intra Y/UV
-	// mode set in one call, so it is run ONCE at the first INTRA entry the loop
-	// reaches (DC, index 3) with the running best_rd as the super_block_yrd
-	// budget, and the remaining INTRA entries are subsumed. Gated behind the deep
+	intraEnabled := vp9InterUseDeepRDUsePartition || vp9InterUseDeepRDThisRDScore
+	// vp9_rd_pick_inter_mode_sb evaluates the INTRA_FRAME candidates at their
+	// DISTINCT vp9_mode_order indices interleaved with the inter candidates: DC
+	// at index 3 (before mode_skip_start, always reached); TM at 15, H at 22, V
+	// at 23, the obliques at 24..29 — ALL >= mode_skip_start for cpu4
+	// (sf->mode_skip_start == 6, so mode_skip_start == 7). At
+	// midx == mode_skip_start, if an inter mode is the running best,
+	// ref_frame_skip_mask[0] gets the INTRA_FRAME bit set
+	// (LAST/GOLDEN/ALT_FRAME_MODE_MASK each include (1 << INTRA_FRAME),
+	// vp9_rdopt.c:47-52,3681-3692), so every late intra mode is then suppressed
+	// by the ref_frame_skip_mask continue (vp9_rdopt.c:3694-3696). Only DC
+	// survives once an inter mode wins. The genuine larger-block intra producer
+	// therefore evaluates ONE Y mode per mode_order position (via the persistent
+	// vp9FullRDInterIntraSBState memo), honouring the same ref_frame_skip_mask /
+	// mode_threshold gates the inter candidates do, instead of sweeping the whole
+	// masked intra set unconditionally at index 3. For cpu0 (sf->mode_skip_start
+	// == MAX_MODES) mode_skip_start exceeds every index, so no late intra mode is
+	// suppressed and all are evaluated, exactly as before. Gated behind the deep
 	// full-RD flags (production OFF keeps the model-stand-in intra re-decode in
 	// prepareVP9InterBlockResidue, so production byte-parity is untouched).
-	intraEvaluated := false
+	var intraState vp9FullRDInterIntraSBState
+	intraInited := false
+	intraPrevCbRdmult := e.cbRdmult
 	for midx, def := range encoder.FullRDModeOrder {
 		if midx == modeSkipStart && bestSet {
 			vp9FullRDApplyBestRefSkipMask(&refSkipMask, best.refFrame)
@@ -1301,17 +1334,58 @@ func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 		refFrame := def.RefFrame[0]
 		secondRefFrame := def.RefFrame[1]
 		if refFrame == vp9dec.IntraFrame {
-			if intraEvaluated ||
-				!(vp9InterUseDeepRDUsePartition || vp9InterUseDeepRDThisRDScore) {
+			if !intraEnabled {
 				continue
 			}
-			intraEvaluated = true
-			budgetRD := ^uint64(0)
-			if bestSet {
-				budgetRD = best.score
+			// ref_frame_skip_mask gate (vp9_rdopt.c:3694-3696): once an inter
+			// mode is best at/after mode_skip_start, the INTRA_FRAME bit is set
+			// and the late intra modes are skipped here.
+			if vp9FullRDRefSkipped(refSkipMask, refFrame, secondRefFrame) {
+				continue
 			}
-			decision, ok := e.pickVP9FullRDInterIntraLeaf(inter, tile, miRows,
-				miCols, miRow, miCol, bsize, above, left, budgetRD)
+			// mode_threshold gate (vp9_rdopt.c:3704): best_rd < mode_threshold.
+			if bestSet {
+				if modeIndex, ok := encoder.FullRDModeIndex(def.Mode, refFrame,
+					secondRefFrame); ok {
+					if e.rdThresh.FullRDModeSkipped(best.score, bsize, modeIndex,
+						best.skip, e.sf.ScheduleModeSearch != 0) {
+						continue
+					}
+				}
+			}
+			if !intraInited {
+				// Prime cb_rdmult once for the whole intra search; the residue
+				// trellis inside the producer reads e.cbRdmult.
+				budget := ^uint64(0)
+				if bestSet {
+					budget = best.score
+				}
+				rdmult := e.vp9FullRDInterIntraPrimeRdmult(miRow, miCol, bsize)
+				intraState = e.vp9FullRDInterIntraSBInit(inter, tile, miRows,
+					miCols, miRow, miCol, bsize, rdmult, budget)
+				e.cbRdmult = intraPrevCbRdmult
+				if !intraState.valid {
+					// Block unsearchable — disable further intra attempts.
+					intraEnabled = false
+					continue
+				}
+				intraInited = true
+			}
+			budget := ^uint64(0)
+			if bestSet {
+				budget = best.score
+			}
+			// The residue trellis inside EvalMode reads e.cbRdmult; set it to the
+			// primed intra rdmult for the duration of the evaluation, then restore
+			// (the inter pickers manage their own cb_rdmult save/restore).
+			e.cbRdmult = intraState.rdmult
+			e.vp9FullRDInterIntraSBEvalMode(inter, &intraState, def.Mode, budget)
+			e.cbRdmult = intraPrevCbRdmult
+			if !intraState.bestSet {
+				continue
+			}
+			decision, ok := e.vp9FullRDInterIntraFoldDecision(inter,
+				intraState.best, above, left, intraState.rdmult)
 			if !ok {
 				continue
 			}
