@@ -119,6 +119,28 @@ type vp9Sub8x8Input struct {
 	// injectFrameMv overrides the per-block append_sub8x8_mvs NEAREST/NEAR
 	// candidates (CAND probe), which depend on the SPLIT-recursion grid state.
 	injectFrameMv [4]vp9Sub8x8FrameMvPair
+
+	// segMvs is the per-(block, ref_frame) NEWMV motion-search cache libvpx keeps
+	// as seg_mvs[4][MAX_REF_FRAMES] at vp9_rd_pick_inter_mode_sub8x8 function
+	// scope (vp9/encoder/vp9_rdopt.c:4327, initialised to INVALID_MV once at
+	// :4343-4346 BEFORE the ref + switchable-filter loops). The per-sub-block
+	// single-ref NEWMV search runs only when seg_mvs[block][ref] == INVALID_MV
+	// (:2170), so its result is computed ONCE per (block, ref) and reused across
+	// every switchable filter and ref_index iteration of the same 8x8 block. The
+	// wrapper supplies a shared cache here so the three filter passes of one ref
+	// reuse the first pass's NEW MVs; without it each filter re-runs the search
+	// from its own (filter-dependent) committed-prior-block seed and converges to
+	// a different MV, corrupting the per-filter segment_rd (the {0,2,0,0,2} mi(2,5)
+	// SMOOTH-vs-SHARP divergence). When nil the producer falls back to a local
+	// per-call cache (the oracle-trace single-filter drivers).
+	segMvs *vp9Sub8x8SegMvCache
+}
+
+// vp9Sub8x8SegMvCache is libvpx's seg_mvs[4][MAX_REF_FRAMES] NEWMV cache for one
+// 8x8 block, shared across the block's switchable-filter passes.
+type vp9Sub8x8SegMvCache struct {
+	mv    [4][vp9dec.MaxRefFrames]vp9dec.MV
+	valid [4][vp9dec.MaxRefFrames]bool
 }
 
 // vp9Sub8x8FrameMvPair is one block's injected NEAREST/NEAR candidate pair.
@@ -171,9 +193,18 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 	mi.InterpFilter = uint8(filter)
 
 	// Per-block frame_mv[NEARESTMV/NEARMV/ZEROMV] are recomputed per label via
-	// append_sub8x8; ZEROMV is always (0,0). seg_mvs caches the NEWMV result.
-	var segMvs [4]vp9dec.MV
-	var segMvsValid [4]bool
+	// append_sub8x8; ZEROMV is always (0,0). seg_mvs caches the NEWMV result
+	// across the 8x8 block's switchable-filter passes (libvpx seg_mvs[4][REF],
+	// vp9_rdopt.c:4327/2170). Use the wrapper-shared cache when supplied; else a
+	// local per-call cache (the single-filter oracle-trace drivers).
+	segCache := in.segMvs
+	if segCache == nil {
+		segCache = &vp9Sub8x8SegMvCache{}
+	}
+	refIdx := int(refFrame)
+	if refIdx < 0 || refIdx >= vp9dec.MaxRefFrames {
+		return vp9Sub8x8SegResult{}
+	}
 
 	res := vp9Sub8x8SegResult{Valid: true}
 	var thisSegmentRD uint64
@@ -231,8 +262,8 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 
 				thisMv := frameMv[thisMode]
 				if thisMode == common.NewMv {
-					if segMvsValid[block] {
-						thisMv = segMvs[block]
+					if segCache.valid[block][refIdx] {
+						thisMv = segCache.mv[block][refIdx]
 					} else {
 						// best_rd < label_mv_thresh early-break (vp9_rdopt.c:2182):
 						// label_mv_thresh == bsi->mvthresh/4 == 0 (mvthresh always
@@ -244,8 +275,8 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 							continue
 						}
 						thisMv = searchMv
-						segMvs[block] = searchMv
-						segMvsValid[block] = true
+						segCache.mv[block][refIdx] = searchMv
+						segCache.valid[block][refIdx] = true
 						// libvpx rd_pick_best_sub8x8_mode (vp9/encoder/vp9_rdopt.c:
 						// 2259): x->pred_mv[mi->ref_frame[0]] = *new_mv — every NEW
 						// sub-block's subpel search result overwrites x->pred_mv[ref],

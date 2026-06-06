@@ -102,6 +102,13 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 	var bestRes vp9Sub8x8WrapperResult
 	bestSet := false
 
+	// seg_mvs[4][MAX_REF_FRAMES] NEWMV cache (libvpx vp9_rdopt.c:4327, init to
+	// INVALID_MV once at :4343-4346 before the ref + filter loops). Shared across
+	// every ref-frame iteration AND every switchable filter so each per-sub-block
+	// NEWMV search runs once per (block, ref). Declared here (function scope) to
+	// match libvpx exactly.
+	var segMvCache vp9Sub8x8SegMvCache
+
 	// Reference-frame loop. Frame-1 realtime cpu0 single-ref: only the refs in
 	// inter.refMask are usable (LAST on the steady inter frame). INTRA sub-8x8 is
 	// deferred (see file header).
@@ -139,6 +146,7 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 				rdmult:        rdmult,
 				bestRD:        bestYRD,
 				bestRDInf:     bestYRDInf,
+				segMvs:        &segMvCache,
 			}
 			seg := e.rdPickBestSub8x8Mode(inter, in, bsize, refFrame, filter)
 			if !seg.Valid {
