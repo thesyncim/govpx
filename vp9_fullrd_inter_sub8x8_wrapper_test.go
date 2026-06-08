@@ -39,13 +39,16 @@ func TestVP9FullRDInterSub8x8WrapperFrame1SB0Committed(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
 	prevP, prevTh, prevS := vp9InterUseDeepRDPartition, vp9InterUseDeepRDThisRDScore, vp9InterUseDeepRDSub8x8
+	prevRB := vp9InterUseDeepRDRefBestRD
 	vp9InterUseDeepRDPartition = true
 	vp9InterUseDeepRDThisRDScore = true
 	vp9InterUseDeepRDSub8x8 = true
+	vp9InterUseDeepRDRefBestRD = true
 	t.Cleanup(func() {
 		vp9InterUseDeepRDPartition = prevP
 		vp9InterUseDeepRDThisRDScore = prevTh
 		vp9InterUseDeepRDSub8x8 = prevS
+		vp9InterUseDeepRDRefBestRD = prevRB
 	})
 
 	const width, height = 64, 64

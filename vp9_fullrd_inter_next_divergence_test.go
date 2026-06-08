@@ -469,13 +469,16 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 
 	// Enable the full deep-RD inter stack (same set the sub-8x8 wrapper pin uses).
 	prevP, prevTh, prevS := vp9InterUseDeepRDPartition, vp9InterUseDeepRDThisRDScore, vp9InterUseDeepRDSub8x8
+	prevRB := vp9InterUseDeepRDRefBestRD
 	vp9InterUseDeepRDPartition = true
 	vp9InterUseDeepRDThisRDScore = true
 	vp9InterUseDeepRDSub8x8 = true
+	vp9InterUseDeepRDRefBestRD = true
 	t.Cleanup(func() {
 		vp9InterUseDeepRDPartition = prevP
 		vp9InterUseDeepRDThisRDScore = prevTh
 		vp9InterUseDeepRDSub8x8 = prevS
+		vp9InterUseDeepRDRefBestRD = prevRB
 	})
 
 	const width, height = 64, 64
@@ -568,12 +571,28 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	// private $TMPDIR vpxenc GTSUB, IVF md5 c41fc299 == oracle).
 	//
 	// Lock the entire closed window [0..closedPrefixLen) as a hard regression gate;
-	// the walk below reports the first divergence past it. The current frontier is
-	// mi(2,7) (index 29) — a NONE-vs-SPLIT partition divergence (govpx keeps an 8x8
-	// NONE NEWMV mv(18,-7) where libvpx splits to 8x4 HORZ committing NEAREST(23,-8)
-	// + EIGHTTAP), a distinct partition-decision gap from the per-filter seg_mvs one
-	// this entry just closed.
-	const closedPrefixLen = 29 // top-left 32x32 (0..15) + top-right through mi(2,6)
+	// the walk below reports the first divergence past it. The whole embedded
+	// top-32x32 pair (all 32 leaves: top-left 32x32 + top-right 32x32 through
+	// mi(3,7)) is now byte-exact.
+	//
+	// mi(2,7) (index 29) was the last frontier in this window: govpx kept an 8x8
+	// NONE NEWMV mv(18,-7) interp=SMOOTH (this_rd 27082942) where libvpx splits to
+	// 8x4 HORZ NEAREST(23,-8)+NEAREST EIGHTTAP. The HORZ arm already matched
+	// libvpx byte-for-byte (dist 62029); the divergence was entirely in the NONE
+	// 8x8 leaf. libvpx's NONE leaf evaluates NEWMV(18,-7) too, but after NEARESTMV
+	// commits best_rd=29697399 the NEWMV candidate is filter-locked to the model's
+	// pick (EIGHTTAP, model rd 28.3M) and its genuine super_block_yrd accumulator
+	// overruns that budget → rate_y=INT_MAX → handle_inter_mode returns INT64_MAX
+	// → NEWMV is pruned and the NONE leaf commits NEARESTMV(21,-19) (rdcost 29.8M),
+	// which then loses to HORZ (27.79M). govpx without the running-best budget ran
+	// NEWMV's full RD with the cheaper SMOOTH filter at an INFINITE budget and let
+	// it win. Enabling vp9InterUseDeepRDRefBestRD threads best_rd into every
+	// handle_inter_mode call so the genuine yrd/uvrd budget early-exits fire,
+	// reproducing the prune (libvpx ground truth: $TMPDIR vpxenc-vp9 fprintf at
+	// rd_pick_inter_mode_sb/handle_inter_mode, IVF md5 c41fc299 == oracle). The
+	// next frontier has moved into the BOTTOM half of SB0 (mi rows 4..7), which
+	// this embedded table does not yet cover.
+	const closedPrefixLen = 32 // full top-32x32 pair (top-left + top-right)
 	for i := 0; i < closedPrefixLen; i++ {
 		b := vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[i]
 		m := mi(b.miRow, b.miCol)
@@ -582,9 +601,10 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 				i, b.miRow, b.miCol, diffs, nextDivFmtCommitted(m), nextDivFmtWant(b))
 		}
 	}
-	t.Logf("closed prefix [0..%d] byte-exact (top-left 32x32 all four 16x16 quads + "+
-		"top-right 32x32 through mi(2,6), incl. mi(1,6) SPLIT closure, per-sub bmi "+
-		"MVs, and the mi(2,5)/(2,6) seg_mvs cross-filter NEW-search cache closure)",
+	t.Logf("closed prefix [0..%d] byte-exact (entire top-32x32 pair: top-left 32x32 "+
+		"all four 16x16 quads + top-right 32x32 through mi(3,7), incl. mi(1,6) SPLIT "+
+		"closure, per-sub bmi MVs, the mi(2,5)/(2,6) seg_mvs cross-filter NEW-search "+
+		"cache closure, and the mi(2,7) NONE NEWMV ref_best_rd budget prune)",
 		closedPrefixLen-1)
 
 	// ---- WALK the rest of SB0 in encode order; report the first divergence ----
