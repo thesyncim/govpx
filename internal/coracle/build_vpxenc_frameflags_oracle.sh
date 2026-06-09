@@ -88,7 +88,11 @@ fi
 #     drift, partial rebuild, ...) we want to fail loudly here rather
 #     than silently producing a frameflags binary with no MB hooks.
 if command -v nm >/dev/null 2>&1; then
-	if ! nm "$out_bin" 2>/dev/null | grep -q '_govpx_oracle_capture_mb'; then
+	# Match the symbol with or without a leading underscore: Mach-O (macOS)
+	# prepends `_` to C symbols, ELF (Linux CI) does not. The underscore-only
+	# pattern passed on the author's macOS but always failed this guard on
+	# Linux CI, where nm prints `govpx_oracle_capture_mb` with no prefix.
+	if ! nm "$out_bin" 2>/dev/null | grep -q 'govpx_oracle_capture_mb'; then
 		echo "build_vpxenc_frameflags_oracle.sh: govpx_oracle_capture_mb symbol missing in $out_bin" >&2
 		echo "  (libvpx.a appears to lack the oracle_trace.c TU -- rerun build_vpxenc_oracle.sh)" >&2
 		exit 1
