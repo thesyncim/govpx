@@ -2197,13 +2197,16 @@ static int govpx_oracle_newmv_picker_enabled(void) {
     return cached;
 }
 
-/* Forward declarations so the picker-quantize hook can compare the
- * x->quantize_b function pointer against the two upstream variants and
- * label the captured row. The compiler resolves these to the same symbols
- * onyx_if.c / encodeframe.c assign at picker entry, so equality is
- * pointer-exact (no PLT thunks involved on darwin static binaries). */
-extern void vp8_regular_quantize_b(BLOCK *b, BLOCKD *d);
-extern void vp8_fast_quantize_b(BLOCK *b, BLOCKD *d);
+/* vp8_regular_quantize_b / vp8_fast_quantize_b are already declared by
+ * vp8_rtcd.h (pulled in via onyxc_int.h above), so the picker-quantize hook
+ * can compare the x->quantize_b function pointer against them and label the
+ * captured row. Do NOT forward-declare them here as plain functions: under
+ * x86_64 RTCD runtime dispatch these symbols are function POINTERS, so an
+ * `extern void vp8_regular_quantize_b(BLOCK *, BLOCKD *)` declaration collides
+ * with the rtcd declaration ("redeclared as different kind of symbol") and
+ * fails the build under a strict compiler (e.g. CI's gcc). Relying on the
+ * rtcd declarations keeps the pointer comparison below valid on both the
+ * arm64 static-#define build and the x86_64 RTCD-pointer build. */
 
 void govpx_oracle_emit_picker_quantize(struct macroblock *x_arg) {
     MACROBLOCK *x = x_arg;
