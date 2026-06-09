@@ -259,16 +259,6 @@ type VP9Encoder struct {
 	vp9SBEntropyValid   bool
 	vp9SBEntropySaveBuf [vp9dec.MaxMbPlane][]uint8
 
-	// coeffTokenCosts caches the per-frame precomputed coefficient
-	// token-cost table (libvpx fill_token_costs) keyed by the coef-probs
-	// model it was built from. cost_coeffs (CoeffBlockRateCost) does O(1)
-	// lookups against it instead of re-expanding the model per coefficient.
-	// Built lazily and reused across every coefficient block sharing the
-	// same coef-probs source; invalidated when that source changes.
-	coeffTokenCosts    *encoder.FrameCoeffTokenCosts
-	coeffTokenCostsSrc *vp9dec.FrameCoefProbs
-	coeffTokenCostsGen uint64
-
 	intraScratch             vp9dec.IntraPredictorScratch
 	modeScratch              [1024]byte
 	blockScratch             [64 * 64]byte

@@ -167,14 +167,8 @@ func TxSizeRateCost(probs []uint8, txSize, maxTxSize common.TxSize) int {
 // path. TokenCache is caller-owned scratch and is cleared up to the active EOB
 // range on every call.
 type CoeffBlockRateCostInput struct {
-	TxSize    common.TxSize
-	CoefModel *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
-	// CostTable, when non-nil, is the per-frame precomputed token-cost
-	// table for CoefModel (BuildCoeffTokenCostTable). The hot loops do O(1)
-	// lookups against it instead of re-expanding CoefModel per coefficient.
-	// It MUST have been built from the same CoefModel; when nil, the cost
-	// path expands CoefModel directly (numerically identical, just slower).
-	CostTable  *CoeffTokenCostTable
+	TxSize     common.TxSize
+	CoefModel  *[vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
 	ScanOrder  common.ScanOrder
 	Dequant    [2]int16
 	Coeffs     []int16
@@ -204,20 +198,11 @@ func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
 	for i := range in.TokenCache[:maxEob] {
 		in.TokenCache[i] = 0
 	}
-	// The token-tree costs depend only on CoefModel and are stable across
-	// every coefficient in the frame, so libvpx precomputes them once
-	// (fill_token_costs) and the hot loops do table lookups. Reuse the
-	// caller's per-frame table when supplied; otherwise build a one-shot
-	// table for this block — both yield byte-identical costs.
-	costTable := in.CostTable
-	if costTable == nil {
-		costTable = BuildCoeffTokenCostTable(in.CoefModel)
-	}
 	if in.Fast {
-		return coeffBlockRateCostFastQ(in, costTable, scan, maxEob)
+		return coeffBlockRateCostFastQ(in, scan, maxEob)
 	}
 	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
-	return coeffBlockRateCostSlowQ(in, costTable, scan, neighbors, maxEob, eob)
+	return coeffBlockRateCostSlowQ(in, scan, neighbors, maxEob, eob)
 }
 
 var coeffCostBandCounts = [common.TxSizes][8]int{
@@ -227,11 +212,12 @@ var coeffCostBandCounts = [common.TxSizes][8]int{
 	{1, 2, 3, 4, 11, 1024 - 21, 0},
 }
 
-func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput,
-	costTable *CoeffTokenCostTable, scan, neighbors []int16, maxEob int, eob int,
+func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput, scan, neighbors []int16,
+	maxEob int, eob int,
 ) int {
 	if eob <= 0 {
-		return costTable.Lookup(0, in.InitCtx, EobToken, false)
+		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+			EobToken)
 	}
 	if eob > maxEob {
 		eob = maxEob
@@ -240,7 +226,8 @@ func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput,
 	dcAbs, dcSign := CoeffMagnitudeAndSign(in.QCoeffs, 0, in.Coeffs[0],
 		in.Dequant[0], in.TxSize == common.Tx32x32)
 	prevToken, extraCost := CoeffTokenExtraCost(dcAbs, dcSign)
-	rate := extraCost + costTable.Lookup(0, in.InitCtx, prevToken, false)
+	rate := extraCost + CoeffTreeTokenCost(
+		(*in.CoefModel)[0][in.InitCtx][:], false, prevToken)
 	in.TokenCache[0] = PtEnergyClass[prevToken]
 
 	band := 1
@@ -254,7 +241,8 @@ func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput,
 			in.Coeffs[raster], in.Dequant[1], in.TxSize == common.Tx32x32)
 		token, extra := CoeffTokenExtraCost(absVal, sign)
 		pt := vp9dec.GetCoefContext(neighbors, in.TokenCache, c)
-		rate += extra + costTable.Lookup(band, pt, token, prevToken == ZeroToken)
+		rate += extra + CoeffTreeTokenCost(
+			(*in.CoefModel)[band][pt][:], prevToken == ZeroToken, token)
 		in.TokenCache[raster] = PtEnergyClass[token]
 		if bandLeft > 0 {
 			bandLeft--
@@ -269,17 +257,19 @@ func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput,
 	}
 	if bandLeft != 0 && band < vp9dec.CoefBands {
 		pt := vp9dec.GetCoefContext(neighbors, in.TokenCache, eob)
-		rate += costTable.Lookup(band, pt, EobToken, false)
+		rate += CoeffTreeTokenCost((*in.CoefModel)[band][pt][:], false,
+			EobToken)
 	}
 	return rate
 }
 
-func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput,
-	costTable *CoeffTokenCostTable, scan []int16, maxEob int,
+func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
+	maxEob int,
 ) int {
 	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
 	if eob == 0 {
-		return costTable.Lookup(0, in.InitCtx, EobToken, false)
+		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+			EobToken)
 	}
 
 	rate := 0
@@ -287,7 +277,8 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput,
 		in.Dequant[0], in.TxSize == common.Tx32x32)
 	prevToken, extraCost := CoeffTokenExtraCost(dcAbs, dcSign)
 	rate += extraCost
-	rate += costTable.Lookup(0, in.InitCtx, prevToken, false)
+	rate += CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+		prevToken)
 
 	bandIdx := 1
 	bandLeft := coeffCostBandCounts[in.TxSize][bandIdx]
@@ -303,7 +294,8 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput,
 			skipEOB = true
 		}
 		rate += extra
-		rate += costTable.Lookup(bandIdx, ctx, token, skipEOB)
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:],
+			skipEOB, token)
 		prevToken = token
 		bandLeft--
 		if bandLeft == 0 {
@@ -319,7 +311,8 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput,
 		if prevToken == ZeroToken {
 			ctx = 1
 		}
-		rate += costTable.Lookup(bandIdx, ctx, EobToken, false)
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:], false,
+			EobToken)
 	}
 	return rate
 }
