@@ -73,3 +73,29 @@ engine's machinery is byte-capable when the quantizer is right. To close
 
 This is a deliberate multi-step effort; do it as a unit, not piecemeal, so the
 deep pins move together with the quantizer change.
+
+## mi(1,6) measured RD (2026-06-09 — corrects the entropy-cascade premise)
+
+Step 3 above is the blocker. Measuring the mi(1,6) NONE-vs-SPLIT RD under FP vs B
+(identical seed context) shows the divergence is NOT an entropy-context cascade
+through the leaf-tx stamp (the doc earlier hypothesized that); the seed entropy
+context is **identical** (above[1,1] left[1,1], same `hasCtx` eob>0) and the
+predicted distortions are unchanged (NONE 132672, SPLIT 71842). The B quantizer
+only shifts the coefficient **rate** in the RD compare:
+
+| quant | NONE score | NONE rate | SPLIT score | SPLIT rate | winner |
+|------|-----------|-----------|-------------|------------|--------|
+| FP | 23,080,778 | 22439 | **22,849,024** | 50234 | SPLIT (libvpx-correct) |
+| B  | **22,994,076** | 22120 | 23,076,787 | 51072 | NONE (wrong) |
+
+The NONE-vs-SPLIT margin is razor-thin (~0.3-0.4%): FP picks SPLIT by 0.9%, B
+flips to NONE by 0.4%. The rate delta (NONE -319, SPLIT +838) enters via
+`prepareVP9InterTxResidueWithQ`'s cost_coeffs feeding `scoreVP9InterTxCandidate`
+and the cross-leaf chroma entropy context that the preceding 8x8-NONE leaf
+mi(0,6) stamps with B vs FP coefficients. The prior mi(1,6) SPLIT closure
+(c7ab6566 etc.) was calibrated against the **FP** costs, so switching to the
+libvpx-correct B quantizer de-calibrates that thin compare. Closing it means
+chasing the exact remaining chroma-context / cost_coeffs cost gap at mi(1,6) so
+govpx's B-context NONE/SPLIT scores match libvpx's true B scores — part of the
+same unit as steps 2 and 4. Do NOT lower the `closedPrefixLen = 32` regression
+gate to absorb this (it is a hard gate).
