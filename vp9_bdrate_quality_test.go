@@ -286,16 +286,22 @@ func TestVP9BDRateVarianceAQ(t *testing.T) {
 	}
 	gen := benchcmd.BDRateGenerator(benchcmd.VarianceHeavyContent, 64, 64)
 	res, err := benchcmd.ComputeBDRate(benchcmd.BDRateOptions{
-		Width:                64,
-		Height:               64,
-		FPS:                  30,
-		Frames:               8,
-		QLadder:              []int{16, 24, 32, 40},
-		Lookahead:            0,
-		Source:               func(i int) *image.YCbCr { return gen(i) },
-		LibvpxReference:      true,
-		BuildLibvpx:          benchcmd.LibvpxBuildRequested(),
-		AllowDecoderFallback: true,
+		Width:           64,
+		Height:          64,
+		FPS:             30,
+		Frames:          8,
+		QLadder:         []int{16, 24, 32, 40},
+		Lookahead:       0,
+		Source:          func(i int) *image.YCbCr { return gen(i) },
+		LibvpxReference: true,
+		BuildLibvpx:     benchcmd.LibvpxBuildRequested(),
+		// AQ modes redistribute Q per block, so the BD-rate must be measured
+		// against ACTUAL decode PSNR. The Q-derived PSNR proxy
+		// (AllowDecoderFallback) assumes distortion is fixed by the frame base
+		// Q and cannot see variance-AQ's per-block Q reduction, so it misses the
+		// quality gain and reports a spurious ~10% rate "regression"; the actual
+		// decode PSNR shows VarianceAQ is ~neutral (BD-rate ~0.7%).
+		AllowDecoderFallback: false,
 		Baseline: func(o *govpx.VP9EncoderOptions) {
 			o.AQMode = govpx.VP9AQNone
 		},
