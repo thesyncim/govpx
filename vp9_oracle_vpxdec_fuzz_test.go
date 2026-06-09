@@ -40,6 +40,23 @@ func FuzzVP9DecoderAgainstLibvpx(f *testing.F) {
 	f.Add(make([]byte, 16))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		// Only run the govpx-vs-libvpx comparison on a well-formed VP9 IVF
+		// container, so both decoders demux the identical frame sequence and the
+		// only thing under test is VP9 frame decoding. Container-level
+		// malformations make vpxdec diverge from govpx for reasons that are not
+		// VP9 decoder bugs:
+		//   - a non-VP9 FourCC: vpxdec routes by FourCC (decodes VP8), govpx is
+		//     VP9-only and rejects it;
+		//   - a mutated IVF version or a truncated / out-of-bounds trailing frame
+		//     header: vpxdec warns ("Unrecognized IVF version") and flushes no
+		//     output, while govpx best-effort decodes the valid leading frames.
+		// Those are container-demux differences, so skip inputs whose container
+		// does not fully demux as VP9. The frame *payloads* are still fuzzed,
+		// which is the actual VP9-decoder robustness target.
+		if !vp9DifferentialIVFEligible(data) {
+			return
+		}
+
 		govpxFrames, govpxErr := decodeVP9IVFGovpxBestEffort(data)
 		libvpxFrames, libvpxErr := decodeVP9IVFLibvpxBestEffort(t, data)
 
@@ -78,6 +95,31 @@ func vp9FuzzSeedIVF(f *testing.F, width, height, frames int) []byte {
 	return vp9test.VpxencIVF(f, srcs)
 }
 
+// vp9DifferentialIVFEligible reports whether data is a fully well-formed VP9 IVF
+// container: a parseable header with the VP9 FourCC whose every frame header is
+// in-bounds. Only such inputs yield a meaningful govpx-vs-libvpx comparison,
+// because both decoders then demux the same frame sequence; malformed containers
+// make vpxdec's acceptance / partial-output behaviour diverge from govpx for
+// non-codec reasons (see the call site).
+func vp9DifferentialIVFEligible(data []byte) bool {
+	hdr, err := testutil.ParseIVFHeader(data)
+	if err != nil || hdr.FourCC != testutil.IVFFourCCVP9 {
+		return false
+	}
+	offset, err := testutil.FirstIVFFrameOffset(data)
+	if err != nil {
+		return false
+	}
+	for frameIndex := 0; offset < len(data); frameIndex++ {
+		_, next, err := testutil.NextIVFFrame(data, offset, frameIndex)
+		if err != nil {
+			return false
+		}
+		offset = next
+	}
+	return true
+}
+
 // decodeVP9IVFGovpxBestEffort parses data as an IVF container and feeds each
 // VP9 packet to a govpx VP9 decoder, returning the per-frame concatenated I420
 // planes for every frame the decoder accepted.
@@ -102,12 +144,17 @@ func decodeVP9IVFGovpxBestEffort(data []byte) ([][]byte, error) {
 	for frameIndex := 0; offset < len(data); frameIndex++ {
 		frame, next, err := testutil.NextIVFFrame(data, offset, frameIndex)
 		if err != nil {
-			return frames, err
+			// Atomic acceptance: a stream counts as decoded only if every frame
+			// decodes. vpxdec is all-or-nothing — it flushes no I420 output when
+			// any frame fails — so govpx must discard the frames it decoded
+			// before the error too, otherwise a stream with a good frame 0 and a
+			// later bad frame reports a spurious acceptance disagreement.
+			return nil, err
 		}
 		offset = next
 		info, err := d.DecodeInto(frame.Data, &dst)
 		if err != nil {
-			return frames, err
+			return nil, err
 		}
 		// Mirror libvpx's vpxdec: only emit raw I420 for visible frames.
 		// VP9 hidden frames (show_frame == false, e.g. ALTREF) do not
@@ -136,7 +183,9 @@ func decodeVP9IVFLibvpxBestEffort(t *testing.T, data []byte) ([][]byte, error) {
 	}
 	raw, err := vp9test.VpxdecI420Result(data)
 	if err != nil {
-		// vpxdec may have written some frames before erroring.
+		// vpxdec is all-or-nothing: it flushes no I420 output when any frame
+		// fails to decode. Mirror that atomic acceptance in the govpx side
+		// (decodeVP9IVFGovpxBestEffort also returns no frames on any error).
 		return nil, err
 	}
 	frameSize := vp9oracle.I420FrameSize(header.Width, header.Height)
