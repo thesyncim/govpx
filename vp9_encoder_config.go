@@ -293,7 +293,7 @@ func (e *VP9Encoder) SetAQMode(mode VP9AQMode) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if e.frameIndex != 0 || e.vp9LookaheadSize() != 0 {
+	if e.vp9LookaheadSize() != 0 {
 		return ErrInvalidConfig
 	}
 	nextOpts := e.opts

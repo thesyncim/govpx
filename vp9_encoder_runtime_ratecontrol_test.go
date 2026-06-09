@@ -40,14 +40,16 @@ func TestVP9EncoderSetAQModeSwitchesModeAtomically(t *testing.T) {
 			header.Seg.Enabled, header.Seg.UpdateMap, header.Seg.UpdateData)
 	}
 
-	oldOpts := e.opts
-	oldCyclic := e.cyclicAQ
-	if err := e.SetAQMode(VP9AQNone); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("post-start SetAQMode none err = %v, want ErrInvalidConfig", err)
+	// Mid-stream AQ-mode changes are permitted (libvpx allows them, and the
+	// govpx output matches the oracle byte-for-byte — see
+	// TestVP9OracleEncoderControlTransitions); only a pending lookahead queue
+	// blocks them. Switching to None mid-stream must apply atomically.
+	if err := e.SetAQMode(VP9AQNone); err != nil {
+		t.Fatalf("post-start SetAQMode none err = %v, want nil", err)
 	}
-	if !reflect.DeepEqual(e.opts, oldOpts) ||
-		!reflect.DeepEqual(e.cyclicAQ, oldCyclic) {
-		t.Fatal("post-start SetAQMode mutated encoder state")
+	if e.opts.AQMode != VP9AQNone || e.cyclicAQ.Enabled {
+		t.Fatalf("post-start SetAQMode none state = mode:%d cyclic:%t, want none/false",
+			e.opts.AQMode, e.cyclicAQ.Enabled)
 	}
 
 	cbr, err := NewVP9Encoder(VP9EncoderOptions{
