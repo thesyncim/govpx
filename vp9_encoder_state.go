@@ -694,4 +694,8 @@ func (e *VP9Encoder) resetVP9EncoderCodingState(width, height int) {
 	}
 	e.resetVP9EncoderAboveEntropyContexts()
 	e.resetVP9EncoderLeftEntropyContexts()
+	// Tile workers reuse the same encoder struct across frames; drop any
+	// cached coefficient token-cost table so a worker rebuilds it from the
+	// frame context it was just prepared with.
+	e.vp9InvalidateCoeffTokenCosts()
 }

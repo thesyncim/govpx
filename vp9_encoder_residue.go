@@ -1120,6 +1120,37 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 	return distortion, true
 }
 
+// vp9CoeffTokenCostsFor returns the per-frame precomputed coefficient
+// token-cost table for fc's coef-probs model (libvpx fill_token_costs),
+// building it once and reusing it across every coefficient block that
+// shares the same model. The cache is invalidated at the start of each
+// frame (vp9InvalidateCoeffTokenCosts) because e.fc.CoefProbs is mutated
+// in place across frames; within a frame's RD search the coef probs at a
+// given *FrameCoefProbs are stable, so a pointer key is sufficient.
+func (e *VP9Encoder) vp9CoeffTokenCostsFor(fc *vp9dec.FrameContext,
+) *encoder.FrameCoeffTokenCosts {
+	if fc == nil {
+		return nil
+	}
+	src := &fc.CoefProbs
+	if e.coeffTokenCosts != nil && e.coeffTokenCostsSrc == src {
+		return e.coeffTokenCosts
+	}
+	t := encoder.BuildFrameCoeffTokenCosts(src)
+	e.coeffTokenCosts = t
+	e.coeffTokenCostsSrc = src
+	return t
+}
+
+// vp9InvalidateCoeffTokenCosts drops the cached per-frame token-cost table
+// so the next cost call rebuilds it from the current coef-probs model. Must
+// be called whenever the coef probs backing e.fc may have changed (frame
+// boundary), since the table is keyed only by the model's address.
+func (e *VP9Encoder) vp9InvalidateCoeffTokenCosts() {
+	e.coeffTokenCosts = nil
+	e.coeffTokenCostsSrc = nil
+}
+
 // vp9InterCoeffBlockRateCostQ mirrors libvpx's cost_coeffs is_inter=1
 // path (vp9_rdopt.c:358-459). When qcoeffs is non-nil the per-coefficient
 // magnitude is read directly from qcoeffs[raster] — see
@@ -1143,9 +1174,14 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFc(fc *vp9dec.FrameContext,
 	if fc == nil || txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
+	var costTable *encoder.CoeffTokenCostTable
+	if ftc := e.vp9CoeffTokenCostsFor(fc); ftc != nil {
+		costTable = ftc.Table(txSize, planeType, 1)
+	}
 	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
 		TxSize:     txSize,
 		CoefModel:  &fc.CoefProbs[txSize][planeType][1],
+		CostTable:  costTable,
 		ScanOrder:  common.DefaultScanOrders[txSize],
 		Dequant:    dequant,
 		Coeffs:     coeffs,

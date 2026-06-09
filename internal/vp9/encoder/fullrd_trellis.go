@@ -119,6 +119,13 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 		return eob
 	}
 
+	// Precompute the token-tree cost table for this block's coef-probs model
+	// once (fill_token_costs), so the trellis's many per-coefficient lookups
+	// are O(1) instead of re-expanding the model each time. The expansion is
+	// the same vp9_cost_tokens walk CoeffTreeTokenCost runs, so the costs are
+	// byte-identical.
+	costTable := BuildCoeffTokenCostTable(coefModel)
+
 	// const int64_t rdadj = (int64_t)mb->rdmult * plane_rd_mult[ref][plane_type];
 	rdadj := rdmult * trellisPlaneRDMult[ref&1][planeType]
 	// const int64_t rdmult = (sharpness == 0 ? rdadj >> 1
@@ -149,7 +156,7 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 
 	// Initial RD cost. token_costs_cur = token_costs + band_translate[0].
 	band0 := int(bandTranslate[0])
-	rate0 := int64(trellisTokenCost(coefModel, band0, ctx, EobToken, false))
+	rate0 := int64(trellisTokenCost(costTable, band0, ctx, EobToken, false))
 	bestBlockRDCost = rdTrellisCost(rdmultLocal, rddiv, rate0, accuError)
 
 	for i := 0; i < eob; i++ {
@@ -164,7 +171,7 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 
 		if x == 0 { // No need to search.
 			token := trellisGetToken(x)
-			r0 := int64(trellisTokenCost(coefModel, bandCur, ctxCur, token,
+			r0 := int64(trellisTokenCost(costTable, bandCur, ctxCur, token,
 				tokenTreeSelCur))
 			accuRate += r0
 			xPrev = 0
@@ -203,9 +210,9 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 		// Token-tree base costs for the two candidates.
 		t0, baseBits0 := trellisGetTokenCost(x)
 		t1, baseBits1 := trellisGetTokenCost(x1)
-		r0 := int64(baseBits0) + int64(trellisTokenCost(coefModel, bandCur, ctxCur,
+		r0 := int64(baseBits0) + int64(trellisTokenCost(costTable, bandCur, ctxCur,
 			t0, tokenTreeSelCur))
-		r1 := int64(baseBits1) + int64(trellisTokenCost(coefModel, bandCur, ctxCur,
+		r1 := int64(baseBits1) + int64(trellisTokenCost(costTable, bandCur, ctxCur,
 			t1, tokenTreeSelCur))
 
 		// RD cost effect on the next coeff for the two candidates.
@@ -220,17 +227,17 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 			tokenCache[rc] = PtEnergyClass[t0]
 			ctxNext := vp9dec.GetCoefContext(nb, tokenCache, i+1)
 			tokenTreeSelNext := x == 0
-			nextBits0 = int64(trellisTokenCost(coefModel, bandNext, ctxNext,
+			nextBits0 = int64(trellisTokenCost(costTable, bandNext, ctxNext,
 				tokenNext, tokenTreeSelNext))
-			nextEobBits0 = int64(trellisTokenCost(coefModel, bandNext, ctxNext,
+			nextEobBits0 = int64(trellisTokenCost(costTable, bandNext, ctxNext,
 				EobToken, tokenTreeSelNext))
 			tokenCache[rc] = PtEnergyClass[t1]
 			ctxNext = vp9dec.GetCoefContext(nb, tokenCache, i+1)
 			tokenTreeSelNext = x1 == 0
-			nextBits1 = int64(trellisTokenCost(coefModel, bandNext, ctxNext,
+			nextBits1 = int64(trellisTokenCost(costTable, bandNext, ctxNext,
 				tokenNext, tokenTreeSelNext))
 			if x1 != 0 {
-				nextEobBits1 = int64(trellisTokenCost(coefModel, bandNext, ctxNext,
+				nextEobBits1 = int64(trellisTokenCost(costTable, bandNext, ctxNext,
 					EobToken, tokenTreeSelNext))
 			}
 		}
@@ -355,16 +362,15 @@ func trellisGetTokenCost(v int) (token int, baseBits int) {
 }
 
 // trellisTokenCost looks up (*token_costs)[tree_sel][ctx][token] for the given
-// band/ctx, expanding the frame's coef-probs model via CoeffTreeTokenCost — the
-// same value fill_token_costs precomputes (vp9_rd.c:135-152). tree_sel==true
-// selects the skip-EOB variant (vp9_cost_tokens_skip).
-func trellisTokenCost(coefModel VP9TrellisCoefModel, band, ctx, token int,
+// band/ctx from the precomputed cost table — the same value fill_token_costs
+// precomputes (vp9_rd.c:135-152). tree_sel==true selects the skip-EOB variant
+// (vp9_cost_tokens_skip). The table is built once per block from the frame's
+// coef-probs model, so the lookup is byte-identical to the per-coefficient
+// CoeffTreeTokenCost expansion it replaces.
+func trellisTokenCost(costTable *CoeffTokenCostTable, band, ctx, token int,
 	skipEOB bool,
 ) int {
-	if band < 0 || band >= vp9dec.CoefBands || ctx < 0 || ctx >= vp9dec.CoefContexts {
-		return 0
-	}
-	return CoeffTreeTokenCost(coefModel[band][ctx][:], skipEOB, token)
+	return costTable.Lookup(band, ctx, token, skipEOB)
 }
 
 // trellisAbs is a tiny int abs helper (avoids importing math for ints).

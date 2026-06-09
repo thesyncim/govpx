@@ -1966,9 +1966,14 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	}
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type = planeType (0 = Y, 1 = UV); is_inter = 0 for keyframe/intra.
+	var costTable *encoder.CoeffTokenCostTable
+	if ftc := e.vp9CoeffTokenCostsFor(&e.fc); ftc != nil {
+		costTable = ftc.Table(txSize, planeType, 0)
+	}
 	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
 		TxSize:     txSize,
 		CoefModel:  &e.fc.CoefProbs[txSize][planeType][0],
+		CostTable:  costTable,
 		ScanOrder:  scanOrder,
 		Dequant:    dequant,
 		Coeffs:     coeffs,

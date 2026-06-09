@@ -327,6 +327,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	var frameContextsSeed [common.FrameContexts]vp9dec.FrameContext
 	var frameContextSeed vp9dec.FrameContext
 	frameContextIdx := e.prepareVP9EncoderFrameContext(header)
+	// e.fc.CoefProbs is the frame's coefficient-probs model and is reloaded
+	// here per frame (in place, same address across frames). Drop any cached
+	// per-frame token-cost table so the next cost_coeffs call rebuilds it
+	// from this frame's model.
+	e.vp9InvalidateCoeffTokenCosts()
 	if shouldRestoreFrameContexts {
 		frameContextsSeed = e.frameContexts
 		frameContextSeed = e.fc
