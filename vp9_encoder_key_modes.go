@@ -393,11 +393,8 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 			encoder.ConditionalSkipIntra(mode, bestMode) {
 			continue
 		}
-		// Restore the saved recon so this candidate's prediction starts
-		// from the same neighbour state as the previous candidate
-		// (libvpx vp9_rdopt.c:1108-1109 — `memcpy(tempa,...);
-		// memcpy(templ,...);` before each per-mode pass).
-		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+		// libvpx refreshes tempa/templ for each candidate mode, but leaves
+		// the destination pixels live until the final best_dst restore below.
 		rate := bmodeCosts[mode]
 		var totalDistortion uint64
 		var totalCoeffRate int
