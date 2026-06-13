@@ -1,6 +1,6 @@
 package dsp
 
-// VP9 integer-projection DSP kernels. Ported verbatim from libvpx v1.16.0
+// VP9 integer-projection DSP kernels. Ported from libvpx v1.16.0
 // vpx_dsp/avg.c:
 //   - vpx_int_pro_row_c   (vpx_dsp/avg.c:345-360)
 //   - vpx_int_pro_col_c   (vpx_dsp/avg.c:362-369)
@@ -110,6 +110,25 @@ func intProSum16(row []uint8) int {
 // 4 → 64.
 func VpxVectorVar(ref, src []int16, bwl int) int {
 	width := 4 << bwl
+	switch width {
+	case 16:
+		sse, mean := intProVectorStats16(ref, src)
+		return sse - ((mean * mean) >> (bwl + 2))
+	case 32:
+		sse0, mean0 := intProVectorStats16(ref, src)
+		sse1, mean1 := intProVectorStats16(ref[16:], src[16:])
+		sse := sse0 + sse1
+		mean := mean0 + mean1
+		return sse - ((mean * mean) >> (bwl + 2))
+	case 64:
+		sse0, mean0 := intProVectorStats16(ref, src)
+		sse1, mean1 := intProVectorStats16(ref[16:], src[16:])
+		sse2, mean2 := intProVectorStats16(ref[32:], src[32:])
+		sse3, mean3 := intProVectorStats16(ref[48:], src[48:])
+		sse := sse0 + sse1 + sse2 + sse3
+		mean := mean0 + mean1 + mean2 + mean3
+		return sse - ((mean * mean) >> (bwl + 2))
+	}
 	var sse, mean int
 	for i := range width {
 		diff := int(ref[i]) - int(src[i])
@@ -117,4 +136,30 @@ func VpxVectorVar(ref, src []int16, bwl int) int {
 		sse += diff * diff
 	}
 	return sse - ((mean * mean) >> (bwl + 2))
+}
+
+func intProVectorStats16(ref, src []int16) (sse, mean int) {
+	d0 := int(ref[0]) - int(src[0])
+	d1 := int(ref[1]) - int(src[1])
+	d2 := int(ref[2]) - int(src[2])
+	d3 := int(ref[3]) - int(src[3])
+	d4 := int(ref[4]) - int(src[4])
+	d5 := int(ref[5]) - int(src[5])
+	d6 := int(ref[6]) - int(src[6])
+	d7 := int(ref[7]) - int(src[7])
+	d8 := int(ref[8]) - int(src[8])
+	d9 := int(ref[9]) - int(src[9])
+	d10 := int(ref[10]) - int(src[10])
+	d11 := int(ref[11]) - int(src[11])
+	d12 := int(ref[12]) - int(src[12])
+	d13 := int(ref[13]) - int(src[13])
+	d14 := int(ref[14]) - int(src[14])
+	d15 := int(ref[15]) - int(src[15])
+	mean = d0 + d1 + d2 + d3 + d4 + d5 + d6 + d7 +
+		d8 + d9 + d10 + d11 + d12 + d13 + d14 + d15
+	sse = d0*d0 + d1*d1 + d2*d2 + d3*d3 +
+		d4*d4 + d5*d5 + d6*d6 + d7*d7 +
+		d8*d8 + d9*d9 + d10*d10 + d11*d11 +
+		d12*d12 + d13*d13 + d14*d14 + d15*d15
+	return sse, mean
 }

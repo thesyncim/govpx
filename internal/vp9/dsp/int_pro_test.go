@@ -225,6 +225,38 @@ func TestVpxVectorVarKnownPattern(t *testing.T) {
 	}
 }
 
+func TestVpxVectorVarRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x5eed, 0x7711))
+	for _, bwl := range []int{0, 2, 3, 4} {
+		width := 4 << bwl
+		for trial := range 64 {
+			ref := make([]int16, width)
+			src := make([]int16, width)
+			for i := range width {
+				ref[i] = int16(r.IntN(511))
+				src[i] = int16(r.IntN(511))
+			}
+			got := VpxVectorVar(ref, src, bwl)
+			want := referenceVpxVectorVar(ref, src, bwl)
+			if got != want {
+				t.Fatalf("bwl=%d width=%d trial=%d: got %d want %d",
+					bwl, width, trial, got, want)
+			}
+		}
+	}
+}
+
+func referenceVpxVectorVar(ref, src []int16, bwl int) int {
+	width := 4 << bwl
+	var sse, mean int
+	for i := range width {
+		diff := int(ref[i]) - int(src[i])
+		mean += diff
+		sse += diff * diff
+	}
+	return sse - ((mean * mean) >> (bwl + 2))
+}
+
 func BenchmarkVpxIntProRowHeight16(b *testing.B) {
 	benchmarkVpxIntProRow(b, 16)
 }
@@ -247,6 +279,18 @@ func BenchmarkVpxIntProColWidth32(b *testing.B) {
 
 func BenchmarkVpxIntProColWidth64(b *testing.B) {
 	benchmarkVpxIntProCol(b, 64)
+}
+
+func BenchmarkVpxVectorVarWidth16(b *testing.B) {
+	benchmarkVpxVectorVar(b, 2)
+}
+
+func BenchmarkVpxVectorVarWidth32(b *testing.B) {
+	benchmarkVpxVectorVar(b, 3)
+}
+
+func BenchmarkVpxVectorVarWidth64(b *testing.B) {
+	benchmarkVpxVectorVar(b, 4)
 }
 
 func benchmarkVpxIntProRow(b *testing.B, height int) {
@@ -275,4 +319,21 @@ func benchmarkVpxIntProCol(b *testing.B, width int) {
 		sum += VpxIntProCol(ref, i&15, width)
 	}
 	_ = sum
+}
+
+func benchmarkVpxVectorVar(b *testing.B, bwl int) {
+	width := 4 << bwl
+	ref := make([]int16, width)
+	src := make([]int16, width)
+	for i := range width {
+		ref[i] = int16((i*17 + 5) % 511)
+		src[i] = int16((i*31 + 9) % 511)
+	}
+	var v int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v += VpxVectorVar(ref, src, bwl)
+	}
+	_ = v
 }
