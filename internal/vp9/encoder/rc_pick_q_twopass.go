@@ -16,8 +16,6 @@ package encoder
 //   - last_qindex_of_arf_layer[] tracking (libvpx vp9_ratectrl.c:1554).
 //     We treat the per-layer-depth floor as 0 until the post-encode
 //     hook that updates this is ported.
-//   - extend_minq_fast (libvpx vp9_ratectrl.c twopass->extend_minq_fast).
-//     Defaults to 0.
 const (
 	vp9StaticMotionThresh   = 95
 	vp9StaticKFGroupThresh  = 99

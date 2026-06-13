@@ -103,6 +103,13 @@ const (
 	// vbr_rate_correction().
 	// libvpx: vp9/encoder/vp9_ratectrl.c:2687
 	vp9TwoPassVBRFrameWindowMax = 16
+	// vp9TwoPassMinQAdjLimit / vp9TwoPassMinQAdjLimitCQ /
+	// vp9TwoPassHighUndershootRatio mirror MINQ_ADJ_LIMIT,
+	// MINQ_ADJ_LIMIT_CQ, and HIGH_UNDERSHOOT_RATIO.
+	// libvpx: vp9/encoder/vp9_firstpass.c:82-84.
+	vp9TwoPassMinQAdjLimit        = 48
+	vp9TwoPassMinQAdjLimitCQ      = 20
+	vp9TwoPassHighUndershootRatio = 2
 )
 
 // vp9TwoPassState tracks the second-pass VBR budget and per-frame score
@@ -172,6 +179,11 @@ type vp9TwoPassState struct {
 	activeWorstQuality       int
 	baselineActiveWorst      int
 	bpmFactor                float64
+	extendMinQ               int
+	extendMaxQ               int
+	extendMinQFast           int
+	vbrBitsOffTargetFast     int64
+	rateErrorEstimate        int
 }
 
 func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
@@ -492,6 +504,9 @@ func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
 		ThisFrameTarget:                      e.rc.frameTargetBits,
 		MaxFrameBandwidth:                    e.rc.maxFrameBandwidth,
 		ActiveWorstQuality:                   activeWorstQuality,
+		ExtendMinQ:                           e.twoPass.extendMinQ,
+		ExtendMaxQ:                           e.twoPass.extendMaxQ,
+		ExtendMinQFast:                       e.twoPass.extendMinQFast,
 		LastKFGroupZeroMotionPct:             e.twoPass.lastKFGroupZeroMotionPct,
 		KFZeroMotionPct:                      e.twoPass.kfZeroMotionPct,
 		KeyFrameBoost:                        e.twoPass.keyFrameBoost,
@@ -779,6 +794,11 @@ func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
 	t.activeWorstQuality = -1
 	t.baselineActiveWorst = -1
 	t.bpmFactor = 1
+	t.extendMinQ = 0
+	t.extendMaxQ = 0
+	t.extendMinQFast = 0
+	t.vbrBitsOffTargetFast = 0
+	t.rateErrorEstimate = 0
 
 	// libvpx: vp9/encoder/vp9_firstpass.c:1642-1662 — when
 	// oxcf->vbr_corpus_complexity is non-zero, mean_mod_score is forced
@@ -1026,6 +1046,107 @@ func (t *vp9TwoPassState) applyVBRRateCorrection(target int64) int64 {
 	return target
 }
 
+func (t *vp9TwoPassState) assignedFrameBitsForPostEncode() int64 {
+	bitsUsed := int64(t.baseFrameTarget)
+	if bitsUsed <= 0 {
+		bitsUsed = int64(t.currentTargetBits)
+	}
+	if bitsUsed <= 0 {
+		bitsUsed = int64(encoder.FrameOverhead)
+	}
+	return bitsUsed
+}
+
+func (e *VP9Encoder) updateVP9TwoPassPostEncodeQRange(projectedFrameSize int,
+	intraOnly bool, refreshFlags uint8,
+) {
+	if e == nil || !e.twoPass.enabled() {
+		return
+	}
+	t := &e.twoPass
+	bitsUsed := t.assignedFrameBitsForPostEncode()
+	vbrBitsOffTarget := t.vbrBitsOffTarget
+	if projectedFrameSize > 0 {
+		vbrBitsOffTarget += bitsUsed - int64(projectedFrameSize)
+	}
+	if e.rc.totalActualBits > 0 {
+		err := int((vbrBitsOffTarget * 100) / e.rc.totalActualBits)
+		t.rateErrorEstimate = min(max(err, -100), 100)
+	} else {
+		t.rateErrorEstimate = 0
+	}
+	if e.rc.mode == RateControlQ || e.rc.isSrcFrameAltRef {
+		return
+	}
+
+	maxQAdjLimit := int(e.rc.worstQuality) - t.activeWorstQuality
+	if maxQAdjLimit < 0 {
+		maxQAdjLimit = 0
+	}
+	minQAdjLimit := vp9TwoPassMinQAdjLimit
+	if e.rc.mode == RateControlCQ {
+		minQAdjLimit = vp9TwoPassMinQAdjLimitCQ
+	}
+
+	// libvpx extends the bounds further when segment AQ's average offset
+	// biases the coded Q. govpx does not carry cm->seg.aq_av_offset as a
+	// postencode scalar yet, so the no-AQ/perceptual-AQ path remains exact
+	// and AQ-specific offset compensation stays neutral.
+	aqExtendMin, aqExtendMax := 0, 0
+
+	if t.rateErrorEstimate > int(e.rc.undershootPct) {
+		t.extendMaxQ--
+		if e.rc.rollingTargetBits >= e.rc.rollingActualBits {
+			t.extendMinQ++
+		}
+	} else if t.rateErrorEstimate < -int(e.rc.overshootPct) {
+		t.extendMinQ--
+		if e.rc.rollingTargetBits < e.rc.rollingActualBits {
+			t.extendMaxQ++
+		}
+	} else {
+		if projectedFrameSize > 2*int(bitsUsed) &&
+			projectedFrameSize > 2*e.rc.bitsPerFrame {
+			t.extendMaxQ++
+		}
+		if e.rc.rollingTargetBits < e.rc.rollingActualBits {
+			t.extendMinQ--
+		} else if e.rc.rollingTargetBits > e.rc.rollingActualBits {
+			t.extendMaxQ--
+		}
+	}
+
+	t.extendMinQ = min(max(t.extendMinQ, aqExtendMin), minQAdjLimit)
+	t.extendMaxQ = min(max(t.extendMaxQ, aqExtendMax), maxQAdjLimit)
+
+	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	frameIsKFGFARF := intraOnly || refreshAlt ||
+		(refreshGolden && !e.rc.isSrcFrameAltRef)
+	if frameIsKFGFARF || e.rc.isSrcFrameAltRef {
+		return
+	}
+	fastExtraThresh := int(bitsUsed) / vp9TwoPassHighUndershootRatio
+	if projectedFrameSize < fastExtraThresh {
+		t.vbrBitsOffTargetFast += int64(fastExtraThresh - projectedFrameSize)
+		limit := int64(4 * e.rc.bitsPerFrame)
+		if t.vbrBitsOffTargetFast > limit {
+			t.vbrBitsOffTargetFast = limit
+		}
+		if e.rc.bitsPerFrame > 0 {
+			t.extendMinQFast = int(t.vbrBitsOffTargetFast * 8 /
+				int64(e.rc.bitsPerFrame))
+		}
+		t.extendMinQFast = min(t.extendMinQFast,
+			minQAdjLimit-t.extendMinQ)
+	} else if t.vbrBitsOffTargetFast != 0 {
+		t.extendMinQFast = min(t.extendMinQFast,
+			minQAdjLimit-t.extendMinQ)
+	} else {
+		t.extendMinQFast = 0
+	}
+}
+
 // finishFrame advances the second-pass cursor without an actual-bits
 // observation. Used for dropped frames or when the encoder front-end
 // hasn't wired postencodeFrameSize through yet.
@@ -1064,13 +1185,7 @@ func (t *vp9TwoPassState) finishFrameWithActualAndAdvance(projectedFrameSize int
 	// libvpx: bits_used = rc->base_frame_target (the pre-correction
 	// target). bits_left is reduced by bits_used; vbr_bits_off_target
 	// accumulates (base_frame_target - projected_frame_size).
-	bitsUsed := int64(t.baseFrameTarget)
-	if bitsUsed <= 0 {
-		bitsUsed = int64(t.currentTargetBits)
-	}
-	if bitsUsed <= 0 {
-		bitsUsed = int64(encoder.FrameOverhead)
-	}
+	bitsUsed := t.assignedFrameBitsForPostEncode()
 	if projectedFrameSize > 0 {
 		t.vbrBitsOffTarget += bitsUsed - int64(projectedFrameSize)
 	}

@@ -778,6 +778,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if !postDrop {
 			projected = vpxrc.EncodedSizeBits(n)
 		}
+		e.updateVP9TwoPassPostEncodeQRange(projected, isKey || intraOnly,
+			header.RefreshFrameFlags)
 		e.twoPass.postEncodeGFUpdate(header.RefreshFrameFlags)
 		if twoPassHiddenARF {
 			e.twoPass.finishARFFrameWithActual(projected)

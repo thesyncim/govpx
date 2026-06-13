@@ -942,6 +942,122 @@ func TestVP9TwoPassVBRRateCorrectionAddsUndershoot(t *testing.T) {
 	}
 }
 
+func TestVP9TwoPassPostEncodeQRangeTracksUndershoot(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.activeWorstQuality = 120
+	enc.twoPass.baseFrameTarget = 1000
+	enc.twoPass.currentTargetBits = 1000
+	enc.rc.bitsPerFrame = 1000
+	enc.rc.totalActualBits = 500
+	enc.rc.rollingTargetBits = 1000
+	enc.rc.rollingActualBits = 400
+	enc.updateVP9TwoPassPostEncodeQRange(100, false, 1<<vp9LastRefSlot)
+	if enc.twoPass.rateErrorEstimate != 100 {
+		t.Fatalf("rateErrorEstimate = %d, want clamped 100",
+			enc.twoPass.rateErrorEstimate)
+	}
+	if enc.twoPass.extendMinQ <= 0 {
+		t.Fatalf("extendMinQ = %d, want undershoot to extend min-q",
+			enc.twoPass.extendMinQ)
+	}
+	if enc.twoPass.extendMinQFast <= 0 ||
+		enc.twoPass.vbrBitsOffTargetFast <= 0 {
+		t.Fatalf("fast undershoot feedback = extend:%d bits:%d, want positive",
+			enc.twoPass.extendMinQFast,
+			enc.twoPass.vbrBitsOffTargetFast)
+	}
+}
+
+func TestVP9TwoPassPostEncodeQRangeTracksOvershoot(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.activeWorstQuality = 120
+	enc.twoPass.baseFrameTarget = 1000
+	enc.twoPass.currentTargetBits = 1000
+	enc.rc.bitsPerFrame = 1000
+	enc.rc.totalActualBits = 3000
+	enc.rc.rollingTargetBits = 1000
+	enc.rc.rollingActualBits = 2000
+	enc.updateVP9TwoPassPostEncodeQRange(3000, false, 1<<vp9LastRefSlot)
+	if enc.twoPass.rateErrorEstimate >= -int(enc.rc.overshootPct) {
+		t.Fatalf("rateErrorEstimate = %d, want beyond overshoot threshold %d",
+			enc.twoPass.rateErrorEstimate, enc.rc.overshootPct)
+	}
+	if enc.twoPass.extendMaxQ <= 0 {
+		t.Fatalf("extendMaxQ = %d, want overshoot to extend max-q",
+			enc.twoPass.extendMaxQ)
+	}
+}
+
+func TestVP9TwoPassQPickerConsumesPostEncodeQRange(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	refreshFlags := uint8(1 << vp9LastRefSlot)
+	enc.twoPass.activeWorstQuality = 120
+	enc.rc.frameTargetBits = 1200
+	enc.rc.maxFrameBandwidth = 5000
+	enc.rc.lastQInter = 120
+	enc.rc.avgFrameQIndexInter = 120
+	macroblocks := vp9enc.MacroblockCount((enc.opts.Height+7)>>3,
+		(enc.opts.Width+7)>>3)
+	_, baseBest, baseWorst, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+
+	enc.twoPass.extendMinQ = 8
+	enc.twoPass.extendMinQFast = 4
+	enc.twoPass.extendMaxQ = 6
+	_, extendedBest, extendedWorst, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	if extendedBest >= baseBest {
+		t.Fatalf("active best = %d, want < baseline %d after min-q extension",
+			extendedBest, baseBest)
+	}
+	if extendedWorst <= baseWorst {
+		t.Fatalf("active worst = %d, want > baseline %d after max-q extension",
+			extendedWorst, baseWorst)
+	}
+}
+
 // TestVP9TwoPassVBRBitrateAccuracyConverges checks the canonical
 // libvpx invariant: across a uniform-stats clip, the running per-frame
 // target average must converge to the configured avg_frame_bandwidth.

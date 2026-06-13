@@ -395,6 +395,7 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassUseBufFrameInto(dst []byte,
 	firstPassStats := e.twoPass.statsForFrame()
 	twoPassTargetBits := e.vp9TwoPassFrameTarget
 	e.twoPass.postEncodeGFUpdate(refreshFlags)
+	e.updateVP9TwoPassPostEncodeQRange(projected, false, refreshFlags)
 	e.twoPass.finishFrameWithActual(projected)
 	if entry != nil {
 		e.vp9CommitLastSource(&entry.img, true, false)
