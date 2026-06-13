@@ -80,6 +80,17 @@ func RequireVpxenc(t testing.TB) string {
 	return coracletest.VpxencVP9(t)
 }
 
+// VpxencAvailable reports whether the pinned VP9 vpxenc binary is available.
+func VpxencAvailable() (bool, error) {
+	if _, err := coracle.VpxencVP9Path(); err != nil {
+		if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // RequireVpxencFrameFlags resolves the VP9 frame-flags helper or skips t.
 func RequireVpxencFrameFlags(t testing.TB) string {
 	t.Helper()

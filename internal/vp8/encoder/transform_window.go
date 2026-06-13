@@ -1,5 +1,7 @@
 package encoder
 
+// Scalar bounds guard for libvpx v1.16.0 VP8 4x4 transform input windows before
+// dispatching to source-shaped C/ASM-equivalent FDCT helpers.
 func transform4x4WindowOK(input []int16, stride int) bool {
 	if stride < 4 {
 		return false

@@ -3,14 +3,12 @@
 package govpx
 
 import (
-	"errors"
 	"fmt"
 	"image"
 	"io"
 	"strings"
 	"testing"
 
-	"github.com/thesyncim/govpx/internal/coracle"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -488,13 +486,14 @@ func nextDivReportLibvpxDynamicFrontier(t *testing.T,
 	closedPrefixLen int,
 ) {
 	t.Helper()
-	if _, err := coracle.VpxencVP9Path(); err != nil {
-		if errors.Is(err, coracle.ErrVpxencVP9NotBuilt) {
-			t.Log("vpxenc-vp9 not built; dynamic bottom-half frontier unavailable " +
-				"(run `make vp9-vpxdec-tools`)")
-			return
-		}
-		t.Fatalf("VpxencVP9Path: %v", err)
+	available, err := vp9test.VpxencAvailable()
+	if err != nil {
+		t.Fatalf("VpxencAvailable: %v", err)
+	}
+	if !available {
+		t.Log("vpxenc-vp9 not built; dynamic bottom-half frontier unavailable " +
+			"(run `make vp9-vpxdec-tools`)")
+		return
 	}
 
 	args := []string{

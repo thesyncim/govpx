@@ -1,5 +1,7 @@
 package dsp
 
+// Scalar bounds guard for libvpx v1.16.0 VP8 DSP kernels before dispatching to
+// source-shaped C/ASM-equivalent predictors and variance/SAD helpers.
 func dspWindowOK(buf []byte, stride, w, h int) bool {
 	if stride < 0 || w <= 0 || h <= 0 {
 		return false
