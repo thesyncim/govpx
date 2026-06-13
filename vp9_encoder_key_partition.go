@@ -132,7 +132,8 @@ func (e *VP9Encoder) pickVP9KeyframeRDPartitionBlockSize(key *vp9KeyframeEncodeS
 		return common.BlockInvalid, false
 	}
 	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
-	ctxSnap, ctxOK := e.snapshotVP9PartitionContexts(miRow, miCol, root)
+	ctxSnap, ctxOK := e.snapshotVP9PartitionContextsWithEntropy(miRow, miCol,
+		root, true)
 	var miSaved [64]vp9dec.NeighborMi
 	miRowsSaved, miColsSaved, miOK := e.snapshotVP9MiRect(miRows, miCols,
 		miRow, miCol, int(common.Num8x8BlocksHighLookup[root]),
@@ -148,8 +149,15 @@ func (e *VP9Encoder) pickVP9KeyframeRDPartitionBlockSize(key *vp9KeyframeEncodeS
 		e.restoreVP9PartitionReconSnapshotPixels(reconSnap)
 	}
 
+	refBestRD := ^uint64(0)
+	if key.counts != nil {
+		if _, cachedRefBestRD, ok := e.lookupVP9KeyframePartitionDecisionWithBudget(
+			miRow, miCol, root); ok {
+			refBestRD = cachedRefBestRD
+		}
+	}
 	rd, ok := e.scoreVP9KeyframeRDPartitionTree(key, tile, partitionProbs,
-		miRows, miCols, miRow, miCol, root, txMode, ^uint64(0), true,
+		miRows, miCols, miRow, miCol, root, txMode, refBestRD, true,
 		key.counts != nil)
 	restoreBase()
 	if !ok {
@@ -206,7 +214,8 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		return vp9KeyframePartitionRD{}, false
 	}
 	defer e.releaseVP9PartitionReconSnapshot(reconSnap)
-	ctxSnap, ctxOK := e.snapshotVP9PartitionContexts(miRow, miCol, root)
+	ctxSnap, ctxOK := e.snapshotVP9PartitionContextsWithEntropy(miRow, miCol,
+		root, true)
 	var miSaved [64]vp9dec.NeighborMi
 	miRowsSaved, miColsSaved, miOK := e.snapshotVP9MiRect(miRows, miCols,
 		miRow, miCol, int(common.Num8x8BlocksHighLookup[root]),
@@ -215,6 +224,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		return vp9KeyframePartitionRD{}, false
 	}
+	entryCtx, entryCtxOK := e.vp9CurrentPartitionEntropyCtx(miRow, miCol, root)
 	restoreBase := func() {
 		e.restoreVP9MiRect(miRows, miCols, miRow, miCol,
 			miRowsSaved, miColsSaved, miSaved[:])
@@ -367,7 +377,8 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 	committed.score = encoder.RDCost(rdmult, encoder.RDDivBits, committed.rate,
 		committed.distortion)
 	if store {
-		e.storeVP9KeyframePartitionDecision(miRow, miCol, root, best.target)
+		e.storeVP9KeyframePartitionDecisionWithContext(miRow, miCol, root,
+			best.target, bestRD, entryCtx, entryCtxOK)
 	}
 	e.partitionReconScratchTop = reconSnap.top
 	return committed, true

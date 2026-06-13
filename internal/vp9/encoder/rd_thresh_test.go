@@ -100,6 +100,34 @@ func TestVP9SetRDSpeedThresholdsBestQuality(t *testing.T) {
 	}
 }
 
+func TestVP9SetRDSpeedThresholdsSub8x8(t *testing.T) {
+	var rd RDThreshState
+	rd.SetRDSpeedThresholdsSub8x8(false, 0)
+	wantRealtime := [vp9MaxRefs]int{2500, 2500, 2500, 4500, 4500, 2500}
+	if rd.threshMultSub8x8 != wantRealtime {
+		t.Fatalf("realtime sub8x8 thresh mult = %v, want %v",
+			rd.threshMultSub8x8, wantRealtime)
+	}
+
+	rd.SetRDSpeedThresholdsSub8x8(true, 0)
+	wantBest := [vp9MaxRefs]int{2000, 2000, 2000, 4000, 4000, 2000}
+	if rd.threshMultSub8x8 != wantBest {
+		t.Fatalf("best sub8x8 thresh mult = %v, want %v",
+			rd.threshMultSub8x8, wantBest)
+	}
+
+	const maxInt32 = 1<<31 - 1
+	rd.SetRDSpeedThresholdsSub8x8(false, (1<<1)|(1<<5))
+	if rd.threshMultSub8x8[1] != maxInt32 ||
+		rd.threshMultSub8x8[5] != maxInt32 {
+		t.Fatalf("disable_split_mask did not force refs 1/5 to MaxInt")
+	}
+	if rd.threshMultSub8x8[0] != 2500 {
+		t.Fatalf("disable_split_mask changed ref 0 to %d, want 2500",
+			rd.threshMultSub8x8[0])
+	}
+}
+
 // TestVP9ModeIdxTableMatchesLibvpx verifies the mode_idx table layout
 // (vp9_pickmode.c:1098-1103).
 func TestVP9ModeIdxTableMatchesLibvpx(t *testing.T) {
@@ -206,24 +234,29 @@ func TestVP9FullRDCorrectNewMVMode(t *testing.T) {
 	}
 }
 
-// TestVP9SetBlockThresholdsPopulatesGEBlock8x8 verifies set_block_thresholds
-// fills the bsize>=BLOCK_8X8 rows with finite values; sub-8x8 rows stay zero
-// (govpx does not surface the sub-8x8 picker).
-func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
+// TestVP9SetBlockThresholdsPopulatesBlockRows verifies set_block_thresholds
+// fills bsize>=BLOCK_8X8 rows by THR_MODES and bsize<BLOCK_8X8 rows by
+// vp9_ref_order index.
+func TestVP9SetBlockThresholdsPopulatesBlockRows(t *testing.T) {
 	var rd RDThreshState
 	rd.SetRDSpeedThresholds(4, false)
+	rd.SetRDSpeedThresholdsSub8x8(false, 0)
 	rd.SetBlockThresholds(64, 0)
 
-	// Sub-8x8 rows stay zero because govpx does not run the sub-8x8 RD
-	// picker here.
-	for b := range common.Block8x8 {
-		for i := range vp9MaxModes {
-			if rd.threshes[b][i] != 0 {
-				t.Errorf("threshes[%d][%d] sub-8x8 should be 0, got %d",
-					b, i, rd.threshes[b][i])
-			}
+	q := vp9ComputeRDThreshFactor(64)
+	t4 := q * int(vp9RDThreshBlockSizeFactor[common.Block4x4])
+	for i, mult := range [vp9MaxRefs]int{2500, 2500, 2500, 4500, 4500, 2500} {
+		want := mult * t4 / 4
+		if got := rd.threshes[common.Block4x4][i]; got != want {
+			t.Fatalf("threshes[4x4][ref %d] = %d, want %d", i, got, want)
 		}
 	}
+	for i := vp9MaxRefs; i < vp9MaxModes; i++ {
+		if got := rd.threshes[common.Block4x4][i]; got != 0 {
+			t.Fatalf("unused sub8x8 threshes[4x4][%d] = %d, want 0", i, got)
+		}
+	}
+
 	// Block64x64 NEARESTMV must be positive (q*32*300/4 >> 0).
 	if rd.threshes[common.Block64x64][vp9ThrNearestMV] <= 0 {
 		t.Errorf("threshes[64x64][NEARESTMV] should be positive, got %d",
@@ -236,6 +269,30 @@ func TestVP9SetBlockThresholdsPopulatesGEBlock8x8(t *testing.T) {
 	if t64 < 3*t16 {
 		t.Errorf("Block64x64 threshold should be ≥3x Block16x16, got 64x=%d 16x=%d",
 			t64, t16)
+	}
+}
+
+func TestVP9Sub8x8RefSkipped(t *testing.T) {
+	var rd RDThreshState
+	rd.SetRDSpeedThresholdsSub8x8(false, 0)
+	rd.SetBlockThresholds(64, 0)
+	rd.InitFreqFact()
+
+	thresh := rd.Sub8x8RefRDThreshold(common.Block4x4, 5)
+	if thresh <= 0 {
+		t.Fatalf("sub8x8 intra threshold = %d, want positive", thresh)
+	}
+	if !rd.Sub8x8RefSkipped(uint64(thresh-1), common.Block4x4, 5) {
+		t.Fatalf("sub8x8 threshold gate did not skip below threshold")
+	}
+	if rd.Sub8x8RefSkipped(uint64(thresh), common.Block4x4, 5) {
+		t.Fatalf("sub8x8 threshold gate skipped at threshold")
+	}
+
+	rd.SetRDSpeedThresholdsSub8x8(false, 1<<5)
+	rd.SetBlockThresholds(64, 0)
+	if !rd.Sub8x8RefSkipped(^uint64(0), common.Block4x4, 5) {
+		t.Fatalf("INT_MAX disabled sub8x8 ref did not always skip")
 	}
 }
 

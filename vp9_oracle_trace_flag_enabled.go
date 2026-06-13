@@ -162,6 +162,12 @@ type vp9OracleTraceState struct {
 	sub8x8WrapperR     int
 	sub8x8WrapperFltr  vp9dec.InterpFilter
 
+	// sub8x8InterMi72 captures the formerly drifting frame-1 SB0 mi=(7,2)
+	// committed inter leaf's UV/rate tuple. It pins the chroma entropy-context
+	// side effect of committed sub-8x8 inter leaves after the luma replay fix.
+	sub8x8InterMi72Valid bool
+	sub8x8InterMi72      vp9Sub8x8InterCapture
+
 	// sub8x8Intra* captures the genuine sub-8x8 wrapper's committed INTRA leaf for
 	// the frame-1 SB0 16x16(0,0) child at mi=(1,0) BLOCK_8X4: the chosen Y mode +
 	// per-sub-block bmi modes + UV mode + the intra Y rate (rate incl. mbmode_cost),
@@ -381,6 +387,26 @@ func (e *VP9Encoder) vp9CapturedSub8x8WrapperCommit() (int, vp9dec.InterpFilter,
 		return 0, 0, false
 	}
 	return state.sub8x8WrapperR, state.sub8x8WrapperFltr, true
+}
+
+func (e *VP9Encoder) recordVP9Sub8x8InterCommit(cap vp9Sub8x8InterCapture) {
+	state := e.vp9OracleTraceState()
+	if state == nil || state.sub8x8InterMi72Valid {
+		return
+	}
+	if cap.MiRow != 7 || cap.MiCol != 2 {
+		return
+	}
+	state.sub8x8InterMi72Valid = true
+	state.sub8x8InterMi72 = cap
+}
+
+func (e *VP9Encoder) vp9CapturedSub8x8InterMi72Commit() (vp9Sub8x8InterCapture, bool) {
+	state := e.vp9OracleTraceState()
+	if state == nil || !state.sub8x8InterMi72Valid {
+		return vp9Sub8x8InterCapture{}, false
+	}
+	return state.sub8x8InterMi72, true
 }
 
 // recordVP9Sub8x8IntraCommit stores the genuine sub-8x8 wrapper's committed INTRA

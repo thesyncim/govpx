@@ -138,10 +138,10 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 	if aboveLen <= len(aboveCtx) && leftLen <= len(leftCtx) &&
 		len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+		if off := aboveOffsets[0]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 		}
-		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+		if off := leftOffsets[0]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 		}
 	}
@@ -169,10 +169,8 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 			var blockDist uint64
 			var blockSSE uint64
 			if useTxDomain && hasResidue {
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
-					txSize)
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
 			} else {
 				bd, distOK := vp9FullRDInterTxBlockPixelSSE(src, srcStride,
 					srcW, srcH, planeData, stride, baseX+cc*4, baseY+rr*4, bs)

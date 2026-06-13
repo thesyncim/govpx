@@ -254,6 +254,14 @@ func TestVP9ChoosePartitioningSADReplicatesVisibleEdge(t *testing.T) {
 	}
 }
 
+func TestVP9ChoosePartitioningBlockSADRejectsOverflowSpan(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	if _, ok := choosePartitioningBlockSAD([]uint8{1}, huge/2+1,
+		[]uint8{1}, huge/2+1, common.Block32x32, huge/2+1, 3); ok {
+		t.Fatal("choosePartitioningBlockSAD accepted overflowing plane span")
+	}
+}
+
 // TestVP9ChoosePartitioningInterHighVarianceForcesSplit pins the
 // force-split[0] path: a source with low-frequency block content
 // (uniform halves) against a flat predictor produces large per-8x8-avg

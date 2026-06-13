@@ -242,10 +242,10 @@ func (e *VP9Encoder) pickVP9KeyframeSub8x8YMode(key *vp9KeyframeEncodeState,
 	var aboveCtx, leftCtx [2]uint8
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+2 <= len(pd.AboveContext) {
+		if off := aboveOffsets[0]; vp9ContextWindowOK(off, 2, len(pd.AboveContext)) {
 			copy(aboveCtx[:], pd.AboveContext[off:off+2])
 		}
-		if off := leftOffsets[0]; off >= 0 && off+2 <= len(pd.LeftContext) {
+		if off := leftOffsets[0]; vp9ContextWindowOK(off, 2, len(pd.LeftContext)) {
 			copy(leftCtx[:], pd.LeftContext[off:off+2])
 		}
 	}
@@ -929,19 +929,17 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			restoreW, restoreH, saved)
 		return 0, 0, false, false
 	}
-	// vp9EncoderPlaneContextOffsets() does a modulo by len(pd.LeftContext)
-	// and would panic when the plane LeftContext slab is not yet
-	// allocated (some test fixtures bypass the encoder init path). Skip
-	// the context cache copy in that case and start with the
-	// vp9_get_entropy_contexts default of zeroes (libvpx's
-	// vp9_rd.c:547-583 initial state for a fresh SB), which matches the
-	// libvpx-faithful coeff_ctx at SB corners.
+	// Some test fixtures bypass the encoder init path, leaving context slabs
+	// unallocated. Skip the context cache copy in that case and start with the
+	// vp9_get_entropy_contexts default of zeroes (libvpx's vp9_rd.c:547-583
+	// initial state for a fresh SB), which matches the libvpx-faithful coeff_ctx
+	// at SB corners.
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+		if off := aboveOffsets[0]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 		}
-		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+		if off := leftOffsets[0]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 		}
 	}
@@ -974,9 +972,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			var blockDist uint64
 			var blockSSE uint64
 			if useTxDomainDistortion && hasResidue {
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob], txSize)
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
 			} else {
 				// libvpx vp9_rdopt.c:766-768 — dist = pixel_sse(src,recon)*16
 				// when transform-domain distortion is disabled, or when eob=0
@@ -1438,10 +1435,10 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		// aboveOffsets/leftOffsets index by plane.
 		if plane >= 0 && plane < len(aboveOffsets) && plane < len(leftOffsets) {
-			if off := aboveOffsets[plane]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+			if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 				copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 			}
-			if off := leftOffsets[plane]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+			if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 				copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 			}
 		}

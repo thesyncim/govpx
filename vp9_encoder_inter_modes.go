@@ -579,11 +579,23 @@ type vp9LeafKeyframeDecisionEntry struct {
 	valid    bool
 }
 
+// vp9KeyframePartitionEntropyContext stores the all-plane entropy half of
+// libvpx save_context() for a keyframe partition node.
+type vp9KeyframePartitionEntropyContext struct {
+	left     [vp9dec.MaxMbPlane][16]uint8
+	above    [vp9dec.MaxMbPlane][16]uint8
+	leftLen  [vp9dec.MaxMbPlane]uint8
+	aboveLen [vp9dec.MaxMbPlane]uint8
+}
+
 type vp9KeyframePartitionDecisionEntry struct {
-	version uint32
-	root    common.BlockSize
-	target  common.BlockSize
-	valid   bool
+	version   uint32
+	root      common.BlockSize
+	target    common.BlockSize
+	refBestRD uint64
+	ctx       vp9KeyframePartitionEntropyContext
+	ctxValid  bool
+	valid     bool
 }
 
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
@@ -839,14 +851,19 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 		} else if vp9InterUseDeepRDSub8x8 {
 			// GENUINE sub-8x8 joint RD: vp9_rd_pick_inter_mode_sub8x8 iterates the
 			// usable refs + switchable filters internally (one call), unlike the
-			// per-ref model loop below. The INTRA_FRAME arm (ref_index 5) is now
-			// ported too, so the wrapper can commit a sub-8x8 intra leaf. Budget is
-			// INT64_MAX here (the partition recursion's running best is not threaded
-			// into the leaf yet; an infinite budget disables the early-exits but
-			// yields the same best decision). Falls back to the model loop only when
-			// the wrapper reports !ok.
+			// per-ref model loop below. The INTRA_FRAME arm (ref_index 5) is ported
+			// too, so the wrapper can commit a sub-8x8 intra leaf. When the deep
+			// partition recursion is scoring BLOCK_8X8->sub8x8 SPLIT, it scopes
+			// fullRDLeafBestRD to libvpx's rd_pick_sb_modes best_rd_so_far budget;
+			// otherwise the budget is INT64_MAX.
+			bestRDSoFar := ^uint64(0)
+			bestRDInf := true
+			if e.fullRDLeafBestRDValid {
+				bestRDSoFar = e.fullRDLeafBestRD
+				bestRDInf = false
+			}
 			if seg, ok := e.rdPickInterModeSub8x8(inter, tile, miRows, miCols,
-				miRow, miCol, bsize, ^uint64(0), true); ok {
+				miRow, miCol, bsize, bestRDSoFar, bestRDInf); ok {
 				refSlot := -1
 				if !seg.intra {
 					refSlot, _ = e.vp9InterReferenceSlot(inter, seg.refFrame)
@@ -2714,7 +2731,10 @@ func (e *VP9Encoder) scoreVP9InterModeResidual(inter *vp9InterEncodeState,
 // Sub-8x8 leaves carry the running segment context (decision.segEntropy, plane[0]
 // only — the sub-8x8 luma seed); 8x8+ leaves are reconstructed once (predict +
 // per-tx (eob>0)) to recover the committed all-plane context. mi must already be
-// filled into the grid by the caller; this only updates the context.
+// filled into the grid by the caller. For committed sub-8x8 inter leaves this
+// also replays the winning reconstruction side effects: luma pixels become
+// later intra prediction borders, and chroma entropy contexts seed later UV
+// coefficient costing just like libvpx's encode_sb/tokenize path.
 func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	decision vp9InterModeDecision,
@@ -2734,6 +2754,14 @@ func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState
 		return
 	}
 	if decision.segEntropyValid {
+		if bsize < common.Block8x8 {
+			e.replayVP9Sub8x8InterRecon(inter, miRows, miCols, miRow, miCol,
+				bsize, decision)
+			if decision.skip {
+				e.resetVP9InterLeafEntropyContexts(miRow, miCol, common.Block8x8)
+				return
+			}
+		}
 		ent := decision.segEntropy
 		e.vp9Sub8x8StampEntropy(&ent, miRow, miCol)
 		return
@@ -2763,6 +2791,151 @@ func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState
 	}
 	e.stampVP9InterLeafTxContext(inter, miRows, miCols, miRow, miCol, bsize,
 		decision.txSize, decision.skip)
+}
+
+// replayVP9Sub8x8InterRecon mirrors the committed reconstruction side effect of
+// libvpx's sub-8x8 inter winner before later sibling RD searches run. The deep
+// picker already carries the luma entropy context in decision.segEntropy; this
+// helper restores the predictor plus inverse-quantized residual pixels that
+// become top/left borders, and stamps the chroma entropy contexts that
+// super_block_uvrd leaves for later UV coefficient costing.
+func (e *VP9Encoder) replayVP9Sub8x8InterRecon(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	decision vp9InterModeDecision,
+) {
+	if inter == nil || inter.dq == nil || decision.intra ||
+		bsize >= common.Block8x8 {
+		return
+	}
+	savedRef := inter.ref
+	defer func() { inter.ref = savedRef }()
+	if refSlot, ok := e.vp9InterReferenceSlot(inter, decision.refFrame); ok {
+		inter.ref = &e.refFrames[refSlot]
+	} else {
+		return
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		TxSize:       common.Tx4x4,
+		Mode:         decision.mode,
+		InterpFilter: uint8(decision.interpFilter),
+		RefFrame:     [2]int8{decision.refFrame, vp9dec.NoRefFrame},
+		Mv:           decision.mv,
+		Bmi:          decision.bmi,
+	}
+	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol,
+		common.Block8x8, &mi) || decision.skip {
+		return
+	}
+
+	pd := &e.planes[0]
+	dequant := inter.dq.Y[0]
+	qindex := inter.baseQindex
+	maxEob := vp9dec.MaxEobForTxSize(common.Tx4x4)
+	if maxEob > len(e.coefScratch) {
+		return
+	}
+	coeffs := e.coefScratch[:maxEob]
+	for rr := 0; rr < 2; rr++ {
+		for cc := 0; cc < 2; cc++ {
+			for i := range coeffs {
+				coeffs[i] = 0
+			}
+			dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, 0, common.Tx4x4,
+				miRow, miCol, rr, cc)
+			if !ok {
+				return
+			}
+			src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+			if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride,
+				x0, y0, common.Tx4x4) {
+				continue
+			}
+			e.quantizeVP9TxResidualWithQ(dst, stride, common.Tx4x4,
+				common.DctDct, dequant, qindex, coeffs, nil, inter.lossless,
+				false, false)
+		}
+	}
+	e.replayVP9Sub8x8InterChromaRecon(inter, miRows, miCols, miRow, miCol, &mi)
+}
+
+func (e *VP9Encoder) replayVP9Sub8x8InterChromaRecon(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
+) {
+	if inter == nil || inter.dq == nil || mi == nil {
+		return
+	}
+	aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(common.Block8x8, pd)
+		if planeBsize >= common.BlockSizes {
+			continue
+		}
+		txSize := vp9dec.GetUvTxSize(common.Block8x8, common.Tx4x4, pd)
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob > len(e.coefScratch) {
+			continue
+		}
+		aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
+		leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
+		if aboveLen > 16 || leftLen > 16 {
+			continue
+		}
+		var aboveCtx [16]uint8
+		var leftCtx [16]uint8
+		ao, lo := aboveOff[plane], leftOff[plane]
+		if vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext)) {
+			copy(aboveCtx[:aboveLen], pd.AboveContext[ao:ao+aboveLen])
+		}
+		if vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext)) {
+			copy(leftCtx[:leftLen], pd.LeftContext[lo:lo+leftLen])
+		}
+
+		dequant := inter.dq.Uv[0]
+		qindex := inter.baseQindex
+		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
+			miRow, miCol, common.Block8x8, pd, planeBsize)
+		for rr := 0; rr < max4x4H; rr += step {
+			for cc := 0; cc < max4x4W; cc += step {
+				coeffs := e.coefScratch[:maxEob]
+				qcoeffs := e.qCoefScratch[:maxEob]
+				for i := range coeffs {
+					coeffs[i] = 0
+					qcoeffs[i] = 0
+				}
+				initCtx := vp9dec.GetEntropyContext(txSize,
+					aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+				hasResidue := e.prepareVP9InterUVTxResidueFullRD(inter, pd, plane,
+					txSize, miRow, miCol, rr, cc, dequant, qindex, initCtx,
+					coeffs, qcoeffs)
+				hasCtx := uint8(0)
+				if hasResidue {
+					hasCtx = 1
+				}
+				for i := 0; i < step && cc+i < aboveLen; i++ {
+					aboveCtx[cc+i] = hasCtx
+				}
+				for i := 0; i < step && rr+i < leftLen; i++ {
+					leftCtx[rr+i] = hasCtx
+				}
+			}
+		}
+		if vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext)) {
+			copy(pd.AboveContext[ao:ao+aboveLen], aboveCtx[:aboveLen])
+		}
+		if vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext)) {
+			copy(pd.LeftContext[lo:lo+leftLen], leftCtx[:leftLen])
+		}
+	}
+}
+
+func (e *VP9Encoder) resetVP9InterLeafEntropyContexts(miRow, miCol int,
+	bsize common.BlockSize,
+) {
+	aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	vp9dec.ResetSkipContext(e.planes[:], bsize, aboveOff[:], leftOff[:])
 }
 
 func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,

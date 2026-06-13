@@ -49,6 +49,68 @@ func TestSAD16x16Limit(t *testing.T) {
 	}
 }
 
+func TestSADInvalidWindowPanicsInScalar(t *testing.T) {
+	blocks := []struct {
+		name   string
+		width  int
+		height int
+		fn     func(src []byte, srcStride int, ref []byte, refStride int) int
+	}{
+		{name: "SAD16x16", width: 16, height: 16, fn: SAD16x16},
+		{name: "SAD16x16Limit", width: 16, height: 16, fn: func(src []byte, srcStride int, ref []byte, refStride int) int {
+			return SAD16x16Limit(src, srcStride, ref, refStride, 1)
+		}},
+		{name: "SAD16x8", width: 16, height: 8, fn: SAD16x8},
+		{name: "SAD8x16", width: 8, height: 16, fn: SAD8x16},
+		{name: "SAD8x8", width: 8, height: 8, fn: SAD8x8},
+		{name: "SAD4x4", width: 4, height: 4, fn: SAD4x4},
+	}
+	for _, block := range blocks {
+		t.Run(block.name, func(t *testing.T) {
+			full := (block.height-1)*block.width + block.width
+			cases := []struct {
+				name string
+				fn   func()
+			}{
+				{
+					name: "short-src",
+					fn: func() {
+						block.fn(make([]byte, block.width-1), block.width, make([]byte, full), block.width)
+					},
+				},
+				{
+					name: "short-ref",
+					fn: func() {
+						block.fn(make([]byte, full), block.width, make([]byte, block.width-1), block.width)
+					},
+				},
+				{
+					name: "negative-src-stride",
+					fn: func() {
+						block.fn(make([]byte, full), -block.width, make([]byte, full), block.width)
+					},
+				},
+				{
+					name: "negative-ref-stride",
+					fn: func() {
+						block.fn(make([]byte, full), block.width, make([]byte, full), -block.width)
+					},
+				},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					defer func() {
+						if recover() == nil {
+							t.Fatal("expected scalar bounds panic")
+						}
+					}()
+					tc.fn()
+				})
+			}
+		})
+	}
+}
+
 func TestSAD16x16x4PtrFast(t *testing.T) {
 	const stride = 64
 	src := make([]byte, stride*32)

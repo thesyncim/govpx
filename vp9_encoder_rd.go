@@ -147,10 +147,13 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	// frames via update_thresh_freq_fact; libvpx never re-inits between
 	// frames inside an encode session.
 	//
-	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
-	// sibling not surfaced here).
-	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh,
-		vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeBest)
+	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds +
+	// vp9_set_rd_speed_thresholds_sub8x8. The framesize-dependent
+	// disable_split_mask override is applied to the sub-8x8 multipliers before
+	// set_block_thresholds expands them into per-bsize rows.
+	bestQuality := vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeBest
+	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh, bestQuality)
+	e.rdThresh.SetRDSpeedThresholdsSub8x8(bestQuality, e.sf.DisableSplitMask)
 	e.rdThresh.SetBlockThresholds(qindex, 0)
 	if !e.rdThresh.Initialized() {
 		e.rdThresh.InitFreqFact()

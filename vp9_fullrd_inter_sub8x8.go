@@ -27,8 +27,8 @@ import (
 // (encoder.FullPixelDiamond), the subpel tree (refineVP9InterSubpelMv-style via
 // the bordered subpel variance), set_and_cost_bmi_mvs cost (encoder.CostMvRef +
 // encoder.MvBitCostSub), fdct4x4 (encoder.ForwardDCT4x4Into), vpx_quantize_b
-// (encoder.QuantizeBWithQ), vp9_block_error (encoder.BlockErrorFP + sum-of-
-// squares), cost_coeffs (vp9InterCoeffBlockRateCostQ), and the verified
+// (encoder.QuantizeBWithQ), vp9_block_error (encoder.BlockErrorFPWithEnergy),
+// cost_coeffs (vp9InterCoeffBlockRateCostQ), and the verified
 // super_block_uvrd producer (vp9FullRDInterSuperBlockUVRD). No constants are
 // re-derived.
 //

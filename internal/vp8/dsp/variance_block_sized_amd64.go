@@ -61,6 +61,9 @@ func SSE16xNPtrFast(src *byte, srcStride int, ref *byte, refStride int, height i
 }
 
 func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, width, height int) (int, int) {
+	if !dspWindowOK(src, srcStride, width, height) || !dspWindowOK(ref, refStride, width, height) {
+		return varianceBlockGeneric(src, srcStride, ref, refStride, width, height)
+	}
 	var sum int32
 	var sse uint32
 	srcPtr := unsafe.SliceData(src)

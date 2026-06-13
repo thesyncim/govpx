@@ -79,6 +79,64 @@ func TestDenoiserFilterYUsesMCWhenAbsdiffSmall(t *testing.T) {
 	}
 }
 
+func TestDenoiserWindowOK(t *testing.T) {
+	const (
+		w = 16
+		h = 16
+	)
+	packed := make([]byte, w*h)
+	if !denoiserWindowOK(packed, w, w, h) {
+		t.Fatal("packed window was rejected")
+	}
+
+	const stride = 20
+	strided := make([]byte, (h-1)*stride+w)
+	if !denoiserWindowOK(strided, stride, w, h) {
+		t.Fatal("strided window was rejected")
+	}
+	if denoiserWindowOK(strided[:len(strided)-1], stride, w, h) {
+		t.Fatal("short strided window was accepted")
+	}
+	if denoiserWindowOK(packed, w-1, w, h) {
+		t.Fatal("too-small stride was accepted")
+	}
+	if denoiserWindowOK(packed, -w, w, h) {
+		t.Fatal("negative stride was accepted")
+	}
+	if denoiserWindowOK(packed, w, 0, h) {
+		t.Fatal("zero width was accepted")
+	}
+	if denoiserWindowOK(packed, w, w, 0) {
+		t.Fatal("zero height was accepted")
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	if denoiserWindowOK(nil, (maxInt-w)/(h-1)+1, w, h) {
+		t.Fatal("overflowing window was accepted")
+	}
+}
+
+func TestDenoiserWindowsOKRejectsAnyShortPlane(t *testing.T) {
+	const (
+		w = 8
+		h = 8
+	)
+	full := make([]byte, w*h)
+	short := make([]byte, w*h-1)
+	if !denoiserWindowsOK(full, w, full, w, full, w, w, h) {
+		t.Fatal("valid triple window was rejected")
+	}
+	if denoiserWindowsOK(short, w, full, w, full, w, w, h) {
+		t.Fatal("short mc window was accepted")
+	}
+	if denoiserWindowsOK(full, w, short, w, full, w, w, h) {
+		t.Fatal("short avg window was accepted")
+	}
+	if denoiserWindowsOK(full, w, full, w, short, w, w, h) {
+		t.Fatal("short sig window was accepted")
+	}
+}
+
 func TestDenoiserFilterUVCopiesNearNeutralBlocks(t *testing.T) {
 	mc := make([]byte, 8*8)
 	avg := make([]byte, 8*8)
@@ -88,5 +146,15 @@ func TestDenoiserFilterUVCopiesNearNeutralBlocks(t *testing.T) {
 	}
 	if got := DenoiserFilterUV(mc, 8, avg, 8, sig, 8, 0, false); got != DenoiserCopyBlock {
 		t.Fatalf("near-neutral UV filter = %d, want COPY_BLOCK", got)
+	}
+}
+
+func TestDenoiserFilterUVNearNeutralDoesNotRequireMCAvg(t *testing.T) {
+	sig := make([]byte, 8*8)
+	for i := range sig {
+		sig[i] = 128
+	}
+	if got := DenoiserFilterUV(nil, 8, nil, 8, sig, 8, 0, false); got != DenoiserCopyBlock {
+		t.Fatalf("near-neutral UV filter with nil mc/avg = %d, want COPY_BLOCK", got)
 	}
 }

@@ -69,3 +69,29 @@ func sadBlockScalarFallback(src []byte, srcStride int, ref []byte, refStride int
 	}
 	return sad
 }
+
+func sadBlockLimitScalarFallback(src []byte, srcStride int, ref []byte, refStride int, width, height, limit int) int {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	_ = src[(height-1)*srcStride+(width-1)]
+	_ = ref[(height-1)*refStride+(width-1)]
+	srcBase := unsafe.Pointer(&src[0])
+	refBase := unsafe.Pointer(&ref[0])
+	sad := 0
+	for y := range height {
+		srcRow := unsafe.Add(srcBase, y*srcStride)
+		refRow := unsafe.Add(refBase, y*refStride)
+		for x := range width {
+			a := int(*(*byte)(unsafe.Add(srcRow, x)))
+			b := int(*(*byte)(unsafe.Add(refRow, x)))
+			diff := a - b
+			mask := diff >> signShift
+			sad += (diff ^ mask) - mask
+		}
+		if sad > limit {
+			return sad
+		}
+	}
+	return sad
+}

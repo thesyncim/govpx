@@ -80,6 +80,132 @@ func TestIntraTMPredict8x8(t *testing.T) {
 	}
 }
 
+func TestIntraPredictInvalidWindowPanicsInScalar(t *testing.T) {
+	blocks := []struct {
+		name string
+		size int
+		dc   func(dst []byte, stride int, above []byte, left []byte)
+		h    func(dst []byte, stride int, left []byte)
+		tm   func(dst []byte, stride int, above []byte, left []byte)
+	}{
+		{
+			name: "16x16",
+			size: 16,
+			dc: func(dst []byte, stride int, above []byte, left []byte) {
+				IntraDCPredict16x16(dst, stride, above, left, true, true)
+			},
+			h: func(dst []byte, stride int, left []byte) {
+				IntraHorizontalPredict16x16(dst, stride, left)
+			},
+			tm: func(dst []byte, stride int, above []byte, left []byte) {
+				IntraTMPredict16x16(dst, stride, above, left, 128)
+			},
+		},
+		{
+			name: "8x8",
+			size: 8,
+			dc: func(dst []byte, stride int, above []byte, left []byte) {
+				IntraDCPredict8x8(dst, stride, above, left, true, true)
+			},
+			h: func(dst []byte, stride int, left []byte) {
+				IntraHorizontalPredict8x8(dst, stride, left)
+			},
+			tm: func(dst []byte, stride int, above []byte, left []byte) {
+				IntraTMPredict8x8(dst, stride, above, left, 128)
+			},
+		},
+	}
+	for _, block := range blocks {
+		t.Run(block.name, func(t *testing.T) {
+			full := (block.size-1)*block.size + block.size
+			dst := make([]byte, full)
+			above := make([]byte, block.size)
+			left := make([]byte, block.size)
+			cases := []struct {
+				name string
+				fn   func()
+			}{
+				{
+					name: "dc-short-dst",
+					fn: func() {
+						block.dc(make([]byte, block.size-1), block.size, above, left)
+					},
+				},
+				{
+					name: "dc-short-above",
+					fn: func() {
+						block.dc(dst, block.size, above[:block.size-1], left)
+					},
+				},
+				{
+					name: "dc-short-left",
+					fn: func() {
+						block.dc(dst, block.size, above, left[:block.size-1])
+					},
+				},
+				{
+					name: "dc-negative-dst-stride",
+					fn: func() {
+						block.dc(dst, -block.size, above, left)
+					},
+				},
+				{
+					name: "horizontal-short-dst",
+					fn: func() {
+						block.h(make([]byte, block.size-1), block.size, left)
+					},
+				},
+				{
+					name: "horizontal-short-left",
+					fn: func() {
+						block.h(dst, block.size, left[:block.size-1])
+					},
+				},
+				{
+					name: "horizontal-negative-dst-stride",
+					fn: func() {
+						block.h(dst, -block.size, left)
+					},
+				},
+				{
+					name: "tm-short-dst",
+					fn: func() {
+						block.tm(make([]byte, block.size-1), block.size, above, left)
+					},
+				},
+				{
+					name: "tm-short-above",
+					fn: func() {
+						block.tm(dst, block.size, above[:block.size-1], left)
+					},
+				},
+				{
+					name: "tm-short-left",
+					fn: func() {
+						block.tm(dst, block.size, above, left[:block.size-1])
+					},
+				},
+				{
+					name: "tm-negative-dst-stride",
+					fn: func() {
+						block.tm(dst, -block.size, above, left)
+					},
+				},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					defer func() {
+						if recover() == nil {
+							t.Fatal("expected scalar bounds panic")
+						}
+					}()
+					tc.fn()
+				})
+			}
+		})
+	}
+}
+
 func TestIntraPredictAllocatesZero(t *testing.T) {
 	above := make([]byte, 16)
 	left := make([]byte, 16)

@@ -52,10 +52,12 @@ func sseBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, height 
 func sseBlock8xNDotProd(src *byte, srcStride int, ref *byte, refStride int, height int, sseOut *uint32)
 
 // varianceBlockSized fans out per-width to the matching NEON kernel.
-// Slice bases go via unsafe.SliceData so the dispatch stays free of
-// runtime.panicBounds and a stack frame for &src[0] / &ref[0]; callers
-// always pass non-empty slices shaped to cover the read window.
+// Valid slice bases go via unsafe.SliceData so the dispatch stays free
+// of runtime.panicBounds and a stack frame for &src[0] / &ref[0].
 func varianceBlockSized(src []byte, srcStride int, ref []byte, refStride int, width, height int) (int, int) {
+	if !dspWindowOK(src, srcStride, width, height) || !dspWindowOK(ref, refStride, width, height) {
+		return varianceBlockGeneric(src, srcStride, ref, refStride, width, height)
+	}
 	var sum int32
 	var sse uint32
 	srcPtr := unsafe.SliceData(src)

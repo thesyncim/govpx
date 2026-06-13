@@ -22,6 +22,10 @@ func varFilterBlock2DBilinearFirstPass16(src []byte, srcStride int,
 	if height <= 0 {
 		return
 	}
+	if !bilinearFilterScratchOK(16, height) || !dspWindowOK(src, srcStride, 17, height) {
+		bilinearFirstPassScalar(src, srcStride, dst, 16, height, filter)
+		return
+	}
 	// Broadcast f0 / f1 to 4 lanes packed in a uint64 so the
 	// callee can MOVQ + PSHUFD/VPBROADCASTQ across the full XMM/YMM.
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001

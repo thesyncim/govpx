@@ -32,35 +32,57 @@ func TransformBlockErrorShifted(coeffs, dqcoeffs []int16) uint64 {
 }
 
 func TransformBlockEnergy(coeffs []int16, txSize common.TxSize) uint64 {
-	var energy uint64
-	for _, coeff := range coeffs {
-		v := int64(coeff)
-		energy += uint64(v * v)
-	}
+	energy := transformBlockEnergyDispatch(coeffs)
 	if txSize != common.Tx32x32 {
 		energy >>= 2
 	}
 	return energy
 }
 
-func ResidualSSE(residue []int16) uint64 {
-	var sse uint64
-	for _, diff := range residue {
-		v := int64(diff)
-		sse += uint64(v * v)
+func TransformBlockErrorWithEnergy(coeffs, dqcoeffs []int16, txSize common.TxSize) (err, energy uint64) {
+	err, energy = blockErrorFPWithEnergyDispatch(coeffs, dqcoeffs)
+	if txSize != common.Tx32x32 {
+		err >>= 2
+		energy >>= 2
 	}
-	return sse
+	return err, energy
+}
+
+func transformBlockEnergyScalar(coeffs []int16) uint64 {
+	return squareSumScalar(coeffs)
+}
+
+func ResidualSSE(residue []int16) uint64 {
+	return residualSSEDispatch(residue)
+}
+
+func residualSSEScalar(residue []int16) uint64 {
+	return squareSumScalar(residue)
+}
+
+func squareSumScalar(values []int16) uint64 {
+	var sum uint64
+	for _, value := range values {
+		v := int64(value)
+		sum += uint64(v * v)
+	}
+	return sum
 }
 
 func TransformBlockError(coeffs, dqcoeffs []int16, txSize common.TxSize) uint64 {
+	err := transformBlockErrorDispatch(coeffs, dqcoeffs)
+	if txSize != common.Tx32x32 {
+		err >>= 2
+	}
+	return err
+}
+
+func transformBlockErrorScalar(coeffs, dqcoeffs []int16) uint64 {
 	n := min(len(coeffs), len(dqcoeffs))
 	var err uint64
 	for i := range n {
 		diff := int64(coeffs[i]) - int64(dqcoeffs[i])
 		err += uint64(diff * diff)
-	}
-	if txSize != common.Tx32x32 {
-		err >>= 2
 	}
 	return err
 }

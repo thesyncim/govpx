@@ -954,10 +954,10 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 		if aboveLen[plane] > len(aboveCtx[plane]) || leftLen[plane] > len(leftCtx[plane]) {
 			return 0, 0, false, false
 		}
-		if off := aboveOffsets[plane]; off >= 0 && off+aboveLen[plane] <= len(pd.AboveContext) {
+		if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen[plane], len(pd.AboveContext)) {
 			copy(aboveCtx[plane][:aboveLen[plane]], pd.AboveContext[off:off+aboveLen[plane]])
 		}
-		if off := leftOffsets[plane]; off >= 0 && off+leftLen[plane] <= len(pd.LeftContext) {
+		if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen[plane], len(pd.LeftContext)) {
 			copy(leftCtx[plane][:leftLen[plane]], pd.LeftContext[off:off+leftLen[plane]])
 		}
 	}
@@ -1057,6 +1057,8 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 		leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 		ao := aboveOffsets[plane]
 		lo := leftOffsets[plane]
+		aboveOK := vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext))
+		leftOK := vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext))
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
@@ -1080,12 +1082,12 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 					}
 				}
 				for i := 0; i < step && cc+i < aboveLen; i++ {
-					if ao >= 0 && ao+cc+i < len(pd.AboveContext) {
+					if aboveOK {
 						pd.AboveContext[ao+cc+i] = hasCtx
 					}
 				}
 				for i := 0; i < step && rr+i < leftLen; i++ {
-					if lo >= 0 && lo+rr+i < len(pd.LeftContext) {
+					if leftOK {
 						pd.LeftContext[lo+rr+i] = hasCtx
 					}
 				}

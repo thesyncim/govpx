@@ -41,7 +41,7 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 21, dst, dstStride, 16, 16) {
 		return false
 	}
 	var tmp [21 * 16]byte
@@ -56,7 +56,7 @@ func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 13, dst, dstStride, 16, 8) {
 		return false
 	}
 	var tmp [13 * 16]byte
@@ -71,7 +71,7 @@ func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 21, dst, dstStride, 8, 16) {
 		return false
 	}
 	var tmp [21 * 8]byte
@@ -86,7 +86,7 @@ func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 13, dst, dstStride, 8, 8) {
 		return false
 	}
 	var tmp [13 * 8]byte
@@ -106,7 +106,8 @@ func sixTapPredict8x8PairMaybe(
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if src0Stride <= 0 || src1Stride <= 0 || dst0Stride <= 0 || dst1Stride <= 0 {
+	if !dspSIMDPredictWindowOK(src0, src0Stride, 32, 13, dst0, dst0Stride, 8, 8) ||
+		!dspSIMDPredictWindowOK(src1, src1Stride, 32, 13, dst1, dst1Stride, 8, 8) {
 		return false
 	}
 	var tmp [13 * 8]byte
@@ -122,7 +123,7 @@ func sixTapPredict8x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 9, dst, dstStride, 8, 4) {
 		return false
 	}
 	var tmp [9 * 8]byte
@@ -137,7 +138,7 @@ func sixTapPredict4x4Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 16, 9, dst, dstStride, 4, 4) {
 		return false
 	}
 	var tmp [9 * 4]byte

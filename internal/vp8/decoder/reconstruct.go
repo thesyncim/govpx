@@ -716,10 +716,10 @@ func extendIntraRightEdgeRows(full []byte, origin int, stride int, width int, he
 		if uint(row) >= uint(height) {
 			continue
 		}
-		start := origin + row*stride + width
-		if start <= 0 || start+4 > len(full) {
+		if !vp8PlaneWindowFits(full, stride, origin, row, width-1, 5, 1) {
 			continue
 		}
+		start := origin + row*stride + width
 		edge := full[start-1]
 		full[start+0] = edge
 		full[start+1] = edge
@@ -787,25 +787,35 @@ func topLeftSample(plane []byte, full []byte, origin int, stride int, row int, c
 }
 
 func hasFullIntraSampleRange(full []byte, origin int, stride int, width int, border int, row int, col int, count int) bool {
-	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 || border <= 0 || row < 0 || col < 0 {
+	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 ||
+		width < 0 || border <= 0 || row < 0 || col < 0 {
 		return false
 	}
-	if col+count > width+border {
+	maxInt := int(^uint(0) >> 1)
+	if border > maxInt-width {
 		return false
 	}
-	start := origin + row*stride + col
-	return start >= 0 && start+count <= len(full)
+	limit := width + border
+	if col > limit || count > limit-col {
+		return false
+	}
+	return vp8PlaneWindowFits(full, stride, origin, row, col, count, 1)
 }
 
 func hasFullIntraVerticalRange(full []byte, origin int, stride int, height int, border int, row int, col int, count int) bool {
-	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 || border <= 0 || row < 0 || col < 0 {
+	if count < 0 || len(full) == 0 || origin < 0 || stride <= 0 ||
+		height < 0 || border <= 0 || row < 0 || col < 0 {
 		return false
 	}
-	if row+count > height+border {
+	maxInt := int(^uint(0) >> 1)
+	if border > maxInt-height {
 		return false
 	}
-	start := origin + row*stride + col
-	return start >= 0 && start+(count-1)*stride < len(full)
+	limit := height + border
+	if row > limit || count > limit-row {
+		return false
+	}
+	return vp8PlaneWindowFits(full, stride, origin, row, col, 1, count)
 }
 
 func imageHasMacroblockGrid(img *common.Image, rows int, cols int) bool {
@@ -831,8 +841,41 @@ func planeHasBlock(plane []byte, stride int, width int, height int) bool {
 	if height == 0 {
 		return true
 	}
-	need := (height-1)*stride + width
-	return need <= len(plane)
+	return vp8PlaneWindowFits(plane, stride, 0, 0, 0, width, height)
+}
+
+func vp8PlaneWindowFits(buf []byte, stride, origin, row, col, width, height int) bool {
+	if origin < 0 || stride <= 0 || row < 0 || col < 0 || width < 0 || height < 0 {
+		return false
+	}
+	if height == 0 {
+		return true
+	}
+	if col > stride || width > stride-col {
+		return false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if origin > maxInt-col {
+		return false
+	}
+	base := origin + col
+	if height-1 > maxInt-row {
+		return false
+	}
+	lastRow := row + height - 1
+	if lastRow > maxInt/stride {
+		return false
+	}
+	rowStart := lastRow * stride
+	if base > maxInt-rowStart {
+		return false
+	}
+	start := base + rowStart
+	if width > maxInt-start {
+		return false
+	}
+	end := start + width
+	return end <= len(buf)
 }
 
 func imageHasReferenceBlock(plane []byte, stride int, codedWidth int, codedHeight int, row int, col int, width int, height int, origin int, border int) bool {

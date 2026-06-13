@@ -735,10 +735,10 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		if plane < len(aboveOffsets) && plane < len(leftOffsets) {
-			if off := aboveOffsets[plane]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+			if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 				copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 			}
-			if off := leftOffsets[plane]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+			if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 				copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 			}
 		}
@@ -778,10 +778,8 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 				// mean_quant_error. block_tx_domain is forced 1 for REALTIME speed
 				// >= 1 (the same gate vp9InterUseDeepRDTxDomainDistortion wires for
 				// the inter producers), so when skip_encode holds it always does.
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
-					txSize)
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
 				meanQErr := vp9SkipEncodeMeanQuantError(dequant[1], txSize)
 				blockDist += meanQErr >> 4
 				blockSSE += meanQErr

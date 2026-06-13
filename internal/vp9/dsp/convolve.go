@@ -97,6 +97,48 @@ func convolve8AvgTempPut(b *convolve8AvgTempBuf) {
 	}
 }
 
+const (
+	convolve8Backstep = tables.SubpelTaps/2 - 1
+	convolve8TapSpan  = tables.SubpelTaps - 1
+)
+
+func convolveMaxInt() int {
+	return int(^uint(0) >> 1)
+}
+
+// convolveSimdDstOK validates the (w, h) write window for SIMD paths.
+func convolveSimdDstOK(dst []byte, dstStride, w, h int) bool {
+	return dspReadWindowOK(dst, 0, dstStride, w, h)
+}
+
+func convolveHorizSimdSrcOK(src []byte, srcOffset, srcStride, w, h int) (int, bool) {
+	if srcOffset < convolve8Backstep {
+		return 0, false
+	}
+	maxInt := convolveMaxInt()
+	if w > maxInt-convolve8TapSpan {
+		return 0, false
+	}
+	srcStart := srcOffset - convolve8Backstep
+	return srcStart, dspReadWindowOK(src, srcStart, srcStride, w+convolve8TapSpan, h)
+}
+
+func convolveVertSimdSrcOK(src []byte, srcOffset, srcStride, w, h int) (int, bool) {
+	if srcStride < 0 {
+		return 0, false
+	}
+	maxInt := convolveMaxInt()
+	if h > maxInt-convolve8TapSpan || srcStride > maxInt/convolve8Backstep {
+		return 0, false
+	}
+	rewind := srcStride * convolve8Backstep
+	if srcOffset < rewind {
+		return 0, false
+	}
+	srcStart := srcOffset - rewind
+	return srcStart, dspReadWindowOK(src, srcStart, srcStride, w, h+convolve8TapSpan)
+}
+
 // VP9 8-tap subpel convolve kernels. Ported from libvpx v1.16.0
 // vpx_dsp/vpx_convolve.c (the "_c" reference implementations only —
 // the SIMD path lives elsewhere). The fractional MV is split into

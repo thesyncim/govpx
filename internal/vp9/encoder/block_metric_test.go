@@ -2,6 +2,29 @@ package encoder
 
 import "testing"
 
+func TestPlaneRectFits(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	buf := make([]byte, 16)
+	tests := []struct {
+		name               string
+		stride, x, y, w, h int
+		want               bool
+	}{
+		{name: "fits", stride: 4, x: 1, y: 2, w: 2, h: 2, want: true},
+		{name: "crosses-row", stride: 4, x: 3, y: 0, w: 2, h: 1, want: false},
+		{name: "past-buffer", stride: 4, x: 0, y: 3, w: 4, h: 2, want: false},
+		{name: "row-overflow", stride: huge, x: 0, y: huge, w: 1, h: 2, want: false},
+		{name: "width-overflow", stride: huge, x: huge - 1, y: 0, w: 2, h: 1, want: false},
+	}
+	for _, tt := range tests {
+		got := planeRectFits(buf, tt.stride, tt.x, tt.y, tt.w, tt.h)
+		if got != tt.want {
+			t.Fatalf("%s: planeRectFits(stride=%d x=%d y=%d w=%d h=%d) = %v, want %v",
+				tt.name, tt.stride, tt.x, tt.y, tt.w, tt.h, got, tt.want)
+		}
+	}
+}
+
 func TestBlockSADNoLimitMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)
@@ -94,6 +117,20 @@ func TestBlockDiffVarianceSSEClampedSourceKeepsFullVisibleFastPath(t *testing.T)
 	if gotVar != wantVar || gotSSE != wantSSE {
 		t.Fatalf("fast path = var/sse %d/%d, want %d/%d",
 			gotVar, gotSSE, wantVar, wantSSE)
+	}
+}
+
+func TestBlockDiffVarianceSSEClampedSourceRejectsOverflowSpan(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	if _, _, ok := BlockDiffVarianceSSEClampedSource(
+		[]byte{1}, huge/2+1, huge/2+1, 3,
+		make([]byte, 16), 4, 0, 0, 0, 0, 4, 4); ok {
+		t.Fatal("BlockDiffVarianceSSEClampedSource accepted overflowing source span")
+	}
+	if _, _, ok := BlockDiffVarianceSSEClampedSource(
+		make([]byte, 16), 4, 4, 4,
+		make([]byte, 16), 4, huge, 0, 0, 0, 4, 4); ok {
+		t.Fatal("BlockDiffVarianceSSEClampedSource accepted overflowing source x")
 	}
 }
 

@@ -24,8 +24,15 @@ import "unsafe"
 func varFilterBlock2DBilinearSecondPass16NEON(src *[17 * 16]uint16, dst *byte, height int, f0 uint64, f1 uint64)
 
 func varFilterBlock2DBilinearSecondPass16(src *[17 * 16]uint16, dst []byte, height int, filter [2]int16) {
+	if height <= 0 {
+		return
+	}
+	maxInt := int(^uint(0) >> 1)
+	if height == maxInt || !bilinearFilterScratchOK(16, height+1) || !dspWindowOK(dst, 16, 16, height) {
+		bilinearSecondPassScalar(src, dst, 16, height, filter)
+		return
+	}
 	// unsafe.SliceData skips the runtime.panicBounds + stack frame the
-	// compiler emits for &dst[0]; the height<=0 guard is dead-code for
-	// the only caller (subpelVariance with positive heights).
+	// compiler emits for &dst[0].
 	varFilterBlock2DBilinearSecondPass16NEON(src, unsafe.SliceData(dst), height, uint64(uint16(filter[0])), uint64(uint16(filter[1])))
 }

@@ -276,6 +276,23 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 		t.Fatalf("matched-frame prefix = %d, want >= 30 (frame 0 keyframe + "+
 			"frames 1..29 inter all byte-exact)", prefix)
 	}
+	govpxFrame30Grid := decodeVP9MiGridForOracleTest(t, govpxFrames[30])
+	libvpxFrame30Grid := decodeVP9MiGridForOracleTest(t, libvpxFrames[30])
+	if len(govpxFrame30Grid) != len(libvpxFrame30Grid) {
+		t.Fatalf("frame 30 mi grid len: govpx=%d libvpx=%d",
+			len(govpxFrame30Grid), len(libvpxFrame30Grid))
+	}
+	firstMiDiff := -1
+	for i := range govpxFrame30Grid {
+		if govpxFrame30Grid[i] != libvpxFrame30Grid[i] {
+			firstMiDiff = i
+			break
+		}
+	}
+	if firstMiDiff != 6 {
+		t.Fatalf("frame 30 first decoded mi diff = %d, want 6 (mi(0,6)); "+
+			"mi(0,2) keyframe RD partition replay regressed", firstMiDiff)
+	}
 	t.Logf("{0,1,1,0,1} full-RD inter engine generalizes; "+
 		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes)",
 		prefix, len(govpxFrames[0]), len(govpxFrames[1]))

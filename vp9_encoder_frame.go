@@ -501,9 +501,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			interState.txMode = txMode
 		}
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+		recountKeyState := keyState
+		if keyState != nil {
+			replay := *keyState
+			replay.replayCachedDecisions = true
+			recountKeyState = &replay
+		}
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
-			header.IntraOnly, keyState, interState)
+			header.IntraOnly, recountKeyState, interState)
 		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 	header.Seg = seg

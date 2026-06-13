@@ -27,6 +27,10 @@ func SourceSADSceneSamples(args SourceSADSceneSamplesArgs) (SourceSADSceneSample
 	if args.Width <= 0 || args.Height <= 0 || args.MIRows <= 0 || args.MICols <= 0 {
 		return SourceSADSceneSamplesResult{}, false
 	}
+	if !avgSourceSADPlaneOK(args.SourceY, args.SourceYStride, args.Width, args.Height) ||
+		!avgSourceSADPlaneOK(args.LastSourceY, args.LastSourceYStride, args.Width, args.Height) {
+		return SourceSADSceneSamplesResult{}, false
+	}
 	sbCols := (args.MICols + 7) >> 3
 	sbRows := (args.MIRows + 7) >> 3
 	var avgSAD uint64
@@ -139,8 +143,7 @@ func AvgSourceSAD(args AvgSourceSADArgs) (AvgSourceSADResult, bool) {
 }
 
 func avgSourceSADPlaneOK(plane []byte, stride, width, height int) bool {
-	return width > 0 && height > 0 && stride >= width &&
-		len(plane) >= (height-1)*stride+width
+	return planeRectFits(plane, stride, 0, 0, width, height)
 }
 
 func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint64) {

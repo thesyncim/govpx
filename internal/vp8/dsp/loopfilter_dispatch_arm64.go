@@ -19,13 +19,13 @@ import (
 // count=1 falls back to the gather-then-H16 pattern.
 
 func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
-	if count == 2 && len(s) >= 7*stride+16 {
+	if count == 2 && dspWindowOK(s, stride, 16, 8) {
 		// len check already guarantees s is non-empty, so SliceData
 		// folds away the &s[0] bounds-check + stack frame.
 		loopFilterEdgeH16NEON(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
-	if count == 1 && len(s) >= 7*stride+8 {
+	if count == 1 && dspWindowOK(s, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherH8x8ARM64(&tmp, s, stride)
 		loopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -36,7 +36,7 @@ func loopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 }
 
 func loopFilterHorizontalEdgesYDispatch(s []byte, stride int, blimit, limit, thresh byte) {
-	if len(s) >= 15*stride+16 {
+	if dspWindowOK(s, stride, 16, 16) {
 		base := unsafe.Pointer(unsafe.SliceData(s))
 		loopFilterEdgeH16NEON((*byte)(base), stride, blimit, limit, thresh)
 		loopFilterEdgeH16NEON((*byte)(unsafe.Add(base, 4*stride)), stride, blimit, limit, thresh)
@@ -49,14 +49,14 @@ func loopFilterHorizontalEdgesYDispatch(s []byte, stride int, blimit, limit, thr
 }
 
 func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
-	if count == 2 && len(s) >= 15*stride+8 {
+	if count == 2 && dspWindowOK(s, stride, 8, 16) {
 		// Kernel follows libvpx: caller passes a pointer at the q0
 		// column (the byte at offset +4 from the leftmost p3); the
 		// kernel reads 8 bytes/row at src-4 across 16 rows.
 		loopFilterEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 4)), stride, blimit, limit, thresh)
 		return
 	}
-	if count == 1 && len(s) >= 7*stride+8 {
+	if count == 1 && dspWindowOK(s, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherV8x8ARM64(&tmp, s, stride)
 		loopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -67,7 +67,7 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 }
 
 func loopFilterVerticalEdgesYDispatch(s []byte, stride int, blimit, limit, thresh byte) {
-	if len(s) >= 15*stride+16 {
+	if dspWindowOK(s, stride, 16, 16) {
 		base := unsafe.Pointer(unsafe.SliceData(s))
 		loopFilterEdgeV16NEON((*byte)(unsafe.Add(base, 4)), stride, blimit, limit, thresh)
 		loopFilterEdgeV16NEON((*byte)(unsafe.Add(base, 8)), stride, blimit, limit, thresh)
@@ -80,7 +80,7 @@ func loopFilterVerticalEdgesYDispatch(s []byte, stride int, blimit, limit, thres
 }
 
 func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
-	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+	if dspWindowOK(u, stride, 8, 8) && dspWindowOK(v, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherH8x8PairARM64(&tmp, u, v, stride)
 		loopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -92,7 +92,7 @@ func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, 
 }
 
 func loopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
-	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+	if dspWindowOK(u, stride, 8, 8) && dspWindowOK(v, stride, 8, 8) {
 		baseU := unsafe.Pointer(unsafe.SliceData(u))
 		baseV := unsafe.Pointer(unsafe.SliceData(v))
 		loopFilterEdgeV8x8PairNEON((*byte)(unsafe.Add(baseU, 4)), (*byte)(unsafe.Add(baseV, 4)), stride, blimit, limit, thresh)
@@ -103,11 +103,11 @@ func loopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, li
 }
 
 func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
-	if count == 2 && len(s) >= 7*stride+16 {
+	if count == 2 && dspWindowOK(s, stride, 16, 8) {
 		mbLoopFilterEdgeH16NEON(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
-	if count == 1 && len(s) >= 7*stride+8 {
+	if count == 1 && dspWindowOK(s, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherH8x8ARM64(&tmp, s, stride)
 		mbLoopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -118,11 +118,11 @@ func mbLoopFilterHorizontalEdgeDispatch(s []byte, stride int, blimit, limit, thr
 }
 
 func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh byte, count int) {
-	if count == 2 && len(s) >= 15*stride+8 {
+	if count == 2 && dspWindowOK(s, stride, 8, 16) {
 		mbLoopFilterEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 4)), stride, blimit, limit, thresh)
 		return
 	}
-	if count == 1 && len(s) >= 7*stride+8 {
+	if count == 1 && dspWindowOK(s, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherV8x8ARM64(&tmp, s, stride)
 		mbLoopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -133,7 +133,7 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 }
 
 func mbLoopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
-	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+	if dspWindowOK(u, stride, 8, 8) && dspWindowOK(v, stride, 8, 8) {
 		var tmp [8 * 16]byte
 		gatherH8x8PairARM64(&tmp, u, v, stride)
 		mbLoopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
@@ -145,7 +145,7 @@ func mbLoopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit
 }
 
 func mbLoopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
-	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
+	if dspWindowOK(u, stride, 8, 8) && dspWindowOK(v, stride, 8, 8) {
 		baseU := unsafe.Pointer(unsafe.SliceData(u))
 		baseV := unsafe.Pointer(unsafe.SliceData(v))
 		mbLoopFilterEdgeV8x8PairNEON((*byte)(unsafe.Add(baseU, 4)), (*byte)(unsafe.Add(baseV, 4)), stride, blimit, limit, thresh)
@@ -253,7 +253,7 @@ func packColumn8ARM64(r0, r1, r2, r3, r4, r5, r6, r7 uint64, shift uint) uint64 
 // horizontal edge through the NEON kernel when the input window is
 // large enough; otherwise falls back to the libvpx-style scalar.
 func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
-	if len(s) >= 3*stride+16 {
+	if dspWindowOK(s, stride, 16, 4) {
 		loopFilterSimpleEdgeH16NEON(unsafe.SliceData(s), stride, blimit)
 		return
 	}
@@ -265,7 +265,7 @@ func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
 // per row at &s[2]-2 = &s[0] across 16 rows and writes 2 modified bytes
 // per row at &s[2]-1 = &s[1].
 func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
-	if len(s) >= 15*stride+4 {
+	if dspWindowOK(s, stride, 4, 16) {
 		loopFilterSimpleEdgeV16NEON((*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(s)), 2)), stride, blimit)
 		return
 	}

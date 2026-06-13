@@ -241,6 +241,23 @@ func DenoiserFilterYScalar(mcRunningAvg []byte, mcStride int, runningAvg []byte,
 	return DenoiserFilterBlock
 }
 
+func denoiserWindowsOK(mc []byte, mcStride int, avg []byte, avgStride int, sig []byte, sigStride int, w int, h int) bool {
+	return denoiserWindowOK(mc, mcStride, w, h) &&
+		denoiserWindowOK(avg, avgStride, w, h) &&
+		denoiserWindowOK(sig, sigStride, w, h)
+}
+
+func denoiserWindowOK(buf []byte, stride int, w int, h int) bool {
+	if w <= 0 || h <= 0 || stride < w {
+		return false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if h-1 > (maxInt-w)/stride {
+		return false
+	}
+	return (h-1)*stride+w <= len(buf)
+}
+
 // DenoiserFilterUV ports vp8_denoiser_filter_uv_c (denoising.c). It operates
 // on one 8x8 chroma block.
 func DenoiserFilterUV(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {

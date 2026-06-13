@@ -388,10 +388,10 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	}
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+		if off := aboveOffsets[0]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 		}
-		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+		if off := leftOffsets[0]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 		}
 	}
@@ -448,12 +448,10 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 				// libvpx vp9_rdopt.c:571-600 (block_tx_domain && eob):
 				// dist = vp9_block_error(coeff, dqcoeff) >> shift,
 				// sse  = sum(coeff^2)              >> shift, with shift==2
-				// for tx != 32x32. TransformBlockError / TransformBlockEnergy
-				// fold in that shift.
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
-					txSize)
+				// for tx != 32x32. TransformBlockErrorWithEnergy folds in that
+				// shift for both return values.
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
 			} else {
 				// Pixel domain (block_tx_domain==0 or eob==0): dist =
 				// pixel_sse(src, recon) * 16, sse = sum_squares(src_diff) * 16

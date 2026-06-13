@@ -16,5 +16,9 @@ func forwardDCT4x4BatchSIMD(input []int16, output []int16, count int) {
 	if count <= 0 {
 		return
 	}
+	if !transform4x4BatchWindowOK(input, output, count) {
+		forwardDCT4x4BatchScalar(input, output, count)
+		return
+	}
 	forwardDCT4x4BatchNEON(&input[0], &output[0], count)
 }
