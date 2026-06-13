@@ -1,6 +1,11 @@
 package govpx
 
-import "image"
+import (
+	"image"
+
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
+)
 
 const (
 	vp9MaxLookaheadFrames  = 25
@@ -118,9 +123,7 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 	if !ok {
 		return VP9EncodeResult{}, ErrFrameNotReady
 	}
-	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
-		false, temporalFrame, entry.isAltRefSource)
+	result, err := e.encodeVP9LookaheadEntryInto(dst, entry)
 	entry.flags = 0
 	entry.isAltRefSource = false
 	return result, err
@@ -183,12 +186,22 @@ func (e *VP9Encoder) FlushIntoWithResult(dst []byte) (VP9EncodeResult, error) {
 	if !ok {
 		return VP9EncodeResult{}, ErrFrameNotReady
 	}
-	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
-		false, temporalFrame, entry.isAltRefSource)
+	result, err := e.encodeVP9LookaheadEntryInto(dst, entry)
 	entry.flags = 0
 	entry.isAltRefSource = false
 	return result, err
+}
+
+func (e *VP9Encoder) encodeVP9LookaheadEntryInto(dst []byte,
+	entry *vp9LookaheadEntry,
+) (VP9EncodeResult, error) {
+	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
+	if result, ok, err := e.maybeEncodeVP9TwoPassUseBufFrameInto(dst,
+		emitFlags, temporalFrame, entry); ok || err != nil {
+		return result, err
+	}
+	return e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst, emitFlags,
+		false, temporalFrame, entry.isAltRefSource)
 }
 
 func (e *VP9Encoder) encodeVP9AutoAltRefPendingAndQueueInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, error) {
@@ -300,9 +313,7 @@ func (e *VP9Encoder) maybeDrainVP9TwoPassLookaheadAndQueueInto(img *image.YCbCr,
 	if !ok {
 		return VP9EncodeResult{}, false, ErrFrameNotReady
 	}
-	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst,
-		emitFlags, false, temporalFrame, entry.isAltRefSource)
+	result, err := e.encodeVP9LookaheadEntryInto(dst, entry)
 	entry.flags = 0
 	entry.isAltRefSource = false
 	if err != nil {
@@ -312,6 +323,95 @@ func (e *VP9Encoder) maybeDrainVP9TwoPassLookaheadAndQueueInto(img *image.YCbCr,
 		return VP9EncodeResult{}, true, err
 	}
 	return result, true, nil
+}
+
+func (e *VP9Encoder) maybeEncodeVP9TwoPassUseBufFrameInto(dst []byte,
+	flags EncodeFlags, temporalFrame temporalFrame, entry *vp9LookaheadEntry,
+) (VP9EncodeResult, bool, error) {
+	if e == nil || !e.twoPass.enabled() || !e.rc.enabled ||
+		e.rc.mode == RateControlCBR || !e.twoPass.gfGroupActive ||
+		flags&(EncodeForceKeyFrame|vp9ExternalRefreshCtlFlags) != 0 {
+		return VP9EncodeResult{}, false, nil
+	}
+	e.prepareVP9SecondPassFrameTarget(false, 1<<vp9LastRefSlot)
+	if !e.twoPass.currentFrameIsUseBufUpdate() {
+		return VP9EncodeResult{}, false, nil
+	}
+	refreshFlags, srcFrameAltRef := e.vp9ConfigureTwoPassBufferUpdates(false,
+		flags, 1<<vp9LastRefSlot, false)
+	if refreshFlags != 0 || !srcFrameAltRef {
+		return VP9EncodeResult{}, false, nil
+	}
+	if !e.refValid[vp9AltRefSlot] || !e.refFrames[vp9AltRefSlot].valid {
+		return VP9EncodeResult{}, true, ErrInvalidConfig
+	}
+	e.vp9AdjustFrameRate(true)
+	e.rc.seedFramesToKey(e.opts.MaxKeyframeInterval, false)
+	e.rc.beginFrameWithRefresh(false, e.frameIndex, refreshFlags)
+	e.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	e.rc.preEncodeFrame(true)
+
+	n, err := e.EncodeShowExistingFrameInto(dst, vp9AltRefSlot)
+	if err != nil {
+		return VP9EncodeResult{}, true, err
+	}
+	projected := vpxrc.EncodedSizeBits(n)
+	macroblocks := vp9enc.MacroblockCount((e.opts.Height+7)>>3,
+		(e.opts.Width+7)>>3)
+	e.rc.postEncodeFrame(n, true, int(e.rc.lastQInter), false, refreshFlags,
+		macroblocks, e.vp9AltRefEnabledForRateControlStats(), nil,
+		e.vp9DampedAdjustmentRFLevel())
+	e.vp9PostEncodeSourceAltRefState(false, refreshFlags)
+	firstPassStats := e.twoPass.statsForFrame()
+	twoPassTargetBits := e.vp9TwoPassFrameTarget
+	e.twoPass.postEncodeGFUpdate(refreshFlags)
+	e.twoPass.finishFrameWithActual(projected)
+	if entry != nil {
+		e.vp9CommitLastSource(&entry.img, true, false)
+	}
+	e.temporal.finishFrame(temporalFrame, false, true,
+		vp9TemporalReferenceRefresh(refreshFlags), projected,
+		e.vp9TemporalBufferConfig())
+	e.vp9FinishKeyFrameDistance(false)
+	e.frameIndex++
+	e.vp9LatchDeadlineModePreviousFrame()
+	if e.vp9TPLEnabled() {
+		e.tpl.ShiftAndInvalidate()
+	}
+
+	publicQuantizer := e.lastQuantizerPublic
+	internalQuantizer := e.lastQuantizerInternal
+	if !e.lastQuantizerValid {
+		internalQuantizer = int(e.rc.lastQInter)
+		publicQuantizer = vp9enc.QIndexToPublicQuantizer(internalQuantizer)
+	}
+	spatialLayerID, spatialLayerCount, interLayerDependency,
+		notRefForUpperSpatialLayer, scalabilityStructurePresent,
+		spatialScalabilityStructure := e.vp9SpatialResultFields()
+	return VP9EncodeResult{
+		Data:                        dst[:n],
+		ShowFrame:                   true,
+		Droppable:                   true,
+		Quantizer:                   publicQuantizer,
+		InternalQuantizer:           internalQuantizer,
+		SizeBytes:                   n,
+		TargetBitrateKbps:           e.vp9ResultTargetBitrateKbps(),
+		FrameTargetBits:             e.rc.frameTargetBits,
+		BufferLevelBits:             e.rc.bufferLevelBits,
+		RefreshFrameFlags:           refreshFlags,
+		FirstPassStats:              firstPassStats,
+		TwoPassFrameTargetBits:      twoPassTargetBits,
+		TemporalLayerID:             temporalFrame.LayerID,
+		TemporalLayerCount:          temporalFrame.LayerCount,
+		TemporalLayerSync:           temporalFrame.LayerSync,
+		TL0PICIDX:                   temporalFrame.TL0PICIDX,
+		SpatialLayerID:              spatialLayerID,
+		SpatialLayerCount:           spatialLayerCount,
+		InterLayerDependency:        interLayerDependency,
+		NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
+		ScalabilityStructurePresent: scalabilityStructurePresent,
+		SpatialScalabilityStructure: spatialScalabilityStructure,
+	}, true, nil
 }
 
 func (e *VP9Encoder) vp9AutoAltRefOnePassEnabled() bool {

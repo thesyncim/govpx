@@ -352,7 +352,8 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 	if !e.twoPass.enabled() {
 		return
 	}
-	due := !e.twoPass.gfGroupActive || isKey || e.twoPass.framesTillGFUpdate <= 0
+	due := !e.twoPass.gfGroupActive || isKey ||
+		(e.twoPass.framesTillGFUpdate <= 0 && !e.twoPass.hasPendingGFGroupSlot())
 	if !due {
 		return
 	}
@@ -861,6 +862,18 @@ func (t *vp9TwoPassState) currentARFSrcOffset() int {
 
 func (t *vp9TwoPassState) currentFrameIsARFUpdate() bool {
 	return t.currentGFUpdateType() == encoder.ARFUpdate
+}
+
+func (t *vp9TwoPassState) currentFrameIsUseBufUpdate() bool {
+	return t.currentGFUpdateType() == encoder.UseBufFrame
+}
+
+func (t *vp9TwoPassState) hasPendingGFGroupSlot() bool {
+	idx := t.currentGFGroupIndex()
+	if idx < 0 || t.gfGroup.GFGroupSize <= 0 {
+		return false
+	}
+	return idx <= t.gfGroup.GFGroupSize
 }
 
 func (t *vp9TwoPassState) statsForCurrentGFUpdate() VP9FirstPassFrameStats {
