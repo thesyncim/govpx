@@ -110,7 +110,10 @@ parity because later hidden-ARF/overlay advancement and inter allocation remain
 ahead of the q path, but frame 1 now follows libvpx's GF buffer update
 (`refresh=0x4`, q=27 vs libvpx q=28) instead of the old LF-only refresh. The
 remaining visible refresh mismatch in this small trace is frame 5
-(`govpx=0x1`, libvpx=`0x4`).
+(`govpx=0x1`, libvpx=`0x4`). The next missing two-pass feature is libvpx's ARF
+source scheduler: ARF_UPDATE peeks `current_video_frame + arf_src_offset` from
+lookahead and does not advance the normal stats cursor, while govpx still
+encodes caller frames linearly in the second pass.
 
 `make test-parity-report`
 

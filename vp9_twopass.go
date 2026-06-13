@@ -1011,8 +1011,7 @@ func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
 		t.bitsLeft = 0
 	}
 	t.frameIndex++
-	if t.gfGroupActive && t.gfGroup.GFGroupSize > 0 &&
-		int(t.gfGroup.Index)+1 < t.gfGroup.GFGroupSize {
+	if t.gfGroupActive && int(t.gfGroup.Index)+1 < len(t.gfGroup.UpdateType) {
 		t.gfGroup.Index++
 	}
 	if t.keyFrameGroupActive && t.framesToKeyRemaining() == 0 {

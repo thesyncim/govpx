@@ -265,26 +265,20 @@ func TestVP9TwoPassKeyFrameZeroMotionPctMatchesLibvpxAccumulator(t *testing.T) {
 	}
 }
 
-func TestVP9TwoPassGFGroupIndexAdvancesPostEncode(t *testing.T) {
+func TestVP9TwoPassGFGroupIndexAdvancesToTerminalOverlaySlot(t *testing.T) {
 	var ts vp9TwoPassState
 	ts.configure(finalizedVP9TwoPassTestStats(100, 100, 100, 100),
 		1000, 50, 0, 0, 64)
 	ts.gfGroupActive = true
 	ts.gfGroup.GFGroupSize = 3
 
-	for want := uint8(1); want <= 2; want++ {
+	for want := uint8(1); want <= 3; want++ {
 		ts.frameTargetBits(1000)
 		ts.finishFrameWithActual(1000)
 		if ts.gfGroup.Index != want {
 			t.Fatalf("gf_group.index = %d, want %d after frame %d",
 				ts.gfGroup.Index, want, want)
 		}
-	}
-	ts.frameTargetBits(1000)
-	ts.finishFrameWithActual(1000)
-	if ts.gfGroup.Index != 2 {
-		t.Fatalf("gf_group.index = %d after end of group, want capped at 2",
-			ts.gfGroup.Index)
 	}
 }
 
