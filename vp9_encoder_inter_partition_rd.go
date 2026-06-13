@@ -78,15 +78,15 @@ var vp9InterDeepRDReplayWrites = true
 // rd_use_partition driver wiring (libvpx vp9_encodeframe.c:2566 — choose_-
 // partitioning's variance partition fed into rd_pick_sb_modes per 8x8 leaf).
 //
-// Default false: production keeps the model-RD leaf score AND the cpu0-style
-// fixed (step_param=0, NSTEP-diamond) full-RD motion search, so production and
-// the cpu0 {0,2,0,0,2} pins (TestVP9EncoderFullRDFrame1SB0*MvParity) stay
-// byte/decision identical. When true, vp9FullRDFullPelMv honours
-// e.sf.Mv.SearchMethod (FAST_HEX for cpu4) and computes step_param via the
-// auto_mv_step_size + adaptive_motion_search boffset path
-// (FullRdSingleMotionStepParam @ internal/vp9/encoder/fullrd_motion_search.go),
-// exactly as libvpx single_motion_search does (vp9_rdopt.c:2613-2675).
-var vp9InterUseDeepRDUsePartition = false
+// Default true: production now uses the proven libvpx-shaped rd_use_partition
+// leaf path for VAR_BASED_PARTITION full-RD inter frames, while the separate
+// SEARCH_PARTITION/sub-8x8 deep recursion remains gated off. When true,
+// vp9FullRDFullPelMv honours e.sf.Mv.SearchMethod (FAST_HEX for cpu4) and
+// computes step_param via the auto_mv_step_size + adaptive_motion_search boffset
+// path (FullRdSingleMotionStepParam @
+// internal/vp9/encoder/fullrd_motion_search.go), exactly as libvpx
+// single_motion_search does (vp9_rdopt.c:2613-2675).
+var vp9InterUseDeepRDUsePartition = true
 
 // vp9InterUseDeepRDTxDomainDistortion switches the genuine inter super_block_yrd
 // producer (vp9FullRDInterYPlaneTxCandidate) from pixel-domain distortion
@@ -109,10 +109,10 @@ var vp9InterUseDeepRDUsePartition = false
 // invert the NEARESTMV-vs-NEARMV this_rd tie, so the flag toggles all three
 // sites at once.
 //
-// Default false: production and the cpu0 {0,2,0,0,2} YRD pins
-// (TestVP9FullRDInterYRDFrame1SB0Parity, allow_txfm_domain_distortion==0 at
-// speed 0) keep the pixel-domain producers, so they are byte/decision identical.
-var vp9InterUseDeepRDTxDomainDistortion = false
+// Default true: transform-domain distortion is active when the speed features
+// request it (for example cpu4 realtime), and remains inert for cpu0 paths where
+// allow_txfm_domain_distortion is off.
+var vp9InterUseDeepRDTxDomainDistortion = true
 
 // vp9InterUseDeepRDRefBestRD threads the running best RD (the mode loop's
 // best_rd / ref_best_rd) as the genuine per-candidate handle_inter_mode budget
@@ -139,13 +139,12 @@ var vp9InterUseDeepRDTxDomainDistortion = false
 // handle_inter_mode/block_rd_txfm 2026-06-05). Without the budget govpx ran
 // NEWMV's full RD at the smaller TX_4X4 (this_rd=28.4M) and let it win.
 //
-// Default false: production and the model-score deep-RD serialization tests are
-// byte/decision identical. The genuine producers already implement the budget
-// early-exit (vp9_fullrd_inter_yrd.go / _uvrd.go); this flag only switches the
-// mode loop from feeding them ^uint64(0) to feeding them the running best, and
-// makes a pruned candidate (grd.Valid==false) drop out of the loop the way
-// libvpx's `continue` does.
-var vp9InterUseDeepRDRefBestRD = false
+// Default true for the production rd_use_partition full-RD path. The genuine
+// producers already implement the budget early-exit (vp9_fullrd_inter_yrd.go /
+// _uvrd.go); this flag switches the mode loop from feeding them ^uint64(0) to
+// feeding them the running best, and makes a pruned candidate
+// (grd.Valid==false) drop out of the loop the way libvpx's `continue` does.
+var vp9InterUseDeepRDRefBestRD = true
 
 // vp9InterUseDeepRDIntraSkipEncode applies libvpx's x->skip_encode behavior to
 // the inter-frame intra RD producer (vp9FullRDInterIntraSB). vp9_rd_pick_inter_
@@ -179,10 +178,19 @@ var vp9InterUseDeepRDRefBestRD = false
 // instead of losing to it (libvpx ground truth, $TMPDIR vpxenc fprintf at
 // vp9_rdopt.c block_rd_txfm / dist_block 2026-06-06).
 //
-// Default false: production and every keyframe/cpu0 producer (skip_encode==0)
-// are byte/decision identical. Enabled in lockstep with the deep use-partition
-// stack by the {0,1,1,0,1} byte-parity test.
-var vp9InterUseDeepRDIntraSkipEncode = false
+// Default true with the production rd_use_partition stack; it is still inert for
+// keyframe/cpu0 producers where skip_encode is off.
+var vp9InterUseDeepRDIntraSkipEncode = true
+
+func (e *VP9Encoder) vp9UseDeepRDUsePartitionPath() bool {
+	return vp9InterUseDeepRDUsePartition && e != nil &&
+		e.sf.PartitionSearchType == VarBasedPartition
+}
+
+func (e *VP9Encoder) vp9UseDeepRDRefBestPath() bool {
+	return vp9InterUseDeepRDRefBestRD &&
+		(e.vp9UseDeepRDUsePartitionPath() || vp9InterUseDeepRDSub8x8)
+}
 
 // vp9QIdxSkipThresh mirrors libvpx's QIDX_SKIP_THRESH (vp9/encoder/vp9_rd.h:36),
 // the base_qindex below which x->skip_encode is armed when sf->skip_encode_frame

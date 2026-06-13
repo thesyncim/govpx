@@ -295,7 +295,7 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 						// where libvpx splits to 4x4). Gated on the deep stack exactly
 						// like the single_motion_search write; production (flags off)
 						// never reads fullRDPredMv so it is inert there.
-						if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+						if (vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath()) &&
 							refFrame > vp9dec.IntraFrame &&
 							int(refFrame) < len(e.fullRDPredMv) {
 							e.fullRDPredMv[refFrame] = searchMv

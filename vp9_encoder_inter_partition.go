@@ -22,7 +22,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// thread (the genuine depth-first recursion's candidate[2] source). Gated on
 	// the full deep stack (vp9InterUseDeepRDSub8x8): the deep-partition-only
 	// round-trip harness and production keep candidate[2] on the var-part cache.
-	if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+	if (vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath()) &&
 		root == common.Block64x64 {
 		for i := range e.fullRDPredMv {
 			e.fullRDPredMv[i] = vp9InterPredMvSentinel

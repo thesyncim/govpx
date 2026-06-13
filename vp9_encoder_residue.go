@@ -163,9 +163,9 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		// override it with a different size (e.g. mi(1,3) frame-1 of {0,1,1,0,1}:
 		// full-RD commits TX_8X8 but the realtime picker returns TX_4X4), which
 		// flips the per-block tx_size field AND the residual token decomposition.
-		// Gate on the deep flag so production (flag off) keeps the nonrd picker
-		// byte-for-byte.
-		if vp9InterUseDeepRDUsePartition && interDecision.txSize < common.TxSizes {
+		// Scope to the VAR_BASED use-partition deep-RD path; other inter paths
+		// keep the existing tx-size picker byte-for-byte.
+		if e.vp9UseDeepRDUsePartitionPath() && interDecision.txSize < common.TxSizes {
 			mi.TxSize = interDecision.txSize
 		} else {
 			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
@@ -210,8 +210,8 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	// for a block libvpx codes skip — e.g. {0,1,1,0,1} frame-1 mi(2,0)/mi(5,3)).
 	// The predictor is already on the recon plane (predictVP9InterBlock), so a
 	// skip block's reconstruction is the predictor, matching libvpx. Gate on the
-	// deep flag so production keeps deriving skip from the residue.
-	if vp9InterUseDeepRDUsePartition && interDecision.skip {
+	// use-partition path so other inter paths keep deriving skip from residue.
+	if e.vp9UseDeepRDUsePartitionPath() && interDecision.skip {
 		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
 		return interDecision, common.DcPred, false
 	}
@@ -220,10 +220,10 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	// x->zcoeff_blk[tx_size][block] (rd1 > rd2: coding the residual costs more
 	// than skipping it). On the deep full-RD use-partition path the committed
 	// leaf's predictor is already on the recon plane, so recompute that
-	// per-block decision here and apply it to the FP-quant tokenize pass; the
-	// nonrd path (flag off) keeps coding every nonzero block as before.
+	// per-block decision here and apply it to the FP-quant tokenize pass; other
+	// inter paths keep coding every nonzero block as before.
 	var zcoeff vp9InterZcoeffBlk
-	if vp9InterUseDeepRDUsePartition && !inter.lossless {
+	if e.vp9UseDeepRDUsePartitionPath() && !inter.lossless {
 		zcoeff, _ = e.vp9ComputeInterLeafZcoeffBlk(inter, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, uint8(segID))
 	}

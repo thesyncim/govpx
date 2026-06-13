@@ -1321,7 +1321,7 @@ func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	var best vp9InterModeDecision
 	refSkipMask := [2]uint8{0, 1}
 	modeSkipStart := e.sf.ModeSkipStart + 1
-	intraEnabled := vp9InterUseDeepRDUsePartition || vp9InterUseDeepRDThisRDScore
+	intraEnabled := e.vp9UseDeepRDUsePartitionPath() || vp9InterUseDeepRDThisRDScore
 	// vp9_rd_pick_inter_mode_sb evaluates the INTRA_FRAME candidates at their
 	// DISTINCT vp9_mode_order indices interleaved with the inter candidates: DC
 	// at index 3 (before mode_skip_start, always reached); TM at 15, H at 22, V
@@ -2003,7 +2003,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		// which were stabilized on the model-score leaf decisions), so this
 		// branch is never taken and cand.score stays the model score →
 		// byte-identical output.
-		if vp9InterUseDeepRDThisRDScore || vp9InterUseDeepRDUsePartition {
+		if vp9InterUseDeepRDThisRDScore || e.vp9UseDeepRDUsePartitionPath() {
 			if grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
 				filter); grd.Valid {
 				cand.distortion = grd.Distortion
@@ -2201,7 +2201,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		// libvpx handle_inter_mode runs the interp-filter MODEL loop internally
 		// and evaluates the genuine RD once; considerMode mirrors that and prunes
 		// via the ref_best_rd breakouts. NEARESTMV/NEARMV use mv == ref mv.
-		if vp9InterUseDeepRDRefBestRD {
+		if e.vp9UseDeepRDRefBestPath() {
 			considerMode(mode, mv, mv)
 			return
 		}
@@ -2264,7 +2264,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		// is evaluated exactly as libvpx does; the non-RD path keeps the wrapper.
 		var mvSearched vp9dec.MV
 		var mvOK bool
-		if vp9InterUseDeepRDRefBestRD {
+		if e.vp9UseDeepRDRefBestPath() {
 			mvSearched, _, mvOK = e.pickVP9InterMvAllowZero(inter, miRows, miCols,
 				miRow, miCol, bsize, refFrame, mvOpts)
 		} else {
@@ -2272,7 +2272,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 				miRow, miCol, bsize, refFrame, mvOpts)
 		}
 		if mv := mvSearched; mvOK {
-			if vp9InterUseDeepRDRefBestRD {
+			if e.vp9UseDeepRDRefBestPath() {
 				considerMode(common.NewMv, mv, refMv)
 				return
 			}
@@ -2307,7 +2307,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 			vp9dec.MV{}) {
 			return
 		}
-		if vp9InterUseDeepRDRefBestRD {
+		if e.vp9UseDeepRDRefBestPath() {
 			considerMode(common.ZeroMv, vp9dec.MV{}, vp9dec.MV{})
 			return
 		}
@@ -2624,7 +2624,7 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 	// SEARCH->WRITE round-trip harness (model leaves, no genuine this_rd) keeps
 	// the var-part choose_partitioning pred_mv cache, and production (all flags
 	// off) is byte-identical.
-	if vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition {
+	if vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath() {
 		if pm := e.fullRDPredMv[refFrame]; pm != vp9InterPredMvSentinel {
 			candidates[2] = encoder.MvPredInputCandidate{MV: pm, Valid: true}
 		}
@@ -3179,7 +3179,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// (pre-subpel) was pinned earlier for the SB0 (0,0) full-pel parity
 		// test; pin the refined MV here for the SB0 64x64 subpel parity test
 		// (no-op in non-trace builds).
-		if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+		if (vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath()) &&
 			refFrame > vp9dec.IntraFrame && int(refFrame) < len(e.fullRDPredMv) {
 			e.fullRDPredMv[refFrame] = mv
 		}

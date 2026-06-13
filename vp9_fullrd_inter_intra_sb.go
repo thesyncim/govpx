@@ -237,6 +237,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraSBInit(inter *vp9InterEncodeState,
 	// unaffected. See vp9InterUseDeepRDIntraSkipEncode for the three coupled
 	// effects on the intra producer.
 	skipEncode := vp9InterUseDeepRDIntraSkipEncode &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.sf.SkipEncodeFrame != 0 && segQIndex < vp9QIdxSkipThresh
 
 	st.keyLike = keyLike

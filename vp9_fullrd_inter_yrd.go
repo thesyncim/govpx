@@ -404,15 +404,18 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	// trellis_opt_tx_rd.thresh=0 (vp9_speed_features.c:486-489), so the else
 	// branch (line 2048) forces block_tx_domain = 1 unconditionally.
 	//
-	// Wired behind vp9InterUseDeepRDTxDomainDistortion (default OFF): the Y-RD
+	// Scoped behind vp9InterUseDeepRDTxDomainDistortion for the VAR_BASED
+	// use-partition path: the Y-RD
 	// transform-domain dist matches libvpx per-tx exactly (mi(0,4) frame-1 of
 	// {0,1,1,0,1}: TX_8X8 d=56334 sse=119666, TX_4X4 d=46797 sse=119991). It
 	// MUST be enabled in lockstep with the matching UV-RD transform-domain path
 	// (vp9FullRDInterUVPlaneTxCandidate, same flag): Y-only inverts the
 	// NEARESTMV-vs-NEARMV this_rd tie at that leaf, while Y+UV together pick
-	// NEARMV/TX_4X4 exactly as libvpx. The flag stays OFF by default so the
-	// pixel-domain producers (and the cpu0 {0,2,0,0,2} YRD pins) are unchanged.
+	// NEARMV/TX_4X4 exactly as libvpx. The cpu0 {0,2,0,0,2} YRD pins stay on
+	// the pixel-domain path because their speed features do not request
+	// transform-domain distortion.
 	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
 			bsize)
 	var rate int

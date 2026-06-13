@@ -81,7 +81,7 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	// NSTEP full_pixel_diamond runs exactly as before.
 	stepParam := 0
 	searchMethod := e.sf.Mv.SearchMethod
-	if vp9InterUseDeepRDUsePartition {
+	if e.vp9UseDeepRDUsePartitionPath() {
 		const mvStepParam = 0 // no-recode RT runtime cpi->mv_step_param
 		stepParam = encoder.FullRdSingleMotionStepParam(mvStepParam,
 			opts.maxMvContext, e.sf.Mv.AutoMvStepSize != 0,

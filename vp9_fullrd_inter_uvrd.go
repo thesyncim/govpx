@@ -217,9 +217,11 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 
 	// libvpx x->block_tx_domain applies to all planes (vp9_rdopt.c:561-600 is
 	// plane-agnostic); for cpu4 it is forced to 1, so the inter UV-RD distortion
-	// must be transform-domain too, in lockstep with the Y producer. Gated behind
-	// vp9InterUseDeepRDTxDomainDistortion (default OFF) — see the Y producer.
+	// must be transform-domain too, in lockstep with the Y producer. Scoped
+	// behind vp9InterUseDeepRDTxDomainDistortion for the VAR_BASED
+	// use-partition path — see the Y producer.
 	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
 			bsize)
 	var rate int

@@ -106,6 +106,7 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 	// transform domain. The zcoeff rd1/rd2 must use the same domain block_rd_txfm
 	// did when it set x->zcoeff_blk.
 	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
 			bsize)
 

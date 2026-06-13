@@ -47,10 +47,9 @@ import (
 //     context immediately after so WriteCoefSb commits against — and advances —
 //     the real context.
 //
-// This is gated on vp9InterUseDeepRDUsePartition; production (flag off) keeps
-// the running-threaded search context byte-for-byte. It is a no-op whenever
-// skip_encode is not armed for the frame (e.g. {0,1,1,0,1} frame 1, where
-// sf->skip_encode_frame==0 because the previous frame is the all-intra
+// This is scoped to the VAR_BASED use-partition deep-RD path and is a no-op
+// whenever skip_encode is not armed for the frame (e.g. {0,1,1,0,1} frame 1,
+// where sf->skip_encode_frame==0 because the previous frame is the all-intra
 // keyframe), so the frame-1 byte pin is unaffected.
 
 // vp9SkipEncodeSearchCtxActive reports whether libvpx's x->skip_encode would be
@@ -59,7 +58,7 @@ import (
 // predicate (sf->skip_encode_frame && q_index < QIDX_SKIP_THRESH) with the
 // output_enabled==0 RD-search-phase always true here.
 func (e *VP9Encoder) vp9SkipEncodeSearchCtxActive(inter *vp9InterEncodeState) bool {
-	if !vp9InterUseDeepRDUsePartition || inter == nil {
+	if !e.vp9UseDeepRDUsePartitionPath() || inter == nil {
 		return false
 	}
 	if e.sf.SkipEncodeFrame == 0 {

@@ -153,12 +153,10 @@ import (
 //     the wrapper, so the {0,0,0,0,0}/{1,0,0,0,0} non-RD seeds are unaffected.
 //     vp9_encoder_inter_modes.go (evaluateNewMVMode).
 //
-// All eight are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
-// vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion,
-// vp9InterUseDeepRDIntraSkipEncode), default OFF, so production and every other
-// VP9 oracle gate stay byte-identical; the seed stays in
-// vp9LongFixtureParityGapSeeds (its production path is unchanged). This test
-// flips them locally.
+// These ports are now production-default for the scoped VAR_BASED
+// use-partition lane; the test still sets the guards explicitly so test order
+// cannot hide the path. The seed remains in vp9LongFixtureParityGapSeeds because
+// the full 256-frame clip still diverges at the next keyframe frontier.
 func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
