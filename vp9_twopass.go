@@ -53,12 +53,13 @@ import "github.com/thesyncim/govpx/internal/vp9/encoder"
 //   P-frames; deeper ALTREF layers (gf_group layer_depth > 1) are out
 //   of scope until the lookahead supports multi-source ARF buffers.
 //
-//   TODO: kf_zeromotion_pct accumulator.
+//   PORTED: kf_zeromotion_pct accumulator subset consumed by
+//   vp9_rc_pick_q_and_bounds_two_pass.
 //   libvpx: vp9/encoder/vp9_firstpass.c find_next_key_frame +
 //          vp9/encoder/vp9_ratectrl.c:1598 STATIC_MOTION_THRESH path.
-//   The Q picker port consumes LastKFGroupZeroMotionPct and KFZeroMotionPct,
-//   but the encoder still passes zero because find_next_key_frame isn't yet
-//   ported.
+//   govpx computes the zero-motion percentage for the active keyframe group
+//   from the available first-pass stats; the full find_next_key_frame scene-cut
+//   cadence remains owned by the keyframe placement lane.
 //
 //   PORTED: vbr_corpus_complexity consumer.
 //   libvpx: vp9/encoder/vp9_firstpass.c:1647-1682 (init_second_pass
@@ -147,8 +148,10 @@ type vp9TwoPassState struct {
 	// avgFrameBandwidth is the libvpx rc->avg_frame_bandwidth value used to
 	// derive max_frame_bandwidth and vbr_max_bits clamps.
 	// libvpx: vp9/encoder/vp9_ratectrl.c:2655
-	avgFrameBandwidth int
-	mbRows            int
+	avgFrameBandwidth        int
+	mbRows                   int
+	kfZeroMotionPct          int
+	lastKFGroupZeroMotionPct int
 }
 
 func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
@@ -223,6 +226,116 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 		boost := min(gf.GFUBoostScalar, 0xFFFF)
 		e.rc.gfuBoost = uint16(boost)
 	}
+	if isKey {
+		e.twoPass.lastKFGroupZeroMotionPct = e.twoPass.kfZeroMotionPct
+		e.twoPass.kfZeroMotionPct = e.twoPass.keyFrameZeroMotionPct(
+			in.GFStartShowIdx, in.FramesToKey)
+	}
+}
+
+func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
+	flags EncodeFlags, refreshFlags uint8, macroblocks int,
+	cyclic *encoder.CyclicRefreshState, encodeSpeed int,
+) (q int, activeBest int, activeWorst int, correctionFactor float64) {
+	if e == nil || !e.rc.enabled || !e.twoPass.enabled() || macroblocks <= 0 {
+		best := 0
+		worst := 255
+		if e != nil {
+			best = int(e.rc.bestQuality)
+			worst = int(e.rc.worstQuality)
+		}
+		return best, best, worst, 1
+	}
+
+	best := int(e.rc.bestQuality)
+	worst := int(e.rc.worstQuality)
+	activeWorstQuality := min(max(e.rc.vbrActiveWorstQuantizer(intraOnly,
+		refreshFlags, e.frameIndex), best), worst)
+	correctionFactor = e.rc.rateCorrectionFactor(intraOnly, refreshFlags)
+
+	gfIndex := 0
+	var gf encoder.GFGroup
+	if e.twoPass.gfGroupActive {
+		gf = e.twoPass.gfGroup
+		gfIndex = int(gf.Index)
+	}
+	rfLevel := uint8(encoder.RateFactorInterNormal)
+	layerDepth := 0
+	gfuBoost := int(e.rc.gfuBoost)
+	if gfIndex >= 0 && gfIndex < len(gf.RFLevel) {
+		rfLevel = gf.RFLevel[gfIndex]
+		layerDepth = int(gf.LayerDepth[gfIndex])
+		if gf.GFUBoost[gfIndex] > 0 {
+			gfuBoost = gf.GFUBoost[gfIndex]
+		}
+	}
+	arfAdjust := 1.0
+	if gf.ARFActiveBestQAdjustF > 0 {
+		arfAdjust = gf.ARFActiveBestQAdjustF
+	}
+
+	in := encoder.RCPickQAndBoundsTwoPassInputs{
+		IsIntraOnly:                          intraOnly,
+		BoostFrame:                           !e.rc.isSrcFrameAltRef && vp9BoostedInterRefresh(refreshFlags),
+		IsSrcFrameAltRef:                     e.rc.isSrcFrameAltRef,
+		ThisKeyFrameForced:                   flags&EncodeForceKeyFrame != 0,
+		FramesSinceKey:                       int(e.rc.framesSinceKey),
+		AvgFrameQIndexInter:                  int(e.rc.avgFrameQIndexInter),
+		LastKFQIndex:                         int(e.rc.lastQKey),
+		LastBoostedQIndex:                    int(e.rc.lastBoostedQIndex),
+		BestQuality:                          best,
+		WorstQuality:                         worst,
+		ThisFrameTarget:                      e.rc.frameTargetBits,
+		MaxFrameBandwidth:                    e.rc.maxFrameBandwidth,
+		ActiveWorstQuality:                   activeWorstQuality,
+		LastKFGroupZeroMotionPct:             e.twoPass.lastKFGroupZeroMotionPct,
+		KFZeroMotionPct:                      e.twoPass.kfZeroMotionPct,
+		FrameWidth:                           e.opts.Width,
+		FrameHeight:                          e.opts.Height,
+		CQLevel:                              int(e.rc.cqLevel),
+		IsCQ:                                 e.rc.mode == RateControlCQ,
+		ARFActiveBestQualityAdjustmentFactor: arfAdjust,
+		ARFIncreaseActiveBestQuality:         gf.ARFIncreaseActiveBest,
+		GFUBoost:                             gfuBoost,
+		RFLevel:                              rfLevel,
+		LayerDepth:                           layerDepth,
+		MaxLayerDepth:                        gf.MaxLayerDepth,
+	}
+	result := encoder.RCPickQAndBoundsTwoPassWithRegulator(in,
+		func(activeBest int, activeWorst int) int {
+			return vp9RegulatedQuantizer(intraOnly, e.rc.frameTargetBits,
+				macroblocks, activeBest, activeWorst, correctionFactor,
+				cyclic, encodeSpeed)
+		})
+	return result.Q, result.ActiveBest, result.ActiveWorst, correctionFactor
+}
+
+func (t *vp9TwoPassState) keyFrameZeroMotionPct(startShowIdx int, framesToKey int) int {
+	if !t.enabled() || framesToKey <= 1 {
+		return 100
+	}
+	limit := min(framesToKey-1, len(t.stats)-startShowIdx-1)
+	if limit <= 0 {
+		return 100
+	}
+	zeroMotion := 1.0
+	for i := 0; i < limit; i++ {
+		row := t.stats[startShowIdx+1+i]
+		if i == 0 {
+			zeroMotion = row.PcntInter - row.PcntMotion
+			continue
+		}
+		zeroMotion = min(zeroMotion,
+			encoder.GetZeroMotionFactor(row,
+				encoder.DefaultARFBoostParams(t.mbRows).ZMFactor))
+	}
+	if zeroMotion < 0 {
+		zeroMotion = 0
+	}
+	if zeroMotion > 1 {
+		zeroMotion = 1
+	}
+	return int(zeroMotion * 100)
 }
 
 // vp9DampedAdjustmentRFLevel returns the rate-factor level libvpx uses to index
@@ -346,6 +459,8 @@ func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
 	t.vbrCorpusComplexity = vbrCorpusComplexity
 	t.minFrameBandwidth = vbrMinFrameBandwidthBits(bitsPerFrame, t.minPct)
 	t.avgFrameBandwidth = bitsPerFrame
+	t.kfZeroMotionPct = 100
+	t.lastKFGroupZeroMotionPct = 100
 	// libvpx: vp9/encoder/vp9_firstpass.c:1702 — bits_left =
 	// stats->duration * target_bandwidth / 10000000. We don't carry the
 	// 10us tick basis, so substitute bitsPerFrame*frameCount which equals
@@ -561,6 +676,10 @@ func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
 		t.bitsLeft = 0
 	}
 	t.frameIndex++
+	if t.gfGroupActive && t.gfGroup.GFGroupSize > 0 &&
+		int(t.gfGroup.Index)+1 < t.gfGroup.GFGroupSize {
+		t.gfGroup.Index++
+	}
 	t.currentTargetBits = 0
 	t.baseFrameTarget = 0
 }

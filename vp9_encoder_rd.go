@@ -211,7 +211,18 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 			} else {
 				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
 					refreshFlags)
-				if traceRateSelection {
+				if e.twoPass.enabled() {
+					var activeBest int
+					var activeWorst int
+					var correctionFactor float64
+					qindex, activeBest, activeWorst, correctionFactor =
+						e.vp9TwoPassQuantizerWithBounds(isKey || intraOnly,
+							flags, refreshFlags, macroblocks, cyclic, encodeSpeed)
+					if traceRateSelection {
+						e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
+							correctionFactor, e.rc.onePassRecodeAllowed(), 0)
+					}
+				} else if traceRateSelection {
 					var activeBest int
 					var activeWorst int
 					var correctionFactor float64

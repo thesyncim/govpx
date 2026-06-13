@@ -8,9 +8,9 @@ package encoder
 // This function consumes the GF group decision produced by DefineGFGroup
 // (rf_level, layer_depth, gf_group.max_layer_depth, gfu_boost) and the
 // per-frame state to emit (active_best_quality, active_worst_quality, q).
-// govpx's existing vbrQuantizer / vbrQuantizerWithBounds remain the
-// runtime path; this port is exercised through tests and is wired in
-// over time as the remaining deferrals are populated.
+// govpx's VP9 second-pass encoder path uses this picker when finalized
+// first-pass stats are available; the one-pass VBR/CQ path still uses
+// vbrQuantizer / vbrQuantizerWithBounds.
 //
 // Deferred fields cited inline:
 //   - last_qindex_of_arf_layer[] tracking (libvpx vp9_ratectrl.c:1554).
@@ -94,6 +94,10 @@ type RCPickQAndBoundsTwoPassResult struct {
 	Q           int
 }
 
+// RCPickQAndBoundsTwoPassRegulator mirrors libvpx's vp9_rc_regulate_q call
+// after the two-pass active min/max bounds have been selected.
+type RCPickQAndBoundsTwoPassRegulator func(activeBest int, activeWorst int) int
+
 // RCPickQAndBoundsTwoPass ports libvpx vp9_rc_pick_q_and_bounds_two_pass.
 //
 // libvpx: vp9/encoder/vp9_ratectrl.c:1468
@@ -107,6 +111,18 @@ type RCPickQAndBoundsTwoPassResult struct {
 // vp9_rc_regulate_q(cpi, rc->this_frame_target, active_best_quality,
 // active_worst_quality) (vp9_ratectrl.c:1606).
 func RCPickQAndBoundsTwoPass(in RCPickQAndBoundsTwoPassInputs, regulatedQ int) RCPickQAndBoundsTwoPassResult {
+	return RCPickQAndBoundsTwoPassWithRegulator(in,
+		func(activeBest int, activeWorst int) int {
+			return regulatedQ
+		})
+}
+
+// RCPickQAndBoundsTwoPassWithRegulator is RCPickQAndBoundsTwoPass with the
+// regulator threaded as a callback, so callers can run quantizer search on the
+// active bounds this picker just computed.
+func RCPickQAndBoundsTwoPassWithRegulator(in RCPickQAndBoundsTwoPassInputs,
+	regulate RCPickQAndBoundsTwoPassRegulator,
+) RCPickQAndBoundsTwoPassResult {
 	var activeBest int
 	activeWorst := in.ActiveWorstQuality
 
@@ -227,11 +243,13 @@ func RCPickQAndBoundsTwoPass(in RCPickQAndBoundsTwoPassInputs, regulatedQ int) R
 		q = activeBest
 	default:
 		// libvpx calls vp9_rc_regulate_q(cpi, rc->this_frame_target,
-		// active_best_quality, active_worst_quality). We accept the
-		// caller-provided regulated Q (computed via the existing govpx
-		// regulator on the [active_best, active_worst] interval) and
-		// apply the libvpx clamp + max-frame-bandwidth special case.
-		q = regulatedQ
+		// active_best_quality, active_worst_quality). Callers may provide a
+		// regulator callback to compute Q from those just-selected bounds;
+		// the fixed-Q wrapper above uses a callback that returns its input Q.
+		q = activeWorst
+		if regulate != nil {
+			q = regulate(activeBest, activeWorst)
+		}
 		if q > activeWorst {
 			if in.ThisFrameTarget >= in.MaxFrameBandwidth {
 				activeWorst = q

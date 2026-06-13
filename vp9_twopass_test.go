@@ -1,9 +1,11 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9TwoPassStateDistributesTargetsByStats(t *testing.T) {
@@ -119,6 +121,30 @@ func TestVP9SetTwoPassStatsCanEnableAndDisable(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderFrameQIndexUsesTwoPassQuantizerBounds(t *testing.T) {
+	const width, height = 64, 64
+	macroblocks := vp9enc.MacroblockCount((height+7)>>3, (width+7)>>3)
+	refreshFlags := uint8(1 << vp9GoldenRefSlot)
+
+	manual := newVP9TwoPassQuantizerFixture(t)
+	manual.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	wantQ, wantBest, wantWorst, _ := manual.vp9TwoPassQuantizerWithBounds(
+		false, 0, refreshFlags, macroblocks, nil, 0)
+	oldQ, oldBest, oldWorst, _ := manual.rc.vbrQuantizerWithBounds(false,
+		refreshFlags, manual.frameIndex, macroblocks, nil, 0)
+	if wantQ == oldQ && wantBest == oldBest && wantWorst == oldWorst {
+		t.Fatalf("fixture does not distinguish two-pass q path: q/bounds %d [%d,%d]",
+			wantQ, wantBest, wantWorst)
+	}
+
+	enc := newVP9TwoPassQuantizerFixture(t)
+	got := enc.vp9EncoderFrameQIndex(false, false, 0, refreshFlags, macroblocks)
+	if got != wantQ {
+		t.Fatalf("frame qindex = %d, want two-pass q %d (bounds [%d,%d], old one-pass q %d bounds [%d,%d])",
+			got, wantQ, wantBest, wantWorst, oldQ, oldBest, oldWorst)
+	}
+}
+
 func TestVP9EncoderTwoPassSteadyStateAlloc(t *testing.T) {
 	const width, height = 128, 128
 	enc, err := NewVP9Encoder(VP9EncoderOptions{
@@ -157,6 +183,112 @@ func TestVP9EncoderTwoPassSteadyStateAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("EncodeInto two-pass steady state: got %v allocs/op, want 0",
 			allocs)
+	}
+}
+
+func TestVP9TwoPassKeyFrameZeroMotionPctMatchesLibvpxAccumulator(t *testing.T) {
+	rows := []VP9FirstPassFrameStats{
+		{
+			Frame:        0,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.80,
+			Duration:     1,
+			Count:        1,
+		},
+		{
+			Frame:        1,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.90,
+			PcntMotion:   0.15,
+			Duration:     1,
+			Count:        1,
+		},
+	}
+	var ts vp9TwoPassState
+	ts.configure(FinalizeVP9FirstPassStats(rows), 1000, 50, 0, 0, 64)
+
+	if got := ts.keyFrameZeroMotionPct(0, 2); got != 75 {
+		t.Fatalf("zero-motion pct = %d, want 75", got)
+	}
+}
+
+func TestVP9TwoPassGFGroupIndexAdvancesPostEncode(t *testing.T) {
+	var ts vp9TwoPassState
+	ts.configure(finalizedVP9TwoPassTestStats(100, 100, 100, 100),
+		1000, 50, 0, 0, 64)
+	ts.gfGroupActive = true
+	ts.gfGroup.GFGroupSize = 3
+
+	for want := uint8(1); want <= 2; want++ {
+		ts.frameTargetBits(1000)
+		ts.finishFrameWithActual(1000)
+		if ts.gfGroup.Index != want {
+			t.Fatalf("gf_group.index = %d, want %d after frame %d",
+				ts.gfGroup.Index, want, want)
+		}
+	}
+	ts.frameTargetBits(1000)
+	ts.finishFrameWithActual(1000)
+	if ts.gfGroup.Index != 2 {
+		t.Fatalf("gf_group.index = %d after end of group, want capped at 2",
+			ts.gfGroup.Index)
+	}
+}
+
+func TestVP9RefreshGFGroupCarriesLastKeyFrameZeroMotionPct(t *testing.T) {
+	rows := []VP9FirstPassFrameStats{
+		{
+			Frame:        0,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.80,
+			Duration:     1,
+			Count:        1,
+		},
+		{
+			Frame:        1,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.90,
+			PcntMotion:   0.15,
+			Duration:     1,
+			Count:        1,
+		},
+	}
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       FinalizeVP9FirstPassStats(rows),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.kfZeroMotionPct = 42
+
+	enc.refreshVP9GFGroupIfDue(true)
+	if enc.twoPass.lastKFGroupZeroMotionPct != 42 {
+		t.Fatalf("last kf zero-motion pct = %d, want previous 42",
+			enc.twoPass.lastKFGroupZeroMotionPct)
+	}
+	if enc.twoPass.kfZeroMotionPct != 75 {
+		t.Fatalf("current kf zero-motion pct = %d, want 75",
+			enc.twoPass.kfZeroMotionPct)
 	}
 }
 
@@ -570,4 +702,44 @@ func finalizedVP9TwoPassTestStats(errors ...float64) []VP9FirstPassFrameStats {
 		}
 	}
 	return FinalizeVP9FirstPassStats(rows)
+}
+
+func newVP9TwoPassQuantizerFixture(t *testing.T) *VP9Encoder {
+	t.Helper()
+	const width, height = 64, 64
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  900,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats: finalizedVP9TwoPassTestStats(
+			100, 25000, 10000, 100),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.frameIndex = 1
+	enc.twoPass.frameIndex = 1
+	enc.rc.framesSinceKey = 2
+	enc.rc.lastQKey = 120
+	enc.rc.lastQInter = 180
+	enc.rc.lastBoostedQIndex = 170
+	enc.rc.avgFrameQIndexInter = 180
+	enc.rc.gfuBoost = 300
+	enc.rc.beginFrameWithRefresh(false, enc.frameIndex, 1<<vp9GoldenRefSlot)
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 1
+	enc.twoPass.gfGroup.RFLevel[0] = vp9enc.RateFactorGFARFStd
+	enc.twoPass.gfGroup.GFUBoost[0] = 4000
+	enc.twoPass.gfGroup.GFGroupSize = 2
+	enc.twoPass.gfGroup.GFUBoostScalar = 4000
+	enc.twoPass.gfGroup.ARFActiveBestQAdjustF = 1.0
+	return enc
 }
