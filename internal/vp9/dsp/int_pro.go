@@ -75,11 +75,28 @@ func VpxIntProRow(hbuf []int16, ref []uint8, refOff, refStride, height int) {
 // further by `>> norm_factor` at the call site (3 + bw/32), bringing
 // the dynamic range into [0, 510].
 func VpxIntProCol(ref []uint8, refOff, width int) int16 {
+	row := ref[refOff:]
+	switch width {
+	case 16:
+		return int16(intProSum16(row))
+	case 32:
+		return int16(intProSum16(row) + intProSum16(row[16:]))
+	case 64:
+		return int16(intProSum16(row) + intProSum16(row[16:]) +
+			intProSum16(row[32:]) + intProSum16(row[48:]))
+	}
 	var sum int16
 	for idx := range width {
 		sum += int16(ref[refOff+idx])
 	}
 	return sum
+}
+
+func intProSum16(row []uint8) int {
+	return int(row[0]) + int(row[1]) + int(row[2]) + int(row[3]) +
+		int(row[4]) + int(row[5]) + int(row[6]) + int(row[7]) +
+		int(row[8]) + int(row[9]) + int(row[10]) + int(row[11]) +
+		int(row[12]) + int(row[13]) + int(row[14]) + int(row[15])
 }
 
 // VpxVectorVar mirrors vpx_vector_var_c (vpx_dsp/avg.c:371-388). Given
