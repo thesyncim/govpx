@@ -12,6 +12,10 @@ const (
 	// FirstPassSearchRange is the integer-pel search radius used by the
 	// current govpx first-pass source analyzer.
 	FirstPassSearchRange = 4
+	// FirstPassNZMotionPenalty mirrors libvpx vp9_firstpass.c
+	// NZ_MOTION_PENALTY (=128). libvpx skips the nonzero-MV search when
+	// the raw zero-motion prediction error is already this small.
+	FirstPassNZMotionPenalty = 128
 	// FirstPassDarkThresh mirrors libvpx vp9_firstpass.c DARK_THRESH (=64).
 	FirstPassDarkThresh = 64
 )
@@ -107,10 +111,15 @@ func AnalyzeFirstPassFrame(a FirstPassFrameAnalysis) FirstPassFrameStats {
 			lastErr := ^uint64(0)
 
 			if a.HasLast {
-				bestErr, rowQ3, colQ3 := FirstPassMotionSearch(a.SourceY, a.SourceStride,
-					a.LastY, a.LastStride, x, y, w, h, a.Width, a.Height)
-				if rowQ3 != 0 || colQ3 != 0 {
-					bestErr += FirstPassNewMVModePenalty
+				bestErr := BlockSSE(a.SourceY, a.SourceStride,
+					a.LastY, a.LastStride, x, y, x, y, w, h)
+				rowQ3, colQ3 := int16(0), int16(0)
+				if bestErr > FirstPassNZMotionPenalty {
+					bestErr, rowQ3, colQ3 = FirstPassMotionSearch(a.SourceY, a.SourceStride,
+						a.LastY, a.LastStride, x, y, w, h, a.Width, a.Height)
+					if rowQ3 != 0 || colQ3 != 0 {
+						bestErr += FirstPassNewMVModePenalty
+					}
 				}
 				lastErr = bestErr
 				if bestErr <= thisErr {

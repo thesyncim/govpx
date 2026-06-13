@@ -252,7 +252,8 @@ func ComputeKeyFrameBoost(in KeyFrameGroupInputs, framesToKey int, keyRawErr flo
 		}
 		if i > 0 {
 			zeroMotionAccumulator = math.Min(zeroMotionAccumulator,
-				GetZeroMotionFactor(nextFrame, params.ZMFactor))
+				GetZeroMotionFactor(nextFrame, params.SRDiffFactor,
+					params.SRDefaultDecayLimit))
 		} else {
 			zeroMotionAccumulator = nextFrame.PcntInter - nextFrame.PcntMotion
 		}

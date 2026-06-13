@@ -104,10 +104,13 @@ As of 2026-06-13 the stats-backed VP9 two-pass q setup is also covered by:
 GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace . -run 'TestVP9OracleTwoPass(Stream|Constant)ByteParity|TestVP9RecodeSeed1_1_1_1_0' -count=1 -v
 ```
 
-The constant two-pass case now matches libvpx q exactly. The panning stream
-still lacks byte parity because GF refresh scheduling and inter allocation
-remain ahead of the q path, but the opening keyframe q moved from the old
-one-pass fallback (q=122) to q=16 vs libvpx q=17.
+The constant two-pass case now matches libvpx q and visible refresh cadence
+exactly (`q=16`, refresh `0xff,0x1,0x1,0x1`). The panning stream still lacks byte
+parity because later hidden-ARF/overlay advancement and inter allocation remain
+ahead of the q path, but frame 1 now follows libvpx's GF buffer update
+(`refresh=0x4`, q=27 vs libvpx q=28) instead of the old LF-only refresh. The
+remaining visible refresh mismatch in this small trace is frame 5
+(`govpx=0x1`, libvpx=`0x4`).
 
 `make test-parity-report`
 

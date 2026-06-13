@@ -491,7 +491,9 @@ func GetGOPCodingFrameNum(useAltRef *bool, in GFGroupInputs,
 
 		// libvpx: Monitor for static sections.
 		if (in.FramesSinceKey + gopCodingFrames - 1) > 1 {
-			zm := GetZeroMotionFactor(nextFrame, in.BoostParams.ZMFactor)
+			zm := GetZeroMotionFactor(nextFrame,
+				in.BoostParams.SRDiffFactor,
+				in.BoostParams.SRDefaultDecayLimit)
 			if zm < zeroMotionAccumulator {
 				zeroMotionAccumulator = zm
 			}
@@ -558,7 +560,7 @@ func GetGOPCodingFrameNum(useAltRef *bool, in GFGroupInputs,
 func CheckTransitionToStill(stats []FirstPassFrameStats, startIdx, stillInterval int, params ARFBoostParams) bool {
 	// libvpx requires at least still_interval frames remaining; if we
 	// can't see that far ahead, treat as not-still.
-	if startIdx+stillInterval >= len(stats) {
+	if startIdx+stillInterval > len(stats) {
 		return false
 	}
 	// libvpx: loop forward still_interval frames; if any frame's
@@ -583,16 +585,13 @@ func CheckTransitionToStill(stats []FirstPassFrameStats, startIdx, stillInterval
 
 // GetZeroMotionFactor ports libvpx get_zero_motion_factor.
 //
-// libvpx: vp9/encoder/vp9_firstpass.c:1797 get_zero_motion_factor
-func GetZeroMotionFactor(frame FirstPassFrameStats, zmFactor float64) float64 {
-	zm := zmFactor * (frame.PcntInter - frame.PcntMotion)
-	if zm < 0 {
-		return 0
-	}
-	if zm > 1.0 {
-		return 1.0
-	}
-	return zm
+// libvpx: vp9/encoder/vp9_firstpass.c:1769 get_zero_motion_factor
+func GetZeroMotionFactor(frame FirstPassFrameStats,
+	srDiffFactor, srDefaultDecayLimit float64,
+) float64 {
+	zeroMotionPct := frame.PcntInter - frame.PcntMotion
+	srDecay := GetSRDecayRate(frame, srDiffFactor, srDefaultDecayLimit)
+	return math.Min(srDecay, zeroMotionPct)
 }
 
 // GetARFLayers ports libvpx get_arf_layers.

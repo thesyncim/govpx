@@ -140,8 +140,16 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			refreshFlags |= 1 << vp9GoldenRefSlot
 		}
 	}
+	if e.twoPass.enabled() && e.rc.enabled && e.rc.mode != RateControlCBR {
+		e.prepareVP9SecondPassFrameTarget(isKey || intraOnly, refreshFlags)
+		refreshFlags, srcFrameAltRef = e.vp9ConfigureTwoPassBufferUpdates(
+			isKey || intraOnly, flags, refreshFlags, srcFrameAltRef)
+	}
 	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
 		refreshFlags)
+	if e.twoPass.enabled() && e.rc.enabled && e.rc.mode != RateControlCBR {
+		e.prepareVP9SecondPassFrameTarget(isKey || intraOnly, refreshFlags)
+	}
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
 	e.vp9SceneDetectionOnePass(img, showFrame, miRows, miCols)
@@ -765,6 +773,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if !postDrop {
 			projected = vpxrc.EncodedSizeBits(n)
 		}
+		e.twoPass.postEncodeGFUpdate(header.RefreshFrameFlags)
 		e.twoPass.finishFrameWithActual(projected)
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)

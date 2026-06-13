@@ -349,6 +349,20 @@ func TestVP9BuildGFGroupInputsCarriesSourceAltRefActive(t *testing.T) {
 	}
 }
 
+func TestVP9BuildGFGroupInputsUsesTwoPassAltRefDefaults(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.opts.LookaheadFrames = 0
+
+	in := enc.buildVP9GFGroupInputs(false)
+	if in.LagInFrames != vp9MaxLookaheadFrames {
+		t.Fatalf("LagInFrames = %d, want libvpx default %d",
+			in.LagInFrames, vp9MaxLookaheadFrames)
+	}
+	if !in.AllowAltRef {
+		t.Fatal("AllowAltRef = false, want stats-backed two-pass default enabled")
+	}
+}
+
 func TestVP9PostEncodeSourceAltRefStateMirrorsLibvpx(t *testing.T) {
 	enc := newVP9TwoPassQuantizerFixture(t)
 	enc.rc.sourceAltRefPending = true
@@ -378,6 +392,114 @@ func TestVP9PostEncodeSourceAltRefStateMirrorsLibvpx(t *testing.T) {
 	if enc.rc.sourceAltRefPending || enc.rc.sourceAltRefActive {
 		t.Fatalf("after intra reset pending=%v active=%v, want false/false",
 			enc.rc.sourceAltRefPending, enc.rc.sourceAltRefActive)
+	}
+}
+
+func TestVP9ConfigureTwoPassBufferUpdatesMirrorsLibvpx(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 0
+
+	tests := []struct {
+		name       string
+		updateType uint8
+		flags      EncodeFlags
+		inRefresh  uint8
+		want       uint8
+		wantSrcARF bool
+	}{
+		{
+			name:       "arf",
+			updateType: vp9enc.ARFUpdate,
+			want:       1 << vp9AltRefSlot,
+		},
+		{
+			name:       "golden",
+			updateType: vp9enc.GFUpdate,
+			want:       1<<vp9LastRefSlot | 1<<vp9GoldenRefSlot,
+		},
+		{
+			name:       "leaf",
+			updateType: vp9enc.LFUpdate,
+			want:       1 << vp9LastRefSlot,
+		},
+		{
+			name:       "overlay",
+			updateType: vp9enc.OverlayUpdate,
+			want:       1 << vp9GoldenRefSlot,
+			wantSrcARF: true,
+		},
+		{
+			name:       "external-preserved",
+			updateType: vp9enc.ARFUpdate,
+			flags:      EncodeNoUpdateAltRef,
+			inRefresh:  1 << vp9LastRefSlot,
+			want:       1 << vp9LastRefSlot,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc.twoPass.gfGroup.UpdateType[0] = tc.updateType
+			enc.rc.isSrcFrameAltRef = false
+			inRefresh := tc.inRefresh
+			if inRefresh == 0 && tc.name != "external-preserved" {
+				inRefresh = 1 << vp9LastRefSlot
+			}
+			got, gotSrcARF := enc.vp9ConfigureTwoPassBufferUpdates(false,
+				tc.flags, inRefresh, false)
+			if got != tc.want || gotSrcARF != tc.wantSrcARF ||
+				enc.rc.isSrcFrameAltRef != tc.wantSrcARF {
+				t.Fatalf("refresh/src_arf = %#x/%v rc=%v, want %#x/%v",
+					got, gotSrcARF, enc.rc.isSrcFrameAltRef,
+					tc.want, tc.wantSrcARF)
+			}
+		})
+	}
+}
+
+func TestVP9TwoPassGFCountdownMirrorsLibvpxRefreshGate(t *testing.T) {
+	var ts vp9TwoPassState
+	ts.configure(finalizedVP9TwoPassTestStats(100, 100, 100, 100),
+		1000, 50, 0, 0, 64)
+	ts.gfGroupActive = true
+	ts.framesTillGFUpdate = 3
+
+	ts.postEncodeGFUpdate(1 << vp9AltRefSlot)
+	if ts.framesTillGFUpdate != 3 {
+		t.Fatalf("after ARF refresh framesTillGFUpdate=%d, want unchanged 3",
+			ts.framesTillGFUpdate)
+	}
+	ts.postEncodeGFUpdate(1 << vp9LastRefSlot)
+	if ts.framesTillGFUpdate != 2 {
+		t.Fatalf("after LF update framesTillGFUpdate=%d, want 2",
+			ts.framesTillGFUpdate)
+	}
+	ts.postEncodeGFUpdate(1 << vp9GoldenRefSlot)
+	if ts.framesTillGFUpdate != 1 {
+		t.Fatalf("after golden update framesTillGFUpdate=%d, want 1",
+			ts.framesTillGFUpdate)
+	}
+}
+
+func TestVP9SecondPassPreparedTargetSurvivesBeginFrameReset(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	refreshFlags := uint8(1 << vp9AltRefSlot)
+
+	enc.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	prepared := enc.rc.frameTargetBits
+	if prepared <= 0 {
+		t.Fatalf("prepared target = %d, want positive", prepared)
+	}
+	enc.rc.beginFrameWithRefresh(false, enc.frameIndex, refreshFlags)
+	if enc.rc.frameTargetBits == prepared {
+		t.Fatalf("fixture did not reset frame target; target=%d", prepared)
+	}
+	enc.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	if enc.rc.frameTargetBits != prepared ||
+		enc.vp9TwoPassFrameTarget != prepared {
+		t.Fatalf("prepared target after restore = rc:%d result:%d, want %d",
+			enc.rc.frameTargetBits, enc.vp9TwoPassFrameTarget, prepared)
 	}
 }
 
