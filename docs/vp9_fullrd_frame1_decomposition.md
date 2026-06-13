@@ -226,6 +226,14 @@ GOLDEN/ALTREF, EIGHTTAP_SHARP, ≥16x16 inter blocks.
 > inter-engine campaign. The (incorrect) recode narrative is retained below
 > only for history.
 
+> **UPDATE (2026-06-13).** The stats-backed VP9 two-pass q setup now ports
+> `get_twopass_worst_quality` and the `find_next_key_frame` kf_boost /
+> keyframe-group budget seed. The constant two-pass oracle case now matches
+> libvpx q exactly (`16,16,16,16`), and the panning two-pass opener moved from
+> q=122 to q=16 vs libvpx q=17. This seed remains open because the fuzz harness
+> still supplies no first-pass stats, so govpx legitimately takes the one-pass
+> path while vpxenc `--good` runs two-pass by default.
+
 Dispatch shows frame 1 **twice**: `base_q=54` then `base_q=83`. Good-quality
 runs a **recode loop** (`vp9_encoder.c` recode: encode at q=54 → reject →
 re-encode at q=83). The committed bitstream is the **second pass (q=83)**; the

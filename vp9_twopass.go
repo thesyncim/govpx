@@ -62,6 +62,13 @@ import "github.com/thesyncim/govpx/internal/vp9/encoder"
 //   from the available first-pass stats; the full find_next_key_frame scene-cut
 //   cadence remains owned by the keyframe placement lane.
 //
+//   PORTED: find_next_key_frame keyframe-group budget and rc->kf_boost
+//   seeding.
+//   libvpx: vp9/encoder/vp9_firstpass.c:3288. govpx computes
+//   frames_to_key, kf_boost, keyframe bit allocation, and the residual
+//   kf_group_bits/kf_group_error_left that define_gf_group consumes before
+//   VP9 two-pass q selection.
+//
 //   PORTED: vbr_corpus_complexity consumer.
 //   libvpx: vp9/encoder/vp9_firstpass.c:1647-1682 (init_second_pass
 //   corpus branch), :2503-2516 (allocate_gf_group_bits corpus branch),
@@ -153,6 +160,16 @@ type vp9TwoPassState struct {
 	mbRows                   int
 	kfZeroMotionPct          int
 	lastKFGroupZeroMotionPct int
+	keyFrameGroupActive      bool
+	keyFrameGroupStart       uint64
+	framesToKey              int
+	keyFrameBoost            int
+	keyFrameTargetBits       int
+	kfGroupBits              int64
+	kfGroupErrorLeft         float64
+	activeWorstQuality       int
+	baselineActiveWorst      int
+	bpmFactor                float64
 }
 
 func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
@@ -179,6 +196,12 @@ func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
 func (e *VP9Encoder) prepareVP9SecondPassFrameTarget(intraOnly bool, refreshFlags uint8) {
 	e.vp9TwoPassFrameTarget = 0
 	if e.twoPass.enabled() {
+		e.seedVP9TwoPassActiveWorstQuality()
+		if intraOnly {
+			e.prepareVP9KeyFrameGroup()
+		} else if remaining := e.twoPass.framesToKeyRemaining(); remaining > 0 {
+			e.rc.framesToKey = remaining
+		}
 		// libvpx: vp9_rc_get_second_pass_params calls define_gf_group at
 		// each GF boundary (frames_till_gf_update_due == 0). The boost
 		// it produces (rc->gfu_boost) feeds adjust_arnr_filter and the
@@ -193,6 +216,117 @@ func (e *VP9Encoder) prepareVP9SecondPassFrameTarget(intraOnly bool, refreshFlag
 		}
 	}
 	e.rc.setOnePassVBRFrameTarget(intraOnly, refreshFlags)
+}
+
+func (e *VP9Encoder) seedVP9TwoPassActiveWorstQuality() {
+	if e == nil || !e.twoPass.enabled() || e.twoPass.activeWorstQuality >= 0 ||
+		e.twoPass.frameIndex >= uint64(len(e.twoPass.stats)) {
+		return
+	}
+	framesLeft := int(e.twoPass.totalStats.Count) - e.frameIndex
+	if framesLeft <= 0 {
+		framesLeft = len(e.twoPass.stats) - int(e.twoPass.frameIndex)
+	}
+	if framesLeft <= 0 {
+		return
+	}
+	var left VP9FirstPassFrameStats
+	for i := int(e.twoPass.frameIndex); i < len(e.twoPass.stats); i++ {
+		encoder.AccumulateFirstPassStats(&left, e.twoPass.stats[i])
+	}
+	sectionLength := left.Count
+	if sectionLength <= 0 {
+		sectionLength = float64(framesLeft)
+	}
+	sectionTargetBandwidth := int(e.twoPass.bitsLeft / int64(framesLeft))
+	mbRows := e.twoPass.mbRows
+	if mbRows <= 0 {
+		mbRows = (e.opts.Height + 15) >> 4
+		if mbRows <= 0 {
+			mbRows = 1
+		}
+	}
+	macroblocks := encoder.MacroblockCount((e.opts.Height+7)>>3,
+		(e.opts.Width+7)>>3)
+	q := encoder.TwoPassWorstQuality(encoder.TwoPassWorstQualityInputs{
+		SectionError:           left.CodedError / sectionLength,
+		InactiveZone:           left.IntraSkipPct/sectionLength + (left.InactiveZoneRows*2)/(float64(mbRows)*sectionLength),
+		SectionNoise:           left.FrameNoiseEnergy / sectionLength,
+		SectionTargetBandwidth: sectionTargetBandwidth,
+		BestQuality:            int(e.rc.bestQuality),
+		WorstQuality:           int(e.rc.worstQuality),
+		CQLevel:                int(e.rc.cqLevel),
+		IsCQ:                   e.rc.mode == RateControlCQ,
+		AvgFrameBandwidth:      e.rc.bitsPerFrame,
+		MinFrameBandwidth:      e.twoPass.minFrameBandwidth,
+		MaxFrameBandwidth:      e.rc.maxFrameBandwidth,
+		MaxInterBitratePct:     e.rc.maxInterBitratePct,
+		Macroblocks:            macroblocks,
+		Speed:                  e.vp9SpeedFeatureCPUUsed(),
+		BPMFactor:              e.twoPass.bpmFactor,
+		Width:                  e.opts.Width,
+		Height:                 e.opts.Height,
+	})
+	e.twoPass.activeWorstQuality = q
+	e.twoPass.baselineActiveWorst = q
+	e.rc.lastQInter = uint8(q)
+	e.rc.avgFrameQIndexInter = uint8(q)
+	keyQ := (q + int(e.rc.bestQuality)) / 2
+	e.rc.lastQKey = uint8(keyQ)
+	e.rc.avgFrameQIndexKey = uint8(keyQ)
+}
+
+func (e *VP9Encoder) prepareVP9KeyFrameGroup() {
+	if e == nil || !e.twoPass.enabled() ||
+		e.twoPass.frameIndex >= uint64(len(e.twoPass.stats)) {
+		return
+	}
+	keyFreq := e.opts.MaxKeyframeInterval
+	if keyFreq <= 0 {
+		keyFreq = 128
+	}
+	mbRows := e.twoPass.mbRows
+	if mbRows <= 0 {
+		mbRows = (e.opts.Height + 15) >> 4
+		if mbRows <= 0 {
+			mbRows = 1
+		}
+	}
+	in := encoder.KeyFrameGroupInputs{
+		Stats:                e.twoPass.stats,
+		StartShowIdx:         int(e.twoPass.frameIndex),
+		KeyFrameFrequency:    keyFreq,
+		AutoKey:              true,
+		MinGFInterval:        int(e.rc.minGFInterval),
+		BitsLeft:             e.twoPass.bitsLeft,
+		NormalizedScoreLeft:  e.twoPass.normalizedScoreLeft,
+		MaxFrameBandwidth:    e.rc.maxFrameBandwidth,
+		MeanModScore:         e.twoPass.meanModScore,
+		AvErr:                e.twoPass.distributionAverageError(),
+		MBRows:               mbRows,
+		TwoPassVBRBiasPct:    e.twoPass.vbrBiasPct,
+		TwoPassVBRMinSection: e.twoPass.minPct,
+		TwoPassVBRMaxSection: e.twoPass.maxPct,
+		CurrentVideoFrame:    e.frameIndex,
+		AvgFrameQIndexInter:  int(e.rc.avgFrameQIndexInter),
+		FrameWidth:           e.opts.Width,
+		FrameHeight:          e.opts.Height,
+		BoostParams:          encoder.DefaultARFBoostParams(mbRows),
+	}
+	result := encoder.PrepareKeyFrameGroup(in)
+	if result.FramesToKey <= 0 {
+		return
+	}
+	e.twoPass.keyFrameGroupActive = true
+	e.twoPass.keyFrameGroupStart = e.twoPass.frameIndex
+	e.twoPass.framesToKey = result.FramesToKey
+	e.twoPass.keyFrameBoost = result.KeyFrameBoost
+	e.twoPass.keyFrameTargetBits = result.KeyFrameBits
+	e.twoPass.kfGroupBits = result.KFGroupBitsLeft
+	e.twoPass.kfGroupErrorLeft = result.KFGroupErrorLeft
+	e.twoPass.lastKFGroupZeroMotionPct = e.twoPass.kfZeroMotionPct
+	e.twoPass.kfZeroMotionPct = result.KFZeroMotionPct
+	e.rc.framesToKey = result.FramesToKey
 }
 
 // refreshVP9GFGroupIfDue (re)runs encoder.DefineGFGroup at every GF boundary
@@ -212,6 +346,14 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 	}
 	in := e.buildVP9GFGroupInputs(isKey)
 	gf := encoder.DefineGFGroup(in)
+	if isKey && e.twoPass.keyFrameGroupActive &&
+		e.twoPass.keyFrameGroupStart == e.twoPass.frameIndex &&
+		e.twoPass.keyFrameTargetBits > 0 {
+		gf.BitAllocation[0] = e.twoPass.keyFrameTargetBits
+		gf.UpdateType[0] = encoder.KFUpdate
+		gf.RFLevel[0] = encoder.RateFactorKFStd
+		gf.LayerDepth[0] = 0
+	}
 	e.twoPass.gfGroup = gf
 	e.twoPass.gfGroupActive = true
 	e.twoPass.gfGroupStartShowIdx = in.GFStartShowIdx
@@ -228,7 +370,8 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 		boost := min(gf.GFUBoostScalar, 0xFFFF)
 		e.rc.gfuBoost = uint16(boost)
 	}
-	if isKey {
+	if isKey && (!e.twoPass.keyFrameGroupActive ||
+		e.twoPass.keyFrameGroupStart != e.twoPass.frameIndex) {
 		e.twoPass.lastKFGroupZeroMotionPct = e.twoPass.kfZeroMotionPct
 		e.twoPass.kfZeroMotionPct = e.twoPass.keyFrameZeroMotionPct(
 			in.GFStartShowIdx, in.FramesToKey)
@@ -251,8 +394,12 @@ func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
 
 	best := int(e.rc.bestQuality)
 	worst := int(e.rc.worstQuality)
-	activeWorstQuality := min(max(e.rc.vbrActiveWorstQuantizer(intraOnly,
-		refreshFlags, e.frameIndex), best), worst)
+	activeWorstQuality := e.twoPass.activeWorstQuality
+	if activeWorstQuality < 0 {
+		activeWorstQuality = e.rc.vbrActiveWorstQuantizer(intraOnly,
+			refreshFlags, e.frameIndex)
+	}
+	activeWorstQuality = min(max(activeWorstQuality, best), worst)
 	correctionFactor = e.rc.rateCorrectionFactor(intraOnly, refreshFlags)
 
 	gfIndex := 0
@@ -292,6 +439,7 @@ func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
 		ActiveWorstQuality:                   activeWorstQuality,
 		LastKFGroupZeroMotionPct:             e.twoPass.lastKFGroupZeroMotionPct,
 		KFZeroMotionPct:                      e.twoPass.kfZeroMotionPct,
+		KeyFrameBoost:                        e.twoPass.keyFrameBoost,
 		FrameWidth:                           e.opts.Width,
 		FrameHeight:                          e.opts.Height,
 		CQLevel:                              int(e.rc.cqLevel),
@@ -449,8 +597,21 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 			framesToKey = encoder.MaxGFInterval
 		}
 	}
+	if remaining := e.twoPass.framesToKeyRemaining(); remaining > 0 {
+		framesToKey = remaining
+	}
 	startShowIdx := int(e.twoPass.frameIndex)
 	avErr := e.twoPass.distributionAverageError()
+	kfGroupBits := int64(e.rc.bitsPerFrame) * int64(framesToKey)
+	kfGroupErrorLeft := e.twoPass.normalizedScoreLeft
+	if e.twoPass.keyFrameGroupActive {
+		if e.twoPass.kfGroupBits >= 0 {
+			kfGroupBits = e.twoPass.kfGroupBits
+		}
+		if e.twoPass.kfGroupErrorLeft > 0 {
+			kfGroupErrorLeft = e.twoPass.kfGroupErrorLeft
+		}
+	}
 	return encoder.GFGroupInputs{
 		IsKeyFrame:               isKey,
 		SourceAltRefActive:       e.rc.sourceAltRefActive,
@@ -459,7 +620,7 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 		MinGFInterval:            minGF,
 		MaxGFInterval:            maxGF,
 		StaticSceneMaxGFInterval: staticMax,
-		ActiveWorstQuality:       int(e.rc.worstQuality),
+		ActiveWorstQuality:       e.vp9TwoPassActiveWorstQualityForGF(),
 		LastBoostedQIndex:        int(e.rc.lastBoostedQIndex),
 		AvgFrameQIndexInter:      int(e.rc.avgFrameQIndexInter),
 		AvgFrameBandwidth:        e.rc.bitsPerFrame,
@@ -472,8 +633,8 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 		FrameHeight:              e.opts.Height,
 		FrameWidth:               e.opts.Width,
 		MBRows:                   mbRows,
-		KFGroupBits:              int64(e.rc.bitsPerFrame) * int64(framesToKey),
-		KFGroupErrorLeft:         e.twoPass.normalizedScoreLeft,
+		KFGroupBits:              kfGroupBits,
+		KFGroupErrorLeft:         kfGroupErrorLeft,
 		FrameMaxBits:             e.rc.maxFrameBandwidth,
 		GFMaxTotalBoost:          encoder.MaxGFBoost,
 		CurrentVideoFrame:        e.frameIndex,
@@ -487,6 +648,16 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 		TwoPassVBRMinSection:     e.twoPass.minPct,
 		TwoPassVBRMaxSection:     e.twoPass.maxPct,
 	}
+}
+
+func (e *VP9Encoder) vp9TwoPassActiveWorstQualityForGF() int {
+	if e == nil {
+		return 0
+	}
+	if e.twoPass.activeWorstQuality >= 0 {
+		return e.twoPass.activeWorstQuality
+	}
+	return int(e.rc.worstQuality)
 }
 
 func (t *vp9TwoPassState) configure(stats []VP9FirstPassFrameStats, bitsPerFrame int,
@@ -537,6 +708,10 @@ func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
 	if t.mbRows <= 0 {
 		t.mbRows = 1
 	}
+	t.keyFrameBoost = 2000
+	t.activeWorstQuality = -1
+	t.baselineActiveWorst = -1
+	t.bpmFactor = 1
 
 	// libvpx: vp9/encoder/vp9_firstpass.c:1642-1662 — when
 	// oxcf->vbr_corpus_complexity is non-zero, mean_mod_score is forced
@@ -591,6 +766,19 @@ func (t *vp9TwoPassState) statsForFrame() VP9FirstPassFrameStats {
 	return t.stats[t.frameIndex]
 }
 
+func (t *vp9TwoPassState) framesToKeyRemaining() int {
+	if !t.keyFrameGroupActive || t.framesToKey <= 0 ||
+		t.frameIndex < t.keyFrameGroupStart {
+		return 0
+	}
+	elapsed := int(t.frameIndex - t.keyFrameGroupStart)
+	remaining := t.framesToKey - elapsed
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
 // frameTargetBits returns the libvpx-style second-pass per-frame target
 // (base_frame_target after vbr_rate_correction).
 //
@@ -614,6 +802,22 @@ func (t *vp9TwoPassState) frameTargetBits(defaultTargetBits int) int {
 	if !t.enabled() || t.frameIndex >= uint64(len(t.stats)) ||
 		defaultTargetBits <= 0 {
 		return 0
+	}
+	if t.gfGroupActive {
+		idx := int(t.gfGroup.Index)
+		if idx >= 0 && idx < len(t.gfGroup.BitAllocation) {
+			if allocated := t.gfGroup.BitAllocation[idx]; allocated > 0 {
+				target := int64(allocated)
+				t.baseFrameTarget = int(target)
+				if t.vbrCorpusComplexity == 0 {
+					target = t.applyVBRRateCorrection(target)
+				}
+				target = min(max(target, int64(encoder.FrameOverhead)),
+					int64(maxInt()))
+				t.currentTargetBits = int(target)
+				return t.currentTargetBits
+			}
+		}
 	}
 	score := t.normalizedFrameScore(t.stats[t.frameIndex],
 		t.distributionAverageError())
@@ -744,6 +948,13 @@ func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
 	if t.gfGroupActive && t.gfGroup.GFGroupSize > 0 &&
 		int(t.gfGroup.Index)+1 < t.gfGroup.GFGroupSize {
 		t.gfGroup.Index++
+	}
+	if t.keyFrameGroupActive && t.framesToKeyRemaining() == 0 {
+		t.keyFrameGroupActive = false
+		t.framesToKey = 0
+		t.keyFrameTargetBits = 0
+		t.kfGroupBits = 0
+		t.kfGroupErrorLeft = 0
 	}
 	t.currentTargetBits = 0
 	t.baseFrameTarget = 0

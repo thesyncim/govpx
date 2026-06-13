@@ -72,8 +72,8 @@ func TestVP9EncoderConsumesTwoPassStats(t *testing.T) {
 				stats[i].CodedError)
 		}
 	}
-	if results[1].TwoPassFrameTargetBits <= results[0].TwoPassFrameTargetBits {
-		t.Fatalf("targets = frame0 %d frame1 %d, want frame1 boosted",
+	if results[0].TwoPassFrameTargetBits <= results[1].TwoPassFrameTargetBits {
+		t.Fatalf("targets = frame0 %d frame1 %d, want keyframe group allocation to boost frame0",
 			results[0].TwoPassFrameTargetBits,
 			results[1].TwoPassFrameTargetBits)
 	}
@@ -142,6 +142,53 @@ func TestVP9EncoderFrameQIndexUsesTwoPassQuantizerBounds(t *testing.T) {
 	if got != wantQ {
 		t.Fatalf("frame qindex = %d, want two-pass q %d (bounds [%d,%d], old one-pass q %d bounds [%d,%d])",
 			got, wantQ, wantBest, wantWorst, oldQ, oldBest, oldWorst)
+	}
+}
+
+func TestVP9TwoPassKeyFrameSeedsActiveWorstAndBoost(t *testing.T) {
+	const width, height = 64, 64
+	macroblocks := vp9enc.MacroblockCount((height+7)>>3, (width+7)>>3)
+	refreshFlags := uint8(0xff)
+
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  700,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats: finalizedVP9TwoPassTestStats(
+			100, 100, 100, 100),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.prepareVP9SecondPassFrameTarget(true, refreshFlags)
+	if enc.twoPass.activeWorstQuality < int(enc.rc.bestQuality) ||
+		enc.twoPass.activeWorstQuality >= int(enc.rc.worstQuality) {
+		t.Fatalf("active_worst_quality=%d outside expected two-pass range [%d,%d)",
+			enc.twoPass.activeWorstQuality, enc.rc.bestQuality,
+			enc.rc.worstQuality)
+	}
+	if enc.twoPass.keyFrameBoost <= 0 ||
+		enc.twoPass.keyFrameTargetBits <= 0 {
+		t.Fatalf("keyframe group boost/target = %d/%d, want populated",
+			enc.twoPass.keyFrameBoost, enc.twoPass.keyFrameTargetBits)
+	}
+	q, activeBest, activeWorst, _ := enc.vp9TwoPassQuantizerWithBounds(
+		true, 0, refreshFlags, macroblocks, nil, 0)
+	if q != activeBest {
+		t.Fatalf("keyframe two-pass q=%d, active_best=%d", q, activeBest)
+	}
+	if activeWorst != enc.twoPass.activeWorstQuality {
+		t.Fatalf("active_worst=%d, want seeded %d",
+			activeWorst, enc.twoPass.activeWorstQuality)
+	}
+	if q >= 64 {
+		t.Fatalf("keyframe q=%d, want seeded two-pass active-worst path (<64)", q)
 	}
 }
 

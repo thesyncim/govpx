@@ -98,6 +98,17 @@ As of 2026-06-13 this lane is green, including the formerly red positive
 `cpu_used=8` realtime timing and extended cases. Treat any future red result
 here as an algorithmic scalar-vs-scalar regression first, not a SIMD artifact.
 
+As of 2026-06-13 the stats-backed VP9 two-pass q setup is also covered by:
+
+```sh
+GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace . -run 'TestVP9OracleTwoPass(Stream|Constant)ByteParity|TestVP9RecodeSeed1_1_1_1_0' -count=1 -v
+```
+
+The constant two-pass case now matches libvpx q exactly. The panning stream
+still lacks byte parity because GF refresh scheduling and inter allocation
+remain ahead of the q path, but the opening keyframe q moved from the old
+one-pass fallback (q=122) to q=16 vs libvpx q=17.
+
 `make test-parity-report`
 
 Runs parity reports through the report wrapper without updating baselines.
