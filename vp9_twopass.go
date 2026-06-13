@@ -885,6 +885,11 @@ func (t *vp9TwoPassState) currentGFUpdateType() uint8 {
 	return t.gfGroup.UpdateType[idx]
 }
 
+func (e *VP9Encoder) vp9CurrentGFGroupConstrained() bool {
+	return e != nil && e.twoPass.enabled() && e.twoPass.gfGroupActive &&
+		e.twoPass.gfGroup.ConstrainedGFGroup
+}
+
 func (t *vp9TwoPassState) currentARFSrcOffset() int {
 	idx := t.currentGFGroupIndex()
 	if idx < 0 || t.gfGroup.UpdateType[idx] != encoder.ARFUpdate {
@@ -1168,7 +1173,7 @@ func (t *vp9TwoPassState) lastQIndexOfARFLayerAt(layerDepth int) int {
 }
 
 func (e *VP9Encoder) updateVP9TwoPassLastQIndexOfARFLayer(qindex int,
-	intraOnly bool, refreshFlags uint8,
+	intraOnly bool, keyFrame bool, refreshFlags uint8,
 ) {
 	if e == nil || !e.twoPass.enabled() {
 		return
@@ -1194,7 +1199,7 @@ func (e *VP9Encoder) updateVP9TwoPassLastQIndexOfARFLayer(qindex int,
 	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
 	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
 	boostedRefresh := refreshAlt || (refreshGolden && !e.rc.isSrcFrameAltRef)
-	if qindex < t.lastQIndexOfARFLayer[layerDepth] || intraOnly ||
+	if qindex < t.lastQIndexOfARFLayer[layerDepth] || keyFrame ||
 		(!constrainedGFGroup && boostedRefresh) {
 		t.lastQIndexOfARFLayer[layerDepth] = qindex
 	}

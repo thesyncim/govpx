@@ -37,10 +37,58 @@ func TestVP9RateControlVBRGoldenUsesGFARFCorrectionFactor(t *testing.T) {
 
 func TestVP9RateControlBoostedRefreshUpdatesLastBoostedQIndex(t *testing.T) {
 	rc := vp9RateControlState{lastBoostedQIndex: 40}
-	rc.updateQHistory(80, false, 1<<vp9GoldenRefSlot, true)
+	rc.updateQHistory(80, false, false, 1<<vp9GoldenRefSlot, true)
 	if got := rc.lastBoostedQIndex; got != 80 {
 		t.Fatalf("last boosted q after golden refresh = %d, want 80", got)
 	}
+}
+
+func TestVP9RateControlLastBoostedQIndexMirrorsLibvpxPostencode(t *testing.T) {
+	t.Run("ordinary lower q updates", func(t *testing.T) {
+		rc := vp9RateControlState{lastBoostedQIndex: 80}
+		rc.updateQHistory(40, false, false, 1<<vp9LastRefSlot, true)
+		if got := rc.lastBoostedQIndex; got != 40 {
+			t.Fatalf("last boosted q after ordinary lower-q frame = %d, want 40",
+				got)
+		}
+	})
+	t.Run("key frame raises", func(t *testing.T) {
+		rc := vp9RateControlState{lastBoostedQIndex: 40}
+		rc.updateQHistoryWithAltRef(80, true, true, 1<<vp9LastRefSlot,
+			true, false, false)
+		if got := rc.lastBoostedQIndex; got != 80 {
+			t.Fatalf("last boosted q after key frame = %d, want 80", got)
+		}
+	})
+	t.Run("intra-only inter frame does not raise", func(t *testing.T) {
+		rc := vp9RateControlState{lastBoostedQIndex: 40}
+		rc.updateQHistoryWithAltRef(80, true, false, 1<<vp9LastRefSlot,
+			true, false, false)
+		if got := rc.lastBoostedQIndex; got != 40 {
+			t.Fatalf("last boosted q after intra-only non-key frame = %d, want unchanged 40",
+				got)
+		}
+	})
+	t.Run("constrained GF does not raise", func(t *testing.T) {
+		rc := vp9RateControlState{lastBoostedQIndex: 40}
+		rc.updateQHistoryWithAltRef(80, false, false, 1<<vp9GoldenRefSlot,
+			true, false, true)
+		if got := rc.lastBoostedQIndex; got != 40 {
+			t.Fatalf("last boosted q after constrained GF = %d, want unchanged 40",
+				got)
+		}
+	})
+	t.Run("source-alt-ref golden overlay does not raise", func(t *testing.T) {
+		rc := vp9RateControlState{
+			isSrcFrameAltRef:  true,
+			lastBoostedQIndex: 40,
+		}
+		rc.updateQHistory(80, false, false, 1<<vp9GoldenRefSlot, true)
+		if got := rc.lastBoostedQIndex; got != 40 {
+			t.Fatalf("last boosted q after source-alt-ref overlay = %d, want unchanged 40",
+				got)
+		}
+	})
 }
 
 func TestVP9RateControlAltRefDisabledLeavesFramesSinceGolden(t *testing.T) {
@@ -84,8 +132,8 @@ func TestVP9RateControlAltRefDisabledLeavesFramesSinceGolden(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rc := vp9RateControlState{framesSinceGolden: tt.start}
-			rc.updateQHistoryWithAltRef(80, false, tt.refreshFlags,
-				tt.showFrame, tt.altRefEnabled)
+			rc.updateQHistoryWithAltRef(80, false, false, tt.refreshFlags,
+				tt.showFrame, tt.altRefEnabled, false)
 			if got := rc.framesSinceGolden; got != tt.want {
 				t.Fatalf("framesSinceGolden = %d, want %d", got, tt.want)
 			}

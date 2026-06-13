@@ -388,10 +388,11 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassUseBufFrameInto(dst []byte,
 	projected := vpxrc.EncodedSizeBits(n)
 	macroblocks := vp9enc.MacroblockCount((e.opts.Height+7)>>3,
 		(e.opts.Width+7)>>3)
-	e.rc.postEncodeFrame(n, true, int(e.rc.lastQInter), false, refreshFlags,
-		macroblocks, e.vp9AltRefEnabledForRateControlStats(), nil,
+	e.rc.postEncodeFrame(n, true, int(e.rc.lastQInter), false, false, refreshFlags,
+		macroblocks, e.vp9AltRefEnabledForRateControlStats(),
+		e.vp9CurrentGFGroupConstrained(), nil,
 		e.vp9DampedAdjustmentRFLevel())
-	e.updateVP9TwoPassLastQIndexOfARFLayer(int(e.rc.lastQInter), false,
+	e.updateVP9TwoPassLastQIndexOfARFLayer(int(e.rc.lastQInter), false, false,
 		refreshFlags)
 	e.vp9PostEncodeSourceAltRefState(false, refreshFlags)
 	firstPassStats := e.twoPass.statsForFrame()

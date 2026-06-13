@@ -755,12 +755,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// the per-frame encode (including the post-encode demotion at
 		// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
 		e.prevFrameTxMode = txMode
-		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-			header.RefreshFrameFlags, macroblocks,
-			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
+		e.rc.postEncodeFrame(n, header.ShowFrame, qindex,
+			isKey || intraOnly, isKey, header.RefreshFrameFlags, macroblocks,
+			e.vp9AltRefEnabledForRateControlStats(),
+			e.vp9CurrentGFGroupConstrained(), cyclicForRC,
 			e.vp9DampedAdjustmentRFLevel())
-		e.updateVP9TwoPassLastQIndexOfARFLayer(qindex, isKey || intraOnly,
-			header.RefreshFrameFlags)
+		e.updateVP9TwoPassLastQIndexOfARFLayer(qindex,
+			isKey || intraOnly, isKey, header.RefreshFrameFlags)
 		e.vp9PostEncodeSourceAltRefState(isKey || intraOnly,
 			header.RefreshFrameFlags)
 		if !isKey && !intraOnly {

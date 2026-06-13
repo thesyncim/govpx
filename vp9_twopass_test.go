@@ -1081,19 +1081,33 @@ func TestVP9TwoPassPostEncodeRecordsLastARFLayerQ(t *testing.T) {
 	enc.twoPass.gfGroup.ConstrainedGFGroup = false
 	enc.twoPass.lastQIndexOfARFLayer[1] = 200
 	enc.rc.isSrcFrameAltRef = false
-	enc.updateVP9TwoPassLastQIndexOfARFLayer(120, false,
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(120, false, false,
 		1<<vp9AltRefSlot)
 	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 120 {
 		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want ARF q 120", got)
 	}
 
 	enc.twoPass.lastQIndexOfARFLayer[1] = 100
-	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false,
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
 		1<<vp9LastRefSlot)
 	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
 		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want unchanged 100", got)
 	}
-	enc.updateVP9TwoPassLastQIndexOfARFLayer(90, false,
+	enc.twoPass.gfGroup.ConstrainedGFGroup = true
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want constrained GF unchanged 100", got)
+	}
+	enc.twoPass.gfGroup.ConstrainedGFGroup = false
+	enc.rc.isSrcFrameAltRef = true
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want source-alt-ref GF unchanged 100", got)
+	}
+	enc.rc.isSrcFrameAltRef = false
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(90, false, false,
 		1<<vp9LastRefSlot)
 	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 90 {
 		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want lower q 90", got)
@@ -1102,7 +1116,12 @@ func TestVP9TwoPassPostEncodeRecordsLastARFLayerQ(t *testing.T) {
 	enc.twoPass.gfGroup.Index = 0
 	enc.twoPass.gfGroup.LayerDepth[0] = 0
 	enc.twoPass.lastQIndexOfARFLayer[0] = 40
-	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true,
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[0]; got != 40 {
+		t.Fatalf("last_qindex_of_arf_layer[0] = %d, want intra-only non-key unchanged 40", got)
+	}
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true, true,
 		1<<vp9GoldenRefSlot)
 	if got := enc.twoPass.lastQIndexOfARFLayer[0]; got != 140 {
 		t.Fatalf("last_qindex_of_arf_layer[0] = %d, want keyframe q 140", got)
