@@ -83,6 +83,9 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 	if len(dst) < vp9MinEncodeIntoBuffer {
 		return VP9EncodeResult{}, ErrBufferTooSmall
 	}
+	if result, ok, err := e.maybeDrainVP9TwoPassLookaheadAndQueueInto(img, dst, flags); ok || err != nil {
+		return result, err
+	}
 	if e.autoAltRefPendingSet {
 		return e.encodeVP9AutoAltRefPendingAndQueueInto(img, dst, flags)
 	}
@@ -104,6 +107,9 @@ func (e *VP9Encoder) encodeVP9LookaheadIntoWithFlagsResult(img *image.YCbCr, dst
 		if result, ok, err := e.vp9RunFrameParallelBatch(dst, false); ok || err != nil {
 			return result, err
 		}
+	}
+	if result, ok, err := e.maybeEncodeVP9TwoPassARFInto(dst, false); ok || err != nil {
+		return result, err
 	}
 	if result, ok, err := e.maybeEncodeVP9AutoAltRefInto(dst); ok || err != nil {
 		return result, err
@@ -169,6 +175,9 @@ func (e *VP9Encoder) FlushIntoWithResult(dst []byte) (VP9EncodeResult, error) {
 		if result, ok, err := e.vp9RunFrameParallelBatch(dst, true); ok || err != nil {
 			return result, err
 		}
+	}
+	if result, ok, err := e.maybeEncodeVP9TwoPassARFInto(dst, true); ok || err != nil {
+		return result, err
 	}
 	entry, ok := e.popVP9Lookahead(true)
 	if !ok {
@@ -251,8 +260,62 @@ func (e *VP9Encoder) maybeEncodeVP9AutoAltRefInto(dst []byte) (VP9EncodeResult, 
 	return result, true, nil
 }
 
+func (e *VP9Encoder) maybeEncodeVP9TwoPassARFInto(dst []byte, drain bool) (VP9EncodeResult, bool, error) {
+	if e == nil || !e.twoPass.enabled() || !e.rc.enabled ||
+		e.rc.mode == RateControlCBR || !e.vp9LookaheadEnabled() ||
+		e.vp9FrameParallelEnabled() || e.autoAltRefPendingSet ||
+		e.frameIndex == 0 || !e.twoPass.gfGroupActive ||
+		!e.twoPass.currentFrameIsARFUpdate() {
+		return VP9EncodeResult{}, false, nil
+	}
+	offset := e.twoPass.currentARFSrcOffset()
+	if offset >= e.vp9LookaheadSize() {
+		if drain {
+			return VP9EncodeResult{}, false, nil
+		}
+		return VP9EncodeResult{}, false, ErrFrameNotReady
+	}
+	future, ok := e.peekVP9LookaheadAt(offset)
+	if !ok {
+		if drain {
+			return VP9EncodeResult{}, false, nil
+		}
+		return VP9EncodeResult{}, false, ErrFrameNotReady
+	}
+	future.isAltRefSource = true
+	e.rc.altRefGFGroup = true
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(&future.img, dst,
+		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
+			EncodeNoUpdateGolden,
+		false, temporalFrame{LayerCount: 1}, false)
+	return result, true, err
+}
+
+func (e *VP9Encoder) maybeDrainVP9TwoPassLookaheadAndQueueInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, bool, error) {
+	if e == nil || !e.twoPass.enabled() || !e.vp9LookaheadEnabled() ||
+		int(e.lookaheadCount)+2 <= len(e.lookahead) {
+		return VP9EncodeResult{}, false, nil
+	}
+	entry, ok := e.popVP9Lookahead(true)
+	if !ok {
+		return VP9EncodeResult{}, false, ErrFrameNotReady
+	}
+	emitFlags, temporalFrame := e.vp9LookaheadEmitFlags(entry.flags)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(&entry.img, dst,
+		emitFlags, false, temporalFrame, entry.isAltRefSource)
+	entry.flags = 0
+	entry.isAltRefSource = false
+	if err != nil {
+		return result, true, err
+	}
+	if err := e.pushVP9Lookahead(img, flags); err != nil {
+		return VP9EncodeResult{}, true, err
+	}
+	return result, true, nil
+}
+
 func (e *VP9Encoder) vp9AutoAltRefOnePassEnabled() bool {
-	if e == nil || !e.opts.AutoAltRef {
+	if e == nil || !e.opts.AutoAltRef || e.twoPass.enabled() {
 		return false
 	}
 	// libvpx: vp9_encoder.h:1149-1152 is_altref_enabled():

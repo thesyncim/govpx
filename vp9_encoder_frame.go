@@ -330,6 +330,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 		header.InterRef.SignBias = e.vp9InterRefSignBias(flags)
 	}
+	twoPassHiddenARF := e.twoPass.enabled() && e.twoPass.currentFrameIsARFUpdate() &&
+		!header.ShowFrame && header.RefreshFrameFlags&(1<<vp9AltRefSlot) != 0
 	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
 	shouldRestoreFrameContexts := isKey || intraOnly || e.opts.ErrorResilient || restoreFrameContext
 	var frameContextsSeed [common.FrameContexts]vp9dec.FrameContext
@@ -710,7 +712,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	var firstPassStats VP9FirstPassFrameStats
 	twoPassTargetBits := 0
-	if header.ShowFrame {
+	if twoPassHiddenARF {
+		firstPassStats = e.twoPass.statsForCurrentGFUpdate()
+		twoPassTargetBits = e.vp9TwoPassFrameTarget
+	} else if header.ShowFrame {
 		firstPassStats = e.twoPass.statsForFrame()
 		twoPassTargetBits = e.vp9TwoPassFrameTarget
 	}
@@ -764,7 +769,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 	}
 	e.lastFrameDropped = postDrop
-	if header.ShowFrame {
+	if header.ShowFrame || twoPassHiddenARF {
 		// libvpx vp9_twopass_postencode_update consumes the encoded bit
 		// count to drive vbr_bits_off_target. Feed it 0 on drops, the
 		// encoded size in bits otherwise, mirroring rc->projected_frame_size.
@@ -774,7 +779,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			projected = vpxrc.EncodedSizeBits(n)
 		}
 		e.twoPass.postEncodeGFUpdate(header.RefreshFrameFlags)
-		e.twoPass.finishFrameWithActual(projected)
+		if twoPassHiddenARF {
+			e.twoPass.finishARFFrameWithActual(projected)
+		} else {
+			e.twoPass.finishFrameWithActual(projected)
+		}
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
 	if postDrop {

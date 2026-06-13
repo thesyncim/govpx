@@ -832,6 +832,51 @@ func (t *vp9TwoPassState) statsForFrame() VP9FirstPassFrameStats {
 	return t.stats[t.frameIndex]
 }
 
+func (t *vp9TwoPassState) currentGFGroupIndex() int {
+	if !t.enabled() || !t.gfGroupActive {
+		return -1
+	}
+	idx := int(t.gfGroup.Index)
+	if idx < 0 || idx >= len(t.gfGroup.UpdateType) {
+		return -1
+	}
+	return idx
+}
+
+func (t *vp9TwoPassState) currentGFUpdateType() uint8 {
+	idx := t.currentGFGroupIndex()
+	if idx < 0 {
+		return encoder.LFUpdate
+	}
+	return t.gfGroup.UpdateType[idx]
+}
+
+func (t *vp9TwoPassState) currentARFSrcOffset() int {
+	idx := t.currentGFGroupIndex()
+	if idx < 0 || t.gfGroup.UpdateType[idx] != encoder.ARFUpdate {
+		return 0
+	}
+	return int(t.gfGroup.ArfSrcOffset[idx])
+}
+
+func (t *vp9TwoPassState) currentFrameIsARFUpdate() bool {
+	return t.currentGFUpdateType() == encoder.ARFUpdate
+}
+
+func (t *vp9TwoPassState) statsForCurrentGFUpdate() VP9FirstPassFrameStats {
+	if !t.enabled() {
+		return VP9FirstPassFrameStats{}
+	}
+	idx := t.frameIndex
+	if off := t.currentARFSrcOffset(); off > 0 {
+		idx += uint64(off)
+	}
+	if idx >= uint64(len(t.stats)) {
+		return VP9FirstPassFrameStats{}
+	}
+	return t.stats[idx]
+}
+
 func (t *vp9TwoPassState) framesToKeyRemaining() int {
 	if !t.keyFrameGroupActive || t.framesToKey <= 0 ||
 		t.frameIndex < t.keyFrameGroupStart {
@@ -984,14 +1029,24 @@ func (t *vp9TwoPassState) finishFrame() {
 // fall back to the assigned target which matches libvpx's behavior
 // before the postencode call.
 func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
+	t.finishFrameWithActualAndAdvance(projectedFrameSize, true)
+}
+
+func (t *vp9TwoPassState) finishARFFrameWithActual(projectedFrameSize int) {
+	t.finishFrameWithActualAndAdvance(projectedFrameSize, false)
+}
+
+func (t *vp9TwoPassState) finishFrameWithActualAndAdvance(projectedFrameSize int, advanceStats bool) {
 	if !t.enabled() || t.frameIndex >= uint64(len(t.stats)) {
 		return
 	}
-	score := t.normalizedFrameScore(t.stats[t.frameIndex],
-		t.distributionAverageError())
-	t.normalizedScoreLeft -= score
-	if t.normalizedScoreLeft < 0 {
-		t.normalizedScoreLeft = 0
+	if advanceStats {
+		score := t.normalizedFrameScore(t.stats[t.frameIndex],
+			t.distributionAverageError())
+		t.normalizedScoreLeft -= score
+		if t.normalizedScoreLeft < 0 {
+			t.normalizedScoreLeft = 0
+		}
 	}
 	// libvpx: bits_used = rc->base_frame_target (the pre-correction
 	// target). bits_left is reduced by bits_used; vbr_bits_off_target
@@ -1010,11 +1065,13 @@ func (t *vp9TwoPassState) finishFrameWithActual(projectedFrameSize int) {
 	if t.bitsLeft < 0 {
 		t.bitsLeft = 0
 	}
-	t.frameIndex++
+	if advanceStats {
+		t.frameIndex++
+	}
 	if t.gfGroupActive && int(t.gfGroup.Index)+1 < len(t.gfGroup.UpdateType) {
 		t.gfGroup.Index++
 	}
-	if t.keyFrameGroupActive && t.framesToKeyRemaining() == 0 {
+	if advanceStats && t.keyFrameGroupActive && t.framesToKeyRemaining() == 0 {
 		t.keyFrameGroupActive = false
 		t.framesToKey = 0
 		t.keyFrameTargetBits = 0

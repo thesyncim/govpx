@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"errors"
+	"image"
 	"math"
 	"testing"
 
@@ -279,6 +281,221 @@ func TestVP9TwoPassGFGroupIndexAdvancesToTerminalOverlaySlot(t *testing.T) {
 			t.Fatalf("gf_group.index = %d, want %d after frame %d",
 				ts.gfGroup.Index, want, want)
 		}
+	}
+}
+
+func TestVP9TwoPassARFStatsPeekDoesNotAdvanceDisplayCursor(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	var ts vp9TwoPassState
+	ts.configure(stats, 1000, 50, 0, 0, 64)
+	ts.frameIndex = 1
+	ts.gfGroupActive = true
+	ts.gfGroup.Index = 1
+	ts.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	ts.gfGroup.ArfSrcOffset[1] = 2
+	ts.gfGroup.BitAllocation[1] = 1400
+
+	if got := ts.statsForCurrentGFUpdate().Frame; got != stats[3].Frame {
+		t.Fatalf("ARF stats frame = %d, want future frame %d",
+			got, stats[3].Frame)
+	}
+	target := ts.frameTargetBits(1000)
+	if target <= 0 {
+		t.Fatalf("ARF target = %d, want positive", target)
+	}
+	beforeScoreLeft := ts.normalizedScoreLeft
+	beforeBitsLeft := ts.bitsLeft
+
+	ts.finishARFFrameWithActual(target / 2)
+	if ts.frameIndex != 1 {
+		t.Fatalf("frameIndex = %d, want display cursor to stay at 1",
+			ts.frameIndex)
+	}
+	if ts.normalizedScoreLeft != beforeScoreLeft {
+		t.Fatalf("normalizedScoreLeft changed on ARF: got %v want %v",
+			ts.normalizedScoreLeft, beforeScoreLeft)
+	}
+	if ts.bitsLeft >= beforeBitsLeft {
+		t.Fatalf("bitsLeft = %d, want less than %d after ARF budget spend",
+			ts.bitsLeft, beforeBitsLeft)
+	}
+	if ts.gfGroup.Index != 2 {
+		t.Fatalf("gf_group.index = %d, want ARF slot advanced to 2",
+			ts.gfGroup.Index)
+	}
+	if got := ts.statsForFrame().Frame; got != stats[1].Frame {
+		t.Fatalf("display stats frame = %d, want current frame %d",
+			got, stats[1].Frame)
+	}
+}
+
+func TestVP9TwoPassLookaheadARFEmitsHiddenFutureSource(t *testing.T) {
+	const width, height = 64, 64
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+		LookaheadFrames:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	key, err := enc.encodeVP9FrameIntoWithFlagsResult(
+		vp9test.NewYCbCr(width, height, 80, 128, 128), dst,
+		EncodeForceKeyFrame, false, temporalFrame{LayerCount: 1}, false)
+	if err != nil {
+		t.Fatalf("key encode: %v", err)
+	}
+	if !key.KeyFrame || !key.ShowFrame {
+		t.Fatalf("key result = key:%t show:%t, want visible key",
+			key.KeyFrame, key.ShowFrame)
+	}
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 4
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.GFGroupSize = 3
+	enc.twoPass.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	enc.twoPass.gfGroup.ArfSrcOffset[1] = 2
+	enc.twoPass.gfGroup.RFLevel[1] = vp9enc.RateFactorGFARFLow
+	enc.twoPass.gfGroup.GFUBoost[1] = 250
+	enc.twoPass.gfGroup.BitAllocation[1] = 1400
+	enc.twoPass.framePrepared = false
+
+	for frame := 1; frame <= 3; frame++ {
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*16), 128, 128)
+		if err := enc.pushVP9Lookahead(src, 0); err != nil {
+			t.Fatalf("push lookahead frame %d: %v", frame, err)
+		}
+	}
+	future, ok := enc.peekVP9LookaheadAt(2)
+	if !ok {
+		t.Fatal("future ARF source missing from lookahead")
+	}
+	if future.isAltRefSource {
+		t.Fatal("future source unexpectedly marked alt-ref before ARF encode")
+	}
+
+	hidden, ok, err := enc.maybeEncodeVP9TwoPassARFInto(dst, false)
+	if err != nil {
+		t.Fatalf("maybeEncodeVP9TwoPassARFInto: %v", err)
+	}
+	if !ok {
+		t.Fatal("two-pass ARF scheduler did not emit")
+	}
+	if hidden.ShowFrame || hidden.KeyFrame ||
+		hidden.RefreshFrameFlags != 1<<vp9AltRefSlot {
+		t.Fatalf("hidden ARF = show:%t key:%t refresh:%#x, want hidden ALTREF refresh",
+			hidden.ShowFrame, hidden.KeyFrame, hidden.RefreshFrameFlags)
+	}
+	if hidden.FirstPassStats.Frame != stats[3].Frame {
+		t.Fatalf("hidden ARF stats frame = %d, want future frame %d",
+			hidden.FirstPassStats.Frame, stats[3].Frame)
+	}
+	if enc.frameIndex != 1 || enc.twoPass.frameIndex != 1 {
+		t.Fatalf("display cursors = encoder:%d twopass:%d, want both 1",
+			enc.frameIndex, enc.twoPass.frameIndex)
+	}
+	if enc.twoPass.gfGroup.Index != 2 {
+		t.Fatalf("gf_group.index = %d, want 2 after hidden ARF",
+			enc.twoPass.gfGroup.Index)
+	}
+	if enc.lookaheadCount != 3 {
+		t.Fatalf("lookaheadCount = %d, want future source left queued",
+			enc.lookaheadCount)
+	}
+	if !future.isAltRefSource {
+		t.Fatal("future source not marked as source-alt-ref for later overlay")
+	}
+}
+
+func TestVP9TwoPassLookaheadPathSchedulesHiddenARF(t *testing.T) {
+	const width, height, frames = 64, 64, 12
+	sources := make([]*image.YCbCr, frames)
+	statsEnc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  width,
+		Height: height,
+		FPS:    30,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
+	}
+	stats := make([]VP9FirstPassFrameStats, frames)
+	for frame := range frames {
+		src := vp9test.NewPanningYCbCr(width, height, frame)
+		sources[frame] = src
+		stats[frame], err = statsEnc.CollectFirstPassStats(src,
+			uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("CollectFirstPassStats[%d]: %v", frame, err)
+		}
+	}
+
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  700,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       FinalizeVP9FirstPassStats(stats),
+		LookaheadFrames:    8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(secondpass): %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	results := make([]VP9EncodeResult, 0, frames+1)
+	for frame, src := range sources {
+		result, err := enc.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		results = append(results, result)
+	}
+	for {
+		result, err := enc.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		results = append(results, result)
+	}
+
+	visible, hidden := 0, 0
+	for _, result := range results {
+		if result.ShowFrame {
+			visible++
+			continue
+		}
+		hidden++
+		if result.RefreshFrameFlags != 1<<vp9AltRefSlot ||
+			result.FirstPassStats.Frame <= 1 {
+			t.Fatalf("hidden result refresh/stats = %#x/%d, want ALTREF future stats",
+				result.RefreshFrameFlags, result.FirstPassStats.Frame)
+		}
+	}
+	if visible != frames {
+		t.Fatalf("visible packets = %d, want %d", visible, frames)
+	}
+	if hidden == 0 {
+		t.Fatal("normal two-pass lookahead path emitted no hidden ARF")
 	}
 }
 
