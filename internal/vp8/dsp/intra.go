@@ -36,6 +36,12 @@ func IntraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, top
 }
 
 func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) {
+	if upAvailable {
+		_ = above[size-1]
+	}
+	if leftAvailable {
+		_ = left[size-1]
+	}
 	dc := 128
 
 	if upAvailable && leftAvailable {
