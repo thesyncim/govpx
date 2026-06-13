@@ -1,6 +1,9 @@
 package dsp
 
-import "testing"
+import (
+	"math/rand/v2"
+	"testing"
+)
 
 // Pinning tests for the integer-projection DSP kernels in int_pro.go.
 // Reference values are hand-computed from the libvpx v1.16.0 reference
@@ -75,6 +78,40 @@ func TestVpxIntProRowAsymmetricColumns(t *testing.T) {
 		if hbuf[idx] != want {
 			t.Errorf("hbuf[%d]: got %d want %d", idx, hbuf[idx], want)
 		}
+	}
+}
+
+func TestVpxIntProRowRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x175e, 0x9a11))
+	for _, height := range []int{2, 16, 32, 64} {
+		for _, stride := range []int{16, 24, 65, 128} {
+			for trial := range 32 {
+				ref := make([]uint8, stride*height+32)
+				for i := range ref {
+					ref[i] = uint8(r.UintN(256))
+				}
+				off := int(r.UintN(uint(stride - 16 + 1)))
+				var got, want [16]int16
+				VpxIntProRow(got[:], ref, off, stride, height)
+				referenceVpxIntProRow(want[:], ref, off, stride, height)
+				if got != want {
+					t.Fatalf("height=%d stride=%d trial=%d off=%d: got %v want %v",
+						height, stride, trial, off, got, want)
+				}
+			}
+		}
+	}
+}
+
+func referenceVpxIntProRow(hbuf []int16, ref []uint8, refOff, refStride, height int) {
+	normFactor := int16(height >> 1)
+	for idx := range 16 {
+		var acc int16
+		for i := range height {
+			acc += int16(ref[refOff+i*refStride])
+		}
+		hbuf[idx] = acc / normFactor
+		refOff++
 	}
 }
 
@@ -158,5 +195,31 @@ func TestVpxVectorVarKnownPattern(t *testing.T) {
 	got := VpxVectorVar(ref, src, bwl)
 	if got != 34000 {
 		t.Errorf("VpxVectorVar known-pattern: got %d want 34000", got)
+	}
+}
+
+func BenchmarkVpxIntProRowHeight16(b *testing.B) {
+	benchmarkVpxIntProRow(b, 16)
+}
+
+func BenchmarkVpxIntProRowHeight32(b *testing.B) {
+	benchmarkVpxIntProRow(b, 32)
+}
+
+func BenchmarkVpxIntProRowHeight64(b *testing.B) {
+	benchmarkVpxIntProRow(b, 64)
+}
+
+func benchmarkVpxIntProRow(b *testing.B, height int) {
+	const stride = 128
+	ref := make([]uint8, stride*height+16)
+	for i := range ref {
+		ref[i] = uint8((i*37 + 11) & 255)
+	}
+	var hbuf [16]int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxIntProRow(hbuf[:], ref, i&15, stride, height)
 	}
 }
