@@ -38,12 +38,13 @@ func (e *VP9Encoder) initVP9Lookahead(width int, height int, depth int) {
 	if e.opts.AutoAltRef {
 		e.autoAltRefPending.img = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	}
-	if (e.opts.AutoAltRef || e.opts.EnableKeyFrameFiltering) &&
+	if (e.opts.AutoAltRef || e.opts.EnableKeyFrameFiltering ||
+		len(e.opts.TwoPassStats) > 0) &&
 		e.opts.ARNRMaxFrames > 1 {
 		// libvpx allocates cpi->tf_buffer whenever either ARNR or
-		// keyframe filtering may run; mirror that so the runtime
-		// SetEnableKeyFrameFiltering toggle has a destination buffer
-		// to write into.
+		// keyframe filtering may run; mirror that so one-pass ARF,
+		// two-pass ARF, and the runtime keyframe-filter toggle all have a
+		// destination buffer to write into.
 		e.ensureVP9ARNRScratch()
 	} else {
 		e.vp9ARNRScratch = image.YCbCr{}
@@ -297,7 +298,8 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassARFInto(dst []byte, drain bool) (VP9En
 	}
 	future.isAltRefSource = true
 	e.rc.altRefGFGroup = true
-	result, err := e.encodeVP9FrameIntoWithFlagsResult(&future.img, dst,
+	hiddenSrc := e.vp9TwoPassAltRefSourceImage(future, offset)
+	result, err := e.encodeVP9FrameIntoWithFlagsResult(hiddenSrc, dst,
 		EncodeInvisibleFrame|EncodeForceAltRefFrame|EncodeNoUpdateLast|
 			EncodeNoUpdateGolden,
 		false, temporalFrame{LayerCount: 1}, false)
