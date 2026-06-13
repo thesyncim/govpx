@@ -94,10 +94,9 @@ artifact. Keep the two lanes separate: pure-Go vs generic-gnu here; Go+asm vs
 host-ISA in `test-byte-parity`. Scoped to VP8 oracle tests that use the plain
 vpxenc oracle (the pure-C binary carries no frameflags/VP9 patch).
 
-Known gap: this lane is currently red on the positive `cpu_used=8` realtime
-cases (`StreamByteParityTiming/realtime-cbr-cpu8-*`,
-`StreamByteParityExtended/*-cpu8-*`) — a genuine algorithmic divergence
-confirmed identical under both the asm and pure-C lanes, not a SIMD artifact.
+As of 2026-06-13 this lane is green, including the formerly red positive
+`cpu_used=8` realtime timing and extended cases. Treat any future red result
+here as an algorithmic scalar-vs-scalar regression first, not a SIMD artifact.
 
 `make test-parity-report`
 
