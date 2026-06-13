@@ -149,6 +149,15 @@ type vp9RateControlState struct {
 	//
 	// libvpx: vp9_ratectrl.h:182 alt_ref_gf_group.
 	altRefGFGroup bool
+	// sourceAltRefPending / sourceAltRefActive mirror
+	// RATE_CONTROL::source_alt_ref_{pending,active}. Two-pass GF analysis
+	// reads active to treat the overlay from a previous ARF as already
+	// accounted for, and postencode reference updates consume pending when a
+	// hidden ARF refresh lands.
+	//
+	// libvpx: vp9_ratectrl.h source_alt_ref_pending/source_alt_ref_active.
+	sourceAltRefPending bool
+	sourceAltRefActive  bool
 	// lastFrameIsSrcAltRef mirrors libvpx
 	// RATE_CONTROL::last_frame_is_src_altref, updated at one-pass
 	// postencode from is_src_frame_alt_ref.

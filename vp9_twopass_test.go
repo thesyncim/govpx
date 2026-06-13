@@ -292,6 +292,48 @@ func TestVP9RefreshGFGroupCarriesLastKeyFrameZeroMotionPct(t *testing.T) {
 	}
 }
 
+func TestVP9BuildGFGroupInputsCarriesSourceAltRefActive(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.rc.sourceAltRefActive = true
+
+	in := enc.buildVP9GFGroupInputs(false)
+	if !in.SourceAltRefActive {
+		t.Fatal("SourceAltRefActive = false, want active overlay state fed to GF analyzer")
+	}
+}
+
+func TestVP9PostEncodeSourceAltRefStateMirrorsLibvpx(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.rc.sourceAltRefPending = true
+
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9AltRefSlot)
+	if enc.rc.sourceAltRefPending || !enc.rc.sourceAltRefActive {
+		t.Fatalf("after ARF refresh pending=%v active=%v, want false/true",
+			enc.rc.sourceAltRefPending, enc.rc.sourceAltRefActive)
+	}
+
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 1
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9GoldenRefSlot)
+	if !enc.rc.sourceAltRefActive {
+		t.Fatal("sourceAltRefActive cleared at nonzero gf_group index; libvpx keeps it")
+	}
+
+	enc.twoPass.gfGroup.Index = 0
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9GoldenRefSlot)
+	if enc.rc.sourceAltRefActive {
+		t.Fatal("sourceAltRefActive still set after overlay/GF index 0 consumed it")
+	}
+
+	enc.rc.sourceAltRefPending = true
+	enc.rc.sourceAltRefActive = true
+	enc.vp9PostEncodeSourceAltRefState(true, 0xff)
+	if enc.rc.sourceAltRefPending || enc.rc.sourceAltRefActive {
+		t.Fatalf("after intra reset pending=%v active=%v, want false/false",
+			enc.rc.sourceAltRefPending, enc.rc.sourceAltRefActive)
+	}
+}
+
 // TestVP9TwoPassVBRRateCorrectionBleedsOvershoot verifies the libvpx
 // vbr_rate_correction feedback loop. After a large simulated overshoot
 // (projected size >> base target), subsequent per-frame targets must

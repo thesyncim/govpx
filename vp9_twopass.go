@@ -215,6 +215,7 @@ func (e *VP9Encoder) refreshVP9GFGroupIfDue(isKey bool) {
 	e.twoPass.gfGroup = gf
 	e.twoPass.gfGroupActive = true
 	e.twoPass.gfGroupStartShowIdx = in.GFStartShowIdx
+	e.rc.sourceAltRefPending = gf.SourceAltRefPending
 	interval := gf.BaselineGFInterval
 	if interval <= 0 {
 		interval = int(e.rc.baselineGFInterval)
@@ -379,6 +380,48 @@ func (e *VP9Encoder) vp9RDMultModulation(isKey bool) encoder.RDMultModulation {
 	}
 }
 
+// vp9PostEncodeSourceAltRefState mirrors the libvpx source_alt_ref lifecycle
+// for reference updates that actually commit.
+//
+// libvpx:
+//   - vp9_ratectrl.c:1748 update_alt_ref_frame_stats
+//   - vp9_ratectrl.c:1759 update_golden_frame_stats
+func (e *VP9Encoder) vp9PostEncodeSourceAltRefState(intraOnly bool,
+	refreshFlags uint8,
+) {
+	if e == nil || !e.rc.enabled {
+		return
+	}
+	if intraOnly {
+		e.rc.sourceAltRefPending = false
+		e.rc.sourceAltRefActive = false
+		return
+	}
+	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+	if refreshAlt {
+		e.rc.sourceAltRefPending = false
+		e.rc.sourceAltRefActive = true
+		return
+	}
+	if !refreshGolden {
+		return
+	}
+	if e.twoPass.enabled() {
+		idx := 0
+		if e.twoPass.gfGroupActive {
+			idx = int(e.twoPass.gfGroup.Index)
+		}
+		if !e.rc.sourceAltRefPending && idx == 0 {
+			e.rc.sourceAltRefActive = false
+		}
+		return
+	}
+	if !e.rc.sourceAltRefPending {
+		e.rc.sourceAltRefActive = false
+	}
+}
+
 // buildVP9GFGroupInputs snapshots the encoder + RC state into the pure
 // inputs encoder.DefineGFGroup consumes. Mirrors libvpx's VP9_COMP / RATE_CONTROL
 // / TWO_PASS field reads at the define_gf_group call site.
@@ -410,7 +453,7 @@ func (e *VP9Encoder) buildVP9GFGroupInputs(isKey bool) encoder.GFGroupInputs {
 	avErr := e.twoPass.distributionAverageError()
 	return encoder.GFGroupInputs{
 		IsKeyFrame:               isKey,
-		SourceAltRefActive:       false,
+		SourceAltRefActive:       e.rc.sourceAltRefActive,
 		FramesToKey:              framesToKey,
 		FramesSinceKey:           int(e.framesSinceKey),
 		MinGFInterval:            minGF,
