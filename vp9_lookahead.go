@@ -289,6 +289,19 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassARFInto(dst []byte, drain bool) (VP9En
 		}
 		return VP9EncodeResult{}, false, ErrFrameNotReady
 	}
+	if e.vp9TwoPassARFBlockedByForcedKeyFrame(offset) {
+		entry, ok := e.popVP9Lookahead(true)
+		if !ok {
+			if drain {
+				return VP9EncodeResult{}, false, nil
+			}
+			return VP9EncodeResult{}, false, ErrFrameNotReady
+		}
+		result, err := e.encodeVP9LookaheadEntryInto(dst, entry)
+		entry.flags = 0
+		entry.isAltRefSource = false
+		return result, true, err
+	}
 	future, ok := e.peekVP9LookaheadAt(offset)
 	if !ok {
 		if drain {
@@ -304,6 +317,21 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassARFInto(dst []byte, drain bool) (VP9En
 			EncodeNoUpdateGolden,
 		false, temporalFrame{LayerCount: 1}, false)
 	return result, true, err
+}
+
+// libvpx: vp9_encoder.c:6174-6183 avoids creating an alt-ref when a forced
+// keyframe is pending anywhere through the selected arf_src_index.
+func (e *VP9Encoder) vp9TwoPassARFBlockedByForcedKeyFrame(offset int) bool {
+	for i := 0; i <= offset; i++ {
+		entry, ok := e.peekVP9LookaheadAt(i)
+		if !ok {
+			return false
+		}
+		if entry.flags&EncodeForceKeyFrame != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *VP9Encoder) maybeDrainVP9TwoPassLookaheadAndQueueInto(img *image.YCbCr, dst []byte, flags EncodeFlags) (VP9EncodeResult, bool, error) {

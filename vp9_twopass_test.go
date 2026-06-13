@@ -433,6 +433,82 @@ func TestVP9TwoPassLookaheadARFEmitsHiddenFutureSource(t *testing.T) {
 	}
 }
 
+func TestVP9TwoPassLookaheadARFSkipsForcedKeyFrameWindow(t *testing.T) {
+	const width, height = 64, 64
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+		LookaheadFrames:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	if _, err := enc.encodeVP9FrameIntoWithFlagsResult(
+		vp9test.NewYCbCr(width, height, 80, 128, 128), dst,
+		EncodeForceKeyFrame, false, temporalFrame{LayerCount: 1}, false); err != nil {
+		t.Fatalf("key encode: %v", err)
+	}
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 4
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.GFGroupSize = 3
+	enc.twoPass.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	enc.twoPass.gfGroup.ArfSrcOffset[1] = 2
+	enc.twoPass.gfGroup.RFLevel[1] = vp9enc.RateFactorGFARFLow
+	enc.twoPass.gfGroup.GFUBoost[1] = 250
+	enc.twoPass.gfGroup.BitAllocation[1] = 1400
+	enc.twoPass.framePrepared = false
+
+	for frame := 1; frame <= 3; frame++ {
+		flags := EncodeFlags(0)
+		if frame == 2 {
+			flags = EncodeForceKeyFrame
+		}
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*16), 128, 128)
+		if err := enc.pushVP9Lookahead(src, flags); err != nil {
+			t.Fatalf("push lookahead frame %d: %v", frame, err)
+		}
+	}
+	future, ok := enc.peekVP9LookaheadAt(2)
+	if !ok {
+		t.Fatal("future ARF source missing from lookahead")
+	}
+
+	result, ok, err := enc.maybeEncodeVP9TwoPassARFInto(dst, false)
+	if err != nil {
+		t.Fatalf("maybeEncodeVP9TwoPassARFInto: %v", err)
+	}
+	if !ok {
+		t.Fatal("two-pass ARF cancellation did not emit flushed visible frame")
+	}
+	if !result.ShowFrame {
+		t.Fatalf("result = show:%t refresh:%#x, want visible flush",
+			result.ShowFrame, result.RefreshFrameFlags)
+	}
+	if future.isAltRefSource {
+		t.Fatal("forced-keyframe window still marked future source as alt-ref")
+	}
+	if enc.lookaheadCount != 2 {
+		t.Fatalf("lookaheadCount = %d, want oldest frame flushed",
+			enc.lookaheadCount)
+	}
+	next, ok := enc.peekVP9LookaheadAt(0)
+	if !ok || next.flags&EncodeForceKeyFrame == 0 {
+		t.Fatal("forced keyframe was not preserved in lookahead")
+	}
+}
+
 func TestVP9TwoPassLookaheadPathSchedulesHiddenARF(t *testing.T) {
 	const width, height, frames = 64, 64, 12
 	sources := make([]*image.YCbCr, frames)
