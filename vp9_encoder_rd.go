@@ -130,10 +130,11 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 // y_dc_delta_q is zero for govpx today; when the active-segment Q delta
 // path lands it should be added to qindex here before the rdmult lookup.
 func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
-	frameType encoder.RDFrameType,
+	frameType encoder.RDFrameType, isKey bool,
 ) {
 	e.rc.rddiv = encoder.RDDivBits
-	e.rc.rdmult = encoder.ComputeRDMult(qindex, frameType)
+	e.rc.rdmult = encoder.ComputeRDMultWithModulation(qindex, frameType,
+		e.vp9RDMultModulation(isKey))
 	// Reset the per-SB cb_rdmult cache so a stale value from the prior
 	// frame does not leak into the first SB picker call.  libvpx clears
 	// it inline before each rd_pick_sb_modes invocation; we mirror that

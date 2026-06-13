@@ -37,6 +37,7 @@ import "github.com/thesyncim/govpx/internal/vp9/encoder"
 //                                   libvpx: vp9/encoder/vp9_ratectrl.c:1468
 //   - compute_arf_boost             libvpx: vp9/encoder/vp9_firstpass.c:1936
 //     (already ported in 54d68f7; re-exported through encoder.DefineGFGroup)
+//   - modulate_rdmult               libvpx: vp9/encoder/vp9_rd.c:278
 //
 // rc.gfuBoost is now fed at every GF boundary by refreshVP9GFGroupIfDue
 // (this file), which activates the AltRef adaptive-strength path in
@@ -355,6 +356,27 @@ func (e *VP9Encoder) vp9DampedAdjustmentRFLevel() int {
 		}
 	}
 	return encoder.RateFactorInterNormal
+}
+
+// vp9RDMultModulation snapshots the two-pass GF-group state consumed by
+// libvpx's modulate_rdmult. govpx does not expose multi-layer ARF yet, so the
+// boost source is rc.gfuBoost, matching the non-multi-layer libvpx branch.
+//
+// libvpx: vp9/encoder/vp9_rd.c:278-292.
+func (e *VP9Encoder) vp9RDMultModulation(isKey bool) encoder.RDMultModulation {
+	if e == nil || !e.twoPass.enabled() || !e.twoPass.gfGroupActive {
+		return encoder.RDMultModulation{}
+	}
+	idx := int(e.twoPass.gfGroup.Index)
+	if idx < 0 || idx >= len(e.twoPass.gfGroup.UpdateType) {
+		return encoder.RDMultModulation{}
+	}
+	return encoder.RDMultModulation{
+		TwoPass:    true,
+		IsKeyFrame: isKey,
+		UpdateType: e.twoPass.gfGroup.UpdateType[idx],
+		GFUBoost:   int(e.rc.gfuBoost),
+	}
 }
 
 // buildVP9GFGroupInputs snapshots the encoder + RC state into the pure
