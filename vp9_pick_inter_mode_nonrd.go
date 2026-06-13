@@ -107,6 +107,7 @@ type vp9RefMode struct {
 //
 //	#define RT_INTER_MODES 12
 const vp9RTInterModes = 12
+const vp9RTInterModesSVC = 8
 
 // ref_mode_set is the non-SVC realtime (ref, mode) schedule. The order is
 // significant: candidates are evaluated in order, and the best_early_term
@@ -131,6 +132,33 @@ var vp9RefModeSet = [vp9RTInterModes]vp9RefMode{
 	{vp9dec.GoldenFrame, common.NearMv}, {vp9dec.GoldenFrame, common.NewMv},
 	{vp9dec.AltrefFrame, common.ZeroMv}, {vp9dec.AltrefFrame, common.NearestMv},
 	{vp9dec.AltrefFrame, common.NearMv}, {vp9dec.AltrefFrame, common.NewMv},
+}
+
+// ref_mode_set_svc is the SVC realtime (ref, mode) schedule. It keeps SVC
+// realtime pickmode on LAST/GOLDEN and visits LAST NEWMV only after the cheaper
+// LAST/GOLDEN predictors, matching libvpx's reduced candidate fan.
+//
+// libvpx: vp9_pickmode.c:1258-1264
+//
+//	#define RT_INTER_MODES_SVC 8
+//	static const REF_MODE ref_mode_set_svc[RT_INTER_MODES_SVC] = {
+//	  { LAST_FRAME, ZEROMV },      { LAST_FRAME, NEARESTMV },
+//	  { LAST_FRAME, NEARMV },      { GOLDEN_FRAME, ZEROMV },
+//	  { GOLDEN_FRAME, NEARESTMV }, { GOLDEN_FRAME, NEARMV },
+//	  { LAST_FRAME, NEWMV },       { GOLDEN_FRAME, NEWMV }
+//	};
+var vp9RefModeSetSVC = [vp9RTInterModesSVC]vp9RefMode{
+	{vp9dec.LastFrame, common.ZeroMv}, {vp9dec.LastFrame, common.NearestMv},
+	{vp9dec.LastFrame, common.NearMv}, {vp9dec.GoldenFrame, common.ZeroMv},
+	{vp9dec.GoldenFrame, common.NearestMv}, {vp9dec.GoldenFrame, common.NearMv},
+	{vp9dec.LastFrame, common.NewMv}, {vp9dec.GoldenFrame, common.NewMv},
+}
+
+func vp9NonrdRefModeSchedule(useSvc bool) []vp9RefMode {
+	if useSvc {
+		return vp9RefModeSetSVC[:]
+	}
+	return vp9RefModeSet[:]
 }
 
 // vp9BestPickmode mirrors libvpx's BEST_PICKMODE struct, holding the winning
@@ -259,9 +287,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 	// libvpx: vp9_pickmode.c:1771 num_inter_modes = (cpi->use_svc) ?
 	//   RT_INTER_MODES_SVC : RT_INTER_MODES.
-	// govpx single-layer: always RT_INTER_MODES. SVC schedule is a TODO when
-	// the SVC layer-context port lands.
-	numInterModes := vp9RTInterModes
+	refModeSchedule := vp9NonrdRefModeSchedule(e.svc.UseSvc)
 
 	// libvpx: vp9_pickmode.c:1748 int ref_frame_skip_mask = 0;
 	refFrameSkipMask := 0
@@ -718,10 +744,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// num_inter_modes) because compound prediction is handled by the
 	// separate pickVP9CompoundInterMode path. libvpx merges them into the
 	// same loop; the schedule order does not affect the winner.
-	for idx := range numInterModes {
+	for idx := range refModeSchedule {
 		// libvpx: vp9_pickmode.c:2067-2074 — read (this_mode, ref_frame).
-		thisMode := vp9RefModeSet[idx].predMode
-		refFrame := vp9RefModeSet[idx].refFrame
+		thisMode := refModeSchedule[idx].predMode
+		refFrame := refModeSchedule[idx].refFrame
 
 		// libvpx: vp9_pickmode.c:2084 if (ref_frame > usable_ref_frame) continue;
 		if refFrame > maxUsableRef {

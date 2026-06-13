@@ -4,8 +4,64 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
+
+func TestVP9NonrdRefModeScheduleMatchesLibvpx(t *testing.T) {
+	cases := []struct {
+		name   string
+		useSVC bool
+		want   []vp9RefMode
+	}{
+		{
+			name: "single-layer",
+			want: []vp9RefMode{
+				{vp9dec.LastFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearMv},
+				{vp9dec.LastFrame, common.NewMv},
+				{vp9dec.GoldenFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.NearMv},
+				{vp9dec.GoldenFrame, common.NewMv},
+				{vp9dec.AltrefFrame, common.ZeroMv},
+				{vp9dec.AltrefFrame, common.NearestMv},
+				{vp9dec.AltrefFrame, common.NearMv},
+				{vp9dec.AltrefFrame, common.NewMv},
+			},
+		},
+		{
+			name:   "svc",
+			useSVC: true,
+			want: []vp9RefMode{
+				{vp9dec.LastFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearestMv},
+				{vp9dec.LastFrame, common.NearMv},
+				{vp9dec.GoldenFrame, common.ZeroMv},
+				{vp9dec.GoldenFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.NearMv},
+				{vp9dec.LastFrame, common.NewMv},
+				{vp9dec.GoldenFrame, common.NewMv},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := vp9NonrdRefModeSchedule(tc.useSVC)
+			if len(got) != len(tc.want) {
+				t.Fatalf("schedule len = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("schedule[%d] = {ref:%d mode:%d}, want {ref:%d mode:%d}",
+						i, got[i].refFrame, got[i].predMode,
+						tc.want[i].refFrame, tc.want[i].predMode)
+				}
+			}
+		})
+	}
+}
 
 func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 	cases := []struct {
