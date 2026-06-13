@@ -63,6 +63,58 @@ func TestVP9NonrdRefModeScheduleMatchesLibvpx(t *testing.T) {
 	}
 }
 
+func TestVP9NonrdFilterSweepRefOKMatchesLibvpxSVCFork(t *testing.T) {
+	cases := []struct {
+		name              string
+		ref               int8
+		useSVC            bool
+		rateControlSet    bool
+		rateControlMode   RateControlMode
+		forceMVInterLayer bool
+		want              bool
+	}{
+		{name: "last-always", ref: vp9dec.LastFrame, want: true},
+		{name: "golden-vbr", ref: vp9dec.GoldenFrame, rateControlSet: true, rateControlMode: RateControlVBR, want: true},
+		{name: "golden-svc-cbr", ref: vp9dec.GoldenFrame, useSVC: true, rateControlSet: true, rateControlMode: RateControlCBR, want: true},
+		{name: "golden-cbr-non-svc", ref: vp9dec.GoldenFrame, rateControlSet: true, rateControlMode: RateControlCBR},
+		{name: "golden-force-inter-layer", ref: vp9dec.GoldenFrame, useSVC: true, forceMVInterLayer: true},
+		{name: "altref-never", ref: vp9dec.AltrefFrame, useSVC: true, rateControlSet: true, rateControlMode: RateControlVBR},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP9Encoder{
+				opts: VP9EncoderOptions{
+					RateControlModeSet: tc.rateControlSet,
+					RateControlMode:    tc.rateControlMode,
+				},
+			}
+			e.svc.UseSvc = tc.useSVC
+			if got := e.vp9NonrdFilterSweepRefOK(tc.ref, tc.forceMVInterLayer); got != tc.want {
+				t.Fatalf("filter sweep ref ok = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVP9NonrdUseVarPartMVSeedDisablesForSVC(t *testing.T) {
+	e := &VP9Encoder{opts: VP9EncoderOptions{CpuUsed: 8}}
+	if !e.vp9NonrdUseVarPartMVSeed(common.Block32x32) {
+		t.Fatal("non-SVC speed8 Block32x32 seed = false, want true")
+	}
+	e.svc.UseSvc = true
+	if e.vp9NonrdUseVarPartMVSeed(common.Block32x32) {
+		t.Fatal("SVC speed8 Block32x32 seed = true, want false")
+	}
+	e.svc.UseSvc = false
+	if e.vp9NonrdUseVarPartMVSeed(common.Block16x16) {
+		t.Fatal("Block16x16 seed = true, want false")
+	}
+	e.opts.CpuUsed = 7
+	if e.vp9NonrdUseVarPartMVSeed(common.Block64x64) {
+		t.Fatal("speed7 Block64x64 seed = true, want false")
+	}
+}
+
 func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 	cases := []struct {
 		name        string

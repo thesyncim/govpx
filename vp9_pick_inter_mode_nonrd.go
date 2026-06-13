@@ -161,6 +161,24 @@ func vp9NonrdRefModeSchedule(useSvc bool) []vp9RefMode {
 	return vp9RefModeSet[:]
 }
 
+func (e *VP9Encoder) vp9NonrdFilterSweepRefOK(refFrame int8, forceMVInterLayer bool) bool {
+	if refFrame == vp9dec.LastFrame {
+		return true
+	}
+	if refFrame != vp9dec.GoldenFrame || forceMVInterLayer {
+		return false
+	}
+	return e != nil &&
+		(e.svc.UseSvc ||
+			(e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlVBR))
+}
+
+func (e *VP9Encoder) vp9NonrdUseVarPartMVSeed(bsize common.BlockSize) bool {
+	return e != nil && !e.svc.UseSvc &&
+		e.vp9SpeedFeatureCPUUsed() > 7 &&
+		bsize >= common.Block32x32
+}
+
 // vp9BestPickmode mirrors libvpx's BEST_PICKMODE struct, holding the winning
 // (mode, ref, filter, tx) tuple across the per-candidate loop.
 //
@@ -986,10 +1004,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				}
 			}
 			// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
-			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
-			// non-SVC realtime lane mirrors the speed/block-size legs here.
-			if e.vp9SpeedFeatureCPUUsed() > 7 &&
-				bsize >= common.Block32x32 {
+			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32.
+			if e.vp9NonrdUseVarPartMVSeed(bsize) {
 				if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
 					mvOpts.seed = mvPart
 					mvOpts.seedValid = true
@@ -1106,16 +1122,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//         (cpi->use_svc || cpi->oxcf.rc_mode == VPX_VBR))) &&
 		//       (((mi->mv[0].as_mv.row | mi->mv[0].as_mv.col) & 0x07) != 0))
 		//
-		// govpx is single-layer (use_svc == 0, force_mv_inter_layer == 0),
-		// so the GOLDEN leg reduces to rc_mode == VPX_VBR. Otherwise libvpx
-		// locks to filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
+		// govpx does not yet force inter-layer MVs, so force_mv_inter_layer is
+		// false here. Otherwise libvpx locks to filter = (filter_ref ==
+		// SWITCHABLE) ? EIGHTTAP : filter_ref.
 		//
 		// libvpx: vp9_pickmode.c:1523-1525 search_filter_ref filter loop.
 		// libvpx: vp9_pickmode.c:2330 mi->interp_filter fallback.
-		filterSweepRefOK := refFrame == vp9dec.LastFrame ||
-			(refFrame == vp9dec.GoldenFrame &&
-				e.opts.RateControlModeSet &&
-				e.opts.RateControlMode == RateControlVBR)
+		filterSweepRefOK := e.vp9NonrdFilterSweepRefOK(refFrame, false)
 		var filters []vp9dec.InterpFilter
 		switch {
 		case predFilterSearch && filterSweepRefOK &&
