@@ -1058,6 +1058,98 @@ func TestVP9TwoPassQPickerConsumesPostEncodeQRange(t *testing.T) {
 	}
 }
 
+func TestVP9TwoPassPostEncodeRecordsLastARFLayerQ(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.LayerDepth[1] = 1
+	enc.twoPass.gfGroup.ConstrainedGFGroup = false
+	enc.twoPass.lastQIndexOfARFLayer[1] = 200
+	enc.rc.isSrcFrameAltRef = false
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(120, false,
+		1<<vp9AltRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 120 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want ARF q 120", got)
+	}
+
+	enc.twoPass.lastQIndexOfARFLayer[1] = 100
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want unchanged 100", got)
+	}
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(90, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 90 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want lower q 90", got)
+	}
+
+	enc.twoPass.gfGroup.Index = 0
+	enc.twoPass.gfGroup.LayerDepth[0] = 0
+	enc.twoPass.lastQIndexOfARFLayer[0] = 40
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[0]; got != 140 {
+		t.Fatalf("last_qindex_of_arf_layer[0] = %d, want keyframe q 140", got)
+	}
+}
+
+func TestVP9TwoPassQPickerConsumesLastARFLayerQ(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	refreshFlags := uint8(1 << vp9LastRefSlot)
+	enc.twoPass.activeWorstQuality = 180
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 0
+	enc.twoPass.gfGroup.MaxLayerDepth = 1
+	enc.twoPass.gfGroup.RFLevel[0] = vp9enc.RateFactorInterNormal
+	enc.twoPass.gfGroup.LayerDepth[0] = 1
+	enc.rc.frameTargetBits = 1200
+	enc.rc.maxFrameBandwidth = 5000
+	enc.rc.lastQInter = 160
+	enc.rc.avgFrameQIndexInter = 160
+	macroblocks := vp9enc.MacroblockCount((enc.opts.Height+7)>>3,
+		(enc.opts.Width+7)>>3)
+
+	_, baseBest, _, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	enc.twoPass.lastQIndexOfARFLayer[0] = baseBest + 20
+	_, flooredBest, _, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	if flooredBest != baseBest+20 {
+		t.Fatalf("active best = %d, want ARF layer floor %d",
+			flooredBest, baseBest+20)
+	}
+}
+
 // TestVP9TwoPassVBRBitrateAccuracyConverges checks the canonical
 // libvpx invariant: across a uniform-stats clip, the running per-frame
 // target average must converge to the configured avg_frame_bandwidth.

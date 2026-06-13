@@ -391,6 +391,8 @@ func (e *VP9Encoder) maybeEncodeVP9TwoPassUseBufFrameInto(dst []byte,
 	e.rc.postEncodeFrame(n, true, int(e.rc.lastQInter), false, refreshFlags,
 		macroblocks, e.vp9AltRefEnabledForRateControlStats(), nil,
 		e.vp9DampedAdjustmentRFLevel())
+	e.updateVP9TwoPassLastQIndexOfARFLayer(int(e.rc.lastQInter), false,
+		refreshFlags)
 	e.vp9PostEncodeSourceAltRefState(false, refreshFlags)
 	firstPassStats := e.twoPass.statsForFrame()
 	twoPassTargetBits := e.vp9TwoPassFrameTarget

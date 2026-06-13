@@ -759,6 +759,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			header.RefreshFrameFlags, macroblocks,
 			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
 			e.vp9DampedAdjustmentRFLevel())
+		e.updateVP9TwoPassLastQIndexOfARFLayer(qindex, isKey || intraOnly,
+			header.RefreshFrameFlags)
 		e.vp9PostEncodeSourceAltRefState(isKey || intraOnly,
 			header.RefreshFrameFlags)
 		if !isKey && !intraOnly {

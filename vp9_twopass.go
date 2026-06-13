@@ -35,6 +35,8 @@ import "github.com/thesyncim/govpx/internal/vp9/encoder"
 //   - adjust_group_arnr_filter      libvpx: vp9/encoder/vp9_firstpass.c:2541
 //   - vp9_rc_pick_q_and_bounds_two_pass
 //                                   libvpx: vp9/encoder/vp9_ratectrl.c:1468
+//   - vp9_rc_postencode_update last_qindex_of_arf_layer[]
+//                                   libvpx: vp9/encoder/vp9_ratectrl.c:1861
 //   - compute_arf_boost             libvpx: vp9/encoder/vp9_firstpass.c:1936
 //     (already ported in 54d68f7; re-exported through encoder.DefineGFGroup)
 //   - modulate_rdmult               libvpx: vp9/encoder/vp9_rd.c:278
@@ -184,6 +186,7 @@ type vp9TwoPassState struct {
 	extendMinQFast           int
 	vbrBitsOffTargetFast     int64
 	rateErrorEstimate        int
+	lastQIndexOfARFLayer     [encoder.MaxARFLayers]int
 }
 
 func validateVP9TwoPassOptions(opts VP9EncoderOptions) error {
@@ -485,6 +488,12 @@ func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
 			gfuBoost = gf.GFUBoost[gfIndex]
 		}
 	}
+	lastQIndexOfARFLayer := 0
+	if rfLevel == encoder.RateFactorGFARFLow && layerDepth > 1 {
+		lastQIndexOfARFLayer = e.twoPass.lastQIndexOfARFLayerAt(layerDepth - 1)
+	} else if gf.MaxLayerDepth > 0 {
+		lastQIndexOfARFLayer = e.twoPass.lastQIndexOfARFLayerAt(gf.MaxLayerDepth - 1)
+	}
 	arfAdjust := 1.0
 	if gf.ARFActiveBestQAdjustF > 0 {
 		arfAdjust = gf.ARFActiveBestQAdjustF
@@ -507,6 +516,7 @@ func (e *VP9Encoder) vp9TwoPassQuantizerWithBounds(intraOnly bool,
 		ExtendMinQ:                           e.twoPass.extendMinQ,
 		ExtendMaxQ:                           e.twoPass.extendMaxQ,
 		ExtendMinQFast:                       e.twoPass.extendMinQFast,
+		LastQIndexOfMaxLayerDepth:            lastQIndexOfARFLayer,
 		LastKFGroupZeroMotionPct:             e.twoPass.lastKFGroupZeroMotionPct,
 		KFZeroMotionPct:                      e.twoPass.kfZeroMotionPct,
 		KeyFrameBoost:                        e.twoPass.keyFrameBoost,
@@ -799,6 +809,9 @@ func (t *vp9TwoPassState) configureWithCorpus(stats []VP9FirstPassFrameStats,
 	t.extendMinQFast = 0
 	t.vbrBitsOffTargetFast = 0
 	t.rateErrorEstimate = 0
+	for i := range t.lastQIndexOfARFLayer {
+		t.lastQIndexOfARFLayer[i] = 0
+	}
 
 	// libvpx: vp9/encoder/vp9_firstpass.c:1642-1662 — when
 	// oxcf->vbr_corpus_complexity is non-zero, mean_mod_score is forced
@@ -1144,6 +1157,46 @@ func (e *VP9Encoder) updateVP9TwoPassPostEncodeQRange(projectedFrameSize int,
 			minQAdjLimit-t.extendMinQ)
 	} else {
 		t.extendMinQFast = 0
+	}
+}
+
+func (t *vp9TwoPassState) lastQIndexOfARFLayerAt(layerDepth int) int {
+	if layerDepth < 0 || layerDepth >= len(t.lastQIndexOfARFLayer) {
+		return 0
+	}
+	return t.lastQIndexOfARFLayer[layerDepth]
+}
+
+func (e *VP9Encoder) updateVP9TwoPassLastQIndexOfARFLayer(qindex int,
+	intraOnly bool, refreshFlags uint8,
+) {
+	if e == nil || !e.twoPass.enabled() {
+		return
+	}
+	t := &e.twoPass
+	layerDepth := 0
+	constrainedGFGroup := false
+	if t.gfGroupActive {
+		idx := int(t.gfGroup.Index)
+		if idx >= 0 && idx < len(t.gfGroup.LayerDepth) {
+			layerDepth = int(t.gfGroup.LayerDepth[idx])
+		}
+		constrainedGFGroup = t.gfGroup.ConstrainedGFGroup
+	}
+	if layerDepth < 0 || layerDepth >= len(t.lastQIndexOfARFLayer) {
+		return
+	}
+	if qindex < 0 {
+		qindex = 0
+	} else if qindex > 255 {
+		qindex = 255
+	}
+	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	boostedRefresh := refreshAlt || (refreshGolden && !e.rc.isSrcFrameAltRef)
+	if qindex < t.lastQIndexOfARFLayer[layerDepth] || intraOnly ||
+		(!constrainedGFGroup && boostedRefresh) {
+		t.lastQIndexOfARFLayer[layerDepth] = qindex
 	}
 }
 
