@@ -231,14 +231,43 @@ func (e *VP9Encoder) countVP9InterSub8NewMvs(counts *encoder.FrameCounts,
 	}
 }
 
-func countVP9InterIntraMode(counts *encoder.FrameCounts, bsize common.BlockSize,
-	mode common.PredictionMode,
+func countVP9InterIntraModes(counts *encoder.FrameCounts, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
 ) {
-	if counts == nil || mode < common.DcPred || int(mode) >= common.IntraModes {
+	if counts == nil || mi == nil {
 		return
 	}
-	sg := common.SizeGroupLookup[bsize]
-	counts.YMode[sg][mode]++
+	countMode := func(sizeGroup int, mode common.PredictionMode) {
+		if mode < common.DcPred || int(mode) >= common.IntraModes {
+			return
+		}
+		counts.YMode[sizeGroup][mode]++
+	}
+	switch bsize {
+	case common.Block4x4:
+		for i := range 4 {
+			countMode(0, mi.Bmi[i].AsMode)
+		}
+	case common.Block4x8:
+		countMode(0, mi.Bmi[0].AsMode)
+		countMode(0, mi.Bmi[1].AsMode)
+	case common.Block8x4:
+		countMode(0, mi.Bmi[0].AsMode)
+		countMode(0, mi.Bmi[2].AsMode)
+	default:
+		countMode(int(common.SizeGroupLookup[bsize]), mi.Mode)
+	}
+}
+
+func countVP9InterIntraUvMode(counts *encoder.FrameCounts,
+	yMode, uvMode common.PredictionMode,
+) {
+	if counts == nil || yMode < common.DcPred ||
+		int(yMode) >= common.IntraModes ||
+		uvMode < common.DcPred || int(uvMode) >= common.IntraModes {
+		return
+	}
+	counts.UvMode[yMode][uvMode]++
 }
 
 func countVP9SwitchableInterp(counts *encoder.FrameCounts,

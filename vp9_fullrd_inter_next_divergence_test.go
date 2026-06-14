@@ -840,7 +840,7 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 		"single-ref inter RD vp9_rd_pick_inter_mode_sb (vp9_rdopt.c:3445).")
 }
 
-func TestVP9FullRDInterSub8x8Frame1ReconstructionParity(t *testing.T) {
+func TestVP9FullRDInterSub8x8Frame1ByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 	prevP, prevTh, prevS := vp9InterUseDeepRDPartition, vp9InterUseDeepRDThisRDScore, vp9InterUseDeepRDSub8x8
 	prevRB := vp9InterUseDeepRDRefBestRD
@@ -896,6 +896,10 @@ func TestVP9FullRDInterSub8x8Frame1ReconstructionParity(t *testing.T) {
 	if len(govpxFrames[1]) != len(libvpxFrames[1]) {
 		t.Fatalf("frame1 length govpx=%d libvpx=%d; sub-8x8 zcoeff replay drifted",
 			len(govpxFrames[1]), len(libvpxFrames[1]))
+	}
+	if !bytes.Equal(govpxFrames[1], libvpxFrames[1]) {
+		t.Fatalf("frame1 packet byte mismatch after deep full-RD sub-8x8 encode: govpx=%s libvpx=%s",
+			vp9test.MD5Hex(govpxFrames[1]), vp9test.MD5Hex(libvpxFrames[1]))
 	}
 	gotI420 := vp9DecodeVisibleI420ForTest(t, govpxFrames...)
 	wantI420 := vp9DecodeVisibleI420ForTest(t, libvpxFrames...)

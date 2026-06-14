@@ -180,7 +180,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				countVP9SwitchableInterp(counts, above, left, cur.InterpFilter)
 			}
 		} else {
-			countVP9InterIntraMode(counts, bsize, cur.Mode)
+			countVP9InterIntraModes(counts, bsize, &cur)
+			countVP9InterIntraUvMode(counts, cur.Mode, uvMode)
 		}
 		// Compile-elided per-block ground-truth probe (govpx_oracle_trace builds
 		// only; silent unless GOVPX_GT_TRACE is set). Fire once per leaf on the

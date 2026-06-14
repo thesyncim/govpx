@@ -130,8 +130,13 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		hoistSavedRef := inter.ref
 		hoistSavedPredFilter := inter.predInterpFilter
 		hoistSavedPredFilterValid := inter.predFilterValid
+		serializerCtx, serializerCtxOK :=
+			e.snapshotVP9PartitionContextsWithEntropy(miRow, miCol, root, true)
 		rd, ok := e.pickVP9InterPartitionRD(inter, tile, deepRateCostProbs,
 			miRows, miCols, miRow, miCol, root)
+		if serializerCtxOK {
+			e.restoreVP9PartitionContexts(serializerCtx)
+		}
 		inter.ref = hoistSavedRef
 		inter.predInterpFilter = hoistSavedPredFilter
 		inter.predFilterValid = hoistSavedPredFilterValid

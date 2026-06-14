@@ -61,6 +61,10 @@ type FrameCounts struct {
 	// YMode is the per-size-group histogram over 10 intra modes.
 	YMode [vp9dec.BlockSizeGroups][common.IntraModes]uint32
 
+	// UvMode is the per-Y-mode histogram over 10 intra chroma modes for
+	// inter-frame intra blocks. It feeds post-frame context adaptation.
+	UvMode [common.IntraModes][common.IntraModes]uint32
+
 	// Partition is the per-partition-context histogram over 4 partition
 	// types.
 	Partition [common.PartitionContexts][common.PartitionTypes]uint32
