@@ -3,6 +3,7 @@
 package govpx
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"io"
@@ -837,6 +838,71 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 		"(after update_state finalises xd->mi[0]); partition walk encode_sb :2253; " +
 		"sub-8x8 RD vp9_rd_pick_inter_mode_sub8x8 (vp9_rdopt.c:4294); " +
 		"single-ref inter RD vp9_rd_pick_inter_mode_sb (vp9_rdopt.c:3445).")
+}
+
+func TestVP9FullRDInterSub8x8Frame1ReconstructionParity(t *testing.T) {
+	vp9test.RequireVpxenc(t)
+	prevP, prevTh, prevS := vp9InterUseDeepRDPartition, vp9InterUseDeepRDThisRDScore, vp9InterUseDeepRDSub8x8
+	prevRB := vp9InterUseDeepRDRefBestRD
+	vp9InterUseDeepRDPartition = true
+	vp9InterUseDeepRDThisRDScore = true
+	vp9InterUseDeepRDSub8x8 = true
+	vp9InterUseDeepRDRefBestRD = true
+	t.Cleanup(func() {
+		vp9InterUseDeepRDPartition = prevP
+		vp9InterUseDeepRDThisRDScore = prevTh
+		vp9InterUseDeepRDSub8x8 = prevS
+		vp9InterUseDeepRDRefBestRD = prevRB
+	})
+
+	const width, height = 64, 64
+	opts := VP9EncoderOptions{
+		Width: width, Height: height, FPS: 30,
+		RateControlModeSet: true, RateControlMode: RateControlCBR,
+		TargetBitrateKbps: 1200, BufferSizeMs: 600, BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500, MinQuantizer: 4, MaxQuantizer: 56,
+		MaxKeyframeInterval: 999, Deadline: DeadlineRealtime, CpuUsed: 0,
+	}
+	sources := newVP9NextDivPanningSources(width, height, 2)
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	govpxFrames := make([][]byte, 0, len(sources))
+	for i, src := range sources {
+		pkt, encErr := e.Encode(src)
+		if encErr != nil {
+			t.Fatalf("Encode frame %d: %v", i, encErr)
+		}
+		govpxFrames = append(govpxFrames, append([]byte(nil), pkt...))
+	}
+	libvpxFrames := vp9test.VpxencPackets(t, sources,
+		"--end-usage=cbr",
+		"--target-bitrate=1200",
+		"--cpu-used=0",
+		"--kf-min-dist=0",
+		"--kf-max-dist=999",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+		"--timebase=1/30",
+	)
+	if len(govpxFrames) != 2 || len(libvpxFrames) != 2 {
+		t.Fatalf("frame count govpx=%d libvpx=%d, want 2/2",
+			len(govpxFrames), len(libvpxFrames))
+	}
+	if len(govpxFrames[1]) != len(libvpxFrames[1]) {
+		t.Fatalf("frame1 length govpx=%d libvpx=%d; sub-8x8 zcoeff replay drifted",
+			len(govpxFrames[1]), len(libvpxFrames[1]))
+	}
+	gotI420 := vp9DecodeVisibleI420ForTest(t, govpxFrames...)
+	wantI420 := vp9DecodeVisibleI420ForTest(t, libvpxFrames...)
+	if !bytes.Equal(gotI420, wantI420) {
+		t.Fatalf("frame1 decoded I420 mismatch after deep full-RD sub-8x8 encode: govpx=%s libvpx=%s",
+			vp9test.MD5Hex(gotI420), vp9test.MD5Hex(wantI420))
+	}
 }
 
 // newVP9NextDivPanningSources mirrors vp9test.NewPanningSources(w,h,n) (the exact

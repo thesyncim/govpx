@@ -40,8 +40,8 @@ type vp9InterZcoeffBlk struct {
 // vp9_quantize_fp tokenize pass starts from the same predictor libvpx's
 // encode_superblock rebuilds.
 //
-// Gated by the caller behind the deep full-RD use-partition flag; production
-// (flag off) never calls it.
+// Gated by the caller behind the deep full-RD residue path; shallow/non-RD paths
+// never call it.
 func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, txSize common.TxSize,
 	segID uint8,
@@ -106,7 +106,7 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 	// transform domain. The zcoeff rd1/rd2 must use the same domain block_rd_txfm
 	// did when it set x->zcoeff_blk.
 	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
-		e.vp9UseDeepRDUsePartitionPath() &&
+		e.vp9UseDeepRDInterResiduePath() &&
 		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
 			bsize)
 
@@ -160,7 +160,8 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 			// Regular quantizer (vp9_xform_quant), segment qindex, inverse-add
 			// into recon — exactly block_rd_txfm (vp9_rdopt.c:792-795).
 			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
-				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
+				miRow, miCol, rr, cc, dequant, qindex, initCtx,
+				int(segID), coeffs, qcoeffs)
 
 			// rd1/rd2 must consume the SAME distortion domain block_rd_txfm used
 			// when it set zcoeff_blk. For cpu4 block_tx_domain==1 (transform

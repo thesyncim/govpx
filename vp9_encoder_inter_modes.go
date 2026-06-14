@@ -2914,7 +2914,7 @@ func (e *VP9Encoder) replayVP9Sub8x8InterChromaRecon(inter *vp9InterEncodeState,
 					aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 				hasResidue := e.prepareVP9InterUVTxResidueFullRD(inter, pd, plane,
 					txSize, miRow, miCol, rr, cc, dequant, qindex, initCtx,
-					coeffs, qcoeffs)
+					0, coeffs, qcoeffs)
 				hasCtx := uint8(0)
 				if hasResidue {
 					hasCtx = 1

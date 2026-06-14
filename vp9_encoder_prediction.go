@@ -287,6 +287,16 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
 ) bool {
+	return e.prepareVP9InterTxResidueWithQIndex(inter, pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4, dequant, 0,
+		e.sf.UseQuantFp != 0, out, qOut)
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidueWithQIndex(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
+	useFastQuant bool, out, qOut []int16,
+) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
@@ -296,9 +306,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	useFastQuant := e.sf.UseQuantFp != 0
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, useFastQuant, false)
+	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct,
+		dequant, qindex, out, qOut, inter.lossless, useFastQuant, false)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,

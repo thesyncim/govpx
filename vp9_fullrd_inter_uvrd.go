@@ -245,7 +245,7 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 			// with the REGULAR quantizer at the segment qindex.
 			hasResidue := e.prepareVP9InterUVTxResidueFullRD(inter, pd, plane,
 				txSize, miRow, miCol, rr, cc, dequant, qindex, initCtx,
-				coeffs, qcoeffs)
+				segID, coeffs, qcoeffs)
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -325,7 +325,7 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
-	coeffCtx int, out, qOut []int16,
+	coeffCtx, segID int, out, qOut []int16,
 ) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
@@ -345,12 +345,13 @@ func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState
 	// vp9_speed_features.c:488). nil closure skips it. cpu0 keeps it enabled.
 	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
 	if e.vp9DoTrellisOptInterY(txSize) {
+		rdmult := e.activeRDMult(qindex)
 		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
 			return encoder.VP9OptimizeB(1 /*plane UV*/, 1 /*ref inter*/, txSize,
 				coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
 				scan.Scan, scan.Neighbors, coefModel,
-				int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
-				0 /*segment_id*/, &e.modeScratch)
+				int64(rdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				segID, &e.modeScratch)
 		}
 	}
 	// useLp32x32RD=true: super_block_uvrd runs inside the full-RD mode-selection

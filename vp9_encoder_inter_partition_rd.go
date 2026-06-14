@@ -187,6 +187,18 @@ func (e *VP9Encoder) vp9UseDeepRDUsePartitionPath() bool {
 		e.sf.PartitionSearchType == VarBasedPartition
 }
 
+func (e *VP9Encoder) vp9UseDeepRDInterResiduePath() bool {
+	if e == nil {
+		return false
+	}
+	if e.vp9UseDeepRDUsePartitionPath() {
+		return true
+	}
+	return vp9InterUseDeepRDPartition &&
+		vp9InterUseDeepRDThisRDScore &&
+		e.sf.PartitionSearchType == SearchPartition
+}
+
 func (e *VP9Encoder) vp9UseDeepRDRefBestPath() bool {
 	return vp9InterUseDeepRDRefBestRD &&
 		(e.vp9UseDeepRDUsePartitionPath() || vp9InterUseDeepRDSub8x8)

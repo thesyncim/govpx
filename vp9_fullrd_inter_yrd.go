@@ -367,7 +367,8 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	if maxEob > len(e.coefScratch) || bs*bs > len(e.residueScratch) {
 		return encoder.FullRDTxCandidate{}
 	}
-	dequant := inter.dq.Y[0]
+	segID := vp9EncoderMiSegmentID(nil)
+	dequant := inter.dq.Y[segID]
 	// libvpx full-RD block_rd_txfm calls vp9_xform_quant
 	// (vp9/encoder/vp9_encodemb.c:489), which uses the REGULAR quantizer
 	// vpx_quantize_b / vpx_quantize_b_32x32 (lines 537,542) — NOT the fast
@@ -443,7 +444,8 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 			// in e.residueScratch; the forward DCT lands in e.txCoeffScratch and
 			// the dequantized coeffs in e.dqCoeffScratch.
 			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
-				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
+				miRow, miCol, rr, cc, dequant, qindex, initCtx,
+				int(segID), coeffs, qcoeffs)
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -545,7 +547,7 @@ type uint64OrInt = int
 func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
-	coeffCtx int, out, qOut []int16,
+	coeffCtx, segID int, out, qOut []int16,
 ) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, 0, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
@@ -567,6 +569,7 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	// cpu0 (speed 0) keeps ENABLE_TRELLIS_OPT. A nil trellis closure skips it.
 	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
 	if e.vp9DoTrellisOptInterY(txSize) {
+		rdmult := e.activeRDMult(qindex)
 		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
 			// e.modeScratch is the ENTROPY_CONTEXT token_cache[1024]
 			// (vp9_encodemb.c:72); reused by the cost_coeffs call after this,
@@ -574,8 +577,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 			return encoder.VP9OptimizeB(0 /*plane Y*/, 1 /*ref inter*/, txSize,
 				coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
 				scan.Scan, scan.Neighbors, coefModel,
-				int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
-				0 /*segment_id*/, &e.modeScratch)
+				int64(rdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				segID, &e.modeScratch)
 		}
 	}
 	// useLp32x32RD=true: super_block_yrd runs inside the full-RD
