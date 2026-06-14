@@ -471,7 +471,7 @@ func (e *VP9Encoder) storeVP9InterPartitionRDDecision(miRow, miCol int,
 func (e *VP9Encoder) vp9LookupDeepInterRDDecision(miRow, miCol int,
 	bsize common.BlockSize,
 ) (vp9InterModeDecision, bool) {
-	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+	if !e.vp9UseDeepRDSearchPartitionPath() || !vp9InterDeepRDReplayWrites {
 		return vp9InterModeDecision{}, false
 	}
 	return e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize)
@@ -490,13 +490,13 @@ func (e *VP9Encoder) vp9LookupDeepInterRDDecision(miRow, miCol int,
 func (e *VP9Encoder) vp9LookupDeepInterRDDecisionForWrite(miRows, miCols,
 	miRow, miCol int, bsize common.BlockSize,
 ) (vp9InterModeDecision, bool) {
-	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+	if !e.vp9UseDeepRDSearchPartitionPath() || !vp9InterDeepRDReplayWrites {
 		return vp9InterModeDecision{}, false
 	}
 	if d, ok := e.lookupVP9LeafInterRDDecision(miRow, miCol, bsize); ok {
 		return d, true
 	}
-	if vp9InterUseDeepRDSub8x8 && bsize == common.Block8x8 {
+	if e.vp9UseDeepRDSub8x8Path() && bsize == common.Block8x8 {
 		// The deep recursion committed exactly one leaf per (miRow, miCol): the
 		// winning partition arm re-runs last, so the stored entry IS the committed
 		// sub-8x8 leaf. The mode-info-footprint lookup above used BLOCK_8X8 (the
@@ -551,7 +551,7 @@ func (e *VP9Encoder) peekVP9LeafInterRDDecisionSub8x8(miRow, miCol int,
 func (e *VP9Encoder) vp9LookupDeepInterPartition(miRow, miCol int,
 	root common.BlockSize,
 ) (common.BlockSize, bool) {
-	if !vp9InterUseDeepRDPartition || !vp9InterDeepRDReplayWrites {
+	if !e.vp9UseDeepRDSearchPartitionPath() || !vp9InterDeepRDReplayWrites {
 		return common.BlockInvalid, false
 	}
 	return e.lookupVP9InterPartitionRDDecision(miRow, miCol, root)

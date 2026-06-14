@@ -853,7 +853,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			best, bestSet = e.pickVP9FullRDInterReferenceMode(inter, tile,
 				miRows, miCols, miRow, miCol, bsize, refFrameSet,
 				fullRDRefs, sourceAltRefOverlay, filterRDScoresPtr)
-		} else if vp9InterUseDeepRDSub8x8 {
+		} else if e.vp9UseDeepRDSub8x8Path() {
 			// GENUINE sub-8x8 joint RD: vp9_rd_pick_inter_mode_sub8x8 iterates the
 			// usable refs + switchable filters internally (one call), unlike the
 			// per-ref model loop below. The INTRA_FRAME arm (ref_index 5) is ported
@@ -1326,7 +1326,7 @@ func (e *VP9Encoder) pickVP9FullRDInterReferenceMode(inter *vp9InterEncodeState,
 	var best vp9InterModeDecision
 	refSkipMask := [2]uint8{0, 1}
 	modeSkipStart := e.sf.ModeSkipStart + 1
-	intraEnabled := e.vp9UseDeepRDUsePartitionPath() || vp9InterUseDeepRDThisRDScore
+	intraEnabled := e.vp9UseDeepRDUsePartitionPath() || e.vp9UseDeepRDThisRDPath()
 	// vp9_rd_pick_inter_mode_sb evaluates the INTRA_FRAME candidates at their
 	// DISTINCT vp9_mode_order indices interleaved with the inter candidates: DC
 	// at index 3 (before mode_skip_start, always reached); TM at 15, H at 22, V
@@ -2008,7 +2008,7 @@ func (e *VP9Encoder) pickVP9InterModeWithOrder(inter *vp9InterEncodeState,
 		// which were stabilized on the model-score leaf decisions), so this
 		// branch is never taken and cand.score stays the model score →
 		// byte-identical output.
-		if vp9InterUseDeepRDThisRDScore || e.vp9UseDeepRDUsePartitionPath() {
+		if e.vp9UseDeepRDThisRDPath() {
 			if grd := e.vp9FullRDInterThisRD(inter, thisRDInput, mode, mv, refMv,
 				filter); grd.Valid {
 				cand.distortion = grd.Distortion
@@ -2629,7 +2629,7 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 	// SEARCH->WRITE round-trip harness (model leaves, no genuine this_rd) keeps
 	// the var-part choose_partitioning pred_mv cache, and production (all flags
 	// off) is byte-identical.
-	if vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath() {
+	if e.vp9UseDeepRDPredMvPath() {
 		if pm := e.fullRDPredMv[refFrame]; pm != vp9InterPredMvSentinel {
 			candidates[2] = encoder.MvPredInputCandidate{MV: pm, Valid: true}
 		}
@@ -2751,7 +2751,7 @@ func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState
 		// libvpx encode_sb stamps pd->above_context/left_context after the intra
 		// block is reconstructed. 8x8+ intra leaves do not set segEntropyValid (the
 		// >=8x8 intra path is the model stand-in and is not threaded here).
-		if vp9InterUseDeepRDSub8x8 && bsize < common.Block8x8 &&
+		if e.vp9UseDeepRDSub8x8Path() && bsize < common.Block8x8 &&
 			decision.segEntropyValid {
 			ent := decision.segEntropy
 			e.vp9Sub8x8StampEntropy(&ent, miRow, miCol)
@@ -3184,7 +3184,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// (pre-subpel) was pinned earlier for the SB0 (0,0) full-pel parity
 		// test; pin the refined MV here for the SB0 64x64 subpel parity test
 		// (no-op in non-trace builds).
-		if (vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath()) &&
+		if e.vp9UseDeepRDPredMvPath() &&
 			refFrame > vp9dec.IntraFrame && int(refFrame) < len(e.fullRDPredMv) {
 			e.fullRDPredMv[refFrame] = mv
 		}

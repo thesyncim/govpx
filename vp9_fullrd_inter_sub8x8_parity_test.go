@@ -31,6 +31,7 @@ import (
 // The NEWMV motion search (NEWMV probe) lands new_mv=(9,4) for block 2 from
 // mvp_full=(1,1), ref_mv=(9,15).
 func TestVP9FullRDSub8x8Frame1Parity(t *testing.T) {
+	withoutVP9ProductionDeepRDSearchPartition(t)
 	const width, height = 64, 64
 	opts := VP9EncoderOptions{
 		Width:               width,

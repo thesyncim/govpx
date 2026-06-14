@@ -53,10 +53,11 @@ import (
 // producer yielded r0=6541317 d=5530544 — pure trellis divergence). Trellis
 // does NOT flip the winner here, so tx_size=TX_16X16 + best_rd are unchanged.
 //
-// NOTE: this pins ONLY the standalone producer. It is not wired into
-// pickVP9InterModeWithOrder / vp9InterModeScore (that flips decisions and is
-// the next step), so production byte-parity is untouched.
+// NOTE: this pins ONLY the standalone producer. The test disables the production
+// cpu0 SearchPartition deep recursion so the historical 64x64 candidate capture
+// is still reached; production byte parity is pinned separately.
 func TestVP9FullRDInterSuperBlockYRDFrame1SB0Parity(t *testing.T) {
+	withoutVP9ProductionDeepRDSearchPartition(t)
 	const width, height = 64, 64
 	opts := VP9EncoderOptions{
 		Width:               width,

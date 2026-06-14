@@ -235,8 +235,36 @@ func TestVP9FullRDUsePartitionProductionDefaultScope(t *testing.T) {
 	if cpu0.vp9UseDeepRDUsePartitionPath() {
 		t.Fatalf("cpu0 SearchPartition unexpectedly enabled use-partition deep RD")
 	}
-	if cpu0.vp9UseDeepRDRefBestPath() {
-		t.Fatalf("cpu0 SearchPartition unexpectedly enabled ref-best RD budget")
+	if !cpu0.vp9UseDeepRDSearchPartitionPath() {
+		t.Fatalf("cpu0 SearchPartition deep RD disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDSub8x8Path() {
+		t.Fatalf("cpu0 SearchPartition sub-8x8 deep RD disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDThisRDPath() {
+		t.Fatalf("cpu0 SearchPartition this_rd disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDRefBestPath() {
+		t.Fatalf("cpu0 SearchPartition ref-best RD budget disabled by default")
+	}
+
+	cpuNeg3, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MaxKeyframeInterval: 999,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             -3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(cpu-3): %v", err)
+	}
+	defer cpuNeg3.Close()
+	if cpuNeg3.vp9UseProductionDeepRDSearchPartitionPath() {
+		t.Fatalf("cpu-3 unexpectedly entered the cpu0 production SearchPartition lane")
 	}
 }
 

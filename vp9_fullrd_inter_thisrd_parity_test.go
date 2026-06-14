@@ -38,10 +38,12 @@ import (
 // (The task prompt's original this_rd=2598060912 was correct for the FULL
 // per-mode this_rd; the super_block_yrd Y best_rd is the distinct 2188910183.)
 //
-// NOTE: this pins the assembly via the oracle-trace pin only. The deep-RD
-// production wiring (vp9InterUseDeepRDPartition) stays OFF, so production
-// byte-parity is untouched.
+// NOTE: this pins the assembly via the oracle-trace pin only. The test disables
+// the production cpu0 SearchPartition deep recursion so the historical 64x64
+// candidate capture is still reached; production byte parity is pinned by
+// TestVP9FullRDFrame1DecompositionSeed0_2_0_0_2.
 func TestVP9FullRDInterThisRDFrame1SB0Parity(t *testing.T) {
+	withoutVP9ProductionDeepRDSearchPartition(t)
 	const width, height = 64, 64
 	opts := VP9EncoderOptions{
 		Width:               width,

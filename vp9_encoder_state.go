@@ -612,7 +612,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	// only when its opt-in flag is active; production (flag off) leaves the
 	// slice nil so storeVP9LeafInterRDDecision / lookupVP9LeafInterRDDecision
 	// early-return and the path stays byte-identical.
-	if vp9InterUseDeepRDPartition {
+	if e.vp9UseDeepRDSearchPartitionPath() {
 		e.ensureVP9LeafInterRDDecisionCache(miRows, miCols)
 		e.ensureVP9InterPartitionRDDecisionCache(miRows, miCols)
 	}
