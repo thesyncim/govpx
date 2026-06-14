@@ -561,10 +561,15 @@ var vp9CompoundInterModeOrder = [...]common.PredictionMode{
 }
 
 type vp9KeyframeModeDecision struct {
-	mode   common.PredictionMode
-	bmi    [4]vp9dec.Bmi
-	txSize common.TxSize
-	uvMode common.PredictionMode
+	mode             common.PredictionMode
+	bmi              [4]vp9dec.Bmi
+	txSize           common.TxSize
+	uvMode           common.PredictionMode
+	skip             bool
+	reconReplayValid bool
+	reconReplayMode  common.PredictionMode
+	reconReplayTx    common.TxSize
+	reconReplayRD    uint64
 }
 
 // vp9LeafKeyframeDecisionEntry stores the intra-mode choices selected during

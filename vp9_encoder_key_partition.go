@@ -94,11 +94,15 @@ func (e *VP9Encoder) pickVP9KeyframeTexturePartitionBlockSize(key *vp9KeyframeEn
 }
 
 type vp9KeyframeIntraRD struct {
-	mode          common.PredictionMode
-	rate          int
-	rateTokenOnly int
-	distortion    uint64
-	skippable     bool
+	mode             common.PredictionMode
+	rate             int
+	rateTokenOnly    int
+	distortion       uint64
+	skippable        bool
+	reconReplayValid bool
+	reconReplayMode  common.PredictionMode
+	reconReplayTx    common.TxSize
+	reconReplayRD    uint64
 }
 
 type vp9KeyframePartitionRD struct {
@@ -110,9 +114,9 @@ type vp9KeyframePartitionRD struct {
 }
 
 // pickVP9KeyframeRDPartitionBlockSize mirrors libvpx's keyframe
-// rd_pick_partition dispatch. Even when speed features set
-// VAR_BASED_PARTITION, keyframes do not enter choose_partitioning unless the
-// non-RD path is active; they fall through to the RD picker.
+// rd_pick_partition dispatch. Realtime hybrid rows with use_nonrd_pick_mode==0
+// still use the RD partition picker; choose_partitioning is only reached by
+// the non-RD row path.
 func (e *VP9Encoder) pickVP9KeyframeRDPartitionBlockSize(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
@@ -142,10 +146,13 @@ func (e *VP9Encoder) pickVP9KeyframeRDPartitionBlockSize(key *vp9KeyframeEncodeS
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		return common.BlockInvalid, false
 	}
-	restoreBase := func() {
+	restoreSearchState := func() {
 		e.restoreVP9MiRect(miRows, miCols, miRow, miCol,
 			miRowsSaved, miColsSaved, miSaved[:])
 		e.restoreVP9PartitionContexts(ctxSnap)
+	}
+	restoreBase := func() {
+		restoreSearchState()
 		e.restoreVP9PartitionReconSnapshotPixels(reconSnap)
 	}
 
@@ -225,10 +232,13 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		return vp9KeyframePartitionRD{}, false
 	}
 	entryCtx, entryCtxOK := e.vp9CurrentPartitionEntropyCtx(miRow, miCol, root)
-	restoreBase := func() {
+	restoreSearchState := func() {
 		e.restoreVP9MiRect(miRows, miCols, miRow, miCol,
 			miRowsSaved, miColsSaved, miSaved[:])
 		e.restoreVP9PartitionContexts(ctxSnap)
+	}
+	restoreBase := func() {
+		restoreSearchState()
 		e.restoreVP9PartitionReconSnapshotPixels(reconSnap)
 	}
 
@@ -242,7 +252,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 	consider := func(partition common.PartitionType,
 		refBestRD uint64, score func(uint64, bool, bool) (vp9KeyframePartitionRD, bool),
 	) (vp9KeyframePartitionRD, bool, bool) {
-		restoreBase()
+		restoreSearchState()
 		rd, ok := score(refBestRD, true, false)
 		if !ok {
 			return vp9KeyframePartitionRD{}, false, false
@@ -341,7 +351,15 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		return best, true
 	}
 
-	restoreBase()
+	restoreSearchRecon := false
+	var searchReconSnap vp9PartitionReconSnapshot
+	if e.vp9KeyframeSearchPhaseSkipEncodeActive(key) {
+		if snap, snapOK := e.saveVP9PartitionReconSnapshot(miRow, miCol, root); snapOK {
+			searchReconSnap = snap
+			restoreSearchRecon = true
+		}
+	}
+	restoreSearchState()
 	var committed vp9KeyframePartitionRD
 	switch best.partition {
 	case common.PartitionNone:
@@ -365,6 +383,10 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			txMode, bestRD, true, store)
 	default:
 		ok = false
+	}
+	if restoreSearchRecon {
+		e.restoreVP9PartitionReconSnapshotPixels(searchReconSnap)
+		e.releaseVP9PartitionReconSnapshot(searchReconSnap)
 	}
 	if !ok {
 		restoreBase()
@@ -453,12 +475,22 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionRect(key *vp9KeyframeEncodeState
 		distortion: first.distortion,
 	}
 	if child >= common.Block8x8 {
+		secondBestRD := bestRD
+		if bestRD != ^uint64(0) {
+			rdmult := e.vp9KeyframePartitionRDMul(miRow, miCol, root)
+			usedRD := encoder.RDCost(rdmult, encoder.RDDivBits,
+				out.rate, out.distortion)
+			if usedRD >= bestRD {
+				return vp9KeyframePartitionRD{}, false
+			}
+			secondBestRD = bestRD - usedRD
+		}
 		secondRow := miRow + rowOff
 		secondCol := miCol + colOff
 		if secondRow < miRows && secondCol < miCols {
 			second, ok := e.scoreVP9KeyframeRDPartitionLeafForTree(key, tile,
 				miRows, miCols, secondRow, secondCol, child, txMode,
-				bestRD, apply, store)
+				secondBestRD, apply, store)
 			if !ok {
 				return vp9KeyframePartitionRD{}, false
 			}
@@ -585,14 +617,30 @@ func (e *VP9Encoder) applyVP9KeyframeRDLeafDecision(key *vp9KeyframeEncodeState,
 		InterpFilter: uint8(vp9dec.SwitchableFilters),
 		Skip:         1,
 	}
-	if e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols, miRow, miCol,
-		reconBsize, &mi, decision.uvMode) {
+	skipSearchEncode := e.vp9KeyframeSearchPhaseSkipEncodeActive(key)
+	if skipSearchEncode && !decision.skip {
 		mi.Skip = 0
+	}
+	if !skipSearchEncode {
+		e.replayVP9KeyframeYReconSideEffect(key, tile, miRows, miCols, miRow, miCol,
+			reconBsize, &mi, decision)
+		if e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols, miRow, miCol,
+			reconBsize, &mi, decision.uvMode) {
+			mi.Skip = 0
+		}
 	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	if store {
 		e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize, decision)
 	}
+}
+
+func (e *VP9Encoder) vp9KeyframeSearchPhaseSkipEncodeActive(key *vp9KeyframeEncodeState) bool {
+	if e == nil || key == nil || !e.vp9UseDeepRDUsePartitionPath() {
+		return false
+	}
+	return e.sf.SkipEncodeFrame != 0 &&
+		e.vp9EncoderModeDecisionQIndex() < vp9QIdxSkipThresh
 }
 
 func (e *VP9Encoder) vp9KeyframePartitionRDMul(miRow, miCol int,
@@ -748,8 +796,8 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState
 		e.cbRdmult = prevCbRdmult
 		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
 	}
-	uvRD, ok := e.pickVP9KeyframeUvModeRD(key, tile, miRows, miCols,
-		miRow, miCol, bsize, &mi)
+	uvRD, ok := e.pickVP9KeyframeUvModeRDRecon(key, tile, miRows, miCols,
+		miRow, miCol, bsize, &mi, false)
 	e.cbRdmult = prevCbRdmult
 	if !ok {
 		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
@@ -766,10 +814,15 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState
 			encoder.VP9CostBit(skipProb, 1)
 	}
 	decision := vp9KeyframeModeDecision{
-		mode:   mi.Mode,
-		bmi:    mi.Bmi,
-		txSize: mi.TxSize,
-		uvMode: uvRD.mode,
+		mode:             mi.Mode,
+		bmi:              mi.Bmi,
+		txSize:           mi.TxSize,
+		uvMode:           uvRD.mode,
+		skip:             yRD.skippable && uvRD.skippable,
+		reconReplayValid: yRD.reconReplayValid,
+		reconReplayMode:  yRD.reconReplayMode,
+		reconReplayTx:    yRD.reconReplayTx,
+		reconReplayRD:    yRD.reconReplayRD,
 	}
 	return vp9KeyframeIntraRD{
 		mode:       mi.Mode,
@@ -919,9 +972,9 @@ func (e *VP9Encoder) pickVP9KeyframeVariancePartitionBlockSize(key *vp9KeyframeE
 }
 
 // vp9KeyframeVariancePartitionEnabled mirrors libvpx's keyframe
-// choose_partitioning gate. A realtime speed can set either
-// VAR_BASED_PARTITION or REFERENCE_PARTITION; both non-RD rows call
-// choose_partitioning before nonrd_use_partition for keyframes.
+// choose_partitioning gate. Only non-RD rows enter encode_nonrd_sb_row's
+// choose_partitioning / nonrd_use_partition path; realtime hybrid rows with
+// use_nonrd_pick_mode==0 fall through to the RD partition picker.
 //
 // libvpx: vp9/encoder/vp9_encodeframe.c:5304-5357.
 func (e *VP9Encoder) vp9KeyframeVariancePartitionEnabled(key *vp9KeyframeEncodeState) bool {

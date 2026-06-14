@@ -71,11 +71,10 @@ import (
 //     (TestVP9EncoderVpxencOracleFullRDCPU4KeyframeByteParity), and frame 1 (the
 //     first inter frame) is now ALSO byte-exact on the deep full-RD use-partition
 //     path — the first byte-exact full-RD inter frame — closing the seed's
-//     matched-frame prefix to 2 (keyframe + first inter frame). Pinned by
+//     matched-frame prefix to 31 (frames 0..30, including the second keyframe). Pinned by
 //     TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity through the
-//     production-default VAR_BASED use-partition stack. The production
-//     long-fixture prefix is now 30 frames; the seed stays deferred because the
-//     full clip still diverges at the next keyframe frontier.
+//     production-default VAR_BASED use-partition stack. The seed stays deferred
+//     because the full clip still diverges after that prefix.
 //
 //   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. CLOSED: now byte-exact
 //     for all 256 frames. The final divergence at frame 40 (the first

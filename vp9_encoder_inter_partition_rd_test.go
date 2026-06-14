@@ -15,9 +15,10 @@ import (
 // SearchPartition path (CpuUsed:-3) over a fixed key + 5 inter frame sequence
 // that stresses every partition arm (HORZ/VERT/SPLIT/NONE). The original
 // skeleton no-op hash intentionally moved after the candidate[2] / full-RD
-// follow-up work on this branch; this anchor now guards the current production
-// SearchPartition stream.
-const vp9FullRDInterSearchPathStreamSHA256 = "9898b97fbb187a0ddea678a4e783018cfdd5061d8fcb981b14c7a0ff288c7c0a"
+// follow-up work and again after the keyframe RD partition search/replay port
+// made the opening keyframe more libvpx-shaped; this anchor now guards the
+// current production SearchPartition stream.
+const vp9FullRDInterSearchPathStreamSHA256 = "01ce162b781c8ce11a9060ae0fc30eeeec41cc48cde10dcabc44859b12346a51"
 
 // vp9EncodeFullRDInterSearchPathStream encodes the fixed SearchPartition
 // regression sequence and returns the concatenated bitstream.

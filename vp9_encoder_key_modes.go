@@ -128,6 +128,10 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	bestValid := false
 	origMode := mi.Mode
 	origTx := mi.TxSize
+	reconReplayValid := false
+	reconReplayMode := common.DcPred
+	reconReplayTx := origTx
+	reconReplayRD := uint64(^uint64(0))
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if e.sf.UseNonrdPickMode != 0 {
 			if encoder.ConditionalSkipIntra(mode, best.mode) {
@@ -140,11 +144,18 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 		mi.Mode = mode
 		var cand vp9KeyframeIntraRD
 		if e.sf.TxSizeSearchMethod == UseFullRD && e.vp9KeyframeRDRefinementEnabled() {
-			txRD, ok := e.chooseVP9KeyframeModeTxRDWithBest(key, mode,
+			txRD, ok := e.chooseVP9KeyframeModeTxRDWithBestRecon(key, mode,
 				rdmult, tile, miRows, miCols, miRow, miCol, bsize, mi,
-				txMode, bestScore)
+				txMode, bestScore, false)
 			if !ok {
 				continue
+			}
+			reconReplayValid = true
+			reconReplayMode = mode
+			reconReplayTx = mi.TxSize
+			if txRD.reconReplayValid {
+				reconReplayTx = txRD.reconReplayTx
+				reconReplayRD = txRD.reconReplayRD
 			}
 			cand = vp9KeyframeIntraRD{
 				mode:          mode,
@@ -154,11 +165,16 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 				skippable:     txRD.skippable,
 			}
 		} else {
-			distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRD(
-				key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi)
+			distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRDWithBestRecon(
+				key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi,
+				^uint64(0), false)
 			if !ok {
 				continue
 			}
+			reconReplayValid = true
+			reconReplayMode = mode
+			reconReplayTx = mi.TxSize
+			reconReplayRD = ^uint64(0)
 			cand = vp9KeyframeIntraRD{
 				mode:          mode,
 				rate:          yModeCosts[mode] + coeffRate,
@@ -182,12 +198,35 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	}
 	mi.Mode = best.mode
 	mi.TxSize = bestTx
+	best.reconReplayValid = reconReplayValid
+	best.reconReplayMode = reconReplayMode
+	best.reconReplayTx = reconReplayTx
+	best.reconReplayRD = reconReplayRD
 	return best, true
 }
 
 func (e *VP9Encoder) useVP9KeyframeNonRDIntraMode(bsize common.BlockSize) bool {
 	return e.sf.UseNonrdPickMode != 0 &&
 		(e.sf.NonrdKeyframe != 0 || bsize >= common.Block16x16)
+}
+
+func (e *VP9Encoder) replayVP9KeyframeYReconSideEffect(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, decision vp9KeyframeModeDecision,
+) {
+	if key == nil || mi == nil || !decision.reconReplayValid ||
+		!e.vp9KeyframeFullRDResidueEnabled(key, bsize) {
+		return
+	}
+	replayMi := *mi
+	replayMi.Mode = decision.reconReplayMode
+	replayMi.TxSize = decision.reconReplayTx
+	prevCbRdmult := e.cbRdmult
+	e.cbRdmult = e.vp9KeyframePartitionRDMul(miRow, miCol, bsize)
+	_, _, _, _ = e.scoreVP9KeyframeModeTransformRDWithBestRecon(key,
+		decision.reconReplayMode, tile, miRows, miCols, miRow, miCol,
+		bsize, &replayMi, decision.reconReplayRD, false)
+	e.cbRdmult = prevCbRdmult
 }
 
 // pickVP9KeyframeSub8x8YMode ports libvpx's rd_pick_intra_sub_8x8_y_mode
@@ -378,6 +417,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	bestRD := rdThresh
 	bestValid := false
 	bestBlockRD := vp9KeyframeIntraRD{}
+	origBmi := mi.Bmi
 	var ta, tl, bestA, bestL [2]uint8
 	for i := 0; i < num4x4W && i < len(aboveCtx) && i < len(ta); i++ {
 		ta[i] = aboveCtx[i]
@@ -406,6 +446,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 		var tempa, templ [2]uint8
 		copy(tempa[:], ta[:])
 		copy(templ[:], tl[:])
+		mi.Bmi = origBmi
 		for jy := 0; jy < num4x4H && valid; jy++ {
 			for jx := 0; jx < num4x4W && valid; jx++ {
 				src, srcStride, _, _ := vp9EncoderSourcePlane(key.img, 0)
@@ -434,6 +475,8 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				// txCoeffScratch/dqCoeffScratch just like
 				// vp9_block_error(coeff, dqcoeff, 16, &unused) >> 2 at
 				// vp9_rdopt.c:1261-1263.
+				block := (idy+jy)*2 + (idx + jx)
+				mi.Bmi[block].AsMode = mode
 				hasResidue := e.prepareVP9KeyframeTxResidueFullRD(key, pd, 0, mode,
 					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
 					idy+jy, idx+jx, dequant, qindex, initCtx, rdmult,
@@ -495,6 +538,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	} else {
 		encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
 	}
+	mi.Bmi = origBmi
 	return bestMode, bestBlockRD, bestValid
 }
 
@@ -524,11 +568,14 @@ func vp9KeyframeIntraModeMask(sf *SpeedFeatures, bsize common.BlockSize) int {
 }
 
 type vp9KeyframeTxRDResult struct {
-	txSize        common.TxSize
-	rate          int
-	rateTokenOnly int
-	distortion    uint64
-	skippable     bool
+	txSize           common.TxSize
+	rate             int
+	rateTokenOnly    int
+	distortion       uint64
+	skippable        bool
+	reconReplayValid bool
+	reconReplayTx    common.TxSize
+	reconReplayRD    uint64
 }
 
 func (e *VP9Encoder) chooseVP9KeyframeModeTxRD(key *vp9KeyframeEncodeState,
@@ -544,6 +591,16 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 	mode common.PredictionMode, rdmult int, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi, txMode common.TxMode, refBestRD uint64,
+) (vp9KeyframeTxRDResult, bool) {
+	return e.chooseVP9KeyframeModeTxRDWithBestRecon(key, mode, rdmult, tile,
+		miRows, miCols, miRow, miCol, bsize, mi, txMode, refBestRD, true)
+}
+
+func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBestRecon(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, rdmult int, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, txMode common.TxMode, refBestRD uint64,
+	restoreRecon bool,
 ) (vp9KeyframeTxRDResult, bool) {
 	if key == nil || key.dq == nil || mi == nil || bsize < common.Block8x8 ||
 		bsize >= common.BlockSizes {
@@ -591,12 +648,19 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 	prevScore := uint64(0)
 	prevValid := false
 	txRefBestRD := refBestRD
+	reconReplayValid := false
+	reconReplayTx := best.txSize
+	reconReplayRD := uint64(^uint64(0))
 	for n := startTx; n >= endTx; n-- {
 		tx := common.TxSize(n)
 		mi.TxSize = tx
-		distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRDWithBest(
+		replayRD := txRefBestRD
+		distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRDWithBestRecon(
 			key, mode, tile, miRows, miCols, miRow, miCol, bsize, mi,
-			txRefBestRD)
+			replayRD, restoreRecon)
+		reconReplayValid = true
+		reconReplayTx = tx
+		reconReplayRD = replayRD
 		if !ok {
 			if e.sf.TxSizeSearchBreakout != 0 {
 				break
@@ -644,6 +708,9 @@ func (e *VP9Encoder) chooseVP9KeyframeModeTxRDWithBest(key *vp9KeyframeEncodeSta
 		return vp9KeyframeTxRDResult{}, false
 	}
 	mi.TxSize = best.txSize
+	best.reconReplayValid = reconReplayValid
+	best.reconReplayTx = reconReplayTx
+	best.reconReplayRD = reconReplayRD
 	return best, true
 }
 
@@ -865,6 +932,14 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi, refBestRD uint64,
 ) (distortion uint64, coeffRate int, skippable bool, ok bool) {
+	return e.scoreVP9KeyframeModeTransformRDWithBestRecon(key, mode, tile,
+		miRows, miCols, miRow, miCol, bsize, mi, refBestRD, true)
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBestRecon(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, refBestRD uint64, restoreRecon bool,
+) (distortion uint64, coeffRate int, skippable bool, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
 		return 0, 0, false, false
 	}
@@ -892,13 +967,25 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 	if baseY+restoreH > rows {
 		restoreH = rows - baseY
 	}
-	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+	if restoreW <= 0 || restoreH <= 0 {
 		return 0, 0, false, false
 	}
-	saved := e.blockScratch[:restoreW*restoreH]
-	for y := 0; y < restoreH; y++ {
-		copy(saved[y*restoreW:(y+1)*restoreW],
-			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	var saved []byte
+	if restoreRecon {
+		if restoreW*restoreH > len(e.blockScratch) {
+			return 0, 0, false, false
+		}
+		saved = e.blockScratch[:restoreW*restoreH]
+		for y := 0; y < restoreH; y++ {
+			copy(saved[y*restoreW:(y+1)*restoreW],
+				planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+		}
+	}
+	restorePlane := func() {
+		if restoreRecon {
+			encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
+				restoreW, restoreH, saved)
+		}
 	}
 
 	txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
@@ -911,8 +998,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 		int(key.hdr.Quant.BaseQindex))
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if maxEob > len(e.coefScratch) {
-		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
+		restorePlane()
 		return 0, 0, false, false
 	}
 	// libvpx vp9_rdopt.c:872 — args.t_above/args.t_left initialised by
@@ -924,8 +1010,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
 	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
-		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
+		restorePlane()
 		return 0, 0, false, false
 	}
 	// Some test fixtures bypass the encoder init path, leaving context slabs
@@ -985,8 +1070,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
 					srcH, planeData, stride, txX, txY, bs, bs)
 				if !distOK {
-					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-						restoreW, restoreH, saved)
+					restorePlane()
 					return 0, 0, false, false
 				}
 				blockDist = dist * 16
@@ -1014,8 +1098,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 				rdZero := encoder.RDCost(e.cbRdmult, encoder.RDDivBits, 0, blockSSE)
 				blockRD := min(rdZero, rdCoded)
 				if blockRD > refBestRD {
-					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-						restoreW, restoreH, saved)
+					restorePlane()
 					return 0, 0, false, false
 				}
 				refBestRD -= blockRD
@@ -1039,7 +1122,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			}
 		}
 	}
-	encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	restorePlane()
 	return distortion, coeffRate, skippable, true
 }
 
@@ -1218,6 +1301,14 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) (vp9KeyframeIntraRD, bool) {
+	return e.pickVP9KeyframeUvModeRDRecon(key, tile, miRows, miCols,
+		miRow, miCol, bsize, mi, true)
+}
+
+func (e *VP9Encoder) pickVP9KeyframeUvModeRDRecon(key *vp9KeyframeEncodeState,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi, restoreRecon bool,
+) (vp9KeyframeIntraRD, bool) {
 	if key == nil || mi == nil {
 		return vp9KeyframeIntraRD{}, false
 	}
@@ -1268,9 +1359,9 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 		if uvMask&(1<<uint(mode)) == 0 {
 			continue
 		}
-		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRD(
+		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRDRecon(
 			key, mode, uvBsize, tile, miRows, miCols, miRow, miCol, mi,
-			useTxDomainDistortion)
+			useTxDomainDistortion, restoreRecon)
 		if !ok {
 			continue
 		}
@@ -1328,15 +1419,24 @@ func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRD(key *vp9KeyframeEncodeSta
 	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
 	useTxDomainDistortion bool,
 ) (coeffRate int, distortion uint64, skippable bool, ok bool) {
+	return e.scoreVP9KeyframeUvModeTransformRDRecon(key, mode, bsize, tile,
+		miRows, miCols, miRow, miCol, mi, useTxDomainDistortion, true)
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRDRecon(key *vp9KeyframeEncodeState,
+	mode common.PredictionMode, bsize common.BlockSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
+	useTxDomainDistortion bool, restoreRecon bool,
+) (coeffRate int, distortion uint64, skippable bool, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
 		return 0, 0, false, false
 	}
 	skippable = true
 	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
 		pd := &e.planes[plane]
-		pnRate, pnDist, pnSkip, planeOK := e.scoreVP9KeyframeUvPlaneRD(
+		pnRate, pnDist, pnSkip, planeOK := e.scoreVP9KeyframeUvPlaneRDRecon(
 			key, pd, mode, plane, bsize, tile, miRows, miCols, miRow, miCol, mi,
-			useTxDomainDistortion)
+			useTxDomainDistortion, restoreRecon)
 		if !planeOK {
 			// libvpx super_block_uvrd: pnrate == INT_MAX -> is_cost_valid = 0.
 			return 0, 0, false, false
@@ -1362,6 +1462,16 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
 	useTxDomainDistortion bool,
 ) (rate int, distortion uint64, skippable bool, ok bool) {
+	return e.scoreVP9KeyframeUvPlaneRDRecon(key, pd, mode, plane, bsize, tile,
+		miRows, miCols, miRow, miCol, mi, useTxDomainDistortion, true)
+}
+
+func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRDRecon(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode, plane int,
+	bsize common.BlockSize, tile vp9dec.TileBounds,
+	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
+	useTxDomainDistortion bool, restoreRecon bool,
+) (rate int, distortion uint64, skippable bool, ok bool) {
 	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 	if planeBsize >= common.BlockSizes {
 		return 0, 0, false, false
@@ -1385,13 +1495,25 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	if baseY+restoreH > rows {
 		restoreH = rows - baseY
 	}
-	if restoreW <= 0 || restoreH <= 0 || restoreW*restoreH > len(e.blockScratch) {
+	if restoreW <= 0 || restoreH <= 0 {
 		return 0, 0, false, false
 	}
-	saved := e.blockScratch[:restoreW*restoreH]
-	for y := 0; y < restoreH; y++ {
-		copy(saved[y*restoreW:(y+1)*restoreW],
-			planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+	var saved []byte
+	if restoreRecon {
+		if restoreW*restoreH > len(e.blockScratch) {
+			return 0, 0, false, false
+		}
+		saved = e.blockScratch[:restoreW*restoreH]
+		for y := 0; y < restoreH; y++ {
+			copy(saved[y*restoreW:(y+1)*restoreW],
+				planeData[(baseY+y)*stride+baseX:(baseY+y)*stride+baseX+restoreW])
+		}
+	}
+	restorePlane := func() {
+		if restoreRecon {
+			encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
+				restoreW, restoreH, saved)
+		}
 	}
 
 	// libvpx vp9_blockd.h get_uv_tx_size — caps the chroma tx_size at the
@@ -1406,8 +1528,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 		int(key.hdr.Quant.BaseQindex))
 	maxEob := vp9dec.MaxEobForTxSize(uvTxSize)
 	if maxEob > len(e.coefScratch) {
-		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
+		restorePlane()
 		return 0, 0, false, false
 	}
 	// libvpx vp9_rdopt.c:872 — args.t_above/args.t_left initialised by
@@ -1422,8 +1543,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 	aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
 	leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 	if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
-		encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-			restoreW, restoreH, saved)
+		restorePlane()
 		return 0, 0, false, false
 	}
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
@@ -1472,8 +1592,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW,
 					srcH, planeData, stride, txX, txY, bs, bs)
 				if !distOK {
-					encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
-						restoreW, restoreH, saved)
+					restorePlane()
 					return 0, 0, false, false
 				}
 				distortion += dist * 16
@@ -1502,7 +1621,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 			}
 		}
 	}
-	encoder.RestorePlaneRect(planeData, stride, baseX, baseY, restoreW, restoreH, saved)
+	restorePlane()
 	return rate, distortion, skippable, true
 }
 
