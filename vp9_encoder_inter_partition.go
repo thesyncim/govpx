@@ -22,7 +22,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 	// thread (the genuine depth-first recursion's candidate[2] source). Gated on
 	// the full deep stack (vp9InterUseDeepRDSub8x8): the deep-partition-only
 	// round-trip harness and production keep candidate[2] on the var-part cache.
-	if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+	if (vp9InterUseDeepRDSub8x8 || e.vp9UseDeepRDUsePartitionPath()) &&
 		root == common.Block64x64 {
 		for i := range e.fullRDPredMv {
 			e.fullRDPredMv[i] = vp9InterPredMvSentinel
@@ -1183,8 +1183,21 @@ type vp9InterPartitionRD struct {
 
 func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize,
+	bsize common.BlockSize, bestRDSoFar uint64, bestRDSoFarSet bool,
 ) (vp9InterPartitionRD, bool) {
+	savedBestRD, savedBestRDValid := e.fullRDLeafBestRD, e.fullRDLeafBestRDValid
+	if vp9InterUseDeepRDSub8x8 && bestRDSoFarSet {
+		e.fullRDLeafBestRD = bestRDSoFar
+		e.fullRDLeafBestRDValid = true
+	} else {
+		e.fullRDLeafBestRD = 0
+		e.fullRDLeafBestRDValid = false
+	}
+	defer func() {
+		e.fullRDLeafBestRD = savedBestRD
+		e.fullRDLeafBestRDValid = savedBestRDValid
+	}()
+
 	decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
 		miRow, miCol, bsize)
 	if !ok {
@@ -1256,7 +1269,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionNone(inter *vp9InterEncodeState,
 	hasRows, hasCols bool, qindex int,
 ) (vp9InterPartitionRD, bool) {
 	rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-		miRow, miCol, root)
+		miRow, miCol, root, 0, false)
 	if !ok {
 		return vp9InterPartitionRD{}, false
 	}
@@ -1281,7 +1294,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionRect(inter *vp9InterEncodeState,
 	hasRows, hasCols bool, qindex int,
 ) (vp9InterPartitionRD, bool) {
 	first, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-		miRow, miCol, child)
+		miRow, miCol, child, 0, false)
 	if !ok {
 		return vp9InterPartitionRD{}, false
 	}
@@ -1289,7 +1302,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionRect(inter *vp9InterEncodeState,
 	distortion := first.distortion
 	if child >= common.Block8x8 {
 		second, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow+rowOff, miCol+colOff, child)
+			miRow+rowOff, miCol+colOff, child, 0, false)
 		if !ok {
 			return vp9InterPartitionRD{}, false
 		}
@@ -1315,13 +1328,13 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplit(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds,
 	rateCostProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	miRows, miCols, miRow, miCol int, root, child common.BlockSize,
-	hasRows, hasCols bool, qindex int,
+	hasRows, hasCols bool, qindex int, bestRDSoFar uint64, bestRDSoFarSet bool,
 ) (vp9InterPartitionRD, bool) {
 	rate := 0
 	var distortion uint64
 	if child < common.Block8x8 {
 		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow, miCol, child)
+			miRow, miCol, child, bestRDSoFar, bestRDSoFarSet)
 		if !ok {
 			return vp9InterPartitionRD{}, false
 		}
@@ -1453,12 +1466,12 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 ) (vp9InterPartitionRD, bool) {
 	if root < common.Block8x8 {
 		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow, miCol, root)
+			miRow, miCol, root, 0, false)
 	}
 	horzSize, vertSize, splitSize, ok := encoder.InterRDPartitionSizes(root)
 	if !ok {
 		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow, miCol, root)
+			miRow, miCol, root, 0, false)
 	}
 
 	bsl := int(common.BWidthLog2Lookup[root])
@@ -1543,6 +1556,8 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	if noneOK {
 		updateBest(noneRD)
 	}
+	splitLeafBudget := noneRD.score
+	splitLeafBudgetSet := noneOK
 	predFromNone := root == common.Block8x8 && e.sf.AdaptivePredInterpFilter != 0 &&
 		noneOK && noneRD.predFilterPresent
 	if hasRows && hasCols {
@@ -1553,7 +1568,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 			}
 			return e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
 				miRows, miCols, miRow, miCol, root, splitSize,
-				hasRows, hasCols, qindex)
+				hasRows, hasCols, qindex, splitLeafBudget, splitLeafBudgetSet)
 		})
 	}
 	if hasRows {
@@ -1602,7 +1617,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 		}
 		committed, ok = e.scoreVP9InterPartitionSplit(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, root, splitSize,
-			hasRows, hasCols, qindex)
+			hasRows, hasCols, qindex, splitLeafBudget, splitLeafBudgetSet)
 	case horzSize:
 		loadNonePredMv()
 		if predFromNone {
@@ -1831,8 +1846,9 @@ type vp9PartitionContextSnapshot struct {
 	// footprint, the entropy-context half of libvpx save_context/restore_context
 	// (vp9/encoder/vp9_encodeframe.c:2167-2218). Saved/restored alongside the
 	// partition seg context so SPLIT-trial entropy stamps don't leak across
-	// trials. Captured ONLY on the deep-RD sub-8x8 path (entOK gates restore;
-	// production never sets it so the entropy context is left untouched).
+	// trials. Captured only when the caller asks for libvpx rd_pick_partition
+	// candidate-restore semantics; entOK gates restore on callers that still
+	// need seg-context-only snapshots.
 	entOK       bool
 	entAbove    [vp9dec.MaxMbPlane][16]uint8
 	entLeft     [vp9dec.MaxMbPlane][16]uint8
@@ -1844,6 +1860,13 @@ type vp9PartitionContextSnapshot struct {
 
 func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
 	bsize common.BlockSize,
+) (vp9PartitionContextSnapshot, bool) {
+	return e.snapshotVP9PartitionContextsWithEntropy(miRow, miCol, bsize,
+		vp9InterUseDeepRDSub8x8)
+}
+
+func (e *VP9Encoder) snapshotVP9PartitionContextsWithEntropy(miRow, miCol int,
+	bsize common.BlockSize, captureEntropy bool,
 ) (vp9PartitionContextSnapshot, bool) {
 	var snap vp9PartitionContextSnapshot
 	if miRow < 0 || miCol < 0 || bsize >= common.BlockSizes {
@@ -1867,9 +1890,9 @@ func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
 	copy(snap.left[:snap.leftLen],
 		e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen])
 	// Per-plane entropy context — the entropy half of libvpx save_context
-	// (vp9_encodeframe.c:2207-2218). Captured only when the deep sub-8x8 inter
-	// path is active (it is the only consumer of the entropy-context restore).
-	if vp9InterUseDeepRDSub8x8 {
+	// (vp9_encodeframe.c:2207-2218). Captured for callers that mirror
+	// rd_pick_partition candidate restore semantics.
+	if captureEntropy {
 		aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		ok := true
 		for plane := range vp9dec.MaxMbPlane {
@@ -1887,8 +1910,8 @@ func (e *VP9Encoder) snapshotVP9PartitionContexts(miRow, miCol int,
 			}
 			ao := aboveOff[plane]
 			lo := leftOff[plane]
-			if ao < 0 || ao+aw > len(pd.AboveContext) ||
-				lo < 0 || lo+ah > len(pd.LeftContext) {
+			if !vp9ContextWindowOK(ao, aw, len(pd.AboveContext)) ||
+				!vp9ContextWindowOK(lo, ah, len(pd.LeftContext)) {
 				ok = false
 				break
 			}
@@ -1915,13 +1938,13 @@ func (e *VP9Encoder) restoreVP9PartitionContexts(snap vp9PartitionContextSnapsho
 // long comment at the pickVP9InterPartitionRD tail) while the entropy context is
 // left carrying the committed encode_sb stamp for the next sibling.
 func (e *VP9Encoder) restoreVP9PartitionSegContextsOnly(snap vp9PartitionContextSnapshot) {
-	if snap.aboveLen > 0 && snap.aboveStart >= 0 &&
-		snap.aboveStart+snap.aboveLen <= len(e.aboveSegCtx) {
+	if snap.aboveLen > 0 &&
+		vp9ContextWindowOK(snap.aboveStart, snap.aboveLen, len(e.aboveSegCtx)) {
 		copy(e.aboveSegCtx[snap.aboveStart:snap.aboveStart+snap.aboveLen],
 			snap.above[:snap.aboveLen])
 	}
-	if snap.leftLen > 0 && snap.leftStart >= 0 &&
-		snap.leftStart+snap.leftLen <= len(e.leftSegCtx) {
+	if snap.leftLen > 0 &&
+		vp9ContextWindowOK(snap.leftStart, snap.leftLen, len(e.leftSegCtx)) {
 		copy(e.leftSegCtx[snap.leftStart:snap.leftStart+snap.leftLen],
 			snap.left[:snap.leftLen])
 	}
@@ -1929,8 +1952,7 @@ func (e *VP9Encoder) restoreVP9PartitionSegContextsOnly(snap vp9PartitionContext
 
 // restoreVP9PartitionEntropyContextsOnly restores the per-plane entropy context
 // (pd->above_context/left_context), the entropy half of libvpx restore_context
-// (vp9_encodeframe.c:2178-2188). Only restored when the snapshot captured it
-// (deep sub-8x8 inter path); production leaves the entropy context untouched.
+// (vp9_encodeframe.c:2178-2188). It is a no-op for seg-context-only snapshots.
 func (e *VP9Encoder) restoreVP9PartitionEntropyContextsOnly(snap vp9PartitionContextSnapshot) {
 	if !snap.entOK {
 		return
@@ -1941,10 +1963,10 @@ func (e *VP9Encoder) restoreVP9PartitionEntropyContextsOnly(snap vp9PartitionCon
 		ah := snap.entLeftLen[plane]
 		ao := snap.entAboveOff[plane]
 		lo := snap.entLeftOff[plane]
-		if aw > 0 && ao >= 0 && ao+aw <= len(pd.AboveContext) {
+		if aw > 0 && vp9ContextWindowOK(ao, aw, len(pd.AboveContext)) {
 			copy(pd.AboveContext[ao:ao+aw], snap.entAbove[plane][:aw])
 		}
-		if ah > 0 && lo >= 0 && lo+ah <= len(pd.LeftContext) {
+		if ah > 0 && vp9ContextWindowOK(lo, ah, len(pd.LeftContext)) {
 			copy(pd.LeftContext[lo:lo+ah], snap.entLeft[plane][:ah])
 		}
 	}

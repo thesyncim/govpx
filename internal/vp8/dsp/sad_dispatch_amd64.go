@@ -22,6 +22,9 @@ import (
 )
 
 func sadBlock16x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	if !dspWindowOK(src, srcStride, 16, 16) || !dspWindowOK(ref, refStride, 16, 16) {
+		return sadBlockScalarFallback(src, srcStride, ref, refStride, 16, 16)
+	}
 	srcPtr := unsafe.SliceData(src)
 	refPtr := unsafe.SliceData(ref)
 	if cpu.HasAVX2 {
@@ -59,6 +62,9 @@ func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *b
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
+	if !dspWindowOK(src, srcStride, 16, 16) || !dspWindowOK(ref, refStride, 16, 16) {
+		return sadBlockLimitScalarFallback(src, srcStride, ref, refStride, 16, 16, limit)
+	}
 	// The limit kernel returns the running sum at the row boundary
 	// where it exceeds the limit; mirroring that exactly under AVX2's
 	// natural 2-row granularity would lose byte parity with the SSE2
@@ -74,6 +80,9 @@ func sadLimitClamp32(limit int) int32 {
 }
 
 func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	if !dspWindowOK(src, srcStride, 16, 8) || !dspWindowOK(ref, refStride, 16, 8) {
+		return sadBlockScalarFallback(src, srcStride, ref, refStride, 16, 8)
+	}
 	srcPtr := unsafe.SliceData(src)
 	refPtr := unsafe.SliceData(ref)
 	if cpu.HasAVX2 {
@@ -83,6 +92,9 @@ func sadBlock16x8(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
+	if !dspWindowOK(src, srcStride, 8, 16) || !dspWindowOK(ref, refStride, 8, 16) {
+		return sadBlockScalarFallback(src, srcStride, ref, refStride, 8, 16)
+	}
 	// 8-wide SAD does not benefit from AVX2: packing four 8-byte rows
 	// into a YMM costs more memory ops (8x MOVQ + PUNPCKLQDQ +
 	// VINSERTI128) than the SSE2 schedule's two-row PSADBW form. The
@@ -91,10 +103,16 @@ func sadBlock8x16(src []byte, srcStride int, ref []byte, refStride int) int {
 }
 
 func sadBlock8x8(src []byte, srcStride int, ref []byte, refStride int) int {
+	if !dspWindowOK(src, srcStride, 8, 8) || !dspWindowOK(ref, refStride, 8, 8) {
+		return sadBlockScalarFallback(src, srcStride, ref, refStride, 8, 8)
+	}
 	// See sadBlock8x16 — 8-wide stays on SSE2.
 	return int(sadBlock8x8SSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }
 
 func sadBlock4x4(src []byte, srcStride int, ref []byte, refStride int) int {
+	if !dspWindowOK(src, srcStride, 4, 4) || !dspWindowOK(ref, refStride, 4, 4) {
+		return sadBlockScalarFallback(src, srcStride, ref, refStride, 4, 4)
+	}
 	return int(sadBlock4x4SSE2(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride))
 }

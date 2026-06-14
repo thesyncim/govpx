@@ -21,6 +21,22 @@ import (
 // RDDivBits mirrors libvpx's RDDIV_BITS.
 const RDDivBits = 7
 
+// rdBoostFactor / rdFrameTypeFactor mirror libvpx's private modulation
+// tables used by modulate_rdmult.
+//
+// libvpx: vp9/encoder/vp9_rd.c:189-199.
+var rdBoostFactor = [16]int{64, 32, 32, 32, 24, 16, 12, 12, 8, 8, 4, 4, 2, 2, 1, 0}
+
+var rdFrameTypeFactor = [7]int{
+	128, // KF_UPDATE
+	144, // LF_UPDATE
+	128, // GF_UPDATE
+	128, // ARF_UPDATE
+	144, // OVERLAY_UPDATE
+	144, // MID_OVERLAY_UPDATE
+	0,   // USE_BUF_FRAME: no real frame is encoded on this path.
+}
+
 // defRDQMultInter is libvpx's def_inter_rd_multiplier(qindex): the
 // per-qindex floating coefficient applied to q*q when computing the inter
 // frame's base rdmult.
@@ -125,10 +141,56 @@ func ComputeRDMultBasedOnQindex(qindex int, frameType RDFrameType) int {
 	return rdmult
 }
 
-// ComputeRDMult is the verbatim port of libvpx's vp9_compute_rd_mult.
-// govpx does not run the libvpx two-pass GF-group modulation here yet, so
-// the second leg of modulate_rdmult (vp9/encoder/vp9_rd.c:278-292) collapses
-// to the identity, matching the libvpx single-pass path.
+// RDMultModulation carries the two-pass GF-group state consumed by libvpx's
+// modulate_rdmult.
+type RDMultModulation struct {
+	TwoPass    bool
+	IsKeyFrame bool
+	UpdateType uint8
+	GFUBoost   int
+}
+
+// ModulateRDMult ports libvpx's modulate_rdmult.
+//
+// libvpx: vp9/encoder/vp9_rd.c:278-292
+//
+//	static int modulate_rdmult(const VP9_COMP *cpi, int rdmult) {
+//	  int64_t rdmult_64 = rdmult;
+//	  if (cpi->oxcf.pass == 2 && (cpi->common.frame_type != KEY_FRAME)) {
+//	    const GF_GROUP *const gf_group = &cpi->twopass.gf_group;
+//	    const FRAME_UPDATE_TYPE frame_type = gf_group->update_type[gf_group->index];
+//	    const int gfu_boost = cpi->multi_layer_arf
+//	                              ? gf_group->gfu_boost[gf_group->index]
+//	                              : cpi->rc.gfu_boost;
+//	    const int boost_index = VPXMIN(15, (gfu_boost / 100));
+//	    rdmult_64 = (rdmult_64 * rd_frame_type_factor[frame_type]) >> 7;
+//	    rdmult_64 += ((rdmult_64 * rd_boost_factor[boost_index]) >> 7);
+//	  }
+//	  return (int)rdmult_64;
+//	}
+func ModulateRDMult(rdmult int, mod RDMultModulation) int {
+	if !mod.TwoPass || mod.IsKeyFrame {
+		return rdmult
+	}
+	frameType := int(mod.UpdateType)
+	if frameType < 0 || frameType >= len(rdFrameTypeFactor) {
+		frameType = int(LFUpdate)
+	}
+	boostIndex := mod.GFUBoost / 100
+	if boostIndex < 0 {
+		boostIndex = 0
+	}
+	if boostIndex > 15 {
+		boostIndex = 15
+	}
+	rdmult64 := int64(rdmult)
+	rdmult64 = (rdmult64 * int64(rdFrameTypeFactor[frameType])) >> 7
+	rdmult64 += (rdmult64 * int64(rdBoostFactor[boostIndex])) >> 7
+	return int(rdmult64)
+}
+
+// ComputeRDMult is the one-pass/no-modulation wrapper around libvpx's
+// vp9_compute_rd_mult formula.
 //
 // libvpx: vp9/encoder/vp9_rd.c:294-302
 //
@@ -139,6 +201,14 @@ func ComputeRDMultBasedOnQindex(qindex int, frameType RDFrameType) int {
 //	}
 func ComputeRDMult(qindex int, frameType RDFrameType) int {
 	return ComputeRDMultBasedOnQindex(qindex, frameType)
+}
+
+// ComputeRDMultWithModulation is ComputeRDMult with the two-pass
+// modulate_rdmult leg enabled when the caller supplies active GF-group state.
+func ComputeRDMultWithModulation(qindex int, frameType RDFrameType,
+	mod RDMultModulation,
+) int {
+	return ModulateRDMult(ComputeRDMultBasedOnQindex(qindex, frameType), mod)
 }
 
 // RDFrameTypeFor selects the libvpx frame-type bucket for the rdmult

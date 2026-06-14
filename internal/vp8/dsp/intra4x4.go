@@ -98,6 +98,12 @@ func Intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
 	intra4x4HUPredict(dst, dstStride, left)
 }
 
+func intra4x4PredictWindowOK(dst []byte, dstStride int, above []byte, aboveWidth int, left []byte, leftWidth int) bool {
+	return dspWindowOK(dst, dstStride, 4, 4) &&
+		len(above) >= aboveWidth &&
+		len(left) >= leftWidth
+}
+
 // Scalar reference kernels for the 4x4 B_PRED modes. These are the
 // authoritative bit-exact implementations; SIMD dispatch files on amd64
 // and arm64 may shadow these names but must produce byte-identical

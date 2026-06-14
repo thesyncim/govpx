@@ -41,29 +41,54 @@ func (e *VP9Encoder) ensureVP9KeyframePartitionDecisionCache(miRows, miCols int)
 func (e *VP9Encoder) lookupVP9KeyframePartitionDecision(miRow, miCol int,
 	root common.BlockSize,
 ) (common.BlockSize, bool) {
+	target, _, ok := e.lookupVP9KeyframePartitionDecisionWithBudget(miRow,
+		miCol, root)
+	return target, ok
+}
+
+func (e *VP9Encoder) lookupVP9KeyframePartitionDecisionWithBudget(miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, uint64, bool) {
+	target, refBestRD, _, _, ok :=
+		e.lookupVP9KeyframePartitionDecisionWithContext(miRow, miCol, root)
+	return target, refBestRD, ok
+}
+
+func (e *VP9Encoder) lookupVP9KeyframePartitionDecisionWithContext(miRow,
+	miCol int, root common.BlockSize,
+) (common.BlockSize, uint64, vp9KeyframePartitionEntropyContext, bool, bool) {
+	var ctx vp9KeyframePartitionEntropyContext
 	if e.vp9KeyframePartitionDecisionsCols <= 0 ||
 		root < 0 || root >= common.BlockSizes {
-		return common.BlockInvalid, false
+		return common.BlockInvalid, 0, ctx, false, false
 	}
 	if miRow < 0 || miCol < 0 ||
 		miRow >= e.vp9KeyframePartitionDecisionsRows ||
 		miCol >= e.vp9KeyframePartitionDecisionsCols {
-		return common.BlockInvalid, false
+		return common.BlockInvalid, 0, ctx, false, false
 	}
 	off := (miRow*e.vp9KeyframePartitionDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
 	if off < 0 || off >= len(e.vp9KeyframePartitionDecisions) {
-		return common.BlockInvalid, false
+		return common.BlockInvalid, 0, ctx, false, false
 	}
 	entry := &e.vp9KeyframePartitionDecisions[off]
 	if !entry.valid || entry.version != e.vp9KeyframePartitionDecisionsVer ||
 		entry.root != root {
-		return common.BlockInvalid, false
+		return common.BlockInvalid, 0, ctx, false, false
 	}
-	return entry.target, true
+	return entry.target, entry.refBestRD, entry.ctx, entry.ctxValid, true
 }
 
 func (e *VP9Encoder) storeVP9KeyframePartitionDecision(miRow, miCol int,
-	root, target common.BlockSize,
+	root, target common.BlockSize, refBestRD uint64,
+) {
+	e.storeVP9KeyframePartitionDecisionWithContext(miRow, miCol, root, target,
+		refBestRD, vp9KeyframePartitionEntropyContext{}, false)
+}
+
+func (e *VP9Encoder) storeVP9KeyframePartitionDecisionWithContext(miRow, miCol int,
+	root, target common.BlockSize, refBestRD uint64,
+	ctx vp9KeyframePartitionEntropyContext, ctxValid bool,
 ) {
 	if e.vp9KeyframePartitionDecisionsCols <= 0 ||
 		root < 0 || root >= common.BlockSizes {
@@ -79,11 +104,49 @@ func (e *VP9Encoder) storeVP9KeyframePartitionDecision(miRow, miCol int,
 		return
 	}
 	e.vp9KeyframePartitionDecisions[off] = vp9KeyframePartitionDecisionEntry{
-		version: e.vp9KeyframePartitionDecisionsVer,
-		root:    root,
-		target:  target,
-		valid:   true,
+		version:   e.vp9KeyframePartitionDecisionsVer,
+		root:      root,
+		target:    target,
+		refBestRD: refBestRD,
+		ctx:       ctx,
+		ctxValid:  ctxValid,
+		valid:     true,
 	}
+}
+
+func (e *VP9Encoder) vp9CurrentPartitionEntropyCtx(miRow, miCol int,
+	root common.BlockSize,
+) (vp9KeyframePartitionEntropyContext, bool) {
+	var ctx vp9KeyframePartitionEntropyContext
+	if root < 0 || root >= common.BlockSizes {
+		return ctx, false
+	}
+	if e == nil {
+		return ctx, false
+	}
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(root, pd)
+		if planeBsize >= common.BlockSizes {
+			return ctx, false
+		}
+		leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
+		aboveLen := int(common.Num4x4BlocksWideLookup[planeBsize])
+		lo := leftOffsets[plane]
+		ao := aboveOffsets[plane]
+		if leftLen < 0 || leftLen > len(ctx.left[plane]) ||
+			aboveLen < 0 || aboveLen > len(ctx.above[plane]) ||
+			!vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext)) ||
+			!vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext)) {
+			return ctx, false
+		}
+		copy(ctx.left[plane][:leftLen], pd.LeftContext[lo:lo+leftLen])
+		copy(ctx.above[plane][:aboveLen], pd.AboveContext[ao:ao+aboveLen])
+		ctx.leftLen[plane] = uint8(leftLen)
+		ctx.aboveLen[plane] = uint8(aboveLen)
+	}
+	return ctx, true
 }
 
 func (e *VP9Encoder) lookupVP9LeafKeyframeDecision(miRow, miCol int,

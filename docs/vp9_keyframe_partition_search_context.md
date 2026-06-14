@@ -1,14 +1,13 @@
 # VP9 keyframe RD-partition search context: thread vs restore
 
-Root-caused divergence behind the `{0,1,1,0,1}` (CBR 700, kf=30, realtime
+Closed divergence behind the `{0,1,1,0,1}` (CBR 700, kf=30, realtime
 **cpu4**, one-pass) deep-engine byte-parity gap. The deep stack
-(`TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity`) reproduces frames
-**0..29 byte-identically** to the libvpx v1.16.0 vpxenc-vp9 oracle. **Frame 30**
-(the second keyframe) is the first divergence: govpx over-splits the 16x16 at
-mi(0,2), committing `BLOCK_8X4` (PARTITION_SPLIT) where libvpx keeps
-`BLOCK_16X16` (PARTITION_NONE). Both DC_PRED.
+(`TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity`) now reproduces frames
+**0..30 byte-identically** to the libvpx v1.16.0 vpxenc-vp9 oracle. Frame 30
+(the second keyframe) used to diverge in keyframe RD partition search/replay; it
+is now a regression pin for the restored-context recursive search.
 
-## The bug
+## The Bug
 
 The keyframe RD partition is decided by a **per-level dispatch**
 (`pickVP9KeyframeRDPartitionBlockSize`, vp9_encoder_key_partition.go) that walks
@@ -31,7 +30,7 @@ flip SPLIT from losing to winning at this block. For frames 0..29 the NONE/SPLIT
 margin is wide enough that the thread-vs-restore difference does not change the
 decision; at frame-30 mi(0,2) it does.
 
-## Proof (libvpx ground truth)
+## Proof (Libvpx Ground Truth)
 
 Instrumenting libvpx's keyframe `rd_pick_partition` at frame-30 mi(0,2)
 (`cm->current_video_frame == 30 && bsize == BLOCK_16X16 && mi_row == 0 &&
@@ -63,7 +62,7 @@ the real threaded neighbor coeffs (which is why govpx's committed frames 0..29
 are byte-exact) — libvpx's deferred `encode_sb` writes with the real context
 too. The divergence is purely in which context the partition RD *decision* sees.
 
-## Why it is not a one-line fix
+## Why It Was Not A One-Line Fix
 
 govpx's per-level dispatch commits coeffs as it walks (to thread the context for
 later blocks and to drive the count pre-pass), so the committed sibling coeffs
@@ -83,16 +82,25 @@ diffs) and frame 1; the recursion's *blanket* restore is not uniformly correct
 across every block, so the fix must restore the search context per node the way
 libvpx does, not swap decision sources wholesale.
 
-## Rework path
+## Implemented Fix
 
-1. In the keyframe partition **search** (the `apply=false`/scoring path of
-   `scoreVP9KeyframeRDPartitionTree` and `scoreVP9KeyframeRDPartitionSplit`),
-   restore the left/above coeff entropy context to the parent-SPLIT entry so the
-   sub-block RD is scored against `left=0`, matching libvpx.
-2. Keep the **write**/commit path on the real threaded neighbor context (frames
-   0..29 stay byte-exact).
-3. Re-validate `TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity` — the
-   matched-frame prefix should advance past 30.
+1. Keyframe RD partition tree search now saves/restores MI, partition, and
+   entropy contexts between candidates, matching libvpx's `save_context` /
+   `restore_context` discipline while keeping final encode/write on the real
+   threaded context.
+2. Full-RD keyframe mode search records the final candidate's reconstructed
+   Y-plane side effect and replays it only where libvpx would actually run
+   `encode_superblock`; the search-phase skip-encode path preserves pixels while
+   still committing the chosen non-skipped MI state.
+3. Leaf decisions carry the selected skip bit and replay metadata through the
+   count/write cache, so the bitstream writer no longer re-derives keyframe skip
+   or residue from a different reconstruction history.
+4. Rectangular partition scoring now budgets the second half against the first
+   half's RD cost, mirroring the residual best-RD flow in `rd_pick_partition`.
+5. `TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity` now requires the
+   matched-frame prefix to reach at least 31 and verifies frame 30 byte/grid
+   parity directly.
 
-This is a deliberate context-discipline change; do it as a unit and gate it on
-the full 0..29 byte-parity prefix, not piecemeal.
+This remains a deliberate context-discipline area: future keyframe partition
+changes should keep the search context, reconstructed-pixel side effects, and
+write context separate unless a libvpx source trace proves otherwise.

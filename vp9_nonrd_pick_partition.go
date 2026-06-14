@@ -899,7 +899,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
 ) (vp9InterPartitionRD, bool) {
 	if bsize < common.Block8x8 {
 		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow, miCol, bsize)
+			miRow, miCol, bsize, 0, false)
 	}
 	if bsize >= common.BlockSizes {
 		return vp9InterPartitionRD{}, false
@@ -1016,7 +1016,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 	rate += RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit)
 	if child < common.Block8x8 {
 		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
-			miRow, miCol, child)
+			miRow, miCol, child, 0, false)
 		if !ok {
 			return vp9InterPartitionRD{}, false
 		}

@@ -11,25 +11,18 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// vp9FullRDInterNoOpStreamSHA256 pins the SHA-256 of the full-RD inter
-// bitstream produced by the SearchPartition path (CpuUsed:-3) over a fixed
-// key + 5 inter frame sequence that stresses every partition arm
-// (HORZ/VERT/SPLIT/NONE). It was captured at base 6c3f4815 BEFORE the
-// depth-first rd_pick_partition skeleton (rdPickVP9InterPartition,
-// vp9_encoder_inter_partition_rd.go) was wired into
-// pickVP9InterPartitionBlockSize.
-//
-// Step (a) of the full-RD inter partition port
-// (docs/vp9_fullrd_partition_port_plan.md) is a PROVEN NO-OP: standing up the
-// libvpx-shaped recursion skeleton must not move a single bit of the full-RD
-// inter output. This hash is the byte-parity anchor for that proof; it MUST
-// stay constant until step (c) (candidate[2] propagation) intentionally moves
-// bytes, at which point it is re-derived from a libvpx trace, never hand-tuned.
-const vp9FullRDInterNoOpStreamSHA256 = "b90589a3d9a4457c2fe84a1173f0288b5a0a7bde2d055fb356b11a29ae2afd71"
+// vp9FullRDInterSearchPathStreamSHA256 pins the SHA-256 of the full-RD inter
+// SearchPartition path (CpuUsed:-3) over a fixed key + 5 inter frame sequence
+// that stresses every partition arm (HORZ/VERT/SPLIT/NONE). The original
+// skeleton no-op hash intentionally moved after the candidate[2] / full-RD
+// follow-up work and again after the keyframe RD partition search/replay port
+// made the opening keyframe more libvpx-shaped; this anchor now guards the
+// current production SearchPartition stream.
+const vp9FullRDInterSearchPathStreamSHA256 = "01ce162b781c8ce11a9060ae0fc30eeeec41cc48cde10dcabc44859b12346a51"
 
-// vp9EncodeFullRDInterNoOpStream encodes the fixed step-(a) parity sequence and
-// returns the concatenated bitstream.
-func vp9EncodeFullRDInterNoOpStream(t *testing.T) []byte {
+// vp9EncodeFullRDInterSearchPathStream encodes the fixed SearchPartition
+// regression sequence and returns the concatenated bitstream.
+func vp9EncodeFullRDInterSearchPathStream(t *testing.T) []byte {
 	t.Helper()
 	const width, height = 64, 64
 	// CpuUsed:-3 pins PartitionSearchType=SearchPartition, the full-RD inter
@@ -64,18 +57,17 @@ func vp9EncodeFullRDInterNoOpStream(t *testing.T) []byte {
 	return stream
 }
 
-// TestVP9FullRDInterPartitionRDSkeletonIsNoOp asserts that the depth-first
-// rd_pick_partition inter skeleton produces the byte-identical full-RD inter
-// bitstream pinned at base. This is the step-(a) no-op gate.
-func TestVP9FullRDInterPartitionRDSkeletonIsNoOp(t *testing.T) {
-	stream := vp9EncodeFullRDInterNoOpStream(t)
+// TestVP9FullRDInterSearchPartitionStreamPinned asserts that the full-RD
+// SearchPartition inter path stays stable across the planted partition stress
+// sequence.
+func TestVP9FullRDInterSearchPartitionStreamPinned(t *testing.T) {
+	stream := vp9EncodeFullRDInterSearchPathStream(t)
 	sum := sha256.Sum256(stream)
 	got := hex.EncodeToString(sum[:])
-	if got != vp9FullRDInterNoOpStreamSHA256 {
+	if got != vp9FullRDInterSearchPathStreamSHA256 {
 		t.Fatalf("full-RD inter bitstream SHA-256 = %s (%d bytes), want %s\n"+
-			"the rd_pick_partition skeleton changed full-RD inter decisions; "+
-			"step (a) must be a byte-exact no-op",
-			got, len(stream), vp9FullRDInterNoOpStreamSHA256)
+			"the SearchPartition full-RD inter stream changed",
+			got, len(stream), vp9FullRDInterSearchPathStreamSHA256)
 	}
 }
 

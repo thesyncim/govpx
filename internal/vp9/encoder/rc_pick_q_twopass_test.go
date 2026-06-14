@@ -226,3 +226,29 @@ func TestRCPickQAndBoundsTwoPassRegulatedQClampedToActiveWorst(t *testing.T) {
 		t.Fatalf("q=%d > active_worst=%d", r.Q, r.ActiveWorst)
 	}
 }
+
+func TestRCPickQAndBoundsTwoPassWithRegulatorSeesComputedBounds(t *testing.T) {
+	in := defaultVP9TwoPassQInputs()
+	in.BoostFrame = true
+
+	called := false
+	var gotBest, gotWorst int
+	r := RCPickQAndBoundsTwoPassWithRegulator(in,
+		func(activeBest int, activeWorst int) int {
+			called = true
+			gotBest = activeBest
+			gotWorst = activeWorst
+			return activeBest + (activeWorst-activeBest)/2
+		})
+	if !called {
+		t.Fatal("regulator callback was not called")
+	}
+	if gotBest != r.ActiveBest || gotWorst != r.ActiveWorst {
+		t.Fatalf("callback bounds = (%d,%d), result bounds = (%d,%d)",
+			gotBest, gotWorst, r.ActiveBest, r.ActiveWorst)
+	}
+	if r.Q < r.ActiveBest || r.Q > r.ActiveWorst {
+		t.Fatalf("q=%d outside active bounds [%d,%d]",
+			r.Q, r.ActiveBest, r.ActiveWorst)
+	}
+}

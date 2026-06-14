@@ -16,9 +16,24 @@ func bilinearFilter16x16HorizontalNEON(src *byte, srcStride int, dst *byte, heig
 func bilinearFilter16x16VerticalNEON(src *byte, srcStride int, dst *byte, height int, f0 uint64, f1 uint64)
 
 func bilinearFilter16x16Horizontal(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
+	if height <= 0 {
+		return
+	}
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, height, dst, 16, 16, height) {
+		bilinearFilter16x16HorizontalScalar(src, srcStride, dst, height, filter)
+		return
+	}
 	bilinearFilter16x16HorizontalNEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(dst), height, uint64(uint16(filter[0])), uint64(uint16(filter[1])))
 }
 
 func bilinearFilter16x16Vertical(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
+	if height <= 0 {
+		return
+	}
+	maxInt := int(^uint(0) >> 1)
+	if height == maxInt || !dspSIMDPredictWindowOK(src, srcStride, 16, height+1, dst, 16, 16, height) {
+		bilinearFilter16x16VerticalScalar(src, srcStride, dst, height, filter)
+		return
+	}
 	bilinearFilter16x16VerticalNEON(unsafe.SliceData(src), srcStride, unsafe.SliceData(dst), height, uint64(uint16(filter[0])), uint64(uint16(filter[1])))
 }

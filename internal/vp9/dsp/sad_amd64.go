@@ -21,11 +21,7 @@ func sad8xNSSE2(src *byte, srcStride int, ref *byte, refStride int, rows int) ui
 func sad16ChunksSSE2(src *byte, srcStride int, ref *byte, refStride int, rows int, chunks int) uint32
 
 func sadWindowOK(buf []uint8, off, stride, w, h int) bool {
-	if off < 0 || stride < 0 {
-		return false
-	}
-	limit := off + (h-1)*stride + w
-	return limit >= off && limit <= len(buf)
+	return dspReadWindowOK(buf, off, stride, w, h)
 }
 
 func sad64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {

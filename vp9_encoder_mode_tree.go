@@ -24,6 +24,10 @@ type vp9KeyframeEncodeState struct {
 	dq       *vp9dec.DequantTables
 	lossless bool
 	counts   *encoder.FrameCounts
+	// replayCachedDecisions is used by post-tx-mode-demotion recounts: libvpx
+	// clamps committed mi tx sizes in place instead of running rd_pick_partition
+	// again, so govpx must replay the count-pass decisions after clamping.
+	replayCachedDecisions bool
 }
 
 type vp9InterEncodeState struct {
@@ -383,14 +387,34 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
 	if kind == vp9ModeTreeKeyframeSource {
-		if key != nil && key.counts == nil {
-			if cached, ok := e.lookupVP9KeyframePartitionDecision(miRow, miCol, root); ok {
+		// libvpx's keyframe RD picker writes a PC_TREE once, then the mode writer
+		// walks that committed tree. govpx's count walker can revisit a repeated
+		// keyframe node after the earlier RD commit has stamped this node's own
+		// entropy context; when the live context no longer matches the search
+		// entry context, replay the cached target instead of re-deciding under the
+		// contaminated context. Keep the first keyframe on the original byte-exact
+		// path; its frontier is already covered by the frame-0 parity assertion.
+		if key != nil && key.counts != nil && !key.replayCachedDecisions &&
+			e.frameIndex > 0 {
+			cached, _, entryCtx, ctxValid, ok :=
+				e.lookupVP9KeyframePartitionDecisionWithContext(miRow, miCol, root)
+			if ok && ctxValid {
+				curCtx, curOK := e.vp9CurrentPartitionEntropyCtx(miRow, miCol, root)
+				if curOK && curCtx != entryCtx {
+					return cached
+				}
+			}
+		}
+		if key != nil && (key.counts == nil || key.replayCachedDecisions) {
+			cached, ok := e.lookupVP9KeyframePartitionDecision(miRow, miCol, root)
+			if ok {
 				return cached
 			}
 		}
 		commitKeyframeTarget := func(target common.BlockSize) common.BlockSize {
 			if key != nil && key.counts != nil {
-				e.storeVP9KeyframePartitionDecision(miRow, miCol, root, target)
+				e.storeVP9KeyframePartitionDecision(miRow, miCol, root, target,
+					^uint64(0))
 			}
 			return target
 		}

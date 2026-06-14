@@ -76,6 +76,33 @@ func TestAnalyzeFirstPassFrameUsesLastReference(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFirstPassFrameSkipsNonZeroSearchForFlatZeroMotion(t *testing.T) {
+	const (
+		width  = 64
+		height = 64
+		stride = 64
+	)
+	src := makeFirstPassPlane(width, height, stride, 128)
+	last := makeFirstPassPlane(width, height, stride, 128)
+
+	stats := AnalyzeFirstPassFrame(FirstPassFrameAnalysis{
+		Width:        width,
+		Height:       height,
+		SourceY:      src,
+		SourceStride: stride,
+		HasLast:      true,
+		LastY:        last,
+		LastStride:   stride,
+	})
+	if stats.PcntInter != 1 {
+		t.Fatalf("PcntInter = %.3f, want 1", stats.PcntInter)
+	}
+	if stats.PcntMotion != 0 || stats.NewMVCount != 0 {
+		t.Fatalf("PcntMotion/NewMVCount = %.3f/%.3f, want 0/0",
+			stats.PcntMotion, stats.NewMVCount)
+	}
+}
+
 func TestAnalyzeFirstPassFrameCountsGoldenReferenceWins(t *testing.T) {
 	const (
 		width  = 32

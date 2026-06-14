@@ -149,6 +149,15 @@ type vp9RateControlState struct {
 	//
 	// libvpx: vp9_ratectrl.h:182 alt_ref_gf_group.
 	altRefGFGroup bool
+	// sourceAltRefPending / sourceAltRefActive mirror
+	// RATE_CONTROL::source_alt_ref_{pending,active}. Two-pass GF analysis
+	// reads active to treat the overlay from a previous ARF as already
+	// accounted for, and postencode reference updates consume pending when a
+	// hidden ARF refresh lands.
+	//
+	// libvpx: vp9_ratectrl.h source_alt_ref_pending/source_alt_ref_active.
+	sourceAltRefPending bool
+	sourceAltRefActive  bool
 	// lastFrameIsSrcAltRef mirrors libvpx
 	// RATE_CONTROL::last_frame_is_src_altref, updated at one-pass
 	// postencode from is_src_frame_alt_ref.
@@ -966,13 +975,18 @@ func vp9DropReasonString(reason vp9DropReason) string {
 	}
 }
 
-func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, altRefEnabled bool, cyclic *encoder.CyclicRefreshState, dampedRFLevel int) {
+func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool,
+	qindex int, intraOnly bool, keyFrame bool, refreshFlags uint8, macroblocks int,
+	altRefEnabled bool, constrainedGFGroup bool,
+	cyclic *encoder.CyclicRefreshState, dampedRFLevel int,
+) {
 	if !rc.enabled {
 		return
 	}
 	encodedBits := vpxrc.EncodedSizeBits(sizeBytes)
 	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks, cyclic, dampedRFLevel)
-	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
+	rc.updateQHistoryWithAltRef(qindex, intraOnly, keyFrame, refreshFlags, showFrame,
+		altRefEnabled, constrainedGFGroup)
 	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
 	rc.updateRollingBits(intraOnly, encodedBits)
 	rc.postOnePassVBRRefresh(refreshFlags)

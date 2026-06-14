@@ -1029,7 +1029,9 @@ func (e *VP9Encoder) SetARNR(maxFrames int, strength int, filterType int) error 
 	e.opts.ARNRMaxFrames = maxFrames
 	e.opts.ARNRStrength = strength
 	e.opts.ARNRType = filterType
-	if maxFrames > 1 && e.opts.AutoAltRef && e.vp9LookaheadEnabled() &&
+	if maxFrames > 1 && e.vp9LookaheadEnabled() &&
+		(e.opts.AutoAltRef || e.opts.EnableKeyFrameFiltering ||
+			e.twoPass.enabled()) &&
 		len(e.vp9ARNRScratch.Y) == 0 {
 		e.ensureVP9ARNRScratch()
 	}
@@ -1096,6 +1098,10 @@ func (e *VP9Encoder) SetTwoPassStats(stats []VP9FirstPassFrameStats) error {
 	e.twoPass.configureWithCorpus(stats, e.rc.bitsPerFrame,
 		e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
 		e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
+	if len(stats) > 0 && e.opts.ARNRMaxFrames > 1 &&
+		e.vp9LookaheadEnabled() && len(e.vp9ARNRScratch.Y) == 0 {
+		e.ensureVP9ARNRScratch()
+	}
 	return nil
 }
 

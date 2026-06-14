@@ -23,6 +23,9 @@ func subpelVariance16x16VerticalNEON(src *byte, srcStride int, ref *byte, refStr
 
 func subpelVariance16x16Horizontal(src []byte, srcStride int, xOffset int, ref []byte, refStride int) (int, int, bool) {
 	filter := tables.BilinearFilters[xOffset]
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 16, ref, refStride, 16, 16) {
+		return 0, 0, false
+	}
 	var sum int32
 	var sse uint32
 	subpelVariance16x16HorizontalNEON(
@@ -40,6 +43,9 @@ func subpelVariance16x16Horizontal(src []byte, srcStride int, xOffset int, ref [
 
 func subpelVariance16x16Vertical(src []byte, srcStride int, yOffset int, ref []byte, refStride int) (int, int, bool) {
 	filter := tables.BilinearFilters[yOffset]
+	if !dspSIMDPredictWindowOK(src, srcStride, 16, 17, ref, refStride, 16, 16) {
+		return 0, 0, false
+	}
 	var sum int32
 	var sse uint32
 	subpelVariance16x16VerticalNEON(
@@ -58,6 +64,9 @@ func subpelVariance16x16Vertical(src []byte, srcStride int, yOffset int, ref []b
 func subpelVariance16x16Bilinear(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int, bool) {
 	xFilter := tables.BilinearFilters[xOffset]
 	yFilter := tables.BilinearFilters[yOffset]
+	if !dspSIMDPredictWindowOK(src, srcStride, 32, 17, ref, refStride, 16, 16) {
+		return 0, 0, false
+	}
 	var sum int32
 	var sse uint32
 	subpelVariance16x16BilinearNEON(

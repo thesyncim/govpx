@@ -29,6 +29,10 @@ func varFilterBlock2DBilinearFirstPass8(src []byte, srcStride int,
 	if height <= 0 {
 		return
 	}
+	if !bilinearFilterScratchOK(8, height) || !dspWindowOK(src, srcStride, 9, height) {
+		bilinearFirstPassScalar(src, srcStride, dst, 8, height, filter)
+		return
+	}
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001
 	f1u := uint64(uint16(filter[1])) * 0x0001000100010001
 	varFilterBlock2DBilinearFirstPass8SSE2(&src[0], srcStride, &dst[0], height, f0u, f1u)
@@ -37,6 +41,10 @@ func varFilterBlock2DBilinearFirstPass8(src []byte, srcStride int,
 func varFilterBlock2DBilinearFirstPass4(src []byte, srcStride int,
 	dst *[17 * 16]uint16, height int, filter [2]int16) {
 	if height <= 0 {
+		return
+	}
+	if !bilinearFilterScratchOK(4, height) || !dspWindowOK(src, srcStride, 5, height) {
+		bilinearFirstPassScalar(src, srcStride, dst, 4, height, filter)
 		return
 	}
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001
@@ -49,6 +57,11 @@ func varFilterBlock2DBilinearSecondPass8(src *[17 * 16]uint16, dst []byte,
 	if height <= 0 {
 		return
 	}
+	maxInt := int(^uint(0) >> 1)
+	if height == maxInt || !bilinearFilterScratchOK(8, height+1) || !dspWindowOK(dst, 8, 8, height) {
+		bilinearSecondPassScalar(src, dst, 8, height, filter)
+		return
+	}
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001
 	f1u := uint64(uint16(filter[1])) * 0x0001000100010001
 	varFilterBlock2DBilinearSecondPass8SSE2(&src[0], &dst[0], height, f0u, f1u)
@@ -57,6 +70,11 @@ func varFilterBlock2DBilinearSecondPass8(src *[17 * 16]uint16, dst []byte,
 func varFilterBlock2DBilinearSecondPass4(src *[17 * 16]uint16, dst []byte,
 	height int, filter [2]int16) {
 	if height <= 0 {
+		return
+	}
+	maxInt := int(^uint(0) >> 1)
+	if height == maxInt || !bilinearFilterScratchOK(4, height+1) || !dspWindowOK(dst, 4, 4, height) {
+		bilinearSecondPassScalar(src, dst, 4, height, filter)
 		return
 	}
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001

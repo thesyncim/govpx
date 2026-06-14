@@ -90,6 +90,62 @@ func TestReconstructKeyFrameIntraGridRejectsSmallBuffers(t *testing.T) {
 	}
 }
 
+func TestVP8ReconstructPlaneWindowFitsRejectsOverflow(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	buf := make([]byte, 32)
+	tests := []struct {
+		name                                    string
+		stride, origin, row, col, width, height int
+	}{
+		{name: "origin-col-overflow", stride: 16, origin: huge, row: 0, col: 1, width: 1, height: 1},
+		{name: "row-overflow", stride: huge/2 + 1, origin: 0, row: 3, col: 0, width: 1, height: 1},
+		{name: "height-overflow", stride: 16, origin: 0, row: huge, col: 0, width: 1, height: 2},
+		{name: "width-overflow", stride: huge, origin: 0, row: 0, col: huge - 1, width: 2, height: 1},
+	}
+	for _, tt := range tests {
+		if vp8PlaneWindowFits(buf, tt.stride, tt.origin, tt.row, tt.col,
+			tt.width, tt.height) {
+			t.Fatalf("%s: vp8PlaneWindowFits accepted overflowing window", tt.name)
+		}
+	}
+	if !vp8PlaneWindowFits(buf, 8, 0, 2, 2, 4, 2) {
+		t.Fatal("vp8PlaneWindowFits rejected valid window")
+	}
+}
+
+func TestVP8ReconstructFullIntraRangeRejectsOverflow(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	full := make([]byte, 32)
+	if hasFullIntraSampleRange(full, huge, 16, 16, 16, 0, 1, 1) {
+		t.Fatal("hasFullIntraSampleRange accepted overflowing origin/col")
+	}
+	if hasFullIntraSampleRange(full, 0, huge/2+1, huge/2+1, 16, 3, 0, 1) {
+		t.Fatal("hasFullIntraSampleRange accepted overflowing row stride")
+	}
+	if hasFullIntraVerticalRange(full, 0, huge/2+1, 3, 16, 0, 0, 3) {
+		t.Fatal("hasFullIntraVerticalRange accepted overflowing stride")
+	}
+	if planeHasBlock(full, huge/2+1, huge/2+1, 3) {
+		t.Fatal("planeHasBlock accepted overflowing plane span")
+	}
+}
+
+func TestVP8ExtendIntraRightEdgeRowsKeepsValidBorderFill(t *testing.T) {
+	const stride = 8
+	full := make([]byte, stride*4)
+	for y := range 4 {
+		full[y*stride+3] = byte(20 + y)
+	}
+	extendIntraRightEdgeRows(full, 0, stride, 4, 4, 4, 1, 2)
+	for y := 1; y <= 2; y++ {
+		for x := 4; x < 8; x++ {
+			if got, want := full[y*stride+x], byte(20+y); got != want {
+				t.Fatalf("row %d border x %d = %d, want %d", y, x, got, want)
+			}
+		}
+	}
+}
+
 func TestReconstructKeyFrameIntraGridUsesCodedFrameDimensions(t *testing.T) {
 	fb, err := common.NewFrameBuffer(5, 3, 2, 16)
 	if err != nil {

@@ -140,8 +140,16 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			refreshFlags |= 1 << vp9GoldenRefSlot
 		}
 	}
+	if e.twoPass.enabled() && e.rc.enabled && e.rc.mode != RateControlCBR {
+		e.prepareVP9SecondPassFrameTarget(isKey || intraOnly, refreshFlags)
+		refreshFlags, srcFrameAltRef = e.vp9ConfigureTwoPassBufferUpdates(
+			isKey || intraOnly, flags, refreshFlags, srcFrameAltRef)
+	}
 	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
 		refreshFlags)
+	if e.twoPass.enabled() && e.rc.enabled && e.rc.mode != RateControlCBR {
+		e.prepareVP9SecondPassFrameTarget(isKey || intraOnly, refreshFlags)
+	}
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
 	e.vp9SceneDetectionOnePass(img, showFrame, miRows, miCols)
@@ -245,7 +253,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
 		rdFrameType := encoder.RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
-		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
+		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType, isKey)
 		// libvpx vp9/encoder/vp9_encoder.c:3754 / 3765 call
 		// set_speed_features_framesize_independent +
 		// set_speed_features_framesize_dependent (via
@@ -322,6 +330,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 		header.InterRef.SignBias = e.vp9InterRefSignBias(flags)
 	}
+	twoPassHiddenARF := e.twoPass.enabled() && e.twoPass.currentFrameIsARFUpdate() &&
+		!header.ShowFrame && header.RefreshFrameFlags&(1<<vp9AltRefSlot) != 0
 	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
 	shouldRestoreFrameContexts := isKey || intraOnly || e.opts.ErrorResilient || restoreFrameContext
 	var frameContextsSeed [common.FrameContexts]vp9dec.FrameContext
@@ -501,9 +511,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			interState.txMode = txMode
 		}
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+		recountKeyState := keyState
+		if keyState != nil {
+			replay := *keyState
+			replay.replayCachedDecisions = true
+			recountKeyState = &replay
+		}
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
-			header.IntraOnly, keyState, interState)
+			header.IntraOnly, recountKeyState, interState)
 		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 	header.Seg = seg
@@ -696,7 +712,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	var firstPassStats VP9FirstPassFrameStats
 	twoPassTargetBits := 0
-	if header.ShowFrame {
+	if twoPassHiddenARF {
+		firstPassStats = e.twoPass.statsForCurrentGFUpdate()
+		twoPassTargetBits = e.vp9TwoPassFrameTarget
+	} else if header.ShowFrame {
 		firstPassStats = e.twoPass.statsForFrame()
 		twoPassTargetBits = e.vp9TwoPassFrameTarget
 	}
@@ -736,10 +755,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// the per-frame encode (including the post-encode demotion at
 		// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
 		e.prevFrameTxMode = txMode
-		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-			header.RefreshFrameFlags, macroblocks,
-			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
+		e.rc.postEncodeFrame(n, header.ShowFrame, qindex,
+			isKey || intraOnly, isKey, header.RefreshFrameFlags, macroblocks,
+			e.vp9AltRefEnabledForRateControlStats(),
+			e.vp9CurrentGFGroupConstrained(), cyclicForRC,
 			e.vp9DampedAdjustmentRFLevel())
+		e.updateVP9TwoPassLastQIndexOfARFLayer(qindex,
+			isKey || intraOnly, isKey, header.RefreshFrameFlags)
+		e.vp9PostEncodeSourceAltRefState(isKey || intraOnly,
+			header.RefreshFrameFlags)
 		if !isKey && !intraOnly {
 			e.rc.computeFrameLowMotion(miRows, miCols,
 				func(miRow, miCol int) *vp9dec.NeighborMi {
@@ -748,7 +772,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 	}
 	e.lastFrameDropped = postDrop
-	if header.ShowFrame {
+	if header.ShowFrame || twoPassHiddenARF {
 		// libvpx vp9_twopass_postencode_update consumes the encoded bit
 		// count to drive vbr_bits_off_target. Feed it 0 on drops, the
 		// encoded size in bits otherwise, mirroring rc->projected_frame_size.
@@ -757,7 +781,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if !postDrop {
 			projected = vpxrc.EncodedSizeBits(n)
 		}
-		e.twoPass.finishFrameWithActual(projected)
+		e.updateVP9TwoPassPostEncodeQRange(projected, isKey || intraOnly,
+			header.RefreshFrameFlags)
+		e.twoPass.postEncodeGFUpdate(header.RefreshFrameFlags)
+		if twoPassHiddenARF {
+			e.twoPass.finishARFFrameWithActual(projected)
+		} else {
+			e.twoPass.finishFrameWithActual(projected)
+		}
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
 	if postDrop {

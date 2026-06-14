@@ -18,7 +18,7 @@ func TestVP9EncoderInitializeRDConstsPopulatesPerFrameState(t *testing.T) {
 	}
 	defer e.Close()
 	e.cbRdmult = 12345 // simulate stale per-SB cache from prior frame.
-	e.vp9EncoderInitializeRDConsts(64, encoder.RDFrameInter)
+	e.vp9EncoderInitializeRDConsts(64, encoder.RDFrameInter, false)
 	if e.rc.rddiv != encoder.RDDivBits {
 		t.Fatalf("rc.rddiv = %d, want %d", e.rc.rddiv, encoder.RDDivBits)
 	}
@@ -28,6 +28,29 @@ func TestVP9EncoderInitializeRDConstsPopulatesPerFrameState(t *testing.T) {
 	}
 	if e.cbRdmult != 0 {
 		t.Fatalf("cbRdmult = %d, want 0 after frame init", e.cbRdmult)
+	}
+}
+
+func TestVP9EncoderInitializeRDConstsUsesTwoPassModulation(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 32, Height: 32})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	e.twoPass.stats = []VP9FirstPassFrameStats{{Count: 1}}
+	e.twoPass.gfGroupActive = true
+	e.twoPass.gfGroup.UpdateType[0] = encoder.LFUpdate
+	e.rc.gfuBoost = 0
+
+	e.vp9EncoderInitializeRDConsts(64, encoder.RDFrameInter, false)
+	want := encoder.ComputeRDMultWithModulation(64, encoder.RDFrameInter,
+		encoder.RDMultModulation{
+			TwoPass:    true,
+			UpdateType: encoder.LFUpdate,
+			GFUBoost:   0,
+		})
+	if e.rc.rdmult != want {
+		t.Fatalf("two-pass rc.rdmult = %d, want %d", e.rc.rdmult, want)
 	}
 }
 

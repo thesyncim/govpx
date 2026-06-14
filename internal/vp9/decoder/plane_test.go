@@ -103,6 +103,35 @@ func TestResetSkipContextIgnoresInvalidBlockSize(t *testing.T) {
 	}
 }
 
+func TestResetSkipContextIgnoresNegativeOffsets(t *testing.T) {
+	above := []uint8{1, 1, 1, 1}
+	left := []uint8{1, 1, 1, 1}
+	planes := []MacroblockdPlane{
+		{AboveContext: above, LeftContext: left},
+	}
+	ResetSkipContext(planes, common.Block8x8, []int{-1}, []int{-1})
+	for i := range above {
+		if above[i] != 1 || left[i] != 1 {
+			t.Fatalf("negative offset reset context at %d: above=%v left=%v", i, above, left)
+		}
+	}
+}
+
+func TestResetSkipContextIgnoresHugeOffsets(t *testing.T) {
+	above := []uint8{1, 1, 1, 1}
+	left := []uint8{1, 1, 1, 1}
+	planes := []MacroblockdPlane{
+		{AboveContext: above, LeftContext: left},
+	}
+	huge := int(^uint(0) >> 1)
+	ResetSkipContext(planes, common.Block8x8, []int{huge}, []int{huge})
+	for i := range above {
+		if above[i] != 1 || left[i] != 1 {
+			t.Fatalf("huge offset reset context at %d: above=%v left=%v", i, above, left)
+		}
+	}
+}
+
 func TestFramePlaneDimsCeilDivide(t *testing.T) {
 	uvW, uvH := FramePlaneDims(17, 18, 1, 1)
 	if uvW != 9 || uvH != 9 {

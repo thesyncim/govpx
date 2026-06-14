@@ -56,6 +56,13 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 ) bool {
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
+	zcoeffRDMul := 0
+	if e.vp9KeyframeFullRDResidueEnabled(key, bsize) {
+		zcoeffRDMul = e.cbRdmult
+		if zcoeffRDMul <= 0 {
+			zcoeffRDMul = e.vp9KeyframePartitionRDMul(miRow, miCol, bsize)
+		}
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -78,6 +85,33 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 		if plane > 0 {
 			dequant = key.dq.Uv[segID]
 		}
+		fullRDPlane := zcoeffRDMul > 0
+		zcoeffPlane := plane == 0 && fullRDPlane
+		var aboveCtx [16]uint8
+		var leftCtx [16]uint8
+		aboveLen := 0
+		leftLen := 0
+		if fullRDPlane {
+			aboveLen = int(common.Num4x4BlocksWideLookup[planeBsize])
+			leftLen = int(common.Num4x4BlocksHighLookup[planeBsize])
+			if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
+				fullRDPlane = false
+				zcoeffPlane = false
+			} else if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
+				aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+				if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
+					copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
+				}
+				if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
+					copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
+				}
+			}
+		}
+		useTxDomainDistortion := false
+		if zcoeffPlane {
+			useTxDomainDistortion = e.vp9KeyframeUseTransformDomainDistortion(key,
+				miRows, miCols, miRow, miCol, bsize)
+		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
 				mode := uvMode
@@ -89,15 +123,197 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
 				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
-					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
-					dequant, qindex, coeffs, qcoeffs) {
+				hasTxResidue := false
+				if zcoeffPlane {
+					initCtx := vp9dec.GetEntropyContext(txSize,
+						aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+					hasTxResidue = e.prepareVP9KeyframeTxResidueWithZcoeff(key,
+						pd, mode, txSize, tile, miRows, miCols, miRow, miCol,
+						bsize, rr, cc, dequant, qindex, initCtx, zcoeffRDMul,
+						int(segID), useTxDomainDistortion, coeffs, qcoeffs)
+					hasCtx := uint8(0)
+					if hasTxResidue {
+						hasCtx = 1
+					}
+					for i := 0; i < step && cc+i < aboveLen; i++ {
+						aboveCtx[cc+i] = hasCtx
+					}
+					for i := 0; i < step && rr+i < leftLen; i++ {
+						leftCtx[rr+i] = hasCtx
+					}
+				} else if fullRDPlane {
+					initCtx := vp9dec.GetEntropyContext(txSize,
+						aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+					hasTxResidue = e.prepareVP9KeyframeTxResidueFullRD(key, pd,
+						plane, mode, txSize, tile, miRows, miCols, miRow, miCol,
+						bsize, rr, cc, dequant, qindex, initCtx, zcoeffRDMul,
+						int(segID), false, coeffs, qcoeffs)
+					hasCtx := uint8(0)
+					if hasTxResidue {
+						hasCtx = 1
+					}
+					for i := 0; i < step && cc+i < aboveLen; i++ {
+						aboveCtx[cc+i] = hasCtx
+					}
+					for i := 0; i < step && rr+i < leftLen; i++ {
+						leftCtx[rr+i] = hasCtx
+					}
+				} else {
+					hasTxResidue = e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
+						txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
+						dequant, qindex, coeffs, qcoeffs)
+				}
+				if hasTxResidue {
 					hasResidue = true
 				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep
 		}
+	}
+	return hasResidue
+}
+
+func (e *VP9Encoder) vp9KeyframeFullRDResidueEnabled(key *vp9KeyframeEncodeState,
+	bsize common.BlockSize,
+) bool {
+	return key != nil && e.frameIndex > 0 && e.vp9UseDeepRDUsePartitionPath() &&
+		!e.useVP9KeyframeNonRDIntraMode(bsize)
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueFullRD(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex, coeffCtx, rdmult, segID int, useLp32x32RD bool, out, qOut []int16,
+) bool {
+	if !e.vp9KeyframeFullRDResidueEnabled(key, bsize) {
+		return e.prepareVP9KeyframeTxResidueWithQ(key, pd, plane, mode, txSize,
+			tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+			blockCol4x4, dequant, qindex, out, qOut)
+	}
+	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+		blockCol4x4)
+	if !ok {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob <= len(e.txCoeffScratch) && maxEob <= len(e.dqCoeffScratch) {
+			clear(e.txCoeffScratch[:maxEob])
+			clear(e.dqCoeffScratch[:maxEob])
+		}
+		return false
+	}
+	return e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, plane, mode, txSize,
+		dequant, qindex, coeffCtx, rdmult, segID, out, qOut, key.lossless,
+		useLp32x32RD)
+}
+
+func (e *VP9Encoder) quantizeVP9KeyframeTxResidualFullRD(dst []byte, stride int,
+	plane int, mode common.PredictionMode, txSize common.TxSize,
+	dequant [2]int16, qindex, coeffCtx, rdmult, segID int, out, qOut []int16,
+	lossless bool, useLp32x32RD bool,
+) bool {
+	txType := common.DctDct
+	if plane == 0 && txSize != common.Tx32x32 && !lossless {
+		txType = common.IntraModeToTxType[mode]
+	}
+	scan := common.ScanOrders[txSize][txType]
+	if lossless {
+		scan = common.DefaultScanOrders[txSize]
+	}
+	planeType := 0
+	if plane != 0 {
+		planeType = 1
+	}
+	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
+	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
+	if e.vp9DoTrellisOptInterY(txSize) {
+		if rdmult <= 0 {
+			rdmult = 1
+		}
+		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
+			return encoder.VP9OptimizeB(plane, 0 /*ref intra*/, txSize, coeffCtx,
+				coeff, qcoeff, dqcoeff, eob, dequant, scan.Scan, scan.Neighbors,
+				coefModel, int64(rdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				segID, &e.modeScratch)
+		}
+	}
+	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
+		dequant, qindex, out, qOut, lossless, false, /*useFastQuant*/
+		useLp32x32RD, trellis)
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithZcoeff(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode, txSize common.TxSize,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex, coeffCtx, rdmult, segID int, useTxDomainDistortion bool, out, qOut []int16,
+) bool {
+	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, 0, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+		blockCol4x4)
+	if !ok {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob <= len(e.txCoeffScratch) && maxEob <= len(e.dqCoeffScratch) {
+			clear(e.txCoeffScratch[:maxEob])
+			clear(e.dqCoeffScratch[:maxEob])
+		}
+		return false
+	}
+	bs := 4 << uint(txSize)
+	if bs*bs > len(e.blockScratch) {
+		return e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, 0, mode, txSize,
+			dequant, qindex, coeffCtx, rdmult, segID, out, qOut, key.lossless,
+			false)
+	}
+	predictor := e.blockScratch[:bs*bs]
+	for y := 0; y < bs; y++ {
+		copy(predictor[y*bs:(y+1)*bs], dst[y*stride:y*stride+bs])
+	}
+	hasResidue := e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, 0, mode,
+		txSize, dequant, qindex, coeffCtx, rdmult, segID, out, qOut,
+		key.lossless, false)
+	if !hasResidue {
+		return false
+	}
+
+	var blockDist uint64
+	var blockSSE uint64
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if useTxDomainDistortion {
+		blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+			e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
+	} else {
+		dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW, srcH,
+			dst, stride, x0, y0, bs, bs)
+		if !distOK {
+			return hasResidue
+		}
+		blockDist = dist * 16
+		blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
+	}
+	blockRate := e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode, key.lossless,
+		dequant, out, qOut, coeffCtx)
+	rd1 := encoder.RDCost(rdmult, encoder.RDDivBits, blockRate, blockDist)
+	rd2 := encoder.RDCost(rdmult, encoder.RDDivBits, 0, blockSSE)
+	if key.lossless || e.opts.Sharpness != 0 || rd1 <= rd2 {
+		return hasResidue
+	}
+
+	for y := 0; y < bs; y++ {
+		copy(dst[y*stride:y*stride+bs], predictor[y*bs:(y+1)*bs])
+	}
+	clear(out[:maxEob])
+	if qOut != nil {
+		clear(qOut[:maxEob])
 	}
 	return hasResidue
 }
@@ -157,15 +373,13 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		// tx_size the full-RD mode search committed into mi->tx_size
 		// (vp9_rd_pick_inter_mode_sb -> super_block_yrd choose_tx_size_from_rd,
 		// vp9_rdopt.c). It does NOT re-derive the tx_size at encode time. On the
-		// deep full-RD use-partition path the committed leaf decision already
-		// carries that choose_tx_size_from_rd tx_size (interDecision.txSize); the
-		// realtime pickVP9InterTxSize heuristic that the nonrd path uses would
-		// override it with a different size (e.g. mi(1,3) frame-1 of {0,1,1,0,1}:
-		// full-RD commits TX_8X8 but the realtime picker returns TX_4X4), which
-		// flips the per-block tx_size field AND the residual token decomposition.
-		// Gate on the deep flag so production (flag off) keeps the nonrd picker
-		// byte-for-byte.
-		if vp9InterUseDeepRDUsePartition && interDecision.txSize < common.TxSizes {
+		// deep full-RD paths the committed leaf decision already carries that
+		// choose_tx_size_from_rd tx_size (interDecision.txSize); the realtime
+		// pickVP9InterTxSize heuristic that the nonrd path uses would override it
+		// with a different size (e.g. mi(1,3) frame-1 of {0,1,1,0,1}: full-RD
+		// commits TX_8X8 but the realtime picker returns TX_4X4), which flips the
+		// per-block tx_size field AND the residual token decomposition.
+		if e.vp9UseDeepRDInterResiduePath() && interDecision.txSize < common.TxSizes {
 			mi.TxSize = interDecision.txSize
 		} else {
 			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
@@ -209,24 +423,38 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	// skip from the re-quantized residual (which would code chroma/Y residual
 	// for a block libvpx codes skip — e.g. {0,1,1,0,1} frame-1 mi(2,0)/mi(5,3)).
 	// The predictor is already on the recon plane (predictVP9InterBlock), so a
-	// skip block's reconstruction is the predictor, matching libvpx. Gate on the
-	// deep flag so production keeps deriving skip from the residue.
-	if vp9InterUseDeepRDUsePartition && interDecision.skip {
+	// skip block's reconstruction is the predictor, matching libvpx.
+	if e.vp9UseDeepRDInterResiduePath() && interDecision.skip {
 		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
 		return interDecision, common.DcPred, false
 	}
 	// libvpx encode_block (vp9/encoder/vp9_encodemb.c:580) forces the Y-plane
 	// transform unit's eob to 0 when the full-RD mode search marked it in
 	// x->zcoeff_blk[tx_size][block] (rd1 > rd2: coding the residual costs more
-	// than skipping it). On the deep full-RD use-partition path the committed
-	// leaf's predictor is already on the recon plane, so recompute that
-	// per-block decision here and apply it to the FP-quant tokenize pass; the
-	// nonrd path (flag off) keeps coding every nonzero block as before.
+	// than skipping it). On the deep full-RD paths the committed leaf's predictor
+	// is already on the recon plane, so recompute that per-block decision here
+	// and apply it to the tokenize pass; other inter paths keep coding
+	// every nonzero block as before.
 	var zcoeff vp9InterZcoeffBlk
-	if vp9InterUseDeepRDUsePartition && !inter.lossless {
+	// Sub-8x8 inter mode search uses encode_inter_mb_segment
+	// (vp9_rdopt.c:1608-1734), which computes per-label RD but does not
+	// populate x->zcoeff_blk. The final writer still covers the 8x8 footprint,
+	// so key this replay off the committed mi->sb_type, not the caller's
+	// coding footprint, or 4x4/4x8/8x4 leaves get spuriously zero-forced.
+	if e.vp9UseDeepRDInterResiduePath() && mi.SbType >= common.Block8x8 &&
+		!inter.lossless {
 		zcoeff, _ = e.vp9ComputeInterLeafZcoeffBlk(inter, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, uint8(segID))
 	}
+	// libvpx's cpu0 full-RD final encode_block follows vp9_xform_quant
+	// (sf.use_quant_fp == 0) at the segment qindex, but does not run the
+	// mode-search trellis because the one-pass speed-feature fixup leaves
+	// sf.optimize_coefficients == 0 (x->optimize false). The non-RD and cpu4
+	// VAR_BASED byte-parity lanes keep the existing committed helper, which
+	// selects the FP quantizer when libvpx does.
+	useFullRDResidue := e.vp9UseDeepRDInterResiduePath() &&
+		e.sf.UseQuantFp == 0 && !inter.lossless
+	qindex := e.vp9SegmentQIndex(inter, uint8(segID))
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -251,7 +479,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				// libvpx zcoeff_blk zero-forcing is luma-only (plane == 0,
 				// vp9_encodemb.c:580). A forced block keeps eob 0 (no tokens)
 				// and leaves the predictor in recon (no inverse-add), so skip
-				// the FP quantize/tokenize for it entirely.
+				// quantize/tokenize for it entirely.
 				if plane == 0 && zcoeff.valid {
 					if idx := rr*full4x4W + cc; idx >= 0 &&
 						idx < len(zcoeff.flags) && zcoeff.flags[idx] {
@@ -261,8 +489,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				coeffBase := (rr*full4x4W + cc) * vp9EncoderTxCoeffSlots
 				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				if e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
-					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs) {
+				hasTxResidue := false
+				if useFullRDResidue {
+					hasTxResidue = e.prepareVP9InterTxResidueWithQIndex(inter,
+						pd, plane, txSize, miRow, miCol, rr, cc, dequant,
+						qindex, false, coeffs, qcoeffs)
+				} else {
+					hasTxResidue = e.prepareVP9InterTxResidueWithQ(inter, pd, plane,
+						txSize, miRow, miCol, rr, cc, dequant, coeffs, qcoeffs)
+				}
+				if hasTxResidue {
 					hasResidue = true
 				}
 			}
@@ -954,10 +1190,10 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 		if aboveLen[plane] > len(aboveCtx[plane]) || leftLen[plane] > len(leftCtx[plane]) {
 			return 0, 0, false, false
 		}
-		if off := aboveOffsets[plane]; off >= 0 && off+aboveLen[plane] <= len(pd.AboveContext) {
+		if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen[plane], len(pd.AboveContext)) {
 			copy(aboveCtx[plane][:aboveLen[plane]], pd.AboveContext[off:off+aboveLen[plane]])
 		}
-		if off := leftOffsets[plane]; off >= 0 && off+leftLen[plane] <= len(pd.LeftContext) {
+		if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen[plane], len(pd.LeftContext)) {
 			copy(leftCtx[plane][:leftLen[plane]], pd.LeftContext[off:off+leftLen[plane]])
 		}
 	}
@@ -1057,6 +1293,8 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 		leftLen := int(common.Num4x4BlocksHighLookup[planeBsize])
 		ao := aboveOffsets[plane]
 		lo := leftOffsets[plane]
+		aboveOK := vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext))
+		leftOK := vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext))
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
@@ -1080,12 +1318,12 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 					}
 				}
 				for i := 0; i < step && cc+i < aboveLen; i++ {
-					if ao >= 0 && ao+cc+i < len(pd.AboveContext) {
+					if aboveOK {
 						pd.AboveContext[ao+cc+i] = hasCtx
 					}
 				}
 				for i := 0; i < step && rr+i < leftLen; i++ {
-					if lo >= 0 && lo+rr+i < len(pd.LeftContext) {
+					if leftOK {
 						pd.LeftContext[lo+rr+i] = hasCtx
 					}
 				}

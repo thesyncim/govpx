@@ -24,6 +24,9 @@ import (
 func varianceBlock16x16SSE2(src *byte, srcStride int, ref *byte, refStride int, sumOut *int32, sseOut *uint32)
 
 func varianceBlock16x16(src []byte, srcStride int, ref []byte, refStride int) (int, int) {
+	if !dspWindowOK(src, srcStride, 16, 16) || !dspWindowOK(ref, refStride, 16, 16) {
+		return varianceBlockGeneric(src, srcStride, ref, refStride, 16, 16)
+	}
 	var sum int32
 	var sse uint32
 	srcPtr := unsafe.SliceData(src)

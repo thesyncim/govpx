@@ -15,8 +15,8 @@ import (
 // full-RD use-partition stack enabled, govpx serializes the FULL 256-frame
 // fixture and reproduces frames 0..29 byte-identically to the pinned libvpx
 // v1.16.0 vpxenc-vp9 oracle — advancing the seed's matched-frame prefix from 1
-// (keyframe only) to >= 30 (keyframe + the first twenty-nine inter frames, up to
-// the next key frame). This proves the genuine full-RD inter engine GENERALIZES
+// (keyframe only) to >= 31 (keyframe + the first twenty-nine inter frames +
+// the next keyframe). This proves the genuine full-RD inter/keyframe engine GENERALIZES
 // across frames: frame 2 references frame 1's now-byte-exact reconstruction, and
 // frames 3..29 exercise the GOLDEN refresh cadence, changing q, and the
 // accumulated frame-context probability adaptation. The decoder-side
@@ -82,9 +82,20 @@ import (
 // NEARMV-LAST mv=(16,-2). The fix calls the allow-zero search
 // (pickVP9InterMvAllowZero) on the deep full-RD path so the zero NEWMV is scored
 // exactly as libvpx; the non-RD leaf keeps the wrapper. This closed frames
-// 20..29, advancing the matched-frame prefix 20 -> 30 (frame 30 is the next key
-// frame and a fresh, distinct intra-class frontier). vp9_encoder_inter_modes.go
-// (evaluateNewMVMode).
+// 20..29, advancing the matched-frame prefix 20 -> 30. vp9_encoder_inter_-
+// modes.go (evaluateNewMVMode).
+//
+// Frame 30 (the next keyframe) is now CLOSED by the keyframe RD partition
+// replay/search-context port. libvpx's rd_pick_partition save/restores the
+// partition-search state between candidates while leaving the candidate's last
+// reconstructed pixels live as the next intra predictor. The govpx keyframe
+// tree now mirrors that split: mode/partition search restores MI/entropy
+// contexts, caches the final leaf decisions with skip/replay metadata, replays
+// the selected Y recon side-effect only where libvpx would actually run
+// encode_superblock, and preserves the search-phase skip flag when
+// sf->skip_encode_frame makes encode_superblock(output_enabled=0) return early.
+// The rectangular partition branch also now budgets the second half against the
+// first half's RD cost, matching vp9_encodeframe.c's residual best-rd flow.
 //
 // The closure required eight libvpx-faithful ports on top of the already-closed
 // 64/64 committed-mode decomposition (TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1):
@@ -153,12 +164,10 @@ import (
 //     the wrapper, so the {0,0,0,0,0}/{1,0,0,0,0} non-RD seeds are unaffected.
 //     vp9_encoder_inter_modes.go (evaluateNewMVMode).
 //
-// All eight are gated behind the deep flags (vp9InterUseDeepRDUsePartition,
-// vp9InterUseDeepRDRefBestRD, vp9InterUseDeepRDTxDomainDistortion,
-// vp9InterUseDeepRDIntraSkipEncode), default OFF, so production and every other
-// VP9 oracle gate stay byte-identical; the seed stays in
-// vp9LongFixtureParityGapSeeds (its production path is unchanged). This test
-// flips them locally.
+// These ports are now production-default for the scoped VAR_BASED
+// use-partition lane; the test still sets the guards explicitly so test order
+// cannot hide the path. The seed remains in vp9LongFixtureParityGapSeeds because
+// the full 256-frame clip still diverges after this prefix.
 func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
@@ -204,9 +213,8 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	// Encode the FULL {0,1,1,0,1} long fixture (256 panning frames) so the pin
 	// asserts the generalized matched-frame prefix, not just the first inter
 	// frame. With the deep full-RD use-partition stack the engine reproduces
-	// frames 0..29 byte-for-byte; frame 30 is the first divergence (the next key
-	// frame, a fresh intra-class frontier — see the header), so the prefix is
-	// exactly 30.
+	// frames 0..30 byte-for-byte; frame 30 is the next keyframe and exercises the
+	// keyframe RD partition search/replay path described above.
 	const fixtureFrames = 256
 	sources := vp9test.NewPanningSources(width, height, fixtureFrames)
 	dst := make([]byte, 1<<20)
@@ -254,8 +262,9 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 		t.Fatalf("frame 0 (keyframe) byte mismatch at offset %d", fd)
 	}
 
-	// The seed's matched-frame prefix must reach >= 30: frames 0 (keyframe) and
-	// 1..29 (inter frames referencing the now-byte-exact reconstructions) all
+	// The seed's matched-frame prefix must reach >= 31: frames 0 (keyframe),
+	// 1..29 (inter frames referencing the now-byte-exact reconstructions), and
+	// frame 30 (the next keyframe) all
 	// serialize byte-for-byte. Frame 10 closed via the intra mode_skip_start /
 	// ref_frame_skip_mask gate (the standalone intra producer now evaluates each
 	// intra Y mode at its own vp9_mode_order position under the ref_frame_skip_-
@@ -266,17 +275,39 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity(t *testing.T) {
 	// like libvpx vp9_rdopt.c:2922-2929 instead of being dropped by the non-RD
 	// wrapper's mv==MV{} guard; that lets best become an ALTREF mode at
 	// mode_skip_start, opening ALT_REF_MODE_MASK so NEARMV-ALTREF(0,0) wins — see
-	// the header); that also closed frames 21..29. Frame 30 is the new first
-	// divergence (the next key frame, a distinct intra-class frontier). Asserting
-	// >= 30 (was 20) proves the genuine full-RD inter engine GENERALIZES across
-	// the GOLDEN-refresh cadence and the accumulated entropy-context adaptation
-	// through the first twenty-nine inter frames, up to the next key frame.
+	// the header); that also closed frames 21..29. Frame 30 closed via the
+	// keyframe RD partition search/replay port. Asserting >= 31 proves the
+	// genuine full-RD inter engine GENERALIZES across the GOLDEN-refresh cadence
+	// and the accumulated entropy-context adaptation through the first twenty-nine
+	// inter frames, then survives the next keyframe's recursive RD partition path.
 	prefix := testutil.MatchedFramePrefixLength(govpxFrames, libvpxFrames)
-	if prefix < 30 {
-		t.Fatalf("matched-frame prefix = %d, want >= 30 (frame 0 keyframe + "+
-			"frames 1..29 inter all byte-exact)", prefix)
+	if prefix < 31 {
+		t.Fatalf("matched-frame prefix = %d, want >= 31 (frames 0..30 byte-exact)", prefix)
+	}
+	if fd := testutil.FirstByteDiff(govpxFrames[30], libvpxFrames[30]); fd != -1 ||
+		len(govpxFrames[30]) != len(libvpxFrames[30]) {
+		t.Fatalf("frame 30 NOT byte-exact: govpx=%d bytes libvpx=%d bytes "+
+			"firstByteDiff=%d (want -1)",
+			len(govpxFrames[30]), len(libvpxFrames[30]), fd)
+	}
+	govpxFrame30Grid := decodeVP9MiGridForOracleTest(t, govpxFrames[30])
+	libvpxFrame30Grid := decodeVP9MiGridForOracleTest(t, libvpxFrames[30])
+	if len(govpxFrame30Grid) != len(libvpxFrame30Grid) {
+		t.Fatalf("frame 30 mi grid len: govpx=%d libvpx=%d",
+			len(govpxFrame30Grid), len(libvpxFrame30Grid))
+	}
+	firstMiDiff := -1
+	for i := range govpxFrame30Grid {
+		if govpxFrame30Grid[i] != libvpxFrame30Grid[i] {
+			firstMiDiff = i
+			break
+		}
+	}
+	if firstMiDiff != -1 {
+		t.Fatalf("frame 30 first decoded mi diff = %d, want -1; "+
+			"keyframe RD partition replay regressed", firstMiDiff)
 	}
 	t.Logf("{0,1,1,0,1} full-RD inter engine generalizes; "+
-		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes)",
-		prefix, len(govpxFrames[0]), len(govpxFrames[1]))
+		"matched-frame prefix = %d (frame0=%d bytes frame1=%d bytes frame30=%d bytes)",
+		prefix, len(govpxFrames[0]), len(govpxFrames[1]), len(govpxFrames[30]))
 }

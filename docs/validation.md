@@ -94,10 +94,26 @@ artifact. Keep the two lanes separate: pure-Go vs generic-gnu here; Go+asm vs
 host-ISA in `test-byte-parity`. Scoped to VP8 oracle tests that use the plain
 vpxenc oracle (the pure-C binary carries no frameflags/VP9 patch).
 
-Known gap: this lane is currently red on the positive `cpu_used=8` realtime
-cases (`StreamByteParityTiming/realtime-cbr-cpu8-*`,
-`StreamByteParityExtended/*-cpu8-*`) — a genuine algorithmic divergence
-confirmed identical under both the asm and pure-C lanes, not a SIMD artifact.
+As of 2026-06-13 this lane is green, including the formerly red positive
+`cpu_used=8` realtime timing and extended cases. Treat any future red result
+here as an algorithmic scalar-vs-scalar regression first, not a SIMD artifact.
+
+As of 2026-06-13 the stats-backed VP9 two-pass q setup is also covered by:
+
+```sh
+GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace . -run 'TestVP9OracleTwoPass(Stream|Constant)ByteParity|TestVP9RecodeSeed1_1_1_1_0' -count=1 -v
+```
+
+The constant two-pass case now matches libvpx q and visible refresh cadence
+exactly (`q=16`, refresh `0xff,0x1,0x1,0x1`). The panning stream still lacks byte
+parity because later hidden-ARF/overlay advancement and inter allocation remain
+ahead of the q path, but frame 1 now follows libvpx's GF buffer update
+(`refresh=0x4`, q=27 vs libvpx q=28) instead of the old LF-only refresh. The
+remaining visible refresh mismatch in this small trace is frame 5
+(`govpx=0x1`, libvpx=`0x4`). The next missing two-pass feature is libvpx's ARF
+source scheduler: ARF_UPDATE peeks `current_video_frame + arf_src_offset` from
+lookahead and does not advance the normal stats cursor, while govpx still
+encodes caller frames linearly in the second pass.
 
 `make test-parity-report`
 

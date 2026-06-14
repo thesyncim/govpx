@@ -287,6 +287,16 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
 ) bool {
+	return e.prepareVP9InterTxResidueWithQIndex(inter, pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4, dequant, 0,
+		e.sf.UseQuantFp != 0, out, qOut)
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidueWithQIndex(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
+	useFastQuant bool, out, qOut []int16,
+) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
@@ -296,22 +306,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false
 	}
-	// KNOWN DIVERGENCE (cpu0-3 inter coefficient parity): this hardcodes the FP
-	// quantizer (useFastQuant=true). libvpx's encode_block selects the quantizer
-	// on x->quant_fp = sf.use_quant_fp (vp9/encoder/vp9_encodemb.c:590-625,
-	// vp9_encodeframe.c:5665) — FP only when set, else the zbin "b" quantizer.
-	// use_quant_fp is 0 by default (vp9_speed_features.c:954) and set !is_keyframe
-	// only at REALTIME speed>=4 (vp9_speed_features.c:573). So cpu>=4 (e.g. the
-	// byte-exact {0,1,1,0,1} cpu4 seed) correctly uses FP here, but cpu0-3 should
-	// use B: FP drops AC coefficients the B quantizer keeps (e.g. {0,2,0,0,2}
-	// frame-1 mi(0,1) sub-block 2: FP eob 1 vs libvpx's DC 180@0 + AC dq 235@3).
-	// Gating this on `e.sf.UseQuantFp != 0` is the correct fix but cascades: this
-	// fn also feeds the deep-search entropy-context stamp, and the {0,2,0,0,2}
-	// cpu0 deep mode-pins were calibrated on the FP recon — so the gate must land
-	// together with re-deriving those pins toward byte parity. See
-	// docs/vp9_cpu0_quant_fp_gap.md.
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, true, false)
+	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct,
+		dequant, qindex, out, qOut, inter.lossless, useFastQuant, false)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,

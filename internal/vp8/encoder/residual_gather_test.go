@@ -4,6 +4,56 @@ import (
 	"testing"
 )
 
+func TestResidualGatherWindowOK(t *testing.T) {
+	const stride = 32
+	const width = 20
+	const height = 18
+	const baseX = 2
+	const baseY = 1
+	const blockW = 16
+	const blockH = 16
+	need := (baseY+blockH-1)*stride + baseX + blockW
+	buf := make([]byte, need)
+	if !residualGatherWindowOK(buf, stride, width, height, baseX, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK rejected exact fit")
+	}
+	if residualGatherWindowOK(buf[:len(buf)-1], stride, width, height, baseX, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted short backing buffer")
+	}
+	if residualGatherWindowOK(buf, -stride, width, height, baseX, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted negative stride")
+	}
+	if residualGatherWindowOK(buf, stride, width, height, -1, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted negative baseX")
+	}
+	if residualGatherWindowOK(buf, stride, width, height, baseX, -1, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted negative baseY")
+	}
+	if residualGatherWindowOK(buf, stride, width-3, height, baseX, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted block beyond visible width")
+	}
+	if residualGatherWindowOK(buf, stride, width, height-3, baseX, baseY, blockW, blockH) {
+		t.Fatal("residualGatherWindowOK accepted block beyond visible height")
+	}
+	huge := int(^uint(0) >> 1)
+	if residualGatherWindowOK(nil, huge/2+1, huge, 3, 0, 0, 1, 3) {
+		t.Fatal("residualGatherWindowOK accepted overflowing row span")
+	}
+}
+
+func TestGatherMacroblockResidualInvalidWindowPanicsInScalar(t *testing.T) {
+	const stride = 16
+	src := make([]byte, stride*16-1)
+	pred := make([]byte, stride*16)
+	out := make([]int16, 16*16)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected scalar bounds panic")
+		}
+	}()
+	GatherMacroblockYResiduals4x4(src, stride, 16, 16, pred, stride, 0, 0, out)
+}
+
 // TestVP8PickerSubtractFDCTParity pins the picker source-prediction
 // subtract step and the per-4x4 forward DCT step at MB(0,0) frame-1
 // NEWMV MV=(8,16). Predictor reference bytes and picker source bytes

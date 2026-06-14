@@ -4,8 +4,116 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
+
+func TestVP9NonrdRefModeScheduleMatchesLibvpx(t *testing.T) {
+	cases := []struct {
+		name   string
+		useSVC bool
+		want   []vp9RefMode
+	}{
+		{
+			name: "single-layer",
+			want: []vp9RefMode{
+				{vp9dec.LastFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearMv},
+				{vp9dec.LastFrame, common.NewMv},
+				{vp9dec.GoldenFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.NearMv},
+				{vp9dec.GoldenFrame, common.NewMv},
+				{vp9dec.AltrefFrame, common.ZeroMv},
+				{vp9dec.AltrefFrame, common.NearestMv},
+				{vp9dec.AltrefFrame, common.NearMv},
+				{vp9dec.AltrefFrame, common.NewMv},
+			},
+		},
+		{
+			name:   "svc",
+			useSVC: true,
+			want: []vp9RefMode{
+				{vp9dec.LastFrame, common.ZeroMv},
+				{vp9dec.LastFrame, common.NearestMv},
+				{vp9dec.LastFrame, common.NearMv},
+				{vp9dec.GoldenFrame, common.ZeroMv},
+				{vp9dec.GoldenFrame, common.NearestMv},
+				{vp9dec.GoldenFrame, common.NearMv},
+				{vp9dec.LastFrame, common.NewMv},
+				{vp9dec.GoldenFrame, common.NewMv},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := vp9NonrdRefModeSchedule(tc.useSVC)
+			if len(got) != len(tc.want) {
+				t.Fatalf("schedule len = %d, want %d", len(got), len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("schedule[%d] = {ref:%d mode:%d}, want {ref:%d mode:%d}",
+						i, got[i].refFrame, got[i].predMode,
+						tc.want[i].refFrame, tc.want[i].predMode)
+				}
+			}
+		})
+	}
+}
+
+func TestVP9NonrdFilterSweepRefOKMatchesLibvpxSVCFork(t *testing.T) {
+	cases := []struct {
+		name              string
+		ref               int8
+		useSVC            bool
+		rateControlSet    bool
+		rateControlMode   RateControlMode
+		forceMVInterLayer bool
+		want              bool
+	}{
+		{name: "last-always", ref: vp9dec.LastFrame, want: true},
+		{name: "golden-vbr", ref: vp9dec.GoldenFrame, rateControlSet: true, rateControlMode: RateControlVBR, want: true},
+		{name: "golden-svc-cbr", ref: vp9dec.GoldenFrame, useSVC: true, rateControlSet: true, rateControlMode: RateControlCBR, want: true},
+		{name: "golden-cbr-non-svc", ref: vp9dec.GoldenFrame, rateControlSet: true, rateControlMode: RateControlCBR},
+		{name: "golden-force-inter-layer", ref: vp9dec.GoldenFrame, useSVC: true, forceMVInterLayer: true},
+		{name: "altref-never", ref: vp9dec.AltrefFrame, useSVC: true, rateControlSet: true, rateControlMode: RateControlVBR},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP9Encoder{
+				opts: VP9EncoderOptions{
+					RateControlModeSet: tc.rateControlSet,
+					RateControlMode:    tc.rateControlMode,
+				},
+			}
+			e.svc.UseSvc = tc.useSVC
+			if got := e.vp9NonrdFilterSweepRefOK(tc.ref, tc.forceMVInterLayer); got != tc.want {
+				t.Fatalf("filter sweep ref ok = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVP9NonrdUseVarPartMVSeedDisablesForSVC(t *testing.T) {
+	e := &VP9Encoder{opts: VP9EncoderOptions{CpuUsed: 8}}
+	if !e.vp9NonrdUseVarPartMVSeed(common.Block32x32) {
+		t.Fatal("non-SVC speed8 Block32x32 seed = false, want true")
+	}
+	e.svc.UseSvc = true
+	if e.vp9NonrdUseVarPartMVSeed(common.Block32x32) {
+		t.Fatal("SVC speed8 Block32x32 seed = true, want false")
+	}
+	e.svc.UseSvc = false
+	if e.vp9NonrdUseVarPartMVSeed(common.Block16x16) {
+		t.Fatal("Block16x16 seed = true, want false")
+	}
+	e.opts.CpuUsed = 7
+	if e.vp9NonrdUseVarPartMVSeed(common.Block64x64) {
+		t.Fatal("speed7 Block64x64 seed = true, want false")
+	}
+}
 
 func TestVP9NewmvDiffBiasNoiseInputs(t *testing.T) {
 	cases := []struct {

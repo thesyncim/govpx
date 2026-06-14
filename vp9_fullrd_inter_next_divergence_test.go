@@ -3,11 +3,14 @@
 package govpx
 
 import (
+	"bytes"
 	"fmt"
 	"image"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -414,6 +417,170 @@ func nextDivLeafDiff(mi *vp9dec.NeighborMi, b nextDivBlock) []string {
 	return diffs
 }
 
+func nextDivBlockFromCommittedMi(miRow, miCol int, mi *vp9dec.NeighborMi) nextDivBlock {
+	b := nextDivBlock{
+		miRow:  miRow,
+		miCol:  miCol,
+		bsize:  int(mi.SbType),
+		mode:   int(mi.Mode),
+		ref0:   int(mi.RefFrame[0]),
+		ref1:   int(mi.RefFrame[1]),
+		interp: int(mi.InterpFilter),
+		intra:  mi.RefFrame[0] == int8(vp9dec.IntraFrame),
+		mv:     mi.Mv[0],
+	}
+	if mi.SbType < common.Block8x8 {
+		b.bmiSet = true
+		for i := 0; i < 4; i++ {
+			b.bmi[i] = nextDivBmi{
+				mode: mi.Bmi[i].AsMode,
+				mv:   mi.Bmi[i].AsMv[0],
+			}
+		}
+	}
+	return b
+}
+
+func nextDivFullSB0EncodeOrder() [][2]int {
+	order := make([][2]int, 0, 64)
+	for sbRow := 0; sbRow < 8; sbRow += 4 {
+		for sbCol := 0; sbCol < 8; sbCol += 4 {
+			for quadRow := 0; quadRow < 4; quadRow += 2 {
+				for quadCol := 0; quadCol < 4; quadCol += 2 {
+					order = append(order,
+						[2]int{sbRow + quadRow, sbCol + quadCol},
+						[2]int{sbRow + quadRow, sbCol + quadCol + 1},
+						[2]int{sbRow + quadRow + 1, sbCol + quadCol},
+						[2]int{sbRow + quadRow + 1, sbCol + quadCol + 1},
+					)
+				}
+			}
+		}
+	}
+	return order
+}
+
+func nextDivDecodeFrame1(t *testing.T, packets [][]byte) *VP9Decoder {
+	t.Helper()
+	if len(packets) < 2 {
+		t.Fatalf("need >=2 packets, got %d", len(packets))
+	}
+	d, err := NewVP9Decoder(VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	if err := d.Decode(packets[0]); err != nil {
+		t.Fatalf("decode keyframe: %v", err)
+	}
+	if _, ok := d.NextFrame(); !ok {
+		t.Fatal("NextFrame after keyframe")
+	}
+	if err := d.Decode(packets[1]); err != nil {
+		t.Fatalf("decode inter frame: %v", err)
+	}
+	return d
+}
+
+func nextDivReportLibvpxDynamicFrontier(t *testing.T,
+	govpxMi func(r, c int) *vp9dec.NeighborMi,
+	sources []*image.YCbCr,
+	closedPrefixLen int,
+) {
+	t.Helper()
+	available, err := vp9test.VpxencAvailable()
+	if err != nil {
+		t.Fatalf("VpxencAvailable: %v", err)
+	}
+	if !available {
+		t.Log("vpxenc-vp9 not built; dynamic bottom-half frontier unavailable " +
+			"(run `make vp9-vpxdec-tools`)")
+		return
+	}
+
+	args := []string{
+		"--end-usage=cbr",
+		"--target-bitrate=1200",
+		"--cpu-used=0",
+		"--kf-min-dist=0",
+		"--kf-max-dist=999",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+		"--timebase=1/30",
+	}
+	libvpxFrames, diag, err := vp9test.VpxencPacketsResult(sources, args...)
+	if err != nil {
+		t.Fatalf("vpxenc-vp9 encode failed: %v\n%s", err, diag)
+	}
+	libvpxDec := nextDivDecodeFrame1(t, libvpxFrames)
+	defer libvpxDec.Close()
+
+	const miCols = 8
+	order := nextDivFullSB0EncodeOrder()
+	if len(order) != 64 {
+		t.Fatalf("dynamic encode order has %d entries, want 64", len(order))
+	}
+	for i, b := range vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder {
+		if i >= len(order) {
+			t.Fatalf("static table entry %d outside dynamic order", i)
+		}
+		if order[i] != ([2]int{b.miRow, b.miCol}) {
+			t.Fatalf("static table order[%d] = mi(%d,%d), dynamic order has mi(%d,%d)",
+				i, b.miRow, b.miCol, order[i][0], order[i][1])
+		}
+	}
+
+	t.Log("dynamic libvpx bottom-half frontier walk (expected leaves decoded from " +
+		"the pinned vpxenc-vp9 frame-1 packet):")
+	firstDivIdx := -1
+	var firstWant nextDivBlock
+	var firstGot *vp9dec.NeighborMi
+	for idx, pos := range order {
+		r, c := pos[0], pos[1]
+		libMi := &libvpxDec.miGrid[r*miCols+c]
+		want := nextDivBlockFromCommittedMi(r, c, libMi)
+		if idx < closedPrefixLen {
+			static := vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder[idx]
+			if diffs := nextDivLeafDiff(libMi, static); len(diffs) != 0 {
+				t.Fatalf("static libvpx anchor [%d] mi(%d,%d) disagrees with live "+
+					"vpxenc-vp9 decode %v\n  live %s\n  static %s",
+					idx, r, c, diffs, nextDivFmtCommitted(libMi),
+					nextDivFmtWant(static))
+			}
+			continue
+		}
+
+		got := govpxMi(r, c)
+		diffs := nextDivLeafDiff(got, want)
+		path := nextDivClassifyPath(want)
+		if len(diffs) == 0 {
+			t.Logf("  [%2d] mi(%d,%d) MATCH   %-48s | %s",
+				idx, r, c, path, nextDivFmtCommitted(got))
+			continue
+		}
+		if firstDivIdx < 0 {
+			firstDivIdx = idx
+			firstWant = want
+			firstGot = got
+		}
+		t.Logf("  [%2d] mi(%d,%d) DIVERGE %-48s\n        got  %s\n        want %s\n        delta %v",
+			idx, r, c, path, nextDivFmtCommitted(got), nextDivFmtWant(want),
+			diffs)
+	}
+	if firstDivIdx < 0 {
+		t.Log("NO divergence in the full dynamic SB0 walk: govpx deep engine " +
+			"matches libvpx's committed frame-1 SB0 leaves")
+		return
+	}
+	t.Logf("DYNAMIC FRONTIER: first bottom-half divergence at encode index %d = mi(%d,%d)",
+		firstDivIdx, firstWant.miRow, firstWant.miCol)
+	t.Logf("  libvpx-committed: %s", nextDivFmtWant(firstWant))
+	t.Logf("  govpx-committed : %s", nextDivFmtCommitted(firstGot))
+	t.Logf("  delta           : %v", nextDivLeafDiff(firstGot, firstWant))
+	t.Logf("  DISTINCT PATH NEEDED: %s", nextDivClassifyPath(firstWant))
+}
+
 // TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2 drives the deep engine and reports
 // the first committed-block divergence after 16x16(0,0) in encode order, plus the
 // distinct libvpx path each frontier leaf needs.
@@ -493,6 +660,7 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
+	e.SetOracleTraceWriter(io.Discard)
 	srcs := newVP9NextDivPanningSources(width, height, 2)
 	var frames [][]byte
 	for i, s := range srcs {
@@ -632,10 +800,29 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 	if firstDivIdx < 0 {
 		t.Logf("NO divergence in the embedded top-32x32-pair window (%d leaves): the deep "+
 			"engine matches libvpx for every leaf transcribed here. The frontier has "+
-			"moved into the BOTTOM half of SB0 (mi rows 4..7); extend the embedded "+
-			"table with the bottom-left/bottom-right 32x32 (the MI16BMI encode_b dump "+
-			"of the md5 c41fc299 oracle stream) to localise it.",
+			"moved into the BOTTOM half of SB0 (mi rows 4..7); using the pinned "+
+			"vpxenc-vp9 oracle, when available, to localise it dynamically.",
 			len(vp9FullRDSeed0_2_0_0_2Frame1SB0EncodeOrder))
+		nextDivReportLibvpxDynamicFrontier(t, mi, srcs, closedPrefixLen)
+		mi72, ok := e.vp9CapturedSub8x8InterMi72Commit()
+		if !ok {
+			t.Fatal("no sub-8x8 inter commit capture for mi(7,2)")
+		}
+		if mi72.Bsize != common.Block4x4 || mi72.Mode != common.NearMv ||
+			mi72.RefFrame != int8(vp9dec.LastFrame) ||
+			mi72.InterpFilter != vp9dec.InterpEighttap || mi72.Skip2 {
+			t.Fatalf("mi(7,2) capture = {bsize=%d mode=%d ref=%d filter=%d skip2=%t}, "+
+				"want {Block4x4 NEARMV LAST EIGHTTAP skip2=false}",
+				mi72.Bsize, mi72.Mode, mi72.RefFrame, mi72.InterpFilter, mi72.Skip2)
+		}
+		if mi72.RateY != 83846 || mi72.RateUV != 26511 ||
+			mi72.DistUV != 31280 || mi72.Rate != 120990 ||
+			mi72.Distortion != 79019 || mi72.ThisRD != 42998663 {
+			t.Fatalf("mi(7,2) rate tuple = {rateY=%d rateUV=%d distUV=%d "+
+				"rate=%d dist=%d rd=%d}, want {83846 26511 31280 120990 79019 42998663}",
+				mi72.RateY, mi72.RateUV, mi72.DistUV, mi72.Rate, mi72.Distortion,
+				mi72.ThisRD)
+		}
 		return
 	}
 
@@ -651,6 +838,71 @@ func TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2(t *testing.T) {
 		"(after update_state finalises xd->mi[0]); partition walk encode_sb :2253; " +
 		"sub-8x8 RD vp9_rd_pick_inter_mode_sub8x8 (vp9_rdopt.c:4294); " +
 		"single-ref inter RD vp9_rd_pick_inter_mode_sb (vp9_rdopt.c:3445).")
+}
+
+func TestVP9FullRDInterSub8x8Frame1ReconstructionParity(t *testing.T) {
+	vp9test.RequireVpxenc(t)
+	prevP, prevTh, prevS := vp9InterUseDeepRDPartition, vp9InterUseDeepRDThisRDScore, vp9InterUseDeepRDSub8x8
+	prevRB := vp9InterUseDeepRDRefBestRD
+	vp9InterUseDeepRDPartition = true
+	vp9InterUseDeepRDThisRDScore = true
+	vp9InterUseDeepRDSub8x8 = true
+	vp9InterUseDeepRDRefBestRD = true
+	t.Cleanup(func() {
+		vp9InterUseDeepRDPartition = prevP
+		vp9InterUseDeepRDThisRDScore = prevTh
+		vp9InterUseDeepRDSub8x8 = prevS
+		vp9InterUseDeepRDRefBestRD = prevRB
+	})
+
+	const width, height = 64, 64
+	opts := VP9EncoderOptions{
+		Width: width, Height: height, FPS: 30,
+		RateControlModeSet: true, RateControlMode: RateControlCBR,
+		TargetBitrateKbps: 1200, BufferSizeMs: 600, BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500, MinQuantizer: 4, MaxQuantizer: 56,
+		MaxKeyframeInterval: 999, Deadline: DeadlineRealtime, CpuUsed: 0,
+	}
+	sources := newVP9NextDivPanningSources(width, height, 2)
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	govpxFrames := make([][]byte, 0, len(sources))
+	for i, src := range sources {
+		pkt, encErr := e.Encode(src)
+		if encErr != nil {
+			t.Fatalf("Encode frame %d: %v", i, encErr)
+		}
+		govpxFrames = append(govpxFrames, append([]byte(nil), pkt...))
+	}
+	libvpxFrames := vp9test.VpxencPackets(t, sources,
+		"--end-usage=cbr",
+		"--target-bitrate=1200",
+		"--cpu-used=0",
+		"--kf-min-dist=0",
+		"--kf-max-dist=999",
+		"--buf-sz=600",
+		"--buf-initial-sz=400",
+		"--buf-optimal-sz=500",
+		"--drop-frame=0",
+		"--timebase=1/30",
+	)
+	if len(govpxFrames) != 2 || len(libvpxFrames) != 2 {
+		t.Fatalf("frame count govpx=%d libvpx=%d, want 2/2",
+			len(govpxFrames), len(libvpxFrames))
+	}
+	if len(govpxFrames[1]) != len(libvpxFrames[1]) {
+		t.Fatalf("frame1 length govpx=%d libvpx=%d; sub-8x8 zcoeff replay drifted",
+			len(govpxFrames[1]), len(libvpxFrames[1]))
+	}
+	gotI420 := vp9DecodeVisibleI420ForTest(t, govpxFrames...)
+	wantI420 := vp9DecodeVisibleI420ForTest(t, libvpxFrames...)
+	if !bytes.Equal(gotI420, wantI420) {
+		t.Fatalf("frame1 decoded I420 mismatch after deep full-RD sub-8x8 encode: govpx=%s libvpx=%s",
+			vp9test.MD5Hex(gotI420), vp9test.MD5Hex(wantI420))
+	}
 }
 
 // newVP9NextDivPanningSources mirrors vp9test.NewPanningSources(w,h,n) (the exact

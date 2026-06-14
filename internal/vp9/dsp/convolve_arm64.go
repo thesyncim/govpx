@@ -27,17 +27,6 @@ func convolveHoriz8wNEON(src *byte, srcStride int, dst *byte, dstStride int,
 func convolveVert8wNEON(src *byte, srcStride int, dst *byte, dstStride int,
 	filter *int16, w, h int)
 
-// convolveSimdWindowOK validates the (w, h) write window for dst is
-// in-range. The src window depends on direction and is checked by the
-// caller.
-func convolveSimdDstOK(dst []byte, dstStride, w, h int) bool {
-	if dstStride < 0 {
-		return false
-	}
-	limit := (h-1)*dstStride + w
-	return limit >= 0 && limit <= len(dst)
-}
-
 // VpxConvolve8Horiz applies the horizontal 8-tap subpel filter.
 func VpxConvolve8Horiz(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
@@ -59,13 +48,8 @@ func VpxConvolve8Horiz(src []byte, srcStride int, dst []byte, dstStride int,
 	// src[y][srcOffset - 3 + x] is the first kernel-window byte for output
 	// column x at row y. Validate the entire read window before entering
 	// asm.
-	srcStart := srcOffset - (tables.SubpelTaps/2 - 1)
-	if srcStart < 0 || srcStride < 0 {
-		convolveHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
-		return
-	}
-	limit := srcStart + (h-1)*srcStride + w + tables.SubpelTaps - 1
-	if limit < srcStart || limit > len(src) {
+	srcStart, ok := convolveHorizSimdSrcOK(src, srcOffset, srcStride, w, h)
+	if !ok {
 		convolveHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
 		return
 	}
@@ -93,13 +77,8 @@ func VpxConvolve8Vert(src []byte, srcStride int, dst []byte, dstStride int,
 		convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
 		return
 	}
-	srcStart := srcOffset - srcStride*(tables.SubpelTaps/2-1)
-	if srcStart < 0 || srcStride < 0 {
-		convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
-		return
-	}
-	limit := srcStart + (h+tables.SubpelTaps-2)*srcStride + w
-	if limit < srcStart || limit > len(src) {
+	srcStart, ok := convolveVertSimdSrcOK(src, srcOffset, srcStride, w, h)
+	if !ok {
 		convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
 		return
 	}

@@ -47,10 +47,9 @@ import (
 //     context immediately after so WriteCoefSb commits against — and advances —
 //     the real context.
 //
-// This is gated on vp9InterUseDeepRDUsePartition; production (flag off) keeps
-// the running-threaded search context byte-for-byte. It is a no-op whenever
-// skip_encode is not armed for the frame (e.g. {0,1,1,0,1} frame 1, where
-// sf->skip_encode_frame==0 because the previous frame is the all-intra
+// This is scoped to the VAR_BASED use-partition deep-RD path and is a no-op
+// whenever skip_encode is not armed for the frame (e.g. {0,1,1,0,1} frame 1,
+// where sf->skip_encode_frame==0 because the previous frame is the all-intra
 // keyframe), so the frame-1 byte pin is unaffected.
 
 // vp9SkipEncodeSearchCtxActive reports whether libvpx's x->skip_encode would be
@@ -59,7 +58,7 @@ import (
 // predicate (sf->skip_encode_frame && q_index < QIDX_SKIP_THRESH) with the
 // output_enabled==0 RD-search-phase always true here.
 func (e *VP9Encoder) vp9SkipEncodeSearchCtxActive(inter *vp9InterEncodeState) bool {
-	if !vp9InterUseDeepRDUsePartition || inter == nil {
+	if !e.vp9UseDeepRDUsePartitionPath() || inter == nil {
 		return false
 	}
 	if e.sf.SkipEncodeFrame == 0 {
@@ -147,18 +146,23 @@ func (e *VP9Encoder) vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol int,
 		buf := e.vp9SBEntropySaveBuf[plane]
 		s := swap{aboveOff: ao, aboveLen: aboveLen, leftOff: lo, leftLen: leftLen}
 		// Save live above footprint into buf[0:aboveLen], then restore snapshot.
-		if ao >= 0 && ao+aboveLen <= len(pd.AboveContext) && aboveLen <= len(buf) {
+		if vp9ContextWindowOK(ao, aboveLen, len(pd.AboveContext)) &&
+			vp9ContextWindowOK(0, aboveLen, len(buf)) {
 			copy(buf[:aboveLen], pd.AboveContext[ao:ao+aboveLen])
-			relAbove := ao - sbAboveStart
-			if relAbove >= 0 && relAbove+aboveLen <= len(snapAbove) {
-				copy(pd.AboveContext[ao:ao+aboveLen], snapAbove[relAbove:relAbove+aboveLen])
+			if ao >= sbAboveStart {
+				relAbove := ao - sbAboveStart
+				if vp9ContextWindowOK(relAbove, aboveLen, len(snapAbove)) {
+					copy(pd.AboveContext[ao:ao+aboveLen],
+						snapAbove[relAbove:relAbove+aboveLen])
+				}
 			}
 		} else {
 			s.aboveLen = 0
 		}
 		// Save live left footprint into buf[aboveLen:aboveLen+leftLen], restore snapshot.
-		if lo >= 0 && lo+leftLen <= len(pd.LeftContext) &&
-			s.aboveLen+leftLen <= len(buf) && lo+leftLen <= len(snapLeft) {
+		if vp9ContextWindowOK(lo, leftLen, len(pd.LeftContext)) &&
+			vp9ContextWindowOK(s.aboveLen, leftLen, len(buf)) &&
+			vp9ContextWindowOK(lo, leftLen, len(snapLeft)) {
 			copy(buf[s.aboveLen:s.aboveLen+leftLen], pd.LeftContext[lo:lo+leftLen])
 			copy(pd.LeftContext[lo:lo+leftLen], snapLeft[lo:lo+leftLen])
 		} else {
@@ -174,10 +178,10 @@ func (e *VP9Encoder) vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol int,
 		pd := &e.planes[plane]
 		s := swaps[plane]
 		buf := e.vp9SBEntropySaveBuf[plane]
-		if s.aboveLen > 0 && s.aboveOff >= 0 && s.aboveOff+s.aboveLen <= len(pd.AboveContext) {
+		if s.aboveLen > 0 && vp9ContextWindowOK(s.aboveOff, s.aboveLen, len(pd.AboveContext)) {
 			copy(pd.AboveContext[s.aboveOff:s.aboveOff+s.aboveLen], buf[:s.aboveLen])
 		}
-		if s.leftLen > 0 && s.leftOff >= 0 && s.leftOff+s.leftLen <= len(pd.LeftContext) {
+		if s.leftLen > 0 && vp9ContextWindowOK(s.leftOff, s.leftLen, len(pd.LeftContext)) {
 			copy(pd.LeftContext[s.leftOff:s.leftOff+s.leftLen],
 				buf[s.aboveLen:s.aboveLen+s.leftLen])
 		}

@@ -137,6 +137,47 @@ func TestComputeRDMultMatchesKeyframeHelper(t *testing.T) {
 	}
 }
 
+func TestModulateRDMultMatchesLibvpxTables(t *testing.T) {
+	base := 1000
+	cases := []struct {
+		name string
+		mod  RDMultModulation
+		want int
+	}{
+		{name: "one pass identity", want: base},
+		{
+			name: "keyframe identity",
+			mod:  RDMultModulation{TwoPass: true, IsKeyFrame: true, UpdateType: LFUpdate, GFUBoost: 0},
+			want: base,
+		},
+		{
+			name: "lf boost zero",
+			mod:  RDMultModulation{TwoPass: true, UpdateType: LFUpdate, GFUBoost: 0},
+			want: 1687,
+		},
+		{
+			name: "arf boost clamp",
+			mod:  RDMultModulation{TwoPass: true, UpdateType: ARFUpdate, GFUBoost: 2000},
+			want: 1000,
+		},
+		{
+			name: "overlay mid boost",
+			mod:  RDMultModulation{TwoPass: true, UpdateType: OverlayUpdate, GFUBoost: 800},
+			want: 1195,
+		},
+		{
+			name: "use buffer dummy",
+			mod:  RDMultModulation{TwoPass: true, UpdateType: UseBufFrame, GFUBoost: 0},
+			want: 0,
+		},
+	}
+	for _, c := range cases {
+		if got := ModulateRDMult(base, c.mod); got != c.want {
+			t.Fatalf("%s: ModulateRDMult=%d want %d", c.name, got, c.want)
+		}
+	}
+}
+
 func absDiffInt(a, b int) int {
 	if a > b {
 		return a - b

@@ -22,6 +22,11 @@ import (
 // vp9MaxModes mirrors libvpx's MAX_MODES (vp9_rd.h:41).
 const vp9MaxModes = 30
 
+// vp9MaxRefs mirrors libvpx's MAX_REFS (vp9_rd.h:42). For bsize < BLOCK_8X8,
+// rd->threshes[][bsize][0:MAX_REFS] are indexed by vp9_ref_order rather than
+// THR_MODES.
+const vp9MaxRefs = 6
+
 // vp9RDThreshInitFact / vp9RDThreshMaxFact / vp9RDThreshInc mirror libvpx's
 // RD_THRESH_INIT_FACT / RD_THRESH_MAX_FACT / RD_THRESH_INC
 // (vp9_rd.h:44-46).
@@ -90,6 +95,15 @@ const (
 //	};
 var vp9RDThreshBlockSizeFactor = [common.BlockSizes]uint8{
 	2, 3, 3, 4, 6, 6, 8, 12, 12, 16, 24, 24, 32,
+}
+
+// vp9RDThreshMultSub8x8 mirrors libvpx vp9_set_rd_speed_thresholds_sub8x8's
+// thresh_mult[2][MAX_REFS] table. Row 0 is GOOD/REALTIME, row 1 is BEST.
+//
+// libvpx: vp9/encoder/vp9_rd.c:748-751
+var vp9RDThreshMultSub8x8 = [2][vp9MaxRefs]int{
+	{2500, 2500, 2500, 4500, 4500, 2500},
+	{2000, 2000, 2000, 4000, 4000, 2000},
 }
 
 // ModeIdxTable mirrors libvpx's static mode_idx[MAX_REF_FRAMES][4] table
@@ -245,6 +259,11 @@ type RDThreshState struct {
 	// (vp9_rd.h:116).
 	threshMult [vp9MaxModes]int
 
+	// threshMultSub8x8 mirrors RD_OPT::thresh_mult_sub8x8[MAX_REFS]
+	// (vp9_rd.h:117). It is expanded into threshes[bsize][0:MAX_REFS] for
+	// bsize < BLOCK_8X8.
+	threshMultSub8x8 [vp9MaxRefs]int
+
 	// threshes mirrors RD_OPT::threshes[MAX_SEGMENTS][BLOCK_SIZES][MAX_MODES]
 	// (vp9_rd.h:119) collapsed to the single-segment plane (segment_id=0).
 	threshes [common.BlockSizes][vp9MaxModes]int
@@ -271,9 +290,21 @@ func (s *RDThreshState) Threshold(bsize common.BlockSize, mode ThrMode) int {
 	return s.threshes[bsize][mode]
 }
 
+// Sub8x8RefRDThreshold returns the bsize<8x8 RD threshold for one
+// vp9_ref_order index.
+func (s *RDThreshState) Sub8x8RefRDThreshold(bsize common.BlockSize, refIndex int) int {
+	return s.threshes[bsize][refIndex]
+}
+
 // ThreshFreqFact returns the adaptive frequency factor for bsize/mode.
 func (s *RDThreshState) ThreshFreqFact(bsize common.BlockSize, mode ThrMode) int {
 	return s.threshFreqFact[bsize][mode]
+}
+
+// Sub8x8RefThreshFreqFact returns the adaptive frequency factor for one
+// bsize<8x8 vp9_ref_order index.
+func (s *RDThreshState) Sub8x8RefThreshFreqFact(bsize common.BlockSize, refIndex int) int {
+	return s.threshFreqFact[bsize][refIndex]
 }
 
 // InitFreqFact primes thresh_freq_fact to RD_THRESH_INIT_FACT
@@ -375,6 +406,34 @@ func (rd *RDThreshState) SetRDSpeedThresholds(adaptiveRdThresh int, bestQuality 
 	rd.threshMult[vp9ThrD63Pred] += 2500
 }
 
+// SetRDSpeedThresholdsSub8x8 is the verbatim port of libvpx's
+// vp9_set_rd_speed_thresholds_sub8x8 plus the framesize-dependent
+// disable_split_mask interaction from vp9_speed_features.c:903-906.
+//
+// libvpx: vp9/encoder/vp9_rd.c:747-755
+//
+//	void vp9_set_rd_speed_thresholds_sub8x8(VP9_COMP *cpi) {
+//	  static const int thresh_mult[2][MAX_REFS] = {
+//	    { 2500, 2500, 2500, 4500, 4500, 2500 },
+//	    { 2000, 2000, 2000, 4000, 4000, 2000 }
+//	  };
+//	  RD_OPT *const rd = &cpi->rd;
+//	  const int idx = cpi->oxcf.mode == BEST;
+//	  memcpy(rd->thresh_mult_sub8x8, thresh_mult[idx], sizeof(thresh_mult[idx]));
+//	}
+func (rd *RDThreshState) SetRDSpeedThresholdsSub8x8(bestQuality bool, disableSplitMask int) {
+	idx := 0
+	if bestQuality {
+		idx = 1
+	}
+	copy(rd.threshMultSub8x8[:], vp9RDThreshMultSub8x8[idx][:])
+	for i := range vp9MaxRefs {
+		if disableSplitMask&(1<<i) != 0 {
+			rd.threshMultSub8x8[i] = math.MaxInt32
+		}
+	}
+}
+
 // vp9ComputeRDThreshFactor is the verbatim port of libvpx's
 // compute_rd_thresh_factor.
 //
@@ -428,10 +487,6 @@ func vp9ComputeRDThreshFactor(qindex int) int {
 //	    }
 //	  }
 //	}
-//
-// govpx does not surface the sub-8x8 RD picker (vp9_pick_inter_mode_sub8x8),
-// so the bsize<Block8x8 branch is omitted; only the bsize>=Block8x8 branch
-// is populated for the realtime nonrd picker.
 func (rd *RDThreshState) SetBlockThresholds(baseQindex, yDcDeltaQ int) {
 	qindex := min(max(baseQindex+yDcDeltaQ, 0), vp9dec.MaxQ)
 	q := vp9ComputeRDThreshFactor(qindex)
@@ -456,8 +511,25 @@ func (rd *RDThreshState) SetBlockThresholds(baseQindex, yDcDeltaQ int) {
 					rd.threshes[bsize][i] = math.MaxInt32
 				}
 			}
+		} else {
+			for i := range vp9MaxRefs {
+				if rd.threshMultSub8x8[i] < threshMax {
+					rd.threshes[bsize][i] = rd.threshMultSub8x8[i] * t / 4
+				} else {
+					rd.threshes[bsize][i] = math.MaxInt32
+				}
+			}
 		}
 	}
+}
+
+// Sub8x8RefSkipped applies the sub-8x8 rd_less_than_thresh gate for one
+// vp9_ref_order index.
+func (rd *RDThreshState) Sub8x8RefSkipped(bestRD uint64,
+	bsize common.BlockSize, refIndex int,
+) bool {
+	return RDLessThanThresh(bestRD, rd.Sub8x8RefRDThreshold(bsize, refIndex),
+		rd.Sub8x8RefThreshFreqFact(bsize, refIndex))
 }
 
 // RDLessThanThresh is the verbatim port of libvpx's rd_less_than_thresh

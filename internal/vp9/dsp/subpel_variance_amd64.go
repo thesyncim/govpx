@@ -43,11 +43,7 @@ func subpelHalfFilter(filterIdx int) (uint64, uint64) {
 
 // subpelVarWindowOK validates the src read-window covers (w+1)x(h+1).
 func subpelVarWindowOK(buf []uint8, off, stride, w, h int) bool {
-	if off < 0 || stride < 0 {
-		return false
-	}
-	limit := off + h*stride + w + 1
-	return limit >= off && limit <= len(buf)
+	return dspSubpelReadWindowOK(buf, off, stride, w, h)
 }
 
 // runFirstPass runs the horizontal bilinear pre-filter for the given
@@ -125,28 +121,34 @@ func subPixelVarianceSimd(w, h int,
 		!varWindowOK(ref, refOff, refStride, w, h) {
 		return 0, false
 	}
+	if xOffset == 0 && yOffset == 0 {
+		return subPixelVarianceNoSubpel(w, h, src, srcOff, srcStride, ref, refOff, refStride, sse), true
+	}
 
 	var fdataBuf [64 * 65]byte
-	var tmpBuf [64 * 64]byte
-	fdata := fdataBuf[:w*(h+1)]
-	temp := tmpBuf[:w*h]
+	filterRows := h
+	if yOffset != 0 {
+		filterRows++
+	}
+	fdata := fdataBuf[:w*filterRows]
 
 	srcPtr := unsafe.SliceData(src[srcOff:])
 	if xOffset == 0 {
-		for y := 0; y < h+1; y++ {
+		for y := 0; y < filterRows; y++ {
 			off := srcOff + y*srcStride
 			copy(fdata[y*w:y*w+w], src[off:off+w])
 		}
 	} else {
-		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, filterRows, xOffset)
 	}
 
 	if yOffset == 0 {
-		copy(temp, fdata[:h*w])
-	} else {
-		runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
+		return finalVarianceFromBlock(fdata, w, h, ref, refOff, refStride, sse), true
 	}
 
+	var tmpBuf [64 * 64]byte
+	temp := tmpBuf[:w*h]
+	runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
 	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 }
 

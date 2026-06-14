@@ -19,6 +19,9 @@ func denoiserFilterYFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride i
 func denoiserFilterUVFirstPassNEON(mc *byte, mcStride int, avg *byte, avgStride int, sig *byte, sigStride int, level1Adjustment uint64, level1Threshold uint64, sumOut *int32)
 
 func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
+	if !denoiserWindowsOK(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, 16, 16) {
+		return 0, false
+	}
 	shiftInc := uint64(0)
 	if increaseDenoising && motionMagnitude <= denoiserMotionMagnitudeThresh {
 		shiftInc = 1
@@ -44,6 +47,9 @@ func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg 
 }
 
 func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
+	if !denoiserWindowsOK(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, 8, 8) {
+		return 0, false
+	}
 	sumBlock := 0
 	for r := range 8 {
 		row := sig[r*sigStride:]

@@ -262,3 +262,78 @@ func varFilterBlock2DBilinearSecondPass(src *[17 * 16]uint16, dst []byte, srcStr
 		}
 	}
 }
+
+const bilinearFilterScratchElements = 17 * 16
+
+func bilinearFilterScratchOK(width, height int) bool {
+	if width <= 0 || height <= 0 {
+		return false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if height > maxInt/width {
+		return false
+	}
+	return width*height <= bilinearFilterScratchElements
+}
+
+func bilinearFirstPassScalar(src []byte, srcStride int, dst *[17 * 16]uint16,
+	width, height int, filter [2]int16) {
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := 0; y < height; y++ {
+		srcRow := y * srcStride
+		dstRow := y * width
+		for x := 0; x < width; x++ {
+			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+1])*f1
+			dst[dstRow+x] = uint16((v + round) >> shift)
+		}
+	}
+}
+
+func bilinearSecondPassScalar(src *[17 * 16]uint16, dst []byte,
+	width, height int, filter [2]int16) {
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := 0; y < height; y++ {
+		srcRow := y * width
+		dstRow := y * width
+		for x := 0; x < width; x++ {
+			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+width])*f1
+			dst[dstRow+x] = byte((v + round) >> shift)
+		}
+	}
+}
+
+func bilinearFilter16x16HorizontalScalar(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := range height {
+		srcRow := y * srcStride
+		dstRow := y * 16
+		for x := range 16 {
+			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+1])*f1
+			dst[dstRow+x] = byte((v + round) >> shift)
+		}
+	}
+}
+
+func bilinearFilter16x16VerticalScalar(src []byte, srcStride int, dst []byte, height int, filter [2]int16) {
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := range height {
+		srcRow := y * srcStride
+		dstRow := y * 16
+		for x := range 16 {
+			v := int(src[srcRow+x])*f0 + int(src[srcRow+srcStride+x])*f1
+			dst[dstRow+x] = byte((v + round) >> shift)
+		}
+	}
+}

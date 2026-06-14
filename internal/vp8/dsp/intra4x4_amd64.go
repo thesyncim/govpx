@@ -46,47 +46,87 @@ func intra4x4HDPredictSSE2(dst *byte, stride int, above *byte, left *byte, topLe
 //go:noescape
 func intra4x4HUPredictSSE2(dst *byte, stride int, left *byte)
 
-// Each wrapper hands the kernel slice base pointers via unsafe.SliceData
-// so the dispatch stays free of the runtime.panicBounds + stack frame
-// the compiler emits for &slice[0]. Callers (Intra4x4Predict and friends
-// in intra4x4.go) always pass slices of the proper size.
+// Each wrapper checks the exact scalar window before handing slice base
+// pointers to SSE2 via unsafe.SliceData. Invalid windows deliberately
+// fall back to the scalar kernel so package-internal callers keep scalar
+// behavior instead of feeding unchecked pointers to assembly.
 
 func intra4x4DCPredict(dst []byte, dstStride int, above []byte, left []byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 4, left, 4) {
+		intra4x4DCPredictScalar(dst, dstStride, above, left)
+		return
+	}
 	intra4x4DCPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left))
 }
 
 func intra4x4TMPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 4, left, 4) {
+		intra4x4TMPredictScalar(dst, dstStride, above, left, topLeft)
+		return
+	}
 	intra4x4TMPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VEPredict(dst []byte, dstStride int, above []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 5, nil, 0) {
+		intra4x4VEPredictScalar(dst, dstStride, above, topLeft)
+		return
+	}
 	intra4x4VEPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), topLeft)
 }
 
 func intra4x4HEPredict(dst []byte, dstStride int, left []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, nil, 0, left, 4) {
+		intra4x4HEPredictScalar(dst, dstStride, left, topLeft)
+		return
+	}
 	intra4x4HEPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4LDPredict(dst []byte, dstStride int, above []byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 8, nil, 0) {
+		intra4x4LDPredictScalar(dst, dstStride, above)
+		return
+	}
 	intra4x4LDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4RDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 4, left, 4) {
+		intra4x4RDPredictScalar(dst, dstStride, above, left, topLeft)
+		return
+	}
 	intra4x4RDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VRPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 4, left, 3) {
+		intra4x4VRPredictScalar(dst, dstStride, above, left, topLeft)
+		return
+	}
 	intra4x4VRPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4VLPredict(dst []byte, dstStride int, above []byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 8, nil, 0) {
+		intra4x4VLPredictScalar(dst, dstStride, above)
+		return
+	}
 	intra4x4VLPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above))
 }
 
 func intra4x4HDPredict(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, above, 3, left, 4) {
+		intra4x4HDPredictScalar(dst, dstStride, above, left, topLeft)
+		return
+	}
 	intra4x4HDPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intra4x4HUPredict(dst []byte, dstStride int, left []byte) {
+	if !intra4x4PredictWindowOK(dst, dstStride, nil, 0, left, 4) {
+		intra4x4HUPredictScalar(dst, dstStride, left)
+		return
+	}
 	intra4x4HUPredictSSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }

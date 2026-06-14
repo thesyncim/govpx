@@ -130,8 +130,9 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 				qcoeff[:], dqcoeff[:])
 
 			// vp9_block_error: error = sum(coeff-dqcoeff)^2, ssz = sum(coeff^2).
-			thisdistortion += encoder.BlockErrorFP(coeff[:], dqcoeff[:])
-			thissse += vp9Sub8x8SumSquares(coeff[:])
+			blockDist, blockSSE := encoder.BlockErrorFPWithEnergy(coeff[:], dqcoeff[:])
+			thisdistortion += blockDist
+			thissse += blockSSE
 
 			thisrate += e.vp9InterCoeffBlockRateCostQ(common.Tx4x4, 0, dequant,
 				coeff[:], qcoeff[:], coeffCtx)
@@ -172,16 +173,6 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 		eob:    firstEob,
 		anyEob: anyEob,
 	}, true
-}
-
-// vp9Sub8x8SumSquares returns sum(coeff[i]^2) (the ssz term of vp9_block_error,
-// vp9_rdopt.c:327).
-func vp9Sub8x8SumSquares(coeff []int16) uint64 {
-	var s uint64
-	for _, c := range coeff[:min(16, len(coeff))] {
-		s += uint64(int64(c) * int64(c))
-	}
-	return s
 }
 
 // vp9Sub8x8GatherResidual writes the (src - predictor) 4x4 residual for one
@@ -226,11 +217,11 @@ func (e *VP9Encoder) vp9Sub8x8SeedEntropy(ent *vp9Sub8x8SegmentEntropy,
 ) {
 	pd := &e.planes[0]
 	aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-	if ao := aboveOff[0]; ao >= 0 && ao+2 <= len(pd.AboveContext) {
+	if ao := aboveOff[0]; vp9ContextWindowOK(ao, 2, len(pd.AboveContext)) {
 		ent.above[0] = pd.AboveContext[ao]
 		ent.above[1] = pd.AboveContext[ao+1]
 	}
-	if lo := leftOff[0]; lo >= 0 && lo+2 <= len(pd.LeftContext) {
+	if lo := leftOff[0]; vp9ContextWindowOK(lo, 2, len(pd.LeftContext)) {
 		ent.left[0] = pd.LeftContext[lo]
 		ent.left[1] = pd.LeftContext[lo+1]
 	}
@@ -250,11 +241,11 @@ func (e *VP9Encoder) vp9Sub8x8StampEntropy(ent *vp9Sub8x8SegmentEntropy,
 ) {
 	pd := &e.planes[0]
 	aboveOff, leftOff := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-	if ao := aboveOff[0]; ao >= 0 && ao+2 <= len(pd.AboveContext) {
+	if ao := aboveOff[0]; vp9ContextWindowOK(ao, 2, len(pd.AboveContext)) {
 		pd.AboveContext[ao] = ent.above[0]
 		pd.AboveContext[ao+1] = ent.above[1]
 	}
-	if lo := leftOff[0]; lo >= 0 && lo+2 <= len(pd.LeftContext) {
+	if lo := leftOff[0]; vp9ContextWindowOK(lo, 2, len(pd.LeftContext)) {
 		pd.LeftContext[lo] = ent.left[0]
 		pd.LeftContext[lo+1] = ent.left[1]
 	}

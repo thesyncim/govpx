@@ -36,11 +36,7 @@ func sad4xNNEON(src *byte, srcStride int, ref *byte, refStride int, rows int) ui
 // is in-bounds and non-overflowing so the NEON kernels can read it
 // safely. Mirrors the AMD64 wrapper's check.
 func sadWindowOK(buf []uint8, off, stride, w, h int) bool {
-	if off < 0 || stride < 0 {
-		return false
-	}
-	limit := off + (h-1)*stride + w
-	return limit >= off && limit <= len(buf)
+	return dspReadWindowOK(buf, off, stride, w, h)
 }
 
 func sad64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {

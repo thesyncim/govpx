@@ -16,6 +16,20 @@ func (e *VP9Encoder) vp9AutoAltRefSourceImage(center *vp9LookaheadEntry) *image.
 	return &center.img
 }
 
+func (e *VP9Encoder) vp9TwoPassAltRefSourceImage(center *vp9LookaheadEntry, distance int) *image.YCbCr {
+	if center == nil {
+		return nil
+	}
+	strengthAdjustment := 0
+	if e.twoPass.gfGroupActive {
+		strengthAdjustment = e.twoPass.gfGroup.ARNRStrengthAdjust
+	}
+	if e.applyVP9ARNRFilterAt(center, distance, 2, strengthAdjustment) {
+		return &e.vp9ARNRScratch
+	}
+	return &center.img
+}
+
 // vp9KeyFrameFilteringActive reports whether the libvpx-faithful VP9E_SET_
 // KEY_FRAME_FILTERING gates are all satisfied for the next encode.  The
 // gate set mirrors vp9/encoder/vp9_encoder.c:6347-6353 exactly:
@@ -168,9 +182,16 @@ func (e *VP9Encoder) SetEnableKeyFrameFiltering(enabled bool) error {
 }
 
 func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
+	return e.applyVP9ARNRFilterAt(center, int(e.lookaheadCount)-1, 1, 0)
+}
+
+func (e *VP9Encoder) applyVP9ARNRFilterAt(center *vp9LookaheadEntry,
+	distance int, pass int, strengthAdjustment int,
+) bool {
 	maxFrames := min(e.opts.ARNRMaxFrames, maxARNRFrames)
 	if maxFrames <= 1 || len(e.vp9ARNRScratch.Y) == 0 ||
-		e.lookaheadCount == 0 {
+		e.lookaheadCount == 0 || center == nil ||
+		e.opts.ARNRStrength <= 0 {
 		return false
 	}
 	// libvpx only runs vp9_temporal_filter for alt-ref frames outside
@@ -179,7 +200,9 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 	if vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeRealtime {
 		return false
 	}
-	distance := int(e.lookaheadCount) - 1
+	if distance < 0 || distance >= int(e.lookaheadCount) {
+		return false
+	}
 	// libvpx vp9/encoder/vp9_temporal_filter.c:1255 adjust_arnr_filter
 	// drives the adaptive temporal-filter strength + symmetric window
 	// placement off the GF/ARF group boost and the running
@@ -201,8 +224,8 @@ func (e *VP9Encoder) applyVP9ARNRFilter(center *vp9LookaheadEntry) bool {
 			GroupBoost:             int(e.rc.gfuBoost),
 			ARNRMaxFrames:          e.opts.ARNRMaxFrames,
 			ARNRStrengthBase:       e.opts.ARNRStrength,
-			ARNRStrengthAdjustment: 0,
-			Pass:                   1,
+			ARNRStrengthAdjustment: strengthAdjustment,
+			Pass:                   pass,
 			CurrentVideoFrame:      e.frameIndex,
 			AvgFrameQIndexInter:    int(e.rc.avgFrameQIndexInter),
 			AvgFrameQIndexKey:      int(e.rc.avgFrameQIndexKey),

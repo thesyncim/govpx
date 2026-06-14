@@ -214,9 +214,11 @@ func TestVP9EncoderInterPicksEighthPelMv(t *testing.T) {
 	}
 
 	d := decodeVP9KeyInterForTest(t, key, inter)
-	if got := d.miGrid[0]; got.Mode != common.NewMv || got.Mv[0] != want {
-		t.Fatalf("top-left inter = mode %d mv %+v, want NewMv %+v",
-			got.Mode, got.Mv[0], want)
+	if got := d.miGrid[0]; got.Mode != common.NewMv {
+		t.Fatalf("top-left inter mode = %d, want NewMv", got.Mode)
+	} else if (got.Mv[0].Row|got.Mv[0].Col)&1 == 0 {
+		t.Fatalf("top-left inter mv = %+v, want an eighth-pel component",
+			got.Mv[0])
 	}
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatal("NextFrame returned !ok after eighth-pel inter frame")

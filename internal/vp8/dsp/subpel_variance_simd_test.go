@@ -53,6 +53,270 @@ func referenceSecondPass16(src *[17 * 16]uint16, dst []byte, height int, filter 
 	}
 }
 
+func TestBilinearFilterScratchOK(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+		want   bool
+	}{
+		{name: "first-pass-16x17", width: 16, height: 17, want: true},
+		{name: "second-pass-16x17", width: 16, height: 17, want: true},
+		{name: "sized-8x34", width: 8, height: 34, want: true},
+		{name: "too-many-samples", width: 16, height: 18, want: false},
+		{name: "zero-width", width: 0, height: 17, want: false},
+		{name: "zero-height", width: 16, height: 0, want: false},
+		{name: "negative-width", width: -16, height: 17, want: false},
+	}
+	for _, tt := range tests {
+		if got := bilinearFilterScratchOK(tt.width, tt.height); got != tt.want {
+			t.Fatalf("%s: bilinearFilterScratchOK(%d,%d) = %v, want %v",
+				tt.name, tt.width, tt.height, got, tt.want)
+		}
+	}
+	maxInt := int(^uint(0) >> 1)
+	if bilinearFilterScratchOK(maxInt, 2) {
+		t.Fatal("overflowing scratch dimensions were accepted")
+	}
+}
+
+func TestBilinearFirstPassInvalidWindowPanicsInScalar(t *testing.T) {
+	filter := tables.BilinearFilters[3]
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "16-short-src",
+			fn: func() {
+				var dst [17 * 16]uint16
+				varFilterBlock2DBilinearFirstPass16(make([]byte, 16), 16, &dst, 1, filter)
+			},
+		},
+		{
+			name: "8-short-src",
+			fn: func() {
+				var dst [17 * 16]uint16
+				varFilterBlock2DBilinearFirstPass8(make([]byte, 8), 8, &dst, 1, filter)
+			},
+		},
+		{
+			name: "4-short-src",
+			fn: func() {
+				var dst [17 * 16]uint16
+				varFilterBlock2DBilinearFirstPass4(make([]byte, 4), 4, &dst, 1, filter)
+			},
+		},
+		{
+			name: "scratch-overflow",
+			fn: func() {
+				var dst [17 * 16]uint16
+				varFilterBlock2DBilinearFirstPass16(make([]byte, 18*17), 17, &dst, 18, filter)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+func TestBilinearSecondPassInvalidWindowPanicsInScalar(t *testing.T) {
+	filter := tables.BilinearFilters[5]
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "16-short-dst",
+			fn: func() {
+				var src [17 * 16]uint16
+				varFilterBlock2DBilinearSecondPass16(&src, make([]byte, 15), 1, filter)
+			},
+		},
+		{
+			name: "8-short-dst",
+			fn: func() {
+				var src [17 * 16]uint16
+				varFilterBlock2DBilinearSecondPass8(&src, make([]byte, 7), 1, filter)
+			},
+		},
+		{
+			name: "4-short-dst",
+			fn: func() {
+				var src [17 * 16]uint16
+				varFilterBlock2DBilinearSecondPass4(&src, make([]byte, 3), 1, filter)
+			},
+		},
+		{
+			name: "scratch-overflow",
+			fn: func() {
+				var src [17 * 16]uint16
+				varFilterBlock2DBilinearSecondPass16(&src, make([]byte, 16*17), 17, filter)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+func TestBilinearFilter16x16ByteInvalidWindowPanicsInScalar(t *testing.T) {
+	filter := tables.BilinearFilters[3]
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "horizontal-short-src",
+			fn: func() {
+				bilinearFilter16x16Horizontal(make([]byte, 16), 16, make([]byte, 16), 1, filter)
+			},
+		},
+		{
+			name: "horizontal-short-dst",
+			fn: func() {
+				bilinearFilter16x16Horizontal(make([]byte, 32), 32, make([]byte, 15), 1, filter)
+			},
+		},
+		{
+			name: "vertical-short-src",
+			fn: func() {
+				bilinearFilter16x16Vertical(make([]byte, 16), 16, make([]byte, 16), 1, filter)
+			},
+		},
+		{
+			name: "vertical-short-dst",
+			fn: func() {
+				bilinearFilter16x16Vertical(make([]byte, 32), 16, make([]byte, 15), 1, filter)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+func TestVarianceBlock16x16InvalidWindowPanicsInScalar(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "short-src",
+			fn: func() {
+				varianceBlock16x16(make([]byte, 15), 16, make([]byte, 16*16), 16)
+			},
+		},
+		{
+			name: "short-ref",
+			fn: func() {
+				varianceBlock16x16(make([]byte, 16*16), 16, make([]byte, 15), 16)
+			},
+		},
+		{
+			name: "negative-src-stride",
+			fn: func() {
+				varianceBlock16x16(make([]byte, 16*16), -16, make([]byte, 16*16), 16)
+			},
+		},
+		{
+			name: "negative-ref-stride",
+			fn: func() {
+				varianceBlock16x16(make([]byte, 16*16), 16, make([]byte, 16*16), -16)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+func TestVarianceBlockSizedInvalidWindowPanicsInScalar(t *testing.T) {
+	sizes := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{name: "16x8", width: 16, height: 8},
+		{name: "8x16", width: 8, height: 16},
+		{name: "8x8", width: 8, height: 8},
+		{name: "4x8", width: 4, height: 8},
+		{name: "4x4", width: 4, height: 4},
+	}
+	for _, size := range sizes {
+		t.Run(size.name, func(t *testing.T) {
+			full := (size.height-1)*size.width + size.width
+			cases := []struct {
+				name string
+				fn   func()
+			}{
+				{
+					name: "short-src",
+					fn: func() {
+						varianceBlockSized(make([]byte, size.width-1), size.width, make([]byte, full), size.width, size.width, size.height)
+					},
+				},
+				{
+					name: "short-ref",
+					fn: func() {
+						varianceBlockSized(make([]byte, full), size.width, make([]byte, size.width-1), size.width, size.width, size.height)
+					},
+				},
+				{
+					name: "negative-src-stride",
+					fn: func() {
+						varianceBlockSized(make([]byte, full), -size.width, make([]byte, full), size.width, size.width, size.height)
+					},
+				},
+				{
+					name: "negative-ref-stride",
+					fn: func() {
+						varianceBlockSized(make([]byte, full), size.width, make([]byte, full), -size.width, size.width, size.height)
+					},
+				},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					defer func() {
+						if recover() == nil {
+							t.Fatal("expected scalar bounds panic")
+						}
+					}()
+					tc.fn()
+				})
+			}
+		})
+	}
+}
+
 // TestSubpelVarianceBilinearSIMDMatchesScalar exhaustively cross-checks
 // the dispatched SIMD-accelerated 16-wide bilinear / variance kernels
 // against the pure-Go reference implementations defined above. On

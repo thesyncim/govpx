@@ -197,8 +197,7 @@ func dcWindowOK(dest []uint8, stride, w, h int) bool {
 	if stride < w {
 		return false
 	}
-	limit := (h-1)*stride + w
-	return limit > 0 && limit <= len(dest)
+	return dspReadWindowOK(dest, 0, stride, w, h)
 }
 
 // SSE2 column-add kernels — see idct_amd64.s.

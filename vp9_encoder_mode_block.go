@@ -265,11 +265,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		useNonRDKeyframeMode := e.useVP9KeyframeNonRDIntraMode(reconBsize)
 		uvMode := common.DcPred
 		keyDecisionReplayed := false
+		var cachedKeyDecision vp9KeyframeModeDecision
 		if cached, ok := e.lookupVP9LeafKeyframeDecision(miRow, miCol, bsize); ok {
 			cur.Mode = cached.mode
 			cur.Bmi = cached.bmi
 			cur.TxSize = cached.txSize
 			uvMode = cached.uvMode
+			cachedKeyDecision = cached
 			keyDecisionReplayed = true
 		}
 		if !keyDecisionReplayed {
@@ -291,13 +293,20 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if segmentSkip {
 			cur.Skip = 1
 			if key.counts != nil {
-				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize,
-					vp9KeyframeModeDecision{
-						mode:   cur.Mode,
-						bmi:    cur.Bmi,
-						txSize: cur.TxSize,
-						uvMode: uvMode,
-					})
+				storeDecision := vp9KeyframeModeDecision{
+					mode:   cur.Mode,
+					bmi:    cur.Bmi,
+					txSize: cur.TxSize,
+					uvMode: uvMode,
+					skip:   true,
+				}
+				if keyDecisionReplayed {
+					storeDecision.reconReplayValid = cachedKeyDecision.reconReplayValid
+					storeDecision.reconReplayMode = cachedKeyDecision.reconReplayMode
+					storeDecision.reconReplayTx = cachedKeyDecision.reconReplayTx
+					storeDecision.reconReplayRD = cachedKeyDecision.reconReplayRD
+				}
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize, storeDecision)
 			}
 		} else {
 			// libvpx vp9_rdopt.c:3221-3270 — vp9_rd_pick_intra_mode_sb
@@ -316,13 +325,20 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 					miRow, miCol, reconBsize, &cur, txMode)
 			}
 			if key.counts != nil {
-				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize,
-					vp9KeyframeModeDecision{
-						mode:   cur.Mode,
-						bmi:    cur.Bmi,
-						txSize: cur.TxSize,
-						uvMode: uvMode,
-					})
+				storeDecision := vp9KeyframeModeDecision{
+					mode:   cur.Mode,
+					bmi:    cur.Bmi,
+					txSize: cur.TxSize,
+					uvMode: uvMode,
+					skip:   cachedKeyDecision.skip,
+				}
+				if keyDecisionReplayed {
+					storeDecision.reconReplayValid = cachedKeyDecision.reconReplayValid
+					storeDecision.reconReplayMode = cachedKeyDecision.reconReplayMode
+					storeDecision.reconReplayTx = cachedKeyDecision.reconReplayTx
+					storeDecision.reconReplayRD = cachedKeyDecision.reconReplayRD
+				}
+				e.storeVP9LeafKeyframeDecision(miRow, miCol, bsize, storeDecision)
 			}
 			// libvpx vp9_encodeframe.c:6057-6060 initializes every intra
 			// block as skipped before vp9_encode_intra_block_plane tokenizes
@@ -330,6 +346,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			// non-zero coefficients. Mirror that state transition here so
 			// keyframe blocks with no residual write the skip bit instead of
 			// a zero-coefficient block body.
+			if keyDecisionReplayed {
+				e.replayVP9KeyframeYReconSideEffect(key, tile, miRows, miCols,
+					miRow, miCol, reconBsize, &cur, cachedKeyDecision)
+			}
 			cur.Skip = 1
 			hasResidue = e.prepareVP9KeyframeBlockResidue(key, tile, miRows, miCols,
 				miRow, miCol, reconBsize, &cur, uvMode)

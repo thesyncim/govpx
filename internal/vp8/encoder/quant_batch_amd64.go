@@ -16,5 +16,9 @@ func fastQuantizeBlockBatchSIMD(coeff []int16, quant *BlockQuant, qcoeff []int16
 	if count <= 0 {
 		return
 	}
+	if !quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff, eobs, count) {
+		fastQuantizeBlockBatchScalar(coeff, quant, qcoeff, dqcoeff, eobs, count)
+		return
+	}
 	fastQuantizeBlockBatchSSE2(&coeff[0], &quant.Round[0], &quant.QuantFast[0], &quant.Dequant[0], &qcoeff[0], &dqcoeff[0], &eobs[0], count)
 }

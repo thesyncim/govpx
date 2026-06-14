@@ -111,6 +111,240 @@ func TestIntra4x4PredictInvalidMode(t *testing.T) {
 	}
 }
 
+func TestIntra4x4PredictInvalidWindowPanicsInScalar(t *testing.T) {
+	above := make([]byte, 8)
+	left := make([]byte, 4)
+	dst := make([]byte, 4*4)
+	const topLeft = byte(128)
+
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "dc-short-dst",
+			fn: func() {
+				Intra4x4DCPredict(make([]byte, 3), 4, above, left)
+			},
+		},
+		{
+			name: "dc-short-above",
+			fn: func() {
+				Intra4x4DCPredict(dst, 4, above[:3], left)
+			},
+		},
+		{
+			name: "dc-short-left",
+			fn: func() {
+				Intra4x4DCPredict(dst, 4, above, left[:3])
+			},
+		},
+		{
+			name: "dc-negative-dst-stride",
+			fn: func() {
+				Intra4x4DCPredict(dst, -1, above, left)
+			},
+		},
+		{
+			name: "tm-short-dst",
+			fn: func() {
+				Intra4x4TMPredict(make([]byte, 3), 4, above, left, topLeft)
+			},
+		},
+		{
+			name: "tm-short-above",
+			fn: func() {
+				Intra4x4TMPredict(dst, 4, above[:3], left, topLeft)
+			},
+		},
+		{
+			name: "tm-short-left",
+			fn: func() {
+				Intra4x4TMPredict(dst, 4, above, left[:3], topLeft)
+			},
+		},
+		{
+			name: "tm-negative-dst-stride",
+			fn: func() {
+				Intra4x4TMPredict(dst, -1, above, left, topLeft)
+			},
+		},
+		{
+			name: "ve-short-dst",
+			fn: func() {
+				Intra4x4VEPredict(make([]byte, 3), 4, above, topLeft)
+			},
+		},
+		{
+			name: "ve-short-above",
+			fn: func() {
+				Intra4x4VEPredict(dst, 4, above[:4], topLeft)
+			},
+		},
+		{
+			name: "ve-negative-dst-stride",
+			fn: func() {
+				Intra4x4VEPredict(dst, -1, above, topLeft)
+			},
+		},
+		{
+			name: "he-short-dst",
+			fn: func() {
+				Intra4x4HEPredict(make([]byte, 3), 4, left, topLeft)
+			},
+		},
+		{
+			name: "he-short-left",
+			fn: func() {
+				Intra4x4HEPredict(dst, 4, left[:3], topLeft)
+			},
+		},
+		{
+			name: "he-negative-dst-stride",
+			fn: func() {
+				Intra4x4HEPredict(dst, -1, left, topLeft)
+			},
+		},
+		{
+			name: "ld-short-dst",
+			fn: func() {
+				Intra4x4LDPredict(make([]byte, 3), 4, above)
+			},
+		},
+		{
+			name: "ld-short-above",
+			fn: func() {
+				Intra4x4LDPredict(dst, 4, above[:7])
+			},
+		},
+		{
+			name: "ld-negative-dst-stride",
+			fn: func() {
+				Intra4x4LDPredict(dst, -1, above)
+			},
+		},
+		{
+			name: "rd-short-dst",
+			fn: func() {
+				Intra4x4RDPredict(make([]byte, 3), 4, above, left, topLeft)
+			},
+		},
+		{
+			name: "rd-short-above",
+			fn: func() {
+				Intra4x4RDPredict(dst, 4, above[:3], left, topLeft)
+			},
+		},
+		{
+			name: "rd-short-left",
+			fn: func() {
+				Intra4x4RDPredict(dst, 4, above, left[:3], topLeft)
+			},
+		},
+		{
+			name: "rd-negative-dst-stride",
+			fn: func() {
+				Intra4x4RDPredict(dst, -1, above, left, topLeft)
+			},
+		},
+		{
+			name: "vr-short-dst",
+			fn: func() {
+				Intra4x4VRPredict(make([]byte, 3), 4, above, left, topLeft)
+			},
+		},
+		{
+			name: "vr-short-above",
+			fn: func() {
+				Intra4x4VRPredict(dst, 4, above[:3], left, topLeft)
+			},
+		},
+		{
+			name: "vr-short-left",
+			fn: func() {
+				Intra4x4VRPredict(dst, 4, above, left[:2], topLeft)
+			},
+		},
+		{
+			name: "vr-negative-dst-stride",
+			fn: func() {
+				Intra4x4VRPredict(dst, -1, above, left, topLeft)
+			},
+		},
+		{
+			name: "vl-short-dst",
+			fn: func() {
+				Intra4x4VLPredict(make([]byte, 3), 4, above)
+			},
+		},
+		{
+			name: "vl-short-above",
+			fn: func() {
+				Intra4x4VLPredict(dst, 4, above[:7])
+			},
+		},
+		{
+			name: "vl-negative-dst-stride",
+			fn: func() {
+				Intra4x4VLPredict(dst, -1, above)
+			},
+		},
+		{
+			name: "hd-short-dst",
+			fn: func() {
+				Intra4x4HDPredict(make([]byte, 3), 4, above, left, topLeft)
+			},
+		},
+		{
+			name: "hd-short-above",
+			fn: func() {
+				Intra4x4HDPredict(dst, 4, above[:2], left, topLeft)
+			},
+		},
+		{
+			name: "hd-short-left",
+			fn: func() {
+				Intra4x4HDPredict(dst, 4, above, left[:3], topLeft)
+			},
+		},
+		{
+			name: "hd-negative-dst-stride",
+			fn: func() {
+				Intra4x4HDPredict(dst, -1, above, left, topLeft)
+			},
+		},
+		{
+			name: "hu-short-dst",
+			fn: func() {
+				Intra4x4HUPredict(make([]byte, 3), 4, left)
+			},
+		},
+		{
+			name: "hu-short-left",
+			fn: func() {
+				Intra4x4HUPredict(dst, 4, left[:3])
+			},
+		},
+		{
+			name: "hu-negative-dst-stride",
+			fn: func() {
+				Intra4x4HUPredict(dst, -1, left)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
 func TestIntra4x4PredictAllocatesZero(t *testing.T) {
 	above := []byte{10, 20, 30, 40, 50, 60, 70, 80}
 	left := []byte{90, 100, 110, 120}

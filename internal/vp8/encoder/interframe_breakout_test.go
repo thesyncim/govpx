@@ -77,6 +77,41 @@ func TestStaticInterEncodeBreakoutUsesLibvpxChromaGates(t *testing.T) {
 	}
 }
 
+func TestReferencePlaneBlockOffsetValidWindows(t *testing.T) {
+	plane := make([]byte, 100)
+	if off, ok := referencePlaneBlockOffset(plane, 10, 0, 2, 3, 4, 4, false); !ok || off != 23 {
+		t.Fatalf("visible window offset = %d/%v, want 23/true", off, ok)
+	}
+	if off, ok := referencePlaneBlockOffset(plane, 10, 22, -1, -1, 4, 4, false); !ok || off != 11 {
+		t.Fatalf("negative-border window offset = %d/%v, want 11/true", off, ok)
+	}
+	if off, ok := referencePlaneBlockOffset(plane, 10, 0, 0, 0, 8, 8, true); !ok || off != 0 {
+		t.Fatalf("subpel-expanded window offset = %d/%v, want 0/true", off, ok)
+	}
+}
+
+func TestReferencePlaneBlockOffsetRejectsOverflow(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	plane := make([]byte, 100)
+	tests := []struct {
+		name                                string
+		stride, origin, y, x, width, height int
+		subpel                              bool
+	}{
+		{name: "row-mul-overflow", stride: huge/2 + 1, y: 3, width: 1, height: 1},
+		{name: "origin-row-add-overflow", stride: 16, origin: huge, y: 1, width: 1, height: 1},
+		{name: "x-add-overflow", stride: 16, origin: huge, x: 1, width: 1, height: 1},
+		{name: "last-row-overflow", stride: huge/2 + 1, y: 0, width: 1, height: 3},
+		{name: "subpel-width-overflow", stride: huge, width: huge, height: 1, subpel: true},
+	}
+	for _, tt := range tests {
+		if off, ok := referencePlaneBlockOffset(plane, tt.stride, tt.origin,
+			tt.y, tt.x, tt.width, tt.height, tt.subpel); ok {
+			t.Fatalf("%s: referencePlaneBlockOffset accepted offset %d", tt.name, off)
+		}
+	}
+}
+
 func TestMacroblockErrorHelpersClampVisibleEdges(t *testing.T) {
 	src, ref := edgeSourceAndReference()
 
