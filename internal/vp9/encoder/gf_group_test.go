@@ -405,6 +405,45 @@ func TestDefineGFGroupLagEnablesAltRefAtLargeLag(t *testing.T) {
 	}
 }
 
+func TestGetZeroMotionFactorMatchesLibvpxMinSRDecay(t *testing.T) {
+	frame := FirstPassFrameStats{
+		IntraError:   1000,
+		CodedError:   100,
+		SRCodedError: 100,
+		PcntInter:    0.90,
+		PcntMotion:   0.20,
+	}
+	got := GetZeroMotionFactor(frame, 1.0, DefaultDecayLimit)
+	const want = 0.70
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("zero motion factor = %g, want %g", got, want)
+	}
+
+	frame.SRCodedError = 5000
+	wantClampedBySR := math.Min(GetSRDecayRate(frame, 1.0, DefaultDecayLimit),
+		frame.PcntInter-frame.PcntMotion)
+	if got := GetZeroMotionFactor(frame, 1.0, DefaultDecayLimit); got != wantClampedBySR {
+		t.Fatalf("zero motion factor with sr decay = %g, want %g",
+			got, wantClampedBySR)
+	}
+}
+
+func TestCheckTransitionToStillAcceptsExactWindowEnd(t *testing.T) {
+	stats := make([]FirstPassFrameStats, 5)
+	for i := range stats {
+		stats[i] = FirstPassFrameStats{
+			IntraError:   1000,
+			CodedError:   10,
+			SRCodedError: 10,
+			PcntInter:    1.0,
+			PcntMotion:   0.0,
+		}
+	}
+	if !CheckTransitionToStill(stats, 0, len(stats), DefaultARFBoostParams(4)) {
+		t.Fatal("CheckTransitionToStill rejected a window ending exactly at stats length")
+	}
+}
+
 // TestCalcNormFrameScoreConfigMatchesLibvpxDefault confirms the
 // configurable CalcNormFrameScoreConfig matches libvpx's documented
 // defaults (vbrbias=50, vbrmin_section=0, vbrmax_section=2000) when

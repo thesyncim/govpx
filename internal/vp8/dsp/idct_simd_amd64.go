@@ -19,9 +19,17 @@ func idct4x4AddSSE2(input *int16, pred *byte, predStride int, dst *byte, dstStri
 func dcOnlyIDCT4x4AddSSE2(inputDC int16, pred *byte, predStride int, dst *byte, dstStride int)
 
 func idct4x4AddSIMD(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
+	if !dspSIMDPredictWindowOK(pred, predStride, 4, 4, dst, dstStride, 4, 4) {
+		idct4x4AddScalar(input, pred, predStride, dst, dstStride)
+		return
+	}
 	idct4x4AddSSE2(&input[0], unsafe.SliceData(pred), predStride, unsafe.SliceData(dst), dstStride)
 }
 
 func dcOnlyIDCT4x4AddSIMD(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
+	if !dspSIMDPredictWindowOK(pred, predStride, 4, 4, dst, dstStride, 4, 4) {
+		dcOnlyIDCT4x4AddScalar(inputDC, pred, predStride, dst, dstStride)
+		return
+	}
 	dcOnlyIDCT4x4AddSSE2(inputDC, unsafe.SliceData(pred), predStride, unsafe.SliceData(dst), dstStride)
 }

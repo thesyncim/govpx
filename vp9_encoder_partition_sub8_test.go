@@ -277,6 +277,88 @@ func TestVP9EncoderInterSub8x8DecisionPreservesBmiCounts(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterIntraSub8x8YModeCountsMirrorWireShape(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		bsize common.BlockSize
+		bmi   [4]common.PredictionMode
+		want  map[common.PredictionMode]uint32
+	}{
+		{
+			name:  "4x4",
+			bsize: common.Block4x4,
+			bmi: [4]common.PredictionMode{
+				common.DcPred, common.VPred, common.HPred, common.TmPred,
+			},
+			want: map[common.PredictionMode]uint32{
+				common.DcPred: 1, common.VPred: 1, common.HPred: 1, common.TmPred: 1,
+			},
+		},
+		{
+			name:  "4x8",
+			bsize: common.Block4x8,
+			bmi: [4]common.PredictionMode{
+				common.VPred, common.HPred, common.VPred, common.HPred,
+			},
+			want: map[common.PredictionMode]uint32{
+				common.VPred: 1, common.HPred: 1,
+			},
+		},
+		{
+			name:  "8x4",
+			bsize: common.Block8x4,
+			bmi: [4]common.PredictionMode{
+				common.VPred, common.VPred, common.DcPred, common.DcPred,
+			},
+			want: map[common.PredictionMode]uint32{
+				common.VPred: 1, common.DcPred: 1,
+			},
+		},
+	} {
+		var counts vp9enc.FrameCounts
+		mi := vp9dec.NeighborMi{SbType: tc.bsize, Mode: tc.bmi[3]}
+		for i, mode := range tc.bmi {
+			mi.Bmi[i].AsMode = mode
+		}
+		countVP9InterIntraModes(&counts, tc.bsize, &mi)
+		for mode, want := range tc.want {
+			if got := counts.YMode[0][mode]; got != want {
+				t.Fatalf("%s mode %d count = %d, want %d",
+					tc.name, mode, got, want)
+			}
+		}
+		var total uint32
+		for _, got := range counts.YMode[0] {
+			total += got
+		}
+		var wantTotal uint32
+		for _, want := range tc.want {
+			wantTotal += want
+		}
+		if total != wantTotal {
+			t.Fatalf("%s total count = %d, want %d", tc.name, total, wantTotal)
+		}
+	}
+}
+
+func TestVP9EncoderInterIntraUvModeCounts(t *testing.T) {
+	var counts vp9enc.FrameCounts
+	countVP9InterIntraUvMode(&counts, common.TmPred, common.HPred)
+	if got := counts.UvMode[common.TmPred][common.HPred]; got != 1 {
+		t.Fatalf("UvMode[TM][H] = %d, want 1", got)
+	}
+	countVP9InterIntraUvMode(&counts, common.PredictionMode(common.IntraModes), common.HPred)
+	countVP9InterIntraUvMode(&counts, common.TmPred, common.PredictionMode(common.IntraModes))
+	if got := counts.UvMode[common.TmPred][common.HPred]; got != 1 {
+		t.Fatalf("invalid modes changed UvMode[TM][H] to %d", got)
+	}
+
+	decCounts := vp9enc.FrameCountsForDecoder(&counts)
+	if got := decCounts.UvMode[common.TmPred][common.HPred]; got != 1 {
+		t.Fatalf("decoder UvMode[TM][H] = %d, want 1", got)
+	}
+}
+
 func TestVP9InterModeDecisionMiCarriesChosenTxSize(t *testing.T) {
 	decision := vp9InterModeDecision{
 		refFrame:       vp9dec.LastFrame,

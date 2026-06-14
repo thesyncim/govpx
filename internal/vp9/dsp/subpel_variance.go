@@ -90,6 +90,42 @@ func subPixelVarianceScalar(w, h int,
 	return varianceScalar(w, h, tempBlock, 0, w, ref, refOff, refStride, sse)
 }
 
+func subPixelVarianceNoSubpel(w, h int,
+	src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) uint32 {
+	switch {
+	case w == 64 && h == 64:
+		return variance64x64(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 64 && h == 32:
+		return variance64x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 32 && h == 64:
+		return variance32x64(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 32 && h == 32:
+		return variance32x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 32 && h == 16:
+		return variance32x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 16 && h == 32:
+		return variance16x32(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 16 && h == 16:
+		return variance16x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 16 && h == 8:
+		return variance16x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 8 && h == 16:
+		return variance8x16(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 8 && h == 8:
+		return variance8x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 8 && h == 4:
+		return variance8x4(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 4 && h == 8:
+		return variance4x8(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	case w == 4 && h == 4:
+		return variance4x4(src, srcOff, srcStride, ref, refOff, refStride, sse)
+	default:
+		return varianceScalar(w, h, src, srcOff, srcStride, ref, refOff, refStride, sse)
+	}
+}
+
 // VpxSubPixelVariance{W}x{H} mirror libvpx's vpx_sub_pixel_variance{W}x{H}.
 // Each delegates to a size-specialized helper so per-arch SIMD backends
 // can override the hot paths and the rest stays on the scalar reference.

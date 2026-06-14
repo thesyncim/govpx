@@ -25,6 +25,11 @@ func varFilterBlock2DBilinearSecondPass16(src *[17 * 16]uint16, dst []byte, heig
 	if height <= 0 {
 		return
 	}
+	maxInt := int(^uint(0) >> 1)
+	if height == maxInt || !bilinearFilterScratchOK(16, height+1) || !dspWindowOK(dst, 16, 16, height) {
+		bilinearSecondPassScalar(src, dst, 16, height, filter)
+		return
+	}
 	f0u := uint64(uint16(filter[0])) * 0x0001000100010001
 	f1u := uint64(uint16(filter[1])) * 0x0001000100010001
 	if cpu.HasAVX2 {

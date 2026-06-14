@@ -612,7 +612,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	// only when its opt-in flag is active; production (flag off) leaves the
 	// slice nil so storeVP9LeafInterRDDecision / lookupVP9LeafInterRDDecision
 	// early-return and the path stays byte-identical.
-	if vp9InterUseDeepRDPartition {
+	if e.vp9UseDeepRDSearchPartitionPath() {
 		e.ensureVP9LeafInterRDDecisionCache(miRows, miCols)
 		e.ensureVP9InterPartitionRDDecisionCache(miRows, miCols)
 	}
@@ -652,10 +652,19 @@ func (e *VP9Encoder) vp9EncoderPlaneContextOffsets(miRow, miCol int) (
 ) {
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
-		above[plane] = (miCol * 2) >> pd.SubsamplingX
-		left[plane] = ((miRow * 2) >> pd.SubsamplingY) % len(pd.LeftContext)
+		above[plane], left[plane] = -1, -1
+		if len(pd.AboveContext) > 0 {
+			above[plane] = (miCol * 2) >> pd.SubsamplingX
+		}
+		if len(pd.LeftContext) > 0 {
+			left[plane] = ((miRow * 2) >> pd.SubsamplingY) % len(pd.LeftContext)
+		}
 	}
 	return above, left
+}
+
+func vp9ContextWindowOK(off, n, total int) bool {
+	return n >= 0 && off >= 0 && n <= total && off <= total-n
 }
 
 func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {

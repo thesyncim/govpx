@@ -10,17 +10,38 @@ import (
 // vp8/encoder/encodemb.c subtract flows while packing into the block-major
 // coefficient layout used by the Go encoder.
 
+func residualGatherWindowOK(buf []byte, stride int, width int, height int, baseX int, baseY int, blockW int, blockH int) bool {
+	if stride <= 0 || blockW <= 0 || blockH <= 0 {
+		return false
+	}
+	if width < blockW || height < blockH || baseX < 0 || baseY < 0 {
+		return false
+	}
+	if baseX > width-blockW || baseY > height-blockH {
+		return false
+	}
+	maxInt := int(^uint(0) >> 1)
+	lastRow := baseY + blockH - 1
+	if lastRow != 0 && stride > maxInt/lastRow {
+		return false
+	}
+	rowOffset := lastRow * stride
+	if baseX > maxInt-rowOffset {
+		return false
+	}
+	lastStart := rowOffset + baseX
+	if blockW > maxInt-lastStart {
+		return false
+	}
+	return lastStart+blockW <= len(buf)
+}
+
 func GatherMacroblockYResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
-	// Uint range collapses (base >= 0) + (base+16 <= dim) into one
-	// compare per dimension when dim >= 16; smaller dims fall through
-	// to the scalar gather path.
-	if uint(baseY) <= uint(height-16) && uint(baseX) <= uint(width-16) {
-		srcEnd := (baseY+15)*srcStride + baseX + 15
-		predEnd := (baseY+15)*predStride + baseX + 15
-		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 16*16 {
-			gatherMacroblockYResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
-			return
-		}
+	if residualGatherWindowOK(src, srcStride, width, height, baseX, baseY, 16, 16) &&
+		residualGatherWindowOK(pred, predStride, width, height, baseX, baseY, 16, 16) &&
+		len(out) >= 16*16 {
+		gatherMacroblockYResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
+		return
 	}
 	for block := range 16 {
 		x := baseX + (block&3)*4
@@ -39,13 +60,11 @@ func gatherMacroblockYResiduals4x4Unchecked(src *byte, srcStride int, pred *byte
 // 8x8 MB chroma block at top-left (baseX,baseY) into out (4 blocks, 16 int16
 // per block in scan order). Same fast/slow split as the Y gatherer.
 func GatherMacroblockUVResiduals4x4(src []byte, srcStride int, width int, height int, pred []byte, predStride int, baseX int, baseY int, out []int16) {
-	if uint(baseY) <= uint(height-8) && uint(baseX) <= uint(width-8) {
-		srcEnd := (baseY+7)*srcStride + baseX + 7
-		predEnd := (baseY+7)*predStride + baseX + 7
-		if srcStride > 0 && predStride > 0 && srcEnd < len(src) && predEnd < len(pred) && len(out) >= 4*16 {
-			gatherMacroblockUVResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
-			return
-		}
+	if residualGatherWindowOK(src, srcStride, width, height, baseX, baseY, 8, 8) &&
+		residualGatherWindowOK(pred, predStride, width, height, baseX, baseY, 8, 8) &&
+		len(out) >= 4*16 {
+		gatherMacroblockUVResiduals4x4Unchecked(unsafe.SliceData(src), srcStride, unsafe.SliceData(pred), predStride, baseX, baseY, unsafe.SliceData(out))
+		return
 	}
 	for block := range 4 {
 		x := baseX + (block&1)*4

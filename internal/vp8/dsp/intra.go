@@ -36,6 +36,12 @@ func IntraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, top
 }
 
 func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) {
+	if upAvailable {
+		_ = above[size-1]
+	}
+	if leftAvailable {
+		_ = left[size-1]
+	}
 	dc := 128
 
 	if upAvailable && leftAvailable {
@@ -63,6 +69,27 @@ func intraDCPredictScalar(dst []byte, dstStride int, above []byte, left []byte, 
 	}
 
 	fillBlock(dst, dstStride, size, byte(dc))
+}
+
+func intraDCPredictWindowOK(dst []byte, dstStride int, above []byte, left []byte, size int, upAvailable bool, leftAvailable bool) bool {
+	if !dspWindowOK(dst, dstStride, size, size) {
+		return false
+	}
+	if upAvailable && len(above) < size {
+		return false
+	}
+	if leftAvailable && len(left) < size {
+		return false
+	}
+	return true
+}
+
+func intraPredictWindowOK(dst []byte, dstStride int, edge []byte, size int) bool {
+	return dspWindowOK(dst, dstStride, size, size) && len(edge) >= size
+}
+
+func intraTMPredictWindowOK(dst []byte, dstStride int, above []byte, left []byte, size int) bool {
+	return dspWindowOK(dst, dstStride, size, size) && len(above) >= size && len(left) >= size
 }
 
 func intraVerticalPredictScalar(dst []byte, dstStride int, above []byte, size int) {

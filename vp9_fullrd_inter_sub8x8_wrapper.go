@@ -14,14 +14,12 @@ import (
 // returns the 8x8 block's committed rate/dist/this_rd + the per-sub-block bmi
 // quartet for the bitstream writer.
 //
-// SCOPE: this is the single-reference inter path (the only path the frame-1
-// realtime cpu0 SB0 sub-8x8 children exercise for ref=LAST). Compound prediction
-// (joint_motion_search) and the intra sub-8x8 fallback (rd_pick_intra_sub_8x8_y_mode
-// + choose_intra_uv_mode) are NOT yet ported here; when libvpx commits intra at a
-// sub-8x8 leaf this wrapper reports !ok and the caller falls back to the model
-// stand-in. cm->interp_filter == SWITCHABLE on this path, so each of the three
-// switchable filters (EIGHTTAP, EIGHTTAP_SMOOTH, EIGHTTAP_SHARP) is evaluated and
-// the best by tmp_rd (segment_rd + RDCOST(switchable_rate,0)) selected
+// SCOPE: this is the single-reference inter path (the path the frame-1
+// realtime cpu0 SB0 sub-8x8 children exercise for ref=LAST) plus libvpx's
+// INTRA_FRAME arm. Compound prediction (joint_motion_search) is not yet ported
+// here. cm->interp_filter == SWITCHABLE on this path, so each of the three
+// switchable filters (EIGHTTAP, EIGHTTAP_SMOOTH, EIGHTTAP_SHARP) is evaluated
+// and the best by tmp_rd (segment_rd + RDCOST(switchable_rate,0)) selected
 // (vp9_rdopt.c:4569-4625).
 //
 // GATED behind vp9InterUseDeepRDSub8x8 (and the deep partition flag). Production
@@ -39,6 +37,9 @@ type vp9Sub8x8WrapperResult struct {
 	rate         int    // rd_cost->rate (rate2 after the skip pick)
 	distortion   uint64 // rd_cost->dist
 	thisRD       uint64 // rd_cost->rdcost
+	rateY        int
+	rateUV       int
+	distUV       uint64
 	skippable    bool
 	skip2        bool
 	// intra is set when the committed decision is the INTRA_FRAME sub-8x8 mode
@@ -53,6 +54,48 @@ type vp9Sub8x8WrapperResult struct {
 	// commit it is the post-coding plane[0] context from rd_pick_intra4x4block.
 	segEntropy vp9Sub8x8SegmentEntropy
 	valid      bool
+}
+
+type vp9Sub8x8InterCapture struct {
+	MiRow        int
+	MiCol        int
+	Bsize        common.BlockSize
+	Mode         common.PredictionMode
+	RefFrame     int8
+	InterpFilter vp9dec.InterpFilter
+	Bmi          [4]vp9dec.Bmi
+	Rate         int
+	RateY        int
+	RateUV       int
+	Distortion   uint64
+	DistUV       uint64
+	ThisRD       uint64
+	Skip2        bool
+}
+
+// vp9Sub8x8BestYRDFromLibvpxMacro preserves this libvpx source expression:
+//
+//	best_yrd = best_rd - RDCOST(x->rdmult, x->rddiv, rate_uv, distortion_uv);
+//
+// RDCOST is a C macro without outer parentheses, so the expression expands as:
+//
+//	best_rd - ROUND_POWER_OF_TWO(rate_uv * rdmult, 9) + (distortion_uv << rddiv)
+//
+// The looser Y-only budget is observable in frame-2 sub-8x8 reference ordering:
+// it lets the next reference's segment search run before UV RD is considered.
+func vp9Sub8x8BestYRDFromLibvpxMacro(rdmult, rddiv int, bestRD uint64,
+	rateUV int, distUV uint64,
+) uint64 {
+	rateCost := encoder.RDCostFromRate(rdmult, rateUV)
+	distCost := encoder.RDCostFromDistortion(rddiv, distUV)
+	if bestRD > rateCost {
+		return bestRD - rateCost + distCost
+	}
+	deficit := rateCost - bestRD
+	if distCost <= deficit {
+		return 0
+	}
+	return distCost - deficit
 }
 
 // rdPickInterModeSub8x8 ports vp9_rd_pick_inter_mode_sub8x8 for the single-ref
@@ -108,16 +151,35 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 	// NEWMV search runs once per (block, ref). Declared here (function scope) to
 	// match libvpx exactly.
 	var segMvCache vp9Sub8x8SegMvCache
+	// libvpx disables the sub-8x8 ref-index threshold gate only for two-pass
+	// internal formatting-bar edges (vp9_rdopt.c:4333-4334). govpx's current
+	// full-RD oracle path is one-pass and has no inactive-zone model, so this is
+	// false until that source state is ported.
+	internalActiveEdge := false
+	sub8x8RefSkipped := func(refIndex int) bool {
+		return !internalActiveEdge &&
+			e.rdThresh.Sub8x8RefSkipped(bestRD, bsize, refIndex)
+	}
 
 	// Reference-frame loop. Frame-1 realtime cpu0 single-ref: only the refs in
-	// inter.refMask are usable (LAST on the steady inter frame). INTRA sub-8x8 is
-	// deferred (see file header).
-	refFramesAll := [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame}
+	// inter.refMask are usable (LAST on the steady inter frame).
+	refFramesAll := [...]struct {
+		refFrame int8
+		refIndex int
+	}{
+		{vp9dec.LastFrame, sfThrLast},
+		{vp9dec.GoldenFrame, sfThrGold},
+		{vp9dec.AltrefFrame, sfThrAltr},
+	}
 	savedRef := inter.ref
 	defer func() { inter.ref = savedRef }()
-	for _, refFrame := range refFramesAll {
+	for _, refDef := range refFramesAll {
+		refFrame := refDef.refFrame
 		refSlot, ok := e.vp9InterReferenceSlot(inter, refFrame)
 		if !ok {
+			continue
+		}
+		if sub8x8RefSkipped(refDef.refIndex) {
 			continue
 		}
 		inter.ref = &e.refFrames[refSlot]
@@ -242,7 +304,6 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 		}
 
 		thisRD := encoder.RDCost(rdmult, rddiv, rate2, distortion2)
-
 		// best mode so far? (this_rd < best_rd).
 		better := !bestSet
 		if bestSet && (!bestRDValid || thisRD < bestRD) {
@@ -251,17 +312,9 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 		if better {
 			bestRD = thisRD
 			bestRDValid = true
-			// best_yrd = best_rd - RDCOST(rate_uv, distortion_uv)
-			// (vp9_rdopt.c:4772-4773): the Y-only budget for the next ref's
-			// segment + UV early-exit.
-			uvRDC := encoder.RDCost(rdmult, rddiv, rateUV, distUV)
-			if bestRD > uvRDC {
-				bestYRD = bestRD - uvRDC
-				bestYRDInf = false
-			} else {
-				bestYRD = 0
-				bestYRDInf = false
-			}
+			bestYRD = vp9Sub8x8BestYRDFromLibvpxMacro(rdmult, rddiv,
+				bestRD, rateUV, distUV)
+			bestYRDInf = false
 			bestRes = vp9Sub8x8WrapperResult{
 				bmi:          segBest.Bmi,
 				mode:         segBest.Bmi[3].AsMode,
@@ -272,6 +325,9 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 				rate:         rate2,
 				distortion:   distortion2,
 				thisRD:       thisRD,
+				rateY:        rateY,
+				rateUV:       rateUV,
+				distUV:       distUV,
 				skippable:    skippable,
 				skip2:        skip2,
 				segEntropy:   segBest.SegEntropy,
@@ -291,27 +347,47 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 	// vp9_rd_pick_inter_mode_sub8x8 (vp9_rdopt.c:4511-4528) + the shared
 	// ref-signalling/skip/RDCOST/commit tail (vp9_rdopt.c:4707-4775).
 	inter.ref = savedRef
-	if intraRes, intraCap, ok := e.rdPickInterSub8x8Intra(inter, tile, miRows,
-		miCols, miRow, miCol, bsize, above, left, rdmult, rddiv, bestRD,
-		bestRDValid); ok {
-		better := !bestSet
-		if bestSet && (!bestRDValid || intraRes.thisRD < bestRD) {
-			better = true
-		}
-		if better {
-			bestRD = intraRes.thisRD
-			bestRDValid = true
-			bestRes = intraRes
-			bestSet = true
-			// Oracle-trace pin: record the committed intra leaf (mi=(1,0)) so the
-			// wrapper test can assert the intra Y/UV rate + per-sub-block modes match
-			// libvpx. Zero-cost in non-trace builds.
-			e.recordVP9Sub8x8IntraCommit(intraCap)
+	if !sub8x8RefSkipped(sfThrIntra) {
+		if intraRes, intraCap, ok := e.rdPickInterSub8x8Intra(inter, tile, miRows,
+			miCols, miRow, miCol, bsize, above, left, rdmult, rddiv, bestRD,
+			bestRDValid); ok {
+			better := !bestSet
+			if bestSet && (!bestRDValid || intraRes.thisRD < bestRD) {
+				better = true
+			}
+			if better {
+				bestRD = intraRes.thisRD
+				bestRDValid = true
+				bestRes = intraRes
+				bestSet = true
+				// Oracle-trace pin: record the committed intra leaf (mi=(1,0)) so the
+				// wrapper test can assert the intra Y/UV rate + per-sub-block modes match
+				// libvpx. Zero-cost in non-trace builds.
+				e.recordVP9Sub8x8IntraCommit(intraCap)
+			}
 		}
 	}
 
 	if !bestSet {
 		return vp9Sub8x8WrapperResult{}, false
+	}
+	if !bestRes.intra {
+		e.recordVP9Sub8x8InterCommit(vp9Sub8x8InterCapture{
+			MiRow:        miRow,
+			MiCol:        miCol,
+			Bsize:        bsize,
+			Mode:         bestRes.mode,
+			RefFrame:     bestRes.refFrame,
+			InterpFilter: bestRes.interpFilter,
+			Bmi:          bestRes.bmi,
+			Rate:         bestRes.rate,
+			RateY:        bestRes.rateY,
+			RateUV:       bestRes.rateUV,
+			Distortion:   bestRes.distortion,
+			DistUV:       bestRes.distUV,
+			ThisRD:       bestRes.thisRD,
+			Skip2:        bestRes.skip2,
+		})
 	}
 	// vp9_rd_pick_inter_mode_sub8x8 finalisation (vp9_rdopt.c:4894-4906):
 	// mi->mv[0] = bmi[3].as_mv[0]; second-ref mv zeroed (no second ref here).

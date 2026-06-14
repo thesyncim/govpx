@@ -55,7 +55,27 @@ func TestTransformBlockMetricsShiftForSub32x32(t *testing.T) {
 	if got := TransformBlockEnergy(coeffs, common.Tx8x8); got != 22 {
 		t.Fatalf("TransformBlockEnergy 8x8 = %d, want 22", got)
 	}
+	gotErr, gotEnergy := TransformBlockErrorWithEnergy(coeffs, dqcoeffs, common.Tx4x4)
+	if gotErr != 14 || gotEnergy != 22 {
+		t.Fatalf("TransformBlockErrorWithEnergy 4x4 = (%d,%d), want (14,22)",
+			gotErr, gotEnergy)
+	}
+	gotErr, gotEnergy = TransformBlockErrorWithEnergy(coeffs, dqcoeffs, common.Tx32x32)
+	if gotErr != 56 || gotEnergy != 89 {
+		t.Fatalf("TransformBlockErrorWithEnergy 32x32 = (%d,%d), want (56,89)",
+			gotErr, gotEnergy)
+	}
 	if got := ResidualSSE([]int16{3, -4, 12}); got != 169 {
 		t.Fatalf("ResidualSSE = %d, want 169", got)
+	}
+}
+
+func TestTransformBlockErrorWithEnergyUsesPairedWindow(t *testing.T) {
+	coeffs := []int16{3, -4, 1000}
+	dqcoeffs := []int16{1, -1}
+	gotErr, gotEnergy := TransformBlockErrorWithEnergy(coeffs, dqcoeffs, common.Tx32x32)
+	if gotErr != 13 || gotEnergy != 25 {
+		t.Fatalf("TransformBlockErrorWithEnergy paired window = (%d,%d), want (13,25)",
+			gotErr, gotEnergy)
 	}
 }

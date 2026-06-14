@@ -2,6 +2,29 @@ package encoder
 
 import vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 
+func planeRectFits(buf []byte, stride, x, y, w, h int) bool {
+	if len(buf) == 0 || stride <= 0 || x < 0 || y < 0 || w <= 0 || h <= 0 {
+		return false
+	}
+	if x > stride || w > stride-x {
+		return false
+	}
+	maxInt := int(^uint(0) >> 1)
+	if h-1 > maxInt-y {
+		return false
+	}
+	lastRow := y + h - 1
+	if lastRow > maxInt/stride {
+		return false
+	}
+	rowStart := lastRow * stride
+	if w > maxInt-x {
+		return false
+	}
+	rowEndWidth := x + w
+	return rowEndWidth <= len(buf) && rowStart <= len(buf)-rowEndWidth
+}
+
 // BlockDiffStats is the raw per-pixel error accumulation for a prediction
 // block.
 type BlockDiffStats struct {
@@ -48,6 +71,30 @@ func BlockSADOffsets(src []byte, srcOff, srcStride int,
 		}
 	}
 	return sad
+}
+
+// BlockSADSkipRowsOffsets mirrors libvpx's vpx_sad_skip_* kernels: compute the
+// SAD over every other row, starting at the supplied offsets, and scale it by 2.
+func BlockSADSkipRowsOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int, limit uint64,
+) uint64 {
+	var sad uint64
+	rows := h / 2
+	for y := range rows {
+		srcRow := src[srcOff+y*2*srcStride:]
+		refRow := ref[refOff+y*2*refStride:]
+		for x := range w {
+			diff := int(srcRow[x]) - int(refRow[x])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += uint64(diff)
+		}
+		if sad*2 >= limit {
+			return sad * 2
+		}
+	}
+	return sad * 2
 }
 
 // BlockSSE returns the sum of squared errors for a source/reference rectangle.
@@ -109,17 +156,17 @@ func BlockDiffVarianceSSEClampedSource(src []byte, srcStride, srcW, srcH int,
 func BlockDiffStatsClampedSource(src []byte, srcStride, srcW, srcH int,
 	ref []byte, refStride int, srcX, srcY, refX, refY, w, h int,
 ) (BlockDiffStats, bool) {
+	maxInt := int(^uint(0) >> 1)
 	if len(src) == 0 || len(ref) == 0 || srcStride <= 0 || refStride <= 0 ||
 		srcW <= 0 || srcH <= 0 || w <= 0 || h <= 0 ||
 		srcX < 0 || srcY < 0 || refX < 0 || refY < 0 ||
-		srcW > srcStride || refX+w > refStride {
+		srcX >= srcW || srcY >= srcH ||
+		w-1 > maxInt-srcX || h-1 > maxInt-srcY || h > maxInt/w ||
+		srcW > srcStride || !planeRectFits(src, srcStride, 0, 0, srcW, srcH) ||
+		!planeRectFits(ref, refStride, refX, refY, w, h) {
 		return BlockDiffStats{}, false
 	}
-	if (srcH-1)*srcStride+srcW > len(src) ||
-		(refY+h-1)*refStride+refX+w > len(ref) {
-		return BlockDiffStats{}, false
-	}
-	if srcX+w <= srcW && srcY+h <= srcH {
+	if w <= srcW && h <= srcH && srcX <= srcW-w && srcY <= srcH-h {
 		return blockDiffStats(src, srcStride, ref, refStride,
 			srcX, srcY, refX, refY, w, h), true
 	}

@@ -49,7 +49,9 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	kind := vp9ModeTreeInterSource
 	if isKey || intraOnly {
 		kind = vp9ModeTreeKeyframeSource
-		e.resetVP9LeafKeyframeDecisionCache()
+		if key == nil || !key.replayCachedDecisions {
+			e.resetVP9LeafKeyframeDecisionCache()
+		}
 	}
 	cyclicSnap := e.saveVP9CyclicRefreshMapsForCounts()
 	miGridValid := e.collectVP9FrameTileCounts(width, height, miRows, miCols, tileInfo,

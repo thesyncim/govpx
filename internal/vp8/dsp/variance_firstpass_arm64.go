@@ -15,9 +15,15 @@ func varFilterBlock2DBilinearFirstPass16NEON(src *byte, srcStride int,
 
 func varFilterBlock2DBilinearFirstPass16(src []byte, srcStride int,
 	dst *[17 * 16]uint16, height int, filter [2]int16) {
+	if height <= 0 {
+		return
+	}
+	if !bilinearFilterScratchOK(16, height) || !dspWindowOK(src, srcStride, 32, height) {
+		bilinearFirstPassScalar(src, srcStride, dst, 16, height, filter)
+		return
+	}
 	// unsafe.SliceData skips the runtime.panicBounds + stack frame the
-	// compiler emits for &src[0]; the height<=0 guard is dead-code for
-	// the only caller (subpelVariance with height in {4,8,16}+1).
+	// compiler emits for &src[0].
 	varFilterBlock2DBilinearFirstPass16NEON(unsafe.SliceData(src), srcStride, &dst[0], height,
 		uint64(uint16(filter[0])), uint64(uint16(filter[1])))
 }

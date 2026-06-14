@@ -1,17 +1,22 @@
-# VP9 cpu0-3 inter coefficient gap: FP vs B quantizer
+# VP9 cpu0-3 inter coefficient selector: FP vs B quantizer
 
-Root-caused divergence behind the `{0,2,0,0,2}` (CBR 1200, kf=999, realtime
-**cpu0**, one-pass q=145) deep-engine byte-parity gap. The deep engine reaches
-**mode** parity for this seed (the `TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2`
-probe matches libvpx's committed `MODE_INFO` through the whole top-32x32 pair),
-but the emitted **bitstream is not byte-exact** — the coded coefficients diverge
-from the first inter block.
+Root-caused selector bug behind the `{0,2,0,0,2}` (CBR 1200, kf=999, realtime
+**cpu0**, one-pass q=145) deep-engine byte-parity gap. The selector bug is
+closed as of 2026-06-13: `prepareVP9InterTxResidueWithQ` now follows
+`sf.UseQuantFp`, using the zbin "B" quantizer for cpu0-3 and FP only when
+libvpx sets `x->quant_fp`.
 
-## The bug
+The larger seed remains a full-RD byte-parity frontier, but the quantizer
+selector itself is pinned by `TestVP9InterTxResidueUsesQuantFpSpeedFeature`.
+The deep committed-mode probe
+`TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2` stayed green after the selector
+port and reports the full frame-1 SB0 walk matching libvpx's committed leaves.
+
+## The Closed Bug
 
 `prepareVP9InterTxResidueWithQ` (vp9_encoder_prediction.go) — the committed-inter
 residual write, which also feeds the tx-candidate score and the deep-search
-entropy-context stamp `stampVP9InterLeafTxContext` — hardcodes the **FP
+entropy-context stamp `stampVP9InterLeafTxContext` — used to hardcode the **FP
 quantizer** (`useFastQuant=true`, the round-only quantizer with no zbin).
 
 libvpx's `encode_block` (vp9/encoder/vp9_encodemb.c:590-625) selects the
@@ -26,13 +31,14 @@ quantizer on `x->quant_fp`:
 
 So:
 
-| path | use_quant_fp | quantizer | govpx today |
+| path | use_quant_fp | quantizer | govpx now |
 |------|--------------|-----------|-------------|
-| cpu0-3 inter (e.g. {0,2,0,0,2}) | 0 | **B** | FP — **WRONG** |
+| cpu0-3 inter (e.g. {0,2,0,0,2}) | 0 | **B** | B |
 | cpu4+ inter (e.g. {0,1,1,0,1} cpu4) | 1 | FP | FP — correct |
 
-govpx already computes `sf.UseQuantFp == 0` for cpu0 (pinned by
-`vp9_speed_features_rt_cpu_used_0_4_test.go:160`); the WRITE just ignores it.
+govpx already computed `sf.UseQuantFp == 0` for cpu0 (pinned by
+`vp9_speed_features_rt_cpu_used_0_4_test.go:160`); the write path now consumes
+that flag.
 
 ## Proof
 
@@ -43,22 +49,21 @@ energy (`DC130, ACs …151… -108 -90 …`). With FP, govpx zeros all ACs → e
 (DC 180 only). Flipping the call to the **B** quantizer yields `DC 1, AC 1@pos3`
 → dq `180@0 + 235@3` == the libvpx oracle exactly.
 
-## Why it is not a one-line fix
+## Why This Needed Validation
 
-Gating the call on `e.sf.UseQuantFp != 0` is correct, and it does NOT touch the
-cpu4 byte-parity path (cpu4 stays FP, so `TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity`
-is unaffected). But for cpu0 it cascades:
+Gating the call on `e.sf.UseQuantFp != 0` is the correct selector port, and it
+does NOT touch the cpu4 byte-parity path (cpu4 stays FP, so
+`TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity` is unaffected). This
+path still needed focused validation because for cpu0 it can cascade:
 
 1. The same function feeds `stampVP9InterLeafTxContext`, so the deep search's
    entropy context changes; the `{0,2,0,0,2}` mode-pins (next-div
-   `closedPrefixLen=32`) were calibrated on the FP recon/context and regress
-   (e.g. mi(1,6) flips to 8x8 NEARMV vs the correct 4x4 SPLIT) — the FP context
-   was masking a deeper cpu0 mode divergence.
-2. Even with B, mi(0,1) is not yet fully byte-exact (eob count matches the oracle
-   at 27, but a coefficient value/distribution still differs), so there is at
-   least one more cpu0 residual divergence past the quantizer.
+   `closedPrefixLen=32`) must stay valid under the B recon/context.
+2. Even with the right selector, the full `{0,2,0,0,2}` seed still needs the
+   rest of the full-RD inter pipeline wired into the default production path
+   before strict full-stream byte parity can replace the skip-list entry.
 
-## Rework path
+## Rework Status
 
 The `{0,1,1,0,1}` **cpu4** seed already reaches byte parity (frames 0..29,
 `TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity`), proving the deep
@@ -66,17 +71,25 @@ engine's machinery is byte-capable when the quantizer is right. To close
 `{0,2,0,0,2}` cpu0 to byte parity:
 
 1. Gate `prepareVP9InterTxResidueWithQ` on `e.sf.UseQuantFp` (B for cpu0-3).
+   **Done 2026-06-13.**
 2. Chase the remaining mi(0,1) residual-value diff with B.
 3. Fix the cpu0 mode divergence the FP context was masking (mi(1,6)).
 4. Re-derive the `{0,2,0,0,2}` validation from the mode-only next-div probe to a
    byte-parity pin like the cpu4 seed's.
 
-This is a deliberate multi-step effort; do it as a unit, not piecemeal, so the
-deep pins move together with the quantizer change.
+The selector step is now landed and pinned. Keep the remaining steps grouped
+with the full-RD production-wire-up work so the strict byte-parity seed moves
+from the skip list only when the emitted packet is actually byte-exact.
 
 ## mi(1,6) measured RD (2026-06-09 — corrects the entropy-cascade premise)
 
-Step 3 above is the blocker. Measuring the mi(1,6) NONE-vs-SPLIT RD under FP vs B
+**Superseded status (2026-06-13):** after the selector port and the current
+deep full-RD cost fixes, `TestVP9FullRDInterNextDivergenceSeed0_2_0_0_2`
+reports no committed-leaf divergence in the full frame-1 SB0 walk. Keep the
+measurement below as history for the thin NONE-vs-SPLIT compare, not as the
+current blocker.
+
+Measuring the mi(1,6) NONE-vs-SPLIT RD under FP vs B
 (identical seed context) shows the divergence is NOT an entropy-context cascade
 through the leaf-tx stamp (the doc earlier hypothesized that); the seed entropy
 context is **identical** (above[1,1] left[1,1], same `hasCtx` eob>0) and the

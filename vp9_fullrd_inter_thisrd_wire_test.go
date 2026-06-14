@@ -19,6 +19,13 @@ func withVP9InterDeepRDThisRDScore(t *testing.T) {
 	t.Cleanup(func() { vp9InterUseDeepRDThisRDScore = prev })
 }
 
+func withoutVP9ProductionDeepRDSearchPartition(t *testing.T) {
+	t.Helper()
+	prev := vp9InterUseProductionDeepRDSearchPartition
+	vp9InterUseProductionDeepRDSearchPartition = false
+	t.Cleanup(func() { vp9InterUseProductionDeepRDSearchPartition = prev })
+}
+
 // TestVP9InterDeepRDThisRDScoreWiresThrough proves the genuine per-mode this_rd
 // flows into pickVP9InterModeWithOrder's decision when
 // vp9InterUseDeepRDThisRDScore is on: a multi-frame inter encode with the flag

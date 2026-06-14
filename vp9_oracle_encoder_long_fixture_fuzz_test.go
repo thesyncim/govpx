@@ -71,14 +71,10 @@ import (
 //     (TestVP9EncoderVpxencOracleFullRDCPU4KeyframeByteParity), and frame 1 (the
 //     first inter frame) is now ALSO byte-exact on the deep full-RD use-partition
 //     path — the first byte-exact full-RD inter frame — closing the seed's
-//     matched-frame prefix to 2 (keyframe + first inter frame). Pinned by
-//     TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity behind
-//     vp9InterUseDeepRDUsePartition + vp9InterUseDeepRDRefBestRD +
-//     vp9InterUseDeepRDTxDomainDistortion (all default OFF, so the PRODUCTION
-//     long-fixture path for this seed is unchanged and the seed stays deferred
-//     here). The remaining full-clip gap is the per-frame full-RD inter pipeline
-//     wired on by default + the later frames' RC/golden interaction; the frame-1
-//     closure is the prerequisite milestone.
+//     matched-frame prefix to 31 (frames 0..30, including the second keyframe). Pinned by
+//     TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1ByteParity through the
+//     production-default VAR_BASED use-partition stack. The seed stays deferred
+//     because the full clip still diverges after that prefix.
 //
 //   - {1,0,0,0,0} — VBR 300kbps kf=999 realtime cpu8. CLOSED: now byte-exact
 //     for all 256 frames. The final divergence at frame 40 (the first
@@ -125,34 +121,18 @@ import (
 //     pinned by TestVP9EncoderVpxencOracleFullRDCPU0KeyframeByteParity. The
 //     prior "frame 0 byte mismatch at offset 27" note is STALE — the full-RD
 //     keyframe intra + tx + coef RD path was closed by the cost-primitive
-//     sweep. The FIRST divergence is now FRAME 1, the first INTER frame:
-//     frame 1 govpx q=145 fps(FirstPartitionSize)=5  FilterLevel=20
-//     frame 1 libvpx q=145 fps(FirstPartitionSize)=31 FilterLevel=14
-//     BaseQindex matches (rate control through frame-1 q-selection is correct);
-//     the uncompressed-header TxMode=TX_MODE_SELECT(4), ReferenceMode=
-//     SINGLE_REFERENCE(0), InterpFilter=SWITCHABLE(4) and allow_hp all match.
-//     The first BYTE divergence is uncompressed-header byte 4 (the FilterLevel
-//     field: govpx 0xf1 vs libvpx 0xf0), and the FirstPartitionSize bytes 8-9
-//     also differ (govpx 00 14 vs libvpx 00 7c). Both FilterLevel and
-//     FirstPartitionSize are DERIVED quantities: FilterLevel from
-//     vp9_pick_filter_level over the reconstructed frame, FirstPartitionSize
-//     from the compressed-header probability deltas (derived from per-block
-//     mode/mv/coef counts). govpx's tiny FirstPartitionSize=5 vs libvpx's 31
-//     means govpx codes frame 1 as almost all SKIP / zero-residual blocks
-//     while libvpx codes real residual — i.e. the per-block full-RD INTER
-//     mode/MV decisions at frame 1, SB0, block (0,0) diverge upstream.
+//     sweep. Frame 1 is now byte-exact too on the production-default cpu0
+//     SearchPartition deep full-RD path, pinned by
+//     TestVP9FullRDFrame1DecompositionSeed0_2_0_0_2 and
+//     TestVP9FullRDInterSub8x8Frame1ByteParity. BaseQindex, loop filter,
+//     compressed-header counts, sub-8x8 inter/intra leaves, and packet bytes all
+//     match the pinned libvpx v1.16.0 oracle for the two-frame prefix.
 //
-//     This is NOT a keyframe issue and NOT a small self-contained fix. It is
-//     the all-or-nothing-per-frame full-RD INTER engine
-//     (vp9_rdopt.c vp9_rd_pick_inter_mode_sb + single_motion_search:2673 +
-//     full_pixel_diamond @ vp9_mcomp.c:2487 + vp9_get_mvpred_var variance
-//     re-scoring @ :1454, then filter/tx/coef RD accumulation feeding
-//     get_interp_filter @ vp9_encodeframe.c:5846 and the prob deltas). See the
-//     vp9-fullrd-inter-bisection memory note: the verified prerequisite fixes
-//     are step_param=0 for full-RD (vp9_encoder.c:3728 not called on the
-//     no-recode RT path) + the variance-rescoring diamond port; these must all
-//     land together. Closing this seed requires porting the COMPLETE full-RD
-//     inter pipeline to bit-exactness as one effort, beyond a single-fix agent.
+//     The seed remains deferred until the full 256-frame clip is byte-exact.
+//     Frame-1 closure proved the complete cpu0 sub-8x8 full-RD inter pipeline
+//     for the first inter frame; the remaining work is to broaden that strict
+//     parity through later reference/golden/update cadence and frame-context
+//     adaptation rather than re-opening the closed two-frame prefix.
 //
 // Reverting any entry here must be paired with the corresponding direct libvpx
 // port.

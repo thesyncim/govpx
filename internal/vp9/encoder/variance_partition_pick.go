@@ -701,12 +701,14 @@ func choosePartitioningBlockSAD(src []uint8, sp int, dst []uint8, dp int,
 	if bw <= 0 || bh <= 0 {
 		return 0, false
 	}
-	if pixelsWide >= bw && pixelsHigh >= bh &&
-		dp > 0 && len(src) >= (bh-1)*sp+bw && len(dst) >= (bh-1)*dp+bw {
+	if pixelsWide >= bw && pixelsHigh >= bh && dp > 0 &&
+		planeRectFits(src, sp, 0, 0, bw, bh) &&
+		planeRectFits(dst, dp, 0, 0, bw, bh) {
 		return BlockSADOffsets(src, 0, sp, dst, 0, dp, bw, bh, ^uint64(0)), true
 	}
-	if len(src) < (pixelsHigh-1)*sp+pixelsWide || dp <= 0 ||
-		len(dst) < (pixelsHigh-1)*dp+pixelsWide {
+	if dp <= 0 ||
+		!planeRectFits(src, sp, 0, 0, pixelsWide, pixelsHigh) ||
+		!planeRectFits(dst, dp, 0, 0, pixelsWide, pixelsHigh) {
 		return 0, false
 	}
 	maxX := pixelsWide - 1

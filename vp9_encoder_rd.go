@@ -130,10 +130,11 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 // y_dc_delta_q is zero for govpx today; when the active-segment Q delta
 // path lands it should be added to qindex here before the rdmult lookup.
 func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
-	frameType encoder.RDFrameType,
+	frameType encoder.RDFrameType, isKey bool,
 ) {
 	e.rc.rddiv = encoder.RDDivBits
-	e.rc.rdmult = encoder.ComputeRDMult(qindex, frameType)
+	e.rc.rdmult = encoder.ComputeRDMultWithModulation(qindex, frameType,
+		e.vp9RDMultModulation(isKey))
 	// Reset the per-SB cb_rdmult cache so a stale value from the prior
 	// frame does not leak into the first SB picker call.  libvpx clears
 	// it inline before each rd_pick_sb_modes invocation; we mirror that
@@ -147,10 +148,13 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	// frames via update_thresh_freq_fact; libvpx never re-inits between
 	// frames inside an encode session.
 	//
-	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds (+sub8x8
-	// sibling not surfaced here).
-	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh,
-		vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeBest)
+	// libvpx: vp9_encoder.c:3755-3756 vp9_set_rd_speed_thresholds +
+	// vp9_set_rd_speed_thresholds_sub8x8. The framesize-dependent
+	// disable_split_mask override is applied to the sub-8x8 multipliers before
+	// set_block_thresholds expands them into per-bsize rows.
+	bestQuality := vp9ResolveDeadlineMode(e.opts.Deadline) == vp9ModeBest
+	e.rdThresh.SetRDSpeedThresholds(e.sf.AdaptiveRdThresh, bestQuality)
+	e.rdThresh.SetRDSpeedThresholdsSub8x8(bestQuality, e.sf.DisableSplitMask)
 	e.rdThresh.SetBlockThresholds(qindex, 0)
 	if !e.rdThresh.Initialized() {
 		e.rdThresh.InitFreqFact()
@@ -208,7 +212,18 @@ func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFl
 			} else {
 				e.prepareVP9SecondPassFrameTarget(isKey || intraOnly,
 					refreshFlags)
-				if traceRateSelection {
+				if e.twoPass.enabled() {
+					var activeBest int
+					var activeWorst int
+					var correctionFactor float64
+					qindex, activeBest, activeWorst, correctionFactor =
+						e.vp9TwoPassQuantizerWithBounds(isKey || intraOnly,
+							flags, refreshFlags, macroblocks, cyclic, encodeSpeed)
+					if traceRateSelection {
+						e.recordVP9OracleRateSelectionTrace(activeBest, activeWorst,
+							correctionFactor, e.rc.onePassRecodeAllowed(), 0)
+					}
+				} else if traceRateSelection {
 					var activeBest int
 					var activeWorst int
 					var correctionFactor float64

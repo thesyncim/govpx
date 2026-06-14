@@ -107,6 +107,7 @@ type vp9RefMode struct {
 //
 //	#define RT_INTER_MODES 12
 const vp9RTInterModes = 12
+const vp9RTInterModesSVC = 8
 
 // ref_mode_set is the non-SVC realtime (ref, mode) schedule. The order is
 // significant: candidates are evaluated in order, and the best_early_term
@@ -131,6 +132,51 @@ var vp9RefModeSet = [vp9RTInterModes]vp9RefMode{
 	{vp9dec.GoldenFrame, common.NearMv}, {vp9dec.GoldenFrame, common.NewMv},
 	{vp9dec.AltrefFrame, common.ZeroMv}, {vp9dec.AltrefFrame, common.NearestMv},
 	{vp9dec.AltrefFrame, common.NearMv}, {vp9dec.AltrefFrame, common.NewMv},
+}
+
+// ref_mode_set_svc is the SVC realtime (ref, mode) schedule. It keeps SVC
+// realtime pickmode on LAST/GOLDEN and visits LAST NEWMV only after the cheaper
+// LAST/GOLDEN predictors, matching libvpx's reduced candidate fan.
+//
+// libvpx: vp9_pickmode.c:1258-1264
+//
+//	#define RT_INTER_MODES_SVC 8
+//	static const REF_MODE ref_mode_set_svc[RT_INTER_MODES_SVC] = {
+//	  { LAST_FRAME, ZEROMV },      { LAST_FRAME, NEARESTMV },
+//	  { LAST_FRAME, NEARMV },      { GOLDEN_FRAME, ZEROMV },
+//	  { GOLDEN_FRAME, NEARESTMV }, { GOLDEN_FRAME, NEARMV },
+//	  { LAST_FRAME, NEWMV },       { GOLDEN_FRAME, NEWMV }
+//	};
+var vp9RefModeSetSVC = [vp9RTInterModesSVC]vp9RefMode{
+	{vp9dec.LastFrame, common.ZeroMv}, {vp9dec.LastFrame, common.NearestMv},
+	{vp9dec.LastFrame, common.NearMv}, {vp9dec.GoldenFrame, common.ZeroMv},
+	{vp9dec.GoldenFrame, common.NearestMv}, {vp9dec.GoldenFrame, common.NearMv},
+	{vp9dec.LastFrame, common.NewMv}, {vp9dec.GoldenFrame, common.NewMv},
+}
+
+func vp9NonrdRefModeSchedule(useSvc bool) []vp9RefMode {
+	if useSvc {
+		return vp9RefModeSetSVC[:]
+	}
+	return vp9RefModeSet[:]
+}
+
+func (e *VP9Encoder) vp9NonrdFilterSweepRefOK(refFrame int8, forceMVInterLayer bool) bool {
+	if refFrame == vp9dec.LastFrame {
+		return true
+	}
+	if refFrame != vp9dec.GoldenFrame || forceMVInterLayer {
+		return false
+	}
+	return e != nil &&
+		(e.svc.UseSvc ||
+			(e.opts.RateControlModeSet && e.opts.RateControlMode == RateControlVBR))
+}
+
+func (e *VP9Encoder) vp9NonrdUseVarPartMVSeed(bsize common.BlockSize) bool {
+	return e != nil && !e.svc.UseSvc &&
+		e.vp9SpeedFeatureCPUUsed() > 7 &&
+		bsize >= common.Block32x32
 }
 
 // vp9BestPickmode mirrors libvpx's BEST_PICKMODE struct, holding the winning
@@ -259,9 +305,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 	// libvpx: vp9_pickmode.c:1771 num_inter_modes = (cpi->use_svc) ?
 	//   RT_INTER_MODES_SVC : RT_INTER_MODES.
-	// govpx single-layer: always RT_INTER_MODES. SVC schedule is a TODO when
-	// the SVC layer-context port lands.
-	numInterModes := vp9RTInterModes
+	refModeSchedule := vp9NonrdRefModeSchedule(e.svc.UseSvc)
 
 	// libvpx: vp9_pickmode.c:1748 int ref_frame_skip_mask = 0;
 	refFrameSkipMask := 0
@@ -718,10 +762,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// num_inter_modes) because compound prediction is handled by the
 	// separate pickVP9CompoundInterMode path. libvpx merges them into the
 	// same loop; the schedule order does not affect the winner.
-	for idx := range numInterModes {
+	for idx := range refModeSchedule {
 		// libvpx: vp9_pickmode.c:2067-2074 — read (this_mode, ref_frame).
-		thisMode := vp9RefModeSet[idx].predMode
-		refFrame := vp9RefModeSet[idx].refFrame
+		thisMode := refModeSchedule[idx].predMode
+		refFrame := refModeSchedule[idx].refFrame
 
 		// libvpx: vp9_pickmode.c:2084 if (ref_frame > usable_ref_frame) continue;
 		if refFrame > maxUsableRef {
@@ -960,10 +1004,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				}
 			}
 			// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
-			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
-			// non-SVC realtime lane mirrors the speed/block-size legs here.
-			if e.vp9SpeedFeatureCPUUsed() > 7 &&
-				bsize >= common.Block32x32 {
+			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32.
+			if e.vp9NonrdUseVarPartMVSeed(bsize) {
 				if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
 					mvOpts.seed = mvPart
 					mvOpts.seedValid = true
@@ -1080,16 +1122,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//         (cpi->use_svc || cpi->oxcf.rc_mode == VPX_VBR))) &&
 		//       (((mi->mv[0].as_mv.row | mi->mv[0].as_mv.col) & 0x07) != 0))
 		//
-		// govpx is single-layer (use_svc == 0, force_mv_inter_layer == 0),
-		// so the GOLDEN leg reduces to rc_mode == VPX_VBR. Otherwise libvpx
-		// locks to filter = (filter_ref == SWITCHABLE) ? EIGHTTAP : filter_ref.
+		// govpx does not yet force inter-layer MVs, so force_mv_inter_layer is
+		// false here. Otherwise libvpx locks to filter = (filter_ref ==
+		// SWITCHABLE) ? EIGHTTAP : filter_ref.
 		//
 		// libvpx: vp9_pickmode.c:1523-1525 search_filter_ref filter loop.
 		// libvpx: vp9_pickmode.c:2330 mi->interp_filter fallback.
-		filterSweepRefOK := refFrame == vp9dec.LastFrame ||
-			(refFrame == vp9dec.GoldenFrame &&
-				e.opts.RateControlModeSet &&
-				e.opts.RateControlMode == RateControlVBR)
+		filterSweepRefOK := e.vp9NonrdFilterSweepRefOK(refFrame, false)
 		var filters []vp9dec.InterpFilter
 		switch {
 		case predFilterSearch && filterSweepRefOK &&

@@ -137,16 +137,80 @@ func referencePlaneBlockOffset(plane []byte, stride int, origin int, y int, x in
 		return 0, false
 	}
 	if subpel {
+		maxInt := int(^uint(0) >> 1)
+		if width == maxInt || height == maxInt {
+			return 0, false
+		}
 		width++
 		height++
 	}
-	off := origin + y*stride + x
-	last := off + (height-1)*stride + width - 1
-	// Uint range collapses (off<0)+(off>=len) and (last<0)+(last>=len) into
-	// one compare each. The implicit last<off "overflow" case is also
-	// covered because a wrapped-negative last has uint() >= uint(len).
+	if width > stride {
+		return 0, false
+	}
+	rowOffset, ok := checkedIntMul(y, stride)
+	if !ok {
+		return 0, false
+	}
+	off, ok := checkedIntAdd(origin, rowOffset)
+	if !ok {
+		return 0, false
+	}
+	off, ok = checkedIntAdd(off, x)
+	if !ok {
+		return 0, false
+	}
+	lastRowOffset, ok := checkedIntMul(height-1, stride)
+	if !ok {
+		return 0, false
+	}
+	last, ok := checkedIntAdd(off, lastRowOffset)
+	if !ok {
+		return 0, false
+	}
+	last, ok = checkedIntAdd(last, width-1)
+	if !ok {
+		return 0, false
+	}
 	if uint(off) >= uint(len(plane)) || uint(last) >= uint(len(plane)) {
 		return 0, false
 	}
 	return off, true
+}
+
+func checkedIntAdd(a, b int) (int, bool) {
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if b > 0 && a > maxInt-b {
+		return 0, false
+	}
+	if b < 0 && a < minInt-b {
+		return 0, false
+	}
+	return a + b, true
+}
+
+func checkedIntMul(a, b int) (int, bool) {
+	if a == 0 || b == 0 {
+		return 0, true
+	}
+	maxInt := int(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	if a > 0 {
+		if b > 0 {
+			if a > maxInt/b {
+				return 0, false
+			}
+		} else if b < minInt/a {
+			return 0, false
+		}
+	} else {
+		if b > 0 {
+			if a < minInt/b {
+				return 0, false
+			}
+		} else if a != 0 && b < maxInt/a {
+			return 0, false
+		}
+	}
+	return a * b, true
 }

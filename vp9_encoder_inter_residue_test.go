@@ -1,10 +1,12 @@
 package govpx
 
 import (
+	"reflect"
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"testing"
 )
 
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
@@ -227,4 +229,73 @@ func TestVP9EncoderInterACResiduePreservesCheckerSource(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after checker inter frame")
 	}
 	assertVP9VisibleYContrast(t, frame, 32, 32, 40)
+}
+
+func TestVP9InterTxResidueUsesQuantFpSpeedFeature(t *testing.T) {
+	residual := [16]int16{
+		12, 5, 4, 1,
+		3, 4, 6, 7,
+		6, 1, 30, -2,
+		1, -8, 8, -13,
+	}
+	dequant := [2]int16{180, 235}
+	const qindex = 145
+
+	wantB := vp9QuantizeInterResidualForTest(t, residual, dequant, qindex, false)
+	wantFP := vp9QuantizeInterResidualForTest(t, residual, dequant, qindex, true)
+	if reflect.DeepEqual(wantB, wantFP) {
+		t.Fatalf("test residual does not distinguish B and FP quantizers: %v", wantB)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		useQuantFP int
+		want       []int16
+	}{
+		{name: "cpu0-3 uses B", useQuantFP: 0, want: wantB},
+		{name: "cpu4+ uses FP", useQuantFP: 1, want: wantFP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &VP9Encoder{}
+			e.sf.UseQuantFp = tc.useQuantFP
+			vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+			e.prepareVP9EncoderOutputFrame(4, 4)
+
+			img := vp9test.NewYCbCr(4, 4, 128, 128, 128)
+			for y := range 4 {
+				for x := range 4 {
+					img.Y[y*img.YStride+x] = byte(128 + residual[y*4+x])
+				}
+			}
+			inter := &vp9InterEncodeState{img: img}
+			out := make([]int16, 16)
+			qOut := make([]int16, 16)
+			if !e.prepareVP9InterTxResidueWithQ(inter, &e.planes[0], 0,
+				common.Tx4x4, 0, 0, 0, 0, dequant, out, qOut) {
+				t.Fatal("prepareVP9InterTxResidueWithQ returned false")
+			}
+			if !reflect.DeepEqual(qOut, tc.want) {
+				t.Fatalf("qcoeffs = %v, want %v", qOut, tc.want)
+			}
+		})
+	}
+}
+
+func vp9QuantizeInterResidualForTest(t *testing.T, residual [16]int16,
+	dequant [2]int16, qindex int, useFastQuant bool,
+) []int16 {
+	t.Helper()
+	e := &VP9Encoder{}
+	copy(e.residueScratch[:], residual[:])
+	dst := make([]byte, 16)
+	for i := range dst {
+		dst[i] = 128
+	}
+	out := make([]int16, 16)
+	qOut := make([]int16, 16)
+	if !e.quantizeVP9TxResidualWithQ(dst, 4, common.Tx4x4, common.DctDct,
+		dequant, qindex, out, qOut, false, useFastQuant, false) {
+		t.Fatalf("quantizeVP9TxResidualWithQ(useFastQuant=%t) returned false", useFastQuant)
+	}
+	return qOut
 }

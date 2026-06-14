@@ -901,11 +901,17 @@ func roundHalfAwayFromZero(x float64) float64 {
 	return math.Floor(x + 0.5)
 }
 
-func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool) {
-	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, false)
+func (rc *vp9RateControlState) updateQHistory(qindex int, intraOnly bool,
+	keyFrame bool, refreshFlags uint8, showFrame bool,
+) {
+	rc.updateQHistoryWithAltRef(qindex, intraOnly, keyFrame, refreshFlags, showFrame,
+		false, false)
 }
 
-func (rc *vp9RateControlState) updateQHistoryWithAltRef(qindex int, intraOnly bool, refreshFlags uint8, showFrame bool, altRefEnabled bool) {
+func (rc *vp9RateControlState) updateQHistoryWithAltRef(qindex int,
+	intraOnly bool, keyFrame bool, refreshFlags uint8, showFrame bool,
+	altRefEnabled bool, constrainedGFGroup bool,
+) {
 	if qindex < 0 {
 		qindex = 0
 	} else if qindex > 255 {
@@ -916,20 +922,21 @@ func (rc *vp9RateControlState) updateQHistoryWithAltRef(qindex int, intraOnly bo
 	if intraOnly {
 		rc.lastQKey = q
 		rc.avgFrameQIndexKey = uint8((3*int(rc.avgFrameQIndexKey) + qindex + 2) >> 2)
-		rc.lastBoostedQIndex = q
 		rc.framesSinceKey = 0
 	} else if refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) == 0 {
 		rc.lastQInter = q
 		rc.avgFrameQIndexInter = uint8((3*int(rc.avgFrameQIndexInter) + qindex + 2) >> 2)
 	}
-	if !intraOnly && refreshFlags&(1<<vp9GoldenRefSlot|1<<vp9AltRefSlot) != 0 {
+	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
+	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+	boostedRefresh := refreshAlt || (refreshGolden && !rc.isSrcFrameAltRef)
+	if q < rc.lastBoostedQIndex || keyFrame ||
+		(!constrainedGFGroup && boostedRefresh) {
 		rc.lastBoostedQIndex = q
 	}
 	if showFrame {
 		rc.incrementFramesSinceKey()
 	}
-	refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
-	refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
 	if intraOnly || refreshGolden || (refreshAlt && altRefEnabled) {
 		rc.framesSinceGolden = 0
 	} else if showFrame && !refreshAlt && rc.framesSinceGolden != ^uint16(0) {

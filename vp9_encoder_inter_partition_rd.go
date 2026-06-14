@@ -19,8 +19,8 @@ var vp9InterPredMvSentinel = vp9dec.MV{Row: int16(0x7fff), Col: int16(0x7fff)}
 // vp9InterUseDeepRDPartition selects the genuine depth-first
 // pickVP9InterPartitionRD recursion over the shallow rdPickVP9InterPartition
 // skeleton inside pickVP9InterPartitionBlockSize. Default false keeps the
-// production path on the proven-no-op skeleton; tests flip it to exercise the
-// deep recursion's serialization.
+// legacy opt-in test flag off; the production realtime cpu0 SearchPartition
+// lane is enabled by vp9InterUseProductionDeepRDSearchPartition below.
 var vp9InterUseDeepRDPartition = false
 
 // vp9InterUseDeepRDThisRDScore gates the GENUINE per-mode this_rd assembly
@@ -28,13 +28,11 @@ var vp9InterUseDeepRDPartition = false
 // rate + the rd_pick_inter_mode_sb skip pick) into the inter mode loop's
 // candidate score, REPLACING the model-RD vp9InterModeScore approximation.
 //
-// Default false: production AND the deep-RD partition serialization tests
-// (which were stabilized against the model-score leaf decisions) keep scoring
-// with vp9InterModeScore, so both stay byte/decision identical. This flag is
-// the seam for the FINAL step — enabling the genuine per-mode RD end-to-end
-// (the partition recursion + planted-test re-derivation) — without disturbing
-// the in-flight deep recursion. The standalone assembly is pinned against
-// libvpx independently via the oracle-trace path
+// Default false for explicit tests: the scoped production cpu0 SearchPartition
+// lane enables this through vp9UseProductionDeepRDSearchPartitionPath, while the
+// deep-RD partition serialization tests can still exercise model-score leaves.
+// The standalone assembly is pinned against libvpx independently via the
+// oracle-trace path
 // (TestVP9FullRDInterThisRDFrame1SB0Parity), so it is verified regardless of
 // this flag's default.
 //
@@ -50,11 +48,10 @@ var vp9InterUseDeepRDThisRDScore = false
 // ZEROMV/NEARESTMV/NEARMV with the SSE model and never runs the NEWMV joint
 // search.
 //
-// Default false: production keeps the model stand-in, so production byte-parity
-// is untouched. This flag is the seam for the FINAL step (wiring the genuine
-// sub-8x8 RD + pred_mv into the partition decision so govpx commits the same
-// SPLIT/HORZ/VERT sub-8x8 partitions libvpx does). The standalone producer is
-// pinned against libvpx independently via the oracle-trace path
+// Default false for explicit tests: the scoped production cpu0 SearchPartition
+// lane enables this through vp9UseProductionDeepRDSearchPartitionPath. The
+// standalone producer is pinned against libvpx independently via the oracle-trace
+// path
 // (TestVP9FullRDSub8x8Frame1Parity), so it is verified regardless of this
 // flag's default.
 var vp9InterUseDeepRDSub8x8 = false
@@ -63,11 +60,10 @@ var vp9InterUseDeepRDSub8x8 = false
 // replays the deep-RD SEARCH->WRITE leaf decision cache
 // (vp9LookupDeepInterRDDecision) instead of re-picking each leaf. Default true:
 // when the deep recursion is active the writer replays the search's committed
-// decision. It is consulted ONLY after the vp9InterUseDeepRDPartition gate has
-// already passed (so it is never read in production, where the deep flag is
-// off). A round-trip test flips it to false to prove that disabling the replay
-// resurrects the re-pick bug (the write pass picks a different MV/mode than the
-// search committed), demonstrating the cache is what fixes it.
+// decision. It is consulted only after the deep SearchPartition predicate has
+// already passed. A round-trip test flips it to false to prove that disabling
+// the replay resurrects the re-pick bug (the write pass picks a different
+// MV/mode than the search committed), demonstrating the cache is what fixes it.
 var vp9InterDeepRDReplayWrites = true
 
 // vp9InterUseDeepRDUsePartition drives the VAR_BASED_PARTITION full-RD inter
@@ -78,15 +74,15 @@ var vp9InterDeepRDReplayWrites = true
 // rd_use_partition driver wiring (libvpx vp9_encodeframe.c:2566 — choose_-
 // partitioning's variance partition fed into rd_pick_sb_modes per 8x8 leaf).
 //
-// Default false: production keeps the model-RD leaf score AND the cpu0-style
-// fixed (step_param=0, NSTEP-diamond) full-RD motion search, so production and
-// the cpu0 {0,2,0,0,2} pins (TestVP9EncoderFullRDFrame1SB0*MvParity) stay
-// byte/decision identical. When true, vp9FullRDFullPelMv honours
-// e.sf.Mv.SearchMethod (FAST_HEX for cpu4) and computes step_param via the
-// auto_mv_step_size + adaptive_motion_search boffset path
-// (FullRdSingleMotionStepParam @ internal/vp9/encoder/fullrd_motion_search.go),
-// exactly as libvpx single_motion_search does (vp9_rdopt.c:2613-2675).
-var vp9InterUseDeepRDUsePartition = false
+// Default true: production now uses the proven libvpx-shaped rd_use_partition
+// leaf path for VAR_BASED_PARTITION full-RD inter frames, while the separate
+// SEARCH_PARTITION/sub-8x8 deep recursion remains gated off. When true,
+// vp9FullRDFullPelMv honours e.sf.Mv.SearchMethod (FAST_HEX for cpu4) and
+// computes step_param via the auto_mv_step_size + adaptive_motion_search boffset
+// path (FullRdSingleMotionStepParam @
+// internal/vp9/encoder/fullrd_motion_search.go), exactly as libvpx
+// single_motion_search does (vp9_rdopt.c:2613-2675).
+var vp9InterUseDeepRDUsePartition = true
 
 // vp9InterUseDeepRDTxDomainDistortion switches the genuine inter super_block_yrd
 // producer (vp9FullRDInterYPlaneTxCandidate) from pixel-domain distortion
@@ -109,10 +105,10 @@ var vp9InterUseDeepRDUsePartition = false
 // invert the NEARESTMV-vs-NEARMV this_rd tie, so the flag toggles all three
 // sites at once.
 //
-// Default false: production and the cpu0 {0,2,0,0,2} YRD pins
-// (TestVP9FullRDInterYRDFrame1SB0Parity, allow_txfm_domain_distortion==0 at
-// speed 0) keep the pixel-domain producers, so they are byte/decision identical.
-var vp9InterUseDeepRDTxDomainDistortion = false
+// Default true: transform-domain distortion is active when the speed features
+// request it (for example cpu4 realtime), and remains inert for cpu0 paths where
+// allow_txfm_domain_distortion is off.
+var vp9InterUseDeepRDTxDomainDistortion = true
 
 // vp9InterUseDeepRDRefBestRD threads the running best RD (the mode loop's
 // best_rd / ref_best_rd) as the genuine per-candidate handle_inter_mode budget
@@ -139,13 +135,12 @@ var vp9InterUseDeepRDTxDomainDistortion = false
 // handle_inter_mode/block_rd_txfm 2026-06-05). Without the budget govpx ran
 // NEWMV's full RD at the smaller TX_4X4 (this_rd=28.4M) and let it win.
 //
-// Default false: production and the model-score deep-RD serialization tests are
-// byte/decision identical. The genuine producers already implement the budget
-// early-exit (vp9_fullrd_inter_yrd.go / _uvrd.go); this flag only switches the
-// mode loop from feeding them ^uint64(0) to feeding them the running best, and
-// makes a pruned candidate (grd.Valid==false) drop out of the loop the way
-// libvpx's `continue` does.
-var vp9InterUseDeepRDRefBestRD = false
+// Default true for the production rd_use_partition full-RD path. The genuine
+// producers already implement the budget early-exit (vp9_fullrd_inter_yrd.go /
+// _uvrd.go); this flag switches the mode loop from feeding them ^uint64(0) to
+// feeding them the running best, and makes a pruned candidate
+// (grd.Valid==false) drop out of the loop the way libvpx's `continue` does.
+var vp9InterUseDeepRDRefBestRD = true
 
 // vp9InterUseDeepRDIntraSkipEncode applies libvpx's x->skip_encode behavior to
 // the inter-frame intra RD producer (vp9FullRDInterIntraSB). vp9_rd_pick_inter_
@@ -179,10 +174,72 @@ var vp9InterUseDeepRDRefBestRD = false
 // instead of losing to it (libvpx ground truth, $TMPDIR vpxenc fprintf at
 // vp9_rdopt.c block_rd_txfm / dist_block 2026-06-06).
 //
-// Default false: production and every keyframe/cpu0 producer (skip_encode==0)
-// are byte/decision identical. Enabled in lockstep with the deep use-partition
-// stack by the {0,1,1,0,1} byte-parity test.
-var vp9InterUseDeepRDIntraSkipEncode = false
+// Default true with the production rd_use_partition stack; it is still inert for
+// keyframe/cpu0 producers where skip_encode is off.
+var vp9InterUseDeepRDIntraSkipEncode = true
+
+// vp9InterUseProductionDeepRDSearchPartition enables the now-proven realtime
+// cpu0 SearchPartition deep full-RD lane by default. Component oracle probes can
+// temporarily disable it when they need the older standalone 64x64 candidate
+// capture point; normal encoder construction leaves it on.
+var vp9InterUseProductionDeepRDSearchPartition = true
+
+func (e *VP9Encoder) vp9UseDeepRDUsePartitionPath() bool {
+	return vp9InterUseDeepRDUsePartition && e != nil &&
+		e.sf.PartitionSearchType == VarBasedPartition
+}
+
+func (e *VP9Encoder) vp9UseProductionDeepRDSearchPartitionPath() bool {
+	return vp9InterUseProductionDeepRDSearchPartition &&
+		e != nil &&
+		e.sf.PartitionSearchType == SearchPartition &&
+		e.opts.Deadline == DeadlineRealtime &&
+		e.opts.CpuUsed == 0
+}
+
+func (e *VP9Encoder) vp9UseDeepRDSearchPartitionPath() bool {
+	if e == nil || e.sf.PartitionSearchType != SearchPartition {
+		return false
+	}
+	return vp9InterUseDeepRDPartition ||
+		e.vp9UseProductionDeepRDSearchPartitionPath()
+}
+
+func (e *VP9Encoder) vp9UseDeepRDSub8x8Path() bool {
+	return vp9InterUseDeepRDSub8x8 ||
+		e.vp9UseProductionDeepRDSearchPartitionPath()
+}
+
+func (e *VP9Encoder) vp9UseDeepRDThisRDPath() bool {
+	return vp9InterUseDeepRDThisRDScore ||
+		e.vp9UseDeepRDUsePartitionPath() ||
+		e.vp9UseProductionDeepRDSearchPartitionPath()
+}
+
+func (e *VP9Encoder) vp9UseDeepRDPredMvPath() bool {
+	return e.vp9UseDeepRDUsePartitionPath() ||
+		e.vp9UseDeepRDSub8x8Path()
+}
+
+func (e *VP9Encoder) vp9UseDeepRDInterResiduePath() bool {
+	if e == nil {
+		return false
+	}
+	if e.vp9UseDeepRDUsePartitionPath() {
+		return true
+	}
+	if e.vp9UseProductionDeepRDSearchPartitionPath() {
+		return true
+	}
+	return vp9InterUseDeepRDPartition &&
+		vp9InterUseDeepRDThisRDScore &&
+		e.sf.PartitionSearchType == SearchPartition
+}
+
+func (e *VP9Encoder) vp9UseDeepRDRefBestPath() bool {
+	return vp9InterUseDeepRDRefBestRD &&
+		(e.vp9UseDeepRDUsePartitionPath() || e.vp9UseDeepRDSub8x8Path())
+}
 
 // vp9QIdxSkipThresh mirrors libvpx's QIDX_SKIP_THRESH (vp9/encoder/vp9_rd.h:36),
 // the base_qindex below which x->skip_encode is armed when sf->skip_encode_frame

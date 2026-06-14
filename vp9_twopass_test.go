@@ -1,9 +1,13 @@
 package govpx
 
 import (
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"errors"
+	"image"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9TwoPassStateDistributesTargetsByStats(t *testing.T) {
@@ -70,8 +74,8 @@ func TestVP9EncoderConsumesTwoPassStats(t *testing.T) {
 				stats[i].CodedError)
 		}
 	}
-	if results[1].TwoPassFrameTargetBits <= results[0].TwoPassFrameTargetBits {
-		t.Fatalf("targets = frame0 %d frame1 %d, want frame1 boosted",
+	if results[0].TwoPassFrameTargetBits <= results[1].TwoPassFrameTargetBits {
+		t.Fatalf("targets = frame0 %d frame1 %d, want keyframe group allocation to boost frame0",
 			results[0].TwoPassFrameTargetBits,
 			results[1].TwoPassFrameTargetBits)
 	}
@@ -119,6 +123,77 @@ func TestVP9SetTwoPassStatsCanEnableAndDisable(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderFrameQIndexUsesTwoPassQuantizerBounds(t *testing.T) {
+	const width, height = 64, 64
+	macroblocks := vp9enc.MacroblockCount((height+7)>>3, (width+7)>>3)
+	refreshFlags := uint8(1 << vp9GoldenRefSlot)
+
+	manual := newVP9TwoPassQuantizerFixture(t)
+	manual.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	wantQ, wantBest, wantWorst, _ := manual.vp9TwoPassQuantizerWithBounds(
+		false, 0, refreshFlags, macroblocks, nil, 0)
+	oldQ, oldBest, oldWorst, _ := manual.rc.vbrQuantizerWithBounds(false,
+		refreshFlags, manual.frameIndex, macroblocks, nil, 0)
+	if wantQ == oldQ && wantBest == oldBest && wantWorst == oldWorst {
+		t.Fatalf("fixture does not distinguish two-pass q path: q/bounds %d [%d,%d]",
+			wantQ, wantBest, wantWorst)
+	}
+
+	enc := newVP9TwoPassQuantizerFixture(t)
+	got := enc.vp9EncoderFrameQIndex(false, false, 0, refreshFlags, macroblocks)
+	if got != wantQ {
+		t.Fatalf("frame qindex = %d, want two-pass q %d (bounds [%d,%d], old one-pass q %d bounds [%d,%d])",
+			got, wantQ, wantBest, wantWorst, oldQ, oldBest, oldWorst)
+	}
+}
+
+func TestVP9TwoPassKeyFrameSeedsActiveWorstAndBoost(t *testing.T) {
+	const width, height = 64, 64
+	macroblocks := vp9enc.MacroblockCount((height+7)>>3, (width+7)>>3)
+	refreshFlags := uint8(0xff)
+
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  700,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats: finalizedVP9TwoPassTestStats(
+			100, 100, 100, 100),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.prepareVP9SecondPassFrameTarget(true, refreshFlags)
+	if enc.twoPass.activeWorstQuality < int(enc.rc.bestQuality) ||
+		enc.twoPass.activeWorstQuality >= int(enc.rc.worstQuality) {
+		t.Fatalf("active_worst_quality=%d outside expected two-pass range [%d,%d)",
+			enc.twoPass.activeWorstQuality, enc.rc.bestQuality,
+			enc.rc.worstQuality)
+	}
+	if enc.twoPass.keyFrameBoost <= 0 ||
+		enc.twoPass.keyFrameTargetBits <= 0 {
+		t.Fatalf("keyframe group boost/target = %d/%d, want populated",
+			enc.twoPass.keyFrameBoost, enc.twoPass.keyFrameTargetBits)
+	}
+	q, activeBest, activeWorst, _ := enc.vp9TwoPassQuantizerWithBounds(
+		true, 0, refreshFlags, macroblocks, nil, 0)
+	if q != activeBest {
+		t.Fatalf("keyframe two-pass q=%d, active_best=%d", q, activeBest)
+	}
+	if activeWorst != enc.twoPass.activeWorstQuality {
+		t.Fatalf("active_worst=%d, want seeded %d",
+			activeWorst, enc.twoPass.activeWorstQuality)
+	}
+	if q >= 64 {
+		t.Fatalf("keyframe q=%d, want seeded two-pass active-worst path (<64)", q)
+	}
+}
+
 func TestVP9EncoderTwoPassSteadyStateAlloc(t *testing.T) {
 	const width, height = 128, 128
 	enc, err := NewVP9Encoder(VP9EncoderOptions{
@@ -157,6 +232,645 @@ func TestVP9EncoderTwoPassSteadyStateAlloc(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("EncodeInto two-pass steady state: got %v allocs/op, want 0",
 			allocs)
+	}
+}
+
+func TestVP9TwoPassKeyFrameZeroMotionPctMatchesLibvpxAccumulator(t *testing.T) {
+	rows := []VP9FirstPassFrameStats{
+		{
+			Frame:        0,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.80,
+			Duration:     1,
+			Count:        1,
+		},
+		{
+			Frame:        1,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.90,
+			PcntMotion:   0.15,
+			Duration:     1,
+			Count:        1,
+		},
+	}
+	var ts vp9TwoPassState
+	ts.configure(FinalizeVP9FirstPassStats(rows), 1000, 50, 0, 0, 64)
+
+	if got := ts.keyFrameZeroMotionPct(0, 2); got != 75 {
+		t.Fatalf("zero-motion pct = %d, want 75", got)
+	}
+}
+
+func TestVP9TwoPassGFGroupIndexAdvancesToTerminalOverlaySlot(t *testing.T) {
+	var ts vp9TwoPassState
+	ts.configure(finalizedVP9TwoPassTestStats(100, 100, 100, 100),
+		1000, 50, 0, 0, 64)
+	ts.gfGroupActive = true
+	ts.gfGroup.GFGroupSize = 3
+
+	for want := uint8(1); want <= 3; want++ {
+		ts.frameTargetBits(1000)
+		ts.finishFrameWithActual(1000)
+		if ts.gfGroup.Index != want {
+			t.Fatalf("gf_group.index = %d, want %d after frame %d",
+				ts.gfGroup.Index, want, want)
+		}
+	}
+}
+
+func TestVP9RefreshGFGroupPreservesPendingTerminalSlot(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.twoPass.framesTillGFUpdate = 0
+	enc.twoPass.gfGroup.Index = 5
+	enc.twoPass.gfGroup.GFGroupSize = 5
+	enc.twoPass.gfGroup.UpdateType[5] = vp9enc.UseBufFrame
+
+	enc.refreshVP9GFGroupIfDue(false)
+	if enc.twoPass.gfGroup.Index != 5 ||
+		enc.twoPass.gfGroup.UpdateType[5] != vp9enc.UseBufFrame {
+		t.Fatalf("pending terminal slot changed: index=%d update=%d, want index 5 USE_BUF_FRAME",
+			enc.twoPass.gfGroup.Index, enc.twoPass.gfGroup.UpdateType[5])
+	}
+}
+
+func TestVP9TwoPassARFStatsPeekDoesNotAdvanceDisplayCursor(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	var ts vp9TwoPassState
+	ts.configure(stats, 1000, 50, 0, 0, 64)
+	ts.frameIndex = 1
+	ts.gfGroupActive = true
+	ts.gfGroup.Index = 1
+	ts.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	ts.gfGroup.ArfSrcOffset[1] = 2
+	ts.gfGroup.BitAllocation[1] = 1400
+
+	if got := ts.statsForCurrentGFUpdate().Frame; got != stats[3].Frame {
+		t.Fatalf("ARF stats frame = %d, want future frame %d",
+			got, stats[3].Frame)
+	}
+	target := ts.frameTargetBits(1000)
+	if target <= 0 {
+		t.Fatalf("ARF target = %d, want positive", target)
+	}
+	beforeScoreLeft := ts.normalizedScoreLeft
+	beforeBitsLeft := ts.bitsLeft
+
+	ts.finishARFFrameWithActual(target / 2)
+	if ts.frameIndex != 1 {
+		t.Fatalf("frameIndex = %d, want display cursor to stay at 1",
+			ts.frameIndex)
+	}
+	if ts.normalizedScoreLeft != beforeScoreLeft {
+		t.Fatalf("normalizedScoreLeft changed on ARF: got %v want %v",
+			ts.normalizedScoreLeft, beforeScoreLeft)
+	}
+	if ts.bitsLeft >= beforeBitsLeft {
+		t.Fatalf("bitsLeft = %d, want less than %d after ARF budget spend",
+			ts.bitsLeft, beforeBitsLeft)
+	}
+	if ts.gfGroup.Index != 2 {
+		t.Fatalf("gf_group.index = %d, want ARF slot advanced to 2",
+			ts.gfGroup.Index)
+	}
+	if got := ts.statsForFrame().Frame; got != stats[1].Frame {
+		t.Fatalf("display stats frame = %d, want current frame %d",
+			got, stats[1].Frame)
+	}
+}
+
+func TestVP9TwoPassLookaheadARFEmitsHiddenFutureSource(t *testing.T) {
+	const width, height = 64, 64
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+		LookaheadFrames:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	key, err := enc.encodeVP9FrameIntoWithFlagsResult(
+		vp9test.NewYCbCr(width, height, 80, 128, 128), dst,
+		EncodeForceKeyFrame, false, temporalFrame{LayerCount: 1}, false)
+	if err != nil {
+		t.Fatalf("key encode: %v", err)
+	}
+	if !key.KeyFrame || !key.ShowFrame {
+		t.Fatalf("key result = key:%t show:%t, want visible key",
+			key.KeyFrame, key.ShowFrame)
+	}
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 4
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.GFGroupSize = 3
+	enc.twoPass.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	enc.twoPass.gfGroup.ArfSrcOffset[1] = 2
+	enc.twoPass.gfGroup.RFLevel[1] = vp9enc.RateFactorGFARFLow
+	enc.twoPass.gfGroup.GFUBoost[1] = 250
+	enc.twoPass.gfGroup.BitAllocation[1] = 1400
+	enc.twoPass.framePrepared = false
+
+	for frame := 1; frame <= 3; frame++ {
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*16), 128, 128)
+		if err := enc.pushVP9Lookahead(src, 0); err != nil {
+			t.Fatalf("push lookahead frame %d: %v", frame, err)
+		}
+	}
+	future, ok := enc.peekVP9LookaheadAt(2)
+	if !ok {
+		t.Fatal("future ARF source missing from lookahead")
+	}
+	if future.isAltRefSource {
+		t.Fatal("future source unexpectedly marked alt-ref before ARF encode")
+	}
+
+	hidden, ok, err := enc.maybeEncodeVP9TwoPassARFInto(dst, false)
+	if err != nil {
+		t.Fatalf("maybeEncodeVP9TwoPassARFInto: %v", err)
+	}
+	if !ok {
+		t.Fatal("two-pass ARF scheduler did not emit")
+	}
+	if hidden.ShowFrame || hidden.KeyFrame ||
+		hidden.RefreshFrameFlags != 1<<vp9AltRefSlot {
+		t.Fatalf("hidden ARF = show:%t key:%t refresh:%#x, want hidden ALTREF refresh",
+			hidden.ShowFrame, hidden.KeyFrame, hidden.RefreshFrameFlags)
+	}
+	if hidden.FirstPassStats.Frame != stats[3].Frame {
+		t.Fatalf("hidden ARF stats frame = %d, want future frame %d",
+			hidden.FirstPassStats.Frame, stats[3].Frame)
+	}
+	if enc.frameIndex != 1 || enc.twoPass.frameIndex != 1 {
+		t.Fatalf("display cursors = encoder:%d twopass:%d, want both 1",
+			enc.frameIndex, enc.twoPass.frameIndex)
+	}
+	if enc.twoPass.gfGroup.Index != 2 {
+		t.Fatalf("gf_group.index = %d, want 2 after hidden ARF",
+			enc.twoPass.gfGroup.Index)
+	}
+	if enc.lookaheadCount != 3 {
+		t.Fatalf("lookaheadCount = %d, want future source left queued",
+			enc.lookaheadCount)
+	}
+	if !future.isAltRefSource {
+		t.Fatal("future source not marked as source-alt-ref for later overlay")
+	}
+}
+
+func TestVP9TwoPassLookaheadARFSkipsForcedKeyFrameWindow(t *testing.T) {
+	const width, height = 64, 64
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400, 500)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+		LookaheadFrames:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	if _, err := enc.encodeVP9FrameIntoWithFlagsResult(
+		vp9test.NewYCbCr(width, height, 80, 128, 128), dst,
+		EncodeForceKeyFrame, false, temporalFrame{LayerCount: 1}, false); err != nil {
+		t.Fatalf("key encode: %v", err)
+	}
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 4
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.GFGroupSize = 3
+	enc.twoPass.gfGroup.UpdateType[1] = vp9enc.ARFUpdate
+	enc.twoPass.gfGroup.ArfSrcOffset[1] = 2
+	enc.twoPass.gfGroup.RFLevel[1] = vp9enc.RateFactorGFARFLow
+	enc.twoPass.gfGroup.GFUBoost[1] = 250
+	enc.twoPass.gfGroup.BitAllocation[1] = 1400
+	enc.twoPass.framePrepared = false
+
+	for frame := 1; frame <= 3; frame++ {
+		flags := EncodeFlags(0)
+		if frame == 2 {
+			flags = EncodeForceKeyFrame
+		}
+		src := vp9test.NewYCbCr(width, height, uint8(80+frame*16), 128, 128)
+		if err := enc.pushVP9Lookahead(src, flags); err != nil {
+			t.Fatalf("push lookahead frame %d: %v", frame, err)
+		}
+	}
+	future, ok := enc.peekVP9LookaheadAt(2)
+	if !ok {
+		t.Fatal("future ARF source missing from lookahead")
+	}
+
+	result, ok, err := enc.maybeEncodeVP9TwoPassARFInto(dst, false)
+	if err != nil {
+		t.Fatalf("maybeEncodeVP9TwoPassARFInto: %v", err)
+	}
+	if !ok {
+		t.Fatal("two-pass ARF cancellation did not emit flushed visible frame")
+	}
+	if !result.ShowFrame {
+		t.Fatalf("result = show:%t refresh:%#x, want visible flush",
+			result.ShowFrame, result.RefreshFrameFlags)
+	}
+	if future.isAltRefSource {
+		t.Fatal("forced-keyframe window still marked future source as alt-ref")
+	}
+	if enc.lookaheadCount != 2 {
+		t.Fatalf("lookaheadCount = %d, want oldest frame flushed",
+			enc.lookaheadCount)
+	}
+	next, ok := enc.peekVP9LookaheadAt(0)
+	if !ok || next.flags&EncodeForceKeyFrame == 0 {
+		t.Fatal("forced keyframe was not preserved in lookahead")
+	}
+}
+
+func TestVP9TwoPassLookaheadPathSchedulesHiddenARF(t *testing.T) {
+	const width, height, frames = 64, 64, 12
+	sources := make([]*image.YCbCr, frames)
+	statsEnc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:  width,
+		Height: height,
+		FPS:    30,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(firstpass): %v", err)
+	}
+	stats := make([]VP9FirstPassFrameStats, frames)
+	for frame := range frames {
+		src := vp9test.NewPanningYCbCr(width, height, frame)
+		sources[frame] = src
+		stats[frame], err = statsEnc.CollectFirstPassStats(src,
+			uint64(frame), 1, 0)
+		if err != nil {
+			t.Fatalf("CollectFirstPassStats[%d]: %v", frame, err)
+		}
+	}
+
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  700,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       FinalizeVP9FirstPassStats(stats),
+		LookaheadFrames:    8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(secondpass): %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	results := make([]VP9EncodeResult, 0, frames+1)
+	for frame, src := range sources {
+		result, err := enc.EncodeIntoWithResult(src, dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		results = append(results, result)
+	}
+	for {
+		result, err := enc.FlushIntoWithResult(dst)
+		if errors.Is(err, ErrFrameNotReady) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("FlushIntoWithResult: %v", err)
+		}
+		results = append(results, result)
+	}
+
+	visible, hidden := 0, 0
+	for _, result := range results {
+		if result.ShowFrame {
+			visible++
+			continue
+		}
+		hidden++
+		if result.RefreshFrameFlags != 1<<vp9AltRefSlot ||
+			result.FirstPassStats.Frame <= 1 {
+			t.Fatalf("hidden result refresh/stats = %#x/%d, want ALTREF future stats",
+				result.RefreshFrameFlags, result.FirstPassStats.Frame)
+		}
+	}
+	if visible != frames {
+		t.Fatalf("visible packets = %d, want %d", visible, frames)
+	}
+	if hidden == 0 {
+		t.Fatal("normal two-pass lookahead path emitted no hidden ARF")
+	}
+}
+
+func TestVP9TwoPassLookaheadUseBufEmitsShowExisting(t *testing.T) {
+	const width, height = 64, 64
+	stats := finalizedVP9TwoPassTestStats(100, 200, 300, 400)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+		LookaheadFrames:    4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	if _, err := enc.encodeVP9FrameIntoWithFlagsResult(
+		vp9test.NewYCbCr(width, height, 80, 128, 128), dst,
+		EncodeForceKeyFrame, false, temporalFrame{LayerCount: 1}, false); err != nil {
+		t.Fatalf("key encode: %v", err)
+	}
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 0
+	enc.twoPass.gfGroup.Index = 2
+	enc.twoPass.gfGroup.GFGroupSize = 2
+	enc.twoPass.gfGroup.UpdateType[2] = vp9enc.UseBufFrame
+	enc.twoPass.gfGroup.BitAllocation[2] = 1200
+	enc.twoPass.framePrepared = false
+
+	if err := enc.pushVP9Lookahead(
+		vp9test.NewYCbCr(width, height, 96, 128, 128), 0); err != nil {
+		t.Fatalf("push lookahead: %v", err)
+	}
+	entry, ok := enc.popVP9Lookahead(true)
+	if !ok {
+		t.Fatal("pop lookahead failed")
+	}
+	result, err := enc.encodeVP9LookaheadEntryInto(dst, entry)
+	if err != nil {
+		t.Fatalf("encodeVP9LookaheadEntryInto: %v", err)
+	}
+	info, err := PeekVP9StreamInfo(result.Data)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo: %v", err)
+	}
+	if !info.ShowExistingFrame || info.ExistingFrameSlot != vp9AltRefSlot {
+		t.Fatalf("packet info = show_existing:%t slot:%d, want ALTREF show-existing",
+			info.ShowExistingFrame, info.ExistingFrameSlot)
+	}
+	if !result.ShowFrame || result.RefreshFrameFlags != 0 ||
+		result.FirstPassStats.Frame != stats[1].Frame ||
+		result.TwoPassFrameTargetBits <= 0 {
+		t.Fatalf("USE_BUF result = show:%t refresh:%#x stats:%d target:%d, want visible no-refresh stats[1] target",
+			result.ShowFrame, result.RefreshFrameFlags,
+			result.FirstPassStats.Frame, result.TwoPassFrameTargetBits)
+	}
+	if enc.frameIndex != 2 || enc.twoPass.frameIndex != 2 ||
+		enc.twoPass.gfGroup.Index != 3 {
+		t.Fatalf("post USE_BUF cursors = frame:%d stats:%d gf:%d, want 2/2/3",
+			enc.frameIndex, enc.twoPass.frameIndex,
+			enc.twoPass.gfGroup.Index)
+	}
+}
+
+func TestVP9RefreshGFGroupCarriesLastKeyFrameZeroMotionPct(t *testing.T) {
+	rows := []VP9FirstPassFrameStats{
+		{
+			Frame:        0,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.80,
+			Duration:     1,
+			Count:        1,
+		},
+		{
+			Frame:        1,
+			Weight:       1,
+			IntraError:   100,
+			CodedError:   50,
+			SRCodedError: 50,
+			PcntInter:    0.90,
+			PcntMotion:   0.15,
+			Duration:     1,
+			Count:        1,
+		},
+	}
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       FinalizeVP9FirstPassStats(rows),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.kfZeroMotionPct = 42
+
+	enc.refreshVP9GFGroupIfDue(true)
+	if enc.twoPass.lastKFGroupZeroMotionPct != 42 {
+		t.Fatalf("last kf zero-motion pct = %d, want previous 42",
+			enc.twoPass.lastKFGroupZeroMotionPct)
+	}
+	if enc.twoPass.kfZeroMotionPct != 75 {
+		t.Fatalf("current kf zero-motion pct = %d, want 75",
+			enc.twoPass.kfZeroMotionPct)
+	}
+}
+
+func TestVP9BuildGFGroupInputsCarriesSourceAltRefActive(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.rc.sourceAltRefActive = true
+
+	in := enc.buildVP9GFGroupInputs(false)
+	if !in.SourceAltRefActive {
+		t.Fatal("SourceAltRefActive = false, want active overlay state fed to GF analyzer")
+	}
+}
+
+func TestVP9BuildGFGroupInputsUsesTwoPassAltRefDefaults(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.opts.LookaheadFrames = 0
+
+	in := enc.buildVP9GFGroupInputs(false)
+	if in.LagInFrames != vp9MaxLookaheadFrames {
+		t.Fatalf("LagInFrames = %d, want libvpx default %d",
+			in.LagInFrames, vp9MaxLookaheadFrames)
+	}
+	if !in.AllowAltRef {
+		t.Fatal("AllowAltRef = false, want stats-backed two-pass default enabled")
+	}
+}
+
+func TestVP9PostEncodeSourceAltRefStateMirrorsLibvpx(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.rc.sourceAltRefPending = true
+
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9AltRefSlot)
+	if enc.rc.sourceAltRefPending || !enc.rc.sourceAltRefActive {
+		t.Fatalf("after ARF refresh pending=%v active=%v, want false/true",
+			enc.rc.sourceAltRefPending, enc.rc.sourceAltRefActive)
+	}
+
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 1
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9GoldenRefSlot)
+	if !enc.rc.sourceAltRefActive {
+		t.Fatal("sourceAltRefActive cleared at nonzero gf_group index; libvpx keeps it")
+	}
+
+	enc.twoPass.gfGroup.Index = 0
+	enc.vp9PostEncodeSourceAltRefState(false, 1<<vp9GoldenRefSlot)
+	if enc.rc.sourceAltRefActive {
+		t.Fatal("sourceAltRefActive still set after overlay/GF index 0 consumed it")
+	}
+
+	enc.rc.sourceAltRefPending = true
+	enc.rc.sourceAltRefActive = true
+	enc.vp9PostEncodeSourceAltRefState(true, 0xff)
+	if enc.rc.sourceAltRefPending || enc.rc.sourceAltRefActive {
+		t.Fatalf("after intra reset pending=%v active=%v, want false/false",
+			enc.rc.sourceAltRefPending, enc.rc.sourceAltRefActive)
+	}
+}
+
+func TestVP9ConfigureTwoPassBufferUpdatesMirrorsLibvpx(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 0
+
+	tests := []struct {
+		name       string
+		updateType uint8
+		flags      EncodeFlags
+		inRefresh  uint8
+		want       uint8
+		wantSrcARF bool
+	}{
+		{
+			name:       "arf",
+			updateType: vp9enc.ARFUpdate,
+			want:       1 << vp9AltRefSlot,
+		},
+		{
+			name:       "golden",
+			updateType: vp9enc.GFUpdate,
+			want:       1<<vp9LastRefSlot | 1<<vp9GoldenRefSlot,
+		},
+		{
+			name:       "leaf",
+			updateType: vp9enc.LFUpdate,
+			want:       1 << vp9LastRefSlot,
+		},
+		{
+			name:       "overlay",
+			updateType: vp9enc.OverlayUpdate,
+			want:       1 << vp9GoldenRefSlot,
+			wantSrcARF: true,
+		},
+		{
+			name:       "external-preserved",
+			updateType: vp9enc.ARFUpdate,
+			flags:      EncodeNoUpdateAltRef,
+			inRefresh:  1 << vp9LastRefSlot,
+			want:       1 << vp9LastRefSlot,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc.twoPass.gfGroup.UpdateType[0] = tc.updateType
+			enc.rc.isSrcFrameAltRef = false
+			inRefresh := tc.inRefresh
+			if inRefresh == 0 && tc.name != "external-preserved" {
+				inRefresh = 1 << vp9LastRefSlot
+			}
+			got, gotSrcARF := enc.vp9ConfigureTwoPassBufferUpdates(false,
+				tc.flags, inRefresh, false)
+			if got != tc.want || gotSrcARF != tc.wantSrcARF ||
+				enc.rc.isSrcFrameAltRef != tc.wantSrcARF {
+				t.Fatalf("refresh/src_arf = %#x/%v rc=%v, want %#x/%v",
+					got, gotSrcARF, enc.rc.isSrcFrameAltRef,
+					tc.want, tc.wantSrcARF)
+			}
+		})
+	}
+}
+
+func TestVP9TwoPassGFCountdownMirrorsLibvpxRefreshGate(t *testing.T) {
+	var ts vp9TwoPassState
+	ts.configure(finalizedVP9TwoPassTestStats(100, 100, 100, 100),
+		1000, 50, 0, 0, 64)
+	ts.gfGroupActive = true
+	ts.framesTillGFUpdate = 3
+
+	ts.postEncodeGFUpdate(1 << vp9AltRefSlot)
+	if ts.framesTillGFUpdate != 3 {
+		t.Fatalf("after ARF refresh framesTillGFUpdate=%d, want unchanged 3",
+			ts.framesTillGFUpdate)
+	}
+	ts.postEncodeGFUpdate(1 << vp9LastRefSlot)
+	if ts.framesTillGFUpdate != 2 {
+		t.Fatalf("after LF update framesTillGFUpdate=%d, want 2",
+			ts.framesTillGFUpdate)
+	}
+	ts.postEncodeGFUpdate(1 << vp9GoldenRefSlot)
+	if ts.framesTillGFUpdate != 1 {
+		t.Fatalf("after golden update framesTillGFUpdate=%d, want 1",
+			ts.framesTillGFUpdate)
+	}
+}
+
+func TestVP9SecondPassPreparedTargetSurvivesBeginFrameReset(t *testing.T) {
+	enc := newVP9TwoPassQuantizerFixture(t)
+	refreshFlags := uint8(1 << vp9AltRefSlot)
+
+	enc.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	prepared := enc.rc.frameTargetBits
+	if prepared <= 0 {
+		t.Fatalf("prepared target = %d, want positive", prepared)
+	}
+	enc.rc.beginFrameWithRefresh(false, enc.frameIndex, refreshFlags)
+	if enc.rc.frameTargetBits == prepared {
+		t.Fatalf("fixture did not reset frame target; target=%d", prepared)
+	}
+	enc.prepareVP9SecondPassFrameTarget(false, refreshFlags)
+	if enc.rc.frameTargetBits != prepared ||
+		enc.vp9TwoPassFrameTarget != prepared {
+		t.Fatalf("prepared target after restore = rc:%d result:%d, want %d",
+			enc.rc.frameTargetBits, enc.vp9TwoPassFrameTarget, prepared)
 	}
 }
 
@@ -225,6 +939,233 @@ func TestVP9TwoPassVBRRateCorrectionAddsUndershoot(t *testing.T) {
 	if next <= baseline {
 		t.Fatalf("next target = %d, want > baseline %d after undershoot",
 			next, baseline)
+	}
+}
+
+func TestVP9TwoPassPostEncodeQRangeTracksUndershoot(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.activeWorstQuality = 120
+	enc.twoPass.baseFrameTarget = 1000
+	enc.twoPass.currentTargetBits = 1000
+	enc.rc.bitsPerFrame = 1000
+	enc.rc.totalActualBits = 500
+	enc.rc.rollingTargetBits = 1000
+	enc.rc.rollingActualBits = 400
+	enc.updateVP9TwoPassPostEncodeQRange(100, false, 1<<vp9LastRefSlot)
+	if enc.twoPass.rateErrorEstimate != 100 {
+		t.Fatalf("rateErrorEstimate = %d, want clamped 100",
+			enc.twoPass.rateErrorEstimate)
+	}
+	if enc.twoPass.extendMinQ <= 0 {
+		t.Fatalf("extendMinQ = %d, want undershoot to extend min-q",
+			enc.twoPass.extendMinQ)
+	}
+	if enc.twoPass.extendMinQFast <= 0 ||
+		enc.twoPass.vbrBitsOffTargetFast <= 0 {
+		t.Fatalf("fast undershoot feedback = extend:%d bits:%d, want positive",
+			enc.twoPass.extendMinQFast,
+			enc.twoPass.vbrBitsOffTargetFast)
+	}
+}
+
+func TestVP9TwoPassPostEncodeQRangeTracksOvershoot(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	enc.twoPass.activeWorstQuality = 120
+	enc.twoPass.baseFrameTarget = 1000
+	enc.twoPass.currentTargetBits = 1000
+	enc.rc.bitsPerFrame = 1000
+	enc.rc.totalActualBits = 3000
+	enc.rc.rollingTargetBits = 1000
+	enc.rc.rollingActualBits = 2000
+	enc.updateVP9TwoPassPostEncodeQRange(3000, false, 1<<vp9LastRefSlot)
+	if enc.twoPass.rateErrorEstimate >= -int(enc.rc.overshootPct) {
+		t.Fatalf("rateErrorEstimate = %d, want beyond overshoot threshold %d",
+			enc.twoPass.rateErrorEstimate, enc.rc.overshootPct)
+	}
+	if enc.twoPass.extendMaxQ <= 0 {
+		t.Fatalf("extendMaxQ = %d, want overshoot to extend max-q",
+			enc.twoPass.extendMaxQ)
+	}
+}
+
+func TestVP9TwoPassQPickerConsumesPostEncodeQRange(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	refreshFlags := uint8(1 << vp9LastRefSlot)
+	enc.twoPass.activeWorstQuality = 120
+	enc.rc.frameTargetBits = 1200
+	enc.rc.maxFrameBandwidth = 5000
+	enc.rc.lastQInter = 120
+	enc.rc.avgFrameQIndexInter = 120
+	macroblocks := vp9enc.MacroblockCount((enc.opts.Height+7)>>3,
+		(enc.opts.Width+7)>>3)
+	_, baseBest, baseWorst, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+
+	enc.twoPass.extendMinQ = 8
+	enc.twoPass.extendMinQFast = 4
+	enc.twoPass.extendMaxQ = 6
+	_, extendedBest, extendedWorst, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	if extendedBest >= baseBest {
+		t.Fatalf("active best = %d, want < baseline %d after min-q extension",
+			extendedBest, baseBest)
+	}
+	if extendedWorst <= baseWorst {
+		t.Fatalf("active worst = %d, want > baseline %d after max-q extension",
+			extendedWorst, baseWorst)
+	}
+}
+
+func TestVP9TwoPassPostEncodeRecordsLastARFLayerQ(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 1
+	enc.twoPass.gfGroup.LayerDepth[1] = 1
+	enc.twoPass.gfGroup.ConstrainedGFGroup = false
+	enc.twoPass.lastQIndexOfARFLayer[1] = 200
+	enc.rc.isSrcFrameAltRef = false
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(120, false, false,
+		1<<vp9AltRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 120 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want ARF q 120", got)
+	}
+
+	enc.twoPass.lastQIndexOfARFLayer[1] = 100
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want unchanged 100", got)
+	}
+	enc.twoPass.gfGroup.ConstrainedGFGroup = true
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want constrained GF unchanged 100", got)
+	}
+	enc.twoPass.gfGroup.ConstrainedGFGroup = false
+	enc.rc.isSrcFrameAltRef = true
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(130, false, false,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 100 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want source-alt-ref GF unchanged 100", got)
+	}
+	enc.rc.isSrcFrameAltRef = false
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(90, false, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[1]; got != 90 {
+		t.Fatalf("last_qindex_of_arf_layer[1] = %d, want lower q 90", got)
+	}
+
+	enc.twoPass.gfGroup.Index = 0
+	enc.twoPass.gfGroup.LayerDepth[0] = 0
+	enc.twoPass.lastQIndexOfARFLayer[0] = 40
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true, false,
+		1<<vp9LastRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[0]; got != 40 {
+		t.Fatalf("last_qindex_of_arf_layer[0] = %d, want intra-only non-key unchanged 40", got)
+	}
+	enc.updateVP9TwoPassLastQIndexOfARFLayer(140, true, true,
+		1<<vp9GoldenRefSlot)
+	if got := enc.twoPass.lastQIndexOfARFLayer[0]; got != 140 {
+		t.Fatalf("last_qindex_of_arf_layer[0] = %d, want keyframe q 140", got)
+	}
+}
+
+func TestVP9TwoPassQPickerConsumesLastARFLayerQ(t *testing.T) {
+	stats := finalizedVP9TwoPassTestStats(100, 100, 100, 100)
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              64,
+		Height:             64,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  600,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats:       stats,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	refreshFlags := uint8(1 << vp9LastRefSlot)
+	enc.twoPass.activeWorstQuality = 180
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.gfGroup.Index = 0
+	enc.twoPass.gfGroup.MaxLayerDepth = 1
+	enc.twoPass.gfGroup.RFLevel[0] = vp9enc.RateFactorInterNormal
+	enc.twoPass.gfGroup.LayerDepth[0] = 1
+	enc.rc.frameTargetBits = 1200
+	enc.rc.maxFrameBandwidth = 5000
+	enc.rc.lastQInter = 160
+	enc.rc.avgFrameQIndexInter = 160
+	macroblocks := vp9enc.MacroblockCount((enc.opts.Height+7)>>3,
+		(enc.opts.Width+7)>>3)
+
+	_, baseBest, _, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	enc.twoPass.lastQIndexOfARFLayer[0] = baseBest + 20
+	_, flooredBest, _, _ := enc.vp9TwoPassQuantizerWithBounds(false,
+		0, refreshFlags, macroblocks, nil, 0)
+	if flooredBest != baseBest+20 {
+		t.Fatalf("active best = %d, want ARF layer floor %d",
+			flooredBest, baseBest+20)
 	}
 }
 
@@ -570,4 +1511,44 @@ func finalizedVP9TwoPassTestStats(errors ...float64) []VP9FirstPassFrameStats {
 		}
 	}
 	return FinalizeVP9FirstPassStats(rows)
+}
+
+func newVP9TwoPassQuantizerFixture(t *testing.T) *VP9Encoder {
+	t.Helper()
+	const width, height = 64, 64
+	enc, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                30,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlVBR,
+		TargetBitrateKbps:  900,
+		MinQuantizer:       4,
+		MaxQuantizer:       56,
+		TwoPassStats: finalizedVP9TwoPassTestStats(
+			100, 25000, 10000, 100),
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+
+	enc.frameIndex = 1
+	enc.twoPass.frameIndex = 1
+	enc.rc.framesSinceKey = 2
+	enc.rc.lastQKey = 120
+	enc.rc.lastQInter = 180
+	enc.rc.lastBoostedQIndex = 170
+	enc.rc.avgFrameQIndexInter = 180
+	enc.rc.gfuBoost = 300
+	enc.rc.beginFrameWithRefresh(false, enc.frameIndex, 1<<vp9GoldenRefSlot)
+
+	enc.twoPass.gfGroup = vp9enc.GFGroup{}
+	enc.twoPass.gfGroupActive = true
+	enc.twoPass.framesTillGFUpdate = 1
+	enc.twoPass.gfGroup.RFLevel[0] = vp9enc.RateFactorGFARFStd
+	enc.twoPass.gfGroup.GFUBoost[0] = 4000
+	enc.twoPass.gfGroup.GFGroupSize = 2
+	enc.twoPass.gfGroup.GFUBoostScalar = 4000
+	enc.twoPass.gfGroup.ARFActiveBestQAdjustF = 1.0
+	return enc
 }

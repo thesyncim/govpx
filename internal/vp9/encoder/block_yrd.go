@@ -471,13 +471,7 @@ func ModelRdForSbYLargeEarlyTerm(args ModelRdForSbYLargeEarlyTermArgs) bool {
 }
 
 func modelRdWindowFits(buf []byte, stride, x, y, w, h int) bool {
-	if len(buf) == 0 || stride <= 0 || x < 0 || y < 0 || w <= 0 || h <= 0 {
-		return false
-	}
-	if x+w > stride {
-		return false
-	}
-	return (y+h)*stride <= len(buf)
+	return planeRectFits(buf, stride, x, y, w, h)
 }
 
 func modelRdBlockVariance8x8(src []byte, srcStride, srcX, srcY int,
@@ -1228,11 +1222,32 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 // removed when the keyframe RD picker switched to cost_coeffs (commit
 // a2f325c); this helper remains as the verbatim block_yrd dependency.
 func BlockErrorFP(coeff, dqcoeff []int16) uint64 {
+	return blockErrorFPDispatch(coeff, dqcoeff)
+}
+
+// BlockErrorFPWithEnergy returns the vp9_block_error_fp distortion term and
+// the matching coefficient-energy term over the paired coefficient window.
+func BlockErrorFPWithEnergy(coeff, dqcoeff []int16) (err, energy uint64) {
+	return blockErrorFPWithEnergyDispatch(coeff, dqcoeff)
+}
+
+func blockErrorFPScalar(coeff, dqcoeff []int16) uint64 {
 	n := min(len(coeff), len(dqcoeff))
 	var err uint64
 	for i := range n {
 		diff := int(coeff[i]) - int(dqcoeff[i])
-		err += uint64(diff * diff)
+		err += uint64(int64(diff) * int64(diff))
 	}
 	return err
+}
+
+func blockErrorFPWithEnergyScalar(coeff, dqcoeff []int16) (err, energy uint64) {
+	n := min(len(coeff), len(dqcoeff))
+	for i := range n {
+		diff := int(coeff[i]) - int(dqcoeff[i])
+		err += uint64(int64(diff) * int64(diff))
+		v := int64(coeff[i])
+		energy += uint64(v * v)
+	}
+	return err, energy
 }

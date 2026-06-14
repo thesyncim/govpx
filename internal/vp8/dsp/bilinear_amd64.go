@@ -34,7 +34,7 @@ func bilinearPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset i
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 17, 17, dst, dstStride, 16, 16) {
 		return false
 	}
 	var tmp [17 * 16]byte
@@ -49,7 +49,7 @@ func bilinearPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int
 	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
 		return false
 	}
-	if srcStride <= 0 || dstStride <= 0 {
+	if !dspSIMDPredictWindowOK(src, srcStride, 9, 9, dst, dstStride, 8, 8) {
 		return false
 	}
 	var tmp [9 * 8]byte

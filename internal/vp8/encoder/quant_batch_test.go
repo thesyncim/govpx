@@ -107,6 +107,63 @@ func TestFastQuantizeBlockBatchSentinels(t *testing.T) {
 	}
 }
 
+func TestQuant4x4BatchWindowOK(t *testing.T) {
+	const blocks = 3
+	coeff := make([]int16, blocks*16)
+	qcoeff := make([]int16, blocks*16)
+	dqcoeff := make([]int16, blocks*16)
+	eobs := make([]uint8, blocks)
+
+	if !quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff, eobs, blocks) {
+		t.Fatal("packed batch was rejected")
+	}
+	if quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff, eobs, 0) {
+		t.Fatal("zero count was accepted")
+	}
+	if quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff, eobs, -1) {
+		t.Fatal("negative count was accepted")
+	}
+	if quant4x4BatchWindowOK(coeff[:len(coeff)-1], qcoeff, dqcoeff, eobs, blocks) {
+		t.Fatal("short coeff window was accepted")
+	}
+	if quant4x4BatchWindowOK(coeff, qcoeff[:len(qcoeff)-1], dqcoeff, eobs, blocks) {
+		t.Fatal("short qcoeff window was accepted")
+	}
+	if quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff[:len(dqcoeff)-1], eobs, blocks) {
+		t.Fatal("short dqcoeff window was accepted")
+	}
+	if quant4x4BatchWindowOK(coeff, qcoeff, dqcoeff, eobs[:len(eobs)-1], blocks) {
+		t.Fatal("short eobs window was accepted")
+	}
+
+	maxInt := int(^uint(0) >> 1)
+	if quant4x4BatchWindowOK(nil, nil, nil, nil, maxInt/16+1) {
+		t.Fatal("overflowing count was accepted")
+	}
+}
+
+func TestFastQuantizeBlockBatchInvalidWindowPanicsInScalar(t *testing.T) {
+	const blocks = 2
+	var dequant [16]int16
+	for i := range dequant {
+		dequant[i] = int16(i + 10)
+	}
+	var quant BlockQuant
+	InitFastBlockQuant(&dequant, &quant)
+
+	coeff := make([]int16, blocks*16-1)
+	qcoeff := make([]int16, blocks*16)
+	dqcoeff := make([]int16, blocks*16)
+	eobs := make([]uint8, blocks)
+
+	defer func() {
+		if recover() == nil {
+			t.Fatal("short coeff window did not panic")
+		}
+	}()
+	FastQuantizeBlockBatch(coeff, &quant, qcoeff, dqcoeff, eobs, blocks)
+}
+
 // BenchmarkFastQuantizeBlockBatch25 mirrors the libvpx
 // vp8_quantize_mb call pattern: 25 blocks (16 Y + 8 UV + 1 Y2)
 // quantized in a single dispatch. Run as a single batch with the

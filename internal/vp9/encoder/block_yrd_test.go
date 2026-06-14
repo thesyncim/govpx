@@ -510,6 +510,36 @@ func TestVP9BlockErrorFPHandComputed16(t *testing.T) {
 	}
 }
 
+func TestVP9BlockErrorFPWithEnergyHandComputed16(t *testing.T) {
+	coeff := []int16{
+		100, -100, 50, -200, 300, 0, 1, 500,
+		-1000, 1500, -2000, 2500, -3000, 3500, -4000, 4500,
+	}
+	dqcoeff := []int16{
+		90, -90, 48, -150, 310, 1, 0, 500,
+		-1100, 1480, -2050, 2500, -2900, 3450, -4001, 4499,
+	}
+	const wantErr = uint64(28208)
+	const wantEnergy = uint64(71_402_501)
+	gotErr, gotEnergy := BlockErrorFPWithEnergy(coeff, dqcoeff)
+	if gotErr != wantErr || gotEnergy != wantEnergy {
+		t.Errorf("BlockErrorFPWithEnergy = (%d,%d), want (%d,%d)",
+			gotErr, gotEnergy, wantErr, wantEnergy)
+	}
+}
+
+func TestVP9BlockErrorFPWithEnergyUsesPairedWindow(t *testing.T) {
+	coeff := []int16{3, -4, 1000}
+	dqcoeff := []int16{1, -1}
+	gotErr, gotEnergy := BlockErrorFPWithEnergy(coeff, dqcoeff)
+	const wantErr = uint64(13)    // (3-1)^2 + (-4+1)^2
+	const wantEnergy = uint64(25) // 3^2 + (-4)^2; trailing coeff is ignored
+	if gotErr != wantErr || gotEnergy != wantEnergy {
+		t.Errorf("BlockErrorFPWithEnergy paired window = (%d,%d), want (%d,%d)",
+			gotErr, gotEnergy, wantErr, wantEnergy)
+	}
+}
+
 // TestVP9BlockErrorFPSymmetry pins libvpx vp9_rdopt.c:340-341 — the
 // accumulator is symmetric under (coeff,dqcoeff) -> (dqcoeff,coeff)
 // because diff*diff is invariant under sign flip.

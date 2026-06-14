@@ -1,6 +1,9 @@
 package dsp
 
-import "testing"
+import (
+	"math/rand/v2"
+	"testing"
+)
 
 // Pinning tests for the integer-projection DSP kernels in int_pro.go.
 // Reference values are hand-computed from the libvpx v1.16.0 reference
@@ -78,6 +81,40 @@ func TestVpxIntProRowAsymmetricColumns(t *testing.T) {
 	}
 }
 
+func TestVpxIntProRowRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x175e, 0x9a11))
+	for _, height := range []int{2, 16, 32, 64} {
+		for _, stride := range []int{16, 24, 65, 128} {
+			for trial := range 32 {
+				ref := make([]uint8, stride*height+32)
+				for i := range ref {
+					ref[i] = uint8(r.UintN(256))
+				}
+				off := int(r.UintN(uint(stride - 16 + 1)))
+				var got, want [16]int16
+				VpxIntProRow(got[:], ref, off, stride, height)
+				referenceVpxIntProRow(want[:], ref, off, stride, height)
+				if got != want {
+					t.Fatalf("height=%d stride=%d trial=%d off=%d: got %v want %v",
+						height, stride, trial, off, got, want)
+				}
+			}
+		}
+	}
+}
+
+func referenceVpxIntProRow(hbuf []int16, ref []uint8, refOff, refStride, height int) {
+	normFactor := int16(height >> 1)
+	for idx := range 16 {
+		var acc int16
+		for i := range height {
+			acc += int16(ref[refOff+i*refStride])
+		}
+		hbuf[idx] = acc / normFactor
+		refOff++
+	}
+}
+
 // TestVpxIntProColUniform verifies the basic accumulation for the
 // simplest case: width=64 of value 250 -> 250*64 = 16000.
 func TestVpxIntProColUniform(t *testing.T) {
@@ -101,6 +138,33 @@ func TestVpxIntProColWidth16(t *testing.T) {
 	if got != 240 {
 		t.Errorf("VpxIntProCol pattern: got %d want 240", got)
 	}
+}
+
+func TestVpxIntProColRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0xc011, 0x70ad))
+	for _, width := range []int{1, 5, 16, 32, 64} {
+		for trial := range 64 {
+			ref := make([]uint8, width+16)
+			for i := range ref {
+				ref[i] = uint8(r.UintN(256))
+			}
+			off := int(r.UintN(16))
+			got := VpxIntProCol(ref, off, width)
+			want := referenceVpxIntProCol(ref, off, width)
+			if got != want {
+				t.Fatalf("width=%d trial=%d off=%d: got %d want %d",
+					width, trial, off, got, want)
+			}
+		}
+	}
+}
+
+func referenceVpxIntProCol(ref []uint8, refOff, width int) int16 {
+	var sum int16
+	for idx := range width {
+		sum += int16(ref[refOff+idx])
+	}
+	return sum
 }
 
 // TestVpxVectorVarZeroDiff verifies that ref == src produces var = 0.
@@ -159,4 +223,117 @@ func TestVpxVectorVarKnownPattern(t *testing.T) {
 	if got != 34000 {
 		t.Errorf("VpxVectorVar known-pattern: got %d want 34000", got)
 	}
+}
+
+func TestVpxVectorVarRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x5eed, 0x7711))
+	for _, bwl := range []int{0, 2, 3, 4} {
+		width := 4 << bwl
+		for trial := range 64 {
+			ref := make([]int16, width)
+			src := make([]int16, width)
+			for i := range width {
+				ref[i] = int16(r.IntN(511))
+				src[i] = int16(r.IntN(511))
+			}
+			got := VpxVectorVar(ref, src, bwl)
+			want := referenceVpxVectorVar(ref, src, bwl)
+			if got != want {
+				t.Fatalf("bwl=%d width=%d trial=%d: got %d want %d",
+					bwl, width, trial, got, want)
+			}
+		}
+	}
+}
+
+func referenceVpxVectorVar(ref, src []int16, bwl int) int {
+	width := 4 << bwl
+	var sse, mean int
+	for i := range width {
+		diff := int(ref[i]) - int(src[i])
+		mean += diff
+		sse += diff * diff
+	}
+	return sse - ((mean * mean) >> (bwl + 2))
+}
+
+func BenchmarkVpxIntProRowHeight16(b *testing.B) {
+	benchmarkVpxIntProRow(b, 16)
+}
+
+func BenchmarkVpxIntProRowHeight32(b *testing.B) {
+	benchmarkVpxIntProRow(b, 32)
+}
+
+func BenchmarkVpxIntProRowHeight64(b *testing.B) {
+	benchmarkVpxIntProRow(b, 64)
+}
+
+func BenchmarkVpxIntProColWidth16(b *testing.B) {
+	benchmarkVpxIntProCol(b, 16)
+}
+
+func BenchmarkVpxIntProColWidth32(b *testing.B) {
+	benchmarkVpxIntProCol(b, 32)
+}
+
+func BenchmarkVpxIntProColWidth64(b *testing.B) {
+	benchmarkVpxIntProCol(b, 64)
+}
+
+func BenchmarkVpxVectorVarWidth16(b *testing.B) {
+	benchmarkVpxVectorVar(b, 2)
+}
+
+func BenchmarkVpxVectorVarWidth32(b *testing.B) {
+	benchmarkVpxVectorVar(b, 3)
+}
+
+func BenchmarkVpxVectorVarWidth64(b *testing.B) {
+	benchmarkVpxVectorVar(b, 4)
+}
+
+func benchmarkVpxIntProRow(b *testing.B, height int) {
+	const stride = 128
+	ref := make([]uint8, stride*height+16)
+	for i := range ref {
+		ref[i] = uint8((i*37 + 11) & 255)
+	}
+	var hbuf [16]int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxIntProRow(hbuf[:], ref, i&15, stride, height)
+	}
+}
+
+func benchmarkVpxIntProCol(b *testing.B, width int) {
+	ref := make([]uint8, width+16)
+	for i := range ref {
+		ref[i] = uint8((i*29 + 7) & 255)
+	}
+	var sum int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sum += VpxIntProCol(ref, i&15, width)
+	}
+	_ = sum
+}
+
+func benchmarkVpxVectorVar(b *testing.B, bwl int) {
+	width := 4 << bwl
+	ref := make([]int16, width)
+	src := make([]int16, width)
+	for i := range width {
+		ref[i] = int16((i*17 + 5) % 511)
+		src[i] = int16((i*31 + 9) % 511)
+	}
+	var v int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v += VpxVectorVar(ref, src, bwl)
+	}
+	_ = v
 }

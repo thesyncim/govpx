@@ -367,7 +367,8 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	if maxEob > len(e.coefScratch) || bs*bs > len(e.residueScratch) {
 		return encoder.FullRDTxCandidate{}
 	}
-	dequant := inter.dq.Y[0]
+	segID := vp9EncoderMiSegmentID(nil)
+	dequant := inter.dq.Y[segID]
 	// libvpx full-RD block_rd_txfm calls vp9_xform_quant
 	// (vp9/encoder/vp9_encodemb.c:489), which uses the REGULAR quantizer
 	// vpx_quantize_b / vpx_quantize_b_32x32 (lines 537,542) — NOT the fast
@@ -388,10 +389,10 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	}
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-		if off := aboveOffsets[0]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+		if off := aboveOffsets[0]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 			copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 		}
-		if off := leftOffsets[0]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+		if off := leftOffsets[0]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 			copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 		}
 	}
@@ -404,15 +405,18 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 	// trellis_opt_tx_rd.thresh=0 (vp9_speed_features.c:486-489), so the else
 	// branch (line 2048) forces block_tx_domain = 1 unconditionally.
 	//
-	// Wired behind vp9InterUseDeepRDTxDomainDistortion (default OFF): the Y-RD
+	// Scoped behind vp9InterUseDeepRDTxDomainDistortion for the VAR_BASED
+	// use-partition path: the Y-RD
 	// transform-domain dist matches libvpx per-tx exactly (mi(0,4) frame-1 of
 	// {0,1,1,0,1}: TX_8X8 d=56334 sse=119666, TX_4X4 d=46797 sse=119991). It
 	// MUST be enabled in lockstep with the matching UV-RD transform-domain path
 	// (vp9FullRDInterUVPlaneTxCandidate, same flag): Y-only inverts the
 	// NEARESTMV-vs-NEARMV this_rd tie at that leaf, while Y+UV together pick
-	// NEARMV/TX_4X4 exactly as libvpx. The flag stays OFF by default so the
-	// pixel-domain producers (and the cpu0 {0,2,0,0,2} YRD pins) are unchanged.
+	// NEARMV/TX_4X4 exactly as libvpx. The cpu0 {0,2,0,0,2} YRD pins stay on
+	// the pixel-domain path because their speed features do not request
+	// transform-domain distortion.
 	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
 			bsize)
 	var rate int
@@ -440,7 +444,8 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 			// in e.residueScratch; the forward DCT lands in e.txCoeffScratch and
 			// the dequantized coeffs in e.dqCoeffScratch.
 			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
-				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
+				miRow, miCol, rr, cc, dequant, qindex, initCtx,
+				int(segID), coeffs, qcoeffs)
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -448,12 +453,10 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 				// libvpx vp9_rdopt.c:571-600 (block_tx_domain && eob):
 				// dist = vp9_block_error(coeff, dqcoeff) >> shift,
 				// sse  = sum(coeff^2)              >> shift, with shift==2
-				// for tx != 32x32. TransformBlockError / TransformBlockEnergy
-				// fold in that shift.
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
-					txSize)
+				// for tx != 32x32. TransformBlockErrorWithEnergy folds in that
+				// shift for both return values.
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
 			} else {
 				// Pixel domain (block_tx_domain==0 or eob==0): dist =
 				// pixel_sse(src, recon) * 16, sse = sum_squares(src_diff) * 16
@@ -544,7 +547,7 @@ type uint64OrInt = int
 func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
-	coeffCtx int, out, qOut []int16,
+	coeffCtx, segID int, out, qOut []int16,
 ) bool {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, 0, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
@@ -566,6 +569,7 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	// cpu0 (speed 0) keeps ENABLE_TRELLIS_OPT. A nil trellis closure skips it.
 	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
 	if e.vp9DoTrellisOptInterY(txSize) {
+		rdmult := e.activeRDMult(qindex)
 		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
 			// e.modeScratch is the ENTROPY_CONTEXT token_cache[1024]
 			// (vp9_encodemb.c:72); reused by the cost_coeffs call after this,
@@ -573,8 +577,8 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 			return encoder.VP9OptimizeB(0 /*plane Y*/, 1 /*ref inter*/, txSize,
 				coeffCtx, coeff, qcoeff, dqcoeff, eob, dequant,
 				scan.Scan, scan.Neighbors, coefModel,
-				int64(e.cbRdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
-				0 /*segment_id*/, &e.modeScratch)
+				int64(rdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				segID, &e.modeScratch)
 		}
 	}
 	// useLp32x32RD=true: super_block_yrd runs inside the full-RD

@@ -25,6 +25,9 @@ func repeatedDenoiserByte(v uint64) uint64 {
 }
 
 func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
+	if !denoiserWindowsOK(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, 16, 16) {
+		return 0, false
+	}
 	shiftInc := uint64(0)
 	if increaseDenoising && motionMagnitude <= denoiserMotionMagnitudeThresh {
 		shiftInc = 1
@@ -50,6 +53,9 @@ func denoiserFilterYFirstPassSIMD(mcRunningAvg []byte, mcStride int, runningAvg 
 }
 
 func denoiserFilterUVSIMD(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) (int, bool) {
+	if !denoiserWindowsOK(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, 8, 8) {
+		return 0, false
+	}
 	sumBlock := 0
 	for r := range 8 {
 		row := sig[r*sigStride:]

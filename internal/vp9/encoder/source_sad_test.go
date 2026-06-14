@@ -53,6 +53,23 @@ func TestSourceSADSceneSamplesCountsZeroTempBlocks(t *testing.T) {
 	}
 }
 
+func TestSourceSADSceneSamplesRejectsOverflowPlaneSpan(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	_, ok := SourceSADSceneSamples(SourceSADSceneSamplesArgs{
+		SourceY:           []byte{1},
+		SourceYStride:     huge/2 + 1,
+		LastSourceY:       []byte{1},
+		LastSourceYStride: huge/2 + 1,
+		Width:             huge/2 + 1,
+		Height:            3,
+		MIRows:            24,
+		MICols:            24,
+	})
+	if ok {
+		t.Fatal("SourceSADSceneSamples accepted overflowing source plane span")
+	}
+}
+
 func TestAvgSourceSADContentStates(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -155,6 +172,21 @@ func TestAvgSourceSADEdgeExtendsBottomBorder(t *testing.T) {
 	}
 	if got.ZeroTempSADSource {
 		t.Fatal("ZeroTempSADSource = true, want false")
+	}
+}
+
+func TestAvgSourceSADRejectsOverflowPlaneSpan(t *testing.T) {
+	huge := int(^uint(0) >> 1)
+	_, ok := AvgSourceSAD(AvgSourceSADArgs{
+		SourceY:           []byte{1},
+		SourceYStride:     huge/2 + 1,
+		LastSourceY:       []byte{1},
+		LastSourceYStride: huge/2 + 1,
+		Width:             huge/2 + 1,
+		Height:            3,
+	})
+	if ok {
+		t.Fatal("AvgSourceSAD accepted overflowing source plane span")
 	}
 }
 

@@ -27,14 +27,15 @@ import (
 // (encoder.FullPixelDiamond), the subpel tree (refineVP9InterSubpelMv-style via
 // the bordered subpel variance), set_and_cost_bmi_mvs cost (encoder.CostMvRef +
 // encoder.MvBitCostSub), fdct4x4 (encoder.ForwardDCT4x4Into), vpx_quantize_b
-// (encoder.QuantizeBWithQ), vp9_block_error (encoder.BlockErrorFP + sum-of-
-// squares), cost_coeffs (vp9InterCoeffBlockRateCostQ), and the verified
+// (encoder.QuantizeBWithQ), vp9_block_error (encoder.BlockErrorFPWithEnergy),
+// cost_coeffs (vp9InterCoeffBlockRateCostQ), and the verified
 // super_block_uvrd producer (vp9FullRDInterSuperBlockUVRD). No constants are
 // re-derived.
 //
-// GATED OFF: this producer is consulted only behind vp9InterUseDeepRDSub8x8 and
-// (separately) the oracle-trace pin. Production keeps the pickVP9Sub8InterMode
-// model stand-in, so production byte-parity is untouched.
+// This producer is consulted behind the deep sub-8x8 predicate and (separately)
+// the oracle-trace pin. The scoped production cpu0 SearchPartition lane now
+// uses it by default; other lanes still keep the pickVP9Sub8InterMode model
+// stand-in.
 //
 // libvpx ground truth (vpxenc-vp9 cpu0 CBR 1200 kbps, kf=999, fps 30, the
 // panning source; TEMPORARY fprintf in rd_pick_best_sub8x8_mode, reverted):
@@ -295,7 +296,7 @@ func (e *VP9Encoder) rdPickBestSub8x8Mode(inter *vp9InterEncodeState,
 						// where libvpx splits to 4x4). Gated on the deep stack exactly
 						// like the single_motion_search write; production (flags off)
 						// never reads fullRDPredMv so it is inert there.
-						if (vp9InterUseDeepRDSub8x8 || vp9InterUseDeepRDUsePartition) &&
+						if e.vp9UseDeepRDPredMvPath() &&
 							refFrame > vp9dec.IntraFrame &&
 							int(refFrame) < len(e.fullRDPredMv) {
 							e.fullRDPredMv[refFrame] = searchMv

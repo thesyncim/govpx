@@ -10,27 +10,25 @@ import "unsafe"
 // the x86-64 baseline so the SIMD entry points are always safe to call
 // without runtime detection.
 //
-// Each wrapper does explicit bounds-checks (e.g. _ = above[15]) before
-// calling into the SSE2 kernel; once those have proven the slice is
-// long enough we fetch the base via unsafe.SliceData to skip the
-// secondary bounds-check + stack frame the compiler would otherwise
-// emit for &slice[0].
+// Each wrapper validates the full block/edge window before calling into
+// the SSE2 kernel; once proven in-bounds we fetch the base via
+// unsafe.SliceData to skip the secondary bounds-check + stack frame the
+// compiler would otherwise emit for &slice[0].
 
 func intraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
-	_ = dst[15*dstStride+15]
+	if !intraDCPredictWindowOK(dst, dstStride, above, left, 16, upAvailable, leftAvailable) {
+		intraDCPredictScalar(dst, dstStride, above, left, 16, upAvailable, leftAvailable)
+		return
+	}
 	dc := byte(128)
 	switch {
 	case upAvailable && leftAvailable:
-		_ = above[15]
-		_ = left[15]
 		sum := int(intraSum16SSE2(unsafe.SliceData(above))) + int(intraSum16SSE2(unsafe.SliceData(left)))
 		dc = byte((sum + 16) / 32)
 	case upAvailable:
-		_ = above[15]
 		sum := int(intraSum16SSE2(unsafe.SliceData(above)))
 		dc = byte((sum + 8) / 16)
 	case leftAvailable:
-		_ = left[15]
 		sum := int(intraSum16SSE2(unsafe.SliceData(left)))
 		dc = byte((sum + 8) / 16)
 	}
@@ -38,20 +36,19 @@ func intraDCPredict16x16(dst []byte, dstStride int, above []byte, left []byte, u
 }
 
 func intraDCPredict8x8(dst []byte, dstStride int, above []byte, left []byte, upAvailable bool, leftAvailable bool) {
-	_ = dst[7*dstStride+7]
+	if !intraDCPredictWindowOK(dst, dstStride, above, left, 8, upAvailable, leftAvailable) {
+		intraDCPredictScalar(dst, dstStride, above, left, 8, upAvailable, leftAvailable)
+		return
+	}
 	dc := byte(128)
 	switch {
 	case upAvailable && leftAvailable:
-		_ = above[7]
-		_ = left[7]
 		sum := int(intraSum8SSE2(unsafe.SliceData(above))) + int(intraSum8SSE2(unsafe.SliceData(left)))
 		dc = byte((sum + 8) / 16)
 	case upAvailable:
-		_ = above[7]
 		sum := int(intraSum8SSE2(unsafe.SliceData(above)))
 		dc = byte((sum + 4) / 8)
 	case leftAvailable:
-		_ = left[7]
 		sum := int(intraSum8SSE2(unsafe.SliceData(left)))
 		dc = byte((sum + 4) / 8)
 	}
@@ -69,27 +66,33 @@ func intraVerticalPredict8x8(dst []byte, dstStride int, above []byte) {
 }
 
 func intraHorizontalPredict16x16(dst []byte, dstStride int, left []byte) {
-	_ = left[15]
-	_ = dst[15*dstStride+15]
+	if !intraPredictWindowOK(dst, dstStride, left, 16) {
+		intraHorizontalPredictScalar(dst, dstStride, left, 16)
+		return
+	}
 	intraHPredict16x16SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }
 
 func intraHorizontalPredict8x8(dst []byte, dstStride int, left []byte) {
-	_ = left[7]
-	_ = dst[7*dstStride+7]
+	if !intraPredictWindowOK(dst, dstStride, left, 8) {
+		intraHorizontalPredictScalar(dst, dstStride, left, 8)
+		return
+	}
 	intraHPredict8x8SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(left))
 }
 
 func intraTMPredict16x16(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	_ = above[15]
-	_ = left[15]
-	_ = dst[15*dstStride+15]
+	if !intraTMPredictWindowOK(dst, dstStride, above, left, 16) {
+		intraTMPredictScalar(dst, dstStride, above, left, topLeft, 16)
+		return
+	}
 	intraTMPredict16x16SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }
 
 func intraTMPredict8x8(dst []byte, dstStride int, above []byte, left []byte, topLeft byte) {
-	_ = above[7]
-	_ = left[7]
-	_ = dst[7*dstStride+7]
+	if !intraTMPredictWindowOK(dst, dstStride, above, left, 8) {
+		intraTMPredictScalar(dst, dstStride, above, left, topLeft, 8)
+		return
+	}
 	intraTMPredict8x8SSE2(unsafe.SliceData(dst), dstStride, unsafe.SliceData(above), unsafe.SliceData(left), topLeft)
 }

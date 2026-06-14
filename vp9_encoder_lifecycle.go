@@ -568,6 +568,13 @@ type VP9Encoder struct {
 	// byte-identical.
 	fullRDPredMv [vp9dec.MaxRefFrames]vp9dec.MV
 
+	// fullRDLeafBestRD carries the scalar best_rd_so_far budget that libvpx's
+	// rd_pick_partition passes through rd_pick_sb_modes into
+	// vp9_rd_pick_inter_mode_sub8x8. It is scoped around a leaf picker call and
+	// consumed only by the deep sub-8x8 full-RD wrapper.
+	fullRDLeafBestRD      uint64
+	fullRDLeafBestRDValid bool
+
 	// rdThresh carries libvpx's RD-thresh / per-tile thresh_freq_fact
 	// state. Lazily allocated by vp9EncoderInitializeRDConsts on first
 	// frame init. Mirrors:

@@ -237,6 +237,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraSBInit(inter *vp9InterEncodeState,
 	// unaffected. See vp9InterUseDeepRDIntraSkipEncode for the three coupled
 	// effects on the intra producer.
 	skipEncode := vp9InterUseDeepRDIntraSkipEncode &&
+		e.vp9UseDeepRDUsePartitionPath() &&
 		e.sf.SkipEncodeFrame != 0 && segQIndex < vp9QIdxSkipThresh
 
 	st.keyLike = keyLike
@@ -735,10 +736,10 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 	if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		if plane < len(aboveOffsets) && plane < len(leftOffsets) {
-			if off := aboveOffsets[plane]; off >= 0 && off+aboveLen <= len(pd.AboveContext) {
+			if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
 				copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
 			}
-			if off := leftOffsets[plane]; off >= 0 && off+leftLen <= len(pd.LeftContext) {
+			if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
 				copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
 			}
 		}
@@ -749,6 +750,10 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 	var sse uint64
 	skippable := true
 	thisRD := uint64(0)
+	useTxDomain := vp9InterUseDeepRDTxDomainDistortion &&
+		e.vp9UseDeepRDUsePartitionPath() &&
+		e.vp9InterUseTransformDomainDistortion(inter, miRows, miCols, miRow, miCol,
+			bsize)
 	for rr := 0; rr < max4x4H; rr += step {
 		for cc := 0; cc < max4x4W; cc += step {
 			coeffs := e.coefScratch[:maxEob]
@@ -769,22 +774,19 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 
 			var blockDist uint64
 			var blockSSE uint64
-			if skipEncode && hasResidue {
-				// x->skip_encode (vp9_rdopt.c:571-600, block_tx_domain && eob):
+			if useTxDomain && hasResidue {
+				// libvpx vp9_rdopt.c:571-600 (block_tx_domain && eob):
 				// dist = vp9_block_error(coeff, dqcoeff) >> shift; sse =
-				// sum(coeff^2) >> shift, then the skip_encode model adjustment
-				// (vp9_rdopt.c:589-600, gated on x->skip_encode &&
-				// !is_inter_block): out_dist += mean_quant_error >> 4, out_sse +=
-				// mean_quant_error. block_tx_domain is forced 1 for REALTIME speed
-				// >= 1 (the same gate vp9InterUseDeepRDTxDomainDistortion wires for
-				// the inter producers), so when skip_encode holds it always does.
-				blockDist = encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
-					e.dqCoeffScratch[:maxEob], txSize)
-				blockSSE = encoder.TransformBlockEnergy(e.txCoeffScratch[:maxEob],
-					txSize)
-				meanQErr := vp9SkipEncodeMeanQuantError(dequant[1], txSize)
-				blockDist += meanQErr >> 4
-				blockSSE += meanQErr
+				// sum(coeff^2) >> shift. x->skip_encode adds the intra-only
+				// mean-quant-error model term on top, but block_tx_domain itself is
+				// independent of skip_encode and is forced on for REALTIME speed >= 1.
+				blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
+				if skipEncode {
+					meanQErr := vp9SkipEncodeMeanQuantError(dequant[1], txSize)
+					blockDist += meanQErr >> 4
+					blockSSE += meanQErr
+				}
 			} else {
 				// dist = pixel_sse(src, recon) * 16 (vp9_rdopt.c:766-768). When
 				// eob==0 the predictor stays in recon, reducing to

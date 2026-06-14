@@ -46,14 +46,11 @@ var vp9UsePartitionSeed0_1_1_0_1Frame1 = [64][7]int{
 // candidate[2] threading produce mi(0,0) NEWMV mv=(8,14) — the exact libvpx
 // full-pel+subpel result — instead of the model-RD (4,22).
 //
-// Flag default is OFF, so production and every other VP9 oracle gate are
-// byte-identical (the seed stays in vp9LongFixtureParityGapSeeds); this test
-// flips it locally. With the genuine larger-block intra producer threaded in
+// The VAR_BASED use-partition stack is production-default for this cpu4 lane;
+// this test still sets the global guards explicitly so test order cannot
+// quarantine it. With the genuine larger-block intra producer threaded in
 // (pickVP9FullRDInterIntraLeaf), the entire 64-leaf SB committed (mode, ref,
-// interp, mv) DECOMPOSITION now matches libvpx. (The full frame-1 bitstream is
-// not yet byte-exact: the residual coefficient coding still diverges — govpx
-// emits ~30 extra token bytes — which is the next frontier; the committed mode
-// decomposition this test pins is the prerequisite for it.)
+// interp, mv) DECOMPOSITION now matches libvpx.
 func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 	const width, height = 64, 64
 
@@ -193,6 +190,81 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		t.Logf("deep use-partition: %d/64 leading z-order leaves libvpx-exact "+
 			"(mode/ref/interp/mv); first divergence at mi(%d,%d)",
 			matched, firstDiff[0], firstDiff[1])
+	}
+}
+
+func TestVP9FullRDUsePartitionProductionDefaultScope(t *testing.T) {
+	const width, height = 64, 64
+	cpu4, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   700,
+		MaxKeyframeInterval: 30,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(cpu4): %v", err)
+	}
+	defer cpu4.Close()
+	if !cpu4.vp9UseDeepRDUsePartitionPath() {
+		t.Fatalf("cpu4 VAR_BASED use-partition deep RD disabled by default")
+	}
+	if !cpu4.vp9UseDeepRDRefBestPath() {
+		t.Fatalf("cpu4 VAR_BASED ref-best RD budget disabled by default")
+	}
+
+	cpu0, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MaxKeyframeInterval: 999,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             0,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(cpu0): %v", err)
+	}
+	defer cpu0.Close()
+	if cpu0.vp9UseDeepRDUsePartitionPath() {
+		t.Fatalf("cpu0 SearchPartition unexpectedly enabled use-partition deep RD")
+	}
+	if !cpu0.vp9UseDeepRDSearchPartitionPath() {
+		t.Fatalf("cpu0 SearchPartition deep RD disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDSub8x8Path() {
+		t.Fatalf("cpu0 SearchPartition sub-8x8 deep RD disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDThisRDPath() {
+		t.Fatalf("cpu0 SearchPartition this_rd disabled by default")
+	}
+	if !cpu0.vp9UseDeepRDRefBestPath() {
+		t.Fatalf("cpu0 SearchPartition ref-best RD budget disabled by default")
+	}
+
+	cpuNeg3, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1200,
+		MaxKeyframeInterval: 999,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             -3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(cpu-3): %v", err)
+	}
+	defer cpuNeg3.Close()
+	if cpuNeg3.vp9UseProductionDeepRDSearchPartitionPath() {
+		t.Fatalf("cpu-3 unexpectedly entered the cpu0 production SearchPartition lane")
 	}
 }
 

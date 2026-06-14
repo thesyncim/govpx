@@ -85,12 +85,9 @@ var vp9FullRDSeed0_2_0_0_2Frame1SB0 = []fullRDFrame1Block{
 // libvpx ground-truth block map embedded above (counts + invariants the rest
 // of the campaign relies on), (2) re-pins the closed keyframe milestone
 // (frame 0 byte-exact between govpx and the pinned vpxenc-vp9 oracle), and
-// (3) re-pins the EXACT frame-1 divergence signature on the live oracle
-// (base_qindex==145), so the moment govpx's full-RD inter engine starts to
-// close frame 1 this test localises the remaining work to the documented
-// distinct code paths. The two-frame govpx vs vpxenc byte compare is the
-// progress gauge; frame 1 is expected to diverge until the full-RD inter path
-// lands, so that leg is reported, not asserted equal.
+// (3) asserts the now-production-default frame-1 byte-parity milestone on the
+// live oracle (base_qindex==145), so future work cannot accidentally fall back
+// to the shallow SearchPartition path.
 func TestVP9FullRDFrame1DecompositionSeed0_2_0_0_2(t *testing.T) {
 	vp9test.RequireVpxenc(t)
 
@@ -167,7 +164,7 @@ func TestVP9FullRDFrame1DecompositionSeed0_2_0_0_2(t *testing.T) {
 	}
 
 	// (2)+(3) Drive the live oracle and govpx over the two-frame prefix of the
-	// exact seed config and pin the keyframe + frame-1 divergence signature.
+	// exact seed config and pin the keyframe + frame-1 byte-parity signature.
 	opts := govpx.VP9EncoderOptions{
 		Width:               width,
 		Height:              height,
@@ -226,12 +223,17 @@ func TestVP9FullRDFrame1DecompositionSeed0_2_0_0_2(t *testing.T) {
 		t.Fatal("libvpx frame 1 parsed as KEY_FRAME, want INTER")
 	}
 
-	// Frame 1 is the open gap. Report the matched-prefix and the govpx-side
-	// derived signature so progress is visible; do not assert equality yet.
+	// Frame 1 is now production-default byte-exact on the scoped cpu0
+	// SearchPartition full-RD path. Keep the header log compact so future
+	// failures still show whether q/filter/FPS drifted before the packet diff.
 	prefix := testutil.MatchedFramePrefixLength(govpxFrames[:2], libvpxFrames[:2])
 	goHeader1, _ := vp9test.ParseHeader(t, govpxFrames[1])
-	t.Logf("seed{0,2,0,0,2} matched-frame-prefix=%d/2 (frame 0 closed; frame 1 = full-RD inter gap)", prefix)
 	t.Logf("seed{0,2,0,0,2} frame1 govpx q=%d fps=%d filterLevel=%d | libvpx q=%d fps=%d filterLevel=%d",
 		goHeader1.Quant.BaseQindex, goHeader1.FirstPartitionSize, goHeader1.Loopfilter.FilterLevel,
 		libHeader1.Quant.BaseQindex, libHeader1.FirstPartitionSize, libHeader1.Loopfilter.FilterLevel)
+	if prefix != 2 {
+		fd := testutil.FirstByteDiff(govpxFrames[1], libvpxFrames[1])
+		t.Fatalf("matched-frame-prefix=%d/2; frame1 firstByteDiff=%d govpx_len=%d libvpx_len=%d, want byte-exact",
+			prefix, fd, len(govpxFrames[1]), len(libvpxFrames[1]))
+	}
 }

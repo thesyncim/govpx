@@ -12,8 +12,9 @@ import "unsafe"
 func forwardDCT4x4SSE2(input *int16, stride int, output *int16)
 
 func forwardDCT4x4SIMD(input []int16, stride int, output *[16]int16) {
-	// unsafe.SliceData skips the &input[0] bounds-check + stack frame.
-	// Callers always pass a non-empty input slice covering the 4x4
-	// pixel-difference window for the kernel.
+	if !transform4x4WindowOK(input, stride) {
+		forwardDCT4x4Scalar(input, stride, output)
+		return
+	}
 	forwardDCT4x4SSE2(unsafe.SliceData(input), stride, &output[0])
 }

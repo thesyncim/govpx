@@ -43,6 +43,73 @@ func TestIDCT4x4AddClips(t *testing.T) {
 	}
 }
 
+func TestIDCT4x4AddInvalidWindowPanicsInScalar(t *testing.T) {
+	var input [16]int16
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "full-short-pred",
+			fn: func() {
+				IDCT4x4Add(&input, make([]byte, 3), 4, make([]byte, 16), 4)
+			},
+		},
+		{
+			name: "full-short-dst",
+			fn: func() {
+				IDCT4x4Add(&input, make([]byte, 16), 4, make([]byte, 3), 4)
+			},
+		},
+		{
+			name: "full-negative-pred-stride",
+			fn: func() {
+				IDCT4x4Add(&input, make([]byte, 16), -4, make([]byte, 16), 4)
+			},
+		},
+		{
+			name: "full-negative-dst-stride",
+			fn: func() {
+				IDCT4x4Add(&input, make([]byte, 16), 4, make([]byte, 16), -4)
+			},
+		},
+		{
+			name: "dc-short-pred",
+			fn: func() {
+				DCOnlyIDCT4x4Add(16, make([]byte, 3), 4, make([]byte, 16), 4)
+			},
+		},
+		{
+			name: "dc-short-dst",
+			fn: func() {
+				DCOnlyIDCT4x4Add(16, make([]byte, 16), 4, make([]byte, 3), 4)
+			},
+		},
+		{
+			name: "dc-negative-pred-stride",
+			fn: func() {
+				DCOnlyIDCT4x4Add(16, make([]byte, 16), -4, make([]byte, 16), 4)
+			},
+		},
+		{
+			name: "dc-negative-dst-stride",
+			fn: func() {
+				DCOnlyIDCT4x4Add(16, make([]byte, 16), 4, make([]byte, 16), -4)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected scalar bounds panic")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
 func TestIDCTAllocatesZero(t *testing.T) {
 	var input [16]int16
 	pred := make([]byte, 8*8)

@@ -30,6 +30,7 @@ func FrameCountsForDecoder(src *FrameCounts) vp9dec.FrameCounts {
 	dst.CompInter = src.ReferenceMode.CompInter
 	dst.SingleRef = src.ReferenceMode.SingleRef
 	dst.CompRef = src.ReferenceMode.CompRef
+	dst.UvMode = src.UvMode
 	dst.Skip = src.Skip
 	dst.Tx = txCountsForDecoder(src.TxMode)
 	dst.Mv = nmvCountsForDecoder(src.Mv)

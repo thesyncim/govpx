@@ -53,6 +53,63 @@ func runConvolveScalarVert(src []byte, srcStride int, dst []byte, dstStride int,
 	convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, tables.SubpelShifts, w, h, srcOffset)
 }
 
+func TestVP9ConvolveSimdWindowOK(t *testing.T) {
+	const stride = 16
+	const w = 8
+	const h = 2
+	huge := int(^uint(0) >> 1)
+
+	dst := make([]byte, (h-1)*stride+w)
+	if !convolveSimdDstOK(dst, stride, w, h) {
+		t.Fatal("convolveSimdDstOK rejected exact dst fit")
+	}
+	if convolveSimdDstOK(dst[:len(dst)-1], stride, w, h) {
+		t.Fatal("convolveSimdDstOK accepted short dst")
+	}
+	if convolveSimdDstOK(dst, -stride, w, h) {
+		t.Fatal("convolveSimdDstOK accepted negative stride")
+	}
+	if convolveSimdDstOK(nil, huge/2+1, 1, 3) {
+		t.Fatal("convolveSimdDstOK accepted overflowing row span")
+	}
+
+	horizLen := (h-1)*stride + w + convolve8TapSpan
+	horizSrc := make([]byte, horizLen)
+	srcStart, ok := convolveHorizSimdSrcOK(horizSrc, convolve8Backstep, stride, w, h)
+	if !ok || srcStart != 0 {
+		t.Fatalf("convolveHorizSimdSrcOK exact fit = (%d, %v), want (0, true)", srcStart, ok)
+	}
+	if _, ok := convolveHorizSimdSrcOK(horizSrc[:len(horizSrc)-1], convolve8Backstep, stride, w, h); ok {
+		t.Fatal("convolveHorizSimdSrcOK accepted short source")
+	}
+	if _, ok := convolveHorizSimdSrcOK(horizSrc, convolve8Backstep-1, stride, w, h); ok {
+		t.Fatal("convolveHorizSimdSrcOK accepted offset before filter backstep")
+	}
+	if _, ok := convolveHorizSimdSrcOK(horizSrc, convolve8Backstep, stride, huge-convolve8TapSpan+1, h); ok {
+		t.Fatal("convolveHorizSimdSrcOK accepted overflowing tap-width expansion")
+	}
+
+	vertLen := (h+convolve8TapSpan-1)*stride + w
+	vertSrc := make([]byte, vertLen)
+	vertOffset := convolve8Backstep * stride
+	srcStart, ok = convolveVertSimdSrcOK(vertSrc, vertOffset, stride, w, h)
+	if !ok || srcStart != 0 {
+		t.Fatalf("convolveVertSimdSrcOK exact fit = (%d, %v), want (0, true)", srcStart, ok)
+	}
+	if _, ok := convolveVertSimdSrcOK(vertSrc[:len(vertSrc)-1], vertOffset, stride, w, h); ok {
+		t.Fatal("convolveVertSimdSrcOK accepted short source")
+	}
+	if _, ok := convolveVertSimdSrcOK(vertSrc, vertOffset-1, stride, w, h); ok {
+		t.Fatal("convolveVertSimdSrcOK accepted offset before vertical rewind")
+	}
+	if _, ok := convolveVertSimdSrcOK(vertSrc, huge, huge/convolve8Backstep+1, w, h); ok {
+		t.Fatal("convolveVertSimdSrcOK accepted overflowing rewind")
+	}
+	if _, ok := convolveVertSimdSrcOK(vertSrc, vertOffset, stride, w, huge-convolve8TapSpan+1); ok {
+		t.Fatal("convolveVertSimdSrcOK accepted overflowing tap-height expansion")
+	}
+}
+
 func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xb00b, 0xface))
 	for _, c := range vp9ConvCases() {

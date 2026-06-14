@@ -71,7 +71,7 @@ func forwardWHT4x4NEONTest(input []int16, stride int, output []int16) {
 
 // Test-only thin wrapper that always hits the SIMD path.
 func forwardWHT4x4NEONOrScalar(input []int16, stride int, output []int16) {
-	if len(input) < 3*stride+4 || len(output) < 16 || stride < 4 {
+	if !forwardWHT4x4WindowOK(input, stride, output) {
 		forwardWHT4x4Scalar(input, stride, output)
 		return
 	}

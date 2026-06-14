@@ -39,11 +39,7 @@ func varianceBlock4xNSSE2(src *byte, srcStride int, ref *byte, refStride int, he
 // varWindowOK validates the (w, h) read window lies inside buf. Same
 // invariants as the SAD wrappers.
 func varWindowOK(buf []uint8, off, stride, w, h int) bool {
-	if off < 0 || stride < 0 {
-		return false
-	}
-	limit := off + (h-1)*stride + w
-	return limit >= off && limit <= len(buf)
+	return dspReadWindowOK(buf, off, stride, w, h)
 }
 
 // finalVariance computes the libvpx variance formula:
