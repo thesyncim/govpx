@@ -18,7 +18,8 @@ import (
 func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, refFrame int8,
 	opts vp9InterMvSearchOptions, mvLimits *encoder.MvLimits,
-	sadAt func(dx, dy int) (uint64, bool), sadPerBit, refFullDy, refFullDx int,
+	startSadAt, sadAt func(dx, dy int) (uint64, bool),
+	sadPerBit, refFullDy, refFullDx int,
 ) (bestDx, bestDy int, bestSad uint64, ok bool) {
 	// libvpx: mvp_full = pred_mv[best_predmv_idx]; mvp_full >>= 3;
 	// clamp_mv(mvp_full, mv_limits). opts.seed is the mvp_full seed in 1/8-pel.
@@ -34,12 +35,10 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	refRow := int(opts.refMv.Row)
 	refCol := int(opts.refMv.Col)
 
-	// libvpx full_pixel_diamond:2509-2515 — start_mv_sad = sdf(mvp_full) +
-	// mvsad_err_cost(mvp_full, ref_mv>>3). govpx scores full pels directly, so
-	// the even/odd-row downsampled split (a re-search heuristic that does not
-	// change site selection for a deterministic SAD source) is folded into the
-	// single full-block SAD.
-	startSad, sok := sadAt(mvpCol, mvpRow)
+	// libvpx full_pixel_diamond:2509-2515 — start_mv_sad is seeded from
+	// the average of the even-row and odd-row skip SADs, then the active sad_fn
+	// (full SAD on this cpu0 path) scores the diamond candidates.
+	startSad, sok := startSadAt(mvpCol, mvpRow)
 	if !sok {
 		return 0, 0, 0, false
 	}

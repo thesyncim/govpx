@@ -73,6 +73,30 @@ func BlockSADOffsets(src []byte, srcOff, srcStride int,
 	return sad
 }
 
+// BlockSADSkipRowsOffsets mirrors libvpx's vpx_sad_skip_* kernels: compute the
+// SAD over every other row, starting at the supplied offsets, and scale it by 2.
+func BlockSADSkipRowsOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int, limit uint64,
+) uint64 {
+	var sad uint64
+	rows := h / 2
+	for y := range rows {
+		srcRow := src[srcOff+y*2*srcStride:]
+		refRow := ref[refOff+y*2*refStride:]
+		for x := range w {
+			diff := int(srcRow[x]) - int(refRow[x])
+			if diff < 0 {
+				diff = -diff
+			}
+			sad += uint64(diff)
+		}
+		if sad*2 >= limit {
+			return sad * 2
+		}
+	}
+	return sad * 2
+}
+
 // BlockSSE returns the sum of squared errors for a source/reference rectangle.
 func BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int,

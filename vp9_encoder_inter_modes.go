@@ -2997,6 +2997,26 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return encoder.BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
+	fullRDStartSadAt := func(dx, dy int) (uint64, bool) {
+		if !mvLimits.InFullpelRange(dy, dx) {
+			return 0, false
+		}
+		refX := x0 + dx
+		refY := y0 + dy
+		bufX := refOriginX + refX
+		bufY := refOriginY + refY
+		if bufX < 0 || bufY < 0 || bufX+blockW > refStride ||
+			bufY+blockH > refRows {
+			return 0, false
+		}
+		refOff := bufY*refStride + bufX
+		even := encoder.BlockSADSkipRowsOffsets(src, srcOff, srcStride,
+			ref, refOff, refStride, blockW, blockH, ^uint64(0))
+		odd := encoder.BlockSADSkipRowsOffsets(src, srcOff+srcStride,
+			srcStride, ref, refOff+refStride, refStride, blockW, blockH,
+			^uint64(0))
+		return (even + odd) >> 1, true
+	}
 
 	sadPerBit := encoder.SADPerBit16(e.vp9EncoderModeDecisionQIndex())
 	scoreMv := func(dx, dy int, sad uint64) uint64 {
@@ -3042,8 +3062,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// path must NOT use the SF field.
 		var newSad uint64
 		bestDx, bestDy, newSad, ok = e.vp9FullRDFullPelMv(inter, miRows, miCols,
-			miRow, miCol, bsize, refFrame, opts, &mvLimits, sadAt, sadPerBit,
-			refFullDy, refFullDx)
+			miRow, miCol, bsize, refFrame, opts, &mvLimits, fullRDStartSadAt,
+			sadAt, sadPerBit, refFullDy, refFullDx)
 		if !ok {
 			return vp9dec.MV{}, 0, false
 		}

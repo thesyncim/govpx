@@ -51,6 +51,32 @@ func TestBlockSADNoLimitMatchesScalar(t *testing.T) {
 	}
 }
 
+func TestBlockSADSkipRowsOffsets(t *testing.T) {
+	const stride = 4
+	src := []byte{
+		1, 2, 3, 4,
+		10, 20, 30, 40,
+		5, 6, 7, 8,
+		50, 60, 70, 80,
+	}
+	ref := []byte{
+		2, 4, 6, 8,
+		9, 18, 27, 36,
+		1, 1, 1, 1,
+		40, 50, 60, 70,
+	}
+	even := BlockSADSkipRowsOffsets(src, 0, stride, ref, 0, stride,
+		4, 4, ^uint64(0))
+	if even != 64 {
+		t.Fatalf("even-row skip SAD = %d, want 64", even)
+	}
+	odd := BlockSADSkipRowsOffsets(src, stride, stride, ref, stride, stride,
+		4, 4, ^uint64(0))
+	if odd != 100 {
+		t.Fatalf("odd-row skip SAD = %d, want 100", odd)
+	}
+}
+
 func TestBlockSSEMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)

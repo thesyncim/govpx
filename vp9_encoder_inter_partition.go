@@ -1597,6 +1597,7 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 				common.PartitionVert, 0, bs, hasRows, hasCols, qindex)
 		})
 	}
+	searchExitPredMv := e.fullRDPredMv
 	if !bestSet {
 		restoreBase()
 		e.partitionReconScratchTop = reconSnap.top
@@ -1695,6 +1696,13 @@ func (e *VP9Encoder) pickVP9InterPartitionRD(inter *vp9InterEncodeState,
 	// off) never stores (cache nil -> no-op).
 	if e.vp9UseDeepRDSearchPartitionPath() {
 		e.storeVP9InterPartitionRDDecision(miRow, miCol, root, committed.target)
+	}
+	if e.vp9UseDeepRDPredMvPath() {
+		// libvpx's final encode_sb replays the cached winner but does not run
+		// motion search again, so x->pred_mv remains as the RD search loop left
+		// it after the last evaluated arm, not as the committed winner's replay
+		// leaves it. Preserve that exit state after govpx's commit re-run.
+		e.fullRDPredMv = searchExitPredMv
 	}
 	return committed, true
 }
