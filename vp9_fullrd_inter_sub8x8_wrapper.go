@@ -73,6 +73,31 @@ type vp9Sub8x8InterCapture struct {
 	Skip2        bool
 }
 
+// vp9Sub8x8BestYRDFromLibvpxMacro preserves this libvpx source expression:
+//
+//	best_yrd = best_rd - RDCOST(x->rdmult, x->rddiv, rate_uv, distortion_uv);
+//
+// RDCOST is a C macro without outer parentheses, so the expression expands as:
+//
+//	best_rd - ROUND_POWER_OF_TWO(rate_uv * rdmult, 9) + (distortion_uv << rddiv)
+//
+// The looser Y-only budget is observable in frame-2 sub-8x8 reference ordering:
+// it lets the next reference's segment search run before UV RD is considered.
+func vp9Sub8x8BestYRDFromLibvpxMacro(rdmult, rddiv int, bestRD uint64,
+	rateUV int, distUV uint64,
+) uint64 {
+	rateCost := encoder.RDCostFromRate(rdmult, rateUV)
+	distCost := encoder.RDCostFromDistortion(rddiv, distUV)
+	if bestRD > rateCost {
+		return bestRD - rateCost + distCost
+	}
+	deficit := rateCost - bestRD
+	if distCost <= deficit {
+		return 0
+	}
+	return distCost - deficit
+}
+
 // rdPickInterModeSub8x8 ports vp9_rd_pick_inter_mode_sub8x8 for the single-ref
 // inter path. bsize is the sub-8x8 partition shape (BLOCK_4X4/8X4/4X8); the
 // block footprint is always the 8x8 at (miRow, miCol). best_rd_so_far gates the
@@ -287,17 +312,9 @@ func (e *VP9Encoder) rdPickInterModeSub8x8(inter *vp9InterEncodeState,
 		if better {
 			bestRD = thisRD
 			bestRDValid = true
-			// best_yrd = best_rd - RDCOST(rate_uv, distortion_uv)
-			// (vp9_rdopt.c:4772-4773): the Y-only budget for the next ref's
-			// segment + UV early-exit.
-			uvRDC := encoder.RDCost(rdmult, rddiv, rateUV, distUV)
-			if bestRD > uvRDC {
-				bestYRD = bestRD - uvRDC
-				bestYRDInf = false
-			} else {
-				bestYRD = 0
-				bestYRDInf = false
-			}
+			bestYRD = vp9Sub8x8BestYRDFromLibvpxMacro(rdmult, rddiv,
+				bestRD, rateUV, distUV)
+			bestYRDInf = false
 			bestRes = vp9Sub8x8WrapperResult{
 				bmi:          segBest.Bmi,
 				mode:         segBest.Bmi[3].AsMode,

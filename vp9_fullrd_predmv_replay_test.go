@@ -70,6 +70,24 @@ func TestVP9FullRDPredMvSearchExitFrame2Regression(t *testing.T) {
 		t.Fatalf("frame2 mi(1,2) pred-mv replay regression:\n  got  %s\n  want %s",
 			nextDivFmtCommitted(&got), nextDivFmtCommitted(&want))
 	}
+
+	got = govpxDec.miGrid[1*miCols+3]
+	want = libvpxDec.miGrid[1*miCols+3]
+	if want.SbType != common.Block4x4 ||
+		want.RefFrame[0] != vp9dec.GoldenFrame ||
+		want.Mode != common.NewMv ||
+		want.Mv[0] != (vp9dec.MV{Row: 11, Col: 24}) ||
+		want.Bmi[0].AsMode != common.NearMv ||
+		want.Bmi[0].AsMv[0] != (vp9dec.MV{Row: 27, Col: -7}) ||
+		want.Bmi[3].AsMode != common.NewMv ||
+		want.Bmi[3].AsMv[0] != (vp9dec.MV{Row: 11, Col: 24}) {
+		t.Fatalf("libvpx frame2 mi(1,3) anchor drifted: %s",
+			nextDivFmtCommitted(&want))
+	}
+	if got != want {
+		t.Fatalf("frame2 mi(1,3) sub8 best-yrd regression:\n  got  %s\n  want %s",
+			nextDivFmtCommitted(&got), nextDivFmtCommitted(&want))
+	}
 }
 
 func encodeVP9FullRDPredMvRegressionFrames(t testing.TB,
