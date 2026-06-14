@@ -419,18 +419,6 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 					coeffs[i] = 0
 					qcoeffs[i] = 0
 				}
-				// libvpx vp9_rdopt.c:1124-1167 — predict_intra +
-				// subtract + fdct/fht4x4 + quantize_b + cost_coeffs.
-				// govpx folds these into prepareVP9KeyframeTxResidueWithQ,
-				// then scores the transform-domain reconstruction error
-				// against txCoeffScratch/dqCoeffScratch just like
-				// vp9_block_error(coeff, dqcoeff, 16, &unused) >> 2 at
-				// vp9_rdopt.c:1261-1263.
-				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode,
-					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
-					idy+jy, idx+jx, dequant, qindex, coeffs, qcoeffs)
-				totalDistortion += encoder.TransformBlockErrorShifted(
-					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob])
 				// libvpx vp9_rdopt.c:1148-1149 + 1156-1157 — coeff_ctx
 				// = combine_entropy_contexts(tempa[idx], templ[idy]);
 				// ratey += cost_coeffs(... coeff_ctx ...). govpx
@@ -438,6 +426,20 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				// reads v = qcoeff[rc] directly (vp9_rdopt.c:392,405).
 				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
 					tempa[jx:jx+1], templ[jy:jy+1])
+				// libvpx vp9_rdopt.c:1124-1167 — predict_intra +
+				// subtract + fdct/fht4x4 + quantize_b + vp9_optimize_b +
+				// cost_coeffs. govpx folds the transform/quant/trellis
+				// into prepareVP9KeyframeTxResidueFullRD, then scores the
+				// transform-domain reconstruction error against
+				// txCoeffScratch/dqCoeffScratch just like
+				// vp9_block_error(coeff, dqcoeff, 16, &unused) >> 2 at
+				// vp9_rdopt.c:1261-1263.
+				hasResidue := e.prepareVP9KeyframeTxResidueFullRD(key, pd, 0, mode,
+					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
+					idy+jy, idx+jx, dequant, qindex, initCtx, rdmult,
+					int(segID), true, coeffs, qcoeffs)
+				totalDistortion += encoder.TransformBlockErrorShifted(
+					e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob])
 				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCostQ(
 					common.Tx4x4, mode, key.lossless, dequant, coeffs, qcoeffs, initCtx)
 				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
@@ -951,20 +953,22 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 				coeffs[i] = 0
 				qcoeffs[i] = 0
 			}
+			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
+			// combine_entropy_contexts(t_above[c], t_left[r]).
+			// govpx's vp9dec.GetEntropyContext returns
+			// (above != 0) + (left != 0) which matches.
+			initCtx := vp9dec.GetEntropyContext(txSize,
+				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:699-768 — block_rd_txfm dispatches to
-			// vp9_xform_quant + inv_txfm_add. govpx's
-			// prepareVP9KeyframeTxResidueWithQ chains predictVP9KeyframeTx
-			// (intra prediction) → gatherVP9TxResidual (src - pred) →
-			// quantizeVP9TxResidualWithQ (forward DCT/ADST + QuantizeB*WithQ
-			// emitting qcoeff for cost_coeffs (vp9_rdopt.c:367) +
-			// InverseTransformBlock). The dst recon is updated in
-			// place, so subsequent intra predictions for later blocks
-			// in the SB see the libvpx-correct reconstructed neighbour
-			// samples — mirroring vp9_rdopt.c:683-687 which copies the
-			// recon into out_recon for downstream blocks.
-			hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, txSize,
-				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
-				qindex, coeffs, qcoeffs)
+			// vp9_encode_block_intra: intra prediction, residual,
+			// regular quantize_b, vp9_optimize_b, and inverse-add. The
+			// dst recon is updated in place, so subsequent intra
+			// predictions for later blocks in the SB see the
+			// libvpx-correct reconstructed neighbour samples.
+			hasResidue := e.prepareVP9KeyframeTxResidueFullRD(key, pd, 0, mode,
+				txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
+				dequant, qindex, initCtx, e.cbRdmult, int(segID), true,
+				coeffs, qcoeffs)
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -990,12 +994,6 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			}
 			distortion += blockDist
 
-			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
-			// combine_entropy_contexts(t_above[c], t_left[r]).
-			// govpx's vp9dec.GetEntropyContext returns
-			// (above != 0) + (left != 0) which matches.
-			initCtx := vp9dec.GetEntropyContext(txSize,
-				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 			// cost_coeffs(...). The keyframe-Y intra is_inter=0 path
 			// reads x->token_costs[tx_size][PLANE_TYPE_Y][0]; govpx
@@ -1449,18 +1447,17 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				coeffs[i] = 0
 				qcoeffs[i] = 0
 			}
+			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
+			// combine_entropy_contexts(t_above[c], t_left[r]).
+			initCtx := vp9dec.GetEntropyContext(uvTxSize,
+				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:699-768 — block_rd_txfm dispatches to
-			// vp9_xform_quant + inv_txfm_add. govpx's
-			// prepareVP9KeyframeTxResidueWithQ chains predictVP9KeyframeTx
-			// (intra prediction) → gatherVP9TxResidual (src - pred) →
-			// quantizeVP9TxResidualWithQ (forward DCT/ADST + QuantizeB*WithQ
-			// emitting qcoeff for cost_coeffs (vp9_rdopt.c:367) +
-			// InverseTransformBlock). The dst recon is updated in place
-			// so subsequent intra predictions for later blocks in the
-			// SB see libvpx-correct neighbour samples.
-			hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, plane, mode, uvTxSize,
-				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
-				qindex, coeffs, qcoeffs)
+			// vp9_encode_block_intra: intra prediction, residual,
+			// regular quantize_b, vp9_optimize_b, and inverse-add.
+			hasResidue := e.prepareVP9KeyframeTxResidueFullRD(key, pd, plane,
+				mode, uvTxSize, tile, miRows, miCols, miRow, miCol, bsize,
+				rr, cc, dequant, qindex, initCtx, e.cbRdmult, int(segID),
+				true, coeffs, qcoeffs)
 
 			if useTxDomainDistortion && hasResidue {
 				distortion += encoder.TransformBlockError(e.txCoeffScratch[:maxEob],
@@ -1482,10 +1479,6 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 				distortion += dist * 16
 			}
 
-			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
-			// combine_entropy_contexts(t_above[c], t_left[r]).
-			initCtx := vp9dec.GetEntropyContext(uvTxSize,
-				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 			// cost_coeffs(...). For chroma planes the cost_coeffs reads
 			// x->token_costs[tx_size][PLANE_TYPE_UV=1][is_inter=0]; the
@@ -1779,9 +1772,10 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 					coeffs[i] = 0
 					qcoeffs[i] = 0
 				}
-				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, tx, tile,
-					miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
-					qindex, coeffs, qcoeffs)
+				hasResidue := e.prepareVP9KeyframeTxResidueFullRD(key, pd, 0,
+					mode, tx, tile, miRows, miCols, miRow, miCol, bsize, rr,
+					cc, dequant, qindex, 0, rdmult, int(vp9EncoderMiSegmentID(mi)),
+					true, coeffs, qcoeffs)
 				if !hasResidue {
 					// No residue: the prediction matched src exactly (or
 					// quantization zeroed everything). libvpx's

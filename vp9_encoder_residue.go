@@ -56,6 +56,13 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 ) bool {
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
+	zcoeffRDMul := 0
+	if e.vp9KeyframeFullRDResidueEnabled(key, bsize) {
+		zcoeffRDMul = e.cbRdmult
+		if zcoeffRDMul <= 0 {
+			zcoeffRDMul = e.vp9KeyframePartitionRDMul(miRow, miCol, bsize)
+		}
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -78,6 +85,33 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 		if plane > 0 {
 			dequant = key.dq.Uv[segID]
 		}
+		fullRDPlane := zcoeffRDMul > 0
+		zcoeffPlane := plane == 0 && fullRDPlane
+		var aboveCtx [16]uint8
+		var leftCtx [16]uint8
+		aboveLen := 0
+		leftLen := 0
+		if fullRDPlane {
+			aboveLen = int(common.Num4x4BlocksWideLookup[planeBsize])
+			leftLen = int(common.Num4x4BlocksHighLookup[planeBsize])
+			if aboveLen > len(aboveCtx) || leftLen > len(leftCtx) {
+				fullRDPlane = false
+				zcoeffPlane = false
+			} else if len(pd.AboveContext) > 0 && len(pd.LeftContext) > 0 {
+				aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+				if off := aboveOffsets[plane]; vp9ContextWindowOK(off, aboveLen, len(pd.AboveContext)) {
+					copy(aboveCtx[:aboveLen], pd.AboveContext[off:off+aboveLen])
+				}
+				if off := leftOffsets[plane]; vp9ContextWindowOK(off, leftLen, len(pd.LeftContext)) {
+					copy(leftCtx[:leftLen], pd.LeftContext[off:off+leftLen])
+				}
+			}
+		}
+		useTxDomainDistortion := false
+		if zcoeffPlane {
+			useTxDomainDistortion = e.vp9KeyframeUseTransformDomainDistortion(key,
+				miRows, miCols, miRow, miCol, bsize)
+		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
 				mode := uvMode
@@ -89,15 +123,197 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
 				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				if e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
-					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
-					dequant, qindex, coeffs, qcoeffs) {
+				hasTxResidue := false
+				if zcoeffPlane {
+					initCtx := vp9dec.GetEntropyContext(txSize,
+						aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+					hasTxResidue = e.prepareVP9KeyframeTxResidueWithZcoeff(key,
+						pd, mode, txSize, tile, miRows, miCols, miRow, miCol,
+						bsize, rr, cc, dequant, qindex, initCtx, zcoeffRDMul,
+						int(segID), useTxDomainDistortion, coeffs, qcoeffs)
+					hasCtx := uint8(0)
+					if hasTxResidue {
+						hasCtx = 1
+					}
+					for i := 0; i < step && cc+i < aboveLen; i++ {
+						aboveCtx[cc+i] = hasCtx
+					}
+					for i := 0; i < step && rr+i < leftLen; i++ {
+						leftCtx[rr+i] = hasCtx
+					}
+				} else if fullRDPlane {
+					initCtx := vp9dec.GetEntropyContext(txSize,
+						aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
+					hasTxResidue = e.prepareVP9KeyframeTxResidueFullRD(key, pd,
+						plane, mode, txSize, tile, miRows, miCols, miRow, miCol,
+						bsize, rr, cc, dequant, qindex, initCtx, zcoeffRDMul,
+						int(segID), false, coeffs, qcoeffs)
+					hasCtx := uint8(0)
+					if hasTxResidue {
+						hasCtx = 1
+					}
+					for i := 0; i < step && cc+i < aboveLen; i++ {
+						aboveCtx[cc+i] = hasCtx
+					}
+					for i := 0; i < step && rr+i < leftLen; i++ {
+						leftCtx[rr+i] = hasCtx
+					}
+				} else {
+					hasTxResidue = e.prepareVP9KeyframeTxResidue(key, pd, plane, mode,
+						txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
+						dequant, qindex, coeffs, qcoeffs)
+				}
+				if hasTxResidue {
 					hasResidue = true
 				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep
 		}
+	}
+	return hasResidue
+}
+
+func (e *VP9Encoder) vp9KeyframeFullRDResidueEnabled(key *vp9KeyframeEncodeState,
+	bsize common.BlockSize,
+) bool {
+	return key != nil && e.frameIndex > 0 && e.vp9UseDeepRDUsePartitionPath() &&
+		!e.useVP9KeyframeNonRDIntraMode(bsize)
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueFullRD(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex, coeffCtx, rdmult, segID int, useLp32x32RD bool, out, qOut []int16,
+) bool {
+	if !e.vp9KeyframeFullRDResidueEnabled(key, bsize) {
+		return e.prepareVP9KeyframeTxResidueWithQ(key, pd, plane, mode, txSize,
+			tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+			blockCol4x4, dequant, qindex, out, qOut)
+	}
+	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+		blockCol4x4)
+	if !ok {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob <= len(e.txCoeffScratch) && maxEob <= len(e.dqCoeffScratch) {
+			clear(e.txCoeffScratch[:maxEob])
+			clear(e.dqCoeffScratch[:maxEob])
+		}
+		return false
+	}
+	return e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, plane, mode, txSize,
+		dequant, qindex, coeffCtx, rdmult, segID, out, qOut, key.lossless,
+		useLp32x32RD)
+}
+
+func (e *VP9Encoder) quantizeVP9KeyframeTxResidualFullRD(dst []byte, stride int,
+	plane int, mode common.PredictionMode, txSize common.TxSize,
+	dequant [2]int16, qindex, coeffCtx, rdmult, segID int, out, qOut []int16,
+	lossless bool, useLp32x32RD bool,
+) bool {
+	txType := common.DctDct
+	if plane == 0 && txSize != common.Tx32x32 && !lossless {
+		txType = common.IntraModeToTxType[mode]
+	}
+	scan := common.ScanOrders[txSize][txType]
+	if lossless {
+		scan = common.DefaultScanOrders[txSize]
+	}
+	planeType := 0
+	if plane != 0 {
+		planeType = 1
+	}
+	coefModel := &e.fc.CoefProbs[txSize][planeType][0]
+	var trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int
+	if e.vp9DoTrellisOptInterY(txSize) {
+		if rdmult <= 0 {
+			rdmult = 1
+		}
+		trellis = func(coeff, qcoeff, dqcoeff []int16, eob int) int {
+			return encoder.VP9OptimizeB(plane, 0 /*ref intra*/, txSize, coeffCtx,
+				coeff, qcoeff, dqcoeff, eob, dequant, scan.Scan, scan.Neighbors,
+				coefModel, int64(rdmult), uint(e.rc.rddiv), int(e.opts.Sharpness),
+				segID, &e.modeScratch)
+		}
+	}
+	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
+		dequant, qindex, out, qOut, lossless, false, /*useFastQuant*/
+		useLp32x32RD, trellis)
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithZcoeff(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, mode common.PredictionMode, txSize common.TxSize,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex, coeffCtx, rdmult, segID int, useTxDomainDistortion bool, out, qOut []int16,
+) bool {
+	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, 0, mode,
+		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4,
+		blockCol4x4)
+	if !ok {
+		return false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, 0)
+	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob <= len(e.txCoeffScratch) && maxEob <= len(e.dqCoeffScratch) {
+			clear(e.txCoeffScratch[:maxEob])
+			clear(e.dqCoeffScratch[:maxEob])
+		}
+		return false
+	}
+	bs := 4 << uint(txSize)
+	if bs*bs > len(e.blockScratch) {
+		return e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, 0, mode, txSize,
+			dequant, qindex, coeffCtx, rdmult, segID, out, qOut, key.lossless,
+			false)
+	}
+	predictor := e.blockScratch[:bs*bs]
+	for y := 0; y < bs; y++ {
+		copy(predictor[y*bs:(y+1)*bs], dst[y*stride:y*stride+bs])
+	}
+	hasResidue := e.quantizeVP9KeyframeTxResidualFullRD(dst, stride, 0, mode,
+		txSize, dequant, qindex, coeffCtx, rdmult, segID, out, qOut,
+		key.lossless, false)
+	if !hasResidue {
+		return false
+	}
+
+	var blockDist uint64
+	var blockSSE uint64
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if useTxDomainDistortion {
+		blockDist, blockSSE = encoder.TransformBlockErrorWithEnergy(
+			e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob], txSize)
+	} else {
+		dist, distOK := vp9PlaneRectSSEClamped(src, srcStride, srcW, srcH,
+			dst, stride, x0, y0, bs, bs)
+		if !distOK {
+			return hasResidue
+		}
+		blockDist = dist * 16
+		blockSSE = encoder.ResidualSSE(e.residueScratch[:bs*bs]) * 16
+	}
+	blockRate := e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode, key.lossless,
+		dequant, out, qOut, coeffCtx)
+	rd1 := encoder.RDCost(rdmult, encoder.RDDivBits, blockRate, blockDist)
+	rd2 := encoder.RDCost(rdmult, encoder.RDDivBits, 0, blockSSE)
+	if key.lossless || e.opts.Sharpness != 0 || rd1 <= rd2 {
+		return hasResidue
+	}
+
+	for y := 0; y < bs; y++ {
+		copy(dst[y*stride:y*stride+bs], predictor[y*bs:(y+1)*bs])
+	}
+	clear(out[:maxEob])
+	if qOut != nil {
+		clear(qOut[:maxEob])
 	}
 	return hasResidue
 }
