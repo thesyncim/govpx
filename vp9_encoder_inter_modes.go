@@ -2794,8 +2794,18 @@ func (e *VP9Encoder) vp9CommitInterLeafEntropyContext(inter *vp9InterEncodeState
 	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return
 	}
+	var zcoeff vp9InterZcoeffBlk
+	if e.vp9UseDeepRDInterResiduePath() && bsize >= common.Block8x8 &&
+		!inter.lossless {
+		segID := uint8(0)
+		if gridMi := e.vp9MiAt(miRows, miCols, miRow, miCol); gridMi != nil {
+			segID = uint8(vp9EncoderMiSegmentID(gridMi))
+		}
+		zcoeff, _ = e.vp9ComputeInterLeafZcoeffBlk(inter, miRows, miCols,
+			miRow, miCol, bsize, decision.txSize, segID)
+	}
 	e.stampVP9InterLeafTxContext(inter, miRows, miCols, miRow, miCol, bsize,
-		decision.txSize, decision.skip)
+		decision.txSize, decision.skip, zcoeff)
 }
 
 // replayVP9Sub8x8InterRecon mirrors the committed reconstruction side effect of

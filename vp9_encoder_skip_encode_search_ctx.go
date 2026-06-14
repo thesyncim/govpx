@@ -33,19 +33,16 @@ import (
 // vp9_encodeframe.c:2798 for the 64x64) runs normally and DOES thread the
 // committed context, so the bitstream + the next superblock are unaffected.
 //
-// govpx fuses the per-leaf RD search and the per-leaf coefficient commit
-// (writeVP9ModeBlock: prepareVP9InterBlockResidue runs the search; WriteCoefSb
-// stamps the committed context). To reproduce libvpx's decoupling without
-// disturbing the commit threading, the deep use-partition writer:
+// govpx often runs the per-leaf RD search in the same pass that later owns the
+// committed coefficient context. To reproduce libvpx's decoupling without
+// disturbing commit threading, the deep use-partition path:
 //
 //  1. snapshots the plane entropy context at 64x64 SB entry
 //     (vp9SnapshotSBSearchEntropy), and
-//  2. runs each leaf's search (the prepareVP9InterBlockResidue /
-//     prepareVP9InterIntraBlockResidue call, which scores the candidate modes
-//     and decides zcoeff_blk) with the live context temporarily restored to the
-//     SB-entry snapshot (vp9WithSBSearchEntropy), restoring the running threaded
-//     context immediately after so WriteCoefSb commits against — and advances —
-//     the real context.
+//  2. runs each leaf's mode/RD search with the live context temporarily restored
+//     to the SB-entry snapshot (vp9WithSBSearchEntropy), restoring the running
+//     threaded context immediately after so the committed coefficient path
+//     advances the real context.
 //
 // This is scoped to the VAR_BASED use-partition deep-RD path and is a no-op
 // whenever skip_encode is not armed for the frame (e.g. {0,1,1,0,1} frame 1,
@@ -71,8 +68,8 @@ func (e *VP9Encoder) vp9SkipEncodeSearchCtxActive(inter *vp9InterEncodeState) bo
 // (pd->above_context over the SB's column footprint, pd->left_context over the
 // SB row) at 64x64 superblock entry. The captured state is the SB-entry context
 // every leaf's RD search reads while skip_encode is armed. Called from
-// writeVP9ModesSb at the BLOCK_64X64 entry, before any leaf in the SB is
-// searched or committed.
+// writeVP9ModesSb at the BLOCK_64X64 entry, before partition picking searches
+// or commits any leaf in the SB.
 func (e *VP9Encoder) vp9SnapshotSBSearchEntropy(miCol int) {
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]

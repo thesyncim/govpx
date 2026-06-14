@@ -1202,8 +1202,16 @@ func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 		e.fullRDLeafBestRDValid = savedBestRDValid
 	}()
 
-	decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, bsize)
+	var decision vp9InterModeDecision
+	var ok bool
+	// rd_pick_sb_modes runs with x->skip_encode set when the speed feature arms
+	// it; intermediate encode_superblock(output_enabled=0) calls then do not
+	// advance coefficient contexts, so the search reads the SB-entry entropy
+	// snapshot while the later committed encode still advances the live context.
+	e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, bsize, func() {
+		decision, ok = e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
+			miRow, miCol, bsize)
+	})
 	if !ok {
 		return vp9InterPartitionRD{}, false
 	}

@@ -1272,10 +1272,14 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 // vp9_foreach_transformed_block inside encode_b. The predictor for the committed
 // mode must already be in pd->dst (predictVP9InterBlock). When the block is coded
 // skip, libvpx's encode_b resets the context to zero (reset_skip_context); this
-// reproduces that by stamping 0 across the footprint.
+// reproduces that by stamping 0 across the footprint. For deep full-RD luma
+// leaves, zcoeff carries libvpx's x->zcoeff_blk replay: encode_block forces those
+// transform units to eob 0 before vp9_set_contexts, so the search-side stamp must
+// leave their above/left context at 0 even when a local requantization sees
+// residual.
 func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, lumaTx common.TxSize,
-	skip bool,
+	skip bool, zcoeff vp9InterZcoeffBlk,
 ) {
 	if inter == nil || inter.dq == nil {
 		return
@@ -1302,6 +1306,7 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
 		step := 1 << uint(txSize)
+		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 		maxEob := vp9dec.MaxEobForTxSize(txSize)
 		if maxEob > len(e.coefScratch) {
 			continue
@@ -1310,15 +1315,24 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 			for cc := 0; cc < max4x4W; cc += step {
 				hasCtx := uint8(0)
 				if !skip {
-					coeffs := e.coefScratch[:maxEob]
-					qcoeffs := e.qCoefScratch[:maxEob]
-					for i := range coeffs {
-						coeffs[i] = 0
-						qcoeffs[i] = 0
+					forceZero := false
+					if plane == 0 && zcoeff.valid {
+						idx := rr*full4x4W + cc
+						forceZero = idx >= 0 && idx < len(zcoeff.flags) &&
+							zcoeff.flags[idx]
 					}
-					if e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
-						miRow, miCol, rr, cc, dequant, coeffs, qcoeffs) {
-						hasCtx = 1
+					if !forceZero {
+						coeffs := e.coefScratch[:maxEob]
+						qcoeffs := e.qCoefScratch[:maxEob]
+						for i := range coeffs {
+							coeffs[i] = 0
+							qcoeffs[i] = 0
+						}
+						if e.prepareVP9InterTxResidueWithQ(inter, pd, plane,
+							txSize, miRow, miCol, rr, cc, dequant, coeffs,
+							qcoeffs) {
+							hasCtx = 1
+						}
 					}
 				}
 				for i := 0; i < step && cc+i < aboveLen; i++ {
