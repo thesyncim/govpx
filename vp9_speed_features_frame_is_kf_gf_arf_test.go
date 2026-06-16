@@ -95,6 +95,7 @@ func TestVP9GoodSpeedFeatureFramesizeIndependentBoostedOnGFFrame(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
+	e.opts.CpuUsed = 0
 
 	gfCtx := e.vp9PerFrameSpeedContext(vp9PerFrameSpeedContextArgs{
 		IsKey:              false,

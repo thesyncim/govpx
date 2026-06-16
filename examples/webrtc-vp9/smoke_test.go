@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -106,9 +107,8 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("SetRemoteDescription: %v", err)
 	}
 
-	// The encoder is sub-realtime today, so allow a generous window for the
-	// first access unit to land. The point is to prove the wire works
-	// end-to-end, not to gate on framerate.
+	// Allow a generous window for the first access unit to land. The point is
+	// to prove the wire works end-to-end, not to gate on local scheduler noise.
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
@@ -148,5 +148,32 @@ func TestDemoEndToEnd(t *testing.T) {
 	// than the test budget.
 	if err := dc.SendText(`{"type":"keyframe"}`); err != nil {
 		t.Fatalf("send keyframe ctl: %v", err)
+	}
+}
+
+func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
+	tests := []struct {
+		name        string
+		width       int
+		height      int
+		wantAtLeast int
+		wantAtMost  int
+	}{
+		{"base-layer-stays-single-threaded", 160, 90, 1, 1},
+		{"middle-layer-can-use-workers", 320, 180, min(2, runtime.NumCPU()), 2},
+		{"top-layer-can-use-four-workers", 640, 360, min(4, runtime.NumCPU()), 4},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pickThreads(tc.width, tc.height)
+			if got < tc.wantAtLeast || got > tc.wantAtMost {
+				t.Fatalf("pickThreads(%d, %d) = %d, want in [%d,%d]",
+					tc.width, tc.height, got, tc.wantAtLeast, tc.wantAtMost)
+			}
+			if got > runtime.NumCPU() {
+				t.Fatalf("pickThreads(%d, %d) = %d exceeds NumCPU=%d",
+					tc.width, tc.height, got, runtime.NumCPU())
+			}
+		})
 	}
 }

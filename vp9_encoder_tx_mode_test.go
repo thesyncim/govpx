@@ -174,6 +174,9 @@ func TestVP9EncoderFrameTxModeMirrorsLibvpxSelectTxMode(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewVP9Encoder: %v", err)
 			}
+			if tc.cpuUsed == 0 {
+				e.opts.CpuUsed = 0
+			}
 			// Mirror the per-frame SF refresh
 			// encodeVP9FrameIntoWithFlagsResultInternal runs before
 			// vp9EncoderFrameTxMode at libvpx vp9_encoder.c:3754 /

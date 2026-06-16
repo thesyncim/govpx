@@ -201,10 +201,11 @@ type VP9EncoderOptions struct {
 	// with Threads <= 1 returns ErrInvalidConfig.
 	RowMT bool
 
-	// Deadline selects the VP9 speed/quality operating mode. The zero-value
-	// options select realtime cpu-used 8, matching the default path most
-	// oracle parity tests exercise; call SetDeadline after construction to
-	// force explicit best-quality cpu 0.
+	// Deadline selects the VP9 speed/quality operating mode. Construction with
+	// CpuUsed zero selects a production-safe speed: realtime cpu-used 8 for the
+	// zero-value/realtime path and good-quality cpu-used 5 for good-quality.
+	// Call SetCPUUsed(0) after construction only when explicitly opting into
+	// the full-RD speed-0 path.
 	Deadline Deadline
 	// CpuUsed selects the libvpx VP9 speed preset in [-9, 9]. VP9 maps this to
 	// abs(cpu-used) internally; the sign is preserved for control parity.

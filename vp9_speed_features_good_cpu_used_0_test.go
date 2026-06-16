@@ -8,10 +8,12 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim pins the libvpx SPEED_FEATURES
-// produced by set_good_speed_feature_framesize_independent +
+// TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim pins the internal libvpx
+// SPEED_FEATURES produced by set_good_speed_feature_framesize_independent +
 // set_good_speed_feature_framesize_dependent + best-quality defaults at
-// cpu_used == 0 (GOOD mode, speed == 0). Mirrors the RT sibling at
+// cpu_used == 0 (GOOD mode, speed == 0). Public construction promotes
+// CpuUsed=0 to a production-safe good-quality speed; this test forces the raw
+// internal speed after setup. Mirrors the RT sibling at
 // vp9_speed_features_rt_cpu_used_0_4_test.go:TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim.
 //
 // At speed == 0 NONE of the `if (speed >= N)` cascades in
@@ -58,9 +60,10 @@ func TestVP9SetGoodSpeedFeaturesCPUUsed0Verbatim(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
+	e.opts.CpuUsed = 0
 
 	if got := e.vp9SpeedFeatureCPUUsed(); got != 0 {
-		t.Fatalf("vp9SpeedFeatureCPUUsed = %d, want 0 (CpuUsed=0 untouched)", got)
+		t.Fatalf("vp9SpeedFeatureCPUUsed = %d, want 0", got)
 	}
 
 	var sf SpeedFeatures

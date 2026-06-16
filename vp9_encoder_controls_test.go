@@ -52,6 +52,37 @@ func TestNewVP9EncoderDefaultsSpeed(t *testing.T) {
 	}
 }
 
+func TestNewVP9EncoderPromotesZeroCPUUsedByDeadline(t *testing.T) {
+	tests := []struct {
+		name         string
+		deadline     Deadline
+		wantDeadline Deadline
+		wantCPU      int8
+	}{
+		{"best-zero-defaults-to-realtime", DeadlineBestQuality, DeadlineRealtime, vp9DefaultCPUUsed},
+		{"realtime-zero-defaults-to-realtime", DeadlineRealtime, DeadlineRealtime, vp9DefaultCPUUsed},
+		{"good-zero-defaults-to-good", DeadlineGoodQuality, DeadlineGoodQuality, vp9DefaultGoodCPUUsed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := NewVP9Encoder(VP9EncoderOptions{
+				Width:    320,
+				Height:   240,
+				Deadline: tc.deadline,
+				CpuUsed:  0,
+			})
+			if err != nil {
+				t.Fatalf("NewVP9Encoder: %v", err)
+			}
+			defer e.Close()
+			if e.opts.Deadline != tc.wantDeadline || e.opts.CpuUsed != tc.wantCPU {
+				t.Fatalf("normalized speed = deadline:%d cpu:%d, want %d/%d",
+					e.opts.Deadline, e.opts.CpuUsed, tc.wantDeadline, tc.wantCPU)
+			}
+		})
+	}
+}
+
 func TestVP9EncoderSpeedControlsUpdateSpeedFeatures(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
 	if err != nil {

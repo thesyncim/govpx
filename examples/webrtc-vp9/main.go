@@ -32,12 +32,7 @@ const (
 	spatialLayerCount = 3
 	rtpClockHz        = 90000
 
-	// defaultFPS is intentionally low: the in-tree VP9 encoder is currently
-	// sub-realtime for SVC at typical resolutions (a 3-layer access unit at
-	// 160/320/640 takes ~1 s each on a fast laptop). The browser tracks
-	// whatever cadence the encoder achieves; the ticker just bounds the
-	// upper rate so a faster encoder would not flood pion's sample queue.
-	defaultFPS         = 2
+	defaultFPS         = 30
 	defaultBitrateKbps = 800
 )
 
@@ -741,9 +736,15 @@ func pickCPUUsed(width, height int) int8 {
 }
 
 func pickThreads(width, height int) int {
-	_ = runtime.NumCPU()
-	_ = width * height
-	return 1
+	pixels := width * height
+	cpus := runtime.NumCPU()
+	if cpus < 2 || pixels < 320*180 {
+		return 1
+	}
+	if cpus >= 4 && pixels >= 640*360 {
+		return 4
+	}
+	return 2
 }
 
 // statsTracker keeps a sliding window per (spatial, temporal) layer plus an

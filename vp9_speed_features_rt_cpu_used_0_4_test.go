@@ -7,10 +7,12 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
-// TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim pins the libvpx SPEED_FEATURES
-// produced by set_rt_speed_feature_framesize_independent + best-quality
-// defaults at cpu_used == 0 (REALTIME mode, speed == 0). Every assertion has
-// a libvpx file:line citation so the verbatim correspondence is auditable.
+// TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim pins the internal libvpx
+// SPEED_FEATURES produced by set_rt_speed_feature_framesize_independent +
+// best-quality defaults at cpu_used == 0 (REALTIME mode, speed == 0). Public
+// construction promotes CpuUsed=0 to a production-safe realtime speed; this
+// test forces the raw internal speed after setup so the source-shaped speed-0
+// port remains auditable.
 //
 // At speed == 0 NONE of the `if (speed >= N)` cascades in
 // set_rt_speed_feature_framesize_independent (libvpx
@@ -41,9 +43,10 @@ func TestVP9SetRtSpeedFeaturesCPUUsed0Verbatim(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
+	e.opts.CpuUsed = 0
 
 	if got := e.vp9SpeedFeatureCPUUsed(); got != 0 {
-		t.Fatalf("vp9SpeedFeatureCPUUsed = %d, want 0 (CpuUsed=0 untouched)", got)
+		t.Fatalf("vp9SpeedFeatureCPUUsed = %d, want 0", got)
 	}
 
 	var sf SpeedFeatures

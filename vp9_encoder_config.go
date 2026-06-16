@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	vp9DefaultCPUUsed int8 = 8
-	vp9MaxCPUUsed          = 9
+	vp9DefaultCPUUsed     int8 = 8
+	vp9DefaultGoodCPUUsed int8 = 5
+	vp9MaxCPUUsed              = 9
 )
 
 func normalizeVP9SpeedOptions(opts *VP9EncoderOptions) error {
@@ -23,7 +24,11 @@ func normalizeVP9SpeedOptions(opts *VP9EncoderOptions) error {
 	if cpuUsed < -vp9MaxCPUUsed || cpuUsed > vp9MaxCPUUsed {
 		return ErrInvalidConfig
 	}
-	if opts.Deadline == DeadlineBestQuality && opts.CpuUsed == 0 {
+	if opts.CpuUsed == 0 {
+		if opts.Deadline == DeadlineGoodQuality {
+			opts.CpuUsed = vp9DefaultGoodCPUUsed
+			return nil
+		}
 		opts.Deadline = DeadlineRealtime
 		opts.CpuUsed = vp9DefaultCPUUsed
 	}
