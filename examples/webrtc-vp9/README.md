@@ -66,15 +66,16 @@ machine.
   - An encoder goroutine that ticks at the configured FPS, repaints
     three per-layer `image.YCbCr` buffers (one per spatial layer),
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and
-    packetizes it through the demo's WebRTC VP9 packetizer. The demo writes
-    RTP packets directly so every packet carries a 15-bit VP9 PictureID,
-    base-layer key packets carry the active VP9 scalability structure, and
-    every packet carries the right spatial and temporal layer metadata.
+    packetizes it through `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`.
+    The demo writes RTP packets directly so every packet carries a 15-bit VP9
+    PictureID, base-layer key packets carry the active VP9 scalability
+    structure, and every packet carries the right spatial and temporal layer
+    metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
-    RTP sender advertises and transmits only the first `cap` coded
-    layers. The encoder still pays the full multi-layer cost, but the wire
-    payload, scalability structure, and telemetry describe only the requested
-    prefix.
+    RTP sender calls `LimitSpatialLayersForRTP` so it advertises and transmits
+    only the first `cap` coded layers. The encoder still pays the full
+    multi-layer cost, but the wire payload, scalability structure, and
+    telemetry describe only the requested prefix.
   - A telemetry side-channel: every transmitted access unit ships a JSON
     message describing each sent spatial layer to the page, which renders a
     panel with per-layer stats and a rolling kbps chart.

@@ -606,7 +606,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	interval := time.Second / time.Duration(cfg.FPS)
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
-	rtpPictureID := randomUint16() & vp9RTPPictureIDMask
+	rtpPictureID := randomUint16() & govpx.VP9RTPPictureID15BitMask
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -660,14 +660,19 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 
 		rtpResult := result
 		if cap := int(ctl.spatialCap.Load()); cap >= 1 && cap < spatialLayerCount {
-			rtpResult = cappedSVCResultForRTP(result, cap)
+			capped, err := result.LimitSpatialLayersForRTP(cap)
+			if err != nil {
+				log.Printf("LimitSpatialLayersForRTP(%d): %v", cap, err)
+				continue
+			}
+			rtpResult = capped
 		}
 		statsTracker.observe(rtpResult, time.Now())
 
-		fragmentCount, payloadBytes, err := webRTCSVCPacketizationSize(rtpResult,
+		fragmentCount, payloadBytes, err := rtpResult.WebRTCRTPPacketizationSize(
 			rtpPictureID, rtpPayloadMTU)
 		if err != nil {
-			log.Printf("RTPPacketizationSize: %v", err)
+			log.Printf("WebRTCRTPPacketizationSize: %v", err)
 			continue
 		}
 		if cap(rtpFragments) < fragmentCount {
@@ -678,10 +683,10 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf = make([]byte, payloadBytes)
 		}
 		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
-		fragmentCount, _, err = packetizeSVCResultForWebRTCInto(rtpResult,
-			rtpPictureID, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
+		fragmentCount, _, err = rtpResult.PacketizeWebRTCRTPInto(rtpFragments,
+			rtpPayloadBuf, rtpPictureID, rtpPayloadMTU)
 		if err != nil {
-			log.Printf("PacketizeRTPInto: %v", err)
+			log.Printf("PacketizeWebRTCRTPInto: %v", err)
 			continue
 		}
 		for i := 0; i < fragmentCount; i++ {
@@ -703,190 +708,12 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				return
 			}
 		}
-		rtpPictureID = nextVP9PictureID(rtpPictureID)
+		rtpPictureID = govpx.NextVP9RTPPictureID(rtpPictureID)
 
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 	}
-}
-
-const vp9RTPPictureIDMask uint16 = 0x7fff
-
-func nextVP9PictureID(id uint16) uint16 {
-	return (id + 1) & vp9RTPPictureIDMask
-}
-
-func webRTCSVCPacketizationSize(result govpx.VP9SpatialSVCEncodeResult,
-	pictureID uint16, mtu int,
-) (int, int, error) {
-	count, err := webRTCSVCLayerCount(result)
-	if err != nil {
-		return 0, 0, err
-	}
-	packets := 0
-	payloadBytes := 0
-	for i := 0; i < count; i++ {
-		desc, frame, err := webRTCSVCLayerDescriptor(result, i, pictureID)
-		if err != nil {
-			return 0, 0, err
-		}
-		layerPackets, layerBytes, err := govpx.VP9RTPFramePacketizationSize(desc,
-			frame, mtu)
-		if err != nil {
-			return 0, 0, err
-		}
-		packets += layerPackets
-		payloadBytes += layerBytes
-	}
-	return packets, payloadBytes, nil
-}
-
-func packetizeSVCResultForWebRTCInto(result govpx.VP9SpatialSVCEncodeResult,
-	pictureID uint16, dst []govpx.RTPPayloadFragment, payloadBuf []byte, mtu int,
-) (int, int, error) {
-	count, err := webRTCSVCLayerCount(result)
-	if err != nil {
-		return 0, 0, err
-	}
-	packets, payloadBytes, err := webRTCSVCPacketizationSize(result, pictureID, mtu)
-	if err != nil {
-		return 0, 0, err
-	}
-	if len(dst) < packets || len(payloadBuf) < payloadBytes {
-		return packets, payloadBytes, govpx.ErrBufferTooSmall
-	}
-	packetOff := 0
-	byteOff := 0
-	for i := 0; i < count; i++ {
-		desc, frame, err := webRTCSVCLayerDescriptor(result, i, pictureID)
-		if err != nil {
-			return 0, 0, err
-		}
-		layerPackets, layerBytes, err := govpx.VP9RTPFramePacketizationSize(desc,
-			frame, mtu)
-		if err != nil {
-			return 0, 0, err
-		}
-		writtenPackets, writtenBytes, err := govpx.PacketizeVP9RTPFrameInto(
-			dst[packetOff:packetOff+layerPackets],
-			payloadBuf[byteOff:byteOff+layerBytes],
-			desc, frame, mtu)
-		if err != nil {
-			return 0, 0, err
-		}
-		for j := 0; j < writtenPackets; j++ {
-			dst[packetOff+j].Marker = i == count-1 && j == writtenPackets-1
-		}
-		packetOff += writtenPackets
-		byteOff += writtenBytes
-	}
-	return packets, payloadBytes, nil
-}
-
-func webRTCSVCLayerDescriptor(result govpx.VP9SpatialSVCEncodeResult,
-	layerID int, pictureID uint16,
-) (govpx.VP9RTPPayloadDescriptor, []byte, error) {
-	count, err := webRTCSVCLayerCount(result)
-	if err != nil {
-		return govpx.VP9RTPPayloadDescriptor{}, nil, err
-	}
-	if layerID < 0 || layerID >= count {
-		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
-	}
-	layer := result.Layers[layerID]
-	if layer.Dropped || len(layer.Data) == 0 ||
-		layer.SpatialLayerID != uint8(layerID) ||
-		layer.SpatialLayerCount < result.LayerCount {
-		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
-	}
-	desc := layer.RTPPayloadDescriptor()
-	desc.ScalabilityStructurePresent = false
-	desc.ScalabilityStructure = govpx.VP9RTPScalabilityStructure{}
-	if layerID == 0 {
-		if webRTCSVCShouldSignalScalabilityStructure(layer, result) {
-			desc.ScalabilityStructurePresent = true
-			desc.ScalabilityStructure = result.ScalabilityStructure
-		}
-	}
-	desc.PictureIDPresent = true
-	desc.PictureID15Bit = true
-	desc.PictureID = pictureID & vp9RTPPictureIDMask
-	return desc, layer.Data, nil
-}
-
-func webRTCSVCShouldSignalScalabilityStructure(
-	layer govpx.VP9EncodeResult,
-	result govpx.VP9SpatialSVCEncodeResult,
-) bool {
-	if !layer.KeyFrame || layer.InterPicturePredicted ||
-		layer.TemporalLayerID != 0 {
-		return false
-	}
-	return svcScalabilityStructurePresent(result.ScalabilityStructure)
-}
-
-func webRTCSVCLayerCount(result govpx.VP9SpatialSVCEncodeResult) (int, error) {
-	if result.LayerCount == 0 || result.LayerCount > govpx.VP9MaxSpatialLayers {
-		return 0, govpx.ErrInvalidConfig
-	}
-	return int(result.LayerCount), nil
-}
-
-func svcScalabilityStructurePresent(ss govpx.VP9RTPScalabilityStructure) bool {
-	if ss.SpatialLayerCount != 0 || ss.ResolutionPresent ||
-		ss.PictureGroupPresent || len(ss.PictureGroups) != 0 {
-		return true
-	}
-	for i := range ss.Width {
-		if ss.Width[i] != 0 || ss.Height[i] != 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount int) govpx.VP9SpatialSVCEncodeResult {
-	if layerCount <= 0 || layerCount >= int(result.LayerCount) {
-		return result
-	}
-	out := result
-	out.LayerCount = uint8(layerCount)
-	out.ScalabilityStructure = cappedSVCScalabilityStructure(
-		result.ScalabilityStructure, layerCount)
-	for i := 0; i < layerCount; i++ {
-		layer := out.Layers[i]
-		layer.SpatialLayerCount = uint8(layerCount)
-		layer.NotRefForUpperSpatialLayer = !out.InterLayerPrediction || i == layerCount-1
-		out.Layers[i] = layer
-	}
-	for i := layerCount; i < len(out.Layers); i++ {
-		out.Layers[i] = govpx.VP9EncodeResult{}
-	}
-	out.Data = nil
-	out.SizeBytes = 0
-	for i := 0; i < layerCount; i++ {
-		out.SizeBytes += out.Layers[i].SizeBytes
-	}
-	return out
-}
-
-func cappedSVCScalabilityStructure(
-	ss govpx.VP9RTPScalabilityStructure,
-	layerCount int,
-) govpx.VP9RTPScalabilityStructure {
-	if layerCount <= 0 {
-		return ss
-	}
-	out := ss
-	if out.SpatialLayerCount == 0 || layerCount < out.SpatialLayerCount {
-		out.SpatialLayerCount = layerCount
-	}
-	for i := layerCount; i < len(out.Width); i++ {
-		out.Width[i] = 0
-		out.Height[i] = 0
-	}
-	return out
 }
 
 func randomUint32() uint32 {

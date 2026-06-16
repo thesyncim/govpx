@@ -266,11 +266,11 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleWithHooks(
 		if inspect != nil {
 			inspect(frame, result)
 		}
-		rtpResult := cappedSVCResultForRTP(result, cap)
+		rtpResult := limitSVCResultForRTPForTest(t, result, cap)
 		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
 		packets[frame] = append([]byte(nil),
 			reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)...)
-		pictureID = nextVP9PictureID(pictureID)
+		pictureID = govpx.NextVP9RTPPictureID(pictureID)
 		lastCap = cap
 	}
 	return packets

@@ -131,7 +131,7 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("second RTP access unit timestamp step = %d, want %d",
 			got, want)
 	}
-	if got, want := secondDesc.PictureID, nextVP9PictureID(firstDesc.PictureID); got != want {
+	if got, want := secondDesc.PictureID, govpx.NextVP9RTPPictureID(firstDesc.PictureID); got != want {
 		t.Fatalf("second RTP picture ID = %d, want %d", got, want)
 	}
 	if err := pc.WriteRTCP([]rtcp.Packet{
@@ -288,7 +288,7 @@ func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
 			uint32(rtpClockHz/defaultFPS); got != want {
 			t.Fatalf("feedback RTP timestamp step = %d, want %d", got, want)
 		}
-		if got, want := desc.PictureID, nextVP9PictureID(prevDesc.PictureID); got != want {
+		if got, want := desc.PictureID, govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
 			t.Fatalf("feedback RTP picture ID = %d, want %d", got, want)
 		}
 		if desc.ScalabilityStructurePresent {
@@ -333,7 +333,7 @@ func readVP9RTPAccessUnitWithActiveSpatialLayersForTest(
 			uint32(rtpClockHz/defaultFPS); got != want {
 			t.Fatalf("spatial-cap RTP timestamp step = %d, want %d", got, want)
 		}
-		if got, want := desc.PictureID, nextVP9PictureID(prevDesc.PictureID); got != want {
+		if got, want := desc.PictureID, govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
 			t.Fatalf("spatial-cap RTP picture ID = %d, want %d", got, want)
 		}
 		if desc.ScalabilityStructurePresent &&
@@ -704,7 +704,7 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 				}
 			}
 		}
-		rtpResult := cappedSVCResultForRTP(result, cap)
+		rtpResult := limitSVCResultForRTPForTest(t, result, cap)
 		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
 		packet := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)
 		for layer := 0; layer < cap; layer++ {
@@ -712,7 +712,7 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 				packet, frame, layer, layerDims[layer][0], layerDims[layer][1])
 		}
 		lastCap = cap
-		pictureID = nextVP9PictureID(pictureID)
+		pictureID = govpx.NextVP9RTPPictureID(pictureID)
 	}
 }
 
@@ -830,7 +830,7 @@ func TestPacketizeSVCResultForWebRTCAddsPictureID(t *testing.T) {
 	const pictureID = uint16(0x1234)
 	payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
 	if len(payloads) == 0 {
-		t.Fatal("packetizeSVCResultForWebRTCInto returned no payloads")
+		t.Fatal("PacketizeWebRTCRTPInto returned no payloads")
 	}
 
 	var sawBaseSS bool
@@ -856,8 +856,8 @@ func TestPacketizeSVCResultForWebRTCAddsPictureID(t *testing.T) {
 	if !sawBaseSS {
 		t.Fatal("base WebRTC packet did not carry full scalability structure")
 	}
-	if got := nextVP9PictureID(vp9RTPPictureIDMask); got != 0 {
-		t.Fatalf("nextVP9PictureID wrap = %d, want 0", got)
+	if got := govpx.NextVP9RTPPictureID(govpx.VP9RTPPictureID15BitMask); got != 0 {
+		t.Fatalf("NextVP9RTPPictureID wrap = %d, want 0", got)
 	}
 }
 
@@ -882,7 +882,7 @@ func TestPacketizeSVCResultForWebRTCSignalsSSOnBaseKeyOnly(t *testing.T) {
 
 func TestPacketizeCappedSVCResultForWebRTCSignalsActiveScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
-	capped := cappedSVCResultForRTP(result, 2)
+	capped := limitSVCResultForRTPForTest(t, result, 2)
 	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x55, 500)
 
 	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
@@ -919,7 +919,7 @@ func TestPacketizeCappedSVCResultForWebRTCSignalsActiveScalabilityStructure(t *t
 
 func TestCappedSVCResultForRTPKeepsActiveScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
-	capped := cappedSVCResultForRTP(result, 2)
+	capped := limitSVCResultForRTPForTest(t, result, 2)
 	wantSize := result.Layers[0].SizeBytes + result.Layers[1].SizeBytes
 	if capped.SizeBytes != wantSize || capped.LayerCount != 2 {
 		t.Fatalf("capped result accounting = size:%d layers:%d, want %d/2",
@@ -980,7 +980,7 @@ func TestCappedSVCResultForRTPKeepsActiveScalabilityStructure(t *testing.T) {
 
 func TestCappedSVCResultForRTPSingleLayerSignalsBaseOnly(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
-	capped := cappedSVCResultForRTP(result, 1)
+	capped := limitSVCResultForRTPForTest(t, result, 1)
 	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x57, 500)
 
 	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
@@ -1027,7 +1027,7 @@ func webRTCSVCBaseStartHasSSForTest(
 
 func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
-	capped := cappedSVCResultForRTP(result, 2)
+	capped := limitSVCResultForRTPForTest(t, result, 2)
 
 	tracker := newStatsTracker()
 	tracker.observe(capped, time.Now())
@@ -1053,7 +1053,7 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 
 func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
-	capped := cappedSVCResultForRTP(result, 1)
+	capped := limitSVCResultForRTPForTest(t, result, 1)
 	tracker := newStatsTracker()
 	start := time.Now()
 
@@ -1086,6 +1086,40 @@ func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
 		t.Fatalf("restored hidden-layer stale kbps = %.2f/%.2f, want zero until fresh window",
 			msg.Layers[1].KbpsR, msg.Layers[2].KbpsR)
 	}
+}
+
+func limitSVCResultForRTPForTest(
+	t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	layerCount int,
+) govpx.VP9SpatialSVCEncodeResult {
+	t.Helper()
+	limited, err := result.LimitSpatialLayersForRTP(layerCount)
+	if err != nil {
+		t.Fatalf("LimitSpatialLayersForRTP(%d): %v", layerCount, err)
+	}
+	return limited
+}
+
+func webRTCSVCShouldSignalScalabilityStructureForTest(
+	layer govpx.VP9EncodeResult,
+	result govpx.VP9SpatialSVCEncodeResult,
+) bool {
+	if !layer.KeyFrame || layer.InterPicturePredicted ||
+		layer.TemporalLayerID != 0 {
+		return false
+	}
+	ss := result.ScalabilityStructure
+	if ss.SpatialLayerCount != 0 || ss.ResolutionPresent ||
+		ss.PictureGroupPresent || len(ss.PictureGroups) != 0 {
+		return true
+	}
+	for i := range ss.Width {
+		if ss.Width[i] != 0 || ss.Height[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func encodeOneSVCResultForTest(t *testing.T) govpx.VP9SpatialSVCEncodeResult {
@@ -1126,19 +1160,19 @@ func packetizeWebRTCSVCResultForTest(t *testing.T, result govpx.VP9SpatialSVCEnc
 	pictureID uint16, mtu int,
 ) []govpx.RTPPayloadFragment {
 	t.Helper()
-	packets, payloadBytes, err := webRTCSVCPacketizationSize(result, pictureID, mtu)
+	packets, payloadBytes, err := result.WebRTCRTPPacketizationSize(pictureID, mtu)
 	if err != nil {
-		t.Fatalf("webRTCSVCPacketizationSize: %v", err)
+		t.Fatalf("WebRTCRTPPacketizationSize: %v", err)
 	}
 	payloads := make([]govpx.RTPPayloadFragment, packets)
 	payloadBuf := make([]byte, payloadBytes)
-	n, used, err := packetizeSVCResultForWebRTCInto(result, pictureID, payloads,
-		payloadBuf, mtu)
+	n, used, err := result.PacketizeWebRTCRTPInto(payloads, payloadBuf,
+		pictureID, mtu)
 	if err != nil {
-		t.Fatalf("packetizeSVCResultForWebRTCInto: %v", err)
+		t.Fatalf("PacketizeWebRTCRTPInto: %v", err)
 	}
 	if n != packets || used != payloadBytes {
-		t.Fatalf("packetizeSVCResultForWebRTCInto returned %d/%d, want %d/%d",
+		t.Fatalf("PacketizeWebRTCRTPInto returned %d/%d, want %d/%d",
 			n, used, packets, payloadBytes)
 	}
 	return payloads[:n]
@@ -1189,7 +1223,7 @@ func reassembleWebRTCSVCResultForTest(t *testing.T,
 				wantLayer.NotRefForUpperSpatialLayer)
 		}
 		if layerID == 0 && desc.StartOfFrame {
-			if webRTCSVCShouldSignalScalabilityStructure(wantLayer, result) {
+			if webRTCSVCShouldSignalScalabilityStructureForTest(wantLayer, result) {
 				wantSpatialLayers := count
 				if result.ScalabilityStructure.SpatialLayerCount != 0 {
 					wantSpatialLayers = result.ScalabilityStructure.SpatialLayerCount
