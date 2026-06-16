@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -22,8 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/thesyncim/govpx"
 )
@@ -31,6 +33,7 @@ import (
 const (
 	spatialLayerCount = 3
 	rtpClockHz        = 90000
+	rtpPayloadMTU     = 1200 - 12
 
 	defaultFPS         = 30
 	defaultBitrateKbps = 800
@@ -360,7 +363,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		return
 	}
 
-	track, err := webrtc.NewTrackLocalStaticSample(
+	track, err := webrtc.NewTrackLocalStaticRTP(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP9, ClockRate: 90000},
 		"govpx-video", "govpx",
 	)
@@ -514,7 +517,7 @@ func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, ctl *controlState)
 // runEncoder drives the spatial SVC encoder, packing one VP9 superframe per
 // access unit into the track and sending a telemetry message describing every
 // coded spatial/temporal layer to the browser.
-func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
+func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	telemetry chan []byte, ctl *controlState, cfg demoConfig) {
 	defer close(telemetry)
 
@@ -534,14 +537,14 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
 	}
 
 	// One superframe lives at the top-layer pixel budget plus framing slack;
-	// VP9 keyframes at 640x360 fit well under this. stagingPacket is reused
-	// when the layer cap is below spatialLayerCount and we re-pack a smaller
-	// superframe out of the SVC encoder's per-layer payloads.
+	// VP9 keyframes at 640x360 fit well under this.
 	packet := make([]byte, superframeBudget())
-	stagingPacket := make([]byte, superframeBudget())
-	layerFrames := make([][]byte, 0, spatialLayerCount)
+	var rtpFragments []govpx.RTPPayloadFragment
+	var rtpPayloadBuf []byte
 	interval := time.Second / time.Duration(cfg.FPS)
 	duration := uint64(rtpClockHz / cfg.FPS)
+	rtpTimestamp := randomUint32()
+	rtpSequence := randomUint16()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -593,42 +596,94 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticSample,
 		}
 		statsTracker.observe(result, time.Now())
 
-		// If the caller dialed the spatial cap below the encoder's layer
-		// count, re-pack a smaller superframe with only the first `cap`
-		// coded spatial layers so the browser's VP9 decoder shows that
-		// resolution. The encoder still pays the full multi-layer cost;
-		// the cap only steers what's emitted on the wire.
-		sendData := result.Data
+		rtpResult := result
 		if cap := int(ctl.spatialCap.Load()); cap >= 1 && cap < spatialLayerCount {
-			layerFrames = layerFrames[:0]
-			for i := 0; i < cap; i++ {
-				layerFrames = append(layerFrames, result.Layers[i].Data)
-			}
-			if n, err := govpx.PackVP9SuperframeInto(stagingPacket, layerFrames...); err != nil {
-				log.Printf("PackVP9SuperframeInto: %v", err)
-			} else {
-				sendData = stagingPacket[:n]
-			}
+			rtpResult = cappedSVCResultForRTP(result, cap)
 		}
 
-		// Pion handles VP9 RTP packetisation off media.Sample.Data; the
-		// browser sees the (possibly cropped) SVC superframe as one access
-		// unit and the VP9 decoder picks the highest visible spatial layer.
-		if err := track.WriteSample(media.Sample{
-			Data:     sendData,
-			Duration: interval,
-		}); err != nil {
-			if !errors.Is(err, io.ErrClosedPipe) {
-				log.Printf("WriteSample: %v", err)
+		fragmentCount, payloadBytes, err := rtpResult.RTPPacketizationSize(rtpPayloadMTU)
+		if err != nil {
+			log.Printf("RTPPacketizationSize: %v", err)
+			continue
+		}
+		if cap(rtpFragments) < fragmentCount {
+			rtpFragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		}
+		rtpFragments = rtpFragments[:fragmentCount]
+		if cap(rtpPayloadBuf) < payloadBytes {
+			rtpPayloadBuf = make([]byte, payloadBytes)
+		}
+		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
+		fragmentCount, _, err = rtpResult.PacketizeRTPInto(rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
+		if err != nil {
+			log.Printf("PacketizeRTPInto: %v", err)
+			continue
+		}
+		for i := 0; i < fragmentCount; i++ {
+			fragment := rtpFragments[i]
+			pkt := rtp.Packet{
+				Header: rtp.Header{
+					Version:        2,
+					Marker:         fragment.Marker,
+					SequenceNumber: rtpSequence,
+					Timestamp:      rtpTimestamp,
+				},
+				Payload: fragment.Payload,
 			}
-			return
+			rtpSequence++
+			if err := track.WriteRTP(&pkt); err != nil {
+				if !errors.Is(err, io.ErrClosedPipe) {
+					log.Printf("WriteRTP: %v", err)
+				}
+				return
+			}
 		}
 
 		if payload, err := statsTracker.snapshot(result, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 		pts += duration
+		rtpTimestamp += uint32(duration)
 	}
+}
+
+func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount int) govpx.VP9SpatialSVCEncodeResult {
+	if layerCount <= 0 || layerCount >= int(result.LayerCount) {
+		return result
+	}
+	out := result
+	out.LayerCount = uint8(layerCount)
+	out.ScalabilityStructure.SpatialLayerCount = layerCount
+	for i := layerCount; i < len(out.ScalabilityStructure.Width); i++ {
+		out.ScalabilityStructure.Width[i] = 0
+		out.ScalabilityStructure.Height[i] = 0
+	}
+	for i := 0; i < layerCount; i++ {
+		layer := out.Layers[i]
+		layer.SpatialLayerCount = uint8(layerCount)
+		layer.NotRefForUpperSpatialLayer = !out.InterLayerPrediction || i == layerCount-1
+		out.Layers[i] = layer
+	}
+	for i := layerCount; i < len(out.Layers); i++ {
+		out.Layers[i] = govpx.VP9EncodeResult{}
+	}
+	return out
+}
+
+func randomUint32() uint32 {
+	var b [4]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return uint32(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint32(b[:])
+}
+
+func randomUint16() uint16 {
+	var b [2]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return uint16(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint16(b[:])
 }
 
 // pushTelemetry sends a payload to the DataChannel writer, dropping the

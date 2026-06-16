@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/thesyncim/govpx"
@@ -39,18 +40,17 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 	defer pc.Close()
 
-	rtpCh := make(chan struct{}, 1)
+	rtpCh := make(chan *rtp.Packet, 8)
 	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		go func() {
-			buf := make([]byte, 1500)
 			for {
-				n, _, err := track.Read(buf)
+				packet, _, err := track.ReadRTP()
 				if err != nil {
 					return
 				}
-				if n > 0 {
+				if len(packet.Payload) > 0 {
 					select {
-					case rtpCh <- struct{}{}:
+					case rtpCh <- packet:
 					default:
 					}
 				}
@@ -115,10 +115,25 @@ func TestDemoEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
+	var firstRTP *rtp.Packet
 	select {
-	case <-rtpCh:
+	case firstRTP = <-rtpCh:
 	case <-ctx.Done():
 		t.Fatalf("no RTP packet received within timeout")
+	}
+	desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(firstRTP.Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+	}
+	if !desc.LayerIndicesPresent || desc.SpatialID != 0 {
+		t.Fatalf("first RTP descriptor layer metadata = present:%v sid:%d, want base spatial layer metadata",
+			desc.LayerIndicesPresent, desc.SpatialID)
+	}
+	if !desc.ScalabilityStructurePresent ||
+		desc.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
+		t.Fatalf("first RTP scalability structure = present:%v layers:%d, want %d-layer SVC",
+			desc.ScalabilityStructurePresent,
+			desc.ScalabilityStructure.SpatialLayerCount, spatialLayerCount)
 	}
 
 	var raw []byte
@@ -187,6 +202,69 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 }
 
 func TestSVCEncoderEmitsThreadedTopLayerTileLayout(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+
+	top := result.Layers[spatialLayerCount-1]
+	info, err := govpx.PeekVP9StreamInfo(top.Data)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo top layer: %v", err)
+	}
+	topWidth, topHeight := layerDims[spatialLayerCount-1][0], layerDims[spatialLayerCount-1][1]
+	wantLog2Cols := expectedTileLog2Cols(pickThreads(topWidth, topHeight))
+	if !info.TileInfoAvailable || info.TileLog2Cols != wantLog2Cols || info.TileLog2Rows != 0 {
+		t.Fatalf("top-layer tile info = available:%v log2:%dx%d, want available %dx0",
+			info.TileInfoAvailable, info.TileLog2Cols, info.TileLog2Rows, wantLog2Cols)
+	}
+}
+
+func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	capped := cappedSVCResultForRTP(result, 2)
+	payloads, err := capped.PacketizeRTP(500)
+	if err != nil {
+		t.Fatalf("PacketizeRTP capped result: %v", err)
+	}
+	if len(payloads) == 0 {
+		t.Fatal("PacketizeRTP capped result returned no payloads")
+	}
+
+	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor base: %v", err)
+	}
+	if !base.ScalabilityStructurePresent ||
+		base.ScalabilityStructure.SpatialLayerCount != 2 {
+		t.Fatalf("base SS = present:%v layers:%d, want capped 2-layer structure",
+			base.ScalabilityStructurePresent,
+			base.ScalabilityStructure.SpatialLayerCount)
+	}
+	if base.NotRefForUpperSpatialLayer {
+		t.Fatal("base descriptor unexpectedly marked not-reference-for-upper")
+	}
+
+	var foundEnhancement bool
+	for _, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor enhancement scan: %v", err)
+		}
+		if desc.LayerIndicesPresent && desc.SpatialID == 1 && desc.StartOfFrame {
+			foundEnhancement = true
+			if !desc.NotRefForUpperSpatialLayer {
+				t.Fatal("capped enhancement layer was not marked not-reference-for-upper")
+			}
+			if desc.ScalabilityStructurePresent {
+				t.Fatal("enhancement layer repeated scalability structure")
+			}
+		}
+	}
+	if !foundEnhancement {
+		t.Fatal("did not find capped enhancement-layer RTP frame")
+	}
+}
+
+func encodeOneSVCResultForTest(t *testing.T) govpx.VP9SpatialSVCEncodeResult {
+	t.Helper()
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,
 		BitrateKbps: defaultBitrateKbps,
@@ -208,18 +286,7 @@ func TestSVCEncoderEmitsThreadedTopLayerTileLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeIntoWithResult: %v", err)
 	}
-
-	top := result.Layers[spatialLayerCount-1]
-	info, err := govpx.PeekVP9StreamInfo(top.Data)
-	if err != nil {
-		t.Fatalf("PeekVP9StreamInfo top layer: %v", err)
-	}
-	topWidth, topHeight := layerDims[spatialLayerCount-1][0], layerDims[spatialLayerCount-1][1]
-	wantLog2Cols := expectedTileLog2Cols(pickThreads(topWidth, topHeight))
-	if !info.TileInfoAvailable || info.TileLog2Cols != wantLog2Cols || info.TileLog2Rows != 0 {
-		t.Fatalf("top-layer tile info = available:%v log2:%dx%d, want available %dx0",
-			info.TileInfoAvailable, info.TileLog2Cols, info.TileLog2Rows, wantLog2Cols)
-	}
+	return result
 }
 
 func expectedThreads(width, height int) int {
