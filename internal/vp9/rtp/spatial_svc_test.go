@@ -86,11 +86,20 @@ func TestPacketizeSpatialSVCFrameIntoOrdersLayerFrames(t *testing.T) {
 		if len(byLayer[i]) == 0 {
 			t.Fatalf("layer %d had no payloads", i)
 		}
-		for j := range byLayer[i] {
-			wantMarker := j == len(byLayer[i])-1
-			if byLayer[i][j].Marker != wantMarker {
+		for j, payload := range byLayer[i] {
+			wantMarker := i == len(layers)-1 && j == len(byLayer[i])-1
+			if payload.Marker != wantMarker {
 				t.Fatalf("layer %d payload %d marker = %v, want %v",
-					i, j, byLayer[i][j].Marker, wantMarker)
+					i, j, payload.Marker, wantMarker)
+			}
+			desc, _, err := ParsePayloadDescriptor(payload.Payload)
+			if err != nil {
+				t.Fatalf("ParsePayloadDescriptor layer %d payload %d: %v",
+					i, j, err)
+			}
+			if desc.EndOfFrame != (j == len(byLayer[i])-1) {
+				t.Fatalf("layer %d payload %d E bit = %v, want %v",
+					i, j, desc.EndOfFrame, j == len(byLayer[i])-1)
 			}
 		}
 		assembled, err := AssembleFrame(byLayer[i])

@@ -69,6 +69,9 @@ func TestVP9SpatialSVCEncodeResultPacketizeRTP(t *testing.T) {
 			t.Fatalf("payload %d length = %d, exceeds mtu %d",
 				i, len(payload.Payload), mtu)
 		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %v, want %v", i, got, want)
+		}
 		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
 		if err != nil {
 			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)

@@ -596,6 +596,9 @@ type VP9EncodeResult struct {
 	// Dropped reports that VP9 CBR rate control intentionally emitted no
 	// packet. Data is empty when Dropped is true.
 	Dropped bool
+	// InterPicturePredicted reports whether the coded frame uses prediction
+	// from an earlier picture. This maps to the VP9 RTP descriptor P bit.
+	InterPicturePredicted bool
 
 	Quantizer         int
 	InternalQuantizer int
@@ -622,6 +625,8 @@ type VP9EncodeResult struct {
 	NotRefForUpperSpatialLayer  bool
 	ScalabilityStructurePresent bool
 	SpatialScalabilityStructure VP9RTPScalabilityStructure
+
+	interPicturePredictedKnown bool
 }
 
 // RTPPayloadDescriptor returns a non-flexible VP9 RTP descriptor populated
@@ -629,7 +634,7 @@ type VP9EncodeResult struct {
 // unset so callers can choose their own RTP picture-id policy.
 func (r VP9EncodeResult) RTPPayloadDescriptor() VP9RTPPayloadDescriptor {
 	desc := VP9RTPPayloadDescriptor{
-		InterPicturePredicted: !r.KeyFrame && !r.IntraOnly,
+		InterPicturePredicted: r.vp9RTPInterPicturePredicted(),
 		StartOfFrame:          true,
 		EndOfFrame:            true,
 	}
@@ -648,6 +653,13 @@ func (r VP9EncodeResult) RTPPayloadDescriptor() VP9RTPPayloadDescriptor {
 		desc.ScalabilityStructure = r.SpatialScalabilityStructure
 	}
 	return desc
+}
+
+func (r VP9EncodeResult) vp9RTPInterPicturePredicted() bool {
+	if r.interPicturePredictedKnown {
+		return r.InterPicturePredicted
+	}
+	return !r.KeyFrame && !r.IntraOnly
 }
 
 const (

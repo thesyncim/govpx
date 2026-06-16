@@ -166,6 +166,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			return VP9EncodeResult{
 				Dropped:                     true,
 				ShowFrame:                   true,
+				InterPicturePredicted:       false,
 				TargetBitrateKbps:           e.rc.targetBitrateKbps,
 				FrameTargetBits:             e.rc.frameTargetBits,
 				BufferLevelBits:             e.rc.bufferLevelBits,
@@ -180,6 +181,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 				NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
 				ScalabilityStructurePresent: scalabilityStructurePresent,
 				SpatialScalabilityStructure: spatialScalabilityStructure,
+				interPicturePredictedKnown:  true,
 			}, nil
 		}
 	}
@@ -805,6 +807,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.lastLoopFilterLevel = header.Loopfilter.FilterLevel
 		e.lastLoopFilterValid = true
 	}
+	interPicturePredicted := !isKey && !intraOnly && !postDrop
+	if forceFirstInterLayer && temporalFrame.LayerID == 0 {
+		interPicturePredicted = false
+	}
 	result = VP9EncodeResult{
 		Data:                        resultData,
 		KeyFrame:                    isKey,
@@ -812,6 +818,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		ShowFrame:                   header.ShowFrame,
 		Dropped:                     postDrop,
 		Droppable:                   !isKey && header.RefreshFrameFlags == 0 && !header.RefreshFrameContext,
+		InterPicturePredicted:       interPicturePredicted,
 		Quantizer:                   publicQuantizer,
 		InternalQuantizer:           qindex,
 		SizeBytes:                   resultSize,
@@ -831,6 +838,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
 		ScalabilityStructurePresent: scalabilityStructurePresent,
 		SpatialScalabilityStructure: spatialScalabilityStructure,
+		interPicturePredictedKnown:  true,
 	}
 	if result.TemporalLayerCount == 0 {
 		result.TemporalLayerCount = 1

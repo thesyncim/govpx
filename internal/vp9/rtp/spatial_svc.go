@@ -45,7 +45,8 @@ func SpatialSVCFramePacketizationSize(layers []SpatialSVCLayerFrame, mtu int) (i
 
 // PacketizeSpatialSVCFrameInto packetizes a VP9 spatial-SVC access unit into
 // caller-owned RTP payload storage. The returned payload bodies do not include
-// RTP headers. Marker is true on the final fragment of each coded layer frame.
+// RTP headers. Marker is true only on the final fragment of the highest
+// spatial-layer frame.
 func PacketizeSpatialSVCFrameInto(dst []vpxrtp.PayloadFragment, payloadBuf []byte,
 	layers []SpatialSVCLayerFrame, mtu int,
 ) (int, int, error) {
@@ -72,6 +73,9 @@ func PacketizeSpatialSVCFrameInto(dst []vpxrtp.PayloadFragment, payloadBuf []byt
 			layer.Descriptor, layer.Frame, mtu)
 		if err != nil {
 			return 0, 0, err
+		}
+		for j := range writtenPackets {
+			dst[packetOff+j].Marker = i == len(layers)-1 && j == writtenPackets-1
 		}
 		packetOff += writtenPackets
 		byteOff += writtenBytes

@@ -24,8 +24,9 @@ func (r VP9SpatialSVCEncodeResult) RTPPacketizationSize(mtu int) (int, int, erro
 // counts are the required capacities.
 //
 // Payload bodies do not include RTP headers. Fragments are written in
-// spatial-layer order, and each layer frame uses its own VP9 RTP start/end and
-// marker semantics.
+// spatial-layer order. Each layer frame uses its own VP9 RTP start/end bits;
+// the RTP marker bit is set only on the final fragment of the highest
+// spatial-layer frame.
 func (r VP9SpatialSVCEncodeResult) PacketizeRTPInto(dst []RTPPayloadFragment,
 	payloadBuf []byte, mtu int,
 ) (int, int, error) {

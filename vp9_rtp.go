@@ -89,7 +89,9 @@ func PacketizeVP9RTPFrame(desc VP9RTPPayloadDescriptor, frame []byte, mtu int) (
 //
 // The caller owns RTP sequence-number validation, loss handling, and jitter
 // buffering. Payloads must be in decode order and must include the marker bit
-// value from each RTP header.
+// value from each RTP header. For spatial scalability, lower spatial-layer
+// frames end with E=true and Marker=false; early Marker bits are rejected, but
+// the final payload body does not need Marker=true.
 func VP9RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
 	return vp9rtp.FrameAssemblySize(payloads)
 }

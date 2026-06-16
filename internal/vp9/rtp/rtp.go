@@ -341,25 +341,69 @@ func vp9PacketDescriptorForFragment(desc PayloadDescriptor) vpxrtp.PacketDescrip
 //
 // The caller owns RTP sequence-number validation, loss handling, and jitter
 // buffering. Payloads must be in decode order and must include the marker bit
-// value from each RTP header.
+// value from each RTP header. For spatial scalability, the final packet of a
+// non-highest spatial-layer frame has E=true and Marker=false; this helper
+// therefore rejects early Marker bits but does not require Marker on the last
+// fragment.
 func FrameAssemblySize(payloads []vpxrtp.PayloadFragment) (int, error) {
-	return vpxrtp.FrameAssemblySize(payloads, vpxerrors.ErrInvalidVP9Data,
-		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
+	if len(payloads) == 0 {
+		return 0, vpxerrors.ErrInvalidVP9Data
+	}
+	total := 0
+	validate := vp9FrameAssemblyValidator()
+	for i := range payloads {
+		desc, fragment, err := ParsePayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		if len(fragment) == 0 {
+			return 0, vpxerrors.ErrInvalidVP9Data
+		}
+		if i+1 < len(payloads) && payloads[i].Marker {
+			return 0, vpxerrors.ErrInvalidVP9Data
+		}
+		if err := validate(i, len(payloads), desc); err != nil {
+			return 0, err
+		}
+		total, err = vpxrtp.AddPayloadSize(total, len(fragment))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 // AssembleFrameInto writes the raw VP9 frame carried by payloads into
 // dst and returns the frame length. On [vpxerrors.ErrBufferTooSmall], the returned
 // length is the required capacity.
 func AssembleFrameInto(dst []byte, payloads []vpxrtp.PayloadFragment) (int, error) {
-	return vpxrtp.AssembleFrameInto(dst, payloads, vpxerrors.ErrInvalidVP9Data,
-		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
+	need, err := FrameAssemblySize(payloads)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	return vpxrtp.AssemblePayloadFragmentsInto(dst, payloads, need,
+		parseVP9PayloadFragment)
 }
 
 // AssembleFrame returns the raw VP9 frame carried by an ordered set of
 // RTP payload bodies.
 func AssembleFrame(payloads []vpxrtp.PayloadFragment) ([]byte, error) {
-	return vpxrtp.AssembleFrame(payloads, vpxerrors.ErrInvalidVP9Data,
-		ParsePayloadDescriptor, vp9FrameAssemblyValidator())
+	need, err := FrameAssemblySize(payloads)
+	if err != nil {
+		return nil, err
+	}
+	return vpxrtp.AssemblePayloadFragments(payloads, need, parseVP9PayloadFragment)
+}
+
+func parseVP9PayloadFragment(payload []byte) ([]byte, error) {
+	_, fragment, err := ParsePayloadDescriptor(payload)
+	if err != nil {
+		return nil, err
+	}
+	return fragment, nil
 }
 
 func vp9FrameAssemblyValidator() vpxrtp.FragmentValidator[PayloadDescriptor] {

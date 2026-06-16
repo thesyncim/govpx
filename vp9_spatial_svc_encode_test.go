@@ -59,6 +59,7 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 	}
 	if result.Layers[1].KeyFrame ||
 		!result.Layers[1].ShowFrame ||
+		result.Layers[1].InterPicturePredicted ||
 		result.Layers[1].SpatialLayerID != 1 ||
 		result.Layers[1].SpatialLayerCount != 2 ||
 		!result.Layers[1].InterLayerDependency ||
@@ -80,7 +81,8 @@ func TestVP9SpatialSVCEncoderEncodesInterLayerSuperframe(t *testing.T) {
 	}
 	enhDesc := result.Layers[1].RTPPayloadDescriptor()
 	if !enhDesc.LayerIndicesPresent || enhDesc.SpatialID != 1 ||
-		!enhDesc.InterLayerDependency || enhDesc.ScalabilityStructurePresent {
+		enhDesc.InterPicturePredicted || !enhDesc.InterLayerDependency ||
+		enhDesc.ScalabilityStructurePresent {
 		t.Fatalf("enhancement RTP descriptor = %+v", enhDesc)
 	}
 
