@@ -526,6 +526,16 @@ func (rc *rateControlState) setBitrateKbps(kbps int, timing timingState) error {
 	return nil
 }
 
+func (rc *rateControlState) setBufferModel(sizeMs, initialMs, optimalMs int, timing timingState) error {
+	if sizeMs <= 0 || initialMs < 0 || optimalMs < 0 {
+		return ErrInvalidConfig
+	}
+	rc.bufferSizeMs = sizeMs
+	rc.bufferInitialSizeMs = initialMs
+	rc.bufferOptimalSizeMs = optimalMs
+	return rc.setBitrateKbps(rc.targetBitrateKbps, timing)
+}
+
 func (rc *rateControlState) refreshFrameRate(timing timingState, twoPassMinPct int) {
 	bitsPerFrame := computeBitsPerFrame(rc.targetBandwidthBits, timing)
 	if bitsPerFrame > 0 {

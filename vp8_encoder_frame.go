@@ -158,7 +158,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		!keyFrame &&
 		!temporalReferenceControl &&
 		e.twoPass.enabled() &&
-		!e.opts.ErrorResilient &&
+		!e.vp8ErrorResilientMode() &&
 		e.twoPass.framesTillGFUpdate == 0 &&
 		flags&(EncodeInvisibleFrame|EncodeNoUpdateGolden) == 0 {
 		goldenCBRRefresh = true

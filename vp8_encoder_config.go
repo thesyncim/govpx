@@ -135,6 +135,31 @@ func (e *VP8Encoder) SetGFCBRBoostPct(pct int) error {
 	return nil
 }
 
+// SetRateControlBuffer changes the VP8 virtual buffer geometry without
+// rebuilding the rest of the rate-control configuration. Existing buffer
+// level is preserved and clamped to the new maximum buffer size. sizeMs must
+// be positive; initialMs and optimalMs must be non-negative. VBR encoders
+// reject this focused control because libvpx's VP8 VBR path ignores caller
+// buffer geometry and uses its relaxed local-file buffer model instead.
+func (e *VP8Encoder) SetRateControlBuffer(sizeMs, initialMs, optimalMs int) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if e.rc.mode == RateControlVBR {
+		return ErrInvalidConfig
+	}
+	nextRC := e.rc
+	if err := nextRC.setBufferModel(sizeMs, initialMs, optimalMs, e.timing); err != nil {
+		return err
+	}
+	e.rc = nextRC
+	e.opts.BufferSizeMs = sizeMs
+	e.opts.BufferInitialSizeMs = initialMs
+	e.opts.BufferOptimalSizeMs = optimalMs
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	return nil
+}
+
 // SetTokenPartitions changes the VP8 token-partition selector:
 // 0 = one partition, 1 = two, 2 = four, 3 = eight. See
 // EncoderOptions.TokenPartitions.
@@ -146,6 +171,22 @@ func (e *VP8Encoder) SetTokenPartitions(partitions int) error {
 		return ErrInvalidConfig
 	}
 	e.opts.TokenPartitions = partitions
+	e.applyVP8ChangeConfigRuntimeSideEffects()
+	return nil
+}
+
+// SetErrorResilient changes the VP8 error-resilient bitmask at runtime.
+// enabled maps to libvpx VPX_ERROR_RESILIENT_DEFAULT; partitions maps to
+// VPX_ERROR_RESILIENT_PARTITIONS. Set both to true to mirror
+// `--error-resilient=3`, which is the usual lossy-RTP/WebRTC shape with
+// independent token-partition coefficient contexts.
+func (e *VP8Encoder) SetErrorResilient(enabled bool, partitions bool) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	e.opts.ErrorResilient = enabled
+	e.opts.ErrorResilientPartitions = partitions
+	e.twoPass.configureErrorResilient(e.vp8ErrorResilientMode())
 	e.applyVP8ChangeConfigRuntimeSideEffects()
 	return nil
 }
@@ -1559,11 +1600,15 @@ func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
 // the libvpx-verbatim line-1541 reset.
 func (e *VP8Encoder) applyVP8ChangeConfigBaselineGFInterval() {
 	e.rc.baselineGFInterval = libvpxDefaultGFInterval
-	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && e.opts.Deadline == DeadlineRealtime {
+	if e.rc.mode == RateControlCBR && !e.vp8ErrorResilientMode() && e.opts.Deadline == DeadlineRealtime {
 		rows := geometry.MacroblockRows(e.opts.Height)
 		cols := geometry.MacroblockCols(e.opts.Width)
 		e.rc.baselineGFInterval = e.goldenFrameCBRInterval(rows, cols)
 	}
+}
+
+func (e *VP8Encoder) vp8ErrorResilientMode() bool {
+	return e.opts.ErrorResilient || e.opts.ErrorResilientPartitions
 }
 
 // applyVP8ChangeConfigResolutionChangeKeyFrame mirrors libvpx
@@ -1771,7 +1816,7 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	e.opts.TwoPassStats = stats
 	e.twoPass.configure(stats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
-	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
+	e.twoPass.configureErrorResilient(e.vp8ErrorResilientMode())
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	// libvpx frame_max_bits (vp8/encoder/firstpass.c:316-368) reads
 	// cpi->oxcf.end_usage; re-seed it here so a SetTwoPassStats call
@@ -1789,7 +1834,7 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 		// (CBR && !error_resilient) one-pass compressor. SetTwoPassStats
 		// at frame 0 has the same effect as a fresh init for the active
 		// rc cohort, so mirror the seed here too.
-		if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && len(e.opts.TwoPassStats) == 0 {
+		if e.rc.mode == RateControlCBR && !e.vp8ErrorResilientMode() && len(e.opts.TwoPassStats) == 0 {
 			e.rc.baselineGFInterval = 0
 		} else {
 			e.rc.baselineGFInterval = libvpxDefaultGFInterval

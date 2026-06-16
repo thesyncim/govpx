@@ -225,12 +225,12 @@ func (e *VP8Encoder) Reset() {
 	// so a Reset preserves the same first-keyframe contract NewVP8Encoder
 	// established (sentinel 0 defers gf_interval_onepass_cbr derivation
 	// to libvpxKeyFrameSetupGFInterval at first-KF time).
-	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient && len(e.opts.TwoPassStats) == 0 {
+	if e.rc.mode == RateControlCBR && !e.vp8ErrorResilientMode() && len(e.opts.TwoPassStats) == 0 {
 		e.rc.baselineGFInterval = 0
 	} else {
 		e.rc.baselineGFInterval = libvpxDefaultGFInterval
 	}
-	e.cyclicRefreshConfigured = e.opts.ErrorResilient ||
+	e.cyclicRefreshConfigured = e.vp8ErrorResilientMode() ||
 		(e.rc.mode == RateControlCBR && len(e.opts.TwoPassStats) == 0)
 	e.runtimePreserveSegmentationUpdate = false
 	e.runtimeSegmentationUpdatePending = false
@@ -265,7 +265,7 @@ func (e *VP8Encoder) Reset() {
 	e.initializeTemporalLayerCodingStates()
 	e.twoPass.configure(e.opts.TwoPassStats, e.rc.bitsPerFrame, e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct, e.opts.TwoPassMaxPct)
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
-	e.twoPass.configureErrorResilient(e.opts.ErrorResilient || e.opts.ErrorResilientPartitions)
+	e.twoPass.configureErrorResilient(e.vp8ErrorResilientMode())
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
 	// libvpx vp8_cx_iface.c reseeds cpi->oxcf.auto_key and
 	// cpi->key_frame_frequency in init_config; Reset() mirrors that

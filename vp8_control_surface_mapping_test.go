@@ -26,6 +26,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetCPUUsed":            {Kind: "libvpx-control", HelperTokens: []string{"cpu:"}},
 		"SetCQLevel":            {Kind: "libvpx-control", HelperTokens: []string{"cq:"}},
 		"SetDeadline":           {Kind: "encode-deadline", HelperTokens: []string{"deadline:"}},
+		"SetErrorResilient":     {Kind: "libvpx-config", HelperTokens: []string{"error:"}},
 		"SetFrameDropAllowed":   {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
 		"SetGFCBRBoostPct":      {Kind: "libvpx-control", HelperTokens: []string{"gfboost:"}},
 		"SetKeyFrameInterval":   {Kind: "libvpx-config", HelperTokens: []string{"kfmin:", "kfmax:"}},
@@ -36,6 +37,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 			"rtc:",
 		}},
 		"SetRateControl":       {Kind: "libvpx-config", HelperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "undershoot:", "overshoot:", "bufsz:", "bufinit:", "bufopt:", "drop:"}},
+		"SetRateControlBuffer": {Kind: "libvpx-config", HelperTokens: []string{"bufsz:", "bufinit:", "bufopt:"}},
 		"SetRealtimeTarget":    {Kind: "libvpx-config", HelperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
 		"SetReferenceFrame":    {Kind: "libvpx-control", HelperTokens: []string{"setref:"}},
 		"SetScalingMode":       {Kind: "libvpx-control"},
@@ -77,6 +79,10 @@ func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"Decode":               {Kind: "libvpx-decode-oracle"},
 		"DecodeInto":           {Kind: "libvpx-decode-oracle"},
 		"DecodeIntoWithPTS":    {Kind: "local-pts-wrapper"},
+		"DecodeRTP":            {Kind: "rtp-api"},
+		"DecodeRTPInto":        {Kind: "rtp-api"},
+		"DecodeRTPIntoWithPTS": {Kind: "rtp-api"},
+		"DecodeRTPWithPTS":     {Kind: "rtp-api"},
 		"DecodeWithPTS":        {Kind: "local-pts-wrapper"},
 		"LastFrameCorrupted":   {Kind: "metadata-api"},
 		"LastFrameInfo":        {Kind: "metadata-api"},
@@ -84,6 +90,9 @@ func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"LastReferencesUsed":   {Kind: "metadata-api"},
 		"NextFrame":            {Kind: "decode-api"},
 		"Reset":                {Kind: "lifecycle"},
+		"SetDecryptor":         {Kind: "libvpx-decoder-control"},
+		"SetPostProcess":       {Kind: "libvpx-decoder-control"},
+		"SetPostProcessConfig": {Kind: "libvpx-decoder-control"},
 		"SetReferenceFrame":    {Kind: "libvpx-decoder-control", HelperTokens: []string{"setref:"}},
 	}
 	controlsurface.AssertPublicMethodMappings(t, "VP8Decoder", methods, want)
@@ -146,15 +155,17 @@ func TestVP8EncoderOptionsFieldsHaveParityMapping(t *testing.T) {
 func TestVP8DecoderOptionsFieldsHaveParityMapping(t *testing.T) {
 	fields := controlsurface.ExportedFieldSet(t, govpx.DecoderOptions{})
 	want := map[string]controlsurface.Mapping{
-		"Decryptor":              {Kind: "libvpx-decoder-control"},
-		"DecryptorState":         {Kind: "libvpx-decoder-control"},
-		"ErrorConcealment":       {Kind: "libvpx-decode-oracle"},
-		"MaxHeight":              {Kind: "local-validation"},
-		"MaxWidth":               {Kind: "local-validation"},
-		"PostProcessFlags":       {Kind: "libvpx-decode-oracle"},
-		"PostProcessNoiseLevel":  {Kind: "libvpx-decode-oracle"},
-		"RejectResolutionChange": {Kind: "local-validation"},
-		"Threads":                {Kind: "libvpx-decode-oracle"},
+		"Decryptor":                     {Kind: "libvpx-decoder-control"},
+		"DecryptorState":                {Kind: "libvpx-decoder-control"},
+		"ErrorConcealment":              {Kind: "libvpx-decode-oracle"},
+		"MaxHeight":                     {Kind: "local-validation"},
+		"MaxWidth":                      {Kind: "local-validation"},
+		"PostProcessDeblockingLevel":    {Kind: "libvpx-decode-oracle"},
+		"PostProcessDeblockingLevelSet": {Kind: "libvpx-decode-oracle"},
+		"PostProcessFlags":              {Kind: "libvpx-decode-oracle"},
+		"PostProcessNoiseLevel":         {Kind: "libvpx-decode-oracle"},
+		"RejectResolutionChange":        {Kind: "local-validation"},
+		"Threads":                       {Kind: "libvpx-decode-oracle"},
 	}
 	controlsurface.AssertOptionFieldMappings(t, "DecoderOptions", fields, want)
 }

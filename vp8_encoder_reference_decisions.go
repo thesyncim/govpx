@@ -644,7 +644,7 @@ func (e *VP8Encoder) libvpxKeyFrameSetupGFInterval(rows int, cols int) int {
 	// good/best CBR first-keyframe extension of the gf_interval_onepass_cbr
 	// seed; the live-cliff carry stays intact for the mid-stream keyframe
 	// case it was introduced to preserve.
-	if e.rc.mode == RateControlCBR && !e.opts.ErrorResilient {
+	if e.rc.mode == RateControlCBR && !e.vp8ErrorResilientMode() {
 		if e.rc.onePassAutoGold {
 			return 1
 		}

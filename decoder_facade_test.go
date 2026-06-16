@@ -14,6 +14,8 @@ func TestNewVP8DecoderRejectsInvalidOptions(t *testing.T) {
 		{Threads: -1},
 		{PostProcessFlags: govpx.PostProcessAddNoise, PostProcessNoiseLevel: -1},
 		{PostProcessFlags: govpx.PostProcessAddNoise, PostProcessNoiseLevel: 17},
+		{PostProcessDeblockingLevel: -1},
+		{PostProcessDeblockingLevel: 17},
 		{PostProcessNoiseLevel: 4},
 		{PostProcessFlags: govpx.PostProcessDeblock, PostProcessNoiseLevel: 4},
 		{PostProcessFlags: govpx.PostProcessFlag(1 << 12)},

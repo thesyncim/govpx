@@ -77,3 +77,42 @@ func TestVP8DecoderDecryptorCallbackIsInvoked(t *testing.T) {
 		t.Fatalf("decrypt callback was never invoked during Decode")
 	}
 }
+
+func TestVP8DecoderSetDecryptorRuntime(t *testing.T) {
+	packet := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	type decryptState struct {
+		tag string
+	}
+	wantState := &decryptState{tag: "active"}
+	var gotState any
+	calls := 0
+	identity := func(state any, src, dst []byte, count int) {
+		calls++
+		gotState = state
+		copy(dst[:count], src[:count])
+	}
+
+	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder error = %v", err)
+	}
+	if err := dec.SetDecryptor(identity, wantState); err != nil {
+		t.Fatalf("SetDecryptor error = %v", err)
+	}
+	if err := dec.Decode(packet); err != nil {
+		t.Fatalf("Decode with runtime decryptor error = %v", err)
+	}
+	if calls != 1 || gotState != wantState {
+		t.Fatalf("runtime decryptor calls/state = %d/%p, want 1/%p", calls, gotState, wantState)
+	}
+
+	if err := dec.SetDecryptor(nil, nil); err != nil {
+		t.Fatalf("SetDecryptor(nil) error = %v", err)
+	}
+	if err := dec.Decode(packet); err != nil {
+		t.Fatalf("Decode after disabling decryptor error = %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("decryptor called after disable: calls=%d, want 1", calls)
+	}
+}

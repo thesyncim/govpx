@@ -76,6 +76,14 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 	}
 	packet := vp8test.KeyFramePacketWithPayload(64, 64, 200, 0, true)
 	dst := newTestImage(64, 64)
+	rtpPayloads, err := PacketizeVP8RTPFrame(VP8RTPPayloadDescriptor{
+		PictureIDPresent: true,
+		PictureID:        7,
+	}, packet, 32)
+	if err != nil {
+		t.Fatalf("PacketizeVP8RTPFrame returned error: %v", err)
+	}
+	rtpFrameBuf := make([]byte, len(packet))
 
 	tests := []struct {
 		name string
@@ -85,7 +93,12 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 		{name: "DecodeWithPTS", fn: func() { _ = d.DecodeWithPTS(packet, 123) }},
 		{name: "DecodeInto", fn: func() { _, _ = d.DecodeInto(packet, &dst) }},
 		{name: "DecodeIntoWithPTS", fn: func() { _, _ = d.DecodeIntoWithPTS(packet, &dst, 123) }},
+		{name: "DecodeRTPInto", fn: func() { _, _ = d.DecodeRTPInto(rtpFrameBuf, rtpPayloads) }},
+		{name: "DecodeRTPIntoWithPTS", fn: func() { _, _ = d.DecodeRTPIntoWithPTS(rtpFrameBuf, rtpPayloads, 123) }},
 		{name: "NextFrame", fn: func() { _, _ = d.NextFrame() }},
+		{name: "SetPostProcess", fn: func() { _ = d.SetPostProcess(0, 0) }},
+		{name: "SetPostProcessConfig", fn: func() { _ = d.SetPostProcessConfig(0, 4, 0) }},
+		{name: "SetDecryptor", fn: func() { _ = d.SetDecryptor(nil, nil) }},
 		{name: "Reset", fn: func() { d.Reset() }},
 	}
 

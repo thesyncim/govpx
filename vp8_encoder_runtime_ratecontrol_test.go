@@ -2,8 +2,11 @@ package govpx
 
 import (
 	"errors"
-	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"reflect"
 	"testing"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
 
 func TestSetRTCExternalRateControlRemainsEnabledAfterDisable(t *testing.T) {
@@ -103,6 +106,145 @@ func TestSetBitrateKbpsPreservesLibvpxZeroBufferLevel(t *testing.T) {
 	}
 }
 
+func TestSetRateControlBufferUpdatesVP8BufferModel(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:               64,
+		Height:              64,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   300,
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		BufferSizeMs:        600,
+		BufferInitialSizeMs: 400,
+		BufferOptimalSizeMs: 500,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	e.rc.bufferLevelBits = 100000
+	if err := e.SetRateControlBuffer(200, 100, 150); err != nil {
+		t.Fatalf("SetRateControlBuffer returned error: %v", err)
+	}
+	if e.opts.BufferSizeMs != 200 || e.opts.BufferInitialSizeMs != 100 ||
+		e.opts.BufferOptimalSizeMs != 150 {
+		t.Fatalf("buffer opts = %d/%d/%d, want 200/100/150",
+			e.opts.BufferSizeMs, e.opts.BufferInitialSizeMs, e.opts.BufferOptimalSizeMs)
+	}
+	if e.rc.bufferSizeBits != 60000 || e.rc.bufferInitialBits != 30000 ||
+		e.rc.bufferOptimalBits != 45000 || e.rc.bufferLevelBits != 60000 {
+		t.Fatalf("buffer bits = size:%d initial:%d optimal:%d level:%d, want 60000/30000/45000/60000",
+			e.rc.bufferSizeBits, e.rc.bufferInitialBits, e.rc.bufferOptimalBits, e.rc.bufferLevelBits)
+	}
+
+	oldRC := e.rc
+	oldOpts := e.opts
+	if err := e.SetRateControlBuffer(0, 100, 150); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("invalid SetRateControlBuffer error = %v, want ErrInvalidConfig", err)
+	}
+	if e.rc != oldRC || !reflect.DeepEqual(e.opts, oldOpts) {
+		t.Fatal("invalid SetRateControlBuffer mutated encoder state")
+	}
+}
+
+func TestSetRateControlBufferRejectsVP8VBR(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	if err := e.SetRateControlBuffer(200, 100, 150); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("SetRateControlBuffer(VBR) error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func TestSetErrorResilientUpdatesVP8LossResilienceBits(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		Deadline:          DeadlineRealtime,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	defer e.Close()
+
+	rows := geometry.MacroblockRows(e.opts.Height)
+	cols := geometry.MacroblockCols(e.opts.Width)
+	cbrGFInterval := e.goldenFrameCBRInterval(rows, cols)
+	if cbrGFInterval == libvpxDefaultGFInterval {
+		t.Fatalf("test setup CBR GF interval = default %d; choose dimensions that exercise the CBR branch", cbrGFInterval)
+	}
+
+	if err := e.SetErrorResilient(false, true); err != nil {
+		t.Fatalf("SetErrorResilient(partitions) returned error: %v", err)
+	}
+	if e.opts.ErrorResilient || !e.opts.ErrorResilientPartitions {
+		t.Fatalf("error resilient opts = default:%t partitions:%t, want false/true",
+			e.opts.ErrorResilient, e.opts.ErrorResilientPartitions)
+	}
+	if !e.twoPass.errorResilient {
+		t.Fatal("two-pass errorResilient = false, want true for partitions-only bitmask")
+	}
+	if e.rc.baselineGFInterval != libvpxDefaultGFInterval {
+		t.Fatalf("partitions-only baselineGFInterval = %d, want default %d",
+			e.rc.baselineGFInterval, libvpxDefaultGFInterval)
+	}
+
+	if err := e.SetErrorResilient(false, false); err != nil {
+		t.Fatalf("SetErrorResilient(off) returned error: %v", err)
+	}
+	if e.opts.ErrorResilient || e.opts.ErrorResilientPartitions || e.twoPass.errorResilient {
+		t.Fatalf("error resilient state after disable = opts:%t/%t twopass:%t, want all false",
+			e.opts.ErrorResilient, e.opts.ErrorResilientPartitions, e.twoPass.errorResilient)
+	}
+	if e.rc.baselineGFInterval != cbrGFInterval {
+		t.Fatalf("disabled baselineGFInterval = %d, want realtime CBR interval %d",
+			e.rc.baselineGFInterval, cbrGFInterval)
+	}
+}
+
+func TestSetErrorResilientDoesNotRecomputeCyclicRefreshBirthCohort(t *testing.T) {
+	e, err := NewVP8Encoder(EncoderOptions{
+		Width:             64,
+		Height:            64,
+		FPS:               30,
+		RateControlMode:   RateControlVBR,
+		TargetBitrateKbps: 300,
+		MinQuantizer:      4,
+		MaxQuantizer:      56,
+	})
+	if err != nil {
+		t.Fatalf("NewVP8Encoder returned error: %v", err)
+	}
+	defer e.Close()
+	if e.cyclicRefreshModeEnabled(false) {
+		t.Fatal("VBR-born encoder started with cyclic refresh enabled")
+	}
+	if err := e.SetErrorResilient(true, true); err != nil {
+		t.Fatalf("SetErrorResilient returned error: %v", err)
+	}
+	if !e.opts.ErrorResilient || !e.opts.ErrorResilientPartitions {
+		t.Fatalf("error resilient opts = %t/%t, want true/true",
+			e.opts.ErrorResilient, e.opts.ErrorResilientPartitions)
+	}
+	if e.cyclicRefreshModeEnabled(false) {
+		t.Fatal("runtime SetErrorResilient recomputed cyclic refresh for VBR-born encoder")
+	}
+}
+
 func TestSetRateControlPreservesLibvpxZeroBufferLevel(t *testing.T) {
 	e := newTestEncoder(t)
 	e.rc.bufferLevelBits = 0
@@ -157,6 +299,9 @@ func TestCodecControlsRunVP8ChangeConfigSideEffectsForZeroValues(t *testing.T) {
 
 	assertChangeConfig("SetNoiseSensitivity(0)", func() error {
 		return e.SetNoiseSensitivity(0)
+	})
+	assertChangeConfig("SetErrorResilient(false, false)", func() error {
+		return e.SetErrorResilient(false, false)
 	})
 	assertChangeConfig("VP8E_SET_ARNR_MAXFRAMES(0)", func() error {
 		return e.setARNRMaxFrames(0)

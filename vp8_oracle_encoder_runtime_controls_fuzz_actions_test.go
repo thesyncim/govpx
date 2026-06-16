@@ -121,7 +121,15 @@ func vp8OracleRuntimeFuzzActionForKind(r *testutil.ByteCursor, kind int, targets
 			},
 		}, 0, false
 	case 3:
-		return vp8OracleRuntimeFuzzAction{}, 0, false
+		mask := r.Pick(4)
+		return vp8OracleRuntimeFuzzAction{
+			token: "error:" + strconv.Itoa(mask),
+			phase: vp8OracleRuntimeFuzzConfigPhase,
+			apply: func(t *testing.T, e *VP8Encoder) {
+				t.Helper()
+				mustRuntime(t, "SetErrorResilient", e.SetErrorResilient(mask&1 != 0, mask&2 != 0))
+			},
+		}, 0, false
 	case 4:
 		return vp8OracleRuntimeFuzzAction{}, 0, false
 	case 5:

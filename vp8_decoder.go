@@ -55,6 +55,13 @@ type DecoderOptions struct {
 	// PostProcessFlags selects individual libvpx-style postprocess filters.
 	// Zero disables postprocessing.
 	PostProcessFlags PostProcessFlag
+	// PostProcessDeblockingLevel is the VP8_SET_POSTPROC deblocking strength
+	// in [0, 16]. Zero uses libvpx's decoder default of 4 unless
+	// PostProcessDeblockingLevelSet is true.
+	PostProcessDeblockingLevel int
+	// PostProcessDeblockingLevelSet makes a zero PostProcessDeblockingLevel
+	// explicit instead of treating it as the default.
+	PostProcessDeblockingLevelSet bool
 	// PostProcessNoiseLevel enables libvpx-style additive luma noise when
 	// PostProcessAddNoise is set. Zero disables additive noise; valid range is
 	// [0, 16].
@@ -155,6 +162,68 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 	vp8dec.ResetModeProbs(&d.modeProbs)
 	vp8dec.ResetModeProbs(&d.frameModeProbs)
 	return d, nil
+}
+
+// SetPostProcess changes libvpx-style decoder postprocessing at runtime.
+// flags must be a combination of PostProcess* constants. noiseLevel must be
+// in [0, 16] and requires PostProcessAddNoise when non-zero. The update is
+// atomic: invalid inputs leave the existing decoder options unchanged.
+func (d *VP8Decoder) SetPostProcess(flags PostProcessFlag, noiseLevel int) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	next := d.opts
+	next.PostProcessFlags = flags
+	next.PostProcessNoiseLevel = noiseLevel
+	return d.setPostProcessOptions(next)
+}
+
+// SetPostProcessConfig changes the full VP8_SET_POSTPROC configuration at
+// runtime, including deblocking strength. deblockingLevel and noiseLevel must
+// be in [0, 16]. The update is atomic.
+func (d *VP8Decoder) SetPostProcessConfig(flags PostProcessFlag, deblockingLevel int, noiseLevel int) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	next := d.opts
+	next.PostProcessFlags = flags
+	next.PostProcessDeblockingLevel = deblockingLevel
+	next.PostProcessDeblockingLevelSet = true
+	next.PostProcessNoiseLevel = noiseLevel
+	return d.setPostProcessOptions(next)
+}
+
+func (d *VP8Decoder) setPostProcessOptions(next DecoderOptions) error {
+	if err := validateDecoderOptions(next); err != nil {
+		return err
+	}
+	if d.frameWidth > 0 && d.frameHeight > 0 {
+		flags := next.effectivePostProcessFlags()
+		if flags&PostProcessMFQE != 0 {
+			if err := d.postprocState.EnsureMFQE(d.frameWidth, d.frameHeight); err != nil {
+				return ErrInvalidConfig
+			}
+		}
+		if flags&PostProcessAddNoise != 0 && next.PostProcessNoiseLevel > 0 {
+			d.postprocState.EnsureNoise(d.frameWidth)
+		}
+	}
+	d.opts.PostProcessFlags = next.PostProcessFlags
+	d.opts.PostProcessDeblockingLevel = next.PostProcessDeblockingLevel
+	d.opts.PostProcessDeblockingLevelSet = next.PostProcessDeblockingLevelSet
+	d.opts.PostProcessNoiseLevel = next.PostProcessNoiseLevel
+	return nil
+}
+
+// SetDecryptor changes the VP8D_SET_DECRYPTOR callback and opaque state used
+// before parsing compressed bytes. Passing nil disables decryption.
+func (d *VP8Decoder) SetDecryptor(decryptor VP8Decryptor, state any) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	d.opts.Decryptor = decryptor
+	d.opts.DecryptorState = state
+	return nil
 }
 
 // decryptPacket applies the registered Decryptor callback to packet,
@@ -572,6 +641,9 @@ func validateDecoderOptions(opts DecoderOptions) error {
 	if uint(opts.PostProcessNoiseLevel) > 16 {
 		return ErrInvalidConfig
 	}
+	if uint(opts.PostProcessDeblockingLevel) > 16 {
+		return ErrInvalidConfig
+	}
 	if opts.PostProcessNoiseLevel > 0 && opts.effectivePostProcessFlags()&PostProcessAddNoise == 0 {
 		return ErrInvalidConfig
 	}
@@ -583,6 +655,13 @@ func validateDecoderOptions(opts DecoderOptions) error {
 
 func (opts DecoderOptions) effectivePostProcessFlags() PostProcessFlag {
 	return opts.PostProcessFlags
+}
+
+func (opts DecoderOptions) effectivePostProcessDeblockingLevel() int {
+	if opts.PostProcessDeblockingLevelSet || opts.PostProcessDeblockingLevel != 0 {
+		return opts.PostProcessDeblockingLevel
+	}
+	return vp8dec.DefaultPostProcessDeblockingLevel
 }
 
 func (opts DecoderOptions) effectiveErrorConcealment() bool {
@@ -755,7 +834,7 @@ func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.I
 		Demacroblock:    flags&PostProcessDemacroblock != 0,
 		MFQE:            flags&PostProcessMFQE != 0,
 		AddNoise:        flags&PostProcessAddNoise != 0 && d.opts.PostProcessNoiseLevel > 0,
-		DeblockingLevel: vp8dec.DefaultPostProcessDeblockingLevel,
+		DeblockingLevel: d.opts.effectivePostProcessDeblockingLevel(),
 		NoiseLevel:      d.opts.PostProcessNoiseLevel,
 		BaseQIndex:      int(d.state.Quant.BaseQIndex),
 		CurrentFrame:    d.visibleFrames,
