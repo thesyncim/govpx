@@ -589,7 +589,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
-	w.subpelRefBorderedValid = false
+	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.contentStateSbFd = contentStateSbFd

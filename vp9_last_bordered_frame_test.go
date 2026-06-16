@@ -133,6 +133,54 @@ func TestEnsureLastBorderedReusesAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestSubpelReferenceBorderedCachesPerReferenceSlot(t *testing.T) {
+	const w, h = 16, 16
+	var e VP9Encoder
+	golden := vp9BorderedTestImage(w, h, 23)
+	altRef := vp9BorderedTestImage(w, h, 91)
+	e.refFrames[vp9GoldenRefSlot].store(golden)
+	e.refFrames[vp9AltRefSlot].store(altRef)
+
+	goldenPixels, _, goldenOriginX, goldenOriginY, _, _, ok :=
+		e.vp9SubpelReferencePlane(vp9dec.GoldenFrame,
+			&e.refFrames[vp9GoldenRefSlot])
+	if !ok || len(goldenPixels) == 0 ||
+		!e.subpelRefBorderedValid[vp9GoldenRefSlot] ||
+		e.subpelRefBorderedValid[vp9AltRefSlot] {
+		t.Fatalf("golden cache state ok=%t valid=%v",
+			ok, e.subpelRefBorderedValid)
+	}
+	goldenBuf := &goldenPixels[0]
+	goldenStride := e.subpelRefBordered[vp9GoldenRefSlot].Stride
+	if got := goldenPixels[goldenOriginY*goldenStride+goldenOriginX]; got != 23 {
+		t.Fatalf("golden visible sample = %d, want 23", got)
+	}
+
+	altPixels, _, altOriginX, altOriginY, _, _, ok :=
+		e.vp9SubpelReferencePlane(vp9dec.AltrefFrame,
+			&e.refFrames[vp9AltRefSlot])
+	if !ok || len(altPixels) == 0 ||
+		!e.subpelRefBorderedValid[vp9GoldenRefSlot] ||
+		!e.subpelRefBorderedValid[vp9AltRefSlot] {
+		t.Fatalf("altref cache state ok=%t valid=%v",
+			ok, e.subpelRefBorderedValid)
+	}
+	altBuf := &altPixels[0]
+	if goldenBuf == altBuf {
+		t.Fatal("golden and altref subpel bordered caches share backing storage")
+	}
+	altStride := e.subpelRefBordered[vp9AltRefSlot].Stride
+	if got := altPixels[altOriginY*altStride+altOriginX]; got != 91 {
+		t.Fatalf("altref visible sample = %d, want 91", got)
+	}
+
+	goldenAgain, _, _, _, _, _, ok := e.vp9SubpelReferencePlane(
+		vp9dec.GoldenFrame, &e.refFrames[vp9GoldenRefSlot])
+	if !ok || len(goldenAgain) == 0 || &goldenAgain[0] != goldenBuf {
+		t.Fatal("golden subpel bordered cache was rebuilt after altref lookup")
+	}
+}
+
 func TestVP9WorkerPrepKeepsLastBorderedPrivate(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -236,22 +284,7 @@ func TestVP9WorkerPrepKeepsMLPartitionPaddedBuffersPrivate(t *testing.T) {
 
 func newVP9LastBorderedEncoderForTest(t *testing.T, w, h int) *VP9Encoder {
 	t.Helper()
-	yPlane := make([]uint8, w*h)
-	uPlane := make([]uint8, (w/2)*(h/2))
-	vPlane := make([]uint8, (w/2)*(h/2))
-	for i := range yPlane {
-		yPlane[i] = uint8(i)
-	}
-	img := Image{
-		Width:   w,
-		Height:  h,
-		Y:       yPlane,
-		U:       uPlane,
-		V:       vPlane,
-		YStride: w,
-		UStride: w / 2,
-		VStride: w / 2,
-	}
+	img := vp9BorderedTestImage(w, h, 0)
 
 	var e VP9Encoder
 	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
@@ -261,4 +294,23 @@ func newVP9LastBorderedEncoderForTest(t *testing.T, w, h int) *VP9Encoder {
 		t.Fatalf("source lastBorderedValid=false after setup")
 	}
 	return &e
+}
+
+func vp9BorderedTestImage(w, h int, base uint8) Image {
+	yPlane := make([]uint8, w*h)
+	uPlane := make([]uint8, (w/2)*(h/2))
+	vPlane := make([]uint8, (w/2)*(h/2))
+	for i := range yPlane {
+		yPlane[i] = base + uint8(i)
+	}
+	return Image{
+		Width:   w,
+		Height:  h,
+		Y:       yPlane,
+		U:       uPlane,
+		V:       vPlane,
+		YStride: w,
+		UStride: w / 2,
+		VStride: w / 2,
+	}
 }

@@ -320,11 +320,12 @@ type VP9Encoder struct {
 	lastBorderedValid bool
 	// subpelRefBordered is the on-demand YV12-border mirror for non-LAST
 	// references that the nonrd subpel variance search scores against.
-	// LAST uses lastBordered so choose_partitioning and pickmode read the
-	// same padded allocation.
-	subpelRefBordered      common.YV12BorderBuffer
-	subpelRefBorderedSlot  int
-	subpelRefBorderedValid bool
+	// Keep one buffer per reference-map slot so GOLDEN/ALTREF scoring does
+	// not thrash a single padded plane inside the block picker. LAST uses
+	// lastBordered so choose_partitioning and pickmode read the same padded
+	// allocation.
+	subpelRefBordered      [common.RefFrames]common.YV12BorderBuffer
+	subpelRefBorderedValid [common.RefFrames]bool
 
 	// intProSrcBordered is the per-encoder border-padded mirror of the
 	// current frame's source luma plane. choose_partitioning's int_pro

@@ -430,7 +430,7 @@ func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
 func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, flags EncodeFlags) {
 	refreshFlags := header.RefreshFrameFlags
 	if refreshFlags != 0 {
-		e.subpelRefBorderedValid = false
+		e.invalidateVP9SubpelRefBordered()
 	}
 	refMapID := 0
 	if refreshFlags != 0 {
@@ -462,6 +462,12 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 	// 3470 — extend_borders after the frame is reconstructed for the
 	// realtime path).
 	e.ensureLastBordered()
+}
+
+func (e *VP9Encoder) invalidateVP9SubpelRefBordered() {
+	for i := range e.subpelRefBorderedValid {
+		e.subpelRefBorderedValid[i] = false
+	}
 }
 
 // ensureLastBordered (re)builds the encoder's border-padded LAST_FRAME luma

@@ -503,15 +503,15 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	if !slotOK {
 		return nil, 0, 0, 0, 0, 0, false
 	}
-	if !e.subpelRefBorderedValid || e.subpelRefBorderedSlot != slot ||
-		e.subpelRefBordered.W != w || e.subpelRefBordered.H != h {
-		common.YV12BuildBorderedPlane(&e.subpelRefBordered, plane,
+	if !e.subpelRefBorderedValid[slot] ||
+		e.subpelRefBordered[slot].W != w ||
+		e.subpelRefBordered[slot].H != h {
+		common.YV12BuildBorderedPlane(&e.subpelRefBordered[slot], plane,
 			planeStride, w, h, common.VP9EncBorderInPixels)
-		e.subpelRefBorderedSlot = slot
-		e.subpelRefBorderedValid = true
+		e.subpelRefBorderedValid[slot] = true
 	}
-	return e.subpelRefBordered.Pixels, e.subpelRefBordered.Stride,
-		e.subpelRefBordered.OriginX(), e.subpelRefBordered.OriginY(),
+	return e.subpelRefBordered[slot].Pixels, e.subpelRefBordered[slot].Stride,
+		e.subpelRefBordered[slot].OriginX(), e.subpelRefBordered[slot].OriginY(),
 		w, h, true
 }
 

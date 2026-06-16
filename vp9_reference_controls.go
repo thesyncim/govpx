@@ -21,7 +21,7 @@ func (e *VP9Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	e.refValid[slot] = true
 	e.nextRefMapID++
 	e.refMap[slot] = e.nextRefMapID
-	e.subpelRefBorderedValid = false
+	e.invalidateVP9SubpelRefBordered()
 	if slot == vp9LastRefSlot {
 		e.ensureLastBordered()
 	}

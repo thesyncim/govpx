@@ -797,20 +797,18 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 							refBordered = &e.lastBordered
 						}
 					} else {
-						if !e.subpelRefBorderedValid ||
-							e.subpelRefBorderedSlot != refSlot ||
-							e.subpelRefBordered.W != refW ||
-							e.subpelRefBordered.H != refH {
-							common.YV12BuildBorderedPlane(&e.subpelRefBordered,
+						if !e.subpelRefBorderedValid[refSlot] ||
+							e.subpelRefBordered[refSlot].W != refW ||
+							e.subpelRefBordered[refSlot].H != refH {
+							common.YV12BuildBorderedPlane(&e.subpelRefBordered[refSlot],
 								refPx, refStride, refW, refH,
 								common.VP9EncBorderInPixels)
-							e.subpelRefBorderedSlot = refSlot
-							e.subpelRefBorderedValid = true
+							e.subpelRefBorderedValid[refSlot] = true
 						}
-						if e.subpelRefBorderedValid &&
-							e.subpelRefBordered.W == refW &&
-							e.subpelRefBordered.H == refH {
-							refBordered = &e.subpelRefBordered
+						if e.subpelRefBorderedValid[refSlot] &&
+							e.subpelRefBordered[refSlot].W == refW &&
+							e.subpelRefBordered[refSlot].H == refH {
+							refBordered = &e.subpelRefBordered[refSlot]
 						}
 					}
 				}

@@ -864,7 +864,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
-	w.subpelRefBorderedValid = false
+	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9CountWorkers = nil
@@ -953,7 +953,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
-	w.subpelRefBorderedValid = false
+	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9CountWorkers = nil
