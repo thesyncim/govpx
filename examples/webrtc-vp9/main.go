@@ -606,6 +606,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	interval := time.Second / time.Duration(cfg.FPS)
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
+	rtpPictureID := randomUint16() & vp9RTPPictureIDMask
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -663,7 +664,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		}
 		statsTracker.observe(rtpResult, time.Now())
 
-		fragmentCount, payloadBytes, err := rtpResult.RTPPacketizationSize(rtpPayloadMTU)
+		fragmentCount, payloadBytes, err := webRTCSVCPacketizationSize(rtpResult,
+			rtpPictureID, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("RTPPacketizationSize: %v", err)
 			continue
@@ -676,7 +678,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf = make([]byte, payloadBytes)
 		}
 		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
-		fragmentCount, _, err = rtpResult.PacketizeRTPInto(rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
+		fragmentCount, _, err = packetizeSVCResultForWebRTCInto(rtpResult,
+			rtpPictureID, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeRTPInto: %v", err)
 			continue
@@ -700,11 +703,137 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				return
 			}
 		}
+		rtpPictureID = nextVP9PictureID(rtpPictureID)
 
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 	}
+}
+
+const vp9RTPPictureIDMask uint16 = 0x7fff
+
+func nextVP9PictureID(id uint16) uint16 {
+	return (id + 1) & vp9RTPPictureIDMask
+}
+
+func webRTCSVCPacketizationSize(result govpx.VP9SpatialSVCEncodeResult,
+	pictureID uint16, mtu int,
+) (int, int, error) {
+	count, err := webRTCSVCLayerCount(result)
+	if err != nil {
+		return 0, 0, err
+	}
+	packets := 0
+	payloadBytes := 0
+	for i := 0; i < count; i++ {
+		desc, frame, err := webRTCSVCLayerDescriptor(result, i, pictureID)
+		if err != nil {
+			return 0, 0, err
+		}
+		layerPackets, layerBytes, err := govpx.VP9RTPFramePacketizationSize(desc,
+			frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		packets += layerPackets
+		payloadBytes += layerBytes
+	}
+	return packets, payloadBytes, nil
+}
+
+func packetizeSVCResultForWebRTCInto(result govpx.VP9SpatialSVCEncodeResult,
+	pictureID uint16, dst []govpx.RTPPayloadFragment, payloadBuf []byte, mtu int,
+) (int, int, error) {
+	count, err := webRTCSVCLayerCount(result)
+	if err != nil {
+		return 0, 0, err
+	}
+	packets, payloadBytes, err := webRTCSVCPacketizationSize(result, pictureID, mtu)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(dst) < packets || len(payloadBuf) < payloadBytes {
+		return packets, payloadBytes, govpx.ErrBufferTooSmall
+	}
+	packetOff := 0
+	byteOff := 0
+	for i := 0; i < count; i++ {
+		desc, frame, err := webRTCSVCLayerDescriptor(result, i, pictureID)
+		if err != nil {
+			return 0, 0, err
+		}
+		layerPackets, layerBytes, err := govpx.VP9RTPFramePacketizationSize(desc,
+			frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		writtenPackets, writtenBytes, err := govpx.PacketizeVP9RTPFrameInto(
+			dst[packetOff:packetOff+layerPackets],
+			payloadBuf[byteOff:byteOff+layerBytes],
+			desc, frame, mtu)
+		if err != nil {
+			return 0, 0, err
+		}
+		for j := 0; j < writtenPackets; j++ {
+			dst[packetOff+j].Marker = i == count-1 && j == writtenPackets-1
+		}
+		packetOff += writtenPackets
+		byteOff += writtenBytes
+	}
+	return packets, payloadBytes, nil
+}
+
+func webRTCSVCLayerDescriptor(result govpx.VP9SpatialSVCEncodeResult,
+	layerID int, pictureID uint16,
+) (govpx.VP9RTPPayloadDescriptor, []byte, error) {
+	count, err := webRTCSVCLayerCount(result)
+	if err != nil {
+		return govpx.VP9RTPPayloadDescriptor{}, nil, err
+	}
+	if layerID < 0 || layerID >= count {
+		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
+	}
+	layer := result.Layers[layerID]
+	if layer.Dropped || len(layer.Data) == 0 ||
+		layer.SpatialLayerID != uint8(layerID) ||
+		layer.SpatialLayerCount != result.LayerCount {
+		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
+	}
+	desc := layer.RTPPayloadDescriptor()
+	if layerID == 0 {
+		if svcScalabilityStructurePresent(result.ScalabilityStructure) {
+			desc.ScalabilityStructurePresent = true
+			desc.ScalabilityStructure = result.ScalabilityStructure
+		}
+	} else {
+		desc.ScalabilityStructurePresent = false
+		desc.ScalabilityStructure = govpx.VP9RTPScalabilityStructure{}
+	}
+	desc.PictureIDPresent = true
+	desc.PictureID15Bit = true
+	desc.PictureID = pictureID & vp9RTPPictureIDMask
+	return desc, layer.Data, nil
+}
+
+func webRTCSVCLayerCount(result govpx.VP9SpatialSVCEncodeResult) (int, error) {
+	if result.LayerCount == 0 || result.LayerCount > govpx.VP9MaxSpatialLayers {
+		return 0, govpx.ErrInvalidConfig
+	}
+	return int(result.LayerCount), nil
+}
+
+func svcScalabilityStructurePresent(ss govpx.VP9RTPScalabilityStructure) bool {
+	if ss.SpatialLayerCount != 0 || ss.ResolutionPresent ||
+		ss.PictureGroupPresent || len(ss.PictureGroups) != 0 {
+		return true
+	}
+	for i := range ss.Width {
+		if ss.Width[i] != 0 || ss.Height[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount int) govpx.VP9SpatialSVCEncodeResult {

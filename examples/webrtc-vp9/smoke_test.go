@@ -130,6 +130,10 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("first RTP descriptor layer metadata = present:%v sid:%d, want base spatial layer metadata",
 			desc.LayerIndicesPresent, desc.SpatialID)
 	}
+	if !desc.PictureIDPresent || !desc.PictureID15Bit {
+		t.Fatalf("first RTP picture ID = present:%v 15bit:%v, want 15-bit PictureID",
+			desc.PictureIDPresent, desc.PictureID15Bit)
+	}
 	if !desc.ScalabilityStructurePresent ||
 		desc.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
 		t.Fatalf("first RTP scalability structure = present:%v layers:%d, want %d-layer SVC",
@@ -459,6 +463,73 @@ func TestForceKeyAllRefreshesEverySpatialLayer(t *testing.T) {
 	}
 }
 
+func TestPacketizeSVCResultForWebRTCAddsPictureID(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	const pictureID = uint16(0x1234)
+	payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
+	if len(payloads) == 0 {
+		t.Fatal("packetizeSVCResultForWebRTCInto returned no payloads")
+	}
+
+	var sawBaseSS bool
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("payload %d PictureID = present:%v 15bit:%v id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %v, want %v", i, got, want)
+		}
+		if desc.SpatialID == 0 && desc.StartOfFrame {
+			sawBaseSS = desc.ScalabilityStructurePresent &&
+				desc.ScalabilityStructure.SpatialLayerCount == spatialLayerCount
+		}
+	}
+	if !sawBaseSS {
+		t.Fatal("base WebRTC packet did not carry full scalability structure")
+	}
+	if got := nextVP9PictureID(vp9RTPPictureIDMask); got != 0 {
+		t.Fatalf("nextVP9PictureID wrap = %d, want 0", got)
+	}
+}
+
+func TestPacketizeCappedSVCResultForWebRTCAdvertisesCappedLayerCount(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	capped := cappedSVCResultForRTP(result, 2)
+	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x55, 500)
+
+	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor base: %v", err)
+	}
+	if !base.PictureIDPresent || base.PictureID != 0x55 {
+		t.Fatalf("base PictureID = present:%v id:%d, want 0x55",
+			base.PictureIDPresent, base.PictureID)
+	}
+	if !base.ScalabilityStructurePresent ||
+		base.ScalabilityStructure.SpatialLayerCount != 2 {
+		t.Fatalf("base SS = present:%v layers:%d, want capped 2-layer structure",
+			base.ScalabilityStructurePresent,
+			base.ScalabilityStructure.SpatialLayerCount)
+	}
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.SpatialID >= 2 {
+			t.Fatalf("payload %d spatial id = %d, want capped layers < 2",
+				i, desc.SpatialID)
+		}
+	}
+}
+
 func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
@@ -611,6 +682,28 @@ func encodeSVCResultsForTest(t *testing.T, frames int) []govpx.VP9SpatialSVCEnco
 		results[frame] = result
 	}
 	return results
+}
+
+func packetizeWebRTCSVCResultForTest(t *testing.T, result govpx.VP9SpatialSVCEncodeResult,
+	pictureID uint16, mtu int,
+) []govpx.RTPPayloadFragment {
+	t.Helper()
+	packets, payloadBytes, err := webRTCSVCPacketizationSize(result, pictureID, mtu)
+	if err != nil {
+		t.Fatalf("webRTCSVCPacketizationSize: %v", err)
+	}
+	payloads := make([]govpx.RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, used, err := packetizeSVCResultForWebRTCInto(result, pictureID, payloads,
+		payloadBuf, mtu)
+	if err != nil {
+		t.Fatalf("packetizeSVCResultForWebRTCInto: %v", err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("packetizeSVCResultForWebRTCInto returned %d/%d, want %d/%d",
+			n, used, packets, payloadBytes)
+	}
+	return payloads[:n]
 }
 
 func marshalRTCPForTest(t *testing.T, packet rtcp.Packet) []byte {
