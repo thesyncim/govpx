@@ -36,6 +36,7 @@ const (
 	temporalLayerMode = govpx.TemporalLayeringThreeLayers
 	rtpClockHz        = 90000
 	rtpPayloadMTU     = 1200 - 12
+	iceGatherTimeout  = 10 * time.Second
 
 	defaultFPS          = 30
 	defaultBitrateKbps  = 800
@@ -443,7 +444,11 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	<-gather
+	if !waitICEGatheringComplete(gather, iceGatherTimeout) {
+		_ = pc.Close()
+		http.Error(w, "ICE gathering timed out", http.StatusGatewayTimeout)
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -463,6 +468,24 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
+}
+
+func waitICEGatheringComplete(done <-chan struct{}, timeout time.Duration) bool {
+	if done == nil {
+		return false
+	}
+	if timeout <= 0 {
+		<-done
+		return true
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {

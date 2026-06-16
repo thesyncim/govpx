@@ -271,6 +271,29 @@ func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	}
 }
 
+func TestWaitICEGatheringComplete(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+	if !waitICEGatheringComplete(done, time.Second) {
+		t.Fatal("closed gathering channel reported timeout")
+	}
+	if !waitICEGatheringComplete(done, 0) {
+		t.Fatal("closed gathering channel with no timeout reported timeout")
+	}
+	if waitICEGatheringComplete(nil, time.Second) {
+		t.Fatal("nil gathering channel reported complete")
+	}
+
+	open := make(chan struct{})
+	start := time.Now()
+	if waitICEGatheringComplete(open, time.Millisecond) {
+		t.Fatal("open gathering channel reported complete")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("timeout helper took %s, want bounded wait", elapsed)
+	}
+}
+
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string
