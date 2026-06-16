@@ -43,6 +43,11 @@ type VP9SpatialSVCEncodeResult struct {
 	ScalabilityStructure VP9RTPScalabilityStructure
 }
 
+type vp9SpatialSVCActiveLayerMetadata struct {
+	spatial VP9SpatialScalabilityConfig
+	svc     int
+}
+
 // LastLayerQuantizers mirrors libvpx's
 // VP9E_GET_LAST_QUANTIZER_SVC_LAYERS control. It returns the public 0..63
 // quantizer, internal VP9 qindex, and validity flag for each configured spatial
@@ -480,27 +485,67 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 	if e == nil || e.closed {
 		return VP9SpatialSVCEncodeResult{}, ErrClosed
 	}
-	count := int(e.layerCount)
-	if len(srcs) != count {
+	return e.EncodeActiveLayersIntoWithResult(srcs, dst, int(e.layerCount))
+}
+
+// EncodeActiveLayersIntoWithResult encodes a base-to-layer-prefix VP9
+// spatial-SVC access unit into dst. activeLayerCount selects how many
+// configured layers are encoded and described in the returned result; srcs may
+// contain either that prefix or the full configured layer list.
+//
+// WebRTC senders should force a key access unit before changing
+// activeLayerCount across calls. The returned access unit is ready for
+// PacketizeWebRTCRTP without needing LimitSpatialLayersForRTP, so lowering the
+// active count also avoids encoding hidden enhancement layers.
+func (e *VP9SpatialSVCEncoder) EncodeActiveLayersIntoWithResult(
+	srcs []*image.YCbCr,
+	dst []byte,
+	activeLayerCount int,
+) (VP9SpatialSVCEncodeResult, error) {
+	if e == nil || e.closed {
+		return VP9SpatialSVCEncodeResult{}, ErrClosed
+	}
+	parentCount := int(e.layerCount)
+	if activeLayerCount <= 0 || activeLayerCount > parentCount ||
+		len(srcs) < activeLayerCount || len(srcs) > parentCount {
 		return VP9SpatialSVCEncodeResult{}, ErrInvalidConfig
 	}
-	for i := range count {
+	for i := range activeLayerCount {
 		if err := e.layers[i].validateVP9EncoderSource(srcs[i]); err != nil {
 			return VP9SpatialSVCEncodeResult{}, err
 		}
 	}
 
-	maxIndexSize := 2 + count*4
-	if len(dst) < count*vp9MinEncodeIntoBuffer+maxIndexSize {
+	maxIndexSize := 2 + activeLayerCount*4
+	if len(dst) < activeLayerCount*vp9MinEncodeIntoBuffer+maxIndexSize {
 		return VP9SpatialSVCEncodeResult{}, ErrBufferTooSmall
 	}
 
+	if activeLayerCount == parentCount {
+		return e.encodeActiveLayersIntoWithResult(srcs, dst, activeLayerCount,
+			maxIndexSize)
+	}
+	var oldMetadata [VP9MaxSpatialLayers]vp9SpatialSVCActiveLayerMetadata
+	e.applyActiveLayerMetadata(activeLayerCount, &oldMetadata)
+	result, err := e.encodeActiveLayersIntoWithResult(srcs, dst,
+		activeLayerCount, maxIndexSize)
+	e.restoreActiveLayerMetadata(activeLayerCount, &oldMetadata)
+	return result, err
+}
+
+func (e *VP9SpatialSVCEncoder) encodeActiveLayersIntoWithResult(
+	srcs []*image.YCbCr,
+	dst []byte,
+	activeLayerCount int,
+	maxIndexSize int,
+) (VP9SpatialSVCEncodeResult, error) {
 	var result VP9SpatialSVCEncodeResult
 	var frameSizes [VP9MaxSpatialLayers]int
 	offset := 0
 	encodeLimit := len(dst) - maxIndexSize
 	baseKeyFrame := false
-	for i := range count {
+	baseTL0PICIDX := uint8(0)
+	for i := range activeLayerCount {
 		if encodeLimit-offset < vp9MinEncodeIntoBuffer {
 			return VP9SpatialSVCEncodeResult{}, ErrBufferTooSmall
 		}
@@ -508,7 +553,8 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 		if i > 0 && e.interLayerPrediction {
 			layer.forceKeyFrame = false
 			if baseKeyFrame {
-				layer.temporal.restartInterLayerKeyAccessUnit()
+				layer.temporal.restartInterLayerKeyAccessUnitAtTL0(
+					baseTL0PICIDX)
 			}
 		}
 		if e.interLayerPrediction {
@@ -516,7 +562,8 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 			if e.temporalEnabled {
 				svcFrameIndex = int(layer.temporal.frameIndex)
 			}
-			if cfg, ok := vp9SpatialSVCReferenceFrameConfig(i, count,
+			if cfg, ok := vp9SpatialSVCReferenceFrameConfig(i,
+				activeLayerCount,
 				e.temporalMode, e.temporalEnabled, svcFrameIndex,
 				baseKeyFrame, e.noTemporalAltRefIdx); ok {
 				layer.svcRefConfig = cfg
@@ -555,9 +602,12 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 		}
 		if i == 0 {
 			baseKeyFrame = layerResult.KeyFrame
+			baseTL0PICIDX = layerResult.TL0PICIDX
 		}
 		if i == 0 && layerResult.ScalabilityStructurePresent {
-			layerResult.SpatialScalabilityStructure = e.scalabilityStructure
+			layerResult.SpatialScalabilityStructure =
+				limitVP9RTPScalabilityStructure(e.scalabilityStructure,
+					activeLayerCount)
 		}
 		size := len(layerResult.Data)
 		frameSizes[i] = size
@@ -566,16 +616,51 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 		offset += size
 	}
 
-	indexSize, err := appendVP9SpatialSVCSuperframeIndex(dst[offset:], &frameSizes, count)
+	indexSize, err := appendVP9SpatialSVCSuperframeIndex(dst[offset:], &frameSizes, activeLayerCount)
 	if err != nil {
 		return VP9SpatialSVCEncodeResult{}, err
 	}
 	result.Data = dst[:offset+indexSize]
 	result.SizeBytes = len(result.Data)
-	result.LayerCount = e.layerCount
+	result.LayerCount = uint8(activeLayerCount)
 	result.InterLayerPrediction = e.interLayerPrediction
-	result.ScalabilityStructure = e.scalabilityStructure
+	result.ScalabilityStructure = limitVP9RTPScalabilityStructure(
+		e.scalabilityStructure, activeLayerCount)
 	return result, nil
+}
+
+func (e *VP9SpatialSVCEncoder) applyActiveLayerMetadata(
+	activeLayerCount int,
+	old *[VP9MaxSpatialLayers]vp9SpatialSVCActiveLayerMetadata,
+) {
+	for i := 0; i < activeLayerCount; i++ {
+		layer := e.layers[i]
+		old[i] = vp9SpatialSVCActiveLayerMetadata{
+			spatial: layer.opts.SpatialScalability,
+			svc:     layer.svc.NumberSpatialLayers,
+		}
+		spatial := layer.opts.SpatialScalability
+		spatial.LayerCount = uint8(activeLayerCount)
+		spatial.NotRefForUpperSpatialLayer = !e.interLayerPrediction ||
+			i == activeLayerCount-1
+		for j := activeLayerCount; j < VP9RTPMaxSpatialLayers; j++ {
+			spatial.Width[j] = 0
+			spatial.Height[j] = 0
+		}
+		layer.opts.SpatialScalability = spatial
+		layer.svc.NumberSpatialLayers = activeLayerCount
+	}
+}
+
+func (e *VP9SpatialSVCEncoder) restoreActiveLayerMetadata(
+	activeLayerCount int,
+	old *[VP9MaxSpatialLayers]vp9SpatialSVCActiveLayerMetadata,
+) {
+	for i := 0; i < activeLayerCount; i++ {
+		layer := e.layers[i]
+		layer.opts.SpatialScalability = old[i].spatial
+		layer.svc.NumberSpatialLayers = old[i].svc
+	}
 }
 
 // LayerEncoder returns the internal encoder for layerID so callers can apply

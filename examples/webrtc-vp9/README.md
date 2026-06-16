@@ -72,10 +72,9 @@ machine.
     structure, and every packet carries the right spatial and temporal layer
     metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
-    RTP sender calls `LimitSpatialLayersForRTP` so it advertises and transmits
-    only the first `cap` coded layers. The encoder still pays the full
-    multi-layer cost, but the wire payload, scalability structure, and
-    telemetry describe only the requested prefix.
+    sender calls `EncodeActiveLayersIntoWithResult` so it encodes, advertises,
+    and transmits only the first `cap` coded layers. The wire payload,
+    scalability structure, and telemetry describe only that active prefix.
   - A telemetry side-channel: every transmitted access unit ships a JSON
     message describing each sent spatial layer to the page, which renders a
     panel with per-layer stats and a rolling kbps chart.

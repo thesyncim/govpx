@@ -889,23 +889,16 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		sceneT := int(mediaFrame + 1)
 		drawScene(imgs, sceneT)
 
-		result, err := svc.EncodeIntoWithResult(imgs, packet)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, packet,
+			currentSpatialCap)
 		if err != nil {
-			log.Printf("EncodeIntoWithResult: %v (frame %d)", err, sceneT)
+			log.Printf("EncodeActiveLayersIntoWithResult: %v (frame %d)", err,
+				sceneT)
 			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
 			continue
 		}
 
 		rtpResult := result
-		if cap := currentSpatialCap; cap >= 1 && cap < spatialLayerCount {
-			capped, err := result.LimitSpatialLayersForRTP(cap)
-			if err != nil {
-				log.Printf("LimitSpatialLayersForRTP(%d): %v", cap, err)
-				retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
-				continue
-			}
-			rtpResult = capped
-		}
 		statsTracker.observe(rtpResult, time.Now())
 
 		fragmentCount, payloadBytes, err := rtpPacketizer.

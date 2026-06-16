@@ -2,6 +2,7 @@ package govpx_test
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"testing"
 
@@ -330,6 +331,187 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 				t.Fatal("NextFrame returned no frame")
 			}
 			assertVP9FilledFrameWithinForTest(t, top, 128, 128, y, 120, 136, 0)
+		}
+	}
+}
+
+func TestVP9SpatialSVCEncoderEncodeActiveLayersForWebRTC(t *testing.T) {
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           3,
+		InterLayerPrediction: true,
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
+			{
+				Width:                    32,
+				Height:                   32,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        120,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+			{
+				Width:                    64,
+				Height:                   64,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        240,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+			{
+				Width:                    128,
+				Height:                   128,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        480,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	srcs := []*image.YCbCr{
+		vp9test.NewYCbCr(32, 32, 72, 120, 136),
+		vp9test.NewYCbCr(64, 64, 72, 120, 136),
+		vp9test.NewYCbCr(128, 128, 72, 120, 136),
+	}
+	dst := make([]byte, 1<<21)
+	if _, err := svc.EncodeIntoWithResult(srcs, dst); err != nil {
+		t.Fatalf("warm full EncodeIntoWithResult: %v", err)
+	}
+
+	svc.ForceKeyFrame()
+	baseOnly, err := svc.EncodeActiveLayersIntoWithResult(srcs, dst, 1)
+	if err != nil {
+		t.Fatalf("EncodeActiveLayersIntoWithResult base-only: %v", err)
+	}
+	assertVP9ActiveSVCResultForTest(t, baseOnly, 1)
+	if !baseOnly.Layers[0].KeyFrame ||
+		baseOnly.Layers[0].InterPicturePredicted ||
+		!baseOnly.Layers[0].NotRefForUpperSpatialLayer {
+		t.Fatalf("base-only layer metadata = %+v", baseOnly.Layers[0])
+	}
+	if baseOnly.ScalabilityStructure.Width[1] != 0 ||
+		baseOnly.ScalabilityStructure.Height[1] != 0 {
+		t.Fatalf("base-only SS leaked hidden dims = %dx%d",
+			baseOnly.ScalabilityStructure.Width[1],
+			baseOnly.ScalabilityStructure.Height[1])
+	}
+	if _, err := baseOnly.PacketizeWebRTCRTP(0x10, 96); err != nil {
+		t.Fatalf("base-only PacketizeWebRTCRTP: %v", err)
+	}
+	baseDecoder, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder base-only: %v", err)
+	}
+	assertVP9SpatialSVCDecoderOutputForTest(t,
+		baseDecoder, baseOnly.Data, 0, 0, 32, 32)
+
+	for frame := 0; frame < 2; frame++ {
+		vp9test.FillYCbCr(srcs[0], uint8(90+frame*9), 120, 136)
+		baseOnly, err = svc.EncodeActiveLayersIntoWithResult(srcs, dst, 1)
+		if err != nil {
+			t.Fatalf("EncodeActiveLayersIntoWithResult base-only inter %d: %v",
+				frame, err)
+		}
+		assertVP9ActiveSVCResultForTest(t, baseOnly, 1)
+	}
+
+	for i, src := range srcs {
+		vp9test.FillYCbCr(src, uint8(120+i*10), 120, 136)
+	}
+	svc.ForceKeyFrame()
+	restored, err := svc.EncodeActiveLayersIntoWithResult(srcs, dst, 3)
+	if err != nil {
+		t.Fatalf("EncodeActiveLayersIntoWithResult restored: %v", err)
+	}
+	assertVP9ActiveSVCResultForTest(t, restored, 3)
+	baseTL0 := restored.Layers[0].TL0PICIDX
+	for layer := 1; layer < int(restored.LayerCount); layer++ {
+		if restored.Layers[layer].TL0PICIDX != baseTL0 ||
+			restored.Layers[layer].TemporalLayerID !=
+				restored.Layers[0].TemporalLayerID {
+			t.Fatalf("restored layer %d temporal = tid:%d tl0:%d, want tid:%d tl0:%d",
+				layer, restored.Layers[layer].TemporalLayerID,
+				restored.Layers[layer].TL0PICIDX,
+				restored.Layers[0].TemporalLayerID, baseTL0)
+		}
+	}
+	if _, err := restored.PacketizeWebRTCRTP(0x11, 96); err != nil {
+		t.Fatalf("restored PacketizeWebRTCRTP: %v", err)
+	}
+	restoredDecoder, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder restored: %v", err)
+	}
+	assertVP9SpatialSVCDecoderOutputForTest(t,
+		restoredDecoder, restored.Data, 0, 2, 128, 128)
+
+	if _, err := svc.EncodeActiveLayersIntoWithResult(srcs, dst, 0); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("EncodeActiveLayersIntoWithResult(0) err = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := svc.EncodeActiveLayersIntoWithResult(srcs[:1], dst, 2); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("EncodeActiveLayersIntoWithResult(short srcs) err = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func assertVP9ActiveSVCResultForTest(
+	t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	wantLayers int,
+) {
+	t.Helper()
+	sf, err := bitstream.ParseSuperframe(result.Data)
+	if err != nil {
+		t.Fatalf("bitstream.ParseSuperframe: %v", err)
+	}
+	if sf.Count != wantLayers ||
+		int(result.LayerCount) != wantLayers ||
+		result.ScalabilityStructure.SpatialLayerCount != wantLayers {
+		t.Fatalf("active result counts = sf:%d result:%d ss:%d, want %d",
+			sf.Count, result.LayerCount,
+			result.ScalabilityStructure.SpatialLayerCount, wantLayers)
+	}
+	for layer := 0; layer < wantLayers; layer++ {
+		got := result.Layers[layer]
+		if got.SpatialLayerID != uint8(layer) ||
+			got.SpatialLayerCount != uint8(wantLayers) ||
+			got.NotRefForUpperSpatialLayer != (layer == wantLayers-1) {
+			t.Fatalf("active layer %d metadata = %+v, want count %d",
+				layer, got, wantLayers)
+		}
+		if !bytes.Equal(sf.Frames[layer], got.Data) {
+			t.Fatalf("active layer %d data differs from superframe", layer)
+		}
+	}
+	for layer := wantLayers; layer < govpx.VP9MaxSpatialLayers; layer++ {
+		if result.Layers[layer].Data != nil ||
+			result.Layers[layer].SizeBytes != 0 {
+			t.Fatalf("inactive layer %d result = %+v, want zero", layer,
+				result.Layers[layer])
 		}
 	}
 }

@@ -250,14 +250,15 @@ func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
 func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9SpatialSVCEncoder)(nil))
 	want := map[string]controlsurface.Mapping{
-		"Close":                {Kind: "lifecycle"},
-		"EncodeInto":           {Kind: "vp9-spatial-svc-superframe-api"},
-		"EncodeIntoWithResult": {Kind: "vp9-spatial-svc-superframe-api"},
-		"ForceKeyFrame":        {Kind: "frame-flag-api"},
-		"GetLayerActiveMap":    {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"active:"}},
-		"IsKeyFrameNext":       {Kind: "metadata-api"},
-		"LastLayerQuantizers":  {Kind: "libvpx-vp9-svc-control"},
-		"LayerEncoder":         {Kind: "vp9-spatial-svc-layer-control"},
+		"Close":                            {Kind: "lifecycle"},
+		"EncodeActiveLayersIntoWithResult": {Kind: "vp9-spatial-svc-superframe-api"},
+		"EncodeInto":                       {Kind: "vp9-spatial-svc-superframe-api"},
+		"EncodeIntoWithResult":             {Kind: "vp9-spatial-svc-superframe-api"},
+		"ForceKeyFrame":                    {Kind: "frame-flag-api"},
+		"GetLayerActiveMap":                {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"active:"}},
+		"IsKeyFrameNext":                   {Kind: "metadata-api"},
+		"LastLayerQuantizers":              {Kind: "libvpx-vp9-svc-control"},
+		"LayerEncoder":                     {Kind: "vp9-spatial-svc-layer-control"},
 		"CopyLayerReferenceFrame": {
 			Kind:         "vp9-spatial-svc-layer-control",
 			HelperTokens: []string{"copyref:"},

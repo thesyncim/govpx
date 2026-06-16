@@ -380,6 +380,20 @@ func (t *temporalState) restartInterLayerKeyAccessUnit() {
 		t.pattern.FlagPeriodicity))
 }
 
+func (t *temporalState) restartInterLayerKeyAccessUnitAtTL0(tl0PicIdx uint8) {
+	t.restartInterLayerKeyAccessUnit()
+	if !t.enabled {
+		return
+	}
+	if tl0PicIdx == 0 {
+		t.tl0PicIdx = 0
+		t.tl0Valid = false
+		return
+	}
+	t.tl0PicIdx = tl0PicIdx - 1
+	t.tl0Valid = true
+}
+
 func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
 	if !t.enabled {
 		return
