@@ -6,8 +6,8 @@ End-to-end demo of govpx's VP9 stack:
   scaling, inter-layer prediction, and a three-layer VP9 temporal pattern.
 - Every access unit is encoded as one VP9 spatial-SVC superframe, then
   packetized into explicit VP9 RTP frames with 15-bit PictureID, layer
-  indices, and scalability-structure metadata for the browser's native
-  VP9 decoder.
+  indices, and keyframe scalability-structure metadata for the browser's
+  native VP9 decoder.
 - A bidirectional DataChannel ships per-access-unit telemetry (per-layer
   qindex, bytes, recent kbps, temporal-layer ID, TL0PICIDX, temporal-sync
   flag, keyframe state, scalability-structure presence) to a live
@@ -68,8 +68,8 @@ machine.
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and
     packetizes it through the demo's WebRTC VP9 packetizer. The demo writes
     RTP packets directly so every packet carries a 15-bit VP9 PictureID,
-    the base-layer packet carries the VP9 scalability structure, and every
-    packet carries the right spatial and temporal layer metadata.
+    base-layer key packets carry the active VP9 scalability structure, and
+    every packet carries the right spatial and temporal layer metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
     RTP sender advertises and transmits only the first `cap` coded
     layers. The encoder still pays the full multi-layer cost, but the wire
@@ -89,7 +89,8 @@ machine.
   - `screen` calls `SetLayerScreenContentMode` for each spatial
     encoder (0 video / 1 screen / 2 film).
   - `keyframe` calls `ForceKeyFrame` on the parent SVC encoder so the
-    next access unit keys every spatial layer.
+    next access unit starts with a base keyframe and visible inter-layer
+    refresh frames.
   - `pause` halts the ticker without tearing down the encoder.
 
 ## Tests

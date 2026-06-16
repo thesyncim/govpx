@@ -600,7 +600,7 @@ func TestPacketizeSVCResultForWebRTCSignalsSSOnBaseKeyOnly(t *testing.T) {
 	}
 }
 
-func TestPacketizeCappedSVCResultForWebRTCKeepsFullScalabilityStructure(t *testing.T) {
+func TestPacketizeCappedSVCResultForWebRTCSignalsActiveScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
 	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x55, 500)
@@ -614,11 +614,16 @@ func TestPacketizeCappedSVCResultForWebRTCKeepsFullScalabilityStructure(t *testi
 			base.PictureIDPresent, base.PictureID)
 	}
 	if !base.ScalabilityStructurePresent ||
-		base.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
-		t.Fatalf("base SS = present:%v layers:%d, want full %d-layer structure",
+		base.ScalabilityStructure.SpatialLayerCount != 2 {
+		t.Fatalf("base SS = present:%v layers:%d, want active 2-layer structure",
 			base.ScalabilityStructurePresent,
-			base.ScalabilityStructure.SpatialLayerCount,
-			spatialLayerCount)
+			base.ScalabilityStructure.SpatialLayerCount)
+	}
+	if base.ScalabilityStructure.Width[2] != 0 ||
+		base.ScalabilityStructure.Height[2] != 0 {
+		t.Fatalf("base SS leaked hidden layer dimensions = %dx%d",
+			base.ScalabilityStructure.Width[2],
+			base.ScalabilityStructure.Height[2])
 	}
 	for i, payload := range payloads {
 		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
@@ -632,7 +637,7 @@ func TestPacketizeCappedSVCResultForWebRTCKeepsFullScalabilityStructure(t *testi
 	}
 }
 
-func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
+func TestCappedSVCResultForRTPKeepsActiveScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
 	wantSize := result.Layers[0].SizeBytes + result.Layers[1].SizeBytes
@@ -650,11 +655,10 @@ func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
 		t.Fatalf("ParseVP9RTPPayloadDescriptor base: %v", err)
 	}
 	if !base.ScalabilityStructurePresent ||
-		base.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
-		t.Fatalf("base SS = present:%v layers:%d, want full %d-layer structure",
+		base.ScalabilityStructure.SpatialLayerCount != 2 {
+		t.Fatalf("base SS = present:%v layers:%d, want active 2-layer structure",
 			base.ScalabilityStructurePresent,
-			base.ScalabilityStructure.SpatialLayerCount,
-			spatialLayerCount)
+			base.ScalabilityStructure.SpatialLayerCount)
 	}
 	if !base.ScalabilityStructure.PictureGroupPresent ||
 		len(base.ScalabilityStructure.PictureGroups) != 4 {
@@ -664,6 +668,13 @@ func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
 	}
 	if base.NotRefForUpperSpatialLayer {
 		t.Fatal("base descriptor unexpectedly marked not-reference-for-upper")
+	}
+	for spatial := 0; spatial < int(capped.LayerCount); spatial++ {
+		if capped.Layers[spatial].SpatialLayerCount != capped.LayerCount {
+			t.Fatalf("layer %d SpatialLayerCount = %d, want capped count %d",
+				spatial, capped.Layers[spatial].SpatialLayerCount,
+				capped.LayerCount)
+		}
 	}
 
 	var foundEnhancement bool
@@ -684,6 +695,36 @@ func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
 	}
 	if !foundEnhancement {
 		t.Fatal("did not find capped enhancement-layer RTP frame")
+	}
+}
+
+func TestCappedSVCResultForRTPSingleLayerSignalsBaseOnly(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	capped := cappedSVCResultForRTP(result, 1)
+	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x57, 500)
+
+	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor base: %v", err)
+	}
+	if !base.ScalabilityStructurePresent ||
+		base.ScalabilityStructure.SpatialLayerCount != 1 {
+		t.Fatalf("base-only SS = present:%v layers:%d, want one active layer",
+			base.ScalabilityStructurePresent,
+			base.ScalabilityStructure.SpatialLayerCount)
+	}
+	if base.ScalabilityStructure.Width[1] != 0 ||
+		base.ScalabilityStructure.Height[1] != 0 {
+		t.Fatalf("base-only SS leaked hidden layer dimensions = %dx%d",
+			base.ScalabilityStructure.Width[1],
+			base.ScalabilityStructure.Height[1])
+	}
+	if !base.NotRefForUpperSpatialLayer {
+		t.Fatal("base-only descriptor was not marked not-reference-for-upper")
+	}
+	if capped.Layers[0].SpatialLayerCount != 1 {
+		t.Fatalf("base-only SpatialLayerCount = %d, want 1",
+			capped.Layers[0].SpatialLayerCount)
 	}
 }
 

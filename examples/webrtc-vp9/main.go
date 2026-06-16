@@ -852,8 +852,11 @@ func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount in
 	}
 	out := result
 	out.LayerCount = uint8(layerCount)
+	out.ScalabilityStructure = cappedSVCScalabilityStructure(
+		result.ScalabilityStructure, layerCount)
 	for i := 0; i < layerCount; i++ {
 		layer := out.Layers[i]
+		layer.SpatialLayerCount = uint8(layerCount)
 		layer.NotRefForUpperSpatialLayer = !out.InterLayerPrediction || i == layerCount-1
 		out.Layers[i] = layer
 	}
@@ -864,6 +867,24 @@ func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount in
 	out.SizeBytes = 0
 	for i := 0; i < layerCount; i++ {
 		out.SizeBytes += out.Layers[i].SizeBytes
+	}
+	return out
+}
+
+func cappedSVCScalabilityStructure(
+	ss govpx.VP9RTPScalabilityStructure,
+	layerCount int,
+) govpx.VP9RTPScalabilityStructure {
+	if layerCount <= 0 {
+		return ss
+	}
+	out := ss
+	if out.SpatialLayerCount == 0 || layerCount < out.SpatialLayerCount {
+		out.SpatialLayerCount = layerCount
+	}
+	for i := layerCount; i < len(out.Width); i++ {
+		out.Width[i] = 0
+		out.Height[i] = 0
 	}
 	return out
 }
