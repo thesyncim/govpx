@@ -3,8 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"image"
 	"testing"
+
+	"github.com/pion/rtp/codecs"
 
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -347,10 +350,89 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(
 		}
 		rtpResult := limitSVCResultForRTPForTest(t, result, cap)
 		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
+		pionPacket := reassembleWebRTCSVCResultWithPionForOracle(t,
+			rtpResult, payloads)
+		govpxPacket := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads,
+			pictureID)
+		if !bytes.Equal(pionPacket, govpxPacket) {
+			t.Fatalf("frame %d Pion RTP reassembly differed from govpx reassembly",
+				frame)
+		}
 		packets[frame] = append([]byte(nil),
-			reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)...)
+			pionPacket...)
 		pictureID = govpx.NextVP9RTPPictureID(pictureID)
 		lastCap = cap
 	}
 	return packets
+}
+
+func reassembleWebRTCSVCResultWithPionForOracle(
+	t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+) []byte {
+	t.Helper()
+	count := int(result.LayerCount)
+	var frames [govpx.VP9MaxSpatialLayers][]byte
+	var sawStart [govpx.VP9MaxSpatialLayers]bool
+	var sawEnd [govpx.VP9MaxSpatialLayers]bool
+
+	for i, payload := range payloads {
+		var packet codecs.VP9Packet
+		fragment, err := packet.Unmarshal(payload.Payload)
+		if err != nil {
+			t.Fatalf("Pion VP9Packet.Unmarshal[%d]: %v", i, err)
+		}
+		if !packet.I || !packet.L {
+			t.Fatalf("Pion VP9 packet %d = I:%t L:%t, want PictureID and layer metadata",
+				i, packet.I, packet.L)
+		}
+		if packet.F {
+			t.Fatalf("Pion VP9 packet %d used flexible mode; WebRTC SVC path expects non-flexible mode", i)
+		}
+		layerID := int(packet.SID)
+		if layerID >= count {
+			t.Fatalf("Pion VP9 packet %d spatial id = %d, want < %d",
+				i, layerID, count)
+		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("Pion VP9 packet %d RTP marker = %t, want %t",
+				i, got, want)
+		}
+		if packet.B {
+			if sawStart[layerID] {
+				t.Fatalf("Pion VP9 packet %d repeated layer %d start",
+					i, layerID)
+			}
+			sawStart[layerID] = true
+		} else if !sawStart[layerID] {
+			t.Fatalf("Pion VP9 packet %d layer %d fragment arrived before start",
+				i, layerID)
+		}
+		if packet.E {
+			sawEnd[layerID] = true
+		}
+		frames[layerID] = append(frames[layerID], fragment...)
+	}
+
+	for layerID := 0; layerID < count; layerID++ {
+		if !sawStart[layerID] || !sawEnd[layerID] {
+			t.Fatalf("Pion VP9 layer %d start/end = %t/%t, want true/true",
+				layerID, sawStart[layerID], sawEnd[layerID])
+		}
+		if !bytes.Equal(frames[layerID], result.Layers[layerID].Data) {
+			t.Fatalf("Pion VP9 reassembled layer %d does not match encoded layer",
+				layerID)
+		}
+	}
+	need, err := govpx.VP9SuperframeSize(frames[:count]...)
+	if err != nil {
+		t.Fatalf("Pion VP9SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := govpx.PackVP9SuperframeInto(packet, frames[:count]...)
+	if err != nil {
+		t.Fatalf("Pion PackVP9SuperframeInto: %v", err)
+	}
+	return packet[:n]
 }
