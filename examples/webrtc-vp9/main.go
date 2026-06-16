@@ -36,6 +36,7 @@ const (
 	temporalLayerMode = govpx.TemporalLayeringThreeLayers
 	rtpClockHz        = 90000
 	rtpPayloadMTU     = 1200 - 12
+	vp9Profile0Fmtp   = "profile-id=0"
 	iceGatherTimeout  = 10 * time.Second
 
 	defaultFPS          = 30
@@ -371,7 +372,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 	}
 
 	track, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP9, ClockRate: 90000},
+		vp9WebRTCCodecCapability(),
 		"govpx-video", "govpx",
 	)
 	if err != nil {
@@ -465,6 +466,18 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
+}
+
+func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
+	return webrtc.RTPCodecCapability{
+		MimeType:    webrtc.MimeTypeVP9,
+		ClockRate:   rtpClockHz,
+		SDPFmtpLine: vp9Profile0Fmtp,
+		RTCPFeedback: []webrtc.RTCPFeedback{
+			{Type: "ccm", Parameter: "fir"},
+			{Type: "nack", Parameter: "pli"},
+		},
+	}
 }
 
 func peerConnectionStateIsTerminal(s webrtc.PeerConnectionState) bool {

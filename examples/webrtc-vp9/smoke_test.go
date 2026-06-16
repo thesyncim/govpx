@@ -107,6 +107,16 @@ func TestDemoEndToEnd(t *testing.T) {
 	if !strings.Contains(strings.ToUpper(answer.SDP), "VP9") {
 		t.Fatalf("answer SDP missing VP9:\n%s", answer.SDP)
 	}
+	if !strings.Contains(answer.SDP, vp9Profile0Fmtp) {
+		t.Fatalf("answer SDP missing VP9 profile 0 fmtp:\n%s", answer.SDP)
+	}
+	answerSDP := strings.ToLower(answer.SDP)
+	for _, feedback := range []string{"nack pli", "ccm fir"} {
+		if !strings.Contains(answerSDP, feedback) {
+			t.Fatalf("answer SDP missing VP9 feedback %q:\n%s",
+				feedback, answer.SDP)
+		}
+	}
 	if err := pc.SetRemoteDescription(answer); err != nil {
 		t.Fatalf("SetRemoteDescription: %v", err)
 	}
@@ -662,6 +672,27 @@ func TestPeerConnectionDisconnectedDoesNotStopEncoder(t *testing.T) {
 		if !peerConnectionStateIsTerminal(state) {
 			t.Fatalf("%s was not treated as terminal", state)
 		}
+	}
+}
+
+func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
+	codec := vp9WebRTCCodecCapability()
+	if codec.MimeType != webrtc.MimeTypeVP9 ||
+		codec.ClockRate != rtpClockHz ||
+		codec.SDPFmtpLine != vp9Profile0Fmtp {
+		t.Fatalf("codec capability = %+v, want VP9/%d/%q",
+			codec, rtpClockHz, vp9Profile0Fmtp)
+	}
+	wantFeedback := map[webrtc.RTCPFeedback]bool{
+		{Type: "nack", Parameter: "pli"}: true,
+		{Type: "ccm", Parameter: "fir"}:  true,
+	}
+	for _, feedback := range codec.RTCPFeedback {
+		delete(wantFeedback, feedback)
+	}
+	if len(wantFeedback) != 0 {
+		t.Fatalf("codec feedback = %+v, missing %+v",
+			codec.RTCPFeedback, wantFeedback)
 	}
 }
 
