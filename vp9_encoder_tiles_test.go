@@ -301,6 +301,123 @@ func TestVP9RealtimeCBRAutoThreadingResizePromotesTileWorkers(t *testing.T) {
 	assertVP9EncoderTilePrefixForTest(t, wide, tileStart)
 }
 
+func TestVP9RealtimeCBRAutoThreadingReleasesTileWorkersWhenIneligible(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0)); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("auto-threaded realtime CBR encode did not initialize tile worker pool")
+	}
+
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 700,
+	}); err != nil {
+		t.Fatalf("SetRateControl(VBR): %v", err)
+	}
+	if e.vp9EffectiveThreadHint() != 1 {
+		t.Fatalf("VBR auto effective threads = %d, want 1", e.vp9EffectiveThreadHint())
+	}
+	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
+		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
+		t.Fatal("SetRateControl(VBR) left auto VP9 tile worker state installed")
+	}
+
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlCBR,
+		TargetBitrateKbps: 700,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR): %v", err)
+	}
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 1)); err != nil {
+		t.Fatalf("CBR Encode: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("auto-threaded realtime CBR encode did not reinitialize tile worker pool")
+	}
+	if err := e.SetDeadline(DeadlineGoodQuality); err != nil {
+		t.Fatalf("SetDeadline(GoodQuality): %v", err)
+	}
+	if e.vp9EffectiveThreadHint() != 1 {
+		t.Fatalf("good-quality auto effective threads = %d, want 1", e.vp9EffectiveThreadHint())
+	}
+	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
+		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
+		t.Fatal("SetDeadline(GoodQuality) left auto VP9 tile worker state installed")
+	}
+}
+
+func TestVP9RealtimeCBRAutoThreadingResizeDownReleasesTileWorkers(t *testing.T) {
+	const (
+		wideWidth   = 1280
+		wideHeight  = 720
+		smallWidth  = 320
+		smallHeight = 180
+	)
+	opts := VP9EncoderOptions{
+		Width:              wideWidth,
+		Height:             wideHeight,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  1200,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(wideWidth, wideHeight, 0)); err != nil {
+		t.Fatalf("wide Encode: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("wide auto-threaded encode did not initialize tile worker pool")
+	}
+	if err := e.SetRealtimeTarget(RealtimeTarget{
+		Width:  smallWidth,
+		Height: smallHeight,
+	}); err != nil {
+		t.Fatalf("SetRealtimeTarget shrink: %v", err)
+	}
+	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
+		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
+		t.Fatal("SetRealtimeTarget shrink left auto VP9 tile worker state installed")
+	}
+	packet, err := e.Encode(vp9test.NewPanningYCbCr(smallWidth, smallHeight, 1))
+	if err != nil {
+		t.Fatalf("small Encode: %v", err)
+	}
+	h, _ := vp9test.ParseHeader(t, packet)
+	if h.Tile.Log2TileCols != 0 {
+		t.Fatalf("small auto tile columns log2 = %d, want 0", h.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatalf("small auto tile pool = %d workers, want nil", e.vp9TilePool.workerCount)
+	}
+}
+
 func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	const width, height = 1280, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -604,6 +721,59 @@ func TestVP9EncoderRuntimeResizeRebuildsTileWorkerPool(t *testing.T) {
 		}
 	}
 	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+}
+
+func TestVP9EncoderSetTargetLevelRebuildsTileWorkerPoolForTileClamp(t *testing.T) {
+	const width, height = 8192, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 8,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 82, 123, 211))
+	if err != nil {
+		t.Fatalf("Encode before target level: %v", err)
+	}
+	h, _ := vp9test.ParseHeader(t, packet)
+	if h.Tile.Log2TileCols != 3 {
+		t.Fatalf("initial Log2TileCols = %d, want 3 for Threads=8",
+			h.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool == nil || e.vp9TilePool.workerCount != 8 {
+		t.Fatalf("initial tile pool workers = %v, want 8", e.vp9TilePool)
+	}
+	if err := e.SetTargetLevel(30); err != nil {
+		t.Fatalf("SetTargetLevel(30): %v", err)
+	}
+	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
+		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
+		t.Fatal("SetTargetLevel tile clamp left stale VP9 tile worker state installed")
+	}
+	packet, err = e.Encode(vp9test.NewYCbCr(width, height, 91, 143, 37))
+	if err != nil {
+		t.Fatalf("Encode after target level: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode after target level returned empty packet")
+	}
+	tileInfo := vp9EncoderTileInfoForTargetLevel((width+7)>>3, width, height,
+		e.vp9EffectiveThreadHint(), e.opts.Log2TileRows, e.opts.TargetLevel)
+	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	if tileCols >= 8 {
+		t.Fatalf("target-level tile columns = %d, want clamp below 8", tileCols)
+	}
+	if tileCols <= 1 && e.vp9TilePool != nil {
+		t.Fatalf("single-column target-level tile pool = %d workers, want nil",
+			e.vp9TilePool.workerCount)
+	}
+	if tileCols > 1 && (e.vp9TilePool == nil || e.vp9TilePool.workerCount != tileCols) {
+		t.Fatalf("target-level tile pool workers = %v, want %d",
+			e.vp9TilePool, tileCols)
+	}
 }
 
 func TestVP9TileWorkerPoolOutputSizeCache(t *testing.T) {

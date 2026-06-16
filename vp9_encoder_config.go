@@ -262,6 +262,7 @@ func (e *VP9Encoder) SetRateControl(cfg RateControlConfig) error {
 	e.rc = nextRC
 	e.temporal = nextTemporal
 	e.twoPass = nextTwoPass
+	e.retireVP9TileWorkerPoolForCurrentConfig()
 	return nil
 }
 
@@ -552,6 +553,7 @@ func (e *VP9Encoder) SetDeadline(deadline Deadline) error {
 	// libvpx: vp9_encoder.c:3754 — speed-feature recompute on speed/mode
 	// changes.
 	e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
+	e.retireVP9TileWorkerPoolForCurrentConfig()
 	return nil
 }
 
@@ -640,9 +642,8 @@ func (e *VP9Encoder) SetNoiseSensitivity(level int) error {
 	e.denoiser.setSensitivity(int8(level))
 	if level == 0 {
 		e.denoiser.disable()
-	} else {
-		e.closeVP9TileWorkerPool()
 	}
+	e.retireVP9TileWorkerPoolForCurrentConfig()
 	return nil
 }
 
@@ -810,6 +811,7 @@ func (e *VP9Encoder) SetTargetLevel(level int) error {
 			e.opts.TwoPassVBRBiasPct, e.opts.TwoPassMinPct,
 			e.opts.TwoPassMaxPct, e.opts.Height, e.opts.VBRCorpusComplexity)
 	}
+	e.retireVP9TileWorkerPoolForCurrentConfig()
 	return nil
 }
 
@@ -1223,6 +1225,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 	if e.opts.AQMode == VP9AQCyclicRefresh {
 		e.cyclicResizePending = true
 	}
+	e.retireVP9TileWorkerPoolForCurrentConfig()
 }
 
 func validVP9Dimension(v int) bool {

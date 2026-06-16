@@ -385,6 +385,28 @@ func (e *VP9Encoder) closeVP9TileWorkerPool() {
 	e.vp9CountJobs = nil
 }
 
+func (e *VP9Encoder) retireVP9TileWorkerPoolForCurrentConfig() {
+	if e == nil || e.vp9TilePool == nil {
+		return
+	}
+	threadHint := e.vp9EffectiveThreadHint()
+	if threadHint <= 1 || e.opts.NoiseSensitivity > 0 {
+		e.closeVP9TileWorkerPool()
+		return
+	}
+	miCols := (e.opts.Width + 7) >> 3
+	tileInfo := vp9EncoderTileInfoForTargetLevel(miCols, e.opts.Width,
+		e.opts.Height, threadHint, e.opts.Log2TileRows, e.opts.TargetLevel)
+	if tileInfo.Log2TileRows != 0 {
+		e.closeVP9TileWorkerPool()
+		return
+	}
+	tileCols := 1 << uint(tileInfo.Log2TileCols)
+	if tileCols <= 1 || e.vp9TilePool.workerCount != tileCols {
+		e.closeVP9TileWorkerPool()
+	}
+}
+
 func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 	if workers <= 1 {
 		return nil
