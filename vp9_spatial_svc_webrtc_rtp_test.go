@@ -269,6 +269,80 @@ func TestVP9WebRTCPacketizerPacketizesActiveSpatialSVCTransitions(t *testing.T) 
 	}
 }
 
+func TestVP9WebRTCPacketizerKeepsSVCRefsOnBufferTooSmall(t *testing.T) {
+	results := encodeVP9WebRTCSVCTestResults(t, 2)
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x1234)
+	const mtu = 80
+
+	keyPackets, keyBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+		results[0], mtu)
+	if err != nil {
+		t.Fatalf("key SpatialSVCWebRTCPacketizationSize: %v", err)
+	}
+	keyPayloads := make([]govpx.RTPPayloadFragment, keyPackets)
+	keyPayloadBuf := make([]byte, keyBytes)
+	if n, used, err := packetizer.PacketizeSpatialSVCWebRTCInto(results[0],
+		keyPayloads, keyPayloadBuf, mtu); err != nil ||
+		n != keyPackets || used != keyBytes {
+		t.Fatalf("key PacketizeSpatialSVCWebRTCInto = %d/%d err:%v, want %d/%d nil",
+			n, used, err, keyPackets, keyBytes)
+	}
+	if got := packetizer.PictureID(); got != 0x1235 {
+		t.Fatalf("PictureID after key = %d, want 0x1235", got)
+	}
+
+	deltaPictureID := packetizer.PictureID()
+	deltaPackets, deltaBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+		results[1], mtu)
+	if err != nil {
+		t.Fatalf("delta SpatialSVCWebRTCPacketizationSize: %v", err)
+	}
+	shortPayloads := make([]govpx.RTPPayloadFragment, deltaPackets-1)
+	deltaPayloadBuf := make([]byte, deltaBytes)
+	if gotPackets, gotBytes, err := packetizer.PacketizeSpatialSVCWebRTCInto(
+		results[1], shortPayloads, deltaPayloadBuf, mtu); !errors.Is(err,
+		govpx.ErrBufferTooSmall) ||
+		gotPackets != deltaPackets || gotBytes != deltaBytes {
+		t.Fatalf("short PacketizeSpatialSVCWebRTCInto = %d/%d err:%v, want %d/%d ErrBufferTooSmall",
+			gotPackets, gotBytes, err, deltaPackets, deltaBytes)
+	}
+	if got := packetizer.PictureID(); got != deltaPictureID {
+		t.Fatalf("PictureID advanced after buffer error: got %d want %d",
+			got, deltaPictureID)
+	}
+
+	deltaPayloads := make([]govpx.RTPPayloadFragment, deltaPackets)
+	n, used, err := packetizer.PacketizeSpatialSVCWebRTCInto(results[1],
+		deltaPayloads, deltaPayloadBuf, mtu)
+	if err != nil || n != deltaPackets || used != deltaBytes {
+		t.Fatalf("retry PacketizeSpatialSVCWebRTCInto = %d/%d err:%v, want %d/%d nil",
+			n, used, err, deltaPackets, deltaBytes)
+	}
+	assertVP9ActiveSVCWebRTCPacketizationForTest(t, 1, results[1],
+		deltaPayloads[:n], deltaPictureID)
+	sawPredictedRef := false
+	for i, payload := range deltaPayloads[:n] {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("delta ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.StartOfFrame && desc.InterPicturePredicted {
+			if desc.ReferenceIndexCount == 0 {
+				t.Fatalf("delta start payload %d has P=1 without flexible refs",
+					i)
+			}
+			sawPredictedRef = true
+		}
+	}
+	if !sawPredictedRef {
+		t.Fatal("retry did not exercise predicted flexible references")
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(deltaPictureID); got != want {
+		t.Fatalf("PictureID after retry = %d, want %d", got, want)
+	}
+}
+
 func assertVP9ActiveSVCWebRTCPacketizationForTest(
 	t *testing.T,
 	frame int,

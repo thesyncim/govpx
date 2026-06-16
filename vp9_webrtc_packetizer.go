@@ -4,8 +4,10 @@ package govpx
 // WebRTC sender. It advances the PictureID after a frame/access unit has been
 // successfully packetized, and also advances across encoder-dropped frames.
 // Dropped frames emit no RTP payloads, but they still consume a VP9 temporal
-// pattern slot; leaving a PictureID gap keeps non-flexible VP9 GOF dependency
-// positions aligned with the encoder timeline.
+// slot; leaving a PictureID gap keeps the RTP timeline aligned with the
+// encoder timeline. Emitted payloads use VP9 flexible mode with explicit
+// reference diffs so receivers do not have to infer dependencies from a stale
+// GOF pattern.
 type VP9WebRTCPacketizer struct {
 	pictureID             uint16
 	consumedDropPending   bool
@@ -34,8 +36,8 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 // NeedsKeyFrame reports whether a prior encoder-dropped VP9 temporal slot
 // requires the sender to force a keyframe before emitting more RTP payloads.
 // Top temporal-layer drops can be represented as ordinary PictureID gaps, but
-// dropped base/intermediate temporal layers can make WebRTC's non-flexible VP9
-// dependency finder wait for references that will never arrive.
+// dropped base/intermediate temporal layers can strand receiver dependency
+// tracking on references that will never arrive.
 func (p *VP9WebRTCPacketizer) NeedsKeyFrame() bool {
 	return p != nil && p.keyFrameRequired
 }
