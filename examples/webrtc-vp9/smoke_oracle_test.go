@@ -422,6 +422,54 @@ func TestWebRTCPacketizedSVCRuntimeControlStreamDecodesWithVpxdec(t *testing.T) 
 func TestWebRTCPacketizedSVCLongNoLossControlStreamDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
+	steps := webRTCLongNoLossOracleSteps()
+	packets := encodeWebRTCPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(t,
+		steps, govpx.VP9RTPPictureID15BitMask-2)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	caps := webRTCOracleStepCaps(steps)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("long no-loss vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "long no-loss",
+			raw, caps, layer)
+	}
+}
+
+func TestVP9WebRTCPacketizerSVCLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	steps := webRTCLongNoLossOracleSteps()
+	packets := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(t,
+		steps, govpx.VP9RTPPictureID15BitMask-2)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	caps := webRTCOracleStepCaps(steps)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("stateful long no-loss vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "stateful long no-loss",
+			raw, caps, layer)
+	}
+}
+
+func webRTCLongNoLossOracleSteps() []webRTCSVCOracleStep {
 	const frames = 48
 	steps := make([]webRTCSVCOracleStep, frames)
 	for frame := range steps {
@@ -455,28 +503,15 @@ func TestWebRTCPacketizedSVCLongNoLossControlStreamDecodesWithVpxdec(t *testing.
 			steps[frame].forceKey = true
 		}
 	}
-	packets := encodeWebRTCPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(t,
-		steps, govpx.VP9RTPPictureID15BitMask-2)
-	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
-		layerDims[spatialLayerCount-1][1], packets...)
+	return steps
+}
 
+func webRTCOracleStepCaps(steps []webRTCSVCOracleStep) []int {
 	caps := make([]int, len(steps))
 	for i, step := range steps {
 		caps[i] = step.cap
 	}
-	for layer := 0; layer < spatialLayerCount; layer++ {
-		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
-			SVCSpatialLayerSet: true,
-			SVCSpatialLayer:    layer,
-		})
-		want := capRecoveryVpxdecBytesForLayer(caps, layer)
-		if len(raw) != want {
-			t.Fatalf("long no-loss vpxdec layer %d raw size = %d, want %d",
-				layer, len(raw), want)
-		}
-		assertVpxdecLayerOutputVariesForCaps(t, "long no-loss",
-			raw, caps, layer)
-	}
+	return caps
 }
 
 func assertVpxdecLayerOutputVariesForCaps(
@@ -706,6 +741,116 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(
 	return packets
 }
 
+func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	pictureID uint16,
+) [][]byte {
+	t.Helper()
+	if len(steps) == 0 {
+		return nil
+	}
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	dst := make([]byte, superframeBudget())
+	packets := make([][]byte, len(steps))
+	packetizer := govpx.NewVP9WebRTCPacketizer(pictureID)
+	var payloads []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	lastCap := steps[0].cap
+	currentBitrate := defaultBitrateKbps
+	currentScreen := 0
+	sawFlexiblePrediction := false
+	for frame, step := range steps {
+		activeCap := step.cap
+		if activeCap < 1 || activeCap > spatialLayerCount {
+			t.Fatalf("oracle step %d cap = %d, want 1..%d",
+				frame, activeCap, spatialLayerCount)
+		}
+		if step.bitrateKbps != 0 && step.bitrateKbps != currentBitrate {
+			if err := applyBitrate(svc, step.bitrateKbps); err != nil {
+				t.Fatalf("applyBitrate frame %d: %v", frame, err)
+			}
+			currentBitrate = step.bitrateKbps
+		}
+		if step.screenModeSet && step.screenMode != currentScreen {
+			if err := applyScreenMode(svc, step.screenMode); err != nil {
+				t.Fatalf("applyScreenMode frame %d: %v", frame, err)
+			}
+			currentScreen = step.screenMode
+		}
+		if frame > 0 && (activeCap != lastCap || step.forceKey) {
+			forceKeyAll(svc)
+		}
+		drawScene(imgs, frame)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, activeCap)
+		if err != nil {
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, activeCap, err)
+		}
+
+		framePictureID := packetizer.PictureID()
+		packetCount, payloadBytes, err := packetizer.
+			SpatialSVCWebRTCPacketizationSize(result, 500)
+		if err != nil {
+			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d: %v",
+				frame, err)
+		}
+		if got := packetizer.PictureID(); got != framePictureID {
+			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d advanced PictureID to %d, want %d",
+				frame, got, framePictureID)
+		}
+		if cap(payloads) < packetCount {
+			payloads = make([]govpx.RTPPayloadFragment, packetCount)
+		}
+		payloads = payloads[:packetCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		writtenPackets, writtenBytes, err := packetizer.
+			PacketizeSpatialSVCWebRTCInto(result, payloads,
+				payloadBuf, 500)
+		if err != nil {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d: %v",
+				frame, err)
+		}
+		if writtenPackets != packetCount || writtenBytes != payloadBytes {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d returned %d/%d, want %d/%d",
+				frame, writtenPackets, writtenBytes, packetCount,
+				payloadBytes)
+		}
+		payloads = payloads[:writtenPackets]
+		pionPacket, sawRefs := reassembleWebRTCStatefulSVCResultWithPionForOracle(t,
+			result, payloads, framePictureID)
+		sawFlexiblePrediction = sawFlexiblePrediction || sawRefs
+		packets[frame] = append([]byte(nil),
+			pionPacket...)
+		if got, want := packetizer.PictureID(),
+			govpx.NextVP9RTPPictureID(framePictureID); got != want {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d next PictureID = %d, want %d",
+				frame, got, want)
+		}
+		lastCap = activeCap
+	}
+	if !sawFlexiblePrediction {
+		t.Fatal("stateful WebRTC VP9 oracle stream did not exercise flexible P-diff refs")
+	}
+	return packets
+}
+
 func reassembleWebRTCSVCResultWithPionForOracle(
 	t *testing.T,
 	result govpx.VP9SpatialSVCEncodeResult,
@@ -775,6 +920,137 @@ func reassembleWebRTCSVCResultWithPionForOracle(
 		t.Fatalf("Pion PackVP9SuperframeInto: %v", err)
 	}
 	return packet[:n]
+}
+
+func reassembleWebRTCStatefulSVCResultWithPionForOracle(
+	t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+	pictureID uint16,
+) ([]byte, bool) {
+	t.Helper()
+	count := int(result.LayerCount)
+	var frames [govpx.VP9MaxSpatialLayers][]byte
+	var sawStart [govpx.VP9MaxSpatialLayers]bool
+	var sawEnd [govpx.VP9MaxSpatialLayers]bool
+	sawFlexiblePrediction := false
+
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor stateful[%d]: %v", i, err)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("stateful payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if !desc.FlexibleMode {
+			t.Fatalf("stateful payload %d used non-flexible VP9 descriptor", i)
+		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("stateful payload %d marker = %t, want %t",
+				i, got, want)
+		}
+
+		var packet codecs.VP9Packet
+		fragment, err := packet.Unmarshal(payload.Payload)
+		if err != nil {
+			t.Fatalf("Pion stateful VP9Packet.Unmarshal[%d]: %v", i, err)
+		}
+		if !packet.I || !packet.L || !packet.F {
+			t.Fatalf("Pion stateful VP9 packet %d = I:%t L:%t F:%t, want PictureID, layer metadata, flexible mode",
+				i, packet.I, packet.L, packet.F)
+		}
+		if packet.PictureID != pictureID {
+			t.Fatalf("Pion stateful VP9 packet %d PictureID = %d, want %d",
+				i, packet.PictureID, pictureID)
+		}
+		layerID := int(packet.SID)
+		if layerID >= count {
+			t.Fatalf("Pion stateful VP9 packet %d spatial id = %d, want < %d",
+				i, layerID, count)
+		}
+		wantLayer := result.Layers[layerID]
+		if int(packet.TID) != wantLayer.TemporalLayerID ||
+			packet.U != wantLayer.TemporalLayerSync ||
+			packet.P != wantLayer.InterPicturePredicted ||
+			packet.D != wantLayer.InterLayerDependency ||
+			packet.Z != wantLayer.NotRefForUpperSpatialLayer {
+			t.Fatalf("Pion stateful VP9 packet %d layer %d descriptor = tid:%d sync:%t p:%t dep:%t n:%t, want tid:%d sync:%t p:%t dep:%t n:%t",
+				i, layerID, packet.TID, packet.U, packet.P,
+				packet.D, packet.Z, wantLayer.TemporalLayerID,
+				wantLayer.TemporalLayerSync,
+				wantLayer.InterPicturePredicted,
+				wantLayer.InterLayerDependency,
+				wantLayer.NotRefForUpperSpatialLayer)
+		}
+		if packet.P {
+			if len(packet.PDiff) == 0 || desc.ReferenceIndexCount == 0 {
+				t.Fatalf("Pion stateful VP9 packet %d carried P=1 without flexible refs",
+					i)
+			}
+			sawFlexiblePrediction = true
+		} else if len(packet.PDiff) != 0 || desc.ReferenceIndexCount != 0 {
+			t.Fatalf("Pion stateful VP9 packet %d carried refs on an intra packet",
+				i)
+		}
+		if packet.B {
+			if sawStart[layerID] {
+				t.Fatalf("Pion stateful VP9 packet %d repeated layer %d start",
+					i, layerID)
+			}
+			sawStart[layerID] = true
+			if layerID == 0 && !wantLayer.InterPicturePredicted {
+				if !desc.ScalabilityStructurePresent ||
+					desc.ScalabilityStructure.SpatialLayerCount != count {
+					t.Fatalf("stateful base payload %d SS = present:%t layers:%d, want %d",
+						i, desc.ScalabilityStructurePresent,
+						desc.ScalabilityStructure.SpatialLayerCount,
+						count)
+				}
+				if desc.ScalabilityStructure.PictureGroupPresent {
+					t.Fatalf("stateful base payload %d flexible SS unexpectedly carried GOF",
+						i)
+				}
+			} else if desc.ScalabilityStructurePresent {
+				t.Fatalf("stateful payload %d layer %d repeated scalability structure",
+					i, layerID)
+			}
+		} else if !sawStart[layerID] {
+			t.Fatalf("Pion stateful VP9 packet %d layer %d fragment arrived before start",
+				i, layerID)
+		} else if desc.ScalabilityStructurePresent {
+			t.Fatalf("stateful payload %d repeated scalability structure on non-start fragment",
+				i)
+		}
+		if packet.E {
+			sawEnd[layerID] = true
+		}
+		frames[layerID] = append(frames[layerID], fragment...)
+	}
+
+	for layerID := 0; layerID < count; layerID++ {
+		if !sawStart[layerID] || !sawEnd[layerID] {
+			t.Fatalf("Pion stateful VP9 layer %d start/end = %t/%t, want true/true",
+				layerID, sawStart[layerID], sawEnd[layerID])
+		}
+		if !bytes.Equal(frames[layerID], result.Layers[layerID].Data) {
+			t.Fatalf("Pion stateful VP9 reassembled layer %d does not match encoded layer",
+				layerID)
+		}
+	}
+	need, err := govpx.VP9SuperframeSize(frames[:count]...)
+	if err != nil {
+		t.Fatalf("Pion stateful VP9SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := govpx.PackVP9SuperframeInto(packet, frames[:count]...)
+	if err != nil {
+		t.Fatalf("Pion stateful PackVP9SuperframeInto: %v", err)
+	}
+	return packet[:n], sawFlexiblePrediction
 }
 
 type liveWebRTCRTPOracleState struct {
