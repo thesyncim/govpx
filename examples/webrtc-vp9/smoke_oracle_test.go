@@ -129,6 +129,64 @@ func TestWebRTCPacketizedSVCRuntimeControlStreamDecodesWithVpxdec(t *testing.T) 
 	}
 }
 
+func TestWebRTCPacketizedSVCLongNoLossControlStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const frames = 48
+	steps := make([]webRTCSVCOracleStep, frames)
+	for frame := range steps {
+		cap := 3
+		switch {
+		case frame >= 9 && frame < 15:
+			cap = 2
+		case frame >= 24 && frame < 30:
+			cap = 1
+		case frame >= 36 && frame < 42:
+			cap = 2
+		}
+		steps[frame] = webRTCSVCOracleStep{cap: cap}
+		switch frame {
+		case 5:
+			steps[frame].bitrateKbps = 1200
+		case 13:
+			steps[frame].screenMode = 1
+			steps[frame].screenModeSet = true
+		case 20:
+			steps[frame].bitrateKbps = 500
+		case 31:
+			steps[frame].screenMode = 2
+			steps[frame].screenModeSet = true
+		case 39:
+			steps[frame].bitrateKbps = 900
+			steps[frame].screenMode = 0
+			steps[frame].screenModeSet = true
+		}
+		if frame != 0 && frame%11 == 0 {
+			steps[frame].forceKey = true
+		}
+	}
+	packets := encodeWebRTCPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(t,
+		steps, govpx.VP9RTPPictureID15BitMask-2)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	caps := make([]int, len(steps))
+	for i, step := range steps {
+		caps[i] = step.cap
+	}
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("long no-loss vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+	}
+}
+
 func capRecoveryVpxdecBytesForLayer(caps []int, layer int) int {
 	total := 0
 	for _, cap := range caps {
@@ -204,11 +262,33 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracle(t *testing.T, steps []web
 		steps, nil, nil)
 }
 
+func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	pictureID uint16,
+) [][]byte {
+	t.Helper()
+	return encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, nil, nil, pictureID)
+}
+
 func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleWithHooks(
 	t *testing.T,
 	steps []webRTCSVCOracleStep,
 	configure func(*govpx.VP9SpatialSVCEncoder),
 	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
+) [][]byte {
+	t.Helper()
+	return encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, configure, inspect, 0x100)
+}
+
+func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	configure func(*govpx.VP9SpatialSVCEncoder),
+	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
+	pictureID uint16,
 ) [][]byte {
 	t.Helper()
 	if len(steps) == 0 {
@@ -233,7 +313,6 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleWithHooks(
 	}
 	dst := make([]byte, superframeBudget())
 	packets := make([][]byte, len(steps))
-	pictureID := uint16(0x100)
 	lastCap := steps[0].cap
 	currentBitrate := defaultBitrateKbps
 	currentScreen := 0
