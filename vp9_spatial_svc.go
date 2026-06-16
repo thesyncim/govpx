@@ -152,6 +152,11 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 	}
 	for i := range count {
 		layerOpts := opts.Layers[i]
+		if temporalEnabled {
+			// libvpx examples/vp9_spatial_svc_encoder.c enables error-resilient
+			// mode when temporal layering is configured.
+			layerOpts.ErrorResilient = true
+		}
 		spatial := VP9SpatialScalabilityConfig{
 			Enabled:                    true,
 			LayerCount:                 opts.LayerCount,
@@ -1183,6 +1188,9 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 		layer := e.layers[i]
 		layer.temporal = next[i]
 		layer.opts.TemporalScalability = next[i].config
+		if cfg.Enabled {
+			layer.opts.ErrorResilient = true
+		}
 		layer.svc.NumberTemporalLayers = numberTemporalLayers
 		layer.vp9ApplySpeedFeatures(layer.vp9DefaultSpeedFrameContext())
 	}

@@ -18,6 +18,7 @@ import (
 
 func TestVP9OracleSpatialSVCParity(t *testing.T) {
 	vp9test.RequireOracle(t, "VP9 spatial SVC oracle trace")
+	vp9test.RequireVpxdec(t)
 
 	const frames = 4
 	for _, tc := range []struct {
@@ -93,6 +94,11 @@ func TestVP9OracleSpatialSVCParity(t *testing.T) {
 				t.Fatalf("libvpx spatial SVC packets = %d, want %d",
 					len(libvpxPackets), frames)
 			}
+			assertVP9SpatialSVCOracleVpxdecLayerOutputs(t, "govpx",
+				vp9SpatialSVCOraclePackets(govpxFrames), tc.layerCount,
+				tc.widths, tc.heights)
+			assertVP9SpatialSVCOracleVpxdecLayerOutputs(t, "libvpx",
+				libvpxPackets, tc.layerCount, tc.widths, tc.heights)
 
 			matches := 0
 			firstMismatch := -1
@@ -180,6 +186,59 @@ func TestVP9OracleSpatialSVCParity(t *testing.T) {
 					matches, frames)
 			}
 		})
+	}
+}
+
+func vp9SpatialSVCOraclePackets(
+	frames []vp9SpatialSVCOracleGovpxFrame,
+) [][]byte {
+	packets := make([][]byte, len(frames))
+	for i := range frames {
+		packets[i] = frames[i].data
+	}
+	return packets
+}
+
+func assertVP9SpatialSVCOracleVpxdecLayerOutputs(t *testing.T,
+	side string,
+	packets [][]byte,
+	layerCount int,
+	widths, heights [VP9MaxSpatialLayers]int,
+) {
+	t.Helper()
+	if len(packets) == 0 {
+		t.Fatalf("%s spatial SVC oracle has no packets", side)
+	}
+	ivf := vp9test.BuildVP9IVF(widths[layerCount-1],
+		heights[layerCount-1], packets...)
+	for layer := 0; layer < layerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf,
+			vp9test.VpxdecOptions{
+				SVCSpatialLayerSet: true,
+				SVCSpatialLayer:    layer,
+			})
+		frameBytes := widths[layer] * heights[layer] * 3 / 2
+		want := len(packets) * frameBytes
+		if len(raw) != want {
+			t.Fatalf("%s spatial SVC vpxdec layer %d raw bytes = %d, want %d",
+				side, layer, len(raw), want)
+		}
+		if len(packets) < 2 {
+			continue
+		}
+		first := raw[:frameBytes]
+		var varied bool
+		for frame := 1; frame < len(packets); frame++ {
+			start := frame * frameBytes
+			if !bytes.Equal(first, raw[start:start+frameBytes]) {
+				varied = true
+				break
+			}
+		}
+		if !varied {
+			t.Fatalf("%s spatial SVC vpxdec layer %d decoded %d identical frames",
+				side, layer, len(packets))
+		}
 	}
 }
 
