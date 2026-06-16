@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
 	"image"
 	"io"
@@ -469,6 +470,30 @@ func TestVP9WebRTCPacketizerSVCLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCRecoveryAfterUnsentAccessUnitDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	steps := webRTCUnsentAccessUnitOracleSteps()
+	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, govpx.VP9RTPPictureID15BitMask-5, 6)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("stateful recovery vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "stateful recovery",
+			raw, caps, layer)
+	}
+}
+
 func webRTCLongNoLossOracleSteps() []webRTCSVCOracleStep {
 	const frames = 48
 	steps := make([]webRTCSVCOracleStep, frames)
@@ -500,6 +525,33 @@ func webRTCLongNoLossOracleSteps() []webRTCSVCOracleStep {
 			steps[frame].screenModeSet = true
 		}
 		if frame != 0 && frame%11 == 0 {
+			steps[frame].forceKey = true
+		}
+	}
+	return steps
+}
+
+func webRTCUnsentAccessUnitOracleSteps() []webRTCSVCOracleStep {
+	const frames = 18
+	steps := make([]webRTCSVCOracleStep, frames)
+	for frame := range steps {
+		cap := 3
+		if frame >= 11 && frame < 14 {
+			cap = 2
+		}
+		steps[frame] = webRTCSVCOracleStep{cap: cap}
+		switch frame {
+		case 4:
+			steps[frame].bitrateKbps = 1200
+		case 10:
+			steps[frame].screenMode = 1
+			steps[frame].screenModeSet = true
+		case 15:
+			steps[frame].bitrateKbps = 700
+			steps[frame].screenMode = 2
+			steps[frame].screenModeSet = true
+		}
+		if frame == 14 {
 			steps[frame].forceKey = true
 		}
 	}
@@ -747,8 +799,20 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 	pictureID uint16,
 ) [][]byte {
 	t.Helper()
+	packets, _ := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, pictureID, -1)
+	return packets
+}
+
+func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	pictureID uint16,
+	unsentFrame int,
+) ([][]byte, []int) {
+	t.Helper()
 	if len(steps) == 0 {
-		return nil
+		return nil, nil
 	}
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,
@@ -765,14 +829,18 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 			image.YCbCrSubsampleRatio420)
 	}
 	dst := make([]byte, superframeBudget())
-	packets := make([][]byte, len(steps))
+	packets := make([][]byte, 0, len(steps))
+	caps := make([]int, 0, len(steps))
 	packetizer := govpx.NewVP9WebRTCPacketizer(pictureID)
+	refFinder := newWebRTCVP9RefFinderForTest()
 	var payloads []govpx.RTPPayloadFragment
 	var payloadBuf []byte
 	lastCap := steps[0].cap
 	currentBitrate := defaultBitrateKbps
 	currentScreen := 0
 	sawFlexiblePrediction := false
+	forceNext := false
+	sawRecoveryAfterUnsent := unsentFrame < 0
 	for frame, step := range steps {
 		activeCap := step.cap
 		if activeCap < 1 || activeCap > spatialLayerCount {
@@ -791,8 +859,10 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 			}
 			currentScreen = step.screenMode
 		}
-		if frame > 0 && (activeCap != lastCap || step.forceKey) {
+		forcedByUnsent := forceNext
+		if frame > 0 && (activeCap != lastCap || step.forceKey || forceNext) {
 			forceKeyAll(svc)
+			forceNext = false
 		}
 		drawScene(imgs, frame)
 		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, activeCap)
@@ -811,6 +881,29 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 		if got := packetizer.PictureID(); got != framePictureID {
 			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d advanced PictureID to %d, want %d",
 				frame, got, framePictureID)
+		}
+		if frame == unsentFrame {
+			shortPayloads := make([]govpx.RTPPayloadFragment, packetCount-1)
+			if cap(payloadBuf) < payloadBytes {
+				payloadBuf = make([]byte, payloadBytes)
+			}
+			payloadBuf = payloadBuf[:payloadBytes]
+			gotPackets, gotBytes, err := packetizer.
+				PacketizeSpatialSVCWebRTCInto(result, shortPayloads,
+					payloadBuf, 500)
+			if !errors.Is(err, govpx.ErrBufferTooSmall) ||
+				gotPackets != packetCount || gotBytes != payloadBytes {
+				t.Fatalf("unsent frame %d short PacketizeSpatialSVCWebRTCInto = %d/%d err:%v, want %d/%d ErrBufferTooSmall",
+					frame, gotPackets, gotBytes, err, packetCount,
+					payloadBytes)
+			}
+			if got := packetizer.PictureID(); got != framePictureID {
+				t.Fatalf("unsent frame %d advanced PictureID to %d, want %d",
+					frame, got, framePictureID)
+			}
+			forceNext = true
+			lastCap = activeCap
+			continue
 		}
 		if cap(payloads) < packetCount {
 			payloads = make([]govpx.RTPPayloadFragment, packetCount)
@@ -836,8 +929,20 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 		pionPacket, sawRefs := reassembleWebRTCStatefulSVCResultWithPionForOracle(t,
 			result, payloads, framePictureID)
 		sawFlexiblePrediction = sawFlexiblePrediction || sawRefs
-		packets[frame] = append([]byte(nil),
-			pionPacket...)
+		if forcedByUnsent {
+			base := result.Layers[0]
+			if !base.KeyFrame || base.InterPicturePredicted ||
+				!base.ScalabilityStructurePresent {
+				t.Fatalf("frame %d after unsent AU base = key:%t inter:%t ss:%t, want recovery key",
+					frame, base.KeyFrame, base.InterPicturePredicted,
+					base.ScalabilityStructurePresent)
+			}
+			sawRecoveryAfterUnsent = true
+		}
+		refFinder.acceptAccessUnit(t, frame, result, payloads,
+			framePictureID)
+		packets = append(packets, append([]byte(nil), pionPacket...))
+		caps = append(caps, activeCap)
 		if got, want := packetizer.PictureID(),
 			govpx.NextVP9RTPPictureID(framePictureID); got != want {
 			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d next PictureID = %d, want %d",
@@ -848,7 +953,10 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 	if !sawFlexiblePrediction {
 		t.Fatal("stateful WebRTC VP9 oracle stream did not exercise flexible P-diff refs")
 	}
-	return packets
+	if !sawRecoveryAfterUnsent {
+		t.Fatal("stateful WebRTC VP9 oracle stream did not emit a recovery key after the unsent AU")
+	}
+	return packets, caps
 }
 
 func reassembleWebRTCSVCResultWithPionForOracle(
