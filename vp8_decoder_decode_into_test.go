@@ -95,6 +95,7 @@ func TestDecoderHotPathAllocs(t *testing.T) {
 		{name: "DecodeIntoWithPTS", fn: func() { _, _ = d.DecodeIntoWithPTS(packet, &dst, 123) }},
 		{name: "DecodeRTPInto", fn: func() { _, _ = d.DecodeRTPInto(rtpFrameBuf, rtpPayloads) }},
 		{name: "DecodeRTPIntoWithPTS", fn: func() { _, _ = d.DecodeRTPIntoWithPTS(rtpFrameBuf, rtpPayloads, 123) }},
+		{name: "LastQuantizer", fn: func() { _, _, _ = d.LastQuantizer() }},
 		{name: "NextFrame", fn: func() { _, _ = d.NextFrame() }},
 		{name: "SetPostProcess", fn: func() { _ = d.SetPostProcess(0, 0) }},
 		{name: "SetPostProcessConfig", fn: func() { _ = d.SetPostProcessConfig(0, 4, 0) }},

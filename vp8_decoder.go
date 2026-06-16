@@ -349,6 +349,18 @@ func (d *VP8Decoder) LastFrameInfo() (FrameInfo, bool) {
 	return d.lastInfo, true
 }
 
+// LastQuantizer returns the public 0..63 quantizer and internal VP8 qindex
+// for the most recently decoded frame. Mirrors libvpx's
+// VPXD_GET_LAST_QUANTIZER control (vp8/decoder/onyxd_if.c
+// vp8dx_get_quantizer). ok is false on a nil or closed decoder, and before
+// the first successful Decode/DecodeInto call.
+func (d *VP8Decoder) LastQuantizer() (public int, internal int, ok bool) {
+	if d == nil || d.closed || !d.lastInfoValid {
+		return 0, 0, false
+	}
+	return d.lastInfo.Quantizer, d.lastInfo.InternalQuantizer, true
+}
+
 // LastFrameCorrupted reports whether the most recently decoded frame was
 // flagged as corrupted by the decoder. Mirrors libvpx's
 // VP8D_GET_FRAME_CORRUPTED control (vp8/vp8_dx_iface.c). ok is false on a

@@ -18,6 +18,9 @@ func TestVP8DecoderLastControlsBeforeDecode(t *testing.T) {
 	if _, ok := nilDec.LastFrameCorrupted(); ok {
 		t.Fatalf("nil decoder LastFrameCorrupted ok = true, want false")
 	}
+	if _, _, ok := nilDec.LastQuantizer(); ok {
+		t.Fatalf("nil decoder LastQuantizer ok = true, want false")
+	}
 	if _, ok := nilDec.LastReferenceUpdates(); ok {
 		t.Fatalf("nil decoder LastReferenceUpdates ok = true, want false")
 	}
@@ -31,6 +34,9 @@ func TestVP8DecoderLastControlsBeforeDecode(t *testing.T) {
 	}
 	if _, ok := d.LastFrameCorrupted(); ok {
 		t.Fatalf("pre-decode LastFrameCorrupted ok = true, want false")
+	}
+	if _, _, ok := d.LastQuantizer(); ok {
+		t.Fatalf("pre-decode LastQuantizer ok = true, want false")
 	}
 	if _, ok := d.LastReferenceUpdates(); ok {
 		t.Fatalf("pre-decode LastReferenceUpdates ok = true, want false")
@@ -63,6 +69,18 @@ func TestVP8DecoderLastControlsAfterKeyFrame(t *testing.T) {
 	}
 	if corrupted {
 		t.Fatalf("LastFrameCorrupted = true on clean key frame, want false")
+	}
+	publicQ, internalQ, ok := d.LastQuantizer()
+	if !ok {
+		t.Fatalf("LastQuantizer ok = false, want true")
+	}
+	info, ok := d.LastFrameInfo()
+	if !ok {
+		t.Fatalf("LastFrameInfo ok = false, want true")
+	}
+	if publicQ != info.Quantizer || internalQ != info.InternalQuantizer {
+		t.Fatalf("LastQuantizer = public:%d internal:%d, want LastFrameInfo public:%d internal:%d",
+			publicQ, internalQ, info.Quantizer, info.InternalQuantizer)
 	}
 
 	updates, ok := d.LastReferenceUpdates()
@@ -138,6 +156,9 @@ func TestVP8DecoderLastControlsAfterClose(t *testing.T) {
 
 	if _, ok := d.LastFrameCorrupted(); ok {
 		t.Fatalf("LastFrameCorrupted after Close ok = true, want false")
+	}
+	if _, _, ok := d.LastQuantizer(); ok {
+		t.Fatalf("LastQuantizer after Close ok = true, want false")
 	}
 	if _, ok := d.LastReferenceUpdates(); ok {
 		t.Fatalf("LastReferenceUpdates after Close ok = true, want false")

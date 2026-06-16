@@ -97,9 +97,20 @@ func TestDecodeLastFrameInfoReportsMostRecentFrame(t *testing.T) {
 	if key.PTS != 200 || !key.KeyFrame || key.InternalQuantizer != 18 || key.RefUpdates != govpx.ReferenceFlagLast|govpx.ReferenceFlagGolden|govpx.ReferenceFlagAltRef {
 		t.Fatalf("key LastFrameInfo = %+v, want PTS 200 key q18 all ref updates", key)
 	}
+	publicQ, internalQ, ok := d.LastQuantizer()
+	if !ok {
+		t.Fatalf("LastQuantizer after key decode returned !ok")
+	}
+	if publicQ != vp8common.QIndexToPublicQuantizer(18) || internalQ != 18 {
+		t.Fatalf("LastQuantizer = public:%d internal:%d, want public %d / internal 18",
+			publicQ, internalQ, vp8common.QIndexToPublicQuantizer(18))
+	}
 	d.Reset()
 	if _, ok := d.LastFrameInfo(); ok {
 		t.Fatalf("LastFrameInfo after Reset returned ok")
+	}
+	if _, _, ok := d.LastQuantizer(); ok {
+		t.Fatalf("LastQuantizer after Reset returned ok")
 	}
 }
 

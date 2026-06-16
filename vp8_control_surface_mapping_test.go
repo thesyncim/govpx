@@ -87,6 +87,7 @@ func TestVP8DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"DecodeWithPTS":        {Kind: "local-pts-wrapper"},
 		"LastFrameCorrupted":   {Kind: "metadata-api"},
 		"LastFrameInfo":        {Kind: "metadata-api"},
+		"LastQuantizer":        {Kind: "libvpx-decoder-control"},
 		"LastReferenceUpdates": {Kind: "metadata-api"},
 		"LastReferencesUsed":   {Kind: "metadata-api"},
 		"NextFrame":            {Kind: "decode-api"},
