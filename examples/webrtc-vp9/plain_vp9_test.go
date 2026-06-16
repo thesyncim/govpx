@@ -60,6 +60,20 @@ func assertPlainVP9WebRTCPionPayloadsForTest(
 	if err != nil {
 		t.Fatalf("PacketizeWebRTCRTP: %v", err)
 	}
+	assertPlainVP9WebRTCPionPayloadBodiesForTest(t, result, payloads,
+		pictureID, width, height, wantSS)
+}
+
+func assertPlainVP9WebRTCPionPayloadBodiesForTest(
+	t *testing.T,
+	result govpx.VP9EncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+	pictureID uint16,
+	width int,
+	height int,
+	wantSS bool,
+) {
+	t.Helper()
 	if len(payloads) == 0 {
 		t.Fatal("PacketizeWebRTCRTP returned no payloads")
 	}
