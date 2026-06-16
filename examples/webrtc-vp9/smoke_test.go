@@ -126,11 +126,8 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("second RTP access unit first sequence = %d, want %d",
 			got, want)
 	}
-	if got, want := secondAU[0].Timestamp-firstAU[0].Timestamp,
-		uint32(rtpClockHz/defaultFPS); got != want {
-		t.Fatalf("second RTP access unit timestamp step = %d, want %d",
-			got, want)
-	}
+	assertRTPMediaTimestampAdvancedForTest(t, "second RTP access unit",
+		firstAU[0].Timestamp, secondAU[0].Timestamp, defaultFPS)
 	if got, want := secondDesc.PictureID, govpx.NextVP9RTPPictureID(firstDesc.PictureID); got != want {
 		t.Fatalf("second RTP picture ID = %d, want %d", got, want)
 	}
@@ -284,10 +281,8 @@ func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
 			t.Fatalf("feedback RTP access unit first sequence = %d, want %d",
 				got, want)
 		}
-		if got, want := au[0].Timestamp-prevAU[0].Timestamp,
-			uint32(rtpClockHz/defaultFPS); got != want {
-			t.Fatalf("feedback RTP timestamp step = %d, want %d", got, want)
-		}
+		assertRTPMediaTimestampAdvancedForTest(t, "feedback RTP access unit",
+			prevAU[0].Timestamp, au[0].Timestamp, maxAccessUnits)
 		if got, want := desc.PictureID, govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
 			t.Fatalf("feedback RTP picture ID = %d, want %d", got, want)
 		}
@@ -329,10 +324,8 @@ func readVP9RTPAccessUnitWithActiveSpatialLayersForTest(
 			t.Fatalf("spatial-cap RTP access unit first sequence = %d, want %d",
 				got, want)
 		}
-		if got, want := au[0].Timestamp-prevAU[0].Timestamp,
-			uint32(rtpClockHz/defaultFPS); got != want {
-			t.Fatalf("spatial-cap RTP timestamp step = %d, want %d", got, want)
-		}
+		assertRTPMediaTimestampAdvancedForTest(t, "spatial-cap RTP access unit",
+			prevAU[0].Timestamp, au[0].Timestamp, maxAccessUnits)
 		if got, want := desc.PictureID, govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
 			t.Fatalf("spatial-cap RTP picture ID = %d, want %d", got, want)
 		}
@@ -552,6 +545,50 @@ func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	}
 	if !sawLongStep {
 		t.Fatal("rtp clock never compensated for fractional frame duration")
+	}
+}
+
+func TestRTPMediaFrameForTickSkipsMissedIntervals(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	interval := time.Second / time.Duration(defaultFPS)
+
+	first := rtpMediaFrameForTick(startedAt, startedAt.Add(interval),
+		defaultFPS, 0, false)
+	if first != 0 {
+		t.Fatalf("first media frame = %d, want 0", first)
+	}
+	afterStall := rtpMediaFrameForTick(startedAt, startedAt.Add(6*interval),
+		defaultFPS, first, true)
+	if afterStall != 5 {
+		t.Fatalf("media frame after skipped ticks = %d, want 5",
+			afterStall)
+	}
+	if got, want := rtpClockOffset(afterStall, defaultFPS)-
+		rtpClockOffset(first, defaultFPS),
+		uint64(5*rtpClockHz/defaultFPS); got != want {
+		t.Fatalf("RTP timestamp gap after stall = %d, want %d", got, want)
+	}
+
+	duplicateTick := rtpMediaFrameForTick(startedAt,
+		startedAt.Add(6*interval), defaultFPS, afterStall, true)
+	if duplicateTick != afterStall+1 {
+		t.Fatalf("duplicate tick media frame = %d, want monotonic %d",
+			duplicateTick, afterStall+1)
+	}
+}
+
+func assertRTPMediaTimestampAdvancedForTest(t *testing.T, label string,
+	prev, next uint32, maxFrames int,
+) {
+	t.Helper()
+	if maxFrames <= 0 {
+		t.Fatalf("%s maxFrames = %d, want positive", label, maxFrames)
+	}
+	minStep := uint32(rtpClockHz / defaultFPS)
+	maxStep := uint32(maxFrames) * minStep
+	if got := next - prev; got < minStep || got > maxStep {
+		t.Fatalf("%s timestamp step = %d, want [%d,%d]",
+			label, got, minStep, maxStep)
 	}
 }
 

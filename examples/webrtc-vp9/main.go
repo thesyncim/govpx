@@ -608,6 +608,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	rtpSequence := randomUint16()
 	rtpPictureID := randomUint16() & govpx.VP9RTPPictureID15BitMask
 
+	startedAt := time.Now()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -615,12 +616,14 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	currentScreen := int(ctl.screenMode.Load())
 
 	statsTracker := newStatsTracker()
-	var sceneT int
+	var lastMediaFrame uint64
+	var haveMediaFrame bool
 	for {
+		var tickTime time.Time
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case tickTime = <-ticker.C:
 		}
 
 		// Apply runtime updates between access units. We re-set them
@@ -647,9 +650,13 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			continue
 		}
 
-		sceneT++
-		pts := rtpClockOffset(uint64(sceneT-1), cfg.FPS)
+		mediaFrame := rtpMediaFrameForTick(startedAt, tickTime, cfg.FPS,
+			lastMediaFrame, haveMediaFrame)
+		lastMediaFrame = mediaFrame
+		haveMediaFrame = true
+		pts := rtpClockOffset(mediaFrame, cfg.FPS)
 		rtpTimestamp := rtpTimestampBase + uint32(pts)
+		sceneT := int(mediaFrame + 1)
 		drawScene(imgs, sceneT)
 
 		result, err := svc.EncodeIntoWithResult(imgs, packet)
@@ -737,6 +744,31 @@ func rtpClockOffset(frame uint64, fps int) uint64 {
 		return 0
 	}
 	return frame * rtpClockHz / uint64(fps)
+}
+
+func rtpMediaFrameForTick(startedAt, tickTime time.Time, fps int,
+	last uint64, haveLast bool,
+) uint64 {
+	frame := rtpScheduledFrameForTick(startedAt, tickTime, fps)
+	if haveLast && frame <= last {
+		return last + 1
+	}
+	return frame
+}
+
+func rtpScheduledFrameForTick(startedAt, tickTime time.Time, fps int) uint64 {
+	if fps <= 0 || tickTime.Before(startedAt) {
+		return 0
+	}
+	interval := time.Second / time.Duration(fps)
+	if interval <= 0 {
+		return 0
+	}
+	ticks := uint64(tickTime.Sub(startedAt) / interval)
+	if ticks == 0 {
+		return 0
+	}
+	return ticks - 1
 }
 
 // pushTelemetry sends a payload to the DataChannel writer, dropping the
