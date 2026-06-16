@@ -133,6 +133,138 @@ func TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	steps := []struct {
+		cap      int
+		forceKey bool
+	}{
+		{cap: 3, forceKey: true},
+		{cap: 3},
+		{cap: 3},
+		{cap: 3},
+		{cap: 2},
+		{cap: 2},
+		{cap: 1},
+		{cap: 1},
+		{cap: 3},
+		{cap: 3},
+		{cap: 3, forceKey: true},
+		{cap: 2},
+		{cap: 2},
+		{cap: 3},
+		{cap: 3},
+		{cap: 1},
+		{cap: 1},
+		{cap: 3},
+		{cap: 3},
+		{cap: 3},
+		{cap: 3, forceKey: true},
+		{cap: 2},
+		{cap: 2},
+		{cap: 3},
+	}
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	dst := make([]byte, superframeBudget())
+	packetizer := govpx.NewVP9WebRTCPacketizer(govpx.VP9RTPPictureID15BitMask - 4)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	var payloads []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	lastCap := steps[0].cap
+	prevPictureID := packetizer.PictureID()
+	sawPictureIDWrap := false
+	sawFlexiblePrediction := false
+	for frame, step := range steps {
+		if frame == 0 || step.forceKey || step.cap != lastCap {
+			forceKeyAll(svc)
+		}
+		drawScene(imgs, frame)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, step.cap)
+		if err != nil {
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, step.cap, err)
+		}
+		if int(result.LayerCount) != step.cap {
+			t.Fatalf("frame %d active layer count = %d, want %d",
+				frame, result.LayerCount, step.cap)
+		}
+
+		pictureID := packetizer.PictureID()
+		if frame > 0 && pictureID < prevPictureID {
+			sawPictureIDWrap = true
+		}
+		packetCount, payloadBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+			result, 500)
+		if err != nil {
+			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d: %v",
+				frame, err)
+		}
+		if got := packetizer.PictureID(); got != pictureID {
+			t.Fatalf("size query frame %d advanced PictureID to %d, want %d",
+				frame, got, pictureID)
+		}
+		if cap(payloads) < packetCount {
+			payloads = make([]govpx.RTPPayloadFragment, packetCount)
+		}
+		payloads = payloads[:packetCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		writtenPackets, writtenBytes, err := packetizer.PacketizeSpatialSVCWebRTCInto(
+			result, payloads, payloadBuf, 500)
+		if err != nil {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d: %v", frame, err)
+		}
+		if writtenPackets != packetCount || writtenBytes != payloadBytes {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d returned %d/%d, want %d/%d",
+				frame, writtenPackets, writtenBytes, packetCount, payloadBytes)
+		}
+		payloads = payloads[:writtenPackets]
+		for i, payload := range payloads {
+			desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+			if err != nil {
+				t.Fatalf("frame %d ParseVP9RTPPayloadDescriptor[%d]: %v",
+					frame, i, err)
+			}
+			if desc.StartOfFrame && !desc.FlexibleMode {
+				t.Fatalf("frame %d packet %d used non-flexible VP9 descriptor",
+					frame, i)
+			}
+			if desc.StartOfFrame && desc.InterPicturePredicted &&
+				desc.ReferenceIndexCount > 0 {
+				sawFlexiblePrediction = true
+			}
+		}
+		refFinder.acceptAccessUnit(t, frame, result, payloads, pictureID)
+		if got, want := packetizer.PictureID(),
+			govpx.NextVP9RTPPictureID(pictureID); got != want {
+			t.Fatalf("frame %d next PictureID = %d, want %d",
+				frame, got, want)
+		}
+		prevPictureID = pictureID
+		lastCap = step.cap
+	}
+	if !sawPictureIDWrap {
+		t.Fatal("stateful VP9 WebRTC packetizer test did not cross PictureID wrap")
+	}
+	if !sawFlexiblePrediction {
+		t.Fatal("stateful VP9 WebRTC packetizer test did not exercise flexible P-diff refs")
+	}
+}
+
 func TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap(t *testing.T) {
 	svc, imgs := newSmallWebRTCSVCTestEncoder(t)
 	defer svc.Close()
