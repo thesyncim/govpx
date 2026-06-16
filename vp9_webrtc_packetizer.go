@@ -10,6 +10,7 @@ type VP9WebRTCPacketizer struct {
 	pictureID             uint16
 	consumedDropPending   bool
 	consumedDropSignature vp9WebRTCDroppedFrameSignature
+	keyFrameRequired      bool
 }
 
 // NewVP9WebRTCPacketizer returns a VP9 WebRTC packetizer whose first emitted
@@ -29,6 +30,15 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 	return p.pictureID
 }
 
+// NeedsKeyFrame reports whether a prior encoder-dropped VP9 temporal slot
+// requires the sender to force a keyframe before emitting more RTP payloads.
+// Top temporal-layer drops can be represented as ordinary PictureID gaps, but
+// dropped base/intermediate temporal layers can make WebRTC's non-flexible VP9
+// dependency finder wait for references that will never arrive.
+func (p *VP9WebRTCPacketizer) NeedsKeyFrame() bool {
+	return p != nil && p.keyFrameRequired
+}
+
 // PacketizationSize returns the RTP payload count and payload-body bytes
 // needed to packetize r with the packetizer's current PictureID. Size queries
 // are non-mutating for emittable frames; encoder-dropped frames are consumed
@@ -44,6 +54,9 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 	if r.Dropped {
 		p.consumeDroppedFrame(r)
 		return 0, 0, false, nil
+	}
+	if err = p.requireVP9RecoveryKey(r); err != nil {
+		return 0, 0, false, err
 	}
 	p.consumedDropPending = false
 	packets, payloadBytes, err = r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
@@ -68,12 +81,16 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 		p.consumeDroppedFrame(r)
 		return 0, 0, false, nil
 	}
+	if err = p.requireVP9RecoveryKey(r); err != nil {
+		return 0, 0, false, err
+	}
 	packets, payloadBytes, err = r.PacketizeWebRTCRTPInto(dst, payloadBuf,
 		p.pictureID, mtu)
 	if err != nil {
 		return packets, payloadBytes, false, err
 	}
 	p.consumedDropPending = false
+	p.keyFrameRequired = false
 	p.advancePictureID()
 	return packets, payloadBytes, true, nil
 }
@@ -92,11 +109,15 @@ func (p *VP9WebRTCPacketizer) Packetize(
 		p.consumeDroppedFrame(r)
 		return nil, false, nil
 	}
+	if err := p.requireVP9RecoveryKey(r); err != nil {
+		return nil, false, err
+	}
 	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
 	if err != nil {
 		return nil, false, err
 	}
 	p.consumedDropPending = false
+	p.keyFrameRequired = false
 	p.advancePictureID()
 	return payloads, true, nil
 }
@@ -110,6 +131,9 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCPacketizationSize(
 ) (int, int, error) {
 	if p == nil {
 		return 0, 0, ErrInvalidConfig
+	}
+	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
+		return 0, 0, err
 	}
 	p.consumedDropPending = false
 	return r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
@@ -127,12 +151,16 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	if p == nil {
 		return 0, 0, ErrInvalidConfig
 	}
+	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
+		return 0, 0, err
+	}
 	packets, payloadBytes, err := r.PacketizeWebRTCRTPInto(dst, payloadBuf,
 		p.pictureID, mtu)
 	if err != nil {
 		return packets, payloadBytes, err
 	}
 	p.consumedDropPending = false
+	p.keyFrameRequired = false
 	p.advancePictureID()
 	return packets, payloadBytes, nil
 }
@@ -146,11 +174,15 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	if p == nil {
 		return nil, ErrInvalidConfig
 	}
+	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
+		return nil, err
+	}
 	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
 	if err != nil {
 		return nil, err
 	}
 	p.consumedDropPending = false
+	p.keyFrameRequired = false
 	p.advancePictureID()
 	return payloads, nil
 }
@@ -166,7 +198,56 @@ func (p *VP9WebRTCPacketizer) consumeDroppedFrame(r VP9EncodeResult) {
 	}
 	p.consumedDropPending = true
 	p.consumedDropSignature = signature
+	if vp9WebRTCDroppedFrameNeedsKeyFrame(r) {
+		p.keyFrameRequired = true
+	}
 	p.advancePictureID()
+}
+
+func (p *VP9WebRTCPacketizer) requireVP9RecoveryKey(r VP9EncodeResult) error {
+	if p == nil {
+		return ErrInvalidConfig
+	}
+	if !p.keyFrameRequired || vp9WebRTCResultIsRecoveryKey(r) {
+		return nil
+	}
+	return ErrInvalidConfig
+}
+
+func (p *VP9WebRTCPacketizer) requireVP9SpatialSVCRecoveryKey(
+	r VP9SpatialSVCEncodeResult,
+) error {
+	if p == nil {
+		return ErrInvalidConfig
+	}
+	if !p.keyFrameRequired || vp9WebRTCSpatialSVCResultIsRecoveryKey(r) {
+		return nil
+	}
+	return ErrInvalidConfig
+}
+
+func vp9WebRTCDroppedFrameNeedsKeyFrame(r VP9EncodeResult) bool {
+	if r.TemporalLayerCount <= 1 {
+		return true
+	}
+	return r.TemporalLayerID < r.TemporalLayerCount-1
+}
+
+func vp9WebRTCResultIsRecoveryKey(r VP9EncodeResult) bool {
+	return r.KeyFrame && !r.vp9RTPInterPicturePredicted() &&
+		r.TemporalLayerID == 0
+}
+
+func vp9WebRTCSpatialSVCResultIsRecoveryKey(
+	r VP9SpatialSVCEncodeResult,
+) bool {
+	count, err := r.vp9SpatialSVCLayerCount()
+	if err != nil || count == 0 {
+		return false
+	}
+	base := r.Layers[0]
+	return vp9WebRTCResultIsRecoveryKey(base) &&
+		base.ScalabilityStructurePresent
 }
 
 type vp9WebRTCDroppedFrameSignature struct {

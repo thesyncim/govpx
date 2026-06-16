@@ -172,6 +172,67 @@ func TestVP9WebRTCPacketizerConsumesConsecutiveSizedDrops(t *testing.T) {
 	if got := packetizer.PictureID(); got != 1 {
 		t.Fatalf("PictureID after second drop = %d, want 1", got)
 	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("NeedsKeyFrame after lower temporal-layer drop = false, want true")
+	}
+}
+
+func TestVP9WebRTCPacketizerRequiresRecoveryKeyAfterLowerTemporalDrop(t *testing.T) {
+	e, packetizer, dst, _ := newVP9WebRTCPreDropTestState(t)
+
+	lowerDrop := VP9EncodeResult{
+		Dropped:            true,
+		TemporalLayerID:    1,
+		TemporalLayerCount: 3,
+		vp9FrameIndex:      2,
+	}
+	if _, _, sent, err := packetizer.PacketizationSize(lowerDrop,
+		500); err != nil || sent {
+		t.Fatalf("lower dropped PacketizationSize = sent:%t err:%v, want consumed skip",
+			sent, err)
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("NeedsKeyFrame after lower temporal-layer drop = false, want true")
+	}
+	if err := e.SetFrameDropAllowed(false); err != nil {
+		t.Fatalf("SetFrameDropAllowed(false): %v", err)
+	}
+
+	inter, err := e.EncodeIntoWithResult(vp9test.NewPanningYCbCr(64, 64, 1),
+		dst)
+	if err != nil {
+		t.Fatalf("inter EncodeIntoWithResult: %v", err)
+	}
+	if inter.Dropped || inter.KeyFrame {
+		t.Fatalf("inter result = dropped:%t key:%t, want coded inter",
+			inter.Dropped, inter.KeyFrame)
+	}
+	if _, _, sent, err := packetizer.PacketizationSize(inter,
+		500); !errors.Is(err, ErrInvalidConfig) || sent {
+		t.Fatalf("inter PacketizationSize after lower drop = sent:%t err:%v, want ErrInvalidConfig",
+			sent, err)
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("NeedsKeyFrame cleared by rejected inter frame")
+	}
+
+	e.ForceKeyFrame()
+	key, err := e.EncodeIntoWithResult(vp9test.NewPanningYCbCr(64, 64, 2), dst)
+	if err != nil {
+		t.Fatalf("forced key EncodeIntoWithResult: %v", err)
+	}
+	if key.Dropped || !key.KeyFrame || key.TemporalLayerID != 0 {
+		t.Fatalf("forced key result = dropped:%t key:%t tid:%d, want TL0 key",
+			key.Dropped, key.KeyFrame, key.TemporalLayerID)
+	}
+	payloads, sent, err := packetizer.Packetize(key, 500)
+	if err != nil || !sent {
+		t.Fatalf("forced key Packetize = payloads:%d sent:%t err:%v",
+			len(payloads), sent, err)
+	}
+	if packetizer.NeedsKeyFrame() {
+		t.Fatal("NeedsKeyFrame remained set after recovery key")
+	}
 }
 
 func newVP9WebRTCDropTestState(

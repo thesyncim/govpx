@@ -235,6 +235,9 @@ func plainVP9WebRTCCBRDropStreamForTest(
 				t.Fatalf("duplicate dropped PacketizeInto frame %d = sent:%t err:%v",
 					frame, sent, err)
 			}
+			if packetizer.NeedsKeyFrame() {
+				encoder.ForceKeyFrame()
+			}
 			continue
 		}
 		if !sent {
