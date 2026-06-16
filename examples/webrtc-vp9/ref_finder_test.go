@@ -5,9 +5,55 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
 const vp9WebRTCRefFinderMaxTemporalLayersForTest = 8
+
+func TestPlainVP9PacketizedStreamPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const width, height = 64, 64
+	encoder, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               defaultFPS,
+		Deadline:          govpx.DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 500,
+		TemporalScalability: govpx.TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    govpx.TemporalLayeringThreeLayers,
+		},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MaxKeyframeInterval:      2048,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer encoder.Close()
+
+	dst := make([]byte, 1<<20)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	pictureID := uint16(govpx.VP9RTPPictureID15BitMask - 2)
+	for frame := 0; frame < 16; frame++ {
+		if frame == 8 {
+			encoder.ForceKeyFrame()
+		}
+		result, err := encoder.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(
+			width, height, byte(24+frame*9), byte(220-frame*5),
+			byte(96+frame*3), byte(188-frame*4)), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		payloads, err := result.PacketizeWebRTCRTP(pictureID, 500)
+		if err != nil {
+			t.Fatalf("PacketizeWebRTCRTP frame %d: %v", frame, err)
+		}
+		refFinder.acceptPlainAccessUnit(t, frame, payloads, pictureID)
+		pictureID = govpx.NextVP9RTPPictureID(pictureID)
+	}
+}
 
 func TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
 	steps := []struct {
@@ -221,6 +267,34 @@ func (f *webRTCVP9RefFinderForTest) acceptAccessUnit(
 		}
 		f.acceptFrame(t, frame, layer, desc)
 	}
+}
+
+func (f *webRTCVP9RefFinderForTest) acceptPlainAccessUnit(
+	t *testing.T,
+	frame int,
+	payloads []govpx.RTPPayloadFragment,
+	pictureID uint16,
+) {
+	t.Helper()
+	var starts []govpx.VP9RTPPayloadDescriptor
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("frame %d ParseVP9RTPPayloadDescriptor[%d]: %v",
+				frame, i, err)
+		}
+		if desc.StartOfFrame {
+			starts = append(starts, desc)
+		}
+	}
+	if len(starts) != 1 {
+		t.Fatalf("frame %d layer starts = %d, want 1", frame, len(starts))
+	}
+	if starts[0].PictureID != pictureID {
+		t.Fatalf("frame %d PictureID = %d, want %d",
+			frame, starts[0].PictureID, pictureID)
+	}
+	f.acceptFrame(t, frame, 0, starts[0])
 }
 
 func (f *webRTCVP9RefFinderForTest) acceptFrame(

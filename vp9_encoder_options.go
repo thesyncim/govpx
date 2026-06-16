@@ -622,7 +622,11 @@ type VP9EncodeResult struct {
 	TemporalLayerID    int
 	TemporalLayerCount int
 	TemporalLayerSync  bool
-	TL0PICIDX          uint8
+	// TemporalLayeringMode reports the configured temporal pattern that
+	// produced the temporal metadata. It is TemporalLayeringOneLayer when
+	// temporal layering is disabled.
+	TemporalLayeringMode TemporalLayeringMode
+	TL0PICIDX            uint8
 
 	SpatialLayerID              uint8
 	SpatialLayerCount           uint8
