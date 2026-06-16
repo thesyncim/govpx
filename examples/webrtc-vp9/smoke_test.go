@@ -135,6 +135,12 @@ func TestDemoEndToEnd(t *testing.T) {
 			desc.ScalabilityStructurePresent,
 			desc.ScalabilityStructure.SpatialLayerCount, spatialLayerCount)
 	}
+	if !desc.ScalabilityStructure.PictureGroupPresent ||
+		len(desc.ScalabilityStructure.PictureGroups) != 4 {
+		t.Fatalf("first RTP temporal picture groups = present:%v count:%d, want 4 groups",
+			desc.ScalabilityStructure.PictureGroupPresent,
+			len(desc.ScalabilityStructure.PictureGroups))
+	}
 
 	var raw []byte
 	select {
@@ -158,6 +164,9 @@ func TestDemoEndToEnd(t *testing.T) {
 	for i, layer := range msg.Layers {
 		if layer.SP != i {
 			t.Fatalf("layer %d SP = %d", i, layer.SP)
+		}
+		if layer.TP < 0 || layer.TP >= 3 {
+			t.Fatalf("layer %d TP = %d, want three-layer temporal id", i, layer.TP)
 		}
 	}
 
@@ -217,6 +226,50 @@ func TestSVCEncoderEmitsThreadedTopLayerTileLayout(t *testing.T) {
 	}
 }
 
+func TestSVCEncoderUsesThreeTemporalLayers(t *testing.T) {
+	results := encodeSVCResultsForTest(t, 5)
+	wantTemporalID := []int{0, 2, 1, 2, 0}
+	wantTL0 := []uint8{0, 0, 0, 0, 1}
+
+	for frame, result := range results {
+		if result.LayerCount != spatialLayerCount {
+			t.Fatalf("frame %d layer count = %d, want %d",
+				frame, result.LayerCount, spatialLayerCount)
+		}
+		base := result.Layers[0]
+		for spatial := 0; spatial < spatialLayerCount; spatial++ {
+			layer := result.Layers[spatial]
+			if layer.TemporalLayerCount != 3 ||
+				layer.TemporalLayerID != wantTemporalID[frame] ||
+				layer.TL0PICIDX != wantTL0[frame] {
+				t.Fatalf("frame %d layer %d temporal = id:%d count:%d tl0:%d, want id:%d count:3 tl0:%d",
+					frame, spatial, layer.TemporalLayerID, layer.TemporalLayerCount,
+					layer.TL0PICIDX, wantTemporalID[frame], wantTL0[frame])
+			}
+			if spatial > 0 &&
+				(layer.TemporalLayerID != base.TemporalLayerID ||
+					layer.TL0PICIDX != base.TL0PICIDX) {
+				t.Fatalf("frame %d layer %d temporal metadata drifted from base: got id:%d tl0:%d, base id:%d tl0:%d",
+					frame, spatial, layer.TemporalLayerID, layer.TL0PICIDX,
+					base.TemporalLayerID, base.TL0PICIDX)
+			}
+		}
+	}
+
+	desc := results[0].Layers[0].RTPPayloadDescriptor()
+	if !desc.ScalabilityStructurePresent ||
+		desc.ScalabilityStructure.SpatialLayerCount != spatialLayerCount ||
+		!desc.ScalabilityStructure.PictureGroupPresent ||
+		len(desc.ScalabilityStructure.PictureGroups) != 4 {
+		t.Fatalf("base RTP SS = present:%v spatial:%d groups:%v/%d, want %d spatial layers and 4 temporal picture groups",
+			desc.ScalabilityStructurePresent,
+			desc.ScalabilityStructure.SpatialLayerCount,
+			desc.ScalabilityStructure.PictureGroupPresent,
+			len(desc.ScalabilityStructure.PictureGroups),
+			spatialLayerCount)
+	}
+}
+
 func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
@@ -237,6 +290,12 @@ func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 		t.Fatalf("base SS = present:%v layers:%d, want capped 2-layer structure",
 			base.ScalabilityStructurePresent,
 			base.ScalabilityStructure.SpatialLayerCount)
+	}
+	if !base.ScalabilityStructure.PictureGroupPresent ||
+		len(base.ScalabilityStructure.PictureGroups) != 4 {
+		t.Fatalf("base capped SS temporal groups = present:%v count:%d, want 4 groups",
+			base.ScalabilityStructure.PictureGroupPresent,
+			len(base.ScalabilityStructure.PictureGroups))
 	}
 	if base.NotRefForUpperSpatialLayer {
 		t.Fatal("base descriptor unexpectedly marked not-reference-for-upper")
@@ -265,6 +324,11 @@ func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 
 func encodeOneSVCResultForTest(t *testing.T) govpx.VP9SpatialSVCEncodeResult {
 	t.Helper()
+	return encodeSVCResultsForTest(t, 1)[0]
+}
+
+func encodeSVCResultsForTest(t *testing.T, frames int) []govpx.VP9SpatialSVCEncodeResult {
+	t.Helper()
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,
 		BitrateKbps: defaultBitrateKbps,
@@ -279,14 +343,17 @@ func encodeOneSVCResultForTest(t *testing.T) govpx.VP9SpatialSVCEncodeResult {
 		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
 			image.YCbCrSubsampleRatio420)
 	}
-	drawScene(imgs, 0)
-
 	dst := make([]byte, superframeBudget())
-	result, err := svc.EncodeIntoWithResult(imgs, dst)
-	if err != nil {
-		t.Fatalf("EncodeIntoWithResult: %v", err)
+	results := make([]govpx.VP9SpatialSVCEncodeResult, frames)
+	for frame := 0; frame < frames; frame++ {
+		drawScene(imgs, frame)
+		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		results[frame] = result
 	}
-	return result
+	return results
 }
 
 func expectedThreads(width, height int) int {

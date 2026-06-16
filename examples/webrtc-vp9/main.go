@@ -1,6 +1,6 @@
 // govpx WebRTC VP9 SVC demo: synthesizes frames in Go, encodes a 3-layer
-// spatial-SVC VP9 superframe with 3 temporal layers per access unit using
-// govpx, streams the access units to the browser over WebRTC, and ships
+// spatial-SVC VP9 superframe with a 3-layer temporal pattern using govpx,
+// streams the access units to the browser over WebRTC, and ships
 // per-layer telemetry over a DataChannel so the page can render a live
 // overlay. Bidirectional control messages on the same DataChannel let the
 // page change bitrate, screen-content tuning, force keyframes, and pause
@@ -32,6 +32,7 @@ import (
 
 const (
 	spatialLayerCount = 3
+	temporalLayerMode = govpx.TemporalLayeringThreeLayers
 	rtpClockHz        = 90000
 	rtpPayloadMTU     = 1200 - 12
 
@@ -96,7 +97,7 @@ pre{margin:0;font-size:11px;white-space:pre-wrap;word-break:break-word}
 <main>
   <h1>govpx VP9 SVC over WebRTC</h1>
   <p style="margin:0 0 10px;opacity:.75;font-size:13px">
-    Three spatial layers (180p/360p/720p) with three temporal layers each, packed
+    Three spatial layers (160x90, 320x180, 640x360) with a three-layer temporal pattern, packed
     into a VP9 superframe per access unit, encoded in pure Go by govpx and
     decoded by the browser's native VP9 decoder. Stats and controls travel a
     DataChannel.
@@ -108,9 +109,9 @@ pre{margin:0;font-size:11px;white-space:pre-wrap;word-break:break-word}
   <div class="card">
     <h2 style="margin-top:0">Live access unit</h2>
     <div class="layers" id="layers">
-      <div class="layer" data-layer="0"><div class="res">320x180</div><dl></dl></div>
-      <div class="layer" data-layer="1"><div class="res">640x360</div><dl></dl></div>
-      <div class="layer" data-layer="2"><div class="res">1280x720</div><dl></dl></div>
+      <div class="layer" data-layer="0"><div class="res">160x90</div><dl></dl></div>
+      <div class="layer" data-layer="1"><div class="res">320x180</div><dl></dl></div>
+      <div class="layer" data-layer="2"><div class="res">640x360</div><dl></dl></div>
     </div>
     <dl class="totals" id="totals"></dl>
   </div>
@@ -705,10 +706,10 @@ func pushTelemetry(telemetry chan []byte, payload []byte) {
 }
 
 func superframeBudget() int {
-	// Top-layer 1280x720 YUV is 1.4 MB; allow ~256 KB output plus per-layer
-	// VP9 first_partition_size slack (64 KB each) on top.
-	const topLayer = 1280 * 720
-	return topLayer/2 + spatialLayerCount*64*1024
+	// Keep a 720p-class output buffer so forced keyframes and live bitrate
+	// experiments have headroom while the demo defaults to a 640x360 top layer.
+	const budgetLayerPixels = 1280 * 720
+	return budgetLayerPixels/2 + spatialLayerCount*64*1024
 }
 
 func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
@@ -728,6 +729,7 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 			RateControlModeSet:  true,
 			RateControlMode:     govpx.RateControlCBR,
 			TargetBitrateKbps:   layerTarget,
+			TemporalScalability: govpx.TemporalScalabilityConfig{Enabled: true, Mode: temporalLayerMode},
 			MinQuantizer:        4,
 			MaxQuantizer:        56,
 			MaxKeyframeInterval: 128,
