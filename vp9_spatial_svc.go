@@ -132,7 +132,8 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		layerCount:           opts.LayerCount,
 		interLayerPrediction: opts.InterLayerPrediction,
 		scalabilityStructure: vp9SpatialSVCScalabilityStructure(widths,
-			heights, count, temporalMode, temporalEnabled),
+			heights, count, temporalMode, temporalEnabled,
+			opts.InterLayerPrediction),
 		temporalMode:        temporalMode,
 		temporalEnabled:     temporalEnabled,
 		noTemporalAltRefIdx: vp9AltRefSlot,
@@ -212,6 +213,7 @@ func vp9SpatialSVCScalabilityStructure(
 	layerCount int,
 	temporalMode TemporalLayeringMode,
 	temporalEnabled bool,
+	interLayerPrediction bool,
 ) VP9RTPScalabilityStructure {
 	ss := VP9RTPScalabilityStructure{
 		SpatialLayerCount: layerCount,
@@ -220,7 +222,8 @@ func vp9SpatialSVCScalabilityStructure(
 		Height:            heights,
 	}
 	if temporalEnabled {
-		vp9SetScalabilityStructureTemporalPattern(&ss, temporalMode)
+		vp9SetScalabilityStructureTemporalPattern(&ss, temporalMode,
+			interLayerPrediction)
 	}
 	return ss
 }
@@ -228,9 +231,11 @@ func vp9SpatialSVCScalabilityStructure(
 func vp9SetScalabilityStructureTemporalPatternFromConfig(
 	ss *VP9RTPScalabilityStructure,
 	cfg TemporalScalabilityConfig,
+	interLayerPrediction bool,
 ) {
 	if cfg.Enabled {
-		vp9SetScalabilityStructureTemporalPattern(ss, cfg.Mode)
+		vp9SetScalabilityStructureTemporalPattern(ss, cfg.Mode,
+			interLayerPrediction)
 		return
 	}
 	vp9ClearScalabilityStructureTemporalPattern(ss)
@@ -239,8 +244,10 @@ func vp9SetScalabilityStructureTemporalPatternFromConfig(
 func vp9SetScalabilityStructureTemporalPattern(
 	ss *VP9RTPScalabilityStructure,
 	mode TemporalLayeringMode,
+	interLayerPrediction bool,
 ) {
-	groups := vp9TemporalScalabilityPictureGroups(mode)
+	groups := vp9TemporalScalabilityPictureGroups(mode,
+		interLayerPrediction)
 	if len(groups) == 0 {
 		vp9ClearScalabilityStructureTemporalPattern(ss)
 		return
@@ -254,10 +261,19 @@ func vp9ClearScalabilityStructureTemporalPattern(ss *VP9RTPScalabilityStructure)
 	ss.PictureGroups = nil
 }
 
-func vp9TemporalScalabilityPictureGroups(mode TemporalLayeringMode) []VP9RTPPictureGroup {
-	if groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(mode); ok {
-		return groups
+func vp9TemporalScalabilityPictureGroups(
+	mode TemporalLayeringMode,
+	interLayerPrediction bool,
+) []VP9RTPPictureGroup {
+	if interLayerPrediction {
+		if groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(mode); ok {
+			return groups
+		}
 	}
+	return vp9GenericTemporalScalabilityPictureGroups(mode)
+}
+
+func vp9GenericTemporalScalabilityPictureGroups(mode TemporalLayeringMode) []VP9RTPPictureGroup {
 	pattern, ok := temporalLayeringPattern(mode)
 	if !ok || pattern.Layers <= 1 || pattern.Periodicity <= 0 ||
 		pattern.FlagPeriodicity <= 0 ||
@@ -1117,6 +1133,12 @@ func (e *VP9SpatialSVCEncoder) SetInterLayerPrediction(enabled bool) error {
 		spatial.NotRefForUpperSpatialLayer = !enabled || i == count-1
 		layer.opts.SpatialScalability = spatial
 	}
+	if e.temporalEnabled {
+		vp9SetScalabilityStructureTemporalPattern(&e.scalabilityStructure,
+			e.temporalMode, enabled)
+	} else {
+		vp9ClearScalabilityStructureTemporalPattern(&e.scalabilityStructure)
+	}
 	e.interLayerPrediction = enabled
 	return nil
 }
@@ -1144,7 +1166,8 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 		}
 	}
 	nextScalabilityStructure := e.scalabilityStructure
-	vp9SetScalabilityStructureTemporalPatternFromConfig(&nextScalabilityStructure, cfg)
+	vp9SetScalabilityStructureTemporalPatternFromConfig(&nextScalabilityStructure,
+		cfg, e.interLayerPrediction)
 	// libvpx: vp9_svc_layercontext.c vp9_update_layer_context_change_config() —
 	// number_temporal_layers tracks oxcf->ts_number_layers across change_config
 	// calls. Mirror that here so the speed-features dispatcher sees the new
