@@ -134,6 +134,19 @@ func TestDemoEndToEnd(t *testing.T) {
 	if got, want := secondDesc.PictureID, nextVP9PictureID(firstDesc.PictureID); got != want {
 		t.Fatalf("second RTP picture ID = %d, want %d", got, want)
 	}
+	if err := pc.WriteRTCP([]rtcp.Packet{
+		&rtcp.PictureLossIndication{MediaSSRC: firstAU[0].SSRC},
+	}); err != nil {
+		t.Fatalf("send PLI: %v", err)
+	}
+	pliDesc := readVP9RTPKeyAccessUnitAfterFeedbackForTest(t, ctx, rtpCh,
+		secondAU, secondDesc)
+	if pliDesc.InterPicturePredicted {
+		t.Fatal("PLI response base descriptor kept inter-picture prediction")
+	}
+	if !pliDesc.ScalabilityStructurePresent {
+		t.Fatal("PLI response did not carry key access-unit scalability structure")
+	}
 
 	desc := firstDesc
 	if !desc.LayerIndicesPresent || desc.SpatialID != 0 {
@@ -224,6 +237,49 @@ func readVP9RTPAccessUnitForTest(
 			t.Fatalf("no complete RTP access unit received within timeout")
 		}
 	}
+}
+
+func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
+	t *testing.T,
+	ctx context.Context,
+	rtpCh <-chan *rtp.Packet,
+	prevAU []*rtp.Packet,
+	prevDesc govpx.VP9RTPPayloadDescriptor,
+) govpx.VP9RTPPayloadDescriptor {
+	t.Helper()
+	if len(prevAU) == 0 {
+		t.Fatal("feedback wait started without previous RTP access unit")
+	}
+	const maxAccessUnits = defaultFPS
+	for attempt := 0; attempt < maxAccessUnits; attempt++ {
+		au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+		first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor feedback AU: %v", err)
+		}
+		desc := assertWebRTCRTPAccessUnitForTest(t, au, spatialLayerCount,
+			first.ScalabilityStructurePresent)
+		prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
+		if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
+			t.Fatalf("feedback RTP access unit first sequence = %d, want %d",
+				got, want)
+		}
+		if got, want := au[0].Timestamp-prevAU[0].Timestamp,
+			uint32(rtpClockHz/defaultFPS); got != want {
+			t.Fatalf("feedback RTP timestamp step = %d, want %d", got, want)
+		}
+		if got, want := desc.PictureID, nextVP9PictureID(prevDesc.PictureID); got != want {
+			t.Fatalf("feedback RTP picture ID = %d, want %d", got, want)
+		}
+		if desc.ScalabilityStructurePresent {
+			return desc
+		}
+		prevAU = au
+		prevDesc = desc
+	}
+	t.Fatalf("receiver feedback did not produce a key RTP access unit within %d frames",
+		maxAccessUnits)
+	return govpx.VP9RTPPayloadDescriptor{}
 }
 
 func assertWebRTCRTPAccessUnitForTest(
