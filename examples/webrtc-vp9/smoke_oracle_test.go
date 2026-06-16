@@ -11,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -149,6 +151,152 @@ func TestWebRTCEndToEndReceivedSVCStreamDecodesWithVpxdec(t *testing.T) {
 			t.Fatalf("live WebRTC vpxdec layer %d raw size = %d, want %d",
 				layer, len(raw), want)
 		}
+	}
+}
+
+func TestWebRTCEndToEndRuntimeControlsDecodeWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	cfg := demoConfig{
+		Addr:        ":0",
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+
+	rtpCh := make(chan *rtp.Packet, 1024)
+	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		go func() {
+			for {
+				packet, _, err := track.ReadRTP()
+				if err != nil {
+					return
+				}
+				if len(packet.Payload) == 0 {
+					continue
+				}
+				copyPacket := *packet
+				copyPacket.Payload = append([]byte(nil), packet.Payload...)
+				select {
+				case rtpCh <- &copyPacket:
+				default:
+				}
+			}
+		}()
+	})
+
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	dcOpen := make(chan struct{})
+	var dcOpenOnce sync.Once
+	dc, err := pc.CreateDataChannel("demo", nil)
+	if err != nil {
+		t.Fatalf("CreateDataChannel: %v", err)
+	}
+	dc.OnOpen(func() {
+		dcOpenOnce.Do(func() { close(dcOpen) })
+	})
+
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	gather := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(offer); err != nil {
+		t.Fatalf("SetLocalDescription: %v", err)
+	}
+	<-gather
+
+	body, err := json.Marshal(pc.LocalDescription())
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json",
+		bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s", resp.StatusCode, raw)
+	}
+	var answer webrtc.SessionDescription
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		t.Fatalf("decode answer: %v", err)
+	}
+	if err := pc.SetRemoteDescription(answer); err != nil {
+		t.Fatalf("SetRemoteDescription: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	select {
+	case <-dcOpen:
+	case <-ctx.Done():
+		t.Fatalf("DataChannel did not open before timeout")
+	}
+
+	state := liveWebRTCRTPOracleState{}
+	firstDesc, firstLayers := state.read(t, ctx, rtpCh)
+	if firstLayers != spatialLayerCount || !firstDesc.ScalabilityStructurePresent {
+		t.Fatalf("first live AU = layers:%d ss:%t, want %d-layer key AU",
+			firstLayers, firstDesc.ScalabilityStructurePresent,
+			spatialLayerCount)
+	}
+	for range 2 {
+		state.read(t, ctx, rtpCh)
+	}
+
+	sendWebRTCControlForOracle(t, dc, `{"type":"bitrate","kbps":1200}`)
+	sendWebRTCControlForOracle(t, dc, `{"type":"screen","mode":1}`)
+	for range 2 {
+		state.read(t, ctx, rtpCh)
+	}
+
+	sendWebRTCControlForOracle(t, dc, `{"type":"spatial","cap":2}`)
+	state.readUntilKeyForLayers(t, ctx, rtpCh, 2)
+	sendWebRTCControlForOracle(t, dc, `{"type":"spatial","cap":1}`)
+	state.readUntilKeyForLayers(t, ctx, rtpCh, 1)
+	sendWebRTCControlForOracle(t, dc, `{"type":"spatial","cap":3}`)
+	state.readUntilKeyForLayers(t, ctx, rtpCh, 3)
+
+	if err := pc.WriteRTCP([]rtcp.Packet{
+		&rtcp.PictureLossIndication{MediaSSRC: state.prevAU[0].SSRC},
+	}); err != nil {
+		t.Fatalf("send PLI: %v", err)
+	}
+	state.readUntilKeyForLayers(t, ctx, rtpCh, 3)
+
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], state.packets...)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(state.caps, layer)
+		if len(raw) != want {
+			t.Fatalf("live controls vpxdec layer %d raw size = %d, want %d (caps=%v)",
+				layer, len(raw), want, state.caps)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "live controls",
+			raw, state.caps, layer)
 	}
 }
 
@@ -627,6 +775,82 @@ func reassembleWebRTCSVCResultWithPionForOracle(
 		t.Fatalf("Pion PackVP9SuperframeInto: %v", err)
 	}
 	return packet[:n]
+}
+
+type liveWebRTCRTPOracleState struct {
+	packets  [][]byte
+	caps     []int
+	prevAU   []*rtp.Packet
+	prevDesc govpx.VP9RTPPayloadDescriptor
+}
+
+func (s *liveWebRTCRTPOracleState) read(
+	t *testing.T,
+	ctx context.Context,
+	rtpCh <-chan *rtp.Packet,
+) (govpx.VP9RTPPayloadDescriptor, int) {
+	t.Helper()
+	au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+	layers := rtpAccessUnitSpatialLayerCountForTest(t, au)
+	first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor live controls: %v", err)
+	}
+	desc := assertWebRTCRTPAccessUnitForTest(t, au, layers,
+		first.ScalabilityStructurePresent)
+	if len(s.prevAU) > 0 {
+		prevLastSeq := s.prevAU[0].SequenceNumber +
+			uint16(len(s.prevAU)-1)
+		if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
+			t.Fatalf("live controls RTP first sequence = %d, want %d",
+				got, want)
+		}
+		assertRTPMediaTimestampAdvancedForTest(t, "live controls RTP",
+			s.prevAU[0].Timestamp, au[0].Timestamp, defaultFPS)
+		if got, want := desc.PictureID,
+			govpx.NextVP9RTPPictureID(s.prevDesc.PictureID); got != want {
+			t.Fatalf("live controls PictureID = %d, want %d",
+				got, want)
+		}
+	}
+	s.packets = append(s.packets,
+		reassembleWebRTCRTPAccessUnitForOracle(t, au, layers))
+	s.caps = append(s.caps, layers)
+	s.prevAU = au
+	s.prevDesc = desc
+	return desc, layers
+}
+
+func (s *liveWebRTCRTPOracleState) readUntilKeyForLayers(
+	t *testing.T,
+	ctx context.Context,
+	rtpCh <-chan *rtp.Packet,
+	wantLayers int,
+) govpx.VP9RTPPayloadDescriptor {
+	t.Helper()
+	for attempt := 0; attempt < 2*defaultFPS; attempt++ {
+		desc, layers := s.read(t, ctx, rtpCh)
+		if layers == wantLayers &&
+			desc.ScalabilityStructurePresent &&
+			desc.ScalabilityStructure.SpatialLayerCount == wantLayers &&
+			!desc.InterPicturePredicted {
+			return desc
+		}
+	}
+	t.Fatalf("did not receive %d-layer key AU within %d frames",
+		wantLayers, 2*defaultFPS)
+	return govpx.VP9RTPPayloadDescriptor{}
+}
+
+func sendWebRTCControlForOracle(
+	t *testing.T,
+	dc *webrtc.DataChannel,
+	payload string,
+) {
+	t.Helper()
+	if err := dc.SendText(payload); err != nil {
+		t.Fatalf("send control %s: %v", payload, err)
+	}
 }
 
 func reassembleWebRTCRTPAccessUnitForOracle(
