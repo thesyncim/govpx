@@ -66,6 +66,102 @@ func TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
 	}
 }
 
+func TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap(t *testing.T) {
+	svc, imgs := newSmallWebRTCSVCTestEncoder(t)
+	defer svc.Close()
+
+	dst := make([]byte, 1<<20)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	pictureID := uint16(0x1200)
+	var lastTL0 uint8
+	var haveTL0 bool
+	var sawWrap bool
+	for frame := 0; frame < 1032; frame++ {
+		drawSmallWebRTCTestFrame(imgs, frame)
+		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		base := result.Layers[0]
+		if base.TemporalLayerID == 0 {
+			if haveTL0 && base.TL0PICIDX < lastTL0 {
+				sawWrap = true
+			}
+			lastTL0 = base.TL0PICIDX
+			haveTL0 = true
+		}
+		payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
+		refFinder.acceptAccessUnit(t, frame, result, payloads, pictureID)
+		pictureID = govpx.NextVP9RTPPictureID(pictureID)
+	}
+	if !sawWrap {
+		t.Fatal("test did not cross TL0PICIDX wrap")
+	}
+}
+
+func newSmallWebRTCSVCTestEncoder(t *testing.T) (
+	*govpx.VP9SpatialSVCEncoder,
+	[]*image.YCbCr,
+) {
+	t.Helper()
+	dims := [3][2]int{{16, 16}, {32, 32}, {64, 64}}
+	bitrates := [3]int{80, 160, 320}
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	var layers [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions
+	imgs := make([]*image.YCbCr, len(dims))
+	for i := range dims {
+		w, h := dims[i][0], dims[i][1]
+		layers[i] = govpx.VP9EncoderOptions{
+			Width:                    w,
+			Height:                   h,
+			FPS:                      defaultFPS,
+			Deadline:                 govpx.DeadlineRealtime,
+			CpuUsed:                  8,
+			RateControlModeSet:       true,
+			RateControlMode:          govpx.RateControlCBR,
+			TargetBitrateKbps:        bitrates[i],
+			TemporalScalability:      temporal,
+			ErrorResilient:           true,
+			FrameParallelDecodingSet: true,
+			FrameParallelDecoding:    true,
+			MaxKeyframeInterval:      2048,
+		}
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, w, h),
+			image.YCbCrSubsampleRatio420)
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           uint8(len(dims)),
+		InterLayerPrediction: true,
+		Layers:               layers,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	return svc, imgs
+}
+
+func drawSmallWebRTCTestFrame(imgs []*image.YCbCr, frame int) {
+	for layer, img := range imgs {
+		for y := 0; y < img.Rect.Dy(); y++ {
+			row := img.Y[y*img.YStride:]
+			for x := 0; x < img.Rect.Dx(); x++ {
+				row[x] = uint8(32 + (x*3+y*5+frame*7+layer*19)%192)
+			}
+		}
+		for y := 0; y < img.Rect.Dy()/2; y++ {
+			cbRow := img.Cb[y*img.CStride:]
+			crRow := img.Cr[y*img.CStride:]
+			for x := 0; x < img.Rect.Dx()/2; x++ {
+				cbRow[x] = uint8(96 + (x*5+frame+layer*11)%64)
+				crRow[x] = uint8(128 + (y*7+frame*3+layer*13)%64)
+			}
+		}
+	}
+}
+
 type webRTCVP9RefFinderForTest struct {
 	gofByTL0           map[int]*webRTCVP9GofInfoForTest
 	available          map[int64]bool
