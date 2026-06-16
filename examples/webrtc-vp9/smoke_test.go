@@ -700,6 +700,44 @@ func TestWaitICEGatheringComplete(t *testing.T) {
 	}
 }
 
+func TestWaitForPeerConnected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	connected := make(chan struct{})
+	close(connected)
+	if !waitForPeerConnected(ctx, connected) {
+		t.Fatal("closed connected channel did not open encoder gate")
+	}
+}
+
+func TestWaitForPeerConnectedReturnsFalseOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	connected := make(chan struct{})
+	cancel()
+	if waitForPeerConnected(ctx, connected) {
+		t.Fatal("canceled context opened encoder gate")
+	}
+}
+
+func TestRunEncoderAfterConnectedClosesTelemetryBeforeConnected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	connected := make(chan struct{})
+	telemetry := make(chan []byte)
+	cancel()
+
+	go runEncoderAfterConnected(ctx, connected, nil, telemetry,
+		&controlState{}, demoConfig{})
+
+	select {
+	case _, ok := <-telemetry:
+		if ok {
+			t.Fatal("telemetry channel received data before connection")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("telemetry channel was not closed after canceled connection")
+	}
+}
+
 func TestPeerConnectionDisconnectedDoesNotStopEncoder(t *testing.T) {
 	nonTerminal := []webrtc.PeerConnectionState{
 		webrtc.PeerConnectionStateNew,

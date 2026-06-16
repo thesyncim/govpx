@@ -465,8 +465,13 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	connected := make(chan struct{})
+	var connectedOnce sync.Once
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		log.Printf("peer connection state: %s", s)
+		if s == webrtc.PeerConnectionStateConnected {
+			connectedOnce.Do(func() { close(connected) })
+		}
 		if peerConnectionStateIsTerminal(s) {
 			cancel()
 			_ = pc.Close()
@@ -474,7 +479,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 	})
 
 	go drainRTCP(ctx, sender, ctl)
-	go runEncoder(ctx, track, telemetry, ctl, cfg)
+	go runEncoderAfterConnected(ctx, connected, track, telemetry, ctl, cfg)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(local)
@@ -633,6 +638,26 @@ func rtcpPacketRequestsKeyFrame(packet rtcp.Packet) bool {
 		}
 	}
 	return false
+}
+
+func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
+	track *webrtc.TrackLocalStaticRTP, telemetry chan []byte, ctl *controlState,
+	cfg demoConfig) {
+	if !waitForPeerConnected(ctx, connected) {
+		close(telemetry)
+		return
+	}
+	ctl.forceKey.Store(true)
+	runEncoder(ctx, track, telemetry, ctl, cfg)
+}
+
+func waitForPeerConnected(ctx context.Context, connected <-chan struct{}) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-connected:
+		return true
+	}
 }
 
 // runEncoder drives the spatial SVC encoder, packing one VP9 superframe per
