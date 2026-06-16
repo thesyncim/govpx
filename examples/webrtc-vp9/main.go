@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
@@ -514,9 +515,42 @@ func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, ctl *controlState)
 			}
 			return
 		}
-		_ = n
-		ctl.forceKey.Store(true)
+		if rtcpRequestsKeyFrame(buf[:n]) {
+			ctl.forceKey.Store(true)
+		}
 	}
+}
+
+func rtcpRequestsKeyFrame(raw []byte) bool {
+	packets, err := rtcp.Unmarshal(raw)
+	if err != nil {
+		return false
+	}
+	for _, packet := range packets {
+		if rtcpPacketRequestsKeyFrame(packet) {
+			return true
+		}
+	}
+	return false
+}
+
+func rtcpPacketRequestsKeyFrame(packet rtcp.Packet) bool {
+	switch p := packet.(type) {
+	case *rtcp.PictureLossIndication:
+		return true
+	case *rtcp.FullIntraRequest:
+		return len(p.FIR) > 0
+	case *rtcp.CompoundPacket:
+		if p == nil {
+			return false
+		}
+		for _, child := range *p {
+			if rtcpPacketRequestsKeyFrame(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runEncoder drives the spatial SVC encoder, packing one VP9 superframe per

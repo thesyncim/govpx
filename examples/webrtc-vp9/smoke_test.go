@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
@@ -199,6 +200,48 @@ func TestSplitBitrateTreatsBitrateAsTotalBudget(t *testing.T) {
 	}
 }
 
+func TestRTCPRequestsKeyFrameOnlyForPLIAndFIR(t *testing.T) {
+	rr := marshalRTCPForTest(t, &rtcp.ReceiverReport{SSRC: 1})
+	if rtcpRequestsKeyFrame(rr) {
+		t.Fatal("receiver report unexpectedly requested keyframe")
+	}
+
+	pli := marshalRTCPForTest(t, &rtcp.PictureLossIndication{
+		SenderSSRC: 1,
+		MediaSSRC:  2,
+	})
+	if !rtcpRequestsKeyFrame(pli) {
+		t.Fatal("PLI did not request keyframe")
+	}
+
+	fir := marshalRTCPForTest(t, &rtcp.FullIntraRequest{
+		SenderSSRC: 1,
+		MediaSSRC:  2,
+		FIR: []rtcp.FIREntry{{
+			SSRC:           2,
+			SequenceNumber: 1,
+		}},
+	})
+	if !rtcpRequestsKeyFrame(fir) {
+		t.Fatal("FIR did not request keyframe")
+	}
+
+	compound, err := rtcp.Marshal([]rtcp.Packet{
+		&rtcp.ReceiverReport{SSRC: 1},
+		&rtcp.PictureLossIndication{SenderSSRC: 1, MediaSSRC: 2},
+	})
+	if err != nil {
+		t.Fatalf("marshal compound RTCP: %v", err)
+	}
+	if !rtcpRequestsKeyFrame(compound) {
+		t.Fatal("compound RTCP with PLI did not request keyframe")
+	}
+
+	if rtcpRequestsKeyFrame([]byte{0x80}) {
+		t.Fatal("malformed RTCP unexpectedly requested keyframe")
+	}
+}
+
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -375,6 +418,15 @@ func encodeSVCResultsForTest(t *testing.T, frames int) []govpx.VP9SpatialSVCEnco
 		results[frame] = result
 	}
 	return results
+}
+
+func marshalRTCPForTest(t *testing.T, packet rtcp.Packet) []byte {
+	t.Helper()
+	raw, err := packet.Marshal()
+	if err != nil {
+		t.Fatalf("marshal %T: %v", packet, err)
+	}
+	return raw
 }
 
 func expectedThreads(width, height int) int {
