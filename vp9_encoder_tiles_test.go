@@ -3,11 +3,12 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"image"
+	"runtime"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
@@ -97,6 +98,207 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 		t.Fatal("NextFrame returned !ok after threaded-tile keyframe")
 	}
 	assertVP9FilledFrameWithin(t, frame, width, height, 82, 123, 211, 1)
+}
+
+func TestVP9RealtimeCBRAutoThreadHint(t *testing.T) {
+	base := VP9EncoderOptions{
+		Width:              1280,
+		Height:             720,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  1200,
+	}
+	tests := []struct {
+		name string
+		opts VP9EncoderOptions
+		cpus int
+		want int
+	}{
+		{
+			name: "low-resolution-stays-serial",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.Width = 320
+				opts.Height = 180
+				return opts
+			}(),
+			cpus: 8,
+			want: 1,
+		},
+		{
+			name: "360p-uses-two-columns",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.Width = 640
+				opts.Height = 360
+				return opts
+			}(),
+			cpus: 8,
+			want: 2,
+		},
+		{
+			name: "720p-uses-four-columns",
+			opts: base,
+			cpus: 8,
+			want: 4,
+		},
+		{
+			name: "three-cpus-stays-power-of-two",
+			opts: base,
+			cpus: 3,
+			want: 2,
+		},
+		{
+			name: "target-level-clamps-columns",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.TargetLevel = 20
+				return opts
+			}(),
+			cpus: 8,
+			want: 1,
+		},
+		{
+			name: "explicit-serial-opt-out",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.Threads = 1
+				return opts
+			}(),
+			cpus: 8,
+			want: 1,
+		},
+		{
+			name: "non-cbr-stays-serial",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.RateControlMode = RateControlVBR
+				return opts
+			}(),
+			cpus: 8,
+			want: 1,
+		},
+		{
+			name: "denoiser-stays-serial",
+			opts: func() VP9EncoderOptions {
+				opts := base
+				opts.NoiseSensitivity = 3
+				return opts
+			}(),
+			cpus: 8,
+			want: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := vp9RealtimeAutoThreadHint(tc.opts, tc.cpus); got != tc.want {
+				t.Fatalf("vp9RealtimeAutoThreadHint = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVP9RealtimeCBRAutoThreadingDispatchesTileWorkers(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if e.opts.Threads != 0 {
+		t.Fatalf("stored Threads = %d, want caller auto value 0", e.opts.Threads)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatal("auto-threaded realtime CBR encoder initialized tile pool before encode")
+	}
+
+	packet, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0))
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	h, tileStart := vp9test.ParseHeader(t, packet)
+	if got, want := 1<<uint(h.Tile.Log2TileCols), wantThreads; got != want {
+		t.Fatalf("auto tile columns = %d, want %d", got, want)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("auto-threaded realtime CBR encode did not initialize tile worker pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("auto tile worker count = %d, want %d", got, wantThreads)
+	}
+	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
+}
+
+func TestVP9RealtimeCBRAutoThreadingResizePromotesTileWorkers(t *testing.T) {
+	const (
+		smallWidth  = 320
+		smallHeight = 180
+		wideWidth   = 1280
+		wideHeight  = 720
+	)
+	opts := VP9EncoderOptions{
+		Width:              smallWidth,
+		Height:             smallHeight,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  1200,
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	small, err := e.Encode(vp9test.NewPanningYCbCr(smallWidth, smallHeight, 0))
+	if err != nil {
+		t.Fatalf("small Encode: %v", err)
+	}
+	smallHeader, _ := vp9test.ParseHeader(t, small)
+	if smallHeader.Tile.Log2TileCols != 0 {
+		t.Fatalf("small auto tile columns log2 = %d, want 0", smallHeader.Tile.Log2TileCols)
+	}
+	if e.vp9TilePool != nil {
+		t.Fatalf("small auto tile pool = %d workers, want nil", e.vp9TilePool.workerCount)
+	}
+
+	if err := e.SetRealtimeTarget(RealtimeTarget{Width: wideWidth, Height: wideHeight}); err != nil {
+		t.Fatalf("SetRealtimeTarget resize: %v", err)
+	}
+	resizedOpts := opts
+	resizedOpts.Width = wideWidth
+	resizedOpts.Height = wideHeight
+	wantThreads := vp9RealtimeAutoThreadHint(resizedOpts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	wide, err := e.Encode(vp9test.NewPanningYCbCr(wideWidth, wideHeight, 1))
+	if err != nil {
+		t.Fatalf("wide Encode: %v", err)
+	}
+	wideHeader, tileStart := vp9test.ParseHeader(t, wide)
+	if got, want := 1<<uint(wideHeader.Tile.Log2TileCols), wantThreads; got != want {
+		t.Fatalf("resized auto tile columns = %d, want %d", got, want)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("resized auto-threaded encode did not initialize tile worker pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("resized auto tile worker count = %d, want %d", got, wantThreads)
+	}
+	assertVP9EncoderTilePrefixForTest(t, wide, tileStart)
 }
 
 func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {

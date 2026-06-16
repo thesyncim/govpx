@@ -329,7 +329,7 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 	}
 	miCols := (e.opts.Width + 7) >> 3
 	tileInfo := vp9EncoderTileInfoForTargetLevel(miCols, e.opts.Width,
-		e.opts.Height, e.opts.Threads, e.opts.Log2TileRows,
+		e.opts.Height, e.vp9EffectiveThreadHint(), e.opts.Log2TileRows,
 		e.opts.TargetLevel)
 	if tileInfo.Log2TileRows != 0 {
 		return
@@ -348,7 +348,7 @@ func (e *VP9Encoder) initVP9TileWorkerPool() {
 }
 
 func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
-	if e == nil || e.opts.Threads <= 1 || tileJobs <= 1 {
+	if e == nil || e.vp9EffectiveThreadHint() <= 1 || tileJobs <= 1 {
 		return nil
 	}
 	if pool := e.vp9TilePool; pool != nil && pool.workerCount == tileJobs {
@@ -543,7 +543,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 ) bool {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if e == nil || e.opts.Threads <= 1 || tileRows != 1 || tileCols <= 1 {
+	if e == nil || e.vp9EffectiveThreadHint() <= 1 || tileRows != 1 || tileCols <= 1 {
 		return false
 	}
 	dstCounts := seed.counts
@@ -686,7 +686,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreadedEnabled(tileRows, tileCols int) b
 	// Tile rows depend on reconstructed pixels and above entropy contexts from
 	// the previous row, so this pool only dispatches independent columns in the
 	// default single-row tile layout.
-	return e != nil && e.opts.Threads > 1 && e.opts.NoiseSensitivity == 0 &&
+	return e != nil && e.vp9EffectiveThreadHint() > 1 && e.opts.NoiseSensitivity == 0 &&
 		tileRows == 1 && tileCols > 1
 }
 
@@ -709,7 +709,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	if e.opts.RowMT {
 		sbRows := (miRows + (1 << common.MiBlockSizeLog2) - 1) >> common.MiBlockSizeLog2
 		pool.ensureRowMTSync(sbRows)
-		pool.ensureRowWorkers(e.opts.Threads, sbRows)
+		pool.ensureRowWorkers(e.vp9EffectiveThreadHint(), sbRows)
 	} else {
 		if len(pool.rowMTSyncs) > 0 {
 			pool.releaseRowMTSync()

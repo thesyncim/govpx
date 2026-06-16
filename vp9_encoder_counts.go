@@ -87,7 +87,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 ) bool {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if e.opts.Threads > 1 && e.opts.NoiseSensitivity == 0 &&
+	if e.vp9EffectiveThreadHint() > 1 && e.opts.NoiseSensitivity == 0 &&
 		tileRows == 1 && tileCols > 1 {
 		seed := vp9CountTileSeedForState(key, inter)
 		if e.collectVP9FrameTileCountsThreaded(width, height, miRows, miCols,

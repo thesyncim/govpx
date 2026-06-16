@@ -177,11 +177,13 @@ type VP9EncoderOptions struct {
 	// TimebaseDen is the denominator of the caller timebase.
 	TimebaseDen int
 
-	// Threads is a tile-column hint for VP9 profile 0 encode. Zero or 1
-	// choose the minimum legal tile columns for the frame; larger values choose
+	// Threads is a tile-column hint for VP9 profile 0 encode. Zero keeps the
+	// minimum legal tile columns except for realtime CBR encoders, where zero
+	// means auto and chooses up to four legal tile columns for encoder
+	// parallelism. One is the explicit serial opt-out. Larger values choose
 	// enough columns for decoder/transport parallelism, clamped to VP9 limits.
 	// Multi-column, single-row tile bodies are encoded by a persistent worker
-	// pool; the Threads <= 1 path does not allocate or touch that pool.
+	// pool; effective Threads <= 1 does not allocate or touch that pool.
 	// Negative values return ErrInvalidConfig.
 	Threads int
 	// Log2TileRows selects the VP9 tile-row count as 1<<Log2TileRows. Valid
