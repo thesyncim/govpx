@@ -70,6 +70,41 @@ func TestWebRTCPacketizedSVCCapRecoveryStreamDecodesWithVpxdec(t *testing.T) {
 	}
 }
 
+func TestWebRTCPacketizedSVCRuntimeControlStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	steps := []webRTCSVCOracleStep{
+		{cap: 3},
+		{cap: 3, bitrateKbps: 1200},
+		{cap: 3, screenMode: 1, screenModeSet: true},
+		{cap: 2},
+		{cap: 2, bitrateKbps: 500},
+		{cap: 3, forceKey: true},
+		{cap: 3, screenMode: 2, screenModeSet: true},
+		{cap: 1},
+		{cap: 3, bitrateKbps: 900, screenMode: 0, screenModeSet: true},
+	}
+	packets := encodeWebRTCPacketizedRuntimeAccessUnitsForOracle(t, steps)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	caps := make([]int, len(steps))
+	for i, step := range steps {
+		caps[i] = step.cap
+	}
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("runtime-control vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+	}
+}
+
 func capRecoveryVpxdecBytesForLayer(caps []int, layer int) int {
 	total := 0
 	for _, cap := range caps {
@@ -85,8 +120,33 @@ func capRecoveryVpxdecBytesForLayer(caps []int, layer int) int {
 	return total
 }
 
+type webRTCSVCOracleStep struct {
+	cap           int
+	bitrateKbps   int
+	screenMode    int
+	screenModeSet bool
+	forceKey      bool
+}
+
 func encodeWebRTCPacketizedAccessUnitsForOracle(t *testing.T, caps []int, forceKeyFrames ...int) [][]byte {
 	t.Helper()
+	steps := make([]webRTCSVCOracleStep, len(caps))
+	for frame, cap := range caps {
+		steps[frame] = webRTCSVCOracleStep{cap: cap}
+	}
+	for _, frame := range forceKeyFrames {
+		if frame >= 0 && frame < len(steps) {
+			steps[frame].forceKey = true
+		}
+	}
+	return encodeWebRTCPacketizedRuntimeAccessUnitsForOracle(t, steps)
+}
+
+func encodeWebRTCPacketizedRuntimeAccessUnitsForOracle(t *testing.T, steps []webRTCSVCOracleStep) [][]byte {
+	t.Helper()
+	if len(steps) == 0 {
+		return nil
+	}
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,
 		BitrateKbps: defaultBitrateKbps,
@@ -102,15 +162,30 @@ func encodeWebRTCPacketizedAccessUnitsForOracle(t *testing.T, caps []int, forceK
 			image.YCbCrSubsampleRatio420)
 	}
 	dst := make([]byte, superframeBudget())
-	packets := make([][]byte, len(caps))
+	packets := make([][]byte, len(steps))
 	pictureID := uint16(0x100)
-	lastCap := caps[0]
-	forceKeyFrame := make(map[int]bool, len(forceKeyFrames))
-	for _, frame := range forceKeyFrames {
-		forceKeyFrame[frame] = true
-	}
-	for frame, cap := range caps {
-		if frame > 0 && (cap != lastCap || forceKeyFrame[frame]) {
+	lastCap := steps[0].cap
+	currentBitrate := defaultBitrateKbps
+	currentScreen := 0
+	for frame, step := range steps {
+		cap := step.cap
+		if cap < 1 || cap > spatialLayerCount {
+			t.Fatalf("oracle step %d cap = %d, want 1..%d",
+				frame, cap, spatialLayerCount)
+		}
+		if step.bitrateKbps != 0 && step.bitrateKbps != currentBitrate {
+			if err := applyBitrate(svc, step.bitrateKbps); err != nil {
+				t.Fatalf("applyBitrate frame %d: %v", frame, err)
+			}
+			currentBitrate = step.bitrateKbps
+		}
+		if step.screenModeSet && step.screenMode != currentScreen {
+			if err := applyScreenMode(svc, step.screenMode); err != nil {
+				t.Fatalf("applyScreenMode frame %d: %v", frame, err)
+			}
+			currentScreen = step.screenMode
+		}
+		if frame > 0 && (cap != lastCap || step.forceKey) {
 			forceKeyAll(svc)
 		}
 		drawScene(imgs, frame)

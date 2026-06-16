@@ -427,11 +427,7 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 		rtpResult := cappedSVCResultForRTP(result, cap)
 		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
 		packet := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)
-		decodeLayers := cap
-		if cap < spatialLayerCount && !rtpResult.Layers[cap-1].KeyFrame {
-			decodeLayers = 1
-		}
-		for layer := 0; layer < decodeLayers; layer++ {
+		for layer := 0; layer < cap; layer++ {
 			assertWebRTCSVCDecoderOutputForTest(t, decoders[layer],
 				packet, frame, layer, layerDims[layer][0], layerDims[layer][1])
 		}
