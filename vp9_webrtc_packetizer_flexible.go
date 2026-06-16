@@ -223,13 +223,14 @@ func (t *vp9WebRTCReferenceTracker) flexibleReferenceDiffs(
 	if err != nil {
 		return refs, 0, err
 	}
+	if slotCount == 0 {
+		return refs, 0, ErrInvalidConfig
+	}
 	count := 0
 	for i := 0; i < slotCount; i++ {
-		t.addReferenceSlotDiff(&refs, &count, pictureID, slots[i])
-	}
-	if count == 0 && t.haveLast {
-		addVP9WebRTCReferenceDiff(&refs, &count, pictureID,
-			t.lastPictureID)
+		if !t.addReferenceSlotDiff(&refs, &count, pictureID, slots[i]) {
+			return refs, 0, ErrInvalidConfig
+		}
 	}
 	if count == 0 {
 		return refs, 0, ErrInvalidConfig
@@ -242,11 +243,12 @@ func (t *vp9WebRTCReferenceTracker) addReferenceSlotDiff(
 	count *int,
 	pictureID uint16,
 	slot uint8,
-) {
+) bool {
 	if int(slot) >= len(t.valid) || !t.valid[slot] {
-		return
+		return false
 	}
-	addVP9WebRTCReferenceDiff(refs, count, pictureID, t.pictureID[slot])
+	return addVP9WebRTCReferenceDiff(refs, count, pictureID,
+		t.pictureID[slot])
 }
 
 func addVP9WebRTCReferenceDiff(
@@ -254,22 +256,27 @@ func addVP9WebRTCReferenceDiff(
 	count *int,
 	pictureID uint16,
 	refPictureID uint16,
-) {
-	if refs == nil || count == nil || *count >= VP9RTPMaxReferenceIndices {
-		return
+) bool {
+	if refs == nil || count == nil ||
+		*count < 0 || *count > VP9RTPMaxReferenceIndices {
+		return false
 	}
 	diff := (pictureID - refPictureID) & VP9RTPPictureID15BitMask
 	if diff == 0 || diff > 0x7f {
-		return
+		return false
 	}
 	refDiff := uint8(diff)
 	for i := 0; i < *count; i++ {
 		if refs[i] == refDiff {
-			return
+			return true
 		}
+	}
+	if *count == VP9RTPMaxReferenceIndices {
+		return false
 	}
 	refs[*count] = refDiff
 	*count = *count + 1
+	return true
 }
 
 func vp9WebRTCReferenceSlotsForFrame(

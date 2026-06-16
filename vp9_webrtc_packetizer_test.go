@@ -235,6 +235,94 @@ func TestVP9WebRTCPacketizerRequiresRecoveryKeyAfterLowerTemporalDrop(t *testing
 	}
 }
 
+func TestVP9WebRTCPacketizerRejectsInterWithUnmappedFlexibleReferences(t *testing.T) {
+	inter := newVP9WebRTCInterResultForReferenceTest(t)
+	packetizer := NewVP9WebRTCPacketizer(0x42)
+	packetizer.references.lastPictureID = 0x41
+	packetizer.references.haveLast = true
+
+	packets, payloadBytes, sent, err := packetizer.PacketizationSize(inter, 500)
+	if !errors.Is(err, ErrInvalidConfig) || sent ||
+		packets != 0 || payloadBytes != 0 {
+		t.Fatalf("unmapped inter PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want ErrInvalidConfig",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0x42 {
+		t.Fatalf("PictureID after rejected inter = %d, want %d", got, 0x42)
+	}
+}
+
+func TestVP9WebRTCPacketizerRejectsInterWithTooOldFlexibleReference(t *testing.T) {
+	inter := newVP9WebRTCInterResultForReferenceTest(t)
+	slots, slotCount, err := vp9WebRTCReferenceSlotsForFrame(inter.Data)
+	if err != nil {
+		t.Fatalf("vp9WebRTCReferenceSlotsForFrame: %v", err)
+	}
+	if slotCount == 0 {
+		t.Fatal("inter frame had no reference slots")
+	}
+
+	const pictureID = uint16(0x200)
+	packetizer := NewVP9WebRTCPacketizer(pictureID)
+	packetizer.references.lastPictureID = pictureID - 1
+	packetizer.references.haveLast = true
+	tooOld := (pictureID - 128) & VP9RTPPictureID15BitMask
+	for i := 0; i < slotCount; i++ {
+		slot := slots[i]
+		packetizer.references.valid[slot] = true
+		packetizer.references.pictureID[slot] = tooOld
+	}
+
+	packets, payloadBytes, sent, err := packetizer.PacketizationSize(inter, 500)
+	if !errors.Is(err, ErrInvalidConfig) || sent ||
+		packets != 0 || payloadBytes != 0 {
+		t.Fatalf("too-old inter PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want ErrInvalidConfig",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != pictureID {
+		t.Fatalf("PictureID after rejected inter = %d, want %d", got, pictureID)
+	}
+}
+
+func newVP9WebRTCInterResultForReferenceTest(t *testing.T) VP9EncodeResult {
+	t.Helper()
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 300,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	t.Cleanup(func() { e.Close() })
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		32, 224, 96, 192), dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if key.Dropped || !key.KeyFrame {
+		t.Fatalf("key result = dropped:%t key:%t, want coded key",
+			key.Dropped, key.KeyFrame)
+	}
+	inter, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width,
+		height, 40, 208, 100, 180), dst)
+	if err != nil {
+		t.Fatalf("inter EncodeIntoWithResult: %v", err)
+	}
+	if inter.Dropped || inter.KeyFrame || !inter.vp9RTPInterPicturePredicted() {
+		t.Fatalf("inter result = dropped:%t key:%t predicted:%t, want predicted inter",
+			inter.Dropped, inter.KeyFrame,
+			inter.vp9RTPInterPicturePredicted())
+	}
+	return inter
+}
+
 func newVP9WebRTCDropTestState(
 	t *testing.T,
 ) (*VP9Encoder, VP9WebRTCPacketizer, []byte, []RTPPayloadFragment) {
