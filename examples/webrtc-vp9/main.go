@@ -36,8 +36,9 @@ const (
 	rtpClockHz        = 90000
 	rtpPayloadMTU     = 1200 - 12
 
-	defaultFPS         = 30
-	defaultBitrateKbps = 800
+	defaultFPS          = 30
+	defaultBitrateKbps  = 800
+	minLayerBitrateKbps = 1
 )
 
 // layerDims holds the per-spatial-layer resolution, base to top. Each step
@@ -48,10 +49,9 @@ var layerDims = [spatialLayerCount][2]int{
 	{640, 360},
 }
 
-// layerSplitPct holds the cumulative bitrate share of each spatial layer
-// (base..top). The top entry must be 100; matches the libvpx 3-layer SVC
-// profile used for reference comparisons.
-var layerSplitPct = [spatialLayerCount]int{12, 48, 100}
+// layerSplitPct holds the per-spatial-layer bitrate share, base to top.
+// These are independent layer targets; libvpx sums them for total SVC budget.
+var layerSplitPct = [spatialLayerCount]int{12, 36, 52}
 
 type demoConfig struct {
 	Addr        string
@@ -303,8 +303,12 @@ func main() {
 	fps := flag.Int("fps", defaultFPS, "encoded frame rate")
 	bitrate := flag.Int("bitrate", defaultBitrateKbps, "total target bitrate in kbps")
 	flag.Parse()
-	if *fps <= 0 || *bitrate <= 0 {
-		log.Fatal("fps and bitrate must be positive")
+	if *fps <= 0 {
+		log.Fatal("fps must be positive")
+	}
+	if *bitrate < spatialLayerCount*minLayerBitrateKbps {
+		log.Fatalf("bitrate must be at least %d kbps",
+			spatialLayerCount*minLayerBitrateKbps)
 	}
 	cfg := demoConfig{Addr: *addr, FPS: *fps, BitrateKbps: *bitrate}
 
@@ -744,15 +748,25 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 }
 
 func splitBitrate(total int, splitPct [spatialLayerCount]int) [spatialLayerCount]int {
+	if total < spatialLayerCount*minLayerBitrateKbps {
+		total = spatialLayerCount * minLayerBitrateKbps
+	}
 	var out [spatialLayerCount]int
-	for i := 0; i < spatialLayerCount; i++ {
+	used := 0
+	for i := 0; i < spatialLayerCount-1; i++ {
 		v := total * splitPct[i] / 100
-		if v < 50 {
-			v = 50
+		if v < minLayerBitrateKbps {
+			v = minLayerBitrateKbps
+		}
+		remainingLayers := spatialLayerCount - i - 1
+		maxForLayer := total - used - remainingLayers*minLayerBitrateKbps
+		if v > maxForLayer {
+			v = maxForLayer
 		}
 		out[i] = v
+		used += v
 	}
-	out[spatialLayerCount-1] = total
+	out[spatialLayerCount-1] = total - used
 	return out
 }
 

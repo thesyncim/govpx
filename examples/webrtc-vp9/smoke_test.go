@@ -178,6 +178,27 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 }
 
+func TestSplitBitrateTreatsBitrateAsTotalBudget(t *testing.T) {
+	got := splitBitrate(defaultBitrateKbps, layerSplitPct)
+	want := [spatialLayerCount]int{96, 288, 416}
+	if got != want {
+		t.Fatalf("splitBitrate(%d) = %v, want %v",
+			defaultBitrateKbps, got, want)
+	}
+
+	total := 0
+	for i, kbps := range got {
+		if kbps < minLayerBitrateKbps {
+			t.Fatalf("layer %d bitrate = %d, want at least %d",
+				i, kbps, minLayerBitrateKbps)
+		}
+		total += kbps
+	}
+	if total != defaultBitrateKbps {
+		t.Fatalf("split total = %d, want %d", total, defaultBitrateKbps)
+	}
+}
+
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string

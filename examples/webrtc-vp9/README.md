@@ -39,8 +39,9 @@ Flags:
 - `-addr` — listen address (default `:8080`).
 - `-fps` — encoded frame rate (default `30`).
 - `-bitrate` — total target bitrate in kbps across the three spatial
-  layers (default `800`). The split is 12 % / 36 % / 52 % cumulative to
-  base/mid/top, mirroring libvpx's reference 3-layer profile.
+  layers (default `800`). The split is 12 % / 36 % / 52 % to
+  base/mid/top, matching the independent per-layer targets libvpx sums
+  into the total SVC budget.
 
 ## Performance note
 
