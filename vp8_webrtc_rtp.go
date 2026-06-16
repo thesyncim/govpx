@@ -1,13 +1,38 @@
 package govpx
 
 const (
+	// VP8RTPPictureID7BitMask is the largest VP8 RTP 7-bit PictureID value.
+	VP8RTPPictureID7BitMask uint8 = 0x7f
 	// VP8RTPPictureID15BitMask is the largest VP8 RTP 15-bit PictureID value.
 	VP8RTPPictureID15BitMask uint16 = 0x7fff
+	// VP8RTPKeyIndexMask is the largest VP8 RTP KEYIDX value.
+	VP8RTPKeyIndexMask uint8 = 0x1f
 )
 
 // NextVP8RTPPictureID advances a VP8 RTP 15-bit PictureID with wraparound.
 func NextVP8RTPPictureID(id uint16) uint16 {
+	return NextVP8RTPPictureID15Bit(id)
+}
+
+// NextVP8RTPPictureID7Bit advances a VP8 RTP 7-bit PictureID with wraparound.
+func NextVP8RTPPictureID7Bit(id uint8) uint8 {
+	return (id + 1) & VP8RTPPictureID7BitMask
+}
+
+// NextVP8RTPPictureID15Bit advances a VP8 RTP 15-bit PictureID with wraparound.
+func NextVP8RTPPictureID15Bit(id uint16) uint16 {
 	return (id + 1) & VP8RTPPictureID15BitMask
+}
+
+// NextVP8RTPTL0PICIDX advances a VP8 RTP TL0PICIDX counter with 8-bit
+// wraparound.
+func NextVP8RTPTL0PICIDX(id uint8) uint8 {
+	return id + 1
+}
+
+// NextVP8RTPKeyIndex advances a VP8 RTP KEYIDX counter with wraparound.
+func NextVP8RTPKeyIndex(index uint8) uint8 {
+	return (index + 1) & VP8RTPKeyIndexMask
 }
 
 // RTPPayloadDescriptor returns a VP8 RTP descriptor populated from the encoder

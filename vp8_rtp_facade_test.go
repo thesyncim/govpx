@@ -31,6 +31,37 @@ func TestVP8RTPFacadePayloadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestVP8RTPCounterWrapHelpers(t *testing.T) {
+	if got := govpx.NextVP8RTPPictureID7Bit(govpx.VP8RTPPictureID7BitMask); got != 0 {
+		t.Fatalf("NextVP8RTPPictureID7Bit wrap = %d, want 0", got)
+	}
+	if got := govpx.NextVP8RTPPictureID15Bit(govpx.VP8RTPPictureID15BitMask); got != 0 {
+		t.Fatalf("NextVP8RTPPictureID15Bit wrap = %d, want 0", got)
+	}
+	if got := govpx.NextVP8RTPPictureID(govpx.VP8RTPPictureID15BitMask); got != 0 {
+		t.Fatalf("NextVP8RTPPictureID compatibility wrap = %d, want 0", got)
+	}
+	if got := govpx.NextVP8RTPTL0PICIDX(0xff); got != 0 {
+		t.Fatalf("NextVP8RTPTL0PICIDX wrap = %d, want 0", got)
+	}
+	if got := govpx.NextVP8RTPKeyIndex(govpx.VP8RTPKeyIndexMask); got != 0 {
+		t.Fatalf("NextVP8RTPKeyIndex wrap = %d, want 0", got)
+	}
+
+	if got := govpx.NextVP8RTPPictureID7Bit(126); got != 127 {
+		t.Fatalf("NextVP8RTPPictureID7Bit = %d, want 127", got)
+	}
+	if got := govpx.NextVP8RTPPictureID15Bit(0x7ffe); got != 0x7fff {
+		t.Fatalf("NextVP8RTPPictureID15Bit = %d, want 32767", got)
+	}
+	if got := govpx.NextVP8RTPTL0PICIDX(254); got != 255 {
+		t.Fatalf("NextVP8RTPTL0PICIDX = %d, want 255", got)
+	}
+	if got := govpx.NextVP8RTPKeyIndex(30); got != 31 {
+		t.Fatalf("NextVP8RTPKeyIndex = %d, want 31", got)
+	}
+}
+
 func TestVP8EncodeResultPacketizeWebRTCRTP(t *testing.T) {
 	frame := []byte{0x10, 0x20, 0x30, 0x40, 0x50}
 	result := govpx.EncodeResult{
