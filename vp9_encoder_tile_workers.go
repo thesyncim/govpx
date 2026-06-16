@@ -797,6 +797,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
@@ -835,6 +836,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
 	w.intProSrcBordered = intProSrcBordered
@@ -883,6 +885,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
@@ -918,6 +921,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
 	w.intProSrcBordered = intProSrcBordered

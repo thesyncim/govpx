@@ -534,6 +534,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
+	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	contentStateSbFd := w.contentStateSbFd
@@ -586,6 +587,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
+	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
 	w.intProSrcBordered = intProSrcBordered

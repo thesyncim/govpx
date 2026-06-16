@@ -468,6 +468,14 @@ func (e *VP9Encoder) ensureLastBordered() {
 	e.lastBorderedValid = true
 }
 
+// prepareVP9WorkerLastBordered keeps a shallow-copied worker from inheriting
+// the parent's mutable LAST_FRAME border buffer.
+func (e *VP9Encoder) prepareVP9WorkerLastBordered(buf common.YV12BorderBuffer) {
+	e.lastBordered = buf
+	e.lastBorderedValid = false
+	e.ensureLastBordered()
+}
+
 func (e *VP9Encoder) refreshVP9EncoderMvRefs(isKey bool, miRows, miCols int) {
 	if isKey {
 		e.prevFrameMvsValid = false

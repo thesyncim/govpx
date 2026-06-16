@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestEnsureLastBorderedInvalidWhenNoLastRef checks the early-return path:
@@ -130,4 +131,80 @@ func TestEnsureLastBorderedReusesAcrossCalls(t *testing.T) {
 	if second[0] != 0xAB {
 		t.Fatalf("buffer reuse: backing array detached on reuse")
 	}
+}
+
+func TestVP9WorkerPrepKeepsLastBorderedPrivate(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(worker, src *VP9Encoder)
+	}{
+		{
+			name: "count",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9CountWorker(src, 16, 16, 2, 2)
+			},
+		},
+		{
+			name: "tile-encode",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9TileEncodeWorker(src, 2, 2)
+			},
+		},
+		{
+			name: "frame-parallel",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9FrameParallelWorker(src, 2, 2, 16, 16)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newVP9LastBorderedEncoderForTest(t, 16, 16)
+			var worker VP9Encoder
+			vp9dec.SetupBlockPlanes(&worker.planes, 1, 1)
+
+			tc.prepare(&worker, src)
+
+			if !worker.lastBorderedValid {
+				t.Fatalf("worker lastBorderedValid=false after prep")
+			}
+			if len(worker.lastBordered.Pixels) == 0 ||
+				len(src.lastBordered.Pixels) == 0 {
+				t.Fatalf("lastBordered buffers unexpectedly empty")
+			}
+			if &worker.lastBordered.Pixels[0] == &src.lastBordered.Pixels[0] {
+				t.Fatalf("worker aliases parent lastBordered buffer")
+			}
+		})
+	}
+}
+
+func newVP9LastBorderedEncoderForTest(t *testing.T, w, h int) *VP9Encoder {
+	t.Helper()
+	yPlane := make([]uint8, w*h)
+	uPlane := make([]uint8, (w/2)*(h/2))
+	vPlane := make([]uint8, (w/2)*(h/2))
+	for i := range yPlane {
+		yPlane[i] = uint8(i)
+	}
+	img := Image{
+		Width:   w,
+		Height:  h,
+		Y:       yPlane,
+		U:       uPlane,
+		V:       vPlane,
+		YStride: w,
+		UStride: w / 2,
+		VStride: w / 2,
+	}
+
+	var e VP9Encoder
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.refFrames[vp9LastRefSlot].store(img)
+	e.ensureLastBordered()
+	if !e.lastBorderedValid {
+		t.Fatalf("source lastBorderedValid=false after setup")
+	}
+	return &e
 }
