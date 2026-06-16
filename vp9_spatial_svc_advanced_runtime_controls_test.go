@@ -37,13 +37,13 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 	}
 
 	stats := finalizedVP9TwoPassTestStats(100, 120, 90, 110)
-	if err := svc.SetLayerFrameDropAllowed(0, true); err != nil {
+	if err := svc.SetLayerFrameDropAllowed(0, false); err != nil {
 		t.Fatalf("SetLayerFrameDropAllowed: %v", err)
 	}
 	if err := svc.SetLayerRateControlBuffer(0, 320, 160, 240); err != nil {
 		t.Fatalf("SetLayerRateControlBuffer: %v", err)
 	}
-	if err := svc.SetLayerPostEncodeDrop(0, true); err != nil {
+	if err := svc.SetLayerPostEncodeDrop(0, false); err != nil {
 		t.Fatalf("SetLayerPostEncodeDrop: %v", err)
 	}
 	if err := svc.SetLayerDisableOvershootMaxQCBR(0, true); err != nil {
@@ -170,8 +170,8 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		base.opts.BufferSizeMs != 320 ||
 		base.opts.BufferInitialSizeMs != 160 ||
 		base.opts.BufferOptimalSizeMs != 240 ||
-		!base.opts.PostEncodeDrop ||
-		!base.rc.postEncodeDrop ||
+		base.opts.PostEncodeDrop ||
+		base.rc.postEncodeDrop ||
 		!base.opts.DisableOvershootMaxQCBR ||
 		!base.rc.disableOvershootMaxQCBR ||
 		!base.opts.NextFrameQIndexSet ||
@@ -366,6 +366,61 @@ func TestVP9SpatialSVCEncoderLayerAdvancedRuntimeControls(t *testing.T) {
 		BitrateKbps: 100,
 	}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("SetLayerRealtimeTarget invalid layer err = %v, want ErrInvalidConfig", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"SetLayerFrameDropAllowed", func() error {
+			return svc.SetLayerFrameDropAllowed(0, true)
+		}},
+		{"SetLayerPostEncodeDrop", func() error {
+			return svc.SetLayerPostEncodeDrop(0, true)
+		}},
+		{"SetLayerRealtimeTargetFrameDrop", func() error {
+			return svc.SetLayerRealtimeTarget(0, RealtimeTarget{
+				FrameDrop: RealtimeFrameDropEnabled,
+			})
+		}},
+		{"SetLayerRateControlFrameDrop", func() error {
+			return svc.SetLayerRateControl(0, RateControlConfig{
+				Mode:              RateControlCBR,
+				TargetBitrateKbps: 300,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				DropFrameAllowed:  true,
+			})
+		}},
+		{"direct SetFrameDropAllowed", func() error {
+			return base.SetFrameDropAllowed(true)
+		}},
+		{"direct SetPostEncodeDrop", func() error {
+			return base.SetPostEncodeDrop(true)
+		}},
+		{"direct SetRealtimeTargetFrameDrop", func() error {
+			return base.SetRealtimeTarget(RealtimeTarget{
+				FrameDrop: RealtimeFrameDropEnabled,
+			})
+		}},
+		{"direct SetRateControlFrameDrop", func() error {
+			return base.SetRateControl(RateControlConfig{
+				Mode:              RateControlCBR,
+				TargetBitrateKbps: 300,
+				MinQuantizer:      4,
+				MaxQuantizer:      56,
+				DropFrameAllowed:  true,
+			})
+		}},
+	} {
+		if err := tc.fn(); !errors.Is(err, ErrInvalidConfig) {
+			t.Fatalf("%s err = %v, want ErrInvalidConfig", tc.name, err)
+		}
+	}
+	if base.opts.DropFrameAllowed || base.rc.dropFrameAllowed ||
+		base.opts.PostEncodeDrop || base.rc.postEncodeDrop {
+		t.Fatalf("rejected frame-drop controls mutated base layer: opts=%+v rc=%+v",
+			base.opts, base.rc)
 	}
 
 	if err := svc.Close(); err != nil {

@@ -65,6 +65,10 @@ func (e *VP9Encoder) SetRealtimeTarget(target RealtimeTarget) error {
 	if frameDropRequested && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
 		return ErrInvalidConfig
 	}
+	if err := e.validateSpatialSVCFrameDropRuntimeControl(
+		target.FrameDrop == RealtimeFrameDropEnabled); err != nil {
+		return err
+	}
 	if target.Width > 0 || target.Height > 0 {
 		if !validVP9Dimension(target.Width) || !validVP9Dimension(target.Height) {
 			return ErrInvalidConfig
@@ -243,6 +247,10 @@ func (e *VP9Encoder) SetRateControl(cfg RateControlConfig) error {
 	}
 	nextOpts, err := vp9RateControlOptionsFromConfig(e.opts, cfg)
 	if err != nil {
+		return err
+	}
+	if err := e.validateSpatialSVCFrameDropRuntimeControl(
+		nextOpts.DropFrameAllowed); err != nil {
 		return err
 	}
 	nextTemporal := e.temporal
@@ -976,6 +984,9 @@ func (e *VP9Encoder) SetPostEncodeDrop(enabled bool) error {
 	if enabled && (!e.rc.enabled || e.opts.RateControlMode != RateControlCBR) {
 		return ErrInvalidConfig
 	}
+	if err := e.validateSpatialSVCFrameDropRuntimeControl(enabled); err != nil {
+		return err
+	}
 	e.opts.PostEncodeDrop = enabled
 	e.rc.postEncodeDrop = enabled
 	return nil
@@ -1054,10 +1065,20 @@ func (e *VP9Encoder) SetFrameDropAllowed(enabled bool) error {
 	if !e.rc.enabled || e.opts.RateControlMode != RateControlCBR {
 		return ErrInvalidConfig
 	}
+	if err := e.validateSpatialSVCFrameDropRuntimeControl(enabled); err != nil {
+		return err
+	}
 	e.rc.setFrameDropAllowed(enabled, e.opts.DropFrameWaterMark)
 	e.opts.DropFrameAllowed = enabled
 	if enabled && e.opts.DropFrameWaterMark <= 0 {
 		e.opts.DropFrameWaterMark = int(e.rc.dropFramesWaterMark)
+	}
+	return nil
+}
+
+func (e *VP9Encoder) validateSpatialSVCFrameDropRuntimeControl(enabled bool) error {
+	if enabled && e.spatialScalabilityLocked {
+		return ErrInvalidConfig
 	}
 	return nil
 }

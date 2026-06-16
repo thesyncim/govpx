@@ -147,6 +147,9 @@ func TestVP9SpatialSVCEncoderValidationAndLayerControls(t *testing.T) {
 		{name: "drop frames", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[0].DropFrameAllowed = true
 		}},
+		{name: "post encode drop", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
+			o.Layers[0].PostEncodeDrop = true
+		}},
 		{name: "non increasing", mutate: func(o *govpx.VP9SpatialSVCEncoderOptions) {
 			o.Layers[1].Width = 32
 			o.Layers[1].Height = 32

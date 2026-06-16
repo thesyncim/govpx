@@ -97,7 +97,7 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		layer := opts.Layers[i]
 		if layer.SpatialScalability.Enabled ||
 			layer.LookaheadFrames != 0 || layer.AutoAltRef ||
-			layer.DropFrameAllowed {
+			layer.DropFrameAllowed || layer.PostEncodeDrop {
 			return nil, ErrInvalidConfig
 		}
 		if !validVP9Dimension(layer.Width) || !validVP9Dimension(layer.Height) ||
@@ -528,8 +528,9 @@ func (e *VP9SpatialSVCEncoder) SetLayerRateControl(layerID uint8, cfg RateContro
 }
 
 // SetLayerRealtimeTarget applies one spatial layer's sparse VP9 realtime
-// target update, matching [VP9Encoder.SetRealtimeTarget]. Size-changing
-// updates are rejected while the layer is owned by the SVC encoder.
+// target update, matching [VP9Encoder.SetRealtimeTarget]. Size-changing and
+// frame-drop-enabling updates are rejected while the layer is owned by the SVC
+// encoder.
 func (e *VP9SpatialSVCEncoder) SetLayerRealtimeTarget(layerID uint8,
 	target RealtimeTarget,
 ) error {
@@ -593,8 +594,9 @@ func (e *VP9SpatialSVCEncoder) SetLayerFrameParallelEncoderThreads(layerID uint8
 	return layer.SetFrameParallelEncoderThreads(threads)
 }
 
-// SetLayerFrameDropAllowed enables or disables one spatial layer's VP9 CBR
-// frame dropping, matching [VP9Encoder.SetFrameDropAllowed].
+// SetLayerFrameDropAllowed changes one spatial layer's VP9 CBR frame-drop
+// toggle, matching [VP9Encoder.SetFrameDropAllowed]. Enabling is rejected
+// because spatial-SVC access-unit emission is synchronous.
 func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled bool) error {
 	layer, err := e.layerEncoder(layerID)
 	if err != nil {
@@ -603,8 +605,9 @@ func (e *VP9SpatialSVCEncoder) SetLayerFrameDropAllowed(layerID uint8, enabled b
 	return layer.SetFrameDropAllowed(enabled)
 }
 
-// SetLayerPostEncodeDrop enables or disables one spatial layer's VP9 CBR
-// post-encode drop path, matching [VP9Encoder.SetPostEncodeDrop].
+// SetLayerPostEncodeDrop changes one spatial layer's VP9 CBR post-encode drop
+// path, matching [VP9Encoder.SetPostEncodeDrop]. Enabling is rejected because
+// spatial-SVC access-unit emission is synchronous.
 func (e *VP9SpatialSVCEncoder) SetLayerPostEncodeDrop(layerID uint8, enabled bool) error {
 	layer, err := e.layerEncoder(layerID)
 	if err != nil {

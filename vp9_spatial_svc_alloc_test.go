@@ -54,9 +54,9 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 		{name: "SetLayerFrameParallelEncoderThreads", fn: func() error {
 			return svc.SetLayerFrameParallelEncoderThreads(0, 1)
 		}},
-		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, true) }},
+		{name: "SetLayerFrameDropAllowed", fn: func() error { return svc.SetLayerFrameDropAllowed(0, false) }},
 		{name: "SetLayerRateControlBuffer", fn: func() error { return svc.SetLayerRateControlBuffer(0, 320, 160, 240) }},
-		{name: "SetLayerPostEncodeDrop", fn: func() error { return svc.SetLayerPostEncodeDrop(0, true) }},
+		{name: "SetLayerPostEncodeDrop", fn: func() error { return svc.SetLayerPostEncodeDrop(0, false) }},
 		{name: "SetLayerDisableOvershootMaxQCBR", fn: func() error {
 			return svc.SetLayerDisableOvershootMaxQCBR(0, true)
 		}},
@@ -71,7 +71,7 @@ func TestVP9SpatialSVCEncoderLayerRuntimeControlSettersNoAlloc(t *testing.T) {
 				Height:       32,
 				MinQuantizer: 6,
 				MaxQuantizer: 54,
-				FrameDrop:    govpx.RealtimeFrameDropEnabled,
+				FrameDrop:    govpx.RealtimeFrameDropDisabled,
 			})
 		}},
 		{name: "SetLayerTwoPassStats", fn: func() error { return svc.SetLayerTwoPassStats(1, stats) }},
