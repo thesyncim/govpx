@@ -49,6 +49,42 @@ func TestWebRTCPacketizedSVCForcedKeyStreamDecodesWithVpxdec(t *testing.T) {
 	}
 }
 
+func TestWebRTCPacketizedSVCCapRecoveryStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	caps := []int{3, 3, 2, 2, 1, 3, 3, 2, 3}
+	packets := encodeWebRTCPacketizedAccessUnitsForOracle(t, caps)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("cap-recovery vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+	}
+}
+
+func capRecoveryVpxdecBytesForLayer(caps []int, layer int) int {
+	total := 0
+	for _, cap := range caps {
+		if cap <= 0 {
+			continue
+		}
+		outputLayer := layer
+		if outputLayer >= cap {
+			outputLayer = cap - 1
+		}
+		total += layerDims[outputLayer][0] * layerDims[outputLayer][1] * 3 / 2
+	}
+	return total
+}
+
 func encodeWebRTCPacketizedAccessUnitsForOracle(t *testing.T, caps []int, forceKeyFrames ...int) [][]byte {
 	t.Helper()
 	svc, err := newSVCEncoder(demoConfig{

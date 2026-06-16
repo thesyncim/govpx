@@ -822,14 +822,17 @@ func reassembleWebRTCSVCResultForTest(t *testing.T,
 		if int(desc.TemporalID) != wantLayer.TemporalLayerID ||
 			desc.TL0PICIDX != wantLayer.TL0PICIDX ||
 			desc.SwitchingUpPoint != wantLayer.TemporalLayerSync ||
+			desc.InterPicturePredicted != wantLayer.InterPicturePredicted ||
 			desc.InterLayerDependency != wantLayer.InterLayerDependency ||
 			desc.NotRefForUpperSpatialLayer != wantLayer.NotRefForUpperSpatialLayer {
-			t.Fatalf("payload %d layer %d descriptor = tid:%d tl0:%d sync:%t dep:%t n:%t, want tid:%d tl0:%d sync:%t dep:%t n:%t",
+			t.Fatalf("payload %d layer %d descriptor = tid:%d tl0:%d sync:%t p:%t dep:%t n:%t, want tid:%d tl0:%d sync:%t p:%t dep:%t n:%t",
 				i, layerID, desc.TemporalID, desc.TL0PICIDX,
-				desc.SwitchingUpPoint, desc.InterLayerDependency,
+				desc.SwitchingUpPoint, desc.InterPicturePredicted,
+				desc.InterLayerDependency,
 				desc.NotRefForUpperSpatialLayer,
 				wantLayer.TemporalLayerID, wantLayer.TL0PICIDX,
-				wantLayer.TemporalLayerSync, wantLayer.InterLayerDependency,
+				wantLayer.TemporalLayerSync, wantLayer.InterPicturePredicted,
+				wantLayer.InterLayerDependency,
 				wantLayer.NotRefForUpperSpatialLayer)
 		}
 		if layerID == 0 && desc.StartOfFrame {
