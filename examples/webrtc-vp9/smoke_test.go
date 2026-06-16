@@ -344,6 +344,9 @@ func TestSVCLayerOptionsEnableRowMTForThreadedLayers(t *testing.T) {
 			if opts.Threads != wantThreads {
 				t.Fatalf("Threads = %d, want %d", opts.Threads, wantThreads)
 			}
+			if opts.CpuUsed != 8 {
+				t.Fatalf("CpuUsed = %d, want 8", opts.CpuUsed)
+			}
 			if opts.RowMT != (wantThreads > 1) {
 				t.Fatalf("RowMT = %t for %d threads, want %t",
 					opts.RowMT, wantThreads, wantThreads > 1)

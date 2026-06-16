@@ -875,7 +875,7 @@ func forceKeyAll(svc *govpx.VP9SpatialSVCEncoder) {
 
 func pickCPUUsed(width, height int) int8 {
 	_ = width * height
-	return 9
+	return 8
 }
 
 func pickThreads(width, height int) int {
