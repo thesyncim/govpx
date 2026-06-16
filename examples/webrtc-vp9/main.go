@@ -919,7 +919,10 @@ func (t *statsTracker) observe(r govpx.VP9SpatialSVCEncodeResult, now time.Time)
 		t.au.updated = now
 	}
 	count := int(r.LayerCount)
-	for i := 0; i < count && i < spatialLayerCount; i++ {
+	if count > spatialLayerCount {
+		count = spatialLayerCount
+	}
+	for i := 0; i < count; i++ {
 		t.windowed[i].bytes += r.Layers[i].SizeBytes
 		if since := now.Sub(t.windowed[i].since); since >= time.Second {
 			t.windowed[i].lastKBPS = float64(t.windowed[i].bytes*8) /
@@ -928,6 +931,12 @@ func (t *statsTracker) observe(r govpx.VP9SpatialSVCEncodeResult, now time.Time)
 			t.windowed[i].since = now
 			t.windowed[i].lastUpdate = now
 		}
+	}
+	for i := count; i < spatialLayerCount; i++ {
+		t.windowed[i].bytes = 0
+		t.windowed[i].since = now
+		t.windowed[i].lastKBPS = 0
+		t.windowed[i].lastUpdate = now
 	}
 	t.frames++
 	if dt := now.Sub(t.lastWall); dt > 0 {

@@ -417,6 +417,43 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	}
 }
 
+func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	capped := cappedSVCResultForRTP(result, 1)
+	tracker := newStatsTracker()
+	start := time.Now()
+
+	tracker.observe(result, start.Add(time.Second))
+	if tracker.windowed[1].lastKBPS == 0 || tracker.windowed[2].lastKBPS == 0 {
+		t.Fatalf("full-layer warmup kbps = %.2f/%.2f, want non-zero",
+			tracker.windowed[1].lastKBPS, tracker.windowed[2].lastKBPS)
+	}
+
+	tracker.observe(capped, start.Add(1500*time.Millisecond))
+	if tracker.windowed[1].lastKBPS != 0 || tracker.windowed[2].lastKBPS != 0 {
+		t.Fatalf("hidden-layer kbps after cap = %.2f/%.2f, want zero",
+			tracker.windowed[1].lastKBPS, tracker.windowed[2].lastKBPS)
+	}
+
+	tracker.observe(result, start.Add(1600*time.Millisecond))
+	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0, 0)
+	if err != nil {
+		t.Fatalf("snapshot restored telemetry: %v", err)
+	}
+	var msg telemetryMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode restored telemetry: %v\npayload=%s", err, raw)
+	}
+	if len(msg.Layers) != spatialLayerCount {
+		t.Fatalf("restored telemetry layer count = %d, want %d",
+			len(msg.Layers), spatialLayerCount)
+	}
+	if msg.Layers[1].KbpsR != 0 || msg.Layers[2].KbpsR != 0 {
+		t.Fatalf("restored hidden-layer stale kbps = %.2f/%.2f, want zero until fresh window",
+			msg.Layers[1].KbpsR, msg.Layers[2].KbpsR)
+	}
+}
+
 func encodeOneSVCResultForTest(t *testing.T) govpx.VP9SpatialSVCEncodeResult {
 	t.Helper()
 	return encodeSVCResultsForTest(t, 1)[0]
