@@ -415,6 +415,50 @@ func TestSVCEncoderUsesThreeTemporalLayers(t *testing.T) {
 	}
 }
 
+func TestForceKeyAllRefreshesEverySpatialLayer(t *testing.T) {
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	dst := make([]byte, superframeBudget())
+	for frame := 0; frame < 2; frame++ {
+		drawScene(imgs, frame)
+		if _, err := svc.EncodeIntoWithResult(imgs, dst); err != nil {
+			t.Fatalf("warm EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+	}
+
+	forceKeyAll(svc)
+	if !svc.IsKeyFrameNext() {
+		t.Fatal("ForceKeyFrame request was not armed")
+	}
+	drawScene(imgs, 2)
+	result, err := svc.EncodeIntoWithResult(imgs, dst)
+	if err != nil {
+		t.Fatalf("forced EncodeIntoWithResult: %v", err)
+	}
+	for spatial := 0; spatial < spatialLayerCount; spatial++ {
+		layer := result.Layers[spatial]
+		if !layer.KeyFrame || layer.InterPicturePredicted {
+			t.Fatalf("layer %d forced result = key:%t inter-pred:%t, want key/non-predicted",
+				spatial, layer.KeyFrame, layer.InterPicturePredicted)
+		}
+	}
+	if svc.IsKeyFrameNext() {
+		t.Fatal("ForceKeyFrame request remained armed after encode")
+	}
+}
+
 func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)

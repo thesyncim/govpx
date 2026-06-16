@@ -861,16 +861,10 @@ func applyScreenMode(svc *govpx.VP9SpatialSVCEncoder, mode int) error {
 	return nil
 }
 
-// forceKeyAll asks the SVC encoder for a fresh access unit. We force the
-// base layer; enhancement layers inherit a keyed reference set through
-// the SVC pipeline. Calling ForceKeyFrame on every layer trips the SVC
-// constructor's ILP invariants and rejects the next encode.
+// forceKeyAll asks the SVC encoder for a fresh access unit on every spatial
+// layer after a browser PLI/FIR or manual keyframe request.
 func forceKeyAll(svc *govpx.VP9SpatialSVCEncoder) {
-	base, err := svc.LayerEncoder(0)
-	if err != nil {
-		return
-	}
-	base.ForceKeyFrame()
+	svc.ForceKeyFrame()
 }
 
 func pickCPUUsed(width, height int) int8 {
