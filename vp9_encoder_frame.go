@@ -156,6 +156,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if !isKey && !intraOnly && showFrame && !e.rc.highSourceSAD {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
+			droppedFrameIndex := e.frameIndex
 			e.rc.postDropFrame()
 			e.lastFrameDropped = true
 			e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
@@ -189,6 +190,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 				NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
 				ScalabilityStructurePresent: scalabilityStructurePresent,
 				SpatialScalabilityStructure: spatialScalabilityStructure,
+				vp9FrameIndex:               droppedFrameIndex,
 				interPicturePredictedKnown:  true,
 			}, nil
 		}
@@ -852,6 +854,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		NotRefForUpperSpatialLayer:  notRefForUpperSpatialLayer,
 		ScalabilityStructurePresent: scalabilityStructurePresent,
 		SpatialScalabilityStructure: spatialScalabilityStructure,
+		vp9FrameIndex:               encodedFrameIndex,
 		interPicturePredictedKnown:  true,
 	}
 	if result.TemporalLayerCount == 0 {

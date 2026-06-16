@@ -7,7 +7,9 @@ package govpx
 // pattern slot; leaving a PictureID gap keeps non-flexible VP9 GOF dependency
 // positions aligned with the encoder timeline.
 type VP9WebRTCPacketizer struct {
-	pictureID uint16
+	pictureID             uint16
+	consumedDropPending   bool
+	consumedDropSignature vp9WebRTCDroppedFrameSignature
 }
 
 // NewVP9WebRTCPacketizer returns a VP9 WebRTC packetizer whose first emitted
@@ -40,9 +42,10 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 		return 0, 0, false, ErrInvalidConfig
 	}
 	if r.Dropped {
-		p.advancePictureID()
+		p.consumeDroppedFrame(r)
 		return 0, 0, false, nil
 	}
+	p.consumedDropPending = false
 	packets, payloadBytes, err = r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
 	return packets, payloadBytes, err == nil, err
 }
@@ -62,7 +65,7 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 		return 0, 0, false, ErrInvalidConfig
 	}
 	if r.Dropped {
-		p.advancePictureID()
+		p.consumeDroppedFrame(r)
 		return 0, 0, false, nil
 	}
 	packets, payloadBytes, err = r.PacketizeWebRTCRTPInto(dst, payloadBuf,
@@ -70,6 +73,7 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 	if err != nil {
 		return packets, payloadBytes, false, err
 	}
+	p.consumedDropPending = false
 	p.advancePictureID()
 	return packets, payloadBytes, true, nil
 }
@@ -85,13 +89,14 @@ func (p *VP9WebRTCPacketizer) Packetize(
 		return nil, false, ErrInvalidConfig
 	}
 	if r.Dropped {
-		p.advancePictureID()
+		p.consumeDroppedFrame(r)
 		return nil, false, nil
 	}
 	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
 	if err != nil {
 		return nil, false, err
 	}
+	p.consumedDropPending = false
 	p.advancePictureID()
 	return payloads, true, nil
 }
@@ -106,6 +111,7 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCPacketizationSize(
 	if p == nil {
 		return 0, 0, ErrInvalidConfig
 	}
+	p.consumedDropPending = false
 	return r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
 }
 
@@ -126,6 +132,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	if err != nil {
 		return packets, payloadBytes, err
 	}
+	p.consumedDropPending = false
 	p.advancePictureID()
 	return packets, payloadBytes, nil
 }
@@ -143,10 +150,37 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	if err != nil {
 		return nil, err
 	}
+	p.consumedDropPending = false
 	p.advancePictureID()
 	return payloads, nil
 }
 
 func (p *VP9WebRTCPacketizer) advancePictureID() {
 	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+}
+
+func (p *VP9WebRTCPacketizer) consumeDroppedFrame(r VP9EncodeResult) {
+	signature := r.vp9WebRTCDroppedFrameSignature()
+	if p.consumedDropPending && p.consumedDropSignature == signature {
+		return
+	}
+	p.consumedDropPending = true
+	p.consumedDropSignature = signature
+	p.advancePictureID()
+}
+
+type vp9WebRTCDroppedFrameSignature struct {
+	frameIndex         int
+	temporalLayerID    int
+	temporalLayerCount int
+	tl0PicIdx          uint8
+}
+
+func (r VP9EncodeResult) vp9WebRTCDroppedFrameSignature() vp9WebRTCDroppedFrameSignature {
+	return vp9WebRTCDroppedFrameSignature{
+		frameIndex:         r.vp9FrameIndex,
+		temporalLayerID:    r.TemporalLayerID,
+		temporalLayerCount: r.TemporalLayerCount,
+		tl0PicIdx:          r.TL0PICIDX,
+	}
 }

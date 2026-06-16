@@ -31,7 +31,7 @@ func TestVP9WebRTCPacketizerConsumesCBRDroppedFrames(t *testing.T) {
 		t.Fatalf("PictureID after dropped frame = %d, want 0", got)
 	}
 
-	inter := encodePostDropVP9FrameForTest(t, e, dst)
+	inter := encodePostDropVP9FrameForTest(t, e, dst, 2, 1)
 	interPayloads, sent, err := packetizer.Packetize(inter, 500)
 	if err != nil || !sent {
 		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
@@ -66,8 +66,24 @@ func TestVP9WebRTCPacketizerSizeConsumesCBRDroppedFrames(t *testing.T) {
 	if got := packetizer.PictureID(); got != 0 {
 		t.Fatalf("PictureID after dropped size query = %d, want 0", got)
 	}
+	packets, payloadBytes, sent, err = packetizer.PacketizationSize(dropped, 500)
+	if err != nil || sent || packets != 0 || payloadBytes != 0 {
+		t.Fatalf("duplicate dropped PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want same consumed skip",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after duplicate dropped size query = %d, want 0", got)
+	}
+	n, used, sent, err := packetizer.PacketizeInto(dropped, nil, nil, 500)
+	if err != nil || sent || n != 0 || used != 0 {
+		t.Fatalf("dropped PacketizeInto after size = packets:%d bytes:%d sent:%t err:%v, want same consumed skip",
+			n, used, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after duplicate dropped packetize = %d, want 0", got)
+	}
 
-	inter := encodePostDropVP9FrameForTest(t, e, dst)
+	inter := encodePostDropVP9FrameForTest(t, e, dst, 2, 1)
 	interPayloads, sent, err := packetizer.Packetize(inter, 500)
 	if err != nil || !sent {
 		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
@@ -77,6 +93,46 @@ func TestVP9WebRTCPacketizerSizeConsumesCBRDroppedFrames(t *testing.T) {
 	}
 	assertVP9WebRTCGOFTemporalForTest(t, keyPayloads, interPayloads,
 		inter.TemporalLayerID)
+}
+
+func TestVP9WebRTCPacketizerConsumesConsecutiveSizedDrops(t *testing.T) {
+	packetizer := NewVP9WebRTCPacketizer(VP9RTPPictureID15BitMask)
+	firstDrop := VP9EncodeResult{
+		Dropped:            true,
+		TemporalLayerID:    2,
+		TemporalLayerCount: 3,
+		vp9FrameIndex:      1,
+	}
+	if packets, payloadBytes, sent, err := packetizer.PacketizationSize(firstDrop,
+		500); err != nil || sent || packets != 0 || payloadBytes != 0 {
+		t.Fatalf("first dropped PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want consumed skip",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after first drop = %d, want 0", got)
+	}
+	if _, sent, err := packetizer.Packetize(firstDrop, 500); err != nil || sent {
+		t.Fatalf("duplicate first dropped Packetize = sent:%t err:%v, want same consumed skip",
+			sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after duplicate first drop = %d, want 0", got)
+	}
+
+	secondDrop := VP9EncodeResult{
+		Dropped:            true,
+		TemporalLayerID:    1,
+		TemporalLayerCount: 3,
+		vp9FrameIndex:      2,
+	}
+	if packets, payloadBytes, sent, err := packetizer.PacketizationSize(secondDrop,
+		500); err != nil || sent || packets != 0 || payloadBytes != 0 {
+		t.Fatalf("second dropped PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want consumed skip",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 1 {
+		t.Fatalf("PictureID after second drop = %d, want 1", got)
+	}
 }
 
 func newVP9WebRTCDropTestState(
@@ -141,13 +197,15 @@ func encodePostDropVP9FrameForTest(
 	t *testing.T,
 	e *VP9Encoder,
 	dst []byte,
+	sourceFrame int,
+	wantTemporalLayer int,
 ) VP9EncodeResult {
 	t.Helper()
 	if err := e.SetPostEncodeDrop(false); err != nil {
 		t.Fatalf("SetPostEncodeDrop(false): %v", err)
 	}
 	inter, err := e.EncodeIntoWithResult(
-		vp9test.NewPanningYCbCr(64, 64, 2), dst)
+		vp9test.NewPanningYCbCr(64, 64, sourceFrame), dst)
 	if err != nil {
 		t.Fatalf("inter EncodeIntoWithResult: %v", err)
 	}
@@ -155,8 +213,9 @@ func encodePostDropVP9FrameForTest(
 		t.Fatalf("inter result = dropped:%t key:%t, want coded inter",
 			inter.Dropped, inter.KeyFrame)
 	}
-	if inter.TemporalLayerID != 1 {
-		t.Fatalf("inter temporal layer = %d, want 1", inter.TemporalLayerID)
+	if inter.TemporalLayerID != wantTemporalLayer {
+		t.Fatalf("inter temporal layer = %d, want %d",
+			inter.TemporalLayerID, wantTemporalLayer)
 	}
 	return inter
 }

@@ -635,6 +635,7 @@ type VP9EncodeResult struct {
 	ScalabilityStructurePresent bool
 	SpatialScalabilityStructure VP9RTPScalabilityStructure
 
+	vp9FrameIndex              int
 	interPicturePredictedKnown bool
 }
 
