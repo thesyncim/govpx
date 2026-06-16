@@ -65,3 +65,19 @@ func ExampleVP9EncodeResult_PacketizeWebRTCRTP() {
 	fmt.Println(len(payloads) > 0, payloads[len(payloads)-1].Marker)
 	// Output: true true
 }
+
+func ExampleVP9WebRTCPacketizer_NeedsKeyFrame() {
+	packetizer := govpx.NewVP9WebRTCPacketizer(17)
+	droppedLowerTemporalLayer := govpx.VP9EncodeResult{
+		Dropped:            true,
+		TemporalLayerID:    1,
+		TemporalLayerCount: 3,
+	}
+	_, sent, err := packetizer.Packetize(droppedLowerTemporalLayer, 1200)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(sent, packetizer.NeedsKeyFrame())
+	// Output: false true
+}

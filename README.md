@@ -145,8 +145,12 @@ consuming an encoder-dropped temporal slot. Encoder-dropped frames return no
 RTP payloads but leave a PictureID gap, which keeps libwebrtc-style
 non-flexible VP9 reference tracking aligned with the encoder timeline.
 `PacketizationSize` consumes dropped-frame slots for the same reason, since
-dropped frames need no follow-up payload write. The
-generic VP9 RTP packetizers remain available for callers that already own their
+dropped frames need no follow-up payload write. After a dropped base or middle
+temporal layer, `NeedsKeyFrame` reports that the sender must force a TL0
+keyframe before emitting more VP9 RTP payloads; continuing with inter frames can
+leave WebRTC's non-flexible VP9 dependency finder waiting for references that
+will never arrive. The generic VP9 RTP packetizers remain available for callers
+that already own their
 descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
 superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial
 layer signaling through `SetSpatialScalability`.
@@ -189,7 +193,8 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   `VP9WebRTCPacketizer.PacketizeInto` or `Packetize`. This is the receiver-safe
   path for temporal layers because it uses the same WebRTC GOF dependency
   pattern validated by the VP9 reference-finder tests and leaves a PictureID
-  gap for CBR-dropped frames.
+  gap for CBR-dropped frames. If the packetizer's `NeedsKeyFrame` becomes true
+  after a dropped frame, call `ForceKeyFrame` before sending another VP9 frame.
 - `EncodeIntraOnlyFrameInto` plus `EncodeShowExistingFrameInto` covers the VP9
   hidden intra-only refresh / show-existing packet pattern used by payload-level
   refresh flows.
