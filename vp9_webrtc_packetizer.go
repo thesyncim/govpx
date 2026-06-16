@@ -29,8 +29,9 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 
 // PacketizationSize returns the RTP payload count and payload-body bytes
 // needed to packetize r with the packetizer's current PictureID. Size queries
-// are non-mutating. sent is false when r is an encoder-dropped frame; call
-// Packetize or PacketizeInto to consume that dropped temporal slot.
+// are non-mutating for emittable frames; encoder-dropped frames are consumed
+// immediately because they need no follow-up Packetize call. sent is false
+// when r is an encoder-dropped frame.
 func (p *VP9WebRTCPacketizer) PacketizationSize(
 	r VP9EncodeResult,
 	mtu int,
@@ -39,6 +40,7 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 		return 0, 0, false, ErrInvalidConfig
 	}
 	if r.Dropped {
+		p.advancePictureID()
 		return 0, 0, false, nil
 	}
 	packets, payloadBytes, err = r.WebRTCRTPPacketizationSize(p.pictureID, mtu)

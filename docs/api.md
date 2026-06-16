@@ -127,8 +127,10 @@ dependencies, and advances PictureID after successful packetization or after
 consuming an encoder-dropped temporal slot. If VP9 CBR intentionally drops a
 frame, `VP9WebRTCPacketizer.Packetize` returns `sent=false` with no RTP
 payloads and leaves a PictureID gap so the receiver's non-flexible VP9 GOF
-index remains aligned. The lower-level VP9 RTP packetizers are still available
-when a caller deliberately owns descriptor policy.
+index remains aligned. `PacketizationSize` has the same dropped-frame consume
+behavior because dropped frames need no follow-up payload write. The lower-level
+VP9 RTP packetizers are still available when a caller deliberately owns
+descriptor policy.
 
 VP9 superframe helpers are Profile 0 only:
 

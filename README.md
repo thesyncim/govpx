@@ -143,7 +143,9 @@ preserves temporal metadata, emits keyframe scalability-structure data on the
 first payload, and advances PictureID after packetizing a frame/access unit or
 consuming an encoder-dropped temporal slot. Encoder-dropped frames return no
 RTP payloads but leave a PictureID gap, which keeps libwebrtc-style
-non-flexible VP9 reference tracking aligned with the encoder timeline. The
+non-flexible VP9 reference tracking aligned with the encoder timeline.
+`PacketizationSize` consumes dropped-frame slots for the same reason, since
+dropped frames need no follow-up payload write. The
 generic VP9 RTP packetizers remain available for callers that already own their
 descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
 superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial
