@@ -581,8 +581,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	var rtpFragments []govpx.RTPPayloadFragment
 	var rtpPayloadBuf []byte
 	interval := time.Second / time.Duration(cfg.FPS)
-	duration := uint64(rtpClockHz / cfg.FPS)
-	rtpTimestamp := randomUint32()
+	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
 
 	ticker := time.NewTicker(interval)
@@ -592,7 +591,6 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	currentScreen := int(ctl.screenMode.Load())
 
 	statsTracker := newStatsTracker()
-	var pts uint64
 	var sceneT int
 	for {
 		select {
@@ -626,6 +624,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		}
 
 		sceneT++
+		pts := rtpClockOffset(uint64(sceneT-1), cfg.FPS)
+		rtpTimestamp := rtpTimestampBase + uint32(pts)
 		drawScene(imgs, sceneT)
 
 		result, err := svc.EncodeIntoWithResult(imgs, packet)
@@ -681,8 +681,6 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
-		pts += duration
-		rtpTimestamp += uint32(duration)
 	}
 }
 
@@ -728,6 +726,13 @@ func randomUint16() uint16 {
 		return uint16(time.Now().UnixNano())
 	}
 	return binary.BigEndian.Uint16(b[:])
+}
+
+func rtpClockOffset(frame uint64, fps int) uint64 {
+	if fps <= 0 {
+		return 0
+	}
+	return frame * rtpClockHz / uint64(fps)
 }
 
 // pushTelemetry sends a payload to the DataChannel writer, dropping the

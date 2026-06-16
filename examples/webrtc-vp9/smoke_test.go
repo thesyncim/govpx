@@ -242,6 +242,35 @@ func TestRTCPRequestsKeyFrameOnlyForPLIAndFIR(t *testing.T) {
 	}
 }
 
+func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
+	const fps = 29
+	naiveAfterOneSecond := uint64(fps) * uint64(rtpClockHz/fps)
+	if naiveAfterOneSecond == rtpClockHz {
+		t.Fatal("test setup expected integer-division RTP clock drift")
+	}
+	if got := rtpClockOffset(uint64(fps), fps); got != rtpClockHz {
+		t.Fatalf("rtpClockOffset(%d frames @ %dfps) = %d, want %d",
+			fps, fps, got, rtpClockHz)
+	}
+
+	var sawLongStep bool
+	for frame := uint64(1); frame <= fps; frame++ {
+		prev := rtpClockOffset(frame-1, fps)
+		next := rtpClockOffset(frame, fps)
+		step := next - prev
+		if step != uint64(rtpClockHz/fps) && step != uint64(rtpClockHz/fps+1) {
+			t.Fatalf("rtp clock step %d = %d, want %d or %d",
+				frame, step, rtpClockHz/fps, rtpClockHz/fps+1)
+		}
+		if step == uint64(rtpClockHz/fps+1) {
+			sawLongStep = true
+		}
+	}
+	if !sawLongStep {
+		t.Fatal("rtp clock never compensated for fractional frame duration")
+	}
+}
+
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string
