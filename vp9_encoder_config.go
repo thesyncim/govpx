@@ -590,16 +590,17 @@ func (e *VP9Encoder) SetTuning(tuning Tuning) error {
 }
 
 // SetRowMT toggles VP9 row-wavefront multithreading for subsequent frames. It
-// mirrors libvpx's VP9E_SET_ROW_MT control. Enabling it requires Threads > 1
-// because the wavefront primitive is meaningful only with a multi-column tile
-// layout driven by the persistent tile worker pool. Disabling tears down any
-// allocated VP9RowMTSync state on the next encode so steady-state allocations
-// stay bounded. The bitstream output is byte-identical to the serial path.
+// mirrors libvpx's VP9E_SET_ROW_MT control. Enabling it requires an effective
+// VP9 thread hint > 1 because the wavefront primitive is meaningful only with
+// a multi-column tile layout driven by the persistent tile worker pool.
+// Disabling tears down any allocated VP9RowMTSync state on the next encode so
+// steady-state allocations stay bounded. The bitstream output is byte-identical
+// to the serial path.
 func (e *VP9Encoder) SetRowMT(enabled bool) error {
 	if e == nil || e.closed {
 		return ErrClosed
 	}
-	if enabled && e.opts.Threads <= 1 {
+	if enabled && e.vp9EffectiveThreadHint() <= 1 {
 		return ErrInvalidConfig
 	}
 	e.opts.RowMT = enabled

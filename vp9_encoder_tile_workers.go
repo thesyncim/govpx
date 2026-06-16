@@ -819,6 +819,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	mlPartitionPaddedLast := w.mlPartitionPaddedLast
+	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
 	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
@@ -858,6 +860,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	w.mlPartitionPaddedLast = mlPartitionPaddedLast
+	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false
@@ -907,6 +911,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	mlPartitionPaddedLast := w.mlPartitionPaddedLast
+	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
 	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
@@ -943,6 +949,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	w.mlPartitionPaddedLast = mlPartitionPaddedLast
+	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
 	w.subpelRefBordered = subpelRefBordered
 	w.subpelRefBorderedValid = false

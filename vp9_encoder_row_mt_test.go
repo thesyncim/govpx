@@ -12,9 +12,9 @@ import (
 )
 
 // TestVP9RowMTValidation pins the constructor-time gating on the RowMT option.
-// Enabling RowMT without a multi-thread hint is meaningless because the
-// wavefront primitive only fires inside the persistent tile worker pool, which
-// is itself gated on Threads > 1.
+// Enabling RowMT without an effective multi-thread hint is meaningless because
+// the wavefront primitive only fires inside the persistent tile worker pool,
+// which is itself gated on the effective VP9 thread hint.
 func TestVP9RowMTValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -52,9 +52,55 @@ func TestVP9RowMTValidation(t *testing.T) {
 	}
 }
 
+func TestVP9RowMTAcceptsRealtimeAutoThreads(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+		RowMT:              true,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder realtime auto RowMT: %v", err)
+	}
+	defer e.Close()
+	if e.opts.Threads != 0 {
+		t.Fatalf("stored Threads = %d, want caller auto value 0", e.opts.Threads)
+	}
+	if !e.opts.RowMT {
+		t.Fatal("constructor dropped RowMT flag")
+	}
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0)); err != nil {
+		t.Fatalf("Encode realtime auto RowMT: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("realtime auto RowMT encode did not initialize tile worker pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("realtime auto RowMT worker count = %d, want %d", got, wantThreads)
+	}
+	if got := len(e.vp9TilePool.rowMTSyncs); got != e.vp9TilePool.workerCount {
+		t.Fatalf("realtime auto RowMT syncs = %d, want %d",
+			got, e.vp9TilePool.workerCount)
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != e.vp9TilePool.workerCount {
+		t.Fatalf("realtime auto RowMT row worker pools = %d, want %d",
+			got, e.vp9TilePool.workerCount)
+	}
+}
+
 // TestVP9EncoderSetRowMTRuntimeGating exercises the runtime setter mirroring
-// libvpx's VP9E_SET_ROW_MT. Enabling without Threads > 1 returns
-// ErrInvalidConfig; toggling off releases any latched sync primitive state.
+// libvpx's VP9E_SET_ROW_MT. Enabling without an effective multi-thread hint
+// returns ErrInvalidConfig; toggling off releases any latched sync primitive
+// state.
 func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 	t.Run("rejects_single_thread", func(t *testing.T) {
 		e, err := NewVP9Encoder(VP9EncoderOptions{Width: 64, Height: 64})
@@ -104,6 +150,42 @@ func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 		}
 		if err := e.SetRowMT(true); err != nil {
 			t.Fatalf("SetRowMT(true) re-enable: %v", err)
+		}
+	})
+	t.Run("accepts_realtime_auto_threads", func(t *testing.T) {
+		const width, height = 640, 360
+		opts := VP9EncoderOptions{
+			Width:              width,
+			Height:             height,
+			Deadline:           DeadlineRealtime,
+			RateControlModeSet: true,
+			RateControlMode:    RateControlCBR,
+			TargetBitrateKbps:  700,
+		}
+		wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+		if wantThreads <= 1 {
+			t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+		}
+		e, err := NewVP9Encoder(opts)
+		if err != nil {
+			t.Fatalf("NewVP9Encoder: %v", err)
+		}
+		defer e.Close()
+		if err := e.SetRowMT(true); err != nil {
+			t.Fatalf("SetRowMT(true) realtime auto: %v", err)
+		}
+		if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0)); err != nil {
+			t.Fatalf("Encode realtime auto RowMT: %v", err)
+		}
+		if e.vp9TilePool == nil {
+			t.Fatal("realtime auto RowMT encode did not initialize tile worker pool")
+		}
+		if got := e.vp9TilePool.workerCount; got != wantThreads {
+			t.Fatalf("realtime auto RowMT worker count = %d, want %d", got, wantThreads)
+		}
+		if got := len(e.vp9TilePool.rowMTSyncs); got != e.vp9TilePool.workerCount {
+			t.Fatalf("realtime auto RowMT syncs = %d, want %d",
+				got, e.vp9TilePool.workerCount)
 		}
 	})
 	t.Run("closed_encoder_rejected", func(t *testing.T) {

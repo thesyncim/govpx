@@ -192,15 +192,16 @@ type VP9EncoderOptions struct {
 	// contexts carry across row boundaries.
 	Log2TileRows int8
 
-	// RowMT mirrors libvpx's VP9E_SET_ROW_MT control. When true with Threads > 1
-	// and a multi-column tile layout, each tile-column body encode arms a per-SB
-	// row-wavefront synchroniser matching libvpx's VP9RowMTSync primitive. Rows
-	// signal column progress after every SB and can wait for the row above to
-	// reach a configurable lookahead, mirroring vp9_row_mt_sync_read/write. The
-	// bitstream output is byte-identical to the serial path because govpx still
-	// runs one goroutine per tile column; the primitive is the foundation for
-	// per-row parallelism within a tile column. Requires Threads > 1; setting it
-	// with Threads <= 1 returns ErrInvalidConfig.
+	// RowMT mirrors libvpx's VP9E_SET_ROW_MT control. When true with an effective
+	// thread hint > 1 and a multi-column tile layout, each tile-column body
+	// encode arms a per-SB row-wavefront synchroniser matching libvpx's
+	// VP9RowMTSync primitive. Rows signal column progress after every SB and can
+	// wait for the row above to reach a configurable lookahead, mirroring
+	// vp9_row_mt_sync_read/write. The bitstream output is byte-identical to the
+	// serial path because govpx still runs one goroutine per tile column; the
+	// primitive is the foundation for per-row parallelism within a tile column.
+	// Requires an effective thread hint > 1; explicit Threads=1 returns
+	// ErrInvalidConfig.
 	RowMT bool
 
 	// Deadline selects the VP9 speed/quality operating mode. Construction with

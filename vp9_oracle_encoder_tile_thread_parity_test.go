@@ -299,6 +299,19 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 			},
 		},
 		{
+			name:   "row-mt",
+			frames: 4,
+			opts: VP9EncoderOptions{
+				Threads: 4,
+				RowMT:   true,
+			},
+			args: []string{
+				"--tile-columns=2",
+				"--row-mt=1",
+				"--disable-warning-prompt",
+			},
+		},
+		{
 			name:   "force-key-frame3",
 			frames: 4,
 			opts: VP9EncoderOptions{
@@ -350,6 +363,16 @@ func TestVP9OracleThreadedTileEncodingMatchesLibvpx(t *testing.T) {
 				},
 				func(enc *VP9Encoder, frame int) {
 					assertVP9OracleThreadedTileWriterUsed(t, enc, frame, 4)
+					if tc.opts.RowMT {
+						if enc.vp9TilePool == nil {
+							t.Fatalf("frame %d: VP9 row-MT tile pool was not initialized", frame)
+						}
+						if got, want := len(enc.vp9TilePool.rowMTSyncs),
+							enc.vp9TilePool.workerCount; got != want {
+							t.Fatalf("frame %d: VP9 row-MT syncs = %d, want %d",
+								frame, got, want)
+						}
+					}
 				})
 			if len(govpxPackets) != len(libvpxPackets) {
 				t.Fatalf("threaded 720p %s packet count: govpx=%d libvpx=%d",

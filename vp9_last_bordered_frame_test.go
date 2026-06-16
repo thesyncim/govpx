@@ -180,6 +180,60 @@ func TestVP9WorkerPrepKeepsLastBorderedPrivate(t *testing.T) {
 	}
 }
 
+func TestVP9WorkerPrepKeepsMLPartitionPaddedBuffersPrivate(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(worker, src *VP9Encoder)
+	}{
+		{
+			name: "count",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9CountWorker(src, 16, 16, 2, 2)
+			},
+		},
+		{
+			name: "tile-encode",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9TileEncodeWorker(src, 2, 2)
+			},
+		},
+		{
+			name: "frame-parallel",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9FrameParallelWorker(src, 2, 2, 16, 16)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newVP9LastBorderedEncoderForTest(t, 16, 16)
+			src.mlPartitionPaddedLast.pixels = []uint8{1, 2, 3}
+			src.mlPartitionPaddedSrc.pixels = []uint8{4, 5, 6}
+
+			var worker VP9Encoder
+			vp9dec.SetupBlockPlanes(&worker.planes, 1, 1)
+			worker.mlPartitionPaddedLast.pixels = []uint8{7, 8, 9}
+			worker.mlPartitionPaddedSrc.pixels = []uint8{10, 11, 12}
+
+			tc.prepare(&worker, src)
+
+			if len(worker.mlPartitionPaddedLast.pixels) == 0 ||
+				len(worker.mlPartitionPaddedSrc.pixels) == 0 {
+				t.Fatalf("worker ML padded buffers unexpectedly empty")
+			}
+			if &worker.mlPartitionPaddedLast.pixels[0] ==
+				&src.mlPartitionPaddedLast.pixels[0] {
+				t.Fatalf("worker aliases parent ML padded LAST buffer")
+			}
+			if &worker.mlPartitionPaddedSrc.pixels[0] ==
+				&src.mlPartitionPaddedSrc.pixels[0] {
+				t.Fatalf("worker aliases parent ML padded source buffer")
+			}
+		})
+	}
+}
+
 func newVP9LastBorderedEncoderForTest(t *testing.T, w, h int) *VP9Encoder {
 	t.Helper()
 	yPlane := make([]uint8, w*h)
