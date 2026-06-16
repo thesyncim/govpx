@@ -41,7 +41,7 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 	defer pc.Close()
 
-	rtpCh := make(chan *rtp.Packet, 8)
+	rtpCh := make(chan *rtp.Packet, 256)
 	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		go func() {
 			for {
@@ -116,16 +116,26 @@ func TestDemoEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
-	var firstRTP *rtp.Packet
-	select {
-	case firstRTP = <-rtpCh:
-	case <-ctx.Done():
-		t.Fatalf("no RTP packet received within timeout")
+	firstAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+	firstDesc := assertWebRTCRTPAccessUnitForTest(t, firstAU,
+		spatialLayerCount, true)
+	secondAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+	secondDesc := assertWebRTCRTPAccessUnitForTest(t, secondAU,
+		spatialLayerCount, false)
+	if got, want := secondAU[0].SequenceNumber, firstAU[0].SequenceNumber+uint16(len(firstAU)); got != want {
+		t.Fatalf("second RTP access unit first sequence = %d, want %d",
+			got, want)
 	}
-	desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(firstRTP.Payload)
-	if err != nil {
-		t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+	if got, want := secondAU[0].Timestamp-firstAU[0].Timestamp,
+		uint32(rtpClockHz/defaultFPS); got != want {
+		t.Fatalf("second RTP access unit timestamp step = %d, want %d",
+			got, want)
 	}
+	if got, want := secondDesc.PictureID, nextVP9PictureID(firstDesc.PictureID); got != want {
+		t.Fatalf("second RTP picture ID = %d, want %d", got, want)
+	}
+
+	desc := firstDesc
 	if !desc.LayerIndicesPresent || desc.SpatialID != 0 {
 		t.Fatalf("first RTP descriptor layer metadata = present:%v sid:%d, want base spatial layer metadata",
 			desc.LayerIndicesPresent, desc.SpatialID)
@@ -181,6 +191,130 @@ func TestDemoEndToEnd(t *testing.T) {
 	if err := dc.SendText(`{"type":"keyframe"}`); err != nil {
 		t.Fatalf("send keyframe ctl: %v", err)
 	}
+}
+
+func readVP9RTPAccessUnitForTest(
+	t *testing.T,
+	ctx context.Context,
+	rtpCh <-chan *rtp.Packet,
+) []*rtp.Packet {
+	t.Helper()
+	var out []*rtp.Packet
+	for {
+		select {
+		case packet := <-rtpCh:
+			if packet == nil || len(packet.Payload) == 0 {
+				continue
+			}
+			desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(packet.Payload)
+			if err != nil {
+				t.Fatalf("ParseVP9RTPPayloadDescriptor while reading AU: %v", err)
+			}
+			if len(out) == 0 &&
+				(!desc.LayerIndicesPresent || desc.SpatialID != 0 || !desc.StartOfFrame) {
+				continue
+			}
+			copyPacket := *packet
+			copyPacket.Payload = append([]byte(nil), packet.Payload...)
+			out = append(out, &copyPacket)
+			if packet.Marker {
+				return out
+			}
+		case <-ctx.Done():
+			t.Fatalf("no complete RTP access unit received within timeout")
+		}
+	}
+}
+
+func assertWebRTCRTPAccessUnitForTest(
+	t *testing.T,
+	packets []*rtp.Packet,
+	spatialLayers int,
+	wantSS bool,
+) govpx.VP9RTPPayloadDescriptor {
+	t.Helper()
+	if len(packets) == 0 {
+		t.Fatal("empty RTP access unit")
+	}
+	firstSeq := packets[0].SequenceNumber
+	timestamp := packets[0].Timestamp
+	var firstDesc govpx.VP9RTPPayloadDescriptor
+	var pictureID uint16
+	var seenPictureID bool
+	var seenLayerStart [govpx.VP9RTPMaxSpatialLayers]bool
+	for i, packet := range packets {
+		if got, want := packet.SequenceNumber, firstSeq+uint16(i); got != want {
+			t.Fatalf("RTP packet %d sequence = %d, want %d", i, got, want)
+		}
+		if packet.Timestamp != timestamp {
+			t.Fatalf("RTP packet %d timestamp = %d, want AU timestamp %d",
+				i, packet.Timestamp, timestamp)
+		}
+		if got, want := packet.Marker, i == len(packets)-1; got != want {
+			t.Fatalf("RTP packet %d marker = %t, want %t", i, got, want)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(packet.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if i == 0 {
+			firstDesc = desc
+			if !desc.StartOfFrame || desc.SpatialID != 0 {
+				t.Fatalf("first RTP packet descriptor = start:%t sid:%d, want base layer start",
+					desc.StartOfFrame, desc.SpatialID)
+			}
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit {
+			t.Fatalf("RTP packet %d PictureID = present:%t 15bit:%t, want 15-bit",
+				i, desc.PictureIDPresent, desc.PictureID15Bit)
+		}
+		if !seenPictureID {
+			pictureID = desc.PictureID
+			seenPictureID = true
+		} else if desc.PictureID != pictureID {
+			t.Fatalf("RTP packet %d PictureID = %d, want AU PictureID %d",
+				i, desc.PictureID, pictureID)
+		}
+		if !desc.LayerIndicesPresent || int(desc.SpatialID) >= spatialLayers {
+			t.Fatalf("RTP packet %d layer metadata = present:%t sid:%d, want sid < %d",
+				i, desc.LayerIndicesPresent, desc.SpatialID, spatialLayers)
+		}
+		if desc.StartOfFrame {
+			seenLayerStart[desc.SpatialID] = true
+			if desc.SpatialID == 0 && wantSS {
+				if !desc.ScalabilityStructurePresent ||
+					desc.ScalabilityStructure.SpatialLayerCount != spatialLayers {
+					t.Fatalf("base RTP SS = present:%t layers:%d, want %d active layers",
+						desc.ScalabilityStructurePresent,
+						desc.ScalabilityStructure.SpatialLayerCount,
+						spatialLayers)
+				}
+			} else if desc.ScalabilityStructurePresent {
+				t.Fatalf("RTP packet %d layer %d repeated scalability structure",
+					i, desc.SpatialID)
+			}
+			if desc.SpatialID > 0 && !desc.InterLayerDependency {
+				t.Fatalf("RTP packet %d enhancement layer %d missing inter-layer dependency",
+					i, desc.SpatialID)
+			}
+		} else if desc.ScalabilityStructurePresent {
+			t.Fatalf("RTP packet %d repeated scalability structure on non-start fragment", i)
+		}
+	}
+	for layer := 0; layer < spatialLayers; layer++ {
+		if !seenLayerStart[layer] {
+			t.Fatalf("RTP access unit missing spatial layer %d start", layer)
+		}
+	}
+	lastDesc, _, err := govpx.ParseVP9RTPPayloadDescriptor(packets[len(packets)-1].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor[last]: %v", err)
+	}
+	if int(lastDesc.SpatialID) != spatialLayers-1 || !lastDesc.EndOfFrame {
+		t.Fatalf("last RTP descriptor = sid:%d end:%t, want top layer end",
+			lastDesc.SpatialID, lastDesc.EndOfFrame)
+	}
+	return firstDesc
 }
 
 func TestSplitBitrateTreatsBitrateAsTotalBudget(t *testing.T) {
