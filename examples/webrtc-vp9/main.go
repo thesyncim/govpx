@@ -801,19 +801,29 @@ func webRTCSVCLayerDescriptor(result govpx.VP9SpatialSVCEncodeResult,
 		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
 	}
 	desc := layer.RTPPayloadDescriptor()
+	desc.ScalabilityStructurePresent = false
+	desc.ScalabilityStructure = govpx.VP9RTPScalabilityStructure{}
 	if layerID == 0 {
-		if svcScalabilityStructurePresent(result.ScalabilityStructure) {
+		if webRTCSVCShouldSignalScalabilityStructure(layer, result) {
 			desc.ScalabilityStructurePresent = true
 			desc.ScalabilityStructure = result.ScalabilityStructure
 		}
-	} else {
-		desc.ScalabilityStructurePresent = false
-		desc.ScalabilityStructure = govpx.VP9RTPScalabilityStructure{}
 	}
 	desc.PictureIDPresent = true
 	desc.PictureID15Bit = true
 	desc.PictureID = pictureID & vp9RTPPictureIDMask
 	return desc, layer.Data, nil
+}
+
+func webRTCSVCShouldSignalScalabilityStructure(
+	layer govpx.VP9EncodeResult,
+	result govpx.VP9SpatialSVCEncodeResult,
+) bool {
+	if !layer.KeyFrame || layer.InterPicturePredicted ||
+		layer.TemporalLayerID != 0 {
+		return false
+	}
+	return svcScalabilityStructurePresent(result.ScalabilityStructure)
 }
 
 func webRTCSVCLayerCount(result govpx.VP9SpatialSVCEncodeResult) (int, error) {

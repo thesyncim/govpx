@@ -581,6 +581,25 @@ func TestPacketizeSVCResultForWebRTCAddsPictureID(t *testing.T) {
 	}
 }
 
+func TestPacketizeSVCResultForWebRTCSignalsSSOnBaseKeyOnly(t *testing.T) {
+	results := encodeSVCResultsForTest(t, 2)
+	keyPayloads := packetizeWebRTCSVCResultForTest(t, results[0], 0x60, 500)
+	if !webRTCSVCBaseStartHasSSForTest(t, keyPayloads) {
+		t.Fatal("base key RTP frame did not signal scalability structure")
+	}
+
+	deltaPayloads := packetizeWebRTCSVCResultForTest(t, results[1], 0x61, 500)
+	for i, payload := range deltaPayloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.ScalabilityStructurePresent {
+			t.Fatalf("delta payload %d repeated scalability structure", i)
+		}
+	}
+}
+
 func TestPacketizeCappedSVCResultForWebRTCKeepsFullScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
@@ -666,6 +685,23 @@ func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
 	if !foundEnhancement {
 		t.Fatal("did not find capped enhancement-layer RTP frame")
 	}
+}
+
+func webRTCSVCBaseStartHasSSForTest(
+	t *testing.T,
+	payloads []govpx.RTPPayloadFragment,
+) bool {
+	t.Helper()
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.SpatialID == 0 && desc.StartOfFrame {
+			return desc.ScalabilityStructurePresent
+		}
+	}
+	return false
 }
 
 func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
@@ -832,16 +868,21 @@ func reassembleWebRTCSVCResultForTest(t *testing.T,
 				wantLayer.NotRefForUpperSpatialLayer)
 		}
 		if layerID == 0 && desc.StartOfFrame {
-			wantSpatialLayers := count
-			if result.ScalabilityStructure.SpatialLayerCount != 0 {
-				wantSpatialLayers = result.ScalabilityStructure.SpatialLayerCount
-			}
-			if !desc.ScalabilityStructurePresent ||
-				desc.ScalabilityStructure.SpatialLayerCount != wantSpatialLayers {
-				t.Fatalf("base payload %d SS = present:%t layers:%d, want %d",
-					i, desc.ScalabilityStructurePresent,
-					desc.ScalabilityStructure.SpatialLayerCount,
-					wantSpatialLayers)
+			if webRTCSVCShouldSignalScalabilityStructure(wantLayer, result) {
+				wantSpatialLayers := count
+				if result.ScalabilityStructure.SpatialLayerCount != 0 {
+					wantSpatialLayers = result.ScalabilityStructure.SpatialLayerCount
+				}
+				if !desc.ScalabilityStructurePresent ||
+					desc.ScalabilityStructure.SpatialLayerCount != wantSpatialLayers {
+					t.Fatalf("base payload %d SS = present:%t layers:%d, want %d",
+						i, desc.ScalabilityStructurePresent,
+						desc.ScalabilityStructure.SpatialLayerCount,
+						wantSpatialLayers)
+				}
+			} else if desc.ScalabilityStructurePresent {
+				t.Fatalf("base delta payload %d repeated scalability structure",
+					i)
 			}
 		} else if desc.ScalabilityStructurePresent {
 			t.Fatalf("payload %d layer %d repeated scalability structure",
