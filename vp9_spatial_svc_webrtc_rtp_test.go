@@ -153,6 +153,210 @@ func TestVP9SpatialSVCEncodeResultLimitSpatialLayersForRTP(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerPacketizesActiveSpatialSVCTransitions(t *testing.T) {
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           3,
+		InterLayerPrediction: true,
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
+			{
+				Width:                    32,
+				Height:                   32,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        120,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+			{
+				Width:                    64,
+				Height:                   64,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        240,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+			{
+				Width:                    128,
+				Height:                   128,
+				FPS:                      30,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				RateControlModeSet:       true,
+				RateControlMode:          govpx.RateControlCBR,
+				TargetBitrateKbps:        480,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	srcs := []*image.YCbCr{
+		vp9test.NewYCbCr(32, 32, 90, 120, 136),
+		vp9test.NewYCbCr(64, 64, 90, 120, 136),
+		vp9test.NewYCbCr(128, 128, 90, 120, 136),
+	}
+	dst := make([]byte, 1<<20)
+	packetizer := govpx.NewVP9WebRTCPacketizer(govpx.VP9RTPPictureID15BitMask - 1)
+	caps := []int{3, 3, 1, 1, 2, 3}
+	lastCap := caps[0]
+	for frame, cap := range caps {
+		if frame == 0 || cap != lastCap {
+			svc.ForceKeyFrame()
+		}
+		for layer, src := range srcs {
+			vp9test.FillYCbCr(src, uint8(80+frame*9+layer*7), 120, 136)
+		}
+		result, err := svc.EncodeActiveLayersIntoWithResult(srcs, dst, cap)
+		if err != nil {
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, cap, err)
+		}
+		if int(result.LayerCount) != cap {
+			t.Fatalf("frame %d active layer count = %d, want %d",
+				frame, result.LayerCount, cap)
+		}
+
+		pictureID := packetizer.PictureID()
+		packets, payloadBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+			result, 80)
+		if err != nil {
+			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d: %v",
+				frame, err)
+		}
+		if got := packetizer.PictureID(); got != pictureID {
+			t.Fatalf("size query frame %d advanced PictureID to %d, want %d",
+				frame, got, pictureID)
+		}
+		payloads := make([]govpx.RTPPayloadFragment, packets)
+		payloadBuf := make([]byte, payloadBytes)
+		n, used, err := packetizer.PacketizeSpatialSVCWebRTCInto(result,
+			payloads, payloadBuf, 80)
+		if err != nil {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d: %v", frame, err)
+		}
+		if n != packets || used != payloadBytes {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d returned %d/%d, want %d/%d",
+				frame, n, used, packets, payloadBytes)
+		}
+		assertVP9ActiveSVCWebRTCPacketizationForTest(t, frame, result,
+			payloads[:n], pictureID)
+		if got, want := packetizer.PictureID(), govpx.NextVP9RTPPictureID(pictureID); got != want {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d PictureID = %d, want %d",
+				frame, got, want)
+		}
+		lastCap = cap
+	}
+}
+
+func assertVP9ActiveSVCWebRTCPacketizationForTest(
+	t *testing.T,
+	frame int,
+	result govpx.VP9SpatialSVCEncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+	pictureID uint16,
+) {
+	t.Helper()
+	count := int(result.LayerCount)
+	var byLayer [govpx.VP9MaxSpatialLayers][]govpx.RTPPayloadFragment
+	starts := 0
+	sawBaseSS := false
+	for i, payload := range payloads {
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("frame %d payload %d marker = %t, want %t",
+				frame, i, got, want)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("frame %d ParseVP9RTPPayloadDescriptor[%d]: %v",
+				frame, i, err)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("frame %d payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				frame, i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if !desc.LayerIndicesPresent || int(desc.SpatialID) >= count {
+			t.Fatalf("frame %d payload %d descriptor = %+v, want spatial id < %d",
+				frame, i, desc, count)
+		}
+		if desc.StartOfFrame {
+			starts++
+			if desc.SpatialID == 0 {
+				sawBaseSS = desc.ScalabilityStructurePresent
+				if desc.ScalabilityStructurePresent &&
+					desc.ScalabilityStructure.SpatialLayerCount != count {
+					t.Fatalf("frame %d base SS layers = %d, want %d",
+						frame, desc.ScalabilityStructure.SpatialLayerCount,
+						count)
+				}
+			} else if desc.ScalabilityStructurePresent {
+				t.Fatalf("frame %d layer %d unexpectedly carried SS",
+					frame, desc.SpatialID)
+			}
+		}
+		byLayer[desc.SpatialID] = append(byLayer[desc.SpatialID], payload)
+	}
+	if starts != count {
+		t.Fatalf("frame %d start payloads = %d, want %d", frame, starts, count)
+	}
+	wantSS := result.Layers[0].KeyFrame &&
+		!result.Layers[0].InterPicturePredicted &&
+		result.Layers[0].TemporalLayerID == 0
+	if sawBaseSS != wantSS {
+		t.Fatalf("frame %d base SS present = %t, want %t",
+			frame, sawBaseSS, wantSS)
+	}
+
+	var frames [govpx.VP9MaxSpatialLayers][]byte
+	for layer := 0; layer < count; layer++ {
+		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layer])
+		if err != nil {
+			t.Fatalf("frame %d AssembleVP9RTPFrame layer %d: %v",
+				frame, layer, err)
+		}
+		if !bytes.Equal(assembled, result.Layers[layer].Data) {
+			t.Fatalf("frame %d layer %d RTP reassembly changed payload",
+				frame, layer)
+		}
+		frames[layer] = assembled
+	}
+	need, err := govpx.VP9SuperframeSize(frames[:count]...)
+	if err != nil {
+		t.Fatalf("frame %d VP9SuperframeSize: %v", frame, err)
+	}
+	packet := make([]byte, need)
+	n, err := govpx.PackVP9SuperframeInto(packet, frames[:count]...)
+	if err != nil {
+		t.Fatalf("frame %d PackVP9SuperframeInto: %v", frame, err)
+	}
+	if !bytes.Equal(packet[:n], result.Data) {
+		t.Fatalf("frame %d RTP-reassembled active access unit changed payload",
+			frame)
+	}
+}
+
 func TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTPIntoSteadyStateNoAlloc(t *testing.T) {
 	result := encodeVP9WebRTCSVCTestResults(t, 1)[0]
 	const mtu = 80
