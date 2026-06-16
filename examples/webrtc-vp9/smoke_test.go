@@ -42,7 +42,15 @@ func TestDemoEndToEnd(t *testing.T) {
 	defer pc.Close()
 
 	rtpCh := make(chan *rtp.Packet, 256)
+	trackHeaderCh := make(chan rtpTrackHeaderForTest, 1)
 	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		select {
+		case trackHeaderCh <- rtpTrackHeaderForTest{
+			payloadType: uint8(track.PayloadType()),
+			ssrc:        uint32(track.SSRC()),
+		}:
+		default:
+		}
 		go func() {
 			for {
 				packet, _, err := track.ReadRTP()
@@ -126,10 +134,15 @@ func TestDemoEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
+	trackHeader := readRTPTrackHeaderForTest(t, ctx, trackHeaderCh)
 	firstAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+	assertRTPAccessUnitHeaderMatchesTrackForTest(t, "first RTP access unit",
+		firstAU, trackHeader)
 	firstDesc := assertWebRTCRTPAccessUnitForTest(t, firstAU,
 		spatialLayerCount, true)
 	secondAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+	assertRTPAccessUnitHeaderMatchesTrackForTest(t, "second RTP access unit",
+		secondAU, trackHeader)
 	secondDesc := assertWebRTCRTPAccessUnitForTest(t, secondAU,
 		spatialLayerCount, false)
 	if got, want := secondAU[0].SequenceNumber, firstAU[0].SequenceNumber+uint16(len(firstAU)); got != want {
@@ -148,6 +161,8 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 	pliAU, pliDesc := readVP9RTPKeyAccessUnitAfterFeedbackForTest(t, ctx, rtpCh,
 		secondAU, secondDesc)
+	assertRTPAccessUnitHeaderMatchesTrackForTest(t, "PLI RTP access unit",
+		pliAU, trackHeader)
 	if pliDesc.InterPicturePredicted {
 		t.Fatal("PLI response base descriptor kept inter-picture prediction")
 	}
@@ -233,6 +248,54 @@ func TestDemoEndToEnd(t *testing.T) {
 	// than the test budget.
 	if err := dc.SendText(`{"type":"keyframe"}`); err != nil {
 		t.Fatalf("send keyframe ctl: %v", err)
+	}
+}
+
+type rtpTrackHeaderForTest struct {
+	payloadType uint8
+	ssrc        uint32
+}
+
+func readRTPTrackHeaderForTest(
+	t *testing.T,
+	ctx context.Context,
+	ch <-chan rtpTrackHeaderForTest,
+) rtpTrackHeaderForTest {
+	t.Helper()
+	select {
+	case header := <-ch:
+		if header.payloadType == 0 {
+			t.Fatal("track RTP payload type was zero")
+		}
+		if header.ssrc == 0 {
+			t.Fatal("track RTP SSRC was zero")
+		}
+		return header
+	case <-ctx.Done():
+		t.Fatalf("no RTP track metadata received within timeout")
+		return rtpTrackHeaderForTest{}
+	}
+}
+
+func assertRTPAccessUnitHeaderMatchesTrackForTest(
+	t *testing.T,
+	label string,
+	packets []*rtp.Packet,
+	trackHeader rtpTrackHeaderForTest,
+) {
+	t.Helper()
+	if len(packets) == 0 {
+		t.Fatalf("%s was empty", label)
+	}
+	for i, packet := range packets {
+		if packet.PayloadType != trackHeader.payloadType {
+			t.Fatalf("%s packet %d payload type = %d, want negotiated VP9 payload type %d",
+				label, i, packet.PayloadType, trackHeader.payloadType)
+		}
+		if packet.SSRC != trackHeader.ssrc {
+			t.Fatalf("%s packet %d SSRC = %d, want negotiated SSRC %d",
+				label, i, packet.SSRC, trackHeader.ssrc)
+		}
 	}
 }
 
