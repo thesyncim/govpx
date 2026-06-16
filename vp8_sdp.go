@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -48,6 +49,28 @@ func (c VP8SDPReceiverCapabilities) Validate() error {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+// AllowsFrame reports whether width x height at fps fits these VP8 SDP
+// receiver capabilities.
+func (c VP8SDPReceiverCapabilities) AllowsFrame(width int, height int, fps int) (bool, error) {
+	if err := c.Validate(); err != nil {
+		return false, err
+	}
+	if fps <= 0 {
+		return false, ErrInvalidConfig
+	}
+	frameSize, err := VP8SDPFrameSizeMacroblocks(width, height)
+	if err != nil {
+		return false, err
+	}
+	if fps > c.MaxFrameRate || frameSize > c.MaxFrameSizeMacroblocks {
+		return false, nil
+	}
+	limit := int(math.Sqrt(float64(c.MaxFrameSizeMacroblocks) * 8))
+	mbWidth := (width + 15) / 16
+	mbHeight := (height + 15) / 16
+	return mbWidth <= limit && mbHeight <= limit, nil
 }
 
 // AppendFmtp appends a semicolon-separated fmtp parameter string in RFC 7741

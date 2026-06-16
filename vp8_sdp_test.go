@@ -77,6 +77,45 @@ func TestVP8SDPReceiverCapabilitiesFmtp(t *testing.T) {
 	}
 }
 
+func TestVP8SDPReceiverCapabilitiesAllowsFrame(t *testing.T) {
+	caps := govpx.VP8SDPReceiverCapabilities{
+		MaxFrameRate:            30,
+		MaxFrameSizeMacroblocks: 1200,
+	}
+	tests := []struct {
+		name   string
+		width  int
+		height int
+		fps    int
+		want   bool
+	}{
+		{name: "vga at cap", width: 640, height: 480, fps: 30, want: true},
+		{name: "over fps", width: 640, height: 480, fps: 31},
+		{name: "over macroblocks", width: 640, height: 496, fps: 30},
+		{name: "over dimension bound", width: 1568, height: 16, fps: 30},
+		{name: "dimension bound edge", width: 1552, height: 16, fps: 30, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := caps.AllowsFrame(tc.width, tc.height, tc.fps)
+			if err != nil {
+				t.Fatalf("AllowsFrame returned error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("AllowsFrame(%d,%d,%d) = %t, want %t",
+					tc.width, tc.height, tc.fps, got, tc.want)
+			}
+		})
+	}
+
+	if _, err := caps.AllowsFrame(640, 480, 0); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("AllowsFrame invalid fps error = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := (govpx.VP8SDPReceiverCapabilities{}).AllowsFrame(640, 480, 30); !errors.Is(err, govpx.ErrInvalidConfig) {
+		t.Fatalf("AllowsFrame invalid caps error = %v, want ErrInvalidConfig", err)
+	}
+}
+
 func TestParseVP8SDPFmtp(t *testing.T) {
 	tests := []struct {
 		name string
