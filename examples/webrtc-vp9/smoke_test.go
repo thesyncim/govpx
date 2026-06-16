@@ -1375,9 +1375,35 @@ func TestForceKeyAllRefreshesEverySpatialLayer(t *testing.T) {
 	}
 	for spatial := 1; spatial < spatialLayerCount; spatial++ {
 		layer := result.Layers[spatial]
-		if layer.KeyFrame || !layer.ShowFrame {
-			t.Fatalf("layer %d forced result = key:%t show:%t, want visible inter-layer refresh",
-				spatial, layer.KeyFrame, layer.ShowFrame)
+		if layer.KeyFrame || !layer.ShowFrame || layer.InterPicturePredicted {
+			t.Fatalf("layer %d forced result = key:%t show:%t inter:%t, want visible non-predicted inter-layer refresh",
+				spatial, layer.KeyFrame, layer.ShowFrame,
+				layer.InterPicturePredicted)
+		}
+	}
+	payloads := packetizeWebRTCSVCResultForTest(t, result, 0x72, 500)
+	var seenStart [spatialLayerCount]bool
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor forced[%d]: %v", i, err)
+		}
+		if !desc.StartOfFrame {
+			continue
+		}
+		if int(desc.SpatialID) >= spatialLayerCount {
+			t.Fatalf("forced payload %d spatial id = %d, want < %d",
+				i, desc.SpatialID, spatialLayerCount)
+		}
+		seenStart[desc.SpatialID] = true
+		if desc.InterPicturePredicted {
+			t.Fatalf("forced payload %d layer %d kept P=1; browser refresh requires P=0",
+				i, desc.SpatialID)
+		}
+	}
+	for spatial := range seenStart {
+		if !seenStart[spatial] {
+			t.Fatalf("forced RTP access unit missing layer %d start", spatial)
 		}
 	}
 	if svc.IsKeyFrameNext() {
