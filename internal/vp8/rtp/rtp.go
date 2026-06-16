@@ -294,16 +294,31 @@ func AssembleFrame(payloads []vpxrtp.PayloadFragment) ([]byte, error) {
 
 func vp8FrameAssemblyValidator() vpxrtp.FragmentValidator[PayloadDescriptor] {
 	var base PayloadDescriptor
+	var lastPartitionID uint8
 	return func(i, _ int, desc PayloadDescriptor) error {
-		if desc.StartOfPartition != (i == 0) || desc.PartitionID != 0 {
+		if i == 0 {
+			if !desc.StartOfPartition || desc.PartitionID != 0 {
+				return vpxerrors.ErrInvalidData
+			}
+			normalized := desc
+			normalized.StartOfPartition = false
+			normalized.PartitionID = 0
+			base = normalized
+			lastPartitionID = 0
+			return nil
+		}
+		if desc.PartitionID < lastPartitionID {
 			return vpxerrors.ErrInvalidData
+		}
+		if desc.StartOfPartition && desc.PartitionID <= lastPartitionID {
+			return vpxerrors.ErrInvalidData
+		}
+		if desc.PartitionID > lastPartitionID {
+			lastPartitionID = desc.PartitionID
 		}
 		normalized := desc
 		normalized.StartOfPartition = false
-		if i == 0 {
-			base = normalized
-			return nil
-		}
+		normalized.PartitionID = 0
 		if normalized != base {
 			return vpxerrors.ErrInvalidData
 		}

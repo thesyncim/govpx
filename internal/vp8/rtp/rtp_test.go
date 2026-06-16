@@ -293,6 +293,68 @@ func TestAssembleFrameFromPacketizer(t *testing.T) {
 	}
 }
 
+func TestAssembleFrameAcceptsPartitionAwarePayloads(t *testing.T) {
+	frame := []byte{0, 1, 2, 3, 4, 5}
+	payloads := []vpxrtp.PayloadFragment{
+		{
+			Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+				StartOfPartition:  true,
+				PartitionID:       0,
+				PictureIDPresent:  true,
+				PictureID:         0x1234,
+				PictureID15Bit:    true,
+				TL0PICIDXPresent:  true,
+				TL0PICIDX:         9,
+				TemporalIDPresent: true,
+				TemporalID:        1,
+				LayerSync:         true,
+			}, frame[:2]),
+		},
+		{
+			Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+				StartOfPartition:  true,
+				PartitionID:       1,
+				PictureIDPresent:  true,
+				PictureID:         0x1234,
+				PictureID15Bit:    true,
+				TL0PICIDXPresent:  true,
+				TL0PICIDX:         9,
+				TemporalIDPresent: true,
+				TemporalID:        1,
+				LayerSync:         true,
+			}, frame[2:4]),
+		},
+		{
+			Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+				PartitionID:       1,
+				PictureIDPresent:  true,
+				PictureID:         0x1234,
+				PictureID15Bit:    true,
+				TL0PICIDXPresent:  true,
+				TL0PICIDX:         9,
+				TemporalIDPresent: true,
+				TemporalID:        1,
+				LayerSync:         true,
+			}, frame[4:]),
+			Marker: true,
+		},
+	}
+	need, err := FrameAssemblySize(payloads)
+	if err != nil {
+		t.Fatalf("FrameAssemblySize: %v", err)
+	}
+	if need != len(frame) {
+		t.Fatalf("assembly size = %d, want %d", need, len(frame))
+	}
+	got, err := AssembleFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleFrame: %v", err)
+	}
+	if !bytes.Equal(got, frame) {
+		t.Fatalf("assembled frame = % x, want % x", got, frame)
+	}
+}
+
 func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 	frame := []byte{0, 1, 2, 3, 4}
 	payloads, err := PacketizeFrame(PayloadDescriptor{
@@ -327,6 +389,41 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 			}, []byte{0x02})
 			return p
 		}()},
+		{name: "duplicate partition start", payloads: []vpxrtp.PayloadFragment{
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					StartOfPartition: true,
+					PartitionID:      0,
+				}, []byte{0x01}),
+			},
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					StartOfPartition: true,
+					PartitionID:      0,
+				}, []byte{0x02}),
+				Marker: true,
+			},
+		}},
+		{name: "backward partition id", payloads: []vpxrtp.PayloadFragment{
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					StartOfPartition: true,
+					PartitionID:      0,
+				}, []byte{0x01}),
+			},
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					StartOfPartition: true,
+					PartitionID:      2,
+				}, []byte{0x02}),
+			},
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					PartitionID: 1,
+				}, []byte{0x03}),
+				Marker: true,
+			},
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

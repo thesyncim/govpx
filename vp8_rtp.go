@@ -67,7 +67,8 @@ func PacketizeVP8RTPFrame(desc VP8RTPPayloadDescriptor, frame []byte, mtu int) (
 //
 // The caller owns RTP sequence-number validation, loss handling, and jitter
 // buffering. Payloads must be in decode order and must include the marker bit
-// value from each RTP header.
+// value from each RTP header. The first payload must start partition 0;
+// later payloads may either keep PID 0 or carry ordered VP8 partition IDs.
 func VP8RTPFrameAssemblySize(payloads []RTPPayloadFragment) (int, error) {
 	return vp8rtp.FrameAssemblySize(payloads)
 }

@@ -117,6 +117,59 @@ func TestVP8EncodeResultPacketizeWebRTCRTP(t *testing.T) {
 	}
 }
 
+func TestVP8RTPFacadeAssemblePartitionAwarePayloads(t *testing.T) {
+	frame := []byte{0, 1, 2, 3, 4, 5}
+	desc := govpx.VP8RTPPayloadDescriptor{
+		PictureIDPresent:  true,
+		PictureID:         0x1234,
+		PictureID15Bit:    true,
+		TL0PICIDXPresent:  true,
+		TL0PICIDX:         9,
+		TemporalIDPresent: true,
+		TemporalID:        1,
+		LayerSync:         true,
+	}
+	first := desc
+	first.StartOfPartition = true
+	first.PartitionID = 0
+	firstPacket, err := govpx.PackVP8RTPPayload(first, frame[:2])
+	if err != nil {
+		t.Fatalf("PackVP8RTPPayload first: %v", err)
+	}
+	second := desc
+	second.StartOfPartition = true
+	second.PartitionID = 1
+	secondPacket, err := govpx.PackVP8RTPPayload(second, frame[2:4])
+	if err != nil {
+		t.Fatalf("PackVP8RTPPayload second: %v", err)
+	}
+	third := desc
+	third.PartitionID = 1
+	thirdPacket, err := govpx.PackVP8RTPPayload(third, frame[4:])
+	if err != nil {
+		t.Fatalf("PackVP8RTPPayload third: %v", err)
+	}
+	payloads := []govpx.RTPPayloadFragment{
+		{Payload: firstPacket},
+		{Payload: secondPacket},
+		{Payload: thirdPacket, Marker: true},
+	}
+	need, err := govpx.VP8RTPFrameAssemblySize(payloads)
+	if err != nil {
+		t.Fatalf("VP8RTPFrameAssemblySize returned error: %v", err)
+	}
+	if need != len(frame) {
+		t.Fatalf("assembly size = %d, want %d", need, len(frame))
+	}
+	assembled, err := govpx.AssembleVP8RTPFrame(payloads)
+	if err != nil {
+		t.Fatalf("AssembleVP8RTPFrame returned error: %v", err)
+	}
+	if !bytes.Equal(assembled, frame) {
+		t.Fatalf("assembled frame = % x, want % x", assembled, frame)
+	}
+}
+
 func TestVP8EncodeResultPacketizeWebRTCRTPValidation(t *testing.T) {
 	if _, _, err := (govpx.EncodeResult{
 		Dropped:            true,
