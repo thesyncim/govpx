@@ -688,9 +688,9 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 		_ = cfg // reserved for future per-session config tweaks
 	case "spatial":
 		cap := clampSpatialCap(m.Cap)
-		if ctl.spatialCap.Swap(int32(cap)) != int32(cap) {
-			// New cap level: ask for a fresh keyframe so the browser's
-			// decoder resets references to the new effective top layer.
+		current := int(ctl.spatialCap.Swap(int32(cap)))
+		if govpx.VP9WebRTCSpatialLayerChangeNeedsKeyFrame(current, cap) {
+			// New cap level: reset references to the new effective top layer.
 			ctl.forceKey.Store(true)
 		}
 	}

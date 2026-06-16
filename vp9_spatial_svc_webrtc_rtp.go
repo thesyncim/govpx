@@ -10,10 +10,25 @@ func NextVP9RTPPictureID(id uint16) uint16 {
 	return (id + 1) & VP9RTPPictureID15BitMask
 }
 
+// VP9WebRTCSpatialLayerChangeNeedsKeyFrame reports whether a WebRTC VP9
+// sender should force a key access unit before changing the number of
+// transmitted spatial layers.
+func VP9WebRTCSpatialLayerChangeNeedsKeyFrame(
+	currentLayerCount int,
+	nextLayerCount int,
+) bool {
+	return currentLayerCount != nextLayerCount
+}
+
 // LimitSpatialLayersForRTP returns a shallow copy of r that exposes only the
 // first layerCount spatial layers for RTP transmission. It also rewrites
 // active-layer metadata and clears hidden scalability-structure dimensions so
 // receivers do not wait for non-transmitted enhancement layers.
+//
+// When a WebRTC sender changes the active layer count across access units, it
+// should force a key access unit before packetizing the first result at the new
+// count. Use [VP9WebRTCSpatialLayerChangeNeedsKeyFrame] to gate that control
+// decision.
 func (r VP9SpatialSVCEncodeResult) LimitSpatialLayersForRTP(
 	layerCount int,
 ) (VP9SpatialSVCEncodeResult, error) {

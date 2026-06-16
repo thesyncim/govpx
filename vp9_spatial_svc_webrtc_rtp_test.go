@@ -82,6 +82,29 @@ func TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCSpatialLayerChangeNeedsKeyFrame(t *testing.T) {
+	tests := []struct {
+		name    string
+		current int
+		next    int
+		want    bool
+	}{
+		{name: "unchanged", current: 3, next: 3},
+		{name: "cap down", current: 3, next: 1, want: true},
+		{name: "cap up", current: 1, next: 3, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := govpx.VP9WebRTCSpatialLayerChangeNeedsKeyFrame(tt.current,
+				tt.next); got != tt.want {
+				t.Fatalf("VP9WebRTCSpatialLayerChangeNeedsKeyFrame(%d, %d) = %t, want %t",
+					tt.current, tt.next, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestVP9SpatialSVCEncodeResultLimitSpatialLayersForRTP(t *testing.T) {
 	result := encodeVP9WebRTCSVCTestResults(t, 1)[0]
 	capped, err := result.LimitSpatialLayersForRTP(1)

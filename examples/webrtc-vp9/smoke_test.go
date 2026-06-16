@@ -665,6 +665,34 @@ func TestApplyControlResumeRequestsKeyFrame(t *testing.T) {
 	}
 }
 
+func TestApplyControlSpatialCapUsesWebRTCKeyFramePolicy(t *testing.T) {
+	ctl := &controlState{}
+	ctl.spatialCap.Store(int32(spatialLayerCount))
+
+	applyControl(ctl, controlMessage{Type: "spatial", Cap: spatialLayerCount},
+		demoConfig{})
+	if ctl.forceKey.Load() {
+		t.Fatal("unchanged spatial cap requested a keyframe")
+	}
+
+	applyControl(ctl, controlMessage{Type: "spatial", Cap: 1}, demoConfig{})
+	if !ctl.forceKey.Load() {
+		t.Fatal("spatial cap decrease did not request a keyframe")
+	}
+
+	ctl.forceKey.Store(false)
+	applyControl(ctl, controlMessage{Type: "spatial", Cap: 1}, demoConfig{})
+	if ctl.forceKey.Load() {
+		t.Fatal("repeated spatial cap requested a keyframe")
+	}
+
+	applyControl(ctl, controlMessage{Type: "spatial", Cap: spatialLayerCount},
+		demoConfig{})
+	if !ctl.forceKey.Load() {
+		t.Fatal("spatial cap increase did not request a keyframe")
+	}
+}
+
 func TestApplyControlPauseDoesNotClearPendingKeyFrame(t *testing.T) {
 	ctl := &controlState{}
 	ctl.forceKey.Store(true)
