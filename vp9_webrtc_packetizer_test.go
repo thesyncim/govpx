@@ -31,7 +31,7 @@ func TestVP9WebRTCPacketizerConsumesCBRDroppedFrames(t *testing.T) {
 		t.Fatalf("PictureID after dropped frame = %d, want 0", got)
 	}
 
-	inter := encodePostDropVP9FrameForTest(t, e, dst, 2, 1)
+	inter := encodeAfterDroppedVP9FrameForTest(t, e, dst, 2, 1)
 	interPayloads, sent, err := packetizer.Packetize(inter, 500)
 	if err != nil || !sent {
 		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
@@ -83,7 +83,46 @@ func TestVP9WebRTCPacketizerSizeConsumesCBRDroppedFrames(t *testing.T) {
 		t.Fatalf("PictureID after duplicate dropped packetize = %d, want 0", got)
 	}
 
-	inter := encodePostDropVP9FrameForTest(t, e, dst, 2, 1)
+	inter := encodeAfterDroppedVP9FrameForTest(t, e, dst, 2, 1)
+	interPayloads, sent, err := packetizer.Packetize(inter, 500)
+	if err != nil || !sent {
+		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
+	}
+	if got := firstVP9PayloadPictureIDForTest(t, interPayloads); got != 0 {
+		t.Fatalf("inter PictureID = %d, want 0", got)
+	}
+	assertVP9WebRTCGOFTemporalForTest(t, keyPayloads, interPayloads,
+		inter.TemporalLayerID)
+}
+
+func TestVP9WebRTCPacketizerConsumesCBRPreEncodeDroppedFrames(t *testing.T) {
+	e, packetizer, dst, keyPayloads := newVP9WebRTCPreDropTestState(t)
+
+	e.rc.bufferLevelBits = -e.rc.bitsPerFrame - 1
+	dropped, err := e.EncodeIntoWithResult(
+		vp9test.NewPanningYCbCr(64, 64, 1), dst)
+	if err != nil {
+		t.Fatalf("dropped EncodeIntoWithResult: %v", err)
+	}
+	if !dropped.Dropped {
+		t.Fatal("test did not force a VP9 CBR pre-encode drop")
+	}
+	if dropped.TemporalLayerID != 2 {
+		t.Fatalf("dropped temporal layer = %d, want 2", dropped.TemporalLayerID)
+	}
+	packets, payloadBytes, sent, err := packetizer.PacketizationSize(dropped, 500)
+	if err != nil || sent || packets != 0 || payloadBytes != 0 {
+		t.Fatalf("pre-drop PacketizationSize = packets:%d bytes:%d sent:%t err:%v, want consumed skip",
+			packets, payloadBytes, sent, err)
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after pre-encode drop = %d, want 0", got)
+	}
+	if err := e.SetFrameDropAllowed(false); err != nil {
+		t.Fatalf("SetFrameDropAllowed(false): %v", err)
+	}
+
+	inter := encodeAfterDroppedVP9FrameForTest(t, e, dst, 2, 1)
 	interPayloads, sent, err := packetizer.Packetize(inter, 500)
 	if err != nil || !sent {
 		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
@@ -193,7 +232,65 @@ func newVP9WebRTCDropTestState(
 	return e, packetizer, dst, keyPayloads
 }
 
-func encodePostDropVP9FrameForTest(
+func newVP9WebRTCPreDropTestState(
+	t *testing.T,
+) (*VP9Encoder, VP9WebRTCPacketizer, []byte, []RTPPayloadFragment) {
+	t.Helper()
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 30,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   120,
+		BufferSizeMs:        100,
+		BufferInitialSizeMs: 10,
+		BufferOptimalSizeMs: 20,
+		Quantizer:           10,
+		DropFrameAllowed:    true,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringThreeLayers,
+		},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	t.Cleanup(func() { e.Close() })
+
+	var packetizer = NewVP9WebRTCPacketizer(VP9RTPPictureID15BitMask - 1)
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewPanningYCbCr(width, height, 0),
+		dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if key.Dropped || !key.KeyFrame {
+		t.Fatalf("key result = dropped:%t key:%t, want coded key",
+			key.Dropped, key.KeyFrame)
+	}
+	keyPayloads, sent, err := packetizer.Packetize(key, 500)
+	if err != nil || !sent {
+		t.Fatalf("key Packetize = sent:%t err:%v", sent, err)
+	}
+	if got := firstVP9PayloadPictureIDForTest(t, keyPayloads); got != VP9RTPPictureID15BitMask-1 {
+		t.Fatalf("key PictureID = %d, want %d", got,
+			VP9RTPPictureID15BitMask-1)
+	}
+	if got := packetizer.PictureID(); got != VP9RTPPictureID15BitMask {
+		t.Fatalf("PictureID after key = %d, want %d", got,
+			VP9RTPPictureID15BitMask)
+	}
+	return e, packetizer, dst, keyPayloads
+}
+
+func encodeAfterDroppedVP9FrameForTest(
 	t *testing.T,
 	e *VP9Encoder,
 	dst []byte,
