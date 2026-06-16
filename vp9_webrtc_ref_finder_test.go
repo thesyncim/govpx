@@ -141,7 +141,10 @@ func (f *vp9WebRTCPlainRefFinderForTest) accept(
 	}
 	if desc.ScalabilityStructurePresent && desc.TemporalID == 0 {
 		groups := desc.ScalabilityStructure.PictureGroups
-		if !desc.ScalabilityStructure.PictureGroupPresent || len(groups) == 0 {
+		if desc.FlexibleMode {
+			f.available[desc.PictureID] = true
+			return
+		} else if !desc.ScalabilityStructure.PictureGroupPresent || len(groups) == 0 {
 			groups = []VP9RTPPictureGroup{{TemporalID: 0}}
 		}
 		f.gof = &vp9WebRTCPlainGOFForTest{
@@ -150,6 +153,24 @@ func (f *vp9WebRTCPlainRefFinderForTest) accept(
 			lastPictureID: desc.PictureID,
 		}
 		f.markReceived(desc.PictureID, f.gof)
+		f.available[desc.PictureID] = true
+		return
+	}
+	if desc.FlexibleMode {
+		if desc.InterPicturePredicted {
+			if desc.ReferenceIndexCount == 0 {
+				t.Fatalf("frame %d carried P=1 without flexible refs",
+					frame)
+			}
+			for i := 0; i < desc.ReferenceIndexCount; i++ {
+				refPID := vp9WebRTCPlainPictureIDSub(desc.PictureID,
+					desc.ReferenceIndices[i])
+				if !f.available[refPID] {
+					t.Fatalf("frame %d requires unavailable flexible ref pid %d for pid %d",
+						frame, refPID, desc.PictureID)
+				}
+			}
+		}
 		f.available[desc.PictureID] = true
 		return
 	}

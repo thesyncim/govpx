@@ -90,9 +90,6 @@ func assertPlainVP9WebRTCPionPayloadBodiesForTest(
 				i, packet.I, packet.PictureID,
 				pictureID&govpx.VP9RTPPictureID15BitMask)
 		}
-		if packet.F {
-			t.Fatalf("payload %d used flexible mode", i)
-		}
 		if got, want := packet.B, i == 0; got != want {
 			t.Fatalf("payload %d B = %t, want %t", i, got, want)
 		}
@@ -106,7 +103,11 @@ func assertPlainVP9WebRTCPionPayloadBodiesForTest(
 			t.Fatalf("payload %d P = %t, want %t",
 				i, packet.P, result.InterPicturePredicted)
 		}
-		if result.TemporalLayerCount > 1 {
+		if packet.F {
+			if packet.P && len(packet.PDiff) == 0 {
+				t.Fatalf("payload %d used flexible P=1 without refs", i)
+			}
+		} else if result.TemporalLayerCount > 1 {
 			if !packet.L ||
 				int(packet.TID) != result.TemporalLayerID ||
 				packet.TL0PICIDX != result.TL0PICIDX ||
@@ -121,13 +122,21 @@ func assertPlainVP9WebRTCPionPayloadBodiesForTest(
 			if !packet.V || !packet.Y || packet.NS != 0 ||
 				len(packet.Width) != 1 || len(packet.Height) != 1 ||
 				packet.Width[0] != uint16(width) ||
-				packet.Height[0] != uint16(height) ||
-				!packet.G || packet.NG != 4 {
-				t.Fatalf("payload %d SS = V:%t Y:%t NS:%d %dx%d G:%t NG:%d",
+				packet.Height[0] != uint16(height) {
+				t.Fatalf("payload %d SS = V:%t Y:%t NS:%d %dx%d, want %dx%d",
 					i, packet.V, packet.Y, packet.NS,
 					firstUint16ForTest(packet.Width),
 					firstUint16ForTest(packet.Height),
-					packet.G, packet.NG)
+					width, height)
+			}
+			if packet.F {
+				if packet.G || packet.NG != 0 {
+					t.Fatalf("payload %d flexible SS = G:%t NG:%d, want no GOF",
+						i, packet.G, packet.NG)
+				}
+			} else if !packet.G || packet.NG != 4 {
+				t.Fatalf("payload %d non-flexible SS = G:%t NG:%d, want 4 GOF entries",
+					i, packet.G, packet.NG)
 			}
 		} else if packet.V {
 			t.Fatalf("payload %d unexpectedly repeated scalability structure", i)

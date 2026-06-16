@@ -467,21 +467,25 @@ func assertVP9WebRTCGOFTemporalForTest(
 	if err != nil {
 		t.Fatalf("ParseVP9RTPPayloadDescriptor key: %v", err)
 	}
-	if !keyDesc.ScalabilityStructurePresent ||
-		!keyDesc.ScalabilityStructure.PictureGroupPresent {
-		t.Fatalf("key payload did not carry WebRTC GOF: %+v", keyDesc)
+	if !keyDesc.FlexibleMode || !keyDesc.ScalabilityStructurePresent ||
+		keyDesc.ScalabilityStructure.PictureGroupPresent {
+		t.Fatalf("key payload descriptor = flexible:%t ss:%t gof:%t, want flexible SS without GOF",
+			keyDesc.FlexibleMode, keyDesc.ScalabilityStructurePresent,
+			keyDesc.ScalabilityStructure.PictureGroupPresent)
 	}
 	desc, _, err := ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
 	if err != nil {
 		t.Fatalf("ParseVP9RTPPayloadDescriptor inter: %v", err)
 	}
-	diff := (int(desc.PictureID) - int(keyDesc.PictureID) +
-		int(VP9RTPPictureID15BitMask) + 1) &
-		int(VP9RTPPictureID15BitMask)
-	groups := keyDesc.ScalabilityStructure.PictureGroups
-	gofTemporalID := int(groups[diff%len(groups)].TemporalID)
-	if gofTemporalID != wantTemporalID {
-		t.Fatalf("GOF temporal layer at PictureID diff %d = %d, want %d",
-			diff, gofTemporalID, wantTemporalID)
+	if !desc.FlexibleMode {
+		t.Fatalf("inter payload used non-flexible descriptor: %+v", desc)
+	}
+	if int(desc.TemporalID) != wantTemporalID {
+		t.Fatalf("inter temporal layer = %d, want %d",
+			desc.TemporalID, wantTemporalID)
+	}
+	if desc.InterPicturePredicted && desc.ReferenceIndexCount == 0 {
+		t.Fatalf("inter payload had P=1 without flexible reference diffs: %+v",
+			desc)
 	}
 }

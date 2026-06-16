@@ -297,6 +297,10 @@ func assertVP9ActiveSVCWebRTCPacketizationForTest(
 				frame, i, desc.PictureIDPresent, desc.PictureID15Bit,
 				desc.PictureID, pictureID)
 		}
+		if !desc.FlexibleMode {
+			t.Fatalf("frame %d payload %d used non-flexible descriptor",
+				frame, i)
+		}
 		if !desc.LayerIndicesPresent || int(desc.SpatialID) >= count {
 			t.Fatalf("frame %d payload %d descriptor = %+v, want spatial id < %d",
 				frame, i, desc, count)
@@ -310,6 +314,11 @@ func assertVP9ActiveSVCWebRTCPacketizationForTest(
 					t.Fatalf("frame %d base SS layers = %d, want %d",
 						frame, desc.ScalabilityStructure.SpatialLayerCount,
 						count)
+				}
+				if desc.ScalabilityStructurePresent &&
+					desc.ScalabilityStructure.PictureGroupPresent {
+					t.Fatalf("frame %d flexible base SS unexpectedly carried GOF",
+						frame)
 				}
 			} else if desc.ScalabilityStructurePresent {
 				t.Fatalf("frame %d layer %d unexpectedly carried SS",

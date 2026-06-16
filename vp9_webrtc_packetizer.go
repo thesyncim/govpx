@@ -11,6 +11,7 @@ type VP9WebRTCPacketizer struct {
 	consumedDropPending   bool
 	consumedDropSignature vp9WebRTCDroppedFrameSignature
 	keyFrameRequired      bool
+	references            vp9WebRTCReferenceTracker
 }
 
 // NewVP9WebRTCPacketizer returns a VP9 WebRTC packetizer whose first emitted
@@ -59,7 +60,7 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 		return 0, 0, false, err
 	}
 	p.consumedDropPending = false
-	packets, payloadBytes, err = r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
+	packets, payloadBytes, err = p.vp9WebRTCPacketizationSize(r, mtu)
 	return packets, payloadBytes, err == nil, err
 }
 
@@ -84,13 +85,15 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 	if err = p.requireVP9RecoveryKey(r); err != nil {
 		return 0, 0, false, err
 	}
-	packets, payloadBytes, err = r.PacketizeWebRTCRTPInto(dst, payloadBuf,
-		p.pictureID, mtu)
+	pictureID := p.pictureID
+	packets, payloadBytes, err = p.vp9PacketizeWebRTCInto(r, dst,
+		payloadBuf, mtu)
 	if err != nil {
 		return packets, payloadBytes, false, err
 	}
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
+	p.commitVP9WebRTCReferences(r, pictureID)
 	p.advancePictureID()
 	return packets, payloadBytes, true, nil
 }
@@ -112,12 +115,14 @@ func (p *VP9WebRTCPacketizer) Packetize(
 	if err := p.requireVP9RecoveryKey(r); err != nil {
 		return nil, false, err
 	}
-	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
+	pictureID := p.pictureID
+	payloads, err := p.vp9PacketizeWebRTC(r, mtu)
 	if err != nil {
 		return nil, false, err
 	}
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
+	p.commitVP9WebRTCReferences(r, pictureID)
 	p.advancePictureID()
 	return payloads, true, nil
 }
@@ -136,7 +141,7 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCPacketizationSize(
 		return 0, 0, err
 	}
 	p.consumedDropPending = false
-	return r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
+	return p.vp9SpatialSVCWebRTCPacketizationSize(r, mtu)
 }
 
 // PacketizeSpatialSVCWebRTCInto packetizes r into caller-owned RTP payload
@@ -154,13 +159,15 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
 		return 0, 0, err
 	}
-	packets, payloadBytes, err := r.PacketizeWebRTCRTPInto(dst, payloadBuf,
-		p.pictureID, mtu)
+	pictureID := p.pictureID
+	packets, payloadBytes, err := p.vp9PacketizeSpatialSVCWebRTCInto(r,
+		dst, payloadBuf, mtu)
 	if err != nil {
 		return packets, payloadBytes, err
 	}
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
+	p.commitVP9SpatialSVCWebRTCReferences(r, pictureID)
 	p.advancePictureID()
 	return packets, payloadBytes, nil
 }
@@ -177,12 +184,14 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
 		return nil, err
 	}
-	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
+	pictureID := p.pictureID
+	payloads, err := p.vp9PacketizeSpatialSVCWebRTC(r, mtu)
 	if err != nil {
 		return nil, err
 	}
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
+	p.commitVP9SpatialSVCWebRTCReferences(r, pictureID)
 	p.advancePictureID()
 	return payloads, nil
 }

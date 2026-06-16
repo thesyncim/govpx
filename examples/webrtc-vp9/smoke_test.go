@@ -190,9 +190,12 @@ func TestDemoEndToEnd(t *testing.T) {
 			desc.ScalabilityStructurePresent,
 			desc.ScalabilityStructure.SpatialLayerCount, spatialLayerCount)
 	}
-	if !desc.ScalabilityStructure.PictureGroupPresent ||
-		len(desc.ScalabilityStructure.PictureGroups) != 4 {
-		t.Fatalf("first RTP temporal picture groups = present:%v count:%d, want 4 groups",
+	if !desc.FlexibleMode {
+		t.Fatal("first RTP descriptor used non-flexible VP9 mode")
+	}
+	if desc.ScalabilityStructure.PictureGroupPresent ||
+		len(desc.ScalabilityStructure.PictureGroups) != 0 {
+		t.Fatalf("first RTP flexible SS temporal groups = present:%v count:%d, want none",
 			desc.ScalabilityStructure.PictureGroupPresent,
 			len(desc.ScalabilityStructure.PictureGroups))
 	}
@@ -511,6 +514,9 @@ func assertWebRTCRTPAccessUnitForTest(
 			t.Fatalf("RTP packet %d PictureID = present:%t 15bit:%t, want 15-bit",
 				i, desc.PictureIDPresent, desc.PictureID15Bit)
 		}
+		if !desc.FlexibleMode {
+			t.Fatalf("RTP packet %d used non-flexible VP9 descriptor", i)
+		}
 		if !seenPictureID {
 			pictureID = desc.PictureID
 			seenPictureID = true
@@ -531,6 +537,9 @@ func assertWebRTCRTPAccessUnitForTest(
 						desc.ScalabilityStructurePresent,
 						desc.ScalabilityStructure.SpatialLayerCount,
 						spatialLayers)
+				}
+				if desc.ScalabilityStructure.PictureGroupPresent {
+					t.Fatalf("base RTP flexible SS unexpectedly carried GOF")
 				}
 			} else if desc.ScalabilityStructurePresent {
 				t.Fatalf("RTP packet %d layer %d repeated scalability structure",

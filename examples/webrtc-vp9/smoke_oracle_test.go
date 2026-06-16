@@ -876,9 +876,6 @@ func reassembleWebRTCRTPAccessUnitForOracle(
 			t.Fatalf("Pion live VP9 packet %d = I:%t L:%t, want PictureID and layer metadata",
 				i, packet.I, packet.L)
 		}
-		if packet.F {
-			t.Fatalf("Pion live VP9 packet %d used flexible mode", i)
-		}
 		layerID := int(packet.SID)
 		if layerID >= spatialLayers {
 			t.Fatalf("Pion live VP9 packet %d spatial id = %d, want < %d",

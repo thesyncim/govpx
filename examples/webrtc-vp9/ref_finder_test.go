@@ -456,6 +456,35 @@ func (f *webRTCVP9RefFinderForTest) acceptFrame(
 	if desc.PictureIDPresent {
 		_ = f.unwrapPictureID(desc.PictureID)
 	}
+	if desc.FlexibleMode {
+		if desc.ScalabilityStructurePresent &&
+			desc.ScalabilityStructure.PictureGroupPresent {
+			t.Fatalf("frame %d layer %d flexible SS unexpectedly carried GOF",
+				frame, layer)
+		}
+		if desc.InterPicturePredicted {
+			if desc.ReferenceIndexCount == 0 {
+				t.Fatalf("frame %d layer %d carried P=1 without flexible refs",
+					frame, layer)
+			}
+			for i := 0; i < desc.ReferenceIndexCount; i++ {
+				refPictureID := vp9WebRTCPictureIDSub(desc.PictureID,
+					desc.ReferenceIndices[i])
+				f.requireAvailable(t, frame, layer, refPictureID,
+					desc.SpatialID, "flex")
+			}
+		}
+		if desc.InterLayerDependency {
+			if desc.SpatialID == 0 {
+				t.Fatalf("frame %d layer %d base layer has inter-layer dependency",
+					frame, layer)
+			}
+			f.requireAvailable(t, frame, layer, desc.PictureID,
+				desc.SpatialID-1, "inter-layer")
+		}
+		f.markAvailable(desc.PictureID, desc.SpatialID)
+		return
+	}
 	isBaseKey := !desc.InterPicturePredicted && desc.SpatialID == 0 &&
 		!desc.InterLayerDependency
 	var info *webRTCVP9GofInfoForTest
