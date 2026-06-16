@@ -769,10 +769,8 @@ func consumeForceKeyForActiveAccessUnit(ctl *controlState) (bool, bool) {
 	return true, ctl.forceKey.Swap(false)
 }
 
-func retryForceKeyAfterFailedAccessUnit(ctl *controlState, forceKey bool) {
-	if forceKey {
-		ctl.forceKey.Store(true)
-	}
+func requestKeyFrameAfterFailedAccessUnit(ctl *controlState) {
+	ctl.forceKey.Store(true)
 }
 
 func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int {
@@ -894,7 +892,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		if err != nil {
 			log.Printf("EncodeActiveLayersIntoWithResult: %v (frame %d)", err,
 				sceneT)
-			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
+			requestKeyFrameAfterFailedAccessUnit(ctl)
 			continue
 		}
 
@@ -905,7 +903,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			SpatialSVCWebRTCPacketizationSize(rtpResult, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
-			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
+			requestKeyFrameAfterFailedAccessUnit(ctl)
 			continue
 		}
 		if cap(rtpFragments) < fragmentCount {
@@ -920,7 +918,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpResult, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
-			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
+			requestKeyFrameAfterFailedAccessUnit(ctl)
 			continue
 		}
 		for i := 0; i < fragmentCount; i++ {

@@ -745,23 +745,24 @@ func TestConsumeForceKeyForActiveAccessUnitConsumesActiveRequest(t *testing.T) {
 	}
 }
 
-func TestRetryForceKeyAfterFailedAccessUnitRequeuesForcedKey(t *testing.T) {
+func TestRequestKeyFrameAfterFailedAccessUnitRequeuesKey(t *testing.T) {
 	ctl := &controlState{}
 
-	retryForceKeyAfterFailedAccessUnit(ctl, true)
+	requestKeyFrameAfterFailedAccessUnit(ctl)
 
 	if !ctl.forceKey.Load() {
-		t.Fatal("failed forced access unit did not requeue keyframe request")
+		t.Fatal("failed access unit did not queue keyframe request")
 	}
 }
 
-func TestRetryForceKeyAfterFailedAccessUnitLeavesOrdinaryFrameUnforced(t *testing.T) {
+func TestRequestKeyFrameAfterFailedAccessUnitPreservesPendingKey(t *testing.T) {
 	ctl := &controlState{}
+	ctl.forceKey.Store(true)
 
-	retryForceKeyAfterFailedAccessUnit(ctl, false)
+	requestKeyFrameAfterFailedAccessUnit(ctl)
 
-	if ctl.forceKey.Load() {
-		t.Fatal("failed ordinary access unit unexpectedly requested keyframe")
+	if !ctl.forceKey.Load() {
+		t.Fatal("failed access unit cleared pending keyframe request")
 	}
 }
 
