@@ -510,14 +510,28 @@ func sdpNegotiatesVP9Profile0(sdp string) bool {
 			}
 		case strings.HasPrefix(line, "a=fmtp:"):
 			fields := strings.Fields(strings.TrimPrefix(line, "a=fmtp:"))
-			if len(fields) >= 2 &&
-				strings.Contains(strings.Join(fields[1:], " "), vp9Profile0Fmtp) {
+			if len(fields) >= 2 && fmtpParamsContainVP9Profile0(
+				strings.Join(fields[1:], " ")) {
 				profile0PayloadTypes[fields[0]] = true
 			}
 		}
 	}
 	for payloadType := range vp9PayloadTypes {
 		if profile0PayloadTypes[payloadType] {
+			return true
+		}
+	}
+	return false
+}
+
+func fmtpParamsContainVP9Profile0(params string) bool {
+	for _, rawParam := range strings.Split(params, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(rawParam), "=")
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(key) == "profile-id" &&
+			strings.TrimSpace(value) == "0" {
 			return true
 		}
 	}

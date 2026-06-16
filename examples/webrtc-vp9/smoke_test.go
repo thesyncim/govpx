@@ -796,6 +796,14 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "vp9 profile zero among fmtp params",
+			sdp: strings.Join([]string{
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 x-google-start-bitrate=800; profile-id = 0 ; max-fr=30",
+			}, "\r\n"),
+			want: true,
+		},
+		{
 			name: "vp9 profile two",
 			sdp: strings.Join([]string{
 				"a=rtpmap:100 VP9/90000",
@@ -816,6 +824,27 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 				"a=fmtp:96 profile-id=0",
 				"a=rtpmap:100 VP9/90000",
 				"a=fmtp:100 profile-id=2",
+			}, "\r\n"),
+		},
+		{
+			name: "lookalike fmtp key is rejected",
+			sdp: strings.Join([]string{
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 x-profile-id=0",
+			}, "\r\n"),
+		},
+		{
+			name: "lookalike fmtp value is rejected",
+			sdp: strings.Join([]string{
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=00",
+			}, "\r\n"),
+		},
+		{
+			name: "profile zero suffix is rejected",
+			sdp: strings.Join([]string{
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0foo",
 			}, "\r\n"),
 		},
 	}
