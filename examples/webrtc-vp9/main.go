@@ -687,19 +687,23 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 		ctl.bitrateKbps.Store(int64(kbps))
 		_ = cfg // reserved for future per-session config tweaks
 	case "spatial":
-		cap := m.Cap
-		if cap < 1 {
-			cap = 1
-		}
-		if cap > spatialLayerCount {
-			cap = spatialLayerCount
-		}
+		cap := clampSpatialCap(m.Cap)
 		if ctl.spatialCap.Swap(int32(cap)) != int32(cap) {
 			// New cap level: ask for a fresh keyframe so the browser's
 			// decoder resets references to the new effective top layer.
 			ctl.forceKey.Store(true)
 		}
 	}
+}
+
+func clampSpatialCap(cap int) int {
+	if cap < 1 {
+		return 1
+	}
+	if cap > spatialLayerCount {
+		return spatialLayerCount
+	}
+	return cap
 }
 
 func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, ctl *controlState) {
@@ -771,6 +775,13 @@ func retryForceKeyAfterFailedAccessUnit(ctl *controlState, forceKey bool) {
 	}
 }
 
+func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int {
+	if !forceKey {
+		return current
+	}
+	return clampSpatialCap(int(ctl.spatialCap.Load()))
+}
+
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
 	track *webrtc.TrackLocalStaticRTP, telemetry chan []byte, ctl *controlState,
 	cfg demoConfig) {
@@ -829,6 +840,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 
 	currentBitrate := int(ctl.bitrateKbps.Load())
 	currentScreen := int(ctl.screenMode.Load())
+	currentSpatialCap := clampSpatialCap(int(ctl.spatialCap.Load()))
 
 	statsTracker := newStatsTracker()
 	var lastMediaFrame uint64
@@ -862,6 +874,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		if !active {
 			continue
 		}
+		currentSpatialCap = spatialCapForAccessUnit(ctl, currentSpatialCap,
+			forceKey)
 		if forceKey {
 			forceKeyAll(svc)
 		}
@@ -883,7 +897,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		}
 
 		rtpResult := result
-		if cap := int(ctl.spatialCap.Load()); cap >= 1 && cap < spatialLayerCount {
+		if cap := currentSpatialCap; cap >= 1 && cap < spatialLayerCount {
 			capped, err := result.LimitSpatialLayersForRTP(cap)
 			if err != nil {
 				log.Printf("LimitSpatialLayersForRTP(%d): %v", cap, err)

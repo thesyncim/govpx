@@ -728,6 +728,40 @@ func TestRetryForceKeyAfterFailedAccessUnitLeavesOrdinaryFrameUnforced(t *testin
 	}
 }
 
+func TestSpatialCapForAccessUnitDefersPendingCapUntilKeyFrame(t *testing.T) {
+	ctl := &controlState{}
+	ctl.spatialCap.Store(1)
+
+	if got := spatialCapForAccessUnit(ctl, spatialLayerCount, false); got != spatialLayerCount {
+		t.Fatalf("ordinary access unit cap = %d, want current cap %d",
+			got, spatialLayerCount)
+	}
+	if got := spatialCapForAccessUnit(ctl, spatialLayerCount, true); got != 1 {
+		t.Fatalf("forced access unit cap = %d, want pending cap 1", got)
+	}
+}
+
+func TestSpatialCapChangeAfterForceKeyConsumedIsAppliedNextKeyFrame(t *testing.T) {
+	ctl := &controlState{}
+	ctl.spatialCap.Store(int32(spatialLayerCount))
+
+	currentCap := spatialCapForAccessUnit(ctl, spatialLayerCount, false)
+	applyControl(ctl, controlMessage{Type: "spatial", Cap: 1}, demoConfig{})
+
+	if currentCap != spatialLayerCount {
+		t.Fatalf("current access unit cap = %d, want old cap %d",
+			currentCap, spatialLayerCount)
+	}
+	active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+	if !active || !forceKey {
+		t.Fatalf("next access unit = active:%t forceKey:%t, want true/true",
+			active, forceKey)
+	}
+	if nextCap := spatialCapForAccessUnit(ctl, currentCap, forceKey); nextCap != 1 {
+		t.Fatalf("next forced access unit cap = %d, want 1", nextCap)
+	}
+}
+
 func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	const fps = 29
 	naiveAfterOneSecond := uint64(fps) * uint64(rtpClockHz/fps)
