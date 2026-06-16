@@ -120,12 +120,13 @@ ordered frame assembly, marker-bit results, and VP9 scalability-structure
 support. RTP headers, sequence/loss policy, jitter buffering, SRTP, SDP, and
 signaling stay caller-owned.
 
-For VP9 WebRTC senders, use the WebRTC-specific packetizers on encoder results:
-`VP9EncodeResult.PacketizeWebRTCRTPInto` / `PacketizeWebRTCRTP` for a plain
-single-layer stream, and the matching `VP9SpatialSVCEncodeResult` methods for
-SVC access units. These helpers set 15-bit PictureID, preserve temporal-layer
-metadata, and emit keyframe scalability-structure data with WebRTC GOF
-dependencies. The lower-level VP9 RTP packetizers are still available when a
+For VP9 WebRTC senders, use `VP9WebRTCPacketizer` around the WebRTC-specific
+encoder-result packetizers. It sets 15-bit PictureID, preserves temporal-layer
+metadata, emits keyframe scalability-structure data with WebRTC GOF
+dependencies, and advances PictureID only after successful packetization. If
+VP9 CBR intentionally drops a frame, `VP9WebRTCPacketizer.Packetize` returns
+`sent=false` with no RTP payloads and keeps the same PictureID for the next
+emitted frame. The lower-level VP9 RTP packetizers are still available when a
 caller deliberately owns descriptor policy.
 
 VP9 superframe helpers are Profile 0 only:

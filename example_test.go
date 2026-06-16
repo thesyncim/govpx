@@ -56,8 +56,9 @@ func ExampleVP9EncodeResult_PacketizeWebRTCRTP() {
 		fmt.Println(err)
 		return
 	}
-	payloads, err := result.PacketizeWebRTCRTP(17, 1200)
-	if err != nil {
+	packetizer := govpx.NewVP9WebRTCPacketizer(17)
+	payloads, sent, err := packetizer.Packetize(result, 1200)
+	if err != nil || !sent {
 		fmt.Println(err)
 		return
 	}

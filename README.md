@@ -117,7 +117,7 @@ returns no more data.
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
-| Packetize VP9 for WebRTC senders | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
+| Packetize VP9 for WebRTC senders | `VP9WebRTCPacketizer`, `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
@@ -138,12 +138,14 @@ payload bodies plus marker bits. RTP headers, sequence/loss policy, jitter
 buffering, SRTP, SDP, and signaling remain caller-owned. VP9 helpers carry
 picture IDs, layer indices, flexible-mode references, and scalability
 structures through packetization and assembly. For WebRTC VP9 senders, prefer
-`VP9EncodeResult.PacketizeWebRTCRTPInto` / `PacketizeWebRTCRTP` or the matching
-`VP9SpatialSVCEncodeResult` methods: they force 15-bit PictureID, preserve
-temporal metadata, and put keyframe scalability-structure data on the first
-payload so libwebrtc-style reference tracking can release frames immediately.
-The generic VP9 RTP packetizers remain available for callers that already own
-their descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
+`VP9WebRTCPacketizer`: it wraps the result packetizers, forces 15-bit PictureID,
+preserves temporal metadata, emits keyframe scalability-structure data on the
+first payload, and only advances PictureID after a frame/access unit is
+successfully packetized. Encoder-dropped frames return no RTP payloads and do
+not advance PictureID, which keeps libwebrtc-style non-flexible VP9 reference
+tracking aligned with the stream that actually reaches the receiver. The
+generic VP9 RTP packetizers remain available for callers that already own their
+descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
 superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial
 layer signaling through `SetSpatialScalability`.
 
@@ -182,9 +184,10 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
   keyframe, visibility, reference, and entropy hints documented by
   `EncodeFlags`.
 - For plain single-layer VP9 over WebRTC, call `EncodeIntoWithResult`, then
-  `result.PacketizeWebRTCRTPInto` or `result.PacketizeWebRTCRTP`. This is the
-  receiver-safe path for temporal layers because it uses the same WebRTC GOF
-  dependency pattern validated by the VP9 reference-finder tests.
+  `VP9WebRTCPacketizer.PacketizeInto` or `Packetize`. This is the receiver-safe
+  path for temporal layers because it uses the same WebRTC GOF dependency
+  pattern validated by the VP9 reference-finder tests and skips CBR-dropped
+  frames without advancing PictureID.
 - `EncodeIntraOnlyFrameInto` plus `EncodeShowExistingFrameInto` covers the VP9
   hidden intra-only refresh / show-existing packet pattern used by payload-level
   refresh flows.

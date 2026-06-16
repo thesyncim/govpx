@@ -832,7 +832,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	interval := time.Second / time.Duration(cfg.FPS)
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
-	rtpPictureID := randomUint16() & govpx.VP9RTPPictureID15BitMask
+	rtpPacketizer := govpx.NewVP9WebRTCPacketizer(randomUint16())
 
 	startedAt := time.Now()
 	ticker := time.NewTicker(interval)
@@ -908,8 +908,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		}
 		statsTracker.observe(rtpResult, time.Now())
 
-		fragmentCount, payloadBytes, err := rtpResult.WebRTCRTPPacketizationSize(
-			rtpPictureID, rtpPayloadMTU)
+		fragmentCount, payloadBytes, err := rtpPacketizer.
+			SpatialSVCWebRTCPacketizationSize(rtpResult, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
 			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
@@ -923,8 +923,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf = make([]byte, payloadBytes)
 		}
 		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
-		fragmentCount, _, err = rtpResult.PacketizeWebRTCRTPInto(rtpFragments,
-			rtpPayloadBuf, rtpPictureID, rtpPayloadMTU)
+		fragmentCount, _, err = rtpPacketizer.PacketizeSpatialSVCWebRTCInto(
+			rtpResult, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
 			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
@@ -949,7 +949,6 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				return
 			}
 		}
-		rtpPictureID = govpx.NextVP9RTPPictureID(rtpPictureID)
 
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
