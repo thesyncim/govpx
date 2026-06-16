@@ -117,13 +117,17 @@ func TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
 			forceKeyAll(svc)
 		}
 		drawScene(imgs, frame)
-		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, step.cap)
 		if err != nil {
-			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, step.cap, err)
 		}
-		rtpResult := limitSVCResultForRTPForTest(t, result, step.cap)
-		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
-		refFinder.acceptAccessUnit(t, frame, rtpResult, payloads, pictureID)
+		if int(result.LayerCount) != step.cap {
+			t.Fatalf("frame %d active layer count = %d, want %d",
+				frame, result.LayerCount, step.cap)
+		}
+		payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
+		refFinder.acceptAccessUnit(t, frame, result, payloads, pictureID)
 		pictureID = govpx.NextVP9RTPPictureID(pictureID)
 		lastCap = step.cap
 	}
