@@ -708,6 +708,26 @@ func TestConsumeForceKeyForActiveAccessUnitConsumesActiveRequest(t *testing.T) {
 	}
 }
 
+func TestRetryForceKeyAfterFailedAccessUnitRequeuesForcedKey(t *testing.T) {
+	ctl := &controlState{}
+
+	retryForceKeyAfterFailedAccessUnit(ctl, true)
+
+	if !ctl.forceKey.Load() {
+		t.Fatal("failed forced access unit did not requeue keyframe request")
+	}
+}
+
+func TestRetryForceKeyAfterFailedAccessUnitLeavesOrdinaryFrameUnforced(t *testing.T) {
+	ctl := &controlState{}
+
+	retryForceKeyAfterFailedAccessUnit(ctl, false)
+
+	if ctl.forceKey.Load() {
+		t.Fatal("failed ordinary access unit unexpectedly requested keyframe")
+	}
+}
+
 func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	const fps = 29
 	naiveAfterOneSecond := uint64(fps) * uint64(rtpClockHz/fps)

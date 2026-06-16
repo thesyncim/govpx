@@ -765,6 +765,12 @@ func consumeForceKeyForActiveAccessUnit(ctl *controlState) (bool, bool) {
 	return true, ctl.forceKey.Swap(false)
 }
 
+func retryForceKeyAfterFailedAccessUnit(ctl *controlState, forceKey bool) {
+	if forceKey {
+		ctl.forceKey.Store(true)
+	}
+}
+
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
 	track *webrtc.TrackLocalStaticRTP, telemetry chan []byte, ctl *controlState,
 	cfg demoConfig) {
@@ -872,6 +878,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		result, err := svc.EncodeIntoWithResult(imgs, packet)
 		if err != nil {
 			log.Printf("EncodeIntoWithResult: %v (frame %d)", err, sceneT)
+			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
 			continue
 		}
 
@@ -880,6 +887,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			capped, err := result.LimitSpatialLayersForRTP(cap)
 			if err != nil {
 				log.Printf("LimitSpatialLayersForRTP(%d): %v", cap, err)
+				retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
 				continue
 			}
 			rtpResult = capped
@@ -890,6 +898,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPictureID, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
+			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
 			continue
 		}
 		if cap(rtpFragments) < fragmentCount {
@@ -904,6 +913,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf, rtpPictureID, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
+			retryForceKeyAfterFailedAccessUnit(ctl, forceKey)
 			continue
 		}
 		for i := 0; i < fragmentCount; i++ {
