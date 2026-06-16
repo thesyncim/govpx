@@ -191,6 +191,22 @@ func (e *VP8Encoder) SetErrorResilient(enabled bool, partitions bool) error {
 	return nil
 }
 
+// SetFrameFlags stores libvpx-style VP8E_SET_FRAME_FLAGS for the next
+// [VP8Encoder.EncodeInto] call that passes zero per-call flags. The pending
+// value is one-shot: any accepted EncodeInto call clears it, and explicit
+// non-zero EncodeInto flags override it. Use this when integrating with code
+// that models codec controls separately from frame submission.
+func (e *VP8Encoder) SetFrameFlags(flags EncodeFlags) error {
+	if e == nil || e.closed {
+		return ErrClosed
+	}
+	if err := validateEncodeFlags(flags); err != nil {
+		return err
+	}
+	e.controlFrameFlags = flags
+	return nil
+}
+
 // SetSharpness changes the VP8 loop-filter sharpness level. Valid range
 // is [0, 7]. See EncoderOptions.Sharpness.
 func (e *VP8Encoder) SetSharpness(sharpness int) error {

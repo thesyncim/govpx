@@ -141,3 +141,88 @@ func TestEncodeIntoNoReferencesStaysInterFrame(t *testing.T) {
 		t.Fatalf("KeyFrame = true, want libvpx-compatible inter frame with intra macroblocks when all references are disallowed")
 	}
 }
+
+func TestSetFrameFlagsAppliesOnceToZeroFlagEncode(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	third := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 91, 171)
+	fillImage(third, 80, 92, 172)
+	dst := make([]byte, 4096)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+
+	if err := e.SetFrameFlags(EncodeNoUpdateLast); err != nil {
+		t.Fatalf("SetFrameFlags returned error: %v", err)
+	}
+	if e.controlFrameFlags != EncodeNoUpdateLast {
+		t.Fatalf("controlFrameFlags = %v, want EncodeNoUpdateLast", e.controlFrameFlags)
+	}
+	inter, err := e.EncodeInto(dst, second, 1, 1, 0)
+	if err != nil {
+		t.Fatalf("flagged inter EncodeInto returned error: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if state.Refresh.RefreshLast || !state.Refresh.RefreshGolden || !state.Refresh.RefreshAltRef {
+		t.Fatalf("flagged refresh = %+v, want no LAST and refresh GOLDEN/ALTREF", state.Refresh)
+	}
+	if e.controlFrameFlags != 0 {
+		t.Fatalf("controlFrameFlags after encode = %v, want cleared", e.controlFrameFlags)
+	}
+
+	next, err := e.EncodeInto(dst, third, 2, 1, 0)
+	if err != nil {
+		t.Fatalf("next inter EncodeInto returned error: %v", err)
+	}
+	state = packetState(t, next.Data)
+	if !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
+		t.Fatalf("next refresh = %+v, want default LAST-only refresh", state.Refresh)
+	}
+}
+
+func TestSetFrameFlagsExplicitEncodeFlagsOverridePending(t *testing.T) {
+	e := newTestEncoder(t)
+	first := testImage(16, 16)
+	second := testImage(16, 16)
+	fillImage(first, 220, 90, 170)
+	fillImage(second, 40, 91, 171)
+	dst := make([]byte, 4096)
+	if _, err := e.EncodeInto(dst, first, 0, 1, 0); err != nil {
+		t.Fatalf("key EncodeInto returned error: %v", err)
+	}
+	if err := e.SetFrameFlags(EncodeNoUpdateLast); err != nil {
+		t.Fatalf("SetFrameFlags returned error: %v", err)
+	}
+
+	inter, err := e.EncodeInto(dst, second, 1, 1, EncodeNoUpdateGolden|EncodeNoUpdateAltRef)
+	if err != nil {
+		t.Fatalf("explicit inter EncodeInto returned error: %v", err)
+	}
+	state := packetState(t, inter.Data)
+	if !state.Refresh.RefreshLast || state.Refresh.RefreshGolden || state.Refresh.RefreshAltRef {
+		t.Fatalf("explicit refresh = %+v, want explicit LAST-only refresh", state.Refresh)
+	}
+	if e.controlFrameFlags != 0 {
+		t.Fatalf("controlFrameFlags after explicit encode = %v, want cleared", e.controlFrameFlags)
+	}
+}
+
+func TestSetFrameFlagsInvalidUpdateDoesNotMutate(t *testing.T) {
+	e := newTestEncoder(t)
+	if err := e.SetFrameFlags(EncodeNoUpdateLast); err != nil {
+		t.Fatalf("SetFrameFlags returned error: %v", err)
+	}
+	if err := e.SetFrameFlags(EncodeForceGoldenFrame | EncodeNoUpdateGolden); err != ErrInvalidConfig {
+		t.Fatalf("invalid SetFrameFlags error = %v, want ErrInvalidConfig", err)
+	}
+	if e.controlFrameFlags != EncodeNoUpdateLast {
+		t.Fatalf("controlFrameFlags after invalid update = %v, want original EncodeNoUpdateLast", e.controlFrameFlags)
+	}
+	e.Reset()
+	if e.controlFrameFlags != 0 {
+		t.Fatalf("controlFrameFlags after Reset = %v, want cleared", e.controlFrameFlags)
+	}
+}

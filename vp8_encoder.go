@@ -460,7 +460,11 @@ type VP8Encoder struct {
 
 	closed        bool
 	forceKeyFrame bool
-	frameCount    uint64
+	// controlFrameFlags mirrors libvpx's control_frame_flags set by
+	// VP8E_SET_FRAME_FLAGS. It is consumed by the next EncodeInto call that
+	// passes zero per-call flags, and cleared by any accepted EncodeInto call.
+	controlFrameFlags EncodeFlags
+	frameCount        uint64
 
 	// lastChangeConfigWidth / lastChangeConfigHeight snapshot the dimensions
 	// last observed by the libvpx vp8_change_config tail. applyVP8Change

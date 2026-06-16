@@ -36,6 +36,19 @@ func TestVP8EncoderSetScalingModeRejectsClosedEncoder(t *testing.T) {
 	}
 }
 
+func TestVP8EncoderSetFrameFlagsRejectsClosedEncoder(t *testing.T) {
+	var nilEnc *govpx.VP8Encoder
+	if err := nilEnc.SetFrameFlags(govpx.EncodeNoUpdateLast); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("nil encoder SetFrameFlags error = %v, want ErrClosed", err)
+	}
+
+	e := newVP8FacadeEncoder(t)
+	e.Close()
+	if err := e.SetFrameFlags(govpx.EncodeNoUpdateLast); !errors.Is(err, govpx.ErrClosed) {
+		t.Fatalf("closed encoder SetFrameFlags error = %v, want ErrClosed", err)
+	}
+}
+
 func TestVP8EncoderSetScalingModeKeyframeCarriesScaleBits(t *testing.T) {
 	cases := []struct {
 		horiz     govpx.ScalingMode

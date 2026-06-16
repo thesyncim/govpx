@@ -27,6 +27,7 @@ func TestVP8EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
 		"SetCQLevel":            {Kind: "libvpx-control", HelperTokens: []string{"cq:"}},
 		"SetDeadline":           {Kind: "encode-deadline", HelperTokens: []string{"deadline:"}},
 		"SetErrorResilient":     {Kind: "libvpx-config", HelperTokens: []string{"error:"}},
+		"SetFrameFlags":         {Kind: "libvpx-control"},
 		"SetFrameDropAllowed":   {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
 		"SetGFCBRBoostPct":      {Kind: "libvpx-control", HelperTokens: []string{"gfboost:"}},
 		"SetKeyFrameInterval":   {Kind: "libvpx-config", HelperTokens: []string{"kfmin:", "kfmax:"}},

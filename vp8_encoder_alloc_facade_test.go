@@ -39,6 +39,7 @@ func TestVP8EncoderPublicHotPathAllocatesZero(t *testing.T) {
 		{name: "SetRateControlBuffer", fn: func() { _ = e.SetRateControlBuffer(600, 400, 500) }},
 		{name: "SetTokenPartitions", fn: func() { _ = e.SetTokenPartitions(3) }},
 		{name: "SetErrorResilient", fn: func() { _ = e.SetErrorResilient(true, true) }},
+		{name: "SetFrameFlags", fn: func() { _ = e.SetFrameFlags(govpx.EncodeNoUpdateGolden | govpx.EncodeNoUpdateAltRef) }},
 		{name: "SetSharpness", fn: func() { _ = e.SetSharpness(3) }},
 		{name: "SetStaticThreshold", fn: func() { _ = e.SetStaticThreshold(1) }},
 		{name: "SetScreenContentMode", fn: func() { _ = e.SetScreenContentMode(1) }},

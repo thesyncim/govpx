@@ -36,6 +36,7 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	if len(dst) == 0 {
 		return EncodeResult{}, ErrBufferTooSmall
 	}
+	flags = e.consumeControlFrameFlags(flags)
 	if e.lookaheadEnabled() {
 		if result, ok, err := e.autoAltRefMaybeEncode(dst, src, pts, duration, flags); ok {
 			return result, err
@@ -49,6 +50,14 @@ func (e *VP8Encoder) EncodeInto(dst []byte, src Image, pts uint64, duration uint
 	return e.encodeSourceInto(dst, sourceImageFromImage(src), pts, duration, flags, encodeSourceMetadata{
 		forceLFDeltaUpdate: e.consumePendingLFDeltaUpdate(),
 	})
+}
+
+func (e *VP8Encoder) consumeControlFrameFlags(flags EncodeFlags) EncodeFlags {
+	if flags == 0 {
+		flags = e.controlFrameFlags
+	}
+	e.controlFrameFlags = 0
+	return flags
 }
 
 // FlushInto drains queued frames at end of stream and emits the next
