@@ -1,5 +1,7 @@
 package govpx
 
+import "errors"
+
 // VP9WebRTCPacketizer owns the 15-bit VP9 RTP PictureID sequence for a
 // WebRTC sender. It advances the PictureID after a frame/access unit has been
 // successfully packetized, and also advances across encoder-dropped frames.
@@ -33,11 +35,12 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 	return p.pictureID
 }
 
-// NeedsKeyFrame reports whether a prior encoder-dropped VP9 temporal slot
-// requires the sender to force a keyframe before emitting more RTP payloads.
-// Top temporal-layer drops can be represented as ordinary PictureID gaps, but
-// dropped base/intermediate temporal layers can strand receiver dependency
-// tracking on references that will never arrive.
+// NeedsKeyFrame reports whether a prior encoder-dropped VP9 temporal slot or
+// unpacketizable inter-frame dependency requires the sender to force a keyframe
+// before emitting more RTP payloads. Top temporal-layer drops can be
+// represented as ordinary PictureID gaps, but dropped base/intermediate
+// temporal layers and stale flexible-mode references can strand receiver
+// dependency tracking on references that will never arrive.
 func (p *VP9WebRTCPacketizer) NeedsKeyFrame() bool {
 	return p != nil && p.keyFrameRequired
 }
@@ -63,6 +66,9 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 	}
 	p.consumedDropPending = false
 	packets, payloadBytes, err = p.vp9WebRTCPacketizationSize(r, mtu)
+	if err != nil {
+		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+	}
 	return packets, payloadBytes, err == nil, err
 }
 
@@ -91,6 +97,9 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 	packets, payloadBytes, err = p.vp9PacketizeWebRTCInto(r, dst,
 		payloadBuf, mtu)
 	if err != nil {
+		if !errors.Is(err, ErrBufferTooSmall) {
+			p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		}
 		return packets, payloadBytes, false, err
 	}
 	p.consumedDropPending = false
@@ -120,6 +129,7 @@ func (p *VP9WebRTCPacketizer) Packetize(
 	pictureID := p.pictureID
 	payloads, err := p.vp9PacketizeWebRTC(r, mtu)
 	if err != nil {
+		p.requireVP9RecoveryKeyAfterPacketizationError(err)
 		return nil, false, err
 	}
 	p.consumedDropPending = false
@@ -143,7 +153,12 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCPacketizationSize(
 		return 0, 0, err
 	}
 	p.consumedDropPending = false
-	return p.vp9SpatialSVCWebRTCPacketizationSize(r, mtu)
+	packets, payloadBytes, err := p.vp9SpatialSVCWebRTCPacketizationSize(r,
+		mtu)
+	if err != nil {
+		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+	}
+	return packets, payloadBytes, err
 }
 
 // PacketizeSpatialSVCWebRTCInto packetizes r into caller-owned RTP payload
@@ -165,6 +180,9 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	packets, payloadBytes, err := p.vp9PacketizeSpatialSVCWebRTCInto(r,
 		dst, payloadBuf, mtu)
 	if err != nil {
+		if !errors.Is(err, ErrBufferTooSmall) {
+			p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		}
 		return packets, payloadBytes, err
 	}
 	p.consumedDropPending = false
@@ -189,6 +207,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	pictureID := p.pictureID
 	payloads, err := p.vp9PacketizeSpatialSVCWebRTC(r, mtu)
 	if err != nil {
+		p.requireVP9RecoveryKeyAfterPacketizationError(err)
 		return nil, err
 	}
 	p.consumedDropPending = false
@@ -200,6 +219,21 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 
 func (p *VP9WebRTCPacketizer) advancePictureID() {
 	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+}
+
+var errVP9WebRTCRecoveryKeyRequired = errors.New("govpx: VP9 WebRTC recovery key required")
+
+func vp9WebRTCRecoveryKeyRequiredError() error {
+	return errors.Join(ErrInvalidConfig, errVP9WebRTCRecoveryKeyRequired)
+}
+
+func (p *VP9WebRTCPacketizer) requireVP9RecoveryKeyAfterPacketizationError(
+	err error,
+) {
+	if p == nil || !errors.Is(err, errVP9WebRTCRecoveryKeyRequired) {
+		return
+	}
+	p.keyFrameRequired = true
 }
 
 func (p *VP9WebRTCPacketizer) consumeDroppedFrame(r VP9EncodeResult) {

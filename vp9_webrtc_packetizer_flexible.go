@@ -224,16 +224,16 @@ func (t *vp9WebRTCReferenceTracker) flexibleReferenceDiffs(
 		return refs, 0, err
 	}
 	if slotCount == 0 {
-		return refs, 0, ErrInvalidConfig
+		return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 	}
 	count := 0
 	for i := 0; i < slotCount; i++ {
 		if !t.addReferenceSlotDiff(&refs, &count, pictureID, slots[i]) {
-			return refs, 0, ErrInvalidConfig
+			return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 		}
 	}
 	if count == 0 {
-		return refs, 0, ErrInvalidConfig
+		return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 	}
 	return refs, count, nil
 }
