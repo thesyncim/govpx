@@ -255,6 +255,9 @@ func vp9ClearScalabilityStructureTemporalPattern(ss *VP9RTPScalabilityStructure)
 }
 
 func vp9TemporalScalabilityPictureGroups(mode TemporalLayeringMode) []VP9RTPPictureGroup {
+	if groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(mode); ok {
+		return groups
+	}
 	pattern, ok := temporalLayeringPattern(mode)
 	if !ok || pattern.Layers <= 1 || pattern.Periodicity <= 0 ||
 		pattern.FlagPeriodicity <= 0 ||
@@ -291,6 +294,67 @@ func vp9TemporalScalabilityPictureGroups(mode TemporalLayeringMode) []VP9RTPPict
 			keyFrame)
 	}
 	return groups
+}
+
+func vp9WebRTCTemporalScalabilityPictureGroups(
+	mode TemporalLayeringMode,
+) ([]VP9RTPPictureGroup, bool) {
+	switch mode {
+	case TemporalLayeringTwoLayers:
+		return []VP9RTPPictureGroup{
+			{
+				TemporalID:          0,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					2,
+				},
+			},
+			{
+				TemporalID:          1,
+				SwitchingUpPoint:    true,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					1,
+				},
+			},
+		}, true
+	case TemporalLayeringThreeLayers:
+		return []VP9RTPPictureGroup{
+			{
+				TemporalID:          0,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					4,
+				},
+			},
+			{
+				TemporalID:          2,
+				SwitchingUpPoint:    true,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					1,
+				},
+			},
+			{
+				TemporalID:          1,
+				SwitchingUpPoint:    true,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					2,
+				},
+			},
+			{
+				TemporalID:          2,
+				SwitchingUpPoint:    true,
+				ReferenceIndexCount: 1,
+				ReferenceIndices: [VP9RTPMaxReferenceIndices]uint8{
+					1,
+				},
+			},
+		}, true
+	default:
+		return nil, false
+	}
 }
 
 func vp9TemporalPatternFlagsAt(

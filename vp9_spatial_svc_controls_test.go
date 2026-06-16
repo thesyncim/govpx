@@ -335,8 +335,9 @@ func TestVP9SpatialSVCEncoderTemporalControls(t *testing.T) {
 			},
 			{
 				TemporalID:          1,
-				ReferenceIndexCount: 2,
-				ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{1, 2},
+				SwitchingUpPoint:    true,
+				ReferenceIndexCount: 1,
+				ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{1},
 			},
 		}
 		for i, want := range wantGroups {
@@ -403,5 +404,83 @@ func TestVP9SpatialSVCEncoderInitialTemporalOptions(t *testing.T) {
 		t.Fatalf("initial temporal SVC result = base:%+v enh:%+v ss:%+v",
 			result.Layers[0], result.Layers[1],
 			result.ScalabilityStructure)
+	}
+}
+
+func TestVP9SpatialSVCEncoderThreeLayerGOFMatchesWebRTC(t *testing.T) {
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount: 3,
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
+			{
+				Width:               32,
+				Height:              32,
+				TargetBitrateKbps:   200,
+				TemporalScalability: temporal,
+			},
+			{
+				Width:               64,
+				Height:              64,
+				TargetBitrateKbps:   500,
+				TemporalScalability: temporal,
+			},
+			{
+				Width:               128,
+				Height:              128,
+				TargetBitrateKbps:   1000,
+				TemporalScalability: temporal,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
+		vp9test.NewYCbCr(32, 32, 80, 128, 128),
+		vp9test.NewYCbCr(64, 64, 80, 128, 128),
+		vp9test.NewYCbCr(128, 128, 80, 128, 128),
+	}, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	want := []govpx.VP9RTPPictureGroup{
+		{
+			TemporalID:          0,
+			ReferenceIndexCount: 1,
+			ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{4},
+		},
+		{
+			TemporalID:          2,
+			SwitchingUpPoint:    true,
+			ReferenceIndexCount: 1,
+			ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{1},
+		},
+		{
+			TemporalID:          1,
+			SwitchingUpPoint:    true,
+			ReferenceIndexCount: 1,
+			ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{2},
+		},
+		{
+			TemporalID:          2,
+			SwitchingUpPoint:    true,
+			ReferenceIndexCount: 1,
+			ReferenceIndices:    [govpx.VP9RTPMaxReferenceIndices]uint8{1},
+		},
+	}
+	got := result.ScalabilityStructure.PictureGroups
+	if len(got) != len(want) {
+		t.Fatalf("three-layer GOF length = %d, want %d: %+v",
+			len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("three-layer GOF[%d] = %+v, want %+v",
+				i, got[i], want[i])
+		}
 	}
 }
