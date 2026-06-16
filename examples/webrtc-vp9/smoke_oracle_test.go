@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"hash/fnv"
 	"image"
 	"testing"
 
@@ -186,6 +187,59 @@ func TestWebRTCPacketizedSVCLongNoLossControlStreamDecodesWithVpxdec(t *testing.
 		if len(raw) != want {
 			t.Fatalf("long no-loss vpxdec layer %d raw size = %d, want %d",
 				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "long no-loss",
+			raw, caps, layer)
+	}
+}
+
+func assertVpxdecLayerOutputVariesForCaps(
+	t *testing.T,
+	label string,
+	raw []byte,
+	caps []int,
+	layer int,
+) {
+	t.Helper()
+	type layerSeen struct {
+		count    int
+		distinct map[uint64]bool
+	}
+	var seen [spatialLayerCount]layerSeen
+	off := 0
+	for frame, cap := range caps {
+		if cap <= 0 || cap > spatialLayerCount {
+			t.Fatalf("%s layer %d frame %d cap = %d, want 1..%d",
+				label, layer, frame, cap, spatialLayerCount)
+		}
+		outputLayer := layer
+		if outputLayer >= cap {
+			outputLayer = cap - 1
+		}
+		frameBytes := layerDims[outputLayer][0] *
+			layerDims[outputLayer][1] * 3 / 2
+		if len(raw)-off < frameBytes {
+			t.Fatalf("%s layer %d frame %d raw remainder = %d, want %d",
+				label, layer, frame, len(raw)-off, frameBytes)
+		}
+		h := fnv.New64a()
+		_, _ = h.Write(raw[off : off+frameBytes])
+		sig := h.Sum64()
+		if seen[outputLayer].distinct == nil {
+			seen[outputLayer].distinct = make(map[uint64]bool)
+		}
+		seen[outputLayer].count++
+		seen[outputLayer].distinct[sig] = true
+		off += frameBytes
+	}
+	if off != len(raw) {
+		t.Fatalf("%s layer %d consumed %d decoded bytes, raw has %d",
+			label, layer, off, len(raw))
+	}
+	for outputLayer, s := range seen {
+		if s.count >= 2 && len(s.distinct) < 2 {
+			t.Fatalf("%s layer %d effective output layer %d produced %d identical decoded frames",
+				label, layer, outputLayer, s.count)
 		}
 	}
 }
