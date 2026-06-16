@@ -4,15 +4,153 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"hash/fnv"
 	"image"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
+
+func TestWebRTCEndToEndReceivedSVCStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	cfg := demoConfig{
+		Addr:        ":0",
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+
+	rtpCh := make(chan *rtp.Packet, 512)
+	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
+		go func() {
+			for {
+				packet, _, err := track.ReadRTP()
+				if err != nil {
+					return
+				}
+				if len(packet.Payload) == 0 {
+					continue
+				}
+				copyPacket := *packet
+				copyPacket.Payload = append([]byte(nil), packet.Payload...)
+				select {
+				case rtpCh <- &copyPacket:
+				default:
+				}
+			}
+		}()
+	})
+
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	gather := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(offer); err != nil {
+		t.Fatalf("SetLocalDescription: %v", err)
+	}
+	<-gather
+
+	body, err := json.Marshal(pc.LocalDescription())
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json",
+		bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s", resp.StatusCode, raw)
+	}
+	var answer webrtc.SessionDescription
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		t.Fatalf("decode answer: %v", err)
+	}
+	if err := pc.SetRemoteDescription(answer); err != nil {
+		t.Fatalf("SetRemoteDescription: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	const frames = 6
+	packets := make([][]byte, 0, frames)
+	var prevAU []*rtp.Packet
+	var prevDesc govpx.VP9RTPPayloadDescriptor
+	for frame := 0; frame < frames; frame++ {
+		au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+		first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor live frame %d: %v",
+				frame, err)
+		}
+		desc := assertWebRTCRTPAccessUnitForTest(t, au, spatialLayerCount,
+			first.ScalabilityStructurePresent)
+		if frame > 0 {
+			prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
+			if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
+				t.Fatalf("live RTP frame %d first sequence = %d, want %d",
+					frame, got, want)
+			}
+			assertRTPMediaTimestampAdvancedForTest(t, "live RTP frame",
+				prevAU[0].Timestamp, au[0].Timestamp, frames)
+			if got, want := desc.PictureID,
+				govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
+				t.Fatalf("live RTP frame %d PictureID = %d, want %d",
+					frame, got, want)
+			}
+		}
+		packets = append(packets,
+			reassembleWebRTCRTPAccessUnitForOracle(t, au, spatialLayerCount))
+		prevAU = au
+		prevDesc = desc
+	}
+
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := frames * layerDims[layer][0] * layerDims[layer][1] * 3 / 2
+		if len(raw) != want {
+			t.Fatalf("live WebRTC vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+	}
+}
 
 func TestWebRTCPacketizedSVCStreamDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
@@ -487,6 +625,70 @@ func reassembleWebRTCSVCResultWithPionForOracle(
 	n, err := govpx.PackVP9SuperframeInto(packet, frames[:count]...)
 	if err != nil {
 		t.Fatalf("Pion PackVP9SuperframeInto: %v", err)
+	}
+	return packet[:n]
+}
+
+func reassembleWebRTCRTPAccessUnitForOracle(
+	t *testing.T,
+	packets []*rtp.Packet,
+	spatialLayers int,
+) []byte {
+	t.Helper()
+	if spatialLayers <= 0 || spatialLayers > govpx.VP9RTPMaxSpatialLayers {
+		t.Fatalf("spatialLayers = %d, want 1..%d",
+			spatialLayers, govpx.VP9RTPMaxSpatialLayers)
+	}
+	var frames [govpx.VP9RTPMaxSpatialLayers][]byte
+	var sawStart [govpx.VP9RTPMaxSpatialLayers]bool
+	var sawEnd [govpx.VP9RTPMaxSpatialLayers]bool
+	for i, rtpPacket := range packets {
+		var packet codecs.VP9Packet
+		fragment, err := packet.Unmarshal(rtpPacket.Payload)
+		if err != nil {
+			t.Fatalf("Pion live VP9Packet.Unmarshal[%d]: %v", i, err)
+		}
+		if !packet.I || !packet.L {
+			t.Fatalf("Pion live VP9 packet %d = I:%t L:%t, want PictureID and layer metadata",
+				i, packet.I, packet.L)
+		}
+		if packet.F {
+			t.Fatalf("Pion live VP9 packet %d used flexible mode", i)
+		}
+		layerID := int(packet.SID)
+		if layerID >= spatialLayers {
+			t.Fatalf("Pion live VP9 packet %d spatial id = %d, want < %d",
+				i, layerID, spatialLayers)
+		}
+		if packet.B {
+			if sawStart[layerID] {
+				t.Fatalf("Pion live VP9 packet %d repeated layer %d start",
+					i, layerID)
+			}
+			sawStart[layerID] = true
+		} else if !sawStart[layerID] {
+			t.Fatalf("Pion live VP9 packet %d layer %d fragment before start",
+				i, layerID)
+		}
+		if packet.E {
+			sawEnd[layerID] = true
+		}
+		frames[layerID] = append(frames[layerID], fragment...)
+	}
+	for layerID := 0; layerID < spatialLayers; layerID++ {
+		if !sawStart[layerID] || !sawEnd[layerID] {
+			t.Fatalf("Pion live VP9 layer %d start/end = %t/%t, want true/true",
+				layerID, sawStart[layerID], sawEnd[layerID])
+		}
+	}
+	need, err := govpx.VP9SuperframeSize(frames[:spatialLayers]...)
+	if err != nil {
+		t.Fatalf("live VP9SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := govpx.PackVP9SuperframeInto(packet, frames[:spatialLayers]...)
+	if err != nil {
+		t.Fatalf("live PackVP9SuperframeInto: %v", err)
 	}
 	return packet[:n]
 }
