@@ -790,6 +790,7 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "vp9 profile zero",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 profile-id=0",
 			}, "\r\n"),
@@ -798,14 +799,27 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "vp9 profile zero among fmtp params",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 x-google-start-bitrate=800; profile-id = 0 ; max-fr=30",
 			}, "\r\n"),
 			want: true,
 		},
 		{
+			name: "vp9 profile zero after audio section",
+			sdp: strings.Join([]string{
+				"m=audio 9 UDP/TLS/RTP/SAVPF 111",
+				"a=rtpmap:111 opus/48000/2",
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+			want: true,
+		},
+		{
 			name: "vp9 profile two",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 100",
 				"a=rtpmap:100 VP9/90000",
 				"a=fmtp:100 profile-id=2",
 			}, "\r\n"),
@@ -813,6 +827,7 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "profile zero without vp9 codec",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 96",
 				"a=rtpmap:96 VP8/90000",
 				"a=fmtp:96 profile-id=0",
 			}, "\r\n"),
@@ -820,6 +835,7 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "profile zero belongs to different payload",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 96 100",
 				"a=rtpmap:96 VP8/90000",
 				"a=fmtp:96 profile-id=0",
 				"a=rtpmap:100 VP9/90000",
@@ -829,6 +845,7 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "lookalike fmtp key is rejected",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 x-profile-id=0",
 			}, "\r\n"),
@@ -836,6 +853,7 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "lookalike fmtp value is rejected",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 profile-id=00",
 			}, "\r\n"),
@@ -843,8 +861,43 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		{
 			name: "profile zero suffix is rejected",
 			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 profile-id=0foo",
+			}, "\r\n"),
+		},
+		{
+			name: "vp9 profile zero not listed on video m line",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 100",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+		},
+		{
+			name: "vp9 profile zero in audio section",
+			sdp: strings.Join([]string{
+				"m=audio 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+		},
+		{
+			name: "disabled video section",
+			sdp: strings.Join([]string{
+				"m=video 0 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+		},
+		{
+			name: "stale payload from previous video section",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP8/90000",
+				"m=video 9 UDP/TLS/RTP/SAVPF 100",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
 			}, "\r\n"),
 		},
 	}

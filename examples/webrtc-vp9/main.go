@@ -498,30 +498,64 @@ func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
 }
 
 func sdpNegotiatesVP9Profile0(sdp string) bool {
-	vp9PayloadTypes := make(map[string]bool)
-	profile0PayloadTypes := make(map[string]bool)
+	videoVP9PayloadTypes := make(map[string]bool)
+	videoProfile0PayloadTypes := make(map[string]bool)
+	inActiveVideo := false
+	activeVideoPayloadTypes := map[string]bool(nil)
 	for _, raw := range strings.Split(sdp, "\n") {
 		line := strings.TrimSpace(strings.ToLower(raw))
+		if strings.HasPrefix(line, "m=") {
+			media, active, payloadTypes := sdpMediaPayloadTypes(line)
+			inActiveVideo = media == "video" && active
+			activeVideoPayloadTypes = nil
+			if inActiveVideo {
+				activeVideoPayloadTypes = payloadTypes
+			}
+			continue
+		}
+		if !inActiveVideo {
+			continue
+		}
 		switch {
 		case strings.HasPrefix(line, "a=rtpmap:"):
 			fields := strings.Fields(strings.TrimPrefix(line, "a=rtpmap:"))
-			if len(fields) >= 2 && fields[1] == "vp9/90000" {
-				vp9PayloadTypes[fields[0]] = true
+			if len(fields) >= 2 && fields[1] == "vp9/90000" &&
+				activeVideoPayloadTypes[fields[0]] {
+				videoVP9PayloadTypes[fields[0]] = true
 			}
 		case strings.HasPrefix(line, "a=fmtp:"):
 			fields := strings.Fields(strings.TrimPrefix(line, "a=fmtp:"))
 			if len(fields) >= 2 && fmtpParamsContainVP9Profile0(
-				strings.Join(fields[1:], " ")) {
-				profile0PayloadTypes[fields[0]] = true
+				strings.Join(fields[1:], " ")) &&
+				activeVideoPayloadTypes[fields[0]] {
+				videoProfile0PayloadTypes[fields[0]] = true
 			}
 		}
 	}
-	for payloadType := range vp9PayloadTypes {
-		if profile0PayloadTypes[payloadType] {
+	for payloadType := range videoVP9PayloadTypes {
+		if videoProfile0PayloadTypes[payloadType] {
 			return true
 		}
 	}
 	return false
+}
+
+func sdpMediaPayloadTypes(line string) (string, bool, map[string]bool) {
+	fields := strings.Fields(strings.TrimPrefix(line, "m="))
+	if len(fields) < 4 {
+		return "", false, nil
+	}
+	payloadTypes := make(map[string]bool, len(fields)-3)
+	for _, payloadType := range fields[3:] {
+		payloadTypes[payloadType] = true
+	}
+	return fields[0], !sdpMediaPortIsZero(fields[1]), payloadTypes
+}
+
+func sdpMediaPortIsZero(port string) bool {
+	first, _, _ := strings.Cut(port, "/")
+	first = strings.TrimLeft(first, "0")
+	return first == ""
 }
 
 func fmtpParamsContainVP9Profile0(params string) bool {
