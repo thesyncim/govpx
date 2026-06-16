@@ -12,9 +12,6 @@ func validateVP9EncoderOptions(opts VP9EncoderOptions) error {
 	if opts.Threads < 0 {
 		return ErrInvalidConfig
 	}
-	if opts.RowMT && vp9EffectiveThreadHint(opts) <= 1 {
-		return ErrInvalidConfig
-	}
 	if err := validateVP9TileRowOptions(opts.Width, opts.Height, opts.Log2TileRows); err != nil {
 		return err
 	}

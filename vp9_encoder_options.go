@@ -200,8 +200,9 @@ type VP9EncoderOptions struct {
 	// vp9_row_mt_sync_read/write. The bitstream output is byte-identical to the
 	// serial path because govpx still runs one goroutine per tile column; the
 	// primitive is the foundation for per-row parallelism within a tile column.
-	// Requires an effective thread hint > 1; explicit Threads=1 returns
-	// ErrInvalidConfig.
+	// Requires an effective thread hint > 1 when the encoder is created or
+	// SetRowMT(true) is called. Later runtime controls may leave RowMT armed but
+	// dormant until the effective tile-thread layout becomes eligible again.
 	RowMT bool
 
 	// Deadline selects the VP9 speed/quality operating mode. Construction with

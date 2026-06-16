@@ -664,6 +664,9 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	if err := validateVP9EncoderOptions(opts); err != nil {
 		return nil, err
 	}
+	if opts.RowMT && vp9EffectiveThreadHint(opts) <= 1 {
+		return nil, ErrInvalidConfig
+	}
 	var temporal temporalState
 	if err := temporal.configure(opts.TemporalScalability, opts.TargetBitrateKbps); err != nil {
 		return nil, err

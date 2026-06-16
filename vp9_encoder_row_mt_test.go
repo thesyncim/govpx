@@ -200,6 +200,74 @@ func TestVP9EncoderSetRowMTRuntimeGating(t *testing.T) {
 	})
 }
 
+func TestVP9RowMTAutoThreadsSurviveRuntimeEligibilityChanges(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+		RowMT:              true,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder realtime auto RowMT: %v", err)
+	}
+	defer e.Close()
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0)); err != nil {
+		t.Fatalf("initial Encode: %v", err)
+	}
+	if e.vp9TilePool == nil || len(e.vp9TilePool.rowMTSyncs) == 0 {
+		t.Fatal("initial realtime auto RowMT encode did not arm row-MT")
+	}
+
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlVBR,
+		TargetBitrateKbps: 700,
+	}); err != nil {
+		t.Fatalf("SetRateControl(VBR) with dormant RowMT: %v", err)
+	}
+	if e.vp9EffectiveThreadHint() != 1 {
+		t.Fatalf("VBR auto effective threads = %d, want 1", e.vp9EffectiveThreadHint())
+	}
+	if !e.opts.RowMT {
+		t.Fatal("SetRateControl(VBR) cleared RowMT instead of leaving it dormant")
+	}
+	if e.vp9TilePool != nil {
+		t.Fatalf("SetRateControl(VBR) left tile pool with %d workers", e.vp9TilePool.workerCount)
+	}
+	if err := e.SetCQLevel(24); err != nil {
+		t.Fatalf("SetCQLevel with dormant RowMT: %v", err)
+	}
+
+	if err := e.SetRateControl(RateControlConfig{
+		Mode:              RateControlCBR,
+		TargetBitrateKbps: 700,
+	}); err != nil {
+		t.Fatalf("SetRateControl(CBR) rearming auto RowMT: %v", err)
+	}
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 1)); err != nil {
+		t.Fatalf("rearmed Encode: %v", err)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("rearmed realtime auto RowMT encode did not initialize tile pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("rearmed realtime auto RowMT worker count = %d, want %d",
+			got, wantThreads)
+	}
+	if got := len(e.vp9TilePool.rowMTSyncs); got != e.vp9TilePool.workerCount {
+		t.Fatalf("rearmed realtime auto RowMT syncs = %d, want %d",
+			got, e.vp9TilePool.workerCount)
+	}
+}
+
 // TestVP9RowMTDisabledDoesNotAllocateSyncState verifies that a threaded
 // VP9 encoder using normal tile threading does not retain Row-MT wavefront
 // state unless the RowMT control is explicitly enabled.
