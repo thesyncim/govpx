@@ -82,6 +82,24 @@ func TestPlainVP9WebRTCLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
 	assertPlainVP9VpxdecOutputVariesForTest(t, raw, frames, width, height)
 }
 
+func TestPlainVP9WebRTCCBRDropStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const width, height = 64, 64
+	packets, sentFrames, droppedFrames := plainVP9WebRTCCBRDropStreamForTest(
+		t, 48, 89, true)
+	if droppedFrames == 0 {
+		t.Fatal("test did not produce a VP9 CBR dropped frame")
+	}
+	ivf := vp9test.BuildVP9IVF(width, height, packets...)
+	raw := vp9test.VpxdecI420(t, ivf)
+	want := sentFrames * width * height * 3 / 2
+	if len(raw) != want {
+		t.Fatalf("vpxdec raw size = %d, want %d", len(raw), want)
+	}
+	assertPlainVP9VpxdecOutputVariesForTest(t, raw, sentFrames, width, height)
+}
+
 func assertPlainVP9VpxdecOutputVariesForTest(
 	t *testing.T,
 	raw []byte,
