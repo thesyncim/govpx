@@ -519,6 +519,34 @@ func TestRTCPRequestsKeyFrameOnlyForPLIAndFIR(t *testing.T) {
 	}
 }
 
+func TestRTCPParsedPacketsRequestKeyFrame(t *testing.T) {
+	if rtcpPacketsRequestKeyFrame([]rtcp.Packet{
+		&rtcp.ReceiverReport{SSRC: 1},
+	}) {
+		t.Fatal("receiver report unexpectedly requested keyframe")
+	}
+
+	if !rtcpPacketsRequestKeyFrame([]rtcp.Packet{
+		&rtcp.ReceiverReport{SSRC: 1},
+		&rtcp.PictureLossIndication{SenderSSRC: 1, MediaSSRC: 2},
+	}) {
+		t.Fatal("parsed packet list with PLI did not request keyframe")
+	}
+
+	if !rtcpPacketsRequestKeyFrame([]rtcp.Packet{
+		&rtcp.FullIntraRequest{
+			SenderSSRC: 1,
+			MediaSSRC:  2,
+			FIR: []rtcp.FIREntry{{
+				SSRC:           2,
+				SequenceNumber: 7,
+			}},
+		},
+	}) {
+		t.Fatal("parsed packet list with FIR did not request keyframe")
+	}
+}
+
 func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	const fps = 29
 	naiveAfterOneSecond := uint64(fps) * uint64(rtpClockHz/fps)

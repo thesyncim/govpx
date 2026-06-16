@@ -526,19 +526,20 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 }
 
 func drainRTCP(ctx context.Context, sender *webrtc.RTPSender, ctl *controlState) {
-	buf := make([]byte, 1500)
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		n, _, err := sender.Read(buf)
+		packets, _, err := sender.ReadRTCP()
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				log.Printf("rtcp read: %v", err)
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) ||
+				ctx.Err() != nil {
+				return
 			}
-			return
+			log.Printf("rtcp read: %v", err)
+			continue
 		}
-		if rtcpRequestsKeyFrame(buf[:n]) {
+		if rtcpPacketsRequestKeyFrame(packets) {
 			ctl.forceKey.Store(true)
 		}
 	}
@@ -549,6 +550,10 @@ func rtcpRequestsKeyFrame(raw []byte) bool {
 	if err != nil {
 		return false
 	}
+	return rtcpPacketsRequestKeyFrame(packets)
+}
+
+func rtcpPacketsRequestKeyFrame(packets []rtcp.Packet) bool {
 	for _, packet := range packets {
 		if rtcpPacketRequestsKeyFrame(packet) {
 			return true
