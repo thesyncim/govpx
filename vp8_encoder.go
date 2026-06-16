@@ -867,16 +867,30 @@ type VP8Encoder struct {
 	// Threads >= 2. Resized only when the row-worker pool exists; remains
 	// zero-sized on Threads=1 so the canonical serial path stays
 	// byte-identical with zero added cost.
-	loopFilterPickAlt   vp8common.FrameBuffer
-	loopFilterPickReady bool
-	loopFilterPickLevel uint8
-	loopFilterPickBest  bool
-	loopFilterSegmentLF [vp8common.MaxMBSegments]int8
-	reconstructModes    []vp8dec.MacroblockMode
-	reconstructTokens   []vp8dec.MacroblockTokens
-	dequantTables       vp8common.FrameDequantTables
-	dequants            [vp8common.MaxMBSegments]vp8common.MacroblockDequant
-	reconstructScratch  vp8dec.IntraReconstructionScratch
+	loopFilterPickAlt                    vp8common.FrameBuffer
+	loopFilterPickReady                  bool
+	loopFilterPickLevel                  uint8
+	loopFilterPickBest                   bool
+	loopFilterSegmentLF                  [vp8common.MaxMBSegments]int8
+	reconstructModes                     []vp8dec.MacroblockMode
+	reconstructTokens                    []vp8dec.MacroblockTokens
+	dequantTables                        vp8common.FrameDequantTables
+	dequants                             [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch                   vp8dec.IntraReconstructionScratch
+	previewPostProcessFlags              PostProcessFlag
+	previewPostProcessDeblockingLevel    int
+	previewPostProcessDeblockingLevelSet bool
+	previewPostProcessNoiseLevel         int
+	preview                              vp8common.FrameBuffer
+	previewPostprocScratch               []byte
+	previewPostprocState                 vp8dec.PostProcessState
+	previewFrameValid                    bool
+	previewFrameSuppressed               bool
+	previewPostprocessedValid            bool
+	previewFrameType                     vp8common.FrameType
+	previewBaseQIndex                    int
+	previewLoopFilterLevel               uint8
+	previewFrameNumber                   int
 	// keyFrameCoefTokenCounts is populated by the threaded key-frame
 	// reconstruction pass with the same per-thread count accumulation libvpx
 	// later sums for vp8_update_coef_probs. Packet write consumes it only

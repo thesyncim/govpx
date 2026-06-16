@@ -32,6 +32,15 @@ func (e *VP8Encoder) Reset() {
 	e.lastQuantizerPublic = 0
 	e.lastQuantizerInternal = 0
 	e.lastQuantizerValid = false
+	e.clearPreviewFrame()
+	e.previewPostProcessFlags = 0
+	e.previewPostProcessDeblockingLevel = 0
+	e.previewPostProcessDeblockingLevelSet = false
+	e.previewPostProcessNoiseLevel = 0
+	e.preview = vp8common.FrameBuffer{}
+	e.previewPostprocScratch = nil
+	e.previewPostprocessedValid = false
+	e.previewPostprocState = vp8dec.PostProcessState{}
 	e.cyclicRefreshIndex = 0
 	e.segmentationHeaderEnabled = false
 	e.lastSegmentationConfig = vp8enc.SegmentationConfig{}

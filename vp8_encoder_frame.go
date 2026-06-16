@@ -606,6 +606,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 		// !forceMaxQuantizer, mirroring libvpx's force_maxqp==0 check).
 		e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 		e.populateTemporalLayerBufferResult(&result, temporalFrame)
+		e.clearPreviewFrame()
 		// Oracle trace: emit a dropped-frame row before frameCount advances.
 		// libvpx's parity oracle emits the same row from
 		// build_vpxenc_oracle.sh at the buffer-underrun return path inside
@@ -685,6 +686,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 			e.saveTemporalLayerCodingState(temporalFrame)
 			e.temporal.finishDroppedFrame(temporalFrame, e.temporalBufferConfig())
 			e.populateTemporalLayerBufferResult(&result, temporalFrame)
+			e.clearPreviewFrame()
 			if oracleTraceBuild {
 				e.emitOracleDroppedFrameTrace("overshoot")
 			}
@@ -903,6 +905,7 @@ func (e *VP8Encoder) encodeSourceInto(dst []byte, source vp8enc.SourceImage, pts
 	// (legacy code did) would double-decrement framesTillAltRefFrame and
 	// silently shorten any pass2-armed ARF schedule.
 	e.refreshKeyFrameReferencesFromAnalysis()
+	e.setPreviewFrame(vp8common.KeyFrame, finalQuantizer, keyAttempt.LoopFilterLevel, false)
 	// Seed denoiser running averages from the key-frame source (libvpx
 	// onyx_if.c update_reference_frames key-frame branch).
 	e.initDenoiserAvgFromKeyFrame(source)

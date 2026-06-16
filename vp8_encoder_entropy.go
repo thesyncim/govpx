@@ -105,11 +105,14 @@ func (e *VP8Encoder) commitInterFrameAttempt(attempt interFrameEncodeAttempt, sh
 	if !e.opts.ErrorResilient && !e.opts.ErrorResilientPartitions {
 		e.updateGoldenFrameStats(attempt.Config.RefreshGolden, attempt.Config.RefreshAltRef)
 	}
+	required := geometry.MacroblockCount(e.opts.Width, e.opts.Height)
 	if attempt.ZeroReference {
+		e.fillPreviewInterModesFromPacketModes(required)
 		e.refreshZeroInterFrameReferences(attempt.Config, attempt.Ref, attempt.RefFrame)
 	} else {
 		e.refreshInterFrameReferencesFromAnalysis(attempt.Config)
 	}
+	e.setPreviewFrame(vp8common.InterFrame, int(attempt.Config.BaseQIndex), attempt.Config.LoopFilterLevel, attempt.Config.RefreshAltRef)
 	// Mirror libvpx onyx_if.c update_reference_frames denoiser branch: copy
 	// the denoised running_avg[INTRA] into LAST/GOLDEN/ALTREF running_avg
 	// buffers per the frame's refresh/copy policy.
