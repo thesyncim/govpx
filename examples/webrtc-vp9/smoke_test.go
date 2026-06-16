@@ -256,14 +256,61 @@ func TestHandleOfferRejectsOfferWithoutVP9Profile0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOffer: %v", err)
 	}
-	if !sdpNegotiatesVP9Profile0(offer.SDP) {
+	if !sdpOffersVP9Profile0Receive(offer.SDP) {
 		t.Fatalf("test offer unexpectedly missing VP9 profile 0:\n%s", offer.SDP)
 	}
 	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp, "profile-id=2")
-	if sdpNegotiatesVP9Profile0(offer.SDP) {
+	if sdpOffersVP9Profile0Receive(offer.SDP) {
 		t.Fatalf("mutated test offer still negotiates VP9 profile 0:\n%s", offer.SDP)
 	}
 
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotAcceptable {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusNotAcceptable)
+	}
+}
+
+func TestHandleOfferRejectsOfferThatCannotReceiveVP9(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if !sdpOffersVP9Profile0Receive(offer.SDP) {
+		t.Fatalf("test offer unexpectedly missing receivable VP9 profile 0:\n%s",
+			offer.SDP)
+	}
+	offer.SDP = strings.ReplaceAll(offer.SDP, "a=recvonly", "a=sendonly")
+	if sdpOffersVP9Profile0Receive(offer.SDP) {
+		t.Fatalf("sendonly test offer still allows VP9 receive:\n%s", offer.SDP)
+	}
 	body, err := json.Marshal(offer)
 	if err != nil {
 		t.Fatalf("marshal offer: %v", err)
@@ -891,6 +938,15 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 			}, "\r\n"),
 		},
 		{
+			name: "inactive video section",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=inactive",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+		},
+		{
 			name: "stale payload from previous video section",
 			sdp: strings.Join([]string{
 				"m=video 9 UDP/TLS/RTP/SAVPF 98",
@@ -905,6 +961,66 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := sdpNegotiatesVP9Profile0(tc.sdp); got != tc.want {
 				t.Fatalf("sdpNegotiatesVP9Profile0 = %t, want %t",
+					got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSDPOffersVP9Profile0Receive(t *testing.T) {
+	tests := []struct {
+		name      string
+		direction string
+		want      bool
+	}{
+		{name: "default sendrecv", want: true},
+		{name: "media sendrecv", direction: "a=sendrecv", want: true},
+		{name: "media recvonly", direction: "a=recvonly", want: true},
+		{name: "media sendonly", direction: "a=sendonly"},
+		{name: "media inactive", direction: "a=inactive"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}
+			if tc.direction != "" {
+				lines = append(lines[:1], append([]string{tc.direction}, lines[1:]...)...)
+			}
+			if got := sdpOffersVP9Profile0Receive(strings.Join(lines, "\r\n")); got != tc.want {
+				t.Fatalf("sdpOffersVP9Profile0Receive = %t, want %t",
+					got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSDPAnswersVP9Profile0Send(t *testing.T) {
+	tests := []struct {
+		name      string
+		direction string
+		want      bool
+	}{
+		{name: "default sendrecv", want: true},
+		{name: "media sendrecv", direction: "a=sendrecv", want: true},
+		{name: "media sendonly", direction: "a=sendonly", want: true},
+		{name: "media recvonly", direction: "a=recvonly"},
+		{name: "media inactive", direction: "a=inactive"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}
+			if tc.direction != "" {
+				lines = append(lines[:1], append([]string{tc.direction}, lines[1:]...)...)
+			}
+			if got := sdpAnswersVP9Profile0Send(strings.Join(lines, "\r\n")); got != tc.want {
+				t.Fatalf("sdpAnswersVP9Profile0Send = %t, want %t",
 					got, tc.want)
 			}
 		})
