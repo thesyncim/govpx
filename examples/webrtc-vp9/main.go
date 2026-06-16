@@ -667,7 +667,10 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 	case "keyframe":
 		ctl.forceKey.Store(true)
 	case "pause":
-		ctl.paused.Store(m.Paused)
+		wasPaused := ctl.paused.Swap(m.Paused)
+		if wasPaused && !m.Paused {
+			ctl.forceKey.Store(true)
+		}
 	case "screen":
 		if m.Mode < 0 || m.Mode > 2 {
 			return
@@ -753,6 +756,13 @@ func rtcpPacketRequestsKeyFrame(packet rtcp.Packet) bool {
 		}
 	}
 	return false
+}
+
+func consumeForceKeyForActiveAccessUnit(ctl *controlState) (bool, bool) {
+	if ctl.paused.Load() {
+		return false, false
+	}
+	return true, ctl.forceKey.Swap(false)
 }
 
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
@@ -842,11 +852,12 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				currentScreen = want
 			}
 		}
-		if ctl.forceKey.Swap(false) {
-			forceKeyAll(svc)
-		}
-		if ctl.paused.Load() {
+		active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+		if !active {
 			continue
+		}
+		if forceKey {
+			forceKeyAll(svc)
 		}
 
 		mediaFrame := rtpMediaFrameForTick(startedAt, tickTime, cfg.FPS,

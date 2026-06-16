@@ -651,6 +651,63 @@ func TestRTCPParsedPacketsRequestKeyFrame(t *testing.T) {
 	}
 }
 
+func TestApplyControlResumeRequestsKeyFrame(t *testing.T) {
+	ctl := &controlState{}
+	ctl.paused.Store(true)
+
+	applyControl(ctl, controlMessage{Type: "pause", Paused: false}, demoConfig{})
+
+	if ctl.paused.Load() {
+		t.Fatal("resume control left encoder paused")
+	}
+	if !ctl.forceKey.Load() {
+		t.Fatal("resume control did not request a keyframe")
+	}
+}
+
+func TestApplyControlPauseDoesNotClearPendingKeyFrame(t *testing.T) {
+	ctl := &controlState{}
+	ctl.forceKey.Store(true)
+
+	applyControl(ctl, controlMessage{Type: "pause", Paused: true}, demoConfig{})
+
+	if !ctl.paused.Load() {
+		t.Fatal("pause control did not pause encoder")
+	}
+	if !ctl.forceKey.Load() {
+		t.Fatal("pause control cleared pending keyframe request")
+	}
+}
+
+func TestConsumeForceKeyForActiveAccessUnitPreservesPausedRequest(t *testing.T) {
+	ctl := &controlState{}
+	ctl.paused.Store(true)
+	ctl.forceKey.Store(true)
+
+	active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+	if active || forceKey {
+		t.Fatalf("paused access unit = active:%t forceKey:%t, want false/false",
+			active, forceKey)
+	}
+	if !ctl.forceKey.Load() {
+		t.Fatal("paused access unit consumed pending keyframe request")
+	}
+}
+
+func TestConsumeForceKeyForActiveAccessUnitConsumesActiveRequest(t *testing.T) {
+	ctl := &controlState{}
+	ctl.forceKey.Store(true)
+
+	active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+	if !active || !forceKey {
+		t.Fatalf("active access unit = active:%t forceKey:%t, want true/true",
+			active, forceKey)
+	}
+	if ctl.forceKey.Load() {
+		t.Fatal("active access unit left keyframe request pending")
+	}
+}
+
 func TestRTPClockOffsetAvoidsNonDivisorFPSDrift(t *testing.T) {
 	const fps = 29
 	naiveAfterOneSecond := uint64(fps) * uint64(rtpClockHz/fps)
