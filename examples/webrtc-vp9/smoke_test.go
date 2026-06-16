@@ -139,13 +139,33 @@ func TestDemoEndToEnd(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("send PLI: %v", err)
 	}
-	pliDesc := readVP9RTPKeyAccessUnitAfterFeedbackForTest(t, ctx, rtpCh,
+	pliAU, pliDesc := readVP9RTPKeyAccessUnitAfterFeedbackForTest(t, ctx, rtpCh,
 		secondAU, secondDesc)
 	if pliDesc.InterPicturePredicted {
 		t.Fatal("PLI response base descriptor kept inter-picture prediction")
 	}
 	if !pliDesc.ScalabilityStructurePresent {
 		t.Fatal("PLI response did not carry key access-unit scalability structure")
+	}
+	if err := dc.SendText(`{"type":"spatial","cap":1}`); err != nil {
+		t.Fatalf("send spatial cap ctl: %v", err)
+	}
+	capDesc := readVP9RTPAccessUnitWithActiveSpatialLayersForTest(t, ctx,
+		rtpCh, pliAU, pliDesc, 1)
+	if capDesc.InterPicturePredicted {
+		t.Fatal("spatial-cap response base descriptor kept inter-picture prediction")
+	}
+	if !capDesc.ScalabilityStructurePresent ||
+		capDesc.ScalabilityStructure.SpatialLayerCount != 1 {
+		t.Fatalf("spatial-cap response SS = present:%t layers:%d, want active base-only key",
+			capDesc.ScalabilityStructurePresent,
+			capDesc.ScalabilityStructure.SpatialLayerCount)
+	}
+	if capDesc.ScalabilityStructure.Width[1] != 0 ||
+		capDesc.ScalabilityStructure.Height[1] != 0 {
+		t.Fatalf("spatial-cap response leaked hidden dimensions = %dx%d",
+			capDesc.ScalabilityStructure.Width[1],
+			capDesc.ScalabilityStructure.Height[1])
 	}
 
 	desc := firstDesc
@@ -245,7 +265,7 @@ func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
 	rtpCh <-chan *rtp.Packet,
 	prevAU []*rtp.Packet,
 	prevDesc govpx.VP9RTPPayloadDescriptor,
-) govpx.VP9RTPPayloadDescriptor {
+) ([]*rtp.Packet, govpx.VP9RTPPayloadDescriptor) {
 	t.Helper()
 	if len(prevAU) == 0 {
 		t.Fatal("feedback wait started without previous RTP access unit")
@@ -272,14 +292,84 @@ func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
 			t.Fatalf("feedback RTP picture ID = %d, want %d", got, want)
 		}
 		if desc.ScalabilityStructurePresent {
-			return desc
+			return au, desc
 		}
 		prevAU = au
 		prevDesc = desc
 	}
 	t.Fatalf("receiver feedback did not produce a key RTP access unit within %d frames",
 		maxAccessUnits)
+	return nil, govpx.VP9RTPPayloadDescriptor{}
+}
+
+func readVP9RTPAccessUnitWithActiveSpatialLayersForTest(
+	t *testing.T,
+	ctx context.Context,
+	rtpCh <-chan *rtp.Packet,
+	prevAU []*rtp.Packet,
+	prevDesc govpx.VP9RTPPayloadDescriptor,
+	wantLayers int,
+) govpx.VP9RTPPayloadDescriptor {
+	t.Helper()
+	if len(prevAU) == 0 {
+		t.Fatal("spatial-layer wait started without previous RTP access unit")
+	}
+	const maxAccessUnits = defaultFPS
+	for attempt := 0; attempt < maxAccessUnits; attempt++ {
+		au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+		activeLayers := rtpAccessUnitSpatialLayerCountForTest(t, au)
+		first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor spatial-cap AU: %v", err)
+		}
+		desc := assertWebRTCRTPAccessUnitForTest(t, au, activeLayers,
+			first.ScalabilityStructurePresent)
+		prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
+		if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
+			t.Fatalf("spatial-cap RTP access unit first sequence = %d, want %d",
+				got, want)
+		}
+		if got, want := au[0].Timestamp-prevAU[0].Timestamp,
+			uint32(rtpClockHz/defaultFPS); got != want {
+			t.Fatalf("spatial-cap RTP timestamp step = %d, want %d", got, want)
+		}
+		if got, want := desc.PictureID, nextVP9PictureID(prevDesc.PictureID); got != want {
+			t.Fatalf("spatial-cap RTP picture ID = %d, want %d", got, want)
+		}
+		if desc.ScalabilityStructurePresent &&
+			desc.ScalabilityStructure.SpatialLayerCount == wantLayers {
+			return desc
+		}
+		prevAU = au
+		prevDesc = desc
+	}
+	t.Fatalf("spatial-cap control did not produce an active %d-layer key RTP access unit within %d frames",
+		wantLayers, maxAccessUnits)
 	return govpx.VP9RTPPayloadDescriptor{}
+}
+
+func rtpAccessUnitSpatialLayerCountForTest(
+	t *testing.T,
+	packets []*rtp.Packet,
+) int {
+	t.Helper()
+	maxLayer := -1
+	for i, packet := range packets {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(packet.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor layer-count[%d]: %v", i, err)
+		}
+		if !desc.LayerIndicesPresent {
+			t.Fatalf("RTP packet %d missing VP9 layer metadata", i)
+		}
+		if int(desc.SpatialID) > maxLayer {
+			maxLayer = int(desc.SpatialID)
+		}
+	}
+	if maxLayer < 0 {
+		t.Fatal("RTP access unit had no spatial layers")
+	}
+	return maxLayer + 1
 }
 
 func assertWebRTCRTPAccessUnitForTest(
