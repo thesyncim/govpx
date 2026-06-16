@@ -454,10 +454,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		log.Printf("peer connection state: %s", s)
-		switch s {
-		case webrtc.PeerConnectionStateClosed,
-			webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateDisconnected:
+		if peerConnectionStateIsTerminal(s) {
 			cancel()
 			_ = pc.Close()
 		}
@@ -468,6 +465,11 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
+}
+
+func peerConnectionStateIsTerminal(s webrtc.PeerConnectionState) bool {
+	return s == webrtc.PeerConnectionStateClosed ||
+		s == webrtc.PeerConnectionStateFailed
 }
 
 func waitICEGatheringComplete(done <-chan struct{}, timeout time.Duration) bool {

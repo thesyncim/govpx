@@ -643,6 +643,28 @@ func TestWaitICEGatheringComplete(t *testing.T) {
 	}
 }
 
+func TestPeerConnectionDisconnectedDoesNotStopEncoder(t *testing.T) {
+	nonTerminal := []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateNew,
+		webrtc.PeerConnectionStateConnecting,
+		webrtc.PeerConnectionStateConnected,
+		webrtc.PeerConnectionStateDisconnected,
+	}
+	for _, state := range nonTerminal {
+		if peerConnectionStateIsTerminal(state) {
+			t.Fatalf("%s unexpectedly treated as terminal", state)
+		}
+	}
+	for _, state := range []webrtc.PeerConnectionState{
+		webrtc.PeerConnectionStateFailed,
+		webrtc.PeerConnectionStateClosed,
+	} {
+		if !peerConnectionStateIsTerminal(state) {
+			t.Fatalf("%s was not treated as terminal", state)
+		}
+	}
+}
+
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string
