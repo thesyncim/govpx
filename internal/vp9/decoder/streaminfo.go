@@ -34,6 +34,10 @@ type StreamInfo struct {
 	FrameSizeFromReference bool
 	FrameSizeReference     int
 
+	TileInfoAvailable bool
+	TileLog2Cols      int
+	TileLog2Rows      int
+
 	Superframe       bool
 	SuperframeFrames int
 }
@@ -163,6 +167,9 @@ func finishStreamInfoPeek(r *BitReader, info *StreamInfo) error {
 	if err := ReadTileInfo(r, miCols, &tile); err != nil {
 		return vpxerrors.ErrInvalidVP9Data
 	}
+	info.TileInfoAvailable = true
+	info.TileLog2Cols = tile.Log2TileCols
+	info.TileLog2Rows = tile.Log2TileRows
 	info.FirstPartitionSize = int(r.ReadLiteral(16))
 	return peekCheck(r)
 }

@@ -139,6 +139,14 @@ type VP9StreamInfo struct {
 	FrameSizeFromReference bool
 	FrameSizeReference     int
 
+	// TileInfoAvailable reports whether TileLog2Cols/TileLog2Rows were present
+	// in the packet and could be parsed without reference-frame context. Inter
+	// frames whose size is inherited from a reference do not expose tile layout
+	// through this stateless peek API.
+	TileInfoAvailable bool
+	TileLog2Cols      int
+	TileLog2Rows      int
+
 	Superframe       bool
 	SuperframeFrames int
 }
@@ -168,6 +176,9 @@ func vp9StreamInfoFromInternal(info vp9dec.StreamInfo) VP9StreamInfo {
 		FirstPartitionSize:     info.FirstPartitionSize,
 		FrameSizeFromReference: info.FrameSizeFromReference,
 		FrameSizeReference:     info.FrameSizeReference,
+		TileInfoAvailable:      info.TileInfoAvailable,
+		TileLog2Cols:           info.TileLog2Cols,
+		TileLog2Rows:           info.TileLog2Rows,
 		Superframe:             info.Superframe,
 		SuperframeFrames:       info.SuperframeFrames,
 	}

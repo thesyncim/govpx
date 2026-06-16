@@ -41,9 +41,35 @@ func TestPeekVP9StreamInfoKeyFrame(t *testing.T) {
 	if info.FirstPartitionSize == 0 {
 		t.Fatal("FirstPartitionSize = 0, want non-zero")
 	}
+	if !info.TileInfoAvailable || info.TileLog2Cols != 0 || info.TileLog2Rows != 0 {
+		t.Fatalf("tile info = available:%v log2:%dx%d, want available 0x0",
+			info.TileInfoAvailable, info.TileLog2Cols, info.TileLog2Rows)
+	}
 	if info.Superframe || info.SuperframeFrames != 1 {
 		t.Fatalf("superframe = %v frames=%d, want false/1",
 			info.Superframe, info.SuperframeFrames)
+	}
+}
+
+func TestPeekVP9StreamInfoReportsTileLayout(t *testing.T) {
+	const width, height = 1280, 64
+	e, _ := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:   width,
+		Height:  height,
+		Threads: 4,
+	})
+	packet, err := e.Encode(vp9test.NewYCbCr(width, height, 80, 128, 128))
+	if err != nil {
+		t.Fatalf("Encode VP9 tiled keyframe: %v", err)
+	}
+
+	info, err := govpx.PeekVP9StreamInfo(packet)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo tiled keyframe: %v", err)
+	}
+	if !info.TileInfoAvailable || info.TileLog2Cols != 2 || info.TileLog2Rows != 0 {
+		t.Fatalf("tile info = available:%v log2:%dx%d, want available 2x0",
+			info.TileInfoAvailable, info.TileLog2Cols, info.TileLog2Rows)
 	}
 }
 

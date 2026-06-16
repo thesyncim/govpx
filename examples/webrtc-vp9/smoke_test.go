@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4"
+
+	"github.com/thesyncim/govpx"
 )
 
 // TestDemoEndToEnd boots the demo HTTP server, opens a pion peer that does
@@ -160,8 +163,9 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 		wantAtMost  int
 	}{
 		{"base-layer-stays-single-threaded", 160, 90, 1, 1},
-		{"middle-layer-can-use-workers", 320, 180, min(2, runtime.NumCPU()), 2},
-		{"top-layer-can-use-four-workers", 640, 360, min(4, runtime.NumCPU()), 4},
+		{"middle-layer-stays-within-vp9-tile-limit", 320, 180, 1, 1},
+		{"top-layer-uses-two-columns-when-available", 640, 360, expectedThreads(640, 360), 2},
+		{"wide-layer-can-use-four-columns", 1280, 720, expectedThreads(1280, 720), 4},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,6 +178,68 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 				t.Fatalf("pickThreads(%d, %d) = %d exceeds NumCPU=%d",
 					tc.width, tc.height, got, runtime.NumCPU())
 			}
+			if got > maxVP9TileColumns(tc.width) {
+				t.Fatalf("pickThreads(%d, %d) = %d exceeds legal VP9 tile columns=%d",
+					tc.width, tc.height, got, maxVP9TileColumns(tc.width))
+			}
 		})
 	}
+}
+
+func TestSVCEncoderEmitsThreadedTopLayerTileLayout(t *testing.T) {
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	drawScene(imgs, 0)
+
+	dst := make([]byte, superframeBudget())
+	result, err := svc.EncodeIntoWithResult(imgs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+
+	top := result.Layers[spatialLayerCount-1]
+	info, err := govpx.PeekVP9StreamInfo(top.Data)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo top layer: %v", err)
+	}
+	topWidth, topHeight := layerDims[spatialLayerCount-1][0], layerDims[spatialLayerCount-1][1]
+	wantLog2Cols := expectedTileLog2Cols(pickThreads(topWidth, topHeight))
+	if !info.TileInfoAvailable || info.TileLog2Cols != wantLog2Cols || info.TileLog2Rows != 0 {
+		t.Fatalf("top-layer tile info = available:%v log2:%dx%d, want available %dx0",
+			info.TileInfoAvailable, info.TileLog2Cols, info.TileLog2Rows, wantLog2Cols)
+	}
+}
+
+func expectedThreads(width, height int) int {
+	cpus := runtime.NumCPU()
+	maxTileCols := maxVP9TileColumns(width)
+	if cpus < 2 || maxTileCols < 2 {
+		return 1
+	}
+	if cpus >= 4 && maxTileCols >= 4 && width*height >= 640*360 {
+		return 4
+	}
+	return 2
+}
+
+func expectedTileLog2Cols(threads int) int {
+	if threads <= 1 {
+		return 0
+	}
+	if threads <= 2 {
+		return 1
+	}
+	return 2
 }
