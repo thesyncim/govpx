@@ -681,18 +681,18 @@ func encodeWebRTCPacketizedRuntimeAccessUnitsForOracleInternal(
 			forceKeyAll(svc)
 		}
 		drawScene(imgs, frame)
-		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, cap)
 		if err != nil {
-			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, cap, err)
 		}
 		if inspect != nil {
 			inspect(frame, result)
 		}
-		rtpResult := limitSVCResultForRTPForTest(t, result, cap)
-		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
+		payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
 		pionPacket := reassembleWebRTCSVCResultWithPionForOracle(t,
-			rtpResult, payloads)
-		govpxPacket := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads,
+			result, payloads)
+		govpxPacket := reassembleWebRTCSVCResultForTest(t, result, payloads,
 			pictureID)
 		if !bytes.Equal(pionPacket, govpxPacket) {
 			t.Fatalf("frame %d Pion RTP reassembly differed from govpx reassembly",

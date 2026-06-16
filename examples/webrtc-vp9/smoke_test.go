@@ -1271,9 +1271,14 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 			forceKeyAll(svc)
 		}
 		drawScene(imgs, frame)
-		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, cap)
 		if err != nil {
-			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, cap, err)
+		}
+		if int(result.LayerCount) != cap {
+			t.Fatalf("frame %d active layer count = %d, want %d",
+				frame, result.LayerCount, cap)
 		}
 		if frame > 0 && cap != lastCap {
 			base := result.Layers[0]
@@ -1282,7 +1287,7 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 					frame, lastCap, cap, base.KeyFrame,
 					base.InterPicturePredicted)
 			}
-			for spatial := 1; spatial < spatialLayerCount; spatial++ {
+			for spatial := 1; spatial < cap; spatial++ {
 				if result.Layers[spatial].KeyFrame ||
 					!result.Layers[spatial].ShowFrame {
 					t.Fatalf("frame %d cap %d->%d layer %d = key:%t show:%t, want visible inter-layer refresh",
@@ -1291,10 +1296,16 @@ func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
 						result.Layers[spatial].ShowFrame)
 				}
 			}
+			for spatial := cap; spatial < spatialLayerCount; spatial++ {
+				if result.Layers[spatial].Data != nil ||
+					result.Layers[spatial].SizeBytes != 0 {
+					t.Fatalf("frame %d inactive layer %d result = %+v, want zero",
+						frame, spatial, result.Layers[spatial])
+				}
+			}
 		}
-		rtpResult := limitSVCResultForRTPForTest(t, result, cap)
-		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
-		packet := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)
+		payloads := packetizeWebRTCSVCResultForTest(t, result, pictureID, 500)
+		packet := reassembleWebRTCSVCResultForTest(t, result, payloads, pictureID)
 		for layer := 0; layer < cap; layer++ {
 			assertWebRTCSVCDecoderOutputForTest(t, decoders[layer],
 				packet, frame, layer, layerDims[layer][0], layerDims[layer][1])
