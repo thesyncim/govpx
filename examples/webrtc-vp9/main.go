@@ -20,6 +20,7 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -362,6 +363,10 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !sdpNegotiatesVP9Profile0(offer.SDP) {
+		http.Error(w, "VP9 profile 0 is required", http.StatusNotAcceptable)
+		return
+	}
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
@@ -450,6 +455,13 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		http.Error(w, "ICE gathering timed out", http.StatusGatewayTimeout)
 		return
 	}
+	local := pc.LocalDescription()
+	if local == nil || !sdpNegotiatesVP9Profile0(local.SDP) {
+		_ = pc.Close()
+		http.Error(w, "VP9 profile 0 was not negotiated",
+			http.StatusNotAcceptable)
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -465,7 +477,7 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 	go runEncoder(ctx, track, telemetry, ctl, cfg)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
+	_ = json.NewEncoder(w).Encode(local)
 }
 
 func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
@@ -478,6 +490,33 @@ func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
 			{Type: "nack", Parameter: "pli"},
 		},
 	}
+}
+
+func sdpNegotiatesVP9Profile0(sdp string) bool {
+	vp9PayloadTypes := make(map[string]bool)
+	profile0PayloadTypes := make(map[string]bool)
+	for _, raw := range strings.Split(sdp, "\n") {
+		line := strings.TrimSpace(strings.ToLower(raw))
+		switch {
+		case strings.HasPrefix(line, "a=rtpmap:"):
+			fields := strings.Fields(strings.TrimPrefix(line, "a=rtpmap:"))
+			if len(fields) >= 2 && fields[1] == "vp9/90000" {
+				vp9PayloadTypes[fields[0]] = true
+			}
+		case strings.HasPrefix(line, "a=fmtp:"):
+			fields := strings.Fields(strings.TrimPrefix(line, "a=fmtp:"))
+			if len(fields) >= 2 &&
+				strings.Contains(strings.Join(fields[1:], " "), vp9Profile0Fmtp) {
+				profile0PayloadTypes[fields[0]] = true
+			}
+		}
+	}
+	for payloadType := range vp9PayloadTypes {
+		if profile0PayloadTypes[payloadType] {
+			return true
+		}
+	}
+	return false
 }
 
 func peerConnectionStateIsTerminal(s webrtc.PeerConnectionState) bool {

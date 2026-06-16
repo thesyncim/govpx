@@ -233,6 +233,53 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 }
 
+func TestHandleOfferRejectsOfferWithoutVP9Profile0(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if !sdpNegotiatesVP9Profile0(offer.SDP) {
+		t.Fatalf("test offer unexpectedly missing VP9 profile 0:\n%s", offer.SDP)
+	}
+	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp, "profile-id=2")
+	if sdpNegotiatesVP9Profile0(offer.SDP) {
+		t.Fatalf("mutated test offer still negotiates VP9 profile 0:\n%s", offer.SDP)
+	}
+
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotAcceptable {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusNotAcceptable)
+	}
+}
+
 func readVP9RTPAccessUnitForTest(
 	t *testing.T,
 	ctx context.Context,
@@ -693,6 +740,54 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 	if len(wantFeedback) != 0 {
 		t.Fatalf("codec feedback = %+v, missing %+v",
 			codec.RTCPFeedback, wantFeedback)
+	}
+}
+
+func TestSDPNegotiatesVP9Profile0(t *testing.T) {
+	tests := []struct {
+		name string
+		sdp  string
+		want bool
+	}{
+		{
+			name: "vp9 profile zero",
+			sdp: strings.Join([]string{
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "vp9 profile two",
+			sdp: strings.Join([]string{
+				"a=rtpmap:100 VP9/90000",
+				"a=fmtp:100 profile-id=2",
+			}, "\r\n"),
+		},
+		{
+			name: "profile zero without vp9 codec",
+			sdp: strings.Join([]string{
+				"a=rtpmap:96 VP8/90000",
+				"a=fmtp:96 profile-id=0",
+			}, "\r\n"),
+		},
+		{
+			name: "profile zero belongs to different payload",
+			sdp: strings.Join([]string{
+				"a=rtpmap:96 VP8/90000",
+				"a=fmtp:96 profile-id=0",
+				"a=rtpmap:100 VP9/90000",
+				"a=fmtp:100 profile-id=2",
+			}, "\r\n"),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sdpNegotiatesVP9Profile0(tc.sdp); got != tc.want {
+				t.Fatalf("sdpNegotiatesVP9Profile0 = %t, want %t",
+					got, tc.want)
+			}
+		})
 	}
 }
 
