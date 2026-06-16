@@ -354,6 +354,32 @@ func (t *temporalState) nextFrame(timing timingState) temporalFrame {
 	return meta
 }
 
+func (t *temporalState) keyFrameMeta(meta temporalFrame, timing timingState) temporalFrame {
+	if !t.enabled || !meta.Enabled {
+		return meta
+	}
+	meta.LayerID = 0
+	meta.LayerSync = false
+	if t.tl0Valid {
+		meta.TL0PICIDX = t.tl0PicIdx + 1
+	} else {
+		meta.TL0PICIDX = 0
+	}
+	meta.LayerTargetBitrateKbps = t.temporalLayerBitrateKbps(0)
+	meta.LayerFrameTargetBits = t.temporalLayerFrameTargetBits(0, timing)
+	meta.LayerCumulativeBitrateKbps = t.config.LayerTargetBitrateKbps[0]
+	return meta
+}
+
+func (t *temporalState) restartInterLayerKeyAccessUnit() {
+	if !t.enabled {
+		return
+	}
+	t.refLayer = [temporalReferenceCount]int{}
+	t.frameIndex = uint64(positiveLCM(t.pattern.Periodicity,
+		t.pattern.FlagPeriodicity))
+}
+
 func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame bool, refresh temporalReferenceRefresh, encodedBits int, buffers temporalBufferConfig) {
 	if !t.enabled {
 		return
@@ -377,6 +403,12 @@ func (t *temporalState) finishFrame(meta temporalFrame, keyFrame bool, showFrame
 		t.tl0Valid = true
 	}
 	t.frameIndex++
+}
+
+func (t *temporalState) restartAfterKeyFrame() {
+	if t.enabled {
+		t.frameIndex = 1
+	}
 }
 
 func (t *temporalState) finishDroppedFrame(meta temporalFrame, buffers temporalBufferConfig) {
@@ -499,6 +531,29 @@ func (t *temporalState) temporalLayerFrameTargetBits(layerID int, timing timingS
 	num := int64(layerBitrateBits) * int64(timing.timebaseNum) * int64(timing.frameDuration) * int64(current) * int64(prev)
 	den := int64(timing.timebaseDen) * int64(prev-current)
 	return roundedInt(num, den)
+}
+
+func positiveLCM(a, b int) int {
+	if a <= 0 || b <= 0 {
+		return 1
+	}
+	return (a / gcdPositive(a, b)) * b
+}
+
+func gcdPositive(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a <= 0 {
+		return 1
+	}
+	return a
 }
 
 func (t *temporalState) temporalLayerOutputFrameRateInt(layerID int, timing timingState) int {

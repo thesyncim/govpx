@@ -422,9 +422,19 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 			return VP9SpatialSVCEncodeResult{}, ErrBufferTooSmall
 		}
 		layer := e.layers[i]
+		if i > 0 && e.interLayerPrediction {
+			layer.forceKeyFrame = false
+			if baseKeyFrame {
+				layer.temporal.restartInterLayerKeyAccessUnit()
+			}
+		}
 		if e.interLayerPrediction {
+			svcFrameIndex := layer.frameIndex
+			if e.temporalEnabled {
+				svcFrameIndex = int(layer.temporal.frameIndex)
+			}
 			if cfg, ok := vp9SpatialSVCReferenceFrameConfig(i, count,
-				e.temporalMode, e.temporalEnabled, layer.frameIndex,
+				e.temporalMode, e.temporalEnabled, svcFrameIndex,
 				baseKeyFrame, e.noTemporalAltRefIdx); ok {
 				layer.svcRefConfig = cfg
 				if !e.temporalEnabled {
@@ -1120,10 +1130,16 @@ func (e *VP9SpatialSVCEncoder) SetTemporalLayerID(layerID int) error {
 	return nil
 }
 
-// ForceKeyFrame requests that the next access unit encode every spatial layer
-// as a key frame.
+// ForceKeyFrame requests that the next access unit start with a key frame.
+// Inter-layer SVC mirrors libvpx and forces only the base spatial layer; higher
+// spatial layers remain inter frames so they refresh their own reference slots
+// without overwriting lower-layer decoder state.
 func (e *VP9SpatialSVCEncoder) ForceKeyFrame() {
 	if e == nil || e.closed {
+		return
+	}
+	if e.interLayerPrediction {
+		e.layers[0].ForceKeyFrame()
 		return
 	}
 	for i := 0; i < int(e.layerCount); i++ {
@@ -1137,7 +1153,11 @@ func (e *VP9SpatialSVCEncoder) IsKeyFrameNext() bool {
 	if e == nil || e.closed {
 		return false
 	}
-	for i := 0; i < int(e.layerCount); i++ {
+	count := int(e.layerCount)
+	if e.interLayerPrediction {
+		count = 1
+	}
+	for i := 0; i < count; i++ {
 		if e.layers[i].IsKeyFrameNext() {
 			return true
 		}

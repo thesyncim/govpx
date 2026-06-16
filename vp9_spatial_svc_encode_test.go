@@ -334,6 +334,112 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 	}
 }
 
+func TestVP9SpatialSVCEncoderForceKeyFrameInterLayerDecodesNextFrame(t *testing.T) {
+	const (
+		baseW = 64
+		baseH = 64
+		enhW  = 128
+		enhH  = 128
+	)
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           2,
+		InterLayerPrediction: true,
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
+			{
+				Width:                    baseW,
+				Height:                   baseH,
+				TargetBitrateKbps:        300,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+			{
+				Width:                    enhW,
+				Height:                   enhH,
+				TargetBitrateKbps:        700,
+				Deadline:                 govpx.DeadlineRealtime,
+				CpuUsed:                  8,
+				TemporalScalability:      temporal,
+				ErrorResilient:           true,
+				FrameParallelDecodingSet: true,
+				FrameParallelDecoding:    true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	decoder, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+		SVCSpatialLayerSet: true,
+		SVCSpatialLayer:    1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+
+	enhLayer, err := svc.LayerEncoder(1)
+	if err != nil {
+		t.Fatalf("LayerEncoder(1): %v", err)
+	}
+	dst := make([]byte, 1<<20)
+	for frame := 0; frame < 4; frame++ {
+		if frame == 1 {
+			enhLayer.ForceKeyFrame()
+			if svc.IsKeyFrameNext() {
+				t.Fatal("enhancement-layer ForceKeyFrame armed inter-layer SVC access unit")
+			}
+		}
+		if frame == 2 {
+			svc.ForceKeyFrame()
+			if !svc.IsKeyFrameNext() {
+				t.Fatal("parent ForceKeyFrame did not arm inter-layer SVC access unit")
+			}
+		}
+		result, err := svc.EncodeIntoWithResult([]*image.YCbCr{
+			vp9test.NewPanningYCbCr(baseW, baseH, frame),
+			vp9test.NewPanningYCbCr(enhW, enhH, frame),
+		}, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		if frame == 1 && (result.Layers[0].KeyFrame ||
+			result.Layers[1].KeyFrame) {
+			t.Fatalf("enhancement-only force frame key flags = %t/%t, want false/false",
+				result.Layers[0].KeyFrame, result.Layers[1].KeyFrame)
+		}
+		if frame == 2 {
+			if !result.Layers[0].KeyFrame || result.Layers[1].KeyFrame {
+				t.Fatalf("parent force frame key flags = %t/%t, want true/false",
+					result.Layers[0].KeyFrame, result.Layers[1].KeyFrame)
+			}
+			for layer := 0; layer < 2; layer++ {
+				if result.Layers[layer].TemporalLayerID != 0 {
+					t.Fatalf("forced frame layer %d temporal id = %d, want 0",
+						layer, result.Layers[layer].TemporalLayerID)
+				}
+			}
+		}
+		if err := decoder.Decode(result.Data); err != nil {
+			t.Fatalf("Decode frame %d: %v", frame, err)
+		}
+		img, ok := decoder.NextFrame()
+		if !ok {
+			t.Fatalf("Decode frame %d produced no visible frame", frame)
+		}
+		if img.Width != enhW || img.Height != enhH {
+			t.Fatalf("Decode frame %d image = %dx%d, want %dx%d",
+				frame, img.Width, img.Height, enhW, enhH)
+		}
+	}
+}
+
 func TestVP9SpatialSVCEncoderWebRTCThreeByThreeDecodesThroughRTP(t *testing.T) {
 	const (
 		layerCount = 3

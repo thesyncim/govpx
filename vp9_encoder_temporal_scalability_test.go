@@ -103,6 +103,68 @@ func TestVP9EncoderTemporalTwoLayerResultSequence(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderTemporalForcedKeyFrameReportsBaseLayer(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		TargetBitrateKbps: 300,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringThreeLayers,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	dst := make([]byte, 65536)
+	first, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, 80, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("first EncodeIntoWithResult: %v", err)
+	}
+	if !first.KeyFrame || first.TemporalLayerID != 0 || first.TL0PICIDX != 0 {
+		t.Fatalf("first temporal = key:%t id:%d tl0:%d, want key/0/0",
+			first.KeyFrame, first.TemporalLayerID, first.TL0PICIDX)
+	}
+
+	e.ForceKeyFrame()
+	forced, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, 100, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("forced EncodeIntoWithResult: %v", err)
+	}
+	if !forced.KeyFrame || forced.TemporalLayerID != 0 ||
+		forced.TemporalLayerCount != 3 || forced.TemporalLayerSync ||
+		forced.TL0PICIDX != 1 {
+		t.Fatalf("forced temporal = key:%t id:%d count:%d sync:%t tl0:%d, want key/0/3/false/1",
+			forced.KeyFrame, forced.TemporalLayerID,
+			forced.TemporalLayerCount, forced.TemporalLayerSync,
+			forced.TL0PICIDX)
+	}
+	desc := forced.RTPPayloadDescriptor()
+	payload, err := PackVP9RTPPayload(desc, forced.Data)
+	if err != nil {
+		t.Fatalf("PackVP9RTPPayload forced keyframe: %v", err)
+	}
+	gotDesc, _, err := ParseVP9RTPPayloadDescriptor(payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor forced keyframe: %v", err)
+	}
+	if gotDesc.InterPicturePredicted || int(gotDesc.TemporalID) != 0 ||
+		gotDesc.TL0PICIDX != forced.TL0PICIDX {
+		t.Fatalf("forced RTP descriptor = %+v, want keyframe T0/TL0 %d",
+			gotDesc, forced.TL0PICIDX)
+	}
+
+	next, err := e.EncodeIntoWithResult(vp9test.NewYCbCr(width, height, 120, 128, 128), dst)
+	if err != nil {
+		t.Fatalf("post-forced EncodeIntoWithResult: %v", err)
+	}
+	if next.TemporalLayerID != 2 || next.TL0PICIDX != forced.TL0PICIDX {
+		t.Fatalf("post-forced temporal = id:%d tl0:%d, want 2/%d",
+			next.TemporalLayerID, next.TL0PICIDX, forced.TL0PICIDX)
+	}
+}
+
 func TestVP9EncoderSetTemporalScalabilityUpdatesResultSequence(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{

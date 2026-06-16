@@ -766,12 +766,20 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.twoPass.finishFrameWithActual(projected)
 	}
 	e.vp9CommitLastSource(img, header.ShowFrame, postDrop)
+	resultTemporalFrame := temporalFrame
+	if isKey {
+		resultTemporalFrame = e.temporal.keyFrameMeta(temporalFrame,
+			e.vp9TimingState())
+	}
 	if postDrop {
 		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
 	} else {
-		e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
+		e.temporal.finishFrame(resultTemporalFrame, isKey, header.ShowFrame,
 			e.vp9LogicalRefreshForFrame(header.RefreshFrameFlags),
 			vpxrc.EncodedSizeBits(n), e.vp9TemporalBufferConfig())
+		if isKey {
+			e.temporal.restartAfterKeyFrame()
+		}
 	}
 	e.vp9FinishKeyFrameDistance(isKey)
 	encodedFrameIndex := e.frameIndex
@@ -832,10 +840,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		RefreshFrameFlags:           resultRefreshFlags,
 		FirstPassStats:              firstPassStats,
 		TwoPassFrameTargetBits:      twoPassTargetBits,
-		TemporalLayerID:             temporalFrame.LayerID,
-		TemporalLayerCount:          temporalFrame.LayerCount,
-		TemporalLayerSync:           temporalFrame.LayerSync,
-		TL0PICIDX:                   temporalFrame.TL0PICIDX,
+		TemporalLayerID:             resultTemporalFrame.LayerID,
+		TemporalLayerCount:          resultTemporalFrame.LayerCount,
+		TemporalLayerSync:           resultTemporalFrame.LayerSync,
+		TL0PICIDX:                   resultTemporalFrame.TL0PICIDX,
 		SpatialLayerID:              spatialLayerID,
 		SpatialLayerCount:           spatialLayerCount,
 		InterLayerDependency:        interLayerDependency,

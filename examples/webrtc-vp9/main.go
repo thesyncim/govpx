@@ -797,7 +797,7 @@ func webRTCSVCLayerDescriptor(result govpx.VP9SpatialSVCEncodeResult,
 	layer := result.Layers[layerID]
 	if layer.Dropped || len(layer.Data) == 0 ||
 		layer.SpatialLayerID != uint8(layerID) ||
-		layer.SpatialLayerCount != result.LayerCount {
+		layer.SpatialLayerCount < result.LayerCount {
 		return govpx.VP9RTPPayloadDescriptor{}, nil, govpx.ErrInvalidConfig
 	}
 	desc := layer.RTPPayloadDescriptor()
@@ -842,14 +842,8 @@ func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount in
 	}
 	out := result
 	out.LayerCount = uint8(layerCount)
-	out.ScalabilityStructure.SpatialLayerCount = layerCount
-	for i := layerCount; i < len(out.ScalabilityStructure.Width); i++ {
-		out.ScalabilityStructure.Width[i] = 0
-		out.ScalabilityStructure.Height[i] = 0
-	}
 	for i := 0; i < layerCount; i++ {
 		layer := out.Layers[i]
-		layer.SpatialLayerCount = uint8(layerCount)
 		layer.NotRefForUpperSpatialLayer = !out.InterLayerPrediction || i == layerCount-1
 		out.Layers[i] = layer
 	}
@@ -931,20 +925,23 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 func newSVCLayerOptions(width, height, fps, bitrateKbps int) govpx.VP9EncoderOptions {
 	threads := pickThreads(width, height)
 	return govpx.VP9EncoderOptions{
-		Width:               width,
-		Height:              height,
-		FPS:                 fps,
-		Threads:             threads,
-		RowMT:               threads > 1,
-		Deadline:            govpx.DeadlineRealtime,
-		CpuUsed:             pickCPUUsed(width, height),
-		RateControlModeSet:  true,
-		RateControlMode:     govpx.RateControlCBR,
-		TargetBitrateKbps:   bitrateKbps,
-		TemporalScalability: govpx.TemporalScalabilityConfig{Enabled: true, Mode: temporalLayerMode},
-		MinQuantizer:        4,
-		MaxQuantizer:        56,
-		MaxKeyframeInterval: 128,
+		Width:                    width,
+		Height:                   height,
+		FPS:                      fps,
+		Threads:                  threads,
+		RowMT:                    threads > 1,
+		Deadline:                 govpx.DeadlineRealtime,
+		CpuUsed:                  pickCPUUsed(width, height),
+		RateControlModeSet:       true,
+		RateControlMode:          govpx.RateControlCBR,
+		TargetBitrateKbps:        bitrateKbps,
+		TemporalScalability:      govpx.TemporalScalabilityConfig{Enabled: true, Mode: temporalLayerMode},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MinQuantizer:             4,
+		MaxQuantizer:             56,
+		MaxKeyframeInterval:      128,
 	}
 }
 
@@ -990,8 +987,8 @@ func applyScreenMode(svc *govpx.VP9SpatialSVCEncoder, mode int) error {
 	return nil
 }
 
-// forceKeyAll asks the SVC encoder for a fresh access unit on every spatial
-// layer after a browser PLI/FIR or manual keyframe request.
+// forceKeyAll asks the SVC encoder for a fresh key access unit after a browser
+// PLI/FIR or manual keyframe request.
 func forceKeyAll(svc *govpx.VP9SpatialSVCEncoder) {
 	svc.ForceKeyFrame()
 }

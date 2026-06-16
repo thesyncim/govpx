@@ -355,7 +355,88 @@ func TestSVCLayerOptionsEnableRowMTForThreadedLayers(t *testing.T) {
 				t.Fatalf("RowMT = %t for %d threads, want %t",
 					opts.RowMT, wantThreads, wantThreads > 1)
 			}
+			if !opts.ErrorResilient ||
+				!opts.FrameParallelDecodingSet ||
+				!opts.FrameParallelDecoding {
+				t.Fatalf("VP9 resilience flags = err:%t fp-set:%t fp:%t, want true/true/true",
+					opts.ErrorResilient,
+					opts.FrameParallelDecodingSet,
+					opts.FrameParallelDecoding)
+			}
 		})
+	}
+}
+
+func TestWebRTCPacketizedSVCDecodeContinuityAndCapRecovery(t *testing.T) {
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	var decoders [spatialLayerCount]*govpx.VP9Decoder
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		decoders[layer], err = govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    uint8(layer),
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Decoder layer %d: %v", layer, err)
+		}
+		defer decoders[layer].Close()
+	}
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	dst := make([]byte, superframeBudget())
+	caps := []int{3, 3, 2, 2, 1, 3, 3, 2, 3}
+	pictureID := uint16(0x7ffc)
+	lastCap := caps[0]
+	for frame, cap := range caps {
+		if frame > 0 && cap != lastCap {
+			forceKeyAll(svc)
+		}
+		drawScene(imgs, frame)
+		result, err := svc.EncodeIntoWithResult(imgs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		if frame > 0 && cap != lastCap {
+			base := result.Layers[0]
+			if !base.KeyFrame || base.InterPicturePredicted {
+				t.Fatalf("frame %d cap %d->%d base = key:%t inter:%t, want key/non-predicted",
+					frame, lastCap, cap, base.KeyFrame,
+					base.InterPicturePredicted)
+			}
+			for spatial := 1; spatial < spatialLayerCount; spatial++ {
+				if result.Layers[spatial].KeyFrame ||
+					!result.Layers[spatial].ShowFrame {
+					t.Fatalf("frame %d cap %d->%d layer %d = key:%t show:%t, want visible inter-layer refresh",
+						frame, lastCap, cap, spatial,
+						result.Layers[spatial].KeyFrame,
+						result.Layers[spatial].ShowFrame)
+				}
+			}
+		}
+		rtpResult := cappedSVCResultForRTP(result, cap)
+		payloads := packetizeWebRTCSVCResultForTest(t, rtpResult, pictureID, 500)
+		packet := reassembleWebRTCSVCResultForTest(t, rtpResult, payloads, pictureID)
+		decodeLayers := cap
+		if cap < spatialLayerCount && !rtpResult.Layers[cap-1].KeyFrame {
+			decodeLayers = 1
+		}
+		for layer := 0; layer < decodeLayers; layer++ {
+			assertWebRTCSVCDecoderOutputForTest(t, decoders[layer],
+				packet, frame, layer, layerDims[layer][0], layerDims[layer][1])
+		}
+		lastCap = cap
+		pictureID = nextVP9PictureID(pictureID)
 	}
 }
 
@@ -451,11 +532,16 @@ func TestForceKeyAllRefreshesEverySpatialLayer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("forced EncodeIntoWithResult: %v", err)
 	}
-	for spatial := 0; spatial < spatialLayerCount; spatial++ {
+	base := result.Layers[0]
+	if !base.KeyFrame || base.InterPicturePredicted {
+		t.Fatalf("base forced result = key:%t inter-pred:%t, want key/non-predicted",
+			base.KeyFrame, base.InterPicturePredicted)
+	}
+	for spatial := 1; spatial < spatialLayerCount; spatial++ {
 		layer := result.Layers[spatial]
-		if !layer.KeyFrame || layer.InterPicturePredicted {
-			t.Fatalf("layer %d forced result = key:%t inter-pred:%t, want key/non-predicted",
-				spatial, layer.KeyFrame, layer.InterPicturePredicted)
+		if layer.KeyFrame || !layer.ShowFrame {
+			t.Fatalf("layer %d forced result = key:%t show:%t, want visible inter-layer refresh",
+				spatial, layer.KeyFrame, layer.ShowFrame)
 		}
 	}
 	if svc.IsKeyFrameNext() {
@@ -499,7 +585,7 @@ func TestPacketizeSVCResultForWebRTCAddsPictureID(t *testing.T) {
 	}
 }
 
-func TestPacketizeCappedSVCResultForWebRTCAdvertisesCappedLayerCount(t *testing.T) {
+func TestPacketizeCappedSVCResultForWebRTCKeepsFullScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
 	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x55, 500)
@@ -513,10 +599,11 @@ func TestPacketizeCappedSVCResultForWebRTCAdvertisesCappedLayerCount(t *testing.
 			base.PictureIDPresent, base.PictureID)
 	}
 	if !base.ScalabilityStructurePresent ||
-		base.ScalabilityStructure.SpatialLayerCount != 2 {
-		t.Fatalf("base SS = present:%v layers:%d, want capped 2-layer structure",
+		base.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
+		t.Fatalf("base SS = present:%v layers:%d, want full %d-layer structure",
 			base.ScalabilityStructurePresent,
-			base.ScalabilityStructure.SpatialLayerCount)
+			base.ScalabilityStructure.SpatialLayerCount,
+			spatialLayerCount)
 	}
 	for i, payload := range payloads {
 		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
@@ -530,7 +617,7 @@ func TestPacketizeCappedSVCResultForWebRTCAdvertisesCappedLayerCount(t *testing.
 	}
 }
 
-func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
+func TestCappedSVCResultForRTPKeepsFullScalabilityStructure(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
 	wantSize := result.Layers[0].SizeBytes + result.Layers[1].SizeBytes
@@ -538,12 +625,9 @@ func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 		t.Fatalf("capped result accounting = size:%d layers:%d, want %d/2",
 			capped.SizeBytes, capped.LayerCount, wantSize)
 	}
-	payloads, err := capped.PacketizeRTP(500)
-	if err != nil {
-		t.Fatalf("PacketizeRTP capped result: %v", err)
-	}
+	payloads := packetizeWebRTCSVCResultForTest(t, capped, 0x56, 500)
 	if len(payloads) == 0 {
-		t.Fatal("PacketizeRTP capped result returned no payloads")
+		t.Fatal("capped WebRTC packetizer returned no payloads")
 	}
 
 	base, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
@@ -551,10 +635,11 @@ func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 		t.Fatalf("ParseVP9RTPPayloadDescriptor base: %v", err)
 	}
 	if !base.ScalabilityStructurePresent ||
-		base.ScalabilityStructure.SpatialLayerCount != 2 {
-		t.Fatalf("base SS = present:%v layers:%d, want capped 2-layer structure",
+		base.ScalabilityStructure.SpatialLayerCount != spatialLayerCount {
+		t.Fatalf("base SS = present:%v layers:%d, want full %d-layer structure",
 			base.ScalabilityStructurePresent,
-			base.ScalabilityStructure.SpatialLayerCount)
+			base.ScalabilityStructure.SpatialLayerCount,
+			spatialLayerCount)
 	}
 	if !base.ScalabilityStructure.PictureGroupPresent ||
 		len(base.ScalabilityStructure.PictureGroups) != 4 {
@@ -704,6 +789,120 @@ func packetizeWebRTCSVCResultForTest(t *testing.T, result govpx.VP9SpatialSVCEnc
 			n, used, packets, payloadBytes)
 	}
 	return payloads[:n]
+}
+
+func reassembleWebRTCSVCResultForTest(t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+	pictureID uint16,
+) []byte {
+	t.Helper()
+	count := int(result.LayerCount)
+	var byLayer [govpx.VP9MaxSpatialLayers][]govpx.RTPPayloadFragment
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %t, want %t", i, got, want)
+		}
+		if !desc.LayerIndicesPresent || int(desc.SpatialID) >= count {
+			t.Fatalf("payload %d descriptor = %+v, want spatial layer < %d",
+				i, desc, count)
+		}
+		layerID := int(desc.SpatialID)
+		wantLayer := result.Layers[layerID]
+		if int(desc.TemporalID) != wantLayer.TemporalLayerID ||
+			desc.TL0PICIDX != wantLayer.TL0PICIDX ||
+			desc.SwitchingUpPoint != wantLayer.TemporalLayerSync ||
+			desc.InterLayerDependency != wantLayer.InterLayerDependency ||
+			desc.NotRefForUpperSpatialLayer != wantLayer.NotRefForUpperSpatialLayer {
+			t.Fatalf("payload %d layer %d descriptor = tid:%d tl0:%d sync:%t dep:%t n:%t, want tid:%d tl0:%d sync:%t dep:%t n:%t",
+				i, layerID, desc.TemporalID, desc.TL0PICIDX,
+				desc.SwitchingUpPoint, desc.InterLayerDependency,
+				desc.NotRefForUpperSpatialLayer,
+				wantLayer.TemporalLayerID, wantLayer.TL0PICIDX,
+				wantLayer.TemporalLayerSync, wantLayer.InterLayerDependency,
+				wantLayer.NotRefForUpperSpatialLayer)
+		}
+		if layerID == 0 && desc.StartOfFrame {
+			wantSpatialLayers := count
+			if result.ScalabilityStructure.SpatialLayerCount != 0 {
+				wantSpatialLayers = result.ScalabilityStructure.SpatialLayerCount
+			}
+			if !desc.ScalabilityStructurePresent ||
+				desc.ScalabilityStructure.SpatialLayerCount != wantSpatialLayers {
+				t.Fatalf("base payload %d SS = present:%t layers:%d, want %d",
+					i, desc.ScalabilityStructurePresent,
+					desc.ScalabilityStructure.SpatialLayerCount,
+					wantSpatialLayers)
+			}
+		} else if desc.ScalabilityStructurePresent {
+			t.Fatalf("payload %d layer %d repeated scalability structure",
+				i, layerID)
+		}
+		byLayer[layerID] = append(byLayer[layerID], payload)
+	}
+
+	var frames [govpx.VP9MaxSpatialLayers][]byte
+	for layerID := 0; layerID < count; layerID++ {
+		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layerID])
+		if err != nil {
+			t.Fatalf("AssembleVP9RTPFrame layer %d: %v", layerID, err)
+		}
+		if !bytes.Equal(assembled, result.Layers[layerID].Data) {
+			t.Fatalf("assembled RTP layer %d does not match encoded layer",
+				layerID)
+		}
+		frames[layerID] = assembled
+	}
+	need, err := govpx.VP9SuperframeSize(frames[:count]...)
+	if err != nil {
+		t.Fatalf("VP9SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := govpx.PackVP9SuperframeInto(packet, frames[:count]...)
+	if err != nil {
+		t.Fatalf("PackVP9SuperframeInto: %v", err)
+	}
+	return packet[:n]
+}
+
+func assertWebRTCSVCDecoderOutputForTest(
+	t *testing.T,
+	decoder *govpx.VP9Decoder,
+	packet []byte,
+	frame int,
+	layer int,
+	wantWidth int,
+	wantHeight int,
+) {
+	t.Helper()
+	if err := decoder.Decode(packet); err != nil {
+		t.Fatalf("Decode frame %d layer %d: %v", frame, layer, err)
+	}
+	img, ok := decoder.NextFrame()
+	if !ok {
+		t.Fatalf("Decode frame %d layer %d produced no visible frame",
+			frame, layer)
+	}
+	if img.Width != wantWidth || img.Height != wantHeight {
+		t.Fatalf("Decode frame %d layer %d image = %dx%d, want %dx%d",
+			frame, layer, img.Width, img.Height, wantWidth, wantHeight)
+	}
+	info, ok := decoder.LastFrameInfo()
+	if !ok || !info.ShowFrame || info.Corrupted ||
+		info.Width != wantWidth || info.Height != wantHeight {
+		t.Fatalf("Decode frame %d layer %d info = %+v ok=%t, want clean %dx%d",
+			frame, layer, info, ok, wantWidth, wantHeight)
+	}
 }
 
 func marshalRTCPForTest(t *testing.T, packet rtcp.Packet) []byte {
