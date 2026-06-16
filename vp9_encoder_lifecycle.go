@@ -36,6 +36,9 @@ type VP9Encoder struct {
 	//
 	// libvpx: vp9_svc_layercontext.h SVC struct.
 	svc encoder.SVCState
+	// svcRefConfig is a per-frame fixed-SVC reference-slot override derived
+	// from libvpx vp9_svc_layercontext.c set_flags_and_fb_idx_*.
+	svcRefConfig vp9SVCReferenceFrameConfig
 
 	// maxCopiedFrame mirrors cpi->max_copied_frame, written by the
 	// speed-features dispatcher at speeds 7-8 to bound the number of

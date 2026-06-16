@@ -193,11 +193,7 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 		Width:  uint32(e.opts.Width),
 		Height: uint32(e.opts.Height),
 		InterRef: vp9dec.InterRefBlock{
-			RefIndex: [3]uint8{
-				vp9LastRefSlot,
-				vp9GoldenRefSlot,
-				vp9AltRefSlot,
-			},
+			RefIndex: e.vp9InterRefIndexForFrame(),
 			SignBias: [3]uint8{
 				vp9InterSignBias(inter)[vp9dec.LastFrame],
 				vp9InterSignBias(inter)[vp9dec.GoldenFrame],

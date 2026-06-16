@@ -333,3 +333,178 @@ func TestVP9SpatialSVCEncoderThreeLayerInterLayerMultiFrame(t *testing.T) {
 		}
 	}
 }
+
+func TestVP9SpatialSVCEncoderWebRTCThreeByThreeDecodesThroughRTP(t *testing.T) {
+	const (
+		layerCount = 3
+		frames     = 8
+		mtu        = 256
+	)
+	widths := [layerCount]int{160, 320, 640}
+	heights := [layerCount]int{90, 180, 360}
+	bitrates := [layerCount]int{96, 288, 416}
+	temporal := govpx.TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    govpx.TemporalLayeringThreeLayers,
+	}
+	var layerOpts [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions
+	for layer := range layerCount {
+		layerOpts[layer] = govpx.VP9EncoderOptions{
+			Width:                    widths[layer],
+			Height:                   heights[layer],
+			FPS:                      30,
+			TargetBitrateKbps:        bitrates[layer],
+			RateControlModeSet:       true,
+			RateControlMode:          govpx.RateControlCBR,
+			MinQuantizer:             4,
+			MaxQuantizer:             56,
+			MaxKeyframeInterval:      128,
+			Deadline:                 govpx.DeadlineRealtime,
+			CpuUsed:                  8,
+			TemporalScalability:      temporal,
+			ErrorResilient:           true,
+			FrameParallelDecodingSet: true,
+			FrameParallelDecoding:    true,
+		}
+	}
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           layerCount,
+		InterLayerPrediction: true,
+		Layers:               layerOpts,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	var decoders [layerCount]*govpx.VP9Decoder
+	for layer := range layerCount {
+		decoders[layer], err = govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    uint8(layer),
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Decoder layer %d: %v", layer, err)
+		}
+	}
+
+	dst := make([]byte, 4<<20)
+	wantTemporal := [frames]int{0, 2, 1, 2, 0, 2, 1, 2}
+	for frame := range frames {
+		srcs := []*image.YCbCr{
+			vp9test.NewPanningYCbCr(widths[0], heights[0], frame),
+			vp9test.NewPanningYCbCr(widths[1], heights[1], frame),
+			vp9test.NewPanningYCbCr(widths[2], heights[2], frame),
+		}
+		result, err := svc.EncodeIntoWithResult(srcs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		if result.LayerCount != layerCount {
+			t.Fatalf("frame %d layer count = %d, want %d",
+				frame, result.LayerCount, layerCount)
+		}
+		for layer := range layerCount {
+			got := result.Layers[layer].TemporalLayerID
+			if got != wantTemporal[frame] ||
+				result.Layers[layer].TemporalLayerCount != layerCount {
+				t.Fatalf("frame %d layer %d temporal = %d/%d, want %d/%d",
+					frame, layer, got,
+					result.Layers[layer].TemporalLayerCount,
+					wantTemporal[frame], layerCount)
+			}
+		}
+
+		packet := vp9ReassembleSpatialSVCAccessUnitFromRTPForTest(t, result, mtu)
+		if !bytes.Equal(packet, result.Data) {
+			t.Fatalf("frame %d RTP-reassembled access unit changed payload", frame)
+		}
+		for layer := range layerCount {
+			assertVP9SpatialSVCDecoderOutputForTest(t, decoders[layer],
+				packet, frame, layer, widths[layer], heights[layer])
+		}
+	}
+}
+
+func vp9ReassembleSpatialSVCAccessUnitFromRTPForTest(
+	t *testing.T,
+	result govpx.VP9SpatialSVCEncodeResult,
+	mtu int,
+) []byte {
+	t.Helper()
+	payloads, err := result.PacketizeRTP(mtu)
+	if err != nil {
+		t.Fatalf("PacketizeRTP: %v", err)
+	}
+	count := int(result.LayerCount)
+	var byLayer [govpx.VP9MaxSpatialLayers][]govpx.RTPPayloadFragment
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if !desc.LayerIndicesPresent || int(desc.SpatialID) >= count {
+			t.Fatalf("payload %d descriptor = %+v, want spatial layer < %d",
+				i, desc, count)
+		}
+		layer := int(desc.SpatialID)
+		wantLayer := result.Layers[layer]
+		if int(desc.TemporalID) != wantLayer.TemporalLayerID ||
+			desc.TL0PICIDX != wantLayer.TL0PICIDX {
+			t.Fatalf("payload %d layer %d temporal RTP = tid:%d tl0:%d, want %d/%d",
+				i, layer, desc.TemporalID, desc.TL0PICIDX,
+				wantLayer.TemporalLayerID, wantLayer.TL0PICIDX)
+		}
+		byLayer[layer] = append(byLayer[layer], payload)
+	}
+
+	var frames [govpx.VP9MaxSpatialLayers][]byte
+	for layer := range count {
+		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layer])
+		if err != nil {
+			t.Fatalf("AssembleVP9RTPFrame layer %d: %v", layer, err)
+		}
+		if !bytes.Equal(assembled, result.Layers[layer].Data) {
+			t.Fatalf("assembled RTP layer %d does not match encoded layer", layer)
+		}
+		frames[layer] = assembled
+	}
+	need, err := bitstream.SuperframeSize(frames[:count]...)
+	if err != nil {
+		t.Fatalf("SuperframeSize: %v", err)
+	}
+	packet := make([]byte, need)
+	n, err := bitstream.PackSuperframeInto(packet, frames[:count]...)
+	if err != nil {
+		t.Fatalf("PackSuperframeInto: %v", err)
+	}
+	return packet[:n]
+}
+
+func assertVP9SpatialSVCDecoderOutputForTest(
+	t *testing.T,
+	decoder *govpx.VP9Decoder,
+	packet []byte,
+	frame int,
+	layer int,
+	wantWidth int,
+	wantHeight int,
+) {
+	t.Helper()
+	if err := decoder.Decode(packet); err != nil {
+		t.Fatalf("Decode frame %d layer %d: %v", frame, layer, err)
+	}
+	img, ok := decoder.NextFrame()
+	if !ok {
+		t.Fatalf("Decode frame %d layer %d produced no visible frame",
+			frame, layer)
+	}
+	if img.Width != wantWidth || img.Height != wantHeight {
+		t.Fatalf("Decode frame %d layer %d image = %dx%d, want %dx%d",
+			frame, layer, img.Width, img.Height, wantWidth, wantHeight)
+	}
+	info, ok := decoder.LastFrameInfo()
+	if !ok || !info.ShowFrame || info.Corrupted ||
+		info.Width != wantWidth || info.Height != wantHeight {
+		t.Fatalf("Decode frame %d layer %d info = %+v ok=%t, want clean %dx%d",
+			frame, layer, info, ok, wantWidth, wantHeight)
+	}
+}

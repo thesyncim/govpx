@@ -24,6 +24,7 @@ VPXDEC_PUREC := $(CORACLE_BUILD)/vpxdec-purec
 VPXDEC_VP9 := $(CORACLE_BUILD)/vpxdec-vp9
 VPXENC_VP9 := $(CORACLE_BUILD)/vpxenc-vp9
 VPXENC_VP9_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-vp9-frameflags
+VP9_SPATIAL_SVC_ENCODER := $(CORACLE_BUILD)/vp9_spatial_svc_encoder
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP9_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp9
@@ -284,7 +285,7 @@ test-vp9-internal-oracle: vp9-vpxdec-tools
 	$(GO) test -tags govpx_oracle_trace ./internal/vp9/tables ./internal/vp9/encoder ./internal/vp9/decoder ./internal/vp9/dsp -run '$(VP9_INTERNAL_ORACLE_TESTS)' -count=1 -timeout 5m
 
 PARITY_REPORT_TESTS := TestVP8OracleReconstructionAdler32Match|TestVP8OracleRecodeRowParity|TestVP8OracleARNRBufferAdler|TestVP8OracleQuantizerHistogramParity|TestVP8OracleInterDecisionMatchRate|TestVP8OracleSplitMVDecisionMatchRate|TestVP8OracleTraceInterCandidateParity|TestVP8OracleInterQDriftParity|TestVP8OracleLoopFilterHeaderMatchRate|TestVP8OracleSecondPassAllocationParity|TestVP8OracleChromaSubpelParity|TestVP8OracleImprovedMVMatchParity|TestVP8OracleCBRDropFrameParity|TestVP8OracleCandidateRateParity|TestVP8OracleInterModeDistributionParity|TestVP8OracleTemporalSVCParity|TestVP9OracleRuntimeControl(ByteParity|ConstantByteParityMatrix)
-BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity|CBRCyclicRefreshKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|CyclicRefreshKeyframeSeedsMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzVP8OracleEncoderRuntimeControlTransitions
+BYTE_PARITY_TESTS := Test(VP8OracleEncoder(StreamByteParity|CopyReferenceFrameParity|QuantizerMetadataParity|ProductionRuntimeTransitions720p)|VP9EncoderVpxencOracle(Checker320KeyframeByteParity|Stepped320FixedQuantizerKeyframeByteParity|CBRKeyframeByteParity|CBRCyclicRefreshKeyframeByteParity)|VP9Oracle(CopyReferenceFrameParity|SpatialSVCParity|StreamSelectedCasesMatchLibvpx|RuntimeControlsPinnedCasesMatchLibvpx|CyclicRefreshKeyframeSeedsMatchLibvpx|ThreadedTileEncodingMatchesLibvpx|RealtimeNewModeMatchesLibvpx|InvisibleKeyFrameStrictByteParity|EncoderStreamByteParity(FrameFlagsMatrix|ControlCrossMatrix|LookaheadFlushBursts)))|FuzzVP8OracleEncoderRuntimeControlTransitions
 FUZZTIME ?= 30s
 FUZZPARALLEL ?= 1
 
@@ -298,6 +299,7 @@ test-byte-parity: oracle-tools vp9-vpxdec-tools fetch-test-data
 	GOVPX_VPXENC_ORACLE="$(VPXENC_ORACLE)" \
 	GOVPX_VPXENC_FRAMEFLAGS="$(VPXENC_FRAMEFLAGS)" \
 	GOVPX_VPXENC_VP9_FRAMEFLAGS_BIN="$(VPXENC_VP9_FRAMEFLAGS)" \
+	GOVPX_VP9_SPATIAL_SVC_ENCODER="$(VP9_SPATIAL_SVC_ENCODER)" \
 	GOVPX_VPX_TEMPORAL_SVC_ENCODER="$(VPX_TEMPORAL_SVC_ENCODER)" \
 	GOVPX_TEST_DATA_PATH="$(VP8_TEST_DATA_DIR)" \
 	GOVPX_ENCODER_TEST_DATA_PATH="$(VP8_ENCODER_SOURCE_DIR)" \
@@ -407,17 +409,18 @@ vp9-vpxdec-tools:
 	test -x "$(VPXDEC_VP9)"
 	test -x "$(VPXENC_VP9)"
 	test -x "$(VPXENC_VP9_FRAMEFLAGS)"
+	test -x "$(VP9_SPATIAL_SVC_ENCODER)"
 
 # oracle-bins builds every libvpx oracle binary the test suite can
 # consume in one shot: the VP8 oracle + stock vpxenc/vpxdec, the patched
 # VP8 trace encoder + VP8 per-frame flag driver, and the VP9-enabled
-# vpxdec/vpxenc + per-frame flag driver. Use this when a fresh checkout
+# vpxdec/vpxenc + per-frame flag and spatial-SVC drivers. Use this when a fresh checkout
 # (or worktree) needs all GOVPX_*_BIN paths populated under
 # internal/coracle/build/ before running ad-hoc GOVPX_WITH_ORACLE=1
 # tests, without picking a single verify-* gate.
 oracle-bins: oracle-tools vp9-vpxdec-tools
 	@printf 'oracle binaries ready under %s:\n' "$(CORACLE_BUILD)"
-	@for f in $(ORACLE) $(VPXENC) $(VPXDEC) $(VPXENC_ORACLE) $(VPXENC_FRAMEFLAGS) $(VPXENC_FRAMEFLAGS_ORACLE) $(VPX_TEMPORAL_SVC_ENCODER) $(VPXDEC_VP9) $(VPXENC_VP9) $(VPXENC_VP9_FRAMEFLAGS); do \
+	@for f in $(ORACLE) $(VPXENC) $(VPXDEC) $(VPXENC_ORACLE) $(VPXENC_FRAMEFLAGS) $(VPXENC_FRAMEFLAGS_ORACLE) $(VPX_TEMPORAL_SVC_ENCODER) $(VPXDEC_VP9) $(VPXENC_VP9) $(VPXENC_VP9_FRAMEFLAGS) $(VP9_SPATIAL_SVC_ENCODER); do \
 		test -x "$$f" && printf '  %s\n' "$$f"; \
 	done
 

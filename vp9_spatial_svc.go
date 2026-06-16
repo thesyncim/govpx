@@ -82,6 +82,11 @@ type VP9SpatialSVCEncoder struct {
 	interLayerPrediction bool
 	layers               [VP9MaxSpatialLayers]*VP9Encoder
 	scalabilityStructure VP9RTPScalabilityStructure
+	temporalMode         TemporalLayeringMode
+	temporalEnabled      bool
+	// libvpx carries cpi->alt_fb_idx across no-temporal SVC layers; fixed
+	// temporal modes overwrite it from their per-frame slot tables.
+	noTemporalAltRefIdx uint8
 }
 
 // NewVP9SpatialSVCEncoder creates a VP9 spatial-SVC encoder with one internal
@@ -128,6 +133,9 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 		interLayerPrediction: opts.InterLayerPrediction,
 		scalabilityStructure: vp9SpatialSVCScalabilityStructure(widths,
 			heights, count, temporalMode, temporalEnabled),
+		temporalMode:        temporalMode,
+		temporalEnabled:     temporalEnabled,
+		noTemporalAltRefIdx: vp9AltRefSlot,
 	}
 	// libvpx: vp9_svc_layercontext.c vp9_init_layer_context() — derive
 	// number_temporal_layers from cpi->oxcf.ts_number_layers, which on the
@@ -408,15 +416,31 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 	var frameSizes [VP9MaxSpatialLayers]int
 	offset := 0
 	encodeLimit := len(dst) - maxIndexSize
+	baseKeyFrame := false
 	for i := range count {
 		if encodeLimit-offset < vp9MinEncodeIntoBuffer {
 			return VP9SpatialSVCEncodeResult{}, ErrBufferTooSmall
 		}
 		layer := e.layers[i]
+		if e.interLayerPrediction {
+			if cfg, ok := vp9SpatialSVCReferenceFrameConfig(i, count,
+				e.temporalMode, e.temporalEnabled, layer.frameIndex,
+				baseKeyFrame, e.noTemporalAltRefIdx); ok {
+				layer.svcRefConfig = cfg
+				if !e.temporalEnabled {
+					e.noTemporalAltRefIdx = cfg.refIndex[2]
+				}
+			} else {
+				layer.svcRefConfig = vp9SVCReferenceFrameConfig{}
+			}
+		} else {
+			layer.svcRefConfig = vp9SVCReferenceFrameConfig{}
+		}
 		var layerResult VP9EncodeResult
 		var err error
 		if i > 0 && e.interLayerPrediction {
 			if !layer.seedVP9InterLayerReference(e.layers[i-1]) {
+				layer.svcRefConfig = vp9SVCReferenceFrameConfig{}
 				return VP9SpatialSVCEncodeResult{}, ErrInvalidConfig
 			}
 			layerResult, err = layer.encodeVP9InterLayerIntoWithFlagsResult(
@@ -429,11 +453,15 @@ func (e *VP9SpatialSVCEncoder) EncodeIntoWithResult(srcs []*image.YCbCr, dst []b
 			layerResult, err = layer.EncodeIntoWithResult(srcs[i],
 				dst[offset:encodeLimit])
 		}
+		layer.svcRefConfig = vp9SVCReferenceFrameConfig{}
 		if err != nil {
 			return VP9SpatialSVCEncodeResult{}, err
 		}
 		if layerResult.Dropped || len(layerResult.Data) == 0 {
 			return VP9SpatialSVCEncodeResult{}, ErrInvalidConfig
+		}
+		if i == 0 {
+			baseKeyFrame = layerResult.KeyFrame
 		}
 		if i == 0 && layerResult.ScalabilityStructurePresent {
 			layerResult.SpatialScalabilityStructure = e.scalabilityStructure
@@ -1026,6 +1054,11 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 	if e == nil || e.closed {
 		return ErrClosed
 	}
+	temporalMode := TemporalLayeringOneLayer
+	temporalEnabled := cfg.Enabled
+	if temporalEnabled {
+		temporalMode = cfg.Mode
+	}
 	var next [VP9MaxSpatialLayers]temporalState
 	for i := 0; i < int(e.layerCount); i++ {
 		layer := e.layers[i]
@@ -1057,6 +1090,8 @@ func (e *VP9SpatialSVCEncoder) SetTemporalScalability(cfg TemporalScalabilityCon
 		layer.vp9ApplySpeedFeatures(layer.vp9DefaultSpeedFrameContext())
 	}
 	e.scalabilityStructure = nextScalabilityStructure
+	e.temporalMode = temporalMode
+	e.temporalEnabled = temporalEnabled
 	return nil
 }
 

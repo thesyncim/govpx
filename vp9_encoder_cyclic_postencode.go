@@ -12,6 +12,7 @@ func (e *VP9Encoder) vp9CyclicRefreshPostencodeFromMiGrid(
 	miRows, miCols int,
 	header *vp9dec.UncompressedHeader,
 	isKey, intraOnly bool,
+	logicalRefreshFlags uint8,
 ) (cyclicForRC *encoder.CyclicRefreshState, res encoder.CyclicRefreshPostencodeResult) {
 	if e == nil || header == nil || isKey || intraOnly ||
 		e.opts.AQMode != VP9AQCyclicRefresh ||
@@ -54,7 +55,7 @@ func (e *VP9Encoder) vp9CyclicRefreshPostencodeFromMiGrid(
 		ExtRefreshFrameFlagsPending: e.extRefresh.flagsPending,
 		GfCBRBoostPct:               e.opts.GFCBRBoostPct,
 		ResizePending:               resizePending,
-		RefreshGoldenFrame:          header.RefreshFrameFlags&(1<<vp9GoldenRefSlot) != 0,
+		RefreshGoldenFrame:          logicalRefreshFlags&(1<<vp9GoldenRefSlot) != 0,
 		FramesSinceKey:              int(e.rc.framesSinceKey),
 		FramesSinceGolden:           int(e.rc.framesSinceGolden),
 		IsInterBlock:                isInter,

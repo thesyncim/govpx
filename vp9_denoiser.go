@@ -165,15 +165,16 @@ func (e *VP9Encoder) finishVP9DenoiserFrame(header *vp9dec.UncompressedHeader, s
 		return
 	}
 	intra := &e.denoiser.runningAvg[vp9DenoiserAvgIntra]
-	if header.RefreshFrameFlags&(1<<uint(vp9LastRefSlot)) != 0 {
+	refresh := e.vp9LogicalRefreshForFrame(header.RefreshFrameFlags)
+	if refresh.Last {
 		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgLast],
 			intra, e.opts.Width, e.opts.Height)
 	}
-	if header.RefreshFrameFlags&(1<<uint(vp9GoldenRefSlot)) != 0 {
+	if refresh.Golden {
 		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgGolden],
 			intra, e.opts.Width, e.opts.Height)
 	}
-	if header.RefreshFrameFlags&(1<<uint(vp9AltRefSlot)) != 0 {
+	if refresh.AltRef {
 		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgAltRef],
 			intra, e.opts.Width, e.opts.Height)
 	}
@@ -213,13 +214,17 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 	refSlot := decision.refSlot
 	mode := decision.mode
 	filter := decision.interpFilter
+	lastSlot, lastOK := e.vp9ReferenceSlotForFrame(vp9dec.LastFrame)
+	if !lastOK {
+		return
+	}
 	if decision.refFrame == vp9dec.LastFrame {
 		zeroSSE, ok := e.vp9DenoiserZeroLastSSE(x0, y0, blockW, blockH)
 		if ok {
 			sseDiff := int64(zeroSSE) - int64(bestSSE)
 			if sseDiff <= int64(vp9DenoiserSSEDiffThresh(bsize, increase, motionMagnitude)) {
 				refFrame = vp9dec.LastFrame
-				refSlot = vp9LastRefSlot
+				refSlot = lastSlot
 				mode = common.ZeroMv
 				filter = vp9dec.InterpEighttap
 				mv = vp9dec.MV{}
@@ -229,7 +234,7 @@ func (e *VP9Encoder) applyVP9DenoiserToInterBlock(inter *vp9InterEncodeState,
 		}
 	} else {
 		refFrame = vp9dec.LastFrame
-		refSlot = vp9LastRefSlot
+		refSlot = lastSlot
 		mode = common.ZeroMv
 		filter = vp9dec.InterpEighttap
 		mv = vp9dec.MV{}

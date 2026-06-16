@@ -487,7 +487,7 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	if len(plane) == 0 || planeStride <= 0 || w <= 0 || h <= 0 {
 		return nil, 0, 0, 0, 0, 0, false
 	}
-	slot, slotOK := vp9EncoderReferenceSlot(refFrame)
+	slot, slotOK := e.vp9ReferenceSlotForFrame(refFrame)
 	if slotOK && slot == vp9LastRefSlot {
 		if !e.lastBorderedValid || e.lastBordered.W != w ||
 			e.lastBordered.H != h {

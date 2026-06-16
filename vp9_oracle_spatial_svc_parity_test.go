@@ -53,6 +53,17 @@ func TestVP9OracleSpatialSVCParity(t *testing.T) {
 			heights:    [VP9MaxSpatialLayers]int{32, 64, 128},
 			bitrates:   [VP9MaxSpatialLayers]int{200, 500, 1000},
 		},
+		{
+			name:       "webrtc-profile-three-spatial-three-temporal",
+			layerCount: 3,
+			widths:     [VP9MaxSpatialLayers]int{160, 320, 640},
+			heights:    [VP9MaxSpatialLayers]int{90, 180, 360},
+			bitrates:   [VP9MaxSpatialLayers]int{96, 288, 416},
+			temporal: TemporalScalabilityConfig{
+				Enabled: true,
+				Mode:    TemporalLayeringThreeLayers,
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var sources [VP9MaxSpatialLayers][]*image.YCbCr
@@ -462,11 +473,18 @@ func assertVP9SpatialSVCOracleHeaderParity(t *testing.T, frame int,
 	t.Helper()
 	if govpx.FrameType != libvpx.FrameType ||
 		govpx.ShowFrame != libvpx.ShowFrame ||
-		govpx.RefreshFrameFlags != libvpx.RefreshFrameFlags {
-		t.Fatalf("frame %d %s header parity = govpx type:%d show:%t refresh:%#02x libvpx type:%d show:%t refresh:%#02x",
+		govpx.RefreshFrameFlags != libvpx.RefreshFrameFlags ||
+		govpx.FrameContextIdx != libvpx.FrameContextIdx ||
+		govpx.InterRef.RefIndex != libvpx.InterRef.RefIndex ||
+		govpx.InterRef.SignBias != libvpx.InterRef.SignBias {
+		t.Fatalf("frame %d %s header parity = govpx type:%d show:%t refresh:%#02x ctx:%d refidx:%v sign:%v libvpx type:%d show:%t refresh:%#02x ctx:%d refidx:%v sign:%v",
 			frame, layer,
 			govpx.FrameType, govpx.ShowFrame, govpx.RefreshFrameFlags,
-			libvpx.FrameType, libvpx.ShowFrame, libvpx.RefreshFrameFlags)
+			govpx.FrameContextIdx, govpx.InterRef.RefIndex,
+			govpx.InterRef.SignBias,
+			libvpx.FrameType, libvpx.ShowFrame, libvpx.RefreshFrameFlags,
+			libvpx.FrameContextIdx, libvpx.InterRef.RefIndex,
+			libvpx.InterRef.SignBias)
 	}
 }
 

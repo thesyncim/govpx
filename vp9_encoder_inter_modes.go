@@ -1022,7 +1022,7 @@ func (e *VP9Encoder) vp9InterReferenceSlot(inter *vp9InterEncodeState, refFrame 
 	if inter == nil || inter.refMask&(1<<uint(refFrame)) == 0 {
 		return 0, false
 	}
-	slot, ok := vp9EncoderReferenceSlot(refFrame)
+	slot, ok := e.vp9ReferenceSlotForFrame(refFrame)
 	if !ok {
 		return 0, false
 	}

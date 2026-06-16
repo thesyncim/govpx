@@ -140,8 +140,15 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			refreshFlags |= 1 << vp9GoldenRefSlot
 		}
 	}
+	if !isKey && e.svcRefConfig.active {
+		refreshFlags = e.svcRefConfig.refreshFrameFlags
+	}
+	logicalRefreshFlags := refreshFlags
+	if !isKey && !intraOnly {
+		logicalRefreshFlags = e.vp9LogicalRefreshFrameFlags(refreshFlags)
+	}
 	e.rc.beginFrameWithRefresh(isKey || intraOnly, e.frameIndex,
-		refreshFlags)
+		logicalRefreshFlags)
 	e.rc.preEncodeFrame(showFrame)
 	e.vp9TwoPassFrameTarget = 0
 	e.vp9SceneDetectionOnePass(img, showFrame, miRows, miCols)
@@ -226,9 +233,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	e.populateVP9TPLForFrame(!showFrame || flags&EncodeForceAltRefFrame != 0, img)
 	e.vp9LatchCyclicResizeForFrame(isKey, intraOnly)
 	e.vp9UpdateCyclicRefreshParameters(isKey, intraOnly, showFrame, miRows, miCols,
-		macroblocks, refreshFlags, header.Quant.Lossless)
+		macroblocks, logicalRefreshFlags, header.Quant.Lossless)
 	qindex := e.vp9EncoderFrameQIndex(isKey, header.IntraOnly, flags,
-		refreshFlags, macroblocks)
+		logicalRefreshFlags, macroblocks)
 	if e.rc.enabled {
 		e.vp9ModeDecisionQIndex = uint8(qindex)
 		e.vp9ModeDecisionQIndexSet = true
@@ -243,8 +250,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// per-SB cb_rdmult cache cleared inside vp9EncoderInitializeRDConsts
 	// matches libvpx's reset before each rd_pick_sb_modes invocation.
 	{
-		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
-		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		refreshGolden := logicalRefreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := logicalRefreshFlags&(1<<vp9AltRefSlot) != 0
 		rdFrameType := encoder.RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
 		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
@@ -316,12 +323,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	} else {
 		header.FrameType = common.InterFrame
 		header.RefreshFrameFlags = refreshFlags
-		header.FrameContextIdx = vp9InterFrameContextIdx(header.RefreshFrameFlags)
-		header.InterRef.RefIndex = [3]uint8{
-			vp9LastRefSlot,
-			vp9GoldenRefSlot,
-			vp9AltRefSlot,
-		}
+		header.FrameContextIdx = e.vp9InterFrameContextIdxForFrame(
+			header.RefreshFrameFlags)
+		header.InterRef.RefIndex = e.vp9InterRefIndexForFrame()
 		header.InterRef.SignBias = e.vp9InterRefSignBias(flags)
 	}
 	restoreFrameContext := e.opts.ErrorResilient || flags&EncodeNoUpdateEntropy != 0
@@ -370,8 +374,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// because the uncompressed-header writer omits the filter field for
 	// those (internal/vp9/encoder/header_writer.go:196).
 	if !isKey && !header.IntraOnly {
-		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
-		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		refreshGolden := logicalRefreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := logicalRefreshFlags&(1<<vp9AltRefSlot) != 0
 		header.InterpFilter = e.vp9DemoteSwitchableInterpFilter(
 			header.InterpFilter, isKey, header.IntraOnly,
 			srcFrameAltRef, refreshGolden, refreshAlt)
@@ -404,7 +408,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		baseMi.RefFrame = [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame}
 	}
 	e.vp9PrepareCyclicRefreshFrame(isKey, intraOnly, showFrame, miRows, miCols,
-		macroblocks, header, srcFrameAltRef, refreshFlags)
+		macroblocks, header, srcFrameAltRef, logicalRefreshFlags)
 	if e.opts.AQMode == VP9AQPerceptual {
 		e.perceptualAQ.PrepareFrame(img, int(header.Quant.BaseQindex), showFrame)
 	}
@@ -691,8 +695,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// refresh/alt-ref flags used at the demotion site so the frame_type
 	// bucket is consistent across save / demote / update.
 	{
-		refreshGolden := refreshFlags&(1<<vp9GoldenRefSlot) != 0
-		refreshAlt := refreshFlags&(1<<vp9AltRefSlot) != 0
+		refreshGolden := logicalRefreshFlags&(1<<vp9GoldenRefSlot) != 0
+		refreshAlt := logicalRefreshFlags&(1<<vp9AltRefSlot) != 0
 		e.vp9UpdateFilterThreshesPostEncode(isKey, header.IntraOnly,
 			srcFrameAltRef, refreshGolden, refreshAlt, macroblocks)
 	}
@@ -718,7 +722,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			}
 		}
 		cyclicForRC, cyclicPost := e.vp9CyclicRefreshPostencodeFromMiGrid(
-			miRows, miCols, header, isKey, intraOnly)
+			miRows, miCols, header, isKey, intraOnly, logicalRefreshFlags)
 		e.applyCyclicRefreshPostencodeResult(header, cyclicPost)
 		e.refreshVP9EncoderSegmentMap(miRows, miCols)
 		e.prevSegmentation = header.Seg
@@ -739,7 +743,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// vp9_encodeframe.c:5911-5944) has settled the final tx_mode.
 		e.prevFrameTxMode = txMode
 		e.rc.postEncodeFrame(n, header.ShowFrame, qindex, isKey || intraOnly,
-			header.RefreshFrameFlags, macroblocks,
+			logicalRefreshFlags, macroblocks,
 			e.vp9AltRefEnabledForRateControlStats(), cyclicForRC,
 			e.vp9DampedAdjustmentRFLevel())
 		if !isKey && !intraOnly {
@@ -766,7 +770,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.temporal.finishDroppedFrame(temporalFrame, e.vp9TemporalBufferConfig())
 	} else {
 		e.temporal.finishFrame(temporalFrame, isKey, header.ShowFrame,
-			vp9TemporalReferenceRefresh(header.RefreshFrameFlags),
+			e.vp9LogicalRefreshForFrame(header.RefreshFrameFlags),
 			vpxrc.EncodedSizeBits(n), e.vp9TemporalBufferConfig())
 	}
 	e.vp9FinishKeyFrameDistance(isKey)

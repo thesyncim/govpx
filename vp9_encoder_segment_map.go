@@ -154,10 +154,12 @@ func (e *VP9Encoder) vp9ActiveMapInactiveNeedsSegment(inter *vp9InterEncodeState
 	if !e.vp9ActiveMapInactive(miRow, miCol) {
 		return false
 	}
-	if inter == nil || inter.img == nil || !e.refFrames[vp9LastRefSlot].valid {
+	lastSlot, ok := e.vp9ReferenceSlotForFrame(vp9dec.LastFrame)
+	if inter == nil || inter.img == nil || !ok ||
+		!e.refFrames[lastSlot].valid {
 		return true
 	}
-	return !vp9SourceMatchesReferenceMI(inter.img, &e.refFrames[vp9LastRefSlot],
+	return !vp9SourceMatchesReferenceMI(inter.img, &e.refFrames[lastSlot],
 		miRow, miCol)
 }
 

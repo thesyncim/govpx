@@ -154,6 +154,9 @@ func vp9InterReferenceMask(flags EncodeFlags) uint8 {
 
 func (e *VP9Encoder) vp9InterReferenceMaskForFrame(flags EncodeFlags) uint8 {
 	mask := vp9InterReferenceMask(flags)
+	if e != nil && e.svcRefConfig.active {
+		mask = e.svcRefConfig.refMask
+	}
 	const explicitNoRef = EncodeNoReferenceLast | EncodeNoReferenceGolden |
 		EncodeNoReferenceAltRef
 	if e == nil || flags&explicitNoRef != 0 {
@@ -166,11 +169,14 @@ func (e *VP9Encoder) vp9PruneAliasedInterReferenceMask(mask uint8) uint8 {
 	if e == nil {
 		return mask
 	}
-	if e.vp9ReferenceSlotsAlias(vp9GoldenRefSlot, vp9LastRefSlot) {
+	lastSlot, lastOK := e.vp9ReferenceSlotForFrame(vp9dec.LastFrame)
+	goldenSlot, goldenOK := e.vp9ReferenceSlotForFrame(vp9dec.GoldenFrame)
+	altSlot, altOK := e.vp9ReferenceSlotForFrame(vp9dec.AltrefFrame)
+	if lastOK && goldenOK && e.vp9ReferenceSlotsAlias(goldenSlot, lastSlot) {
 		mask &^= 1 << uint(vp9dec.GoldenFrame)
 	}
-	if e.vp9ReferenceSlotsAlias(vp9AltRefSlot, vp9LastRefSlot) ||
-		e.vp9ReferenceSlotsAlias(vp9AltRefSlot, vp9GoldenRefSlot) {
+	if altOK && ((lastOK && e.vp9ReferenceSlotsAlias(altSlot, lastSlot)) ||
+		(goldenOK && e.vp9ReferenceSlotsAlias(altSlot, goldenSlot))) {
 		mask &^= 1 << uint(vp9dec.AltrefFrame)
 	}
 	return mask
@@ -206,6 +212,19 @@ func vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
 		refresh &^= 1 << vp9AltRefSlot
 	}
 	return refresh
+}
+
+func vp9NoUpdateFlagForRefSlot(slot int) EncodeFlags {
+	switch slot {
+	case vp9LastRefSlot:
+		return EncodeNoUpdateLast
+	case vp9GoldenRefSlot:
+		return EncodeNoUpdateGolden
+	case vp9AltRefSlot:
+		return EncodeNoUpdateAltRef
+	default:
+		return 0
+	}
 }
 
 func (e *VP9Encoder) vp9InterRefreshFrameFlags(flags EncodeFlags) uint8 {
@@ -261,9 +280,11 @@ func (e *VP9Encoder) vp9OnePassVBRSourceAltRefOverlay(inter *vp9InterEncodeState
 // from frame ordering, so a buffer refreshed under EncodeForceAltRefFrame
 // in display order still gets sign bias 0 when later referenced.
 func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
+	_ = flags
 	cur := e.frameIndex
 	var bias [3]uint8
-	for i, slot := range [3]int{vp9LastRefSlot, vp9GoldenRefSlot, vp9AltRefSlot} {
+	for i, slot := range e.vp9InterRefIndexForFrame() {
+		slot := int(slot)
 		// libvpx guards on ref_cnt_buf != NULL; an unrefreshed slot keeps
 		// the previous value (which defaults to 0 for VP9_COMMON).
 		if e.refValid[slot] && cur < e.refFrameIndex[slot] {
@@ -353,7 +374,7 @@ func (e *VP9Encoder) vp9ShouldEncodeKeyFrame(flags EncodeFlags) bool {
 func (e *VP9Encoder) hasVP9UsableInterReference(flags EncodeFlags) bool {
 	mask := e.vp9InterReferenceMaskForFrame(flags)
 	for _, refFrame := range [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
-		slot, ok := vp9EncoderReferenceSlot(refFrame)
+		slot, ok := e.vp9ReferenceSlotForFrame(refFrame)
 		if ok && mask&(1<<uint(refFrame)) != 0 && e.refFrames[slot].valid {
 			return true
 		}
@@ -390,7 +411,7 @@ func (e *VP9Encoder) validateVP9InterSegmentationReferences(flags EncodeFlags) e
 		if mask&(1<<uint(refFrame)) == 0 {
 			return ErrInvalidConfig
 		}
-		slot, ok := vp9EncoderReferenceSlot(refFrame)
+		slot, ok := e.vp9ReferenceSlotForFrame(refFrame)
 		if !ok || !e.refFrames[slot].valid {
 			return ErrInvalidConfig
 		}

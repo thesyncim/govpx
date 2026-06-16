@@ -3,6 +3,7 @@ package govpx
 import (
 	"image"
 
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
@@ -141,16 +142,22 @@ func (e *VP9Encoder) bestVP9SceneCutReferenceSSE(src *image.YCbCr,
 	best := maxInt()
 	ok := false
 	if flags&EncodeNoReferenceLast == 0 {
-		best, ok = lowerVP9SceneCutReferenceSSE(src,
-			&e.refFrames[vp9LastRefSlot], mbRow, mbCol, best, ok)
+		if slot, slotOK := e.vp9ReferenceSlotForFrame(vp9dec.LastFrame); slotOK {
+			best, ok = lowerVP9SceneCutReferenceSSE(src,
+				&e.refFrames[slot], mbRow, mbCol, best, ok)
+		}
 	}
 	if flags&EncodeNoReferenceGolden == 0 {
-		best, ok = lowerVP9SceneCutReferenceSSE(src,
-			&e.refFrames[vp9GoldenRefSlot], mbRow, mbCol, best, ok)
+		if slot, slotOK := e.vp9ReferenceSlotForFrame(vp9dec.GoldenFrame); slotOK {
+			best, ok = lowerVP9SceneCutReferenceSSE(src,
+				&e.refFrames[slot], mbRow, mbCol, best, ok)
+		}
 	}
 	if flags&EncodeNoReferenceAltRef == 0 {
-		best, ok = lowerVP9SceneCutReferenceSSE(src,
-			&e.refFrames[vp9AltRefSlot], mbRow, mbCol, best, ok)
+		if slot, slotOK := e.vp9ReferenceSlotForFrame(vp9dec.AltrefFrame); slotOK {
+			best, ok = lowerVP9SceneCutReferenceSSE(src,
+				&e.refFrames[slot], mbRow, mbCol, best, ok)
+		}
 	}
 	return best, ok
 }

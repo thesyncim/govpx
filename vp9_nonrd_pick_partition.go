@@ -294,7 +294,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 	if len(src) == 0 || srcStride <= 0 {
 		return nil
 	}
-	lastSlot, ok := vp9EncoderReferenceSlot(vp9dec.LastFrame)
+	lastSlot, ok := e.vp9ReferenceSlotForFrame(vp9dec.LastFrame)
 	if !ok || !e.refFrames[lastSlot].valid {
 		return nil
 	}

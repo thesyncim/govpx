@@ -167,7 +167,8 @@ func (e *VP9Encoder) encodeVP9InterLayerIntoWithFlagsResult(img *image.YCbCr, ds
 		if temporalFrame.Enabled && temporalFrame.LayerID > 0 {
 			flags |= EncodeNoUpdateGolden
 		}
-		temporalFlags &^= EncodeNoUpdateGolden
+		temporalFlags &^= vp9NoUpdateFlagForRefSlot(
+			vp9SpatialSVCLayerReferenceSlot(e.opts.SpatialScalability.LayerID))
 	}
 	if e.frameIndex == 0 && !e.forceKeyFrame &&
 		callerFlags&EncodeForceKeyFrame == 0 {

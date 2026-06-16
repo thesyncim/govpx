@@ -788,8 +788,33 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 				// libvpx condition for entering the int_pro branch over
 				// the zero-MV sdf branch at speed >= 8
 				// (vp9_encodeframe.c:1451).
-				if lowRes && e.lastBorderedValid &&
-					e.lastBordered.W == refW && e.lastBordered.H == refH {
+				var refBordered *common.YV12BorderBuffer
+				if lowRes {
+					if refSlot == vp9LastRefSlot {
+						if e.lastBorderedValid &&
+							e.lastBordered.W == refW &&
+							e.lastBordered.H == refH {
+							refBordered = &e.lastBordered
+						}
+					} else {
+						if !e.subpelRefBorderedValid ||
+							e.subpelRefBorderedSlot != refSlot ||
+							e.subpelRefBordered.W != refW ||
+							e.subpelRefBordered.H != refH {
+							common.YV12BuildBorderedPlane(&e.subpelRefBordered,
+								refPx, refStride, refW, refH,
+								common.VP9EncBorderInPixels)
+							e.subpelRefBorderedSlot = refSlot
+							e.subpelRefBorderedValid = true
+						}
+						if e.subpelRefBorderedValid &&
+							e.subpelRefBordered.W == refW &&
+							e.subpelRefBordered.H == refH {
+							refBordered = &e.subpelRefBordered
+						}
+					}
+				}
+				if refBordered != nil {
 					// Build the per-frame border-padded source mirror
 					// once per frame; reuse across SBs.
 					if !e.intProSrcBorderedValid ||
@@ -810,10 +835,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
 					srcOriginX := e.intProSrcBordered.OriginX()
 					srcOriginY := e.intProSrcBordered.OriginY()
-					refOriginX := e.lastBordered.OriginX()
-					refOriginY := e.lastBordered.OriginY()
+					refOriginX := refBordered.OriginX()
+					refOriginY := refBordered.OriginY()
 					srcStrideB := e.intProSrcBordered.Stride
-					refStrideB := e.lastBordered.Stride
+					refStrideB := refBordered.Stride
 					subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow,
 						sbMiCol, miRows, miCols)
 					estIn := &encoder.GetEstimatedPredInterInput{
@@ -821,7 +846,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 						Src:                    e.intProSrcBordered.Pixels,
 						SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
 						SrcStride:              srcStrideB,
-						LastRef:                e.lastBordered.Pixels,
+						LastRef:                refBordered.Pixels,
 						LastRefOff:             (refOriginY+y0)*refStrideB + (refOriginX + x0),
 						LastRefStride:          refStrideB,
 						Speed:                  e.vp9SpeedFeatureCPUUsed(),
@@ -904,7 +929,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 }
 
 func (e *VP9Encoder) vp9PartitionReferenceSlot(refFrame int8) (int, bool) {
-	slot, ok := vp9EncoderReferenceSlot(refFrame)
+	slot, ok := e.vp9ReferenceSlotForFrame(refFrame)
 	if !ok {
 		return 0, false
 	}

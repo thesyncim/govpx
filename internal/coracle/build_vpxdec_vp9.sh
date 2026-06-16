@@ -18,6 +18,7 @@ build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxdec-vp9"
 vpxdec_vp9_bin=${GOVPX_VPXDEC_VP9_BIN:-"$build_dir/vpxdec-vp9"}
 vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
+vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
 want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc
 src_dir=$src_dir
@@ -226,5 +227,8 @@ cp "$src_dir/vpxdec" "$vpxdec_vp9_bin"
 chmod +x "$vpxdec_vp9_bin"
 cp "$src_dir/vpxenc" "$vpxenc_vp9_bin"
 chmod +x "$vpxenc_vp9_bin"
+cp "$src_dir/examples/vp9_spatial_svc_encoder" "$vp9_spatial_svc_bin"
+chmod +x "$vp9_spatial_svc_bin"
 printf '%s\n' "$vpxdec_vp9_bin"
 printf '%s\n' "$vpxenc_vp9_bin"
+printf '%s\n' "$vp9_spatial_svc_bin"
