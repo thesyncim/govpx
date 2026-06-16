@@ -337,6 +337,11 @@ func TestSVCEncoderUsesThreeTemporalLayers(t *testing.T) {
 func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 	capped := cappedSVCResultForRTP(result, 2)
+	wantSize := result.Layers[0].SizeBytes + result.Layers[1].SizeBytes
+	if capped.SizeBytes != wantSize || capped.LayerCount != 2 {
+		t.Fatalf("capped result accounting = size:%d layers:%d, want %d/2",
+			capped.SizeBytes, capped.LayerCount, wantSize)
+	}
 	payloads, err := capped.PacketizeRTP(500)
 	if err != nil {
 		t.Fatalf("PacketizeRTP capped result: %v", err)
@@ -383,6 +388,32 @@ func TestCappedSVCResultForRTPAdvertisesCappedLayerCount(t *testing.T) {
 	}
 	if !foundEnhancement {
 		t.Fatal("did not find capped enhancement-layer RTP frame")
+	}
+}
+
+func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	capped := cappedSVCResultForRTP(result, 2)
+
+	tracker := newStatsTracker()
+	tracker.observe(capped, time.Now())
+	raw, err := tracker.snapshot(capped, defaultBitrateKbps, 0, 0)
+	if err != nil {
+		t.Fatalf("snapshot capped telemetry: %v", err)
+	}
+	var msg telemetryMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode capped telemetry: %v\npayload=%s", err, raw)
+	}
+	if len(msg.Layers) != 2 {
+		t.Fatalf("capped telemetry layer count = %d, want 2", len(msg.Layers))
+	}
+	if msg.Totals.Bytes != capped.SizeBytes {
+		t.Fatalf("capped telemetry bytes = %d, want %d",
+			msg.Totals.Bytes, capped.SizeBytes)
+	}
+	if msg.Layers[1].SP != 1 {
+		t.Fatalf("top transmitted telemetry SP = %d, want 1", msg.Layers[1].SP)
 	}
 }
 

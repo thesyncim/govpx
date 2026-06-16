@@ -633,12 +633,12 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			log.Printf("EncodeIntoWithResult: %v (frame %d)", err, sceneT)
 			continue
 		}
-		statsTracker.observe(result, time.Now())
 
 		rtpResult := result
 		if cap := int(ctl.spatialCap.Load()); cap >= 1 && cap < spatialLayerCount {
 			rtpResult = cappedSVCResultForRTP(result, cap)
 		}
+		statsTracker.observe(rtpResult, time.Now())
 
 		fragmentCount, payloadBytes, err := rtpResult.RTPPacketizationSize(rtpPayloadMTU)
 		if err != nil {
@@ -678,7 +678,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			}
 		}
 
-		if payload, err := statsTracker.snapshot(result, currentBitrate, currentScreen, pts); err == nil {
+		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 		pts += duration
@@ -705,6 +705,11 @@ func cappedSVCResultForRTP(result govpx.VP9SpatialSVCEncodeResult, layerCount in
 	}
 	for i := layerCount; i < len(out.Layers); i++ {
 		out.Layers[i] = govpx.VP9EncodeResult{}
+	}
+	out.Data = nil
+	out.SizeBytes = 0
+	for i := 0; i < layerCount; i++ {
+		out.SizeBytes += out.Layers[i].SizeBytes
 	}
 	return out
 }

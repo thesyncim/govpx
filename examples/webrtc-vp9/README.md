@@ -71,9 +71,10 @@ overlay reports effective FPS and bitrate while the command-line `-fps` and
   - If the page has dialed the spatial cap below `LayerCount`, the
     RTP sender advertises and transmits only the first `cap` coded
     layers. The encoder still pays the full multi-layer cost, but the wire
-    payload and scalability structure describe only the requested prefix.
-  - A telemetry side-channel: every coded access unit ships a JSON
-    message describing each spatial layer to the page, which renders a
+    payload, scalability structure, and telemetry describe only the requested
+    prefix.
+  - A telemetry side-channel: every transmitted access unit ships a JSON
+    message describing each sent spatial layer to the page, which renders a
     panel with per-layer stats and a rolling kbps chart.
   - An RTCP drain on the sender; PLI/FIR feedback asks the encoder for
     the next access unit to be keyed.
