@@ -1,10 +1,11 @@
 package govpx
 
 // VP9WebRTCPacketizer owns the 15-bit VP9 RTP PictureID sequence for a
-// WebRTC sender. It advances the PictureID only after a frame/access unit has
-// been successfully packetized, and skips encoder-dropped frames without
-// advancing. This keeps non-flexible VP9 GOF dependency positions aligned with
-// the RTP stream that actually reaches the receiver.
+// WebRTC sender. It advances the PictureID after a frame/access unit has been
+// successfully packetized, and also advances across encoder-dropped frames.
+// Dropped frames emit no RTP payloads, but they still consume a VP9 temporal
+// pattern slot; leaving a PictureID gap keeps non-flexible VP9 GOF dependency
+// positions aligned with the encoder timeline.
 type VP9WebRTCPacketizer struct {
 	pictureID uint16
 }
@@ -27,9 +28,9 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 }
 
 // PacketizationSize returns the RTP payload count and payload-body bytes
-// needed to packetize r with the packetizer's current PictureID. sent is false
-// when r is an encoder-dropped frame; dropped frames produce no RTP payloads
-// and do not advance the PictureID.
+// needed to packetize r with the packetizer's current PictureID. Size queries
+// are non-mutating. sent is false when r is an encoder-dropped frame; call
+// Packetize or PacketizeInto to consume that dropped temporal slot.
 func (p *VP9WebRTCPacketizer) PacketizationSize(
 	r VP9EncodeResult,
 	mtu int,
@@ -46,9 +47,9 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 
 // PacketizeInto packetizes r into caller-owned RTP payload storage using the
 // packetizer's current PictureID. It advances the PictureID only after a
-// successful packetization. sent is false for encoder-dropped frames and for
-// errors; callers can retry the same frame with larger buffers after
-// ErrBufferTooSmall.
+// successful packetization, or after consuming an encoder-dropped temporal
+// slot. sent is false for encoder-dropped frames and for errors; callers can
+// retry the same frame with larger buffers after ErrBufferTooSmall.
 func (p *VP9WebRTCPacketizer) PacketizeInto(
 	r VP9EncodeResult,
 	dst []RTPPayloadFragment,
@@ -59,6 +60,7 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 		return 0, 0, false, ErrInvalidConfig
 	}
 	if r.Dropped {
+		p.advancePictureID()
 		return 0, 0, false, nil
 	}
 	packets, payloadBytes, err = r.PacketizeWebRTCRTPInto(dst, payloadBuf,
@@ -66,13 +68,13 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 	if err != nil {
 		return packets, payloadBytes, false, err
 	}
-	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+	p.advancePictureID()
 	return packets, payloadBytes, true, nil
 }
 
 // Packetize packetizes r into allocated RTP payload bodies using the
 // packetizer's current PictureID. sent is false when r is an encoder-dropped
-// frame.
+// frame; the dropped temporal slot still advances PictureID.
 func (p *VP9WebRTCPacketizer) Packetize(
 	r VP9EncodeResult,
 	mtu int,
@@ -81,13 +83,14 @@ func (p *VP9WebRTCPacketizer) Packetize(
 		return nil, false, ErrInvalidConfig
 	}
 	if r.Dropped {
+		p.advancePictureID()
 		return nil, false, nil
 	}
 	payloads, err := r.PacketizeWebRTCRTP(p.pictureID, mtu)
 	if err != nil {
 		return nil, false, err
 	}
-	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+	p.advancePictureID()
 	return payloads, true, nil
 }
 
@@ -121,7 +124,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	if err != nil {
 		return packets, payloadBytes, err
 	}
-	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+	p.advancePictureID()
 	return packets, payloadBytes, nil
 }
 
@@ -138,6 +141,10 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	if err != nil {
 		return nil, err
 	}
-	p.pictureID = NextVP9RTPPictureID(p.pictureID)
+	p.advancePictureID()
 	return payloads, nil
+}
+
+func (p *VP9WebRTCPacketizer) advancePictureID() {
+	p.pictureID = NextVP9RTPPictureID(p.pictureID)
 }

@@ -123,11 +123,12 @@ signaling stay caller-owned.
 For VP9 WebRTC senders, use `VP9WebRTCPacketizer` around the WebRTC-specific
 encoder-result packetizers. It sets 15-bit PictureID, preserves temporal-layer
 metadata, emits keyframe scalability-structure data with WebRTC GOF
-dependencies, and advances PictureID only after successful packetization. If
-VP9 CBR intentionally drops a frame, `VP9WebRTCPacketizer.Packetize` returns
-`sent=false` with no RTP payloads and keeps the same PictureID for the next
-emitted frame. The lower-level VP9 RTP packetizers are still available when a
-caller deliberately owns descriptor policy.
+dependencies, and advances PictureID after successful packetization or after
+consuming an encoder-dropped temporal slot. If VP9 CBR intentionally drops a
+frame, `VP9WebRTCPacketizer.Packetize` returns `sent=false` with no RTP
+payloads and leaves a PictureID gap so the receiver's non-flexible VP9 GOF
+index remains aligned. The lower-level VP9 RTP packetizers are still available
+when a caller deliberately owns descriptor policy.
 
 VP9 superframe helpers are Profile 0 only:
 

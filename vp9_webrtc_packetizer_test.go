@@ -7,7 +7,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
 
-func TestVP9WebRTCPacketizerSkipsCBRDroppedFrames(t *testing.T) {
+func TestVP9WebRTCPacketizerConsumesCBRDroppedFrames(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:               width,
@@ -69,14 +69,16 @@ func TestVP9WebRTCPacketizerSkipsCBRDroppedFrames(t *testing.T) {
 	if !dropped.Dropped {
 		t.Fatal("test did not force a VP9 CBR post-encode drop")
 	}
+	if dropped.TemporalLayerID != 2 {
+		t.Fatalf("dropped temporal layer = %d, want 2", dropped.TemporalLayerID)
+	}
 	droppedPayloads, sent, err := packetizer.Packetize(dropped, 500)
 	if err != nil || sent || len(droppedPayloads) != 0 {
 		t.Fatalf("dropped Packetize = payloads:%d sent:%t err:%v, want skip",
 			len(droppedPayloads), sent, err)
 	}
-	if got := packetizer.PictureID(); got != VP9RTPPictureID15BitMask {
-		t.Fatalf("PictureID advanced across dropped frame: got %d want %d",
-			got, VP9RTPPictureID15BitMask)
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after dropped frame = %d, want 0", got)
 	}
 
 	if err := e.SetPostEncodeDrop(false); err != nil {
@@ -91,17 +93,21 @@ func TestVP9WebRTCPacketizerSkipsCBRDroppedFrames(t *testing.T) {
 		t.Fatalf("inter result = dropped:%t key:%t, want coded inter",
 			inter.Dropped, inter.KeyFrame)
 	}
+	if inter.TemporalLayerID != 1 {
+		t.Fatalf("inter temporal layer = %d, want 1", inter.TemporalLayerID)
+	}
 	interPayloads, sent, err := packetizer.Packetize(inter, 500)
 	if err != nil || !sent {
 		t.Fatalf("inter Packetize = sent:%t err:%v", sent, err)
 	}
-	if got := firstVP9PayloadPictureIDForTest(t, interPayloads); got != VP9RTPPictureID15BitMask {
-		t.Fatalf("inter PictureID = %d, want %d", got,
-			VP9RTPPictureID15BitMask)
+	if got := firstVP9PayloadPictureIDForTest(t, interPayloads); got != 0 {
+		t.Fatalf("inter PictureID = %d, want 0", got)
 	}
-	if got := packetizer.PictureID(); got != 0 {
-		t.Fatalf("PictureID after wrap = %d, want 0", got)
+	if got := packetizer.PictureID(); got != 1 {
+		t.Fatalf("PictureID after inter = %d, want 1", got)
 	}
+	assertVP9WebRTCGOFTemporalForTest(t, keyPayloads, interPayloads,
+		inter.TemporalLayerID)
 }
 
 func TestVP9WebRTCPacketizerKeepsPictureIDOnBufferTooSmall(t *testing.T) {
@@ -180,4 +186,34 @@ func firstVP9PayloadPictureIDForTest(
 			desc.PictureIDPresent, desc.PictureID15Bit)
 	}
 	return desc.PictureID
+}
+
+func assertVP9WebRTCGOFTemporalForTest(
+	t *testing.T,
+	keyPayloads []RTPPayloadFragment,
+	payloads []RTPPayloadFragment,
+	wantTemporalID int,
+) {
+	t.Helper()
+	keyDesc, _, err := ParseVP9RTPPayloadDescriptor(keyPayloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor key: %v", err)
+	}
+	if !keyDesc.ScalabilityStructurePresent ||
+		!keyDesc.ScalabilityStructure.PictureGroupPresent {
+		t.Fatalf("key payload did not carry WebRTC GOF: %+v", keyDesc)
+	}
+	desc, _, err := ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor inter: %v", err)
+	}
+	diff := (int(desc.PictureID) - int(keyDesc.PictureID) +
+		int(VP9RTPPictureID15BitMask) + 1) &
+		int(VP9RTPPictureID15BitMask)
+	groups := keyDesc.ScalabilityStructure.PictureGroups
+	gofTemporalID := int(groups[diff%len(groups)].TemporalID)
+	if gofTemporalID != wantTemporalID {
+		t.Fatalf("GOF temporal layer at PictureID diff %d = %d, want %d",
+			diff, gofTemporalID, wantTemporalID)
+	}
 }
