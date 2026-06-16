@@ -74,11 +74,7 @@ func TestVP9SpatialSVCRealtimeCPUUsedZeroUsesFastPath(t *testing.T) {
 	}
 }
 
-func TestVP9SpatialSVCTemporalEnablesErrorResilientLikeLibvpx(t *testing.T) {
-	temporal := TemporalScalabilityConfig{
-		Enabled: true,
-		Mode:    TemporalLayeringThreeLayers,
-	}
+func TestVP9SpatialSVCEnablesErrorResilientLikeLibvpx(t *testing.T) {
 	var layers [VP9MaxSpatialLayers]VP9EncoderOptions
 	for i, dim := range [2][2]int{{32, 32}, {64, 64}} {
 		layers[i] = VP9EncoderOptions{
@@ -90,7 +86,6 @@ func TestVP9SpatialSVCTemporalEnablesErrorResilientLikeLibvpx(t *testing.T) {
 			RateControlModeSet:    true,
 			RateControlMode:       RateControlCBR,
 			TargetBitrateKbps:     120 * (i + 1),
-			TemporalScalability:   temporal,
 			MaxKeyframeInterval:   128,
 			FrameParallelDecoding: true,
 		}
@@ -106,7 +101,7 @@ func TestVP9SpatialSVCTemporalEnablesErrorResilientLikeLibvpx(t *testing.T) {
 	defer svc.Close()
 	for i := 0; i < int(svc.layerCount); i++ {
 		if !svc.layers[i].opts.ErrorResilient {
-			t.Fatalf("layer %d ErrorResilient = false, want libvpx temporal-SVC default true",
+			t.Fatalf("layer %d ErrorResilient = false, want libvpx spatial-SVC default true",
 				i)
 		}
 	}
@@ -127,59 +122,6 @@ func TestVP9SpatialSVCTemporalEnablesErrorResilientLikeLibvpx(t *testing.T) {
 		}
 		if !info.ErrorResilient {
 			t.Fatalf("layer %d VP9 header ErrorResilient = false, want true",
-				i)
-		}
-	}
-}
-
-func TestVP9SpatialSVCSetTemporalScalabilityEnablesErrorResilientLikeLibvpx(t *testing.T) {
-	svc, err := NewVP9SpatialSVCEncoder(VP9SpatialSVCEncoderOptions{
-		LayerCount:           2,
-		InterLayerPrediction: true,
-		Layers: [VP9MaxSpatialLayers]VP9EncoderOptions{
-			{
-				Width:              32,
-				Height:             32,
-				FPS:                30,
-				Deadline:           DeadlineRealtime,
-				CpuUsed:            8,
-				RateControlModeSet: true,
-				RateControlMode:    RateControlCBR,
-				TargetBitrateKbps:  120,
-			},
-			{
-				Width:              64,
-				Height:             64,
-				FPS:                30,
-				Deadline:           DeadlineRealtime,
-				CpuUsed:            8,
-				RateControlModeSet: true,
-				RateControlMode:    RateControlCBR,
-				TargetBitrateKbps:  240,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
-	}
-	defer svc.Close()
-	for i := 0; i < int(svc.layerCount); i++ {
-		if svc.layers[i].opts.ErrorResilient {
-			t.Fatalf("layer %d ErrorResilient = true before temporal SVC enable",
-				i)
-		}
-	}
-
-	err = svc.SetTemporalScalability(TemporalScalabilityConfig{
-		Enabled: true,
-		Mode:    TemporalLayeringThreeLayers,
-	})
-	if err != nil {
-		t.Fatalf("SetTemporalScalability: %v", err)
-	}
-	for i := 0; i < int(svc.layerCount); i++ {
-		if !svc.layers[i].opts.ErrorResilient {
-			t.Fatalf("layer %d ErrorResilient = false after temporal SVC enable",
 				i)
 		}
 	}

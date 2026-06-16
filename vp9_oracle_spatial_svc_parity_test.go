@@ -532,16 +532,24 @@ func assertVP9SpatialSVCOracleHeaderParity(t *testing.T, frame int,
 	t.Helper()
 	if govpx.FrameType != libvpx.FrameType ||
 		govpx.ShowFrame != libvpx.ShowFrame ||
+		govpx.ErrorResilientMode != libvpx.ErrorResilientMode ||
+		govpx.ResetFrameContext != libvpx.ResetFrameContext ||
 		govpx.RefreshFrameFlags != libvpx.RefreshFrameFlags ||
+		govpx.RefreshFrameContext != libvpx.RefreshFrameContext ||
+		govpx.FrameParallelDecoding != libvpx.FrameParallelDecoding ||
 		govpx.FrameContextIdx != libvpx.FrameContextIdx ||
 		govpx.InterRef.RefIndex != libvpx.InterRef.RefIndex ||
 		govpx.InterRef.SignBias != libvpx.InterRef.SignBias {
-		t.Fatalf("frame %d %s header parity = govpx type:%d show:%t refresh:%#02x ctx:%d refidx:%v sign:%v libvpx type:%d show:%t refresh:%#02x ctx:%d refidx:%v sign:%v",
+		t.Fatalf("frame %d %s header parity = govpx type:%d show:%t error:%t reset:%d refresh:%#02x refreshctx:%t fp:%t ctx:%d refidx:%v sign:%v libvpx type:%d show:%t error:%t reset:%d refresh:%#02x refreshctx:%t fp:%t ctx:%d refidx:%v sign:%v",
 			frame, layer,
-			govpx.FrameType, govpx.ShowFrame, govpx.RefreshFrameFlags,
+			govpx.FrameType, govpx.ShowFrame, govpx.ErrorResilientMode,
+			govpx.ResetFrameContext, govpx.RefreshFrameFlags,
+			govpx.RefreshFrameContext, govpx.FrameParallelDecoding,
 			govpx.FrameContextIdx, govpx.InterRef.RefIndex,
 			govpx.InterRef.SignBias,
-			libvpx.FrameType, libvpx.ShowFrame, libvpx.RefreshFrameFlags,
+			libvpx.FrameType, libvpx.ShowFrame, libvpx.ErrorResilientMode,
+			libvpx.ResetFrameContext, libvpx.RefreshFrameFlags,
+			libvpx.RefreshFrameContext, libvpx.FrameParallelDecoding,
 			libvpx.FrameContextIdx, libvpx.InterRef.RefIndex,
 			libvpx.InterRef.SignBias)
 	}

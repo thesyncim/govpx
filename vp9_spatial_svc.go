@@ -152,11 +152,9 @@ func NewVP9SpatialSVCEncoder(opts VP9SpatialSVCEncoderOptions) (*VP9SpatialSVCEn
 	}
 	for i := range count {
 		layerOpts := opts.Layers[i]
-		if temporalEnabled {
-			// libvpx examples/vp9_spatial_svc_encoder.c enables error-resilient
-			// mode when temporal layering is configured.
-			layerOpts.ErrorResilient = true
-		}
+		// libvpx examples/vp9_spatial_svc_encoder.c emits VP9 spatial SVC in
+		// error-resilient mode, including spatial-only streams.
+		layerOpts.ErrorResilient = true
 		spatial := VP9SpatialScalabilityConfig{
 			Enabled:                    true,
 			LayerCount:                 opts.LayerCount,
