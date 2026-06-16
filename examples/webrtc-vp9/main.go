@@ -789,22 +789,7 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 	var layers [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions
 	for i := 0; i < spatialLayerCount; i++ {
 		w, h := layerDims[i][0], layerDims[i][1]
-		layerTarget := layerBitrates[i]
-		layers[i] = govpx.VP9EncoderOptions{
-			Width:               w,
-			Height:              h,
-			FPS:                 cfg.FPS,
-			Threads:             pickThreads(w, h),
-			Deadline:            govpx.DeadlineRealtime,
-			CpuUsed:             pickCPUUsed(w, h),
-			RateControlModeSet:  true,
-			RateControlMode:     govpx.RateControlCBR,
-			TargetBitrateKbps:   layerTarget,
-			TemporalScalability: govpx.TemporalScalabilityConfig{Enabled: true, Mode: temporalLayerMode},
-			MinQuantizer:        4,
-			MaxQuantizer:        56,
-			MaxKeyframeInterval: 128,
-		}
+		layers[i] = newSVCLayerOptions(w, h, cfg.FPS, layerBitrates[i])
 	}
 
 	return govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
@@ -812,6 +797,26 @@ func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 		InterLayerPrediction: true,
 		Layers:               layers,
 	})
+}
+
+func newSVCLayerOptions(width, height, fps, bitrateKbps int) govpx.VP9EncoderOptions {
+	threads := pickThreads(width, height)
+	return govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 fps,
+		Threads:             threads,
+		RowMT:               threads > 1,
+		Deadline:            govpx.DeadlineRealtime,
+		CpuUsed:             pickCPUUsed(width, height),
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		TargetBitrateKbps:   bitrateKbps,
+		TemporalScalability: govpx.TemporalScalabilityConfig{Enabled: true, Mode: temporalLayerMode},
+		MinQuantizer:        4,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 128,
+	}
 }
 
 func splitBitrate(total int, splitPct [spatialLayerCount]int) [spatialLayerCount]int {

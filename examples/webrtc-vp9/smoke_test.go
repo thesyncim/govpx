@@ -326,6 +326,32 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	}
 }
 
+func TestSVCLayerOptionsEnableRowMTForThreadedLayers(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+	}{
+		{"base-layer", 160, 90},
+		{"middle-layer", 320, 180},
+		{"top-layer", 640, 360},
+		{"wide-layer", 1280, 720},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := newSVCLayerOptions(tc.width, tc.height, defaultFPS, 700)
+			wantThreads := pickThreads(tc.width, tc.height)
+			if opts.Threads != wantThreads {
+				t.Fatalf("Threads = %d, want %d", opts.Threads, wantThreads)
+			}
+			if opts.RowMT != (wantThreads > 1) {
+				t.Fatalf("RowMT = %t for %d threads, want %t",
+					opts.RowMT, wantThreads, wantThreads > 1)
+			}
+		})
+	}
+}
+
 func TestSVCEncoderEmitsThreadedTopLayerTileLayout(t *testing.T) {
 	result := encodeOneSVCResultForTest(t)
 
