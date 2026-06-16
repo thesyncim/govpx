@@ -3,9 +3,10 @@
 End-to-end demo of govpx's VP9 stack:
 
 - Three spatial layers (160x90, 320x180, 640x360) with 2x inter-layer
-  scaling and inter-layer prediction.
-- All layers are packed into one VP9 superframe per access unit and
-  delivered over WebRTC to the browser's native VP9 decoder.
+  scaling, inter-layer prediction, and a three-layer VP9 temporal pattern.
+- Every access unit is encoded as one VP9 spatial-SVC superframe, then
+  packetized into explicit VP9 RTP frames with layer indices and scalability
+  structure metadata for the browser's native VP9 decoder.
 - A bidirectional DataChannel ships per-access-unit telemetry (per-layer
   qindex, bytes, recent kbps, temporal-layer ID, TL0PICIDX, temporal-sync
   flag, keyframe state, scalability-structure presence) to a live
@@ -36,21 +37,20 @@ with each access unit.
 Flags:
 
 - `-addr` — listen address (default `:8080`).
-- `-fps` — encoded frame rate (default `2`; the in-tree VP9 encoder is
-  sub-realtime for SVC at typical resolutions, so the default ticker
-  cadence is intentionally low).
+- `-fps` — encoded frame rate (default `30`).
 - `-bitrate` — total target bitrate in kbps across the three spatial
   layers (default `800`). The split is 12 % / 36 % / 52 % cumulative to
   base/mid/top, mirroring libvpx's reference 3-layer profile.
 
 ## Performance note
 
-The VP9 encoder is not yet a realtime SVC path. The demo defaults are tuned for
-the current in-tree performance gates; the browser still receives RTP and
-visibly decodes whatever top layer is configured, just at a low framerate. See
-`docs/validation.md` for benchmark commands and `docs/codec-status.md` for the
-current feature scope. As the encoder gets faster the same demo will scale up;
-bump `-fps` to whatever your host can sustain.
+The demo selects the VP9 realtime fast path (`DeadlineRealtime`, high
+`CpuUsed`) and raises `Threads` only when the frame width can legally emit more
+than one VP9 tile column. At the default resolutions the base and middle layers
+stay single-column; the 640x360 top layer uses two tile columns on hosts with
+at least two CPUs. Pure-Go VP9 is still host- and load-sensitive, so the live
+overlay reports effective FPS and bitrate while the command-line `-fps` and
+`-bitrate` flags let you tune the session to the machine.
 
 ## How it works
 
@@ -58,20 +58,19 @@ bump `-fps` to whatever your host can sustain.
   transceiver and one bidirectional `demo` DataChannel, then POSTs the
   SDP offer to `/offer`.
 - The server (`main.go`) creates a pion `PeerConnection`, attaches a
-  `TrackLocalStaticSample` advertising `video/VP9` at 90 kHz, answers,
+  `TrackLocalStaticRTP` advertising `video/VP9` at 90 kHz, answers,
   and spins up:
   - An encoder goroutine that ticks at the configured FPS, repaints
     three per-layer `image.YCbCr` buffers (one per spatial layer),
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and
-    hands the superframe to pion as a single `media.Sample`. Pion
-    packetizes for VP9 over RTP and the browser's libvpx-based decoder
-    handles the superframe (it picks the highest visible spatial layer
-    automatically).
+    packetizes it with `VP9SpatialSVCEncodeResult.PacketizeRTPInto`.
+    The demo writes RTP packets directly so the base-layer packet carries
+    the VP9 scalability structure and every packet carries the right spatial
+    and temporal layer metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
-    encoder re-packs the superframe with only the first `cap` coded
-    layers via `govpx.PackVP9SuperframeInto` and ships that instead;
-    the encoder still pays the full multi-layer cost, but the wire
-    payload is just the requested prefix.
+    RTP sender advertises and transmits only the first `cap` coded
+    layers. The encoder still pays the full multi-layer cost, but the wire
+    payload and scalability structure describe only the requested prefix.
   - A telemetry side-channel: every coded access unit ships a JSON
     message describing each spatial layer to the page, which renders a
     panel with per-layer stats and a rolling kbps chart.
@@ -98,8 +97,8 @@ go test ./...
 
 `smoke_test.go` boots the demo HTTP server, opens a pion peer that does
 the same offer/answer/DataChannel handshake the browser does, and
-asserts the server delivers RTP packets and JSON telemetry within the
-encoder's current per-frame budget.
+asserts the server delivers VP9 RTP packets with spatial and temporal SVC
+metadata plus JSON telemetry within the encoder's current per-frame budget.
 
 ## What this proves
 
@@ -107,16 +106,9 @@ encoder's current per-frame budget.
   browser VP9 decoder accepts without any bitstream rewriting.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
-- Re-packing the superframe with only base..N layers using the public
-  `PackVP9SuperframeInto` helper gives the browser a clean lower-res
+- Capping the RTP view to base..N layers gives the browser a clean lower-res
   stream without re-encoding.
 - A bidirectional WebRTC DataChannel is enough plumbing to expose every
   scrap of per-access-unit VP9 layer metadata to a browser overlay and
   to accept live control of the encoder — no separate stats endpoint,
   no scraping.
-
-The browser only visibly decodes the top spatial layer present in the
-superframe, since pion's default VP9 packetizer does not advertise the
-SVC RTP descriptor fields. The encoder, telemetry, and access-unit
-structure are real SVC; what varies vs. a full SVC RTP stack is which
-layers the receiver could in principle decode independently.
