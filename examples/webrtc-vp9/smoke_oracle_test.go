@@ -470,12 +470,80 @@ func TestVP9WebRTCPacketizerSVCLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCDefaultKeyIntervalLongStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const defaultKeyFrameInterval = 128
+	const frames = defaultKeyFrameInterval + 12
+	steps := make([]webRTCSVCOracleStep, frames)
+	for frame := range steps {
+		steps[frame] = webRTCSVCOracleStep{cap: spatialLayerCount}
+		switch frame {
+		case 17:
+			steps[frame].bitrateKbps = 1200
+		case 47:
+			steps[frame].screenMode = 1
+			steps[frame].screenModeSet = true
+		case 93:
+			steps[frame].bitrateKbps = 700
+		case 121:
+			steps[frame].screenMode = 2
+			steps[frame].screenModeSet = true
+		}
+	}
+	sawKey := make(map[int]bool)
+	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureIDWithInspect(
+		t, steps, govpx.VP9RTPPictureID15BitMask-3,
+		func(frame int, result govpx.VP9SpatialSVCEncodeResult) {
+			base := result.Layers[0]
+			if !base.KeyFrame {
+				return
+			}
+			sawKey[frame] = true
+			if base.InterPicturePredicted || !base.ScalabilityStructurePresent {
+				t.Fatalf("frame %d base key = inter:%t ss:%t, want non-predicted SS",
+					frame, base.InterPicturePredicted,
+					base.ScalabilityStructurePresent)
+			}
+			for spatial := 1; spatial < int(result.LayerCount); spatial++ {
+				layer := result.Layers[spatial]
+				if !layer.ShowFrame || layer.InterPicturePredicted {
+					t.Fatalf("frame %d layer %d key refresh = show:%t inter:%t, want visible non-predicted refresh",
+						frame, spatial, layer.ShowFrame,
+						layer.InterPicturePredicted)
+				}
+			}
+		})
+	for _, frame := range []int{0, defaultKeyFrameInterval} {
+		if !sawKey[frame] {
+			t.Fatalf("stateful long stream did not emit key access unit at frame %d",
+				frame)
+		}
+	}
+
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("stateful key-interval vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "stateful key-interval",
+			raw, caps, layer)
+	}
+}
+
 func TestVP9WebRTCPacketizerSVCRecoveryAfterUnsentAccessUnitDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
 	steps := webRTCUnsentAccessUnitOracleSteps()
 	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
-		steps, govpx.VP9RTPPictureID15BitMask-5, 6)
+		steps, govpx.VP9RTPPictureID15BitMask-5, 6, nil)
 	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
 		layerDims[spatialLayerCount-1][1], packets...)
 
@@ -800,8 +868,19 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureI
 ) [][]byte {
 	t.Helper()
 	packets, _ := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
-		steps, pictureID, -1)
+		steps, pictureID, -1, nil)
 	return packets
+}
+
+func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureIDWithInspect(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	pictureID uint16,
+	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
+) ([][]byte, []int) {
+	t.Helper()
+	return encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, pictureID, -1, inspect)
 }
 
 func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
@@ -809,6 +888,7 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
 	steps []webRTCSVCOracleStep,
 	pictureID uint16,
 	unsentFrame int,
+	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
 ) ([][]byte, []int) {
 	t.Helper()
 	if len(steps) == 0 {
@@ -869,6 +949,9 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
 		if err != nil {
 			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
 				frame, activeCap, err)
+		}
+		if inspect != nil {
+			inspect(frame, result)
 		}
 
 		framePictureID := packetizer.PictureID()

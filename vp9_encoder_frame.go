@@ -10,7 +10,7 @@ import (
 	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
 )
 
-func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceFirstInterLayer bool, isSrcFrameAltRef bool) (result VP9EncodeResult, err error) {
+func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr, dst []byte, flags EncodeFlags, forceIntraOnly bool, temporalFrame temporalFrame, forceInterLayerRefresh bool, isSrcFrameAltRef bool) (result VP9EncodeResult, err error) {
 	if e == nil || e.closed {
 		return VP9EncodeResult{}, ErrClosed
 	}
@@ -65,7 +65,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			encoderMacroblockRows(e.opts.Height), encoderMacroblockCols(e.opts.Width)) {
 		isKey = true
 	}
-	if forceFirstInterLayer && isKey && e.frameIndex == 0 &&
+	if forceInterLayerRefresh && isKey &&
 		!e.forceKeyFrame && flags&EncodeForceKeyFrame == 0 &&
 		e.hasVP9UsableInterReference(flags) {
 		e.resetVP9EncoderFrameContexts()
@@ -823,7 +823,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.lastLoopFilterValid = true
 	}
 	interPicturePredicted := !isKey && !intraOnly && !postDrop
-	if forceFirstInterLayer && temporalFrame.LayerID == 0 {
+	if forceInterLayerRefresh && temporalFrame.LayerID == 0 {
 		interPicturePredicted = false
 	}
 	result = VP9EncodeResult{

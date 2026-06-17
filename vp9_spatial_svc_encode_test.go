@@ -622,6 +622,60 @@ func TestVP9SpatialSVCEncoderForceKeyFrameInterLayerDecodesNextFrame(t *testing.
 	}
 }
 
+func TestVP9SpatialSVCEncoderKeyIntervalUsesInterLayerRefresh(t *testing.T) {
+	svc, err := govpx.NewVP9SpatialSVCEncoder(govpx.VP9SpatialSVCEncoderOptions{
+		LayerCount:           2,
+		InterLayerPrediction: true,
+		Layers: [govpx.VP9MaxSpatialLayers]govpx.VP9EncoderOptions{
+			{
+				Width:               32,
+				Height:              32,
+				Lossless:            true,
+				MaxKeyframeInterval: 2,
+			},
+			{
+				Width:               64,
+				Height:              64,
+				Lossless:            true,
+				MaxKeyframeInterval: 2,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	srcs := []*image.YCbCr{
+		vp9test.NewYCbCr(32, 32, 90, 100, 110),
+		vp9test.NewYCbCr(64, 64, 90, 100, 110),
+	}
+	dst := make([]byte, 1<<20)
+	for frame := 0; frame <= 2; frame++ {
+		result, err := svc.EncodeIntoWithResult(srcs, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		if frame != 2 {
+			continue
+		}
+		base := result.Layers[0]
+		enhancement := result.Layers[1]
+		if !base.KeyFrame || base.InterPicturePredicted {
+			t.Fatalf("cadence base = key:%t inter:%t, want key/non-predicted",
+				base.KeyFrame, base.InterPicturePredicted)
+		}
+		if enhancement.KeyFrame || !enhancement.ShowFrame ||
+			enhancement.InterPicturePredicted ||
+			!enhancement.InterLayerDependency {
+			t.Fatalf("cadence enhancement = key:%t show:%t inter:%t dep:%t, want visible inter-layer refresh",
+				enhancement.KeyFrame, enhancement.ShowFrame,
+				enhancement.InterPicturePredicted,
+				enhancement.InterLayerDependency)
+		}
+	}
+}
+
 func TestVP9SpatialSVCEncoderWebRTCThreeByThreeDecodesThroughRTP(t *testing.T) {
 	const (
 		layerCount = 3
