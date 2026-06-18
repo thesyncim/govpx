@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"testing"
 
@@ -265,6 +266,43 @@ func TestVP9WebRTCPacketizerSVCPassesLibwebrtcVP9RefFinder(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const defaultKeyFrameInterval = 128
+	steps := webRTCDefaultKeyIntervalRefFinderSteps(12)
+	seen := runVP9WebRTCPacketizerSVCRefFinderScenario(t,
+		steps, govpx.VP9RTPPictureID15BitMask-3, -1)
+	if !seen.sawPictureIDWrap {
+		t.Fatal("stateful VP9 WebRTC ref-finder stream did not cross PictureID wrap")
+	}
+	if !seen.sawFlexiblePrediction {
+		t.Fatal("stateful VP9 WebRTC ref-finder stream did not exercise flexible P-diff refs")
+	}
+	for _, frame := range []int{0, defaultKeyFrameInterval} {
+		if !seen.keyFrames[frame] {
+			t.Fatalf("stateful VP9 WebRTC ref-finder stream did not emit key access unit at frame %d",
+				frame)
+		}
+	}
+}
+
+func TestVP9WebRTCPacketizerSVCRecoveryAfterKeyIntervalUnsentAccessUnitPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const defaultKeyFrameInterval = 128
+	const unsentFrame = defaultKeyFrameInterval + 4
+	steps := webRTCDefaultKeyIntervalRefFinderSteps(18)
+	seen := runVP9WebRTCPacketizerSVCRefFinderScenario(t,
+		steps, govpx.VP9RTPPictureID15BitMask-9, unsentFrame)
+	if !seen.sawRecoveryAfterUnsent {
+		t.Fatal("stateful VP9 WebRTC ref-finder stream did not emit recovery key after unsent access unit")
+	}
+	if !seen.sawFlexiblePrediction {
+		t.Fatal("stateful VP9 WebRTC ref-finder recovery stream did not exercise flexible P-diff refs")
+	}
+	if !seen.keyFrames[defaultKeyFrameInterval] {
+		t.Fatalf("stateful VP9 WebRTC ref-finder recovery stream did not emit key access unit at frame %d",
+			defaultKeyFrameInterval)
+	}
+}
+
 func TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap(t *testing.T) {
 	svc, imgs := newSmallWebRTCSVCTestEncoder(t)
 	defer svc.Close()
@@ -296,6 +334,213 @@ func TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap(t *testing.T) {
 	if !sawWrap {
 		t.Fatal("test did not cross TL0PICIDX wrap")
 	}
+}
+
+type webRTCRefFinderStep struct {
+	cap           int
+	bitrateKbps   int
+	screenMode    int
+	screenModeSet bool
+	forceKey      bool
+}
+
+type webRTCRefFinderScenarioSeen struct {
+	keyFrames              map[int]bool
+	sawFlexiblePrediction  bool
+	sawPictureIDWrap       bool
+	sawRecoveryAfterUnsent bool
+}
+
+func webRTCDefaultKeyIntervalRefFinderSteps(extraFrames int) []webRTCRefFinderStep {
+	const defaultKeyFrameInterval = 128
+	frames := defaultKeyFrameInterval + extraFrames
+	steps := make([]webRTCRefFinderStep, frames)
+	for frame := range steps {
+		steps[frame] = webRTCRefFinderStep{cap: spatialLayerCount}
+		switch frame {
+		case 17:
+			steps[frame].bitrateKbps = 1200
+		case 47:
+			steps[frame].screenMode = 1
+			steps[frame].screenModeSet = true
+		case 93:
+			steps[frame].bitrateKbps = 700
+		case 121:
+			steps[frame].screenMode = 2
+			steps[frame].screenModeSet = true
+		case defaultKeyFrameInterval + 7:
+			steps[frame].bitrateKbps = 900
+		case defaultKeyFrameInterval + 11:
+			steps[frame].screenMode = 0
+			steps[frame].screenModeSet = true
+		}
+	}
+	return steps
+}
+
+func runVP9WebRTCPacketizerSVCRefFinderScenario(
+	t *testing.T,
+	steps []webRTCRefFinderStep,
+	initialPictureID uint16,
+	unsentFrame int,
+) webRTCRefFinderScenarioSeen {
+	t.Helper()
+	if len(steps) == 0 {
+		return webRTCRefFinderScenarioSeen{keyFrames: make(map[int]bool)}
+	}
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	dst := make([]byte, superframeBudget())
+	packetizer := govpx.NewVP9WebRTCPacketizer(initialPictureID)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	var payloads []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	lastCap := steps[0].cap
+	currentBitrate := defaultBitrateKbps
+	currentScreen := 0
+	prevPictureID := packetizer.PictureID()
+	forceNext := false
+	seen := webRTCRefFinderScenarioSeen{
+		keyFrames:              make(map[int]bool),
+		sawRecoveryAfterUnsent: unsentFrame < 0,
+	}
+	for frame, step := range steps {
+		activeCap := step.cap
+		if activeCap < 1 || activeCap > spatialLayerCount {
+			t.Fatalf("ref-finder step %d cap = %d, want 1..%d",
+				frame, activeCap, spatialLayerCount)
+		}
+		if step.bitrateKbps != 0 && step.bitrateKbps != currentBitrate {
+			if err := applyBitrate(svc, step.bitrateKbps); err != nil {
+				t.Fatalf("applyBitrate frame %d: %v", frame, err)
+			}
+			currentBitrate = step.bitrateKbps
+		}
+		if step.screenModeSet && step.screenMode != currentScreen {
+			if err := applyScreenMode(svc, step.screenMode); err != nil {
+				t.Fatalf("applyScreenMode frame %d: %v", frame, err)
+			}
+			currentScreen = step.screenMode
+		}
+		forcedByUnsent := forceNext
+		if frame > 0 && (activeCap != lastCap || step.forceKey || forceNext) {
+			forceKeyAll(svc)
+			forceNext = false
+		}
+		drawScene(imgs, frame)
+		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, dst, activeCap)
+		if err != nil {
+			t.Fatalf("EncodeActiveLayersIntoWithResult frame %d cap %d: %v",
+				frame, activeCap, err)
+		}
+		base := result.Layers[0]
+		if base.KeyFrame {
+			seen.keyFrames[frame] = true
+		}
+
+		pictureID := packetizer.PictureID()
+		if frame > 0 && pictureID < prevPictureID {
+			seen.sawPictureIDWrap = true
+		}
+		packetCount, payloadBytes, err := packetizer.
+			SpatialSVCWebRTCPacketizationSize(result, 500)
+		if err != nil {
+			t.Fatalf("SpatialSVCWebRTCPacketizationSize frame %d: %v",
+				frame, err)
+		}
+		if got := packetizer.PictureID(); got != pictureID {
+			t.Fatalf("size query frame %d advanced PictureID to %d, want %d",
+				frame, got, pictureID)
+		}
+		if frame == unsentFrame {
+			shortPayloads := make([]govpx.RTPPayloadFragment, packetCount-1)
+			if cap(payloadBuf) < payloadBytes {
+				payloadBuf = make([]byte, payloadBytes)
+			}
+			payloadBuf = payloadBuf[:payloadBytes]
+			gotPackets, gotBytes, err := packetizer.PacketizeSpatialSVCWebRTCInto(
+				result, shortPayloads, payloadBuf, 500)
+			if !errors.Is(err, govpx.ErrBufferTooSmall) ||
+				gotPackets != packetCount || gotBytes != payloadBytes {
+				t.Fatalf("unsent frame %d short PacketizeSpatialSVCWebRTCInto = %d/%d err:%v, want %d/%d ErrBufferTooSmall",
+					frame, gotPackets, gotBytes, err, packetCount,
+					payloadBytes)
+			}
+			if got := packetizer.PictureID(); got != pictureID {
+				t.Fatalf("unsent frame %d advanced PictureID to %d, want %d",
+					frame, got, pictureID)
+			}
+			forceNext = true
+			lastCap = activeCap
+			prevPictureID = pictureID
+			continue
+		}
+		if cap(payloads) < packetCount {
+			payloads = make([]govpx.RTPPayloadFragment, packetCount)
+		}
+		payloads = payloads[:packetCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		writtenPackets, writtenBytes, err := packetizer.PacketizeSpatialSVCWebRTCInto(
+			result, payloads, payloadBuf, 500)
+		if err != nil {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d: %v",
+				frame, err)
+		}
+		if writtenPackets != packetCount || writtenBytes != payloadBytes {
+			t.Fatalf("PacketizeSpatialSVCWebRTCInto frame %d returned %d/%d, want %d/%d",
+				frame, writtenPackets, writtenBytes, packetCount,
+				payloadBytes)
+		}
+		payloads = payloads[:writtenPackets]
+		for i, payload := range payloads {
+			desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+			if err != nil {
+				t.Fatalf("frame %d ParseVP9RTPPayloadDescriptor[%d]: %v",
+					frame, i, err)
+			}
+			if desc.StartOfFrame && !desc.FlexibleMode {
+				t.Fatalf("frame %d packet %d used non-flexible VP9 descriptor",
+					frame, i)
+			}
+			if desc.StartOfFrame && desc.InterPicturePredicted &&
+				desc.ReferenceIndexCount > 0 {
+				seen.sawFlexiblePrediction = true
+			}
+		}
+		if forcedByUnsent {
+			if !base.KeyFrame || base.InterPicturePredicted ||
+				!base.ScalabilityStructurePresent {
+				t.Fatalf("frame %d after unsent AU base = key:%t inter:%t ss:%t, want recovery key",
+					frame, base.KeyFrame, base.InterPicturePredicted,
+					base.ScalabilityStructurePresent)
+			}
+			seen.sawRecoveryAfterUnsent = true
+		}
+		refFinder.acceptAccessUnit(t, frame, result, payloads, pictureID)
+		if got, want := packetizer.PictureID(),
+			govpx.NextVP9RTPPictureID(pictureID); got != want {
+			t.Fatalf("frame %d next PictureID = %d, want %d",
+				frame, got, want)
+		}
+		prevPictureID = pictureID
+		lastCap = activeCap
+	}
+	return seen
 }
 
 func plainVP9WebRTCCBRDropStreamForTest(
