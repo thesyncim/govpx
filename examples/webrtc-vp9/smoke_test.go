@@ -511,11 +511,12 @@ func readVP9RTPKeyAccessUnitAfterFeedbackForTest(
 	const maxAccessUnits = defaultFPS
 	for attempt := 0; attempt < maxAccessUnits; attempt++ {
 		au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
+		activeLayers := rtpAccessUnitSpatialLayerCountForTest(t, au)
 		first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
 		if err != nil {
 			t.Fatalf("ParseVP9RTPPayloadDescriptor feedback AU: %v", err)
 		}
-		desc := assertWebRTCRTPAccessUnitForTest(t, au, spatialLayerCount,
+		desc := assertWebRTCRTPAccessUnitForTest(t, au, activeLayers,
 			first.ScalabilityStructurePresent)
 		prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
 		if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
@@ -931,6 +932,83 @@ func TestSpatialCapChangeAfterForceKeyConsumedIsAppliedNextKeyFrame(t *testing.T
 	}
 	if nextCap := spatialCapForAccessUnit(ctl, currentCap, forceKey); nextCap != 1 {
 		t.Fatalf("next forced access unit cap = %d, want 1", nextCap)
+	}
+}
+
+func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	overrun := interval + interval/5
+
+	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
+		if backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
+			t.Fatalf("overrun %d requested cap change too early", i)
+		}
+	}
+	if !backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
+		t.Fatal("repeated overruns did not request a cap change")
+	}
+	if backoff.maxCap != spatialLayerCount-1 {
+		t.Fatalf("backoff max cap = %d, want %d",
+			backoff.maxCap, spatialLayerCount-1)
+	}
+	if got := backoff.effectiveCap(spatialLayerCount); got != spatialLayerCount-1 {
+		t.Fatalf("effective cap after backoff = %d, want %d",
+			got, spatialLayerCount-1)
+	}
+}
+
+func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	overrun := interval + interval/5
+	for i := 0; i < spatialCapBackoffOverruns; i++ {
+		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
+	}
+	if backoff.maxCap != spatialLayerCount-1 {
+		t.Fatalf("test setup max cap = %d, want %d",
+			backoff.maxCap, spatialLayerCount-1)
+	}
+
+	stable := interval / 2
+	for i := 0; i < spatialCapBackoffRecoveryFrames-1; i++ {
+		if backoff.observe(spatialLayerCount-1, spatialLayerCount, stable, interval) {
+			t.Fatalf("stable frame %d recovered too early", i)
+		}
+	}
+	if !backoff.observe(spatialLayerCount-1, spatialLayerCount, stable, interval) {
+		t.Fatal("stable frames did not request recovery")
+	}
+	if backoff.maxCap != spatialLayerCount {
+		t.Fatalf("recovered max cap = %d, want %d",
+			backoff.maxCap, spatialLayerCount)
+	}
+	if got := backoff.effectiveCap(spatialLayerCount); got != spatialLayerCount {
+		t.Fatalf("effective cap after recovery = %d, want %d",
+			got, spatialLayerCount)
+	}
+}
+
+func TestSpatialCapBackoffManualCapChangeAppliesOnForcedKey(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	overrun := interval + interval/5
+	for i := 0; i < spatialCapBackoffOverruns; i++ {
+		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
+	}
+	if got := backoff.effectiveCap(1); got != 1 {
+		t.Fatalf("manual cap down effective cap = %d, want 1", got)
+	}
+	if backoff.maxCap != 1 {
+		t.Fatalf("manual cap down max cap = %d, want 1", backoff.maxCap)
+	}
+	if got := backoff.effectiveCap(spatialLayerCount); got != spatialLayerCount {
+		t.Fatalf("manual cap up effective cap = %d, want %d",
+			got, spatialLayerCount)
+	}
+	if backoff.maxCap != spatialLayerCount {
+		t.Fatalf("manual cap up max cap = %d, want %d",
+			backoff.maxCap, spatialLayerCount)
 	}
 }
 

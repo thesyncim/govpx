@@ -109,58 +109,41 @@ func TestWebRTCEndToEndReceivedSVCStreamDecodesWithVpxdec(t *testing.T) {
 
 	const defaultKeyFrameInterval = 128
 	const frames = defaultKeyFrameInterval + 12
-	packets := make([][]byte, 0, frames)
-	var prevAU []*rtp.Packet
-	var prevDesc govpx.VP9RTPPayloadDescriptor
+	state := liveWebRTCRTPOracleState{}
 	for frame := 0; frame < frames; frame++ {
-		au := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
-		first, _, err := govpx.ParseVP9RTPPayloadDescriptor(au[0].Payload)
-		if err != nil {
-			t.Fatalf("ParseVP9RTPPayloadDescriptor live frame %d: %v",
-				frame, err)
-		}
-		desc := assertWebRTCRTPAccessUnitForTest(t, au, spatialLayerCount,
-			first.ScalabilityStructurePresent)
-		if frame == 0 || frame == defaultKeyFrameInterval {
+		desc, layers := state.read(t, ctx, rtpCh)
+		if frame == 0 {
+			if layers != spatialLayerCount {
+				t.Fatalf("first live RTP frame layers = %d, want %d",
+					layers, spatialLayerCount)
+			}
 			if !desc.ScalabilityStructurePresent ||
 				desc.InterPicturePredicted {
 				t.Fatalf("live RTP frame %d base = ss:%t inter:%t, want key access unit",
 					frame, desc.ScalabilityStructurePresent,
 					desc.InterPicturePredicted)
 			}
+		} else if desc.ScalabilityStructurePresent &&
+			desc.ScalabilityStructure.SpatialLayerCount != layers {
+			t.Fatalf("live RTP frame %d SS layers = %d, want active cap %d",
+				frame, desc.ScalabilityStructure.SpatialLayerCount, layers)
 		}
-		if frame > 0 {
-			prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
-			if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
-				t.Fatalf("live RTP frame %d first sequence = %d, want %d",
-					frame, got, want)
-			}
-			assertRTPMediaTimestampAdvancedForTest(t, "live RTP frame",
-				prevAU[0].Timestamp, au[0].Timestamp, frames)
-			if got, want := desc.PictureID,
-				govpx.NextVP9RTPPictureID(prevDesc.PictureID); got != want {
-				t.Fatalf("live RTP frame %d PictureID = %d, want %d",
-					frame, got, want)
-			}
-		}
-		packets = append(packets,
-			reassembleWebRTCRTPAccessUnitForOracle(t, au, spatialLayerCount))
-		prevAU = au
-		prevDesc = desc
 	}
 
 	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
-		layerDims[spatialLayerCount-1][1], packets...)
+		layerDims[spatialLayerCount-1][1], state.packets...)
 	for layer := 0; layer < spatialLayerCount; layer++ {
 		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
 			SVCSpatialLayerSet: true,
 			SVCSpatialLayer:    layer,
 		})
-		want := frames * layerDims[layer][0] * layerDims[layer][1] * 3 / 2
+		want := capRecoveryVpxdecBytesForLayer(state.caps, layer)
 		if len(raw) != want {
-			t.Fatalf("live WebRTC vpxdec layer %d raw size = %d, want %d",
-				layer, len(raw), want)
+			t.Fatalf("live WebRTC vpxdec layer %d raw size = %d, want %d (caps=%v)",
+				layer, len(raw), want, state.caps)
 		}
+		assertVpxdecLayerOutputVariesForCaps(t, "live WebRTC",
+			raw, state.caps, layer)
 	}
 }
 

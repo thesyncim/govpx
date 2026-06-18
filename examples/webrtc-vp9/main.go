@@ -43,6 +43,9 @@ const (
 	defaultFPS          = 30
 	defaultBitrateKbps  = 800
 	minLayerBitrateKbps = 1
+
+	spatialCapBackoffOverruns       = 3
+	spatialCapBackoffRecoveryFrames = 90
 )
 
 // layerDims holds the per-spatial-layer resolution, base to top. Each step
@@ -838,6 +841,96 @@ func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int 
 	return clampSpatialCap(int(ctl.spatialCap.Load()))
 }
 
+type spatialCapBackoff struct {
+	maxCap         int
+	lastRequested  int
+	overrunStreak  int
+	recoveryStreak int
+}
+
+func newSpatialCapBackoff(initialCap int) spatialCapBackoff {
+	cap := clampSpatialCap(initialCap)
+	return spatialCapBackoff{
+		maxCap:        cap,
+		lastRequested: cap,
+	}
+}
+
+func (b *spatialCapBackoff) effectiveCap(requestedCap int) int {
+	requestedCap = clampSpatialCap(requestedCap)
+	if b.maxCap == 0 {
+		b.maxCap = requestedCap
+	}
+	if b.lastRequested == 0 {
+		b.lastRequested = requestedCap
+	}
+	if requestedCap != b.lastRequested {
+		b.lastRequested = requestedCap
+		b.maxCap = requestedCap
+		b.overrunStreak = 0
+		b.recoveryStreak = 0
+		return requestedCap
+	}
+	maxCap := clampSpatialCap(b.maxCap)
+	if requestedCap < maxCap {
+		return requestedCap
+	}
+	return maxCap
+}
+
+func (b *spatialCapBackoff) observe(
+	activeCap int,
+	requestedCap int,
+	elapsed time.Duration,
+	interval time.Duration,
+) bool {
+	activeCap = clampSpatialCap(activeCap)
+	requestedCap = clampSpatialCap(requestedCap)
+	if b.maxCap == 0 {
+		b.maxCap = requestedCap
+	}
+	if b.lastRequested == 0 {
+		b.lastRequested = requestedCap
+	}
+	if requestedCap != b.lastRequested {
+		b.lastRequested = requestedCap
+		b.maxCap = requestedCap
+		b.overrunStreak = 0
+		b.recoveryStreak = 0
+		return activeCap != requestedCap
+	}
+	if interval <= 0 {
+		return false
+	}
+	if elapsed > interval+interval/10 {
+		b.recoveryStreak = 0
+		if activeCap >= clampSpatialCap(b.maxCap) && b.maxCap > 1 {
+			b.overrunStreak++
+			if b.overrunStreak >= spatialCapBackoffOverruns {
+				b.maxCap--
+				b.overrunStreak = 0
+				return activeCap != b.maxCap
+			}
+		} else {
+			b.overrunStreak = 0
+		}
+		return false
+	}
+	b.overrunStreak = 0
+	if requestedCap > b.maxCap && activeCap == b.maxCap &&
+		elapsed < interval*3/4 {
+		b.recoveryStreak++
+		if b.recoveryStreak >= spatialCapBackoffRecoveryFrames {
+			b.maxCap++
+			b.recoveryStreak = 0
+			return activeCap != b.maxCap
+		}
+	} else {
+		b.recoveryStreak = 0
+	}
+	return false
+}
+
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
 	track *webrtc.TrackLocalStaticRTP, telemetry chan []byte, ctl *controlState,
 	cfg demoConfig) {
@@ -897,6 +990,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	currentBitrate := int(ctl.bitrateKbps.Load())
 	currentScreen := int(ctl.screenMode.Load())
 	currentSpatialCap := clampSpatialCap(int(ctl.spatialCap.Load()))
+	capBackoff := newSpatialCapBackoff(currentSpatialCap)
 
 	statsTracker := newStatsTracker()
 	var lastMediaFrame uint64
@@ -908,6 +1002,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			return
 		case tickTime = <-ticker.C:
 		}
+		accessUnitStarted := time.Now()
 
 		// Apply runtime updates between access units. We re-set them
 		// lazily so the SVC encoder's per-layer rate-control stays in
@@ -930,8 +1025,11 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		if !active {
 			continue
 		}
-		currentSpatialCap = spatialCapForAccessUnit(ctl, currentSpatialCap,
-			forceKey)
+		requestedSpatialCap := clampSpatialCap(int(ctl.spatialCap.Load()))
+		if forceKey {
+			currentSpatialCap = capBackoff.effectiveCap(
+				spatialCapForAccessUnit(ctl, currentSpatialCap, true))
+		}
 		if forceKey {
 			forceKeyAll(svc)
 		}
@@ -1001,6 +1099,10 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
 			pushTelemetry(telemetry, payload)
+		}
+		if capBackoff.observe(currentSpatialCap, requestedSpatialCap,
+			time.Since(accessUnitStarted), interval) {
+			ctl.forceKey.Store(true)
 		}
 	}
 }
