@@ -16,6 +16,8 @@ type VP9WebRTCPacketizer struct {
 	consumedDropSignature vp9WebRTCDroppedFrameSignature
 	keyFrameRequired      bool
 	references            vp9WebRTCReferenceTracker
+	svcLayerCount         int
+	haveSVCLayerCount     bool
 }
 
 // NewVP9WebRTCPacketizer returns a VP9 WebRTC packetizer whose first emitted
@@ -188,6 +190,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
 	p.commitVP9SpatialSVCWebRTCReferences(r, pictureID)
+	p.commitVP9SpatialSVCLayerCount(r)
 	p.advancePictureID()
 	return packets, payloadBytes, nil
 }
@@ -213,6 +216,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	p.consumedDropPending = false
 	p.keyFrameRequired = false
 	p.commitVP9SpatialSVCWebRTCReferences(r, pictureID)
+	p.commitVP9SpatialSVCLayerCount(r)
 	p.advancePictureID()
 	return payloads, nil
 }
@@ -265,10 +269,31 @@ func (p *VP9WebRTCPacketizer) requireVP9SpatialSVCRecoveryKey(
 	if p == nil {
 		return ErrInvalidConfig
 	}
+	count, err := r.vp9SpatialSVCLayerCount()
+	if err != nil {
+		return err
+	}
+	if p.haveSVCLayerCount && count != p.svcLayerCount {
+		p.keyFrameRequired = true
+	}
 	if !p.keyFrameRequired || vp9WebRTCSpatialSVCResultIsRecoveryKey(r) {
 		return nil
 	}
 	return ErrInvalidConfig
+}
+
+func (p *VP9WebRTCPacketizer) commitVP9SpatialSVCLayerCount(
+	r VP9SpatialSVCEncodeResult,
+) {
+	if p == nil {
+		return
+	}
+	count, err := r.vp9SpatialSVCLayerCount()
+	if err != nil {
+		return
+	}
+	p.svcLayerCount = count
+	p.haveSVCLayerCount = true
 }
 
 func vp9WebRTCDroppedFrameNeedsKeyFrame(r VP9EncodeResult) bool {
