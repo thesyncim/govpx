@@ -159,7 +159,7 @@ func vp9SetSpeedFeaturesFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, s
 	// govpx's row-mt is bit-exact by construction (single goroutine per tile
 	// column), so this only triggers when adaptive_rd_thresh_row_mt is off and
 	// max_threads > 1, matching libvpx.
-	if sf.AdaptiveRdThreshRowMt == 0 && e.opts.Threads > 1 && e.opts.RowMT {
+	if sf.AdaptiveRdThreshRowMt == 0 && e.vp9EffectiveThreadHint() > 1 && e.opts.RowMT {
 		sf.AdaptiveRdThresh = 0
 	}
 }
@@ -192,7 +192,7 @@ func vp9SetSpeedFeaturesFramesizeDependent(e *VP9Encoder, sf *SpeedFeatures, spe
 	}
 
 	// libvpx: vp9_speed_features.c:914-916.
-	if sf.AdaptiveRdThreshRowMt == 0 && e.opts.Threads > 1 && e.opts.RowMT {
+	if sf.AdaptiveRdThreshRowMt == 0 && e.vp9EffectiveThreadHint() > 1 && e.opts.RowMT {
 		sf.AdaptiveRdThresh = 0
 	}
 }

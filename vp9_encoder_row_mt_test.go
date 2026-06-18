@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -94,6 +95,63 @@ func TestVP9RowMTAcceptsRealtimeAutoThreads(t *testing.T) {
 	if got := len(e.vp9TilePool.rowWorkerPools); got != e.vp9TilePool.workerCount {
 		t.Fatalf("realtime auto RowMT row worker pools = %d, want %d",
 			got, e.vp9TilePool.workerCount)
+	}
+}
+
+func TestVP9RowMTAutoThreadsEnableSpeedFeature(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            8,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+		RowMT:              true,
+	}
+	if wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU()); wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder realtime auto RowMT: %v", err)
+	}
+	defer e.Close()
+	if e.opts.Threads != 0 {
+		t.Fatalf("stored Threads = %d, want caller auto value 0", e.opts.Threads)
+	}
+
+	for _, tc := range []struct {
+		name string
+		ctx  func(vp9SpeedFrameContext) vp9SpeedFrameContext
+	}{
+		{
+			name: "single-layer-speed8",
+			ctx:  func(ctx vp9SpeedFrameContext) vp9SpeedFrameContext { return ctx },
+		},
+		{
+			name: "svc-speed7",
+			ctx: func(ctx vp9SpeedFrameContext) vp9SpeedFrameContext {
+				ctx.svc.UseSvc = true
+				ctx.svc.NumberSpatialLayers = 3
+				ctx.svc.NumberTemporalLayers = 3
+				return ctx
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := tc.ctx(e.vp9DefaultSpeedFrameContext())
+			ctx.frameType = common.InterFrame
+			ctx.intraOnly = false
+			var sf SpeedFeatures
+			vp9SetSpeedFeaturesFramesizeIndependent(e, &sf, 8, ctx)
+			vp9SetSpeedFeaturesFramesizeDependent(e, &sf, 8, ctx)
+			if sf.AdaptiveRdThreshRowMt != 1 {
+				t.Fatalf("AdaptiveRdThreshRowMt = %d, want 1 for realtime auto RowMT",
+					sf.AdaptiveRdThreshRowMt)
+			}
+		})
 	}
 }
 

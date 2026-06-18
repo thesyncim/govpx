@@ -422,7 +422,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 				sf.Mv.SubpelSearchMethod = SubpelTreePrunedEvenMore
 			}
 		}
-		if ctx.svc.UseSvc && e.opts.RowMT && e.opts.Threads > 1 {
+		if ctx.svc.UseSvc && e.opts.RowMT && e.vp9EffectiveThreadHint() > 1 {
 			// libvpx: vp9_speed_features.c:717-718.
 			sf.AdaptiveRdThreshRowMt = 1
 		}
@@ -478,7 +478,7 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 			e.maxCopiedFrame = 4
 		}
 
-		if e.opts.RowMT && e.opts.Threads > 1 {
+		if e.opts.RowMT && e.vp9EffectiveThreadHint() > 1 {
 			sf.AdaptiveRdThreshRowMt = 1
 		}
 
