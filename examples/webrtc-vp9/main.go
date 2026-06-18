@@ -164,6 +164,8 @@ const chart = document.getElementById("chart");
 const ctx2d = chart.getContext("2d");
 const samples = []; // {kbps, ts}
 const MAX_SAMPLES = 240;
+const ICE_GATHER_TIMEOUT_MS = 2000;
+let latestRTCStats = null;
 
 function row(dl, k, v){
   const dt = document.createElement("dt"); dt.textContent = k;
@@ -227,6 +229,12 @@ function renderStats(msg){
   row(totalsEl, "fps", (msg.totals.fps||0).toFixed(1));
   row(totalsEl, "target kbps", msg.settings.target_kbps);
   row(totalsEl, "screen mode", ["video","screen","film"][msg.settings.screen_mode] || "?");
+  if(latestRTCStats){
+    row(totalsEl, "rx decoded", latestRTCStats.framesDecoded ?? "-");
+    row(totalsEl, "rx dropped", latestRTCStats.framesDropped ?? "-");
+    row(totalsEl, "rx lost", latestRTCStats.packetsLost ?? "-");
+    row(totalsEl, "rx freezes", latestRTCStats.freezeCount ?? "-");
+  }
   if(msg.ss_present) row(totalsEl, "SS", "present");
   // chart
   samples.push({kbps: msg.totals.kbps_recent||0});
@@ -275,6 +283,7 @@ bitrate.oninput = () => {
 
 async function start(){
   const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+  window.govpxDemoPeerConnection = pc;
   pc.addTransceiver("video",{direction:"recvonly"});
   pc.ontrack = e => { document.getElementById("v").srcObject = e.streams[0]; };
   pc.oniceconnectionstatechange = () => { status.textContent = "ICE: " + pc.iceConnectionState; };
@@ -286,10 +295,8 @@ async function start(){
     catch(err){ console.error(err); }
   };
   await pc.setLocalDescription(await pc.createOffer());
-  await new Promise(r => {
-    if (pc.iceGatheringState === "complete") return r();
-    pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && r();
-  });
+  const gathered = await waitForIceGatheringComplete(pc, ICE_GATHER_TIMEOUT_MS);
+  if (!gathered) status.textContent = "ICE: gathering timeout, continuing";
   const res = await fetch("/offer", {
     method: "POST",
     headers: {"Content-Type":"application/json"},
@@ -297,6 +304,49 @@ async function start(){
   });
   if (!res.ok) { status.textContent = "offer failed: " + res.status; return; }
   await pc.setRemoteDescription(await res.json());
+  updateRTCStats(pc).catch(() => {});
+  setInterval(() => updateRTCStats(pc).catch(() => {}), 1000);
+}
+
+async function waitForIceGatheringComplete(pc, timeoutMs){
+  if (pc.iceGatheringState === "complete") return true;
+  return await new Promise(resolve => {
+    let done = false;
+    let timer = 0;
+    const finish = ok => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      pc.removeEventListener("icegatheringstatechange", onState);
+      resolve(ok);
+    };
+    const onState = () => {
+      if (pc.iceGatheringState === "complete") finish(true);
+    };
+    timer = setTimeout(() => finish(false), timeoutMs);
+    pc.addEventListener("icegatheringstatechange", onState);
+  });
+}
+
+async function updateRTCStats(pc){
+  const report = await pc.getStats();
+  let inbound = null;
+  report.forEach(stat => {
+    if(stat.type === "inbound-rtp" && (stat.kind === "video" || stat.mediaType === "video")){
+      inbound = stat;
+    }
+  });
+  if(!inbound) return;
+  latestRTCStats = {
+    packetsLost: statNumber(inbound.packetsLost),
+    framesDecoded: statNumber(inbound.framesDecoded ?? inbound.framesReceived),
+    framesDropped: statNumber(inbound.framesDropped),
+    freezeCount: statNumber(inbound.freezeCount),
+  };
+}
+
+function statNumber(value){
+  return Number.isFinite(value) ? value : null;
 }
 start().catch(e => status.textContent = "error: " + e);
 </script>

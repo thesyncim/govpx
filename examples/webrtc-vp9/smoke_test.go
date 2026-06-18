@@ -1040,6 +1040,21 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 	}
 }
 
+func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
+	for _, want := range []string{
+		"pc.getStats()",
+		"framesDecoded",
+		"framesDropped",
+		"packetsLost",
+		"freezeCount",
+		"rx freezes",
+	} {
+		if !strings.Contains(indexHTML, want) {
+			t.Fatalf("indexHTML missing %q", want)
+		}
+	}
+}
+
 func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 	tests := []struct {
 		name string
