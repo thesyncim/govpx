@@ -408,6 +408,15 @@ type controlMessage struct {
 }
 
 func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
+	handleOfferWithICEGatherWait(w, r, cfg, waitICEGatheringComplete)
+}
+
+func handleOfferWithICEGatherWait(
+	w http.ResponseWriter,
+	r *http.Request,
+	cfg demoConfig,
+	waitGather func(<-chan struct{}, time.Duration) bool,
+) {
 	var offer webrtc.SessionDescription
 	if err := json.NewDecoder(r.Body).Decode(&offer); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -500,10 +509,9 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if !waitICEGatheringComplete(gather, iceGatherTimeout) {
-		_ = pc.Close()
-		http.Error(w, "ICE gathering timed out", http.StatusGatewayTimeout)
-		return
+	if !waitGather(gather, iceGatherTimeout) {
+		log.Printf("server ICE gathering timed out after %s; continuing with current answer",
+			iceGatherTimeout)
 	}
 	local := pc.LocalDescription()
 	if local == nil || !sdpAnswersVP9Profile0Send(local.SDP) {

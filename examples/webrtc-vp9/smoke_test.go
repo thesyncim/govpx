@@ -346,6 +346,77 @@ func TestHandleOfferRejectsOfferWithoutVP9Profile0(t *testing.T) {
 	}
 }
 
+func TestHandleOfferContinuesAfterServerICEGatherTimeout(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
+	waitCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOfferWithICEGatherWait(w, r, cfg,
+			func(done <-chan struct{}, timeout time.Duration) bool {
+				waitCalled = true
+				if done == nil {
+					t.Fatal("server ICE gather wait received nil channel")
+				}
+				if timeout != iceGatherTimeout {
+					t.Fatalf("server ICE gather timeout = %s, want %s",
+						timeout, iceGatherTimeout)
+				}
+				return false
+			})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	gather := webrtc.GatheringCompletePromise(pc)
+	if err := pc.SetLocalDescription(offer); err != nil {
+		t.Fatalf("SetLocalDescription: %v", err)
+	}
+	<-gather
+
+	body, err := json.Marshal(pc.LocalDescription())
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusOK)
+	}
+	if !waitCalled {
+		t.Fatal("server ICE gather wait was not called")
+	}
+	var answer webrtc.SessionDescription
+	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		t.Fatalf("decode answer: %v", err)
+	}
+	if !sdpAnswersVP9Profile0Send(answer.SDP) {
+		t.Fatalf("answer after forced ICE timeout does not send VP9 profile 0:\n%s",
+			answer.SDP)
+	}
+	if err := pc.SetRemoteDescription(answer); err != nil {
+		t.Fatalf("SetRemoteDescription(answer): %v", err)
+	}
+}
+
 func TestHandleOfferRejectsOfferThatCannotReceiveVP9(t *testing.T) {
 	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
 	mux := http.NewServeMux()
