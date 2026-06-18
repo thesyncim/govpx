@@ -1435,7 +1435,7 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	}
 }
 
-func TestSVCLayerOptionsUseTileThreadsWithoutRowMT(t *testing.T) {
+func TestSVCLayerOptionsUseRowMTForThreadedLayers(t *testing.T) {
 	tests := []struct {
 		name   string
 		width  int
@@ -1456,9 +1456,10 @@ func TestSVCLayerOptionsUseTileThreadsWithoutRowMT(t *testing.T) {
 			if opts.CpuUsed != 8 {
 				t.Fatalf("CpuUsed = %d, want 8", opts.CpuUsed)
 			}
-			if opts.RowMT {
-				t.Fatalf("RowMT = true for %d tile threads, want false",
-					wantThreads)
+			wantRowMT := wantThreads > 1
+			if opts.RowMT != wantRowMT {
+				t.Fatalf("RowMT = %t for %d tile threads, want %t",
+					opts.RowMT, wantThreads, wantRowMT)
 			}
 			if !opts.ErrorResilient ||
 				!opts.FrameParallelDecodingSet ||

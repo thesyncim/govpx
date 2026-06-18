@@ -1203,6 +1203,7 @@ func newSVCLayerOptions(width, height, fps, bitrateKbps int) govpx.VP9EncoderOpt
 		Height:                   height,
 		FPS:                      fps,
 		Threads:                  threads,
+		RowMT:                    threads > 1,
 		Deadline:                 govpx.DeadlineRealtime,
 		CpuUsed:                  pickCPUUsed(width, height),
 		RateControlModeSet:       true,
