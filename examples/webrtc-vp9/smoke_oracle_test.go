@@ -107,7 +107,8 @@ func TestWebRTCEndToEndReceivedSVCStreamDecodesWithVpxdec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
-	const frames = 6
+	const defaultKeyFrameInterval = 128
+	const frames = defaultKeyFrameInterval + 12
 	packets := make([][]byte, 0, frames)
 	var prevAU []*rtp.Packet
 	var prevDesc govpx.VP9RTPPayloadDescriptor
@@ -120,6 +121,14 @@ func TestWebRTCEndToEndReceivedSVCStreamDecodesWithVpxdec(t *testing.T) {
 		}
 		desc := assertWebRTCRTPAccessUnitForTest(t, au, spatialLayerCount,
 			first.ScalabilityStructurePresent)
+		if frame == 0 || frame == defaultKeyFrameInterval {
+			if !desc.ScalabilityStructurePresent ||
+				desc.InterPicturePredicted {
+				t.Fatalf("live RTP frame %d base = ss:%t inter:%t, want key access unit",
+					frame, desc.ScalabilityStructurePresent,
+					desc.InterPicturePredicted)
+			}
+		}
 		if frame > 0 {
 			prevLastSeq := prevAU[0].SequenceNumber + uint16(len(prevAU)-1)
 			if got, want := au[0].SequenceNumber, prevLastSeq+1; got != want {
@@ -445,6 +454,31 @@ func TestWebRTCPacketizedSVCLongNoLossControlStreamDecodesWithVpxdec(t *testing.
 	}
 }
 
+func TestWebRTCPacketizedSVCDefaultKeyIntervalLongStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	steps := webRTCDefaultKeyIntervalOracleSteps(12)
+	packets := encodeWebRTCPacketizedRuntimeAccessUnitsForOracleStartingAtPictureID(t,
+		steps, govpx.VP9RTPPictureID15BitMask-3)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	caps := webRTCOracleStepCaps(steps)
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("key-interval vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t, "key-interval",
+			raw, caps, layer)
+	}
+}
+
 func TestVP9WebRTCPacketizerSVCLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
@@ -474,23 +508,7 @@ func TestVP9WebRTCPacketizerSVCDefaultKeyIntervalLongStreamDecodesWithVpxdec(t *
 	vp9test.RequireVpxdec(t)
 
 	const defaultKeyFrameInterval = 128
-	const frames = defaultKeyFrameInterval + 12
-	steps := make([]webRTCSVCOracleStep, frames)
-	for frame := range steps {
-		steps[frame] = webRTCSVCOracleStep{cap: spatialLayerCount}
-		switch frame {
-		case 17:
-			steps[frame].bitrateKbps = 1200
-		case 47:
-			steps[frame].screenMode = 1
-			steps[frame].screenModeSet = true
-		case 93:
-			steps[frame].bitrateKbps = 700
-		case 121:
-			steps[frame].screenMode = 2
-			steps[frame].screenModeSet = true
-		}
-	}
+	steps := webRTCDefaultKeyIntervalOracleSteps(12)
 	sawKey := make(map[int]bool)
 	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleStartingAtPictureIDWithInspect(
 		t, steps, govpx.VP9RTPPictureID15BitMask-3,
@@ -538,6 +556,32 @@ func TestVP9WebRTCPacketizerSVCDefaultKeyIntervalLongStreamDecodesWithVpxdec(t *
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCRecoveryAfterKeyIntervalUnsentAccessUnitDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const defaultKeyFrameInterval = 128
+	const unsentFrame = defaultKeyFrameInterval + 4
+	steps := webRTCDefaultKeyIntervalOracleSteps(18)
+	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(t,
+		steps, govpx.VP9RTPPictureID15BitMask-9, unsentFrame, nil)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("stateful key-interval recovery vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t,
+			"stateful key-interval recovery", raw, caps, layer)
+	}
+}
+
 func TestVP9WebRTCPacketizerSVCRecoveryAfterUnsentAccessUnitDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 
@@ -560,6 +604,33 @@ func TestVP9WebRTCPacketizerSVCRecoveryAfterUnsentAccessUnitDecodesWithVpxdec(t 
 		assertVpxdecLayerOutputVariesForCaps(t, "stateful recovery",
 			raw, caps, layer)
 	}
+}
+
+func webRTCDefaultKeyIntervalOracleSteps(extraFrames int) []webRTCSVCOracleStep {
+	const defaultKeyFrameInterval = 128
+	frames := defaultKeyFrameInterval + extraFrames
+	steps := make([]webRTCSVCOracleStep, frames)
+	for frame := range steps {
+		steps[frame] = webRTCSVCOracleStep{cap: spatialLayerCount}
+		switch frame {
+		case 17:
+			steps[frame].bitrateKbps = 1200
+		case 47:
+			steps[frame].screenMode = 1
+			steps[frame].screenModeSet = true
+		case 93:
+			steps[frame].bitrateKbps = 700
+		case 121:
+			steps[frame].screenMode = 2
+			steps[frame].screenModeSet = true
+		case defaultKeyFrameInterval + 7:
+			steps[frame].bitrateKbps = 900
+		case defaultKeyFrameInterval + 11:
+			steps[frame].screenMode = 0
+			steps[frame].screenModeSet = true
+		}
+	}
+	return steps
 }
 
 func webRTCLongNoLossOracleSteps() []webRTCSVCOracleStep {
