@@ -316,8 +316,19 @@ func vp9WebRTCSpatialSVCResultIsRecoveryKey(
 		return false
 	}
 	base := r.Layers[0]
-	return vp9WebRTCResultIsRecoveryKey(base) &&
-		base.ScalabilityStructurePresent
+	if !vp9WebRTCResultIsRecoveryKey(base) ||
+		!base.ScalabilityStructurePresent {
+		return false
+	}
+	for i := 1; i < count; i++ {
+		layer := r.Layers[i]
+		if layer.Dropped || len(layer.Data) == 0 || !layer.ShowFrame ||
+			layer.TemporalLayerID != 0 ||
+			layer.vp9RTPInterPicturePredicted() {
+			return false
+		}
+	}
+	return true
 }
 
 type vp9WebRTCDroppedFrameSignature struct {

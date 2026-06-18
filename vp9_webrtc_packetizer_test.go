@@ -303,6 +303,49 @@ func TestVP9WebRTCPacketizerRejectsInterWithTooOldFlexibleReference(t *testing.T
 	}
 }
 
+func TestVP9WebRTCSpatialSVCRecoveryKeyRejectsPredictedEnhancement(t *testing.T) {
+	result := VP9SpatialSVCEncodeResult{
+		LayerCount:           2,
+		InterLayerPrediction: true,
+		ScalabilityStructure: VP9RTPScalabilityStructure{
+			SpatialLayerCount: 2,
+			ResolutionPresent: true,
+			Width:             [VP9RTPMaxSpatialLayers]uint16{32, 64},
+			Height:            [VP9RTPMaxSpatialLayers]uint16{32, 64},
+		},
+	}
+	result.Layers[0] = VP9EncodeResult{
+		Data:                        []byte{0x82},
+		KeyFrame:                    true,
+		ShowFrame:                   true,
+		TemporalLayerID:             0,
+		TemporalLayerCount:          3,
+		SpatialLayerID:              0,
+		SpatialLayerCount:           2,
+		ScalabilityStructurePresent: true,
+	}
+	result.Layers[1] = VP9EncodeResult{
+		Data:                       []byte{0x83},
+		ShowFrame:                  true,
+		InterPicturePredicted:      true,
+		TemporalLayerID:            0,
+		TemporalLayerCount:         3,
+		SpatialLayerID:             1,
+		SpatialLayerCount:          2,
+		InterLayerDependency:       true,
+		NotRefForUpperSpatialLayer: true,
+		interPicturePredictedKnown: true,
+	}
+	if vp9WebRTCSpatialSVCResultIsRecoveryKey(result) {
+		t.Fatal("predicted enhancement layer was accepted as WebRTC SVC recovery")
+	}
+
+	result.Layers[1].InterPicturePredicted = false
+	if !vp9WebRTCSpatialSVCResultIsRecoveryKey(result) {
+		t.Fatal("non-predicted enhancement layer was rejected as WebRTC SVC recovery")
+	}
+}
+
 func newVP9WebRTCInterResultForReferenceTest(t *testing.T) VP9EncodeResult {
 	t.Helper()
 	_, inter := newVP9WebRTCReferenceTestFrames(t)
