@@ -122,17 +122,23 @@ signaling stay caller-owned.
 
 For VP9 WebRTC senders, use `VP9WebRTCPacketizer` around the WebRTC-specific
 encoder-result packetizers. It sets 15-bit PictureID, preserves temporal-layer
-metadata, emits keyframe scalability-structure data with WebRTC GOF
-dependencies, and advances PictureID after successful packetization or after
-consuming an encoder-dropped temporal slot. If VP9 CBR intentionally drops a
-frame, `VP9WebRTCPacketizer.Packetize` returns `sent=false` with no RTP
-payloads and leaves a PictureID gap so the receiver's non-flexible VP9 GOF
-index remains aligned. `PacketizationSize` has the same dropped-frame consume
+metadata, emits keyframe scalability-structure data, uses explicit
+flexible-mode references, and advances PictureID after successful
+packetization or after consuming an encoder-dropped temporal slot. If VP9 CBR
+intentionally drops a frame, `VP9WebRTCPacketizer.Packetize` returns
+`sent=false` with no RTP
+payloads and leaves a PictureID gap so the receiver's RTP PictureID timeline
+remains aligned. `PacketizationSize` has the same dropped-frame consume
 behavior because dropped frames need no follow-up payload write. Top
 temporal-layer drops can continue as ordinary PictureID gaps. Base and middle
 temporal-layer drops require a recovery keyframe; after those drops
 `NeedsKeyFrame` returns true and the sender should call `ForceKeyFrame` before
-emitting another VP9 RTP frame. The lower-level VP9 RTP packetizers are still
+emitting another VP9 RTP frame. If the application withholds a coded VP9
+frame/access unit locally after encode or after packetization succeeds, call
+`MarkAccessUnitUnsent` on the packetizer and force a keyframe before emitting
+more VP9 RTP. That protects browser receivers from waiting on a PictureID that
+was never sent even though the WebRTC stats show no RTP loss. The lower-level
+VP9 RTP packetizers are still
 available when a caller deliberately owns
 descriptor policy.
 

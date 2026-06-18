@@ -270,7 +270,7 @@ func TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder(t *
 	const defaultKeyFrameInterval = 128
 	steps := webRTCDefaultKeyIntervalRefFinderSteps(12)
 	seen := runVP9WebRTCPacketizerSVCRefFinderScenario(t,
-		steps, govpx.VP9RTPPictureID15BitMask-3, -1)
+		steps, govpx.VP9RTPPictureID15BitMask-3, -1, false)
 	if !seen.sawPictureIDWrap {
 		t.Fatal("stateful VP9 WebRTC ref-finder stream did not cross PictureID wrap")
 	}
@@ -290,7 +290,7 @@ func TestVP9WebRTCPacketizerSVCRecoveryAfterKeyIntervalUnsentAccessUnitPassesLib
 	const unsentFrame = defaultKeyFrameInterval + 4
 	steps := webRTCDefaultKeyIntervalRefFinderSteps(18)
 	seen := runVP9WebRTCPacketizerSVCRefFinderScenario(t,
-		steps, govpx.VP9RTPPictureID15BitMask-9, unsentFrame)
+		steps, govpx.VP9RTPPictureID15BitMask-9, unsentFrame, false)
 	if !seen.sawRecoveryAfterUnsent {
 		t.Fatal("stateful VP9 WebRTC ref-finder stream did not emit recovery key after unsent access unit")
 	}
@@ -299,6 +299,24 @@ func TestVP9WebRTCPacketizerSVCRecoveryAfterKeyIntervalUnsentAccessUnitPassesLib
 	}
 	if !seen.keyFrames[defaultKeyFrameInterval] {
 		t.Fatalf("stateful VP9 WebRTC ref-finder recovery stream did not emit key access unit at frame %d",
+			defaultKeyFrameInterval)
+	}
+}
+
+func TestVP9WebRTCPacketizerSVCRecoveryAfterPacketizedUnsentAccessUnitPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const defaultKeyFrameInterval = 128
+	const unsentFrame = defaultKeyFrameInterval + 4
+	steps := webRTCDefaultKeyIntervalRefFinderSteps(18)
+	seen := runVP9WebRTCPacketizerSVCRefFinderScenario(t,
+		steps, govpx.VP9RTPPictureID15BitMask-10, unsentFrame, true)
+	if !seen.sawRecoveryAfterUnsent {
+		t.Fatal("stateful VP9 WebRTC ref-finder stream did not emit recovery key after packetized unsent access unit")
+	}
+	if !seen.sawFlexiblePrediction {
+		t.Fatal("stateful VP9 WebRTC ref-finder packetized-unsent stream did not exercise flexible P-diff refs")
+	}
+	if !seen.keyFrames[defaultKeyFrameInterval] {
+		t.Fatalf("stateful VP9 WebRTC ref-finder packetized-unsent stream did not emit key access unit at frame %d",
 			defaultKeyFrameInterval)
 	}
 }
@@ -383,6 +401,7 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 	steps []webRTCRefFinderStep,
 	initialPictureID uint16,
 	unsentFrame int,
+	packetizedUnsent bool,
 ) webRTCRefFinderScenarioSeen {
 	t.Helper()
 	if len(steps) == 0 {
@@ -464,7 +483,7 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 			t.Fatalf("size query frame %d advanced PictureID to %d, want %d",
 				frame, got, pictureID)
 		}
-		if frame == unsentFrame {
+		if frame == unsentFrame && !packetizedUnsent {
 			shortPayloads := make([]govpx.RTPPayloadFragment, packetCount-1)
 			if cap(payloadBuf) < payloadBytes {
 				payloadBuf = make([]byte, payloadBytes)
@@ -507,6 +526,22 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 				payloadBytes)
 		}
 		payloads = payloads[:writtenPackets]
+		if frame == unsentFrame && packetizedUnsent {
+			packetizer.MarkAccessUnitUnsent()
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("packetized unsent frame %d did not require recovery key",
+					frame)
+			}
+			if got, want := packetizer.PictureID(),
+				govpx.NextVP9RTPPictureID(pictureID); got != want {
+				t.Fatalf("packetized unsent frame %d next PictureID = %d, want %d",
+					frame, got, want)
+			}
+			forceNext = true
+			lastCap = activeCap
+			prevPictureID = pictureID
+			continue
+		}
 		for i, payload := range payloads {
 			desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
 			if err != nil {
