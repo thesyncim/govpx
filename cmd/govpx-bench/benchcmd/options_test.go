@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	govpx "github.com/thesyncim/govpx"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +13,7 @@ func TestBenchCLIOptionsDefaultAutoLibvpx(t *testing.T) {
 	t.Setenv("GOVPX_VPXENC", "/tmp/should-not-be-used")
 	t.Setenv("GOVPX_ORACLE", "/tmp/should-not-be-used")
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	cfg := benchConfig{}
 	opts := defaultBenchCLIOptions()
 	registerBenchFlags(fs, &cfg, &opts)
@@ -19,6 +22,54 @@ func TestBenchCLIOptionsDefaultAutoLibvpx(t *testing.T) {
 	}
 	if !opts.autoCompare || opts.buildLibvpx || cfg.LibvpxVpxenc != "" || cfg.LibvpxOracle != "" {
 		t.Fatalf("defaults = opts:%+v cfg:%+v, want auto libvpx enabled without pre-resolved paths", opts, cfg)
+	}
+}
+
+func TestBenchCLIThreadsDefaultIsCodecAware(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		args        []string
+		wantThreads int
+	}{
+		{name: "vp8-default", wantThreads: 1},
+		{name: "vp9-realtime-default", args: []string{"-codec=vp9"}, wantThreads: 0},
+		{name: "vp9-good-default", args: []string{"-codec=vp9", "-mode=good"}, wantThreads: 1},
+		{name: "vp9-explicit-one", args: []string{"-codec=vp9", "-threads=1"}, wantThreads: 1},
+		{name: "vp9-explicit-four", args: []string{"-codec=vp9", "-threads=4"}, wantThreads: 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+			cfg := benchConfig{}
+			opts := defaultBenchCLIOptions()
+			registerBenchFlags(fs, &cfg, &opts)
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if len(tc.args) == 0 || !strings.Contains(strings.Join(tc.args, " "), "-threads=") {
+				if cfg.Threads != benchThreadsDefault {
+					t.Fatalf("raw Threads = %d, want default sentinel", cfg.Threads)
+				}
+			}
+			parity := parityFor(cfg)
+			if parity.Threads != tc.wantThreads {
+				t.Fatalf("parity Threads = %d, want %d", parity.Threads, tc.wantThreads)
+			}
+			if benchCodec(cfg) == codecVP9 {
+				vp9Opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+				if vp9Opts.Threads != tc.wantThreads {
+					t.Fatalf("VP9 encoder Threads = %d, want %d", vp9Opts.Threads, tc.wantThreads)
+				}
+			}
+		})
+	}
+
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	cfg := benchConfig{}
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(fs, &cfg, &opts)
+	if err := fs.Parse([]string{"-threads=-1"}); err == nil {
+		t.Fatal("Parse accepted negative -threads")
 	}
 }
 
@@ -79,9 +130,9 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 
 func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	// Sanity check that realtime parity defaults mirror the public WebRTC
-	// example rather than the simpler validation-only CBR preset. The
-	// CLI default for -threads is 1, so the equivalent benchConfig
-	// passed in here mirrors that explicitly.
+	// example rather than the simpler validation-only CBR preset. This direct
+	// config pins explicit Threads=1 so the assertion is independent of the
+	// codec-aware CLI default.
 	got := parityFor(benchConfig{FPS: 24, Threads: 1, CpuUsed: 8})
 	if got.KeyFrameInterval != 3000 {
 		t.Fatalf("KeyFrameInterval = %d, want 3000", got.KeyFrameInterval)
@@ -113,9 +164,8 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 		t.Fatalf("good-mode parity = %+v, want validation CBR defaults", good)
 	}
 
-	// -threads=0 propagates as 0 to libvpx (its native "auto" sentinel)
-	// and to govpx (where normalizeEncoderOptions folds it onto the
-	// historical single-thread default). The flag is plumbed verbatim.
+	// Explicit -threads=0 propagates as 0 to libvpx and govpx, where VP9
+	// realtime treats it as its native auto-thread sentinel.
 	if got := parityFor(benchConfig{FPS: 24, Threads: 0, CpuUsed: 8}); got.Threads != 0 {
 		t.Fatalf("Threads=0 propagates as %d, want 0", got.Threads)
 	}

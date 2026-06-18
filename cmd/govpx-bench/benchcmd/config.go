@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
 	govpx "github.com/thesyncim/govpx"
 )
+
+const benchThreadsDefault = -1
 
 func benchSummary(deadline string) benchConfigSummary {
 	return benchConfigSummary{
@@ -50,7 +53,8 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: quick, vp8, webrtc, vod, or stress")
 	fs.IntVar(&opts.suiteRuns, "suite-runs", 1, "number of repeats per suite case; selects median govpx ns/frame")
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
-	fs.IntVar(&cfg.Threads, "threads", 1, "encoder thread count (EncoderOptions.Threads); 0 lets the encoder pick, mirroring libvpx --threads=N")
+	cfg.Threads = benchThreadsDefault
+	fs.Var(benchThreadsFlag{cfg: cfg}, "threads", "encoder thread count; default is VP9 realtime auto and 1 otherwise; 0 lets the encoder pick")
 	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for VP8 reference comparison")
@@ -67,6 +71,29 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.StringVar(&opts.plotJSON, "plot-json", "", "optional JSON path for -plot VMAF summary data; defaults beside the SVG")
 	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "write a CPU pprof profile of the measured encode/decode pass to this file")
 	fs.StringVar(&opts.memProfile, "memprofile", "", "write a heap pprof profile after the measured pass to this file")
+}
+
+type benchThreadsFlag struct {
+	cfg *benchConfig
+}
+
+func (f benchThreadsFlag) String() string {
+	if f.cfg == nil || f.cfg.Threads == benchThreadsDefault {
+		return "default"
+	}
+	return strconv.Itoa(f.cfg.Threads)
+}
+
+func (f benchThreadsFlag) Set(s string) error {
+	threads, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	if threads < 0 {
+		return fmt.Errorf("threads must be >= 0")
+	}
+	f.cfg.Threads = threads
+	return nil
 }
 
 func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
@@ -189,10 +216,7 @@ func parityFor(cfg benchConfig) encoderParity {
 	if fps <= 0 {
 		fps = 30
 	}
-	threads := cfg.Threads
-	if threads < 0 {
-		threads = 1
-	}
+	threads := effectiveBenchThreads(cfg)
 	tokenPartitions := 0
 	for partitions := 1; partitions < threads && tokenPartitions < 3; partitions <<= 1 {
 		tokenPartitions++
@@ -223,6 +247,23 @@ func parityFor(cfg benchConfig) encoderParity {
 		p.StaticThreshold = 1
 	}
 	return p
+}
+
+func effectiveBenchThreads(cfg benchConfig) int {
+	if cfg.Threads == benchThreadsDefault {
+		return defaultBenchThreads(cfg)
+	}
+	if cfg.Threads < 0 {
+		return 1
+	}
+	return cfg.Threads
+}
+
+func defaultBenchThreads(cfg benchConfig) int {
+	if benchCodec(cfg) == codecVP9 && (cfg.Mode == "" || cfg.Mode == "realtime") {
+		return 0
+	}
+	return 1
 }
 
 func webrtcMaxIntraTargetPct(maxIntraTarget int, fps int) int {
