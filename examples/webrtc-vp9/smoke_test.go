@@ -245,6 +245,14 @@ func TestDemoEndToEnd(t *testing.T) {
 			msg.Settings.RequestedSpatialLayers,
 			msg.Settings.ActiveSpatialLayers)
 	}
+	if msg.Sender.EncodeMs <= 0 ||
+		msg.Sender.PacketizeMs < 0 ||
+		msg.Sender.WriteMs < 0 ||
+		msg.Sender.AccessUnitMs < msg.Sender.EncodeMs ||
+		msg.Sender.RTPPackets <= 0 {
+		t.Fatalf("sender telemetry = %+v, want live encode/write timings and RTP packet count",
+			msg.Sender)
+	}
 	for i, layer := range msg.Layers {
 		if layer.SP != i {
 			t.Fatalf("layer %d SP = %d", i, layer.SP)
@@ -1275,6 +1283,8 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"packetsLost",
 		"freezeCount",
 		"rx freezes",
+		"enc ms",
+		"encoded drops",
 	} {
 		if !strings.Contains(indexHTML, want) {
 			t.Fatalf("indexHTML missing %q", want)
@@ -1997,7 +2007,16 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	tracker := newStatsTracker()
 	tracker.observe(capped, time.Now())
 	raw, err := tracker.snapshot(capped, defaultBitrateKbps, 0, 2,
-		spatialLayerCount, 0)
+		spatialLayerCount, 0, telemetrySender{
+			EncodeMs:           1.25,
+			PacketizeMs:        0.5,
+			WriteMs:            0.25,
+			AccessUnitMs:       2,
+			RTPPackets:         3,
+			ForcedKey:          true,
+			PacketizerRecovery: true,
+			FailedEncodedAUs:   1,
+		})
 	if err != nil {
 		t.Fatalf("snapshot capped telemetry: %v", err)
 	}
@@ -2021,6 +2040,65 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	if msg.Layers[1].SP != 1 {
 		t.Fatalf("top transmitted telemetry SP = %d, want 1", msg.Layers[1].SP)
 	}
+	if msg.Sender.EncodeMs != 1.25 ||
+		msg.Sender.PacketizeMs != 0.5 ||
+		msg.Sender.WriteMs != 0.25 ||
+		msg.Sender.AccessUnitMs != 2 ||
+		msg.Sender.RTPPackets != 3 ||
+		!msg.Sender.ForcedKey ||
+		!msg.Sender.PacketizerRecovery ||
+		msg.Sender.FailedEncodedAUs != 1 {
+		t.Fatalf("sender telemetry = %+v, want timing/recovery counters",
+			msg.Sender)
+	}
+}
+
+func TestStatsTrackerDoesNotCountUnsentEncodedAccessUnit(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	tracker := newStatsTracker()
+
+	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0,
+		spatialLayerCount, spatialLayerCount, 0, telemetrySender{
+			FailedEncodedAUs: 1,
+		})
+	if err != nil {
+		t.Fatalf("snapshot unsent telemetry: %v", err)
+	}
+	var msg telemetryMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode unsent telemetry: %v\npayload=%s", err, raw)
+	}
+	if msg.Totals.Bytes != result.SizeBytes {
+		t.Fatalf("snapshot bytes = %d, want current AU bytes %d",
+			msg.Totals.Bytes, result.SizeBytes)
+	}
+	if msg.Frame != 0 || msg.Totals.FPS != 0 || msg.Totals.KbpsR != 0 {
+		t.Fatalf("unsent telemetry counted sent stats: frame=%d fps=%.2f kbps=%.2f",
+			msg.Frame, msg.Totals.FPS, msg.Totals.KbpsR)
+	}
+	if msg.Sender.FailedEncodedAUs != 1 {
+		t.Fatalf("failed encoded AU counter = %d, want 1",
+			msg.Sender.FailedEncodedAUs)
+	}
+
+	tracker.observe(result, time.Now())
+	raw, err = tracker.snapshot(result, defaultBitrateKbps, 0,
+		spatialLayerCount, spatialLayerCount, 0, telemetrySender{
+			RTPPackets: 1,
+		})
+	if err != nil {
+		t.Fatalf("snapshot sent telemetry: %v", err)
+	}
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode sent telemetry: %v\npayload=%s", err, raw)
+	}
+	if msg.Frame != 1 {
+		t.Fatalf("sent telemetry frame = %d, want 1", msg.Frame)
+	}
+	if msg.Sender.RTPPackets != 1 {
+		t.Fatalf("sent telemetry RTP packets = %d, want 1",
+			msg.Sender.RTPPackets)
+	}
 }
 
 func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
@@ -2043,7 +2121,7 @@ func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
 
 	tracker.observe(result, start.Add(1600*time.Millisecond))
 	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0,
-		spatialLayerCount, spatialLayerCount, 0)
+		spatialLayerCount, spatialLayerCount, 0, telemetrySender{})
 	if err != nil {
 		t.Fatalf("snapshot restored telemetry: %v", err)
 	}

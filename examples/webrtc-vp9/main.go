@@ -229,6 +229,15 @@ function renderStats(msg){
   row(totalsEl, "AU bytes", msg.totals.bytes);
   row(totalsEl, "AU kbps", (msg.totals.kbps_recent||0).toFixed(0));
   row(totalsEl, "fps", (msg.totals.fps||0).toFixed(1));
+  row(totalsEl, "enc ms", (msg.sender?.encode_ms||0).toFixed(1));
+  row(totalsEl, "pkt ms", (msg.sender?.packetize_ms||0).toFixed(1));
+  row(totalsEl, "write ms", (msg.sender?.write_ms||0).toFixed(1));
+  row(totalsEl, "AU ms", (msg.sender?.access_unit_ms||0).toFixed(1));
+  row(totalsEl, "RTP packets", msg.sender?.rtp_packets ?? 0);
+  if(msg.sender?.forced_key) row(totalsEl, "forced key", "yes");
+  if(msg.sender?.packetizer_recovery) row(totalsEl, "pkt recovery", "yes");
+  if(msg.sender?.failed_encode_aus) row(totalsEl, "encode fails", msg.sender.failed_encode_aus);
+  if(msg.sender?.failed_encoded_aus) row(totalsEl, "encoded drops", msg.sender.failed_encoded_aus);
   row(totalsEl, "target kbps", msg.settings.target_kbps);
   row(totalsEl, "active layers", msg.settings.active_spatial_layers || msg.layers.length);
   row(totalsEl, "requested layers", msg.settings.requested_spatial_layers || msg.layers.length);
@@ -878,6 +887,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	statsTracker := newStatsTracker()
 	var lastMediaFrame uint64
 	var haveMediaFrame bool
+	failedEncodeAccessUnits := 0
+	failedEncodedAccessUnits := 0
 	for {
 		var tickTime time.Time
 		select {
@@ -904,6 +915,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				currentScreen = want
 			}
 		}
+		packetizerRecovery := rtpPacketizer.NeedsKeyFrame()
 		active, forceKey := consumeForceKeyForWebRTCAccessUnit(ctl,
 			&rtpPacketizer)
 		if !active {
@@ -927,22 +939,26 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		sceneT := int(mediaFrame + 1)
 		drawScene(imgs, sceneT)
 
+		encodeStarted := time.Now()
 		result, err := svc.EncodeActiveLayersIntoWithResult(imgs, packet,
 			currentSpatialCap)
+		encodeElapsed := time.Since(encodeStarted)
 		if err != nil {
 			log.Printf("EncodeActiveLayersIntoWithResult: %v (frame %d)", err,
 				sceneT)
+			failedEncodeAccessUnits++
 			requestKeyFrameAfterFailedAccessUnit(ctl)
 			continue
 		}
 
 		rtpResult := result
-		statsTracker.observe(rtpResult, time.Now())
 
+		packetizeStarted := time.Now()
 		fragmentCount, payloadBytes, err := rtpPacketizer.
 			SpatialSVCWebRTCPacketizationSize(rtpResult, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
+			failedEncodedAccessUnits++
 			requestKeyFrameAfterFailedEncodedAccessUnit(ctl, &rtpPacketizer)
 			continue
 		}
@@ -958,9 +974,13 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpResult, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
+			failedEncodedAccessUnits++
 			requestKeyFrameAfterFailedEncodedAccessUnit(ctl, &rtpPacketizer)
 			continue
 		}
+		packetizeElapsed := time.Since(packetizeStarted)
+
+		writeStarted := time.Now()
 		for i := 0; i < fragmentCount; i++ {
 			fragment := rtpFragments[i]
 			pkt := rtp.Packet{
@@ -980,10 +1000,23 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				return
 			}
 		}
+		writeElapsed := time.Since(writeStarted)
+
+		statsTracker.observe(rtpResult, time.Now())
 
 		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate,
 			currentScreen, currentSpatialCap, requestedSpatialCap,
-			pts); err == nil {
+			pts, telemetrySender{
+				EncodeMs:           durationMS(encodeElapsed),
+				PacketizeMs:        durationMS(packetizeElapsed),
+				WriteMs:            durationMS(writeElapsed),
+				AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+				RTPPackets:         fragmentCount,
+				ForcedKey:          forceKey,
+				PacketizerRecovery: packetizerRecovery,
+				FailedEncodeAUs:    failedEncodeAccessUnits,
+				FailedEncodedAUs:   failedEncodedAccessUnits,
+			}); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 		if capBackoff.observe(currentSpatialCap, requestedSpatialCap,
@@ -1288,18 +1321,31 @@ type telemetrySettings struct {
 	RequestedSpatialLayers int `json:"requested_spatial_layers"`
 }
 
+type telemetrySender struct {
+	EncodeMs           float64 `json:"encode_ms"`
+	PacketizeMs        float64 `json:"packetize_ms"`
+	WriteMs            float64 `json:"write_ms"`
+	AccessUnitMs       float64 `json:"access_unit_ms"`
+	RTPPackets         int     `json:"rtp_packets"`
+	ForcedKey          bool    `json:"forced_key,omitempty"`
+	PacketizerRecovery bool    `json:"packetizer_recovery,omitempty"`
+	FailedEncodeAUs    int     `json:"failed_encode_aus,omitempty"`
+	FailedEncodedAUs   int     `json:"failed_encoded_aus,omitempty"`
+}
+
 type telemetryMessage struct {
 	Frame     int               `json:"frame"`
 	TSMs      float64           `json:"ts_ms"`
 	Layers    []telemetryLayer  `json:"layers"`
 	Totals    telemetryTotals   `json:"totals"`
 	Settings  telemetrySettings `json:"settings"`
+	Sender    telemetrySender   `json:"sender"`
 	SSPresent bool              `json:"ss_present"`
 }
 
 func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 	targetKbps int, screenMode int, activeSpatialLayers int,
-	requestedSpatialLayers int, pts uint64,
+	requestedSpatialLayers int, pts uint64, sender telemetrySender,
 ) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -1337,9 +1383,14 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 			ActiveSpatialLayers:    activeSpatialLayers,
 			RequestedSpatialLayers: requestedSpatialLayers,
 		},
+		Sender:    sender,
 		SSPresent: r.Layers[0].ScalabilityStructurePresent,
 	}
 	return json.Marshal(msg)
+}
+
+func durationMS(d time.Duration) float64 {
+	return float64(d.Microseconds()) / 1000
 }
 
 // drawScene paints one frame for every spatial layer. Each layer renders at
