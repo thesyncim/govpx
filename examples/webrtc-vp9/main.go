@@ -170,12 +170,16 @@ const MAX_SAMPLES = 240;
 const ICE_GATHER_TIMEOUT_MS = 2000;
 const RECEIVER_REPAIR_COOLDOWN_MS = 2000;
 const RECEIVER_DECODE_STALL_MS = 2500;
+const RECEIVER_REPAIR_CAP_BACKOFF_AFTER = 3;
+const MAX_SPATIAL_CAP = document.querySelectorAll("button[data-cap]").length;
 let latestRTCStats = null;
 let previousRTCStats = null;
 let receiverLastDecoded = null;
 let receiverLastDecodedAt = 0;
 let receiverLastRepairAt = 0;
 let receiverRepairRequests = 0;
+let receiverRepairStreak = 0;
+let receiverRequestedSpatialCap = MAX_SPATIAL_CAP;
 
 function row(dl, k, v){
   const dt = document.createElement("dt"); dt.textContent = k;
@@ -260,6 +264,9 @@ function renderStats(msg){
     row(totalsEl, "rx lost", latestRTCStats.packetsLost ?? "-");
     row(totalsEl, "rx freezes", latestRTCStats.freezeCount ?? "-");
     if(latestRTCStats.receiverRepairRequests) row(totalsEl, "rx repair", latestRTCStats.receiverRepairRequests);
+    if(latestRTCStats.receiverSpatialCap && latestRTCStats.receiverSpatialCap < MAX_SPATIAL_CAP){
+      row(totalsEl, "rx cap", latestRTCStats.receiverSpatialCap);
+    }
   }
   if(msg.ss_present) row(totalsEl, "SS", "present");
   // chart
@@ -292,10 +299,22 @@ for(const b of document.querySelectorAll("button[data-screen]")){
 
 for(const b of document.querySelectorAll("button[data-cap]")){
   b.onclick = () => {
-    for(const o of document.querySelectorAll("button[data-cap]")) o.classList.remove("on");
-    b.classList.add("on");
-    sendCtl({type:"spatial", cap:+b.dataset.cap});
+    requestSpatialCap(+b.dataset.cap, "user");
   };
+}
+
+function setSpatialCapButtons(cap){
+  for(const b of document.querySelectorAll("button[data-cap]")){
+    b.classList.toggle("on", +b.dataset.cap === cap);
+  }
+}
+
+function requestSpatialCap(cap, reason){
+  const next = Math.max(1, Math.min(MAX_SPATIAL_CAP, cap));
+  receiverRequestedSpatialCap = next;
+  receiverRepairStreak = 0;
+  setSpatialCapButtons(next);
+  sendCtl({type:"spatial", cap:next, reason});
 }
 
 const bitrate = document.getElementById("bitrate");
@@ -377,10 +396,14 @@ async function updateRTCStats(pc){
 function maybeRequestReceiverRepair(stats){
   const now = Date.now();
   stats.receiverRepairRequests = receiverRepairRequests;
+  stats.receiverRepairStreak = receiverRepairStreak;
+  stats.receiverSpatialCap = receiverRequestedSpatialCap;
 
   if(stats.framesDecoded !== null && (receiverLastDecoded === null || stats.framesDecoded > receiverLastDecoded)){
     receiverLastDecoded = stats.framesDecoded;
     receiverLastDecodedAt = now;
+    receiverRepairStreak = 0;
+    stats.receiverRepairStreak = receiverRepairStreak;
   }
 
   const prev = previousRTCStats;
@@ -400,9 +423,22 @@ function maybeRequestReceiverRepair(stats){
       (freezeAdvanced || decodedStalled) && !repairCoolingDown){
     receiverLastRepairAt = now;
     receiverRepairRequests++;
+    receiverRepairStreak++;
     stats.receiverRepairRequests = receiverRepairRequests;
+    stats.receiverRepairStreak = receiverRepairStreak;
     sendCtl({type:"keyframe", reason:"receiver-stall"});
+    maybeBackoffReceiverSpatialCap(stats);
   }
+}
+
+function maybeBackoffReceiverSpatialCap(stats){
+  if(receiverRepairStreak < RECEIVER_REPAIR_CAP_BACKOFF_AFTER || receiverRequestedSpatialCap <= 1) return;
+  receiverRequestedSpatialCap--;
+  receiverRepairStreak = 0;
+  stats.receiverRepairStreak = receiverRepairStreak;
+  stats.receiverSpatialCap = receiverRequestedSpatialCap;
+  setSpatialCapButtons(receiverRequestedSpatialCap);
+  sendCtl({type:"spatial", cap:receiverRequestedSpatialCap, reason:"receiver-stall"});
 }
 
 function statDelta(current, previous){
@@ -470,6 +506,7 @@ type controlMessage struct {
 	Mode   int    `json:"mode,omitempty"`
 	Cap    int    `json:"cap,omitempty"`
 	Paused bool   `json:"paused,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {

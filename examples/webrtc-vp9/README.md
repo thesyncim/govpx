@@ -87,6 +87,11 @@ the machine.
     panel with per-layer stats and a rolling kbps chart.
   - An RTCP drain on the sender; PLI/FIR feedback asks the encoder for
     the next access unit to be keyed.
+  - Browser `getStats()` polling watches for packets arriving with zero
+    packet-loss delta but stalled decode or advancing freeze counters. The
+    page first requests a recovery keyframe; repeated clean stalls also lower
+    the requested spatial cap so the sender switches to a smaller keyed SVC
+    stream instead of looping forever on a shape the receiver is not decoding.
   - If local pacing or buffer pressure withholds a coded access unit after
     encode but before packetization, the sender must call
     `VP9WebRTCPacketizer.MarkEncodedAccessUnitUnsent`; if packetization already
