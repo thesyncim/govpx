@@ -1410,8 +1410,13 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"framesDecoded",
 		"framesDropped",
 		"packetsLost",
+		"packetsReceived",
 		"freezeCount",
+		"maybeRequestReceiverRepair",
+		"receiver-stall",
+		"RECEIVER_REPAIR_COOLDOWN_MS",
 		"rx freezes",
+		"rx repair",
 		"enc ms",
 		"encoded drops",
 	} {

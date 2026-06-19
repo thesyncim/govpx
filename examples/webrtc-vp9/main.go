@@ -167,7 +167,14 @@ const ctx2d = chart.getContext("2d");
 const samples = []; // {kbps, ts}
 const MAX_SAMPLES = 240;
 const ICE_GATHER_TIMEOUT_MS = 2000;
+const RECEIVER_REPAIR_COOLDOWN_MS = 2000;
+const RECEIVER_DECODE_STALL_MS = 2500;
 let latestRTCStats = null;
+let previousRTCStats = null;
+let receiverLastDecoded = null;
+let receiverLastDecodedAt = 0;
+let receiverLastRepairAt = 0;
+let receiverRepairRequests = 0;
 
 function row(dl, k, v){
   const dt = document.createElement("dt"); dt.textContent = k;
@@ -247,6 +254,7 @@ function renderStats(msg){
     row(totalsEl, "rx dropped", latestRTCStats.framesDropped ?? "-");
     row(totalsEl, "rx lost", latestRTCStats.packetsLost ?? "-");
     row(totalsEl, "rx freezes", latestRTCStats.freezeCount ?? "-");
+    if(latestRTCStats.receiverRepairRequests) row(totalsEl, "rx repair", latestRTCStats.receiverRepairRequests);
   }
   if(msg.ss_present) row(totalsEl, "SS", "present");
   // chart
@@ -350,12 +358,51 @@ async function updateRTCStats(pc){
     }
   });
   if(!inbound) return;
-  latestRTCStats = {
+  const stats = {
+    packetsReceived: statNumber(inbound.packetsReceived),
     packetsLost: statNumber(inbound.packetsLost),
     framesDecoded: statNumber(inbound.framesDecoded ?? inbound.framesReceived),
     framesDropped: statNumber(inbound.framesDropped),
     freezeCount: statNumber(inbound.freezeCount),
   };
+  maybeRequestReceiverRepair(stats);
+  latestRTCStats = stats;
+}
+
+function maybeRequestReceiverRepair(stats){
+  const now = Date.now();
+  stats.receiverRepairRequests = receiverRepairRequests;
+
+  if(stats.framesDecoded !== null && (receiverLastDecoded === null || stats.framesDecoded > receiverLastDecoded)){
+    receiverLastDecoded = stats.framesDecoded;
+    receiverLastDecodedAt = now;
+  }
+
+  const prev = previousRTCStats;
+  previousRTCStats = {...stats};
+  if(!prev) return;
+
+  const packetsDelta = statDelta(stats.packetsReceived, prev.packetsReceived);
+  const lossDelta = statDelta(stats.packetsLost, prev.packetsLost);
+  const decodedDelta = statDelta(stats.framesDecoded, prev.framesDecoded);
+  const freezeDelta = statDelta(stats.freezeCount, prev.freezeCount);
+  const freezeAdvanced = freezeDelta !== null && freezeDelta > 0;
+  const decodedStalled = decodedDelta === 0 && receiverLastDecodedAt > 0 &&
+    now - receiverLastDecodedAt >= RECEIVER_DECODE_STALL_MS;
+  const repairCoolingDown = now - receiverLastRepairAt < RECEIVER_REPAIR_COOLDOWN_MS;
+
+  if(packetsDelta !== null && packetsDelta > 0 && lossDelta === 0 &&
+      (freezeAdvanced || decodedStalled) && !repairCoolingDown){
+    receiverLastRepairAt = now;
+    receiverRepairRequests++;
+    stats.receiverRepairRequests = receiverRepairRequests;
+    sendCtl({type:"keyframe", reason:"receiver-stall"});
+  }
+}
+
+function statDelta(current, previous){
+  if(current === null || previous === null) return null;
+  return current - previous;
 }
 
 function statNumber(value){
