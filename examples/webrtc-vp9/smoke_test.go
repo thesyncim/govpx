@@ -950,6 +950,35 @@ func TestRequestKeyFrameAfterFailedAccessUnitPreservesPendingKey(t *testing.T) {
 	}
 }
 
+func TestRequestKeyFrameAfterFailedEncodedAccessUnitConsumesPictureID(t *testing.T) {
+	ctl := &controlState{}
+	packetizer := govpx.NewVP9WebRTCPacketizer(
+		govpx.VP9RTPPictureID15BitMask)
+
+	requestKeyFrameAfterFailedEncodedAccessUnit(ctl, &packetizer)
+
+	if !ctl.forceKey.Load() {
+		t.Fatal("failed encoded access unit did not queue keyframe request")
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("failed encoded access unit did not require packetizer recovery")
+	}
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("failed encoded access unit PictureID = %d, want wrap to 0",
+			got)
+	}
+}
+
+func TestRequestKeyFrameAfterFailedEncodedAccessUnitAllowsNilPacketizer(t *testing.T) {
+	ctl := &controlState{}
+
+	requestKeyFrameAfterFailedEncodedAccessUnit(ctl, nil)
+
+	if !ctl.forceKey.Load() {
+		t.Fatal("failed encoded access unit with nil packetizer did not queue keyframe request")
+	}
+}
+
 func TestSpatialCapForAccessUnitDefersPendingCapUntilKeyFrame(t *testing.T) {
 	ctl := &controlState{}
 	ctl.spatialCap.Store(1)
