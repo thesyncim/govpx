@@ -118,7 +118,8 @@ returns no more data.
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
-| Packetize VP9 for WebRTC senders | `VP9WebRTCPacketizer`, `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
+| Packetize plain VP9 for WebRTC senders | `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize`, `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP` |
+| Packetize VP9 spatial SVC for WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
@@ -160,7 +161,11 @@ after encoding but before successful packetization, call
 succeeded, call `VP9WebRTCPacketizer.MarkAccessUnitUnsent`. Then force a
 keyframe before sending more VP9 RTP. That local pacing/backpressure drop does
 not show up as RTP loss, but later VP9 inter frames can otherwise reference a
-PictureID the receiver never saw. The generic VP9 RTP packetizers remain
+PictureID the receiver never saw. With pion/webrtc, write the payloads from
+`VP9WebRTCPacketizer` to a `TrackLocalStaticRTP`; do not pass govpx VP9 SVC
+superframes to `TrackLocalStaticSample`, because Pion's generic VP9 payloader
+cannot reconstruct govpx's temporal/spatial dependency metadata from raw VP9
+bytes. The generic VP9 RTP packetizers remain
 available for callers that already own their
 descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
 superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial

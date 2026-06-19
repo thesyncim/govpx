@@ -6,6 +6,8 @@ import (
 	"image"
 	"testing"
 
+	"github.com/pion/rtp/codecs"
+
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 )
@@ -54,6 +56,107 @@ func TestPlainVP9PacketizedStreamPassesLibwebrtcVP9RefFinder(t *testing.T) {
 		}
 		refFinder.acceptPlainAccessUnit(t, frame, payloads, pictureID)
 		pictureID = govpx.NextVP9RTPPictureID(pictureID)
+	}
+}
+
+func TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata(t *testing.T) {
+	svc, err := newSVCEncoder(demoConfig{
+		FPS:         defaultFPS,
+		BitrateKbps: defaultBitrateKbps,
+	})
+	if err != nil {
+		t.Fatalf("newSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+
+	imgs := make([]*image.YCbCr, spatialLayerCount)
+	for i := range imgs {
+		imgs[i] = image.NewYCbCr(
+			image.Rect(0, 0, layerDims[i][0], layerDims[i][1]),
+			image.YCbCrSubsampleRatio420)
+	}
+	drawScene(imgs, 0)
+	result, err := svc.EncodeActiveLayersIntoWithResult(imgs,
+		make([]byte, superframeBudget()), spatialLayerCount)
+	if err != nil {
+		t.Fatalf("EncodeActiveLayersIntoWithResult: %v", err)
+	}
+	if int(result.LayerCount) != spatialLayerCount {
+		t.Fatalf("SVC layer count = %d, want %d",
+			result.LayerCount, spatialLayerCount)
+	}
+
+	var pionPayloader codecs.VP9Payloader
+	rawPayloads := pionPayloader.Payload(500, result.Data)
+	if len(rawPayloads) == 0 {
+		t.Fatal("Pion VP9Payloader returned no payloads for raw SVC access unit")
+	}
+	var rawPacket codecs.VP9Packet
+	if _, err := rawPacket.Unmarshal(rawPayloads[0]); err != nil {
+		t.Fatalf("Pion raw VP9Packet.Unmarshal: %v", err)
+	}
+	if rawPacket.L {
+		t.Fatal("Pion raw VP9 sample payloader unexpectedly carried layer indices")
+	}
+	if rawPacket.V && int(rawPacket.NS)+1 == spatialLayerCount {
+		t.Fatalf("Pion raw VP9 sample payloader advertised %d spatial layers; want not SVC-aware",
+			int(rawPacket.NS)+1)
+	}
+
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x120)
+	packets, payloadBytes, err := packetizer.
+		SpatialSVCWebRTCNonFlexiblePacketizationSize(result, 500)
+	if err != nil {
+		t.Fatalf("SpatialSVCWebRTCNonFlexiblePacketizationSize: %v", err)
+	}
+	payloads := make([]govpx.RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, used, err := packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+		result, payloads, payloadBuf, 500)
+	if err != nil {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto: %v", err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto returned %d/%d, want %d/%d",
+			n, used, packets, payloadBytes)
+	}
+
+	var seenStart [spatialLayerCount]bool
+	for i, payload := range payloads[:n] {
+		var packet codecs.VP9Packet
+		if _, err := packet.Unmarshal(payload.Payload); err != nil {
+			t.Fatalf("govpx VP9Packet.Unmarshal[%d]: %v", i, err)
+		}
+		if packet.F {
+			t.Fatalf("govpx payload %d used flexible mode, want non-flexible SVC",
+				i)
+		}
+		if !packet.L {
+			t.Fatalf("govpx payload %d missing layer indices", i)
+		}
+		if int(packet.SID) >= spatialLayerCount {
+			t.Fatalf("govpx payload %d spatial id = %d, want < %d",
+				i, packet.SID, spatialLayerCount)
+		}
+		if packet.B {
+			seenStart[packet.SID] = true
+			if packet.SID == 0 {
+				if !packet.V || int(packet.NS)+1 != spatialLayerCount {
+					t.Fatalf("govpx base start SS = V:%t layers:%d, want %d",
+						packet.V, int(packet.NS)+1,
+						spatialLayerCount)
+				}
+			} else if !packet.D {
+				t.Fatalf("govpx enhancement start sid %d missing inter-layer dependency",
+					packet.SID)
+			}
+		}
+	}
+	for layer := range seenStart {
+		if !seenStart[layer] {
+			t.Fatalf("govpx packetized access unit missing layer %d start",
+				layer)
+		}
 	}
 }
 
