@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
@@ -487,7 +488,7 @@ func handleOfferWithICEGatherWait(
 		return
 	}
 
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{
+	pc, err := newVP9WebRTCPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
 	})
 	if err != nil {
@@ -601,6 +602,28 @@ func handleOfferWithICEGatherWait(
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(local)
+}
+
+func newVP9WebRTCPeerConnection(
+	cfg webrtc.Configuration,
+) (*webrtc.PeerConnection, error) {
+	mediaEngine := &webrtc.MediaEngine{}
+	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
+		return nil, err
+	}
+	interceptorRegistry := &interceptor.Registry{}
+	if err := webrtc.ConfigureTWCCHeaderExtensionSender(
+		mediaEngine, interceptorRegistry); err != nil {
+		return nil, err
+	}
+	if err := webrtc.RegisterDefaultInterceptors(
+		mediaEngine, interceptorRegistry); err != nil {
+		return nil, err
+	}
+	return webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithInterceptorRegistry(interceptorRegistry),
+	).NewPeerConnection(cfg)
 }
 
 func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {

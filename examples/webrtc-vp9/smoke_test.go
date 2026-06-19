@@ -11,12 +11,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 
 	"github.com/thesyncim/govpx"
@@ -132,6 +134,7 @@ func TestDemoEndToEnd(t *testing.T) {
 				feedback, answer.SDP)
 		}
 	}
+	twccExtID := sdpExtmapIDForTest(t, answer.SDP, sdp.TransportCCURI)
 	if err := pc.SetRemoteDescription(answer); err != nil {
 		t.Fatalf("SetRemoteDescription: %v", err)
 	}
@@ -145,11 +148,15 @@ func TestDemoEndToEnd(t *testing.T) {
 	firstAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
 	assertRTPAccessUnitHeaderMatchesTrackForTest(t, "first RTP access unit",
 		firstAU, trackHeader)
+	assertRTPAccessUnitHasHeaderExtensionForTest(t, "first RTP access unit",
+		firstAU, twccExtID)
 	firstDesc := assertWebRTCRTPAccessUnitForTest(t, firstAU,
 		spatialLayerCount, true)
 	secondAU := readVP9RTPAccessUnitForTest(t, ctx, rtpCh)
 	assertRTPAccessUnitHeaderMatchesTrackForTest(t, "second RTP access unit",
 		secondAU, trackHeader)
+	assertRTPAccessUnitHasHeaderExtensionForTest(t, "second RTP access unit",
+		secondAU, twccExtID)
 	secondDesc := assertWebRTCRTPAccessUnitForTest(t, secondAU,
 		spatialLayerCount, false)
 	if got, want := secondAU[0].SequenceNumber, firstAU[0].SequenceNumber+uint16(len(firstAU)); got != want {
@@ -1410,6 +1417,51 @@ func sdpHasRTCPFeedbackForTest(sdp string, feedback string) bool {
 		}
 	}
 	return false
+}
+
+func sdpExtmapIDForTest(t *testing.T, sdpText string, uri string) uint8 {
+	t.Helper()
+	uri = strings.TrimSpace(uri)
+	for _, raw := range strings.Split(sdpText, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "a=extmap:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, "a=extmap:"))
+		if len(fields) < 2 || fields[1] != uri {
+			continue
+		}
+		idField := strings.SplitN(fields[0], "/", 2)[0]
+		id, err := strconv.Atoi(idField)
+		if err != nil || id <= 0 || id > 255 {
+			t.Fatalf("invalid extmap id %q for %s in SDP:\n%s",
+				fields[0], uri, sdpText)
+		}
+		return uint8(id)
+	}
+	t.Fatalf("answer SDP missing extmap for %s:\n%s", uri, sdpText)
+	return 0
+}
+
+func assertRTPAccessUnitHasHeaderExtensionForTest(
+	t *testing.T,
+	label string,
+	packets []*rtp.Packet,
+	extID uint8,
+) {
+	t.Helper()
+	if extID == 0 {
+		t.Fatalf("%s extension id is zero", label)
+	}
+	for i, packet := range packets {
+		if packet == nil {
+			t.Fatalf("%s packet %d is nil", label, i)
+		}
+		if got := packet.GetExtension(extID); len(got) == 0 {
+			t.Fatalf("%s packet %d missing RTP header extension %d",
+				label, i, extID)
+		}
+	}
 }
 
 func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
