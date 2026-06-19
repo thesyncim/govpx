@@ -230,6 +230,8 @@ function renderStats(msg){
   row(totalsEl, "AU kbps", (msg.totals.kbps_recent||0).toFixed(0));
   row(totalsEl, "fps", (msg.totals.fps||0).toFixed(1));
   row(totalsEl, "target kbps", msg.settings.target_kbps);
+  row(totalsEl, "active layers", msg.settings.active_spatial_layers || msg.layers.length);
+  row(totalsEl, "requested layers", msg.settings.requested_spatial_layers || msg.layers.length);
   row(totalsEl, "screen mode", ["video","screen","film"][msg.settings.screen_mode] || "?");
   if(latestRTCStats){
     row(totalsEl, "rx decoded", latestRTCStats.framesDecoded ?? "-");
@@ -969,7 +971,9 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			}
 		}
 
-		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate, currentScreen, pts); err == nil {
+		if payload, err := statsTracker.snapshot(rtpResult, currentBitrate,
+			currentScreen, currentSpatialCap, requestedSpatialCap,
+			pts); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
 		if capBackoff.observe(currentSpatialCap, requestedSpatialCap,
@@ -1268,8 +1272,10 @@ type telemetryTotals struct {
 }
 
 type telemetrySettings struct {
-	TargetKbps int `json:"target_kbps"`
-	ScreenMode int `json:"screen_mode"`
+	TargetKbps             int `json:"target_kbps"`
+	ScreenMode             int `json:"screen_mode"`
+	ActiveSpatialLayers    int `json:"active_spatial_layers"`
+	RequestedSpatialLayers int `json:"requested_spatial_layers"`
 }
 
 type telemetryMessage struct {
@@ -1281,7 +1287,10 @@ type telemetryMessage struct {
 	SSPresent bool              `json:"ss_present"`
 }
 
-func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult, targetKbps, screenMode int, pts uint64) ([]byte, error) {
+func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
+	targetKbps int, screenMode int, activeSpatialLayers int,
+	requestedSpatialLayers int, pts uint64,
+) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	count := int(r.LayerCount)
@@ -1308,11 +1317,16 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult, targetKbps, s
 		totalRecentKbps += t.windowed[i].lastKBPS
 	}
 	msg := telemetryMessage{
-		Frame:     t.frames,
-		TSMs:      float64(pts) * 1000.0 / float64(rtpClockHz),
-		Layers:    layers,
-		Totals:    telemetryTotals{Bytes: r.SizeBytes, KbpsR: totalRecentKbps, FPS: t.fpsEMA},
-		Settings:  telemetrySettings{TargetKbps: targetKbps, ScreenMode: screenMode},
+		Frame:  t.frames,
+		TSMs:   float64(pts) * 1000.0 / float64(rtpClockHz),
+		Layers: layers,
+		Totals: telemetryTotals{Bytes: r.SizeBytes, KbpsR: totalRecentKbps, FPS: t.fpsEMA},
+		Settings: telemetrySettings{
+			TargetKbps:             targetKbps,
+			ScreenMode:             screenMode,
+			ActiveSpatialLayers:    activeSpatialLayers,
+			RequestedSpatialLayers: requestedSpatialLayers,
+		},
 		SSPresent: r.Layers[0].ScalabilityStructurePresent,
 	}
 	return json.Marshal(msg)

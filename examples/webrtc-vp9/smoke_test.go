@@ -234,6 +234,16 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("telemetry target kbps = %d, want %d",
 			msg.Settings.TargetKbps, cfg.BitrateKbps)
 	}
+	if msg.Settings.ActiveSpatialLayers != len(msg.Layers) {
+		t.Fatalf("telemetry active spatial layers = %d, want %d",
+			msg.Settings.ActiveSpatialLayers, len(msg.Layers))
+	}
+	if msg.Settings.RequestedSpatialLayers < msg.Settings.ActiveSpatialLayers ||
+		msg.Settings.RequestedSpatialLayers > spatialLayerCount {
+		t.Fatalf("telemetry requested spatial layers = %d, active = %d",
+			msg.Settings.RequestedSpatialLayers,
+			msg.Settings.ActiveSpatialLayers)
+	}
 	for i, layer := range msg.Layers {
 		if layer.SP != i {
 			t.Fatalf("layer %d SP = %d", i, layer.SP)
@@ -1932,7 +1942,8 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 
 	tracker := newStatsTracker()
 	tracker.observe(capped, time.Now())
-	raw, err := tracker.snapshot(capped, defaultBitrateKbps, 0, 0)
+	raw, err := tracker.snapshot(capped, defaultBitrateKbps, 0, 2,
+		spatialLayerCount, 0)
 	if err != nil {
 		t.Fatalf("snapshot capped telemetry: %v", err)
 	}
@@ -1946,6 +1957,12 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	if msg.Totals.Bytes != capped.SizeBytes {
 		t.Fatalf("capped telemetry bytes = %d, want %d",
 			msg.Totals.Bytes, capped.SizeBytes)
+	}
+	if msg.Settings.ActiveSpatialLayers != 2 ||
+		msg.Settings.RequestedSpatialLayers != spatialLayerCount {
+		t.Fatalf("capped telemetry spatial settings = active:%d requested:%d, want 2/%d",
+			msg.Settings.ActiveSpatialLayers,
+			msg.Settings.RequestedSpatialLayers, spatialLayerCount)
 	}
 	if msg.Layers[1].SP != 1 {
 		t.Fatalf("top transmitted telemetry SP = %d, want 1", msg.Layers[1].SP)
@@ -1971,7 +1988,8 @@ func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
 	}
 
 	tracker.observe(result, start.Add(1600*time.Millisecond))
-	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0, 0)
+	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0,
+		spatialLayerCount, spatialLayerCount, 0)
 	if err != nil {
 		t.Fatalf("snapshot restored telemetry: %v", err)
 	}
@@ -1982,6 +2000,13 @@ func TestStatsTrackerClearsHiddenLayerWindows(t *testing.T) {
 	if len(msg.Layers) != spatialLayerCount {
 		t.Fatalf("restored telemetry layer count = %d, want %d",
 			len(msg.Layers), spatialLayerCount)
+	}
+	if msg.Settings.ActiveSpatialLayers != spatialLayerCount ||
+		msg.Settings.RequestedSpatialLayers != spatialLayerCount {
+		t.Fatalf("restored telemetry spatial settings = active:%d requested:%d, want %d/%d",
+			msg.Settings.ActiveSpatialLayers,
+			msg.Settings.RequestedSpatialLayers, spatialLayerCount,
+			spatialLayerCount)
 	}
 	if msg.Layers[1].KbpsR != 0 || msg.Layers[2].KbpsR != 0 {
 		t.Fatalf("restored hidden-layer stale kbps = %.2f/%.2f, want zero until fresh window",
