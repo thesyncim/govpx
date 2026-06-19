@@ -612,6 +612,136 @@ func TestVP9WebRTCPacketizerPacketizesNonFlexibleSpatialSVC(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerKeepsNonFlexibleSVCRefsOnBufferTooSmall(t *testing.T) {
+	results := encodeVP9WebRTCSVCTestResults(t, 2)
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x1234)
+	const mtu = 80
+
+	packetizeSpatialSVCWebRTCNonFlexibleForTest(t, &packetizer, results[0],
+		mtu)
+	deltaPictureID := packetizer.PictureID()
+	deltaPackets, deltaBytes, err := packetizer.
+		SpatialSVCWebRTCNonFlexiblePacketizationSize(results[1], mtu)
+	if err != nil {
+		t.Fatalf("delta SpatialSVCWebRTCNonFlexiblePacketizationSize: %v",
+			err)
+	}
+	if deltaPackets < 2 {
+		t.Fatalf("delta packet count = %d, want fragmented test setup",
+			deltaPackets)
+	}
+
+	shortPayloads := make([]govpx.RTPPayloadFragment, deltaPackets-1)
+	deltaPayloadBuf := make([]byte, deltaBytes)
+	gotPackets, gotBytes, err := packetizer.
+		PacketizeSpatialSVCWebRTCNonFlexibleInto(results[1], shortPayloads,
+			deltaPayloadBuf, mtu)
+	if !errors.Is(err, govpx.ErrBufferTooSmall) ||
+		gotPackets != deltaPackets || gotBytes != deltaBytes {
+		t.Fatalf("short PacketizeSpatialSVCWebRTCNonFlexibleInto = %d/%d err:%v, want %d/%d ErrBufferTooSmall",
+			gotPackets, gotBytes, err, deltaPackets, deltaBytes)
+	}
+	if got := packetizer.PictureID(); got != deltaPictureID {
+		t.Fatalf("PictureID advanced after non-flexible buffer error: got %d want %d",
+			got, deltaPictureID)
+	}
+	if packetizer.NeedsKeyFrame() {
+		t.Fatal("non-flexible buffer error required recovery key")
+	}
+
+	deltaPayloads := make([]govpx.RTPPayloadFragment, deltaPackets)
+	n, used, err := packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+		results[1], deltaPayloads, deltaPayloadBuf, mtu)
+	if err != nil || n != deltaPackets || used != deltaBytes {
+		t.Fatalf("retry PacketizeSpatialSVCWebRTCNonFlexibleInto = %d/%d err:%v, want %d/%d nil",
+			n, used, err, deltaPackets, deltaBytes)
+	}
+	for i, payload := range deltaPayloads[:n] {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("delta ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.FlexibleMode {
+			t.Fatalf("delta payload %d used flexible descriptor", i)
+		}
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(deltaPictureID); got != want {
+		t.Fatalf("PictureID after non-flexible retry = %d, want %d",
+			got, want)
+	}
+}
+
+func TestVP9WebRTCPacketizerRequiresRecoveryAfterNonFlexiblePacketizationError(t *testing.T) {
+	results := encodeVP9WebRTCSVCTestResults(t, 2)
+	const mtu = 80
+
+	for _, tc := range []struct {
+		name string
+		run  func(*govpx.VP9WebRTCPacketizer, govpx.VP9SpatialSVCEncodeResult) (int, int, error)
+	}{
+		{
+			name: "size",
+			run: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				return packetizer.SpatialSVCWebRTCNonFlexiblePacketizationSize(
+					result, mtu)
+			},
+		},
+		{
+			name: "packetize",
+			run: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				payloads := make([]govpx.RTPPayloadFragment, 8)
+				payloadBuf := make([]byte, 1<<20)
+				return packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+					result, payloads, payloadBuf, mtu)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packetizer := govpx.NewVP9WebRTCPacketizer(0x210)
+			packetizeSpatialSVCWebRTCNonFlexibleForTest(t, &packetizer,
+				results[0], mtu)
+			nextPictureID := packetizer.PictureID()
+
+			bad := results[1]
+			bad.Layers[0].Data = nil
+			bad.Layers[0].SizeBytes = 0
+			packets, payloadBytes, err := tc.run(&packetizer, bad)
+			if !errors.Is(err, govpx.ErrInvalidConfig) ||
+				packets != 0 || payloadBytes != 0 {
+				t.Fatalf("%s bad non-flexible result = %d/%d err:%v, want ErrInvalidConfig",
+					tc.name, packets, payloadBytes, err)
+			}
+			if got := packetizer.PictureID(); got != nextPictureID {
+				t.Fatalf("%s bad result advanced PictureID to %d, want %d",
+					tc.name, got, nextPictureID)
+			}
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("%s bad result did not require recovery key",
+					tc.name)
+			}
+			if packets, payloadBytes, err := packetizer.
+				SpatialSVCWebRTCNonFlexiblePacketizationSize(results[1],
+					mtu); !errors.Is(err, govpx.ErrInvalidConfig) ||
+				packets != 0 || payloadBytes != 0 {
+				t.Fatalf("%s post-error inter size = %d/%d err:%v, want ErrInvalidConfig",
+					tc.name, packets, payloadBytes, err)
+			}
+
+			packetizeSpatialSVCWebRTCNonFlexibleForTest(t, &packetizer,
+				results[0], mtu)
+			if packetizer.NeedsKeyFrame() {
+				t.Fatalf("%s recovery key did not clear NeedsKeyFrame",
+					tc.name)
+			}
+		})
+	}
+}
+
 func newVP9WebRTCLayerChangeSVCForTest(
 	t *testing.T,
 ) (*govpx.VP9SpatialSVCEncoder, []*image.YCbCr) {
@@ -709,6 +839,54 @@ func packetizeSpatialSVCWebRTCForTest(
 	if got, want := packetizer.PictureID(),
 		govpx.NextVP9RTPPictureID(pictureID); got != want {
 		t.Fatalf("PictureID after packetize = %d, want %d", got, want)
+	}
+	return payloads
+}
+
+func packetizeSpatialSVCWebRTCNonFlexibleForTest(
+	t *testing.T,
+	packetizer *govpx.VP9WebRTCPacketizer,
+	result govpx.VP9SpatialSVCEncodeResult,
+	mtu int,
+) []govpx.RTPPayloadFragment {
+	t.Helper()
+	pictureID := packetizer.PictureID()
+	packets, payloadBytes, err := packetizer.
+		SpatialSVCWebRTCNonFlexiblePacketizationSize(result, mtu)
+	if err != nil {
+		t.Fatalf("SpatialSVCWebRTCNonFlexiblePacketizationSize: %v", err)
+	}
+	payloads := make([]govpx.RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, used, err := packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+		result, payloads, payloadBuf, mtu)
+	if err != nil {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto: %v", err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto returned %d/%d, want %d/%d",
+			n, used, packets, payloadBytes)
+	}
+	payloads = payloads[:n]
+	for i, payload := range payloads {
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.FlexibleMode {
+			t.Fatalf("payload %d used flexible descriptor", i)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(pictureID); got != want {
+		t.Fatalf("PictureID after non-flexible packetize = %d, want %d",
+			got, want)
 	}
 	return payloads
 }

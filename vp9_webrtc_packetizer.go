@@ -265,7 +265,12 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCNonFlexiblePacketizationSize(
 		return 0, 0, err
 	}
 	p.consumedDropPending = false
-	return r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
+	packets, payloadBytes, err := r.WebRTCRTPPacketizationSize(p.pictureID,
+		mtu)
+	if err != nil {
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
+	}
+	return packets, payloadBytes, err
 }
 
 // PacketizeSpatialSVCWebRTCNonFlexibleInto packetizes r into caller-owned RTP
@@ -287,6 +292,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCNonFlexibleInto(
 	packets, payloadBytes, err := r.PacketizeWebRTCRTPInto(dst, payloadBuf,
 		pictureID, mtu)
 	if err != nil {
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 		return packets, payloadBytes, err
 	}
 	p.consumedDropPending = false
@@ -332,6 +338,15 @@ func (p *VP9WebRTCPacketizer) requireVP9RecoveryKeyAfterPacketizationError(
 	err error,
 ) {
 	if p == nil || !errors.Is(err, errVP9WebRTCRecoveryKeyRequired) {
+		return
+	}
+	p.keyFrameRequired = true
+}
+
+func (p *VP9WebRTCPacketizer) requireVP9RecoveryKeyAfterEncodedPacketizationError(
+	err error,
+) {
+	if p == nil || err == nil || errors.Is(err, ErrBufferTooSmall) {
 		return
 	}
 	p.keyFrameRequired = true
