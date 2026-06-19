@@ -47,18 +47,33 @@ func (p *VP9WebRTCPacketizer) NeedsKeyFrame() bool {
 	return p != nil && p.keyFrameRequired
 }
 
-// MarkAccessUnitUnsent tells the packetizer that a VP9 frame/access unit
-// produced by the encoder was intentionally withheld by the sender after it
-// was encoded or packetized. This covers local pacing/backpressure drops where
-// WebRTC will report no RTP packet loss but later inter frames may still
-// reference the unsent PictureID. The next emitted VP9 RTP payload must be a
-// TL0 recovery keyframe.
+// MarkAccessUnitUnsent tells the packetizer that a VP9 frame/access unit was
+// intentionally withheld by the sender after successful packetization, or
+// after a PictureID was otherwise assigned. This covers local pacing or
+// backpressure drops where WebRTC will report no RTP packet loss but later
+// inter frames may still reference the unsent PictureID. The next emitted VP9
+// RTP payload must be a TL0 recovery keyframe.
 func (p *VP9WebRTCPacketizer) MarkAccessUnitUnsent() {
 	if p == nil {
 		return
 	}
 	p.consumedDropPending = false
 	p.keyFrameRequired = true
+}
+
+// MarkEncodedAccessUnitUnsent tells the packetizer that a coded VP9
+// frame/access unit was intentionally withheld before packetization succeeded.
+// It consumes the current PictureID for that encoded temporal slot and
+// requires the next emitted VP9 RTP payload to be a TL0 recovery keyframe. Use
+// MarkAccessUnitUnsent instead when packetization already succeeded, because a
+// successful packetization already consumes the PictureID.
+func (p *VP9WebRTCPacketizer) MarkEncodedAccessUnitUnsent() {
+	if p == nil {
+		return
+	}
+	p.consumedDropPending = false
+	p.keyFrameRequired = true
+	p.advancePictureID()
 }
 
 // PacketizationSize returns the RTP payload count and payload-body bytes

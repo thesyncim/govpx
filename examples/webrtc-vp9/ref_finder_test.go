@@ -501,6 +501,16 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 				t.Fatalf("unsent frame %d advanced PictureID to %d, want %d",
 					frame, got, pictureID)
 			}
+			packetizer.MarkEncodedAccessUnitUnsent()
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("encoded unsent frame %d did not require recovery key",
+					frame)
+			}
+			if got, want := packetizer.PictureID(),
+				govpx.NextVP9RTPPictureID(pictureID); got != want {
+				t.Fatalf("encoded unsent frame %d next PictureID = %d, want %d",
+					frame, got, want)
+			}
 			forceNext = true
 			lastCap = activeCap
 			prevPictureID = pictureID

@@ -394,6 +394,75 @@ func TestVP9WebRTCPacketizerRequiresRecoveryAfterMarkedUnsentSVCAccessUnit(t *te
 	}
 }
 
+func TestVP9WebRTCPacketizerConsumesEncodedUnsentSVCAccessUnit(t *testing.T) {
+	svc, srcs := newVP9WebRTCLayerChangeSVCForTest(t)
+	dst := make([]byte, 1<<20)
+	packetizer := govpx.NewVP9WebRTCPacketizer(
+		govpx.VP9RTPPictureID15BitMask - 1)
+	const mtu = 80
+
+	key := encodeVP9WebRTCLayerChangeResultForTest(t, svc, srcs, dst, 0, 3)
+	packetizeSpatialSVCWebRTCForTest(t, &packetizer, key, mtu)
+
+	unsentPictureID := packetizer.PictureID()
+	unsent := encodeVP9WebRTCLayerChangeResultForTest(t, svc, srcs, dst, 1, 3)
+	if unsent.Layers[0].KeyFrame {
+		t.Fatal("test setup produced keyframe for encoded unsent access unit")
+	}
+	packets, payloadBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+		unsent, mtu)
+	if err != nil {
+		t.Fatalf("encoded unsent size: %v", err)
+	}
+	if packets == 0 || payloadBytes == 0 {
+		t.Fatalf("encoded unsent size = %d/%d, want non-empty RTP shape",
+			packets, payloadBytes)
+	}
+	if got := packetizer.PictureID(); got != unsentPictureID {
+		t.Fatalf("encoded unsent size advanced PictureID to %d, want %d",
+			got, unsentPictureID)
+	}
+
+	packetizer.MarkEncodedAccessUnitUnsent()
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("MarkEncodedAccessUnitUnsent did not require a recovery key")
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(unsentPictureID); got != want {
+		t.Fatalf("PictureID after encoded unsent access unit = %d, want %d",
+			got, want)
+	}
+
+	inter := encodeVP9WebRTCLayerChangeResultForTest(t, svc, srcs, dst, 2, 3)
+	if inter.Layers[0].KeyFrame {
+		t.Fatal("test setup produced keyframe before recovery request")
+	}
+	if packets, payloadBytes, err := packetizer.SpatialSVCWebRTCPacketizationSize(
+		inter, mtu); !errors.Is(err, govpx.ErrInvalidConfig) ||
+		packets != 0 || payloadBytes != 0 {
+		t.Fatalf("post-encoded-unsent inter size = %d/%d err:%v, want ErrInvalidConfig",
+			packets, payloadBytes, err)
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(unsentPictureID); got != want {
+		t.Fatalf("PictureID after rejected post-unsent inter = %d, want %d",
+			got, want)
+	}
+
+	svc.ForceKeyFrame()
+	recovery := encodeVP9WebRTCLayerChangeResultForTest(t, svc, srcs, dst, 3, 3)
+	if !recovery.Layers[0].KeyFrame ||
+		recovery.Layers[0].InterPicturePredicted {
+		t.Fatalf("recovery base = key:%t inter:%t, want key/non-predicted",
+			recovery.Layers[0].KeyFrame,
+			recovery.Layers[0].InterPicturePredicted)
+	}
+	packetizeSpatialSVCWebRTCForTest(t, &packetizer, recovery, mtu)
+	if packetizer.NeedsKeyFrame() {
+		t.Fatal("recovery key did not clear NeedsKeyFrame")
+	}
+}
+
 func TestVP9WebRTCPacketizerKeepsSVCRefsOnBufferTooSmall(t *testing.T) {
 	results := encodeVP9WebRTCSVCTestResults(t, 2)
 	packetizer := govpx.NewVP9WebRTCPacketizer(0x1234)

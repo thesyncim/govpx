@@ -134,11 +134,12 @@ temporal-layer drops can continue as ordinary PictureID gaps. Base and middle
 temporal-layer drops require a recovery keyframe; after those drops
 `NeedsKeyFrame` returns true and the sender should call `ForceKeyFrame` before
 emitting another VP9 RTP frame. If the application withholds a coded VP9
-frame/access unit locally after encode or after packetization succeeds, call
-`MarkAccessUnitUnsent` on the packetizer and force a keyframe before emitting
-more VP9 RTP. That protects browser receivers from waiting on a PictureID that
-was never sent even though the WebRTC stats show no RTP loss. The lower-level
-VP9 RTP packetizers are still
+frame/access unit locally after encode but before packetization, call
+`MarkEncodedAccessUnitUnsent`; if packetization already succeeded, call
+`MarkAccessUnitUnsent`. Then force a keyframe before emitting more VP9 RTP.
+That protects browser receivers from waiting on a PictureID that was never
+sent even though the WebRTC stats show no RTP loss. The lower-level VP9 RTP
+packetizers are still
 available when a caller deliberately owns
 descriptor policy.
 

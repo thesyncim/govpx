@@ -85,11 +85,12 @@ machine.
   - An RTCP drain on the sender; PLI/FIR feedback asks the encoder for
     the next access unit to be keyed.
   - If local pacing or buffer pressure withholds a coded access unit after
-    encode/packetization, the sender must call
-    `VP9WebRTCPacketizer.MarkAccessUnitUnsent` and force a keyframe before
-    sending another VP9 access unit. That app-local gap is invisible to RTP
-    packet-loss counters but can otherwise strand WebRTC's VP9 reference
-    finder.
+    encode but before packetization, the sender must call
+    `VP9WebRTCPacketizer.MarkEncodedAccessUnitUnsent`; if packetization already
+    succeeded, it must call `VP9WebRTCPacketizer.MarkAccessUnitUnsent`. Then it
+    must force a keyframe before sending another VP9 access unit. That
+    app-local gap is invisible to RTP packet-loss counters but can otherwise
+    strand WebRTC's VP9 reference finder.
 
 - Control messages from the page are applied between access units:
   - `bitrate` re-derives per-layer CBR targets via

@@ -1064,6 +1064,16 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
 				t.Fatalf("unsent frame %d advanced PictureID to %d, want %d",
 					frame, got, framePictureID)
 			}
+			packetizer.MarkEncodedAccessUnitUnsent()
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("encoded unsent frame %d did not require recovery key",
+					frame)
+			}
+			if got, want := packetizer.PictureID(),
+				govpx.NextVP9RTPPictureID(framePictureID); got != want {
+				t.Fatalf("encoded unsent frame %d next PictureID = %d, want %d",
+					frame, got, want)
+			}
 			forceNext = true
 			lastCap = activeCap
 			continue

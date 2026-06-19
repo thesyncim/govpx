@@ -1263,6 +1263,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"govpx.VP9WebRTCPacketizer",
 		"PacketizeSpatialSVCWebRTCInto",
 		"flexible-mode reference",
+		"MarkEncodedAccessUnitUnsent",
 		"MarkAccessUnitUnsent",
 		"app-local gap",
 	} {
