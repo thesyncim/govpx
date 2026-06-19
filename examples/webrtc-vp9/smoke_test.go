@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -1249,6 +1250,29 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		if !strings.Contains(indexHTML, want) {
 			t.Fatalf("indexHTML missing %q", want)
 		}
+	}
+}
+
+func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
+	raw, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"govpx.VP9WebRTCPacketizer",
+		"PacketizeSpatialSVCWebRTCInto",
+		"flexible-mode reference",
+		"MarkAccessUnitUnsent",
+		"app-local gap",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("README.md missing %q", want)
+		}
+	}
+	if strings.Contains(text,
+		"VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto") {
+		t.Fatal("README.md still points the demo at the stateless VP9 SVC WebRTC packetizer")
 	}
 }
 

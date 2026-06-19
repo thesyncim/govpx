@@ -5,9 +5,10 @@ End-to-end demo of govpx's VP9 stack:
 - Three spatial layers (160x90, 320x180, 640x360) with 2x inter-layer
   scaling, inter-layer prediction, and a three-layer VP9 temporal pattern.
 - Every access unit is encoded as one VP9 spatial-SVC superframe, then
-  packetized into explicit VP9 RTP frames with 15-bit PictureID, layer
-  indices, and keyframe scalability-structure metadata for the browser's
-  native VP9 decoder.
+  packetized by `govpx.VP9WebRTCPacketizer` into explicit VP9 RTP frames
+  with 15-bit PictureID, layer indices, flexible-mode references, and
+  keyframe scalability-structure metadata for the browser's native VP9
+  decoder.
 - A bidirectional DataChannel ships per-access-unit telemetry (per-layer
   qindex, bytes, recent kbps, temporal-layer ID, TL0PICIDX, temporal-sync
   flag, keyframe state, scalability-structure presence) to a live
@@ -66,20 +67,29 @@ machine.
   - An encoder goroutine that ticks at the configured FPS, repaints
     three per-layer `image.YCbCr` buffers (one per spatial layer),
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and
-    packetizes it through `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`.
+    packetizes it through
+    `govpx.VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`.
     The demo writes RTP packets directly so every packet carries a 15-bit VP9
     PictureID, base-layer key packets carry the active VP9 scalability
-    structure, and every packet carries the right spatial and temporal layer
-    metadata.
+    structure, predicted packets carry explicit flexible-mode reference diffs,
+    and every packet carries the right spatial and temporal layer metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
     sender calls `EncodeActiveLayersIntoWithResult` so it encodes, advertises,
     and transmits only the first `cap` coded layers. The wire payload,
     scalability structure, and telemetry describe only that active prefix.
+    The packetizer requires a recovery keyframe when the active layer count
+    changes so the browser never waits on a non-transmitted spatial reference.
   - A telemetry side-channel: every transmitted access unit ships a JSON
     message describing each sent spatial layer to the page, which renders a
     panel with per-layer stats and a rolling kbps chart.
   - An RTCP drain on the sender; PLI/FIR feedback asks the encoder for
     the next access unit to be keyed.
+  - If local pacing or buffer pressure withholds a coded access unit after
+    encode/packetization, the sender must call
+    `VP9WebRTCPacketizer.MarkAccessUnitUnsent` and force a keyframe before
+    sending another VP9 access unit. That app-local gap is invisible to RTP
+    packet-loss counters but can otherwise strand WebRTC's VP9 reference
+    finder.
 
 - Control messages from the page are applied between access units:
   - `bitrate` re-derives per-layer CBR targets via
@@ -112,8 +122,8 @@ keyframes, and JSON telemetry within the encoder's current per-frame budget.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
-  metadata while keeping keyframe requests synchronized across spatial
-  layers.
+  metadata, uses flexible-mode reference diffs, and keeps keyframe requests
+  synchronized across spatial layers.
 - Capping the RTP view to base..N layers gives the browser a clean lower-res
   stream without re-encoding.
 - A bidirectional WebRTC DataChannel is enough plumbing to expose every
