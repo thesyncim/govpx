@@ -250,6 +250,74 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	return payloads, nil
 }
 
+// SpatialSVCWebRTCNonFlexiblePacketizationSize returns the RTP payload count
+// and payload-body bytes needed to packetize r with non-flexible VP9 WebRTC
+// descriptors and the packetizer's current PictureID. This keeps TL0PICIDX and
+// keyframe GOF metadata, matching the traditional realtime VP9 SVC RTP shape.
+func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCNonFlexiblePacketizationSize(
+	r VP9SpatialSVCEncodeResult,
+	mtu int,
+) (int, int, error) {
+	if p == nil {
+		return 0, 0, ErrInvalidConfig
+	}
+	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
+		return 0, 0, err
+	}
+	p.consumedDropPending = false
+	return r.WebRTCRTPPacketizationSize(p.pictureID, mtu)
+}
+
+// PacketizeSpatialSVCWebRTCNonFlexibleInto packetizes r into caller-owned RTP
+// payload storage with non-flexible VP9 WebRTC descriptors. It advances the
+// PictureID only after successful packetization.
+func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCNonFlexibleInto(
+	r VP9SpatialSVCEncodeResult,
+	dst []RTPPayloadFragment,
+	payloadBuf []byte,
+	mtu int,
+) (int, int, error) {
+	if p == nil {
+		return 0, 0, ErrInvalidConfig
+	}
+	if err := p.requireVP9SpatialSVCRecoveryKey(r); err != nil {
+		return 0, 0, err
+	}
+	pictureID := p.pictureID
+	packets, payloadBytes, err := r.PacketizeWebRTCRTPInto(dst, payloadBuf,
+		pictureID, mtu)
+	if err != nil {
+		return packets, payloadBytes, err
+	}
+	p.consumedDropPending = false
+	p.keyFrameRequired = false
+	p.commitVP9SpatialSVCWebRTCReferences(r, pictureID)
+	p.commitVP9SpatialSVCLayerCount(r)
+	p.advancePictureID()
+	return packets, payloadBytes, nil
+}
+
+// PacketizeSpatialSVCWebRTCNonFlexible packetizes r into allocated RTP payload
+// bodies with non-flexible VP9 WebRTC descriptors.
+func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCNonFlexible(
+	r VP9SpatialSVCEncodeResult,
+	mtu int,
+) ([]RTPPayloadFragment, error) {
+	packets, payloadBytes, err := p.SpatialSVCWebRTCNonFlexiblePacketizationSize(
+		r, mtu)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, _, err := p.PacketizeSpatialSVCWebRTCNonFlexibleInto(r, out,
+		payloadBuf, mtu)
+	if err != nil {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
 func (p *VP9WebRTCPacketizer) advancePictureID() {
 	p.pictureID = NextVP9RTPPictureID(p.pictureID)
 }

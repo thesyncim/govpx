@@ -537,6 +537,81 @@ func TestVP9WebRTCPacketizerKeepsSVCRefsOnBufferTooSmall(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerPacketizesNonFlexibleSpatialSVC(t *testing.T) {
+	results := encodeVP9WebRTCSVCTestResults(t, 2)
+	packetizer := govpx.NewVP9WebRTCPacketizer(govpx.VP9RTPPictureID15BitMask)
+	pictureID := packetizer.PictureID()
+	packets, payloadBytes, err := packetizer.
+		SpatialSVCWebRTCNonFlexiblePacketizationSize(results[0], 96)
+	if err != nil {
+		t.Fatalf("SpatialSVCWebRTCNonFlexiblePacketizationSize: %v", err)
+	}
+	if got := packetizer.PictureID(); got != pictureID {
+		t.Fatalf("non-flexible size advanced PictureID to %d, want %d",
+			got, pictureID)
+	}
+	payloads := make([]govpx.RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, used, err := packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+		results[0], payloads, payloadBuf, 96)
+	if err != nil {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto: %v", err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("PacketizeSpatialSVCWebRTCNonFlexibleInto returned %d/%d, want %d/%d",
+			n, used, packets, payloadBytes)
+	}
+	payloads = payloads[:n]
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("non-flexible PictureID after packetize = %d, want wrap to 0",
+			got)
+	}
+
+	var byLayer [govpx.VP9MaxSpatialLayers][]govpx.RTPPayloadFragment
+	sawBaseSS := false
+	for i, payload := range payloads {
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %t, want %t", i, got, want)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.FlexibleMode {
+			t.Fatalf("payload %d used flexible descriptor", i)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if !desc.LayerIndicesPresent ||
+			desc.SpatialID >= results[0].LayerCount {
+			t.Fatalf("payload %d descriptor = %+v, want spatial metadata", i, desc)
+		}
+		if desc.StartOfFrame && desc.SpatialID == 0 {
+			sawBaseSS = desc.ScalabilityStructurePresent &&
+				desc.ScalabilityStructure.PictureGroupPresent
+		} else if desc.ScalabilityStructurePresent {
+			t.Fatalf("payload %d repeated scalability structure", i)
+		}
+		byLayer[desc.SpatialID] = append(byLayer[desc.SpatialID], payload)
+	}
+	if !sawBaseSS {
+		t.Fatal("non-flexible base key did not carry GOF scalability structure")
+	}
+	for layer := 0; layer < int(results[0].LayerCount); layer++ {
+		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layer])
+		if err != nil {
+			t.Fatalf("AssembleVP9RTPFrame layer %d: %v", layer, err)
+		}
+		if !bytes.Equal(assembled, results[0].Layers[layer].Data) {
+			t.Fatalf("assembled layer %d does not match encoded data", layer)
+		}
+	}
+}
+
 func newVP9WebRTCLayerChangeSVCForTest(
 	t *testing.T,
 ) (*govpx.VP9SpatialSVCEncoder, []*image.YCbCr) {

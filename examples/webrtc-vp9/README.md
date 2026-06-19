@@ -6,9 +6,9 @@ End-to-end demo of govpx's VP9 stack:
   scaling, inter-layer prediction, and a three-layer VP9 temporal pattern.
 - Every access unit is encoded as one VP9 spatial-SVC superframe, then
   packetized by `govpx.VP9WebRTCPacketizer` into explicit VP9 RTP frames
-  with 15-bit PictureID, layer indices, flexible-mode references, and
-  keyframe scalability-structure metadata for the browser's native VP9
-  decoder.
+  with 15-bit PictureID, layer indices, non-flexible realtime VP9
+  descriptors, and keyframe scalability-structure metadata for the browser's
+  native VP9 decoder.
 - A bidirectional DataChannel ships per-access-unit telemetry (per-layer
   qindex, bytes, recent kbps, temporal-layer ID, TL0PICIDX, temporal-sync
   flag, keyframe state, scalability-structure presence) to a live
@@ -68,11 +68,11 @@ machine.
     three per-layer `image.YCbCr` buffers (one per spatial layer),
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and
     packetizes it through
-    `govpx.VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`.
+    `govpx.VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`.
     The demo writes RTP packets directly so every packet carries a 15-bit VP9
     PictureID, base-layer key packets carry the active VP9 scalability
-    structure, predicted packets carry explicit flexible-mode reference diffs,
-    and every packet carries the right spatial and temporal layer metadata.
+    structure with GOF metadata, and every packet carries the right spatial
+    and temporal layer metadata.
   - If the page has dialed the spatial cap below `LayerCount`, the
     sender calls `EncodeActiveLayersIntoWithResult` so it encodes, advertises,
     and transmits only the first `cap` coded layers. The wire payload,
@@ -123,8 +123,8 @@ keyframes, and JSON telemetry within the encoder's current per-frame budget.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
-  metadata, uses flexible-mode reference diffs, and keeps keyframe requests
-  synchronized across spatial layers.
+  metadata, uses non-flexible VP9 RTP descriptors for realtime receiver
+  compatibility, and keeps keyframe requests synchronized across spatial layers.
 - Capping the RTP view to base..N layers gives the browser a clean lower-res
   stream without re-encoding.
 - A bidirectional WebRTC DataChannel is enough plumbing to expose every

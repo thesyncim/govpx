@@ -206,12 +206,12 @@ func TestDemoEndToEnd(t *testing.T) {
 			desc.ScalabilityStructurePresent,
 			desc.ScalabilityStructure.SpatialLayerCount, spatialLayerCount)
 	}
-	if !desc.FlexibleMode {
-		t.Fatal("first RTP descriptor used non-flexible VP9 mode")
+	if desc.FlexibleMode {
+		t.Fatal("first RTP descriptor used flexible VP9 mode")
 	}
-	if desc.ScalabilityStructure.PictureGroupPresent ||
-		len(desc.ScalabilityStructure.PictureGroups) != 0 {
-		t.Fatalf("first RTP flexible SS temporal groups = present:%v count:%d, want none",
+	if !desc.ScalabilityStructure.PictureGroupPresent ||
+		len(desc.ScalabilityStructure.PictureGroups) == 0 {
+		t.Fatalf("first RTP non-flexible SS temporal groups = present:%v count:%d, want GOF",
 			desc.ScalabilityStructure.PictureGroupPresent,
 			len(desc.ScalabilityStructure.PictureGroups))
 	}
@@ -668,8 +668,8 @@ func assertWebRTCRTPAccessUnitForTest(
 			t.Fatalf("RTP packet %d PictureID = present:%t 15bit:%t, want 15-bit",
 				i, desc.PictureIDPresent, desc.PictureID15Bit)
 		}
-		if !desc.FlexibleMode {
-			t.Fatalf("RTP packet %d used non-flexible VP9 descriptor", i)
+		if desc.FlexibleMode {
+			t.Fatalf("RTP packet %d used flexible VP9 descriptor", i)
 		}
 		if !seenPictureID {
 			pictureID = desc.PictureID
@@ -692,8 +692,8 @@ func assertWebRTCRTPAccessUnitForTest(
 						desc.ScalabilityStructure.SpatialLayerCount,
 						spatialLayers)
 				}
-				if desc.ScalabilityStructure.PictureGroupPresent {
-					t.Fatalf("base RTP flexible SS unexpectedly carried GOF")
+				if !desc.ScalabilityStructure.PictureGroupPresent {
+					t.Fatalf("base RTP non-flexible SS missing GOF")
 				}
 			} else if desc.ScalabilityStructurePresent {
 				t.Fatalf("RTP packet %d layer %d repeated scalability structure",
@@ -1300,8 +1300,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		"govpx.VP9WebRTCPacketizer",
-		"PacketizeSpatialSVCWebRTCInto",
-		"flexible-mode reference",
+		"PacketizeSpatialSVCWebRTCNonFlexibleInto",
+		"non-flexible VP9 RTP descriptors",
 		"MarkEncodedAccessUnitUnsent",
 		"MarkAccessUnitUnsent",
 		"app-local gap",

@@ -955,7 +955,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 
 		packetizeStarted := time.Now()
 		fragmentCount, payloadBytes, err := rtpPacketizer.
-			SpatialSVCWebRTCPacketizationSize(rtpResult, rtpPayloadMTU)
+			SpatialSVCWebRTCNonFlexiblePacketizationSize(rtpResult,
+				rtpPayloadMTU)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
 			failedEncodedAccessUnits++
@@ -970,8 +971,9 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf = make([]byte, payloadBytes)
 		}
 		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
-		fragmentCount, _, err = rtpPacketizer.PacketizeSpatialSVCWebRTCInto(
-			rtpResult, rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
+		fragmentCount, _, err = rtpPacketizer.
+			PacketizeSpatialSVCWebRTCNonFlexibleInto(rtpResult,
+				rtpFragments, rtpPayloadBuf, rtpPayloadMTU)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
 			failedEncodedAccessUnits++
