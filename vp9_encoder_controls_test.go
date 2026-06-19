@@ -54,14 +54,41 @@ func TestNewVP9EncoderDefaultsSpeed(t *testing.T) {
 
 func TestNewVP9EncoderPromotesZeroCPUUsedByDeadline(t *testing.T) {
 	tests := []struct {
-		name         string
-		deadline     Deadline
-		wantDeadline Deadline
-		wantCPU      int8
+		name              string
+		deadline          Deadline
+		wantDeadline      Deadline
+		wantMode          vp9DeadlineMode
+		wantCPU           int8
+		wantNonrdPickMode int
+		wantTxSearch      TxSizeSearchMethod
 	}{
-		{"best-zero-defaults-to-realtime", DeadlineBestQuality, DeadlineRealtime, vp9DefaultCPUUsed},
-		{"realtime-zero-defaults-to-realtime", DeadlineRealtime, DeadlineRealtime, vp9DefaultCPUUsed},
-		{"good-zero-defaults-to-good", DeadlineGoodQuality, DeadlineGoodQuality, vp9DefaultGoodCPUUsed},
+		{
+			name:              "best-zero-defaults-to-realtime",
+			deadline:          DeadlineBestQuality,
+			wantDeadline:      DeadlineRealtime,
+			wantMode:          vp9ModeRealtime,
+			wantCPU:           vp9DefaultCPUUsed,
+			wantNonrdPickMode: 1,
+			wantTxSearch:      UseLargestAll,
+		},
+		{
+			name:              "realtime-zero-defaults-to-realtime",
+			deadline:          DeadlineRealtime,
+			wantDeadline:      DeadlineRealtime,
+			wantMode:          vp9ModeRealtime,
+			wantCPU:           vp9DefaultCPUUsed,
+			wantNonrdPickMode: 1,
+			wantTxSearch:      UseLargestAll,
+		},
+		{
+			name:              "good-zero-defaults-to-good",
+			deadline:          DeadlineGoodQuality,
+			wantDeadline:      DeadlineGoodQuality,
+			wantMode:          vp9ModeGood,
+			wantCPU:           vp9DefaultGoodCPUUsed,
+			wantNonrdPickMode: 0,
+			wantTxSearch:      UseLargestAll,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,6 +105,24 @@ func TestNewVP9EncoderPromotesZeroCPUUsedByDeadline(t *testing.T) {
 			if e.opts.Deadline != tc.wantDeadline || e.opts.CpuUsed != tc.wantCPU {
 				t.Fatalf("normalized speed = deadline:%d cpu:%d, want %d/%d",
 					e.opts.Deadline, e.opts.CpuUsed, tc.wantDeadline, tc.wantCPU)
+			}
+			if got := vp9ResolveDeadlineMode(e.opts.Deadline); got != tc.wantMode {
+				t.Fatalf("deadline mode = %d, want %d", got, tc.wantMode)
+			}
+			if got := e.vp9SpeedFeatureCPUUsed(); got != int(tc.wantCPU) {
+				t.Fatalf("speed-feature cpu-used = %d, want %d",
+					got, tc.wantCPU)
+			}
+			if e.sf.UseNonrdPickMode != tc.wantNonrdPickMode {
+				t.Fatalf("UseNonrdPickMode = %d, want %d",
+					e.sf.UseNonrdPickMode, tc.wantNonrdPickMode)
+			}
+			if e.sf.TxSizeSearchMethod != tc.wantTxSearch {
+				t.Fatalf("TxSizeSearchMethod = %d, want %d",
+					e.sf.TxSizeSearchMethod, tc.wantTxSearch)
+			}
+			if e.sf.TxSizeSearchMethod == UseFullRD {
+				t.Fatalf("zero-cpu public construction selected full-RD tx search")
 			}
 		})
 	}
