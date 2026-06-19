@@ -563,6 +563,7 @@ func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
 		SDPFmtpLine: govpx.VP9SDPFmtpProfile0,
 		RTCPFeedback: []webrtc.RTCPFeedback{
 			{Type: "ccm", Parameter: "fir"},
+			{Type: "nack"},
 			{Type: "nack", Parameter: "pli"},
 		},
 	}

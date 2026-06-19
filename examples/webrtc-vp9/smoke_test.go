@@ -120,9 +120,8 @@ func TestDemoEndToEnd(t *testing.T) {
 	if !strings.Contains(answer.SDP, vp9Profile0Fmtp) {
 		t.Fatalf("answer SDP missing VP9 profile 0 fmtp:\n%s", answer.SDP)
 	}
-	answerSDP := strings.ToLower(answer.SDP)
-	for _, feedback := range []string{"nack pli", "ccm fir"} {
-		if !strings.Contains(answerSDP, feedback) {
+	for _, feedback := range []string{"nack", "nack pli", "ccm fir"} {
+		if !sdpHasRTCPFeedbackForTest(answer.SDP, feedback) {
 			t.Fatalf("answer SDP missing VP9 feedback %q:\n%s",
 				feedback, answer.SDP)
 		}
@@ -793,6 +792,18 @@ func TestRTCPParsedPacketsRequestKeyFrame(t *testing.T) {
 	}) {
 		t.Fatal("receiver report unexpectedly requested keyframe")
 	}
+	if rtcpPacketsRequestKeyFrame([]rtcp.Packet{
+		&rtcp.TransportLayerNack{
+			SenderSSRC: 1,
+			MediaSSRC:  2,
+			Nacks: []rtcp.NackPair{{
+				PacketID:    17,
+				LostPackets: 0,
+			}},
+		},
+	}) {
+		t.Fatal("transport NACK unexpectedly requested keyframe")
+	}
 
 	if !rtcpPacketsRequestKeyFrame([]rtcp.Packet{
 		&rtcp.ReceiverReport{SSRC: 1},
@@ -1364,6 +1375,7 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 			codec, rtpClockHz, vp9Profile0Fmtp)
 	}
 	wantFeedback := map[webrtc.RTCPFeedback]bool{
+		{Type: "nack"}:                   true,
 		{Type: "nack", Parameter: "pli"}: true,
 		{Type: "ccm", Parameter: "fir"}:  true,
 	}
@@ -1374,6 +1386,22 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 		t.Fatalf("codec feedback = %+v, missing %+v",
 			codec.RTCPFeedback, wantFeedback)
 	}
+}
+
+func sdpHasRTCPFeedbackForTest(sdp string, feedback string) bool {
+	want := "a=rtcp-fb:"
+	feedback = strings.ToLower(strings.TrimSpace(feedback))
+	for _, raw := range strings.Split(sdp, "\n") {
+		line := strings.ToLower(strings.TrimSpace(raw))
+		if !strings.HasPrefix(line, want) {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(line, want))
+		if len(fields) >= 2 && strings.Join(fields[1:], " ") == feedback {
+			return true
+		}
+	}
+	return false
 }
 
 func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
