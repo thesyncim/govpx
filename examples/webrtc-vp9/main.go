@@ -487,8 +487,10 @@ func handleOfferWithICEGatherWait(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
-		http.Error(w, "VP9 profile 0 is required", http.StatusNotAcceptable)
+	if !offerSupportsDemoVP9(offer.SDP, cfg) {
+		width, height := demoTopLayerDimensions()
+		http.Error(w, fmt.Sprintf("VP9 profile 0 receiver support for %dx%d@%dfps is required",
+			width, height, cfg.FPS), http.StatusNotAcceptable)
 		return
 	}
 
@@ -606,6 +608,16 @@ func handleOfferWithICEGatherWait(
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(local)
+}
+
+func offerSupportsDemoVP9(sdp string, cfg demoConfig) bool {
+	width, height := demoTopLayerDimensions()
+	return govpx.VP9SDPOffersProfile0ReceiveFrame(sdp, width, height, cfg.FPS)
+}
+
+func demoTopLayerDimensions() (int, int) {
+	topLayer := layerDims[spatialLayerCount-1]
+	return topLayer[0], topLayer[1]
 }
 
 func newVP9WebRTCPeerConnection(

@@ -354,12 +354,60 @@ func TestHandleOfferRejectsOfferWithoutVP9Profile0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOffer: %v", err)
 	}
-	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
+	if !offerSupportsDemoVP9(offer.SDP, cfg) {
 		t.Fatalf("test offer unexpectedly missing VP9 profile 0:\n%s", offer.SDP)
 	}
 	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp, "profile-id=2")
-	if govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
+	if offerSupportsDemoVP9(offer.SDP, cfg) {
 		t.Fatalf("mutated test offer still negotiates VP9 profile 0:\n%s", offer.SDP)
+	}
+
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotAcceptable {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusNotAcceptable)
+	}
+}
+
+func TestHandleOfferRejectsOfferWithVP9ReceiverCapsBelowDemoLayer(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if !offerSupportsDemoVP9(offer.SDP, cfg) {
+		t.Fatalf("test offer unexpectedly missing VP9 profile 0:\n%s", offer.SDP)
+	}
+	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp,
+		"profile-id=0; max-fr=30; max-fs=919")
+	if offerSupportsDemoVP9(offer.SDP, cfg) {
+		t.Fatalf("mutated test offer still allows demo top layer:\n%s", offer.SDP)
 	}
 
 	body, err := json.Marshal(offer)
@@ -472,12 +520,12 @@ func TestHandleOfferRejectsOfferThatCannotReceiveVP9(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOffer: %v", err)
 	}
-	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
+	if !offerSupportsDemoVP9(offer.SDP, cfg) {
 		t.Fatalf("test offer unexpectedly missing receivable VP9 profile 0:\n%s",
 			offer.SDP)
 	}
 	offer.SDP = strings.ReplaceAll(offer.SDP, "a=recvonly", "a=sendonly")
-	if govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
+	if offerSupportsDemoVP9(offer.SDP, cfg) {
 		t.Fatalf("sendonly test offer still allows VP9 receive:\n%s", offer.SDP)
 	}
 	body, err := json.Marshal(offer)
@@ -1586,6 +1634,23 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "vp9 profile zero implied by missing fmtp",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "vp9 profile zero implied by fmtp without profile id",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 max-fr=30; max-fs=920",
+			}, "\r\n"),
+			want: true,
+		},
+		{
 			name: "vp9 profile two",
 			sdp: strings.Join([]string{
 				"m=video 9 UDP/TLS/RTP/SAVPF 100",
@@ -1612,12 +1677,13 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 			}, "\r\n"),
 		},
 		{
-			name: "lookalike fmtp key is rejected",
+			name: "lookalike fmtp key does not override implied profile zero",
 			sdp: strings.Join([]string{
 				"m=video 9 UDP/TLS/RTP/SAVPF 98",
 				"a=rtpmap:98 VP9/90000",
 				"a=fmtp:98 x-profile-id=0",
 			}, "\r\n"),
+			want: true,
 		},
 		{
 			name: "lookalike fmtp value is rejected",
@@ -1713,6 +1779,110 @@ func TestSDPOffersVP9Profile0Receive(t *testing.T) {
 			}
 			if got := govpx.VP9SDPOffersProfile0Receive(strings.Join(lines, "\r\n")); got != tc.want {
 				t.Fatalf("VP9SDPOffersProfile0Receive = %t, want %t",
+					got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSDPOffersVP9Profile0ReceiveFrame(t *testing.T) {
+	tests := []struct {
+		name string
+		sdp  string
+		want bool
+	}{
+		{
+			name: "no fmtp is unconstrained profile zero",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "receiver caps allow frame",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=30; max-fs=920",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "receiver caps infer profile zero",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 max-fr=30; max-fs=920",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "max-fr too low",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=29; max-fs=920",
+			}, "\r\n"),
+		},
+		{
+			name: "max-fs too low",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=30; max-fs=919",
+			}, "\r\n"),
+		},
+		{
+			name: "profile two rejected",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=2; max-fr=30; max-fs=920",
+			}, "\r\n"),
+		},
+		{
+			name: "invalid receiver cap rejected",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=30; max-fs=wide",
+			}, "\r\n"),
+		},
+		{
+			name: "one vp9 payload can receive frame",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98 100",
+				"a=recvonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=30; max-fs=919",
+				"a=rtpmap:100 VP9/90000",
+				"a=fmtp:100 profile-id=0; max-fr=30; max-fs=920",
+			}, "\r\n"),
+			want: true,
+		},
+		{
+			name: "sendonly rejected",
+			sdp: strings.Join([]string{
+				"m=video 9 UDP/TLS/RTP/SAVPF 98",
+				"a=sendonly",
+				"a=rtpmap:98 VP9/90000",
+				"a=fmtp:98 profile-id=0; max-fr=30; max-fs=920",
+			}, "\r\n"),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := govpx.VP9SDPOffersProfile0ReceiveFrame(tc.sdp, 640, 360, 30)
+			if got != tc.want {
+				t.Fatalf("VP9SDPOffersProfile0ReceiveFrame = %t, want %t",
 					got, tc.want)
 			}
 		})

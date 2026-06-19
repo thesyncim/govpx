@@ -64,8 +64,9 @@ the machine.
   transceiver and one bidirectional `demo` DataChannel, then POSTs the
   SDP offer to `/offer`.
 - The server (`main.go`) creates a pion `PeerConnection`, attaches a
-  `TrackLocalStaticRTP` advertising `video/VP9` at 90 kHz, answers,
-  and spins up:
+  `TrackLocalStaticRTP` advertising `video/VP9` at 90 kHz, accepts only
+  VP9 Profile 0 offers whose explicit RFC 9628 `max-fr` / `max-fs`
+  receiver caps allow the configured top layer, answers, and spins up:
   - An encoder goroutine that ticks at the configured FPS, repaints
     three per-layer `image.YCbCr` buffers (one per spatial layer),
     encodes one access unit through `govpx.VP9SpatialSVCEncoder`, and

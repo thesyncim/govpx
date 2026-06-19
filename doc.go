@@ -6,7 +6,8 @@
 // MTU-aware payload packetizers and assemblers are provided; RTP headers, SRTP,
 // signaling, sequence/loss handling, and transport policy stay caller-owned.
 // VP8 SDP max-fr/max-fs receiver-capability helpers are provided for RFC 7741
-// fmtp integration.
+// fmtp integration. VP9 SDP helpers cover RFC 9628 Profile 0 negotiation and
+// optional max-fr/max-fs receiver-capability limits.
 //
 // VP9 scope is profile 0 only: 8-bit 4:2:0 raw packets and valid superframes.
 // VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0 chroma
