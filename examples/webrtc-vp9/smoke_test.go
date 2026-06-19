@@ -2234,6 +2234,21 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 	if msg.Layers[1].SP != 1 {
 		t.Fatalf("top transmitted telemetry SP = %d, want 1", msg.Layers[1].SP)
 	}
+	for i, layer := range msg.Layers {
+		wantThreads := pickThreads(layerDims[i][0], layerDims[i][1])
+		if layer.Threads != wantThreads {
+			t.Fatalf("layer %d telemetry threads = %d, want %d",
+				i, layer.Threads, wantThreads)
+		}
+		if layer.RowMT != (wantThreads > 1) {
+			t.Fatalf("layer %d telemetry RowMT = %t, want %t",
+				i, layer.RowMT, wantThreads > 1)
+		}
+		if layer.TileCols < 1 || layer.TileCols > wantThreads {
+			t.Fatalf("layer %d telemetry tile cols = %d, want in [1,%d]",
+				i, layer.TileCols, wantThreads)
+		}
+	}
 	if msg.Sender.EncodeMs != 1.25 ||
 		msg.Sender.PacketizeMs != 0.5 ||
 		msg.Sender.WriteMs != 0.25 ||
@@ -2244,6 +2259,43 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 		msg.Sender.FailedEncodedAUs != 1 {
 		t.Fatalf("sender telemetry = %+v, want timing/recovery counters",
 			msg.Sender)
+	}
+}
+
+func TestTelemetryReportsThreadedTopLayerConfig(t *testing.T) {
+	result := encodeOneSVCResultForTest(t)
+	tracker := newStatsTracker()
+	tracker.observe(result, time.Now())
+	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0,
+		spatialLayerCount, spatialLayerCount, 0, telemetrySender{})
+	if err != nil {
+		t.Fatalf("snapshot telemetry: %v", err)
+	}
+	var msg telemetryMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode telemetry: %v\npayload=%s", err, raw)
+	}
+	if len(msg.Layers) != spatialLayerCount {
+		t.Fatalf("telemetry layer count = %d, want %d",
+			len(msg.Layers), spatialLayerCount)
+	}
+
+	topIndex := spatialLayerCount - 1
+	top := msg.Layers[topIndex]
+	topWidth, topHeight := layerDims[topIndex][0], layerDims[topIndex][1]
+	wantThreads := pickThreads(topWidth, topHeight)
+	if top.Threads != wantThreads {
+		t.Fatalf("top telemetry threads = %d, want %d",
+			top.Threads, wantThreads)
+	}
+	if top.RowMT != (wantThreads > 1) {
+		t.Fatalf("top telemetry RowMT = %t, want %t",
+			top.RowMT, wantThreads > 1)
+	}
+	wantTileCols := 1 << uint(expectedTileLog2Cols(wantThreads))
+	if top.TileCols != wantTileCols {
+		t.Fatalf("top telemetry tile cols = %d, want %d",
+			top.TileCols, wantTileCols)
 	}
 }
 

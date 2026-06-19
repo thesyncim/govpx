@@ -226,6 +226,9 @@ function renderStats(msg){
     row(dl, "q", layer.q);
     row(dl, "bytes", layer.bytes);
     row(dl, "kbps", (layer.kbps_recent||0).toFixed(0));
+    row(dl, "thr", layer.threads ?? "-");
+    row(dl, "tiles", layer.tile_cols ?? "-");
+    if(layer.row_mt) row(dl, "rowmt", "on");
     row(dl, "T", layer.tp + (layer.sync?"↑":""));
     row(dl, "TL0", layer.tl0);
     if(layer.dropped) row(dl, "drop", "yes");
@@ -1409,15 +1412,18 @@ func (t *statsTracker) observe(r govpx.VP9SpatialSVCEncodeResult, now time.Time)
 }
 
 type telemetryLayer struct {
-	SP      int     `json:"sp"`
-	TP      int     `json:"tp"`
-	Q       int     `json:"q"`
-	Bytes   int     `json:"bytes"`
-	KbpsR   float64 `json:"kbps_recent"`
-	TL0     uint8   `json:"tl0"`
-	Sync    bool    `json:"sync"`
-	KF      bool    `json:"kf"`
-	Dropped bool    `json:"dropped,omitempty"`
+	SP       int     `json:"sp"`
+	TP       int     `json:"tp"`
+	Q        int     `json:"q"`
+	Bytes    int     `json:"bytes"`
+	Threads  int     `json:"threads"`
+	RowMT    bool    `json:"row_mt"`
+	TileCols int     `json:"tile_cols"`
+	KbpsR    float64 `json:"kbps_recent"`
+	TL0      uint8   `json:"tl0"`
+	Sync     bool    `json:"sync"`
+	KF       bool    `json:"kf"`
+	Dropped  bool    `json:"dropped,omitempty"`
 }
 
 type telemetryTotals struct {
@@ -1468,16 +1474,20 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 	layers := make([]telemetryLayer, count)
 	for i := 0; i < count; i++ {
 		l := r.Layers[i]
+		threads, rowMT, tileCols := telemetryLayerThreadConfig(i, l.Data)
 		layers[i] = telemetryLayer{
-			SP:      int(l.SpatialLayerID),
-			TP:      l.TemporalLayerID,
-			Q:       l.Quantizer,
-			Bytes:   l.SizeBytes,
-			KbpsR:   t.windowed[i].lastKBPS,
-			TL0:     l.TL0PICIDX,
-			Sync:    l.TemporalLayerSync,
-			KF:      l.KeyFrame,
-			Dropped: l.Dropped,
+			SP:       int(l.SpatialLayerID),
+			TP:       l.TemporalLayerID,
+			Q:        l.Quantizer,
+			Bytes:    l.SizeBytes,
+			Threads:  threads,
+			RowMT:    rowMT,
+			TileCols: tileCols,
+			KbpsR:    t.windowed[i].lastKBPS,
+			TL0:      l.TL0PICIDX,
+			Sync:     l.TemporalLayerSync,
+			KF:       l.KeyFrame,
+			Dropped:  l.Dropped,
 		}
 	}
 	totalRecentKbps := 0.0
@@ -1499,6 +1509,25 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 		SSPresent: r.Layers[0].ScalabilityStructurePresent,
 	}
 	return json.Marshal(msg)
+}
+
+func telemetryLayerThreadConfig(layerIndex int, packet []byte) (int, bool, int) {
+	if layerIndex < 0 || layerIndex >= spatialLayerCount {
+		return 1, false, 1
+	}
+	width, height := layerDims[layerIndex][0], layerDims[layerIndex][1]
+	threads := pickThreads(width, height)
+	tileCols := threads
+	if tileCols < 1 {
+		tileCols = 1
+	}
+	if len(packet) > 0 {
+		if info, err := govpx.PeekVP9StreamInfo(packet); err == nil &&
+			info.TileInfoAvailable {
+			tileCols = 1 << uint(info.TileLog2Cols)
+		}
+	}
+	return threads, threads > 1, tileCols
 }
 
 func durationMS(d time.Duration) float64 {
