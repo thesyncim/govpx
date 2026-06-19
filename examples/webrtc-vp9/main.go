@@ -1237,7 +1237,7 @@ func newSVCLayerOptions(width, height, fps, bitrateKbps int) govpx.VP9EncoderOpt
 		Height:                   height,
 		FPS:                      fps,
 		Threads:                  threads,
-		RowMT:                    threads > 1,
+		RowMT:                    pickRowMT(width, height),
 		Deadline:                 govpx.DeadlineRealtime,
 		CpuUsed:                  pickCPUUsed(width, height),
 		RateControlModeSet:       true,
@@ -1316,6 +1316,11 @@ func pickThreads(width, height int) int {
 		return 4
 	}
 	return 2
+}
+
+func pickRowMT(width, height int) bool {
+	_, _ = width, height
+	return false
 }
 
 func maxVP9TileColumns(width int) int {
@@ -1527,7 +1532,7 @@ func telemetryLayerThreadConfig(layerIndex int, packet []byte) (int, bool, int) 
 			tileCols = 1 << uint(info.TileLog2Cols)
 		}
 	}
-	return threads, threads > 1, tileCols
+	return threads, pickRowMT(width, height), tileCols
 }
 
 func durationMS(d time.Duration) float64 {

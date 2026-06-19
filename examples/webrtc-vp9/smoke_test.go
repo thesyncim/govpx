@@ -1741,7 +1741,7 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	}
 }
 
-func TestSVCLayerOptionsUseRowMTForThreadedLayers(t *testing.T) {
+func TestSVCLayerOptionsKeepRowMTOffUntilRowWorkersAreLive(t *testing.T) {
 	tests := []struct {
 		name   string
 		width  int
@@ -1762,10 +1762,9 @@ func TestSVCLayerOptionsUseRowMTForThreadedLayers(t *testing.T) {
 			if opts.CpuUsed != 8 {
 				t.Fatalf("CpuUsed = %d, want 8", opts.CpuUsed)
 			}
-			wantRowMT := wantThreads > 1
-			if opts.RowMT != wantRowMT {
-				t.Fatalf("RowMT = %t for %d tile threads, want %t",
-					opts.RowMT, wantThreads, wantRowMT)
+			if opts.RowMT {
+				t.Fatalf("RowMT = true for %d tile threads, want false until VP9 row workers are on the production path",
+					wantThreads)
 			}
 			if !opts.ErrorResilient ||
 				!opts.FrameParallelDecodingSet ||
@@ -2240,9 +2239,9 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			t.Fatalf("layer %d telemetry threads = %d, want %d",
 				i, layer.Threads, wantThreads)
 		}
-		if layer.RowMT != (wantThreads > 1) {
-			t.Fatalf("layer %d telemetry RowMT = %t, want %t",
-				i, layer.RowMT, wantThreads > 1)
+		if layer.RowMT {
+			t.Fatalf("layer %d telemetry RowMT = true for %d tile threads, want false",
+				i, wantThreads)
 		}
 		if layer.TileCols < 1 || layer.TileCols > wantThreads {
 			t.Fatalf("layer %d telemetry tile cols = %d, want in [1,%d]",
@@ -2288,9 +2287,9 @@ func TestTelemetryReportsThreadedTopLayerConfig(t *testing.T) {
 		t.Fatalf("top telemetry threads = %d, want %d",
 			top.Threads, wantThreads)
 	}
-	if top.RowMT != (wantThreads > 1) {
-		t.Fatalf("top telemetry RowMT = %t, want %t",
-			top.RowMT, wantThreads > 1)
+	if top.RowMT {
+		t.Fatalf("top telemetry RowMT = true for %d tile threads, want false",
+			wantThreads)
 	}
 	wantTileCols := 1 << uint(expectedTileLog2Cols(wantThreads))
 	if top.TileCols != wantTileCols {

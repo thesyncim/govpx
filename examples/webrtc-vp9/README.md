@@ -49,12 +49,13 @@ Flags:
 
 The demo selects the VP9 realtime fast path (`DeadlineRealtime`, `CpuUsed=8`)
 and raises `Threads` only when the frame width can legally emit more than one
-VP9 tile column. Threaded layers also enable RowMT. At the default resolutions
-the base and middle layers stay single-column; the 640x360 top layer uses two
-tile columns on hosts with at least two CPUs. Pure-Go VP9 is still host- and
-load-sensitive, so the live overlay reports effective FPS and bitrate while
-the command-line `-fps` and `-bitrate` flags let you tune the session to the
-machine.
+VP9 tile column. At the default resolutions the base and middle layers stay
+single-column; the 640x360 top layer uses two tile columns on hosts with at
+least two CPUs. The demo leaves VP9 RowMT disabled until row-worker dispatch
+is active on the production encode path, so the live overlay reports tile
+columns separately from row-MT. Pure-Go VP9 is still host- and load-sensitive,
+so the live overlay reports effective FPS and bitrate while the command-line
+`-fps` and `-bitrate` flags let you tune the session to the machine.
 
 ## How it works
 
