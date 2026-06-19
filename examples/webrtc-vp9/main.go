@@ -726,6 +726,16 @@ func requestKeyFrameAfterFailedEncodedAccessUnit(
 	requestKeyFrameAfterFailedAccessUnit(ctl)
 }
 
+func requestKeyFrameAfterUnsentAccessUnit(
+	ctl *controlState,
+	packetizer *govpx.VP9WebRTCPacketizer,
+) {
+	if packetizer != nil {
+		packetizer.MarkAccessUnitUnsent()
+	}
+	requestKeyFrameAfterFailedAccessUnit(ctl)
+}
+
 func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int {
 	if !forceKey {
 		return current
@@ -983,24 +993,17 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		packetizeElapsed := time.Since(packetizeStarted)
 
 		writeStarted := time.Now()
-		for i := 0; i < fragmentCount; i++ {
-			fragment := rtpFragments[i]
-			pkt := rtp.Packet{
-				Header: rtp.Header{
-					Version:        2,
-					Marker:         fragment.Marker,
-					SequenceNumber: rtpSequence,
-					Timestamp:      rtpTimestamp,
-				},
-				Payload: fragment.Payload,
-			}
-			rtpSequence++
-			if err := track.WriteRTP(&pkt); err != nil {
-				if !errors.Is(err, io.ErrClosedPipe) {
-					log.Printf("WriteRTP: %v", err)
-				}
+		writtenPackets, err := writeWebRTCRTPAccessUnit(track,
+			rtpFragments[:fragmentCount], rtpTimestamp, &rtpSequence)
+		if err != nil {
+			if errors.Is(err, io.ErrClosedPipe) {
 				return
 			}
+			log.Printf("WriteRTP after %d/%d packets: %v", writtenPackets,
+				fragmentCount, err)
+			failedEncodedAccessUnits++
+			requestKeyFrameAfterUnsentAccessUnit(ctl, &rtpPacketizer)
+			continue
 		}
 		writeElapsed := time.Since(writeStarted)
 
@@ -1026,6 +1029,40 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			ctl.forceKey.Store(true)
 		}
 	}
+}
+
+type rtpAccessUnitWriter interface {
+	WriteRTP(*rtp.Packet) error
+}
+
+func writeWebRTCRTPAccessUnit(
+	w rtpAccessUnitWriter,
+	fragments []govpx.RTPPayloadFragment,
+	timestamp uint32,
+	sequence *uint16,
+) (int, error) {
+	if w == nil || sequence == nil {
+		return 0, io.ErrClosedPipe
+	}
+	written := 0
+	for i := range fragments {
+		fragment := fragments[i]
+		pkt := rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				Marker:         fragment.Marker,
+				SequenceNumber: *sequence,
+				Timestamp:      timestamp,
+			},
+			Payload: fragment.Payload,
+		}
+		if err := w.WriteRTP(&pkt); err != nil {
+			return written, err
+		}
+		*sequence = *sequence + 1
+		written++
+	}
+	return written, nil
 }
 
 func randomUint32() uint32 {

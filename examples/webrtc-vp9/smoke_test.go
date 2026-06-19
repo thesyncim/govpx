@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"io"
 	"net/http"
@@ -984,6 +985,106 @@ func TestRequestKeyFrameAfterFailedEncodedAccessUnitAllowsNilPacketizer(t *testi
 
 	if !ctl.forceKey.Load() {
 		t.Fatal("failed encoded access unit with nil packetizer did not queue keyframe request")
+	}
+}
+
+func TestRequestKeyFrameAfterUnsentAccessUnitKeepsPictureID(t *testing.T) {
+	ctl := &controlState{}
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x230)
+	pictureID := packetizer.PictureID()
+
+	requestKeyFrameAfterUnsentAccessUnit(ctl, &packetizer)
+
+	if !ctl.forceKey.Load() {
+		t.Fatal("unsent access unit did not queue keyframe request")
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("unsent access unit did not require packetizer recovery")
+	}
+	if got := packetizer.PictureID(); got != pictureID {
+		t.Fatalf("unsent access unit PictureID = %d, want unchanged %d",
+			got, pictureID)
+	}
+}
+
+func TestWriteWebRTCRTPAccessUnitAssignsSequenceTimestampAndMarker(t *testing.T) {
+	writer := &recordingRTPWriterForTest{failAt: -1}
+	sequence := uint16(0xfffe)
+	fragments := []govpx.RTPPayloadFragment{
+		{Payload: []byte{0x81, 0x01}},
+		{Payload: []byte{0x82, 0x02}, Marker: true},
+	}
+
+	written, err := writeWebRTCRTPAccessUnit(writer, fragments, 0x12345678,
+		&sequence)
+	if err != nil {
+		t.Fatalf("writeWebRTCRTPAccessUnit: %v", err)
+	}
+	if written != len(fragments) {
+		t.Fatalf("written packets = %d, want %d", written, len(fragments))
+	}
+	if sequence != 0 {
+		t.Fatalf("next RTP sequence = %d, want wrap to 0", sequence)
+	}
+	if len(writer.packets) != len(fragments) {
+		t.Fatalf("captured RTP packets = %d, want %d",
+			len(writer.packets), len(fragments))
+	}
+	for i, packet := range writer.packets {
+		if got, want := packet.SequenceNumber,
+			uint16(0xfffe+i); got != want {
+			t.Fatalf("packet %d sequence = %d, want %d", i, got, want)
+		}
+		if packet.Timestamp != 0x12345678 {
+			t.Fatalf("packet %d timestamp = %d, want %d", i,
+				packet.Timestamp, uint32(0x12345678))
+		}
+		if packet.Marker != fragments[i].Marker {
+			t.Fatalf("packet %d marker = %t, want %t",
+				i, packet.Marker, fragments[i].Marker)
+		}
+		if !bytes.Equal(packet.Payload, fragments[i].Payload) {
+			t.Fatalf("packet %d payload = %x, want %x",
+				i, packet.Payload, fragments[i].Payload)
+		}
+	}
+}
+
+func TestWriteWebRTCRTPAccessUnitFailureLeavesUnsentRecovery(t *testing.T) {
+	writer := &recordingRTPWriterForTest{
+		failAt: 1,
+		err:    io.ErrUnexpectedEOF,
+	}
+	sequence := uint16(41)
+	fragments := []govpx.RTPPayloadFragment{
+		{Payload: []byte{0x81, 0x01}},
+		{Payload: []byte{0x82, 0x02}, Marker: true},
+	}
+
+	written, err := writeWebRTCRTPAccessUnit(writer, fragments, 0x12345678,
+		&sequence)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("writeWebRTCRTPAccessUnit err = %v, want ErrUnexpectedEOF",
+			err)
+	}
+	if written != 1 {
+		t.Fatalf("written packets before failure = %d, want 1", written)
+	}
+	if sequence != 42 {
+		t.Fatalf("next RTP sequence after failure = %d, want 42", sequence)
+	}
+
+	ctl := &controlState{}
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x230)
+	pictureID := packetizer.PictureID()
+	requestKeyFrameAfterUnsentAccessUnit(ctl, &packetizer)
+	if !ctl.forceKey.Load() || !packetizer.NeedsKeyFrame() {
+		t.Fatalf("unsent RTP write recovery = force:%t packetizer:%t, want true/true",
+			ctl.forceKey.Load(), packetizer.NeedsKeyFrame())
+	}
+	if got := packetizer.PictureID(); got != pictureID {
+		t.Fatalf("unsent RTP write PictureID = %d, want unchanged %d",
+			got, pictureID)
 	}
 }
 
@@ -2326,6 +2427,22 @@ func reassembleWebRTCSVCResultForTest(t *testing.T,
 		t.Fatalf("PackVP9SuperframeInto: %v", err)
 	}
 	return packet[:n]
+}
+
+type recordingRTPWriterForTest struct {
+	packets []rtp.Packet
+	failAt  int
+	err     error
+}
+
+func (w *recordingRTPWriterForTest) WriteRTP(packet *rtp.Packet) error {
+	if w.err != nil && len(w.packets) == w.failAt {
+		return w.err
+	}
+	copyPacket := *packet
+	copyPacket.Payload = append([]byte(nil), packet.Payload...)
+	w.packets = append(w.packets, copyPacket)
+	return nil
 }
 
 func assertWebRTCSVCDecoderOutputForTest(
