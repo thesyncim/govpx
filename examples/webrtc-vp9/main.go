@@ -830,6 +830,20 @@ func consumeForceKeyForActiveAccessUnit(ctl *controlState) (bool, bool) {
 	return true, ctl.forceKey.Swap(false)
 }
 
+func consumeForceKeyForWebRTCAccessUnit(
+	ctl *controlState,
+	packetizer *govpx.VP9WebRTCPacketizer,
+) (bool, bool) {
+	active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+	if !active {
+		return false, false
+	}
+	if packetizer != nil && packetizer.NeedsKeyFrame() {
+		forceKey = true
+	}
+	return active, forceKey
+}
+
 func requestKeyFrameAfterFailedAccessUnit(ctl *controlState) {
 	ctl.forceKey.Store(true)
 }
@@ -1021,7 +1035,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				currentScreen = want
 			}
 		}
-		active, forceKey := consumeForceKeyForActiveAccessUnit(ctl)
+		active, forceKey := consumeForceKeyForWebRTCAccessUnit(ctl,
+			&rtpPacketizer)
 		if !active {
 			continue
 		}

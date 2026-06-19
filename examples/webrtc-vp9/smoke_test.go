@@ -880,6 +880,44 @@ func TestConsumeForceKeyForActiveAccessUnitConsumesActiveRequest(t *testing.T) {
 	}
 }
 
+func TestConsumeForceKeyForWebRTCAccessUnitHonorsPacketizerRecovery(t *testing.T) {
+	ctl := &controlState{}
+	packetizer := govpx.NewVP9WebRTCPacketizer(17)
+	packetizer.MarkAccessUnitUnsent()
+
+	active, forceKey := consumeForceKeyForWebRTCAccessUnit(ctl, &packetizer)
+	if !active || !forceKey {
+		t.Fatalf("WebRTC access unit = active:%t forceKey:%t, want true/true",
+			active, forceKey)
+	}
+	if ctl.forceKey.Load() {
+		t.Fatal("packetizer recovery request left a duplicate control key pending")
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("packetizer recovery request was cleared before recovery key packetized")
+	}
+}
+
+func TestConsumeForceKeyForWebRTCAccessUnitPreservesPausedRecovery(t *testing.T) {
+	ctl := &controlState{}
+	ctl.paused.Store(true)
+	ctl.forceKey.Store(true)
+	packetizer := govpx.NewVP9WebRTCPacketizer(17)
+	packetizer.MarkAccessUnitUnsent()
+
+	active, forceKey := consumeForceKeyForWebRTCAccessUnit(ctl, &packetizer)
+	if active || forceKey {
+		t.Fatalf("paused WebRTC access unit = active:%t forceKey:%t, want false/false",
+			active, forceKey)
+	}
+	if !ctl.forceKey.Load() {
+		t.Fatal("paused WebRTC access unit consumed pending control key")
+	}
+	if !packetizer.NeedsKeyFrame() {
+		t.Fatal("paused WebRTC access unit cleared packetizer recovery request")
+	}
+}
+
 func TestRequestKeyFrameAfterFailedAccessUnitRequeuesKey(t *testing.T) {
 	ctl := &controlState{}
 
