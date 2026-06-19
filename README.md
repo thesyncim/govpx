@@ -114,6 +114,7 @@ returns no more data.
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
 | Encode a VP9 spatial-SVC access unit | `NewVP9SpatialSVCEncoder`, `VP9SpatialSVCEncoder.EncodeIntoWithResult` |
 | Signal VP9 encoded spatial layer | `VP9EncoderOptions.SpatialScalability`, `SetSpatialScalability`, `SetSpatialLayerID` |
+| Validate VP9 WebRTC SDP/profile negotiation | `VP9SDPNegotiatesProfile0`, `VP9SDPOffersProfile0Receive`, `VP9SDPAnswersProfile0Send`, `VP9SDPFmtpContainsProfile0` |
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
@@ -137,7 +138,11 @@ Packetizers return payload bodies plus marker bits; assemblers consume ordered
 payload bodies plus marker bits. RTP headers, sequence/loss policy, jitter
 buffering, SRTP, SDP, and signaling remain caller-owned. VP9 helpers carry
 picture IDs, layer indices, flexible-mode references, and scalability
-structures through packetization and assembly. For WebRTC VP9 senders, prefer
+structures through packetization and assembly. Use `VP9SDPOffersProfile0Receive`
+and `VP9SDPAnswersProfile0Send` around offer/answer handling before sending
+VP9 Profile 0 RTP to a peer; profile or direction mismatches can otherwise
+look like a frozen decoder even when RTP loss counters stay at zero. For
+WebRTC VP9 senders, prefer
 `VP9WebRTCPacketizer`: it wraps the result packetizers, forces 15-bit PictureID,
 preserves temporal metadata, emits keyframe scalability-structure data on the
 first payload, and advances PictureID after packetizing a frame/access unit or

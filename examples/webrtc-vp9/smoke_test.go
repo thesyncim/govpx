@@ -322,11 +322,11 @@ func TestHandleOfferRejectsOfferWithoutVP9Profile0(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOffer: %v", err)
 	}
-	if !sdpOffersVP9Profile0Receive(offer.SDP) {
+	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
 		t.Fatalf("test offer unexpectedly missing VP9 profile 0:\n%s", offer.SDP)
 	}
 	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp, "profile-id=2")
-	if sdpOffersVP9Profile0Receive(offer.SDP) {
+	if govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
 		t.Fatalf("mutated test offer still negotiates VP9 profile 0:\n%s", offer.SDP)
 	}
 
@@ -408,7 +408,7 @@ func TestHandleOfferContinuesAfterServerICEGatherTimeout(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
 		t.Fatalf("decode answer: %v", err)
 	}
-	if !sdpAnswersVP9Profile0Send(answer.SDP) {
+	if !govpx.VP9SDPAnswersProfile0Send(answer.SDP) {
 		t.Fatalf("answer after forced ICE timeout does not send VP9 profile 0:\n%s",
 			answer.SDP)
 	}
@@ -440,12 +440,12 @@ func TestHandleOfferRejectsOfferThatCannotReceiveVP9(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOffer: %v", err)
 	}
-	if !sdpOffersVP9Profile0Receive(offer.SDP) {
+	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
 		t.Fatalf("test offer unexpectedly missing receivable VP9 profile 0:\n%s",
 			offer.SDP)
 	}
 	offer.SDP = strings.ReplaceAll(offer.SDP, "a=recvonly", "a=sendonly")
-	if sdpOffersVP9Profile0Receive(offer.SDP) {
+	if govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
 		t.Fatalf("sendonly test offer still allows VP9 receive:\n%s", offer.SDP)
 	}
 	body, err := json.Marshal(offer)
@@ -1373,8 +1373,8 @@ func TestSDPNegotiatesVP9Profile0(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sdpNegotiatesVP9Profile0(tc.sdp); got != tc.want {
-				t.Fatalf("sdpNegotiatesVP9Profile0 = %t, want %t",
+			if got := govpx.VP9SDPNegotiatesProfile0(tc.sdp); got != tc.want {
+				t.Fatalf("VP9SDPNegotiatesProfile0 = %t, want %t",
 					got, tc.want)
 			}
 		})
@@ -1403,8 +1403,8 @@ func TestSDPOffersVP9Profile0Receive(t *testing.T) {
 			if tc.direction != "" {
 				lines = append(lines[:1], append([]string{tc.direction}, lines[1:]...)...)
 			}
-			if got := sdpOffersVP9Profile0Receive(strings.Join(lines, "\r\n")); got != tc.want {
-				t.Fatalf("sdpOffersVP9Profile0Receive = %t, want %t",
+			if got := govpx.VP9SDPOffersProfile0Receive(strings.Join(lines, "\r\n")); got != tc.want {
+				t.Fatalf("VP9SDPOffersProfile0Receive = %t, want %t",
 					got, tc.want)
 			}
 		})
@@ -1433,8 +1433,8 @@ func TestSDPAnswersVP9Profile0Send(t *testing.T) {
 			if tc.direction != "" {
 				lines = append(lines[:1], append([]string{tc.direction}, lines[1:]...)...)
 			}
-			if got := sdpAnswersVP9Profile0Send(strings.Join(lines, "\r\n")); got != tc.want {
-				t.Fatalf("sdpAnswersVP9Profile0Send = %t, want %t",
+			if got := govpx.VP9SDPAnswersProfile0Send(strings.Join(lines, "\r\n")); got != tc.want {
+				t.Fatalf("VP9SDPAnswersProfile0Send = %t, want %t",
 					got, tc.want)
 			}
 		})

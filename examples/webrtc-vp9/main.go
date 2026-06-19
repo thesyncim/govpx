@@ -20,7 +20,6 @@ import (
 	"log"
 	"net/http"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,9 +34,9 @@ import (
 const (
 	spatialLayerCount = 3
 	temporalLayerMode = govpx.TemporalLayeringThreeLayers
-	rtpClockHz        = 90000
+	rtpClockHz        = govpx.VP9RTPClockRate
 	rtpPayloadMTU     = 1200 - 12
-	vp9Profile0Fmtp   = "profile-id=0"
+	vp9Profile0Fmtp   = govpx.VP9SDPFmtpProfile0
 	iceGatherTimeout  = 10 * time.Second
 
 	defaultFPS          = 30
@@ -425,7 +424,7 @@ func handleOfferWithICEGatherWait(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if !sdpOffersVP9Profile0Receive(offer.SDP) {
+	if !govpx.VP9SDPOffersProfile0Receive(offer.SDP) {
 		http.Error(w, "VP9 profile 0 is required", http.StatusNotAcceptable)
 		return
 	}
@@ -517,7 +516,7 @@ func handleOfferWithICEGatherWait(
 			iceGatherTimeout)
 	}
 	local := pc.LocalDescription()
-	if local == nil || !sdpAnswersVP9Profile0Send(local.SDP) {
+	if local == nil || !govpx.VP9SDPAnswersProfile0Send(local.SDP) {
 		_ = pc.Close()
 		http.Error(w, "VP9 profile 0 was not negotiated",
 			http.StatusNotAcceptable)
@@ -548,156 +547,14 @@ func handleOfferWithICEGatherWait(
 
 func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
 	return webrtc.RTPCodecCapability{
-		MimeType:    webrtc.MimeTypeVP9,
-		ClockRate:   rtpClockHz,
-		SDPFmtpLine: vp9Profile0Fmtp,
+		MimeType:    govpx.VP9RTPMediaType,
+		ClockRate:   govpx.VP9RTPClockRate,
+		SDPFmtpLine: govpx.VP9SDPFmtpProfile0,
 		RTCPFeedback: []webrtc.RTCPFeedback{
 			{Type: "ccm", Parameter: "fir"},
 			{Type: "nack", Parameter: "pli"},
 		},
 	}
-}
-
-func sdpNegotiatesVP9Profile0(sdp string) bool {
-	return sdpHasVP9Profile0(sdp, sdpDirectionIsActive)
-}
-
-func sdpOffersVP9Profile0Receive(sdp string) bool {
-	return sdpHasVP9Profile0(sdp, sdpDirectionAllowsReceive)
-}
-
-func sdpAnswersVP9Profile0Send(sdp string) bool {
-	return sdpHasVP9Profile0(sdp, sdpDirectionAllowsSend)
-}
-
-func sdpHasVP9Profile0(sdp string, directionOK func(string) bool) bool {
-	sessionDirection := "sendrecv"
-	section := sdpMediaSection{direction: sessionDirection}
-	haveSection := false
-	for _, raw := range strings.Split(sdp, "\n") {
-		line := strings.TrimSpace(strings.ToLower(raw))
-		if strings.HasPrefix(line, "m=") {
-			if haveSection && section.hasVP9Profile0(directionOK) {
-				return true
-			}
-			media, active, payloadTypes := sdpMediaPayloadTypes(line)
-			section = sdpMediaSection{
-				media:                media,
-				portActive:           active,
-				payloadTypes:         payloadTypes,
-				direction:            sessionDirection,
-				vp9PayloadTypes:      make(map[string]bool),
-				profile0PayloadTypes: make(map[string]bool),
-			}
-			haveSection = true
-			continue
-		}
-		if direction, ok := sdpDirection(line); ok {
-			if haveSection {
-				section.direction = direction
-			} else {
-				sessionDirection = direction
-			}
-			continue
-		}
-		if !haveSection || !section.parsesVideoPayloadAttributes() {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(line, "a=rtpmap:"):
-			fields := strings.Fields(strings.TrimPrefix(line, "a=rtpmap:"))
-			if len(fields) >= 2 && fields[1] == "vp9/90000" &&
-				section.payloadTypes[fields[0]] {
-				section.vp9PayloadTypes[fields[0]] = true
-			}
-		case strings.HasPrefix(line, "a=fmtp:"):
-			fields := strings.Fields(strings.TrimPrefix(line, "a=fmtp:"))
-			if len(fields) >= 2 && fmtpParamsContainVP9Profile0(
-				strings.Join(fields[1:], " ")) &&
-				section.payloadTypes[fields[0]] {
-				section.profile0PayloadTypes[fields[0]] = true
-			}
-		}
-	}
-	return haveSection && section.hasVP9Profile0(directionOK)
-}
-
-type sdpMediaSection struct {
-	media                string
-	portActive           bool
-	payloadTypes         map[string]bool
-	direction            string
-	vp9PayloadTypes      map[string]bool
-	profile0PayloadTypes map[string]bool
-}
-
-func (s sdpMediaSection) parsesVideoPayloadAttributes() bool {
-	return s.media == "video" && s.portActive
-}
-
-func (s sdpMediaSection) hasVP9Profile0(directionOK func(string) bool) bool {
-	if !s.parsesVideoPayloadAttributes() || !directionOK(s.direction) {
-		return false
-	}
-	for payloadType := range s.vp9PayloadTypes {
-		if s.profile0PayloadTypes[payloadType] {
-			return true
-		}
-	}
-	return false
-}
-
-func sdpMediaPayloadTypes(line string) (string, bool, map[string]bool) {
-	fields := strings.Fields(strings.TrimPrefix(line, "m="))
-	if len(fields) < 4 {
-		return "", false, nil
-	}
-	payloadTypes := make(map[string]bool, len(fields)-3)
-	for _, payloadType := range fields[3:] {
-		payloadTypes[payloadType] = true
-	}
-	return fields[0], !sdpMediaPortIsZero(fields[1]), payloadTypes
-}
-
-func sdpMediaPortIsZero(port string) bool {
-	first, _, _ := strings.Cut(port, "/")
-	first = strings.TrimLeft(first, "0")
-	return first == ""
-}
-
-func sdpDirection(line string) (string, bool) {
-	switch line {
-	case "a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive":
-		return strings.TrimPrefix(line, "a="), true
-	default:
-		return "", false
-	}
-}
-
-func sdpDirectionIsActive(direction string) bool {
-	return direction != "inactive"
-}
-
-func sdpDirectionAllowsReceive(direction string) bool {
-	return direction == "" || direction == "sendrecv" || direction == "recvonly"
-}
-
-func sdpDirectionAllowsSend(direction string) bool {
-	return direction == "" || direction == "sendrecv" || direction == "sendonly"
-}
-
-func fmtpParamsContainVP9Profile0(params string) bool {
-	for _, rawParam := range strings.Split(params, ";") {
-		key, value, ok := strings.Cut(strings.TrimSpace(rawParam), "=")
-		if !ok {
-			continue
-		}
-		if strings.TrimSpace(key) == "profile-id" &&
-			strings.TrimSpace(value) == "0" {
-			return true
-		}
-	}
-	return false
 }
 
 func peerConnectionStateIsTerminal(s webrtc.PeerConnectionState) bool {

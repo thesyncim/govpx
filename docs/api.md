@@ -142,6 +142,11 @@ VP9 RTP packetizers are still
 available when a caller deliberately owns
 descriptor policy.
 
+Use `VP9SDPOffersProfile0Receive` and `VP9SDPAnswersProfile0Send` around
+offer/answer handling before sending VP9 Profile 0 over WebRTC. The lower-level
+`VP9SDPFmtpContainsProfile0` helper is available for callers that already own
+their SDP section parsing.
+
 VP9 superframe helpers are Profile 0 only:
 
 - `VP9SuperframeSize`
