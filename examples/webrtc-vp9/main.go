@@ -609,9 +609,11 @@ func vp9WebRTCCodecCapability() webrtc.RTPCodecCapability {
 		ClockRate:   govpx.VP9RTPClockRate,
 		SDPFmtpLine: govpx.VP9SDPFmtpProfile0,
 		RTCPFeedback: []webrtc.RTCPFeedback{
-			{Type: "ccm", Parameter: "fir"},
-			{Type: "nack"},
-			{Type: "nack", Parameter: "pli"},
+			{Type: webrtc.TypeRTCPFBGoogREMB},
+			{Type: webrtc.TypeRTCPFBCCM, Parameter: "fir"},
+			{Type: webrtc.TypeRTCPFBNACK},
+			{Type: webrtc.TypeRTCPFBNACK, Parameter: "pli"},
+			{Type: webrtc.TypeRTCPFBTransportCC},
 		},
 	}
 }

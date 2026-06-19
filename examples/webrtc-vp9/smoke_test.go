@@ -120,7 +120,13 @@ func TestDemoEndToEnd(t *testing.T) {
 	if !strings.Contains(answer.SDP, vp9Profile0Fmtp) {
 		t.Fatalf("answer SDP missing VP9 profile 0 fmtp:\n%s", answer.SDP)
 	}
-	for _, feedback := range []string{"nack", "nack pli", "ccm fir"} {
+	for _, feedback := range []string{
+		"goog-remb",
+		"ccm fir",
+		"nack",
+		"nack pli",
+		"transport-cc",
+	} {
 		if !sdpHasRTCPFeedbackForTest(answer.SDP, feedback) {
 			t.Fatalf("answer SDP missing VP9 feedback %q:\n%s",
 				feedback, answer.SDP)
@@ -1375,9 +1381,11 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 			codec, rtpClockHz, vp9Profile0Fmtp)
 	}
 	wantFeedback := map[webrtc.RTCPFeedback]bool{
-		{Type: "nack"}:                   true,
-		{Type: "nack", Parameter: "pli"}: true,
-		{Type: "ccm", Parameter: "fir"}:  true,
+		{Type: webrtc.TypeRTCPFBGoogREMB}:               true,
+		{Type: webrtc.TypeRTCPFBCCM, Parameter: "fir"}:  true,
+		{Type: webrtc.TypeRTCPFBNACK}:                   true,
+		{Type: webrtc.TypeRTCPFBNACK, Parameter: "pli"}: true,
+		{Type: webrtc.TypeRTCPFBTransportCC}:            true,
 	}
 	for _, feedback := range codec.RTCPFeedback {
 		delete(wantFeedback, feedback)
