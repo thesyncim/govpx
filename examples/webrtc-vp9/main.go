@@ -244,6 +244,7 @@ function renderStats(msg){
   row(totalsEl, "pkt ms", (msg.sender?.packetize_ms||0).toFixed(1));
   row(totalsEl, "write ms", (msg.sender?.write_ms||0).toFixed(1));
   row(totalsEl, "AU ms", (msg.sender?.access_unit_ms||0).toFixed(1));
+  row(totalsEl, "lag ms", (msg.sender?.schedule_lag_ms||0).toFixed(1));
   row(totalsEl, "RTP packets", msg.sender?.rtp_packets ?? 0);
   if(msg.sender?.forced_key) row(totalsEl, "forced key", "yes");
   if(msg.sender?.packetizer_recovery) row(totalsEl, "pkt recovery", "yes");
@@ -983,6 +984,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		case tickTime = <-ticker.C:
 		}
 		accessUnitStarted := time.Now()
+		scheduleLag := accessUnitScheduleLag(tickTime, accessUnitStarted)
 
 		// Apply runtime updates between access units. We re-set them
 		// lazily so the SVC encoder's per-layer rate-control stays in
@@ -1016,8 +1018,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			forceKeyAll(svc)
 		}
 
-		mediaFrame := rtpMediaFrameForTick(startedAt, tickTime, cfg.FPS,
-			lastMediaFrame, haveMediaFrame)
+		mediaFrame := rtpMediaFrameForAccessUnit(startedAt, tickTime,
+			accessUnitStarted, cfg.FPS, lastMediaFrame, haveMediaFrame)
 		lastMediaFrame = mediaFrame
 		haveMediaFrame = true
 		pts := rtpClockOffset(mediaFrame, cfg.FPS)
@@ -1092,6 +1094,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				PacketizeMs:        durationMS(packetizeElapsed),
 				WriteMs:            durationMS(writeElapsed),
 				AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+				ScheduleLagMs:      durationMS(scheduleLag),
 				RTPPackets:         fragmentCount,
 				ForcedKey:          forceKey,
 				PacketizerRecovery: packetizerRecovery,
@@ -1101,7 +1104,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			pushTelemetry(telemetry, payload)
 		}
 		if capBackoff.observe(currentSpatialCap, requestedSpatialCap,
-			time.Since(accessUnitStarted), interval) {
+			accessUnitWallElapsed(tickTime, time.Now()), interval) {
 			ctl.forceKey.Store(true)
 		}
 	}
@@ -1164,6 +1167,16 @@ func rtpClockOffset(frame uint64, fps int) uint64 {
 	return frame * rtpClockHz / uint64(fps)
 }
 
+func rtpMediaFrameForAccessUnit(startedAt, tickTime, now time.Time, fps int,
+	last uint64, haveLast bool,
+) uint64 {
+	captureTime := tickTime
+	if now.After(captureTime) {
+		captureTime = now
+	}
+	return rtpMediaFrameForTick(startedAt, captureTime, fps, last, haveLast)
+}
+
 func rtpMediaFrameForTick(startedAt, tickTime time.Time, fps int,
 	last uint64, haveLast bool,
 ) uint64 {
@@ -1187,6 +1200,17 @@ func rtpScheduledFrameForTick(startedAt, tickTime time.Time, fps int) uint64 {
 		return 0
 	}
 	return ticks - 1
+}
+
+func accessUnitScheduleLag(tickTime, started time.Time) time.Duration {
+	return accessUnitWallElapsed(tickTime, started)
+}
+
+func accessUnitWallElapsed(tickTime, ended time.Time) time.Duration {
+	if ended.Before(tickTime) {
+		return 0
+	}
+	return ended.Sub(tickTime)
 }
 
 // pushTelemetry sends a payload to the DataChannel writer, dropping the
@@ -1449,6 +1473,7 @@ type telemetrySender struct {
 	PacketizeMs        float64 `json:"packetize_ms"`
 	WriteMs            float64 `json:"write_ms"`
 	AccessUnitMs       float64 `json:"access_unit_ms"`
+	ScheduleLagMs      float64 `json:"schedule_lag_ms"`
 	RTPPackets         int     `json:"rtp_packets"`
 	ForcedKey          bool    `json:"forced_key,omitempty"`
 	PacketizerRecovery bool    `json:"packetizer_recovery,omitempty"`

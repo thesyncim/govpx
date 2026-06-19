@@ -1281,6 +1281,46 @@ func TestRTPMediaFrameForTickSkipsMissedIntervals(t *testing.T) {
 	}
 }
 
+func TestRTPMediaFrameForAccessUnitUsesWakeTimeWhenTickerIsLate(t *testing.T) {
+	startedAt := time.Unix(100, 0)
+	interval := time.Second / time.Duration(defaultFPS)
+	staleTick := startedAt.Add(2 * interval)
+	wakeTime := startedAt.Add(7 * interval)
+
+	staleFrame := rtpMediaFrameForTick(startedAt, staleTick,
+		defaultFPS, 0, false)
+	if staleFrame != 1 {
+		t.Fatalf("test setup stale frame = %d, want 1", staleFrame)
+	}
+	got := rtpMediaFrameForAccessUnit(startedAt, staleTick, wakeTime,
+		defaultFPS, 0, false)
+	if got != 6 {
+		t.Fatalf("late access-unit media frame = %d, want wall-clock frame 6",
+			got)
+	}
+	if got <= staleFrame {
+		t.Fatalf("late access-unit frame = %d did not advance past stale ticker frame %d",
+			got, staleFrame)
+	}
+}
+
+func TestAccessUnitTimingHelpersClampNegativeLag(t *testing.T) {
+	tick := time.Unix(200, 0)
+	started := tick.Add(5 * time.Millisecond)
+	if got := accessUnitScheduleLag(tick, started); got != 5*time.Millisecond {
+		t.Fatalf("schedule lag = %s, want 5ms", got)
+	}
+	if got := accessUnitWallElapsed(tick, started.Add(7*time.Millisecond)); got != 12*time.Millisecond {
+		t.Fatalf("wall elapsed = %s, want 12ms", got)
+	}
+	if got := accessUnitScheduleLag(tick, tick.Add(-time.Millisecond)); got != 0 {
+		t.Fatalf("negative schedule lag = %s, want 0", got)
+	}
+	if got := accessUnitWallElapsed(tick, tick.Add(-time.Millisecond)); got != 0 {
+		t.Fatalf("negative wall elapsed = %s, want 0", got)
+	}
+}
+
 func assertRTPMediaTimestampAdvancedForTest(t *testing.T, label string,
 	prev, next uint32, maxFrames int,
 ) {
@@ -2205,6 +2245,7 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			PacketizeMs:        0.5,
 			WriteMs:            0.25,
 			AccessUnitMs:       2,
+			ScheduleLagMs:      3.5,
 			RTPPackets:         3,
 			ForcedKey:          true,
 			PacketizerRecovery: true,
@@ -2252,6 +2293,7 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 		msg.Sender.PacketizeMs != 0.5 ||
 		msg.Sender.WriteMs != 0.25 ||
 		msg.Sender.AccessUnitMs != 2 ||
+		msg.Sender.ScheduleLagMs != 3.5 ||
 		msg.Sender.RTPPackets != 3 ||
 		!msg.Sender.ForcedKey ||
 		!msg.Sender.PacketizerRecovery ||
