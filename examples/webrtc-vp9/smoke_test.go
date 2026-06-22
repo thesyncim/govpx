@@ -1639,6 +1639,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"govpx.VP9WebRTCPacketizer",
 		"PacketizeSpatialSVCWebRTCNonFlexibleInto",
 		"non-flexible VP9 RTP descriptors",
+		"node browser_smoke.mjs",
+		"decoded frames and video time advance",
 		"MarkEncodedAccessUnitUnsent",
 		"MarkAccessUnitUnsent",
 		"app-local gap",

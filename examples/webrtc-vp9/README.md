@@ -127,6 +127,17 @@ asserts the server delivers VP9 RTP packets with 15-bit PictureID, spatial
 and temporal SVC metadata, capped-layer RTP views, all-layer forced
 keyframes, and JSON telemetry within the encoder's current per-frame budget.
 
+For a real browser decode smoke, run:
+
+```sh
+node browser_smoke.mjs
+```
+
+The script starts the demo, launches Chrome headless, waits for browser
+telemetry, and fails unless decoded frames and video time advance while RTP
+loss, dropped frames, and freeze counters stay flat. Set `CHROME` when Chrome
+is not in a standard location.
+
 ## What this proves
 
 - `govpx.VP9SpatialSVCEncoder` produces VP9 superframes that a native
