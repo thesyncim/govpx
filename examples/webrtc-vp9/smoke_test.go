@@ -1267,6 +1267,43 @@ func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
 	}
 }
 
+func TestSpatialCapBackoffIgnoresForcedKeyAccessUnits(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	overrun := interval + interval/5
+
+	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
+		changed, counted := backoff.observeLateStartForAccessUnit(
+			spatialLayerCount, spatialLayerCount, overrun, interval, true)
+		if changed || counted {
+			t.Fatalf("forced-key late start %d = changed:%t counted:%t, want false/false",
+				i, changed, counted)
+		}
+		if backoff.observeCompletedAccessUnit(spatialLayerCount, spatialLayerCount,
+			overrun, interval, true, false) {
+			t.Fatalf("forced-key completion %d requested cap change", i)
+		}
+	}
+	if backoff.maxCap != spatialLayerCount || backoff.overrunStreak != 0 {
+		t.Fatalf("forced-key overruns changed backoff = %+v, want cap %d streak 0",
+			backoff, spatialLayerCount)
+	}
+	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
+		if backoff.observeCompletedAccessUnit(spatialLayerCount, spatialLayerCount,
+			overrun, interval, false, false) {
+			t.Fatalf("non-key overrun %d requested cap change too early", i)
+		}
+	}
+	if !backoff.observeCompletedAccessUnit(spatialLayerCount, spatialLayerCount,
+		overrun, interval, false, false) {
+		t.Fatal("non-key overruns did not request cap change")
+	}
+	if backoff.maxCap != spatialLayerCount-1 {
+		t.Fatalf("non-key overruns after forced keys left cap = %d, want %d",
+			backoff.maxCap, spatialLayerCount-1)
+	}
+}
+
 func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
@@ -2014,14 +2051,15 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 
 func TestSVCLayerOptionsKeepRowMTOffUntilRowWorkersAreLive(t *testing.T) {
 	tests := []struct {
-		name   string
-		width  int
-		height int
+		name        string
+		width       int
+		height      int
+		wantCPUUsed int8
 	}{
-		{"base-layer", 160, 90},
-		{"middle-layer", 320, 180},
-		{"top-layer", 640, 360},
-		{"wide-layer", 1280, 720},
+		{"base-layer", 160, 90, 8},
+		{"middle-layer", 320, 180, 8},
+		{"top-layer", 640, 360, 9},
+		{"wide-layer", 1280, 720, 9},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2030,8 +2068,8 @@ func TestSVCLayerOptionsKeepRowMTOffUntilRowWorkersAreLive(t *testing.T) {
 			if opts.Threads != wantThreads {
 				t.Fatalf("Threads = %d, want %d", opts.Threads, wantThreads)
 			}
-			if opts.CpuUsed != 8 {
-				t.Fatalf("CpuUsed = %d, want 8", opts.CpuUsed)
+			if opts.CpuUsed != tc.wantCPUUsed {
+				t.Fatalf("CpuUsed = %d, want %d", opts.CpuUsed, tc.wantCPUUsed)
 			}
 			if opts.RowMT {
 				t.Fatalf("RowMT = true for %d tile threads, want false until VP9 row workers are on the production path",

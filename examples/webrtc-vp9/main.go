@@ -40,7 +40,7 @@ const (
 	vp9Profile0Fmtp   = govpx.VP9SDPFmtpProfile0
 	iceGatherTimeout  = 10 * time.Second
 
-	defaultFPS          = 30
+	defaultFPS          = 25
 	defaultBitrateKbps  = 800
 	minLayerBitrateKbps = 1
 
@@ -974,6 +974,33 @@ func (b *spatialCapBackoff) observeLateStart(
 	return b.observe(activeCap, requestedCap, scheduleLag, interval), true
 }
 
+func (b *spatialCapBackoff) observeLateStartForAccessUnit(
+	activeCap int,
+	requestedCap int,
+	scheduleLag time.Duration,
+	interval time.Duration,
+	forceKey bool,
+) (capChange bool, counted bool) {
+	if forceKey {
+		return false, false
+	}
+	return b.observeLateStart(activeCap, requestedCap, scheduleLag, interval)
+}
+
+func (b *spatialCapBackoff) observeCompletedAccessUnit(
+	activeCap int,
+	requestedCap int,
+	elapsed time.Duration,
+	interval time.Duration,
+	forceKey bool,
+	alreadyCounted bool,
+) bool {
+	if forceKey || alreadyCounted {
+		return false
+	}
+	return b.observe(activeCap, requestedCap, elapsed, interval)
+}
+
 func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
 	return interval > 0 && elapsed > interval+interval/10
 }
@@ -1078,8 +1105,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			continue
 		}
 		requestedSpatialCap := clampSpatialCap(int(ctl.spatialCap.Load()))
-		lateStartCapChange, countedScheduleLag := capBackoff.observeLateStart(
-			currentSpatialCap, requestedSpatialCap, scheduleLag, interval)
+		lateStartCapChange, countedScheduleLag := capBackoff.observeLateStartForAccessUnit(
+			currentSpatialCap, requestedSpatialCap, scheduleLag, interval, forceKey)
 		if lateStartCapChange {
 			forceKey = true
 		}
@@ -1179,8 +1206,8 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			}); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
-		if !countedScheduleLag && capBackoff.observe(currentSpatialCap, requestedSpatialCap,
-			accessUnitWallElapsed(tickTime, time.Now()), interval) {
+		if capBackoff.observeCompletedAccessUnit(currentSpatialCap, requestedSpatialCap,
+			accessUnitWallElapsed(tickTime, time.Now()), interval, forceKey, countedScheduleLag) {
 			ctl.forceKey.Store(true)
 		}
 	}
@@ -1402,7 +1429,9 @@ func forceKeyAll(svc *govpx.VP9SpatialSVCEncoder) {
 }
 
 func pickCPUUsed(width, height int) int8 {
-	_ = width * height
+	if width*height >= 640*360 {
+		return 9
+	}
 	return 8
 }
 
