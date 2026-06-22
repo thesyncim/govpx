@@ -32,6 +32,7 @@ function parseOptions() {
     pollMs: numberFlag("--poll-ms", Math.min(sampleMs, 500)),
     timeoutMs: numberFlag("--timeout-ms", 45000),
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
+    minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
@@ -90,6 +91,7 @@ async function runSmoke(opts, runIndex) {
         minEndingActiveLayers: opts.minEndingActiveLayers,
         minActiveLayers: opts.minActiveLayers,
         minDecodedDelta: opts.minDecodedDelta,
+        minVideoTimeRatio: opts.minVideoTimeRatio,
         runIndex,
         sampleIndex: i + 1,
         summary,
@@ -115,6 +117,8 @@ async function runSmoke(opts, runIndex) {
       serverFPS: opts.serverFPS,
       serverBitrateKbps: opts.serverBitrateKbps,
       cpuBurners: opts.cpuBurners,
+      minDecodedDelta: opts.minDecodedDelta,
+      minVideoTimeRatio: opts.minVideoTimeRatio,
       minActiveLayers: opts.minActiveLayers,
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
@@ -417,7 +421,8 @@ function assertSmoke(first, second, delta, opts) {
   if (delta.rxDecoded === null || delta.rxDecoded < opts.minDecodedDelta) {
     throw new Error(`${sampleLabel(opts)} decoded frames did not advance enough: ${delta.rxDecoded}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
-  if (delta.videoTime === null || delta.videoTime < opts.intervalMs / 1000 * 0.7) {
+  if (delta.videoTime === null ||
+      delta.videoTime < opts.intervalMs / 1000 * opts.minVideoTimeRatio) {
     throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   for (const key of ["rxLost", "rxDropped", "rxFreezes"]) {
