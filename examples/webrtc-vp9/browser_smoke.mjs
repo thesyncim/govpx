@@ -49,7 +49,7 @@ function parseOptions() {
     pauseResume: booleanFlag("--pause-resume"),
     pauseMs: numberFlag("--pause-ms", 1500, { min: 0 }),
     localWithhold: booleanFlag("--local-withhold"),
-    localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1 }),
+    localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
@@ -387,9 +387,9 @@ async function waitForLocalWithholdRecovery(cdp, sessionId, before, timeoutMs, c
       withheld !== null &&
       withheld >= count &&
       recoveries !== null &&
-      recoveries >= 1 &&
+      recoveries >= count &&
       forcedKeys !== null &&
-      forcedKeys >= 1 &&
+      forcedKeys >= count &&
       decoded !== null &&
       decoded >= 1 &&
       (lost === null || lost === 0) &&
@@ -487,10 +487,11 @@ function numberFlag(name, fallback, opts = {}) {
     if (value < opts.min) {
       throw new Error(`${name} must be >= ${opts.min}`);
     }
-    return value;
-  }
-  if (value <= 0) {
+  } else if (value <= 0) {
     throw new Error(`${name} must be positive`);
+  }
+  if (opts.max !== undefined && value > opts.max) {
+    throw new Error(`${name} must be <= ${opts.max}`);
   }
   return value;
 }
@@ -985,9 +986,9 @@ function assertRunSmoke(summary, opts) {
         client.withheldAUs === null ||
         client.withheldAUs < opts.localWithholdCount ||
         client.packetizerRecoveries === null ||
-        client.packetizerRecoveries < 1 ||
+        client.packetizerRecoveries < opts.localWithholdCount ||
         client.forcedKeys === null ||
-        client.forcedKeys < 1 ||
+        client.forcedKeys < opts.localWithholdCount ||
         client.decodedAfterWithhold === null ||
         client.decodedAfterWithhold < 1 ||
         (client.lostAfterWithhold !== null && client.lostAfterWithhold !== 0) ||

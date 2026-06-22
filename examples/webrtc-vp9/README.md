@@ -198,12 +198,12 @@ node browser_smoke.mjs --pause-resume --pause-ms 1500 --soak-ms 10000 --sample-m
 ```
 
 To prove app-local no-loss recovery, add `--local-withhold`. The sender
-packetizes one VP9 access unit but deliberately withholds its RTP packets, then
-the browser smoke requires packetizer recovery, a forced keyframe, continued
-decode, and no RTP loss or receiver repair feedback:
+packetizes two consecutive VP9 access units but deliberately withholds their RTP
+packets, then the browser smoke requires packetizer recovery, forced keyframes,
+continued decode, and no RTP loss or receiver repair feedback:
 
 ```sh
-node browser_smoke.mjs --local-withhold --local-withhold-count 1 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+node browser_smoke.mjs --local-withhold --local-withhold-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
 To prove those recovery controls still fire under scheduler contention, combine
@@ -252,8 +252,8 @@ oracle test, so this gate requires the pinned libvpx binaries to be available.
   clean samples, catching stalls that do not increment the simple freeze count.
 - Pause/resume is gated as a lifecycle recovery path: resume must trigger a
   keyframe and clean browser decode must restart without RTP/decoder feedback.
-- App-local no-loss withhold is gated as a sender recovery path: a deliberately
-  withheld, already-packetized VP9 access unit must trigger packetizer recovery
+- App-local no-loss withhold is gated as a sender recovery path: deliberately
+  withheld, already-packetized VP9 access units must trigger packetizer recovery
   and clean browser decode without RTP loss or receiver repair feedback.
 - Live bitrate and screen-content tuning are gated: bitrate controls update
   without recovery, while screen-content mode changes force a keyframe boundary

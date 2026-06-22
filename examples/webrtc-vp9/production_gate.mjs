@@ -147,7 +147,7 @@ const steps = [
     args: [
       "browser_smoke.mjs",
       "--local-withhold",
-      "--local-withhold-count", "1",
+      "--local-withhold-count", "2",
       "--soak-ms", "10000",
       "--sample-ms", "5000",
       "--poll-ms", "1000",
