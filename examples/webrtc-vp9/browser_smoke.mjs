@@ -45,6 +45,8 @@ function parseOptions() {
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
     controlChurn: booleanFlag("--control-churn"),
+    pauseResume: booleanFlag("--pause-resume"),
+    pauseMs: numberFlag("--pause-ms", 1500, { min: 0 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
@@ -80,9 +82,16 @@ async function runSmoke(opts, runIndex) {
       clients.push(await createBrowserClient(cdp, url, i + 1));
     }
 
-    const firstByClient = await Promise.all(clients.map((client) =>
+    const initialByClient = await Promise.all(clients.map((client) =>
       waitForDecodedStats(cdp, client.sessionId, opts.timeoutMs)
     ));
+    let firstByClient = initialByClient;
+    const pauseResume = opts.pauseResume
+      ? await exercisePauseResume(cdp, clients, initialByClient, opts.timeoutMs, opts.pauseMs)
+      : null;
+    if (pauseResume) {
+      firstByClient = pauseResume.afterResumeByClient;
+    }
     let previousByClient = firstByClient;
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
@@ -150,7 +159,7 @@ async function runSmoke(opts, runIndex) {
       diffStats(first, secondByClient[i])
     );
     const summary = summarizeRun(samples, deltaByClient, secondByClient);
-    assertRunSmoke(summary, opts);
+    assertRunSmoke(summary, { ...opts, pauseResumeResult: pauseResume });
     return {
       run: runIndex,
       url,
@@ -162,6 +171,8 @@ async function runSmoke(opts, runIndex) {
       serverBitrateKbps: opts.serverBitrateKbps,
       cpuBurners: opts.cpuBurners,
       controlChurn: opts.controlChurn,
+      pauseResume: opts.pauseResume,
+      pauseMs: opts.pauseMs,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
@@ -174,6 +185,8 @@ async function runSmoke(opts, runIndex) {
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
       requireThreadedTopLayer: opts.requireThreadedTopLayer,
+      pauseResumeResult: pauseResume,
+      initial: initialByClient[0],
       samples,
       first: firstByClient[0],
       second: secondByClient[0],
@@ -232,6 +245,66 @@ async function applyControlAction(cdp, sessionId, action) {
   return result.result.value;
 }
 
+async function exercisePauseResume(cdp, clients, beforeByClient, timeoutMs, pauseMs) {
+  await Promise.all(clients.map((client) =>
+    applyControlAction(cdp, client.sessionId, { type: "pause", paused: true })
+  ));
+  await sleep(pauseMs);
+  const pausedStats = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  await Promise.all(clients.map((client) =>
+    applyControlAction(cdp, client.sessionId, { type: "pause", paused: false })
+  ));
+  const recoveredByClient = await Promise.all(clients.map((client, i) =>
+    waitForPauseResumeRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs)
+  ));
+  await sleep(1000);
+  const afterResumeByClient = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  return {
+    pauseMs,
+    clients: pausedStats.map((stats, i) => ({
+      client: i + 1,
+      forcedKeysAfterResume: numericDelta(
+        beforeByClient[i]?.senderForcedKeys,
+        recoveredByClient[i]?.senderForcedKeys,
+      ),
+      decodedAfterResume: numericDelta(
+        stats?.rxDecoded,
+        recoveredByClient[i]?.rxDecoded,
+      ),
+      paused: stats,
+      recovered: recoveredByClient[i],
+      afterResume: afterResumeByClient[i],
+    })),
+    afterResumeByClient,
+  };
+}
+
+async function waitForPauseResumeRecovery(cdp, sessionId, before, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    latest = await readStats(cdp, sessionId);
+    const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
+    const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    if (
+      forcedKeys !== null &&
+      forcedKeys >= 1 &&
+      decoded !== null &&
+      decoded >= 1 &&
+      latest.videoReadyState >= 2 &&
+      latest.videoTime > before.videoTime
+    ) {
+      return latest;
+    }
+  }
+  throw new Error(`pause/resume decode recovery did not become ready: ${JSON.stringify({ before, latest })}`);
+}
+
 function controlActionExpression(action) {
   const encoded = JSON.stringify(action);
   return `(() => {
@@ -247,6 +320,13 @@ function controlActionExpression(action) {
       if (!button) throw new Error("missing keyframe button");
       button.click();
       return {type: "keyframe"};
+    }
+    if (action.type === "pause") {
+      const button = document.getElementById("pause");
+      if (!button) throw new Error("missing pause button");
+      if (typeof paused !== "boolean") throw new Error("missing pause state");
+      if (paused !== !!action.paused) button.click();
+      return {type: "pause", paused};
     }
     throw new Error("unknown control action " + action.type);
   })()`;
@@ -707,6 +787,19 @@ function assertRunSmoke(summary, opts) {
       summary.maxActiveTopLayerTileCols < 2)
   ) {
     throw new Error(`threaded top-layer tile layout was not observed: ${JSON.stringify(summary)}`);
+  }
+  if (
+    opts.pauseResume &&
+    (!opts.pauseResumeResult ||
+      !Array.isArray(opts.pauseResumeResult.clients) ||
+      opts.pauseResumeResult.clients.length !== opts.clients ||
+      opts.pauseResumeResult.clients.some((client) =>
+        client.forcedKeysAfterResume === null ||
+        client.forcedKeysAfterResume < 1 ||
+        client.decodedAfterResume === null ||
+        client.decodedAfterResume < 1))
+  ) {
+    throw new Error(`pause/resume did not produce clean forced-key decode recovery: ${JSON.stringify({ summary, pauseResume: opts.pauseResumeResult })}`);
   }
 }
 

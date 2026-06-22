@@ -179,6 +179,8 @@ let receiverLastDecodedAt = 0;
 let receiverLastRepairAt = 0;
 let receiverRepairRequests = 0;
 let receiverRepairStreak = 0;
+let receiverRepairSuppressedUntilDecoded = false;
+let receiverRepairSuppressUntil = 0;
 let receiverRequestedSpatialCap = MAX_SPATIAL_CAP;
 let senderForcedKeyCount = 0;
 let senderPacketizerRecoveryCount = 0;
@@ -298,6 +300,10 @@ pauseBtn.onclick = () => {
   paused = !paused;
   pauseBtn.classList.toggle("on", paused);
   pauseBtn.textContent = paused ? "resume encoder" : "pause encoder";
+  if(!paused){
+    receiverRepairSuppressedUntilDecoded = true;
+    receiverRepairSuppressUntil = Date.now() + RECEIVER_DECODE_STALL_MS;
+  }
   sendCtl({type:"pause", paused});
 };
 
@@ -413,6 +419,31 @@ function maybeRequestReceiverRepair(stats){
   stats.receiverRepairRequests = receiverRepairRequests;
   stats.receiverRepairStreak = receiverRepairStreak;
   stats.receiverSpatialCap = receiverRequestedSpatialCap;
+
+  if(paused){
+    if(stats.framesDecoded !== null) receiverLastDecoded = stats.framesDecoded;
+    receiverLastDecodedAt = now;
+    previousRTCStats = {...stats};
+    return;
+  }
+
+  if(receiverRepairSuppressedUntilDecoded){
+    if(stats.framesDecoded !== null && (receiverLastDecoded === null || stats.framesDecoded > receiverLastDecoded)){
+      receiverLastDecoded = stats.framesDecoded;
+      receiverLastDecodedAt = now;
+      receiverRepairStreak = 0;
+      stats.receiverRepairStreak = receiverRepairStreak;
+      receiverRepairSuppressedUntilDecoded = false;
+      previousRTCStats = {...stats};
+      return;
+    }
+    if(now < receiverRepairSuppressUntil){
+      receiverLastDecodedAt = now;
+      previousRTCStats = {...stats};
+      return;
+    }
+    receiverRepairSuppressedUntilDecoded = false;
+  }
 
   if(stats.framesDecoded !== null && (receiverLastDecoded === null || stats.framesDecoded > receiverLastDecoded)){
     receiverLastDecoded = stats.framesDecoded;

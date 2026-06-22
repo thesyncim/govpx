@@ -179,6 +179,14 @@ must observe at least one sender forced-key event:
 node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 2 --min-ending-active-layers 2 --require-threaded-top-layer
 ```
 
+To prove encoder lifecycle recovery, add `--pause-resume`. The browser pauses
+the sender after decode is established, resumes it, then requires a forced
+keyframe and clean browser decode progress after resume:
+
+```sh
+node browser_smoke.mjs --pause-resume --pause-ms 1500 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+```
+
 To prove those recovery controls still fire under scheduler contention, combine
 the churn and CPU-burner modes. This keeps the same forced-key requirement but
 allows graceful spatial downshift while the machine is busy:
@@ -197,9 +205,9 @@ node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decode
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
 the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
-tile-layout check, the clean control-churn browser recovery check, the loaded
-control-churn recovery check, the multi-client browser soak, and the
-libvpx/vpxdec oracle subset, run:
+tile-layout check, the clean control-churn browser recovery check, the
+pause/resume lifecycle recovery check, the loaded control-churn recovery check,
+the multi-client browser soak, and the libvpx/vpxdec oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -216,6 +224,8 @@ node production_gate.mjs
   RTP-write failures appear and are hidden by recovery-key behavior.
 - The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
+- Pause/resume is gated as a lifecycle recovery path: resume must trigger a
+  keyframe and clean browser decode must restart without RTP/decoder feedback.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
