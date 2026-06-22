@@ -9,6 +9,7 @@ import net from "node:net";
 
 async function main() {
   const sampleMs = numberFlag("--sample-ms", 5000);
+  const soakMs = numberFlag("--soak-ms", sampleMs);
   const timeoutMs = numberFlag("--timeout-ms", 45000);
   const minDecodedDelta = numberFlag("--min-decoded-delta", 30);
   const serverProcessGroup = process.platform !== "win32";
@@ -38,11 +39,38 @@ async function main() {
     await cdp.send("Page.navigate", { url }, sessionId);
 
     const first = await waitForDecodedStats(cdp, sessionId, timeoutMs);
-    await sleep(sampleMs);
-    const second = await readStats(cdp, sessionId);
+    let previous = first;
+    const samples = [];
+    const sampleCount = Math.max(1, Math.ceil(soakMs / sampleMs));
+    for (let i = 0; i < sampleCount; i++) {
+      await sleep(sampleMs);
+      const current = await readStats(cdp, sessionId);
+      const delta = diffStats(previous, current);
+      assertSmoke(previous, current, delta, {
+        intervalMs: sampleMs,
+        minDecodedDelta,
+        sampleIndex: i + 1,
+      });
+      samples.push({
+        intervalMs: sampleMs,
+        elapsedMs: (i + 1) * sampleMs,
+        first: previous,
+        second: current,
+        delta,
+      });
+      previous = current;
+    }
+    const second = previous;
     const delta = diffStats(first, second);
-    assertSmoke(first, second, delta, { minDecodedDelta, sampleMs });
-    console.log(JSON.stringify({ url, sampleMs, first, second, delta }, null, 2));
+    console.log(JSON.stringify({
+      url,
+      sampleMs,
+      soakMs,
+      samples,
+      first,
+      second,
+      delta,
+    }, null, 2));
   } finally {
     if (cdp) cdp.close();
     if (chrome) {
@@ -177,13 +205,23 @@ async function readStats(cdp, sessionId) {
         const n = Number(value);
         return Number.isFinite(n) ? n : null;
       };
+      const layers = Array.isArray(raw.layers) ? raw.layers : [];
+      const activeTop = layers.length > 0 ? layers[layers.length - 1] : {};
+      const sender = raw.sender || {};
       return {
         status: document.getElementById("status")?.textContent ?? null,
         frame: num(rows["frame #"]),
         activeLayers: raw.settings?.active_spatial_layers ?? null,
         requestedLayers: raw.settings?.requested_spatial_layers ?? null,
+        activeTopLayerSP: num(activeTop.sp),
+        activeTopLayerThreads: num(activeTop.threads),
+        activeTopLayerTileCols: num(activeTop.tile_cols),
+        activeTopLayerRowMT: activeTop.row_mt ?? null,
         fps: num(rows["fps"]),
         lagMs: num(rows["lag ms"]),
+        encodeMs: num(sender.encode_ms),
+        accessUnitMs: num(sender.access_unit_ms),
+        scheduleLagMs: num(sender.schedule_lag_ms),
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -214,22 +252,26 @@ function numericDelta(a, b) {
 
 function assertSmoke(first, second, delta, opts) {
   if (second.status !== "peer: connected | dc open") {
-    throw new Error(`peer did not stay connected: ${second.status}`);
+    throw new Error(`${sampleLabel(opts)} peer did not stay connected: ${second.status}`);
   }
   if (delta.rxDecoded === null || delta.rxDecoded < opts.minDecodedDelta) {
-    throw new Error(`decoded frames did not advance enough: ${delta.rxDecoded}`);
+    throw new Error(`${sampleLabel(opts)} decoded frames did not advance enough: ${delta.rxDecoded}`);
   }
-  if (delta.videoTime === null || delta.videoTime < opts.sampleMs / 1000 * 0.7) {
-    throw new Error(`video time did not advance enough: ${delta.videoTime}`);
+  if (delta.videoTime === null || delta.videoTime < opts.intervalMs / 1000 * 0.7) {
+    throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}`);
   }
   for (const key of ["rxLost", "rxDropped", "rxFreezes"]) {
     if (delta[key] !== null && delta[key] !== 0) {
-      throw new Error(`${key} changed during clean smoke: ${delta[key]}`);
+      throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}`);
     }
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
-    throw new Error(`video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}`);
+    throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}`);
   }
+}
+
+function sampleLabel(opts) {
+  return opts && opts.sampleIndex ? `sample ${opts.sampleIndex}:` : "sample:";
 }
 
 function sleep(ms) {

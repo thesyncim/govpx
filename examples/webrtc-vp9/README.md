@@ -136,7 +136,13 @@ node browser_smoke.mjs
 The script starts the demo, launches Chrome headless, waits for browser
 telemetry, and fails unless decoded frames and video time advance while RTP
 loss, dropped frames, and freeze counters stay flat. Set `CHROME` when Chrome
-is not in a standard location.
+is not in a standard location. For a longer clean-RTP decode soak, pass
+`--soak-ms`; each `--sample-ms` interval must independently show decoder
+progress with no loss, dropped-frame, or freeze-counter delta:
+
+```sh
+node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000
+```
 
 ## What this proves
 
