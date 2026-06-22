@@ -168,7 +168,7 @@ so the same harness can compare production defaults against a proposed
 realtime cadence:
 
 ```sh
-node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To exercise the clean-stall recovery controls without introducing packet loss,
@@ -180,10 +180,10 @@ must observe at least one sender forced-key event:
 node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 2 --min-ending-active-layers 2 --require-threaded-top-layer
 ```
 
-To exercise live rate-control and screen-content tuning without requiring a
-keyframe every sample, add `--tuning-churn`. The browser alternates bitrate and
-screen-mode controls; every interval must still decode cleanly and the telemetry
-must reflect the requested target:
+To exercise live rate-control and screen-content tuning, add `--tuning-churn`.
+The browser alternates bitrate and screen-mode controls; screen-content mode
+changes must force a keyframe boundary, every interval must still decode cleanly,
+and the telemetry must reflect the requested target:
 
 ```sh
 node browser_smoke.mjs --tuning-churn --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
@@ -197,12 +197,21 @@ keyframe and clean browser decode progress after resume:
 node browser_smoke.mjs --pause-resume --pause-ms 1500 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
+To prove app-local no-loss recovery, add `--local-withhold`. The sender
+packetizes one VP9 access unit but deliberately withholds its RTP packets, then
+the browser smoke requires packetizer recovery, a forced keyframe, continued
+decode, and no RTP loss or receiver repair feedback:
+
+```sh
+node browser_smoke.mjs --local-withhold --local-withhold-count 1 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+```
+
 To prove those recovery controls still fire under scheduler contention, combine
 the churn and CPU-burner modes. This keeps the same forced-key requirement but
 allows graceful spatial downshift while the machine is busy:
 
 ```sh
-node browser_smoke.mjs --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+node browser_smoke.mjs --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To exercise simultaneous receiver/encoder sessions against one demo server,
@@ -217,8 +226,8 @@ To run the full local VP9 WebRTC production gate, including focused Go checks,
 the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
 tile-layout check, the clean control-churn browser recovery check, the live
 bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
-loaded control-churn recovery check, the multi-client browser soak, and the
-libvpx/vpxdec oracle subset, run:
+app-local no-loss withhold recovery check, the loaded control-churn recovery
+check, the multi-client browser soak, and the libvpx/vpxdec oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -239,9 +248,12 @@ node production_gate.mjs
   clean samples, catching stalls that do not increment the simple freeze count.
 - Pause/resume is gated as a lifecycle recovery path: resume must trigger a
   keyframe and clean browser decode must restart without RTP/decoder feedback.
-- Live bitrate and screen-content tuning are gated separately from keyframe
-  churn, so ordinary rate/tuning controls must update telemetry and keep
-  decoding clean without relying on forced recovery frames.
+- App-local no-loss withhold is gated as a sender recovery path: a deliberately
+  withheld, already-packetized VP9 access unit must trigger packetizer recovery
+  and clean browser decode without RTP loss or receiver repair feedback.
+- Live bitrate and screen-content tuning are gated: bitrate controls update
+  without recovery, while screen-content mode changes force a keyframe boundary
+  and still must keep decoding clean without receiver feedback.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure

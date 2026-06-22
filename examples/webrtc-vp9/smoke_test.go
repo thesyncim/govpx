@@ -929,6 +929,68 @@ func TestApplyControlSpatialCapUsesWebRTCKeyFramePolicy(t *testing.T) {
 	}
 }
 
+func TestApplyControlScreenModeChangeRequestsKeyFrame(t *testing.T) {
+	ctl := &controlState{}
+	ctl.screenMode.Store(0)
+
+	applyControl(ctl, controlMessage{Type: "screen", Mode: 0}, demoConfig{})
+	if ctl.forceKey.Load() {
+		t.Fatal("unchanged screen mode requested a keyframe")
+	}
+
+	applyControl(ctl, controlMessage{Type: "screen", Mode: 1}, demoConfig{})
+	if !ctl.forceKey.Load() {
+		t.Fatal("screen mode change did not request a keyframe")
+	}
+
+	ctl.forceKey.Store(false)
+	applyControl(ctl, controlMessage{Type: "screen", Mode: 99}, demoConfig{})
+	if got := ctl.screenMode.Load(); got != 1 {
+		t.Fatalf("invalid screen mode changed setting to %d", got)
+	}
+	if ctl.forceKey.Load() {
+		t.Fatal("invalid screen mode requested a keyframe")
+	}
+}
+
+func TestApplyControlLocalWithholdQueuesAccessUnits(t *testing.T) {
+	ctl := &controlState{}
+
+	applyControl(ctl, controlMessage{Type: "withhold"}, demoConfig{})
+	if got := ctl.withholdAUs.Load(); got != 1 {
+		t.Fatalf("default withhold count = %d, want 1", got)
+	}
+	if ctl.forceKey.Load() {
+		t.Fatal("local withhold control pre-forced a keyframe")
+	}
+
+	applyControl(ctl, controlMessage{Type: "withhold", Count: 2}, demoConfig{})
+	if got := ctl.withholdAUs.Load(); got != 3 {
+		t.Fatalf("queued withhold count = %d, want 3", got)
+	}
+
+	applyControl(ctl, controlMessage{Type: "withhold", Count: 99}, demoConfig{})
+	if got := ctl.withholdAUs.Load(); got != 6 {
+		t.Fatalf("clamped withhold count = %d, want 6", got)
+	}
+}
+
+func TestConsumeLocalWithholdAccessUnit(t *testing.T) {
+	ctl := &controlState{}
+	ctl.withholdAUs.Store(2)
+
+	if !consumeLocalWithholdAccessUnit(ctl) ||
+		!consumeLocalWithholdAccessUnit(ctl) {
+		t.Fatal("queued local withhold was not consumed")
+	}
+	if consumeLocalWithholdAccessUnit(ctl) {
+		t.Fatal("empty local withhold queue consumed an access unit")
+	}
+	if got := ctl.withholdAUs.Load(); got != 0 {
+		t.Fatalf("withhold queue after consume = %d, want 0", got)
+	}
+}
+
 func TestApplyControlPauseDoesNotClearPendingKeyFrame(t *testing.T) {
 	ctl := &controlState{}
 	ctl.forceKey.Store(true)
@@ -1280,6 +1342,30 @@ func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
 	if backoff.overrunStreak != 1 {
 		t.Fatalf("overrun streak after one late access unit = %d, want 1",
 			backoff.overrunStreak)
+	}
+}
+
+func TestSpatialCapBackoffDoesNotCompoundModerateLagAndEncode(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	moderateLateStart := interval + interval/10
+	nearBudgetEncode := interval + interval/5
+
+	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
+		changed, counted := backoff.observeLateStartForAccessUnit(
+			spatialLayerCount, spatialLayerCount, moderateLateStart, interval, false)
+		if changed || counted {
+			t.Fatalf("moderate late start %d = changed:%t counted:%t, want false/false",
+				i, changed, counted)
+		}
+		if backoff.observeCompletedAccessUnit(spatialLayerCount, spatialLayerCount,
+			nearBudgetEncode, interval, false, counted) {
+			t.Fatalf("moderate late+encode frame %d requested cap change", i)
+		}
+	}
+	if backoff.maxCap != spatialLayerCount || backoff.overrunStreak != 0 {
+		t.Fatalf("moderate late+encode changed backoff = %+v, want cap %d streak 0",
+			backoff, spatialLayerCount)
 	}
 }
 
@@ -1688,6 +1774,8 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"senderForcedKeyCount",
 		"forced keys",
 		"pkt recoveries",
+		"withheld AUs",
+		"withheld_aus",
 		"enc ms",
 		"encode fails",
 		"encoded drops",
@@ -1721,9 +1809,11 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--control-churn",
 		"sender forced-key event",
 		"--tuning-churn",
-		"Live bitrate and screen-content tuning are gated",
+		"screen-content mode changes force a keyframe boundary",
 		"--pause-resume --pause-ms 1500",
 		"Pause/resume is gated as a lifecycle recovery path",
+		"--local-withhold --local-withhold-count 1",
+		"App-local no-loss withhold is gated as a sender recovery path",
 		"--control-churn --cpu-burners 12 --server-fps 25",
 		"--min-video-time-ratio 0.8",
 		"--clients 2",
@@ -1765,23 +1855,31 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"nextControlAction(opts, i)",
 		"tuningChurnAction",
 		`{ type: "bitrate", kbps: 1200 }`,
-		`{ type: "screen", mode: 1 }`,
+		`{ type: "screen", mode: 1, requiresForcedKey: true }`,
 		`return {type: "bitrate", kbps: Number(input.value)}`,
 		`return {type: "screen", mode: action.mode}`,
 		"second.targetKbps !== opts.controlAction.kbps",
 		"second.screenMode !== opts.controlAction.mode",
 		`pauseResume: booleanFlag("--pause-resume")`,
 		`pauseMs: numberFlag("--pause-ms", 1500, { min: 0 })`,
+		`localWithhold: booleanFlag("--local-withhold")`,
+		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1 })`,
 		"exercisePauseResume(cdp, clients, initialByClient, opts.timeoutMs, opts.pauseMs)",
+		"exerciseLocalWithhold(cdp, clients, firstByClient, opts.timeoutMs, opts.localWithholdCount)",
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: true })`,
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: false })`,
+		`applyControlAction(cdp, client.sessionId, { type: "withhold", count })`,
 		"waitForPauseResumeRecovery",
+		"waitForLocalWithholdRecovery",
 		"recoveredByClient",
 		`return {type: "pause", paused}`,
 		"opts.pauseResume &&",
 		"forcedKeysAfterResume",
 		"decodedAfterResume",
 		"pause/resume did not produce clean forced-key decode recovery",
+		"local withhold did not produce clean packetizer recovery",
+		"senderWithheldAUs",
+		"maxSenderWithheldAUs",
 		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
 		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
@@ -1818,6 +1916,9 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		"TestPlainVP9WebRTC.*Vpxdec",
+		"browser-local-withhold",
+		"--local-withhold",
+		"maxSenderWithheldAUs",
 		"freezeDuration: aggregate.freezeDuration",
 		"pauses: aggregate.pauses",
 		"pauseDuration: aggregate.pauseDuration",
@@ -2651,6 +2752,8 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			ForcedKey:          true,
 			PacketizerRecovery: true,
 			FailedEncodedAUs:   1,
+			Withheld:           true,
+			WithheldAUs:        2,
 			SpatialCapMax:      2,
 			CapOverrunStreak:   1,
 			CapRecoveryStreak:  17,
@@ -2702,6 +2805,8 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 		!msg.Sender.ForcedKey ||
 		!msg.Sender.PacketizerRecovery ||
 		msg.Sender.FailedEncodedAUs != 1 ||
+		!msg.Sender.Withheld ||
+		msg.Sender.WithheldAUs != 2 ||
 		msg.Sender.SpatialCapMax != 2 ||
 		msg.Sender.CapOverrunStreak != 1 ||
 		msg.Sender.CapRecoveryStreak != 17 {
@@ -2753,7 +2858,8 @@ func TestStatsTrackerDoesNotCountUnsentEncodedAccessUnit(t *testing.T) {
 
 	raw, err := tracker.snapshot(result, defaultBitrateKbps, 0,
 		spatialLayerCount, spatialLayerCount, 0, telemetrySender{
-			FailedEncodedAUs: 1,
+			Withheld:    true,
+			WithheldAUs: 1,
 		})
 	if err != nil {
 		t.Fatalf("snapshot unsent telemetry: %v", err)
@@ -2770,8 +2876,12 @@ func TestStatsTrackerDoesNotCountUnsentEncodedAccessUnit(t *testing.T) {
 		t.Fatalf("unsent telemetry counted sent stats: frame=%d fps=%.2f kbps=%.2f",
 			msg.Frame, msg.Totals.FPS, msg.Totals.KbpsR)
 	}
-	if msg.Sender.FailedEncodedAUs != 1 {
-		t.Fatalf("failed encoded AU counter = %d, want 1",
+	if !msg.Sender.Withheld || msg.Sender.WithheldAUs != 1 {
+		t.Fatalf("withheld AU telemetry = withheld:%t count:%d, want true/1",
+			msg.Sender.Withheld, msg.Sender.WithheldAUs)
+	}
+	if msg.Sender.FailedEncodedAUs != 0 {
+		t.Fatalf("withheld AU counted as failed encoded AU: %d",
 			msg.Sender.FailedEncodedAUs)
 	}
 

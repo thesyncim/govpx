@@ -44,7 +44,7 @@ const (
 	defaultBitrateKbps  = 800
 	minLayerBitrateKbps = 1
 
-	spatialCapBackoffOverruns       = 25
+	spatialCapBackoffOverruns       = 8
 	spatialCapBackoffRecoveryFrames = 90
 )
 
@@ -261,10 +261,12 @@ function renderStats(msg){
   row(totalsEl, "RTP packets", msg.sender?.rtp_packets ?? 0);
   if(msg.sender?.forced_key) row(totalsEl, "forced key", "yes");
   if(msg.sender?.packetizer_recovery) row(totalsEl, "pkt recovery", "yes");
+  if(msg.sender?.withheld) row(totalsEl, "withheld", "yes");
   if(senderForcedKeyCount) row(totalsEl, "forced keys", senderForcedKeyCount);
   if(senderPacketizerRecoveryCount) row(totalsEl, "pkt recoveries", senderPacketizerRecoveryCount);
   if(msg.sender?.failed_encode_aus) row(totalsEl, "encode fails", msg.sender.failed_encode_aus);
   if(msg.sender?.failed_encoded_aus) row(totalsEl, "encoded drops", msg.sender.failed_encoded_aus);
+  if(msg.sender?.withheld_aus) row(totalsEl, "withheld AUs", msg.sender.withheld_aus);
   row(totalsEl, "target kbps", msg.settings.target_kbps);
   row(totalsEl, "active layers", msg.settings.active_spatial_layers || msg.layers.length);
   row(totalsEl, "requested layers", msg.settings.requested_spatial_layers || msg.layers.length);
@@ -550,6 +552,7 @@ type controlState struct {
 	spatialCap  atomic.Int32
 	paused      atomic.Bool
 	forceKey    atomic.Bool
+	withholdAUs atomic.Int64
 }
 
 type controlMessage struct {
@@ -557,6 +560,7 @@ type controlMessage struct {
 	Kbps   int    `json:"kbps,omitempty"`
 	Mode   int    `json:"mode,omitempty"`
 	Cap    int    `json:"cap,omitempty"`
+	Count  int    `json:"count,omitempty"`
 	Paused bool   `json:"paused,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
@@ -782,7 +786,10 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 		if m.Mode < 0 || m.Mode > 2 {
 			return
 		}
-		ctl.screenMode.Store(int32(m.Mode))
+		current := int(ctl.screenMode.Swap(int32(m.Mode)))
+		if current != m.Mode {
+			ctl.forceKey.Store(true)
+		}
 	case "bitrate":
 		kbps := m.Kbps
 		if kbps < 100 {
@@ -800,6 +807,15 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 			// New cap level: reset references to the new effective top layer.
 			ctl.forceKey.Store(true)
 		}
+	case "withhold":
+		count := m.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > 3 {
+			count = 3
+		}
+		ctl.withholdAUs.Add(int64(count))
 	}
 }
 
@@ -912,6 +928,21 @@ func requestKeyFrameAfterUnsentAccessUnit(
 		packetizer.MarkAccessUnitUnsent()
 	}
 	requestKeyFrameAfterFailedAccessUnit(ctl)
+}
+
+func consumeLocalWithholdAccessUnit(ctl *controlState) bool {
+	if ctl == nil {
+		return false
+	}
+	for {
+		n := ctl.withholdAUs.Load()
+		if n <= 0 {
+			return false
+		}
+		if ctl.withholdAUs.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
 }
 
 func spatialCapForAccessUnit(ctl *controlState, current int, forceKey bool) int {
@@ -1120,6 +1151,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	var haveMediaFrame bool
 	failedEncodeAccessUnits := 0
 	failedEncodedAccessUnits := 0
+	localWithheldAccessUnits := 0
 	for {
 		var tickTime time.Time
 		select {
@@ -1218,6 +1250,30 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			continue
 		}
 		packetizeElapsed := time.Since(packetizeStarted)
+		if consumeLocalWithholdAccessUnit(ctl) {
+			localWithheldAccessUnits++
+			requestKeyFrameAfterUnsentAccessUnit(ctl, &rtpPacketizer)
+			if payload, err := statsTracker.snapshot(rtpResult, currentBitrate,
+				currentScreen, currentSpatialCap, requestedSpatialCap,
+				pts, telemetrySender{
+					EncodeMs:           durationMS(encodeElapsed),
+					PacketizeMs:        durationMS(packetizeElapsed),
+					AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+					ScheduleLagMs:      durationMS(scheduleLag),
+					ForcedKey:          forceKey,
+					PacketizerRecovery: packetizerRecovery,
+					FailedEncodeAUs:    failedEncodeAccessUnits,
+					FailedEncodedAUs:   failedEncodedAccessUnits,
+					Withheld:           true,
+					WithheldAUs:        localWithheldAccessUnits,
+					SpatialCapMax:      capBackoff.maxCap,
+					CapOverrunStreak:   capBackoff.overrunStreak,
+					CapRecoveryStreak:  capBackoff.recoveryStreak,
+				}); err == nil {
+				pushTelemetry(telemetry, payload)
+			}
+			continue
+		}
 
 		writeStarted := time.Now()
 		writtenPackets, err := writeWebRTCRTPAccessUnit(track,
@@ -1249,6 +1305,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				PacketizerRecovery: packetizerRecovery,
 				FailedEncodeAUs:    failedEncodeAccessUnits,
 				FailedEncodedAUs:   failedEncodedAccessUnits,
+				WithheldAUs:        localWithheldAccessUnits,
 				SpatialCapMax:      capBackoff.maxCap,
 				CapOverrunStreak:   capBackoff.overrunStreak,
 				CapRecoveryStreak:  capBackoff.recoveryStreak,
@@ -1256,7 +1313,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			pushTelemetry(telemetry, payload)
 		}
 		if capBackoff.observeCompletedAccessUnit(currentSpatialCap, requestedSpatialCap,
-			accessUnitWallElapsed(tickTime, time.Now()), interval, forceKey, countedScheduleLag) {
+			time.Since(accessUnitStarted), interval, forceKey, countedScheduleLag) {
 			ctl.forceKey.Store(true)
 		}
 	}
@@ -1633,6 +1690,8 @@ type telemetrySender struct {
 	PacketizerRecovery bool    `json:"packetizer_recovery,omitempty"`
 	FailedEncodeAUs    int     `json:"failed_encode_aus,omitempty"`
 	FailedEncodedAUs   int     `json:"failed_encoded_aus,omitempty"`
+	Withheld           bool    `json:"withheld,omitempty"`
+	WithheldAUs        int     `json:"withheld_aus,omitempty"`
 	SpatialCapMax      int     `json:"spatial_cap_max,omitempty"`
 	CapOverrunStreak   int     `json:"spatial_cap_overrun_streak,omitempty"`
 	CapRecoveryStreak  int     `json:"spatial_cap_recovery_streak,omitempty"`

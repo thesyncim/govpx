@@ -48,6 +48,8 @@ function parseOptions() {
     tuningChurn: booleanFlag("--tuning-churn"),
     pauseResume: booleanFlag("--pause-resume"),
     pauseMs: numberFlag("--pause-ms", 1500, { min: 0 }),
+    localWithhold: booleanFlag("--local-withhold"),
+    localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
@@ -92,6 +94,12 @@ async function runSmoke(opts, runIndex) {
       : null;
     if (pauseResume) {
       firstByClient = pauseResume.afterResumeByClient;
+    }
+    const localWithhold = opts.localWithhold
+      ? await exerciseLocalWithhold(cdp, clients, firstByClient, opts.timeoutMs, opts.localWithholdCount)
+      : null;
+    if (localWithhold) {
+      firstByClient = localWithhold.afterRecoveryByClient;
     }
     let previousByClient = firstByClient;
     const samples = [];
@@ -159,8 +167,12 @@ async function runSmoke(opts, runIndex) {
     const deltaByClient = firstByClient.map((first, i) =>
       diffStats(first, secondByClient[i])
     );
-    const summary = summarizeRun(samples, deltaByClient, secondByClient);
-    assertRunSmoke(summary, { ...opts, pauseResumeResult: pauseResume });
+    const summary = summarizeRun(samples, deltaByClient, secondByClient, firstByClient);
+    assertRunSmoke(summary, {
+      ...opts,
+      pauseResumeResult: pauseResume,
+      localWithholdResult: localWithhold,
+    });
     return {
       run: runIndex,
       url,
@@ -175,6 +187,8 @@ async function runSmoke(opts, runIndex) {
       tuningChurn: opts.tuningChurn,
       pauseResume: opts.pauseResume,
       pauseMs: opts.pauseMs,
+      localWithhold: opts.localWithhold,
+      localWithholdCount: opts.localWithholdCount,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
@@ -188,6 +202,7 @@ async function runSmoke(opts, runIndex) {
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
       requireThreadedTopLayer: opts.requireThreadedTopLayer,
       pauseResumeResult: pauseResume,
+      localWithholdResult: localWithhold,
       initial: initialByClient[0],
       samples,
       first: firstByClient[0],
@@ -307,6 +322,87 @@ async function waitForPauseResumeRecovery(cdp, sessionId, before, timeoutMs) {
   throw new Error(`pause/resume decode recovery did not become ready: ${JSON.stringify({ before, latest })}`);
 }
 
+async function exerciseLocalWithhold(cdp, clients, beforeByClient, timeoutMs, count) {
+  await Promise.all(clients.map((client) =>
+    applyControlAction(cdp, client.sessionId, { type: "withhold", count })
+  ));
+  const recoveredByClient = await Promise.all(clients.map((client, i) =>
+    waitForLocalWithholdRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, count)
+  ));
+  await sleep(1000);
+  const afterRecoveryByClient = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  return {
+    count,
+    clients: recoveredByClient.map((stats, i) => ({
+      client: i + 1,
+      withheldAUs: numericDelta(
+        beforeByClient[i]?.senderWithheldAUs,
+        stats?.senderWithheldAUs,
+      ),
+      packetizerRecoveries: numericDelta(
+        beforeByClient[i]?.senderPacketizerRecoveries,
+        stats?.senderPacketizerRecoveries,
+      ),
+      forcedKeys: numericDelta(
+        beforeByClient[i]?.senderForcedKeys,
+        stats?.senderForcedKeys,
+      ),
+      decodedAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxDecoded,
+        stats?.rxDecoded,
+      ),
+      lostAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxLost,
+        stats?.rxLost,
+      ),
+      repairedAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxRepairRequests,
+        stats?.rxRepairRequests,
+      ),
+      recovered: stats,
+      afterRecovery: afterRecoveryByClient[i],
+    })),
+    afterRecoveryByClient,
+  };
+}
+
+async function waitForLocalWithholdRecovery(cdp, sessionId, before, timeoutMs, count) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    latest = await readStats(cdp, sessionId);
+    const withheld = numericDelta(before?.senderWithheldAUs, latest?.senderWithheldAUs);
+    const recoveries = numericDelta(
+      before?.senderPacketizerRecoveries,
+      latest?.senderPacketizerRecoveries,
+    );
+    const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
+    const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    const lost = numericDelta(before?.rxLost, latest?.rxLost);
+    const repairs = numericDelta(before?.rxRepairRequests, latest?.rxRepairRequests);
+    if (
+      withheld !== null &&
+      withheld >= count &&
+      recoveries !== null &&
+      recoveries >= 1 &&
+      forcedKeys !== null &&
+      forcedKeys >= 1 &&
+      decoded !== null &&
+      decoded >= 1 &&
+      (lost === null || lost === 0) &&
+      (repairs === null || repairs === 0) &&
+      latest.videoReadyState >= 2 &&
+      latest.videoTime > before.videoTime
+    ) {
+      return latest;
+    }
+  }
+  throw new Error(`local withhold decode recovery did not become ready: ${JSON.stringify({ before, latest, count })}`);
+}
+
 function controlActionExpression(action) {
   const encoded = JSON.stringify(action);
   return `(() => {
@@ -343,6 +439,11 @@ function controlActionExpression(action) {
       if (paused !== !!action.paused) button.click();
       return {type: "pause", paused};
     }
+    if (action.type === "withhold") {
+      const count = Number.isFinite(action.count) ? action.count : 1;
+      sendCtl({type: "withhold", count});
+      return {type: "withhold", count};
+    }
     throw new Error("unknown control action " + action.type);
   })()`;
 }
@@ -366,11 +467,11 @@ function controlChurnAction(sampleIndex) {
 function tuningChurnAction(sampleIndex) {
   const sequence = [
     { type: "bitrate", kbps: 1200 },
-    { type: "screen", mode: 1 },
+    { type: "screen", mode: 1, requiresForcedKey: true },
     { type: "bitrate", kbps: 600 },
-    { type: "screen", mode: 2 },
+    { type: "screen", mode: 2, requiresForcedKey: true },
     { type: "bitrate", kbps: 900 },
-    { type: "screen", mode: 0 },
+    { type: "screen", mode: 0, requiresForcedKey: true },
   ];
   return sequence[sampleIndex % sequence.length];
 }
@@ -574,6 +675,7 @@ async function readStats(cdp, sessionId) {
         senderPacketizerRecoveries: typeof senderPacketizerRecoveryCount === "number" ? senderPacketizerRecoveryCount : num(rows["pkt recoveries"]),
         senderFailedEncodeAUs: num(sender.failed_encode_aus) ?? num(rows["encode fails"]) ?? 0,
         senderFailedEncodedAUs: num(sender.failed_encoded_aus) ?? num(rows["encoded drops"]) ?? 0,
+        senderWithheldAUs: num(sender.withheld_aus) ?? num(rows["withheld AUs"]) ?? 0,
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -617,6 +719,7 @@ function summarizeInterval(stats) {
     maxRxRepairRequests: maxNumber(values("rxRepairRequests")),
     maxSenderFailedEncodeAUs: maxNumber(values("senderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(values("senderFailedEncodedAUs")),
+    maxSenderWithheldAUs: maxNumber(values("senderWithheldAUs")),
     minRxSpatialCap: minNumber(values("rxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("senderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("senderPacketizerRecoveries")),
@@ -630,12 +733,15 @@ function summarizeSampleClients(sampleClients) {
   return summarizeStatsGroup(summaries, deltas, seconds, seconds);
 }
 
-function summarizeRun(samples, deltas, seconds) {
+function summarizeRun(samples, deltas, seconds, firsts = []) {
   const sampleClients = samples.flatMap((sample) =>
     Array.isArray(sample.clients) ? sample.clients : [sample]
   );
   const summaries = sampleClients.map((client) => client.summary);
-  const sampleSeconds = sampleClients.map((client) => client.second);
+  const sampleSeconds = [
+    ...(Array.isArray(firsts) ? firsts : [firsts]),
+    ...sampleClients.map((client) => client.second),
+  ];
   return summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds);
 }
 
@@ -670,13 +776,20 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     endingActiveLayers: minNumber(secondValues("activeLayers")),
     minSampleEndingActiveLayers: minNumber(sampleSecondValues("activeLayers")),
     minPolledActiveLayers: minNumber(summaryValues("minActiveLayers")),
-    maxActiveTopLayerThreads: maxNumber(summaryValues("maxActiveTopLayerThreads")),
-    maxActiveTopLayerTileCols: maxNumber(summaryValues("maxActiveTopLayerTileCols")),
+    maxActiveTopLayerThreads: maxNumber([
+      ...summaryValues("maxActiveTopLayerThreads"),
+      ...sampleSecondValues("activeTopLayerThreads"),
+    ]),
+    maxActiveTopLayerTileCols: maxNumber([
+      ...summaryValues("maxActiveTopLayerTileCols"),
+      ...sampleSecondValues("activeTopLayerTileCols"),
+    ]),
     maxAccessUnitMs: maxNumber(summaryValues("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(summaryValues("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(summaryValues("maxRxRepairRequests")),
     maxSenderFailedEncodeAUs: maxNumber(summaryValues("maxSenderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(summaryValues("maxSenderFailedEncodedAUs")),
+    maxSenderWithheldAUs: maxNumber(summaryValues("maxSenderWithheldAUs")),
     minRxSpatialCap: minNumber(summaryValues("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(summaryValues("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(summaryValues("maxSenderPacketizerRecoveries")),
@@ -717,6 +830,7 @@ function summarizeRuns(runs) {
     maxRxRepairRequests: maxNumber(values("maxRxRepairRequests")),
     maxSenderFailedEncodeAUs: maxNumber(values("maxSenderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(values("maxSenderFailedEncodedAUs")),
+    maxSenderWithheldAUs: maxNumber(values("maxSenderWithheldAUs")),
     minRxSpatialCap: minNumber(values("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("maxSenderPacketizerRecoveries")),
@@ -741,7 +855,7 @@ function countChanges(values) {
 
 function diffStats(first, second) {
   const delta = {};
-  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxFreezeDuration", "rxPauseCount", "rxPauseDuration", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
+  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxFreezeDuration", "rxPauseCount", "rxPauseDuration", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries", "senderWithheldAUs", "rxRepairRequests"]) {
     delta[key] = numericDelta(first[key], second[key]);
   }
   return delta;
@@ -861,6 +975,25 @@ function assertRunSmoke(summary, opts) {
         client.decodedAfterResume < 1))
   ) {
     throw new Error(`pause/resume did not produce clean forced-key decode recovery: ${JSON.stringify({ summary, pauseResume: opts.pauseResumeResult })}`);
+  }
+  if (
+    opts.localWithhold &&
+    (!opts.localWithholdResult ||
+      !Array.isArray(opts.localWithholdResult.clients) ||
+      opts.localWithholdResult.clients.length !== opts.clients ||
+      opts.localWithholdResult.clients.some((client) =>
+        client.withheldAUs === null ||
+        client.withheldAUs < opts.localWithholdCount ||
+        client.packetizerRecoveries === null ||
+        client.packetizerRecoveries < 1 ||
+        client.forcedKeys === null ||
+        client.forcedKeys < 1 ||
+        client.decodedAfterWithhold === null ||
+        client.decodedAfterWithhold < 1 ||
+        (client.lostAfterWithhold !== null && client.lostAfterWithhold !== 0) ||
+        (client.repairedAfterWithhold !== null && client.repairedAfterWithhold !== 0)))
+  ) {
+    throw new Error(`local withhold did not produce clean packetizer recovery: ${JSON.stringify({ summary, localWithhold: opts.localWithholdResult })}`);
   }
 }
 
