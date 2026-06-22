@@ -34,6 +34,8 @@ function parseOptions() {
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
+    maxSenderFailedEncodeAUs: numberFlag("--max-sender-failed-encode-aus", 0, { min: 0 }),
+    maxSenderFailedEncodedAUs: numberFlag("--max-sender-failed-encoded-aus", 0, { min: 0 }),
     clients: integerFlag("--clients", 1, { min: 1 }),
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
@@ -155,6 +157,8 @@ async function runSmoke(opts, runIndex) {
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
+      maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs,
+      maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs,
       minActiveLayers: opts.minActiveLayers,
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
@@ -441,6 +445,8 @@ async function readStats(cdp, sessionId) {
         senderCapRecoveryStreak: num(sender.spatial_cap_recovery_streak),
         senderForcedKeys: typeof senderForcedKeyCount === "number" ? senderForcedKeyCount : num(rows["forced keys"]),
         senderPacketizerRecoveries: typeof senderPacketizerRecoveryCount === "number" ? senderPacketizerRecoveryCount : num(rows["pkt recoveries"]),
+        senderFailedEncodeAUs: num(sender.failed_encode_aus) ?? num(rows["encode fails"]) ?? 0,
+        senderFailedEncodedAUs: num(sender.failed_encoded_aus) ?? num(rows["encoded drops"]) ?? 0,
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -476,6 +482,8 @@ function summarizeInterval(stats) {
     maxSenderCapOverrunStreak: maxNumber(values("senderCapOverrunStreak")),
     maxSenderCapRecoveryStreak: maxNumber(values("senderCapRecoveryStreak")),
     maxRxRepairRequests: maxNumber(values("rxRepairRequests")),
+    maxSenderFailedEncodeAUs: maxNumber(values("senderFailedEncodeAUs")),
+    maxSenderFailedEncodedAUs: maxNumber(values("senderFailedEncodedAUs")),
     minRxSpatialCap: minNumber(values("rxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("senderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("senderPacketizerRecoveries")),
@@ -528,6 +536,8 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     maxAccessUnitMs: maxNumber(summaryValues("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(summaryValues("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(summaryValues("maxRxRepairRequests")),
+    maxSenderFailedEncodeAUs: maxNumber(summaryValues("maxSenderFailedEncodeAUs")),
+    maxSenderFailedEncodedAUs: maxNumber(summaryValues("maxSenderFailedEncodedAUs")),
     minRxSpatialCap: minNumber(summaryValues("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(summaryValues("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(summaryValues("maxSenderPacketizerRecoveries")),
@@ -560,6 +570,8 @@ function summarizeRuns(runs) {
     maxAccessUnitMs: maxNumber(values("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(values("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(values("maxRxRepairRequests")),
+    maxSenderFailedEncodeAUs: maxNumber(values("maxSenderFailedEncodeAUs")),
+    maxSenderFailedEncodedAUs: maxNumber(values("maxSenderFailedEncodedAUs")),
     minRxSpatialCap: minNumber(values("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("maxSenderPacketizerRecoveries")),
@@ -615,6 +627,18 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.maxRxRepairRequests > opts.maxRxRepairRequests
   ) {
     throw new Error(`${sampleLabel(opts)} receiver repair requests reached ${opts.summary.maxRxRepairRequests}, want <= ${opts.maxRxRepairRequests}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    Number.isFinite(opts.summary.maxSenderFailedEncodeAUs) &&
+    opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs
+  ) {
+    throw new Error(`${sampleLabel(opts)} sender failed encode access units reached ${opts.summary.maxSenderFailedEncodeAUs}, want <= ${opts.maxSenderFailedEncodeAUs}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    Number.isFinite(opts.summary.maxSenderFailedEncodedAUs) &&
+    opts.summary.maxSenderFailedEncodedAUs > opts.maxSenderFailedEncodedAUs
+  ) {
+    throw new Error(`${sampleLabel(opts)} sender failed encoded access units reached ${opts.summary.maxSenderFailedEncodedAUs}, want <= ${opts.maxSenderFailedEncodedAUs}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (opts.controlAction && (delta.senderForcedKeys === null || delta.senderForcedKeys < 1)) {
     throw new Error(`${sampleLabel(opts)} ${opts.controlAction.type} action did not produce a sender forced keyframe; ${sampleDetails(first, second, delta, opts.summary)}`);

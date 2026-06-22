@@ -1677,6 +1677,7 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"forced keys",
 		"pkt recoveries",
 		"enc ms",
+		"encode fails",
 		"encoded drops",
 	} {
 		if !strings.Contains(indexHTML, want) {
@@ -1699,6 +1700,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--repeat 3",
 		"--soak-ms 30000 --sample-ms 5000",
 		"--min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0",
+		"--max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0",
 		"--min-active-layers 3 --min-ending-active-layers 3",
 		"--require-threaded-top-layer",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
@@ -1713,6 +1715,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"node production_gate.mjs",
 		"libvpx/vpxdec",
 		"threaded top-layer",
+		"sender-side encode, packetization, or",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",
 		"active spatial-layer",
