@@ -58,6 +58,23 @@ const steps = [
     kind: "browser-json",
   },
   {
+    name: "browser-multiclient",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--clients", "2",
+      "--soak-ms", "20000",
+      "--sample-ms", "5000",
+      "--poll-ms", "1000",
+      "--min-decoded-delta", "80",
+      "--min-video-time-ratio", "0.85",
+      "--max-rx-repair-requests", "0",
+      "--min-active-layers", "1",
+      "--min-ending-active-layers", "1",
+    ],
+    kind: "browser-json",
+  },
+  {
     name: "libvpx-vpxdec-oracle",
     command: "go",
     args: [
@@ -104,6 +121,9 @@ function summarizeStep(step, stdout) {
     const aggregate = report.aggregate || report.summary;
     return {
       decoded: aggregate.decoded,
+      clients: aggregate.clients,
+      clientRuns: aggregate.clientRuns,
+      minClientDecoded: aggregate.minClientDecoded,
       dropped: aggregate.dropped,
       lost: aggregate.lost,
       freezes: aggregate.freezes,

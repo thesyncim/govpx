@@ -34,6 +34,7 @@ function parseOptions() {
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
+    clients: integerFlag("--clients", 1, { min: 1 }),
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
@@ -67,52 +68,70 @@ async function runSmoke(opts, runIndex) {
     await waitForHTTP(url, opts.timeoutMs);
     chrome = await launchChrome(opts.chromePath, tempProfile);
     cdp = await CDP.connect(chrome.wsURL);
-    const target = await cdp.send("Target.createTarget", { url: "about:blank" });
-    const attached = await cdp.send("Target.attachToTarget", {
-      targetId: target.targetId,
-      flatten: true,
-    });
-    const sessionId = attached.sessionId;
-    await cdp.send("Page.enable", {}, sessionId);
-    await cdp.send("Runtime.enable", {}, sessionId);
-    await cdp.send("Page.navigate", { url }, sessionId);
+    const clients = [];
+    for (let i = 0; i < opts.clients; i++) {
+      clients.push(await createBrowserClient(cdp, url, i + 1));
+    }
 
-    const first = await waitForDecodedStats(cdp, sessionId, opts.timeoutMs);
-    let previous = first;
+    const firstByClient = await Promise.all(clients.map((client) =>
+      waitForDecodedStats(cdp, client.sessionId, opts.timeoutMs)
+    ));
+    let previousByClient = firstByClient;
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
     for (let i = 0; i < sampleCount; i++) {
-      const observations = await collectIntervalStats(cdp, sessionId, opts.sampleMs, opts.pollMs);
-      const current = observations[observations.length - 1];
-      const delta = diffStats(previous, current);
-      const summary = summarizeInterval([previous, ...observations]);
-      assertSmoke(previous, current, delta, {
-        intervalMs: opts.sampleMs,
-        maxActiveLayerChanges: opts.maxActiveLayerChanges,
-        minEndingActiveLayers: opts.minEndingActiveLayers,
-        minActiveLayers: opts.minActiveLayers,
-        minDecodedDelta: opts.minDecodedDelta,
-        minVideoTimeRatio: opts.minVideoTimeRatio,
-        maxRxRepairRequests: opts.maxRxRepairRequests,
-        runIndex,
-        sampleIndex: i + 1,
-        summary,
-      });
+      const observationsByClient = await Promise.all(clients.map((client) =>
+        collectIntervalStats(cdp, client.sessionId, opts.sampleMs, opts.pollMs)
+      ));
+      const sampleClients = [];
+      const currentByClient = [];
+      for (let clientIndex = 0; clientIndex < clients.length; clientIndex++) {
+        const previous = previousByClient[clientIndex];
+        const observations = observationsByClient[clientIndex];
+        const current = observations[observations.length - 1];
+        currentByClient[clientIndex] = current;
+        const delta = diffStats(previous, current);
+        const summary = summarizeInterval([previous, ...observations]);
+        assertSmoke(previous, current, delta, {
+          intervalMs: opts.sampleMs,
+          maxActiveLayerChanges: opts.maxActiveLayerChanges,
+          minEndingActiveLayers: opts.minEndingActiveLayers,
+          minActiveLayers: opts.minActiveLayers,
+          minDecodedDelta: opts.minDecodedDelta,
+          minVideoTimeRatio: opts.minVideoTimeRatio,
+          maxRxRepairRequests: opts.maxRxRepairRequests,
+          runIndex,
+          clientIndex: clientIndex + 1,
+          sampleIndex: i + 1,
+          summary,
+        });
+        sampleClients.push({
+          client: clientIndex + 1,
+          summary,
+          first: previous,
+          second: current,
+          delta,
+        });
+      }
       samples.push({
         intervalMs: opts.sampleMs,
         elapsedMs: (i + 1) * opts.sampleMs,
-        summary,
-        first: previous,
-        second: current,
-        delta,
+        summary: summarizeSampleClients(sampleClients),
+        clients: sampleClients,
+        first: sampleClients[0].first,
+        second: sampleClients[0].second,
+        delta: sampleClients[0].delta,
       });
-      previous = current;
+      previousByClient = currentByClient;
     }
-    const second = previous;
-    const delta = diffStats(first, second);
+    const secondByClient = previousByClient;
+    const deltaByClient = firstByClient.map((first, i) =>
+      diffStats(first, secondByClient[i])
+    );
     return {
       run: runIndex,
       url,
+      clients: opts.clients,
       sampleMs: opts.sampleMs,
       soakMs: opts.soakMs,
       pollMs: opts.pollMs,
@@ -126,10 +145,16 @@ async function runSmoke(opts, runIndex) {
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
       samples,
-      first,
-      second,
-      delta,
-      summary: summarizeRun(samples, delta, second),
+      first: firstByClient[0],
+      second: secondByClient[0],
+      delta: deltaByClient[0],
+      clientResults: firstByClient.map((first, i) => ({
+        client: i + 1,
+        first,
+        second: secondByClient[i],
+        delta: deltaByClient[i],
+      })),
+      summary: summarizeRun(samples, deltaByClient, secondByClient),
     };
   } finally {
     if (cdp) cdp.close();
@@ -151,6 +176,19 @@ async function runSmoke(opts, runIndex) {
   }
 }
 
+async function createBrowserClient(cdp, url, clientIndex) {
+  const target = await cdp.send("Target.createTarget", { url: "about:blank" });
+  const attached = await cdp.send("Target.attachToTarget", {
+    targetId: target.targetId,
+    flatten: true,
+  });
+  const sessionId = attached.sessionId;
+  await cdp.send("Page.enable", {}, sessionId);
+  await cdp.send("Runtime.enable", {}, sessionId);
+  await cdp.send("Page.navigate", { url }, sessionId);
+  return { client: clientIndex, targetId: target.targetId, sessionId };
+}
+
 function numberFlag(name, fallback, opts = {}) {
   const idx = process.argv.indexOf(name);
   if (idx < 0) return fallback;
@@ -166,6 +204,14 @@ function numberFlag(name, fallback, opts = {}) {
   }
   if (value <= 0) {
     throw new Error(`${name} must be positive`);
+  }
+  return value;
+}
+
+function integerFlag(name, fallback, opts = {}) {
+  const value = numberFlag(name, fallback, opts);
+  if (!Number.isInteger(value)) {
+    throw new Error(`${name} must be an integer`);
   }
   return value;
 }
@@ -368,20 +414,48 @@ function summarizeInterval(stats) {
   };
 }
 
-function summarizeRun(samples, delta, second) {
+function summarizeSampleClients(sampleClients) {
+  const summaries = sampleClients.map((client) => client.summary);
+  const seconds = sampleClients.map((client) => client.second);
+  const deltas = sampleClients.map((client) => client.delta);
+  return summarizeStatsGroup(summaries, deltas, seconds, seconds);
+}
+
+function summarizeRun(samples, deltas, seconds) {
+  const sampleClients = samples.flatMap((sample) =>
+    Array.isArray(sample.clients) ? sample.clients : [sample]
+  );
+  const summaries = sampleClients.map((client) => client.summary);
+  const sampleSeconds = sampleClients.map((client) => client.second);
+  return summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds);
+}
+
+function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
+  deltas = Array.isArray(deltas) ? deltas : [deltas];
+  seconds = Array.isArray(seconds) ? seconds : [seconds];
+  sampleSeconds = Array.isArray(sampleSeconds) ? sampleSeconds : seconds;
+  const deltaSum = (key) => deltas.reduce((total, delta) =>
+    total + (Number.isFinite(delta?.[key]) ? delta[key] : 0), 0);
+  const deltaValues = (key) => deltas.map((delta) => delta?.[key]).filter(Number.isFinite);
+  const summaryValues = (key) => summaries.map((summary) => summary?.[key]).filter(Number.isFinite);
+  const secondValues = (key) => seconds.map((second) => second?.[key]).filter(Number.isFinite);
+  const sampleSecondValues = (key) => sampleSeconds.map((second) => second?.[key]).filter(Number.isFinite);
   return {
-    decoded: delta.rxDecoded,
-    dropped: delta.rxDropped,
-    lost: delta.rxLost,
-    freezes: delta.rxFreezes,
-    videoTime: delta.videoTime,
-    endingActiveLayers: second.activeLayers,
-    minSampleEndingActiveLayers: minNumber(samples.map((s) => s.second.activeLayers).filter(Number.isFinite)),
-    minPolledActiveLayers: minNumber(samples.map((s) => s.summary.minActiveLayers).filter(Number.isFinite)),
-    maxAccessUnitMs: maxNumber(samples.map((s) => s.summary.maxAccessUnitMs).filter(Number.isFinite)),
-    maxScheduleLagMs: maxNumber(samples.map((s) => s.summary.maxScheduleLagMs).filter(Number.isFinite)),
-    maxRxRepairRequests: maxNumber(samples.map((s) => s.summary.maxRxRepairRequests).filter(Number.isFinite)),
-    minRxSpatialCap: minNumber(samples.map((s) => s.summary.minRxSpatialCap).filter(Number.isFinite)),
+    clients: deltas.length,
+    decoded: deltaSum("rxDecoded"),
+    minClientDecoded: minNumber(deltaValues("rxDecoded")),
+    dropped: deltaSum("rxDropped"),
+    lost: deltaSum("rxLost"),
+    freezes: deltaSum("rxFreezes"),
+    videoTime: deltaSum("videoTime"),
+    minClientVideoTime: minNumber(deltaValues("videoTime")),
+    endingActiveLayers: minNumber(secondValues("activeLayers")),
+    minSampleEndingActiveLayers: minNumber(sampleSecondValues("activeLayers")),
+    minPolledActiveLayers: minNumber(summaryValues("minActiveLayers")),
+    maxAccessUnitMs: maxNumber(summaryValues("maxAccessUnitMs")),
+    maxScheduleLagMs: maxNumber(summaryValues("maxScheduleLagMs")),
+    maxRxRepairRequests: maxNumber(summaryValues("maxRxRepairRequests")),
+    minRxSpatialCap: minNumber(summaryValues("minRxSpatialCap")),
   };
 }
 
@@ -391,11 +465,15 @@ function summarizeRuns(runs) {
   const values = (key) => summaries.map((s) => s[key]).filter(Number.isFinite);
   return {
     runs: runs.length,
+    clients: maxNumber(values("clients")),
+    clientRuns: sum("clients"),
     decoded: sum("decoded"),
+    minClientDecoded: minNumber(values("minClientDecoded")),
     dropped: sum("dropped"),
     lost: sum("lost"),
     freezes: sum("freezes"),
     videoTime: sum("videoTime"),
+    minClientVideoTime: minNumber(values("minClientVideoTime")),
     minEndingActiveLayers: minNumber(values("endingActiveLayers")),
     minSampleEndingActiveLayers: minNumber(values("minSampleEndingActiveLayers")),
     minPolledActiveLayers: minNumber(values("minPolledActiveLayers")),
@@ -484,8 +562,9 @@ function assertSmoke(first, second, delta, opts) {
 function sampleLabel(opts) {
   if (!opts) return "sample:";
   const run = opts.runIndex ? `run ${opts.runIndex} ` : "";
+  const client = opts.clientIndex ? `client ${opts.clientIndex} ` : "";
   const sample = opts.sampleIndex ? `sample ${opts.sampleIndex}` : "sample";
-  return `${run}${sample}:`;
+  return `${run}${client}${sample}:`;
 }
 
 function sampleDetails(first, second, delta, summary) {
