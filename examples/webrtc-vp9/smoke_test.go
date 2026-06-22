@@ -1817,6 +1817,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 	}
 	text := string(raw)
 	for _, want := range []string{
+		"TestPlainVP9WebRTC.*Vpxdec",
 		"freezeDuration: aggregate.freezeDuration",
 		"pauses: aggregate.pauses",
 		"pauseDuration: aggregate.pauseDuration",

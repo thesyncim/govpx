@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 
 const oraclePattern = [
+  "TestPlainVP9WebRTC.*Vpxdec",
   "TestWebRTCEndToEnd.*Vpxdec",
   "TestWebRTCPacketizedSVC.*Vpxdec",
   "TestVP9WebRTCPacketizerSVC.*Vpxdec",
