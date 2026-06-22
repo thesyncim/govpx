@@ -34,6 +34,9 @@ function parseOptions() {
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
+    maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 }),
+    maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 }),
+    maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 }),
     maxSenderFailedEncodeAUs: numberFlag("--max-sender-failed-encode-aus", 0, { min: 0 }),
     maxSenderFailedEncodedAUs: numberFlag("--max-sender-failed-encoded-aus", 0, { min: 0 }),
     clients: integerFlag("--clients", 1, { min: 1 }),
@@ -111,6 +114,11 @@ async function runSmoke(opts, runIndex) {
           minDecodedDelta: opts.minDecodedDelta,
           minVideoTimeRatio: opts.minVideoTimeRatio,
           maxRxRepairRequests: opts.maxRxRepairRequests,
+          maxRxNackDelta: opts.maxRxNackDelta,
+          maxRxPliDelta: opts.maxRxPliDelta,
+          maxRxFirDelta: opts.maxRxFirDelta,
+          maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs,
+          maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs,
           controlAction,
           runIndex,
           clientIndex: clientIndex + 1,
@@ -157,6 +165,9 @@ async function runSmoke(opts, runIndex) {
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
+      maxRxNackDelta: opts.maxRxNackDelta,
+      maxRxPliDelta: opts.maxRxPliDelta,
+      maxRxFirDelta: opts.maxRxFirDelta,
       maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs,
       maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs,
       minActiveLayers: opts.minActiveLayers,
@@ -423,6 +434,7 @@ async function readStats(cdp, sessionId) {
       const layers = Array.isArray(raw.layers) ? raw.layers : [];
       const activeTop = layers.length > 0 ? layers[layers.length - 1] : {};
       const sender = raw.sender || {};
+      const rtc = typeof latestRTCStats === "object" && latestRTCStats ? latestRTCStats : {};
       const repairRequests = typeof receiverRepairRequests === "number" ? receiverRepairRequests : num(rows["rx repair"]);
       const repairStreak = typeof receiverRepairStreak === "number" ? receiverRepairStreak : null;
       const receiverSpatialCap = typeof receiverRequestedSpatialCap === "number" ? receiverRequestedSpatialCap : num(rows["rx cap"]);
@@ -451,6 +463,9 @@ async function readStats(cdp, sessionId) {
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
         rxFreezes: num(rows["rx freezes"]),
+        rxNackCount: num(rtc.nackCount) ?? num(rows["rx nack"]),
+        rxPliCount: num(rtc.pliCount) ?? num(rows["rx pli"]),
+        rxFirCount: num(rtc.firCount) ?? num(rows["rx fir"]),
         rxRepairRequests: repairRequests ?? 0,
         rxRepairStreak: repairStreak,
         rxSpatialCap: receiverSpatialCap,
@@ -523,6 +538,9 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     dropped: deltaSum("rxDropped"),
     lost: deltaSum("rxLost"),
     freezes: deltaSum("rxFreezes"),
+    nacks: deltaSum("rxNackCount"),
+    plis: deltaSum("rxPliCount"),
+    firs: deltaSum("rxFirCount"),
     forcedKeys: deltaSum("senderForcedKeys"),
     minClientForcedKeys: minNumber(deltaValues("senderForcedKeys")),
     packetizerRecoveries: deltaSum("senderPacketizerRecoveries"),
@@ -557,6 +575,9 @@ function summarizeRuns(runs) {
     dropped: sum("dropped"),
     lost: sum("lost"),
     freezes: sum("freezes"),
+    nacks: sum("nacks"),
+    plis: sum("plis"),
+    firs: sum("firs"),
     forcedKeys: sum("forcedKeys"),
     minClientForcedKeys: minNumber(values("minClientForcedKeys")),
     packetizerRecoveries: sum("packetizerRecoveries"),
@@ -596,7 +617,7 @@ function countChanges(values) {
 
 function diffStats(first, second) {
   const delta = {};
-  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
+  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
     delta[key] = numericDelta(first[key], second[key]);
   }
   return delta;
@@ -627,6 +648,15 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.maxRxRepairRequests > opts.maxRxRepairRequests
   ) {
     throw new Error(`${sampleLabel(opts)} receiver repair requests reached ${opts.summary.maxRxRepairRequests}, want <= ${opts.maxRxRepairRequests}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  for (const [key, max, label] of [
+    ["rxNackCount", opts.maxRxNackDelta, "receiver NACK"],
+    ["rxPliCount", opts.maxRxPliDelta, "receiver PLI"],
+    ["rxFirCount", opts.maxRxFirDelta, "receiver FIR"],
+  ]) {
+    if (delta[key] !== null && delta[key] > max) {
+      throw new Error(`${sampleLabel(opts)} ${label} count advanced by ${delta[key]}, want <= ${max}; ${sampleDetails(first, second, delta, opts.summary)}`);
+    }
   }
   if (
     Number.isFinite(opts.summary.maxSenderFailedEncodeAUs) &&

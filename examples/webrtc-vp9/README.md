@@ -144,7 +144,7 @@ changes plus peak sender encode/access-unit lag. Use `--repeat` to run the same
 browser gate back-to-back; repeat output includes an aggregate summary:
 
 ```sh
-node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0
 ```
 
 To prove the host can sustain the requested top layer, add active-layer
@@ -152,21 +152,22 @@ assertions. This requires every poll and every sample boundary to stay at the
 top spatial layer:
 
 ```sh
-node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
 alongside the demo. The overloaded-host invariant is graceful degradation: the
 browser must keep decoding with no loss, dropped-frame, or freeze-counter
-delta, the sender must report zero failed encode/encoded access units, and the
-sender must keep at least the base spatial layer live at each sample boundary
-instead of falling behind in wall time.
+delta, the browser-native NACK/PLI/FIR counters must not advance, the sender
+must report zero failed encode/encoded access units, and the sender must keep
+at least the base spatial layer live at each sample boundary instead of falling
+behind in wall time.
 `--server-fps` and `--server-bitrate-kbps` forward directly to the demo server,
 so the same harness can compare production defaults against a proposed
 realtime cadence:
 
 ```sh
-node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
 ```
 
 To exercise the clean-stall recovery controls without introducing packet loss,
@@ -175,7 +176,7 @@ controls during the soak; every churn interval must still decode cleanly and
 must observe at least one sender forced-key event:
 
 ```sh
-node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 2 --min-ending-active-layers 2 --require-threaded-top-layer
+node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 2 --min-ending-active-layers 2 --require-threaded-top-layer
 ```
 
 To prove those recovery controls still fire under scheduler contention, combine
@@ -183,7 +184,7 @@ the churn and CPU-burner modes. This keeps the same forced-key requirement but
 allows graceful spatial downshift while the machine is busy:
 
 ```sh
-node browser_smoke.mjs --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+node browser_smoke.mjs --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
 ```
 
 To exercise simultaneous receiver/encoder sessions against one demo server,
@@ -191,7 +192,7 @@ use `--clients`. Each browser receiver must independently satisfy the decode,
 video-time, loss/drop/freeze, repair, and active-layer assertions:
 
 ```sh
-node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
 ```
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
@@ -213,6 +214,8 @@ node production_gate.mjs
   top-layer encode path.
 - The browser gate also fails if local sender-side encode, packetization, or
   RTP-write failures appear and are hidden by recovery-key behavior.
+- The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
+  clean samples, catching decoder/RTP churn before it becomes a visible stall.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure

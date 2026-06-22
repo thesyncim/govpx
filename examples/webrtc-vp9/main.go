@@ -272,6 +272,9 @@ function renderStats(msg){
     row(totalsEl, "rx dropped", latestRTCStats.framesDropped ?? "-");
     row(totalsEl, "rx lost", latestRTCStats.packetsLost ?? "-");
     row(totalsEl, "rx freezes", latestRTCStats.freezeCount ?? "-");
+    if(latestRTCStats.nackCount) row(totalsEl, "rx nack", latestRTCStats.nackCount);
+    if(latestRTCStats.pliCount) row(totalsEl, "rx pli", latestRTCStats.pliCount);
+    if(latestRTCStats.firCount) row(totalsEl, "rx fir", latestRTCStats.firCount);
     if(latestRTCStats.receiverRepairRequests) row(totalsEl, "rx repair", latestRTCStats.receiverRepairRequests);
     if(latestRTCStats.receiverSpatialCap && latestRTCStats.receiverSpatialCap < MAX_SPATIAL_CAP){
       row(totalsEl, "rx cap", latestRTCStats.receiverSpatialCap);
@@ -397,6 +400,9 @@ async function updateRTCStats(pc){
     framesDecoded: statNumber(inbound.framesDecoded ?? inbound.framesReceived),
     framesDropped: statNumber(inbound.framesDropped),
     freezeCount: statNumber(inbound.freezeCount),
+    nackCount: statNumber(inbound.nackCount),
+    pliCount: statNumber(inbound.pliCount),
+    firCount: statNumber(inbound.firCount),
   };
   maybeRequestReceiverRepair(stats);
   latestRTCStats = stats;

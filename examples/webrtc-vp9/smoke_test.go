@@ -1663,6 +1663,9 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"packetsLost",
 		"packetsReceived",
 		"freezeCount",
+		"nackCount",
+		"pliCount",
+		"firCount",
 		"maybeRequestReceiverRepair",
 		"maybeBackoffReceiverSpatialCap",
 		"receiver-stall",
@@ -1672,6 +1675,9 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"receiverSpatialCap",
 		"rx cap",
 		"rx freezes",
+		"rx nack",
+		"rx pli",
+		"rx fir",
 		"rx repair",
 		"senderForcedKeyCount",
 		"forced keys",
@@ -1700,6 +1706,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--repeat 3",
 		"--soak-ms 30000 --sample-ms 5000",
 		"--min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0",
+		"--max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0",
 		"--max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0",
 		"--min-active-layers 3 --min-ending-active-layers 3",
 		"--require-threaded-top-layer",
@@ -1715,6 +1722,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"node production_gate.mjs",
 		"libvpx/vpxdec",
 		"threaded top-layer",
+		"browser-native NACK/PLI/FIR",
 		"sender-side encode, packetization, or",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",
@@ -1730,6 +1738,39 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 	if strings.Contains(text,
 		"VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto") {
 		t.Fatal("README.md still points the demo at the stateless VP9 SVC WebRTC packetizer")
+	}
+}
+
+func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
+	raw, err := os.ReadFile("browser_smoke.mjs")
+	if err != nil {
+		t.Fatalf("read browser_smoke.mjs: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		`maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 })`,
+		`maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 })`,
+		`maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 })`,
+		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
+		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
+		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
+		"opts.summary.maxSenderFailedEncodedAUs > opts.maxSenderFailedEncodedAUs",
+		`["rxNackCount", opts.maxRxNackDelta, "receiver NACK"]`,
+		`["rxPliCount", opts.maxRxPliDelta, "receiver PLI"]`,
+		`["rxFirCount", opts.maxRxFirDelta, "receiver FIR"]`,
+		"delta[key] !== null && delta[key] > max",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("browser_smoke.mjs missing %q", want)
+		}
+	}
+	if count := strings.Count(text,
+		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs"); count < 2 {
+		t.Fatalf("sender failed encode budget only wired %d time(s), want parse output and assertion", count)
+	}
+	if count := strings.Count(text,
+		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs"); count < 2 {
+		t.Fatalf("sender failed encoded budget only wired %d time(s), want parse output and assertion", count)
 	}
 }
 
