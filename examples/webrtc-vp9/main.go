@@ -933,7 +933,7 @@ func (b *spatialCapBackoff) observe(
 	if interval <= 0 {
 		return false
 	}
-	if elapsed > interval+interval/10 {
+	if spatialCapBackoffIsOverrun(elapsed, interval) {
 		b.recoveryStreak = 0
 		if activeCap >= clampSpatialCap(b.maxCap) && b.maxCap > 1 {
 			b.overrunStreak++
@@ -1002,7 +1002,7 @@ func (b *spatialCapBackoff) observeCompletedAccessUnit(
 }
 
 func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
-	return interval > 0 && elapsed > interval+interval/10
+	return interval > 0 && elapsed > interval+interval/4
 }
 
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},

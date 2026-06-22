@@ -17,6 +17,7 @@ async function main() {
   const serverBitrateKbps = optionalNumberFlag("--server-bitrate-kbps");
   const cpuBurners = optionalNumberFlag("--cpu-burners") ?? 0;
   const minActiveLayers = optionalNumberFlag("--min-active-layers");
+  const minEndingActiveLayers = optionalNumberFlag("--min-ending-active-layers");
   const maxActiveLayerChanges = optionalNumberFlag("--max-active-layer-changes");
   const serverProcessGroup = process.platform !== "win32";
   const chromePath = findChrome();
@@ -62,6 +63,7 @@ async function main() {
       assertSmoke(previous, current, delta, {
         intervalMs: sampleMs,
         maxActiveLayerChanges,
+        minEndingActiveLayers,
         minActiveLayers,
         minDecodedDelta,
         sampleIndex: i + 1,
@@ -87,6 +89,9 @@ async function main() {
       serverFPS,
       serverBitrateKbps,
       cpuBurners,
+      minActiveLayers,
+      minEndingActiveLayers,
+      maxActiveLayerChanges,
       samples,
       first,
       second,
@@ -368,6 +373,13 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.minActiveLayers < opts.minActiveLayers
   ) {
     throw new Error(`${sampleLabel(opts)} active layers dropped to ${opts.summary.minActiveLayers}, want >= ${opts.minActiveLayers}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    opts.minEndingActiveLayers !== null &&
+    Number.isFinite(second.activeLayers) &&
+    second.activeLayers < opts.minEndingActiveLayers
+  ) {
+    throw new Error(`${sampleLabel(opts)} ending active layers ${second.activeLayers}, want >= ${opts.minEndingActiveLayers}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (
     opts.maxActiveLayerChanges !== null &&
