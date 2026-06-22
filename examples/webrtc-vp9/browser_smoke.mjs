@@ -8,38 +8,62 @@ import { join } from "node:path";
 import net from "node:net";
 
 async function main() {
+  const opts = parseOptions();
+  const runs = [];
+  for (let i = 0; i < opts.repeat; i++) {
+    runs.push(await runSmoke(opts, i + 1));
+  }
+  if (opts.repeat === 1) {
+    console.log(JSON.stringify(runs[0], null, 2));
+    return;
+  }
+  console.log(JSON.stringify({
+    repeat: opts.repeat,
+    aggregate: summarizeRuns(runs),
+    runs,
+  }, null, 2));
+}
+
+function parseOptions() {
   const sampleMs = numberFlag("--sample-ms", 5000);
-  const soakMs = numberFlag("--soak-ms", sampleMs);
-  const pollMs = numberFlag("--poll-ms", Math.min(sampleMs, 500));
-  const timeoutMs = numberFlag("--timeout-ms", 45000);
-  const minDecodedDelta = numberFlag("--min-decoded-delta", 30);
-  const serverFPS = optionalNumberFlag("--server-fps");
-  const serverBitrateKbps = optionalNumberFlag("--server-bitrate-kbps");
-  const cpuBurners = optionalNumberFlag("--cpu-burners") ?? 0;
-  const minActiveLayers = optionalNumberFlag("--min-active-layers");
-  const minEndingActiveLayers = optionalNumberFlag("--min-ending-active-layers");
-  const maxActiveLayerChanges = optionalNumberFlag("--max-active-layer-changes");
-  const serverProcessGroup = process.platform !== "win32";
-  const chromePath = findChrome();
+  return {
+    sampleMs,
+    soakMs: numberFlag("--soak-ms", sampleMs),
+    pollMs: numberFlag("--poll-ms", Math.min(sampleMs, 500)),
+    timeoutMs: numberFlag("--timeout-ms", 45000),
+    minDecodedDelta: numberFlag("--min-decoded-delta", 30),
+    repeat: numberFlag("--repeat", 1),
+    serverFPS: optionalNumberFlag("--server-fps"),
+    serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
+    cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
+    minActiveLayers: optionalNumberFlag("--min-active-layers"),
+    minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
+    maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
+    serverProcessGroup: process.platform !== "win32",
+    chromePath: findChrome(),
+  };
+}
+
+async function runSmoke(opts, runIndex) {
   const port = await freePort();
   const url = `http://127.0.0.1:${port}/`;
   const serverArgs = ["run", ".", "-addr", `127.0.0.1:${port}`];
-  if (serverFPS !== null) serverArgs.push("-fps", String(serverFPS));
-  if (serverBitrateKbps !== null) {
-    serverArgs.push("-bitrate", String(serverBitrateKbps));
+  if (opts.serverFPS !== null) serverArgs.push("-fps", String(opts.serverFPS));
+  if (opts.serverBitrateKbps !== null) {
+    serverArgs.push("-bitrate", String(opts.serverBitrateKbps));
   }
-  const loadProcesses = startCPUBurners(cpuBurners);
+  const loadProcesses = startCPUBurners(opts.cpuBurners);
   const server = spawn("go", serverArgs, {
     stdio: ["ignore", "pipe", "pipe"],
-    detached: serverProcessGroup,
+    detached: opts.serverProcessGroup,
   });
   const tempProfile = await mkdtemp(join(tmpdir(), "govpx-vp9-browser-"));
   let chrome = null;
   let cdp = null;
 
   try {
-    await waitForHTTP(url, timeoutMs);
-    chrome = await launchChrome(chromePath, tempProfile);
+    await waitForHTTP(url, opts.timeoutMs);
+    chrome = await launchChrome(opts.chromePath, tempProfile);
     cdp = await CDP.connect(chrome.wsURL);
     const target = await cdp.send("Target.createTarget", { url: "about:blank" });
     const attached = await cdp.send("Target.attachToTarget", {
@@ -51,27 +75,28 @@ async function main() {
     await cdp.send("Runtime.enable", {}, sessionId);
     await cdp.send("Page.navigate", { url }, sessionId);
 
-    const first = await waitForDecodedStats(cdp, sessionId, timeoutMs);
+    const first = await waitForDecodedStats(cdp, sessionId, opts.timeoutMs);
     let previous = first;
     const samples = [];
-    const sampleCount = Math.max(1, Math.ceil(soakMs / sampleMs));
+    const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
     for (let i = 0; i < sampleCount; i++) {
-      const observations = await collectIntervalStats(cdp, sessionId, sampleMs, pollMs);
+      const observations = await collectIntervalStats(cdp, sessionId, opts.sampleMs, opts.pollMs);
       const current = observations[observations.length - 1];
       const delta = diffStats(previous, current);
       const summary = summarizeInterval([previous, ...observations]);
       assertSmoke(previous, current, delta, {
-        intervalMs: sampleMs,
-        maxActiveLayerChanges,
-        minEndingActiveLayers,
-        minActiveLayers,
-        minDecodedDelta,
+        intervalMs: opts.sampleMs,
+        maxActiveLayerChanges: opts.maxActiveLayerChanges,
+        minEndingActiveLayers: opts.minEndingActiveLayers,
+        minActiveLayers: opts.minActiveLayers,
+        minDecodedDelta: opts.minDecodedDelta,
+        runIndex,
         sampleIndex: i + 1,
         summary,
       });
       samples.push({
-        intervalMs: sampleMs,
-        elapsedMs: (i + 1) * sampleMs,
+        intervalMs: opts.sampleMs,
+        elapsedMs: (i + 1) * opts.sampleMs,
         summary,
         first: previous,
         second: current,
@@ -81,28 +106,30 @@ async function main() {
     }
     const second = previous;
     const delta = diffStats(first, second);
-    console.log(JSON.stringify({
+    return {
+      run: runIndex,
       url,
-      sampleMs,
-      soakMs,
-      pollMs,
-      serverFPS,
-      serverBitrateKbps,
-      cpuBurners,
-      minActiveLayers,
-      minEndingActiveLayers,
-      maxActiveLayerChanges,
+      sampleMs: opts.sampleMs,
+      soakMs: opts.soakMs,
+      pollMs: opts.pollMs,
+      serverFPS: opts.serverFPS,
+      serverBitrateKbps: opts.serverBitrateKbps,
+      cpuBurners: opts.cpuBurners,
+      minActiveLayers: opts.minActiveLayers,
+      minEndingActiveLayers: opts.minEndingActiveLayers,
+      maxActiveLayerChanges: opts.maxActiveLayerChanges,
       samples,
       first,
       second,
       delta,
-    }, null, 2));
+      summary: summarizeRun(samples, delta, second),
+    };
   } finally {
     if (cdp) cdp.close();
     if (chrome) {
       await stopProcess(chrome.process);
     }
-    await stopProcess(server, "SIGTERM", serverProcessGroup);
+    await stopProcess(server, "SIGTERM", opts.serverProcessGroup);
     await stopProcesses(loadProcesses);
     try {
       await rm(tempProfile, {
@@ -321,6 +348,40 @@ function summarizeInterval(stats) {
   };
 }
 
+function summarizeRun(samples, delta, second) {
+  return {
+    decoded: delta.rxDecoded,
+    dropped: delta.rxDropped,
+    lost: delta.rxLost,
+    freezes: delta.rxFreezes,
+    videoTime: delta.videoTime,
+    endingActiveLayers: second.activeLayers,
+    minSampleEndingActiveLayers: minNumber(samples.map((s) => s.second.activeLayers).filter(Number.isFinite)),
+    minPolledActiveLayers: minNumber(samples.map((s) => s.summary.minActiveLayers).filter(Number.isFinite)),
+    maxAccessUnitMs: maxNumber(samples.map((s) => s.summary.maxAccessUnitMs).filter(Number.isFinite)),
+    maxScheduleLagMs: maxNumber(samples.map((s) => s.summary.maxScheduleLagMs).filter(Number.isFinite)),
+  };
+}
+
+function summarizeRuns(runs) {
+  const summaries = runs.map((run) => run.summary);
+  const sum = (key) => summaries.reduce((total, s) => total + (Number.isFinite(s[key]) ? s[key] : 0), 0);
+  const values = (key) => summaries.map((s) => s[key]).filter(Number.isFinite);
+  return {
+    runs: runs.length,
+    decoded: sum("decoded"),
+    dropped: sum("dropped"),
+    lost: sum("lost"),
+    freezes: sum("freezes"),
+    videoTime: sum("videoTime"),
+    minEndingActiveLayers: minNumber(values("endingActiveLayers")),
+    minSampleEndingActiveLayers: minNumber(values("minSampleEndingActiveLayers")),
+    minPolledActiveLayers: minNumber(values("minPolledActiveLayers")),
+    maxAccessUnitMs: maxNumber(values("maxAccessUnitMs")),
+    maxScheduleLagMs: maxNumber(values("maxScheduleLagMs")),
+  };
+}
+
 function minNumber(values) {
   return values.length === 0 ? null : Math.min(...values);
 }
@@ -390,7 +451,10 @@ function assertSmoke(first, second, delta, opts) {
 }
 
 function sampleLabel(opts) {
-  return opts && opts.sampleIndex ? `sample ${opts.sampleIndex}:` : "sample:";
+  if (!opts) return "sample:";
+  const run = opts.runIndex ? `run ${opts.runIndex} ` : "";
+  const sample = opts.sampleIndex ? `sample ${opts.sampleIndex}` : "sample";
+  return `${run}${sample}:`;
 }
 
 function sampleDetails(first, second, delta, summary) {

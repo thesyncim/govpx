@@ -140,10 +140,11 @@ is not in a standard location. For a longer clean-RTP decode soak, pass
 `--soak-ms`; each `--sample-ms` interval must independently show decoder
 progress with no loss, dropped-frame, or freeze-counter delta. The smoke polls
 within each interval so its JSON summary also reports active spatial-layer
-changes plus peak sender encode/access-unit lag:
+changes plus peak sender encode/access-unit lag. Use `--repeat` to run the same
+browser gate back-to-back; repeat output includes an aggregate summary:
 
 ```sh
-node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000
 ```
 
 To prove the host can sustain the requested top layer, add an ending
@@ -151,7 +152,7 @@ active-layer assertion. This keeps the soak focused on stable browser-visible
 output while still allowing a one-poll telemetry transition inside an interval:
 
 ```sh
-node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000 --min-ending-active-layers 3
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-ending-active-layers 3
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
@@ -164,7 +165,7 @@ so the same harness can compare production defaults against a proposed
 realtime cadence:
 
 ```sh
-node browser_smoke.mjs --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-ending-active-layers 1
+node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-ending-active-layers 1
 ```
 
 ## What this proves

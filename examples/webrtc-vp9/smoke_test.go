@@ -1197,7 +1197,7 @@ func TestSpatialCapChangeAfterForceKeyConsumedIsAppliedNextKeyFrame(t *testing.T
 func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval + interval*2/3
 
 	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
 		if backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
@@ -1220,7 +1220,7 @@ func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 func TestSpatialCapBackoffAllowsNearBudgetJitter(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	nearBudget := interval + interval/5
+	nearBudget := interval + interval/3
 
 	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
 		if backoff.observe(spatialLayerCount, spatialLayerCount, nearBudget, interval) {
@@ -1236,7 +1236,7 @@ func TestSpatialCapBackoffAllowsNearBudgetJitter(t *testing.T) {
 func TestSpatialCapBackoffDownshiftsBeforeEncodeOnRepeatedLateStarts(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	lateStart := interval + interval/3
+	lateStart := interval + interval*2/3
 
 	if changed, counted := backoff.observeLateStart(
 		spatialLayerCount, spatialLayerCount, interval/2, interval); changed || counted {
@@ -1266,7 +1266,7 @@ func TestSpatialCapBackoffDownshiftsBeforeEncodeOnRepeatedLateStarts(t *testing.
 func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval + interval*2/3
 
 	changed, counted := backoff.observeLateStart(
 		spatialLayerCount, spatialLayerCount, overrun, interval)
@@ -1286,7 +1286,7 @@ func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
 func TestSpatialCapBackoffIgnoresForcedKeyAccessUnits(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval + interval*2/3
 
 	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
 		changed, counted := backoff.observeLateStartForAccessUnit(
@@ -1323,7 +1323,7 @@ func TestSpatialCapBackoffIgnoresForcedKeyAccessUnits(t *testing.T) {
 func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval + interval*2/3
 	for i := 0; i < spatialCapBackoffOverruns; i++ {
 		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
 	}
@@ -1354,7 +1354,7 @@ func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing
 func TestSpatialCapBackoffManualCapChangeAppliesOnForcedKey(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval + interval*2/3
 	for i := 0; i < spatialCapBackoffOverruns; i++ {
 		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
 	}
@@ -1693,9 +1693,10 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"PacketizeSpatialSVCWebRTCNonFlexibleInto",
 		"non-flexible VP9 RTP descriptors",
 		"node browser_smoke.mjs",
+		"--repeat 3",
 		"--soak-ms 30000 --sample-ms 5000",
 		"--min-ending-active-layers 3",
-		"--cpu-burners 12 --server-fps 25",
+		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-ending-active-layers 1",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",

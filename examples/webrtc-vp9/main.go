@@ -1002,7 +1002,7 @@ func (b *spatialCapBackoff) observeCompletedAccessUnit(
 }
 
 func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
-	return interval > 0 && elapsed > interval+interval/4
+	return interval > 0 && elapsed > interval+interval/2
 }
 
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
