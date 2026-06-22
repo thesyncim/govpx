@@ -108,6 +108,7 @@ async function runSmoke(opts, runIndex) {
           minDecodedDelta: opts.minDecodedDelta,
           minVideoTimeRatio: opts.minVideoTimeRatio,
           maxRxRepairRequests: opts.maxRxRepairRequests,
+          controlAction,
           runIndex,
           clientIndex: clientIndex + 1,
           sampleIndex: i + 1,
@@ -434,6 +435,8 @@ async function readStats(cdp, sessionId) {
         senderSpatialCapMax: num(sender.spatial_cap_max),
         senderCapOverrunStreak: num(sender.spatial_cap_overrun_streak),
         senderCapRecoveryStreak: num(sender.spatial_cap_recovery_streak),
+        senderForcedKeys: typeof senderForcedKeyCount === "number" ? senderForcedKeyCount : num(rows["forced keys"]),
+        senderPacketizerRecoveries: typeof senderPacketizerRecoveryCount === "number" ? senderPacketizerRecoveryCount : num(rows["pkt recoveries"]),
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -468,6 +471,8 @@ function summarizeInterval(stats) {
     maxSenderCapRecoveryStreak: maxNumber(values("senderCapRecoveryStreak")),
     maxRxRepairRequests: maxNumber(values("rxRepairRequests")),
     minRxSpatialCap: minNumber(values("rxSpatialCap")),
+    maxSenderForcedKeys: maxNumber(values("senderForcedKeys")),
+    maxSenderPacketizerRecoveries: maxNumber(values("senderPacketizerRecoveries")),
   };
 }
 
@@ -504,6 +509,9 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     dropped: deltaSum("rxDropped"),
     lost: deltaSum("rxLost"),
     freezes: deltaSum("rxFreezes"),
+    forcedKeys: deltaSum("senderForcedKeys"),
+    minClientForcedKeys: minNumber(deltaValues("senderForcedKeys")),
+    packetizerRecoveries: deltaSum("senderPacketizerRecoveries"),
     videoTime: deltaSum("videoTime"),
     minClientVideoTime: minNumber(deltaValues("videoTime")),
     endingActiveLayers: minNumber(secondValues("activeLayers")),
@@ -513,6 +521,8 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     maxScheduleLagMs: maxNumber(summaryValues("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(summaryValues("maxRxRepairRequests")),
     minRxSpatialCap: minNumber(summaryValues("minRxSpatialCap")),
+    maxSenderForcedKeys: maxNumber(summaryValues("maxSenderForcedKeys")),
+    maxSenderPacketizerRecoveries: maxNumber(summaryValues("maxSenderPacketizerRecoveries")),
   };
 }
 
@@ -529,6 +539,9 @@ function summarizeRuns(runs) {
     dropped: sum("dropped"),
     lost: sum("lost"),
     freezes: sum("freezes"),
+    forcedKeys: sum("forcedKeys"),
+    minClientForcedKeys: minNumber(values("minClientForcedKeys")),
+    packetizerRecoveries: sum("packetizerRecoveries"),
     videoTime: sum("videoTime"),
     minClientVideoTime: minNumber(values("minClientVideoTime")),
     minEndingActiveLayers: minNumber(values("endingActiveLayers")),
@@ -538,6 +551,8 @@ function summarizeRuns(runs) {
     maxScheduleLagMs: maxNumber(values("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(values("maxRxRepairRequests")),
     minRxSpatialCap: minNumber(values("minRxSpatialCap")),
+    maxSenderForcedKeys: maxNumber(values("maxSenderForcedKeys")),
+    maxSenderPacketizerRecoveries: maxNumber(values("maxSenderPacketizerRecoveries")),
   };
 }
 
@@ -559,7 +574,7 @@ function countChanges(values) {
 
 function diffStats(first, second) {
   const delta = {};
-  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "videoTime"]) {
+  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
     delta[key] = numericDelta(first[key], second[key]);
   }
   return delta;
@@ -590,6 +605,9 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.maxRxRepairRequests > opts.maxRxRepairRequests
   ) {
     throw new Error(`${sampleLabel(opts)} receiver repair requests reached ${opts.summary.maxRxRepairRequests}, want <= ${opts.maxRxRepairRequests}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (opts.controlAction && (delta.senderForcedKeys === null || delta.senderForcedKeys < 1)) {
+    throw new Error(`${sampleLabel(opts)} ${opts.controlAction.type} action did not produce a sender forced keyframe; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
     throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}; ${sampleDetails(first, second, delta, opts.summary)}`);

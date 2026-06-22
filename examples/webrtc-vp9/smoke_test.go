@@ -1673,6 +1673,9 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"rx cap",
 		"rx freezes",
 		"rx repair",
+		"senderForcedKeyCount",
+		"forced keys",
+		"pkt recoveries",
 		"enc ms",
 		"encoded drops",
 	} {
@@ -1699,6 +1702,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--min-active-layers 3 --min-ending-active-layers 3",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-active-layers 1 --min-ending-active-layers 1",
+		"--control-churn",
+		"sender forced-key event",
 		"--clients 2",
 		"--min-decoded-delta 80 --min-video-time-ratio 0.85",
 		"simultaneous receiver/encoder sessions",

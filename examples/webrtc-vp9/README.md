@@ -168,6 +168,15 @@ realtime cadence:
 node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
+To exercise the clean-stall recovery controls without introducing packet loss,
+add `--control-churn`. The browser clicks the spatial-cap and force-keyframe
+controls during the soak; every churn interval must still decode cleanly and
+must observe at least one sender forced-key event:
+
+```sh
+node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --min-active-layers 2 --min-ending-active-layers 2
+```
+
 To exercise simultaneous receiver/encoder sessions against one demo server,
 use `--clients`. Each browser receiver must independently satisfy the decode,
 video-time, loss/drop/freeze, repair, and active-layer assertions:
@@ -177,8 +186,9 @@ node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decode
 ```
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
-the unloaded browser repeat, the loaded browser repeat, the multi-client
-browser soak, and the libvpx/vpxdec oracle subset, run:
+the unloaded browser repeat, the loaded browser repeat, the clean control-churn
+browser recovery check, the multi-client browser soak, and the libvpx/vpxdec
+oracle subset, run:
 
 ```sh
 node production_gate.mjs

@@ -180,6 +180,8 @@ let receiverLastRepairAt = 0;
 let receiverRepairRequests = 0;
 let receiverRepairStreak = 0;
 let receiverRequestedSpatialCap = MAX_SPATIAL_CAP;
+let senderForcedKeyCount = 0;
+let senderPacketizerRecoveryCount = 0;
 
 function row(dl, k, v){
   const dt = document.createElement("dt"); dt.textContent = k;
@@ -219,6 +221,8 @@ function drawChart(){
 }
 
 function renderStats(msg){
+  if(msg.sender?.forced_key) senderForcedKeyCount++;
+  if(msg.sender?.packetizer_recovery) senderPacketizerRecoveryCount++;
   // per-layer panels
   for(const node of layersEl.querySelectorAll(".layer")){
     const id = +node.dataset.layer;
@@ -255,6 +259,8 @@ function renderStats(msg){
   row(totalsEl, "RTP packets", msg.sender?.rtp_packets ?? 0);
   if(msg.sender?.forced_key) row(totalsEl, "forced key", "yes");
   if(msg.sender?.packetizer_recovery) row(totalsEl, "pkt recovery", "yes");
+  if(senderForcedKeyCount) row(totalsEl, "forced keys", senderForcedKeyCount);
+  if(senderPacketizerRecoveryCount) row(totalsEl, "pkt recoveries", senderPacketizerRecoveryCount);
   if(msg.sender?.failed_encode_aus) row(totalsEl, "encode fails", msg.sender.failed_encode_aus);
   if(msg.sender?.failed_encoded_aus) row(totalsEl, "encoded drops", msg.sender.failed_encoded_aus);
   row(totalsEl, "target kbps", msg.settings.target_kbps);

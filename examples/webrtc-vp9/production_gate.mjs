@@ -144,6 +144,9 @@ function summarizeStep(step, stdout) {
       dropped: aggregate.dropped,
       lost: aggregate.lost,
       freezes: aggregate.freezes,
+      forcedKeys: aggregate.forcedKeys,
+      minClientForcedKeys: aggregate.minClientForcedKeys,
+      packetizerRecoveries: aggregate.packetizerRecoveries,
       minEndingActiveLayers: aggregate.minEndingActiveLayers ?? aggregate.endingActiveLayers,
       minSampleEndingActiveLayers: aggregate.minSampleEndingActiveLayers,
       minPolledActiveLayers: aggregate.minPolledActiveLayers,
@@ -151,6 +154,8 @@ function summarizeStep(step, stdout) {
       maxScheduleLagMs: aggregate.maxScheduleLagMs,
       maxRxRepairRequests: aggregate.maxRxRepairRequests,
       minRxSpatialCap: aggregate.minRxSpatialCap,
+      maxSenderForcedKeys: aggregate.maxSenderForcedKeys,
+      maxSenderPacketizerRecoveries: aggregate.maxSenderPacketizerRecoveries,
     };
   }
   return {
