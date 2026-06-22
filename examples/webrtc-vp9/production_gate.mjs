@@ -32,6 +32,7 @@ const steps = [
       "--poll-ms", "1000",
       "--min-decoded-delta", "100",
       "--min-video-time-ratio", "0.9",
+      "--max-rx-repair-requests", "0",
       "--min-ending-active-layers", "3",
     ],
     kind: "browser-json",
@@ -49,6 +50,7 @@ const steps = [
       "--poll-ms", "1000",
       "--min-decoded-delta", "100",
       "--min-video-time-ratio", "0.9",
+      "--max-rx-repair-requests", "0",
       "--min-ending-active-layers", "1",
     ],
     kind: "browser-json",
@@ -108,6 +110,8 @@ function summarizeStep(step, stdout) {
       minPolledActiveLayers: aggregate.minPolledActiveLayers,
       maxAccessUnitMs: aggregate.maxAccessUnitMs,
       maxScheduleLagMs: aggregate.maxScheduleLagMs,
+      maxRxRepairRequests: aggregate.maxRxRepairRequests,
+      minRxSpatialCap: aggregate.minRxSpatialCap,
     };
   }
   return {

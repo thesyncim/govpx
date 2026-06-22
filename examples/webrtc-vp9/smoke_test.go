@@ -1695,7 +1695,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"node browser_smoke.mjs",
 		"--repeat 3",
 		"--soak-ms 30000 --sample-ms 5000",
-		"--min-decoded-delta 100 --min-video-time-ratio 0.9",
+		"--min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0",
 		"--min-ending-active-layers 3",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-ending-active-layers 1",

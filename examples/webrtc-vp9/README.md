@@ -144,7 +144,7 @@ changes plus peak sender encode/access-unit lag. Use `--repeat` to run the same
 browser gate back-to-back; repeat output includes an aggregate summary:
 
 ```sh
-node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0
 ```
 
 To prove the host can sustain the requested top layer, add an ending
@@ -152,7 +152,7 @@ active-layer assertion. This keeps the soak focused on stable browser-visible
 output while still allowing a one-poll telemetry transition inside an interval:
 
 ```sh
-node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --min-ending-active-layers 3
+node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --min-ending-active-layers 3
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
@@ -165,7 +165,7 @@ so the same harness can compare production defaults against a proposed
 realtime cadence:
 
 ```sh
-node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --min-ending-active-layers 1
+node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --min-ending-active-layers 1
 ```
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,

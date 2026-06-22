@@ -33,6 +33,7 @@ function parseOptions() {
     timeoutMs: numberFlag("--timeout-ms", 45000),
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
+    maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
@@ -92,6 +93,7 @@ async function runSmoke(opts, runIndex) {
         minActiveLayers: opts.minActiveLayers,
         minDecodedDelta: opts.minDecodedDelta,
         minVideoTimeRatio: opts.minVideoTimeRatio,
+        maxRxRepairRequests: opts.maxRxRepairRequests,
         runIndex,
         sampleIndex: i + 1,
         summary,
@@ -119,6 +121,7 @@ async function runSmoke(opts, runIndex) {
       cpuBurners: opts.cpuBurners,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
+      maxRxRepairRequests: opts.maxRxRepairRequests,
       minActiveLayers: opts.minActiveLayers,
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
@@ -148,11 +151,20 @@ async function runSmoke(opts, runIndex) {
   }
 }
 
-function numberFlag(name, fallback) {
+function numberFlag(name, fallback, opts = {}) {
   const idx = process.argv.indexOf(name);
   if (idx < 0) return fallback;
   const value = Number(process.argv[idx + 1]);
-  if (!Number.isFinite(value) || value <= 0) {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+  if (opts.min !== undefined) {
+    if (value < opts.min) {
+      throw new Error(`${name} must be >= ${opts.min}`);
+    }
+    return value;
+  }
+  if (value <= 0) {
     throw new Error(`${name} must be positive`);
   }
   return value;
@@ -299,6 +311,9 @@ async function readStats(cdp, sessionId) {
       const layers = Array.isArray(raw.layers) ? raw.layers : [];
       const activeTop = layers.length > 0 ? layers[layers.length - 1] : {};
       const sender = raw.sender || {};
+      const repairRequests = typeof receiverRepairRequests === "number" ? receiverRepairRequests : num(rows["rx repair"]);
+      const repairStreak = typeof receiverRepairStreak === "number" ? receiverRepairStreak : null;
+      const receiverSpatialCap = typeof receiverRequestedSpatialCap === "number" ? receiverRequestedSpatialCap : num(rows["rx cap"]);
       return {
         status: document.getElementById("status")?.textContent ?? null,
         frame: num(rows["frame #"]),
@@ -320,8 +335,9 @@ async function readStats(cdp, sessionId) {
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
         rxFreezes: num(rows["rx freezes"]),
-        rxRepairRequests: num(rows["rx repair"]),
-        rxSpatialCap: num(rows["rx cap"]),
+        rxRepairRequests: repairRequests ?? 0,
+        rxRepairStreak: repairStreak,
+        rxSpatialCap: receiverSpatialCap,
         videoReadyState: v?.readyState ?? null,
         videoTime: v?.currentTime ?? null,
         videoWidth: v?.videoWidth ?? null,
@@ -364,6 +380,8 @@ function summarizeRun(samples, delta, second) {
     minPolledActiveLayers: minNumber(samples.map((s) => s.summary.minActiveLayers).filter(Number.isFinite)),
     maxAccessUnitMs: maxNumber(samples.map((s) => s.summary.maxAccessUnitMs).filter(Number.isFinite)),
     maxScheduleLagMs: maxNumber(samples.map((s) => s.summary.maxScheduleLagMs).filter(Number.isFinite)),
+    maxRxRepairRequests: maxNumber(samples.map((s) => s.summary.maxRxRepairRequests).filter(Number.isFinite)),
+    minRxSpatialCap: minNumber(samples.map((s) => s.summary.minRxSpatialCap).filter(Number.isFinite)),
   };
 }
 
@@ -383,6 +401,8 @@ function summarizeRuns(runs) {
     minPolledActiveLayers: minNumber(values("minPolledActiveLayers")),
     maxAccessUnitMs: maxNumber(values("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(values("maxScheduleLagMs")),
+    maxRxRepairRequests: maxNumber(values("maxRxRepairRequests")),
+    minRxSpatialCap: minNumber(values("minRxSpatialCap")),
   };
 }
 
@@ -429,6 +449,12 @@ function assertSmoke(first, second, delta, opts) {
     if (delta[key] !== null && delta[key] !== 0) {
       throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
     }
+  }
+  if (
+    Number.isFinite(opts.summary.maxRxRepairRequests) &&
+    opts.summary.maxRxRepairRequests > opts.maxRxRepairRequests
+  ) {
+    throw new Error(`${sampleLabel(opts)} receiver repair requests reached ${opts.summary.maxRxRepairRequests}, want <= ${opts.maxRxRepairRequests}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
     throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}; ${sampleDetails(first, second, delta, opts.summary)}`);
