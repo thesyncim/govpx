@@ -959,6 +959,22 @@ func (b *spatialCapBackoff) observe(
 	return false
 }
 
+func (b *spatialCapBackoff) observeLateStart(
+	activeCap int,
+	requestedCap int,
+	scheduleLag time.Duration,
+	interval time.Duration,
+) (capChange bool, counted bool) {
+	if !spatialCapBackoffIsOverrun(scheduleLag, interval) {
+		return false, false
+	}
+	return b.observe(activeCap, requestedCap, scheduleLag, interval), true
+}
+
+func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
+	return interval > 0 && elapsed > interval+interval/10
+}
+
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
 	track *webrtc.TrackLocalStaticRTP, telemetry chan []byte, ctl *controlState,
 	cfg demoConfig) {
@@ -1059,6 +1075,11 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			continue
 		}
 		requestedSpatialCap := clampSpatialCap(int(ctl.spatialCap.Load()))
+		lateStartCapChange, countedScheduleLag := capBackoff.observeLateStart(
+			currentSpatialCap, requestedSpatialCap, scheduleLag, interval)
+		if lateStartCapChange {
+			forceKey = true
+		}
 		if forceKey {
 			currentSpatialCap = capBackoff.effectiveCap(
 				spatialCapForAccessUnit(ctl, currentSpatialCap, true))
@@ -1152,7 +1173,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			}); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
-		if capBackoff.observe(currentSpatialCap, requestedSpatialCap,
+		if !countedScheduleLag && capBackoff.observe(currentSpatialCap, requestedSpatialCap,
 			accessUnitWallElapsed(tickTime, time.Now()), interval) {
 			ctl.forceKey.Store(true)
 		}

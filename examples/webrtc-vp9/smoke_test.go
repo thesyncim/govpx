@@ -1217,6 +1217,56 @@ func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 	}
 }
 
+func TestSpatialCapBackoffDownshiftsBeforeEncodeOnRepeatedLateStarts(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	lateStart := interval + interval/5
+
+	if changed, counted := backoff.observeLateStart(
+		spatialLayerCount, spatialLayerCount, interval/2, interval); changed || counted {
+		t.Fatalf("stable start = changed:%t counted:%t, want false/false",
+			changed, counted)
+	}
+	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
+		changed, counted := backoff.observeLateStart(
+			spatialLayerCount, spatialLayerCount, lateStart, interval)
+		if !counted || changed {
+			t.Fatalf("late start %d = changed:%t counted:%t, want false/true",
+				i, changed, counted)
+		}
+	}
+	changed, counted := backoff.observeLateStart(
+		spatialLayerCount, spatialLayerCount, lateStart, interval)
+	if !changed || !counted {
+		t.Fatalf("repeated late starts = changed:%t counted:%t, want true/true",
+			changed, counted)
+	}
+	if got := backoff.effectiveCap(spatialLayerCount); got != spatialLayerCount-1 {
+		t.Fatalf("effective cap after late starts = %d, want %d",
+			got, spatialLayerCount-1)
+	}
+}
+
+func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	overrun := interval + interval/5
+
+	changed, counted := backoff.observeLateStart(
+		spatialLayerCount, spatialLayerCount, overrun, interval)
+	if changed || !counted {
+		t.Fatalf("first late start = changed:%t counted:%t, want false/true",
+			changed, counted)
+	}
+	if !counted && backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
+		t.Fatal("post-encode observe unexpectedly changed cap")
+	}
+	if backoff.overrunStreak != 1 {
+		t.Fatalf("overrun streak after one late access unit = %d, want 1",
+			backoff.overrunStreak)
+	}
+}
+
 func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)

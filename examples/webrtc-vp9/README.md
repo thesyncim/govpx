@@ -56,7 +56,10 @@ is active on the production encode path, so the live overlay reports tile
 columns separately from row-MT. Pure-Go VP9 is still host- and load-sensitive,
 so the live overlay reports effective FPS, bitrate, and sender scheduler lag
 while the command-line `-fps` and `-bitrate` flags let you tune the session to
-the machine.
+the machine. When scheduler lag or completed access-unit time repeatedly
+exceeds the frame interval, the sender forces a keyed spatial-cap change before
+encoding the next access unit so it stops spending realtime budget on layers it
+cannot sustain.
 
 ## How it works
 
