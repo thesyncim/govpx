@@ -43,6 +43,7 @@ function parseOptions() {
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
+    requireThreadedTopLayer: booleanFlag("--require-threaded-top-layer"),
     serverProcessGroup: process.platform !== "win32",
     chromePath: findChrome(),
   };
@@ -138,6 +139,8 @@ async function runSmoke(opts, runIndex) {
     const deltaByClient = firstByClient.map((first, i) =>
       diffStats(first, secondByClient[i])
     );
+    const summary = summarizeRun(samples, deltaByClient, secondByClient);
+    assertRunSmoke(summary, opts);
     return {
       run: runIndex,
       url,
@@ -155,6 +158,7 @@ async function runSmoke(opts, runIndex) {
       minActiveLayers: opts.minActiveLayers,
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
+      requireThreadedTopLayer: opts.requireThreadedTopLayer,
       samples,
       first: firstByClient[0],
       second: secondByClient[0],
@@ -165,7 +169,7 @@ async function runSmoke(opts, runIndex) {
         second: secondByClient[i],
         delta: deltaByClient[i],
       })),
-      summary: summarizeRun(samples, deltaByClient, secondByClient),
+      summary,
     };
   } finally {
     if (cdp) cdp.close();
@@ -464,6 +468,8 @@ function summarizeInterval(stats) {
     minActiveLayers: minNumber(activeLayers),
     maxActiveLayers: maxNumber(activeLayers),
     activeLayerChanges: countChanges(activeLayers),
+    maxActiveTopLayerThreads: maxNumber(values("activeTopLayerThreads")),
+    maxActiveTopLayerTileCols: maxNumber(values("activeTopLayerTileCols")),
     maxEncodeMs: maxNumber(values("encodeMs")),
     maxAccessUnitMs: maxNumber(values("accessUnitMs")),
     maxScheduleLagMs: maxNumber(values("scheduleLagMs")),
@@ -517,6 +523,8 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     endingActiveLayers: minNumber(secondValues("activeLayers")),
     minSampleEndingActiveLayers: minNumber(sampleSecondValues("activeLayers")),
     minPolledActiveLayers: minNumber(summaryValues("minActiveLayers")),
+    maxActiveTopLayerThreads: maxNumber(summaryValues("maxActiveTopLayerThreads")),
+    maxActiveTopLayerTileCols: maxNumber(summaryValues("maxActiveTopLayerTileCols")),
     maxAccessUnitMs: maxNumber(summaryValues("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(summaryValues("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(summaryValues("maxRxRepairRequests")),
@@ -547,6 +555,8 @@ function summarizeRuns(runs) {
     minEndingActiveLayers: minNumber(values("endingActiveLayers")),
     minSampleEndingActiveLayers: minNumber(values("minSampleEndingActiveLayers")),
     minPolledActiveLayers: minNumber(values("minPolledActiveLayers")),
+    maxActiveTopLayerThreads: maxNumber(values("maxActiveTopLayerThreads")),
+    maxActiveTopLayerTileCols: maxNumber(values("maxActiveTopLayerTileCols")),
     maxAccessUnitMs: maxNumber(values("maxAccessUnitMs")),
     maxScheduleLagMs: maxNumber(values("maxScheduleLagMs")),
     maxRxRepairRequests: maxNumber(values("maxRxRepairRequests")),
@@ -631,6 +641,18 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.activeLayerChanges > opts.maxActiveLayerChanges
   ) {
     throw new Error(`${sampleLabel(opts)} active layers changed ${opts.summary.activeLayerChanges} times, want <= ${opts.maxActiveLayerChanges}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+}
+
+function assertRunSmoke(summary, opts) {
+  if (
+    opts.requireThreadedTopLayer &&
+    (!Number.isFinite(summary.maxActiveTopLayerThreads) ||
+      summary.maxActiveTopLayerThreads < 2 ||
+      !Number.isFinite(summary.maxActiveTopLayerTileCols) ||
+      summary.maxActiveTopLayerTileCols < 2)
+  ) {
+    throw new Error(`threaded top-layer tile layout was not observed: ${JSON.stringify(summary)}`);
   }
 }
 
