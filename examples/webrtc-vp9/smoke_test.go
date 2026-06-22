@@ -1704,6 +1704,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--min-active-layers 1 --min-ending-active-layers 1",
 		"--control-churn",
 		"sender forced-key event",
+		"--control-churn --cpu-burners 12 --server-fps 25",
+		"--min-video-time-ratio 0.8",
 		"--clients 2",
 		"--min-decoded-delta 80 --min-video-time-ratio 0.85",
 		"simultaneous receiver/encoder sessions",
