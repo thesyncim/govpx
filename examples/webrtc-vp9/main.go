@@ -44,7 +44,7 @@ const (
 	defaultBitrateKbps  = 800
 	minLayerBitrateKbps = 1
 
-	spatialCapBackoffOverruns       = 3
+	spatialCapBackoffOverruns       = 25
 	spatialCapBackoffRecoveryFrames = 90
 )
 

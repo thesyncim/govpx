@@ -168,6 +168,14 @@ realtime cadence:
 node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-ending-active-layers 1
 ```
 
+To run the full local VP9 WebRTC production gate, including focused Go checks,
+the unloaded browser repeat, the loaded browser repeat, and the libvpx/vpxdec
+oracle subset, run:
+
+```sh
+node production_gate.mjs
+```
+
 ## What this proves
 
 - `govpx.VP9SpatialSVCEncoder` produces VP9 superframes that a native

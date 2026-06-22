@@ -1698,6 +1698,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--min-ending-active-layers 3",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-ending-active-layers 1",
+		"node production_gate.mjs",
+		"libvpx/vpxdec",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",
 		"active spatial-layer",
