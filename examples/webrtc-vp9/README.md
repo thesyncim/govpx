@@ -179,6 +179,15 @@ must observe at least one sender forced-key event:
 node browser_smoke.mjs --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 2 --min-ending-active-layers 2 --require-threaded-top-layer
 ```
 
+To exercise live rate-control and screen-content tuning without requiring a
+keyframe every sample, add `--tuning-churn`. The browser alternates bitrate and
+screen-mode controls; every interval must still decode cleanly and the telemetry
+must reflect the requested target:
+
+```sh
+node browser_smoke.mjs --tuning-churn --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+```
+
 To prove encoder lifecycle recovery, add `--pause-resume`. The browser pauses
 the sender after decode is established, resumes it, then requires a forced
 keyframe and clean browser decode progress after resume:
@@ -205,9 +214,10 @@ node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decode
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
 the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
-tile-layout check, the clean control-churn browser recovery check, the
-pause/resume lifecycle recovery check, the loaded control-churn recovery check,
-the multi-client browser soak, and the libvpx/vpxdec oracle subset, run:
+tile-layout check, the clean control-churn browser recovery check, the live
+bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
+loaded control-churn recovery check, the multi-client browser soak, and the
+libvpx/vpxdec oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -226,6 +236,9 @@ node production_gate.mjs
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
 - Pause/resume is gated as a lifecycle recovery path: resume must trigger a
   keyframe and clean browser decode must restart without RTP/decoder feedback.
+- Live bitrate and screen-content tuning are gated separately from keyframe
+  churn, so ordinary rate/tuning controls must update telemetry and keep
+  decoding clean without relying on forced recovery frames.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure

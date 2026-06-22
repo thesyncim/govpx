@@ -45,6 +45,7 @@ function parseOptions() {
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
     controlChurn: booleanFlag("--control-churn"),
+    tuningChurn: booleanFlag("--tuning-churn"),
     pauseResume: booleanFlag("--pause-resume"),
     pauseMs: numberFlag("--pause-ms", 1500, { min: 0 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
@@ -96,7 +97,7 @@ async function runSmoke(opts, runIndex) {
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
     for (let i = 0; i < sampleCount; i++) {
-      const controlAction = opts.controlChurn ? controlChurnAction(i) : null;
+      const controlAction = nextControlAction(opts, i);
       if (controlAction) {
         await Promise.all(clients.map((client) =>
           applyControlAction(cdp, client.sessionId, controlAction)
@@ -171,6 +172,7 @@ async function runSmoke(opts, runIndex) {
       serverBitrateKbps: opts.serverBitrateKbps,
       cpuBurners: opts.cpuBurners,
       controlChurn: opts.controlChurn,
+      tuningChurn: opts.tuningChurn,
       pauseResume: opts.pauseResume,
       pauseMs: opts.pauseMs,
       minDecodedDelta: opts.minDecodedDelta,
@@ -321,6 +323,19 @@ function controlActionExpression(action) {
       button.click();
       return {type: "keyframe"};
     }
+    if (action.type === "screen") {
+      const button = document.querySelector("button[data-screen='" + action.mode + "']");
+      if (!button) throw new Error("missing screen mode button " + action.mode);
+      button.click();
+      return {type: "screen", mode: action.mode};
+    }
+    if (action.type === "bitrate") {
+      const input = document.getElementById("bitrate");
+      if (!input) throw new Error("missing bitrate input");
+      input.value = String(action.kbps);
+      input.dispatchEvent(new Event("input", {bubbles: true}));
+      return {type: "bitrate", kbps: Number(input.value)};
+    }
     if (action.type === "pause") {
       const button = document.getElementById("pause");
       if (!button) throw new Error("missing pause button");
@@ -332,12 +347,30 @@ function controlActionExpression(action) {
   })()`;
 }
 
+function nextControlAction(opts, sampleIndex) {
+  if (opts.controlChurn) return controlChurnAction(sampleIndex);
+  if (opts.tuningChurn) return tuningChurnAction(sampleIndex);
+  return null;
+}
+
 function controlChurnAction(sampleIndex) {
   const sequence = [
-    { type: "spatial", cap: 2 },
-    { type: "keyframe" },
-    { type: "spatial", cap: 3 },
-    { type: "keyframe" },
+    { type: "spatial", cap: 2, requiresForcedKey: true },
+    { type: "keyframe", requiresForcedKey: true },
+    { type: "spatial", cap: 3, requiresForcedKey: true },
+    { type: "keyframe", requiresForcedKey: true },
+  ];
+  return sequence[sampleIndex % sequence.length];
+}
+
+function tuningChurnAction(sampleIndex) {
+  const sequence = [
+    { type: "bitrate", kbps: 1200 },
+    { type: "screen", mode: 1 },
+    { type: "bitrate", kbps: 600 },
+    { type: "screen", mode: 2 },
+    { type: "bitrate", kbps: 900 },
+    { type: "screen", mode: 0 },
   ];
   return sequence[sampleIndex % sequence.length];
 }
@@ -523,6 +556,8 @@ async function readStats(cdp, sessionId) {
         frame: num(rows["frame #"]),
         activeLayers: raw.settings?.active_spatial_layers ?? null,
         requestedLayers: raw.settings?.requested_spatial_layers ?? null,
+        targetKbps: num(raw.settings?.target_kbps),
+        screenMode: num(raw.settings?.screen_mode),
         activeTopLayerSP: num(activeTop.sp),
         activeTopLayerThreads: num(activeTop.threads),
         activeTopLayerTileCols: num(activeTop.tile_cols),
@@ -750,8 +785,20 @@ function assertSmoke(first, second, delta, opts) {
   ) {
     throw new Error(`${sampleLabel(opts)} sender failed encoded access units reached ${opts.summary.maxSenderFailedEncodedAUs}, want <= ${opts.maxSenderFailedEncodedAUs}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
-  if (opts.controlAction && (delta.senderForcedKeys === null || delta.senderForcedKeys < 1)) {
+  if (opts.controlAction?.requiresForcedKey && (delta.senderForcedKeys === null || delta.senderForcedKeys < 1)) {
     throw new Error(`${sampleLabel(opts)} ${opts.controlAction.type} action did not produce a sender forced keyframe; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    opts.controlAction?.type === "bitrate" &&
+    second.targetKbps !== opts.controlAction.kbps
+  ) {
+    throw new Error(`${sampleLabel(opts)} bitrate action target ${second.targetKbps}, want ${opts.controlAction.kbps}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    opts.controlAction?.type === "screen" &&
+    second.screenMode !== opts.controlAction.mode
+  ) {
+    throw new Error(`${sampleLabel(opts)} screen action mode ${second.screenMode}, want ${opts.controlAction.mode}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
     throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}; ${sampleDetails(first, second, delta, opts.summary)}`);

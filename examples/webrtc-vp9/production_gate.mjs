@@ -8,6 +8,8 @@ const oraclePattern = [
   "TestVP9WebRTCPacketizerSVC.*Vpxdec",
 ].join("|");
 
+const browserStepCooldownMs = 5000;
+
 const steps = [
   {
     name: "focused-go",
@@ -88,6 +90,29 @@ const steps = [
       "--max-sender-failed-encoded-aus", "0",
       "--min-active-layers", "2",
       "--min-ending-active-layers", "2",
+      "--require-threaded-top-layer",
+    ],
+    kind: "browser-json",
+  },
+  {
+    name: "browser-tuning-churn",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--tuning-churn",
+      "--soak-ms", "30000",
+      "--sample-ms", "5000",
+      "--poll-ms", "1000",
+      "--min-decoded-delta", "80",
+      "--min-video-time-ratio", "0.85",
+      "--max-rx-repair-requests", "0",
+      "--max-rx-nack-delta", "0",
+      "--max-rx-pli-delta", "0",
+      "--max-rx-fir-delta", "0",
+      "--max-sender-failed-encode-aus", "0",
+      "--max-sender-failed-encoded-aus", "0",
+      "--min-active-layers", "3",
+      "--min-ending-active-layers", "3",
       "--require-threaded-top-layer",
     ],
     kind: "browser-json",
@@ -181,17 +206,26 @@ const steps = [
 async function main() {
   const startedAt = Date.now();
   const results = [];
-  for (const step of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
     process.stderr.write(`[vp9-webrtc-gate] ${step.name}: ${formatCommand(step)}\n`);
     const result = await runStep(step);
     results.push(result);
     process.stderr.write(`[vp9-webrtc-gate] ${step.name}: ok in ${result.elapsedMs} ms\n`);
+    if (step.kind === "browser-json" && i < steps.length - 1) {
+      process.stderr.write(`[vp9-webrtc-gate] ${step.name}: cooldown ${browserStepCooldownMs} ms\n`);
+      await sleep(browserStepCooldownMs);
+    }
   }
   console.log(JSON.stringify({
     ok: true,
     elapsedMs: Date.now() - startedAt,
     results,
   }, null, 2));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function runStep(step) {
