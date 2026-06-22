@@ -138,10 +138,19 @@ telemetry, and fails unless decoded frames and video time advance while RTP
 loss, dropped frames, and freeze counters stay flat. Set `CHROME` when Chrome
 is not in a standard location. For a longer clean-RTP decode soak, pass
 `--soak-ms`; each `--sample-ms` interval must independently show decoder
-progress with no loss, dropped-frame, or freeze-counter delta:
+progress with no loss, dropped-frame, or freeze-counter delta. The smoke polls
+within each interval so its JSON summary also reports active spatial-layer
+changes plus peak sender encode/access-unit lag:
 
 ```sh
 node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000
+```
+
+To prove the host can sustain the requested top layer, add an active-layer
+assertion:
+
+```sh
+node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000 --min-active-layers 3 --max-active-layer-changes 0
 ```
 
 ## What this proves

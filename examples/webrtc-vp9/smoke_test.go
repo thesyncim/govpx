@@ -1641,8 +1641,10 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"non-flexible VP9 RTP descriptors",
 		"node browser_smoke.mjs",
 		"--soak-ms 30000 --sample-ms 5000",
+		"--min-active-layers 3 --max-active-layer-changes 0",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",
+		"active spatial-layer",
 		"MarkEncodedAccessUnitUnsent",
 		"MarkAccessUnitUnsent",
 		"app-local gap",
@@ -2479,6 +2481,9 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			ForcedKey:          true,
 			PacketizerRecovery: true,
 			FailedEncodedAUs:   1,
+			SpatialCapMax:      2,
+			CapOverrunStreak:   1,
+			CapRecoveryStreak:  17,
 		})
 	if err != nil {
 		t.Fatalf("snapshot capped telemetry: %v", err)
@@ -2526,7 +2531,10 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 		msg.Sender.RTPPackets != 3 ||
 		!msg.Sender.ForcedKey ||
 		!msg.Sender.PacketizerRecovery ||
-		msg.Sender.FailedEncodedAUs != 1 {
+		msg.Sender.FailedEncodedAUs != 1 ||
+		msg.Sender.SpatialCapMax != 2 ||
+		msg.Sender.CapOverrunStreak != 1 ||
+		msg.Sender.CapRecoveryStreak != 17 {
 		t.Fatalf("sender telemetry = %+v, want timing/recovery counters",
 			msg.Sender)
 	}

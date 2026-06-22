@@ -249,6 +249,9 @@ function renderStats(msg){
   row(totalsEl, "write ms", (msg.sender?.write_ms||0).toFixed(1));
   row(totalsEl, "AU ms", (msg.sender?.access_unit_ms||0).toFixed(1));
   row(totalsEl, "lag ms", (msg.sender?.schedule_lag_ms||0).toFixed(1));
+  if(msg.sender?.spatial_cap_max && msg.sender.spatial_cap_max < msg.settings.requested_spatial_layers){
+    row(totalsEl, "sender cap", msg.sender.spatial_cap_max);
+  }
   row(totalsEl, "RTP packets", msg.sender?.rtp_packets ?? 0);
   if(msg.sender?.forced_key) row(totalsEl, "forced key", "yes");
   if(msg.sender?.packetizer_recovery) row(totalsEl, "pkt recovery", "yes");
@@ -1170,6 +1173,9 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				PacketizerRecovery: packetizerRecovery,
 				FailedEncodeAUs:    failedEncodeAccessUnits,
 				FailedEncodedAUs:   failedEncodedAccessUnits,
+				SpatialCapMax:      capBackoff.maxCap,
+				CapOverrunStreak:   capBackoff.overrunStreak,
+				CapRecoveryStreak:  capBackoff.recoveryStreak,
 			}); err == nil {
 			pushTelemetry(telemetry, payload)
 		}
@@ -1549,6 +1555,9 @@ type telemetrySender struct {
 	PacketizerRecovery bool    `json:"packetizer_recovery,omitempty"`
 	FailedEncodeAUs    int     `json:"failed_encode_aus,omitempty"`
 	FailedEncodedAUs   int     `json:"failed_encoded_aus,omitempty"`
+	SpatialCapMax      int     `json:"spatial_cap_max,omitempty"`
+	CapOverrunStreak   int     `json:"spatial_cap_overrun_streak,omitempty"`
+	CapRecoveryStreak  int     `json:"spatial_cap_recovery_streak,omitempty"`
 }
 
 type telemetryMessage struct {

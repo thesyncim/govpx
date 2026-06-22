@@ -10,8 +10,11 @@ import net from "node:net";
 async function main() {
   const sampleMs = numberFlag("--sample-ms", 5000);
   const soakMs = numberFlag("--soak-ms", sampleMs);
+  const pollMs = numberFlag("--poll-ms", Math.min(sampleMs, 500));
   const timeoutMs = numberFlag("--timeout-ms", 45000);
   const minDecodedDelta = numberFlag("--min-decoded-delta", 30);
+  const minActiveLayers = optionalNumberFlag("--min-active-layers");
+  const maxActiveLayerChanges = optionalNumberFlag("--max-active-layer-changes");
   const serverProcessGroup = process.platform !== "win32";
   const chromePath = findChrome();
   const port = await freePort();
@@ -43,17 +46,22 @@ async function main() {
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(soakMs / sampleMs));
     for (let i = 0; i < sampleCount; i++) {
-      await sleep(sampleMs);
-      const current = await readStats(cdp, sessionId);
+      const observations = await collectIntervalStats(cdp, sessionId, sampleMs, pollMs);
+      const current = observations[observations.length - 1];
       const delta = diffStats(previous, current);
+      const summary = summarizeInterval([previous, ...observations]);
       assertSmoke(previous, current, delta, {
         intervalMs: sampleMs,
+        maxActiveLayerChanges,
+        minActiveLayers,
         minDecodedDelta,
         sampleIndex: i + 1,
+        summary,
       });
       samples.push({
         intervalMs: sampleMs,
         elapsedMs: (i + 1) * sampleMs,
+        summary,
         first: previous,
         second: current,
         delta,
@@ -66,6 +74,7 @@ async function main() {
       url,
       sampleMs,
       soakMs,
+      pollMs,
       samples,
       first,
       second,
@@ -96,6 +105,16 @@ function numberFlag(name, fallback) {
   const value = Number(process.argv[idx + 1]);
   if (!Number.isFinite(value) || value <= 0) {
     throw new Error(`${name} must be positive`);
+  }
+  return value;
+}
+
+function optionalNumberFlag(name) {
+  const idx = process.argv.indexOf(name);
+  if (idx < 0) return null;
+  const value = Number(process.argv[idx + 1]);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be non-negative`);
   }
   return value;
 }
@@ -193,6 +212,17 @@ async function waitForDecodedStats(cdp, sessionId, timeout) {
   throw new Error(`decode stats did not become ready: ${JSON.stringify(latest)}`);
 }
 
+async function collectIntervalStats(cdp, sessionId, intervalMs, pollMs) {
+  const out = [];
+  const started = Date.now();
+  while (Date.now() - started < intervalMs) {
+    const remaining = intervalMs - (Date.now() - started);
+    await sleep(Math.max(1, Math.min(pollMs, remaining)));
+    out.push(await readStats(cdp, sessionId));
+  }
+  return out;
+}
+
 async function readStats(cdp, sessionId) {
   const result = await cdp.send("Runtime.evaluate", {
     expression: `(() => {
@@ -222,6 +252,9 @@ async function readStats(cdp, sessionId) {
         encodeMs: num(sender.encode_ms),
         accessUnitMs: num(sender.access_unit_ms),
         scheduleLagMs: num(sender.schedule_lag_ms),
+        senderSpatialCapMax: num(sender.spatial_cap_max),
+        senderCapOverrunStreak: num(sender.spatial_cap_overrun_streak),
+        senderCapRecoveryStreak: num(sender.spatial_cap_recovery_streak),
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -236,6 +269,38 @@ async function readStats(cdp, sessionId) {
     awaitPromise: true,
   }, sessionId);
   return result.result.value;
+}
+
+function summarizeInterval(stats) {
+  const values = (key) => stats.map((s) => s[key]).filter(Number.isFinite);
+  const activeLayers = values("activeLayers");
+  return {
+    observations: stats.length,
+    minActiveLayers: minNumber(activeLayers),
+    maxActiveLayers: maxNumber(activeLayers),
+    activeLayerChanges: countChanges(activeLayers),
+    maxEncodeMs: maxNumber(values("encodeMs")),
+    maxAccessUnitMs: maxNumber(values("accessUnitMs")),
+    maxScheduleLagMs: maxNumber(values("scheduleLagMs")),
+    maxSenderCapOverrunStreak: maxNumber(values("senderCapOverrunStreak")),
+    maxSenderCapRecoveryStreak: maxNumber(values("senderCapRecoveryStreak")),
+  };
+}
+
+function minNumber(values) {
+  return values.length === 0 ? null : Math.min(...values);
+}
+
+function maxNumber(values) {
+  return values.length === 0 ? null : Math.max(...values);
+}
+
+function countChanges(values) {
+  let changes = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] !== values[i - 1]) changes++;
+  }
+  return changes;
 }
 
 function diffStats(first, second) {
@@ -267,6 +332,19 @@ function assertSmoke(first, second, delta, opts) {
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
     throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}`);
+  }
+  if (
+    opts.minActiveLayers !== null &&
+    opts.summary.minActiveLayers !== null &&
+    opts.summary.minActiveLayers < opts.minActiveLayers
+  ) {
+    throw new Error(`${sampleLabel(opts)} active layers dropped to ${opts.summary.minActiveLayers}, want >= ${opts.minActiveLayers}`);
+  }
+  if (
+    opts.maxActiveLayerChanges !== null &&
+    opts.summary.activeLayerChanges > opts.maxActiveLayerChanges
+  ) {
+    throw new Error(`${sampleLabel(opts)} active layers changed ${opts.summary.activeLayerChanges} times, want <= ${opts.maxActiveLayerChanges}`);
   }
 }
 
