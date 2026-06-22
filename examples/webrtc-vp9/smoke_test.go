@@ -1679,6 +1679,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"node browser_smoke.mjs",
 		"--soak-ms 30000 --sample-ms 5000",
 		"--min-active-layers 3 --max-active-layer-changes 0",
+		"--cpu-burners 12 --server-fps 25",
+		"at least two active spatial layers",
 		"decoded frames and video time advance",
 		"each `--sample-ms` interval",
 		"active spatial-layer",

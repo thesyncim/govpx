@@ -153,6 +153,18 @@ assertion:
 node browser_smoke.mjs --soak-ms 30000 --sample-ms 5000 --min-active-layers 3 --max-active-layer-changes 0
 ```
 
+To reproduce scheduler contention, ask the smoke to launch local CPU burners
+alongside the demo. The overloaded-host invariant is graceful degradation: the
+browser must keep decoding with no loss, dropped-frame, or freeze-counter
+delta, and the sender must keep at least two active spatial layers instead of
+falling behind in wall time. `--server-fps` and `--server-bitrate-kbps` forward
+directly to the demo server, so the same harness can compare production
+defaults against a proposed realtime cadence:
+
+```sh
+node browser_smoke.mjs --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-active-layers 2
+```
+
 ## What this proves
 
 - `govpx.VP9SpatialSVCEncoder` produces VP9 superframes that a native

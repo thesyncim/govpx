@@ -13,13 +13,22 @@ async function main() {
   const pollMs = numberFlag("--poll-ms", Math.min(sampleMs, 500));
   const timeoutMs = numberFlag("--timeout-ms", 45000);
   const minDecodedDelta = numberFlag("--min-decoded-delta", 30);
+  const serverFPS = optionalNumberFlag("--server-fps");
+  const serverBitrateKbps = optionalNumberFlag("--server-bitrate-kbps");
+  const cpuBurners = optionalNumberFlag("--cpu-burners") ?? 0;
   const minActiveLayers = optionalNumberFlag("--min-active-layers");
   const maxActiveLayerChanges = optionalNumberFlag("--max-active-layer-changes");
   const serverProcessGroup = process.platform !== "win32";
   const chromePath = findChrome();
   const port = await freePort();
   const url = `http://127.0.0.1:${port}/`;
-  const server = spawn("go", ["run", ".", "-addr", `127.0.0.1:${port}`], {
+  const serverArgs = ["run", ".", "-addr", `127.0.0.1:${port}`];
+  if (serverFPS !== null) serverArgs.push("-fps", String(serverFPS));
+  if (serverBitrateKbps !== null) {
+    serverArgs.push("-bitrate", String(serverBitrateKbps));
+  }
+  const loadProcesses = startCPUBurners(cpuBurners);
+  const server = spawn("go", serverArgs, {
     stdio: ["ignore", "pipe", "pipe"],
     detached: serverProcessGroup,
   });
@@ -75,6 +84,9 @@ async function main() {
       sampleMs,
       soakMs,
       pollMs,
+      serverFPS,
+      serverBitrateKbps,
+      cpuBurners,
       samples,
       first,
       second,
@@ -86,6 +98,7 @@ async function main() {
       await stopProcess(chrome.process);
     }
     await stopProcess(server, "SIGTERM", serverProcessGroup);
+    await stopProcesses(loadProcesses);
     try {
       await rm(tempProfile, {
         recursive: true,
@@ -117,6 +130,18 @@ function optionalNumberFlag(name) {
     throw new Error(`${name} must be non-negative`);
   }
   return value;
+}
+
+function startCPUBurners(count) {
+  if (count <= 0) return [];
+  const script = "let x = 0; for (;;) { x = (x + Math.sqrt(x + 1)) % 1000000; }";
+  const children = [];
+  for (let i = 0; i < count; i++) {
+    children.push(spawn(process.execPath, ["-e", script], {
+      stdio: ["ignore", "ignore", "ignore"],
+    }));
+  }
+  return children;
 }
 
 function findChrome() {
@@ -259,6 +284,8 @@ async function readStats(cdp, sessionId) {
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
         rxFreezes: num(rows["rx freezes"]),
+        rxRepairRequests: num(rows["rx repair"]),
+        rxSpatialCap: num(rows["rx cap"]),
         videoReadyState: v?.readyState ?? null,
         videoTime: v?.currentTime ?? null,
         videoWidth: v?.videoWidth ?? null,
@@ -284,6 +311,8 @@ function summarizeInterval(stats) {
     maxScheduleLagMs: maxNumber(values("scheduleLagMs")),
     maxSenderCapOverrunStreak: maxNumber(values("senderCapOverrunStreak")),
     maxSenderCapRecoveryStreak: maxNumber(values("senderCapRecoveryStreak")),
+    maxRxRepairRequests: maxNumber(values("rxRepairRequests")),
+    minRxSpatialCap: minNumber(values("rxSpatialCap")),
   };
 }
 
@@ -317,39 +346,43 @@ function numericDelta(a, b) {
 
 function assertSmoke(first, second, delta, opts) {
   if (second.status !== "peer: connected | dc open") {
-    throw new Error(`${sampleLabel(opts)} peer did not stay connected: ${second.status}`);
+    throw new Error(`${sampleLabel(opts)} peer did not stay connected: ${second.status}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (delta.rxDecoded === null || delta.rxDecoded < opts.minDecodedDelta) {
-    throw new Error(`${sampleLabel(opts)} decoded frames did not advance enough: ${delta.rxDecoded}`);
+    throw new Error(`${sampleLabel(opts)} decoded frames did not advance enough: ${delta.rxDecoded}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (delta.videoTime === null || delta.videoTime < opts.intervalMs / 1000 * 0.7) {
-    throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}`);
+    throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   for (const key of ["rxLost", "rxDropped", "rxFreezes"]) {
     if (delta[key] !== null && delta[key] !== 0) {
-      throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}`);
+      throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
     }
   }
   if (second.videoWidth <= 0 || second.videoHeight <= 0) {
-    throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}`);
+    throw new Error(`${sampleLabel(opts)} video dimensions are invalid: ${second.videoWidth}x${second.videoHeight}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (
     opts.minActiveLayers !== null &&
     opts.summary.minActiveLayers !== null &&
     opts.summary.minActiveLayers < opts.minActiveLayers
   ) {
-    throw new Error(`${sampleLabel(opts)} active layers dropped to ${opts.summary.minActiveLayers}, want >= ${opts.minActiveLayers}`);
+    throw new Error(`${sampleLabel(opts)} active layers dropped to ${opts.summary.minActiveLayers}, want >= ${opts.minActiveLayers}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (
     opts.maxActiveLayerChanges !== null &&
     opts.summary.activeLayerChanges > opts.maxActiveLayerChanges
   ) {
-    throw new Error(`${sampleLabel(opts)} active layers changed ${opts.summary.activeLayerChanges} times, want <= ${opts.maxActiveLayerChanges}`);
+    throw new Error(`${sampleLabel(opts)} active layers changed ${opts.summary.activeLayerChanges} times, want <= ${opts.maxActiveLayerChanges}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
 }
 
 function sampleLabel(opts) {
   return opts && opts.sampleIndex ? `sample ${opts.sampleIndex}:` : "sample:";
+}
+
+function sampleDetails(first, second, delta, summary) {
+  return JSON.stringify({ summary, first, second, delta });
 }
 
 function sleep(ms) {
@@ -366,6 +399,10 @@ async function stopProcess(child, signal = "SIGTERM", processGroup = false) {
       resolve();
     });
   });
+}
+
+async function stopProcesses(children) {
+  await Promise.all(children.map((child) => stopProcess(child)));
 }
 
 function signalProcess(child, signal, processGroup) {
