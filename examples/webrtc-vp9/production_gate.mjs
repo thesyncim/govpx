@@ -58,6 +58,23 @@ const steps = [
     kind: "browser-json",
   },
   {
+    name: "browser-control-churn",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--control-churn",
+      "--soak-ms", "20000",
+      "--sample-ms", "5000",
+      "--poll-ms", "1000",
+      "--min-decoded-delta", "80",
+      "--min-video-time-ratio", "0.85",
+      "--max-rx-repair-requests", "0",
+      "--min-active-layers", "2",
+      "--min-ending-active-layers", "2",
+    ],
+    kind: "browser-json",
+  },
+  {
     name: "browser-multiclient",
     command: "node",
     args: [

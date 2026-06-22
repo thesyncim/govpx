@@ -39,6 +39,7 @@ function parseOptions() {
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
+    controlChurn: booleanFlag("--control-churn"),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
@@ -80,6 +81,13 @@ async function runSmoke(opts, runIndex) {
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
     for (let i = 0; i < sampleCount; i++) {
+      const controlAction = opts.controlChurn ? controlChurnAction(i) : null;
+      if (controlAction) {
+        await Promise.all(clients.map((client) =>
+          applyControlAction(cdp, client.sessionId, controlAction)
+        ));
+        await sleep(250);
+      }
       const observationsByClient = await Promise.all(clients.map((client) =>
         collectIntervalStats(cdp, client.sessionId, opts.sampleMs, opts.pollMs)
       ));
@@ -116,6 +124,7 @@ async function runSmoke(opts, runIndex) {
       samples.push({
         intervalMs: opts.sampleMs,
         elapsedMs: (i + 1) * opts.sampleMs,
+        controlAction,
         summary: summarizeSampleClients(sampleClients),
         clients: sampleClients,
         first: sampleClients[0].first,
@@ -138,6 +147,7 @@ async function runSmoke(opts, runIndex) {
       serverFPS: opts.serverFPS,
       serverBitrateKbps: opts.serverBitrateKbps,
       cpuBurners: opts.cpuBurners,
+      controlChurn: opts.controlChurn,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
@@ -189,6 +199,49 @@ async function createBrowserClient(cdp, url, clientIndex) {
   return { client: clientIndex, targetId: target.targetId, sessionId };
 }
 
+async function applyControlAction(cdp, sessionId, action) {
+  const expression = controlActionExpression(action);
+  const result = await cdp.send("Runtime.evaluate", {
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+  }, sessionId);
+  if (result.exceptionDetails) {
+    throw new Error(`control action failed: ${JSON.stringify(result.exceptionDetails)}`);
+  }
+  return result.result.value;
+}
+
+function controlActionExpression(action) {
+  const encoded = JSON.stringify(action);
+  return `(() => {
+    const action = ${encoded};
+    if (action.type === "spatial") {
+      const button = document.querySelector("button[data-cap='" + action.cap + "']");
+      if (!button) throw new Error("missing spatial cap button " + action.cap);
+      button.click();
+      return {type: "spatial", cap: action.cap};
+    }
+    if (action.type === "keyframe") {
+      const button = document.getElementById("kf");
+      if (!button) throw new Error("missing keyframe button");
+      button.click();
+      return {type: "keyframe"};
+    }
+    throw new Error("unknown control action " + action.type);
+  })()`;
+}
+
+function controlChurnAction(sampleIndex) {
+  const sequence = [
+    { type: "spatial", cap: 2 },
+    { type: "keyframe" },
+    { type: "spatial", cap: 3 },
+    { type: "keyframe" },
+  ];
+  return sequence[sampleIndex % sequence.length];
+}
+
 function numberFlag(name, fallback, opts = {}) {
   const idx = process.argv.indexOf(name);
   if (idx < 0) return fallback;
@@ -224,6 +277,10 @@ function optionalNumberFlag(name) {
     throw new Error(`${name} must be non-negative`);
   }
   return value;
+}
+
+function booleanFlag(name) {
+  return process.argv.includes(name);
 }
 
 function startCPUBurners(count) {
