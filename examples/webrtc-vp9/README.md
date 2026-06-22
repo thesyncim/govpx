@@ -135,12 +135,13 @@ node browser_smoke.mjs
 
 The script starts the demo, launches Chrome headless, waits for browser
 telemetry, and fails unless decoded frames and video time advance while RTP
-loss, dropped frames, and freeze counters stay flat. Set `CHROME` when Chrome
-is not in a standard location. For a longer clean-RTP decode soak, pass
-`--soak-ms`; each `--sample-ms` interval must independently show decoder
-progress with no loss, dropped-frame, or freeze-counter delta. The smoke polls
-within each interval so its JSON summary also reports active spatial-layer
-changes plus peak sender encode/access-unit lag. Use `--repeat` to run the same
+loss, dropped frames, freeze counters, and freeze/pause durations stay flat.
+Set `CHROME` when Chrome is not in a standard location. For a longer clean-RTP
+decode soak, pass `--soak-ms`; each `--sample-ms` interval must independently
+show decoder progress with no loss, dropped-frame, freeze-counter, or
+freeze/pause-duration delta. The smoke polls within each interval so its JSON
+summary also reports active spatial-layer changes plus peak sender
+encode/access-unit lag. Use `--repeat` to run the same
 browser gate back-to-back; repeat output includes an aggregate summary:
 
 ```sh
@@ -158,10 +159,10 @@ node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
 alongside the demo. The overloaded-host invariant is graceful degradation: the
 browser must keep decoding with no loss, dropped-frame, or freeze-counter
-delta, the browser-native NACK/PLI/FIR counters must not advance, the sender
-must report zero failed encode/encoded access units, and the sender must keep
-at least the base spatial layer live at each sample boundary instead of falling
-behind in wall time.
+or freeze/pause-duration delta, the browser-native NACK/PLI/FIR counters must
+not advance, the sender must report zero failed encode/encoded access units,
+and the sender must keep at least the base spatial layer live at each sample
+boundary instead of falling behind in wall time.
 `--server-fps` and `--server-bitrate-kbps` forward directly to the demo server,
 so the same harness can compare production defaults against a proposed
 realtime cadence:
@@ -234,6 +235,8 @@ node production_gate.mjs
   RTP-write failures appear and are hidden by recovery-key behavior.
 - The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
+- Browser-native freeze duration and pause counters must also stay flat during
+  clean samples, catching stalls that do not increment the simple freeze count.
 - Pause/resume is gated as a lifecycle recovery path: resume must trigger a
   keyframe and clean browser decode must restart without RTP/decoder feedback.
 - Live bitrate and screen-content tuning are gated separately from keyframe

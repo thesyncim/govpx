@@ -578,6 +578,9 @@ async function readStats(cdp, sessionId) {
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
         rxFreezes: num(rows["rx freezes"]),
+        rxFreezeDuration: num(rtc.totalFreezesDuration) ?? num(rows["rx freeze s"]),
+        rxPauseCount: num(rtc.pauseCount) ?? num(rows["rx pauses"]),
+        rxPauseDuration: num(rtc.totalPausesDuration) ?? num(rows["rx pause s"]),
         rxNackCount: num(rtc.nackCount) ?? num(rows["rx nack"]),
         rxPliCount: num(rtc.pliCount) ?? num(rows["rx pli"]),
         rxFirCount: num(rtc.firCount) ?? num(rows["rx fir"]),
@@ -653,6 +656,9 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     dropped: deltaSum("rxDropped"),
     lost: deltaSum("rxLost"),
     freezes: deltaSum("rxFreezes"),
+    freezeDuration: deltaSum("rxFreezeDuration"),
+    pauses: deltaSum("rxPauseCount"),
+    pauseDuration: deltaSum("rxPauseDuration"),
     nacks: deltaSum("rxNackCount"),
     plis: deltaSum("rxPliCount"),
     firs: deltaSum("rxFirCount"),
@@ -690,6 +696,9 @@ function summarizeRuns(runs) {
     dropped: sum("dropped"),
     lost: sum("lost"),
     freezes: sum("freezes"),
+    freezeDuration: sum("freezeDuration"),
+    pauses: sum("pauses"),
+    pauseDuration: sum("pauseDuration"),
     nacks: sum("nacks"),
     plis: sum("plis"),
     firs: sum("firs"),
@@ -732,7 +741,7 @@ function countChanges(values) {
 
 function diffStats(first, second) {
   const delta = {};
-  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
+  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxFreezeDuration", "rxPauseCount", "rxPauseDuration", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries"]) {
     delta[key] = numericDelta(first[key], second[key]);
   }
   return delta;
@@ -756,6 +765,11 @@ function assertSmoke(first, second, delta, opts) {
   for (const key of ["rxLost", "rxDropped", "rxFreezes"]) {
     if (delta[key] !== null && delta[key] !== 0) {
       throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
+    }
+  }
+  for (const key of ["rxFreezeDuration", "rxPauseCount", "rxPauseDuration"]) {
+    if (delta[key] !== null && delta[key] > 0) {
+      throw new Error(`${sampleLabel(opts)} ${key} advanced during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
     }
   }
   if (

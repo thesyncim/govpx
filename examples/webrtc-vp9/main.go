@@ -274,6 +274,9 @@ function renderStats(msg){
     row(totalsEl, "rx dropped", latestRTCStats.framesDropped ?? "-");
     row(totalsEl, "rx lost", latestRTCStats.packetsLost ?? "-");
     row(totalsEl, "rx freezes", latestRTCStats.freezeCount ?? "-");
+    if(latestRTCStats.totalFreezesDuration) row(totalsEl, "rx freeze s", latestRTCStats.totalFreezesDuration.toFixed(3));
+    if(latestRTCStats.pauseCount) row(totalsEl, "rx pauses", latestRTCStats.pauseCount);
+    if(latestRTCStats.totalPausesDuration) row(totalsEl, "rx pause s", latestRTCStats.totalPausesDuration.toFixed(3));
     if(latestRTCStats.nackCount) row(totalsEl, "rx nack", latestRTCStats.nackCount);
     if(latestRTCStats.pliCount) row(totalsEl, "rx pli", latestRTCStats.pliCount);
     if(latestRTCStats.firCount) row(totalsEl, "rx fir", latestRTCStats.firCount);
@@ -406,6 +409,9 @@ async function updateRTCStats(pc){
     framesDecoded: statNumber(inbound.framesDecoded ?? inbound.framesReceived),
     framesDropped: statNumber(inbound.framesDropped),
     freezeCount: statNumber(inbound.freezeCount),
+    totalFreezesDuration: statNumber(inbound.totalFreezesDuration),
+    pauseCount: statNumber(inbound.pauseCount),
+    totalPausesDuration: statNumber(inbound.totalPausesDuration),
     nackCount: statNumber(inbound.nackCount),
     pliCount: statNumber(inbound.pliCount),
     firCount: statNumber(inbound.firCount),

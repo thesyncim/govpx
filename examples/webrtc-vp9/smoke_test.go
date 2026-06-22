@@ -1663,6 +1663,9 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"packetsLost",
 		"packetsReceived",
 		"freezeCount",
+		"totalFreezesDuration",
+		"pauseCount",
+		"totalPausesDuration",
 		"nackCount",
 		"pliCount",
 		"firCount",
@@ -1783,6 +1786,11 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
 		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
 		"opts.summary.maxSenderFailedEncodedAUs > opts.maxSenderFailedEncodedAUs",
+		"rxFreezeDuration",
+		"rxPauseCount",
+		"rxPauseDuration",
+		`["rxFreezeDuration", "rxPauseCount", "rxPauseDuration"]`,
+		"advanced during clean smoke",
 		`["rxNackCount", opts.maxRxNackDelta, "receiver NACK"]`,
 		`["rxPliCount", opts.maxRxPliDelta, "receiver PLI"]`,
 		`["rxFirCount", opts.maxRxFirDelta, "receiver FIR"]`,
@@ -1799,6 +1807,23 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 	if count := strings.Count(text,
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs"); count < 2 {
 		t.Fatalf("sender failed encoded budget only wired %d time(s), want parse output and assertion", count)
+	}
+}
+
+func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
+	raw, err := os.ReadFile("production_gate.mjs")
+	if err != nil {
+		t.Fatalf("read production_gate.mjs: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"freezeDuration: aggregate.freezeDuration",
+		"pauses: aggregate.pauses",
+		"pauseDuration: aggregate.pauseDuration",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("production_gate.mjs missing %q", want)
+		}
 	}
 }
 
