@@ -213,16 +213,39 @@ const steps = [
     kind: "browser-json",
   },
   {
+    name: "libvpx-threaded-vpxenc-oracle",
+    command: "go",
+    args: [
+      "test",
+      "-v",
+      "-tags", "govpx_oracle_trace",
+      "../..",
+      "-run",
+      "TestVP9OracleThreadedTileEncodingMatchesLibvpx",
+      "-count=1",
+    ],
+    kind: "go-test",
+    env: {
+      GOVPX_WITH_ORACLE: "1",
+    },
+    requiresOracle: true,
+  },
+  {
     name: "libvpx-vpxdec-oracle",
     command: "go",
     args: [
       "test",
+      "-v",
       "-tags", "govpx_oracle_trace",
       ".",
       "-run", oraclePattern,
       "-count=1",
     ],
     kind: "go-test",
+    env: {
+      GOVPX_WITH_ORACLE: "1",
+    },
+    requiresOracle: true,
   },
 ];
 
@@ -253,7 +276,10 @@ function sleep(ms) {
 
 async function runStep(step) {
   const startedAt = Date.now();
-  const output = await runCommand(step.command, step.args);
+  const output = await runCommand(step.command, step.args, step.env);
+  if (step.requiresOracle) {
+    assertNoOracleSkips(step, output.stdout);
+  }
   return {
     name: step.name,
     command: formatCommand(step),
@@ -306,9 +332,20 @@ function summarizeStep(step, stdout) {
   };
 }
 
-function runCommand(command, args) {
+function assertNoOracleSkips(step, stdout) {
+  const skipped = stdout.split("\n").filter((line) => line.startsWith("--- SKIP:"));
+  if (skipped.length === 0) {
+    return;
+  }
+  const err = new Error(`${step.name} skipped required oracle tests: ${skipped.join("; ")}`);
+  err.stdout = stdout;
+  throw err;
+}
+
+function runCommand(command, args, extraEnv = null) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -334,7 +371,10 @@ function runCommand(command, args) {
 }
 
 function formatCommand(step) {
-  return [step.command, ...step.args.map(shellQuote)].join(" ");
+  const env = step.env
+    ? Object.entries(step.env).map(([key, value]) => `${key}=${shellQuote(value)}`)
+    : [];
+  return [...env, step.command, ...step.args.map(shellQuote)].join(" ");
 }
 
 function shellQuote(value) {

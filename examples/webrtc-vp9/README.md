@@ -227,11 +227,15 @@ the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
 tile-layout check, the clean control-churn browser recovery check, the live
 bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
 app-local no-loss withhold recovery check, the loaded control-churn recovery
-check, the multi-client browser soak, and the libvpx/vpxdec oracle subset, run:
+check, the multi-client browser soak, the threaded libvpx/vpxenc tile oracle,
+and the libvpx/vpxdec oracle subset, run:
 
 ```sh
 node production_gate.mjs
 ```
+
+The oracle steps run with `GOVPX_WITH_ORACLE=1` and fail if Go reports a skipped
+oracle test, so this gate requires the pinned libvpx binaries to be available.
 
 ## What this proves
 
@@ -256,6 +260,9 @@ node production_gate.mjs
   and still must keep decoding clean without receiver feedback.
 - The SVC pipeline holds up while runtime controls thread through every
   per-layer encoder live (bitrate, content tuning, key requests).
+- The top-layer tile-threaded encoder path is pinned by a libvpx/vpxenc
+  threaded-tile oracle, so the browser-visible threaded layout is tied back to
+  the C encoder.
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
   metadata, uses non-flexible VP9 RTP descriptors for realtime receiver
   compatibility, and keeps keyframe requests synchronized across spatial layers.
