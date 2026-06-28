@@ -30,6 +30,24 @@ const focusedGoPattern = [
   "TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap",
 ].join("|");
 
+const rootGoPattern = [
+  "TestNewVP9EncoderDefaultsSpeed",
+  "TestNewVP9EncoderPromotesZeroCPUUsedByDeadline",
+  "TestVP9DeadlineModeTransitionForcesRealtimeKeyframe",
+  "TestVP9EncodeResultPacketizeWebRTCRTP",
+  "TestVP9WebRTCPacketizer.*",
+  "TestVP9WebRTCSpatialLayerChangeNeedsKeyFrame",
+  "TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP.*",
+  "TestVP9SpatialSVCEncodeResultLimitSpatialLayersForRTP",
+  "TestVP9RowMT.*",
+].join("|");
+
+const rootOraclePattern = [
+  "TestVP9EncoderVpxencOracleRealtimeZeroCPUUsesSpeed8",
+  "TestVP9OracleThreadedTileEncodingMatchesLibvpx",
+  "TestVP9WebRTCPreEncodeDropPacketizedStreamDecodesWithVpxdec",
+].join("|");
+
 const browserStepCooldownMs = 5000;
 const maxAccessUnitMs = numberEnv("VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS", 200, { min: 1 });
 const maxScheduleLagMs = numberEnv("VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS", 200, { min: 1 });
@@ -47,6 +65,18 @@ const steps = [
       ".",
       "-run",
       focusedGoPattern,
+      "-count=1",
+    ],
+    kind: "go-test",
+  },
+  {
+    name: "root-go",
+    command: "go",
+    args: [
+      "test",
+      "../..",
+      "-run",
+      rootGoPattern,
       "-count=1",
     ],
     kind: "go-test",
@@ -297,7 +327,7 @@ const steps = [
     kind: "browser-json",
   },
   {
-    name: "libvpx-threaded-vpxenc-oracle",
+    name: "libvpx-root-oracle",
     command: "go",
     args: [
       "test",
@@ -305,7 +335,7 @@ const steps = [
       "-tags", "govpx_oracle_trace",
       "../..",
       "-run",
-      "TestVP9OracleThreadedTileEncodingMatchesLibvpx",
+      rootOraclePattern,
       "-count=1",
     ],
     kind: "go-test",

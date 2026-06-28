@@ -246,14 +246,16 @@ node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decode
 ```
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
-libwebrtc-style VP9 ref-finder simulations, the unloaded browser repeat, the
-loaded browser repeat, the threaded top-layer tile-layout check, the clean
-control-churn browser recovery check, the live bitrate/screen tuning check, the
-pause/resume lifecycle recovery check, the receiver-side clean-stall recovery
-probe, the app-local no-loss withhold recovery checks with and without
-scheduler contention, the loaded control-churn recovery check, the multi-client
-browser soak, the threaded libvpx/vpxenc tile oracle, and the libvpx/vpxdec
-oracle subset, run:
+root VP9 realtime packetizer/threading checks, libwebrtc-style VP9 ref-finder
+simulations, the unloaded browser repeat, the loaded browser repeat, the
+threaded top-layer tile-layout check, the clean control-churn browser recovery
+check, the live bitrate/screen tuning check, the pause/resume lifecycle
+recovery check, the receiver-side clean-stall recovery probe, the app-local
+no-loss withhold recovery checks with and without scheduler contention, the
+loaded control-churn recovery check, the multi-client browser soak, the
+zero-CPU libvpx/vpxenc speed oracle, the threaded libvpx/vpxenc tile oracle,
+the VP9 WebRTC pre-encode-drop libvpx/vpxdec oracle, and the
+libvpx/vpxdec example oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -292,6 +294,8 @@ a different host shape.
 - The live WebRTC sender exposes the threaded top-layer VP9 tile layout in
   browser telemetry, so the gate catches accidental fallback to a serial
   top-layer encode path.
+- The production gate also runs the root VP9 WebRTC packetizer, spatial-SVC
+  RTP, speed-default, and row-MT/threading checks before browser smoke.
 - The browser gate also fails if local sender-side encode, packetization, or
   RTP-write failures appear and are hidden by recovery-key behavior.
 - Explicit access-unit and schedule-lag budgets catch sender backlog under
