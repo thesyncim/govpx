@@ -347,10 +347,25 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 		ctx.pickPredReady = true
 	}
 
-	paddedRef, paddedRefStride, refOriginY, refOriginX := vp9BuildPaddedPlane(
-		&e.mlPartitionPaddedLast, lastRef, lastStride, lastW, lastH)
-	paddedSrc, paddedSrcStride, srcOriginY, srcOriginX := vp9BuildPaddedPlane(
-		&e.mlPartitionPaddedSrc, src, srcStride, srcW, srcH)
+	paddedRef, paddedRefStride, refOriginX, refOriginY, _, _, refOK :=
+		e.vp9SubpelReferencePlane(vp9dec.LastFrame, &e.refFrames[lastSlot])
+	if !refOK {
+		return nil
+	}
+	if !e.intProSrcBorderedValid ||
+		e.intProSrcBordered.W != srcW ||
+		e.intProSrcBordered.H != srcH {
+		common.YV12BuildBorderedPlane(&e.intProSrcBordered, src, srcStride,
+			srcW, srcH, common.VP9EncBorderInPixels)
+		e.intProSrcBorderedValid = true
+	}
+	paddedSrc := e.intProSrcBordered.Pixels
+	paddedSrcStride := e.intProSrcBordered.Stride
+	srcOriginX := e.intProSrcBordered.OriginX()
+	srcOriginY := e.intProSrcBordered.OriginY()
+	if len(paddedSrc) == 0 || paddedSrcStride <= 0 {
+		return nil
+	}
 
 	ctx.src = paddedSrc
 	ctx.srcStride = paddedSrcStride
