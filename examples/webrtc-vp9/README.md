@@ -229,6 +229,18 @@ host load:
 node browser_smoke.mjs --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
+To prove partial RTP-write no-loss recovery, add `--local-partial-write`. The
+sender writes a prefix of the already-packetized VP9 access unit into the
+browser, fails before the RTP marker/end of access unit, marks the packetizer
+as requiring recovery, and then must resume clean decode with forced keyframes,
+no RTP loss, no freeze, and no browser-native repair feedback. Chrome may count
+the intentionally incomplete access units as dropped frames during the trigger;
+subsequent clean samples must stay flat:
+
+```sh
+node browser_smoke.mjs --local-partial-write --local-partial-write-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+```
+
 To prove those recovery controls still fire under scheduler contention, combine
 the churn and CPU-burner modes. This keeps the same forced-key requirement but
 allows graceful spatial downshift while the machine is busy:
@@ -252,7 +264,8 @@ threaded top-layer tile-layout check, the clean control-churn browser recovery
 check, the live bitrate/screen tuning check, the pause/resume lifecycle
 recovery check, the receiver-side clean-stall recovery probe, the app-local
 no-loss withhold recovery checks with and without scheduler contention, the
-loaded control-churn recovery check, the multi-client browser soak, the
+app-local partial RTP-write recovery check, the loaded control-churn recovery
+check, the multi-client browser soak, the
 zero-CPU libvpx/vpxenc speed oracle, the threaded libvpx/vpxenc tile oracle,
 the VP9 WebRTC pre-encode-drop libvpx/vpxdec oracle, and the
 libvpx/vpxdec example oracle subset, run:
@@ -275,11 +288,13 @@ node stress_gate.mjs
 ```
 
 The stress gate runs a longer loaded browser soak, a loaded control-churn soak,
-a loaded two-AU withhold recovery soak, and a focused `vpxdec` recovery oracle.
+a loaded two-AU withhold recovery soak, a loaded two-AU partial RTP-write
+recovery soak, and a focused `vpxdec` recovery oracle.
 By default it uses 12 CPU burners at 25 fps with 90 seconds of loaded clean
-decode, 45 seconds of loaded control churn, and 20 seconds of loaded withhold
-recovery. It also fails if any browser-smoke sample exceeds the configured
-access-unit or schedule-lag latency budget, defaulting both to 200 ms. Override
+decode, 45 seconds of loaded control churn, and 20 seconds each of loaded
+withhold and partial RTP-write recovery. It also fails if any browser-smoke
+sample exceeds the configured access-unit or schedule-lag latency budget,
+defaulting both to 200 ms. Override
 `VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
 `VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`, `VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,
 `VP9_WEBRTC_STRESS_MAX_ACCESS_UNIT_MS`,
@@ -316,6 +331,10 @@ a different host shape.
 - App-local no-loss withhold is gated as a sender recovery path: deliberately
   withheld, already-packetized VP9 access units must trigger packetizer recovery
   and clean browser decode without RTP loss or receiver repair feedback.
+- App-local partial RTP write is gated as a sender recovery path: a prefix of
+  an already-packetized VP9 access unit may reach the browser without RTP loss,
+  but the sender must treat the access unit as unsent, force recovery keys, and
+  keep browser decode moving without freeze or NACK/PLI/FIR feedback.
 - Live bitrate and screen-content tuning are gated: bitrate controls update
   without recovery, while screen-content mode changes force a keyframe boundary
   and still must keep decoding clean without receiver feedback.

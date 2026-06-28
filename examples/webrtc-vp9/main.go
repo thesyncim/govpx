@@ -267,6 +267,7 @@ function renderStats(msg){
   if(msg.sender?.failed_encode_aus) row(totalsEl, "encode fails", msg.sender.failed_encode_aus);
   if(msg.sender?.failed_encoded_aus) row(totalsEl, "encoded drops", msg.sender.failed_encoded_aus);
   if(msg.sender?.withheld_aus) row(totalsEl, "withheld AUs", msg.sender.withheld_aus);
+  if(msg.sender?.partial_write_aus) row(totalsEl, "partial writes", msg.sender.partial_write_aus);
   row(totalsEl, "target kbps", msg.settings.target_kbps);
   row(totalsEl, "active layers", msg.settings.active_spatial_layers || msg.layers.length);
   row(totalsEl, "requested layers", msg.settings.requested_spatial_layers || msg.layers.length);
@@ -547,12 +548,13 @@ func main() {
 // DataChannel callback; an atomic snapshot is fine because each control is
 // independent.
 type controlState struct {
-	bitrateKbps atomic.Int64
-	screenMode  atomic.Int32
-	spatialCap  atomic.Int32
-	paused      atomic.Bool
-	forceKey    atomic.Bool
-	withholdAUs atomic.Int64
+	bitrateKbps     atomic.Int64
+	screenMode      atomic.Int32
+	spatialCap      atomic.Int32
+	paused          atomic.Bool
+	forceKey        atomic.Bool
+	withholdAUs     atomic.Int64
+	partialWriteAUs atomic.Int64
 }
 
 type controlMessage struct {
@@ -816,6 +818,15 @@ func applyControl(ctl *controlState, m controlMessage, cfg demoConfig) {
 			count = 3
 		}
 		ctl.withholdAUs.Add(int64(count))
+	case "partial-write":
+		count := m.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > 3 {
+			count = 3
+		}
+		ctl.partialWriteAUs.Add(int64(count))
 	}
 }
 
@@ -940,6 +951,21 @@ func consumeLocalWithholdAccessUnit(ctl *controlState) bool {
 			return false
 		}
 		if ctl.withholdAUs.CompareAndSwap(n, n-1) {
+			return true
+		}
+	}
+}
+
+func consumeLocalPartialWriteAccessUnit(ctl *controlState) bool {
+	if ctl == nil {
+		return false
+	}
+	for {
+		n := ctl.partialWriteAUs.Load()
+		if n <= 0 {
+			return false
+		}
+		if ctl.partialWriteAUs.CompareAndSwap(n, n-1) {
 			return true
 		}
 	}
@@ -1152,6 +1178,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	failedEncodeAccessUnits := 0
 	failedEncodedAccessUnits := 0
 	localWithheldAccessUnits := 0
+	localPartialWriteAccessUnits := 0
 	for {
 		var tickTime time.Time
 		select {
@@ -1266,6 +1293,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 					FailedEncodedAUs:   failedEncodedAccessUnits,
 					Withheld:           true,
 					WithheldAUs:        localWithheldAccessUnits,
+					PartialWriteAUs:    localPartialWriteAccessUnits,
 					SpatialCapMax:      capBackoff.maxCap,
 					CapOverrunStreak:   capBackoff.overrunStreak,
 					CapRecoveryStreak:  capBackoff.recoveryStreak,
@@ -1275,8 +1303,17 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			continue
 		}
 
+		writer := rtpAccessUnitWriter(track)
+		if consumeLocalPartialWriteAccessUnit(ctl) {
+			localPartialWriteAccessUnits++
+			writer = &partialWriteRTPWriter{
+				inner:     track,
+				failAfter: partialWritePrefixPackets(fragmentCount),
+				err:       errSimulatedPartialRTPWrite,
+			}
+		}
 		writeStarted := time.Now()
-		writtenPackets, err := writeWebRTCRTPAccessUnit(track,
+		writtenPackets, err := writeWebRTCRTPAccessUnit(writer,
 			rtpFragments[:fragmentCount], rtpTimestamp, &rtpSequence)
 		if err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -1306,6 +1343,7 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 				FailedEncodeAUs:    failedEncodeAccessUnits,
 				FailedEncodedAUs:   failedEncodedAccessUnits,
 				WithheldAUs:        localWithheldAccessUnits,
+				PartialWriteAUs:    localPartialWriteAccessUnits,
 				SpatialCapMax:      capBackoff.maxCap,
 				CapOverrunStreak:   capBackoff.overrunStreak,
 				CapRecoveryStreak:  capBackoff.recoveryStreak,
@@ -1321,6 +1359,39 @@ func runEncoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 
 type rtpAccessUnitWriter interface {
 	WriteRTP(*rtp.Packet) error
+}
+
+var errSimulatedPartialRTPWrite = errors.New("simulated partial RTP write")
+
+type partialWriteRTPWriter struct {
+	inner     rtpAccessUnitWriter
+	failAfter int
+	err       error
+	written   int
+}
+
+func (w *partialWriteRTPWriter) WriteRTP(packet *rtp.Packet) error {
+	if w == nil || w.inner == nil {
+		return io.ErrClosedPipe
+	}
+	if w.written >= w.failAfter {
+		if w.err != nil {
+			return w.err
+		}
+		return errSimulatedPartialRTPWrite
+	}
+	if err := w.inner.WriteRTP(packet); err != nil {
+		return err
+	}
+	w.written++
+	return nil
+}
+
+func partialWritePrefixPackets(fragmentCount int) int {
+	if fragmentCount <= 1 {
+		return 0
+	}
+	return 1
 }
 
 func writeWebRTCRTPAccessUnit(
@@ -1692,6 +1763,7 @@ type telemetrySender struct {
 	FailedEncodedAUs   int     `json:"failed_encoded_aus,omitempty"`
 	Withheld           bool    `json:"withheld,omitempty"`
 	WithheldAUs        int     `json:"withheld_aus,omitempty"`
+	PartialWriteAUs    int     `json:"partial_write_aus,omitempty"`
 	SpatialCapMax      int     `json:"spatial_cap_max,omitempty"`
 	CapOverrunStreak   int     `json:"spatial_cap_overrun_streak,omitempty"`
 	CapRecoveryStreak  int     `json:"spatial_cap_recovery_streak,omitempty"`

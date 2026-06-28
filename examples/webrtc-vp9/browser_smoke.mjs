@@ -53,6 +53,8 @@ function parseOptions() {
     receiverStallProbe: booleanFlag("--receiver-stall-probe"),
     localWithhold: booleanFlag("--local-withhold"),
     localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 }),
+    localPartialWrite: booleanFlag("--local-partial-write"),
+    localPartialWriteCount: integerFlag("--local-partial-write-count", 1, { min: 1, max: 3 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
     minEndingActiveLayers: optionalNumberFlag("--min-ending-active-layers"),
     maxActiveLayerChanges: optionalNumberFlag("--max-active-layer-changes"),
@@ -103,6 +105,12 @@ async function runSmoke(opts, runIndex) {
       : null;
     if (localWithhold) {
       firstByClient = localWithhold.afterRecoveryByClient;
+    }
+    const localPartialWrite = opts.localPartialWrite
+      ? await exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount)
+      : null;
+    if (localPartialWrite) {
+      firstByClient = localPartialWrite.afterRecoveryByClient;
     }
     const receiverStallProbe = opts.receiverStallProbe
       ? await exerciseReceiverStallProbe(cdp, clients, firstByClient, opts.timeoutMs)
@@ -183,6 +191,7 @@ async function runSmoke(opts, runIndex) {
       ...opts,
       pauseResumeResult: pauseResume,
       localWithholdResult: localWithhold,
+      localPartialWriteResult: localPartialWrite,
       receiverStallProbeResult: receiverStallProbe,
     });
     return {
@@ -202,6 +211,8 @@ async function runSmoke(opts, runIndex) {
       receiverStallProbe: opts.receiverStallProbe,
       localWithhold: opts.localWithhold,
       localWithholdCount: opts.localWithholdCount,
+      localPartialWrite: opts.localPartialWrite,
+      localPartialWriteCount: opts.localPartialWriteCount,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
@@ -218,6 +229,7 @@ async function runSmoke(opts, runIndex) {
       requireThreadedTopLayer: opts.requireThreadedTopLayer,
       pauseResumeResult: pauseResume,
       localWithholdResult: localWithhold,
+      localPartialWriteResult: localPartialWrite,
       receiverStallProbeResult: receiverStallProbe,
       initial: initialByClient[0],
       samples,
@@ -574,6 +586,128 @@ async function waitForLocalWithholdRecovery(cdp, sessionId, before, timeoutMs, c
   throw new Error(`local withhold decode recovery did not become ready: ${JSON.stringify({ before, latest, count })}`);
 }
 
+async function exerciseLocalPartialWrite(cdp, clients, beforeByClient, timeoutMs, count) {
+  await Promise.all(clients.map((client) =>
+    applyControlAction(cdp, client.sessionId, { type: "partial-write", count })
+  ));
+  const recoveredByClient = await Promise.all(clients.map((client, i) =>
+    waitForLocalPartialWriteRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, count)
+  ));
+  await sleep(1000);
+  const afterRecoveryByClient = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  return {
+    count,
+    clients: recoveredByClient.map((stats, i) => ({
+      client: i + 1,
+      partialWriteAUs: numericDelta(
+        beforeByClient[i]?.senderPartialWriteAUs,
+        stats?.senderPartialWriteAUs,
+      ),
+      failedEncodedAUs: numericDelta(
+        beforeByClient[i]?.senderFailedEncodedAUs,
+        stats?.senderFailedEncodedAUs,
+      ),
+      packetizerRecoveries: numericDelta(
+        beforeByClient[i]?.senderPacketizerRecoveries,
+        stats?.senderPacketizerRecoveries,
+      ),
+      forcedKeys: numericDelta(
+        beforeByClient[i]?.senderForcedKeys,
+        stats?.senderForcedKeys,
+      ),
+      decodedAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxDecoded,
+        stats?.rxDecoded,
+      ),
+      lostAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxLost,
+        stats?.rxLost,
+      ),
+      droppedAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxDropped,
+        stats?.rxDropped,
+      ),
+      freezesAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxFreezes,
+        stats?.rxFreezes,
+      ),
+      nacksAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxNackCount,
+        stats?.rxNackCount,
+      ),
+      plisAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxPliCount,
+        stats?.rxPliCount,
+      ),
+      firsAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxFirCount,
+        stats?.rxFirCount,
+      ),
+      repairedAfterPartialWrite: numericDelta(
+        beforeByClient[i]?.rxRepairRequests,
+        stats?.rxRepairRequests,
+      ),
+      recovered: stats,
+      afterRecovery: afterRecoveryByClient[i],
+    })),
+    afterRecoveryByClient,
+  };
+}
+
+async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutMs, count) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    latest = await readStats(cdp, sessionId);
+    const partialWrites = numericDelta(
+      before?.senderPartialWriteAUs,
+      latest?.senderPartialWriteAUs,
+    );
+    const failedEncoded = numericDelta(
+      before?.senderFailedEncodedAUs,
+      latest?.senderFailedEncodedAUs,
+    );
+    const recoveries = numericDelta(
+      before?.senderPacketizerRecoveries,
+      latest?.senderPacketizerRecoveries,
+    );
+    const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
+    const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    const lost = numericDelta(before?.rxLost, latest?.rxLost);
+    const freezes = numericDelta(before?.rxFreezes, latest?.rxFreezes);
+    const nacks = numericDelta(before?.rxNackCount, latest?.rxNackCount);
+    const plis = numericDelta(before?.rxPliCount, latest?.rxPliCount);
+    const firs = numericDelta(before?.rxFirCount, latest?.rxFirCount);
+    const repairs = numericDelta(before?.rxRepairRequests, latest?.rxRepairRequests);
+    if (
+      partialWrites !== null &&
+      partialWrites >= count &&
+      failedEncoded !== null &&
+      failedEncoded >= count &&
+      recoveries !== null &&
+      recoveries >= 1 &&
+      forcedKeys !== null &&
+      forcedKeys >= 1 &&
+      decoded !== null &&
+      decoded >= 1 &&
+      (lost === null || lost === 0) &&
+      (freezes === null || freezes === 0) &&
+      (nacks === null || nacks === 0) &&
+      (plis === null || plis === 0) &&
+      (firs === null || firs === 0) &&
+      (repairs === null || repairs === 0) &&
+      latest.videoReadyState >= 2 &&
+      latest.videoTime > before.videoTime
+    ) {
+      return latest;
+    }
+  }
+  throw new Error(`local partial-write decode recovery did not become ready: ${JSON.stringify({ before, latest, count })}`);
+}
+
 function controlActionExpression(action) {
   const encoded = JSON.stringify(action);
   return `(() => {
@@ -614,6 +748,11 @@ function controlActionExpression(action) {
       const count = Number.isFinite(action.count) ? action.count : 1;
       sendCtl({type: "withhold", count});
       return {type: "withhold", count};
+    }
+    if (action.type === "partial-write") {
+      const count = Number.isFinite(action.count) ? action.count : 1;
+      sendCtl({type: "partial-write", count});
+      return {type: "partial-write", count};
     }
     throw new Error("unknown control action " + action.type);
   })()`;
@@ -848,6 +987,7 @@ async function readStats(cdp, sessionId) {
         senderFailedEncodeAUs: num(sender.failed_encode_aus) ?? num(rows["encode fails"]) ?? 0,
         senderFailedEncodedAUs: num(sender.failed_encoded_aus) ?? num(rows["encoded drops"]) ?? 0,
         senderWithheldAUs: num(sender.withheld_aus) ?? num(rows["withheld AUs"]) ?? 0,
+        senderPartialWriteAUs: num(sender.partial_write_aus) ?? num(rows["partial writes"]) ?? 0,
         rxDecoded: num(rows["rx decoded"]),
         rxDropped: num(rows["rx dropped"]),
         rxLost: num(rows["rx lost"]),
@@ -892,6 +1032,7 @@ function summarizeInterval(stats) {
     maxSenderFailedEncodeAUs: maxNumber(values("senderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(values("senderFailedEncodedAUs")),
     maxSenderWithheldAUs: maxNumber(values("senderWithheldAUs")),
+    maxSenderPartialWriteAUs: maxNumber(values("senderPartialWriteAUs")),
     minRxSpatialCap: minNumber(values("rxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("senderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("senderPacketizerRecoveries")),
@@ -962,6 +1103,7 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     maxSenderFailedEncodeAUs: maxNumber(summaryValues("maxSenderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(summaryValues("maxSenderFailedEncodedAUs")),
     maxSenderWithheldAUs: maxNumber(summaryValues("maxSenderWithheldAUs")),
+    maxSenderPartialWriteAUs: maxNumber(summaryValues("maxSenderPartialWriteAUs")),
     minRxSpatialCap: minNumber(summaryValues("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(summaryValues("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(summaryValues("maxSenderPacketizerRecoveries")),
@@ -1003,6 +1145,7 @@ function summarizeRuns(runs) {
     maxSenderFailedEncodeAUs: maxNumber(values("maxSenderFailedEncodeAUs")),
     maxSenderFailedEncodedAUs: maxNumber(values("maxSenderFailedEncodedAUs")),
     maxSenderWithheldAUs: maxNumber(values("maxSenderWithheldAUs")),
+    maxSenderPartialWriteAUs: maxNumber(values("maxSenderPartialWriteAUs")),
     minRxSpatialCap: minNumber(values("minRxSpatialCap")),
     maxSenderForcedKeys: maxNumber(values("maxSenderForcedKeys")),
     maxSenderPacketizerRecoveries: maxNumber(values("maxSenderPacketizerRecoveries")),
@@ -1027,7 +1170,7 @@ function countChanges(values) {
 
 function diffStats(first, second) {
   const delta = {};
-  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxFreezeDuration", "rxPauseCount", "rxPauseDuration", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries", "senderWithheldAUs", "rxRepairRequests"]) {
+  for (const key of ["frame", "rxDecoded", "rxDropped", "rxLost", "rxFreezes", "rxFreezeDuration", "rxPauseCount", "rxPauseDuration", "rxNackCount", "rxPliCount", "rxFirCount", "videoTime", "senderForcedKeys", "senderPacketizerRecoveries", "senderFailedEncodedAUs", "senderWithheldAUs", "senderPartialWriteAUs", "rxRepairRequests"]) {
     delta[key] = numericDelta(first[key], second[key]);
   }
   return delta;
@@ -1180,6 +1323,31 @@ function assertRunSmoke(summary, opts) {
         (client.repairedAfterWithhold !== null && client.repairedAfterWithhold !== 0)))
   ) {
     throw new Error(`local withhold did not produce clean packetizer recovery: ${JSON.stringify({ summary, localWithhold: opts.localWithholdResult })}`);
+  }
+  if (
+    opts.localPartialWrite &&
+    (!opts.localPartialWriteResult ||
+      !Array.isArray(opts.localPartialWriteResult.clients) ||
+      opts.localPartialWriteResult.clients.length !== opts.clients ||
+      opts.localPartialWriteResult.clients.some((client) =>
+        client.partialWriteAUs === null ||
+        client.partialWriteAUs < opts.localPartialWriteCount ||
+        client.failedEncodedAUs === null ||
+        client.failedEncodedAUs < opts.localPartialWriteCount ||
+        client.packetizerRecoveries === null ||
+        client.packetizerRecoveries < 1 ||
+        client.forcedKeys === null ||
+        client.forcedKeys < 1 ||
+        client.decodedAfterPartialWrite === null ||
+        client.decodedAfterPartialWrite < 1 ||
+        (client.lostAfterPartialWrite !== null && client.lostAfterPartialWrite !== 0) ||
+        (client.freezesAfterPartialWrite !== null && client.freezesAfterPartialWrite !== 0) ||
+        (client.nacksAfterPartialWrite !== null && client.nacksAfterPartialWrite !== 0) ||
+        (client.plisAfterPartialWrite !== null && client.plisAfterPartialWrite !== 0) ||
+        (client.firsAfterPartialWrite !== null && client.firsAfterPartialWrite !== 0) ||
+        (client.repairedAfterPartialWrite !== null && client.repairedAfterPartialWrite !== 0)))
+  ) {
+    throw new Error(`local partial write did not produce clean packetizer recovery: ${JSON.stringify({ summary, localPartialWrite: opts.localPartialWriteResult })}`);
   }
   if (
     opts.receiverStallProbe &&

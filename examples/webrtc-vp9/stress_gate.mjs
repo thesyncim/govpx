@@ -49,6 +49,23 @@ const recoveryLoadedBudgets = [
   "--min-ending-active-layers", "1",
 ];
 
+const partialWriteLoadedBudgets = [
+  "--sample-ms", "5000",
+  "--poll-ms", "1000",
+  "--min-decoded-delta", "80",
+  "--min-video-time-ratio", "0.8",
+  "--max-rx-repair-requests", "0",
+  "--max-rx-nack-delta", "0",
+  "--max-rx-pli-delta", "0",
+  "--max-rx-fir-delta", "0",
+  "--max-sender-failed-encode-aus", "0",
+  "--max-sender-failed-encoded-aus", "2",
+  "--max-access-unit-ms", String(cfg.maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(cfg.maxScheduleLagMs),
+  "--min-active-layers", "1",
+  "--min-ending-active-layers", "1",
+];
+
 const steps = [
   {
     name: "browser-loaded-long-soak",
@@ -87,6 +104,20 @@ const steps = [
       "--server-fps", String(cfg.serverFPS),
       "--soak-ms", String(cfg.withholdSoakMs),
       ...recoveryLoadedBudgets,
+    ],
+    kind: "browser-json",
+  },
+  {
+    name: "browser-loaded-partial-write-soak",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--local-partial-write",
+      "--local-partial-write-count", "2",
+      "--cpu-burners", String(cfg.cpuBurners),
+      "--server-fps", String(cfg.serverFPS),
+      "--soak-ms", String(cfg.withholdSoakMs),
+      ...partialWriteLoadedBudgets,
     ],
     kind: "browser-json",
   },
@@ -159,6 +190,7 @@ function summarizeStep(step, stdout) {
       clients: aggregate.clients,
       clientRuns: aggregate.clientRuns,
       localWithhold: report.localWithhold,
+      localPartialWrite: report.localPartialWrite,
       minClientDecoded: aggregate.minClientDecoded,
       dropped: aggregate.dropped,
       lost: aggregate.lost,
@@ -173,6 +205,7 @@ function summarizeStep(step, stdout) {
       minClientForcedKeys: aggregate.minClientForcedKeys,
       packetizerRecoveries: aggregate.packetizerRecoveries,
       maxSenderWithheldAUs: aggregate.maxSenderWithheldAUs,
+      maxSenderPartialWriteAUs: aggregate.maxSenderPartialWriteAUs,
       minEndingActiveLayers: aggregate.minEndingActiveLayers ?? aggregate.endingActiveLayers,
       minSampleEndingActiveLayers: aggregate.minSampleEndingActiveLayers,
       minPolledActiveLayers: aggregate.minPolledActiveLayers,

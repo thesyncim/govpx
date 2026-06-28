@@ -975,6 +975,30 @@ func TestApplyControlLocalWithholdQueuesAccessUnits(t *testing.T) {
 	}
 }
 
+func TestApplyControlLocalPartialWriteQueuesAccessUnits(t *testing.T) {
+	ctl := &controlState{}
+
+	applyControl(ctl, controlMessage{Type: "partial-write"}, demoConfig{})
+	if got := ctl.partialWriteAUs.Load(); got != 1 {
+		t.Fatalf("default partial-write count = %d, want 1", got)
+	}
+	if ctl.forceKey.Load() {
+		t.Fatal("local partial-write control pre-forced a keyframe")
+	}
+
+	applyControl(ctl, controlMessage{Type: "partial-write", Count: 2},
+		demoConfig{})
+	if got := ctl.partialWriteAUs.Load(); got != 3 {
+		t.Fatalf("queued partial-write count = %d, want 3", got)
+	}
+
+	applyControl(ctl, controlMessage{Type: "partial-write", Count: 99},
+		demoConfig{})
+	if got := ctl.partialWriteAUs.Load(); got != 6 {
+		t.Fatalf("clamped partial-write count = %d, want 6", got)
+	}
+}
+
 func TestConsumeLocalWithholdAccessUnit(t *testing.T) {
 	ctl := &controlState{}
 	ctl.withholdAUs.Store(2)
@@ -988,6 +1012,22 @@ func TestConsumeLocalWithholdAccessUnit(t *testing.T) {
 	}
 	if got := ctl.withholdAUs.Load(); got != 0 {
 		t.Fatalf("withhold queue after consume = %d, want 0", got)
+	}
+}
+
+func TestConsumeLocalPartialWriteAccessUnit(t *testing.T) {
+	ctl := &controlState{}
+	ctl.partialWriteAUs.Store(2)
+
+	if !consumeLocalPartialWriteAccessUnit(ctl) ||
+		!consumeLocalPartialWriteAccessUnit(ctl) {
+		t.Fatal("queued local partial write was not consumed")
+	}
+	if consumeLocalPartialWriteAccessUnit(ctl) {
+		t.Fatal("empty local partial write queue consumed an access unit")
+	}
+	if got := ctl.partialWriteAUs.Load(); got != 0 {
+		t.Fatalf("partial-write queue after consume = %d, want 0", got)
 	}
 }
 
@@ -1219,6 +1259,36 @@ func TestWriteWebRTCRTPAccessUnitFailureLeavesUnsentRecovery(t *testing.T) {
 	if got := packetizer.PictureID(); got != pictureID {
 		t.Fatalf("unsent RTP write PictureID = %d, want unchanged %d",
 			got, pictureID)
+	}
+}
+
+func TestPartialWriteRTPWriterFailsAfterPrefix(t *testing.T) {
+	inner := &recordingRTPWriterForTest{failAt: -1}
+	writer := &partialWriteRTPWriter{
+		inner:     inner,
+		failAfter: 1,
+		err:       io.ErrUnexpectedEOF,
+	}
+	sequence := uint16(9)
+	fragments := []govpx.RTPPayloadFragment{
+		{Payload: []byte{0x81, 0x01}},
+		{Payload: []byte{0x82, 0x02}, Marker: true},
+	}
+
+	written, err := writeWebRTCRTPAccessUnit(writer, fragments, 0x12345678,
+		&sequence)
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("partial write err = %v, want ErrUnexpectedEOF", err)
+	}
+	if written != 1 || len(inner.packets) != 1 {
+		t.Fatalf("partial write packets = written:%d captured:%d, want 1/1",
+			written, len(inner.packets))
+	}
+	if inner.packets[0].Marker {
+		t.Fatal("partial write emitted RTP marker on prefix packet")
+	}
+	if sequence != 10 {
+		t.Fatalf("partial write next sequence = %d, want 10", sequence)
 	}
 }
 
@@ -1776,6 +1846,8 @@ func TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis(t *testing.T) {
 		"pkt recoveries",
 		"withheld AUs",
 		"withheld_aus",
+		"partial writes",
+		"partial_write_aus",
 		"enc ms",
 		"encode fails",
 		"encoded drops",
@@ -1819,6 +1891,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"App-local no-loss withhold is gated as a sender recovery path",
 		"--local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25",
 		"app-local no-loss recovery under scheduler contention",
+		"--local-partial-write --local-partial-write-count 2",
+		"App-local partial RTP write is gated as a sender recovery path",
 		"--control-churn --cpu-burners 12 --server-fps 25",
 		"--min-video-time-ratio 0.8",
 		"--clients 2",
@@ -1833,6 +1907,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"VP9_WEBRTC_STRESS_LOADED_SOAK_MS",
 		"VP9_WEBRTC_STRESS_MAX_ACCESS_UNIT_MS",
 		"VP9_WEBRTC_STRESS_MAX_SCHEDULE_LAG_MS",
+		"partial RTP-write recovery",
 		"hostile-load stress gate",
 		"access-unit or schedule-lag latency budget",
 		"the full",
@@ -1890,19 +1965,24 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`receiverStallProbe: booleanFlag("--receiver-stall-probe")`,
 		`localWithhold: booleanFlag("--local-withhold")`,
 		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 })`,
+		`localPartialWrite: booleanFlag("--local-partial-write")`,
+		`localPartialWriteCount: integerFlag("--local-partial-write-count", 1, { min: 1, max: 3 })`,
 		`${name} must be <= ${opts.max}`,
 		"exercisePauseResume(cdp, clients, initialByClient, opts.timeoutMs, opts.pauseMs)",
 		"exerciseReceiverStallProbe(cdp, clients, firstByClient, opts.timeoutMs)",
 		"exerciseLocalWithhold(cdp, clients, firstByClient, opts.timeoutMs, opts.localWithholdCount)",
+		"exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount)",
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: true })`,
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: false })`,
 		`applyControlAction(cdp, client.sessionId, { type: "withhold", count })`,
+		`applyControlAction(cdp, client.sessionId, { type: "partial-write", count })`,
 		"waitForPauseResumeRecovery",
 		"waitForReceiverStallProbeRecovery",
 		"triggerReceiverStallProbe",
 		"receiver stall probe did not emit repair controls",
 		"receiver stall probe did not produce clean forced-key recovery",
 		"waitForLocalWithholdRecovery",
+		"waitForLocalPartialWriteRecovery",
 		"recoveredByClient",
 		`return {type: "pause", paused}`,
 		"opts.pauseResume &&",
@@ -1910,8 +1990,11 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"decodedAfterResume",
 		"pause/resume did not produce clean forced-key decode recovery",
 		"local withhold did not produce clean packetizer recovery",
+		"local partial write did not produce clean packetizer recovery",
 		"senderWithheldAUs",
 		"maxSenderWithheldAUs",
+		"senderPartialWriteAUs",
+		"maxSenderPartialWriteAUs",
 		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
 		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
@@ -1963,6 +2046,9 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder",
 		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterKeyIntervalUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
 		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPacketizedUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
+		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPartialWriteAccessUnitPassesLibwebrtcVP9RefFinder",
+		"TestConsumeLocal(Withhold|PartialWrite)AccessUnit",
+		"TestPartialWriteRTPWriterFailsAfterPrefix",
 		"TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap",
 		"browser-receiver-stall-probe",
 		"--receiver-stall-probe",
@@ -1971,6 +2057,10 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"browser-loaded-local-withhold",
 		"--local-withhold",
 		`"--local-withhold-count", "2"`,
+		"browser-local-partial-write",
+		"--local-partial-write",
+		`"--local-partial-write-count", "2"`,
+		`"--max-sender-failed-encoded-aus", "2"`,
 		`"--cpu-burners", "12"`,
 		`VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS`,
 		`VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS`,
@@ -1978,6 +2068,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		`"--max-schedule-lag-ms", String(maxScheduleLagMs)`,
 		"...browserLatencyBudgets",
 		"maxSenderWithheldAUs",
+		"maxSenderPartialWriteAUs",
 		"rootOraclePattern",
 		"libvpx-root-oracle",
 		"TestVP9EncoderVpxencOracleRealtimeZeroCPUUsesSpeed8",
@@ -2010,9 +2101,12 @@ func TestStressGateReportsVP9HostileSoakBudgets(t *testing.T) {
 		"browser-loaded-long-soak",
 		"browser-loaded-control-soak",
 		"browser-loaded-withhold-soak",
+		"browser-loaded-partial-write-soak",
 		"--cpu-burners",
 		"--server-fps",
 		"--local-withhold-count",
+		"--local-partial-write-count",
+		"partialWriteLoadedBudgets",
 		`VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
 		`VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`,
 		`VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,
@@ -2031,6 +2125,7 @@ func TestStressGateReportsVP9HostileSoakBudgets(t *testing.T) {
 		`line.startsWith("--- SKIP:")`,
 		"maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs",
+		"maxSenderPartialWriteAUs",
 		"maxScheduleLagMs",
 	} {
 		if !strings.Contains(text, want) {
@@ -2864,6 +2959,7 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			FailedEncodedAUs:   1,
 			Withheld:           true,
 			WithheldAUs:        2,
+			PartialWriteAUs:    3,
 			SpatialCapMax:      2,
 			CapOverrunStreak:   1,
 			CapRecoveryStreak:  17,
@@ -2917,6 +3013,7 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 		msg.Sender.FailedEncodedAUs != 1 ||
 		!msg.Sender.Withheld ||
 		msg.Sender.WithheldAUs != 2 ||
+		msg.Sender.PartialWriteAUs != 3 ||
 		msg.Sender.SpatialCapMax != 2 ||
 		msg.Sender.CapOverrunStreak != 1 ||
 		msg.Sender.CapRecoveryStreak != 17 {
