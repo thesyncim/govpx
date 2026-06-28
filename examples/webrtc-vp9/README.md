@@ -260,6 +260,9 @@ node production_gate.mjs
 
 The oracle steps run with `GOVPX_WITH_ORACLE=1` and fail if Go reports a skipped
 oracle test, so this gate requires the pinned libvpx binaries to be available.
+Every browser step also enforces access-unit and schedule-lag latency budgets,
+defaulting both to 200 ms; override `VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS` or
+`VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS` when qualifying a slower host.
 
 For longer host-contention qualification, first run `node production_gate.mjs`,
 then run the hostile-load stress gate:
@@ -291,7 +294,8 @@ a different host shape.
 - The browser gate also fails if local sender-side encode, packetization, or
   RTP-write failures appear and are hidden by recovery-key behavior.
 - Explicit access-unit and schedule-lag budgets catch sender backlog under
-  host contention before it turns into a clean-RTP browser freeze.
+  host contention before it turns into a clean-RTP browser freeze; the full
+  production gate and hostile-load stress gate both enforce those budgets.
 - The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
 - Browser-native freeze duration and pause counters must also stay flat during

@@ -10,6 +10,12 @@ const oraclePattern = [
 ].join("|");
 
 const browserStepCooldownMs = 5000;
+const maxAccessUnitMs = numberEnv("VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS", 200, { min: 1 });
+const maxScheduleLagMs = numberEnv("VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS", 200, { min: 1 });
+const browserLatencyBudgets = [
+  "--max-access-unit-ms", String(maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(maxScheduleLagMs),
+];
 
 const steps = [
   {
@@ -41,6 +47,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "3",
       "--min-ending-active-layers", "3",
       "--require-threaded-top-layer",
@@ -66,6 +73,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "1",
       "--min-ending-active-layers", "1",
     ],
@@ -88,6 +96,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "2",
       "--min-ending-active-layers", "2",
       "--require-threaded-top-layer",
@@ -111,6 +120,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "3",
       "--min-ending-active-layers", "3",
       "--require-threaded-top-layer",
@@ -135,6 +145,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "3",
       "--min-ending-active-layers", "3",
       "--require-threaded-top-layer",
@@ -158,6 +169,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "1",
       "--min-ending-active-layers", "1",
     ],
@@ -181,6 +193,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "3",
       "--min-ending-active-layers", "3",
       "--require-threaded-top-layer",
@@ -207,6 +220,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "1",
       "--min-ending-active-layers", "1",
     ],
@@ -231,6 +245,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "1",
       "--min-ending-active-layers", "1",
     ],
@@ -253,6 +268,7 @@ const steps = [
       "--max-rx-fir-delta", "0",
       "--max-sender-failed-encode-aus", "0",
       "--max-sender-failed-encoded-aus", "0",
+      ...browserLatencyBudgets,
       "--min-active-layers", "1",
       "--min-ending-active-layers", "1",
       "--require-threaded-top-layer",
@@ -313,8 +329,26 @@ async function main() {
   console.log(JSON.stringify({
     ok: true,
     elapsedMs: Date.now() - startedAt,
+    config: {
+      maxAccessUnitMs,
+      maxScheduleLagMs,
+    },
     results,
   }, null, 2));
+}
+
+function numberEnv(name, fallback, opts = {}) {
+  if (process.env[name] === undefined || process.env[name] === "") {
+    return fallback;
+  }
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number`);
+  }
+  if (opts.min !== undefined && value < opts.min) {
+    throw new Error(`${name} must be >= ${opts.min}`);
+  }
+  return value;
 }
 
 function sleep(ms) {

@@ -1825,12 +1825,16 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--min-decoded-delta 80 --min-video-time-ratio 0.85",
 		"simultaneous receiver/encoder sessions",
 		"node production_gate.mjs",
+		"VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS",
+		"VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS",
 		"node stress_gate.mjs",
 		"VP9_WEBRTC_STRESS_LOADED_SOAK_MS",
 		"VP9_WEBRTC_STRESS_MAX_ACCESS_UNIT_MS",
 		"VP9_WEBRTC_STRESS_MAX_SCHEDULE_LAG_MS",
 		"hostile-load stress gate",
 		"access-unit or schedule-lag latency budget",
+		"the full",
+		"production gate and hostile-load stress gate both enforce those budgets",
 		"threaded libvpx/vpxenc tile oracle",
 		"libvpx/vpxdec",
 		"threaded top-layer",
@@ -1948,6 +1952,11 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"--local-withhold",
 		`"--local-withhold-count", "2"`,
 		`"--cpu-burners", "12"`,
+		`VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS`,
+		`VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS`,
+		`"--max-access-unit-ms", String(maxAccessUnitMs)`,
+		`"--max-schedule-lag-ms", String(maxScheduleLagMs)`,
+		"...browserLatencyBudgets",
 		"maxSenderWithheldAUs",
 		"libvpx-threaded-vpxenc-oracle",
 		"TestVP9OracleThreadedTileEncodingMatchesLibvpx",
@@ -1962,6 +1971,9 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("production_gate.mjs missing %q", want)
 		}
+	}
+	if count := strings.Count(text, "...browserLatencyBudgets"); count < 10 {
+		t.Fatalf("production gate browser latency budgets wired %d time(s), want every browser smoke step", count)
 	}
 }
 
