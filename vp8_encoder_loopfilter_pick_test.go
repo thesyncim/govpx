@@ -52,6 +52,38 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	}
 }
 
+func TestLoopFilterUsesFastSearchForLargeRealtimeAutoSpeedFrame(t *testing.T) {
+	large := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 1280, Height: 720},
+		frameCount: 2,
+		autoSpeed:  4,
+	}
+	if !large.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("large post-cold-start realtime cpu=8 frame did not use fast loop-filter search")
+	}
+	if large.loopFilterUsesFastSearch() {
+		t.Fatalf("static loop-filter speed mirror should keep realtime autoSpeed=4 on full search")
+	}
+
+	tiny := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 640, Height: 360},
+		frameCount: 2,
+		autoSpeed:  4,
+	}
+	if tiny.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("tiny realtime cpu=8 frame used fast loop-filter search before libvpx would ramp")
+	}
+
+	first := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 1280, Height: 720},
+		frameCount: 0,
+		autoSpeed:  4,
+	}
+	if first.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("cold-start realtime cpu=8 frame used fast loop-filter search")
+	}
+}
+
 func TestPickLoopFilterLevelFastMatchesFullFrameBaseline(t *testing.T) {
 	const width, height = 64, 128
 	rows := (height + 15) / 16

@@ -926,6 +926,15 @@ func (e *VP8Encoder) libvpxRealtimeCPISpeedForHEXSearchGate() int {
 	return realistic
 }
 
+// libvpxRealtimeCPISpeedForAutoFilterGate returns the libvpx-realistic
+// cpi->Speed value for the realtime `auto_filter` cascade. auto_filter is
+// disabled by the same Speed > 4 branch that promotes HEX search and disables
+// iterative sub-pixel search in vp8_set_speed_features, so it shares the same
+// ramp preconditions and byte-parity guards as libvpxRealtimeCPISpeedForHEXSearchGate.
+func (e *VP8Encoder) libvpxRealtimeCPISpeedForAutoFilterGate() int {
+	return e.libvpxRealtimeCPISpeedForHEXSearchGate()
+}
+
 // libvpxRealtimeCPISpeedForImprovedMVPredGate returns the libvpx-realistic
 // cpi->Speed value used to evaluate the `Speed > 6` gate that turns off
 // `sf->improved_mv_pred` inside vp8_set_speed_features case 2

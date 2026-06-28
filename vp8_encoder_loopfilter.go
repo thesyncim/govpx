@@ -197,16 +197,19 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearchForFrame() bool {
-	return e.loopFilterUsesFastSearch()
+	return loopFilterUsesFastSearchForDeadlineSpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForAutoFilterGate())
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {
-	speed := e.libvpxCPUUsed()
+	return loopFilterUsesFastSearchForDeadlineSpeed(e.opts.Deadline, e.libvpxCPUUsed())
+}
+
+func loopFilterUsesFastSearchForDeadlineSpeed(deadline Deadline, speed int) bool {
 	// libvpx vp8/encoder/onyx_if.c vp8_set_speed_features (Mode==2 realtime,
 	// Mode==1 good-quality): sf->RD = 0 (partial-frame picker) flips at
 	// speed > 4 for good-quality and speed == 3 || speed > 4 for
 	// realtime. Mirrored exactly.
-	switch e.opts.Deadline {
+	switch deadline {
 	case DeadlineGoodQuality:
 		return speed > 4
 	case DeadlineRealtime:
