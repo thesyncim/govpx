@@ -9,6 +9,27 @@ const oraclePattern = [
   "TestVP9WebRTCPacketizerSVC.*Vpxdec",
 ].join("|");
 
+const focusedGoPattern = [
+  "TestSpatialCapBackoff",
+  "TestReadmeDocumentsStatefulVP9WebRTCPacketizer",
+  "TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis",
+  "TestBrowserSmokeEnforcesVP9WebRTCBudgets",
+  "TestProductionGateReportsVP9BrowserStallBudgets",
+  "TestStressGateReportsVP9HostileSoakBudgets",
+  "TestApplyControl.*",
+  "TestConsumeLocalWithholdAccessUnit",
+  "TestControlPauseResumeRequestsKeyFrame",
+  "TestPauseControlPreservesPendingKeyFrame",
+  "TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata",
+  "TestPlainVP9PacketizedCBRDropsPassLibwebrtcVP9RefFinder",
+  "TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder",
+  "TestVP9WebRTCPacketizerSVCNonFlexiblePassesLibwebrtcVP9RefFinder",
+  "TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder",
+  "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterKeyIntervalUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
+  "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPacketizedUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
+  "TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap",
+].join("|");
+
 const browserStepCooldownMs = 5000;
 const maxAccessUnitMs = numberEnv("VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS", 200, { min: 1 });
 const maxScheduleLagMs = numberEnv("VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS", 200, { min: 1 });
@@ -25,7 +46,7 @@ const steps = [
       "test",
       ".",
       "-run",
-      "TestSpatialCapBackoff|TestReadmeDocumentsStatefulVP9WebRTCPacketizer|TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis|TestBrowserSmokeEnforcesVP9WebRTCBudgets|TestProductionGateReportsVP9BrowserStallBudgets|TestStressGateReportsVP9HostileSoakBudgets|TestApplyControl.*|TestConsumeLocalWithholdAccessUnit|TestControlPauseResumeRequestsKeyFrame|TestPauseControlPreservesPendingKeyFrame",
+      focusedGoPattern,
       "-count=1",
     ],
     kind: "go-test",

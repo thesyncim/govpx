@@ -246,13 +246,14 @@ node browser_smoke.mjs --clients 2 --soak-ms 20000 --sample-ms 5000 --min-decode
 ```
 
 To run the full local VP9 WebRTC production gate, including focused Go checks,
-the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
-tile-layout check, the clean control-churn browser recovery check, the live
-bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
-receiver-side clean-stall recovery probe, the app-local no-loss withhold
-recovery checks with and without scheduler contention, the loaded control-churn
-recovery check, the multi-client browser soak, the threaded libvpx/vpxenc tile oracle,
-and the libvpx/vpxdec oracle subset, run:
+libwebrtc-style VP9 ref-finder simulations, the unloaded browser repeat, the
+loaded browser repeat, the threaded top-layer tile-layout check, the clean
+control-churn browser recovery check, the live bitrate/screen tuning check, the
+pause/resume lifecycle recovery check, the receiver-side clean-stall recovery
+probe, the app-local no-loss withhold recovery checks with and without
+scheduler contention, the loaded control-churn recovery check, the multi-client
+browser soak, the threaded libvpx/vpxenc tile oracle, and the libvpx/vpxdec
+oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -296,6 +297,9 @@ a different host shape.
 - Explicit access-unit and schedule-lag budgets catch sender backlog under
   host contention before it turns into a clean-RTP browser freeze; the full
   production gate and hostile-load stress gate both enforce those budgets.
+- The production gate runs libwebrtc-style VP9 ref-finder simulations over
+  non-flexible SVC, CBR drops, PictureID wrap, TL0PICIDX wrap, and no-loss
+  recovery so browser reference-state stalls fail before manual testing.
 - The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
 - Browser-native freeze duration and pause counters must also stay flat during
