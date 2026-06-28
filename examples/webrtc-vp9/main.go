@@ -33,12 +33,13 @@ import (
 )
 
 const (
-	spatialLayerCount = 3
-	temporalLayerMode = govpx.TemporalLayeringThreeLayers
-	rtpClockHz        = govpx.VP9RTPClockRate
-	rtpPayloadMTU     = 1200 - 12
-	vp9Profile0Fmtp   = govpx.VP9SDPFmtpProfile0
-	iceGatherTimeout  = 10 * time.Second
+	spatialLayerCount    = 3
+	temporalLayerMode    = govpx.TemporalLayeringThreeLayers
+	plainVP9TemporalMode = govpx.TemporalLayeringThreeLayersNoInterLayerPrediction
+	rtpClockHz           = govpx.VP9RTPClockRate
+	rtpPayloadMTU        = 1200 - 12
+	vp9Profile0Fmtp      = govpx.VP9SDPFmtpProfile0
+	iceGatherTimeout     = 10 * time.Second
 
 	defaultFPS          = 25
 	defaultBitrateKbps  = 800
@@ -68,10 +69,12 @@ const plainVP9WebRTCKeyframeIntervalSeconds = 3600
 var layerSplitPct = [spatialLayerCount]int{12, 36, 52}
 
 type demoConfig struct {
-	Addr         string
-	FPS          int
-	BitrateKbps  int
-	PlainVP9Mode bool
+	Addr                         string
+	FPS                          int
+	BitrateKbps                  int
+	PlainVP9Mode                 bool
+	PlainVP9TemporalMode         bool
+	PlainVP9TemporalLayeringMode govpx.TemporalLayeringMode
 }
 
 const indexHTML = `<!doctype html>
@@ -521,6 +524,8 @@ func main() {
 	fps := flag.Int("fps", defaultFPS, "encoded frame rate")
 	bitrate := flag.Int("bitrate", defaultBitrateKbps, "total target bitrate in kbps")
 	plainVP9 := flag.Bool("plain-vp9", false, "stream a plain single-layer VP9 WebRTC sender")
+	plainVP9Temporal := flag.Bool("plain-vp9-temporal", false, "enable three temporal layers in plain VP9 mode")
+	plainVP9TemporalMode := flag.String("plain-vp9-temporal-mode", "default", "plain VP9 temporal pattern")
 	flag.Parse()
 	if *fps <= 0 {
 		log.Fatal("fps must be positive")
@@ -529,11 +534,18 @@ func main() {
 		log.Fatalf("bitrate must be at least %d kbps",
 			spatialLayerCount*minLayerBitrateKbps)
 	}
+	temporalMode, err := parsePlainVP9TemporalLayeringMode(
+		*plainVP9TemporalMode)
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg := demoConfig{
-		Addr:         *addr,
-		FPS:          *fps,
-		BitrateKbps:  *bitrate,
-		PlainVP9Mode: *plainVP9,
+		Addr:                         *addr,
+		FPS:                          *fps,
+		BitrateKbps:                  *bitrate,
+		PlainVP9Mode:                 *plainVP9 || *plainVP9Temporal,
+		PlainVP9TemporalMode:         *plainVP9Temporal,
+		PlainVP9TemporalLayeringMode: temporalMode,
 	}
 
 	mux := http.NewServeMux()
@@ -558,6 +570,31 @@ func main() {
 		cfg.Addr, mode, width, height, cfg.FPS, cfg.BitrateKbps)
 	if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func parsePlainVP9TemporalLayeringMode(
+	name string,
+) (govpx.TemporalLayeringMode, error) {
+	switch name {
+	case "", "default":
+		return plainVP9TemporalMode, nil
+	case "six-frame":
+		return govpx.TemporalLayeringThreeLayersSixFrame, nil
+	case "no-inter-layer-prediction":
+		return govpx.TemporalLayeringThreeLayersNoInterLayerPrediction, nil
+	case "layer-one-prediction":
+		return govpx.TemporalLayeringThreeLayersLayerOnePrediction, nil
+	case "with-sync":
+		return govpx.TemporalLayeringThreeLayersWithSync, nil
+	case "altref-with-sync":
+		return govpx.TemporalLayeringThreeLayersAltRefWithSync, nil
+	case "one-reference":
+		return govpx.TemporalLayeringThreeLayersOneReference, nil
+	case "no-sync":
+		return govpx.TemporalLayeringThreeLayersNoSync, nil
+	default:
+		return 0, fmt.Errorf("unknown plain VP9 temporal pattern %q", name)
 	}
 }
 
@@ -1182,6 +1219,7 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
 	rtpPacketizer := govpx.NewVP9WebRTCPacketizer(randomUint16())
+	flexibleVP9RTP := cfg.PlainVP9TemporalMode
 
 	startedAt := time.Now()
 	ticker := time.NewTicker(interval)
@@ -1251,8 +1289,8 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 		telemetryResult := plainVP9TelemetryResult(result)
 
 		packetizeStarted := time.Now()
-		fragmentCount, payloadBytes, sent, err := rtpPacketizer.
-			WebRTCNonFlexiblePacketizationSize(result, rtpPayloadMTU)
+		fragmentCount, payloadBytes, sent, err := plainVP9WebRTCPacketizationSize(
+			&rtpPacketizer, result, rtpPayloadMTU, flexibleVP9RTP)
 		if err != nil {
 			log.Printf("WebRTCRTPPacketizationSize: %v", err)
 			failedEncodedAccessUnits++
@@ -1290,9 +1328,9 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			rtpPayloadBuf = make([]byte, payloadBytes)
 		}
 		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
-		fragmentCount, _, sent, err = rtpPacketizer.
-			PacketizeWebRTCNonFlexibleInto(result, rtpFragments,
-				rtpPayloadBuf, rtpPayloadMTU)
+		fragmentCount, _, sent, err = packetizePlainVP9WebRTCInto(
+			&rtpPacketizer, result, rtpFragments, rtpPayloadBuf,
+			rtpPayloadMTU, flexibleVP9RTP)
 		if err != nil {
 			log.Printf("PacketizeWebRTCRTPInto: %v", err)
 			failedEncodedAccessUnits++
@@ -1370,6 +1408,33 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			pushTelemetry(telemetry, payload)
 		}
 	}
+}
+
+func plainVP9WebRTCPacketizationSize(
+	packetizer *govpx.VP9WebRTCPacketizer,
+	result govpx.VP9EncodeResult,
+	mtu int,
+	flexible bool,
+) (int, int, bool, error) {
+	if flexible {
+		return packetizer.PacketizationSize(result, mtu)
+	}
+	return packetizer.WebRTCNonFlexiblePacketizationSize(result, mtu)
+}
+
+func packetizePlainVP9WebRTCInto(
+	packetizer *govpx.VP9WebRTCPacketizer,
+	result govpx.VP9EncodeResult,
+	dst []govpx.RTPPayloadFragment,
+	payloadBuf []byte,
+	mtu int,
+	flexible bool,
+) (int, int, bool, error) {
+	if flexible {
+		return packetizer.PacketizeInto(result, dst, payloadBuf, mtu)
+	}
+	return packetizer.PacketizeWebRTCNonFlexibleInto(result, dst, payloadBuf,
+		mtu)
 }
 
 // runEncoder drives the spatial SVC encoder, packing one VP9 superframe per
@@ -1764,7 +1829,7 @@ func plainVP9FrameBudget() int {
 }
 
 func newPlainVP9Encoder(cfg demoConfig) (*govpx.VP9Encoder, error) {
-	return govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+	opts := govpx.VP9EncoderOptions{
 		Width:                    plainVP9Width,
 		Height:                   plainVP9Height,
 		FPS:                      cfg.FPS,
@@ -1781,7 +1846,21 @@ func newPlainVP9Encoder(cfg demoConfig) (*govpx.VP9Encoder, error) {
 		MinQuantizer:             4,
 		MaxQuantizer:             56,
 		MaxKeyframeInterval:      plainVP9WebRTCKeyframeInterval(cfg.FPS),
-	})
+	}
+	if cfg.PlainVP9TemporalMode {
+		opts.TemporalScalability = govpx.TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    plainVP9TemporalLayeringMode(cfg),
+		}
+	}
+	return govpx.NewVP9Encoder(opts)
+}
+
+func plainVP9TemporalLayeringMode(cfg demoConfig) govpx.TemporalLayeringMode {
+	if cfg.PlainVP9TemporalLayeringMode != 0 {
+		return cfg.PlainVP9TemporalLayeringMode
+	}
+	return plainVP9TemporalMode
 }
 
 func plainVP9WebRTCKeyframeInterval(fps int) int {

@@ -281,6 +281,13 @@ func (p *VP9WebRTCPacketizer) vp9WebRTCNonFlexibleDescriptorAndFrame(
 		desc.TL0PICIDX = p.tl0PicIdx
 		desc.SwitchingUpPoint = false
 		desc.InterLayerDependency = false
+		if desc.ScalabilityStructurePresent {
+			// A one-entry GOF adds no dependencies for a single temporal layer,
+			// and Chrome can PLI/drop around repeated forced keys when it is
+			// re-advertised. Keep the keyframe SS resolution only.
+			desc.ScalabilityStructure.PictureGroupPresent = false
+			desc.ScalabilityStructure.PictureGroups = nil
+		}
 	}
 	return desc, frame, nil
 }

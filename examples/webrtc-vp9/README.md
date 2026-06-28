@@ -49,6 +49,15 @@ Flags:
   `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto`, explicit 15-bit
   PictureID, TL0PICIDX/keyframe GOF metadata, and the same app-local no-loss
   recovery rules as production plain VP9 senders.
+- `-plain-vp9-temporal` — stream the single-spatial VP9 WebRTC sender with
+  three temporal layers. This mode uses flexible VP9 RTP descriptors with
+  explicit reference diffs and defaults to the libvpx
+  no-inter-layer-prediction temporal pattern for Chrome/WebRTC decode
+  stability.
+- `-plain-vp9-temporal-mode` — choose a plain VP9 temporal pattern for
+  diagnosis (`default`, `six-frame`, `no-inter-layer-prediction`,
+  `layer-one-prediction`, `with-sync`, `altref-with-sync`, `one-reference`,
+  or `no-sync`). `default` is `no-inter-layer-prediction`.
 
 ## Performance note
 
@@ -171,11 +180,20 @@ browser, add `--server-plain-vp9`. This launches the demo server with
 node browser_smoke.mjs --server-plain-vp9 --repeat 2 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
+To prove the plain single-spatial/three-temporal-layer VP9 WebRTC path in a
+real browser, add `--server-plain-vp9-temporal`. This launches the demo server
+with `-plain-vp9-temporal`, uses the Chrome-safe default temporal pattern, and
+keeps the same no-loss/no-freeze/no-repair invariants:
+
+```sh
+node browser_smoke.mjs --server-plain-vp9-temporal --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+```
+
 For the same plain sender, add `--control-churn` to force keyframe recovery
 through the browser controls while still requiring clean RTP/decode counters:
 
 ```sh
-node browser_smoke.mjs --server-plain-vp9 --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9 --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-dropped-delta 1 --max-rx-nack-delta 0 --max-rx-pli-delta 1 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners

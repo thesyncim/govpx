@@ -1792,6 +1792,121 @@ func TestPlainVP9WebRTCKeyframeIntervalAvoidsShortPeriodicKeys(t *testing.T) {
 	}
 }
 
+func TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn(t *testing.T) {
+	enc, err := newPlainVP9Encoder(demoConfig{
+		FPS:          25,
+		BitrateKbps:  800,
+		PlainVP9Mode: true,
+	})
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
+		image.YCbCrSubsampleRatio420)
+	dst := make([]byte, plainVP9FrameBudget())
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x120)
+	var fragments []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	for frame := 0; frame < 180; frame++ {
+		if frame == 1 || frame == 2 || (frame != 0 && frame%30 == 0) ||
+			frame == 31 {
+			enc.ForceKeyFrame()
+		}
+		drawFrameYCbCr(img, frame+1, 1)
+		result, err := enc.EncodeIntoWithResult(img, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		fragmentCount, payloadBytes, sent, err := plainVP9WebRTCPacketizationSize(
+			&packetizer, result, rtpPayloadMTU, true)
+		if err != nil {
+			t.Fatalf("PacketizationSize[%d]: %v", frame, err)
+		}
+		if !sent {
+			t.Fatalf("PacketizationSize[%d] reported unsent frame", frame)
+		}
+		if cap(fragments) < fragmentCount {
+			fragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		}
+		fragments = fragments[:fragmentCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		n, used, sent, err := packetizePlainVP9WebRTCInto(&packetizer,
+			result, fragments, payloadBuf, rtpPayloadMTU, true)
+		if err != nil || !sent {
+			t.Fatalf("PacketizeInto[%d] = packets:%d bytes:%d sent:%t err:%v",
+				frame, n, used, sent, err)
+		}
+		if n != fragmentCount || used != payloadBytes {
+			t.Fatalf("PacketizeInto[%d] returned %d/%d, want %d/%d",
+				frame, n, used, fragmentCount, payloadBytes)
+		}
+	}
+}
+
+func TestPlainVP9TemporalModeUsesThreeTemporalLayers(t *testing.T) {
+	enc, err := newPlainVP9Encoder(demoConfig{
+		FPS:                  defaultFPS,
+		BitrateKbps:          defaultBitrateKbps,
+		PlainVP9Mode:         true,
+		PlainVP9TemporalMode: true,
+	})
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
+		image.YCbCrSubsampleRatio420)
+	dst := make([]byte, plainVP9FrameBudget())
+	wantTemporalID := []int{0, 2, 1, 2, 0}
+	wantTL0 := []uint8{0, 0, 0, 0, 1}
+	for frame := range wantTemporalID {
+		drawFrameYCbCr(img, frame+1, 1)
+		result, err := enc.EncodeIntoWithResult(img, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		if result.TemporalLayerCount != 3 ||
+			result.TemporalLayerID != wantTemporalID[frame] ||
+			result.TL0PICIDX != wantTL0[frame] {
+			t.Fatalf("frame %d temporal = id:%d count:%d tl0:%d, want id:%d count:3 tl0:%d",
+				frame, result.TemporalLayerID, result.TemporalLayerCount,
+				result.TL0PICIDX, wantTemporalID[frame], wantTL0[frame])
+		}
+	}
+}
+
+func TestParsePlainVP9TemporalLayeringMode(t *testing.T) {
+	cases := []struct {
+		name string
+		want govpx.TemporalLayeringMode
+	}{
+		{name: "default", want: plainVP9TemporalMode},
+		{name: "six-frame", want: govpx.TemporalLayeringThreeLayersSixFrame},
+		{name: "no-inter-layer-prediction", want: govpx.TemporalLayeringThreeLayersNoInterLayerPrediction},
+		{name: "layer-one-prediction", want: govpx.TemporalLayeringThreeLayersLayerOnePrediction},
+		{name: "with-sync", want: govpx.TemporalLayeringThreeLayersWithSync},
+		{name: "altref-with-sync", want: govpx.TemporalLayeringThreeLayersAltRefWithSync},
+		{name: "one-reference", want: govpx.TemporalLayeringThreeLayersOneReference},
+		{name: "no-sync", want: govpx.TemporalLayeringThreeLayersNoSync},
+	}
+	for _, tc := range cases {
+		got, err := parsePlainVP9TemporalLayeringMode(tc.name)
+		if err != nil || got != tc.want {
+			t.Fatalf("parsePlainVP9TemporalLayeringMode(%q) = %d, %v; want %d, nil",
+				tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := parsePlainVP9TemporalLayeringMode("bogus"); err == nil {
+		t.Fatal("parsePlainVP9TemporalLayeringMode(bogus) succeeded")
+	}
+}
+
 func TestPlainVP9TelemetryResultPresentsOneLayer(t *testing.T) {
 	result := govpx.VP9EncodeResult{
 		Data:                 []byte{0x82, 0x49},
@@ -1952,10 +2067,16 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--require-threaded-top-layer",
 		"--server-plain-vp9",
 		"plain single-spatial/single-temporal VP9 WebRTC path",
+		"-plain-vp9-temporal",
+		"--server-plain-vp9-temporal",
+		"plain single-spatial/three-temporal-layer VP9 WebRTC path",
+		"no-inter-layer-prediction",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-active-layers 1 --min-ending-active-layers 1",
 		"--control-churn",
 		"sender forced-key event",
+		"--max-rx-dropped-delta 1",
+		"--max-rx-pli-delta 1",
 		"--tuning-churn",
 		"screen-content mode changes force a keyframe boundary",
 		"--pause-resume --pause-ms 1500",
@@ -2022,6 +2143,7 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 	}
 	text := string(raw)
 	for _, want := range []string{
+		`maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 })`,
 		`maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 })`,
 		`maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 })`,
 		`maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 })`,
@@ -2029,6 +2151,10 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`maxAccessUnitMs: optionalNumberFlag("--max-access-unit-ms")`,
 		`maxScheduleLagMs: optionalNumberFlag("--max-schedule-lag-ms")`,
 		"nextControlAction(opts, i)",
+		"controlChurnAction(opts, sampleIndex)",
+		"plainVP9ControlChurnAction",
+		"plainVP9ControlChurnAction(sampleIndex, 1)",
+		`if (opts.serverPlainVP9 || opts.serverPlainVP9Temporal)`,
 		"tuningChurnAction",
 		`{ type: "bitrate", kbps: 1200 }`,
 		`{ type: "screen", mode: 1, requiresForcedKey: true }`,
@@ -2040,7 +2166,11 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`pauseMs: numberFlag("--pause-ms", 1500, { min: 0 })`,
 		`receiverStallProbe: booleanFlag("--receiver-stall-probe")`,
 		`serverPlainVP9: booleanFlag("--server-plain-vp9")`,
-		`if (opts.serverPlainVP9) serverArgs.push("-plain-vp9")`,
+		`serverPlainVP9Temporal: booleanFlag("--server-plain-vp9-temporal")`,
+		`serverPlainVP9TemporalMode: stringFlag("--server-plain-vp9-temporal-mode", "default")`,
+		`if (opts.serverPlainVP9 || opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9")`,
+		`if (opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9-temporal")`,
+		`serverArgs.push("-plain-vp9-temporal-mode", opts.serverPlainVP9TemporalMode)`,
 		`localWithhold: booleanFlag("--local-withhold")`,
 		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 })`,
 		`localPartialWrite: booleanFlag("--local-partial-write")`,
@@ -2075,6 +2205,9 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"maxSenderPartialWriteAUs",
 		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
+		"maxRxDroppedDelta: opts.maxRxDroppedDelta",
+		"delta.rxDropped !== null && delta.rxDropped > opts.maxRxDroppedDelta",
+		"rxDropped changed by",
 		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
 		"opts.summary.maxSenderFailedEncodedAUs > opts.maxSenderFailedEncodedAUs",
 		"opts.summary.maxAccessUnitMs > opts.maxAccessUnitMs",
@@ -2113,6 +2246,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"TestPlainVP9WebRTC.*Vpxdec",
 		"focusedGoPattern",
 		"rootGoPattern",
+		"TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn",
 		"TestNewVP9EncoderPromotesZeroCPUUsedByDeadline",
 		"TestVP9EncodeResultPacketizeWebRTCRTP",
 		"TestVP9WebRTCPacketizer.*",
@@ -2133,7 +2267,12 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"browser-receiver-stall-probe",
 		"browser-plain-vp9",
 		"browser-plain-vp9-control-churn",
+		"browser-plain-vp9-temporal",
+		"browser-plain-vp9-temporal-control-churn",
 		"--server-plain-vp9",
+		"--server-plain-vp9-temporal",
+		`"--max-rx-dropped-delta", "1"`,
+		`"--max-rx-pli-delta", "1"`,
 		"--receiver-stall-probe",
 		`"--max-rx-repair-requests", "1"`,
 		"browser-local-withhold",

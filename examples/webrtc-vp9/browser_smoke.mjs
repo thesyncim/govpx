@@ -34,6 +34,7 @@ function parseOptions() {
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
+    maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 }),
     maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 }),
     maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 }),
     maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 }),
@@ -46,6 +47,8 @@ function parseOptions() {
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
     serverPlainVP9: booleanFlag("--server-plain-vp9"),
+    serverPlainVP9Temporal: booleanFlag("--server-plain-vp9-temporal"),
+    serverPlainVP9TemporalMode: stringFlag("--server-plain-vp9-temporal-mode", "default"),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
     controlChurn: booleanFlag("--control-churn"),
     tuningChurn: booleanFlag("--tuning-churn"),
@@ -73,7 +76,11 @@ async function runSmoke(opts, runIndex) {
   if (opts.serverBitrateKbps !== null) {
     serverArgs.push("-bitrate", String(opts.serverBitrateKbps));
   }
-  if (opts.serverPlainVP9) serverArgs.push("-plain-vp9");
+  if (opts.serverPlainVP9 || opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9");
+  if (opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9-temporal");
+  if (opts.serverPlainVP9TemporalMode !== "default") {
+    serverArgs.push("-plain-vp9-temporal-mode", opts.serverPlainVP9TemporalMode);
+  }
   const loadProcesses = startCPUBurners(opts.cpuBurners);
   const server = spawn("go", serverArgs, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -151,6 +158,7 @@ async function runSmoke(opts, runIndex) {
           minDecodedDelta: opts.minDecodedDelta,
           minVideoTimeRatio: opts.minVideoTimeRatio,
           maxRxRepairRequests: opts.maxRxRepairRequests,
+          maxRxDroppedDelta: opts.maxRxDroppedDelta,
           maxRxNackDelta: opts.maxRxNackDelta,
           maxRxPliDelta: opts.maxRxPliDelta,
           maxRxFirDelta: opts.maxRxFirDelta,
@@ -206,6 +214,8 @@ async function runSmoke(opts, runIndex) {
       serverFPS: opts.serverFPS,
       serverBitrateKbps: opts.serverBitrateKbps,
       serverPlainVP9: opts.serverPlainVP9,
+      serverPlainVP9Temporal: opts.serverPlainVP9Temporal,
+      serverPlainVP9TemporalMode: opts.serverPlainVP9TemporalMode,
       cpuBurners: opts.cpuBurners,
       controlChurn: opts.controlChurn,
       tuningChurn: opts.tuningChurn,
@@ -219,6 +229,7 @@ async function runSmoke(opts, runIndex) {
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
+      maxRxDroppedDelta: opts.maxRxDroppedDelta,
       maxRxNackDelta: opts.maxRxNackDelta,
       maxRxPliDelta: opts.maxRxPliDelta,
       maxRxFirDelta: opts.maxRxFirDelta,
@@ -762,16 +773,33 @@ function controlActionExpression(action) {
 }
 
 function nextControlAction(opts, sampleIndex) {
-  if (opts.controlChurn) return controlChurnAction(sampleIndex);
+  if (opts.controlChurn) return controlChurnAction(opts, sampleIndex);
   if (opts.tuningChurn) return tuningChurnAction(sampleIndex);
   return null;
 }
 
-function controlChurnAction(sampleIndex) {
+function controlChurnAction(opts, sampleIndex) {
+  if (opts.serverPlainVP9Temporal) {
+    return plainVP9ControlChurnAction(sampleIndex, 0);
+  }
+  if (opts.serverPlainVP9) {
+    return plainVP9ControlChurnAction(sampleIndex, 1);
+  }
   const sequence = [
     { type: "spatial", cap: 2, requiresForcedKey: true },
     { type: "keyframe", requiresForcedKey: true },
     { type: "spatial", cap: 3, requiresForcedKey: true },
+    { type: "keyframe", requiresForcedKey: true },
+  ];
+  return sequence[sampleIndex % sequence.length];
+}
+
+function plainVP9ControlChurnAction(sampleIndex, warmupSamples) {
+  if (sampleIndex < warmupSamples) return null;
+  const sequence = [
+    { type: "keyframe", requiresForcedKey: true },
+    { type: "keyframe", requiresForcedKey: true },
+    { type: "keyframe", requiresForcedKey: true },
     { type: "keyframe", requiresForcedKey: true },
   ];
   return sequence[sampleIndex % sequence.length];
@@ -823,6 +851,16 @@ function optionalNumberFlag(name) {
   const value = Number(process.argv[idx + 1]);
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be non-negative`);
+  }
+  return value;
+}
+
+function stringFlag(name, fallback) {
+  const idx = process.argv.indexOf(name);
+  if (idx < 0) return fallback;
+  const value = process.argv[idx + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} must have a value`);
   }
   return value;
 }
@@ -1194,10 +1232,13 @@ function assertSmoke(first, second, delta, opts) {
       delta.videoTime < opts.intervalMs / 1000 * opts.minVideoTimeRatio) {
     throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
-  for (const key of ["rxLost", "rxDropped", "rxFreezes"]) {
+  for (const key of ["rxLost", "rxFreezes"]) {
     if (delta[key] !== null && delta[key] !== 0) {
       throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
     }
+  }
+  if (delta.rxDropped !== null && delta.rxDropped > opts.maxRxDroppedDelta) {
+    throw new Error(`${sampleLabel(opts)} rxDropped changed by ${delta.rxDropped}, want <= ${opts.maxRxDroppedDelta}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   for (const key of ["rxFreezeDuration", "rxPauseCount", "rxPauseDuration"]) {
     if (delta[key] !== null && delta[key] > 0) {

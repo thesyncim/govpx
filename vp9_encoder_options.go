@@ -627,6 +627,7 @@ type VP9EncodeResult struct {
 	// temporal layering is disabled.
 	TemporalLayeringMode TemporalLayeringMode
 	TL0PICIDX            uint8
+	referenceMask        uint8
 
 	SpatialLayerID              uint8
 	SpatialLayerCount           uint8

@@ -219,7 +219,8 @@ func (t *vp9WebRTCReferenceTracker) flexibleReferenceDiffs(
 	pictureID uint16,
 ) ([VP9RTPMaxReferenceIndices]uint8, int, error) {
 	var refs [VP9RTPMaxReferenceIndices]uint8
-	slots, slotCount, err := vp9WebRTCReferenceSlotsForFrame(frame)
+	slots, slotCount, err := vp9WebRTCReferenceSlotsForFrame(frame,
+		vp9WebRTCReferenceMaskForResult(r))
 	if err != nil {
 		return refs, 0, err
 	}
@@ -236,6 +237,15 @@ func (t *vp9WebRTCReferenceTracker) flexibleReferenceDiffs(
 		return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 	}
 	return refs, count, nil
+}
+
+func vp9WebRTCReferenceMaskForResult(r VP9EncodeResult) uint8 {
+	if r.referenceMask != 0 {
+		return r.referenceMask
+	}
+	return 1<<uint(vp9dec.LastFrame) |
+		1<<uint(vp9dec.GoldenFrame) |
+		1<<uint(vp9dec.AltrefFrame)
 }
 
 func (t *vp9WebRTCReferenceTracker) addReferenceSlotDiff(
@@ -281,6 +291,7 @@ func addVP9WebRTCReferenceDiff(
 
 func vp9WebRTCReferenceSlotsForFrame(
 	frame []byte,
+	referenceMask uint8,
 ) ([VP9RTPMaxReferenceIndices]uint8, int, error) {
 	var slots [VP9RTPMaxReferenceIndices]uint8
 	var r vp9dec.BitReader
@@ -314,7 +325,16 @@ func vp9WebRTCReferenceSlotsForFrame(
 	}
 	_ = r.ReadLiteral(common.RefFrames)
 	interRefs := vp9dec.ReadInterRefBlock(&r)
-	return interRefs.RefIndex, len(interRefs.RefIndex), nil
+	count := 0
+	for i := 0; i < common.RefsPerFrame; i++ {
+		refFrame := vp9dec.LastFrame + int8(i)
+		if referenceMask&(1<<uint(refFrame)) == 0 {
+			continue
+		}
+		slots[count] = interRefs.RefIndex[i]
+		count++
+	}
+	return slots, count, nil
 }
 
 func (p *VP9WebRTCPacketizer) commitVP9WebRTCReferences(
