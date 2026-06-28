@@ -303,6 +303,80 @@ func TestVP9WebRTCPacketizerRejectsInterWithTooOldFlexibleReference(t *testing.T
 	}
 }
 
+func TestVP9WebRTCPacketizerRequiresRecoveryAfterPacketizationError(t *testing.T) {
+	key, inter := newVP9WebRTCReferenceTestFrames(t)
+	const mtu = 500
+
+	for _, tc := range []struct {
+		name string
+		run  func(*VP9WebRTCPacketizer, VP9EncodeResult) (int, int, bool, error)
+	}{
+		{
+			name: "size",
+			run: func(packetizer *VP9WebRTCPacketizer,
+				result VP9EncodeResult,
+			) (int, int, bool, error) {
+				return packetizer.PacketizationSize(result, mtu)
+			},
+		},
+		{
+			name: "packetize",
+			run: func(packetizer *VP9WebRTCPacketizer,
+				result VP9EncodeResult,
+			) (int, int, bool, error) {
+				payloads := make([]RTPPayloadFragment, 8)
+				payloadBuf := make([]byte, 1<<20)
+				return packetizer.PacketizeInto(result, payloads,
+					payloadBuf, mtu)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packetizer := NewVP9WebRTCPacketizer(0x66)
+			payloads, sent, err := packetizer.Packetize(key, mtu)
+			if err != nil || !sent || len(payloads) == 0 {
+				t.Fatalf("key Packetize = payloads:%d sent:%t err:%v",
+					len(payloads), sent, err)
+			}
+			nextPictureID := packetizer.PictureID()
+
+			bad := inter
+			bad.Data = nil
+			bad.SizeBytes = 0
+			packets, payloadBytes, sent, err := tc.run(&packetizer, bad)
+			if !errors.Is(err, ErrInvalidConfig) || sent ||
+				packets != 0 || payloadBytes != 0 {
+				t.Fatalf("%s bad inter = %d/%d sent:%t err:%v, want ErrInvalidConfig",
+					tc.name, packets, payloadBytes, sent, err)
+			}
+			if got := packetizer.PictureID(); got != nextPictureID {
+				t.Fatalf("%s bad inter advanced PictureID to %d, want %d",
+					tc.name, got, nextPictureID)
+			}
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("%s bad inter did not require recovery key",
+					tc.name)
+			}
+			if packets, payloadBytes, sent, err := packetizer.PacketizationSize(
+				inter, mtu); !errors.Is(err, ErrInvalidConfig) ||
+				sent || packets != 0 || payloadBytes != 0 {
+				t.Fatalf("%s post-error inter = %d/%d sent:%t err:%v, want ErrInvalidConfig",
+					tc.name, packets, payloadBytes, sent, err)
+			}
+
+			payloads, sent, err = packetizer.Packetize(key, mtu)
+			if err != nil || !sent || len(payloads) == 0 {
+				t.Fatalf("recovery key Packetize = payloads:%d sent:%t err:%v",
+					len(payloads), sent, err)
+			}
+			if packetizer.NeedsKeyFrame() {
+				t.Fatalf("%s recovery key did not clear NeedsKeyFrame",
+					tc.name)
+			}
+		})
+	}
+}
+
 func TestVP9WebRTCSpatialSVCRecoveryKeyRejectsPredictedEnhancement(t *testing.T) {
 	result := VP9SpatialSVCEncodeResult{
 		LayerCount:           2,

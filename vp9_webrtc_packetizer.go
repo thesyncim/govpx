@@ -98,7 +98,7 @@ func (p *VP9WebRTCPacketizer) PacketizationSize(
 	p.consumedDropPending = false
 	packets, payloadBytes, err = p.vp9WebRTCPacketizationSize(r, mtu)
 	if err != nil {
-		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 	}
 	return packets, payloadBytes, err == nil, err
 }
@@ -129,7 +129,7 @@ func (p *VP9WebRTCPacketizer) PacketizeInto(
 		payloadBuf, mtu)
 	if err != nil {
 		if !errors.Is(err, ErrBufferTooSmall) {
-			p.requireVP9RecoveryKeyAfterPacketizationError(err)
+			p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 		}
 		return packets, payloadBytes, false, err
 	}
@@ -160,7 +160,7 @@ func (p *VP9WebRTCPacketizer) Packetize(
 	pictureID := p.pictureID
 	payloads, err := p.vp9PacketizeWebRTC(r, mtu)
 	if err != nil {
-		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 		return nil, false, err
 	}
 	p.consumedDropPending = false
@@ -187,7 +187,7 @@ func (p *VP9WebRTCPacketizer) SpatialSVCWebRTCPacketizationSize(
 	packets, payloadBytes, err := p.vp9SpatialSVCWebRTCPacketizationSize(r,
 		mtu)
 	if err != nil {
-		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 	}
 	return packets, payloadBytes, err
 }
@@ -212,7 +212,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTCInto(
 		dst, payloadBuf, mtu)
 	if err != nil {
 		if !errors.Is(err, ErrBufferTooSmall) {
-			p.requireVP9RecoveryKeyAfterPacketizationError(err)
+			p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 		}
 		return packets, payloadBytes, err
 	}
@@ -239,7 +239,7 @@ func (p *VP9WebRTCPacketizer) PacketizeSpatialSVCWebRTC(
 	pictureID := p.pictureID
 	payloads, err := p.vp9PacketizeSpatialSVCWebRTC(r, mtu)
 	if err != nil {
-		p.requireVP9RecoveryKeyAfterPacketizationError(err)
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
 		return nil, err
 	}
 	p.consumedDropPending = false
