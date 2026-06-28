@@ -116,6 +116,48 @@ pause/resume per rendition, plus the global active map) and waits
 for the corresponding telemetry change. The whole suite runs in
 roughly seven seconds.
 
+For a real-browser smoke run:
+
+```sh
+node browser_smoke.mjs
+```
+
+The browser smoke starts `go run .` on a free localhost port, opens a
+headless Chrome instance through the DevTools Protocol, waits for all
+three browser video elements and all three inbound RTP streams to
+decode VP8, then samples WebRTC `getStats()` counters and video
+playback time. It enforces zero packet loss, freezes, repair packets,
+NACK, PLI, and FIR by default where Chrome exposes those counters.
+
+Useful knobs:
+
+- `--soak-ms`, `--sample-ms`, `--poll-ms` - control the observation
+  window and polling cadence.
+- `--cdp-timeout-ms` - bounds Chrome DevTools Protocol open and command
+  waits so browser gate failures report instead of hanging.
+- `--min-decoded-delta` - minimum decoded-frame advance required per
+  VP8 inbound stream in each sample.
+- `--min-video-time-ratio` - minimum video `currentTime` advance as a
+  ratio of the sample window.
+- `--cpu-burners` - starts local CPU load processes around the browser
+  smoke. The demo server itself only exposes `-fps`, `-low-kbps`,
+  `-mid-kbps`, and `-high-kbps`; it does not have a built-in load
+  injection flag.
+- `--server-fps`, `--server-low-kbps`, `--server-mid-kbps`,
+  `--server-high-kbps` - forward startup settings to `go run .`.
+
+For the focused VP8 production gate:
+
+```sh
+node production_gate.mjs
+```
+
+The gate runs the JavaScript syntax check, the focused VP8 Go tests,
+and the real-browser smoke with explicit zero budgets for loss,
+freezes, repair packets, NACK, PLI, and FIR. The browser gate can be
+made longer or run under local CPU load with `VP8_WEBRTC_GATE_SOAK_MS`,
+`VP8_WEBRTC_GATE_REPEAT`, and `VP8_WEBRTC_GATE_CPU_BURNERS`.
+
 ## What this proves
 
 - `govpx`'s VP8 realtime APIs can drive three independent simulcast streams.
