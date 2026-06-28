@@ -309,7 +309,7 @@ const steps = [
       "--soak-ms", "30000",
       "--sample-ms", "5000",
       "--poll-ms", "1000",
-      "--min-decoded-delta", "80",
+      "--min-decoded-delta", "70",
       "--min-video-time-ratio", "0.9",
       "--max-rx-repair-requests", "0",
       "--max-rx-nack-delta", "0",

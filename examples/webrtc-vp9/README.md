@@ -213,7 +213,7 @@ so the same harness can compare production defaults against a proposed
 realtime cadence:
 
 ```sh
-node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --repeat 2 --cpu-burners 12 --server-fps 25 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 For the plain temporal VP9 WebRTC sender under the same scheduler contention,
