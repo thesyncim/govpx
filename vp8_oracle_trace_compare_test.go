@@ -4,9 +4,11 @@ package govpx
 
 import (
 	"bytes"
+	"image"
 	"strconv"
 	"testing"
 
+	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp8test"
 )
 
@@ -191,6 +193,81 @@ func TestVP8OracleTraceInterCandidateCompare(t *testing.T) {
 	}
 }
 
+func TestVP8OracleTrace720pRealtimeCPU4CBRLowBitrateParity(t *testing.T) {
+	vp8test.RequireOracle(t, "720p realtime cpu4 CBR oracle trace comparison")
+	vpxencOracle := vp8test.VpxencOracle(t)
+
+	const (
+		width  = 1280
+		height = 720
+		fps    = 30
+		frames = 16
+	)
+	sources := make([]Image, frames)
+	for i := range sources {
+		sources[i] = imageFromYCbCr(testutil.NewTexturedPanningYCbCr(width, height, i))
+	}
+	for _, targetKbps := range []int{1000, 2000} {
+		t.Run("kbps"+strconv.Itoa(targetKbps), func(t *testing.T) {
+			opts := EncoderOptions{
+				Width:             width,
+				Height:            height,
+				FPS:               fps,
+				RateControlMode:   RateControlCBR,
+				TargetBitrateKbps: targetKbps,
+				MinQuantizer:      4,
+				MaxQuantizer:      63,
+				Deadline:          DeadlineRealtime,
+				CpuUsed:           -4,
+				KeyFrameInterval:  120,
+			}
+			extraArgs := []string{"--passes=1", "--end-usage=cbr", "--tune=psnr", "--drop-frame=0"}
+			govpxFrames := encodeFramesWithGovpx(t, opts, sources)
+			libvpxFrames := encodeFramesWithLibvpxOracle(t, vpxencOracle, "trace-720p-rt-cpu4-frames", opts, targetKbps, sources, extraArgs)
+			if len(govpxFrames) != len(libvpxFrames) {
+				t.Fatalf("frame count drift: govpx=%d libvpx=%d", len(govpxFrames), len(libvpxFrames))
+			}
+			for i := range govpxFrames {
+				if !bytes.Equal(govpxFrames[i], libvpxFrames[i]) {
+					t.Fatalf("frame %d byte mismatch: govpx_len=%d libvpx_len=%d", i, len(govpxFrames[i]), len(libvpxFrames[i]))
+				}
+			}
+
+			govpxTrace := captureGovpxEncoderTrace(t, opts, sources)
+			libvpxTrace := captureLibvpxEncoderTrace(t, vpxencOracle, "trace-720p-rt-cpu4", opts, targetKbps, sources, extraArgs)
+			govpxDecision := projectVP8EncoderDecisionTrace(t, govpxTrace)
+			libvpxDecision := projectVP8EncoderDecisionTrace(t, libvpxTrace)
+			decisionDiv, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxDecision), bytes.NewReader(libvpxDecision), vp8test.CompareOptions{
+				MaxDivergences: 16,
+			})
+			if err != nil {
+				t.Fatalf("CompareOracleTraces decision returned error: %v", err)
+			}
+			if len(decisionDiv) != 0 {
+				t.Fatalf("projected decision trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
+					vp8test.FormatDivergences(decisionDiv),
+					vp8test.FirstTraceRows(govpxDecision, 14),
+					vp8test.FirstTraceRows(libvpxDecision, 14))
+			}
+
+			govpxProjected := projectVP8InterCandidateTrace(t, govpxTrace)
+			libvpxProjected := projectVP8InterCandidateTrace(t, libvpxTrace)
+			div, err := vp8test.CompareOracleTraces(bytes.NewReader(govpxProjected), bytes.NewReader(libvpxProjected), vp8test.CompareOptions{
+				MaxDivergences: 16,
+			})
+			if err != nil {
+				t.Fatalf("CompareOracleTraces returned error: %v", err)
+			}
+			if len(div) != 0 {
+				t.Fatalf("projected inter-candidate trace diverged:\n%s\ngovpx first rows:\n%s\nlibvpx first rows:\n%s",
+					vp8test.FormatDivergences(div),
+					vp8test.FirstTraceRows(govpxProjected, 14),
+					vp8test.FirstTraceRows(libvpxProjected, 14))
+			}
+		})
+	}
+}
+
 func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image) []byte {
 	t.Helper()
 	requireOracleTraceBuild(t)
@@ -215,6 +292,10 @@ func captureGovpxEncoderTrace(t *testing.T, opts EncoderOptions, sources []Image
 
 func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts EncoderOptions, targetKbps int, sources []Image, extraArgs []string) []byte {
 	t.Helper()
+	minQ, maxQ := opts.MinQuantizer, opts.MaxQuantizer
+	if minQ == 0 && maxQ == 0 {
+		minQ, maxQ = 4, 56
+	}
 	cfg := vp8test.VpxencVP8Config{
 		BinaryPath:        vpxencOracle,
 		Width:             opts.Width,
@@ -225,8 +306,8 @@ func captureLibvpxEncoderTrace(t *testing.T, vpxencOracle string, _ string, opts
 		LagInFrames:       0,
 		AutoAltRef:        false,
 		TargetBitrateKbps: targetKbps,
-		MinQ:              4,
-		MaxQ:              56,
+		MinQ:              minQ,
+		MaxQ:              maxQ,
 		Timebase:          "1/" + strconv.Itoa(opts.FPS),
 		FPS:               strconv.Itoa(opts.FPS) + "/1",
 		KeyFrameDistSet:   true,
@@ -295,5 +376,19 @@ func assertOracleTraceHasCandidateRows(t *testing.T, side string, trace []byte, 
 	}
 	if !sawPicker {
 		t.Fatalf("%s trace has %d candidate rows but no picker %q", side, len(rows), wantPicker)
+	}
+}
+
+func imageFromYCbCr(src *image.YCbCr) Image {
+	r := src.Rect
+	return Image{
+		Width:   r.Dx(),
+		Height:  r.Dy(),
+		Y:       src.Y,
+		U:       src.Cb,
+		V:       src.Cr,
+		YStride: src.YStride,
+		UStride: src.CStride,
+		VStride: src.CStride,
 	}
 }

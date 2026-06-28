@@ -359,6 +359,31 @@ func TestVP8OracleMBTraceIncludesSplitMVPartitionAndBlocks(t *testing.T) {
 	}
 }
 
+func TestVP8OracleMBTraceUsesZbinAdjustedRDMult(t *testing.T) {
+	requireOracleTraceBuild(t)
+	var buf bytes.Buffer
+	e := &VP8Encoder{}
+	e.rc.currentQuantizer = 127
+	e.rc.currentZbinOverQuant = 128
+	e.SetOracleTraceWriter(&buf)
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame: vp8common.LastFrame,
+		Mode:     vp8common.ZeroMV,
+	}
+	var coeffs vp8enc.MacroblockCoefficients
+
+	e.emitOracleMBTrace(0, 0, &mode, &coeffs, interFrameSearchStart{}, 0, 0)
+	e.flushOracleMBTraceBuffer()
+
+	var row map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &row); err != nil {
+		t.Fatalf("trace row not valid JSON: %v\n%s", err, buf.String())
+	}
+	if got := row["rdmult"].(float64); got != 989 {
+		t.Fatalf("rdmult = %v, want zbin-adjusted libvpx RDMULT 989", got)
+	}
+}
+
 func TestVP8OracleTraceIncludesInterFrameBPredMacroblocks(t *testing.T) {
 	requireOracleTraceBuild(t)
 	const w, h = 16, 32

@@ -329,8 +329,9 @@ func applyOracleEOBAdjust(coeffs *vp8enc.MacroblockCoefficients, y2Dequant *[16]
 //     encodeframe.c:588 and only re-derived under tuning==SSIM at
 //     encodeframe.c:1106 / 1193 via adjust_act_zbin).
 //   - rdmult     : x->rdmult after vp8_activity_masking (line 307). Outside
-//     TuneSSIM this equals cpi->RDMULT (the base reassignment at
-//     encodeframe.c:406 with no subsequent activity scaling).
+//     TuneSSIM this equals cpi->RDMULT, including zbin-over-quant, from
+//     vp8_initialize_rd_consts (the base reassignment at encodeframe.c:406
+//     with no subsequent activity scaling).
 //   - activity_avg: cpi->activity_avg. Defaults to 90<<12 from
 //     vp8_create_compressor (onyx_if.c:1906) and is overwritten by
 //     calc_av_activity (encodeframe.c:156 / 164) when build_activity_map
@@ -356,9 +357,10 @@ func (e *VP8Encoder) oracleTraceActivityState(mbRow int, mbCol int) (mbActivity 
 		}
 	}
 	// Base cpi->RDMULT seed: vp8_initialize_rd_consts uses cm->base_qindex
-	// (rdopt.c:163-227, called from encodeframe.c:721-722). For TuneSSIM
-	// the per-MB x->rdmult is then scaled by vp8_activity_masking
-	// (encodeframe.c:307). PSNR tuning keeps x->rdmult == cpi->RDMULT.
+	// and cpi->mb.zbin_over_quant (rdopt.c:163-227, called from
+	// encodeframe.c:721-722). For TuneSSIM the per-MB x->rdmult is then
+	// scaled by vp8_activity_masking (encodeframe.c:307). PSNR tuning keeps
+	// x->rdmult == cpi->RDMULT.
 	//
 	// The qindex to consume is the *frame-level* base qindex active at
 	// encode_mb_row time. govpx tracks the regulator-chosen value in
@@ -367,7 +369,7 @@ func (e *VP8Encoder) oracleTraceActivityState(mbRow int, mbCol int) (mbActivity 
 	// inter-only snapshot taken at beginInterRDModeDecisionFrame and is
 	// stale on keyframes (initialized to 0 by vp8_encoder_lifecycle.go:182).
 	qIndex := vp8common.ClampQIndex(e.rc.currentQuantizer)
-	baseRDMult, _ := vp8enc.RDConstants(qIndex)
+	baseRDMult, _ := e.libvpxRDConstantsWithZbinForFrame(qIndex, e.rc.currentZbinOverQuant)
 	rdmultInt := baseRDMult
 	if e.activityMapValid {
 		rdmultInt = e.tunedRDMultiplier(baseRDMult, mbRow, mbCol)

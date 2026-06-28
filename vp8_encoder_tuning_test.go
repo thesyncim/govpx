@@ -154,6 +154,35 @@ func TestUpdateActivityRDStateUsesBottomRightActivityMask(t *testing.T) {
 	}
 }
 
+func TestTunedErrorPerBitCarriesZbinOverQuant(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.rc.currentZbinOverQuant = 128
+	if got := e.tunedErrorPerBit(127, 0, 0); got != 899 {
+		t.Fatalf("zbin-adjusted errorperbit = %d, want libvpx q127/zbin128 value 899", got)
+	}
+	if got := e.tunedErrorPerBit(127, 0, 0); got == vp8enc.ErrorPerBit(127) {
+		t.Fatalf("zbin-adjusted errorperbit collapsed to no-zbin value %d", got)
+	}
+}
+
+func TestTunedErrorPerBitActivityMaskStartsFromZbinRD(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	e.activityMap = []uint32{200000}
+	e.activityAvg = 100000
+	e.activityMapValid = true
+	e.rc.currentZbinOverQuant = 128
+
+	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(127, 128)
+	tuned := e.tunedRDMultiplier(rdMult, 0, 0)
+	want := (tuned * 100) / (110 * rdDiv)
+	if want < 1 {
+		want = 1
+	}
+	if got := e.tunedErrorPerBit(127, 0, 0); got != want {
+		t.Fatalf("activity zbin-adjusted errorperbit = %d, want %d", got, want)
+	}
+}
+
 func TestTuneSSIMActivityZbinAdjustmentCanApplyBelowZeroBase(t *testing.T) {
 	e := newSizedTestEncoder(t, 16, 16)
 	e.opts.Tuning = TuneSSIM
