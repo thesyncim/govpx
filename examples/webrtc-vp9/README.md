@@ -259,6 +259,22 @@ node production_gate.mjs
 The oracle steps run with `GOVPX_WITH_ORACLE=1` and fail if Go reports a skipped
 oracle test, so this gate requires the pinned libvpx binaries to be available.
 
+For longer host-contention qualification, first run `node production_gate.mjs`,
+then run the hostile-load stress gate:
+
+```sh
+node stress_gate.mjs
+```
+
+The stress gate runs a longer loaded browser soak, a loaded control-churn soak,
+a loaded two-AU withhold recovery soak, and a focused `vpxdec` recovery oracle.
+By default it uses 12 CPU burners at 25 fps with 90 seconds of loaded clean
+decode, 45 seconds of loaded control churn, and 20 seconds of loaded withhold
+recovery. Override `VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
+`VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`, `VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,
+`VP9_WEBRTC_STRESS_CPU_BURNERS`, `VP9_WEBRTC_STRESS_SERVER_FPS`, or
+`VP9_WEBRTC_STRESS_REPEAT` when qualifying a different host shape.
+
 ## What this proves
 
 - `govpx.VP9SpatialSVCEncoder` produces VP9 superframes that a native
@@ -288,6 +304,9 @@ oracle test, so this gate requires the pinned libvpx binaries to be available.
 - The top-layer tile-threaded encoder path is pinned by a libvpx/vpxenc
   threaded-tile oracle, so the browser-visible threaded layout is tied back to
   the C encoder.
+- The hostile-load stress gate extends the same browser-visible invariants over
+  longer CPU-contention soaks and keeps the repeated recovery path tied to a
+  native `vpxdec` oracle.
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
   metadata, uses non-flexible VP9 RTP descriptors for realtime receiver
   compatibility, and keeps keyframe requests synchronized across spatial layers.

@@ -19,7 +19,7 @@ const steps = [
       "test",
       ".",
       "-run",
-      "TestSpatialCapBackoff|TestReadmeDocumentsStatefulVP9WebRTCPacketizer|TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis|TestBrowserSmokeEnforcesVP9WebRTCBudgets|TestProductionGateReportsVP9BrowserStallBudgets|TestApplyControl.*|TestConsumeLocalWithholdAccessUnit|TestControlPauseResumeRequestsKeyFrame|TestPauseControlPreservesPendingKeyFrame",
+      "TestSpatialCapBackoff|TestReadmeDocumentsStatefulVP9WebRTCPacketizer|TestIndexHTMLExposesBrowserRTCStatsForFreezeDiagnosis|TestBrowserSmokeEnforcesVP9WebRTCBudgets|TestProductionGateReportsVP9BrowserStallBudgets|TestStressGateReportsVP9HostileSoakBudgets|TestApplyControl.*|TestConsumeLocalWithholdAccessUnit|TestControlPauseResumeRequestsKeyFrame|TestPauseControlPreservesPendingKeyFrame",
       "-count=1",
     ],
     kind: "go-test",

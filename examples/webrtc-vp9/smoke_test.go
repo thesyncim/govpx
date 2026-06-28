@@ -1825,6 +1825,9 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--min-decoded-delta 80 --min-video-time-ratio 0.85",
 		"simultaneous receiver/encoder sessions",
 		"node production_gate.mjs",
+		"node stress_gate.mjs",
+		"VP9_WEBRTC_STRESS_LOADED_SOAK_MS",
+		"hostile-load stress gate",
 		"threaded libvpx/vpxenc tile oracle",
 		"libvpx/vpxdec",
 		"threaded top-layer",
@@ -1836,6 +1839,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"MarkEncodedAccessUnitUnsent",
 		"MarkAccessUnitUnsent",
 		"app-local gap",
+		"longer CPU-contention soaks",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("README.md missing %q", want)
@@ -1950,6 +1954,41 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("production_gate.mjs missing %q", want)
+		}
+	}
+}
+
+func TestStressGateReportsVP9HostileSoakBudgets(t *testing.T) {
+	raw, err := os.ReadFile("stress_gate.mjs")
+	if err != nil {
+		t.Fatalf("read stress_gate.mjs: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"browser-loaded-long-soak",
+		"browser-loaded-control-soak",
+		"browser-loaded-withhold-soak",
+		"--cpu-burners",
+		"--server-fps",
+		"--local-withhold-count",
+		`VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
+		`VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`,
+		`VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,
+		`VP9_WEBRTC_STRESS_CPU_BURNERS`,
+		`VP9_WEBRTC_STRESS_SERVER_FPS`,
+		`VP9_WEBRTC_STRESS_REPEAT`,
+		"libvpx-vpxdec-recovery-oracle",
+		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterConsecutivePacketizedUnsentAccessUnitsDecodesWithVpxdec",
+		`GOVPX_WITH_ORACLE: "1"`,
+		"requiresOracle: true",
+		"assertNoOracleSkips",
+		`line.startsWith("--- SKIP:")`,
+		"maxSenderFailedEncodeAUs",
+		"maxSenderFailedEncodedAUs",
+		"maxScheduleLagMs",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("stress_gate.mjs missing %q", want)
 		}
 	}
 }
