@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"image"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -112,6 +113,77 @@ func TestVP9InterCalculateTxSizeMirrorsLibvpx(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVP9InterTxResidualStatsMatchesScalarReference(t *testing.T) {
+	const width, height = 80, 80
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for y := 0; y < height; y++ {
+		row := img.Y[y*img.YStride:]
+		for x := 0; x < width; x++ {
+			row[x] = byte((x*13 + y*29 + x*y) & 0xff)
+		}
+	}
+
+	e := &VP9Encoder{}
+	e.prepareVP9EncoderOutputFrame(width, height)
+	for y := 0; y < height; y++ {
+		row := e.reconY[y*e.reconFrame.YStride:]
+		for x := 0; x < width; x++ {
+			row[x] = byte((x*7 + y*11 + 19) & 0xff)
+		}
+	}
+	inter := &vp9InterEncodeState{img: img}
+	cases := []struct {
+		name         string
+		miRow, miCol int
+		bsize        common.BlockSize
+	}{
+		{name: "64x64", miRow: 1, miCol: 1, bsize: common.Block64x64},
+		{name: "32x32", miRow: 3, miCol: 2, bsize: common.Block32x32},
+		{name: "16x16", miRow: 5, miCol: 4, bsize: common.Block16x16},
+		{name: "8x8", miRow: 8, miCol: 8, bsize: common.Block8x8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotSSE, gotActivity, ok := e.vp9InterTxResidualStats(inter, tc.miRow, tc.miCol, tc.bsize)
+			if !ok {
+				t.Fatal("vp9InterTxResidualStats returned !ok")
+			}
+			wantSSE, wantActivity := vp9InterTxResidualStatsScalarReference(img, e, tc.miRow, tc.miCol, tc.bsize)
+			if gotSSE != wantSSE || gotActivity != wantActivity {
+				t.Fatalf("stats = sse/activity %d/%d, want %d/%d",
+					gotSSE, gotActivity, wantSSE, wantActivity)
+			}
+		})
+	}
+}
+
+func vp9InterTxResidualStatsScalarReference(img *image.YCbCr, e *VP9Encoder,
+	miRow, miCol int, bsize common.BlockSize,
+) (sse, activity uint64) {
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	for y := range blockH {
+		srcRow := img.Y[(y0+y)*img.YStride:]
+		predRow := e.reconY[(y0+y)*e.reconFrame.YStride:]
+		for x := range blockW {
+			diff := int(srcRow[x0+x]) - int(predRow[x0+x])
+			sse += uint64(diff * diff)
+			if x > 0 {
+				leftDiff := int(srcRow[x0+x-1]) - int(predRow[x0+x-1])
+				activity += uint64(vp9AbsInt(diff - leftDiff))
+			}
+			if y > 0 {
+				upDiff := int(img.Y[(y0+y-1)*img.YStride+x0+x]) -
+					int(e.reconY[(y0+y-1)*e.reconFrame.YStride+x0+x])
+				activity += uint64(vp9AbsInt(diff - upDiff))
+			}
+		}
+	}
+	return sse, activity
 }
 
 // TestVP9InterTxApplyForcesMirrorsLibvpx pins the live picker

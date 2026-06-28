@@ -900,21 +900,22 @@ func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
 		x0+blockW > predStride || y0+blockH > predRows {
 		return 0, 0, false
 	}
+	var prevDiffs [64]int16
 	for y := range blockH {
 		srcRow := src[(y0+y)*srcStride:]
 		predRow := pred[(y0+y)*predStride:]
+		leftDiff := 0
 		for x := range blockW {
 			diff := int(srcRow[x0+x]) - int(predRow[x0+x])
 			sse += uint64(diff * diff)
 			if x > 0 {
-				leftDiff := int(srcRow[x0+x-1]) - int(predRow[x0+x-1])
 				activity += uint64(vp9AbsInt(diff - leftDiff))
 			}
 			if y > 0 {
-				upDiff := int(src[(y0+y-1)*srcStride+x0+x]) -
-					int(pred[(y0+y-1)*predStride+x0+x])
-				activity += uint64(vp9AbsInt(diff - upDiff))
+				activity += uint64(vp9AbsInt(diff - int(prevDiffs[x])))
 			}
+			leftDiff = diff
+			prevDiffs[x] = int16(diff)
 		}
 	}
 	return sse, activity, true
