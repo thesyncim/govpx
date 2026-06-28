@@ -31,6 +31,7 @@ function parseOptions() {
     soakMs: numberFlag("--soak-ms", sampleMs),
     pollMs: numberFlag("--poll-ms", Math.min(sampleMs, 500)),
     timeoutMs: numberFlag("--timeout-ms", 45000),
+    cdpTimeoutMs: numberFlag("--cdp-timeout-ms", 15000, { min: 1000 }),
     minDecodedDelta: numberFlag("--min-decoded-delta", 30),
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
@@ -103,7 +104,7 @@ async function runSmoke(opts, runIndex) {
   try {
     await waitForHTTP(url, opts.timeoutMs);
     chrome = await launchChrome(opts.chromePath, tempProfile);
-    cdp = await CDP.connect(chrome.wsURL);
+    cdp = await CDP.connect(chrome.wsURL, opts.cdpTimeoutMs);
     const clients = [];
     for (let i = 0; i < opts.clients; i++) {
       clients.push(await createBrowserClient(cdp, url, i + 1));
@@ -223,6 +224,7 @@ async function runSmoke(opts, runIndex) {
       sampleMs: opts.sampleMs,
       soakMs: opts.soakMs,
       pollMs: opts.pollMs,
+      cdpTimeoutMs: opts.cdpTimeoutMs,
       serverFPS: opts.serverFPS,
       serverBitrateKbps: opts.serverBitrateKbps,
       serverPlainVP9: opts.serverPlainVP9,
@@ -1500,8 +1502,9 @@ function signalProcess(child, signal, processGroup) {
 }
 
 class CDP {
-  constructor(socket) {
+  constructor(socket, timeoutMs) {
     this.socket = socket;
+    this.timeoutMs = timeoutMs;
     this.nextID = 1;
     this.pending = new Map();
     socket.addEventListener("message", (event) => {
@@ -1510,31 +1513,68 @@ class CDP {
       const pending = this.pending.get(msg.id);
       if (!pending) return;
       this.pending.delete(msg.id);
+      clearTimeout(pending.timer);
       if (msg.error) {
         pending.reject(new Error(JSON.stringify(msg.error)));
       } else {
         pending.resolve(msg.result ?? {});
       }
     });
+    socket.addEventListener("close", () => {
+      this.rejectPending(new Error("CDP socket closed"));
+    });
+    socket.addEventListener("error", () => {
+      this.rejectPending(new Error("CDP socket error"));
+    });
   }
 
-  static async connect(url) {
+  static async connect(url, timeoutMs) {
     const socket = new WebSocket(url);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        reject(new Error(`CDP socket open timed out after ${timeoutMs} ms`));
+        try {
+          socket.close();
+        } catch {
+          // Ignore close failures while surfacing the original timeout.
+        }
+      }, timeoutMs);
+      socket.addEventListener("open", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      socket.addEventListener("error", (event) => {
+        clearTimeout(timer);
+        reject(event instanceof Error ? event : new Error("CDP socket open failed"));
+      }, { once: true });
     });
-    return new CDP(socket);
+    return new CDP(socket, timeoutMs);
   }
 
   send(method, params = {}, sessionId = undefined) {
     const id = this.nextID++;
     const msg = { id, method, params };
     if (sessionId) msg.sessionId = sessionId;
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error(`CDP socket is not open for ${method}`));
+    }
     this.socket.send(JSON.stringify(msg));
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        const suffix = sessionId ? ` session ${sessionId}` : "";
+        reject(new Error(`CDP ${method}${suffix} timed out after ${this.timeoutMs} ms`));
+      }, this.timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
     });
+  }
+
+  rejectPending(err) {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(err);
+      this.pending.delete(id);
+    }
   }
 
   close() {
