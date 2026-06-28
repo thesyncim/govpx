@@ -197,6 +197,18 @@ keyframe and clean browser decode progress after resume:
 node browser_smoke.mjs --pause-resume --pause-ms 1500 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
+To prove receiver-side clean-stall recovery, add `--receiver-stall-probe`. The
+browser synthesizes the same no-loss stalled-decode stats that the live receiver
+watchdog consumes, verifies that it sends a keyframe request plus spatial-cap
+backoff, then requires the live stream to keep decoding cleanly. This mode
+allows exactly one app-level receiver repair request from the probe while still
+requiring browser-native NACK/PLI/FIR, RTP loss, dropped frames, and freeze
+counters to stay flat:
+
+```sh
+node browser_smoke.mjs --receiver-stall-probe --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+```
+
 To prove app-local no-loss recovery, add `--local-withhold`. The sender
 packetizes two consecutive VP9 access units but deliberately withholds their RTP
 packets, then the browser smoke requires packetizer recovery, forced keyframes,
@@ -235,10 +247,10 @@ To run the full local VP9 WebRTC production gate, including focused Go checks,
 the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
 tile-layout check, the clean control-churn browser recovery check, the live
 bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
-app-local no-loss withhold recovery checks with and without scheduler
-contention, the loaded control-churn recovery check, the multi-client browser
-soak, the threaded libvpx/vpxenc tile oracle, and the libvpx/vpxdec oracle
-subset, run:
+receiver-side clean-stall recovery probe, the app-local no-loss withhold
+recovery checks with and without scheduler contention, the loaded control-churn
+recovery check, the multi-client browser soak, the threaded libvpx/vpxenc tile oracle,
+and the libvpx/vpxdec oracle subset, run:
 
 ```sh
 node production_gate.mjs
@@ -262,6 +274,9 @@ oracle test, so this gate requires the pinned libvpx binaries to be available.
   clean samples, catching stalls that do not increment the simple freeze count.
 - Pause/resume is gated as a lifecycle recovery path: resume must trigger a
   keyframe and clean browser decode must restart without RTP/decoder feedback.
+- Receiver-side clean-stall recovery is gated: the watchdog must request a
+  keyframe, back off spatial cap after repeated clean stalls, and resume clean
+  decode without browser-native NACK/PLI/FIR feedback.
 - App-local no-loss withhold is gated as a sender recovery path: deliberately
   withheld, already-packetized VP9 access units must trigger packetizer recovery
   and clean browser decode without RTP loss or receiver repair feedback.

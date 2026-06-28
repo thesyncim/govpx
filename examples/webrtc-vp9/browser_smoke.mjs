@@ -48,6 +48,7 @@ function parseOptions() {
     tuningChurn: booleanFlag("--tuning-churn"),
     pauseResume: booleanFlag("--pause-resume"),
     pauseMs: numberFlag("--pause-ms", 1500, { min: 0 }),
+    receiverStallProbe: booleanFlag("--receiver-stall-probe"),
     localWithhold: booleanFlag("--local-withhold"),
     localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 }),
     minActiveLayers: optionalNumberFlag("--min-active-layers"),
@@ -100,6 +101,12 @@ async function runSmoke(opts, runIndex) {
       : null;
     if (localWithhold) {
       firstByClient = localWithhold.afterRecoveryByClient;
+    }
+    const receiverStallProbe = opts.receiverStallProbe
+      ? await exerciseReceiverStallProbe(cdp, clients, firstByClient, opts.timeoutMs)
+      : null;
+    if (receiverStallProbe) {
+      firstByClient = receiverStallProbe.afterProbeByClient;
     }
     let previousByClient = firstByClient;
     const samples = [];
@@ -172,6 +179,7 @@ async function runSmoke(opts, runIndex) {
       ...opts,
       pauseResumeResult: pauseResume,
       localWithholdResult: localWithhold,
+      receiverStallProbeResult: receiverStallProbe,
     });
     return {
       run: runIndex,
@@ -187,6 +195,7 @@ async function runSmoke(opts, runIndex) {
       tuningChurn: opts.tuningChurn,
       pauseResume: opts.pauseResume,
       pauseMs: opts.pauseMs,
+      receiverStallProbe: opts.receiverStallProbe,
       localWithhold: opts.localWithhold,
       localWithholdCount: opts.localWithholdCount,
       minDecodedDelta: opts.minDecodedDelta,
@@ -203,6 +212,7 @@ async function runSmoke(opts, runIndex) {
       requireThreadedTopLayer: opts.requireThreadedTopLayer,
       pauseResumeResult: pauseResume,
       localWithholdResult: localWithhold,
+      receiverStallProbeResult: receiverStallProbe,
       initial: initialByClient[0],
       samples,
       first: firstByClient[0],
@@ -320,6 +330,161 @@ async function waitForPauseResumeRecovery(cdp, sessionId, before, timeoutMs) {
     }
   }
   throw new Error(`pause/resume decode recovery did not become ready: ${JSON.stringify({ before, latest })}`);
+}
+
+async function exerciseReceiverStallProbe(cdp, clients, beforeByClient, timeoutMs) {
+  const probes = await Promise.all(clients.map((client) =>
+    triggerReceiverStallProbe(cdp, client.sessionId)
+  ));
+  const recoveredByClient = await Promise.all(clients.map((client, i) =>
+    waitForReceiverStallProbeRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, probes[i])
+  ));
+  await sleep(1000);
+  const afterProbeByClient = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  return {
+    clients: probes.map((probe, i) => ({
+      client: i + 1,
+      sent: probe.sent,
+      repairRequests: probe.receiverRepairRequests,
+      receiverSpatialCap: probe.receiverRequestedSpatialCap,
+      forcedKeysAfterStall: numericDelta(
+        beforeByClient[i]?.senderForcedKeys,
+        recoveredByClient[i]?.senderForcedKeys,
+      ),
+      decodedAfterStall: numericDelta(
+        beforeByClient[i]?.rxDecoded,
+        recoveredByClient[i]?.rxDecoded,
+      ),
+      lostAfterStall: numericDelta(
+        beforeByClient[i]?.rxLost,
+        recoveredByClient[i]?.rxLost,
+      ),
+      repairedAfterStall: numericDelta(
+        beforeByClient[i]?.rxRepairRequests,
+        recoveredByClient[i]?.rxRepairRequests,
+      ),
+      recovered: recoveredByClient[i],
+      afterProbe: afterProbeByClient[i],
+    })),
+    afterProbeByClient,
+  };
+}
+
+async function triggerReceiverStallProbe(cdp, sessionId) {
+  const result = await cdp.send("Runtime.evaluate", {
+    expression: `(() => {
+      const sent = [];
+      const oldSendCtl = sendCtl;
+      sendCtl = (obj) => {
+        sent.push(obj);
+        oldSendCtl(obj);
+      };
+      try {
+        const now = Date.now();
+        const current = typeof latestRTCStats === "object" && latestRTCStats ? latestRTCStats : {};
+        const packetsReceived = Number.isFinite(current.packetsReceived) ? current.packetsReceived : 100;
+        const packetsLost = Number.isFinite(current.packetsLost) ? current.packetsLost : 0;
+        const framesDecoded = Number.isFinite(current.framesDecoded) ? current.framesDecoded : 100;
+        const freezeCount = Number.isFinite(current.freezeCount) ? current.freezeCount : 0;
+        const totalFreezesDuration = Number.isFinite(current.totalFreezesDuration) ? current.totalFreezesDuration : 0;
+        const pauseCount = Number.isFinite(current.pauseCount) ? current.pauseCount : 0;
+        const totalPausesDuration = Number.isFinite(current.totalPausesDuration) ? current.totalPausesDuration : 0;
+        const nackCount = Number.isFinite(current.nackCount) ? current.nackCount : 0;
+        const pliCount = Number.isFinite(current.pliCount) ? current.pliCount : 0;
+        const firCount = Number.isFinite(current.firCount) ? current.firCount : 0;
+        receiverRepairRequests = 0;
+        receiverRepairStreak = RECEIVER_REPAIR_CAP_BACKOFF_AFTER - 1;
+        receiverRepairSuppressedUntilDecoded = false;
+        receiverRepairSuppressUntil = 0;
+        receiverRequestedSpatialCap = MAX_SPATIAL_CAP;
+        setSpatialCapButtons(receiverRequestedSpatialCap);
+        receiverLastRepairAt = now - RECEIVER_REPAIR_COOLDOWN_MS - 1;
+        receiverLastDecoded = framesDecoded;
+        receiverLastDecodedAt = now - RECEIVER_DECODE_STALL_MS - 1;
+        previousRTCStats = {
+          packetsReceived,
+          packetsLost,
+          framesDecoded,
+          freezeCount,
+          totalFreezesDuration,
+          pauseCount,
+          totalPausesDuration,
+          nackCount,
+          pliCount,
+          firCount
+        };
+        const stats = {
+          packetsReceived: packetsReceived + 1,
+          packetsLost,
+          framesDecoded,
+          freezeCount,
+          totalFreezesDuration,
+          pauseCount,
+          totalPausesDuration,
+          nackCount,
+          pliCount,
+          firCount
+        };
+        maybeRequestReceiverRepair(stats);
+        return {
+          sent,
+          receiverRepairRequests,
+          receiverRepairStreak,
+          receiverRequestedSpatialCap,
+          stats
+        };
+      } finally {
+        sendCtl = oldSendCtl;
+      }
+    })()`,
+    returnByValue: true,
+    awaitPromise: true,
+  }, sessionId);
+  if (result.exceptionDetails) {
+    throw new Error(`receiver stall probe failed: ${JSON.stringify(result.exceptionDetails)}`);
+  }
+  const probe = result.result.value;
+  const sentTypes = Array.isArray(probe?.sent) ? probe.sent.map((msg) => msg?.type) : [];
+  if (
+    !sentTypes.includes("keyframe") ||
+    !sentTypes.includes("spatial") ||
+    probe.receiverRepairRequests < 1 ||
+    probe.receiverRequestedSpatialCap >= 3
+  ) {
+    throw new Error(`receiver stall probe did not emit repair controls: ${JSON.stringify(probe)}`);
+  }
+  return probe;
+}
+
+async function waitForReceiverStallProbeRecovery(cdp, sessionId, before, timeoutMs, probe) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    latest = await readStats(cdp, sessionId);
+    const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
+    const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    const lost = numericDelta(before?.rxLost, latest?.rxLost);
+    const repairs = numericDelta(before?.rxRepairRequests, latest?.rxRepairRequests);
+    if (
+      forcedKeys !== null &&
+      forcedKeys >= 1 &&
+      decoded !== null &&
+      decoded >= 1 &&
+      (lost === null || lost === 0) &&
+      repairs !== null &&
+      repairs >= 1 &&
+      Number.isFinite(latest.rxSpatialCap) &&
+      latest.rxSpatialCap <= probe.receiverRequestedSpatialCap &&
+      latest.videoReadyState >= 2 &&
+      latest.videoTime > before.videoTime
+    ) {
+      return latest;
+    }
+  }
+  throw new Error(`receiver stall probe recovery did not become ready: ${JSON.stringify({ before, latest, probe })}`);
 }
 
 async function exerciseLocalWithhold(cdp, clients, beforeByClient, timeoutMs, count) {
@@ -995,6 +1160,30 @@ function assertRunSmoke(summary, opts) {
         (client.repairedAfterWithhold !== null && client.repairedAfterWithhold !== 0)))
   ) {
     throw new Error(`local withhold did not produce clean packetizer recovery: ${JSON.stringify({ summary, localWithhold: opts.localWithholdResult })}`);
+  }
+  if (
+    opts.receiverStallProbe &&
+    (!opts.receiverStallProbeResult ||
+      !Array.isArray(opts.receiverStallProbeResult.clients) ||
+      opts.receiverStallProbeResult.clients.length !== opts.clients ||
+      opts.receiverStallProbeResult.clients.some((client) => {
+        const sentTypes = Array.isArray(client.sent)
+          ? client.sent.map((msg) => msg?.type)
+          : [];
+        return !sentTypes.includes("keyframe") ||
+          !sentTypes.includes("spatial") ||
+          client.repairRequests < 1 ||
+          client.receiverSpatialCap >= 3 ||
+          client.forcedKeysAfterStall === null ||
+          client.forcedKeysAfterStall < 1 ||
+          client.decodedAfterStall === null ||
+          client.decodedAfterStall < 1 ||
+          (client.lostAfterStall !== null && client.lostAfterStall !== 0) ||
+          client.repairedAfterStall === null ||
+          client.repairedAfterStall < 1;
+      }))
+  ) {
+    throw new Error(`receiver stall probe did not produce clean forced-key recovery: ${JSON.stringify({ summary, receiverStallProbe: opts.receiverStallProbeResult })}`);
   }
 }
 
