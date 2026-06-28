@@ -347,6 +347,111 @@ func TestPlainVP9WebRTCPacketizerRecoveryAfterPartialWriteAccessUnitsDecodesWith
 	assertPlainVP9RecoveryStreamDecodesWithVpxdec(t, packets, sentFrames)
 }
 
+func TestPlainVP9WebRTCThreadedTemporalStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const width, height = 640, 360
+	const frames = 18
+	wantThreads := pickThreads(width, height)
+	if wantThreads < 2 {
+		t.Skipf("host exposes only %d legal VP9 tile thread(s)", wantThreads)
+	}
+	encoder, err := newPlainVP9Encoder(demoConfig{
+		FPS:                  25,
+		BitrateKbps:          1200,
+		PlainVP9Mode:         true,
+		PlainVP9TemporalMode: true,
+		PlainVP9Width:        width,
+		PlainVP9Height:       height,
+	})
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer encoder.Close()
+
+	dst := make([]byte, plainVP9FrameBudget(width, height))
+	packetizer := govpx.NewVP9WebRTCPacketizer(
+		govpx.VP9RTPPictureID15BitMask - 3)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	packets := make([][]byte, 0, frames)
+	var fragments []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	for frame := 0; frame < frames; frame++ {
+		if frame == 9 {
+			encoder.ForceKeyFrame()
+		}
+		result, err := encoder.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(
+			width, height, byte(24+frame*7), byte(224-frame*3),
+			byte(96+frame*5), byte(192-frame*2)), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		if frame == 0 {
+			info, err := govpx.PeekVP9StreamInfo(result.Data)
+			if err != nil {
+				t.Fatalf("PeekVP9StreamInfo threaded plain frame: %v", err)
+			}
+			wantLog2Cols := expectedTileLog2Cols(wantThreads)
+			if !info.TileInfoAvailable ||
+				info.TileLog2Cols != wantLog2Cols ||
+				info.TileLog2Rows != 0 {
+				t.Fatalf("threaded plain VP9 tile info = available:%v log2:%dx%d, want available %dx0",
+					info.TileInfoAvailable, info.TileLog2Cols,
+					info.TileLog2Rows, wantLog2Cols)
+			}
+		}
+		pictureID := packetizer.PictureID()
+		fragmentCount, payloadBytes, sent, err := packetizer.PacketizationSize(
+			result, rtpPayloadMTU)
+		if err != nil {
+			t.Fatalf("PacketizationSize frame %d: %v", frame, err)
+		}
+		if !sent {
+			t.Fatalf("frame %d unexpectedly reported unsent size", frame)
+		}
+		if cap(fragments) < fragmentCount {
+			fragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		}
+		fragments = fragments[:fragmentCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		n, used, sent, err := packetizer.PacketizeInto(result, fragments,
+			payloadBuf, rtpPayloadMTU)
+		if err != nil || !sent {
+			t.Fatalf("PacketizeInto frame %d = packets:%d bytes:%d sent:%t err:%v",
+				frame, n, used, sent, err)
+		}
+		if n != fragmentCount || used != payloadBytes {
+			t.Fatalf("PacketizeInto frame %d returned %d/%d, want %d/%d",
+				frame, n, used, fragmentCount, payloadBytes)
+		}
+		payloads := fragments[:n]
+		wantSS := result.KeyFrame && !result.InterPicturePredicted &&
+			result.TemporalLayerID == 0
+		assertPlainVP9WebRTCPionPayloadBodiesForTest(t, result, payloads,
+			pictureID, width, height, wantSS)
+		refFinder.acceptPlainAccessUnit(t, frame, payloads, pictureID)
+		assembled, err := govpx.AssembleVP9RTPFrame(payloads)
+		if err != nil {
+			t.Fatalf("AssembleVP9RTPFrame frame %d: %v", frame, err)
+		}
+		if !bytes.Equal(assembled, result.Data) {
+			t.Fatalf("frame %d WebRTC RTP reassembly drifted", frame)
+		}
+		packets = append(packets, append([]byte(nil), assembled...))
+	}
+
+	ivf := vp9test.BuildVP9IVF(width, height, packets...)
+	raw := vp9test.VpxdecI420(t, ivf)
+	want := frames * width * height * 3 / 2
+	if len(raw) != want {
+		t.Fatalf("vpxdec raw size = %d, want %d", len(raw), want)
+	}
+	assertPlainVP9VpxdecOutputVariesForTest(t, raw, frames, width, height)
+}
+
 func assertPlainVP9VpxdecOutputVariesForTest(
 	t *testing.T,
 	raw []byte,

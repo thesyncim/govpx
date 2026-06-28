@@ -35,7 +35,7 @@ import (
 const (
 	spatialLayerCount    = 3
 	temporalLayerMode    = govpx.TemporalLayeringThreeLayers
-	plainVP9TemporalMode = govpx.TemporalLayeringThreeLayersNoInterLayerPrediction
+	plainVP9TemporalMode = govpx.TemporalLayeringThreeLayersOneReference
 	rtpClockHz           = govpx.VP9RTPClockRate
 	rtpPayloadMTU        = 1200 - 12
 	vp9Profile0Fmtp      = govpx.VP9SDPFmtpProfile0
@@ -75,6 +75,8 @@ type demoConfig struct {
 	PlainVP9Mode                 bool
 	PlainVP9TemporalMode         bool
 	PlainVP9TemporalLayeringMode govpx.TemporalLayeringMode
+	PlainVP9Width                int
+	PlainVP9Height               int
 }
 
 const indexHTML = `<!doctype html>
@@ -526,6 +528,8 @@ func main() {
 	plainVP9 := flag.Bool("plain-vp9", false, "stream a plain single-layer VP9 WebRTC sender")
 	plainVP9Temporal := flag.Bool("plain-vp9-temporal", false, "enable three temporal layers in plain VP9 mode")
 	plainVP9TemporalMode := flag.String("plain-vp9-temporal-mode", "default", "plain VP9 temporal pattern")
+	plainVP9WidthFlag := flag.Int("plain-vp9-width", plainVP9Width, "plain VP9 sender width")
+	plainVP9HeightFlag := flag.Int("plain-vp9-height", plainVP9Height, "plain VP9 sender height")
 	flag.Parse()
 	if *fps <= 0 {
 		log.Fatal("fps must be positive")
@@ -539,6 +543,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if _, err := govpx.VP9SDPFrameSizeMacroblocks(
+		*plainVP9WidthFlag, *plainVP9HeightFlag); err != nil {
+		log.Fatalf("plain VP9 dimensions must be valid VP9 frame dimensions: %dx%d",
+			*plainVP9WidthFlag, *plainVP9HeightFlag)
+	}
 	cfg := demoConfig{
 		Addr:                         *addr,
 		FPS:                          *fps,
@@ -546,6 +555,8 @@ func main() {
 		PlainVP9Mode:                 *plainVP9 || *plainVP9Temporal,
 		PlainVP9TemporalMode:         *plainVP9Temporal,
 		PlainVP9TemporalLayeringMode: temporalMode,
+		PlainVP9Width:                *plainVP9WidthFlag,
+		PlainVP9Height:               *plainVP9HeightFlag,
 	}
 
 	mux := http.NewServeMux()
@@ -767,9 +778,20 @@ func offerSupportsDemoVP9(sdp string, cfg demoConfig) bool {
 
 func demoOfferDimensions(cfg demoConfig) (int, int) {
 	if cfg.PlainVP9Mode {
-		return plainVP9Width, plainVP9Height
+		return plainVP9Dimensions(cfg)
 	}
 	return demoTopLayerDimensions()
+}
+
+func plainVP9Dimensions(cfg demoConfig) (int, int) {
+	width, height := cfg.PlainVP9Width, cfg.PlainVP9Height
+	if width <= 0 {
+		width = plainVP9Width
+	}
+	if height <= 0 {
+		height = plainVP9Height
+	}
+	return width, height
 }
 
 func demoTopLayerDimensions() (int, int) {
@@ -1170,7 +1192,8 @@ func (b *spatialCapBackoff) observeCompletedAccessUnit(
 }
 
 func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
-	return interval > 0 && elapsed > interval+interval/2
+	// WebRTC realtime stalls before a sender sits at 1.5x frame budget.
+	return interval > 0 && elapsed > interval+interval/4
 }
 
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
@@ -1210,16 +1233,17 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	}
 	defer enc.Close()
 
-	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
+	width, height := plainVP9Dimensions(cfg)
+	img := image.NewYCbCr(image.Rect(0, 0, width, height),
 		image.YCbCrSubsampleRatio420)
-	packet := make([]byte, plainVP9FrameBudget())
+	packet := make([]byte, plainVP9FrameBudget(width, height))
 	var rtpFragments []govpx.RTPPayloadFragment
 	var rtpPayloadBuf []byte
 	interval := time.Second / time.Duration(cfg.FPS)
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
 	rtpPacketizer := govpx.NewVP9WebRTCPacketizer(randomUint16())
-	flexibleVP9RTP := cfg.PlainVP9TemporalMode
+	flexibleVP9RTP := false
 
 	startedAt := time.Now()
 	ticker := time.NewTicker(interval)
@@ -1286,7 +1310,8 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 			requestKeyFrameAfterFailedAccessUnit(ctl)
 			continue
 		}
-		telemetryResult := plainVP9TelemetryResult(result)
+		telemetryResult := plainVP9TelemetryResultForDimensions(result,
+			width, height)
 
 		packetizeStarted := time.Now()
 		fragmentCount, payloadBytes, sent, err := plainVP9WebRTCPacketizationSize(
@@ -1824,19 +1849,20 @@ func superframeBudget() int {
 	return budgetLayerPixels/2 + spatialLayerCount*64*1024
 }
 
-func plainVP9FrameBudget() int {
-	return plainVP9Width*plainVP9Height*3/2 + 64*1024
+func plainVP9FrameBudget(width, height int) int {
+	return width*height*3/2 + 64*1024
 }
 
 func newPlainVP9Encoder(cfg demoConfig) (*govpx.VP9Encoder, error) {
+	width, height := plainVP9Dimensions(cfg)
 	opts := govpx.VP9EncoderOptions{
-		Width:                    plainVP9Width,
-		Height:                   plainVP9Height,
+		Width:                    width,
+		Height:                   height,
 		FPS:                      cfg.FPS,
-		Threads:                  pickThreads(plainVP9Width, plainVP9Height),
-		RowMT:                    pickRowMT(plainVP9Width, plainVP9Height),
+		Threads:                  pickThreads(width, height),
+		RowMT:                    pickRowMT(width, height),
 		Deadline:                 govpx.DeadlineRealtime,
-		CpuUsed:                  pickCPUUsed(plainVP9Width, plainVP9Height),
+		CpuUsed:                  pickCPUUsed(width, height),
 		RateControlModeSet:       true,
 		RateControlMode:          govpx.RateControlCBR,
 		TargetBitrateKbps:        cfg.BitrateKbps,
@@ -2002,6 +2028,14 @@ func maxVP9TileColumns(width int) int {
 func plainVP9TelemetryResult(
 	r govpx.VP9EncodeResult,
 ) govpx.VP9SpatialSVCEncodeResult {
+	return plainVP9TelemetryResultForDimensions(r, plainVP9Width,
+		plainVP9Height)
+}
+
+func plainVP9TelemetryResultForDimensions(
+	r govpx.VP9EncodeResult,
+	width, height int,
+) govpx.VP9SpatialSVCEncodeResult {
 	layer := r
 	layer.SpatialLayerID = 0
 	layer.SpatialLayerCount = 1
@@ -2009,8 +2043,8 @@ func plainVP9TelemetryResult(
 		SpatialLayerCount: 1,
 		ResolutionPresent: true,
 	}
-	ss.Width[0] = plainVP9Width
-	ss.Height[0] = plainVP9Height
+	ss.Width[0] = uint16(width)
+	ss.Height[0] = uint16(height)
 	if r.KeyFrame && !r.InterPicturePredicted {
 		layer.ScalabilityStructurePresent = true
 		layer.SpatialScalabilityStructure = ss
@@ -2172,7 +2206,8 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 	layers := make([]telemetryLayer, count)
 	for i := 0; i < count; i++ {
 		l := r.Layers[i]
-		threads, rowMT, tileCols := telemetryLayerThreadConfig(i, l.Data)
+		threads, rowMT, tileCols := telemetryLayerThreadConfig(r, i,
+			l.Data)
 		layers[i] = telemetryLayer{
 			SP:       int(l.SpatialLayerID),
 			TP:       l.TemporalLayerID,
@@ -2209,11 +2244,15 @@ func (t *statsTracker) snapshot(r govpx.VP9SpatialSVCEncodeResult,
 	return json.Marshal(msg)
 }
 
-func telemetryLayerThreadConfig(layerIndex int, packet []byte) (int, bool, int) {
+func telemetryLayerThreadConfig(
+	r govpx.VP9SpatialSVCEncodeResult,
+	layerIndex int,
+	packet []byte,
+) (int, bool, int) {
 	if layerIndex < 0 || layerIndex >= spatialLayerCount {
 		return 1, false, 1
 	}
-	width, height := layerDims[layerIndex][0], layerDims[layerIndex][1]
+	width, height := telemetryLayerDimensions(r, layerIndex)
 	threads := pickThreads(width, height)
 	tileCols := threads
 	if tileCols < 1 {
@@ -2226,6 +2265,20 @@ func telemetryLayerThreadConfig(layerIndex int, packet []byte) (int, bool, int) 
 		}
 	}
 	return threads, pickRowMT(width, height), tileCols
+}
+
+func telemetryLayerDimensions(
+	r govpx.VP9SpatialSVCEncodeResult,
+	layerIndex int,
+) (int, int) {
+	if r.ScalabilityStructure.ResolutionPresent &&
+		layerIndex < int(r.ScalabilityStructure.SpatialLayerCount) &&
+		r.ScalabilityStructure.Width[layerIndex] > 0 &&
+		r.ScalabilityStructure.Height[layerIndex] > 0 {
+		return int(r.ScalabilityStructure.Width[layerIndex]),
+			int(r.ScalabilityStructure.Height[layerIndex])
+	}
+	return layerDims[layerIndex][0], layerDims[layerIndex][1]
 }
 
 func durationMS(d time.Duration) float64 {

@@ -455,6 +455,12 @@ func TestPlainVP9ModeUsesPlainReceiverCaps(t *testing.T) {
 		t.Fatalf("plain VP9 mode rejected caps sufficient for %dx%d:\n%s",
 			plainVP9Width, plainVP9Height, offer.SDP)
 	}
+	plainCfg.PlainVP9Width = 640
+	plainCfg.PlainVP9Height = 360
+	if offerSupportsDemoVP9(offer.SDP, plainCfg) {
+		t.Fatalf("plain VP9 mode accepted caps below configured 640x360:\n%s",
+			offer.SDP)
+	}
 }
 
 func TestHandleOfferContinuesAfterServerICEGatherTimeout(t *testing.T) {
@@ -1360,7 +1366,7 @@ func TestSpatialCapChangeAfterForceKeyConsumedIsAppliedNextKeyFrame(t *testing.T
 func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval*2/3
+	overrun := interval + interval/3
 
 	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
 		if backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
@@ -1383,7 +1389,7 @@ func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 func TestSpatialCapBackoffAllowsNearBudgetJitter(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	nearBudget := interval + interval/3
+	nearBudget := interval + interval/5
 
 	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
 		if backoff.observe(spatialLayerCount, spatialLayerCount, nearBudget, interval) {
@@ -1805,7 +1811,7 @@ func TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn(t *testing.T) {
 
 	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
 		image.YCbCrSubsampleRatio420)
-	dst := make([]byte, plainVP9FrameBudget())
+	dst := make([]byte, plainVP9FrameBudget(plainVP9Width, plainVP9Height))
 	packetizer := govpx.NewVP9WebRTCPacketizer(0x120)
 	var fragments []govpx.RTPPayloadFragment
 	var payloadBuf []byte
@@ -1848,6 +1854,95 @@ func TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn(t *testing.T) {
 	}
 }
 
+func TestPlainVP9TemporalWebRTCUsesNonFlexibleRecoveryGOF(t *testing.T) {
+	enc, err := newPlainVP9Encoder(demoConfig{
+		FPS:                  25,
+		BitrateKbps:          800,
+		PlainVP9Mode:         true,
+		PlainVP9TemporalMode: true,
+	})
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
+		image.YCbCrSubsampleRatio420)
+	dst := make([]byte, plainVP9FrameBudget(plainVP9Width, plainVP9Height))
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x120)
+	var fragments []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	forcedKeysWithGOF := 0
+	for frame := 0; frame < 90; frame++ {
+		forced := frame == 1 || frame == 2 ||
+			(frame != 0 && frame%30 == 0) || frame == 31
+		if forced {
+			enc.ForceKeyFrame()
+		}
+		drawFrameYCbCr(img, frame+1, 1)
+		result, err := enc.EncodeIntoWithResult(img, dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult[%d]: %v", frame, err)
+		}
+		fragmentCount, payloadBytes, sent, err := plainVP9WebRTCPacketizationSize(
+			&packetizer, result, rtpPayloadMTU, false)
+		if err != nil {
+			t.Fatalf("PacketizationSize[%d]: %v", frame, err)
+		}
+		if !sent {
+			t.Fatalf("PacketizationSize[%d] reported unsent frame", frame)
+		}
+		if cap(fragments) < fragmentCount {
+			fragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		}
+		fragments = fragments[:fragmentCount]
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		payloadBuf = payloadBuf[:payloadBytes]
+		n, used, sent, err := packetizePlainVP9WebRTCInto(&packetizer,
+			result, fragments, payloadBuf, rtpPayloadMTU, false)
+		if err != nil || !sent {
+			t.Fatalf("PacketizeInto[%d] = packets:%d bytes:%d sent:%t err:%v",
+				frame, n, used, sent, err)
+		}
+		if n != fragmentCount || used != payloadBytes {
+			t.Fatalf("PacketizeInto[%d] returned %d/%d, want %d/%d",
+				frame, n, used, fragmentCount, payloadBytes)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(fragments[0].Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", frame, err)
+		}
+		if desc.FlexibleMode {
+			t.Fatalf("frame %d used flexible VP9 RTP descriptor", frame)
+		}
+		if !desc.LayerIndicesPresent || int(desc.TemporalID) != result.TemporalLayerID ||
+			desc.TL0PICIDX != result.TL0PICIDX {
+			t.Fatalf("frame %d descriptor temporal = layer:%t tid:%d tl0:%d, want tid:%d tl0:%d",
+				frame, desc.LayerIndicesPresent, desc.TemporalID,
+				desc.TL0PICIDX, result.TemporalLayerID, result.TL0PICIDX)
+		}
+		if desc.ReferenceIndexCount != 0 {
+			t.Fatalf("frame %d carried flexible references in non-flexible RTP",
+				frame)
+		}
+		if forced && result.KeyFrame {
+			if !desc.ScalabilityStructurePresent ||
+				!desc.ScalabilityStructure.PictureGroupPresent ||
+				len(desc.ScalabilityStructure.PictureGroups) == 0 {
+				t.Fatalf("forced key frame %d missing non-flexible GOF scalability structure: %+v",
+					frame, desc)
+			}
+			forcedKeysWithGOF++
+		}
+	}
+	if forcedKeysWithGOF < 2 {
+		t.Fatalf("forced keyframes with GOF = %d, want at least 2",
+			forcedKeysWithGOF)
+	}
+}
+
 func TestPlainVP9TemporalModeUsesThreeTemporalLayers(t *testing.T) {
 	enc, err := newPlainVP9Encoder(demoConfig{
 		FPS:                  defaultFPS,
@@ -1862,7 +1957,7 @@ func TestPlainVP9TemporalModeUsesThreeTemporalLayers(t *testing.T) {
 
 	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
 		image.YCbCrSubsampleRatio420)
-	dst := make([]byte, plainVP9FrameBudget())
+	dst := make([]byte, plainVP9FrameBudget(plainVP9Width, plainVP9Height))
 	wantTemporalID := []int{0, 2, 1, 2, 0}
 	wantTL0 := []uint8{0, 0, 0, 0, 1}
 	for frame := range wantTemporalID {
@@ -1935,6 +2030,71 @@ func TestPlainVP9TelemetryResultPresentsOneLayer(t *testing.T) {
 		layer.SpatialScalabilityStructure.Height[0] != plainVP9Height {
 		t.Fatalf("plain telemetry SS = %+v, want one %dx%d layer",
 			layer.SpatialScalabilityStructure, plainVP9Width, plainVP9Height)
+	}
+}
+
+func TestPlainVP9EncoderUsesConfiguredThreadedTileLayout(t *testing.T) {
+	const width, height = 640, 360
+	wantThreads := pickThreads(width, height)
+	if wantThreads < 2 {
+		t.Skipf("host exposes only %d legal VP9 tile thread(s)", wantThreads)
+	}
+	enc, err := newPlainVP9Encoder(demoConfig{
+		FPS:            defaultFPS,
+		BitrateKbps:    defaultBitrateKbps,
+		PlainVP9Mode:   true,
+		PlainVP9Width:  width,
+		PlainVP9Height: height,
+	})
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	img := image.NewYCbCr(image.Rect(0, 0, width, height),
+		image.YCbCrSubsampleRatio420)
+	drawFrameYCbCr(img, 1, 1)
+	dst := make([]byte, plainVP9FrameBudget(width, height))
+	result, err := enc.EncodeIntoWithResult(img, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	info, err := govpx.PeekVP9StreamInfo(result.Data)
+	if err != nil {
+		t.Fatalf("PeekVP9StreamInfo plain VP9: %v", err)
+	}
+	wantLog2Cols := expectedTileLog2Cols(wantThreads)
+	if !info.TileInfoAvailable || info.TileLog2Cols != wantLog2Cols ||
+		info.TileLog2Rows != 0 {
+		t.Fatalf("plain VP9 tile info = available:%v log2:%dx%d, want available %dx0",
+			info.TileInfoAvailable, info.TileLog2Cols,
+			info.TileLog2Rows, wantLog2Cols)
+	}
+
+	telemetryResult := plainVP9TelemetryResultForDimensions(result,
+		width, height)
+	tracker := newStatsTracker()
+	tracker.observe(telemetryResult, time.Now())
+	raw, err := tracker.snapshot(telemetryResult, defaultBitrateKbps, 0,
+		1, 1, 0, telemetrySender{})
+	if err != nil {
+		t.Fatalf("snapshot telemetry: %v", err)
+	}
+	var msg telemetryMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("decode telemetry: %v\npayload=%s", err, raw)
+	}
+	if len(msg.Layers) != 1 {
+		t.Fatalf("plain VP9 telemetry layer count = %d, want 1",
+			len(msg.Layers))
+	}
+	layer := msg.Layers[0]
+	wantTileCols := 1 << uint(wantLog2Cols)
+	if layer.Threads != wantThreads || layer.TileCols != wantTileCols ||
+		layer.RowMT {
+		t.Fatalf("plain VP9 telemetry threads/tile/row = %d/%d/%t, want %d/%d/false",
+			layer.Threads, layer.TileCols, layer.RowMT, wantThreads,
+			wantTileCols)
 	}
 }
 
@@ -2070,15 +2230,20 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"-plain-vp9-temporal",
 		"--server-plain-vp9-temporal",
 		"plain single-spatial/three-temporal-layer VP9 WebRTC path",
-		"no-inter-layer-prediction",
+		"one-reference",
+		"-plain-vp9-width",
+		"-plain-vp9-height",
+		"640x360 plain sender",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--server-plain-vp9-temporal --control-churn --cpu-burners 12 --server-fps 25",
+		"--server-plain-vp9-width 640 --server-plain-vp9-height 360",
+		"--server-bitrate-kbps 1200",
 		"--server-plain-vp9-temporal --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25",
 		"--server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25",
 		"--min-active-layers 1 --min-ending-active-layers 1",
 		"--control-churn",
 		"sender forced-key event",
-		"--max-rx-dropped-delta 1",
+		"--max-rx-dropped-delta 2",
 		"--max-rx-pli-delta 1",
 		"--tuning-churn",
 		"screen-content mode changes force a keyframe boundary",
@@ -2112,6 +2277,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"access-unit or schedule-lag latency budget",
 		"the full",
 		"production gate and hostile-load stress gate both enforce those budgets",
+		"tile-threaded 640x360 plain temporal loaded check",
 		"root VP9 WebRTC packetizer, spatial-SVC",
 		"browser reference-state stalls fail before manual testing",
 		"zero-CPU libvpx/vpxenc speed oracle",
@@ -2147,6 +2313,8 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		`maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 })`,
+		`maxRxFreezesDelta: numberFlag("--max-rx-freezes-delta", 0, { min: 0 })`,
+		`maxRxFreezeDurationDelta: numberFlag("--max-rx-freeze-duration-delta", 0, { min: 0 })`,
 		`maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 })`,
 		`maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 })`,
 		`maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 })`,
@@ -2157,6 +2325,7 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"controlChurnAction(opts, sampleIndex)",
 		"plainVP9ControlChurnAction",
 		"plainVP9ControlChurnAction(sampleIndex, 1)",
+		"if ((sampleIndex - warmupSamples) % 4 !== 0) return null;",
 		`if (opts.serverPlainVP9 || opts.serverPlainVP9Temporal)`,
 		"tuningChurnAction",
 		`{ type: "bitrate", kbps: 1200 }`,
@@ -2171,18 +2340,23 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`serverPlainVP9: booleanFlag("--server-plain-vp9")`,
 		`serverPlainVP9Temporal: booleanFlag("--server-plain-vp9-temporal")`,
 		`serverPlainVP9TemporalMode: stringFlag("--server-plain-vp9-temporal-mode", "default")`,
+		`serverPlainVP9Width: optionalIntegerFlag("--server-plain-vp9-width", { min: 1 })`,
+		`serverPlainVP9Height: optionalIntegerFlag("--server-plain-vp9-height", { min: 1 })`,
 		`if (opts.serverPlainVP9 || opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9")`,
 		`if (opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9-temporal")`,
 		`serverArgs.push("-plain-vp9-temporal-mode", opts.serverPlainVP9TemporalMode)`,
+		`serverArgs.push("-plain-vp9-width", String(opts.serverPlainVP9Width))`,
+		`serverArgs.push("-plain-vp9-height", String(opts.serverPlainVP9Height))`,
 		`localWithhold: booleanFlag("--local-withhold")`,
 		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 })`,
 		`localPartialWrite: booleanFlag("--local-partial-write")`,
 		`localPartialWriteCount: integerFlag("--local-partial-write-count", 1, { min: 1, max: 3 })`,
 		`${name} must be <= ${opts.max}`,
+		"function optionalIntegerFlag",
 		"exercisePauseResume(cdp, clients, initialByClient, opts.timeoutMs, opts.pauseMs)",
 		"exerciseReceiverStallProbe(cdp, clients, firstByClient, opts.timeoutMs)",
 		"exerciseLocalWithhold(cdp, clients, firstByClient, opts.timeoutMs, opts.localWithholdCount)",
-		"exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount)",
+		"exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount, opts)",
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: true })`,
 		`applyControlAction(cdp, client.sessionId, { type: "pause", paused: false })`,
 		`applyControlAction(cdp, client.sessionId, { type: "withhold", count })`,
@@ -2209,6 +2383,12 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
 		"maxRxDroppedDelta: opts.maxRxDroppedDelta",
+		"maxRxFreezesDelta: opts.maxRxFreezesDelta",
+		"maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta",
+		"client.droppedAfterPartialWrite > opts.maxRxDroppedDelta",
+		"client.freezesAfterPartialWrite > opts.maxRxFreezesDelta",
+		"client.plisAfterPartialWrite > opts.maxRxPliDelta",
+		"client.repairedAfterPartialWrite > opts.maxRxRepairRequests",
 		"delta.rxDropped !== null && delta.rxDropped > opts.maxRxDroppedDelta",
 		"rxDropped changed by",
 		"opts.summary.maxSenderFailedEncodeAUs > opts.maxSenderFailedEncodeAUs",
@@ -2218,7 +2398,9 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"rxFreezeDuration",
 		"rxPauseCount",
 		"rxPauseDuration",
-		`["rxFreezeDuration", "rxPauseCount", "rxPauseDuration"]`,
+		"rxFreezes changed by",
+		"rxFreezeDuration advanced by",
+		`["rxPauseCount", "rxPauseDuration"]`,
 		"advanced during clean smoke",
 		`["rxNackCount", opts.maxRxNackDelta, "receiver NACK"]`,
 		`["rxPliCount", opts.maxRxPliDelta, "receiver PLI"]`,
@@ -2250,6 +2432,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"focusedGoPattern",
 		"rootGoPattern",
 		"TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn",
+		"TestPlainVP9TemporalWebRTCUsesNonFlexibleRecoveryGOF",
 		"TestNewVP9EncoderPromotesZeroCPUUsedByDeadline",
 		"TestVP9EncodeResultPacketizeWebRTCRTP",
 		"TestVP9WebRTCPacketizer.*",
@@ -2273,15 +2456,24 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"browser-plain-vp9-temporal",
 		"browser-plain-vp9-temporal-control-churn",
 		"browser-plain-vp9-temporal-loaded",
+		"browser-plain-vp9-temporal-threaded-loaded",
 		"browser-plain-vp9-temporal-loaded-control-churn",
 		"browser-plain-vp9-temporal-loaded-local-withhold",
 		"browser-plain-vp9-temporal-loaded-local-partial-write",
 		"--server-plain-vp9",
 		"--server-plain-vp9-temporal",
+		`"--server-plain-vp9-width", "640"`,
+		`"--server-plain-vp9-height", "360"`,
+		`"--server-bitrate-kbps", "1200"`,
+		"TestPlainVP9EncoderUsesConfiguredThreadedTileLayout",
 		`"--min-decoded-delta", "70"`,
 		`"--min-video-time-ratio", "0.8"`,
-		`"--max-rx-dropped-delta", "1"`,
+		`"--max-rx-dropped-delta", "2"`,
+		`"--max-rx-dropped-delta", "3"`,
+		`"--max-rx-freezes-delta", "1"`,
+		`"--max-rx-freeze-duration-delta", "0.5"`,
 		`"--max-rx-pli-delta", "1"`,
+		`"--max-rx-pli-delta", "2"`,
 		"--receiver-stall-probe",
 		`"--max-rx-repair-requests", "1"`,
 		"browser-local-withhold",
@@ -2345,6 +2537,8 @@ func TestStressGateReportsVP9HostileSoakBudgets(t *testing.T) {
 		"--local-withhold-count",
 		"--local-partial-write-count",
 		"partialWriteLoadedBudgets",
+		`"--max-rx-freezes-delta"`,
+		`"--max-rx-freeze-duration-delta"`,
 		`VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
 		`VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`,
 		`VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,

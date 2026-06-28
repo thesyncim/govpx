@@ -50,30 +50,34 @@ Flags:
   PictureID, TL0PICIDX/keyframe GOF metadata, and the same app-local no-loss
   recovery rules as production plain VP9 senders.
 - `-plain-vp9-temporal` — stream the single-spatial VP9 WebRTC sender with
-  three temporal layers. This mode uses flexible VP9 RTP descriptors with
-  explicit reference diffs and defaults to the libvpx
-  no-inter-layer-prediction temporal pattern for Chrome/WebRTC decode
+  three temporal layers. This mode uses non-flexible VP9 RTP descriptors with
+  TL0PICIDX/keyframe GOF metadata and defaults to the libvpx
+  one-reference temporal pattern for Chrome/WebRTC decode
   stability.
 - `-plain-vp9-temporal-mode` — choose a plain VP9 temporal pattern for
   diagnosis (`default`, `six-frame`, `no-inter-layer-prediction`,
   `layer-one-prediction`, `with-sync`, `altref-with-sync`, `one-reference`,
-  or `no-sync`). `default` is `no-inter-layer-prediction`.
+  or `no-sync`). `default` is `one-reference`.
+- `-plain-vp9-width` / `-plain-vp9-height` — override the plain VP9 sender
+  resolution. The default plain sender is 320x180; use 640x360 or larger when
+  qualifying the VP9 tile-threaded realtime path.
 
 ## Performance note
 
 The demo selects the VP9 realtime fast path (`DeadlineRealtime`, `CpuUsed=8`)
 and raises `Threads` only when the frame width can legally emit more than one
-VP9 tile column. At the default resolutions the base and middle layers stay
-single-column; the 640x360 top layer uses two tile columns on hosts with at
-least two CPUs. The demo leaves VP9 RowMT disabled until row-worker dispatch
-is active on the production encode path, so the live overlay reports tile
-columns separately from row-MT. Pure-Go VP9 is still host- and load-sensitive,
-so the live overlay reports effective FPS, bitrate, and sender scheduler lag
-while the command-line `-fps` and `-bitrate` flags let you tune the session to
-the machine. When scheduler lag or completed access-unit time repeatedly
-exceeds the frame interval, the sender forces a keyed spatial-cap change before
-encoding the next access unit so it stops spending realtime budget on layers it
-cannot sustain.
+VP9 tile column. At the default resolutions the SVC base/middle layers and the
+default 320x180 plain sender stay single-column; the 640x360 SVC top layer and
+a 640x360 plain sender use two tile columns on hosts with at least two CPUs.
+The demo leaves VP9 RowMT disabled until row-worker dispatch is active on the
+production encode path, so the live overlay reports tile columns separately
+from row-MT. Pure-Go VP9 is still host- and load-sensitive, so the live overlay
+reports effective FPS, bitrate, and sender scheduler lag while the command-line
+`-fps`, `-bitrate`, `-plain-vp9-width`, and `-plain-vp9-height` flags let you
+tune the session to the machine. When scheduler lag or completed access-unit
+time repeatedly exceeds the frame interval, the sender forces a keyed
+spatial-cap change before encoding the next access unit so it stops spending
+realtime budget on layers it cannot sustain.
 
 ## How it works
 
@@ -190,10 +194,11 @@ node browser_smoke.mjs --server-plain-vp9-temporal --soak-ms 20000 --sample-ms 5
 ```
 
 For the same plain sender, add `--control-churn` to force keyframe recovery
-through the browser controls while still requiring clean RTP/decode counters:
+through the browser controls while still requiring clean RTP/decode counters and
+bounded Chrome dropped-frame/PLI counters:
 
 ```sh
-node browser_smoke.mjs --server-plain-vp9 --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-dropped-delta 1 --max-rx-nack-delta 0 --max-rx-pli-delta 1 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9 --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-dropped-delta 2 --max-rx-nack-delta 0 --max-rx-pli-delta 2 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
@@ -216,17 +221,27 @@ keep the strict no-loss/no-freeze/no-repair counters and allow the lower 25 fps
 decode floor:
 
 ```sh
-node browser_smoke.mjs --server-plain-vp9-temporal --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9-temporal --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-dropped-delta 2 --max-rx-nack-delta 0 --max-rx-pli-delta 1 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
-For the same plain temporal sender, app-local no-loss recovery is gated under
-load too. Withhold and partial-write runs must recover with forced keyframes,
-keep decoding, and hold browser-native loss, freeze, NACK, PLI, FIR, and
-app-level receiver-repair counters flat:
+To prove the same plain temporal sender on a tile-threadable frame size, run
+640x360 with `--require-threaded-top-layer`; the browser gate fails if telemetry
+does not show at least two VP9 tile columns while decode still advances:
+
+```sh
+node browser_smoke.mjs --server-plain-vp9-temporal --server-plain-vp9-width 640 --server-plain-vp9-height 360 --server-bitrate-kbps 1200 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1 --require-threaded-top-layer
+```
+
+For the same plain temporal sender, app-local recovery is gated under load too.
+The withhold run must recover with forced keyframes, keep decoding, and hold
+browser-native loss, freeze, NACK, PLI, FIR, and app-level receiver-repair
+counters flat. The partial-write run intentionally writes incomplete RTP access
+units, so it permits bounded Chrome render-drop, freeze, repair, and PLI
+counters while recovery proceeds:
 
 ```sh
 node browser_smoke.mjs --server-plain-vp9-temporal --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
-node browser_smoke.mjs --server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 0 --max-rx-pli-delta 2 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To prove the same plain temporal path while forcing browser-side keyframe
@@ -235,7 +250,7 @@ recovery under load, combine `--server-plain-vp9-temporal`,
 no-loss freezes caused by forced-key/reference-state churn:
 
 ```sh
-node browser_smoke.mjs --server-plain-vp9-temporal --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9-temporal --control-churn --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-dropped-delta 2 --max-rx-nack-delta 0 --max-rx-pli-delta 1 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To exercise the clean-stall recovery controls without introducing packet loss,
@@ -297,13 +312,13 @@ node browser_smoke.mjs --local-withhold --local-withhold-count 2 --cpu-burners 1
 To prove partial RTP-write no-loss recovery, add `--local-partial-write`. The
 sender writes a prefix of the already-packetized VP9 access unit into the
 browser, fails before the RTP marker/end of access unit, marks the packetizer
-as requiring recovery, and then must resume clean decode with forced keyframes,
-no RTP loss, no freeze, and no browser-native repair feedback. Chrome may count
-the intentionally incomplete access units as dropped frames during the trigger;
-subsequent clean samples must stay flat:
+as requiring recovery, and then must resume decode with forced keyframes and no
+RTP loss, NACK, or FIR feedback. Chrome may count the intentionally incomplete
+access units as a bounded dropped frame, short freeze, and receiver repair during
+the trigger; subsequent clean samples must stay flat:
 
 ```sh
-node browser_smoke.mjs --local-partial-write --local-partial-write-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+node browser_smoke.mjs --local-partial-write --local-partial-write-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
 To prove those recovery controls still fire under scheduler contention, combine
@@ -326,8 +341,9 @@ To run the full local VP9 WebRTC production gate, including focused Go checks,
 root VP9 realtime packetizer/threading checks, libwebrtc-style VP9 ref-finder
 simulations, the unloaded browser repeat, the loaded browser repeat, the
 threaded top-layer tile-layout check, the clean control-churn browser recovery
-check, the plain temporal loaded control-churn recovery check, the live
-plain temporal app-local loaded withhold and partial-write recovery checks, the
+check, the tile-threaded 640x360 plain temporal loaded check, the plain
+temporal loaded control-churn recovery check, the live plain temporal
+app-local loaded withhold and partial-write recovery checks, the
 bitrate/screen tuning check, the pause/resume lifecycle
 recovery check, the receiver-side clean-stall recovery probe, the app-local
 no-loss withhold recovery checks with and without scheduler contention, the
@@ -374,9 +390,9 @@ a different host shape.
 
 - `govpx.VP9SpatialSVCEncoder` produces VP9 superframes that a native
   browser VP9 decoder accepts without any bitstream rewriting.
-- The live WebRTC sender exposes the threaded top-layer VP9 tile layout in
-  browser telemetry, so the gate catches accidental fallback to a serial
-  top-layer encode path.
+- The live WebRTC sender exposes the threaded VP9 tile layout in browser
+  telemetry for both the SVC top layer and the configured 640x360 plain sender,
+  so the gate catches accidental fallback to a serial encode path.
 - The production gate also runs the root VP9 WebRTC packetizer, spatial-SVC
   RTP, speed-default, and row-MT/threading checks before browser smoke.
 - The browser gate also fails if local sender-side encode, packetization, or
@@ -384,6 +400,8 @@ a different host shape.
 - The plain VP9 browser gates prove the non-SVC sender path and explicit
   forced-key recovery with real Chrome decode, not only RTP ref-finder
   simulation and `vpxdec` packet reassembly.
+- The plain VP9 libvpx/vpxdec oracle also decodes a WebRTC-packetized 640x360
+  temporal stream whose keyframe bitstream advertises the threaded tile layout.
 - Explicit access-unit and schedule-lag budgets catch sender backlog under
   host contention before it turns into a clean-RTP browser freeze; the full
   production gate and hostile-load stress gate both enforce those budgets.
@@ -405,7 +423,8 @@ a different host shape.
 - App-local partial RTP write is gated as a sender recovery path: a prefix of
   an already-packetized VP9 access unit may reach the browser without RTP loss,
   but the sender must treat the access unit as unsent, force recovery keys, and
-  keep browser decode moving without freeze or NACK/PLI/FIR feedback.
+  keep browser decode moving with bounded freeze/repair and no NACK/FIR
+  feedback.
 - Live bitrate and screen-content tuning are gated: bitrate controls update
   without recovery, while screen-content mode changes force a keyframe boundary
   and still must keep decoding clean without receiver feedback.

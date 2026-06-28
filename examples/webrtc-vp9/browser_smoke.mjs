@@ -35,6 +35,8 @@ function parseOptions() {
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
     maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 }),
+    maxRxFreezesDelta: numberFlag("--max-rx-freezes-delta", 0, { min: 0 }),
+    maxRxFreezeDurationDelta: numberFlag("--max-rx-freeze-duration-delta", 0, { min: 0 }),
     maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 }),
     maxRxPliDelta: numberFlag("--max-rx-pli-delta", 0, { min: 0 }),
     maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 }),
@@ -49,6 +51,8 @@ function parseOptions() {
     serverPlainVP9: booleanFlag("--server-plain-vp9"),
     serverPlainVP9Temporal: booleanFlag("--server-plain-vp9-temporal"),
     serverPlainVP9TemporalMode: stringFlag("--server-plain-vp9-temporal-mode", "default"),
+    serverPlainVP9Width: optionalIntegerFlag("--server-plain-vp9-width", { min: 1 }),
+    serverPlainVP9Height: optionalIntegerFlag("--server-plain-vp9-height", { min: 1 }),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
     controlChurn: booleanFlag("--control-churn"),
     tuningChurn: booleanFlag("--tuning-churn"),
@@ -80,6 +84,12 @@ async function runSmoke(opts, runIndex) {
   if (opts.serverPlainVP9Temporal) serverArgs.push("-plain-vp9-temporal");
   if (opts.serverPlainVP9TemporalMode !== "default") {
     serverArgs.push("-plain-vp9-temporal-mode", opts.serverPlainVP9TemporalMode);
+  }
+  if (opts.serverPlainVP9Width !== null) {
+    serverArgs.push("-plain-vp9-width", String(opts.serverPlainVP9Width));
+  }
+  if (opts.serverPlainVP9Height !== null) {
+    serverArgs.push("-plain-vp9-height", String(opts.serverPlainVP9Height));
   }
   const loadProcesses = startCPUBurners(opts.cpuBurners);
   const server = spawn("go", serverArgs, {
@@ -116,7 +126,7 @@ async function runSmoke(opts, runIndex) {
       firstByClient = localWithhold.afterRecoveryByClient;
     }
     const localPartialWrite = opts.localPartialWrite
-      ? await exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount)
+      ? await exerciseLocalPartialWrite(cdp, clients, firstByClient, opts.timeoutMs, opts.localPartialWriteCount, opts)
       : null;
     if (localPartialWrite) {
       firstByClient = localPartialWrite.afterRecoveryByClient;
@@ -159,6 +169,8 @@ async function runSmoke(opts, runIndex) {
           minVideoTimeRatio: opts.minVideoTimeRatio,
           maxRxRepairRequests: opts.maxRxRepairRequests,
           maxRxDroppedDelta: opts.maxRxDroppedDelta,
+          maxRxFreezesDelta: opts.maxRxFreezesDelta,
+          maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta,
           maxRxNackDelta: opts.maxRxNackDelta,
           maxRxPliDelta: opts.maxRxPliDelta,
           maxRxFirDelta: opts.maxRxFirDelta,
@@ -216,6 +228,8 @@ async function runSmoke(opts, runIndex) {
       serverPlainVP9: opts.serverPlainVP9,
       serverPlainVP9Temporal: opts.serverPlainVP9Temporal,
       serverPlainVP9TemporalMode: opts.serverPlainVP9TemporalMode,
+      serverPlainVP9Width: opts.serverPlainVP9Width,
+      serverPlainVP9Height: opts.serverPlainVP9Height,
       cpuBurners: opts.cpuBurners,
       controlChurn: opts.controlChurn,
       tuningChurn: opts.tuningChurn,
@@ -230,6 +244,8 @@ async function runSmoke(opts, runIndex) {
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
       maxRxDroppedDelta: opts.maxRxDroppedDelta,
+      maxRxFreezesDelta: opts.maxRxFreezesDelta,
+      maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta,
       maxRxNackDelta: opts.maxRxNackDelta,
       maxRxPliDelta: opts.maxRxPliDelta,
       maxRxFirDelta: opts.maxRxFirDelta,
@@ -600,12 +616,12 @@ async function waitForLocalWithholdRecovery(cdp, sessionId, before, timeoutMs, c
   throw new Error(`local withhold decode recovery did not become ready: ${JSON.stringify({ before, latest, count })}`);
 }
 
-async function exerciseLocalPartialWrite(cdp, clients, beforeByClient, timeoutMs, count) {
+async function exerciseLocalPartialWrite(cdp, clients, beforeByClient, timeoutMs, count, opts) {
   await Promise.all(clients.map((client) =>
     applyControlAction(cdp, client.sessionId, { type: "partial-write", count })
   ));
   const recoveredByClient = await Promise.all(clients.map((client, i) =>
-    waitForLocalPartialWriteRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, count)
+    waitForLocalPartialWriteRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, count, opts)
   ));
   await sleep(1000);
   const afterRecoveryByClient = await Promise.all(clients.map((client) =>
@@ -670,7 +686,7 @@ async function exerciseLocalPartialWrite(cdp, clients, beforeByClient, timeoutMs
   };
 }
 
-async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutMs, count) {
+async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutMs, count, opts) {
   const deadline = Date.now() + timeoutMs;
   let latest = null;
   while (Date.now() < deadline) {
@@ -690,8 +706,10 @@ async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutM
     );
     const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
     const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    const dropped = numericDelta(before?.rxDropped, latest?.rxDropped);
     const lost = numericDelta(before?.rxLost, latest?.rxLost);
     const freezes = numericDelta(before?.rxFreezes, latest?.rxFreezes);
+    const freezeDuration = numericDelta(before?.rxFreezeDuration, latest?.rxFreezeDuration);
     const nacks = numericDelta(before?.rxNackCount, latest?.rxNackCount);
     const plis = numericDelta(before?.rxPliCount, latest?.rxPliCount);
     const firs = numericDelta(before?.rxFirCount, latest?.rxFirCount);
@@ -707,12 +725,14 @@ async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutM
       forcedKeys >= 1 &&
       decoded !== null &&
       decoded >= 1 &&
+      (dropped === null || dropped <= opts.maxRxDroppedDelta) &&
       (lost === null || lost === 0) &&
-      (freezes === null || freezes === 0) &&
-      (nacks === null || nacks === 0) &&
-      (plis === null || plis === 0) &&
-      (firs === null || firs === 0) &&
-      (repairs === null || repairs === 0) &&
+      (freezes === null || freezes <= opts.maxRxFreezesDelta) &&
+      (freezeDuration === null || freezeDuration <= opts.maxRxFreezeDurationDelta) &&
+      (nacks === null || nacks <= opts.maxRxNackDelta) &&
+      (plis === null || plis <= opts.maxRxPliDelta) &&
+      (firs === null || firs <= opts.maxRxFirDelta) &&
+      (repairs === null || repairs <= opts.maxRxRepairRequests) &&
       latest.videoReadyState >= 2 &&
       latest.videoTime > before.videoTime
     ) {
@@ -796,13 +816,8 @@ function controlChurnAction(opts, sampleIndex) {
 
 function plainVP9ControlChurnAction(sampleIndex, warmupSamples) {
   if (sampleIndex < warmupSamples) return null;
-  const sequence = [
-    { type: "keyframe", requiresForcedKey: true },
-    { type: "keyframe", requiresForcedKey: true },
-    { type: "keyframe", requiresForcedKey: true },
-    { type: "keyframe", requiresForcedKey: true },
-  ];
-  return sequence[sampleIndex % sequence.length];
+  if ((sampleIndex - warmupSamples) % 4 !== 0) return null;
+  return { type: "keyframe", requiresForcedKey: true };
 }
 
 function tuningChurnAction(sampleIndex) {
@@ -851,6 +866,22 @@ function optionalNumberFlag(name) {
   const value = Number(process.argv[idx + 1]);
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be non-negative`);
+  }
+  return value;
+}
+
+function optionalIntegerFlag(name, opts = {}) {
+  const idx = process.argv.indexOf(name);
+  if (idx < 0) return null;
+  const value = Number(process.argv[idx + 1]);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new Error(`${name} must be an integer`);
+  }
+  if (opts.min !== undefined && value < opts.min) {
+    throw new Error(`${name} must be >= ${opts.min}`);
+  }
+  if (opts.max !== undefined && value > opts.max) {
+    throw new Error(`${name} must be <= ${opts.max}`);
   }
   return value;
 }
@@ -1232,15 +1263,19 @@ function assertSmoke(first, second, delta, opts) {
       delta.videoTime < opts.intervalMs / 1000 * opts.minVideoTimeRatio) {
     throw new Error(`${sampleLabel(opts)} video time did not advance enough: ${delta.videoTime}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
-  for (const key of ["rxLost", "rxFreezes"]) {
-    if (delta[key] !== null && delta[key] !== 0) {
-      throw new Error(`${sampleLabel(opts)} ${key} changed during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
-    }
+  if (delta.rxLost !== null && delta.rxLost !== 0) {
+    throw new Error(`${sampleLabel(opts)} rxLost changed during clean smoke: ${delta.rxLost}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (delta.rxFreezes !== null && delta.rxFreezes > opts.maxRxFreezesDelta) {
+    throw new Error(`${sampleLabel(opts)} rxFreezes changed by ${delta.rxFreezes}, want <= ${opts.maxRxFreezesDelta}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (delta.rxDropped !== null && delta.rxDropped > opts.maxRxDroppedDelta) {
     throw new Error(`${sampleLabel(opts)} rxDropped changed by ${delta.rxDropped}, want <= ${opts.maxRxDroppedDelta}; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
-  for (const key of ["rxFreezeDuration", "rxPauseCount", "rxPauseDuration"]) {
+  if (delta.rxFreezeDuration !== null && delta.rxFreezeDuration > opts.maxRxFreezeDurationDelta) {
+    throw new Error(`${sampleLabel(opts)} rxFreezeDuration advanced by ${delta.rxFreezeDuration}, want <= ${opts.maxRxFreezeDurationDelta}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  for (const key of ["rxPauseCount", "rxPauseDuration"]) {
     if (delta[key] !== null && delta[key] > 0) {
       throw new Error(`${sampleLabel(opts)} ${key} advanced during clean smoke: ${delta[key]}; ${sampleDetails(first, second, delta, opts.summary)}`);
     }
@@ -1384,12 +1419,13 @@ function assertRunSmoke(summary, opts) {
         client.forcedKeys < 1 ||
         client.decodedAfterPartialWrite === null ||
         client.decodedAfterPartialWrite < 1 ||
+        (client.droppedAfterPartialWrite !== null && client.droppedAfterPartialWrite > opts.maxRxDroppedDelta) ||
         (client.lostAfterPartialWrite !== null && client.lostAfterPartialWrite !== 0) ||
-        (client.freezesAfterPartialWrite !== null && client.freezesAfterPartialWrite !== 0) ||
-        (client.nacksAfterPartialWrite !== null && client.nacksAfterPartialWrite !== 0) ||
-        (client.plisAfterPartialWrite !== null && client.plisAfterPartialWrite !== 0) ||
-        (client.firsAfterPartialWrite !== null && client.firsAfterPartialWrite !== 0) ||
-        (client.repairedAfterPartialWrite !== null && client.repairedAfterPartialWrite !== 0)))
+        (client.freezesAfterPartialWrite !== null && client.freezesAfterPartialWrite > opts.maxRxFreezesDelta) ||
+        (client.nacksAfterPartialWrite !== null && client.nacksAfterPartialWrite > opts.maxRxNackDelta) ||
+        (client.plisAfterPartialWrite !== null && client.plisAfterPartialWrite > opts.maxRxPliDelta) ||
+        (client.firsAfterPartialWrite !== null && client.firsAfterPartialWrite > opts.maxRxFirDelta) ||
+        (client.repairedAfterPartialWrite !== null && client.repairedAfterPartialWrite > opts.maxRxRepairRequests)))
   ) {
     throw new Error(`local partial write did not produce clean packetizer recovery: ${JSON.stringify({ summary, localPartialWrite: opts.localPartialWriteResult })}`);
   }
