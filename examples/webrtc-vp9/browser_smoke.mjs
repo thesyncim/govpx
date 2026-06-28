@@ -39,6 +39,8 @@ function parseOptions() {
     maxRxFirDelta: numberFlag("--max-rx-fir-delta", 0, { min: 0 }),
     maxSenderFailedEncodeAUs: numberFlag("--max-sender-failed-encode-aus", 0, { min: 0 }),
     maxSenderFailedEncodedAUs: numberFlag("--max-sender-failed-encoded-aus", 0, { min: 0 }),
+    maxAccessUnitMs: optionalNumberFlag("--max-access-unit-ms"),
+    maxScheduleLagMs: optionalNumberFlag("--max-schedule-lag-ms"),
     clients: integerFlag("--clients", 1, { min: 1 }),
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
@@ -144,6 +146,8 @@ async function runSmoke(opts, runIndex) {
           maxRxFirDelta: opts.maxRxFirDelta,
           maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs,
           maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs,
+          maxAccessUnitMs: opts.maxAccessUnitMs,
+          maxScheduleLagMs: opts.maxScheduleLagMs,
           controlAction,
           runIndex,
           clientIndex: clientIndex + 1,
@@ -206,6 +210,8 @@ async function runSmoke(opts, runIndex) {
       maxRxFirDelta: opts.maxRxFirDelta,
       maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs,
       maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs,
+      maxAccessUnitMs: opts.maxAccessUnitMs,
+      maxScheduleLagMs: opts.maxScheduleLagMs,
       minActiveLayers: opts.minActiveLayers,
       minEndingActiveLayers: opts.minEndingActiveLayers,
       maxActiveLayerChanges: opts.maxActiveLayerChanges,
@@ -1078,6 +1084,20 @@ function assertSmoke(first, second, delta, opts) {
     opts.summary.maxSenderFailedEncodedAUs > opts.maxSenderFailedEncodedAUs
   ) {
     throw new Error(`${sampleLabel(opts)} sender failed encoded access units reached ${opts.summary.maxSenderFailedEncodedAUs}, want <= ${opts.maxSenderFailedEncodedAUs}; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    opts.maxAccessUnitMs !== null &&
+    Number.isFinite(opts.summary.maxAccessUnitMs) &&
+    opts.summary.maxAccessUnitMs > opts.maxAccessUnitMs
+  ) {
+    throw new Error(`${sampleLabel(opts)} sender access-unit latency reached ${opts.summary.maxAccessUnitMs} ms, want <= ${opts.maxAccessUnitMs} ms; ${sampleDetails(first, second, delta, opts.summary)}`);
+  }
+  if (
+    opts.maxScheduleLagMs !== null &&
+    Number.isFinite(opts.summary.maxScheduleLagMs) &&
+    opts.summary.maxScheduleLagMs > opts.maxScheduleLagMs
+  ) {
+    throw new Error(`${sampleLabel(opts)} sender schedule lag reached ${opts.summary.maxScheduleLagMs} ms, want <= ${opts.maxScheduleLagMs} ms; ${sampleDetails(first, second, delta, opts.summary)}`);
   }
   if (opts.controlAction?.requiresForcedKey && (delta.senderForcedKeys === null || delta.senderForcedKeys < 1)) {
     throw new Error(`${sampleLabel(opts)} ${opts.controlAction.type} action did not produce a sender forced keyframe; ${sampleDetails(first, second, delta, opts.summary)}`);

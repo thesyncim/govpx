@@ -141,8 +141,10 @@ decode soak, pass `--soak-ms`; each `--sample-ms` interval must independently
 show decoder progress with no loss, dropped-frame, freeze-counter, or
 freeze/pause-duration delta. The smoke polls within each interval so its JSON
 summary also reports active spatial-layer changes plus peak sender
-encode/access-unit lag. Use `--repeat` to run the same
-browser gate back-to-back; repeat output includes an aggregate summary:
+encode/access-unit lag. Add `--max-access-unit-ms` and
+`--max-schedule-lag-ms` when a gate should fail on sender backlog even if
+browser packet-loss and freeze counters stay flat. Use `--repeat` to run the
+same browser gate back-to-back; repeat output includes an aggregate summary:
 
 ```sh
 node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0
@@ -270,10 +272,14 @@ The stress gate runs a longer loaded browser soak, a loaded control-churn soak,
 a loaded two-AU withhold recovery soak, and a focused `vpxdec` recovery oracle.
 By default it uses 12 CPU burners at 25 fps with 90 seconds of loaded clean
 decode, 45 seconds of loaded control churn, and 20 seconds of loaded withhold
-recovery. Override `VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
+recovery. It also fails if any browser-smoke sample exceeds the configured
+access-unit or schedule-lag latency budget, defaulting both to 200 ms. Override
+`VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
 `VP9_WEBRTC_STRESS_CONTROL_SOAK_MS`, `VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS`,
-`VP9_WEBRTC_STRESS_CPU_BURNERS`, `VP9_WEBRTC_STRESS_SERVER_FPS`, or
-`VP9_WEBRTC_STRESS_REPEAT` when qualifying a different host shape.
+`VP9_WEBRTC_STRESS_MAX_ACCESS_UNIT_MS`,
+`VP9_WEBRTC_STRESS_MAX_SCHEDULE_LAG_MS`, `VP9_WEBRTC_STRESS_CPU_BURNERS`,
+`VP9_WEBRTC_STRESS_SERVER_FPS`, or `VP9_WEBRTC_STRESS_REPEAT` when qualifying
+a different host shape.
 
 ## What this proves
 
@@ -284,6 +290,8 @@ recovery. Override `VP9_WEBRTC_STRESS_LOADED_SOAK_MS`,
   top-layer encode path.
 - The browser gate also fails if local sender-side encode, packetization, or
   RTP-write failures appear and are hidden by recovery-key behavior.
+- Explicit access-unit and schedule-lag budgets catch sender backlog under
+  host contention before it turns into a clean-RTP browser freeze.
 - The browser gate fails on browser-native NACK/PLI/FIR feedback deltas during
   clean samples, catching decoder/RTP churn before it becomes a visible stall.
 - Browser-native freeze duration and pause counters must also stay flat during

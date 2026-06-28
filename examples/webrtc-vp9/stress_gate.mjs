@@ -10,6 +10,8 @@ const cfg = {
   loadedSoakMs: numberEnv("VP9_WEBRTC_STRESS_LOADED_SOAK_MS", 90000, { min: 10000 }),
   controlSoakMs: numberEnv("VP9_WEBRTC_STRESS_CONTROL_SOAK_MS", 45000, { min: 10000 }),
   withholdSoakMs: numberEnv("VP9_WEBRTC_STRESS_WITHHOLD_SOAK_MS", 20000, { min: 10000 }),
+  maxAccessUnitMs: numberEnv("VP9_WEBRTC_STRESS_MAX_ACCESS_UNIT_MS", 200, { min: 1 }),
+  maxScheduleLagMs: numberEnv("VP9_WEBRTC_STRESS_MAX_SCHEDULE_LAG_MS", 200, { min: 1 }),
   repeat: numberEnv("VP9_WEBRTC_STRESS_REPEAT", 1, { min: 1 }),
 };
 
@@ -24,6 +26,8 @@ const cleanLoadedBudgets = [
   "--max-rx-fir-delta", "0",
   "--max-sender-failed-encode-aus", "0",
   "--max-sender-failed-encoded-aus", "0",
+  "--max-access-unit-ms", String(cfg.maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(cfg.maxScheduleLagMs),
   "--min-active-layers", "1",
   "--min-ending-active-layers", "1",
 ];
@@ -39,6 +43,8 @@ const recoveryLoadedBudgets = [
   "--max-rx-fir-delta", "0",
   "--max-sender-failed-encode-aus", "0",
   "--max-sender-failed-encoded-aus", "0",
+  "--max-access-unit-ms", String(cfg.maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(cfg.maxScheduleLagMs),
   "--min-active-layers", "1",
   "--min-ending-active-layers", "1",
 ];
