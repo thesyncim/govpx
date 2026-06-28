@@ -168,6 +168,59 @@ func TestReconstructInterFrameGridCopiesLastZeroMV(t *testing.T) {
 	}
 }
 
+func TestReconstructInterFrameGridZeroMVUsesCodedFrameDimensions(t *testing.T) {
+	srcFB, err := common.NewFrameBuffer(17, 17, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer source: %v", err)
+	}
+	fillCodedImage(&srcFB.Img)
+	srcFB.ExtendBorders()
+	dstFB, err := common.NewFrameBuffer(17, 17, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer dst: %v", err)
+	}
+	const rows, cols = 2, 2
+	modes := make([]MacroblockMode, rows*cols)
+	tokens := make([]MacroblockTokens, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true}
+	}
+	const residualIndex = 3
+	modes[residualIndex].MBSkipCoeff = false
+	tokens[residualIndex].EOB[0] = 1
+	tokens[residualIndex].QCoeff[0][0] = 8
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	if err := ReconstructInterFrameGrid(&dstFB.Img, &srcFB.Img, &srcFB.Img, &srcFB.Img, rows, cols, modes, tokens, &dequants, &scratch); err != nil {
+		t.Fatalf("ReconstructInterFrameGrid returned error: %v", err)
+	}
+
+	for row := range rows {
+		for col := range cols {
+			if row*cols+col == residualIndex {
+				continue
+			}
+			assertCopiedBlock(t, "Y skip", dstFB.Img.Y[row*16*dstFB.Img.YStride+col*16:], dstFB.Img.YStride, srcFB.Img.Y, srcFB.Img.YStride, row*16, col*16, 16, 16)
+			assertCopiedBlock(t, "U skip", dstFB.Img.U[row*8*dstFB.Img.UStride+col*8:], dstFB.Img.UStride, srcFB.Img.U, srcFB.Img.UStride, row*8, col*8, 8, 8)
+			assertCopiedBlock(t, "V skip", dstFB.Img.V[row*8*dstFB.Img.VStride+col*8:], dstFB.Img.VStride, srcFB.Img.V, srcFB.Img.VStride, row*8, col*8, 8, 8)
+		}
+	}
+
+	expectedY := make([]byte, 16*16)
+	expectedU := make([]byte, 8*8)
+	expectedV := make([]byte, 8*8)
+	dsp.Copy16x16(srcFB.Img.Y[16*srcFB.Img.YStride+16:], srcFB.Img.YStride, expectedY, 16)
+	dsp.Copy8x8(srcFB.Img.U[8*srcFB.Img.UStride+8:], srcFB.Img.UStride, expectedU, 8)
+	dsp.Copy8x8(srcFB.Img.V[8*srcFB.Img.VStride+8:], srcFB.Img.VStride, expectedV, 8)
+	var residual MacroblockResidual
+	TransformMacroblockTokens(&tokens[residualIndex], &dequants[0], false, &residual)
+	AddMacroblockResidualWithDequant(&tokens[residualIndex], &residual, &dequants[0], expectedY, 16, expectedU, 8, expectedV, 8)
+	assertCopiedBlock(t, "Y residual", dstFB.Img.Y[16*dstFB.Img.YStride+16:], dstFB.Img.YStride, expectedY, 16, 0, 0, 16, 16)
+	assertCopiedBlock(t, "U residual", dstFB.Img.U[8*dstFB.Img.UStride+8:], dstFB.Img.UStride, expectedU, 8, 0, 0, 8, 8)
+	assertCopiedBlock(t, "V residual", dstFB.Img.V[8*dstFB.Img.VStride+8:], dstFB.Img.VStride, expectedV, 8, 0, 0, 8, 8)
+}
+
 func TestReconstructInterFrameGridCopiesFullPixelWholeMV(t *testing.T) {
 	img := blankImage(16, 16)
 	last := testImage(48, 48)
@@ -483,6 +536,22 @@ func TestReconstructInterFrameGridRejectsUnaddressableLumaSubpixelMV(t *testing.
 	err := ReconstructInterFrameGrid(&img, &ref, &ref, &ref, 1, 1, modes, tokens, &dequants, &scratch)
 	if err != ErrUnsupportedInterReconstructionMode {
 		t.Fatalf("error = %v, want ErrUnsupportedInterReconstructionMode", err)
+	}
+}
+
+func fillCodedImage(img *common.Image) {
+	for row := range codedImageHeight(img) {
+		for col := range codedImageWidth(img) {
+			img.Y[row*img.YStride+col] = byte((row*17 + col*7 + 11) & 0xff)
+		}
+	}
+	uvWidth := (codedImageWidth(img) + 1) >> 1
+	uvHeight := (codedImageHeight(img) + 1) >> 1
+	for row := range uvHeight {
+		for col := range uvWidth {
+			img.U[row*img.UStride+col] = byte((row*13 + col*5 + 19) & 0xff)
+			img.V[row*img.VStride+col] = byte((row*3 + col*23 + 29) & 0xff)
+		}
 	}
 }
 

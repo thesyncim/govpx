@@ -140,6 +140,17 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	if mode.Mode == common.ZeroMV && !mode.MV.IsZero() {
 		return false
 	}
+	if mode.Mode == common.ZeroMV {
+		if !copyZeroMVInterMacroblockFast(state, y, yStride, u, uStride, v, vStride, mbRow, mbCol) {
+			return false
+		}
+		if mode.MBSkipCoeff {
+			return true
+		}
+		TransformMacroblockTokens(tokens, dequant, false, scratch)
+		AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+		return true
+	}
 
 	mvRow := int(mode.MV.Row)
 	mvCol := int(mode.MV.Col)
@@ -288,4 +299,36 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	TransformMacroblockTokens(tokens, dequant, false, scratch)
 	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
+}
+
+func copyZeroMVInterMacroblockFast(state *frameInterRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int) bool {
+	if uint(mbRow) >= uint(state.mbRows) || uint(mbCol) >= uint(state.mbCols) {
+		return false
+	}
+	yOff := state.yOrigin + mbRow*16*state.yStride + mbCol*16
+	uOff := state.uOrigin + mbRow*8*state.uStride + mbCol*8
+	vOff := state.vOrigin + mbRow*8*state.vStride + mbCol*8
+	if !planeHasOffsetBlock(state.yPlane, yOff, state.yStride, 16, 16) ||
+		!planeHasOffsetBlock(state.uPlane, uOff, state.uStride, 8, 8) ||
+		!planeHasOffsetBlock(state.vPlane, vOff, state.vStride, 8, 8) ||
+		!planeHasOffsetBlock(y, 0, yStride, 16, 16) ||
+		!planeHasOffsetBlock(u, 0, uStride, 8, 8) ||
+		!planeHasOffsetBlock(v, 0, vStride, 8, 8) {
+		return false
+	}
+	dsp.Copy16x16(state.yPlane[yOff:], state.yStride, y, yStride)
+	dsp.Copy8x8(state.uPlane[uOff:], state.uStride, u, uStride)
+	dsp.Copy8x8(state.vPlane[vOff:], state.vStride, v, vStride)
+	return true
+}
+
+func planeHasOffsetBlock(plane []byte, offset int, stride int, width int, height int) bool {
+	if offset < 0 || width < 0 || height < 0 || stride < width {
+		return false
+	}
+	if height == 0 {
+		return true
+	}
+	need := offset + (height-1)*stride + width
+	return need >= offset && need <= len(plane)
 }
