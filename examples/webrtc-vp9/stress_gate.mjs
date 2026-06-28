@@ -83,6 +83,23 @@ const partialWriteLoadedBudgets = [
   "--min-ending-active-layers", "1",
 ];
 
+const plainTemporalPartialWriteLoadedBudgets = [
+  "--sample-ms", "5000",
+  "--poll-ms", "1000",
+  "--min-decoded-delta", "70",
+  "--min-video-time-ratio", "0.8",
+  "--max-rx-repair-requests", "0",
+  "--max-rx-nack-delta", "0",
+  "--max-rx-pli-delta", "0",
+  "--max-rx-fir-delta", "0",
+  "--max-sender-failed-encode-aus", "0",
+  "--max-sender-failed-encoded-aus", "2",
+  "--max-access-unit-ms", String(cfg.maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(cfg.maxScheduleLagMs),
+  "--min-active-layers", "1",
+  "--min-ending-active-layers", "1",
+];
+
 const steps = [
   {
     name: "browser-loaded-long-soak",
@@ -139,6 +156,21 @@ const steps = [
     kind: "browser-json",
   },
   {
+    name: "browser-plain-vp9-temporal-loaded-withhold-soak",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--server-plain-vp9-temporal",
+      "--local-withhold",
+      "--local-withhold-count", "2",
+      "--cpu-burners", String(cfg.cpuBurners),
+      "--server-fps", String(cfg.serverFPS),
+      "--soak-ms", String(cfg.withholdSoakMs),
+      ...plainTemporalRecoveryLoadedBudgets,
+    ],
+    kind: "browser-json",
+  },
+  {
     name: "browser-loaded-partial-write-soak",
     command: "node",
     args: [
@@ -153,6 +185,21 @@ const steps = [
     kind: "browser-json",
   },
   {
+    name: "browser-plain-vp9-temporal-loaded-partial-write-soak",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--server-plain-vp9-temporal",
+      "--local-partial-write",
+      "--local-partial-write-count", "2",
+      "--cpu-burners", String(cfg.cpuBurners),
+      "--server-fps", String(cfg.serverFPS),
+      "--soak-ms", String(cfg.withholdSoakMs),
+      ...plainTemporalPartialWriteLoadedBudgets,
+    ],
+    kind: "browser-json",
+  },
+  {
     name: "libvpx-vpxdec-recovery-oracle",
     command: "go",
     args: [
@@ -161,7 +208,7 @@ const steps = [
       "-tags", "govpx_oracle_trace",
       ".",
       "-run",
-      "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfter(ConsecutivePacketizedUnsentAccessUnits|PartialWriteAccessUnit)DecodesWithVpxdec",
+      "Test(PlainVP9WebRTCPacketizerRecoveryAfter(PacketizedUnsent|PartialWrite)AccessUnits|VP9WebRTCPacketizerSVCNonFlexibleRecoveryAfter(ConsecutivePacketizedUnsentAccessUnits|PartialWriteAccessUnit))DecodesWithVpxdec",
       "-count=1",
     ],
     kind: "go-test",

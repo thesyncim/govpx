@@ -219,6 +219,16 @@ decode floor:
 node browser_smoke.mjs --server-plain-vp9-temporal --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
+For the same plain temporal sender, app-local no-loss recovery is gated under
+load too. Withhold and partial-write runs must recover with forced keyframes,
+keep decoding, and hold browser-native loss, freeze, NACK, PLI, FIR, and
+app-level receiver-repair counters flat:
+
+```sh
+node browser_smoke.mjs --server-plain-vp9-temporal --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 1 --min-ending-active-layers 1
+```
+
 To prove the same plain temporal path while forcing browser-side keyframe
 recovery under load, combine `--server-plain-vp9-temporal`,
 `--control-churn`, and CPU burners. This is the closest local repro for
@@ -317,6 +327,7 @@ root VP9 realtime packetizer/threading checks, libwebrtc-style VP9 ref-finder
 simulations, the unloaded browser repeat, the loaded browser repeat, the
 threaded top-layer tile-layout check, the clean control-churn browser recovery
 check, the plain temporal loaded control-churn recovery check, the live
+plain temporal app-local loaded withhold and partial-write recovery checks, the
 bitrate/screen tuning check, the pause/resume lifecycle
 recovery check, the receiver-side clean-stall recovery probe, the app-local
 no-loss withhold recovery checks with and without scheduler contention, the
