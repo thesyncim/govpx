@@ -242,6 +242,93 @@ func TestVP9RealtimeCBRAutoThreadingDispatchesTileWorkers(t *testing.T) {
 	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
 }
 
+func TestVP9SpatialSVCRealtimeCBRAutoThreadingDispatchesTopLayerTileWorkers(t *testing.T) {
+	opts, widths, heights := vp9RealtimeWebRTCSVCAutoThreadOptionsForTest()
+	topLayer := int(opts.LayerCount) - 1
+	wantThreads := vp9RealtimeAutoThreadHint(opts.Layers[topLayer],
+		runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	svc, err := NewVP9SpatialSVCEncoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9SpatialSVCEncoder: %v", err)
+	}
+	defer svc.Close()
+	top := svc.layers[topLayer]
+	if top.opts.Threads != 0 {
+		t.Fatalf("top-layer stored Threads = %d, want caller auto value 0",
+			top.opts.Threads)
+	}
+	if top.vp9TilePool != nil {
+		t.Fatal("auto-threaded SVC top layer initialized tile pool before encode")
+	}
+
+	srcs := make([]*image.YCbCr, opts.LayerCount)
+	for layer := 0; layer < int(opts.LayerCount); layer++ {
+		srcs[layer] = vp9test.NewPanningYCbCr(widths[layer],
+			heights[layer], layer)
+	}
+	dst := make([]byte, 1<<22)
+	result, err := svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult: %v", err)
+	}
+	header, tileStart := vp9test.ParseHeader(t,
+		result.Layers[topLayer].Data)
+	if got := 1 << uint(header.Tile.Log2TileCols); got != wantThreads {
+		t.Fatalf("SVC top-layer auto tile columns = %d, want %d",
+			got, wantThreads)
+	}
+	if top.vp9TilePool == nil {
+		t.Fatal("auto-threaded SVC top layer did not initialize tile worker pool")
+	}
+	if got := top.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("SVC top-layer auto tile worker count = %d, want %d",
+			got, wantThreads)
+	}
+	assertVP9EncoderTilePrefixForTest(t, result.Layers[topLayer].Data,
+		tileStart)
+}
+
+func vp9RealtimeWebRTCSVCAutoThreadOptionsForTest() (
+	VP9SpatialSVCEncoderOptions,
+	[VP9MaxSpatialLayers]int,
+	[VP9MaxSpatialLayers]int,
+) {
+	widths := [VP9MaxSpatialLayers]int{160, 320, 640}
+	heights := [VP9MaxSpatialLayers]int{90, 180, 360}
+	bitrates := [VP9MaxSpatialLayers]int{96, 288, 416}
+	temporal := TemporalScalabilityConfig{
+		Enabled: true,
+		Mode:    TemporalLayeringThreeLayers,
+	}
+	var layers [VP9MaxSpatialLayers]VP9EncoderOptions
+	for layer := 0; layer < 3; layer++ {
+		layers[layer] = VP9EncoderOptions{
+			Width:                    widths[layer],
+			Height:                   heights[layer],
+			FPS:                      30,
+			Deadline:                 DeadlineRealtime,
+			RateControlModeSet:       true,
+			RateControlMode:          RateControlCBR,
+			TargetBitrateKbps:        bitrates[layer],
+			MinQuantizer:             4,
+			MaxQuantizer:             56,
+			MaxKeyframeInterval:      128,
+			TemporalScalability:      temporal,
+			ErrorResilient:           true,
+			FrameParallelDecodingSet: true,
+			FrameParallelDecoding:    true,
+		}
+	}
+	return VP9SpatialSVCEncoderOptions{
+		LayerCount:           3,
+		InterLayerPrediction: true,
+		Layers:               layers,
+	}, widths, heights
+}
+
 func TestVP9RealtimeCBRAutoThreadingResizePromotesTileWorkers(t *testing.T) {
 	const (
 		smallWidth  = 320

@@ -39,6 +39,7 @@ const rootGoPattern = [
   "TestVP9WebRTCSpatialLayerChangeNeedsKeyFrame",
   "TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP.*",
   "TestVP9SpatialSVCEncodeResultLimitSpatialLayersForRTP",
+  "TestVP9SpatialSVCRealtimeCBRAutoThreadingDispatchesTopLayerTileWorkers",
   "TestVP9RowMT.*",
 ].join("|");
 
@@ -46,6 +47,7 @@ const rootOraclePattern = [
   "TestVP9EncoderVpxencOracleRealtimeZeroCPUUsesSpeed8",
   "TestVP9OracleThreadedTileEncodingMatchesLibvpx",
   "TestVP9WebRTCPreEncodeDropPacketizedStreamDecodesWithVpxdec",
+  "TestVP9WebRTCAutoThreadedSVCStreamDecodesWithVpxdec",
 ].join("|");
 
 const browserStepCooldownMs = 5000;
