@@ -59,6 +59,55 @@ func TestPlainVP9PacketizedStreamPassesLibwebrtcVP9RefFinder(t *testing.T) {
 	}
 }
 
+func TestPlainVP9WebRTCPacketizerPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const width, height = 64, 64
+	encoder, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               defaultFPS,
+		Deadline:          govpx.DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 500,
+		TemporalScalability: govpx.TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    govpx.TemporalLayeringThreeLayers,
+		},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MaxKeyframeInterval:      2048,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer encoder.Close()
+
+	dst := make([]byte, 1<<20)
+	packetizer := govpx.NewVP9WebRTCPacketizer(
+		govpx.VP9RTPPictureID15BitMask - 2)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	for frame := 0; frame < 16; frame++ {
+		if frame == 8 {
+			encoder.ForceKeyFrame()
+		}
+		result, err := encoder.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(
+			width, height, byte(24+frame*9), byte(220-frame*5),
+			byte(96+frame*3), byte(188-frame*4)), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		pictureID := packetizer.PictureID()
+		payloads, sent, err := packetizer.Packetize(result, 500)
+		if err != nil {
+			t.Fatalf("Packetize frame %d: %v", frame, err)
+		}
+		if !sent {
+			t.Fatalf("Packetize frame %d reported unsent", frame)
+		}
+		refFinder.acceptPlainAccessUnit(t, frame, payloads, pictureID)
+	}
+}
+
 func TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata(t *testing.T) {
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,

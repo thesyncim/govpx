@@ -120,7 +120,7 @@ returns no more data.
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
 | Packetize plain VP9 for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize` |
 | Packetize VP9 spatial SVC for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTC` |
-| Build one VP9 WebRTC RTP access unit when caller owns sender state | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
+| Build one VP9 WebRTC RTP access unit only when caller owns all sender state | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
@@ -166,9 +166,10 @@ PictureID the receiver never saw. With pion/webrtc, write the payloads from
 `VP9WebRTCPacketizer` to a `TrackLocalStaticRTP`; do not pass govpx VP9 SVC
 superframes to `TrackLocalStaticSample`, because Pion's generic VP9 payloader
 cannot reconstruct govpx's temporal/spatial dependency metadata from raw VP9
-bytes. The generic VP9 RTP packetizers remain
-available for callers that already own their
-descriptor policy. The VP9 decoder also exposes libvpx-style spatial-SVC
+bytes. The generic VP9 RTP packetizers remain available for callers that
+already own their full PictureID, dependency, recovery, and descriptor policy.
+They are not the production long-lived WebRTC sender path. The VP9 decoder also
+exposes libvpx-style spatial-SVC
 superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial
 layer signaling through `SetSpatialScalability`.
 

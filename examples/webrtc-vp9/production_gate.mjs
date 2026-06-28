@@ -22,6 +22,7 @@ const focusedGoPattern = [
   "TestControlPauseResumeRequestsKeyFrame",
   "TestPauseControlPreservesPendingKeyFrame",
   "TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata",
+  "TestPlainVP9WebRTCPacketizerPassesLibwebrtcVP9RefFinder",
   "TestPlainVP9PacketizedCBRDropsPassLibwebrtcVP9RefFinder",
   "TestWebRTCPacketizedSVCPassesLibwebrtcVP9RefFinder",
   "TestVP9WebRTCPacketizerSVCNonFlexiblePassesLibwebrtcVP9RefFinder",

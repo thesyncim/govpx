@@ -2041,6 +2041,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP.*",
 		"TestVP9RowMT.*",
 		"TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata",
+		"TestPlainVP9WebRTCPacketizerPassesLibwebrtcVP9RefFinder",
 		"TestPlainVP9PacketizedCBRDropsPassLibwebrtcVP9RefFinder",
 		"TestVP9WebRTCPacketizerSVCNonFlexiblePassesLibwebrtcVP9RefFinder",
 		"TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder",

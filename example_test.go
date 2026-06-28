@@ -24,7 +24,7 @@ func ExamplePeekVP8StreamInfo() {
 	// Output: 320 240 true
 }
 
-func ExampleVP9EncodeResult_PacketizeWebRTCRTP() {
+func ExampleVP9WebRTCPacketizer_Packetize() {
 	const width, height = 64, 64
 	enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:              width,
