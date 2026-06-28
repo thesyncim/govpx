@@ -49,6 +49,23 @@ const recoveryLoadedBudgets = [
   "--min-ending-active-layers", "1",
 ];
 
+const plainTemporalRecoveryLoadedBudgets = [
+  "--sample-ms", "5000",
+  "--poll-ms", "1000",
+  "--min-decoded-delta", "70",
+  "--min-video-time-ratio", "0.8",
+  "--max-rx-repair-requests", "0",
+  "--max-rx-nack-delta", "0",
+  "--max-rx-pli-delta", "0",
+  "--max-rx-fir-delta", "0",
+  "--max-sender-failed-encode-aus", "0",
+  "--max-sender-failed-encoded-aus", "0",
+  "--max-access-unit-ms", String(cfg.maxAccessUnitMs),
+  "--max-schedule-lag-ms", String(cfg.maxScheduleLagMs),
+  "--min-active-layers", "1",
+  "--min-ending-active-layers", "1",
+];
+
 const partialWriteLoadedBudgets = [
   "--sample-ms", "5000",
   "--poll-ms", "1000",
@@ -90,6 +107,20 @@ const steps = [
       "--server-fps", String(cfg.serverFPS),
       "--soak-ms", String(cfg.controlSoakMs),
       ...recoveryLoadedBudgets,
+    ],
+    kind: "browser-json",
+  },
+  {
+    name: "browser-plain-vp9-temporal-loaded-control-soak",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--server-plain-vp9-temporal",
+      "--control-churn",
+      "--cpu-burners", String(cfg.cpuBurners),
+      "--server-fps", String(cfg.serverFPS),
+      "--soak-ms", String(cfg.controlSoakMs),
+      ...plainTemporalRecoveryLoadedBudgets,
     ],
     kind: "browser-json",
   },
