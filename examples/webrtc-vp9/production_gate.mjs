@@ -64,6 +64,10 @@ const rootOraclePattern = [
 const browserStepCooldownMs = 5000;
 const maxAccessUnitMs = numberEnv("VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS", 200, { min: 1 });
 const maxScheduleLagMs = numberEnv("VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS", 200, { min: 1 });
+const goStepTimeoutMs = numberEnv("VP9_WEBRTC_GATE_GO_STEP_TIMEOUT_MS", 180000, { min: 1000 });
+const browserStepTimeoutMs = numberEnv("VP9_WEBRTC_GATE_BROWSER_STEP_TIMEOUT_MS", 240000, { min: 1000 });
+const oracleStepTimeoutMs = numberEnv("VP9_WEBRTC_GATE_ORACLE_STEP_TIMEOUT_MS", 180000, { min: 1000 });
+const childKillGraceMs = numberEnv("VP9_WEBRTC_GATE_KILL_GRACE_MS", 2000, { min: 100 });
 const browserLatencyBudgets = [
   "--max-access-unit-ms", String(maxAccessUnitMs),
   "--max-schedule-lag-ms", String(maxScheduleLagMs),
@@ -661,6 +665,9 @@ async function main() {
     config: {
       maxAccessUnitMs,
       maxScheduleLagMs,
+      goStepTimeoutMs,
+      browserStepTimeoutMs,
+      oracleStepTimeoutMs,
     },
     results,
   }, null, 2));
@@ -686,7 +693,8 @@ function sleep(ms) {
 
 async function runStep(step) {
   const startedAt = Date.now();
-  const output = await runCommand(step.command, step.args, step.env);
+  const timeoutMs = stepTimeoutMs(step);
+  const output = await runCommand(step.command, step.args, step.env, timeoutMs);
   if (step.requiresOracle) {
     assertNoOracleSkips(step, output.stdout);
   }
@@ -694,8 +702,16 @@ async function runStep(step) {
     name: step.name,
     command: formatCommand(step),
     elapsedMs: Date.now() - startedAt,
+    timeoutMs,
     summary: summarizeStep(step, output.stdout),
   };
+}
+
+function stepTimeoutMs(step) {
+  if (step.timeoutMs !== undefined) return step.timeoutMs;
+  if (step.requiresOracle) return oracleStepTimeoutMs;
+  if (step.kind === "browser-json") return browserStepTimeoutMs;
+  return goStepTimeoutMs;
 }
 
 function summarizeStep(step, stdout) {
@@ -755,25 +771,47 @@ function assertNoOracleSkips(step, stdout) {
   throw err;
 }
 
-function runCommand(command, args, extraEnv = null) {
+function runCommand(command, args, extraEnv = null, timeoutMs = goStepTimeoutMs) {
   return new Promise((resolve, reject) => {
     const env = extraEnv ? { ...process.env, ...extraEnv } : process.env;
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], env });
+    const processGroup = process.platform !== "win32";
+    const child = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env,
+      detached: processGroup,
+    });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
+    let killTimer = null;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      signalChild(child, "SIGTERM", processGroup);
+      killTimer = setTimeout(() => {
+        signalChild(child, "SIGKILL", processGroup);
+      }, childKillGraceMs);
+      killTimer.unref?.();
+    }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
-    child.on("error", reject);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      reject(err);
+    });
     child.on("close", (code, signal) => {
-      if (code === 0) {
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      if (code === 0 && !timedOut) {
         resolve({ stdout, stderr });
         return;
       }
-      const err = new Error(`${command} exited with code ${code}${signal ? ` signal ${signal}` : ""}`);
+      const exitText = `${command} exited with code ${code}${signal ? ` signal ${signal}` : ""}`;
+      const err = new Error(timedOut ? `${exitText}; timed out after ${timeoutMs} ms` : exitText);
       err.stdout = stdout;
       err.stderr = stderr;
       process.stderr.write(stderr);
@@ -781,6 +819,18 @@ function runCommand(command, args, extraEnv = null) {
       reject(err);
     });
   });
+}
+
+function signalChild(child, signal, processGroup) {
+  try {
+    if (processGroup && child.pid) {
+      process.kill(-child.pid, signal);
+    } else {
+      child.kill(signal);
+    }
+  } catch (err) {
+    if (err.code !== "ESRCH") throw err;
+  }
 }
 
 function formatCommand(step) {

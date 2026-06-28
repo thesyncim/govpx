@@ -69,15 +69,14 @@ and raises `Threads` only when the frame width can legally emit more than one
 VP9 tile column. At the default resolutions the SVC base/middle layers and the
 default 320x180 plain sender stay single-column; the 640x360 SVC top layer and
 a 640x360 plain sender use two tile columns on hosts with at least two CPUs.
-The demo leaves VP9 RowMT disabled until row-worker dispatch is active on the
-production encode path, so the live overlay reports tile columns separately
-from row-MT. Pure-Go VP9 is still host- and load-sensitive, so the live overlay
-reports effective FPS, bitrate, and sender scheduler lag while the command-line
-`-fps`, `-bitrate`, `-plain-vp9-width`, and `-plain-vp9-height` flags let you
-tune the session to the machine. When scheduler lag or completed access-unit
-time repeatedly exceeds the frame interval, the sender forces a keyed
-spatial-cap change before encoding the next access unit so it stops spending
-realtime budget on layers it cannot sustain.
+Those tile-threaded layers also enable VP9 RowMT, and the live overlay reports
+both tile columns and row-MT. Pure-Go VP9 is still host- and load-sensitive, so
+the live overlay reports effective FPS, bitrate, and sender scheduler lag while
+the command-line `-fps`, `-bitrate`, `-plain-vp9-width`, and
+`-plain-vp9-height` flags let you tune the session to the machine. When
+scheduler lag or completed access-unit time repeatedly exceeds the frame
+interval, the sender forces a keyed spatial-cap change before encoding the next
+access unit so it stops spending realtime budget on layers it cannot sustain.
 
 ## How it works
 

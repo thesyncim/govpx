@@ -277,7 +277,13 @@ async function runSmoke(opts, runIndex) {
       summary,
     };
   } finally {
-    if (cdp) cdp.close();
+    if (cdp) {
+      try {
+        await cdp.closeBrowser();
+      } catch {
+        cdp.close();
+      }
+    }
     if (chrome) {
       await stopProcess(chrome.process);
     }
@@ -1577,8 +1583,27 @@ class CDP {
     }
   }
 
+  async closeBrowser() {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    try {
+      await this.send("Browser.close");
+    } catch (err) {
+      const message = String(err?.message ?? err);
+      if (!message.includes("CDP socket closed") &&
+        !message.includes("CDP socket is not open")) {
+        throw err;
+      }
+    } finally {
+      this.close();
+    }
+  }
+
   close() {
-    this.socket.close();
+    try {
+      this.socket.close();
+    } catch {
+      // Ignore close races during browser teardown.
+    }
   }
 }
 

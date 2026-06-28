@@ -2106,11 +2106,12 @@ func TestPlainVP9EncoderUsesConfiguredThreadedTileLayout(t *testing.T) {
 	}
 	layer := msg.Layers[0]
 	wantTileCols := 1 << uint(wantLog2Cols)
+	wantRowMT := pickRowMT(width, height)
 	if layer.Threads != wantThreads || layer.TileCols != wantTileCols ||
-		layer.RowMT {
-		t.Fatalf("plain VP9 telemetry threads/tile/row = %d/%d/%t, want %d/%d/false",
+		layer.RowMT != wantRowMT {
+		t.Fatalf("plain VP9 telemetry threads/tile/row = %d/%d/%t, want %d/%d/%t",
 			layer.Threads, layer.TileCols, layer.RowMT, wantThreads,
-			wantTileCols)
+			wantTileCols, wantRowMT)
 	}
 }
 
@@ -2366,6 +2367,8 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`serverArgs.push("-plain-vp9-height", String(opts.serverPlainVP9Height))`,
 		`CDP.connect(chrome.wsURL, opts.cdpTimeoutMs)`,
 		`CDP ${method}${suffix} timed out after ${this.timeoutMs} ms`,
+		`await cdp.closeBrowser();`,
+		`await this.send("Browser.close")`,
 		`localWithhold: booleanFlag("--local-withhold")`,
 		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 })`,
 		`localPartialWrite: booleanFlag("--local-partial-write")`,
@@ -2506,9 +2509,17 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		`"--cpu-burners", "12"`,
 		`VP9_WEBRTC_GATE_MAX_ACCESS_UNIT_MS`,
 		`VP9_WEBRTC_GATE_MAX_SCHEDULE_LAG_MS`,
+		`VP9_WEBRTC_GATE_GO_STEP_TIMEOUT_MS`,
+		`VP9_WEBRTC_GATE_BROWSER_STEP_TIMEOUT_MS`,
+		`VP9_WEBRTC_GATE_ORACLE_STEP_TIMEOUT_MS`,
+		`VP9_WEBRTC_GATE_KILL_GRACE_MS`,
 		`"--max-access-unit-ms", String(maxAccessUnitMs)`,
 		`"--max-schedule-lag-ms", String(maxScheduleLagMs)`,
 		"...browserLatencyBudgets",
+		"stepTimeoutMs(step)",
+		"timed out after ${timeoutMs} ms",
+		`detached: processGroup`,
+		`signalChild(child, "SIGKILL", processGroup)`,
 		"maxSenderWithheldAUs",
 		"maxSenderPartialWriteAUs",
 		"rootOraclePattern",
@@ -2938,7 +2949,7 @@ func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	}
 }
 
-func TestSVCLayerOptionsKeepRowMTOffUntilRowWorkersAreLive(t *testing.T) {
+func TestSVCLayerOptionsEnableRowMTForThreadedRealtimeLayers(t *testing.T) {
 	tests := []struct {
 		name        string
 		width       int
@@ -2960,9 +2971,10 @@ func TestSVCLayerOptionsKeepRowMTOffUntilRowWorkersAreLive(t *testing.T) {
 			if opts.CpuUsed != tc.wantCPUUsed {
 				t.Fatalf("CpuUsed = %d, want %d", opts.CpuUsed, tc.wantCPUUsed)
 			}
-			if opts.RowMT {
-				t.Fatalf("RowMT = true for %d tile threads, want false until VP9 row workers are on the production path",
-					wantThreads)
+			wantRowMT := wantThreads > 1
+			if opts.RowMT != wantRowMT {
+				t.Fatalf("RowMT = %t for %d tile threads, want %t",
+					opts.RowMT, wantThreads, wantRowMT)
 			}
 			if !opts.ErrorResilient ||
 				!opts.FrameParallelDecodingSet ||
@@ -3444,9 +3456,10 @@ func TestCappedTelemetryReportsTransmittedLayers(t *testing.T) {
 			t.Fatalf("layer %d telemetry threads = %d, want %d",
 				i, layer.Threads, wantThreads)
 		}
-		if layer.RowMT {
-			t.Fatalf("layer %d telemetry RowMT = true for %d tile threads, want false",
-				i, wantThreads)
+		wantRowMT := pickRowMT(layerDims[i][0], layerDims[i][1])
+		if layer.RowMT != wantRowMT {
+			t.Fatalf("layer %d telemetry RowMT = %t for %d tile threads, want %t",
+				i, layer.RowMT, wantThreads, wantRowMT)
 		}
 		if layer.TileCols < 1 || layer.TileCols > wantThreads {
 			t.Fatalf("layer %d telemetry tile cols = %d, want in [1,%d]",
@@ -3499,9 +3512,10 @@ func TestTelemetryReportsThreadedTopLayerConfig(t *testing.T) {
 		t.Fatalf("top telemetry threads = %d, want %d",
 			top.Threads, wantThreads)
 	}
-	if top.RowMT {
-		t.Fatalf("top telemetry RowMT = true for %d tile threads, want false",
-			wantThreads)
+	wantRowMT := pickRowMT(topWidth, topHeight)
+	if top.RowMT != wantRowMT {
+		t.Fatalf("top telemetry RowMT = %t for %d tile threads, want %t",
+			top.RowMT, wantThreads, wantRowMT)
 	}
 	wantTileCols := 1 << uint(expectedTileLog2Cols(wantThreads))
 	if top.TileCols != wantTileCols {

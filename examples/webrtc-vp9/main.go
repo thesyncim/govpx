@@ -2004,8 +2004,7 @@ func pickThreads(width, height int) int {
 }
 
 func pickRowMT(width, height int) bool {
-	_, _ = width, height
-	return false
+	return pickThreads(width, height) > 1
 }
 
 func maxVP9TileColumns(width int) int {
