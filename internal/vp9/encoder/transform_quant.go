@@ -1536,6 +1536,38 @@ func QuantizeFPWithQ(coeff []int16, dequant [2]int16, scan []int16,
 			iscan[rc] = int16(i + 1)
 		}
 	}
+	return quantizeFPWithQTables(coeff[:n], dequant, roundFP, quantFP,
+		scan[:n], iscan, qcoeff, dqcoeff[:n])
+}
+
+// QuantizeFPWithQScanOrder is QuantizeFPWithQ for callers that already hold
+// the libvpx ScanOrder and can reuse its precomputed inverse scan.
+func QuantizeFPWithQScanOrder(coeff []int16, dequant [2]int16, scanOrder common.ScanOrder,
+	qcoeff, dqcoeff []int16,
+) int {
+	n := min(len(coeff), min(len(scanOrder.Scan), min(len(scanOrder.IScan), len(dqcoeff))))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
+	if n == 0 {
+		return 0
+	}
+	roundFP := [2]int16{
+		int16((48 * int(dequant[0])) >> 7),
+		int16((42 * int(dequant[1])) >> 7),
+	}
+	quantFP := [2]int16{
+		int16((1 << 16) / int(dequant[0])),
+		int16((1 << 16) / int(dequant[1])),
+	}
+	return quantizeFPWithQTables(coeff[:n], dequant, roundFP, quantFP,
+		scanOrder.Scan[:n], scanOrder.IScan[:n], qcoeff, dqcoeff[:n])
+}
+
+func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	n := len(coeff)
 	if qcoeff == nil {
 		var qcoeffBuf [1024]int16
 		qcoeff = qcoeffBuf[:n]
@@ -1543,7 +1575,7 @@ func QuantizeFPWithQ(coeff []int16, dequant [2]int16, scan []int16,
 			scan, iscan, qcoeff, dqcoeff)
 	}
 	return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
-		scan, iscan, qcoeff, dqcoeff)
+		scan, iscan, qcoeff[:n], dqcoeff)
 }
 
 // QuantizeFPLibvpx is the verbatim Go entry point matching libvpx's

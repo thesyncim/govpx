@@ -923,6 +923,33 @@ func TestVP9QuantizeFPMatchesLibvpxContract(t *testing.T) {
 	}
 }
 
+func TestQuantizeFPWithQScanOrderMatchesSynthesizedIScan(t *testing.T) {
+	dequant := [2]int16{37, 43}
+	so := common.ScanOrders[common.Tx16x16][common.AdstDct]
+	var coeff [256]int16
+	for i := range coeff {
+		if i%5 == 0 {
+			coeff[i] = int16((i*37)%2049 - 1024)
+		}
+	}
+
+	var synthQ, synthDQ [256]int16
+	synthEOB := QuantizeFPWithQ(coeff[:], dequant, so.Scan, synthQ[:], synthDQ[:])
+
+	var orderQ, orderDQ [256]int16
+	orderEOB := QuantizeFPWithQScanOrder(coeff[:], dequant, so, orderQ[:], orderDQ[:])
+
+	if orderEOB != synthEOB {
+		t.Fatalf("eob = %d, want %d", orderEOB, synthEOB)
+	}
+	if orderQ != synthQ {
+		t.Fatalf("qcoeff mismatch\n got %v\nwant %v", orderQ, synthQ)
+	}
+	if orderDQ != synthDQ {
+		t.Fatalf("dqcoeff mismatch\n got %v\nwant %v", orderDQ, synthDQ)
+	}
+}
+
 // referenceQuantizeFP32x32C is the byte-identical Go transcription of
 // libvpx v1.16.0 vp9_quantize_fp_32x32_c (vp9/encoder/vp9_quantize.c:92).
 // Kept verbatim — do not optimise.

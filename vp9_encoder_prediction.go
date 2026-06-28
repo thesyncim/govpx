@@ -509,10 +509,11 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 			return false
 		}
 	}
-	scan := common.ScanOrders[txSize][txType].Scan
+	scanOrder := common.ScanOrders[txSize][txType]
 	if lossless {
-		scan = common.DefaultScanOrders[txSize].Scan
+		scanOrder = common.DefaultScanOrders[txSize]
 	}
+	scan := scanOrder.Scan
 	eob := 0
 	// libvpx writes both qcoeff and dqcoeff inside the quantize kernels
 	// (vpx_dsp/quantize.c:71-72, 261,269; vp9/encoder/vp9_quantize.c:50-51,
@@ -537,8 +538,8 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 			eob = encoder.QuantizeBWithQ(e.txCoeffScratch[:maxEob], qindex, dequant,
 				scan, qBuf, e.dqCoeffScratch[:maxEob])
 		} else {
-			eob = encoder.QuantizeFPWithQ(e.txCoeffScratch[:maxEob], dequant,
-				scan, qBuf, e.dqCoeffScratch[:maxEob])
+			eob = encoder.QuantizeFPWithQScanOrder(e.txCoeffScratch[:maxEob], dequant,
+				scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		}
 	}
 	if eob == 0 {
