@@ -27,8 +27,10 @@ func VP9WebRTCSpatialLayerChangeNeedsKeyFrame(
 //
 // When a WebRTC sender changes the active layer count across access units, it
 // should force a key access unit before packetizing the first result at the new
-// count. Use [VP9WebRTCSpatialLayerChangeNeedsKeyFrame] to gate that control
-// decision.
+// count. [VP9WebRTCPacketizer] enforces that rule for this capped RTP view; the
+// stateless packetizers cannot remember the previous access unit. Use
+// [VP9WebRTCSpatialLayerChangeNeedsKeyFrame] to gate that control decision when
+// managing the sequence yourself.
 func (r VP9SpatialSVCEncodeResult) LimitSpatialLayersForRTP(
 	layerCount int,
 ) (VP9SpatialSVCEncodeResult, error) {
@@ -98,6 +100,11 @@ func (r VP9SpatialSVCEncodeResult) WebRTCRTPPacketizationSize(
 // PacketizeWebRTCRTPInto packetizes r into caller-owned RTP payload storage
 // using WebRTC-friendly VP9 descriptors. Payload bodies do not include RTP
 // headers; Marker is true only on the final packet of the access unit.
+//
+// This is a stateless helper: callers that run a long-lived WebRTC sender must
+// own PictureID gaps and recovery-key decisions after dropped, withheld, or
+// layer-count-changing access units. Use [VP9WebRTCPacketizer] for that stateful
+// sender path.
 func (r VP9SpatialSVCEncodeResult) PacketizeWebRTCRTPInto(
 	dst []RTPPayloadFragment,
 	payloadBuf []byte,
@@ -145,6 +152,9 @@ func (r VP9SpatialSVCEncodeResult) PacketizeWebRTCRTPInto(
 
 // PacketizeWebRTCRTP packetizes r into allocated RTP payload bodies using
 // WebRTC-friendly VP9 descriptors. Payloads do not include RTP headers.
+//
+// This is a stateless helper. Use [VP9WebRTCPacketizer] for long-lived WebRTC
+// sender streams that need PictureID sequencing and recovery-key enforcement.
 func (r VP9SpatialSVCEncodeResult) PacketizeWebRTCRTP(
 	pictureID uint16,
 	mtu int,

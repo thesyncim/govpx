@@ -335,6 +335,156 @@ func TestVP9WebRTCPacketizerRequiresRecoveryKeyOnSVCLayerCountChange(t *testing.
 	}
 }
 
+func TestVP9WebRTCPacketizerRequiresRecoveryKeyAfterLimitedSpatialLayersForRTPChange(t *testing.T) {
+	const mtu = 80
+
+	for _, tc := range []struct {
+		name          string
+		size          func(*govpx.VP9WebRTCPacketizer, govpx.VP9SpatialSVCEncodeResult) (int, int, error)
+		packetize     func(*testing.T, *govpx.VP9WebRTCPacketizer, govpx.VP9SpatialSVCEncodeResult)
+		packetizeInto func(*govpx.VP9WebRTCPacketizer, govpx.VP9SpatialSVCEncodeResult) (int, int, error)
+	}{
+		{
+			name: "flexible",
+			size: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				return packetizer.SpatialSVCWebRTCPacketizationSize(
+					result, mtu)
+			},
+			packetize: func(t *testing.T, packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) {
+				t.Helper()
+				packetizeSpatialSVCWebRTCStateForTest(t, packetizer, result,
+					mtu, true)
+			},
+			packetizeInto: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				return packetizer.PacketizeSpatialSVCWebRTCInto(
+					result, nil, nil, mtu)
+			},
+		},
+		{
+			name: "non-flexible",
+			size: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				return packetizer.SpatialSVCWebRTCNonFlexiblePacketizationSize(
+					result, mtu)
+			},
+			packetize: func(t *testing.T, packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) {
+				t.Helper()
+				packetizeSpatialSVCWebRTCStateForTest(t, packetizer, result,
+					mtu, false)
+			},
+			packetizeInto: func(packetizer *govpx.VP9WebRTCPacketizer,
+				result govpx.VP9SpatialSVCEncodeResult,
+			) (int, int, error) {
+				return packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+					result, nil, nil, mtu)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, srcs := newVP9WebRTCLayerChangeSVCForTest(t)
+			dst := make([]byte, 1<<20)
+			packetizer := govpx.NewVP9WebRTCPacketizer(0x260)
+
+			full := encodeVP9WebRTCFullLayerResultForTest(t, svc, srcs, dst, 0)
+			tc.packetize(t, &packetizer, full)
+			fullNextPictureID := packetizer.PictureID()
+
+			limitedInterSource := encodeVP9WebRTCFullLayerResultForTest(
+				t, svc, srcs, dst, 1)
+			if limitedInterSource.Layers[0].KeyFrame {
+				t.Fatal("test setup produced keyframe for unforced capped shrink")
+			}
+			limitedInter, err := limitedInterSource.LimitSpatialLayersForRTP(1)
+			if err != nil {
+				t.Fatalf("LimitSpatialLayersForRTP shrink: %v", err)
+			}
+			packets, payloadBytes, err := tc.size(&packetizer, limitedInter)
+			if !errors.Is(err, govpx.ErrInvalidConfig) ||
+				packets != 0 || payloadBytes != 0 {
+				t.Fatalf("capped shrink without key size = %d/%d err:%v, want ErrInvalidConfig",
+					packets, payloadBytes, err)
+			}
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatal("capped shrink without key did not require recovery key")
+			}
+			if got := packetizer.PictureID(); got != fullNextPictureID {
+				t.Fatalf("PictureID after rejected capped shrink = %d, want %d",
+					got, fullNextPictureID)
+			}
+			if n, used, err := tc.packetizeInto(&packetizer,
+				limitedInter); !errors.Is(err, govpx.ErrInvalidConfig) ||
+				n != 0 || used != 0 {
+				t.Fatalf("capped shrink packetize = %d/%d err:%v, want ErrInvalidConfig",
+					n, used, err)
+			}
+
+			svc.ForceKeyFrame()
+			limitedKeySource := encodeVP9WebRTCFullLayerResultForTest(
+				t, svc, srcs, dst, 2)
+			limitedKey, err := limitedKeySource.LimitSpatialLayersForRTP(1)
+			if err != nil {
+				t.Fatalf("LimitSpatialLayersForRTP recovery shrink: %v", err)
+			}
+			if !limitedKey.Layers[0].KeyFrame ||
+				limitedKey.Layers[0].InterPicturePredicted {
+				t.Fatalf("limited recovery base = key:%t inter:%t, want key/non-predicted",
+					limitedKey.Layers[0].KeyFrame,
+					limitedKey.Layers[0].InterPicturePredicted)
+			}
+			tc.packetize(t, &packetizer, limitedKey)
+			if packetizer.NeedsKeyFrame() {
+				t.Fatal("limited recovery key did not clear NeedsKeyFrame")
+			}
+			limitedNextPictureID := packetizer.PictureID()
+
+			fullInter := encodeVP9WebRTCFullLayerResultForTest(t, svc, srcs,
+				dst, 3)
+			if fullInter.Layers[0].KeyFrame {
+				t.Fatal("test setup produced keyframe for unforced capped grow")
+			}
+			packets, payloadBytes, err = tc.size(&packetizer, fullInter)
+			if !errors.Is(err, govpx.ErrInvalidConfig) ||
+				packets != 0 || payloadBytes != 0 {
+				t.Fatalf("capped grow without key size = %d/%d err:%v, want ErrInvalidConfig",
+					packets, payloadBytes, err)
+			}
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatal("capped grow without key did not require recovery key")
+			}
+			if got := packetizer.PictureID(); got != limitedNextPictureID {
+				t.Fatalf("PictureID after rejected capped grow = %d, want %d",
+					got, limitedNextPictureID)
+			}
+			if n, used, err := tc.packetizeInto(&packetizer,
+				fullInter); !errors.Is(err, govpx.ErrInvalidConfig) ||
+				n != 0 || used != 0 {
+				t.Fatalf("capped grow packetize = %d/%d err:%v, want ErrInvalidConfig",
+					n, used, err)
+			}
+
+			svc.ForceKeyFrame()
+			fullRecovery := encodeVP9WebRTCFullLayerResultForTest(
+				t, svc, srcs, dst, 4)
+			if !fullRecovery.Layers[0].KeyFrame {
+				t.Fatal("forced grow recovery did not produce keyframe")
+			}
+			tc.packetize(t, &packetizer, fullRecovery)
+			if packetizer.NeedsKeyFrame() {
+				t.Fatal("full recovery key did not clear NeedsKeyFrame")
+			}
+		})
+	}
+}
+
 func TestVP9WebRTCPacketizerRequiresRecoveryAfterMarkedUnsentSVCAccessUnit(t *testing.T) {
 	svc, srcs := newVP9WebRTCLayerChangeSVCForTest(t)
 	dst := make([]byte, 1<<20)
@@ -809,6 +959,28 @@ func encodeVP9WebRTCLayerChangeResultForTest(
 	return result
 }
 
+func encodeVP9WebRTCFullLayerResultForTest(
+	t *testing.T,
+	svc *govpx.VP9SpatialSVCEncoder,
+	srcs []*image.YCbCr,
+	dst []byte,
+	frame int,
+) govpx.VP9SpatialSVCEncodeResult {
+	t.Helper()
+	for layer, src := range srcs {
+		vp9test.FillYCbCr(src, uint8(64+frame*13+layer*19), 120, 136)
+	}
+	result, err := svc.EncodeIntoWithResult(srcs, dst)
+	if err != nil {
+		t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+	}
+	if int(result.LayerCount) != len(srcs) {
+		t.Fatalf("frame %d layer count = %d, want %d", frame,
+			result.LayerCount, len(srcs))
+	}
+	return result
+}
+
 func packetizeSpatialSVCWebRTCForTest(
 	t *testing.T,
 	packetizer *govpx.VP9WebRTCPacketizer,
@@ -887,6 +1059,84 @@ func packetizeSpatialSVCWebRTCNonFlexibleForTest(
 		govpx.NextVP9RTPPictureID(pictureID); got != want {
 		t.Fatalf("PictureID after non-flexible packetize = %d, want %d",
 			got, want)
+	}
+	return payloads
+}
+
+func packetizeSpatialSVCWebRTCStateForTest(
+	t *testing.T,
+	packetizer *govpx.VP9WebRTCPacketizer,
+	result govpx.VP9SpatialSVCEncodeResult,
+	mtu int,
+	flexible bool,
+) []govpx.RTPPayloadFragment {
+	t.Helper()
+	pictureID := packetizer.PictureID()
+	var packets, payloadBytes int
+	var err error
+	if flexible {
+		packets, payloadBytes, err = packetizer.SpatialSVCWebRTCPacketizationSize(
+			result, mtu)
+	} else {
+		packets, payloadBytes, err = packetizer.
+			SpatialSVCWebRTCNonFlexiblePacketizationSize(result, mtu)
+	}
+	if err != nil {
+		t.Fatalf("SpatialSVCWebRTC packetization size flexible:%t: %v",
+			flexible, err)
+	}
+	payloads := make([]govpx.RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	var n, used int
+	if flexible {
+		n, used, err = packetizer.PacketizeSpatialSVCWebRTCInto(result,
+			payloads, payloadBuf, mtu)
+	} else {
+		n, used, err = packetizer.PacketizeSpatialSVCWebRTCNonFlexibleInto(
+			result, payloads, payloadBuf, mtu)
+	}
+	if err != nil {
+		t.Fatalf("PacketizeSpatialSVCWebRTC flexible:%t: %v", flexible, err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("PacketizeSpatialSVCWebRTC flexible:%t returned %d/%d, want %d/%d",
+			flexible, n, used, packets, payloadBytes)
+	}
+	payloads = payloads[:n]
+	if len(payloads) == 0 {
+		t.Fatal("PacketizeSpatialSVCWebRTC returned no payloads")
+	}
+	for i, payload := range payloads {
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %t, want %t", i, got, want)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.FlexibleMode != flexible {
+			t.Fatalf("payload %d flexible = %t, want %t", i,
+				desc.FlexibleMode, flexible)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != pictureID {
+			t.Fatalf("payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, pictureID)
+		}
+		if result.LayerCount > 1 {
+			if !desc.LayerIndicesPresent || desc.SpatialID >= result.LayerCount {
+				t.Fatalf("payload %d descriptor = %+v, want spatial metadata < %d",
+					i, desc, result.LayerCount)
+			}
+		} else if desc.LayerIndicesPresent && desc.SpatialID != 0 {
+			t.Fatalf("payload %d single-layer descriptor = %+v, want spatial id 0",
+				i, desc)
+		}
+	}
+	if got, want := packetizer.PictureID(),
+		govpx.NextVP9RTPPictureID(pictureID); got != want {
+		t.Fatalf("PictureID after packetize = %d, want %d", got, want)
 	}
 	return payloads
 }

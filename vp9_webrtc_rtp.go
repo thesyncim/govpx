@@ -38,6 +38,10 @@ func (r VP9EncodeResult) WebRTCRTPPacketizationSize(
 // PacketizeWebRTCRTPInto packetizes r into caller-owned RTP payload storage
 // using WebRTC-friendly VP9 descriptors. Payload bodies do not include RTP
 // headers; Marker is true only on the final packet of the frame.
+//
+// This is a stateless helper: callers that run a long-lived WebRTC sender must
+// own PictureID gaps and recovery-key decisions after dropped or withheld
+// frames. Use [VP9WebRTCPacketizer] for that stateful sender path.
 func (r VP9EncodeResult) PacketizeWebRTCRTPInto(
 	dst []RTPPayloadFragment,
 	payloadBuf []byte,
@@ -53,6 +57,9 @@ func (r VP9EncodeResult) PacketizeWebRTCRTPInto(
 
 // PacketizeWebRTCRTP packetizes r into allocated RTP payload bodies using
 // WebRTC-friendly VP9 descriptors. Payloads do not include RTP headers.
+//
+// This is a stateless helper. Use [VP9WebRTCPacketizer] for long-lived WebRTC
+// sender streams that need PictureID sequencing and recovery-key enforcement.
 func (r VP9EncodeResult) PacketizeWebRTCRTP(
 	pictureID uint16,
 	mtu int,
