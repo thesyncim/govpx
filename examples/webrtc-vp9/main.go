@@ -1192,8 +1192,9 @@ func (b *spatialCapBackoff) observeCompletedAccessUnit(
 }
 
 func spatialCapBackoffIsOverrun(elapsed time.Duration, interval time.Duration) bool {
-	// WebRTC realtime stalls before a sender sits at 1.5x frame budget.
-	return interval > 0 && elapsed > interval+interval/4
+	// Treat only missed-frame-class latency as cap pressure. Short bursts above
+	// the nominal frame interval can happen without receiver repair or freezes.
+	return interval > 0 && elapsed > interval*2
 }
 
 func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},

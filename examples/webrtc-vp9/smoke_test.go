@@ -1366,7 +1366,7 @@ func TestSpatialCapChangeAfterForceKeyConsumedIsAppliedNextKeyFrame(t *testing.T
 func TestSpatialCapBackoffDownshiftsAfterRepeatedOverruns(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval/3
+	overrun := interval*2 + interval/3
 
 	for i := 0; i < spatialCapBackoffOverruns-1; i++ {
 		if backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval) {
@@ -1402,10 +1402,26 @@ func TestSpatialCapBackoffAllowsNearBudgetJitter(t *testing.T) {
 	}
 }
 
+func TestSpatialCapBackoffAllowsSingleFrameBudgetMissJitter(t *testing.T) {
+	backoff := newSpatialCapBackoff(spatialLayerCount)
+	interval := time.Second / time.Duration(defaultFPS)
+	shortBurst := interval + interval*3/4
+
+	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
+		if backoff.observe(spatialLayerCount, spatialLayerCount, shortBurst, interval) {
+			t.Fatalf("single-frame-budget miss %d requested cap change", i)
+		}
+	}
+	if backoff.maxCap != spatialLayerCount || backoff.overrunStreak != 0 {
+		t.Fatalf("single-frame-budget jitter changed backoff = %+v, want cap %d streak 0",
+			backoff, spatialLayerCount)
+	}
+}
+
 func TestSpatialCapBackoffDownshiftsBeforeEncodeOnRepeatedLateStarts(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	lateStart := interval + interval*2/3
+	lateStart := interval*2 + interval/3
 
 	if changed, counted := backoff.observeLateStart(
 		spatialLayerCount, spatialLayerCount, interval/2, interval); changed || counted {
@@ -1435,7 +1451,7 @@ func TestSpatialCapBackoffDownshiftsBeforeEncodeOnRepeatedLateStarts(t *testing.
 func TestSpatialCapBackoffCountsOneStrikePerLateAccessUnit(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval*2/3
+	overrun := interval*2 + interval/3
 
 	changed, counted := backoff.observeLateStart(
 		spatialLayerCount, spatialLayerCount, overrun, interval)
@@ -1479,7 +1495,7 @@ func TestSpatialCapBackoffDoesNotCompoundModerateLagAndEncode(t *testing.T) {
 func TestSpatialCapBackoffIgnoresForcedKeyAccessUnits(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval*2/3
+	overrun := interval*2 + interval/3
 
 	for i := 0; i < spatialCapBackoffOverruns+1; i++ {
 		changed, counted := backoff.observeLateStartForAccessUnit(
@@ -1516,7 +1532,7 @@ func TestSpatialCapBackoffIgnoresForcedKeyAccessUnits(t *testing.T) {
 func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval*2/3
+	overrun := interval*2 + interval/3
 	for i := 0; i < spatialCapBackoffOverruns; i++ {
 		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
 	}
@@ -1547,7 +1563,7 @@ func TestSpatialCapBackoffRecoversTowardRequestedCapAfterStableFrames(t *testing
 func TestSpatialCapBackoffManualCapChangeAppliesOnForcedKey(t *testing.T) {
 	backoff := newSpatialCapBackoff(spatialLayerCount)
 	interval := time.Second / time.Duration(defaultFPS)
-	overrun := interval + interval*2/3
+	overrun := interval*2 + interval/3
 	for i := 0; i < spatialCapBackoffOverruns; i++ {
 		_ = backoff.observe(spatialLayerCount, spatialLayerCount, overrun, interval)
 	}
