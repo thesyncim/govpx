@@ -7,11 +7,12 @@ import "errors"
 // successfully packetized, and also advances across encoder-dropped frames.
 // Dropped frames emit no RTP payloads, but they still consume a VP9 temporal
 // slot; leaving a PictureID gap keeps the RTP timeline aligned with the
-// encoder timeline. Emitted payloads use VP9 flexible mode with explicit
-// reference diffs so receivers do not have to infer dependencies from a stale
-// GOF pattern.
+// encoder timeline. Flexible packetization emits explicit reference diffs;
+// non-flexible packetization keeps browser-style TL0PICIDX and keyframe GOF
+// metadata for plain realtime VP9 senders.
 type VP9WebRTCPacketizer struct {
 	pictureID             uint16
+	tl0PicIdx             uint8
 	consumedDropPending   bool
 	consumedDropSignature vp9WebRTCDroppedFrameSignature
 	keyFrameRequired      bool
@@ -41,8 +42,9 @@ func (p *VP9WebRTCPacketizer) PictureID() uint16 {
 // unpacketizable inter-frame dependency requires the sender to force a keyframe
 // before emitting more RTP payloads. Top temporal-layer drops can be
 // represented as ordinary PictureID gaps, but dropped base/intermediate
-// temporal layers and stale flexible-mode references can strand receiver
-// dependency tracking on references that will never arrive.
+// temporal layers, stale flexible-mode references, and withheld non-flexible
+// TL0 pictures can strand receiver dependency tracking on references that will
+// never arrive.
 func (p *VP9WebRTCPacketizer) NeedsKeyFrame() bool {
 	return p != nil && p.keyFrameRequired
 }
@@ -168,6 +170,125 @@ func (p *VP9WebRTCPacketizer) Packetize(
 	p.commitVP9WebRTCReferences(r, pictureID)
 	p.advancePictureID()
 	return payloads, true, nil
+}
+
+// WebRTCNonFlexiblePacketizationSize returns the RTP payload count and
+// payload-body bytes needed to packetize a plain VP9 frame with non-flexible
+// WebRTC descriptors and the packetizer's current PictureID. This keeps
+// TL0PICIDX and keyframe GOF metadata, matching the traditional realtime VP9
+// RTP shape used by browser receivers.
+func (p *VP9WebRTCPacketizer) WebRTCNonFlexiblePacketizationSize(
+	r VP9EncodeResult,
+	mtu int,
+) (packets int, payloadBytes int, sent bool, err error) {
+	if p == nil {
+		return 0, 0, false, ErrInvalidConfig
+	}
+	if r.Dropped {
+		p.consumeDroppedFrame(r)
+		return 0, 0, false, nil
+	}
+	if err = p.requireVP9RecoveryKey(r); err != nil {
+		return 0, 0, false, err
+	}
+	p.consumedDropPending = false
+	desc, frame, err := p.vp9WebRTCNonFlexibleDescriptorAndFrame(r,
+		p.pictureID)
+	if err == nil {
+		packets, payloadBytes, err = VP9RTPFramePacketizationSize(desc,
+			frame, mtu)
+	}
+	if err != nil {
+		p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
+	}
+	return packets, payloadBytes, err == nil, err
+}
+
+// PacketizeWebRTCNonFlexibleInto packetizes a plain VP9 frame into
+// caller-owned RTP payload storage with non-flexible WebRTC descriptors. It
+// advances the PictureID, and the packetizer-owned one-layer TL0PICIDX, only
+// after successful packetization or consuming an encoder-dropped temporal slot.
+func (p *VP9WebRTCPacketizer) PacketizeWebRTCNonFlexibleInto(
+	r VP9EncodeResult,
+	dst []RTPPayloadFragment,
+	payloadBuf []byte,
+	mtu int,
+) (packets int, payloadBytes int, sent bool, err error) {
+	if p == nil {
+		return 0, 0, false, ErrInvalidConfig
+	}
+	if r.Dropped {
+		p.consumeDroppedFrame(r)
+		return 0, 0, false, nil
+	}
+	if err = p.requireVP9RecoveryKey(r); err != nil {
+		return 0, 0, false, err
+	}
+	pictureID := p.pictureID
+	desc, frame, err := p.vp9WebRTCNonFlexibleDescriptorAndFrame(r,
+		pictureID)
+	if err == nil {
+		packets, payloadBytes, err = PacketizeVP9RTPFrameInto(dst,
+			payloadBuf, desc, frame, mtu)
+	}
+	if err != nil {
+		if !errors.Is(err, ErrBufferTooSmall) {
+			p.requireVP9RecoveryKeyAfterEncodedPacketizationError(err)
+		}
+		return packets, payloadBytes, false, err
+	}
+	p.consumedDropPending = false
+	p.keyFrameRequired = false
+	p.commitVP9WebRTCReferences(r, pictureID)
+	p.advancePictureID()
+	p.advanceVP9WebRTCNonFlexibleTL0(r)
+	return packets, payloadBytes, true, nil
+}
+
+// PacketizeWebRTCNonFlexible packetizes a plain VP9 frame into allocated RTP
+// payload bodies with non-flexible WebRTC descriptors.
+func (p *VP9WebRTCPacketizer) PacketizeWebRTCNonFlexible(
+	r VP9EncodeResult,
+	mtu int,
+) ([]RTPPayloadFragment, bool, error) {
+	packets, payloadBytes, sent, err := p.WebRTCNonFlexiblePacketizationSize(
+		r, mtu)
+	if err != nil || !sent {
+		return nil, sent, err
+	}
+	out := make([]RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, _, sent, err := p.PacketizeWebRTCNonFlexibleInto(r, out, payloadBuf,
+		mtu)
+	if err != nil || !sent {
+		return nil, sent, err
+	}
+	return out[:n], true, nil
+}
+
+func (p *VP9WebRTCPacketizer) vp9WebRTCNonFlexibleDescriptorAndFrame(
+	r VP9EncodeResult,
+	pictureID uint16,
+) (VP9RTPPayloadDescriptor, []byte, error) {
+	desc, frame, err := r.vp9WebRTCRTPDescriptorAndFrame(pictureID)
+	if err != nil {
+		return VP9RTPPayloadDescriptor{}, nil, err
+	}
+	if r.TemporalLayerCount == 1 {
+		desc.LayerIndicesPresent = true
+		desc.TemporalID = 0
+		desc.SpatialID = 0
+		desc.TL0PICIDX = p.tl0PicIdx
+		desc.SwitchingUpPoint = false
+		desc.InterLayerDependency = false
+	}
+	return desc, frame, nil
+}
+
+func (p *VP9WebRTCPacketizer) advanceVP9WebRTCNonFlexibleTL0(r VP9EncodeResult) {
+	if r.TemporalLayerCount == 1 {
+		p.tl0PicIdx++
+	}
 }
 
 // SpatialSVCWebRTCPacketizationSize returns the RTP payload count and

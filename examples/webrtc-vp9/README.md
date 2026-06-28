@@ -39,11 +39,16 @@ with each access unit.
 Flags:
 
 - `-addr` — listen address (default `:8080`).
-- `-fps` — encoded frame rate (default `30`).
+- `-fps` — encoded frame rate (default `25`).
 - `-bitrate` — total target bitrate in kbps across the three spatial
   layers (default `800`). The split is 12 % / 36 % / 52 % to
   base/mid/top, matching the independent per-layer targets libvpx sums
   into the total SVC budget.
+- `-plain-vp9` — stream the single-spatial/single-temporal VP9 WebRTC sender
+  instead of the spatial-SVC demo. This mode uses
+  `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto`, explicit 15-bit
+  PictureID, TL0PICIDX/keyframe GOF metadata, and the same app-local no-loss
+  recovery rules as production plain VP9 senders.
 
 ## Performance note
 
@@ -156,6 +161,21 @@ top spatial layer:
 
 ```sh
 node browser_smoke.mjs --repeat 3 --soak-ms 30000 --sample-ms 5000 --min-decoded-delta 100 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+```
+
+To prove the plain single-spatial/single-temporal VP9 WebRTC path in a real
+browser, add `--server-plain-vp9`. This launches the demo server with
+`-plain-vp9` and keeps the same clean-RTP decode invariants:
+
+```sh
+node browser_smoke.mjs --server-plain-vp9 --repeat 2 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.9 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+```
+
+For the same plain sender, add `--control-churn` to force keyframe recovery
+through the browser controls while still requiring clean RTP/decode counters:
+
+```sh
+node browser_smoke.mjs --server-plain-vp9 --control-churn --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.85 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To reproduce scheduler contention, ask the smoke to launch local CPU burners
@@ -313,6 +333,9 @@ a different host shape.
   RTP, speed-default, and row-MT/threading checks before browser smoke.
 - The browser gate also fails if local sender-side encode, packetization, or
   RTP-write failures appear and are hidden by recovery-key behavior.
+- The plain VP9 browser gates prove the non-SVC sender path and explicit
+  forced-key recovery with real Chrome decode, not only RTP ref-finder
+  simulation and `vpxdec` packet reassembly.
 - Explicit access-unit and schedule-lag budgets catch sender backlog under
   host contention before it turns into a clean-RTP browser freeze; the full
   production gate and hostile-load stress gate both enforce those budgets.

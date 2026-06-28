@@ -56,14 +56,22 @@ var layerDims = [spatialLayerCount][2]int{
 	{640, 360},
 }
 
+const (
+	plainVP9Width  = 320
+	plainVP9Height = 180
+)
+
+const plainVP9WebRTCKeyframeIntervalSeconds = 3600
+
 // layerSplitPct holds the per-spatial-layer bitrate share, base to top.
 // These are independent layer targets; libvpx sums them for total SVC budget.
 var layerSplitPct = [spatialLayerCount]int{12, 36, 52}
 
 type demoConfig struct {
-	Addr        string
-	FPS         int
-	BitrateKbps int
+	Addr         string
+	FPS          int
+	BitrateKbps  int
+	PlainVP9Mode bool
 }
 
 const indexHTML = `<!doctype html>
@@ -512,6 +520,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	fps := flag.Int("fps", defaultFPS, "encoded frame rate")
 	bitrate := flag.Int("bitrate", defaultBitrateKbps, "total target bitrate in kbps")
+	plainVP9 := flag.Bool("plain-vp9", false, "stream a plain single-layer VP9 WebRTC sender")
 	flag.Parse()
 	if *fps <= 0 {
 		log.Fatal("fps must be positive")
@@ -520,7 +529,12 @@ func main() {
 		log.Fatalf("bitrate must be at least %d kbps",
 			spatialLayerCount*minLayerBitrateKbps)
 	}
-	cfg := demoConfig{Addr: *addr, FPS: *fps, BitrateKbps: *bitrate}
+	cfg := demoConfig{
+		Addr:         *addr,
+		FPS:          *fps,
+		BitrateKbps:  *bitrate,
+		PlainVP9Mode: *plainVP9,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -535,9 +549,13 @@ func main() {
 		handleOffer(w, r, cfg)
 	})
 
-	log.Printf("listening on http://localhost%s (3 spatial layers up to %dx%d @ %dfps, %dkbps total)",
-		cfg.Addr, layerDims[spatialLayerCount-1][0], layerDims[spatialLayerCount-1][1],
-		cfg.FPS, cfg.BitrateKbps)
+	width, height := demoOfferDimensions(cfg)
+	mode := "3 spatial layers up to"
+	if cfg.PlainVP9Mode {
+		mode = "plain VP9"
+	}
+	log.Printf("listening on http://localhost%s (%s %dx%d @ %dfps, %dkbps total)",
+		cfg.Addr, mode, width, height, cfg.FPS, cfg.BitrateKbps)
 	if err := http.ListenAndServe(cfg.Addr, mux); err != nil {
 		log.Fatal(err)
 	}
@@ -583,7 +601,7 @@ func handleOfferWithICEGatherWait(
 		return
 	}
 	if !offerSupportsDemoVP9(offer.SDP, cfg) {
-		width, height := demoTopLayerDimensions()
+		width, height := demoOfferDimensions(cfg)
 		http.Error(w, fmt.Sprintf("VP9 profile 0 receiver support for %dx%d@%dfps is required",
 			width, height, cfg.FPS), http.StatusNotAcceptable)
 		return
@@ -706,8 +724,15 @@ func handleOfferWithICEGatherWait(
 }
 
 func offerSupportsDemoVP9(sdp string, cfg demoConfig) bool {
-	width, height := demoTopLayerDimensions()
+	width, height := demoOfferDimensions(cfg)
 	return govpx.VP9SDPOffersProfile0ReceiveFrame(sdp, width, height, cfg.FPS)
+}
+
+func demoOfferDimensions(cfg demoConfig) (int, int) {
+	if cfg.PlainVP9Mode {
+		return plainVP9Width, plainVP9Height
+	}
+	return demoTopLayerDimensions()
 }
 
 func demoTopLayerDimensions() (int, int) {
@@ -1119,6 +1144,10 @@ func runEncoderAfterConnected(ctx context.Context, connected <-chan struct{},
 		return
 	}
 	ctl.forceKey.Store(true)
+	if cfg.PlainVP9Mode {
+		runPlainVP9Encoder(ctx, track, telemetry, ctl, cfg)
+		return
+	}
 	runEncoder(ctx, track, telemetry, ctl, cfg)
 }
 
@@ -1128,6 +1157,218 @@ func waitForPeerConnected(ctx context.Context, connected <-chan struct{}) bool {
 		return false
 	case <-connected:
 		return true
+	}
+}
+
+// runPlainVP9Encoder drives the single-layer VP9 sender path through the same
+// stateful WebRTC packetizer used by production callers that do not need SVC.
+func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
+	telemetry chan []byte, ctl *controlState, cfg demoConfig) {
+	defer close(telemetry)
+
+	enc, err := newPlainVP9Encoder(cfg)
+	if err != nil {
+		log.Printf("newPlainVP9Encoder: %v", err)
+		return
+	}
+	defer enc.Close()
+
+	img := image.NewYCbCr(image.Rect(0, 0, plainVP9Width, plainVP9Height),
+		image.YCbCrSubsampleRatio420)
+	packet := make([]byte, plainVP9FrameBudget())
+	var rtpFragments []govpx.RTPPayloadFragment
+	var rtpPayloadBuf []byte
+	interval := time.Second / time.Duration(cfg.FPS)
+	rtpTimestampBase := randomUint32()
+	rtpSequence := randomUint16()
+	rtpPacketizer := govpx.NewVP9WebRTCPacketizer(randomUint16())
+
+	startedAt := time.Now()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	currentBitrate := int(ctl.bitrateKbps.Load())
+	currentScreen := int(ctl.screenMode.Load())
+	statsTracker := newStatsTracker()
+	var lastMediaFrame uint64
+	var haveMediaFrame bool
+	failedEncodeAccessUnits := 0
+	failedEncodedAccessUnits := 0
+	localWithheldAccessUnits := 0
+	localPartialWriteAccessUnits := 0
+	for {
+		var tickTime time.Time
+		select {
+		case <-ctx.Done():
+			return
+		case tickTime = <-ticker.C:
+		}
+		accessUnitStarted := time.Now()
+		scheduleLag := accessUnitScheduleLag(tickTime, accessUnitStarted)
+
+		if want := int(ctl.bitrateKbps.Load()); want != currentBitrate {
+			if err := enc.SetBitrateKbps(want); err != nil {
+				log.Printf("SetBitrateKbps(%d): %v", want, err)
+			} else {
+				currentBitrate = want
+			}
+		}
+		if want := int(ctl.screenMode.Load()); want != currentScreen {
+			if err := enc.SetScreenContentMode(want); err != nil {
+				log.Printf("SetScreenContentMode(%d): %v", want, err)
+			} else {
+				currentScreen = want
+			}
+		}
+		packetizerRecovery := rtpPacketizer.NeedsKeyFrame()
+		active, forceKey := consumeForceKeyForWebRTCAccessUnit(ctl,
+			&rtpPacketizer)
+		if !active {
+			continue
+		}
+		if forceKey {
+			enc.ForceKeyFrame()
+		}
+
+		mediaFrame := rtpMediaFrameForAccessUnit(startedAt, tickTime,
+			accessUnitStarted, cfg.FPS, lastMediaFrame, haveMediaFrame)
+		lastMediaFrame = mediaFrame
+		haveMediaFrame = true
+		pts := rtpClockOffset(mediaFrame, cfg.FPS)
+		rtpTimestamp := rtpTimestampBase + uint32(pts)
+		sceneT := int(mediaFrame + 1)
+		drawFrameYCbCr(img, sceneT, 1)
+
+		encodeStarted := time.Now()
+		result, err := enc.EncodeIntoWithResult(img, packet)
+		encodeElapsed := time.Since(encodeStarted)
+		if err != nil {
+			log.Printf("EncodeIntoWithResult: %v (frame %d)", err, sceneT)
+			failedEncodeAccessUnits++
+			requestKeyFrameAfterFailedAccessUnit(ctl)
+			continue
+		}
+		telemetryResult := plainVP9TelemetryResult(result)
+
+		packetizeStarted := time.Now()
+		fragmentCount, payloadBytes, sent, err := rtpPacketizer.
+			WebRTCNonFlexiblePacketizationSize(result, rtpPayloadMTU)
+		if err != nil {
+			log.Printf("WebRTCRTPPacketizationSize: %v", err)
+			failedEncodedAccessUnits++
+			requestKeyFrameAfterFailedEncodedAccessUnit(ctl, &rtpPacketizer)
+			continue
+		}
+		if !sent {
+			packetizeElapsed := time.Since(packetizeStarted)
+			if rtpPacketizer.NeedsKeyFrame() {
+				requestKeyFrameAfterFailedAccessUnit(ctl)
+			}
+			if payload, err := statsTracker.snapshot(telemetryResult,
+				currentBitrate, currentScreen, 1, 1, pts, telemetrySender{
+					EncodeMs:           durationMS(encodeElapsed),
+					PacketizeMs:        durationMS(packetizeElapsed),
+					AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+					ScheduleLagMs:      durationMS(scheduleLag),
+					ForcedKey:          forceKey,
+					PacketizerRecovery: packetizerRecovery,
+					FailedEncodeAUs:    failedEncodeAccessUnits,
+					FailedEncodedAUs:   failedEncodedAccessUnits,
+					WithheldAUs:        localWithheldAccessUnits,
+					PartialWriteAUs:    localPartialWriteAccessUnits,
+					SpatialCapMax:      1,
+				}); err == nil {
+				pushTelemetry(telemetry, payload)
+			}
+			continue
+		}
+		if cap(rtpFragments) < fragmentCount {
+			rtpFragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		}
+		rtpFragments = rtpFragments[:fragmentCount]
+		if cap(rtpPayloadBuf) < payloadBytes {
+			rtpPayloadBuf = make([]byte, payloadBytes)
+		}
+		rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
+		fragmentCount, _, sent, err = rtpPacketizer.
+			PacketizeWebRTCNonFlexibleInto(result, rtpFragments,
+				rtpPayloadBuf, rtpPayloadMTU)
+		if err != nil {
+			log.Printf("PacketizeWebRTCRTPInto: %v", err)
+			failedEncodedAccessUnits++
+			requestKeyFrameAfterFailedEncodedAccessUnit(ctl, &rtpPacketizer)
+			continue
+		}
+		if !sent {
+			continue
+		}
+		packetizeElapsed := time.Since(packetizeStarted)
+		if consumeLocalWithholdAccessUnit(ctl) {
+			localWithheldAccessUnits++
+			requestKeyFrameAfterUnsentAccessUnit(ctl, &rtpPacketizer)
+			if payload, err := statsTracker.snapshot(telemetryResult,
+				currentBitrate, currentScreen, 1, 1, pts, telemetrySender{
+					EncodeMs:           durationMS(encodeElapsed),
+					PacketizeMs:        durationMS(packetizeElapsed),
+					AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+					ScheduleLagMs:      durationMS(scheduleLag),
+					ForcedKey:          forceKey,
+					PacketizerRecovery: packetizerRecovery,
+					FailedEncodeAUs:    failedEncodeAccessUnits,
+					FailedEncodedAUs:   failedEncodedAccessUnits,
+					Withheld:           true,
+					WithheldAUs:        localWithheldAccessUnits,
+					PartialWriteAUs:    localPartialWriteAccessUnits,
+					SpatialCapMax:      1,
+				}); err == nil {
+				pushTelemetry(telemetry, payload)
+			}
+			continue
+		}
+
+		writer := rtpAccessUnitWriter(track)
+		if consumeLocalPartialWriteAccessUnit(ctl) {
+			localPartialWriteAccessUnits++
+			writer = &partialWriteRTPWriter{
+				inner:     track,
+				failAfter: partialWritePrefixPackets(fragmentCount),
+				err:       errSimulatedPartialRTPWrite,
+			}
+		}
+		writeStarted := time.Now()
+		writtenPackets, err := writeWebRTCRTPAccessUnit(writer,
+			rtpFragments[:fragmentCount], rtpTimestamp, &rtpSequence)
+		if err != nil {
+			if errors.Is(err, io.ErrClosedPipe) {
+				return
+			}
+			log.Printf("WriteRTP after %d/%d packets: %v", writtenPackets,
+				fragmentCount, err)
+			failedEncodedAccessUnits++
+			requestKeyFrameAfterUnsentAccessUnit(ctl, &rtpPacketizer)
+			continue
+		}
+		writeElapsed := time.Since(writeStarted)
+
+		statsTracker.observe(telemetryResult, time.Now())
+		if payload, err := statsTracker.snapshot(telemetryResult,
+			currentBitrate, currentScreen, 1, 1, pts, telemetrySender{
+				EncodeMs:           durationMS(encodeElapsed),
+				PacketizeMs:        durationMS(packetizeElapsed),
+				WriteMs:            durationMS(writeElapsed),
+				AccessUnitMs:       durationMS(time.Since(accessUnitStarted)),
+				ScheduleLagMs:      durationMS(scheduleLag),
+				RTPPackets:         fragmentCount,
+				ForcedKey:          forceKey,
+				PacketizerRecovery: packetizerRecovery,
+				FailedEncodeAUs:    failedEncodeAccessUnits,
+				FailedEncodedAUs:   failedEncodedAccessUnits,
+				WithheldAUs:        localWithheldAccessUnits,
+				PartialWriteAUs:    localPartialWriteAccessUnits,
+				SpatialCapMax:      1,
+			}); err == nil {
+			pushTelemetry(telemetry, payload)
+		}
 	}
 }
 
@@ -1518,6 +1759,38 @@ func superframeBudget() int {
 	return budgetLayerPixels/2 + spatialLayerCount*64*1024
 }
 
+func plainVP9FrameBudget() int {
+	return plainVP9Width*plainVP9Height*3/2 + 64*1024
+}
+
+func newPlainVP9Encoder(cfg demoConfig) (*govpx.VP9Encoder, error) {
+	return govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:                    plainVP9Width,
+		Height:                   plainVP9Height,
+		FPS:                      cfg.FPS,
+		Threads:                  pickThreads(plainVP9Width, plainVP9Height),
+		RowMT:                    pickRowMT(plainVP9Width, plainVP9Height),
+		Deadline:                 govpx.DeadlineRealtime,
+		CpuUsed:                  pickCPUUsed(plainVP9Width, plainVP9Height),
+		RateControlModeSet:       true,
+		RateControlMode:          govpx.RateControlCBR,
+		TargetBitrateKbps:        cfg.BitrateKbps,
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MinQuantizer:             4,
+		MaxQuantizer:             56,
+		MaxKeyframeInterval:      plainVP9WebRTCKeyframeInterval(cfg.FPS),
+	})
+}
+
+func plainVP9WebRTCKeyframeInterval(fps int) int {
+	if fps <= 0 {
+		return plainVP9WebRTCKeyframeIntervalSeconds * defaultFPS
+	}
+	return plainVP9WebRTCKeyframeIntervalSeconds * fps
+}
+
 func newSVCEncoder(cfg demoConfig) (*govpx.VP9SpatialSVCEncoder, error) {
 	layerBitrates := splitBitrate(cfg.BitrateKbps, layerSplitPct)
 
@@ -1645,6 +1918,34 @@ func maxVP9TileColumns(width int) int {
 		return 4
 	}
 	return cols
+}
+
+func plainVP9TelemetryResult(
+	r govpx.VP9EncodeResult,
+) govpx.VP9SpatialSVCEncodeResult {
+	layer := r
+	layer.SpatialLayerID = 0
+	layer.SpatialLayerCount = 1
+	ss := govpx.VP9RTPScalabilityStructure{
+		SpatialLayerCount: 1,
+		ResolutionPresent: true,
+	}
+	ss.Width[0] = plainVP9Width
+	ss.Height[0] = plainVP9Height
+	if r.KeyFrame && !r.InterPicturePredicted {
+		layer.ScalabilityStructurePresent = true
+		layer.SpatialScalabilityStructure = ss
+	}
+	var layers [govpx.VP9MaxSpatialLayers]govpx.VP9EncodeResult
+	layers[0] = layer
+	return govpx.VP9SpatialSVCEncodeResult{
+		Data:                 r.Data,
+		SizeBytes:            r.SizeBytes,
+		LayerCount:           1,
+		Layers:               layers,
+		InterLayerPrediction: false,
+		ScalabilityStructure: ss,
+	}
 }
 
 // statsTracker keeps a sliding window per (spatial, temporal) layer plus an

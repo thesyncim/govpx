@@ -140,6 +140,61 @@ func TestVP9EncodeResultPacketizeWebRTCRTP(t *testing.T) {
 	}
 }
 
+func TestVP9EncodeResultPacketizeWebRTCRTPSingleLayerKeyCarriesGOF(t *testing.T) {
+	const width, height = 64, 64
+	e, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		Deadline:          govpx.DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 300,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		32, 224, 96, 192), dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if key.TemporalLayerCount != 1 || key.TemporalLayerID != 0 {
+		t.Fatalf("key temporal metadata = count:%d id:%d, want single TL0",
+			key.TemporalLayerCount, key.TemporalLayerID)
+	}
+
+	const pictureID = uint16(0x6123)
+	payloads, err := key.PacketizeWebRTCRTP(pictureID, 1200)
+	if err != nil {
+		t.Fatalf("PacketizeWebRTCRTP: %v", err)
+	}
+	if len(payloads) == 0 {
+		t.Fatal("PacketizeWebRTCRTP returned no payloads")
+	}
+	desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payloads[0].Payload)
+	if err != nil {
+		t.Fatalf("ParseVP9RTPPayloadDescriptor: %v", err)
+	}
+	ss := desc.ScalabilityStructure
+	if !desc.ScalabilityStructurePresent ||
+		ss.SpatialLayerCount != 1 ||
+		!ss.ResolutionPresent ||
+		ss.Width[0] != width ||
+		ss.Height[0] != height ||
+		!ss.PictureGroupPresent ||
+		len(ss.PictureGroups) != 1 {
+		t.Fatalf("single-layer key SS = present:%t %+v",
+			desc.ScalabilityStructurePresent, ss)
+	}
+	group := ss.PictureGroups[0]
+	if group.TemporalID != 0 || group.ReferenceIndexCount != 0 ||
+		group.SwitchingUpPoint {
+		t.Fatalf("single-layer GOF = %+v, want TL0 without refs", group)
+	}
+}
+
 func TestVP9EncodeResultPacketizeWebRTCRTPValidation(t *testing.T) {
 	if _, _, err := (govpx.VP9EncodeResult{
 		Data:               []byte{0x82, 0x49},

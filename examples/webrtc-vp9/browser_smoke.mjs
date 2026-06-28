@@ -45,6 +45,7 @@ function parseOptions() {
     repeat: numberFlag("--repeat", 1),
     serverFPS: optionalNumberFlag("--server-fps"),
     serverBitrateKbps: optionalNumberFlag("--server-bitrate-kbps"),
+    serverPlainVP9: booleanFlag("--server-plain-vp9"),
     cpuBurners: optionalNumberFlag("--cpu-burners") ?? 0,
     controlChurn: booleanFlag("--control-churn"),
     tuningChurn: booleanFlag("--tuning-churn"),
@@ -72,6 +73,7 @@ async function runSmoke(opts, runIndex) {
   if (opts.serverBitrateKbps !== null) {
     serverArgs.push("-bitrate", String(opts.serverBitrateKbps));
   }
+  if (opts.serverPlainVP9) serverArgs.push("-plain-vp9");
   const loadProcesses = startCPUBurners(opts.cpuBurners);
   const server = spawn("go", serverArgs, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -203,6 +205,7 @@ async function runSmoke(opts, runIndex) {
       pollMs: opts.pollMs,
       serverFPS: opts.serverFPS,
       serverBitrateKbps: opts.serverBitrateKbps,
+      serverPlainVP9: opts.serverPlainVP9,
       cpuBurners: opts.cpuBurners,
       controlChurn: opts.controlChurn,
       tuningChurn: opts.tuningChurn,

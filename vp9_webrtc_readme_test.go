@@ -14,6 +14,7 @@ func TestVP9WebRTCReadmePrioritizesStatefulSenderPacketizer(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		"Packetize plain VP9 for long-lived WebRTC senders",
+		"PacketizeWebRTCNonFlexibleInto",
 		"Packetize VP9 spatial SVC for long-lived WebRTC senders",
 		"Build one VP9 WebRTC RTP access unit only when caller owns all sender state",
 		"VP9SDPOffersProfile0ReceiveFrame",

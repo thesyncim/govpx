@@ -157,6 +157,81 @@ func TestPlainVP9WebRTCPacketizerLongNoLossStreamDecodesWithVpxdec(t *testing.T)
 	assertPlainVP9VpxdecOutputVariesForTest(t, raw, frames, width, height)
 }
 
+func TestPlainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	const width, height = 64, 64
+	const frames = 48
+	encoder, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		FPS:                defaultFPS,
+		Deadline:           govpx.DeadlineRealtime,
+		CpuUsed:            8,
+		RateControlModeSet: true,
+		RateControlMode:    govpx.RateControlCBR,
+		TargetBitrateKbps:  900,
+		TemporalScalability: govpx.TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    govpx.TemporalLayeringThreeLayers,
+		},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MaxKeyframeInterval:      128,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer encoder.Close()
+
+	dst := make([]byte, 1<<20)
+	refFinder := newWebRTCVP9RefFinderForTest()
+	packets := make([][]byte, 0, frames)
+	packetizer := govpx.NewVP9WebRTCPacketizer(
+		govpx.VP9RTPPictureID15BitMask - 2)
+	for frame := 0; frame < frames; frame++ {
+		if frame != 0 && frame%11 == 0 {
+			encoder.ForceKeyFrame()
+		}
+		result, err := encoder.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(
+			width, height, byte(24+frame*7), byte(224-frame*3),
+			byte(96+frame*5), byte(192-frame*2)), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		pictureID := packetizer.PictureID()
+		payloads, sent, err := packetizer.PacketizeWebRTCNonFlexible(result, 89)
+		if err != nil {
+			t.Fatalf("PacketizeWebRTCNonFlexible frame %d: %v", frame, err)
+		}
+		if !sent {
+			t.Fatalf("PacketizeWebRTCNonFlexible frame %d reported unsent", frame)
+		}
+		wantSS := result.KeyFrame && !result.InterPicturePredicted &&
+			result.TemporalLayerID == 0
+		assertPlainVP9WebRTCPionPayloadBodiesForTest(t, result, payloads,
+			pictureID, width, height, wantSS)
+		refFinder.acceptPlainAccessUnit(t, frame, payloads, pictureID)
+		assembled, err := govpx.AssembleVP9RTPFrame(payloads)
+		if err != nil {
+			t.Fatalf("AssembleVP9RTPFrame frame %d: %v", frame, err)
+		}
+		if !bytes.Equal(assembled, result.Data) {
+			t.Fatalf("frame %d non-flexible WebRTC RTP reassembly drifted", frame)
+		}
+		packets = append(packets, append([]byte(nil), assembled...))
+	}
+
+	ivf := vp9test.BuildVP9IVF(width, height, packets...)
+	raw := vp9test.VpxdecI420(t, ivf)
+	want := frames * width * height * 3 / 2
+	if len(raw) != want {
+		t.Fatalf("vpxdec raw size = %d, want %d", len(raw), want)
+	}
+	assertPlainVP9VpxdecOutputVariesForTest(t, raw, frames, width, height)
+}
+
 func TestPlainVP9WebRTCCBRDropStreamDecodesWithVpxdec(t *testing.T) {
 	vp9test.RequireVpxdec(t)
 

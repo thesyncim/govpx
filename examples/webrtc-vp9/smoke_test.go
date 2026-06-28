@@ -426,6 +426,37 @@ func TestHandleOfferRejectsOfferWithVP9ReceiverCapsBelowDemoLayer(t *testing.T) 
 	}
 }
 
+func TestPlainVP9ModeUsesPlainReceiverCaps(t *testing.T) {
+	svcCfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
+	plainCfg := svcCfg
+	plainCfg.PlainVP9Mode = true
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	offer.SDP = strings.ReplaceAll(offer.SDP, vp9Profile0Fmtp,
+		"profile-id=0; max-fr=30; max-fs=240")
+	if offerSupportsDemoVP9(offer.SDP, svcCfg) {
+		t.Fatalf("SVC mode accepted caps below the top spatial layer:\n%s",
+			offer.SDP)
+	}
+	if !offerSupportsDemoVP9(offer.SDP, plainCfg) {
+		t.Fatalf("plain VP9 mode rejected caps sufficient for %dx%d:\n%s",
+			plainVP9Width, plainVP9Height, offer.SDP)
+	}
+}
+
 func TestHandleOfferContinuesAfterServerICEGatherTimeout(t *testing.T) {
 	cfg := demoConfig{Addr: ":0", FPS: defaultFPS, BitrateKbps: defaultBitrateKbps}
 	waitCalled := false
@@ -1750,6 +1781,48 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 	}
 }
 
+func TestPlainVP9WebRTCKeyframeIntervalAvoidsShortPeriodicKeys(t *testing.T) {
+	got := plainVP9WebRTCKeyframeInterval(defaultFPS)
+	want := plainVP9WebRTCKeyframeIntervalSeconds * defaultFPS
+	if got != want {
+		t.Fatalf("plain VP9 keyframe interval = %d, want %d", got, want)
+	}
+	if got <= 128 {
+		t.Fatalf("plain VP9 keyframe interval = %d, want beyond libvpx default cadence", got)
+	}
+}
+
+func TestPlainVP9TelemetryResultPresentsOneLayer(t *testing.T) {
+	result := govpx.VP9EncodeResult{
+		Data:                 []byte{0x82, 0x49},
+		KeyFrame:             true,
+		ShowFrame:            true,
+		SizeBytes:            2,
+		TemporalLayerID:      0,
+		TemporalLayerCount:   3,
+		TemporalLayeringMode: temporalLayerMode,
+	}
+
+	got := plainVP9TelemetryResult(result)
+	if got.LayerCount != 1 || got.SizeBytes != result.SizeBytes ||
+		len(got.Data) != len(result.Data) {
+		t.Fatalf("plain telemetry result = layers:%d size:%d data:%d, want one layer size %d",
+			got.LayerCount, got.SizeBytes, len(got.Data), result.SizeBytes)
+	}
+	layer := got.Layers[0]
+	if layer.SpatialLayerID != 0 || layer.SpatialLayerCount != 1 {
+		t.Fatalf("plain telemetry layer spatial = %d/%d, want 0/1",
+			layer.SpatialLayerID, layer.SpatialLayerCount)
+	}
+	if !layer.ScalabilityStructurePresent ||
+		layer.SpatialScalabilityStructure.SpatialLayerCount != 1 ||
+		layer.SpatialScalabilityStructure.Width[0] != plainVP9Width ||
+		layer.SpatialScalabilityStructure.Height[0] != plainVP9Height {
+		t.Fatalf("plain telemetry SS = %+v, want one %dx%d layer",
+			layer.SpatialScalabilityStructure, plainVP9Width, plainVP9Height)
+	}
+}
+
 func sdpHasRTCPFeedbackForTest(sdp string, feedback string) bool {
 	want := "a=rtcp-fb:"
 	feedback = strings.ToLower(strings.TrimSpace(feedback))
@@ -1866,6 +1939,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		"govpx.VP9WebRTCPacketizer",
+		"PacketizeWebRTCNonFlexibleInto",
 		"PacketizeSpatialSVCWebRTCNonFlexibleInto",
 		"non-flexible VP9 RTP descriptors",
 		"node browser_smoke.mjs",
@@ -1876,6 +1950,8 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"--max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0",
 		"--min-active-layers 3 --min-ending-active-layers 3",
 		"--require-threaded-top-layer",
+		"--server-plain-vp9",
+		"plain single-spatial/single-temporal VP9 WebRTC path",
 		"--repeat 2 --cpu-burners 12 --server-fps 25",
 		"--min-active-layers 1 --min-ending-active-layers 1",
 		"--control-churn",
@@ -1963,6 +2039,8 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		`pauseResume: booleanFlag("--pause-resume")`,
 		`pauseMs: numberFlag("--pause-ms", 1500, { min: 0 })`,
 		`receiverStallProbe: booleanFlag("--receiver-stall-probe")`,
+		`serverPlainVP9: booleanFlag("--server-plain-vp9")`,
+		`if (opts.serverPlainVP9) serverArgs.push("-plain-vp9")`,
 		`localWithhold: booleanFlag("--local-withhold")`,
 		`localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 3 })`,
 		`localPartialWrite: booleanFlag("--local-partial-write")`,
@@ -2038,6 +2116,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"TestNewVP9EncoderPromotesZeroCPUUsedByDeadline",
 		"TestVP9EncodeResultPacketizeWebRTCRTP",
 		"TestVP9WebRTCPacketizer.*",
+		"ExampleVP9WebRTCPacketizer_PacketizeWebRTCNonFlexible",
 		"TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP.*",
 		"TestVP9RowMT.*",
 		"TestPionVP9SamplePayloaderOmitsGovpxSVCWebRTCMetadata",
@@ -2052,6 +2131,9 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		"TestPartialWriteRTPWriterFailsAfterPrefix",
 		"TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap",
 		"browser-receiver-stall-probe",
+		"browser-plain-vp9",
+		"browser-plain-vp9-control-churn",
+		"--server-plain-vp9",
 		"--receiver-stall-probe",
 		`"--max-rx-repair-requests", "1"`,
 		"browser-local-withhold",

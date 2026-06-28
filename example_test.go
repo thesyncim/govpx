@@ -24,7 +24,7 @@ func ExamplePeekVP8StreamInfo() {
 	// Output: 320 240 true
 }
 
-func ExampleVP9WebRTCPacketizer_Packetize() {
+func ExampleVP9WebRTCPacketizer_PacketizeWebRTCNonFlexible() {
 	const width, height = 64, 64
 	enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
 		Width:              width,
@@ -57,7 +57,7 @@ func ExampleVP9WebRTCPacketizer_Packetize() {
 		return
 	}
 	packetizer := govpx.NewVP9WebRTCPacketizer(17)
-	payloads, sent, err := packetizer.Packetize(result, 1200)
+	payloads, sent, err := packetizer.PacketizeWebRTCNonFlexible(result, 1200)
 	if err != nil || !sent {
 		fmt.Println(err)
 		return

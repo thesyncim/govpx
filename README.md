@@ -118,7 +118,7 @@ returns no more data.
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
-| Packetize plain VP9 for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize` |
+| Packetize plain VP9 for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize` |
 | Packetize VP9 spatial SVC for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTC` |
 | Build one VP9 WebRTC RTP access unit only when caller owns all sender state | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
 | Drain delayed encoder output | `FlushInto` |
@@ -207,12 +207,15 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 - VP9 `EncodeIntoWithFlags` is Profile-0-only and supports the VP9-compatible
   keyframe, visibility, reference, and entropy hints documented by
   `EncodeFlags`.
-- For plain single-layer VP9 over WebRTC, call `EncodeIntoWithResult`, then
-  `VP9WebRTCPacketizer.PacketizeInto` or `Packetize`. This is the receiver-safe
-  path for temporal layers because it emits explicit flexible-mode references
-  validated by the VP9 reference-finder tests and leaves a PictureID gap for
-  CBR-dropped frames. If the packetizer's `NeedsKeyFrame` becomes true after a
-  dropped frame, call `ForceKeyFrame` before sending another VP9 frame.
+- For plain single-spatial/single-temporal VP9 over WebRTC, call
+  `EncodeIntoWithResult`, then
+  `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto` or
+  `PacketizeWebRTCNonFlexible` for the browser-oriented realtime RTP shape
+  with TL0PICIDX and keyframe GOF metadata. `PacketizeInto` / `Packetize`
+  remain available when a sender explicitly wants flexible-mode VP9 reference
+  diffs. Both stateful modes leave a PictureID gap for CBR-dropped frames. If
+  the packetizer's `NeedsKeyFrame` becomes true after a dropped frame, call
+  `ForceKeyFrame` before sending another VP9 frame.
 - If your sender drops or withholds a coded VP9 frame/access unit locally after
   encode but before packetization, call
   `VP9WebRTCPacketizer.MarkEncodedAccessUnitUnsent`. If packetization already

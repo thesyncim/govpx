@@ -130,7 +130,10 @@ func (r VP9EncodeResult) vp9WebRTCSingleFrameScalabilityStructure() (
 			uint16(header.Height),
 		},
 	}
-	if r.TemporalLayerCount > 1 {
+	if r.TemporalLayerCount == 1 {
+		ss.PictureGroupPresent = true
+		ss.PictureGroups = []VP9RTPPictureGroup{{TemporalID: 0}}
+	} else if r.TemporalLayerCount > 1 {
 		groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(
 			r.TemporalLayeringMode)
 		if !ok {

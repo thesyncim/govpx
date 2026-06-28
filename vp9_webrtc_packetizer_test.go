@@ -95,6 +95,126 @@ func TestVP9WebRTCPacketizerSizeConsumesCBRDroppedFrames(t *testing.T) {
 		inter.TemporalLayerID)
 }
 
+func TestVP9WebRTCPacketizerPacketizesPlainNonFlexibleTemporal(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 300,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringThreeLayers,
+		},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		32, 224, 96, 192), dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	packetizer := NewVP9WebRTCPacketizer(VP9RTPPictureID15BitMask - 1)
+	packets, payloadBytes, sent, err := packetizer.WebRTCNonFlexiblePacketizationSize(
+		key, 96)
+	if err != nil || !sent || packets == 0 || payloadBytes == 0 {
+		t.Fatalf("WebRTCNonFlexiblePacketizationSize key = packets:%d bytes:%d sent:%t err:%v",
+			packets, payloadBytes, sent, err)
+	}
+	payloads := make([]RTPPayloadFragment, packets)
+	payloadBuf := make([]byte, payloadBytes)
+	n, used, sent, err := packetizer.PacketizeWebRTCNonFlexibleInto(key,
+		payloads, payloadBuf, 96)
+	if err != nil || !sent {
+		t.Fatalf("PacketizeWebRTCNonFlexibleInto key = packets:%d bytes:%d sent:%t err:%v",
+			n, used, sent, err)
+	}
+	if n != packets || used != payloadBytes {
+		t.Fatalf("non-flexible key returned %d/%d, want %d/%d",
+			n, used, packets, payloadBytes)
+	}
+	assertVP9WebRTCNonFlexibleTemporalForTest(t, payloads[:n],
+		VP9RTPPictureID15BitMask-1, key.TemporalLayerID, key.TL0PICIDX,
+		true)
+	if got := packetizer.PictureID(); got != VP9RTPPictureID15BitMask {
+		t.Fatalf("PictureID after key = %d, want %d", got,
+			VP9RTPPictureID15BitMask)
+	}
+
+	inter, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		36, 220, 100, 188), dst)
+	if err != nil {
+		t.Fatalf("inter EncodeIntoWithResult: %v", err)
+	}
+	interPayloads, sent, err := packetizer.PacketizeWebRTCNonFlexible(inter,
+		96)
+	if err != nil || !sent {
+		t.Fatalf("PacketizeWebRTCNonFlexible inter = sent:%t err:%v",
+			sent, err)
+	}
+	assertVP9WebRTCNonFlexibleTemporalForTest(t, interPayloads,
+		VP9RTPPictureID15BitMask, inter.TemporalLayerID, inter.TL0PICIDX,
+		false)
+	if got := packetizer.PictureID(); got != 0 {
+		t.Fatalf("PictureID after inter = %d, want wrap to 0", got)
+	}
+}
+
+func TestVP9WebRTCPacketizerPacketizesPlainOneLayerNonFlexibleTL0(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:             width,
+		Height:            height,
+		FPS:               30,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		TargetBitrateKbps: 300,
+		ErrorResilient:    true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		32, 224, 96, 192), dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	packetizer := NewVP9WebRTCPacketizer(0x1234)
+	keyPayloads, sent, err := packetizer.PacketizeWebRTCNonFlexible(key, 96)
+	if err != nil || !sent {
+		t.Fatalf("PacketizeWebRTCNonFlexible key = sent:%t err:%v",
+			sent, err)
+	}
+	assertVP9WebRTCNonFlexibleTemporalForTest(t, keyPayloads, 0x1234, 0, 0,
+		true)
+
+	inter, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width,
+		height, 36, 220, 100, 188), dst)
+	if err != nil {
+		t.Fatalf("inter EncodeIntoWithResult: %v", err)
+	}
+	interPayloads, sent, err := packetizer.PacketizeWebRTCNonFlexible(inter,
+		96)
+	if err != nil || !sent {
+		t.Fatalf("PacketizeWebRTCNonFlexible inter = sent:%t err:%v",
+			sent, err)
+	}
+	assertVP9WebRTCNonFlexibleTemporalForTest(t, interPayloads, 0x1235, 0, 1,
+		false)
+}
+
 func TestVP9WebRTCPacketizerConsumesCBRPreEncodeDroppedFrames(t *testing.T) {
 	e, packetizer, dst, keyPayloads := newVP9WebRTCPreDropTestState(t)
 
@@ -723,5 +843,62 @@ func assertVP9WebRTCGOFTemporalForTest(
 	if desc.InterPicturePredicted && desc.ReferenceIndexCount == 0 {
 		t.Fatalf("inter payload had P=1 without flexible reference diffs: %+v",
 			desc)
+	}
+}
+
+func assertVP9WebRTCNonFlexibleTemporalForTest(
+	t *testing.T,
+	payloads []RTPPayloadFragment,
+	wantPictureID uint16,
+	wantTemporalID int,
+	wantTL0PICIDX uint8,
+	wantSS bool,
+) {
+	t.Helper()
+	if len(payloads) == 0 {
+		t.Fatal("no non-flexible RTP payloads")
+	}
+	for i, payload := range payloads {
+		desc, _, err := ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("ParseVP9RTPPayloadDescriptor[%d]: %v", i, err)
+		}
+		if desc.FlexibleMode {
+			t.Fatalf("payload %d used flexible descriptor: %+v", i, desc)
+		}
+		if !desc.PictureIDPresent || !desc.PictureID15Bit ||
+			desc.PictureID != wantPictureID {
+			t.Fatalf("payload %d PictureID = present:%t 15bit:%t id:%d, want %d",
+				i, desc.PictureIDPresent, desc.PictureID15Bit,
+				desc.PictureID, wantPictureID)
+		}
+		if !desc.LayerIndicesPresent ||
+			int(desc.TemporalID) != wantTemporalID ||
+			desc.TL0PICIDX != wantTL0PICIDX {
+			t.Fatalf("payload %d temporal = present:%t tid:%d tl0:%d, want %d/%d",
+				i, desc.LayerIndicesPresent, desc.TemporalID,
+				desc.TL0PICIDX, wantTemporalID, wantTL0PICIDX)
+		}
+		if desc.ReferenceIndexCount != 0 {
+			t.Fatalf("payload %d carried flexible reference diffs in non-flexible mode",
+				i)
+		}
+		if got, want := payload.Marker, i == len(payloads)-1; got != want {
+			t.Fatalf("payload %d marker = %t, want %t", i, got, want)
+		}
+		if i == 0 {
+			if desc.ScalabilityStructurePresent != wantSS {
+				t.Fatalf("first payload SS present = %t, want %t",
+					desc.ScalabilityStructurePresent, wantSS)
+			}
+			if wantSS &&
+				(!desc.ScalabilityStructure.PictureGroupPresent ||
+					len(desc.ScalabilityStructure.PictureGroups) == 0) {
+				t.Fatalf("first payload SS missing GOF: %+v",
+					desc.ScalabilityStructure)
+			}
+		} else if desc.ScalabilityStructurePresent {
+			t.Fatalf("payload %d repeated scalability structure", i)
+		}
 	}
 }
