@@ -139,9 +139,9 @@ frame/access unit locally after encode but before packetization, call
 `MarkAccessUnitUnsent`. Then force a keyframe before emitting more VP9 RTP.
 That protects browser receivers from waiting on a PictureID that was never
 sent even though the WebRTC stats show no RTP loss. The lower-level VP9 RTP
-packetizers are still
-available when a caller deliberately owns
-descriptor policy.
+packetizers and stateless WebRTC result packetizers are still available for
+single access units when a caller deliberately owns PictureID sequencing,
+dependency recovery, layer-count transitions, and descriptor policy.
 
 Use `VP9SDPOffersProfile0Receive` and `VP9SDPAnswersProfile0Send` around
 offer/answer handling before sending VP9 Profile 0 over WebRTC. The lower-level

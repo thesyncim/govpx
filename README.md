@@ -114,12 +114,13 @@ returns no more data.
 | Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
 | Encode a VP9 spatial-SVC access unit | `NewVP9SpatialSVCEncoder`, `VP9SpatialSVCEncoder.EncodeIntoWithResult` |
 | Signal VP9 encoded spatial layer | `VP9EncoderOptions.SpatialScalability`, `SetSpatialScalability`, `SetSpatialLayerID` |
-| Validate VP9 WebRTC SDP/profile negotiation | `VP9SDPNegotiatesProfile0`, `VP9SDPOffersProfile0Receive`, `VP9SDPAnswersProfile0Send`, `VP9SDPFmtpContainsProfile0` |
+| Validate VP9 WebRTC SDP/profile negotiation | `VP9SDPNegotiatesProfile0`, `VP9SDPOffersProfile0Receive`, `VP9SDPOffersProfile0ReceiveFrame`, `VP9SDPAnswersProfile0Send`, `VP9SDPFmtpContainsProfile0`, `ParseVP9SDPFmtp`, `VP9SDPReceiverCapabilities` |
 | Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
 | Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
 | Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
-| Packetize plain VP9 for WebRTC senders | `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize`, `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP` |
-| Packetize VP9 spatial SVC for WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
+| Packetize plain VP9 for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize` |
+| Packetize VP9 spatial SVC for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTC` |
+| Build one VP9 WebRTC RTP access unit when caller owns sender state | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
 | Drain delayed encoder output | `FlushInto` |
 | Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
 | Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |

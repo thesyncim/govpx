@@ -37,6 +37,7 @@ const rootGoPattern = [
   "TestVP9EncodeResultPacketizeWebRTCRTP",
   "TestVP9WebRTCPacketizer.*",
   "TestVP9WebRTCSpatialLayerChangeNeedsKeyFrame",
+  "TestVP9WebRTCReadmePrioritizesStatefulSenderPacketizer",
   "TestVP9SpatialSVCEncodeResultPacketizeWebRTCRTP.*",
   "TestVP9SpatialSVCEncodeResultLimitSpatialLayersForRTP",
   "TestVP9SpatialSVCRealtimeCBRAutoThreadingDispatchesTopLayerTileWorkers",
