@@ -703,7 +703,7 @@ func TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterConsecutivePacketizedUnse
 		steps, govpx.VP9RTPPictureID15BitMask-12, map[int]struct{}{
 			6: {},
 			7: {},
-		}, true, nil, vp9WebRTCNonFlexiblePacketizerForTest)
+		}, true, nil, nil, vp9WebRTCNonFlexiblePacketizerForTest)
 	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
 		layerDims[spatialLayerCount-1][1], packets...)
 
@@ -720,6 +720,32 @@ func TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterConsecutivePacketizedUnse
 		assertVpxdecLayerOutputVariesForCaps(t,
 			"non-flexible consecutive packetized-unsent recovery",
 			raw, caps, layer)
+	}
+}
+
+func TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPartialWriteAccessUnitDecodesWithVpxdec(t *testing.T) {
+	vp9test.RequireVpxdec(t)
+
+	steps := webRTCUnsentAccessUnitOracleSteps()
+	packets, caps := encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithPartialWriteFrames(t,
+		steps, govpx.VP9RTPPictureID15BitMask-13, map[int]int{
+			6: 1,
+		}, nil, vp9WebRTCNonFlexiblePacketizerForTest)
+	ivf := vp9test.BuildVP9IVF(layerDims[spatialLayerCount-1][0],
+		layerDims[spatialLayerCount-1][1], packets...)
+
+	for layer := 0; layer < spatialLayerCount; layer++ {
+		raw := vp9test.VpxdecI420WithOptions(t, ivf, vp9test.VpxdecOptions{
+			SVCSpatialLayerSet: true,
+			SVCSpatialLayer:    layer,
+		})
+		want := capRecoveryVpxdecBytesForLayer(caps, layer)
+		if len(raw) != want {
+			t.Fatalf("non-flexible partial-write recovery vpxdec layer %d raw size = %d, want %d",
+				layer, len(raw), want)
+		}
+		assertVpxdecLayerOutputVariesForCaps(t,
+			"non-flexible partial-write recovery", raw, caps, layer)
 	}
 }
 
@@ -1088,7 +1114,7 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleInternal(
 		unsentFrames[unsentFrame] = struct{}{}
 	}
 	return encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(t,
-		steps, pictureID, unsentFrames, packetizedUnsent, inspect, mode)
+		steps, pictureID, unsentFrames, packetizedUnsent, nil, inspect, mode)
 }
 
 func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(
@@ -1097,12 +1123,16 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(
 	pictureID uint16,
 	unsentFrames map[int]struct{},
 	packetizedUnsent bool,
+	partialWriteFrames map[int]int,
 	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
 	mode vp9WebRTCTestPacketizerMode,
 ) ([][]byte, []int) {
 	t.Helper()
 	if len(steps) == 0 {
 		return nil, nil
+	}
+	if partialWriteFrames == nil {
+		partialWriteFrames = map[int]int{}
 	}
 	svc, err := newSVCEncoder(demoConfig{
 		FPS:         defaultFPS,
@@ -1255,6 +1285,23 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(
 			lastCap = activeCap
 			continue
 		}
+		if partialCount, partial := partialWriteFrames[frame]; partial {
+			assertWebRTCSVCPartialWritePrefixForOracle(t, frame,
+				result, payloads, partialCount, mode)
+			packetizer.MarkAccessUnitUnsent()
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("partial-write frame %d did not require recovery key",
+					frame)
+			}
+			if got, want := packetizer.PictureID(),
+				govpx.NextVP9RTPPictureID(framePictureID); got != want {
+				t.Fatalf("partial-write frame %d next PictureID = %d, want %d",
+					frame, got, want)
+			}
+			forceNext = true
+			lastCap = activeCap
+			continue
+		}
 		pionPacket, sawRefs, sawGOF := reassembleWebRTCStatefulSVCResultWithPionForOracle(t,
 			result, payloads, framePictureID, mode)
 		sawFlexiblePrediction = sawFlexiblePrediction || sawRefs
@@ -1277,10 +1324,69 @@ func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(
 	} else if !sawFlexiblePrediction {
 		t.Fatal("stateful WebRTC VP9 oracle stream did not exercise flexible P-diff refs")
 	}
-	if recoveriesAfterUnsent < len(unsentFrames) {
+	expectedRecoveries := len(unsentFrames) + len(partialWriteFrames)
+	if recoveriesAfterUnsent < expectedRecoveries {
 		t.Fatal("stateful WebRTC VP9 oracle stream did not emit a recovery key after the unsent AU")
 	}
 	return packets, caps
+}
+
+func encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithPartialWriteFrames(
+	t *testing.T,
+	steps []webRTCSVCOracleStep,
+	pictureID uint16,
+	partialWriteFrames map[int]int,
+	inspect func(int, govpx.VP9SpatialSVCEncodeResult),
+	mode vp9WebRTCTestPacketizerMode,
+) ([][]byte, []int) {
+	t.Helper()
+	return encodeWebRTCStatefulPacketizedRuntimeAccessUnitsForOracleWithUnsentFrames(t,
+		steps, pictureID, nil, false, partialWriteFrames, inspect, mode)
+}
+
+func assertWebRTCSVCPartialWritePrefixForOracle(t *testing.T,
+	frame int,
+	result govpx.VP9SpatialSVCEncodeResult,
+	payloads []govpx.RTPPayloadFragment,
+	partialCount int,
+	mode vp9WebRTCTestPacketizerMode,
+) {
+	t.Helper()
+	if partialCount <= 0 || partialCount >= len(payloads) {
+		t.Fatalf("frame %d partial payload count = %d with total %d",
+			frame, partialCount, len(payloads))
+	}
+	prefix := payloads[:partialCount]
+	for i, payload := range prefix {
+		if payload.Marker {
+			t.Fatalf("frame %d partial payload %d has RTP marker", frame, i)
+		}
+		desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+		if err != nil {
+			t.Fatalf("frame %d partial ParseVP9RTPPayloadDescriptor[%d]: %v",
+				frame, i, err)
+		}
+		if desc.FlexibleMode == mode.nonFlexible() {
+			t.Fatalf("frame %d partial payload %d flexible = %t, want %t",
+				frame, i, desc.FlexibleMode, !mode.nonFlexible())
+		}
+		var packet codecs.VP9Packet
+		fragment, err := packet.Unmarshal(payload.Payload)
+		if err != nil {
+			t.Fatalf("frame %d partial Pion VP9Packet.Unmarshal[%d]: %v",
+				frame, i, err)
+		}
+		layer := int(packet.SID)
+		if layer >= int(result.LayerCount) {
+			t.Fatalf("frame %d partial payload %d layer = %d, want < %d",
+				frame, i, layer, result.LayerCount)
+		}
+		if i == 0 && !packet.B {
+			t.Fatalf("frame %d first partial Pion payload start bit = false, want true",
+				frame)
+		}
+		_ = fragment
+	}
 }
 
 func reassembleWebRTCSVCResultWithPionForOracle(

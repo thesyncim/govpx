@@ -2024,7 +2024,7 @@ func TestStressGateReportsVP9HostileSoakBudgets(t *testing.T) {
 		`"--max-access-unit-ms"`,
 		`"--max-schedule-lag-ms"`,
 		"libvpx-vpxdec-recovery-oracle",
-		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterConsecutivePacketizedUnsentAccessUnitsDecodesWithVpxdec",
+		"TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfter(ConsecutivePacketizedUnsentAccessUnits|PartialWriteAccessUnit)DecodesWithVpxdec",
 		`GOVPX_WITH_ORACLE: "1"`,
 		"requiresOracle: true",
 		"assertNoOracleSkips",

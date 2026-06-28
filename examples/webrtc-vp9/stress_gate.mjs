@@ -99,7 +99,7 @@ const steps = [
       "-tags", "govpx_oracle_trace",
       ".",
       "-run",
-      "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterConsecutivePacketizedUnsentAccessUnitsDecodesWithVpxdec",
+      "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfter(ConsecutivePacketizedUnsentAccessUnits|PartialWriteAccessUnit)DecodesWithVpxdec",
       "-count=1",
     ],
     kind: "go-test",

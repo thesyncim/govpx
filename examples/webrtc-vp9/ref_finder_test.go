@@ -595,6 +595,25 @@ func TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPacketizedUnsentAccessUni
 	}
 }
 
+func TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPartialWriteAccessUnitPassesLibwebrtcVP9RefFinder(t *testing.T) {
+	const defaultKeyFrameInterval = 128
+	const partialFrame = defaultKeyFrameInterval + 4
+	steps := webRTCDefaultKeyIntervalRefFinderSteps(18)
+	seen := runVP9WebRTCPacketizerSVCRefFinderScenarioWithPartialWrite(t,
+		steps, govpx.VP9RTPPictureID15BitMask-13, partialFrame,
+		vp9WebRTCNonFlexiblePacketizerForTest)
+	if !seen.sawRecoveryAfterUnsent {
+		t.Fatal("non-flexible VP9 WebRTC ref-finder stream did not emit recovery key after partial RTP write")
+	}
+	if !seen.sawNonFlexibleGOF {
+		t.Fatal("non-flexible VP9 WebRTC ref-finder partial-write stream did not carry GOF metadata")
+	}
+	if !seen.keyFrames[defaultKeyFrameInterval] {
+		t.Fatalf("non-flexible VP9 WebRTC ref-finder partial-write stream did not emit key access unit at frame %d",
+			defaultKeyFrameInterval)
+	}
+}
+
 func TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap(t *testing.T) {
 	svc, imgs := newSmallWebRTCSVCTestEncoder(t)
 	defer svc.Close()
@@ -680,6 +699,32 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 	mode vp9WebRTCTestPacketizerMode,
 ) webRTCRefFinderScenarioSeen {
 	t.Helper()
+	return runVP9WebRTCPacketizerSVCRefFinderScenarioInternal(t, steps,
+		initialPictureID, unsentFrame, packetizedUnsent, -1, mode)
+}
+
+func runVP9WebRTCPacketizerSVCRefFinderScenarioWithPartialWrite(
+	t *testing.T,
+	steps []webRTCRefFinderStep,
+	initialPictureID uint16,
+	partialWriteFrame int,
+	mode vp9WebRTCTestPacketizerMode,
+) webRTCRefFinderScenarioSeen {
+	t.Helper()
+	return runVP9WebRTCPacketizerSVCRefFinderScenarioInternal(t, steps,
+		initialPictureID, -1, false, partialWriteFrame, mode)
+}
+
+func runVP9WebRTCPacketizerSVCRefFinderScenarioInternal(
+	t *testing.T,
+	steps []webRTCRefFinderStep,
+	initialPictureID uint16,
+	unsentFrame int,
+	packetizedUnsent bool,
+	partialWriteFrame int,
+	mode vp9WebRTCTestPacketizerMode,
+) webRTCRefFinderScenarioSeen {
+	t.Helper()
 	if len(steps) == 0 {
 		return webRTCRefFinderScenarioSeen{keyFrames: make(map[int]bool)}
 	}
@@ -709,7 +754,7 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 	forceNext := false
 	seen := webRTCRefFinderScenarioSeen{
 		keyFrames:              make(map[int]bool),
-		sawRecoveryAfterUnsent: unsentFrame < 0,
+		sawRecoveryAfterUnsent: unsentFrame < 0 && partialWriteFrame < 0,
 	}
 	for frame, step := range steps {
 		activeCap := step.cap
@@ -828,6 +873,24 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 			prevPictureID = pictureID
 			continue
 		}
+		if frame == partialWriteFrame {
+			assertWebRTCSVCPartialWritePrefixForTest(t, frame,
+				payloads, mode)
+			packetizer.MarkAccessUnitUnsent()
+			if !packetizer.NeedsKeyFrame() {
+				t.Fatalf("partial-write frame %d did not require recovery key",
+					frame)
+			}
+			if got, want := packetizer.PictureID(),
+				govpx.NextVP9RTPPictureID(pictureID); got != want {
+				t.Fatalf("partial-write frame %d next PictureID = %d, want %d",
+					frame, got, want)
+			}
+			forceNext = true
+			lastCap = activeCap
+			prevPictureID = pictureID
+			continue
+		}
 		for i, payload := range payloads {
 			desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
 			if err != nil {
@@ -874,6 +937,45 @@ func runVP9WebRTCPacketizerSVCRefFinderScenario(
 		lastCap = activeCap
 	}
 	return seen
+}
+
+func assertWebRTCSVCPartialWritePrefixForTest(t *testing.T,
+	frame int,
+	payloads []govpx.RTPPayloadFragment,
+	mode vp9WebRTCTestPacketizerMode,
+) {
+	t.Helper()
+	if len(payloads) < 2 {
+		t.Fatalf("frame %d payload count = %d, want multi-packet AU for partial write",
+			frame, len(payloads))
+	}
+	payload := payloads[0]
+	if payload.Marker {
+		t.Fatalf("frame %d first partial-write payload has RTP marker", frame)
+	}
+	desc, _, err := govpx.ParseVP9RTPPayloadDescriptor(payload.Payload)
+	if err != nil {
+		t.Fatalf("frame %d partial ParseVP9RTPPayloadDescriptor: %v",
+			frame, err)
+	}
+	if !desc.StartOfFrame || !desc.PictureIDPresent ||
+		!desc.LayerIndicesPresent {
+		t.Fatalf("frame %d partial descriptor = %+v, want frame start with PictureID/layers",
+			frame, desc)
+	}
+	if desc.FlexibleMode == mode.nonFlexible() {
+		t.Fatalf("frame %d partial descriptor flexible = %t, want %t",
+			frame, desc.FlexibleMode, !mode.nonFlexible())
+	}
+	var packet codecs.VP9Packet
+	if _, err := packet.Unmarshal(payload.Payload); err != nil {
+		t.Fatalf("frame %d partial Pion VP9Packet.Unmarshal: %v",
+			frame, err)
+	}
+	if !packet.B {
+		t.Fatalf("frame %d partial Pion payload start bit = false, want true",
+			frame)
+	}
 }
 
 func plainVP9WebRTCCBRDropStreamForTest(

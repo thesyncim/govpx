@@ -27,6 +27,7 @@ const focusedGoPattern = [
   "TestVP9WebRTCPacketizerSVCDefaultKeyIntervalPassesLibwebrtcVP9RefFinder",
   "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterKeyIntervalUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
   "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPacketizedUnsentAccessUnitPassesLibwebrtcVP9RefFinder",
+  "TestVP9WebRTCPacketizerSVCNonFlexibleRecoveryAfterPartialWriteAccessUnitPassesLibwebrtcVP9RefFinder",
   "TestWebRTCPacketizedSVCPassesRefFinderAcrossTL0Wrap",
 ].join("|");
 
