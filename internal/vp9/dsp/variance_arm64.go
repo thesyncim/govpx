@@ -45,6 +45,83 @@ func finalVariance(sum int32, sse uint32, w, h int) uint32 {
 	return sse - uint32((int64(sum)*int64(sum))/int64(w*h))
 }
 
+func varianceStatsStandard(w, h int, src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff, refStride int,
+) VarianceStats {
+	switch {
+	case w == 16 || w == 32 || w == 64:
+		if stats, ok := varianceStatsSimd16xN(src, srcOff, srcStride, ref, refOff, refStride, w, h); ok {
+			return stats
+		}
+	case w == 8:
+		if stats, ok := varianceStatsSimd8xN(src, srcOff, srcStride, ref, refOff, refStride, h); ok {
+			return stats
+		}
+	case w == 4:
+		if stats, ok := varianceStatsSimd4xN(src, srcOff, srcStride, ref, refOff, refStride, h); ok {
+			return stats
+		}
+	}
+	return varianceStatsScalar(w, h, src, srcOff, srcStride, ref, refOff, refStride)
+}
+
+func varianceStatsSimd16xN(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride, w, h int) (VarianceStats, bool) {
+	if !varWindowOK(src, srcOff, srcStride, w, h) || !varWindowOK(ref, refOff, refStride, w, h) {
+		return VarianceStats{}, false
+	}
+	var sum int32
+	var s uint32
+	switch w {
+	case 16:
+		varianceBlock16xNNEON(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride,
+			h, &sum, &s)
+	case 32:
+		varianceBlock16ChunksNEON(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride,
+			h, 2, &sum, &s)
+	case 64:
+		varianceBlock16ChunksNEON(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff:]), refStride,
+			h, 4, &sum, &s)
+	default:
+		return VarianceStats{}, false
+	}
+	return varianceStatsFromSumSSE(sum, s, w, h), true
+}
+
+func varianceStatsSimd8xN(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride, h int) (VarianceStats, bool) {
+	if !varWindowOK(src, srcOff, srcStride, 8, h) || !varWindowOK(ref, refOff, refStride, 8, h) {
+		return VarianceStats{}, false
+	}
+	var sum int32
+	var s uint32
+	varianceBlock8xNNEON(
+		unsafe.SliceData(src[srcOff:]), srcStride,
+		unsafe.SliceData(ref[refOff:]), refStride,
+		h, &sum, &s)
+	return varianceStatsFromSumSSE(sum, s, 8, h), true
+}
+
+func varianceStatsSimd4xN(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride, h int) (VarianceStats, bool) {
+	if h&1 != 0 {
+		return VarianceStats{}, false
+	}
+	if !varWindowOK(src, srcOff, srcStride, 4, h) || !varWindowOK(ref, refOff, refStride, 4, h) {
+		return VarianceStats{}, false
+	}
+	var sum int32
+	var s uint32
+	varianceBlock4xNNEON(
+		unsafe.SliceData(src[srcOff:]), srcStride,
+		unsafe.SliceData(ref[refOff:]), refStride,
+		h, &sum, &s)
+	return varianceStatsFromSumSSE(sum, s, 4, h), true
+}
+
 func varianceSimd16xN(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride, w, h int, sse *uint32) (uint32, bool) {
 	if !varWindowOK(src, srcOff, srcStride, w, h) || !varWindowOK(ref, refOff, refStride, w, h) {
 		return 0, false

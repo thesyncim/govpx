@@ -149,6 +149,37 @@ func BlockDiffStatsClampedSource(src []byte, srcStride, srcW, srcH int,
 func blockDiffStats(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int,
 ) BlockDiffStats {
+	if stats, ok := blockDiffStatsVP9DSP(src, srcStride, ref, refStride,
+		srcX, srcY, refX, refY, w, h); ok {
+		return stats
+	}
+	return blockDiffStatsScalar(src, srcStride, ref, refStride,
+		srcX, srcY, refX, refY, w, h)
+}
+
+func blockDiffStatsVP9DSP(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) (BlockDiffStats, bool) {
+	if w <= 0 || h <= 0 {
+		return BlockDiffStats{}, false
+	}
+	srcOff := srcY*srcStride + srcX
+	refOff := refY*refStride + refX
+	stats, ok := vp9dsp.VpxVarianceStats(src, srcOff, srcStride,
+		ref, refOff, refStride, w, h)
+	if !ok {
+		return BlockDiffStats{}, false
+	}
+	return BlockDiffStats{
+		Sum:   int64(stats.Sum),
+		SSE:   uint64(stats.SSE),
+		Count: uint64(w * h),
+	}, true
+}
+
+func blockDiffStatsScalar(src []byte, srcStride int, ref []byte, refStride int,
+	srcX, srcY, refX, refY, w, h int,
+) BlockDiffStats {
 	var stats BlockDiffStats
 	if w <= 0 || h <= 0 {
 		return stats

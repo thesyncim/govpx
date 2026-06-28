@@ -1,6 +1,9 @@
 package encoder
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestBlockSADNoLimitMatchesScalar(t *testing.T) {
 	const stride = 80
@@ -49,6 +52,60 @@ func TestBlockSSEMatchesScalar(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("SSE = %d, want %d", got, want)
+	}
+}
+
+func TestBlockDiffStatsMatchesScalarForVP9DSPBlockSizes(t *testing.T) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	ref := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*19 + i/3 + 7) & 0xff)
+		ref[i] = byte((i*31 + i/11 + 23) & 0xff)
+	}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {64, 32}, {32, 64}, {32, 32}, {32, 16},
+		{16, 32}, {16, 16}, {16, 8}, {8, 16}, {8, 8},
+		{8, 4}, {4, 8}, {4, 4},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			got := blockDiffStats(src, stride, ref, stride,
+				3, 5, 7, 11, tc.w, tc.h)
+			want := blockDiffStatsScalar(src, stride, ref, stride,
+				3, 5, 7, 11, tc.w, tc.h)
+			if got != want {
+				t.Fatalf("blockDiffStats = %+v, want scalar %+v", got, want)
+			}
+			dspGot, ok := blockDiffStatsVP9DSP(src, stride, ref, stride,
+				3, 5, 7, 11, tc.w, tc.h)
+			if !ok {
+				t.Fatalf("blockDiffStatsVP9DSP returned !ok")
+			}
+			if dspGot != want {
+				t.Fatalf("blockDiffStatsVP9DSP = %+v, want scalar %+v", dspGot, want)
+			}
+		})
+	}
+}
+
+func TestBlockDiffStatsUnsupportedSizeFallsBackToScalar(t *testing.T) {
+	const stride = 32
+	src := make([]byte, stride*32)
+	ref := make([]byte, stride*32)
+	for i := range src {
+		src[i] = byte((i*7 + 3) & 0xff)
+		ref[i] = byte((i*5 + 17) & 0xff)
+	}
+	got := blockDiffStats(src, stride, ref, stride, 1, 2, 3, 4, 12, 12)
+	want := blockDiffStatsScalar(src, stride, ref, stride, 1, 2, 3, 4, 12, 12)
+	if got != want {
+		t.Fatalf("unsupported block stats = %+v, want scalar %+v", got, want)
+	}
+	if _, ok := blockDiffStatsVP9DSP(src, stride, ref, stride, 1, 2, 3, 4, 12, 12); ok {
+		t.Fatal("blockDiffStatsVP9DSP returned ok for unsupported 12x12 block")
 	}
 }
 

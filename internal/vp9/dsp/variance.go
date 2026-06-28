@@ -31,6 +31,45 @@ func varianceScalar(w, h int, src []uint8, srcOff, srcStride int,
 	return s - uint32((int64(sum)*int64(sum))/int64(w*h))
 }
 
+// VarianceStats is the raw libvpx variance accumulator state for a block.
+type VarianceStats struct {
+	Variance uint32
+	SSE      uint32
+	Sum      int32
+}
+
+func varianceStatsFromSumSSE(sum int32, sse uint32, w, h int) VarianceStats {
+	return VarianceStats{
+		Variance: sse - uint32((int64(sum)*int64(sum))/int64(w*h)),
+		SSE:      sse,
+		Sum:      sum,
+	}
+}
+
+func varianceStatsScalar(w, h int, src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff, refStride int,
+) VarianceStats {
+	sse, sum := computeVariance(src, srcOff, srcStride, ref, refOff, refStride, w, h)
+	return varianceStatsFromSumSSE(int32(sum), sse, w, h)
+}
+
+// VpxVarianceStats returns variance, SSE, and signed sum for the standard VP9
+// variance block sizes. Unsupported sizes return ok=false.
+func VpxVarianceStats(src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff, refStride int, w, h int,
+) (VarianceStats, bool) {
+	switch {
+	case (w == 64 && (h == 64 || h == 32)) ||
+		(w == 32 && (h == 64 || h == 32 || h == 16)) ||
+		(w == 16 && (h == 32 || h == 16 || h == 8)) ||
+		(w == 8 && (h == 16 || h == 8 || h == 4)) ||
+		(w == 4 && (h == 8 || h == 4)):
+		return varianceStatsStandard(w, h, src, srcOff, srcStride, ref, refOff, refStride), true
+	default:
+		return VarianceStats{}, false
+	}
+}
+
 // VpxVariance{W}x{H} mirror libvpx's vpx_variance{W}x{H}_c. Each
 // delegates to a size-specialized internal helper so per-arch SIMD
 // backends can override the hot sizes (16+) while the small sizes

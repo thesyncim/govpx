@@ -10,6 +10,12 @@ package dsp
 // helpers below shadow the SIMD-build versions when the platform isn't
 // supported (or purego is requested).
 
+func varianceStatsStandard(w, h int, src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff, refStride int,
+) VarianceStats {
+	return varianceStatsScalar(w, h, src, srcOff, srcStride, ref, refOff, refStride)
+}
+
 func variance64x64(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
 	return varianceScalar(64, 64, src, srcOff, srcStride, ref, refOff, refStride, sse)
 }

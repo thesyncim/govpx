@@ -57,6 +57,36 @@ func TestVP9VarianceSimdRandomAgreement(t *testing.T) {
 	}
 }
 
+func TestVP9VarianceStatsRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0xbead, 0x5eed))
+	const stride = 96
+	const off = 8
+	for _, c := range vp9VarCases() {
+		t.Run(c.name, func(t *testing.T) {
+			for trial := range 12 {
+				src := make([]uint8, stride*(c.h+off+8))
+				ref := make([]uint8, stride*(c.h+off+8))
+				for i := range src {
+					src[i] = uint8(r.UintN(256))
+					ref[i] = uint8(r.UintN(256))
+				}
+				srcOff := off*stride + off
+				refOff := off*stride + off
+				got, ok := VpxVarianceStats(src, srcOff, stride, ref, refOff, stride, c.w, c.h)
+				if !ok {
+					t.Fatalf("trial %d: VpxVarianceStats returned !ok", trial)
+				}
+				wantSSE, wantSum := computeVariance(src, srcOff, stride, ref, refOff, stride, c.w, c.h)
+				wantVar := wantSSE - uint32((int64(wantSum)*int64(wantSum))/int64(c.w*c.h))
+				if got.Variance != wantVar || got.SSE != wantSSE || got.Sum != int32(wantSum) {
+					t.Fatalf("trial %d: got var=%d sse=%d sum=%d want var=%d sse=%d sum=%d",
+						trial, got.Variance, got.SSE, got.Sum, wantVar, wantSSE, wantSum)
+				}
+			}
+		})
+	}
+}
+
 func TestVP9VarianceSimdEdgeCases(t *testing.T) {
 	const stride = 96
 	const off = 8
@@ -95,6 +125,14 @@ func TestVP9VarianceSimdEdgeCases(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestVP9VarianceStatsUnsupportedSize(t *testing.T) {
+	src := make([]uint8, 16*16)
+	ref := make([]uint8, 16*16)
+	if _, ok := VpxVarianceStats(src, 0, 16, ref, 0, 16, 12, 12); ok {
+		t.Fatal("VpxVarianceStats returned ok for unsupported 12x12 block")
 	}
 }
 
