@@ -1,5 +1,7 @@
 package encoder
 
+import vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
+
 // SourceSADSceneSamplesResult reports the sampled 64x64 source-SAD summary
 // used by one-pass scene detection.
 type SourceSADSceneSamplesResult struct {
@@ -147,8 +149,13 @@ func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint6
 	if x0+64 <= args.Width && y0+64 <= args.Height {
 		sad = BlockSAD(args.SourceY, args.SourceYStride,
 			args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
-		variance, sse = BlockDiffVarianceSSE(args.SourceY, args.SourceYStride,
-			args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64)
+		var sse32 uint32
+		srcOff := y0*args.SourceYStride + x0
+		refOff := y0*args.LastSourceYStride + x0
+		variance = uint64(vp9dsp.VpxVariance64x64(args.SourceY, srcOff,
+			args.SourceYStride, args.LastSourceY, refOff, args.LastSourceYStride,
+			&sse32))
+		sse = uint64(sse32)
 		return sad, variance, sse
 	}
 
