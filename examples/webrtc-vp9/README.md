@@ -206,6 +206,15 @@ continued decode, and no RTP loss or receiver repair feedback:
 node browser_smoke.mjs --local-withhold --local-withhold-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
+To prove app-local no-loss recovery under scheduler contention, combine
+`--local-withhold` with CPU burners. This keeps the repeated packetizer-recovery
+and forced-key requirements, while allowing graceful spatial downshift under
+host load:
+
+```sh
+node browser_smoke.mjs --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
+```
+
 To prove those recovery controls still fire under scheduler contention, combine
 the churn and CPU-burner modes. This keeps the same forced-key requirement but
 allows graceful spatial downshift while the machine is busy:
@@ -226,9 +235,10 @@ To run the full local VP9 WebRTC production gate, including focused Go checks,
 the unloaded browser repeat, the loaded browser repeat, the threaded top-layer
 tile-layout check, the clean control-churn browser recovery check, the live
 bitrate/screen tuning check, the pause/resume lifecycle recovery check, the
-app-local no-loss withhold recovery check, the loaded control-churn recovery
-check, the multi-client browser soak, the threaded libvpx/vpxenc tile oracle,
-and the libvpx/vpxdec oracle subset, run:
+app-local no-loss withhold recovery checks with and without scheduler
+contention, the loaded control-churn recovery check, the multi-client browser
+soak, the threaded libvpx/vpxenc tile oracle, and the libvpx/vpxdec oracle
+subset, run:
 
 ```sh
 node production_gate.mjs
