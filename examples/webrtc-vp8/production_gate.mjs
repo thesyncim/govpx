@@ -2,6 +2,12 @@
 
 import { spawn } from "node:child_process";
 
+const rootOraclePattern = [
+  "TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame",
+  "TestVP8OracleOutputParityMatrix",
+  "TestVP8OracleEncoderStreamByteParityTemporalSVC",
+].join("|");
+
 const focusedGoPattern = [
   "TestSuperDemoEndToEnd",
   "TestResizeBigJump",
@@ -51,6 +57,24 @@ const steps = [
     args: ["test", ".", "-run", focusedGoPattern, "-count=1"],
   },
   {
+    name: "libvpx-root-oracle",
+    command: "go",
+    args: [
+      "test",
+      "-v",
+      "-tags", "govpx_oracle_trace",
+      "../..",
+      "-run",
+      rootOraclePattern,
+      "-count=1",
+    ],
+    kind: "go-test",
+    env: {
+      GOVPX_WITH_ORACLE: "1",
+    },
+    requiresOracle: true,
+  },
+  {
     name: "browser-smoke",
     command: "node",
     args: browserArgs,
@@ -84,6 +108,9 @@ async function runStep(step) {
     process.stderr.write(output.stderr);
     throw new Error(`${step.name} failed with exit code ${output.code}`);
   }
+  if (step.requiresOracle) {
+    assertNoOracleSkips(step, output.stdout);
+  }
   let parsed = null;
   if (step.kind === "browser-json") {
     parsed = JSON.parse(output.stdout);
@@ -108,6 +135,16 @@ function collect(child) {
     child.on("error", reject);
     child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
+}
+
+function assertNoOracleSkips(step, stdout) {
+  const skipped = stdout.split("\n").filter((line) => line.startsWith("--- SKIP:"));
+  if (skipped.length === 0) {
+    return;
+  }
+  const err = new Error(`${step.name} skipped required oracle tests: ${skipped.join("; ")}`);
+  err.stdout = stdout;
+  throw err;
 }
 
 function integerEnv(name, defaultValue, limits = {}) {

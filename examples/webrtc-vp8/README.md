@@ -153,10 +153,14 @@ node production_gate.mjs
 ```
 
 The gate runs the JavaScript syntax check, the focused VP8 Go tests,
-and the real-browser smoke with explicit zero budgets for loss,
-freezes, repair packets, NACK, PLI, and FIR. The browser gate can be
-made longer or run under local CPU load with `VP8_WEBRTC_GATE_SOAK_MS`,
-`VP8_WEBRTC_GATE_REPEAT`, and `VP8_WEBRTC_GATE_CPU_BURNERS`.
+a VP8-only libvpx oracle step (`GOVPX_WITH_ORACLE=1` with
+`govpx_oracle_trace`), and the real-browser smoke with explicit zero
+budgets for loss, freezes, repair packets, NACK, PLI, and FIR. The
+oracle step covers vpxdec acceptance, output parity, and temporal SVC
+WebRTC-style byte parity, and the gate fails if those required oracle
+tests skip. The browser gate can be made longer or run under local CPU
+load with `VP8_WEBRTC_GATE_SOAK_MS`, `VP8_WEBRTC_GATE_REPEAT`, and
+`VP8_WEBRTC_GATE_CPU_BURNERS`.
 
 ## What this proves
 

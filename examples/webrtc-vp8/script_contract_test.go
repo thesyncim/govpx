@@ -55,8 +55,16 @@ func TestVP8WebRTCProductionGateRunsFocusedSmoke(t *testing.T) {
 	src := readLocalFile(t, "production_gate.mjs")
 
 	for _, want := range []string{
+		`TestVP8OracleVpxdecDecodesEncodeIntoKeyFrame`,
+		`TestVP8OracleOutputParityMatrix`,
+		`TestVP8OracleEncoderStreamByteParityTemporalSVC`,
 		`"go"`,
 		`"test", ".", "-run", focusedGoPattern, "-count=1"`,
+		`"-tags", "govpx_oracle_trace"`,
+		`GOVPX_WITH_ORACLE: "1"`,
+		`requiresOracle: true`,
+		`assertNoOracleSkips(step, output.stdout)`,
+		`line.startsWith("--- SKIP:")`,
 		`"node"`,
 		`"--check", "browser_smoke.mjs"`,
 		`"browser_smoke.mjs"`,
