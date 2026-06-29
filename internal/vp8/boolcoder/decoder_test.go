@@ -3,6 +3,8 @@ package boolcoder
 import (
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 func TestReadLiteralDeterministic(t *testing.T) {
@@ -213,6 +215,74 @@ func TestReadCoefUpdateProbsIntoNilProbs(t *testing.T) {
 	}
 }
 
+func TestReadCoefUpdateProbsIntoProb255MatchesScalarLoop(t *testing.T) {
+	const (
+		nodes = 11
+		ctxs  = 3
+		total = nodes * ctxs * 3
+	)
+	updateProbs := make([]uint8, total)
+	for i := range updateProbs {
+		updateProbs[i] = 255
+	}
+	updateBits := make([]uint8, total)
+	for _, index := range []int{0, 17, 48, 72} {
+		updateBits[index] = 1
+	}
+
+	var w testWriter
+	w.init()
+	for i := range updateProbs {
+		w.writeBool(updateBits[i], updateProbs[i])
+		if updateBits[i] != 0 {
+			lit := uint8((i * 29) ^ 0xa5)
+			for k := 7; k >= 0; k-- {
+				w.writeBool(uint8((lit>>uint(k))&1), 128)
+			}
+		}
+	}
+	payload := w.finish()
+
+	wantProbs := make([]uint8, total)
+	gotProbs := make([]uint8, total)
+	wantUpdates := 0
+	wantNonDefault := false
+	{
+		var d Decoder
+		_ = d.Init(payload)
+		for i := range updateProbs {
+			if d.ReadBool(updateProbs[i]) != 0 {
+				wantProbs[i] = uint8(d.ReadLiteral(8))
+				wantUpdates++
+				if (i/nodes)%ctxs != 0 {
+					wantNonDefault = true
+				}
+			}
+		}
+		if err := d.Err(); err != nil {
+			t.Fatalf("scalar Err = %v", err)
+		}
+	}
+
+	var d Decoder
+	_ = d.Init(payload)
+	gotUpdates, gotNonDefault := d.ReadCoefUpdateProbsInto(updateProbs, gotProbs, nodes, ctxs)
+	if err := d.Err(); err != nil {
+		t.Fatalf("batched Err = %v", err)
+	}
+	if gotUpdates != wantUpdates {
+		t.Fatalf("updateCount = %d, want %d", gotUpdates, wantUpdates)
+	}
+	if gotNonDefault != wantNonDefault {
+		t.Fatalf("nonDefault = %v, want %v", gotNonDefault, wantNonDefault)
+	}
+	for i := range wantProbs {
+		if gotProbs[i] != wantProbs[i] {
+			t.Fatalf("probs[%d] = %d, want %d", i, gotProbs[i], wantProbs[i])
+		}
+	}
+}
+
 type testWriter struct {
 	low   uint32
 	rng   uint32
@@ -311,5 +381,33 @@ func BenchmarkReadLiteral8(b *testing.B) {
 			_ = d.Init(src)
 		}
 		_ = d.ReadLiteral(8)
+	}
+}
+
+func BenchmarkReadCoefUpdateProbsIntoVP8NoUpdates(b *testing.B) {
+	updateProbs := make([]uint8, 0, tables.BlockTypes*tables.CoefBands*tables.PrevCoefContexts*tables.EntropyNodes)
+	var w testWriter
+	w.init()
+	for block := range tables.CoefUpdateProbs {
+		for band := range tables.CoefUpdateProbs[block] {
+			for ctx := range tables.CoefUpdateProbs[block][band] {
+				for _, prob := range tables.CoefUpdateProbs[block][band][ctx] {
+					updateProbs = append(updateProbs, prob)
+					w.writeBool(0, prob)
+				}
+			}
+		}
+	}
+	payload := w.finish()
+	probs := make([]uint8, len(updateProbs))
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		var d Decoder
+		_ = d.Init(payload)
+		updates, nonDefault := d.ReadCoefUpdateProbsInto(updateProbs, probs, tables.EntropyNodes, tables.PrevCoefContexts)
+		if updates != 0 || nonDefault {
+			b.Fatalf("updates=%d nonDefault=%v, want no updates", updates, nonDefault)
+		}
 	}
 }

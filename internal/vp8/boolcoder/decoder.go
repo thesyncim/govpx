@@ -356,7 +356,10 @@ func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, no
 	for i, prob := range updateProbs {
 		// Inline ReadBool for the update flag.
 		rng0 := rng
-		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		split := rng0 - 1
+		if prob != 255 {
+			split = uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		}
 		if count < 0 {
 			// Inline fill().
 			shift := valueSize - 8 - (count + 8)
