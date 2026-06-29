@@ -452,6 +452,21 @@ func BenchmarkDecodeBlockCoeffs(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodeMacroblockTokensImmediateEOBWarmZero(b *testing.B) {
+	probs := uniformCoefficientProbs(128)
+	payload := encodeMacroblockTokens(&probs, false, -1)
+	var above, left EntropyContextPlanes
+	var out MacroblockTokens
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		var br boolcoder.Decoder
+		_ = br.Init(payload)
+		above = EntropyContextPlanes{}
+		left = EntropyContextPlanes{}
+		DecodeMacroblockTokens(&br, &probs, false, &above, &left, &out)
+	}
+}
+
 func BenchmarkDecodeTokenGridSkipped(b *testing.B) {
 	probs := uniformCoefficientProbs(128)
 	modes := make([]MacroblockMode, 16)
