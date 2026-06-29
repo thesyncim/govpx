@@ -1229,6 +1229,38 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 // a2f325c); this helper remains as the verbatim block_yrd dependency.
 func BlockErrorFP(coeff, dqcoeff []int16) uint64 {
 	n := min(len(coeff), len(dqcoeff))
+	if n == 16 {
+		// Keep the TX_4X4 hot path in the exported wrapper so the
+		// dispatch indirection used for larger blocks cannot regress it.
+		d0 := int(coeff[0]) - int(dqcoeff[0])
+		d1 := int(coeff[1]) - int(dqcoeff[1])
+		d2 := int(coeff[2]) - int(dqcoeff[2])
+		d3 := int(coeff[3]) - int(dqcoeff[3])
+		d4 := int(coeff[4]) - int(dqcoeff[4])
+		d5 := int(coeff[5]) - int(dqcoeff[5])
+		d6 := int(coeff[6]) - int(dqcoeff[6])
+		d7 := int(coeff[7]) - int(dqcoeff[7])
+		d8 := int(coeff[8]) - int(dqcoeff[8])
+		d9 := int(coeff[9]) - int(dqcoeff[9])
+		d10 := int(coeff[10]) - int(dqcoeff[10])
+		d11 := int(coeff[11]) - int(dqcoeff[11])
+		d12 := int(coeff[12]) - int(dqcoeff[12])
+		d13 := int(coeff[13]) - int(dqcoeff[13])
+		d14 := int(coeff[14]) - int(dqcoeff[14])
+		d15 := int(coeff[15]) - int(dqcoeff[15])
+		return uint64(d0*d0) + uint64(d1*d1) +
+			uint64(d2*d2) + uint64(d3*d3) +
+			uint64(d4*d4) + uint64(d5*d5) +
+			uint64(d6*d6) + uint64(d7*d7) +
+			uint64(d8*d8) + uint64(d9*d9) +
+			uint64(d10*d10) + uint64(d11*d11) +
+			uint64(d12*d12) + uint64(d13*d13) +
+			uint64(d14*d14) + uint64(d15*d15)
+	}
+	return blockErrorFPDispatch(coeff, dqcoeff, n)
+}
+
+func blockErrorFPScalar(coeff, dqcoeff []int16, n int) uint64 {
 	var err uint64
 	if n == 16 {
 		// TX_4X4 blocks are common enough that avoiding loop overhead matters.
