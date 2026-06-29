@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+var coeffTreeTokenCostBenchModels = [][]uint8{
+	{220, 134, 178},
+	{32, 224, 8},
+	{64, 192, 32},
+	{96, 160, 64},
+	{128, 128, 96},
+	{160, 96, 160},
+	{192, 64, 224},
+	{224, 32, 255},
+}
+
+var coeffTreeTokenCostBenchTokens = [...]int{
+	EobToken, ZeroToken, OneToken, TwoToken,
+	ThreeToken, FourToken, Category1Tok, Category2Tok,
+	Category3Tok, Category4Tok, Category5Tok, Category6Tok,
+	EobToken, ZeroToken, OneToken, Category6Tok,
+}
+
 // TestVP9ProbCostMatchesFormula spot-checks a few entries against
 // the documented formula round(-log2(i/256.0) * (1 << 9)). The
 // first entry (i=0) is a sentinel and not formula-derived.
@@ -121,5 +139,26 @@ func TestTreedCostMatchesCostTokens(t *testing.T) {
 	got := TreedCost(tree, probs, 0b01, 2)
 	if got != costs[1] {
 		t.Errorf("TreedCost = %d, VP9CostTokens leaf 1 = %d", got, costs[1])
+	}
+}
+
+func BenchmarkCoeffTreeTokenCost(b *testing.B) {
+	models := coeffTreeTokenCostBenchModels
+	tokens := coeffTreeTokenCostBenchTokens
+	for _, skipEOB := range []bool{false, true} {
+		name := "full"
+		if skipEOB {
+			name = "skipEOB"
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			got := 0
+			for i := 0; i < b.N; i++ {
+				got += CoeffTreeTokenCost(models[(i>>4)&7], skipEOB, tokens[i&15])
+			}
+			if got == 0 {
+				b.Fatal("unexpected zero benchmark accumulator")
+			}
+		})
 	}
 }

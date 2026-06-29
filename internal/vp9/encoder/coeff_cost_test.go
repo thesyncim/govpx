@@ -103,6 +103,35 @@ func TestCoeffTokenRateCostExtraBitsSweep(t *testing.T) {
 	}
 }
 
+func TestCoeffTreeTokenCostMatchesCostTokens(t *testing.T) {
+	axis := []uint8{1, 32, 64, 128, 192, 224, 255}
+	pivots := []uint8{1, 8, 32, 64, 96, 128, 160, 192, 224, 240, 255}
+	for _, eobP := range axis {
+		for _, zeroP := range axis {
+			for _, pivotP := range pivots {
+				model := []uint8{eobP, zeroP, pivotP}
+				full := coeffCostFullProbRow(eobP, zeroP, pivotP)
+				var leaf [EntropyTokens]int
+				VP9CostTokens(leaf[:], full[:], CoefTree[:])
+				var skip [EntropyTokens]int
+				VP9CostTokensSkip(skip[:], full[:], CoefTree[:])
+				for token := range EntropyTokens {
+					got := CoeffTreeTokenCost(model, false, token)
+					if got != leaf[token] {
+						t.Fatalf("full eobP=%d zeroP=%d pivotP=%d token=%d: got=%d want=%d",
+							eobP, zeroP, pivotP, token, got, leaf[token])
+					}
+					got = CoeffTreeTokenCost(model, true, token)
+					if got != skip[token] {
+						t.Fatalf("skip eobP=%d zeroP=%d pivotP=%d token=%d: got=%d want=%d",
+							eobP, zeroP, pivotP, token, got, skip[token])
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestCoeffMagnitudeAndSignPrefersQCoeff(t *testing.T) {
 	absVal, sign := CoeffMagnitudeAndSign([]int16{0, -7}, 1, 42, 4, false)
 	if absVal != 7 || sign != 1 {

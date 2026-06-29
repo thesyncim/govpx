@@ -60,21 +60,56 @@ func CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
 		token >= EntropyTokens || model[2] == 0 {
 		return 0
 	}
-	var full [EntropyNodes]uint8
-	full[0] = model[0]
-	full[1] = model[1]
-	full[2] = model[2]
+	if token == EobToken {
+		return VP9CostZero(model[0])
+	}
+	cost := 0
+	if !skipEOB {
+		cost += VP9CostOne(model[0])
+	}
+	if token == ZeroToken {
+		return cost + VP9CostZero(model[1])
+	}
+	cost += VP9CostOne(model[1])
+	if token == OneToken {
+		return cost + VP9CostZero(model[2])
+	}
+	cost += VP9CostOne(model[2])
 	tail := tables.Pareto8Full[model[2]-1]
-	for i := range tail {
-		full[3+i] = tail[i]
+	return cost + coefConTreeTokenCost(tail, token)
+}
+
+func coefConTreeTokenCost(probs [8]uint8, token int) int {
+	switch token {
+	case TwoToken:
+		return VP9CostZero(probs[0]) + VP9CostZero(probs[1])
+	case ThreeToken:
+		return VP9CostZero(probs[0]) + VP9CostOne(probs[1]) +
+			VP9CostZero(probs[2])
+	case FourToken:
+		return VP9CostZero(probs[0]) + VP9CostOne(probs[1]) +
+			VP9CostOne(probs[2])
+	case Category1Tok:
+		return VP9CostOne(probs[0]) + VP9CostZero(probs[3]) +
+			VP9CostZero(probs[4])
+	case Category2Tok:
+		return VP9CostOne(probs[0]) + VP9CostZero(probs[3]) +
+			VP9CostOne(probs[4])
+	case Category3Tok:
+		return VP9CostOne(probs[0]) + VP9CostOne(probs[3]) +
+			VP9CostZero(probs[5]) + VP9CostZero(probs[6])
+	case Category4Tok:
+		return VP9CostOne(probs[0]) + VP9CostOne(probs[3]) +
+			VP9CostZero(probs[5]) + VP9CostOne(probs[6])
+	case Category5Tok:
+		return VP9CostOne(probs[0]) + VP9CostOne(probs[3]) +
+			VP9CostOne(probs[5]) + VP9CostZero(probs[7])
+	case Category6Tok:
+		return VP9CostOne(probs[0]) + VP9CostOne(probs[3]) +
+			VP9CostOne(probs[5]) + VP9CostOne(probs[7])
+	default:
+		return 0
 	}
-	var costs [EntropyTokens]int
-	if skipEOB {
-		VP9CostTokensSkip(costs[:], full[:], CoefTree[:])
-	} else {
-		VP9CostTokens(costs[:], full[:], CoefTree[:])
-	}
-	return costs[token]
 }
 
 // CoeffTokenAbsValInt maps a dequantized coefficient magnitude back to the
