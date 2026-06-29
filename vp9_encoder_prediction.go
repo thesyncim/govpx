@@ -465,10 +465,11 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	if txSize == common.Tx32x32 && txType != common.DctDct {
 		return false
 	}
-	for i := range e.txCoeffScratch[:maxEob] {
-		e.txCoeffScratch[i] = 0
-		e.dqCoeffScratch[i] = 0
-		e.qCoeffScratch[i] = 0
+	wantQ := qOut != nil
+	clear(e.txCoeffScratch[:maxEob])
+	clear(e.dqCoeffScratch[:maxEob])
+	if wantQ {
+		clear(e.qCoeffScratch[:maxEob])
 	}
 	if lossless {
 		txType = common.DctDct
@@ -520,7 +521,6 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	// 116-117). govpx mirrors this when qOut is requested so the
 	// cost_coeffs path consumes qcoeff directly instead of recovering it
 	// from int16-wrapped dqcoeff.
-	wantQ := qOut != nil
 	var qBuf []int16
 	if wantQ {
 		qBuf = e.qCoeffScratch[:maxEob]
