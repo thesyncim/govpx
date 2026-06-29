@@ -318,9 +318,6 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		srcW <= 0 || srcH <= 0 {
 		return false
 	}
-	for i := range e.residueScratch[:bs*bs] {
-		e.residueScratch[i] = 0
-	}
 	hasDiff := false
 	if x0 >= 0 && y0 >= 0 && x0+bs <= srcW && y0+bs <= srcH {
 		for y := range bs {

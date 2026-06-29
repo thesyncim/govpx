@@ -1,10 +1,11 @@
 package govpx
 
 import (
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"testing"
 )
 
 func TestVP9EncoderInterDcResidueTracksChangedConstantSource(t *testing.T) {
@@ -149,6 +150,78 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 	if got.mode != common.HPred {
 		t.Fatalf("inter intra mode = %d, want HPred from full-block score", got.mode)
 	}
+}
+
+func TestGatherVP9TxResidualOverwritesActiveScratch(t *testing.T) {
+	t.Run("in-bounds", func(t *testing.T) {
+		var e VP9Encoder
+		const srcW, srcH, srcStride = 12, 12, 12
+		src := make([]byte, srcStride*srcH)
+		for i := range src {
+			src[i] = byte((i*7 + 11) & 0xff)
+		}
+		dst := make([]byte, 8*8)
+		for i := range dst {
+			dst[i] = byte((i*5 + 3) & 0xff)
+		}
+		for i := range e.residueScratch[:64] {
+			e.residueScratch[i] = 0x7777
+		}
+
+		if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, 8,
+			2, 3, common.Tx8x8) {
+			t.Fatal("gatherVP9TxResidual returned false for non-zero in-bounds residue")
+		}
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 8; x++ {
+				want := int16(int(src[(3+y)*srcStride+2+x]) - int(dst[y*8+x]))
+				if got := e.residueScratch[y*8+x]; got != want {
+					t.Fatalf("residue[%d,%d] = %d, want %d", y, x, got, want)
+				}
+			}
+		}
+	})
+
+	t.Run("clamped-edge", func(t *testing.T) {
+		var e VP9Encoder
+		const srcW, srcH, srcStride = 5, 5, 5
+		src := make([]byte, srcStride*srcH)
+		for i := range src {
+			src[i] = byte((i*13 + 17) & 0xff)
+		}
+		dst := make([]byte, 8*8)
+		for i := range dst {
+			dst[i] = byte((i*9 + 1) & 0xff)
+		}
+		for i := range e.residueScratch[:64] {
+			e.residueScratch[i] = -0x2222
+		}
+
+		if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, 8,
+			-2, 3, common.Tx8x8) {
+			t.Fatal("gatherVP9TxResidual returned false for non-zero clamped residue")
+		}
+		for y := 0; y < 8; y++ {
+			sy := clampVP9ResidualTestCoord(3+y, srcH)
+			for x := 0; x < 8; x++ {
+				sx := clampVP9ResidualTestCoord(-2+x, srcW)
+				want := int16(int(src[sy*srcStride+sx]) - int(dst[y*8+x]))
+				if got := e.residueScratch[y*8+x]; got != want {
+					t.Fatalf("residue[%d,%d] = %d, want %d", y, x, got, want)
+				}
+			}
+		}
+	})
+}
+
+func clampVP9ResidualTestCoord(v, limit int) int {
+	if v < 0 {
+		return 0
+	}
+	if v >= limit {
+		return limit - 1
+	}
+	return v
 }
 
 func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
