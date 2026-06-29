@@ -134,6 +134,17 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 // fillResidual4x4Slice writes a source block into a caller-supplied slice so
 // all 24 4x4 blocks land in one contiguous buffer ready for ForwardDCT4x4Batch.
 func fillResidual4x4Slice(plane []byte, stride int, width int, height int, x int, y int, out []int16) {
+	if x+4 <= width && y+4 <= height {
+		for row := range 4 {
+			src := (y+row)*stride + x
+			dst := row * 4
+			out[dst+0] = int16(int(plane[src+0]) - 128)
+			out[dst+1] = int16(int(plane[src+1]) - 128)
+			out[dst+2] = int16(int(plane[src+2]) - 128)
+			out[dst+3] = int16(int(plane[src+3]) - 128)
+		}
+		return
+	}
 	for row := range 4 {
 		sampleY := clampCoord(y+row, height)
 		for col := range 4 {
