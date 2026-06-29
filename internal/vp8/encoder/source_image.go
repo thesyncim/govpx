@@ -100,7 +100,7 @@ func GatherClampedLumaBlock(src SourceImage, baseY int, baseX int, width int, he
 // SourceImageMatchesReference reports whether the visible source samples match
 // the visible reference frame samples.
 func SourceImageMatchesReference(src SourceImage, ref *vp8common.Image) bool {
-	if ref == nil || src.Width != ref.Width || src.Height != ref.Height {
+	if ref == nil || src.Width <= 0 || src.Height <= 0 || src.Width != ref.Width || src.Height != ref.Height {
 		return false
 	}
 	if !planeMatches(src.Y, src.YStride, ref.Y, ref.YStride, src.Width, src.Height) {
@@ -112,6 +112,9 @@ func SourceImageMatchesReference(src SourceImage, ref *vp8common.Image) bool {
 }
 
 func planeMatches(a []byte, aStride int, b []byte, bStride int, width int, height int) bool {
+	if !planeHasVisibleRows(a, aStride, width, height) || !planeHasVisibleRows(b, bStride, width, height) {
+		return false
+	}
 	for row := range height {
 		aRow := a[row*aStride : row*aStride+width]
 		bRow := b[row*bStride : row*bStride+width]
@@ -120,4 +123,18 @@ func planeMatches(a []byte, aStride int, b []byte, bStride int, width int, heigh
 		}
 	}
 	return true
+}
+
+func planeHasVisibleRows(plane []byte, stride int, width int, height int) bool {
+	if width < 0 || height < 0 || stride < width {
+		return false
+	}
+	if height == 0 {
+		return true
+	}
+	if height > 1 && stride > (int(^uint(0)>>1)-width)/(height-1) {
+		return false
+	}
+	need := (height-1)*stride + width
+	return need <= len(plane)
 }

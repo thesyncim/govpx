@@ -76,6 +76,44 @@ func TestSourceImageMatchesReferenceVisibleSamplesOnly(t *testing.T) {
 	}
 }
 
+func TestSourceImageMatchesReferenceRejectsInvalidPlaneBounds(t *testing.T) {
+	ref := vp8common.Image{
+		Width:   4,
+		Height:  2,
+		YStride: 4,
+		UStride: 2,
+		VStride: 2,
+		Y:       make([]byte, 8),
+		U:       make([]byte, 2),
+		V:       make([]byte, 2),
+	}
+	src := SourceImage{
+		Width:   4,
+		Height:  2,
+		YStride: 3,
+		UStride: 2,
+		VStride: 2,
+		Y:       make([]byte, 8),
+		U:       make([]byte, 2),
+		V:       make([]byte, 2),
+	}
+	if SourceImageMatchesReference(src, &ref) {
+		t.Fatalf("SourceImageMatchesReference = true, want false for source stride smaller than visible width")
+	}
+
+	src.YStride = 4
+	src.U = src.U[:1]
+	if SourceImageMatchesReference(src, &ref) {
+		t.Fatalf("SourceImageMatchesReference = true, want false for truncated source chroma plane")
+	}
+
+	src.U = make([]byte, 2)
+	ref.V = ref.V[:1]
+	if SourceImageMatchesReference(src, &ref) {
+		t.Fatalf("SourceImageMatchesReference = true, want false for truncated reference chroma plane")
+	}
+}
+
 func TestGatherClampedLumaBlockEdges(t *testing.T) {
 	src := SourceImage{
 		Width:   4,
