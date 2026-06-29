@@ -1604,7 +1604,7 @@ func QuantizeFPLibvpx(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]i
 // vp9_quantize_fp_c. The signature mirrors the libvpx kernel contract so
 // vp9_quantize_fp_neon can swap in byte-identically: split qcoeff/dqcoeff
 // outputs in raster order, separate round_fp/quant_fp/dequant tables, and
-// per-lane iscan max-reduce for the eob.
+// scan-order eob tracking.
 // libvpx: vp9/encoder/vp9_quantize.c:26-56 vp9_quantize_fp_c
 func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
 	scan, iscan []int16, qcoeff, dqcoeff []int16,
@@ -1612,40 +1612,39 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 	// libvpx: vp9/encoder/vp9_quantize.c:36-37
 	//   memset(qcoeff_ptr, 0, n_coeffs * sizeof(*qcoeff_ptr));
 	//   memset(dqcoeff_ptr, 0, n_coeffs * sizeof(*dqcoeff_ptr));
-	for i := range nCoeffs {
-		qcoeff[i] = 0
-		dqcoeff[i] = 0
-	}
+	clear(qcoeff[:nCoeffs])
+	clear(dqcoeff[:nCoeffs])
 	// libvpx: vp9/encoder/vp9_quantize.c:32-34 (round_ptr/quant_ptr/scan)
-	round := [2]int{int(roundFP[0]), int(roundFP[1])}
-	quant := [2]int{int(quantFP[0]), int(quantFP[1])}
-	deq := [2]int{int(dequant[0]), int(dequant[1])}
+	roundDC, roundAC := int(roundFP[0]), int(roundFP[1])
+	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
 	// libvpx: vp9/encoder/vp9_quantize.c:31 (int i, eob = -1)
-	// NEON kernel does an iscan-based max-reduce instead; both produce
-	// the same (eob + 1) since iscan[scan[i]] == i + 1.
-	// libvpx: vp9/encoder/arm/neon/vp9_quantize_neon.c:46-71
+	// The scalar C path sets eob to the current scan index. SIMD kernels
+	// instead max-reduce iscan[rc], which is equivalent for valid VP9 scan
+	// orders because iscan[scan[i]] == i + 1.
+	_ = iscan
 	eob := -1
 	for i := range nCoeffs {
 		// libvpx: vp9/encoder/vp9_quantize.c:42-45
 		rc := int(scan[i])
-		slot := 0
-		if rc != 0 {
-			slot = 1
+		round, quant, deq := roundAC, quantAC, deqAC
+		if rc == 0 {
+			round, quant, deq = roundDC, quantDC, deqDC
 		}
 		c := int(coeff[rc])
 		absCoeff := c
 		if absCoeff < 0 {
 			absCoeff = -absCoeff
 		}
-		sum := absCoeff + round[slot]
-		if sum < deq[slot] {
+		sum := absCoeff + round
+		if sum < deq {
 			continue
 		}
 		// libvpx: vp9/encoder/vp9_quantize.c:47-48
 		//   tmp = clamp(abs_coeff + round_ptr[rc != 0], INT16_MIN, INT16_MAX);
 		//   tmp = (tmp * quant_ptr[rc != 0]) >> 16;
 		tmp := clampInt16(sum)
-		tmp = (tmp * quant[slot]) >> 16
+		tmp = (tmp * quant) >> 16
 		// libvpx: vp9/encoder/vp9_quantize.c:50-51
 		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
 		//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0];
@@ -1654,17 +1653,10 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 			q = -q
 		}
 		qcoeff[rc] = int16(q)
-		dqcoeff[rc] = int16(q * deq[slot])
+		dqcoeff[rc] = int16(q * deq)
 		// libvpx: vp9/encoder/vp9_quantize.c:53 (if (tmp) eob = i;)
-		// Per-lane iscan max-reduce equivalent:
-		// libvpx: vp9/encoder/arm/neon/vp9_quantize_neon.c:111,117
-		//   v_nz_mask = vceqq_s16(v_tmp2, v_zero); // nonzero -> 0
-		//   v_eobmax = max(v_eobmax, iscan masked by nz)
 		if tmp != 0 {
-			pos := int(iscan[rc]) - 1
-			if pos > eob {
-				eob = pos
-			}
+			eob = i
 		}
 	}
 	// libvpx: vp9/encoder/vp9_quantize.c:55 (*eob_ptr = eob + 1;)
