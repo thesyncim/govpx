@@ -29,6 +29,13 @@ func FillYCbCr(img *image.YCbCr, y, u, v byte) {
 
 func NewPanningYCbCr(width, height int, frame int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	FillPanningYCbCr(img, frame)
+	return img
+}
+
+func FillPanningYCbCr(img *image.YCbCr, frame int) {
+	width := img.Rect.Dx()
+	height := img.Rect.Dy()
 	for y := range height {
 		row := img.Y[y*img.YStride:]
 		for x := range width {
@@ -44,7 +51,6 @@ func NewPanningYCbCr(width, height int, frame int) *image.YCbCr {
 			cr[x] = byte(72 + (x*3+(y+frame)*7)%112)
 		}
 	}
-	return img
 }
 
 func NewCheckerYCbCr(width, height int, lo, hi, u, v byte) *image.YCbCr {

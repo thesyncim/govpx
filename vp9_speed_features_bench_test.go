@@ -8,8 +8,8 @@ import (
 // BenchmarkVP9EncodeCPUUsed measures govpx's per-frame encode time across
 // representative cpu_used lanes: 0, 4, 6, 8.
 // Frame size is 640x360 in line with the realtime CBR oracle target. The
-// benchmark uses a fixed panning-YCbCr source ring across cpu_used buckets so
-// source-frame allocation stays outside the timed encode loop.
+// benchmark refreshes a reusable panning-YCbCr source while the timer is
+// stopped so source-frame generation stays outside the timed encode loop.
 //
 // Invoke with:
 //
@@ -44,9 +44,10 @@ func BenchmarkVP9EncodeCPUUsed(b *testing.B) {
 				b.Fatalf("NewVP9Encoder: %v", err)
 			}
 			defer e.Close()
-			sources := vp9test.NewPanningSources(width, height, 8)
+			src := vp9test.NewPanningYCbCr(width, height, 0)
 			dst := make([]byte, width*height*2)
-			for i, src := range sources {
+			for i := 0; i < 8; i++ {
+				vp9test.FillPanningYCbCr(src, i)
 				if _, err := e.EncodeInto(src, dst); err != nil {
 					b.Fatalf("warmup EncodeInto[%d]: %v", i, err)
 				}
@@ -54,7 +55,9 @@ func BenchmarkVP9EncodeCPUUsed(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				src := sources[i%len(sources)]
+				b.StopTimer()
+				vp9test.FillPanningYCbCr(src, i+8)
+				b.StartTimer()
 				if _, err := e.EncodeInto(src, dst); err != nil {
 					b.Fatalf("EncodeInto[%d]: %v", i, err)
 				}

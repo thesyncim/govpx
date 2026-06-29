@@ -26,6 +26,17 @@ func TestNewSteppedSources(t *testing.T) {
 	}
 }
 
+func TestFillPanningYCbCrMatchesConstructor(t *testing.T) {
+	want := NewPanningYCbCr(16, 12, 5)
+	got := NewYCbCr(16, 12, 0, 0, 0)
+	FillPanningYCbCr(got, 5)
+	if !bytes.Equal(got.Y, want.Y) ||
+		!bytes.Equal(got.Cb, want.Cb) ||
+		!bytes.Equal(got.Cr, want.Cr) {
+		t.Fatal("FillPanningYCbCr output differs from NewPanningYCbCr")
+	}
+}
+
 func TestNewBlockCheckerYCbCr(t *testing.T) {
 	img := NewBlockCheckerYCbCr(64, 64, 0)
 	tests := []struct {
