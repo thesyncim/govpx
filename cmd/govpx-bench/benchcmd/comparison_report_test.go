@@ -123,6 +123,49 @@ func TestBuildComparisonReportHandlesZeroDenominators(t *testing.T) {
 	}
 }
 
+func TestBuildDecodeComparisonReportComputesFrameDelta(t *testing.T) {
+	report := decodeBenchReport{
+		DecodedFrames:        28,
+		NSPerFrame:           20_000,
+		DecodeFPS:            50_000,
+		CodedMegabytesPerSec: 12.5,
+	}
+	reference := decodeReferenceReport{
+		DecodedFrames:        30,
+		NSPerFrame:           10_000,
+		DecodeFPS:            100_000,
+		CodedMegabytesPerSec: 25,
+	}
+
+	cmp := buildDecodeComparisonReport(report, reference)
+	if cmp == nil {
+		t.Fatalf("buildDecodeComparisonReport = nil")
+	}
+	if cmp.NSPerFrameRatio != float64(report.NSPerFrame)/float64(reference.NSPerFrame) {
+		t.Fatalf("NSPerFrameRatio = %f, want %f", cmp.NSPerFrameRatio, float64(report.NSPerFrame)/float64(reference.NSPerFrame))
+	}
+	if cmp.DecodeFPSRatio != report.DecodeFPS/reference.DecodeFPS {
+		t.Fatalf("DecodeFPSRatio = %f, want %f", cmp.DecodeFPSRatio, report.DecodeFPS/reference.DecodeFPS)
+	}
+	if cmp.CodedMegabytesPerSecRatio != report.CodedMegabytesPerSec/reference.CodedMegabytesPerSec {
+		t.Fatalf("CodedMegabytesPerSecRatio = %f, want %f", cmp.CodedMegabytesPerSecRatio, report.CodedMegabytesPerSec/reference.CodedMegabytesPerSec)
+	}
+	if cmp.DecodedFramesDelta != -2 {
+		t.Fatalf("DecodedFramesDelta = %d, want -2", cmp.DecodedFramesDelta)
+	}
+	raw, err := json.Marshal(cmp)
+	if err != nil {
+		t.Fatalf("Marshal decode comparison returned error: %v", err)
+	}
+	var asJSON map[string]any
+	if err := json.Unmarshal(raw, &asJSON); err != nil {
+		t.Fatalf("Unmarshal decode comparison returned error: %v", err)
+	}
+	if asJSON["decoded_frames_delta"] != float64(cmp.DecodedFramesDelta) {
+		t.Fatalf("decode comparison JSON missing frame delta: %s", raw)
+	}
+}
+
 func TestQuantizerHistogramMap(t *testing.T) {
 	var hist [quantizerHistogramBins]int
 	hist[4] = 3

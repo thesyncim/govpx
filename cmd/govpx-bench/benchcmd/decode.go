@@ -104,6 +104,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 			return decodeBenchReport{}, err
 		}
 		report.Reference = &reference
+		report.Comparison = buildDecodeComparisonReport(report, reference)
 		if report.NSPerFrame > 0 {
 			report.RelativeSpeedVsReference = float64(reference.NSPerFrame) / float64(report.NSPerFrame)
 		}

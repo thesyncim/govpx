@@ -130,24 +130,32 @@ type referenceReport struct {
 }
 
 type decodeBenchReport struct {
-	Decoder                  string                 `json:"decoder"`
-	Operation                string                 `json:"operation"`
-	Mode                     string                 `json:"mode"`
-	Width                    int                    `json:"width"`
-	Height                   int                    `json:"height"`
-	Frames                   int                    `json:"frames"`
-	FPS                      int                    `json:"fps"`
-	InputBytes               int                    `json:"input_bytes"`
-	DecodedFrames            int                    `json:"decoded_frames"`
-	NSPerFrame               int64                  `json:"ns_per_frame"`
-	DecodeFPS                float64                `json:"decode_fps"`
-	MacroblocksPerSec        float64                `json:"macroblocks_per_second"`
-	CodedMegabytesPerSec     float64                `json:"coded_megabytes_per_second"`
-	AllocsPerFrame           float64                `json:"allocs_per_frame"`
-	LatencyNS                latencyReport          `json:"latency_ns"`
-	Reference                *decodeReferenceReport `json:"reference,omitempty"`
-	RelativeSpeedVsReference float64                `json:"relative_speed_vs_reference,omitempty"`
-	Options                  benchConfigSummary     `json:"options"`
+	Decoder                  string                  `json:"decoder"`
+	Operation                string                  `json:"operation"`
+	Mode                     string                  `json:"mode"`
+	Width                    int                     `json:"width"`
+	Height                   int                     `json:"height"`
+	Frames                   int                     `json:"frames"`
+	FPS                      int                     `json:"fps"`
+	InputBytes               int                     `json:"input_bytes"`
+	DecodedFrames            int                     `json:"decoded_frames"`
+	NSPerFrame               int64                   `json:"ns_per_frame"`
+	DecodeFPS                float64                 `json:"decode_fps"`
+	MacroblocksPerSec        float64                 `json:"macroblocks_per_second"`
+	CodedMegabytesPerSec     float64                 `json:"coded_megabytes_per_second"`
+	AllocsPerFrame           float64                 `json:"allocs_per_frame"`
+	LatencyNS                latencyReport           `json:"latency_ns"`
+	Reference                *decodeReferenceReport  `json:"reference,omitempty"`
+	Comparison               *decodeComparisonReport `json:"comparison_vs_reference,omitempty"`
+	RelativeSpeedVsReference float64                 `json:"relative_speed_vs_reference,omitempty"`
+	Options                  benchConfigSummary      `json:"options"`
+}
+
+type decodeComparisonReport struct {
+	NSPerFrameRatio           float64 `json:"ns_per_frame_ratio_vs_reference"`
+	DecodeFPSRatio            float64 `json:"decode_fps_ratio_vs_reference"`
+	CodedMegabytesPerSecRatio float64 `json:"coded_megabytes_per_second_ratio_vs_reference"`
+	DecodedFramesDelta        int     `json:"decoded_frames_delta"`
 }
 
 type decodeReferenceReport struct {

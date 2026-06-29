@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,31 @@ func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
 	}
 	if report.Reference.NSPerFrame <= 0 || report.Reference.DecodeFPS <= 0 || report.Reference.MacroblocksPerSec <= 0 || report.RelativeSpeedVsReference <= 0 {
 		t.Fatalf("reference timing = %+v relative=%f, want positive values", *report.Reference, report.RelativeSpeedVsReference)
+	}
+	if report.Comparison == nil {
+		t.Fatalf("comparison_vs_reference = nil, want populated when reference is present")
+	}
+	if report.Comparison.NSPerFrameRatio <= 0 ||
+		report.Comparison.DecodeFPSRatio <= 0 ||
+		report.Comparison.CodedMegabytesPerSecRatio <= 0 {
+		t.Fatalf("comparison ratios = %+v, want all > 0", *report.Comparison)
+	}
+	if report.Comparison.DecodedFramesDelta != report.DecodedFrames-report.Reference.DecodedFrames {
+		t.Fatalf("decoded frame delta = %d, want %d",
+			report.Comparison.DecodedFramesDelta,
+			report.DecodedFrames-report.Reference.DecodedFrames)
+	}
+	raw, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("Marshal report returned error: %v", err)
+	}
+	if !strings.Contains(string(raw), `"comparison_vs_reference"`) ||
+		!strings.Contains(string(raw), `"decoded_frames_delta":0`) {
+		t.Fatalf("decode report JSON missing comparison decoded-frame delta: %s", raw)
+	}
+	text := formatDecodeReport(report)
+	if !strings.Contains(text, "frames decoded") || !strings.Contains(text, "3/3") {
+		t.Fatalf("formatted reference report missing decoded frame counts:\n%s", text)
 	}
 }
 

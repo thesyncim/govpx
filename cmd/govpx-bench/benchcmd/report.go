@@ -215,16 +215,29 @@ func formatDecodeReport(r decodeBenchReport) string {
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	if r.Reference != nil {
 		ref := r.Reference
+		cmp := r.Comparison
+		relativeSpeed := r.RelativeSpeedVsReference
+		decodeFPSRatio := 0.0
+		decodedDelta := r.DecodedFrames - ref.DecodedFrames
+		if cmp != nil {
+			if cmp.DecodeFPSRatio > 0 {
+				relativeSpeed = cmp.DecodeFPSRatio
+			}
+			decodeFPSRatio = cmp.DecodeFPSRatio
+			decodedDelta = cmp.DecodedFramesDelta
+		}
 		fmt.Fprintln(tw, "metric\tgovpx\tlibvpx\trelative")
 		fmt.Fprintln(tw, "------\t-----\t------\t--------")
 		fmt.Fprintf(tw, "ns/frame\t%s\t%s\t%s\n",
-			formatDuration(r.NSPerFrame), formatDuration(ref.NSPerFrame), formatRatio(r.RelativeSpeedVsReference, "x faster"))
-		fmt.Fprintf(tw, "decode fps\t%s\t%s\t-\n",
-			formatFloat(r.DecodeFPS, 1), formatFloat(ref.DecodeFPS, 1))
+			formatDuration(r.NSPerFrame), formatDuration(ref.NSPerFrame), formatRatio(relativeSpeed, "x faster"))
+		fmt.Fprintf(tw, "decode fps\t%s\t%s\t%s\n",
+			formatFloat(r.DecodeFPS, 1), formatFloat(ref.DecodeFPS, 1), formatRatio(decodeFPSRatio, "x"))
 		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\t%s\t-\n",
 			formatFloat(r.MacroblocksPerSec/1e6, 2), formatFloat(ref.MacroblocksPerSec/1e6, 2))
 		fmt.Fprintf(tw, "coded MB/s\t%s\t%s\t-\n",
 			formatFloat(r.CodedMegabytesPerSec, 2), formatFloat(ref.CodedMegabytesPerSec, 2))
+		fmt.Fprintf(tw, "frames decoded\t%d/%d\t%d/%d\t%+d\n",
+			r.DecodedFrames, r.Frames, ref.DecodedFrames, r.Frames, decodedDelta)
 	} else {
 		fmt.Fprintln(tw, "metric\tgovpx")
 		fmt.Fprintln(tw, "------\t-----")
@@ -318,6 +331,25 @@ func buildComparisonReport(report benchReport, reference referenceReport) *compa
 	}
 	if reference.KeyframeBytes > 0 {
 		cmp.KeyframeBytesRatio = float64(report.KeyframeBytes) / float64(reference.KeyframeBytes)
+	}
+	return cmp
+}
+
+// buildDecodeComparisonReport derives govpx-vs-libvpx decode ratios and
+// decoded-frame deltas from a completed govpx decodeBenchReport plus its
+// libvpx decodeReferenceReport.
+func buildDecodeComparisonReport(report decodeBenchReport, reference decodeReferenceReport) *decodeComparisonReport {
+	cmp := &decodeComparisonReport{
+		DecodedFramesDelta: report.DecodedFrames - reference.DecodedFrames,
+	}
+	if reference.NSPerFrame > 0 {
+		cmp.NSPerFrameRatio = float64(report.NSPerFrame) / float64(reference.NSPerFrame)
+	}
+	if reference.DecodeFPS > 0 {
+		cmp.DecodeFPSRatio = report.DecodeFPS / reference.DecodeFPS
+	}
+	if reference.CodedMegabytesPerSec > 0 {
+		cmp.CodedMegabytesPerSecRatio = report.CodedMegabytesPerSec / reference.CodedMegabytesPerSec
 	}
 	return cmp
 }
