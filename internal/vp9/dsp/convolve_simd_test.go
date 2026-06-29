@@ -212,6 +212,46 @@ func TestVP9Convolve8SimdEdgeCases(t *testing.T) {
 	}
 }
 
+func TestVP9ConvolveAvgSimdAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0xa66a, 0x5eed))
+	cases := []convCase{
+		{"4x4_scalar_fallback", 4, 4},
+		{"8x8", 8, 8},
+		{"16x16", 16, 16},
+		{"32x16", 32, 16},
+		{"64x64", 64, 64},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srcStride := c.w + 37
+			dstStride := c.w + 29
+			margin := 4
+			src := make([]byte, srcStride*(c.h+margin*2))
+			gotDst := make([]byte, dstStride*c.h)
+			wantDst := make([]byte, dstStride*c.h)
+			for i := range src {
+				src[i] = uint8(r.UintN(256))
+			}
+			for i := range gotDst {
+				v := uint8(r.UintN(256))
+				gotDst[i] = v
+				wantDst[i] = v
+			}
+			srcOffset := margin*srcStride + 11
+			VpxConvolveAvg(src, srcStride, gotDst, dstStride, c.w, c.h, srcOffset)
+			vpxConvolveAvgScalar(src, srcStride, wantDst, dstStride, c.w, c.h, srcOffset)
+			for y := 0; y < c.h; y++ {
+				for x := 0; x < dstStride; x++ {
+					if gotDst[y*dstStride+x] != wantDst[y*dstStride+x] {
+						t.Fatalf("(%dx%d) at (%d,%d): got %d want %d",
+							c.w, c.h, x, y, gotDst[y*dstStride+x], wantDst[y*dstStride+x])
+					}
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkVP9Convolve8Horiz16x16(b *testing.B) {
 	stride := 64
 	margin := 16
@@ -289,5 +329,67 @@ func BenchmarkVP9Convolve8Full16x16(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		VpxConvolve8(src, stride, dst, stride, f, 5, tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset)
+	}
+}
+
+func BenchmarkVP9ConvolveAvg8x8(b *testing.B) {
+	stride := 64
+	src := make([]byte, stride*8)
+	dst := make([]byte, stride*8)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+		dst[i] = uint8((i * 3) & 0xff)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolveAvg(src, stride, dst, stride, 8, 8, 0)
+	}
+}
+
+func BenchmarkVP9ConvolveAvg16x16(b *testing.B) {
+	stride := 64
+	src := make([]byte, stride*16)
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+		dst[i] = uint8((i * 3) & 0xff)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolveAvg(src, stride, dst, stride, 16, 16, 0)
+	}
+}
+
+func BenchmarkVP9ConvolveAvg64x64(b *testing.B) {
+	stride := 128
+	src := make([]byte, stride*64)
+	dst := make([]byte, stride*64)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+		dst[i] = uint8((i * 3) & 0xff)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolveAvg(src, stride, dst, stride, 64, 64, 0)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgFull16x16(b *testing.B) {
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8Avg(src, stride, dst, stride, f, 5, tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset)
 	}
 }

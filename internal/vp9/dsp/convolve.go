@@ -242,6 +242,10 @@ func VpxConvolveCopy(src []byte, srcStride int, dst []byte, dstStride, w, h, src
 // VpxConvolveAvg mirrors vpx_convolve_avg_c — blend src and dst by
 // rounded mean.
 func VpxConvolveAvg(src []byte, srcStride int, dst []byte, dstStride, w, h, srcOffset int) {
+	vpxConvolveAvg(src, srcStride, dst, dstStride, w, h, srcOffset)
+}
+
+func vpxConvolveAvgScalar(src []byte, srcStride int, dst []byte, dstStride, w, h, srcOffset int) {
 	for y := range h {
 		for x := range w {
 			c := int(src[srcOffset+y*srcStride+x]) + int(dst[y*dstStride+x])

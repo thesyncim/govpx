@@ -201,3 +201,59 @@ v_colLoop:
 
 v_done:
 	RET
+
+// convolveAvgSSE2 ABI ($0-48): rounded average of src into dst.
+//
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   dst+16(FP)       *byte
+//   dstStride+24(FP) int
+//   w+32(FP)         int (multiple of 8)
+//   h+40(FP)         int
+//
+// PAVGB computes (a + b + 1) >> 1 lane-wise for unsigned bytes,
+// matching vpx_convolve_avg_c.
+TEXT ·convolveAvgSSE2(SB), NOSPLIT, $0-48
+	MOVQ	src+0(FP), AX
+	MOVQ	srcStride+8(FP), BX
+	MOVQ	dst+16(FP), CX
+	MOVQ	dstStride+24(FP), DX
+	MOVQ	w+32(FP), R8
+	MOVQ	h+40(FP), R9
+
+	TESTQ	R9, R9
+	JZ	cavg_done
+
+cavg_rowLoop:
+	MOVQ	AX, R10
+	MOVQ	CX, R11
+	MOVQ	R8, R12
+
+cavg_col16Loop:
+	CMPQ	R12, $16
+	JLT	cavg_tail8
+	MOVOU	(R10), X0
+	MOVOU	(R11), X1
+	PAVGB	X1, X0
+	MOVOU	X0, (R11)
+	ADDQ	$16, R10
+	ADDQ	$16, R11
+	SUBQ	$16, R12
+	JMP	cavg_col16Loop
+
+cavg_tail8:
+	CMPQ	R12, $8
+	JNE	cavg_rowDone
+	MOVQ	(R10), X0
+	MOVQ	(R11), X1
+	PAVGB	X1, X0
+	MOVQ	X0, (R11)
+
+cavg_rowDone:
+	ADDQ	BX, AX
+	ADDQ	DX, CX
+	SUBQ	$1, R9
+	JNZ	cavg_rowLoop
+
+cavg_done:
+	RET
