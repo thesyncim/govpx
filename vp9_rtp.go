@@ -108,3 +108,43 @@ func AssembleVP9RTPFrameInto(dst []byte, payloads []RTPPayloadFragment) (int, er
 func AssembleVP9RTPFrame(payloads []RTPPayloadFragment) ([]byte, error) {
 	return vp9rtp.AssembleFrame(payloads)
 }
+
+// DecodeRTP assembles one ordered set of VP9 RTP payload bodies and decodes
+// the resulting raw VP9 frame. The decoded image is returned by NextFrame when
+// the frame is visible.
+func (d *VP9Decoder) DecodeRTP(payloads []RTPPayloadFragment) error {
+	return d.DecodeRTPWithPTS(payloads, 0)
+}
+
+// DecodeRTPWithPTS is DecodeRTP with an explicit presentation timestamp.
+func (d *VP9Decoder) DecodeRTPWithPTS(payloads []RTPPayloadFragment, pts uint64) error {
+	if d == nil || d.closed {
+		return ErrClosed
+	}
+	frame, err := AssembleVP9RTPFrame(payloads)
+	if err != nil {
+		return err
+	}
+	return d.DecodeWithPTS(frame, pts)
+}
+
+// DecodeRTPInto assembles one ordered set of VP9 RTP payload bodies into
+// frameBuf and decodes the resulting raw VP9 frame. On ErrBufferTooSmall, the
+// returned integer is the required frameBuf capacity. The decoded image is
+// returned by NextFrame when the frame is visible.
+func (d *VP9Decoder) DecodeRTPInto(frameBuf []byte, payloads []RTPPayloadFragment) (int, error) {
+	return d.DecodeRTPIntoWithPTS(frameBuf, payloads, 0)
+}
+
+// DecodeRTPIntoWithPTS is DecodeRTPInto with an explicit presentation
+// timestamp.
+func (d *VP9Decoder) DecodeRTPIntoWithPTS(frameBuf []byte, payloads []RTPPayloadFragment, pts uint64) (int, error) {
+	if d == nil || d.closed {
+		return 0, ErrClosed
+	}
+	n, err := AssembleVP9RTPFrameInto(frameBuf, payloads)
+	if err != nil {
+		return n, err
+	}
+	return n, d.DecodeWithPTS(frameBuf[:n], pts)
+}
