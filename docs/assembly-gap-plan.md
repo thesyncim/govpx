@@ -54,13 +54,18 @@ fair microbenchmark before any wider suite run.
 
 ## Landing order
 
-1. VP9 realtime fused block scoring, once the component kernels have direct
-   parity tests and microbenchmarks.
-2. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
-   subpel variance, but only with an amd64 runner for execution.
-3. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on amd64.
-4. VP9 FDCT16x16 arm64, then 32x32/32x32RD as a generated/raw-WORD port.
-5. VP9 decoder full inverse-transform butterflies and convolve-average paths.
+1. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on an amd64
+   runner.
+2. VP9 arm64 FDCT32x32/FDCT32x32RD. FDCT16x16 is already routed on arm64;
+   future generated/raw-WORD ports must keep Go stack maps and register
+   preservation explicit.
+3. VP9 decoder/recon loopfilter SIMD for arm64 and amd64, then full
+   inverse-transform butterflies and convolve-average paths.
+4. VP9 realtime fused block scoring, once the remaining component kernels have
+   direct parity tests and microbenchmarks.
+5. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
+   subpel variance, but only with an amd64 runner for execution and after fresh
+   profiling confirms they are still the top VP8 performance gaps.
 6. VP8 smaller fused subpel variance, direct vertical loopfilter, and fused
    decoder dequant+IDCT+add after fresh profiles show they still dominate.
 
