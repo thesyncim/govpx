@@ -99,6 +99,51 @@ func TestForwardDCT4x4SSE2MatchesScalarStrided(t *testing.T) {
 	}
 }
 
+func TestForwardDCT8x8SSE2MatchesScalarConstant(t *testing.T) {
+	for _, v := range []int16{0, 1, -1, 7, -7, 200, -200, 255, -255} {
+		var input [64]int16
+		for i := range input {
+			input[i] = v
+		}
+		var simd, scalar [64]int16
+		forwardDCT8x8SSE2OrScalar(input[:], 8, simd[:])
+		forwardDCT8x8Scalar(input[:], 8, scalar[:])
+		if simd != scalar {
+			t.Fatalf("constant %d DCT8x8 mismatch\nsimd  %v\nscalar %v", v, simd, scalar)
+		}
+	}
+}
+
+func TestForwardDCT8x8SSE2MatchesScalarRandom(t *testing.T) {
+	rng := rand.New(rand.NewSource(17))
+	for trial := range 100 {
+		var input [64]int16
+		for i := range input {
+			input[i] = int16(rng.Intn(511) - 255)
+		}
+		var simd, scalar [64]int16
+		forwardDCT8x8SSE2OrScalar(input[:], 8, simd[:])
+		forwardDCT8x8Scalar(input[:], 8, scalar[:])
+		if simd != scalar {
+			t.Fatalf("trial %d DCT8x8 mismatch\nin    %v\nsimd  %v\nscalar %v", trial, input, simd, scalar)
+		}
+	}
+}
+
+func TestForwardDCT8x8SSE2MatchesScalarStrided(t *testing.T) {
+	rng := rand.New(rand.NewSource(18))
+	var input [8 * 16]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var simd, scalar [64]int16
+	forwardDCT8x8SSE2OrScalar(input[:], 16, simd[:])
+	forwardDCT8x8Scalar(input[:], 16, scalar[:])
+	if simd != scalar {
+		t.Fatalf("strided DCT8x8 mismatch\nsimd  %v\nscalar %v", simd, scalar)
+	}
+}
+
 func TestQuantizeFPACSSE2MatchesScalar(t *testing.T) {
 	roundAC, quantAC, deqAC := 5, 3855, 17
 	for _, count := range []int{8, 16, 64} {
@@ -205,6 +250,48 @@ func BenchmarkForwardDCT4x4Dispatch(b *testing.B) {
 	}
 }
 
+func BenchmarkForwardDCT8x8Scalar(b *testing.B) {
+	rng := rand.New(rand.NewSource(19))
+	var input [64]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [64]int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		forwardDCT8x8Scalar(input[:], 8, output[:])
+	}
+}
+
+func BenchmarkForwardDCT8x8SSE2(b *testing.B) {
+	rng := rand.New(rand.NewSource(19))
+	var input [64]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [64]int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		forwardDCT8x8SSE2Test(input[:], 8, output[:])
+	}
+}
+
+func BenchmarkForwardDCT8x8Dispatch(b *testing.B) {
+	rng := rand.New(rand.NewSource(19))
+	var input [64]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [64]int16
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ForwardDCT8x8Into(input[:], 8, output[:])
+	}
+}
+
 func BenchmarkForwardWHT4x4Scalar(b *testing.B) {
 	rng := rand.New(rand.NewSource(3))
 	var input [16]int16
@@ -254,6 +341,18 @@ func forwardDCT4x4SSE2OrScalar(input []int16, stride int, output []int16) {
 		return
 	}
 	forwardDCT4x4SSE2Test(input, stride, output)
+}
+
+func forwardDCT8x8SSE2Test(input []int16, stride int, output []int16) {
+	forwardDCT8x8SSE2(unsafe.SliceData(input), stride, unsafe.SliceData(output))
+}
+
+func forwardDCT8x8SSE2OrScalar(input []int16, stride int, output []int16) {
+	if stride < 8 || len(input) < 7*stride+8 || len(output) < 64 {
+		forwardDCT8x8Scalar(input, stride, output)
+		return
+	}
+	forwardDCT8x8SSE2Test(input, stride, output)
 }
 
 func forwardWHT4x4SSE2Test(input []int16, stride int, output []int16) {

@@ -6,7 +6,7 @@ import "unsafe"
 
 // AMD64 SSE2 dispatchers for the VP9 forward transforms and quantizer.
 // Pending DCT entry points route to the canonical scalar reference while
-// FDCT4x4, WHT, and QuantizeFPLibvpx use SSE2 kernels matching the
+// FDCT4x4/8x8, WHT, and QuantizeFPLibvpx use SSE2 kernels matching the
 // corresponding libvpx hot-path shape.
 
 func forwardDCT4x4Dispatch(input []int16, stride int, output []int16) {
@@ -18,7 +18,11 @@ func forwardDCT4x4Dispatch(input []int16, stride int, output []int16) {
 }
 
 func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
-	forwardDCT8x8Scalar(input, stride, output)
+	if stride < 8 || len(input) < 7*stride+8 || len(output) < 64 {
+		forwardDCT8x8Scalar(input, stride, output)
+		return
+	}
+	forwardDCT8x8SSE2(unsafe.SliceData(input), stride, unsafe.SliceData(output))
 }
 
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
@@ -136,6 +140,9 @@ func forwardWHT4x4SSE2(input *int16, stride int, output *int16)
 
 //go:noescape
 func forwardDCT4x4SSE2(input *int16, stride int, output *int16)
+
+//go:noescape
+func forwardDCT8x8SSE2(input *int16, stride int, output *int16)
 
 //go:noescape
 func quantizeFPACSSE2(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
