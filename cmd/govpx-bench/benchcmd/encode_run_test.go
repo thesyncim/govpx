@@ -78,6 +78,14 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 		report.Comparison.OutputBytesRatio <= 0 {
 		t.Fatalf("comparison ratios = %+v, want all > 0", *report.Comparison)
 	}
+	if report.Comparison.EncodedFramesDelta != report.EncodedFrames-report.Reference.EncodedFrames ||
+		report.Comparison.DroppedFramesDelta != report.DroppedFrames-report.Reference.DroppedFrames {
+		t.Fatalf("comparison frame deltas = encoded:%d dropped:%d, want %d/%d",
+			report.Comparison.EncodedFramesDelta,
+			report.Comparison.DroppedFramesDelta,
+			report.EncodedFrames-report.Reference.EncodedFrames,
+			report.DroppedFrames-report.Reference.DroppedFrames)
+	}
 	wantBitrateDelta := report.OutputBitrateKbps - report.Reference.OutputBitrateKbps
 	if report.Comparison.BitrateDeltaKbps != wantBitrateDelta {
 		t.Fatalf("comparison bitrate delta = %f, want %f", report.Comparison.BitrateDeltaKbps, wantBitrateDelta)

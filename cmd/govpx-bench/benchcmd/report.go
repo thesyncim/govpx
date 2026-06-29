@@ -298,6 +298,8 @@ func buildComparisonReport(report benchReport, reference referenceReport) *compa
 		BitrateErrorPctDelta: report.BitrateErrorPct - reference.BitrateErrorPct,
 		PSNRDeltaDB:          report.PSNR - reference.PSNR,
 		SSIMDelta:            report.SSIM - reference.SSIM,
+		EncodedFramesDelta:   report.EncodedFrames - reference.EncodedFrames,
+		DroppedFramesDelta:   report.DroppedFrames - reference.DroppedFrames,
 	}
 	if reference.OutputBitrateKbps > 0 {
 		cmp.BitrateRatioVsReference = report.OutputBitrateKbps / reference.OutputBitrateKbps

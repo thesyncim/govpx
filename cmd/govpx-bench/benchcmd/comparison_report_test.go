@@ -2,6 +2,7 @@ package benchcmd
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	govpx "github.com/thesyncim/govpx"
 	"os"
 	"path/filepath"
@@ -19,6 +20,8 @@ func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
 		OutputBytes:       12000,
 		AvgInterBytes:     400,
 		KeyframeBytes:     2000,
+		EncodedFrames:     28,
+		DroppedFrames:     2,
 	}
 	reference := referenceReport{
 		OutputBitrateKbps: 1500,
@@ -30,6 +33,8 @@ func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
 		OutputBytes:       15000,
 		AvgInterBytes:     500,
 		KeyframeBytes:     2500,
+		EncodedFrames:     30,
+		DroppedFrames:     0,
 	}
 
 	cmp := buildComparisonReport(report, reference)
@@ -66,6 +71,24 @@ func TestBuildComparisonReportComputesGovpxOverLibvpxRatios(t *testing.T) {
 	}
 	if cmp.KeyframeBytesRatio != float64(report.KeyframeBytes)/float64(reference.KeyframeBytes) {
 		t.Fatalf("KeyframeBytesRatio = %f, want %f", cmp.KeyframeBytesRatio, float64(report.KeyframeBytes)/float64(reference.KeyframeBytes))
+	}
+	if cmp.EncodedFramesDelta != report.EncodedFrames-reference.EncodedFrames {
+		t.Fatalf("EncodedFramesDelta = %d, want %d", cmp.EncodedFramesDelta, report.EncodedFrames-reference.EncodedFrames)
+	}
+	if cmp.DroppedFramesDelta != report.DroppedFrames-reference.DroppedFrames {
+		t.Fatalf("DroppedFramesDelta = %d, want %d", cmp.DroppedFramesDelta, report.DroppedFrames-reference.DroppedFrames)
+	}
+	var asJSON map[string]any
+	raw, err := json.Marshal(cmp)
+	if err != nil {
+		t.Fatalf("Marshal comparison returned error: %v", err)
+	}
+	if err := json.Unmarshal(raw, &asJSON); err != nil {
+		t.Fatalf("Unmarshal comparison returned error: %v", err)
+	}
+	if asJSON["encoded_frames_delta"] != float64(cmp.EncodedFramesDelta) ||
+		asJSON["dropped_frames_delta"] != float64(cmp.DroppedFramesDelta) {
+		t.Fatalf("comparison JSON missing frame deltas: %s", raw)
 	}
 }
 

@@ -99,6 +99,8 @@ type comparisonReport struct {
 	OutputBytesRatio        float64 `json:"output_bytes_ratio_vs_reference"`
 	AvgInterBytesRatio      float64 `json:"avg_interframe_bytes_ratio_vs_reference"`
 	KeyframeBytesRatio      float64 `json:"keyframe_bytes_ratio_vs_reference"`
+	EncodedFramesDelta      int     `json:"encoded_frames_delta"`
+	DroppedFramesDelta      int     `json:"dropped_frames_delta"`
 }
 
 type referenceReport struct {
