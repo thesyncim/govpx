@@ -251,6 +251,71 @@ vert8_loop:
 
 	RET
 
+// sixTapPredict8x16SSE2 ABI ($0-56):
+//   dst+0(FP)        *byte
+//   dstStride+8(FP)  int
+//   src+16(FP)       *byte
+//   srcStride+24(FP) int
+//   hFilter+32(FP)   *[6]int16
+//   vFilter+40(FP)   *[6]int16
+//   tmp+48(FP)       *[21*8]byte
+//
+// Same 8-column kernel as sixTapPredict8x8SSE2, with H+5=21
+// horizontal rows and H=16 vertical rows. This replaces the older
+// two-8x8 composition and avoids recomputing the five overlapping
+// horizontal rows.
+
+TEXT ·sixTapPredict8x16SSE2(SB), NOSPLIT, $0-56
+	MOVQ	dst+0(FP), DI
+	MOVQ	dstStride+8(FP), BX
+	MOVQ	src+16(FP), SI
+	MOVQ	srcStride+24(FP), CX
+	MOVQ	hFilter+32(FP), R11
+	MOVQ	vFilter+40(FP), R12
+	MOVQ	tmp+48(FP), R10
+
+	LOAD_FILTER_PAIR(R11, 0, X0)
+	LOAD_FILTER_PAIR(R11, 4, X1)
+	LOAD_FILTER_PAIR(R11, 8, X2)
+	LOAD_FILTER_PAIR(R12, 0, X3)
+	LOAD_FILTER_PAIR(R12, 4, X4)
+	LOAD_FILTER_PAIR(R12, 8, X5)
+
+	MOVOU	sixtapBias64<>(SB), X6
+	PXOR	X7, X7
+
+	// === Horizontal pass: 21 rows ===
+	MOVQ	$21, R13
+	MOVQ	R10, R14
+horiz8x16_loop:
+	HPAIR_8_BUILD(SI, 0, X0, X7, X13, X14)
+	HPAIR_8_ADD(SI, 2, X1, X7, X13, X14)
+	HPAIR_8_ADD(SI, 4, X2, X7, X13, X14)
+
+	SIXTAP_PACK_8(X13, X14, X6, X15, R14)
+
+	ADDQ	CX, SI
+	ADDQ	$8, R14
+	DECQ	R13
+	JNZ	horiz8x16_loop
+
+	// === Vertical pass: 16 rows ===
+	MOVQ	$16, R13
+	MOVQ	R10, R14
+vert8x16_loop:
+	VPAIR_8_BUILD(R14, 0, X3, X7, X13, X14)
+	VPAIR_8_ADD(R14, 16, X4, X7, X13, X14)
+	VPAIR_8_ADD(R14, 32, X5, X7, X13, X14)
+
+	SIXTAP_PACK_8(X13, X14, X6, X15, DI)
+
+	ADDQ	BX, DI
+	ADDQ	$8, R14
+	DECQ	R13
+	JNZ	vert8x16_loop
+
+	RET
+
 // sixTapPredict16x16SSE2 ABI ($0-56):
 //   dst+0(FP)        *byte
 //   dstStride+8(FP)  int
