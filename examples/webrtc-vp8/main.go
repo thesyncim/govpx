@@ -601,6 +601,12 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if !offerSupportsDemoVP8(offer.SDP, cfg) {
+		width, height := demoTopRenditionDimensions(cfg)
+		http.Error(w, fmt.Sprintf("VP8 receiver support for %dx%d@%dfps is required",
+			width, height, cfg.FPS), http.StatusNotAcceptable)
+		return
+	}
 
 	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
@@ -697,6 +703,16 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pc.LocalDescription())
+}
+
+func offerSupportsDemoVP8(sdp string, cfg demoConfig) bool {
+	width, height := demoTopRenditionDimensions(cfg)
+	return govpx.VP8SDPOffersReceiveFrame(sdp, width, height, cfg.FPS)
+}
+
+func demoTopRenditionDimensions(cfg demoConfig) (int, int) {
+	top := cfg.Renditions[renditionCount-1]
+	return top.Width, top.Height
 }
 
 func drainRTCP(sender *webrtc.RTPSender, rs *renditionState) {

@@ -18,6 +18,149 @@ import (
 	"github.com/thesyncim/govpx"
 )
 
+func TestHandleOfferRejectsOfferWithoutVP8Receive(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: 30, Renditions: defaultRenditions}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if !offerSupportsDemoVP8(offer.SDP, cfg) {
+		t.Fatalf("test offer unexpectedly missing VP8 receive support:\n%s", offer.SDP)
+	}
+	offer.SDP = strings.ReplaceAll(offer.SDP, "VP8/90000", "AV1/90000")
+	if offerSupportsDemoVP8(offer.SDP, cfg) {
+		t.Fatalf("mutated test offer still negotiates VP8:\n%s", offer.SDP)
+	}
+
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotAcceptable {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusNotAcceptable)
+	}
+}
+
+func TestHandleOfferRejectsOfferWithVP8ReceiverCapsBelowTopRendition(t *testing.T) {
+	cfg := demoConfig{Addr: ":0", FPS: 30, Renditions: defaultRenditions}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/offer", func(w http.ResponseWriter, r *http.Request) {
+		handleOffer(w, r, cfg)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatalf("NewPeerConnection: %v", err)
+	}
+	defer pc.Close()
+	if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
+	); err != nil {
+		t.Fatalf("AddTransceiverFromKind: %v", err)
+	}
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if !offerSupportsDemoVP8(offer.SDP, cfg) {
+		t.Fatalf("test offer unexpectedly missing VP8 receive support:\n%s", offer.SDP)
+	}
+	maxFS, err := govpx.VP8SDPFrameSizeMacroblocks(
+		cfg.Renditions[renditionCount-1].Width,
+		cfg.Renditions[renditionCount-1].Height,
+	)
+	if err != nil {
+		t.Fatalf("VP8SDPFrameSizeMacroblocks: %v", err)
+	}
+	offer.SDP = withVP8FmtpForTest(t, offer.SDP,
+		fmt.Sprintf("max-fr=%d; max-fs=%d", cfg.FPS, maxFS-1))
+	if offerSupportsDemoVP8(offer.SDP, cfg) {
+		t.Fatalf("mutated test offer still allows demo top rendition:\n%s", offer.SDP)
+	}
+
+	body, err := json.Marshal(offer)
+	if err != nil {
+		t.Fatalf("marshal offer: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/offer", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /offer: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotAcceptable {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("offer status=%d body=%s, want %d",
+			resp.StatusCode, raw, http.StatusNotAcceptable)
+	}
+}
+
+func withVP8FmtpForTest(t *testing.T, sdp string, fmtp string) string {
+	t.Helper()
+
+	lines := strings.Split(sdp, "\n")
+	payloadType := ""
+	rtpmapIndex := -1
+	for i, line := range lines {
+		clean := strings.TrimSpace(line)
+		if !strings.HasPrefix(strings.ToLower(clean), "a=rtpmap:") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(clean, "a=rtpmap:"))
+		if len(fields) >= 2 && strings.EqualFold(fields[1], "VP8/90000") {
+			payloadType = fields[0]
+			rtpmapIndex = i
+			break
+		}
+	}
+	if payloadType == "" {
+		t.Fatalf("offer SDP missing VP8 rtpmap:\n%s", sdp)
+	}
+
+	out := make([]string, 0, len(lines)+1)
+	inserted := false
+	for i, line := range lines {
+		clean := strings.TrimSpace(line)
+		if strings.HasPrefix(clean, "a=fmtp:"+payloadType+" ") {
+			continue
+		}
+		out = append(out, line)
+		if i == rtpmapIndex {
+			out = append(out, "a=fmtp:"+payloadType+" "+fmtp)
+			inserted = true
+		}
+	}
+	if !inserted {
+		t.Fatalf("failed to insert VP8 fmtp in offer:\n%s", sdp)
+	}
+	return strings.Join(out, "\n")
+}
+
 // TestSuperDemoEndToEnd boots the demo HTTP server, opens a pion peer
 // that mirrors the browser handshake, then exercises every public
 // runtime control through the DataChannel and asserts the telemetry

@@ -143,10 +143,12 @@ packetizers and stateless WebRTC result packetizers are still available for
 single access units when a caller deliberately owns PictureID sequencing,
 dependency recovery, layer-count transitions, and descriptor policy.
 
-Use `VP9SDPOffersProfile0Receive` and `VP9SDPAnswersProfile0Send` around
-offer/answer handling before sending VP9 Profile 0 over WebRTC. The lower-level
-`VP9SDPFmtpContainsProfile0` helper is available for callers that already own
-their SDP section parsing.
+Use `VP8SDPOffersReceiveFrame` or `VP9SDPOffersProfile0ReceiveFrame` around
+offer handling before sending WebRTC video to peers that advertise `max-fr` or
+`max-fs` receiver caps. Use `VP8SDPAnswersSend` and
+`VP9SDPAnswersProfile0Send` around answer handling before sending over WebRTC.
+The lower-level `VP9SDPFmtpContainsProfile0` helper is available for callers
+that already own their SDP section parsing.
 
 VP9 superframe helpers are Profile 0 only:
 
