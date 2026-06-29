@@ -211,20 +211,16 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	return ok && !predictor.unsupportedReconstruct
 }
 
-func (e *VP9Encoder) clearVP9PlaneBlockCoeffs(plane int, bsize common.BlockSize) {
-	if plane < 0 || plane >= vp9dec.MaxMbPlane || bsize >= common.BlockSizes {
+func clearVP9TxCoeffOutputs(out, qOut []int16, maxEob int) {
+	if maxEob <= 0 {
 		return
 	}
-	n := min(int(common.Num4x4BlocksWideLookup[bsize])*
-		int(common.Num4x4BlocksHighLookup[bsize])*vp9EncoderTxCoeffSlots, len(e.blockCoeffs[plane]))
-	// clear() compiles to runtime.memclrNoHeapPointers; the prior
-	// `for i := range buf { buf[i] = 0 }` form does too on Go 1.21+ but
-	// only when the slice header is hoisted. libvpx uses memset; match
-	// that semantic via the builtin so the compiler emits a tight
-	// memset.s loop instead of bounds-checked stores.
-	// libvpx: vp9/encoder/vp9_quantize.c:36-37 — memset(qcoeff_ptr, 0, ...).
-	clear(e.blockCoeffs[plane][:n])
-	clear(e.blockQCoeffs[plane][:n])
+	if len(out) >= maxEob {
+		clear(out[:maxEob])
+	}
+	if qOut != nil && len(qOut) >= maxEob {
+		clear(qOut[:maxEob])
+	}
 }
 
 func (e *VP9Encoder) prepareVP9KeyframeTxResidue(key *vp9KeyframeEncodeState,
@@ -251,9 +247,11 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
 	qindex int, out, qOut []int16,
 ) bool {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
 	if !ok {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
 		return false
 	}
 	txType := common.DctDct
@@ -262,10 +260,15 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
 		return false
 	}
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, txType, dequant, qindex,
-		out, qOut, key.lossless, false, false)
+	if !e.quantizeVP9TxResidualWithQ(dst, stride, txSize, txType, dequant, qindex,
+		out, qOut, key.lossless, false, false) {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
+		return false
+	}
+	return true
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
@@ -283,13 +286,16 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
 ) bool {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
 		return false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
 		return false
 	}
 	// KNOWN DIVERGENCE (cpu0-3 inter coefficient parity): this hardcodes the FP
@@ -306,8 +312,12 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	// cpu0 deep mode-pins were calibrated on the FP recon — so the gate must land
 	// together with re-deriving those pins toward byte parity. See
 	// docs/vp9_cpu0_quant_fp_gap.md.
-	return e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, true, false)
+	if !e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
+		out, qOut, inter.lossless, true, false) {
+		clearVP9TxCoeffOutputs(out, qOut, maxEob)
+		return false
+	}
+	return true
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,

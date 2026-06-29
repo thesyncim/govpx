@@ -62,7 +62,6 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 		if planeBsize >= common.BlockSizes {
 			continue
 		}
-		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
 		txSize := mi.TxSize
 		if plane > 0 {
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
@@ -233,7 +232,6 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if planeBsize >= common.BlockSizes {
 			continue
 		}
-		e.clearVP9PlaneBlockCoeffs(plane, planeBsize)
 		txSize := mi.TxSize
 		if plane > 0 {
 			txSize = vp9dec.GetUvTxSize(bsize, mi.TxSize, pd)
