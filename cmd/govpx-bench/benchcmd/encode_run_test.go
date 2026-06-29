@@ -321,6 +321,41 @@ func TestRunEncodeSuiteRequiresLibvpxReference(t *testing.T) {
 	if _, err := runEncodeSuite(benchConfig{}, "quick", 1); err == nil {
 		t.Fatalf("runEncodeSuite without vpxenc returned nil error")
 	}
+	if _, err := runEncodeSuite(benchConfig{Codec: codecVP9}, "quick", 1); err == nil || !strings.Contains(err.Error(), "vpxenc-vp9") {
+		t.Fatalf("runEncodeSuite VP9 without vpxenc-vp9 err = %v, want vpxenc-vp9 reference error", err)
+	}
+}
+
+func TestRunEncodeSuiteCaseUsesVP9ReferencePath(t *testing.T) {
+	tc := encodeSuiteCase{
+		name:        "tiny-vp9",
+		width:       32,
+		height:      32,
+		frames:      2,
+		fps:         30,
+		bitrateKbps: 600,
+		mode:        "realtime",
+	}
+	report, err := runEncodeSuiteCase(benchConfig{
+		Codec:           codecVP9,
+		SkipQuality:     true,
+		LibvpxVpxencVP9: fakeVpxencPath(t),
+	}, tc, 1)
+	if err != nil {
+		t.Fatalf("runEncodeSuiteCase VP9 returned error: %v", err)
+	}
+	if report.Codec != codecVP9 {
+		t.Fatalf("Codec = %q, want %q", report.Codec, codecVP9)
+	}
+	if report.Reference == nil || report.Reference.Encoder != "libvpx-vp9" {
+		t.Fatalf("Reference = %+v, want libvpx-vp9", report.Reference)
+	}
+	if report.Comparison == nil || report.Comparison.NSPerFrameRatio <= 0 {
+		t.Fatalf("Comparison = %+v, want populated timing ratio", report.Comparison)
+	}
+	if !report.QualitySkipped || !report.Reference.QualitySkipped {
+		t.Fatalf("QualitySkipped govpx/reference = %v/%v, want both true", report.QualitySkipped, report.Reference.QualitySkipped)
+	}
 }
 
 func TestFormatSuiteReportTable(t *testing.T) {

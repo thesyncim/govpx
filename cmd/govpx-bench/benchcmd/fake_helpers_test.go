@@ -19,9 +19,13 @@ func TestFakeVpxencHelper(t *testing.T) {
 	height := 16
 	fps := 30
 	bitrate := 1200
+	vp9 := false
 	for _, arg := range os.Args {
 		if after, ok := strings.CutPrefix(arg, "--output="); ok {
 			output = after
+		}
+		if arg == "--codec=vp9" {
+			vp9 = true
 		}
 		if after, ok := strings.CutPrefix(arg, "--limit="); ok {
 			n, err := strconv.Atoi(after)
@@ -46,7 +50,13 @@ func TestFakeVpxencHelper(t *testing.T) {
 		fmt.Fprintln(os.Stderr, "fake vpxenc missing --output")
 		os.Exit(2)
 	}
-	if err := writeFakeIVF(output, width, height, fps, bitrate, limit); err != nil {
+	var err error
+	if vp9 {
+		err = writeFakeVP9IVF(output, width, height, fps, bitrate, limit)
+	} else {
+		err = writeFakeIVF(output, width, height, fps, bitrate, limit)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "fake vpxenc write output: %v\n", err)
 		os.Exit(1)
 	}

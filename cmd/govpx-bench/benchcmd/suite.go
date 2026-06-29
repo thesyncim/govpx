@@ -21,7 +21,11 @@ func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, 
 	if base.Decode {
 		return suiteReport{}, errors.New("-suite is only supported for encode benchmarks")
 	}
-	if base.LibvpxVpxenc == "" {
+	libvpxPath := suiteLibvpxReferencePath(base)
+	if libvpxPath == "" {
+		if benchCodec(base) == codecVP9 {
+			return suiteReport{}, errors.New("-suite requires a libvpx vpxenc-vp9 reference; keep -auto-libvpx enabled or pass -libvpx-vpxenc-vp9")
+		}
 		return suiteReport{}, errors.New("-suite requires a libvpx vpxenc reference; keep -auto-libvpx enabled or pass -libvpx-vpxenc")
 	}
 	if runs <= 0 {
@@ -35,7 +39,7 @@ func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, 
 		Name:         suiteName,
 		Runs:         runs,
 		Selector:     "median govpx ns/frame",
-		LibvpxVpxenc: base.LibvpxVpxenc,
+		LibvpxVpxenc: libvpxPath,
 		PhaseTiming:  base.PhaseTiming,
 		QualitySkip:  base.SkipQuality,
 		Cases:        make([]suiteCaseReport, 0, len(cases)),
@@ -63,6 +67,13 @@ func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, 
 	return report, nil
 }
 
+func suiteLibvpxReferencePath(cfg benchConfig) string {
+	if benchCodec(cfg) == codecVP9 {
+		return cfg.LibvpxVpxencVP9
+	}
+	return cfg.LibvpxVpxenc
+}
+
 func runEncodeSuiteCase(base benchConfig, tc encodeSuiteCase, runs int) (benchReport, error) {
 	results := make([]benchReport, 0, runs)
 	for range runs {
@@ -74,7 +85,15 @@ func runEncodeSuiteCase(base benchConfig, tc encodeSuiteCase, runs int) (benchRe
 		cfg.BitrateKbps = tc.bitrateKbps
 		cfg.Mode = tc.mode
 		cfg.Decode = false
-		result, err := runBenchmark(cfg)
+		var (
+			result benchReport
+			err    error
+		)
+		if benchCodec(cfg) == codecVP9 {
+			result, err = runVP9Benchmark(cfg)
+		} else {
+			result, err = runBenchmark(cfg)
+		}
 		if err != nil {
 			return benchReport{}, err
 		}
