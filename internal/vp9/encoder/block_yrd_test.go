@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -625,5 +626,27 @@ func TestVP9BlockErrorFPCallSiteShift(t *testing.T) {
 		t.Errorf("post-shift = %d, want %d "+
 			"(libvpx vp9_pickmode.c:845 — >>2 is caller-side)",
 			got>>2, wantShifted)
+	}
+}
+
+func BenchmarkVP9BlockErrorFP(b *testing.B) {
+	for _, n := range []int{16, 64, 256, 1024} {
+		b.Run(fmt.Sprintf("n%d", n), func(b *testing.B) {
+			coeff := make([]int16, n)
+			dqcoeff := make([]int16, n)
+			for i := range coeff {
+				coeff[i] = int16((i*37)%8192 - 4096)
+				dqcoeff[i] = int16((i*19)%8192 - 4096)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			var got uint64
+			for i := 0; i < b.N; i++ {
+				got += BlockErrorFP(coeff, dqcoeff)
+			}
+			if got == 0 {
+				b.Fatal("unexpected zero benchmark accumulator")
+			}
+		})
 	}
 }
