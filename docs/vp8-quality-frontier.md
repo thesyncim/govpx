@@ -8,12 +8,12 @@ follow-up gates.
 
 ## Current read
 
-- Encoder quality is the active risk area; decoder quality is lower risk with
-  the current oracle corpus.
-- The largest live quality residual is
+- Decoder quality is lower risk with the current oracle corpus, and the
+  focused encoder quality gate is currently healthy.
+- The previous largest quality residual was
   `TestVP8BDRate720pTwoPassVBR` in `vp8_bdrate_quality_panning_test.go`.
-  It passes, but the latest scout run measured about +6.1% govpx-vs-libvpx
-  BD-rate against a +7.0% ceiling.
+  It now measures near libvpx on the focused gate: the 2026-06-29 run measured
+  govpx-vs-libvpx BD-rate at -0.189% against the +7.0% ceiling.
 - Production/WebRTC-shaped VP8 encode checks are healthy on the focused
   gates:
   `TestVP8OracleEncoderStreamByteParityProductionShortRuns`,
@@ -26,11 +26,11 @@ follow-up gates.
 
 ## Next code lane
 
-Start with the two-pass VBR residual rather than decoder quality. The first
-safe implementation slice should add or tighten frame/rung-level diagnostics
-around pass-2 rate control and RD picker decisions for the 720p panning VBR
-fixture. Do not adjust BD-rate ceilings or baselines unless the trace proves the
-new value is closer to pinned libvpx behavior.
+Keep the two-pass VBR fixture as a drift guard rather than the next default
+implementation target. If it regresses again, add or tighten frame/rung-level
+diagnostics around pass-2 rate control and RD picker decisions for the 720p
+panning VBR fixture. Until then, prioritize the measured VP8 realtime
+performance gaps and keep decoder work tied to oracle-corpus failures.
 
 ## Focused gates
 
@@ -41,4 +41,3 @@ GOVPX_WITH_ORACLE=1 GOVPX_TEST_DATA_PATH=internal/coracle/build/test-data/vp8 GO
 GOVPX_BD_RATE_GATES=1 GOVPX_VPXENC_VP8_BIN=internal/coracle/build/vpxenc GOVPX_BD_RATE_LIBVPX_VP8_REQUIRED=1 go test . -run '^TestVP8BDRate720pTwoPassVBR$' -count=1 -timeout 300s -v
 GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace . -run '^TestVP8OracleBenchWorkloadProductionGaps$' -count=1 -timeout 300s -v
 ```
-
