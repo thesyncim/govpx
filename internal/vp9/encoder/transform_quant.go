@@ -1609,11 +1609,6 @@ func QuantizeFPLibvpx(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]i
 func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
 	scan, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {
-	// libvpx: vp9/encoder/vp9_quantize.c:36-37
-	//   memset(qcoeff_ptr, 0, n_coeffs * sizeof(*qcoeff_ptr));
-	//   memset(dqcoeff_ptr, 0, n_coeffs * sizeof(*dqcoeff_ptr));
-	clear(qcoeff[:nCoeffs])
-	clear(dqcoeff[:nCoeffs])
 	// libvpx: vp9/encoder/vp9_quantize.c:32-34 (round_ptr/quant_ptr/scan)
 	roundDC, roundAC := int(roundFP[0]), int(roundFP[1])
 	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
@@ -1642,6 +1637,9 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 				if tmp != 0 {
 					eob = int(iscan[0])
 				}
+			} else {
+				qcoeff[0] = 0
+				dqcoeff[0] = 0
 			}
 		}
 		for rc := 1; rc < nCoeffs; rc++ {
@@ -1652,6 +1650,8 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 			}
 			sum := absCoeff + roundAC
 			if sum < deqAC {
+				qcoeff[rc] = 0
+				dqcoeff[rc] = 0
 				continue
 			}
 			tmp := clampInt16(sum)
@@ -1668,6 +1668,11 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 		}
 		return eob
 	}
+	// libvpx: vp9/encoder/vp9_quantize.c:36-37
+	//   memset(qcoeff_ptr, 0, n_coeffs * sizeof(*qcoeff_ptr));
+	//   memset(dqcoeff_ptr, 0, n_coeffs * sizeof(*dqcoeff_ptr));
+	clear(qcoeff[:nCoeffs])
+	clear(dqcoeff[:nCoeffs])
 	// libvpx: vp9/encoder/vp9_quantize.c:31 (int i, eob = -1)
 	// The scalar C path sets eob to the current scan index. SIMD kernels
 	// instead max-reduce iscan[rc], which is equivalent for valid VP9 scan
