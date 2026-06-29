@@ -22,12 +22,16 @@ func Idct4x4_16Add(input []int16, dest []uint8, stride int) {
 	idctAddResidualRows4SSE2(unsafe.SliceData(dest), stride, &residual[0], 4)
 }
 
-// Idct4x4_1Add is the DC-only fast path. Defers to scalar; the SSE2
-// agent intentionally leaves this with the scalar reference because
-// the broadcast-add kernel is dominated by the 16-byte store cost
-// rather than the math.
+// Idct4x4_1Add is the DC-only fast path. SSE2 mirrors
+// vpx_idct4x4_1_add_sse2: scalar DC prelude, then a broadcast
+// saturating-add across the destination block.
 func Idct4x4_1Add(input []int16, dest []uint8, stride int) {
-	idct4x4_1AddScalar(input, dest, stride)
+	a1 := idctDcA1(int64(input[0]), 4)
+	if !dcWindowOK(dest, stride, 4, 4) {
+		idct4x4_1AddScalar(input, dest, stride)
+		return
+	}
+	idct4x4DcAddSSE2(unsafe.SliceData(dest), stride, int16(a1))
 }
 
 // Idct8x8_64Add applies the full 8x8 inverse DCT.
@@ -54,7 +58,12 @@ func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
 
 // Idct8x8_1Add is the DC-only fast path.
 func Idct8x8_1Add(input []int16, dest []uint8, stride int) {
-	idct8x8_1AddScalar(input, dest, stride)
+	a1 := idctDcA1(int64(input[0]), 5)
+	if !dcWindowOK(dest, stride, 8, 8) {
+		idct8x8_1AddScalar(input, dest, stride)
+		return
+	}
+	idct8x8DcAddSSE2(unsafe.SliceData(dest), stride, int16(a1))
 }
 
 // Idct16x16_256Add applies the full 16x16 inverse DCT.
@@ -92,7 +101,12 @@ func Idct16x16_10Add(input []int16, dest []uint8, stride int) {
 
 // Idct16x16_1Add is the DC-only fast path.
 func Idct16x16_1Add(input []int16, dest []uint8, stride int) {
-	idct16x16_1AddScalar(input, dest, stride)
+	a1 := idctDcA1(int64(input[0]), 6)
+	if !dcWindowOK(dest, stride, 16, 16) {
+		idct16x16_1AddScalar(input, dest, stride)
+		return
+	}
+	idct16x16DcAddSSE2(unsafe.SliceData(dest), stride, int16(a1))
 }
 
 // Idct32x32_1024Add is the dense 32x32 inverse DCT.
@@ -130,7 +144,12 @@ func Idct32x32_34Add(input []int16, dest []uint8, stride int) {
 
 // Idct32x32_1Add is the DC-only fast path.
 func Idct32x32_1Add(input []int16, dest []uint8, stride int) {
-	idct32x32_1AddScalar(input, dest, stride)
+	a1 := idctDcA1(int64(input[0]), 6)
+	if !dcWindowOK(dest, stride, 32, 32) {
+		idct32x32_1AddScalar(input, dest, stride)
+		return
+	}
+	idct32x32DcAddSSE2(unsafe.SliceData(dest), stride, int16(a1))
 }
 
 // Iwht4x4_16Add applies the lossless inverse 4x4 Walsh-Hadamard.
@@ -201,7 +220,28 @@ func dcWindowOK(dest []uint8, stride, w, h int) bool {
 	return limit > 0 && limit <= len(dest)
 }
 
-// SSE2 column-add kernels — see idct_amd64.s.
+// idctDcA1 mirrors the scalar prelude shared by every Idct*_1Add
+// variant: two cospi_16_64 multiplies through dctConstRoundShift,
+// narrowed to int16 on each store, then ROUND_POWER_OF_TWO(., shift).
+func idctDcA1(dc int64, shift uint) int32 {
+	out := int16(dctConstRoundShift(dc * cospi16_64))
+	out = int16(dctConstRoundShift(int64(out) * cospi16_64))
+	return roundPowerOfTwo(int32(out), shift)
+}
+
+// SSE2 add kernels — see idct_amd64.s.
+
+//go:noescape
+func idct4x4DcAddSSE2(dest *byte, stride int, a1 int16)
+
+//go:noescape
+func idct8x8DcAddSSE2(dest *byte, stride int, a1 int16)
+
+//go:noescape
+func idct16x16DcAddSSE2(dest *byte, stride int, a1 int16)
+
+//go:noescape
+func idct32x32DcAddSSE2(dest *byte, stride int, a1 int16)
 
 //go:noescape
 func idctAddResidualRows4SSE2(dest *byte, stride int, residual *int16, nRows int)

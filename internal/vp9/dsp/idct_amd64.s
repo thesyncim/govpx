@@ -1,12 +1,17 @@
 //go:build amd64 && !purego
 
-// VP9 AMD64 SSE2 inverse-transform column-add kernels. Each kernel
-// consumes a row-major buffer of int16 residuals produced by the
-// scalar 1-D butterflies (idct4/idct8/idct16/idct32/iadst*), applies
-// the per-block normalization shift (ROUND_POWER_OF_TWO by 4 / 5 / 6
-// depending on block size), and folds the result into a uint8 dest
-// buffer with clip_pixel_add via PACKUSWB's signed-to-unsigned
-// saturation.
+// VP9 AMD64 SSE2 inverse-transform add kernels. The DC-only kernels
+// mirror libvpx v1.16.0 vpx_dsp/x86/inv_txfm_sse2.c
+// vpx_idct{4,8,16,32}x{4,8,16,32}_1_add_sse2: the Go caller computes
+// the source-shaped scalar DC prelude, then these kernels widen dest
+// bytes, add the signed int16 broadcast, and clamp with PACKUSWB.
+//
+// The residual-row kernels consume a row-major buffer of int16
+// residuals produced by the scalar 1-D butterflies
+// (idct4/idct8/idct16/idct32/iadst*), apply the per-block
+// normalization shift (ROUND_POWER_OF_TWO by 4 / 5 / 6 depending on
+// block size), and fold the result into a uint8 dest buffer with
+// clip_pixel_add via PACKUSWB's signed-to-unsigned saturation.
 //
 // Per row:
 //   PADDW   half_const, residual   // rounding bias before shift
@@ -19,6 +24,159 @@
 // dct_const_round_shift_sse2 + recon_and_store helpers).
 
 #include "textflag.h"
+
+// idct4x4DcAddSSE2 applies a broadcast signed int16 add across a 4x4
+// destination block, clamping each pixel to [0,255].
+//
+// ABI ($0-18):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   a1+16(FP)     int16
+TEXT ·idct4x4DcAddSSE2(SB), NOSPLIT, $0-18
+	MOVQ	dest+0(FP), AX
+	MOVQ	stride+8(FP), BX
+	MOVWQSX	a1+16(FP), CX
+
+	MOVD	CX, X0
+	PSHUFLW	$0, X0, X0
+	PSHUFD	$0, X0, X0
+	PXOR	X7, X7
+
+	// Rows 0 + 1.
+	MOVL	(AX), X1
+	PUNPCKLBW X7, X1
+	LEAQ	(AX)(BX*1), R8
+	MOVL	(R8), X3
+	PUNPCKLBW X7, X3
+	PUNPCKLQDQ X3, X1
+	PADDW	X0, X1
+	PACKUSWB X7, X1
+	MOVL	X1, (AX)
+	PSRLO	$4, X1
+	MOVL	X1, (R8)
+
+	// Rows 2 + 3.
+	LEAQ	(AX)(BX*2), R9
+	MOVL	(R9), X1
+	PUNPCKLBW X7, X1
+	LEAQ	(R9)(BX*1), R10
+	MOVL	(R10), X3
+	PUNPCKLBW X7, X3
+	PUNPCKLQDQ X3, X1
+	PADDW	X0, X1
+	PACKUSWB X7, X1
+	MOVL	X1, (R9)
+	PSRLO	$4, X1
+	MOVL	X1, (R10)
+	RET
+
+// idct8x8DcAddSSE2 applies a broadcast signed int16 add across an 8x8
+// destination block.
+//
+// ABI ($0-18):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   a1+16(FP)     int16
+TEXT ·idct8x8DcAddSSE2(SB), NOSPLIT, $0-18
+	MOVQ	dest+0(FP), AX
+	MOVQ	stride+8(FP), BX
+	MOVWQSX	a1+16(FP), CX
+
+	MOVD	CX, X6
+	PSHUFLW	$0, X6, X6
+	PSHUFD	$0, X6, X6
+	PXOR	X7, X7
+
+	MOVQ	$8, R8
+
+dc8_loop:
+	MOVQ	(AX), X1
+	PUNPCKLBW X7, X1
+	PADDW	X6, X1
+	PACKUSWB X1, X1
+	MOVQ	X1, (AX)
+
+	ADDQ	BX, AX
+	SUBQ	$1, R8
+	JNZ	dc8_loop
+	RET
+
+// idct16x16DcAddSSE2 applies a broadcast signed int16 add across a
+// 16x16 destination block.
+//
+// ABI ($0-18):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   a1+16(FP)     int16
+TEXT ·idct16x16DcAddSSE2(SB), NOSPLIT, $0-18
+	MOVQ	dest+0(FP), AX
+	MOVQ	stride+8(FP), BX
+	MOVWQSX	a1+16(FP), CX
+
+	MOVD	CX, X6
+	PSHUFLW	$0, X6, X6
+	PSHUFD	$0, X6, X6
+	PXOR	X7, X7
+
+	MOVQ	$16, R8
+
+dc16_loop:
+	MOVOU	(AX), X1
+	MOVOU	X1, X2
+	PUNPCKLBW X7, X1
+	PUNPCKHBW X7, X2
+	PADDW	X6, X1
+	PADDW	X6, X2
+	PACKUSWB X2, X1
+	MOVOU	X1, (AX)
+
+	ADDQ	BX, AX
+	SUBQ	$1, R8
+	JNZ	dc16_loop
+	RET
+
+// idct32x32DcAddSSE2 applies a broadcast signed int16 add across a
+// 32x32 destination block.
+//
+// ABI ($0-18):
+//   dest+0(FP)    *byte
+//   stride+8(FP)  int
+//   a1+16(FP)     int16
+TEXT ·idct32x32DcAddSSE2(SB), NOSPLIT, $0-18
+	MOVQ	dest+0(FP), AX
+	MOVQ	stride+8(FP), BX
+	MOVWQSX	a1+16(FP), CX
+
+	MOVD	CX, X6
+	PSHUFLW	$0, X6, X6
+	PSHUFD	$0, X6, X6
+	PXOR	X7, X7
+
+	MOVQ	$32, R8
+
+dc32_loop:
+	MOVOU	(AX), X1
+	MOVOU	X1, X2
+	PUNPCKLBW X7, X1
+	PUNPCKHBW X7, X2
+	PADDW	X6, X1
+	PADDW	X6, X2
+	PACKUSWB X2, X1
+	MOVOU	X1, (AX)
+
+	MOVOU	16(AX), X3
+	MOVOU	X3, X4
+	PUNPCKLBW X7, X3
+	PUNPCKHBW X7, X4
+	PADDW	X6, X3
+	PADDW	X6, X4
+	PACKUSWB X4, X3
+	MOVOU	X3, 16(AX)
+
+	ADDQ	BX, AX
+	SUBQ	$1, R8
+	JNZ	dc32_loop
+	RET
 
 // idctAddResidualRows4SSE2 adds 4 int16 residuals per row to a 4-byte
 // dest row, with rounded shift right by 4. nRows rows are processed.
