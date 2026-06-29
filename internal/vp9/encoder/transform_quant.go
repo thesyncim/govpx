@@ -1618,11 +1618,60 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 	roundDC, roundAC := int(roundFP[0]), int(roundFP[1])
 	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
 	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+	if len(iscan) >= nCoeffs {
+		// Match libvpx's SIMD shape: quantize raster-order coefficients and
+		// max-reduce iscan for EOB. Valid VP9 scan orders make this equivalent
+		// to the C path's scan-order loop.
+		eob := 0
+		if nCoeffs > 0 {
+			c := int(coeff[0])
+			absCoeff := c
+			if absCoeff < 0 {
+				absCoeff = -absCoeff
+			}
+			sum := absCoeff + roundDC
+			if sum >= deqDC {
+				tmp := clampInt16(sum)
+				tmp = (tmp * quantDC) >> 16
+				q := tmp
+				if c < 0 {
+					q = -q
+				}
+				qcoeff[0] = int16(q)
+				dqcoeff[0] = int16(q * deqDC)
+				if tmp != 0 {
+					eob = int(iscan[0])
+				}
+			}
+		}
+		for rc := 1; rc < nCoeffs; rc++ {
+			c := int(coeff[rc])
+			absCoeff := c
+			if absCoeff < 0 {
+				absCoeff = -absCoeff
+			}
+			sum := absCoeff + roundAC
+			if sum < deqAC {
+				continue
+			}
+			tmp := clampInt16(sum)
+			tmp = (tmp * quantAC) >> 16
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(q * deqAC)
+			if tmp != 0 && int(iscan[rc]) > eob {
+				eob = int(iscan[rc])
+			}
+		}
+		return eob
+	}
 	// libvpx: vp9/encoder/vp9_quantize.c:31 (int i, eob = -1)
 	// The scalar C path sets eob to the current scan index. SIMD kernels
 	// instead max-reduce iscan[rc], which is equivalent for valid VP9 scan
 	// orders because iscan[scan[i]] == i + 1.
-	_ = iscan
 	eob := -1
 	for i := range nCoeffs {
 		// libvpx: vp9/encoder/vp9_quantize.c:42-45
