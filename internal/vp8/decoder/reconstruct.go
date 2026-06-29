@@ -400,7 +400,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
-	for col := range cols {
+	for col := 0; col < cols; col++ {
 		index := row*cols + col
 		mode := &modes[index]
 		if mode.SegmentID >= common.MaxMBSegments {
@@ -432,6 +432,14 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 		default:
 			return ErrUnsupportedInterReconstructionMode
 		}
+		if ref != img && mode.Mode == common.ZeroMV && mode.MBSkipCoeff && !mode.Is4x4 && mode.MV.IsZero() {
+			if run := zeroMVSkippedRunLength(modes[row*cols:], col, cols, mode.RefFrame); run > 1 {
+				if copyZeroMVInterMacroblockRunFast(refState, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, row, col, run) {
+					col += run - 1
+					continue
+				}
+			}
+		}
 		if mode.Mode == common.SplitMV {
 			if !ReconstructSplitMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
 				return ErrUnsupportedInterReconstructionMode
@@ -444,6 +452,23 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 	}
 	extendIntraRightEdgeForRow(img, row)
 	return nil
+}
+
+func zeroMVSkippedRunLength(rowModes []MacroblockMode, start int, cols int, ref common.MVReferenceFrame) int {
+	run := 0
+	for col := start; col < cols; col++ {
+		mode := &rowModes[col]
+		if mode.SegmentID >= common.MaxMBSegments ||
+			mode.RefFrame != ref ||
+			mode.Mode != common.ZeroMV ||
+			mode.Is4x4 ||
+			!mode.MBSkipCoeff ||
+			!mode.MV.IsZero() {
+			break
+		}
+		run++
+	}
+	return run
 }
 
 func ReconstructWholeMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, ref *common.Image, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {

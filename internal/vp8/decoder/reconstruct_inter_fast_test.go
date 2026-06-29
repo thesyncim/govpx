@@ -92,3 +92,88 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 		})
 	}
 }
+
+func TestReconstructInterFrameGridZeroMVRunFastMatchesSlow(t *testing.T) {
+	const width, height = 128, 32
+	const cols = width / 16
+	const rows = height / 16
+
+	last := testImage(width, height)
+	golden := testImage(width, height)
+	alt := testImage(width, height)
+	addImageDelta(&golden, 37)
+	addImageDelta(&alt, 83)
+
+	modes := make([]MacroblockMode, rows*cols)
+	tokens := make([]MacroblockTokens, rows*cols)
+	for i := range modes {
+		modes[i] = MacroblockMode{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true}
+	}
+
+	modes[3].RefFrame = common.GoldenFrame
+	modes[4].RefFrame = common.GoldenFrame
+	modes[5].RefFrame = common.AltRefFrame
+	modes[6].MBSkipCoeff = false
+	tokens[6].EOB[0] = 1
+	tokens[6].QCoeff[0][0] = 8
+	modes[8].RefFrame = common.GoldenFrame
+	modes[9].RefFrame = common.AltRefFrame
+	modes[10].RefFrame = common.GoldenFrame
+	modes[11].RefFrame = common.GoldenFrame
+	modes[12].RefFrame = common.AltRefFrame
+	modes[13].RefFrame = common.AltRefFrame
+	modes[14].RefFrame = common.LastFrame
+	modes[15].RefFrame = common.LastFrame
+
+	dequants := testMacroblockDequants()
+	imgFast := blankImage(width, height)
+	var scratchFast IntraReconstructionScratch
+	if err := ReconstructInterFrameGridWithConfig(&imgFast, &last, &golden, &alt, rows, cols, modes, tokens, &dequants, &scratchFast, InterPredictionConfig{}); err != nil {
+		t.Fatalf("fast grid: %v", err)
+	}
+
+	imgSlow := blankImage(width, height)
+	var scratchSlow IntraReconstructionScratch
+	for row := range rows {
+		yRow := row * 16 * imgSlow.YStride
+		uRow := row * 8 * imgSlow.UStride
+		vRow := row * 8 * imgSlow.VStride
+		for col := range cols {
+			index := row*cols + col
+			mode := &modes[index]
+			yOff := yRow + col*16
+			uOff := uRow + col*8
+			vOff := vRow + col*8
+			ref := &last
+			switch mode.RefFrame {
+			case common.GoldenFrame:
+				ref = &golden
+			case common.AltRefFrame:
+				ref = &alt
+			}
+			if !ReconstructWholeMVInterMacroblock(mode, &tokens[index], &dequants[mode.SegmentID], ref,
+				imgSlow.Y[yOff:], imgSlow.YStride,
+				imgSlow.U[uOff:], imgSlow.UStride,
+				imgSlow.V[vOff:], imgSlow.VStride,
+				&scratchSlow.Residual, row, col, InterPredictionConfig{}) {
+				t.Fatalf("slow per-MB at (%d,%d) failed", row, col)
+			}
+		}
+	}
+
+	assertPlaneEqual(t, "Y", imgFast.Y, imgSlow.Y)
+	assertPlaneEqual(t, "U", imgFast.U, imgSlow.U)
+	assertPlaneEqual(t, "V", imgFast.V, imgSlow.V)
+}
+
+func addImageDelta(img *common.Image, delta byte) {
+	for i := range img.Y {
+		img.Y[i] += delta
+	}
+	for i := range img.U {
+		img.U[i] += delta
+	}
+	for i := range img.V {
+		img.V[i] += delta
+	}
+}

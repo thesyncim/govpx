@@ -322,6 +322,35 @@ func copyZeroMVInterMacroblockFast(state *frameInterRefState, y []byte, yStride 
 	return true
 }
 
+func copyZeroMVInterMacroblockRunFast(state *frameInterRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, mbCount int) bool {
+	if mbCount <= 0 || mbCount > state.mbCols || mbCol < 0 || mbCol > state.mbCols-mbCount || uint(mbRow) >= uint(state.mbRows) {
+		return false
+	}
+	yWidth := mbCount * 16
+	uvWidth := mbCount * 8
+	yOff := state.yOrigin + mbRow*16*state.yStride + mbCol*16
+	uOff := state.uOrigin + mbRow*8*state.uStride + mbCol*8
+	vOff := state.vOrigin + mbRow*8*state.vStride + mbCol*8
+	if !planeHasOffsetBlock(state.yPlane, yOff, state.yStride, yWidth, 16) ||
+		!planeHasOffsetBlock(state.uPlane, uOff, state.uStride, uvWidth, 8) ||
+		!planeHasOffsetBlock(state.vPlane, vOff, state.vStride, uvWidth, 8) ||
+		!planeHasOffsetBlock(y, 0, yStride, yWidth, 16) ||
+		!planeHasOffsetBlock(u, 0, uStride, uvWidth, 8) ||
+		!planeHasOffsetBlock(v, 0, vStride, uvWidth, 8) {
+		return false
+	}
+	copyPlaneRows(state.yPlane[yOff:], state.yStride, y, yStride, yWidth, 16)
+	copyPlaneRows(state.uPlane[uOff:], state.uStride, u, uStride, uvWidth, 8)
+	copyPlaneRows(state.vPlane[vOff:], state.vStride, v, vStride, uvWidth, 8)
+	return true
+}
+
+func copyPlaneRows(src []byte, srcStride int, dst []byte, dstStride int, width int, height int) {
+	for y := range height {
+		copy(dst[y*dstStride:y*dstStride+width], src[y*srcStride:y*srcStride+width])
+	}
+}
+
 func planeHasOffsetBlock(plane []byte, offset int, stride int, width int, height int) bool {
 	if offset < 0 || width < 0 || height < 0 || stride < width {
 		return false
