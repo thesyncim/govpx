@@ -119,3 +119,49 @@ func TestSixTapPredict8x8PairMatchesSeparateCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestSixTapPredictRectangularMaybeMatchesScalar(t *testing.T) {
+	const stride = 40
+	r := rand.New(rand.NewPCG(0x16, 0x8))
+	for _, tc := range []struct {
+		name string
+		w, h int
+		call func(src []byte, dst []byte) bool
+	}{
+		{
+			name: "16x8",
+			w:    16,
+			h:    8,
+			call: func(src []byte, dst []byte) bool {
+				return sixTapPredict16x8Maybe(src, stride, 3, 5, dst, 16)
+			},
+		},
+		{
+			name: "8x16",
+			w:    8,
+			h:    16,
+			call: func(src []byte, dst []byte) bool {
+				return sixTapPredict8x16Maybe(src, stride, 3, 5, dst, 8)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := make([]byte, stride*(tc.h+5))
+			for i := range src {
+				src[i] = byte(r.UintN(256))
+			}
+			got := make([]byte, tc.w*tc.h)
+			want := make([]byte, tc.w*tc.h)
+			if !tc.call(src, got) {
+				t.Fatalf("%s rectangular six-tap fast path was not selected", tc.name)
+			}
+			sixTapPredict(src, stride, 3, 5, want, tc.w, tc.w, tc.h)
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("%s mismatch at index %d: got %d want %d",
+						tc.name, i, got[i], want[i])
+				}
+			}
+		})
+	}
+}

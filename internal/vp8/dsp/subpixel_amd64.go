@@ -10,10 +10,11 @@ import (
 )
 
 // SSE2 port of the libvpx v1.16.0 VP8 six-tap subpel predictor.
-// Routes SixTapPredict16x16, SixTapPredict8x8, SixTapPredict8x4,
-// SixTapPredict4x4 through hand-written SSE2; the 16x8 and 8x16
-// sizes still fall through to the scalar reference in subpixel.go
-// on amd64 — NEON has them but SSE2 does not yet.
+// Routes SixTapPredict16x16, SixTapPredict16x8, SixTapPredict8x16,
+// SixTapPredict8x8, SixTapPredict8x4, SixTapPredict4x4 through
+// hand-written SSE2. The rectangular 16x8 and 8x16 forms compose
+// two 8x8 calls, matching the scalar block geometry without adding
+// a second copy of the filter math.
 //
 // The kernel decomposes the 6-tap horizontal/vertical inner product
 // into three PMADDWD pairs over byte sources widened to int16 lanes
@@ -66,12 +67,40 @@ func sixTapPredict16x16Maybe(src []byte, srcStride int, xoffset int, yoffset int
 
 func sixTapPredict16x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	return false
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
+		return false
+	}
+	if srcStride <= 0 || dstStride <= 0 {
+		return false
+	}
+	var tmp [13 * 8]byte
+	hFilter := &tables.SubPelFilters[xoffset]
+	vFilter := &tables.SubPelFilters[yoffset]
+	dstPtr := unsafe.SliceData(dst)
+	srcPtr := unsafe.SliceData(src)
+	sixTapPredict8x8SSE2(dstPtr, dstStride, srcPtr, srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x8SSE2((*byte)(unsafe.Add(unsafe.Pointer(dstPtr), 8)), dstStride,
+		(*byte)(unsafe.Add(unsafe.Pointer(srcPtr), 8)), srcStride, hFilter, vFilter, &tmp)
+	return true
 }
 
 func sixTapPredict8x16Maybe(src []byte, srcStride int, xoffset int, yoffset int,
 	dst []byte, dstStride int) bool {
-	return false
+	if uint(xoffset) >= 8 || uint(yoffset) >= 8 {
+		return false
+	}
+	if srcStride <= 0 || dstStride <= 0 {
+		return false
+	}
+	var tmp [13 * 8]byte
+	hFilter := &tables.SubPelFilters[xoffset]
+	vFilter := &tables.SubPelFilters[yoffset]
+	dstPtr := unsafe.SliceData(dst)
+	srcPtr := unsafe.SliceData(src)
+	sixTapPredict8x8SSE2(dstPtr, dstStride, srcPtr, srcStride, hFilter, vFilter, &tmp)
+	sixTapPredict8x8SSE2((*byte)(unsafe.Add(unsafe.Pointer(dstPtr), uintptr(8*dstStride))), dstStride,
+		(*byte)(unsafe.Add(unsafe.Pointer(srcPtr), uintptr(8*srcStride))), srcStride, hFilter, vFilter, &tmp)
+	return true
 }
 
 func sixTapPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int,
