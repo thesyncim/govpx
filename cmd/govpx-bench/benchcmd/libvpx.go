@@ -154,6 +154,7 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 		},
 		OutputBytes:          outputBytes,
 		EncodedFrames:        len(sizes),
+		DroppedFrames:        max(cfg.Frames-len(sizes), 0),
 		TimingSource:         timingSource,
 		WallNSPerFrame:       wallPerFrame,
 		WallEncodeFPS:        wallFPS,

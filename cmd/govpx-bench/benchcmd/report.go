@@ -34,6 +34,8 @@ func formatEncodeReport(r benchReport) string {
 			r.OutputBitrateKbps, ref.OutputBitrateKbps, formatRatio(cmp.BitrateRatioVsReference, "x"))
 		fmt.Fprintf(tw, "bitrate err %%\t%+.2f\t%+.2f\t%+.2f pp\n",
 			r.BitrateErrorPct, ref.BitrateErrorPct, cmp.BitrateErrorPctDelta)
+		fmt.Fprintf(tw, "frames encoded/dropped\t%d/%d\t%d/%d\t%+d dropped\n",
+			r.EncodedFrames, r.DroppedFrames, ref.EncodedFrames, ref.DroppedFrames, r.DroppedFrames-ref.DroppedFrames)
 		if r.QualitySkipped || ref.QualitySkipped {
 			fmt.Fprintln(tw, "quality\t(skipped)\t(skipped)\t-")
 		} else {
@@ -168,7 +170,7 @@ func formatSuiteReport(r suiteReport) string {
 			psnr,
 			ssim,
 			rep.DroppedFrames,
-			rep.Frames-ref.EncodedFrames)
+			ref.DroppedFrames)
 	}
 	tw.Flush()
 

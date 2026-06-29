@@ -119,6 +119,7 @@ type referenceReport struct {
 	LatencyNS            latencyReport `json:"latency_ns"`
 	OutputBytes          int           `json:"output_bytes"`
 	EncodedFrames        int           `json:"encoded_frames"`
+	DroppedFrames        int           `json:"dropped_frames"`
 	TimingSource         string        `json:"timing_source"`
 	WallNSPerFrame       int64         `json:"wall_ns_per_frame"`
 	WallEncodeFPS        float64       `json:"wall_encode_fps"`

@@ -57,8 +57,8 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	if report.Reference == nil {
 		t.Fatalf("reference = nil, want fake libvpx report")
 	}
-	if report.Reference.Encoder != "libvpx-vp8" || report.Reference.EncodedFrames != 3 || report.Reference.OutputBytes <= 0 {
-		t.Fatalf("reference = %+v, want libvpx-vp8 with 3 encoded frames and bytes", *report.Reference)
+	if report.Reference.Encoder != "libvpx-vp8" || report.Reference.EncodedFrames != 3 || report.Reference.DroppedFrames != 0 || report.Reference.OutputBytes <= 0 {
+		t.Fatalf("reference = %+v, want libvpx-vp8 with 3 encoded frames, 0 drops, and bytes", *report.Reference)
 	}
 	if report.Reference.KeyframeBytes <= 0 || report.Reference.AvgInterBytes <= 0 || report.Reference.MacroblocksPerSec <= 0 {
 		t.Fatalf("reference sizes/throughput = key:%d inter:%f mbps:%f, want positive values", report.Reference.KeyframeBytes, report.Reference.AvgInterBytes, report.Reference.MacroblocksPerSec)
@@ -112,6 +112,10 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 		if !hasFlag(want) {
 			t.Fatalf("parity flags missing %q\nhave: %v", want, report.Reference.ParityFlags)
 		}
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "frames encoded/dropped") || !strings.Contains(text, "3/0") {
+		t.Fatalf("formatted reference report missing encoded/drop counts:\n%s", text)
 	}
 }
 
@@ -380,6 +384,7 @@ func TestFormatSuiteReportTable(t *testing.T) {
 			PSNR:              28.6,
 			SSIM:              0.934,
 			EncodedFrames:     26,
+			DroppedFrames:     4,
 		},
 		Comparison: &comparisonReport{
 			NSPerFrameRatio:         2,
