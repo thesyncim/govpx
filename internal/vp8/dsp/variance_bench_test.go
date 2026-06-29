@@ -160,6 +160,41 @@ func BenchmarkSubpelVariance16x16VerticalOnlyPtrFast(b *testing.B) {
 	}
 }
 
+func BenchmarkSubpelVariance16x8HorizontalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 16*8, 5, 0, SubpelVariance16x8)
+}
+
+func BenchmarkSubpelVariance16x8VerticalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 16*8, 0, 5, SubpelVariance16x8)
+}
+
+func BenchmarkSubpelVariance8x8HorizontalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 8*8, 5, 0, SubpelVariance8x8)
+}
+
+func BenchmarkSubpelVariance8x8VerticalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 8*8, 0, 5, SubpelVariance8x8)
+}
+
+func BenchmarkSubpelVariance4x4HorizontalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 4*4, 5, 0, SubpelVariance4x4)
+}
+
+func BenchmarkSubpelVariance4x4VerticalOnly(b *testing.B) {
+	benchmarkSubpelVarianceWithOffsets(b, 4*4, 0, 5, SubpelVariance4x4)
+}
+
+func benchmarkSubpelVarianceWithOffsets(b *testing.B, bytes int64, xOffset int, yOffset int, fn func([]byte, int, int, int, []byte, int) (int, int)) {
+	src := makeSubpelVarianceSource()
+	ref := makeSubpelVarianceReference()
+	b.ReportAllocs()
+	b.SetBytes(bytes)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = fn(src, 40, xOffset, yOffset, ref, 40)
+	}
+}
+
 // bilinearSecondPassGeneric mirrors the original (pre-specialisation)
 // generic loop verbatim so the benchmark reports a like-for-like
 // comparison even after varFilterBlock2DBilinearSecondPass starts

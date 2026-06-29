@@ -197,6 +197,21 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 			return sse - (sum * sum >> 8), sse
 		}
 	}
+	if useDirectOneAxisSubpelVariance && (xOffset == 0 || yOffset == 0) && width != 8 {
+		// When one bilinear axis uses filter[0]={128,0}, libvpx's two-pass
+		// pipeline reduces exactly to a single byte-domain filter on the
+		// fractional axis. Keep the 16x16 fused kernels above and the width-8
+		// SIMD first/second-pass route below, but avoid the uint16 staging for
+		// the remaining split-block predictors.
+		var filtered [16 * 16]byte
+		if xOffset == 0 {
+			bilinearFilterSizedVertical(src, srcStride, filtered[:], width, height, tables.BilinearFilters[yOffset])
+		} else {
+			bilinearFilterSizedHorizontal(src, srcStride, filtered[:], width, height, tables.BilinearFilters[xOffset])
+		}
+		sum, sse := varianceBlock(filtered[:], width, ref, refStride, width, height)
+		return sse - sum*sum/(width*height), sse
+	}
 	if width == 16 && height == 16 {
 		if sum, sse, ok := subpelVariance16x16Bilinear(src, srcStride, xOffset, yOffset, ref, refStride); ok {
 			return sse - (sum * sum >> 8), sse
@@ -215,6 +230,45 @@ func subpelVariance(src []byte, srcStride int, xOffset int, yOffset int, ref []b
 	varFilterBlock2DBilinearSecondPass(&firstPass, filtered[:], width, width, height, width, tables.BilinearFilters[yOffset])
 	sum, sse := varianceBlock(filtered[:], width, ref, refStride, width, height)
 	return sse - sum*sum/(width*height), sse
+}
+
+func bilinearFilterSizedHorizontal(src []byte, srcStride int, dst []byte, width int, height int, filter [2]int16) {
+	if width == 16 {
+		bilinearFilter16x16Horizontal(src, srcStride, dst, height, filter)
+		return
+	}
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := range height {
+		srcRow := y * srcStride
+		dstRow := y * width
+		for x := range width {
+			v := int(src[srcRow+x])*f0 + int(src[srcRow+x+1])*f1
+			dst[dstRow+x] = byte((v + round) >> shift)
+		}
+	}
+}
+
+func bilinearFilterSizedVertical(src []byte, srcStride int, dst []byte, width int, height int, filter [2]int16) {
+	if width == 16 {
+		bilinearFilter16x16Vertical(src, srcStride, dst, height, filter)
+		return
+	}
+	f0 := int(filter[0])
+	f1 := int(filter[1])
+	const round = tables.FilterWeight / 2
+	const shift = tables.FilterShift
+	for y := range height {
+		srcRow := y * srcStride
+		nextRow := srcRow + srcStride
+		dstRow := y * width
+		for x := range width {
+			v := int(src[srcRow+x])*f0 + int(src[nextRow+x])*f1
+			dst[dstRow+x] = byte((v + round) >> shift)
+		}
+	}
 }
 
 func varFilterBlock2DBilinearFirstPass(src []byte, srcStride int, dst *[17 * 16]uint16, width int, height int, filter [2]int16) {
