@@ -139,6 +139,35 @@ func BenchmarkVP9QuantizeFP32x32(b *testing.B) {
 	}
 }
 
+func BenchmarkForwardDCT16x16(b *testing.B) {
+	rng := rand.New(rand.NewSource(10))
+	var input [16 * 16]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	for _, tc := range []struct {
+		name string
+		fn   func([]int16, int, *[256]int16)
+	}{
+		{
+			name: "scalar",
+			fn: func(input []int16, stride int, output *[256]int16) {
+				forwardDCT16x16Scalar(input, stride, output[:])
+			},
+		},
+		{name: "dispatch", fn: ForwardDCT16x16},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var output [16 * 16]int16
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tc.fn(input[:], 16, &output)
+			}
+		})
+	}
+}
+
 func TestForwardWHT4x4MatchesLibvpxSentinels(t *testing.T) {
 	var constant [16]int16
 	for i := range constant {
