@@ -152,6 +152,43 @@ func BenchmarkInterMBBuilderZeroMV(b *testing.B) {
 	b.ReportMetric(float64(rows*cols), "mb/op")
 }
 
+// BenchmarkInterMBBuilderAlternatingZeroMV720p keeps every skipped ZeroMV
+// macroblock as a single-MB run by alternating references across the row.
+func BenchmarkInterMBBuilderAlternatingZeroMV720p(b *testing.B) {
+	const width, height = 1280, 720
+	const cols = width / 16
+	const rows = height / 16
+	srcFB, dstFB := makeInterMBBenchScene(width, height)
+	dst := &dstFB.Img
+	src := &srcFB.Img
+
+	modes := make([]MacroblockMode, rows*cols)
+	tokens := make([]MacroblockTokens, rows*cols)
+	for r := range rows {
+		for c := range cols {
+			ref := common.LastFrame
+			if c&1 != 0 {
+				ref = common.GoldenFrame
+			}
+			modes[r*cols+c] = MacroblockMode{
+				Mode:        common.ZeroMV,
+				RefFrame:    ref,
+				MBSkipCoeff: true,
+			}
+		}
+	}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := ReconstructInterFrameGridWithConfig(dst, src, src, src, rows, cols, modes, tokens, &dequants, &scratch, InterPredictionConfig{}); err != nil {
+			b.Fatalf("ReconstructInterFrameGridWithConfig: %v", err)
+		}
+	}
+	b.ReportMetric(float64(rows*cols), "mb/op")
+}
+
 // BenchmarkInterMBBuilderFrame720p drives the full grid path
 // (ReconstructInterFrameGridWithConfig) for a 1280x720 frame of mixed
 // MBs typical of an inter-frame: ZeroMV majority + a band of NewMV subpel.

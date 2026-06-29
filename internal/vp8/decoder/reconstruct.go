@@ -433,11 +433,15 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 			return ErrUnsupportedInterReconstructionMode
 		}
 		if ref != img && mode.Mode == common.ZeroMV && mode.MBSkipCoeff && !mode.Is4x4 && mode.MV.IsZero() {
-			if run := zeroMVSkippedRunLength(modes[row*cols:], col, cols, mode.RefFrame); run > 1 {
+			run := zeroMVSkippedRunLength(modes[row*cols:], col, cols, mode.RefFrame)
+			if run > 1 {
 				if copyZeroMVInterMacroblockRunFast(refState, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, row, col, run) {
 					col += run - 1
 					continue
 				}
+			}
+			if run == 1 && copyZeroMVInterMacroblockFast(refState, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, row, col) {
+				continue
 			}
 		}
 		if mode.Mode == common.SplitMV {
