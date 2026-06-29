@@ -68,7 +68,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	}
 
 	// Find EOB position: one past the last non-zero coefficient.
-	eob := CoeffBlockEOB(a.Scan, maxEob, a.Coeffs, qcoeffs)
+	eob := coeffBlockEOBEncode(a.Scan, maxEob, a.Coeffs, qcoeffs)
 	if a.EOB != nil {
 		*a.EOB = eob
 	}

@@ -125,6 +125,29 @@ func CoeffBlockEOB(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
 	return 0
 }
 
+func coeffBlockEOBCompleteQCoeff(scan []int16, maxEob int, qcoeffs []int16) int {
+	if maxEob > len(scan) {
+		maxEob = len(scan)
+	}
+	for i := maxEob - 1; i >= 0; i-- {
+		raster := int(scan[i])
+		if raster >= 0 && raster < len(qcoeffs) && qcoeffs[raster] != 0 {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func coeffBlockEOBEncode(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
+	if maxEob > len(scan) {
+		maxEob = len(scan)
+	}
+	if qcoeffs != nil && len(qcoeffs) >= maxEob {
+		return coeffBlockEOBCompleteQCoeff(scan, maxEob, qcoeffs)
+	}
+	return CoeffBlockEOB(scan, maxEob, coeffs, qcoeffs)
+}
+
 // CoeffBlockHasCoeff reports whether scan[pos] points at a non-zero
 // coefficient, preferring qcoeffs when present.
 func CoeffBlockHasCoeff(scan []int16, pos int, coeffs, qcoeffs []int16) bool {
@@ -206,7 +229,7 @@ func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
 	if in.Fast {
 		return coeffBlockRateCostFastQ(in, scan, maxEob)
 	}
-	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
+	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
 	return coeffBlockRateCostSlowQ(in, scan, neighbors, maxEob, eob)
 }
 
@@ -271,7 +294,7 @@ func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput, scan, neighbors []int16
 func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
 	maxEob int,
 ) int {
-	eob := CoeffBlockEOB(scan, maxEob, in.Coeffs, in.QCoeffs)
+	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
 	if eob == 0 {
 		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
 			EobToken)

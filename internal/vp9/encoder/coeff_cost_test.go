@@ -139,6 +139,54 @@ func TestCoeffBlockEOBPrefersQCoeffScanOrder(t *testing.T) {
 	}
 }
 
+func TestCoeffBlockEOBFallsBackForPartialQCoeff(t *testing.T) {
+	scan := []int16{0, 1, 2, 3}
+	coeffs := []int16{0, 0, 0, 7}
+	qcoeffs := []int16{0, 0}
+	if got := CoeffBlockEOB(scan, len(scan), coeffs, qcoeffs); got != 4 {
+		t.Fatalf("CoeffBlockEOB partial qcoeff = %d, want coeff fallback eob 4", got)
+	}
+}
+
+func TestCoeffBlockEOBCompleteQCoeffMatchesGeneric(t *testing.T) {
+	scan := common.DefaultScanOrders[common.Tx16x16].Scan
+	qcoeffs := make([]int16, 256)
+	qcoeffs[scan[4]] = -2
+	qcoeffs[scan[37]] = 11
+
+	got := coeffBlockEOBCompleteQCoeff(scan, 256, qcoeffs)
+	want := CoeffBlockEOB(scan, 256, nil, qcoeffs)
+	if got != want {
+		t.Fatalf("coeffBlockEOBCompleteQCoeff = %d, want generic eob %d", got, want)
+	}
+}
+
+var coeffBlockEOBBenchSink int
+
+func BenchmarkCoeffBlockEOBCompleteQCoeff(b *testing.B) {
+	scan := common.DefaultScanOrders[common.Tx16x16].Scan
+	qcoeffs := make([]int16, 256)
+	qcoeffs[scan[37]] = 11
+	total := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		total += coeffBlockEOBCompleteQCoeff(scan, 256, qcoeffs)
+	}
+	coeffBlockEOBBenchSink = total
+}
+
+func BenchmarkCoeffBlockEOBGenericCoeff(b *testing.B) {
+	scan := common.DefaultScanOrders[common.Tx16x16].Scan
+	coeffs := make([]int16, 256)
+	coeffs[scan[37]] = 11
+	total := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		total += CoeffBlockEOB(scan, 256, coeffs, nil)
+	}
+	coeffBlockEOBBenchSink = total
+}
+
 func TestTxSizeRateCostRespectsMaxTxSize(t *testing.T) {
 	probs := []uint8{128, 64, 192}
 	got := TxSizeRateCost(probs, common.Tx16x16, common.Tx16x16)
