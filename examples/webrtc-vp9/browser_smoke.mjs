@@ -36,6 +36,7 @@ function parseOptions() {
     minVideoTimeRatio: numberFlag("--min-video-time-ratio", 0.7),
     maxRxRepairRequests: numberFlag("--max-rx-repair-requests", 0, { min: 0 }),
     maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 }),
+    maxRxLostDelta: numberFlag("--max-rx-lost-delta", 0, { min: 0 }),
     maxRxFreezesDelta: numberFlag("--max-rx-freezes-delta", 0, { min: 0 }),
     maxRxFreezeDurationDelta: numberFlag("--max-rx-freeze-duration-delta", 0, { min: 0 }),
     maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 }),
@@ -170,6 +171,7 @@ async function runSmoke(opts, runIndex) {
           minVideoTimeRatio: opts.minVideoTimeRatio,
           maxRxRepairRequests: opts.maxRxRepairRequests,
           maxRxDroppedDelta: opts.maxRxDroppedDelta,
+          maxRxLostDelta: opts.maxRxLostDelta,
           maxRxFreezesDelta: opts.maxRxFreezesDelta,
           maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta,
           maxRxNackDelta: opts.maxRxNackDelta,
@@ -246,6 +248,7 @@ async function runSmoke(opts, runIndex) {
       minVideoTimeRatio: opts.minVideoTimeRatio,
       maxRxRepairRequests: opts.maxRxRepairRequests,
       maxRxDroppedDelta: opts.maxRxDroppedDelta,
+      maxRxLostDelta: opts.maxRxLostDelta,
       maxRxFreezesDelta: opts.maxRxFreezesDelta,
       maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta,
       maxRxNackDelta: opts.maxRxNackDelta,
@@ -734,7 +737,7 @@ async function waitForLocalPartialWriteRecovery(cdp, sessionId, before, timeoutM
       decoded !== null &&
       decoded >= 1 &&
       (dropped === null || dropped <= opts.maxRxDroppedDelta) &&
-      (lost === null || lost === 0) &&
+      (lost === null || lost <= opts.maxRxLostDelta) &&
       (freezes === null || freezes <= opts.maxRxFreezesDelta) &&
       (freezeDuration === null || freezeDuration <= opts.maxRxFreezeDurationDelta) &&
       (nacks === null || nacks <= opts.maxRxNackDelta) &&
@@ -1428,7 +1431,7 @@ function assertRunSmoke(summary, opts) {
         client.decodedAfterPartialWrite === null ||
         client.decodedAfterPartialWrite < 1 ||
         (client.droppedAfterPartialWrite !== null && client.droppedAfterPartialWrite > opts.maxRxDroppedDelta) ||
-        (client.lostAfterPartialWrite !== null && client.lostAfterPartialWrite !== 0) ||
+        (client.lostAfterPartialWrite !== null && client.lostAfterPartialWrite > opts.maxRxLostDelta) ||
         (client.freezesAfterPartialWrite !== null && client.freezesAfterPartialWrite > opts.maxRxFreezesDelta) ||
         (client.nacksAfterPartialWrite !== null && client.nacksAfterPartialWrite > opts.maxRxNackDelta) ||
         (client.plisAfterPartialWrite !== null && client.plisAfterPartialWrite > opts.maxRxPliDelta) ||

@@ -2460,6 +2460,7 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 	text := string(raw)
 	for _, want := range []string{
 		`maxRxDroppedDelta: numberFlag("--max-rx-dropped-delta", 0, { min: 0 })`,
+		`maxRxLostDelta: numberFlag("--max-rx-lost-delta", 0, { min: 0 })`,
 		`maxRxFreezesDelta: numberFlag("--max-rx-freezes-delta", 0, { min: 0 })`,
 		`maxRxFreezeDurationDelta: numberFlag("--max-rx-freeze-duration-delta", 0, { min: 0 })`,
 		`maxRxNackDelta: numberFlag("--max-rx-nack-delta", 0, { min: 0 })`,
@@ -2535,9 +2536,11 @@ func TestBrowserSmokeEnforcesVP9WebRTCBudgets(t *testing.T) {
 		"maxSenderFailedEncodeAUs: opts.maxSenderFailedEncodeAUs",
 		"maxSenderFailedEncodedAUs: opts.maxSenderFailedEncodedAUs",
 		"maxRxDroppedDelta: opts.maxRxDroppedDelta",
+		"maxRxLostDelta: opts.maxRxLostDelta",
 		"maxRxFreezesDelta: opts.maxRxFreezesDelta",
 		"maxRxFreezeDurationDelta: opts.maxRxFreezeDurationDelta",
 		"client.droppedAfterPartialWrite > opts.maxRxDroppedDelta",
+		"client.lostAfterPartialWrite > opts.maxRxLostDelta",
 		"client.freezesAfterPartialWrite > opts.maxRxFreezesDelta",
 		"client.plisAfterPartialWrite > opts.maxRxPliDelta",
 		"client.repairedAfterPartialWrite > opts.maxRxRepairRequests",
@@ -2628,6 +2631,7 @@ func TestProductionGateReportsVP9BrowserStallBudgets(t *testing.T) {
 		`"--min-video-time-ratio", "0.8"`,
 		`"--max-rx-dropped-delta", "2"`,
 		`"--max-rx-dropped-delta", "3"`,
+		`"--max-rx-lost-delta", "2"`,
 		`"--max-rx-freezes-delta", "1"`,
 		`"--max-rx-freeze-duration-delta", "0.5"`,
 		`"--max-rx-pli-delta", "1"`,

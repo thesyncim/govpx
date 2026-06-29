@@ -242,7 +242,7 @@ counters while recovery proceeds:
 
 ```sh
 node browser_smoke.mjs --server-plain-vp9-temporal --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
-node browser_smoke.mjs --server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 0 --max-rx-pli-delta 2 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 1 --min-ending-active-layers 1
+node browser_smoke.mjs --server-plain-vp9-temporal --local-partial-write --local-partial-write-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 20000 --sample-ms 5000 --min-decoded-delta 70 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-lost-delta 2 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 2 --max-rx-pli-delta 2 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
 To prove the same plain temporal path while forcing browser-side keyframe
@@ -310,16 +310,17 @@ host load:
 node browser_smoke.mjs --local-withhold --local-withhold-count 2 --cpu-burners 12 --server-fps 25 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 0 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 0 --min-active-layers 1 --min-ending-active-layers 1
 ```
 
-To prove partial RTP-write no-loss recovery, add `--local-partial-write`. The
+To prove partial RTP-write recovery, add `--local-partial-write`. The
 sender writes a prefix of the already-packetized VP9 access unit into the
 browser, fails before the RTP marker/end of access unit, marks the packetizer
-as requiring recovery, and then must resume decode with forced keyframes and no
-RTP loss, NACK, or FIR feedback. Chrome may count the intentionally incomplete
-access units as a bounded dropped frame, short freeze, and receiver repair during
-the trigger; subsequent clean samples must stay flat:
+as requiring recovery, reserves the missing RTP sequence numbers so the browser
+can observe the gap, and then must resume decode with forced keyframes. Chrome
+may count the intentionally incomplete access units as bounded RTP loss/NACK,
+dropped frames, short freeze, and receiver repair during the trigger; subsequent
+clean samples must stay flat:
 
 ```sh
-node browser_smoke.mjs --local-partial-write --local-partial-write-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 0 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
+node browser_smoke.mjs --local-partial-write --local-partial-write-count 2 --soak-ms 10000 --sample-ms 5000 --min-decoded-delta 80 --min-video-time-ratio 0.8 --max-rx-repair-requests 1 --max-rx-dropped-delta 3 --max-rx-lost-delta 2 --max-rx-freezes-delta 1 --max-rx-freeze-duration-delta 0.5 --max-rx-nack-delta 2 --max-rx-pli-delta 0 --max-rx-fir-delta 0 --max-sender-failed-encode-aus 0 --max-sender-failed-encoded-aus 2 --min-active-layers 3 --min-ending-active-layers 3 --require-threaded-top-layer
 ```
 
 To prove those recovery controls still fire under scheduler contention, combine
