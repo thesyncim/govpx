@@ -223,6 +223,66 @@ func TestVP9EncoderInterPicksEighthPelMv(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderSubpelVarianceFullPelMatchesPlainVariance(t *testing.T) {
+	const (
+		width  = 128
+		height = 128
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height, CpuUsed: -3})
+	keySrc := vp9test.NewMotionYCbCr(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
+	}
+
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 1, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
+	}
+	src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
+	pre, preStride, preOriginX, preOriginY, _, _, refOK :=
+		e.vp9SubpelReferencePlane(vp9dec.LastFrame, inter.ref)
+	if !refOK {
+		t.Fatal("LAST bordered reference plane unavailable")
+	}
+
+	for _, tc := range []struct {
+		name         string
+		bsize        common.BlockSize
+		miRow, miCol int
+		mv           vp9dec.MV
+	}{
+		{name: "64x64", bsize: common.Block64x64, miRow: 0, miCol: 0, mv: vp9dec.MV{Col: 8}},
+		{name: "32x32", bsize: common.Block32x32, miRow: 4, miCol: 4, mv: vp9dec.MV{Row: 8}},
+		{name: "16x16", bsize: common.Block16x16, miRow: 8, miCol: 8, mv: vp9dec.MV{Row: 8, Col: 8}},
+		{name: "8x8", bsize: common.Block8x8, miRow: 10, miCol: 10, mv: vp9dec.MV{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotVar, gotSSE, ok := e.vp9InterPredictionBorderedSubpelVarianceSSE(
+				inter, tc.miRow, tc.miCol, tc.bsize, vp9dec.LastFrame, tc.mv)
+			if !ok {
+				t.Fatal("vp9InterPredictionBorderedSubpelVarianceSSE returned !ok")
+			}
+			blockW := int(common.Num4x4BlocksWideLookup[tc.bsize]) * 4
+			blockH := int(common.Num4x4BlocksHighLookup[tc.bsize]) * 4
+			x0 := tc.miCol * common.MiSize
+			y0 := tc.miRow * common.MiSize
+			refX := preOriginX + x0 + (int(tc.mv.Col) >> 3)
+			refY := preOriginY + y0 + (int(tc.mv.Row) >> 3)
+			wantVar, wantSSE := vp9enc.BlockDiffVarianceSSE(src, srcStride,
+				pre, preStride, x0, y0, refX, refY, blockW, blockH)
+			if gotVar != wantVar || gotSSE != wantSSE {
+				t.Fatalf("full-pel variance/sse = %d/%d, want %d/%d",
+					gotVar, gotSSE, wantVar, wantSSE)
+			}
+		})
+	}
+}
+
 func TestVP9EncoderCountsNewMvSymbols(t *testing.T) {
 	var counts vp9enc.FrameCounts
 	countVP9NewMv(&counts, vp9dec.MV{Col: 58}, vp9dec.MV{Col: 2})

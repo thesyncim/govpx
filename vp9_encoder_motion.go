@@ -561,6 +561,11 @@ func (e *VP9Encoder) vp9InterPredictionBorderedSubpelVarianceSSE(
 	preOff := bufY*preStride + bufX
 	xOffset := int(mv.Col) & 7
 	yOffset := int(mv.Row) & 7
+	if xOffset == 0 && yOffset == 0 {
+		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, pre, preStride,
+			x0, y0, bufX, bufY, blockW, blockH)
+		return variance, sse, true
+	}
 	var sse32 uint32
 	var variance32 uint32
 	switch bsize {
