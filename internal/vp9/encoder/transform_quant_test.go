@@ -938,15 +938,18 @@ func TestVP9QuantizeFPMatchesLibvpxContract(t *testing.T) {
 			},
 		},
 		{
-			name:    "boundary +/-32767 4x4",
+			name:    "boundary int16 extrema 4x4",
 			txSize:  common.Tx4x4,
 			nCoeffs: 16,
 			fill: func(c []int16) {
 				for i := range c {
-					if i%2 == 0 {
+					switch i % 3 {
+					case 0:
 						c[i] = 32767
-					} else {
+					case 1:
 						c[i] = -32767
+					default:
+						c[i] = -32768
 					}
 				}
 			},

@@ -1596,7 +1596,7 @@ func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
 func QuantizeFPLibvpx(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
 	scan, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {
-	return quantizeFPLibvpxScalar(coeff, nCoeffs, roundFP, quantFP, dequant,
+	return quantizeFPLibvpxDispatch(coeff, nCoeffs, roundFP, quantFP, dequant,
 		scan, iscan, qcoeff, dqcoeff)
 }
 

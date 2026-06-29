@@ -33,3 +33,10 @@ func forwardWHT4x4Dispatch(input []int16, stride int, output []int16) {
 func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
 	return quantizeFPScalar(coeff, dequant, scan, dqcoeff)
 }
+
+func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	return quantizeFPLibvpxScalar(coeff, nCoeffs, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff)
+}

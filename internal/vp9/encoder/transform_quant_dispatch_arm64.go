@@ -78,6 +78,94 @@ func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff [
 	return quantizeFPScalar(coeff, dequant, scan, dqcoeff)
 }
 
+func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	if !quantizeFPLibvpxNEONOK(coeff, nCoeffs, roundFP, quantFP, dequant,
+		iscan, qcoeff, dqcoeff) {
+		return quantizeFPLibvpxScalar(coeff, nCoeffs, roundFP, quantFP, dequant,
+			scan, iscan, qcoeff, dqcoeff)
+	}
+
+	roundDC, roundAC := int(roundFP[0]), int(roundFP[1])
+	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+
+	eob := 0
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	sum := absCoeff + roundDC
+	if sum >= deqDC {
+		tmp := clampInt16(sum)
+		tmp = (tmp * quantDC) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[0] = int16(q)
+		dqcoeff[0] = int16(q * deqDC)
+		if tmp != 0 {
+			eob = int(iscan[0])
+		}
+	} else {
+		qcoeff[0] = 0
+		dqcoeff[0] = 0
+	}
+
+	acCount := ((nCoeffs - 1) / 8) * 8
+	if acCount > 0 {
+		acEOB := int(quantizeFPACNEON(unsafe.SliceData(coeff[1:]),
+			unsafe.SliceData(iscan[1:]), unsafe.SliceData(qcoeff[1:]),
+			unsafe.SliceData(dqcoeff[1:]), acCount, roundAC, quantAC, deqAC))
+		if acEOB > eob {
+			eob = acEOB
+		}
+	}
+
+	for rc := 1 + acCount; rc < nCoeffs; rc++ {
+		c := int(coeff[rc])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		sum := absCoeff + roundAC
+		if sum < deqAC {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+			continue
+		}
+		tmp := clampInt16(sum)
+		tmp = (tmp * quantAC) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * deqAC)
+		if tmp != 0 && int(iscan[rc]) > eob {
+			eob = int(iscan[rc])
+		}
+	}
+	return eob
+}
+
+func quantizeFPLibvpxNEONOK(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	iscan []int16, qcoeff, dqcoeff []int16,
+) bool {
+	if nCoeffs <= 8 || len(coeff) < nCoeffs || len(iscan) < nCoeffs ||
+		len(qcoeff) < nCoeffs || len(dqcoeff) < nCoeffs {
+		return false
+	}
+	// The NEON kernel mirrors libvpx's normal positive FP quant tables.
+	// Unusual externally supplied tables stay on the scalar contract path.
+	return roundFP[0] >= 0 && roundFP[1] >= 0 &&
+		quantFP[0] >= 0 && quantFP[1] >= 0 &&
+		dequant[0] > 0 && dequant[1] > 0
+}
+
 //go:noescape
 func forwardWHT4x4NEON(input *int16, stride int, output *int16)
 
@@ -86,3 +174,7 @@ func forwardDCT8x8NEON(input *int16, output *int16, stride int)
 
 //go:noescape
 func forwardDCT4x4NEON(input *int16, output *int16, stride int)
+
+//go:noescape
+func quantizeFPACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
+	count int, roundAC int, quantAC int, deqAC int) int32
