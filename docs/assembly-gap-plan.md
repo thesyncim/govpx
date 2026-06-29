@@ -44,10 +44,13 @@ fair microbenchmark before any wider suite run.
 | Priority | Area | Arch | Local surface | Upstream source | Current state | Validation |
 | --- | --- | --- | --- | --- | --- | --- |
 | P0 | Fused 4-reference SAD16x16 | amd64 | `internal/vp8/dsp/sad_dispatch_amd64.go`, new fused asm | `vpx_dsp/x86/sad4d_sse2.asm::vpx_sad16x16x4d_sse2`, AVX2 equivalent if worthwhile | wrapper calls four independent SADs; arm64 already has fused NEON/DOTPROD | `go test ./internal/vp8/dsp -run 'TestSAD16x16x4PtrFast|TestSADSIMDMatchesScalar' -count=1`; `go test ./internal/vp8/dsp -run '^$' -bench '^BenchmarkSAD16x16x4PtrFast$' -benchmem -benchtime=500ms -count=5` on amd64 |
-| P1 | Fused subpel variance sizes below 16x16 | arm64/amd64 | `internal/vp8/dsp/variance_subpel*.go`, `subpixel*.go` | `vpx_dsp/*/subpel_variance*`, `vp8/common/*/subpixel*` | 16x16 fused and many sized paths exist; smaller fused realtime search paths still compose | `go test ./internal/vp8/dsp -run 'TestSubpelVariance.*SIMD|TestVarianceBlockSizedSIMD' -count=1`; bench `BenchmarkSubpelVariance(16x8|8x16|8x8|4x4)` |
-| P1 | VP8 loopfilter grouping | amd64 | `internal/vp8/dsp/loopfilter_dispatch_amd64.go`, `loopfilter_amd64.s` | `vp8/common/x86/loopfilter_*` | SIMD exists; AVX2 and grouped edge coverage should be checked before more ports | `go test ./internal/vp8/dsp -run 'TestLoopFilter.*SIMD|TestLoopFilterYEdgeGroups|TestLoopFilterUVDispatch' -count=1`; amd64 AVX2 runner for `Test.*AVX2` |
-| P1 | Encoder quant/DCT batch | arm64/amd64 | `internal/vp8/encoder/quant_batch_*.go`, `dct_batch_*.go` | `vp8/encoder/*/vp8_quantize*`, `vp8/encoder/*/dct*` | SIMD and batched entry points exist; next work is benchmarking and call-site coverage, not new kernels | `go test ./internal/vp8/encoder -run 'TestFastQuantizeBlock(Batch|SIMD)|TestForwardDCT4x4SIMD' -count=1`; bench `BenchmarkFastQuantizeBlock(Batch25|PerBlock25|SIMD|Scalar)` and `BenchmarkForwardDCT4x4(Batch25|PerBlock25|SIMD|Scalar)` |
-| P2 | Decoder token/reconstruct helpers | arm64/amd64 | `internal/vp8/decoder/tokens*.go`, `reconstruct_*` | `vp8/decoder/*`, `vp8/common/*/recon*` | mostly pure Go; likely branchy, profile before asm | `go test ./internal/vp8/decoder -run 'TestDecode.*Coeff|TestTransformMacroblockTokens' -count=1`; bench `BenchmarkDecodeBlockCoeffs|BenchmarkTransformMacroblockTokens` |
+| P0 | Six-tap split predictors | amd64 | `internal/vp8/dsp/subpixel_amd64.go`, `subpixel_amd64.s` | `vp8/common/x86/subpixel_sse2.asm`, `vp8/common/x86/vp8_asm_stubs.c` | 16x16/8x8/8x4/4x4 SSE2 exist; 16x8 and 8x16 split-block predictors fall back on amd64 | `go test ./internal/vp8/dsp -run 'TestSixTapPredict.*|FuzzVP8DSPSubpixel' -count=1`; `go test ./internal/vp8/dsp -run '^$' -bench 'BenchmarkSixTapPredict(16x8|8x16)$' -benchmem -benchtime=500ms -count=5` on amd64 |
+| P0 | Fused subpel variance16x16 | amd64 | `internal/vp8/dsp/variance_subpel16_fused_other.go`, `variance_subpel_amd64.go` | `vpx_dsp/x86/subpel_variance_sse2.asm`, `vpx_dsp/x86/variance_sse2.c` | arm64 has fused horizontal/vertical/bilinear 16x16; amd64 stages predict then variance | `go test ./internal/vp8/dsp -run 'TestSubpelVariance.*SIMD|TestVarianceBlocks' -count=1`; `go test ./internal/vp8/dsp -run '^$' -bench 'BenchmarkSubpelVariance16x16(Dispatch|PtrFast|HorizontalOnly|VerticalOnly)' -benchmem -benchtime=500ms -count=5` on amd64 |
+| P1 | Fused split-block subpel variance | arm64/amd64 | `internal/vp8/dsp/variance.go`, `variance_subpel_*.go` | `vpx_dsp/*/subpel_variance*`, `vpx_dsp/*/variance*` | useful for SPLITMV/subpel RD; many sizes and rounding cases | `go test ./internal/vp8/dsp -run 'TestSubpelVariance.*SIMD|TestVarianceBlocks' -count=1`; `go test ./internal/vp8/dsp -run '^$' -bench 'BenchmarkSubpelVariance(16x8|8x16|8x8|4x4)' -benchmem -benchtime=500ms -count=5` |
+| P1 | Direct vertical loopfilter | amd64 | `internal/vp8/dsp/loopfilter_dispatch_amd64.go`, `loopfilter_amd64.s`, `loopfilter_transpose_amd64.s` | `vp8/common/x86/loopfilter_sse2.asm::vp8_loop_filter_vertical_edge_sse2`, MB/UV/simple variants | vertical path gathers/transposes into horizontal kernels | `go test ./internal/vp8/dsp -run 'TestLoopFilter' -count=1`; `go test ./internal/vp8/dsp -run '^$' -bench 'Benchmark(LoopFilter|MBLoopFilter).*(Vertical|VerticalEdgesY|VerticalEdgeUV)' -benchmem -benchtime=500ms -count=5` on amd64 |
+| P1 | Fused decoder dequant + IDCT + add | arm64/amd64 | `internal/vp8/decoder/reconstruct.go`, `internal/vp8/dsp/dequant.go`, `idct_simd_*.go` | `vp8/common/x86/idct_blk_sse2.c`, `vp8/common/arm/neon/idct_blk_neon.c` | per-block SIMD exists; block-pair dequant+IDCT+add fusion is missing | `go test ./internal/vp8/decoder -run 'TestTransformMacroblockTokens|TestReconstruct|TestChroma' -count=1`; `go test ./internal/vp8/dsp -run 'TestIDCT4x4AddSIMDMatchesScalar|TestDequantIDCT4x4AddMatchesManualAndZerosInput' -count=1` |
+| P2 | Denoiser UV sum/copy fusion | arm64/amd64 | `internal/vp8/encoder/denoiser_simd_amd64.go`, `denoiser_simd_arm64.go` | `vp8/encoder/x86/denoising_sse2.c`, `vp8/encoder/arm/neon/denoising_neon.c` | lower priority unless realtime denoising is enabled; UV scalar precheck/copy remains | `go test ./internal/vp8/encoder -run 'TestDenoiser' -count=1`; `go test ./internal/vp8/encoder -run '^$' -bench 'BenchmarkDenoiserFilter(Y|UV)(Dispatch|Scalar)' -benchmem -benchtime=500ms -count=5` |
+| P3 | Existing encoder DCT/quant batch, residual gather, Walsh, intra predictors, basic SAD/variance | arm64/amd64 | `internal/vp8/encoder`, `internal/vp8/dsp` | libvpx matching kernel families | meaningful SIMD already exists or the path is less tied to WebRTC realtime | keep existing focused tests/benchmarks as regression coverage, not first-wave implementation work |
 
 ## Landing order
 
@@ -55,12 +58,13 @@ fair microbenchmark before any wider suite run.
    and can be natively validated here.
 2. VP9 realtime fused block scoring, once the component kernels have direct
    parity tests and microbenchmarks.
-3. VP8 amd64 fused SAD16x16x4, but only with an amd64 runner for execution.
+3. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
+   subpel variance, but only with an amd64 runner for execution.
 4. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on amd64.
 5. VP9 FDCT16x16 arm64, then 32x32/32x32RD as a generated/raw-WORD port.
 6. VP9 decoder full inverse-transform butterflies and convolve-average paths.
-7. VP8 smaller fused subpel variance and loopfilter grouping after fresh
-   profiles show they still dominate.
+7. VP8 smaller fused subpel variance, direct vertical loopfilter, and fused
+   decoder dequant+IDCT+add after fresh profiles show they still dominate.
 
 ## High-risk WebRTC guards
 
@@ -75,3 +79,12 @@ go test ./cmd/govpx-bench/benchcmd -run 'TestRunVP9Benchmark|TestVP9EncodeDecode
 VP9 SAD, variance, subpel variance, and plain horizontal/vertical/full convolve
 already have arm64 and amd64 SIMD dispatch. Keep them in regression coverage
 unless fresh profiles show those kernels still dominate.
+
+After high-risk VP8 DSP or decoder assembly, keep validation focused on the
+affected path:
+
+```sh
+go test ./internal/vp8/dsp -run 'TestSAD|TestSixTap|TestSubpelVariance|TestLoopFilter|TestIDCT' -count=1
+go test ./internal/vp8/decoder -run 'TestTransformMacroblockTokens|TestReconstruct|TestChroma' -count=1
+go test . -run '^TestVP8WebRTCRTPLongTemporalNoLossStreamDecodes$' -count=1
+```
