@@ -9,7 +9,9 @@ import (
 // vs on at 1280x720 / 1920x1080. The benchmark exists so future
 // row-worker integration changes have a baseline; today the row workers
 // are allocated but not driving the production encode path, so the
-// numbers should match the serial path within scheduler noise. Run with
+// numbers should match the serial path within scheduler noise. The timed loop
+// reuses a fixed panning-source ring so the benchmark measures encode work
+// rather than synthetic source-frame allocation. Run with
 // `go test -bench=BenchmarkVP9EncodeRowMT -benchmem -short .` to compare.
 func BenchmarkVP9EncodeRowMT(b *testing.B) {
 	cases := []struct {
@@ -43,16 +45,18 @@ func benchmarkVP9EncodeRowMT(b *testing.B, width, height, threads int, rowMT boo
 		b.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
-	src := vp9test.NewPanningYCbCr(width, height, 0)
+	sources := vp9test.NewPanningSources(width, height, 8)
 	dst := make([]byte, width*height*2)
 	// Warmup to size all scratch and reach steady-state.
-	if _, err := e.EncodeInto(src, dst); err != nil {
-		b.Fatalf("warmup EncodeInto: %v", err)
+	for i, src := range sources {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			b.Fatalf("warmup EncodeInto[%d]: %v", i, err)
+		}
 	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		src := vp9test.NewPanningYCbCr(width, height, i+1)
+		src := sources[i%len(sources)]
 		if _, err := e.EncodeInto(src, dst); err != nil {
 			b.Fatalf("EncodeInto[%d]: %v", i, err)
 		}
