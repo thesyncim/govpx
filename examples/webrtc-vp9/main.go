@@ -34,7 +34,7 @@ import (
 const (
 	spatialLayerCount    = 3
 	temporalLayerMode    = govpx.TemporalLayeringThreeLayers
-	plainVP9TemporalMode = govpx.TemporalLayeringThreeLayersOneReference
+	plainVP9TemporalMode = govpx.TemporalLayeringThreeLayersNoSync
 	rtpClockHz           = govpx.VP9RTPClockRate
 	rtpPayloadMTU        = 1200 - 12
 	vp9Profile0Fmtp      = govpx.VP9SDPFmtpProfile0

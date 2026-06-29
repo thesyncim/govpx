@@ -50,14 +50,14 @@ Flags:
   PictureID, TL0PICIDX/keyframe GOF metadata, and the same app-local no-loss
   recovery rules as production plain VP9 senders.
 - `-plain-vp9-temporal` — stream the single-spatial VP9 WebRTC sender with
-  three temporal layers. This mode uses non-flexible VP9 RTP descriptors with
-  TL0PICIDX/keyframe GOF metadata and defaults to the libvpx
-  one-reference temporal pattern for Chrome/WebRTC decode
-  stability.
+  three temporal layers. This mode defaults to the flexible `no-sync`
+  pattern with explicit P_DIFF references, which Chrome accepts without
+  no-loss PLI/drop churn in the browser smoke.
 - `-plain-vp9-temporal-mode` — choose a plain VP9 temporal pattern for
   diagnosis (`default`, `six-frame`, `no-inter-layer-prediction`,
   `layer-one-prediction`, `with-sync`, `altref-with-sync`, `one-reference`,
-  or `no-sync`). `default` is `one-reference`.
+  or `no-sync`). `default` is `no-sync`; `one-reference` remains available
+  for non-flexible GOF diagnostics.
 - `-plain-vp9-width` / `-plain-vp9-height` — override the plain VP9 sender
   resolution. The default plain sender is 320x180; use 640x360 or larger when
   qualifying the VP9 tile-threaded realtime path.
@@ -439,8 +439,9 @@ a different host shape.
   longer CPU-contention soaks and keeps the repeated recovery path tied to a
   native `vpxdec` oracle.
 - The WebRTC RTP path emits stable VP9 PictureID and scalability-structure
-  metadata, uses non-flexible VP9 RTP descriptors for realtime receiver
-  compatibility, and keeps keyframe requests synchronized across spatial layers.
+  metadata, uses browser-clean flexible descriptors for the plain temporal
+  path, keeps non-flexible SVC GOF coverage, and keeps keyframe requests
+  synchronized across spatial layers.
 - Capping the RTP view to base..N layers gives the browser a clean lower-res
   stream without re-encoding.
 - A bidirectional WebRTC DataChannel is enough plumbing to expose every

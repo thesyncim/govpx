@@ -1888,10 +1888,11 @@ func TestPlainVP9FlexiblePacketizerHandlesForcedKeyChurn(t *testing.T) {
 
 func TestPlainVP9TemporalWebRTCUsesNonFlexibleRecoveryGOF(t *testing.T) {
 	enc, err := newPlainVP9Encoder(demoConfig{
-		FPS:                  25,
-		BitrateKbps:          800,
-		PlainVP9Mode:         true,
-		PlainVP9TemporalMode: true,
+		FPS:                          25,
+		BitrateKbps:                  800,
+		PlainVP9Mode:                 true,
+		PlainVP9TemporalMode:         true,
+		PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersOneReference,
 	})
 	if err != nil {
 		t.Fatalf("newPlainVP9Encoder: %v", err)
@@ -2044,7 +2045,7 @@ func TestPlainVP9FlexibleRTPSelection(t *testing.T) {
 		{
 			name: "default temporal",
 			cfg:  demoConfig{PlainVP9TemporalMode: true},
-			want: false,
+			want: true,
 		},
 		{
 			name: "one reference temporal",
@@ -2363,7 +2364,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"govpx.VP9WebRTCPacketizer",
 		"PacketizeWebRTCNonFlexibleInto",
 		"PacketizeSpatialSVCWebRTCNonFlexibleInto",
-		"non-flexible VP9 RTP descriptors",
+		"flexible `no-sync`",
 		"node browser_smoke.mjs",
 		"--repeat 3",
 		"--soak-ms 30000 --sample-ms 5000",
@@ -2377,6 +2378,7 @@ func TestReadmeDocumentsStatefulVP9WebRTCPacketizer(t *testing.T) {
 		"-plain-vp9-temporal",
 		"--server-plain-vp9-temporal",
 		"plain single-spatial/three-temporal-layer VP9 WebRTC path",
+		"flexible `no-sync`",
 		"one-reference",
 		"-plain-vp9-width",
 		"-plain-vp9-height",
