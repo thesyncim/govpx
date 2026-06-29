@@ -65,6 +65,44 @@ func BenchmarkVP9QuantizeFPLibvpx(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9QuantizeFP32x32(b *testing.B) {
+	scan := common.DefaultScanOrders[common.Tx32x32].Scan
+	coeff := make([]int16, 1024)
+	for i := range coeff {
+		v := (i*73)%4096 - 2048
+		if i%11 == 0 {
+			v /= 16
+		}
+		coeff[i] = int16(v)
+	}
+	dequant := [2]int16{7, 6}
+
+	for _, tc := range []struct {
+		name  string
+		withQ bool
+	}{
+		{name: "dqonly"},
+		{name: "withq", withQ: true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			dqcoeff := make([]int16, 1024)
+			var qcoeff []int16
+			if tc.withQ {
+				qcoeff = make([]int16, 1024)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			eobSum := 0
+			for i := 0; i < b.N; i++ {
+				eobSum += QuantizeFP32x32WithQ(coeff, dequant, scan, qcoeff, dqcoeff)
+			}
+			if eobSum == 0 {
+				b.Fatal("unexpected zero eob accumulator")
+			}
+		})
+	}
+}
+
 func TestForwardWHT4x4MatchesLibvpxSentinels(t *testing.T) {
 	var constant [16]int16
 	for i := range constant {
@@ -1393,6 +1431,10 @@ func TestVP9QuantizeFP32x32MatchesLibvpxContract(t *testing.T) {
 			gotDQ := make([]int16, 1024)
 			gotEOB := QuantizeFP32x32(coeff, dequant, scan, gotDQ)
 
+			gotQWithQ := make([]int16, 1024)
+			gotDQWithQ := make([]int16, 1024)
+			gotEOBWithQ := QuantizeFP32x32WithQ(coeff, dequant, scan, gotQWithQ, gotDQWithQ)
+
 			wantQ := make([]int16, 1024)
 			wantDQ := make([]int16, 1024)
 			wantEOB := referenceQuantizeFP32x32C(coeff, 1024, roundFP, quantFP, dequant,
@@ -1406,6 +1448,17 @@ func TestVP9QuantizeFP32x32MatchesLibvpxContract(t *testing.T) {
 					t.Fatalf("dqcoeff[%d] mismatch: got %d, want %d",
 						i, gotDQ[i], wantDQ[i])
 				}
+				if gotQWithQ[i] != wantQ[i] {
+					t.Fatalf("qcoeff[%d] mismatch: got %d, want %d",
+						i, gotQWithQ[i], wantQ[i])
+				}
+				if gotDQWithQ[i] != wantDQ[i] {
+					t.Fatalf("dqcoeff with q[%d] mismatch: got %d, want %d",
+						i, gotDQWithQ[i], wantDQ[i])
+				}
+			}
+			if gotEOBWithQ != wantEOB {
+				t.Fatalf("eob with q mismatch: got %d, want %d", gotEOBWithQ, wantEOB)
 			}
 		})
 	}

@@ -1783,11 +1783,146 @@ func QuantizeFP32x32WithQ(coeff []int16, dequant [2]int16, scan []int16,
 		(((48 * int(dequant[0])) >> 7) + 1) >> 1,
 		(((42 * int(dequant[1])) >> 7) + 1) >> 1,
 	}
-	eob := -1
 	n := min(len(coeff), min(len(scan), len(dqcoeff)))
 	if qcoeff != nil && len(qcoeff) < n {
 		n = len(qcoeff)
 	}
+	if n == 0 {
+		return 0
+	}
+	// libvpx's 32x32 VP9 transforms only use the default DCT_DCT scan, so
+	// the hot path can mirror SIMD kernels: raster-order quantization plus
+	// max-reduced iscan for EOB.
+	if n == 1024 && isDefaultVP9Scan32x32(scan) {
+		return quantizeFP32x32Raster(coeff[:n], dequant, quant, round,
+			common.DefaultScanOrders[common.Tx32x32].IScan[:n], qcoeff, dqcoeff[:n])
+	}
+	if qcoeff == nil {
+		return quantizeFP32x32Scan(coeff[:n], dequant, quant, round,
+			scan[:n], nil, dqcoeff[:n])
+	}
+	return quantizeFP32x32Scan(coeff[:n], dequant, quant, round,
+		scan[:n], qcoeff[:n], dqcoeff[:n])
+}
+
+func isDefaultVP9Scan32x32(scan []int16) bool {
+	if len(scan) < 1024 {
+		return false
+	}
+	defaultScan := common.DefaultScanOrders[common.Tx32x32].Scan
+	return len(defaultScan) >= 1024 && &scan[0] == &defaultScan[0]
+}
+
+func quantizeFP32x32Raster(coeff []int16, dequant [2]int16, quant, round [2]int,
+	iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+	quantDC, quantAC := quant[0], quant[1]
+	roundDC, roundAC := round[0], round[1]
+	eob := 0
+
+	if qcoeff == nil {
+		c := int(coeff[0])
+		absCoeff := c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp := 0
+		if absCoeff >= deqDC>>2 {
+			tmp = clampInt16(absCoeff + roundDC)
+			tmp = (tmp * quantDC) >> 15
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			dqcoeff[0] = int16(q * deqDC / 2)
+		} else {
+			dqcoeff[0] = 0
+		}
+		if tmp != 0 {
+			eob = int(iscan[0])
+		}
+
+		for rc := 1; rc < 1024; rc++ {
+			c = int(coeff[rc])
+			absCoeff = c
+			if absCoeff < 0 {
+				absCoeff = -absCoeff
+			}
+			tmp = 0
+			if absCoeff >= deqAC>>2 {
+				tmp = clampInt16(absCoeff + roundAC)
+				tmp = (tmp * quantAC) >> 15
+				q := tmp
+				if c < 0 {
+					q = -q
+				}
+				dqcoeff[rc] = int16(q * deqAC / 2)
+			} else {
+				dqcoeff[rc] = 0
+			}
+			if tmp != 0 && int(iscan[rc]) > eob {
+				eob = int(iscan[rc])
+			}
+		}
+		return eob
+	}
+
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	tmp := 0
+	if absCoeff >= deqDC>>2 {
+		tmp = clampInt16(absCoeff + roundDC)
+		tmp = (tmp * quantDC) >> 15
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[0] = int16(q)
+		dqcoeff[0] = int16(q * deqDC / 2)
+	} else {
+		qcoeff[0] = 0
+		dqcoeff[0] = 0
+	}
+	if tmp != 0 {
+		eob = int(iscan[0])
+	}
+
+	for rc := 1; rc < 1024; rc++ {
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp = 0
+		if absCoeff >= deqAC>>2 {
+			tmp = clampInt16(absCoeff + roundAC)
+			tmp = (tmp * quantAC) >> 15
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(q * deqAC / 2)
+		} else {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+		}
+		if tmp != 0 && int(iscan[rc]) > eob {
+			eob = int(iscan[rc])
+		}
+	}
+	return eob
+}
+
+func quantizeFP32x32Scan(coeff []int16, dequant [2]int16, quant, round [2]int,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	n := len(coeff)
+	eob := -1
 	for i := range n {
 		rc := int(scan[i])
 		slot := 0
