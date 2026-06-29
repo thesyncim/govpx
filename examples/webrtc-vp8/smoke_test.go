@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/pion/webrtc/v4"
+
+	"github.com/thesyncim/govpx"
 )
 
 // TestSuperDemoEndToEnd boots the demo HTTP server, opens a pion peer
@@ -42,6 +45,8 @@ func TestSuperDemoEndToEnd(t *testing.T) {
 	defer pc.Close()
 
 	rtpHits := make([]int, renditionCount)
+	rtpDescriptorHits := make([]int, renditionCount)
+	rtpTemporalHits := make([]int, renditionCount)
 	for i := 0; i < renditionCount; i++ {
 		if _, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo,
 			webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionRecvonly},
@@ -50,42 +55,50 @@ func TestSuperDemoEndToEnd(t *testing.T) {
 		}
 	}
 
-	var rtpMu = struct{ done chan struct{} }{done: make(chan struct{})}
-	closedOnce := false
-	closeOnce := func() {
-		if !closedOnce {
-			closedOnce = true
-			close(rtpMu.done)
+	var rtpMu struct {
+		sync.Mutex
+		done chan struct{}
+		once sync.Once
+	}
+	rtpMu.done = make(chan struct{})
+	checkRTPDone := func() {
+		rtpMu.Lock()
+		defer rtpMu.Unlock()
+		for i := 0; i < renditionCount; i++ {
+			if rtpHits[i] == 0 || rtpDescriptorHits[i] == 0 || rtpTemporalHits[i] == 0 {
+				return
+			}
 		}
+		rtpMu.once.Do(func() { close(rtpMu.done) })
 	}
 	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		idx := -1
+		for i, rc := range cfg.Renditions {
+			if track.ID() == fmt.Sprintf("govpx-vp8-%s", rc.Name) {
+				idx = i
+				break
+			}
+		}
 		go func() {
-			buf := make([]byte, 1500)
 			for {
-				n, _, err := track.Read(buf)
+				pkt, _, err := track.ReadRTP()
 				if err != nil {
 					return
 				}
-				if n > 0 {
-					if idx < 0 {
-						// Identify the rendition by the first track we
-						// hit that doesn't yet have packets.
-						for i := range rtpHits {
-							if rtpHits[i] == 0 {
-								idx = i
-								break
-							}
-						}
-						if idx < 0 {
-							return
-						}
-					}
-					rtpHits[idx]++
-					if rtpHits[0] > 0 && rtpHits[1] > 0 && rtpHits[2] > 0 {
-						closeOnce()
+				if pkt == nil || len(pkt.Payload) == 0 || idx < 0 {
+					continue
+				}
+				desc, _, err := govpx.ParseVP8RTPPayloadDescriptor(pkt.Payload)
+				rtpMu.Lock()
+				rtpHits[idx]++
+				if err == nil && desc.PictureIDPresent && desc.PictureID15Bit {
+					rtpDescriptorHits[idx]++
+					if desc.TL0PICIDXPresent && desc.TemporalIDPresent {
+						rtpTemporalHits[idx]++
 					}
 				}
+				rtpMu.Unlock()
+				checkRTPDone()
 			}
 		}()
 	})
@@ -147,19 +160,26 @@ func TestSuperDemoEndToEnd(t *testing.T) {
 	select {
 	case <-rtpMu.done:
 	case <-ctx.Done():
-		t.Fatalf("missing RTP for some renditions: %v", rtpHits)
+		t.Fatalf("missing govpx VP8 RTP descriptors for some renditions: hits=%v descriptors=%v temporal=%v",
+			rtpHits, rtpDescriptorHits, rtpTemporalHits)
 	}
 
 	// Wait for at least one telemetry per rendition so DataChannel is up.
 	gotTel := [renditionCount]bool{}
-	for !gotTel[0] || !gotTel[1] || !gotTel[2] {
+	gotRTPPacketTel := [renditionCount]bool{}
+	for !gotTel[0] || !gotTel[1] || !gotTel[2] ||
+		!gotRTPPacketTel[0] || !gotRTPPacketTel[1] || !gotRTPPacketTel[2] {
 		select {
 		case m := <-dcMsgCh:
 			if m.ID >= 0 && m.ID < renditionCount {
 				gotTel[m.ID] = true
+				if m.RTPPackets > 0 {
+					gotRTPPacketTel[m.ID] = true
+				}
 			}
 		case <-ctx.Done():
-			t.Fatalf("no telemetry for all renditions: %v", gotTel)
+			t.Fatalf("no RTP packet telemetry for all renditions: tel=%v rtp=%v",
+				gotTel, gotRTPPacketTel)
 		}
 	}
 

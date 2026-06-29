@@ -65,13 +65,13 @@ Flags:
   bidirectional `demo` DataChannel, then POSTs the SDP offer to
   `/offer`.
 - The server (`main.go`) creates a pion `PeerConnection`, attaches
-  three `TrackLocalStaticSample` tracks (`video/VP8` at 90 kHz)
+  three `TrackLocalStaticRTP` tracks (`video/VP8` at 90 kHz)
   in low/mid/high order, answers, and spins up:
   - **One encoder goroutine per rendition.** Each runs a 30 fps
     ticker, draws into a reused `govpx.Image` at its native
-    resolution, encodes with `enc.EncodeInto`, and writes a
-    `media.Sample` to its own track. Pion packetises for VP8 over
-    RTP.
+    resolution, encodes with `enc.EncodeInto`, packetises with
+    govpx's VP8 WebRTC RTP descriptor helpers, and writes RTP packets
+    to its own track.
   - **RTCP drain per sender.** PLI/FIR from the receiver flips a
     rendition-local `forceKey` atomic, so the next encode of that
     rendition refreshes.
@@ -86,7 +86,7 @@ Flags:
   - `screen` → `enc.SetScreenContentMode`
   - `denoise` → `enc.SetNoiseSensitivity`
   - `temporal` (0/1/2) → the encoder still pays the full pattern
-    cost but the loop suppresses `WriteSample` for frames above the
+    cost but the loop suppresses RTP writes for frames above the
     cap so the wire only carries TL0 / TL≤1 / all.
   - `keyframe` → `enc.ForceKeyFrame` (id < 0 fans out to every
     rendition)

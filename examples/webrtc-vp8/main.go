@@ -12,6 +12,8 @@ package main
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -24,15 +26,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 
 	"github.com/thesyncim/govpx"
 )
 
 const (
 	renditionCount = 3
-	rtpClockHz     = 90000
+	rtpClockHz     = govpx.VP8RTPClockRate
+	rtpPayloadMTU  = 1200 - 12
 )
 
 type renditionConfig struct {
@@ -230,6 +233,9 @@ function renderRendition(idx, msg){
   row(dl, "encoded", (msg.w||0) + "x" + (msg.h||0));
   row(dl, "q", msg.q);
   row(dl, "bytes", msg.bytes);
+  if(typeof msg.rtp_packets === "number" && msg.rtp_packets > 0) {
+    row(dl, "rtp", msg.rtp_packets);
+  }
   row(dl, "kbps", (msg.kbps||0).toFixed(0));
   row(dl, "target", msg.target_kbps);
   if(typeof msg.encode_us === "number") {
@@ -568,7 +574,7 @@ type controlMessage struct {
 
 type session struct {
 	pc         *webrtc.PeerConnection
-	tracks     [renditionCount]*webrtc.TrackLocalStaticSample
+	tracks     [renditionCount]*webrtc.TrackLocalStaticRTP
 	renditions [renditionCount]*renditionState
 	telemetry  chan []byte
 	activeMap  atomic.Bool
@@ -596,8 +602,8 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 		cfg:       cfg,
 	}
 	for i, rc := range cfg.Renditions {
-		track, err := webrtc.NewTrackLocalStaticSample(
-			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+		track, err := webrtc.NewTrackLocalStaticRTP(
+			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: govpx.VP8RTPClockRate},
 			fmt.Sprintf("govpx-vp8-%s", rc.Name),
 			fmt.Sprintf("govpx-%s", rc.Name),
 		)
@@ -887,6 +893,8 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 
 	img := newImage(rs.cfg.Width, rs.cfg.Height)
 	packet := make([]byte, outputBufferSize(rs.cfg.Width, rs.cfg.Height))
+	rtpFragments := make([]govpx.RTPPayloadFragment, 0, 4)
+	rtpPayloadBuf := make([]byte, 0, outputBufferSize(rs.cfg.Width, rs.cfg.Height))
 	interval := time.Second / time.Duration(cfg.FPS)
 	duration := uint64(rtpClockHz / cfg.FPS)
 	ticker := time.NewTicker(interval)
@@ -901,6 +909,9 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 	rs.width.Store(int32(currentWidth))
 	rs.height.Store(int32(currentHeight))
 	var pts uint64
+	rtpTimestamp := randomUint32()
+	rtpSequence := randomUint16()
+	pictureID := randomUint16() & govpx.VP8RTPPictureID15BitMask
 	var sceneT int
 	var lastTick time.Time
 	var loopUS, writeUS int
@@ -929,6 +940,9 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 				img = newImage(wantW, wantH)
 				if need := outputBufferSize(wantW, wantH); len(packet) < need {
 					packet = make([]byte, need)
+				}
+				if need := outputBufferSize(wantW, wantH); cap(rtpPayloadBuf) < need {
+					rtpPayloadBuf = make([]byte, 0, need)
 				}
 				currentWidth, currentHeight = wantW, wantH
 				// invalidate ROI/active maps for the new geometry; the
@@ -997,11 +1011,13 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// asked TL0 / TL1-only. The encoder still tracks the temporal
 		// pattern; we just skip emission. Mirrors libvpx's
 		// VP8E_SET_TEMPORAL_LAYER_ID-style cap.
-		cap := int(rs.temporalCap.Load())
+		temporalCap := int(rs.temporalCap.Load())
 		encodeStart := time.Now()
+		frameTimestamp := rtpTimestamp
 		result, err := enc.EncodeInto(packet, img, pts, duration, flags)
 		encodeUS := int(time.Since(encodeStart).Microseconds())
 		pts += duration
+		rtpTimestamp += uint32(duration)
 		if err != nil {
 			log.Printf("[%s] EncodeInto: %v", rs.cfg.Name, err)
 			continue
@@ -1014,24 +1030,47 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// Droppable. Dropping a non-droppable frame poisons the
 		// decoder's reference chain and causes the receiver to render
 		// artifacts until the next keyframe.
-		if cap < result.TemporalLayerID && result.Droppable {
-			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, encodeUS, 0, loopUS))
+		if temporalCap < result.TemporalLayerID && result.Droppable {
+			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, encodeUS, 0, 0, loopUS))
 			continue
 		}
 
+		fragmentCount, payloadBytes, err := result.WebRTCRTPPacketizationSize(pictureID, rtpPayloadMTU)
+		if err != nil {
+			log.Printf("[%s] WebRTCRTPPacketizationSize: %v", rs.cfg.Name, err)
+			enc.ForceKeyFrame()
+			continue
+		}
+		if cap(rtpFragments) < fragmentCount {
+			rtpFragments = make([]govpx.RTPPayloadFragment, fragmentCount)
+		} else {
+			rtpFragments = rtpFragments[:fragmentCount]
+		}
+		if cap(rtpPayloadBuf) < payloadBytes {
+			rtpPayloadBuf = make([]byte, payloadBytes)
+		} else {
+			rtpPayloadBuf = rtpPayloadBuf[:payloadBytes]
+		}
+		fragmentCount, _, err = result.PacketizeWebRTCRTPInto(rtpFragments, rtpPayloadBuf, pictureID, rtpPayloadMTU)
+		if err != nil {
+			log.Printf("[%s] PacketizeWebRTCRTPInto: %v", rs.cfg.Name, err)
+			enc.ForceKeyFrame()
+			continue
+		}
+		rtpFragments = rtpFragments[:fragmentCount]
+
 		writeStart := time.Now()
-		if err := track.WriteSample(media.Sample{
-			Data:     result.Data,
-			Duration: interval,
-		}); err != nil {
+		writtenPackets, err := writeWebRTCRTPAccessUnit(track, rtpFragments, frameTimestamp, &rtpSequence)
+		if err != nil {
 			if !errors.Is(err, io.ErrClosedPipe) {
-				log.Printf("[%s] WriteSample: %v", rs.cfg.Name, err)
+				log.Printf("[%s] WriteRTP after %d/%d packets: %v", rs.cfg.Name, writtenPackets, fragmentCount, err)
 			}
 			return
 		}
+		pictureID = govpx.NextVP8RTPPictureID(pictureID)
 		writeUS = int(time.Since(writeStart).Microseconds())
 		tracker.observe(result.SizeBytes, time.Now())
-		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, encodeUS, writeUS, loopUS))
+		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, encodeUS, writeUS, writtenPackets, loopUS))
 	}
 }
 
@@ -1055,6 +1094,56 @@ func applyActiveMap(enc *govpx.VP8Encoder, width, height int, enabled bool) erro
 		}
 	}
 	return enc.SetActiveMap(m, rows, cols)
+}
+
+type rtpAccessUnitWriter interface {
+	WriteRTP(*rtp.Packet) error
+}
+
+func writeWebRTCRTPAccessUnit(
+	w rtpAccessUnitWriter,
+	fragments []govpx.RTPPayloadFragment,
+	timestamp uint32,
+	sequence *uint16,
+) (int, error) {
+	if w == nil || sequence == nil {
+		return 0, io.ErrClosedPipe
+	}
+	written := 0
+	for i := range fragments {
+		fragment := fragments[i]
+		pkt := rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				Marker:         fragment.Marker,
+				SequenceNumber: *sequence,
+				Timestamp:      timestamp,
+			},
+			Payload: fragment.Payload,
+		}
+		if err := w.WriteRTP(&pkt); err != nil {
+			return written, err
+		}
+		*sequence = *sequence + 1
+		written++
+	}
+	return written, nil
+}
+
+func randomUint32() uint32 {
+	var b [4]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return uint32(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint32(b[:])
+}
+
+func randomUint16() uint16 {
+	var b [2]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return uint16(time.Now().UnixNano())
+	}
+	return binary.BigEndian.Uint16(b[:])
 }
 
 // kbpsTracker tracks bytes-per-second over a rolling 1-second window.
@@ -1108,10 +1197,13 @@ type telemetryMessage struct {
 	// the encode-time curve tracks Q and bytes, not the bitrate-change
 	// event itself.
 	EncodeUS int `json:"encode_us"`
-	// WriteUS is the per-frame track.WriteSample wall time. A large
+	// WriteUS is the per-frame track.WriteRTP wall time. A large
 	// WriteUS with a small EncodeUS means the WebRTC RTP/pacer is the
 	// bottleneck, not govpx encode.
 	WriteUS int `json:"write_us"`
+	// RTPPackets is the number of govpx VP8 RTP payload fragments emitted
+	// for this encoded frame.
+	RTPPackets int `json:"rtp_packets,omitempty"`
 	// LoopUS is the tick-to-tick interval of the encoder loop in
 	// microseconds. At 30fps the steady-state value is ~33333. If it
 	// grows to 300000+ while EncodeUS stays small, the loop is being
@@ -1122,7 +1214,7 @@ type telemetryMessage struct {
 var frameCounter [renditionCount]int
 
 func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int,
-	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool, encodeUS, writeUS, loopUS int,
+	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool, encodeUS, writeUS, rtpPackets, loopUS int,
 ) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
@@ -1149,6 +1241,7 @@ func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width,
 		ROI:        roi,
 		EncodeUS:   encodeUS,
 		WriteUS:    writeUS,
+		RTPPackets: rtpPackets,
 		LoopUS:     loopUS,
 	}
 	out, _ := json.Marshal(msg)
