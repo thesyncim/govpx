@@ -1315,6 +1315,7 @@ func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(normalized.ErrorResilient || normalized.ErrorResilientPartitions)
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	e.configureTwoPassEstimateMaxQSpeedCorrection()
 	// libvpx vp8_cx_iface.c sets cpi->oxcf.auto_key = (g_kf_mode ==
 	// VPX_KF_AUTO && key_max_dist != 0). govpx's AdaptiveKeyFrames
 	// mirrors VPX_KF_AUTO; key_max_dist > 0 mirrors the

@@ -138,6 +138,11 @@ type twoPassState struct {
 	// branch). The encoder pushes the rolling stats via
 	// `setRollingBits` so this tracks libvpx within rounding.
 	estMaxQCorrection float64
+	// estimateMaxQSpeedCorrection mirrors the speed-dependent multiplier
+	// applied inside libvpx estimate_max_q. VP8 MODE_SECONDPASS sets
+	// compressor_speed=1 and uses 1.04 + cpu_used*0.04; realtime and
+	// MODE_SECONDPASS_BEST leave it at 1.0.
+	estimateMaxQSpeedCorrection float64
 	// sectionMaxQFactor mirrors libvpx's
 	// `cpi->twopass.section_max_qfactor`. Computed by find_next_key_frame
 	// (KF group) and define_gf_group (GF group) from the section's
@@ -351,6 +356,7 @@ func (t *twoPassState) configure(stats []FirstPassFrameStats, bitsPerFrame int, 
 	// estimate_max_q call sees libvpx-shaped state when the encoder
 	// has not yet emitted any frames.
 	t.estMaxQCorrection = 1.0
+	t.estimateMaxQSpeedCorrection = 1.0
 	t.sectionMaxQFactor = 1.0
 	// libvpx vp8/encoder/onyx_if.c lines 1953-1955 seed:
 	//   cpi->ni_av_qi  = cpi->oxcf.worst_allowed_q;
@@ -400,6 +406,13 @@ func (t *twoPassState) configureQuantizerBounds(bestQuality int, worstQuality in
 
 func (t *twoPassState) configureErrorResilient(errorResilient bool) {
 	t.errorResilient = errorResilient
+}
+
+func (t *twoPassState) configureEstimateMaxQSpeedCorrection(correction float64) {
+	if correction <= 0 {
+		correction = 1.0
+	}
+	t.estimateMaxQSpeedCorrection = correction
 }
 
 // configureFrameDims pushes the encoder's configured frame size into
@@ -1142,7 +1155,11 @@ func (t *twoPassState) seedPass2ActiveWorstQ(defaultTargetBits int) {
 	// the long-fixture rolling clamp) the gate may fire — applied via
 	// applyNiMaxQLimitClamp before the call.
 	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
+	speedCorrection := t.estimateMaxQSpeedCorrection
+	if speedCorrection <= 0 {
+		speedCorrection = 1.0
+	}
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, speedCorrection, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
 	t.pass2ActiveWorstQ = tmpQ
 	t.pass2ActiveWorstQValid = true
 	// libvpx vp8/encoder/firstpass.c lines 2358-2364: after the first
@@ -1455,7 +1472,11 @@ func (t *twoPassState) dampedUpdatePass2ActiveWorstQ(frame uint64) {
 	// the gate fires (ni_frames > total/256 && ni_frames > 150) and
 	// returns the bounds for the immediate call.
 	minLimit, maxLimit := t.applyNiMaxQLimitClamp(t.maxqMinLimit, t.maxqMaxLimit)
-	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, 1.0, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
+	speedCorrection := t.estimateMaxQSpeedCorrection
+	if speedCorrection <= 0 {
+		speedCorrection = 1.0
+	}
+	tmpQ := min(max(libvpxEstimateMaxQ(t.numMBs, int(sectionTargetBandwidth), overheadBits, errPerMB, speedCorrection, estCorrection, sectionMQF, minLimit, maxLimit), 0), vp8common.MaxQ)
 	// libvpx firstpass.c lines 2384-2392:
 	//   /* Move active_worst_quality but in a damped way */
 	//   if (tmp_q > cpi->active_worst_quality) cpi->active_worst_quality++;

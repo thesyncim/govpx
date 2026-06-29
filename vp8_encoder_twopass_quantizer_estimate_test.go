@@ -50,6 +50,30 @@ func TestLibvpxEstimateMaxQHonoursMinLimitAsFloor(t *testing.T) {
 	}
 }
 
+func TestLibvpxVP8EstimateMaxQSpeedCorrection(t *testing.T) {
+	cases := []struct {
+		name     string
+		deadline Deadline
+		cpuUsed  int
+		want     float64
+	}{
+		{name: "best", deadline: DeadlineBestQuality, cpuUsed: 0, want: 1.0},
+		{name: "realtime", deadline: DeadlineRealtime, cpuUsed: 8, want: 1.0},
+		{name: "good-cpu0", deadline: DeadlineGoodQuality, cpuUsed: 0, want: 1.04},
+		{name: "good-cpu5", deadline: DeadlineGoodQuality, cpuUsed: 5, want: 1.24},
+		{name: "good-clamped-high", deadline: DeadlineGoodQuality, cpuUsed: 16, want: 1.24},
+		{name: "good-clamped-low", deadline: DeadlineGoodQuality, cpuUsed: -16, want: 0.84},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := libvpxVP8EstimateMaxQSpeedCorrection(tc.deadline, tc.cpuUsed)
+			if math.Abs(got-tc.want) > 1e-12 {
+				t.Fatalf("speed correction = %.12f, want %.12f", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLibvpxEstimateModeMVCostMatchesLibvpxFormula(t *testing.T) {
 	stats := FirstPassFrameStats{
 		PcntInter:  1.6,

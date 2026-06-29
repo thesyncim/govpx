@@ -277,6 +277,7 @@ func (e *VP8Encoder) Reset() {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(e.vp8ErrorResilientMode())
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	e.configureTwoPassEstimateMaxQSpeedCorrection()
 	// libvpx vp8_cx_iface.c reseeds cpi->oxcf.auto_key and
 	// cpi->key_frame_frequency in init_config; Reset() mirrors that
 	// re-seeding so prepareKFGroup / framesToKey see the same

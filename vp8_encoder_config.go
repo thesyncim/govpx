@@ -714,6 +714,18 @@ func libvpxSpeedFeatureRecodeLoop(deadline Deadline, cpuUsed int) int {
 	}
 }
 
+func libvpxVP8EstimateMaxQSpeedCorrection(deadline Deadline, cpuUsed int) float64 {
+	if deadline != DeadlineGoodQuality {
+		return 1.0
+	}
+	cpuUsed = min(max(cpuUsed, -5), 5)
+	return 1.04 + float64(cpuUsed)*0.04
+}
+
+func (e *VP8Encoder) configureTwoPassEstimateMaxQSpeedCorrection() {
+	e.twoPass.configureEstimateMaxQSpeedCorrection(libvpxVP8EstimateMaxQSpeedCorrection(e.opts.Deadline, e.opts.CpuUsed))
+}
+
 // libvpx vp8/encoder/rdopt.c:65 auto_speed_thresh table indexed by
 // cpi->Speed (0..16). vp8_auto_select_speed lowers Speed when budget
 // dwarfs avg_encode_time: ms_for_compress*100 > avg_encode_time*thresh.
@@ -1574,6 +1586,7 @@ func (e *VP8Encoder) applyVP8ChangeConfigRuntimeSideEffects() {
 	e.rc.applyVP8ChangeConfigRateModel(e.opts.TwoPassMinPct)
 	e.rc.applyVP8ChangeConfigQuantizerClamp()
 	e.rc.refreshDropFramesAllowed()
+	e.configureTwoPassEstimateMaxQSpeedCorrection()
 	if e.twoPass.enabled() {
 		e.twoPass.configureGFIntervals(e.libvpxStaticSceneMaxGFInterval(), e.libvpxMaxGFInterval())
 	}
@@ -1843,6 +1856,7 @@ func (e *VP8Encoder) SetTwoPassStats(stats []FirstPassFrameStats) error {
 	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
 	e.twoPass.configureErrorResilient(e.vp8ErrorResilientMode())
 	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	e.configureTwoPassEstimateMaxQSpeedCorrection()
 	// libvpx frame_max_bits (vp8/encoder/firstpass.c:316-368) reads
 	// cpi->oxcf.end_usage; re-seed it here so a SetTwoPassStats call
 	// after a runtime RateControlMode change picks up the new dispatch.
