@@ -324,7 +324,7 @@ const (
 )
 
 func (e *VP9Encoder) initVP9TileWorkerPool() {
-	if e == nil || e.opts.Threads <= 1 || e.opts.NoiseSensitivity > 0 {
+	if e == nil || e.vp9EffectiveThreadHint() <= 1 || e.opts.NoiseSensitivity > 0 {
 		return
 	}
 	miCols := (e.opts.Width + 7) >> 3

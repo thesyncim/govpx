@@ -221,8 +221,12 @@ func TestVP9RealtimeCBRAutoThreadingDispatchesTileWorkers(t *testing.T) {
 	if e.opts.Threads != 0 {
 		t.Fatalf("stored Threads = %d, want caller auto value 0", e.opts.Threads)
 	}
-	if e.vp9TilePool != nil {
-		t.Fatal("auto-threaded realtime CBR encoder initialized tile pool before encode")
+	if e.vp9TilePool == nil {
+		t.Fatal("auto-threaded realtime CBR encoder did not prewarm tile pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("prewarmed auto tile worker count = %d, want %d",
+			got, wantThreads)
 	}
 
 	packet, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0))
@@ -260,8 +264,12 @@ func TestVP9SpatialSVCRealtimeCBRAutoThreadingDispatchesTopLayerTileWorkers(t *t
 		t.Fatalf("top-layer stored Threads = %d, want caller auto value 0",
 			top.opts.Threads)
 	}
-	if top.vp9TilePool != nil {
-		t.Fatal("auto-threaded SVC top layer initialized tile pool before encode")
+	if top.vp9TilePool == nil {
+		t.Fatal("auto-threaded SVC top layer did not prewarm tile pool")
+	}
+	if got := top.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("prewarmed SVC top-layer tile worker count = %d, want %d",
+			got, wantThreads)
 	}
 
 	srcs := make([]*image.YCbCr, opts.LayerCount)
@@ -386,6 +394,39 @@ func TestVP9RealtimeCBRAutoThreadingResizePromotesTileWorkers(t *testing.T) {
 		t.Fatalf("resized auto tile worker count = %d, want %d", got, wantThreads)
 	}
 	assertVP9EncoderTilePrefixForTest(t, wide, tileStart)
+}
+
+func TestVP9RealtimeCBRAutoThreadingPrewarmsTileWorkers(t *testing.T) {
+	const width, height = 640, 360
+	opts := VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Deadline:           DeadlineRealtime,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+	}
+	wantThreads := vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+	if wantThreads <= 1 {
+		t.Skip("runtime exposes only one usable VP9 realtime tile thread")
+	}
+	e, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if e.vp9TilePool == nil {
+		t.Fatal("auto-threaded realtime CBR construction did not prewarm tile worker pool")
+	}
+	if got := e.vp9TilePool.workerCount; got != wantThreads {
+		t.Fatalf("auto-threaded realtime CBR workers = %d, want %d",
+			got, wantThreads)
+	}
+	for i, output := range e.vp9TilePool.outputs {
+		if len(output) == 0 {
+			t.Fatalf("prewarmed tile worker output %d has no buffer", i)
+		}
+	}
 }
 
 func TestVP9RealtimeCBRAutoThreadingReleasesTileWorkersWhenIneligible(t *testing.T) {
