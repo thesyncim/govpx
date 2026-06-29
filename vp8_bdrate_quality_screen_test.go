@@ -17,17 +17,10 @@ func TestVP8BDRate360pScreenContentSSIMCBR(t *testing.T) {
 	)
 	// Initial measurement: BD-rate=+2.668% / BD-PSNR=+0.070 dB
 	// (govpx trails libvpx on the 360p screen-content tune=ssim CBR
-	// ladder). The pure-PSNR-tune sibling at 720p
-	// (TestVP8BDRate720pScreenContentCBR) sits at +9.704% with
-	// the gate set at +11.5%; this smaller-resolution SSIM-tune variant
-	// avoids the prob_intra_coded equilibrium that dominates the 720p
-	// residual (the 360p frame has 4x fewer MBs so the recode loop
-	// converges sooner). Set the ceiling at +4.7% (observed +2.668% plus
-	// +2.0% headroom for cubic-fit jitter on
-	// the sparse screen-content rate axis) and the BD-PSNR floor at
-	// -0.6 dB to match the 720p screen-content fixture (the same
-	// near-transparent upper-rung dynamic that drives the wider
-	// BD-PSNR slack there is present here, just at a smaller scale).
+	// ladder). Keep the ceiling at +4.7% (observed +2.668% plus +2.0%
+	// headroom for cubic-fit jitter on the sparse screen-content rate axis)
+	// until this SSIM-tune sibling gets the same retightening pass as the
+	// 720p PSNR-tune fixture.
 	ssimScreen360Gate := benchcmd.LibvpxAbsoluteGate{
 		MaxBDRateOverLibvpxPct: 4.7,
 		MinBDPSNRdB:            -0.6,
@@ -72,96 +65,17 @@ func TestVP8BDRate720pScreenContentCBR(t *testing.T) {
 		height = 720
 		frames = 12
 	)
-	// Screen content saturates the rate axis well below the ladder
-	// upper rungs (synthetic-text frames are sparser than camera
-	// content) so the produced-rate curve compresses near
-	// ~4 Mbps regardless of target. Widen the per-fixture gate to
-	// 37.6% (vs 5% default) to absorb the consequent cubic-fit jitter
-	// after the libvpx oracle CLI mapper fix
-	// (cmd/govpx-bench/benchcmd/bdrate_vp8.go libvpxVP8BDCLIArgs +
-	// libvpxVP8BDCLIArgsTwoPass: pass --screen-content-mode=N when
-	// govpx.EncoderOptions.ScreenContentMode is set so the libvpx
-	// vpxenc oracle runs with the same VP8E_SET_SCREEN_CONTENT_MODE
-	// flag as the govpx encoder under test). Before that fix the
-	// libvpx oracle silently ran with screen_content_mode=0 against
-	// govpx's screen_content_mode=1, masking a real ~36% BD-rate
-	// gap as a more flattering ~20% gap.
-	//
-	// Regulator traces confirm the four libvpx screen-content semantic
-	// sites — UV-delta-Q
-	// (vp8_quantize.c:469), cyclic-refresh MB-budget scaling
-	// (onyx_if.c:509-528), buffer-debt floor (onyx_if.c:4533), and the
-	// limit_q_cbr_inter Q-decrease floor (ratectrl.c:1297-1300) — are
-	// all faithfully ported (vp8_encoder_reconstruct.go:62-73,
-	// vp8_encoder_segmentation.go:502-521, vp8_ratecontrol_postencode.go:318-323,
-	// vp8_ratecontrol_postencode.go:313-316 + vp8_ratecontrol_quantizer.go:65-66
-	// + vp8_ratecontrol_recode.go:201). All four sites fire in govpx with the
-	// same gating libvpx uses, so the residual gap is NOT a missing port.
-	//
-	// The actual driver of the +36% rate gap surfaced via per-frame
-	// regulator traces of frame 1 at the 4 Mbps rung: govpx and libvpx
-	// both start with RCF.inter=1.0 and pick Q=119 (internal) on the
-	// first attempt. Both attempt-1 encodes produce ~5300 bits (govpx
-	// 5593, libvpx 5315). The recode loop drops RCF to 0.3 in both and
-	// next-attempts Q=62. At Q=62 govpx produces ~255 kbits while
-	// libvpx produces ~17 kbits — a 15x bit-spend divergence at the
-	// SAME internal Q on the SAME source frame. This is a byte-parity
-	// gap in the inter-frame mode-selection / coefficient-coding path
-	// at mid-Q on screen-content frames (the integer-pel 8-pixel
-	// translation should mode-decision to ZeroMV+LAST with tiny
-	// residuals; govpx appears to spend bits on intra or non-zero-MV
-	// modes that libvpx skips). Govpx's recode loop then oscillates
-	// (Q=119 → 62 → 91 → 76) while libvpx converges monotonically
-	// (Q=119 → 62 → 26 → 13), so govpx settles at a higher Q with a
-	// smaller frame and libvpx settles at a lower Q matching target.
-	//
-	// Govpx ports libvpx vp8/encoder/rdopt.c calculate_final_rd_costs
-	// (lines 1684-1714) `tteob == 0` rate2 backout into its
-	// intra-in-inter-loop RD picker (estimateInterIntraModeRDScore).
-	// libvpx drops `rate_y + rate_uv` from the rate2 cost when every Y AC
-	// coefficient and every UV coefficient quantizes to zero and replaces
-	// them with the `prob_skip_false=1` delta; govpx was charging the
-	// full coefficient rate to intra candidates regardless of EOB state.
-	// On flat-Y screen-content MBs this inflated DC_PRED / V_PRED /
-	// H_PRED / TM_PRED's rate2 by ~20K bits vs libvpx, driving the picker
-	// to spend NEWMV+LAST bits where libvpx coded the MB as a skipped
-	// intra. The screen-content MB parity test pinned the divergence at
-	// frame 1 MB(5,0) DC_PRED
-	// (govpx rate=20838 vs libvpx rate=1012, score=97846 vs 7622), and
-	// the verbatim port closes the gap to 0 mode/ref/mv mismatches across
-	// all 3600 MBs of the screen-content fixture. The BD-rate measurement
-	// collapsed from +36.054% to +9.704% on the 1280x720 ladder.
-	//
-	// Retighten the gate from the +37.6% steady-state ceiling to +11.5%
-	// (measured +9.704% plus +1.8% headroom). The BD-PSNR gate widens
-	// from -0.5 to -0.6 dB to absorb the measured -0.544 dB residual:
-	// the screen-content cubic-fit still amplifies sparse-frame rate
-	// jitter through the 4-rung ladder, and the cubic axis crosses
-	// near-transparent PSNR (~43 dB) at the top rung where the absolute
-	// dB delta is dominated by libvpx's lower-Q operating point rather
-	// than encoder behavioural drift. Further BD-rate tightening would
-	// require porting the libvpx coefficient-rate / token-cost ladder
-	// quirks that drive the residual rate gap below 10%.
-	//
-	// The screen-content residual parity test extends the per-MB probe
-	// across frames 2-11 and pins the residual divergence seed at frame 2
-	// MB(0,1). Frame 1 stays
-	// byte-exact (0 mismatches); frame 2 has 1326/3600 MB mode
-	// mismatches (1220 with govpx ZEROMV+GOLDEN where libvpx picks
-	// intra). Root cause: prob_intra_coded self-reinforcing
-	// equilibrium — govpx ends frame 2 with prob_intra_coded=1
-	// (vp8_convert_rfct_to_prob clamps to 1 when intra count is 0)
-	// while libvpx evolves to 87 across 91 recode iterations. The
-	// govpx recode loop hits rate_correction_factor=0.01 floor at
-	// iter 4 with frame_size=693 bytes (target ~20772) and stays
-	// clamped because every Q produces the same all-skip
-	// ZEROMV-GOLDEN pattern at prob_intra=1. The libvpx-side
-	// mechanism that admits intra candidates against prob_intra=1
-	// (breaking out of the equilibrium) is not yet localized; the
-	// screen-content residual parity test keeps that follow-up probe covered.
+	// Screen content saturates the rate axis near the upper rungs, so this
+	// fixture keeps a little more headroom than camera-motion cases. The
+	// historical +36% gap was traced to the intra-in-inter RD picker charging
+	// full coefficient rate when libvpx's calculate_final_rd_costs backs out
+	// `rate_y + rate_uv` for all-zero EOBs. With that parity fix in place,
+	// TestVP8ScreenContentResidualParity reports 0 mode/ref/MV mismatches
+	// across all 12 frames (43,200 MBs), and the current libvpx reference
+	// measurement is +0.202% BD-rate / +0.016 dB.
 	screenContentGate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 11.5,
-		MinBDPSNRdB:            -0.6,
+		MaxBDRateOverLibvpxPct: 2.2,
+		MinBDPSNRdB:            -0.2,
 	}
 	runVP8BDRateFixture(t,
 		"VP8 720p screen-content text (CBR ladder 500/1000/2000/4000 kbps)",

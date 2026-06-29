@@ -24,6 +24,10 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 	vp8test.RequireOracle(t, "screen-content residual parity")
 	requireOracleTraceBuild(t)
 	vpxencOracle := vp8test.VpxencOracle(t)
+	// This broad 12-frame sweep only compares committed MB decisions. Keep
+	// inter-candidate rows out of the trace; otherwise every recode attempt
+	// emits gigabytes of candidate JSON that the sweep does not consume.
+	t.Setenv("GOVPX_ORACLE_INTER_CANDIDATE_FRAME", "999999")
 
 	const (
 		width      = 1280
@@ -99,10 +103,13 @@ func TestVP8ScreenContentResidualParity(t *testing.T) {
 	t.Logf("screen_content_residual govpx_trace_bytes=%d libvpx_trace_bytes=%d",
 		govpxTraceBuf.Len(), len(libvpxTrace))
 
+	gRowsByFrame := parseMBActivityRowsByFrame(govpxTraceBuf.Bytes())
+	lRowsByFrame := parseMBActivityRowsByFrame(libvpxTrace)
+
 	// Walk all 12 frames; emit per-frame divergence summary.
 	for frameIdx := uint64(0); frameIdx < frameCount; frameIdx++ {
-		gRows := parseMBActivityRowsForFrame(govpxTraceBuf.Bytes(), frameIdx)
-		lRows := parseMBActivityRowsForFrame(libvpxTrace, frameIdx)
+		gRows := gRowsByFrame[frameIdx]
+		lRows := lRowsByFrame[frameIdx]
 
 		gByKey := map[[2]int]map[string]any{}
 		lByKey := map[[2]int]map[string]any{}

@@ -256,7 +256,11 @@ func runVP8MBActivityParity(t *testing.T, vpxencOracle string, seedHash string, 
 }
 
 func parseMBActivityRowsForFrame(trace []byte, frameIndex uint64) []map[string]any {
-	rows := []map[string]any{}
+	return parseMBActivityRowsByFrame(trace)[frameIndex]
+}
+
+func parseMBActivityRowsByFrame(trace []byte) map[uint64][]map[string]any {
+	byFrame := map[uint64][]map[string]any{}
 	scanner := bufio.NewScanner(bytes.NewReader(trace))
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<24)
 	for scanner.Scan() {
@@ -269,12 +273,13 @@ func parseMBActivityRowsForFrame(trace []byte, frameIndex uint64) []map[string]a
 			continue
 		}
 		fi, ok := row["frame_index"].(float64)
-		if !ok || uint64(fi) != frameIndex {
+		if !ok {
 			continue
 		}
-		rows = append(rows, row)
+		frameIndex := uint64(fi)
+		byFrame[frameIndex] = append(byFrame[frameIndex], row)
 	}
-	return rows
+	return byFrame
 }
 
 // mbTraceFieldsEqual compares two JSON-decoded fields. JSON numbers all
