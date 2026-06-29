@@ -379,63 +379,15 @@ func TestVP8BDRate720pRealtimeCpu4CBR(t *testing.T) {
 		height = 720
 		frames = 16
 	)
-	// The cpu=8 sibling widened to +20%/-1.2 dB after a libvpx-oracle
-	// wall-clock variance audit found a ±14pp BD-rate spread across three
-	// back-to-back runs; this cpu=4 fixture has the same realtime auto-speed
-	// cascade (vp8/encoder/onyx_if.c) and shows the same wall-clock-budget
-	// variance pattern.
-	//
-	// Four samples captured back-to-back:
-	//   sample 1: BD-rate=-26.090%, BD-PSNR=-0.207 dB (cold libvpx oracle)
-	//   sample 2: BD-rate= +6.854%, BD-PSNR=-0.955 dB
-	//   sample 3: BD-rate= +6.854%, BD-PSNR=-0.955 dB
-	//   sample 4: BD-rate= +6.854%, BD-PSNR=-0.955 dB
-	//
-	// Later audit at the same +4 setting:
-	//   sample 1: BD-rate= -7.401%, BD-PSNR=+0.781 dB
-	//   sample 2: BD-rate= +27.137%, BD-PSNR=+2.776 dB
-	//   sample 3: BD-rate= +254.149%, BD-PSNR=+2.963 dB (cold libvpx)
-	//   sample 4: BD-rate= -27.775%, BD-PSNR=+5.110 dB
-	//   sample 5: BD-rate= -16.286%, BD-PSNR=+3.079 dB
-	//   sample 6: BD-rate= -70.911%, BD-PSNR=+5.538 dB
-	// The ±280pp spread confirms libvpx's vp8_auto_select_speed (a
-	// wall-clock-driven per-frame cpi->Speed adapter — rdopt.c:261)
-	// is the dominant noise source. govpx-side ref==test PSNR is
-	// bit-identical across every sample; the entire spread is on the
-	// libvpx oracle side.
-	//
-	// Mitigation mirrors the cpu=8 sibling: pin both sides at the documented
-	// libvpx negative-cpu_used
-	// escape (vp8/encoder/encodeframe.c:686-687: oxcf.cpu_used < 0
-	// bypasses vp8_auto_select_speed and pins cpi->Speed = -cpu_used)
-	// to remove the wall-clock dependency, plus LibvpxOracleRuns=3
-	// median-of-3 as belt-and-suspenders. Under the pin the fixture
-	// becomes deterministic: five consecutive audit runs measure
-	// identical govpx-vs-libvpx BD-rate=+6.240% BD-PSNR=-0.868 dB to
-	// the thousandth (libvpx curve 33.783 / 37.718 / 42.800 /
-	// 47.185 dB at 1887 / 3552 / 5042 / 7315 kbps). The +6.24% is a
-	// real Speed=4 algorithmic gap — not auto-speed noise — and is
-	// the static target for follow-up porting (analogous to the targeted
-	// Speed-gate ports, but at cpu_used+1=5 realistic Speed only the HEX
-	// gate fires; the remaining +6.24% gap is below Speed=5 cascade-only
-	// territory and sits at the realtime Speed=4 RD-vs-fast picker
-	// decisions). The +10.0% / -1.0 dB envelope leaves +3.7pp headroom over
-	// the observed +6.240% to absorb cubic-fit jitter on this short
-	// 16-frame ladder.
-	//
-	// With CpuUsed=-4 + LibvpxOracleRuns=3 the fixture's BD-rate is
-	// deterministic at govpx-vs-libvpx +6.240% / -0.868 dB across runs.
-	// The +10.0% ceiling carries +3.76pp of dead headroom over the
-	// steady-state value; tighten the BD-rate gate to +8.3% (observed
-	// +6.240% + 2.0pp positive-ceiling headroom, rounded to one decimal).
-	// The BD-PSNR floor stays at -1.0 dB because the observed -0.868 dB sits
-	// near that band, and tightening PSNR further risks tripping the gate on
-	// cubic-fit jitter at the lower ladder rungs where libvpx's Speed=4 fast
-	// picker delivers a 0.7-1.2 dB PSNR-Y advantage that the rate axis trades
-	// against.
+	// CpuUsed=-4 pins Speed=4 through libvpx's documented negative-cpu_used
+	// escape, bypassing vp8_auto_select_speed's wall-clock dependency on both
+	// sides. Current LibvpxOracleRuns=3 measurement is govpx-vs-libvpx
+	// BD-rate=-0.000% / BD-PSNR=+0.000 dB, with the same four operating
+	// points on both curves. Keep a narrow +2pp / -0.2 dB envelope so this
+	// realtime Speed=4 path trips quickly if picker parity drifts again.
 	realtimeCpu4Gate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 8.3,
-		MinBDPSNRdB:            -1.0,
+		MaxBDRateOverLibvpxPct: 2.0,
+		MinBDPSNRdB:            -0.2,
 	}
 	runVP8BDRateFixture(t,
 		"VP8 720p panning realtime cpu=4 (CBR ladder 1000/2000/4000/8000 kbps)",

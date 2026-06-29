@@ -15,15 +15,12 @@ func TestVP8BDRate360pScreenContentSSIMCBR(t *testing.T) {
 		height = 360
 		frames = 16
 	)
-	// Initial measurement: BD-rate=+2.668% / BD-PSNR=+0.070 dB
-	// (govpx trails libvpx on the 360p screen-content tune=ssim CBR
-	// ladder). Keep the ceiling at +4.7% (observed +2.668% plus +2.0%
-	// headroom for cubic-fit jitter on the sparse screen-content rate axis)
-	// until this SSIM-tune sibling gets the same retightening pass as the
-	// 720p PSNR-tune fixture.
+	// Current libvpx reference measurement: govpx-vs-libvpx
+	// BD-rate=+0.797% / BD-PSNR=+0.247 dB. Keep +2pp of positive-ceiling
+	// headroom for cubic-fit jitter on the sparse screen-content rate axis.
 	ssimScreen360Gate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 4.7,
-		MinBDPSNRdB:            -0.6,
+		MaxBDRateOverLibvpxPct: 2.8,
+		MinBDPSNRdB:            -0.2,
 	}
 	runVP8BDRateFixture(t,
 		"VP8 360p screen-content text tune=ssim (CBR ladder 300/600/1200/2400 kbps)",
