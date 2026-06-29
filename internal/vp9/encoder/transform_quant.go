@@ -273,126 +273,143 @@ func forwardDCT16x16Scalar(input []int16, stride int, output []int16) {
 	var intermediate [256]int
 	var final [256]int
 
-	for pass := range 2 {
-		for i := range 16 {
-			var inHigh, step1, step2, step3 [8]int
-			if pass == 0 {
-				inHigh[0] = (int(input[0*stride+i]) + int(input[15*stride+i])) * 4
-				inHigh[1] = (int(input[1*stride+i]) + int(input[14*stride+i])) * 4
-				inHigh[2] = (int(input[2*stride+i]) + int(input[13*stride+i])) * 4
-				inHigh[3] = (int(input[3*stride+i]) + int(input[12*stride+i])) * 4
-				inHigh[4] = (int(input[4*stride+i]) + int(input[11*stride+i])) * 4
-				inHigh[5] = (int(input[5*stride+i]) + int(input[10*stride+i])) * 4
-				inHigh[6] = (int(input[6*stride+i]) + int(input[9*stride+i])) * 4
-				inHigh[7] = (int(input[7*stride+i]) + int(input[8*stride+i])) * 4
+	for i := range 16 {
+		forwardDCT16Values(intermediate[:], i*16,
+			int(input[0*stride+i])*4,
+			int(input[1*stride+i])*4,
+			int(input[2*stride+i])*4,
+			int(input[3*stride+i])*4,
+			int(input[4*stride+i])*4,
+			int(input[5*stride+i])*4,
+			int(input[6*stride+i])*4,
+			int(input[7*stride+i])*4,
+			int(input[8*stride+i])*4,
+			int(input[9*stride+i])*4,
+			int(input[10*stride+i])*4,
+			int(input[11*stride+i])*4,
+			int(input[12*stride+i])*4,
+			int(input[13*stride+i])*4,
+			int(input[14*stride+i])*4,
+			int(input[15*stride+i])*4)
+	}
 
-				step1[0] = (int(input[7*stride+i]) - int(input[8*stride+i])) * 4
-				step1[1] = (int(input[6*stride+i]) - int(input[9*stride+i])) * 4
-				step1[2] = (int(input[5*stride+i]) - int(input[10*stride+i])) * 4
-				step1[3] = (int(input[4*stride+i]) - int(input[11*stride+i])) * 4
-				step1[4] = (int(input[3*stride+i]) - int(input[12*stride+i])) * 4
-				step1[5] = (int(input[2*stride+i]) - int(input[13*stride+i])) * 4
-				step1[6] = (int(input[1*stride+i]) - int(input[14*stride+i])) * 4
-				step1[7] = (int(input[0*stride+i]) - int(input[15*stride+i])) * 4
-			} else {
-				inHigh[0] = fdctRoundShift2(intermediate[0*16+i]) + fdctRoundShift2(intermediate[15*16+i])
-				inHigh[1] = fdctRoundShift2(intermediate[1*16+i]) + fdctRoundShift2(intermediate[14*16+i])
-				inHigh[2] = fdctRoundShift2(intermediate[2*16+i]) + fdctRoundShift2(intermediate[13*16+i])
-				inHigh[3] = fdctRoundShift2(intermediate[3*16+i]) + fdctRoundShift2(intermediate[12*16+i])
-				inHigh[4] = fdctRoundShift2(intermediate[4*16+i]) + fdctRoundShift2(intermediate[11*16+i])
-				inHigh[5] = fdctRoundShift2(intermediate[5*16+i]) + fdctRoundShift2(intermediate[10*16+i])
-				inHigh[6] = fdctRoundShift2(intermediate[6*16+i]) + fdctRoundShift2(intermediate[9*16+i])
-				inHigh[7] = fdctRoundShift2(intermediate[7*16+i]) + fdctRoundShift2(intermediate[8*16+i])
-
-				step1[0] = fdctRoundShift2(intermediate[7*16+i]) - fdctRoundShift2(intermediate[8*16+i])
-				step1[1] = fdctRoundShift2(intermediate[6*16+i]) - fdctRoundShift2(intermediate[9*16+i])
-				step1[2] = fdctRoundShift2(intermediate[5*16+i]) - fdctRoundShift2(intermediate[10*16+i])
-				step1[3] = fdctRoundShift2(intermediate[4*16+i]) - fdctRoundShift2(intermediate[11*16+i])
-				step1[4] = fdctRoundShift2(intermediate[3*16+i]) - fdctRoundShift2(intermediate[12*16+i])
-				step1[5] = fdctRoundShift2(intermediate[2*16+i]) - fdctRoundShift2(intermediate[13*16+i])
-				step1[6] = fdctRoundShift2(intermediate[1*16+i]) - fdctRoundShift2(intermediate[14*16+i])
-				step1[7] = fdctRoundShift2(intermediate[0*16+i]) - fdctRoundShift2(intermediate[15*16+i])
-			}
-
-			out := intermediate[:]
-			if pass == 1 {
-				out = final[:]
-			}
-			base := i * 16
-
-			s0 := inHigh[0] + inHigh[7]
-			s1 := inHigh[1] + inHigh[6]
-			s2 := inHigh[2] + inHigh[5]
-			s3 := inHigh[3] + inHigh[4]
-			s4 := inHigh[3] - inHigh[4]
-			s5 := inHigh[2] - inHigh[5]
-			s6 := inHigh[1] - inHigh[6]
-			s7 := inHigh[0] - inHigh[7]
-
-			x0 := s0 + s3
-			x1 := s1 + s2
-			x2 := s1 - s2
-			x3 := s0 - s3
-			out[base+0] = fdctRoundShift((x0 + x1) * fdctCospi16_64)
-			out[base+4] = fdctRoundShift(x3*fdctCospi8_64 + x2*fdctCospi24_64)
-			out[base+8] = fdctRoundShift((x0 - x1) * fdctCospi16_64)
-			out[base+12] = fdctRoundShift(x3*fdctCospi24_64 - x2*fdctCospi8_64)
-
-			t0 := (s6 - s5) * fdctCospi16_64
-			t1 := (s6 + s5) * fdctCospi16_64
-			t2 := fdctRoundShift(t0)
-			t3 := fdctRoundShift(t1)
-			x0 = s4 + t2
-			x1 = s4 - t2
-			x2 = s7 - t3
-			x3 = s7 + t3
-			out[base+2] = fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64)
-			out[base+6] = fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64)
-			out[base+10] = fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64)
-			out[base+14] = fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64)
-
-			step2[2] = fdctRoundShift((step1[5] - step1[2]) * fdctCospi16_64)
-			step2[3] = fdctRoundShift((step1[4] - step1[3]) * fdctCospi16_64)
-			step2[4] = fdctRoundShift((step1[4] + step1[3]) * fdctCospi16_64)
-			step2[5] = fdctRoundShift((step1[5] + step1[2]) * fdctCospi16_64)
-
-			step3[0] = step1[0] + step2[3]
-			step3[1] = step1[1] + step2[2]
-			step3[2] = step1[1] - step2[2]
-			step3[3] = step1[0] - step2[3]
-			step3[4] = step1[7] - step2[4]
-			step3[5] = step1[6] - step2[5]
-			step3[6] = step1[6] + step2[5]
-			step3[7] = step1[7] + step2[4]
-
-			step2[1] = fdctRoundShift(-step3[1]*fdctCospi8_64 + step3[6]*fdctCospi24_64)
-			step2[2] = fdctRoundShift(step3[2]*fdctCospi24_64 + step3[5]*fdctCospi8_64)
-			step2[5] = fdctRoundShift(step3[2]*fdctCospi8_64 - step3[5]*fdctCospi24_64)
-			step2[6] = fdctRoundShift(step3[1]*fdctCospi24_64 + step3[6]*fdctCospi8_64)
-
-			step1[0] = step3[0] + step2[1]
-			step1[1] = step3[0] - step2[1]
-			step1[2] = step3[3] + step2[2]
-			step1[3] = step3[3] - step2[2]
-			step1[4] = step3[4] - step2[5]
-			step1[5] = step3[4] + step2[5]
-			step1[6] = step3[7] - step2[6]
-			step1[7] = step3[7] + step2[6]
-
-			out[base+1] = fdctRoundShift(step1[0]*fdctCospi30_64 + step1[7]*fdctCospi2_64)
-			out[base+9] = fdctRoundShift(step1[1]*fdctCospi14_64 + step1[6]*fdctCospi18_64)
-			out[base+5] = fdctRoundShift(step1[2]*fdctCospi22_64 + step1[5]*fdctCospi10_64)
-			out[base+13] = fdctRoundShift(step1[3]*fdctCospi6_64 + step1[4]*fdctCospi26_64)
-			out[base+3] = fdctRoundShift(-step1[3]*fdctCospi26_64 + step1[4]*fdctCospi6_64)
-			out[base+11] = fdctRoundShift(-step1[2]*fdctCospi10_64 + step1[5]*fdctCospi22_64)
-			out[base+7] = fdctRoundShift(-step1[1]*fdctCospi18_64 + step1[6]*fdctCospi14_64)
-			out[base+15] = fdctRoundShift(-step1[0]*fdctCospi2_64 + step1[7]*fdctCospi30_64)
-		}
+	for i := range 16 {
+		forwardDCT16Values(final[:], i*16,
+			fdctRoundShift2(intermediate[0*16+i]),
+			fdctRoundShift2(intermediate[1*16+i]),
+			fdctRoundShift2(intermediate[2*16+i]),
+			fdctRoundShift2(intermediate[3*16+i]),
+			fdctRoundShift2(intermediate[4*16+i]),
+			fdctRoundShift2(intermediate[5*16+i]),
+			fdctRoundShift2(intermediate[6*16+i]),
+			fdctRoundShift2(intermediate[7*16+i]),
+			fdctRoundShift2(intermediate[8*16+i]),
+			fdctRoundShift2(intermediate[9*16+i]),
+			fdctRoundShift2(intermediate[10*16+i]),
+			fdctRoundShift2(intermediate[11*16+i]),
+			fdctRoundShift2(intermediate[12*16+i]),
+			fdctRoundShift2(intermediate[13*16+i]),
+			fdctRoundShift2(intermediate[14*16+i]),
+			fdctRoundShift2(intermediate[15*16+i]))
 	}
 
 	for i := range 256 {
 		output[i] = int16(final[i])
 	}
+}
+
+// forwardDCT16Values is the 1-D libvpx FDCT16 body. Callers pass values
+// after the pass-specific precondition so the hot 2-D path avoids per-column
+// temporary arrays without changing the arithmetic order.
+func forwardDCT16Values(out []int, base int,
+	in0, in1, in2, in3, in4, in5, in6, in7,
+	in8, in9, in10, in11, in12, in13, in14, in15 int,
+) {
+	input0 := in0 + in15
+	input1 := in1 + in14
+	input2 := in2 + in13
+	input3 := in3 + in12
+	input4 := in4 + in11
+	input5 := in5 + in10
+	input6 := in6 + in9
+	input7 := in7 + in8
+
+	step1_0 := in7 - in8
+	step1_1 := in6 - in9
+	step1_2 := in5 - in10
+	step1_3 := in4 - in11
+	step1_4 := in3 - in12
+	step1_5 := in2 - in13
+	step1_6 := in1 - in14
+	step1_7 := in0 - in15
+
+	s0 := input0 + input7
+	s1 := input1 + input6
+	s2 := input2 + input5
+	s3 := input3 + input4
+	s4 := input3 - input4
+	s5 := input2 - input5
+	s6 := input1 - input6
+	s7 := input0 - input7
+
+	x0 := s0 + s3
+	x1 := s1 + s2
+	x2 := s1 - s2
+	x3 := s0 - s3
+	out[base+0] = fdctRoundShift((x0 + x1) * fdctCospi16_64)
+	out[base+4] = fdctRoundShift(x3*fdctCospi8_64 + x2*fdctCospi24_64)
+	out[base+8] = fdctRoundShift((x0 - x1) * fdctCospi16_64)
+	out[base+12] = fdctRoundShift(x3*fdctCospi24_64 - x2*fdctCospi8_64)
+
+	t0 := (s6 - s5) * fdctCospi16_64
+	t1 := (s6 + s5) * fdctCospi16_64
+	t2 := fdctRoundShift(t0)
+	t3 := fdctRoundShift(t1)
+	x0 = s4 + t2
+	x1 = s4 - t2
+	x2 = s7 - t3
+	x3 = s7 + t3
+	out[base+2] = fdctRoundShift(x0*fdctCospi28_64 + x3*fdctCospi4_64)
+	out[base+6] = fdctRoundShift(x2*fdctCospi12_64 - x1*fdctCospi20_64)
+	out[base+10] = fdctRoundShift(x1*fdctCospi12_64 + x2*fdctCospi20_64)
+	out[base+14] = fdctRoundShift(x3*fdctCospi28_64 - x0*fdctCospi4_64)
+
+	step2_2 := fdctRoundShift((step1_5 - step1_2) * fdctCospi16_64)
+	step2_3 := fdctRoundShift((step1_4 - step1_3) * fdctCospi16_64)
+	step2_4 := fdctRoundShift((step1_4 + step1_3) * fdctCospi16_64)
+	step2_5 := fdctRoundShift((step1_5 + step1_2) * fdctCospi16_64)
+
+	step3_0 := step1_0 + step2_3
+	step3_1 := step1_1 + step2_2
+	step3_2 := step1_1 - step2_2
+	step3_3 := step1_0 - step2_3
+	step3_4 := step1_7 - step2_4
+	step3_5 := step1_6 - step2_5
+	step3_6 := step1_6 + step2_5
+	step3_7 := step1_7 + step2_4
+
+	step2_1 := fdctRoundShift(-step3_1*fdctCospi8_64 + step3_6*fdctCospi24_64)
+	step2_2 = fdctRoundShift(step3_2*fdctCospi24_64 + step3_5*fdctCospi8_64)
+	step2_5 = fdctRoundShift(step3_2*fdctCospi8_64 - step3_5*fdctCospi24_64)
+	step2_6 := fdctRoundShift(step3_1*fdctCospi24_64 + step3_6*fdctCospi8_64)
+
+	step1_0 = step3_0 + step2_1
+	step1_1 = step3_0 - step2_1
+	step1_2 = step3_3 + step2_2
+	step1_3 = step3_3 - step2_2
+	step1_4 = step3_4 - step2_5
+	step1_5 = step3_4 + step2_5
+	step1_6 = step3_7 - step2_6
+	step1_7 = step3_7 + step2_6
+
+	out[base+1] = fdctRoundShift(step1_0*fdctCospi30_64 + step1_7*fdctCospi2_64)
+	out[base+9] = fdctRoundShift(step1_1*fdctCospi14_64 + step1_6*fdctCospi18_64)
+	out[base+5] = fdctRoundShift(step1_2*fdctCospi22_64 + step1_5*fdctCospi10_64)
+	out[base+13] = fdctRoundShift(step1_3*fdctCospi6_64 + step1_4*fdctCospi26_64)
+	out[base+3] = fdctRoundShift(-step1_3*fdctCospi26_64 + step1_4*fdctCospi6_64)
+	out[base+11] = fdctRoundShift(-step1_2*fdctCospi10_64 + step1_5*fdctCospi22_64)
+	out[base+7] = fdctRoundShift(-step1_1*fdctCospi18_64 + step1_6*fdctCospi14_64)
+	out[base+15] = fdctRoundShift(-step1_0*fdctCospi2_64 + step1_7*fdctCospi30_64)
 }
 
 // ForwardHT4x4Into mirrors libvpx v1.16.0 vp9_fht4x4_c. txType selects the
