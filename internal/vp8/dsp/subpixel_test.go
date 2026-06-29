@@ -53,20 +53,37 @@ func TestBilinearPredict16x16AllocatesZero(t *testing.T) {
 	}
 }
 
-func TestSixTapPredict16x16ZeroOffsetsCopiesCentralBlock(t *testing.T) {
+func TestSixTapPredictZeroOffsetsCopyCentralBlock(t *testing.T) {
 	const stride = 32
-	src := makeSixTapSource(stride, 21)
-	dst := make([]byte, 16*16)
+	cases := []struct {
+		name string
+		w, h int
+		fn   func([]byte, int, int, int, []byte, int)
+	}{
+		{"16x16", 16, 16, SixTapPredict16x16},
+		{"16x8", 16, 8, SixTapPredict16x8},
+		{"8x16", 8, 16, SixTapPredict8x16},
+		{"8x8", 8, 8, SixTapPredict8x8},
+		{"8x4", 8, 4, SixTapPredict8x4},
+		{"4x4", 4, 4, SixTapPredict4x4},
+	}
 
-	SixTapPredict16x16(src, stride, 0, 0, dst, 16)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := makeSixTapSource(stride, tc.h+5)
+			dst := make([]byte, tc.w*tc.h)
 
-	for y := range 16 {
-		for x := range 16 {
-			want := src[(y+2)*stride+x+2]
-			if got := dst[y*16+x]; got != want {
-				t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, want)
+			tc.fn(src, stride, 0, 0, dst, tc.w)
+
+			for y := range tc.h {
+				for x := range tc.w {
+					want := src[(y+2)*stride+x+2]
+					if got := dst[y*tc.w+x]; got != want {
+						t.Fatalf("dst[%d,%d] = %d, want %d", x, y, got, want)
+					}
+				}
 			}
-		}
+		})
 	}
 }
 

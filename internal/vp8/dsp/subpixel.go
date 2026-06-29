@@ -30,6 +30,10 @@ func BilinearPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, d
 // prediction origin so the six filter taps are addressable with positive
 // indexes.
 func SixTapPredict4x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset|yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 4, 4)
+		return
+	}
 	if sixTapPredict4x4Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return
 	}
@@ -59,6 +63,10 @@ func SixTapPredict8x16(src []byte, srcStride int, xoffset int, yoffset int, dst 
 }
 
 func SixTapPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset|yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 8, 4)
+		return
+	}
 	if sixTapPredict8x4Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return
 	}
@@ -66,6 +74,10 @@ func SixTapPredict8x4(src []byte, srcStride int, xoffset int, yoffset int, dst [
 }
 
 func SixTapPredict8x8(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset|yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 8, 8)
+		return
+	}
 	if sixTapPredict8x8Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return
 	}
@@ -79,6 +91,11 @@ func SixTapPredict8x8Pair(
 	dst0 []byte, dst0Stride int,
 	dst1 []byte, dst1Stride int,
 ) {
+	if xoffset|yoffset == 0 {
+		copyCentralBlock(src0, src0Stride, dst0, dst0Stride, 8, 8)
+		copyCentralBlock(src1, src1Stride, dst1, dst1Stride, 8, 8)
+		return
+	}
 	if sixTapPredict8x8PairMaybe(src0, src0Stride, src1, src1Stride, xoffset, yoffset, dst0, dst0Stride, dst1, dst1Stride) {
 		return
 	}
@@ -87,6 +104,10 @@ func SixTapPredict8x8Pair(
 }
 
 func SixTapPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
+	if xoffset|yoffset == 0 {
+		copyCentralBlock(src, srcStride, dst, dstStride, 16, 16)
+		return
+	}
 	if sixTapPredict16x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return
 	}
