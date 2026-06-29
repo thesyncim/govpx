@@ -51,12 +51,12 @@ type CoefficientTokenRecord uint32
 
 const (
 	coefficientTokenRecordTokenShift              = 0
-	coefficientTokenRecordProbIndexShift          = 4
-	coefficientTokenRecordMagnitudeShift          = 11
-	coefficientTokenRecordSignShift               = 23
-	coefficientTokenRecordSkipEOBNodeShift        = 24
+	coefficientTokenRecordProbOffsetShift         = 4
+	coefficientTokenRecordMagnitudeShift          = 15
+	coefficientTokenRecordSignShift               = 27
+	coefficientTokenRecordSkipEOBNodeShift        = 28
 	coefficientTokenRecordTokenMask        uint32 = 0x0f
-	coefficientTokenRecordProbIndexMask    uint32 = 0x7f
+	coefficientTokenRecordProbOffsetMask   uint32 = 0x07ff
 	coefficientTokenRecordMagMask          uint32 = 0x0fff
 	coefficientProbRowSize                        = tables.EntropyNodes
 )
@@ -153,7 +153,7 @@ func (records *InterCoefficientTokenRecords) MarkRowEnd(row int) {
 func (records *InterCoefficientTokenRecords) appendTokenUnchecked(blockType int, band int, ctx int, token int, magnitude int, sign uint8, skipEOBNode bool) {
 	value := uint32(token) << coefficientTokenRecordTokenShift
 	probIndex := ((blockType*tables.CoefBands)+band)*tables.PrevCoefContexts + ctx
-	value |= uint32(probIndex) << coefficientTokenRecordProbIndexShift
+	value |= uint32(probIndex*coefficientProbRowSize) << coefficientTokenRecordProbOffsetShift
 	value |= uint32(magnitude) << coefficientTokenRecordMagnitudeShift
 	value |= uint32(sign) << coefficientTokenRecordSignShift
 	if skipEOBNode {
@@ -244,8 +244,8 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	for i := range records {
 		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
-		probIndex := (raw >> coefficientTokenRecordProbIndexShift) & coefficientTokenRecordProbIndexMask
-		p := (*[tables.EntropyNodes]uint8)(unsafe.Add(probBase, uintptr(probIndex)*coefficientProbRowSize))
+		probOffset := (raw >> coefficientTokenRecordProbOffsetShift) & coefficientTokenRecordProbOffsetMask
+		p := (*[tables.EntropyNodes]uint8)(unsafe.Add(probBase, uintptr(probOffset)))
 
 		if token == tables.DCTEOBToken {
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
