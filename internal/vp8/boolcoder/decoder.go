@@ -123,6 +123,54 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	pos := d.pos
 	buf := d.buf
 
+	p := (*probs)[blockType][n][ctx]
+	rng0 := rng
+	split := uint32(1 + (((rng0 - 1) * uint32(p[0])) >> 8))
+	if count < 0 {
+		shift := valueSize - 8 - (count + 8)
+		bytesLeft := len(buf) - pos
+		bitsLeft := bytesLeft * 8
+		x := shift + 8 - bitsLeft
+		loopEnd := 0
+
+		if x >= 0 {
+			count += lotsOfBits
+			loopEnd = x
+		}
+
+		if x < 0 || bitsLeft != 0 {
+			for shift >= loopEnd {
+				count += 8
+				value |= uint64(buf[pos]) << uint(shift)
+				pos++
+				shift -= 8
+			}
+		}
+	}
+
+	bigsplit := uint64(split) << (valueSize - 8)
+	nextRange := split
+	if value >= bigsplit {
+		nextRange = rng0 - split
+		value -= bigsplit
+	} else {
+		shift := tables.BoolNorm[byte(nextRange)]
+		rng = nextRange << shift
+		value <<= shift
+		count -= int(shift)
+
+		d.value = value
+		d.count = count
+		d.rng = rng
+		d.pos = pos
+		return 0
+	}
+
+	shift := tables.BoolNorm[byte(nextRange)]
+	rng = nextRange << shift
+	value <<= shift
+	count -= int(shift)
+
 	fill := func() {
 		shift := valueSize - 8 - (count + 8)
 		bytesLeft := len(buf) - pos
@@ -218,15 +266,6 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 			}
 		}
 		return v + 3 + (8 << cat)
-	}
-
-	p := (*probs)[blockType][n][ctx]
-	if readBool(p[0]) == 0 {
-		d.value = value
-		d.count = count
-		d.rng = rng
-		d.pos = pos
-		return 0
 	}
 
 	for {

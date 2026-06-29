@@ -2,6 +2,7 @@ package decoder
 
 import (
 	"errors"
+	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
 	"github.com/thesyncim/govpx/internal/vp8/common"
@@ -14,6 +15,8 @@ var ErrTokenGridBufferTooSmall = errors.New("govpx: VP8 token grid buffer too sm
 
 var zeroMacroblockEOB [25]uint8
 
+const macroblockTokensTrackedMask uint32 = 1 << 31
+
 type EntropyContextPlanes struct {
 	Y1 [4]uint8
 	U  [2]uint8
@@ -22,8 +25,9 @@ type EntropyContextPlanes struct {
 }
 
 type MacroblockTokens struct {
-	QCoeff [25][16]int16
-	EOB    [25]uint8
+	QCoeff    [25][16]int16
+	EOB       [25]uint8
+	dirtyMask uint32
 }
 
 func ResetMacroblockTokenContext(above *EntropyContextPlanes, left *EntropyContextPlanes, is4x4 bool) {
@@ -44,6 +48,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 	blockType := 0
 	skipDC := 0
 	eobTotal := 0
+	dirtyMask := uint32(0)
 
 	if !is4x4 {
 		ctx := int(above.Y2 + left.Y2)
@@ -51,6 +56,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		hasCoeffs := uint8(0)
 		if nonzeros > 0 {
 			hasCoeffs = 1
+			dirtyMask |= 1 << 24
 		}
 		above.Y2 = hasCoeffs
 		left.Y2 = hasCoeffs
@@ -71,6 +77,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		hasCoeffs := uint8(0)
 		if nonzeros > 0 {
 			hasCoeffs = 1
+			dirtyMask |= 1 << uint(i)
 		}
 		above.Y1[a] = hasCoeffs
 		left.Y1[l] = hasCoeffs
@@ -87,6 +94,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		hasCoeffs := uint8(0)
 		if nonzeros > 0 {
 			hasCoeffs = 1
+			dirtyMask |= 1 << uint(i)
 		}
 		setUVContext(above, a, hasCoeffs)
 		setUVContext(left, l, hasCoeffs)
@@ -95,6 +103,10 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		eobTotal += nonzeros
 	}
 
+	if dirtyMask != 0 || !is4x4 {
+		dirtyMask |= macroblockTokensTrackedMask
+	}
+	out.dirtyMask = dirtyMask
 	return eobTotal
 }
 
@@ -205,6 +217,16 @@ func DecodeBlockCoeffs(br *boolcoder.Decoder, probs *tables.CoefficientProbs, bl
 }
 
 func clearMacroblockTokens(out *MacroblockTokens) {
+	mask := out.dirtyMask
+	if mask != 0 {
+		for mask &^= macroblockTokensTrackedMask; mask != 0; mask &= mask - 1 {
+			i := bits.TrailingZeros32(mask)
+			out.QCoeff[i] = [16]int16{}
+		}
+		out.EOB = [25]uint8{}
+		out.dirtyMask = 0
+		return
+	}
 	if out.EOB == zeroMacroblockEOB {
 		return
 	}
