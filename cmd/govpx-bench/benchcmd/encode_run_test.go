@@ -117,6 +117,9 @@ func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	if !strings.Contains(text, "frames encoded/dropped") || !strings.Contains(text, "3/0") {
 		t.Fatalf("formatted reference report missing encoded/drop counts:\n%s", text)
 	}
+	if !strings.Contains(text, "libvpx parity") || !strings.Contains(text, "--end-usage=cbr") {
+		t.Fatalf("formatted reference report missing auditable parity flags:\n%s", text)
+	}
 }
 
 func TestRunBenchmarkSkipQuality(t *testing.T) {

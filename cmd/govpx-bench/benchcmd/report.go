@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	govpx "github.com/thesyncim/govpx"
@@ -81,6 +82,10 @@ func formatEncodeReport(r benchReport) string {
 		ref := r.Reference
 		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
 			ref.TimingSource, formatDuration(ref.WallNSPerFrame), formatDuration(ref.SubprocessOverheadNS))
+		if len(ref.ParityFlags) > 0 {
+			fmt.Fprintf(&b, "libvpx parity   %s\n",
+				strings.Join(ref.ParityFlags, " "))
+		}
 		if ref.QualityError != "" {
 			fmt.Fprintf(&b, "libvpx quality  warn: %s\n", ref.QualityError)
 		}
