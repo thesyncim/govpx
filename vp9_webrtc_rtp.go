@@ -134,19 +134,8 @@ func (r VP9EncodeResult) vp9WebRTCSingleFrameScalabilityStructure() (
 		ss.PictureGroupPresent = true
 		ss.PictureGroups = []VP9RTPPictureGroup{{TemporalID: 0}}
 	} else if r.TemporalLayerCount > 1 {
-		groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(
-			r.TemporalLayeringMode)
-		if !ok {
-			mode, ok := vp9DefaultWebRTCTemporalModeForLayerCount(
-				r.TemporalLayerCount)
-			if !ok {
-				return VP9RTPScalabilityStructure{}, false
-			}
-			groups, ok = vp9WebRTCTemporalScalabilityPictureGroups(mode)
-			if !ok {
-				groups = vp9GenericTemporalScalabilityPictureGroups(mode)
-			}
-		}
+		groups := vp9WebRTCSingleFrameTemporalPictureGroups(
+			r.TemporalLayeringMode, r.TemporalLayerCount)
 		if len(groups) == 0 {
 			return VP9RTPScalabilityStructure{}, false
 		}
@@ -154,6 +143,26 @@ func (r VP9EncodeResult) vp9WebRTCSingleFrameScalabilityStructure() (
 		ss.PictureGroups = groups
 	}
 	return ss, true
+}
+
+func vp9WebRTCSingleFrameTemporalPictureGroups(
+	mode TemporalLayeringMode,
+	layerCount int,
+) []VP9RTPPictureGroup {
+	if groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(mode); ok {
+		return groups
+	}
+	if groups := vp9GenericTemporalScalabilityPictureGroups(mode); len(groups) > 0 {
+		return groups
+	}
+	mode, ok := vp9DefaultWebRTCTemporalModeForLayerCount(layerCount)
+	if !ok {
+		return nil
+	}
+	if groups, ok := vp9WebRTCTemporalScalabilityPictureGroups(mode); ok {
+		return groups
+	}
+	return vp9GenericTemporalScalabilityPictureGroups(mode)
 }
 
 func vp9DefaultWebRTCTemporalModeForLayerCount(

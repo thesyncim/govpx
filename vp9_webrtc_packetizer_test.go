@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -169,6 +170,56 @@ func TestVP9WebRTCPacketizerPacketizesPlainNonFlexibleTemporal(t *testing.T) {
 	}
 }
 
+func TestVP9WebRTCPacketizerNonFlexibleUsesConfiguredTemporalGOF(t *testing.T) {
+	const width, height = 64, 64
+	const mode = TemporalLayeringThreeLayersNoSync
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:                    width,
+		Height:                   height,
+		FPS:                      30,
+		Deadline:                 DeadlineRealtime,
+		CpuUsed:                  8,
+		TargetBitrateKbps:        300,
+		TemporalScalability:      TemporalScalabilityConfig{Enabled: true, Mode: mode},
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	key, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(width, height,
+		32, 224, 96, 192), dst)
+	if err != nil {
+		t.Fatalf("key EncodeIntoWithResult: %v", err)
+	}
+	if key.TemporalLayeringMode != mode {
+		t.Fatalf("key temporal mode = %v, want %v", key.TemporalLayeringMode,
+			mode)
+	}
+
+	desc := key.WebRTCRTPPayloadDescriptor(0x1234)
+	if !desc.ScalabilityStructurePresent ||
+		!desc.ScalabilityStructure.PictureGroupPresent {
+		t.Fatalf("key WebRTC SS = %+v", desc.ScalabilityStructure)
+	}
+	want := vp9GenericTemporalScalabilityPictureGroups(mode)
+	defaultGroups, ok := vp9WebRTCTemporalScalabilityPictureGroups(
+		TemporalLayeringThreeLayers)
+	if !ok {
+		t.Fatal("default three-layer WebRTC GOF missing")
+	}
+	if reflect.DeepEqual(want, defaultGroups) {
+		t.Fatal("test fixture GOF unexpectedly matches default three-layer GOF")
+	}
+	if got := desc.ScalabilityStructure.PictureGroups; !reflect.DeepEqual(got, want) {
+		t.Fatalf("key WebRTC GOF = %+v, want configured mode %+v", got, want)
+	}
+}
+
 func TestVP9WebRTCPacketizerFlexibleTemporalRefsHonorReferenceMask(t *testing.T) {
 	const width, height = 64, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
@@ -235,6 +286,73 @@ func TestVP9WebRTCPacketizerFlexibleTemporalRefsHonorReferenceMask(t *testing.T)
 		t.Fatalf("T1 flexible refs = tid:%d sync:%t refs:%v/%d, want sync T1 -> key only",
 			t1Desc.TemporalID, t1Desc.SwitchingUpPoint,
 			t1Desc.ReferenceIndices, t1Desc.ReferenceIndexCount)
+	}
+}
+
+func TestVP9WebRTCPacketizerFlexibleNoSyncLongStreamDoesNotRecover(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:                    width,
+		Height:                   height,
+		FPS:                      30,
+		Deadline:                 DeadlineRealtime,
+		CpuUsed:                  8,
+		RateControlModeSet:       true,
+		RateControlMode:          RateControlCBR,
+		TargetBitrateKbps:        800,
+		ErrorResilient:           true,
+		FrameParallelDecodingSet: true,
+		FrameParallelDecoding:    true,
+		MaxKeyframeInterval:      32,
+		TemporalScalability: TemporalScalabilityConfig{
+			Enabled: true,
+			Mode:    TemporalLayeringThreeLayersNoSync,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	dst := make([]byte, 1<<20)
+	payloadBuf := make([]byte, 1<<20)
+	fragments := make([]RTPPayloadFragment, 256)
+	packetizer := NewVP9WebRTCPacketizer(0x120)
+	for frame := 0; frame < 96; frame++ {
+		if frame == 45 {
+			e.ForceKeyFrame()
+		}
+		result, err := e.EncodeIntoWithResult(vp9test.NewCheckerYCbCr(
+			width, height, byte(24+frame*3), byte(220-frame),
+			byte(96+frame), byte(188-frame)), dst)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		packets, payloadBytes, sent, err := packetizer.PacketizationSize(result,
+			500)
+		if err != nil {
+			t.Fatalf("PacketizationSize frame %d tl=%d key=%t refresh=0x%x needsKey=%t err=%v",
+				frame, result.TemporalLayerID, result.KeyFrame,
+				result.RefreshFrameFlags, packetizer.NeedsKeyFrame(), err)
+		}
+		if !sent {
+			continue
+		}
+		if packets > len(fragments) || payloadBytes > len(payloadBuf) {
+			t.Fatalf("test buffers too small: packets=%d payloadBytes=%d",
+				packets, payloadBytes)
+		}
+		gotPackets, gotBytes, sent, err := packetizer.PacketizeInto(result,
+			fragments[:packets], payloadBuf[:payloadBytes], 500)
+		if err != nil || !sent {
+			t.Fatalf("PacketizeInto frame %d tl=%d key=%t refresh=0x%x packets=%d/%d bytes=%d/%d needsKey=%t sent=%t err=%v",
+				frame, result.TemporalLayerID, result.KeyFrame,
+				result.RefreshFrameFlags, gotPackets, packets, gotBytes,
+				payloadBytes, packetizer.NeedsKeyFrame(), sent, err)
+		}
+		if packetizer.NeedsKeyFrame() {
+			t.Fatalf("packetizer requested recovery after frame %d", frame)
+		}
 	}
 }
 

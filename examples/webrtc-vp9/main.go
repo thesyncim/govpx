@@ -61,7 +61,12 @@ const (
 	plainVP9Height = 180
 )
 
-const plainVP9WebRTCKeyframeIntervalSeconds = 3600
+const (
+	plainVP9WebRTCKeyframeIntervalSeconds = 3600
+	// VP9 flexible-mode P_DIFF is 7-bit. Keep long-lived reference slots
+	// comfortably inside that horizon for temporal patterns with old refs.
+	plainVP9FlexibleRTPKeyframeInterval = 96
+)
 
 // layerSplitPct holds the per-spatial-layer bitrate share, base to top.
 // These are independent layer targets; libvpx sums them for total SVC budget.
@@ -1254,7 +1259,7 @@ func runPlainVP9Encoder(ctx context.Context, track *webrtc.TrackLocalStaticRTP,
 	rtpTimestampBase := randomUint32()
 	rtpSequence := randomUint16()
 	rtpPacketizer := govpx.NewVP9WebRTCPacketizer(randomUint16())
-	flexibleVP9RTP := false
+	flexibleVP9RTP := plainVP9FlexibleRTP(cfg)
 
 	startedAt := time.Now()
 	ticker := time.NewTicker(interval)
@@ -1882,7 +1887,7 @@ func newPlainVP9Encoder(cfg demoConfig) (*govpx.VP9Encoder, error) {
 		FrameParallelDecoding:    true,
 		MinQuantizer:             4,
 		MaxQuantizer:             56,
-		MaxKeyframeInterval:      plainVP9WebRTCKeyframeInterval(cfg.FPS),
+		MaxKeyframeInterval:      plainVP9WebRTCKeyframeInterval(cfg),
 	}
 	if cfg.PlainVP9TemporalMode {
 		opts.TemporalScalability = govpx.TemporalScalabilityConfig{
@@ -1900,7 +1905,23 @@ func plainVP9TemporalLayeringMode(cfg demoConfig) govpx.TemporalLayeringMode {
 	return plainVP9TemporalMode
 }
 
-func plainVP9WebRTCKeyframeInterval(fps int) int {
+func plainVP9FlexibleRTP(cfg demoConfig) bool {
+	if !cfg.PlainVP9TemporalMode {
+		return false
+	}
+	switch plainVP9TemporalLayeringMode(cfg) {
+	case govpx.TemporalLayeringThreeLayers, govpx.TemporalLayeringThreeLayersOneReference:
+		return false
+	default:
+		return true
+	}
+}
+
+func plainVP9WebRTCKeyframeInterval(cfg demoConfig) int {
+	if plainVP9FlexibleRTP(cfg) {
+		return plainVP9FlexibleRTPKeyframeInterval
+	}
+	fps := cfg.FPS
 	if fps <= 0 {
 		return plainVP9WebRTCKeyframeIntervalSeconds * defaultFPS
 	}

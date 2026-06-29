@@ -233,6 +233,20 @@ func TestPlainVP9WebRTCPacketizerNoInterLayerPredictionLongNoLossStreamDecodesWi
 }
 
 func TestPlainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
+	plainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(
+		t, govpx.TemporalLayeringThreeLayers)
+}
+
+func TestPlainVP9WebRTCNonFlexibleOneReferenceLongNoLossStreamDecodesWithVpxdec(t *testing.T) {
+	plainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(
+		t, govpx.TemporalLayeringThreeLayersOneReference)
+}
+
+func plainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(
+	t *testing.T,
+	mode govpx.TemporalLayeringMode,
+) {
+	t.Helper()
 	vp9test.RequireVpxdec(t)
 
 	const width, height = 64, 64
@@ -248,7 +262,7 @@ func TestPlainVP9WebRTCNonFlexiblePacketizerLongNoLossStreamDecodesWithVpxdec(t 
 		TargetBitrateKbps:  900,
 		TemporalScalability: govpx.TemporalScalabilityConfig{
 			Enabled: true,
-			Mode:    govpx.TemporalLayeringThreeLayers,
+			Mode:    mode,
 		},
 		ErrorResilient:           true,
 		FrameParallelDecodingSet: true,

@@ -1803,13 +1803,30 @@ func TestVP9WebRTCCodecCapabilityPinsProfile0AndFeedback(t *testing.T) {
 }
 
 func TestPlainVP9WebRTCKeyframeIntervalAvoidsShortPeriodicKeys(t *testing.T) {
-	got := plainVP9WebRTCKeyframeInterval(defaultFPS)
+	got := plainVP9WebRTCKeyframeInterval(demoConfig{FPS: defaultFPS})
 	want := plainVP9WebRTCKeyframeIntervalSeconds * defaultFPS
 	if got != want {
 		t.Fatalf("plain VP9 keyframe interval = %d, want %d", got, want)
 	}
 	if got <= 128 {
 		t.Fatalf("plain VP9 keyframe interval = %d, want beyond libvpx default cadence", got)
+	}
+}
+
+func TestPlainVP9WebRTCKeyframeIntervalCapsFlexibleRTP(t *testing.T) {
+	cfg := demoConfig{
+		FPS:                          defaultFPS,
+		PlainVP9TemporalMode:         true,
+		PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersNoSync,
+	}
+	got := plainVP9WebRTCKeyframeInterval(cfg)
+	if got != plainVP9FlexibleRTPKeyframeInterval {
+		t.Fatalf("flexible plain VP9 keyframe interval = %d, want %d",
+			got, plainVP9FlexibleRTPKeyframeInterval)
+	}
+	if got >= 0x7f {
+		t.Fatalf("flexible plain VP9 keyframe interval = %d, want below VP9 P_DIFF horizon",
+			got)
 	}
 }
 
@@ -2014,6 +2031,116 @@ func TestParsePlainVP9TemporalLayeringMode(t *testing.T) {
 	}
 	if _, err := parsePlainVP9TemporalLayeringMode("bogus"); err == nil {
 		t.Fatal("parsePlainVP9TemporalLayeringMode(bogus) succeeded")
+	}
+}
+
+func TestPlainVP9FlexibleRTPSelection(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  demoConfig
+		want bool
+	}{
+		{name: "plain one layer", cfg: demoConfig{}, want: false},
+		{
+			name: "default temporal",
+			cfg:  demoConfig{PlainVP9TemporalMode: true},
+			want: false,
+		},
+		{
+			name: "one reference temporal",
+			cfg: demoConfig{
+				PlainVP9TemporalMode:         true,
+				PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersOneReference,
+			},
+			want: false,
+		},
+		{
+			name: "no sync temporal",
+			cfg: demoConfig{
+				PlainVP9TemporalMode:         true,
+				PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersNoSync,
+			},
+			want: true,
+		},
+		{
+			name: "no inter-layer prediction temporal",
+			cfg: demoConfig{
+				PlainVP9TemporalMode:         true,
+				PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersNoInterLayerPrediction,
+			},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		if got := plainVP9FlexibleRTP(tc.cfg); got != tc.want {
+			t.Fatalf("%s: plainVP9FlexibleRTP = %t, want %t",
+				tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestPlainVP9NoSyncFlexiblePacketizerDemoLoopDoesNotRecover(t *testing.T) {
+	cfg := demoConfig{
+		FPS:                          25,
+		BitrateKbps:                  800,
+		PlainVP9TemporalMode:         true,
+		PlainVP9TemporalLayeringMode: govpx.TemporalLayeringThreeLayersNoSync,
+	}
+	enc, err := newPlainVP9Encoder(cfg)
+	if err != nil {
+		t.Fatalf("newPlainVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+
+	width, height := plainVP9Dimensions(cfg)
+	img := image.NewYCbCr(image.Rect(0, 0, width, height),
+		image.YCbCrSubsampleRatio420)
+	packet := make([]byte, plainVP9FrameBudget(width, height))
+	packetizer := govpx.NewVP9WebRTCPacketizer(0x120)
+	var fragments []govpx.RTPPayloadFragment
+	var payloadBuf []byte
+	for frame := 0; frame < 180; frame++ {
+		if frame == 22 {
+			enc.ForceKeyFrame()
+		}
+		drawFrameYCbCr(img, frame+1, 1)
+		result, err := enc.EncodeIntoWithResult(img, packet)
+		if err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", frame, err)
+		}
+		packets, payloadBytes, sent, err := plainVP9WebRTCPacketizationSize(
+			&packetizer, result, rtpPayloadMTU, true)
+		if err != nil {
+			t.Fatalf("PacketizationSize frame %d tl=%d key=%t dropped=%t refresh=0x%x needsKey=%t err=%v",
+				frame, result.TemporalLayerID, result.KeyFrame,
+				result.Dropped, result.RefreshFrameFlags,
+				packetizer.NeedsKeyFrame(), err)
+		}
+		if !sent {
+			if packetizer.NeedsKeyFrame() {
+				enc.ForceKeyFrame()
+			}
+			continue
+		}
+		if cap(fragments) < packets {
+			fragments = make([]govpx.RTPPayloadFragment, packets)
+		}
+		if cap(payloadBuf) < payloadBytes {
+			payloadBuf = make([]byte, payloadBytes)
+		}
+		gotPackets, gotBytes, sent, err := packetizePlainVP9WebRTCInto(
+			&packetizer, result, fragments[:packets],
+			payloadBuf[:payloadBytes], rtpPayloadMTU, true)
+		if err != nil || !sent {
+			t.Fatalf("PacketizeInto frame %d tl=%d key=%t dropped=%t refresh=0x%x packets=%d/%d bytes=%d/%d needsKey=%t sent=%t err=%v",
+				frame, result.TemporalLayerID, result.KeyFrame,
+				result.Dropped, result.RefreshFrameFlags, gotPackets,
+				packets, gotBytes, payloadBytes, packetizer.NeedsKeyFrame(),
+				sent, err)
+		}
+		if packetizer.NeedsKeyFrame() {
+			t.Fatalf("packetizer requested recovery after frame %d", frame)
+		}
 	}
 }
 
