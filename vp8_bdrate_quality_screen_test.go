@@ -107,14 +107,14 @@ func TestVP8BDRate720pBPredEdgeGridCBR(t *testing.T) {
 		height = 720
 		frames = 12
 	)
-	// After the VP8 BD harness default-deadline fix, govpx-vs-libvpx
-	// measures +6.443% / +0.086 dB. Keep the standard +2pp
-	// positive-ceiling headroom and round to one decimal so a future
-	// speed-bucket drift or B_PRED/SPLITMV scoring regression trips this
-	// fixture before it re-enters the old +24-25% band.
+	// Current libvpx-backed measurement is essentially parity:
+	// govpx-vs-libvpx BD-rate=-0.054% / BD-PSNR=+0.000 dB. Keep a narrow
+	// +1pp positive ceiling so a future speed-bucket drift or B_PRED/SPLITMV
+	// scoring regression trips this fixture before it re-enters the old
+	// +24-25% band.
 	bpredGate := benchcmd.LibvpxAbsoluteGate{
-		MaxBDRateOverLibvpxPct: 8.5,
-		MinBDPSNRdB:            -0.5,
+		MaxBDRateOverLibvpxPct: 1.0,
+		MinBDPSNRdB:            -0.2,
 	}
 	runVP8BDRateFixture(t,
 		"VP8 720p B_PRED edge grid (CBR ladder 500/1000/2000/4000 kbps)",
