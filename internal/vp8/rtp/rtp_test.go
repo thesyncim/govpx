@@ -424,6 +424,20 @@ func TestAssembleFrameRejectsInvalidPayloadSequence(t *testing.T) {
 				Marker: true,
 			},
 		}},
+		{name: "missing later partition start", payloads: []vpxrtp.PayloadFragment{
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					StartOfPartition: true,
+					PartitionID:      0,
+				}, []byte{0x01}),
+			},
+			{
+				Payload: rtptest.MustPackPayload(t, PayloadDescriptor{
+					PartitionID: 1,
+				}, []byte{0x02}),
+				Marker: true,
+			},
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

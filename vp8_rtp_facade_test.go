@@ -297,3 +297,36 @@ func TestVP8DecoderDecodeRTPRejectsInvalidFragments(t *testing.T) {
 		t.Fatalf("DecodeRTPInto invalid marker error = %v, want ErrInvalidData", err)
 	}
 }
+
+func TestVP8DecoderDecodeRTPRejectsMissingPartitionStart(t *testing.T) {
+	frame := vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)
+	first, err := govpx.PackVP8RTPPayload(govpx.VP8RTPPayloadDescriptor{
+		StartOfPartition: true,
+		PartitionID:      0,
+	}, frame[:3])
+	if err != nil {
+		t.Fatalf("PackVP8RTPPayload first returned error: %v", err)
+	}
+	second, err := govpx.PackVP8RTPPayload(govpx.VP8RTPPayloadDescriptor{
+		PartitionID: 1,
+	}, frame[3:])
+	if err != nil {
+		t.Fatalf("PackVP8RTPPayload second returned error: %v", err)
+	}
+	payloads := []govpx.RTPPayloadFragment{
+		{Payload: first},
+		{Payload: second, Marker: true},
+	}
+	if _, err := govpx.AssembleVP8RTPFrame(payloads); !errors.Is(err, govpx.ErrInvalidData) {
+		t.Fatalf("AssembleVP8RTPFrame error = %v, want ErrInvalidData", err)
+	}
+
+	d, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
+	if err != nil {
+		t.Fatalf("NewVP8Decoder returned error: %v", err)
+	}
+	frameBuf := make([]byte, len(frame))
+	if _, err := d.DecodeRTPInto(frameBuf, payloads); !errors.Is(err, govpx.ErrInvalidData) {
+		t.Fatalf("DecodeRTPInto error = %v, want ErrInvalidData", err)
+	}
+}

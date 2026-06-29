@@ -310,6 +310,9 @@ func vp8FrameAssemblyValidator() vpxrtp.FragmentValidator[PayloadDescriptor] {
 		if desc.PartitionID < lastPartitionID {
 			return vpxerrors.ErrInvalidData
 		}
+		if desc.PartitionID > lastPartitionID && !desc.StartOfPartition {
+			return vpxerrors.ErrInvalidData
+		}
 		if desc.StartOfPartition && desc.PartitionID <= lastPartitionID {
 			return vpxerrors.ErrInvalidData
 		}
