@@ -28,16 +28,17 @@ fair microbenchmark before any wider suite run.
 | Priority | Area | Arch | Local surface | Upstream source | Current state | Validation |
 | --- | --- | --- | --- | --- | --- | --- |
 | P0 | FP quantize | arm64 | `internal/vp9/encoder/transform_quant_dispatch_arm64.go`, `internal/vp9/encoder/quant_fp_arm64.s` | `vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon` | `QuantizeFPLibvpx`, `QuantizeFP`, and `QuantizeFPWithQ` use the NEON AC kernel for supported libvpx FP tables; purego and unusual tables fall back scalar | `go test ./internal/vp9/encoder -run 'TestVP9QuantizeFP|TestQuantizeFP' -count=1`; `go test -tags purego ./internal/vp9/encoder -run 'TestVP9QuantizeFP|TestQuantizeFP' -count=1`; `go test ./internal/vp9/encoder -run '^$' -bench '^BenchmarkVP9QuantizeFP' -benchmem -benchtime=500ms -count=5` |
-| P0 | FP quantize | amd64 | `internal/vp9/encoder/transform_quant_dispatch_amd64.go`, new `quant_fp_amd64.s` | `vp9/encoder/x86/vp9_quantize_sse2.c::vp9_quantize_fp_sse2` | all VP9 encoder transform/quant dispatchers scalar on amd64 | same focused tests/benchmarks on amd64 runner |
+| P0 | FP quantize | amd64 | `internal/vp9/encoder/transform_quant_dispatch_amd64.go`, `internal/vp9/encoder/quant_fp_amd64.s` | `vp9/encoder/x86/vp9_quantize_sse2.c::vp9_quantize_fp_sse2` | `QuantizeFPLibvpx` uses the SSE2 AC kernel for supported libvpx FP tables; purego and unusual tables fall back scalar | same focused tests/benchmarks on amd64 runner |
 | P0 | Realtime fused block scoring | arm64/amd64 | `internal/vp9/encoder/block_yrd.go`, `transform_quant.go` | `vp9/encoder/vp9_pickmode.c::block_yrd`, `vp9/encoder/vp9_rdopt.c::vp9_block_error_fp_c`, `vp9/encoder/vp9_quantize.c::vp9_quantize_fp_c` | residual gather, transform, quantize, SATD/block-error are separate calls | `go test ./internal/vp9/encoder -run 'TestVP9BlockYrd|TestVP9BlockErrorFP|TestVP9QuantizeFP|TestForward(DCT|WHT)' -count=1`; `go test . -run 'TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity' -count=1` |
 | P0 | FDCT16x16 | arm64 | `internal/vp9/encoder/transform_quant_dispatch_arm64.go`, `internal/vp9/encoder/fdct16x16_arm64.s` | `vpx_dsp/arm/fdct16x16_neon.c::vpx_fdct16x16_neon` | NEON kernel routed on arm64 with scalar fallback for invalid shapes | `go test ./internal/vp9/encoder -run 'TestForwardDCT16x16|TestForwardHT16x16|TestForwardDCT16x16NEON' -count=1`; `go test -tags purego ./internal/vp9/encoder -run 'TestForwardDCT16x16|TestForwardHT16x16' -count=1`; `go test ./internal/vp9/encoder -run '^$' -bench '^BenchmarkForwardDCT16x16' -benchmem -benchtime=500ms -count=5` |
-| P0 | FDCT4x4/8x8/WHT4x4 | amd64 | `internal/vp9/encoder/transform_quant_dispatch_amd64.go`, new fdct/fwht asm | `vpx_dsp/x86/fdct_sse2.c`, `vp9/encoder/x86/vp9_dct_sse2.c` | scalar fallback | `go test ./internal/vp9/encoder -run 'TestForward(DCT4x4|DCT8x8|WHT4x4)' -count=1`; direct SIMD-vs-scalar tests and benches |
+| P0 | FDCT4x4/8x8/WHT4x4 | amd64 | `internal/vp9/encoder/transform_quant_dispatch_amd64.go`, `internal/vp9/encoder/fwht_amd64.s`, future fdct asm | `vpx_dsp/x86/fdct_sse2.c`, `vp9/encoder/x86/vp9_dct_sse2.c` | WHT4x4 uses SSE2 with scalar fallback; FDCT4x4 and FDCT8x8 remain scalar | `go test ./internal/vp9/encoder -run 'TestForward(DCT4x4|DCT8x8|WHT4x4)' -count=1`; direct SIMD-vs-scalar tests and benches |
 | P1 | FDCT32x32 and RD | arm64/amd64 | `forwardDCT32x32Dispatch`, `forwardDCT32x32RDDispatch` | `vpx_dsp/arm/fdct32x32_neon.c`, x86 FDCT32 sources | scalar fallback; large generated-style kernels | `go test ./internal/vp9/encoder -run 'TestForwardDCT32x32|TestForwardHT' -count=1`; direct SIMD-vs-scalar tests; bench `BenchmarkForwardDCT32x32*` when added |
+| P1 | Decoder loopfilter | arm64/amd64 | `internal/vp9/dsp/loopfilter.go`, future dispatch/asm files | `vpx_lpf_{horizontal,vertical}_{4,8,16}{,_dual}_{sse2,avx2,neon}` | scalar only on both amd64 and arm64; high decode ROI and high edge-mask risk | `GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace ./internal/vp9/dsp -run TestDSPMatchesLibvpx -count=1`; `go test . -run 'TestVP9Decoder(AppliesLoopFilterInterMotionFrame|LoopFilterOptGatesLoopFilterPool)' -count=1` |
 | P1 | Decoder inverse transform butterflies | arm64/amd64 | `internal/vp9/dsp/idct_dispatch_*.go` | `vp9/common/*/vp9_idct*`, `vp9_iht*` | row add/DC paths use asm; 1-D butterflies remain scalar | `go test ./internal/vp9/dsp -run 'TestVP9Idct|TestVP9Iht|TestVP9Iwht' -count=1`; `go test ./internal/vp9/dsp -run '^$' -bench '^BenchmarkVP9I(dct|ht|wht)' -benchmem -benchtime=500ms -count=5` |
 | P1 | Compound-average convolve | arm64/amd64 | `internal/vp9/dsp/convolve_*.go` | `vpx_dsp/arm/vpx_convolve8_neon.c`, `vpx_dsp/x86/vpx_subpixel_8t_intrin_*` | plain 8-tap horiz/vert/full SIMD exists; avg path still composes via temp + scalar avg | `go test ./internal/vp9/dsp -run '^TestVP9Convolve8' -count=1`; `go test ./internal/vp9/dsp -run '^$' -bench '^BenchmarkVP9Convolve8' -benchmem -benchtime=500ms -count=5` |
 | P1 | DC-only IDCT add | amd64 | `internal/vp9/dsp/idct_dispatch_amd64.go`, `idct_amd64.s` | `vpx_dsp/x86/inv_txfm_sse2.c::vpx_idct*_1_add_sse2` | arm64 has DC-add NEON; amd64 DC-only variants stay scalar | `go test ./internal/vp9/dsp -run 'TestVP9Idct.*1Add|TestVP9IdctFull' -count=1`; `go test ./internal/vp9/dsp -run '^$' -bench 'BenchmarkVP9Idct(4x4_1Add|8x8_1Add|16x16_1Add|32x32_1Add)' -benchmem -benchtime=500ms -count=5` on amd64 |
 | P2 | Token-cost, trellis, coeff-rate | arm64/amd64 | `internal/vp9/encoder/coeff_cost.go`, `coef_encode.go`, `fullrd_trellis.go` | `vp9/encoder/vp9_rd.c::fill_token_costs`, `vp9/encoder/vp9_tokenize.c`, `vp9/encoder/vp9_encodemb.c::vp9_optimize_b` | pure Go; high bitstream/RD risk | profile-gated only; `go test ./internal/vp9/encoder -run 'TestCoeff|TestVP9CostTokens|Test.*Trellis|Test.*OptimizeB' -count=1`; `go test ./internal/vp9/encoder -run '^$' -bench 'BenchmarkCoeff' -benchmem -benchtime=500ms -count=5` |
-| P2 | Loopfilter and intra predictors | arm64/amd64 | `internal/vp9/dsp/loopfilter.go`, `intrapred*.go` | `vp9/common/*/vp9_loopfilter*`, `vp9_reconintra*` | pure Go | add SIMD-vs-scalar tests beside `internal/vp9/dsp`; run focused loopfilter/intra tests only |
+| P2 | Intra predictors | arm64/amd64 | `internal/vp9/dsp/intrapred.go`, `intrapred_dir.go`, `intrapred_4x4.go` | `vp9/common/*/vp9_reconintra*` | scalar only; medium-high border/directional risk | `GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace ./internal/vp9/dsp -run TestDSPMatchesLibvpx -count=1`; `GOVPX_WITH_ORACLE=1 go test -tags govpx_oracle_trace . -run 'TestVP9DecoderVpxdecOracleMatches(IntraResidualKeyframe|LoopFilteredKeyframe)' -count=1` |
 
 ## VP8 priorities
 
@@ -54,13 +55,13 @@ fair microbenchmark before any wider suite run.
 
 ## Landing order
 
-1. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on an amd64
-   runner.
+1. Finish VP9 amd64 FDCT4x4/FDCT8x8 dispatch. FP quantize and WHT4x4 are
+   already routed through focused SSE2 kernels with scalar/purego guards.
 2. VP9 arm64 FDCT32x32/FDCT32x32RD. FDCT16x16 is already routed on arm64;
    future generated/raw-WORD ports must keep Go stack maps and register
    preservation explicit.
-3. VP9 decoder/recon loopfilter SIMD for arm64 and amd64, then full
-   inverse-transform butterflies and convolve-average paths.
+3. VP9 decoder loopfilter SIMD for arm64 and amd64, then compound-average
+   convolve and DC-only/full inverse-transform paths.
 4. VP9 realtime fused block scoring, once the remaining component kernels have
    direct parity tests and microbenchmarks.
 5. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
