@@ -850,12 +850,14 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 	rs := sess.renditions[idx]
 	track := sess.tracks[idx]
 	cfg := sess.cfg
+	threads := pickThreads(rs.cfg.Width, rs.cfg.Height)
 
 	enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
 		Width:               rs.cfg.Width,
 		Height:              rs.cfg.Height,
 		FPS:                 cfg.FPS,
-		Threads:             pickThreads(rs.cfg.Width, rs.cfg.Height),
+		Threads:             threads,
+		TokenPartitions:     pickTokenPartitions(threads),
 		RateControlMode:     govpx.RateControlCBR,
 		TargetBitrateKbps:   rs.cfg.BitrateKbps,
 		MinQuantizer:        2,
@@ -1208,14 +1210,23 @@ func pickCPUUsed(width, height int) int {
 }
 
 func pickThreads(width, height int) int {
-	_ = runtime.NumCPU()
-	_ = width * height
-	// The in-tree VP8 encoder has an outstanding threading bug on the
-	// dot-artifact path that surfaces when ROI segmentation interacts
-	// with multi-row workers; single-threaded encode is rock solid and
-	// the demo's three independent encoders parallelise across cores
-	// the natural way.
+	cores := max(runtime.NumCPU(), 1)
+	pixels := width * height
+	if pixels >= 1280*720 {
+		return min(4, cores)
+	}
+	if pixels >= 640*360 {
+		return min(2, cores)
+	}
 	return 1
+}
+
+func pickTokenPartitions(threads int) int {
+	tokenPartitions := 0
+	for partitions := 1; partitions < threads && tokenPartitions < 3; partitions <<= 1 {
+		tokenPartitions++
+	}
+	return tokenPartitions
 }
 
 func webrtcMaxIntraTargetPct(optimalBufferMs, fps int) int {
