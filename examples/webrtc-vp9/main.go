@@ -197,6 +197,16 @@ let receiverRepairSuppressUntil = 0;
 let receiverRequestedSpatialCap = MAX_SPATIAL_CAP;
 let senderForcedKeyCount = 0;
 let senderPacketizerRecoveryCount = 0;
+let peerStatus = "";
+let iceStatus = "connecting";
+let dataChannelOpen = false;
+
+function renderConnectionStatus(){
+  const parts = [];
+  parts.push(peerStatus || iceStatus);
+  if(dataChannelOpen) parts.push("dc open");
+  status.textContent = parts.join(" | ");
+}
 
 function row(dl, k, v){
   const dt = document.createElement("dt"); dt.textContent = k;
@@ -368,17 +378,18 @@ async function start(){
   window.govpxDemoPeerConnection = pc;
   pc.addTransceiver("video",{direction:"recvonly"});
   pc.ontrack = e => { document.getElementById("v").srcObject = e.streams[0]; };
-  pc.oniceconnectionstatechange = () => { status.textContent = "ICE: " + pc.iceConnectionState; };
-  pc.onconnectionstatechange = () => { status.textContent = "peer: " + pc.connectionState; };
+  pc.oniceconnectionstatechange = () => { iceStatus = "ICE: " + pc.iceConnectionState; renderConnectionStatus(); };
+  pc.onconnectionstatechange = () => { peerStatus = "peer: " + pc.connectionState; renderConnectionStatus(); };
   dc = pc.createDataChannel("demo", {ordered:true});
-  dc.onopen = () => { status.textContent += " | dc open"; };
+  dc.onopen = () => { dataChannelOpen = true; renderConnectionStatus(); };
+  dc.onclose = () => { dataChannelOpen = false; renderConnectionStatus(); };
   dc.onmessage = ev => {
     try { renderStats(JSON.parse(ev.data)); }
     catch(err){ console.error(err); }
   };
   await pc.setLocalDescription(await pc.createOffer());
   const gathered = await waitForIceGatheringComplete(pc, ICE_GATHER_TIMEOUT_MS);
-  if (!gathered) status.textContent = "ICE: gathering timeout, continuing";
+  if (!gathered) { iceStatus = "ICE: gathering timeout, continuing"; renderConnectionStatus(); }
   const res = await fetch("/offer", {
     method: "POST",
     headers: {"Content-Type":"application/json"},
