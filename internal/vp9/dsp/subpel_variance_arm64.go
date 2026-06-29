@@ -89,6 +89,22 @@ func runSecondPass(src *byte, dst *byte, w, h, yOffset int) {
 	}
 }
 
+// runVerticalPassFromSource runs the vertical bilinear pre-filter directly on
+// the source plane when the horizontal tap is identity.
+func runVerticalPassFromSource(src *byte, srcStride int, dst *byte, w, h, yOffset int) {
+	f0, f1 := subpelHalfFilter(yOffset)
+	switch w {
+	case 4:
+		subpelVarFilter4NEON(src, srcStride, dst, srcStride, h, f0, f1)
+	case 8:
+		subpelVarFilter8NEON(src, srcStride, dst, srcStride, h, f0, f1)
+	case 16:
+		subpelVarFilter16NEON(src, srcStride, dst, srcStride, h, f0, f1)
+	default:
+		subpelVarFilter16ChunksNEON(src, srcStride, dst, srcStride, w, h, f0, f1)
+	}
+}
+
 // finalVarianceFromBlock runs the appropriate NEON variance kernel on
 // the temp block (tightly packed at stride=w) against the reference.
 func finalVarianceFromBlock(temp []byte, w, h int,
@@ -146,9 +162,7 @@ func subPixelVarianceSimd(w, h int,
 	}
 
 	// Stack-allocated temp buffers sized for the worst case (64 wide).
-	// fdata holds (h+1) rows of w uint8 after the horizontal pass; tmp
-	// holds h rows of w uint8 after the vertical pass.
-	var fdataBuf [64 * 65]byte
+	// tmp holds h rows of w uint8 after the final bilinear pass.
 	var tmpBuf [64 * 64]byte
 	temp := tmpBuf[:w*h]
 
@@ -157,26 +171,16 @@ func subPixelVarianceSimd(w, h int,
 		runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
 		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 	}
-
-	fdata := fdataBuf[:w*(h+1)]
 	if xOffset == 0 {
-		// Horizontal blend is a no-op — fdata[y][x] = src[y][x] (taps {8,0}).
-		// We still need (h+1) rows so the vertical pass can read past
-		// the last output row.
-		for y := 0; y < h+1; y++ {
-			off := srcOff + y*srcStride
-			copy(fdata[y*w:y*w+w], src[off:off+w])
-		}
-	} else {
-		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
+		runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), w, h, yOffset)
+		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 	}
 
-	if yOffset == 0 {
-		// Vertical blend is a no-op — temp = fdata[:h*w].
-		copy(temp, fdata[:h*w])
-	} else {
-		runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
-	}
+	// fdata holds (h+1) rows of w uint8 after the horizontal pass.
+	var fdataBuf [64 * 65]byte
+	fdata := fdataBuf[:w*(h+1)]
+	runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
+	runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
 
 	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 }

@@ -214,6 +214,23 @@ func BenchmarkVP9SubPixelVariance32x32HorizontalOnly(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9SubPixelVariance32x32VerticalOnly(b *testing.B) {
+	r := rand.New(rand.NewPCG(0x3333, 0x8888))
+	const stride = 96
+	const off = 8
+	src := make([]uint8, stride*(32+off+8))
+	ref := make([]uint8, stride*(32+off+8))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+		ref[i] = uint8(r.UintN(256))
+	}
+	var sse uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSubPixelVariance32x32(src, off*stride+off, stride, 0, 5, ref, off*stride+off, stride, &sse)
+	}
+}
+
 func BenchmarkVP9SubPixelVariance32x32FullPel(b *testing.B) {
 	r := rand.New(rand.NewPCG(0x3333, 0x9999))
 	const stride = 96
