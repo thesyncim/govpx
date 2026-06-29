@@ -45,6 +45,10 @@ type WriteCoefBlockArgs struct {
 	// only when there's no neighbor residue (top-left of the SB or
 	// directly after a skip block).
 	InitCtx int
+
+	// EOB, when non-nil, receives the computed end-of-block value so
+	// callers that need residue presence can avoid rescanning coeffs.
+	EOB *int
 }
 
 // WriteCoefBlock emits the wire fragment for one transform block's
@@ -65,6 +69,9 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 
 	// Find EOB position: one past the last non-zero coefficient.
 	eob := CoeffBlockEOB(a.Scan, maxEob, a.Coeffs, qcoeffs)
+	if a.EOB != nil {
+		*a.EOB = eob
+	}
 
 	coefModel := &a.Fc[a.TxSize][a.PlaneType][a.IsInter]
 	var tokenCache [1024]uint8

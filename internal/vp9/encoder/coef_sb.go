@@ -193,6 +193,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 				if a.GetQCoeffs != nil {
 					qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
 				}
+				eob := 0
 				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
 					TxSize:          txSize,
 					PlaneType:       planeType,
@@ -206,16 +207,11 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					Fc:              a.Fc,
 					CoefBranchStats: a.CoefBranchStats,
 					InitCtx:         initCtx,
+					EOB:             &eob,
 				}); err != nil {
 					return err
 				}
 
-				eob := 0
-				for i := 0; i < vp9dec.MaxEobForTxSize(txSize); i++ {
-					if CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
-						eob = i + 1
-					}
-				}
 				hasResidue := uint8(0)
 				if eob > 0 {
 					hasResidue = 1

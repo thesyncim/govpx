@@ -114,13 +114,15 @@ func CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
 // CoeffBlockEOB returns the last non-zero coefficient position plus one in
 // scan order.
 func CoeffBlockEOB(scan []int16, maxEob int, coeffs, qcoeffs []int16) int {
-	eob := 0
-	for i := range maxEob {
-		if CoeffBlockHasCoeff(scan, i, coeffs, qcoeffs) {
-			eob = i + 1
+	if maxEob > len(scan) {
+		maxEob = len(scan)
+	}
+	for i := maxEob - 1; i >= 0; i-- {
+		if coeffBlockHasCoeffAtRaster(int(scan[i]), coeffs, qcoeffs) {
+			return i + 1
 		}
 	}
-	return eob
+	return 0
 }
 
 // CoeffBlockHasCoeff reports whether scan[pos] points at a non-zero
@@ -129,7 +131,10 @@ func CoeffBlockHasCoeff(scan []int16, pos int, coeffs, qcoeffs []int16) bool {
 	if pos < 0 || pos >= len(scan) {
 		return false
 	}
-	raster := int(scan[pos])
+	return coeffBlockHasCoeffAtRaster(int(scan[pos]), coeffs, qcoeffs)
+}
+
+func coeffBlockHasCoeffAtRaster(raster int, coeffs, qcoeffs []int16) bool {
 	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
 		return qcoeffs[raster] != 0
 	}
