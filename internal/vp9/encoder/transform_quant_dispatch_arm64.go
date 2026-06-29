@@ -12,25 +12,11 @@ import "unsafe"
 // the port should use for instruction-word generation.
 
 func forwardDCT4x4Dispatch(input []int16, stride int, output []int16) {
-	// PENDING: port libvpx v1.16.0 vpx_fdct4x4_neon
-	//   - kernel:  vpx_dsp/arm/fdct4x4_neon.c::vpx_fdct4x4_neon
-	//   - helpers: vpx_dsp/arm/fdct4x4_neon.h (vpx_fdct4x4_pass1_neon,
-	//              vpx_fdct4x4_pass2_neon) and vpx_dsp/arm/fdct_neon.h
-	//              (butterfly_one_coeff_s16_fast_half,
-	//              butterfly_one_coeff_s16_s32_fast_narrow_half,
-	//              butterfly_two_coeff_half).
-	// The kernel relies on int32-widening through pass2 (SADDL/SSUBL +
-	// SQRDMULHQ on the cospi_16_64*1<<17 constant) which is what the
-	// prior attempt missed, so reproduce that path exactly. The required
-	// NEON instruction encoders are pre-built and self-tested in
-	// neon_encoder_test.go (enc_saddl_4s_4h, enc_ssubl_4s_4h,
-	// enc_smull_4s_4h_by_elt, enc_smlal_4s_4h_by_elt,
-	// enc_smlsl_4s_4h_by_elt, enc_sqrshrn_4h_from_4s_imm,
-	// enc_sqrdmulh_4h, enc_shl_4h_imm, enc_sshr_4h_imm,
-	// enc_trn1_4h/2s, enc_trn2_4h/2s, enc_dup_4h_from_w,
-	// enc_movz_w_imm16, enc_ldrsh_w, enc_cbz_w, enc_ins_h_from_w,
-	// enc_ld1_4h, enc_st1_8h_post).
-	forwardDCT4x4Scalar(input, stride, output)
+	if stride < 4 || len(input) < 3*stride+4 || len(output) < 16 {
+		forwardDCT4x4Scalar(input, stride, output)
+		return
+	}
+	forwardDCT4x4NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride)
 }
 
 func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
@@ -97,3 +83,6 @@ func forwardWHT4x4NEON(input *int16, stride int, output *int16)
 
 //go:noescape
 func forwardDCT8x8NEON(input *int16, output *int16, stride int)
+
+//go:noescape
+func forwardDCT4x4NEON(input *int16, output *int16, stride int)
