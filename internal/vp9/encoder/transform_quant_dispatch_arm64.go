@@ -34,13 +34,11 @@ func forwardDCT4x4Dispatch(input []int16, stride int, output []int16) {
 }
 
 func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
-	// PENDING: port libvpx v1.16.0 vpx_fdct8x8_neon
-	//   - kernel:  vpx_dsp/arm/fdct8x8_neon.c::vpx_fdct8x8_neon
-	//   - helpers: vpx_dsp/arm/fdct8x8_neon.h
-	// The 8x8 kernel reuses butterfly_two_coeff and add_round_shift_s16
-	// from vpx_dsp/arm/fdct_neon.h. Same encoders as 4x4 plus the .8h
-	// (Q=1) variants of each NEON op.
-	forwardDCT8x8Scalar(input, stride, output)
+	if stride < 8 || len(input) < 7*stride+8 || len(output) < 64 {
+		forwardDCT8x8Scalar(input, stride, output)
+		return
+	}
+	forwardDCT8x8NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride)
 }
 
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
@@ -96,3 +94,6 @@ func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff [
 
 //go:noescape
 func forwardWHT4x4NEON(input *int16, stride int, output *int16)
+
+//go:noescape
+func forwardDCT8x8NEON(input *int16, output *int16, stride int)
