@@ -400,9 +400,11 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
+	rowBase := row * cols
+	rowModes := modes[rowBase : rowBase+cols]
+	rowTokens := tokens[rowBase : rowBase+cols]
 	for col := 0; col < cols; col++ {
-		index := row*cols + col
-		mode := &modes[index]
+		mode := &rowModes[col]
 		if mode.SegmentID >= common.MaxMBSegments {
 			return ErrUnsupportedInterReconstructionMode
 		}
@@ -411,7 +413,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 		vOff := vRow + col*8
 		if mode.RefFrame == common.IntraFrame {
 			refs := BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
-			if !ReconstructIntraMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
+			if !ReconstructIntraMacroblock(mode, &rowTokens[col], &(*dequants)[mode.SegmentID], refs, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 			continue
@@ -433,7 +435,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 			return ErrUnsupportedInterReconstructionMode
 		}
 		if ref != img && mode.Mode == common.ZeroMV && mode.MBSkipCoeff && !mode.Is4x4 && mode.MV.IsZero() {
-			run := zeroMVSkippedRunLength(modes[row*cols:], col, cols, mode.RefFrame)
+			run := zeroMVSkippedRunLength(rowModes, col, cols, mode.RefFrame)
 			if run > 1 {
 				if copyZeroMVInterMacroblockRunFast(refState, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, row, col, run) {
 					col += run - 1
@@ -445,12 +447,12 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 			}
 		}
 		if mode.Mode == common.SplitMV {
-			if !ReconstructSplitMVInterMacroblock(mode, &tokens[index], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
+			if !ReconstructSplitMVInterMacroblock(mode, &rowTokens[col], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 			continue
 		}
-		if !reconstructWholeMVInterMacroblockFast(refState, mode, &tokens[index], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
+		if !reconstructWholeMVInterMacroblockFast(refState, mode, &rowTokens[col], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
 			return ErrUnsupportedInterReconstructionMode
 		}
 	}
@@ -459,8 +461,13 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 }
 
 func zeroMVSkippedRunLength(rowModes []MacroblockMode, start int, cols int, ref common.MVReferenceFrame) int {
-	run := 0
-	for col := start; col < cols; col++ {
+	if start < 0 || start >= cols {
+		return 0
+	}
+	// The caller already validated rowModes[start]. Start scanning at the next
+	// MB so the hot skipped-ZeroMV path does not re-check the current mode.
+	run := 1
+	for col := start + 1; col < cols; col++ {
 		mode := &rowModes[col]
 		if mode.SegmentID >= common.MaxMBSegments ||
 			mode.RefFrame != ref ||
