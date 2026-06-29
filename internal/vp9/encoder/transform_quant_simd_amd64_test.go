@@ -54,6 +54,51 @@ func TestForwardWHT4x4SSE2MatchesScalarStrided(t *testing.T) {
 	}
 }
 
+func TestForwardDCT4x4SSE2MatchesScalarConstant(t *testing.T) {
+	for _, v := range []int16{0, 1, -1, 7, -7, 200, -200, 255, -255} {
+		var input [16]int16
+		for i := range input {
+			input[i] = v
+		}
+		var simd, scalar [16]int16
+		forwardDCT4x4SSE2OrScalar(input[:], 4, simd[:])
+		forwardDCT4x4Scalar(input[:], 4, scalar[:])
+		if simd != scalar {
+			t.Fatalf("constant %d DCT4x4 mismatch\nsimd  %v\nscalar %v", v, simd, scalar)
+		}
+	}
+}
+
+func TestForwardDCT4x4SSE2MatchesScalarRandom(t *testing.T) {
+	rng := rand.New(rand.NewSource(15))
+	for trial := range 100 {
+		var input [16]int16
+		for i := range input {
+			input[i] = int16(rng.Intn(511) - 255)
+		}
+		var simd, scalar [16]int16
+		forwardDCT4x4SSE2OrScalar(input[:], 4, simd[:])
+		forwardDCT4x4Scalar(input[:], 4, scalar[:])
+		if simd != scalar {
+			t.Fatalf("trial %d DCT4x4 mismatch\nin    %v\nsimd  %v\nscalar %v", trial, input, simd, scalar)
+		}
+	}
+}
+
+func TestForwardDCT4x4SSE2MatchesScalarStrided(t *testing.T) {
+	rng := rand.New(rand.NewSource(16))
+	var input [4 * 8]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var simd, scalar [16]int16
+	forwardDCT4x4SSE2OrScalar(input[:], 8, simd[:])
+	forwardDCT4x4Scalar(input[:], 8, scalar[:])
+	if simd != scalar {
+		t.Fatalf("strided DCT4x4 mismatch\nsimd  %v\nscalar %v", simd, scalar)
+	}
+}
+
 func TestQuantizeFPACSSE2MatchesScalar(t *testing.T) {
 	roundAC, quantAC, deqAC := 5, 3855, 17
 	for _, count := range []int{8, 16, 64} {
@@ -121,6 +166,45 @@ func TestQuantizeFPACSSE2MatchesScalar(t *testing.T) {
 	}
 }
 
+func BenchmarkForwardDCT4x4Scalar(b *testing.B) {
+	rng := rand.New(rand.NewSource(9))
+	var input [16]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [16]int16
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		forwardDCT4x4Scalar(input[:], 4, output[:])
+	}
+}
+
+func BenchmarkForwardDCT4x4SSE2(b *testing.B) {
+	rng := rand.New(rand.NewSource(9))
+	var input [16]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [16]int16
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		forwardDCT4x4SSE2Test(input[:], 4, output[:])
+	}
+}
+
+func BenchmarkForwardDCT4x4Dispatch(b *testing.B) {
+	rng := rand.New(rand.NewSource(9))
+	var input [16]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	var output [16]int16
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ForwardDCT4x4Into(input[:], 4, output[:])
+	}
+}
+
 func BenchmarkForwardWHT4x4Scalar(b *testing.B) {
 	rng := rand.New(rand.NewSource(3))
 	var input [16]int16
@@ -158,6 +242,18 @@ func BenchmarkForwardWHT4x4Dispatch(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		ForwardWHT4x4Into(input[:], 4, output[:])
 	}
+}
+
+func forwardDCT4x4SSE2Test(input []int16, stride int, output []int16) {
+	forwardDCT4x4SSE2(unsafe.SliceData(input), stride, unsafe.SliceData(output))
+}
+
+func forwardDCT4x4SSE2OrScalar(input []int16, stride int, output []int16) {
+	if stride < 4 || len(input) < 3*stride+4 || len(output) < 16 {
+		forwardDCT4x4Scalar(input, stride, output)
+		return
+	}
+	forwardDCT4x4SSE2Test(input, stride, output)
 }
 
 func forwardWHT4x4SSE2Test(input []int16, stride int, output []int16) {
