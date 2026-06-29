@@ -61,6 +61,93 @@ loop16x16_avx2:
 	VZEROUPPER
 	RET
 
+// sadBlock16x16x4AVX2 ABI ($0-64):
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   ref0+16(FP)      *byte
+//   ref1+24(FP)      *byte
+//   ref2+32(FP)      *byte
+//   ref3+40(FP)      *byte
+//   refStride+48(FP) int
+//   out+56(FP)       *[4]uint32
+//
+// Load each source row-pair once, compare it against four candidate reference
+// row-pairs, and accumulate four SAD lanes.
+TEXT ·sadBlock16x16x4AVX2(SB), NOSPLIT, $0-64
+	MOVQ	src+0(FP), AX
+	MOVQ	srcStride+8(FP), BX
+	MOVQ	ref0+16(FP), CX
+	MOVQ	ref1+24(FP), DX
+	MOVQ	ref2+32(FP), SI
+	MOVQ	ref3+40(FP), DI
+	MOVQ	refStride+48(FP), R9
+
+	VPXOR	Y10, Y10, Y10
+	VPXOR	Y11, Y11, Y11
+	VPXOR	Y12, Y12, Y12
+	VPXOR	Y13, Y13, Y13
+	MOVQ	$8, R8
+
+x4_loop16x16_avx2:
+	VMOVDQU	(AX), X1
+	VINSERTI128	$1, (AX)(BX*1), Y1, Y1
+
+	VMOVDQU	(CX), X2
+	VINSERTI128	$1, (CX)(R9*1), Y2, Y2
+	VPSADBW	Y2, Y1, Y4
+	VPADDQ	Y4, Y10, Y10
+
+	VMOVDQU	(DX), X2
+	VINSERTI128	$1, (DX)(R9*1), Y2, Y2
+	VPSADBW	Y2, Y1, Y4
+	VPADDQ	Y4, Y11, Y11
+
+	VMOVDQU	(SI), X2
+	VINSERTI128	$1, (SI)(R9*1), Y2, Y2
+	VPSADBW	Y2, Y1, Y4
+	VPADDQ	Y4, Y12, Y12
+
+	VMOVDQU	(DI), X2
+	VINSERTI128	$1, (DI)(R9*1), Y2, Y2
+	VPSADBW	Y2, Y1, Y4
+	VPADDQ	Y4, Y13, Y13
+
+	LEAQ	(AX)(BX*2), AX
+	LEAQ	(CX)(R9*2), CX
+	LEAQ	(DX)(R9*2), DX
+	LEAQ	(SI)(R9*2), SI
+	LEAQ	(DI)(R9*2), DI
+	DECQ	R8
+	JNZ	x4_loop16x16_avx2
+
+	MOVQ	out+56(FP), R10
+
+	VEXTRACTI128	$1, Y10, X0
+	PADDD	X0, X10
+	MOVHLPS	X10, X0
+	PADDD	X0, X10
+	MOVL	X10, 0(R10)
+
+	VEXTRACTI128	$1, Y11, X0
+	PADDD	X0, X11
+	MOVHLPS	X11, X0
+	PADDD	X0, X11
+	MOVL	X11, 4(R10)
+
+	VEXTRACTI128	$1, Y12, X0
+	PADDD	X0, X12
+	MOVHLPS	X12, X0
+	PADDD	X0, X12
+	MOVL	X12, 8(R10)
+
+	VEXTRACTI128	$1, Y13, X0
+	PADDD	X0, X13
+	MOVHLPS	X13, X0
+	PADDD	X0, X13
+	MOVL	X13, 12(R10)
+	VZEROUPPER
+	RET
+
 // sadBlock16x8AVX2: 8 rows of 16 bytes.
 TEXT ·sadBlock16x8AVX2(SB), NOSPLIT, $0-36
 	MOVQ	src+0(FP), AX

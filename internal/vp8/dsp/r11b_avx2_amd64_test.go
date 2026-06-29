@@ -125,6 +125,42 @@ func TestSADAVX2MatchesScalar(t *testing.T) {
 	}
 }
 
+func TestSAD16x16x4AVX2MatchesScalar(t *testing.T) {
+	if !cpu.HasAVX2 {
+		t.Skip("AVX2 not available on this host")
+	}
+	const planeStride = 64
+	const planeRows = 64
+	plane := make([]byte, planeStride*planeRows)
+	ref := make([]byte, planeStride*planeRows)
+	rng := rand.New(rand.NewSource(0x5ad4d))
+	for i := range plane {
+		plane[i] = byte(rng.Intn(256))
+		ref[i] = byte(rng.Intn(256))
+	}
+	for srcOff := range 8 {
+		for refOff := range 8 {
+			srcSlice := plane[srcOff*planeStride+srcOff:]
+			ref0 := ref[refOff*planeStride+refOff:]
+			ref1 := ref[refOff*planeStride+refOff+1:]
+			ref2 := ref[(refOff+1)*planeStride+refOff:]
+			ref3 := ref[(refOff+1)*planeStride+refOff+1:]
+			var got [4]uint32
+			sadBlock16x16x4AVX2(&srcSlice[0], planeStride, &ref0[0],
+				&ref1[0], &ref2[0], &ref3[0], planeStride, &got)
+			refs := [][]byte{ref0, ref1, ref2, ref3}
+			for i, refSlice := range refs {
+				want := scalarSAD(srcSlice, planeStride, refSlice,
+					planeStride, 16, 16)
+				if int(got[i]) != want {
+					t.Fatalf("offsets src=%d ref=%d lane=%d: got %d want %d",
+						srcOff, refOff, i, got[i], want)
+				}
+			}
+		}
+	}
+}
+
 func BenchmarkSAD16x16AVX2(b *testing.B) {
 	if !cpu.HasAVX2 {
 		b.Skip("AVX2 not available on this host")
@@ -138,6 +174,30 @@ func BenchmarkSAD16x16AVX2(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		sadBlock16x16AVX2(&src[0], 64, &ref[0], 64)
+	}
+}
+
+func BenchmarkSAD16x16x4AVX2(b *testing.B) {
+	if !cpu.HasAVX2 {
+		b.Skip("AVX2 not available on this host")
+	}
+	const stride = 64
+	src := make([]byte, stride*32)
+	ref := make([]byte, stride*32)
+	for i := range src {
+		src[i] = byte(i*3 + 7)
+		ref[i] = byte(i*5 + 11)
+	}
+	srcPtr := &src[3*stride+5]
+	ref0 := &ref[2*stride+7]
+	ref1 := &ref[3*stride+9]
+	ref2 := &ref[4*stride+11]
+	ref3 := &ref[5*stride+13]
+	var out [4]uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sadBlock16x16x4AVX2(srcPtr, stride, ref0, ref1, ref2, ref3,
+			stride, &out)
 	}
 }
 

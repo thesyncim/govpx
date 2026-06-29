@@ -18,6 +18,9 @@ func sadBlock16x16SSE2(src *byte, srcStride int, ref *byte, refStride int) int32
 func sadBlock16x16LimitSSE2(src *byte, srcStride int, ref *byte, refStride int, limit int32) int32
 
 //go:noescape
+func sadBlock16x16x4SSE2(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32)
+
+//go:noescape
 func sadBlock16x8SSE2(src *byte, srcStride int, ref *byte, refStride int) int32
 
 //go:noescape
@@ -31,6 +34,9 @@ func sadBlock4x4SSE2(src *byte, srcStride int, ref *byte, refStride int) int32
 
 //go:noescape
 func sadBlock16x16AVX2(src *byte, srcStride int, ref *byte, refStride int) int32
+
+//go:noescape
+func sadBlock16x16x4AVX2(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32)
 
 //go:noescape
 func sadBlock16x8AVX2(src *byte, srcStride int, ref *byte, refStride int) int32

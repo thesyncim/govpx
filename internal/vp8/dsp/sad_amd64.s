@@ -97,6 +97,84 @@ limit_break:
 	MOVL	DI, ret+40(FP)
 	RET
 
+// sadBlock16x16x4SSE2 ABI ($0-64):
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   ref0+16(FP)      *byte
+//   ref1+24(FP)      *byte
+//   ref2+32(FP)      *byte
+//   ref3+40(FP)      *byte
+//   refStride+48(FP) int
+//   out+56(FP)       *[4]uint32
+//
+// Mirrors libvpx's vpx_sad16x16x4d shape: load each source row once and
+// compare it against four candidate reference rows.
+
+TEXT ·sadBlock16x16x4SSE2(SB), NOSPLIT, $0-64
+	MOVQ	src+0(FP), AX
+	MOVQ	srcStride+8(FP), BX
+	MOVQ	ref0+16(FP), CX
+	MOVQ	ref1+24(FP), DX
+	MOVQ	ref2+32(FP), SI
+	MOVQ	ref3+40(FP), DI
+	MOVQ	refStride+48(FP), R9
+
+	PXOR	X10, X10
+	PXOR	X11, X11
+	PXOR	X12, X12
+	PXOR	X13, X13
+	MOVQ	$16, R8
+
+x4_loop16x16_sse2:
+	MOVOU	(AX), X1
+
+	MOVO	X1, X6
+	MOVOU	(CX), X2
+	PSADBW	X2, X6
+	PADDD	X6, X10
+
+	MOVO	X1, X6
+	MOVOU	(DX), X3
+	PSADBW	X3, X6
+	PADDD	X6, X11
+
+	MOVO	X1, X6
+	MOVOU	(SI), X4
+	PSADBW	X4, X6
+	PADDD	X6, X12
+
+	MOVO	X1, X6
+	MOVOU	(DI), X5
+	PSADBW	X5, X6
+	PADDD	X6, X13
+
+	ADDQ	BX, AX
+	ADDQ	R9, CX
+	ADDQ	R9, DX
+	ADDQ	R9, SI
+	ADDQ	R9, DI
+	SUBQ	$1, R8
+	JNZ	x4_loop16x16_sse2
+
+	MOVQ	out+56(FP), R10
+
+	MOVHLPS	X10, X0
+	PADDD	X0, X10
+	MOVL	X10, 0(R10)
+
+	MOVHLPS	X11, X0
+	PADDD	X0, X11
+	MOVL	X11, 4(R10)
+
+	MOVHLPS	X12, X0
+	PADDD	X0, X12
+	MOVL	X12, 8(R10)
+
+	MOVHLPS	X13, X0
+	PADDD	X0, X13
+	MOVL	X13, 12(R10)
+	RET
+
 // sadBlock16x8SSE2 ABI ($0-36): same shape as 16x16, 8 rows.
 
 TEXT ·sadBlock16x8SSE2(SB), NOSPLIT, $0-36

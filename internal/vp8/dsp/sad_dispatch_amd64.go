@@ -48,14 +48,15 @@ func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, li
 	return int(sadBlock16x16LimitSSE2(src, srcStride, ref, refStride, int32(limit)))
 }
 
-// SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d interface. amd64 keeps
-// the existing scalar-dispatch semantics for now; the arm64 motion-search path
-// gets the fused NEON kernel first.
+// SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d interface: compare one
+// source 16x16 block against four in-bounds 16x16 reference blocks and write
+// four SADs in candidate order.
 func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
-	out[0] = uint32(SAD16x16PtrFast(src, srcStride, ref0, refStride))
-	out[1] = uint32(SAD16x16PtrFast(src, srcStride, ref1, refStride))
-	out[2] = uint32(SAD16x16PtrFast(src, srcStride, ref2, refStride))
-	out[3] = uint32(SAD16x16PtrFast(src, srcStride, ref3, refStride))
+	if cpu.HasAVX2 {
+		sadBlock16x16x4AVX2(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
+		return
+	}
+	sadBlock16x16x4SSE2(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
