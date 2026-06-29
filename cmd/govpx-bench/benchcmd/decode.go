@@ -45,15 +45,31 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	latencies = latencies[:0]
 	var memBefore runtime.MemStats
 	var memAfter runtime.MemStats
-	runtime.ReadMemStats(&memBefore)
+	var decodeMallocs uint64
+	if cfg.CPUProfile != "" {
+		runtime.GC()
+		runtime.ReadMemStats(&memBefore)
+		if _, _, err := decodeBenchmarkPackets(dec, packets, latencies[:0]); err != nil {
+			return decodeBenchReport{}, err
+		}
+		runtime.ReadMemStats(&memAfter)
+		decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+		latencies = latencies[:0]
+	}
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
 	defer stopCPUProfile()
+	if cfg.CPUProfile == "" {
+		runtime.ReadMemStats(&memBefore)
+	}
 	decodedFrames, latencies, err := decodeBenchmarkPackets(dec, packets, latencies)
 	stopCPUProfile()
-	runtime.ReadMemStats(&memAfter)
+	if cfg.CPUProfile == "" {
+		runtime.ReadMemStats(&memAfter)
+		decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+	}
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
@@ -74,7 +90,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		DecodeFPS:            1e9 / float64(nsPerFrame),
 		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
 		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), totalLatency),
-		AllocsPerFrame:       float64(memAfter.Mallocs-memBefore.Mallocs) / float64(len(packets)),
+		AllocsPerFrame:       float64(decodeMallocs) / float64(len(packets)),
 		LatencyNS: latencyReport{
 			P50: percentileLatency(latencies, 50),
 			P95: percentileLatency(latencies, 95),

@@ -40,6 +40,29 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	}
 }
 
+func TestRunDecodeBenchmarkCPUProfileDoesNotCountProfileStartupAllocs(t *testing.T) {
+	profile := t.TempDir() + "/decode.pprof"
+	report, err := runDecodeBenchmark(benchConfig{
+		Width:       16,
+		Height:      16,
+		Frames:      30,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		CPUProfile:  profile,
+	})
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark returned error: %v", err)
+	}
+	maxAllocs := 0.1
+	if puregoBuild {
+		maxAllocs = 1
+	}
+	if report.AllocsPerFrame > maxAllocs {
+		t.Fatalf("AllocsPerFrame with cpuprofile = %f, want <= %f for measured decode pass", report.AllocsPerFrame, maxAllocs)
+	}
+}
+
 func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
 	report, err := runDecodeBenchmark(benchConfig{
 		Width:        16,
