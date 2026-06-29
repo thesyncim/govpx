@@ -55,6 +55,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	cfg.Threads = benchThreadsDefault
 	fs.Var(benchThreadsFlag{cfg: cfg}, "threads", "encoder thread count; default is VP9 realtime auto and 1 otherwise; 0 lets the encoder pick")
+	fs.Var(benchNoiseSensitivityFlag{cfg: cfg}, "noise-sensitivity", "encoder noise sensitivity override, 0-6; default keeps realtime denoise, 0 enables VP9 tile-threaded no-denoise runs")
 	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for VP8 reference comparison")
@@ -93,6 +94,30 @@ func (f benchThreadsFlag) Set(s string) error {
 		return fmt.Errorf("threads must be >= 0")
 	}
 	f.cfg.Threads = threads
+	return nil
+}
+
+type benchNoiseSensitivityFlag struct {
+	cfg *benchConfig
+}
+
+func (f benchNoiseSensitivityFlag) String() string {
+	if f.cfg == nil || !f.cfg.NoiseSensitivitySet {
+		return "default"
+	}
+	return strconv.Itoa(f.cfg.NoiseSensitivity)
+}
+
+func (f benchNoiseSensitivityFlag) Set(s string) error {
+	value, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	if value < 0 || value > 6 {
+		return fmt.Errorf("noise-sensitivity must be in [0,6]")
+	}
+	f.cfg.NoiseSensitivity = value
+	f.cfg.NoiseSensitivitySet = true
 	return nil
 }
 
@@ -245,6 +270,9 @@ func parityFor(cfg benchConfig) encoderParity {
 		p.DropFrameWaterMark = 30
 		p.NoiseSensitivity = 4
 		p.StaticThreshold = 1
+	}
+	if cfg.NoiseSensitivitySet {
+		p.NoiseSensitivity = cfg.NoiseSensitivity
 	}
 	return p
 }

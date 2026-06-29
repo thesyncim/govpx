@@ -73,6 +73,42 @@ func TestBenchCLIThreadsDefaultIsCodecAware(t *testing.T) {
 	}
 }
 
+func TestBenchCLINoiseSensitivityDefaultIsCodecAware(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		args      []string
+		wantNoise int
+	}{
+		{name: "vp8-realtime-default", wantNoise: 4},
+		{name: "vp9-realtime-default", args: []string{"-codec=vp9"}, wantNoise: 4},
+		{name: "vp9-realtime-explicit-denoise", args: []string{"-codec=vp9", "-noise-sensitivity=4"}, wantNoise: 4},
+		{name: "vp8-realtime-explicit-zero", args: []string{"-noise-sensitivity=0"}, wantNoise: 0},
+		{name: "vp9-realtime-explicit-zero", args: []string{"-codec=vp9", "-noise-sensitivity=0"}, wantNoise: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+			cfg := benchConfig{}
+			opts := defaultBenchCLIOptions()
+			registerBenchFlags(fs, &cfg, &opts)
+			if err := fs.Parse(tc.args); err != nil {
+				t.Fatalf("Parse returned error: %v", err)
+			}
+			if got := parityFor(cfg).NoiseSensitivity; got != tc.wantNoise {
+				t.Fatalf("NoiseSensitivity = %d, want %d", got, tc.wantNoise)
+			}
+		})
+	}
+
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	cfg := benchConfig{}
+	opts := defaultBenchCLIOptions()
+	registerBenchFlags(fs, &cfg, &opts)
+	if err := fs.Parse([]string{"-noise-sensitivity=7"}); err == nil {
+		t.Fatal("Parse accepted out-of-range -noise-sensitivity")
+	}
+}
+
 func TestResolveLibvpxDefaultsDoesNotSelectOracleForEncode(t *testing.T) {
 	cfg := benchConfig{}
 	resolveLibvpxDefaults(&cfg, false)
@@ -128,12 +164,139 @@ func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 	}
 }
 
+func TestLibvpxVP9ParityFlagsMirrorThreadedTileLayout(t *testing.T) {
+	cfg := benchConfig{
+		Codec:               codecVP9,
+		Width:               1280,
+		Height:              720,
+		Frames:              30,
+		FPS:                 30,
+		BitrateKbps:         1200,
+		Mode:                "realtime",
+		Threads:             4,
+		CpuUsed:             8,
+		NoiseSensitivity:    0,
+		NoiseSensitivitySet: true,
+	}
+	parity := parityFor(cfg)
+	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
+
+	required := []string{
+		"--row-mt=0",
+		"--tile-columns=2",
+		"--tile-rows=0",
+		"--threads=4",
+		"--noise-sensitivity=0",
+	}
+	have := make(map[string]bool, len(flags))
+	for _, flag := range flags {
+		have[flag] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			t.Fatalf("vp9 parity flags missing %q\nhave: %v", want, flags)
+		}
+	}
+
+	opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if opts.Threads != 4 || opts.NoiseSensitivity != 0 {
+		t.Fatalf("vp9 govpx options threads/noise = %d/%d, want 4/0",
+			opts.Threads, opts.NoiseSensitivity)
+	}
+	if got := vp9BenchLog2TileCols(cfg.Width, opts.Threads); got != 2 {
+		t.Fatalf("vp9 govpx tile log2 cols = %d, want 2", got)
+	}
+}
+
+func TestLibvpxVP9ParityFlagsMirrorRealtimeDenoiseDefaultLayout(t *testing.T) {
+	cfg := benchConfig{
+		Codec:       codecVP9,
+		Width:       1280,
+		Height:      720,
+		Frames:      30,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		Threads:     benchThreadsDefault,
+		CpuUsed:     8,
+	}
+	parity := parityFor(cfg)
+	threadHint, log2TileCols := vp9LibvpxThreadLayout(cfg, parity)
+	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
+
+	required := []string{
+		fmt.Sprintf("--threads=%d", threadHint),
+		fmt.Sprintf("--tile-columns=%d", log2TileCols),
+		"--noise-sensitivity=4",
+	}
+	have := make(map[string]bool, len(flags))
+	for _, flag := range flags {
+		have[flag] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			t.Fatalf("vp9 auto parity flags missing %q\nhave: %v", want, flags)
+		}
+	}
+
+	opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if opts.Threads != 0 {
+		t.Fatalf("vp9 govpx auto Threads = %d, want 0", opts.Threads)
+	}
+	if threadHint != 1 {
+		t.Fatalf("vp9 denoise default effective threads = %d, want 1", threadHint)
+	}
+	if parity.NoiseSensitivity != 4 {
+		t.Fatalf("vp9 default NoiseSensitivity = %d, want 4", parity.NoiseSensitivity)
+	}
+}
+
+func TestLibvpxVP9ParityFlagsMirrorRealtimeNoDenoiseAutoLayout(t *testing.T) {
+	cfg := benchConfig{
+		Codec:               codecVP9,
+		Width:               1280,
+		Height:              720,
+		Frames:              30,
+		FPS:                 30,
+		BitrateKbps:         1200,
+		Mode:                "realtime",
+		Threads:             benchThreadsDefault,
+		CpuUsed:             8,
+		NoiseSensitivity:    0,
+		NoiseSensitivitySet: true,
+	}
+	parity := parityFor(cfg)
+	threadHint, log2TileCols := vp9LibvpxThreadLayout(cfg, parity)
+	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
+
+	required := []string{
+		fmt.Sprintf("--threads=%d", threadHint),
+		fmt.Sprintf("--tile-columns=%d", log2TileCols),
+		"--noise-sensitivity=0",
+	}
+	have := make(map[string]bool, len(flags))
+	for _, flag := range flags {
+		have[flag] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			t.Fatalf("vp9 no-denoise auto parity flags missing %q\nhave: %v", want, flags)
+		}
+	}
+
+	opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if opts.Threads != 0 || opts.NoiseSensitivity != 0 {
+		t.Fatalf("vp9 no-denoise auto options threads/noise = %d/%d, want 0/0",
+			opts.Threads, opts.NoiseSensitivity)
+	}
+}
+
 func TestParityForMatchesEncoderDefaults(t *testing.T) {
-	// Sanity check that realtime parity defaults mirror the public WebRTC
+	// Sanity check that VP8 realtime parity defaults mirror the public WebRTC
 	// example rather than the simpler validation-only CBR preset. This direct
 	// config pins explicit Threads=1 so the assertion is independent of the
 	// codec-aware CLI default.
-	got := parityFor(benchConfig{FPS: 24, Threads: 1, CpuUsed: 8})
+	got := parityFor(benchConfig{Codec: codecVP8, FPS: 24, Threads: 1, CpuUsed: 8})
 	if got.KeyFrameInterval != 3000 {
 		t.Fatalf("KeyFrameInterval = %d, want 3000", got.KeyFrameInterval)
 	}
@@ -171,6 +334,22 @@ func TestParityForMatchesEncoderDefaults(t *testing.T) {
 	}
 	if got := parityFor(benchConfig{FPS: 24, Threads: 4, CpuUsed: 8}); got.Threads != 4 {
 		t.Fatalf("Threads=4 propagates as %d, want 4", got.Threads)
+	}
+	vp9 := parityFor(benchConfig{Codec: codecVP9, FPS: 24, Threads: 0, CpuUsed: 8})
+	if vp9.NoiseSensitivity != 4 || vp9.StaticThreshold != 1 {
+		t.Fatalf("vp9 realtime knobs = noise:%d static:%d, want 4/1",
+			vp9.NoiseSensitivity, vp9.StaticThreshold)
+	}
+	vp9NoDenoise := parityFor(benchConfig{
+		Codec:               codecVP9,
+		FPS:                 24,
+		Threads:             0,
+		CpuUsed:             8,
+		NoiseSensitivity:    0,
+		NoiseSensitivitySet: true,
+	})
+	if vp9NoDenoise.NoiseSensitivity != 0 {
+		t.Fatalf("explicit vp9 noise sensitivity = %d, want 0", vp9NoDenoise.NoiseSensitivity)
 	}
 
 	// Zero FPS falls back to a sane default rather than passing 0 to libvpx.

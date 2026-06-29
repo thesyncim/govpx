@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"time"
 
 	govpx "github.com/thesyncim/govpx"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // runLibvpxVP9Benchmark drives vpxenc-vp9 on the same source corpus the
@@ -170,17 +172,18 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 
 // libvpxVP9ParityFlags mirrors libvpxParityFlags for VP9: same CBR target /
 // buffer model / q-range / kf cadence / drop / threading config, but using
-// VP9-specific knobs (--row-mt=0, --tile-columns=0, --aq-mode=0,
+// VP9-specific knobs (--row-mt=0, --tile-columns=N, --aq-mode=0,
 // --auto-alt-ref=0, --lag-in-frames=0, no --token-parts) so the comparison
-// stays apples-to-apples with govpx VP9's default realtime configuration.
+// stays apples-to-apples with govpx VP9's tile-threaded realtime configuration.
 func libvpxVP9ParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []string {
+	threadHint, log2TileCols := vp9LibvpxThreadLayout(cfg, p)
 	flags := []string{
 		"--passes=1",
 		"--lag-in-frames=0",
 		"--auto-alt-ref=0",
 		"--aq-mode=0",
 		"--row-mt=0",
-		"--tile-columns=0",
+		fmt.Sprintf("--tile-columns=%d", log2TileCols),
 		"--tile-rows=0",
 		"--profile=0",
 		"--end-usage=cbr",
@@ -198,7 +201,7 @@ func libvpxVP9ParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string)
 		fmt.Sprintf("--buf-optimal-sz=%d", p.BufferOptimalSizeMs),
 		fmt.Sprintf("--undershoot-pct=%d", p.UndershootPct),
 		fmt.Sprintf("--overshoot-pct=%d", p.OvershootPct),
-		fmt.Sprintf("--threads=%d", p.Threads),
+		fmt.Sprintf("--threads=%d", threadHint),
 		fmt.Sprintf("--timebase=1/%d", cfg.FPS),
 		fmt.Sprintf("--noise-sensitivity=%d", p.NoiseSensitivity),
 		deadlineFlag,
@@ -216,6 +219,65 @@ func libvpxVP9ParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string)
 		flags = append(flags, fmt.Sprintf("--static-thresh=%d", p.StaticThreshold))
 	}
 	return flags
+}
+
+func vp9LibvpxThreadLayout(cfg benchConfig, p encoderParity) (threadHint int, log2TileCols int) {
+	threadHint = vp9BenchEffectiveThreadHint(cfg, p)
+	return threadHint, vp9BenchLog2TileCols(cfg.Width, threadHint)
+}
+
+func vp9BenchEffectiveThreadHint(cfg benchConfig, p encoderParity) int {
+	if p.Threads != 0 {
+		return p.Threads
+	}
+	cpus := runtime.NumCPU()
+	if !vp9BenchRealtimeAutoThreadingEligible(cfg, p) || cpus < 2 {
+		return 1
+	}
+	threadHint := 2
+	if cpus >= 4 {
+		threadHint = 4
+	}
+	tileCols := 1 << uint(vp9BenchLog2TileCols(cfg.Width, threadHint))
+	if tileCols <= 1 {
+		return 1
+	}
+	if tileCols < threadHint {
+		return tileCols
+	}
+	return threadHint
+}
+
+func vp9BenchRealtimeAutoThreadingEligible(cfg benchConfig, p encoderParity) bool {
+	return benchCodec(cfg) == codecVP9 &&
+		(cfg.Mode == "" || cfg.Mode == "realtime") &&
+		p.NoiseSensitivity == 0
+}
+
+func vp9BenchLog2TileCols(width, threads int) int {
+	miCols := (width + 7) >> 3
+	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
+	log2Cols := minLog2
+	if threads > 1 {
+		log2Cols = max(log2Cols, vp9BenchCeilLog2(threads))
+	}
+	if log2Cols > maxLog2 {
+		log2Cols = maxLog2
+	}
+	return log2Cols
+}
+
+func vp9BenchCeilLog2(v int) int {
+	if v <= 1 {
+		return 0
+	}
+	n := 0
+	pow := 1
+	for pow < v {
+		pow <<= 1
+		n++
+	}
+	return n
 }
 
 // parseVP9IVFFrameInfo walks an IVF stream produced by vpxenc-vp9 and
