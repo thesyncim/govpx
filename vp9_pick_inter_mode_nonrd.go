@@ -399,6 +399,24 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var maxMvContext [vp9dec.MaxRefFrames]int
 	var mvPredSearchSeed [vp9dec.MaxRefFrames]vp9dec.MV
 	var mvPredSearchSeedValid [vp9dec.MaxRefFrames]bool
+	usePrevFrameMvs := e.useVP9EncoderPrevFrameMvs(miRows, miCols)
+	var refMvListCache [vp9dec.MaxRefFrames][2]vp9dec.MV
+	var refMvCountCache [vp9dec.MaxRefFrames]int
+	var refMvCached [vp9dec.MaxRefFrames]bool
+	findRefMvList := func(r int8) ([2]vp9dec.MV, int) {
+		if refMvCached[r] {
+			return refMvListCache[r], refMvCountCache[r]
+		}
+		refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
+			usePrevFrameMvs,
+			e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
+			tile, miRows, miCols, miRow, miCol, bsize,
+			common.NearMv, r, inter.refSignBias, -1)
+		refMvListCache[r] = refList
+		refMvCountCache[r] = refCount
+		refMvCached[r] = true
+		return refList, refCount
+	}
 	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 		// libvpx: vp9_pickmode.c:1278 — x->pred_mv_sad[ref] = INT_MAX
 		// (find_predictors precondition); govpx mirrors with the widened
@@ -443,11 +461,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// from vp9dec.FindInterMvRefsFields in its mode-independent
 				// shape: mode=NearMv sets earlyBreak=false in the scanner.
 				var candidates [encoder.MvPredMaxCandidates]encoder.MvPredInputCandidate
-				refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
-					e.useVP9EncoderPrevFrameMvs(miRows, miCols),
-					e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
-					tile, miRows, miCols, miRow, miCol, bsize,
-					common.NearMv, r, inter.refSignBias, -1)
+				refList, refCount := findRefMvList(r)
 				if refCount >= 1 {
 					candidates[0] = encoder.MvPredInputCandidate{
 						MV:    refList[0],
@@ -530,11 +544,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// govpx vp9dec.FindInterMvRefsFields returns refList[0..1] with
 		// NearMv-mode walk (no earlyBreak) — matches libvpx's
 		// candidates[0..1] post-clamp.
-		refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
-			e.useVP9EncoderPrevFrameMvs(miRows, miCols),
-			e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
-			tile, miRows, miCols, miRow, miCol, bsize,
-			common.NearMv, r, inter.refSignBias, -1)
+		refList, refCount := findRefMvList(r)
 		if refCount >= 1 {
 			mvN := refList[0]
 			vp9dec.LowerMvPrecision(&mvN, inter.allowHP)

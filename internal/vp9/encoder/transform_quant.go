@@ -1637,10 +1637,14 @@ func quantizeFPLibvpxScalar(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 		if absCoeff < 0 {
 			absCoeff = -absCoeff
 		}
+		sum := absCoeff + round[slot]
+		if sum < deq[slot] {
+			continue
+		}
 		// libvpx: vp9/encoder/vp9_quantize.c:47-48
 		//   tmp = clamp(abs_coeff + round_ptr[rc != 0], INT16_MIN, INT16_MAX);
 		//   tmp = (tmp * quant_ptr[rc != 0]) >> 16;
-		tmp := clampInt16(absCoeff + round[slot])
+		tmp := clampInt16(sum)
 		tmp = (tmp * quant[slot]) >> 16
 		// libvpx: vp9/encoder/vp9_quantize.c:50-51
 		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
