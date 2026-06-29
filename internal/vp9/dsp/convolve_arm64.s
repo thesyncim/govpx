@@ -34,6 +34,64 @@
 
 #include "textflag.h"
 
+// convolveAvgNEON ABI ($0-48): rounded average of src into dst.
+//
+//   dst[x] = (src[x] + dst[x] + 1) >> 1
+//
+// This mirrors libvpx vpx_convolve_avg_neon/PAVGB semantics. ARM64 URHADD
+// performs the unsigned rounded halving add directly:
+//   urhadd.16b v0, v0, v1 -> WORD $0x6e211400
+//
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   dst+16(FP)       *byte
+//   dstStride+24(FP) int
+//   w+32(FP)         int  (multiple of 8)
+//   h+40(FP)         int
+TEXT ·convolveAvgNEON(SB), NOSPLIT, $0-48
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	dst+16(FP), R2
+	MOVD	dstStride+24(FP), R3
+	MOVD	w+32(FP), R4
+	MOVD	h+40(FP), R5
+
+	CBZ	R5, cavg_done
+
+cavg_rowLoop:
+	MOVD	R0, R6
+	MOVD	R2, R7
+	MOVD	R4, R8
+
+cavg_col16Loop:
+	CMP	$16, R8
+	BLT	cavg_tail8
+	VLD1	(R6), [V0.B16]
+	VLD1	(R7), [V1.B16]
+	WORD	$0x6e211400    // urhadd.16b v0, v0, v1
+	VST1	[V0.B16], (R7)
+	ADD	$16, R6, R6
+	ADD	$16, R7, R7
+	SUB	$16, R8, R8
+	JMP	cavg_col16Loop
+
+cavg_tail8:
+	CMP	$8, R8
+	BNE	cavg_rowDone
+	FMOVD	(R6), F0
+	FMOVD	(R7), F1
+	WORD	$0x6e211400    // urhadd.16b v0, v0, v1
+	FMOVD	F0, (R7)
+
+cavg_rowDone:
+	ADD	R1, R0, R0
+	ADD	R3, R2, R2
+	SUB	$1, R5, R5
+	CBNZ	R5, cavg_rowLoop
+
+cavg_done:
+	RET
+
 // convolveVert8wNEON ABI ($0-56): vertical 8-tap convolve, w cols
 // (multiple of 8), h rows. src points to row 0 of the tap window
 // (caller subtracted 3*srcStride for the centered convolve).
