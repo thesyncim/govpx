@@ -39,19 +39,32 @@ func TestBlockSSEMatchesScalar(t *testing.T) {
 		src[i] = byte((i*13 + i/5) & 0xff)
 		ref[i] = byte((i*23 + 19) & 0xff)
 	}
-
-	got := BlockSSE(src, stride, ref, stride, 3, 5, 7, 11, 32, 16)
-	var want uint64
-	for y := range 16 {
-		srcRow := src[(5+y)*stride+3:]
-		refRow := ref[(11+y)*stride+7:]
-		for x := range 32 {
-			diff := int(srcRow[x]) - int(refRow[x])
-			want += uint64(diff * diff)
-		}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {64, 32}, {32, 64}, {32, 32}, {32, 16},
+		{16, 32}, {16, 16}, {16, 8}, {8, 16}, {8, 8},
+		{8, 4}, {4, 8}, {4, 4},
+		// Unsupported by VP9 DSP; must stay on the scalar fallback.
+		{12, 12},
 	}
-	if got != want {
-		t.Fatalf("SSE = %d, want %d", got, want)
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			got := BlockSSE(src, stride, ref, stride, 3, 5, 7, 11,
+				tc.w, tc.h)
+			var want uint64
+			for y := range tc.h {
+				srcRow := src[(5+y)*stride+3:]
+				refRow := ref[(11+y)*stride+7:]
+				for x := range tc.w {
+					diff := int(srcRow[x]) - int(refRow[x])
+					want += uint64(diff * diff)
+				}
+			}
+			if got != want {
+				t.Fatalf("SSE = %d, want %d", got, want)
+			}
+		})
 	}
 }
 

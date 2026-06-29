@@ -54,6 +54,12 @@ func BlockSADOffsets(src []byte, srcOff, srcStride int,
 func BlockSSE(src []byte, srcStride int, ref []byte, refStride int,
 	srcX, srcY, refX, refY, w, h int,
 ) uint64 {
+	srcOff := srcY*srcStride + srcX
+	refOff := refY*refStride + refX
+	if stats, ok := vp9dsp.VpxVarianceStats(src, srcOff, srcStride,
+		ref, refOff, refStride, w, h); ok {
+		return uint64(stats.SSE)
+	}
 	var sse uint64
 	for y := range h {
 		srcRow := src[(srcY+y)*srcStride+srcX:]
