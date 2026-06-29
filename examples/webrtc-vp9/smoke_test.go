@@ -1280,8 +1280,8 @@ func TestWriteWebRTCRTPAccessUnitFailureLeavesUnsentRecovery(t *testing.T) {
 	if written != 1 {
 		t.Fatalf("written packets before failure = %d, want 1", written)
 	}
-	if sequence != 42 {
-		t.Fatalf("next RTP sequence after failure = %d, want 42", sequence)
+	if sequence != 43 {
+		t.Fatalf("next RTP sequence after failure = %d, want 43", sequence)
 	}
 
 	ctl := &controlState{}
@@ -1323,8 +1323,8 @@ func TestPartialWriteRTPWriterFailsAfterPrefix(t *testing.T) {
 	if inner.packets[0].Marker {
 		t.Fatal("partial write emitted RTP marker on prefix packet")
 	}
-	if sequence != 10 {
-		t.Fatalf("partial write next sequence = %d, want 10", sequence)
+	if sequence != 11 {
+		t.Fatalf("partial write next sequence = %d, want 11", sequence)
 	}
 }
 

@@ -1750,6 +1750,7 @@ func writeWebRTCRTPAccessUnit(
 	if w == nil || sequence == nil {
 		return 0, io.ErrClosedPipe
 	}
+	startSequence := *sequence
 	written := 0
 	for i := range fragments {
 		fragment := fragments[i]
@@ -1763,6 +1764,12 @@ func writeWebRTCRTPAccessUnit(
 			Payload: fragment.Payload,
 		}
 		if err := w.WriteRTP(&pkt); err != nil {
+			if written > 0 {
+				// A prefix of the fragmented AU reached the receiver. Reserve
+				// the unsent tail's sequence numbers so the next AU exposes an
+				// RTP gap instead of leaving an incomplete VP9 frame with no loss.
+				*sequence = startSequence + uint16(len(fragments))
+			}
 			return written, err
 		}
 		*sequence = *sequence + 1
