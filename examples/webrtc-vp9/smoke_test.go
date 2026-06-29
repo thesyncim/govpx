@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -2929,31 +2928,21 @@ func TestSDPAnswersVP9Profile0Send(t *testing.T) {
 
 func TestPickThreadsEnablesTileWorkersForRealtimeLayers(t *testing.T) {
 	tests := []struct {
-		name        string
-		width       int
-		height      int
-		wantAtLeast int
-		wantAtMost  int
+		name          string
+		width, height int
 	}{
-		{"base-layer-stays-single-threaded", 160, 90, 1, 1},
-		{"middle-layer-stays-within-vp9-tile-limit", 320, 180, 1, 1},
-		{"top-layer-uses-two-columns-when-available", 640, 360, expectedThreads(640, 360), 2},
-		{"wide-layer-can-use-four-columns", 1280, 720, expectedThreads(1280, 720), 4},
+		{"base-layer-stays-single-threaded", 160, 90},
+		{"middle-layer-stays-single-threaded", 320, 180},
+		{"top-layer-uses-two-columns-when-available", 640, 360},
+		{"wide-layer-can-use-four-columns", 1280, 720},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := pickThreads(tc.width, tc.height)
-			if got < tc.wantAtLeast || got > tc.wantAtMost {
-				t.Fatalf("pickThreads(%d, %d) = %d, want in [%d,%d]",
-					tc.width, tc.height, got, tc.wantAtLeast, tc.wantAtMost)
-			}
-			if got > runtime.NumCPU() {
-				t.Fatalf("pickThreads(%d, %d) = %d exceeds NumCPU=%d",
-					tc.width, tc.height, got, runtime.NumCPU())
-			}
-			if got > maxVP9TileColumns(tc.width) {
-				t.Fatalf("pickThreads(%d, %d) = %d exceeds legal VP9 tile columns=%d",
-					tc.width, tc.height, got, maxVP9TileColumns(tc.width))
+			want := govpx.VP9RealtimeCBRAutoThreadHint(tc.width, tc.height)
+			if got != want {
+				t.Fatalf("pickThreads(%d, %d) = %d, want VP9 realtime CBR hint %d",
+					tc.width, tc.height, got, want)
 			}
 		})
 	}
@@ -3867,18 +3856,6 @@ func marshalRTCPForTest(t *testing.T, packet rtcp.Packet) []byte {
 		t.Fatalf("marshal %T: %v", packet, err)
 	}
 	return raw
-}
-
-func expectedThreads(width, height int) int {
-	cpus := runtime.NumCPU()
-	maxTileCols := maxVP9TileColumns(width)
-	if cpus < 2 || maxTileCols < 2 {
-		return 1
-	}
-	if cpus >= 4 && maxTileCols >= 4 && width*height >= 640*360 {
-		return 4
-	}
-	return 2
 }
 
 func expectedTileLog2Cols(threads int) int {

@@ -66,13 +66,15 @@ Flags:
 
 The demo selects the VP9 realtime fast path (`DeadlineRealtime`, `CpuUsed=8`)
 and raises `Threads` only when the frame width can legally emit more than one
-VP9 tile column. At the default resolutions the SVC base/middle layers and the
-default 320x180 plain sender stay single-column; the 640x360 SVC top layer and
-a 640x360 plain sender use two tile columns on hosts with at least two CPUs.
-Those tile-threaded layers also enable VP9 RowMT, and the live overlay reports
-both tile columns and row-MT. Pure-Go VP9 is still host- and load-sensitive, so
-the live overlay reports effective FPS, bitrate, and sender scheduler lag while
-the command-line `-fps`, `-bitrate`, `-plain-vp9-width`, and
+VP9 tile column, using `govpx.VP9RealtimeCBRAutoThreadHint` so the WebRTC path
+shares the encoder core's realtime CBR auto-threading decision. At the default
+resolutions the SVC base/middle layers and the default 320x180 plain sender
+stay single-column; the 640x360 SVC top layer and a 640x360 plain sender use two
+tile columns on hosts with at least two CPUs. Those tile-threaded layers also
+enable VP9 RowMT, and the live overlay reports both tile columns and row-MT.
+Pure-Go VP9 is still host- and load-sensitive, so the live overlay reports
+effective FPS, bitrate, and sender scheduler lag while the command-line `-fps`,
+`-bitrate`, `-plain-vp9-width`, and
 `-plain-vp9-height` flags let you tune the session to the machine. When
 scheduler lag or completed access-unit time repeatedly exceeds the frame
 interval, the sender forces a keyed spatial-cap change before encoding the next

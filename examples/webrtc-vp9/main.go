@@ -19,7 +19,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -2003,37 +2002,11 @@ func pickCPUUsed(width, height int) int8 {
 }
 
 func pickThreads(width, height int) int {
-	cpus := runtime.NumCPU()
-	maxTileCols := maxVP9TileColumns(width)
-	if cpus < 2 || maxTileCols < 2 {
-		return 1
-	}
-	if cpus >= 4 && maxTileCols >= 4 && width*height >= 640*360 {
-		return 4
-	}
-	return 2
+	return govpx.VP9RealtimeCBRAutoThreadHint(width, height)
 }
 
 func pickRowMT(width, height int) bool {
 	return pickThreads(width, height) > 1
-}
-
-func maxVP9TileColumns(width int) int {
-	miCols := (width + 7) >> 3
-	sb64Cols := (miCols + 7) >> 3
-	maxLog2 := 1
-	for (sb64Cols >> uint(maxLog2)) >= 4 {
-		maxLog2++
-	}
-	maxLog2--
-	if maxLog2 <= 0 {
-		return 1
-	}
-	cols := 1 << uint(maxLog2)
-	if cols > 4 {
-		return 4
-	}
-	return cols
 }
 
 func plainVP9TelemetryResult(
