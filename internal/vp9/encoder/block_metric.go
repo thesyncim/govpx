@@ -214,8 +214,20 @@ func blockDiffVarianceFromStats(stats BlockDiffStats) uint64 {
 	return stats.SSE - meanSquares
 }
 
+var blockSourceVariance128Ref = func() [64 * 64]byte {
+	var ref [64 * 64]byte
+	for i := range ref {
+		ref[i] = 128
+	}
+	return ref
+}()
+
 // BlockSourceVariance128 returns the variance of source samples around 128.
 func BlockSourceVariance128(src []byte, srcStride int, srcX, srcY, w, h int) uint64 {
+	if stats, ok := vp9dsp.VpxVarianceStats(src, srcY*srcStride+srcX, srcStride,
+		blockSourceVariance128Ref[:], 0, 64, w, h); ok {
+		return uint64(stats.Variance)
+	}
 	var sum int64
 	var sse uint64
 	for y := range h {

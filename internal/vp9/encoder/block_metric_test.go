@@ -189,6 +189,56 @@ func TestSourceVarianceAreaPerPixel(t *testing.T) {
 	}
 }
 
+func TestBlockSourceVariance128MatchesScalar(t *testing.T) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*37 + i/9 + 41) & 0xff)
+	}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {64, 32}, {32, 64}, {32, 32}, {32, 16},
+		{16, 32}, {16, 16}, {16, 8}, {8, 16}, {8, 8},
+		{8, 4}, {4, 8}, {4, 4},
+		// Unsupported by VP9 DSP; must stay on the scalar fallback.
+		{12, 12},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			got := BlockSourceVariance128(src, stride, 3, 5, tc.w, tc.h)
+			want := blockSourceVariance128Scalar(src, stride, 3, 5, tc.w, tc.h)
+			if got != want {
+				t.Fatalf("source variance = %d, want scalar %d", got, want)
+			}
+		})
+	}
+}
+
+func blockSourceVariance128Scalar(src []byte, srcStride int,
+	srcX, srcY, w, h int,
+) uint64 {
+	var sum int64
+	var sse uint64
+	for y := range h {
+		srcRow := src[(srcY+y)*srcStride+srcX:]
+		for x := range w {
+			diff := int64(srcRow[x]) - 128
+			sum += diff
+			sse += uint64(diff * diff)
+		}
+	}
+	n := int64(w * h)
+	if n <= 0 {
+		return 0
+	}
+	meanSquares := uint64((sum * sum) / n)
+	if sse <= meanSquares {
+		return 0
+	}
+	return sse - meanSquares
+}
+
 func TestInterSkipFilterSearch(t *testing.T) {
 	if InterSkipFilterSearch(0, 0) {
 		t.Fatal("zero threshold skipped filter search")
@@ -202,6 +252,7 @@ func TestInterSkipFilterSearch(t *testing.T) {
 }
 
 var blockSSEBenchmarkSink uint64
+var blockSourceVariance128BenchmarkSink uint64
 
 func BenchmarkBlockSSE64x64(b *testing.B) {
 	const stride = 96
@@ -218,4 +269,19 @@ func BenchmarkBlockSSE64x64(b *testing.B) {
 		sum += BlockSSE(src, stride, ref, stride, 3, 5, 7, 11, 64, 64)
 	}
 	blockSSEBenchmarkSink = sum
+}
+
+func BenchmarkBlockSourceVariance12864x64(b *testing.B) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*37 + i/9 + 41) & 0xff)
+	}
+
+	b.ReportAllocs()
+	var sum uint64
+	for b.Loop() {
+		sum += BlockSourceVariance128(src, stride, 3, 5, 64, 64)
+	}
+	blockSourceVariance128BenchmarkSink = sum
 }
