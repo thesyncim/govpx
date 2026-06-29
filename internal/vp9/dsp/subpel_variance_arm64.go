@@ -131,6 +131,15 @@ func subPixelVarianceSimd(w, h int,
 	if w == 4 && (h&1) != 0 {
 		return 0, false
 	}
+	if xOffset == 0 && yOffset == 0 {
+		if !varWindowOK(src, srcOff, srcStride, w, h) ||
+			!varWindowOK(ref, refOff, refStride, w, h) {
+			return 0, false
+		}
+		stats := varianceStatsStandard(w, h, src, srcOff, srcStride, ref, refOff, refStride)
+		*sse = stats.SSE
+		return stats.Variance, true
+	}
 	if !subpelVarWindowOK(src, srcOff, srcStride, w, h) ||
 		!varWindowOK(ref, refOff, refStride, w, h) {
 		return 0, false
@@ -141,10 +150,15 @@ func subPixelVarianceSimd(w, h int,
 	// holds h rows of w uint8 after the vertical pass.
 	var fdataBuf [64 * 65]byte
 	var tmpBuf [64 * 64]byte
-	fdata := fdataBuf[:w*(h+1)]
 	temp := tmpBuf[:w*h]
 
 	srcPtr := unsafe.SliceData(src[srcOff:])
+	if yOffset == 0 && xOffset != 0 {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
+		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
+	}
+
+	fdata := fdataBuf[:w*(h+1)]
 	if xOffset == 0 {
 		// Horizontal blend is a no-op — fdata[y][x] = src[y][x] (taps {8,0}).
 		// We still need (h+1) rows so the vertical pass can read past

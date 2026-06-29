@@ -121,6 +121,15 @@ func subPixelVarianceSimd(w, h int,
 	if w == 4 && (h&1) != 0 {
 		return 0, false
 	}
+	if xOffset == 0 && yOffset == 0 {
+		if !varWindowOK(src, srcOff, srcStride, w, h) ||
+			!varWindowOK(ref, refOff, refStride, w, h) {
+			return 0, false
+		}
+		stats := varianceStatsStandard(w, h, src, srcOff, srcStride, ref, refOff, refStride)
+		*sse = stats.SSE
+		return stats.Variance, true
+	}
 	if !subpelVarWindowOK(src, srcOff, srcStride, w, h) ||
 		!varWindowOK(ref, refOff, refStride, w, h) {
 		return 0, false
@@ -128,10 +137,15 @@ func subPixelVarianceSimd(w, h int,
 
 	var fdataBuf [64 * 65]byte
 	var tmpBuf [64 * 64]byte
-	fdata := fdataBuf[:w*(h+1)]
 	temp := tmpBuf[:w*h]
 
 	srcPtr := unsafe.SliceData(src[srcOff:])
+	if yOffset == 0 && xOffset != 0 {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
+		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
+	}
+
+	fdata := fdataBuf[:w*(h+1)]
 	if xOffset == 0 {
 		for y := 0; y < h+1; y++ {
 			off := srcOff + y*srcStride
