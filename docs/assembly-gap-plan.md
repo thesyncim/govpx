@@ -27,7 +27,7 @@ fair microbenchmark before any wider suite run.
 
 | Priority | Area | Arch | Local surface | Upstream source | Current state | Validation |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0 | FP quantize | arm64 | `internal/vp9/encoder/transform_quant_dispatch_arm64.go`, new `quant_fp_arm64.s` | `vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon` | `quantizeFPDispatch` still scalar | `go test ./internal/vp9/encoder -run 'TestVP9QuantizeFP|TestQuantizeFP' -count=1`; `go test ./internal/vp9/encoder -run '^$' -bench '^BenchmarkVP9QuantizeFP' -benchmem -benchtime=500ms -count=5` |
+| P0 | FP quantize | arm64 | `internal/vp9/encoder/transform_quant_dispatch_arm64.go`, `internal/vp9/encoder/quant_fp_arm64.s` | `vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon` | `QuantizeFPLibvpx`, `QuantizeFP`, and `QuantizeFPWithQ` use the NEON AC kernel for supported libvpx FP tables; purego and unusual tables fall back scalar | `go test ./internal/vp9/encoder -run 'TestVP9QuantizeFP|TestQuantizeFP' -count=1`; `go test -tags purego ./internal/vp9/encoder -run 'TestVP9QuantizeFP|TestQuantizeFP' -count=1`; `go test ./internal/vp9/encoder -run '^$' -bench '^BenchmarkVP9QuantizeFP' -benchmem -benchtime=500ms -count=5` |
 | P0 | FP quantize | amd64 | `internal/vp9/encoder/transform_quant_dispatch_amd64.go`, new `quant_fp_amd64.s` | `vp9/encoder/x86/vp9_quantize_sse2.c::vp9_quantize_fp_sse2` | all VP9 encoder transform/quant dispatchers scalar on amd64 | same focused tests/benchmarks on amd64 runner |
 | P0 | Realtime fused block scoring | arm64/amd64 | `internal/vp9/encoder/block_yrd.go`, `transform_quant.go` | `vp9/encoder/vp9_pickmode.c::block_yrd`, `vp9/encoder/vp9_rdopt.c::vp9_block_error_fp_c`, `vp9/encoder/vp9_quantize.c::vp9_quantize_fp_c` | residual gather, transform, quantize, SATD/block-error are separate calls | `go test ./internal/vp9/encoder -run 'TestVP9BlockYrd|TestVP9BlockErrorFP|TestVP9QuantizeFP|TestForward(DCT|WHT)' -count=1`; `go test . -run 'TestVP9EncodeIntoSteadyStateAllocFreeAtBenchParity' -count=1` |
 | P0 | FDCT16x16 | arm64 | `internal/vp9/encoder/transform_quant_dispatch_arm64.go`, new `fdct16x16_arm64.s` | `vpx_dsp/arm/fdct16x16_neon.c::vpx_fdct16x16_neon` | scalar fallback | `go test ./internal/vp9/encoder -run 'TestForwardDCT16x16|TestForwardHT16x16' -count=1`; add direct SIMD-vs-scalar tests before routing |
@@ -54,16 +54,14 @@ fair microbenchmark before any wider suite run.
 
 ## Landing order
 
-1. VP9 FP quantize NEON on arm64, because it is in the realtime encode hot path
-   and can be natively validated here.
-2. VP9 realtime fused block scoring, once the component kernels have direct
+1. VP9 realtime fused block scoring, once the component kernels have direct
    parity tests and microbenchmarks.
-3. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
+2. VP8 amd64 fused SAD16x16x4, six-tap split predictors, and fused 16x16
    subpel variance, but only with an amd64 runner for execution.
-4. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on amd64.
-5. VP9 FDCT16x16 arm64, then 32x32/32x32RD as a generated/raw-WORD port.
-6. VP9 decoder full inverse-transform butterflies and convolve-average paths.
-7. VP8 smaller fused subpel variance, direct vertical loopfilter, and fused
+3. VP9 amd64 FP quantize plus 4x4/8x8/WHT dispatch, validated on amd64.
+4. VP9 FDCT16x16 arm64, then 32x32/32x32RD as a generated/raw-WORD port.
+5. VP9 decoder full inverse-transform butterflies and convolve-average paths.
+6. VP8 smaller fused subpel variance, direct vertical loopfilter, and fused
    decoder dequant+IDCT+add after fresh profiles show they still dominate.
 
 ## High-risk WebRTC guards

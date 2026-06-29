@@ -1571,10 +1571,10 @@ func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
 	if qcoeff == nil {
 		var qcoeffBuf [1024]int16
 		qcoeff = qcoeffBuf[:n]
-		return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
+		return quantizeFPLibvpxDispatch(coeff, n, roundFP, quantFP, dequant,
 			scan, iscan, qcoeff, dqcoeff)
 	}
-	return quantizeFPLibvpxScalar(coeff, n, roundFP, quantFP, dequant,
+	return quantizeFPLibvpxDispatch(coeff, n, roundFP, quantFP, dequant,
 		scan, iscan, qcoeff[:n], dqcoeff)
 }
 

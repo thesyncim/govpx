@@ -66,16 +66,7 @@ func forwardWHT4x4Dispatch(input []int16, stride int, output []int16) {
 }
 
 func quantizeFPDispatch(coeff []int16, dequant [2]int16, scan []int16, dqcoeff []int16) int {
-	// PENDING: port libvpx v1.16.0 vp9_quantize_fp_neon
-	//   - kernel:  vp9/encoder/arm/neon/vp9_quantize_neon.c::vp9_quantize_fp_neon
-	//   - helpers: quantize_fp_8, get_max_lane_eob, get_max_eob,
-	//              update_fp_values, calculate_dqcoeff_and_store
-	// The libvpx-shaped scalar entry point is QuantizeFPLibvpx
-	// (transform_quant.go); both this legacy dispatch and the NEON kernel
-	// funnel through quantizeFPLibvpxScalar so byte parity is automatic
-	// once the NEON kernel is plumbed in here. The required SIMD encoders
-	// are pre-built in neon_encoder_test.go.
-	return quantizeFPScalar(coeff, dequant, scan, dqcoeff)
+	return QuantizeFPWithQ(coeff, dequant, scan, nil, dqcoeff)
 }
 
 func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,

@@ -65,6 +65,42 @@ func BenchmarkVP9QuantizeFPLibvpx(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9QuantizeFP(b *testing.B) {
+	tests := []struct {
+		name string
+		tx   common.TxSize
+		n    int
+	}{
+		{name: "4x4", tx: common.Tx4x4, n: 16},
+		{name: "8x8", tx: common.Tx8x8, n: 64},
+		{name: "16x16", tx: common.Tx16x16, n: 256},
+	}
+	for _, tc := range tests {
+		b.Run(fmt.Sprintf("%s/n%d", tc.name, tc.n), func(b *testing.B) {
+			scan := common.DefaultScanOrders[tc.tx].Scan
+			coeff := make([]int16, tc.n)
+			dqcoeff := make([]int16, tc.n)
+			for i := range coeff {
+				v := (i*37)%2048 - 1024
+				if i%5 == 0 {
+					v /= 8
+				}
+				coeff[i] = int16(v)
+			}
+			dequant := [2]int16{7, 7}
+			b.ReportAllocs()
+			b.ResetTimer()
+			eobSum := 0
+			for i := 0; i < b.N; i++ {
+				eobSum += QuantizeFP(coeff, dequant, scan, dqcoeff)
+			}
+			if eobSum == 0 {
+				b.Fatal("unexpected zero eob accumulator")
+			}
+		})
+	}
+}
+
 func BenchmarkVP9QuantizeFP32x32(b *testing.B) {
 	scan := common.DefaultScanOrders[common.Tx32x32].Scan
 	coeff := make([]int16, 1024)
