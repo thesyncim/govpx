@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 
@@ -248,6 +249,15 @@ function renderRendition(idx, msg){
     const fps = msg.loop_us > 0 ? (1e6 / msg.loop_us).toFixed(1) : "-";
     row(dl, "loop",  (msg.loop_us/1000).toFixed(1) + " ms / " + fps + " fps");
   }
+  if(msg.forced_key) {
+    senderForcedKeyCount++;
+    row(dl, "forced key", "yes");
+  }
+  if(msg.withheld) {
+    senderWithheldAUCount++;
+    row(dl, "withheld", "yes");
+  }
+  if(msg.withheld_aus) row(dl, "withheld AUs", msg.withheld_aus);
   row(dl, "T", msg.tp + (msg.sync?"↑":""));
   row(dl, "TL0", msg.tl0);
   if(msg.dropped) row(dl, "drop", "yes");
@@ -259,6 +269,8 @@ function renderRendition(idx, msg){
 }
 
 let dc = null;
+let senderForcedKeyCount = 0;
+let senderWithheldAUCount = 0;
 function sendCtl(obj){ if(dc && dc.readyState === "open") dc.send(JSON.stringify(obj)); }
 
 // ---- per-rendition control surface ----
@@ -548,6 +560,7 @@ type renditionState struct {
 	height      atomic.Int32
 	paused      atomic.Bool
 	forceKey    atomic.Bool
+	withhold    atomic.Int32
 
 	roiRadius atomic.Int32 // in 16x16 macroblock cells; 0 == use default
 
@@ -563,6 +576,7 @@ type controlMessage struct {
 	Mode    int     `json:"mode,omitempty"`
 	Level   int     `json:"level,omitempty"`
 	Cap     int     `json:"cap,omitempty"`
+	Count   int     `json:"count,omitempty"`
 	W       int     `json:"w,omitempty"`
 	H       int     `json:"h,omitempty"`
 	Radius  int     `json:"radius,omitempty"`
@@ -688,15 +702,31 @@ func handleOffer(w http.ResponseWriter, r *http.Request, cfg demoConfig) {
 func drainRTCP(sender *webrtc.RTPSender, rs *renditionState) {
 	buf := make([]byte, 1500)
 	for {
-		_, _, err := sender.Read(buf)
+		n, _, err := sender.Read(buf)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				log.Printf("rtcp read: %v", err)
 			}
 			return
 		}
-		rs.forceKey.Store(true)
+		if rtcpRequestsKeyFrame(buf[:n]) {
+			rs.forceKey.Store(true)
+		}
 	}
+}
+
+func rtcpRequestsKeyFrame(raw []byte) bool {
+	packets, err := rtcp.Unmarshal(raw)
+	if err != nil {
+		return false
+	}
+	for _, packet := range packets {
+		switch packet.(type) {
+		case *rtcp.PictureLossIndication, *rtcp.FullIntraRequest:
+			return true
+		}
+	}
+	return false
 }
 
 func applyControl(sess *session, m controlMessage) {
@@ -710,6 +740,23 @@ func applyControl(sess *session, m controlMessage) {
 		}
 		if rs := sess.rendition(m.ID); rs != nil {
 			rs.forceKey.Store(true)
+		}
+	case "withhold":
+		count := m.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > 10 {
+			count = 10
+		}
+		if m.ID < 0 {
+			for _, rs := range sess.renditions {
+				rs.withhold.Add(int32(count))
+			}
+			return
+		}
+		if rs := sess.rendition(m.ID); rs != nil {
+			rs.withhold.Add(int32(count))
 		}
 	case "pause":
 		if rs := sess.rendition(m.ID); rs != nil {
@@ -882,7 +929,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		StaticThreshold:     1,
 		TemporalScalability: govpx.TemporalScalabilityConfig{
 			Enabled: true,
-			Mode:    govpx.TemporalLayeringThreeLayers,
+			Mode:    govpx.TemporalLayeringThreeLayersWithSync,
 		},
 	})
 	if err != nil {
@@ -913,6 +960,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 	rtpSequence := randomUint16()
 	pictureID := randomUint16() & govpx.VP8RTPPictureID15BitMask
 	var sceneT int
+	var localWithheldAccessUnits int
 	var lastTick time.Time
 	var loopUS, writeUS int
 	for {
@@ -996,7 +1044,8 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 				log.Printf("[%s] SetROIMap: %v", rs.cfg.Name, err)
 			}
 		}
-		if rs.forceKey.Swap(false) {
+		forcedKey := rs.forceKey.Swap(false)
+		if forcedKey {
 			enc.ForceKeyFrame()
 		}
 		if rs.paused.Load() {
@@ -1031,7 +1080,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		// decoder's reference chain and causes the receiver to render
 		// artifacts until the next keyframe.
 		if temporalCap < result.TemporalLayerID && result.Droppable {
-			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, encodeUS, 0, 0, loopUS))
+			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, true, forcedKey, false, localWithheldAccessUnits, encodeUS, 0, 0, loopUS))
 			continue
 		}
 
@@ -1058,6 +1107,11 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 			continue
 		}
 		rtpFragments = rtpFragments[:fragmentCount]
+		if result.Droppable && consumePendingWithhold(rs) {
+			localWithheldAccessUnits++
+			pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, forcedKey, true, localWithheldAccessUnits, encodeUS, 0, 0, loopUS))
+			continue
+		}
 
 		writeStart := time.Now()
 		writtenPackets, err := writeWebRTCRTPAccessUnit(track, rtpFragments, frameTimestamp, &rtpSequence)
@@ -1070,7 +1124,7 @@ func runOneRendition(ctx context.Context, sess *session, idx int) {
 		pictureID = govpx.NextVP8RTPPictureID(pictureID)
 		writeUS = int(time.Since(writeStart).Microseconds())
 		tracker.observe(result.SizeBytes, time.Now())
-		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, encodeUS, writeUS, writtenPackets, loopUS))
+		pushTelemetry(sess.telemetry, frameTelemetry(idx, rs, currentBitrate, currentScreen, currentDenoise, currentWidth, currentHeight, result, tracker, false, forcedKey, false, localWithheldAccessUnits, encodeUS, writeUS, writtenPackets, loopUS))
 	}
 }
 
@@ -1094,6 +1148,21 @@ func applyActiveMap(enc *govpx.VP8Encoder, width, height int, enabled bool) erro
 		}
 	}
 	return enc.SetActiveMap(m, rows, cols)
+}
+
+func consumePendingWithhold(rs *renditionState) bool {
+	if rs == nil {
+		return false
+	}
+	for {
+		pending := rs.withhold.Load()
+		if pending <= 0 {
+			return false
+		}
+		if rs.withhold.CompareAndSwap(pending, pending-1) {
+			return true
+		}
+	}
 }
 
 type rtpAccessUnitWriter interface {
@@ -1171,25 +1240,28 @@ func (t *kbpsTracker) observe(n int, now time.Time) {
 func (t *kbpsTracker) kbps() float64 { return t.lastKbps }
 
 type telemetryMessage struct {
-	ID         int     `json:"id"`
-	Frame      int     `json:"frame"`
-	Width      int     `json:"w"`
-	Height     int     `json:"h"`
-	Q          int     `json:"q"`
-	Bytes      int     `json:"bytes"`
-	Kbps       float64 `json:"kbps"`
-	TargetKbps int     `json:"target_kbps"`
-	TP         int     `json:"tp"`
-	TL0        uint8   `json:"tl0"`
-	Sync       bool    `json:"sync"`
-	KF         bool    `json:"kf"`
-	Dropped    bool    `json:"dropped,omitempty"`
-	Suppressed bool    `json:"suppressed,omitempty"`
-	Denoised   bool    `json:"denoised,omitempty"`
-	SceneCut   bool    `json:"scenecut,omitempty"`
-	Screen     int     `json:"screen,omitempty"`
-	Denoise    int     `json:"denoise,omitempty"`
-	ROI        bool    `json:"roi,omitempty"`
+	ID          int     `json:"id"`
+	Frame       int     `json:"frame"`
+	Width       int     `json:"w"`
+	Height      int     `json:"h"`
+	Q           int     `json:"q"`
+	Bytes       int     `json:"bytes"`
+	Kbps        float64 `json:"kbps"`
+	TargetKbps  int     `json:"target_kbps"`
+	TP          int     `json:"tp"`
+	TL0         uint8   `json:"tl0"`
+	Sync        bool    `json:"sync"`
+	KF          bool    `json:"kf"`
+	Dropped     bool    `json:"dropped,omitempty"`
+	Suppressed  bool    `json:"suppressed,omitempty"`
+	Denoised    bool    `json:"denoised,omitempty"`
+	SceneCut    bool    `json:"scenecut,omitempty"`
+	Screen      int     `json:"screen,omitempty"`
+	Denoise     int     `json:"denoise,omitempty"`
+	ROI         bool    `json:"roi,omitempty"`
+	ForcedKey   bool    `json:"forced_key,omitempty"`
+	Withheld    bool    `json:"withheld,omitempty"`
+	WithheldAUs int     `json:"withheld_aus,omitempty"`
 	// EncodeUS is govpx's per-frame EncodeInto wall time in
 	// microseconds. Exposed so the UI can plot per-frame encoder cost
 	// alongside Q and bytes — useful for diagnosing bitrate-recovery
@@ -1214,35 +1286,38 @@ type telemetryMessage struct {
 var frameCounter [renditionCount]int
 
 func frameTelemetry(idx int, rs *renditionState, target, screen, denoise, width, height int,
-	r govpx.EncodeResult, tracker *kbpsTracker, suppressed bool, encodeUS, writeUS, rtpPackets, loopUS int,
+	r govpx.EncodeResult, tracker *kbpsTracker, suppressed, forcedKey, withheld bool, withheldAUs, encodeUS, writeUS, rtpPackets, loopUS int,
 ) []byte {
 	frameCounter[idx]++
 	rs.roiMu.Lock()
 	roi := rs.roiActive
 	rs.roiMu.Unlock()
 	msg := telemetryMessage{
-		ID:         idx,
-		Frame:      frameCounter[idx],
-		Width:      width,
-		Height:     height,
-		Q:          r.Quantizer,
-		Bytes:      r.SizeBytes,
-		Kbps:       tracker.kbps(),
-		TargetKbps: target,
-		TP:         r.TemporalLayerID,
-		TL0:        r.TL0PICIDX,
-		Sync:       r.TemporalLayerSync,
-		KF:         r.KeyFrame,
-		Suppressed: suppressed,
-		Denoised:   r.Denoised,
-		SceneCut:   r.SceneCut,
-		Screen:     screen,
-		Denoise:    denoise,
-		ROI:        roi,
-		EncodeUS:   encodeUS,
-		WriteUS:    writeUS,
-		RTPPackets: rtpPackets,
-		LoopUS:     loopUS,
+		ID:          idx,
+		Frame:       frameCounter[idx],
+		Width:       width,
+		Height:      height,
+		Q:           r.Quantizer,
+		Bytes:       r.SizeBytes,
+		Kbps:        tracker.kbps(),
+		TargetKbps:  target,
+		TP:          r.TemporalLayerID,
+		TL0:         r.TL0PICIDX,
+		Sync:        r.TemporalLayerSync,
+		KF:          r.KeyFrame,
+		Suppressed:  suppressed,
+		Denoised:    r.Denoised,
+		SceneCut:    r.SceneCut,
+		Screen:      screen,
+		Denoise:     denoise,
+		ROI:         roi,
+		ForcedKey:   forcedKey,
+		Withheld:    withheld,
+		WithheldAUs: withheldAUs,
+		EncodeUS:    encodeUS,
+		WriteUS:     writeUS,
+		RTPPackets:  rtpPackets,
+		LoopUS:      loopUS,
 	}
 	out, _ := json.Marshal(msg)
 	return out

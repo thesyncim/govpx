@@ -90,6 +90,9 @@ Flags:
     cap so the wire only carries TL0 / TL≤1 / all.
   - `keyframe` → `enc.ForceKeyFrame` (id < 0 fans out to every
     rendition)
+  - `withhold` → locally suppresses droppable packetized access units
+    on one or all renditions so browser decode continuity is exercised
+    without poisoning the reference chain or creating network loss
   - `pause` → halts the ticker work for that rendition only
   - `roi` → builds a fresh `govpx.ROIMap` with a disc-shaped boost
     segment centred at the click coordinate and installs it through
@@ -128,6 +131,9 @@ three browser video elements and all three inbound RTP streams to
 decode VP8, then samples WebRTC `getStats()` counters and video
 playback time. It enforces zero packet loss, freezes, repair packets,
 NACK, PLI, and FIR by default where Chrome exposes those counters.
+With `--local-withhold`, it also asks the sender to withhold droppable
+encoded access units locally and still requires the browser to keep
+decoding with zero receiver loss, repair traffic, NACK, PLI, or FIR.
 
 Useful knobs:
 
@@ -143,6 +149,9 @@ Useful knobs:
   smoke. The demo server itself only exposes `-fps`, `-low-kbps`,
   `-mid-kbps`, and `-high-kbps`; it does not have a built-in load
   injection flag.
+- `--local-withhold`, `--local-withhold-count` - prove local unsent
+  droppable access units do not stall decode or create receiver-side
+  packet loss, repair packets, NACK, PLI, or FIR.
 - `--server-fps`, `--server-low-kbps`, `--server-mid-kbps`,
   `--server-high-kbps` - forward startup settings to `go run .`.
 
@@ -155,12 +164,14 @@ node production_gate.mjs
 The gate runs the JavaScript syntax check, the focused VP8 Go tests,
 a VP8-only libvpx oracle step (`GOVPX_WITH_ORACLE=1` with
 `govpx_oracle_trace`), and the real-browser smoke with explicit zero
-budgets for loss, freezes, repair packets, NACK, PLI, and FIR. The
-oracle step covers vpxdec acceptance, output parity, and temporal SVC
+budgets for loss, freezes, repair packets, NACK, PLI, and FIR. A
+second browser step enables local droppable-frame withhold and requires
+continued decode without receiver-side repair traffic. The oracle
+step covers vpxdec acceptance, output parity, and temporal SVC
 WebRTC-style byte parity, and the gate fails if those required oracle
 tests skip. The browser gate can be made longer or run under local CPU
-load with `VP8_WEBRTC_GATE_SOAK_MS`, `VP8_WEBRTC_GATE_REPEAT`, and
-`VP8_WEBRTC_GATE_CPU_BURNERS`.
+load with `VP8_WEBRTC_GATE_SOAK_MS`, `VP8_WEBRTC_GATE_REPEAT`,
+`VP8_WEBRTC_GATE_WITHHOLD_COUNT`, and `VP8_WEBRTC_GATE_CPU_BURNERS`.
 
 ## What this proves
 
@@ -172,9 +183,9 @@ load with `VP8_WEBRTC_GATE_SOAK_MS`, `VP8_WEBRTC_GATE_REPEAT`, and
   `SetScreenContentMode`, `SetNoiseSensitivity`, `SetROIMap`,
   `SetActiveMap`, `ForceKeyFrame`, etc.) takes effect mid-stream
   without dropping the WebRTC peer.
-- The temporal SVC pattern threads cleanly through pion's VP8
-  packetiser and is readable by stock browser decoders, including the
-  TL0PICIDX / sync-flag metadata the page surfaces.
+- The temporal SVC pattern threads cleanly through govpx's VP8 WebRTC
+  RTP packetizer and is readable by stock browser decoders, including
+  the TL0PICIDX / sync-flag metadata the page surfaces.
 - A bidirectional WebRTC DataChannel is enough plumbing to wire a
   whole control panel and a live per-rendition telemetry overlay
   with no separate REST or WebSocket endpoint.

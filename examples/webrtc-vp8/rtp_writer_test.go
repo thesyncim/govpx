@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 
 	"github.com/thesyncim/govpx"
@@ -56,5 +57,54 @@ func TestWriteWebRTCRTPAccessUnitPreservesGovpxFragments(t *testing.T) {
 		if string(packet.Payload) != string(fragments[i].Payload) {
 			t.Fatalf("packet %d payload = % x, want % x", i, packet.Payload, fragments[i].Payload)
 		}
+	}
+}
+
+func TestConsumePendingWithhold(t *testing.T) {
+	rs := &renditionState{}
+	if consumePendingWithhold(rs) {
+		t.Fatal("consumePendingWithhold with no pending count = true, want false")
+	}
+	rs.withhold.Add(2)
+	if !consumePendingWithhold(rs) || !consumePendingWithhold(rs) {
+		t.Fatal("consumePendingWithhold did not consume both pending access units")
+	}
+	if consumePendingWithhold(rs) {
+		t.Fatal("consumePendingWithhold after pending count exhausted = true, want false")
+	}
+}
+
+func TestRTCPRequestsKeyFrameOnlyForPLIFIR(t *testing.T) {
+	rr, err := (&rtcp.ReceiverReport{SSRC: 1}).Marshal()
+	if err != nil {
+		t.Fatalf("ReceiverReport.Marshal: %v", err)
+	}
+	if rtcpRequestsKeyFrame(rr) {
+		t.Fatal("ReceiverReport requested keyframe")
+	}
+
+	pli, err := (&rtcp.PictureLossIndication{SenderSSRC: 1, MediaSSRC: 2}).Marshal()
+	if err != nil {
+		t.Fatalf("PictureLossIndication.Marshal: %v", err)
+	}
+	if !rtcpRequestsKeyFrame(pli) {
+		t.Fatal("PictureLossIndication did not request keyframe")
+	}
+
+	fir, err := (&rtcp.FullIntraRequest{
+		SenderSSRC: 1,
+		MediaSSRC:  2,
+		FIR:        []rtcp.FIREntry{{SSRC: 2, SequenceNumber: 1}},
+	}).Marshal()
+	if err != nil {
+		t.Fatalf("FullIntraRequest.Marshal: %v", err)
+	}
+	if !rtcpRequestsKeyFrame(fir) {
+		t.Fatal("FullIntraRequest did not request keyframe")
+	}
+
+	compound := append(append([]byte(nil), rr...), pli...)
+	if !rtcpRequestsKeyFrame(compound) {
+		t.Fatal("compound ReceiverReport+PLI did not request keyframe")
 	}
 }

@@ -23,6 +23,7 @@ const browserPollMs = integerEnv("VP8_WEBRTC_GATE_POLL_MS", 1000, { min: 1 });
 const browserMinDecoded = integerEnv("VP8_WEBRTC_GATE_MIN_DECODED_DELTA", 80, { min: 0 });
 const browserMinVideoRatio = numberEnv("VP8_WEBRTC_GATE_MIN_VIDEO_TIME_RATIO", 0.85, { min: 0 });
 const browserCPUBurners = integerEnv("VP8_WEBRTC_GATE_CPU_BURNERS", 0, { min: 0 });
+const browserWithholdCount = integerEnv("VP8_WEBRTC_GATE_WITHHOLD_COUNT", 2, { min: 1, max: 10 });
 
 const browserArgs = [
   "browser_smoke.mjs",
@@ -80,6 +81,30 @@ const steps = [
     args: browserArgs,
     kind: "browser-json",
   },
+  {
+    name: "browser-local-withhold",
+    command: "node",
+    args: [
+      "browser_smoke.mjs",
+      "--local-withhold",
+      "--local-withhold-count", String(browserWithholdCount),
+      "--soak-ms", String(browserSoakMs),
+      "--sample-ms", String(browserSampleMs),
+      "--poll-ms", String(browserPollMs),
+      "--min-decoded-delta", String(browserMinDecoded),
+      "--min-video-time-ratio", String(browserMinVideoRatio),
+      "--max-rx-lost-delta", "0",
+      "--max-rx-dropped-delta", "0",
+      "--max-rx-freezes-delta", "0",
+      "--max-rx-freeze-duration-delta", "0",
+      "--max-rx-repair-delta", "0",
+      "--max-rx-nack-delta", "0",
+      "--max-rx-pli-delta", "0",
+      "--max-rx-fir-delta", "0",
+      ...(browserCPUBurners > 0 ? ["--cpu-burners", String(browserCPUBurners)] : []),
+    ],
+    kind: "browser-json",
+  },
 ];
 
 async function main() {
@@ -115,6 +140,10 @@ async function runStep(step) {
   if (step.kind === "browser-json") {
     parsed = JSON.parse(output.stdout);
   }
+  const summary = parsed?.summary ?? parsed?.aggregate ?? null;
+  if (summary && parsed?.localWithholdResult) {
+    summary.localWithhold = summarizeLocalWithhold(parsed.localWithholdResult);
+  }
   return {
     name: step.name,
     command: step.command,
@@ -122,8 +151,38 @@ async function runStep(step) {
     elapsedMs: Date.now() - started,
     stdoutBytes: output.stdout.length,
     stderrBytes: output.stderr.length,
-    summary: parsed?.summary ?? parsed?.aggregate ?? null,
+    summary,
   };
+}
+
+function summarizeLocalWithhold(result) {
+  const clients = Array.isArray(result?.clients) ? result.clients : [];
+  const values = (key) => clients.map((client) => client?.[key]).filter(Number.isFinite);
+  return {
+    count: result?.count ?? null,
+    renditions: result?.renditions ?? null,
+    expectedWithheldAUs: result?.expectedWithheldAUs ?? null,
+    minWithheldAUs: minNumber(values("withheldAUs")),
+    maxForcedKeys: maxNumber(values("forcedKeys")),
+    decodedAfterWithhold: sumNumber(values("decodedAfterWithhold")),
+    lostAfterWithhold: sumNumber(values("lostAfterWithhold")),
+    repairedAfterWithhold: sumNumber(values("repairedAfterWithhold")),
+    nacksAfterWithhold: sumNumber(values("nackAfterWithhold")),
+    plisAfterWithhold: sumNumber(values("pliAfterWithhold")),
+    firsAfterWithhold: sumNumber(values("firAfterWithhold")),
+  };
+}
+
+function minNumber(values) {
+  return values.length === 0 ? null : Math.min(...values);
+}
+
+function maxNumber(values) {
+  return values.length === 0 ? null : Math.max(...values);
+}
+
+function sumNumber(values) {
+  return values.reduce((total, value) => total + value, 0);
 }
 
 function collect(child) {

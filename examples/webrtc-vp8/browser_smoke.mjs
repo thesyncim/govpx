@@ -44,6 +44,8 @@ function parseOptions() {
     serverLowKbps: optionalIntegerFlag("--server-low-kbps", { min: 1 }),
     serverMidKbps: optionalIntegerFlag("--server-mid-kbps", { min: 1 }),
     serverHighKbps: optionalIntegerFlag("--server-high-kbps", { min: 1 }),
+    localWithhold: booleanFlag("--local-withhold"),
+    localWithholdCount: integerFlag("--local-withhold-count", 1, { min: 1, max: 10 }),
     cpuBurners: integerFlag("--cpu-burners", 0, { min: 0 }),
     chromePath: findChrome(),
     serverProcessGroup: process.platform !== "win32",
@@ -82,7 +84,14 @@ async function runSmoke(opts, runIndex) {
     const initialByClient = await Promise.all(clients.map((client) =>
       waitForDecodedStats(cdp, client.sessionId, opts.timeoutMs, opts)
     ));
-    let previousByClient = initialByClient;
+    let firstByClient = initialByClient;
+    const localWithhold = opts.localWithhold
+      ? await exerciseLocalWithhold(cdp, clients, firstByClient, opts.timeoutMs, opts.localWithholdCount, opts.expectedRenditions)
+      : null;
+    if (localWithhold) {
+      firstByClient = localWithhold.afterRecoveryByClient;
+    }
+    let previousByClient = firstByClient;
     const samples = [];
     const sampleCount = Math.max(1, Math.ceil(opts.soakMs / opts.sampleMs));
 
@@ -128,10 +137,10 @@ async function runSmoke(opts, runIndex) {
     }
 
     const finalByClient = previousByClient;
-    const deltaByClient = initialByClient.map((first, i) =>
+    const deltaByClient = firstByClient.map((first, i) =>
       diffStats(first, finalByClient[i])
     );
-    const summary = summarizeRun(samples, deltaByClient, finalByClient, initialByClient);
+    const summary = summarizeRun(samples, deltaByClient, finalByClient, firstByClient);
     return {
       run: runIndex,
       url,
@@ -145,6 +154,9 @@ async function runSmoke(opts, runIndex) {
       serverLowKbps: opts.serverLowKbps,
       serverMidKbps: opts.serverMidKbps,
       serverHighKbps: opts.serverHighKbps,
+      localWithhold: opts.localWithhold,
+      localWithholdCount: opts.localWithholdCount,
+      localWithholdResult: localWithhold,
       cpuBurners: opts.cpuBurners,
       minDecodedDelta: opts.minDecodedDelta,
       minVideoTimeRatio: opts.minVideoTimeRatio,
@@ -156,12 +168,12 @@ async function runSmoke(opts, runIndex) {
       maxRxNackDelta: opts.maxRxNackDelta,
       maxRxPliDelta: opts.maxRxPliDelta,
       maxRxFirDelta: opts.maxRxFirDelta,
-      initial: initialByClient[0],
+      initial: firstByClient[0],
       samples,
-      first: initialByClient[0],
+      first: firstByClient[0],
       second: finalByClient[0],
       delta: deltaByClient[0],
-      clientResults: initialByClient.map((first, i) => ({
+      clientResults: firstByClient.map((first, i) => ({
         client: i + 1,
         first,
         second: finalByClient[i],
@@ -252,6 +264,128 @@ async function collectIntervalStats(cdp, sessionId, intervalMs, pollMs) {
     out.push(await readStats(cdp, sessionId));
   }
   return out;
+}
+
+async function applyControlAction(cdp, sessionId, action) {
+  const encoded = JSON.stringify(action);
+  const result = await cdp.send("Runtime.evaluate", {
+    expression: `(() => {
+      const action = ${encoded};
+      if (typeof sendCtl !== "function") throw new Error("missing sendCtl");
+      if (!dc || dc.readyState !== "open") throw new Error("data channel not open");
+      if (action.type === "withhold") {
+        const count = Number.isFinite(action.count) ? action.count : 1;
+        sendCtl({type: "withhold", id: -1, count});
+        return {type: "withhold", id: -1, count};
+      }
+      throw new Error("unknown control action " + action.type);
+    })()`,
+    returnByValue: true,
+    awaitPromise: true,
+  }, sessionId);
+  if (result.exceptionDetails) {
+    throw new Error(`control action failed: ${JSON.stringify(result.exceptionDetails)}`);
+  }
+  return result.result.value;
+}
+
+async function exerciseLocalWithhold(cdp, clients, beforeByClient, timeoutMs, count, renditions) {
+  await Promise.all(clients.map((client) =>
+    applyControlAction(cdp, client.sessionId, { type: "withhold", count })
+  ));
+  const recoveredByClient = await Promise.all(clients.map((client, i) =>
+    waitForLocalWithholdRecovery(cdp, client.sessionId, beforeByClient[i], timeoutMs, count * renditions)
+  ));
+  await sleep(1000);
+  const afterRecoveryByClient = await Promise.all(clients.map((client) =>
+    readStats(cdp, client.sessionId)
+  ));
+  return {
+    count,
+    renditions,
+    expectedWithheldAUs: count * renditions,
+    clients: recoveredByClient.map((stats, i) => ({
+      client: i + 1,
+      withheldAUs: numericDelta(
+        beforeByClient[i]?.senderWithheldAUs,
+        stats?.senderWithheldAUs,
+      ),
+      forcedKeys: numericDelta(
+        beforeByClient[i]?.senderForcedKeys,
+        stats?.senderForcedKeys,
+      ),
+      decodedAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxDecoded,
+        stats?.rxDecoded,
+      ),
+      lostAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxLost,
+        stats?.rxLost,
+      ),
+      repairedAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxRepairPackets,
+        stats?.rxRepairPackets,
+      ),
+      nackAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxNackCount,
+        stats?.rxNackCount,
+      ),
+      pliAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxPliCount,
+        stats?.rxPliCount,
+      ),
+      firAfterWithhold: numericDelta(
+        beforeByClient[i]?.rxFirCount,
+        stats?.rxFirCount,
+      ),
+      recovered: stats,
+      afterRecovery: afterRecoveryByClient[i],
+    })),
+    afterRecoveryByClient,
+  };
+}
+
+async function waitForLocalWithholdRecovery(cdp, sessionId, before, timeoutMs, expectedWithheldAUs) {
+  const deadline = Date.now() + timeoutMs;
+  let latest = null;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    latest = await readStats(cdp, sessionId);
+    const withheld = numericDelta(before?.senderWithheldAUs, latest?.senderWithheldAUs);
+    const forcedKeys = numericDelta(before?.senderForcedKeys, latest?.senderForcedKeys);
+    const decoded = numericDelta(before?.rxDecoded, latest?.rxDecoded);
+    const lost = numericDelta(before?.rxLost, latest?.rxLost);
+    const repairs = numericDelta(before?.rxRepairPackets, latest?.rxRepairPackets);
+    const nacks = numericDelta(before?.rxNackCount, latest?.rxNackCount);
+    const plis = numericDelta(before?.rxPliCount, latest?.rxPliCount);
+    const firs = numericDelta(before?.rxFirCount, latest?.rxFirCount);
+    if (
+      withheld !== null &&
+      withheld >= expectedWithheldAUs &&
+      (forcedKeys === null || forcedKeys === 0) &&
+      decoded !== null &&
+      decoded >= 1 &&
+      (lost === null || lost === 0) &&
+      (repairs === null || repairs === 0) &&
+      (nacks === null || nacks === 0) &&
+      (plis === null || plis === 0) &&
+      (firs === null || firs === 0) &&
+      latest.videos.length >= before.videos.length &&
+      latest.videos.every((video) =>
+        video.readyState >= 2 &&
+        Number.isFinite(video.currentTime) &&
+        video.currentTime > 0
+      ) &&
+      (
+        !Number.isFinite(before.minVideoTime) ||
+        !Number.isFinite(latest.minVideoTime) ||
+        latest.minVideoTime > before.minVideoTime
+      )
+    ) {
+      return latest;
+    }
+  }
+  throw new Error(`local withhold decode recovery did not become ready: ${JSON.stringify({ before, latest, expectedWithheldAUs })}`);
 }
 
 async function readStats(cdp, sessionId) {
@@ -354,6 +488,8 @@ async function readStats(cdp, sessionId) {
         rxNackCount: sumReports("nackCount"),
         rxPliCount: sumReports("pliCount"),
         rxFirCount: sumReports("firCount"),
+        senderForcedKeys: typeof senderForcedKeyCount === "number" ? senderForcedKeyCount : 0,
+        senderWithheldAUs: typeof senderWithheldAUCount === "number" ? senderWithheldAUCount : 0,
         videoFrames: sumVideos("totalVideoFrames"),
         videoDroppedFrames: sumVideos("droppedVideoFrames"),
         minVideoTime: minFinite(videos.map((video) => video.currentTime)),
@@ -454,6 +590,8 @@ function diffStats(first, second) {
     "rxNackCount",
     "rxPliCount",
     "rxFirCount",
+    "senderForcedKeys",
+    "senderWithheldAUs",
     "videoFrames",
     "videoDroppedFrames",
     "minVideoTime",
@@ -518,6 +656,8 @@ function summarizeStatsGroup(summaries, deltas, seconds, sampleSeconds) {
     nacks: deltaSum("rxNackCount"),
     plis: deltaSum("rxPliCount"),
     firs: deltaSum("rxFirCount"),
+    forcedKeys: deltaSum("senderForcedKeys"),
+    withheldAUs: deltaSum("senderWithheldAUs"),
     minInboundStreams: minNumber(summaryValues("minInboundStreams")),
     minVideos: minNumber(summaryValues("minVideos")),
     minVideoTime: minNumber(secondValues("minVideoTime")),
@@ -552,6 +692,8 @@ function summarizeRuns(runs) {
     nacks: sum("nacks"),
     plis: sum("plis"),
     firs: sum("firs"),
+    forcedKeys: sum("forcedKeys"),
+    withheldAUs: sum("withheldAUs"),
     minInboundStreams: minNumber(values("minInboundStreams")),
     minVideos: minNumber(values("minVideos")),
     minVideoTime: minNumber(values("minVideoTime")),
@@ -608,6 +750,10 @@ function flagValue(name) {
     throw new Error(`${name} requires a value`);
   }
   return process.argv[idx + 1];
+}
+
+function booleanFlag(name) {
+  return process.argv.includes(name);
 }
 
 function integerFlag(name, defaultValue, limits = {}) {
