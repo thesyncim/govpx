@@ -254,6 +254,26 @@ func TestForwardHT16x16NEONMatchesScalarRandom(t *testing.T) {
 	}
 }
 
+func TestForwardHT8x8NEONMatchesScalarRandom(t *testing.T) {
+	rng := rand.New(rand.NewSource(29))
+	for _, txType := range []common.TxType{common.AdstDct, common.DctAdst, common.AdstAdst} {
+		for trial := range 100 {
+			var input [8 * 16]int16
+			for i := range input {
+				input[i] = int16(rng.Intn(511) - 255)
+			}
+			var simd, scalar [64]int16
+			forwardHT8x8NEON(unsafe.SliceData(input[:]),
+				unsafe.SliceData(simd[:]), 16, int(txType))
+			forwardHT8x8Scalar(input[:], 16, txType, scalar[:])
+			if simd != scalar {
+				t.Fatalf("tx=%d trial=%d HT8x8 mismatch\nsimd  %v\nscalar %v",
+					txType, trial, simd, scalar)
+			}
+		}
+	}
+}
+
 func TestForwardDCT4x4NEONMatchesScalarConstant(t *testing.T) {
 	for _, v := range []int16{0, 1, -1, 7, -7, 200, -200} {
 		var input [16]int16

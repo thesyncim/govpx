@@ -16,6 +16,10 @@ func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT8x8Scalar(input, stride, output)
 }
 
+func forwardHT8x8Dispatch(input []int16, stride int, txType common.TxType, output []int16) bool {
+	return false
+}
+
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT16x16Scalar(input, stride, output)
 }

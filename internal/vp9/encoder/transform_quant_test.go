@@ -376,6 +376,32 @@ func BenchmarkForwardHT16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkForwardHT8x8(b *testing.B) {
+	rng := rand.New(rand.NewSource(20))
+	var input [8 * 8]int16
+	for i := range input {
+		input[i] = int16(rng.Intn(511) - 255)
+	}
+	for _, tc := range []struct {
+		name string
+		tx   common.TxType
+	}{
+		{name: "DCT_DCT", tx: common.DctDct},
+		{name: "ADST_DCT", tx: common.AdstDct},
+		{name: "DCT_ADST", tx: common.DctAdst},
+		{name: "ADST_ADST", tx: common.AdstAdst},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var output [8 * 8]int16
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ForwardHT8x8Into(input[:], 8, tc.tx, output[:])
+			}
+		})
+	}
+}
+
 func TestForwardWHT4x4MatchesLibvpxSentinels(t *testing.T) {
 	var constant [16]int16
 	for i := range constant {

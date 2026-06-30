@@ -465,6 +465,16 @@ func ForwardHT8x8Into(input []int16, stride int, txType common.TxType, output []
 	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
 		return
 	}
+	if forwardHT8x8Dispatch(input, stride, txType, output) {
+		return
+	}
+	forwardHT8x8Scalar(input, stride, txType, output)
+}
+
+func forwardHT8x8Scalar(input []int16, stride int, txType common.TxType, output []int16) {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
+		return
+	}
 	var out [64]int
 	var tempIn, tempOut [8]int
 	for i := range 8 {

@@ -31,6 +31,17 @@ func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT8x8NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride)
 }
 
+func forwardHT8x8Dispatch(input []int16, stride int, txType common.TxType, output []int16) bool {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
+		return false
+	}
+	if stride < 8 || len(input) < 7*stride+8 || len(output) < 64 {
+		return false
+	}
+	forwardHT8x8NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride, int(txType))
+	return true
+}
+
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
 	if stride < 16 || len(input) < 15*stride+16 || len(output) < 256 {
 		forwardDCT16x16Scalar(input, stride, output)
@@ -275,6 +286,9 @@ func forwardWHT4x4NEON(input *int16, stride int, output *int16)
 
 //go:noescape
 func forwardDCT8x8NEON(input *int16, output *int16, stride int)
+
+//go:noescape
+func forwardHT8x8NEON(input *int16, output *int16, stride int, txType int)
 
 //go:noescape
 func forwardDCT4x4NEON(input *int16, output *int16, stride int)
