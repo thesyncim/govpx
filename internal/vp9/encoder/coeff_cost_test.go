@@ -179,6 +179,25 @@ func TestCoeffTokenExtraCostOutOfTableFallsBack(t *testing.T) {
 	}
 }
 
+func TestCoeffTokenExtraCostQCoeffMatchesSlowPath(t *testing.T) {
+	for _, q := range []int16{
+		-4096, -67, -3, -1, 0, 1, 2, 66, 255, 4095, 4096,
+	} {
+		gotToken, gotCost := coeffTokenExtraCostQCoeff(q)
+		absVal := int(q)
+		sign := 0
+		if absVal < 0 {
+			absVal = -absVal
+			sign = 1
+		}
+		wantToken, wantCost := coeffTokenExtraCostSlow(absVal, sign)
+		if gotToken != wantToken || gotCost != wantCost {
+			t.Fatalf("coeffTokenExtraCostQCoeff(%d) = (%d,%d), want slow (%d,%d)",
+				q, gotToken, gotCost, wantToken, wantCost)
+		}
+	}
+}
+
 func TestCoeffBlockEOBPrefersQCoeffScanOrder(t *testing.T) {
 	scan := []int16{3, 1, 2, 0}
 	coeffs := []int16{9, 0, 0, 0}

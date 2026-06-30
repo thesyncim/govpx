@@ -363,6 +363,9 @@ func coeffBlockRateCostSlowQ(in CoeffBlockRateCostInput, scan, neighbors []int16
 func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
 	maxEob int,
 ) int {
+	if in.QCoeffs != nil {
+		return coeffBlockRateCostFastCompleteQCoeff(in, scan, maxEob)
+	}
 	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
 	if eob == 0 {
 		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
@@ -412,4 +415,66 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
 			EobToken)
 	}
 	return rate
+}
+
+func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
+	scan []int16, maxEob int,
+) int {
+	eob := coeffBlockEOBCompleteQCoeff(scan, maxEob, in.QCoeffs)
+	if eob == 0 {
+		return CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+			EobToken)
+	}
+
+	rate := 0
+	prevToken, extraCost := coeffTokenExtraCostQCoeff(in.QCoeffs[0])
+	rate += extraCost
+	rate += CoeffTreeTokenCost((*in.CoefModel)[0][in.InitCtx][:], false,
+		prevToken)
+
+	bandIdx := 1
+	bandLeft := coeffCostBandCounts[in.TxSize][bandIdx]
+	for c := 1; c < eob; c++ {
+		raster := int(scan[c])
+		token, extra := coeffTokenExtraCostQCoeff(in.QCoeffs[raster])
+		ctx := 0
+		skipEOB := false
+		if prevToken == ZeroToken {
+			ctx = 1
+			skipEOB = true
+		}
+		rate += extra
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:],
+			skipEOB, token)
+		prevToken = token
+		bandLeft--
+		if bandLeft == 0 {
+			bandIdx++
+			if bandIdx >= len(coeffCostBandCounts[in.TxSize]) {
+				break
+			}
+			bandLeft = coeffCostBandCounts[in.TxSize][bandIdx]
+		}
+	}
+	if bandLeft != 0 {
+		ctx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+		}
+		rate += CoeffTreeTokenCost((*in.CoefModel)[bandIdx][ctx][:], false,
+			EobToken)
+	}
+	return rate
+}
+
+func coeffTokenExtraCostQCoeff(q int16) (token int, cost int) {
+	absVal := int(q)
+	if absVal < 0 {
+		absVal = -absVal
+	}
+	if uint(absVal) < coeffTokenExtraCostTableSize {
+		entry := coeffTokenExtraCostTable[absVal]
+		return int(entry.token), int(entry.cost)
+	}
+	return coeffTokenExtraCostSlow(absVal, 0)
 }
