@@ -46,9 +46,7 @@ func Idct8x8_64Add(input []int16, dest []uint8, stride int) {
 		idct8x8_64AddScalar(input, dest, stride)
 		return
 	}
-	var residual [64]int16
-	idct8x8Residual(input, &residual, 8)
-	idctAddResidualRows8NEON(unsafe.SliceData(dest), stride, &residual[0], 8)
+	idct8x8_64AddNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
 }
 
 // Idct8x8_12Add is the sparse upper-left-4x4 fast path for the 8x8
@@ -267,6 +265,9 @@ func idct16x16DcAddNEON(dest *byte, stride int, a1 int16)
 
 //go:noescape
 func idct32x32DcAddNEON(dest *byte, stride int, a1 int16)
+
+//go:noescape
+func idct8x8_64AddNEON(input *int16, dest *byte, stride int)
 
 // idctAddResidualRowsNNEON adds N int16 residuals per row to dest with
 // SRSHR (round-power-of-two) and signed-saturating narrow back to
