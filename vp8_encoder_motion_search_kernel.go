@@ -233,20 +233,46 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 			nextCol = bestCol
 			chk := nextCheckpointIdx[k]
 			if boundsInteriorByPad(bounds, bestRow, bestCol, padRing, padRing) {
-				for i := range 3 {
-					idx := int(chk[i])
-					row := bestRow + int(hexDR[idx])
-					col := bestCol + int(hexDC[idx])
+				idx0 := int(chk[0])
+				idx1 := int(chk[1])
+				idx2 := int(chk[2])
+				r0, c0 := bestRow+int(hexDR[idx0]), bestCol+int(hexDC[idx0])
+				r1, c1 := bestRow+int(hexDR[idx1]), bestCol+int(hexDC[idx1])
+				r2, c2 := bestRow+int(hexDR[idx2]), bestCol+int(hexDC[idx2])
+				if ctx.fullPelSADFull4(r0, c0, r1, c1, r2, c2, r2, c2, &sad4) {
 					local.sadCalls++
-					local.sadCandidates++
-					sad := ctx.fullPelSADFull(row, col)
-					if sad < bestCost {
-						cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
-						if cost < bestCost {
-							nextRow = row
-							nextCol = col
-							bestCost = cost
-							bestSite = i
+					local.sadCandidates += 3
+					local.batchCalls++
+					rows := [3]int{r0, r1, r2}
+					cols := [3]int{c0, c1, c2}
+					for i := range 3 {
+						sad := int(sad4[i])
+						if sad < bestCost {
+							cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
+							if cost < bestCost {
+								nextRow = rows[i]
+								nextCol = cols[i]
+								bestCost = cost
+								bestSite = i
+							}
+						}
+					}
+				} else {
+					for i := range 3 {
+						idx := int(chk[i])
+						row := bestRow + int(hexDR[idx])
+						col := bestCol + int(hexDC[idx])
+						local.sadCalls++
+						local.sadCandidates++
+						sad := ctx.fullPelSADFull(row, col)
+						if sad < bestCost {
+							cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+							if cost < bestCost {
+								nextRow = row
+								nextCol = col
+								bestCost = cost
+								bestSite = i
+							}
 						}
 					}
 				}
@@ -481,18 +507,41 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 			nextCol = bestCol
 			chk := nextCheckpointIdx[k]
 			if boundsInteriorByPad(bounds, bestRow, bestCol, padRing, padRing) {
-				for i := range 3 {
-					idx := int(chk[i])
-					row := bestRow + int(hexDR[idx])
-					col := bestCol + int(hexDC[idx])
-					sad := ctx.fullPelSADFull(row, col)
-					if sad < bestCost {
-						cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
-						if cost < bestCost {
-							nextRow = row
-							nextCol = col
-							bestCost = cost
-							bestSite = i
+				idx0 := int(chk[0])
+				idx1 := int(chk[1])
+				idx2 := int(chk[2])
+				r0, c0 := bestRow+int(hexDR[idx0]), bestCol+int(hexDC[idx0])
+				r1, c1 := bestRow+int(hexDR[idx1]), bestCol+int(hexDC[idx1])
+				r2, c2 := bestRow+int(hexDR[idx2]), bestCol+int(hexDC[idx2])
+				if ctx.fullPelSADFull4(r0, c0, r1, c1, r2, c2, r2, c2, &sad4) {
+					rows := [3]int{r0, r1, r2}
+					cols := [3]int{c0, c1, c2}
+					for i := range 3 {
+						sad := int(sad4[i])
+						if sad < bestCost {
+							cost := sad + fullPelMVSADCostInline(rows[i], cols[i], refRow8, refCol8, costs)
+							if cost < bestCost {
+								nextRow = rows[i]
+								nextCol = cols[i]
+								bestCost = cost
+								bestSite = i
+							}
+						}
+					}
+				} else {
+					for i := range 3 {
+						idx := int(chk[i])
+						row := bestRow + int(hexDR[idx])
+						col := bestCol + int(hexDC[idx])
+						sad := ctx.fullPelSADFull(row, col)
+						if sad < bestCost {
+							cost := sad + fullPelMVSADCostInline(row, col, refRow8, refCol8, costs)
+							if cost < bestCost {
+								nextRow = row
+								nextCol = col
+								bestCost = cost
+								bestSite = i
+							}
 						}
 					}
 				}
