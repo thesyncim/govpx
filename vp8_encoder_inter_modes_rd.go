@@ -62,6 +62,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 	denoiseActive := e.opts.NoiseSensitivity > 0
 	denoiseDecision := newDenoiserMacroblockDecision()
 	var lastStaleY2 staleY2Snapshot
+	var intraChromaCache interIntraChromaRDCache
 	var newMVCandidates [3]struct {
 		searched bool
 		ok       bool
@@ -144,7 +145,7 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			}
 			bestScoreBefore := bestScore
 			bestYRDBefore := bestYRD
-			intra, ok := e.estimateInterIntraModeRDScore(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant)
+			intra, ok := e.estimateInterIntraModeRDScoreWithChromaCache(src, qIndex, mbRow, mbCol, mbMode, bestYRD, aboveTok, leftTok, quant, &intraChromaCache)
 			// libvpx vp8/encoder/rdopt.c B_PRED case (lines 1949-1971):
 			// when rd_pick_intra4x4mby_modes returns tmp_rd >= best_yrd
 			// the case sets `this_rd = INT_MAX, disable_skip = 1` and

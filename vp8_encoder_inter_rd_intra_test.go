@@ -130,3 +130,104 @@ func TestEstimateInterIntraBPredYRDExcludesUVTokensAndRefCosts(t *testing.T) {
 		t.Fatalf("BPred RD score = %d, want %d with UV/ref costs and penalty", result.score, want)
 	}
 }
+
+func TestEstimateInterIntraModeRDScoreChromaCacheMatchesUncached(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.modeProbs.UVMode = [vp8tables.UVModeProbCount]uint8{245, 8, 230}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	quant := testRegularMacroblockQuant(t, 20)
+	modes := []vp8common.MBPredictionMode{
+		vp8common.DCPred,
+		vp8common.VPred,
+		vp8common.HPred,
+		vp8common.TMPred,
+		vp8common.BPred,
+	}
+
+	var cache interIntraChromaRDCache
+	for _, mode := range modes {
+		fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+		e.analysis.ExtendBorders()
+		got, gotOK := e.estimateInterIntraModeRDScoreWithChromaCache(sourceImageFromPublic(src), 20, 0, 0, mode, maxInt(), nil, nil, &quant, &cache)
+
+		fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+		e.analysis.ExtendBorders()
+		want, wantOK := e.estimateInterIntraModeRDScore(sourceImageFromPublic(src), 20, 0, 0, mode, maxInt(), nil, nil, &quant)
+
+		if gotOK != wantOK {
+			t.Fatalf("%v cached ok=%v, want %v", mode, gotOK, wantOK)
+		}
+		if !gotOK {
+			continue
+		}
+		if got.mode != want.mode ||
+			got.score != want.score ||
+			got.yrd != want.yrd ||
+			got.rate != want.rate ||
+			got.rateY != want.rateY ||
+			got.rateUV != want.rateUV ||
+			got.distortion != want.distortion ||
+			got.distortionUV != want.distortionUV {
+			t.Fatalf("%v cached result = %+v, want %+v", mode, got, want)
+		}
+	}
+	if !cache.valid || !cache.ok {
+		t.Fatalf("chroma cache was not populated: %+v", cache)
+	}
+}
+
+func BenchmarkEstimateInterIntraModeRDScoreChromaCache(b *testing.B) {
+	e := newSizedTestEncoder(b, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		b.Fatalf("SetDeadline returned error: %v", err)
+	}
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	quant := testRegularMacroblockQuant(b, 20)
+	source := sourceImageFromPublic(src)
+	modes := []vp8common.MBPredictionMode{
+		vp8common.DCPred,
+		vp8common.VPred,
+		vp8common.HPred,
+		vp8common.TMPred,
+		vp8common.BPred,
+	}
+
+	b.Run("Uncached", func(b *testing.B) {
+		var sink int
+		b.ReportAllocs()
+		for range b.N {
+			fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+			e.analysis.ExtendBorders()
+			for _, mode := range modes {
+				result, ok := e.estimateInterIntraModeRDScore(source, 20, 0, 0, mode, maxInt(), nil, nil, &quant)
+				if !ok {
+					b.Fatalf("estimateInterIntraModeRDScore(%v) returned ok=false", mode)
+				}
+				sink += result.score
+			}
+		}
+		_ = sink
+	})
+	b.Run("Cached", func(b *testing.B) {
+		var sink int
+		b.ReportAllocs()
+		for range b.N {
+			fillBenchmarkVP8Image(&e.analysis.Img, 128, 90, 170)
+			e.analysis.ExtendBorders()
+			var cache interIntraChromaRDCache
+			for _, mode := range modes {
+				result, ok := e.estimateInterIntraModeRDScoreWithChromaCache(source, 20, 0, 0, mode, maxInt(), nil, nil, &quant, &cache)
+				if !ok {
+					b.Fatalf("estimateInterIntraModeRDScoreWithChromaCache(%v) returned ok=false", mode)
+				}
+				sink += result.score
+			}
+		}
+		_ = sink
+	})
+}
