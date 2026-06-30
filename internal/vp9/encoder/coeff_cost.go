@@ -364,6 +364,10 @@ func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
 	if len(scan) < maxEob {
 		return 0
 	}
+	if in.Fast && in.QCoeffs != nil && in.CostTable != nil && in.EOBKnown {
+		return CoeffBlockRateCostFastKnownQCoeffTable(in.TxSize, in.CostTable,
+			scan, in.QCoeffs, in.InitCtx, in.EOB)
+	}
 	if in.Fast {
 		return coeffBlockRateCostFastQ(in, scan, maxEob)
 	}
@@ -581,6 +585,65 @@ func coeffBlockRateCostFastCompleteQCoeffTable(in CoeffBlockRateCostInput,
 				break
 			}
 			bandLeft = coeffCostBandCounts[in.TxSize][bandIdx]
+		}
+	}
+	if bandLeft != 0 {
+		ctx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+		}
+		rate += int((*costs)[bandIdx][ctx][0][EobToken])
+	}
+	return rate
+}
+
+// CoeffBlockRateCostFastKnownQCoeffTable is the direct hot-path form of
+// cost_coeffs for callers that already hold libvpx's eob, qcoeffs, and
+// precomputed token costs.
+func CoeffBlockRateCostFastKnownQCoeffTable(txSize common.TxSize,
+	costs *CoeffTreeTokenCostTable, scan []int16, qcoeffs []int16,
+	initCtx int, eob int,
+) int {
+	if txSize >= common.TxSizes || costs == nil || initCtx < 0 || initCtx > 2 {
+		return 0
+	}
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if len(scan) < maxEob || len(qcoeffs) < maxEob {
+		return 0
+	}
+	if eob <= 0 {
+		return int((*costs)[0][initCtx][0][EobToken])
+	}
+	if eob > maxEob {
+		eob = maxEob
+	}
+
+	rate := 0
+	prevToken, extraCost := coeffTokenExtraCostQCoeff(qcoeffs[0])
+	rate += extraCost
+	rate += int((*costs)[0][initCtx][0][prevToken])
+
+	bandIdx := 1
+	bandLeft := coeffCostBandCounts[txSize][bandIdx]
+	for c := 1; c < eob; c++ {
+		raster := int(scan[c])
+		token, extra := coeffTokenExtraCostQCoeff(qcoeffs[raster])
+		ctx := 0
+		skipIdx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+			skipIdx = 1
+		}
+		rate += extra
+		rate += int((*costs)[bandIdx][ctx][skipIdx][token])
+		prevToken = token
+		bandLeft--
+		if bandLeft == 0 {
+			bandIdx++
+			if bandIdx >= len(coeffCostBandCounts[txSize]) {
+				break
+			}
+			bandLeft = coeffCostBandCounts[txSize][bandIdx]
 		}
 	}
 	if bandLeft != 0 {

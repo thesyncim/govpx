@@ -1994,6 +1994,10 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize common.
 	}
 	// libvpx vp9_rdopt.c:369 — x->token_costs[tx_size][type][is_inter].
 	// type = planeType (0 = Y, 1 = UV); is_inter = 0 for keyframe/intra.
+	if e.sf.UseFastCoefCosting != 0 && qcoeffs != nil && costs != nil && eobKnown {
+		return encoder.CoeffBlockRateCostFastKnownQCoeffTable(txSize, costs,
+			scanOrder.Scan, qcoeffs, initCtx, eob)
+	}
 	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
 		TxSize:     txSize,
 		CoefModel:  &e.fc.CoefProbs[txSize][planeType][0],

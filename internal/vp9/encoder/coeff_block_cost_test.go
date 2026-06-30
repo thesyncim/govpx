@@ -169,6 +169,20 @@ func TestCoeffBlockRateCostKnownEOBMatchesScannedEOB(t *testing.T) {
 	if known != scanned {
 		t.Fatalf("known EOB cost = %d, want scanned %d", known, scanned)
 	}
+	direct := CoeffBlockRateCostFastKnownQCoeffTable(tx, &costTable, scan,
+		qcoeffs, input.InitCtx, input.EOB)
+	if direct != scanned {
+		t.Fatalf("direct known EOB cost = %d, want scanned %d", direct, scanned)
+	}
+	var zeroQCoeffs [1024]int16
+	zeroDirect := CoeffBlockRateCostFastKnownQCoeffTable(tx, &costTable, scan,
+		zeroQCoeffs[:], input.InitCtx, 0)
+	input.QCoeffs = zeroQCoeffs[:]
+	input.EOB = 0
+	zeroKnown := CoeffBlockRateCost(input)
+	if zeroDirect != zeroKnown {
+		t.Fatalf("direct EOB-only cost = %d, want generic %d", zeroDirect, zeroKnown)
+	}
 }
 
 var coeffBlockRateBenchSink int
@@ -207,6 +221,28 @@ func BenchmarkCoeffBlockRateCostFastQCoeffTx32x32(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		total += CoeffBlockRateCost(input)
+	}
+	coeffBlockRateBenchSink = total
+}
+
+func BenchmarkCoeffBlockRateCostFastKnownQCoeffTableTx32x32(b *testing.B) {
+	var coefModel [vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
+	fillCoefCostModelForTest(&coefModel, 128)
+	var costTable CoeffTreeTokenCostTable
+	FillCoeffTreeTokenCostTable(&coefModel, &costTable)
+
+	const tx = common.Tx32x32
+	qcoeffs := make([]int16, vp9dec.MaxEobForTxSize(tx))
+	scan := common.DefaultScanOrders[tx].Scan
+	qcoeffs[scan[0]] = 1
+	qcoeffs[scan[37]] = -2
+	qcoeffs[scan[121]] = 3
+
+	total := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		total += CoeffBlockRateCostFastKnownQCoeffTable(tx, &costTable, scan,
+			qcoeffs, 0, 122)
 	}
 	coeffBlockRateBenchSink = total
 }

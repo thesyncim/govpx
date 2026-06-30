@@ -1181,6 +1181,10 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFcWithCosts(fc *vp9dec.FrameCont
 	if fc == nil || txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
+	if e.sf.UseFastCoefCosting != 0 && qcoeffs != nil && costs != nil && eobKnown {
+		return encoder.CoeffBlockRateCostFastKnownQCoeffTable(txSize, costs,
+			common.DefaultScanOrders[txSize].Scan, qcoeffs, initCtx, eob)
+	}
 	return encoder.CoeffBlockRateCost(encoder.CoeffBlockRateCostInput{
 		TxSize:     txSize,
 		CoefModel:  &fc.CoefProbs[txSize][planeType][1],
