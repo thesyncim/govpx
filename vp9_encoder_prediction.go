@@ -328,7 +328,7 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 		srcW <= 0 || srcH <= 0 {
 		return false
 	}
-	hasDiff := false
+	diffMask := 0
 	if x0 >= 0 && y0 >= 0 && x0+bs <= srcW && y0+bs <= srcH {
 		for y := range bs {
 			srcRow := src[(y0+y)*srcStride+x0:]
@@ -336,12 +336,10 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 			for x := range bs {
 				diff := int(srcRow[x]) - int(dstRow[x])
 				e.residueScratch[y*bs+x] = int16(diff)
-				if diff != 0 {
-					hasDiff = true
-				}
+				diffMask |= diff
 			}
 		}
-		return hasDiff
+		return diffMask != 0
 	}
 	for y := range bs {
 		sy := arith.ClampCoord(y0+y, srcH)
@@ -351,12 +349,10 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 			sx := arith.ClampCoord(x0+x, srcW)
 			diff := int(srcRow[sx]) - int(dstRow[x])
 			e.residueScratch[y*bs+x] = int16(diff)
-			if diff != 0 {
-				hasDiff = true
-			}
+			diffMask |= diff
 		}
 	}
-	return hasDiff
+	return diffMask != 0
 }
 
 func vp9CopySourceRectClamped(dst []byte, dstStride int, src []byte,
