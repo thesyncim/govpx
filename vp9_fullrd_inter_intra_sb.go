@@ -979,7 +979,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 			copy(dst[r*stride:r*stride+bs], predSnap[r*bs:(r+1)*bs])
 		}
 	}
-	return res
+	return res > 0
 }
 
 // vp9FullRDInterIntraRD1 recomputes rd[m][1] for an already-produced INTRA

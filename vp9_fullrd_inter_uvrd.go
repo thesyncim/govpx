@@ -359,5 +359,5 @@ func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState
 	// the 64x64 case but kept for parity with the Y producer.
 	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct,
 		dequant, qindex, out, qOut, inter.lossless,
-		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
+		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis) > 0
 }

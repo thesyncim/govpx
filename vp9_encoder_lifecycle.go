@@ -363,6 +363,7 @@ type VP9Encoder struct {
 
 	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockQCoeffs   [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	blockEOBs      [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots / vp9EncoderTxCoeffSlots]int16
 	coefScratch    [1024]int16
 	qCoefScratch   [1024]int16
 	residueScratch [1024]int16

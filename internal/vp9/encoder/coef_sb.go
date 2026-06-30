@@ -83,6 +83,11 @@ type WriteCoefSbArgs struct {
 	// tokenize_b reading p->qcoeff; callers that only have dqcoeff can
 	// leave it nil and fall back to magnitude recovery from Coeffs.
 	GetQCoeffs func(plane int, r, c int, txSize common.TxSize) []int16
+
+	// GetEOB optionally returns the quantizer-produced end-of-block value
+	// for the same tx block. When absent, WriteCoefBlock falls back to
+	// deriving EOB from coeff/qcoeff.
+	GetEOB func(plane int, r, c int, txSize common.TxSize) (int, bool)
 }
 
 // scanForTxSize returns the default scan/neighbors pair for `tx`.
@@ -193,6 +198,10 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 				if a.GetQCoeffs != nil {
 					qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
 				}
+				knownEOB, knownEOBValid := 0, false
+				if a.GetEOB != nil {
+					knownEOB, knownEOBValid = a.GetEOB(plane, r, c, txSize)
+				}
 				eob := 0
 				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
 					TxSize:          txSize,
@@ -208,6 +217,8 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					CoefBranchStats: a.CoefBranchStats,
 					InitCtx:         initCtx,
 					EOB:             &eob,
+					KnownEOB:        knownEOB,
+					KnownEOBValid:   knownEOBValid,
 				}); err != nil {
 					return err
 				}

@@ -583,7 +583,7 @@ func (e *VP9Encoder) prepareVP9InterTxResidueFullRD(inter *vp9InterEncodeState,
 	// the speed feature.
 	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct,
 		dequant, qindex, out, qOut, inter.lossless,
-		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
+		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis) > 0
 }
 
 // vp9FullRDInterTxBlockPixelSSE returns pixel_sse(src, dst) (vp9_rdopt.c:523)

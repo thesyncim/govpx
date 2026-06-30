@@ -49,6 +49,12 @@ type WriteCoefBlockArgs struct {
 	// EOB, when non-nil, receives the computed end-of-block value so
 	// callers that need residue presence can avoid rescanning coeffs.
 	EOB *int
+
+	// KnownEOB, when valid, is the quantizer-produced end-of-block value.
+	// libvpx carries this through token staging, so callers that already have
+	// qcoeff/eob can avoid rescanning the transform block before writing it.
+	KnownEOB      int
+	KnownEOBValid bool
 }
 
 // WriteCoefBlock emits the wire fragment for one transform block's
@@ -68,7 +74,12 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	}
 
 	// Find EOB position: one past the last non-zero coefficient.
-	eob := coeffBlockEOBEncode(a.Scan, maxEob, a.Coeffs, qcoeffs)
+	eob := 0
+	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
+		eob = a.KnownEOB
+	} else {
+		eob = coeffBlockEOBEncode(a.Scan, maxEob, a.Coeffs, qcoeffs)
+	}
 	if a.EOB != nil {
 		*a.EOB = eob
 	}

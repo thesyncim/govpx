@@ -247,12 +247,24 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
 	qindex int, out, qOut []int16,
 ) bool {
+	ok, _ := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, plane, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
+		dequant, qindex, out, qOut)
+	return ok
+}
+
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOB(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex int, out, qOut []int16,
+) (bool, int) {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
 	if !ok {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
 	txType := common.DctDct
 	if plane == 0 && txSize != common.Tx32x32 && !key.lossless {
@@ -261,14 +273,15 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(key.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
-	if !e.quantizeVP9TxResidualWithQ(dst, stride, txSize, txType, dequant, qindex,
-		out, qOut, key.lossless, false, false) {
+	eob := e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType, dequant, qindex,
+		out, qOut, key.lossless, false, false, nil)
+	if eob == 0 {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
-	return true
+	return true, eob
 }
 
 func (e *VP9Encoder) prepareVP9InterTxResidue(inter *vp9InterEncodeState,
@@ -286,17 +299,26 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
 ) bool {
+	ok, _ := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4, dequant, out, qOut)
+	return ok
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidueWithQEOB(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
+) (bool, int) {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
 	// KNOWN DIVERGENCE (cpu0-3 inter coefficient parity): this hardcodes the FP
 	// quantizer (useFastQuant=true). libvpx's encode_block selects the quantizer
@@ -312,12 +334,13 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQ(inter *vp9InterEncodeState,
 	// cpu0 deep mode-pins were calibrated on the FP recon — so the gate must land
 	// together with re-deriving those pins toward byte parity. See
 	// docs/vp9_cpu0_quant_fp_gap.md.
-	if !e.quantizeVP9TxResidualWithQ(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, true, false) {
+	eob := e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct, dequant, 0,
+		out, qOut, inter.lossless, true, false, nil)
+	if eob == 0 {
 		clearVP9TxCoeffOutputs(out, qOut, maxEob)
-		return false
+		return false, 0
 	}
-	return true
+	return true, eob
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
@@ -437,7 +460,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
 ) bool {
 	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType,
-		dequant, qindex, out, qOut, lossless, useFastQuant, useLp32x32RD, nil)
+		dequant, qindex, out, qOut, lossless, useFastQuant, useLp32x32RD, nil) > 0
 }
 
 // quantizeVP9TxResidualWithQTrellis is quantizeVP9TxResidualWithQ with an
@@ -448,25 +471,26 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQ(dst []byte, stride int,
 // pre-trellis eob, and must return the optimised eob (mutating qcoeff/dqcoeff
 // in place). The inverse transform and the out/qOut copies then reflect the
 // optimised coefficients, exactly as dist_block / cost_coeffs consume them.
+// Returns the final optimized EOB, or zero when the block has no coded residue.
 // When trellis is nil this is byte-identical to quantizeVP9TxResidualWithQ.
 func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
 	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
 	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
-) bool {
+) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
-		return false
+		return 0
 	}
 	if qOut != nil && len(qOut) < maxEob {
-		return false
+		return 0
 	}
 	if lossless && txSize != common.Tx4x4 {
-		return false
+		return 0
 	}
 	if txSize == common.Tx32x32 && txType != common.DctDct {
-		return false
+		return 0
 	}
 	wantQ := qOut != nil
 	clear(e.txCoeffScratch[:maxEob])
@@ -510,7 +534,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 				encoder.ForwardDCT32x32Into(e.residueScratch[:], 32, e.txCoeffScratch[:maxEob])
 			}
 		default:
-			return false
+			return 0
 		}
 	}
 	scanOrder := common.ScanOrders[txSize][txType]
@@ -546,7 +570,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 		}
 	}
 	if eob == 0 {
-		return false
+		return 0
 	}
 	// libvpx block_rd_txfm runs vp9_optimize_b (trellis) here, between
 	// vp9_xform_quant and the inverse transform consumed by dist_block
@@ -558,7 +582,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 		eob = trellis(e.txCoeffScratch[:maxEob], e.qCoeffScratch[:maxEob],
 			e.dqCoeffScratch[:maxEob], eob)
 		if eob == 0 {
-			return false
+			return 0
 		}
 	}
 	copy(out[:maxEob], e.dqCoeffScratch[:maxEob])
@@ -567,7 +591,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	}
 	vp9dec.InverseTransformBlock(out[:maxEob],
 		dst, stride, txSize, txType, eob, lossless)
-	return true
+	return eob
 }
 
 func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
@@ -843,6 +867,30 @@ func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
 		copy(qcoeffs, e.blockQCoeffs[plane][coeffBase:coeffBase+maxEob])
 	}
 	return qcoeffs
+}
+
+func (e *VP9Encoder) vp9BlockEOB(plane int,
+	bsize common.BlockSize, r, c int, tx common.TxSize,
+) (int, bool) {
+	if plane < 0 || plane >= vp9dec.MaxMbPlane || tx >= common.TxSizes {
+		return 0, false
+	}
+	pd := &e.planes[plane]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, false
+	}
+	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	idx := r*full4x4W + c
+	if idx < 0 || idx >= len(e.blockEOBs[plane]) {
+		return 0, false
+	}
+	eob := int(e.blockEOBs[plane][idx])
+	maxEob := vp9dec.MaxEobForTxSize(tx)
+	if eob < 0 || eob > maxEob {
+		return 0, false
+	}
+	return eob, true
 }
 
 func (e *VP9Encoder) vp9EncoderReconPlane(plane int) ([]byte, int) {
