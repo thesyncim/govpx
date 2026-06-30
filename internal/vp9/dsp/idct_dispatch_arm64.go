@@ -56,9 +56,7 @@ func Idct8x8_12Add(input []int16, dest []uint8, stride int) {
 		idct8x8_12AddScalar(input, dest, stride)
 		return
 	}
-	var residual [64]int16
-	idct8x8Residual(input, &residual, 4)
-	idctAddResidualRows8NEON(unsafe.SliceData(dest), stride, &residual[0], 8)
+	idct8x8_12AddNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
 }
 
 // Idct8x8_1Add is the DC-only fast path. NEON kernel: scalar a1
@@ -268,6 +266,9 @@ func idct32x32DcAddNEON(dest *byte, stride int, a1 int16)
 
 //go:noescape
 func idct8x8_64AddNEON(input *int16, dest *byte, stride int)
+
+//go:noescape
+func idct8x8_12AddNEON(input *int16, dest *byte, stride int)
 
 // idctAddResidualRowsNNEON adds N int16 residuals per row to dest with
 // SRSHR (round-power-of-two) and signed-saturating narrow back to
