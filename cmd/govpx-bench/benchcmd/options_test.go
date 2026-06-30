@@ -125,6 +125,14 @@ func TestResolveLibvpxDefaultsDoesNotSelectVpxencForDecode(t *testing.T) {
 	}
 }
 
+func TestResolveLibvpxDefaultsDoesNotSelectVP8OracleForVP9Decode(t *testing.T) {
+	cfg := benchConfig{Codec: codecVP9, Decode: true}
+	resolveLibvpxDefaults(&cfg, false)
+	if cfg.LibvpxOracle != "" {
+		t.Fatalf("LibvpxOracle = %q, want empty for VP9 decode mode", cfg.LibvpxOracle)
+	}
+}
+
 func TestLibvpxParityFlagsCarryEncoderConfig(t *testing.T) {
 	cfg := benchConfig{Width: 64, Height: 64, Frames: 30, FPS: 30, BitrateKbps: 1200, Mode: "realtime", CpuUsed: -4}
 	parity := parityFor(cfg)

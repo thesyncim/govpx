@@ -135,7 +135,7 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	codec := benchCodec(*cfg)
 	needVpxenc := !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
 	needVpxencVP9 := !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" && haveRoot && !isExecutable(repoVpxencVP9)
-	needOracle := cfg.Decode && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
+	needOracle := cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
 	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needOracle) {
 		target := "oracle-tools"
 		if needVpxencVP9 {
@@ -165,7 +165,7 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 			cfg.LibvpxVpxencVP9 = path
 		}
 	}
-	if cfg.Decode && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
+	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
 		cfg.LibvpxOracle = repoOracle
 	}
 
@@ -180,7 +180,7 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but vpxenc-vp9 not found; "+
 			"run `make vp9-vpxdec-tools` or pass -libvpx-vpxenc-vp9=<path> (or -build-libvpx=true)")
 	}
-	if cfg.Decode && cfg.LibvpxOracle == "" {
+	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" {
 		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but govpx-vpx-oracle not found; "+
 			"run `make oracle-tools` or pass -libvpx-oracle=<path> (or -build-libvpx=true)")
 	}

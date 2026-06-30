@@ -3,6 +3,7 @@ package benchcmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"time"
 
@@ -10,11 +11,9 @@ import (
 )
 
 func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
-	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Frames <= 0 || cfg.FPS <= 0 || cfg.BitrateKbps <= 0 {
-		return decodeBenchReport{}, errors.New("width, height, frames, fps, and bitrate must be positive")
-	}
-	if cfg.Width > 16383 || cfg.Height > 16383 {
-		return decodeBenchReport{}, errors.New("dimensions exceed VP8 limits")
+	codec := benchCodec(cfg)
+	if err := validateDecodeBenchmarkConfig(cfg, codec); err != nil {
+		return decodeBenchReport{}, err
 	}
 	deadline, deadlineName, err := benchmarkDeadline(cfg.Mode)
 	if err != nil {
@@ -24,15 +23,16 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	for i := range frames {
 		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
 	}
-	packets, err := encodeBenchmarkPackets(cfg, deadline, frames)
+	packets, err := encodeDecodeBenchmarkPackets(cfg, deadline, frames, codec)
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
-	ivf := makeBenchmarkIVF(cfg.Width, cfg.Height, cfg.FPS, packets)
-	dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
+	ivf := makeBenchmarkIVFForCodec(codec, cfg.Width, cfg.Height, cfg.FPS, packets)
+	dec, err := newBenchmarkDecoder(codec)
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
+	defer closeBenchmarkDecoder(dec)
 	if _, _, err := decodeBenchmarkPackets(dec, packets, make([]int64, 0, len(packets))); err != nil {
 		return decodeBenchReport{}, err
 	}
@@ -77,7 +77,8 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	nsPerFrame := totalLatency / int64(len(latencies))
 	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	report := decodeBenchReport{
-		Decoder:              "govpx",
+		Codec:                codec,
+		Decoder:              decodeReportDecoderName(codec),
 		Operation:            "decode",
 		Mode:                 deadlineName,
 		Width:                cfg.Width,
@@ -99,6 +100,9 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		Options: benchSummary(deadlineName),
 	}
 	if cfg.LibvpxOracle != "" {
+		if codec != codecVP8 {
+			return decodeBenchReport{}, errors.New("libvpx decode oracle currently supports VP8 only")
+		}
 		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))
 		if err != nil {
 			return decodeBenchReport{}, err
@@ -110,6 +114,30 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		}
 	}
 	return report, nil
+}
+
+func validateDecodeBenchmarkConfig(cfg benchConfig, codec string) error {
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Frames <= 0 || cfg.FPS <= 0 || cfg.BitrateKbps <= 0 {
+		return errors.New("width, height, frames, fps, and bitrate must be positive")
+	}
+	switch codec {
+	case codecVP9:
+		if cfg.Width > 65535 || cfg.Height > 65535 {
+			return errors.New("dimensions exceed VP9 limits")
+		}
+	default:
+		if cfg.Width > 16383 || cfg.Height > 16383 {
+			return errors.New("dimensions exceed VP8 limits")
+		}
+	}
+	return nil
+}
+
+func encodeDecodeBenchmarkPackets(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image, codec string) ([][]byte, error) {
+	if codec == codecVP9 {
+		return encodeVP9DecodeBenchmarkPackets(cfg, deadline, frames)
+	}
+	return encodeBenchmarkPackets(cfg, deadline, frames)
 }
 
 func encodeBenchmarkPackets(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image) ([][]byte, error) {
@@ -135,7 +163,57 @@ func encodeBenchmarkPackets(cfg benchConfig, deadline govpx.Deadline, frames []g
 	return packets, nil
 }
 
-func decodeBenchmarkPackets(dec *govpx.VP8Decoder, packets [][]byte, latencies []int64) (int, []int64, error) {
+func encodeVP9DecodeBenchmarkPackets(cfg benchConfig, deadline govpx.Deadline, frames []govpx.Image) ([][]byte, error) {
+	enc, err := newVP9BenchmarkEncoder(cfg, deadline)
+	if err != nil {
+		return nil, err
+	}
+	defer enc.Close()
+	packet := make([]byte, max(4096, cfg.Width*cfg.Height*6))
+	packets := make([][]byte, 0, len(frames))
+	for i, frame := range frames {
+		result, err := enc.EncodeIntoWithResult(imageToYCbCr(frame), packet)
+		if err != nil {
+			return nil, fmt.Errorf("vp9 encode frame %d: %w", i, err)
+		}
+		if result.Dropped || len(result.Data) == 0 {
+			continue
+		}
+		packets = append(packets, append([]byte(nil), result.Data...))
+	}
+	if len(packets) == 0 {
+		return nil, errors.New("benchmark encoder emitted no VP9 packets")
+	}
+	return packets, nil
+}
+
+type benchmarkDecoder interface {
+	Reset()
+	Decode([]byte) error
+	NextFrame() (govpx.Image, bool)
+}
+
+func newBenchmarkDecoder(codec string) (benchmarkDecoder, error) {
+	if codec == codecVP9 {
+		return govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+	}
+	return govpx.NewVP8Decoder(govpx.DecoderOptions{})
+}
+
+func closeBenchmarkDecoder(dec benchmarkDecoder) {
+	if c, ok := dec.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
+func decodeReportDecoderName(codec string) string {
+	if codec == codecVP9 {
+		return "govpx-vp9"
+	}
+	return "govpx"
+}
+
+func decodeBenchmarkPackets(dec benchmarkDecoder, packets [][]byte, latencies []int64) (int, []int64, error) {
 	dec.Reset()
 	decodedFrames := 0
 	for i, packet := range packets {

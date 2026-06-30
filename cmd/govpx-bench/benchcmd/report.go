@@ -209,8 +209,12 @@ func formatSuiteReport(r suiteReport) string {
 
 func formatDecodeReport(r decodeBenchReport) string {
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "govpx-bench  decode  %s  %dx%d @%dfps  frames=%d  input=%s\n\n",
-		r.Mode, r.Width, r.Height, r.FPS, r.Frames, formatBytes(int64(r.InputBytes)))
+	codec := r.Codec
+	if codec == "" {
+		codec = codecVP8
+	}
+	fmt.Fprintf(&b, "govpx-bench  decode  %s  %s  %dx%d @%dfps  frames=%d  input=%s\n\n",
+		codec, r.Mode, r.Width, r.Height, r.FPS, r.Frames, formatBytes(int64(r.InputBytes)))
 
 	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	if r.Reference != nil {

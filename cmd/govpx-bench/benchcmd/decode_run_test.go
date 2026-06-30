@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
 func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
@@ -23,6 +25,9 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.Decoder != "govpx" || report.Operation != "decode" || report.Mode != "realtime" {
 		t.Fatalf("identity = %s/%s/%s, want govpx/decode/realtime", report.Decoder, report.Operation, report.Mode)
 	}
+	if report.Codec != codecVP8 {
+		t.Fatalf("Codec = %q, want %q", report.Codec, codecVP8)
+	}
 	if report.Width != 16 || report.Height != 16 || report.Frames != 3 || report.DecodedFrames != 3 || report.InputBytes <= 0 {
 		t.Fatalf("dimensions/counts = %+v", report)
 	}
@@ -38,6 +43,39 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	}
 	if _, err := json.Marshal(report); err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
+	}
+}
+
+func TestRunDecodeBenchmarkVP9OutputsMetrics(t *testing.T) {
+	report, err := runDecodeBenchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       16,
+		Height:      16,
+		Frames:      3,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+	})
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark VP9 returned error: %v", err)
+	}
+	if report.Codec != codecVP9 || report.Decoder != "govpx-vp9" || report.Operation != "decode" {
+		t.Fatalf("identity = codec:%s decoder:%s op:%s, want vp9/govpx-vp9/decode",
+			report.Codec, report.Decoder, report.Operation)
+	}
+	if report.Width != 16 || report.Height != 16 || report.Frames <= 0 || report.DecodedFrames <= 0 || report.InputBytes <= 0 {
+		t.Fatalf("dimensions/counts = %+v", report)
+	}
+	if report.NSPerFrame <= 0 || report.DecodeFPS <= 0 || report.CodedMegabytesPerSec <= 0 || report.LatencyNS.P50 <= 0 {
+		t.Fatalf("decode timing metrics = ns:%d fps:%f coded:%f p50:%d",
+			report.NSPerFrame, report.DecodeFPS, report.CodedMegabytesPerSec, report.LatencyNS.P50)
+	}
+	raw, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if !strings.Contains(string(raw), `"codec":"vp9"`) {
+		t.Fatalf("decode report JSON missing VP9 codec: %s", raw)
 	}
 }
 
@@ -110,6 +148,44 @@ func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
 	text := formatDecodeReport(report)
 	if !strings.Contains(text, "frames decoded") || !strings.Contains(text, "3/3") {
 		t.Fatalf("formatted reference report missing decoded frame counts:\n%s", text)
+	}
+}
+
+func TestRunDecodeBenchmarkRejectsVP9LibvpxOracle(t *testing.T) {
+	_, err := runDecodeBenchmark(benchConfig{
+		Codec:        codecVP9,
+		Width:        16,
+		Height:       16,
+		Frames:       3,
+		FPS:          30,
+		BitrateKbps:  1200,
+		Mode:         "realtime",
+		LibvpxOracle: fakeLibvpxOraclePath(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "supports VP8 only") {
+		t.Fatalf("runDecodeBenchmark VP9 oracle err = %v, want VP8-only oracle rejection", err)
+	}
+}
+
+func TestMakeBenchmarkIVFForCodecWritesVP90(t *testing.T) {
+	payloads := [][]byte{{0x82, 0x49, 0x83, 0x42}}
+	stream := makeBenchmarkIVFForCodec(codecVP9, 32, 16, 30, payloads)
+	header, err := ivf.ParseHeader(stream)
+	if err != nil {
+		t.Fatalf("ParseHeader returned error: %v", err)
+	}
+	if header.FourCC != ivf.FourCCVP9 {
+		t.Fatalf("FourCC = %q, want VP90", string(header.FourCC[:]))
+	}
+	frames, err := ivf.Frames(stream)
+	if err != nil {
+		t.Fatalf("Frames returned error: %v", err)
+	}
+	if len(frames) != 1 || !slices.Equal(frames[0].Data, payloads[0]) {
+		t.Fatalf("frames = %+v, want one payload copy", frames)
+	}
+	if _, err := parseIVFFrameSizes(stream); err != nil {
+		t.Fatalf("parseIVFFrameSizes should still accept VP90 payload framing, got %v", err)
 	}
 }
 

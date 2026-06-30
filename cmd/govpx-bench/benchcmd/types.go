@@ -130,6 +130,7 @@ type referenceReport struct {
 }
 
 type decodeBenchReport struct {
+	Codec                    string                  `json:"codec,omitempty"`
 	Decoder                  string                  `json:"decoder"`
 	Operation                string                  `json:"operation"`
 	Mode                     string                  `json:"mode"`

@@ -10,6 +10,7 @@ import (
 
 	govpx "github.com/thesyncim/govpx"
 	vpxbuf "github.com/thesyncim/govpx/internal/vpx/buffers"
+	"github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
 func makeBenchmarkFrame(width int, height int, index int) govpx.Image {
@@ -39,33 +40,14 @@ func makeBenchmarkFrame(width int, height int, index int) govpx.Image {
 	return img
 }
 func makeBenchmarkIVF(width int, height int, fps int, packets [][]byte) []byte {
-	const (
-		fileHeaderSize  = 32
-		frameHeaderSize = 12
-	)
-	size := fileHeaderSize
-	for _, packet := range packets {
-		size += frameHeaderSize + len(packet)
+	return makeBenchmarkIVFForCodec(codecVP8, width, height, fps, packets)
+}
+
+func makeBenchmarkIVFForCodec(codec string, width int, height int, fps int, packets [][]byte) []byte {
+	if codec == codecVP9 {
+		return ivf.BuildVP9(width, height, uint32(fps), 1, packets)
 	}
-	ivf := make([]byte, size)
-	copy(ivf[:4], []byte("DKIF"))
-	binary.LittleEndian.PutUint16(ivf[4:], 0)
-	binary.LittleEndian.PutUint16(ivf[6:], fileHeaderSize)
-	copy(ivf[8:12], []byte("VP80"))
-	binary.LittleEndian.PutUint16(ivf[12:], uint16(width))
-	binary.LittleEndian.PutUint16(ivf[14:], uint16(height))
-	binary.LittleEndian.PutUint32(ivf[16:], uint32(fps))
-	binary.LittleEndian.PutUint32(ivf[20:], 1)
-	binary.LittleEndian.PutUint32(ivf[24:], uint32(len(packets)))
-	offset := fileHeaderSize
-	for i, packet := range packets {
-		binary.LittleEndian.PutUint32(ivf[offset:], uint32(len(packet)))
-		binary.LittleEndian.PutUint64(ivf[offset+4:], uint64(i))
-		offset += frameHeaderSize
-		copy(ivf[offset:], packet)
-		offset += len(packet)
-	}
-	return ivf
+	return ivf.BuildVP8(width, height, uint32(fps), 1, packets)
 }
 
 func referenceQualityMetrics(ivf []byte, frames []govpx.Image) (float64, float64, int, error) {
