@@ -180,19 +180,30 @@ func BenchmarkVP9QuantizeBScanOrder(b *testing.B) {
 				},
 			},
 		} {
-			b.Run(fmt.Sprintf("%s/%s", tc.name, bench.name), func(b *testing.B) {
-				qcoeff := make([]int16, tc.n)
-				dqcoeff := make([]int16, tc.n)
-				b.ReportAllocs()
-				b.ResetTimer()
-				eobSum := 0
-				for i := 0; i < b.N; i++ {
-					eobSum += bench.fn(qcoeff, dqcoeff)
-				}
-				if eobSum == 0 {
-					b.Fatal("unexpected zero eob accumulator")
-				}
-			})
+			for _, output := range []struct {
+				name  string
+				withQ bool
+			}{
+				{name: "dqonly"},
+				{name: "withq", withQ: true},
+			} {
+				b.Run(fmt.Sprintf("%s/%s/%s", tc.name, bench.name, output.name), func(b *testing.B) {
+					var qcoeff []int16
+					if output.withQ {
+						qcoeff = make([]int16, tc.n)
+					}
+					dqcoeff := make([]int16, tc.n)
+					b.ReportAllocs()
+					b.ResetTimer()
+					eobSum := 0
+					for i := 0; i < b.N; i++ {
+						eobSum += bench.fn(qcoeff, dqcoeff)
+					}
+					if eobSum == 0 {
+						b.Fatal("unexpected zero eob accumulator")
+					}
+				})
+			}
 		}
 	}
 }
@@ -234,19 +245,30 @@ func BenchmarkVP9QuantizeBSparseTailScanOrder(b *testing.B) {
 				},
 			},
 		} {
-			b.Run(fmt.Sprintf("%s/%s", tc.name, bench.name), func(b *testing.B) {
-				qcoeff := make([]int16, tc.n)
-				dqcoeff := make([]int16, tc.n)
-				b.ReportAllocs()
-				b.ResetTimer()
-				eobSum := 0
-				for i := 0; i < b.N; i++ {
-					eobSum += bench.fn(qcoeff, dqcoeff)
-				}
-				if eobSum == 0 {
-					b.Fatal("unexpected zero eob accumulator")
-				}
-			})
+			for _, output := range []struct {
+				name  string
+				withQ bool
+			}{
+				{name: "dqonly"},
+				{name: "withq", withQ: true},
+			} {
+				b.Run(fmt.Sprintf("%s/%s/%s", tc.name, bench.name, output.name), func(b *testing.B) {
+					var qcoeff []int16
+					if output.withQ {
+						qcoeff = make([]int16, tc.n)
+					}
+					dqcoeff := make([]int16, tc.n)
+					b.ReportAllocs()
+					b.ResetTimer()
+					eobSum := 0
+					for i := 0; i < b.N; i++ {
+						eobSum += bench.fn(qcoeff, dqcoeff)
+					}
+					if eobSum == 0 {
+						b.Fatal("unexpected zero eob accumulator")
+					}
+				})
+			}
 		}
 	}
 }

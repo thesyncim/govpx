@@ -1335,6 +1335,167 @@ func QuantizeBWithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
 func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
 	scan []int16, qcoeff, dqcoeff []int16,
 ) int {
+	if qcoeff == nil {
+		return quantizeBWithQScanDQOnly(coeff, params, dequant, scan, dqcoeff)
+	}
+	return quantizeBWithQScanWithQ(coeff, params, dequant, scan, qcoeff, dqcoeff)
+}
+
+func quantizeBWithQScanWithQ(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	n := len(coeff)
+	if n == 0 || scan[0] != 0 {
+		return quantizeBWithQScanGeneric(coeff, params, dequant, scan, qcoeff, dqcoeff)
+	}
+	nonZeroCount := quantizeBScanNonZeroCount(coeff, params, scan)
+	if nonZeroCount == 0 {
+		clear(dqcoeff[:n])
+		clear(qcoeff[:n])
+		return 0
+	}
+	for i := nonZeroCount; i < n; i++ {
+		rc := int(scan[i])
+		qcoeff[rc] = 0
+		dqcoeff[rc] = 0
+	}
+
+	eob := -1
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	if absCoeff < params.zbin[0] {
+		qcoeff[0] = 0
+		dqcoeff[0] = 0
+	} else {
+		tmp := clampInt16(absCoeff + params.round[0])
+		q := ((((tmp * params.quant[0]) >> 16) + tmp) *
+			params.quantShift[0]) >> 16
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[0] = int16(q)
+		dqcoeff[0] = int16(q * int(dequant[0]))
+		if q != 0 {
+			eob = 0
+		}
+	}
+
+	zbinAC, roundAC := params.zbin[1], params.round[1]
+	quantAC, shiftAC := params.quant[1], params.quantShift[1]
+	deqAC := int(dequant[1])
+	for i := 1; i < nonZeroCount; i++ {
+		rc := int(scan[i])
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		if absCoeff < zbinAC {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+			continue
+		}
+		tmp := clampInt16(absCoeff + roundAC)
+		q := ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 16
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[rc] = int16(q)
+		dqcoeff[rc] = int16(q * deqAC)
+		if q != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+func quantizeBWithQScanDQOnly(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
+	scan []int16, dqcoeff []int16,
+) int {
+	n := len(coeff)
+	if n == 0 || scan[0] != 0 {
+		return quantizeBWithQScanGeneric(coeff, params, dequant, scan, nil, dqcoeff)
+	}
+	nonZeroCount := quantizeBScanNonZeroCount(coeff, params, scan)
+	if nonZeroCount == 0 {
+		clear(dqcoeff[:n])
+		return 0
+	}
+	for i := nonZeroCount; i < n; i++ {
+		dqcoeff[int(scan[i])] = 0
+	}
+
+	eob := -1
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	if absCoeff < params.zbin[0] {
+		dqcoeff[0] = 0
+	} else {
+		tmp := clampInt16(absCoeff + params.round[0])
+		q := ((((tmp * params.quant[0]) >> 16) + tmp) *
+			params.quantShift[0]) >> 16
+		if c < 0 {
+			q = -q
+		}
+		dqcoeff[0] = int16(q * int(dequant[0]))
+		if q != 0 {
+			eob = 0
+		}
+	}
+
+	zbinAC, roundAC := params.zbin[1], params.round[1]
+	quantAC, shiftAC := params.quant[1], params.quantShift[1]
+	deqAC := int(dequant[1])
+	for i := 1; i < nonZeroCount; i++ {
+		rc := int(scan[i])
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		if absCoeff < zbinAC {
+			dqcoeff[rc] = 0
+			continue
+		}
+		tmp := clampInt16(absCoeff + roundAC)
+		q := ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 16
+		if c < 0 {
+			q = -q
+		}
+		dqcoeff[rc] = int16(q * deqAC)
+		if q != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}
+
+func quantizeBScanNonZeroCount(coeff []int16, params vp9QuantizeParams, scan []int16) int {
+	n := len(coeff)
+	zbinAC := params.zbin[1]
+	for i := n - 1; i >= 1; i-- {
+		c := int(coeff[int(scan[i])])
+		if c < zbinAC && c > -zbinAC {
+			continue
+		}
+		return i + 1
+	}
+	c := int(coeff[0])
+	if c < params.zbin[0] && c > -params.zbin[0] {
+		return 0
+	}
+	return 1
+}
+
+func quantizeBWithQScanGeneric(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
 	n := len(coeff)
 	nonZeroCount := n
 	for i := n - 1; i >= 0; i-- {
@@ -1384,9 +1545,6 @@ func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int1
 		if c < 0 {
 			q = -q
 		}
-		// libvpx vpx_dsp/quantize.c:71-72:
-		//   qcoeff_ptr[rc] = (tmp ^ coeff_sign) - coeff_sign;
-		//   dqcoeff_ptr[rc] = qcoeff_ptr[rc] * dequant_ptr[rc != 0];
 		if qcoeff != nil {
 			qcoeff[rc] = int16(q)
 		}
