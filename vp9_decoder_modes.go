@@ -801,8 +801,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if !ok {
 				return false
 			}
-			ref := &d.refFrames[refSlot]
-			if !ref.valid {
+			ref := d.vp9PredictRefFrame(refSlot)
+			if ref == nil || !ref.valid {
 				return false
 			}
 			var sf vp9dec.ScaleFactors
@@ -870,6 +870,16 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		}
 	}
 	return true
+}
+
+func (d *VP9Decoder) vp9PredictRefFrame(slot int) *vp9ReferenceFrame {
+	if slot < 0 || slot >= common.RefFrames {
+		return nil
+	}
+	if d.refFramesView != nil {
+		return &(*d.refFramesView)[slot]
+	}
+	return &d.refFrames[slot]
 }
 
 func (d *VP9Decoder) reconstructVP9InterPredictPlane(

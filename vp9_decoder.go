@@ -275,6 +275,7 @@ type VP9Decoder struct {
 	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
 	refFrames           [common.RefFrames]vp9ReferenceFrame
+	refFramesView       *[common.RefFrames]vp9ReferenceFrame
 	prevFrameMvs        []vp9dec.MvRef
 	curFrameMvs         []vp9dec.MvRef
 	prevFrameMvRows     int
