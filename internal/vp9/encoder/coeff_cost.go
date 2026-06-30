@@ -21,10 +21,7 @@ func CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
 		return rate
 	}
 	rate += VP9CostBit(probs[2], 1)
-	enc := CoefEncodings[token]
-	pareto := tables.Pareto8Full[probs[2]-1]
-	rate += TreedCost(CoefConTree[:], pareto[:],
-		int(enc.Value), int(enc.Len)-UnconstrainedNodes)
+	rate += int(coefConTreeTokenCostTable[probs[2]][token])
 	if token >= Category1Tok {
 		eb := VP9ExtraBits[token]
 		for i := eb.Len - 1; i >= 0; i-- {
@@ -99,11 +96,21 @@ func CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
 		return cost + VP9CostZero(model[2])
 	}
 	cost += VP9CostOne(model[2])
-	tail := tables.Pareto8Full[model[2]-1]
-	return cost + coefConTreeTokenCost(tail, token)
+	return cost + int(coefConTreeTokenCostTable[model[2]][token])
 }
 
-func coefConTreeTokenCost(probs [8]uint8, token int) int {
+var coefConTreeTokenCostTable = func() [256][EntropyTokens]uint16 {
+	var table [256][EntropyTokens]uint16
+	for pivot := 1; pivot < 256; pivot++ {
+		probs := &tables.Pareto8Full[pivot-1]
+		for token := range EntropyTokens {
+			table[pivot][token] = uint16(coefConTreeTokenCost(probs, token))
+		}
+	}
+	return table
+}()
+
+func coefConTreeTokenCost(probs *[8]uint8, token int) int {
 	switch token {
 	case TwoToken:
 		return VP9CostZero(probs[0]) + VP9CostZero(probs[1])
