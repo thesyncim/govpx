@@ -204,6 +204,10 @@ func Iht8x8_64Add(input []int16, dest []uint8, stride int, txType int) {
 		Idct8x8_64Add(input, dest, stride)
 		return
 	}
+	if txType >= 1 && txType <= 3 && dcWindowOK(dest, stride, 8, 8) {
+		iht8x8_64AddNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride, txType)
+		return
+	}
 	if !dcWindowOK(dest, stride, 8, 8) {
 		iht8x8_64AddScalar(input, dest, stride, txType)
 		return
@@ -269,6 +273,9 @@ func idct8x8_64AddNEON(input *int16, dest *byte, stride int)
 
 //go:noescape
 func idct8x8_12AddNEON(input *int16, dest *byte, stride int)
+
+//go:noescape
+func iht8x8_64AddNEON(input *int16, dest *byte, stride int, txType int)
 
 // idctAddResidualRowsNNEON adds N int16 residuals per row to dest with
 // SRSHR (round-power-of-two) and signed-saturating narrow back to
