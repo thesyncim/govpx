@@ -171,6 +171,10 @@ var sadPerBit4LUT = [common.QIndexRange]int{
 // each q index.
 var FullPelMVSADComponentCost16 [common.QIndexRange][256]int
 
+// FullPelMVSADComponentCost4 stores initialized full-pel MV SAD costs for
+// SPLITMV sub-block searches.
+var FullPelMVSADComponentCost4 [common.QIndexRange][256]int
+
 // FirstPassFullPelMVSADComponentCost16 is the zero-sad_per_bit table
 // used during vp8_first_pass. libvpx never calls vp8cx_initialize_me_consts
 // before the first-pass loop, so x->sadperbit16 stays at its zero-initialised
@@ -182,6 +186,7 @@ var FirstPassFullPelMVSADComponentCost16 [256]int
 
 func init() {
 	initFullPelMVSADComponentCost16()
+	initFullPelMVSADComponentCost4()
 }
 
 func initFullPelMVSADComponentCost16() {
@@ -204,6 +209,19 @@ func initFullPelMVSADComponentCost16() {
 	}
 }
 
+func initFullPelMVSADComponentCost4() {
+	for q := range FullPelMVSADComponentCost4 {
+		sadPerBit := sadPerBit4LUT[q]
+		for i := range FullPelMVSADComponentCost4[q] {
+			cost := 300
+			if i > 0 {
+				cost = int(256 * (2 * (math.Log2(float64(8*i)) + 0.6)))
+			}
+			FullPelMVSADComponentCost4[q][i] = cost * sadPerBit
+		}
+	}
+}
+
 func FullPelMVSADCost16FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, qIndex int) int {
 	// Clamp-to-[-255,255] then abs collapses to abs-then-clamp-to-255:
 	// the original sign of the delta has no effect on the cost table
@@ -215,5 +233,16 @@ func FullPelMVSADCost16FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 i
 	colMask := colDelta >> rdCostSignShift
 	colDelta = min((colDelta^colMask)-colMask, 255)
 	costs := &FullPelMVSADComponentCost16[common.ClampQIndex(qIndex)]
+	return (costs[rowDelta] + costs[colDelta] + 128) >> 8
+}
+
+func FullPelMVSADCost4FromDeltas(mvRow8 int, mvCol8 int, refRow8 int, refCol8 int, qIndex int) int {
+	rowDelta := mvRow8 - refRow8
+	rowMask := rowDelta >> rdCostSignShift
+	rowDelta = min((rowDelta^rowMask)-rowMask, 255)
+	colDelta := mvCol8 - refCol8
+	colMask := colDelta >> rdCostSignShift
+	colDelta = min((colDelta^colMask)-colMask, 255)
+	costs := &FullPelMVSADComponentCost4[common.ClampQIndex(qIndex)]
 	return (costs[rowDelta] + costs[colDelta] + 128) >> 8
 }

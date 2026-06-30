@@ -43,6 +43,37 @@ type fullPelSearchCtx struct {
 	srcClamped bool
 }
 
+const (
+	splitFullPelSAD16x8 uint8 = iota + 1
+	splitFullPelSAD8x16
+	splitFullPelSAD8x8
+	splitFullPelSAD4x4
+)
+
+type splitFullPelSearchCtx struct {
+	ref        *vp8common.Image
+	refYFull   []byte
+	srcBlock   []byte
+	src        vp8enc.SourceImage
+	baseY      int
+	baseX      int
+	mbRow      int
+	mbCol      int
+	block      int
+	width      int
+	height     int
+	srcYStride int
+	refYStride int
+	refYOrigin int
+	refYBorder int
+	refRowH    uint
+	refRowW    uint
+	shape      uint8
+	srcScratch [16 * 16]byte
+	srcFull    bool
+	srcClamped bool
+}
+
 func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) fullPelSearchCtx {
 	baseY := mbRow * 16
 	baseX := mbCol * 16
@@ -75,6 +106,93 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 		refRowH:    refRowH,
 		refRowW:    refRowW,
 	}
+}
+
+func newSplitFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int) splitFullPelSearchCtx {
+	baseY := mbRow*16 + (block>>2)*4
+	baseX := mbCol*16 + (block&3)*4
+	srcFull := src.Height >= height && src.Width >= width &&
+		uint(baseY) <= uint(src.Height-height) && uint(baseX) <= uint(src.Width-width)
+	var srcBlock []byte
+	if srcFull {
+		srcBlock = src.Y[baseY*src.YStride+baseX:]
+	}
+	var shape uint8
+	switch {
+	case width == 16 && height == 8:
+		shape = splitFullPelSAD16x8
+	case width == 8 && height == 16:
+		shape = splitFullPelSAD8x16
+	case width == 8 && height == 8:
+		shape = splitFullPelSAD8x8
+	case width == 4 && height == 4:
+		shape = splitFullPelSAD4x4
+	}
+	ctx := splitFullPelSearchCtx{
+		src:        src,
+		ref:        ref,
+		mbRow:      mbRow,
+		mbCol:      mbCol,
+		block:      block,
+		baseY:      baseY,
+		baseX:      baseX,
+		width:      width,
+		height:     height,
+		srcBlock:   srcBlock,
+		srcYStride: src.YStride,
+		srcFull:    srcFull,
+		shape:      shape,
+	}
+	if refFullPelBufferOK(ref, width, height) {
+		ctx.refYFull = ref.YFull
+		ctx.refYStride = ref.YStride
+		ctx.refYOrigin = ref.YOrigin
+		ctx.refYBorder = ref.YBorder
+		ctx.refRowH = uint(ref.CodedHeight + 2*ref.YBorder - height)
+		ctx.refRowW = uint(ref.CodedWidth + 2*ref.YBorder - width)
+	}
+	return ctx
+}
+
+func (c *splitFullPelSearchCtx) sourceBlock() ([]byte, int) {
+	if c.srcFull {
+		return c.srcBlock, c.srcYStride
+	}
+	if !c.srcClamped {
+		vp8enc.GatherClampedLumaBlock(c.src, c.baseY, c.baseX, c.width, c.height, c.srcScratch[:], 16)
+		c.srcClamped = true
+	}
+	return c.srcScratch[:], 16
+}
+
+func (c *splitFullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
+	return c.fullPelSADFull(row, col) + vp8enc.FullPelMVSADCost4FromDeltas(row, col, refRow8, refCol8, qIndex)
+}
+
+func (c *splitFullPelSearchCtx) fullPelSADFull(row int, col int) int {
+	refBaseY := c.baseY + row
+	refBaseX := c.baseX + col
+	if len(c.refYFull) != 0 &&
+		uint(refBaseY+c.refYBorder) <= c.refRowH &&
+		uint(refBaseX+c.refYBorder) <= c.refRowW {
+		refBlock := c.refYFull[c.refYOrigin+refBaseY*c.refYStride+refBaseX:]
+		srcBlock, srcStride := c.sourceBlock()
+		switch c.shape {
+		case splitFullPelSAD16x8:
+			return dsp.SAD16x8(srcBlock, srcStride, refBlock, c.refYStride)
+		case splitFullPelSAD8x16:
+			return dsp.SAD8x16(srcBlock, srcStride, refBlock, c.refYStride)
+		case splitFullPelSAD8x8:
+			return dsp.SAD8x8(srcBlock, srcStride, refBlock, c.refYStride)
+		case splitFullPelSAD4x4:
+			return dsp.SAD4x4(srcBlock, srcStride, refBlock, c.refYStride)
+		}
+	}
+	mv := vp8enc.MotionVector{
+		Row: int16(row * interFrameMVFullPixelStep),
+		Col: int16(col * interFrameMVFullPixelStep),
+	}
+	return splitBlockSAD(c.src, c.ref, c.mbRow, c.mbCol, c.block, c.width, c.height, mv)
 }
 
 func (c *fullPelSearchCtx) sourceSADPtr() (*byte, int) {

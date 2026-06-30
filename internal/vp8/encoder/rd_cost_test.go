@@ -184,3 +184,23 @@ func TestFullPelMVSADCost16MatchesMotionVectorSADCost(t *testing.T) {
 		}
 	}
 }
+
+func TestFullPelMVSADCost4MatchesMotionVectorSADCost(t *testing.T) {
+	tests := []struct {
+		mv  MotionVector
+		ref MotionVector
+		q   int
+	}{
+		{mv: MotionVector{}, ref: MotionVector{}, q: 0},
+		{mv: MotionVector{Row: 8, Col: -64}, ref: MotionVector{}, q: 30},
+		{mv: MotionVector{Row: -96, Col: 72}, ref: MotionVector{Row: 16, Col: -8}, q: 56},
+		{mv: MotionVector{Row: 4096, Col: -4096}, ref: MotionVector{}, q: 126},
+	}
+	for _, tt := range tests {
+		got := FullPelMVSADCost4FromDeltas(int(tt.mv.Row)>>3, int(tt.mv.Col)>>3, int(tt.ref.Row)>>3, int(tt.ref.Col)>>3, tt.q)
+		want := MotionVectorSADCost(tt.mv, tt.ref, SADPerBit4(tt.q))
+		if got != want {
+			t.Fatalf("mv=%+v ref=%+v q=%d split full-pel SAD cost = %d, want %d", tt.mv, tt.ref, tt.q, got, want)
+		}
+	}
+}

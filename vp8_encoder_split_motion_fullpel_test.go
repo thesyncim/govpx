@@ -84,6 +84,108 @@ func TestSelectInterFrameSplitBlockFullPixelMotionVectorReturnsMVErrorCost(t *te
 	}
 }
 
+func TestSplitFullPelSearchCtxMatchesSplitBlockSAD(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((17 + row*37 + col*59 + row*col*11) & 255)
+		}
+	}
+	ref.ExtendBorders()
+	source := sourceImageFromPublic(src)
+
+	tests := []struct {
+		name          string
+		mbRow, mbCol  int
+		block         int
+		width, height int
+		mvs           []vp8enc.MotionVector
+	}{
+		{
+			name:   "16x8",
+			width:  16,
+			height: 8,
+			mvs: []vp8enc.MotionVector{
+				{},
+				{Row: 8, Col: -8},
+				{Row: -8, Col: 16},
+			},
+		},
+		{
+			name:   "8x16",
+			width:  8,
+			height: 16,
+			mvs: []vp8enc.MotionVector{
+				{},
+				{Row: 16, Col: -8},
+				{Row: -8, Col: 8},
+			},
+		},
+		{
+			name:   "8x8",
+			width:  8,
+			height: 8,
+			mvs: []vp8enc.MotionVector{
+				{},
+				{Row: 8, Col: 16},
+				{Row: -8, Col: -8},
+			},
+		},
+		{
+			name:   "4x4",
+			block:  5,
+			width:  4,
+			height: 4,
+			mvs: []vp8enc.MotionVector{
+				{},
+				{Row: 8, Col: 8},
+				{Row: -8, Col: 16},
+			},
+		},
+		{
+			name:   "partial source edge",
+			mbRow:  1,
+			mbCol:  1,
+			block:  15,
+			width:  8,
+			height: 8,
+			mvs: []vp8enc.MotionVector{
+				{},
+				{Row: -8, Col: -8},
+			},
+		},
+	}
+	for _, tt := range tests {
+		ctx := newSplitFullPelSearchCtx(source, &ref.Img, tt.mbRow, tt.mbCol, tt.block, tt.width, tt.height)
+		for _, mv := range tt.mvs {
+			got := ctx.fullPelSADFull(int(mv.Row)>>3, int(mv.Col)>>3)
+			want := splitBlockSAD(source, &ref.Img, tt.mbRow, tt.mbCol, tt.block, tt.width, tt.height, mv)
+			if got != want {
+				t.Fatalf("%s mv=%+v ctx SAD = %d, want %d", tt.name, mv, got, want)
+			}
+		}
+	}
+}
+
+func TestSplitFullPelSearchCtxCostMatchesGenericCost(t *testing.T) {
+	src, ref := splitMotionSourceAndReference(t)
+	ref.ExtendBorders()
+	source := sourceImageFromPublic(src)
+	bestRefMV := vp8enc.MotionVector{Row: -10, Col: 15}
+	ctx := newSplitFullPelSearchCtx(source, &ref.Img, 0, 0, 0, 8, 8)
+	for _, mv := range []vp8enc.MotionVector{
+		{},
+		{Row: 8, Col: -16},
+		{Row: -24, Col: 32},
+	} {
+		got := ctx.fullPelCostFull(int(mv.Row)>>3, int(mv.Col)>>3, int(bestRefMV.Row)>>3, int(bestRefMV.Col)>>3, testInterSearchQIndex)
+		want := interMotionSplitBlockSearchCost(source, &ref.Img, 0, 0, 0, 8, 8, mv, bestRefMV, testInterSearchQIndex)
+		if got != want {
+			t.Fatalf("mv=%+v ctx cost = %d, want %d", mv, got, want)
+		}
+	}
+}
+
 func TestSplitMotionSubsetSearchCenterMatchesLibvpxSeedReuse(t *testing.T) {
 	bestRefMV := vp8enc.MotionVector{Row: 8, Col: -16}
 	mode := vp8enc.InterFrameMacroblockMode{Partition: 3}
@@ -122,5 +224,32 @@ func TestSplitMotionSubsetSearchCenterMatchesLibvpxSeedReuse(t *testing.T) {
 	}
 	if got := splitMotionSubsetSearchCenter(1, 1, &mode, bestRefMV, 0, &seeds); got != bestRefMV {
 		t.Fatalf("best-quality search center = %+v, want bestRefMV %+v", got, bestRefMV)
+	}
+}
+
+func BenchmarkSplitBlockFullPelNstep8x8(b *testing.B) {
+	src, ref := splitMotionSourceAndReference(b)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((row*29 + col*47 + row*col*13 + 19) & 255)
+		}
+	}
+	copyShiftedBlockFromReference(src, &ref.Img, 0, 0, 8, 8, 1, 2)
+	ref.ExtendBorders()
+	source := sourceImageFromPublic(src)
+	mvProbs := vp8tables.DefaultMVContext
+	var mvCosts vp8enc.MotionVectorCostTables
+	mvCosts.Build(&mvProbs)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		mv, cost := selectInterFrameSplitBlockFullPixelMotionVectorFromCenterAndStepWithErrorPerBitAndCostTables(source, &ref.Img, 0, 0, 0, 8, 8, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex, vp8enc.ErrorPerBit(testInterSearchQIndex), 6, false, &mvProbs, &mvCosts)
+		if int(mv.Row)&7 != 0 || int(mv.Col)&7 != 0 {
+			b.Fatalf("split full-pel MV = %+v, want full-pel aligned", mv)
+		}
+		if cost == maxInt() {
+			b.Fatalf("split full-pel cost = maxInt")
+		}
 	}
 }
