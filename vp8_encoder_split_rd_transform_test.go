@@ -4,11 +4,12 @@ import (
 	"testing"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-func splitMVDecisionRDFixture(t *testing.T) (vp8enc.SourceImage, *vp8common.Image, *vp8common.FrameBuffer, vp8enc.MacroblockQuant, int) {
+func splitMVDecisionRDFixture(t testing.TB) (vp8enc.SourceImage, *vp8common.Image, *vp8common.FrameBuffer, vp8enc.MacroblockQuant, int) {
 	t.Helper()
 	const w, h = 32, 32
 	src := testImage(w, h)
@@ -253,6 +254,115 @@ func TestSplitMVDecisionRDDistortionMatchesPerLabelTransformError(t *testing.T) 
 	// SPLITMV from ZEROMV.
 	if decision.YDist <= 0 {
 		t.Fatalf("YDist = %d, want strictly positive on non-zero residual fixture", decision.YDist)
+	}
+}
+
+func TestBuildPredictedMacroblockChromaCoefficientsMatchesFullRD(t *testing.T) {
+	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(t)
+	for i := range src.U {
+		src.U[i] = byte((int(src.U[i]) + 17 + i*3) & 0xff)
+		src.V[i] = byte((int(src.V[i]) + 29 + i*5) & 0xff)
+	}
+	aboveTok := vp8enc.TokenContextPlanes{Y1: [4]uint8{1, 0, 1, 0}, U: [2]uint8{1, 0}, V: [2]uint8{0, 1}, Y2: 1}
+	leftTok := vp8enc.TokenContextPlanes{Y1: [4]uint8{0, 1, 0, 1}, U: [2]uint8{0, 1}, V: [2]uint8{1, 0}, Y2: 0}
+
+	base := predictedMacroblockCoefficientArgs{
+		coefProbs:     &vp8tables.DefaultCoefProbs,
+		src:           src,
+		mbRow:         0,
+		mbCol:         0,
+		pred:          ref,
+		aboveTok:      &aboveTok,
+		leftTok:       &leftTok,
+		quant:         &quant,
+		qIndex:        qIndex,
+		zbinModeBoost: vp8enc.SplitInterModeZbinBoost,
+		is4x4:         true,
+		fastQuant:     false,
+		optimize:      false,
+		collectStats:  true,
+	}
+	var fullCoeffs vp8enc.MacroblockCoefficients
+	fullArgs := base
+	fullArgs.coeffs = &fullCoeffs
+	fullStats := buildPredictedMacroblockCoefficientsInternal(&fullArgs)
+
+	var chromaCoeffs vp8enc.MacroblockCoefficients
+	chromaArgs := base
+	chromaArgs.coeffs = &chromaCoeffs
+	chromaStats, ok := buildPredictedMacroblockChromaCoefficientsInternal(&chromaArgs)
+	if !ok {
+		t.Fatalf("buildPredictedMacroblockChromaCoefficientsInternal returned ok=false")
+	}
+
+	if chromaStats.rateUV != fullStats.rateUV || chromaStats.distortionUV != fullStats.distortionUV {
+		t.Fatalf("chroma stats = rateUV %d distortionUV %d, want full RD %d/%d",
+			chromaStats.rateUV, chromaStats.distortionUV, fullStats.rateUV, fullStats.distortionUV)
+	}
+	fullUVTTEOB := 0
+	for block := 16; block < 24; block++ {
+		fullUVTTEOB += int(fullCoeffs.EOB[block])
+		if chromaCoeffs.EOB[block] != fullCoeffs.EOB[block] || chromaCoeffs.QCoeff[block] != fullCoeffs.QCoeff[block] {
+			t.Fatalf("UV block %d chroma-only EOB/QCoeff = %d/%v, want full RD %d/%v",
+				block, chromaCoeffs.EOB[block], chromaCoeffs.QCoeff[block], fullCoeffs.EOB[block], fullCoeffs.QCoeff[block])
+		}
+	}
+	if chromaStats.tteob != fullUVTTEOB {
+		t.Fatalf("chroma tteob = %d, want UV EOB sum %d", chromaStats.tteob, fullUVTTEOB)
+	}
+}
+
+func TestEstimateInterSplitResidualRDAccountingEmptyCoeffSkipBacksOutTokenRates(t *testing.T) {
+	e := newSizedTestEncoder(t, 16, 16)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		t.Fatalf("SetDeadline returned error: %v", err)
+	}
+	e.probSkipFalse = 200
+	var decSeg vp8dec.SegmentationHeader
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: 20}, &decSeg, &e.dequantTables, &e.dequants)
+	src := testImage(16, 16)
+	fillImage(src, 128, 90, 170)
+	ref := testVP8Frame(t, 16, 16, 128, 90, 170)
+	ref.ExtendBorders()
+	quant := testRegularMacroblockQuant(t, 20)
+	mode := vp8enc.InterFrameMacroblockMode{
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.SplitMV,
+		Partition: 0,
+	}
+	shape := splitMotionShapeResult{
+		Mode:              mode,
+		SegmentRate:       123,
+		SegmentYRate:      17,
+		SegmentDistortion: 0,
+		SegmentTTEOB:      0,
+		OK:                true,
+	}
+	ctx := interSplitModeRDContext{
+		src:       sourceImageFromPublic(src),
+		ref:       interAnalysisReference{Frame: vp8common.LastFrame, Img: &ref.Img},
+		mbRow:     0,
+		mbCol:     0,
+		qIndex:    20,
+		segmentID: 0,
+		quant:     &quant,
+	}
+
+	acct, ok := e.estimateInterSplitResidualRDAccounting(&ctx, &mode, &shape)
+	if !ok {
+		t.Fatalf("estimateInterSplitResidualRDAccounting returned ok=false")
+	}
+	if !acct.mbSkipCoeff || acct.rdLoopSkip {
+		t.Fatalf("mbSkipCoeff/rdLoopSkip = %t/%t, want true/false", acct.mbSkipCoeff, acct.rdLoopSkip)
+	}
+	refCost := e.interInterReferenceRate(e.interReferenceFrameRateForReference(ctx.ref))
+	wantRate2 := shape.SegmentRate - shape.SegmentYRate + e.interMacroblockSkipRate(true) + refCost
+	if acct.rate2 != wantRate2 || acct.rateUV != 0 || acct.otherCost != e.interMacroblockSkipRate(true) {
+		t.Fatalf("skip accounting rate2/rateUV/other = %d/%d/%d, want %d/0/%d",
+			acct.rate2, acct.rateUV, acct.otherCost, wantRate2, e.interMacroblockSkipRate(true))
+	}
+	if wantYRD := vp8enc.RDModeScoreWithZbin(20, e.rc.currentZbinOverQuant, shape.SegmentRate-shape.SegmentYRate, 0); acct.yrd != wantYRD {
+		t.Fatalf("skip accounting yrd = %d, want %d", acct.yrd, wantYRD)
 	}
 }
 

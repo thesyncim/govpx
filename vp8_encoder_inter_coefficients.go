@@ -261,6 +261,157 @@ func buildPredictedMacroblockCoefficientsRD(coefProbs *vp8tables.CoefficientProb
 	})
 }
 
+func buildPredictedMacroblockChromaCoefficientsInternal(args *predictedMacroblockCoefficientArgs) (predictedMacroblockRDStats, bool) {
+	var stats predictedMacroblockRDStats
+	if args == nil || args.coefProbs == nil || args.pred == nil || args.quant == nil || args.coeffs == nil {
+		return stats, false
+	}
+
+	coefProbs := args.coefProbs
+	coefTokenCosts := args.coefTokenCosts
+	src := args.src
+	mbRow := args.mbRow
+	mbCol := args.mbCol
+	pred := args.pred
+	quant := args.quant
+	qIndex := args.qIndex
+	zbinOverQuant := args.zbinOverQuant
+	zbinModeBoost := args.zbinModeBoost
+	actZbinAdj := args.actZbinAdj
+	rdMult := args.rdMult
+	rdDiv := args.rdDiv
+	intra := args.intra
+	fastQuant := args.fastQuant
+	optimize := args.optimize
+	collectStats := args.collectStats
+	coeffs := args.coeffs
+	needTokenContext := collectStats || optimize
+	var uvAbove [4]uint8
+	var uvLeft [4]uint8
+	if needTokenContext && args.aboveTok != nil {
+		uvAbove = vp8enc.TokenUVContextArray(args.aboveTok)
+	}
+	if needTokenContext && args.leftTok != nil {
+		uvLeft = vp8enc.TokenUVContextArray(args.leftTok)
+	}
+
+	var uvResiduals [8 * 16]int16
+	var uvDcts [8 * 16]int16
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
+	vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, uvResiduals[0:64])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, uvResiduals[64:128])
+	vp8enc.ForwardDCT4x4Batch(uvResiduals[:], uvDcts[:], 8)
+
+	if fastQuant {
+		var uvDQ [8 * 16]int16
+		var uvEOB [8]uint8
+		qUV := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[16][0])), 8*16)
+		vp8enc.FastQuantizeBlockBatch(uvDcts[:], &quant.UV, qUV, uvDQ[:], uvEOB[:], 8)
+		for block := range 4 {
+			dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
+			dqU := (*[16]int16)(uvDQ[block*16 : block*16+16])
+			a, l := vp8enc.MacroblockCoefficientUVContextIndex(16 + block)
+			ctx := 0
+			if needTokenContext {
+				ctx = int(uvAbove[a] + uvLeft[l])
+			}
+			eob := int(uvEOB[block])
+			coeffs.SetBlockEOB(16+block, eob)
+			if collectStats {
+				stats.rateUV += coefficientBlockTokenRate(coefProbs, coefTokenCosts, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
+				stats.distortionUV += vp8enc.TransformBlockError(dct, dqU)
+				stats.tteob += eob
+			}
+			if needTokenContext {
+				hasCoeffs := uint8(0)
+				if eob > 0 {
+					hasCoeffs = 1
+				}
+				uvAbove[a] = hasCoeffs
+				uvLeft[l] = hasCoeffs
+			}
+
+			dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
+			dqV := (*[16]int16)(uvDQ[(4+block)*16 : (4+block)*16+16])
+			a, l = vp8enc.MacroblockCoefficientUVContextIndex(20 + block)
+			ctx = 0
+			if needTokenContext {
+				ctx = int(uvAbove[a] + uvLeft[l])
+			}
+			eob = int(uvEOB[4+block])
+			coeffs.SetBlockEOB(20+block, eob)
+			if collectStats {
+				stats.rateUV += coefficientBlockTokenRate(coefProbs, coefTokenCosts, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
+				stats.distortionUV += vp8enc.TransformBlockError(dctV, dqV)
+				stats.tteob += eob
+			}
+			if needTokenContext {
+				hasCoeffs := uint8(0)
+				if eob > 0 {
+					hasCoeffs = 1
+				}
+				uvAbove[a] = hasCoeffs
+				uvLeft[l] = hasCoeffs
+			}
+		}
+		if collectStats {
+			stats.distortionUV >>= 2
+		}
+		return stats, true
+	}
+
+	var dq [16]int16
+	for block := range 4 {
+		dct := (*[16]int16)(uvDcts[block*16 : block*16+16])
+		a, l := vp8enc.MacroblockCoefficientUVContextIndex(16 + block)
+		ctx := 0
+		if needTokenContext {
+			ctx = int(uvAbove[a] + uvLeft[l])
+		}
+		eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dct, &quant.UV, &coeffs.QCoeff[16+block], &dq)
+		coeffs.SetBlockEOB(16+block, eob)
+		if collectStats {
+			stats.rateUV += coefficientBlockTokenRate(coefProbs, coefTokenCosts, 2, ctx, 0, &coeffs.QCoeff[16+block], eob)
+			stats.distortionUV += vp8enc.TransformBlockError(dct, &dq)
+			stats.tteob += eob
+		}
+		if needTokenContext {
+			hasCoeffs := uint8(0)
+			if eob > 0 {
+				hasCoeffs = 1
+			}
+			uvAbove[a] = hasCoeffs
+			uvLeft[l] = hasCoeffs
+		}
+
+		dctV := (*[16]int16)(uvDcts[(4+block)*16 : (4+block)*16+16])
+		a, l = vp8enc.MacroblockCoefficientUVContextIndex(20 + block)
+		ctx = 0
+		if needTokenContext {
+			ctx = int(uvAbove[a] + uvLeft[l])
+		}
+		eob = vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 2, ctx, 0, zbinOverQuant, zbinModeBoost, actZbinAdj, zbinOverQuant, rdMult, rdDiv, intra, fastQuant, optimize, dctV, &quant.UV, &coeffs.QCoeff[20+block], &dq)
+		coeffs.SetBlockEOB(20+block, eob)
+		if collectStats {
+			stats.rateUV += coefficientBlockTokenRate(coefProbs, coefTokenCosts, 2, ctx, 0, &coeffs.QCoeff[20+block], eob)
+			stats.distortionUV += vp8enc.TransformBlockError(dctV, &dq)
+			stats.tteob += eob
+		}
+		if needTokenContext {
+			hasCoeffs := uint8(0)
+			if eob > 0 {
+				hasCoeffs = 1
+			}
+			uvAbove[a] = hasCoeffs
+			uvLeft[l] = hasCoeffs
+		}
+	}
+	if collectStats {
+		stats.distortionUV >>= 2
+	}
+	return stats, true
+}
+
 func coefficientBlockTokenRate(coefProbs *vp8tables.CoefficientProbs, coefTokenCosts *vp8enc.CoefficientTokenCostTable, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
 	if coefTokenCosts != nil {
 		return vp8enc.CoefficientBlockTokenRateWithTable(coefTokenCosts, blockType, ctx, skipDC, qcoeff, eob)

@@ -294,30 +294,30 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	}
 
 	var coeffs vp8enc.MacroblockCoefficients
-	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
-		coefProbs:           e.pickerCoefProbs(),
-		coefTokenCosts:      e.pickerCoefTokenCosts(),
-		src:                 ctx.src,
-		mbRow:               ctx.mbRow,
-		mbCol:               ctx.mbCol,
-		pred:                &e.analysis.Img,
-		aboveTok:            ctx.aboveTok,
-		leftTok:             ctx.leftTok,
-		quant:               ctx.quant,
-		qIndex:              ctx.qIndex,
-		zbinOverQuant:       zbinOverQuant,
-		zbinModeBoost:       vp8enc.SplitInterModeZbinBoost,
-		actZbinAdj:          actZbinAdj,
-		is4x4:               true,
-		splitPartitionValid: true,
-		splitPartition:      mode.Partition,
-		intra:               false,
-		fastQuant:           e.libvpxUseFastQuantForPick(),
-		optimize:            false,
-		collectStats:        true,
-		coeffs:              &coeffs,
-		cacheOut:            e.interRDCoeffCacheScratchTarget,
+	stats, statsOK := buildPredictedMacroblockChromaCoefficientsInternal(&predictedMacroblockCoefficientArgs{
+		coefProbs:      e.pickerCoefProbs(),
+		coefTokenCosts: e.pickerCoefTokenCosts(),
+		src:            ctx.src,
+		mbRow:          ctx.mbRow,
+		mbCol:          ctx.mbCol,
+		pred:           &e.analysis.Img,
+		aboveTok:       ctx.aboveTok,
+		leftTok:        ctx.leftTok,
+		quant:          ctx.quant,
+		qIndex:         ctx.qIndex,
+		zbinOverQuant:  zbinOverQuant,
+		zbinModeBoost:  vp8enc.SplitInterModeZbinBoost,
+		actZbinAdj:     actZbinAdj,
+		is4x4:          true,
+		intra:          false,
+		fastQuant:      e.libvpxUseFastQuantForPick(),
+		optimize:       false,
+		collectStats:   true,
+		coeffs:         &coeffs,
 	})
+	if !statsOK {
+		return interResidualRDAccounting{}, false
+	}
 
 	refCost := e.interInterReferenceRate(e.interReferenceFrameRateForReference(ctx.ref))
 	otherCost := e.interMacroblockSkipRate(false)

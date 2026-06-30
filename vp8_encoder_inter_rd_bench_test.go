@@ -37,3 +37,56 @@ func BenchmarkEstimateInterResidualRDAccounting(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkEstimateInterSplitResidualRDAccounting(b *testing.B) {
+	e := newSizedTestEncoder(b, 32, 32)
+	if err := e.SetDeadline(DeadlineBestQuality); err != nil {
+		b.Fatalf("SetDeadline returned error: %v", err)
+	}
+	var decSeg vp8dec.SegmentationHeader
+	vp8dec.InitSegmentDequants(vp8dec.QuantHeader{BaseQIndex: testInterSearchQIndex}, &decSeg, &e.dequantTables, &e.dequants)
+	src, ref, _, quant, qIndex := splitMVDecisionRDFixture(b)
+	var labelRD splitMotionLabelRDEvaluator
+	labelRD.init(e.rc.currentZbinOverQuant, 0, nil, nil, e.libvpxUseFastQuantForPick(), false)
+	shapeCtx := splitMotionShapeContext{
+		src:                 src,
+		ref:                 ref,
+		refFrame:            vp8common.LastFrame,
+		mbRow:               0,
+		mbCol:               0,
+		qIndex:              qIndex,
+		partition:           0,
+		search:              defaultInterAnalysisSearchConfig(),
+		mvProbs:             &e.modeProbs.MV,
+		subMVRefProbs:       &e.subMVRefProbs,
+		labelRD:             &labelRD,
+		quant:               &quant,
+		coefProbs:           e.pickerCoefProbs(),
+		segmentYRDCap:       maxInt(),
+		segmentOverheadRate: vp8enc.MBSplitPartitionRate(0) + vp8enc.InterPredictionModeRate(vp8common.SplitMV, vp8enc.InterModeCounts{}),
+	}
+	shape := shapeCtx.selectShape()
+	if !shape.OK || shape.Cutoff {
+		b.Fatalf("split shape setup failed: %+v", shape)
+	}
+	mode := shape.Mode
+	mode.SegmentID = 0
+	ctx := interSplitModeRDContext{
+		src:       src,
+		ref:       interAnalysisReference{Frame: vp8common.LastFrame, Img: ref},
+		mbRow:     0,
+		mbCol:     0,
+		qIndex:    qIndex,
+		segmentID: 0,
+		quant:     &quant,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		acct, ok := e.estimateInterSplitResidualRDAccounting(&ctx, &mode, &shape)
+		if !ok || acct.distortionUV == 0 {
+			b.Fatalf("estimateInterSplitResidualRDAccounting returned ok=%t acct=%+v", ok, acct)
+		}
+	}
+}
