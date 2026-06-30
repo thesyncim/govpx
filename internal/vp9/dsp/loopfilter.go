@@ -135,7 +135,9 @@ func VpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 		q2 := plane[s+2*pitch]
 		q3 := plane[s+3*pitch]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		filter4(mask, thresh, plane, s-2*pitch, s-pitch, s, s+pitch)
+		if mask != 0 {
+			filter4(mask, thresh, plane, s-2*pitch, s-pitch, s, s+pitch)
+		}
 		s++
 	}
 }
@@ -154,7 +156,9 @@ func VpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 		q2 := plane[s+2]
 		q3 := plane[s+3]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		filter4(mask, thresh, plane, s-2, s-1, s, s+1)
+		if mask != 0 {
+			filter4(mask, thresh, plane, s-2, s-1, s, s+1)
+		}
 		s += pitch
 	}
 }
@@ -257,10 +261,12 @@ func VpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 		q2 := plane[s+2*pitch]
 		q3 := plane[s+3*pitch]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-		filter8(mask, thresh, flat, plane,
-			s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
-			s, s+pitch, s+2*pitch, s+3*pitch)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			filter8(mask, thresh, flat, plane,
+				s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
+				s, s+pitch, s+2*pitch, s+3*pitch)
+		}
 		s++
 	}
 }
@@ -277,9 +283,11 @@ func VpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 		q2 := plane[s+2]
 		q3 := plane[s+3]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-		filter8(mask, thresh, flat, plane,
-			s-4, s-3, s-2, s-1, s, s+1, s+2, s+3)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			filter8(mask, thresh, flat, plane,
+				s-4, s-3, s-2, s-1, s, s+1, s+2, s+3)
+		}
 		s += pitch
 	}
 }
@@ -313,16 +321,18 @@ func mbLpfHorizontalEdgeW(plane []uint8, s, pitch int, blimit, limit, thresh uin
 		q2 := plane[s+2*pitch]
 		q3 := plane[s+3*pitch]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat2 := flatMask5(1,
-			plane[s-8*pitch], plane[s-7*pitch], plane[s-6*pitch], plane[s-5*pitch],
-			p0, q0,
-			plane[s+4*pitch], plane[s+5*pitch], plane[s+6*pitch], plane[s+7*pitch])
-		filter16(mask, thresh, flat, flat2, plane,
-			s-8*pitch, s-7*pitch, s-6*pitch, s-5*pitch,
-			s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
-			s, s+pitch, s+2*pitch, s+3*pitch,
-			s+4*pitch, s+5*pitch, s+6*pitch, s+7*pitch)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			flat2 := flatMask5(1,
+				plane[s-8*pitch], plane[s-7*pitch], plane[s-6*pitch], plane[s-5*pitch],
+				p0, q0,
+				plane[s+4*pitch], plane[s+5*pitch], plane[s+6*pitch], plane[s+7*pitch])
+			filter16(mask, thresh, flat, flat2, plane,
+				s-8*pitch, s-7*pitch, s-6*pitch, s-5*pitch,
+				s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
+				s, s+pitch, s+2*pitch, s+3*pitch,
+				s+4*pitch, s+5*pitch, s+6*pitch, s+7*pitch)
+		}
 		s++
 	}
 }
@@ -340,14 +350,16 @@ func mbLpfVerticalEdgeW(plane []uint8, s, pitch int, blimit, limit, thresh uint8
 		q2 := plane[s+2]
 		q3 := plane[s+3]
 		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-		flat2 := flatMask5(1,
-			plane[s-8], plane[s-7], plane[s-6], plane[s-5],
-			p0, q0,
-			plane[s+4], plane[s+5], plane[s+6], plane[s+7])
-		filter16(mask, thresh, flat, flat2, plane,
-			s-8, s-7, s-6, s-5, s-4, s-3, s-2, s-1,
-			s, s+1, s+2, s+3, s+4, s+5, s+6, s+7)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			flat2 := flatMask5(1,
+				plane[s-8], plane[s-7], plane[s-6], plane[s-5],
+				p0, q0,
+				plane[s+4], plane[s+5], plane[s+6], plane[s+7])
+			filter16(mask, thresh, flat, flat2, plane,
+				s-8, s-7, s-6, s-5, s-4, s-3, s-2, s-1,
+				s, s+1, s+2, s+3, s+4, s+5, s+6, s+7)
+		}
 		s += pitch
 	}
 }
