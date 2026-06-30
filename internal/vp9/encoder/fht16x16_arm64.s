@@ -11,7 +11,7 @@
 //   output+8(FP)  *int16
 //   stride+16(FP) int (in int16 elements)
 //   txType+24(FP) int (ADST_DCT, DCT_ADST, ADST_ADST only)
-TEXT ·forwardHT16x16NEON(SB), NOSPLIT|NOFRAME, $0-32
+TEXT ·forwardHT16x16NEON(SB), NOSPLIT, $0-32
 	MOVD	input+0(FP), R0
 	MOVD	output+8(FP), R1
 	MOVD	stride+16(FP), R2
