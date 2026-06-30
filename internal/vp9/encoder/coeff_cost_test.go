@@ -210,9 +210,8 @@ func TestCoeffTokenExtraCostOutOfTableFallsBack(t *testing.T) {
 }
 
 func TestCoeffTokenExtraCostQCoeffMatchesSlowPath(t *testing.T) {
-	for _, q := range []int16{
-		-4096, -67, -3, -1, 0, 1, 2, 66, 255, 4095, 4096,
-	} {
+	for bits := range coeffQCoeffTokenExtraCostTableSize {
+		q := int16(uint16(bits))
 		gotToken, gotCost := coeffTokenExtraCostQCoeff(q)
 		absVal := int(q)
 		sign := 0
@@ -297,6 +296,17 @@ func BenchmarkCoeffTokenExtraCostTable(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		token, cost := CoeffTokenExtraCost(values[i%len(values)], i&1)
+		total += token + cost
+	}
+	coeffBlockEOBBenchSink = total
+}
+
+func BenchmarkCoeffTokenExtraCostQCoeffTable(b *testing.B) {
+	values := [...]int16{0, 1, -1, 2, -3, 16, -64, 255, -1024, 4095, -4096, -32768}
+	total := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		token, cost := coeffTokenExtraCostQCoeff(values[i%len(values)])
 		total += token + cost
 	}
 	coeffBlockEOBBenchSink = total

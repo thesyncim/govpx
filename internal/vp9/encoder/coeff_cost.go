@@ -74,6 +74,23 @@ func coeffTokenExtraCostSlow(absVal, sign int) (token int, cost int) {
 	return token, cost
 }
 
+const coeffQCoeffTokenExtraCostTableSize = 1 << 16
+
+var coeffQCoeffTokenExtraCostTable = func() [coeffQCoeffTokenExtraCostTableSize]coeffTokenExtraCostEntry {
+	var table [coeffQCoeffTokenExtraCostTableSize]coeffTokenExtraCostEntry
+	for bits := range table {
+		q := int(int16(uint16(bits)))
+		sign := 0
+		if q < 0 {
+			q = -q
+			sign = 1
+		}
+		token, cost := coeffTokenExtraCostSlow(q, sign)
+		table[bits] = coeffTokenExtraCostEntry{token: uint8(token), cost: uint16(cost)}
+	}
+	return table
+}()
+
 // CoeffTreeTokenCost returns the cost of one coefficient token for a compact
 // three-node probability model.
 func CoeffTreeTokenCost(model []uint8, skipEOB bool, token int) int {
@@ -525,15 +542,8 @@ func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
 }
 
 func coeffTokenExtraCostQCoeff(q int16) (token int, cost int) {
-	absVal := int(q)
-	if absVal < 0 {
-		absVal = -absVal
-	}
-	if uint(absVal) < coeffTokenExtraCostTableSize {
-		entry := coeffTokenExtraCostTable[absVal]
-		return int(entry.token), int(entry.cost)
-	}
-	return coeffTokenExtraCostSlow(absVal, 0)
+	entry := coeffQCoeffTokenExtraCostTable[uint16(q)]
+	return int(entry.token), int(entry.cost)
 }
 
 func coeffBlockTreeTokenCost(costTable *CoeffTreeTokenCostTable,
