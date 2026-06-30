@@ -196,7 +196,7 @@ func TestPredictBestIntraChromaModeRDEOBsUseFinalTrialState(t *testing.T) {
 			if !predictAnalysisChroma(&pred.Img, mbRow, mbCol, uvMode, &scratch) {
 				t.Fatalf("predictAnalysisChroma(%v) returned false", uvMode)
 			}
-			tokenRate, dist, eobSum := wholeBlockChromaTransformRDWithEOBs(sourceImageFromPublic(src), &pred.Img, mbRow, mbCol, 0, 0, nil, nil, &quant, &probs, false)
+			tokenRate, dist, eobSum := wholeBlockChromaTransformRDWithEOBs(sourceImageFromPublic(src), &pred.Img, mbRow, mbCol, 0, 0, nil, nil, &quant, &probs, false, nil)
 			liveEOBSum = eobSum
 			rate := intraUVModeRate(false, uvMode) + tokenRate
 			cost := vp8enc.RDModeScoreWithZbin(20, 0, rate, dist)
@@ -214,7 +214,7 @@ func TestPredictBestIntraChromaModeRDEOBsUseFinalTrialState(t *testing.T) {
 
 		pred := newPred()
 		var scratch vp8dec.IntraReconstructionScratch
-		gotMode, gotRate, gotDist, gotEOBSum, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(sourceImageFromPublic(src), 20, 0, 0, false, mbRow, mbCol, nil, nil, &quant, &pred.Img, &scratch, &probs, nil, false, 0, 0)
+		gotMode, gotRate, gotDist, gotEOBSum, ok := predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs(sourceImageFromPublic(src), 20, 0, 0, false, mbRow, mbCol, nil, nil, &quant, &pred.Img, &scratch, &probs, nil, false, 0, 0, nil)
 		if !ok {
 			t.Fatalf("predictBestIntraChromaModeRDWithProbsAndRDConstantsAndEOBs returned ok=false")
 		}
