@@ -88,6 +88,50 @@ func TestRoundTripMixedProb(t *testing.T) {
 	}
 }
 
+func TestWriterDiscardProducesNoBytesAndResets(t *testing.T) {
+	var discard Writer
+	discard.StartDiscard()
+	for i := range 4096 {
+		discard.Write(uint32(i&1), uint32(100+(i%150)))
+	}
+	discard.WriteLiteral(0xdeadbeef, 32)
+	size, err := discard.Stop()
+	if err != nil {
+		t.Fatalf("discard Stop: %v", err)
+	}
+	if size != 0 {
+		t.Fatalf("discard size = %d, want 0", size)
+	}
+
+	wantBuf := make([]byte, 1024)
+	var want Writer
+	want.Start(wantBuf)
+	want.Write(1, 137)
+	want.WriteLiteral(0x35, 6)
+	wantSize, err := want.Stop()
+	if err != nil {
+		t.Fatalf("want Stop: %v", err)
+	}
+
+	gotBuf := make([]byte, 1024)
+	discard.Start(gotBuf)
+	discard.Write(1, 137)
+	discard.WriteLiteral(0x35, 6)
+	gotSize, err := discard.Stop()
+	if err != nil {
+		t.Fatalf("got Stop: %v", err)
+	}
+	if gotSize != wantSize {
+		t.Fatalf("size after reset = %d, want %d", gotSize, wantSize)
+	}
+	for i := 0; i < gotSize; i++ {
+		if gotBuf[i] != wantBuf[i] {
+			t.Fatalf("byte %d after reset = 0x%02x, want 0x%02x",
+				i, gotBuf[i], wantBuf[i])
+		}
+	}
+}
+
 // TestRoundTripLiterals exercises the multi-bit literal helpers used by
 // the VP9 uncompressed header parser.
 func TestRoundTripLiterals(t *testing.T) {

@@ -98,7 +98,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {
 			var bw bitstream.Writer
-			bw.Start(e.scratch[:])
+			bw.StartDiscard()
 			e.writeVP9FrameTile(&bw, miRows, miCols,
 				vp9EncoderTileBounds(tileRow, tileCol, miRows, miCols, tileInfo),
 				partitionProbs, seg, baseMi, txMode, kind, key, inter)

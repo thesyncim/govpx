@@ -18,7 +18,8 @@ type Writer struct {
 	buf []byte
 	pos uint32
 
-	err bool
+	err     bool
+	discard bool
 }
 
 // Start seeds the writer with a caller-owned destination buffer. The
@@ -30,9 +31,24 @@ func (w *Writer) Start(dst []byte) {
 	w.rng = 255
 	w.count = -24
 	w.err = false
+	w.discard = false
 	w.pos = 0
 	w.buf = dst
 	w.WriteBit(0)
+}
+
+// StartDiscard seeds a writer that accepts every write but intentionally
+// produces no bytes. Count-only encoder pre-passes still need to walk the same
+// syntax tree to update mode/coefficient statistics, but they do not need the
+// boolean coder state for the disposable first partition.
+func (w *Writer) StartDiscard() {
+	w.lowValue = 0
+	w.rng = 255
+	w.count = -24
+	w.err = false
+	w.discard = true
+	w.pos = 0
+	w.buf = nil
 }
 
 // Write encodes one bit against the probability prob (out of 256). Body
@@ -40,6 +56,9 @@ func (w *Writer) Start(dst []byte) {
 // over previously-emitted 0xff bytes when a fresh byte would carry into
 // them.
 func (w *Writer) Write(bit, prob uint32) {
+	if w.discard {
+		return
+	}
 	rng := w.rng
 	lowValue := w.lowValue
 	count := w.count
@@ -93,6 +112,9 @@ func (w *Writer) WriteBit(bit uint32) { w.Write(bit, 128) }
 
 // WriteLiteral writes bits equally-likely bits of data, MSB first.
 func (w *Writer) WriteLiteral(data, bits uint32) {
+	if w.discard {
+		return
+	}
 	for b := int(bits) - 1; b >= 0; b-- {
 		w.WriteBit((data >> uint(b)) & 1)
 	}
@@ -103,6 +125,9 @@ func (w *Writer) WriteLiteral(data, bits uint32) {
 // (0b110xxxxx). Returns the number of bytes written into the destination
 // buffer and an error if the buffer overflowed at any point.
 func (w *Writer) Stop() (int, error) {
+	if w.discard {
+		return 0, nil
+	}
 	for range 32 {
 		w.WriteBit(0)
 	}
