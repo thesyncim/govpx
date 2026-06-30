@@ -508,11 +508,9 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 		return 0
 	}
 	wantQ := qOut != nil
-	clear(e.txCoeffScratch[:maxEob])
-	clear(e.dqCoeffScratch[:maxEob])
-	if wantQ {
-		clear(e.qCoeffScratch[:maxEob])
-	}
+	// Valid VP9 forward transforms overwrite every coefficient slot, and the
+	// quantizers either clear or fully write q/dq outputs. Keep the hot path
+	// to one producer per scratch buffer instead of pre-clearing the same memory.
 	if lossless {
 		txType = common.DctDct
 		encoder.ForwardWHT4x4Into(e.residueScratch[:], 4,

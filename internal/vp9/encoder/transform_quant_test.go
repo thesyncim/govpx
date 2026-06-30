@@ -647,6 +647,196 @@ func TestForwardHTSmallHybridTransformsDoNotAllocate(t *testing.T) {
 	}
 }
 
+func TestForwardTransformsOverwriteOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int
+		fn   func(input []int16, output []int16)
+	}{
+		{
+			name: "WHT4x4",
+			n:    16,
+			fn: func(input, output []int16) {
+				ForwardWHT4x4Into(input, 4, output)
+			},
+		},
+		{
+			name: "HT4x4_DCT_DCT",
+			n:    16,
+			fn: func(input, output []int16) {
+				ForwardHT4x4Into(input, 4, common.DctDct, output)
+			},
+		},
+		{
+			name: "HT4x4_ADST_DCT",
+			n:    16,
+			fn: func(input, output []int16) {
+				ForwardHT4x4Into(input, 4, common.AdstDct, output)
+			},
+		},
+		{
+			name: "HT4x4_DCT_ADST",
+			n:    16,
+			fn: func(input, output []int16) {
+				ForwardHT4x4Into(input, 4, common.DctAdst, output)
+			},
+		},
+		{
+			name: "HT4x4_ADST_ADST",
+			n:    16,
+			fn: func(input, output []int16) {
+				ForwardHT4x4Into(input, 4, common.AdstAdst, output)
+			},
+		},
+		{
+			name: "HT8x8_DCT_DCT",
+			n:    64,
+			fn: func(input, output []int16) {
+				ForwardHT8x8Into(input, 8, common.DctDct, output)
+			},
+		},
+		{
+			name: "HT8x8_ADST_DCT",
+			n:    64,
+			fn: func(input, output []int16) {
+				ForwardHT8x8Into(input, 8, common.AdstDct, output)
+			},
+		},
+		{
+			name: "HT8x8_DCT_ADST",
+			n:    64,
+			fn: func(input, output []int16) {
+				ForwardHT8x8Into(input, 8, common.DctAdst, output)
+			},
+		},
+		{
+			name: "HT8x8_ADST_ADST",
+			n:    64,
+			fn: func(input, output []int16) {
+				ForwardHT8x8Into(input, 8, common.AdstAdst, output)
+			},
+		},
+		{
+			name: "HT16x16_DCT_DCT",
+			n:    256,
+			fn: func(input, output []int16) {
+				ForwardHT16x16Into(input, 16, common.DctDct, output)
+			},
+		},
+		{
+			name: "HT16x16_ADST_DCT",
+			n:    256,
+			fn: func(input, output []int16) {
+				ForwardHT16x16Into(input, 16, common.AdstDct, output)
+			},
+		},
+		{
+			name: "HT16x16_DCT_ADST",
+			n:    256,
+			fn: func(input, output []int16) {
+				ForwardHT16x16Into(input, 16, common.DctAdst, output)
+			},
+		},
+		{
+			name: "HT16x16_ADST_ADST",
+			n:    256,
+			fn: func(input, output []int16) {
+				ForwardHT16x16Into(input, 16, common.AdstAdst, output)
+			},
+		},
+		{
+			name: "DCT32x32",
+			n:    1024,
+			fn: func(input, output []int16) {
+				ForwardDCT32x32Into(input, 32, output)
+			},
+		},
+		{
+			name: "DCT32x32RD",
+			n:    1024,
+			fn: func(input, output []int16) {
+				ForwardDCT32x32RDInto(input, 32, output)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := make([]int16, tc.n)
+			output := make([]int16, tc.n)
+			for i := range output {
+				output[i] = 12345
+			}
+			tc.fn(input, output)
+			for i, got := range output {
+				if got != 0 {
+					t.Fatalf("output[%d] = %d, want overwritten zero", i, got)
+				}
+			}
+		})
+	}
+}
+
+func TestQuantizersOverwriteZeroBlockOutputs(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int
+		fn   func(coeff, qcoeff, dqcoeff []int16) int
+	}{
+		{
+			name: "QuantizeB4x4",
+			n:    16,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeBWithQ(coeff, 37, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx4x4].Scan, qcoeff, dqcoeff)
+			},
+		},
+		{
+			name: "QuantizeB32x32",
+			n:    1024,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeB32x32WithQ(coeff, 37, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx32x32].Scan, qcoeff, dqcoeff)
+			},
+		},
+		{
+			name: "QuantizeFP4x4",
+			n:    16,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeFPWithQScanOrder(coeff, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx4x4], qcoeff, dqcoeff)
+			},
+		},
+		{
+			name: "QuantizeFP32x32",
+			n:    1024,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeFP32x32WithQ(coeff, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx32x32].Scan, qcoeff, dqcoeff)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			coeff := make([]int16, tc.n)
+			qcoeff := make([]int16, tc.n)
+			dqcoeff := make([]int16, tc.n)
+			for i := range qcoeff {
+				qcoeff[i] = 12345
+				dqcoeff[i] = 12345
+			}
+			if eob := tc.fn(coeff, qcoeff, dqcoeff); eob != 0 {
+				t.Fatalf("eob = %d, want 0", eob)
+			}
+			for i := range qcoeff {
+				if qcoeff[i] != 0 || dqcoeff[i] != 0 {
+					t.Fatalf("coeff %d: q=%d dq=%d, want zeroed outputs",
+						i, qcoeff[i], dqcoeff[i])
+				}
+			}
+		})
+	}
+}
+
 func TestForwardHT16x16AdstDctConstantMatchesLibvpx(t *testing.T) {
 	var input [256]int16
 	for i := range input {
