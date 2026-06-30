@@ -328,6 +328,22 @@ func TestVP9AvgClampedReplicatesVisibleEdge(t *testing.T) {
 	}
 }
 
+func TestVP9AvgClampedInteriorMatchesDirectAverage(t *testing.T) {
+	src := make([]uint8, 16*16)
+	for r := range 16 {
+		for c := range 16 {
+			src[r*16+c] = uint8((r*17 + c*3) & 0xff)
+		}
+	}
+
+	if got, want := avg4x4Clamped(src, 16, 5, 6, 16, 16), avg4x4(src[6*16+5:], 16); got != want {
+		t.Fatalf("avg4x4Clamped interior = %d, want %d", got, want)
+	}
+	if got, want := avg8x8Clamped(src, 16, 3, 4, 16, 16), avg8x8(src[4*16+3:], 16); got != want {
+		t.Fatalf("avg8x8Clamped interior = %d, want %d", got, want)
+	}
+}
+
 // TestVP9FillVariance4x4AvgKeyFrame pins fill_variance_4x4avg in its
 // keyframe form (d_avg forced to 128). Source is a constant 200 plane,
 // 8x8 region inside an 8x8 frame.

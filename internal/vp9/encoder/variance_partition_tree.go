@@ -304,6 +304,15 @@ func avg4x4Clamped(src []uint8, stride, x0, y0, pixelsWide, pixelsHigh int) int 
 	if pixelsWide <= 0 || pixelsHigh <= 0 {
 		return 0
 	}
+	if x0 >= 0 && y0 >= 0 && x0+4 <= pixelsWide && y0+4 <= pixelsHigh {
+		sum := 0
+		base := y0*stride + x0
+		for r := range 4 {
+			row := src[base+r*stride:]
+			sum += int(row[0]) + int(row[1]) + int(row[2]) + int(row[3])
+		}
+		return (sum + 8) >> 4
+	}
 	sum := 0
 	maxX := pixelsWide - 1
 	maxY := pixelsHigh - 1
@@ -334,6 +343,9 @@ func avg8x8(src []uint8, stride int) int {
 func avg8x8Clamped(src []uint8, stride, x0, y0, pixelsWide, pixelsHigh int) int {
 	if pixelsWide <= 0 || pixelsHigh <= 0 {
 		return 0
+	}
+	if x0 >= 0 && y0 >= 0 && x0+8 <= pixelsWide && y0+8 <= pixelsHigh {
+		return avg8x8(src[y0*stride+x0:], stride)
 	}
 	sum := 0
 	maxX := pixelsWide - 1
