@@ -1277,9 +1277,12 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 		if uvMask&(1<<uint(mode)) == 0 {
 			continue
 		}
+		bestRDForMode := bestRD
+		bestRDValid := bestValid
 		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRD(
 			key, mode, uvBsize, tile, miRows, miCols, miRow, miCol, mi,
-			useTxDomainDistortion)
+			useTxDomainDistortion, rdmult, uvModeCosts[mode], bestRDForMode,
+			bestRDValid)
 		if !ok {
 			continue
 		}
@@ -1335,7 +1338,8 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRD(key *vp9KeyframeEncodeState,
 	mode common.PredictionMode, bsize common.BlockSize, tile vp9dec.TileBounds,
 	miRows, miCols, miRow, miCol int, mi *vp9dec.NeighborMi,
-	useTxDomainDistortion bool,
+	useTxDomainDistortion bool, rdmult int, modeRate int, bestRD uint64,
+	bestRDValid bool,
 ) (coeffRate int, distortion uint64, skippable bool, ok bool) {
 	if key == nil || key.hdr == nil || key.img == nil || key.dq == nil || mi == nil {
 		return 0, 0, false, false
@@ -1353,6 +1357,10 @@ func (e *VP9Encoder) scoreVP9KeyframeUvModeTransformRD(key *vp9KeyframeEncodeSta
 		coeffRate += pnRate
 		distortion += pnDist
 		skippable = skippable && pnSkip
+		if bestRDValid && encoder.RDCost(rdmult, encoder.RDDivBits,
+			modeRate+coeffRate, distortion) >= bestRD {
+			return 0, 0, false, false
+		}
 	}
 	return coeffRate, distortion, skippable, true
 }

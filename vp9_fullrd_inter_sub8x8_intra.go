@@ -216,9 +216,12 @@ func (e *VP9Encoder) vp9Sub8x8IntraUVRD(inter *vp9InterEncodeState,
 		if uvMask&(1<<uint(mode)) == 0 {
 			continue
 		}
+		bestRDForMode := bestRD
+		bestRDValid := bestValid
 		coeffRate, distortion, skippable, ok := e.scoreVP9KeyframeUvModeTransformRD(
 			&keyLike, mode, uvBsize, tile, miRows, miCols, miRow, miCol, &mi,
-			useTxDomainDistortion)
+			useTxDomainDistortion, rdmult, uvModeCosts[mode], bestRDForMode,
+			bestRDValid)
 		if !ok {
 			continue
 		}
