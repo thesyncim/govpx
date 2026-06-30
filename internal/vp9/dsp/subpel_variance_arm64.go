@@ -187,30 +187,107 @@ func subPixelVarianceSimd(w, h int,
 		return 0, false
 	}
 
-	// Stack-allocated temp buffers sized for the worst case (64 wide).
-	// tmp holds h rows of w uint8 after the final bilinear pass.
-	var tmpBuf [64 * 64]byte
-	temp := tmpBuf[:w*h]
+	if xOffset == 0 || yOffset == 0 {
+		return subPixelVarianceSimdOnePassScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, sse), true
+	}
+	return subPixelVarianceSimdTwoPassScratch(w, h,
+		src, srcOff, srcStride, xOffset, yOffset,
+		ref, refOff, refStride, sse), true
+}
 
+func subPixelVarianceSimdOnePassScratch(w, h int,
+	src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) uint32 {
+	switch {
+	case w <= 8 && h <= 16:
+		var tmp [8 * 16]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], nil, sse)
+	case w <= 16 && h <= 32:
+		var tmp [16 * 32]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], nil, sse)
+	case w <= 32:
+		var tmp [32 * 64]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], nil, sse)
+	case h <= 32:
+		var tmp [64 * 32]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], nil, sse)
+	default:
+		var tmp [64 * 64]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], nil, sse)
+	}
+}
+
+func subPixelVarianceSimdTwoPassScratch(w, h int,
+	src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) uint32 {
+	switch {
+	case w <= 8 && h <= 16:
+		var tmp [8 * 16]byte
+		var fdata [8 * 17]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], fdata[:w*(h+1)], sse)
+	case w <= 16 && h <= 32:
+		var tmp [16 * 32]byte
+		var fdata [16 * 33]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], fdata[:w*(h+1)], sse)
+	case w <= 32:
+		var tmp [32 * 64]byte
+		var fdata [32 * 65]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], fdata[:w*(h+1)], sse)
+	case h <= 32:
+		var tmp [64 * 32]byte
+		var fdata [64 * 33]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], fdata[:w*(h+1)], sse)
+	default:
+		var tmp [64 * 64]byte
+		var fdata [64 * 65]byte
+		return subPixelVarianceSimdWithScratch(w, h,
+			src, srcOff, srcStride, xOffset, yOffset,
+			ref, refOff, refStride, tmp[:w*h], fdata[:w*(h+1)], sse)
+	}
+}
+
+func subPixelVarianceSimdWithScratch(w, h int,
+	src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, temp, fdata []byte, sse *uint32,
+) uint32 {
 	srcPtr := unsafe.SliceData(src[srcOff:])
 	if yOffset == 0 && xOffset != 0 {
 		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
 			unsafe.SliceData(temp), w, h, 1) {
 			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
 		}
-		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
+		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse)
 	}
 	if xOffset == 0 {
 		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
 			unsafe.SliceData(temp), w, h, srcStride) {
 			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), w, h, yOffset)
 		}
-		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
+		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse)
 	}
 
-	// fdata holds (h+1) rows of w uint8 after the horizontal pass.
-	var fdataBuf [64 * 65]byte
-	fdata := fdataBuf[:w*(h+1)]
 	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
 		unsafe.SliceData(fdata), w, h+1, 1) {
 		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
@@ -220,7 +297,7 @@ func subPixelVarianceSimd(w, h int,
 		runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
 	}
 
-	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
+	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse)
 }
 
 // Size-specialised dispatchers. Each tries the NEON path first.
