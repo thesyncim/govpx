@@ -97,6 +97,19 @@ func (e *VP9Encoder) vp9InterSubpelEnabled() bool {
 	return e.sf.Mv.SubpelForceStop != FullPel
 }
 
+func (e *VP9Encoder) vp9InterSubpelSearchUsesTree() bool {
+	if e == nil {
+		return true
+	}
+	switch e.sf.Mv.SubpelSearchMethod {
+	case SubpelTree, SubpelTreePruned, SubpelTreePrunedMore,
+		SubpelTreePrunedEvenMore:
+		return true
+	default:
+		return false
+	}
+}
+
 // vp9InterSubpelMinStep returns the smallest sub-pel step the refinement loop
 // is allowed to take. libvpx maps:
 //   - EIGHTHPEL   -> 1   (1/8 pel)

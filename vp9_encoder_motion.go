@@ -57,7 +57,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		return encoder.SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
 			refMv, allowHP, errorPerBit)
 	}
-	useSubpelTree := nonrdSubpelTree || e.sf.Mv.SubpelSearchMethod == SubpelTree
+	useSubpelTree := nonrdSubpelTree || e.vp9InterSubpelSearchUsesTree()
 	if useSubpelTree {
 		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
 			miCol, bsize, refFrame, best); ok {

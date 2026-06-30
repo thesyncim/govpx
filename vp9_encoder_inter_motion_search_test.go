@@ -283,6 +283,21 @@ func TestVP9EncoderSubpelVarianceFullPelMatchesPlainVariance(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderPrunedSubpelMethodsUseTreeSearch(t *testing.T) {
+	e := &VP9Encoder{}
+	for _, method := range []SubpelSearchMethods{
+		SubpelTree,
+		SubpelTreePruned,
+		SubpelTreePrunedMore,
+		SubpelTreePrunedEvenMore,
+	} {
+		e.sf.Mv.SubpelSearchMethod = method
+		if !e.vp9InterSubpelSearchUsesTree() {
+			t.Fatalf("SubpelSearchMethod %d did not route to tree search", method)
+		}
+	}
+}
+
 func TestVP9EncoderCountsNewMvSymbols(t *testing.T) {
 	var counts vp9enc.FrameCounts
 	countVP9NewMv(&counts, vp9dec.MV{Col: 58}, vp9dec.MV{Col: 2})
