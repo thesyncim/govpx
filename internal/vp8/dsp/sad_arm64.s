@@ -178,6 +178,99 @@ x4_loop16x16:
 	MOVW	R11, 12(R7)
 	RET
 
+// sadBlock16x16x4LimitNEON ABI ($0-72):
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   ref0+16(FP)      *byte
+//   ref1+24(FP)      *byte
+//   ref2+32(FP)      *byte
+//   ref3+40(FP)      *byte
+//   refStride+48(FP) int
+//   limits+56(FP)    *[4]int32
+//   out+64(FP)       *[4]uint32
+
+TEXT ·sadBlock16x16x4LimitNEON(SB), NOSPLIT, $0-72
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	ref0+16(FP), R2
+	MOVD	ref1+24(FP), R3
+	MOVD	ref2+32(FP), R4
+	MOVD	ref3+40(FP), R5
+	MOVD	refStride+48(FP), R6
+	MOVD	limits+56(FP), R8
+	MOVW	0(R8), R9
+	MOVW	4(R8), R10
+	MOVW	8(R8), R11
+	MOVW	12(R8), R12
+
+	VEOR	V20.B16, V20.B16, V20.B16
+	VEOR	V21.B16, V21.B16, V21.B16
+	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
+	MOVD	$16, R7
+
+x4_limit_loop16x16:
+	VLD1	(R0), [V0.B16]
+
+	VLD1	(R2), [V1.B16]
+	WORD	$0x2e217002	// uabdl  v2.8h, v0.8b,  v1.8b
+	WORD	$0x6e217003	// uabdl2 v3.8h, v0.16b, v1.16b
+	WORD	$0x6e606854	// uadalp v20.4s, v2.8h
+	WORD	$0x6e606874	// uadalp v20.4s, v3.8h
+
+	VLD1	(R3), [V4.B16]
+	WORD	$0x2e247002	// uabdl  v2.8h, v0.8b,  v4.8b
+	WORD	$0x6e247003	// uabdl2 v3.8h, v0.16b, v4.16b
+	WORD	$0x6e606855	// uadalp v21.4s, v2.8h
+	WORD	$0x6e606875	// uadalp v21.4s, v3.8h
+
+	VLD1	(R4), [V5.B16]
+	WORD	$0x2e257002	// uabdl  v2.8h, v0.8b,  v5.8b
+	WORD	$0x6e257003	// uabdl2 v3.8h, v0.16b, v5.16b
+	WORD	$0x6e606856	// uadalp v22.4s, v2.8h
+	WORD	$0x6e606876	// uadalp v22.4s, v3.8h
+
+	VLD1	(R5), [V6.B16]
+	WORD	$0x2e267002	// uabdl  v2.8h, v0.8b,  v6.8b
+	WORD	$0x6e267003	// uabdl2 v3.8h, v0.16b, v6.16b
+	WORD	$0x6e606857	// uadalp v23.4s, v2.8h
+	WORD	$0x6e606877	// uadalp v23.4s, v3.8h
+
+	VADDV	V20.S4, V24
+	VADDV	V21.S4, V25
+	VADDV	V22.S4, V26
+	VADDV	V23.S4, V27
+	VMOV	V24.S[0], R13
+	VMOV	V25.S[0], R14
+	VMOV	V26.S[0], R15
+	VMOV	V27.S[0], R16
+	CMPW	R9, R13
+	BLS	x4_limit_continue
+	CMPW	R10, R14
+	BLS	x4_limit_continue
+	CMPW	R11, R15
+	BLS	x4_limit_continue
+	CMPW	R12, R16
+	BLS	x4_limit_continue
+	B	x4_limit_done
+
+x4_limit_continue:
+	ADD	R1, R0, R0
+	ADD	R6, R2, R2
+	ADD	R6, R3, R3
+	ADD	R6, R4, R4
+	ADD	R6, R5, R5
+	SUB	$1, R7, R7
+	CBNZ	R7, x4_limit_loop16x16
+
+x4_limit_done:
+	MOVD	out+64(FP), R8
+	MOVW	R13, 0(R8)
+	MOVW	R14, 4(R8)
+	MOVW	R15, 8(R8)
+	MOVW	R16, 12(R8)
+	RET
+
 // sadBlock16x8NEON ABI ($0-36):
 //   src+0(FP)        *byte
 //   srcStride+8(FP)  int

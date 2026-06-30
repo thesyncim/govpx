@@ -59,6 +59,16 @@ func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *b
 	sadBlock16x16x4SSE2(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
 }
 
+// SAD16x16x4LimitPtrFast is the portable x4 limited entry point on amd64. The
+// SSE2 single-candidate limit kernel keeps the same row-boundary semantics as
+// SAD16x16LimitPtrFast.
+func SAD16x16x4LimitPtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, limits *[4]int32, out *[4]uint32) {
+	out[0] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref0, refStride, int(limits[0])))
+	out[1] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref1, refStride, int(limits[1])))
+	out[2] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref2, refStride, int(limits[2])))
+	out[3] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref3, refStride, int(limits[3])))
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	// The limit kernel returns the running sum at the row boundary
 	// where it exceeds the limit; mirroring that exactly under AVX2's

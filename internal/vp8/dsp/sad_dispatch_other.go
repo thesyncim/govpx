@@ -31,6 +31,14 @@ func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *b
 	out[3] = uint32(sadBlockScalarPtr(src, srcStride, ref3, refStride, 16, 16))
 }
 
+// SAD16x16x4LimitPtrFast is the pointer-form x4 limited fallback.
+func SAD16x16x4LimitPtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, limits *[4]int32, out *[4]uint32) {
+	out[0] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref0, refStride, 16, 16, int(limits[0])))
+	out[1] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref1, refStride, 16, 16, int(limits[1])))
+	out[2] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref2, refStride, 16, 16, int(limits[2])))
+	out[3] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref3, refStride, 16, 16, int(limits[3])))
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	return sadBlockLimitScalar(src, srcStride, ref, refStride, 16, 16, limit)
 }

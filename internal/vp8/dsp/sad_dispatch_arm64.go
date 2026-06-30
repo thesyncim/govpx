@@ -60,6 +60,14 @@ func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *b
 	sadBlock16x16x4NEON(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
 }
 
+// SAD16x16x4LimitPtrFast compares one source 16x16 block against four refs and
+// stops once every candidate's running SAD is above its corresponding limit.
+// Results are exact for candidates at or below their limit; above-limit results
+// may be partial sums, which is sufficient for motion-search rejection.
+func SAD16x16x4LimitPtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, limits *[4]int32, out *[4]uint32) {
+	sadBlock16x16x4LimitNEON(src, srcStride, ref0, ref1, ref2, ref3, refStride, limits, out)
+}
+
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
 	// The NEON kernel takes a 32-bit signed limit; the wrapper hands it a
 	// fast clamp so the dispatch stays inlineable. The hot motion-search
