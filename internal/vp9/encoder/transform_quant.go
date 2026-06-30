@@ -1320,11 +1320,9 @@ func QuantizeBWithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
 	if qcoeff != nil && len(qcoeff) < n {
 		n = len(qcoeff)
 	}
-	for i := range n {
-		dqcoeff[i] = 0
-		if qcoeff != nil {
-			qcoeff[i] = 0
-		}
+	clear(dqcoeff[:n])
+	if qcoeff != nil {
+		clear(qcoeff[:n])
 	}
 	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
 		return 0
