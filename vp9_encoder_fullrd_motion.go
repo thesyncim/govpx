@@ -132,14 +132,15 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 		case SearchMethodFastDiamond:
 			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSAD(mvpCol,
 				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
-		default:
-			// HEX/BIGDIA/SQUARE not exercised by the current gap seeds; fall
-			// back to the NSTEP diamond so behaviour stays defined.
-			furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
-			res := encoder.FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad,
-				stepParam, sadPerBit, furtherSteps, true, refRow, refCol, mvLimits,
-				sadAtRC, sadAt4RC, varAt)
-			bestDx, bestDy = res.BestCol, res.BestRow
+		case SearchMethodHex:
+			bestDx, bestDy, _, _ = encoder.HexPatternSearchSAD(mvpCol, mvpRow,
+				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+		case SearchMethodBigDia:
+			bestDx, bestDy, _, _ = encoder.BigDiamondPatternSearchSAD(mvpCol,
+				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+		case SearchMethodSquare:
+			bestDx, bestDy, _, _ = encoder.SquarePatternSearchSAD(mvpCol, mvpRow,
+				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
 		}
 	default:
 		// NSTEP / MESH (cpu0): libvpx vp9_full_pixel_search:2916-2919 —

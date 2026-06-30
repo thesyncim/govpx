@@ -33,6 +33,47 @@ func TestFastHexPatternSearchSADFindsLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestRegularPatternSearchSADFindsLocalMinimum(t *testing.T) {
+	limits := MvLimits{RowMin: -64, RowMax: 64, ColMin: -64, ColMax: 64}
+	tests := []struct {
+		name     string
+		targetDx int
+		targetDy int
+		fn       func(int, int, uint64, uint64, int, *MvLimits,
+			func(int, int) (uint64, bool),
+			func(int, int, uint64) uint64) (int, int, uint64, uint64)
+	}{
+		{name: "bigdia", targetDx: -11, targetDy: 9, fn: BigDiamondPatternSearchSAD},
+		{name: "hex", targetDx: 13, targetDy: -7, fn: HexPatternSearchSAD},
+		{name: "square", targetDx: -9, targetDy: -12, fn: SquarePatternSearchSAD},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sadAt, scoreMv := quadraticSearchSurface(tc.targetDx, tc.targetDy)
+			startSad, _ := sadAt(0, 0)
+			dx, dy, sad, score := tc.fn(0, 0, startSad, startSad, 0,
+				&limits, sadAt, scoreMv)
+			if dx != tc.targetDx || dy != tc.targetDy || sad != 0 || score != 0 {
+				t.Fatalf("%s pattern = dx=%d dy=%d sad=%d score=%d, want %d/%d/0/0",
+					tc.name, dx, dy, sad, score, tc.targetDx, tc.targetDy)
+			}
+		})
+	}
+}
+
+func TestBigDiamondPatternSearchSADScale9Candidate(t *testing.T) {
+	limits := MvLimits{RowMin: -1024, RowMax: 1024, ColMin: -1024, ColMax: 1024}
+	sadAt, scoreMv := quadraticSearchSurface(-256, 256)
+	startSad, _ := sadAt(0, 0)
+
+	dx, dy, sad, score := BigDiamondPatternSearchSAD(0, 0,
+		startSad, startSad, 1, &limits, sadAt, scoreMv)
+	if dx != -256 || dy != 256 || sad != 0 || score != 0 {
+		t.Fatalf("bigdia scale9 = dx=%d dy=%d sad=%d score=%d, want -256/256/0/0",
+			dx, dy, sad, score)
+	}
+}
+
 func TestNStepDiamondSearchSADFindsLocalMinimum(t *testing.T) {
 	limits := MvLimits{RowMin: -32, RowMax: 32, ColMin: -32, ColMax: 32}
 	sadAt, scoreMv := quadraticSearchSurface(-7, 6)
