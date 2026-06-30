@@ -17,6 +17,12 @@ func loopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 //go:noescape
 func mbLoopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
+// LoopFilterEdgeH16NEON exposes the byte-identical 4-tap loopfilter kernel
+// to sibling codec packages that share libvpx's vpx_dsp narrow filter.
+func LoopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte) {
+	loopFilterEdgeH16NEON(src, pitch, blimit, limit, thresh)
+}
+
 // Direct vertical-edge variants (libvpx vp8_loop_filter_vertical_edge_y_neon
 // and vp8_mbloop_filter_vertical_edge_y_neon). These take a pointer at the
 // q0 column of row 0 (filter is applied around the edge between bytes -1
@@ -28,6 +34,12 @@ func loopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
 //go:noescape
 func mbLoopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
+
+// LoopFilterEdgeV16NEON exposes the byte-identical 4-tap vertical loopfilter
+// kernel to sibling codec packages.
+func LoopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte) {
+	loopFilterEdgeV16NEON(src, pitch, blimit, limit, thresh)
+}
 
 // Direct vertical-edge UV pair variant (libvpx
 // vp8_loop_filter_vertical_edge_uv_neon). The u/v pointers are at the q0

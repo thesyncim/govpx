@@ -125,6 +125,10 @@ func filter4(mask int8, thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 in
 // `s` (interpreted as offset within `plane`), each spanning 4 rows
 // above and 4 below.
 func VpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	vpxLpfHorizontal4(plane, s, pitch, blimit, limit, thresh)
+}
+
+func vpxLpfHorizontal4Scalar(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	for range 8 {
 		p3 := plane[s-4*pitch]
 		p2 := plane[s-3*pitch]
@@ -146,6 +150,10 @@ func VpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 // vertically-adjacent edge rows left and right of the cursor pixel `s`,
 // each spanning 4 columns left and 4 right.
 func VpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	vpxLpfVertical4(plane, s, pitch, blimit, limit, thresh)
+}
+
+func vpxLpfVertical4Scalar(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	for range 8 {
 		p3 := plane[s-4]
 		p2 := plane[s-3]
@@ -169,8 +177,14 @@ func VpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 func VpxLpfHorizontal4Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	VpxLpfHorizontal4(plane, s, pitch, blimit0, limit0, thresh0)
-	VpxLpfHorizontal4(plane, s+8, pitch, blimit1, limit1, thresh1)
+	vpxLpfHorizontal4Dual(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+}
+
+func vpxLpfHorizontal4DualScalar(plane []uint8, s, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
+) {
+	vpxLpfHorizontal4Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfHorizontal4Scalar(plane, s+8, pitch, blimit1, limit1, thresh1)
 }
 
 // VpxLpfVertical4Dual is vpx_lpf_vertical_4_dual_c — filter the 8 rows
@@ -179,8 +193,14 @@ func VpxLpfHorizontal4Dual(plane []uint8, s, pitch int,
 func VpxLpfVertical4Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	VpxLpfVertical4(plane, s, pitch, blimit0, limit0, thresh0)
-	VpxLpfVertical4(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
+	vpxLpfVertical4Dual(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+}
+
+func vpxLpfVertical4DualScalar(plane []uint8, s, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
+) {
+	vpxLpfVertical4Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfVertical4Scalar(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
 }
 
 // filter8 is the 7-tap edge filter applied when the edge meets the
@@ -251,6 +271,10 @@ func filter16(mask int8, thresh uint8, flat, flat2 int8, dst []uint8,
 
 // VpxLpfHorizontal8 mirrors vpx_lpf_horizontal_8_c.
 func VpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	vpxLpfHorizontal8(plane, s, pitch, blimit, limit, thresh)
+}
+
+func vpxLpfHorizontal8Scalar(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	for range 8 {
 		p3 := plane[s-4*pitch]
 		p2 := plane[s-3*pitch]
@@ -273,6 +297,10 @@ func VpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 
 // VpxLpfVertical8 mirrors vpx_lpf_vertical_8_c.
 func VpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	vpxLpfVertical8(plane, s, pitch, blimit, limit, thresh)
+}
+
+func vpxLpfVertical8Scalar(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	for range 8 {
 		p3 := plane[s-4]
 		p2 := plane[s-3]
@@ -296,16 +324,28 @@ func VpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 func VpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	VpxLpfHorizontal8(plane, s, pitch, blimit0, limit0, thresh0)
-	VpxLpfHorizontal8(plane, s+8, pitch, blimit1, limit1, thresh1)
+	vpxLpfHorizontal8Dual(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+}
+
+func vpxLpfHorizontal8DualScalar(plane []uint8, s, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
+) {
+	vpxLpfHorizontal8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfHorizontal8Scalar(plane, s+8, pitch, blimit1, limit1, thresh1)
 }
 
 // VpxLpfVertical8Dual is vpx_lpf_vertical_8_dual_c.
 func VpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	VpxLpfVertical8(plane, s, pitch, blimit0, limit0, thresh0)
-	VpxLpfVertical8(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
+	vpxLpfVertical8Dual(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+}
+
+func vpxLpfVertical8DualScalar(plane []uint8, s, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
+) {
+	vpxLpfVertical8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfVertical8Scalar(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
 }
 
 // mbLpfHorizontalEdgeW mirrors mb_lpf_horizontal_edge_w. count is 1
