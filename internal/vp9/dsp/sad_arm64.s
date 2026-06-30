@@ -103,6 +103,100 @@ chunkLoop16Chunks:
 	FMOVS	F20, ret+48(FP)
 	RET
 
+// sad16Chunksx4NEON ABI ($0-80):
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   ref0+16(FP)      *byte
+//   ref1+24(FP)      *byte
+//   ref2+32(FP)      *byte
+//   ref3+40(FP)      *byte
+//   refStride+48(FP) int
+//   rows+56(FP)      int
+//   chunks+64(FP)    int   (width / 16)
+//   out+72(FP)       *[4]uint32
+
+TEXT ·sad16Chunksx4NEON(SB), NOSPLIT, $0-80
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	ref0+16(FP), R2
+	MOVD	ref1+24(FP), R3
+	MOVD	ref2+32(FP), R4
+	MOVD	ref3+40(FP), R5
+	MOVD	refStride+48(FP), R6
+	MOVD	rows+56(FP), R7
+	MOVD	chunks+64(FP), R8
+
+	VEOR	V20.B16, V20.B16, V20.B16
+	VEOR	V21.B16, V21.B16, V21.B16
+	VEOR	V22.B16, V22.B16, V22.B16
+	VEOR	V23.B16, V23.B16, V23.B16
+
+rowLoop16Chunksx4:
+	MOVD	R8, R9
+	MOVD	R0, R10
+	MOVD	R2, R11
+	MOVD	R3, R12
+	MOVD	R4, R13
+	MOVD	R5, R14
+
+chunkLoop16Chunksx4:
+	VLD1	(R10), [V0.B16]
+
+	VLD1	(R11), [V1.B16]
+	WORD	$0x2e217002	// uabdl  v2.8h, v0.8b,  v1.8b
+	WORD	$0x6e217003	// uabdl2 v3.8h, v0.16b, v1.16b
+	WORD	$0x6e606854	// uadalp v20.4s, v2.8h
+	WORD	$0x6e606874	// uadalp v20.4s, v3.8h
+
+	VLD1	(R12), [V4.B16]
+	WORD	$0x2e247002	// uabdl  v2.8h, v0.8b,  v4.8b
+	WORD	$0x6e247003	// uabdl2 v3.8h, v0.16b, v4.16b
+	WORD	$0x6e606855	// uadalp v21.4s, v2.8h
+	WORD	$0x6e606875	// uadalp v21.4s, v3.8h
+
+	VLD1	(R13), [V5.B16]
+	WORD	$0x2e257002	// uabdl  v2.8h, v0.8b,  v5.8b
+	WORD	$0x6e257003	// uabdl2 v3.8h, v0.16b, v5.16b
+	WORD	$0x6e606856	// uadalp v22.4s, v2.8h
+	WORD	$0x6e606876	// uadalp v22.4s, v3.8h
+
+	VLD1	(R14), [V6.B16]
+	WORD	$0x2e267002	// uabdl  v2.8h, v0.8b,  v6.8b
+	WORD	$0x6e267003	// uabdl2 v3.8h, v0.16b, v6.16b
+	WORD	$0x6e606857	// uadalp v23.4s, v2.8h
+	WORD	$0x6e606877	// uadalp v23.4s, v3.8h
+
+	ADD	$16, R10, R10
+	ADD	$16, R11, R11
+	ADD	$16, R12, R12
+	ADD	$16, R13, R13
+	ADD	$16, R14, R14
+	SUB	$1, R9, R9
+	CBNZ	R9, chunkLoop16Chunksx4
+
+	ADD	R1, R0, R0
+	ADD	R6, R2, R2
+	ADD	R6, R3, R3
+	ADD	R6, R4, R4
+	ADD	R6, R5, R5
+	SUB	$1, R7, R7
+	CBNZ	R7, rowLoop16Chunksx4
+
+	MOVD	out+72(FP), R7
+	VADDV	V20.S4, V20
+	VADDV	V21.S4, V21
+	VADDV	V22.S4, V22
+	VADDV	V23.S4, V23
+	VMOV	V20.S[0], R8
+	VMOV	V21.S[0], R9
+	VMOV	V22.S[0], R10
+	VMOV	V23.S[0], R11
+	MOVW	R8, 0(R7)
+	MOVW	R9, 4(R7)
+	MOVW	R10, 8(R7)
+	MOVW	R11, 12(R7)
+	RET
+
 // sad8xNNEON ABI ($0-44): 8 bytes per row, row count supplied by caller.
 TEXT ·sad8xNNEON(SB), NOSPLIT, $0-44
 	MOVD	src+0(FP), R0

@@ -53,3 +53,11 @@ func sad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride i
 func sad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 4)
 }
+
+func sad4D(src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff0, refOff1, refOff2, refOff3, refStride int,
+	w, h int, out *[4]uint32,
+) bool {
+	return sad4DScalar(src, srcOff, srcStride, ref, refOff0, refOff1, refOff2,
+		refOff3, refStride, w, h, out)
+}

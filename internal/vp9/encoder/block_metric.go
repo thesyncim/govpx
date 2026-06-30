@@ -303,6 +303,15 @@ func BlockSADNoLimitOffsets(src []byte, srcOff, srcStride int,
 	}
 }
 
+// BlockSAD4NoLimitOffsets compares one source block against four reference
+// blocks in candidate order, mirroring libvpx's x4 SAD dispatch.
+func BlockSAD4NoLimitOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOffs [4]int, refStride int, w, h int, out *[4]uint32,
+) bool {
+	return vp9dsp.VpxSad4D(src, srcOff, srcStride, ref,
+		refOffs[0], refOffs[1], refOffs[2], refOffs[3], refStride, w, h, out)
+}
+
 // VisibleInterScoreBlock clips an inter scoring rectangle to the visible
 // source and reference extents.
 func VisibleInterScoreBlock(x0, y0, blockW, blockH int,

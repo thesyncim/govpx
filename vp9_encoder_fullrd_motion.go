@@ -18,7 +18,9 @@ import (
 func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize, refFrame int8,
 	opts vp9InterMvSearchOptions, mvLimits *encoder.MvLimits,
-	sadAt func(dx, dy int) (uint64, bool), sadPerBit, refFullDy, refFullDx int,
+	sadAt func(dx, dy int) (uint64, bool),
+	sadAt4 func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int) (uint64, uint64, uint64, uint64, bool),
+	sadPerBit, refFullDy, refFullDx int,
 ) (bestDx, bestDy int, bestSad uint64, ok bool) {
 	// libvpx: mvp_full = pred_mv[best_predmv_idx]; mvp_full >>= 3;
 	// clamp_mv(mvp_full, mv_limits). opts.seed is the mvp_full seed in 1/8-pel.
@@ -67,6 +69,13 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	}
 
 	sadAtRC := func(row, col int) (uint64, bool) { return sadAt(col, row) }
+	var sadAt4RC encoder.DiamondSAD4Func
+	if sadAt4 != nil {
+		sadAt4RC = func(row0, col0, row1, col1, row2, col2, row3, col3 int,
+		) (uint64, uint64, uint64, uint64, bool) {
+			return sadAt4(col0, row0, col1, row1, col2, row2, col3, row3)
+		}
+	}
 
 	// libvpx single_motion_search step_param (vp9_rdopt.c:2613-2638):
 	//   - cpi->mv_step_param == 0 on the no-recode RT path: set_mv_search_params
@@ -127,9 +136,9 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			// HEX/BIGDIA/SQUARE not exercised by the current gap seeds; fall
 			// back to the NSTEP diamond so behaviour stays defined.
 			furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
-			res := encoder.FullPixelDiamond(mvpRow, mvpCol, startMvSad, stepParam,
-				sadPerBit, furtherSteps, true, refRow, refCol, mvLimits, sadAtRC,
-				varAt)
+			res := encoder.FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad,
+				stepParam, sadPerBit, furtherSteps, true, refRow, refCol, mvLimits,
+				sadAtRC, sadAt4RC, varAt)
 			bestDx, bestDy = res.BestCol, res.BestRow
 		}
 	default:
@@ -137,9 +146,9 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 		// full_pixel_diamond(..., step_param, MAX_MVSEARCH_STEPS-1-step_param,
 		// do_refine=1, ...) with the variance-rescoring diamond.
 		furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
-		res := encoder.FullPixelDiamond(mvpRow, mvpCol, startMvSad, stepParam,
-			sadPerBit, furtherSteps, true, refRow, refCol, mvLimits, sadAtRC,
-			varAt)
+		res := encoder.FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad,
+			stepParam, sadPerBit, furtherSteps, true, refRow, refCol, mvLimits,
+			sadAtRC, sadAt4RC, varAt)
 		bestDx, bestDy = res.BestCol, res.BestRow
 	}
 	if sad, sadOK := sadAt(bestDx, bestDy); sadOK {

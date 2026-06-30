@@ -233,6 +233,10 @@ type DiamondSearchResult struct {
 	Num00   int
 }
 
+// DiamondSAD4Func compares four full-pel candidates in the same order libvpx's
+// sdx4df path receives them.
+type DiamondSAD4Func func(row0, col0, row1, col1, row2, col2, row3, col3 int) (sad0, sad1, sad2, sad3 uint64, ok bool)
+
 // DiamondSearchSAD ports vp9_diamond_search_sad_c (vp9/encoder/vp9_mcomp.c:
 // 2055-2190) over the 8-site search_site_config (ssMV3, total_steps=11).
 //
@@ -263,6 +267,16 @@ type DiamondSearchResult struct {
 func DiamondSearchSAD(refRow, refCol int, startMvSad uint64,
 	searchParam, sadPerBit, centerRow, centerCol int, limits *MvLimits,
 	sadAt func(row, col int) (uint64, bool),
+) DiamondSearchResult {
+	return DiamondSearchSADWithBatch(refRow, refCol, startMvSad, searchParam,
+		sadPerBit, centerRow, centerCol, limits, sadAt, nil)
+}
+
+// DiamondSearchSADWithBatch is DiamondSearchSAD with an optional x4 SAD hook for
+// the all-in candidate groups libvpx dispatches through sdx4df.
+func DiamondSearchSADWithBatch(refRow, refCol int, startMvSad uint64,
+	searchParam, sadPerBit, centerRow, centerCol int, limits *MvLimits,
+	sadAt func(row, col int) (uint64, bool), sadAt4 DiamondSAD4Func,
 ) DiamondSearchResult {
 	// libvpx: const MV *ss_mv = &cfg->ss_mv[search_param * searches_per_step].
 	// const int tot_steps = cfg->total_steps - search_param.
@@ -317,6 +331,40 @@ func DiamondSearchSAD(refRow, refCol int, startMvSad uint64,
 			// 4. Site selection is identical to the per-point path; the only
 			// observable difference is none for a deterministic SAD source.
 			for j := 0; j < ssSearchesPerStep; j += 4 {
+				if sadAt4 != nil {
+					site0 := ssMV3[ssBase+i]
+					site1 := ssMV3[ssBase+i+1]
+					site2 := ssMV3[ssBase+i+2]
+					site3 := ssMV3[ssBase+i+3]
+					rows := [4]int{
+						bestRow + site0.row,
+						bestRow + site1.row,
+						bestRow + site2.row,
+						bestRow + site3.row,
+					}
+					cols := [4]int{
+						bestCol + site0.col,
+						bestCol + site1.col,
+						bestCol + site2.col,
+						bestCol + site3.col,
+					}
+					sad0, sad1, sad2, sad3, ok := sadAt4(rows[0], cols[0],
+						rows[1], cols[1], rows[2], cols[2], rows[3], cols[3])
+					if ok {
+						sad4 := [4]uint64{sad0, sad1, sad2, sad3}
+						for t := 0; t < 4; t, i = t+1, i+1 {
+							sad := sad4[t]
+							if sad < bestSad {
+								sad += mvsadErrCost(rows[t], cols[t])
+								if sad < bestSad {
+									bestSad = sad
+									bestSite = i
+								}
+							}
+						}
+						continue
+					}
+				}
 				for t := 0; t < 4; t, i = t+1, i+1 {
 					site := ssMV3[ssBase+i]
 					row := bestRow + site.row
@@ -416,10 +464,24 @@ func FullPixelDiamond(mvpRow, mvpCol int, startMvSad uint64,
 	sadAt func(row, col int) (uint64, bool),
 	varAt func(row, col int) uint64,
 ) FullPixelDiamondResult {
+	return FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad, stepParam,
+		sadPerBit, furtherSteps, doRefine, refRow, refCol, limits, sadAt, nil,
+		varAt)
+}
+
+// FullPixelDiamondWithBatch is FullPixelDiamond with an optional x4 SAD hook for
+// the diamond search stages. Refinement remains scalar, matching the small
+// four-neighbour loop shape in libvpx.
+func FullPixelDiamondWithBatch(mvpRow, mvpCol int, startMvSad uint64,
+	stepParam, sadPerBit, furtherSteps int, doRefine bool,
+	refRow, refCol int, limits *MvLimits,
+	sadAt func(row, col int) (uint64, bool), sadAt4 DiamondSAD4Func,
+	varAt func(row, col int) uint64,
+) FullPixelDiamondResult {
 	// libvpx: bestsme = cpi->diamond_search_sad(x, ss_cfg, mvp_full,
 	//   start_mv_sad, &temp_mv, step_param, sadpb, &n, &sad_fn_ptr, ref_mv).
-	ds := DiamondSearchSAD(mvpRow, mvpCol, startMvSad, stepParam, sadPerBit,
-		refRow, refCol, limits, sadAt)
+	ds := DiamondSearchSADWithBatch(mvpRow, mvpCol, startMvSad, stepParam,
+		sadPerBit, refRow, refCol, limits, sadAt, sadAt4)
 	n := ds.Num00
 	tempRow, tempCol := ds.BestRow, ds.BestCol
 
@@ -444,8 +506,8 @@ func FullPixelDiamond(mvpRow, mvpCol int, startMvSad uint64,
 		}
 		// libvpx: thissme = cpi->diamond_search_sad(..., step_param + n, sadpb,
 		//   &num00, ...). The C reuses start_mv_sad for every step.
-		stepDs := DiamondSearchSAD(mvpRow, mvpCol, startMvSad, stepParam+n,
-			sadPerBit, refRow, refCol, limits, sadAt)
+		stepDs := DiamondSearchSADWithBatch(mvpRow, mvpCol, startMvSad,
+			stepParam+n, sadPerBit, refRow, refCol, limits, sadAt, sadAt4)
 		num00 = stepDs.Num00
 		// libvpx: if (thissme < INT_MAX) thissme = vp9_get_mvpred_var(...).
 		thisSme := varAt(stepDs.BestRow, stepDs.BestCol)

@@ -156,6 +156,50 @@ func TestDiamondSearchSADConvergesToGlobalMinimum(t *testing.T) {
 	}
 }
 
+func TestDiamondSearchSADWithBatchMatchesScalar(t *testing.T) {
+	limits := &MvLimits{RowMin: -64, RowMax: 64, ColMin: -64, ColMax: 64}
+	const sadPerBit = 16
+	targets := [][2]int{{0, 0}, {5, -3}, {-7, 6}, {12, 9}, {-20, -14}}
+	for _, tg := range targets {
+		sadAt, _ := paraboloidSurfaces(tg[0], tg[1])
+		startSad, _ := sadAt(0, 0)
+		startSad += uint64(FullPelMVSADCost(0, 0, 0, 0, sadPerBit))
+
+		want := DiamondSearchSAD(0, 0, startSad, 0, sadPerBit, 0, 0, limits,
+			sadAt)
+		batchCalls := 0
+		sadAt4 := func(row0, col0, row1, col1, row2, col2, row3, col3 int,
+		) (uint64, uint64, uint64, uint64, bool) {
+			batchCalls++
+			sad0, ok := sadAt(row0, col0)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad1, ok := sadAt(row1, col1)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad2, ok := sadAt(row2, col2)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad3, ok := sadAt(row3, col3)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			return sad0, sad1, sad2, sad3, true
+		}
+		got := DiamondSearchSADWithBatch(0, 0, startSad, 0, sadPerBit, 0, 0,
+			limits, sadAt, sadAt4)
+		if got != want {
+			t.Fatalf("target=%v batched=%+v scalar=%+v", tg, got, want)
+		}
+		if batchCalls == 0 {
+			t.Fatalf("target=%v: batch path was not exercised", tg)
+		}
+	}
+}
+
 // TestDiamondSearchSADNum00CenterStays pins the num00 accounting: when the
 // global minimum is the seed itself (target=[0,0]), every step's best site is
 // the centre (best stays at the start), so num00 increments each step.
@@ -211,6 +255,52 @@ func TestFullPixelDiamondVarianceRescoring(t *testing.T) {
 		if res.BestSme != wantSme {
 			t.Errorf("FullPixelDiamond target=%v BestSme=%d, want %d", tg,
 				res.BestSme, wantSme)
+		}
+	}
+}
+
+func TestFullPixelDiamondWithBatchMatchesScalar(t *testing.T) {
+	limits := &MvLimits{RowMin: -64, RowMax: 64, ColMin: -64, ColMax: 64}
+	const sadPerBit = 16
+	const stepParam = 0
+	const furtherSteps = MaxMvSearchSteps - 1 - stepParam
+	targets := [][2]int{{0, 0}, {5, -3}, {-7, 6}, {12, 9}}
+	for _, tg := range targets {
+		sadAt, varAt := paraboloidSurfaces(tg[0], tg[1])
+		startSad, _ := sadAt(0, 0)
+		startSad += uint64(FullPelMVSADCost(0, 0, 0, 0, sadPerBit))
+		want := FullPixelDiamond(0, 0, startSad, stepParam, sadPerBit,
+			furtherSteps, true, 0, 0, limits, sadAt, varAt)
+
+		batchCalls := 0
+		sadAt4 := func(row0, col0, row1, col1, row2, col2, row3, col3 int,
+		) (uint64, uint64, uint64, uint64, bool) {
+			batchCalls++
+			sad0, ok := sadAt(row0, col0)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad1, ok := sadAt(row1, col1)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad2, ok := sadAt(row2, col2)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			sad3, ok := sadAt(row3, col3)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			return sad0, sad1, sad2, sad3, true
+		}
+		got := FullPixelDiamondWithBatch(0, 0, startSad, stepParam, sadPerBit,
+			furtherSteps, true, 0, 0, limits, sadAt, sadAt4, varAt)
+		if got != want {
+			t.Fatalf("target=%v batched=%+v scalar=%+v", tg, got, want)
+		}
+		if batchCalls == 0 {
+			t.Fatalf("target=%v: batch path was not exercised", tg)
 		}
 	}
 }

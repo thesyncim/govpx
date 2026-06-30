@@ -122,6 +122,54 @@ func TestVP9SadSimdStrides(t *testing.T) {
 	}
 }
 
+func TestVP9Sad4DRandomAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0x44d4, 0x911d))
+	cases := []struct {
+		name string
+		w, h int
+	}{
+		{"16x16", 16, 16},
+		{"16x32", 16, 32},
+		{"32x16", 32, 16},
+		{"32x32", 32, 32},
+		{"64x32", 64, 32},
+		{"64x64", 64, 64},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			const stride = 128
+			const off = 8
+			src := make([]uint8, stride*(c.h+off+8))
+			ref := make([]uint8, stride*(c.h+off+12))
+			for i := range src {
+				src[i] = uint8(r.UintN(256))
+			}
+			for i := range ref {
+				ref[i] = uint8(r.UintN(256))
+			}
+			srcOff := off*stride + off
+			refOffs := [4]int{
+				off*stride + off,
+				off*stride + off + 1,
+				(off+1)*stride + off,
+				(off+1)*stride + off + 1,
+			}
+			var got [4]uint32
+			if !VpxSad4D(src, srcOff, stride, ref,
+				refOffs[0], refOffs[1], refOffs[2], refOffs[3], stride,
+				c.w, c.h, &got) {
+				t.Fatal("VpxSad4D returned false")
+			}
+			for i, refOff := range refOffs {
+				want := sad(src, srcOff, stride, ref, refOff, stride, c.w, c.h)
+				if got[i] != want {
+					t.Fatalf("candidate %d: got %d want %d", i, got[i], want)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkVP9Sad16x16(b *testing.B) {
 	r := rand.New(rand.NewPCG(0x1234, 0x5678))
 	const stride = 64
@@ -135,6 +183,62 @@ func BenchmarkVP9Sad16x16(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		VpxSad16x16(src, off*stride+off, stride, ref, off*stride+off, stride)
+	}
+}
+
+func BenchmarkVP9Sad16x16x4(b *testing.B) {
+	r := rand.New(rand.NewPCG(0x2468, 0x1357))
+	const stride = 64
+	const off = 8
+	src := make([]uint8, stride*(16+off+8))
+	ref := make([]uint8, stride*(16+off+12))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+	}
+	for i := range ref {
+		ref[i] = uint8(r.UintN(256))
+	}
+	srcOff := off*stride + off
+	refOffs := [4]int{
+		off*stride + off,
+		off*stride + off + 1,
+		(off+1)*stride + off,
+		(off+1)*stride + off + 1,
+	}
+	var out [4]uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSad4D(src, srcOff, stride, ref,
+			refOffs[0], refOffs[1], refOffs[2], refOffs[3], stride,
+			16, 16, &out)
+	}
+}
+
+func BenchmarkVP9Sad32x32x4(b *testing.B) {
+	r := rand.New(rand.NewPCG(0x1357, 0x2468))
+	const stride = 96
+	const off = 8
+	src := make([]uint8, stride*(32+off+8))
+	ref := make([]uint8, stride*(32+off+12))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+	}
+	for i := range ref {
+		ref[i] = uint8(r.UintN(256))
+	}
+	srcOff := off*stride + off
+	refOffs := [4]int{
+		off*stride + off,
+		off*stride + off + 1,
+		(off+1)*stride + off,
+		(off+1)*stride + off + 1,
+	}
+	var out [4]uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSad4D(src, srcOff, stride, ref,
+			refOffs[0], refOffs[1], refOffs[2], refOffs[3], stride,
+			32, 32, &out)
 	}
 }
 
@@ -167,5 +271,33 @@ func BenchmarkVP9Sad64x64(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		VpxSad64x64(src, off*stride+off, stride, ref, off*stride+off, stride)
+	}
+}
+
+func BenchmarkVP9Sad64x64x4(b *testing.B) {
+	r := rand.New(rand.NewPCG(0xface, 0xfeed))
+	const stride = 128
+	const off = 8
+	src := make([]uint8, stride*(64+off+8))
+	ref := make([]uint8, stride*(64+off+12))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+	}
+	for i := range ref {
+		ref[i] = uint8(r.UintN(256))
+	}
+	srcOff := off*stride + off
+	refOffs := [4]int{
+		off*stride + off,
+		off*stride + off + 1,
+		(off+1)*stride + off,
+		(off+1)*stride + off + 1,
+	}
+	var out [4]uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSad4D(src, srcOff, stride, ref,
+			refOffs[0], refOffs[1], refOffs[2], refOffs[3], stride,
+			64, 64, &out)
 	}
 }

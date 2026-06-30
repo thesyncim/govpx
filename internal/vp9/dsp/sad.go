@@ -75,3 +75,30 @@ func VpxSad4x8(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStrid
 func VpxSad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride int) uint32 {
 	return sad4x4(src, srcOff, srcStride, ref, refOff, refStride)
 }
+
+// VpxSad4D mirrors libvpx's vpx_sad{W}x{H}x4d family: compare one source
+// block against four reference blocks and write the four SADs in candidate
+// order. It returns false only for nonsensical dimensions; malformed windows
+// fall back to the scalar reference and keep the same panic behavior as the
+// single-block wrappers.
+func VpxSad4D(src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff0, refOff1, refOff2, refOff3, refStride int,
+	w, h int, out *[4]uint32,
+) bool {
+	return sad4D(src, srcOff, srcStride, ref, refOff0, refOff1, refOff2,
+		refOff3, refStride, w, h, out)
+}
+
+func sad4DScalar(src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff0, refOff1, refOff2, refOff3, refStride int,
+	w, h int, out *[4]uint32,
+) bool {
+	if out == nil || w <= 0 || h <= 0 {
+		return false
+	}
+	out[0] = sad(src, srcOff, srcStride, ref, refOff0, refStride, w, h)
+	out[1] = sad(src, srcOff, srcStride, ref, refOff1, refStride, w, h)
+	out[2] = sad(src, srcOff, srcStride, ref, refOff2, refStride, w, h)
+	out[3] = sad(src, srcOff, srcStride, ref, refOff3, refStride, w, h)
+	return true
+}

@@ -27,6 +27,10 @@ func sad16xNNEON(src *byte, srcStride int, ref *byte, refStride int, rows int) u
 func sad16ChunksNEON(src *byte, srcStride int, ref *byte, refStride int, rows int, chunks int) uint32
 
 //go:noescape
+func sad16Chunksx4NEON(src *byte, srcStride int, ref0 *byte, ref1 *byte,
+	ref2 *byte, ref3 *byte, refStride int, rows int, chunks int, out *[4]uint32)
+
+//go:noescape
 func sad8xNNEON(src *byte, srcStride int, ref *byte, refStride int, rows int) uint32
 
 //go:noescape
@@ -171,4 +175,39 @@ func sad4x4(src []uint8, srcOff, srcStride int, ref []uint8, refOff, refStride i
 			unsafe.SliceData(ref[refOff:]), refStride, 4)
 	}
 	return sad(src, srcOff, srcStride, ref, refOff, refStride, 4, 4)
+}
+
+func sad4D(src []uint8, srcOff, srcStride int,
+	ref []uint8, refOff0, refOff1, refOff2, refOff3, refStride int,
+	w, h int, out *[4]uint32,
+) bool {
+	if out == nil || w <= 0 || h <= 0 {
+		return false
+	}
+	chunks := 0
+	switch w {
+	case 16:
+		chunks = 1
+	case 32:
+		chunks = 2
+	case 64:
+		chunks = 4
+	}
+	if chunks != 0 &&
+		sadWindowOK(src, srcOff, srcStride, w, h) &&
+		sadWindowOK(ref, refOff0, refStride, w, h) &&
+		sadWindowOK(ref, refOff1, refStride, w, h) &&
+		sadWindowOK(ref, refOff2, refStride, w, h) &&
+		sadWindowOK(ref, refOff3, refStride, w, h) {
+		sad16Chunksx4NEON(
+			unsafe.SliceData(src[srcOff:]), srcStride,
+			unsafe.SliceData(ref[refOff0:]),
+			unsafe.SliceData(ref[refOff1:]),
+			unsafe.SliceData(ref[refOff2:]),
+			unsafe.SliceData(ref[refOff3:]),
+			refStride, h, chunks, out)
+		return true
+	}
+	return sad4DScalar(src, srcOff, srcStride, ref, refOff0, refOff1, refOff2,
+		refOff3, refStride, w, h, out)
 }
