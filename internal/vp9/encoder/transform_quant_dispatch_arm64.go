@@ -143,6 +143,82 @@ func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequ
 	return eob
 }
 
+func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizeParams,
+	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	if !quantizeBNEONOK(coeff, params, dequant, iscan, qcoeff, dqcoeff) {
+		return quantizeBWithQScanOrderRasterScalar(coeff, params, dequant,
+			iscan, qcoeff, dqcoeff)
+	}
+
+	zbinDC, zbinAC := params.zbin[0], params.zbin[1]
+	roundDC, roundAC := params.round[0], params.round[1]
+	quantDC, quantAC := params.quant[0], params.quant[1]
+	shiftDC, shiftAC := params.quantShift[0], params.quantShift[1]
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+	eob := 0
+
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	tmp := 0
+	if absCoeff >= zbinDC {
+		tmp = clampInt16(absCoeff + roundDC)
+		tmp = ((((tmp * quantDC) >> 16) + tmp) * shiftDC) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		qcoeff[0] = int16(q)
+		dqcoeff[0] = int16(q * deqDC)
+	} else {
+		qcoeff[0] = 0
+		dqcoeff[0] = 0
+	}
+	if tmp != 0 {
+		eob = int(iscan[0])
+	}
+
+	acCount := ((len(coeff) - 1) / 8) * 8
+	if acCount > 0 {
+		acEOB := int(quantizeBACNEON(unsafe.SliceData(coeff[1:]),
+			unsafe.SliceData(iscan[1:]), unsafe.SliceData(qcoeff[1:]),
+			unsafe.SliceData(dqcoeff[1:]), acCount, zbinAC, roundAC,
+			quantAC, shiftAC, deqAC))
+		if acEOB > eob {
+			eob = acEOB
+		}
+	}
+
+	for rc := 1 + acCount; rc < len(coeff); rc++ {
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp = 0
+		if absCoeff >= zbinAC {
+			tmp = clampInt16(absCoeff + roundAC)
+			tmp = ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 16
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(q * deqAC)
+		} else {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+		}
+		if tmp != 0 && int(iscan[rc]) > eob {
+			eob = int(iscan[rc])
+		}
+	}
+	return eob
+}
+
 func quantizeFPLibvpxNEONOK(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
 	iscan []int16, qcoeff, dqcoeff []int16,
 ) bool {
@@ -155,6 +231,21 @@ func quantizeFPLibvpxNEONOK(coeff []int16, nCoeffs int, roundFP, quantFP, dequan
 	return roundFP[0] >= 0 && roundFP[1] >= 0 &&
 		quantFP[0] >= 0 && quantFP[1] >= 0 &&
 		dequant[0] > 0 && dequant[1] > 0
+}
+
+func quantizeBNEONOK(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
+	iscan []int16, qcoeff, dqcoeff []int16,
+) bool {
+	n := len(coeff)
+	if n < 64 || len(iscan) < n || len(qcoeff) < n || len(dqcoeff) < n ||
+		dequant[0] <= 0 || dequant[1] <= 0 {
+		return false
+	}
+	return params.zbin[1] >= 0 && params.zbin[1] <= 32767 &&
+		params.round[1] >= 0 && params.round[1] <= 32767 &&
+		params.quant[1] >= -32768 && params.quant[1] <= 32767 &&
+		params.quantShift[1] > 0 && params.quantShift[1] <= 32767 &&
+		dequant[1] <= 32767
 }
 
 //go:noescape
@@ -172,3 +263,9 @@ func forwardDCT16x16NEON(input *int16, output *int16, stride int)
 //go:noescape
 func quantizeFPACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
 	count int, roundAC int, quantAC int, deqAC int) int32
+
+//go:noescape
+func quantizeBACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
+	count int, zbinAC int, roundAC int, quantAC int, quantShiftAC int,
+	deqAC int,
+) int32

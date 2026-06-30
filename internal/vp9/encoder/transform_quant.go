@@ -1413,7 +1413,7 @@ func QuantizeBWithQScanOrder(coeff []int16, qindex int, dequant [2]int16,
 		return quantizeBWithQScan(coeff[:n], params, dequant,
 			scanOrder.Scan[:n], qcoeff[:n], dqcoeff[:n])
 	}
-	return quantizeBWithQScanOrderRaster(coeff[:n], params, dequant,
+	return quantizeBWithQScanOrderRasterDispatch(coeff[:n], params, dequant,
 		scanOrder.IScan[:n], qcoeff, dqcoeff[:n])
 }
 
@@ -1438,7 +1438,7 @@ func quantizeBScanTailBelowZbin(coeff []int16, params vp9QuantizeParams,
 	return c < params.zbin[slot]
 }
 
-func quantizeBWithQScanOrderRaster(coeff []int16, params vp9QuantizeParams,
+func quantizeBWithQScanOrderRasterScalar(coeff []int16, params vp9QuantizeParams,
 	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {
 	zbinDC, zbinAC := params.zbin[0], params.zbin[1]
