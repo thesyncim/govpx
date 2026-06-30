@@ -1336,10 +1336,6 @@ func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int1
 	scan []int16, qcoeff, dqcoeff []int16,
 ) int {
 	n := len(coeff)
-	clear(dqcoeff[:n])
-	if qcoeff != nil {
-		clear(qcoeff[:n])
-	}
 	nonZeroCount := n
 	for i := n - 1; i >= 0; i-- {
 		rc := int(scan[i])
@@ -1350,6 +1346,20 @@ func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int1
 			continue
 		}
 		break
+	}
+	if nonZeroCount == 0 {
+		clear(dqcoeff[:n])
+		if qcoeff != nil {
+			clear(qcoeff[:n])
+		}
+		return 0
+	}
+	for i := nonZeroCount; i < n; i++ {
+		rc := int(scan[i])
+		if qcoeff != nil {
+			qcoeff[rc] = 0
+		}
+		dqcoeff[rc] = 0
 	}
 
 	eob := -1
@@ -1362,6 +1372,10 @@ func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int1
 			absCoeff = -absCoeff
 		}
 		if absCoeff < params.zbin[slot] {
+			if qcoeff != nil {
+				qcoeff[rc] = 0
+			}
+			dqcoeff[rc] = 0
 			continue
 		}
 		tmp := clampInt16(absCoeff + params.round[slot])

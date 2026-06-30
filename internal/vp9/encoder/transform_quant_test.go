@@ -1227,6 +1227,50 @@ func TestQuantizeBWithQScanOrderMatchesScanPath(t *testing.T) {
 	}
 }
 
+func TestQuantizeBWithQScanOrderClearsSparseStaleOutputs(t *testing.T) {
+	for _, tx := range []common.TxSize{common.Tx4x4, common.Tx8x8, common.Tx16x16} {
+		n := 16 << (2 * int(tx))
+		t.Run(fmt.Sprintf("tx%d", tx), func(t *testing.T) {
+			scanOrder := common.DefaultScanOrders[tx]
+			coeff := make([]int16, n)
+			coeff[0] = 1000
+			coeff[int(scanOrder.Scan[1])] = 1
+			qcoeff := make([]int16, n)
+			dqcoeff := make([]int16, n)
+			for i := range qcoeff {
+				qcoeff[i] = 12345
+				dqcoeff[i] = -12345
+			}
+
+			eob := QuantizeBWithQScanOrder(coeff, 87, [2]int16{38, 44},
+				scanOrder, qcoeff, dqcoeff)
+			if eob == 0 {
+				t.Fatal("eob=0; expected DC coefficient to survive")
+			}
+			for i := 1; i < n; i++ {
+				if qcoeff[i] != 0 || dqcoeff[i] != 0 {
+					t.Fatalf("stale coeff %d survived: q=%d dq=%d",
+						i, qcoeff[i], dqcoeff[i])
+				}
+			}
+
+			for i := range dqcoeff {
+				dqcoeff[i] = -12345
+			}
+			eob = QuantizeBWithQScanOrder(coeff, 87, [2]int16{38, 44},
+				scanOrder, nil, dqcoeff)
+			if eob == 0 {
+				t.Fatal("dq-only eob=0; expected DC coefficient to survive")
+			}
+			for i := 1; i < n; i++ {
+				if dqcoeff[i] != 0 {
+					t.Fatalf("stale dqcoeff %d survived: dq=%d", i, dqcoeff[i])
+				}
+			}
+		})
+	}
+}
+
 func TestQuantizeB32x32WithQScanOrderMatchesScanPath(t *testing.T) {
 	scanOrder := common.DefaultScanOrders[common.Tx32x32]
 	for trial := range 12 {
