@@ -494,6 +494,9 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
 func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
 	scan []int16, maxEob int,
 ) int {
+	if in.CostTable != nil {
+		return coeffBlockRateCostFastCompleteQCoeffTable(in, scan, maxEob)
+	}
 	eob := coeffBlockEOBCompleteQCoeff(scan, maxEob, in.QCoeffs)
 	if eob == 0 {
 		return coeffBlockTreeTokenCost(in.CostTable, in.CoefModel, 0,
@@ -537,6 +540,53 @@ func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
 		}
 		rate += coeffBlockTreeTokenCost(in.CostTable, in.CoefModel, bandIdx,
 			ctx, false, EobToken)
+	}
+	return rate
+}
+
+func coeffBlockRateCostFastCompleteQCoeffTable(in CoeffBlockRateCostInput,
+	scan []int16, maxEob int,
+) int {
+	eob := coeffBlockEOBCompleteQCoeff(scan, maxEob, in.QCoeffs)
+	costs := in.CostTable
+	if eob == 0 {
+		return int((*costs)[0][in.InitCtx][0][EobToken])
+	}
+
+	rate := 0
+	prevToken, extraCost := coeffTokenExtraCostQCoeff(in.QCoeffs[0])
+	rate += extraCost
+	rate += int((*costs)[0][in.InitCtx][0][prevToken])
+
+	bandIdx := 1
+	bandLeft := coeffCostBandCounts[in.TxSize][bandIdx]
+	for c := 1; c < eob; c++ {
+		raster := int(scan[c])
+		token, extra := coeffTokenExtraCostQCoeff(in.QCoeffs[raster])
+		ctx := 0
+		skipIdx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+			skipIdx = 1
+		}
+		rate += extra
+		rate += int((*costs)[bandIdx][ctx][skipIdx][token])
+		prevToken = token
+		bandLeft--
+		if bandLeft == 0 {
+			bandIdx++
+			if bandIdx >= len(coeffCostBandCounts[in.TxSize]) {
+				break
+			}
+			bandLeft = coeffCostBandCounts[in.TxSize][bandIdx]
+		}
+	}
+	if bandLeft != 0 {
+		ctx := 0
+		if prevToken == ZeroToken {
+			ctx = 1
+		}
+		rate += int((*costs)[bandIdx][ctx][0][EobToken])
 	}
 	return rate
 }
