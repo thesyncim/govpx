@@ -345,6 +345,10 @@ func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	ref := vp9test.NewYCbCr(width, height, 128, 128, 128)
 	src := vp9test.NewYCbCr(width, height, 128, 255, 128)
 	e.refFrames[vp9LastRefSlot] = vp9ReferenceFrameFromYCbCr(ref)
+	for i := range e.reconY {
+		e.reconY[i] = 73
+	}
+	lumaBefore := append([]byte(nil), e.reconY...)
 
 	var dq vp9dec.DequantTables
 	inter := &vp9InterEncodeState{
@@ -363,6 +367,9 @@ func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	}
 	if !got[0] || got[1] {
 		t.Fatalf("color sensitivity = %v, want U-only sensitivity", got)
+	}
+	if !bytes.Equal(e.reconY, lumaBefore) {
+		t.Fatalf("color-sensitivity chroma SAD mutated luma prediction plane")
 	}
 }
 

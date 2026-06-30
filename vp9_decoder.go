@@ -250,7 +250,11 @@ type VP9Decoder struct {
 	// vp9_build_inter_predictors_sby fast path in nonrd_pickmode
 	// (vp9/encoder/vp9_pickmode.c:2336). Skipping U/V cuts the per-
 	// candidate convolution count by ~30-40% for 4:2:0 sources.
-	predictLumaOnly     bool
+	predictLumaOnly bool
+	// predictChromaOnly is the companion encoder prepass path for
+	// variance-partition color sensitivity: luma prediction has already
+	// been produced by choose_partitioning, so chroma_check only needs U/V.
+	predictChromaOnly   bool
 	frameReady          bool
 	lastFrame           Image
 	lastInfo            VP9FrameInfo

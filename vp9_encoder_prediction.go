@@ -153,7 +153,7 @@ func (e *VP9Encoder) predictVP9InterBlock(inter *vp9InterEncodeState,
 	mi *vp9dec.NeighborMi,
 ) bool {
 	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
-		bsize, mi, false)
+		bsize, mi, false, false)
 }
 
 // predictVP9InterBlockLumaOnly reconstructs only the luma plane for the
@@ -166,12 +166,24 @@ func (e *VP9Encoder) predictVP9InterBlockLumaOnly(inter *vp9InterEncodeState,
 	mi *vp9dec.NeighborMi,
 ) bool {
 	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
-		bsize, mi, true)
+		bsize, mi, true, false)
+}
+
+// predictVP9InterBlockChromaOnly reconstructs only U/V for callers that have
+// already built or scored luma. The variance-partition chroma_check path only
+// needs chroma SAD, matching libvpx's use of pd->dst.buf after the luma
+// partition prepass predictor is available.
+func (e *VP9Encoder) predictVP9InterBlockChromaOnly(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi,
+) bool {
+	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, false, true)
 }
 
 func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mi *vp9dec.NeighborMi, lumaOnly bool,
+	mi *vp9dec.NeighborMi, lumaOnly bool, chromaOnly bool,
 ) bool {
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return false
@@ -189,6 +201,7 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	predictor.refFrames = e.refFrames
 	predictor.unsupportedReconstruct = false
 	predictor.predictLumaOnly = lumaOnly
+	predictor.predictChromaOnly = chromaOnly
 	hdr := vp9dec.UncompressedHeader{
 		Width:  uint32(e.opts.Width),
 		Height: uint32(e.opts.Height),
@@ -205,9 +218,10 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	}
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch
-	// Reset flag so subsequent callers that don't explicitly set it get
+	// Reset flags so subsequent callers that don't explicitly select planes get
 	// the full 3-plane reconstruction.
 	predictor.predictLumaOnly = false
+	predictor.predictChromaOnly = false
 	return ok && !predictor.unsupportedReconstruct
 }
 

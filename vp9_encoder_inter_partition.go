@@ -575,7 +575,7 @@ func (e *VP9Encoder) vp9VarPartChromaSAD(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	if !e.predictVP9InterBlock(inter, miRows, miCols, sbMiRow, sbMiCol,
+	if !e.predictVP9InterBlockChromaOnly(inter, miRows, miCols, sbMiRow, sbMiCol,
 		bsize, &mi) {
 		return sad, false
 	}
