@@ -32,14 +32,12 @@ func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, ds
 // semantics here.
 func DCOnlyIDCT4x4AddInt32(inputDC int32, pred []byte, predStride int, dst []byte, dstStride int) {
 	a1 := int((inputDC + 4) >> 3)
-	for y := range 4 {
-		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
-		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
-		dstRow[0] = ClipPixel(a1 + int(predRow[0]))
-		dstRow[1] = ClipPixel(a1 + int(predRow[1]))
-		dstRow[2] = ClipPixel(a1 + int(predRow[2]))
-		dstRow[3] = ClipPixel(a1 + int(predRow[3]))
+	if a1 > 255 {
+		a1 = 255
+	} else if a1 < -255 {
+		a1 = -255
 	}
+	dcOnlyIDCT4x4AddSIMD(int16(a1<<3), pred, predStride, dst, dstStride)
 }
 
 // idct4x4AddScalar is the canonical scalar port of libvpx

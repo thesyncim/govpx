@@ -43,6 +43,41 @@ func TestIDCT4x4AddClips(t *testing.T) {
 	}
 }
 
+func TestDCOnlyIDCT4x4AddInt32MatchesScalar(t *testing.T) {
+	pred := make([]byte, 8*8)
+	for i := range pred {
+		pred[i] = byte((i*11 + 5) & 255)
+	}
+	cases := []int32{
+		-1 << 20,
+		-4096,
+		-2049,
+		-2048,
+		-17,
+		-1,
+		0,
+		1,
+		17,
+		2047,
+		2048,
+		4096,
+		1 << 20,
+	}
+	for _, dc := range cases {
+		got := make([]byte, 8*8)
+		want := make([]byte, 8*8)
+		DCOnlyIDCT4x4AddInt32(dc, pred, 8, got, 8)
+		dcOnlyIDCT4x4AddInt32Scalar(dc, pred, 8, want, 8)
+		for y := range 4 {
+			for x := range 4 {
+				if got[y*8+x] != want[y*8+x] {
+					t.Fatalf("dc=%d [%d,%d]: got=%d want=%d", dc, x, y, got[y*8+x], want[y*8+x])
+				}
+			}
+		}
+	}
+}
+
 func TestIDCTAllocatesZero(t *testing.T) {
 	var input [16]int16
 	pred := make([]byte, 8*8)
@@ -53,6 +88,18 @@ func TestIDCTAllocatesZero(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func dcOnlyIDCT4x4AddInt32Scalar(inputDC int32, pred []byte, predStride int, dst []byte, dstStride int) {
+	a1 := int((inputDC + 4) >> 3)
+	for y := range 4 {
+		dstRow := dst[y*dstStride : y*dstStride+4 : y*dstStride+4]
+		predRow := pred[y*predStride : y*predStride+4 : y*predStride+4]
+		dstRow[0] = ClipPixel(a1 + int(predRow[0]))
+		dstRow[1] = ClipPixel(a1 + int(predRow[1]))
+		dstRow[2] = ClipPixel(a1 + int(predRow[2]))
+		dstRow[3] = ClipPixel(a1 + int(predRow[3]))
 	}
 }
 
@@ -75,5 +122,23 @@ func BenchmarkDCOnlyIDCT4x4Add(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		DCOnlyIDCT4x4Add(128, pred, 8, dst, 8)
+	}
+}
+
+func BenchmarkDCOnlyIDCT4x4AddInt32(b *testing.B) {
+	pred := make([]byte, 8*8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		DCOnlyIDCT4x4AddInt32(128*132, pred, 8, dst, 8)
+	}
+}
+
+func BenchmarkDCOnlyIDCT4x4AddInt32Scalar(b *testing.B) {
+	pred := make([]byte, 8*8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		dcOnlyIDCT4x4AddInt32Scalar(128*132, pred, 8, dst, 8)
 	}
 }
