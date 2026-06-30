@@ -1961,6 +1961,16 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
 	coeffs, qcoeffs []int16, initCtx int,
 ) int {
+	return e.vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize, planeType,
+		scanOrder, dequant, coeffs, qcoeffs, initCtx,
+		e.vp9CoeffTokenCostTable(txSize, planeType, 0))
+}
+
+func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize common.TxSize,
+	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
+	coeffs, qcoeffs []int16, initCtx int,
+	costs *encoder.CoeffTreeTokenCostTable,
+) int {
 	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
 	}
@@ -1976,5 +1986,6 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 		InitCtx:    initCtx,
 		Fast:       e.sf.UseFastCoefCosting != 0,
 		TokenCache: &e.modeScratch,
+		CostTable:  costs,
 	})
 }

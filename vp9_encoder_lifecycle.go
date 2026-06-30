@@ -264,6 +264,8 @@ type VP9Encoder struct {
 
 	intraScratch             vp9dec.IntraPredictorScratch
 	modeScratch              [1024]byte
+	vp9CoeffTokenCosts       encoder.FrameCoeffTokenCostTable
+	vp9CoeffTokenCostsValid  bool
 	blockScratch             [64 * 64]byte
 	intraSkipPredScratch     [32 * 32]byte
 	nonrdOrigPredScratch     [64 * 64]byte

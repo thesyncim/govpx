@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -125,6 +126,35 @@ func TestCoeffTreeTokenCostMatchesCostTokens(t *testing.T) {
 					if got != skip[token] {
 						t.Fatalf("skip eobP=%d zeroP=%d pivotP=%d token=%d: got=%d want=%d",
 							eobP, zeroP, pivotP, token, got, skip[token])
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestCoeffTreeTokenCostTableMatchesScalar(t *testing.T) {
+	var model [vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
+	for band := range vp9dec.CoefBands {
+		for ctx := range vp9dec.CoefContexts {
+			model[band][ctx][0] = uint8(32 + band*23 + ctx)
+			model[band][ctx][1] = uint8(224 - band*17 - ctx)
+			model[band][ctx][2] = uint8(8 + band*31 + ctx*3)
+		}
+	}
+	var table CoeffTreeTokenCostTable
+	if !FillCoeffTreeTokenCostTable(&model, &table) {
+		t.Fatal("FillCoeffTreeTokenCostTable returned false")
+	}
+	for band := range vp9dec.CoefBands {
+		for ctx := range vp9dec.CoefContexts {
+			for token := range EntropyTokens {
+				for _, skipEOB := range []bool{false, true} {
+					got := table.TokenCost(band, ctx, skipEOB, token)
+					want := CoeffTreeTokenCost(model[band][ctx][:], skipEOB, token)
+					if got != want {
+						t.Fatalf("table[%d][%d][%v][%d] = %d, want %d",
+							band, ctx, skipEOB, token, got, want)
 					}
 				}
 			}

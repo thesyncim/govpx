@@ -28,11 +28,13 @@ func vp9TemporalReferenceRefresh(refreshFlags uint8) temporalReferenceRefresh {
 
 func (e *VP9Encoder) resetVP9EncoderFrameContexts() {
 	e.fc = encoder.ResetFrameContexts(&e.frameContexts)
+	e.refreshVP9CoeffTokenCosts()
 }
 
 func (e *VP9Encoder) prepareVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader) int {
 	idx, fc := encoder.PrepareFrameContext(&e.frameContexts, hdr)
 	e.fc = fc
+	e.refreshVP9CoeffTokenCosts()
 	return idx
 }
 
@@ -95,6 +97,27 @@ func (e *VP9Encoder) adaptVP9EncoderFrameContext(hdr *vp9dec.UncompressedHeader,
 	}
 	encoder.AdaptFrameContext(&e.fc, &e.frameContexts, hdr, idx, counts, txMode,
 		e.lastVP9HeaderValid && e.lastVP9HeaderFrameType == common.KeyFrame)
+	e.refreshVP9CoeffTokenCosts()
+}
+
+func (e *VP9Encoder) refreshVP9CoeffTokenCosts() {
+	if e == nil {
+		return
+	}
+	e.vp9CoeffTokenCostsValid = encoder.FillFrameCoeffTokenCostTable(
+		&e.fc.CoefProbs, &e.vp9CoeffTokenCosts)
+}
+
+func (e *VP9Encoder) vp9CoeffTokenCostTable(txSize common.TxSize,
+	planeType int, ref int,
+) *encoder.CoeffTreeTokenCostTable {
+	if e == nil || !e.vp9CoeffTokenCostsValid ||
+		txSize >= common.TxSizes || planeType < 0 ||
+		planeType >= vp9dec.CoefPlaneTypes ||
+		ref < 0 || ref >= vp9dec.CoefRefTypes {
+		return nil
+	}
+	return &e.vp9CoeffTokenCosts[txSize][planeType][ref]
 }
 
 func (e *VP9Encoder) vp9FrameParallelDecodingMode() bool {

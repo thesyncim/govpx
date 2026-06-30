@@ -140,6 +140,8 @@ var coeffBlockRateBenchSink int
 func BenchmarkCoeffBlockRateCostFastQCoeffTx32x32(b *testing.B) {
 	var coefModel [vp9dec.CoefBands][vp9dec.CoefContexts][vp9dec.UnconstrainedNodes]uint8
 	fillCoefCostModelForTest(&coefModel, 128)
+	var costTable CoeffTreeTokenCostTable
+	FillCoeffTreeTokenCostTable(&coefModel, &costTable)
 
 	const tx = common.Tx32x32
 	dequant := [2]int16{4, 4}
@@ -160,6 +162,7 @@ func BenchmarkCoeffBlockRateCostFastQCoeffTx32x32(b *testing.B) {
 		InitCtx:    0,
 		Fast:       true,
 		TokenCache: &scratch,
+		CostTable:  &costTable,
 	}
 
 	total := 0
