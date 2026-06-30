@@ -203,3 +203,31 @@ func refVariance(src []uint8, srcStride int,
 	q := (sum * sum) / n
 	return uint32(sse) - uint32(q)
 }
+
+var vp9PredVarianceBenchmarkSink uint32
+
+func BenchmarkVP9PredVariance64x64(b *testing.B) {
+	const size = 64
+	src := make([]uint8, size*size)
+	pred := make([]uint8, size*size)
+	for i := range src {
+		src[i] = uint8((i*17 + i/size*11) & 0xff)
+		pred[i] = uint8((i*5 + i/size*23 + 7) & 0xff)
+	}
+	b.Run("Optimized", func(b *testing.B) {
+		var sum uint32
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			sum += vp9PredVariance(src, size, 0, 0, pred, size, 0, 0, size, size)
+		}
+		vp9PredVarianceBenchmarkSink = sum
+	})
+	b.Run("ScalarReference", func(b *testing.B) {
+		var sum uint32
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			sum += refVariance(src, size, pred, size, size, size)
+		}
+		vp9PredVarianceBenchmarkSink = sum
+	})
+}
