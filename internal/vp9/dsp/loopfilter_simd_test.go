@@ -53,6 +53,51 @@ func TestVP9LoopFilterDispatchMatchesScalar(t *testing.T) {
 	}
 }
 
+func TestVP9LoopFilter8ScalarMatchesReference(t *testing.T) {
+	type singleFn func([]uint8, int, int, uint8, uint8, uint8)
+	singleCases := []struct {
+		name      string
+		special   singleFn
+		reference singleFn
+		cursor    int
+	}{
+		{"Horizontal8", vpxLpfHorizontal8Scalar, vpxLpfHorizontal8Reference, vp9LfHorizontalCursor},
+		{"Vertical8", vpxLpfVertical8Scalar, vpxLpfVertical8Reference, vp9LfVerticalCursor},
+	}
+
+	params := []struct {
+		blimit uint8
+		limit  uint8
+		thresh uint8
+	}{
+		{4, 2, 0},
+		{12, 8, 2},
+		{32, 16, 8},
+		{64, 32, 16},
+		{128, 48, 4},
+		{255, 63, 7},
+	}
+
+	rng := rand.New(rand.NewPCG(0x565039384c46, 0x524546))
+	for _, tc := range singleCases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, p := range params {
+				for trial := range 64 {
+					base := randomVP9LfPlane(rng, trial)
+					got := append([]uint8(nil), base...)
+					want := append([]uint8(nil), base...)
+					tc.special(got, tc.cursor, vp9LfPitch, p.blimit, p.limit, p.thresh)
+					tc.reference(want, tc.cursor, vp9LfPitch, p.blimit, p.limit, p.thresh)
+					if !bytes.Equal(got, want) {
+						t.Fatalf("%s blimit=%d limit=%d thresh=%d trial=%d mismatch at byte %d",
+							tc.name, p.blimit, p.limit, p.thresh, trial, firstVP9LfDiff(got, want))
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestVP9LoopFilterDualDispatchMatchesScalar(t *testing.T) {
 	type dualFn func([]uint8, int, int, uint8, uint8, uint8, uint8, uint8, uint8)
 	dualCases := []struct {
@@ -100,6 +145,47 @@ func TestVP9LoopFilterDualDispatchMatchesScalar(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func vpxLpfHorizontal8Reference(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	for range 8 {
+		p3 := plane[s-4*pitch]
+		p2 := plane[s-3*pitch]
+		p1 := plane[s-2*pitch]
+		p0 := plane[s-pitch]
+		q0 := plane[s+0]
+		q1 := plane[s+1*pitch]
+		q2 := plane[s+2*pitch]
+		q3 := plane[s+3*pitch]
+		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			filter8(mask, thresh, flat, plane,
+				s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
+				s, s+pitch, s+2*pitch, s+3*pitch)
+		}
+		s++
+	}
+}
+
+func vpxLpfVertical8Reference(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	for range 8 {
+		p3 := plane[s-4]
+		p2 := plane[s-3]
+		p1 := plane[s-2]
+		p0 := plane[s-1]
+		q0 := plane[s+0]
+		q1 := plane[s+1]
+		q2 := plane[s+2]
+		q3 := plane[s+3]
+		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
+		if mask != 0 {
+			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
+			filter8(mask, thresh, flat, plane,
+				s-4, s-3, s-2, s-1, s, s+1, s+2, s+3)
+		}
+		s += pitch
 	}
 }
 

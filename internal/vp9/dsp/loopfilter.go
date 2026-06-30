@@ -120,6 +120,28 @@ func filter4(mask int8, thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 in
 	dst[idxP1] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
 }
 
+func filter4Pass(thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 int, op1, op0, oq0, oq1 uint8) {
+	ps1 := int8(op1 ^ 0x80)
+	ps0 := int8(op0 ^ 0x80)
+	qs0 := int8(oq0 ^ 0x80)
+	qs1 := int8(oq1 ^ 0x80)
+	hev := hevMask(thresh, op1, op0, oq0, oq1)
+
+	filter := signedCharClamp(int(ps1)-int(qs1)) & hev
+	filter = signedCharClamp(int(filter) + 3*(int(qs0)-int(ps0)))
+	filter1 := signedCharClamp(int(filter)+4) >> 3
+	filter2 := signedCharClamp(int(filter)+3) >> 3
+
+	dst[idxQ0] = uint8(signedCharClamp(int(qs0)-int(filter1))) ^ 0x80
+	dst[idxP0] = uint8(signedCharClamp(int(ps0)+int(filter2))) ^ 0x80
+
+	outer := (filter1 + 1) >> 1
+	outer &= ^hev
+
+	dst[idxQ1] = uint8(signedCharClamp(int(qs1)-int(outer))) ^ 0x80
+	dst[idxP1] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
+}
+
 // VpxLpfHorizontal4 mirrors vpx_lpf_horizontal_4_c. It filters 8
 // horizontally-adjacent edge columns above and below the cursor pixel
 // `s` (interpreted as offset within `plane`), each spanning 4 rows
@@ -284,12 +306,30 @@ func vpxLpfHorizontal8Scalar(plane []uint8, s, pitch int, blimit, limit, thresh 
 		q1 := plane[s+1*pitch]
 		q2 := plane[s+2*pitch]
 		q3 := plane[s+3*pitch]
-		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		if mask != 0 {
-			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-			filter8(mask, thresh, flat, plane,
-				s-4*pitch, s-3*pitch, s-2*pitch, s-pitch,
-				s, s+pitch, s+2*pitch, s+3*pitch)
+		if absDiff(p3, p2) > int(limit) ||
+			absDiff(p2, p1) > int(limit) ||
+			absDiff(p1, p0) > int(limit) ||
+			absDiff(q1, q0) > int(limit) ||
+			absDiff(q2, q1) > int(limit) ||
+			absDiff(q3, q2) > int(limit) ||
+			absDiff(p0, q0)*2+absDiff(p1, q1)/2 > int(blimit) {
+			s++
+			continue
+		}
+		if absDiff(p1, p0) <= 1 &&
+			absDiff(q1, q0) <= 1 &&
+			absDiff(p2, p0) <= 1 &&
+			absDiff(q2, q0) <= 1 &&
+			absDiff(p3, p0) <= 1 &&
+			absDiff(q3, q0) <= 1 {
+			plane[s-3*pitch] = uint8((int(p3)*3 + int(p2)*2 + int(p1) + int(p0) + int(q0) + 4) >> 3)
+			plane[s-2*pitch] = uint8((int(p3)*2 + int(p2) + int(p1)*2 + int(p0) + int(q0) + int(q1) + 4) >> 3)
+			plane[s-pitch] = uint8((int(p3) + int(p2) + int(p1) + int(p0)*2 + int(q0) + int(q1) + int(q2) + 4) >> 3)
+			plane[s] = uint8((int(p2) + int(p1) + int(p0) + int(q0)*2 + int(q1) + int(q2) + int(q3) + 4) >> 3)
+			plane[s+pitch] = uint8((int(p1) + int(p0) + int(q0) + int(q1)*2 + int(q2) + int(q3)*2 + 4) >> 3)
+			plane[s+2*pitch] = uint8((int(p0) + int(q0) + int(q1) + int(q2)*2 + int(q3)*3 + 4) >> 3)
+		} else {
+			filter4Pass(thresh, plane, s-2*pitch, s-pitch, s, s+pitch, p1, p0, q0, q1)
 		}
 		s++
 	}
@@ -310,11 +350,48 @@ func vpxLpfVertical8Scalar(plane []uint8, s, pitch int, blimit, limit, thresh ui
 		q1 := plane[s+1]
 		q2 := plane[s+2]
 		q3 := plane[s+3]
-		mask := filterMask(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3)
-		if mask != 0 {
-			flat := flatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3)
-			filter8(mask, thresh, flat, plane,
-				s-4, s-3, s-2, s-1, s, s+1, s+2, s+3)
+		if absDiff(p3, p2) > int(limit) ||
+			absDiff(p2, p1) > int(limit) ||
+			absDiff(p1, p0) > int(limit) ||
+			absDiff(q1, q0) > int(limit) ||
+			absDiff(q2, q1) > int(limit) ||
+			absDiff(q3, q2) > int(limit) ||
+			absDiff(p0, q0)*2+absDiff(p1, q1)/2 > int(blimit) {
+			s += pitch
+			continue
+		}
+		if absDiff(p1, p0) <= 1 &&
+			absDiff(q1, q0) <= 1 &&
+			absDiff(p2, p0) <= 1 &&
+			absDiff(q2, q0) <= 1 &&
+			absDiff(p3, p0) <= 1 &&
+			absDiff(q3, q0) <= 1 {
+			plane[s-3] = uint8((int(p3)*3 + int(p2)*2 + int(p1) + int(p0) + int(q0) + 4) >> 3)
+			plane[s-2] = uint8((int(p3)*2 + int(p2) + int(p1)*2 + int(p0) + int(q0) + int(q1) + 4) >> 3)
+			plane[s-1] = uint8((int(p3) + int(p2) + int(p1) + int(p0)*2 + int(q0) + int(q1) + int(q2) + 4) >> 3)
+			plane[s] = uint8((int(p2) + int(p1) + int(p0) + int(q0)*2 + int(q1) + int(q2) + int(q3) + 4) >> 3)
+			plane[s+1] = uint8((int(p1) + int(p0) + int(q0) + int(q1)*2 + int(q2) + int(q3)*2 + 4) >> 3)
+			plane[s+2] = uint8((int(p0) + int(q0) + int(q1) + int(q2)*2 + int(q3)*3 + 4) >> 3)
+		} else {
+			ps1 := int8(p1 ^ 0x80)
+			ps0 := int8(p0 ^ 0x80)
+			qs0 := int8(q0 ^ 0x80)
+			qs1 := int8(q1 ^ 0x80)
+			hev := hevMask(thresh, p1, p0, q0, q1)
+
+			filter := signedCharClamp(int(ps1)-int(qs1)) & hev
+			filter = signedCharClamp(int(filter) + 3*(int(qs0)-int(ps0)))
+			filter1 := signedCharClamp(int(filter)+4) >> 3
+			filter2 := signedCharClamp(int(filter)+3) >> 3
+
+			plane[s] = uint8(signedCharClamp(int(qs0)-int(filter1))) ^ 0x80
+			plane[s-1] = uint8(signedCharClamp(int(ps0)+int(filter2))) ^ 0x80
+
+			outer := (filter1 + 1) >> 1
+			outer &= ^hev
+
+			plane[s+1] = uint8(signedCharClamp(int(qs1)-int(outer))) ^ 0x80
+			plane[s-2] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
 		}
 		s += pitch
 	}
