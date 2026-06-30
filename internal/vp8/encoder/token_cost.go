@@ -11,6 +11,11 @@ import (
 
 const tokenCostSignShift = bits.UintSize - 1
 
+var coefficientSignCost = [2]int{
+	tables.ProbCost[128],
+	tables.ProbCost[255-128],
+}
+
 // DefaultSubMVRefProbs mirrors libvpx's default sub-MV reference
 // probabilities for split-motion mode decisions.
 var DefaultSubMVRefProbs = [3]uint8{180, 162, 25}
@@ -69,14 +74,6 @@ func CoefficientBlockTokenRate(probs *tables.CoefficientProbs, blockType int, ct
 	// every other plane it is index 0. Read from the shared lookup table so
 	// the per-block setup is a single branchless load.
 	elidedThreshold := coefElisionBandThreshold[blockType&3]
-	// signCostLookup[0] is the cost when coeff >= 0 (sign bit = 0),
-	// signCostLookup[1] when coeff < 0 (sign bit = 1). Indexed off the
-	// arithmetic-shift sign bit so the per-coefficient sign cost lookup
-	// is branch-free.
-	signCostLookup := [2]int{
-		tables.ProbCost[128],
-		tables.ProbCost[255-128],
-	}
 	for pos < eob {
 		// pos ∈ [skipDC, 16) (eob is clamped above); CoefBandsTable and
 		// DefaultZigZag1D are [16]-sized. blockType is in [0, 4) and
@@ -101,16 +98,17 @@ func CoefficientBlockTokenRate(probs *tables.CoefficientProbs, blockType int, ct
 			pos++
 			continue
 		}
-		t, mag, ok := CoefficientTokenMagnitude(coeff)
-		if !ok {
+		mask := coeff >> tokenCostSignShift
+		sign := mask & 1
+		mag := (coeff ^ mask) - mask
+		if uint(mag-1) >= uint(tables.DCTMaxValue) {
 			return tokenCostMaxInt() / 4
 		}
+		entry := coefficientTokenRateLUT[mag]
+		t := int(entry.token)
 		cost += coefTokenCostElided(p, t, blockType, band, pt)
-		// Sign-cost lookup keyed off the sign bit: coeff>>shift is -1 for
-		// negative, 0 for non-negative; masking with 1 selects between
-		// signCost0 and signCost1 without a branch.
-		cost += signCostLookup[(coeff>>tokenCostSignShift)&1]
-		cost += CoefficientExtraBitsRate(t, mag)
+		cost += coefficientSignCost[sign]
+		cost += int(entry.extra)
 		pt = int(tables.PrevTokenClass[t])
 		pos++
 	}
@@ -133,37 +131,45 @@ func CoefficientBlockTokenRateWithTable(costs *CoefficientTokenCostTable, blockT
 		return tokenCostMaxInt() / 4
 	}
 	eob = min(max(eob, skipDC), 16)
+	bt := blockType & 3
 
 	pt := ctx
 	cost := 0
 	pos := skipDC
-	signCostLookup := [2]int{
-		tables.ProbCost[128],
-		tables.ProbCost[255-128],
+	if pos == eob {
+		if pos < 16 {
+			band := int(tables.CoefBandsTable[pos&15])
+			return costs.EOB[bt][band&7][pt]
+		}
+		return 0
 	}
 	for pos < eob {
 		band := int(tables.CoefBandsTable[pos&15])
 		rc := int(tables.DefaultZigZag1D[pos&15]) & 15
 		coeff := int(qcoeff[rc])
 		if coeff == 0 {
-			cost += costs.Token[blockType&3][band&7][pt][tables.ZeroToken]
+			cost += costs.Token[bt][band&7][pt][tables.ZeroToken]
 			pt = int(tables.PrevTokenClass[tables.ZeroToken])
 			pos++
 			continue
 		}
-		t, mag, ok := CoefficientTokenMagnitude(coeff)
-		if !ok {
+		mask := coeff >> tokenCostSignShift
+		sign := mask & 1
+		mag := (coeff ^ mask) - mask
+		if uint(mag-1) >= uint(tables.DCTMaxValue) {
 			return tokenCostMaxInt() / 4
 		}
-		cost += costs.Token[blockType&3][band&7][pt][t]
-		cost += signCostLookup[(coeff>>tokenCostSignShift)&1]
-		cost += CoefficientExtraBitsRate(t, mag)
+		entry := coefficientTokenRateLUT[mag]
+		t := int(entry.token)
+		cost += costs.Token[bt][band&7][pt][t]
+		cost += coefficientSignCost[sign]
+		cost += int(entry.extra)
 		pt = int(tables.PrevTokenClass[t])
 		pos++
 	}
 	if pos < 16 {
 		band := int(tables.CoefBandsTable[pos&15])
-		cost += costs.EOB[blockType&3][band&7][pt]
+		cost += costs.EOB[bt][band&7][pt]
 	}
 	return cost
 }
@@ -247,6 +253,13 @@ func NonZeroCoeffTokenRate(probs [tables.EntropyNodes]uint8, token int) int {
 // coefficient lookup is a single bounded array load.
 var coefficientTokenLUT = buildCoefficientTokenLUT()
 
+type coefficientTokenRateEntry struct {
+	token uint8
+	extra uint16
+}
+
+var coefficientTokenRateLUT = buildCoefficientTokenRateLUT()
+
 func buildCoefficientTokenLUT() [tables.DCTMaxValue + 1]uint8 {
 	var lut [tables.DCTMaxValue + 1]uint8
 	lut[1] = tables.OneToken
@@ -270,6 +283,18 @@ func buildCoefficientTokenLUT() [tables.DCTMaxValue + 1]uint8 {
 	}
 	for i := 67; i <= tables.DCTMaxValue; i++ {
 		lut[i] = tables.DCTValCategory6
+	}
+	return lut
+}
+
+func buildCoefficientTokenRateLUT() [tables.DCTMaxValue + 1]coefficientTokenRateEntry {
+	var lut [tables.DCTMaxValue + 1]coefficientTokenRateEntry
+	for mag := 1; mag <= tables.DCTMaxValue; mag++ {
+		token := coefficientTokenLUT[mag]
+		lut[mag] = coefficientTokenRateEntry{
+			token: token,
+			extra: uint16(CoefficientExtraBitsRate(int(token), mag)),
+		}
 	}
 	return lut
 }
