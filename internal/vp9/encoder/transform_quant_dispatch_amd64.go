@@ -130,6 +130,12 @@ func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizePara
 		iscan, qcoeff, dqcoeff)
 }
 
+func quantizeBPreferRasterSparseTail(coeff []int16, params vp9QuantizeParams,
+	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
+) bool {
+	return false
+}
+
 func quantizeFPLibvpxSSE2OK(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
 	iscan []int16, qcoeff, dqcoeff []int16,
 ) bool {

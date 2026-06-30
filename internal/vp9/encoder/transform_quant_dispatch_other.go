@@ -47,3 +47,9 @@ func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizePara
 	return quantizeBWithQScanOrderRasterScalar(coeff, params, dequant,
 		iscan, qcoeff, dqcoeff)
 }
+
+func quantizeBPreferRasterSparseTail(coeff []int16, params vp9QuantizeParams,
+	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
+) bool {
+	return false
+}

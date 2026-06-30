@@ -197,6 +197,60 @@ func BenchmarkVP9QuantizeBScanOrder(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9QuantizeBSparseTailScanOrder(b *testing.B) {
+	tests := []struct {
+		name string
+		tx   common.TxSize
+		n    int
+	}{
+		{name: "4x4", tx: common.Tx4x4, n: 16},
+		{name: "8x8", tx: common.Tx8x8, n: 64},
+		{name: "16x16", tx: common.Tx16x16, n: 256},
+	}
+	for _, tc := range tests {
+		scanOrder := common.DefaultScanOrders[tc.tx]
+		coeff := make([]int16, tc.n)
+		coeff[scanOrder.Scan[0]] = 1200
+		coeff[scanOrder.Scan[1]] = -900
+		coeff[scanOrder.Scan[min(5, tc.n-1)]] = 700
+		dequant := [2]int16{38, 44}
+		const qindex = 87
+		for _, bench := range []struct {
+			name string
+			fn   func(qcoeff, dqcoeff []int16) int
+		}{
+			{
+				name: "scan",
+				fn: func(qcoeff, dqcoeff []int16) int {
+					return QuantizeBWithQ(coeff, qindex, dequant,
+						scanOrder.Scan, qcoeff, dqcoeff)
+				},
+			},
+			{
+				name: "scanorder",
+				fn: func(qcoeff, dqcoeff []int16) int {
+					return QuantizeBWithQScanOrder(coeff, qindex, dequant,
+						scanOrder, qcoeff, dqcoeff)
+				},
+			},
+		} {
+			b.Run(fmt.Sprintf("%s/%s", tc.name, bench.name), func(b *testing.B) {
+				qcoeff := make([]int16, tc.n)
+				dqcoeff := make([]int16, tc.n)
+				b.ReportAllocs()
+				b.ResetTimer()
+				eobSum := 0
+				for i := 0; i < b.N; i++ {
+					eobSum += bench.fn(qcoeff, dqcoeff)
+				}
+				if eobSum == 0 {
+					b.Fatal("unexpected zero eob accumulator")
+				}
+			})
+		}
+	}
+}
+
 func BenchmarkVP9QuantizeB32x32ScanOrder(b *testing.B) {
 	scanOrder := common.DefaultScanOrders[common.Tx32x32]
 	coeff := make([]int16, 1024)

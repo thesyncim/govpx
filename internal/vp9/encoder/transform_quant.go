@@ -1420,6 +1420,11 @@ func QuantizeBWithQScanOrder(coeff []int16, qindex int, dequant [2]int16,
 	}
 	params := vp9QuantizeBParams(qindex, dequant)
 	if quantizeBScanTailBelowZbin(coeff[:n], params, scanOrder.Scan[:n]) {
+		if qcoeff != nil && quantizeBPreferRasterSparseTail(coeff[:n], params,
+			dequant, scanOrder.IScan[:n], qcoeff[:n], dqcoeff[:n]) {
+			return quantizeBWithQScanOrderRasterDispatch(coeff[:n], params,
+				dequant, scanOrder.IScan[:n], qcoeff[:n], dqcoeff[:n])
+		}
 		if qcoeff == nil {
 			return quantizeBWithQScan(coeff[:n], params, dequant,
 				scanOrder.Scan[:n], nil, dqcoeff[:n])
