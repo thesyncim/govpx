@@ -164,7 +164,14 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		// flips the per-block tx_size field AND the residual token decomposition.
 		// Gate on the deep flag so production (flag off) keeps the nonrd picker
 		// byte-for-byte.
-		if vp9InterUseDeepRDUsePartition && interDecision.txSize < common.TxSizes {
+		if e.vp9InterUsesNonrdPickmode() && interDecision.txSize < common.TxSizes {
+			// Realtime nonrd follows the same committed-mbmi rule: libvpx's
+			// vp9_pick_inter_mode stores best_pickmode.best_tx_size into
+			// mi->tx_size and encode_superblock reads it back. Reusing the
+			// picker result also keeps the count pass and tile pass on the
+			// same decision without rerunning the residual-stat tx picker.
+			mi.TxSize = clampVP9TxSizeForBlock(interDecision.txSize, bsize)
+		} else if vp9InterUseDeepRDUsePartition && interDecision.txSize < common.TxSizes {
 			mi.TxSize = interDecision.txSize
 		} else {
 			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
