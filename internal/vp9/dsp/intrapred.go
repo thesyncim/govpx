@@ -20,12 +20,7 @@ func dcPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	}
 	count := 2 * bs
 	expected := uint8((sum + (count >> 1)) / count)
-	for r := range bs {
-		row := dst[r*stride : r*stride+bs]
-		for i := range row {
-			row[i] = expected
-		}
-	}
+	fillBlockConstant(dst, stride, bs, expected)
 }
 
 func dcLeftPredictor(dst []uint8, stride, bs int, above, left []uint8) {
@@ -35,12 +30,7 @@ func dcLeftPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 		sum += int(left[i])
 	}
 	expected := uint8((sum + (bs >> 1)) / bs)
-	for r := range bs {
-		row := dst[r*stride : r*stride+bs]
-		for i := range row {
-			row[i] = expected
-		}
-	}
+	fillBlockConstant(dst, stride, bs, expected)
 }
 
 func dcTopPredictor(dst []uint8, stride, bs int, above, left []uint8) {
@@ -50,23 +40,13 @@ func dcTopPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 		sum += int(above[i])
 	}
 	expected := uint8((sum + (bs >> 1)) / bs)
-	for r := range bs {
-		row := dst[r*stride : r*stride+bs]
-		for i := range row {
-			row[i] = expected
-		}
-	}
+	fillBlockConstant(dst, stride, bs, expected)
 }
 
 func dc128Predictor(dst []uint8, stride, bs int, above, left []uint8) {
 	_ = above
 	_ = left
-	for r := range bs {
-		row := dst[r*stride : r*stride+bs]
-		for i := range row {
-			row[i] = 128
-		}
-	}
+	fillBlockConstant(dst, stride, bs, 128)
 }
 
 func vPredictor(dst []uint8, stride, bs int, above, left []uint8) {
@@ -84,6 +64,16 @@ func hPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 		for i := range row {
 			row[i] = v
 		}
+	}
+}
+
+func fillBlockConstant(dst []uint8, stride, bs int, v uint8) {
+	row0 := dst[:bs]
+	for i := range row0 {
+		row0[i] = v
+	}
+	for r := 1; r < bs; r++ {
+		copy(dst[r*stride:r*stride+bs], row0)
 	}
 }
 
