@@ -310,6 +310,12 @@ func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Im
 	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
 }
 
+func predictInterAnalysisSplitMVChroma(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode) bool {
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	return vp8dec.PredictSplitMVInterChroma(mode, last, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, row, col, vp8dec.InterPredictionConfig{})
+}
+
 // addInterResidualToAnalysisMacroblock assumes img already contains the
 // matching inter predictor for mode at row/col.
 func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {

@@ -529,14 +529,34 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		predictInter4x4(yPlane[offset:], ref.YStride, xOffset, yOffset, y[yBlockOffset(block, yStride):], yStride, cfg)
 	}
 
+	if !PredictSplitMVInterChroma(mode, ref, u, uStride, v, vStride, mbRow, mbCol, cfg) {
+		return false
+	}
+
+	if mode.MBSkipCoeff {
+		return true
+	}
+	TransformMacroblockTokens(tokens, dequant, true, scratch)
+	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+	return true
+}
+
+// PredictSplitMVInterChroma writes only the inter chroma predictor for a
+// SPLITMV macroblock.
+func PredictSplitMVInterChroma(mode *MacroblockMode, ref *common.Image, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
+	if mode == nil || ref == nil || mode.RefFrame == common.IntraFrame || mode.Mode != common.SplitMV || !mode.Is4x4 {
+		return false
+	}
 	uPlane, uOrigin, uvBorder := referencePlane(ref.U, ref.UFull, ref.UOrigin, ref.UVBorder)
 	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
-	uvWidth := (codedImageWidth(ref) + 1) >> 1
-	uvHeight := (codedImageHeight(ref) + 1) >> 1
+	codedWidth := codedImageWidth(ref)
+	codedHeight := codedImageHeight(ref)
+	uvWidth := (codedWidth + 1) >> 1
+	uvHeight := (codedHeight + 1) >> 1
 	for block := range 4 {
 		mvRow, mvCol := splitChromaMotionVector(mode, block)
 		mvRow, mvCol = fullPixelChromaMotionVector(mvRow, mvCol, cfg)
-		mvRow, mvCol = clampChromaMotionVectorToUMVBorder(mvRow, mvCol, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
+		mvRow, mvCol = clampChromaMotionVectorToUMVBorder(mvRow, mvCol, mbRow, mbCol, codedWidth, codedHeight)
 		blockRow := block >> 1
 		blockCol := block & 1
 		srcRow := mbRow*8 + blockRow*4 + (mvRow >> 3)
@@ -551,16 +571,9 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		if !ok {
 			return false
 		}
-		dstOffset := uvBlockOffset(block, uStride)
-		predictInter4x4(uPlane[uOffset:], ref.UStride, xOffset, yOffset, u[dstOffset:], uStride, cfg)
+		predictInter4x4(uPlane[uOffset:], ref.UStride, xOffset, yOffset, u[uvBlockOffset(block, uStride):], uStride, cfg)
 		predictInter4x4(vPlane[vOffset:], ref.VStride, xOffset, yOffset, v[uvBlockOffset(block, vStride):], vStride, cfg)
 	}
-
-	if mode.MBSkipCoeff {
-		return true
-	}
-	TransformMacroblockTokens(tokens, dequant, true, scratch)
-	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }
 

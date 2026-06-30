@@ -289,7 +289,7 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	var decMode vp8dec.MacroblockMode
 	vp8enc.ConvertInterFrameMode(mode, &decMode)
 	decMode.MBSkipCoeff = true
-	if !reconstructInterAnalysisMacroblock(&e.analysis.Img, ctx.ref.Img, ctx.mbRow, ctx.mbCol, &decMode, nil, &e.dequants[ctx.segmentID&3], &e.reconstructScratch) {
+	if !predictInterAnalysisSplitMVChroma(&e.analysis.Img, ctx.ref.Img, ctx.mbRow, ctx.mbCol, &decMode) {
 		return interResidualRDAccounting{}, false
 	}
 

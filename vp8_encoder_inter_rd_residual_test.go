@@ -275,3 +275,55 @@ func TestAddInterResidualToAnalysisMacroblockMatchesFullReconstruct(t *testing.T
 		})
 	}
 }
+
+func TestPredictInterAnalysisSplitMVChromaMatchesFullReconstruct(t *testing.T) {
+	e := newSizedTestEncoder(t, 32, 32)
+	ref := testVP8Frame(t, 32, 32, 0, 0, 0)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte(31 + (row*7+col*11)&0x7f)
+		}
+	}
+	uvWidth := (ref.Img.CodedWidth + 1) >> 1
+	uvHeight := (ref.Img.CodedHeight + 1) >> 1
+	for row := 0; row < uvHeight; row++ {
+		for col := 0; col < uvWidth; col++ {
+			ref.Img.U[row*ref.Img.UStride+col] = byte(53 + (row*13+col*5)&0x7f)
+			ref.Img.V[row*ref.Img.VStride+col] = byte(71 + (row*3+col*17)&0x7f)
+		}
+	}
+	ref.ExtendBorders()
+
+	mode := vp8dec.MacroblockMode{
+		Mode:        vp8common.SplitMV,
+		RefFrame:    vp8common.LastFrame,
+		Is4x4:       true,
+		MBSkipCoeff: true,
+		Partition:   0,
+	}
+	for block := range mode.BlockMV {
+		mode.BlockMV[block] = vp8dec.MotionVector{
+			Row: int16(((block%4)-1)*3 + (block >> 2)),
+			Col: int16(((block>>2)-1)*5 + (block & 3)),
+		}
+	}
+
+	full := testVP8Frame(t, 32, 32, 19, 23, 29)
+	chromaOnly := testVP8Frame(t, 32, 32, 101, 23, 29)
+	if !reconstructInterAnalysisMacroblock(&full.Img, &ref.Img, 1, 1, &mode, nil, &e.dequants[0], &e.reconstructScratch) {
+		t.Fatalf("full split reconstruction returned false")
+	}
+	if !predictInterAnalysisSplitMVChroma(&chromaOnly.Img, &ref.Img, 1, 1, &mode) {
+		t.Fatalf("split chroma predictor returned false")
+	}
+
+	assertPlaneBlockEqual(t, "split chroma U", full.Img.U, full.Img.UStride, chromaOnly.Img.U, chromaOnly.Img.UStride, uvWidth, uvHeight, 8, 8, 8, 8)
+	assertPlaneBlockEqual(t, "split chroma V", full.Img.V, full.Img.VStride, chromaOnly.Img.V, chromaOnly.Img.VStride, uvWidth, uvHeight, 8, 8, 8, 8)
+	for row := 16; row < 32; row++ {
+		for col := 16; col < 32; col++ {
+			if got := chromaOnly.Img.Y[row*chromaOnly.Img.YStride+col]; got != 101 {
+				t.Fatalf("chroma-only predictor changed Y[%d,%d] = %d, want 101", row, col, got)
+			}
+		}
+	}
+}
