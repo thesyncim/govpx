@@ -1011,6 +1011,8 @@ type VP8Encoder struct {
 	// instead of e.coefProbs so token costs match libvpx's per-reference
 	// fill_token_costs source. nil during key-frame and committed-encode paths.
 	rdPickerCoefProbsActive      *vp8tables.CoefficientProbs
+	rdPickerCoefTokenCosts       vp8enc.CoefficientTokenCostTable
+	rdPickerCoefTokenCostsActive *vp8enc.CoefficientTokenCostTable
 	modeProbs                    vp8dec.ModeProbs
 	subMVRefProbs                [3]uint8
 	noUpdateEntropyCoefProbs     vp8tables.CoefficientProbs

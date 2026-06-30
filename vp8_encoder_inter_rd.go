@@ -135,6 +135,7 @@ func (e *VP8Encoder) estimateInterResidualRDAccountingWithModeContext(ctx *inter
 	}
 	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
 		coefProbs:           e.pickerCoefProbs(),
+		coefTokenCosts:      e.pickerCoefTokenCosts(),
 		src:                 ctx.src,
 		mbRow:               ctx.mbRow,
 		mbCol:               ctx.mbCol,

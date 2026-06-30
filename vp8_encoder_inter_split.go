@@ -497,14 +497,15 @@ func splitMotionLabelRDScore(qIndex int, rate int, distortion int) int {
 }
 
 type splitMotionLabelRDEvaluator struct {
-	zbinOverQuant int
-	actZbinAdj    int
-	rdMult        int
-	rdDiv         int
-	fastQuant     bool
-	optimize      bool
-	yAbove        [4]uint8
-	yLeft         [4]uint8
+	zbinOverQuant  int
+	actZbinAdj     int
+	rdMult         int
+	rdDiv          int
+	fastQuant      bool
+	optimize       bool
+	coefTokenCosts *vp8enc.CoefficientTokenCostTable
+	yAbove         [4]uint8
+	yLeft          [4]uint8
 }
 
 func (ev *splitMotionLabelRDEvaluator) init(zbinOverQuant int, actZbinAdj int, aboveTok *vp8enc.TokenContextPlanes, leftTok *vp8enc.TokenContextPlanes, fastQuant bool, optimize bool) bool {
@@ -579,7 +580,7 @@ func (ev *splitMotionLabelRDEvaluator) rateDistortion(src vp8enc.SourceImage, re
 		l := (block & 0x0c) >> 2
 		ctx := int(nextAbove[a] + nextLeft[l])
 		eob := vp8enc.QuantizeEncodedBlockWithRDZbinAndActivity(coefProbs, qIndex, 3, ctx, 0, ev.zbinOverQuant, vp8enc.SplitInterModeZbinBoost, ev.actZbinAdj, ev.zbinOverQuant, ev.rdMult, ev.rdDiv, false, ev.fastQuant, ev.optimize, &dct, &quant.Y1, &qcoeff, &dqcoeff)
-		blockRate := vp8enc.CoefficientBlockTokenRate(coefProbs, 3, ctx, 0, &qcoeff, eob)
+		blockRate := coefficientBlockTokenRate(coefProbs, ev.coefTokenCosts, 3, ctx, 0, &qcoeff, eob)
 		rate += blockRate
 		yRate += blockRate
 		if eob > 0 {

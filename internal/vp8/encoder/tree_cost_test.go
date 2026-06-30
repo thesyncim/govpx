@@ -189,6 +189,27 @@ func BenchmarkCoefBlockTokenRate(b *testing.B) {
 	_ = sink
 }
 
+func BenchmarkCoefBlockTokenRateWithTable(b *testing.B) {
+	probs := vp8tables.DefaultCoefProbs
+	var costs CoefficientTokenCostTable
+	FillCoefficientTokenCostTable(&probs, &costs)
+	var qcoeff [16]int16
+	qcoeff[0] = -3
+	qcoeff[1] = 2
+	qcoeff[5] = 1
+	qcoeff[10] = -1
+	var sink int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sink += CoefficientBlockTokenRateWithTable(&costs, 0, 0, 1, &qcoeff, 11)
+		sink += CoefficientBlockTokenRateWithTable(&costs, 3, 0, 0, &qcoeff, 11)
+		sink += CoefficientBlockTokenRateWithTable(&costs, 2, 0, 0, &qcoeff, 8)
+		sink += CoefficientBlockTokenRateWithTable(&costs, 1, 0, 0, &qcoeff, 11)
+	}
+	_ = sink
+}
+
 // BenchmarkCoefBlockTokenRateZero captures the all-zero block path that
 // fires on quantize-skip macroblocks (eob == skipDC).
 func BenchmarkCoefBlockTokenRateZero(b *testing.B) {
@@ -200,6 +221,21 @@ func BenchmarkCoefBlockTokenRateZero(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		sink += CoefficientBlockTokenRate(&probs, 0, 0, 1, &qcoeff, 1)
 		sink += CoefficientBlockTokenRate(&probs, 3, 0, 0, &qcoeff, 0)
+	}
+	_ = sink
+}
+
+func BenchmarkCoefBlockTokenRateZeroWithTable(b *testing.B) {
+	probs := vp8tables.DefaultCoefProbs
+	var costs CoefficientTokenCostTable
+	FillCoefficientTokenCostTable(&probs, &costs)
+	var qcoeff [16]int16
+	var sink int
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sink += CoefficientBlockTokenRateWithTable(&costs, 0, 0, 1, &qcoeff, 1)
+		sink += CoefficientBlockTokenRateWithTable(&costs, 3, 0, 0, &qcoeff, 0)
 	}
 	_ = sink
 }

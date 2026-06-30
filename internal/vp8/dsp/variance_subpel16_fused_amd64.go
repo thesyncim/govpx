@@ -8,6 +8,8 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
+// Ported from libvpx v1.16.0 VP8 sub-pixel variance staging.
+//
 // AMD64 routes the 16x16 sub-pixel variance hook through the existing
 // 16-wide SSE2 bilinear stages plus the 16x16 variance kernel. This is not as
 // tight as the arm64 fused NEON kernels, but it avoids the byte-domain scalar

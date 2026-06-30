@@ -780,8 +780,15 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	// tokenize.c which reads cm->fc.coef_probs.
 	previousRDPickerCoefProbs := e.rdPickerCoefProbsActive
 	e.rdPickerCoefProbsActive = e.rdPickerCoefProbs(cfg.RefreshGolden, cfg.RefreshAltRef)
+	previousRDPickerCoefTokenCosts := e.rdPickerCoefTokenCostsActive
+	if vp8enc.FillCoefficientTokenCostTable(e.pickerCoefProbs(), &e.rdPickerCoefTokenCosts) {
+		e.rdPickerCoefTokenCostsActive = &e.rdPickerCoefTokenCosts
+	} else {
+		e.rdPickerCoefTokenCostsActive = nil
+	}
 	defer func() {
 		e.rdPickerCoefProbsActive = previousRDPickerCoefProbs
+		e.rdPickerCoefTokenCostsActive = previousRDPickerCoefTokenCosts
 	}()
 	var phase int64
 	if vp8PhaseStatsEnabled {

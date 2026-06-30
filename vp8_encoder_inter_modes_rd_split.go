@@ -173,6 +173,7 @@ func (e *VP8Encoder) selectInterFrameSplitModeRDScore(ctx *interSplitModeRDConte
 	tryPartition := func(partition int) {
 		var labelRD splitMotionLabelRDEvaluator
 		labelRD.init(zbinOverQuant, actZbinAdj, ctx.aboveTok, ctx.leftTok, fastQuant, false)
+		labelRD.coefTokenCosts = e.pickerCoefTokenCosts()
 		if e.activityMapValid {
 			rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(ctx.qIndex, zbinOverQuant)
 			rdMult = e.tunedRDMultiplier(rdMult, ctx.mbRow, ctx.mbCol)
@@ -295,6 +296,7 @@ func (e *VP8Encoder) estimateInterSplitResidualRDAccounting(ctx *interSplitModeR
 	var coeffs vp8enc.MacroblockCoefficients
 	stats := buildPredictedMacroblockCoefficientsInternal(&predictedMacroblockCoefficientArgs{
 		coefProbs:           e.pickerCoefProbs(),
+		coefTokenCosts:      e.pickerCoefTokenCosts(),
 		src:                 ctx.src,
 		mbRow:               ctx.mbRow,
 		mbCol:               ctx.mbCol,

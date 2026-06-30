@@ -380,6 +380,10 @@ func (e *VP8Encoder) pickerCoefProbs() *vp8tables.CoefficientProbs {
 	return &e.coefProbs
 }
 
+func (e *VP8Encoder) pickerCoefTokenCosts() *vp8enc.CoefficientTokenCostTable {
+	return e.rdPickerCoefTokenCostsActive
+}
+
 // rdPickerCoefProbs returns the coefficient-prob table the inter-frame RD
 // picker should feed into fill_token_costs (the rate side of every
 // vp8enc.CoefficientBlockTokenRate call inside the picker), mirroring libvpx

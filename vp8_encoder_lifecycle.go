@@ -188,6 +188,8 @@ func (e *VP8Encoder) Reset() {
 	e.coefProbsAltRef = vp8tables.CoefficientProbs{}
 	e.coefProbsSnapshotsValid = false
 	e.rdPickerCoefProbsActive = nil
+	e.rdPickerCoefTokenCosts = vp8enc.CoefficientTokenCostTable{}
+	e.rdPickerCoefTokenCostsActive = nil
 	// resetInterRDThresholdMultipliers() bumped interRDThreshBaselineGen
 	// once during the encoder-level scalars block above; leave it at 1 to
 	// match NewVP8Encoder's cold-start trajectory.

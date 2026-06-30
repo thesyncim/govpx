@@ -19,6 +19,35 @@ func tokenCostMaxInt() int {
 	return int(^uint(0) >> 1)
 }
 
+// CoefficientTokenCostTable caches libvpx-compatible coefficient token costs
+// for a fixed coefficient-probability table. Token costs honor skip_eob_node
+// elision; terminating EOB costs are stored separately because block-rate
+// scoring always charges the full EOB tree cost.
+type CoefficientTokenCostTable struct {
+	Token [tables.BlockTypes][tables.CoefBands][tables.PrevCoefContexts][tables.MaxEntropyTokens]int
+	EOB   [tables.BlockTypes][tables.CoefBands][tables.PrevCoefContexts]int
+}
+
+// FillCoefficientTokenCostTable builds the per-frame coefficient token-cost
+// table used by VP8 RD scoring.
+func FillCoefficientTokenCostTable(probs *tables.CoefficientProbs, costs *CoefficientTokenCostTable) bool {
+	if probs == nil || costs == nil {
+		return false
+	}
+	for blockType := range tables.BlockTypes {
+		for band := range tables.CoefBands {
+			for ctx := range tables.PrevCoefContexts {
+				p := (*probs)[blockType][band][ctx]
+				for token := range tables.MaxEntropyTokens {
+					costs.Token[blockType][band][ctx][token] = coefTokenCostElided(p, token, blockType, band, ctx)
+				}
+				costs.EOB[blockType][band][ctx] = coefEOBTokenCost(&p)
+			}
+		}
+	}
+	return true
+}
+
 // CoefficientBlockTokenRate returns the libvpx-compatible coefficient token
 // rate for one 4x4/Y2 block.
 func CoefficientBlockTokenRate(probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
@@ -90,6 +119,51 @@ func CoefficientBlockTokenRate(probs *tables.CoefficientProbs, blockType int, ct
 		band := int(tables.CoefBandsTable[pos&15])
 		p := (*probs)[blockType&3][band&7][pt]
 		cost += coefEOBTokenCost(&p)
+	}
+	return cost
+}
+
+// CoefficientBlockTokenRateWithTable returns the same block rate as
+// CoefficientBlockTokenRate using a precomputed token-cost table.
+func CoefficientBlockTokenRateWithTable(costs *CoefficientTokenCostTable, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
+	if costs == nil || qcoeff == nil ||
+		uint(blockType) >= uint(tables.BlockTypes) ||
+		uint(ctx) >= uint(tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
+		return tokenCostMaxInt() / 4
+	}
+	eob = min(max(eob, skipDC), 16)
+
+	pt := ctx
+	cost := 0
+	pos := skipDC
+	signCostLookup := [2]int{
+		tables.ProbCost[128],
+		tables.ProbCost[255-128],
+	}
+	for pos < eob {
+		band := int(tables.CoefBandsTable[pos&15])
+		rc := int(tables.DefaultZigZag1D[pos&15]) & 15
+		coeff := int(qcoeff[rc])
+		if coeff == 0 {
+			cost += costs.Token[blockType&3][band&7][pt][tables.ZeroToken]
+			pt = int(tables.PrevTokenClass[tables.ZeroToken])
+			pos++
+			continue
+		}
+		t, mag, ok := CoefficientTokenMagnitude(coeff)
+		if !ok {
+			return tokenCostMaxInt() / 4
+		}
+		cost += costs.Token[blockType&3][band&7][pt][t]
+		cost += signCostLookup[(coeff>>tokenCostSignShift)&1]
+		cost += CoefficientExtraBitsRate(t, mag)
+		pt = int(tables.PrevTokenClass[t])
+		pos++
+	}
+	if pos < 16 {
+		band := int(tables.CoefBandsTable[pos&15])
+		cost += costs.EOB[blockType&3][band&7][pt]
 	}
 	return cost
 }
