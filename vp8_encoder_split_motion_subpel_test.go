@@ -104,6 +104,17 @@ func TestRefineInterFrameSplitBlockSubpixelMotionVectorUsesBilinearVariance(t *t
 	}
 }
 
+func TestSplitBlockSubpixelCandidateCacheReturnsCachedCost(t *testing.T) {
+	var cache subpelEvalCache
+	cache.put(3, -1, subpelCandidateEval{cost: 12345, ok: true})
+
+	got := cachedSplitBlockSubpixelMotionSearchCandidateCost(&cache, vp8enc.SourceImage{}, nil, 0, 0, 0, 4, 4, 3, -1, vp8enc.MotionVector{}, 1, nil, nil)
+
+	if got != 12345 {
+		t.Fatalf("cached split subpel cost = %d, want cached 12345", got)
+	}
+}
+
 func TestSelectInterFrameReferenceMotionVectorRefinesSubpixelCandidate(t *testing.T) {
 	src := testImage(48, 48)
 	fillImage(src, 13, 90, 170)
@@ -388,5 +399,37 @@ func TestInterFrameMotionSearchStatsCountsSubpelTopology(t *testing.T) {
 func TestInterFrameSubpixelSearchCandidateCount(t *testing.T) {
 	if got := interFrameSubpixelSearchCandidateCount(); got != 31 {
 		t.Fatalf("subpixel candidate count = %d, want libvpx iterative max 31", got)
+	}
+}
+
+func BenchmarkSplitBlockSubpixelIterativeRefine8x8(b *testing.B) {
+	src := testImage(32, 32)
+	fillImage(src, 0, 90, 170)
+	ref := testVP8Frame(b, 32, 32, 0, 90, 170)
+	for row := 0; row < ref.Img.CodedHeight; row++ {
+		for col := 0; col < ref.Img.CodedWidth; col++ {
+			ref.Img.Y[row*ref.Img.YStride+col] = byte((23 + row*11 + col*7 + row*col*5) & 0xff)
+		}
+	}
+	ref.ExtendBorders()
+	refStart := ref.Img.YOrigin
+	dsp.BilinearPredict8x8(ref.Img.YFull[refStart:], ref.Img.YStride, 2, 2, src.Y, src.YStride)
+
+	source := sourceImageFromPublic(src)
+	mvProbs := vp8tables.DefaultMVContext
+	var mvCosts vp8enc.MotionVectorCostTables
+	mvCosts.Build(&mvProbs)
+	errorPerBit := vp8enc.ErrorPerBit(testInterSearchQIndex)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		mv, _, ok := iterativeInterFrameSplitBlockSubpixelMotionVector(source, &ref.Img, 0, 0, 0, 8, 8, vp8enc.MotionVector{}, vp8enc.MotionVector{}, testInterSearchQIndex, errorPerBit, &mvProbs, &mvCosts)
+		if !ok {
+			b.Fatal("iterative split subpel returned ok=false")
+		}
+		if mv != (vp8enc.MotionVector{Row: 2, Col: 2}) {
+			b.Fatalf("iterative split subpel MV = %+v, want +2,+2", mv)
+		}
 	}
 }

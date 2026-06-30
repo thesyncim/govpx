@@ -249,13 +249,14 @@ func stepInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, ref *v
 	}
 	bestRow := (int(best.Row) >> 3) * 4
 	bestCol := (int(best.Col) >> 3) * 4
+	var cache subpelEvalCache
 	bestCost, ok := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	if !ok {
 		return vp8enc.MotionVector{}, 0, false
 	}
-	bestCost, bestRow, bestCol = stepInterFrameSplitBlockSubpixelDirectionalSearch(src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, 2, bestCost, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	bestCost, bestRow, bestCol = stepInterFrameSplitBlockSubpixelDirectionalSearch(&cache, src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, 2, bestCost, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	if quarter {
-		bestCost, bestRow, bestCol = stepInterFrameSplitBlockSubpixelDirectionalSearch(src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, 1, bestCost, bestRefMV, errorPerBit, mvProbs, mvCosts)
+		bestCost, bestRow, bestCol = stepInterFrameSplitBlockSubpixelDirectionalSearch(&cache, src, ref, mbRow, mbCol, block, width, height, bestRow, bestCol, 1, bestCost, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	}
 	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
 	if !vp8enc.InterFrameSubpixelMotionVectorInRange(finalMV, bestRefMV) {
@@ -265,13 +266,13 @@ func stepInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, ref *v
 	return finalMV, bestCost, true
 }
 
-func stepInterFrameSplitBlockSubpixelDirectionalSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, startRow int, startCol int, step int, bestCost int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (int, int, int) {
+func stepInterFrameSplitBlockSubpixelDirectionalSearch(cache *subpelEvalCache, src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, startRow int, startCol int, step int, bestCost int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (int, int, int) {
 	bestRow := startRow
 	bestCol := startCol
-	leftCost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, startRow, startCol-step, bestRefMV, errorPerBit, mvProbs, mvCosts)
-	rightCost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, startRow, startCol+step, bestRefMV, errorPerBit, mvProbs, mvCosts)
-	upCost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, startRow-step, startCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
-	downCost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, startRow+step, startCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	leftCost := cachedSplitBlockSubpixelMotionSearchCandidateCost(cache, src, ref, mbRow, mbCol, block, width, height, startRow, startCol-step, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	rightCost := cachedSplitBlockSubpixelMotionSearchCandidateCost(cache, src, ref, mbRow, mbCol, block, width, height, startRow, startCol+step, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	upCost := cachedSplitBlockSubpixelMotionSearchCandidateCost(cache, src, ref, mbRow, mbCol, block, width, height, startRow-step, startCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	downCost := cachedSplitBlockSubpixelMotionSearchCandidateCost(cache, src, ref, mbRow, mbCol, block, width, height, startRow+step, startCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, leftCost, startRow, startCol-step)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, rightCost, startRow, startCol+step)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, upCost, startRow-step, startCol)
@@ -285,7 +286,7 @@ func stepInterFrameSplitBlockSubpixelDirectionalSearch(src vp8enc.SourceImage, r
 	if leftCost >= rightCost {
 		diagCol = startCol + step
 	}
-	diagCost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, diagRow, diagCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
+	diagCost := cachedSplitBlockSubpixelMotionSearchCandidateCost(cache, src, ref, mbRow, mbCol, block, width, height, diagRow, diagCol, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	bestCost, bestRow, bestCol = updateSubpixelSearchBest(bestCost, bestRow, bestCol, diagCost, diagRow, diagCol)
 	return bestCost, bestRow, bestCol
 }
@@ -308,12 +309,9 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 	mbCols := (src.Width + 15) >> 4
 	bounds := vp8enc.InterFrameSubpelSearchBoundsFor(bestRefMV, mbRow, mbCol, mbRows, mbCols)
 	_ = qIndex
+	var cache subpelEvalCache
 	cand := func(r, c int) int {
-		if !bounds.Contains(r, c) {
-			return maxInt()
-		}
-		cost, _ := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, r, c, bestRefMV, errorPerBit, mvProbs, mvCosts)
-		return cost
+		return cachedBoundedSplitBlockSubpixelMotionSearchCandidateCost(&cache, bounds, src, ref, mbRow, mbCol, block, width, height, r, c, bestRefMV, errorPerBit, mvProbs, mvCosts)
 	}
 
 	for range 3 {
@@ -377,6 +375,32 @@ func iterativeInterFrameSplitBlockSubpixelMotionVector(src vp8enc.SourceImage, r
 		return vp8enc.MotionVector{}, 0, false
 	}
 	return finalMV, bestCost, true
+}
+
+func cachedSplitBlockSubpixelMotionSearchCandidateCost(cache *subpelEvalCache, src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if eval, ok := cache.get(row, col); ok {
+		return eval.cost
+	}
+	eval := subpelCandidateEval{cost: maxInt()}
+	if cost, ok := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, row, col, bestRefMV, errorPerBit, mvProbs, mvCosts); ok {
+		eval = subpelCandidateEval{cost: cost, ok: true}
+	}
+	cache.put(row, col, eval)
+	return eval.cost
+}
+
+func cachedBoundedSplitBlockSubpixelMotionSearchCandidateCost(cache *subpelEvalCache, bounds vp8enc.InterFrameSubpelSearchBounds, src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) int {
+	if eval, ok := cache.get(row, col); ok {
+		return eval.cost
+	}
+	eval := subpelCandidateEval{cost: maxInt()}
+	if bounds.Contains(row, col) {
+		if cost, ok := splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src, ref, mbRow, mbCol, block, width, height, row, col, bestRefMV, errorPerBit, mvProbs, mvCosts); ok {
+			eval = subpelCandidateEval{cost: cost, ok: true}
+		}
+	}
+	cache.put(row, col, eval)
+	return eval.cost
 }
 
 func splitBlockSubpixelMotionSearchCandidateCostWithCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, block int, width int, height int, row int, col int, bestRefMV vp8enc.MotionVector, errorPerBit int, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (int, bool) {
