@@ -2,7 +2,11 @@
 
 package encoder
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+)
 
 // ARMv8 NEON dispatchers for the VP9 forward transforms and quantizer.
 // Each entry point either routes to a hand-coded NEON kernel or falls
@@ -33,6 +37,17 @@ func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
 		return
 	}
 	forwardDCT16x16NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride)
+}
+
+func forwardHT16x16Dispatch(input []int16, stride int, txType common.TxType, output []int16) bool {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
+		return false
+	}
+	if stride < 16 || len(input) < 15*stride+16 || len(output) < 256 {
+		return false
+	}
+	forwardHT16x16NEON(unsafe.SliceData(input), unsafe.SliceData(output), stride, int(txType))
+	return true
 }
 
 func forwardDCT32x32Dispatch(input []int16, stride int, output []int16) {
@@ -266,6 +281,9 @@ func forwardDCT4x4NEON(input *int16, output *int16, stride int)
 
 //go:noescape
 func forwardDCT16x16NEON(input *int16, output *int16, stride int)
+
+//go:noescape
+func forwardHT16x16NEON(input *int16, output *int16, stride int, txType int)
 
 //go:noescape
 func quantizeFPACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,

@@ -2,7 +2,11 @@
 
 package encoder
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+)
 
 // AMD64 SSE2 dispatchers for the VP9 forward transforms and quantizer.
 // Pending DCT entry points route to the canonical scalar reference while
@@ -27,6 +31,10 @@ func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
 
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT16x16Scalar(input, stride, output)
+}
+
+func forwardHT16x16Dispatch(input []int16, stride int, txType common.TxType, output []int16) bool {
+	return false
 }
 
 func forwardDCT32x32Dispatch(input []int16, stride int, output []int16) {

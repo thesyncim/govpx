@@ -504,6 +504,16 @@ func ForwardHT16x16Into(input []int16, stride int, txType common.TxType, output 
 	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
 		return
 	}
+	if forwardHT16x16Dispatch(input, stride, txType, output) {
+		return
+	}
+	forwardHT16x16Scalar(input, stride, txType, output)
+}
+
+func forwardHT16x16Scalar(input []int16, stride int, txType common.TxType, output []int16) {
+	if txType != common.AdstDct && txType != common.DctAdst && txType != common.AdstAdst {
+		return
+	}
 	var out [256]int
 	var tempIn, tempOut [16]int
 	for i := range 16 {

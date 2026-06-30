@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"testing"
 	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func TestQuantizeBACNEONMatchesScalar(t *testing.T) {
@@ -228,6 +230,26 @@ func TestForwardDCT16x16NEONStackStress(t *testing.T) {
 		forwardDCT16x16NEONStackStress(t, 48, input[:], got[:])
 		if got != want {
 			t.Fatalf("trial %d DCT16x16 stack stress mismatch\nsimd  %v\nscalar %v", trial, got, want)
+		}
+	}
+}
+
+func TestForwardHT16x16NEONMatchesScalarRandom(t *testing.T) {
+	rng := rand.New(rand.NewSource(23))
+	for _, txType := range []common.TxType{common.AdstDct, common.DctAdst, common.AdstAdst} {
+		for trial := range 100 {
+			var input [16 * 32]int16
+			for i := range input {
+				input[i] = int16(rng.Intn(511) - 255)
+			}
+			var simd, scalar [256]int16
+			forwardHT16x16NEON(unsafe.SliceData(input[:]),
+				unsafe.SliceData(simd[:]), 32, int(txType))
+			forwardHT16x16Scalar(input[:], 32, txType, scalar[:])
+			if simd != scalar {
+				t.Fatalf("tx=%d trial=%d HT16x16 mismatch\nsimd  %v\nscalar %v",
+					txType, trial, simd, scalar)
+			}
 		}
 	}
 }

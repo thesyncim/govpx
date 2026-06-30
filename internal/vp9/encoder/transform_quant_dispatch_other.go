@@ -2,6 +2,8 @@
 
 package encoder
 
+import "github.com/thesyncim/govpx/internal/vp9/common"
+
 // Pure-Go fallback dispatchers for the VP9 forward-transform and
 // quantizer SIMD entry points. Every entry point routes directly to the
 // canonical scalar reference defined in transform_quant.go.
@@ -16,6 +18,10 @@ func forwardDCT8x8Dispatch(input []int16, stride int, output []int16) {
 
 func forwardDCT16x16Dispatch(input []int16, stride int, output []int16) {
 	forwardDCT16x16Scalar(input, stride, output)
+}
+
+func forwardHT16x16Dispatch(input []int16, stride int, txType common.TxType, output []int16) bool {
+	return false
 }
 
 func forwardDCT32x32Dispatch(input []int16, stride int, output []int16) {
