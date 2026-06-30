@@ -39,6 +39,30 @@ func CoeffTokenRateCost(probs []uint8, absVal, sign int) int {
 // CoeffTokenExtraCost returns the entropy token plus the extra-bit and sign
 // cost for a coefficient magnitude.
 func CoeffTokenExtraCost(absVal, sign int) (token int, cost int) {
+	if uint(absVal) < coeffTokenExtraCostTableSize {
+		entry := coeffTokenExtraCostTable[absVal]
+		return int(entry.token), int(entry.cost)
+	}
+	return coeffTokenExtraCostSlow(absVal, sign)
+}
+
+const coeffTokenExtraCostTableSize = 4096
+
+type coeffTokenExtraCostEntry struct {
+	cost  uint16
+	token uint8
+}
+
+var coeffTokenExtraCostTable = func() [coeffTokenExtraCostTableSize]coeffTokenExtraCostEntry {
+	var table [coeffTokenExtraCostTableSize]coeffTokenExtraCostEntry
+	for absVal := range table {
+		token, cost := coeffTokenExtraCostSlow(absVal, 0)
+		table[absVal] = coeffTokenExtraCostEntry{token: uint8(token), cost: uint16(cost)}
+	}
+	return table
+}()
+
+func coeffTokenExtraCostSlow(absVal, sign int) (token int, cost int) {
 	token, extra := TokenForAbsCoeff(absVal)
 	if token >= Category1Tok {
 		eb := VP9ExtraBits[token]

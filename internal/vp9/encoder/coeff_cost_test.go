@@ -153,6 +153,32 @@ func TestCoeffMagnitudeAndSignFallsBackToDqCoeff(t *testing.T) {
 	}
 }
 
+func TestCoeffTokenExtraCostTableMatchesSlowPath(t *testing.T) {
+	for _, absVal := range []int{
+		0, 1, 2, 3, 4, 5, 6, 7, 10, 11, 18, 19, 34, 35, 66, 67,
+		255, 1000, coeffTokenExtraCostTableSize - 1,
+	} {
+		for _, sign := range []int{0, 1} {
+			gotToken, gotCost := CoeffTokenExtraCost(absVal, sign)
+			wantToken, wantCost := coeffTokenExtraCostSlow(absVal, sign)
+			if gotToken != wantToken || gotCost != wantCost {
+				t.Fatalf("CoeffTokenExtraCost(%d,%d) = (%d,%d), want slow (%d,%d)",
+					absVal, sign, gotToken, gotCost, wantToken, wantCost)
+			}
+		}
+	}
+}
+
+func TestCoeffTokenExtraCostOutOfTableFallsBack(t *testing.T) {
+	absVal := coeffTokenExtraCostTableSize + 17
+	gotToken, gotCost := CoeffTokenExtraCost(absVal, 1)
+	wantToken, wantCost := coeffTokenExtraCostSlow(absVal, 1)
+	if gotToken != wantToken || gotCost != wantCost {
+		t.Fatalf("CoeffTokenExtraCost fallback = (%d,%d), want slow (%d,%d)",
+			gotToken, gotCost, wantToken, wantCost)
+	}
+}
+
 func TestCoeffBlockEOBPrefersQCoeffScanOrder(t *testing.T) {
 	scan := []int16{3, 1, 2, 0}
 	coeffs := []int16{9, 0, 0, 0}
@@ -212,6 +238,17 @@ func BenchmarkCoeffBlockEOBGenericCoeff(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		total += CoeffBlockEOB(scan, 256, coeffs, nil)
+	}
+	coeffBlockEOBBenchSink = total
+}
+
+func BenchmarkCoeffTokenExtraCostTable(b *testing.B) {
+	values := [...]int{0, 1, 2, 3, 4, 5, 7, 11, 19, 35, 67, 255}
+	total := 0
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		token, cost := CoeffTokenExtraCost(values[i%len(values)], i&1)
+		total += token + cost
 	}
 	coeffBlockEOBBenchSink = total
 }
