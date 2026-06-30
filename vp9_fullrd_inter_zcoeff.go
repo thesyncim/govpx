@@ -198,7 +198,7 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 			// pre-pass and the write pass.
 			blockRate := e.vp9InterCoeffBlockRateCostQFcWithCosts(&inter.selectFc,
 				e.vp9CoeffTokenCostTable(txSize, 0, 1), txSize, 0,
-				dequant, coeffs, qcoeffs, initCtx)
+				dequant, coeffs, qcoeffs, initCtx, 0, false)
 
 			rd1 := encoder.RDCost(rdmult, encoder.RDDivBits, blockRate, blockDist)
 			rd2 := encoder.RDCost(rdmult, encoder.RDDivBits, 0, blockSSE)

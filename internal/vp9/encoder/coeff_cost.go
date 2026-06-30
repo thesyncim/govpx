@@ -344,6 +344,8 @@ type CoeffBlockRateCostInput struct {
 	Fast       bool
 	TokenCache *[1024]byte
 	CostTable  *CoeffTreeTokenCostTable
+	EOB        int
+	EOBKnown   bool
 }
 
 // CoeffBlockRateCost ports libvpx cost_coeffs for VP9 encoder RD scoring.
@@ -372,7 +374,7 @@ func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
 	for i := range in.TokenCache[:maxEob] {
 		in.TokenCache[i] = 0
 	}
-	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
+	eob := coeffBlockRateCostEOB(in, scan, maxEob)
 	return coeffBlockRateCostSlowQ(in, scan, neighbors, maxEob, eob)
 }
 
@@ -440,7 +442,7 @@ func coeffBlockRateCostFastQ(in CoeffBlockRateCostInput, scan []int16,
 	if in.QCoeffs != nil {
 		return coeffBlockRateCostFastCompleteQCoeff(in, scan, maxEob)
 	}
-	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
+	eob := coeffBlockRateCostEOB(in, scan, maxEob)
 	if eob == 0 {
 		return coeffBlockTreeTokenCost(in.CostTable, in.CoefModel, 0,
 			in.InitCtx, false, EobToken)
@@ -497,7 +499,7 @@ func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
 	if in.CostTable != nil {
 		return coeffBlockRateCostFastCompleteQCoeffTable(in, scan, maxEob)
 	}
-	eob := coeffBlockEOBCompleteQCoeff(scan, maxEob, in.QCoeffs)
+	eob := coeffBlockRateCostEOB(in, scan, maxEob)
 	if eob == 0 {
 		return coeffBlockTreeTokenCost(in.CostTable, in.CoefModel, 0,
 			in.InitCtx, false, EobToken)
@@ -547,7 +549,7 @@ func coeffBlockRateCostFastCompleteQCoeff(in CoeffBlockRateCostInput,
 func coeffBlockRateCostFastCompleteQCoeffTable(in CoeffBlockRateCostInput,
 	scan []int16, maxEob int,
 ) int {
-	eob := coeffBlockEOBCompleteQCoeff(scan, maxEob, in.QCoeffs)
+	eob := coeffBlockRateCostEOB(in, scan, maxEob)
 	costs := in.CostTable
 	if eob == 0 {
 		return int((*costs)[0][in.InitCtx][0][EobToken])
@@ -589,6 +591,21 @@ func coeffBlockRateCostFastCompleteQCoeffTable(in CoeffBlockRateCostInput,
 		rate += int((*costs)[bandIdx][ctx][0][EobToken])
 	}
 	return rate
+}
+
+func coeffBlockRateCostEOB(in CoeffBlockRateCostInput, scan []int16,
+	maxEob int,
+) int {
+	if in.EOBKnown {
+		if in.EOB < 0 {
+			return 0
+		}
+		if in.EOB > maxEob {
+			return maxEob
+		}
+		return in.EOB
+	}
+	return coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
 }
 
 func coeffTokenExtraCostQCoeff(q int16) (token int, cost int) {

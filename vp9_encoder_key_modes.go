@@ -429,7 +429,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				// against txCoeffScratch/dqCoeffScratch just like
 				// vp9_block_error(coeff, dqcoeff, 16, &unused) >> 2 at
 				// vp9_rdopt.c:1261-1263.
-				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode,
+				hasResidue, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, 0, mode,
 					common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
 					idy+jy, idx+jx, dequant, qindex, coeffs, qcoeffs)
 				totalDistortion += encoder.TransformBlockErrorShifted(
@@ -441,8 +441,9 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				// reads v = qcoeff[rc] directly (vp9_rdopt.c:392,405).
 				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
 					tempa[jx:jx+1], templ[jy:jy+1])
-				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCostQ(
-					common.Tx4x4, mode, key.lossless, dequant, coeffs, qcoeffs, initCtx)
+				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCostQEOB(
+					common.Tx4x4, mode, key.lossless, dequant, coeffs, qcoeffs, initCtx,
+					eob, true)
 				// libvpx vp9_rdopt.c:1162, 1244 — tempa[idx] =
 				// templ[idy] = (eobs[block] > 0) ? 1 : 0.
 				eobFlag := uint8(0)
@@ -967,7 +968,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			// in the SB see the libvpx-correct reconstructed neighbour
 			// samples — mirroring vp9_rdopt.c:683-687 which copies the
 			// recon into out_recon for downstream blocks.
-			hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, txSize,
+			hasResidue, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, 0, mode, txSize,
 				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 				qindex, coeffs, qcoeffs)
 
@@ -1009,8 +1010,8 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			// indexes fc.CoefProbs[txSize][0][0] (planeType=0,
 			// is_inter=0) and walks the per-token entropy tree reading
 			// v = qcoeff[rc] directly (vp9_rdopt.c:392,405).
-			blockRate := e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode,
-				key.lossless, dequant, coeffs, qcoeffs, initCtx)
+			blockRate := e.vp9KeyframeCoeffBlockRateCostQEOB(txSize, mode,
+				key.lossless, dequant, coeffs, qcoeffs, initCtx, eob, true)
 			coeffRate += blockRate
 
 			// libvpx block_rd_txfm accumulates an early-exit RD using
@@ -1464,7 +1465,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 			// InverseTransformBlock). The dst recon is updated in place
 			// so subsequent intra predictions for later blocks in the
 			// SB see libvpx-correct neighbour samples.
-			hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, plane, mode, uvTxSize,
+			hasResidue, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, plane, mode, uvTxSize,
 				tile, miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 				qindex, coeffs, qcoeffs)
 
@@ -1498,8 +1499,8 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 			// vp9KeyframeUvCoeffBlockRateCostQ helper indexes
 			// fc.CoefProbs[txSize][planeType][is_inter] internally and
 			// reads v = qcoeff[rc] (vp9_rdopt.c:438) directly.
-			rate += e.vp9KeyframeUvCoeffBlockRateCostQ(uvTxSize, dequant,
-				coeffs, qcoeffs, initCtx)
+			rate += e.vp9KeyframeUvCoeffBlockRateCostQEOB(uvTxSize, dequant,
+				coeffs, qcoeffs, initCtx, eob, true)
 
 			// libvpx vp9_rdopt.c:786-792 — t_above[c..]/t_left[r..] = !!eob.
 			hasCtx := uint8(0)
@@ -1785,7 +1786,7 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 					coeffs[i] = 0
 					qcoeffs[i] = 0
 				}
-				hasResidue := e.prepareVP9KeyframeTxResidueWithQ(key, pd, 0, mode, tx, tile,
+				hasResidue, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, 0, mode, tx, tile,
 					miRows, miCols, miRow, miCol, bsize, rr, cc, dequant,
 					qindex, coeffs, qcoeffs)
 				if !hasResidue {
@@ -1827,8 +1828,8 @@ func (e *VP9Encoder) pickVP9KeyframeBlockTxSize(key *vp9KeyframeEncodeState,
 				// outer iteration; the per-block coeff_ctx is computed
 				// inside block_rd_txfm and is locally 0 at the SB
 				// corner with no above/left residue).
-				rate += e.vp9KeyframeCoeffBlockRateCostQ(tx, mode,
-					key.lossless, dequant, coeffs, qcoeffs, 0)
+				rate += e.vp9KeyframeCoeffBlockRateCostQEOB(tx, mode,
+					key.lossless, dequant, coeffs, qcoeffs, 0, eob, true)
 			}
 		}
 		if !valid {
@@ -1916,6 +1917,14 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQ(txSize common.TxSize,
 	mode common.PredictionMode, lossless bool, dequant [2]int16,
 	coeffs, qcoeffs []int16, initCtx int,
 ) int {
+	return e.vp9KeyframeCoeffBlockRateCostQEOB(txSize, mode, lossless,
+		dequant, coeffs, qcoeffs, initCtx, 0, false)
+}
+
+func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQEOB(txSize common.TxSize,
+	mode common.PredictionMode, lossless bool, dequant [2]int16,
+	coeffs, qcoeffs []int16, initCtx int, eob int, eobKnown bool,
+) int {
 	if txSize >= common.TxSizes {
 		return 0
 	}
@@ -1924,7 +1933,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQ(txSize common.TxSize,
 	}
 	scanOrder := common.GetScan(txSize, 0, 0, lossless, mode)
 	return e.vp9KeyframeCoeffBlockRateCostPlaneQ(txSize, 0, scanOrder,
-		dequant, coeffs, qcoeffs, initCtx)
+		dequant, coeffs, qcoeffs, initCtx, eob, eobKnown)
 }
 
 // vp9KeyframeUvCoeffBlockRateCostQ is the qcoeff-emitting sibling of
@@ -1933,11 +1942,20 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostQ(txSize common.TxSize,
 func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCostQ(txSize common.TxSize,
 	dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 ) int {
+	return e.vp9KeyframeUvCoeffBlockRateCostQEOB(txSize, dequant, coeffs,
+		qcoeffs, initCtx, 0, false)
+}
+
+func (e *VP9Encoder) vp9KeyframeUvCoeffBlockRateCostQEOB(txSize common.TxSize,
+	dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
+	eob int, eobKnown bool,
+) int {
 	if txSize >= common.TxSizes {
 		return 0
 	}
 	return e.vp9KeyframeCoeffBlockRateCostPlaneQ(txSize, 1,
-		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs, initCtx)
+		common.DefaultScanOrders[txSize], dequant, coeffs, qcoeffs, initCtx,
+		eob, eobKnown)
 }
 
 // vp9KeyframeCoeffBlockRateCostPlane is the shared cost_coeffs walker
@@ -1949,7 +1967,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
 	coeffs []int16, initCtx int,
 ) int {
 	return e.vp9KeyframeCoeffBlockRateCostPlaneQ(txSize, planeType, scanOrder,
-		dequant, coeffs, nil, initCtx)
+		dequant, coeffs, nil, initCtx, 0, false)
 }
 
 // vp9KeyframeCoeffBlockRateCostPlaneQ mirrors libvpx's cost_coeffs
@@ -1959,17 +1977,17 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlane(txSize common.TxSize,
 // from int16-wrapped dqcoeff is bypassed.
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQ(txSize common.TxSize,
 	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
-	coeffs, qcoeffs []int16, initCtx int,
+	coeffs, qcoeffs []int16, initCtx int, eob int, eobKnown bool,
 ) int {
 	return e.vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize, planeType,
 		scanOrder, dequant, coeffs, qcoeffs, initCtx,
-		e.vp9CoeffTokenCostTable(txSize, planeType, 0))
+		e.vp9CoeffTokenCostTable(txSize, planeType, 0), eob, eobKnown)
 }
 
 func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize common.TxSize,
 	planeType int, scanOrder common.ScanOrder, dequant [2]int16,
 	coeffs, qcoeffs []int16, initCtx int,
-	costs *encoder.CoeffTreeTokenCostTable,
+	costs *encoder.CoeffTreeTokenCostTable, eob int, eobKnown bool,
 ) int {
 	if txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
@@ -1987,5 +2005,7 @@ func (e *VP9Encoder) vp9KeyframeCoeffBlockRateCostPlaneQWithCosts(txSize common.
 		Fast:       e.sf.UseFastCoefCosting != 0,
 		TokenCache: &e.modeScratch,
 		CostTable:  costs,
+		EOB:        eob,
+		EOBKnown:   eobKnown,
 	})
 }

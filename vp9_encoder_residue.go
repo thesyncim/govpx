@@ -1016,7 +1016,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 				// emits qcoeff alongside dqcoeff so the cost path
 				// consumes the libvpx-equivalent magnitude verbatim
 				// instead of recovering q from int16-wrapped dqcoeff.
-				hasTxResidue := e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
+				hasTxResidue, eob := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
 					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs)
 				txDist, distOK := e.scoreVP9InterTxReconstruction(inter, pd, plane,
 					txSize, miRow, miCol, rr, cc)
@@ -1027,8 +1027,8 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 
 				initCtx := vp9dec.GetEntropyContext(txSize,
 					aboveCtx[plane][cc:cc+step], leftCtx[plane][rr:rr+step])
-				rate += e.vp9InterCoeffBlockRateCostQ(txSize, planeType,
-					dequant, coeffs, qcoeffs, initCtx)
+				rate += e.vp9InterCoeffBlockRateCostQEOB(txSize, planeType,
+					dequant, coeffs, qcoeffs, initCtx, eob, true)
 				hasCtx := uint8(0)
 				if hasTxResidue {
 					hasCtx = 1
@@ -1147,9 +1147,17 @@ func (e *VP9Encoder) scoreVP9InterTxReconstruction(inter *vp9InterEncodeState,
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQ(txSize common.TxSize,
 	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
 ) int {
+	return e.vp9InterCoeffBlockRateCostQEOB(txSize, planeType, dequant,
+		coeffs, qcoeffs, initCtx, 0, false)
+}
+
+func (e *VP9Encoder) vp9InterCoeffBlockRateCostQEOB(txSize common.TxSize,
+	planeType int, dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
+	eob int, eobKnown bool,
+) int {
 	return e.vp9InterCoeffBlockRateCostQFcWithCosts(&e.fc,
 		e.vp9CoeffTokenCostTable(txSize, planeType, 1), txSize, planeType,
-		dequant, coeffs, qcoeffs, initCtx)
+		dequant, coeffs, qcoeffs, initCtx, eob, eobKnown)
 }
 
 // vp9InterCoeffBlockRateCostQFc is vp9InterCoeffBlockRateCostQ with an explicit
@@ -1162,12 +1170,13 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFc(fc *vp9dec.FrameContext,
 	coeffs, qcoeffs []int16, initCtx int,
 ) int {
 	return e.vp9InterCoeffBlockRateCostQFcWithCosts(fc, nil, txSize, planeType,
-		dequant, coeffs, qcoeffs, initCtx)
+		dequant, coeffs, qcoeffs, initCtx, 0, false)
 }
 
 func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFcWithCosts(fc *vp9dec.FrameContext,
 	costs *encoder.CoeffTreeTokenCostTable, txSize common.TxSize, planeType int,
 	dequant [2]int16, coeffs, qcoeffs []int16, initCtx int,
+	eob int, eobKnown bool,
 ) int {
 	if fc == nil || txSize >= common.TxSizes || planeType < 0 || planeType > 1 {
 		return 0
@@ -1183,5 +1192,7 @@ func (e *VP9Encoder) vp9InterCoeffBlockRateCostQFcWithCosts(fc *vp9dec.FrameCont
 		Fast:       e.sf.UseFastCoefCosting != 0,
 		TokenCache: &e.modeScratch,
 		CostTable:  costs,
+		EOB:        eob,
+		EOBKnown:   eobKnown,
 	})
 }
