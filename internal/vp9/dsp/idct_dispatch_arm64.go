@@ -223,6 +223,10 @@ func Iht16x16_256Add(input []int16, dest []uint8, stride int, txType int) {
 		Idct16x16_256Add(input, dest, stride)
 		return
 	}
+	if txType == 3 && dcWindowOK(dest, stride, 16, 16) {
+		iht16x16_256AddAdstAdstNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
+		return
+	}
 	if !dcWindowOK(dest, stride, 16, 16) {
 		iht16x16_256AddScalar(input, dest, stride, txType)
 		return
