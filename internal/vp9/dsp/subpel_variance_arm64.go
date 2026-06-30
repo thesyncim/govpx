@@ -156,6 +156,28 @@ func finalVarianceFromBlock(temp []byte, w, h int,
 	return finalVariance(sum, s, w, h)
 }
 
+func finalVariance8xNFromBlock(temp []byte, h int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) uint32 {
+	var sum int32
+	var s uint32
+	varianceBlock8xNNEON(unsafe.SliceData(temp), 8,
+		unsafe.SliceData(ref[refOff:]), refStride, h, &sum, &s)
+	*sse = s
+	return finalVariance(sum, s, 8, h)
+}
+
+func finalVariance16xNFromBlock(temp []byte, h int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) uint32 {
+	var sum int32
+	var s uint32
+	varianceBlock16xNNEON(unsafe.SliceData(temp), 16,
+		unsafe.SliceData(ref[refOff:]), refStride, h, &sum, &s)
+	*sse = s
+	return finalVariance(sum, s, 16, h)
+}
+
 // subPixelVarianceSimd is the common NEON dispatch. Returns the
 // (variance, ok) pair; falls back to scalar on out-of-window or
 // 4x4-with-odd-height (varianceBlock4xN requires even height — both
@@ -300,6 +322,100 @@ func subPixelVarianceSimdWithScratch(w, h int,
 	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse)
 }
 
+func subPixelVarianceSimd8x8(src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) (uint32, bool) {
+	if xOffset < 0 || xOffset > 7 || yOffset < 0 || yOffset > 7 {
+		return 0, false
+	}
+	if xOffset == 0 && yOffset == 0 {
+		if v, ok := varianceSimd8xN(src, srcOff, srcStride, ref, refOff, refStride, 8, sse); ok {
+			return v, true
+		}
+		return 0, false
+	}
+	if !subpelVarWindowOK(src, srcOff, srcStride, 8, 8) ||
+		!varWindowOK(ref, refOff, refStride, 8, 8) {
+		return 0, false
+	}
+
+	srcPtr := unsafe.SliceData(src[srcOff:])
+	var tmp [8 * 8]byte
+	temp := tmp[:]
+	if yOffset == 0 {
+		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 8, 8, 1) {
+			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), 8, 8, xOffset)
+		}
+		return finalVariance8xNFromBlock(temp, 8, ref, refOff, refStride, sse), true
+	}
+	if xOffset == 0 {
+		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 8, 8, srcStride) {
+			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), 8, 8, yOffset)
+		}
+		return finalVariance8xNFromBlock(temp, 8, ref, refOff, refStride, sse), true
+	}
+
+	var fdata [8 * 9]byte
+	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+		unsafe.SliceData(fdata[:]), 8, 9, 1) {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata[:]), 8, 9, xOffset)
+	}
+	if yOffset != 4 || !runAveragePass(unsafe.SliceData(fdata[:]), 8,
+		unsafe.SliceData(temp), 8, 8, 8) {
+		runSecondPass(unsafe.SliceData(fdata[:]), unsafe.SliceData(temp), 8, 8, yOffset)
+	}
+	return finalVariance8xNFromBlock(temp, 8, ref, refOff, refStride, sse), true
+}
+
+func subPixelVarianceSimd16x16(src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) (uint32, bool) {
+	if xOffset < 0 || xOffset > 7 || yOffset < 0 || yOffset > 7 {
+		return 0, false
+	}
+	if xOffset == 0 && yOffset == 0 {
+		if v, ok := varianceSimd16xN(src, srcOff, srcStride, ref, refOff, refStride, 16, 16, sse); ok {
+			return v, true
+		}
+		return 0, false
+	}
+	if !subpelVarWindowOK(src, srcOff, srcStride, 16, 16) ||
+		!varWindowOK(ref, refOff, refStride, 16, 16) {
+		return 0, false
+	}
+
+	srcPtr := unsafe.SliceData(src[srcOff:])
+	var tmp [16 * 16]byte
+	temp := tmp[:]
+	if yOffset == 0 {
+		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 16, 16, 1) {
+			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), 16, 16, xOffset)
+		}
+		return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
+	}
+	if xOffset == 0 {
+		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 16, 16, srcStride) {
+			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), 16, 16, yOffset)
+		}
+		return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
+	}
+
+	var fdata [16 * 17]byte
+	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+		unsafe.SliceData(fdata[:]), 16, 17, 1) {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata[:]), 16, 17, xOffset)
+	}
+	if yOffset != 4 || !runAveragePass(unsafe.SliceData(fdata[:]), 16,
+		unsafe.SliceData(temp), 16, 16, 16) {
+		runSecondPass(unsafe.SliceData(fdata[:]), unsafe.SliceData(temp), 16, 16, yOffset)
+	}
+	return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
+}
+
 // Size-specialised dispatchers. Each tries the NEON path first.
 
 func subPixelVariance64x64(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
@@ -339,7 +455,7 @@ func subPixelVariance16x32(src []uint8, srcOff, srcStride, xOffset, yOffset int,
 	return subPixelVarianceScalar(16, 32, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)
 }
 func subPixelVariance16x16(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	if v, ok := subPixelVarianceSimd(16, 16, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
+	if v, ok := subPixelVarianceSimd16x16(src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
 		return v
 	}
 	return subPixelVarianceScalar(16, 16, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)
@@ -357,7 +473,7 @@ func subPixelVariance8x16(src []uint8, srcOff, srcStride, xOffset, yOffset int, 
 	return subPixelVarianceScalar(8, 16, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)
 }
 func subPixelVariance8x8(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	if v, ok := subPixelVarianceSimd(8, 8, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
+	if v, ok := subPixelVarianceSimd8x8(src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
 		return v
 	}
 	return subPixelVarianceScalar(8, 8, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)
