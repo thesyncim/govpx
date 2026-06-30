@@ -197,3 +197,100 @@ chunks_colLoop:
 
 chunks_done:
 	RET
+
+// subpelVarAvg8NEON ABI ($0-40): w=8 rounded average filter.
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   dst+16(FP)       *byte
+//   pixelStep+24(FP) int
+//   height+32(FP)    int
+TEXT ·subpelVarAvg8NEON(SB), NOSPLIT, $0-40
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	dst+16(FP), R2
+	MOVD	pixelStep+24(FP), R3
+	MOVD	height+32(FP), R4
+
+	CBZ	R4, avg8_done
+
+avg8_loop:
+	FMOVD	(R0), F0
+	ADD	R3, R0, R7
+	FMOVD	(R7), F1
+	WORD	$0x6e211400       // urhadd.16b v0, v0, v1
+	FMOVD	F0, (R2)
+
+	ADD	R1, R0, R0
+	ADD	$8, R2, R2
+	SUB	$1, R4, R4
+	CBNZ	R4, avg8_loop
+
+avg8_done:
+	RET
+
+// subpelVarAvg16NEON ABI ($0-40): w=16 rounded average filter.
+TEXT ·subpelVarAvg16NEON(SB), NOSPLIT, $0-40
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	dst+16(FP), R2
+	MOVD	pixelStep+24(FP), R3
+	MOVD	height+32(FP), R4
+
+	CBZ	R4, avg16_done
+
+avg16_loop:
+	VLD1	(R0), [V0.B16]
+	ADD	R3, R0, R7
+	VLD1	(R7), [V1.B16]
+	WORD	$0x6e211400       // urhadd.16b v0, v0, v1
+	VST1	[V0.B16], (R2)
+
+	ADD	R1, R0, R0
+	ADD	$16, R2, R2
+	SUB	$1, R4, R4
+	CBNZ	R4, avg16_loop
+
+avg16_done:
+	RET
+
+// subpelVarAvg16ChunksNEON ABI ($0-48): chunks * 16 wide rounded average.
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   dst+16(FP)       *byte
+//   pixelStep+24(FP) int
+//   width+32(FP)     int
+//   height+40(FP)    int
+TEXT ·subpelVarAvg16ChunksNEON(SB), NOSPLIT, $0-48
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	dst+16(FP), R2
+	MOVD	pixelStep+24(FP), R3
+	MOVD	width+32(FP), R4
+	MOVD	height+40(FP), R5
+
+	CBZ	R5, avg_chunks_done
+
+avg_chunks_rowLoop:
+	MOVD	R4, R8
+	MOVD	R0, R9
+	MOVD	R2, R10
+
+avg_chunks_colLoop:
+	VLD1	(R9), [V0.B16]
+	ADD	R3, R9, R11
+	VLD1	(R11), [V1.B16]
+	WORD	$0x6e211400       // urhadd.16b v0, v0, v1
+	VST1	[V0.B16], (R10)
+
+	ADD	$16, R9, R9
+	ADD	$16, R10, R10
+	SUB	$16, R8, R8
+	CBNZ	R8, avg_chunks_colLoop
+
+	ADD	R1, R0, R0
+	ADD	R4, R2, R2
+	SUB	$1, R5, R5
+	CBNZ	R5, avg_chunks_rowLoop
+
+avg_chunks_done:
+	RET

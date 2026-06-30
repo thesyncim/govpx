@@ -34,6 +34,15 @@ func subpelVarFilter16NEON(src *byte, srcStride int, dst *byte, pixelStep int, h
 //go:noescape
 func subpelVarFilter16ChunksNEON(src *byte, srcStride int, dst *byte, pixelStep int, width int, height int, f0 uint64, f1 uint64)
 
+//go:noescape
+func subpelVarAvg8NEON(src *byte, srcStride int, dst *byte, pixelStep int, height int)
+
+//go:noescape
+func subpelVarAvg16NEON(src *byte, srcStride int, dst *byte, pixelStep int, height int)
+
+//go:noescape
+func subpelVarAvg16ChunksNEON(src *byte, srcStride int, dst *byte, pixelStep int, width int, height int)
+
 // subpelHalfFilter maps libvpx-scale weight (0/16/32/48/64/80/96/112/128)
 // to the 0..8 byte-lane scale used by the NEON kernels.
 func subpelHalfFilter(filterIdx int) (uint64, uint64) {
@@ -105,6 +114,23 @@ func runVerticalPassFromSource(src *byte, srcStride int, dst *byte, w, h, yOffse
 	}
 }
 
+// runAveragePass runs libvpx's half-pel rounded-average fast path for
+// filter offset 4: (a + b + 1) >> 1. The NEON kernel mirrors
+// var_filter_block2d_avg from subpel_variance_neon.c.
+func runAveragePass(src *byte, srcStride int, dst *byte, w, h, pixelStep int) bool {
+	switch w {
+	case 8:
+		subpelVarAvg8NEON(src, srcStride, dst, pixelStep, h)
+	case 16:
+		subpelVarAvg16NEON(src, srcStride, dst, pixelStep, h)
+	case 32, 64:
+		subpelVarAvg16ChunksNEON(src, srcStride, dst, pixelStep, w, h)
+	default:
+		return false
+	}
+	return true
+}
+
 // finalVarianceFromBlock runs the appropriate NEON variance kernel on
 // the temp block (tightly packed at stride=w) against the reference.
 func finalVarianceFromBlock(temp []byte, w, h int,
@@ -168,19 +194,31 @@ func subPixelVarianceSimd(w, h int,
 
 	srcPtr := unsafe.SliceData(src[srcOff:])
 	if yOffset == 0 && xOffset != 0 {
-		runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
+		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), w, h, 1) {
+			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), w, h, xOffset)
+		}
 		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 	}
 	if xOffset == 0 {
-		runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), w, h, yOffset)
+		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), w, h, srcStride) {
+			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), w, h, yOffset)
+		}
 		return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 	}
 
 	// fdata holds (h+1) rows of w uint8 after the horizontal pass.
 	var fdataBuf [64 * 65]byte
 	fdata := fdataBuf[:w*(h+1)]
-	runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
-	runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
+	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+		unsafe.SliceData(fdata), w, h+1, 1) {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata), w, h+1, xOffset)
+	}
+	if yOffset != 4 || !runAveragePass(unsafe.SliceData(fdata), w,
+		unsafe.SliceData(temp), w, h, w) {
+		runSecondPass(unsafe.SliceData(fdata), unsafe.SliceData(temp), w, h, yOffset)
+	}
 
 	return finalVarianceFromBlock(temp, w, h, ref, refOff, refStride, sse), true
 }
