@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -154,30 +155,67 @@ func TestVP9EncoderInterIntraModeScoresWholeBlock(t *testing.T) {
 
 func TestGatherVP9TxResidualOverwritesActiveScratch(t *testing.T) {
 	t.Run("in-bounds", func(t *testing.T) {
-		var e VP9Encoder
-		const srcW, srcH, srcStride = 12, 12, 12
-		src := make([]byte, srcStride*srcH)
-		for i := range src {
-			src[i] = byte((i*7 + 11) & 0xff)
-		}
-		dst := make([]byte, 8*8)
-		for i := range dst {
-			dst[i] = byte((i*5 + 3) & 0xff)
-		}
-		for i := range e.residueScratch[:64] {
-			e.residueScratch[i] = 0x7777
-		}
-
-		if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, 8,
-			2, 3, common.Tx8x8) {
-			t.Fatal("gatherVP9TxResidual returned false for non-zero in-bounds residue")
-		}
-		for y := 0; y < 8; y++ {
-			for x := 0; x < 8; x++ {
-				want := int16(int(src[(3+y)*srcStride+2+x]) - int(dst[y*8+x]))
-				if got := e.residueScratch[y*8+x]; got != want {
-					t.Fatalf("residue[%d,%d] = %d, want %d", y, x, got, want)
+		for _, tx := range []common.TxSize{
+			common.Tx4x4, common.Tx8x8, common.Tx16x16, common.Tx32x32,
+		} {
+			t.Run(fmt.Sprintf("tx%d", tx), func(t *testing.T) {
+				var e VP9Encoder
+				bs := 4 << uint(tx)
+				srcW, srcH := bs+2, bs+3
+				srcStride := srcW + 5
+				dstStride := bs + 3
+				src := make([]byte, srcStride*srcH)
+				for i := range src {
+					src[i] = byte((i*7 + 11) & 0xff)
 				}
+				dst := make([]byte, dstStride*bs)
+				for i := range dst {
+					dst[i] = byte((i*5 + 3) & 0xff)
+				}
+				for i := range e.residueScratch[:bs*bs] {
+					e.residueScratch[i] = 0x7777
+				}
+
+				if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH,
+					dst, dstStride, 2, 3, tx) {
+					t.Fatal("gatherVP9TxResidual returned false for non-zero in-bounds residue")
+				}
+				for y := range bs {
+					for x := range bs {
+						want := int16(int(src[(3+y)*srcStride+2+x]) -
+							int(dst[y*dstStride+x]))
+						if got := e.residueScratch[y*bs+x]; got != want {
+							t.Fatalf("residue[%d,%d] = %d, want %d", y, x, got, want)
+						}
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("in-bounds-zero", func(t *testing.T) {
+		var e VP9Encoder
+		const bs, srcW, srcH, srcStride = 16, 20, 20, 23
+		src := make([]byte, srcStride*srcH)
+		dstStride := bs + 2
+		dst := make([]byte, dstStride*bs)
+		for y := range bs {
+			for x := range bs {
+				v := byte((y*17 + x*3 + 5) & 0xff)
+				src[(2+y)*srcStride+3+x] = v
+				dst[y*dstStride+x] = v
+			}
+		}
+		for i := range e.residueScratch[:bs*bs] {
+			e.residueScratch[i] = -12345
+		}
+		if e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, dstStride,
+			3, 2, common.Tx16x16) {
+			t.Fatal("gatherVP9TxResidual returned true for zero in-bounds residue")
+		}
+		for i, got := range e.residueScratch[:bs*bs] {
+			if got != 0 {
+				t.Fatalf("residue[%d] = %d, want 0", i, got)
 			}
 		}
 	})

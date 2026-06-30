@@ -5,6 +5,7 @@ import (
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -368,6 +369,11 @@ func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
 	}
 	diffMask := 0
 	if x0 >= 0 && y0 >= 0 && x0+bs <= srcW && y0+bs <= srcH {
+		if nonZero, ok := vp9dsp.SubtractBlockNonZero(src,
+			y0*srcStride+x0, srcStride, dst, 0, dstStride,
+			e.residueScratch[:], 0, bs, bs, bs); ok {
+			return nonZero
+		}
 		for y := range bs {
 			srcRow := src[(y0+y)*srcStride+x0:]
 			dstRow := dst[y*dstStride:]
