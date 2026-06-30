@@ -248,6 +248,41 @@ func TestCoefficientBlockTokenRateWithTableMatchesDynamicRate(t *testing.T) {
 	}
 }
 
+func TestCoefficientBlockTokenRateTrustedMatchesGuardedTableRate(t *testing.T) {
+	probs := vp8tables.DefaultCoefProbs
+	var costs vp8enc.CoefficientTokenCostTable
+	if !vp8enc.FillCoefficientTokenCostTable(&probs, &costs) {
+		t.Fatal("FillCoefficientTokenCostTable returned false")
+	}
+
+	coeffSets := [][16]int16{
+		{},
+		{0: 1},
+		{0: -3, 1: 2, 5: 1, 10: -1},
+		{0: 12, 4: -67, 8: 3, 15: -2048},
+	}
+	for blockType := 0; blockType < vp8tables.BlockTypes; blockType++ {
+		for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+			for skipDC := 0; skipDC <= 1; skipDC++ {
+				for _, qcoeff := range coeffSets {
+					eob := blockEOBFromCoeffs(&qcoeff, skipDC)
+					if eob < 16 && eob < skipDC+4 {
+						eob = min(16, skipDC+4)
+					}
+					got := vp8enc.CoefficientBlockTokenRateWithTableTrusted(
+						&costs, blockType, ctx, skipDC, &qcoeff, eob)
+					want := vp8enc.CoefficientBlockTokenRateWithTable(
+						&costs, blockType, ctx, skipDC, &qcoeff, eob)
+					if got != want {
+						t.Fatalf("trusted rate mismatch blockType=%d ctx=%d skipDC=%d eob=%d coeffs=%v: got=%d want=%d",
+							blockType, ctx, skipDC, eob, qcoeff, got, want)
+					}
+				}
+			}
+		}
+	}
+}
+
 // TestCoefficientBlockTokenRateIncrementalMatchesWholeBlock verifies that an
 // explicit per-position walk, matching the shape libvpx's trellis uses while
 // rolling rate forward through the sentinel, produces the same total as the

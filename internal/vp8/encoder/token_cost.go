@@ -174,6 +174,55 @@ func CoefficientBlockTokenRateWithTable(costs *CoefficientTokenCostTable, blockT
 	return cost
 }
 
+// CoefficientBlockTokenRateWithTableTrusted is the hot RD scorer for callers
+// that already hold valid encoder-internal state. The caller must pass non-nil
+// costs/qcoeff, blockType in [0, BlockTypes), ctx in [0, PrevCoefContexts),
+// skipDC in {0,1}, eob in [skipDC,16], and quantized coefficients whose
+// magnitudes fit DCTMaxValue. It mirrors libvpx's cost_coeffs table walk while
+// leaving defensive validation to CoefficientBlockTokenRateWithTable.
+func CoefficientBlockTokenRateWithTableTrusted(costs *CoefficientTokenCostTable,
+	blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int,
+) int {
+	bt := blockType & 3
+	pt := ctx
+	pos := skipDC
+	if pos == eob {
+		if pos < 16 {
+			band := int(tables.CoefBandsTable[pos&15])
+			return costs.EOB[bt][band&7][pt]
+		}
+		return 0
+	}
+
+	cost := 0
+	for pos < eob {
+		band := int(tables.CoefBandsTable[pos&15])
+		rc := int(tables.DefaultZigZag1D[pos&15]) & 15
+		coeff := int(qcoeff[rc])
+		if coeff == 0 {
+			cost += costs.Token[bt][band&7][pt][tables.ZeroToken]
+			pt = int(tables.PrevTokenClass[tables.ZeroToken])
+			pos++
+			continue
+		}
+		mask := coeff >> tokenCostSignShift
+		sign := mask & 1
+		mag := (coeff ^ mask) - mask
+		entry := coefficientTokenRateLUT[mag]
+		t := int(entry.token)
+		cost += costs.Token[bt][band&7][pt][t]
+		cost += coefficientSignCost[sign]
+		cost += int(entry.extra)
+		pt = int(tables.PrevTokenClass[t])
+		pos++
+	}
+	if pos < 16 {
+		band := int(tables.CoefBandsTable[pos&15])
+		cost += costs.EOB[bt][band&7][pt]
+	}
+	return cost
+}
+
 // coefTokenCostElided returns the token cost charged at one coefficient
 // position. It mirrors libvpx's `token_costs` table layout: when the prior
 // token's prev_token_class is 0 (a ZERO_TOKEN) and the current band is past

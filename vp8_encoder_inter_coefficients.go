@@ -414,7 +414,7 @@ func buildPredictedMacroblockChromaCoefficientsInternal(args *predictedMacrobloc
 
 func coefficientBlockTokenRate(coefProbs *vp8tables.CoefficientProbs, coefTokenCosts *vp8enc.CoefficientTokenCostTable, blockType int, ctx int, skipDC int, qcoeff *[16]int16, eob int) int {
 	if coefTokenCosts != nil {
-		return vp8enc.CoefficientBlockTokenRateWithTable(coefTokenCosts, blockType, ctx, skipDC, qcoeff, eob)
+		return vp8enc.CoefficientBlockTokenRateWithTableTrusted(coefTokenCosts, blockType, ctx, skipDC, qcoeff, eob)
 	}
 	return vp8enc.CoefficientBlockTokenRate(coefProbs, blockType, ctx, skipDC, qcoeff, eob)
 }
