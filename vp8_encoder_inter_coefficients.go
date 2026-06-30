@@ -79,16 +79,17 @@ type predictedMacroblockCoefficientArgs struct {
 // loop's per-block context evolution still runs end-to-end on top of the
 // cached DCTs so all token-context outputs stay byte-identical.
 type interRDCoeffCacheState struct {
-	valid         bool
-	is4x4         bool
-	intra         bool
-	fastQuant     bool
-	qIndex        int
-	zbinOverQuant int
-	zbinModeBoost int
-	actZbinAdj    int
-	mbRow         int
-	mbCol         int
+	valid          bool
+	predictorValid bool
+	is4x4          bool
+	intra          bool
+	fastQuant      bool
+	qIndex         int
+	zbinOverQuant  int
+	zbinModeBoost  int
+	actZbinAdj     int
+	mbRow          int
+	mbCol          int
 	// YDCTs holds the 16 4x4 luma DCTs in the same scan order as
 	// vp8enc.ForwardDCT4x4Batch writes them (block-major, 16 int16
 	// per block). The snapshot is taken AFTER FDCT but BEFORE the
@@ -96,7 +97,10 @@ type interRDCoeffCacheState struct {
 	// so YDCTs preserves the original DCs for the consumer's Y2 pass.
 	YDCTs [16 * 16]int16
 	// UVDCTs holds the 8 chroma DCTs (U0..U3 then V0..V3).
-	UVDCTs [8 * 16]int16
+	UVDCTs        [8 * 16]int16
+	predictorRef  *vp8common.Image
+	predictorMode vp8enc.InterFrameMacroblockMode
+	predictor     interMacroblockImageSnapshot
 }
 
 func (c *interRDCoeffCacheState) reset() {
@@ -104,6 +108,28 @@ func (c *interRDCoeffCacheState) reset() {
 		return
 	}
 	c.valid = false
+	c.predictorValid = false
+	c.predictorRef = nil
+}
+
+func (c *interRDCoeffCacheState) storePredictor(img *vp8common.Image, row int, col int, ref *vp8common.Image, mode *vp8enc.InterFrameMacroblockMode) {
+	if c == nil || img == nil || ref == nil || mode == nil {
+		return
+	}
+	c.predictorMode = *mode
+	c.predictorRef = ref
+	c.mbRow = row
+	c.mbCol = col
+	snapshotInterMacroblockImage(img, row, col, &c.predictor)
+	c.predictorValid = true
+}
+
+func (c *interRDCoeffCacheState) restorePredictor(img *vp8common.Image, row int, col int, ref *vp8common.Image, mode *vp8enc.InterFrameMacroblockMode) bool {
+	if !interRDPredictorCacheReusable(c, row, col, ref, mode) {
+		return false
+	}
+	restoreInterMacroblockImage(img, row, col, &c.predictor)
+	return true
 }
 
 func (e *VP8Encoder) resetInterRDCoeffCache() {
@@ -178,6 +204,23 @@ func interRDCacheReusable(c *interRDCoeffCacheState, args *predictedMacroblockCo
 		c.zbinOverQuant == args.zbinOverQuant &&
 		c.zbinModeBoost == args.zbinModeBoost &&
 		c.actZbinAdj == args.actZbinAdj
+}
+
+func interRDPredictorCacheReusable(c *interRDCoeffCacheState, row int, col int, ref *vp8common.Image, mode *vp8enc.InterFrameMacroblockMode) bool {
+	if c == nil || !c.predictorValid || ref == nil || mode == nil {
+		return false
+	}
+	cached := &c.predictorMode
+	return c.mbRow == row &&
+		c.mbCol == col &&
+		c.predictorRef == ref &&
+		cached.RefFrame == mode.RefFrame &&
+		cached.Mode == mode.Mode &&
+		cached.UVMode == mode.UVMode &&
+		cached.MV == mode.MV &&
+		cached.Partition == mode.Partition &&
+		cached.BlockMV == mode.BlockMV &&
+		cached.BModes == mode.BModes
 }
 
 func buildPredictedMacroblockCoefficients(args predictedMacroblockCoefficientArgs) {

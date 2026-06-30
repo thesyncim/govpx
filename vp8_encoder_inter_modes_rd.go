@@ -129,9 +129,9 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 		}
 		// Reset the scratch DCT cache before each candidate evaluation so
 		// the cache's valid bit accurately reflects whether THIS candidate
-		// populated the slot. The slot remains the same target pointer
-		// across iterations; we only clear the valid bit.
-		e.interRDCoeffCacheScratchTarget.valid = false
+		// populated the slot. The predictor snapshot uses the same
+		// scratch/winner slot, so clear both validity bits together.
+		e.interRDCoeffCacheScratchTarget.reset()
 
 		refSlot := libvpxFastRefFrameOrder[modeIndex]
 		if refSlot == 0 {
@@ -505,9 +505,11 @@ func (e *VP8Encoder) selectRDInterFrameModeDecision(
 			if mode.Mode == vp8common.SplitMV {
 				best.staleY2 = lastStaleY2
 			}
+			e.interRDCoeffCacheScratchTarget.storePredictor(&e.analysis.Img, mbRow, mbCol, ref.Img, &mode)
 			// Flip the cache winner/scratch indices so the just-evaluated
-			// inter candidate's DCTs become the winner slot. For inactiveMB
-			// or vp8enc.StaticInterRDEncodeBreakoutDistortion winners,
+			// inter candidate's predictor and DCTs become the winner
+			// slot. For inactiveMB or
+			// vp8enc.StaticInterRDEncodeBreakoutDistortion winners,
 			// estimateInterResidualRDAccountingWithModeContext skipped
 			// buildPredictedMacroblockCoefficientsRD entirely so the new
 			// winner slot's valid bit stays false — the accepted path then

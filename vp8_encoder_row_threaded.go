@@ -510,6 +510,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 
 	segmentQIndex := encoderSegmentQIndex(args.qIndex, args.segmentation, segmentID)
 	quant := &args.quants[segmentID&3]
+	var acceptedInterCache *interRDCoeffCacheState
 	if decision.useIntra {
 		args.modes[index] = decision.intraMode
 		args.modes[index].SegmentID = segmentID
@@ -541,7 +542,9 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		vp8enc.ConvertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
 		predMode := e.reconstructModes[index]
 		predMode.MBSkipCoeff = true
-		if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+		acceptedInterCache = e.consumeInterRDCoeffCache()
+		if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &args.modes[index]) &&
+			!reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 			return 0, 0, ErrInvalidConfig
 		}
 	}
@@ -574,7 +577,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// for the contract). Each row worker has its own encoder view, so
 		// the per-encoder DCT cache slots are per-row-private — no cross-
 		// worker coordination needed.
-		cacheIn := e.consumeInterRDCoeffCache()
+		cacheIn := acceptedInterCache
 		if args.denoiseActive {
 			// The denoiser may have overwritten the source pixels the
 			// picker fed into its DCT cache, so discard the cached

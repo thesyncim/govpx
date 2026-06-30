@@ -648,6 +648,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			segmentQIndex := encoderSegmentQIndex(qIndex, segmentation, segmentID)
 			quant := &quants[segmentID&3]
 
+			var acceptedInterCache *interRDCoeffCacheState
 			if decision.useIntra {
 				modes[index] = decision.intraMode
 				modes[index].SegmentID = segmentID
@@ -685,7 +686,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				vp8enc.ConvertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				predMode := e.reconstructModes[index]
 				predMode.MBSkipCoeff = true
-				if !reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+				acceptedInterCache = e.consumeInterRDCoeffCache()
+				if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &modes[index]) &&
+					!reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				if traceEnabled {
@@ -749,7 +752,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				// The cache is consumed at most once per accepted MB
 				// and invalidated by reset() before returning so the
 				// next MB's picker run starts fresh.
-				cacheIn := e.consumeInterRDCoeffCache()
+				cacheIn := acceptedInterCache
 				if denoiseActive {
 					cacheIn = nil
 				}

@@ -274,6 +274,59 @@ func TestConsumeInterRDCoeffCacheKeepsWinnerValidForConsumer(t *testing.T) {
 	}
 }
 
+func TestInterRDPredictorCacheRestoresMatchingMode(t *testing.T) {
+	analysis := testVP8Frame(t, 48, 48, 0, 90, 170)
+	ref := testVP8Frame(t, 48, 48, 11, 22, 33)
+	const mbRow, mbCol = 1, 1
+	yOff := mbRow*16*analysis.Img.YStride + mbCol*16
+	for row := range 16 {
+		for col := range 16 {
+			analysis.Img.Y[yOff+row*analysis.Img.YStride+col] = byte(1 + row*16 + col)
+		}
+	}
+	uOff := mbRow*8*analysis.Img.UStride + mbCol*8
+	vOff := mbRow*8*analysis.Img.VStride + mbCol*8
+	for row := range 8 {
+		for col := range 8 {
+			analysis.Img.U[uOff+row*analysis.Img.UStride+col] = byte(7 + row*8 + col)
+			analysis.Img.V[vOff+row*analysis.Img.VStride+col] = byte(101 + row*8 + col)
+		}
+	}
+	mode := vp8enc.InterFrameMacroblockMode{
+		SegmentID: 1,
+		RefFrame:  vp8common.LastFrame,
+		Mode:      vp8common.NewMV,
+		UVMode:    vp8common.DCPred,
+		MV:        vp8enc.MotionVector{Row: 8, Col: -16},
+	}
+	var cache interRDCoeffCacheState
+	cache.storePredictor(&analysis.Img, mbRow, mbCol, &ref.Img, &mode)
+	var want interMacroblockImageSnapshot
+	snapshotInterMacroblockImage(&analysis.Img, mbRow, mbCol, &want)
+
+	var zero interMacroblockImageSnapshot
+	restoreInterMacroblockImage(&analysis.Img, mbRow, mbCol, &zero)
+	wrongMode := mode
+	wrongMode.MV.Col += 2
+	if cache.restorePredictor(&analysis.Img, mbRow, mbCol, &ref.Img, &wrongMode) {
+		t.Fatalf("restorePredictor accepted mismatched motion vector")
+	}
+	acceptedMode := mode
+	acceptedMode.SegmentID = 0
+	if !cache.restorePredictor(&analysis.Img, mbRow, mbCol, &ref.Img, &acceptedMode) {
+		t.Fatalf("restorePredictor rejected matching predictor key")
+	}
+	var got interMacroblockImageSnapshot
+	snapshotInterMacroblockImage(&analysis.Img, mbRow, mbCol, &got)
+	if got != want {
+		t.Fatalf("restored predictor snapshot mismatch")
+	}
+	otherRef := testVP8Frame(t, 48, 48, 44, 55, 66)
+	if cache.restorePredictor(&analysis.Img, mbRow, mbCol, &otherRef.Img, &acceptedMode) {
+		t.Fatalf("restorePredictor accepted mismatched reference")
+	}
+}
+
 func TestInterRDCoeffCacheCountsDCTReuse(t *testing.T) {
 	probs := vp8tables.DefaultCoefProbs
 	var quants [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
