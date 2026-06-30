@@ -567,16 +567,16 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	}
 	if txSize == common.Tx32x32 {
 		if !useFastQuant {
-			eob = encoder.QuantizeB32x32WithQ(e.txCoeffScratch[:maxEob], qindex,
-				dequant, scan, qBuf, e.dqCoeffScratch[:maxEob])
+			eob = encoder.QuantizeB32x32WithQScanOrder(e.txCoeffScratch[:maxEob], qindex,
+				dequant, scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		} else {
 			eob = encoder.QuantizeFP32x32WithQ(e.txCoeffScratch[:maxEob],
 				dequant, scan, qBuf, e.dqCoeffScratch[:maxEob])
 		}
 	} else {
 		if !useFastQuant {
-			eob = encoder.QuantizeBWithQ(e.txCoeffScratch[:maxEob], qindex, dequant,
-				scan, qBuf, e.dqCoeffScratch[:maxEob])
+			eob = encoder.QuantizeBWithQScanOrder(e.txCoeffScratch[:maxEob], qindex,
+				dequant, scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		} else {
 			eob = encoder.QuantizeFPWithQScanOrder(e.txCoeffScratch[:maxEob], dequant,
 				scanOrder, qBuf, e.dqCoeffScratch[:maxEob])

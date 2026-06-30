@@ -139,6 +139,112 @@ func BenchmarkVP9QuantizeFP32x32(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9QuantizeBScanOrder(b *testing.B) {
+	tests := []struct {
+		name string
+		tx   common.TxSize
+		n    int
+	}{
+		{name: "4x4", tx: common.Tx4x4, n: 16},
+		{name: "8x8", tx: common.Tx8x8, n: 64},
+		{name: "16x16", tx: common.Tx16x16, n: 256},
+	}
+	for _, tc := range tests {
+		scanOrder := common.DefaultScanOrders[tc.tx]
+		coeff := make([]int16, tc.n)
+		for i := range coeff {
+			v := (i*97)%4096 - 2048
+			if i%7 == 0 {
+				v /= 12
+			}
+			coeff[i] = int16(v)
+		}
+		dequant := [2]int16{38, 44}
+		const qindex = 87
+		for _, bench := range []struct {
+			name string
+			fn   func(qcoeff, dqcoeff []int16) int
+		}{
+			{
+				name: "scan",
+				fn: func(qcoeff, dqcoeff []int16) int {
+					return QuantizeBWithQ(coeff, qindex, dequant,
+						scanOrder.Scan, qcoeff, dqcoeff)
+				},
+			},
+			{
+				name: "scanorder",
+				fn: func(qcoeff, dqcoeff []int16) int {
+					return QuantizeBWithQScanOrder(coeff, qindex, dequant,
+						scanOrder, qcoeff, dqcoeff)
+				},
+			},
+		} {
+			b.Run(fmt.Sprintf("%s/%s", tc.name, bench.name), func(b *testing.B) {
+				qcoeff := make([]int16, tc.n)
+				dqcoeff := make([]int16, tc.n)
+				b.ReportAllocs()
+				b.ResetTimer()
+				eobSum := 0
+				for i := 0; i < b.N; i++ {
+					eobSum += bench.fn(qcoeff, dqcoeff)
+				}
+				if eobSum == 0 {
+					b.Fatal("unexpected zero eob accumulator")
+				}
+			})
+		}
+	}
+}
+
+func BenchmarkVP9QuantizeB32x32ScanOrder(b *testing.B) {
+	scanOrder := common.DefaultScanOrders[common.Tx32x32]
+	coeff := make([]int16, 1024)
+	for i := range coeff {
+		v := (i*131)%8192 - 4096
+		if i%13 == 0 {
+			v /= 16
+		}
+		coeff[i] = int16(v)
+	}
+	dequant := [2]int16{38, 44}
+	const qindex = 87
+
+	for _, bench := range []struct {
+		name string
+		fn   func(qcoeff, dqcoeff []int16) int
+	}{
+		{
+			name: "scan",
+			fn: func(qcoeff, dqcoeff []int16) int {
+				return QuantizeB32x32WithQ(coeff, qindex, dequant,
+					scanOrder.Scan, qcoeff, dqcoeff)
+			},
+		},
+		{
+			name: "scanorder",
+			fn: func(qcoeff, dqcoeff []int16) int {
+				return QuantizeB32x32WithQScanOrder(coeff, qindex, dequant,
+					scanOrder, qcoeff, dqcoeff)
+			},
+		},
+	} {
+		b.Run(bench.name, func(b *testing.B) {
+			qcoeff := make([]int16, 1024)
+			dqcoeff := make([]int16, 1024)
+			b.ReportAllocs()
+			b.ResetTimer()
+			eobSum := 0
+			for i := 0; i < b.N; i++ {
+				eobSum += bench.fn(qcoeff, dqcoeff)
+			}
+			if eobSum == 0 {
+				b.Fatal("unexpected zero eob accumulator")
+			}
+		})
+	}
+}
+
 func BenchmarkForwardDCT16x16(b *testing.B) {
 	rng := rand.New(rand.NewSource(10))
 	var input [16 * 16]int16
@@ -791,11 +897,27 @@ func TestQuantizersOverwriteZeroBlockOutputs(t *testing.T) {
 			},
 		},
 		{
+			name: "QuantizeB4x4ScanOrder",
+			n:    16,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeBWithQScanOrder(coeff, 37, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx4x4], qcoeff, dqcoeff)
+			},
+		},
+		{
 			name: "QuantizeB32x32",
 			n:    1024,
 			fn: func(coeff, qcoeff, dqcoeff []int16) int {
 				return QuantizeB32x32WithQ(coeff, 37, [2]int16{38, 44},
 					common.DefaultScanOrders[common.Tx32x32].Scan, qcoeff, dqcoeff)
+			},
+		},
+		{
+			name: "QuantizeB32x32ScanOrder",
+			n:    1024,
+			fn: func(coeff, qcoeff, dqcoeff []int16) int {
+				return QuantizeB32x32WithQScanOrder(coeff, 37, [2]int16{38, 44},
+					common.DefaultScanOrders[common.Tx32x32], qcoeff, dqcoeff)
 			},
 		},
 		{
@@ -1046,6 +1168,126 @@ func TestQuantizeBWithQEmitsQcoeff(t *testing.T) {
 		if dqcoeff[rc] != want {
 			t.Fatalf("rc=%d qcoeff=%d dqcoeff=%d want=%d", rc, q, dqcoeff[rc], want)
 		}
+	}
+}
+
+func TestQuantizeBWithQScanOrderMatchesScanPath(t *testing.T) {
+	for _, tx := range []common.TxSize{common.Tx4x4, common.Tx8x8, common.Tx16x16} {
+		n := 16 << (2 * int(tx))
+		for txType := range common.TxTypes {
+			scanOrder := common.ScanOrders[tx][txType]
+			for trial := range 12 {
+				name := fmt.Sprintf("tx%d/type%d/trial%d", tx, txType, trial)
+				t.Run(name, func(t *testing.T) {
+					coeff := make([]int16, n)
+					fillVP9QuantizeBenchCoeffs(coeff,
+						int64(1000+int(tx)*100+int(txType)*17+trial))
+					switch trial % 4 {
+					case 0:
+						clear(coeff)
+					case 1:
+						coeff[0] = int16(500 + 13*trial)
+					case 2:
+						coeff[int(scanOrder.Scan[n-1])] = int16(-900 + trial)
+					}
+
+					wantQ := make([]int16, n)
+					wantDQ := make([]int16, n)
+					gotQ := make([]int16, n)
+					gotDQ := make([]int16, n)
+					wantEOB := QuantizeBWithQ(coeff, 87, [2]int16{38, 44},
+						scanOrder.Scan, wantQ, wantDQ)
+					gotEOB := QuantizeBWithQScanOrder(coeff, 87, [2]int16{38, 44},
+						scanOrder, gotQ, gotDQ)
+					if gotEOB != wantEOB {
+						t.Fatalf("eob = %d, want %d", gotEOB, wantEOB)
+					}
+					for i := range n {
+						if gotQ[i] != wantQ[i] || gotDQ[i] != wantDQ[i] {
+							t.Fatalf("coeff %d: q=%d/%d dq=%d/%d",
+								i, gotQ[i], wantQ[i], gotDQ[i], wantDQ[i])
+						}
+					}
+
+					gotDQOnly := make([]int16, n)
+					gotDQOnlyEOB := QuantizeBWithQScanOrder(coeff, 87,
+						[2]int16{38, 44}, scanOrder, nil, gotDQOnly)
+					if gotDQOnlyEOB != wantEOB {
+						t.Fatalf("dq-only eob = %d, want %d", gotDQOnlyEOB, wantEOB)
+					}
+					for i := range n {
+						if gotDQOnly[i] != wantDQ[i] {
+							t.Fatalf("dq-only coeff %d: got %d, want %d",
+								i, gotDQOnly[i], wantDQ[i])
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestQuantizeB32x32WithQScanOrderMatchesScanPath(t *testing.T) {
+	scanOrder := common.DefaultScanOrders[common.Tx32x32]
+	for trial := range 12 {
+		t.Run(fmt.Sprintf("trial%d", trial), func(t *testing.T) {
+			const n = 1024
+			coeff := make([]int16, n)
+			fillVP9QuantizeBenchCoeffs(coeff, int64(2000+trial))
+			switch trial % 4 {
+			case 0:
+				clear(coeff)
+			case 1:
+				coeff[0] = int16(1000 + 31*trial)
+			case 2:
+				coeff[int(scanOrder.Scan[n-1])] = int16(-2000 + trial)
+			}
+
+			wantQ := make([]int16, n)
+			wantDQ := make([]int16, n)
+			gotQ := make([]int16, n)
+			gotDQ := make([]int16, n)
+			wantEOB := QuantizeB32x32WithQ(coeff, 87, [2]int16{38, 44},
+				scanOrder.Scan, wantQ, wantDQ)
+			gotEOB := QuantizeB32x32WithQScanOrder(coeff, 87, [2]int16{38, 44},
+				scanOrder, gotQ, gotDQ)
+			if gotEOB != wantEOB {
+				t.Fatalf("eob = %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range n {
+				if gotQ[i] != wantQ[i] || gotDQ[i] != wantDQ[i] {
+					t.Fatalf("coeff %d: q=%d/%d dq=%d/%d",
+						i, gotQ[i], wantQ[i], gotDQ[i], wantDQ[i])
+				}
+			}
+
+			gotDQOnly := make([]int16, n)
+			gotDQOnlyEOB := QuantizeB32x32WithQScanOrder(coeff, 87,
+				[2]int16{38, 44}, scanOrder, nil, gotDQOnly)
+			if gotDQOnlyEOB != wantEOB {
+				t.Fatalf("dq-only eob = %d, want %d", gotDQOnlyEOB, wantEOB)
+			}
+			for i := range n {
+				if gotDQOnly[i] != wantDQ[i] {
+					t.Fatalf("dq-only coeff %d: got %d, want %d",
+						i, gotDQOnly[i], wantDQ[i])
+				}
+			}
+		})
+	}
+}
+
+func fillVP9QuantizeBenchCoeffs(coeff []int16, seed int64) {
+	rng := rand.New(rand.NewSource(seed))
+	for i := range coeff {
+		v := rng.Intn(4097) - 2048
+		if i%5 == 0 {
+			v /= 8
+		}
+		if i%17 == 0 {
+			v = 0
+		}
+		coeff[i] = int16(v)
 	}
 }
 

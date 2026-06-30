@@ -126,8 +126,8 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 				return vp9Sub8x8SegmentRD{}, false
 			}
 			encoder.ForwardDCT4x4Into(diff[:], 4, coeff[:])
-			eob := encoder.QuantizeBWithQ(coeff[:], qindex, dequant, scan.Scan,
-				qcoeff[:], dqcoeff[:])
+			eob := encoder.QuantizeBWithQScanOrder(coeff[:], qindex, dequant,
+				scan, qcoeff[:], dqcoeff[:])
 
 			// vp9_block_error: error = sum(coeff-dqcoeff)^2, ssz = sum(coeff^2).
 			thisdistortion += encoder.BlockErrorFP(coeff[:], dqcoeff[:])

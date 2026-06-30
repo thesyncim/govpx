@@ -1320,15 +1320,26 @@ func QuantizeBWithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
 	if qcoeff != nil && len(qcoeff) < n {
 		n = len(qcoeff)
 	}
-	clear(dqcoeff[:n])
-	if qcoeff != nil {
-		clear(qcoeff[:n])
-	}
 	if n == 0 || dequant[0] == 0 || dequant[1] == 0 {
+		clear(dqcoeff[:n])
+		if qcoeff != nil {
+			clear(qcoeff[:n])
+		}
 		return 0
 	}
 
 	params := vp9QuantizeBParams(qindex, dequant)
+	return quantizeBWithQScan(coeff[:n], params, dequant, scan[:n], qcoeff, dqcoeff[:n])
+}
+
+func quantizeBWithQScan(coeff []int16, params vp9QuantizeParams, dequant [2]int16,
+	scan []int16, qcoeff, dqcoeff []int16,
+) int {
+	n := len(coeff)
+	clear(dqcoeff[:n])
+	if qcoeff != nil {
+		clear(qcoeff[:n])
+	}
 	nonZeroCount := n
 	for i := n - 1; i >= 0; i-- {
 		rc := int(scan[i])
@@ -1371,6 +1382,150 @@ func QuantizeBWithQ(coeff []int16, qindex int, dequant [2]int16, scan []int16,
 		}
 	}
 	return eob + 1
+}
+
+// QuantizeBWithQScanOrder is QuantizeBWithQ for callers that already hold
+// libvpx's ScanOrder. It mirrors SIMD kernels by walking coefficients in
+// raster order and max-reducing iscan for EOB.
+func QuantizeBWithQScanOrder(coeff []int16, qindex int, dequant [2]int16,
+	scanOrder common.ScanOrder, qcoeff, dqcoeff []int16,
+) int {
+	n := min(len(coeff), min(len(scanOrder.Scan), min(len(scanOrder.IScan), len(dqcoeff))))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
+	if n == 0 {
+		return 0
+	}
+	if dequant[0] == 0 || dequant[1] == 0 {
+		clear(dqcoeff[:n])
+		if qcoeff != nil {
+			clear(qcoeff[:n])
+		}
+		return 0
+	}
+	params := vp9QuantizeBParams(qindex, dequant)
+	if quantizeBScanTailBelowZbin(coeff[:n], params, scanOrder.Scan[:n]) {
+		if qcoeff == nil {
+			return quantizeBWithQScan(coeff[:n], params, dequant,
+				scanOrder.Scan[:n], nil, dqcoeff[:n])
+		}
+		return quantizeBWithQScan(coeff[:n], params, dequant,
+			scanOrder.Scan[:n], qcoeff[:n], dqcoeff[:n])
+	}
+	return quantizeBWithQScanOrderRaster(coeff[:n], params, dequant,
+		scanOrder.IScan[:n], qcoeff, dqcoeff[:n])
+}
+
+func quantizeBScanTailBelowZbin(coeff []int16, params vp9QuantizeParams,
+	scan []int16,
+) bool {
+	if len(coeff) == 0 || len(scan) < len(coeff) {
+		return true
+	}
+	rc := int(scan[len(coeff)-1])
+	if rc < 0 || rc >= len(coeff) {
+		return true
+	}
+	slot := 1
+	if rc == 0 {
+		slot = 0
+	}
+	c := int(coeff[rc])
+	if c < 0 {
+		c = -c
+	}
+	return c < params.zbin[slot]
+}
+
+func quantizeBWithQScanOrderRaster(coeff []int16, params vp9QuantizeParams,
+	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	zbinDC, zbinAC := params.zbin[0], params.zbin[1]
+	roundDC, roundAC := params.round[0], params.round[1]
+	quantDC, quantAC := params.quant[0], params.quant[1]
+	shiftDC, shiftAC := params.quantShift[0], params.quantShift[1]
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+	eob := 0
+
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	tmp := 0
+	if absCoeff >= zbinDC {
+		tmp = clampInt16(absCoeff + roundDC)
+		tmp = ((((tmp * quantDC) >> 16) + tmp) * shiftDC) >> 16
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		if qcoeff != nil {
+			qcoeff[0] = int16(q)
+		}
+		dqcoeff[0] = int16(q * deqDC)
+	} else {
+		if qcoeff != nil {
+			qcoeff[0] = 0
+		}
+		dqcoeff[0] = 0
+	}
+	if tmp != 0 {
+		eob = int(iscan[0])
+	}
+
+	if qcoeff == nil {
+		for rc := 1; rc < len(coeff); rc++ {
+			c = int(coeff[rc])
+			absCoeff = c
+			if absCoeff < 0 {
+				absCoeff = -absCoeff
+			}
+			tmp = 0
+			if absCoeff >= zbinAC {
+				tmp = clampInt16(absCoeff + roundAC)
+				tmp = ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 16
+				q := tmp
+				if c < 0 {
+					q = -q
+				}
+				dqcoeff[rc] = int16(q * deqAC)
+			} else {
+				dqcoeff[rc] = 0
+			}
+			if tmp != 0 && int(iscan[rc]) > eob {
+				eob = int(iscan[rc])
+			}
+		}
+		return eob
+	}
+
+	for rc := 1; rc < len(coeff); rc++ {
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp = 0
+		if absCoeff >= zbinAC {
+			tmp = clampInt16(absCoeff + roundAC)
+			tmp = ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 16
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(q * deqAC)
+		} else {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+		}
+		if tmp != 0 && int(iscan[rc]) > eob {
+			eob = int(iscan[rc])
+		}
+	}
+	return eob
 }
 
 // QuantizeB32x32 mirrors libvpx v1.16.0 vpx_quantize_b_32x32_c.
@@ -1442,6 +1597,127 @@ func QuantizeB32x32WithQ(coeff []int16, qindex int, dequant [2]int16, scan []int
 		}
 	}
 	return eob + 1
+}
+
+// QuantizeB32x32WithQScanOrder is QuantizeB32x32WithQ for callers that
+// already hold libvpx's ScanOrder.
+func QuantizeB32x32WithQScanOrder(coeff []int16, qindex int, dequant [2]int16,
+	scanOrder common.ScanOrder, qcoeff, dqcoeff []int16,
+) int {
+	const nCoeffs = 32 * 32
+	n := min(nCoeffs, min(len(coeff), min(len(scanOrder.IScan), len(dqcoeff))))
+	if qcoeff != nil && len(qcoeff) < n {
+		n = len(qcoeff)
+	}
+	if n == 0 {
+		return 0
+	}
+	if dequant[0] == 0 || dequant[1] == 0 {
+		clear(dqcoeff[:n])
+		if qcoeff != nil {
+			clear(qcoeff[:n])
+		}
+		return 0
+	}
+
+	params := vp9QuantizeBParams(qindex, dequant)
+	zbin := [2]int{
+		vp9RoundPowerOfTwo(params.zbin[0], 1),
+		vp9RoundPowerOfTwo(params.zbin[1], 1),
+	}
+	return quantizeB32x32WithQScanOrderRaster(coeff[:n], params, zbin,
+		dequant, scanOrder.IScan[:n], qcoeff, dqcoeff[:n])
+}
+
+func quantizeB32x32WithQScanOrderRaster(coeff []int16, params vp9QuantizeParams,
+	zbin [2]int, dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	zbinDC, zbinAC := zbin[0], zbin[1]
+	roundDC := vp9RoundPowerOfTwo(params.round[0], 1)
+	roundAC := vp9RoundPowerOfTwo(params.round[1], 1)
+	quantDC, quantAC := params.quant[0], params.quant[1]
+	shiftDC, shiftAC := params.quantShift[0], params.quantShift[1]
+	deqDC, deqAC := int(dequant[0]), int(dequant[1])
+	eob := 0
+
+	c := int(coeff[0])
+	absCoeff := c
+	if absCoeff < 0 {
+		absCoeff = -absCoeff
+	}
+	tmp := 0
+	if absCoeff >= zbinDC {
+		tmp = clampInt16(absCoeff + roundDC)
+		tmp = ((((tmp * quantDC) >> 16) + tmp) * shiftDC) >> 15
+		q := tmp
+		if c < 0 {
+			q = -q
+		}
+		if qcoeff != nil {
+			qcoeff[0] = int16(q)
+		}
+		dqcoeff[0] = int16(q * deqDC / 2)
+	} else {
+		if qcoeff != nil {
+			qcoeff[0] = 0
+		}
+		dqcoeff[0] = 0
+	}
+	if tmp != 0 {
+		eob = int(iscan[0])
+	}
+
+	if qcoeff == nil {
+		for rc := 1; rc < len(coeff); rc++ {
+			c = int(coeff[rc])
+			absCoeff = c
+			if absCoeff < 0 {
+				absCoeff = -absCoeff
+			}
+			tmp = 0
+			if absCoeff >= zbinAC {
+				tmp = clampInt16(absCoeff + roundAC)
+				tmp = ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 15
+				q := tmp
+				if c < 0 {
+					q = -q
+				}
+				dqcoeff[rc] = int16(q * deqAC / 2)
+			} else {
+				dqcoeff[rc] = 0
+			}
+			if tmp != 0 && int(iscan[rc]) > eob {
+				eob = int(iscan[rc])
+			}
+		}
+		return eob
+	}
+
+	for rc := 1; rc < len(coeff); rc++ {
+		c = int(coeff[rc])
+		absCoeff = c
+		if absCoeff < 0 {
+			absCoeff = -absCoeff
+		}
+		tmp = 0
+		if absCoeff >= zbinAC {
+			tmp = clampInt16(absCoeff + roundAC)
+			tmp = ((((tmp * quantAC) >> 16) + tmp) * shiftAC) >> 15
+			q := tmp
+			if c < 0 {
+				q = -q
+			}
+			qcoeff[rc] = int16(q)
+			dqcoeff[rc] = int16(q * deqAC / 2)
+		} else {
+			qcoeff[rc] = 0
+			dqcoeff[rc] = 0
+		}
+		if tmp != 0 && int(iscan[rc]) > eob {
+			eob = int(iscan[rc])
+		}
+	}
+	return eob
 }
 
 type vp9QuantizeParams struct {
