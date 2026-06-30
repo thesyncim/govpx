@@ -254,15 +254,18 @@ func CoeffBlockRateCost(in CoeffBlockRateCostInput) int {
 		in.QCoeffs = nil
 	}
 	scan := in.ScanOrder.Scan
+	if len(scan) < maxEob {
+		return 0
+	}
+	if in.Fast {
+		return coeffBlockRateCostFastQ(in, scan, maxEob)
+	}
 	neighbors := in.ScanOrder.Neighbors
-	if len(scan) < maxEob || len(neighbors) < common.MaxNeighbors*maxEob {
+	if len(neighbors) < common.MaxNeighbors*maxEob {
 		return 0
 	}
 	for i := range in.TokenCache[:maxEob] {
 		in.TokenCache[i] = 0
-	}
-	if in.Fast {
-		return coeffBlockRateCostFastQ(in, scan, maxEob)
 	}
 	eob := coeffBlockEOBEncode(scan, maxEob, in.Coeffs, in.QCoeffs)
 	return coeffBlockRateCostSlowQ(in, scan, neighbors, maxEob, eob)
