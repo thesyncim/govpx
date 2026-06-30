@@ -201,6 +201,13 @@ func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *Macroblock
 func addUChromaResidualPair(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, base int, u []byte, uStride int) {
 	eob0 := tokens.EOB[16+base]
 	eob1 := tokens.EOB[16+base+1]
+	if eob0 == 1 && eob1 == 1 && dequant != nil {
+		dc0 := int32(tokens.QCoeff[16+base][0]) * int32(dequant.UV[0])
+		dc1 := int32(tokens.QCoeff[16+base+1][0]) * int32(dequant.UV[0])
+		off := uvBlockOffset(base, uStride)
+		dsp.DCOnlyIDCT4x4AddPairInt32(dc0, dc1, u[off:], uStride, u[off:], uStride)
+		return
+	}
 	pairHasFull := eob0 > 1 || eob1 > 1
 	if eob0 != 0 {
 		addOneChromaBlock(tokens, residual, dequant, 16+base, base, pairHasFull, u, uStride)
@@ -213,6 +220,13 @@ func addUChromaResidualPair(tokens *MacroblockTokens, residual *MacroblockResidu
 func addVChromaResidualPair(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, base int, v []byte, vStride int) {
 	eob0 := tokens.EOB[20+base]
 	eob1 := tokens.EOB[20+base+1]
+	if eob0 == 1 && eob1 == 1 && dequant != nil {
+		dc0 := int32(tokens.QCoeff[20+base][0]) * int32(dequant.UV[0])
+		dc1 := int32(tokens.QCoeff[20+base+1][0]) * int32(dequant.UV[0])
+		off := uvBlockOffset(base, vStride)
+		dsp.DCOnlyIDCT4x4AddPairInt32(dc0, dc1, v[off:], vStride, v[off:], vStride)
+		return
+	}
 	pairHasFull := eob0 > 1 || eob1 > 1
 	if eob0 != 0 {
 		addOneChromaBlock(tokens, residual, dequant, 20+base, base, pairHasFull, v, vStride)

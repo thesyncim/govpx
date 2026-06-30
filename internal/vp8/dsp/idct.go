@@ -31,13 +31,27 @@ func DCOnlyIDCT4x4Add(inputDC int16, pred []byte, predStride int, dst []byte, ds
 // the NEON variant, so byte-exact parity requires mirroring the NEON
 // semantics here.
 func DCOnlyIDCT4x4AddInt32(inputDC int32, pred []byte, predStride int, dst []byte, dstStride int) {
+	a1 := dcOnlyIDCT4x4AddInt32Delta(inputDC)
+	dcOnlyIDCT4x4AddSIMD(int16(a1<<3), pred, predStride, dst, dstStride)
+}
+
+// DCOnlyIDCT4x4AddPairInt32 adds two horizontally adjacent DC-only 4x4 blocks.
+// It is used by chroma residual paths that mirror libvpx's paired U/V block
+// dispatch.
+func DCOnlyIDCT4x4AddPairInt32(inputDC0 int32, inputDC1 int32, pred []byte, predStride int, dst []byte, dstStride int) {
+	a0 := dcOnlyIDCT4x4AddInt32Delta(inputDC0)
+	a1 := dcOnlyIDCT4x4AddInt32Delta(inputDC1)
+	dcOnlyIDCT4x4AddPairSIMD(int16(a0), int16(a1), pred, predStride, dst, dstStride)
+}
+
+func dcOnlyIDCT4x4AddInt32Delta(inputDC int32) int {
 	a1 := int((inputDC + 4) >> 3)
 	if a1 > 255 {
 		a1 = 255
 	} else if a1 < -255 {
 		a1 = -255
 	}
-	dcOnlyIDCT4x4AddSIMD(int16(a1<<3), pred, predStride, dst, dstStride)
+	return a1
 }
 
 // idct4x4AddScalar is the canonical scalar port of libvpx

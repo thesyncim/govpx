@@ -172,3 +172,56 @@ TEXT ·dcOnlyIDCT4x4AddNEON(SB), NOSPLIT, $0-40
 	ADD	R4, R5, R5
 	WORD	$0x0d0090a1	// st1 {v1.s}[1], [x5]
 	RET
+
+// dcOnlyIDCT4x4AddPairNEON ABI ($0-48):
+//   delta0+0(FP)     int (already (inputDC0 + 4) >> 3, clamped)
+//   delta1+8(FP)     int (already (inputDC1 + 4) >> 3, clamped)
+//   pred+16(FP)      *uint8
+//   predStride+24(FP) int
+//   dst+32(FP)       *uint8
+//   dstStride+40(FP) int
+//
+// Adds two horizontally adjacent DC-only 4x4 blocks as a single 8x4 row
+// operation. Lanes 0..3 use delta0 and lanes 4..7 use delta1.
+TEXT ·dcOnlyIDCT4x4AddPairNEON(SB), NOSPLIT, $0-48
+	MOVD	delta0+0(FP), R0
+	MOVD	delta1+8(FP), R1
+	MOVD	pred+16(FP), R2
+	MOVD	predStride+24(FP), R3
+	MOVD	dst+32(FP), R4
+	MOVD	dstStride+40(FP), R5
+
+	WORD	$0x4e020c1e	// dup v30.8h, w0
+	WORD	$0x4e020c3f	// dup v31.8h, w1
+	WORD	$0x6e1807fe	// mov v30.d[1], v31.d[0]
+
+	VLD1	(R2), [V0.B8]
+	WORD	$0x2f08a400	// ushll  v0.8h, v0.8b, #0
+	WORD	$0x4e7e8400	// add    v0.8h, v0.8h, v30.8h
+	WORD	$0x2e212800	// sqxtun v0.8b, v0.8h
+	VST1	[V0.B8], (R4)
+
+	ADD	R3, R2, R2
+	ADD	R5, R4, R4
+	VLD1	(R2), [V0.B8]
+	WORD	$0x2f08a400	// ushll  v0.8h, v0.8b, #0
+	WORD	$0x4e7e8400	// add    v0.8h, v0.8h, v30.8h
+	WORD	$0x2e212800	// sqxtun v0.8b, v0.8h
+	VST1	[V0.B8], (R4)
+
+	ADD	R3, R2, R2
+	ADD	R5, R4, R4
+	VLD1	(R2), [V0.B8]
+	WORD	$0x2f08a400	// ushll  v0.8h, v0.8b, #0
+	WORD	$0x4e7e8400	// add    v0.8h, v0.8h, v30.8h
+	WORD	$0x2e212800	// sqxtun v0.8b, v0.8h
+	VST1	[V0.B8], (R4)
+
+	ADD	R3, R2, R2
+	ADD	R5, R4, R4
+	VLD1	(R2), [V0.B8]
+	WORD	$0x2f08a400	// ushll  v0.8h, v0.8b, #0
+	WORD	$0x4e7e8400	// add    v0.8h, v0.8h, v30.8h
+	WORD	$0x2e212800	// sqxtun v0.8b, v0.8h
+	VST1	[V0.B8], (R4)
+	RET

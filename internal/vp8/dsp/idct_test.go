@@ -78,6 +78,39 @@ func TestDCOnlyIDCT4x4AddInt32MatchesScalar(t *testing.T) {
 	}
 }
 
+func TestDCOnlyIDCT4x4AddPairInt32MatchesSingles(t *testing.T) {
+	pred := make([]byte, 8*8)
+	for i := range pred {
+		pred[i] = byte((i*13 + 9) & 255)
+	}
+	cases := [][2]int32{
+		{-1 << 20, 1 << 20},
+		{-4096, 4096},
+		{-2048, 2047},
+		{-17, 17},
+		{0, 1},
+		{128 * 132, -91 * 132},
+	}
+	for _, tc := range cases {
+		got := make([]byte, 8*8)
+		want := make([]byte, 8*8)
+		copy(got, pred)
+		copy(want, pred)
+
+		DCOnlyIDCT4x4AddPairInt32(tc[0], tc[1], got, 8, got, 8)
+		DCOnlyIDCT4x4AddInt32(tc[0], want, 8, want, 8)
+		DCOnlyIDCT4x4AddInt32(tc[1], want[4:], 8, want[4:], 8)
+
+		for y := range 4 {
+			for x := range 8 {
+				if got[y*8+x] != want[y*8+x] {
+					t.Fatalf("dc=(%d,%d) [%d,%d]: got=%d want=%d", tc[0], tc[1], x, y, got[y*8+x], want[y*8+x])
+				}
+			}
+		}
+	}
+}
+
 func TestIDCTAllocatesZero(t *testing.T) {
 	var input [16]int16
 	pred := make([]byte, 8*8)
@@ -85,6 +118,7 @@ func TestIDCTAllocatesZero(t *testing.T) {
 	allocs := testing.AllocsPerRun(1000, func() {
 		IDCT4x4Add(&input, pred, 8, dst, 8)
 		DCOnlyIDCT4x4Add(input[0], pred, 8, dst, 8)
+		DCOnlyIDCT4x4AddPairInt32(128*132, -64*132, pred, 8, dst, 8)
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
@@ -131,6 +165,25 @@ func BenchmarkDCOnlyIDCT4x4AddInt32(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		DCOnlyIDCT4x4AddInt32(128*132, pred, 8, dst, 8)
+	}
+}
+
+func BenchmarkDCOnlyIDCT4x4AddPairInt32(b *testing.B) {
+	pred := make([]byte, 8*8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		DCOnlyIDCT4x4AddPairInt32(128*132, -64*132, pred, 8, dst, 8)
+	}
+}
+
+func BenchmarkDCOnlyIDCT4x4AddPairInt32Singles(b *testing.B) {
+	pred := make([]byte, 8*8)
+	dst := make([]byte, 8*8)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		DCOnlyIDCT4x4AddInt32(128*132, pred, 8, dst, 8)
+		DCOnlyIDCT4x4AddInt32(-64*132, pred[4:], 8, dst[4:], 8)
 	}
 }
 

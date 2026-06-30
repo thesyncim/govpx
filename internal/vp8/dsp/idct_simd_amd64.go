@@ -25,3 +25,8 @@ func idct4x4AddSIMD(input *[16]int16, pred []byte, predStride int, dst []byte, d
 func dcOnlyIDCT4x4AddSIMD(inputDC int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	dcOnlyIDCT4x4AddSSE2(inputDC, unsafe.SliceData(pred), predStride, unsafe.SliceData(dst), dstStride)
 }
+
+func dcOnlyIDCT4x4AddPairSIMD(delta0 int16, delta1 int16, pred []byte, predStride int, dst []byte, dstStride int) {
+	dcOnlyIDCT4x4AddSIMD(delta0<<3, pred, predStride, dst, dstStride)
+	dcOnlyIDCT4x4AddSIMD(delta1<<3, pred[4:], predStride, dst[4:], dstStride)
+}
