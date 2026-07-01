@@ -28,7 +28,7 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		return decodeBenchReport{}, err
 	}
 	ivf := makeBenchmarkIVFForCodec(codec, cfg.Width, cfg.Height, cfg.FPS, packets)
-	dec, err := newBenchmarkDecoder(codec)
+	dec, err := newBenchmarkDecoder(codec, cfg)
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
@@ -190,11 +190,15 @@ type benchmarkDecoder interface {
 	NextFrame() (govpx.Image, bool)
 }
 
-func newBenchmarkDecoder(codec string) (benchmarkDecoder, error) {
+func newBenchmarkDecoder(codec string, cfg benchConfig) (benchmarkDecoder, error) {
+	threads := effectiveBenchThreads(cfg)
 	if codec == codecVP9 {
-		return govpx.NewVP9Decoder(govpx.VP9DecoderOptions{})
+		return govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
+			Threads:              threads,
+			DecoderLoopFilterOpt: threads > 1,
+		})
 	}
-	return govpx.NewVP8Decoder(govpx.DecoderOptions{})
+	return govpx.NewVP8Decoder(govpx.DecoderOptions{Threads: threads})
 }
 
 func closeBenchmarkDecoder(dec benchmarkDecoder) {
