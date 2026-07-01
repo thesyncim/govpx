@@ -104,6 +104,16 @@ func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequ
 			scan, iscan, qcoeff, dqcoeff)
 	}
 
+	if nCoeffs&7 == 0 {
+		// Standard transform sizes (16/64/256/1024): full-block kernel with
+		// the DC lane vectorized (libvpx vp9_quantize_fp_neon shape).
+		return int(quantizeFPFullNEON(unsafe.SliceData(coeff),
+			unsafe.SliceData(iscan), unsafe.SliceData(qcoeff),
+			unsafe.SliceData(dqcoeff), nCoeffs,
+			int(roundFP[0]), int(roundFP[1]), int(quantFP[0]), int(quantFP[1]),
+			int(dequant[0]), int(dequant[1])))
+	}
+
 	roundDC, roundAC := int(roundFP[0]), int(roundFP[1])
 	quantDC, quantAC := int(quantFP[0]), int(quantFP[1])
 	deqDC, deqAC := int(dequant[0]), int(dequant[1])
@@ -302,6 +312,11 @@ func forwardHT16x16NEON(input *int16, output *int16, stride int, txType int)
 //go:noescape
 func quantizeFPACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
 	count int, roundAC int, quantAC int, deqAC int) int32
+
+//go:noescape
+func quantizeFPFullNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
+	count int, roundDC int, roundAC int, quantDC int, quantAC int,
+	deqDC int, deqAC int) int32
 
 //go:noescape
 func quantizeBACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,

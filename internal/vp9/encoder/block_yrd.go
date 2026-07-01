@@ -4,6 +4,7 @@ import (
 	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
 // vp9_block_yrd.go ports the libvpx v1.16.0 substrate the realtime nonrd
@@ -1065,12 +1066,16 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	if (srcY+bh)*srcStride > len(src) || (dstY+bh)*dstStride > len(dst) {
 		return res
 	}
-	for y := range bh {
-		srcRow := src[(srcY+y)*srcStride+srcX : (srcY+y)*srcStride+srcX+bw]
-		dstRow := dst[(dstY+y)*dstStride+dstX : (dstY+y)*dstStride+dstX+bw]
-		out := srcDiff[y*bw:]
-		for x := range bw {
-			out[x] = int16(int(srcRow[x]) - int(dstRow[x]))
+	if _, ok := vp9dsp.SubtractBlockNonZero(src, srcY*srcStride+srcX, srcStride,
+		dst, dstY*dstStride+dstX, dstStride,
+		srcDiff, 0, bw, bw, bh); !ok {
+		for y := range bh {
+			srcRow := src[(srcY+y)*srcStride+srcX : (srcY+y)*srcStride+srcX+bw]
+			dstRow := dst[(dstY+y)*dstStride+dstX : (dstY+y)*dstStride+dstX+bw]
+			out := srcDiff[y*bw:]
+			for x := range bw {
+				out[x] = int16(int(srcRow[x]) - int(dstRow[x]))
+			}
 		}
 	}
 
@@ -1214,15 +1219,7 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 			rate += q0
 		} else if eob > 1 {
 			// vpx_satd over n coefficients.
-			satd := 0
-			for j := range nCoeffs {
-				q := int(qcoeffSlot[j])
-				if q < 0 {
-					q = -q
-				}
-				satd += q
-			}
-			rate += satd
+			rate += satdAbsSum(qcoeffSlot, nCoeffs)
 		}
 
 		// libvpx: vp9_pickmode.c:845 — vp9_block_error_fp(coeff, dqcoeff, n) >> 2.

@@ -35,6 +35,8 @@ func TestSubtractBlockNonZeroMatchesScalar(t *testing.T) {
 		{"32x32", 32, 32},
 		{"8x4", 8, 4},
 		{"16x8", 16, 8},
+		{"64x64", 64, 64},
+		{"64x32", 64, 32},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

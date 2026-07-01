@@ -33,6 +33,9 @@ func subtractBlockNonZeroFast(src []uint8, srcOff, srcStride int,
 	predPtr := unsafe.SliceData(pred[predOff:])
 	outPtr := unsafe.SliceData(out[outOff:])
 	switch w {
+	case 64:
+		return subtractBlock16ChunksNEON(srcPtr, srcStride, predPtr, predStride,
+			outPtr, h, 4) != 0, true
 	case 32:
 		return subtractBlock16ChunksNEON(srcPtr, srcStride, predPtr, predStride,
 			outPtr, h, 2) != 0, true

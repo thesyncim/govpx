@@ -1,5 +1,7 @@
 package encoder
 
+// hadamardCol8 ports libvpx v1.16.0 vpx_dsp/avg.c hadamard_col8 verbatim:
+// one 8-point Hadamard butterfly over a strided int16 column.
 func hadamardCol8(src []int16, stride int, coeff []int16) {
 	b0 := int(src[0*stride]) + int(src[1*stride])
 	b1 := int(src[0*stride]) - int(src[1*stride])
@@ -29,7 +31,8 @@ func hadamardCol8(src []int16, stride int, coeff []int16) {
 	coeff[5] = int16(c3 - c7)
 }
 
-func hadamard8x8Into(src []int16, stride int, coeff []int16) {
+// hadamard8x8Scalar ports libvpx v1.16.0 vpx_dsp/avg.c vpx_hadamard_8x8_c.
+func hadamard8x8Scalar(src []int16, stride int, coeff []int16) {
 	var buffer [64]int16
 	var buffer2 [64]int16
 	for idx := range 8 {
@@ -41,11 +44,12 @@ func hadamard8x8Into(src []int16, stride int, coeff []int16) {
 	copy(coeff[:64], buffer2[:])
 }
 
-func hadamard16x16Into(src []int16, stride int, coeff []int16) {
-	hadamard8x8Into(src, stride, coeff[:64])
-	hadamard8x8Into(src[8:], stride, coeff[64:128])
-	hadamard8x8Into(src[8*stride:], stride, coeff[128:192])
-	hadamard8x8Into(src[8*stride+8:], stride, coeff[192:256])
+// hadamard16x16Scalar ports libvpx v1.16.0 vpx_dsp/avg.c vpx_hadamard_16x16_c.
+func hadamard16x16Scalar(src []int16, stride int, coeff []int16) {
+	hadamard8x8Scalar(src, stride, coeff[:64])
+	hadamard8x8Scalar(src[8:], stride, coeff[64:128])
+	hadamard8x8Scalar(src[8*stride:], stride, coeff[128:192])
+	hadamard8x8Scalar(src[8*stride+8:], stride, coeff[192:256])
 	for idx := range 64 {
 		a0 := int(coeff[idx])
 		a1 := int(coeff[64+idx])
@@ -62,4 +66,18 @@ func hadamard16x16Into(src []int16, stride int, coeff []int16) {
 		coeff[128+idx] = int16(b0 - b2)
 		coeff[192+idx] = int16(b1 - b3)
 	}
+}
+
+// satdAbsSumScalar ports libvpx v1.16.0 vpx_dsp/avg.c vpx_satd_c: the sum of
+// absolute values of the first n coefficients.
+func satdAbsSumScalar(coeff []int16, n int) int {
+	sum := 0
+	for i := range n {
+		v := int(coeff[i])
+		if v < 0 {
+			v = -v
+		}
+		sum += v
+	}
+	return sum
 }

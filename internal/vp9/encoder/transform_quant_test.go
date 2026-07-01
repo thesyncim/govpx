@@ -2339,3 +2339,78 @@ func TestVP9QuantizeB32x32MatchesLibvpxContract(t *testing.T) {
 		})
 	}
 }
+
+// TestVP9QuantizeFPDispatchMatchesScalarRandom hammers the arm64
+// full-block vp9_quantize_fp kernel (DC lane vectorized) against the
+// scalar contract across random tables and coefficient distributions,
+// including int16 extrema and distinct DC/AC parameters.
+func TestVP9QuantizeFPDispatchMatchesScalarRandom(t *testing.T) {
+	rng := rand.New(rand.NewSource(0xFB0))
+	txs := []struct {
+		tx common.TxSize
+		n  int
+	}{
+		{common.Tx4x4, 16},
+		{common.Tx8x8, 64},
+		{common.Tx16x16, 256},
+		{common.Tx32x32, 1024},
+	}
+	for _, tc := range txs {
+		so := common.DefaultScanOrders[tc.tx]
+		scan := so.Scan[:tc.n]
+		iscan := so.IScan[:tc.n]
+		coeff := make([]int16, tc.n)
+		gotQ := make([]int16, tc.n)
+		gotDQ := make([]int16, tc.n)
+		wantQ := make([]int16, tc.n)
+		wantDQ := make([]int16, tc.n)
+		for trial := range 100 {
+			var dequant, roundFP, quantFP [2]int16
+			for p := range 2 {
+				deq := 4 + rng.Intn(32763)
+				dequant[p] = int16(deq)
+				if trial%2 == 0 {
+					// libvpx vp9_init_quantizer recipe (the BlockYrd path).
+					f := 42
+					if p == 0 {
+						f = 48
+					}
+					roundFP[p] = int16((f * deq) >> 7)
+					quantFP[p] = int16((1 << 16) / deq)
+				} else {
+					roundFP[p] = int16(rng.Intn(32768))
+					quantFP[p] = int16(rng.Intn(32768))
+				}
+			}
+			for i := range coeff {
+				switch rng.Intn(8) {
+				case 0:
+					coeff[i] = -32768
+				case 1:
+					coeff[i] = 32767
+				case 2:
+					coeff[i] = 0
+				case 3:
+					coeff[i] = int16(rng.Intn(65536) - 32768)
+				default:
+					coeff[i] = int16(rng.Intn(2049) - 1024)
+				}
+			}
+			gotEOB := QuantizeFPLibvpx(coeff, tc.n, roundFP, quantFP, dequant,
+				scan, iscan, gotQ, gotDQ)
+			wantEOB := quantizeFPLibvpxScalar(coeff, tc.n, roundFP, quantFP, dequant,
+				scan, iscan, wantQ, wantDQ)
+			if gotEOB != wantEOB {
+				t.Fatalf("n=%d trial=%d: eob = %d, want %d (dequant=%v round=%v quant=%v)",
+					tc.n, trial, gotEOB, wantEOB, dequant, roundFP, quantFP)
+			}
+			for i := range coeff {
+				if gotQ[i] != wantQ[i] || gotDQ[i] != wantDQ[i] {
+					t.Fatalf("n=%d trial=%d: coeff[%d]=%d q=%d/%d dq=%d/%d (dequant=%v round=%v quant=%v)",
+						tc.n, trial, i, coeff[i], gotQ[i], wantQ[i], gotDQ[i], wantDQ[i],
+						dequant, roundFP, quantFP)
+				}
+			}
+		}
+	}
+}
