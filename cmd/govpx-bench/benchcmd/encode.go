@@ -59,25 +59,44 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 	enc.Reset()
 	phaseStats.reset()
+	encodeMallocs := uint64(0)
+	if cfg.CPUProfile != "" {
+		runtime.GC()
+		var memBefore runtime.MemStats
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+		for i, frame := range frames {
+			if _, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0); err != nil {
+				return benchReport{}, err
+			}
+		}
+		runtime.ReadMemStats(&memAfter)
+		encodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+		enc.Reset()
+		phaseStats.reset()
+	}
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return benchReport{}, err
 	}
 	defer stopCPUProfile()
 	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
-	encodeMallocs := uint64(0)
 	for i, frame := range frames {
 		var memBefore runtime.MemStats
-		var memAfter runtime.MemStats
-		runtime.ReadMemStats(&memBefore)
+		if cfg.CPUProfile == "" {
+			runtime.ReadMemStats(&memBefore)
+		}
 		start := time.Now()
 		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
 		elapsed := time.Since(start)
-		runtime.ReadMemStats(&memAfter)
+		if cfg.CPUProfile == "" {
+			var memAfter runtime.MemStats
+			runtime.ReadMemStats(&memAfter)
+			encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
+		}
 		if err != nil {
 			return benchReport{}, err
 		}
-		encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
 		latencies = append(latencies, elapsed.Nanoseconds())
 		if result.Dropped {
 			droppedFrames++

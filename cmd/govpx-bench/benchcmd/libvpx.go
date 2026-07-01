@@ -262,7 +262,7 @@ func parseLibvpxVP9CallStats(stderr []byte) (*vp9CallStats, bool) {
 	}
 	var stats vp9CallStats
 	seen := false
-	for _, field := range strings.Fields(line) {
+	for field := range strings.FieldsSeq(line) {
 		key, rawValue, ok := strings.Cut(field, "=")
 		if !ok {
 			continue

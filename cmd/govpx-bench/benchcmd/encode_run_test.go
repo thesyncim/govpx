@@ -41,6 +41,25 @@ func TestRunBenchmarkOutputsJSONMetrics(t *testing.T) {
 	}
 }
 
+func TestRunBenchmarkCPUProfileKeepsEncodeAllocsScoped(t *testing.T) {
+	profile := t.TempDir() + "/encode.pprof"
+	report, err := runBenchmark(benchConfig{
+		Width:       16,
+		Height:      16,
+		Frames:      5,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		CPUProfile:  profile,
+	})
+	if err != nil {
+		t.Fatalf("runBenchmark returned error: %v", err)
+	}
+	if report.AllocsPerFrame != 0 {
+		t.Fatalf("AllocsPerFrame with cpuprofile = %f, want 0 for measured encode pass", report.AllocsPerFrame)
+	}
+}
+
 func TestRunBenchmarkIncludesLibvpxReference(t *testing.T) {
 	report, err := runBenchmark(benchConfig{
 		Width:        16,

@@ -80,7 +80,11 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	if err != nil {
 		return benchReport{}, err
 	}
-	defer enc.Close()
+	defer func() {
+		if enc != nil {
+			enc.Close()
+		}
+	}()
 
 	latencies := make([]int64, 0, cfg.Frames)
 	var quantHist [quantizerHistogramBins]int
@@ -93,7 +97,30 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	keyframeBytes := 0
 	interBytes := 0
 	interCount := 0
+	encodeMallocs := uint64(0)
 
+	if cfg.CPUProfile != "" {
+		runtime.GC()
+		var memBefore runtime.MemStats
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+		for i := range frames {
+			if _, err := enc.EncodeIntoWithResult(ycbcr[i], packet); err != nil {
+				return benchReport{}, fmt.Errorf("vp9 allocation sample frame %d: %w", i, err)
+			}
+		}
+		runtime.ReadMemStats(&memAfter)
+		encodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+		enc.Close()
+		enc = nil
+		enc, err = govpx.NewVP9Encoder(encoderOpts)
+		if err != nil {
+			return benchReport{}, err
+		}
+	}
+
+	phaseStats.reset()
+	runtime.GC()
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return benchReport{}, err
@@ -101,21 +128,22 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	defer stopCPUProfile()
 
 	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
-	encodeMallocs := uint64(0)
-	phaseStats.reset()
-	runtime.GC()
 	for i := range frames {
 		var memBefore runtime.MemStats
-		var memAfter runtime.MemStats
-		runtime.ReadMemStats(&memBefore)
+		if cfg.CPUProfile == "" {
+			runtime.ReadMemStats(&memBefore)
+		}
 		start := time.Now()
 		result, err := enc.EncodeIntoWithResult(ycbcr[i], packet)
 		elapsed := time.Since(start)
-		runtime.ReadMemStats(&memAfter)
+		if cfg.CPUProfile == "" {
+			var memAfter runtime.MemStats
+			runtime.ReadMemStats(&memAfter)
+			encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
+		}
 		if err != nil {
 			return benchReport{}, fmt.Errorf("vp9 encode frame %d: %w", i, err)
 		}
-		encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
 		latencies = append(latencies, elapsed.Nanoseconds())
 		if result.Dropped {
 			droppedFrames++

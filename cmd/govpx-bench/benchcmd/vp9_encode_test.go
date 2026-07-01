@@ -61,6 +61,31 @@ func TestRunVP9BenchmarkSkipQuality(t *testing.T) {
 	}
 }
 
+func TestRunVP9BenchmarkCPUProfileKeepsEncodeAllocsScoped(t *testing.T) {
+	profile := t.TempDir() + "/vp9-encode.pprof"
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      5,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+		CPUProfile:  profile,
+		SkipQuality: true,
+	})
+	if err != nil {
+		t.Fatalf("runVP9Benchmark returned error: %v", err)
+	}
+	maxAllocs := 64.0
+	if puregoBuild {
+		maxAllocs = 128
+	}
+	if report.AllocsPerFrame > maxAllocs {
+		t.Fatalf("AllocsPerFrame with cpuprofile = %f, want <= %f for measured VP9 encode pass", report.AllocsPerFrame, maxAllocs)
+	}
+}
+
 func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 	if !phaseTimingEnabled {
 		t.Skip("phase timing requires the govpx_phase_stats build tag")
