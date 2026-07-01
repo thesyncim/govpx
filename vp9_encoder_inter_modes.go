@@ -2930,15 +2930,39 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	if blockW < 16 {
 		searchSadAt4 = nil
 	}
-	bestSad, ok := sadAt(0, 0)
-	if !ok {
-		return vp9dec.MV{}, 0, false
-	}
-	bestScore := scoreMv(0, 0, bestSad)
+	var bestSad, bestScore uint64
 	bestDx, bestDy := 0, 0
 	searchCenterDx, searchCenterDy := 0, 0
 	searchFromSeed := false
 	seededStart := false
+	skipSearchFromSeed := !opts.fullRD && opts.seedValid &&
+		(opts.useMvPart || opts.skipFullpelSearch)
+	if skipSearchFromSeed {
+		seedDx := int(opts.seed.Col) >> 3
+		seedDy := int(opts.seed.Row) >> 3
+		seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
+		bestDx = seedDx
+		bestDy = seedDy
+		bestScore = scoreMv(seedDx, seedDy, 0)
+		seededStart = true
+		searchCenterDx = seedDx
+		searchCenterDy = seedDy
+		searchFromSeed = true
+		if e.vp9InterSubpelEnabled() && !opts.nonrdSubpelTree &&
+			!e.vp9InterSubpelSearchUsesTree() {
+			if sad, ok := sadAt(seedDx, seedDy); ok {
+				bestSad = sad
+				bestScore = scoreMv(seedDx, seedDy, sad)
+			}
+		}
+	} else {
+		sad, ok := sadAt(0, 0)
+		if !ok {
+			return vp9dec.MV{}, 0, false
+		}
+		bestSad = sad
+		bestScore = scoreMv(0, 0, bestSad)
+	}
 	eval := func(dx, dy int) bool {
 		if dx == bestDx && dy == bestDy {
 			return false
@@ -2971,6 +2995,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// (=6), which the NONRD path passes (vp9_pickmode.c:171); the full-RD
 		// path must NOT use the SF field.
 		var newSad uint64
+		var ok bool
 		bestDx, bestDy, newSad, ok = e.vp9FullRDFullPelMv(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, opts, &mvLimits, sadAt, sadAt4,
 			sadSkipAt, sadSkipOddAt, sadSkipAt4, sadPerBit, refFullDy, refFullDx)
@@ -2980,7 +3005,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		bestSad = newSad
 		bestScore = scoreMv(bestDx, bestDy, bestSad)
 	} else {
-		if opts.seedValid {
+		if opts.seedValid && !skipSearchFromSeed {
 			seedDx := int(opts.seed.Col) >> 3
 			seedDy := int(opts.seed.Row) >> 3
 			seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
