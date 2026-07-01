@@ -27,15 +27,46 @@ package dsp
 //   - hbuf[idx] post-divide: [0, 510]  (9 bits).
 func VpxIntProRow(hbuf []int16, ref []uint8, refOff, refStride, height int) {
 	// libvpx: assert(height >= 2).
-	normFactor := int16(height >> 1)
-	for idx := range 16 {
-		var acc int16
-		for i := range height {
-			acc += int16(ref[refOff+i*refStride])
-		}
-		hbuf[idx] = acc / normFactor
-		refOff++
+	normFactor := height >> 1
+	var a0, a1, a2, a3, a4, a5, a6, a7 int
+	var a8, a9, a10, a11, a12, a13, a14, a15 int
+	_ = hbuf[15]
+	for i := range height {
+		row := ref[refOff+i*refStride:]
+		_ = row[15]
+		a0 += int(row[0])
+		a1 += int(row[1])
+		a2 += int(row[2])
+		a3 += int(row[3])
+		a4 += int(row[4])
+		a5 += int(row[5])
+		a6 += int(row[6])
+		a7 += int(row[7])
+		a8 += int(row[8])
+		a9 += int(row[9])
+		a10 += int(row[10])
+		a11 += int(row[11])
+		a12 += int(row[12])
+		a13 += int(row[13])
+		a14 += int(row[14])
+		a15 += int(row[15])
 	}
+	hbuf[0] = int16(a0 / normFactor)
+	hbuf[1] = int16(a1 / normFactor)
+	hbuf[2] = int16(a2 / normFactor)
+	hbuf[3] = int16(a3 / normFactor)
+	hbuf[4] = int16(a4 / normFactor)
+	hbuf[5] = int16(a5 / normFactor)
+	hbuf[6] = int16(a6 / normFactor)
+	hbuf[7] = int16(a7 / normFactor)
+	hbuf[8] = int16(a8 / normFactor)
+	hbuf[9] = int16(a9 / normFactor)
+	hbuf[10] = int16(a10 / normFactor)
+	hbuf[11] = int16(a11 / normFactor)
+	hbuf[12] = int16(a12 / normFactor)
+	hbuf[13] = int16(a13 / normFactor)
+	hbuf[14] = int16(a14 / normFactor)
+	hbuf[15] = int16(a15 / normFactor)
 }
 
 // VpxIntProCol mirrors vpx_int_pro_col_c (vpx_dsp/avg.c:362-369).
