@@ -100,48 +100,25 @@ func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
 ) (int, uint64, uint32, int32) {
 	val := 0
 	for i := range n {
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
 		var bit uint32
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[i]), value, rng, count)
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[i]), value, rng, count)
 		val = (val << 1) | int(bit)
 	}
 	return val, value, rng, count
 }
 
-func readBoolLocal(r *bitstream.ReaderState, prob uint32,
+// vpxReadNoFill is the arithmetic body of vpx_read (vpx_dsp/bitreader.h)
+// after the vpx_reader_fill step. Callers perform libvpx's
+// `if (r->count < 0) vpx_reader_fill(r)` check first; splitting the rare
+// refill out keeps this body within the Go inliner budget so per-token
+// reads stay call-free, matching libvpx's static INLINE vpx_read.
+func vpxReadNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	baseRange := rng
-	split := (baseRange*prob + (256 - prob)) >> 8
-
-	if count < 0 {
-		r.Fill(&value, &count)
-	}
-
-	bigsplit := uint64(split) << (64 - 8)
-	nextRange := split
-	var bit uint32
-	if value >= bigsplit {
-		nextRange = baseRange - split
-		value -= bigsplit
-		bit = 1
-	}
-
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-	return bit, value, nextRange, count
-}
-
-func readBitLocal(r *bitstream.ReaderState,
-	value uint64, rng uint32, count int32,
-) (uint32, uint64, uint32, int32) {
-	split := (rng + 1) >> 1
-
-	if count < 0 {
-		r.Fill(&value, &count)
-	}
-
+	split := (rng*prob + (256 - prob)) >> 8
 	bigsplit := uint64(split) << (64 - 8)
 	nextRange := split
 	var bit uint32
@@ -152,10 +129,26 @@ func readBitLocal(r *bitstream.ReaderState,
 	}
 
 	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-	return bit, value, nextRange, count
+	return bit, value << shift, nextRange << shift, count - int32(shift)
+}
+
+// vpxReadBitNoFill is vpxReadNoFill at prob=128 — one equally-likely
+// bit, mirroring vpx_read_bit. The caller performs the fill check.
+func vpxReadBitNoFill(
+	value uint64, rng uint32, count int32,
+) (uint32, uint64, uint32, int32) {
+	split := (rng + 1) >> 1
+	bigsplit := uint64(split) << (64 - 8)
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	return bit, value << shift, nextRange << shift, count - int32(shift)
 }
 
 // getCoefContext mirrors get_coef_context from vp9_scan.h. Looks up
@@ -302,14 +295,20 @@ func decodeCoefsReaderState(
 		bandIdx++
 		probs := &coefModel[band][ctx]
 
-		bit, nextValue, nextRange, nextCount := readBoolLocal(r,
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
+		bit, nextValue, nextRange, nextCount := vpxReadNoFill(
 			uint32(probs[eobContextNode]), value, rng, count)
 		value, rng, count = nextValue, nextRange, nextCount
 		if bit == 0 {
 			break
 		}
 
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]),
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
 			value, rng, count)
 		for bit == 0 {
 			dqv = dequant[1]
@@ -325,26 +324,44 @@ func decodeCoefsReaderState(
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
-			bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]),
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
 				value, rng, count)
 		}
 
 		var val int
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[oneContextNode]),
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[oneContextNode]),
 			value, rng, count)
 		if bit != 0 {
 			p := &tables.Pareto8Full[probs[pivotNode]-1]
-			bit, value, rng, count = readBoolLocal(r, uint32(p[0]), value, rng,
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadNoFill(uint32(p[0]), value, rng,
 				count)
 			if bit != 0 {
-				bit, value, rng, count = readBoolLocal(r, uint32(p[3]), value,
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value,
 					rng, count)
 				if bit != 0 {
 					tokenCache[scan[c]] = 5
-					bit, value, rng, count = readBoolLocal(r, uint32(p[5]),
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[5]),
 						value, rng, count)
 					if bit != 0 {
-						bit, value, rng, count = readBoolLocal(r, uint32(p[7]),
+						if count < 0 {
+							r.Fill(&value, &count)
+						}
+						bit, value, rng, count = vpxReadNoFill(uint32(p[7]),
 							value, rng, count)
 						if bit != 0 {
 							var extra int
@@ -358,7 +375,10 @@ func decodeCoefsReaderState(
 							val = cat5MinVal + extra
 						}
 					} else {
-						bit, value, rng, count = readBoolLocal(r, uint32(p[6]),
+						if count < 0 {
+							r.Fill(&value, &count)
+						}
+						bit, value, rng, count = vpxReadNoFill(uint32(p[6]),
 							value, rng, count)
 						if bit != 0 {
 							var extra int
@@ -374,7 +394,10 @@ func decodeCoefsReaderState(
 					}
 				} else {
 					tokenCache[scan[c]] = 4
-					bit, value, rng, count = readBoolLocal(r, uint32(p[4]),
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[4]),
 						value, rng, count)
 					if bit != 0 {
 						var extra int
@@ -389,20 +412,32 @@ func decodeCoefsReaderState(
 					}
 				}
 				v := (val * int(dqv)) >> dqShift
-				bit, value, rng, count = readBitLocal(r, value, rng, count)
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 				if bit != 0 {
 					v = -v
 				}
 				dqcoeff[scan[c]] = int16(v)
 			} else {
-				bit, value, rng, count = readBoolLocal(r, uint32(p[1]), value,
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value,
 					rng, count)
 				if bit != 0 {
 					tokenCache[scan[c]] = 3
-					bit, value, rng, count = readBoolLocal(r, uint32(p[2]),
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[2]),
 						value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
-					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
 					}
@@ -410,7 +445,10 @@ func decodeCoefsReaderState(
 				} else {
 					tokenCache[scan[c]] = 2
 					v := (2 * int(dqv)) >> dqShift
-					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
 					}
@@ -420,7 +458,10 @@ func decodeCoefsReaderState(
 		} else {
 			tokenCache[scan[c]] = 1
 			v := int(dqv) >> dqShift
-			bit, value, rng, count = readBitLocal(r, value, rng, count)
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 			if bit != 0 {
 				v = -v
 			}
@@ -496,8 +537,11 @@ func decodeCoefsWithCountsReaderState(
 		if counts != nil {
 			counts.EobBranch[txSize][planeType][isInter][band][ctx]++
 		}
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
 		var bit uint32
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[eobContextNode]), value, rng, count)
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[eobContextNode]), value, rng, count)
 		if bit == 0 {
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][eobModelToken]++
@@ -506,7 +550,10 @@ func decodeCoefsWithCountsReaderState(
 		}
 
 		// ZERO node — runs of zero tokens.
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]), value, rng, count)
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]), value, rng, count)
 		for bit == 0 {
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][zeroToken]++
@@ -524,25 +571,43 @@ func decodeCoefsWithCountsReaderState(
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
-			bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]), value, rng, count)
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]), value, rng, count)
 		}
 
 		var val int
-		bit, value, rng, count = readBoolLocal(r, uint32(probs[oneContextNode]), value, rng, count)
+		if count < 0 {
+			r.Fill(&value, &count)
+		}
+		bit, value, rng, count = vpxReadNoFill(uint32(probs[oneContextNode]), value, rng, count)
 		if bit != 0 {
 			// Token >= 2 — read the Pareto8 tail.
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][twoToken]++
 			}
 			p := &tables.Pareto8Full[probs[pivotNode]-1]
-			bit, value, rng, count = readBoolLocal(r, uint32(p[0]), value, rng, count)
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadNoFill(uint32(p[0]), value, rng, count)
 			if bit != 0 {
-				bit, value, rng, count = readBoolLocal(r, uint32(p[3]), value, rng, count)
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value, rng, count)
 				if bit != 0 {
 					tokenCache[scan[c]] = 5
-					bit, value, rng, count = readBoolLocal(r, uint32(p[5]), value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[5]), value, rng, count)
 					if bit != 0 {
-						bit, value, rng, count = readBoolLocal(r, uint32(p[7]), value, rng, count)
+						if count < 0 {
+							r.Fill(&value, &count)
+						}
+						bit, value, rng, count = vpxReadNoFill(uint32(p[7]), value, rng, count)
 						if bit != 0 {
 							var extra int
 							extra, value, rng, count = readCoeffBits(r, tables.Cat6Prob[:], cat6Bits8, value, rng, count)
@@ -553,7 +618,10 @@ func decodeCoefsWithCountsReaderState(
 							val = cat5MinVal + extra
 						}
 					} else {
-						bit, value, rng, count = readBoolLocal(r, uint32(p[6]), value, rng, count)
+						if count < 0 {
+							r.Fill(&value, &count)
+						}
+						bit, value, rng, count = vpxReadNoFill(uint32(p[6]), value, rng, count)
 						if bit != 0 {
 							var extra int
 							extra, value, rng, count = readCoeffBits(r, tables.Cat4Prob[:], 4, value, rng, count)
@@ -566,7 +634,10 @@ func decodeCoefsWithCountsReaderState(
 					}
 				} else {
 					tokenCache[scan[c]] = 4
-					bit, value, rng, count = readBoolLocal(r, uint32(p[4]), value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[4]), value, rng, count)
 					if bit != 0 {
 						var extra int
 						extra, value, rng, count = readCoeffBits(r, tables.Cat2Prob[:], 2, value, rng, count)
@@ -578,18 +649,30 @@ func decodeCoefsWithCountsReaderState(
 					}
 				}
 				v := (val * int(dqv)) >> dqShift
-				bit, value, rng, count = readBitLocal(r, value, rng, count)
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 				if bit != 0 {
 					v = -v
 				}
 				dqcoeff[scan[c]] = int16(v)
 			} else {
-				bit, value, rng, count = readBoolLocal(r, uint32(p[1]), value, rng, count)
+				if count < 0 {
+					r.Fill(&value, &count)
+				}
+				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value, rng, count)
 				if bit != 0 {
 					tokenCache[scan[c]] = 3
-					bit, value, rng, count = readBoolLocal(r, uint32(p[2]), value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadNoFill(uint32(p[2]), value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
-					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
 					}
@@ -597,7 +680,10 @@ func decodeCoefsWithCountsReaderState(
 				} else {
 					tokenCache[scan[c]] = 2
 					v := (2 * int(dqv)) >> dqShift
-					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if count < 0 {
+						r.Fill(&value, &count)
+					}
+					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
 					}
@@ -611,7 +697,10 @@ func decodeCoefsWithCountsReaderState(
 			}
 			tokenCache[scan[c]] = 1
 			v := int(dqv) >> dqShift
-			bit, value, rng, count = readBitLocal(r, value, rng, count)
+			if count < 0 {
+				r.Fill(&value, &count)
+			}
+			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 			if bit != 0 {
 				v = -v
 			}
