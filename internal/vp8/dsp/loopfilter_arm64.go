@@ -57,6 +57,22 @@ func loopFilterEdgeV8x8PairNEON(u *byte, v *byte, pitch int, blimit, limit, thre
 //go:noescape
 func mbLoopFilterEdgeV8x8PairNEON(u *byte, v *byte, pitch int, blimit, limit, thresh byte)
 
+// Direct horizontal-edge UV pair variant (libvpx
+// vp8_loop_filter_horizontal_edge_uv_neon). The u/v pointers are at the p3
+// row; the kernel reads 8 rows of 8 bytes per plane (U in the low lanes, V
+// in the high lanes) and writes p1,p0,q0,q1 back to both planes.
+//
+//go:noescape
+func loopFilterEdgeH8x8PairNEON(u *byte, v *byte, pitch int, blimit, limit, thresh byte)
+
+// Direct horizontal-edge UV pair variant (libvpx
+// vp8_mbloop_filter_horizontal_edge_uv_neon). The u/v pointers are at the
+// p3 row; the kernel reads 8 rows of 8 bytes per plane and writes
+// p2,p1,p0,q0,q1,q2 back to both planes.
+//
+//go:noescape
+func mbLoopFilterEdgeH8x8PairNEON(u *byte, v *byte, pitch int, blimit, limit, thresh byte)
+
 // NEON kernel for the VP8 simple loop filter, horizontal edge variant
 // (libvpx vp8_loop_filter_simple_horizontal_edge_neon). Caller passes a
 // pointer at the p1 row; the kernel reads p1, p0, q0, q1 at +pitch
