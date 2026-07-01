@@ -1070,6 +1070,24 @@ func (d *VP9Decoder) storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol,
 	}
 }
 
+func clearVP9DecodedDQCoeffs(coeffs []int16, txSize common.TxSize,
+	txType common.TxType, eob int,
+) {
+	if eob <= 0 {
+		return
+	}
+	clearN := vp9dec.MaxEobForTxSize(txSize)
+	switch {
+	case eob == 1:
+		clearN = 1
+	case txType == common.DctDct && txSize <= common.Tx16x16 && eob <= 10:
+		clearN = 4 * (4 << uint(txSize))
+	case txSize == common.Tx32x32 && eob <= 34:
+		clearN = 256
+	}
+	clear(coeffs[:clearN])
+}
+
 func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, mi *vp9dec.NeighborMi,
 	uvMode common.PredictionMode, tile vp9dec.TileBounds,
@@ -1117,6 +1135,10 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				if plane == 0 {
 					mode = vp9dec.GetYMode(mi, blockIdx)
 				}
+				txType := common.DctDct
+				if isInter == 0 && planeType == 0 && !hdr.Quant.Lossless {
+					txType = common.IntraModeToTxType[mode]
+				}
 				aboveCtx := pd.AboveContext[aboveBase+cc : aboveBase+cc+step]
 				leftCtx := pd.LeftContext[leftBase+rr : leftBase+rr+step]
 				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
@@ -1124,9 +1146,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					hdr.Quant.Lossless, mode)
 				maxEob := vp9dec.MaxEobForTxSize(txSize)
 				coeffs := d.dqcoeff[:maxEob]
-				for i := range coeffs {
-					coeffs[i] = 0
-				}
 
 				var coefCounts *vp9dec.CoefCounts
 				if !hdr.FrameParallelDecoding {
@@ -1142,10 +1161,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					if !ok {
 						d.markVP9Unsupported()
 					} else if eob > 0 && dst != nil {
-						txType := common.DctDct
-						if planeType == 0 && !hdr.Quant.Lossless {
-							txType = common.IntraModeToTxType[mode]
-						}
 						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
 							txType, eob, hdr.Quant.Lossless)
 					}
@@ -1159,6 +1174,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 							common.DctDct, eob, hdr.Quant.Lossless)
 					}
 				}
+				clearVP9DecodedDQCoeffs(coeffs, txSize, txType, eob)
 				hasResidue := uint8(0)
 				if eob > 0 {
 					hasResidue = 1
