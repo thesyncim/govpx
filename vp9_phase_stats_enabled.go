@@ -122,14 +122,38 @@ func (e *VP9Encoder) vp9PhaseCountInterLeafReplay(hit bool) {
 	}
 }
 
-func (e *VP9Encoder) vp9PhaseCountVarPartChoose(copied bool) {
+func (e *VP9Encoder) vp9PhaseCountVarPartChoose(copied, countPass bool) {
 	stats := e.vp9PhaseStats()
 	if stats == nil {
 		return
 	}
 	atomic.AddInt64(&stats.VP9VarPartChooseCalls, 1)
+	if countPass {
+		atomic.AddInt64(&stats.VP9VarPartChooseCountPass, 1)
+	} else {
+		atomic.AddInt64(&stats.VP9VarPartChooseWritePass, 1)
+	}
 	if copied {
 		atomic.AddInt64(&stats.VP9VarPartCopyHits, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartCacheHit(hit bool) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	if hit {
+		atomic.AddInt64(&stats.VP9VarPartCacheHits, 1)
+	} else {
+		atomic.AddInt64(&stats.VP9VarPartCacheMisses, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseAddVarPartMergedSBs(n int64) {
+	stats := e.vp9PhaseStats()
+	if stats != nil && n != 0 {
+		atomic.AddInt64(&stats.VP9VarPartMergedSBs, n)
 	}
 }
 

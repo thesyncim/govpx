@@ -662,7 +662,13 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		return false
 	}
 	if e.varPartSBComputed[sbIdx] {
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountVarPartCacheHit(true)
+		}
 		return true
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseCountVarPartCacheHit(false)
 	}
 	if sbIdx >= 0 && sbIdx < len(e.varPartSBVarLow) {
 		e.varPartSBVarLow[sbIdx] = [25]uint8{}
@@ -922,7 +928,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	}
 	encoder.ChoosePartitioning(args)
 	if vp9PhaseStatsEnabled {
-		e.vp9PhaseCountVarPartChoose(copiedPartition)
+		e.vp9PhaseCountVarPartChoose(copiedPartition, inter != nil && inter.counts != nil)
 	}
 	if copiedPartition {
 		if sbIdx >= 0 && sbIdx < len(e.varPartSBCopiedPartition) {

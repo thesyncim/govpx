@@ -29,7 +29,11 @@ func (e *VP9Encoder) vp9PhaseIncInterLeafCacheStore() {}
 
 func (e *VP9Encoder) vp9PhaseCountInterLeafReplay(bool) {}
 
-func (e *VP9Encoder) vp9PhaseCountVarPartChoose(bool) {}
+func (e *VP9Encoder) vp9PhaseCountVarPartChoose(bool, bool) {}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartCacheHit(bool) {}
+
+func (e *VP9Encoder) vp9PhaseAddVarPartMergedSBs(int64) {}
 
 func (e *VP9Encoder) vp9PhaseCountVarPartContentState(encoder.ContentStateSB) {}
 

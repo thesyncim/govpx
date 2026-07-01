@@ -205,6 +205,16 @@ type EncoderPhaseStats struct {
 	VP9InterLeafCacheReplayMisses int64 `json:"vp9_inter_leaf_cache_replay_misses"`
 	// VP9VarPartChooseCalls counts 64x64 variance-partition prepass invocations.
 	VP9VarPartChooseCalls int64 `json:"vp9_varpart_choose_calls"`
+	// VP9VarPartCacheHits counts choose_partitioning SB-cache hits.
+	VP9VarPartCacheHits int64 `json:"vp9_varpart_cache_hits"`
+	// VP9VarPartCacheMisses counts choose_partitioning SB-cache misses.
+	VP9VarPartCacheMisses int64 `json:"vp9_varpart_cache_misses"`
+	// VP9VarPartMergedSBs counts computed SB flags merged from threaded count workers.
+	VP9VarPartMergedSBs int64 `json:"vp9_varpart_merged_sbs"`
+	// VP9VarPartChooseCountPass counts variance-partition invocations in the count pre-pass.
+	VP9VarPartChooseCountPass int64 `json:"vp9_varpart_choose_count_pass"`
+	// VP9VarPartChooseWritePass counts variance-partition invocations in the bitstream pass.
+	VP9VarPartChooseWritePass int64 `json:"vp9_varpart_choose_write_pass"`
 	// VP9VarPartCopyHits counts choose_partitioning copy_partitioning successes.
 	VP9VarPartCopyHits int64 `json:"vp9_varpart_copy_hits"`
 	// VP9VarPartContentState* count choose_partitioning content-state inputs.

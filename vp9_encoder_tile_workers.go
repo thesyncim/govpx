@@ -762,7 +762,18 @@ func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols in
 		for sbRow := range sbRows {
 			off := sbRow*sbCols + sbStart
 			n := sbEnd - sbStart
+			var mergedSBs int64
+			if vp9PhaseStatsEnabled {
+				for _, computed := range w.varPartSBComputed[off : off+n] {
+					if computed {
+						mergedSBs++
+					}
+				}
+			}
 			copy(e.varPartSBComputed[off:off+n], w.varPartSBComputed[off:off+n])
+			if vp9PhaseStatsEnabled {
+				e.vp9PhaseAddVarPartMergedSBs(mergedSBs)
+			}
 			if len(e.varPartSBUseMvPart) >= off+n && len(w.varPartSBUseMvPart) >= off+n {
 				copy(e.varPartSBUseMvPart[off:off+n], w.varPartSBUseMvPart[off:off+n])
 			}
