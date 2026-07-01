@@ -91,6 +91,46 @@ func TestRoundTripMixedProb(t *testing.T) {
 	}
 }
 
+func TestWriteBitMatchesGenericProb128(t *testing.T) {
+	const n = 8192
+	rng := rand.New(rand.NewSource(0x128128))
+	bits := make([]uint32, n)
+	for i := range bits {
+		bits[i] = uint32(rng.Intn(2))
+	}
+
+	genericBuf := make([]byte, 4096)
+	var generic Writer
+	generic.Start(genericBuf)
+	for _, bit := range bits {
+		generic.Write(bit, 128)
+	}
+	genericSize, err := generic.Stop()
+	if err != nil {
+		t.Fatalf("generic Stop: %v", err)
+	}
+
+	bitBuf := make([]byte, 4096)
+	var bitWriter Writer
+	bitWriter.Start(bitBuf)
+	for _, bit := range bits {
+		bitWriter.WriteBit(bit)
+	}
+	bitSize, err := bitWriter.Stop()
+	if err != nil {
+		t.Fatalf("WriteBit Stop: %v", err)
+	}
+	if bitSize != genericSize {
+		t.Fatalf("WriteBit size = %d, want generic size %d", bitSize, genericSize)
+	}
+	for i := 0; i < bitSize; i++ {
+		if bitBuf[i] != genericBuf[i] {
+			t.Fatalf("byte %d: WriteBit = 0x%02x, generic = 0x%02x",
+				i, bitBuf[i], genericBuf[i])
+		}
+	}
+}
+
 func TestReaderStateMatchesReader(t *testing.T) {
 	const n = 8192
 	rng := rand.New(rand.NewSource(0x51504c4f43414c))
@@ -232,5 +272,57 @@ func TestReaderRejectsBadMarker(t *testing.T) {
 	var r Reader
 	if err := r.Init(src); err == nil {
 		t.Fatal("expected ErrInvalidInput on bad marker bit, got nil")
+	}
+}
+
+var benchmarkWriterBytes int
+
+func BenchmarkWriterWriteBit(b *testing.B) {
+	const n = 8192
+	bits := make([]uint32, n)
+	for i := range bits {
+		bits[i] = uint32((i*1103515245 + 12345) >> 31)
+	}
+	buf := make([]byte, n/8+128)
+	b.ReportAllocs()
+	for b.Loop() {
+		var w Writer
+		w.Start(buf)
+		for _, bit := range bits {
+			w.WriteBit(bit)
+		}
+		size, err := w.Stop()
+		if err != nil {
+			b.Fatalf("Stop: %v", err)
+		}
+		benchmarkWriterBytes = size
+	}
+}
+
+func BenchmarkWriterWriteMixedProb(b *testing.B) {
+	const n = 8192
+	bits := make([]uint32, n)
+	probs := make([]uint32, n)
+	for i := range bits {
+		x := uint32(i*1664525 + 1013904223)
+		bits[i] = x >> 31
+		probs[i] = 1 + ((x >> 16) % 255)
+		if i&7 == 0 {
+			probs[i] = 128
+		}
+	}
+	buf := make([]byte, n*2)
+	b.ReportAllocs()
+	for b.Loop() {
+		var w Writer
+		w.Start(buf)
+		for i, bit := range bits {
+			w.Write(bit, probs[i])
+		}
+		size, err := w.Stop()
+		if err != nil {
+			b.Fatalf("Stop: %v", err)
+		}
+		benchmarkWriterBytes = size
 	}
 }

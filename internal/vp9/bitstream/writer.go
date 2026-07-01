@@ -107,8 +107,59 @@ func (w *Writer) Write(bit, prob uint32) {
 	w.rng = rng
 }
 
-// WriteBit encodes one equally-likely bit. Equivalent to Write(bit, 128).
-func (w *Writer) WriteBit(bit uint32) { w.Write(bit, 128) }
+// WriteBit encodes one equally-likely bit. Equivalent to Write(bit, 128),
+// with the fixed-probability split reduced to (range + 1) >> 1.
+func (w *Writer) WriteBit(bit uint32) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	split := (rng + 1) >> 1
+	rng = split
+	if bit != 0 {
+		lowValue += split
+		rng = w.rng - split
+	}
+
+	shift := int32(tables.VpxNorm[byte(rng)])
+	rng <<= uint(shift)
+	count += shift
+
+	if count >= 0 {
+		offset := shift - count
+
+		if !w.err {
+			if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+				x := int(w.pos) - 1
+				for x >= 0 && w.buf[x] == 0xff {
+					w.buf[x] = 0
+					x--
+				}
+				w.buf[x]++
+			}
+
+			if w.pos < uint32(len(w.buf)) {
+				w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+				w.pos++
+			} else {
+				w.err = true
+			}
+		}
+
+		lowValue <<= uint(offset)
+		shift = count
+		lowValue &= 0xffffff
+		count -= 8
+	}
+
+	lowValue <<= uint(shift)
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
 
 // WriteLiteral writes bits equally-likely bits of data, MSB first.
 func (w *Writer) WriteLiteral(data, bits uint32) {
