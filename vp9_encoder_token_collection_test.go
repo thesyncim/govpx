@@ -59,16 +59,68 @@ func TestVP9EncoderCountTokenCollectionTerminatesNoResidueLeaves(t *testing.T) {
 	assertVP9CountTokenList(t, e, "flat inter row 1", 1, true)
 }
 
+func TestVP9EncoderThreadedCountTokenCollectionBuildsTileLists(t *testing.T) {
+	const width, height = 1280, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Threads:            4,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            8,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  800,
+		NoiseSensitivity:   0,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	dst := make([]byte, 1<<22)
+	keySrc := vp9test.NewCheckerYCbCr(width, height, 32, 224, 128, 128)
+	interSrc := vp9test.NewCheckerYCbCr(width, height, 48, 208, 128, 128)
+
+	if _, err := e.EncodeInto(keySrc, dst); err != nil {
+		t.Fatalf("key EncodeInto: %v", err)
+	}
+	for tileCol := range 4 {
+		assertVP9CountTokenListAt(t, e, "threaded key", tileCol, 0, false)
+	}
+
+	if _, err := e.EncodeInto(interSrc, dst); err != nil {
+		t.Fatalf("inter EncodeInto: %v", err)
+	}
+	for tileCol := range 4 {
+		assertVP9CountTokenListAt(t, e, "threaded inter", tileCol, 0, false)
+	}
+	if e.vp9TilePool == nil {
+		t.Fatal("threaded token replay did not initialize tile worker pool")
+	}
+	for tileCol := range 4 {
+		if !e.vp9TilePool.encodeJobs[tileCol].replayTokens {
+			t.Fatalf("tile %d encode job did not use staged token replay", tileCol)
+		}
+	}
+}
+
 func assertVP9CountTokenList(t *testing.T, e *VP9Encoder, label string,
 	tileSBRow int, allowOnlyEOSB bool,
+) {
+	t.Helper()
+	assertVP9CountTokenListAt(t, e, label, 0, tileSBRow, allowOnlyEOSB)
+}
+
+func assertVP9CountTokenListAt(t *testing.T, e *VP9Encoder, label string,
+	tileCol, tileSBRow int, allowOnlyEOSB bool,
 ) {
 	t.Helper()
 	if e.vp9TokenFrame.Used <= 0 {
 		t.Fatalf("%s token frame used = %d, want tokens", label, e.vp9TokenFrame.Used)
 	}
-	list, ok := e.vp9CountTokenListForTileSBRow(0, 0, tileSBRow)
+	list, ok := e.vp9CountTokenListForTileSBRow(0, tileCol, tileSBRow)
 	if !ok {
-		t.Fatalf("%s token list missing", label)
+		t.Fatalf("%s token list missing for tile col %d row %d",
+			label, tileCol, tileSBRow)
 	}
 	tokens, ok := e.vp9TokenFrame.TokensForList(list)
 	if !ok {

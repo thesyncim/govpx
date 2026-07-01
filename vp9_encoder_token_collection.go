@@ -27,13 +27,19 @@ func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
 	return kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource
 }
 
+func (e *VP9Encoder) vp9CountTokenCollectionEligible(tileRows, tileCols int,
+	kind vp9ModeTreeKind,
+) bool {
+	return e != nil && vp9ModeTreeCollectsTokens(kind) &&
+		e.sf.TxSizeSearchMethod != UseFullRD &&
+		tileRows > 0 && tileRows <= encoder.TokenStageMaxTileRows &&
+		tileCols > 0 && tileCols <= encoder.TokenStageMaxTileCols
+}
+
 func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
-	if e == nil || !vp9ModeTreeCollectsTokens(kind) ||
-		e.sf.TxSizeSearchMethod == UseFullRD ||
-		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
-		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols {
+	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) {
 		if e != nil {
 			e.vp9TokenCollect = vp9TokenCollectState{}
 			e.vp9TokenFrame.Reset()
@@ -47,6 +53,87 @@ func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tile
 	}
 	e.vp9TokenCollect = vp9TokenCollectState{active: true}
 	return true
+}
+
+func (e *VP9Encoder) beginVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPool,
+	miRows, miCols, tileRows, tileCols int, kind vp9ModeTreeKind,
+) bool {
+	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) ||
+		pool == nil || tileCols <= 1 || len(pool.countTokens) < tileCols {
+		if e != nil {
+			e.vp9TokenCollect = vp9TokenCollectState{}
+			e.vp9TokenReplay = vp9TokenReplayState{}
+			e.vp9TokenFrame.Reset()
+		}
+		return false
+	}
+	e.vp9TokenFrame.Ensure(miRows, miCols)
+	if len(e.vp9TokenFrame.Tokens) == 0 || len(e.vp9TokenFrame.Lists) == 0 {
+		e.vp9TokenCollect = vp9TokenCollectState{}
+		e.vp9TokenReplay = vp9TokenReplayState{}
+		return false
+	}
+	e.vp9TokenFrame.Reset()
+	e.vp9TokenCollect = vp9TokenCollectState{}
+	e.vp9TokenReplay = vp9TokenReplayState{}
+	return true
+}
+
+func (e *VP9Encoder) finishVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPool,
+	miRows, tileCols int,
+) bool {
+	if e == nil || pool == nil || tileCols <= 0 || len(pool.countTokens) < tileCols {
+		return false
+	}
+	for tileCol := range tileCols {
+		worker := &pool.workers[tileCol]
+		if err := worker.finishVP9CountTokenCollection(); err != nil {
+			return false
+		}
+		pool.countTokens[tileCol] = worker.vp9TokenFrame
+		worker.vp9TokenCollect = vp9TokenCollectState{}
+	}
+	return e.mergeVP9ThreadedCountTokenFrames(pool, miRows, tileCols)
+}
+
+func (e *VP9Encoder) mergeVP9ThreadedCountTokenFrames(pool *vp9TileWorkerPool,
+	miRows, tileCols int,
+) bool {
+	if e == nil || pool == nil || tileCols <= 0 || len(pool.countTokens) < tileCols {
+		return false
+	}
+	sbRows := common.AlignToSB(miRows) >> common.MiBlockSizeLog2
+	if sbRows <= 0 {
+		return false
+	}
+	e.vp9TokenFrame.Reset()
+	for tileCol := range tileCols {
+		src := &pool.countTokens[tileCol]
+		for tileSBRow := range sbRows {
+			srcIdx, ok := src.TokenListIndex(0, tileCol, tileSBRow)
+			if !ok {
+				return false
+			}
+			list := src.Lists[srcIdx]
+			tokens, ok := src.TokensForList(list)
+			if !ok || len(tokens) == 0 {
+				return false
+			}
+			dstIdx, ok := e.vp9TokenFrame.TokenListIndex(0, tileCol, tileSBRow)
+			if !ok || e.vp9TokenFrame.Used+len(tokens) > len(e.vp9TokenFrame.Tokens) {
+				return false
+			}
+			start := e.vp9TokenFrame.Used
+			copy(e.vp9TokenFrame.Tokens[start:], tokens)
+			e.vp9TokenFrame.Used += len(tokens)
+			e.vp9TokenFrame.Lists[dstIdx] = encoder.TokenList{
+				Start: start,
+				Stop:  e.vp9TokenFrame.Used,
+				Count: uint32(len(tokens)),
+			}
+		}
+	}
+	return e.vp9TokenFrame.Used > 0
 }
 
 func (e *VP9Encoder) finishVP9CountTokenCollection() error {

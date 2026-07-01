@@ -316,7 +316,7 @@ func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 ) (int, error) {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if !e.vp9TokenReplay.active && e.writeVP9FrameTilesThreadedEnabled(tileRows, tileCols) {
+	if e.writeVP9FrameTilesThreadedEnabled(tileRows, tileCols) {
 		if totalSize, err, ok := e.writeVP9FrameTilesThreaded(output, miRows, miCols,
 			tileInfo, partitionProbs, seg, baseMi, txMode, kind, key, inter); ok {
 			return totalSize, err

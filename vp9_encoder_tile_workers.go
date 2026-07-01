@@ -67,6 +67,9 @@ type vp9EncodeTileJob struct {
 	worker         *VP9Encoder
 	output         []byte
 	rowMTSync      *vp9RowMTSync
+	replayTokens   bool
+	replayTileRow  int
+	replayTileCol  int
 	miRows         int
 	miCols         int
 	size           int
@@ -81,6 +84,7 @@ type vp9TileWorkerPool struct {
 	workers     []VP9Encoder
 	countJobs   []vp9CountTileJob
 	countCounts []encoder.FrameCounts
+	countTokens []encoder.TokenFrameBuffer
 	encodeJobs  []vp9EncodeTileJob
 	outputs     [][]byte
 	outputSize  int
@@ -415,6 +419,7 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		workers:     make([]VP9Encoder, workers),
 		countJobs:   make([]vp9CountTileJob, workers),
 		countCounts: make([]encoder.FrameCounts, workers),
+		countTokens: make([]encoder.TokenFrameBuffer, workers),
 		encodeJobs:  make([]vp9EncodeTileJob, workers),
 		outputs:     make([][]byte, workers),
 		start:       make([]chan struct{}, workers),
@@ -511,6 +516,9 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 	// Tear down any per-tile-column row worker pools first so their
 	// helper goroutines drain before the tile-level workers shut down.
 	p.releaseRowWorkers()
+	for i := range p.countTokens {
+		p.countTokens[i].Release()
+	}
 	select {
 	case <-p.shutdown:
 	default:
@@ -625,20 +633,36 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	e.vp9CountWorkers = pool.workers
 	e.vp9CountCounts = pool.countCounts
 	e.vp9CountJobs = pool.countJobs
+	collectTokens := e.beginVP9ThreadedCountTokenCollection(pool, miRows, miCols,
+		tileRows, tileCols, kind)
 	for tileCol := range tileCols {
 		worker := &pool.workers[tileCol]
 		counts := &pool.countCounts[tileCol]
 		job := &pool.countJobs[tileCol]
 		*counts = encoder.FrameCounts{}
 		worker.prepareVP9CountWorker(e, width, height, miRows, miCols)
+		tile := vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo)
+		if collectTokens {
+			tokenFrame := &pool.countTokens[tileCol]
+			tokenFrame.Ensure(miRows, tile.MiColEnd-tile.MiColStart)
+			tokenFrame.Reset()
+			worker.vp9TokenFrame = *tokenFrame
+			worker.vp9TokenCollect = vp9TokenCollectState{
+				active:  true,
+				tileRow: 0,
+				tileCol: tileCol,
+			}
+		}
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
-			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
-			partitionProbs, seg, baseMi, txMode, kind, seed)
+			tile, partitionProbs, seg, baseMi, txMode, kind, seed)
 	}
 	pool.jobKind = vp9TileWorkerJobCount
 	pool.startHelperWorkers()
 	runVP9CountTileJobNoWG(&pool.countJobs[0])
 	pool.waitHelperWorkers()
+	if collectTokens && !e.finishVP9ThreadedCountTokenCollection(pool, miRows, tileCols) {
+		e.vp9TokenFrame.Reset()
+	}
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
 		addVP9FilterDiff(&e.vp9FilterDiff, &pool.workers[i].vp9FilterDiff)
@@ -755,6 +779,11 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 			pool.outputs[tileCol], miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
 			partitionProbs, seg, baseMi, txMode, kind, seed, sync)
+		if e.vp9TokenReplay.active {
+			pool.encodeJobs[tileCol].replayTokens = true
+			pool.encodeJobs[tileCol].replayTileRow = 0
+			pool.encodeJobs[tileCol].replayTileCol = tileCol
+		}
 	}
 
 	pool.jobKind = vp9TileWorkerJobEncode
@@ -1150,12 +1179,23 @@ func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
 	job.size = 0
 	job.err = nil
 	job.worker.vp9RowMTSync = job.rowMTSync
+	if job.replayTokens {
+		job.worker.vp9TokenReplay = vp9TokenReplayState{
+			active:  true,
+			tileRow: job.replayTileRow,
+			tileCol: job.replayTileCol,
+		}
+	}
 	defer func() { job.worker.vp9RowMTSync = nil }()
 	var bw bitstream.Writer
 	bw.Start(job.output)
 	job.worker.writeVP9FrameTile(&bw, job.miRows, job.miCols, job.tile,
 		&job.partitionProbs, &job.seg, job.baseMi, job.txMode, job.kind,
 		key, inter)
+	if job.replayTokens && job.worker.vp9TokenReplay.err != nil {
+		job.err = job.worker.vp9TokenReplay.err
+		return
+	}
 	size, err := bw.Stop()
 	if err != nil {
 		if errors.Is(err, bitstream.ErrBufferOverflow) {
