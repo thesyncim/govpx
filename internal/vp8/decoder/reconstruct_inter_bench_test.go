@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
 // makeInterMBBenchScene builds a 1280x720 reference and destination scene for
@@ -150,6 +151,134 @@ func BenchmarkInterMBBuilderZeroMV(b *testing.B) {
 		}
 	}
 	b.ReportMetric(float64(rows*cols), "mb/op")
+}
+
+func BenchmarkInterMBBuilderSplitMV(b *testing.B) {
+	cases := []struct {
+		name string
+		mode MacroblockMode
+		cfg  InterPredictionConfig
+	}{
+		{
+			name: "partition0_sixTap8x8",
+			mode: splitMVBenchMode(0, []MotionVector{
+				{Row: 3, Col: 5},
+				{Row: 7, Col: 1},
+			}),
+		},
+		{
+			name: "partition2_sixTap8x8",
+			mode: splitMVBenchMode(2, []MotionVector{
+				{Row: 3, Col: 5},
+				{Row: 7, Col: 1},
+				{Row: 5, Col: 3},
+				{Row: 1, Col: 7},
+			}),
+		},
+		{
+			name: "partition3_equalPairs8x4",
+			mode: splitMVBenchModePartition3(true),
+		},
+		{
+			name: "partition3_mixedPairs4x4",
+			mode: splitMVBenchModePartition3(false),
+		},
+		{
+			name: "partition3_equalPairs8x4_bilinear",
+			mode: splitMVBenchModePartition3(true),
+			cfg:  InterPredictionConfig{UseBilinear: true},
+		},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkInterMBBuilderSplitMV(b, tc.mode, tc.cfg)
+		})
+	}
+}
+
+func benchmarkInterMBBuilderSplitMV(b *testing.B, mode MacroblockMode, cfg InterPredictionConfig) {
+	const width, height = 1280, 720
+	const cols = width / 16
+	const rows = height / 16
+	srcFB, dstFB := makeInterMBBenchScene(width, height)
+	dst := &dstFB.Img
+	src := &srcFB.Img
+	var tokens MacroblockTokens
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for row := range rows {
+			yRow := row * 16 * dst.YStride
+			uRow := row * 8 * dst.UStride
+			vRow := row * 8 * dst.VStride
+			for col := range cols {
+				yOff := yRow + col*16
+				uOff := uRow + col*8
+				vOff := vRow + col*8
+				if !ReconstructSplitMVInterMacroblock(&mode, &tokens, &dequants[0], src,
+					dst.Y[yOff:], dst.YStride,
+					dst.U[uOff:], dst.UStride,
+					dst.V[vOff:], dst.VStride,
+					&scratch.Residual, row, col, cfg) {
+					b.Fatalf("ReconstructSplitMVInterMacroblock failed at (%d,%d)", row, col)
+				}
+			}
+		}
+	}
+	b.ReportMetric(float64(rows*cols), "mb/op")
+}
+
+func splitMVBenchMode(partition uint8, subsetMVs []MotionVector) MacroblockMode {
+	mode := MacroblockMode{
+		Mode:        common.SplitMV,
+		RefFrame:    common.LastFrame,
+		Is4x4:       true,
+		MBSkipCoeff: true,
+		Partition:   partition,
+	}
+	if partition >= tables.NumMBSplits || len(subsetMVs) == 0 {
+		return mode
+	}
+	partitions := int(tables.MBSplitCount[partition])
+	fillCount := int(tables.MBSplitFillCount[partition])
+	for subset := range partitions {
+		mv := subsetMVs[subset%len(subsetMVs)]
+		fillStart := subset * fillCount
+		for i := range fillCount {
+			mode.BlockMV[tables.MBSplitFillOffset[partition][fillStart+i]] = mv
+		}
+	}
+	mode.MV = mode.BlockMV[15]
+	return mode
+}
+
+func splitMVBenchModePartition3(equalPairs bool) MacroblockMode {
+	mode := MacroblockMode{
+		Mode:        common.SplitMV,
+		RefFrame:    common.LastFrame,
+		Is4x4:       true,
+		MBSkipCoeff: true,
+		Partition:   3,
+	}
+	for block := 0; block < 16; block += 2 {
+		mv := MotionVector{
+			Row: int16(1 + (block&6)*2),
+			Col: int16(3 + (block & 4)),
+		}
+		mode.BlockMV[block] = mv
+		if equalPairs {
+			mode.BlockMV[block+1] = mv
+		} else {
+			mode.BlockMV[block+1] = MotionVector{
+				Row: mv.Row + 2,
+				Col: mv.Col + 2,
+			}
+		}
+	}
+	mode.MV = mode.BlockMV[15]
+	return mode
 }
 
 // BenchmarkInterMBBuilderAlternatingZeroMV720p keeps every skipped ZeroMV

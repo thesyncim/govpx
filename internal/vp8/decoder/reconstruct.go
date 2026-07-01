@@ -543,24 +543,61 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 		return false
 	}
 	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
-	for block := range 16 {
-		// libvpx v1.16.0 vp8/common/reconinter.c build_inter4x4_predictors_mb
-		// does not apply xd->fullpixel_mask to luma per-block MVs; the mask is
-		// only applied to the derived chroma MV inside build_4x4uvmvs. Mirror
-		// that by consuming the bmi MV as-is for luma.
-		mv := mode.BlockMV[block]
-		mv = clampMotionVectorToUMVBorder(mv, mbRow, mbCol, codedImageWidth(ref), codedImageHeight(ref))
-		blockRow := block >> 2
-		blockCol := block & 3
-		srcRow := mbRow*16 + blockRow*4 + int(mv.Row>>3)
-		srcCol := mbCol*16 + blockCol*4 + int(mv.Col>>3)
-		xOffset := int(mv.Col) & 7
-		yOffset := int(mv.Row) & 7
-		offset, ok := wholeMVPlaneOffset(yPlane, ref.YStride, codedImageWidth(ref), codedImageHeight(ref), srcRow, srcCol, 4, 4, xOffset, yOffset, yOrigin, yBorder, cfg)
-		if !ok {
-			return false
+	codedWidth := codedImageWidth(ref)
+	codedHeight := codedImageHeight(ref)
+	if mode.Partition < 3 {
+		for _, block := range [...]int{0, 2, 8, 10} {
+			mv := mode.BlockMV[block]
+			mv = clampMotionVectorToUMVBorder(mv, mbRow, mbCol, codedWidth, codedHeight)
+			if !predictSplitMVLuma8x8(yPlane, ref.YStride, codedWidth, codedHeight,
+				yOrigin, yBorder, y, yStride, mbRow, mbCol, block, mv,
+				cfg) {
+				return false
+			}
 		}
-		predictInter4x4(yPlane[offset:], ref.YStride, xOffset, yOffset, y[yBlockOffset(block, yStride):], yStride, cfg)
+	} else {
+		for block := 0; block < 16; block += 2 {
+			mv0 := mode.BlockMV[block]
+			mv1 := mode.BlockMV[block+1]
+			mv0 = clampMotionVectorToUMVBorder(mv0, mbRow, mbCol, codedWidth, codedHeight)
+			mv1 = clampMotionVectorToUMVBorder(mv1, mbRow, mbCol, codedWidth, codedHeight)
+			if mv0 == mv1 {
+				if !predictSplitMVLuma8x4(yPlane, ref.YStride, codedWidth, codedHeight,
+					yOrigin, yBorder, y, yStride, mbRow, mbCol, block, mv0,
+					cfg) {
+					return false
+				}
+				continue
+			}
+			blockRow := block >> 2
+			blockCol := block & 3
+			srcRow := mbRow*16 + blockRow*4 + int(mv0.Row>>3)
+			srcCol := mbCol*16 + blockCol*4 + int(mv0.Col>>3)
+			xOffset := int(mv0.Col) & 7
+			yOffset := int(mv0.Row) & 7
+			offset, ok := wholeMVPlaneOffset(yPlane, ref.YStride, codedWidth, codedHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, yOrigin, yBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(yPlane[offset:], ref.YStride, xOffset, yOffset,
+				y[yBlockOffset(block, yStride):], yStride, cfg)
+
+			block1 := block + 1
+			blockRow = block1 >> 2
+			blockCol = block1 & 3
+			srcRow = mbRow*16 + blockRow*4 + int(mv1.Row>>3)
+			srcCol = mbCol*16 + blockCol*4 + int(mv1.Col>>3)
+			xOffset = int(mv1.Col) & 7
+			yOffset = int(mv1.Row) & 7
+			offset, ok = wholeMVPlaneOffset(yPlane, ref.YStride, codedWidth, codedHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, yOrigin, yBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(yPlane[offset:], ref.YStride, xOffset, yOffset,
+				y[yBlockOffset(block1, yStride):], yStride, cfg)
+		}
 	}
 
 	if !PredictSplitMVInterChroma(mode, ref, u, uStride, v, vStride, mbRow, mbCol, cfg) {
@@ -587,28 +624,56 @@ func PredictSplitMVInterChroma(mode *MacroblockMode, ref *common.Image, u []byte
 	codedHeight := codedImageHeight(ref)
 	uvWidth := (codedWidth + 1) >> 1
 	uvHeight := (codedHeight + 1) >> 1
-	for block := range 4 {
+	var mv [4]splitMVChromaVector
+	for block := range mv {
 		mvRow, mvCol := splitChromaMotionVector(mode, block)
 		mvRow, mvCol = fullPixelChromaMotionVector(mvRow, mvCol, cfg)
 		mvRow, mvCol = clampChromaMotionVectorToUMVBorder(mvRow, mvCol, mbRow, mbCol, codedWidth, codedHeight)
-		blockRow := block >> 1
-		blockCol := block & 1
-		srcRow := mbRow*8 + blockRow*4 + (mvRow >> 3)
-		srcCol := mbCol*8 + blockCol*4 + (mvCol >> 3)
-		xOffset := mvCol & 7
-		yOffset := mvRow & 7
-		uOffset, ok := wholeMVPlaneOffset(uPlane, ref.UStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset, uOrigin, uvBorder, cfg)
-		if !ok {
-			return false
+		mv[block] = splitMVChromaVector{row: mvRow, col: mvCol}
+	}
+	for block := 0; block < 4; block += 2 {
+		if mv[block] == mv[block+1] {
+			if !predictSplitMVChroma8x4(uPlane, ref.UStride, uvWidth, uvHeight,
+				uOrigin, uvBorder, u, uStride, mbRow, mbCol, block, mv[block],
+				cfg) {
+				return false
+			}
+			if !predictSplitMVChroma8x4(vPlane, ref.VStride, uvWidth, uvHeight,
+				vOrigin, uvBorder, v, vStride, mbRow, mbCol, block, mv[block],
+				cfg) {
+				return false
+			}
+			continue
 		}
-		vOffset, ok := wholeMVPlaneOffset(vPlane, ref.VStride, uvWidth, uvHeight, srcRow, srcCol, 4, 4, xOffset, yOffset, vOrigin, uvBorder, cfg)
-		if !ok {
-			return false
+		for sub := block; sub <= block+1; sub++ {
+			blockRow := sub >> 1
+			blockCol := sub & 1
+			srcRow := mbRow*8 + blockRow*4 + (mv[sub].row >> 3)
+			srcCol := mbCol*8 + blockCol*4 + (mv[sub].col >> 3)
+			xOffset := mv[sub].col & 7
+			yOffset := mv[sub].row & 7
+			uOffset, ok := wholeMVPlaneOffset(uPlane, ref.UStride, uvWidth, uvHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, uOrigin, uvBorder, cfg)
+			if !ok {
+				return false
+			}
+			vOffset, ok := wholeMVPlaneOffset(vPlane, ref.VStride, uvWidth, uvHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, vOrigin, uvBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(uPlane[uOffset:], ref.UStride, xOffset, yOffset,
+				u[uvBlockOffset(sub, uStride):], uStride, cfg)
+			predictInter4x4(vPlane[vOffset:], ref.VStride, xOffset, yOffset,
+				v[uvBlockOffset(sub, vStride):], vStride, cfg)
 		}
-		predictInter4x4(uPlane[uOffset:], ref.UStride, xOffset, yOffset, u[uvBlockOffset(block, uStride):], uStride, cfg)
-		predictInter4x4(vPlane[vOffset:], ref.VStride, xOffset, yOffset, v[uvBlockOffset(block, vStride):], vStride, cfg)
 	}
 	return true
+}
+
+type splitMVChromaVector struct {
+	row int
+	col int
 }
 
 func referencePlane(visible []byte, full []byte, origin int, border int) ([]byte, int, int) {
@@ -634,6 +699,90 @@ func wholeMVPlaneOffset(plane []byte, stride int, codedWidth int, codedHeight in
 		return 0, false
 	}
 	return origin + row*stride + col, true
+}
+
+func predictSplitMVLuma8x4(plane []byte, planeStride int, codedWidth int, codedHeight int,
+	origin int, border int, dst []byte, dstStride int, mbRow int, mbCol int,
+	block int, mv MotionVector, cfg InterPredictionConfig,
+) bool {
+	blockRow := block >> 2
+	blockCol := block & 3
+	srcRow := mbRow*16 + blockRow*4 + int(mv.Row>>3)
+	srcCol := mbCol*16 + blockCol*4 + int(mv.Col>>3)
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	offset, ok := wholeMVPlaneOffset(plane, planeStride, codedWidth, codedHeight,
+		srcRow, srcCol, 8, 4, xOffset, yOffset, origin, border, cfg)
+	if !ok {
+		return false
+	}
+	predictInter8x4(plane[offset:], planeStride, xOffset, yOffset,
+		dst[yBlockOffset(block, dstStride):], dstStride, cfg)
+	return true
+}
+
+func predictSplitMVLuma8x8(plane []byte, planeStride int, codedWidth int, codedHeight int,
+	origin int, border int, dst []byte, dstStride int, mbRow int, mbCol int,
+	block int, mv MotionVector, cfg InterPredictionConfig,
+) bool {
+	blockRow := block >> 2
+	blockCol := block & 3
+	srcRow := mbRow*16 + blockRow*4 + int(mv.Row>>3)
+	srcCol := mbCol*16 + blockCol*4 + int(mv.Col>>3)
+	xOffset := int(mv.Col) & 7
+	yOffset := int(mv.Row) & 7
+	offset, ok := wholeMVPlaneOffset(plane, planeStride, codedWidth, codedHeight,
+		srcRow, srcCol, 8, 8, xOffset, yOffset, origin, border, cfg)
+	if !ok {
+		return false
+	}
+	predictInter8x8(plane[offset:], planeStride, xOffset, yOffset,
+		dst[yBlockOffset(block, dstStride):], dstStride, cfg)
+	return true
+}
+
+func predictSplitMVChroma8x4(plane []byte, planeStride int, codedWidth int, codedHeight int,
+	origin int, border int, dst []byte, dstStride int, mbRow int, mbCol int,
+	block int, mv splitMVChromaVector, cfg InterPredictionConfig,
+) bool {
+	blockRow := block >> 1
+	blockCol := block & 1
+	srcRow := mbRow*8 + blockRow*4 + (mv.row >> 3)
+	srcCol := mbCol*8 + blockCol*4 + (mv.col >> 3)
+	xOffset := mv.col & 7
+	yOffset := mv.row & 7
+	offset, ok := wholeMVPlaneOffset(plane, planeStride, codedWidth, codedHeight,
+		srcRow, srcCol, 8, 4, xOffset, yOffset, origin, border, cfg)
+	if !ok {
+		return false
+	}
+	predictInter8x4(plane[offset:], planeStride, xOffset, yOffset,
+		dst[uvBlockOffset(block, dstStride):], dstStride, cfg)
+	return true
+}
+
+func predictInter8x8(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
+	if xOffset|yOffset == 0 {
+		dsp.Copy8x8(src, srcStride, dst, dstStride)
+		return
+	}
+	if cfg.UseBilinear {
+		dsp.BilinearPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
+		return
+	}
+	dsp.SixTapPredict8x8(src, srcStride, xOffset, yOffset, dst, dstStride)
+}
+
+func predictInter8x4(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
+	if xOffset|yOffset == 0 {
+		dsp.Copy8x4(src, srcStride, dst, dstStride)
+		return
+	}
+	if cfg.UseBilinear {
+		dsp.BilinearPredict8x4(src, srcStride, xOffset, yOffset, dst, dstStride)
+		return
+	}
+	dsp.SixTapPredict8x4(src, srcStride, xOffset, yOffset, dst, dstStride)
 }
 
 func predictInter4x4(src []byte, srcStride int, xOffset int, yOffset int, dst []byte, dstStride int, cfg InterPredictionConfig) {
