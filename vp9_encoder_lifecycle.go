@@ -205,24 +205,42 @@ type VP9Encoder struct {
 	// varPartSBLastHighContent caches x->last_sb_high_content per SB before
 	// avg_source_sad mutates content_state_sb_fd (vp9_encodeframe.c:1346-1347
 	// read precedes vp9_encodeframe.c:1238-1244 update).
-	varPartSBLastHighContent      []uint8
-	varPartSBLastHighContentValid []bool
-	varPartTreeScratch            encoder.V64x64
-	varPartTreeLowResScratch      [16]encoder.V16x16
-	varPartPrevPartition          []common.BlockSize
-	varPartPrevPartitionMiRows    int
-	varPartPrevPartitionMiCols    int
-	varPartPrevPartitionMiStride  int
-	varPartPrevPartitionValid     []bool
-	varPartPrevSegmentID          []uint8
-	varPartPrevVarianceLow        [][25]uint8
-	varPartCopiedFrameCnt         []uint8
-	varPartCopyCommitDisabled     bool
-	varPartPrevPartitionSnap      []common.BlockSize
-	varPartPrevPartitionValidSnap []bool
-	varPartPrevSegmentIDSnap      []uint8
-	varPartPrevVarianceLowSnap    [][25]uint8
-	varPartCopiedFrameCntSnap     []uint8
+	varPartSBLastHighContent            []uint8
+	varPartSBLastHighContentValid       []bool
+	varPartReplayGrid                   []vp9dec.NeighborMi
+	varPartReplaySBComputed             []bool
+	varPartReplaySBUseMvPart            []bool
+	varPartReplaySBMvPart               []vp9dec.MV
+	varPartReplaySBPredLast             []vp9dec.MV
+	varPartReplaySBPredValid            []bool
+	varPartReplaySBVarLow               [][25]uint8
+	varPartReplaySBCopiedPartition      []bool
+	varPartReplaySBSegmentID            []uint8
+	varPartReplaySBContentState         []encoder.ContentStateSB
+	varPartReplaySBContentStateValid    []bool
+	varPartReplaySBZeroTempSADSource    []bool
+	varPartReplaySBColorSensitivity     [][2]bool
+	varPartReplaySBLastHighContent      []uint8
+	varPartReplaySBLastHighContentValid []bool
+	varPartReplayRows                   int
+	varPartReplayCols                   int
+	varPartReplayValid                  bool
+	varPartTreeScratch                  encoder.V64x64
+	varPartTreeLowResScratch            [16]encoder.V16x16
+	varPartPrevPartition                []common.BlockSize
+	varPartPrevPartitionMiRows          int
+	varPartPrevPartitionMiCols          int
+	varPartPrevPartitionMiStride        int
+	varPartPrevPartitionValid           []bool
+	varPartPrevSegmentID                []uint8
+	varPartPrevVarianceLow              [][25]uint8
+	varPartCopiedFrameCnt               []uint8
+	varPartCopyCommitDisabled           bool
+	varPartPrevPartitionSnap            []common.BlockSize
+	varPartPrevPartitionValidSnap       []bool
+	varPartPrevSegmentIDSnap            []uint8
+	varPartPrevVarianceLowSnap          [][25]uint8
+	varPartCopiedFrameCntSnap           []uint8
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane

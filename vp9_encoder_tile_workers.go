@@ -832,7 +832,116 @@ func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols in
 	}
 	if merged {
 		e.varPartFrameValid = true
+		e.saveVP9VarPartReplayState(miRows, miCols)
+	} else {
+		e.varPartReplayValid = false
 	}
+	return true
+}
+
+func vp9CopyReplaySlice[S ~[]E, E any](dst S, src S, limit int) S {
+	if limit <= 0 || len(src) == 0 {
+		return dst[:0]
+	}
+	if len(src) < limit {
+		limit = len(src)
+	}
+	dst = buffers.EnsureLen(dst, limit)
+	copy(dst, src[:limit])
+	return dst
+}
+
+func (e *VP9Encoder) saveVP9VarPartReplayState(miRows, miCols int) bool {
+	if e == nil || !e.varPartFrameValid || miRows <= 0 || miCols <= 0 {
+		return false
+	}
+	e.varPartReplayValid = false
+	miGridLen := miRows * miCols
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if miGridLen <= 0 || sbCount <= 0 ||
+		len(e.varPartGrid) < miGridLen ||
+		len(e.varPartSBComputed) < sbCount {
+		return false
+	}
+	e.varPartReplayGrid = buffers.EnsureLen(e.varPartReplayGrid, miGridLen)
+	copy(e.varPartReplayGrid, e.varPartGrid[:miGridLen])
+	e.varPartReplaySBComputed = buffers.EnsureLen(e.varPartReplaySBComputed, sbCount)
+	copy(e.varPartReplaySBComputed, e.varPartSBComputed[:sbCount])
+	e.varPartReplaySBUseMvPart = vp9CopyReplaySlice(e.varPartReplaySBUseMvPart,
+		e.varPartSBUseMvPart, sbCount)
+	e.varPartReplaySBMvPart = vp9CopyReplaySlice(e.varPartReplaySBMvPart,
+		e.varPartSBMvPart, sbCount)
+	e.varPartReplaySBPredLast = vp9CopyReplaySlice(e.varPartReplaySBPredLast,
+		e.varPartSBPredLast, sbCount)
+	e.varPartReplaySBPredValid = vp9CopyReplaySlice(e.varPartReplaySBPredValid,
+		e.varPartSBPredValid, sbCount)
+	e.varPartReplaySBVarLow = vp9CopyReplaySlice(e.varPartReplaySBVarLow,
+		e.varPartSBVarLow, sbCount)
+	e.varPartReplaySBCopiedPartition = vp9CopyReplaySlice(e.varPartReplaySBCopiedPartition,
+		e.varPartSBCopiedPartition, sbCount)
+	e.varPartReplaySBSegmentID = vp9CopyReplaySlice(e.varPartReplaySBSegmentID,
+		e.varPartSBSegmentID, sbCount)
+	e.varPartReplaySBContentState = vp9CopyReplaySlice(e.varPartReplaySBContentState,
+		e.varPartSBContentState, sbCount)
+	e.varPartReplaySBContentStateValid = vp9CopyReplaySlice(
+		e.varPartReplaySBContentStateValid, e.varPartSBContentStateValid, sbCount)
+	e.varPartReplaySBZeroTempSADSource = vp9CopyReplaySlice(
+		e.varPartReplaySBZeroTempSADSource, e.varPartSBZeroTempSADSource, sbCount)
+	e.varPartReplaySBColorSensitivity = vp9CopyReplaySlice(
+		e.varPartReplaySBColorSensitivity, e.varPartSBColorSensitivity, sbCount)
+	e.varPartReplaySBLastHighContent = vp9CopyReplaySlice(
+		e.varPartReplaySBLastHighContent, e.varPartSBLastHighContent, sbCount)
+	e.varPartReplaySBLastHighContentValid = vp9CopyReplaySlice(
+		e.varPartReplaySBLastHighContentValid, e.varPartSBLastHighContentValid, sbCount)
+	e.varPartReplayRows = miRows
+	e.varPartReplayCols = miCols
+	e.varPartReplayValid = true
+	return true
+}
+
+func (e *VP9Encoder) restoreVP9VarPartReplayState(miRows, miCols int) bool {
+	if e == nil || !e.varPartReplayValid ||
+		e.varPartReplayRows != miRows || e.varPartReplayCols != miCols {
+		return false
+	}
+	miGridLen := miRows * miCols
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if miGridLen <= 0 || sbCount <= 0 ||
+		len(e.varPartReplayGrid) < miGridLen ||
+		len(e.varPartReplaySBComputed) < sbCount {
+		return false
+	}
+	e.varPartGrid = buffers.EnsureLen(e.varPartGrid, miGridLen)
+	copy(e.varPartGrid, e.varPartReplayGrid[:miGridLen])
+	e.varPartSBComputed = buffers.EnsureLen(e.varPartSBComputed, sbCount)
+	copy(e.varPartSBComputed, e.varPartReplaySBComputed[:sbCount])
+	e.varPartSBUseMvPart = vp9CopyReplaySlice(e.varPartSBUseMvPart,
+		e.varPartReplaySBUseMvPart, sbCount)
+	e.varPartSBMvPart = vp9CopyReplaySlice(e.varPartSBMvPart,
+		e.varPartReplaySBMvPart, sbCount)
+	e.varPartSBPredLast = vp9CopyReplaySlice(e.varPartSBPredLast,
+		e.varPartReplaySBPredLast, sbCount)
+	e.varPartSBPredValid = vp9CopyReplaySlice(e.varPartSBPredValid,
+		e.varPartReplaySBPredValid, sbCount)
+	e.varPartSBVarLow = vp9CopyReplaySlice(e.varPartSBVarLow,
+		e.varPartReplaySBVarLow, sbCount)
+	e.varPartSBCopiedPartition = vp9CopyReplaySlice(e.varPartSBCopiedPartition,
+		e.varPartReplaySBCopiedPartition, sbCount)
+	e.varPartSBSegmentID = vp9CopyReplaySlice(e.varPartSBSegmentID,
+		e.varPartReplaySBSegmentID, sbCount)
+	e.varPartSBContentState = vp9CopyReplaySlice(e.varPartSBContentState,
+		e.varPartReplaySBContentState, sbCount)
+	e.varPartSBContentStateValid = vp9CopyReplaySlice(e.varPartSBContentStateValid,
+		e.varPartReplaySBContentStateValid, sbCount)
+	e.varPartSBZeroTempSADSource = vp9CopyReplaySlice(e.varPartSBZeroTempSADSource,
+		e.varPartReplaySBZeroTempSADSource, sbCount)
+	e.varPartSBColorSensitivity = vp9CopyReplaySlice(e.varPartSBColorSensitivity,
+		e.varPartReplaySBColorSensitivity, sbCount)
+	e.varPartSBLastHighContent = vp9CopyReplaySlice(e.varPartSBLastHighContent,
+		e.varPartReplaySBLastHighContent, sbCount)
+	e.varPartSBLastHighContentValid = vp9CopyReplaySlice(e.varPartSBLastHighContentValid,
+		e.varPartReplaySBLastHighContentValid, sbCount)
+	e.varPartFrameValid = true
 	return true
 }
 
@@ -931,6 +1040,9 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
 	if !e.writeVP9FrameTilesThreadedEnabled(tileRows, tileCols) {
 		return 0, nil, false
+	}
+	if kind == vp9ModeTreeInterSource && inter != nil {
+		e.restoreVP9VarPartReplayState(miRows, miCols)
 	}
 	pool := e.ensureVP9TileWorkerPool(tileCols)
 	if pool == nil || pool.workerCount != tileCols {
@@ -1224,31 +1336,55 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.reconU = src.reconU
 	w.reconV = src.reconV
 	w.reconFrame = src.reconFrame
-	if src.vp9CountCodingPreserved && src.varPartFrameValid {
-		w.useVP9SharedVarPartState(src)
+	if src.varPartFrameValid {
+		w.copyVP9VarPartStateFrom(src, miRows, miCols)
 	}
 }
 
-func (w *VP9Encoder) useVP9SharedVarPartState(src *VP9Encoder) {
-	if w == nil || src == nil {
-		return
+func (w *VP9Encoder) copyVP9VarPartStateFrom(src *VP9Encoder, miRows, miCols int) bool {
+	if w == nil || src == nil || !src.varPartFrameValid ||
+		miRows <= 0 || miCols <= 0 {
+		return false
 	}
-	w.varPartGrid = src.varPartGrid
-	w.varPartSBComputed = src.varPartSBComputed
-	w.varPartSBUseMvPart = src.varPartSBUseMvPart
-	w.varPartSBMvPart = src.varPartSBMvPart
-	w.varPartSBPredLast = src.varPartSBPredLast
-	w.varPartSBPredValid = src.varPartSBPredValid
-	w.varPartSBVarLow = src.varPartSBVarLow
-	w.varPartSBCopiedPartition = src.varPartSBCopiedPartition
-	w.varPartSBSegmentID = src.varPartSBSegmentID
-	w.varPartSBContentState = src.varPartSBContentState
-	w.varPartSBContentStateValid = src.varPartSBContentStateValid
-	w.varPartSBZeroTempSADSource = src.varPartSBZeroTempSADSource
-	w.varPartSBColorSensitivity = src.varPartSBColorSensitivity
-	w.varPartSBLastHighContent = src.varPartSBLastHighContent
-	w.varPartSBLastHighContentValid = src.varPartSBLastHighContentValid
-	w.varPartFrameValid = src.varPartFrameValid
+	miGridLen := miRows * miCols
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	if miGridLen <= 0 || sbCount <= 0 ||
+		len(src.varPartGrid) < miGridLen ||
+		len(src.varPartSBComputed) < sbCount {
+		return false
+	}
+	w.varPartGrid = buffers.EnsureLen(w.varPartGrid, miGridLen)
+	copy(w.varPartGrid, src.varPartGrid[:miGridLen])
+	w.varPartSBComputed = buffers.EnsureLen(w.varPartSBComputed, sbCount)
+	copy(w.varPartSBComputed, src.varPartSBComputed[:sbCount])
+	w.varPartSBUseMvPart = vp9CopyReplaySlice(w.varPartSBUseMvPart,
+		src.varPartSBUseMvPart, sbCount)
+	w.varPartSBMvPart = vp9CopyReplaySlice(w.varPartSBMvPart,
+		src.varPartSBMvPart, sbCount)
+	w.varPartSBPredLast = vp9CopyReplaySlice(w.varPartSBPredLast,
+		src.varPartSBPredLast, sbCount)
+	w.varPartSBPredValid = vp9CopyReplaySlice(w.varPartSBPredValid,
+		src.varPartSBPredValid, sbCount)
+	w.varPartSBVarLow = vp9CopyReplaySlice(w.varPartSBVarLow,
+		src.varPartSBVarLow, sbCount)
+	w.varPartSBCopiedPartition = vp9CopyReplaySlice(w.varPartSBCopiedPartition,
+		src.varPartSBCopiedPartition, sbCount)
+	w.varPartSBSegmentID = vp9CopyReplaySlice(w.varPartSBSegmentID,
+		src.varPartSBSegmentID, sbCount)
+	w.varPartSBContentState = vp9CopyReplaySlice(w.varPartSBContentState,
+		src.varPartSBContentState, sbCount)
+	w.varPartSBContentStateValid = vp9CopyReplaySlice(w.varPartSBContentStateValid,
+		src.varPartSBContentStateValid, sbCount)
+	w.varPartSBZeroTempSADSource = vp9CopyReplaySlice(w.varPartSBZeroTempSADSource,
+		src.varPartSBZeroTempSADSource, sbCount)
+	w.varPartSBColorSensitivity = vp9CopyReplaySlice(w.varPartSBColorSensitivity,
+		src.varPartSBColorSensitivity, sbCount)
+	w.varPartSBLastHighContent = vp9CopyReplaySlice(w.varPartSBLastHighContent,
+		src.varPartSBLastHighContent, sbCount)
+	w.varPartSBLastHighContentValid = vp9CopyReplaySlice(w.varPartSBLastHighContentValid,
+		src.varPartSBLastHighContentValid, sbCount)
+	w.varPartFrameValid = true
+	return true
 }
 
 func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,
