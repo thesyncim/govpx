@@ -2,6 +2,11 @@
 
 package govpx
 
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
+
 const vp9PhaseStatsEnabled = false
 
 type vp9DecoderPhaseStatsOptions struct{}
@@ -12,9 +17,17 @@ func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 
 func (e *VP9Encoder) vp9PhaseCountAttempt(bool) {}
 
-func (e *VP9Encoder) vp9PhaseIncModeBlock() {}
+func (e *VP9Encoder) vp9PhaseIncModeBlock(common.BlockSize, bool) {}
 
-func (e *VP9Encoder) vp9PhaseIncInterModePick() {}
+func (e *VP9Encoder) vp9PhaseIncInterModePick(bool) {}
+
+func (e *VP9Encoder) vp9PhaseIncInterLeafCacheStore() {}
+
+func (e *VP9Encoder) vp9PhaseCountInterLeafReplay(bool) {}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartChoose(bool) {}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartContentState(encoder.ContentStateSB) {}
 
 func (e *VP9Encoder) vp9PhaseIncInterPredictionBlock() {}
 

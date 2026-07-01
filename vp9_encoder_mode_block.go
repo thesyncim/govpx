@@ -89,8 +89,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
+	counts := vp9EncodeCountsForState(key, inter)
 	if vp9PhaseStatsEnabled {
-		e.vp9PhaseIncModeBlock()
+		e.vp9PhaseIncModeBlock(bsize, counts != nil)
 	}
 	cur := baseMi
 	cur.SbType = bsize
@@ -109,7 +110,6 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
 	}
 	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
-	counts := vp9EncodeCountsForState(key, inter)
 	if kind == vp9ModeTreeInterSkip || kind == vp9ModeTreeInterSource {
 		reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
 		hasResidue := false
@@ -173,6 +173,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 					cur.Skip = 1
 				}
 				e.vp9AccumulateBlockFilterDiff(inter, cached.score, false)
+				if vp9PhaseStatsEnabled {
+					e.vp9PhaseCountInterLeafReplay(true)
+				}
 			} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize); ok &&
 				e.canReplayVP9CountPassIntraLeaf(inter, cached, reconBsize) {
 				interDecision = cached
@@ -186,7 +189,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				} else {
 					cur.Skip = 1
 				}
+				if vp9PhaseStatsEnabled {
+					e.vp9PhaseCountInterLeafReplay(true)
+				}
 			} else {
+				if vp9PhaseStatsEnabled && inter.counts == nil {
+					e.vp9PhaseCountInterLeafReplay(false)
+				}
 				// libvpx x->skip_encode search-context freeze: run the leaf's RD
 				// search + zcoeff_blk decision against the SB-entry entropy context
 				// (frozen because the search-phase intermediate encode never advances
@@ -248,6 +257,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				}
 			}
 			e.storeVP9LeafInterDecision(miRow, miCol, reconBsize, interDecision)
+			if vp9PhaseStatsEnabled {
+				e.vp9PhaseIncInterLeafCacheStore()
+			}
 		}
 		if isInter && bsize < common.Block8x8 {
 			if !e.ensureVP9Sub8InterBmiForWrite(&cur, tile, miRows, miCols,

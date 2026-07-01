@@ -167,8 +167,44 @@ type EncoderPhaseStats struct {
 
 	// VP9ModeBlocks counts write_modes_b-equivalent VP9 mode-block visits.
 	VP9ModeBlocks int64 `json:"vp9_mode_blocks"`
+	// VP9ModeBlocksCountPass counts VP9 mode-block visits in the count pre-pass.
+	VP9ModeBlocksCountPass int64 `json:"vp9_mode_blocks_count_pass"`
+	// VP9ModeBlocksWritePass counts VP9 mode-block visits in the bitstream pass.
+	VP9ModeBlocksWritePass int64 `json:"vp9_mode_blocks_write_pass"`
+	// VP9ModeBlock* count VP9 leaf block-size visits.
+	VP9ModeBlock64x64 int64 `json:"vp9_mode_block_64x64"`
+	VP9ModeBlock32x32 int64 `json:"vp9_mode_block_32x32"`
+	VP9ModeBlock32x16 int64 `json:"vp9_mode_block_32x16"`
+	VP9ModeBlock16x32 int64 `json:"vp9_mode_block_16x32"`
+	VP9ModeBlock16x16 int64 `json:"vp9_mode_block_16x16"`
+	VP9ModeBlock16x8  int64 `json:"vp9_mode_block_16x8"`
+	VP9ModeBlock8x16  int64 `json:"vp9_mode_block_8x16"`
+	VP9ModeBlock8x8   int64 `json:"vp9_mode_block_8x8"`
+	VP9ModeBlockSub8  int64 `json:"vp9_mode_block_sub8"`
 	// VP9InterModePicks counts VP9 realtime inter-mode picker calls.
 	VP9InterModePicks int64 `json:"vp9_inter_mode_picks"`
+	// VP9InterModePicksCountPass counts inter-mode picks in the count pre-pass.
+	VP9InterModePicksCountPass int64 `json:"vp9_inter_mode_picks_count_pass"`
+	// VP9InterModePicksWritePass counts inter-mode picks in the bitstream pass.
+	VP9InterModePicksWritePass int64 `json:"vp9_inter_mode_picks_write_pass"`
+	// VP9InterLeafCacheStores counts count-pass inter leaf decisions cached.
+	VP9InterLeafCacheStores int64 `json:"vp9_inter_leaf_cache_stores"`
+	// VP9InterLeafCacheReplayHits counts write-pass leaf-decision replay hits.
+	VP9InterLeafCacheReplayHits int64 `json:"vp9_inter_leaf_cache_replay_hits"`
+	// VP9InterLeafCacheReplayMisses counts write-pass leaf-decision replay misses.
+	VP9InterLeafCacheReplayMisses int64 `json:"vp9_inter_leaf_cache_replay_misses"`
+	// VP9VarPartChooseCalls counts 64x64 variance-partition prepass invocations.
+	VP9VarPartChooseCalls int64 `json:"vp9_varpart_choose_calls"`
+	// VP9VarPartCopyHits counts choose_partitioning copy_partitioning successes.
+	VP9VarPartCopyHits int64 `json:"vp9_varpart_copy_hits"`
+	// VP9VarPartContentState* count choose_partitioning content-state inputs.
+	VP9VarPartContentStateInvalid            int64 `json:"vp9_varpart_content_state_invalid"`
+	VP9VarPartContentStateLowSadLowSumdiff   int64 `json:"vp9_varpart_content_state_low_sad_low_sumdiff"`
+	VP9VarPartContentStateLowSadHighSumdiff  int64 `json:"vp9_varpart_content_state_low_sad_high_sumdiff"`
+	VP9VarPartContentStateHighSadLowSumdiff  int64 `json:"vp9_varpart_content_state_high_sad_low_sumdiff"`
+	VP9VarPartContentStateHighSadHighSumdiff int64 `json:"vp9_varpart_content_state_high_sad_high_sumdiff"`
+	VP9VarPartContentStateLowVarHighSumdiff  int64 `json:"vp9_varpart_content_state_low_var_high_sumdiff"`
+	VP9VarPartContentStateVeryHighSad        int64 `json:"vp9_varpart_content_state_very_high_sad"`
 	// VP9InterPredictionBlocks counts VP9 inter-predictor block builds.
 	VP9InterPredictionBlocks int64 `json:"vp9_inter_prediction_blocks"`
 	// VP9InterPredictPlaneCalls counts VP9 per-plane inter-predictor calls.

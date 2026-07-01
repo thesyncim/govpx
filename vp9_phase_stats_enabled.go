@@ -2,7 +2,12 @@
 
 package govpx
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+)
 
 const vp9PhaseStatsEnabled = true
 
@@ -29,17 +34,102 @@ func (e *VP9Encoder) vp9PhaseCountAttempt(keyFrame bool) {
 	}
 }
 
-func (e *VP9Encoder) vp9PhaseIncModeBlock() {
+func (e *VP9Encoder) vp9PhaseIncModeBlock(bsize common.BlockSize, countPass bool) {
 	stats := e.vp9PhaseStats()
 	if stats != nil {
 		atomic.AddInt64(&stats.VP9ModeBlocks, 1)
+		if countPass {
+			atomic.AddInt64(&stats.VP9ModeBlocksCountPass, 1)
+		} else {
+			atomic.AddInt64(&stats.VP9ModeBlocksWritePass, 1)
+		}
+		switch bsize {
+		case common.Block64x64:
+			atomic.AddInt64(&stats.VP9ModeBlock64x64, 1)
+		case common.Block32x32:
+			atomic.AddInt64(&stats.VP9ModeBlock32x32, 1)
+		case common.Block32x16:
+			atomic.AddInt64(&stats.VP9ModeBlock32x16, 1)
+		case common.Block16x32:
+			atomic.AddInt64(&stats.VP9ModeBlock16x32, 1)
+		case common.Block16x16:
+			atomic.AddInt64(&stats.VP9ModeBlock16x16, 1)
+		case common.Block16x8:
+			atomic.AddInt64(&stats.VP9ModeBlock16x8, 1)
+		case common.Block8x16:
+			atomic.AddInt64(&stats.VP9ModeBlock8x16, 1)
+		case common.Block8x8:
+			atomic.AddInt64(&stats.VP9ModeBlock8x8, 1)
+		default:
+			if bsize < common.Block8x8 {
+				atomic.AddInt64(&stats.VP9ModeBlockSub8, 1)
+			}
+		}
 	}
 }
 
-func (e *VP9Encoder) vp9PhaseIncInterModePick() {
+func (e *VP9Encoder) vp9PhaseIncInterModePick(countPass bool) {
 	stats := e.vp9PhaseStats()
 	if stats != nil {
 		atomic.AddInt64(&stats.VP9InterModePicks, 1)
+		if countPass {
+			atomic.AddInt64(&stats.VP9InterModePicksCountPass, 1)
+		} else {
+			atomic.AddInt64(&stats.VP9InterModePicksWritePass, 1)
+		}
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseIncInterLeafCacheStore() {
+	stats := e.vp9PhaseStats()
+	if stats != nil {
+		atomic.AddInt64(&stats.VP9InterLeafCacheStores, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseCountInterLeafReplay(hit bool) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	if hit {
+		atomic.AddInt64(&stats.VP9InterLeafCacheReplayHits, 1)
+	} else {
+		atomic.AddInt64(&stats.VP9InterLeafCacheReplayMisses, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartChoose(copied bool) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9VarPartChooseCalls, 1)
+	if copied {
+		atomic.AddInt64(&stats.VP9VarPartCopyHits, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseCountVarPartContentState(state encoder.ContentStateSB) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	switch state {
+	case encoder.ContentStateInvalid:
+		atomic.AddInt64(&stats.VP9VarPartContentStateInvalid, 1)
+	case encoder.ContentStateLowSadLowSumdiff:
+		atomic.AddInt64(&stats.VP9VarPartContentStateLowSadLowSumdiff, 1)
+	case encoder.ContentStateLowSadHighSumdiff:
+		atomic.AddInt64(&stats.VP9VarPartContentStateLowSadHighSumdiff, 1)
+	case encoder.ContentStateHighSadLowSumdiff:
+		atomic.AddInt64(&stats.VP9VarPartContentStateHighSadLowSumdiff, 1)
+	case encoder.ContentStateHighSadHighSumdiff:
+		atomic.AddInt64(&stats.VP9VarPartContentStateHighSadHighSumdiff, 1)
+	case encoder.ContentStateLowVarHighSumdiff:
+		atomic.AddInt64(&stats.VP9VarPartContentStateLowVarHighSumdiff, 1)
+	case encoder.ContentStateVeryHighSad:
+		atomic.AddInt64(&stats.VP9VarPartContentStateVeryHighSad, 1)
 	}
 }
 
