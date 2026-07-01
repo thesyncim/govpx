@@ -3,6 +3,7 @@ package benchcmd
 import (
 	"encoding/binary"
 	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -175,6 +176,50 @@ func TestRunDecodeBenchmarkIncludesVP9LibvpxReference(t *testing.T) {
 	if report.Comparison == nil || report.RelativeSpeedVsReference <= 0 {
 		t.Fatalf("comparison = %+v relative=%f, want populated VP9 comparison",
 			report.Comparison, report.RelativeSpeedVsReference)
+	}
+}
+
+func TestRunDecodeBenchmarkPassesVP9LibvpxThreadFlags(t *testing.T) {
+	argsPath := t.TempDir() + "/args.log"
+	report, err := runDecodeBenchmark(benchConfig{
+		Codec:        codecVP9,
+		Width:        16,
+		Height:       16,
+		Frames:       3,
+		FPS:          30,
+		BitrateKbps:  1200,
+		Mode:         "realtime",
+		Threads:      4,
+		LibvpxOracle: fakeVpxdecVP9PathWithArgsLog(t, argsPath),
+	})
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark VP9 returned error: %v", err)
+	}
+	if report.Reference == nil {
+		t.Fatalf("reference = nil, want fake libvpx VP9 decode report")
+	}
+	for _, want := range []string{"-t", "4", "--row-mt=0", "--lpf-opt=1"} {
+		if !slices.Contains(report.Reference.ParityFlags, want) {
+			t.Fatalf("reference parity flags = %v, missing %q", report.Reference.ParityFlags, want)
+		}
+	}
+	text := formatDecodeReport(report)
+	if !strings.Contains(text, "libvpx parity") || !strings.Contains(text, "--lpf-opt=1") {
+		t.Fatalf("formatted decode report missing VP9 parity flags:\n%s", text)
+	}
+	raw, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("ReadFile args log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("fake vpxdec invocations = %d (%q), want warmup and measured", len(lines), raw)
+	}
+	got := lines[len(lines)-1]
+	for _, want := range []string{"--codec=vp9", "--noblit", "--summary", "-t 4", "--row-mt=0", "--lpf-opt=1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("measured vpxdec args %q missing %q", got, want)
+		}
 	}
 }
 

@@ -523,7 +523,21 @@ func runLibvpxVP9DecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName strin
 		return decodeReferenceReport{}, err
 	}
 
-	args := []string{"--codec=vp9", "--noblit", "--summary", path}
+	policy := vp9DecodeThreadPolicyForBench(cfg)
+	args := []string{"--codec=vp9", "--noblit", "--summary"}
+	if policy.Threads > 0 {
+		args = append(args, "-t", strconv.Itoa(policy.Threads))
+	}
+	if policy.RowMT {
+		args = append(args, "--row-mt=1")
+	} else {
+		args = append(args, "--row-mt=0")
+	}
+	if policy.LoopFilterOpt {
+		args = append(args, "--lpf-opt=1")
+	}
+	parityFlags := append([]string(nil), args...)
+	args = append(args, path)
 	warm := exec.Command(cfg.LibvpxOracle, args...)
 	warm.Stdout = nil
 	warm.Stderr = nil
@@ -564,6 +578,7 @@ func runLibvpxVP9DecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName strin
 		TimingSource:   "vpxdec-wall",
 		WallNSPerFrame: nsPerFrame,
 		WallDecodeFPS:  1e9 / float64(nsPerFrame),
+		ParityFlags:    parityFlags,
 	}, nil
 }
 

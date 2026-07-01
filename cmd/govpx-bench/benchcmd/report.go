@@ -461,6 +461,9 @@ func formatDecodeReport(r decodeBenchReport) string {
 			formatDuration(ref.LatencyNS.P50), formatDuration(ref.LatencyNS.P95), formatDuration(ref.LatencyNS.P99))
 		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
 			ref.TimingSource, formatDuration(ref.WallNSPerFrame), formatDuration(ref.SubprocessOverheadNS))
+		if len(ref.ParityFlags) > 0 {
+			fmt.Fprintf(&b, "libvpx parity   %s\n", strings.Join(ref.ParityFlags, " "))
+		}
 	}
 	if r.AllocsPerFrame > 0 {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)

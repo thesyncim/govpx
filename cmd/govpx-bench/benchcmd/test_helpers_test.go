@@ -49,6 +49,17 @@ func fakeVpxdecVP9Path(t *testing.T) string {
 	return script
 }
 
+func fakeVpxdecVP9PathWithArgsLog(t *testing.T, argsPath string) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "fake-vpxdec-vp9")
+	body := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %s\nGOVPX_FAKE_VPXDEC_VP9=1 exec %s -test.run=TestFakeVpxdecVP9Helper -- \"$@\"\n",
+		shellQuote(argsPath), shellQuote(os.Args[0]))
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatalf("write fake vpxdec-vp9: %v", err)
+	}
+	return script
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

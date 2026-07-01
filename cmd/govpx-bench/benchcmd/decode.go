@@ -193,12 +193,29 @@ type benchmarkDecoder interface {
 func newBenchmarkDecoder(codec string, cfg benchConfig) (benchmarkDecoder, error) {
 	threads := effectiveBenchThreads(cfg)
 	if codec == codecVP9 {
+		policy := vp9DecodeThreadPolicyForBench(cfg)
 		return govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
-			Threads:              threads,
-			DecoderLoopFilterOpt: threads > 1,
+			Threads:              policy.Threads,
+			DecoderRowMT:         policy.RowMT,
+			DecoderLoopFilterOpt: policy.LoopFilterOpt,
 		})
 	}
 	return govpx.NewVP8Decoder(govpx.DecoderOptions{Threads: threads})
+}
+
+type vp9DecodeThreadPolicy struct {
+	Threads       int
+	RowMT         bool
+	LoopFilterOpt bool
+}
+
+func vp9DecodeThreadPolicyForBench(cfg benchConfig) vp9DecodeThreadPolicy {
+	threads := effectiveBenchThreads(cfg)
+	return vp9DecodeThreadPolicy{
+		Threads:       threads,
+		RowMT:         false,
+		LoopFilterOpt: threads > 1,
+	}
 }
 
 func closeBenchmarkDecoder(dec benchmarkDecoder) {

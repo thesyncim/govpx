@@ -269,6 +269,7 @@ type decodeReferenceReport struct {
 	WallNSPerFrame       int64         `json:"wall_ns_per_frame"`
 	WallDecodeFPS        float64       `json:"wall_decode_fps"`
 	SubprocessOverheadNS int64         `json:"subprocess_overhead_ns"`
+	ParityFlags          []string      `json:"parity_flags,omitempty"`
 }
 
 type quantizerReport struct {
