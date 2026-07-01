@@ -104,6 +104,9 @@ func (s *vp9FrameParallelScheduler) release() {
 // bytes are sized to dstSize (the worst-case allocating buffer).
 func (s *vp9FrameParallelScheduler) ensureCapacity(workers int, dstSize int, width, height int) {
 	s.workers = buffers.EnsureLen(s.workers, workers)
+	for i := range s.workers {
+		s.workers[i].initVP9NmvCostCache()
+	}
 	s.scratchDst = buffers.EnsureLen(s.scratchDst, workers)
 	for i := range s.scratchDst {
 		s.scratchDst[i] = buffers.EnsureLen(s.scratchDst[i], dstSize)
@@ -544,6 +547,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	contentStateSbFd := w.contentStateSbFd
+	nmvCostCache := w.vp9NmvCostCache
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -601,6 +605,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.contentStateSbFd = contentStateSbFd
+	w.vp9NmvCostCache = nmvCostCache
 	// Drop helpers that must not be transitively driven by a clone.
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil

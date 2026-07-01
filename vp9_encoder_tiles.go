@@ -373,6 +373,7 @@ func (e *VP9Encoder) writeVP9FrameTile(bw *bitstream.Writer, miRows, miCols int,
 		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
 			partitionProbs, seg, baseMi, txMode, kind, key, nil)
 	case vp9ModeTreeInterSource:
+		e.prepareVP9NmvCostCacheForInter(inter)
 		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,
 			partitionProbs, seg, baseMi, txMode, kind, nil, inter)
 	default:

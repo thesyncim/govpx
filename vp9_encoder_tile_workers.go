@@ -432,6 +432,9 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		pool.wg.Add(1)
 		go pool.workerLoop(i, start)
 	}
+	for i := range pool.workers {
+		pool.workers[i].initVP9NmvCostCache()
+	}
 	return pool
 }
 
@@ -855,6 +858,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
+	nmvCostCache := w.vp9NmvCostCache
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -900,6 +904,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
+	w.vp9NmvCostCache = nmvCostCache
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil
@@ -951,6 +956,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
+	nmvCostCache := w.vp9NmvCostCache
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -993,6 +999,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
+	w.vp9NmvCostCache = nmvCostCache
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
 	w.vp9CountJobs = nil

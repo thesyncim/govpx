@@ -144,6 +144,7 @@ type VP9Encoder struct {
 	// subpel MV cost is zero, matching the calloc'd table.
 	vp9NonrdMvCostFc      vp9dec.FrameContext
 	vp9NonrdMvCostFcValid bool
+	vp9NmvCostCache       vp9NmvCostCache
 	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
 	// adaptation, which uses a distinct after-key update factor.
 	lastVP9HeaderFrameType common.FrameType
@@ -717,6 +718,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		refFrameFlags: encoder.AllRefFlags,
 		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
+	e.initVP9NmvCostCache()
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,

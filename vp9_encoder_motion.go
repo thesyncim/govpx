@@ -10,6 +10,46 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
+type vp9NmvCostCache struct {
+	table *encoder.NmvCostTable
+	ctx   vp9dec.NmvContext
+	useHP bool
+	valid bool
+}
+
+func (e *VP9Encoder) initVP9NmvCostCache() {
+	if e != nil && e.vp9NmvCostCache.table == nil {
+		e.vp9NmvCostCache.table = &encoder.NmvCostTable{}
+	}
+}
+
+func (c *vp9NmvCostCache) prepare(ctx *vp9dec.NmvContext, useHP bool) bool {
+	if c == nil || ctx == nil {
+		return false
+	}
+	if c.table == nil {
+		c.table = &encoder.NmvCostTable{}
+	}
+	if c.valid && c.useHP == useHP && c.ctx == *ctx {
+		return true
+	}
+	if !c.table.Build(ctx, useHP) {
+		c.valid = false
+		return false
+	}
+	c.ctx = *ctx
+	c.useHP = useHP
+	c.valid = true
+	return true
+}
+
+func (e *VP9Encoder) prepareVP9NmvCostCacheForInter(inter *vp9InterEncodeState) {
+	if e == nil || inter == nil || !inter.mvCostFcBuilt {
+		return
+	}
+	e.vp9NmvCostCache.prepare(&inter.mvCostFc.Nmvc, inter.allowHP)
+}
+
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	refFrame int8, best vp9dec.MV, bestSad, bestScore uint64,
@@ -42,6 +82,11 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	// nonrd-unbuilt case the MV-entropy cost is exactly zero; the full-RD path
 	// keeps the live cost FrameContext so its subpel scoring is unchanged.
 	mvCostFc, mvCostBuilt := vp9InterMvCostFrameContext(inter)
+	var mvCostTable *encoder.NmvCostTable
+	if refMvValid && nonrdSubpelTree && mvCostBuilt &&
+		e.vp9NmvCostCache.prepare(&mvCostFc.Nmvc, allowHP) {
+		mvCostTable = e.vp9NmvCostCache.table
+	}
 	mvCost := func(mv vp9dec.MV) uint64 {
 		if !refMvValid {
 			return 0
@@ -51,8 +96,12 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 			if !mvCostBuilt {
 				return 0
 			}
-			return encoder.SubpelMVErrorCost(mvCostFc, mv, refMv, allowHP,
-				errorPerBit)
+			if mvCostTable != nil {
+				if cost, ok := mvCostTable.SubpelMVErrorCost(mv, refMv, errorPerBit); ok {
+					return cost
+				}
+			}
+			return encoder.SubpelMVErrorCost(mvCostFc, mv, refMv, allowHP, errorPerBit)
 		}
 		return encoder.SubpelMVErrorCost(vp9InterModeCostFrameContext(inter), mv,
 			refMv, allowHP, errorPerBit)
