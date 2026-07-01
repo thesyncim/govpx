@@ -1,6 +1,9 @@
 package govpx
 
 import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
 	"testing"
@@ -86,6 +89,98 @@ func TestRowWorkerPoolWaveFrontCoordination(t *testing.T) {
 		}
 	}
 	pool.shutdownPool()
+}
+
+func TestRowWorkerPoolAsyncLFApplyMatchesSerial(t *testing.T) {
+	if vp8PhaseStatsEnabled {
+		t.Skip("phase timing keeps accepted loop-filter apply serial")
+	}
+	const (
+		width  = 64
+		height = 64
+	)
+	newEncoder := func(t *testing.T) *VP8Encoder {
+		t.Helper()
+		e, err := NewVP8Encoder(EncoderOptions{
+			Width:             width,
+			Height:            height,
+			FPS:               30,
+			RateControlMode:   RateControlCBR,
+			TargetBitrateKbps: 1200,
+			MinQuantizer:      4,
+			MaxQuantizer:      56,
+			Deadline:          DeadlineRealtime,
+			CpuUsed:           8,
+			Threads:           2,
+		})
+		if err != nil {
+			t.Fatalf("NewVP8Encoder: %v", err)
+		}
+		return e
+	}
+
+	serial := newEncoder(t)
+	defer serial.Close()
+	async := newEncoder(t)
+	defer async.Close()
+
+	rows := geometry.MacroblockRows(height)
+	cols := geometry.MacroblockCols(width)
+	required := rows * cols
+	for row := 0; row < height; row++ {
+		for col := 0; col < width; col++ {
+			off := row*serial.analysis.Img.YStride + col
+			serial.analysis.Img.Y[off] = byte((row*row*17 + col*col*31 + row*col*7) & 255)
+		}
+	}
+	for row := 0; row < height/2; row++ {
+		for col := 0; col < width/2; col++ {
+			uOff := row*serial.analysis.Img.UStride + col
+			vOff := row*serial.analysis.Img.VStride + col
+			serial.analysis.Img.U[uOff] = byte((row*19 + col*23 + 70) & 255)
+			serial.analysis.Img.V[vOff] = byte((row*29 + col*13 + 120) & 255)
+		}
+	}
+	serial.analysis.ExtendBorders()
+	vp8common.CopyImage(&async.analysis.Img, &serial.analysis.Img)
+	async.analysis.ExtendBorders()
+
+	for i := 0; i < required; i++ {
+		mode := vp8dec.MacroblockMode{
+			Mode:     vp8common.ZeroMV,
+			UVMode:   vp8common.DCPred,
+			RefFrame: vp8common.LastFrame,
+		}
+		switch i % 4 {
+		case 1:
+			mode.Mode = vp8common.NearestMV
+		case 2:
+			mode.Mode = vp8common.NearMV
+		case 3:
+			mode.Mode = vp8common.NewMV
+		}
+		if i%5 == 0 {
+			mode.MBSkipCoeff = true
+		}
+		serial.reconstructModes[i] = mode
+		async.reconstructModes[i] = mode
+	}
+	header := vp8dec.LoopFilterHeader{
+		Type:           vp8dec.NormalLoopFilter,
+		Level:          24,
+		SharpnessLevel: 1,
+	}
+	segmentation := vp8enc.SegmentationConfig{}
+	if err := serial.applyReconstructionLoopFilter(vp8common.InterFrame, header, segmentation, rows, cols, required); err != nil {
+		t.Fatalf("serial applyReconstructionLoopFilter: %v", err)
+	}
+	if err := async.startAsyncLFApply(vp8common.InterFrame, header, segmentation, rows, cols, required).wait(); err != nil {
+		t.Fatalf("async LF apply: %v", err)
+	}
+	assertImagesEqual(t, "async LF apply", publicImageFromVP8(&serial.analysis.Img), publicImageFromVP8(&async.analysis.Img))
+	if async.rowWorkers.encoder != nil || async.rowWorkers.job != rowWorkerJobInterFrame {
+		t.Fatalf("row worker state after async LF = encoder:%p job:%d, want idle inter-frame", async.rowWorkers.encoder, async.rowWorkers.job)
+	}
 }
 
 func TestEncoderThreadSyncRangeMatchesLibvpxWidthBuckets(t *testing.T) {

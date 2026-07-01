@@ -215,15 +215,20 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	}
 	segmentation = e.segmentationConfigForLoopFilterLevel(segmentation, lfLevel)
 	lfHeader := e.encoderLoopFilterHeader(lfLevel, lfSharpness)
-	if vp8PhaseStatsEnabled {
-		phase = e.phaseStart()
-	}
-	err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
-	if vp8PhaseStatsEnabled {
-		e.phaseEnd(encoderPhaseLoopFilterApply, phase)
-	}
-	if err != nil {
-		return keyFrameEncodeAttempt{}, err
+	var lfApply asyncLFApply
+	if e.canAsyncLFApply() {
+		lfApply = e.startAsyncLFApply(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
+	} else {
+		if vp8PhaseStatsEnabled {
+			phase = e.phaseStart()
+		}
+		err = e.applyReconstructionLoopFilter(vp8common.KeyFrame, lfHeader, segmentation, rows, cols, required)
+		if vp8PhaseStatsEnabled {
+			e.phaseEnd(encoderPhaseLoopFilterApply, phase)
+		}
+		if err != nil {
+			return keyFrameEncodeAttempt{}, err
+		}
 	}
 	if segmentation.Enabled {
 		vp8enc.UpdateKeyFrameSegmentationTreeProbs(&segmentation, e.keyFrameModes[:required])
@@ -264,6 +269,9 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 	n, frameCoefProbs, err := vp8enc.WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst, e.opts.Width, e.opts.Height, cfg, e.keyFrameModes[:required], e.keyFrameCoeffs[:required], e.tokenAbove[:cols], &vp8tables.DefaultCoefProbs, &e.partScratch, prebuiltKeyCoefCounts)
 	if vp8PhaseStatsEnabled {
 		e.phaseEnd(encoderPhasePacketWrite, phase)
+	}
+	if lfErr := lfApply.wait(); lfErr != nil {
+		return keyFrameEncodeAttempt{}, lfErr
 	}
 	if err != nil {
 		return keyFrameEncodeAttempt{}, translateEncoderError(err)
@@ -852,16 +860,21 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 		cfg.RefLFDeltasBase = e.lastSignaledRefLFDeltas
 		cfg.ModeLFDeltasBase = e.lastSignaledModeLFDeltas
 	}
+	var lfApply asyncLFApply
 	if cfg.RefreshLast || cfg.RefreshGolden || cfg.RefreshAltRef {
-		if vp8PhaseStatsEnabled {
-			phase = e.phaseStart()
-		}
-		err = e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required)
-		if vp8PhaseStatsEnabled {
-			e.phaseEnd(encoderPhaseLoopFilterApply, phase)
-		}
-		if err != nil {
-			return interFrameEncodeAttempt{}, err
+		if e.canAsyncLFApply() {
+			lfApply = e.startAsyncLFApply(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required)
+		} else {
+			if vp8PhaseStatsEnabled {
+				phase = e.phaseStart()
+			}
+			err = e.applyReconstructionLoopFilter(vp8common.InterFrame, lfHeader, segmentation, rows, cols, required)
+			if vp8PhaseStatsEnabled {
+				e.phaseEnd(encoderPhaseLoopFilterApply, phase)
+			}
+			if err != nil {
+				return interFrameEncodeAttempt{}, err
+			}
 		}
 	} else {
 		e.loopFilterPickReady = false
@@ -931,6 +944,9 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	packetResult, err := packet.Write()
 	if vp8PhaseStatsEnabled {
 		e.phaseEnd(encoderPhasePacketWrite, phase)
+	}
+	if lfErr := lfApply.wait(); lfErr != nil {
+		return interFrameEncodeAttempt{}, lfErr
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)

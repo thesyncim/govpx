@@ -215,6 +215,7 @@ type rowWorkerPool struct {
 	keyArgs      threadedKeyRowsArgs
 	args         threadedInterRowsArgs
 	lfTrial      lfTrialArgs
+	lfApply      lfApplyArgs
 	workerCount  int
 	required     int
 	abort        atomic.Int32
@@ -269,6 +270,8 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 			p.runThreadedKeyFrameWorker(workerIndex)
 		case rowWorkerJobLFTrial:
 			p.runLFTrialWorker(workerIndex)
+		case rowWorkerJobLFApply:
+			p.runLFApplyWorker(workerIndex)
 		default:
 			p.runThreadedInterFrameWorker(workerIndex)
 		}
@@ -321,6 +324,7 @@ const (
 	rowWorkerJobInterFrame rowWorkerJob = iota
 	rowWorkerJobKeyFrame
 	rowWorkerJobLFTrial
+	rowWorkerJobLFApply
 )
 
 func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
@@ -453,6 +457,7 @@ func (p *rowWorkerPool) resetForEncoderReset() {
 	p.keyArgs = threadedKeyRowsArgs{}
 	p.args = threadedInterRowsArgs{}
 	p.lfTrial = lfTrialArgs{}
+	p.lfApply = lfApplyArgs{}
 	p.workerCount = 0
 	p.required = 0
 	p.abort.Store(0)

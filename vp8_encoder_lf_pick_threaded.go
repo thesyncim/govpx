@@ -39,6 +39,25 @@ type lfTrialArgs struct {
 	errOut     int
 }
 
+// lfApplyArgs is the accepted-frame loop-filter job handed to one persistent
+// row-worker lane while the main goroutine writes the frame packet. It is
+// intentionally value-shaped: the dispatcher snapshots the frame header and
+// segmentation state before packet-only probability updates run, and the
+// worker mutates only the encoder's reconstructed analysis image.
+type lfApplyArgs struct {
+	frameType    vp8common.FrameType
+	header       vp8dec.LoopFilterHeader
+	segmentation vp8enc.SegmentationConfig
+	rows         int
+	cols         int
+	required     int
+	err          error
+}
+
+type asyncLFApply struct {
+	pool *rowWorkerPool
+}
+
 // runLFTrialWorker is the persistent worker entry point for the
 // parallel LF-trial job. It mirrors trialLumaSSE's full-frame branch
 // (the full picker never takes the partial path) but reads all inputs
@@ -63,6 +82,19 @@ func (p *rowWorkerPool) runLFTrialWorker(workerIndex int) {
 	args.errOut = vp8enc.LoopFilterLumaSSE(args.src, args.dst, args.rows, args.cols, false)
 }
 
+func (p *rowWorkerPool) runLFApplyWorker(workerIndex int) {
+	_ = workerIndex
+	args := &p.lfApply
+	args.err = p.encoder.applyReconstructionLoopFilter(
+		args.frameType,
+		args.header,
+		args.segmentation,
+		args.rows,
+		args.cols,
+		args.required,
+	)
+}
+
 // canParallelLFTrials reports whether the encoder has a row-worker
 // pool with at least two threads. Used by pickFull to gate the
 // parallel filt_low/filt_high dispatch. Threads=1 returns false here
@@ -70,6 +102,42 @@ func (p *rowWorkerPool) runLFTrialWorker(workerIndex int) {
 // branch is never reachable from the serial path.
 func (e *VP8Encoder) canParallelLFTrials() bool {
 	return e.rowWorkers != nil && len(e.rowWorkers.workers) >= 2
+}
+
+func (e *VP8Encoder) canAsyncLFApply() bool {
+	return !vp8PhaseStatsEnabled && e.rowWorkers != nil && len(e.rowWorkers.workers) >= 2
+}
+
+func (e *VP8Encoder) startAsyncLFApply(frameType vp8common.FrameType, header vp8dec.LoopFilterHeader, segmentation vp8enc.SegmentationConfig, rows int, cols int, required int) asyncLFApply {
+	pool := e.rowWorkers
+	pool.lfApply = lfApplyArgs{
+		frameType:    frameType,
+		header:       header,
+		segmentation: segmentation,
+		rows:         rows,
+		cols:         cols,
+		required:     required,
+	}
+	pool.job = rowWorkerJobLFApply
+	pool.encoder = e
+	pool.workerCount = 2
+	pool.required = 0
+	pool.abort.Store(0)
+	pool.startHelperWorkers()
+	return asyncLFApply{pool: pool}
+}
+
+func (a asyncLFApply) wait() error {
+	pool := a.pool
+	if pool == nil {
+		return nil
+	}
+	pool.waitHelperWorkers()
+	err := pool.lfApply.err
+	pool.encoder = nil
+	pool.job = rowWorkerJobInterFrame
+	pool.lfApply = lfApplyArgs{}
+	return err
 }
 
 // dispatchLFTrialPair launches the filt_low trial on the row-worker
