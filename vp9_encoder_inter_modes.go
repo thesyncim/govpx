@@ -994,6 +994,15 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			if !ok {
 				continue
 			}
+			// The compound picker predicts every candidate into the recon
+			// plane (vp9CompoundPredictionDistortion), clobbering the
+			// single-ref winner's luma predictor that the nonrd picker's
+			// reuse_inter_pred restore left there. libvpx never hits this
+			// because compound candidates share the main loop's
+			// PRED_BUFFER discipline (vp9_pickmode.c:2308-2313); govpx
+			// evaluates compound in this separate tail, so drop the
+			// reuse flag and let the commit rebuild the luma predictor.
+			best.lumaPredReady = false
 			decision, ok := e.pickVP9CompoundInterMode(inter, tile, miRows, miCols,
 				miRow, miCol, bsize, [2]int8{refFrame, secondRefFrame},
 				[2]int{refSlot, secondRefSlot}, refRate,

@@ -175,3 +175,69 @@ func TestVP9ReferencePartitionPredPixelReadyDirectLeaves(t *testing.T) {
 		t.Fatal("ML partition without ML context marked pred_pixel_ready")
 	}
 }
+
+// TestVP9VarBasedPartitionPredPixelReadyLeaves pins the VAR_BASED_PARTITION
+// reuse gate to libvpx nonrd_use_partition: every >=8x8 stamped leaf gets
+// ctx->pred_pixel_ready = 1 (vp9_encodeframe.c:5019/5030/5040/5052/5063);
+// sub-8x8 splits (grid stamp BLOCK_4X4) and unstamped/mismatched cells do not.
+func TestVP9VarBasedPartitionPredPixelReadyLeaves(t *testing.T) {
+	e := &VP9Encoder{}
+	e.sf.ReuseInterPredSby = 1
+	e.sf.PartitionSearchType = VarBasedPartition
+
+	const miRows, miCols = 8, 8
+	setGrid := func(miRow, miCol int, bsize common.BlockSize, valid bool) {
+		e.varPartFrameValid = valid
+		e.varPartGrid = make([]vp9dec.NeighborMi, miRows*miCols)
+		e.varPartGrid[miRow*miCols+miCol].SbType = bsize
+	}
+
+	// nonrd_use_partition seeds pred_pixel_ready = 1 for every leaf size,
+	// including 8x8 (PARTITION_NONE at bsize 8x8) and rect halves.
+	for _, tc := range []struct {
+		miRow, miCol int
+		bsize        common.BlockSize
+	}{
+		{0, 0, common.Block64x64},
+		{0, 0, common.Block32x32},
+		{0, 0, common.Block16x16},
+		{0, 0, common.Block8x8},
+		{0, 0, common.Block32x16},
+		{2, 0, common.Block32x16}, // PARTITION_HORZ second half
+		{0, 0, common.Block16x32},
+		{0, 2, common.Block16x32}, // PARTITION_VERT second half
+	} {
+		setGrid(tc.miRow, tc.miCol, tc.bsize, true)
+		if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols,
+			tc.miRow, tc.miCol, tc.bsize) {
+			t.Fatalf("VarBasedPartition %v at (%d,%d) pred_pixel_ready = false, want true (nonrd_use_partition leaf)",
+				tc.bsize, tc.miRow, tc.miCol)
+		}
+	}
+
+	// bsize==BLOCK_8X8 with a sub-8x8 grid stamp routes through the
+	// leaf_split case that never seeds pred_pixel_ready.
+	setGrid(0, 0, common.Block4x4, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block8x8) {
+		t.Fatal("VarBasedPartition sub-8x8 split leaf marked pred_pixel_ready")
+	}
+
+	// Mismatched stamp: the pick is not at this walk's leaf size.
+	setGrid(0, 0, common.Block32x32, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("VarBasedPartition mismatched var-part leaf marked pred_pixel_ready")
+	}
+
+	// Stale/unstamped frame grid.
+	setGrid(0, 0, common.Block64x64, false)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("VarBasedPartition without a valid var-part frame marked pred_pixel_ready")
+	}
+
+	// Speed feature off.
+	e.sf.ReuseInterPredSby = 0
+	setGrid(0, 0, common.Block64x64, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+		t.Fatal("VarBasedPartition with ReuseInterPredSby=0 marked pred_pixel_ready")
+	}
+}
