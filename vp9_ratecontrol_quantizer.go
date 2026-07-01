@@ -577,10 +577,7 @@ func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
 	if maxGF == 0 {
 		maxGF = encoder.MaxGFInterval
 	}
-	interval := max((minGF+maxGF)/2, 10)
-	if interval > 20 {
-		interval = 20
-	}
+	interval := min(max((minGF+maxGF)/2, 10), 20)
 	return uint8(interval)
 }
 
