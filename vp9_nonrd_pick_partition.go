@@ -734,11 +734,9 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 //     cpi->partition_cost[pl][PARTITION_SPLIT] at line 4715.
 //
 // The picker commits to whichever candidate has the lower aggregate
-// RDCOST. On a tie (or scorer failure on the split candidate) we fall
-// through to BlockInvalid which routes the caller into the variance / RD
-// fallback path — matching libvpx's behaviour when sum_rdc.rdcost
-// >= best_rdc.rdcost (line 4738) leaves best_rdc holding the PARTITION_-
-// NONE candidate.
+// RDCOST. On a tie (or scorer failure on the split candidate) the PARTITION_-
+// NONE score remains best, matching libvpx's behaviour when sum_rdc.rdcost
+// >= best_rdc.rdcost (line 4738).
 //
 // libvpx call shape:
 //
@@ -751,7 +749,7 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 //	if (do_split) {
 //	  sum_rdc.rate += cpi->partition_cost[pl][PARTITION_SPLIT]; // 4715
 //	  sum_rdc.rdcost = RDCOST(...);                             // 4716
-//	  for (i = 0; i < 4; ++i)                                   // 4718
+//	  for (i = 0; i < 4 && sum_rdc.rdcost < best_rdc.rdcost; ++i) // 4718
 //	    nonrd_pick_partition(...);                              // 4725
 //	  if (sum_rdc.rdcost < best_rdc.rdcost) {                   // 4738
 //	    best_rdc = sum_rdc; pc_tree->partitioning = SPLIT;      // 4740
@@ -824,13 +822,44 @@ func (e *VP9Encoder) vp9NonrdPickPartitionRDFallback(
 	}
 
 	rd, ok := e.scoreVP9NonrdMLPartitionCompare(inter, tile, rateCostProbs,
-		miRows, miCols, miRow, miCol, bsize, qindex)
+		miRows, miCols, miRow, miCol, bsize, qindex,
+		vp9NonrdMLPartitionScoreBudget{})
 	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
 	e.releaseVP9NonrdMLPartitionSnapshot(snap)
 	if !ok {
 		return common.BlockInvalid, false
 	}
 	return rd.target, true
+}
+
+type vp9NonrdMLPartitionScoreBudget struct {
+	score   uint64
+	enabled bool
+}
+
+func vp9NonrdMLPartitionBudgetFromScore(score uint64) vp9NonrdMLPartitionScoreBudget {
+	return vp9NonrdMLPartitionScoreBudget{score: score, enabled: true}
+}
+
+func vp9NonrdMLPartitionScoreUnderBudget(score uint64,
+	budget vp9NonrdMLPartitionScoreBudget,
+) bool {
+	return !budget.enabled || score < budget.score
+}
+
+func vp9NonrdMLPartitionBudgetRemaining(spent uint64,
+	budget vp9NonrdMLPartitionScoreBudget,
+) (vp9NonrdMLPartitionScoreBudget, bool) {
+	if !budget.enabled {
+		return vp9NonrdMLPartitionScoreBudget{}, true
+	}
+	if spent >= budget.score {
+		return vp9NonrdMLPartitionScoreBudget{}, false
+	}
+	return vp9NonrdMLPartitionScoreBudget{
+		score:   budget.score - spent,
+		enabled: true,
+	}, true
 }
 
 type vp9NonrdMLPartitionSnapshot struct {
@@ -916,10 +945,15 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 	qindex int,
+	budget vp9NonrdMLPartitionScoreBudget,
 ) (vp9InterPartitionRD, bool) {
 	if bsize < common.Block8x8 {
-		return e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
+		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
 			miRow, miCol, bsize)
+		if !ok || !vp9NonrdMLPartitionScoreUnderBudget(rd.score, budget) {
+			return vp9InterPartitionRD{}, false
+		}
+		return rd, true
 	}
 	if bsize >= common.BlockSizes {
 		return vp9InterPartitionRD{}, false
@@ -932,14 +966,18 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
 		miCol, bsize)
 	if !ok {
 		return e.scoreVP9NonrdMLPartitionCompare(inter, tile, rateCostProbs,
-			miRows, miCols, miRow, miCol, bsize, qindex)
+			miRows, miCols, miRow, miCol, bsize, qindex, budget)
 	}
 	if picked == bsize {
 		hasRows, hasCols := vp9NonrdPartitionHasRowsCols(miRows, miCols,
 			miRow, miCol, bsize)
-		return e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
+		rd, ok := e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, bsize, hasRows, hasCols,
 			qindex)
+		if !ok || !vp9NonrdMLPartitionScoreUnderBudget(rd.score, budget) {
+			return vp9InterPartitionRD{}, false
+		}
+		return rd, true
 	}
 	splitSize, splitOK := vp9MLSplitSize(bsize)
 	if splitOK && picked == splitSize {
@@ -947,7 +985,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
 			miRow, miCol, bsize)
 		return e.scoreVP9NonrdMLPartitionSplit(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, bsize, splitSize, hasRows,
-			hasCols, qindex)
+			hasCols, qindex, budget)
 	}
 	return vp9InterPartitionRD{}, false
 }
@@ -959,6 +997,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 	qindex int,
+	budget vp9NonrdMLPartitionScoreBudget,
 ) (vp9InterPartitionRD, bool) {
 	splitSize, ok := vp9MLSplitSize(bsize)
 	if !ok {
@@ -975,11 +1014,18 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
 	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
 	noneRD, noneOK := e.scoreVP9InterPartitionNone(inter, tile, rateCostProbs,
 		miRows, miCols, miRow, miCol, bsize, hasRows, hasCols, qindex)
+	if noneOK && !vp9NonrdMLPartitionScoreUnderBudget(noneRD.score, budget) {
+		noneOK = false
+	}
 
+	splitBudget := budget
 	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	if noneOK {
+		splitBudget = vp9NonrdMLPartitionBudgetFromScore(noneRD.score)
+	}
 	splitRD, splitOK := e.scoreVP9NonrdMLPartitionSplit(inter, tile,
 		rateCostProbs, miRows, miCols, miRow, miCol, bsize, splitSize,
-		hasRows, hasCols, qindex)
+		hasRows, hasCols, qindex, splitBudget)
 
 	bestTarget := common.BlockInvalid
 	if noneOK {
@@ -1005,7 +1051,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
 	case splitSize:
 		committed, committedOK = e.scoreVP9NonrdMLPartitionSplit(inter, tile, rateCostProbs,
 			miRows, miCols, miRow, miCol, bsize, splitSize, hasRows,
-			hasCols, qindex)
+			hasCols, qindex, vp9NonrdMLPartitionScoreBudget{})
 	}
 	if !committedOK {
 		e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
@@ -1024,6 +1070,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 	root, child common.BlockSize,
 	hasRows, hasCols bool,
 	qindex int,
+	budget vp9NonrdMLPartitionScoreBudget,
 ) (vp9InterPartitionRD, bool) {
 	rate := 0
 	var distortion uint64
@@ -1034,6 +1081,11 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 	// the writer's hasRows/hasCols-clamped form. See
 	// vp9_fullrd_partition_cost.go.
 	rate += RDPartitionCost(rateCostProbs, ctx, common.PartitionSplit)
+	partialScore := e.vp9InterModeScore(distortion, rate, qindex)
+	childBudget, ok := vp9NonrdMLPartitionBudgetRemaining(partialScore, budget)
+	if !ok {
+		return vp9InterPartitionRD{}, false
+	}
 	if child < common.Block8x8 {
 		rd, ok := e.scoreVP9InterPartitionLeaf(inter, tile, miRows, miCols,
 			miRow, miCol, child)
@@ -1051,14 +1103,24 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 				}
 				rd, ok := e.scoreVP9NonrdMLPartitionTree(inter, tile,
 					rateCostProbs, miRows, miCols, miRow+rowOff,
-					miCol+colOff, child, qindex)
+					miCol+colOff, child, qindex, childBudget)
 				if !ok {
 					return vp9InterPartitionRD{}, false
 				}
 				rate += rd.rate
 				distortion += rd.distortion
+				partialScore = e.vp9InterModeScore(distortion, rate, qindex)
+				childBudget, ok = vp9NonrdMLPartitionBudgetRemaining(partialScore,
+					budget)
+				if !ok {
+					return vp9InterPartitionRD{}, false
+				}
 			}
 		}
+	}
+	score := e.vp9InterModeScore(distortion, rate, qindex)
+	if !vp9NonrdMLPartitionScoreUnderBudget(score, budget) {
+		return vp9InterPartitionRD{}, false
 	}
 	e.updateVP9PartitionContextForChoice(miRow, miCol, root,
 		common.PartitionSplit, child)
@@ -1066,7 +1128,7 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionSplit(
 		target:     child,
 		rate:       rate,
 		distortion: distortion,
-		score:      e.vp9InterModeScore(distortion, rate, qindex),
+		score:      score,
 	}, true
 }
 

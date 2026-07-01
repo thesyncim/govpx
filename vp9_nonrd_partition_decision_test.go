@@ -33,6 +33,37 @@ func TestVP9NonrdPickPartitionSplitSize(t *testing.T) {
 	}
 }
 
+func TestVP9NonrdMLPartitionScoreBudgetUsesStrictLibvpxGuard(t *testing.T) {
+	noBudget := vp9NonrdMLPartitionScoreBudget{}
+	if !vp9NonrdMLPartitionScoreUnderBudget(100, noBudget) {
+		t.Fatal("disabled budget rejected score")
+	}
+	if remaining, ok := vp9NonrdMLPartitionBudgetRemaining(100, noBudget); !ok || remaining.enabled {
+		t.Fatalf("disabled budget remaining = %+v ok=%v, want disabled ok", remaining, ok)
+	}
+
+	budget := vp9NonrdMLPartitionBudgetFromScore(100)
+	if !vp9NonrdMLPartitionScoreUnderBudget(99, budget) {
+		t.Fatal("score below budget rejected")
+	}
+	if vp9NonrdMLPartitionScoreUnderBudget(100, budget) {
+		t.Fatal("score equal to budget accepted; libvpx split loop is strictly < best_rdc")
+	}
+	if vp9NonrdMLPartitionScoreUnderBudget(101, budget) {
+		t.Fatal("score above budget accepted")
+	}
+
+	remaining, ok := vp9NonrdMLPartitionBudgetRemaining(40, budget)
+	if !ok || !remaining.enabled || remaining.score != 60 {
+		t.Fatalf("remaining after 40 = %+v ok=%v, want enabled score 60", remaining, ok)
+	}
+	for _, spent := range []uint64{100, 101} {
+		if remaining, ok := vp9NonrdMLPartitionBudgetRemaining(spent, budget); ok || remaining.enabled {
+			t.Fatalf("remaining after %d = %+v ok=%v, want exhausted", spent, remaining, ok)
+		}
+	}
+}
+
 func TestVP9MLPickPartitionEntryUsesLastBufferWhenLastRefMasked(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{
