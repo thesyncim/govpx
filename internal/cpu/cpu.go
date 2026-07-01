@@ -15,3 +15,8 @@ var HasAVX2 bool
 // HasARM64DotProd is true iff the host arm64 CPU advertises the ASIMD
 // dot-product extension. On non-arm64 builds this is always false.
 var HasARM64DotProd bool
+
+// HasARM64I8MM is true iff the host arm64 CPU advertises the FEAT_I8MM
+// 8-bit integer matrix-multiply extension (which includes the USDOT
+// mixed-sign dot product). On non-arm64 builds this is always false.
+var HasARM64I8MM bool

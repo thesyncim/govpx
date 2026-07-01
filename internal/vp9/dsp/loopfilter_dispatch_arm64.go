@@ -14,15 +14,75 @@ func lpfHorizontal8NEON(s *byte, pitch int, blimit, limit, thresh byte)
 //go:noescape
 func lpfVertical8NEON(s *byte, pitch int, blimit, limit, thresh byte)
 
+//go:noescape
+func lpfHorizontal8DualNEON(s *byte, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+
+//go:noescape
+func lpfVertical8DualNEON(s *byte, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+
+//go:noescape
+func lpfHorizontal4NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+
+//go:noescape
+func lpfVertical4NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+
+//go:noescape
+func lpfHorizontal4DualNEON(s *byte, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+
+//go:noescape
+func lpfVertical4DualNEON(s *byte, pitch int,
+	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+
+//go:noescape
+func lpfHorizontal16NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+
+//go:noescape
+func lpfVertical16NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+
+// vpxLpfHorizontal16Neon dispatches vpx_lpf_horizontal_16_neon: 16 rows
+// read around the edge (s-8*pitch..s+7*pitch), 8 columns.
+func vpxLpfHorizontal16Neon(plane []uint8, s, pitch int, blimit, limit, thresh uint8) bool {
+	start := s - 8*pitch
+	if !canUseLoopfilter4TapNEON(blimit) || start < 0 || pitch <= 0 ||
+		len(plane) < start+15*pitch+8 {
+		return false
+	}
+	thr := [3]byte{blimit, limit, thresh}
+	lpfHorizontal16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+	return true
+}
+
+// vpxLpfVertical16Neon dispatches vpx_lpf_vertical_16_neon: 8 rows x
+// 16 columns read around the edge (s-8..s+7).
+func vpxLpfVertical16Neon(plane []uint8, s, pitch int, blimit, limit, thresh uint8) bool {
+	start := s - 8
+	if !canUseLoopfilter4TapNEON(blimit) || start < 0 || pitch <= 0 ||
+		len(plane) < start+7*pitch+16 {
+		return false
+	}
+	thr := [3]byte{blimit, limit, thresh}
+	lpfVertical16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+	return true
+}
+
 func vpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	if vp9LpfHorizontal4Tap8NEON(plane, s-4*pitch, pitch, blimit, limit, thresh) {
+	if canUseLoopfilter4TapNEON(blimit) &&
+		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
+		thr := [3]byte{blimit, limit, thresh}
+		lpfHorizontal4NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
 		return
 	}
 	vpxLpfHorizontal4Scalar(plane, s, pitch, blimit, limit, thresh)
 }
 
 func vpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	if vp9LpfVertical4Tap8NEON(plane, s-4, pitch, blimit, limit, thresh) {
+	if canUseLoopfilter4TapNEON(blimit) &&
+		hasVerticalLfWindow(plane, s-4, pitch, 8) {
+		thr := [3]byte{blimit, limit, thresh}
+		lpfVertical4NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
 		return
 	}
 	vpxLpfVertical4Scalar(plane, s, pitch, blimit, limit, thresh)
@@ -31,13 +91,12 @@ func vpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 func vpxLpfHorizontal4Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	if canUseLoopfilter4TapNEON(blimit0) &&
-		sameLoopfilterTriplet(blimit0, limit0, thresh0, blimit1, limit1, thresh1) {
-		start := s - 4*pitch
-		if hasHorizontalLfWindow(plane, start, pitch, 16) {
-			vp8dsp.LoopFilterEdgeH16NEON(&plane[start], pitch, blimit0, limit0, thresh0)
-			return
-		}
+	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
+		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
+		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
+		lpfHorizontal4DualNEON(&plane[s], pitch,
+			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		return
 	}
 	vpxLpfHorizontal4(plane, s, pitch, blimit0, limit0, thresh0)
 	vpxLpfHorizontal4(plane, s+8, pitch, blimit1, limit1, thresh1)
@@ -46,10 +105,11 @@ func vpxLpfHorizontal4Dual(plane []uint8, s, pitch int,
 func vpxLpfVertical4Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	if canUseLoopfilter4TapNEON(blimit0) &&
-		sameLoopfilterTriplet(blimit0, limit0, thresh0, blimit1, limit1, thresh1) &&
+	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
 		hasVerticalLfWindow(plane, s-4, pitch, 16) {
-		vp8dsp.LoopFilterEdgeV16NEON(&plane[s], pitch, blimit0, limit0, thresh0)
+		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
+		lpfVertical4DualNEON(&plane[s], pitch,
+			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
 		return
 	}
 	vpxLpfVertical4(plane, s, pitch, blimit0, limit0, thresh0)
@@ -83,6 +143,18 @@ func vpxLpfVertical8NEON(plane []uint8, s, pitch int, blimit, limit, thresh uint
 func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
+	// The 16-lane dual kernel reads and writes rows s-4*pitch..s+3*pitch
+	// x 16 columns in one pass, mirroring vpx_lpf_horizontal_8_dual_neon.
+	// blimit==255 falls back: the kernel's saturating mask sum diverges
+	// from the scalar int reference there (unreachable in-spec, where
+	// mblim <= 2*(63+2)+63).
+	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
+		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
+		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
+		lpfHorizontal8DualNEON(&plane[s], pitch,
+			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		return
+	}
 	if !vpxLpfHorizontal8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
 		vpxLpfHorizontal8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
 	}
@@ -94,6 +166,16 @@ func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
+	// The 16-lane dual kernel reads and writes rows s..s+15*pitch x
+	// columns s-4..s+3 in one pass, mirroring vpx_lpf_vertical_8_dual_neon.
+	// blimit==255 falls back (see horizontal note).
+	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
+		hasVerticalLfWindow(plane, s-4, pitch, 16) {
+		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
+		lpfVertical8DualNEON(&plane[s], pitch,
+			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		return
+	}
 	if !vpxLpfVertical8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
 		vpxLpfVertical8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
 	}
@@ -203,4 +285,48 @@ func packLfColumn8(r0, r1, r2, r3, r4, r5, r6, r7 uint64, shift uint) uint64 {
 		uint64(byte(r5>>shift))<<40 |
 		uint64(byte(r6>>shift))<<48 |
 		uint64(byte(r7>>shift))<<56
+}
+
+func vpxLpfHorizontal16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	if vpxLpfHorizontal16Neon(plane, s, pitch, blimit, limit, thresh) {
+		return
+	}
+	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 1)
+}
+
+// vpxLpfHorizontal16Dual mirrors vpx_lpf_horizontal_16_dual_neon's
+// count=2 semantics as two single-edge kernel passes. Both windows are
+// validated up front so a fallback never refilters half-written pixels.
+func vpxLpfHorizontal16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	start := s - 8*pitch
+	if canUseLoopfilter4TapNEON(blimit) && start >= 0 && pitch > 0 &&
+		len(plane) >= start+15*pitch+16 {
+		thr := [3]byte{blimit, limit, thresh}
+		lpfHorizontal16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+		lpfHorizontal16NEON(&plane[s+8], pitch, &thr[0], &thr[1], &thr[2])
+		return
+	}
+	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 2)
+}
+
+func vpxLpfVertical16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	if vpxLpfVertical16Neon(plane, s, pitch, blimit, limit, thresh) {
+		return
+	}
+	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 8)
+}
+
+// vpxLpfVertical16Dual mirrors vpx_lpf_vertical_16_dual_neon's count=16
+// semantics as two single-edge kernel passes. Both windows are validated
+// up front so a fallback never refilters half-written pixels.
+func vpxLpfVertical16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	start := s - 8
+	if canUseLoopfilter4TapNEON(blimit) && start >= 0 && pitch > 0 &&
+		len(plane) >= start+15*pitch+16 {
+		thr := [3]byte{blimit, limit, thresh}
+		lpfVertical16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+		lpfVertical16NEON(&plane[s+8*pitch], pitch, &thr[0], &thr[1], &thr[2])
+		return
+	}
+	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 16)
 }

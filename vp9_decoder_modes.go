@@ -1149,6 +1149,22 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		leftBase := leftOffsets[plane]
 		blockIdx := 0
 
+		// Hoisted per-plane geometry for the inter residue destination
+		// (vp9InterTxDst inlined: only x0/y0 vary per tx block).
+		interPlaneOK := false
+		var interPlane []byte
+		var interStride, interRows, interBaseX, interBaseY, interBS int
+		if isInter != 0 && !d.unsupportedReconstruct {
+			interPlane, interStride = d.vp9OutputPlane(plane)
+			if interStride > 0 && len(interPlane) > 0 {
+				interPlaneOK = true
+				interRows = len(interPlane) / interStride
+				interBaseX = (miCol * common.MiSize) >> pd.SubsamplingX
+				interBaseY = (miRow * common.MiSize) >> pd.SubsamplingY
+				interBS = 4 << uint(txSize)
+			}
+		}
+
 		for rr := 0; rr < num4x4H; rr += step {
 			for cc := 0; cc < num4x4W; cc += step {
 				mode := uvMode
@@ -1205,7 +1221,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				}
 				eob := vp9dec.DecodeCoefsWithCountsScratch(r, txSize, planeType, isInter, dequant,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs,
-					coefCounts, coeffs, &d.coefTokenCache)
+					coefCounts, &d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
@@ -1217,12 +1233,14 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 							txType, eob, hdr.Quant.Lossless)
 					}
 				} else if isInter != 0 && !d.unsupportedReconstruct {
-					dst, stride, ok := d.vp9InterTxDst(hdr, pd, plane, txSize,
-						miRow, miCol, rr, cc)
-					if !ok {
+					x0 := interBaseX + cc*4
+					y0 := interBaseY + rr*4
+					if !interPlaneOK || x0+interBS > interStride ||
+						y0+interBS > interRows {
 						d.markVP9Unsupported()
-					} else if eob > 0 && dst != nil {
-						vp9dec.InverseTransformBlock(coeffs, dst, stride, txSize,
+					} else if eob > 0 {
+						vp9dec.InverseTransformBlock(coeffs,
+							interPlane[y0*interStride+x0:], interStride, txSize,
 							common.DctDct, eob, hdr.Quant.Lossless)
 					}
 				}

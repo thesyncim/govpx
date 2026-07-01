@@ -256,7 +256,7 @@ func benchmarkDecodeCoefsTx32EarlyEOB(b *testing.B, scratch bool) {
 			var eob int
 			if scratch {
 				eob = DecodeCoefsWithCountsScratch(&r, common.Tx32x32, 0, 0,
-					dq, 0, scan, neigh, &fc, nil, dqcoeff[:], &tokenCache)
+					dq, 0, scan, neigh, &fc, nil, &dqcoeff, &tokenCache)
 			} else {
 				eob = DecodeCoefsWithCounts(&r, common.Tx32x32, 0, 0,
 					dq, 0, scan, neigh, &fc, nil, dqcoeff[:])
