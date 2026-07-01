@@ -263,15 +263,22 @@ func SADForBsize(bsize common.BlockSize) IntProSadFunc {
 }
 
 // IntProSadX4 mirrors cpi->fn_ptr[bsize].sdx4df — the 4-reference
-// dispatch. libvpx's _x4d_c is literally four sdf calls
-// (vpx_dsp/sad.c:55-74). We replicate that pattern here so callers
-// don't need a separate dispatch table.
+// dispatch (libvpx wires vpx_sad{W}x{H}x4d here, the fused NEON /
+// SSE kernels on SIMD builds; the _x4d_c fallback is literally four
+// sdf calls, vpx_dsp/sad.c:55-74). dsp.VpxSad4D provides the same
+// fused-kernel-with-scalar-fallback split, so route through it and
+// keep the per-call sdf loop only for geometries it rejects.
 func IntProSadX4(
-	sdf IntProSadFunc,
+	sdf IntProSadFunc, bw, bh int,
 	src []uint8, srcOff, srcStride int,
 	ref []uint8, refOffsets [4]int, refStride int,
 	out *[4]uint32,
 ) {
+	if dsp.VpxSad4D(src, srcOff, srcStride, ref,
+		refOffsets[0], refOffsets[1], refOffsets[2], refOffsets[3],
+		refStride, bw, bh, out) {
+		return
+	}
 	for i := range 4 {
 		out[i] = sdf(src, srcOff, srcStride, ref, refOffsets[i], refStride)
 	}
@@ -360,10 +367,7 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 	//     vpx_int_pro_row(&hbuf[idx], ref_buf, ref_stride, bh);
 	//     ref_buf += 16;
 	refOffH := in.RefOff - (bw >> 1)
-	for idx := 0; idx < searchWidth; idx += 16 {
-		dsp.VpxIntProRow(hbuf[idx:idx+16], in.Ref, refOffH, refStride, bh)
-		refOffH += 16
-	}
+	dsp.IntProRowStrips(hbuf[:], in.Ref, refOffH, refStride, bh, searchWidth>>4)
 
 	// Vertical 1-D reference set. libvpx:
 	//   ref_buf = pre[0].buf - (bh >> 1) * ref_stride;
@@ -371,20 +375,11 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 	//     vbuf[idx] = vpx_int_pro_col(ref_buf, bw) >> norm_factor;
 	//     ref_buf += ref_stride;
 	refOffV := in.RefOff - (bh>>1)*refStride
-	for idx := range searchHeight {
-		vbuf[idx] = dsp.VpxIntProCol(in.Ref, refOffV, bw) >> uint(normFactor)
-		refOffV += refStride
-	}
+	dsp.IntProCols(vbuf[:], in.Ref, refOffV, refStride, bw, searchHeight, normFactor)
 
 	// Set up src 1-D reference set across both axes.
-	for idx := 0; idx < bw; idx += 16 {
-		dsp.VpxIntProRow(srcHbuf[idx:idx+16], in.Src, in.SrcOff+idx, srcStride, bh)
-	}
-	srcOffV := in.SrcOff
-	for idx := range bh {
-		srcVbuf[idx] = dsp.VpxIntProCol(in.Src, srcOffV, bw) >> uint(normFactor)
-		srcOffV += srcStride
-	}
+	dsp.IntProRowStrips(srcHbuf[:], in.Src, in.SrcOff, srcStride, bh, bw>>4)
+	dsp.IntProCols(srcVbuf[:], in.Src, in.SrcOff, srcStride, bw, bh, normFactor)
 
 	// Find the best match per 1-D search.
 	colMatch := VectorMatch(hbuf[:], srcHbuf[:], int(common.BWidthLog2Lookup[bsize]))
@@ -403,7 +398,7 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 		refOffBest + 1,
 		refOffBest + refStride,
 	}
-	IntProSadX4(sdf, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
+	IntProSadX4(sdf, bw, bh, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
 
 	for idx := range 4 {
 		if thisSAD[idx] < bestSad {

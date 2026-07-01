@@ -532,9 +532,18 @@ func (e *VP9Encoder) vp9RecordVarPartSBColorSensitivity(miRows, miCols int,
 		e.varPartSBColorSensitivity[sbIdx] = [2]bool{}
 		return
 	}
-	ySad := encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
-		args.PlaneDst, args.PlaneDstOff, args.DstStride, blockW, blockH,
-		^uint64(0))
+	// libvpx passes choose_partitioning's y_sad local straight into
+	// chroma_check (vp9_encodeframe.c:1760); reuse the exported value
+	// instead of recomputing the block SAD. The recomputation fallback
+	// covers callers that didn't wire YSadOut.
+	var ySad uint64
+	if args.YSadOut != nil && args.YSadOutValid != nil && *args.YSadOutValid {
+		ySad = *args.YSadOut
+	} else {
+		ySad = encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
+			args.PlaneDst, args.PlaneDstOff, args.DstStride, blockW, blockH,
+			^uint64(0))
+	}
 	uvSad, ok := e.vp9VarPartChromaSAD(inter, miRows, miCols, sbMiRow,
 		sbMiCol, subBsize, args.PartitionRefFrame, args.PartitionMV)
 	if !ok {
@@ -635,6 +644,23 @@ func vp9PlaneWindowOffsetFits(buf []byte, stride, off, w, h int) bool {
 func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int,
 	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) bool {
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if sbIdx < 0 {
+		return false
+	}
+	// Fast path: the SB was already chosen earlier this frame. All the
+	// per-SB buffers below were sized when it was computed (the
+	// computed flags are reset per frame by the frame-setup path), so
+	// the hit path can skip the EnsureLen churn — this runs once per
+	// MI block per pass, not once per SB.
+	if sbIdx < len(e.varPartSBComputed) && e.varPartSBComputed[sbIdx] {
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountVarPartCacheHit(true)
+		}
+		return true
+	}
 	miGridLen := miRows * miCols
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	// The per-frame reset and steady-state sizing of these buffers is handled
@@ -655,17 +681,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.varPartSBSegmentID = buffers.EnsureLenZeroTail(e.varPartSBSegmentID, sbCount)
 	e.varPartSBColorSensitivity = buffers.EnsureLenZeroTail(
 		e.varPartSBColorSensitivity, sbCount)
-	sbMiRow := (miRow >> 3) << 3
-	sbMiCol := (miCol >> 3) << 3
-	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
-	if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) {
+	if sbIdx >= len(e.varPartSBComputed) {
 		return false
-	}
-	if e.varPartSBComputed[sbIdx] {
-		if vp9PhaseStatsEnabled {
-			e.vp9PhaseCountVarPartCacheHit(true)
-		}
-		return true
 	}
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseCountVarPartCacheHit(false)
@@ -682,8 +699,15 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.ensureVP9VarPartCopyState(miRows, miCols)
 	copiedPartition := false
 	copiedPartitionUseMV := false
+	// y_sad computed inside ChoosePartitioning, reused by the
+	// color-sensitivity recorder (libvpx chroma_check receives the
+	// same local, vp9_encodeframe.c:1760).
+	var chooseYSad uint64
+	var chooseYSadValid bool
 
 	args := encoder.ChoosePartitioningArgs{
+		YSadOut:                &chooseYSad,
+		YSadOutValid:           &chooseYSadValid,
 		MiGrid:                 e.varPartGrid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,

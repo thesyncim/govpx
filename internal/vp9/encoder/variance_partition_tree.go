@@ -3,6 +3,7 @@ package encoder
 import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/dsp"
 )
 
 // This file contains the variance-tree data types, fill / aggregation helpers,
@@ -405,6 +406,24 @@ func fillVariance4x4Avg(src []uint8, srcStride int, dst []uint8, dstStride int,
 func fillVariance8x8Avg(src []uint8, srcStride int, dst []uint8, dstStride int,
 	x16Idx, y16Idx int, vst *V16x16, pixelsWide, pixelsHigh int, isKeyFrame bool,
 ) {
+	// Fully-in-frame 16x16 regions take the batched vpx_avg_8x8 path
+	// (NEON on arm64) — all four 8x8 sub-blocks are in bounds, so the
+	// per-sub-block clamping below is a no-op there. Frame-edge
+	// regions keep the scalar clamped walk.
+	if x16Idx+16 <= pixelsWide && y16Idx+16 <= pixelsHigh {
+		var sAvg [4]int32
+		dAvg := [4]int32{128, 128, 128, 128}
+		dsp.Avg8x8Quad(src, y16Idx*srcStride+x16Idx, srcStride, &sAvg)
+		if !isKeyFrame {
+			dsp.Avg8x8Quad(dst, y16Idx*dstStride+x16Idx, dstStride, &dAvg)
+		}
+		for k := range 4 {
+			sum := sAvg[k] - dAvg[k]
+			fillVariance(uint32(sum*sum), sum, 0,
+				&vst.Split[k].PartVariances.None)
+		}
+		return
+	}
 	for k := range 4 {
 		x8Idx := x16Idx + ((k & 1) << 3)
 		y8Idx := y16Idx + ((k >> 1) << 3)

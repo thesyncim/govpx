@@ -755,19 +755,15 @@ func (e *VP8Encoder) libvpxAutoSelectSpeedActive() bool {
 // ms budget vs cumulative timer state, capped at [4,16].
 //
 // Audit note: govpx's e.autoSpeed evolution under the deterministic
-// inter-frame budget/3 wall-clock pin stays in the libvpx Speed=0
-// stable region (avg_encode_time ≈ budget/3). At cpu_used > 0 RT
-// libvpx's actual wall-clock would drive cpi->Speed up to cpu_used+1
-// via the budget-halving (`ms_for_compress = base*(16-cpu)/16`) +
-// auto-select +2/+4 branches. Clamping e.autoSpeed itself cascades
-// every Speed-conditioned feature in vp8_set_speed_features into the
-// cpu_used+1 path simultaneously, which is far too aggressive on a
-// short-ladder BD-rate measurement. The targeted port lives in
-// libvpxRealtimeCPISpeedForImprovedMVPredGate: that helper feeds the
-// libvpx-realistic Speed only into the improved_mv_pred gate, leaving
-// every other speed-feature lookup on the pin-suppressed
-// e.autoSpeed value. See libvpxInterFrameImprovedMVPredictionFor
-// FeatureSpeed caller in vp8_encoder_inter_speed.go.
+// inter-frame budget/3 wall-clock pin stays in the vp8_auto_select_speed
+// Speed-- branch (avg_encode_time ≈ budget/3 sits below the
+// auto_speed_thresh stable band), clamping cpi->Speed at the realtime
+// floor of 4 -- the same trajectory the production (untraced) vpxenc
+// follows on the reference host, where per-frame encode time stays well
+// below the ms_for_compress budget even at 720p cpu_used=8. Every
+// speed-conditioned feature reads this evolution uniformly via
+// libvpxCPUUsed(); see the drop-parity audit note further down in this
+// file for the retirement of the per-gate "realistic Speed" overrides.
 func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	if e.opts.Deadline != DeadlineRealtime {
 		return
@@ -840,468 +836,37 @@ func (e *VP8Encoder) libvpxAutoSelectSpeed() {
 	}
 }
 
-// libvpxRealtimeCPISpeedForHEXSearchGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the `Speed > 4` gate that switches
-// `sf->search_method = HEX` and `sf->iterative_sub_pixel = 0` inside
-// vp8_set_speed_features case 2 (vp8/encoder/onyx_if.c lines 951-955).
-// Audit note:
+// Speed-feature dispatch note (drop-parity audit, 2026-07-01):
 //
-// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed drives cpi->Speed
-// up to cpu_used+1 via the +4 / +2 wall-clock branches because the
-// budget is halved (`ms_for_compress = base*(16-cpu)/16`). The
-// 720p realtime cpu=8 traces show cpi->Speed reaching 9 by frame 2,
-// at which point the line-951 gate fires search_method=HEX and
-// iterative_sub_pixel=0 (the line-1064 find_fractional_mv_step dispatch
-// falls through to vp8_find_best_sub_pixel_step). govpx's autoSpeed
-// evolution stays in the Speed=0 stable region under the deterministic
-// inter-frame timing pin (interFrameAutoSpeedTimingCompensation), so
-// e.autoSpeed lands at 4-5 rather than the libvpx-realistic
-// cpu_used+1 ≈ 9. That leaves NSTEP+iterative on govpx while libvpx
-// runs HEX+step — a residual contributor to the cpu=8 RT BD-rate gap.
+// Every Speed-conditioned feature in vp8_set_speed_features (search
+// method / iterative_sub_pixel at onyx_if.c:951-955, improved_mv_pred at
+// :957, quarter_pixel_search at :1012, half_pixel_search at :1023, the
+// adaptive error-bin RD-threshold path at :957-1010, the
+// mode_check_freq speed_map lookups at :860-887, auto_filter, and the
+// pickinter.c:756 `cpi->Speed < 12` ZEROMV-LAST RD-adjustment gate)
+// consults the SAME cpi->Speed value in libvpx. govpx mirrors that by
+// feeding e.libvpxCPUUsed() -- the deterministic model of cpi->Speed
+// under the auto-select timing pins -- into all of those gates
+// uniformly.
 //
-// Cannot fix this by clamping e.autoSpeed itself (see
-// libvpxRealtimeCPISpeedForImprovedMVPredGate comment): cascading every
-// Speed-conditioned feature simultaneously craters BD-rate by ~28923%.
-//
-// Targeted port: gate search_method/iterative_sub_pixel
-// specifically on the libvpx-realistic cpi->Speed, leaving every other
-// Speed-feature lookup on govpx's actual e.autoSpeed evolution. The
-// realistic Speed for cpu_used > 0 RT after frame 0 is cpu_used+1.
-// For cpu_used == 0 RT (the byte-parity-gated path, including the
-// byte-parity sentinels, including
-// regression_w854h480_threads4_vbr_inter_diverge, the
-// realistic Speed stays at 4 — below the Speed > 4 threshold, so
-// search_method remains NSTEP and iterative_sub_pixel stays on,
-// preserving the byte-parity sentinels.
-//
-// Returns the Speed value that should feed the `Speed > 4` gate. For
-// non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
-// returns the actual libvpxCPUUsed() so existing semantics carry forward.
-// libvpxRealtimeAutoSelectSpeedRamps reports whether libvpx's
-// vp8_auto_select_speed (vp8/encoder/rdopt.c:261) would have ramped
-// cpi->Speed up toward cpu_used+1 for the current frame geometry, which is
-// the precondition for the realistic-speed gate overrides below.
-//
-// vp8_auto_select_speed only takes its `Speed += 2 / Speed += 4` ramp
-// branches when a frame's measured wall-clock encode time exceeds the
-// per-frame compression budget,
-// milliseconds_for_compress = (1000000 / framerate) * (16 - cpu_used) / 16.
-// On the project's hosts each encoded MB costs ~12us (the same calibration
-// behind interFrameAutoSpeedTimingCompensation / mediumAutoSpeedKeyFrame
-// TimingCompensation), so a frame's encode time only crosses the budget once
-// it has on the order of ~1500 MBs (e.g. 720p = 3600 MBs ramps; the cpu=8
-// 720p traces observe cpi->Speed reaching 9 by frame 2). Tiny frames encode
-// in microseconds, far below the budget, so vp8_auto_select_speed keeps
-// cpi->Speed clamped to the realtime floor of 4 — and govpx's own autoSpeed
-// already lands at 4 for them.
-//
-// Below the ramp boundary govpx's e.autoSpeed already equals libvpx's actual
-// cpi->Speed, so the gates must surface that real value instead of the
-// cpu_used+1 ramp; otherwise govpx runs speed-9 search features (HEX, mode-
-// check throttle, quarter-pel skip) while libvpx runs speed-4 — the exact
-// divergence that broke byte parity on the tiny positive-cpu_used=8 realtime
-// fixtures (verified: govpx at a fixed Speed 4 is byte-exact with libvpx's
-// auto-selected Speed 4 there). At and above the boundary govpx pins its own
-// autoSpeed into the stable region for determinism while libvpx's measured
-// time pushes cpi->Speed up, so the gates restore the realistic cpu_used+1.
-//
-// The boundary is size-only (not the threads>=2 clause of
-// interFrameAutoSpeedTimingCompensation): threads change determinism, not
-// whether libvpx's measured time crosses the budget, so a threaded tiny
-// frame still runs at the Speed-4 floor.
-func (e *VP8Encoder) libvpxRealtimeAutoSelectSpeedRamps() bool {
-	rows := geometry.MacroblockRows(e.opts.Height)
-	cols := geometry.MacroblockCols(e.opts.Width)
-	return rows*cols >= 1500
-}
-
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForHEXSearchGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForAutoFilterGate returns the libvpx-realistic
-// cpi->Speed value for the realtime `auto_filter` cascade. auto_filter is
-// disabled by the same Speed > 4 branch that promotes HEX search and disables
-// iterative sub-pixel search in vp8_set_speed_features, so it shares the same
-// ramp preconditions and byte-parity guards as libvpxRealtimeCPISpeedForHEXSearchGate.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForAutoFilterGate() int {
-	return e.libvpxRealtimeCPISpeedForHEXSearchGate()
-}
-
-// libvpxRealtimeCPISpeedForImprovedMVPredGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the `Speed > 6` gate that turns off
-// `sf->improved_mv_pred` inside vp8_set_speed_features case 2
-// (vp8/encoder/onyx_if.c:957).
-//
-// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed (rdopt.c:261) drives
-// cpi->Speed up via the +4 / +2 wall-clock branches because the
-// budget is halved (`ms_for_compress = base*(16-cpu)/16`) while the
-// encoder still runs the same per-frame work for the first few frames.
-// In the 720p realtime cpu=8 trace, cpi->Speed reaches 9 by frame 2
-// (libvpx picker_entry trace `cpi_speed` field), at which point the
-// line-957 gate fires improved_mv_pred=0. govpx's autoSpeed evolution
-// stays in the Speed=0 stable region (`avg_encode_time ≈ budget/3`)
-// under the deterministic inter-frame timing pin
-// (interFrameAutoSpeedTimingCompensation), so e.autoSpeed lands at 4-5
-// rather than the libvpx-realistic cpu_used+1 ≈ 9. That kept
-// improved_mv_pred enabled on govpx, driving the +6.31% BD-rate gap.
-//
-// Cannot fix this by clamping e.autoSpeed itself: that cascades all the
-// other Speed-conditioned features in vp8_set_speed_features (search
-// method, fractional search, quarter-pixel, threshold maps, recode
-// loop) into their cpu_used+1 path, which is far too aggressive for the
-// short-ladder BD-rate measurement and crashes the curve down ~30000%
-// (the cascade saturates the +28923%/-4.15 dB regime that disables
-// every speed feature simultaneously, far outside the test's 4-rung
-// PSNR-sample resolution).
-//
-// Targeted port: gate improved_mv_pred specifically on the libvpx-
-// realistic cpi->Speed, leaving every other Speed-feature lookup on
-// govpx's actual e.autoSpeed evolution. The realistic Speed for
-// cpu_used > 0 RT after frame 0 is cpu_used+1 (audit-observed
-// trajectory at cpu=8 → cpi_speed=9 at frame 2). For cpu_used=0 RT
-// (the byte-parity-gated path) the realistic Speed stays at 4 — below
-// the Speed > 6 threshold, so improved_mv_pred remains enabled,
-// preserving the threads=4 cpu=0 RT byte-parity sentinel
-// (regression_w854h480_threads4_vbr_inter_diverge).
-//
-// Returns the Speed value that should feed the `Speed > 6` gate. For
-// non-realtime / cpu_used < 0 / cpu_used == 0 RT, returns the actual
-// libvpxCPUUsed() so the existing semantics carry forward unchanged.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForImprovedMVPredGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForQuarterPelGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the `Speed > 8` gate that disables
-// `sf->quarter_pixel_search` inside vp8_set_speed_features case 2
-// (vp8/encoder/onyx_if.c:1012). Same targeted-gate pattern as the
-// improved_mv_pred gate.
-//
-// libvpx onyx_if.c:1012 disables quarter_pixel_search at Speed > 8, which
-// in turn drops `find_fractional_mv_step` from vp8_find_best_sub_pixel_step
-// (quarter-pel) down to vp8_find_best_half_pixel_step (half-pel only) via
-// the dispatch at lines 1064-1071. govpx mirrors this as the
-// interAnalysisFractionalSearchStep → interAnalysisFractionalSearchHalf
-// transition inside interAnalysisSearchConfig.
-//
-// At cpu_used > 0 RT, vp8_auto_select_speed drives cpi->Speed toward
-// cpu_used+1 via the +4 / +2 wall-clock branches (720p realtime cpu=8
-// traces observe cpi_speed=9 by frame 2 — past the Speed > 8
-// gate). govpx's autoSpeed evolution stays in the libvpx Speed=0 stable
-// region under the deterministic inter-frame budget/3 wall-clock pin, so
-// e.autoSpeed lands at 4-5 rather than the libvpx-realistic cpu_used+1
-// ≈ 9. That keeps quarter_pixel_search enabled on govpx while libvpx
-// has it disabled at the same fixture — leaving a per-MB fractional
-// search work asymmetry across the line-1012 gate.
-//
-// Cannot fix this by clamping e.autoSpeed itself: that cascades every
-// other Speed-conditioned feature in vp8_set_speed_features into the
-// cpu_used+1 path simultaneously (HEX search, fractional skip,
-// improved_mv_pred, adaptive RD-thresh) and craters BD-rate (~+28923%
-// on the cpu=8 RT 720p fixture).
-//
-// Targeted port: gate quarter_pixel_search specifically on the
-// libvpx-realistic cpi->Speed (cpu_used+1 capped at 16 for cpu>0 RT
-// after the cold-start frame). Leaves every other Speed-feature
-// lookup on govpx's actual e.autoSpeed evolution unchanged. For
-// cpu_used=0 RT (the byte-parity-gated path) the realistic Speed
-// stays at the libvpxCPUUsed() value — below the Speed > 8 threshold,
-// so quarter_pixel_search remains enabled, preserving the threads=4
-// cpu=0 RT byte-parity sentinel.
-//
-// Returns the Speed value that should feed the `Speed > 8` gate. For
-// non-realtime / cpu_used < 0 / cpu_used == 0 RT / frame 0 cold-start,
-// returns the actual libvpxCPUUsed() so the existing semantics carry
-// forward unchanged.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForQuarterPelGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForSubPelSearchGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the remaining fractional sub-pixel
-// refinement gates inside vp8_set_speed_features case 2 that are NOT
-// covered by libvpxRealtimeCPISpeedForQuarterPelGate (which already
-// owns the Speed > 8 quarter_pixel_search disable at
-// vp8/encoder/onyx_if.c:1012): the `Speed > 4` iterative_sub_pixel
-// disable (line 954, Iterative → Step transition in govpx's
-// interAnalysisFractionalSearchMethod) and the `Speed >= 15`
-// half_pixel_search disable (line 1023, Half → Skip transition).
-// Same targeted-gate pattern as the improved_mv_pred and quarter-pel
-// gates.
-//
-// Audit context: at cpu_used > 0 RT, libvpx's vp8_auto_select_speed
-// (rdopt.c:261) drives cpi->Speed up via the +4 / +2 wall-clock branches
-// to roughly cpu_used+1 within the first frames (audit-observed at
-// cpu_used=8 -> cpi->Speed=9 at frame 2 per the per-frame
-// trace). govpx's autoSpeed evolution stays in the libvpx Speed=0 stable
-// region under the deterministic inter-frame wall-clock pin
-// (avg_encode_time ≈ budget/3), so e.autoSpeed lands at 4-5. For the
-// Step transition specifically, autoSpeed >= 5 fires the existing
-// `speed > 4` branch, so the Iterative → Step promotion was already
-// happening; this gate is a no-op there. For the Skip transition,
-// cpu_used+1 only reaches 15 at cpu_used >= 14 — production fixtures
-// at cpu_used=8 RT land at realistic Speed=9 and stay on Half, matching
-// libvpx's strict `Speed >= 15` requirement
-// TestVP8ExtremeCPUUsedHalfPixelStaysEnabled).
-//
-// Cannot clamp e.autoSpeed itself: the improved_mv_pred audit established that
-// raising autoSpeed to cpu_used+1 cascades every Speed-conditioned
-// feature in vp8_set_speed_features into the cpu_used+1 path
-// simultaneously (search method, fractional search, quarter-pixel,
-// threshold maps, recode loop), which crashed BD-rate to +28923% on the
-// cpu=8 RT 720p fixture. The targeted port keeps every other speed-
-// feature lookup on the pin-suppressed e.autoSpeed value and routes
-// only the fractional sub-pel search gates through the libvpx-realistic
-// Speed.
-//
-// Byte-parity guard: cpu_used <= 0 RT (the negative-Speed explicit path
-// and cpu_used == 0 RT) returns the unchanged libvpxCPUUsed(), keeping
-// the threads=4 cpu=0 RT byte-parity sentinel
-// (regression_w854h480_threads4_vbr_inter_diverge,
-// regression_w1280h720_threads4_vbr_inter_diverge) on the existing
-// fractional dispatch. The pre-first-frame cold start (frameCount == 0)
-// likewise returns the actual speed so the keyframe encode stays on the
-// deterministic wall-clock-pinned path.
-//
-// Returns the Speed value that should feed the Speed > 4 / >= 15
-// fractional gates. The Speed > 8 quarter-pel gate is owned by
-// libvpxRealtimeCPISpeedForQuarterPelGate; both helpers return the same
-// value but stay independent so future threshold audits can adjust one
-// gate without touching the others. For
-// non-realtime / cpu_used <= 0 / pre-first-frame returns
-// libvpxCPUUsed() unchanged.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForSubPelSearchGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForErrorBinGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the `Speed > 6` gate that fires the
-// adaptive error-bin RD threshold adjustment inside vp8_set_speed_features
-// case 2 (vp8/encoder/onyx_if.c:957-1010).
-//
-// At cpu_used > 0 RT, libvpx's vp8_auto_select_speed (rdopt.c:261) drives
-// cpi->Speed up via the +4 / +2 wall-clock branches because the
-// budget is halved (`ms_for_compress = base*(16-cpu)/16`) while the
-// encoder still runs the same per-frame work for the first few frames.
-// In the 720p realtime cpu=8 trace, cpi->Speed reaches 9 by frame 2,
-// at which point the line-957 gate fires the adaptive error-bin
-// threshold path that scans cpi->mb.error_bins[] and overwrites
-// sf->thresh_mult[THR_NEW1/NEAREST1/NEAR1/...] proportionally to
-// (cpi->Speed - 6). govpx's autoSpeed evolution stays in the Speed=0
-// stable region (`avg_encode_time ≈ budget/3`) under the deterministic
-// inter-frame timing pin (interFrameAutoSpeedTimingCompensation), so
-// e.autoSpeed lands at 4-5 rather than the libvpx-realistic cpu_used+1
-// ≈ 9. That kept the adaptive error-bin threshold path disabled on
-// govpx for cpu_used > 0 RT, leaving libvpx's wider mode pool active and
-// driving picker churn that contributed to the residual BD-rate gap on
-// realtime cpu>0 ladders.
-//
-// Cannot fix this by clamping e.autoSpeed itself: that cascades all the
-// other Speed-conditioned features in vp8_set_speed_features (search
-// method, fractional search, quarter-pixel, threshold maps, recode
-// loop) into their cpu_used+1 path, which is far too aggressive for the
-// short-ladder BD-rate measurement (see
-// libvpxRealtimeCPISpeedForImprovedMVPredGate for the same anti-pattern
-// audit on the improved_mv_pred gate).
-//
-// Targeted port: gate the adaptive error-bin RD-threshold adjustment
-// specifically on the libvpx-realistic cpi->Speed, leaving every other
-// Speed-feature lookup on govpx's actual e.autoSpeed evolution. The
-// (Speed-6) scale factor inside libvpxRealtimeAdaptiveInterModeThreshold
-// also picks up the realistic Speed so the percentile bisection inside
-// the error_bins[] scan matches libvpx's per-frame trajectory.
-//
-// For cpu_used == 0 RT (the byte-parity-gated path) the realistic Speed
-// stays at 4 — below the Speed > 6 threshold, so the error-bin path
-// remains disabled, preserving the threads=4 cpu=0 RT byte-parity
-// sentinel and the existing autoSpeed=8 / cpu_used=-8 fixture asserts
-// in TestLibvpxInterModeThresholdMultipliersApplyRealtimeErrorBins.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForErrorBinGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForZeroMVLastAdjGate returns the libvpx-realistic
-// cpi->Speed value used to evaluate the `Speed < 12` gate that fires
-// calculate_zeromv_rd_adjustment inside vp8_pick_inter_mode
-// (vp8/encoder/pickinter.c:756).
-//
-// libvpx's evaluate_inter_mode (pickinter.c:503-510) scales this_rd by
-// rd_adj/100 when (this_mode == ZEROMV && ref_frame == LAST_FRAME &&
-// closest_reference_frame == LAST_FRAME). The rd_adj value originates at
-// vp8_pick_inter_mode line 580 (= 100) and is lowered to 80/90 by
-// calculate_zeromv_rd_adjustment when the line-756 `cpi->Speed < 12` gate
-// is open AND `cpi->lf_zeromv_pct > 40` AND the neighbor MBs exhibit
-// small motion. Suppressing the local-motion bias at higher Speed leaves
-// the rate-control-driven ZEROMV preference intact (comment at line 753:
-// "At such speed settings, ZEROMV is already heavily favored.").
-//
-// The downstream encode_breakout sensitivity flows from rd_adj into
-// check_for_encode_breakout: the encode_breakout decision keys off the
-// luma/chroma SSE thresholds (pickinter.c:455-467), but the picker only
-// commits to the breakout-flagged mode if its scaled this_rd wins the
-// best_rd comparison. Lowering rd_adj to 80 makes ZEROMV-LAST 20% more
-// likely to be selected and to skip residual encoding via the static
-// encode_breakout path; suppressing the lower at Speed >= 12 removes
-// that extra encode_breakout sensitivity once Speed is already biased
-// toward ZEROMV by the rate-control / threshold-multiplier path.
-//
-// Mirrors the targeted-gate pattern of libvpxRealtimeCPISpeedFor*Gate
-// above: govpx's autoSpeed evolution under the deterministic inter-frame
-// timing pin (interFrameAutoSpeedTimingCompensation)
-// lands at 4-5 rather than the libvpx-realistic cpu_used+1 for
-// cpu_used > 0 RT. The static cpi->Speed < 12 cutoff is already well
-// above either trajectory for the common cpu range and only fires for
-// cpu_used <= -12 RT (libvpxSpeedFeatureCPUUsed returns -cpu_used there),
-// so this helper is byte-parity-safe for all cpu_used in [-11, +16] but
-// surfaces the libvpx-realistic Speed for any future audit / regression
-// that needs to inspect the gate's effective input.
-//
-// Returns the Speed value that should feed the `Speed < 12` gate. For
-// non-realtime / cpu_used < 0 / cpu_used == 0 RT / pre-first-frame,
-// returns the actual libvpxCPUUsed() so existing semantics carry forward.
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForZeroMVLastAdjGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
-
-// libvpxRealtimeCPISpeedForModeCheckFreqGate returns the libvpx-realistic
-// cpi->Speed for the speed_map lookups that populate mode_check_freq[]
-// (onyx_if.c:860-887).
-func (e *VP8Encoder) libvpxRealtimeCPISpeedForModeCheckFreqGate() int {
-	speed := e.libvpxCPUUsed()
-	if e.opts.Deadline != DeadlineRealtime {
-		return speed
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	if cpuUsed <= 0 {
-		return speed
-	}
-	if e.frameCount == 0 {
-		return speed
-	}
-	// libvpx-realistic cpi->Speed convergence for cpu_used > 0 RT.
-	if !e.libvpxRealtimeAutoSelectSpeedRamps() {
-		return speed
-	}
-	realistic := min(cpuUsed+1, 16)
-	if speed > realistic {
-		return speed
-	}
-	return realistic
-}
+// A previous iteration kept a family of libvpxRealtimeCPISpeedFor*Gate
+// overrides that fed a "libvpx-realistic" Speed of cpu_used+1 into a
+// subset of the gates for cpu_used > 0 RT frames at >= 1500 MBs. That
+// model was calibrated against instrumented-oracle traces whose own
+// tracing overhead inflated libvpx's measured wall-clock (~12us/MB) and
+// pushed vp8_auto_select_speed through its `Speed += 2` ramp to
+// cpu_used+1. The production (untraced) vpxenc on the reference host
+// encodes 720p RT cpu_used=8 frames in ~5ms against a 16.6ms budget, so
+// the rdopt.c:296 decrement branch keeps cpi->Speed clamped at the
+// realtime floor of 4 for the whole stream, and the ramp never fires.
+// The mismatch made govpx run Speed-9 search features (HEX, no
+// iterative sub-pel, no improved_mv_pred) while libvpx ran Speed-4
+// (NSTEP + iterative sub-pel + improved_mv_pred), inflating interframe
+// sizes ~1.9x at max Q and cascading into a frame-drop divergence on
+// the overloaded 720p bench (52/68 encoded/dropped vs libvpx's 94/26).
+// With the uniform libvpxCPUUsed() feed the same bench run is
+// byte-identical to vpxenc for all 94 encoded packets, including the
+// drop pattern. See vp8_realtime_drop_parity_test.go.
 
 func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 	fps := e.opts.FPS
@@ -1313,17 +878,6 @@ func (e *VP8Encoder) autoSpeedCompressionBudgetUS() int {
 		cpuUsed = -cpuUsed
 	}
 	return (1000000 / fps) * (16 - cpuUsed) / 16
-}
-
-func (e *VP8Encoder) largeAutoSpeedKeyFrameTimingCompensation() bool {
-	if !e.libvpxAutoSelectSpeedActive() {
-		return false
-	}
-	cpuUsed := libvpxEffectiveCPUUsed(e.opts.Deadline, e.opts.CpuUsed)
-	rows := geometry.MacroblockRows(e.opts.Height)
-	cols := geometry.MacroblockCols(e.opts.Width)
-	mbs := rows * cols
-	return mbs >= 3600 || (cpuUsed >= 8 && mbs >= 1900)
 }
 
 func (e *VP8Encoder) beginAutoSpeedTiming() {
@@ -1364,12 +918,21 @@ func (e *VP8Encoder) cancelAutoSpeedTiming() {
 // vp8_auto_select_speed branches at the next frame. For keyframes we
 // therefore pin duration deterministically:
 //
-//   - largeAutoSpeedKeyFrameTimingCompensation() (mbs >= 3600 etc): pin to
-//     2*budget - 2 to land at the libvpx Speed+=2 -> Speed-- -> 4 boundary.
-//   - mediumAutoSpeedKeyFrameTimingCompensation() (200 <= mbs < large):
-//     pin to budget/3 to land in the libvpx Speed=0 stable region (matches
+//   - mediumAutoSpeedKeyFrameTimingCompensation() (mbs >= 200): pin to
+//     budget/3 to land in the libvpx Speed=0 stable region (matches
 //     the regression_640x360_threads1_bitrate_setref_diverge seed where
 //     libvpx's ~11ms KF measurement keeps Speed=0 across SetRateControl).
+//     For cpu_used > 0 realtime the budget/3 sample keeps the next
+//     frame's auto-select in the Speed-- branch, clamping cpi->Speed at
+//     the realtime floor of 4 -- the trajectory the production
+//     (untraced) vpxenc follows on the reference host, where even a
+//     720p keyframe encodes below the rdopt.c:290 `Speed += 2`
+//     boundary of budget*100/95. (A previous 2*budget-2 pin for
+//     mbs >= 3600 keyframes deliberately landed ABOVE that boundary --
+//     Speed 5 for the first inter frame -- calibrated against
+//     instrumented-oracle timings whose tracing overhead inflated the
+//     measured keyframe wall-clock; see the drop-parity audit note
+//     above libvpxCPUUsed's speed-feature dispatch block.)
 //   - Otherwise (tiny KFs like 16x16): keep avg_encode_time at 0 so the
 //     next frame's vp8_auto_select_speed enters the Speed-- branch and
 //     clamps to 4 (matching libvpx's measured-too-small Speed-- trajectory
@@ -1387,17 +950,7 @@ func (e *VP8Encoder) finishAutoSpeedTiming(keyFrame bool) {
 	duration := int(durationNS / 1000)
 	keyFrameEncodeSample := false
 	if keyFrame && e.libvpxAutoSelectSpeedActive() {
-		if e.largeAutoSpeedKeyFrameTimingCompensation() {
-			// The selector is calibrated to libvpx's C encoder timings. For the
-			// large positive-realtime boundary path, libvpx's keyframe wall-clock
-			// sample can land on either side of vp8_auto_select_speed's branch
-			// boundary. Pin the sample to the libvpx matching-budget boundary so
-			// strict byte-parity runs do not depend on scheduler timing.
-			if budget := e.autoSpeedCompressionBudgetUS(); budget > 1 {
-				duration = 2*budget - 2
-			}
-			keyFrameEncodeSample = true
-		} else if e.mediumAutoSpeedKeyFrameTimingCompensation() {
+		if e.mediumAutoSpeedKeyFrameTimingCompensation() {
 			// Pin to the Speed=0 stable region midpoint so the next frame's
 			// auto-select neither fires Speed+=2 nor Speed--, matching the
 			// libvpx behaviour where actual KF measurement at this size
