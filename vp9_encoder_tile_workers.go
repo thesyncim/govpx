@@ -95,6 +95,8 @@ type vp9TileWorkerPool struct {
 	shutdown  chan struct{}
 	wg        sync.WaitGroup
 	doneCount atomic.Int32
+	jobEpoch  atomic.Uint64
+	parked    []atomic.Uint32
 
 	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
 	// ensureRowMTSync when the RowMT option is enabled; released by
@@ -114,7 +116,7 @@ type vp9TileWorkerPool struct {
 	// by the most recent ensureRowWorkers call. Reset across pool rebuilds.
 	rowMTThreadCount int
 
-	jobKind     vp9TileWorkerJobKind
+	jobKind     atomic.Uint32
 	workerCount int
 }
 
@@ -426,10 +428,11 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		outputs:     make([][]byte, workers),
 		start:       make([]chan struct{}, workers),
 		shutdown:    make(chan struct{}),
+		parked:      make([]atomic.Uint32, workers),
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
-		start := make(chan struct{})
+		start := make(chan struct{}, 1)
 		pool.start[i] = start
 		pool.wg.Add(1)
 		go pool.workerLoop(i, start)
@@ -459,45 +462,86 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 
 func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	defer p.wg.Done()
+	epoch := p.jobEpoch.Load()
+	idleSpins := 0
 	for {
-		if !p.waitForWorkerStart(start) {
-			return
+		next := p.jobEpoch.Load()
+		if next != epoch {
+			epoch = next
+			p.runHelperWorkerJob(workerIndex)
+			p.doneCount.Add(1)
+			idleSpins = 0
+			continue
 		}
-		if workerIndex < p.workerCount {
-			switch p.jobKind {
-			case vp9TileWorkerJobCount:
-				runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
-			default:
-				runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
-			}
-		}
-		p.doneCount.Add(1)
-	}
-}
-
-func (p *vp9TileWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
-	for spins := range rowWorkerIdleSpinBudget {
 		select {
-		case _, ok := <-start:
-			return ok
+		case <-p.shutdown:
+			return
 		default:
 		}
+		if idleSpins >= rowWorkerIdleSpinBudget {
+			if !p.parkHelperWorker(workerIndex, start, epoch) {
+				return
+			}
+			idleSpins = 0
+			continue
+		}
+		idleSpins++
 		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
+		if idleSpins >= rowWorkerIdleSchedulerBackoff &&
+			idleSpins%rowWorkerIdleSchedulerBackoff == 0 {
 			runtime.Gosched()
 		}
 	}
-	_, ok := <-start
-	return ok
 }
 
-func (p *vp9TileWorkerPool) startHelperWorkers() {
+func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
+	if p == nil || workerIndex <= 0 || workerIndex >= p.workerCount {
+		return
+	}
+	switch vp9TileWorkerJobKind(p.jobKind.Load()) {
+	case vp9TileWorkerJobCount:
+		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
+	default:
+		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
+	}
+}
+
+func (p *vp9TileWorkerPool) parkHelperWorker(workerIndex int, start <-chan struct{},
+	epoch uint64,
+) bool {
+	if p == nil {
+		return false
+	}
+	if workerIndex > 0 && workerIndex < len(p.parked) {
+		p.parked[workerIndex].Store(1)
+		defer p.parked[workerIndex].Store(0)
+	}
+	if p.jobEpoch.Load() != epoch {
+		return true
+	}
+	select {
+	case _, ok := <-start:
+		return ok
+	case <-p.shutdown:
+		return false
+	}
+}
+
+func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
 	p.doneCount.Store(0)
+	p.jobKind.Store(uint32(kind))
+	p.jobEpoch.Add(1)
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.start[workerIndex] <- struct{}{}
+		if workerIndex >= len(p.parked) || p.parked[workerIndex].Load() == 0 {
+			continue
+		}
+		select {
+		case p.start[workerIndex] <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -665,8 +709,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
 			tile, partitionProbs, seg, baseMi, txMode, kind, seed)
 	}
-	pool.jobKind = vp9TileWorkerJobCount
-	pool.startHelperWorkers()
+	pool.startHelperWorkers(vp9TileWorkerJobCount)
 	runVP9CountTileJobNoWG(&pool.countJobs[0])
 	pool.waitHelperWorkers()
 	if collectTokens && !e.finishVP9ThreadedCountTokenCollection(pool, miRows, tileCols) {
@@ -1089,8 +1132,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		}
 	}
 
-	pool.jobKind = vp9TileWorkerJobEncode
-	pool.startHelperWorkers()
+	pool.startHelperWorkers(vp9TileWorkerJobEncode)
 	runVP9EncodeTileJob(&pool.encodeJobs[0])
 	pool.waitHelperWorkers()
 
