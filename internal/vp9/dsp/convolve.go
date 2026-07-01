@@ -241,8 +241,19 @@ func VpxConvolve8AvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
+	VpxConvolve8AvgHorizWithScratch(src, srcStride, dst, dstStride, filter,
+		x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset, nil)
+}
+
+// VpxConvolve8AvgHorizWithScratch is VpxConvolve8AvgHoriz with optional
+// caller-owned temp storage for the SIMD filter-then-average path.
+func VpxConvolve8AvgHorizWithScratch(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
+	scratch *Convolve8Scratch,
+) {
 	vpxConvolve8AvgHoriz(src, srcStride, dst, dstStride, filter, x0Q4,
-		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
+		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset, scratch)
 }
 
 // VpxConvolve8AvgVert mirrors vpx_convolve8_avg_vert_c.
@@ -250,8 +261,19 @@ func VpxConvolve8AvgVert(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
+	VpxConvolve8AvgVertWithScratch(src, srcStride, dst, dstStride, filter,
+		x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset, nil)
+}
+
+// VpxConvolve8AvgVertWithScratch is VpxConvolve8AvgVert with optional
+// caller-owned temp storage for the SIMD filter-then-average path.
+func VpxConvolve8AvgVertWithScratch(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
+	scratch *Convolve8Scratch,
+) {
 	vpxConvolve8AvgVert(src, srcStride, dst, dstStride, filter, x0Q4,
-		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
+		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset, scratch)
 }
 
 // VpxConvolveCopy mirrors vpx_convolve_copy_c — a straight memcpy of

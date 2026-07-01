@@ -36,9 +36,10 @@ func InterPredictor(
 		filter, xStepQ4, yStepQ4, w, h, ref, srcOffset, nil)
 }
 
-// InterPredictorWithScratch is InterPredictor with caller-owned full-convolve
-// scratch. The scratch is used only for 2-D subpel prediction paths; nil keeps
-// the package-level fallback pool used by existing callers.
+// InterPredictorWithScratch is InterPredictor with caller-owned convolve
+// scratch. The scratch is used for 2-D subpel prediction and SIMD compound
+// one-axis averaging paths; nil keeps the package-level fallback pool used by
+// existing callers.
 func InterPredictorWithScratch(
 	src []byte, srcStride int, dst []byte, dstStride int,
 	subpelX, subpelY int,
@@ -68,12 +69,22 @@ func InterPredictorWithScratch(
 		dsp.VpxConvolve8Vert(src, srcStride, dst, dstStride, filter,
 			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
 	case 3:
+		if scratch != nil {
+			dsp.VpxConvolve8AvgVertWithScratch(src, srcStride, dst, dstStride,
+				filter, subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset, scratch)
+			return
+		}
 		dsp.VpxConvolve8AvgVert(src, srcStride, dst, dstStride, filter,
 			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
 	case 4:
 		dsp.VpxConvolve8Horiz(src, srcStride, dst, dstStride, filter,
 			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
 	case 5:
+		if scratch != nil {
+			dsp.VpxConvolve8AvgHorizWithScratch(src, srcStride, dst, dstStride,
+				filter, subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset, scratch)
+			return
+		}
 		dsp.VpxConvolve8AvgHoriz(src, srcStride, dst, dstStride, filter,
 			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
 	case 6:

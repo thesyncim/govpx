@@ -346,6 +346,54 @@ func TestVP9ConvolveAvgSimdAgreement(t *testing.T) {
 	}
 }
 
+func drainConvolve8AvgTempPool(t *testing.T) {
+	t.Helper()
+	drained := make([]*convolve8AvgTempBuf, 0, cap(convolve8AvgTempPool))
+	for {
+		select {
+		case b := <-convolve8AvgTempPool:
+			drained = append(drained, b)
+		default:
+			t.Cleanup(func() {
+				for _, b := range drained {
+					convolve8AvgTempPut(b)
+				}
+			})
+			return
+		}
+	}
+}
+
+func TestVP9Convolve8AvgAxisWithScratchDoesNotAllocateUnderPoolPressure(t *testing.T) {
+	drainConvolve8AvgTempPool(t)
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dstH := make([]byte, stride*16)
+	dstV := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8((i*7 + 3) & 0xff)
+	}
+	for i := range dstH {
+		v := uint8((i*13 + 5) & 0xff)
+		dstH[i] = v
+		dstV[i] = v
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	var scratch Convolve8Scratch
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		VpxConvolve8AvgHorizWithScratch(src, stride, dstH, stride, f, 5,
+			tables.SubpelShifts, 0, tables.SubpelShifts, 16, 16, srcOffset, &scratch)
+		VpxConvolve8AvgVertWithScratch(src, stride, dstV, stride, f, 0,
+			tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("VpxConvolve8Avg*WithScratch allocations = %.1f, want 0", allocs)
+	}
+}
+
 func BenchmarkVP9Convolve8Horiz16x16(b *testing.B) {
 	stride := 64
 	margin := 16
@@ -428,6 +476,25 @@ func BenchmarkVP9Convolve8AvgHoriz16x16(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9Convolve8AvgHoriz16x16Scratch(b *testing.B) {
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	var scratch Convolve8Scratch
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgHorizWithScratch(src, stride, dst, stride, f, 5,
+			tables.SubpelShifts, 0, tables.SubpelShifts, 16, 16, srcOffset, &scratch)
+	}
+}
+
 func BenchmarkVP9Convolve8AvgVert16x16(b *testing.B) {
 	stride := 64
 	margin := 16
@@ -443,6 +510,25 @@ func BenchmarkVP9Convolve8AvgVert16x16(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		VpxConvolve8AvgVert(src, stride, dst, stride, f, 0,
 			tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgVert16x16Scratch(b *testing.B) {
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	var scratch Convolve8Scratch
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgVertWithScratch(src, stride, dst, stride, f, 0,
+			tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset, &scratch)
 	}
 }
 

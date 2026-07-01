@@ -88,31 +88,96 @@ func TestInterPredictorHorizDispatchHitsKernel(t *testing.T) {
 	}
 }
 
-func TestInterPredictorWithScratchMatchesPooledFull2D(t *testing.T) {
-	src := make([]byte, 32*24)
+func TestInterPredictorWithScratchMatchesPooledDispatchCases(t *testing.T) {
+	src := make([]byte, 48*32)
 	for i := range src {
 		src[i] = byte((i*19 + 11) & 0xff)
 	}
-	srcOffset := 3*32 + 3
-	for _, ref := range []int{0, 1} {
-		dstPooled := make([]byte, 16*16)
-		dstScratch := make([]byte, 16*16)
-		for i := range dstPooled {
-			v := byte((i*13 + 5) & 0xff)
-			dstPooled[i] = v
-			dstScratch[i] = v
-		}
-		var scratch dsp.Convolve8Scratch
-		InterPredictor(src, 32, dstPooled, 16, 4, 8, &tables.SubPelFilters8,
-			16, 16, 16, 16, ref, srcOffset)
-		InterPredictorWithScratch(src, 32, dstScratch, 16, 4, 8,
-			&tables.SubPelFilters8, 16, 16, 16, 16, ref, srcOffset, &scratch)
-		for i := range dstPooled {
-			if dstScratch[i] != dstPooled[i] {
-				t.Fatalf("ref=%d [%d]: scratch got %d want %d",
-					ref, i, dstScratch[i], dstPooled[i])
+	srcOffset := 8*48 + 8
+	cases := []struct {
+		name             string
+		subpelX, subpelY int
+		ref              int
+	}{
+		{"case3_avg_vert", 0, 8, 1},
+		{"case5_avg_horiz", 4, 0, 1},
+		{"case6_full2d", 4, 8, 0},
+		{"case7_avg_full2d", 4, 8, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dstPooled := make([]byte, 16*16)
+			dstScratch := make([]byte, 16*16)
+			dstDirect := make([]byte, 16*16)
+			for i := range dstPooled {
+				v := byte((i*13 + 5) & 0xff)
+				dstPooled[i] = v
+				dstScratch[i] = v
+				dstDirect[i] = v
 			}
-		}
+			var scratch dsp.Convolve8Scratch
+			var directScratch dsp.Convolve8Scratch
+			InterPredictor(src, 48, dstPooled, 16, tc.subpelX, tc.subpelY,
+				&tables.SubPelFilters8, 16, 16, 16, 16, tc.ref, srcOffset)
+			InterPredictorWithScratch(src, 48, dstScratch, 16, tc.subpelX,
+				tc.subpelY, &tables.SubPelFilters8, 16, 16, 16, 16, tc.ref,
+				srcOffset, &scratch)
+			switch tc.name {
+			case "case3_avg_vert":
+				dsp.VpxConvolve8AvgVertWithScratch(src, 48, dstDirect, 16,
+					&tables.SubPelFilters8, tc.subpelX, 16, tc.subpelY, 16,
+					16, 16, srcOffset, &directScratch)
+			case "case5_avg_horiz":
+				dsp.VpxConvolve8AvgHorizWithScratch(src, 48, dstDirect, 16,
+					&tables.SubPelFilters8, tc.subpelX, 16, tc.subpelY, 16,
+					16, 16, srcOffset, &directScratch)
+			case "case6_full2d":
+				dsp.VpxConvolve8WithScratch(src, 48, dstDirect, 16,
+					&tables.SubPelFilters8, tc.subpelX, 16, tc.subpelY, 16,
+					16, 16, srcOffset, &directScratch)
+			case "case7_avg_full2d":
+				dsp.VpxConvolve8AvgWithScratch(src, 48, dstDirect, 16,
+					&tables.SubPelFilters8, tc.subpelX, 16, tc.subpelY, 16,
+					16, 16, srcOffset, &directScratch)
+			}
+			for i := range dstPooled {
+				if dstScratch[i] != dstDirect[i] {
+					t.Fatalf("scratch [%d]: got %d want direct %d",
+						i, dstScratch[i], dstDirect[i])
+				}
+				if dstPooled[i] != dstDirect[i] {
+					t.Fatalf("pooled [%d]: got %d want direct %d",
+						i, dstPooled[i], dstDirect[i])
+				}
+			}
+		})
+	}
+}
+
+func TestInterPredictorWithScratchDoesNotAllocate(t *testing.T) {
+	src := make([]byte, 48*32)
+	dst := make([]byte, 16*16)
+	for i := range src {
+		src[i] = byte((i*11 + 7) & 0xff)
+	}
+	for i := range dst {
+		dst[i] = byte((i*17 + 3) & 0xff)
+	}
+	srcOffset := 8*48 + 8
+	var scratch dsp.Convolve8Scratch
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		InterPredictorWithScratch(src, 48, dst, 16, 0, 8,
+			&tables.SubPelFilters8, 16, 16, 16, 16, 1, srcOffset, &scratch)
+		InterPredictorWithScratch(src, 48, dst, 16, 4, 0,
+			&tables.SubPelFilters8, 16, 16, 16, 16, 1, srcOffset, &scratch)
+		InterPredictorWithScratch(src, 48, dst, 16, 4, 8,
+			&tables.SubPelFilters8, 16, 16, 16, 16, 0, srcOffset, &scratch)
+		InterPredictorWithScratch(src, 48, dst, 16, 4, 8,
+			&tables.SubPelFilters8, 16, 16, 16, 16, 1, srcOffset, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("InterPredictorWithScratch allocations = %.1f, want 0", allocs)
 	}
 }
 
