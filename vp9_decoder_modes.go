@@ -1141,7 +1141,39 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				}
 				aboveCtx := pd.AboveContext[aboveBase+cc : aboveBase+cc+step]
 				leftCtx := pd.LeftContext[leftBase+rr : leftBase+rr+step]
-				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
+				initCtx := 0
+				switch txSize {
+				case common.Tx4x4:
+					if aboveCtx[0] != 0 {
+						initCtx++
+					}
+					if leftCtx[0] != 0 {
+						initCtx++
+					}
+				case common.Tx8x8:
+					if aboveCtx[0]|aboveCtx[1] != 0 {
+						initCtx++
+					}
+					if leftCtx[0]|leftCtx[1] != 0 {
+						initCtx++
+					}
+				case common.Tx16x16:
+					if aboveCtx[0]|aboveCtx[1]|aboveCtx[2]|aboveCtx[3] != 0 {
+						initCtx++
+					}
+					if leftCtx[0]|leftCtx[1]|leftCtx[2]|leftCtx[3] != 0 {
+						initCtx++
+					}
+				default:
+					if aboveCtx[0]|aboveCtx[1]|aboveCtx[2]|aboveCtx[3]|
+						aboveCtx[4]|aboveCtx[5]|aboveCtx[6]|aboveCtx[7] != 0 {
+						initCtx++
+					}
+					if leftCtx[0]|leftCtx[1]|leftCtx[2]|leftCtx[3]|
+						leftCtx[4]|leftCtx[5]|leftCtx[6]|leftCtx[7] != 0 {
+						initCtx++
+					}
+				}
 				scanOrder := common.GetScan(txSize, planeType, isInter,
 					hdr.Quant.Lossless, mode)
 				maxEob := vp9dec.MaxEobForTxSize(txSize)
@@ -1179,9 +1211,41 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				if eob > 0 {
 					hasResidue = 1
 				}
-				for i := range step {
-					aboveCtx[i] = hasResidue
-					leftCtx[i] = hasResidue
+				switch txSize {
+				case common.Tx4x4:
+					aboveCtx[0] = hasResidue
+					leftCtx[0] = hasResidue
+				case common.Tx8x8:
+					aboveCtx[0] = hasResidue
+					aboveCtx[1] = hasResidue
+					leftCtx[0] = hasResidue
+					leftCtx[1] = hasResidue
+				case common.Tx16x16:
+					aboveCtx[0] = hasResidue
+					aboveCtx[1] = hasResidue
+					aboveCtx[2] = hasResidue
+					aboveCtx[3] = hasResidue
+					leftCtx[0] = hasResidue
+					leftCtx[1] = hasResidue
+					leftCtx[2] = hasResidue
+					leftCtx[3] = hasResidue
+				default:
+					aboveCtx[0] = hasResidue
+					aboveCtx[1] = hasResidue
+					aboveCtx[2] = hasResidue
+					aboveCtx[3] = hasResidue
+					aboveCtx[4] = hasResidue
+					aboveCtx[5] = hasResidue
+					aboveCtx[6] = hasResidue
+					aboveCtx[7] = hasResidue
+					leftCtx[0] = hasResidue
+					leftCtx[1] = hasResidue
+					leftCtx[2] = hasResidue
+					leftCtx[3] = hasResidue
+					leftCtx[4] = hasResidue
+					leftCtx[5] = hasResidue
+					leftCtx[6] = hasResidue
+					leftCtx[7] = hasResidue
 				}
 				blockIdx += blockStep
 			}
