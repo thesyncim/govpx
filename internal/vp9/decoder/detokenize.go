@@ -90,7 +90,7 @@ func BandTranslateForTxSize(tx common.TxSize) []uint8 {
 // GetCoefContext is the public mirror of getCoefContext — neighbor
 // average of the per-coefficient token cache, +1, >> 1.
 func GetCoefContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
-	return getCoefContext(neighbors, tokenCache, c)
+	return getCoefContext(neighbors, tokenCache[:], c)
 }
 
 // readCoeffBits pulls `n` raw bits from the boolean coder against the
@@ -106,7 +106,7 @@ func readCoeffBits(r *bitstream.Reader, probs []uint8, n int) int {
 // getCoefContext mirrors get_coef_context from vp9_scan.h. Looks up
 // the two neighbor scan positions and averages their cached token
 // magnitudes, +1, >> 1.
-func getCoefContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
+func getCoefContext(neighbors []int16, tokenCache []uint8, c int) int {
 	a := tokenCache[neighbors[2*c+0]]
 	b := tokenCache[neighbors[2*c+1]]
 	return (1 + int(a) + int(b)) >> 1
@@ -161,6 +161,39 @@ func DecodeCoefsWithCounts(
 	counts *CoefCounts,
 	dqcoeff []int16,
 ) int {
+	switch txSize {
+	case common.Tx4x4:
+		var tokenCache [16]uint8
+		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
+	case common.Tx8x8:
+		var tokenCache [64]uint8
+		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
+	case common.Tx16x16:
+		var tokenCache [256]uint8
+		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
+	default:
+		var tokenCache [1024]uint8
+		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
+	}
+}
+
+func decodeCoefsWithCountsScratch(
+	r *bitstream.Reader,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	scan, neighbors []int16,
+	fc *FrameCoefProbs,
+	counts *CoefCounts,
+	dqcoeff []int16,
+	tokenCache []uint8,
+) int {
 	maxEob := maxEobForTxSize(txSize)
 	bandTrans := bandTranslateForTxSize(txSize)
 	dqShift := uint(0)
@@ -171,7 +204,6 @@ func DecodeCoefsWithCounts(
 
 	coefModel := &fc[txSize][planeType][isInter]
 
-	var tokenCache [1024]uint8
 	c := 0
 	bandIdx := 0
 
@@ -202,7 +234,7 @@ func DecodeCoefsWithCounts(
 			if c >= maxEob {
 				return c
 			}
-			ctx = getCoefContext(neighbors, &tokenCache, c)
+			ctx = getCoefContext(neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
@@ -273,7 +305,7 @@ func DecodeCoefsWithCounts(
 		}
 
 		c++
-		ctx = getCoefContext(neighbors, &tokenCache, c)
+		ctx = getCoefContext(neighbors, tokenCache, c)
 		dqv = dequant[1]
 	}
 
