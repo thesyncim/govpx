@@ -230,6 +230,65 @@ func benchmarkInterMBBuilderSplitMV(b *testing.B, mode MacroblockMode, cfg Inter
 	b.ReportMetric(float64(rows*cols), "mb/op")
 }
 
+func BenchmarkInterMBBuilderSplitMVGrid(b *testing.B) {
+	cases := []struct {
+		name string
+		mode MacroblockMode
+		cfg  InterPredictionConfig
+	}{
+		{
+			name: "partition0_sixTap8x8",
+			mode: splitMVBenchMode(0, []MotionVector{
+				{Row: 3, Col: 5},
+				{Row: 7, Col: 1},
+			}),
+		},
+		{
+			name: "partition3_equalPairs8x4",
+			mode: splitMVBenchModePartition3(true),
+		},
+		{
+			name: "partition3_mixedPairs4x4",
+			mode: splitMVBenchModePartition3(false),
+		},
+		{
+			name: "partition3_equalPairs8x4_bilinear",
+			mode: splitMVBenchModePartition3(true),
+			cfg:  InterPredictionConfig{UseBilinear: true},
+		},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			benchmarkInterMBBuilderSplitMVGrid(b, tc.mode, tc.cfg)
+		})
+	}
+}
+
+func benchmarkInterMBBuilderSplitMVGrid(b *testing.B, mode MacroblockMode, cfg InterPredictionConfig) {
+	const width, height = 1280, 720
+	const cols = width / 16
+	const rows = height / 16
+	srcFB, dstFB := makeInterMBBenchScene(width, height)
+	dst := &dstFB.Img
+	src := &srcFB.Img
+
+	modes := make([]MacroblockMode, rows*cols)
+	tokens := make([]MacroblockTokens, rows*cols)
+	for i := range modes {
+		modes[i] = mode
+	}
+	dequants := testMacroblockDequants()
+	var scratch IntraReconstructionScratch
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := ReconstructInterFrameGridWithConfig(dst, src, src, src, rows, cols, modes, tokens, &dequants, &scratch, cfg); err != nil {
+			b.Fatalf("ReconstructInterFrameGridWithConfig: %v", err)
+		}
+	}
+	b.ReportMetric(float64(rows*cols), "mb/op")
+}
+
 func splitMVBenchMode(partition uint8, subsetMVs []MotionVector) MacroblockMode {
 	mode := MacroblockMode{
 		Mode:        common.SplitMV,

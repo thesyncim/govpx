@@ -10,7 +10,8 @@ import (
 // TestReconstructInterFrameGridFastMatchesSlow verifies that the
 // frame-state fast path produces byte-identical output to the
 // per-MB slow path for a representative inter-frame layout that
-// exercises ZeroMV copies, sub-pel sixtap, and sub-pel bilinear.
+// exercises ZeroMV copies, whole-MV predictors, split-MV predictors,
+// sub-pel sixtap, and sub-pel bilinear.
 func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 	const width, height = 96, 48
 	const cols = width / 16
@@ -28,13 +29,21 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 	for r := range rows {
 		for c := range cols {
 			i := r*cols + c
-			switch (r*cols + c) % 4 {
+			switch (r*cols + c) % 5 {
 			case 0:
 				modes[i] = MacroblockMode{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true}
 			case 1:
 				modes[i] = MacroblockMode{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 3, Col: 5}, MBSkipCoeff: true}
 			case 2:
 				modes[i] = MacroblockMode{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: -2, Col: 7}, MBSkipCoeff: true}
+			case 3:
+				modes[i] = MacroblockMode{Mode: common.SplitMV, RefFrame: common.LastFrame, Is4x4: true, Partition: 3, MBSkipCoeff: true}
+				for block := range modes[i].BlockMV {
+					modes[i].BlockMV[block] = MotionVector{
+						Row: int16((block%4 - 1) * 2),
+						Col: int16((block/4 - 1) * 3),
+					}
+				}
 			default:
 				modes[i] = MacroblockMode{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 16, Col: 16}, MBSkipCoeff: true}
 			}
@@ -66,12 +75,22 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 					yOff := yRow + col*16
 					uOff := uRow + col*8
 					vOff := vRow + col*8
-					if !ReconstructWholeMVInterMacroblock(mode, &tokens[index], &dequants[mode.SegmentID], &srcFB.Img,
-						imgSlow.Y[yOff:], imgSlow.YStride,
-						imgSlow.U[uOff:], imgSlow.UStride,
-						imgSlow.V[vOff:], imgSlow.VStride,
-						&scratchSlow.Residual, row, col, cfg) {
-						t.Fatalf("slow per-MB at (%d,%d) failed", row, col)
+					var ok bool
+					if mode.Mode == common.SplitMV {
+						ok = ReconstructSplitMVInterMacroblock(mode, &tokens[index], &dequants[mode.SegmentID], &srcFB.Img,
+							imgSlow.Y[yOff:], imgSlow.YStride,
+							imgSlow.U[uOff:], imgSlow.UStride,
+							imgSlow.V[vOff:], imgSlow.VStride,
+							&scratchSlow.Residual, row, col, cfg)
+					} else {
+						ok = ReconstructWholeMVInterMacroblock(mode, &tokens[index], &dequants[mode.SegmentID], &srcFB.Img,
+							imgSlow.Y[yOff:], imgSlow.YStride,
+							imgSlow.U[uOff:], imgSlow.UStride,
+							imgSlow.V[vOff:], imgSlow.VStride,
+							&scratchSlow.Residual, row, col, cfg)
+					}
+					if !ok {
+						t.Fatalf("slow per-MB at (%d,%d) mode=%v failed", row, col, mode.Mode)
 					}
 				}
 			}

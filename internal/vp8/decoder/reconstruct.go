@@ -495,7 +495,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 			}
 		}
 		if mode.Mode == common.SplitMV {
-			if !ReconstructSplitMVInterMacroblock(mode, &rowTokens[col], &(*dequants)[mode.SegmentID], ref, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
+			if !reconstructSplitMVInterMacroblockFast(refState, mode, &rowTokens[col], &(*dequants)[mode.SegmentID], img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, cfg) {
 				return ErrUnsupportedInterReconstructionMode
 			}
 			continue

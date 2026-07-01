@@ -301,6 +301,142 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	return true
 }
 
+func reconstructSplitMVInterMacroblockFast(state *frameInterRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
+	if mode.RefFrame == common.IntraFrame || mode.Mode != common.SplitMV || !mode.Is4x4 {
+		return false
+	}
+	if mode.Partition < 3 {
+		for _, block := range [...]int{0, 2, 8, 10} {
+			mv := clampMotionVectorToUMVBorderFast(state, mode.BlockMV[block], mbRow, mbCol)
+			if !predictSplitMVLuma8x8(state.yPlane, state.yStride, state.codedWidth, state.codedHeight,
+				state.yOrigin, state.yBorder, y, yStride, mbRow, mbCol, block, mv,
+				cfg) {
+				return false
+			}
+		}
+	} else {
+		for block := 0; block < 16; block += 2 {
+			mv0 := clampMotionVectorToUMVBorderFast(state, mode.BlockMV[block], mbRow, mbCol)
+			mv1 := clampMotionVectorToUMVBorderFast(state, mode.BlockMV[block+1], mbRow, mbCol)
+			if mv0 == mv1 {
+				if !predictSplitMVLuma8x4(state.yPlane, state.yStride, state.codedWidth, state.codedHeight,
+					state.yOrigin, state.yBorder, y, yStride, mbRow, mbCol, block, mv0,
+					cfg) {
+					return false
+				}
+				continue
+			}
+			blockRow := block >> 2
+			blockCol := block & 3
+			srcRow := mbRow*16 + blockRow*4 + int(mv0.Row>>3)
+			srcCol := mbCol*16 + blockCol*4 + int(mv0.Col>>3)
+			xOffset := int(mv0.Col) & 7
+			yOffset := int(mv0.Row) & 7
+			offset, ok := wholeMVPlaneOffset(state.yPlane, state.yStride, state.codedWidth, state.codedHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, state.yOrigin, state.yBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(state.yPlane[offset:], state.yStride, xOffset, yOffset,
+				y[yBlockOffset(block, yStride):], yStride, cfg)
+
+			block1 := block + 1
+			blockRow = block1 >> 2
+			blockCol = block1 & 3
+			srcRow = mbRow*16 + blockRow*4 + int(mv1.Row>>3)
+			srcCol = mbCol*16 + blockCol*4 + int(mv1.Col>>3)
+			xOffset = int(mv1.Col) & 7
+			yOffset = int(mv1.Row) & 7
+			offset, ok = wholeMVPlaneOffset(state.yPlane, state.yStride, state.codedWidth, state.codedHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, state.yOrigin, state.yBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(state.yPlane[offset:], state.yStride, xOffset, yOffset,
+				y[yBlockOffset(block1, yStride):], yStride, cfg)
+		}
+	}
+
+	if !predictSplitMVInterChromaFast(state, mode, u, uStride, v, vStride, mbRow, mbCol, cfg) {
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return true
+	}
+	transformMacroblockTokensLuma(tokens, dequant, true, scratch)
+	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+	return true
+}
+
+func predictSplitMVInterChromaFast(state *frameInterRefState, mode *MacroblockMode, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
+	var mv [4]splitMVChromaVector
+	for block := range mv {
+		mvRow, mvCol := splitChromaMotionVector(mode, block)
+		mvRow, mvCol = fullPixelChromaMotionVector(mvRow, mvCol, cfg)
+		mvRow, mvCol = clampChromaMotionVectorToUMVBorderFast(state, mvRow, mvCol, mbRow, mbCol)
+		mv[block] = splitMVChromaVector{row: mvRow, col: mvCol}
+	}
+	for block := 0; block < 4; block += 2 {
+		if mv[block] == mv[block+1] {
+			if !predictSplitMVChroma8x4(state.uPlane, state.uStride, state.uvWidth, state.uvHeight,
+				state.uOrigin, state.uvBorder, u, uStride, mbRow, mbCol, block, mv[block],
+				cfg) {
+				return false
+			}
+			if !predictSplitMVChroma8x4(state.vPlane, state.vStride, state.uvWidth, state.uvHeight,
+				state.vOrigin, state.uvBorder, v, vStride, mbRow, mbCol, block, mv[block],
+				cfg) {
+				return false
+			}
+			continue
+		}
+		for sub := block; sub <= block+1; sub++ {
+			blockRow := sub >> 1
+			blockCol := sub & 1
+			srcRow := mbRow*8 + blockRow*4 + (mv[sub].row >> 3)
+			srcCol := mbCol*8 + blockCol*4 + (mv[sub].col >> 3)
+			xOffset := mv[sub].col & 7
+			yOffset := mv[sub].row & 7
+			uOffset, ok := wholeMVPlaneOffset(state.uPlane, state.uStride, state.uvWidth, state.uvHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, state.uOrigin, state.uvBorder, cfg)
+			if !ok {
+				return false
+			}
+			vOffset, ok := wholeMVPlaneOffset(state.vPlane, state.vStride, state.uvWidth, state.uvHeight,
+				srcRow, srcCol, 4, 4, xOffset, yOffset, state.vOrigin, state.uvBorder, cfg)
+			if !ok {
+				return false
+			}
+			predictInter4x4(state.uPlane[uOffset:], state.uStride, xOffset, yOffset,
+				u[uvBlockOffset(sub, uStride):], uStride, cfg)
+			predictInter4x4(state.vPlane[vOffset:], state.vStride, xOffset, yOffset,
+				v[uvBlockOffset(sub, vStride):], vStride, cfg)
+		}
+	}
+	return true
+}
+
+func clampMotionVectorToUMVBorderFast(state *frameInterRefState, mv MotionVector, mbRow int, mbCol int) MotionVector {
+	top, bottom, left, right := macroblockMotionVectorEdgesFromGrid(mbRow, mbCol, state.mbRows, state.mbCols)
+	return MotionVector{
+		Row: int16(clampUMVComponent(int(mv.Row), top, bottom)),
+		Col: int16(clampUMVComponent(int(mv.Col), left, right)),
+	}
+}
+
+func clampChromaMotionVectorToUMVBorderFast(state *frameInterRefState, row int, col int, mbRow int, mbCol int) (int, int) {
+	top, bottom, left, right := macroblockMotionVectorEdgesFromGrid(mbRow, mbCol, state.mbRows, state.mbCols)
+	return clampChromaUMVComponent(row, top, bottom), clampChromaUMVComponent(col, left, right)
+}
+
+func macroblockMotionVectorEdgesFromGrid(mbRow int, mbCol int, mbRows int, mbCols int) (int, int, int, int) {
+	top := -(mbRow * 16) << 3
+	bottom := (mbRows - 1 - mbRow) * 16 << 3
+	left := -(mbCol * 16) << 3
+	right := (mbCols - 1 - mbCol) * 16 << 3
+	return top, bottom, left, right
+}
+
 func copyZeroMVInterMacroblockFast(state *frameInterRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int) bool {
 	if uint(mbRow) >= uint(state.mbRows) || uint(mbCol) >= uint(state.mbCols) {
 		return false
