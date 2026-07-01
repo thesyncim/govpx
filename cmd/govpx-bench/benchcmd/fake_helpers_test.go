@@ -67,6 +67,50 @@ func TestFakeVpxencHelper(t *testing.T) {
 	const usPerFrame = 1000
 	totalUS := usPerFrame * limit
 	fmt.Fprintf(os.Stderr, "Pass 1/1 frame %4d/%-4d %7dB %7d us %7.2f fps    \n", limit, limit, 0, totalUS, 1e6/float64(usPerFrame))
+	if vp9 && os.Getenv("GOVPX_LIBVPX_VP9_CALL_STATS") != "" {
+		fields := []string{
+			"LIBVPX_VP9_CALL_STATS",
+			"inter_mode_picks=11",
+			"inter_mode_sub8x8_picks=1",
+			"build_sby=2",
+			"build_sbp=3",
+			"build_sbuv=4",
+			"build_sb=5",
+			"build_planes=6",
+			"single_predictor_builds=7",
+			"fullpel_searches=8",
+			"sad_calls=9",
+			"sad_candidates=10",
+			"sad_batch_calls=2",
+			"predictor_copy=12",
+			"predictor_avg=13",
+			"predictor_vert=14",
+			"predictor_avg_vert=15",
+			"predictor_horiz=16",
+			"predictor_avg_horiz=17",
+			"predictor_2d=18",
+			"predictor_avg_2d=19",
+			"mode_block_64x64=20",
+			"mode_block_32x32=21",
+			"mode_block_32x16=22",
+			"mode_block_16x32=23",
+			"mode_block_16x16=24",
+			"mode_block_16x8=25",
+			"mode_block_8x16=26",
+			"mode_block_8x8=27",
+			"mode_block_sub8=28",
+			"varpart_choose_calls=29",
+			"varpart_copy_hits=30",
+			"varpart_content_state_invalid=31",
+			"varpart_content_state_low_sad_low_sumdiff=32",
+			"varpart_content_state_low_sad_high_sumdiff=33",
+			"varpart_content_state_high_sad_low_sumdiff=34",
+			"varpart_content_state_high_sad_high_sumdiff=35",
+			"varpart_content_state_low_var_high_sumdiff=36",
+			"varpart_content_state_very_high_sad=37",
+		}
+		fmt.Fprintln(os.Stderr, strings.Join(fields, " "))
+	}
 	os.Exit(0)
 }
 

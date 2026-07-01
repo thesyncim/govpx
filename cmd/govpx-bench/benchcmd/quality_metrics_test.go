@@ -66,6 +66,31 @@ func TestParseVpxencEncodeTimeUnits(t *testing.T) {
 	}
 }
 
+func TestParseLibvpxVP9CallStats(t *testing.T) {
+	stderr := []byte("\rPass 1/1 frame    3/3   1234B   45000 us  66.67 fps\n" +
+		"LIBVPX_VP9_CALL_STATS inter_mode_picks=231648 sad_calls=123 " +
+		"sad_candidates=2819567 mode_block_32x32=51956 " +
+		"mode_block_16x16=161783 mode_block_8x8=30988 " +
+		"varpart_choose_calls=240 varpart_copy_hits=3 " +
+		"varpart_content_state_very_high_sad=42 unknown_key=99\n")
+	stats, ok := parseLibvpxVP9CallStats(stderr)
+	if !ok || stats == nil {
+		t.Fatalf("parseLibvpxVP9CallStats failed")
+	}
+	if stats.InterModePicks != 231648 || stats.SADCalls != 123 || stats.SADCandidates != 2819567 {
+		t.Fatalf("hot counters = %+v", *stats)
+	}
+	if stats.ModeBlock32x32 != 51956 || stats.ModeBlock16x16 != 161783 || stats.ModeBlock8x8 != 30988 {
+		t.Fatalf("mode-block counters = %+v", *stats)
+	}
+	if stats.VarpartChooseCalls != 240 || stats.VarpartCopyHits != 3 || stats.VarpartContentStateVeryHighSad != 42 {
+		t.Fatalf("varpart counters = %+v", *stats)
+	}
+	if stats.ModeBlocks() != 51956+161783+30988 {
+		t.Fatalf("ModeBlocks = %d", stats.ModeBlocks())
+	}
+}
+
 func TestImageSSIM(t *testing.T) {
 	src := makeBenchmarkFrame(16, 16, 0)
 	same := makeBenchmarkFrame(16, 16, 0)

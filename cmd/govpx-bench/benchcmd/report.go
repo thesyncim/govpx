@@ -82,6 +82,9 @@ func formatEncodeReport(r benchReport) string {
 		ref := r.Reference
 		fmt.Fprintf(&b, "libvpx timing   source=%s  wall/frame=%s  subprocess=%s\n",
 			ref.TimingSource, formatDuration(ref.WallNSPerFrame), formatDuration(ref.SubprocessOverheadNS))
+		if ref.VP9CallStats != nil {
+			appendVP9CallStatsReport(&b, *ref.VP9CallStats)
+		}
 		if len(ref.ParityFlags) > 0 {
 			fmt.Fprintf(&b, "libvpx parity   %s\n",
 				strings.Join(ref.ParityFlags, " "))
@@ -94,6 +97,42 @@ func formatEncodeReport(r benchReport) string {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
 	}
 	return b.String()
+}
+
+func appendVP9CallStatsReport(b *bytes.Buffer, stats vp9CallStats) {
+	fmt.Fprintf(b, "libvpx topology mode_blocks=%d  inter_picks=%d  fullpel=%d  sad_calls=%d  sad_candidates=%d\n",
+		stats.ModeBlocks(),
+		stats.InterModePicks,
+		stats.FullpelSearches,
+		stats.SADCalls,
+		stats.SADCandidates)
+	fmt.Fprintf(b, "libvpx blocks   64=%d  32=%d  16=%d  8=%d  sub8=%d  varpart=%d  copy=%d\n",
+		stats.ModeBlock64x64,
+		stats.ModeBlock32x32+stats.ModeBlock32x16+stats.ModeBlock16x32,
+		stats.ModeBlock16x16+stats.ModeBlock16x8+stats.ModeBlock8x16,
+		stats.ModeBlock8x8,
+		stats.ModeBlockSub8,
+		stats.VarpartChooseCalls,
+		stats.VarpartCopyHits)
+	fmt.Fprintf(b, "libvpx predictor copy=%d  avg=%d  horiz=%d  vert=%d  2d=%d  avg_h=%d  avg_v=%d  avg_2d=%d\n",
+		stats.PredictorCopy,
+		stats.PredictorAvg,
+		stats.PredictorHoriz,
+		stats.PredictorVert,
+		stats.Predictor2D,
+		stats.PredictorAvgHoriz,
+		stats.PredictorAvgVert,
+		stats.PredictorAvg2D)
+	if stats.VarpartContentStates() > 0 {
+		fmt.Fprintf(b, "libvpx content  invalid=%d  low_ll=%d  low_lh=%d  high_hl=%d  high_hh=%d  lowvar=%d  very_high=%d\n",
+			stats.VarpartContentStateInvalid,
+			stats.VarpartContentStateLowSadLowSumdiff,
+			stats.VarpartContentStateLowSadHighSumdiff,
+			stats.VarpartContentStateHighSadLowSumdiff,
+			stats.VarpartContentStateHighSadHighSumdiff,
+			stats.VarpartContentStateLowVarHighSumdiff,
+			stats.VarpartContentStateVeryHighSad)
+	}
 }
 
 func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, frames int) {

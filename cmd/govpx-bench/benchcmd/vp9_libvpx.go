@@ -63,6 +63,9 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 	var stderr bytes.Buffer
 	cmd := exec.Command(cfg.LibvpxVpxencVP9, args...)
 	cmd.Stderr = &stderr
+	if cfg.PhaseTiming {
+		cmd.Env = append(os.Environ(), "GOVPX_LIBVPX_VP9_CALL_STATS=1")
+	}
 	start := time.Now()
 	stdout, err := cmd.Output()
 	elapsed := time.Since(start)
@@ -94,6 +97,7 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 		encodeNS = parsed.totalNS
 		timingSource = "vpxenc-stats"
 	}
+	callStats, _ := parseLibvpxVP9CallStats(stderr.Bytes())
 	encodePerFrame := encodeNS / denomFrames
 	if encodePerFrame <= 0 {
 		encodePerFrame = wallPerFrame
@@ -168,6 +172,7 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 		WallEncodeFPS:        wallFPS,
 		SubprocessOverheadNS: overheadNS,
 		ParityFlags:          parityFlags,
+		VP9CallStats:         callStats,
 	}, nil
 }
 

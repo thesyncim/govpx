@@ -127,6 +127,70 @@ type referenceReport struct {
 	WallEncodeFPS        float64       `json:"wall_encode_fps"`
 	SubprocessOverheadNS int64         `json:"subprocess_overhead_ns"`
 	ParityFlags          []string      `json:"parity_flags,omitempty"`
+	VP9CallStats         *vp9CallStats `json:"vp9_call_stats,omitempty"`
+}
+
+type vp9CallStats struct {
+	InterModePicks                        uint64 `json:"inter_mode_picks,omitempty"`
+	InterModeSub8x8Picks                  uint64 `json:"inter_mode_sub8x8_picks,omitempty"`
+	BuildSBY                              uint64 `json:"build_sby,omitempty"`
+	BuildSBP                              uint64 `json:"build_sbp,omitempty"`
+	BuildSBUV                             uint64 `json:"build_sbuv,omitempty"`
+	BuildSB                               uint64 `json:"build_sb,omitempty"`
+	BuildPlanes                           uint64 `json:"build_planes,omitempty"`
+	SinglePredictorBuilds                 uint64 `json:"single_predictor_builds,omitempty"`
+	FullpelSearches                       uint64 `json:"fullpel_searches,omitempty"`
+	SADCalls                              uint64 `json:"sad_calls,omitempty"`
+	SADCandidates                         uint64 `json:"sad_candidates,omitempty"`
+	SADBatchCalls                         uint64 `json:"sad_batch_calls,omitempty"`
+	PredictorCopy                         uint64 `json:"predictor_copy,omitempty"`
+	PredictorAvg                          uint64 `json:"predictor_avg,omitempty"`
+	PredictorVert                         uint64 `json:"predictor_vert,omitempty"`
+	PredictorAvgVert                      uint64 `json:"predictor_avg_vert,omitempty"`
+	PredictorHoriz                        uint64 `json:"predictor_horiz,omitempty"`
+	PredictorAvgHoriz                     uint64 `json:"predictor_avg_horiz,omitempty"`
+	Predictor2D                           uint64 `json:"predictor_2d,omitempty"`
+	PredictorAvg2D                        uint64 `json:"predictor_avg_2d,omitempty"`
+	ModeBlock64x64                        uint64 `json:"mode_block_64x64,omitempty"`
+	ModeBlock32x32                        uint64 `json:"mode_block_32x32,omitempty"`
+	ModeBlock32x16                        uint64 `json:"mode_block_32x16,omitempty"`
+	ModeBlock16x32                        uint64 `json:"mode_block_16x32,omitempty"`
+	ModeBlock16x16                        uint64 `json:"mode_block_16x16,omitempty"`
+	ModeBlock16x8                         uint64 `json:"mode_block_16x8,omitempty"`
+	ModeBlock8x16                         uint64 `json:"mode_block_8x16,omitempty"`
+	ModeBlock8x8                          uint64 `json:"mode_block_8x8,omitempty"`
+	ModeBlockSub8                         uint64 `json:"mode_block_sub8,omitempty"`
+	VarpartChooseCalls                    uint64 `json:"varpart_choose_calls,omitempty"`
+	VarpartCopyHits                       uint64 `json:"varpart_copy_hits,omitempty"`
+	VarpartContentStateInvalid            uint64 `json:"varpart_content_state_invalid,omitempty"`
+	VarpartContentStateLowSadLowSumdiff   uint64 `json:"varpart_content_state_low_sad_low_sumdiff,omitempty"`
+	VarpartContentStateLowSadHighSumdiff  uint64 `json:"varpart_content_state_low_sad_high_sumdiff,omitempty"`
+	VarpartContentStateHighSadLowSumdiff  uint64 `json:"varpart_content_state_high_sad_low_sumdiff,omitempty"`
+	VarpartContentStateHighSadHighSumdiff uint64 `json:"varpart_content_state_high_sad_high_sumdiff,omitempty"`
+	VarpartContentStateLowVarHighSumdiff  uint64 `json:"varpart_content_state_low_var_high_sumdiff,omitempty"`
+	VarpartContentStateVeryHighSad        uint64 `json:"varpart_content_state_very_high_sad,omitempty"`
+}
+
+func (s vp9CallStats) ModeBlocks() uint64 {
+	return s.ModeBlock64x64 +
+		s.ModeBlock32x32 +
+		s.ModeBlock32x16 +
+		s.ModeBlock16x32 +
+		s.ModeBlock16x16 +
+		s.ModeBlock16x8 +
+		s.ModeBlock8x16 +
+		s.ModeBlock8x8 +
+		s.ModeBlockSub8
+}
+
+func (s vp9CallStats) VarpartContentStates() uint64 {
+	return s.VarpartContentStateInvalid +
+		s.VarpartContentStateLowSadLowSumdiff +
+		s.VarpartContentStateLowSadHighSumdiff +
+		s.VarpartContentStateHighSadLowSumdiff +
+		s.VarpartContentStateHighSadHighSumdiff +
+		s.VarpartContentStateLowVarHighSumdiff +
+		s.VarpartContentStateVeryHighSad
 }
 
 type decodeBenchReport struct {

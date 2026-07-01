@@ -248,6 +248,123 @@ func parseVpxencEncodeTime(stderr []byte) (vpxencProgress, bool) {
 	return vpxencProgress{frames: frames, bytes: rawBytes, totalNS: ns}, true
 }
 
+const libvpxVP9CallStatsPrefix = "LIBVPX_VP9_CALL_STATS "
+
+func parseLibvpxVP9CallStats(stderr []byte) (*vp9CallStats, bool) {
+	text := string(stderr)
+	idx := strings.LastIndex(text, libvpxVP9CallStatsPrefix)
+	if idx < 0 {
+		return nil, false
+	}
+	line := text[idx+len(libvpxVP9CallStatsPrefix):]
+	if end := strings.IndexAny(line, "\r\n"); end >= 0 {
+		line = line[:end]
+	}
+	var stats vp9CallStats
+	seen := false
+	for _, field := range strings.Fields(line) {
+		key, rawValue, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		value, err := strconv.ParseUint(rawValue, 10, 64)
+		if err != nil {
+			continue
+		}
+		if assignVP9CallStat(&stats, key, value) {
+			seen = true
+		}
+	}
+	if !seen {
+		return nil, false
+	}
+	return &stats, true
+}
+
+func assignVP9CallStat(stats *vp9CallStats, key string, value uint64) bool {
+	switch key {
+	case "inter_mode_picks":
+		stats.InterModePicks = value
+	case "inter_mode_sub8x8_picks":
+		stats.InterModeSub8x8Picks = value
+	case "build_sby":
+		stats.BuildSBY = value
+	case "build_sbp":
+		stats.BuildSBP = value
+	case "build_sbuv":
+		stats.BuildSBUV = value
+	case "build_sb":
+		stats.BuildSB = value
+	case "build_planes":
+		stats.BuildPlanes = value
+	case "single_predictor_builds":
+		stats.SinglePredictorBuilds = value
+	case "fullpel_searches":
+		stats.FullpelSearches = value
+	case "sad_calls":
+		stats.SADCalls = value
+	case "sad_candidates":
+		stats.SADCandidates = value
+	case "sad_batch_calls":
+		stats.SADBatchCalls = value
+	case "predictor_copy":
+		stats.PredictorCopy = value
+	case "predictor_avg":
+		stats.PredictorAvg = value
+	case "predictor_vert":
+		stats.PredictorVert = value
+	case "predictor_avg_vert":
+		stats.PredictorAvgVert = value
+	case "predictor_horiz":
+		stats.PredictorHoriz = value
+	case "predictor_avg_horiz":
+		stats.PredictorAvgHoriz = value
+	case "predictor_2d":
+		stats.Predictor2D = value
+	case "predictor_avg_2d":
+		stats.PredictorAvg2D = value
+	case "mode_block_64x64":
+		stats.ModeBlock64x64 = value
+	case "mode_block_32x32":
+		stats.ModeBlock32x32 = value
+	case "mode_block_32x16":
+		stats.ModeBlock32x16 = value
+	case "mode_block_16x32":
+		stats.ModeBlock16x32 = value
+	case "mode_block_16x16":
+		stats.ModeBlock16x16 = value
+	case "mode_block_16x8":
+		stats.ModeBlock16x8 = value
+	case "mode_block_8x16":
+		stats.ModeBlock8x16 = value
+	case "mode_block_8x8":
+		stats.ModeBlock8x8 = value
+	case "mode_block_sub8":
+		stats.ModeBlockSub8 = value
+	case "varpart_choose_calls":
+		stats.VarpartChooseCalls = value
+	case "varpart_copy_hits":
+		stats.VarpartCopyHits = value
+	case "varpart_content_state_invalid":
+		stats.VarpartContentStateInvalid = value
+	case "varpart_content_state_low_sad_low_sumdiff":
+		stats.VarpartContentStateLowSadLowSumdiff = value
+	case "varpart_content_state_low_sad_high_sumdiff":
+		stats.VarpartContentStateLowSadHighSumdiff = value
+	case "varpart_content_state_high_sad_low_sumdiff":
+		stats.VarpartContentStateHighSadLowSumdiff = value
+	case "varpart_content_state_high_sad_high_sumdiff":
+		stats.VarpartContentStateHighSadHighSumdiff = value
+	case "varpart_content_state_low_var_high_sumdiff":
+		stats.VarpartContentStateLowVarHighSumdiff = value
+	case "varpart_content_state_very_high_sad":
+		stats.VarpartContentStateVeryHighSad = value
+	default:
+		return false
+	}
+	return true
+}
+
 func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
 	if benchCodec(cfg) == codecVP9 {
 		return runLibvpxVP9DecodeBenchmark(cfg, ivf, deadlineName, frames)

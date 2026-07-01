@@ -66,15 +66,16 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 		t.Skip("phase timing requires the govpx_phase_stats build tag")
 	}
 	report, err := runVP9Benchmark(benchConfig{
-		Codec:       codecVP9,
-		Width:       64,
-		Height:      64,
-		Frames:      4,
-		FPS:         30,
-		BitrateKbps: 600,
-		Mode:        "realtime",
-		SkipQuality: true,
-		PhaseTiming: true,
+		Codec:           codecVP9,
+		Width:           64,
+		Height:          64,
+		Frames:          4,
+		FPS:             30,
+		BitrateKbps:     600,
+		Mode:            "realtime",
+		SkipQuality:     true,
+		PhaseTiming:     true,
+		LibvpxVpxencVP9: fakeVpxencPath(t),
 	})
 	if err != nil {
 		t.Fatalf("runVP9Benchmark returned error: %v", err)
@@ -88,8 +89,16 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 	if report.PhaseNS.VP9ModeBlocks == 0 || report.PhaseNS.VP9InterPredictionBlocks == 0 {
 		t.Fatalf("vp9 topology stats = %+v, want mode and predictor work counted", *report.PhaseNS)
 	}
+	if report.Reference == nil || report.Reference.VP9CallStats == nil {
+		t.Fatalf("reference VP9 call stats = %+v, want populated when phase timing is enabled", report.Reference)
+	}
+	if report.Reference.VP9CallStats.InterModePicks != 11 ||
+		report.Reference.VP9CallStats.VarpartContentStateVeryHighSad != 37 {
+		t.Fatalf("reference VP9 call stats = %+v", *report.Reference.VP9CallStats)
+	}
 	text := formatEncodeReport(report)
-	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 predictor") {
+	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 predictor") ||
+		!strings.Contains(text, "libvpx topology") || !strings.Contains(text, "libvpx content") {
 		t.Fatalf("formatted report missing VP9 phase stats:\n%s", text)
 	}
 }
