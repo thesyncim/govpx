@@ -241,9 +241,10 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// vp9_xform_quant + vp9_optimize_b (trellis) + inverse-add into recon
 			// with the REGULAR quantizer at the segment qindex.
-			hasResidue := e.prepareVP9InterUVTxResidueFullRD(inter, pd, plane,
+			eob := e.prepareVP9InterUVTxResidueFullRD(inter, pd, plane,
 				txSize, miRow, miCol, rr, cc, dequant, qindex, initCtx,
 				coeffs, qcoeffs)
+			hasResidue := eob > 0
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -280,8 +281,8 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 
 			// cost_coeffs over the trellis-optimised qcoeff/dqcoeff with the same
 			// coeff_ctx (vp9_rdopt.c:826), chroma plane (PLANE_TYPE_UV=1), inter.
-			blockRate := e.vp9InterCoeffBlockRateCostQ(txSize, 1, dequant,
-				coeffs, qcoeffs, initCtx)
+			blockRate := e.vp9InterCoeffBlockRateCostQEOB(txSize, 1, dequant,
+				coeffs, qcoeffs, initCtx, eob, true)
 			rate += blockRate
 
 			// rd = VPXMIN(RDCOST(rate,dist), RDCOST(0,sse)) accumulated into
@@ -321,20 +322,20 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 // residual (src - predictor), forward-transforms it (DCT_DCT — chroma never
 // uses ADST), quantizes with the REGULAR quantizer at the segment qindex, runs
 // the verbatim vp9_optimize_b trellis, and inverse-adds the dequantized
-// residual into the recon plane. Returns true when eob > 0.
+// residual into the recon plane. Returns the final eob after optional trellis.
 func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol, blockRow4x4, blockCol4x4 int, dequant [2]int16, qindex int,
 	coeffCtx int, out, qOut []int16,
-) bool {
+) int {
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
-		return false
+		return 0
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
-		return false
+		return 0
 	}
 	scan := common.DefaultScanOrders[txSize]
 	// coef_probs[tx_size][plane_type=1 (UV)][ref=1 (inter)] — the token_costs
@@ -359,5 +360,5 @@ func (e *VP9Encoder) prepareVP9InterUVTxResidueFullRD(inter *vp9InterEncodeState
 	// the 64x64 case but kept for parity with the Y producer.
 	return e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct,
 		dequant, qindex, out, qOut, inter.lossless,
-		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis) > 0
+		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
 }

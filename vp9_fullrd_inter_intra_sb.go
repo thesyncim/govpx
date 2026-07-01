@@ -763,9 +763,10 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// vp9_encode_block_intra: intra-predict the tx unit, subtract,
 			// transform, quantize (regular), trellis, inverse-add in place.
-			hasResidue := e.prepareVP9InterIntraTxResidueFullRD(keyLike, pd,
+			eob := e.prepareVP9InterIntraTxResidueFullRD(keyLike, pd,
 				plane, mode, txSize, tile, miRows, miCols, miRow, miCol, bsize,
 				rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs, skipEncode)
+			hasResidue := eob > 0
 
 			var blockDist uint64
 			var blockSSE uint64
@@ -814,11 +815,11 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 			// per-mode ADST/DCT scan (intra_mode_to_tx_type); chroma is DCT_DCT.
 			var blockRate int
 			if plane == 0 {
-				blockRate = e.vp9KeyframeCoeffBlockRateCostQ(txSize, mode,
-					inter.lossless, dequant, coeffs, qcoeffs, initCtx)
+				blockRate = e.vp9KeyframeCoeffBlockRateCostQEOB(txSize, mode,
+					inter.lossless, dequant, coeffs, qcoeffs, initCtx, eob, true)
 			} else {
-				blockRate = e.vp9KeyframeUvCoeffBlockRateCostQ(txSize, dequant,
-					coeffs, qcoeffs, initCtx)
+				blockRate = e.vp9KeyframeUvCoeffBlockRateCostQEOB(txSize, dequant,
+					coeffs, qcoeffs, initCtx, eob, true)
 			}
 			rate += blockRate
 
@@ -877,8 +878,8 @@ func vp9SkipEncodeMeanQuantError(dequantAC int16, txSize common.TxSize) uint64 {
 // and the inverse transform / cost_coeffs, exactly as block_rd_txfm does for the
 // RT full-RD mode-selection path (vp9_rdopt.c:793, do_trellis_opt ->
 // ENABLE_TRELLIS_OPT; vp9_encodemb.c:863-867 for the intra encode). The trellis
-// uses the intra (is_inter=0) coef model and ref=0 plane_rd_mult. Returns true
-// when eob > 0.
+// uses the intra (is_inter=0) coef model and ref=0 plane_rd_mult. Returns the
+// final eob after optional trellis optimisation.
 //
 // This is REPLICATED here (rather than calling the keyframe helper) because the
 // keyframe helper runs the fast no-trellis quantize path; editing it would touch
@@ -888,7 +889,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
 	qindex int, coeffCtx int, out, qOut []int16, skipEncode bool,
-) bool {
+) int {
 	var dst []byte
 	var stride, x0, y0 int
 	var ok bool
@@ -900,7 +901,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 		reconData, reconStride := e.vp9EncoderReconPlane(plane)
 		srcPix, srcStr, _, _ := vp9EncoderSourcePlane(keyLike.img, plane)
 		if len(reconData) == 0 || reconStride <= 0 || len(srcPix) == 0 || srcStr <= 0 {
-			return false
+			return 0
 		}
 		dst, stride, x0, y0, ok = e.predictVP9KeyframeTxGeneric(keyLike.hdr, pd,
 			plane, mode, txSize, tile, miRows, miCols, miRow, miCol, bsize,
@@ -912,7 +913,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 			blockRow4x4, blockCol4x4)
 	}
 	if !ok {
-		return false
+		return 0
 	}
 	// libvpx tx_type: Y plane uses intra_mode_to_tx_type[mode] for tx != 32x32
 	// (and != lossless); chroma is always DCT_DCT (vp9_encode_block_intra /
@@ -923,7 +924,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(keyLike.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
-		return false
+		return 0
 	}
 	scan := common.ScanOrders[txSize][txType]
 	if keyLike.lossless {
@@ -961,7 +962,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 	var predSnap []byte
 	if skipEncode {
 		if bs*bs > len(e.intraSkipPredScratch) {
-			return false
+			return 0
 		}
 		predSnap = e.intraSkipPredScratch[:bs*bs]
 		for r := 0; r < bs; r++ {
@@ -979,7 +980,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 			copy(dst[r*stride:r*stride+bs], predSnap[r*bs:(r+1)*bs])
 		}
 	}
-	return res > 0
+	return res
 }
 
 // vp9FullRDInterIntraRD1 recomputes rd[m][1] for an already-produced INTRA

@@ -133,8 +133,8 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 			thisdistortion += encoder.BlockErrorFP(coeff[:], dqcoeff[:])
 			thissse += vp9Sub8x8SumSquares(coeff[:])
 
-			thisrate += e.vp9InterCoeffBlockRateCostQ(common.Tx4x4, 0, dequant,
-				coeff[:], qcoeff[:], coeffCtx)
+			thisrate += e.vp9InterCoeffBlockRateCostQEOB(common.Tx4x4, 0, dequant,
+				coeff[:], qcoeff[:], coeffCtx, eob, true)
 
 			hasCtx := uint8(0)
 			if eob > 0 {

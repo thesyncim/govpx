@@ -158,8 +158,9 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// Regular quantizer (vp9_xform_quant), segment qindex, inverse-add
 			// into recon — exactly block_rd_txfm (vp9_rdopt.c:792-795).
-			hasResidue := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
+			eob := e.prepareVP9InterTxResidueFullRD(inter, pd, txSize,
 				miRow, miCol, rr, cc, dequant, qindex, initCtx, coeffs, qcoeffs)
+			hasResidue := eob > 0
 
 			// rd1/rd2 must consume the SAME distortion domain block_rd_txfm used
 			// when it set zcoeff_blk. For cpu4 block_tx_domain==1 (transform
@@ -198,7 +199,7 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 			// pre-pass and the write pass.
 			blockRate := e.vp9InterCoeffBlockRateCostQFcWithCosts(&inter.selectFc,
 				e.vp9CoeffTokenCostTable(txSize, 0, 1), txSize, 0,
-				dequant, coeffs, qcoeffs, initCtx, 0, false)
+				dequant, coeffs, qcoeffs, initCtx, eob, true)
 
 			rd1 := encoder.RDCost(rdmult, encoder.RDDivBits, blockRate, blockDist)
 			rd2 := encoder.RDCost(rdmult, encoder.RDDivBits, 0, blockSSE)
