@@ -39,6 +39,74 @@ func TestVP9LeafKeyframeDecisionCache(t *testing.T) {
 	}
 }
 
+func TestVP9KeyframeDecisionRegionSnapshotRestoresOnlyRegion(t *testing.T) {
+	var e VP9Encoder
+	e.ensureVP9LeafKeyframeDecisionCache(4, 4)
+	e.ensureVP9KeyframePartitionDecisionCache(4, 4)
+
+	inside := vp9KeyframeModeDecision{
+		mode:   common.HPred,
+		txSize: common.Tx8x8,
+		uvMode: common.TmPred,
+	}
+	outside := vp9KeyframeModeDecision{
+		mode:   common.VPred,
+		txSize: common.Tx4x4,
+		uvMode: common.DcPred,
+	}
+	e.storeVP9LeafKeyframeDecision(1, 1, common.Block8x8, inside)
+	e.storeVP9KeyframePartitionDecision(1, 1, common.Block16x16, common.Block8x8)
+	e.storeVP9LeafKeyframeDecision(0, 0, common.Block8x8, outside)
+	e.storeVP9KeyframePartitionDecision(0, 0, common.Block16x16, common.Block16x16)
+
+	var snap vp9KeyframeDecisionRegionSnapshot
+	if !e.snapshotVP9KeyframeDecisionRegion(4, 4, 1, 1, common.Block16x16, &snap) {
+		t.Fatalf("snapshot failed")
+	}
+
+	mutatedInside := vp9KeyframeModeDecision{
+		mode:   common.D45Pred,
+		txSize: common.Tx16x16,
+		uvMode: common.HPred,
+	}
+	mutatedOutside := vp9KeyframeModeDecision{
+		mode:   common.D135Pred,
+		txSize: common.Tx16x16,
+		uvMode: common.VPred,
+	}
+	e.storeVP9LeafKeyframeDecision(1, 1, common.Block16x16, mutatedInside)
+	e.storeVP9KeyframePartitionDecision(1, 1, common.Block16x16, common.Block4x4)
+	e.storeVP9LeafKeyframeDecision(0, 0, common.Block16x16, mutatedOutside)
+	e.storeVP9KeyframePartitionDecision(0, 0, common.Block16x16, common.Block4x4)
+
+	e.restoreVP9KeyframeDecisionRegion(snap)
+
+	if got, ok := e.lookupVP9LeafKeyframeDecision(1, 1, common.Block8x8); !ok {
+		t.Fatalf("inside leaf lookup miss after restore")
+	} else if got != inside {
+		t.Fatalf("inside leaf = %+v, want %+v", got, inside)
+	}
+	if _, ok := e.lookupVP9LeafKeyframeDecision(1, 1, common.Block16x16); ok {
+		t.Fatalf("inside mutated leaf survived restore")
+	}
+	if got, ok := e.lookupVP9KeyframePartitionDecision(1, 1, common.Block16x16); !ok {
+		t.Fatalf("inside partition lookup miss after restore")
+	} else if got != common.Block8x8 {
+		t.Fatalf("inside partition = %v, want Block8x8", got)
+	}
+
+	if got, ok := e.lookupVP9LeafKeyframeDecision(0, 0, common.Block16x16); !ok {
+		t.Fatalf("outside leaf lookup miss after restore")
+	} else if got != mutatedOutside {
+		t.Fatalf("outside leaf = %+v, want %+v", got, mutatedOutside)
+	}
+	if got, ok := e.lookupVP9KeyframePartitionDecision(0, 0, common.Block16x16); !ok {
+		t.Fatalf("outside partition lookup miss after restore")
+	} else if got != common.Block4x4 {
+		t.Fatalf("outside partition = %v, want Block4x4", got)
+	}
+}
+
 func TestVP9LeafDecisionTxSizeClamp(t *testing.T) {
 	var e VP9Encoder
 	e.ensureVP9LeafInterDecisionCache(2, 2)

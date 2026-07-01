@@ -132,6 +132,90 @@ func (e *VP9Encoder) storeVP9LeafKeyframeDecision(miRow, miCol int,
 	}
 }
 
+const vp9KeyframeDecisionSnapshotMaxCells = 64
+const vp9KeyframeDecisionSnapshotMaxPartitions = vp9KeyframeDecisionSnapshotMaxCells * int(common.BlockSizes)
+
+type vp9KeyframeDecisionRegionSnapshot struct {
+	miRow, miCol int
+	rows, cols   int
+	leaf         [vp9KeyframeDecisionSnapshotMaxCells]vp9LeafKeyframeDecisionEntry
+	partition    [vp9KeyframeDecisionSnapshotMaxPartitions]vp9KeyframePartitionDecisionEntry
+	ok           bool
+}
+
+func (e *VP9Encoder) snapshotVP9KeyframeDecisionRegion(miRows, miCols, miRow, miCol int,
+	root common.BlockSize, snap *vp9KeyframeDecisionRegionSnapshot,
+) bool {
+	if snap == nil {
+		return false
+	}
+	*snap = vp9KeyframeDecisionRegionSnapshot{}
+	if root < 0 || root >= common.BlockSizes || miRow < 0 || miCol < 0 ||
+		miRow >= miRows || miCol >= miCols ||
+		e.vp9LeafKeyframeDecisionsCols <= 0 ||
+		e.vp9KeyframePartitionDecisionsCols <= 0 {
+		return false
+	}
+	rows := min(int(common.Num8x8BlocksHighLookup[root]), miRows-miRow)
+	cols := min(int(common.Num8x8BlocksWideLookup[root]), miCols-miCol)
+	if rows <= 0 || cols <= 0 || rows*cols > len(snap.leaf) {
+		return false
+	}
+	const blockSizes = int(common.BlockSizes)
+	if rows*cols*blockSizes > len(snap.partition) {
+		return false
+	}
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			cell := r*cols + c
+			row := miRow + r
+			col := miCol + c
+			leafOff := row*e.vp9LeafKeyframeDecisionsCols + col
+			if leafOff < 0 || leafOff >= len(e.vp9LeafKeyframeDecisions) {
+				return false
+			}
+			partOff := (row*e.vp9KeyframePartitionDecisionsCols + col) * blockSizes
+			if partOff < 0 || partOff+blockSizes > len(e.vp9KeyframePartitionDecisions) {
+				return false
+			}
+			snap.leaf[cell] = e.vp9LeafKeyframeDecisions[leafOff]
+			copy(snap.partition[cell*blockSizes:(cell+1)*blockSizes],
+				e.vp9KeyframePartitionDecisions[partOff:partOff+blockSizes])
+		}
+	}
+	snap.miRow = miRow
+	snap.miCol = miCol
+	snap.rows = rows
+	snap.cols = cols
+	snap.ok = true
+	return true
+}
+
+func (e *VP9Encoder) restoreVP9KeyframeDecisionRegion(snap vp9KeyframeDecisionRegionSnapshot) {
+	if !snap.ok || snap.rows <= 0 || snap.cols <= 0 ||
+		e.vp9LeafKeyframeDecisionsCols <= 0 ||
+		e.vp9KeyframePartitionDecisionsCols <= 0 {
+		return
+	}
+	const blockSizes = int(common.BlockSizes)
+	for r := 0; r < snap.rows; r++ {
+		for c := 0; c < snap.cols; c++ {
+			cell := r*snap.cols + c
+			row := snap.miRow + r
+			col := snap.miCol + c
+			leafOff := row*e.vp9LeafKeyframeDecisionsCols + col
+			if leafOff >= 0 && leafOff < len(e.vp9LeafKeyframeDecisions) {
+				e.vp9LeafKeyframeDecisions[leafOff] = snap.leaf[cell]
+			}
+			partOff := (row*e.vp9KeyframePartitionDecisionsCols + col) * blockSizes
+			if partOff >= 0 && partOff+blockSizes <= len(e.vp9KeyframePartitionDecisions) {
+				copy(e.vp9KeyframePartitionDecisions[partOff:partOff+blockSizes],
+					snap.partition[cell*blockSizes:(cell+1)*blockSizes])
+			}
+		}
+	}
+}
+
 // clampVP9LeafDecisionTxSizes mirrors libvpx reset_skip_tx_size after
 // frame-level tx_mode demotion. The source function walks the committed
 // mi_grid_visible entries and lowers any tx_size above the new ceiling; in
