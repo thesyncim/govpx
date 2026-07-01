@@ -61,21 +61,47 @@ func (d *VP9Decoder) readVP9TxSizeWithCounts(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, txMode common.TxMode, bsize common.BlockSize,
 	above, left *vp9dec.NeighborMi, allowSelect bool,
 ) common.TxSize {
-	tx := vp9dec.ReadTxSize(r, &d.fc, txMode, bsize, above, left, allowSelect)
 	maxTx := common.MaxTxsizeLookup[bsize]
-	if !hdr.FrameParallelDecoding && allowSelect &&
-		txMode == common.TxModeSelect && bsize >= common.Block8x8 {
+	if allowSelect && txMode == common.TxModeSelect && bsize >= common.Block8x8 {
 		ctx := vp9dec.GetTxSizeContext(above, left, maxTx)
 		switch maxTx {
 		case common.Tx8x8:
-			d.counts.Tx.P8x8[ctx][tx]++
+			probs := &d.fc.TxProbs.P8x8[ctx]
+			tx := common.TxSize(r.Read(uint32(probs[0])))
+			if !hdr.FrameParallelDecoding {
+				d.counts.Tx.P8x8[ctx][tx]++
+			}
+			return tx
 		case common.Tx16x16:
-			d.counts.Tx.P16x16[ctx][tx]++
+			probs := &d.fc.TxProbs.P16x16[ctx]
+			tx := common.TxSize(r.Read(uint32(probs[0])))
+			if tx != common.Tx4x4 {
+				tx += common.TxSize(r.Read(uint32(probs[1])))
+			}
+			if !hdr.FrameParallelDecoding {
+				d.counts.Tx.P16x16[ctx][tx]++
+			}
+			return tx
 		case common.Tx32x32:
-			d.counts.Tx.P32x32[ctx][tx]++
+			probs := &d.fc.TxProbs.P32x32[ctx]
+			tx := common.TxSize(r.Read(uint32(probs[0])))
+			if tx != common.Tx4x4 {
+				tx += common.TxSize(r.Read(uint32(probs[1])))
+				if tx != common.Tx8x8 {
+					tx += common.TxSize(r.Read(uint32(probs[2])))
+				}
+			}
+			if !hdr.FrameParallelDecoding {
+				d.counts.Tx.P32x32[ctx][tx]++
+			}
+			return tx
 		}
 	}
-	return tx
+	cap := common.TxModeToBiggestTxSize[txMode]
+	if maxTx < cap {
+		return maxTx
+	}
+	return cap
 }
 
 func (d *VP9Decoder) readVP9InterModeWithCounts(r *bitstream.Reader,
