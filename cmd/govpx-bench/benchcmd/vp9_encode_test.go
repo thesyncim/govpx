@@ -97,7 +97,9 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 		t.Fatalf("reference VP9 call stats = %+v", *report.Reference.VP9CallStats)
 	}
 	text := formatEncodeReport(report)
-	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 predictor") ||
+	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 mode pass") ||
+		!strings.Contains(text, "vp9 inter pass") || !strings.Contains(text, "vp9 predictor") ||
+		!strings.Contains(text, "vp9 varpass") || !strings.Contains(text, "vp9 content") ||
 		!strings.Contains(text, "libvpx topology") || !strings.Contains(text, "libvpx content") {
 		t.Fatalf("formatted report missing VP9 phase stats:\n%s", text)
 	}

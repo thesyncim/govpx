@@ -222,6 +222,24 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9InterPredictionBlocks,
 			stats.VP9InterPredictPlaneCalls,
 			stats.VP9InterPredictionVarianceCalls)
+		fmt.Fprintf(b, "vp9 mode pass   count=%d  write=%d  blocks=%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
+			stats.VP9ModeBlocksCountPass,
+			stats.VP9ModeBlocksWritePass,
+			stats.VP9ModeBlock64x64,
+			stats.VP9ModeBlock32x32,
+			stats.VP9ModeBlock32x16,
+			stats.VP9ModeBlock16x32,
+			stats.VP9ModeBlock16x16,
+			stats.VP9ModeBlock16x8,
+			stats.VP9ModeBlock8x16,
+			stats.VP9ModeBlock8x8,
+			stats.VP9ModeBlockSub8)
+		fmt.Fprintf(b, "vp9 inter pass  picks_count=%d  picks_write=%d  replay_store=%d  replay_hit=%d  replay_miss=%d\n",
+			stats.VP9InterModePicksCountPass,
+			stats.VP9InterModePicksWritePass,
+			stats.VP9InterLeafCacheStores,
+			stats.VP9InterLeafCacheReplayHits,
+			stats.VP9InterLeafCacheReplayMisses)
 		fmt.Fprintf(b, "vp9 predictor   copy=%d  avg=%d  horiz=%d  vert=%d  2d=%d  avg_h=%d  avg_v=%d  avg_2d=%d\n",
 			stats.VP9InterPredictorCopy,
 			stats.VP9InterPredictorAvg,
@@ -234,6 +252,22 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 	}
 	if stats.VP9VarPartSetVTCalls > 0 || stats.VP9VarPartForceSplit64 > 0 ||
 		stats.VP9VarPartForceSplit32 > 0 || stats.VP9VarPartForceSplit16 > 0 {
+		fmt.Fprintf(b, "vp9 varpass     choose=%d  count=%d  write=%d  cache=%d/%d  copy_hits=%d  merged=%d\n",
+			stats.VP9VarPartChooseCalls,
+			stats.VP9VarPartChooseCountPass,
+			stats.VP9VarPartChooseWritePass,
+			stats.VP9VarPartCacheHits,
+			stats.VP9VarPartCacheMisses,
+			stats.VP9VarPartCopyHits,
+			stats.VP9VarPartMergedSBs)
+		fmt.Fprintf(b, "vp9 content     invalid=%d  low_ll=%d  low_lh=%d  high_hl=%d  high_hh=%d  lowvar=%d  very_high=%d\n",
+			stats.VP9VarPartContentStateInvalid,
+			stats.VP9VarPartContentStateLowSadLowSumdiff,
+			stats.VP9VarPartContentStateLowSadHighSumdiff,
+			stats.VP9VarPartContentStateHighSadLowSumdiff,
+			stats.VP9VarPartContentStateHighSadHighSumdiff,
+			stats.VP9VarPartContentStateLowVarHighSumdiff,
+			stats.VP9VarPartContentStateVeryHighSad)
 		fmt.Fprintf(b, "vp9 varpart     y_sad=%d  y_sad64=%d  copy_select=%d  force64=%d  force32=%d  force16=%d\n",
 			stats.VP9VarPartYSADValid,
 			stats.VP9VarPartYSADSelect64x64,
