@@ -182,6 +182,27 @@ func (e *VP9Encoder) predictVP9InterBlockChromaOnly(inter *vp9InterEncodeState,
 		bsize, mi, false, true)
 }
 
+// predictVP9InterBlockChromaPlane reconstructs a single chroma plane
+// (1 = U, 2 = V). Mirrors libvpx's per-plane
+// vp9_build_inter_predictors_sbp calls in the nonrd picker: the
+// color-sensitivity rate add builds only the sensitive plane(s)
+// (vp9/encoder/vp9_pickmode.c:2392-2398) and the model_rd_for_sb_y_large
+// UV skip test builds U first, then V only if U proved skippable
+// (vp9/encoder/vp9_pickmode.c:578-605).
+func (e *VP9Encoder) predictVP9InterBlockChromaPlane(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, plane int,
+) bool {
+	if plane != 1 && plane != 2 {
+		return false
+	}
+	e.interPredictor.predictChromaPlane = int8(plane)
+	ok := e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, false, true)
+	e.interPredictor.predictChromaPlane = 0
+	return ok
+}
+
 func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi, lumaOnly bool, chromaOnly bool,

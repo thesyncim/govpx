@@ -5,6 +5,7 @@ package dsp
 import (
 	"unsafe"
 
+	"github.com/thesyncim/govpx/internal/cpu"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -26,6 +27,61 @@ func convolveHoriz8wNEON(src *byte, srcStride int, dst *byte, dstStride int,
 //go:noescape
 func convolveVert8wNEON(src *byte, srcStride int, dst *byte, dstStride int,
 	filter *int16, w, h int)
+
+//go:noescape
+func convolveHoriz8I8MM(src *byte, srcStride int, dst *byte, dstStride int,
+	filter *int8, w, h int)
+
+//go:noescape
+func convolveVert8I8MM(src *byte, srcStride int, dst *byte, dstStride int,
+	filter *int8, w, h int)
+
+// filterTapsInt8 narrows the 8 int16 subpel taps to int8 for the USDOT
+// kernels. All VP9 subpel kernels for fractions 1..15 fit; the
+// fraction-0 row (single 128 tap) does not and reports false.
+func filterTapsInt8(filterRow *[tables.SubpelTaps]int16) (f8 [tables.SubpelTaps]int8, ok bool) {
+	for i, t := range filterRow {
+		if t < -128 || t > 127 {
+			return f8, false
+		}
+		f8[i] = int8(t)
+	}
+	return f8, true
+}
+
+// filterKernelInt8 caches the int8 narrowing of one canonical subpel
+// kernel table so the USDOT dispatch does not re-convert taps per call.
+type filterKernelInt8 struct {
+	src *[tables.SubpelShifts][tables.SubpelTaps]int16
+	f8  [tables.SubpelShifts][tables.SubpelTaps]int8
+	ok  [tables.SubpelShifts]bool
+}
+
+var filterKernelsInt8 = buildFilterKernelsInt8()
+
+func buildFilterKernelsInt8() (out [len(tables.FilterKernels)]filterKernelInt8) {
+	for i, src := range tables.FilterKernels {
+		out[i].src = src
+		for frac := range src {
+			out[i].f8[frac], out[i].ok[frac] = filterTapsInt8(&src[frac])
+		}
+	}
+	return out
+}
+
+// filterRowInt8 returns the cached int8 taps for (filter, frac). For a
+// kernel table outside the canonical set it converts on the fly.
+func filterRowInt8(
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16, frac int,
+) (f8 [tables.SubpelTaps]int8, ok bool) {
+	for i := range filterKernelsInt8 {
+		k := &filterKernelsInt8[i]
+		if k.src == filter {
+			return k.f8[frac], k.ok[frac]
+		}
+	}
+	return filterTapsInt8(&filter[frac])
+}
 
 // convolveSimdWindowOK validates the (w, h) write window for dst is
 // in-range. The src window depends on direction and is checked by the
@@ -74,6 +130,16 @@ func VpxConvolve8Horiz(src []byte, srcStride int, dst []byte, dstStride int,
 		return
 	}
 	filterRow := &filter[xFrac]
+	if cpu.HasARM64I8MM {
+		if f8, ok := filterRowInt8(filter, xFrac); ok {
+			convolveHoriz8I8MM(
+				unsafe.SliceData(src[srcStart:]), srcStride,
+				unsafe.SliceData(dst), dstStride,
+				&f8[0], w, h,
+			)
+			return
+		}
+	}
 	convolveHoriz8wNEON(
 		unsafe.SliceData(src[srcStart:]), srcStride,
 		unsafe.SliceData(dst), dstStride,
@@ -108,6 +174,16 @@ func VpxConvolve8Vert(src []byte, srcStride int, dst []byte, dstStride int,
 		return
 	}
 	filterRow := &filter[yFrac]
+	if cpu.HasARM64I8MM && h%4 == 0 {
+		if f8, ok := filterRowInt8(filter, yFrac); ok {
+			convolveVert8I8MM(
+				unsafe.SliceData(src[srcStart:]), srcStride,
+				unsafe.SliceData(dst), dstStride,
+				&f8[0], w, h,
+			)
+			return
+		}
+	}
 	convolveVert8wNEON(
 		unsafe.SliceData(src[srcStart:]), srcStride,
 		unsafe.SliceData(dst), dstStride,

@@ -257,7 +257,15 @@ type VP9Decoder struct {
 	// predictChromaOnly is the companion encoder prepass path for
 	// variance-partition color sensitivity: luma prediction has already
 	// been produced by choose_partitioning, so chroma_check only needs U/V.
-	predictChromaOnly   bool
+	predictChromaOnly bool
+	// predictChromaPlane narrows predictChromaOnly to a single chroma
+	// plane (1 = U, 2 = V; 0 = both). libvpx's nonrd picker builds chroma
+	// per plane via vp9_build_inter_predictors_sbp: the color-sensitivity
+	// rate add only builds the sensitive plane(s)
+	// (vp9/encoder/vp9_pickmode.c:2392-2398) and the
+	// model_rd_for_sb_y_large UV skip test builds U first and only builds
+	// V when U proved skippable (vp9/encoder/vp9_pickmode.c:578-605).
+	predictChromaPlane  int8
 	frameReady          bool
 	lastFrame           Image
 	lastInfo            VP9FrameInfo

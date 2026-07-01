@@ -5,7 +5,6 @@ import (
 	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp8/boolcoder"
-	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -45,63 +44,9 @@ func ResetMacroblockTokenContext(above *EntropyContextPlanes, left *EntropyConte
 func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProbs, is4x4 bool, above *EntropyContextPlanes, left *EntropyContextPlanes, out *MacroblockTokens) int {
 	clearMacroblockTokens(out)
 
-	blockType := 0
-	skipDC := 0
-	eobTotal := 0
-	dirtyMask := uint32(0)
-
-	if !is4x4 {
-		ctx := int(above.Y2 + left.Y2)
-		nonzeros := DecodeBlockCoeffs(br, probs, 1, ctx, 0, &out.QCoeff[24])
-		hasCoeffs := uint8(0)
-		if nonzeros > 0 {
-			hasCoeffs = 1
-			dirtyMask |= 1 << 24
-		}
-		above.Y2 = hasCoeffs
-		left.Y2 = hasCoeffs
-		out.EOB[24] = uint8(nonzeros)
-		eobTotal += nonzeros - 16
-
-		blockType = 0
-		skipDC = 1
-	} else {
-		blockType = 3
-	}
-
-	for i := range 16 {
-		a := i & 3
-		l := (i & 0x0c) >> 2
-		ctx := int(above.Y1[a] + left.Y1[l])
-		nonzeros := DecodeBlockCoeffs(br, probs, blockType, ctx, skipDC, &out.QCoeff[i])
-		hasCoeffs := uint8(0)
-		if nonzeros > 0 {
-			hasCoeffs = 1
-			dirtyMask |= 1 << uint(i)
-		}
-		above.Y1[a] = hasCoeffs
-		left.Y1[l] = hasCoeffs
-
-		nonzeros += skipDC
-		out.EOB[i] = uint8(nonzeros)
-		eobTotal += nonzeros
-	}
-
-	for i := 16; i < 24; i++ {
-		a, l := common.UVTokenContextIndex(i)
-		ctx := int(getUVContext(above, a) + getUVContext(left, l))
-		nonzeros := DecodeBlockCoeffs(br, probs, 2, ctx, 0, &out.QCoeff[i])
-		hasCoeffs := uint8(0)
-		if nonzeros > 0 {
-			hasCoeffs = 1
-			dirtyMask |= 1 << uint(i)
-		}
-		setUVContext(above, a, hasCoeffs)
-		setUVContext(left, l, hasCoeffs)
-
-		out.EOB[i] = uint8(nonzeros)
-		eobTotal += nonzeros
-	}
+	eobTotal, dirtyMask := br.ReadVP8MacroblockCoeffs(probs, is4x4,
+		&above.Y1, &left.Y1, &above.U, &left.U, &above.V, &left.V,
+		&above.Y2, &left.Y2, &out.QCoeff, &out.EOB)
 
 	if dirtyMask != 0 || !is4x4 {
 		dirtyMask |= macroblockTokensTrackedMask

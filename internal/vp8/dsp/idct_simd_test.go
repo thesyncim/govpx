@@ -138,3 +138,40 @@ func BenchmarkDCOnlyIDCT4x4AddScalar(b *testing.B) {
 		dcOnlyIDCT4x4AddScalar(128, pred, 8, dst, 8)
 	}
 }
+
+func TestDequantIDCTAddFull2xMatchesFallback(t *testing.T) {
+	// The fused pair kernel must match the per-block composition
+	// (full wrapping dequant + IDCT4x4Add) byte-for-byte across VP8
+	// quantized-coefficient and dequant-table ranges.
+	r := rand.New(rand.NewSource(0x2B10C7))
+	dequants := [][16]int16{
+		{4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
+		{157, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132, 132},
+		{8, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6},
+		{1, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284},
+	}
+	for iter := range 4000 {
+		var q [32]int16
+		dq := dequants[iter%len(dequants)]
+		nonzero := iter % 33
+		for i := range nonzero {
+			// Token magnitudes: DCT_VAL_CATEGORY6 extends to 2048+.
+			q[(i*7)%32] = int16(r.Intn(4400) - 2200)
+		}
+		pred := make([]byte, 8*8)
+		for i := range pred {
+			pred[i] = byte(r.Intn(256))
+		}
+		dstSim := append([]byte(nil), pred...)
+		dstRef := append([]byte(nil), pred...)
+		qSim := q
+		qRef := q
+		DequantIDCTAddFull2x(&qSim, &dq, dstSim, 8)
+		dequantIDCTAddFull2xFallback(&qRef, &dq, dstRef, 8)
+		for i := range dstSim {
+			if dstSim[i] != dstRef[i] {
+				t.Fatalf("iter %d: byte %d: fused=%d ref=%d (q=%v dq=%v)", iter, i, dstSim[i], dstRef[i], q, dq)
+			}
+		}
+	}
+}

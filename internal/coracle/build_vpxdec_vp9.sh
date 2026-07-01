@@ -21,7 +21,7 @@ vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
 vpxenc_vp9_stats_bin=${GOVPX_VPXENC_VP9_CALLSTATS_BIN:-"$build_dir/vpxenc-vp9-callstats"}
 vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-split-r1
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-split-r2
 src_dir=$src_dir
 vpxdec_vp9_bin=$vpxdec_vp9_bin
 vpxenc_vp9_bin=$vpxenc_vp9_bin
@@ -1075,6 +1075,27 @@ for rel in ["vpx_dsp/arm/sad_neon.c", "vpx_dsp/arm/sad_neon_dotprod.c"]:
     govpx_vp9_count_sad_candidates(1, 0);                                     \\
     return sad''')
     path.write_text(text)
+
+# The generic needles above miss the plain and skip single-SAD macros in
+# sad_neon_dotprod.c (different continuation-backslash column and a
+# sad##w##xh_neon_dotprod callee). Those kernels are what vpx_sad{16,32,64}xN
+# resolve to on dotprod-capable arm64, so without these the callstats binary
+# silently drops every >=16-wide single SAD (including all pattern-search
+# probes and center seeds) and wildly understates libvpx's SAD counts.
+dotprod = root / "vpx_dsp" / "arm" / "sad_neon_dotprod.c"
+if dotprod.exists():
+    replace_once(dotprod,
+'''      int ref_stride) {                                                    \\
+    return sad##w##xh_neon_dotprod(src, src_stride, ref, ref_stride, (h)); \\''',
+'''      int ref_stride) {                                                    \\
+    govpx_vp9_count_sad_candidates(1, 0);                                  \\
+    return sad##w##xh_neon_dotprod(src, src_stride, ref, ref_stride, (h)); \\''')
+    replace_once(dotprod,
+'''      int ref_stride) {                                          \\
+    return 2 * sad##w##xh_neon_dotprod(src, 2 * src_stride, ref, \\''',
+'''      int ref_stride) {                                          \\
+    govpx_vp9_count_sad_candidates(1, 0);                        \\
+    return 2 * sad##w##xh_neon_dotprod(src, 2 * src_stride, ref, \\''')
 
 for rel in ["vpx_dsp/arm/sad4d_neon.c", "vpx_dsp/arm/sad4d_neon_dotprod.c"]:
     path = root / rel

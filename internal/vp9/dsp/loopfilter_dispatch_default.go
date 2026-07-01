@@ -41,3 +41,19 @@ func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 ) {
 	vpxLpfVertical8DualScalar(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
 }
+
+func vpxLpfHorizontal16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 1)
+}
+
+func vpxLpfHorizontal16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 2)
+}
+
+func vpxLpfVertical16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 8)
+}
+
+func vpxLpfVertical16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 16)
+}

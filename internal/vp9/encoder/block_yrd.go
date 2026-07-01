@@ -437,34 +437,50 @@ func ModelRdForSbYLarge(args ModelRdForSbYLargeArgs) ModelRdForSbYLargeResult {
 // Y plane is SKIP_TXFM_AC_DC and supplied the U/V variances after building
 // the chroma predictors for the same candidate.
 func ModelRdForSbYLargeEarlyTerm(args ModelRdForSbYLargeEarlyTermArgs) bool {
-	if args.UVBSize >= common.BlockSizes || args.UVTxSize >= common.TxSizes {
+	for plane := range 2 {
+		if !ModelRdForSbYLargeEarlyTermPlane(args.UVBSize, args.UVTxSize,
+			args.Dequant[plane], args.Var[plane], args.SSE[plane]) {
+			return false
+		}
+	}
+	return true
+}
+
+// ModelRdForSbYLargeEarlyTermPlane is the single-plane UV transform-skip
+// test from libvpx model_rd_for_sb_y_large (vp9_pickmode.c:578-605). libvpx
+// evaluates U first and `break`s out of the plane loop when U is not
+// skippable, so the V predictor is only built (and its variance computed)
+// when the U test passed. Callers mirror that flow by invoking this per
+// plane and skipping the V work when the U test fails.
+func ModelRdForSbYLargeEarlyTermPlane(uvBSize common.BlockSize,
+	uvTxSize common.TxSize, dequant [2]int16, variance, sse uint64,
+) bool {
+	if uvBSize >= common.BlockSizes || uvTxSize >= common.TxSizes {
 		return false
 	}
-	unitSize := common.TxsizeToBsize[args.UVTxSize]
-	uvBW := int(common.BWidthLog2Lookup[args.UVBSize])
-	uvBH := int(common.BHeightLog2Lookup[args.UVBSize])
+	unitSize := common.TxsizeToBsize[uvTxSize]
+	uvBW := int(common.BWidthLog2Lookup[uvBSize])
+	uvBH := int(common.BHeightLog2Lookup[uvBSize])
 	unitBW := int(common.BWidthLog2Lookup[unitSize])
 	unitBH := int(common.BHeightLog2Lookup[unitSize])
+	// libvpx: const int sf = (uv_bw - b_width_log2_lookup[unit_size]) +
+	//                        (uv_bh - b_height_log2_lookup[unit_size]);
 	scaleShift := (uvBW - unitBW) + (uvBH - unitBH)
 	if scaleShift < 0 || scaleShift > 6 {
 		return false
 	}
 	thresholdShift := uint(6 - scaleShift)
-	for plane := range 2 {
-		dequant := args.Dequant[plane]
-		dcThr := uint64(int64(dequant[0])*int64(dequant[0])) >> thresholdShift
-		acThr := uint64(int64(dequant[1])*int64(dequant[1])) >> thresholdShift
-		variance := args.Var[plane]
-		sse := args.SSE[plane]
-		if sse < variance {
-			return false
-		}
-		if !((variance < acThr || variance == 0) &&
-			(sse-variance < dcThr || sse == variance)) {
-			return false
-		}
+	// libvpx: uv_dc_thr = dequant[0]*dequant[0] >> (6 - sf);
+	//         uv_ac_thr = dequant[1]*dequant[1] >> (6 - sf);
+	dcThr := uint64(int64(dequant[0])*int64(dequant[0])) >> thresholdShift
+	acThr := uint64(int64(dequant[1])*int64(dequant[1])) >> thresholdShift
+	if sse < variance {
+		return false
 	}
-	return true
+	// libvpx: (var_uv < uv_ac_thr || var_uv == 0) &&
+	//         (sse_uv - var_uv < uv_dc_thr || sse_uv == var_uv)
+	return (variance < acThr || variance == 0) &&
+		(sse-variance < dcThr || sse == variance)
 }
 
 func modelRdWindowFits(buf []byte, stride, x, y, w, h int) bool {
@@ -833,6 +849,27 @@ func EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 	uvDequant [2][2]int16, varU, sseU, varV, sseV uint64,
 	encodeBreakout int, sbIsSkin bool, interModeBitCost int,
 ) (fired bool, distOverride int64, rateOverride int) {
+	_ = uvDequant
+	passY, threshAcUv, threshDcUv := EncodeBreakoutTestY(bsize, dequant,
+		mvRow, mvCol, varY, sseY, encodeBreakout, sbIsSkin)
+	if !passY {
+		return false, 0, 0
+	}
+	return EncodeBreakoutTestUV(threshAcUv, threshDcUv, sseY,
+		varU, sseU, varV, sseV, interModeBitCost)
+}
+
+// EncodeBreakoutTestY is the Y-plane stage of encode_breakout_test
+// (vp9_pickmode.c:942-1006): threshold derivation, the motion-low gate,
+// and the Y skip condition. It reports whether the Y condition passed and
+// the UV thresholds the chroma stage should use. libvpx only builds the
+// chroma predictors and computes the UV variance AFTER the Y condition
+// passes (vp9_pickmode.c:996-1012), so callers must defer that work until
+// this stage returns passY == true.
+func EncodeBreakoutTestY(bsize common.BlockSize, dequant [2]int16,
+	mvRow, mvCol int16, varY, sseY uint64,
+	encodeBreakout int, sbIsSkin bool,
+) (passY bool, threshAcUv, threshDcUv uint64) {
 	motionLow := !(mvRow > 64 || mvRow < -64 || mvCol > 64 || mvCol < -64)
 
 	var threshAc, threshDc uint64
@@ -862,15 +899,23 @@ func EncodeBreakoutTest(bsize common.BlockSize, dequant [2]int16,
 	}
 
 	// libvpx vp9_pickmode.c:1003-1006 — x->sb_is_skin zeros the UV thresholds.
-	threshAcUv := threshAc
-	threshDcUv := threshDc
+	threshAcUv = threshAc
+	threshDcUv = threshDc
 	if sbIsSkin {
 		threshAcUv = 0
 		threshDcUv = 0
 	}
+	return true, threshAcUv, threshDcUv
+}
 
+// EncodeBreakoutTestUV is the chroma stage of encode_breakout_test
+// (vp9_pickmode.c:1008-1041). The caller supplies the UV variance/sse
+// computed from the freshly built chroma predictors (libvpx builds them
+// at vp9_pickmode.c:1008-1012 only when the Y stage passed).
+func EncodeBreakoutTestUV(threshAcUv, threshDcUv, sseY uint64,
+	varU, sseU, varV, sseV uint64, interModeBitCost int,
+) (fired bool, distOverride int64, rateOverride int) {
 	// libvpx vp9_pickmode.c:1014-1025 — U/V skip tests (note the <<2 on var_uv).
-	_ = uvDequant
 	if !((varU<<2) <= threshAcUv && sseU-varU <= threshDcUv) {
 		return false, 0, 0
 	}

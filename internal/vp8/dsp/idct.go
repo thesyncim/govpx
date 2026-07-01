@@ -44,6 +44,36 @@ func DCOnlyIDCT4x4AddPairInt32(inputDC0 int32, inputDC1 int32, pred []byte, pred
 	dcOnlyIDCT4x4AddPairSIMD(int16(a0), int16(a1), pred, predStride, dst, dstStride)
 }
 
+// DequantIDCTAddFull2x mirrors libvpx v1.16.0
+// vp8/common/arm/neon/idct_blk_neon.c idct_dequant_full_2x_neon: a
+// horizontally adjacent pair of 4x4 blocks is dequantized with plain
+// int16 (wrapping) multiplies across all 16 positions and inverse
+// transformed, adding onto the prediction already present in dst (left
+// block) and dst[4:] (right block). Unlike libvpx the coefficients are
+// not cleared here; the decoder's token dirty mask handles that.
+//
+// q holds the two blocks contiguously (32 int16). dst must cover
+// 4 rows of 8 bytes (len >= 3*stride+8).
+func DequantIDCTAddFull2x(q *[32]int16, dq *[16]int16, dst []byte, stride int) {
+	dequantIDCTAddFull2xSIMD(q, dq, dst, stride)
+}
+
+// dequantIDCTAddFull2xFallback composes the fused pair kernel from the
+// per-block primitives: full 16-position wrapping dequant followed by
+// the standard inverse transform. Matches the NEON pair kernel for VP8
+// coefficient ranges (same contract as the other scalar fallbacks).
+func dequantIDCTAddFull2xFallback(q *[32]int16, dq *[16]int16, dst []byte, stride int) {
+	var tmp [16]int16
+	for i := range 16 {
+		tmp[i] = q[i] * dq[i]
+	}
+	IDCT4x4Add(&tmp, dst, stride, dst, stride)
+	for i := range 16 {
+		tmp[i] = q[16+i] * dq[i]
+	}
+	IDCT4x4Add(&tmp, dst[4:], stride, dst[4:], stride)
+}
+
 func dcOnlyIDCT4x4AddInt32Delta(inputDC int32) int {
 	a1 := int((inputDC + 4) >> 3)
 	if a1 > 255 {
