@@ -371,6 +371,22 @@ func assignVP9CallStat(stats *vp9CallStats, key string, value uint64) bool {
 		stats.VarpartForceSplit32 = value
 	case "varpart_force_split_16":
 		stats.VarpartForceSplit16 = value
+	case "varpart_force_split_16_variance":
+		stats.VarpartForceSplit16Variance = value
+	case "varpart_force_split_16_minmax":
+		stats.VarpartForceSplit16Minmax = value
+	case "varpart_threshold2_count":
+		stats.VarpartThreshold2Count = value
+	case "varpart_threshold2_sum":
+		stats.VarpartThreshold2Sum = value
+	case "varpart_var16_samples":
+		stats.VarpartVar16Samples = value
+	case "varpart_var16_sum":
+		stats.VarpartVar16Sum = value
+	case "varpart_force16_variance_sum":
+		stats.VarpartForce16VarianceSum = value
+	case "varpart_force16_threshold_sum":
+		stats.VarpartForce16ThresholdSum = value
 	case "varpart_setvt_calls":
 		stats.VarpartSetVTCalls = value
 	case "varpart_setvt_64x64":

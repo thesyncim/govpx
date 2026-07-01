@@ -175,6 +175,14 @@ type vp9CallStats struct {
 	VarpartForceSplit64                   uint64 `json:"varpart_force_split_64,omitempty"`
 	VarpartForceSplit32                   uint64 `json:"varpart_force_split_32,omitempty"`
 	VarpartForceSplit16                   uint64 `json:"varpart_force_split_16,omitempty"`
+	VarpartForceSplit16Variance           uint64 `json:"varpart_force_split_16_variance,omitempty"`
+	VarpartForceSplit16Minmax             uint64 `json:"varpart_force_split_16_minmax,omitempty"`
+	VarpartThreshold2Count                uint64 `json:"varpart_threshold2_count,omitempty"`
+	VarpartThreshold2Sum                  uint64 `json:"varpart_threshold2_sum,omitempty"`
+	VarpartVar16Samples                   uint64 `json:"varpart_var16_samples,omitempty"`
+	VarpartVar16Sum                       uint64 `json:"varpart_var16_sum,omitempty"`
+	VarpartForce16VarianceSum             uint64 `json:"varpart_force16_variance_sum,omitempty"`
+	VarpartForce16ThresholdSum            uint64 `json:"varpart_force16_threshold_sum,omitempty"`
 	VarpartSetVTCalls                     uint64 `json:"varpart_setvt_calls,omitempty"`
 	VarpartSetVT64x64                     uint64 `json:"varpart_setvt_64x64,omitempty"`
 	VarpartSetVT32x32                     uint64 `json:"varpart_setvt_32x32,omitempty"`

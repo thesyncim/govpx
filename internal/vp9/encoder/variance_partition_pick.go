@@ -156,6 +156,14 @@ type ChoosePartitioningStats struct {
 	ForceSplit64         uint64
 	ForceSplit32         uint64
 	ForceSplit16         uint64
+	ForceSplit16Variance uint64
+	ForceSplit16Minmax   uint64
+	Threshold2Count      uint64
+	Threshold2Sum        uint64
+	Var16Samples         uint64
+	Var16Sum             uint64
+	Force16VarianceSum   uint64
+	Force16ThresholdSum  uint64
 	SetVTCalls           uint64
 	SetVT64x64           uint64
 	SetVT32x32           uint64
@@ -199,6 +207,48 @@ func (s *ChoosePartitioningStats) countSetVTForceSplit(bsize common.BlockSize) {
 	case common.Block16x16:
 		s.SetVTForceSplit16x16++
 	}
+}
+
+func (s *ChoosePartitioningStats) countThreshold2(threshold int64) {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.Threshold2Count++
+	if threshold > 0 && threshold < vbpThresholdMax {
+		s.Threshold2Sum += uint64(threshold)
+	}
+}
+
+func (s *ChoosePartitioningStats) countVar16(variance int) {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.Var16Samples++
+	if variance > 0 {
+		s.Var16Sum += uint64(variance)
+	}
+}
+
+func (s *ChoosePartitioningStats) countForceSplit16Variance(variance int, threshold int64) {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.ForceSplit16++
+	s.ForceSplit16Variance++
+	if variance > 0 {
+		s.Force16VarianceSum += uint64(variance)
+	}
+	if threshold > 0 && threshold < vbpThresholdMax {
+		s.Force16ThresholdSum += uint64(threshold)
+	}
+}
+
+func (s *ChoosePartitioningStats) countForceSplit16Minmax() {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.ForceSplit16++
+	s.ForceSplit16Minmax++
 }
 
 func (s *ChoosePartitioningStats) countSetVTSelect() {
@@ -364,6 +414,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		a.Speed, a.FrameWidth, a.FrameHeight, a.IsKeyFrame, contentState,
 		a.NoiseEstimateEnabled, a.NoiseLevel, a.AvgFrameQIndexInter,
 		a.Disable16x16PartNonkey)
+	if choosePartitioningStatsEnabled && stats != nil {
+		stats.countThreshold2(thresholds[2])
+	}
 	aux := setVariancePartitionAuxThresholds(a.BaseQIndex,
 		a.FrameWidth, a.FrameHeight, a.IsKeyFrame, a.HighSourceSAD)
 
@@ -530,6 +583,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 					vst, pixelsWide, pixelsHigh, isKeyFrame)
 				fillVarianceTreeV16x16(&vt.Split[i].Split[j])
 				getVariance(&vt.Split[i].Split[j].PartVariances.None)
+				if choosePartitioningStatsEnabled && stats != nil {
+					stats.countVar16(vt.Split[i].Split[j].PartVariances.None.Variance)
+				}
 				avg16x16[i] += vt.Split[i].Split[j].PartVariances.None.Variance
 				if vt.Split[i].Split[j].PartVariances.None.Variance < minvar16x16[i] {
 					minvar16x16[i] = vt.Split[i].Split[j].PartVariances.None.Variance
@@ -540,7 +596,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				if int64(vt.Split[i].Split[j].PartVariances.None.Variance) > thresholds[2] {
 					// 16x16 above threshold for split.
 					if choosePartitioningStatsEnabled && stats != nil {
-						stats.ForceSplit16++
+						stats.countForceSplit16Variance(
+							vt.Split[i].Split[j].PartVariances.None.Variance,
+							thresholds[2])
 					}
 					forceSplit[splitIndex] = 1
 					forceSplit[i+1] = 1
@@ -556,7 +614,7 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 					}
 					if minmax > threshMinmax {
 						if choosePartitioningStatsEnabled && stats != nil {
-							stats.ForceSplit16++
+							stats.countForceSplit16Minmax()
 						}
 						forceSplit[splitIndex] = 1
 						forceSplit[i+1] = 1
@@ -608,7 +666,8 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				getVariance(&vtemp.PartVariances.None)
 				if int64(vtemp.PartVariances.None.Variance) > thresholds[2] {
 					if choosePartitioningStatsEnabled && stats != nil {
-						stats.ForceSplit16++
+						stats.countForceSplit16Variance(vtemp.PartVariances.None.Variance,
+							thresholds[2])
 					}
 					forceSplit[5+i2+j] = 1
 					forceSplit[i+1] = 1

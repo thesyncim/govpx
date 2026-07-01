@@ -28,6 +28,7 @@ type vp9CountTileSeed struct {
 	interRefMask       uint8
 	interReferenceMode vp9dec.ReferenceMode
 	interInterpFilter  vp9dec.InterpFilter
+	interBaseQindex    int
 	keyLossless        bool
 	interAllowHP       bool
 	interCompound      bool
@@ -561,6 +562,7 @@ func vp9CountTileSeedForState(key *vp9KeyframeEncodeState,
 		seed.interRefMask = inter.refMask
 		seed.interReferenceMode = inter.referenceMode
 		seed.interInterpFilter = inter.interpFilter
+		seed.interBaseQindex = inter.baseQindex
 		seed.interAllowHP = inter.allowHP
 		seed.interCompound = inter.compoundAllowed
 		seed.interLossless = inter.lossless
@@ -1436,6 +1438,7 @@ func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,
 			compoundRefs:    seed.interCompoundRefs,
 			interpFilter:    seed.interInterpFilter,
 			lossless:        seed.interLossless,
+			baseQindex:      seed.interBaseQindex,
 			counts:          counts,
 		}
 	}
@@ -1491,6 +1494,7 @@ func prepareVP9EncodeTileJob(job *vp9EncodeTileJob, worker *VP9Encoder,
 			compoundRefs:    seed.interCompoundRefs,
 			interpFilter:    seed.interInterpFilter,
 			lossless:        seed.interLossless,
+			baseQindex:      seed.interBaseQindex,
 		}
 	}
 }

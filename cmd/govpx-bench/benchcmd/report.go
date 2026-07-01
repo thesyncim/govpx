@@ -154,6 +154,16 @@ func appendVP9CallStatsReport(b *bytes.Buffer, stats vp9CallStats) {
 			stats.VarpartSetVTForceSplit16x16,
 			stats.VarpartSetVTSelect,
 			stats.VarpartSetVTSplit)
+		if stats.VarpartVar16Samples > 0 || stats.VarpartThreshold2Count > 0 {
+			fmt.Fprintf(b, "libvpx var16   samples=%d  var_avg=%d  th2_avg=%d  force_var=%d  force_minmax=%d  force_var_avg=%d  force_th2_avg=%d\n",
+				stats.VarpartVar16Samples,
+				avgUint64(stats.VarpartVar16Sum, stats.VarpartVar16Samples),
+				avgUint64(stats.VarpartThreshold2Sum, stats.VarpartThreshold2Count),
+				stats.VarpartForceSplit16Variance,
+				stats.VarpartForceSplit16Minmax,
+				avgUint64(stats.VarpartForce16VarianceSum, stats.VarpartForceSplit16Variance),
+				avgUint64(stats.VarpartForce16ThresholdSum, stats.VarpartForceSplit16Variance))
+		}
 	}
 }
 
@@ -228,7 +238,31 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9VarPartSetVTForceSplit16x16,
 			stats.VP9VarPartSetVTSelect,
 			stats.VP9VarPartSetVTSplit)
+		if stats.VP9VarPartVar16Samples > 0 || stats.VP9VarPartThreshold2Count > 0 {
+			fmt.Fprintf(b, "vp9 var16       samples=%d  var_avg=%d  th2_avg=%d  force_var=%d  force_minmax=%d  force_var_avg=%d  force_th2_avg=%d\n",
+				stats.VP9VarPartVar16Samples,
+				avgInt64(stats.VP9VarPartVar16Sum, stats.VP9VarPartVar16Samples),
+				avgInt64(stats.VP9VarPartThreshold2Sum, stats.VP9VarPartThreshold2Count),
+				stats.VP9VarPartForceSplit16Variance,
+				stats.VP9VarPartForceSplit16Minmax,
+				avgInt64(stats.VP9VarPartForce16VarianceSum, stats.VP9VarPartForceSplit16Variance),
+				avgInt64(stats.VP9VarPartForce16ThresholdSum, stats.VP9VarPartForceSplit16Variance))
+		}
 	}
+}
+
+func avgUint64(sum, count uint64) uint64 {
+	if count == 0 {
+		return 0
+	}
+	return sum / count
+}
+
+func avgInt64(sum, count int64) int64 {
+	if count == 0 {
+		return 0
+	}
+	return sum / count
 }
 
 func formatSuiteReport(r suiteReport) string {

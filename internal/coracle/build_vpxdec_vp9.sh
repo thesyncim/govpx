@@ -20,7 +20,7 @@ vpxdec_vp9_bin=${GOVPX_VPXDEC_VP9_BIN:-"$build_dir/vpxdec-vp9"}
 vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
 vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-r2
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-r3
 src_dir=$src_dir
 vpxdec_vp9_bin=$vpxdec_vp9_bin
 vpxenc_vp9_bin=$vpxenc_vp9_bin"
@@ -236,6 +236,10 @@ void govpx_vp9_count_varpart_ysad(void);
 void govpx_vp9_count_varpart_ysad_select64(void);
 void govpx_vp9_count_varpart_copy_select(void);
 void govpx_vp9_count_varpart_force_split(int bsize);
+void govpx_vp9_count_varpart_threshold2(uint64_t threshold);
+void govpx_vp9_count_varpart_var16(uint64_t variance);
+void govpx_vp9_count_varpart_force_split16_variance(uint64_t variance, uint64_t threshold);
+void govpx_vp9_count_varpart_force_split16_minmax(void);
 void govpx_vp9_count_varpart_setvt(int bsize, int force_split, int selected);
 
 #ifdef __cplusplus
@@ -282,6 +286,14 @@ static uint64_t govpx_vp9_varpart_copy_partition_select;
 static uint64_t govpx_vp9_varpart_force_split_64;
 static uint64_t govpx_vp9_varpart_force_split_32;
 static uint64_t govpx_vp9_varpart_force_split_16;
+static uint64_t govpx_vp9_varpart_force_split_16_variance;
+static uint64_t govpx_vp9_varpart_force_split_16_minmax;
+static uint64_t govpx_vp9_varpart_threshold2_count;
+static uint64_t govpx_vp9_varpart_threshold2_sum;
+static uint64_t govpx_vp9_varpart_var16_samples;
+static uint64_t govpx_vp9_varpart_var16_sum;
+static uint64_t govpx_vp9_varpart_force16_variance_sum;
+static uint64_t govpx_vp9_varpart_force16_threshold_sum;
 static uint64_t govpx_vp9_varpart_setvt_calls;
 static uint64_t govpx_vp9_varpart_setvt[BLOCK_SIZES];
 static uint64_t govpx_vp9_varpart_setvt_force_split;
@@ -377,6 +389,30 @@ void govpx_vp9_count_varpart_force_split(int bsize) {
     govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_16, 1);
 }
 
+void govpx_vp9_count_varpart_threshold2(uint64_t threshold) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_threshold2_count, 1);
+  if (threshold < 0x7fffffffffffffffULL)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_threshold2_sum, threshold);
+}
+
+void govpx_vp9_count_varpart_var16(uint64_t variance) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_var16_samples, 1);
+  govpx_vp9_add_u64(&govpx_vp9_varpart_var16_sum, variance);
+}
+
+void govpx_vp9_count_varpart_force_split16_variance(uint64_t variance, uint64_t threshold) {
+  govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+  govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_16_variance, 1);
+  govpx_vp9_add_u64(&govpx_vp9_varpart_force16_variance_sum, variance);
+  if (threshold < 0x7fffffffffffffffULL)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_force16_threshold_sum, threshold);
+}
+
+void govpx_vp9_count_varpart_force_split16_minmax(void) {
+  govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+  govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_16_minmax, 1);
+}
+
 void govpx_vp9_count_varpart_setvt(int bsize, int force_split, int selected) {
   govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_calls, 1);
   if (bsize >= 0 && bsize < BLOCK_SIZES)
@@ -426,6 +462,14 @@ __attribute__((destructor)) static void govpx_vp9_dump_call_stats(void) {
           "varpart_force_split_64=%llu "
           "varpart_force_split_32=%llu "
           "varpart_force_split_16=%llu "
+          "varpart_force_split_16_variance=%llu "
+          "varpart_force_split_16_minmax=%llu "
+          "varpart_threshold2_count=%llu "
+          "varpart_threshold2_sum=%llu "
+          "varpart_var16_samples=%llu "
+          "varpart_var16_sum=%llu "
+          "varpart_force16_variance_sum=%llu "
+          "varpart_force16_threshold_sum=%llu "
           "varpart_setvt_calls=%llu "
           "varpart_setvt_64x64=%llu "
           "varpart_setvt_32x32=%llu "
@@ -483,6 +527,14 @@ __attribute__((destructor)) static void govpx_vp9_dump_call_stats(void) {
           (unsigned long long)govpx_vp9_varpart_force_split_64,
           (unsigned long long)govpx_vp9_varpart_force_split_32,
           (unsigned long long)govpx_vp9_varpart_force_split_16,
+          (unsigned long long)govpx_vp9_varpart_force_split_16_variance,
+          (unsigned long long)govpx_vp9_varpart_force_split_16_minmax,
+          (unsigned long long)govpx_vp9_varpart_threshold2_count,
+          (unsigned long long)govpx_vp9_varpart_threshold2_sum,
+          (unsigned long long)govpx_vp9_varpart_var16_samples,
+          (unsigned long long)govpx_vp9_varpart_var16_sum,
+          (unsigned long long)govpx_vp9_varpart_force16_variance_sum,
+          (unsigned long long)govpx_vp9_varpart_force16_threshold_sum,
           (unsigned long long)govpx_vp9_varpart_setvt_calls,
           (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_64X64],
           (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_32X32],
@@ -653,6 +705,7 @@ for old, new in [
     govpx_vp9_count_varpart_content_state(content_state);
     set_vbp_thresholds(cpi, thresholds, cm->base_qindex, content_state);
   }
+  govpx_vp9_count_varpart_threshold2((uint64_t)thresholds[2]);
 '''),
     ('''  if (force_split == 1) return 0;
 ''', '''  if (force_split == 1) {
@@ -788,10 +841,19 @@ for old, new in [
     }
   } else {
 '''),
+    ('''        get_variance(&vt.split[i].split[j].part_variances.none);
+        avg_16x16[i] += vt.split[i].split[j].part_variances.none.variance;
+''', '''        get_variance(&vt.split[i].split[j].part_variances.none);
+        govpx_vp9_count_varpart_var16(
+            vt.split[i].split[j].part_variances.none.variance);
+        avg_16x16[i] += vt.split[i].split[j].part_variances.none.variance;
+'''),
     ('''          force_split[split_index] = 1;
           force_split[i + 1] = 1;
           force_split[0] = 1;
-''', '''          govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+''', '''          govpx_vp9_count_varpart_force_split16_variance(
+              vt.split[i].split[j].part_variances.none.variance,
+              (uint64_t)thresholds[2]);
           force_split[split_index] = 1;
           force_split[i + 1] = 1;
           force_split[0] = 1;
@@ -799,7 +861,7 @@ for old, new in [
     ('''            force_split[split_index] = 1;
             force_split[i + 1] = 1;
             force_split[0] = 1;
-''', '''            govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+''', '''            govpx_vp9_count_varpart_force_split16_minmax();
             force_split[split_index] = 1;
             force_split[i + 1] = 1;
             force_split[0] = 1;
@@ -807,7 +869,9 @@ for old, new in [
     ('''          force_split[5 + i2 + j] = 1;
           force_split[i + 1] = 1;
           force_split[0] = 1;
-''', '''          govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+''', '''          govpx_vp9_count_varpart_force_split16_variance(
+              vtemp->part_variances.none.variance,
+              (uint64_t)thresholds[2]);
           force_split[5 + i2 + j] = 1;
           force_split[i + 1] = 1;
           force_split[0] = 1;

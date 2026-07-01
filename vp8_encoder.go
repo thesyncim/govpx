@@ -232,6 +232,14 @@ type EncoderPhaseStats struct {
 	VP9VarPartForceSplit64         int64 `json:"vp9_varpart_force_split_64"`
 	VP9VarPartForceSplit32         int64 `json:"vp9_varpart_force_split_32"`
 	VP9VarPartForceSplit16         int64 `json:"vp9_varpart_force_split_16"`
+	VP9VarPartForceSplit16Variance int64 `json:"vp9_varpart_force_split_16_variance"`
+	VP9VarPartForceSplit16Minmax   int64 `json:"vp9_varpart_force_split_16_minmax"`
+	VP9VarPartThreshold2Count      int64 `json:"vp9_varpart_threshold2_count"`
+	VP9VarPartThreshold2Sum        int64 `json:"vp9_varpart_threshold2_sum"`
+	VP9VarPartVar16Samples         int64 `json:"vp9_varpart_var16_samples"`
+	VP9VarPartVar16Sum             int64 `json:"vp9_varpart_var16_sum"`
+	VP9VarPartForce16VarianceSum   int64 `json:"vp9_varpart_force16_variance_sum"`
+	VP9VarPartForce16ThresholdSum  int64 `json:"vp9_varpart_force16_threshold_sum"`
 	VP9VarPartSetVTCalls           int64 `json:"vp9_varpart_setvt_calls"`
 	VP9VarPartSetVT64x64           int64 `json:"vp9_varpart_setvt_64x64"`
 	VP9VarPartSetVT32x32           int64 `json:"vp9_varpart_setvt_32x32"`

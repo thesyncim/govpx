@@ -74,8 +74,14 @@ func TestParseLibvpxVP9CallStats(t *testing.T) {
 		"varpart_choose_calls=240 varpart_copy_hits=3 " +
 		"varpart_content_state_very_high_sad=42 " +
 		"varpart_force_split_16=43 varpart_setvt_calls=44 " +
-		"varpart_setvt_force_split_16x16=45 " +
-		"varpart_setvt_select=46 varpart_setvt_split=47 unknown_key=99\n")
+		"varpart_force_split_16_variance=45 " +
+		"varpart_force_split_16_minmax=46 " +
+		"varpart_threshold2_count=2 varpart_threshold2_sum=100 " +
+		"varpart_var16_samples=4 varpart_var16_sum=1000 " +
+		"varpart_force16_variance_sum=900 " +
+		"varpart_force16_threshold_sum=80 " +
+		"varpart_setvt_force_split_16x16=47 " +
+		"varpart_setvt_select=48 varpart_setvt_split=49 unknown_key=99\n")
 	stats, ok := parseLibvpxVP9CallStats(stderr)
 	if !ok || stats == nil {
 		t.Fatalf("parseLibvpxVP9CallStats failed")
@@ -90,8 +96,16 @@ func TestParseLibvpxVP9CallStats(t *testing.T) {
 		t.Fatalf("varpart counters = %+v", *stats)
 	}
 	if stats.VarpartForceSplit16 != 43 || stats.VarpartSetVTCalls != 44 ||
-		stats.VarpartSetVTForceSplit16x16 != 45 ||
-		stats.VarpartSetVTSelect != 46 || stats.VarpartSetVTSplit != 47 {
+		stats.VarpartForceSplit16Variance != 45 ||
+		stats.VarpartForceSplit16Minmax != 46 ||
+		stats.VarpartThreshold2Count != 2 ||
+		stats.VarpartThreshold2Sum != 100 ||
+		stats.VarpartVar16Samples != 4 ||
+		stats.VarpartVar16Sum != 1000 ||
+		stats.VarpartForce16VarianceSum != 900 ||
+		stats.VarpartForce16ThresholdSum != 80 ||
+		stats.VarpartSetVTForceSplit16x16 != 47 ||
+		stats.VarpartSetVTSelect != 48 || stats.VarpartSetVTSplit != 49 {
 		t.Fatalf("varpart split counters = %+v", *stats)
 	}
 	if stats.ModeBlocks() != 51956+161783+30988 {
