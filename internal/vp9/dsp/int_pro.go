@@ -69,6 +69,28 @@ func VpxIntProRow(hbuf []int16, ref []uint8, refOff, refStride, height int) {
 	hbuf[15] = int16(a15 / normFactor)
 }
 
+// IntProRowStrips fills hbuf[16*s : 16*s+16] for each of the `strips`
+// consecutive 16-column strips starting at refOff, mirroring the
+// caller loop in vp9_int_pro_motion_estimation
+// (vp9/encoder/vp9_mcomp.c:2317-2321):
+//
+//	for (idx = 0; idx < search_width; idx += 16) {
+//	  vpx_int_pro_row(&hbuf[idx], ref_buf, ref_stride, bh);
+//	  ref_buf += 16;
+//	}
+//
+// On arm64 the whole batch runs in one NEON kernel
+// (vpx_dsp/arm/avg_neon.c vpx_int_pro_row_neon per strip); elsewhere
+// it falls back to the scalar VpxIntProRow per strip.
+func IntProRowStrips(hbuf []int16, ref []uint8, refOff, refStride, height, strips int) {
+	if intProRowStripsAsm(hbuf, ref, refOff, refStride, height, strips) {
+		return
+	}
+	for s := range strips {
+		VpxIntProRow(hbuf[s*16:s*16+16], ref, refOff+s*16, refStride, height)
+	}
+}
+
 // VpxIntProCol mirrors vpx_int_pro_col_c (vpx_dsp/avg.c:362-369).
 // Sums |width| consecutive bytes of |ref| starting at |refOff| and
 // returns the 14-bit accumulator as int16. The encoder normalises this
@@ -80,6 +102,27 @@ func VpxIntProCol(ref []uint8, refOff, width int) int16 {
 		sum += int16(ref[refOff+idx])
 	}
 	return sum
+}
+
+// IntProCols fills vbuf[0 : rows] with the per-row column projections
+// (VpxIntProCol >> normFactor), mirroring the caller loop in
+// vp9_int_pro_motion_estimation (vp9/encoder/vp9_mcomp.c:2323-2327):
+//
+//	for (idx = 0; idx < search_height; ++idx) {
+//	  vbuf[idx] = vpx_int_pro_col(ref_buf, bw) >> norm_factor;
+//	  ref_buf += ref_stride;
+//	}
+//
+// On arm64 the whole batch runs in one NEON kernel
+// (vpx_dsp/arm/avg_neon.c vpx_int_pro_col_neon per row); elsewhere it
+// falls back to the scalar VpxIntProCol per row.
+func IntProCols(vbuf []int16, ref []uint8, refOff, refStride, width, rows, normFactor int) {
+	if intProColsAsm(vbuf, ref, refOff, refStride, width, rows, normFactor) {
+		return
+	}
+	for idx := range rows {
+		vbuf[idx] = VpxIntProCol(ref, refOff+idx*refStride, width) >> uint(normFactor)
+	}
 }
 
 // VpxVectorVar mirrors vpx_vector_var_c (vpx_dsp/avg.c:371-388). Given

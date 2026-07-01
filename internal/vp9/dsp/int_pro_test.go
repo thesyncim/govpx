@@ -1,6 +1,9 @@
 package dsp
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
 // Pinning tests for the integer-projection DSP kernels in int_pro.go.
 // Reference values are hand-computed from the libvpx v1.16.0 reference
@@ -100,6 +103,128 @@ func TestVpxIntProColWidth16(t *testing.T) {
 	got := VpxIntProCol(ref, 0, 16)
 	if got != 240 {
 		t.Errorf("VpxIntProCol pattern: got %d want 240", got)
+	}
+}
+
+// TestIntProRowStripsMatchesScalar cross-checks the batched
+// (NEON-accelerated on arm64) strip helper against per-strip scalar
+// VpxIntProRow over the search geometries vp9_int_pro_motion_estimation
+// uses (heights 16/32/64, 1..8 strips) plus off-domain heights that
+// must take the scalar fallback.
+func TestIntProRowStripsMatchesScalar(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	for _, height := range []int{2, 8, 16, 32, 64} {
+		for _, strips := range []int{1, 2, 4, 8} {
+			refStride := strips*16 + 7 // deliberately non-multiple padding
+			ref := make([]uint8, refStride*height+32)
+			for i := range ref {
+				ref[i] = uint8(rng.Intn(256))
+			}
+			refOff := 3
+			got := make([]int16, strips*16)
+			want := make([]int16, strips*16)
+			IntProRowStrips(got, ref, refOff, refStride, height, strips)
+			for s := range strips {
+				VpxIntProRow(want[s*16:s*16+16], ref, refOff+s*16, refStride, height)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("height=%d strips=%d: hbuf[%d] got %d want %d",
+						height, strips, i, got[i], want[i])
+				}
+			}
+		}
+	}
+}
+
+// TestIntProColsMatchesScalar cross-checks the batched
+// (NEON-accelerated on arm64) column helper against per-row scalar
+// VpxIntProCol over the widths/rows/norm-factors
+// vp9_int_pro_motion_estimation uses.
+func TestIntProColsMatchesScalar(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	for _, width := range []int{16, 32, 64} {
+		normFactor := 3 + (width >> 5)
+		for _, rows := range []int{1, 16, 32, 64, 128} {
+			refStride := width + 5
+			ref := make([]uint8, refStride*rows+16)
+			for i := range ref {
+				ref[i] = uint8(rng.Intn(256))
+			}
+			refOff := 2
+			got := make([]int16, rows)
+			want := make([]int16, rows)
+			IntProCols(got, ref, refOff, refStride, width, rows, normFactor)
+			for idx := range rows {
+				want[idx] = VpxIntProCol(ref, refOff+idx*refStride, width) >> uint(normFactor)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("width=%d rows=%d: vbuf[%d] got %d want %d",
+						width, rows, i, got[i], want[i])
+				}
+			}
+		}
+	}
+}
+
+// Benchmarks mirror the BLOCK_64X64 geometry of one int-pro motion
+// search: 8 hbuf strips at height 64 and 128 column projections at
+// width 64.
+
+func BenchmarkIntProRowStrips64(b *testing.B) {
+	const height, strips, refStride = 64, 8, 160
+	ref := make([]uint8, refStride*height+strips*16)
+	for i := range ref {
+		ref[i] = uint8(i * 7)
+	}
+	hbuf := make([]int16, strips*16)
+	b.ReportAllocs()
+	for b.Loop() {
+		IntProRowStrips(hbuf, ref, 0, refStride, height, strips)
+	}
+}
+
+func BenchmarkIntProRowStripsScalar64(b *testing.B) {
+	const height, strips, refStride = 64, 8, 160
+	ref := make([]uint8, refStride*height+strips*16)
+	for i := range ref {
+		ref[i] = uint8(i * 7)
+	}
+	hbuf := make([]int16, strips*16)
+	b.ReportAllocs()
+	for b.Loop() {
+		for s := range strips {
+			VpxIntProRow(hbuf[s*16:s*16+16], ref, s*16, refStride, height)
+		}
+	}
+}
+
+func BenchmarkIntProCols64(b *testing.B) {
+	const width, rows, refStride = 64, 128, 160
+	ref := make([]uint8, refStride*rows+width)
+	for i := range ref {
+		ref[i] = uint8(i * 5)
+	}
+	vbuf := make([]int16, rows)
+	b.ReportAllocs()
+	for b.Loop() {
+		IntProCols(vbuf, ref, 0, refStride, width, rows, 5)
+	}
+}
+
+func BenchmarkIntProColsScalar64(b *testing.B) {
+	const width, rows, refStride = 64, 128, 160
+	ref := make([]uint8, refStride*rows+width)
+	for i := range ref {
+		ref[i] = uint8(i * 5)
+	}
+	vbuf := make([]int16, rows)
+	b.ReportAllocs()
+	for b.Loop() {
+		for idx := range rows {
+			vbuf[idx] = VpxIntProCol(ref, idx*refStride, width) >> 5
+		}
 	}
 }
 

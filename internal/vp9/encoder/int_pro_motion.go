@@ -360,10 +360,7 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 	//     vpx_int_pro_row(&hbuf[idx], ref_buf, ref_stride, bh);
 	//     ref_buf += 16;
 	refOffH := in.RefOff - (bw >> 1)
-	for idx := 0; idx < searchWidth; idx += 16 {
-		dsp.VpxIntProRow(hbuf[idx:idx+16], in.Ref, refOffH, refStride, bh)
-		refOffH += 16
-	}
+	dsp.IntProRowStrips(hbuf[:], in.Ref, refOffH, refStride, bh, searchWidth>>4)
 
 	// Vertical 1-D reference set. libvpx:
 	//   ref_buf = pre[0].buf - (bh >> 1) * ref_stride;
@@ -371,20 +368,11 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 	//     vbuf[idx] = vpx_int_pro_col(ref_buf, bw) >> norm_factor;
 	//     ref_buf += ref_stride;
 	refOffV := in.RefOff - (bh>>1)*refStride
-	for idx := range searchHeight {
-		vbuf[idx] = dsp.VpxIntProCol(in.Ref, refOffV, bw) >> uint(normFactor)
-		refOffV += refStride
-	}
+	dsp.IntProCols(vbuf[:], in.Ref, refOffV, refStride, bw, searchHeight, normFactor)
 
 	// Set up src 1-D reference set across both axes.
-	for idx := 0; idx < bw; idx += 16 {
-		dsp.VpxIntProRow(srcHbuf[idx:idx+16], in.Src, in.SrcOff+idx, srcStride, bh)
-	}
-	srcOffV := in.SrcOff
-	for idx := range bh {
-		srcVbuf[idx] = dsp.VpxIntProCol(in.Src, srcOffV, bw) >> uint(normFactor)
-		srcOffV += srcStride
-	}
+	dsp.IntProRowStrips(srcHbuf[:], in.Src, in.SrcOff, srcStride, bh, bw>>4)
+	dsp.IntProCols(srcVbuf[:], in.Src, in.SrcOff, srcStride, bw, bh, normFactor)
 
 	// Find the best match per 1-D search.
 	colMatch := VectorMatch(hbuf[:], srcHbuf[:], int(common.BWidthLog2Lookup[bsize]))

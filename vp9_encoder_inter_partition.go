@@ -635,6 +635,23 @@ func vp9PlaneWindowOffsetFits(buf []byte, stride, off, w, h int) bool {
 func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int,
 	key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) bool {
+	sbMiRow := (miRow >> 3) << 3
+	sbMiCol := (miCol >> 3) << 3
+	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
+	if sbIdx < 0 {
+		return false
+	}
+	// Fast path: the SB was already chosen earlier this frame. All the
+	// per-SB buffers below were sized when it was computed (the
+	// computed flags are reset per frame by the frame-setup path), so
+	// the hit path can skip the EnsureLen churn — this runs once per
+	// MI block per pass, not once per SB.
+	if sbIdx < len(e.varPartSBComputed) && e.varPartSBComputed[sbIdx] {
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountVarPartCacheHit(true)
+		}
+		return true
+	}
 	miGridLen := miRows * miCols
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	// The per-frame reset and steady-state sizing of these buffers is handled
@@ -655,17 +672,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.varPartSBSegmentID = buffers.EnsureLenZeroTail(e.varPartSBSegmentID, sbCount)
 	e.varPartSBColorSensitivity = buffers.EnsureLenZeroTail(
 		e.varPartSBColorSensitivity, sbCount)
-	sbMiRow := (miRow >> 3) << 3
-	sbMiCol := (miCol >> 3) << 3
-	sbIdx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)
-	if sbIdx < 0 || sbIdx >= len(e.varPartSBComputed) {
+	if sbIdx >= len(e.varPartSBComputed) {
 		return false
-	}
-	if e.varPartSBComputed[sbIdx] {
-		if vp9PhaseStatsEnabled {
-			e.vp9PhaseCountVarPartCacheHit(true)
-		}
-		return true
 	}
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseCountVarPartCacheHit(false)

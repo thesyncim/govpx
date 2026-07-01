@@ -379,17 +379,23 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		stats = choosePartitioningStats(&a)
 	}
 
-	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals.
+	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals. libvpx
+	// declares `v64x64 vt;` on the stack WITHOUT initialisation: every
+	// field the walk reads is written first (fill_variance writes the
+	// leaf `none` Vars unconditionally — zero sse/sum for out-of-frame
+	// sub-blocks — and fill_variance_tree writes every aggregate level
+	// before get_variance / set_vt_partitioning read it). The reused
+	// govpx scratch therefore needs no per-call zeroing either; wiping
+	// the ~64KiB tree per SB was costing more than the whole int-pro
+	// motion search.
 	vt := a.VarianceTree
 	if vt == nil {
 		vt = new(V64x64)
 	}
-	*vt = V64x64{}
 	vt2 := a.VarianceTreeLowRes
 	if vt2 == nil {
 		vt2 = new([16]V16x16)
 	}
-	*vt2 = [16]V16x16{}
 	var forceSplit [21]int
 	var maxVar32x32 int
 	minVar32x32 := math.MaxInt32
@@ -558,9 +564,15 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 	}
 
 	// libvpx: vp9_encodeframe.c:1552-1553 — vt2 allocation for low_res
-	// when threshold_4x4avg < INT64_MAX. govpx uses a fixed-size local
-	// array; allocation always succeeds.
+	// when threshold_4x4avg < INT64_MAX. govpx uses a fixed-size
+	// scratch array; libvpx vpx_calloc's the block, so zero it here —
+	// and only here — to mirror the calloc'd state on the low-res path
+	// (the fill loop leaves out-of-frame 4x4 leaves untouched and the
+	// aggregation reads their zeros).
 	useVT2 := lowRes && threshold4x4avg < vbpThresholdMax
+	if useVT2 {
+		*vt2 = [16]V16x16{}
+	}
 
 	// libvpx: vp9_encodeframe.c:1556-1630 — 4-level tree fill.
 	for i := range 4 {
