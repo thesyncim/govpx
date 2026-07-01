@@ -214,3 +214,56 @@ func TestDecodeCoefsZeroRun(t *testing.T) {
 		t.Errorf("dqcoeff[scan[2]] = %d, want %d (AC=%d)", dqcoeff[scan[2]], dq[1], dq[1])
 	}
 }
+
+func BenchmarkDecodeCoefsTx32EarlyEOBStack(b *testing.B) {
+	benchmarkDecodeCoefsTx32EarlyEOB(b, false)
+}
+
+func BenchmarkDecodeCoefsTx32EarlyEOBScratch(b *testing.B) {
+	benchmarkDecodeCoefsTx32EarlyEOB(b, true)
+}
+
+func benchmarkDecodeCoefsTx32EarlyEOB(b *testing.B, scratch bool) {
+	const blocks = 1024
+	fc := seedDefaultCoefProbs()
+	scan := tables.DefaultScan32x32[:]
+	neigh := tables.DefaultScan32x32Neighbors[:]
+	dq := [2]int16{16, 16}
+	probs := fc[common.Tx32x32][0][0][0][0]
+
+	buf := make([]byte, blocks+16)
+	var w bitstream.Writer
+	w.Start(buf)
+	for range blocks {
+		w.Write(0, uint32(probs[eobContextNode]))
+	}
+	size, err := w.Stop()
+	if err != nil {
+		b.Fatalf("Stop: %v", err)
+	}
+	src := buf[:size]
+
+	var r bitstream.Reader
+	var dqcoeff [1024]int16
+	var tokenCache [1024]uint8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := r.Init(src); err != nil {
+			b.Fatalf("Init: %v", err)
+		}
+		for range blocks {
+			var eob int
+			if scratch {
+				eob = DecodeCoefsWithCountsScratch(&r, common.Tx32x32, 0, 0,
+					dq, 0, scan, neigh, &fc, nil, dqcoeff[:], &tokenCache)
+			} else {
+				eob = DecodeCoefsWithCounts(&r, common.Tx32x32, 0, 0,
+					dq, 0, scan, neigh, &fc, nil, dqcoeff[:])
+			}
+			if eob != 0 {
+				b.Fatalf("eob = %d, want 0", eob)
+			}
+		}
+	}
+}

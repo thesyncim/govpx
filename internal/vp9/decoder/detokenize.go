@@ -181,6 +181,32 @@ func DecodeCoefsWithCounts(
 	}
 }
 
+// DecodeCoefsWithCountsScratch is DecodeCoefsWithCounts using caller-owned
+// token-cache storage. The cache does not need clearing; libvpx's decode_coefs
+// overwrites every scan position before get_coef_context can read it.
+func DecodeCoefsWithCountsScratch(
+	r *bitstream.Reader,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	scan, neighbors []int16,
+	fc *FrameCoefProbs,
+	counts *CoefCounts,
+	dqcoeff []int16,
+	tokenCache *[1024]uint8,
+) int {
+	if tokenCache == nil {
+		return DecodeCoefsWithCounts(r, txSize, planeType, isInter, dequant,
+			ctx, scan, neighbors, fc, counts, dqcoeff)
+	}
+	maxEob := maxEobForTxSize(txSize)
+	return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+		dequant, ctx, scan, neighbors, fc, counts, dqcoeff,
+		tokenCache[:maxEob])
+}
+
 func decodeCoefsWithCountsScratch(
 	r *bitstream.Reader,
 	txSize common.TxSize,

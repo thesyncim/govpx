@@ -235,9 +235,11 @@ type VP9Decoder struct {
 
 	// planes carries the per-plane coefficient entropy contexts the
 	// residual token pass updates. dqcoeff is stack-equivalent decoder
-	// scratch for one 32x32 transform block.
+	// scratch for one 32x32 transform block; coefTokenCache mirrors
+	// libvpx's decode_coefs token_cache scratch beside it.
 	planes                [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 	dqcoeff               [1024]int16
+	coefTokenCache        [1024]uint8
 	segIDPredictedScratch uint8
 
 	// The first public reconstruction slice handles intra frames.

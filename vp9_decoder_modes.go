@@ -1186,9 +1186,9 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				if !hdr.FrameParallelDecoding {
 					coefCounts = &d.counts.Coef
 				}
-				eob := vp9dec.DecodeCoefsWithCounts(r, txSize, planeType, isInter, dequant,
+				eob := vp9dec.DecodeCoefsWithCountsScratch(r, txSize, planeType, isInter, dequant,
 					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs,
-					coefCounts, coeffs)
+					coefCounts, coeffs, &d.coefTokenCache)
 				eobTotal += eob
 				if isInter == 0 && !d.unsupportedReconstruct {
 					dst, stride, ok := d.reconstructVP9IntraPredictTx(hdr, pd, plane,
