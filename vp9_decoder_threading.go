@@ -205,6 +205,7 @@ func (s *vp9DecoderRowMTFrameStorage) partitionsForSB(sb int) []common.Partition
 
 type vp9DecoderTileJob struct {
 	data           []byte
+	descs          []vp9DecoderTileDesc
 	hdr            *vp9dec.UncompressedHeader
 	comp           vp9dec.CompressedHeader
 	intraMaps      vp9dec.IntraSegmentMaps
@@ -253,8 +254,10 @@ type vp9DecoderTileWorkerPool struct {
 	// state when the option is disabled.
 	rowMTFrame vp9DecoderRowMTFrameStorage
 
-	lastTileJobs    uint8
-	lastTileJobKind vp9DecoderTileJobKind
+	lastTileJobs        uint8
+	lastTileJobKind     vp9DecoderTileJobKind
+	lastTileSchedule    [64]int
+	lastTileScheduleLen uint8
 }
 
 func newVP9DecoderTileWorkerPool(threads int) *vp9DecoderTileWorkerPool {
@@ -425,6 +428,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	p.header = hdr
 	p.lastTileJobs = 0
 	p.lastTileJobKind = kind
+	p.lastTileScheduleLen = 0
 	if len(descs) == 0 {
 		return nil
 	}
@@ -441,6 +445,10 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 		// Reset stale state when the option toggled off mid-stream.
 		p.rowMTSyncs = p.rowMTSyncs[:0]
 		p.rowMTFrame.release()
+	}
+	if !d.opts.DecoderRowMT {
+		return d.runVP9DecoderScheduledTileJobs(descs, kind, comp,
+			intraMaps, interMaps, miRows, miCols, partitionProbs)
 	}
 	mergeCounts := !hdr.FrameParallelDecoding
 	helpersMax := int(p.helperCount)
@@ -496,6 +504,110 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	return nil
 }
 
+func (d *VP9Decoder) runVP9DecoderScheduledTileJobs(descs []vp9DecoderTileDesc,
+	kind vp9DecoderTileJobKind, comp vp9dec.CompressedHeader,
+	intraMaps vp9dec.IntraSegmentMaps, interMaps vp9dec.InterSegmentMaps,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) error {
+	p := d.vp9TilePool
+	workers := min(int(p.helperCount)+1, len(descs))
+	if workers <= 1 {
+		err := d.runVP9DecoderTileDesc(kind, descs[0], &p.header, comp,
+			intraMaps, interMaps, miRows, miCols, partitionProbs)
+		if err == nil {
+			p.lastTileJobs = 1
+			p.recordTileSchedule(descs)
+		}
+		return err
+	}
+
+	scheduleVP9DecoderTileDescsForThreading(descs, workers)
+	p.recordTileSchedule(descs)
+
+	mergeCounts := !p.header.FrameParallelDecoding
+	base := len(descs) / workers
+	remain := len(descs) % workers
+	bufStart := 0
+	var err error
+	helpers := workers - 1
+	for worker := 0; worker < helpers; worker++ {
+		count := base + (remain+worker)/workers
+		bufEnd := bufStart + count
+		p.prepareTileJobRange(worker, d, kind, descs[bufStart:bufEnd], comp,
+			intraMaps, interMaps, miRows, miCols, partitionProbs)
+		p.start[worker] <- struct{}{}
+		bufStart = bufEnd
+	}
+
+	mainCount := base + (remain+helpers)/workers
+	mainEnd := bufStart + mainCount
+	for _, desc := range descs[bufStart:mainEnd] {
+		if runErr := d.runVP9DecoderTileDesc(kind, desc, &p.header, comp,
+			intraMaps, interMaps, miRows, miCols, partitionProbs); runErr != nil && err == nil {
+			err = runErr
+		}
+	}
+
+	for worker := 0; worker < helpers; worker++ {
+		<-p.done[worker]
+		job := &p.jobs[worker]
+		if job.unsupported {
+			d.unsupportedReconstruct = true
+		}
+		if err == nil && job.err != nil {
+			err = job.err
+		}
+		if mergeCounts && job.err == nil {
+			vp9dec.MergeFrameCounts(&d.counts, &job.worker.counts)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	p.lastTileJobs = uint8(len(descs))
+	return nil
+}
+
+func scheduleVP9DecoderTileDescsForThreading(descs []vp9DecoderTileDesc, workers int) {
+	if len(descs) <= 1 || workers <= 1 {
+		return
+	}
+	// libvpx decode_tiles_mt sorts tile buffers by compressed size descending.
+	for i := 1; i < len(descs); i++ {
+		desc := descs[i]
+		j := i - 1
+		for j >= 0 && len(descs[j].data) < len(desc.data) {
+			descs[j+1] = descs[j]
+			j--
+		}
+		descs[j+1] = desc
+	}
+	if workers >= len(descs) {
+		largest := descs[0]
+		copy(descs, descs[1:])
+		descs[len(descs)-1] = largest
+		return
+	}
+	start, end := 0, len(descs)-2
+	for start < end {
+		descs[start], descs[end] = descs[end], descs[start]
+		start += 2
+		end -= 2
+	}
+}
+
+func (p *vp9DecoderTileWorkerPool) recordTileSchedule(descs []vp9DecoderTileDesc) {
+	if p == nil {
+		return
+	}
+	n := min(len(descs), len(p.lastTileSchedule))
+	for i := 0; i < n; i++ {
+		p.lastTileSchedule[i] = descs[i].tile.MiColStart
+	}
+	p.lastTileScheduleLen = uint8(n)
+}
+
 func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	parent *VP9Decoder, kind vp9DecoderTileJobKind, desc vp9DecoderTileDesc,
 	comp vp9dec.CompressedHeader,
@@ -504,6 +616,7 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 ) {
 	job := &p.jobs[worker]
+	job.descs = nil
 	job.worker = *parent
 	job.data = desc.data
 	job.hdr = &p.header
@@ -525,12 +638,63 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	}
 }
 
+func (p *vp9DecoderTileWorkerPool) prepareTileJobRange(worker int,
+	parent *VP9Decoder, kind vp9DecoderTileJobKind, descs []vp9DecoderTileDesc,
+	comp vp9dec.CompressedHeader,
+	intraMaps vp9dec.IntraSegmentMaps, interMaps vp9dec.InterSegmentMaps,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) {
+	p.prepareTileJob(worker, parent, kind, vp9DecoderTileDesc{}, comp,
+		intraMaps, interMaps, miRows, miCols, partitionProbs)
+	p.jobs[worker].descs = descs
+	p.jobs[worker].rowMTSync = nil
+}
+
 func (j *vp9DecoderTileJob) run() {
 	worker := &j.worker
 	worker.vp9LoopFilterPool = nil
 	worker.vp9TilePool = nil
 	worker.rowMTSync = j.rowMTSync
 	worker.leftSegCtx = j.leftSegCtx[:]
+	if len(j.descs) > 0 {
+		j.runDescs(worker, j.descs)
+		j.descs = nil
+		return
+	}
+	j.resetLeftContexts(worker)
+	worker.interPredictScratch = j.interPredictScratch
+	j.err = worker.runVP9DecoderTileDesc(j.kind, vp9DecoderTileDesc{
+		data: j.data,
+		tile: j.tile,
+	}, j.hdr, j.comp, j.intraMaps, j.interMaps, j.miRows, j.miCols,
+		j.partitionProbs)
+	j.interPredictScratch = worker.interPredictScratch
+	j.unsupported = worker.unsupportedReconstruct
+	worker.rowMTSync = nil
+}
+
+func (j *vp9DecoderTileJob) runDescs(worker *VP9Decoder, descs []vp9DecoderTileDesc) {
+	worker.interPredictScratch = j.interPredictScratch
+	for _, desc := range descs {
+		j.resetLeftContexts(worker)
+		if err := worker.runVP9DecoderTileDesc(j.kind, desc, j.hdr, j.comp,
+			j.intraMaps, j.interMaps, j.miRows, j.miCols,
+			j.partitionProbs); err != nil {
+			j.err = err
+			j.interPredictScratch = worker.interPredictScratch
+			j.unsupported = worker.unsupportedReconstruct
+			worker.rowMTSync = nil
+			return
+		}
+	}
+	j.err = nil
+	j.interPredictScratch = worker.interPredictScratch
+	j.unsupported = worker.unsupportedReconstruct
+	worker.rowMTSync = nil
+}
+
+func (j *vp9DecoderTileJob) resetLeftContexts(worker *VP9Decoder) {
 	for i := range worker.leftSegCtx {
 		worker.leftSegCtx[i] = 0
 	}
@@ -545,15 +709,6 @@ func (j *vp9DecoderTileJob) run() {
 			worker.planes[plane].LeftContext[i] = 0
 		}
 	}
-	worker.interPredictScratch = j.interPredictScratch
-	j.err = worker.runVP9DecoderTileDesc(j.kind, vp9DecoderTileDesc{
-		data: j.data,
-		tile: j.tile,
-	}, j.hdr, j.comp, j.intraMaps, j.interMaps, j.miRows, j.miCols,
-		j.partitionProbs)
-	j.interPredictScratch = worker.interPredictScratch
-	j.unsupported = worker.unsupportedReconstruct
-	worker.rowMTSync = nil
 }
 
 func (d *VP9Decoder) runVP9DecoderTileDesc(kind vp9DecoderTileJobKind,

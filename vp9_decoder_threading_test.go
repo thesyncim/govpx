@@ -8,6 +8,7 @@ import (
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9corpus"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 // TestVP9DecoderThreadingOfficialIVFMatchesSerial extends the VP9 decoder
@@ -187,6 +188,28 @@ func TestVP9DecoderThreadingUsesTileModeWorkers(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderTileSchedulerMovesLargestToMainWorker(t *testing.T) {
+	descs := vp9DecoderTileScheduleTestDescs([]int{10, 40, 20, 30})
+	scheduleVP9DecoderTileDescsForThreading(descs, 4)
+
+	got := vp9DecoderTileScheduleColumns(descs)
+	want := []int{3, 2, 0, 1}
+	if !sameIntSlice(got, want) {
+		t.Fatalf("scheduled tile columns = %v, want %v", got, want)
+	}
+}
+
+func TestVP9DecoderTileSchedulerInterleavesUnderfilledWorkers(t *testing.T) {
+	descs := vp9DecoderTileScheduleTestDescs([]int{10, 40, 20, 30})
+	scheduleVP9DecoderTileDescsForThreading(descs, 2)
+
+	got := vp9DecoderTileScheduleColumns(descs)
+	want := []int{2, 3, 1, 0}
+	if !sameIntSlice(got, want) {
+		t.Fatalf("scheduled tile columns = %v, want %v", got, want)
+	}
+}
+
 func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T) {
 	key := vp9test.MultiTileStubPacketWithFrameParallel(t, 1024, 64, 2,
 		false)
@@ -237,6 +260,37 @@ func TestVP9DecoderThreadingNonFrameParallelTileColumnsMatchSerial(t *testing.T)
 	if err := threaded.Close(); err != nil {
 		t.Fatalf("threaded Close: %v", err)
 	}
+}
+
+func vp9DecoderTileScheduleTestDescs(sizes []int) []vp9DecoderTileDesc {
+	descs := make([]vp9DecoderTileDesc, len(sizes))
+	for i, size := range sizes {
+		descs[i] = vp9DecoderTileDesc{
+			data: make([]byte, size),
+			tile: vp9dec.TileBounds{MiColStart: i},
+		}
+	}
+	return descs
+}
+
+func vp9DecoderTileScheduleColumns(descs []vp9DecoderTileDesc) []int {
+	out := make([]int, len(descs))
+	for i, desc := range descs {
+		out[i] = desc.tile.MiColStart
+	}
+	return out
+}
+
+func sameIntSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestVP9DecoderThreadedTileParseSteadyStateAlloc(t *testing.T) {
