@@ -1,6 +1,7 @@
 package boolcoder
 
 import (
+	"encoding/binary"
 	"errors"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
@@ -123,12 +124,23 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	pos := d.pos
 	buf := d.buf
 
-	p := (*probs)[blockType][n][ctx]
-	rng0 := rng
-	split := uint32(1 + (((rng0 - 1) * uint32(p[0])) >> 8))
-	if count < 0 {
+	// fill mirrors libvpx v1.16.0 vp8/decoder/dboolhuff.c
+	// vp8dx_bool_decoder_fill. When more than 8 bytes remain the byte loop
+	// is replaced by a single big-endian 8-byte load that consumes the
+	// identical (shift>>3)+1 bytes and produces bit-identical value/count
+	// evolution; the strictly-greater guard keeps the end-of-buffer
+	// VP8_LOTS_OF_BITS accounting on the byte loop.
+	fill := func() {
 		shift := valueSize - 8 - (count + 8)
 		bytesLeft := len(buf) - pos
+		if bytesLeft > 8 {
+			big := binary.BigEndian.Uint64(buf[pos:])
+			consumed := (shift >> 3) + 1
+			value |= (big >> uint(56-shift)) &^ (uint64(1)<<uint(shift&7) - 1)
+			count += consumed << 3
+			pos += consumed
+			return
+		}
 		bitsLeft := bytesLeft * 8
 		x := shift + 8 - bitsLeft
 		loopEnd := 0
@@ -146,6 +158,17 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				shift -= 8
 			}
 		}
+	}
+
+	// Keep p as a pointer into the probability table: copying the 11-byte
+	// entry by value forces a stack spill whose byte-wide reloads stall on
+	// store-to-load forwarding in this hottest decoder loop.
+	bt := &(*probs)[blockType]
+	p := &bt[n][ctx]
+	rng0 := rng
+	split := uint32(1 + (((rng0 - 1) * uint32(p[0])) >> 8))
+	if count < 0 {
+		fill()
 	}
 
 	bigsplit := uint64(split) << (valueSize - 8)
@@ -170,28 +193,6 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	rng = nextRange << shift
 	value <<= shift
 	count -= int(shift)
-
-	fill := func() {
-		shift := valueSize - 8 - (count + 8)
-		bytesLeft := len(buf) - pos
-		bitsLeft := bytesLeft * 8
-		x := shift + 8 - bitsLeft
-		loopEnd := 0
-
-		if x >= 0 {
-			count += lotsOfBits
-			loopEnd = x
-		}
-
-		if x < 0 || bitsLeft != 0 {
-			for shift >= loopEnd {
-				count += 8
-				value |= uint64(buf[pos]) << uint(shift)
-				pos++
-				shift -= 8
-			}
-		}
-	}
 	readBool := func(prob uint8) uint8 {
 		rng0 := rng
 		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
@@ -278,7 +279,9 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				d.pos = pos
 				return 16
 			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][0]
+			// n is 1..15 here and CoefBandsTable values are 0..7; the
+			// masks are numerically no-ops that elide bounds checks.
+			p = &bt[tables.CoefBandsTable[n&15]&7][0]
 		} else {
 			v := 0
 			tokenClass := uint8(2)
@@ -309,8 +312,8 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				}
 			}
 
-			j := tables.DefaultZigZag1D[n-1]
-			out[j] = readSignedCoeff(v)
+			j := tables.DefaultZigZag1D[(n-1)&15]
+			out[j&15] = readSignedCoeff(v)
 			if n == 16 {
 				d.value = value
 				d.count = count
@@ -318,7 +321,7 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				d.pos = pos
 				return 16
 			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][tokenClass]
+			p = &bt[tables.CoefBandsTable[n&15]&7][tokenClass]
 			if readBool(p[0]) == 0 {
 				d.value = value
 				d.count = count
@@ -468,6 +471,16 @@ func (d *Decoder) Corrupted() bool {
 func (d *Decoder) fill() {
 	shift := valueSize - 8 - (d.count + 8)
 	bytesLeft := len(d.buf) - d.pos
+	if bytesLeft > 8 {
+		// Batched form of the byte loop below (see ReadVP8BlockCoeffs):
+		// bit-identical when more than 8 bytes remain.
+		big := binary.BigEndian.Uint64(d.buf[d.pos:])
+		consumed := (shift >> 3) + 1
+		d.value |= (big >> uint(56-shift)) &^ (uint64(1)<<uint(shift&7) - 1)
+		d.count += consumed << 3
+		d.pos += consumed
+		return
+	}
 	bitsLeft := bytesLeft * 8
 	x := shift + 8 - bitsLeft
 	loopEnd := 0

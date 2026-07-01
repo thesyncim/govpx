@@ -31,9 +31,9 @@ func assertVP9OracleThreadedTileWriterUsed(t *testing.T, enc *VP9Encoder,
 		t.Fatalf("frame %d: VP9 threaded tile worker count = %d, want %d",
 			frame, got, wantJobs)
 	}
-	if pool.jobKind != vp9TileWorkerJobEncode {
+	if kind := vp9TileWorkerJobKind(pool.jobKind.Load()); kind != vp9TileWorkerJobEncode {
 		t.Fatalf("frame %d: VP9 tile worker job kind = %d, want encode",
-			frame, pool.jobKind)
+			frame, kind)
 	}
 	if len(pool.encodeJobs) < wantJobs {
 		t.Fatalf("frame %d: VP9 threaded tile jobs = %d, want at least %d",

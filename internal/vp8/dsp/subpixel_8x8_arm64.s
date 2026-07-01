@@ -12,11 +12,12 @@
 //     v = sum_{k=0..5} tmp[(y+k)*8+x] * vFilter[k] + 64
 //     dst[y*dstStride+x] = clip255(v >> 7)
 //
-// Same encoding strategy as subpixel_arm64.s (16x16 path): SMULL/
-// SMLAL accumulate signed int32 lanes, SQRSHRUN rounds and saturates
-// to uint16, SQXTUN saturates to uint8. Eight lanes per row means we
-// only need the low-half (V8.4H + V8.8H) variants of the multiply
-// path, but reuse the same tap broadcasts.
+// Same libvpx arithmetic as subpixel_arm64.s (16x16 path): |tap|
+// broadcasts as uint8 lanes, UMULL/UMLAL/UMLSL modular uint16
+// accumulation with the center tap 3 kept separate, SQADD saturating
+// combine, SQRSHRUN round/narrow to uint8. Bit-identical to the
+// scalar reference (see the 16x16 header for the argument). Eight
+// lanes per row means only the low-half multiply forms are needed.
 //
 // Plan9 VEXT operand order: VEXT $imm, V_a, V_b, V_d encodes
 // V_a -> Rm (high) and V_b -> Rn (low). For "bytes [imm..imm+7] of
@@ -33,16 +34,24 @@
 //
 // Registers:
 //   R0=dst R1=dstStride R2=src R3=srcStride R4=hFilter R5=vFilter
-//   R6=tmp R7,R8,R9=loop scratch
+//   R6=tmp R7,R8,R9,R10=loop scratch
 //   V0,V1   src bytes (horizontal); per-row tmp slot (vertical)
 //   V2      VEXT tap window (horizontal)
-//   V8      widened uint8 -> int16 lanes
-//   V10,V11 int32x4 accumulators
-//   V14     saturate intermediate
-//   V16..V21 hFilter[0..5] broadcasts
-//   V22..V27 vFilter[0..5] broadcasts
+//   V10     uint16x8 accumulator
+//   V12     center-tap uint16x8 product
+//   V8      narrowed uint8 output
+//   V16..V21 |hFilter[0..5]| broadcasts (uint8 lanes)
+//   V22..V27 |vFilter[0..5]| broadcasts (uint8 lanes)
 
 #include "textflag.h"
+
+// ABS16H loads the int16 tap at off(Rf) sign-extended and leaves
+// |tap| in R7 for the following dup-to-uint8 WORD.
+#define ABS16H(off, Rf) \
+	MOVH	off(Rf), R7 \
+	ASR	$63, R7, R10 \
+	EOR	R10, R7, R7 \
+	SUB	R10, R7, R7
 
 TEXT ·sixTapPredict8x8NEON(SB), NOSPLIT, $0-56
 	MOVD	dst+0(FP), R0
@@ -53,31 +62,31 @@ TEXT ·sixTapPredict8x8NEON(SB), NOSPLIT, $0-56
 	MOVD	vFilter+40(FP), R5
 	MOVD	tmp+48(FP), R6
 
-	MOVHU	(R4), R7
-	VDUP	R7, V16.H8
-	MOVHU	2(R4), R7
-	VDUP	R7, V17.H8
-	MOVHU	4(R4), R7
-	VDUP	R7, V18.H8
-	MOVHU	6(R4), R7
-	VDUP	R7, V19.H8
-	MOVHU	8(R4), R7
-	VDUP	R7, V20.H8
-	MOVHU	10(R4), R7
-	VDUP	R7, V21.H8
+	ABS16H(0, R4)
+	WORD	$0x4e010cf0	// dup v16.16b, w7
+	ABS16H(2, R4)
+	WORD	$0x4e010cf1	// dup v17.16b, w7
+	ABS16H(4, R4)
+	WORD	$0x4e010cf2	// dup v18.16b, w7
+	ABS16H(6, R4)
+	WORD	$0x4e010cf3	// dup v19.16b, w7
+	ABS16H(8, R4)
+	WORD	$0x4e010cf4	// dup v20.16b, w7
+	ABS16H(10, R4)
+	WORD	$0x4e010cf5	// dup v21.16b, w7
 
-	MOVHU	(R5), R7
-	VDUP	R7, V22.H8
-	MOVHU	2(R5), R7
-	VDUP	R7, V23.H8
-	MOVHU	4(R5), R7
-	VDUP	R7, V24.H8
-	MOVHU	6(R5), R7
-	VDUP	R7, V25.H8
-	MOVHU	8(R5), R7
-	VDUP	R7, V26.H8
-	MOVHU	10(R5), R7
-	VDUP	R7, V27.H8
+	ABS16H(0, R5)
+	WORD	$0x4e010cf6	// dup v22.16b, w7
+	ABS16H(2, R5)
+	WORD	$0x4e010cf7	// dup v23.16b, w7
+	ABS16H(4, R5)
+	WORD	$0x4e010cf8	// dup v24.16b, w7
+	ABS16H(6, R5)
+	WORD	$0x4e010cf9	// dup v25.16b, w7
+	ABS16H(8, R5)
+	WORD	$0x4e010cfa	// dup v26.16b, w7
+	ABS16H(10, R5)
+	WORD	$0x4e010cfb	// dup v27.16b, w7
 
 	// === Horizontal pass: 13 rows ===
 	MOVD	$13, R8
@@ -86,44 +95,31 @@ TEXT ·sixTapPredict8x8NEON(SB), NOSPLIT, $0-56
 horiz_loop:
 	VLD1	(R2), [V0.B16, V1.B16]
 
-	// Tap 0: bytes [0..7]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e70c10a	// smull  v10.4s, v8.4h, v16.4h
-	WORD	$0x4e70c10b	// smull2 v11.4s, v8.8h, v16.8h
+	// Tap 0: bytes [0..7]; non-negative.
+	WORD	$0x2e30c00a	// umull v10.8h, v0.8b, v16.8b
 
-	// Tap 1: bytes [1..8]
+	// Tap 1: bytes [1..8]; non-positive.
 	VEXT	$1, V1.B16, V0.B16, V2.B16
-	VUXTL	V2.B8, V8.H8
-	WORD	$0x0e71810a	// smlal  v10.4s, v8.4h, v17.4h
-	WORD	$0x4e71810b	// smlal2 v11.4s, v8.8h, v17.8h
+	WORD	$0x2e31a04a	// umlsl v10.8h, v2.8b, v17.8b
 
-	// Tap 2: bytes [2..9]
+	// Tap 2: bytes [2..9]; non-negative.
 	VEXT	$2, V1.B16, V0.B16, V2.B16
-	VUXTL	V2.B8, V8.H8
-	WORD	$0x0e72810a	// smlal  v10.4s, v8.4h, v18.4h
-	WORD	$0x4e72810b	// smlal2 v11.4s, v8.8h, v18.8h
+	WORD	$0x2e32804a	// umlal v10.8h, v2.8b, v18.8b
 
-	// Tap 3: bytes [3..10]
+	// Tap 3 (center): bytes [3..10]; separate accumulator.
 	VEXT	$3, V1.B16, V0.B16, V2.B16
-	VUXTL	V2.B8, V8.H8
-	WORD	$0x0e73810a	// smlal  v10.4s, v8.4h, v19.4h
-	WORD	$0x4e73810b	// smlal2 v11.4s, v8.8h, v19.8h
+	WORD	$0x2e33c04c	// umull v12.8h, v2.8b, v19.8b
 
-	// Tap 4: bytes [4..11]
+	// Tap 4: bytes [4..11]; non-positive.
 	VEXT	$4, V1.B16, V0.B16, V2.B16
-	VUXTL	V2.B8, V8.H8
-	WORD	$0x0e74810a	// smlal  v10.4s, v8.4h, v20.4h
-	WORD	$0x4e74810b	// smlal2 v11.4s, v8.8h, v20.8h
+	WORD	$0x2e34a04a	// umlsl v10.8h, v2.8b, v20.8b
 
-	// Tap 5: bytes [5..12]
+	// Tap 5: bytes [5..12]; non-negative.
 	VEXT	$5, V1.B16, V0.B16, V2.B16
-	VUXTL	V2.B8, V8.H8
-	WORD	$0x0e75810a	// smlal  v10.4s, v8.4h, v21.4h
-	WORD	$0x4e75810b	// smlal2 v11.4s, v8.8h, v21.8h
+	WORD	$0x2e35804a	// umlal v10.8h, v2.8b, v21.8b
 
-	WORD	$0x2f198d4e	// sqrshrun  v14.4h, v10.4s, #7
-	WORD	$0x6f198d6e	// sqrshrun2 v14.8h, v11.4s, #7
-	WORD	$0x2e2129c8	// sqxtun    v8.8b,  v14.8h
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
 
 	VST1	[V8.B8], (R9)
 
@@ -139,43 +135,30 @@ horiz_loop:
 vert_loop:
 	// Tap 0
 	VLD1	(R9), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e76c10a	// smull  v10.4s, v8.4h, v22.4h
-	WORD	$0x4e76c10b	// smull2 v11.4s, v8.8h, v22.8h
+	WORD	$0x2e36c00a	// umull v10.8h, v0.8b, v22.8b
 
 	ADD	$8, R9, R7
 	VLD1	(R7), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e77810a	// smlal  v10.4s, v8.4h, v23.4h
-	WORD	$0x4e77810b	// smlal2 v11.4s, v8.8h, v23.8h
+	WORD	$0x2e37a00a	// umlsl v10.8h, v0.8b, v23.8b
 
 	ADD	$16, R9, R7
 	VLD1	(R7), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e78810a	// smlal  v10.4s, v8.4h, v24.4h
-	WORD	$0x4e78810b	// smlal2 v11.4s, v8.8h, v24.8h
+	WORD	$0x2e38800a	// umlal v10.8h, v0.8b, v24.8b
 
 	ADD	$24, R9, R7
 	VLD1	(R7), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e79810a	// smlal  v10.4s, v8.4h, v25.4h
-	WORD	$0x4e79810b	// smlal2 v11.4s, v8.8h, v25.8h
+	WORD	$0x2e39c00c	// umull v12.8h, v0.8b, v25.8b
 
 	ADD	$32, R9, R7
 	VLD1	(R7), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e7a810a	// smlal  v10.4s, v8.4h, v26.4h
-	WORD	$0x4e7a810b	// smlal2 v11.4s, v8.8h, v26.8h
+	WORD	$0x2e3aa00a	// umlsl v10.8h, v0.8b, v26.8b
 
 	ADD	$40, R9, R7
 	VLD1	(R7), [V0.B8]
-	VUXTL	V0.B8, V8.H8
-	WORD	$0x0e7b810a	// smlal  v10.4s, v8.4h, v27.4h
-	WORD	$0x4e7b810b	// smlal2 v11.4s, v8.8h, v27.8h
+	WORD	$0x2e3b800a	// umlal v10.8h, v0.8b, v27.8b
 
-	WORD	$0x2f198d4e	// sqrshrun  v14.4h, v10.4s, #7
-	WORD	$0x6f198d6e	// sqrshrun2 v14.8h, v11.4s, #7
-	WORD	$0x2e2129c8	// sqxtun    v8.8b,  v14.8h
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
 
 	VST1	[V8.B8], (R0)
 
