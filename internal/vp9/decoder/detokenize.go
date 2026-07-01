@@ -238,28 +238,25 @@ func DecodeCoefsWithCounts(
 					}
 				}
 				v := (val * int(dqv)) >> dqShift
-				if r.Read(128) != 0 {
-					dqcoeff[scan[c]] = int16(-v)
-				} else {
-					dqcoeff[scan[c]] = int16(v)
+				if r.ReadBit() != 0 {
+					v = -v
 				}
+				dqcoeff[scan[c]] = int16(v)
 			} else {
 				if r.Read(uint32(p[1])) != 0 {
 					tokenCache[scan[c]] = 3
 					v := ((3 + int(r.Read(uint32(p[2])))) * int(dqv)) >> dqShift
-					if r.Read(128) != 0 {
-						dqcoeff[scan[c]] = int16(-v)
-					} else {
-						dqcoeff[scan[c]] = int16(v)
+					if r.ReadBit() != 0 {
+						v = -v
 					}
+					dqcoeff[scan[c]] = int16(v)
 				} else {
 					tokenCache[scan[c]] = 2
 					v := (2 * int(dqv)) >> dqShift
-					if r.Read(128) != 0 {
-						dqcoeff[scan[c]] = int16(-v)
-					} else {
-						dqcoeff[scan[c]] = int16(v)
+					if r.ReadBit() != 0 {
+						v = -v
 					}
+					dqcoeff[scan[c]] = int16(v)
 				}
 			}
 		} else {
@@ -269,11 +266,10 @@ func DecodeCoefsWithCounts(
 			}
 			tokenCache[scan[c]] = 1
 			v := int(dqv) >> dqShift
-			if r.Read(128) != 0 {
-				dqcoeff[scan[c]] = int16(-v)
-			} else {
-				dqcoeff[scan[c]] = int16(v)
+			if r.ReadBit() != 0 {
+				v = -v
 			}
+			dqcoeff[scan[c]] = int16(v)
 		}
 
 		c++

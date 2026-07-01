@@ -51,7 +51,7 @@ func (r *Reader) Init(src []byte) error {
 	r.count = -8
 	r.rng = 255
 	r.fill()
-	if r.Read(128) != 0 { // marker bit
+	if r.ReadBit() != 0 { // marker bit
 		return ErrInvalidInput
 	}
 	return nil
@@ -62,7 +62,8 @@ func (r *Reader) Init(src []byte) error {
 // layout, normalization shift, and end-of-stream count update remain
 // byte-identical to libvpx.
 func (r *Reader) Read(prob uint32) uint32 {
-	split := (r.rng*prob + (256 - prob)) >> 8
+	baseRange := r.rng
+	split := (baseRange*prob + (256 - prob)) >> 8
 
 	if r.count < 0 {
 		r.fill()
@@ -72,33 +73,62 @@ func (r *Reader) Read(prob uint32) uint32 {
 	count := r.count
 	bigsplit := uint64(split) << (valueBits - 8)
 
-	rng := split
+	nextRange := split
 	var bit uint32
 	if value >= bigsplit {
-		rng = r.rng - split
+		nextRange = baseRange - split
 		value -= bigsplit
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(rng)])
-	rng <<= shift
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
 	value <<= shift
 	count -= int32(shift)
 
 	r.value = value
 	r.count = count
-	r.rng = rng
+	r.rng = nextRange
 	return bit
 }
 
 // ReadBit decodes one equally-likely bit. Equivalent to Read(128).
-func (r *Reader) ReadBit() uint32 { return r.Read(128) }
+func (r *Reader) ReadBit() uint32 {
+	rng := r.rng
+	split := (rng + 1) >> 1
+
+	if r.count < 0 {
+		r.fill()
+	}
+
+	value := r.value
+	count := r.count
+	bigsplit := uint64(split) << (valueBits - 8)
+
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
+	value <<= shift
+	count -= int32(shift)
+
+	r.value = value
+	r.count = count
+	r.rng = nextRange
+	return bit
+}
 
 // ReadLiteral decodes bits equally-likely bits, MSB first.
 func (r *Reader) ReadLiteral(bits int) uint32 {
 	var literal uint32
 	for b := bits - 1; b >= 0; b-- {
-		literal |= r.Read(128) << uint(b)
+		literal |= r.ReadBit() << uint(b)
 	}
 	return literal
 }
