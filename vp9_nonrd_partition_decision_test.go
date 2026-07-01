@@ -64,6 +64,33 @@ func TestVP9NonrdMLPartitionScoreBudgetUsesStrictLibvpxGuard(t *testing.T) {
 	}
 }
 
+func TestVP9NonrdMLPartitionSnapshotRestoresPredFilterState(t *testing.T) {
+	const width, height = 64, 64
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.ensureVP9EncoderModeBuffers(8, 8)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	inter := &vp9InterEncodeState{
+		predInterpFilter: vp9dec.InterpEighttapSmooth,
+		predFilterValid:  true,
+	}
+	snap, ok := e.saveVP9NonrdMLPartitionSnapshot(inter, 8, 8, 0, 0,
+		common.Block64x64)
+	if !ok {
+		t.Fatal("saveVP9NonrdMLPartitionSnapshot failed")
+	}
+	inter.predInterpFilter = vp9dec.InterpEighttapSharp
+	inter.predFilterValid = false
+
+	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
+	e.releaseVP9NonrdMLPartitionSnapshot(snap)
+	if inter.predInterpFilter != vp9dec.InterpEighttapSmooth || !inter.predFilterValid {
+		t.Fatalf("pred filter = %d/%v, want EighttapSmooth/valid",
+			inter.predInterpFilter, inter.predFilterValid)
+	}
+}
+
 func TestVP9MLPickPartitionEntryUsesLastBufferWhenLastRefMasked(t *testing.T) {
 	const width, height = 64, 64
 	e, _ := NewVP9Encoder(VP9EncoderOptions{

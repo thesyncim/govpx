@@ -863,18 +863,20 @@ func vp9NonrdMLPartitionBudgetRemaining(spent uint64,
 }
 
 type vp9NonrdMLPartitionSnapshot struct {
-	ref      *vp9ReferenceFrame
-	recon    vp9PartitionReconSnapshot
-	pickPred vp9MLPickPredSnapshot
-	context  vp9PartitionContextSnapshot
-	mi       [64]vp9dec.NeighborMi
-	miRows   int
-	miCols   int
-	miRow    int
-	miCol    int
-	rows     int
-	cols     int
-	ok       bool
+	ref              *vp9ReferenceFrame
+	recon            vp9PartitionReconSnapshot
+	pickPred         vp9MLPickPredSnapshot
+	context          vp9PartitionContextSnapshot
+	mi               [64]vp9dec.NeighborMi
+	predInterpFilter vp9dec.InterpFilter
+	miRows           int
+	miCols           int
+	miRow            int
+	miCol            int
+	rows             int
+	cols             int
+	predFilterValid  bool
+	ok               bool
 }
 
 func (e *VP9Encoder) saveVP9NonrdMLPartitionSnapshot(
@@ -900,6 +902,8 @@ func (e *VP9Encoder) saveVP9NonrdMLPartitionSnapshot(
 		return snap, false
 	}
 	snap.ref = inter.ref
+	snap.predInterpFilter = inter.predInterpFilter
+	snap.predFilterValid = inter.predFilterValid
 	snap.recon = recon
 	snap.pickPred = e.saveVP9MLPickPredSnapshot(inter, miRows, miCols,
 		miRow, miCol)
@@ -927,6 +931,8 @@ func (e *VP9Encoder) restoreVP9NonrdMLPartitionSnapshot(
 	e.restoreVP9MLPickPredSnapshot(snap.pickPred)
 	e.restoreVP9PartitionReconSnapshotPixels(snap.recon)
 	inter.ref = snap.ref
+	inter.predInterpFilter = snap.predInterpFilter
+	inter.predFilterValid = snap.predFilterValid
 }
 
 func (e *VP9Encoder) releaseVP9NonrdMLPartitionSnapshot(
@@ -936,6 +942,25 @@ func (e *VP9Encoder) releaseVP9NonrdMLPartitionSnapshot(
 		return
 	}
 	e.releaseVP9PartitionReconSnapshot(snap.recon)
+}
+
+func (e *VP9Encoder) saveVP9NonrdMLPartitionReplaySnapshot(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize,
+	old *vp9NonrdMLPartitionSnapshot,
+) bool {
+	if old != nil && old.ok {
+		e.releaseVP9NonrdMLPartitionSnapshot(*old)
+		*old = vp9NonrdMLPartitionSnapshot{}
+	}
+	snap, ok := e.saveVP9NonrdMLPartitionSnapshot(inter, miRows, miCols,
+		miRow, miCol, bsize)
+	if !ok {
+		return false
+	}
+	*old = snap
+	return true
 }
 
 func (e *VP9Encoder) scoreVP9NonrdMLPartitionTree(
@@ -1018,6 +1043,17 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
 		noneOK = false
 	}
 
+	var bestReplay vp9NonrdMLPartitionSnapshot
+	bestReplayOK := false
+	bestRD := vp9InterPartitionRD{}
+	bestTarget := common.BlockInvalid
+	if noneOK {
+		bestRD = noneRD
+		bestTarget = bsize
+		bestReplayOK = e.saveVP9NonrdMLPartitionReplaySnapshot(inter, miRows,
+			miCols, miRow, miCol, bsize, &bestReplay)
+	}
+
 	splitBudget := budget
 	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
 	if noneOK {
@@ -1027,17 +1063,23 @@ func (e *VP9Encoder) scoreVP9NonrdMLPartitionCompare(
 		rateCostProbs, miRows, miCols, miRow, miCol, bsize, splitSize,
 		hasRows, hasCols, qindex, splitBudget)
 
-	bestTarget := common.BlockInvalid
-	if noneOK {
-		bestTarget = bsize
-	}
 	if splitOK && (!noneOK || splitRD.score < noneRD.score) {
+		bestRD = splitRD
 		bestTarget = splitSize
+		bestReplayOK = e.saveVP9NonrdMLPartitionReplaySnapshot(inter, miRows,
+			miCols, miRow, miCol, bsize, &bestReplay)
 	}
 	if bestTarget == common.BlockInvalid {
 		e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
 		e.releaseVP9NonrdMLPartitionSnapshot(snap)
 		return vp9InterPartitionRD{}, false
+	}
+
+	if bestReplayOK {
+		e.restoreVP9NonrdMLPartitionSnapshot(inter, bestReplay)
+		e.releaseVP9NonrdMLPartitionSnapshot(bestReplay)
+		e.releaseVP9NonrdMLPartitionSnapshot(snap)
+		return bestRD, true
 	}
 
 	e.restoreVP9NonrdMLPartitionSnapshot(inter, snap)
