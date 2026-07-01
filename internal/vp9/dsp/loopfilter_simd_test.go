@@ -285,6 +285,38 @@ func BenchmarkVP9LoopFilterVertical8NonFlatScalar(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9LoopFilterHorizontal8DualNonFlat(b *testing.B) {
+	plane := texturedVP9LfPlane()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		VpxLpfHorizontal8Dual(plane, vp9LfHorizontalCursor, vp9LfPitch, 64, 32, 8, 64, 32, 8)
+	}
+}
+
+func BenchmarkVP9LoopFilterHorizontal8DualNonFlatScalar(b *testing.B) {
+	plane := texturedVP9LfPlane()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		vpxLpfHorizontal8DualScalar(plane, vp9LfHorizontalCursor, vp9LfPitch, 64, 32, 8, 64, 32, 8)
+	}
+}
+
+func BenchmarkVP9LoopFilterVertical8DualNonFlat(b *testing.B) {
+	plane := texturedVP9LfPlane()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		VpxLpfVertical8Dual(plane, vp9LfVerticalCursor, vp9LfPitch, 64, 32, 8, 64, 32, 8)
+	}
+}
+
+func BenchmarkVP9LoopFilterVertical8DualNonFlatScalar(b *testing.B) {
+	plane := texturedVP9LfPlane()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		vpxLpfVertical8DualScalar(plane, vp9LfVerticalCursor, vp9LfPitch, 64, 32, 8, 64, 32, 8)
+	}
+}
+
 const (
 	vp9LfPitch            = 64
 	vp9LfHeight           = 40

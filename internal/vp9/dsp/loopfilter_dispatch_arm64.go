@@ -8,6 +8,12 @@ import (
 	vp8dsp "github.com/thesyncim/govpx/internal/vp8/dsp"
 )
 
+//go:noescape
+func lpfHorizontal8NEON(s *byte, pitch int, blimit, limit, thresh byte)
+
+//go:noescape
+func lpfVertical8NEON(s *byte, pitch int, blimit, limit, thresh byte)
+
 func vpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	if vp9LpfHorizontal4Tap8NEON(plane, s-4*pitch, pitch, blimit, limit, thresh) {
 		return
@@ -51,23 +57,33 @@ func vpxLpfVertical4Dual(plane []uint8, s, pitch int,
 }
 
 func vpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	if canUseLoopfilter4TapNEON(blimit) && hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
+		lpfHorizontal8NEON(&plane[s], pitch, blimit, limit, thresh)
+		return
+	}
 	vpxLpfHorizontal8Scalar(plane, s, pitch, blimit, limit, thresh)
 }
 
 func vpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	if canUseLoopfilter4TapNEON(blimit) && hasVerticalLfWindow(plane, s-4, pitch, 8) {
+		lpfVertical8NEON(&plane[s], pitch, blimit, limit, thresh)
+		return
+	}
 	vpxLpfVertical8Scalar(plane, s, pitch, blimit, limit, thresh)
 }
 
 func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	vpxLpfHorizontal8DualScalar(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+	vpxLpfHorizontal8(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfHorizontal8(plane, s+8, pitch, blimit1, limit1, thresh1)
 }
 
 func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	vpxLpfVertical8DualScalar(plane, s, pitch, blimit0, limit0, thresh0, blimit1, limit1, thresh1)
+	vpxLpfVertical8(plane, s, pitch, blimit0, limit0, thresh0)
+	vpxLpfVertical8(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
 }
 
 func sameLoopfilterTriplet(blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8) bool {
