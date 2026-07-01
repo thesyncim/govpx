@@ -500,20 +500,20 @@ func mbLpfVerticalEdgeW(plane []uint8, s, pitch int, blimit, limit, thresh uint8
 
 // VpxLpfHorizontal16 mirrors vpx_lpf_horizontal_16_c.
 func VpxLpfHorizontal16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 1)
+	vpxLpfHorizontal16(plane, s, pitch, blimit, limit, thresh)
 }
 
 // VpxLpfHorizontal16Dual mirrors vpx_lpf_horizontal_16_dual_c.
 func VpxLpfHorizontal16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 2)
+	vpxLpfHorizontal16Dual(plane, s, pitch, blimit, limit, thresh)
 }
 
 // VpxLpfVertical16 mirrors vpx_lpf_vertical_16_c.
 func VpxLpfVertical16(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 8)
+	vpxLpfVertical16(plane, s, pitch, blimit, limit, thresh)
 }
 
 // VpxLpfVertical16Dual mirrors vpx_lpf_vertical_16_dual_c.
 func VpxLpfVertical16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 16)
+	vpxLpfVertical16Dual(plane, s, pitch, blimit, limit, thresh)
 }

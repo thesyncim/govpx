@@ -357,3 +357,63 @@ func firstVP9LfDiff(got, want []uint8) int {
 	}
 	return -1
 }
+
+func TestVP9LoopFilter16DispatchMatchesScalar(t *testing.T) {
+	type singleFn func([]uint8, int, int, uint8, uint8, uint8)
+	cases := []struct {
+		name     string
+		dispatch singleFn
+		scalar   singleFn
+		cursor   int
+	}{
+		{"Horizontal16", VpxLpfHorizontal16,
+			func(p []uint8, s, pitch int, b, l, th uint8) {
+				mbLpfHorizontalEdgeW(p, s, pitch, b, l, th, 1)
+			}, vp9LfHorizontalCursor},
+		{"Horizontal16Dual", VpxLpfHorizontal16Dual,
+			func(p []uint8, s, pitch int, b, l, th uint8) {
+				mbLpfHorizontalEdgeW(p, s, pitch, b, l, th, 2)
+			}, vp9LfHorizontalCursor},
+		{"Vertical16", VpxLpfVertical16,
+			func(p []uint8, s, pitch int, b, l, th uint8) {
+				mbLpfVerticalEdgeW(p, s, pitch, b, l, th, 8)
+			}, vp9LfVerticalCursor},
+		{"Vertical16Dual", VpxLpfVertical16Dual,
+			func(p []uint8, s, pitch int, b, l, th uint8) {
+				mbLpfVerticalEdgeW(p, s, pitch, b, l, th, 16)
+			}, vp9LfVerticalCursor},
+	}
+
+	params := []struct {
+		blimit uint8
+		limit  uint8
+		thresh uint8
+	}{
+		{4, 2, 0},
+		{12, 8, 2},
+		{32, 16, 8},
+		{64, 32, 16},
+		{128, 48, 4},
+		{193, 63, 15},
+		{255, 63, 7},
+	}
+
+	rng := rand.New(rand.NewPCG(0x4c503136, 0x53494d44))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, p := range params {
+				for trial := range 48 {
+					base := randomVP9LfPlane(rng, trial)
+					got := append([]uint8(nil), base...)
+					want := append([]uint8(nil), base...)
+					tc.dispatch(got, tc.cursor, vp9LfPitch, p.blimit, p.limit, p.thresh)
+					tc.scalar(want, tc.cursor, vp9LfPitch, p.blimit, p.limit, p.thresh)
+					if !bytes.Equal(got, want) {
+						t.Fatalf("%s blimit=%d limit=%d thresh=%d trial=%d mismatch at byte %d",
+							tc.name, p.blimit, p.limit, p.thresh, trial, firstVP9LfDiff(got, want))
+					}
+				}
+			}
+		})
+	}
+}
