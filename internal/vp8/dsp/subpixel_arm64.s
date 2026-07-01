@@ -145,52 +145,369 @@ horiz_loop:
 	SUB	$1, R8, R8
 	CBNZ	R8, horiz_loop
 
-	// === Vertical pass: 16 rows ===
-	MOVD	$16, R8
-	MOVD	R6, R9
+	// === Vertical pass: 16 rows, rolling 6-row window ===
+	// libvpx keeps the second-pass window in registers, loading each
+	// tmp row exactly once; the fully unrolled rotation avoids both
+	// re-loads and register moves.
+	VLD1	(R6), [V0.B16]
+	ADD	$16, R6, R7
+	VLD1	(R7), [V1.B16]
+	ADD	$32, R6, R7
+	VLD1	(R7), [V2.B16]
+	ADD	$48, R6, R7
+	VLD1	(R7), [V3.B16]
+	ADD	$64, R6, R7
+	VLD1	(R7), [V4.B16]
 
-vert_loop:
-	// Tap 0: tmp[y]
-	VLD1	(R9), [V0.B16]
-	WORD	$0x2e36c00a	// umull  v10.8h, v0.8b,  v22.8b
+	// Output row 0: tmp rows 0..5
+	ADD	$80, R6, R7
+	VLD1	(R7), [V5.B16]
+	WORD	$0x2e36c00a	// umull v10.8h, v0.8b, v22.8b
 	WORD	$0x6e36c00b	// umull2 v11.8h, v0.16b, v22.16b
-
-	ADD	$16, R9, R7
-	VLD1	(R7), [V0.B16]
-	WORD	$0x2e37a00a	// umlsl  v10.8h, v0.8b,  v23.8b
-	WORD	$0x6e37a00b	// umlsl2 v11.8h, v0.16b, v23.16b
-
-	ADD	$32, R9, R7
-	VLD1	(R7), [V0.B16]
-	WORD	$0x2e38800a	// umlal  v10.8h, v0.8b,  v24.8b
-	WORD	$0x6e38800b	// umlal2 v11.8h, v0.16b, v24.16b
-
-	ADD	$48, R9, R7
-	VLD1	(R7), [V0.B16]
-	WORD	$0x2e39c00c	// umull  v12.8h, v0.8b,  v25.8b
-	WORD	$0x6e39c00d	// umull2 v13.8h, v0.16b, v25.16b
-
-	ADD	$64, R9, R7
-	VLD1	(R7), [V0.B16]
-	WORD	$0x2e3aa00a	// umlsl  v10.8h, v0.8b,  v26.8b
-	WORD	$0x6e3aa00b	// umlsl2 v11.8h, v0.16b, v26.16b
-
-	ADD	$80, R9, R7
-	VLD1	(R7), [V0.B16]
-	WORD	$0x2e3b800a	// umlal  v10.8h, v0.8b,  v27.8b
-	WORD	$0x6e3b800b	// umlal2 v11.8h, v0.16b, v27.16b
-
+	WORD	$0x2e37a02a	// umlsl v10.8h, v1.8b, v23.8b
+	WORD	$0x6e37a02b	// umlsl2 v11.8h, v1.16b, v23.16b
+	WORD	$0x2e38804a	// umlal v10.8h, v2.8b, v24.8b
+	WORD	$0x6e38804b	// umlal2 v11.8h, v2.16b, v24.16b
+	WORD	$0x2e39c06c	// umull v12.8h, v3.8b, v25.8b
+	WORD	$0x6e39c06d	// umull2 v13.8h, v3.16b, v25.16b
+	WORD	$0x2e3aa08a	// umlsl v10.8h, v4.8b, v26.8b
+	WORD	$0x6e3aa08b	// umlsl2 v11.8h, v4.16b, v26.16b
+	WORD	$0x2e3b80aa	// umlal v10.8h, v5.8b, v27.8b
+	WORD	$0x6e3b80ab	// umlal2 v11.8h, v5.16b, v27.16b
 	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
 	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
-	WORD	$0x2f098d48	// sqrshrun  v8.8b,  v10.8h, #7
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
 	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
 
+	// Output row 1: tmp rows 1..6
+	ADD	$96, R6, R7
+	VLD1	(R7), [V0.B16]
+	WORD	$0x2e36c02a	// umull v10.8h, v1.8b, v22.8b
+	WORD	$0x6e36c02b	// umull2 v11.8h, v1.16b, v22.16b
+	WORD	$0x2e37a04a	// umlsl v10.8h, v2.8b, v23.8b
+	WORD	$0x6e37a04b	// umlsl2 v11.8h, v2.16b, v23.16b
+	WORD	$0x2e38806a	// umlal v10.8h, v3.8b, v24.8b
+	WORD	$0x6e38806b	// umlal2 v11.8h, v3.16b, v24.16b
+	WORD	$0x2e39c08c	// umull v12.8h, v4.8b, v25.8b
+	WORD	$0x6e39c08d	// umull2 v13.8h, v4.16b, v25.16b
+	WORD	$0x2e3aa0aa	// umlsl v10.8h, v5.8b, v26.8b
+	WORD	$0x6e3aa0ab	// umlsl2 v11.8h, v5.16b, v26.16b
+	WORD	$0x2e3b800a	// umlal v10.8h, v0.8b, v27.8b
+	WORD	$0x6e3b800b	// umlal2 v11.8h, v0.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 2: tmp rows 2..7
+	ADD	$112, R6, R7
+	VLD1	(R7), [V1.B16]
+	WORD	$0x2e36c04a	// umull v10.8h, v2.8b, v22.8b
+	WORD	$0x6e36c04b	// umull2 v11.8h, v2.16b, v22.16b
+	WORD	$0x2e37a06a	// umlsl v10.8h, v3.8b, v23.8b
+	WORD	$0x6e37a06b	// umlsl2 v11.8h, v3.16b, v23.16b
+	WORD	$0x2e38808a	// umlal v10.8h, v4.8b, v24.8b
+	WORD	$0x6e38808b	// umlal2 v11.8h, v4.16b, v24.16b
+	WORD	$0x2e39c0ac	// umull v12.8h, v5.8b, v25.8b
+	WORD	$0x6e39c0ad	// umull2 v13.8h, v5.16b, v25.16b
+	WORD	$0x2e3aa00a	// umlsl v10.8h, v0.8b, v26.8b
+	WORD	$0x6e3aa00b	// umlsl2 v11.8h, v0.16b, v26.16b
+	WORD	$0x2e3b802a	// umlal v10.8h, v1.8b, v27.8b
+	WORD	$0x6e3b802b	// umlal2 v11.8h, v1.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 3: tmp rows 3..8
+	ADD	$128, R6, R7
+	VLD1	(R7), [V2.B16]
+	WORD	$0x2e36c06a	// umull v10.8h, v3.8b, v22.8b
+	WORD	$0x6e36c06b	// umull2 v11.8h, v3.16b, v22.16b
+	WORD	$0x2e37a08a	// umlsl v10.8h, v4.8b, v23.8b
+	WORD	$0x6e37a08b	// umlsl2 v11.8h, v4.16b, v23.16b
+	WORD	$0x2e3880aa	// umlal v10.8h, v5.8b, v24.8b
+	WORD	$0x6e3880ab	// umlal2 v11.8h, v5.16b, v24.16b
+	WORD	$0x2e39c00c	// umull v12.8h, v0.8b, v25.8b
+	WORD	$0x6e39c00d	// umull2 v13.8h, v0.16b, v25.16b
+	WORD	$0x2e3aa02a	// umlsl v10.8h, v1.8b, v26.8b
+	WORD	$0x6e3aa02b	// umlsl2 v11.8h, v1.16b, v26.16b
+	WORD	$0x2e3b804a	// umlal v10.8h, v2.8b, v27.8b
+	WORD	$0x6e3b804b	// umlal2 v11.8h, v2.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 4: tmp rows 4..9
+	ADD	$144, R6, R7
+	VLD1	(R7), [V3.B16]
+	WORD	$0x2e36c08a	// umull v10.8h, v4.8b, v22.8b
+	WORD	$0x6e36c08b	// umull2 v11.8h, v4.16b, v22.16b
+	WORD	$0x2e37a0aa	// umlsl v10.8h, v5.8b, v23.8b
+	WORD	$0x6e37a0ab	// umlsl2 v11.8h, v5.16b, v23.16b
+	WORD	$0x2e38800a	// umlal v10.8h, v0.8b, v24.8b
+	WORD	$0x6e38800b	// umlal2 v11.8h, v0.16b, v24.16b
+	WORD	$0x2e39c02c	// umull v12.8h, v1.8b, v25.8b
+	WORD	$0x6e39c02d	// umull2 v13.8h, v1.16b, v25.16b
+	WORD	$0x2e3aa04a	// umlsl v10.8h, v2.8b, v26.8b
+	WORD	$0x6e3aa04b	// umlsl2 v11.8h, v2.16b, v26.16b
+	WORD	$0x2e3b806a	// umlal v10.8h, v3.8b, v27.8b
+	WORD	$0x6e3b806b	// umlal2 v11.8h, v3.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 5: tmp rows 5..10
+	ADD	$160, R6, R7
+	VLD1	(R7), [V4.B16]
+	WORD	$0x2e36c0aa	// umull v10.8h, v5.8b, v22.8b
+	WORD	$0x6e36c0ab	// umull2 v11.8h, v5.16b, v22.16b
+	WORD	$0x2e37a00a	// umlsl v10.8h, v0.8b, v23.8b
+	WORD	$0x6e37a00b	// umlsl2 v11.8h, v0.16b, v23.16b
+	WORD	$0x2e38802a	// umlal v10.8h, v1.8b, v24.8b
+	WORD	$0x6e38802b	// umlal2 v11.8h, v1.16b, v24.16b
+	WORD	$0x2e39c04c	// umull v12.8h, v2.8b, v25.8b
+	WORD	$0x6e39c04d	// umull2 v13.8h, v2.16b, v25.16b
+	WORD	$0x2e3aa06a	// umlsl v10.8h, v3.8b, v26.8b
+	WORD	$0x6e3aa06b	// umlsl2 v11.8h, v3.16b, v26.16b
+	WORD	$0x2e3b808a	// umlal v10.8h, v4.8b, v27.8b
+	WORD	$0x6e3b808b	// umlal2 v11.8h, v4.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 6: tmp rows 6..11
+	ADD	$176, R6, R7
+	VLD1	(R7), [V5.B16]
+	WORD	$0x2e36c00a	// umull v10.8h, v0.8b, v22.8b
+	WORD	$0x6e36c00b	// umull2 v11.8h, v0.16b, v22.16b
+	WORD	$0x2e37a02a	// umlsl v10.8h, v1.8b, v23.8b
+	WORD	$0x6e37a02b	// umlsl2 v11.8h, v1.16b, v23.16b
+	WORD	$0x2e38804a	// umlal v10.8h, v2.8b, v24.8b
+	WORD	$0x6e38804b	// umlal2 v11.8h, v2.16b, v24.16b
+	WORD	$0x2e39c06c	// umull v12.8h, v3.8b, v25.8b
+	WORD	$0x6e39c06d	// umull2 v13.8h, v3.16b, v25.16b
+	WORD	$0x2e3aa08a	// umlsl v10.8h, v4.8b, v26.8b
+	WORD	$0x6e3aa08b	// umlsl2 v11.8h, v4.16b, v26.16b
+	WORD	$0x2e3b80aa	// umlal v10.8h, v5.8b, v27.8b
+	WORD	$0x6e3b80ab	// umlal2 v11.8h, v5.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 7: tmp rows 7..12
+	ADD	$192, R6, R7
+	VLD1	(R7), [V0.B16]
+	WORD	$0x2e36c02a	// umull v10.8h, v1.8b, v22.8b
+	WORD	$0x6e36c02b	// umull2 v11.8h, v1.16b, v22.16b
+	WORD	$0x2e37a04a	// umlsl v10.8h, v2.8b, v23.8b
+	WORD	$0x6e37a04b	// umlsl2 v11.8h, v2.16b, v23.16b
+	WORD	$0x2e38806a	// umlal v10.8h, v3.8b, v24.8b
+	WORD	$0x6e38806b	// umlal2 v11.8h, v3.16b, v24.16b
+	WORD	$0x2e39c08c	// umull v12.8h, v4.8b, v25.8b
+	WORD	$0x6e39c08d	// umull2 v13.8h, v4.16b, v25.16b
+	WORD	$0x2e3aa0aa	// umlsl v10.8h, v5.8b, v26.8b
+	WORD	$0x6e3aa0ab	// umlsl2 v11.8h, v5.16b, v26.16b
+	WORD	$0x2e3b800a	// umlal v10.8h, v0.8b, v27.8b
+	WORD	$0x6e3b800b	// umlal2 v11.8h, v0.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 8: tmp rows 8..13
+	ADD	$208, R6, R7
+	VLD1	(R7), [V1.B16]
+	WORD	$0x2e36c04a	// umull v10.8h, v2.8b, v22.8b
+	WORD	$0x6e36c04b	// umull2 v11.8h, v2.16b, v22.16b
+	WORD	$0x2e37a06a	// umlsl v10.8h, v3.8b, v23.8b
+	WORD	$0x6e37a06b	// umlsl2 v11.8h, v3.16b, v23.16b
+	WORD	$0x2e38808a	// umlal v10.8h, v4.8b, v24.8b
+	WORD	$0x6e38808b	// umlal2 v11.8h, v4.16b, v24.16b
+	WORD	$0x2e39c0ac	// umull v12.8h, v5.8b, v25.8b
+	WORD	$0x6e39c0ad	// umull2 v13.8h, v5.16b, v25.16b
+	WORD	$0x2e3aa00a	// umlsl v10.8h, v0.8b, v26.8b
+	WORD	$0x6e3aa00b	// umlsl2 v11.8h, v0.16b, v26.16b
+	WORD	$0x2e3b802a	// umlal v10.8h, v1.8b, v27.8b
+	WORD	$0x6e3b802b	// umlal2 v11.8h, v1.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 9: tmp rows 9..14
+	ADD	$224, R6, R7
+	VLD1	(R7), [V2.B16]
+	WORD	$0x2e36c06a	// umull v10.8h, v3.8b, v22.8b
+	WORD	$0x6e36c06b	// umull2 v11.8h, v3.16b, v22.16b
+	WORD	$0x2e37a08a	// umlsl v10.8h, v4.8b, v23.8b
+	WORD	$0x6e37a08b	// umlsl2 v11.8h, v4.16b, v23.16b
+	WORD	$0x2e3880aa	// umlal v10.8h, v5.8b, v24.8b
+	WORD	$0x6e3880ab	// umlal2 v11.8h, v5.16b, v24.16b
+	WORD	$0x2e39c00c	// umull v12.8h, v0.8b, v25.8b
+	WORD	$0x6e39c00d	// umull2 v13.8h, v0.16b, v25.16b
+	WORD	$0x2e3aa02a	// umlsl v10.8h, v1.8b, v26.8b
+	WORD	$0x6e3aa02b	// umlsl2 v11.8h, v1.16b, v26.16b
+	WORD	$0x2e3b804a	// umlal v10.8h, v2.8b, v27.8b
+	WORD	$0x6e3b804b	// umlal2 v11.8h, v2.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 10: tmp rows 10..15
+	ADD	$240, R6, R7
+	VLD1	(R7), [V3.B16]
+	WORD	$0x2e36c08a	// umull v10.8h, v4.8b, v22.8b
+	WORD	$0x6e36c08b	// umull2 v11.8h, v4.16b, v22.16b
+	WORD	$0x2e37a0aa	// umlsl v10.8h, v5.8b, v23.8b
+	WORD	$0x6e37a0ab	// umlsl2 v11.8h, v5.16b, v23.16b
+	WORD	$0x2e38800a	// umlal v10.8h, v0.8b, v24.8b
+	WORD	$0x6e38800b	// umlal2 v11.8h, v0.16b, v24.16b
+	WORD	$0x2e39c02c	// umull v12.8h, v1.8b, v25.8b
+	WORD	$0x6e39c02d	// umull2 v13.8h, v1.16b, v25.16b
+	WORD	$0x2e3aa04a	// umlsl v10.8h, v2.8b, v26.8b
+	WORD	$0x6e3aa04b	// umlsl2 v11.8h, v2.16b, v26.16b
+	WORD	$0x2e3b806a	// umlal v10.8h, v3.8b, v27.8b
+	WORD	$0x6e3b806b	// umlal2 v11.8h, v3.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 11: tmp rows 11..16
+	ADD	$256, R6, R7
+	VLD1	(R7), [V4.B16]
+	WORD	$0x2e36c0aa	// umull v10.8h, v5.8b, v22.8b
+	WORD	$0x6e36c0ab	// umull2 v11.8h, v5.16b, v22.16b
+	WORD	$0x2e37a00a	// umlsl v10.8h, v0.8b, v23.8b
+	WORD	$0x6e37a00b	// umlsl2 v11.8h, v0.16b, v23.16b
+	WORD	$0x2e38802a	// umlal v10.8h, v1.8b, v24.8b
+	WORD	$0x6e38802b	// umlal2 v11.8h, v1.16b, v24.16b
+	WORD	$0x2e39c04c	// umull v12.8h, v2.8b, v25.8b
+	WORD	$0x6e39c04d	// umull2 v13.8h, v2.16b, v25.16b
+	WORD	$0x2e3aa06a	// umlsl v10.8h, v3.8b, v26.8b
+	WORD	$0x6e3aa06b	// umlsl2 v11.8h, v3.16b, v26.16b
+	WORD	$0x2e3b808a	// umlal v10.8h, v4.8b, v27.8b
+	WORD	$0x6e3b808b	// umlal2 v11.8h, v4.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 12: tmp rows 12..17
+	ADD	$272, R6, R7
+	VLD1	(R7), [V5.B16]
+	WORD	$0x2e36c00a	// umull v10.8h, v0.8b, v22.8b
+	WORD	$0x6e36c00b	// umull2 v11.8h, v0.16b, v22.16b
+	WORD	$0x2e37a02a	// umlsl v10.8h, v1.8b, v23.8b
+	WORD	$0x6e37a02b	// umlsl2 v11.8h, v1.16b, v23.16b
+	WORD	$0x2e38804a	// umlal v10.8h, v2.8b, v24.8b
+	WORD	$0x6e38804b	// umlal2 v11.8h, v2.16b, v24.16b
+	WORD	$0x2e39c06c	// umull v12.8h, v3.8b, v25.8b
+	WORD	$0x6e39c06d	// umull2 v13.8h, v3.16b, v25.16b
+	WORD	$0x2e3aa08a	// umlsl v10.8h, v4.8b, v26.8b
+	WORD	$0x6e3aa08b	// umlsl2 v11.8h, v4.16b, v26.16b
+	WORD	$0x2e3b80aa	// umlal v10.8h, v5.8b, v27.8b
+	WORD	$0x6e3b80ab	// umlal2 v11.8h, v5.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 13: tmp rows 13..18
+	ADD	$288, R6, R7
+	VLD1	(R7), [V0.B16]
+	WORD	$0x2e36c02a	// umull v10.8h, v1.8b, v22.8b
+	WORD	$0x6e36c02b	// umull2 v11.8h, v1.16b, v22.16b
+	WORD	$0x2e37a04a	// umlsl v10.8h, v2.8b, v23.8b
+	WORD	$0x6e37a04b	// umlsl2 v11.8h, v2.16b, v23.16b
+	WORD	$0x2e38806a	// umlal v10.8h, v3.8b, v24.8b
+	WORD	$0x6e38806b	// umlal2 v11.8h, v3.16b, v24.16b
+	WORD	$0x2e39c08c	// umull v12.8h, v4.8b, v25.8b
+	WORD	$0x6e39c08d	// umull2 v13.8h, v4.16b, v25.16b
+	WORD	$0x2e3aa0aa	// umlsl v10.8h, v5.8b, v26.8b
+	WORD	$0x6e3aa0ab	// umlsl2 v11.8h, v5.16b, v26.16b
+	WORD	$0x2e3b800a	// umlal v10.8h, v0.8b, v27.8b
+	WORD	$0x6e3b800b	// umlal2 v11.8h, v0.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 14: tmp rows 14..19
+	ADD	$304, R6, R7
+	VLD1	(R7), [V1.B16]
+	WORD	$0x2e36c04a	// umull v10.8h, v2.8b, v22.8b
+	WORD	$0x6e36c04b	// umull2 v11.8h, v2.16b, v22.16b
+	WORD	$0x2e37a06a	// umlsl v10.8h, v3.8b, v23.8b
+	WORD	$0x6e37a06b	// umlsl2 v11.8h, v3.16b, v23.16b
+	WORD	$0x2e38808a	// umlal v10.8h, v4.8b, v24.8b
+	WORD	$0x6e38808b	// umlal2 v11.8h, v4.16b, v24.16b
+	WORD	$0x2e39c0ac	// umull v12.8h, v5.8b, v25.8b
+	WORD	$0x6e39c0ad	// umull2 v13.8h, v5.16b, v25.16b
+	WORD	$0x2e3aa00a	// umlsl v10.8h, v0.8b, v26.8b
+	WORD	$0x6e3aa00b	// umlsl2 v11.8h, v0.16b, v26.16b
+	WORD	$0x2e3b802a	// umlal v10.8h, v1.8b, v27.8b
+	WORD	$0x6e3b802b	// umlal2 v11.8h, v1.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
+	VST1	[V8.B16], (R0)
+	ADD	R1, R0, R0
+
+	// Output row 15: tmp rows 15..20
+	ADD	$320, R6, R7
+	VLD1	(R7), [V2.B16]
+	WORD	$0x2e36c06a	// umull v10.8h, v3.8b, v22.8b
+	WORD	$0x6e36c06b	// umull2 v11.8h, v3.16b, v22.16b
+	WORD	$0x2e37a08a	// umlsl v10.8h, v4.8b, v23.8b
+	WORD	$0x6e37a08b	// umlsl2 v11.8h, v4.16b, v23.16b
+	WORD	$0x2e3880aa	// umlal v10.8h, v5.8b, v24.8b
+	WORD	$0x6e3880ab	// umlal2 v11.8h, v5.16b, v24.16b
+	WORD	$0x2e39c00c	// umull v12.8h, v0.8b, v25.8b
+	WORD	$0x6e39c00d	// umull2 v13.8h, v0.16b, v25.16b
+	WORD	$0x2e3aa02a	// umlsl v10.8h, v1.8b, v26.8b
+	WORD	$0x6e3aa02b	// umlsl2 v11.8h, v1.16b, v26.16b
+	WORD	$0x2e3b804a	// umlal v10.8h, v2.8b, v27.8b
+	WORD	$0x6e3b804b	// umlal2 v11.8h, v2.16b, v27.16b
+	WORD	$0x4e6c0d4a	// sqadd v10.8h, v10.8h, v12.8h
+	WORD	$0x4e6d0d6b	// sqadd v11.8h, v11.8h, v13.8h
+	WORD	$0x2f098d48	// sqrshrun v8.8b, v10.8h, #7
+	WORD	$0x6f098d68	// sqrshrun2 v8.16b, v11.8h, #7
 	VST1	[V8.B16], (R0)
 
-	ADD	R1, R0, R0
-	ADD	$16, R9, R9
-	SUB	$1, R8, R8
-	CBNZ	R8, vert_loop
-
 	RET
-
