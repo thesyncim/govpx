@@ -116,3 +116,34 @@ func TestFakeLibvpxOracleHelper(t *testing.T) {
 	}
 	os.Exit(0)
 }
+
+func TestFakeVpxdecVP9Helper(t *testing.T) {
+	if os.Getenv("GOVPX_FAKE_VPXDEC_VP9") != "1" {
+		return
+	}
+	input := ""
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if strings.HasSuffix(arg, ".ivf") {
+			input = arg
+		}
+	}
+	if input == "" {
+		fmt.Fprintln(os.Stderr, "fake vpxdec-vp9 missing input")
+		os.Exit(2)
+	}
+	ivf, err := os.ReadFile(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fake vpxdec-vp9 read input: %v\n", err)
+		os.Exit(1)
+	}
+	sizes, err := parseIVFFrameSizes(ivf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fake vpxdec-vp9 parse input: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "%d decoded frames/%.3f seconds\n", len(sizes), float64(len(sizes))*0.0005)
+	os.Exit(0)
+}

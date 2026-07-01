@@ -249,6 +249,9 @@ func parseVpxencEncodeTime(stderr []byte) (vpxencProgress, bool) {
 }
 
 func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
+	if benchCodec(cfg) == codecVP9 {
+		return runLibvpxVP9DecodeBenchmark(cfg, ivf, deadlineName, frames)
+	}
 	tempDir, err := os.MkdirTemp("", "govpx-decode-bench-*")
 	if err != nil {
 		return decodeReferenceReport{}, err
@@ -338,6 +341,62 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 		WallNSPerFrame:       wallPerFrame,
 		WallDecodeFPS:        wallFPS,
 		SubprocessOverheadNS: overheadNS,
+	}, nil
+}
+
+func runLibvpxVP9DecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
+	tempDir, err := os.MkdirTemp("", "govpx-vp9-decode-bench-*")
+	if err != nil {
+		return decodeReferenceReport{}, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	path := tempDir + string(os.PathSeparator) + "input.ivf"
+	if err := os.WriteFile(path, ivf, 0o600); err != nil {
+		return decodeReferenceReport{}, err
+	}
+
+	args := []string{"--codec=vp9", "--noblit", "--summary", path}
+	warm := exec.Command(cfg.LibvpxOracle, args...)
+	warm.Stdout = nil
+	warm.Stderr = nil
+	_ = warm.Run()
+
+	var stderr bytes.Buffer
+	cmd := exec.Command(cfg.LibvpxOracle, args...)
+	cmd.Stderr = &stderr
+	start := time.Now()
+	err = cmd.Run()
+	elapsed := time.Since(start)
+	if err != nil {
+		return decodeReferenceReport{}, fmt.Errorf("libvpx vpxdec-vp9 failed: %w\nstderr:\n%s", err, stderr.Bytes())
+	}
+	if frames <= 0 {
+		return decodeReferenceReport{}, errors.New("libvpx vpxdec-vp9 decoded zero frames")
+	}
+	wallNS := elapsed.Nanoseconds()
+	nsPerFrame := wallNS / int64(frames)
+	if nsPerFrame <= 0 {
+		nsPerFrame = 1
+		wallNS = int64(frames)
+	}
+	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
+	return decodeReferenceReport{
+		Decoder:              "libvpx-vp9",
+		Mode:                 deadlineName,
+		DecodedFrames:        frames,
+		NSPerFrame:           nsPerFrame,
+		DecodeFPS:            1e9 / float64(nsPerFrame),
+		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
+		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), wallNS),
+		LatencyNS: latencyReport{
+			P50: nsPerFrame,
+			P95: nsPerFrame,
+			P99: nsPerFrame,
+		},
+		TimingSource:   "vpxdec-wall",
+		WallNSPerFrame: nsPerFrame,
+		WallDecodeFPS:  1e9 / float64(nsPerFrame),
 	}, nil
 }
 

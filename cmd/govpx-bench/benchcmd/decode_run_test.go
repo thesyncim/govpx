@@ -151,8 +151,8 @@ func TestRunDecodeBenchmarkIncludesLibvpxReference(t *testing.T) {
 	}
 }
 
-func TestRunDecodeBenchmarkRejectsVP9LibvpxOracle(t *testing.T) {
-	_, err := runDecodeBenchmark(benchConfig{
+func TestRunDecodeBenchmarkIncludesVP9LibvpxReference(t *testing.T) {
+	report, err := runDecodeBenchmark(benchConfig{
 		Codec:        codecVP9,
 		Width:        16,
 		Height:       16,
@@ -160,10 +160,21 @@ func TestRunDecodeBenchmarkRejectsVP9LibvpxOracle(t *testing.T) {
 		FPS:          30,
 		BitrateKbps:  1200,
 		Mode:         "realtime",
-		LibvpxOracle: fakeLibvpxOraclePath(t),
+		LibvpxOracle: fakeVpxdecVP9Path(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), "supports VP8 only") {
-		t.Fatalf("runDecodeBenchmark VP9 oracle err = %v, want VP8-only oracle rejection", err)
+	if err != nil {
+		t.Fatalf("runDecodeBenchmark VP9 returned error: %v", err)
+	}
+	if report.Reference == nil {
+		t.Fatalf("reference = nil, want fake libvpx VP9 decode report")
+	}
+	if report.Reference.Decoder != "libvpx-vp9" || report.Reference.DecodedFrames != 3 ||
+		report.Reference.TimingSource != "vpxdec-wall" {
+		t.Fatalf("reference = %+v, want libvpx-vp9 wall-timed with 3 decoded frames", *report.Reference)
+	}
+	if report.Comparison == nil || report.RelativeSpeedVsReference <= 0 {
+		t.Fatalf("comparison = %+v relative=%f, want populated VP9 comparison",
+			report.Comparison, report.RelativeSpeedVsReference)
 	}
 }
 

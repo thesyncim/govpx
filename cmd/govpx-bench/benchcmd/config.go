@@ -126,19 +126,22 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	repoVpxenc := ""
 	repoVpxencVP9 := ""
 	repoOracle := ""
+	repoVpxdecVP9 := ""
 	if haveRoot {
 		repoVpxenc = filepath.Join(root, "internal", "coracle", "build", "vpxenc")
 		repoVpxencVP9 = filepath.Join(root, "internal", "coracle", "build", "vpxenc-vp9")
 		repoOracle = filepath.Join(root, "internal", "coracle", "build", "govpx-vpx-oracle")
+		repoVpxdecVP9 = filepath.Join(root, "internal", "coracle", "build", "vpxdec-vp9")
 	}
 
 	codec := benchCodec(*cfg)
 	needVpxenc := !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
 	needVpxencVP9 := !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" && haveRoot && !isExecutable(repoVpxencVP9)
 	needOracle := cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
-	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needOracle) {
+	needVpxdecVP9 := cfg.Decode && codec == codecVP9 && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoVpxdecVP9)
+	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needOracle || needVpxdecVP9) {
 		target := "oracle-tools"
-		if needVpxencVP9 {
+		if needVpxencVP9 || needVpxdecVP9 {
 			target = "vp9-vpxdec-tools"
 		}
 		fmt.Fprintf(os.Stderr, "govpx-bench: building libvpx oracle tools (make %s)\n", target)
@@ -168,6 +171,9 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
 		cfg.LibvpxOracle = repoOracle
 	}
+	if cfg.Decode && codec == codecVP9 && cfg.LibvpxOracle == "" && isExecutable(repoVpxdecVP9) {
+		cfg.LibvpxOracle = repoVpxdecVP9
+	}
 
 	// Warn loudly when -auto-libvpx was requested but no reference binary
 	// could be located. Without this the bench silently prints only the
@@ -183,6 +189,10 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" {
 		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but govpx-vpx-oracle not found; "+
 			"run `make oracle-tools` or pass -libvpx-oracle=<path> (or -build-libvpx=true)")
+	}
+	if cfg.Decode && codec == codecVP9 && cfg.LibvpxOracle == "" {
+		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but vpxdec-vp9 not found; "+
+			"run `make vp9-vpxdec-tools` or pass -libvpx-oracle=<path> (or -build-libvpx=true)")
 	}
 }
 

@@ -100,9 +100,6 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		Options: benchSummary(deadlineName),
 	}
 	if cfg.LibvpxOracle != "" {
-		if codec != codecVP8 {
-			return decodeBenchReport{}, errors.New("libvpx decode oracle currently supports VP8 only")
-		}
 		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))
 		if err != nil {
 			return decodeBenchReport{}, err

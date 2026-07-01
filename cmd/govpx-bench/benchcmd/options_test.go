@@ -128,8 +128,8 @@ func TestResolveLibvpxDefaultsDoesNotSelectVpxencForDecode(t *testing.T) {
 func TestResolveLibvpxDefaultsDoesNotSelectVP8OracleForVP9Decode(t *testing.T) {
 	cfg := benchConfig{Codec: codecVP9, Decode: true}
 	resolveLibvpxDefaults(&cfg, false)
-	if cfg.LibvpxOracle != "" {
-		t.Fatalf("LibvpxOracle = %q, want empty for VP9 decode mode", cfg.LibvpxOracle)
+	if cfg.LibvpxOracle != "" && !strings.HasSuffix(cfg.LibvpxOracle, "vpxdec-vp9") {
+		t.Fatalf("LibvpxOracle = %q, want empty or vpxdec-vp9 for VP9 decode mode", cfg.LibvpxOracle)
 	}
 }
 
