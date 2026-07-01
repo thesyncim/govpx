@@ -429,19 +429,20 @@ type VP9Encoder struct {
 	cyclicResizePending bool
 	// cyclicResizeFramePending is true only on the first encoded frame
 	// after a resize (setup ResetResize + postencode forced GF).
-	cyclicResizeFramePending bool
-	dqScratch                vp9dec.DequantTables
-	frameCounts              encoder.FrameCounts
-	vp9TokenFrame            encoder.TokenFrameBuffer
-	vp9TokenCollect          vp9TokenCollectState
-	vp9TokenReplay           vp9TokenReplayState
-	vp9CountCodingPreserved  bool
-	vp9HeaderScratch         vp9dec.UncompressedHeader
-	vp9InterIntraHdr         vp9dec.UncompressedHeader
-	vp9CountWorkers          []VP9Encoder
-	vp9CountCounts           []encoder.FrameCounts
-	vp9CountJobs             []vp9CountTileJob
-	vp9TilePool              *vp9TileWorkerPool
+	cyclicResizeFramePending    bool
+	dqScratch                   vp9dec.DequantTables
+	frameCounts                 encoder.FrameCounts
+	vp9TokenFrame               encoder.TokenFrameBuffer
+	vp9TokenCollect             vp9TokenCollectState
+	vp9TokenReplay              vp9TokenReplayState
+	vp9ThreadedTokenReplayReady bool
+	vp9CountCodingPreserved     bool
+	vp9HeaderScratch            vp9dec.UncompressedHeader
+	vp9InterIntraHdr            vp9dec.UncompressedHeader
+	vp9CountWorkers             []VP9Encoder
+	vp9CountCounts              []encoder.FrameCounts
+	vp9CountJobs                []vp9CountTileJob
+	vp9TilePool                 *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
 	// at the leaf-write site so the count pre-pass populates entries and
 	// the bitstream write pass reuses them without re-running the inter-

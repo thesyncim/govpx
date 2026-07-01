@@ -62,7 +62,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	}
 	e.restoreVP9CyclicRefreshMapsAfterCounts(cyclicSnap)
 
-	if preserveCodingState && miGridValid && e.vp9TokenFrame.Used > 0 {
+	if preserveCodingState && miGridValid && e.vp9HasCountTokensForReplay() {
 		e.resetVP9EncoderSyntaxContexts()
 		e.vp9CountCodingPreserved = true
 	} else {

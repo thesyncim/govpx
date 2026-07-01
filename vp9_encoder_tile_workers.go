@@ -69,6 +69,7 @@ type vp9EncodeTileJob struct {
 	output         []byte
 	rowMTSync      *vp9RowMTSync
 	replayTokens   bool
+	replayFrame    *encoder.TokenFrameBuffer
 	replayTileRow  int
 	replayTileCol  int
 	miRows         int
@@ -1080,6 +1081,9 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 			partitionProbs, seg, baseMi, txMode, kind, seed, sync)
 		if e.vp9TokenReplay.active {
 			pool.encodeJobs[tileCol].replayTokens = true
+			if e.vp9ThreadedTokenReplayReady && tileCol < len(pool.countTokens) {
+				pool.encodeJobs[tileCol].replayFrame = &pool.countTokens[tileCol]
+			}
 			pool.encodeJobs[tileCol].replayTileRow = 0
 			pool.encodeJobs[tileCol].replayTileCol = tileCol
 		}
@@ -1538,6 +1542,7 @@ func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
 			active:  true,
 			tileRow: job.replayTileRow,
 			tileCol: job.replayTileCol,
+			frame:   job.replayFrame,
 		}
 	}
 	defer func() { job.worker.vp9RowMTSync = nil }()

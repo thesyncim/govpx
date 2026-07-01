@@ -265,15 +265,25 @@ func assertVP9CountTokenListAt(t *testing.T, e *VP9Encoder, label string,
 	tileCol, tileSBRow int, allowOnlyEOSB bool,
 ) {
 	t.Helper()
-	if e.vp9TokenFrame.Used <= 0 {
-		t.Fatalf("%s token frame used = %d, want tokens", label, e.vp9TokenFrame.Used)
+	frame := &e.vp9TokenFrame
+	if e.vp9ThreadedTokenReplayReady && e.vp9TilePool != nil &&
+		tileCol >= 0 && tileCol < len(e.vp9TilePool.countTokens) {
+		frame = &e.vp9TilePool.countTokens[tileCol]
 	}
-	list, ok := e.vp9CountTokenListForTileSBRow(0, tileCol, tileSBRow)
+	if frame.Used <= 0 {
+		t.Fatalf("%s token frame used = %d, want tokens", label, frame.Used)
+	}
+	idx, ok := frame.TokenListIndex(0, tileCol, tileSBRow)
 	if !ok {
 		t.Fatalf("%s token list missing for tile col %d row %d",
 			label, tileCol, tileSBRow)
 	}
-	tokens, ok := e.vp9TokenFrame.TokensForList(list)
+	list := frame.Lists[idx]
+	if list.Count == 0 {
+		t.Fatalf("%s token list empty for tile col %d row %d",
+			label, tileCol, tileSBRow)
+	}
+	tokens, ok := frame.TokensForList(list)
 	if !ok {
 		t.Fatalf("%s token list slice rejected: %+v", label, list)
 	}

@@ -18,6 +18,7 @@ type vp9TokenReplayState struct {
 	active  bool
 	tileRow int
 	tileCol int
+	frame   *encoder.TokenFrameBuffer
 	tokens  []encoder.TokenExtra
 	cursor  int
 	err     error
@@ -39,6 +40,9 @@ func (e *VP9Encoder) vp9CountTokenCollectionEligible(tileRows, tileCols int,
 func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
+	if e != nil {
+		e.vp9ThreadedTokenReplayReady = false
+	}
 	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) {
 		if e != nil {
 			e.vp9TokenCollect = vp9TokenCollectState{}
@@ -58,6 +62,9 @@ func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tile
 func (e *VP9Encoder) beginVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPool,
 	miRows, miCols, tileRows, tileCols int, kind vp9ModeTreeKind,
 ) bool {
+	if e != nil {
+		e.vp9ThreadedTokenReplayReady = false
+	}
 	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) ||
 		pool == nil || tileCols <= 1 || len(pool.countTokens) < tileCols {
 		if e != nil {
@@ -65,12 +72,6 @@ func (e *VP9Encoder) beginVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPoo
 			e.vp9TokenReplay = vp9TokenReplayState{}
 			e.vp9TokenFrame.Reset()
 		}
-		return false
-	}
-	e.vp9TokenFrame.Ensure(miRows, miCols)
-	if len(e.vp9TokenFrame.Tokens) == 0 || len(e.vp9TokenFrame.Lists) == 0 {
-		e.vp9TokenCollect = vp9TokenCollectState{}
-		e.vp9TokenReplay = vp9TokenReplayState{}
 		return false
 	}
 	e.vp9TokenFrame.Reset()
@@ -88,15 +89,21 @@ func (e *VP9Encoder) finishVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPo
 	for tileCol := range tileCols {
 		worker := &pool.workers[tileCol]
 		if err := worker.finishVP9CountTokenCollection(); err != nil {
+			e.vp9ThreadedTokenReplayReady = false
 			return false
 		}
 		pool.countTokens[tileCol] = worker.vp9TokenFrame
 		worker.vp9TokenCollect = vp9TokenCollectState{}
 	}
-	return e.mergeVP9ThreadedCountTokenFrames(pool, miRows, tileCols)
+	if !e.vp9ThreadedCountTokenFramesReady(pool, miRows, tileCols) {
+		e.vp9ThreadedTokenReplayReady = false
+		return false
+	}
+	e.vp9ThreadedTokenReplayReady = true
+	return true
 }
 
-func (e *VP9Encoder) mergeVP9ThreadedCountTokenFrames(pool *vp9TileWorkerPool,
+func (e *VP9Encoder) vp9ThreadedCountTokenFramesReady(pool *vp9TileWorkerPool,
 	miRows, tileCols int,
 ) bool {
 	if e == nil || pool == nil || tileCols <= 0 || len(pool.countTokens) < tileCols {
@@ -106,9 +113,11 @@ func (e *VP9Encoder) mergeVP9ThreadedCountTokenFrames(pool *vp9TileWorkerPool,
 	if sbRows <= 0 {
 		return false
 	}
-	e.vp9TokenFrame.Reset()
 	for tileCol := range tileCols {
 		src := &pool.countTokens[tileCol]
+		if src.Used <= 0 {
+			return false
+		}
 		for tileSBRow := range sbRows {
 			srcIdx, ok := src.TokenListIndex(0, tileCol, tileSBRow)
 			if !ok {
@@ -119,21 +128,9 @@ func (e *VP9Encoder) mergeVP9ThreadedCountTokenFrames(pool *vp9TileWorkerPool,
 			if !ok || len(tokens) == 0 {
 				return false
 			}
-			dstIdx, ok := e.vp9TokenFrame.TokenListIndex(0, tileCol, tileSBRow)
-			if !ok || e.vp9TokenFrame.Used+len(tokens) > len(e.vp9TokenFrame.Tokens) {
-				return false
-			}
-			start := e.vp9TokenFrame.Used
-			copy(e.vp9TokenFrame.Tokens[start:], tokens)
-			e.vp9TokenFrame.Used += len(tokens)
-			e.vp9TokenFrame.Lists[dstIdx] = encoder.TokenList{
-				Start: start,
-				Stop:  e.vp9TokenFrame.Used,
-				Count: uint32(len(tokens)),
-			}
 		}
 	}
-	return e.vp9TokenFrame.Used > 0
+	return true
 }
 
 func (e *VP9Encoder) finishVP9CountTokenCollection() error {
@@ -155,7 +152,7 @@ func (e *VP9Encoder) beginVP9TokenReplay(tileRows, tileCols int,
 		e.sf.TxSizeSearchMethod == UseFullRD ||
 		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
 		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols ||
-		e.vp9TokenFrame.Used <= 0 || len(e.vp9TokenFrame.Lists) == 0 {
+		!e.vp9HasCountTokensForReplay() {
 		if e != nil {
 			e.vp9TokenReplay = vp9TokenReplayState{}
 		}
@@ -163,6 +160,12 @@ func (e *VP9Encoder) beginVP9TokenReplay(tileRows, tileCols int,
 	}
 	e.vp9TokenReplay = vp9TokenReplayState{active: true}
 	return true
+}
+
+func (e *VP9Encoder) vp9HasCountTokensForReplay() bool {
+	return e != nil &&
+		(e.vp9ThreadedTokenReplayReady ||
+			(e.vp9TokenFrame.Used > 0 && len(e.vp9TokenFrame.Lists) > 0))
 }
 
 func (e *VP9Encoder) finishVP9TokenReplay() error {
@@ -183,13 +186,17 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 		if e.vp9TokenReplay.err != nil {
 			return -1
 		}
-		idx, ok := e.vp9TokenFrame.TokenListIndex(e.vp9TokenReplay.tileRow,
+		frame := &e.vp9TokenFrame
+		if e.vp9TokenReplay.frame != nil {
+			frame = e.vp9TokenReplay.frame
+		}
+		idx, ok := frame.TokenListIndex(e.vp9TokenReplay.tileRow,
 			e.vp9TokenReplay.tileCol, tileSBRow)
 		if !ok {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 			return -1
 		}
-		tokens, ok := e.vp9TokenFrame.TokensForList(e.vp9TokenFrame.Lists[idx])
+		tokens, ok := frame.TokensForList(frame.Lists[idx])
 		if !ok || len(tokens) == 0 {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 			return -1
