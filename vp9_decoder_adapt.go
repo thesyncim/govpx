@@ -118,7 +118,14 @@ func (d *VP9Decoder) readVP9SwitchableInterpFilterWithCounts(r *bitstream.Reader
 	hdr *vp9dec.UncompressedHeader, above, left *vp9dec.NeighborMi,
 ) vp9dec.InterpFilter {
 	ctx := vp9dec.GetPredContextSwitchableInterp(above, left)
-	filter := vp9dec.ReadSwitchableInterpFilter(r, &d.fc, above, left)
+	probs := &d.fc.SwitchableInterpProb[ctx]
+	filter := vp9dec.InterpEighttap
+	if r.Read(uint32(probs[0])) != 0 {
+		filter = vp9dec.InterpEighttapSmooth
+		if r.Read(uint32(probs[1])) != 0 {
+			filter = vp9dec.InterpEighttapSharp
+		}
+	}
 	if !hdr.FrameParallelDecoding {
 		d.counts.SwitchableInterp[ctx][filter]++
 	}
