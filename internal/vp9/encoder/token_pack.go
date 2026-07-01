@@ -1,11 +1,17 @@
 package encoder
 
 import (
+	"errors"
+
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
+
+// ErrTokenBufferFull is returned when staged coefficient token storage is too
+// small for the block or frame being tokenized.
+var ErrTokenBufferFull = errors.New("encoder: VP9 token buffer full")
 
 // StageCoefBlock mirrors libvpx tokenize_b. It records coefficient tokens and
 // branch counts without writing them, so a later pack pass can replay the same

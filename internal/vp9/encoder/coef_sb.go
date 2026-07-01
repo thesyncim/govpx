@@ -88,6 +88,15 @@ type WriteCoefSbArgs struct {
 	// for the same tx block. When absent, WriteCoefBlock falls back to
 	// deriving EOB from coeff/qcoeff.
 	GetEOB func(plane int, r, c int, txSize common.TxSize) (int, bool)
+
+	// TokenDst/TokenIndex opt into libvpx-shaped coefficient token staging.
+	// When TokenOnly is false, WriteCoefSb stages each tx block then replays it
+	// immediately, byte-matching the direct writer while exercising the staged
+	// path. When TokenOnly is true, tokens are collected and not written; callers
+	// replay them later after compressed-header probability updates.
+	TokenDst   []TokenExtra
+	TokenIndex *int
+	TokenOnly  bool
 }
 
 // scanForTxSize returns the default scan/neighbors pair for `tx`.
@@ -203,7 +212,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					knownEOB, knownEOBValid = a.GetEOB(plane, r, c, txSize)
 				}
 				eob := 0
-				if err := WriteCoefBlock(bw, WriteCoefBlockArgs{
+				blockArgs := WriteCoefBlockArgs{
 					TxSize:          txSize,
 					PlaneType:       planeType,
 					IsInter:         a.IsInter,
@@ -219,8 +228,25 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					EOB:             &eob,
 					KnownEOB:        knownEOB,
 					KnownEOBValid:   knownEOBValid,
-				}); err != nil {
-					return err
+				}
+				if a.TokenIndex != nil {
+					start := *a.TokenIndex
+					if start < 0 || start > len(a.TokenDst) {
+						return ErrTokenBufferFull
+					}
+					n, stagedEOB, ok := StageCoefBlock(a.TokenDst[start:], blockArgs)
+					if !ok {
+						return ErrTokenBufferFull
+					}
+					eob = stagedEOB
+					*a.TokenIndex = start + n
+					if !a.TokenOnly {
+						PackTokens(bw, a.TokenDst[start:start+n], a.Fc)
+					}
+				} else {
+					if err := WriteCoefBlock(bw, blockArgs); err != nil {
+						return err
+					}
 				}
 
 				hasResidue := uint8(0)
