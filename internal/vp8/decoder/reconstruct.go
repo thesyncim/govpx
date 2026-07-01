@@ -166,13 +166,33 @@ func AddMacroblockResidual(tokens *MacroblockTokens, residual *MacroblockResidua
 // callers; for non-4x4 Y blocks Y1DC[0] is 1 by construction so the wider
 // product never differs from the int16 product.
 func AddMacroblockResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
-	for i := range 16 {
-		if tokens.EOB[i] == 0 {
-			continue
-		}
-		addTransformBlock(tokens.EOB[i], residual.Block(i), y[yBlockOffset(i, yStride):], yStride)
-	}
+	addYResidualBlocks(tokens, residual, y, yStride)
 	addChromaResidualWithDequant(tokens, residual, dequant, u, uStride, v, vStride)
+}
+
+func addYResidualBlocks(tokens *MacroblockTokens, residual *MacroblockResidual, y []byte, yStride int) {
+	for row := 0; row < 4; row++ {
+		rowBlock := row * 4
+		rowOff := row * 4 * yStride
+		for col := 0; col < 4; col += 2 {
+			block := rowBlock + col
+			eob0 := tokens.EOB[block]
+			eob1 := tokens.EOB[block+1]
+			off := rowOff + col*4
+			if eob0 == 1 && eob1 == 1 {
+				dc0 := int32(residual.Block(block)[0])
+				dc1 := int32(residual.Block(block + 1)[0])
+				dsp.DCOnlyIDCT4x4AddPairInt32(dc0, dc1, y[off:], yStride, y[off:], yStride)
+				continue
+			}
+			if eob0 != 0 {
+				addTransformBlock(eob0, residual.Block(block), y[off:], yStride)
+			}
+			if eob1 != 0 {
+				addTransformBlock(eob1, residual.Block(block+1), y[off+4:], yStride)
+			}
+		}
+	}
 }
 
 func addChromaResidualWithDequant(tokens *MacroblockTokens, residual *MacroblockResidual, dequant *common.MacroblockDequant, u []byte, uStride int, v []byte, vStride int) {

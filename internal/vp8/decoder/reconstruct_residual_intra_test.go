@@ -34,6 +34,29 @@ func TestAddMacroblockResidualYDCOnly(t *testing.T) {
 	assertPlaneValue(t, "V", v, 80)
 }
 
+func TestAddMacroblockResidualYDCPairs(t *testing.T) {
+	y := filledPlane(16, 16, 100)
+	wantY := append([]byte(nil), y...)
+	u := filledPlane(8, 8, 90)
+	v := filledPlane(8, 8, 80)
+	var tokens MacroblockTokens
+	var residual MacroblockResidual
+	tokens.EOB[4] = 1
+	tokens.EOB[5] = 1
+	residual.Block(4)[0] = 24
+	residual.Block(5)[0] = -16
+
+	off := yBlockOffset(4, 16)
+	dsp.DCOnlyIDCT4x4Add(residual.Block(4)[0], wantY[off:], 16, wantY[off:], 16)
+	dsp.DCOnlyIDCT4x4Add(residual.Block(5)[0], wantY[off+4:], 16, wantY[off+4:], 16)
+
+	AddMacroblockResidual(&tokens, &residual, y, 16, u, 8, v, 8)
+
+	assertPlaneEqual(t, "Y", y, wantY)
+	assertPlaneValue(t, "U", u, 90)
+	assertPlaneValue(t, "V", v, 80)
+}
+
 func TestAddMacroblockResidualFullIDCTAndChroma(t *testing.T) {
 	y := filledPlane(16, 16, 90)
 	wantY := append([]byte(nil), y...)
@@ -138,6 +161,23 @@ func BenchmarkAddMacroblockResidualWithDequantChromaDCPairs(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		AddMacroblockResidualWithDequant(&tokens, &residual, &dequant, y, 16, u, 8, v, 8)
+	}
+}
+
+func BenchmarkAddMacroblockResidualYDCPairs(b *testing.B) {
+	y := filledPlane(16, 16, 90)
+	u := filledPlane(8, 8, 90)
+	v := filledPlane(8, 8, 80)
+	var tokens MacroblockTokens
+	var residual MacroblockResidual
+	for block := 0; block < 16; block++ {
+		tokens.EOB[block] = 1
+		residual.Block(block)[0] = int16(16 + block)
+	}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		AddMacroblockResidual(&tokens, &residual, y, 16, u, 8, v, 8)
 	}
 }
 
