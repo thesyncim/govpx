@@ -427,6 +427,28 @@ func (s *interFrameSubpixelSearch) cachedCandidateEvalNoStats(cache *subpelEvalC
 	return eval
 }
 
+// boundedCandidateEvalWithStats mirrors libvpx's CHECK_BETTER/IFMVCV pair
+// from vp8/encoder/mcomp.c: out-of-bounds candidates score UINT_MAX and
+// in-bounds candidates are (re-)evaluated directly. libvpx re-evaluates
+// ring candidates shared between iterations rather than caching them, and
+// the evaluation is pure, so recomputing keeps decisions identical while
+// avoiding the per-search cache zeroing + probe overhead.
+func (s *interFrameSubpixelSearch) boundedCandidateEvalWithStats(stats *interFrameMotionSearchStats, subCtx *subpelSearchCtx, bounds vp8enc.InterFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
+	if !bounds.Contains(row, col) {
+		stats.recordSubpelCandidate()
+		stats.recordSubpelBoundsReject()
+		return subpelCandidateEval{cost: maxInt()}
+	}
+	return s.candidateEvalWithStats(stats, subCtx, row, col, refRow4, refCol4, errorPerBit)
+}
+
+func (s *interFrameSubpixelSearch) boundedCandidateEvalNoStats(subCtx *subpelSearchCtx, bounds vp8enc.InterFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
+	if !bounds.Contains(row, col) {
+		return subpelCandidateEval{cost: maxInt()}
+	}
+	return s.candidateEvalNoStats(subCtx, row, col, refRow4, refCol4, errorPerBit)
+}
+
 // iterative performs the libvpx half- then
 // quarter-pel refinement (vp8_find_best_sub_pixel_step_iteratively) anchored
 // to bestRefMV: candidate MVs farther from bestRefMV than MAX_FULL_PEL_VAL
@@ -453,17 +475,16 @@ func (s *interFrameSubpixelSearch) iterativeWithStats(stats *interFrameMotionSea
 	errorPerBit := s.effectiveErrorPerBit()
 	refRow4 := int(s.bestRefMV.Row) >> 1
 	refCol4 := int(s.bestRefMV.Col) >> 1
-	var cache subpelEvalCache
 	bestEval := s.centerEvalWithStats(stats, &subCtx, br, bc, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
 
 	for range 3 {
-		leftEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
-		rightEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
-		upEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
-		downEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
+		leftEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
+		rightEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
+		upEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-2, tc)
@@ -477,7 +498,7 @@ func (s *interFrameSubpixelSearch) iterativeWithStats(stats *interFrameMotionSea
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 2
 		}
-		diagEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		diagEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -489,10 +510,10 @@ func (s *interFrameSubpixelSearch) iterativeWithStats(stats *interFrameMotionSea
 	}
 
 	for range 3 {
-		leftEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
-		rightEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
-		upEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
-		downEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
+		leftEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
+		rightEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
+		upEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-1, tc)
@@ -506,7 +527,7 @@ func (s *interFrameSubpixelSearch) iterativeWithStats(stats *interFrameMotionSea
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 1
 		}
-		diagEval := s.cachedCandidateEvalWithStats(stats, &cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		diagEval := s.boundedCandidateEvalWithStats(stats, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -542,17 +563,16 @@ func (s *interFrameSubpixelSearch) iterativeNoStats() (vp8enc.MotionVector, int,
 	errorPerBit := s.effectiveErrorPerBit()
 	refRow4 := int(s.bestRefMV.Row) >> 1
 	refCol4 := int(s.bestRefMV.Col) >> 1
-	var cache subpelEvalCache
 	bestEval := s.centerEvalNoStats(&subCtx, br, bc, errorPerBit)
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
 
 	for range 3 {
-		leftEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
-		rightEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
-		upEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
-		downEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
+		leftEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr, tc-2, refRow4, refCol4, errorPerBit)
+		rightEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr, tc+2, refRow4, refCol4, errorPerBit)
+		upEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr-2, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr+2, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+2)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-2, tc)
@@ -566,7 +586,7 @@ func (s *interFrameSubpixelSearch) iterativeNoStats() (vp8enc.MotionVector, int,
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 2
 		}
-		diagEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		diagEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
@@ -577,10 +597,10 @@ func (s *interFrameSubpixelSearch) iterativeNoStats() (vp8enc.MotionVector, int,
 	}
 
 	for range 3 {
-		leftEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
-		rightEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
-		upEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
-		downEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
+		leftEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr, tc-1, refRow4, refCol4, errorPerBit)
+		rightEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr, tc+1, refRow4, refCol4, errorPerBit)
+		upEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr-1, tc, refRow4, refCol4, errorPerBit)
+		downEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, tr+1, tc, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, leftEval, tr, tc-1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, rightEval, tr, tc+1)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, upEval, tr-1, tc)
@@ -594,7 +614,7 @@ func (s *interFrameSubpixelSearch) iterativeNoStats() (vp8enc.MotionVector, int,
 		if leftEval.cost >= rightEval.cost {
 			diagCol = tc + 1
 		}
-		diagEval := s.cachedCandidateEvalNoStats(&cache, &subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
+		diagEval := s.boundedCandidateEvalNoStats(&subCtx, bounds, diagRow, diagCol, refRow4, refCol4, errorPerBit)
 		bestEval, br, bc = updateSubpixelSearchBestEval(bestEval, br, bc, diagEval, diagRow, diagCol)
 
 		if tr == br && tc == bc {
