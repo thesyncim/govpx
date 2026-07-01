@@ -555,9 +555,11 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.rc.postEncodeDrop
 	var postDropFC vp9dec.FrameContext
 	var postDropFrameContexts [common.FrameContexts]vp9dec.FrameContext
+	postDropVarPartCopyState := false
 	if restorePostDropContext {
 		postDropFC = e.fc
 		postDropFrameContexts = e.frameContexts
+		postDropVarPartCopyState = e.saveVP9VarPartCopyStateForPostDrop()
 	}
 
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
@@ -715,6 +717,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if restorePostDropContext {
 			e.fc = postDropFC
 			e.frameContexts = postDropFrameContexts
+			e.restoreVP9VarPartCopyStateAfterPostDrop(postDropVarPartCopyState)
 		}
 		e.rc.postEncodeDropFrame(qindex)
 	} else {

@@ -334,6 +334,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	for i := 1; i < batch; i++ {
 		worker := &scheduler.workers[i]
 		worker.prepareVP9FrameParallelWorker(e, miRows, miCols, width, height)
+		worker.varPartCopyCommitDisabled = true
 		worker.frameIndex = inputs[i].frameIndex
 		worker.framesSinceKey = baseFramesSinceKey + uint16(i)
 		worker.forceKeyFrame = false
@@ -393,10 +394,12 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	parentPrevFrameActiveMapEnabled := e.prevFrameActiveMapEnabled
 	parentLastVP9HeaderFrameType := e.lastVP9HeaderFrameType
 	parentLastVP9HeaderValid := e.lastVP9HeaderValid
+	parentVarPartCopyCommitDisabled := e.varPartCopyCommitDisabled
 
 	// Run worker 0 in-place on the parent encoder.
 	flags0 := vp9FrameParallelDispatchFlags(inputs[0].flags)
 	e.frameIndex = inputs[0].frameIndex
+	e.varPartCopyCommitDisabled = true
 	// framesSinceKey is unchanged for slot 0 (== parent's pre-batch value).
 	res0, err0 := e.encodeVP9FrameIntoWithFlagsResult(
 		&scheduler.scratchInputs[0], scheduler.scratchDst[0], flags0, false,
@@ -438,6 +441,7 @@ func (e *VP9Encoder) vp9RunFrameParallelBatch(dst []byte, drain bool) (VP9Encode
 	e.prevFrameActiveMapEnabled = parentPrevFrameActiveMapEnabled
 	e.lastVP9HeaderFrameType = parentLastVP9HeaderFrameType
 	e.lastVP9HeaderValid = parentLastVP9HeaderValid
+	e.varPartCopyCommitDisabled = parentVarPartCopyCommitDisabled
 
 	// Advance the parent's frame counters by `batch` frames. The frame
 	// contexts (e.fc, e.frameContexts) are already in their post-slot-0
@@ -525,6 +529,8 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	varPartSBPredLast := w.varPartSBPredLast
 	varPartSBPredValid := w.varPartSBPredValid
 	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBCopiedPartition := w.varPartSBCopiedPartition
+	varPartSBSegmentID := w.varPartSBSegmentID
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
@@ -578,6 +584,8 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.varPartSBPredLast = varPartSBPredLast
 	w.varPartSBPredValid = varPartSBPredValid
 	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBCopiedPartition = varPartSBCopiedPartition
+	w.varPartSBSegmentID = varPartSBSegmentID
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource

@@ -141,7 +141,7 @@ const (
 // BuildEstimatedPredLuma64x64 — split out so each piece is unit-
 // testable.
 func GetEstimatedPredInter(in *GetEstimatedPredInterInput) (
-	chosenRef RefFrameSlot, intProMV decoder.MV,
+	chosenRef RefFrameSlot, intProMV decoder.MV, lastSAD uint32,
 ) {
 	bsize := in.Bsize
 	sdf := SADForBsize(bsize)
@@ -212,6 +212,7 @@ func GetEstimatedPredInter(in *GetEstimatedPredInterInput) (
 	}
 	ySad, mv := IntProEstimate(estIn)
 	intProMV = mv
+	lastSAD = ySad
 
 	// libvpx (vp9_encodeframe.c:5170-5179):
 	//   y_sad_thr = cpi->sf.short_circuit_low_temp_var ? (y_sad * 7) >> 3
@@ -228,7 +229,7 @@ func GetEstimatedPredInter(in *GetEstimatedPredInterInput) (
 		intProMV = decoder.MV{Row: 0, Col: 0}
 	}
 
-	return chosenRef, intProMV
+	return chosenRef, intProMV, lastSAD
 }
 
 // GetEstimatedPredSubBsize ports the per-SB sub-bsize formula
@@ -361,13 +362,13 @@ func BuildEstimatedPredLuma64x64(
 // allocates (libvpx x->est_pred, 64*64 bytes).
 func GetEstimatedPred(
 	isKeyFrame bool, in *GetEstimatedPredInterInput, estPred []uint8,
-) (chosenRef RefFrameSlot, mv decoder.MV) {
+) (chosenRef RefFrameSlot, mv decoder.MV, lastSAD uint32) {
 	if isKeyFrame {
 		GetEstimatedPredKeyFrame(estPred)
-		return RefIntra, decoder.MV{Row: 0, Col: 0}
+		return RefIntra, decoder.MV{Row: 0, Col: 0}, 0
 	}
 
-	chosenRef, mv = GetEstimatedPredInter(in)
+	chosenRef, mv, lastSAD = GetEstimatedPredInter(in)
 
 	var ref []uint8
 	var refOff, refStride int
@@ -389,7 +390,7 @@ func GetEstimatedPred(
 
 	BuildEstimatedPredLuma64x64(estPred, ref, refOff, refStride, mv,
 		in.MbToLeftEdge, in.MbToRightEdge, in.MbToTopEdge, in.MbToBottomEdge)
-	return chosenRef, mv
+	return chosenRef, mv, lastSAD
 }
 
 // DSP shape sanity, anchored to verify the file imports the dsp

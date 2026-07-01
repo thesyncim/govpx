@@ -18,9 +18,9 @@ import (
 //   - SVC / spatial layering (cpi->use_svc).
 //   - Temporal denoiser (CONFIG_VP9_TEMPORAL_DENOISING is off).
 //   - Noise estimate (cpi->noise_estimate.enabled defaults to 0).
-//   - copy_partitioning / scale_partitioning_svc / update_prev_partition
-//     (cpi->sf.copy_partition_flag is off in REALTIME-only builds at speed
-//     >= 6; govpx doesn't surface this knob yet).
+//   - scale_partitioning_svc / SVC cross-layer partition reuse. The
+//     single-layer copy_partitioning and update_prev_partition paths are
+//     wired when callers supply the previous-partition slabs.
 //   - vp9_int_pro_motion_estimation: govpx callers pass the zero-MV LAST
 //     predictor directly, which matches the libvpx output when
 //     int_pro_motion returns the dummy_mv = {0,0} fallback (the common
@@ -200,6 +200,22 @@ type ChoosePartitioningArgs struct {
 	VarianceTree           *V64x64
 	VarianceTreeLowRes     *[16]V16x16
 
+	CopyPartitionFlag     bool
+	FramesSinceKey        int
+	MaxCopiedFrame        int
+	ResizePending         bool
+	SegmentID             uint8
+	CopyPartitionYSAD     uint64
+	CopyPartitionYSADSet  bool
+	PrevPartition         []common.BlockSize
+	PrevPartitionMiStride int
+	PrevPartitionValid    []bool
+	PrevSegmentID         []uint8
+	PrevVarianceLow       [][25]uint8
+	CopiedFrameCnt        []uint8
+	CopiedPartition       *bool
+	CopiedPartitionUseMV  *bool
+
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
 	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
 	// is already the segment qindex from vp9_get_qindex().
@@ -215,15 +231,15 @@ type ChoosePartitioningArgs struct {
 //
 // Returns the libvpx `int` return: 0 on success (libvpx's normal exit and
 // early returns from copy_partitioning fast paths). Currently always 0
-// in govpx because the SVC / copy_partition fast paths are not wired.
+// in govpx; SVC scale-partition fast paths remain out of scope here.
 //
 // libvpx reference ranges, all of vp9_encodeframe.c:
 //
 //	1253-1297  setup, is_key_frame, vt2, force_split[21], vbp_thresholds copy.
 //	1298-1336  is_key_frame override (scale/SVC paths), set_offsets,
 //	           memset variance_low.
-//	1338-1372  use_source_sad fast paths (svc_use_lowres_part,
-//	           copy_partitioning). NOT YET PORTED.
+//	1338-1372  use_source_sad fast paths (copy_partitioning wired for
+//	           single-layer callers; svc_use_lowres_part not wired).
 //	1374-1389  set_vbp_thresholds dispatch + threshold_4x4avg.
 //	1390-1395  pixels_wide / pixels_high clipping, source pointer init.
 //	1396-1550  inter-frame predictor build (vp9_setup_pre_planes,
@@ -301,8 +317,20 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 	}
 
 	// libvpx: vp9_encodeframe.c:1338-1372 — use_source_sad fast paths.
-	// NOT YET PORTED (cpi->sf.copy_partition_flag, svc_use_lowres_part).
-	// govpx falls through to the unconditional set_vbp_thresholds branch.
+	// svc_use_lowres_part stays out of scope for the single-layer path; the
+	// copy_partitioning fast path is active when the caller supplies the
+	// persistent previous-partition slabs.
+	if a.UseSourceSAD && !isKeyFrame {
+		skipLowSourceSAD := contentState == ContentStateLowSadLowSumdiff ||
+			contentState == ContentStateLowSadHighSumdiff
+		if skipLowSourceSAD && a.CopyPartitionFlag && !force64Split &&
+			copyPartitioning(a) {
+			if a.CopiedPartitionUseMV != nil {
+				*a.CopiedPartitionUseMV = true
+			}
+			return 0
+		}
+	}
 
 	// libvpx: vp9_encodeframe.c:1374-1380 — set_vbp_thresholds dispatch.
 	// The CR_BOOST branch is represented by BaseQIndex already being the
@@ -375,6 +403,18 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 			a.VarianceLow[0] = 1
 		}
 		return 0
+	}
+	if a.CopyPartitionFlag {
+		copySAD := ySAD
+		copySADValid := ySADValid
+		if a.CopyPartitionYSADSet {
+			copySAD = a.CopyPartitionYSAD
+			copySADValid = true
+		}
+		if copySADValid && int64(copySAD) < aux.ThresholdCopy &&
+			copyPartitioning(a) {
+			return 0
+		}
 	}
 
 	// libvpx: vp9_encodeframe.c:1552-1553 — vt2 allocation for low_res
@@ -591,6 +631,198 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		setLowTempVarFlag(a, vt, thresholds)
 	}
 	return 0
+}
+
+func copyPartitioning(a ChoosePartitioningArgs) bool {
+	if !a.CopyPartitionFlag || a.IsKeyFrame || a.ResizePending ||
+		a.FramesSinceKey <= 1 || a.MaxCopiedFrame <= 0 ||
+		a.SegmentID != CyclicRefreshSegmentBase {
+		return false
+	}
+	sbOffset := prevPartitionSBOffset(a.PrevPartitionMiStride, a.MiRow, a.MiCol)
+	if sbOffset < 0 || sbOffset >= len(a.PrevSegmentID) ||
+		sbOffset >= len(a.PrevPartitionValid) ||
+		sbOffset >= len(a.CopiedFrameCnt) ||
+		sbOffset >= len(a.PrevVarianceLow) ||
+		!a.PrevPartitionValid[sbOffset] ||
+		a.PrevSegmentID[sbOffset] != CyclicRefreshSegmentBase ||
+		int(a.CopiedFrameCnt[sbOffset]) >= a.MaxCopiedFrame ||
+		len(a.PrevPartition) == 0 {
+		return false
+	}
+	if !copyPartitioningHelper(a.MiGrid, a.MiRows, a.MiCols,
+		a.PrevPartition, a.PrevPartitionMiStride, common.Block64x64,
+		a.MiRow, a.MiCol) {
+		return false
+	}
+	if a.VarianceLow != nil {
+		*a.VarianceLow = a.PrevVarianceLow[sbOffset]
+	}
+	if a.CopiedPartition != nil {
+		*a.CopiedPartition = true
+	}
+	return true
+}
+
+func copyPartitioningHelper(miGrid []vp9dec.NeighborMi, miRows, miCols int,
+	prev []common.BlockSize, prevMiStride int, bsize common.BlockSize,
+	miRow, miCol int,
+) bool {
+	if miRow >= miRows || miCol >= miCols {
+		return true
+	}
+	if prevMiStride <= 0 || miRow < 0 || miCol < 0 ||
+		int(bsize) >= len(common.BWidthLog2Lookup) {
+		return false
+	}
+	start := miRow*prevMiStride + miCol
+	if start < 0 || start >= len(prev) {
+		return false
+	}
+	prevBsize := prev[start]
+	if prevBsize >= common.BlockSizes {
+		return false
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << bsl) >> 2
+	partition := common.PartitionLookup[bsl][prevBsize]
+	if partition >= common.PartitionTypes {
+		return false
+	}
+	subsize := common.SubsizeLookup[partition][bsize]
+	if subsize >= common.BlockSizes {
+		return false
+	}
+	if subsize < common.Block8x8 {
+		setBlockSize(miGrid, miRows, miCols, miRow, miCol, bsize)
+		return true
+	}
+	switch partition {
+	case common.PartitionNone:
+		setBlockSize(miGrid, miRows, miCols, miRow, miCol, bsize)
+	case common.PartitionHorz:
+		setBlockSize(miGrid, miRows, miCols, miRow, miCol, subsize)
+		setBlockSize(miGrid, miRows, miCols, miRow+bs, miCol, subsize)
+	case common.PartitionVert:
+		setBlockSize(miGrid, miRows, miCols, miRow, miCol, subsize)
+		setBlockSize(miGrid, miRows, miCols, miRow, miCol+bs, subsize)
+	case common.PartitionSplit:
+		if !copyPartitioningHelper(miGrid, miRows, miCols, prev, prevMiStride,
+			subsize, miRow, miCol) {
+			return false
+		}
+		if !copyPartitioningHelper(miGrid, miRows, miCols, prev, prevMiStride,
+			subsize, miRow+bs, miCol) {
+			return false
+		}
+		if !copyPartitioningHelper(miGrid, miRows, miCols, prev, prevMiStride,
+			subsize, miRow, miCol+bs) {
+			return false
+		}
+		if !copyPartitioningHelper(miGrid, miRows, miCols, prev, prevMiStride,
+			subsize, miRow+bs, miCol+bs) {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// UpdatePrevPartitionFromGrid mirrors libvpx update_prev_partition() for the
+// caller-owned previous-partition slab. The slab uses cm->mi_stride, while
+// miGrid uses visible mi_cols.
+func UpdatePrevPartitionFromGrid(prev []common.BlockSize, prevMiStride int,
+	miGrid []vp9dec.NeighborMi, miRows, miCols, miRow, miCol int,
+) bool {
+	return updatePrevPartitionFromGrid(prev, prevMiStride, miGrid, miRows,
+		miCols, common.Block64x64, miRow, miCol)
+}
+
+func updatePrevPartitionFromGrid(prev []common.BlockSize, prevMiStride int,
+	miGrid []vp9dec.NeighborMi, miRows, miCols int, bsize common.BlockSize,
+	miRow, miCol int,
+) bool {
+	if miRow >= miRows || miCol >= miCols {
+		return true
+	}
+	if prevMiStride <= 0 || miRows <= 0 || miCols <= 0 || miRow < 0 ||
+		miCol < 0 || int(bsize) >= len(common.BWidthLog2Lookup) {
+		return false
+	}
+	prevStart := miRow*prevMiStride + miCol
+	gridStart := miRow*miCols + miCol
+	if prevStart < 0 || prevStart >= len(prev) ||
+		gridStart < 0 || gridStart >= len(miGrid) {
+		return false
+	}
+	sbType := miGrid[gridStart].SbType
+	if sbType >= common.BlockSizes {
+		return false
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << bsl) >> 2
+	partition := common.PartitionLookup[bsl][sbType]
+	if partition >= common.PartitionTypes {
+		return false
+	}
+	subsize := common.SubsizeLookup[partition][bsize]
+	if subsize >= common.BlockSizes {
+		return false
+	}
+	if subsize < common.Block8x8 {
+		prev[prevStart] = bsize
+		return true
+	}
+	switch partition {
+	case common.PartitionNone:
+		prev[prevStart] = bsize
+	case common.PartitionHorz:
+		prev[prevStart] = subsize
+		if miRow+bs < miRows {
+			idx := prevStart + bs*prevMiStride
+			if idx < 0 || idx >= len(prev) {
+				return false
+			}
+			prev[idx] = subsize
+		}
+	case common.PartitionVert:
+		prev[prevStart] = subsize
+		if miCol+bs < miCols {
+			idx := prevStart + bs
+			if idx < 0 || idx >= len(prev) {
+				return false
+			}
+			prev[idx] = subsize
+		}
+	case common.PartitionSplit:
+		if !updatePrevPartitionFromGrid(prev, prevMiStride, miGrid, miRows,
+			miCols, subsize, miRow, miCol) {
+			return false
+		}
+		if !updatePrevPartitionFromGrid(prev, prevMiStride, miGrid, miRows,
+			miCols, subsize, miRow+bs, miCol) {
+			return false
+		}
+		if !updatePrevPartitionFromGrid(prev, prevMiStride, miGrid, miRows,
+			miCols, subsize, miRow, miCol+bs) {
+			return false
+		}
+		if !updatePrevPartitionFromGrid(prev, prevMiStride, miGrid, miRows,
+			miCols, subsize, miRow+bs, miCol+bs) {
+			return false
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+func prevPartitionSBOffset(miStride, miRow, miCol int) int {
+	if miStride <= 0 || miRow < 0 || miCol < 0 {
+		return -1
+	}
+	return (miStride>>3)*(miRow>>3) + (miCol >> 3)
 }
 
 func setLowTempVarFlag(a ChoosePartitioningArgs, vt *V64x64,

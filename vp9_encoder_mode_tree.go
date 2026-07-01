@@ -167,6 +167,10 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 				e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 					common.Block64x64, tile, partitionProbs, seg, baseMi,
 					txMode, kind, key, inter)
+				if kind == vp9ModeTreeInterSource {
+					e.vp9CommitVarPartSBPartitionState(miRows, miCols,
+						miRow, miCol, inter)
+				}
 				if doCyclicSbPostencode {
 					e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
 						miRow, miCol, cyclicBaseQindex)
@@ -194,6 +198,10 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
 				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
 				kind, key, inter)
+			if kind == vp9ModeTreeInterSource {
+				e.vp9CommitVarPartSBPartitionState(miRows, miCols,
+					miRow, miCol, inter)
+			}
 			if doCyclicSbPostencode {
 				e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
 					miRow, miCol, cyclicBaseQindex)

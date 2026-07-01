@@ -195,6 +195,8 @@ type VP9Encoder struct {
 	varPartSBPredLast          []vp9dec.MV
 	varPartSBPredValid         []bool
 	varPartSBVarLow            [][25]uint8
+	varPartSBCopiedPartition   []bool
+	varPartSBSegmentID         []uint8
 	varPartSBContentState      []encoder.ContentStateSB
 	varPartSBContentStateValid []bool
 	varPartSBZeroTempSADSource []bool
@@ -206,6 +208,20 @@ type VP9Encoder struct {
 	varPartSBLastHighContentValid []bool
 	varPartTreeScratch            encoder.V64x64
 	varPartTreeLowResScratch      [16]encoder.V16x16
+	varPartPrevPartition          []common.BlockSize
+	varPartPrevPartitionMiRows    int
+	varPartPrevPartitionMiCols    int
+	varPartPrevPartitionMiStride  int
+	varPartPrevPartitionValid     []bool
+	varPartPrevSegmentID          []uint8
+	varPartPrevVarianceLow        [][25]uint8
+	varPartCopiedFrameCnt         []uint8
+	varPartCopyCommitDisabled     bool
+	varPartPrevPartitionSnap      []common.BlockSize
+	varPartPrevPartitionValidSnap []bool
+	varPartPrevSegmentIDSnap      []uint8
+	varPartPrevVarianceLowSnap    [][25]uint8
+	varPartCopiedFrameCntSnap     []uint8
 
 	// mlPartitionPaddedLast / mlPartitionPaddedSrc are per-encoder
 	// scratches backing the border-padded LAST_FRAME and source plane

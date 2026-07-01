@@ -813,6 +813,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBPredLast := w.varPartSBPredLast
 	varPartSBPredValid := w.varPartSBPredValid
 	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBCopiedPartition := w.varPartSBCopiedPartition
+	varPartSBSegmentID := w.varPartSBSegmentID
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
@@ -854,6 +856,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBPredLast = varPartSBPredLast
 	w.varPartSBPredValid = varPartSBPredValid
 	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBCopiedPartition = varPartSBCopiedPartition
+	w.varPartSBSegmentID = varPartSBSegmentID
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource
@@ -905,6 +909,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBPredLast := w.varPartSBPredLast
 	varPartSBPredValid := w.varPartSBPredValid
 	varPartSBVarLow := w.varPartSBVarLow
+	varPartSBCopiedPartition := w.varPartSBCopiedPartition
+	varPartSBSegmentID := w.varPartSBSegmentID
 	varPartSBContentState := w.varPartSBContentState
 	varPartSBContentStateValid := w.varPartSBContentStateValid
 	varPartSBZeroTempSADSource := w.varPartSBZeroTempSADSource
@@ -943,6 +949,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBPredLast = varPartSBPredLast
 	w.varPartSBPredValid = varPartSBPredValid
 	w.varPartSBVarLow = varPartSBVarLow
+	w.varPartSBCopiedPartition = varPartSBCopiedPartition
+	w.varPartSBSegmentID = varPartSBSegmentID
 	w.varPartSBContentState = varPartSBContentState
 	w.varPartSBContentStateValid = varPartSBContentStateValid
 	w.varPartSBZeroTempSADSource = varPartSBZeroTempSADSource

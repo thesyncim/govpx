@@ -234,6 +234,148 @@ func TestVP9ChoosePartitioningLowYSADEarlyReturns64x64(t *testing.T) {
 	}
 }
 
+func TestVP9ChoosePartitioningCopiesPreviousPartitionOnLowSourceSAD(t *testing.T) {
+	const miRows, miCols = 8, 8
+	miStride := CalcMiSize(miCols)
+	prev := make([]common.BlockSize, miStride*miRows)
+	for _, pos := range [][2]int{{0, 0}, {0, 4}, {4, 0}, {4, 4}} {
+		prev[pos[0]*miStride+pos[1]] = common.Block32x32
+	}
+	sbCount := ContentStateBufferSize(miStride, miRows)
+	prevValid := make([]bool, sbCount)
+	prevValid[0] = true
+	prevSegment := make([]uint8, sbCount)
+	prevVarianceLow := make([][25]uint8, sbCount)
+	prevVarianceLow[0][5] = 1
+	copiedCnt := make([]uint8, sbCount)
+	grid := make([]vp9dec.NeighborMi, miRows*miCols)
+	var varianceLow [25]uint8
+	copied := false
+	useMV := false
+
+	rc := ChoosePartitioning(ChoosePartitioningArgs{
+		MiGrid:                 grid,
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  0,
+		MiCol:                  0,
+		FrameWidth:             64,
+		FrameHeight:            64,
+		IsKeyFrame:             false,
+		Speed:                  8,
+		VariancePartThreshMult: 1,
+		BaseQIndex:             37,
+		UseSourceSAD:           true,
+		ContentState:           ContentStateLowSadLowSumdiff,
+		VarianceLow:            &varianceLow,
+		CopyPartitionFlag:      true,
+		FramesSinceKey:         2,
+		MaxCopiedFrame:         4,
+		SegmentID:              CyclicRefreshSegmentBase,
+		PrevPartition:          prev,
+		PrevPartitionMiStride:  miStride,
+		PrevPartitionValid:     prevValid,
+		PrevSegmentID:          prevSegment,
+		PrevVarianceLow:        prevVarianceLow,
+		CopiedFrameCnt:         copiedCnt,
+		CopiedPartition:        &copied,
+		CopiedPartitionUseMV:   &useMV,
+	})
+	if rc != 0 {
+		t.Fatalf("ChoosePartitioning rc = %d, want 0", rc)
+	}
+	for _, pos := range [][2]int{{0, 0}, {0, 4}, {4, 0}, {4, 4}} {
+		if got := grid[pos[0]*miCols+pos[1]].SbType; got != common.Block32x32 {
+			t.Fatalf("copied grid[%d,%d] = %v, want Block32x32",
+				pos[0], pos[1], got)
+		}
+	}
+	if !copied || !useMV {
+		t.Fatalf("copy markers copied=%t useMV=%t, want true/true", copied, useMV)
+	}
+	if varianceLow[5] != 1 {
+		t.Fatalf("varianceLow[5] = %d, want copied previous variance flag", varianceLow[5])
+	}
+	if copiedCnt[0] != 0 {
+		t.Fatalf("copied frame count mutated in picker = %d, want 0", copiedCnt[0])
+	}
+}
+
+func TestVP9ChoosePartitioningCopyPartitionHonorsSegmentAndCountGates(t *testing.T) {
+	const miRows, miCols = 8, 8
+	miStride := CalcMiSize(miCols)
+	prev := make([]common.BlockSize, miStride*miRows)
+	prev[0] = common.Block64x64
+	sbCount := ContentStateBufferSize(miStride, miRows)
+	prevValid := make([]bool, sbCount)
+	prevValid[0] = true
+	prevSegment := make([]uint8, sbCount)
+	prevVarianceLow := make([][25]uint8, sbCount)
+	copiedCnt := make([]uint8, sbCount)
+	src := make([]uint8, 64*64)
+	dst := make([]uint8, 64*64)
+
+	base := ChoosePartitioningArgs{
+		MiRows:                 miRows,
+		MiCols:                 miCols,
+		MiRow:                  0,
+		MiCol:                  0,
+		FrameWidth:             64,
+		FrameHeight:            64,
+		PlaneSrc:               src,
+		SrcStride:              64,
+		PlaneDst:               dst,
+		DstStride:              64,
+		IsKeyFrame:             false,
+		Speed:                  8,
+		VariancePartThreshMult: 1,
+		BaseQIndex:             37,
+		UseSourceSAD:           true,
+		ContentState:           ContentStateLowSadLowSumdiff,
+		CopyPartitionFlag:      true,
+		FramesSinceKey:         2,
+		MaxCopiedFrame:         4,
+		SegmentID:              CyclicRefreshSegmentBase,
+		PrevPartition:          prev,
+		PrevPartitionMiStride:  miStride,
+		PrevPartitionValid:     prevValid,
+		PrevSegmentID:          prevSegment,
+		PrevVarianceLow:        prevVarianceLow,
+		CopiedFrameCnt:         copiedCnt,
+	}
+	for _, tc := range []struct {
+		name        string
+		segmentID   uint8
+		prevSegment uint8
+		copiedCnt   uint8
+	}{
+		{name: "current boosted segment", segmentID: CyclicRefreshSegmentBoost1},
+		{name: "previous boosted segment", prevSegment: CyclicRefreshSegmentBoost1},
+		{name: "copied count capped", copiedCnt: 4},
+	} {
+		grid := make([]vp9dec.NeighborMi, miRows*miCols)
+		prevSegment[0] = tc.prevSegment
+		copiedCnt[0] = tc.copiedCnt
+		copied := false
+		args := base
+		args.MiGrid = grid
+		args.SegmentID = tc.segmentID
+		if args.SegmentID == 0 {
+			args.SegmentID = CyclicRefreshSegmentBase
+		}
+		args.CopiedPartition = &copied
+		rc := ChoosePartitioning(args)
+		if rc != 0 {
+			t.Fatalf("%s: ChoosePartitioning rc = %d, want 0", tc.name, rc)
+		}
+		if copied {
+			t.Fatalf("%s: copied partition despite gate", tc.name)
+		}
+		prevSegment[0] = 0
+		copiedCnt[0] = 0
+	}
+}
+
 func TestVP9ChoosePartitioningSADReplicatesVisibleEdge(t *testing.T) {
 	src := []uint8{
 		10, 20,

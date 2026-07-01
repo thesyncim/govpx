@@ -117,7 +117,7 @@ func TestVP9GetEstimatedPredKeyFramePath(t *testing.T) {
 	for i := range estPred {
 		estPred[i] = 0xFF
 	}
-	chosenRef, mv := GetEstimatedPred(true, nil, estPred)
+	chosenRef, mv, _ := GetEstimatedPred(true, nil, estPred)
 	if chosenRef != RefIntra {
 		t.Errorf("keyframe chosen ref: got %v want INTRA", chosenRef)
 	}
@@ -158,7 +158,7 @@ func TestVP9GetEstimatedPredInterIdentityRouteLast(t *testing.T) {
 		MvLimits:               MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 		ShortCircuitLowTempVar: false,
 	}
-	chosenRef, mv := GetEstimatedPredInter(in)
+	chosenRef, mv, _ := GetEstimatedPredInter(in)
 	if chosenRef != RefLast {
 		t.Errorf("chosenRef: got %v want LAST", chosenRef)
 	}
@@ -203,7 +203,7 @@ func TestVP9GetEstimatedPredInterAltRefHijack(t *testing.T) {
 		IsSrcFrameAltRef: true,
 		MvLimits:         MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, mv := GetEstimatedPredInter(in)
+	chosenRef, mv, _ := GetEstimatedPredInter(in)
 	if chosenRef != RefAlt {
 		t.Errorf("chosenRef: got %v want ALTREF", chosenRef)
 	}
@@ -252,7 +252,7 @@ func TestVP9GetEstimatedPredInterGoldenBeatsLast(t *testing.T) {
 		RefFlagsGoldOn:  true, // VP9_GOLD_FLAG set.
 		MvLimits:        MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, mv := GetEstimatedPredInter(in)
+	chosenRef, mv, _ := GetEstimatedPredInter(in)
 	if chosenRef != RefGolden {
 		t.Errorf("chosenRef: got %v want GOLDEN", chosenRef)
 	}
@@ -297,7 +297,7 @@ func TestVP9GetEstimatedPredInterSpeed8SuppressesGolden(t *testing.T) {
 		RefFlagsGoldOn:  true,
 		MvLimits:        MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
-	chosenRef, _ := GetEstimatedPredInter(in)
+	chosenRef, _, _ := GetEstimatedPredInter(in)
 	if chosenRef != RefLast {
 		t.Errorf("speed=8 chosenRef: got %v want LAST (golden probe suppressed)", chosenRef)
 	}
@@ -333,7 +333,7 @@ func TestVP9GetEstimatedPredOrchestratorLastPath(t *testing.T) {
 	for i := range estPred {
 		estPred[i] = 0xAA
 	}
-	chosenRef, mv := GetEstimatedPred(false, in, estPred)
+	chosenRef, mv, _ := GetEstimatedPred(false, in, estPred)
 	if chosenRef != RefLast {
 		t.Errorf("chosenRef: got %v want LAST", chosenRef)
 	}
@@ -380,7 +380,7 @@ func TestVP9GetEstimatedPredOrchestratorAppliesIntProMVScale(t *testing.T) {
 		MvLimits:      MvLimits{ColMin: -16, ColMax: 16, RowMin: -16, RowMax: 16},
 	}
 	estPred := make([]uint8, 64*64)
-	chosenRef, mv := GetEstimatedPred(false, in, estPred)
+	chosenRef, mv, _ := GetEstimatedPred(false, in, estPred)
 	if chosenRef != RefLast {
 		t.Fatalf("chosenRef: got %v want LAST", chosenRef)
 	}

@@ -637,10 +637,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 ) bool {
 	miGridLen := miRows * miCols
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
-	// Lazy alloc: first activation of the libvpx picker on this encoder
-	// instance grows the per-SB tracking slices to fit the current frame
-	// dimensions. Subsequent calls reuse the capacity. The per-frame
-	// reset of these buffers is handled by the frame-setup path
+	// The per-frame reset and steady-state sizing of these buffers is handled
+	// by the frame-setup path
 	// (vp9_encoder.go:3327-3340) — wiping the grid on every per-MI call
 	// would destroy partition decisions stamped by earlier SBs in the
 	// same frame (libvpx's xd->mi[]->sb_type grid is persistent across
@@ -652,6 +650,9 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.varPartSBPredValid = buffers.EnsureLenZeroTail(e.varPartSBPredValid, sbCount)
 	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
 	e.varPartSBVarLow = buffers.EnsureLen(e.varPartSBVarLow, sbCount)
+	e.varPartSBCopiedPartition = buffers.EnsureLenZeroTail(
+		e.varPartSBCopiedPartition, sbCount)
+	e.varPartSBSegmentID = buffers.EnsureLenZeroTail(e.varPartSBSegmentID, sbCount)
 	e.varPartSBColorSensitivity = buffers.EnsureLenZeroTail(
 		e.varPartSBColorSensitivity, sbCount)
 	sbMiRow := (miRow >> 3) << 3
@@ -666,6 +667,15 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	if sbIdx >= 0 && sbIdx < len(e.varPartSBVarLow) {
 		e.varPartSBVarLow[sbIdx] = [25]uint8{}
 	}
+	if sbIdx >= 0 && sbIdx < len(e.varPartSBCopiedPartition) {
+		e.varPartSBCopiedPartition[sbIdx] = false
+	}
+	if sbIdx >= 0 && sbIdx < len(e.varPartSBSegmentID) {
+		e.varPartSBSegmentID[sbIdx] = encoder.CyclicRefreshSegmentBase
+	}
+	e.ensureVP9VarPartCopyState(miRows, miCols)
+	copiedPartition := false
+	copiedPartitionUseMV := false
 
 	args := encoder.ChoosePartitioningArgs{
 		MiGrid:                 e.varPartGrid,
@@ -681,6 +691,18 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		VarianceTreeLowRes:     &e.varPartTreeLowResScratch,
 		NoiseEstimateEnabled:   e.noiseEstimate.Enabled,
 		NoiseLevel:             e.noiseEstimate.ExtractLevel(),
+		CopyPartitionFlag:      e.sf.CopyPartitionFlag != 0 && !e.svc.UseSvc,
+		FramesSinceKey:         int(e.rc.framesSinceKey),
+		MaxCopiedFrame:         e.maxCopiedFrame,
+		ResizePending:          e.cyclicResizeFramePending,
+		PrevPartition:          e.varPartPrevPartition,
+		PrevPartitionMiStride:  e.varPartPrevPartitionMiStride,
+		PrevPartitionValid:     e.varPartPrevPartitionValid,
+		PrevSegmentID:          e.varPartPrevSegmentID,
+		PrevVarianceLow:        e.varPartPrevVarianceLow,
+		CopiedFrameCnt:         e.varPartCopiedFrameCnt,
+		CopiedPartition:        &copiedPartition,
+		CopiedPartitionUseMV:   &copiedPartitionUseMV,
 		// libvpx vp9_encodeframe.c:1379 feeds set_vbp_thresholds with
 		// cpi->sf.variance_part_thresh_mult. The configurator sets this
 		// to 2 for resolutions w*h >= 640*360 (vp9_speed_features.c:813),
@@ -740,10 +762,14 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// (vp9_encodeframe.c:1379). See keyframe branch above for
 		// motivation.
 		args.BaseQIndex = inter.baseQindex
+		segmentID := e.vp9PartitionSegmentID(sbMiRow, sbMiCol,
+			e.vp9StaticSegmentIDForMap(), inter.img, inter)
+		args.SegmentID = segmentID
+		if sbIdx >= 0 && sbIdx < len(e.varPartSBSegmentID) {
+			e.varPartSBSegmentID[sbIdx] = segmentID
+		}
 		if e.opts.AQMode == VP9AQCyclicRefresh &&
 			e.vp9HeaderScratch.Seg.Enabled {
-			segmentID := e.vp9PartitionSegmentID(sbMiRow, sbMiCol,
-				e.vp9StaticSegmentIDForMap(), inter.img, inter)
 			if encoder.CyclicRefreshSegmentIDBoosted(segmentID) {
 				args.CyclicRefreshSegmentIdBoosted = true
 				args.BaseQIndex = vp9dec.GetSegmentQindex(
@@ -869,8 +895,10 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					// luma BILINEAR convolve port of
 					// vp9_build_inter_predictors_sb.
 					// libvpx: vp9_reconinter.c:253-258.
-					chosenRef, intProMV := encoder.GetEstimatedPred(false, estIn,
+					chosenRef, intProMV, intProLastSAD := encoder.GetEstimatedPred(false, estIn,
 						e.intProEstPred[:])
+					args.CopyPartitionYSAD = uint64(intProLastSAD)
+					args.CopyPartitionYSADSet = true
 					args.PartitionMV = intProMV
 					if chosenRef == encoder.RefGolden {
 						args.PartitionRefFrame = vp9dec.GoldenFrame
@@ -917,6 +945,14 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	}
 
 	encoder.ChoosePartitioning(args)
+	if copiedPartition {
+		if sbIdx >= 0 && sbIdx < len(e.varPartSBCopiedPartition) {
+			e.varPartSBCopiedPartition[sbIdx] = true
+		}
+		if copiedPartitionUseMV && sbIdx >= 0 && sbIdx < len(e.varPartSBUseMvPart) {
+			e.varPartSBUseMvPart[sbIdx] = true
+		}
+	}
 	if inter != nil {
 		e.vp9RecordVarPartSBColorSensitivity(miRows, miCols, sbMiRow, sbMiCol,
 			sbIdx, inter, &args)

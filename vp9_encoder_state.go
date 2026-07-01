@@ -582,52 +582,20 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	e.leftSegCtx = buffers.EnsureLen(e.leftSegCtx, common.MiBlockSize)
 	miGridLen := miRows * miCols
 	e.miGrid = buffers.EnsureLenZeroed(e.miGrid, miGridLen)
-	// varPartGrid / varPartSBComputed are allocated lazily inside
-	// vp9EnsureSBPartitionChosen so the steady-state encode path
-	// (which currently does not invoke the libvpx choose_partitioning
-	// port) pays no allocation cost. Reset the frame-validity flag
-	// and per-SB computed mask in place when state already exists; the
-	// reset MUST happen here (once per frame) and never on each per-MI
-	// vp9EnsureSBPartitionChosen call, because the picker stamps the
-	// partition tree into varPartGrid for every SB in the frame and a
-	// per-call wipe would lose decisions for SBs the walker re-visits.
-	if cap(e.varPartGrid) >= miGridLen {
-		e.varPartGrid = e.varPartGrid[:miGridLen]
-		for i := range e.varPartGrid {
-			e.varPartGrid[i] = vp9dec.NeighborMi{}
-		}
-	}
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
-	if cap(e.varPartSBComputed) >= sbCount {
-		e.varPartSBComputed = e.varPartSBComputed[:sbCount]
-		for i := range e.varPartSBComputed {
-			e.varPartSBComputed[i] = false
-		}
-	}
-	if cap(e.varPartSBUseMvPart) >= sbCount {
-		e.varPartSBUseMvPart = e.varPartSBUseMvPart[:sbCount]
-		for i := range e.varPartSBUseMvPart {
-			e.varPartSBUseMvPart[i] = false
-		}
-	}
-	if cap(e.varPartSBMvPart) >= sbCount {
-		e.varPartSBMvPart = e.varPartSBMvPart[:sbCount]
-	}
-	if cap(e.varPartSBPredValid) >= sbCount {
-		e.varPartSBPredValid = e.varPartSBPredValid[:sbCount]
-		for i := range e.varPartSBPredValid {
-			e.varPartSBPredValid[i] = false
-		}
-	}
-	if cap(e.varPartSBPredLast) >= sbCount {
-		e.varPartSBPredLast = e.varPartSBPredLast[:sbCount]
-	}
-	if cap(e.varPartSBVarLow) >= sbCount {
-		e.varPartSBVarLow = e.varPartSBVarLow[:sbCount]
-		for i := range e.varPartSBVarLow {
-			e.varPartSBVarLow[i] = [25]uint8{}
-		}
-	}
+	// The var-partition picker stamps decisions into varPartGrid across the
+	// whole encode walk, so reset these once at frame setup and let per-SB
+	// calls only fill already-sized storage.
+	e.varPartGrid = buffers.EnsureLenZeroed(e.varPartGrid, miGridLen)
+	e.varPartSBComputed = buffers.EnsureLenZeroed(e.varPartSBComputed, sbCount)
+	e.varPartSBUseMvPart = buffers.EnsureLenZeroed(e.varPartSBUseMvPart, sbCount)
+	e.varPartSBMvPart = buffers.EnsureLen(e.varPartSBMvPart, sbCount)
+	e.varPartSBPredValid = buffers.EnsureLenZeroed(e.varPartSBPredValid, sbCount)
+	e.varPartSBPredLast = buffers.EnsureLen(e.varPartSBPredLast, sbCount)
+	e.varPartSBVarLow = buffers.EnsureLenZeroed(e.varPartSBVarLow, sbCount)
+	e.varPartSBCopiedPartition = buffers.EnsureLenZeroed(
+		e.varPartSBCopiedPartition, sbCount)
+	e.varPartSBSegmentID = buffers.EnsureLenZeroed(e.varPartSBSegmentID, sbCount)
 	if cap(e.varPartSBContentStateValid) >= sbCount {
 		e.varPartSBContentStateValid = e.varPartSBContentStateValid[:sbCount]
 		for i := range e.varPartSBContentStateValid {
@@ -640,12 +608,8 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 	if cap(e.varPartSBZeroTempSADSource) >= sbCount {
 		e.varPartSBZeroTempSADSource = e.varPartSBZeroTempSADSource[:sbCount]
 	}
-	if cap(e.varPartSBColorSensitivity) >= sbCount {
-		e.varPartSBColorSensitivity = e.varPartSBColorSensitivity[:sbCount]
-		for i := range e.varPartSBColorSensitivity {
-			e.varPartSBColorSensitivity[i] = [2]bool{}
-		}
-	}
+	e.varPartSBColorSensitivity = buffers.EnsureLenZeroed(
+		e.varPartSBColorSensitivity, sbCount)
 	if cap(e.varPartSBLastHighContentValid) >= sbCount {
 		e.varPartSBLastHighContentValid = e.varPartSBLastHighContentValid[:sbCount]
 		for i := range e.varPartSBLastHighContentValid {
@@ -656,6 +620,7 @@ func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
 		e.varPartSBLastHighContent = e.varPartSBLastHighContent[:sbCount]
 	}
 	e.varPartFrameValid = false
+	e.ensureVP9VarPartCopyState(miRows, miCols)
 	// Invalidate the per-frame border-padded source mirror so the next
 	// choose_partitioning inter call rebuilds it from the current frame's
 	// source plane. The padded LAST mirror (e.lastBordered) is rebuilt at
