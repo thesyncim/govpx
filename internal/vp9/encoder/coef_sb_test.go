@@ -182,6 +182,108 @@ func TestCommitCoefSbContextsMatchesWriteCoefSb(t *testing.T) {
 	}
 }
 
+func TestCommitCoefSbContextsFromTokensMatchesWriteCoefSb(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	makePlanes := func() [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane {
+		var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+		vp9dec.SetupBlockPlanes(&planes, 1, 1)
+		planes[0].AboveContext = make([]uint8, 4)
+		planes[0].LeftContext = make([]uint8, 4)
+		planes[1].AboveContext = make([]uint8, 2)
+		planes[1].LeftContext = make([]uint8, 2)
+		planes[2].AboveContext = make([]uint8, 2)
+		planes[2].LeftContext = make([]uint8, 2)
+		return planes
+	}
+	writePlanes := makePlanes()
+	stagePlanes := makePlanes()
+	commitPlanes := makePlanes()
+
+	zero := make([]int16, 16)
+	dc := make([]int16, 16)
+	dc[0] = 16
+	ac := make([]int16, 16)
+	ac[1] = 16
+	getCoeffs := func(plane, r, c int, tx common.TxSize) []int16 {
+		switch {
+		case plane == 0 && r == 0 && c == 0:
+			return dc
+		case plane == 0 && r == 1 && c == 1:
+			return ac
+		case plane == 1:
+			return dc
+		default:
+			return zero
+		}
+	}
+	getEOB := func(plane, r, c int, tx common.TxSize) (int, bool) {
+		switch {
+		case plane == 0 && r == 0 && c == 0:
+			return 1, true
+		case plane == 0 && r == 1 && c == 1:
+			return 2, true
+		case plane == 1:
+			return 1, true
+		default:
+			return 0, true
+		}
+	}
+	baseArgs := WriteCoefSbArgs{
+		BSize:    common.Block8x8,
+		MiTxSize: common.Tx4x4,
+		IsInter:  1,
+		PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+			{16, 16}, {16, 16}, {16, 16},
+		},
+		Fc:        &fc,
+		GetCoeffs: getCoeffs,
+		GetEOB:    getEOB,
+	}
+
+	writeArgs := baseArgs
+	writeArgs.Planes = &writePlanes
+	var bw bitstream.Writer
+	bw.Start(make([]byte, 256))
+	if err := WriteCoefSb(&bw, writeArgs); err != nil {
+		t.Fatalf("WriteCoefSb: %v", err)
+	}
+	if _, err := bw.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	tokens := make([]TokenExtra, 64)
+	tokenIndex := 0
+	stageArgs := baseArgs
+	stageArgs.Planes = &stagePlanes
+	stageArgs.TokenDst = tokens
+	stageArgs.TokenIndex = &tokenIndex
+	stageArgs.TokenOnly = true
+	var discard bitstream.Writer
+	discard.StartDiscard()
+	if err := WriteCoefSb(&discard, stageArgs); err != nil {
+		t.Fatalf("stage WriteCoefSb: %v", err)
+	}
+	if tokenIndex >= len(tokens) {
+		t.Fatal("token stage filled buffer before EOSB")
+	}
+	tokens[tokenIndex] = TokenExtra{Token: EOSBToken}
+	tokenIndex++
+
+	commitArgs := baseArgs
+	commitArgs.Planes = &commitPlanes
+	if err := CommitCoefSbContextsFromTokens(commitArgs, tokens[:tokenIndex]); err != nil {
+		t.Fatalf("CommitCoefSbContextsFromTokens: %v", err)
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		if got, want := commitPlanes[plane].AboveContext, writePlanes[plane].AboveContext; !equalUint8s(got, want) {
+			t.Fatalf("plane %d above context = %v, want %v", plane, got, want)
+		}
+		if got, want := commitPlanes[plane].LeftContext, writePlanes[plane].LeftContext; !equalUint8s(got, want) {
+			t.Fatalf("plane %d left context = %v, want %v", plane, got, want)
+		}
+	}
+}
+
 func equalUint8s(a, b []uint8) bool {
 	if len(a) != len(b) {
 		return false

@@ -416,6 +416,7 @@ type VP9Encoder struct {
 	vp9TokenFrame            encoder.TokenFrameBuffer
 	vp9TokenCollect          vp9TokenCollectState
 	vp9TokenReplay           vp9TokenReplayState
+	vp9CountCodingPreserved  bool
 	vp9HeaderScratch         vp9dec.UncompressedHeader
 	vp9InterIntraHdr         vp9dec.UncompressedHeader
 	vp9CountWorkers          []VP9Encoder

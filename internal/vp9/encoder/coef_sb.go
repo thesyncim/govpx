@@ -340,3 +340,87 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 	}
 	return nil
 }
+
+// CommitCoefSbContextsFromTokens mirrors CommitCoefSbContexts while deriving
+// each tx block's nonzero/EOB state from a staged TOKENEXTRA stream. This is
+// the pack-side equivalent of libvpx replaying tokenize_b output: the caller
+// already has coefficient tokens, so it can advance above/left contexts without
+// rescanning qcoeff/dqcoeff buffers.
+func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) error {
+	cursor := 0
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &a.Planes[plane]
+
+		var txSize common.TxSize
+		if plane == 0 {
+			txSize = a.MiTxSize
+		} else {
+			txSize = vp9dec.GetUvTxSize(a.BSize, a.MiTxSize, pd)
+		}
+
+		planeBsize := vp9dec.GetPlaneBlockSize(a.BSize, pd)
+		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		if a.MiRows > 0 && a.MiCols > 0 {
+			num4x4W, num4x4H = planeMaxBlocks4x4(a.MiRows, a.MiCols,
+				a.MiRow, a.MiCol, a.BSize, pd, planeBsize)
+		}
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+
+		aboveBase := a.AboveOffsets[plane]
+		leftBase := a.LeftOffsets[plane]
+
+		for r := 0; r < num4x4H; r += step {
+			for c := 0; c < num4x4W; c += step {
+				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
+				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
+
+				hasResidue, n, ok := stagedBlockHasResidue(tokens[cursor:], maxEob)
+				if !ok {
+					return ErrTokenBufferFull
+				}
+				cursor += n
+
+				v := uint8(0)
+				if hasResidue {
+					v = 1
+				}
+				for j := range step {
+					aboveCtx[j] = v
+					leftCtx[j] = v
+				}
+			}
+		}
+	}
+	if cursor >= len(tokens) || tokens[cursor].Token != EOSBToken {
+		return ErrTokenBufferFull
+	}
+	return nil
+}
+
+func stagedBlockHasResidue(tokens []TokenExtra, maxEob int) (bool, int, bool) {
+	if maxEob <= 0 {
+		return false, 0, false
+	}
+	hasResidue := false
+	c := 0
+	for c < maxEob {
+		if len(tokens) == 0 {
+			return false, 0, false
+		}
+		tok := tokens[0]
+		if tok.Token == EOSBToken {
+			return false, 0, false
+		}
+		tokens = tokens[1:]
+		if tok.Token == EobToken {
+			return hasResidue, c + 1, true
+		}
+		if tok.Token != ZeroToken {
+			hasResidue = true
+		}
+		c++
+	}
+	return hasResidue, maxEob, true
+}

@@ -490,7 +490,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	denoiserCountState := e.saveVP9DenoiserForCounts(interState)
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
-		keyState, interState)
+		keyState, interState, header.RefreshFrameContext)
 	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	// libvpx vp9/encoder/vp9_encodeframe.c:5911 gates the post-encode
 	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. Only the
@@ -509,10 +509,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if interState != nil {
 			interState.txMode = txMode
 		}
+		if e.vp9CountCodingPreserved {
+			e.resetVP9EncoderCodingState(int(width), int(height))
+		}
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
-			header.IntraOnly, keyState, interState)
+			header.IntraOnly, keyState, interState, header.RefreshFrameContext)
 		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	}
 	header.Seg = seg

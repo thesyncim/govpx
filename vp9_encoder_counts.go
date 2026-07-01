@@ -12,7 +12,9 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	isKey, intraOnly bool, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+	preserveCodingState bool,
 ) *encoder.FrameCounts {
+	e.vp9CountCodingPreserved = false
 	counts := &e.frameCounts
 	*counts = encoder.FrameCounts{}
 	e.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}
@@ -60,7 +62,12 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	}
 	e.restoreVP9CyclicRefreshMapsAfterCounts(cyclicSnap)
 
-	e.resetVP9EncoderCodingState(width, height)
+	if preserveCodingState && miGridValid && e.vp9TokenFrame.Used > 0 {
+		e.resetVP9EncoderSyntaxContexts()
+		e.vp9CountCodingPreserved = true
+	} else {
+		e.resetVP9EncoderCodingState(width, height)
+	}
 	return counts
 }
 

@@ -259,6 +259,12 @@ func (e *VP9Encoder) finishVP9CoefTokenLeaf() {
 }
 
 func (e *VP9Encoder) packVP9ReplayCoefTokenLeaf(bw *bitstream.Writer) bool {
+	return e.packVP9ReplayCoefTokenLeafWithContexts(bw, nil)
+}
+
+func (e *VP9Encoder) packVP9ReplayCoefTokenLeafWithContexts(bw *bitstream.Writer,
+	coefArgs *encoder.WriteCoefSbArgs,
+) bool {
 	if e == nil || bw == nil || !e.vp9TokenReplay.active {
 		return false
 	}
@@ -271,6 +277,12 @@ func (e *VP9Encoder) packVP9ReplayCoefTokenLeaf(bw *bitstream.Writer) bool {
 		tokens[n-1].Token != encoder.EOSBToken {
 		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 		return true
+	}
+	if coefArgs != nil {
+		if err := encoder.CommitCoefSbContextsFromTokens(*coefArgs, tokens[:n]); err != nil {
+			e.vp9TokenReplay.err = err
+			return true
+		}
 	}
 	e.vp9TokenReplay.cursor += n
 	return true

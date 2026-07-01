@@ -706,14 +706,18 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 
 func (e *VP9Encoder) resetVP9EncoderCodingState(width, height int) {
 	e.prepareVP9EncoderOutputFrame(width, height)
+	e.resetVP9EncoderSyntaxContexts()
+	for i := range e.miGrid {
+		e.miGrid[i] = vp9dec.NeighborMi{}
+	}
+}
+
+func (e *VP9Encoder) resetVP9EncoderSyntaxContexts() {
 	for i := range e.aboveSegCtx {
 		e.aboveSegCtx[i] = 0
 	}
 	for i := range e.leftSegCtx {
 		e.leftSegCtx[i] = 0
-	}
-	for i := range e.miGrid {
-		e.miGrid[i] = vp9dec.NeighborMi{}
 	}
 	e.resetVP9EncoderAboveEntropyContexts()
 	e.resetVP9EncoderLeftEntropyContexts()

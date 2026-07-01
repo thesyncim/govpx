@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
 func TestVP9EncoderCountTokenCollectionBuildsEOSBLists(t *testing.T) {
@@ -100,6 +102,46 @@ func TestVP9EncoderThreadedCountTokenCollectionBuildsTileLists(t *testing.T) {
 		if !e.vp9TilePool.encodeJobs[tileCol].replayTokens {
 			t.Fatalf("tile %d encode job did not use staged token replay", tileCol)
 		}
+	}
+}
+
+func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
+	e := &VP9Encoder{}
+	e.refFrames[0].valid = true
+	e.vp9TokenReplay.active = true
+	inter := &vp9InterEncodeState{}
+	decision := vp9InterModeDecision{
+		refFrame:       vp9dec.LastFrame,
+		secondRefFrame: vp9dec.NoRefFrame,
+		refSlot:        0,
+		mode:           common.ZeroMv,
+		interpFilter:   vp9dec.InterpEighttap,
+		txSize:         common.Tx8x8,
+	}
+
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a leaf without preserved coding state")
+	}
+	e.vp9CountCodingPreserved = true
+	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path rejected a preserved single-reference inter leaf")
+	}
+	e.denoiser.allocated = true
+	e.denoiser.sensitivity = 2
+	e.denoiser.level = vp9DenoiserMedium
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a denoiser-active leaf")
+	}
+	e.denoiser = vp9DenoiserState{}
+	e.activeMapEnabled = true
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a dynamic segment-map leaf")
+	}
+	e.activeMapEnabled = false
+	decision.isCompound = true
+	decision.secondRefFrame = vp9dec.GoldenFrame
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a compound leaf in the single-ref slice")
 	}
 }
 
