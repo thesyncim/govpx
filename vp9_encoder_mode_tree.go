@@ -276,6 +276,9 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	if miRow >= miRows || miCol >= miCols {
 		return
 	}
+	if vp9PhaseStatsEnabled && e.vp9PhaseStatsActive() {
+		e.vp9PhaseIncModeSB(vp9EncodeCountsForState(key, inter) != nil)
+	}
 	// libvpx vp9_encodeframe.c:5259-5262 — avg_source_sad runs once per 64x64
 	// SB at encode_nonrd_sb_row entry before partition/mode picking.
 	if inter != nil && kind == vp9ModeTreeInterSource &&

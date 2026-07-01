@@ -26,11 +26,19 @@ type vp9DecoderPhaseStatsOptions struct {
 	phaseStats *EncoderPhaseStats
 }
 
+type vp9TileWorkerPhaseStatsOptions struct {
+	phaseStats *EncoderPhaseStats
+}
+
 func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 	if e == nil {
 		return nil
 	}
 	return e.opts.PhaseStats
+}
+
+func (e *VP9Encoder) vp9PhaseStatsActive() bool {
+	return e != nil && e.opts.PhaseStats != nil
 }
 
 func (e *VP9Encoder) vp9PhaseCountAttempt(keyFrame bool) {
@@ -66,6 +74,32 @@ func (e *VP9Encoder) vp9PhaseCountPostEncodeDrop(encodedBits int) {
 	}
 	atomic.AddInt64(&stats.VP9PostEncodeDrops, 1)
 	atomic.AddInt64(&stats.VP9PostEncodeDropBits, int64(encodedBits))
+}
+
+func (e *VP9Encoder) vp9PhaseIncFrameTile(countPass bool) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9FrameTiles, 1)
+	if countPass {
+		atomic.AddInt64(&stats.VP9FrameTilesCountPass, 1)
+	} else {
+		atomic.AddInt64(&stats.VP9FrameTilesWritePass, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseIncModeSB(countPass bool) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9ModeSBs, 1)
+	if countPass {
+		atomic.AddInt64(&stats.VP9ModeSBsCountPass, 1)
+	} else {
+		atomic.AddInt64(&stats.VP9ModeSBsWritePass, 1)
+	}
 }
 
 func (e *VP9Encoder) vp9PhaseIncModeBlock(bsize common.BlockSize, countPass bool) {
@@ -304,6 +338,65 @@ func (e *VP9Encoder) vp9PhaseAddFullPelSAD(candidates int64, batch bool,
 	default:
 		atomic.AddInt64(&stats.VP9FullPelSADOtherCalls, 1)
 		atomic.AddInt64(&stats.VP9FullPelSADOtherCandidates, candidates)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseIncTileWorkerJob(kind vp9TileWorkerJobKind) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	switch kind {
+	case vp9TileWorkerJobCount:
+		atomic.AddInt64(&stats.VP9TileWorkerCountJobRuns, 1)
+	default:
+		atomic.AddInt64(&stats.VP9TileWorkerEncodeJobRuns, 1)
+	}
+}
+
+func (p *vp9TileWorkerPool) setVP9TileWorkerPhaseStats(stats *EncoderPhaseStats) {
+	if p != nil {
+		p.phaseStats = stats
+	}
+}
+
+func (p *vp9TileWorkerPool) vp9TileWorkerPhaseStatsActive() bool {
+	return p != nil && p.phaseStats != nil
+}
+
+func (p *vp9TileWorkerPool) vp9PhaseStartTileWorkerEpoch(kind vp9TileWorkerJobKind) {
+	if p == nil || p.phaseStats == nil {
+		return
+	}
+	switch kind {
+	case vp9TileWorkerJobCount:
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerCountEpochs, 1)
+	default:
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerEncodeEpochs, 1)
+	}
+}
+
+func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWakeSignals(n int64) {
+	if p != nil && p.phaseStats != nil && n != 0 {
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerWakeSignals, n)
+	}
+}
+
+func (p *vp9TileWorkerPool) vp9PhaseIncTileWorkerPark() {
+	if p != nil && p.phaseStats != nil {
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerParks, 1)
+	}
+}
+
+func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWait(spins, goscheds int64) {
+	if p == nil || p.phaseStats == nil {
+		return
+	}
+	if spins != 0 {
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerWaitSpins, spins)
+	}
+	if goscheds != 0 {
+		atomic.AddInt64(&p.phaseStats.VP9TileWorkerWaitGoscheds, goscheds)
 	}
 }
 

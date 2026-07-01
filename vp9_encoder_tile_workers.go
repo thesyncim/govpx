@@ -83,6 +83,8 @@ type vp9EncodeTileJob struct {
 }
 
 type vp9TileWorkerPool struct {
+	vp9TileWorkerPhaseStatsOptions
+
 	workers     []VP9Encoder
 	countJobs   []vp9CountTileJob
 	countCounts []encoder.FrameCounts
@@ -360,6 +362,9 @@ func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
 		return nil
 	}
 	if pool := e.vp9TilePool; pool != nil && pool.workerCount == tileJobs {
+		if vp9PhaseStatsEnabled {
+			pool.setVP9TileWorkerPhaseStats(e.vp9PhaseStats())
+		}
 		return pool
 	}
 	if e.vp9TilePool != nil {
@@ -372,6 +377,9 @@ func (e *VP9Encoder) ensureVP9TileWorkerPool(tileJobs int) *vp9TileWorkerPool {
 		e.vp9CountCounts = nil
 		e.vp9CountJobs = nil
 		return nil
+	}
+	if vp9PhaseStatsEnabled {
+		pool.setVP9TileWorkerPhaseStats(e.vp9PhaseStats())
 	}
 	e.vp9TilePool = pool
 	e.vp9CountWorkers = pool.workers
@@ -513,6 +521,9 @@ func (p *vp9TileWorkerPool) parkHelperWorker(workerIndex int, start <-chan struc
 	if p == nil {
 		return false
 	}
+	if vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive() {
+		p.vp9PhaseIncTileWorkerPark()
+	}
 	if workerIndex > 0 && workerIndex < len(p.parked) {
 		p.parked[workerIndex].Store(1)
 		defer p.parked[workerIndex].Store(0)
@@ -532,16 +543,27 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
+	phaseStatsActive := vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive()
+	if phaseStatsActive {
+		p.vp9PhaseStartTileWorkerEpoch(kind)
+	}
 	p.jobKind.Store(uint32(kind))
 	p.jobEpoch.Add(1)
+	wakeSignals := 0
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
 		if workerIndex >= len(p.parked) || p.parked[workerIndex].Load() == 0 {
 			continue
 		}
 		select {
 		case p.start[workerIndex] <- struct{}{}:
+			if phaseStatsActive {
+				wakeSignals++
+			}
 		default:
 		}
+	}
+	if phaseStatsActive {
+		p.vp9PhaseAddTileWorkerWakeSignals(int64(wakeSignals))
 	}
 }
 
@@ -550,11 +572,19 @@ func (p *vp9TileWorkerPool) waitHelperWorkers() {
 		return
 	}
 	epoch := p.jobEpoch.Load()
-	for spins := 0; !p.helperWorkersDone(epoch); spins++ {
+	phaseStatsActive := vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive()
+	spins, goscheds := 0, 0
+	for ; !p.helperWorkersDone(epoch); spins++ {
 		runtimeProcYield(30)
 		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
+			if phaseStatsActive {
+				goscheds++
+			}
 			runtime.Gosched()
 		}
+	}
+	if phaseStatsActive {
+		p.vp9PhaseAddTileWorkerWait(int64(spins), int64(goscheds))
 	}
 }
 
@@ -1564,6 +1594,9 @@ func runVP9CountTileJob(job *vp9CountTileJob, wg *sync.WaitGroup) {
 }
 
 func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
+	if vp9PhaseStatsEnabled && job != nil && job.worker.vp9PhaseStatsActive() {
+		job.worker.vp9PhaseIncTileWorkerJob(vp9TileWorkerJobCount)
+	}
 	var countKey *vp9KeyframeEncodeState
 	if job.hasKey {
 		countKey = &job.key
@@ -1581,6 +1614,9 @@ func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
 }
 
 func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
+	if vp9PhaseStatsEnabled && job != nil && job.worker.vp9PhaseStatsActive() {
+		job.worker.vp9PhaseIncTileWorkerJob(vp9TileWorkerJobEncode)
+	}
 	var key *vp9KeyframeEncodeState
 	if job.hasKey {
 		key = &job.key

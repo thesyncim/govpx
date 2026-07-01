@@ -22,8 +22,14 @@ const (
 
 type vp9DecoderPhaseStatsOptions struct{}
 
+type vp9TileWorkerPhaseStatsOptions struct{}
+
 func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 	return nil
+}
+
+func (e *VP9Encoder) vp9PhaseStatsActive() bool {
+	return false
 }
 
 func (e *VP9Encoder) vp9PhaseCountAttempt(bool) {}
@@ -31,6 +37,10 @@ func (e *VP9Encoder) vp9PhaseCountAttempt(bool) {}
 func (e *VP9Encoder) vp9PhaseCountPreEncodeDrop(vp9DropReason) {}
 
 func (e *VP9Encoder) vp9PhaseCountPostEncodeDrop(int) {}
+
+func (e *VP9Encoder) vp9PhaseIncFrameTile(bool) {}
+
+func (e *VP9Encoder) vp9PhaseIncModeSB(bool) {}
 
 func (e *VP9Encoder) vp9PhaseIncModeBlock(common.BlockSize, bool) {}
 
@@ -57,6 +67,22 @@ func (e *VP9Encoder) vp9PhaseIncInterPredictionVariance() {}
 func (e *VP9Encoder) vp9PhaseCountFullPelSearch(common.BlockSize, bool, bool) {}
 
 func (e *VP9Encoder) vp9PhaseAddFullPelSAD(int64, bool, vp9FullPelSADSource) {}
+
+func (e *VP9Encoder) vp9PhaseIncTileWorkerJob(vp9TileWorkerJobKind) {}
+
+func (p *vp9TileWorkerPool) setVP9TileWorkerPhaseStats(*EncoderPhaseStats) {}
+
+func (p *vp9TileWorkerPool) vp9TileWorkerPhaseStatsActive() bool {
+	return false
+}
+
+func (p *vp9TileWorkerPool) vp9PhaseStartTileWorkerEpoch(vp9TileWorkerJobKind) {}
+
+func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWakeSignals(int64) {}
+
+func (p *vp9TileWorkerPool) vp9PhaseIncTileWorkerPark() {}
+
+func (p *vp9TileWorkerPool) vp9PhaseAddTileWorkerWait(int64, int64) {}
 
 func (d *VP9Decoder) setVP9PhaseStats(*EncoderPhaseStats) {}
 

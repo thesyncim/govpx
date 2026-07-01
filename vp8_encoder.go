@@ -205,6 +205,18 @@ type EncoderPhaseStats struct {
 
 	// VP9ModeBlocks counts write_modes_b-equivalent VP9 mode-block visits.
 	VP9ModeBlocks int64 `json:"vp9_mode_blocks"`
+	// VP9FrameTiles counts VP9 tile writer entries.
+	VP9FrameTiles int64 `json:"vp9_frame_tiles"`
+	// VP9FrameTilesCountPass counts VP9 tile writer entries in the count pre-pass.
+	VP9FrameTilesCountPass int64 `json:"vp9_frame_tiles_count_pass"`
+	// VP9FrameTilesWritePass counts VP9 tile writer entries in the bitstream pass.
+	VP9FrameTilesWritePass int64 `json:"vp9_frame_tiles_write_pass"`
+	// VP9ModeSBs counts recursive write_modes_sb-equivalent VP9 superblock visits.
+	VP9ModeSBs int64 `json:"vp9_mode_sbs"`
+	// VP9ModeSBsCountPass counts VP9 superblock visits in the count pre-pass.
+	VP9ModeSBsCountPass int64 `json:"vp9_mode_sbs_count_pass"`
+	// VP9ModeSBsWritePass counts VP9 superblock visits in the bitstream pass.
+	VP9ModeSBsWritePass int64 `json:"vp9_mode_sbs_write_pass"`
 	// VP9ModeBlocksCountPass counts VP9 mode-block visits in the count pre-pass.
 	VP9ModeBlocksCountPass int64 `json:"vp9_mode_blocks_count_pass"`
 	// VP9ModeBlocksWritePass counts VP9 mode-block visits in the bitstream pass.
@@ -294,6 +306,16 @@ type EncoderPhaseStats struct {
 	VP9InterPredictorAvgHoriz int64 `json:"vp9_inter_predictor_avg_horiz"`
 	VP9InterPredictor2D       int64 `json:"vp9_inter_predictor_2d"`
 	VP9InterPredictorAvg2D    int64 `json:"vp9_inter_predictor_avg_2d"`
+
+	// VP9TileWorker* count persistent tile-worker scheduling activity.
+	VP9TileWorkerCountEpochs   int64 `json:"vp9_tile_worker_count_epochs"`
+	VP9TileWorkerEncodeEpochs  int64 `json:"vp9_tile_worker_encode_epochs"`
+	VP9TileWorkerWakeSignals   int64 `json:"vp9_tile_worker_wake_signals"`
+	VP9TileWorkerParks         int64 `json:"vp9_tile_worker_parks"`
+	VP9TileWorkerWaitSpins     int64 `json:"vp9_tile_worker_wait_spins"`
+	VP9TileWorkerWaitGoscheds  int64 `json:"vp9_tile_worker_wait_goscheds"`
+	VP9TileWorkerCountJobRuns  int64 `json:"vp9_tile_worker_count_job_runs"`
+	VP9TileWorkerEncodeJobRuns int64 `json:"vp9_tile_worker_encode_job_runs"`
 }
 
 // Reset clears all accumulated phase counters.

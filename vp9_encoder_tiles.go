@@ -368,6 +368,9 @@ func (e *VP9Encoder) writeVP9FrameTile(bw *bitstream.Writer, miRows, miCols int,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
+	if vp9PhaseStatsEnabled && e.vp9PhaseStatsActive() {
+		e.vp9PhaseIncFrameTile(vp9EncodeCountsForState(key, inter) != nil)
+	}
 	switch kind {
 	case vp9ModeTreeKeyframeSource:
 		e.writeVP9ModesTileBounds(bw, miRows, miCols, tile,

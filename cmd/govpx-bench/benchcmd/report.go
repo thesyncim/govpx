@@ -239,6 +239,15 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9InterPredictionBlocks,
 			stats.VP9InterPredictPlaneCalls,
 			stats.VP9InterPredictionVarianceCalls)
+		if stats.VP9FrameTiles > 0 || stats.VP9ModeSBs > 0 {
+			fmt.Fprintf(b, "vp9 tile walk   tiles=%d/%d  sbs=%d/%d  blocks=%d/%d\n",
+				stats.VP9FrameTilesCountPass,
+				stats.VP9FrameTilesWritePass,
+				stats.VP9ModeSBsCountPass,
+				stats.VP9ModeSBsWritePass,
+				stats.VP9ModeBlocksCountPass,
+				stats.VP9ModeBlocksWritePass)
+		}
 		fmt.Fprintf(b, "vp9 mode pass   count=%d  write=%d  blocks=%d/%d/%d/%d/%d/%d/%d/%d/%d\n",
 			stats.VP9ModeBlocksCountPass,
 			stats.VP9ModeBlocksWritePass,
@@ -266,6 +275,20 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9InterPredictorAvgHoriz,
 			stats.VP9InterPredictorAvgVert,
 			stats.VP9InterPredictorAvg2D)
+	}
+	if stats.VP9TileWorkerCountEpochs > 0 || stats.VP9TileWorkerEncodeEpochs > 0 ||
+		stats.VP9TileWorkerWakeSignals > 0 || stats.VP9TileWorkerParks > 0 ||
+		stats.VP9TileWorkerWaitSpins > 0 || stats.VP9TileWorkerCountJobRuns > 0 ||
+		stats.VP9TileWorkerEncodeJobRuns > 0 {
+		fmt.Fprintf(b, "vp9 tile workers count_epochs=%d  encode_epochs=%d  jobs=%d/%d  wakes=%d  parks=%d  wait_spins=%d  gosched=%d\n",
+			stats.VP9TileWorkerCountEpochs,
+			stats.VP9TileWorkerEncodeEpochs,
+			stats.VP9TileWorkerCountJobRuns,
+			stats.VP9TileWorkerEncodeJobRuns,
+			stats.VP9TileWorkerWakeSignals,
+			stats.VP9TileWorkerParks,
+			stats.VP9TileWorkerWaitSpins,
+			stats.VP9TileWorkerWaitGoscheds)
 	}
 	if stats.VP9VarPartSetVTCalls > 0 || stats.VP9VarPartForceSplit64 > 0 ||
 		stats.VP9VarPartForceSplit32 > 0 || stats.VP9VarPartForceSplit16 > 0 {
