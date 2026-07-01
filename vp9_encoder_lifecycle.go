@@ -413,6 +413,8 @@ type VP9Encoder struct {
 	cyclicResizeFramePending bool
 	dqScratch                vp9dec.DequantTables
 	frameCounts              encoder.FrameCounts
+	vp9TokenFrame            encoder.TokenFrameBuffer
+	vp9TokenCollect          vp9TokenCollectState
 	vp9HeaderScratch         vp9dec.UncompressedHeader
 	vp9InterIntraHdr         vp9dec.UncompressedHeader
 	vp9CountWorkers          []VP9Encoder

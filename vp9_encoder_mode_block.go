@@ -219,10 +219,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 			if cur.Skip != 0 {
 				vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
+				e.finishVP9CoefTokenLeaf()
 				e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 				return
 			}
-			_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
+			coefArgs := encoder.WriteCoefSbArgs{
 				BSize:        reconBsize,
 				MiTxSize:     cur.TxSize,
 				IsInter:      vp9dec.BoolInt(isInter),
@@ -251,7 +252,14 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
 					return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
 				},
-			})
+			}
+			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
+			if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+				e.vp9TokenCollect.err = err
+			}
+			if collectTokens {
+				e.finishVP9CoefTokenLeaf()
+			}
 		}
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 		return
@@ -361,10 +369,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		if !hasResidue {
 			vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
+			e.finishVP9CoefTokenLeaf()
 			e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 			return
 		}
-		_ = encoder.WriteCoefSb(bw, encoder.WriteCoefSbArgs{
+		coefArgs := encoder.WriteCoefSbArgs{
 			BSize:        reconBsize,
 			MiTxSize:     cur.TxSize,
 			IsInter:      0,
@@ -393,7 +402,14 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
 				return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
 			},
-		})
+		}
+		collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
+		if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+			e.vp9TokenCollect.err = err
+		}
+		if collectTokens {
+			e.finishVP9CoefTokenLeaf()
+		}
 		e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 		return
 	}

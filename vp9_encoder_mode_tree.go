@@ -157,6 +157,7 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 	}
 	if rowMT == nil {
 		for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+			tokenList := e.startVP9CountTokenList(tile, miRow)
 			for i := range e.leftSegCtx {
 				e.leftSegCtx[i] = 0
 			}
@@ -176,12 +177,14 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 						miRow, miCol, cyclicBaseQindex)
 				}
 			}
+			e.finishVP9CountTokenList(tokenList)
 		}
 		return
 	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+		tokenList := e.startVP9CountTokenList(tile, miRow)
 		for i := range e.leftSegCtx {
 			e.leftSegCtx[i] = 0
 		}
@@ -208,6 +211,7 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 			}
 			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
+		e.finishVP9CountTokenList(tokenList)
 	}
 }
 

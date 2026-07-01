@@ -95,8 +95,14 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 			return e.vp9ActiveSegmentMapCodingChooser()
 		}
 	}
+	collectTokens := e.beginVP9CountTokenCollection(miRows, miCols, tileRows, tileCols,
+		kind)
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {
+			if collectTokens {
+				e.vp9TokenCollect.tileRow = tileRow
+				e.vp9TokenCollect.tileCol = tileCol
+			}
 			var bw bitstream.Writer
 			bw.StartDiscard()
 			e.writeVP9FrameTile(&bw, miRows, miCols,
@@ -105,7 +111,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 			_, _ = bw.Stop()
 		}
 	}
-	return true
+	return e.finishVP9CountTokenCollection() == nil
 }
 
 // vp9ChooseSegmentMapCodingMethod mirrors libvpx's segment-map coding
