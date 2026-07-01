@@ -328,7 +328,25 @@ func vpxLpfHorizontal8Scalar(plane []uint8, s, pitch int, blimit, limit, thresh 
 			plane[s+pitch] = uint8((int(p1) + int(p0) + int(q0) + int(q1)*2 + int(q2) + int(q3)*2 + 4) >> 3)
 			plane[s+2*pitch] = uint8((int(p0) + int(q0) + int(q1) + int(q2)*2 + int(q3)*3 + 4) >> 3)
 		} else {
-			filter4Pass(thresh, plane, s-2*pitch, s-pitch, s, s+pitch, p1, p0, q0, q1)
+			ps1 := int8(p1 ^ 0x80)
+			ps0 := int8(p0 ^ 0x80)
+			qs0 := int8(q0 ^ 0x80)
+			qs1 := int8(q1 ^ 0x80)
+			hev := hevMask(thresh, p1, p0, q0, q1)
+
+			filter := signedCharClamp(int(ps1)-int(qs1)) & hev
+			filter = signedCharClamp(int(filter) + 3*(int(qs0)-int(ps0)))
+			filter1 := signedCharClamp(int(filter)+4) >> 3
+			filter2 := signedCharClamp(int(filter)+3) >> 3
+
+			plane[s] = uint8(signedCharClamp(int(qs0)-int(filter1))) ^ 0x80
+			plane[s-pitch] = uint8(signedCharClamp(int(ps0)+int(filter2))) ^ 0x80
+
+			outer := (filter1 + 1) >> 1
+			outer &= ^hev
+
+			plane[s+pitch] = uint8(signedCharClamp(int(qs1)-int(outer))) ^ 0x80
+			plane[s-2*pitch] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
 		}
 		s++
 	}
