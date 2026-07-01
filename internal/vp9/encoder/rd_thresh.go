@@ -543,14 +543,23 @@ func (rd *RDThreshState) UpdateFullRDThreshFact(bsize common.BlockSize,
 		maxSize = common.Block64x64
 	}
 	cap := adaptiveRdThresh * vp9RDThreshMaxFact
-	for mode := range topMode {
-		for bs := minSize; bs <= maxSize; bs++ {
-			fact := &rd.threshFreqFact[bs][mode]
-			if ThrMode(mode) == bestModeIndex {
-				*fact -= *fact >> 4
-			} else {
-				*fact = min(*fact+vp9RDThreshInc, cap)
+	bestMode := int(bestModeIndex)
+	bestModeInRange := bestMode >= 0 && bestMode < topMode
+	for bs := minSize; bs <= maxSize; bs++ {
+		row := rd.threshFreqFact[bs][:]
+		bestFact := 0
+		if bestModeInRange {
+			bestFact = row[bestMode]
+		}
+		for mode := range topMode {
+			fact := row[mode] + vp9RDThreshInc
+			if fact > cap {
+				fact = cap
 			}
+			row[mode] = fact
+		}
+		if bestModeInRange {
+			row[bestMode] = bestFact - (bestFact >> 4)
 		}
 	}
 }

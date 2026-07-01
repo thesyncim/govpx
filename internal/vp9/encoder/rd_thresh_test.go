@@ -308,6 +308,18 @@ func TestVP9UpdateFullRDThreshFactTouchesNeighborBlockSizes(t *testing.T) {
 	}
 }
 
+func BenchmarkVP9UpdateFullRDThreshFact(b *testing.B) {
+	var rd RDThreshState
+	rd.InitFreqFact()
+	modes := [...]ThrMode{vp9ThrNewMV, vp9ThrNearMV, vp9ThrZeroMV, vp9ThrCompNewLA}
+	sizes := [...]common.BlockSize{common.Block8x8, common.Block16x16, common.Block32x32, common.Block64x64}
+
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		rd.UpdateFullRDThreshFact(sizes[i&3], modes[i&3], 4)
+	}
+}
+
 // TestVP9UpdateThreshFreqFactBestMode verifies the best-mode branch reduces
 // freq_fact by fact>>4 (libvpx vp9_pickmode.c:1154).
 func TestVP9UpdateThreshFreqFactBestMode(t *testing.T) {
