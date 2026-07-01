@@ -95,6 +95,11 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 }
 
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
+	transformMacroblockTokensLuma(tokens, dequant, is4x4, out)
+	transformMacroblockTokensChroma(tokens, dequant, out)
+}
+
+func transformMacroblockTokensLuma(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
 	hasY2 := !is4x4 && tokens.EOB[24] > 0
 	if hasY2 {
 		clearYResidualBlocks(out)
@@ -127,6 +132,9 @@ func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.Macrobl
 		}
 		dequantizeInto(&tokens.QCoeff[i], yDequant, eob, block)
 	}
+}
+
+func transformMacroblockTokensChroma(tokens *MacroblockTokens, dequant *common.MacroblockDequant, out *MacroblockResidual) {
 	for i := 16; i < 24; i++ {
 		eob := tokens.EOB[i]
 		if eob == 0 {
@@ -279,6 +287,12 @@ func addOneChromaBlock(tokens *MacroblockTokens, residual *MacroblockResidual, d
 		dsp.DCOnlyIDCT4x4AddInt32(dc, dst[off:], stride, dst[off:], stride)
 		return
 	}
+	if dequant != nil {
+		var block [16]int16
+		dequantizeInto(&tokens.QCoeff[blockIndex], &dequant.UV, eob, &block)
+		dsp.IDCT4x4Add(&block, dst[off:], stride, dst[off:], stride)
+		return
+	}
 	addTransformBlock(eob, residual.Block(blockIndex), dst[off:], stride)
 }
 
@@ -339,7 +353,7 @@ func ReconstructWholeBlockIntraMacroblock(mode *MacroblockMode, tokens *Macroblo
 	if mode.MBSkipCoeff {
 		return true
 	}
-	TransformMacroblockTokens(tokens, dequant, false, scratch)
+	transformMacroblockTokensLuma(tokens, dequant, false, scratch)
 	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }
@@ -556,7 +570,7 @@ func ReconstructSplitMVInterMacroblock(mode *MacroblockMode, tokens *MacroblockT
 	if mode.MBSkipCoeff {
 		return true
 	}
-	TransformMacroblockTokens(tokens, dequant, true, scratch)
+	transformMacroblockTokensLuma(tokens, dequant, true, scratch)
 	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
 	return true
 }
@@ -729,7 +743,7 @@ func ReconstructBPredIntraMacroblock(mode *MacroblockMode, tokens *MacroblockTok
 		return PredictIntraY4x4(&mode.BModes, y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft)
 	}
 
-	TransformMacroblockTokens(tokens, dequant, true, scratch)
+	transformMacroblockTokensLuma(tokens, dequant, true, scratch)
 	for block := range 16 {
 		if ok := predictIntraY4x4Block(mode.BModes[block], y, yStride, refs.YAbove, refs.YLeft, refs.YTopLeft, block); !ok {
 			return false
