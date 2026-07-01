@@ -389,37 +389,83 @@ func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
 	if !e.predictVP9InterBlockChromaOnly(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, 0, 0, 0, false
 	}
-	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
-		pd := &e.planes[plane]
-		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if planeBsize >= common.BlockSizes {
-			return 0, 0, 0, 0, false
-		}
-		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
-		dst, dstStride := e.vp9EncoderReconPlane(plane)
-		if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
-			return 0, 0, 0, 0, false
-		}
-		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
-		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
-		x0 := (miCol * common.MiSize) >> pd.SubsamplingX
-		y0 := (miRow * common.MiSize) >> pd.SubsamplingY
-		dstRows := len(dst) / dstStride
-		if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
-			!encoder.VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
-			return 0, 0, 0, 0, false
-		}
-		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
-			x0, y0, x0, y0, blockW, blockH)
-		if plane == 1 {
-			varU = variance
-			sseU = sse
-		} else {
-			varV = variance
-			sseV = sse
-		}
+	varU, sseU, ok = e.vp9NonrdUVPlaneDiffVarianceSSE(inter, miRow, miCol, bsize, 1)
+	if !ok {
+		return 0, 0, 0, 0, false
+	}
+	varV, sseV, ok = e.vp9NonrdUVPlaneDiffVarianceSSE(inter, miRow, miCol, bsize, 2)
+	if !ok {
+		return 0, 0, 0, 0, false
 	}
 	return varU, sseU, varV, sseV, true
+}
+
+// vp9NonrdUVVariancePlaneSSE builds the inter prediction for a single
+// chroma plane (1 = U, 2 = V) and returns its (variance, sse) against the
+// source. It mirrors libvpx's per-plane chroma flow in the nonrd picker:
+// vp9_build_inter_predictors_sbp(xd, mi_row, mi_col, bsize, plane)
+// followed by cpi->fn_ptr[uv_bsize].vf for that plane
+// (vp9/encoder/vp9_pickmode.c:578-599 and :2392-2400). Building only the
+// plane libvpx touches avoids running the chroma convolve for the other
+// plane when it is not color-sensitive or when the U skip test already
+// failed.
+func (e *VP9Encoder) vp9NonrdUVVariancePlaneSSE(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, plane int,
+) (variance, sse uint64, ok bool) {
+	if inter == nil || inter.img == nil {
+		return 0, 0, false
+	}
+	mi := vp9dec.NeighborMi{
+		SbType:       bsize,
+		Mode:         mode,
+		InterpFilter: uint8(filter),
+		RefFrame: [2]int8{
+			refFrame,
+			vp9dec.NoRefFrame,
+		},
+		Mv: [2]vp9dec.MV{mv},
+	}
+	if !e.predictVP9InterBlockChromaPlane(inter, miRows, miCols, miRow, miCol,
+		bsize, &mi, plane) {
+		return 0, 0, false
+	}
+	return e.vp9NonrdUVPlaneDiffVarianceSSE(inter, miRow, miCol, bsize, plane)
+}
+
+// vp9NonrdUVPlaneDiffVarianceSSE computes (variance, sse) between the
+// source and the already-built reconstruction for one chroma plane.
+// libvpx: cpi->fn_ptr[uv_bsize].vf(p_uv->src.buf, ..., pd_uv->dst.buf, ...)
+// (vp9/encoder/vp9_pickmode.c:597-599).
+func (e *VP9Encoder) vp9NonrdUVPlaneDiffVarianceSSE(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, plane int,
+) (variance, sse uint64, ok bool) {
+	if plane < 1 || plane >= vp9dec.MaxMbPlane {
+		return 0, 0, false
+	}
+	pd := &e.planes[plane]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return 0, 0, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+	dst, dstStride := e.vp9EncoderReconPlane(plane)
+	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+		return 0, 0, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+	y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+	dstRows := len(dst) / dstStride
+	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+		!encoder.VisibleBlockFits(x0, y0, blockW, blockH, dstStride, dstRows) {
+		return 0, 0, false
+	}
+	variance, sse = encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
+		x0, y0, x0, y0, blockW, blockH)
+	return variance, sse, true
 }
 
 // vp9InterPredictionVarianceSSE runs the inter predictor for one

@@ -777,6 +777,9 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 		if d.predictChromaOnly && plane == 0 {
 			continue
 		}
+		if d.predictChromaPlane != 0 && plane != int(d.predictChromaPlane) {
+			continue
+		}
 		pd := &d.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {

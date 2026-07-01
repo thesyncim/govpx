@@ -1213,7 +1213,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			searchSkipTxfm     encoder.SkipTxfmFlag
 			searchMrdTxSize    common.TxSize
 			searchEarlyTerm    bool
-			searchUVOK         bool
+			searchUVOKU        bool
+			searchUVOKV        bool
 			searchVarU         uint64
 			searchSSEU         uint64
 			searchVarV         uint64
@@ -1228,7 +1229,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			searchEarlyTermSticky := false
 			for _, filter := range filters {
 				filterEarlyTerm := searchEarlyTermSticky
-				filterUVOK := false
+				filterUVOKU := false
+				filterUVOKV := false
 				var filterVarU, filterSSEU, filterVarV, filterSSEV uint64
 				varY, sseY, ok := e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
 					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
@@ -1281,24 +1283,32 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						skipTxfm = large.SkipTxfm
 						mrdTxSize = large.TxSize
 						if large.SkipTxfm == encoder.SkipTxfmAcDc {
-							filterVarU, filterSSEU, filterVarV, filterSSEV,
-								filterUVOK = e.vp9NonrdUVVarianceSSE(inter,
-								miRows, miCols, miRow, miCol, bsize,
-								thisMode, refFrame, mv, filter)
-							if filterUVOK {
-								uvBsize := vp9dec.GetPlaneBlockSize(bsize, &e.planes[1])
-								uvTxSize := vp9dec.GetUvTxSize(bsize, large.TxSize,
-									&e.planes[1])
-								filterEarlyTerm = encoder.ModelRdForSbYLargeEarlyTerm(
-									encoder.ModelRdForSbYLargeEarlyTermArgs{
-										UVBSize:  uvBsize,
-										UVTxSize: uvTxSize,
-										Dequant:  [2][2]int16{dequantU, dequantV},
-										Var:      [2]uint64{filterVarU, filterVarV},
-										SSE:      [2]uint64{filterSSEU, filterSSEV},
-									})
-								if filterEarlyTerm {
-									searchEarlyTermSticky = true
+							// libvpx vp9_pickmode.c:578-605 — the UV skip
+							// test builds/evaluates U first and `break`s
+							// before touching V when U is not skippable,
+							// so the V predictor is built lazily.
+							uvBsize := vp9dec.GetPlaneBlockSize(bsize, &e.planes[1])
+							uvTxSize := vp9dec.GetUvTxSize(bsize, large.TxSize,
+								&e.planes[1])
+							filterVarU, filterSSEU, filterUVOKU =
+								e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+									miCols, miRow, miCol, bsize, thisMode,
+									refFrame, mv, filter, 1)
+							if filterUVOKU &&
+								encoder.ModelRdForSbYLargeEarlyTermPlane(
+									uvBsize, uvTxSize, dequantU,
+									filterVarU, filterSSEU) {
+								filterVarV, filterSSEV, filterUVOKV =
+									e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+										miCols, miRow, miCol, bsize, thisMode,
+										refFrame, mv, filter, 2)
+								if filterUVOKV {
+									filterEarlyTerm = encoder.ModelRdForSbYLargeEarlyTermPlane(
+										uvBsize, uvTxSize, dequantV,
+										filterVarV, filterSSEV)
+									if filterEarlyTerm {
+										searchEarlyTermSticky = true
+									}
 								}
 							}
 						}
@@ -1323,7 +1333,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					searchSkipTxfm = skipTxfm
 					searchMrdTxSize = mrdTxSize
 					searchEarlyTerm = filterEarlyTerm
-					searchUVOK = filterUVOK
+					searchUVOKU = filterUVOKU
+					searchUVOKV = filterUVOKV
 					searchVarU = filterVarU
 					searchSSEU = filterSSEU
 					searchVarV = filterVarV
@@ -1352,7 +1363,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			var modelSkipTxfm encoder.SkipTxfmFlag
 			var mrdTxSize common.TxSize
 			var uvVarU, uvSSEU, uvVarV, uvSSEV uint64
-			uvStatsOK := false
+			// Per-plane chroma predictor/variance state, mirroring libvpx's
+			// flag_preduv_computed[2] (vp9_pickmode.c:2059): each chroma
+			// plane is built at most once per candidate and only when a
+			// consumer actually needs it.
+			uvOKU := false
+			uvOKV := false
 			thisEarlyTerm := false
 			var ok bool
 			if searchFilterPick {
@@ -1363,12 +1379,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				modelSkipTxfm = searchSkipTxfm
 				mrdTxSize = searchMrdTxSize
 				thisEarlyTerm = searchEarlyTerm
-				if searchUVOK {
+				if searchUVOKU {
 					uvVarU = searchVarU
 					uvSSEU = searchSSEU
+					uvOKU = true
+				}
+				if searchUVOKV {
 					uvVarV = searchVarV
 					uvSSEV = searchSSEV
-					uvStatsOK = true
+					uvOKV = true
 				}
 				if searchNeedsRebuild {
 					_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
@@ -1434,23 +1453,31 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						modelSkipTxfm = large.SkipTxfm
 						mrdTxSize = large.TxSize
 						if large.SkipTxfm == encoder.SkipTxfmAcDc {
-							uvVarU, uvSSEU, uvVarV, uvSSEV, uvStatsOK =
-								e.vp9NonrdUVVarianceSSE(inter, miRows, miCols,
-									miRow, miCol, bsize, thisMode, refFrame,
-									mv, filter)
-							if uvStatsOK {
-								uvBsize := vp9dec.GetPlaneBlockSize(bsize,
-									&e.planes[1])
-								uvTxSize := vp9dec.GetUvTxSize(bsize,
-									large.TxSize, &e.planes[1])
-								thisEarlyTerm = encoder.ModelRdForSbYLargeEarlyTerm(
-									encoder.ModelRdForSbYLargeEarlyTermArgs{
-										UVBSize:  uvBsize,
-										UVTxSize: uvTxSize,
-										Dequant:  [2][2]int16{dequantU, dequantV},
-										Var:      [2]uint64{uvVarU, uvVarV},
-										SSE:      [2]uint64{uvSSEU, uvSSEV},
-									})
+							// libvpx vp9_pickmode.c:578-605 — the UV skip
+							// test builds/evaluates U first and `break`s
+							// before touching V when U is not skippable,
+							// so the V predictor is built lazily.
+							uvBsize := vp9dec.GetPlaneBlockSize(bsize,
+								&e.planes[1])
+							uvTxSize := vp9dec.GetUvTxSize(bsize,
+								large.TxSize, &e.planes[1])
+							uvVarU, uvSSEU, uvOKU =
+								e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+									miCols, miRow, miCol, bsize, thisMode,
+									refFrame, mv, filter, 1)
+							if uvOKU &&
+								encoder.ModelRdForSbYLargeEarlyTermPlane(
+									uvBsize, uvTxSize, dequantU,
+									uvVarU, uvSSEU) {
+								uvVarV, uvSSEV, uvOKV =
+									e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+										miCols, miRow, miCol, bsize, thisMode,
+										refFrame, mv, filter, 2)
+								if uvOKV {
+									thisEarlyTerm = encoder.ModelRdForSbYLargeEarlyTermPlane(
+										uvBsize, uvTxSize, dequantV,
+										uvVarV, uvSSEV)
+								}
 							}
 						}
 					}
@@ -1606,17 +1633,28 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// libvpx vp9_pickmode.c:2388-2402 — color-sensitive SBs add
 			// chroma model RD to inter candidates before the final mode/ref
 			// rate terms. The color_sensitivity flags come from
-			// choose_partitioning's chroma_check prepass.
+			// choose_partitioning's chroma_check prepass. Only the
+			// sensitive plane(s) not already predicted for this candidate
+			// are built, mirroring the per-plane
+			// vp9_build_inter_predictors_sbp + flag_preduv_computed gating
+			// at vp9_pickmode.c:2392-2398.
 			if !thisEarlyTerm && colorSensitivityOK &&
 				(colorSensitivity[0] || colorSensitivity[1]) {
-				if !uvStatsOK {
-					uvVarU, uvSSEU, uvVarV, uvSSEV, uvStatsOK =
-						e.vp9NonrdUVVarianceSSE(inter, miRows, miCols,
-							miRow, miCol, bsize, thisMode, refFrame, mv,
-							filter)
+				uvAddOK := true
+				if colorSensitivity[0] && !uvOKU {
+					uvVarU, uvSSEU, uvOKU = e.vp9NonrdUVVariancePlaneSSE(
+						inter, miRows, miCols, miRow, miCol, bsize,
+						thisMode, refFrame, mv, filter, 1)
+					uvAddOK = uvOKU
+				}
+				if uvAddOK && colorSensitivity[1] && !uvOKV {
+					uvVarV, uvSSEV, uvOKV = e.vp9NonrdUVVariancePlaneSSE(
+						inter, miRows, miCols, miRow, miCol, bsize,
+						thisMode, refFrame, mv, filter, 2)
+					uvAddOK = uvOKV
 				}
 				uvBsize := vp9dec.GetPlaneBlockSize(bsize, &e.planes[1])
-				if uvStatsOK && uvBsize < common.BlockSizes {
+				if uvAddOK && uvBsize < common.BlockSizes {
 					uvRate, uvDist, totalVar, totalSSE := encoder.ModelRdForSbUV(
 						encoder.ModelRdForSbUVArgs{
 							BSize:     uvBsize,
@@ -1656,20 +1694,34 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// lossless, encode_breakout > 0, and motion-low. When
 			// encode_breakout is zero, the gate falls through unless
 			// var==0 && sse==0 (a true near-perfect prediction).
+			//
+			// The chroma predictors/variance are built lazily, only after
+			// the Y skip condition passes: libvpx encode_breakout_test only
+			// reaches vp9_build_inter_predictors_sbuv + the UV vf calls
+			// inside the `if (var <= thresh_ac && ...)` body
+			// (vp9_pickmode.c:996-1012). Computing them eagerly here ran
+			// the chroma inter predictor for every scored candidate.
 			if allowEncodeBreakout && (encodeBreakout > 0 ||
 				(varY == 0 && sseY == 0)) {
-				if !uvStatsOK {
-					uvVarU, uvSSEU, uvVarV, uvSSEV, uvStatsOK =
-						e.vp9NonrdUVVarianceSSE(inter, miRows, miCols,
-							miRow, miCol, bsize, thisMode, refFrame, mv,
-							filter)
+				passY, threshAcUv, threshDcUv := encoder.EncodeBreakoutTestY(
+					bsize, dequantY, mv.Row, mv.Col, varY, sseY,
+					encodeBreakout, false)
+				if passY && !(uvOKU && uvOKV) {
+					// libvpx encode_breakout_test rebuilds BOTH chroma
+					// planes via vp9_build_inter_predictors_sbuv when
+					// either flag_preduv_computed entry is unset
+					// (vp9_pickmode.c:1008-1012).
+					if vU, sU, vV, sV, okUV := e.vp9NonrdUVVarianceSSE(inter,
+						miRows, miCols, miRow, miCol, bsize, thisMode,
+						refFrame, mv, filter); okUV {
+						uvVarU, uvSSEU, uvVarV, uvSSEV = vU, sU, vV, sV
+						uvOKU, uvOKV = true, true
+					}
 				}
-				if uvStatsOK {
-					fired, ebDist, _ := encoder.EncodeBreakoutTest(bsize,
-						dequantY, mv.Row, mv.Col, varY, sseY,
-						[2][2]int16{dequantU, dequantV},
-						uvVarU, uvSSEU, uvVarV, uvSSEV,
-						encodeBreakout, false, interModeBitCost)
+				if passY && uvOKU && uvOKV {
+					fired, ebDist, _ := encoder.EncodeBreakoutTestUV(
+						threshAcUv, threshDcUv, sseY,
+						uvVarU, uvSSEU, uvVarV, uvSSEV, interModeBitCost)
 					if fired {
 						// libvpx vp9_pickmode.c:1029-1030 (inside
 						// encode_breakout_test) +:2431 (callsite):
