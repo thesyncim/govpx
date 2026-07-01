@@ -160,6 +160,16 @@ func getCoefContext(neighbors []int16, tokenCache []uint8, c int) int {
 	return (1 + int(a) + int(b)) >> 1
 }
 
+// getCoefContextArr is getCoefContext against the full token-cache
+// array. Neighbor entries are trusted scan positions (< 1024, mirroring
+// libvpx's unchecked table indexing); the mask makes that explicit to
+// the compiler so the dependent load carries no bounds check.
+func getCoefContextArr(neighbors []int16, tokenCache *[1024]uint8, c int) int {
+	a := tokenCache[int(neighbors[2*c+0])&1023]
+	b := tokenCache[int(neighbors[2*c+1])&1023]
+	return (1 + int(a) + int(b)) >> 1
+}
+
 // DecodeCoefs mirrors libvpx's decode_coefs. Returns the EOB
 // (end-of-block) position — i.e. one past the last non-zero
 // coefficient in scan order. `dqcoeff` is written for scan positions
@@ -209,29 +219,25 @@ func DecodeCoefsWithCounts(
 	counts *CoefCounts,
 	dqcoeff []int16,
 ) int {
-	switch txSize {
-	case common.Tx4x4:
-		var tokenCache [16]uint8
-		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
-	case common.Tx8x8:
-		var tokenCache [64]uint8
-		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
-	case common.Tx16x16:
-		var tokenCache [256]uint8
-		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
-	default:
-		var tokenCache [1024]uint8
-		return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache[:])
-	}
+	// Slice-facing compatibility shim over the array-pointer hot path:
+	// stage the caller's coefficients in a full-size array, decode, and
+	// copy the touched prefix back.
+	var tokenCache [1024]uint8
+	var staged [1024]int16
+	maxEob := maxEobForTxSize(txSize)
+	n := min(len(dqcoeff), maxEob)
+	copy(staged[:n], dqcoeff[:n])
+	eob := DecodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
+		dequant, ctx, scan, neighbors, fc, counts, &staged, &tokenCache)
+	copy(dqcoeff[:n], staged[:n])
+	return eob
 }
 
 // DecodeCoefsWithCountsScratch is DecodeCoefsWithCounts using caller-owned
-// token-cache storage. The cache does not need clearing; libvpx's decode_coefs
-// overwrites every scan position before get_coef_context can read it.
+// token-cache and coefficient storage. The cache does not need clearing;
+// libvpx's decode_coefs overwrites every scan position before
+// get_coef_context can read it. dqcoeff is written for scan positions
+// 0..eob-1 only.
 func DecodeCoefsWithCountsScratch(
 	r *bitstream.Reader,
 	txSize common.TxSize,
@@ -242,24 +248,18 @@ func DecodeCoefsWithCountsScratch(
 	scan, neighbors []int16,
 	fc *FrameCoefProbs,
 	counts *CoefCounts,
-	dqcoeff []int16,
+	dqcoeff *[1024]int16,
 	tokenCache *[1024]uint8,
 ) int {
-	if tokenCache == nil {
-		return DecodeCoefsWithCounts(r, txSize, planeType, isInter, dequant,
-			ctx, scan, neighbors, fc, counts, dqcoeff)
-	}
-	maxEob := maxEobForTxSize(txSize)
 	if counts == nil {
 		rs := r.LocalState()
 		eob := decodeCoefsReaderState(&rs, txSize, planeType, isInter,
-			dequant, ctx, scan, neighbors, fc, dqcoeff, tokenCache[:maxEob])
+			dequant, ctx, scan, neighbors, fc, dqcoeff, tokenCache)
 		rs.Commit()
 		return eob
 	}
 	return decodeCoefsWithCountsScratch(r, txSize, planeType, isInter,
-		dequant, ctx, scan, neighbors, fc, counts, dqcoeff,
-		tokenCache[:maxEob])
+		dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache)
 }
 
 func decodeCoefsReaderState(
@@ -271,8 +271,8 @@ func decodeCoefsReaderState(
 	ctx int,
 	scan, neighbors []int16,
 	fc *FrameCoefProbs,
-	dqcoeff []int16,
-	tokenCache []uint8,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
 	bandTrans := bandTranslateForTxSize(txSize)
@@ -312,7 +312,7 @@ func decodeCoefsReaderState(
 			value, rng, count)
 		for bit == 0 {
 			dqv = dequant[1]
-			tokenCache[scan[c]] = 0
+			tokenCache[int(scan[c])&1023] = 0
 			c++
 			if c >= maxEob {
 				r.Value = value
@@ -320,7 +320,7 @@ func decodeCoefsReaderState(
 				r.Count = count
 				return c
 			}
-			ctx = getCoefContext(neighbors, tokenCache, c)
+			ctx = getCoefContextArr(neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
@@ -351,7 +351,7 @@ func decodeCoefsReaderState(
 				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value,
 					rng, count)
 				if bit != 0 {
-					tokenCache[scan[c]] = 5
+					tokenCache[int(scan[c])&1023] = 5
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -393,7 +393,7 @@ func decodeCoefsReaderState(
 						}
 					}
 				} else {
-					tokenCache[scan[c]] = 4
+					tokenCache[int(scan[c])&1023] = 4
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -419,7 +419,7 @@ func decodeCoefsReaderState(
 				if bit != 0 {
 					v = -v
 				}
-				dqcoeff[scan[c]] = int16(v)
+				dqcoeff[int(scan[c])&1023] = int16(v)
 			} else {
 				if count < 0 {
 					r.Fill(&value, &count)
@@ -427,7 +427,7 @@ func decodeCoefsReaderState(
 				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value,
 					rng, count)
 				if bit != 0 {
-					tokenCache[scan[c]] = 3
+					tokenCache[int(scan[c])&1023] = 3
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -441,9 +441,9 @@ func decodeCoefsReaderState(
 					if bit != 0 {
 						v = -v
 					}
-					dqcoeff[scan[c]] = int16(v)
+					dqcoeff[int(scan[c])&1023] = int16(v)
 				} else {
-					tokenCache[scan[c]] = 2
+					tokenCache[int(scan[c])&1023] = 2
 					v := (2 * int(dqv)) >> dqShift
 					if count < 0 {
 						r.Fill(&value, &count)
@@ -452,11 +452,11 @@ func decodeCoefsReaderState(
 					if bit != 0 {
 						v = -v
 					}
-					dqcoeff[scan[c]] = int16(v)
+					dqcoeff[int(scan[c])&1023] = int16(v)
 				}
 			}
 		} else {
-			tokenCache[scan[c]] = 1
+			tokenCache[int(scan[c])&1023] = 1
 			v := int(dqv) >> dqShift
 			if count < 0 {
 				r.Fill(&value, &count)
@@ -465,11 +465,11 @@ func decodeCoefsReaderState(
 			if bit != 0 {
 				v = -v
 			}
-			dqcoeff[scan[c]] = int16(v)
+			dqcoeff[int(scan[c])&1023] = int16(v)
 		}
 
 		c++
-		ctx = getCoefContext(neighbors, tokenCache, c)
+		ctx = getCoefContextArr(neighbors, tokenCache, c)
 		dqv = dequant[1]
 	}
 
@@ -489,8 +489,8 @@ func decodeCoefsWithCountsScratch(
 	scan, neighbors []int16,
 	fc *FrameCoefProbs,
 	counts *CoefCounts,
-	dqcoeff []int16,
-	tokenCache []uint8,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
 ) int {
 	rs := r.LocalState()
 	eob := decodeCoefsWithCountsReaderState(&rs, txSize, planeType, isInter,
@@ -509,8 +509,8 @@ func decodeCoefsWithCountsReaderState(
 	scan, neighbors []int16,
 	fc *FrameCoefProbs,
 	counts *CoefCounts,
-	dqcoeff []int16,
-	tokenCache []uint8,
+	dqcoeff *[1024]int16,
+	tokenCache *[1024]uint8,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
 	bandTrans := bandTranslateForTxSize(txSize)
@@ -559,7 +559,7 @@ func decodeCoefsWithCountsReaderState(
 				counts.Coef[txSize][planeType][isInter][band][ctx][zeroToken]++
 			}
 			dqv = dequant[1]
-			tokenCache[scan[c]] = 0
+			tokenCache[int(scan[c])&1023] = 0
 			c++
 			if c >= maxEob {
 				r.Value = value
@@ -567,7 +567,7 @@ func decodeCoefsWithCountsReaderState(
 				r.Count = count
 				return c
 			}
-			ctx = getCoefContext(neighbors, tokenCache, c)
+			ctx = getCoefContextArr(neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
@@ -598,7 +598,7 @@ func decodeCoefsWithCountsReaderState(
 				}
 				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value, rng, count)
 				if bit != 0 {
-					tokenCache[scan[c]] = 5
+					tokenCache[int(scan[c])&1023] = 5
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -633,7 +633,7 @@ func decodeCoefsWithCountsReaderState(
 						}
 					}
 				} else {
-					tokenCache[scan[c]] = 4
+					tokenCache[int(scan[c])&1023] = 4
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -656,14 +656,14 @@ func decodeCoefsWithCountsReaderState(
 				if bit != 0 {
 					v = -v
 				}
-				dqcoeff[scan[c]] = int16(v)
+				dqcoeff[int(scan[c])&1023] = int16(v)
 			} else {
 				if count < 0 {
 					r.Fill(&value, &count)
 				}
 				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value, rng, count)
 				if bit != 0 {
-					tokenCache[scan[c]] = 3
+					tokenCache[int(scan[c])&1023] = 3
 					if count < 0 {
 						r.Fill(&value, &count)
 					}
@@ -676,9 +676,9 @@ func decodeCoefsWithCountsReaderState(
 					if bit != 0 {
 						v = -v
 					}
-					dqcoeff[scan[c]] = int16(v)
+					dqcoeff[int(scan[c])&1023] = int16(v)
 				} else {
-					tokenCache[scan[c]] = 2
+					tokenCache[int(scan[c])&1023] = 2
 					v := (2 * int(dqv)) >> dqShift
 					if count < 0 {
 						r.Fill(&value, &count)
@@ -687,7 +687,7 @@ func decodeCoefsWithCountsReaderState(
 					if bit != 0 {
 						v = -v
 					}
-					dqcoeff[scan[c]] = int16(v)
+					dqcoeff[int(scan[c])&1023] = int16(v)
 				}
 			}
 		} else {
@@ -695,7 +695,7 @@ func decodeCoefsWithCountsReaderState(
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][oneToken]++
 			}
-			tokenCache[scan[c]] = 1
+			tokenCache[int(scan[c])&1023] = 1
 			v := int(dqv) >> dqShift
 			if count < 0 {
 				r.Fill(&value, &count)
@@ -704,11 +704,11 @@ func decodeCoefsWithCountsReaderState(
 			if bit != 0 {
 				v = -v
 			}
-			dqcoeff[scan[c]] = int16(v)
+			dqcoeff[int(scan[c])&1023] = int16(v)
 		}
 
 		c++
-		ctx = getCoefContext(neighbors, tokenCache, c)
+		ctx = getCoefContextArr(neighbors, tokenCache, c)
 		dqv = dequant[1]
 	}
 
