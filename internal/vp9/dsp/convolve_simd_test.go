@@ -53,6 +53,22 @@ func runConvolveScalarVert(src []byte, srcStride int, dst []byte, dstStride int,
 	convolveVert(src, srcStride, dst, dstStride, filter, y0Q4, tables.SubpelShifts, w, h, srcOffset)
 }
 
+func runConvolveScalarAvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	x0Q4, w, h, srcOffset int,
+) {
+	convolveAvgHoriz(src, srcStride, dst, dstStride, filter, x0Q4,
+		tables.SubpelShifts, w, h, srcOffset)
+}
+
+func runConvolveScalarAvgVert(src []byte, srcStride int, dst []byte, dstStride int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	y0Q4, w, h, srcOffset int,
+) {
+	convolveAvgVert(src, srcStride, dst, dstStride, filter, y0Q4,
+		tables.SubpelShifts, w, h, srcOffset)
+}
+
 func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xb00b, 0xface))
 	for _, c := range vp9ConvCases() {
@@ -84,6 +100,45 @@ func TestVP9Convolve8HorizSimdAgreement(t *testing.T) {
 	}
 }
 
+func TestVP9Convolve8AvgHorizSimdAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0xa8a8, 0x1111))
+	for _, c := range vp9ConvCases() {
+		for fi, f := range filterSet() {
+			t.Run(c.name, func(t *testing.T) {
+				stride := c.w + 32
+				margin := 16
+				src := make([]byte, stride*(c.h+margin*2))
+				for i := range src {
+					src[i] = uint8(r.UintN(256))
+				}
+				for x0Q4 := range tables.SubpelShifts {
+					srcOffset := margin*stride + margin
+					gotDst := make([]byte, stride*c.h)
+					wantDst := make([]byte, stride*c.h)
+					for i := range gotDst {
+						v := uint8(r.UintN(256))
+						gotDst[i] = v
+						wantDst[i] = v
+					}
+					VpxConvolve8AvgHoriz(src, stride, gotDst, stride, f,
+						x0Q4, tables.SubpelShifts, 0, tables.SubpelShifts,
+						c.w, c.h, srcOffset)
+					runConvolveScalarAvgHoriz(src, stride, wantDst, stride, f,
+						x0Q4, c.w, c.h, srcOffset)
+					for y := 0; y < c.h; y++ {
+						for x := 0; x < stride; x++ {
+							if gotDst[y*stride+x] != wantDst[y*stride+x] {
+								t.Fatalf("filter=%d x0Q4=%d (%dx%d) at (%d,%d): got %d want %d",
+									fi, x0Q4, c.w, c.h, x, y, gotDst[y*stride+x], wantDst[y*stride+x])
+							}
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestVP9Convolve8VertSimdAgreement(t *testing.T) {
 	r := rand.New(rand.NewPCG(0xdada, 0xbeef))
 	for _, c := range vp9ConvCases() {
@@ -103,6 +158,45 @@ func TestVP9Convolve8VertSimdAgreement(t *testing.T) {
 					runConvolveScalarVert(src, stride, wantDst, stride, f, y0Q4, c.w, c.h, srcOffset)
 					for y := 0; y < c.h; y++ {
 						for x := 0; x < c.w; x++ {
+							if gotDst[y*stride+x] != wantDst[y*stride+x] {
+								t.Fatalf("filter=%d y0Q4=%d (%dx%d) at (%d,%d): got %d want %d",
+									fi, y0Q4, c.w, c.h, x, y, gotDst[y*stride+x], wantDst[y*stride+x])
+							}
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestVP9Convolve8AvgVertSimdAgreement(t *testing.T) {
+	r := rand.New(rand.NewPCG(0xa8a8, 0x2222))
+	for _, c := range vp9ConvCases() {
+		for fi, f := range filterSet() {
+			t.Run(c.name, func(t *testing.T) {
+				stride := c.w + 32
+				margin := 16
+				src := make([]byte, stride*(c.h+margin*2))
+				for i := range src {
+					src[i] = uint8(r.UintN(256))
+				}
+				for y0Q4 := range tables.SubpelShifts {
+					srcOffset := margin*stride + margin
+					gotDst := make([]byte, stride*c.h)
+					wantDst := make([]byte, stride*c.h)
+					for i := range gotDst {
+						v := uint8(r.UintN(256))
+						gotDst[i] = v
+						wantDst[i] = v
+					}
+					VpxConvolve8AvgVert(src, stride, gotDst, stride, f, 0,
+						tables.SubpelShifts, y0Q4, tables.SubpelShifts,
+						c.w, c.h, srcOffset)
+					runConvolveScalarAvgVert(src, stride, wantDst, stride, f,
+						y0Q4, c.w, c.h, srcOffset)
+					for y := 0; y < c.h; y++ {
+						for x := 0; x < stride; x++ {
 							if gotDst[y*stride+x] != wantDst[y*stride+x] {
 								t.Fatalf("filter=%d y0Q4=%d (%dx%d) at (%d,%d): got %d want %d",
 									fi, y0Q4, c.w, c.h, x, y, gotDst[y*stride+x], wantDst[y*stride+x])
@@ -313,6 +407,78 @@ func BenchmarkVP9Convolve8Vert64x64(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		VpxConvolve8Vert(src, stride, dst, stride, f, 0, tables.SubpelShifts, 5, tables.SubpelShifts, 64, 64, srcOffset)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgHoriz16x16(b *testing.B) {
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgHoriz(src, stride, dst, stride, f, 5,
+			tables.SubpelShifts, 0, tables.SubpelShifts, 16, 16, srcOffset)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgVert16x16(b *testing.B) {
+	stride := 64
+	margin := 16
+	src := make([]byte, stride*(16+margin*2))
+	dst := make([]byte, stride*16)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgVert(src, stride, dst, stride, f, 0,
+			tables.SubpelShifts, 5, tables.SubpelShifts, 16, 16, srcOffset)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgHoriz64x64(b *testing.B) {
+	stride := 128
+	margin := 16
+	src := make([]byte, stride*(64+margin*2))
+	dst := make([]byte, stride*64)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgHoriz(src, stride, dst, stride, f, 5,
+			tables.SubpelShifts, 0, tables.SubpelShifts, 64, 64, srcOffset)
+	}
+}
+
+func BenchmarkVP9Convolve8AvgVert64x64(b *testing.B) {
+	stride := 128
+	margin := 16
+	src := make([]byte, stride*(64+margin*2))
+	dst := make([]byte, stride*64)
+	for i := range src {
+		src[i] = uint8(i & 0xff)
+	}
+	srcOffset := margin*stride + margin
+	f := &tables.SubPelFilters8
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxConvolve8AvgVert(src, stride, dst, stride, f, 0,
+			tables.SubpelShifts, 5, tables.SubpelShifts, 64, 64, srcOffset)
 	}
 }
 

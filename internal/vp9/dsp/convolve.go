@@ -216,9 +216,8 @@ func VpxConvolve8AvgHoriz(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
-	_ = y0Q4
-	_ = yStepQ4
-	convolveAvgHoriz(src, srcStride, dst, dstStride, filter, x0Q4, xStepQ4, w, h, srcOffset)
+	vpxConvolve8AvgHoriz(src, srcStride, dst, dstStride, filter, x0Q4,
+		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
 }
 
 // VpxConvolve8AvgVert mirrors vpx_convolve8_avg_vert_c.
@@ -226,9 +225,8 @@ func VpxConvolve8AvgVert(src []byte, srcStride int, dst []byte, dstStride int,
 	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 ) {
-	_ = x0Q4
-	_ = xStepQ4
-	convolveAvgVert(src, srcStride, dst, dstStride, filter, y0Q4, yStepQ4, w, h, srcOffset)
+	vpxConvolve8AvgVert(src, srcStride, dst, dstStride, filter, x0Q4,
+		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset)
 }
 
 // VpxConvolveCopy mirrors vpx_convolve_copy_c — a straight memcpy of
