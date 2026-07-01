@@ -129,6 +129,23 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.SubpelVarianceCalls,
 			stats.SubpelCacheHits)
 	}
+	if stats.VP9ModeBlocks > 0 || stats.VP9InterPredictionBlocks > 0 {
+		fmt.Fprintf(b, "vp9 topology    mode_blocks=%d  inter_picks=%d  pred_blocks=%d  pred_planes=%d  pred_var=%d\n",
+			stats.VP9ModeBlocks,
+			stats.VP9InterModePicks,
+			stats.VP9InterPredictionBlocks,
+			stats.VP9InterPredictPlaneCalls,
+			stats.VP9InterPredictionVarianceCalls)
+		fmt.Fprintf(b, "vp9 predictor   copy=%d  avg=%d  horiz=%d  vert=%d  2d=%d  avg_h=%d  avg_v=%d  avg_2d=%d\n",
+			stats.VP9InterPredictorCopy,
+			stats.VP9InterPredictorAvg,
+			stats.VP9InterPredictorHoriz,
+			stats.VP9InterPredictorVert,
+			stats.VP9InterPredictor2D,
+			stats.VP9InterPredictorAvgHoriz,
+			stats.VP9InterPredictorAvgVert,
+			stats.VP9InterPredictorAvg2D)
+	}
 }
 
 func formatSuiteReport(r suiteReport) string {

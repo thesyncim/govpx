@@ -61,6 +61,39 @@ func TestRunVP9BenchmarkSkipQuality(t *testing.T) {
 	}
 }
 
+func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
+	if !phaseTimingEnabled {
+		t.Skip("phase timing requires the govpx_phase_stats build tag")
+	}
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       64,
+		Height:      64,
+		Frames:      4,
+		FPS:         30,
+		BitrateKbps: 600,
+		Mode:        "realtime",
+		SkipQuality: true,
+		PhaseTiming: true,
+	})
+	if err != nil {
+		t.Fatalf("runVP9Benchmark returned error: %v", err)
+	}
+	if report.PhaseNS == nil {
+		t.Fatalf("PhaseNS = nil, want populated when PhaseTiming is true")
+	}
+	if report.PhaseNS.KeyAttempts == 0 || report.PhaseNS.InterAttempts == 0 {
+		t.Fatalf("phase attempts = %+v, want key and inter attempts counted", *report.PhaseNS)
+	}
+	if report.PhaseNS.VP9ModeBlocks == 0 || report.PhaseNS.VP9InterPredictionBlocks == 0 {
+		t.Fatalf("vp9 topology stats = %+v, want mode and predictor work counted", *report.PhaseNS)
+	}
+	text := formatEncodeReport(report)
+	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 predictor") {
+		t.Fatalf("formatted report missing VP9 phase stats:\n%s", text)
+	}
+}
+
 func TestRunVP9BenchmarkWithCustomSource(t *testing.T) {
 	report, err := runVP9BenchmarkWithSource(benchConfig{
 		Codec:       codecVP9,

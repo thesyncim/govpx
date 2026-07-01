@@ -2832,6 +2832,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		if !ok {
 			return 0, false
 		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseAddFullPelSAD(1, false)
+		}
 		return encoder.BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
@@ -2854,6 +2857,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			}
 			refOffs[i] = refOff
 		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseAddFullPelSAD(4, true)
+		}
 		var raw [4]uint32
 		if !encoder.BlockSAD4NoLimitOffsets(src, srcOff, srcStride, ref, refOffs,
 			refStride, blockW, blockH, &raw) {
@@ -2866,6 +2872,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		if !ok {
 			return 0, false
 		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseAddFullPelSAD(1, false)
+		}
 		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff, srcStride,
 			ref, refOff, refStride, blockW, blockH)
 		return uint64(sad), ok
@@ -2874,6 +2883,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		refOff, ok := refOffForFullpel(dx, dy)
 		if !ok {
 			return 0, false
+		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseAddFullPelSAD(1, false)
 		}
 		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff+srcStride,
 			srcStride, ref, refOff+refStride, refStride, blockW, blockH)
@@ -2897,6 +2909,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 				return 0, 0, 0, 0, false
 			}
 			refOffs[i] = refOff
+		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseAddFullPelSAD(4, true)
 		}
 		var raw [4]uint32
 		if !encoder.BlockSADSkipRows4NoLimitOffsets(src, srcOff, srcStride, ref,

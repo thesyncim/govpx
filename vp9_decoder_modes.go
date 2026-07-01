@@ -901,6 +901,9 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	mv vp9dec.MV,
 	avg int,
 ) bool {
+	if vp9PhaseStatsEnabled {
+		d.vp9PhaseIncInterPredictPlane()
+	}
 	filterIdx := int(mi.InterpFilter)
 	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
 		d.markVP9Unsupported()
@@ -978,6 +981,16 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 	if srcOffset < 0 || srcOffset >= len(src) ||
 		dstX+predW > dstStride || dstY+predH > dstRows || srcRows <= 0 {
 		return false
+	}
+	if vp9PhaseStatsEnabled {
+		key := avg
+		if subpelX != 0 || xStepQ4 != vp9dec.SubpelShifts {
+			key |= 4
+		}
+		if subpelY != 0 || yStepQ4 != vp9dec.SubpelShifts {
+			key |= 2
+		}
+		d.vp9PhaseCountInterPredictor(key)
 	}
 	vp9dec.InterPredictorWithScratch(src, srcStride,
 		dst[dstY*dstStride+dstX:], dstStride,

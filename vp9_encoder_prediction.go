@@ -186,6 +186,9 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi, lumaOnly bool, chromaOnly bool,
 ) bool {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
 	if inter == nil || inter.ref == nil || !inter.ref.valid {
 		return false
 	}
@@ -200,6 +203,7 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	predictor.lastFrame = e.reconFrame
 	predictor.interPredictScratch = e.interPredictScratch
 	predictor.refFramesView = &e.refFrames
+	predictor.setVP9PhaseStats(e.vp9PhaseStats())
 	predictor.unsupportedReconstruct = false
 	predictor.predictLumaOnly = lumaOnly
 	predictor.predictChromaOnly = chromaOnly
@@ -220,6 +224,7 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch
 	predictor.refFramesView = nil
+	predictor.setVP9PhaseStats(nil)
 	// Reset flags so subsequent callers that don't explicitly select planes get
 	// the full 3-plane reconstruction.
 	predictor.predictLumaOnly = false

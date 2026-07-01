@@ -36,6 +36,9 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	if cfg.Width > 65535 || cfg.Height > 65535 {
 		return benchReport{}, errors.New("dimensions exceed VP9 limits")
 	}
+	if cfg.PhaseTiming && !phaseTimingEnabled {
+		return benchReport{}, errors.New("phase timing requires the govpx_phase_stats build tag")
+	}
 	if source == nil {
 		source = makeBenchmarkFrame
 	}
@@ -70,7 +73,10 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		warm.Close()
 	}
 
-	enc, err := newVP9BenchmarkEncoder(cfg, deadline)
+	encoderOpts := vp9BenchmarkEncoderOptions(cfg, deadline)
+	var phaseStats phaseStatsState
+	phaseStats.configureVP9(&encoderOpts, cfg.PhaseTiming)
+	enc, err := govpx.NewVP9Encoder(encoderOpts)
 	if err != nil {
 		return benchReport{}, err
 	}
@@ -96,6 +102,7 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 
 	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
 	encodeMallocs := uint64(0)
+	phaseStats.reset()
 	runtime.GC()
 	for i := range frames {
 		var memBefore runtime.MemStats
@@ -233,6 +240,9 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		}
 		report.Reference = &reference
 		report.Comparison = buildComparisonReport(report, reference)
+	}
+	if stats := phaseStats.report(); stats != nil {
+		report.PhaseNS = stats
 	}
 	return report, nil
 }

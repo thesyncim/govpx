@@ -164,6 +164,26 @@ type EncoderPhaseStats struct {
 	SubpelBoundsRejects int64 `json:"subpel_bounds_rejects"`
 	// SubpelEarlyBreaks counts sub-pixel evaluations stopped by an existing best.
 	SubpelEarlyBreaks int64 `json:"subpel_early_breaks"`
+
+	// VP9ModeBlocks counts write_modes_b-equivalent VP9 mode-block visits.
+	VP9ModeBlocks int64 `json:"vp9_mode_blocks"`
+	// VP9InterModePicks counts VP9 realtime inter-mode picker calls.
+	VP9InterModePicks int64 `json:"vp9_inter_mode_picks"`
+	// VP9InterPredictionBlocks counts VP9 inter-predictor block builds.
+	VP9InterPredictionBlocks int64 `json:"vp9_inter_prediction_blocks"`
+	// VP9InterPredictPlaneCalls counts VP9 per-plane inter-predictor calls.
+	VP9InterPredictPlaneCalls int64 `json:"vp9_inter_predict_plane_calls"`
+	// VP9InterPredictionVarianceCalls counts VP9 predictor+variance scoring calls.
+	VP9InterPredictionVarianceCalls int64 `json:"vp9_inter_prediction_variance_calls"`
+	// VP9InterPredictor* count libvpx inter_predictor dispatch keys.
+	VP9InterPredictorCopy     int64 `json:"vp9_inter_predictor_copy"`
+	VP9InterPredictorAvg      int64 `json:"vp9_inter_predictor_avg"`
+	VP9InterPredictorVert     int64 `json:"vp9_inter_predictor_vert"`
+	VP9InterPredictorAvgVert  int64 `json:"vp9_inter_predictor_avg_vert"`
+	VP9InterPredictorHoriz    int64 `json:"vp9_inter_predictor_horiz"`
+	VP9InterPredictorAvgHoriz int64 `json:"vp9_inter_predictor_avg_horiz"`
+	VP9InterPredictor2D       int64 `json:"vp9_inter_predictor_2d"`
+	VP9InterPredictorAvg2D    int64 `json:"vp9_inter_predictor_avg_2d"`
 }
 
 // Reset clears all accumulated phase counters.

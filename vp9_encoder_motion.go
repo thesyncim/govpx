@@ -458,6 +458,9 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
 	filter vp9dec.InterpFilter, _ bool,
 ) (variance, sse uint64, ok bool) {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionVariance()
+	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	dst, dstStride := e.vp9EncoderReconPlane(0)
 	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {

@@ -75,6 +75,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		!vp9AllInterReferencesDisabled(flags) {
 		isKey = true
 	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseCountAttempt(isKey || intraOnly)
+	}
 	if !isKey && !intraOnly {
 		if err := e.validateVP9InterSegmentationReferences(flags); err != nil {
 			return VP9EncodeResult{}, err

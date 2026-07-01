@@ -89,6 +89,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncModeBlock()
+	}
 	cur := baseMi
 	cur.SbType = bsize
 	cur.TxSize = clampVP9TxSizeForBlock(cur.TxSize, bsize)

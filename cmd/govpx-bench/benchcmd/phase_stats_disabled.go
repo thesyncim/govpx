@@ -10,6 +10,8 @@ type phaseStatsState struct{}
 
 func (s *phaseStatsState) configure(*govpx.EncoderOptions, bool) {}
 
+func (s *phaseStatsState) configureVP9(*govpx.VP9EncoderOptions, bool) {}
+
 func (s *phaseStatsState) reset() {}
 
 func (s *phaseStatsState) report() *govpx.EncoderPhaseStats {

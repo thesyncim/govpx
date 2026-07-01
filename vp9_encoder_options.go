@@ -559,6 +559,8 @@ type VP9EncoderOptions struct {
 	// libvpx-faithful precondition (vp9_encoder.c:6347-6353); when any gate
 	// trips the keyframe is encoded against its raw source.
 	EnableKeyFrameFiltering bool
+
+	encoderPhaseStatsOptions
 }
 
 // VP9SegmentationOptions configures static per-frame VP9 segmentation.

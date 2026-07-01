@@ -281,14 +281,15 @@ type VP9Decoder struct {
 	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
 	convolveScratch     dsp.Convolve8Scratch
-	refFrames           [common.RefFrames]vp9ReferenceFrame
-	refFramesView       *[common.RefFrames]vp9ReferenceFrame
-	prevFrameMvs        []vp9dec.MvRef
-	curFrameMvs         []vp9dec.MvRef
-	prevFrameMvRows     int
-	prevFrameMvCols     int
-	usePrevFrameMvs     bool
-	counts              vp9dec.FrameCounts
+	vp9DecoderPhaseStatsOptions
+	refFrames       [common.RefFrames]vp9ReferenceFrame
+	refFramesView   *[common.RefFrames]vp9ReferenceFrame
+	prevFrameMvs    []vp9dec.MvRef
+	curFrameMvs     []vp9dec.MvRef
+	prevFrameMvRows int
+	prevFrameMvCols int
+	usePrevFrameMvs bool
+	counts          vp9dec.FrameCounts
 
 	// width and height carry the most recent decoded frame dimensions.
 	// They stay zero until the first successful frame parse.

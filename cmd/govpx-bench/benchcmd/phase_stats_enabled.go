@@ -19,6 +19,14 @@ func (s *phaseStatsState) configure(opts *govpx.EncoderOptions, enabled bool) {
 	s.enabled = true
 }
 
+func (s *phaseStatsState) configureVP9(opts *govpx.VP9EncoderOptions, enabled bool) {
+	if !enabled {
+		return
+	}
+	opts.PhaseStats = &s.stats
+	s.enabled = true
+}
+
 func (s *phaseStatsState) reset() {
 	if s.enabled {
 		s.stats.Reset()

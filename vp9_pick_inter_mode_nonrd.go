@@ -242,6 +242,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) (vp9InterModeDecision, bool) {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterModePick()
+	}
 	if inter == nil {
 		return vp9InterModeDecision{}, false
 	}
