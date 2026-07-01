@@ -16,18 +16,20 @@ const (
 )
 
 // TokenExtra mirrors libvpx TOKENEXTRA with Go-friendly probability addressing.
-// The C struct stores context_tree, token and extra. Go stores the coefficient
-// probability row indices so replay can look up the current FrameCoefProbs after
-// compressed-header probability updates.
+// The C struct stores context_tree, token and extra. Go stores the flat byte
+// offset of the token's [UnconstrainedNodes]uint8 probability row inside
+// FrameCoefProbs — precomputed from (tx_size, plane_type, ref_type, band, ctx)
+// at stage time — so replay can look up the current FrameCoefProbs after
+// compressed-header probability updates without re-walking the 5-level table.
 type TokenExtra struct {
 	Token int16
 	Extra int16
 
-	TxSize    common.TxSize
-	PlaneType uint8
-	RefType   uint8
-	Band      uint8
-	Context   uint8
+	// ProbOff = ((tx*CoefPlaneTypes+pt)*CoefRefTypes+ref)*CoefBands*
+	// CoefContexts*UnconstrainedNodes + (band*CoefContexts+ctx)*
+	// UnconstrainedNodes. Always a multiple of UnconstrainedNodes and
+	// < len(FrameCoefProbs) flattened.
+	ProbOff uint16
 }
 
 // TokenList mirrors libvpx TOKENLIST. Start/Stop are indices into

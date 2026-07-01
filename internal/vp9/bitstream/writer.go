@@ -1,6 +1,6 @@
 package bitstream
 
-import "github.com/thesyncim/govpx/internal/vp9/tables"
+import "math/bits"
 
 // Ported from libvpx v1.16.0:
 //   - vpx_dsp/bitwriter.h (vpx_writer, vpx_write, vpx_write_bit, vpx_write_literal)
@@ -51,10 +51,20 @@ func (w *Writer) StartDiscard() {
 	w.buf = nil
 }
 
-// Write encodes one bit against the probability prob (out of 256). Body
-// matches vpx_write line-for-line including the carry-propagation loop
-// over previously-emitted 0xff bytes when a fresh byte would carry into
-// them.
+// Write encodes one bit against the probability prob (out of 256).
+// Arithmetic matches vpx_write bit-for-bit, including the carry-propagation
+// loop over previously-emitted 0xff bytes when a fresh byte would carry into
+// them. The Go body deviates from the C shape in two output-identical ways
+// tuned for the hot path:
+//
+//   - the bit-dependent (lowValue, rng) update is branchless (coefficient
+//     bits are near-random, so the C branch mispredicts), and
+//   - vpx_norm[rng] is computed as LeadingZeros8(rng), which is the table's
+//     defining identity for rng >= 1 (renormalization keeps rng >= 1) and
+//     compiles to a single CLZ.
+//
+// The byte-emit path runs once per ~8 output bits and lives in emitByte to
+// keep this body small.
 func (w *Writer) Write(bit, prob uint32) {
 	if w.discard {
 		return
@@ -64,13 +74,14 @@ func (w *Writer) Write(bit, prob uint32) {
 	count := w.count
 
 	split := 1 + (((rng - 1) * prob) >> 8)
-	rng = split
 	if bit != 0 {
 		lowValue += split
-		rng = w.rng - split
+		rng -= split
+	} else {
+		rng = split
 	}
 
-	shift := int32(tables.VpxNorm[byte(rng)])
+	shift := int32(bits.LeadingZeros32(rng)) - 24
 	rng <<= uint(shift)
 	count += shift
 
@@ -118,13 +129,14 @@ func (w *Writer) WriteBit(bit uint32) {
 	count := w.count
 
 	split := (rng + 1) >> 1
-	rng = split
 	if bit != 0 {
 		lowValue += split
-		rng = w.rng - split
+		rng -= split
+	} else {
+		rng = split
 	}
 
-	shift := int32(tables.VpxNorm[byte(rng)])
+	shift := int32(bits.LeadingZeros32(rng)) - 24
 	rng <<= uint(shift)
 	count += shift
 

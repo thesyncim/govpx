@@ -154,6 +154,11 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 // above/left context bytes from (eob > 0) after each block so the
 // next neighbor read sees the right state.
 func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
+	// Shared token-cache scratch for every tx block in this leaf. The
+	// scan-order walk writes each position before reading it as a neighbor
+	// context (libvpx tokenize_b keeps this uninitialized), so one zeroed
+	// local per leaf replaces a 1KB clear per transform block.
+	var tokenCache [1024]uint8
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &a.Planes[plane]
 		planeType := 0
@@ -228,6 +233,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					EOB:             &eob,
 					KnownEOB:        knownEOB,
 					KnownEOBValid:   knownEOBValid,
+					TokenCache:      &tokenCache,
 				}
 				if a.TokenIndex != nil {
 					start := *a.TokenIndex

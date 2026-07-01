@@ -55,6 +55,13 @@ type WriteCoefBlockArgs struct {
 	// qcoeff/eob can avoid rescanning the transform block before writing it.
 	KnownEOB      int
 	KnownEOBValid bool
+
+	// TokenCache, when non-nil, is reusable (possibly dirty) scratch for the
+	// per-position token energy-class cache. libvpx tokenize_b keeps this as
+	// an uninitialized stack array: the scan-order walk writes every position
+	// before any neighbor context read touches it, so no clearing between
+	// blocks is required. When nil a zeroed local is used.
+	TokenCache *[1024]uint8
 }
 
 // WriteCoefBlock emits the wire fragment for one transform block's
@@ -85,7 +92,11 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	}
 
 	coefModel := &a.Fc[a.TxSize][a.PlaneType][a.IsInter]
-	var tokenCache [1024]uint8
+	tokenCache := a.TokenCache
+	if tokenCache == nil {
+		var local [1024]uint8
+		tokenCache = &local
+	}
 	ctx := a.InitCtx
 	bandIdx := 0
 
@@ -114,7 +125,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 			if c >= maxEob {
 				return nil
 			}
-			ctx = vp9dec.GetCoefContext(a.Neighbors, &tokenCache, c)
+			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
@@ -149,7 +160,7 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 		}
 		c++
 		if c < maxEob {
-			ctx = vp9dec.GetCoefContext(a.Neighbors, &tokenCache, c)
+			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
 		}
 	}
 	return nil

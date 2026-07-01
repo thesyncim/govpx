@@ -2,6 +2,7 @@ package encoder
 
 import (
 	"errors"
+	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -12,6 +13,21 @@ import (
 // ErrTokenBufferFull is returned when staged coefficient token storage is too
 // small for the block or frame being tokenized.
 var ErrTokenBufferFull = errors.New("encoder: VP9 token buffer full")
+
+// coefProbsFlatLen is the flattened byte length of vp9dec.FrameCoefProbs
+// ([TxSizes][CoefPlaneTypes][CoefRefTypes][CoefBands][CoefContexts]
+// [UnconstrainedNodes]uint8).
+const coefProbsFlatLen = int(common.TxSizes) * vp9dec.CoefPlaneTypes *
+	vp9dec.CoefRefTypes * vp9dec.CoefBands * vp9dec.CoefContexts *
+	UnconstrainedNodes
+
+// coefProbsBaseOff returns the flat byte offset of fc[tx][planeType][isInter]
+// inside FrameCoefProbs. Per-token rows add (band*CoefContexts+ctx)*
+// UnconstrainedNodes.
+func coefProbsBaseOff(tx common.TxSize, planeType, isInter int) int {
+	return ((int(tx)*vp9dec.CoefPlaneTypes+planeType)*vp9dec.CoefRefTypes +
+		isInter) * vp9dec.CoefBands * vp9dec.CoefContexts * UnconstrainedNodes
+}
 
 // StageCoefBlock mirrors libvpx tokenize_b. It records coefficient tokens and
 // branch counts without writing them, so a later pack pass can replay the same
@@ -33,7 +49,17 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 		*a.EOB = eob
 	}
 
-	var tokenCache [1024]uint8
+	// libvpx tokenize_b keeps token_cache as an uninitialized stack array:
+	// every context read targets a position the current walk has already
+	// written (the neighbor tables only reference earlier scan positions),
+	// so a caller-provided dirty scratch is byte-equivalent and avoids
+	// zeroing 1KB per transform block.
+	tokenCache := a.TokenCache
+	if tokenCache == nil {
+		var local [1024]uint8
+		tokenCache = &local
+	}
+	baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
 	ctx := a.InitCtx
 	bandIdx := 0
 	c := 0
@@ -42,9 +68,10 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 		bandIdx++
 		branchStats := coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
 			a.PlaneType, a.IsInter, band, ctx)
+		probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
 		if c == eob {
 			recordCoefBranch(branchStats, 0, 0)
-			if !stageToken(dst, &n, a, band, ctx, EobToken, 0) {
+			if !stageToken(dst, &n, probOff, EobToken, 0) {
 				return n, eob, false
 			}
 			return n, eob, true
@@ -53,7 +80,7 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 
 		for !CoeffBlockHasCoeff(a.Scan, c, a.Coeffs, qcoeffs) {
 			recordCoefBranch(branchStats, 1, 0)
-			if !stageToken(dst, &n, a, band, ctx, ZeroToken, 0) {
+			if !stageToken(dst, &n, probOff, ZeroToken, 0) {
 				return n, eob, false
 			}
 			tokenCache[a.Scan[c]] = 0
@@ -61,11 +88,12 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 			if c >= maxEob {
 				return n, eob, true
 			}
-			ctx = vp9dec.GetCoefContext(a.Neighbors, &tokenCache, c)
+			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			branchStats = coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
 				a.PlaneType, a.IsInter, band, ctx)
+			probOff = uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
 		}
 
 		recordCoefBranch(branchStats, 1, 1)
@@ -77,7 +105,7 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 		absVal, sign := CoeffMagnitudeAndSign(qcoeffs, int(raster),
 			a.Coeffs[raster], dqv, a.TxSize == common.Tx32x32)
 		token, extra := TokenForAbsCoeff(absVal)
-		if !stageToken(dst, &n, a, band, ctx, token, (extra<<1)|sign) {
+		if !stageToken(dst, &n, probOff, token, (extra<<1)|sign) {
 			return n, eob, false
 		}
 		recordCoefTokenBranches(token, branchStats)
@@ -85,26 +113,20 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 		tokenCache[raster] = PtEnergyClass[token]
 		c++
 		if c < maxEob {
-			ctx = vp9dec.GetCoefContext(a.Neighbors, &tokenCache, c)
+			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
 		}
 	}
 	return n, eob, true
 }
 
-func stageToken(dst []TokenExtra, n *int, a WriteCoefBlockArgs,
-	band, ctx, token, extra int,
-) bool {
+func stageToken(dst []TokenExtra, n *int, probOff uint16, token, extra int) bool {
 	if *n >= len(dst) {
 		return false
 	}
 	dst[*n] = TokenExtra{
-		Token:     int16(token),
-		Extra:     int16(extra),
-		TxSize:    a.TxSize,
-		PlaneType: uint8(a.PlaneType),
-		RefType:   uint8(a.IsInter),
-		Band:      uint8(band),
-		Context:   uint8(ctx),
+		Token:   int16(token),
+		Extra:   int16(extra),
+		ProbOff: probOff,
 	}
 	*n = *n + 1
 	return true
@@ -184,5 +206,10 @@ func PackTokens(bw *bitstream.Writer, tokens []TokenExtra, fc *vp9dec.FrameCoefP
 }
 
 func stagedTokenProbs(fc *vp9dec.FrameCoefProbs, tok TokenExtra) *[UnconstrainedNodes]uint8 {
-	return &(*fc)[tok.TxSize][tok.PlaneType][tok.RefType][tok.Band][tok.Context]
+	off := int(tok.ProbOff)
+	if off > coefProbsFlatLen-UnconstrainedNodes {
+		off = 0
+	}
+	flat := (*[coefProbsFlatLen]uint8)(unsafe.Pointer(fc))
+	return (*[UnconstrainedNodes]uint8)(unsafe.Pointer(&flat[off]))
 }
