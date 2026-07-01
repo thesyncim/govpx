@@ -471,7 +471,7 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 
 func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	defer p.wg.Done()
-	epoch := p.jobEpoch.Load()
+	var epoch uint64
 	idleSpins := 0
 	for {
 		next := p.jobEpoch.Load()

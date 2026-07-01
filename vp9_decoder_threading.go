@@ -1,6 +1,9 @@
 package govpx
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -237,11 +240,16 @@ type vp9DecoderTileJob struct {
 type vp9DecoderTileWorkerPool struct {
 	helperCount int8
 	start       []chan struct{}
-	done        []chan struct{}
-	exited      []chan struct{}
 	jobs        []vp9DecoderTileJob
 	tileDescs   []vp9DecoderTileDesc
 	header      vp9dec.UncompressedHeader
+
+	shutdownCh    chan struct{}
+	wg            sync.WaitGroup
+	jobEpoch      atomic.Uint64
+	activeHelpers atomic.Uint32
+	doneEpoch     []atomic.Uint64
+	parked        []atomic.Uint32
 
 	// rowMTSyncs holds one vp9RowMTSync per tile-column slot. Allocated
 	// lazily by ensureRowMTSync when VP9D_SET_ROW_MT is enabled; released
@@ -271,24 +279,52 @@ func newVP9DecoderTileWorkerPool(threads int) *vp9DecoderTileWorkerPool {
 	p := &vp9DecoderTileWorkerPool{
 		helperCount: int8(helpers),
 		start:       make([]chan struct{}, helpers),
-		done:        make([]chan struct{}, helpers),
-		exited:      make([]chan struct{}, helpers),
 		jobs:        make([]vp9DecoderTileJob, helpers),
+		shutdownCh:  make(chan struct{}),
+		doneEpoch:   make([]atomic.Uint64, helpers),
+		parked:      make([]atomic.Uint32, helpers),
 	}
 	for i := range helpers {
-		p.start[i] = make(chan struct{})
-		p.done[i] = make(chan struct{})
-		p.exited[i] = make(chan struct{})
+		p.start[i] = make(chan struct{}, 1)
+		p.wg.Add(1)
 		go p.workerLoop(i)
 	}
 	return p
 }
 
 func (p *vp9DecoderTileWorkerPool) workerLoop(worker int) {
-	defer close(p.exited[worker])
-	for range p.start[worker] {
-		p.jobs[worker].run()
-		p.done[worker] <- struct{}{}
+	defer p.wg.Done()
+	var epoch uint64
+	idleSpins := 0
+	for {
+		next := p.jobEpoch.Load()
+		if next != epoch {
+			epoch = next
+			if worker < int(p.activeHelpers.Load()) {
+				p.jobs[worker].run()
+			}
+			p.doneEpoch[worker].Store(epoch)
+			idleSpins = 0
+			continue
+		}
+		select {
+		case <-p.shutdownCh:
+			return
+		default:
+		}
+		if idleSpins >= rowWorkerIdleSpinBudget {
+			if !p.parkHelperWorker(worker, epoch) {
+				return
+			}
+			idleSpins = 0
+			continue
+		}
+		idleSpins++
+		runtimeProcYield(30)
+		if idleSpins >= rowWorkerIdleSchedulerBackoff &&
+			idleSpins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
 	}
 }
 
@@ -296,12 +332,8 @@ func (p *vp9DecoderTileWorkerPool) shutdown() {
 	if p == nil {
 		return
 	}
-	for i := 0; i < int(p.helperCount); i++ {
-		close(p.start[i])
-	}
-	for i := 0; i < int(p.helperCount); i++ {
-		<-p.exited[i]
-	}
+	close(p.shutdownCh)
+	p.wg.Wait()
 	for i := range p.jobs {
 		p.jobs[i] = vp9DecoderTileJob{}
 	}
@@ -311,6 +343,78 @@ func (p *vp9DecoderTileWorkerPool) shutdown() {
 	p.rowMTSyncs = nil
 	p.rowMTFrame.release()
 	p.rowMTArmed = false
+}
+
+func (p *vp9DecoderTileWorkerPool) parkHelperWorker(worker int, epoch uint64) bool {
+	if p == nil {
+		return false
+	}
+	if worker >= 0 && worker < len(p.parked) {
+		p.parked[worker].Store(1)
+		defer p.parked[worker].Store(0)
+	}
+	if p.jobEpoch.Load() != epoch {
+		return true
+	}
+	select {
+	case _, ok := <-p.start[worker]:
+		return ok
+	case <-p.shutdownCh:
+		return false
+	}
+}
+
+func (p *vp9DecoderTileWorkerPool) startHelperWorkers(helpers int) uint64 {
+	if p == nil || helpers <= 0 {
+		return 0
+	}
+	if helpers > int(p.helperCount) {
+		helpers = int(p.helperCount)
+	}
+	p.activeHelpers.Store(uint32(helpers))
+	epoch := p.jobEpoch.Add(1)
+	for worker := 0; worker < helpers; worker++ {
+		if worker >= len(p.parked) || p.parked[worker].Load() == 0 {
+			continue
+		}
+		select {
+		case p.start[worker] <- struct{}{}:
+		default:
+		}
+	}
+	return epoch
+}
+
+func (p *vp9DecoderTileWorkerPool) waitHelperWorkers(epoch uint64, helpers int) {
+	if p == nil || helpers <= 0 {
+		return
+	}
+	if helpers > int(p.helperCount) {
+		helpers = int(p.helperCount)
+	}
+	spins := 0
+	for ; !p.helperWorkersDone(epoch, helpers); spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff &&
+			spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
+	}
+}
+
+func (p *vp9DecoderTileWorkerPool) helperWorkersDone(epoch uint64, helpers int) bool {
+	if p == nil {
+		return true
+	}
+	if helpers > len(p.doneEpoch) {
+		helpers = len(p.doneEpoch)
+	}
+	for worker := 0; worker < helpers; worker++ {
+		if p.doneEpoch[worker].Load() < epoch {
+			return false
+		}
+	}
+	return true
 }
 
 // armRowMT marks the tile worker pool as serving VP9D_SET_ROW_MT decode
@@ -469,8 +573,8 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 			} else {
 				p.jobs[worker].rowMTSync = nil
 			}
-			p.start[worker] <- struct{}{}
 		}
+		epoch := p.startHelperWorkers(helpers)
 
 		// The lead tile decode runs on this goroutine. When row-MT is
 		// armed, plumb the lead tile's wavefront sync through the parent
@@ -484,8 +588,8 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 		err := d.runVP9DecoderTileDesc(kind, descs[next], &p.header, comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
 		d.rowMTSync = nil
+		p.waitHelperWorkers(epoch, helpers)
 		for worker := range helpers {
-			<-p.done[worker]
 			job := &p.jobs[worker]
 			if job.unsupported {
 				d.unsupportedReconstruct = true
@@ -539,9 +643,9 @@ func (d *VP9Decoder) runVP9DecoderScheduledTileJobs(descs []vp9DecoderTileDesc,
 		bufEnd := bufStart + count
 		p.prepareTileJobRange(worker, d, kind, descs[bufStart:bufEnd], comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
-		p.start[worker] <- struct{}{}
 		bufStart = bufEnd
 	}
+	epoch := p.startHelperWorkers(helpers)
 
 	mainCount := base + (remain+helpers)/workers
 	mainEnd := bufStart + mainCount
@@ -552,8 +656,8 @@ func (d *VP9Decoder) runVP9DecoderScheduledTileJobs(descs []vp9DecoderTileDesc,
 		}
 	}
 
+	p.waitHelperWorkers(epoch, helpers)
 	for worker := 0; worker < helpers; worker++ {
-		<-p.done[worker]
 		job := &p.jobs[worker]
 		if job.unsupported {
 			d.unsupportedReconstruct = true
