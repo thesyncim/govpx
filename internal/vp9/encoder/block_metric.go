@@ -312,6 +312,63 @@ func BlockSAD4NoLimitOffsets(src []byte, srcOff, srcStride int,
 		refOffs[0], refOffs[1], refOffs[2], refOffs[3], refStride, w, h, out)
 }
 
+// BlockSADSkipRowsNoLimitOffsets mirrors libvpx's vpx_sad_skip_* family:
+// compare every other row, starting at the supplied offsets, and double the
+// accumulated SAD.
+func BlockSADSkipRowsNoLimitOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int,
+) (uint32, bool) {
+	if w <= 0 || h <= 0 || h&1 != 0 {
+		return 0, false
+	}
+	halfH := h / 2
+	if sad, ok := BlockSADNoLimitOffsets(src, srcOff, srcStride*2,
+		ref, refOff, refStride*2, w, halfH); ok {
+		return sad * 2, true
+	}
+	var sad uint32
+	for y := range halfH {
+		srcRow := srcOff + y*srcStride*2
+		refRow := refOff + y*refStride*2
+		for x := range w {
+			a, b := src[srcRow+x], ref[refRow+x]
+			if a >= b {
+				sad += uint32(a - b)
+			} else {
+				sad += uint32(b - a)
+			}
+		}
+	}
+	return sad * 2, true
+}
+
+// BlockSADSkipRows4NoLimitOffsets is the x4 form of
+// BlockSADSkipRowsNoLimitOffsets, preserving libvpx candidate order.
+func BlockSADSkipRows4NoLimitOffsets(src []byte, srcOff, srcStride int,
+	ref []byte, refOffs [4]int, refStride int, w, h int, out *[4]uint32,
+) bool {
+	if out == nil || w <= 0 || h <= 0 || h&1 != 0 {
+		return false
+	}
+	halfH := h / 2
+	if BlockSAD4NoLimitOffsets(src, srcOff, srcStride*2, ref, refOffs,
+		refStride*2, w, halfH, out) {
+		for i := 0; i < 4; i++ {
+			out[i] *= 2
+		}
+		return true
+	}
+	for i, refOff := range refOffs {
+		sad, ok := BlockSADSkipRowsNoLimitOffsets(src, srcOff, srcStride,
+			ref, refOff, refStride, w, h)
+		if !ok {
+			return false
+		}
+		out[i] = sad
+	}
+	return true
+}
+
 // VisibleInterScoreBlock clips an inter scoring rectangle to the visible
 // source and reference extents.
 func VisibleInterScoreBlock(x0, y0, blockW, blockH int,

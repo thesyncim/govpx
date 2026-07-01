@@ -31,6 +31,113 @@ func TestBlockSADNoLimitMatchesScalar(t *testing.T) {
 	}
 }
 
+func TestBlockSADSkipRowsMatchesScalar(t *testing.T) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	ref := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*17 + i/7 + 13) & 0xff)
+		ref[i] = byte((i*29 + i/5 + 11) & 0xff)
+	}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {64, 32}, {32, 64}, {32, 32}, {32, 16},
+		{16, 32}, {16, 16}, {16, 8}, {8, 16}, {8, 8},
+		{8, 4}, {4, 8}, {4, 4},
+		// Unsupported by the specialized SAD table; must still match scalar.
+		{12, 12},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			srcOff := 5*stride + 3
+			refOff := 11*stride + 7
+			got, ok := BlockSADSkipRowsNoLimitOffsets(src, srcOff, stride,
+				ref, refOff, stride, tc.w, tc.h)
+			if !ok {
+				t.Fatalf("BlockSADSkipRowsNoLimitOffsets returned !ok")
+			}
+			want := scalarSkipRowsSAD(src, srcOff, stride, ref, refOff, stride,
+				tc.w, tc.h)
+			if got != want {
+				t.Fatalf("skip SAD = %d, want scalar %d", got, want)
+			}
+
+			oddGot, ok := BlockSADSkipRowsNoLimitOffsets(src, srcOff+stride,
+				stride, ref, refOff+stride, stride, tc.w, tc.h)
+			if !ok {
+				t.Fatalf("odd BlockSADSkipRowsNoLimitOffsets returned !ok")
+			}
+			oddWant := scalarSkipRowsSAD(src, srcOff+stride, stride, ref,
+				refOff+stride, stride, tc.w, tc.h)
+			if oddGot != oddWant {
+				t.Fatalf("odd skip SAD = %d, want scalar %d", oddGot, oddWant)
+			}
+		})
+	}
+}
+
+func TestBlockSADSkipRows4MatchesSingle(t *testing.T) {
+	const stride = 96
+	src := make([]byte, stride*96)
+	ref := make([]byte, stride*96)
+	for i := range src {
+		src[i] = byte((i*31 + i/3 + 19) & 0xff)
+		ref[i] = byte((i*43 + i/9 + 23) & 0xff)
+	}
+	cases := []struct {
+		w, h int
+	}{
+		{64, 64}, {32, 32}, {16, 16}, {16, 8}, {8, 8}, {4, 8}, {12, 12},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%dx%d", tc.w, tc.h), func(t *testing.T) {
+			srcOff := 9*stride + 5
+			refOffs := [4]int{
+				13*stride + 7,
+				15*stride + 9,
+				17*stride + 11,
+				19*stride + 13,
+			}
+			var got [4]uint32
+			if !BlockSADSkipRows4NoLimitOffsets(src, srcOff, stride, ref,
+				refOffs, stride, tc.w, tc.h, &got) {
+				t.Fatalf("BlockSADSkipRows4NoLimitOffsets returned !ok")
+			}
+			for i, refOff := range refOffs {
+				want, ok := BlockSADSkipRowsNoLimitOffsets(src, srcOff, stride,
+					ref, refOff, stride, tc.w, tc.h)
+				if !ok {
+					t.Fatalf("single skip SAD %d returned !ok", i)
+				}
+				if got[i] != want {
+					t.Fatalf("candidate %d skip SAD = %d, want %d", i, got[i],
+						want)
+				}
+			}
+		})
+	}
+}
+
+func scalarSkipRowsSAD(src []byte, srcOff, srcStride int,
+	ref []byte, refOff, refStride int, w, h int,
+) uint32 {
+	var sad uint32
+	for y := 0; y < h; y += 2 {
+		srcRow := srcOff + y*srcStride
+		refRow := refOff + y*refStride
+		for x := range w {
+			a, b := src[srcRow+x], ref[refRow+x]
+			if a >= b {
+				sad += uint32(a - b)
+			} else {
+				sad += uint32(b - a)
+			}
+		}
+	}
+	return sad * 2
+}
+
 func TestBlockSSEMatchesScalar(t *testing.T) {
 	const stride = 80
 	src := make([]byte, stride*80)

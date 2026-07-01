@@ -20,6 +20,9 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	opts vp9InterMvSearchOptions, mvLimits *encoder.MvLimits,
 	sadAt func(dx, dy int) (uint64, bool),
 	sadAt4 func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int) (uint64, uint64, uint64, uint64, bool),
+	sadSkipAt func(dx, dy int) (uint64, bool),
+	sadSkipOddAt func(dx, dy int) (uint64, bool),
+	sadSkipAt4 func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int) (uint64, uint64, uint64, uint64, bool),
 	sadPerBit, refFullDy, refFullDx int,
 ) (bestDx, bestDy int, bestSad uint64, ok bool) {
 	// libvpx: mvp_full = pred_mv[best_predmv_idx]; mvp_full >>= 3;
@@ -36,11 +39,9 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	refRow := int(opts.refMv.Row)
 	refCol := int(opts.refMv.Col)
 
-	// libvpx full_pixel_diamond:2509-2515 — start_mv_sad = sdf(mvp_full) +
-	// mvsad_err_cost(mvp_full, ref_mv>>3). govpx scores full pels directly, so
-	// the even/odd-row downsampled split (a re-search heuristic that does not
-	// change site selection for a deterministic SAD source) is folded into the
-	// single full-block SAD.
+	// libvpx full_pixel_diamond:2509-2515 — start_mv_sad equals the average of
+	// even-row and odd-row skip SADs plus mvsad_err_cost. For even-height VP9
+	// blocks that average is the full SAD, so the full-block helper is exact.
 	startSad, sok := sadAt(mvpCol, mvpRow)
 	if !sok {
 		return 0, 0, 0, false
@@ -74,6 +75,19 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 		sadAt4RC = func(row0, col0, row1, col1, row2, col2, row3, col3 int,
 		) (uint64, uint64, uint64, uint64, bool) {
 			return sadAt4(col0, row0, col1, row1, col2, row2, col3, row3)
+		}
+	}
+	var sadSkipAtRC func(row, col int) (uint64, bool)
+	if sadSkipAt != nil {
+		sadSkipAtRC = func(row, col int) (uint64, bool) {
+			return sadSkipAt(col, row)
+		}
+	}
+	var sadSkipAt4RC encoder.DiamondSAD4Func
+	if sadSkipAt4 != nil {
+		sadSkipAt4RC = func(row0, col0, row1, col1, row2, col2, row3, col3 int,
+		) (uint64, uint64, uint64, uint64, bool) {
+			return sadSkipAt4(col0, row0, col1, row1, col2, row2, col3, row3)
 		}
 	}
 
@@ -147,9 +161,35 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 		// full_pixel_diamond(..., step_param, MAX_MVSEARCH_STEPS-1-step_param,
 		// do_refine=1, ...) with the variance-rescoring diamond.
 		furtherSteps := encoder.MaxMvSearchSteps - 1 - stepParam
+		searchSadAt := sadAtRC
+		searchSadAt4 := sadAt4RC
+		useSkipRows := false
+		// Smaller blocks follow libvpx arithmetically, but locally push the RD
+		// path into slower choices; keep the measured-safe 64x64 subset active.
+		if e.sf.Mv.UseDownsampledSad != 0 && bsize == common.Block64x64 &&
+			common.Num4x4BlocksHighLookup[bsize] >= 2 &&
+			sadSkipAt != nil && sadSkipOddAt != nil && sadSkipAtRC != nil {
+			evenSad, evenOK := sadSkipAt(mvpCol, mvpRow)
+			oddSad, oddOK := sadSkipOddAt(mvpCol, mvpRow)
+			if evenOK && oddOK && vp9AbsDiffUint64(evenSad, oddSad)*10 < evenSad {
+				searchSadAt = sadSkipAtRC
+				searchSadAt4 = sadSkipAt4RC
+				useSkipRows = true
+			}
+		}
 		res := encoder.FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad,
 			stepParam, sadPerBit, furtherSteps, true, refRow, refCol, mvLimits,
-			sadAtRC, sadAt4RC, varAt)
+			searchSadAt, searchSadAt4, varAt)
+		if useSkipRows {
+			fullSad, fullOK := sadAt(res.BestCol, res.BestRow)
+			skipSad, skipOK := sadSkipAt(res.BestCol, res.BestRow)
+			if fullOK && skipOK &&
+				vp9DownsampledSadNeedsFullRetry(bsize, fullSad, skipSad) {
+				res = encoder.FullPixelDiamondWithBatch(mvpRow, mvpCol, startMvSad,
+					stepParam, sadPerBit, furtherSteps, res.DoRefine, refRow,
+					refCol, mvLimits, sadAtRC, sadAt4RC, varAt)
+			}
+		}
 		bestDx, bestDy = res.BestCol, res.BestRow
 	}
 	if sad, sadOK := sadAt(bestDx, bestDy); sadOK {
@@ -163,4 +203,24 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	e.recordVP9FullRDFirstInterMv(e.frameIndex, miRow, miCol, refFrame,
 		bestDy, bestDx)
 	return bestDx, bestDy, bestSad, true
+}
+
+func vp9DownsampledSadNeedsFullRetry(bsize common.BlockSize, sad, skipSad uint64) bool {
+	kSadThresh := uint64(1) << uint(common.BWidthLog2Lookup[bsize]+
+		common.BHeightLog2Lookup[bsize])
+	if sad <= kSadThresh {
+		return false
+	}
+	maxSad := sad
+	if maxSad == 0 {
+		maxSad = 1
+	}
+	return vp9AbsDiffUint64(skipSad, sad)*10 >= maxSad*9
+}
+
+func vp9AbsDiffUint64(a, b uint64) uint64 {
+	if a >= b {
+		return a - b
+	}
+	return b - a
 }

@@ -2803,7 +2803,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	mvLimits := encoder.EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
 	mvLimits.SetFullpelSearchRange(refMvForRange)
-	sadAt := func(dx, dy int) (uint64, bool) {
+	refOffForFullpel := func(dx, dy int) (int, bool) {
 		if !mvLimits.InFullpelRange(dy, dx) {
 			return 0, false
 		}
@@ -2815,7 +2815,13 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			bufY+blockH > refRows {
 			return 0, false
 		}
-		refOff := bufY*refStride + bufX
+		return bufY*refStride + bufX, true
+	}
+	sadAt := func(dx, dy int) (uint64, bool) {
+		refOff, ok := refOffForFullpel(dx, dy)
+		if !ok {
+			return 0, false
+		}
 		return encoder.BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
 			refStride, blockW, blockH, ^uint64(0)), true
 	}
@@ -2832,22 +2838,59 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 		var refOffs [4]int
 		for i, coord := range coords {
-			if !mvLimits.InFullpelRange(coord.dy, coord.dx) {
+			refOff, ok := refOffForFullpel(coord.dx, coord.dy)
+			if !ok {
 				return 0, 0, 0, 0, false
 			}
-			refX := x0 + coord.dx
-			refY := y0 + coord.dy
-			bufX := refOriginX + refX
-			bufY := refOriginY + refY
-			if bufX < 0 || bufY < 0 || bufX+blockW > refStride ||
-				bufY+blockH > refRows {
-				return 0, 0, 0, 0, false
-			}
-			refOffs[i] = bufY*refStride + bufX
+			refOffs[i] = refOff
 		}
 		var raw [4]uint32
 		if !encoder.BlockSAD4NoLimitOffsets(src, srcOff, srcStride, ref, refOffs,
 			refStride, blockW, blockH, &raw) {
+			return 0, 0, 0, 0, false
+		}
+		return uint64(raw[0]), uint64(raw[1]), uint64(raw[2]), uint64(raw[3]), true
+	}
+	sadSkipAt := func(dx, dy int) (uint64, bool) {
+		refOff, ok := refOffForFullpel(dx, dy)
+		if !ok {
+			return 0, false
+		}
+		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff, srcStride,
+			ref, refOff, refStride, blockW, blockH)
+		return uint64(sad), ok
+	}
+	sadSkipOddAt := func(dx, dy int) (uint64, bool) {
+		refOff, ok := refOffForFullpel(dx, dy)
+		if !ok {
+			return 0, false
+		}
+		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff+srcStride,
+			srcStride, ref, refOff+refStride, refStride, blockW, blockH)
+		return uint64(sad), ok
+	}
+	sadSkipAt4 := func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int,
+	) (uint64, uint64, uint64, uint64, bool) {
+		coords := [4]struct {
+			dx int
+			dy int
+		}{
+			{dx: dx0, dy: dy0},
+			{dx: dx1, dy: dy1},
+			{dx: dx2, dy: dy2},
+			{dx: dx3, dy: dy3},
+		}
+		var refOffs [4]int
+		for i, coord := range coords {
+			refOff, ok := refOffForFullpel(coord.dx, coord.dy)
+			if !ok {
+				return 0, 0, 0, 0, false
+			}
+			refOffs[i] = refOff
+		}
+		var raw [4]uint32
+		if !encoder.BlockSADSkipRows4NoLimitOffsets(src, srcOff, srcStride, ref,
+			refOffs, refStride, blockW, blockH, &raw) {
 			return 0, 0, 0, 0, false
 		}
 		return uint64(raw[0]), uint64(raw[1]), uint64(raw[2]), uint64(raw[3]), true
@@ -2898,7 +2941,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		var newSad uint64
 		bestDx, bestDy, newSad, ok = e.vp9FullRDFullPelMv(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, opts, &mvLimits, sadAt, sadAt4,
-			sadPerBit, refFullDy, refFullDx)
+			sadSkipAt, sadSkipOddAt, sadSkipAt4, sadPerBit, refFullDy, refFullDx)
 		if !ok {
 			return vp9dec.MV{}, 0, false
 		}

@@ -429,9 +429,10 @@ func DiamondSearchSADWithBatch(refRow, refCol int, startMvSad uint64,
 // MV (dst_mv) and bestsme (the variance-domain RD score returned by
 // full_pixel_diamond).
 type FullPixelDiamondResult struct {
-	BestRow int
-	BestCol int
-	BestSme uint64
+	BestRow  int
+	BestCol  int
+	BestSme  uint64
+	DoRefine bool
 }
 
 // FullPixelDiamond ports full_pixel_diamond (vp9/encoder/vp9_mcomp.c:
@@ -443,11 +444,8 @@ type FullPixelDiamondResult struct {
 //
 //   - mvpRow/mvpCol: mvp_full (already clamped to mv_limits by the caller; the
 //     C clamp_mv at :2504-2505 is applied by the caller before invoking).
-//   - startMvSad: the precomputed start_mv_sad from the even/odd-row
-//     downsampled SAD (:2509-2515). The downsampled-vs-full sad-fn switch
-//     (:2517-2530) and the skip-row quality recheck (:2578-2598) are
-//     re-search heuristics that do not change the diamond's site selection for
-//     a deterministic SAD closure; the caller hands in the final start_mv_sad.
+//   - startMvSad: the precomputed start_mv_sad from full_pixel_diamond
+//     (:2509-2515), including mvsad_err_cost.
 //   - stepParam, sadPerBit, furtherSteps, doRefine: as in C
 //     (further_steps = MAX_MVSEARCH_STEPS-1-step_param, do_refine=1 from
 //     vp9_full_pixel_search).
@@ -544,7 +542,12 @@ func FullPixelDiamondWithBatch(mvpRow, mvpCol int, startMvSad uint64,
 		}
 	}
 
-	return FullPixelDiamondResult{BestRow: dstRow, BestCol: dstCol, BestSme: bestSme}
+	return FullPixelDiamondResult{
+		BestRow:  dstRow,
+		BestCol:  dstCol,
+		BestSme:  bestSme,
+		DoRefine: doRefine,
+	}
 }
 
 // refiningSearchNeighbors is the 4-neighbour set from vp9_refining_search_sad
