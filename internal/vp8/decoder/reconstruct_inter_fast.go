@@ -147,8 +147,7 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 		if mode.MBSkipCoeff {
 			return true
 		}
-		transformMacroblockTokensLuma(tokens, dequant, false, scratch)
-		AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+		dequantIDCTAddMacroblock(tokens, dequant, false, y, yStride, u, uStride, v, vStride)
 		return true
 	}
 
@@ -296,8 +295,7 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	if mode.MBSkipCoeff {
 		return true
 	}
-	transformMacroblockTokensLuma(tokens, dequant, false, scratch)
-	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+	dequantIDCTAddMacroblock(tokens, dequant, false, y, yStride, u, uStride, v, vStride)
 	return true
 }
 
@@ -363,8 +361,7 @@ func reconstructSplitMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	if mode.MBSkipCoeff {
 		return true
 	}
-	transformMacroblockTokensLuma(tokens, dequant, true, scratch)
-	AddMacroblockResidualWithDequant(tokens, scratch, dequant, y, yStride, u, uStride, v, vStride)
+	dequantIDCTAddMacroblock(tokens, dequant, true, y, yStride, u, uStride, v, vStride)
 	return true
 }
 

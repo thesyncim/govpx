@@ -17,6 +17,13 @@ func dcOnlyIDCT4x4AddNEON(inputDC int16, pred *byte, predStride int, dst *byte, 
 //go:noescape
 func dcOnlyIDCT4x4AddPairNEON(delta0 int, delta1 int, pred *byte, predStride int, dst *byte, dstStride int)
 
+//go:noescape
+func idctDequantAddFull2xNEON(q *int16, dq *int16, dst *byte, stride int)
+
+func dequantIDCTAddFull2xSIMD(q *[32]int16, dq *[16]int16, dst []byte, stride int) {
+	idctDequantAddFull2xNEON(&q[0], &dq[0], unsafe.SliceData(dst), stride)
+}
+
 func idct4x4AddSIMD(input *[16]int16, pred []byte, predStride int, dst []byte, dstStride int) {
 	idct4x4AddNEON(&input[0], unsafe.SliceData(pred), predStride, unsafe.SliceData(dst), dstStride)
 }
