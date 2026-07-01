@@ -557,6 +557,13 @@ func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
+	defer e.Close()
+	if got := e.vp9EffectiveThreadHint(); got != 4 {
+		t.Fatalf("effective thread hint = %d, want caller hint 4", got)
+	}
+	if got := e.vp9TileWorkerThreadHint(); got != 1 {
+		t.Fatalf("tile-worker thread hint = %d, want 1 while denoiser is active", got)
+	}
 	if e.vp9TilePool != nil {
 		t.Fatal("denoiser initialized VP9 tile worker pool")
 	}
@@ -567,8 +574,8 @@ func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	}
 
 	h, _ := vp9test.ParseHeader(t, packet)
-	if h.Tile.Log2TileCols != 2 {
-		t.Fatalf("Log2TileCols = %d, want 2 for Threads=4",
+	if h.Tile.Log2TileCols != 0 {
+		t.Fatalf("Log2TileCols = %d, want 0 while denoiser keeps tile workers disabled",
 			h.Tile.Log2TileCols)
 	}
 	if e.vp9TilePool != nil {

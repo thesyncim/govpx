@@ -324,12 +324,12 @@ const (
 )
 
 func (e *VP9Encoder) initVP9TileWorkerPool() {
-	if e == nil || e.vp9EffectiveThreadHint() <= 1 || e.opts.NoiseSensitivity > 0 {
+	if e == nil || e.vp9TileWorkerThreadHint() <= 1 {
 		return
 	}
 	miCols := (e.opts.Width + 7) >> 3
 	tileInfo := vp9EncoderTileInfoForTargetLevel(miCols, e.opts.Width,
-		e.opts.Height, e.vp9EffectiveThreadHint(), e.opts.Log2TileRows,
+		e.opts.Height, e.vp9TileWorkerThreadHint(), e.opts.Log2TileRows,
 		e.opts.TargetLevel)
 	if tileInfo.Log2TileRows != 0 {
 		return
@@ -389,8 +389,8 @@ func (e *VP9Encoder) retireVP9TileWorkerPoolForCurrentConfig() {
 	if e == nil || e.vp9TilePool == nil {
 		return
 	}
-	threadHint := e.vp9EffectiveThreadHint()
-	if threadHint <= 1 || e.opts.NoiseSensitivity > 0 {
+	threadHint := e.vp9TileWorkerThreadHint()
+	if threadHint <= 1 {
 		e.closeVP9TileWorkerPool()
 		return
 	}
@@ -708,7 +708,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreadedEnabled(tileRows, tileCols int) b
 	// Tile rows depend on reconstructed pixels and above entropy contexts from
 	// the previous row, so this pool only dispatches independent columns in the
 	// default single-row tile layout.
-	return e != nil && e.vp9EffectiveThreadHint() > 1 && e.opts.NoiseSensitivity == 0 &&
+	return e != nil && e.vp9TileWorkerThreadHint() > 1 &&
 		tileRows == 1 && tileCols > 1
 }
 

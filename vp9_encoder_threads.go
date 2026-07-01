@@ -33,11 +33,26 @@ func (e *VP9Encoder) vp9EffectiveThreadHint() int {
 	return vp9EffectiveThreadHint(e.opts)
 }
 
+func (e *VP9Encoder) vp9TileWorkerThreadHint() int {
+	if e == nil {
+		return 0
+	}
+	return vp9TileWorkerThreadHint(e.opts)
+}
+
 func vp9EffectiveThreadHint(opts VP9EncoderOptions) int {
 	if opts.Threads != 0 {
 		return opts.Threads
 	}
 	return vp9RealtimeAutoThreadHint(opts, runtime.NumCPU())
+}
+
+func vp9TileWorkerThreadHint(opts VP9EncoderOptions) int {
+	threadHint := vp9EffectiveThreadHint(opts)
+	if threadHint <= 1 || opts.NoiseSensitivity > 0 {
+		return 1
+	}
+	return threadHint
 }
 
 func vp9RealtimeAutoThreadHint(opts VP9EncoderOptions, cpus int) int {
