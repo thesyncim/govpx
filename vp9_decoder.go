@@ -8,6 +8,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	"github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
@@ -279,6 +280,7 @@ type VP9Decoder struct {
 	internalFramePool   [common.RefFrames + common.RefsPerFrame + 1]vp9InternalFrameLease
 	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
+	convolveScratch     dsp.Convolve8Scratch
 	refFrames           [common.RefFrames]vp9ReferenceFrame
 	refFramesView       *[common.RefFrames]vp9ReferenceFrame
 	prevFrameMvs        []vp9dec.MvRef

@@ -979,9 +979,10 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlane(
 		dstX+predW > dstStride || dstY+predH > dstRows || srcRows <= 0 {
 		return false
 	}
-	vp9dec.InterPredictor(src, srcStride, dst[dstY*dstStride+dstX:], dstStride,
+	vp9dec.InterPredictorWithScratch(src, srcStride,
+		dst[dstY*dstStride+dstX:], dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
-		xStepQ4, yStepQ4, predW, predH, avg, srcOffset)
+		xStepQ4, yStepQ4, predW, predH, avg, srcOffset, &d.convolveScratch)
 	return true
 }
 

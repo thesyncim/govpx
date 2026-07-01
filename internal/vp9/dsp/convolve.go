@@ -20,6 +20,31 @@ type convolve8TempBuf [64 * 135]byte
 // convolve8AvgTempBuf is the smaller scratch for VpxConvolve8Avg.
 type convolve8AvgTempBuf [64 * 64]byte
 
+// Convolve8Scratch is caller-owned scratch for full two-pass VP9 8-tap
+// convolve. libvpx keeps the intermediate H/V buffers stack-local at each
+// predictor call; decoder/tile workers pass this scratch to avoid the global
+// fallback pool in threaded reconstruction.
+type Convolve8Scratch struct {
+	temp    convolve8TempBuf
+	avgTemp convolve8AvgTempBuf
+}
+
+func convolve8TempForScratch(scratch *Convolve8Scratch) ([]byte, *convolve8TempBuf) {
+	if scratch != nil {
+		return scratch.temp[:], nil
+	}
+	tempBuf := convolve8TempGet()
+	return tempBuf[:], tempBuf
+}
+
+func convolve8AvgTempForScratch(scratch *Convolve8Scratch) ([]byte, *convolve8AvgTempBuf) {
+	if scratch != nil {
+		return scratch.avgTemp[:], nil
+	}
+	tempBuf := convolve8AvgTempGet()
+	return tempBuf[:], tempBuf
+}
+
 // convolveTempCap caps the GC-immune free list capacity at 4×GOMAXPROCS
 // so even with the VP9 encoder's per-tile-column worker pool plus the
 // helper row workers there are always free slabs ready to hand out. The

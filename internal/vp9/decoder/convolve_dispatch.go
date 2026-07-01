@@ -32,6 +32,22 @@ func InterPredictor(
 	ref int,
 	srcOffset int,
 ) {
+	InterPredictorWithScratch(src, srcStride, dst, dstStride, subpelX, subpelY,
+		filter, xStepQ4, yStepQ4, w, h, ref, srcOffset, nil)
+}
+
+// InterPredictorWithScratch is InterPredictor with caller-owned full-convolve
+// scratch. The scratch is used only for 2-D subpel prediction paths; nil keeps
+// the package-level fallback pool used by existing callers.
+func InterPredictorWithScratch(
+	src []byte, srcStride int, dst []byte, dstStride int,
+	subpelX, subpelY int,
+	filter *[tables.SubpelShifts][tables.SubpelTaps]int16,
+	xStepQ4, yStepQ4, w, h int,
+	ref int,
+	srcOffset int,
+	scratch *dsp.Convolve8Scratch,
+) {
 	key := ref
 	if uint(ref) > 1 {
 		panic("govpx/vp9/decoder: invalid inter predictor ref")
@@ -61,10 +77,10 @@ func InterPredictor(
 		dsp.VpxConvolve8AvgHoriz(src, srcStride, dst, dstStride, filter,
 			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
 	case 6:
-		dsp.VpxConvolve8(src, srcStride, dst, dstStride, filter,
-			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
+		dsp.VpxConvolve8WithScratch(src, srcStride, dst, dstStride, filter,
+			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset, scratch)
 	case 7:
-		dsp.VpxConvolve8Avg(src, srcStride, dst, dstStride, filter,
-			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset)
+		dsp.VpxConvolve8AvgWithScratch(src, srcStride, dst, dstStride, filter,
+			subpelX, xStepQ4, subpelY, yStepQ4, w, h, srcOffset, scratch)
 	}
 }

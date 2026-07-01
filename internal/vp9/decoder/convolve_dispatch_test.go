@@ -88,15 +88,46 @@ func TestInterPredictorHorizDispatchHitsKernel(t *testing.T) {
 	}
 }
 
+func TestInterPredictorWithScratchMatchesPooledFull2D(t *testing.T) {
+	src := make([]byte, 32*24)
+	for i := range src {
+		src[i] = byte((i*19 + 11) & 0xff)
+	}
+	srcOffset := 3*32 + 3
+	for _, ref := range []int{0, 1} {
+		dstPooled := make([]byte, 16*16)
+		dstScratch := make([]byte, 16*16)
+		for i := range dstPooled {
+			v := byte((i*13 + 5) & 0xff)
+			dstPooled[i] = v
+			dstScratch[i] = v
+		}
+		var scratch dsp.Convolve8Scratch
+		InterPredictor(src, 32, dstPooled, 16, 4, 8, &tables.SubPelFilters8,
+			16, 16, 16, 16, ref, srcOffset)
+		InterPredictorWithScratch(src, 32, dstScratch, 16, 4, 8,
+			&tables.SubPelFilters8, 16, 16, 16, 16, ref, srcOffset, &scratch)
+		for i := range dstPooled {
+			if dstScratch[i] != dstPooled[i] {
+				t.Fatalf("ref=%d [%d]: scratch got %d want %d",
+					ref, i, dstScratch[i], dstPooled[i])
+			}
+		}
+	}
+}
+
 func TestInterPredictorDoesNotAllocate(t *testing.T) {
 	src := make([]byte, 32*16)
 	dst := make([]byte, 8*8)
 	for i := range src {
 		src[i] = byte((i*11 + 7) & 0xff)
 	}
+	var scratch dsp.Convolve8Scratch
 
 	allocs := testing.AllocsPerRun(1000, func() {
 		InterPredictor(src, 32, dst, 8, 4, 8, &tables.SubPelFilters8, 16, 16, 8, 8, 0, 3*32+3)
+		InterPredictorWithScratch(src, 32, dst, 8, 4, 8,
+			&tables.SubPelFilters8, 16, 16, 8, 8, 0, 3*32+3, &scratch)
 		InterPredictor(src, 32, dst, 8, 0, 0, &tables.SubPelFilters8, 16, 16, 8, 8, 1, 0)
 	})
 	if allocs != 0 {
