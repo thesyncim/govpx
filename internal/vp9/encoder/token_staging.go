@@ -47,6 +47,7 @@ type TokenFrameBuffer struct {
 
 	miRows int
 	miCols int
+	sbRows int
 }
 
 func (b *TokenFrameBuffer) Ensure(miRows, miCols int) {
@@ -59,6 +60,7 @@ func (b *TokenFrameBuffer) Ensure(miRows, miCols int) {
 		b.Lists = b.Lists[:0]
 		b.miRows = 0
 		b.miCols = 0
+		b.sbRows = 0
 		return
 	}
 	b.Tokens = buffers.EnsureLen(b.Tokens, TokenAllocForMI(miRows, miCols))
@@ -66,6 +68,7 @@ func (b *TokenFrameBuffer) Ensure(miRows, miCols int) {
 	b.Used = 0
 	b.miRows = miRows
 	b.miCols = miCols
+	b.sbRows = common.AlignToSB(miRows) >> common.MiBlockSizeLog2
 }
 
 func (b *TokenFrameBuffer) Reset() {
@@ -85,6 +88,60 @@ func (b *TokenFrameBuffer) Release() {
 	b.Used = 0
 	b.miRows = 0
 	b.miCols = 0
+	b.sbRows = 0
+}
+
+func (b *TokenFrameBuffer) AppendToken(tok TokenExtra) bool {
+	if b == nil || b.Used < 0 || b.Used >= len(b.Tokens) {
+		return false
+	}
+	b.Tokens[b.Used] = tok
+	b.Used++
+	return true
+}
+
+func (b *TokenFrameBuffer) TokenListIndex(tileRow, tileCol, tileSBRow int) (int, bool) {
+	if b == nil || b.sbRows <= 0 ||
+		tileRow < 0 || tileRow >= TokenStageMaxTileRows ||
+		tileCol < 0 || tileCol >= TokenStageMaxTileCols ||
+		tileSBRow < 0 || tileSBRow >= b.sbRows {
+		return 0, false
+	}
+	idx := (tileRow*TokenStageMaxTileCols+tileCol)*b.sbRows + tileSBRow
+	if idx < 0 || idx >= len(b.Lists) {
+		return 0, false
+	}
+	return idx, true
+}
+
+func (b *TokenFrameBuffer) StartTokenList(tileRow, tileCol, tileSBRow int) (int, bool) {
+	idx, ok := b.TokenListIndex(tileRow, tileCol, tileSBRow)
+	if !ok {
+		return 0, false
+	}
+	b.Lists[idx] = TokenList{Start: b.Used}
+	return idx, true
+}
+
+func (b *TokenFrameBuffer) FinishTokenList(idx int) bool {
+	if b == nil || idx < 0 || idx >= len(b.Lists) {
+		return false
+	}
+	l := &b.Lists[idx]
+	if l.Start < 0 || l.Start > b.Used {
+		return false
+	}
+	l.Stop = b.Used
+	l.Count = uint32(l.Stop - l.Start)
+	return true
+}
+
+func (b *TokenFrameBuffer) TokensForList(list TokenList) ([]TokenExtra, bool) {
+	if b == nil || list.Start < 0 || list.Stop < list.Start ||
+		list.Stop > b.Used {
+		return nil, false
+	}
+	return b.Tokens[list.Start:list.Stop], true
 }
 
 // TokenAllocForMI mirrors libvpx get_token_alloc. miRows/miCols are VP9 8x8
