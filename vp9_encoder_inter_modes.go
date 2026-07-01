@@ -2647,7 +2647,12 @@ type vp9InterMvSearchOptions struct {
 	refMvValid      bool
 	nonrdSubpelTree bool
 	useMvPart       bool
-	fullRD          bool
+	// skipFullpelSearch mirrors libvpx search_new_mv's CBR GOLDEN/ALTREF
+	// int-pro branch: after vp9_int_pro_motion_estimation survives its cheap
+	// SAD gates, libvpx goes straight to fractional refinement from that MV
+	// instead of running combined_motion_search.
+	skipFullpelSearch bool
+	fullRD            bool
 	// maxMvContext is x->max_mv_context[ref] for the full-RD step_param
 	// auto_mv_step_size average; predSad is x->pred_mv_sad[ref] for the
 	// adaptive_motion_search tlevel bump (both consumed only on the deep
@@ -2969,7 +2974,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			}
 		}
 
-		if !(opts.useMvPart && seededStart) {
+		if !((opts.useMvPart || opts.skipFullpelSearch) && seededStart) {
 			// MV-hint biasing: when a multi-resolution lower-resolution layer
 			// has supplied a scaled MV hint for this SB, evaluate it as an
 			// extra candidate before the (0,0)-centered fan. The hint can
@@ -3063,7 +3068,8 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	mv := vp9dec.MV{Row: int16(bestDy * 8), Col: int16(bestDx * 8)}
 	vp9dec.ClampMvRef(&mv, miRows, miCols, miRow, miCol, bsize)
 	vp9dec.LowerMvPrecision(&mv, inter.allowHP)
-	if opts.nonrdPrecheck != nil && !opts.nonrdPrecheck(mv) {
+	if opts.nonrdPrecheck != nil && !opts.skipFullpelSearch &&
+		!opts.nonrdPrecheck(mv) {
 		return vp9dec.MV{}, bestScore, false
 	}
 	// SPEED_FEATURES.mv.subpel_force_stop == FULL_PEL — libvpx skips

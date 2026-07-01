@@ -366,11 +366,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 
-	// libvpx: vp9_pickmode.c:2204-2228 — sf->reference_masking gate.
+	// libvpx: vp9_pickmode.c:2002-2012 and :2204-2228 —
+	// find_predictors plus sf->reference_masking.
 	// libvpx's pred_mv_sad[ref] is the best SAD across the per-ref MV
 	// candidate set {ref_mvs[0], ref_mvs[1], x->pred_mv[ref]} produced by
-	// vp9_mv_pred (vp9_rd.c:588). When a ref's pred_mv_sad is more than 2x
-	// the dominant ref's, the entire ref is pruned.
+	// vp9_mv_pred (vp9_rd.c:588). It feeds both reference masking and the CBR
+	// GOLDEN/ALTREF int-pro NEWMV gate. When reference masking is enabled and
+	// a ref's pred_mv_sad is more than 2x the dominant ref's, the entire ref is
+	// pruned.
 	//
 	// Full vp9_mv_pred candidate-set SAD via encoder.MvPredScanCandidates is
 	// needed in two places: as the integer-search seed for NEWMV (libvpx
@@ -399,6 +402,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var maxMvContext [vp9dec.MaxRefFrames]int
 	var mvPredSearchSeed [vp9dec.MaxRefFrames]vp9dec.MV
 	var mvPredSearchSeedValid [vp9dec.MaxRefFrames]bool
+	bestPredSad := vp9NonrdIntMaxSAD
 	usePrevFrameMvs := e.useVP9EncoderPrevFrameMvs(miRows, miCols)
 	var refMvListCache [vp9dec.MaxRefFrames][2]vp9dec.MV
 	var refMvCountCache [vp9dec.MaxRefFrames]int
@@ -492,9 +496,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if result.BestSad != ^uint64(0) {
 					mvBestRefIndex[r] = result.BestIndex
 					maxMvContext[r] = result.MaxMvContext
-					if useMvPredCandidateSet {
-						predMvSad[r] = result.BestSad
-					}
+					predMvSad[r] = result.BestSad
 					if result.BestIndex >= 0 &&
 						result.BestIndex < len(candidates) &&
 						candidates[result.BestIndex].Valid {
@@ -800,9 +802,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 
 		// libvpx: vp9_pickmode.c:2186-2193 — skip non-zero GOLDEN candidates
 		// when force_skip_low_temp_var is set (zeromv may still be visited).
-		if forceSkipLowTempVar && refFrame == vp9dec.GoldenFrame &&
-			frameMvValid[thisMode][refFrame] &&
-			frameMv[thisMode][refFrame] != (vp9dec.MV{}) {
+		if vp9NonrdForceSkipGoldenCandidate(forceSkipLowTempVar,
+			refFrame, thisMode, frameMv[thisMode][refFrame],
+			frameMvValid[thisMode][refFrame]) {
 			continue
 		}
 
@@ -945,11 +947,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		var mv vp9dec.MV
 		var refMv vp9dec.MV
 		if thisMode == common.NewMv {
-			if refFrame > vp9dec.LastFrame && gfTemporalRef &&
-				e.opts.RateControlMode == RateControlCBR &&
-				bsize < common.Block16x16 {
-				continue
-			}
 			var gotMv vp9dec.MV
 			var ok bool
 			refMvOpt := vp9dec.MV{}
@@ -962,6 +959,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				refMvValid:      refMvValid,
 				nonrdSubpelTree: true,
 			}
+			// libvpx vp9_pickmode.c:1597-1626: CBR GOLDEN/ALTREF
+			// NEWMV uses vp9_int_pro_motion_estimation as a cheap gate.
+			// Surviving candidates skip combined_motion_search and go
+			// straight to fractional refinement from the int-pro MV.
+			if refFrame > vp9dec.LastFrame && gfTemporalRef &&
+				e.opts.RateControlMode == RateControlCBR {
+				if bsize < common.Block16x16 {
+					continue
+				}
+				intProMV, ok := e.vp9NonrdCBRIntProNewMV(inter,
+					miRows, miCols, miRow, miCol, bsize, refFrame,
+					refMvOpt, predMvSad[vp9dec.LastFrame], bestPredSad)
+				if !ok {
+					continue
+				}
+				mvOpts.seed = intProMV
+				mvOpts.seedValid = true
+				mvOpts.skipFullpelSearch = true
+			}
 			if bestSet {
 				mvOpts.nonrdPrecheck = func(fullpelMv vp9dec.MV) bool {
 					rateModeMv := vp9NonrdInterModeRateCost(inter,
@@ -971,20 +987,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					return precheckRD <= best.score
 				}
 			}
-			// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
-			// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
-			// non-SVC realtime lane mirrors the speed/block-size legs here.
-			if e.vp9SpeedFeatureCPUUsed() > 7 &&
-				bsize >= common.Block32x32 {
-				if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
-					mvOpts.seed = mvPart
-					mvOpts.seedValid = true
-					mvOpts.useMvPart = true
+			if !mvOpts.skipFullpelSearch {
+				// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
+				// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
+				// non-SVC realtime lane mirrors the speed/block-size legs here.
+				if e.vp9SpeedFeatureCPUUsed() > 7 &&
+					bsize >= common.Block32x32 {
+					if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
+						mvOpts.seed = mvPart
+						mvOpts.seedValid = true
+						mvOpts.useMvPart = true
+					}
 				}
-			}
-			if !mvOpts.useMvPart && mvPredSearchSeedValid[refFrame] {
-				mvOpts.seed = mvPredSearchSeed[refFrame]
-				mvOpts.seedValid = true
+				if !mvOpts.useMvPart && mvPredSearchSeedValid[refFrame] {
+					mvOpts.seed = mvPredSearchSeed[refFrame]
+					mvOpts.seedValid = true
+				}
 			}
 			gotMv, _, ok = e.pickVP9InterMvWithOptions(inter, miRows, miCols,
 				miRow, miCol, bsize, refFrame, mvOpts)
@@ -1062,6 +1080,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
 				bsize, refFrame, mv); ok {
 				predMvSad[vp9dec.LastFrame] = sad
+				bestPredSad = sad
 			}
 		}
 

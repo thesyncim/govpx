@@ -94,6 +94,94 @@ func TestVP9EncoderInterMvSearchUsesMvPredSeedAsCenter(t *testing.T) {
 	}
 }
 
+func TestVP9EncoderInterMvSearchCanSkipFullpelFromSeed(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	keySrc := vp9test.NewMotionYCbCr(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
+	}
+
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 0, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
+	}
+	e.sf.Mv.SearchMethod = SearchMethodSquare
+	e.sf.Mv.SubpelForceStop = FullPel
+	seed := vp9dec.MV{Col: 8}
+
+	got, _, ok := e.pickVP9InterMvAllowZero(inter, 8, 16,
+		0, 0, common.Block64x64, vp9dec.LastFrame,
+		vp9InterMvSearchOptions{
+			seed:      seed,
+			seedValid: true,
+		})
+	if !ok {
+		t.Fatal("seeded full-pel search returned !ok")
+	}
+	if got == seed {
+		t.Fatalf("ordinary seeded full-pel search kept seed %+v", seed)
+	}
+
+	got, _, ok = e.pickVP9InterMvAllowZero(inter, 8, 16,
+		0, 0, common.Block64x64, vp9dec.LastFrame,
+		vp9InterMvSearchOptions{
+			seed:              seed,
+			seedValid:         true,
+			skipFullpelSearch: true,
+			nonrdPrecheck: func(vp9dec.MV) bool {
+				return false
+			},
+		})
+	if !ok {
+		t.Fatal("skip-fullpel search returned !ok")
+	}
+	if got != seed {
+		t.Fatalf("skip-fullpel search = %+v, want int-pro seed %+v", got, seed)
+	}
+}
+
+func TestVP9NonrdCBRIntProNewMVPassMirrorsLibvpxThresholds(t *testing.T) {
+	bsize := common.Block16x16
+	margin := uint64(common.NumPelsLog2Lookup[bsize]) << 4
+	if !vp9NonrdCBRIntProNewMVPass(100, 100, 100+margin, bsize) {
+		t.Fatal("equal LAST SAD and exact best_pred_sad margin rejected")
+	}
+	if vp9NonrdCBRIntProNewMVPass(101, 100, vp9NonrdIntMaxSAD, bsize) {
+		t.Fatal("tmp_sad above pred_mv_sad[LAST] passed")
+	}
+	if vp9NonrdCBRIntProNewMVPass(100, vp9NonrdIntMaxSAD, 100+margin-1, bsize) {
+		t.Fatal("tmp_sad plus libvpx num-pels margin above best_pred_sad passed")
+	}
+}
+
+func TestVP9NonrdForceSkipGoldenCandidateTreatsNewMvAsNonzero(t *testing.T) {
+	if !vp9NonrdForceSkipGoldenCandidate(true, vp9dec.GoldenFrame,
+		common.NewMv, vp9dec.MV{}, false) {
+		t.Fatal("GOLDEN NEWMV before search was not treated as nonzero")
+	}
+	if vp9NonrdForceSkipGoldenCandidate(true, vp9dec.GoldenFrame,
+		common.ZeroMv, vp9dec.MV{}, true) {
+		t.Fatal("GOLDEN ZEROMV was skipped")
+	}
+	if !vp9NonrdForceSkipGoldenCandidate(true, vp9dec.GoldenFrame,
+		common.NearestMv, vp9dec.MV{Col: 8}, true) {
+		t.Fatal("GOLDEN nonzero NEARESTMV was not skipped")
+	}
+	if vp9NonrdForceSkipGoldenCandidate(true, vp9dec.LastFrame,
+		common.NewMv, vp9dec.MV{}, false) {
+		t.Fatal("LAST NEWMV was skipped by GOLDEN-only force gate")
+	}
+}
+
 func TestVP9EncoderInterPicksOddIntegerMv(t *testing.T) {
 	const (
 		width  = 128

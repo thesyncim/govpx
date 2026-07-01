@@ -113,6 +113,83 @@ func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
 	}
 }
 
+const vp9NonrdIntMaxSAD = uint64(1<<31 - 1)
+
+func vp9NonrdCBRIntProNewMVPass(tmpSad, predMvSadLast, bestPredSad uint64,
+	bsize common.BlockSize,
+) bool {
+	if tmpSad > predMvSadLast {
+		return false
+	}
+	return tmpSad+(uint64(common.NumPelsLog2Lookup[bsize])<<4) <= bestPredSad
+}
+
+func vp9NonrdForceSkipGoldenCandidate(forceSkipLowTempVar bool,
+	refFrame int8, mode common.PredictionMode, mv vp9dec.MV, mvValid bool,
+) bool {
+	if !forceSkipLowTempVar || refFrame != vp9dec.GoldenFrame {
+		return false
+	}
+	if mode == common.NewMv {
+		return true
+	}
+	return mvValid && mv != (vp9dec.MV{})
+}
+
+func (e *VP9Encoder) vp9NonrdCBRIntProNewMV(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	refFrame int8, refMV vp9dec.MV, predMvSadLast, bestPredSad uint64,
+) (vp9dec.MV, bool) {
+	if inter == nil || inter.img == nil || inter.ref == nil || !inter.ref.valid ||
+		bsize < common.Block16x16 || bsize >= common.BlockSizes {
+		return vp9dec.MV{}, false
+	}
+	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
+	if len(src) == 0 || srcStride <= 0 || srcW <= 0 || srcH <= 0 {
+		return vp9dec.MV{}, false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 < 0 || y0 < 0 || x0+blockW > srcW || y0+blockH > srcH {
+		return vp9dec.MV{}, false
+	}
+	if !e.intProSrcBorderedValid ||
+		e.intProSrcBordered.W != srcW ||
+		e.intProSrcBordered.H != srcH {
+		common.YV12BuildBorderedPlane(&e.intProSrcBordered, src, srcStride,
+			srcW, srcH, common.VP9EncBorderInPixels)
+		e.intProSrcBorderedValid = true
+	}
+	ref, refStride, refOriginX, refOriginY, refW, refH, refOK :=
+		e.vp9SubpelReferencePlane(refFrame, inter.ref)
+	if !refOK || len(ref) == 0 || refStride <= 0 ||
+		x0+blockW > refW || y0+blockH > refH {
+		return vp9dec.MV{}, false
+	}
+	srcOriginX := e.intProSrcBordered.OriginX()
+	srcOriginY := e.intProSrcBordered.OriginY()
+	srcStrideB := e.intProSrcBordered.Stride
+	mvLimits := encoder.EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	tmpSad, mv := encoder.IntProEstimate(&encoder.IntProEstimateInput{
+		Bsize:     bsize,
+		Src:       e.intProSrcBordered.Pixels,
+		SrcOff:    (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+		SrcStride: srcStrideB,
+		Ref:       ref,
+		RefOff:    (refOriginY+y0)*refStride + (refOriginX + x0),
+		RefStride: refStride,
+		RefMV:     refMV,
+		MvLimits:  mvLimits,
+	})
+	if !vp9NonrdCBRIntProNewMVPass(uint64(tmpSad), predMvSadLast,
+		bestPredSad, bsize) {
+		return vp9dec.MV{}, false
+	}
+	return mv, true
+}
+
 func (e *VP9Encoder) vp9NonrdPredMVSAD(inter *vp9InterEncodeState,
 	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
 ) (uint64, bool) {
