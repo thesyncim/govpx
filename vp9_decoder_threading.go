@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"unsafe"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -122,6 +124,85 @@ type vp9DecoderTileDesc struct {
 	tile vp9dec.TileBounds
 }
 
+const (
+	// Mirrors vp9/decoder/vp9_decoder.h row-mt frame storage.
+	vp9DecoderRowMTEobsPerSBLog2     = 8
+	vp9DecoderRowMTDQCoeffsPerSBLog2 = 12
+	vp9DecoderRowMTPartitionsPerSB   = 85
+	vp9DecoderRowMTDQCoeffAlign      = 32
+)
+
+type vp9DecoderRowMTFrameStorage struct {
+	numSBs int
+
+	eob          [vp9dec.MaxMbPlane][]int
+	dqcoeffBytes [vp9dec.MaxMbPlane][]byte
+	dqcoeff      [vp9dec.MaxMbPlane][]int16
+	partition    []common.PartitionType
+	reconMap     []int8
+}
+
+func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
+	if s == nil {
+		return
+	}
+	if numSBs <= 0 {
+		s.numSBs = 0
+		for plane := range vp9dec.MaxMbPlane {
+			s.eob[plane] = s.eob[plane][:0]
+			s.dqcoeffBytes[plane] = s.dqcoeffBytes[plane][:0]
+			s.dqcoeff[plane] = s.dqcoeff[plane][:0]
+		}
+		s.partition = s.partition[:0]
+		s.reconMap = s.reconMap[:0]
+		return
+	}
+
+	s.numSBs = numSBs
+	eobLen := numSBs << vp9DecoderRowMTEobsPerSBLog2
+	dqcoeffLen := numSBs << vp9DecoderRowMTDQCoeffsPerSBLog2
+	for plane := range vp9dec.MaxMbPlane {
+		s.eob[plane] = buffers.EnsureLenZeroed(s.eob[plane], eobLen)
+		s.dqcoeffBytes[plane] = buffers.EnsureAlignedCapacity(
+			s.dqcoeffBytes[plane], dqcoeffLen*2, vp9DecoderRowMTDQCoeffAlign)
+		s.dqcoeff[plane] = unsafe.Slice(
+			(*int16)(unsafe.Pointer(&s.dqcoeffBytes[plane][0])), dqcoeffLen)
+		clear(s.dqcoeff[plane])
+	}
+	s.partition = buffers.EnsureLenZeroed(s.partition,
+		numSBs*vp9DecoderRowMTPartitionsPerSB)
+	s.reconMap = buffers.EnsureLenZeroed(s.reconMap, numSBs)
+}
+
+func (s *vp9DecoderRowMTFrameStorage) release() {
+	if s == nil {
+		return
+	}
+	s.numSBs = 0
+	for plane := range vp9dec.MaxMbPlane {
+		s.eob[plane] = nil
+		s.dqcoeffBytes[plane] = nil
+		s.dqcoeff[plane] = nil
+	}
+	s.partition = nil
+	s.reconMap = nil
+}
+
+func (s *vp9DecoderRowMTFrameStorage) eobForSB(plane, sb int) []int {
+	base := sb << vp9DecoderRowMTEobsPerSBLog2
+	return s.eob[plane][base : base+(1<<vp9DecoderRowMTEobsPerSBLog2)]
+}
+
+func (s *vp9DecoderRowMTFrameStorage) dqcoeffForSB(plane, sb int) []int16 {
+	base := sb << vp9DecoderRowMTDQCoeffsPerSBLog2
+	return s.dqcoeff[plane][base : base+(1<<vp9DecoderRowMTDQCoeffsPerSBLog2)]
+}
+
+func (s *vp9DecoderRowMTFrameStorage) partitionsForSB(sb int) []common.PartitionType {
+	base := sb * vp9DecoderRowMTPartitionsPerSB
+	return s.partition[base : base+vp9DecoderRowMTPartitionsPerSB]
+}
+
 type vp9DecoderTileJob struct {
 	data           []byte
 	hdr            *vp9dec.UncompressedHeader
@@ -167,6 +248,10 @@ type vp9DecoderTileWorkerPool struct {
 	// rowMTArmed records whether SetRowMT(true) has been observed without
 	// a matching SetRowMT(false). It is sticky until releaseRowMTSync runs.
 	rowMTArmed bool
+	// rowMTFrame mirrors libvpx RowMTWorkerData frame slabs. It is reset per
+	// frame while VP9D_SET_ROW_MT is armed and released with the row-mt sync
+	// state when the option is disabled.
+	rowMTFrame vp9DecoderRowMTFrameStorage
 
 	lastTileJobs    uint8
 	lastTileJobKind vp9DecoderTileJobKind
@@ -218,6 +303,7 @@ func (p *vp9DecoderTileWorkerPool) shutdown() {
 	p.helperCount = 0
 	p.lastTileJobs = 0
 	p.rowMTSyncs = nil
+	p.rowMTFrame.release()
 	p.rowMTArmed = false
 }
 
@@ -245,6 +331,15 @@ func (p *vp9DecoderTileWorkerPool) ensureRowMTSync(tileCols, sbRows int) {
 	}
 }
 
+func (p *vp9DecoderTileWorkerPool) ensureRowMTFrameStorage(miRows, miCols int) {
+	if p == nil || miRows <= 0 || miCols <= 0 {
+		return
+	}
+	sbRows := common.AlignToSB(miRows) >> common.MiBlockSizeLog2
+	sbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
+	p.rowMTFrame.reset(sbRows * sbCols)
+}
+
 // releaseRowMTSync drops the per-tile-column vp9RowMTSync state. It is
 // invoked when SetRowMT(false) flips the option so future decodes do not
 // pay the wavefront overhead nor keep the primitive arrays resident.
@@ -256,6 +351,7 @@ func (p *vp9DecoderTileWorkerPool) releaseRowMTSync() {
 		p.rowMTSyncs[i].release()
 	}
 	p.rowMTSyncs = p.rowMTSyncs[:0]
+	p.rowMTFrame.release()
 	p.rowMTArmed = false
 }
 
@@ -340,9 +436,11 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	if d.opts.DecoderRowMT && p.rowMTArmed {
 		sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
 		p.ensureRowMTSync(len(descs), sbRows)
+		p.ensureRowMTFrameStorage(miRows, miCols)
 	} else if len(p.rowMTSyncs) > 0 {
 		// Reset stale state when the option toggled off mid-stream.
 		p.rowMTSyncs = p.rowMTSyncs[:0]
+		p.rowMTFrame.release()
 	}
 	mergeCounts := !hdr.FrameParallelDecoding
 	helpersMax := int(p.helperCount)
