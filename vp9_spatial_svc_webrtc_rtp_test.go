@@ -1289,7 +1289,7 @@ func assertVP9ActiveSVCWebRTCPacketizationForTest(
 	}
 
 	var frames [govpx.VP9MaxSpatialLayers][]byte
-	for layer := 0; layer < count; layer++ {
+	for layer := range count {
 		assembled, err := govpx.AssembleVP9RTPFrame(byLayer[layer])
 		if err != nil {
 			t.Fatalf("frame %d AssembleVP9RTPFrame layer %d: %v",
@@ -1403,7 +1403,7 @@ func encodeVP9WebRTCSVCTestResults(
 	}
 	dst := make([]byte, 1<<20)
 	results := make([]govpx.VP9SpatialSVCEncodeResult, frames)
-	for frame := 0; frame < frames; frame++ {
+	for frame := range frames {
 		vp9test.FillYCbCr(srcs[0], uint8(90+frame*7), 120, 136)
 		vp9test.FillYCbCr(srcs[1], uint8(90+frame*7), 120, 136)
 		result, err := svc.EncodeIntoWithResult(srcs, dst)

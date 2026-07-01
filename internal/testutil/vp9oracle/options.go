@@ -125,10 +125,7 @@ func NormalizedPublicQuantizers(opts govpx.VP9EncoderOptions) (minQ, maxQ, cqLev
 		if minQ == maxQ {
 			cqLevel = minQ
 		} else {
-			cqLevel = defaultCQ
-			if cqLevel < minQ {
-				cqLevel = minQ
-			}
+			cqLevel = max(defaultCQ, minQ)
 			if cqLevel > maxQ {
 				cqLevel = maxQ
 			}

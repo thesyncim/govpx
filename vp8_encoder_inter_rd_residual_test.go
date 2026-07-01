@@ -286,8 +286,8 @@ func TestPredictInterAnalysisSplitMVChromaMatchesFullReconstruct(t *testing.T) {
 	}
 	uvWidth := (ref.Img.CodedWidth + 1) >> 1
 	uvHeight := (ref.Img.CodedHeight + 1) >> 1
-	for row := 0; row < uvHeight; row++ {
-		for col := 0; col < uvWidth; col++ {
+	for row := range uvHeight {
+		for col := range uvWidth {
 			ref.Img.U[row*ref.Img.UStride+col] = byte(53 + (row*13+col*5)&0x7f)
 			ref.Img.V[row*ref.Img.VStride+col] = byte(71 + (row*3+col*17)&0x7f)
 		}

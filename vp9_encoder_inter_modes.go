@@ -1,6 +1,8 @@
 package govpx
 
 import (
+	"slices"
+
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -1060,12 +1062,7 @@ func (e *VP9Encoder) vp9CompoundReferencePair(inter *vp9InterEncodeState,
 }
 
 func vp9FullRDReferenceInSet(refFrameSet []int8, refFrame int8) bool {
-	for _, enabled := range refFrameSet {
-		if enabled == refFrame {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(refFrameSet, refFrame)
 }
 
 func vp9FullRDApplyBestRefSkipMask(refSkipMask *[2]uint8, refFrame int8) {
@@ -1092,10 +1089,7 @@ func vp9FullRDRefSkipped(refSkipMask [2]uint8, refFrame, secondRefFrame int8) bo
 	if refFrame < 0 || refFrame >= 8 {
 		return false
 	}
-	second := secondRefFrame
-	if second < 0 {
-		second = 0
-	}
+	second := max(secondRefFrame, 0)
 	if second >= 8 {
 		return false
 	}

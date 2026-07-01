@@ -46,7 +46,7 @@ func BenchmarkVP9EncodeCPUUsed(b *testing.B) {
 			defer e.Close()
 			src := vp9test.NewPanningYCbCr(width, height, 0)
 			dst := make([]byte, width*height*2)
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				vp9test.FillPanningYCbCr(src, i)
 				if _, err := e.EncodeInto(src, dst); err != nil {
 					b.Fatalf("warmup EncodeInto[%d]: %v", i, err)

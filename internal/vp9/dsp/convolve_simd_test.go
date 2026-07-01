@@ -126,7 +126,7 @@ func TestVP9Convolve8AvgHorizSimdAgreement(t *testing.T) {
 					runConvolveScalarAvgHoriz(src, stride, wantDst, stride, f,
 						x0Q4, c.w, c.h, srcOffset)
 					for y := 0; y < c.h; y++ {
-						for x := 0; x < stride; x++ {
+						for x := range stride {
 							if gotDst[y*stride+x] != wantDst[y*stride+x] {
 								t.Fatalf("filter=%d x0Q4=%d (%dx%d) at (%d,%d): got %d want %d",
 									fi, x0Q4, c.w, c.h, x, y, gotDst[y*stride+x], wantDst[y*stride+x])
@@ -196,7 +196,7 @@ func TestVP9Convolve8AvgVertSimdAgreement(t *testing.T) {
 					runConvolveScalarAvgVert(src, stride, wantDst, stride, f,
 						y0Q4, c.w, c.h, srcOffset)
 					for y := 0; y < c.h; y++ {
-						for x := 0; x < stride; x++ {
+						for x := range stride {
 							if gotDst[y*stride+x] != wantDst[y*stride+x] {
 								t.Fatalf("filter=%d y0Q4=%d (%dx%d) at (%d,%d): got %d want %d",
 									fi, y0Q4, c.w, c.h, x, y, gotDst[y*stride+x], wantDst[y*stride+x])
@@ -335,7 +335,7 @@ func TestVP9ConvolveAvgSimdAgreement(t *testing.T) {
 			VpxConvolveAvg(src, srcStride, gotDst, dstStride, c.w, c.h, srcOffset)
 			vpxConvolveAvgScalar(src, srcStride, wantDst, dstStride, c.w, c.h, srcOffset)
 			for y := 0; y < c.h; y++ {
-				for x := 0; x < dstStride; x++ {
+				for x := range dstStride {
 					if gotDst[y*dstStride+x] != wantDst[y*dstStride+x] {
 						t.Fatalf("(%dx%d) at (%d,%d): got %d want %d",
 							c.w, c.h, x, y, gotDst[y*dstStride+x], wantDst[y*dstStride+x])

@@ -112,7 +112,7 @@ func (e *VP9Encoder) vp9ModelRDForInterSBForMi(inter *vp9InterEncodeState,
 	// commits.
 	skipFlag := false
 
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
@@ -142,8 +142,8 @@ func (e *VP9Encoder) vp9ModelRDForInterSBForMi(inter *vp9InterEncodeState,
 		// planes carry the extended border, so the full unit applies — but guard
 		// against running past the buffer for safety).
 		var sumSSE uint64
-		for idy := 0; idy < bh; idy++ {
-			for idx := 0; idx < bw; idx++ {
+		for idy := range bh {
+			for idx := range bw {
 				ux := baseX + idx*unitPx
 				uy := baseY + idy*unitPx
 				w := unitPx

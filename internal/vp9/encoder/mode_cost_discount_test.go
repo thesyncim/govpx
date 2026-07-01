@@ -114,14 +114,8 @@ func TestInterModeMvRateWithDiscount(t *testing.T) {
 	}
 
 	// Discounted NEWMV == max(rate_mv/8,1) + min(cost_mv_ref(NEWMV), cost(NEAREST)).
-	discMv := rateMv / 8
-	if discMv < 1 {
-		discMv = 1
-	}
-	discCost := costNew
-	if costNearest < discCost {
-		discCost = costNearest
-	}
+	discMv := max(rateMv/8, 1)
+	discCost := min(costNearest, costNew)
 	wantDisc := discMv + discCost
 	if got := InterModeMvRateWithDiscount(&fc, ctx, common.NewMv, mv, refMv, allowHP, true); got != wantDisc {
 		t.Errorf("discounted NEWMV rate = %d, want %d", got, wantDisc)

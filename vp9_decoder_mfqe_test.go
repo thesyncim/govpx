@@ -83,9 +83,9 @@ func TestVP9MFQEPartitionVisitsSplitLeaves(t *testing.T) {
 	dstU := make([]byte, uvStride*(height/2))
 	dstV := make([]byte, uvStride*(height/2))
 	for _, origin := range [][2]int{{0, 0}, {32, 0}, {0, 32}, {32, 32}} {
-		for y := 0; y < 16; y++ {
+		for y := range 16 {
 			row := dstY[(origin[1]+y)*yStride+origin[0]:]
-			for x := 0; x < 16; x++ {
+			for x := range 16 {
 				row[x] = 16
 			}
 		}

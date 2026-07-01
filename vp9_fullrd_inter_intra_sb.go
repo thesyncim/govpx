@@ -965,7 +965,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 			return 0
 		}
 		predSnap = e.intraSkipPredScratch[:bs*bs]
-		for r := 0; r < bs; r++ {
+		for r := range bs {
 			copy(predSnap[r*bs:(r+1)*bs], dst[r*stride:r*stride+bs])
 		}
 	}
@@ -976,7 +976,7 @@ func (e *VP9Encoder) prepareVP9InterIntraTxResidueFullRD(keyLike *vp9KeyframeEnc
 		dequant, qindex, out, qOut, keyLike.lossless,
 		false /*useFastQuant*/, true /*useLp32x32RD*/, trellis)
 	if skipEncode {
-		for r := 0; r < bs; r++ {
+		for r := range bs {
 			copy(dst[r*stride:r*stride+bs], predSnap[r*bs:(r+1)*bs])
 		}
 	}

@@ -179,7 +179,7 @@ func AddMacroblockResidualWithDequant(tokens *MacroblockTokens, residual *Macrob
 }
 
 func addYResidualBlocks(tokens *MacroblockTokens, residual *MacroblockResidual, y []byte, yStride int) {
-	for row := 0; row < 4; row++ {
+	for row := range 4 {
 		rowBlock := row * 4
 		rowOff := row * 4 * yStride
 		for col := 0; col < 4; col += 2 {

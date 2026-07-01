@@ -131,7 +131,7 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 	}
 
 	// token_cache[rc] = vp9_pt_energy_class[vp9_get_token(qcoeff[rc])] for i<eob.
-	for i := 0; i < eob; i++ {
+	for i := range eob {
 		rc := int(scan[i])
 		tokenCache[rc] = PtEnergyClass[trellisGetToken(int(qcoeff[rc]))]
 	}
@@ -152,7 +152,7 @@ func VP9OptimizeB(plane, ref int, txSize common.TxSize, ctx int,
 	rate0 := int64(trellisTokenCost(coefModel, band0, ctx, EobToken, false))
 	bestBlockRDCost = rdTrellisCost(rdmultLocal, rddiv, rate0, accuError)
 
-	for i := 0; i < eob; i++ {
+	for i := range eob {
 		rc := int(scan[i])
 		x := int(qcoeff[rc])
 		bandCur := int(bandTranslate[i])

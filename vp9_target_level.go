@@ -101,10 +101,7 @@ func vp9TargetLevelClampOvershootPct(level, effectiveKbps int, configured uint8)
 	}
 	maxAverageBits := float64(spec.averageBitrateKbps) * 800.0
 	targetBits := float64(effectiveKbps) * 1000.0
-	maxPct := int(((maxAverageBits * 1.10) - targetBits) * 100.0 / targetBits)
-	if maxPct < 0 {
-		maxPct = 0
-	}
+	maxPct := max(int(((maxAverageBits*1.10)-targetBits)*100.0/targetBits), 0)
 	if int(configured) > maxPct {
 		return uint8(maxPct)
 	}

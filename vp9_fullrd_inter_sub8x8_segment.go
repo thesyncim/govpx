@@ -109,8 +109,8 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 	h4 := height / 4
 	// k accumulates exactly as libvpx (vp9_rdopt.c:1689-1699).
 	k := block
-	for idy := 0; idy < h4; idy++ {
-		for idx := 0; idx < w4; idx++ {
+	for idy := range h4 {
+		for idx := range w4 {
 			k += idy*2 + idx
 			col := k & 1
 			row := k >> 1
@@ -152,10 +152,7 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 			rd1 := encoder.RDCost(in.rdmult, encoder.RDDivBits, thisrate,
 				thisdistortion>>2)
 			rd2 := encoder.RDCost(in.rdmult, encoder.RDDivBits, 0, thissse>>2)
-			rd := rd1
-			if rd2 < rd {
-				rd = rd2
-			}
+			rd := min(rd2, rd1)
 			if bestYrd != rdCostMaxLocal && rd >= bestYrd {
 				return vp9Sub8x8SegmentRD{}, false
 			}
@@ -196,11 +193,11 @@ func vp9Sub8x8GatherResidual(src []byte, srcStride, srcW, srcH int,
 		(predY+4)*predStride > len(predBuf) {
 		return false
 	}
-	for y := 0; y < 4; y++ {
+	for y := range 4 {
 		srcRow := src[(srcY+y)*srcStride+srcX:]
 		predRow := predBuf[(predY+y)*predStride+predX:]
 		dRow := diff[y*4:]
-		for x := 0; x < 4; x++ {
+		for x := range 4 {
 			dRow[x] = int16(int(srcRow[x]) - int(predRow[x]))
 		}
 	}

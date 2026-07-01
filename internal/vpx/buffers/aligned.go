@@ -249,10 +249,7 @@ func I420EncodeBufferSize(width, height, headerSlack, minSize int) (int, error) 
 	if raw420 > (maxInt-headerSlack)/4 {
 		return 0, vpxerrors.ErrInvalidConfig
 	}
-	size := headerSlack + raw420*4
-	if size < minSize {
-		size = minSize
-	}
+	size := max(headerSlack+raw420*4, minSize)
 	return size, nil
 }
 

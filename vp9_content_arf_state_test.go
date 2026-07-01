@@ -420,7 +420,7 @@ func TestVP9PanningCyclicContentStateSbFdAfterFrame1(t *testing.T) {
 		t.Fatalf("NewVP9Encoder: %v", err)
 	}
 	defer e.Close()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, i)); err != nil {
 			t.Fatalf("Encode frame %d: %v", i, err)
 		}

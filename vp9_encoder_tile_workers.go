@@ -841,10 +841,7 @@ func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols in
 				w.varPartGrid[off:off+end-start])
 		}
 		sbStart := start >> 3
-		sbEnd := (end + 7) >> 3
-		if sbEnd > sbCols {
-			sbEnd = sbCols
-		}
+		sbEnd := min((end+7)>>3, sbCols)
 		if sbStart >= sbEnd {
 			return false
 		}

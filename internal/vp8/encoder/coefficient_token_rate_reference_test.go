@@ -228,8 +228,8 @@ func TestCoefficientBlockTokenRateWithTableMatchesDynamicRate(t *testing.T) {
 		{0: -3, 1: 2, 5: 1, 10: -1},
 		{0: 12, 4: -67, 8: 3, 15: -2048},
 	}
-	for blockType := 0; blockType < vp8tables.BlockTypes; blockType++ {
-		for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+	for blockType := range vp8tables.BlockTypes {
+		for ctx := range vp8tables.PrevCoefContexts {
 			for skipDC := 0; skipDC <= 1; skipDC++ {
 				for _, qcoeff := range coeffSets {
 					eob := blockEOBFromCoeffs(&qcoeff, skipDC)
@@ -261,8 +261,8 @@ func TestCoefficientBlockTokenRateTrustedMatchesGuardedTableRate(t *testing.T) {
 		{0: -3, 1: 2, 5: 1, 10: -1},
 		{0: 12, 4: -67, 8: 3, 15: -2048},
 	}
-	for blockType := 0; blockType < vp8tables.BlockTypes; blockType++ {
-		for ctx := 0; ctx < vp8tables.PrevCoefContexts; ctx++ {
+	for blockType := range vp8tables.BlockTypes {
+		for ctx := range vp8tables.PrevCoefContexts {
 			for skipDC := 0; skipDC <= 1; skipDC++ {
 				for _, qcoeff := range coeffSets {
 					eob := blockEOBFromCoeffs(&qcoeff, skipDC)

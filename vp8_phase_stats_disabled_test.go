@@ -12,7 +12,7 @@ func TestVP8PhaseStatsDisabledOptionShape(t *testing.T) {
 	if vp8PhaseStatsEnabled {
 		t.Fatal("default build unexpectedly enabled VP8 phase stats")
 	}
-	if _, ok := reflect.TypeOf(EncoderOptions{}).FieldByName("PhaseStats"); ok {
+	if _, ok := reflect.TypeFor[EncoderOptions]().FieldByName("PhaseStats"); ok {
 		t.Fatal("default EncoderOptions exposes PhaseStats")
 	}
 	if got := unsafe.Sizeof(encoderPhaseStatsOptions{}); got != 0 {

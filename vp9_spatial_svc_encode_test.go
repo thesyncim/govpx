@@ -430,7 +430,7 @@ func TestVP9SpatialSVCEncoderEncodeActiveLayersForWebRTC(t *testing.T) {
 	assertVP9SpatialSVCDecoderOutputForTest(t,
 		baseDecoder, baseOnly.Data, 0, 0, 32, 32)
 
-	for frame := 0; frame < 2; frame++ {
+	for frame := range 2 {
 		vp9test.FillYCbCr(srcs[0], uint8(90+frame*9), 120, 136)
 		baseOnly, err = svc.EncodeActiveLayersIntoWithResult(srcs, dst, 1)
 		if err != nil {
@@ -495,7 +495,7 @@ func assertVP9ActiveSVCResultForTest(
 			sf.Count, result.LayerCount,
 			result.ScalabilityStructure.SpatialLayerCount, wantLayers)
 	}
-	for layer := 0; layer < wantLayers; layer++ {
+	for layer := range wantLayers {
 		got := result.Layers[layer]
 		if got.SpatialLayerID != uint8(layer) ||
 			got.SpatialLayerCount != uint8(wantLayers) ||
@@ -571,7 +571,7 @@ func TestVP9SpatialSVCEncoderForceKeyFrameInterLayerDecodesNextFrame(t *testing.
 		t.Fatalf("LayerEncoder(1): %v", err)
 	}
 	dst := make([]byte, 1<<20)
-	for frame := 0; frame < 4; frame++ {
+	for frame := range 4 {
 		if frame == 1 {
 			enhLayer.ForceKeyFrame()
 			if svc.IsKeyFrameNext() {
@@ -601,7 +601,7 @@ func TestVP9SpatialSVCEncoderForceKeyFrameInterLayerDecodesNextFrame(t *testing.
 				t.Fatalf("parent force frame key flags = %t/%t, want true/false",
 					result.Layers[0].KeyFrame, result.Layers[1].KeyFrame)
 			}
-			for layer := 0; layer < 2; layer++ {
+			for layer := range 2 {
 				if result.Layers[layer].TemporalLayerID != 0 {
 					t.Fatalf("forced frame layer %d temporal id = %d, want 0",
 						layer, result.Layers[layer].TemporalLayerID)

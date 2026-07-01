@@ -50,7 +50,7 @@ func TestVP8WebRTCRTPLongTemporalNoLossStreamDecodes(t *testing.T) {
 	seenLayer := [3]bool{}
 	fragmented := false
 
-	for frame := 0; frame < frames; frame++ {
+	for frame := range frames {
 		result, err := enc.EncodeInto(packet, rateControlTestFrame(width, height, frame),
 			uint64(frame), 1, 0)
 		if err != nil {

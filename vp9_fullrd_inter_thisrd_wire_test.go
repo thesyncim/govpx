@@ -42,7 +42,7 @@ func TestVP9InterDeepRDThisRDScoreWiresThrough(t *testing.T) {
 		defer e.Close()
 		sources := vp9test.NewPanningSources(width, height, 4)
 		var frames [][]byte
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			pkt, err := e.Encode(sources[i])
 			if err != nil {
 				return nil, err

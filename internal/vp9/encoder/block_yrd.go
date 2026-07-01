@@ -359,7 +359,7 @@ func ModelRdForSbYLarge(args ModelRdForSbYLargeArgs) ModelRdForSbYLargeResult {
 	acThr *= int64(modelRdACThresholdFactor(args.Speed, args.Width,
 		args.Height, modelRdAbsInt(sum)>>uint(bwLog2+bhLog2)))
 
-	txSize := CalculateTxSize(CalculateTxSizeArgs{
+	txSize := max(CalculateTxSize(CalculateTxSizeArgs{
 		BSize:           args.BSize,
 		TxMode:          args.TxMode,
 		VarY:            uint64(varY),
@@ -369,10 +369,7 @@ func ModelRdForSbYLarge(args ModelRdForSbYLargeArgs) ModelRdForSbYLargeResult {
 		CyclicRefreshAQ: args.CyclicRefreshAQ,
 		SegmentID:       args.SegmentID,
 		ScreenContent:   args.ScreenContent,
-	})
-	if txSize < common.Tx8x8 {
-		txSize = common.Tx8x8
-	}
+	}), common.Tx8x8)
 	res.TxSize = txSize
 
 	if args.ScreenContent && args.ZeroTempSADSource && args.SourceVariance == 0 {

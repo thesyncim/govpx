@@ -123,7 +123,7 @@ func TestWriteBitMatchesGenericProb128(t *testing.T) {
 	if bitSize != genericSize {
 		t.Fatalf("WriteBit size = %d, want generic size %d", bitSize, genericSize)
 	}
-	for i := 0; i < bitSize; i++ {
+	for i := range bitSize {
 		if bitBuf[i] != genericBuf[i] {
 			t.Fatalf("byte %d: WriteBit = 0x%02x, generic = 0x%02x",
 				i, bitBuf[i], genericBuf[i])
@@ -216,7 +216,7 @@ func TestWriterDiscardProducesNoBytesAndResets(t *testing.T) {
 	if gotSize != wantSize {
 		t.Fatalf("size after reset = %d, want %d", gotSize, wantSize)
 	}
-	for i := 0; i < gotSize; i++ {
+	for i := range gotSize {
 		if gotBuf[i] != wantBuf[i] {
 			t.Fatalf("byte %d after reset = 0x%02x, want 0x%02x",
 				i, gotBuf[i], wantBuf[i])

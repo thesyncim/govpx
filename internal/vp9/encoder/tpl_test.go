@@ -327,9 +327,9 @@ func tplPanningSequence(width, height, n int) []*image.YCbCr {
 func tplEdgesYCbCr(width, height int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height),
 		image.YCbCrSubsampleRatio420)
-	for yy := 0; yy < height; yy++ {
+	for yy := range height {
 		row := img.Y[yy*img.YStride:]
-		for xx := 0; xx < width; xx++ {
+		for xx := range width {
 			v := 32 + (xx/4)*16
 			if xx >= width/2 {
 				v = 32 + (yy/4)*16
@@ -342,10 +342,10 @@ func tplEdgesYCbCr(width, height int) *image.YCbCr {
 	}
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for yy := 0; yy < uvHeight; yy++ {
+	for yy := range uvHeight {
 		cbRow := img.Cb[yy*img.CStride:]
 		crRow := img.Cr[yy*img.CStride:]
-		for xx := 0; xx < uvWidth; xx++ {
+		for xx := range uvWidth {
 			cbRow[xx] = 128
 			crRow[xx] = 128
 		}
@@ -361,7 +361,7 @@ func tplMixedMotionSequence(width, height, n int) []*image.YCbCr {
 		shifted := testutil.ShiftYCbCrCopy(base, 2*i, 2*i)
 		composed := image.NewYCbCr(image.Rect(0, 0, width, height),
 			image.YCbCrSubsampleRatio420)
-		for yy := 0; yy < height; yy++ {
+		for yy := range height {
 			src := base
 			if yy >= mid {
 				src = shifted
@@ -372,7 +372,7 @@ func tplMixedMotionSequence(width, height, n int) []*image.YCbCr {
 		uvWidth := (width + 1) >> 1
 		uvHeight := (height + 1) >> 1
 		uvMid := mid >> 1
-		for yy := 0; yy < uvHeight; yy++ {
+		for yy := range uvHeight {
 			src := base
 			if yy >= uvMid {
 				src = shifted

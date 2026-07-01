@@ -251,7 +251,7 @@ func (e *VP9Encoder) vp9Sub8x8SubpelRefine(inter *vp9InterEncodeState,
 			math.MaxUint64, math.MaxUint64,
 		}
 		tr, tc := br, bc
-		for idx := 0; idx < 4; idx++ {
+		for idx := range 4 {
 			tr = br + searchSteps[base+idx].row
 			tc = bc + searchSteps[base+idx].col
 			if score, ok := scoreAt(tr, tc); ok {

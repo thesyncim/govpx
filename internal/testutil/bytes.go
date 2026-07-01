@@ -9,10 +9,7 @@ import (
 // FirstByteDiff returns the byte offset of the first divergence between a and
 // b. It returns -1 when the slices match exactly.
 func FirstByteDiff(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	for i := 0; i < n; i++ {
 		if a[i] != b[i] {
 			return i
@@ -27,10 +24,7 @@ func FirstByteDiff(a, b []byte) int {
 // MatchedFramePrefixLength returns the largest N such that got[:N] and
 // want[:N] have matching SHA-256 sums frame-by-frame.
 func MatchedFramePrefixLength(got, want [][]byte) int {
-	n := len(got)
-	if len(want) < n {
-		n = len(want)
-	}
+	n := min(len(want), len(got))
 	for i := 0; i < n; i++ {
 		if sha256.Sum256(got[i]) != sha256.Sum256(want[i]) {
 			return i

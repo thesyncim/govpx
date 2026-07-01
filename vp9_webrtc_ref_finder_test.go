@@ -46,7 +46,7 @@ func TestVP9WebRTCPacketizerTemporalDropsPassRefFinder(t *testing.T) {
 			packetizer := NewVP9WebRTCPacketizer(VP9RTPPictureID15BitMask - 2)
 			refFinder := newVP9WebRTCPlainRefFinderForTest()
 			drops := 0
-			for frame := 0; frame < 10; frame++ {
+			for frame := range 10 {
 				if frame == tc.dropFrame {
 					e.rc.bufferLevelBits = -e.rc.bitsPerFrame - 1
 				}

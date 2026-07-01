@@ -106,9 +106,9 @@ func NewSteppedSources(width, height, frames int) []*image.YCbCr {
 
 func NewBlockCheckerYCbCr(width, height, frame int) *image.YCbCr {
 	img := NewYCbCr(width, height, 128, 128, 128)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			if ((x>>5)+(y>>5)+frame)&1 == 0 {
 				row[x] = 96
 			} else {

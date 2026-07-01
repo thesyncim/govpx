@@ -310,10 +310,7 @@ func FramePayloadChunkSize(mtu, descriptorSize, remaining int) (int, error) {
 	if remaining <= 0 || descriptorSize <= 0 || mtu <= descriptorSize {
 		return 0, vpxerrors.ErrInvalidConfig
 	}
-	n := mtu - descriptorSize
-	if n > remaining {
-		n = remaining
-	}
+	n := min(mtu-descriptorSize, remaining)
 	return n, nil
 }
 

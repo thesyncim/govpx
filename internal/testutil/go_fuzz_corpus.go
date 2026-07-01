@@ -14,8 +14,8 @@ func ReadGoFuzzCorpusByteSeed(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	lines := strings.Split(string(raw), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(raw), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "[]byte(") || !strings.HasSuffix(line, ")") {
 			continue

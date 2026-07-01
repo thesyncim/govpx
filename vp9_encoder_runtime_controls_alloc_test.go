@@ -165,7 +165,6 @@ func TestVP9EncoderRuntimeControlsAllocationGate(t *testing.T) {
 	}
 
 	for _, ac := range allocCases {
-		ac := ac
 		t.Run(ac.name, func(t *testing.T) {
 			e := makeEncoder(t)
 			ac.call(t, e)

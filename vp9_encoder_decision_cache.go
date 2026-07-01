@@ -165,8 +165,8 @@ func (e *VP9Encoder) snapshotVP9KeyframeDecisionRegion(miRows, miCols, miRow, mi
 	if rows*cols*blockSizes > len(snap.partition) {
 		return false
 	}
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
+	for r := range rows {
+		for c := range cols {
 			cell := r*cols + c
 			row := miRow + r
 			col := miCol + c

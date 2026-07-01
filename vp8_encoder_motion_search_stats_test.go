@@ -7,8 +7,8 @@ import (
 
 func TestInterFrameMotionSearchDefaultPathHasNoStatsField(t *testing.T) {
 	cases := []reflect.Type{
-		reflect.TypeOf(interFrameMotionVectorSearch{}),
-		reflect.TypeOf(interFrameSubpixelSearch{}),
+		reflect.TypeFor[interFrameMotionVectorSearch](),
+		reflect.TypeFor[interFrameSubpixelSearch](),
 	}
 	for _, typ := range cases {
 		if _, ok := typ.FieldByName("stats"); ok {

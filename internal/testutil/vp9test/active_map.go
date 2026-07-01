@@ -7,8 +7,8 @@ func ActiveMap(width int, height int, pattern string) ([]uint8, int, int) {
 	rows := geometry.MacroblockRows(height)
 	cols := geometry.MacroblockCols(width)
 	activeMap := make([]uint8, rows*cols)
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			idx := row*cols + col
 			switch pattern {
 			case "all":

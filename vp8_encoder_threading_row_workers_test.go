@@ -127,14 +127,14 @@ func TestRowWorkerPoolAsyncLFApplyMatchesSerial(t *testing.T) {
 	rows := geometry.MacroblockRows(height)
 	cols := geometry.MacroblockCols(width)
 	required := rows * cols
-	for row := 0; row < height; row++ {
-		for col := 0; col < width; col++ {
+	for row := range height {
+		for col := range width {
 			off := row*serial.analysis.Img.YStride + col
 			serial.analysis.Img.Y[off] = byte((row*row*17 + col*col*31 + row*col*7) & 255)
 		}
 	}
-	for row := 0; row < height/2; row++ {
-		for col := 0; col < width/2; col++ {
+	for row := range height / 2 {
+		for col := range width / 2 {
 			uOff := row*serial.analysis.Img.UStride + col
 			vOff := row*serial.analysis.Img.VStride + col
 			serial.analysis.Img.U[uOff] = byte((row*19 + col*23 + 70) & 255)
@@ -145,7 +145,7 @@ func TestRowWorkerPoolAsyncLFApplyMatchesSerial(t *testing.T) {
 	vp8common.CopyImage(&async.analysis.Img, &serial.analysis.Img)
 	async.analysis.ExtendBorders()
 
-	for i := 0; i < required; i++ {
+	for i := range required {
 		mode := vp8dec.MacroblockMode{
 			Mode:     vp8common.ZeroMV,
 			UVMode:   vp8common.DCPred,

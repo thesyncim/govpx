@@ -55,9 +55,9 @@ func FillPanningYCbCr(img *image.YCbCr, frame int) {
 
 func NewCheckerYCbCr(width, height int, lo, hi, u, v byte) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			if (x+y)&1 == 0 {
 				row[x] = lo
 			} else {
@@ -76,10 +76,10 @@ func NewCheckerYCbCr(width, height int, lo, hi, u, v byte) *image.YCbCr {
 
 func NewHorizontalBandsYCbCr(width, height int, u, v byte) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
 		value := byte(32 + (y*5)%192)
-		for x := 0; x < width; x++ {
+		for x := range width {
 			row[x] = value
 		}
 	}
@@ -98,12 +98,12 @@ func NewChromaHorizontalBandsYCbCr(width, height int) *image.YCbCr {
 		img.Y[i] = 128
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
 		cbValue := byte(32 + (y*7)%192)
 		crValue := byte(48 + (y*11)%176)
-		for x := 0; x < uvWidth; x++ {
+		for x := range uvWidth {
 			cb[x] = cbValue
 			cr[x] = crValue
 		}
@@ -113,17 +113,17 @@ func NewChromaHorizontalBandsYCbCr(width, height int) *image.YCbCr {
 
 func NewMotionYCbCr(width, height int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			row[x] = byte(16 + (x*7+y*11+(x*y)%37)%224)
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvWidth; x++ {
+		for x := range uvWidth {
 			cb[x] = byte(64 + (x*5+y*3)%128)
 			cr[x] = byte(48 + (x*3+y*7)%160)
 		}
@@ -133,18 +133,18 @@ func NewMotionYCbCr(width, height int) *image.YCbCr {
 
 func NewCompoundAverageYCbCr(width, height, delta int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			base := 96 + (x*5+y*7+(x*y)%19)%64
 			row[x] = byte(base + delta)
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvWidth; x++ {
+		for x := range uvWidth {
 			baseCb := 104 + (x*3+y*5)%32
 			baseCr := 112 + (x*7+y*2)%32
 			cb[x] = byte(baseCb + delta/2)
@@ -156,9 +156,9 @@ func NewCompoundAverageYCbCr(width, height, delta int) *image.YCbCr {
 
 func NewCompoundPairYCbCr(width, height int, variant bool) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			if variant {
 				row[x] = byte(88 + (x*29+y*7+((x+3)*(y+5))%83)%104)
 			} else {
@@ -167,10 +167,10 @@ func NewCompoundPairYCbCr(width, height int, variant bool) *image.YCbCr {
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for y := 0; y < uvHeight; y++ {
+	for y := range uvHeight {
 		cb := img.Cb[y*img.CStride:]
 		cr := img.Cr[y*img.CStride:]
-		for x := 0; x < uvWidth; x++ {
+		for x := range uvWidth {
 			if variant {
 				cb[x] = byte(96 + (x*13+y*5+(x*y)%19)%64)
 				cr[x] = byte(88 + (x*7+y*17+(x*y)%23)%72)

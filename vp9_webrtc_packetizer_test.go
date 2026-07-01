@@ -318,7 +318,7 @@ func TestVP9WebRTCPacketizerFlexibleNoSyncLongStreamDoesNotRecover(t *testing.T)
 	payloadBuf := make([]byte, 1<<20)
 	fragments := make([]RTPPayloadFragment, 256)
 	packetizer := NewVP9WebRTCPacketizer(0x120)
-	for frame := 0; frame < 96; frame++ {
+	for frame := range 96 {
 		if frame == 45 {
 			e.ForceKeyFrame()
 		}
@@ -591,7 +591,7 @@ func TestVP9WebRTCPacketizerRejectsInterWithTooOldFlexibleReference(t *testing.T
 	packetizer.references.lastPictureID = pictureID - 1
 	packetizer.references.haveLast = true
 	tooOld := (pictureID - 128) & VP9RTPPictureID15BitMask
-	for i := 0; i < slotCount; i++ {
+	for i := range slotCount {
 		slot := slots[i]
 		packetizer.references.valid[slot] = true
 		packetizer.references.pictureID[slot] = tooOld
@@ -631,7 +631,7 @@ func TestVP9WebRTCPacketizerFlexibleSingleLayerForcedKeyChurn(t *testing.T) {
 	packetizer := NewVP9WebRTCPacketizer(0x120)
 	var fragments []RTPPayloadFragment
 	var payloadBuf []byte
-	for frame := 0; frame < 180; frame++ {
+	for frame := range 180 {
 		if frame == 1 || frame == 2 || (frame != 0 && frame%30 == 0) ||
 			frame == 31 {
 			e.ForceKeyFrame()

@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -232,12 +233,7 @@ func assertTestFileDoesNotImport(t *testing.T, path string, importPath string,
 
 func testFileImports(t *testing.T, path string, importPath string) bool {
 	t.Helper()
-	for _, got := range goFileImports(t, path) {
-		if got == importPath {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(goFileImports(t, path), importPath)
 }
 
 func vp9AndBenchGoFiles(t *testing.T) []string {
@@ -293,7 +289,7 @@ func testFileHasBuildTag(t *testing.T, path string, tag string) bool {
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

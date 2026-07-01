@@ -462,8 +462,8 @@ func (e *VP9Encoder) setAndCostBmiMvs(inter *vp9InterEncodeState,
 	mi.Bmi[i].AsMv[0] = thisMv
 	mi.Bmi[i].AsMode = mode
 	// memmove fill across the label's 4x4 footprint (vp9_rdopt.c:1600-1602).
-	for idy := 0; idy < num4x4H; idy++ {
-		for idx := 0; idx < num4x4W; idx++ {
+	for idy := range num4x4H {
+		for idx := range num4x4W {
 			mi.Bmi[i+idy*2+idx] = mi.Bmi[i]
 		}
 	}

@@ -118,18 +118,18 @@ func TestVP9InterCalculateTxSizeMirrorsLibvpx(t *testing.T) {
 func TestVP9InterTxResidualStatsMatchesScalarReference(t *testing.T) {
 	const width, height = 80, 80
 	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := img.Y[y*img.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			row[x] = byte((x*13 + y*29 + x*y) & 0xff)
 		}
 	}
 
 	e := &VP9Encoder{}
 	e.prepareVP9EncoderOutputFrame(width, height)
-	for y := 0; y < height; y++ {
+	for y := range height {
 		row := e.reconY[y*e.reconFrame.YStride:]
-		for x := 0; x < width; x++ {
+		for x := range width {
 			row[x] = byte((x*7 + y*11 + 19) & 0xff)
 		}
 	}

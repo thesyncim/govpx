@@ -104,7 +104,7 @@ func TestSAD16x16x4LimitPtrFast(t *testing.T) {
 	}
 	var got [4]uint32
 	SAD16x16x4LimitPtrFast(srcPtr, stride, refs[0], refs[1], refs[2], refs[3], stride, &limits, &got)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if got[i] != full[i] {
 			t.Fatalf("SAD16x16x4LimitPtrFast[%d] = %d, want exact %d", i, got[i], full[i])
 		}

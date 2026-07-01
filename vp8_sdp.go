@@ -104,7 +104,7 @@ func ParseVP8SDPFmtp(fmtp string) (VP8SDPReceiverCapabilities, error) {
 	var out VP8SDPReceiverCapabilities
 	var sawMaxFR bool
 	var sawMaxFS bool
-	for _, part := range strings.Split(fmtp, ";") {
+	for part := range strings.SplitSeq(fmtp, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -182,7 +182,7 @@ func VP8SDPAnswersSend(sdp string) bool {
 }
 
 func vp8SDPFmtpDeclaresReceiverCaps(fmtp string) bool {
-	for _, part := range strings.Split(fmtp, ";") {
+	for part := range strings.SplitSeq(fmtp, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -208,7 +208,7 @@ func vp8SDPHasPayloadMatching(
 	sessionDirection := "sendrecv"
 	section := vp8SDPMediaSection{direction: sessionDirection}
 	haveSection := false
-	for _, raw := range strings.Split(sdp, "\n") {
+	for raw := range strings.SplitSeq(sdp, "\n") {
 		line := strings.TrimSpace(strings.ToLower(raw))
 		if strings.HasPrefix(line, "m=") {
 			if haveSection && section.hasVP8(directionOK, payloadOK) {

@@ -353,7 +353,7 @@ func BlockSADSkipRows4NoLimitOffsets(src []byte, srcOff, srcStride int,
 	halfH := h / 2
 	if BlockSAD4NoLimitOffsets(src, srcOff, srcStride*2, ref, refOffs,
 		refStride*2, w, halfH, out) {
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			out[i] *= 2
 		}
 		return true

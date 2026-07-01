@@ -239,9 +239,9 @@ func TestGatherVP9TxResidualOverwritesActiveScratch(t *testing.T) {
 			-2, 3, common.Tx8x8) {
 			t.Fatal("gatherVP9TxResidual returned false for non-zero clamped residue")
 		}
-		for y := 0; y < 8; y++ {
+		for y := range 8 {
 			sy := clampVP9ResidualTestCoord(3+y, srcH)
-			for x := 0; x < 8; x++ {
+			for x := range 8 {
 				sx := clampVP9ResidualTestCoord(-2+x, srcW)
 				want := int16(int(src[sy*srcStride+sx]) - int(dst[y*8+x]))
 				if got := e.residueScratch[y*8+x]; got != want {
@@ -269,7 +269,7 @@ func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
 	e.prepareVP9EncoderOutputFrame(width, height)
 
 	img := vp9test.NewYCbCr(width, height, 0, 128, 128)
-	for y := 0; y < 8; y++ {
+	for y := range 8 {
 		e.reconY[y*e.reconFrame.YStride+63] = 152
 	}
 	var scratch [64 * 64]uint8
@@ -287,7 +287,7 @@ func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
 		common.Block8x8, scratch[:], 64, 0, 8); !ok {
 		t.Fatal("HPred scratch stats returned !ok")
 	}
-	for x := 0; x < 8; x++ {
+	for x := range 8 {
 		if got := scratch[7*64+x]; got != 152 {
 			t.Fatalf("HPred scratch bottom row[%d] = %d, want recon-border left sample 152",
 				x, got)
@@ -299,7 +299,7 @@ func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
 		common.Block8x8, scratch[:], 64, 0, 8); !ok {
 		t.Fatal("VPred scratch stats returned !ok")
 	}
-	for x := 0; x < 8; x++ {
+	for x := range 8 {
 		if got := scratch[8*64+x]; got != 152 {
 			t.Fatalf("VPred scratch top row[%d] = %d, want live scratch above sample 152",
 				x, got)

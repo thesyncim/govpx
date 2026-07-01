@@ -96,7 +96,7 @@ func TestVP9FullRDUsePartitionSeed0_1_1_0_1Frame1(t *testing.T) {
 		vp9test.NewPanningYCbCr(width, height, 1),
 	}
 	dst := make([]byte, 1<<20)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := e.EncodeIntoWithResult(sources[i], dst); err != nil {
 			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
 		}

@@ -597,7 +597,7 @@ func (cfg VpxencVP8FrameFlagsConfig) vpxencArgs(inPath string, outPath string) [
 
 func joinVP8FrameFlags(flags []uint32, frames int) string {
 	var b strings.Builder
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		if i != 0 {
 			b.WriteByte(',')
 		}
@@ -612,7 +612,7 @@ func joinVP8FrameFlags(flags []uint32, frames int) string {
 
 func joinVP8BoolSchedule(values []bool, frames int) string {
 	var b strings.Builder
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		if i != 0 {
 			b.WriteByte(',')
 		}

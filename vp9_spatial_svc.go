@@ -633,7 +633,7 @@ func (e *VP9SpatialSVCEncoder) applyActiveLayerMetadata(
 	activeLayerCount int,
 	old *[VP9MaxSpatialLayers]vp9SpatialSVCActiveLayerMetadata,
 ) {
-	for i := 0; i < activeLayerCount; i++ {
+	for i := range activeLayerCount {
 		layer := e.layers[i]
 		old[i] = vp9SpatialSVCActiveLayerMetadata{
 			spatial: layer.opts.SpatialScalability,
@@ -656,7 +656,7 @@ func (e *VP9SpatialSVCEncoder) restoreActiveLayerMetadata(
 	activeLayerCount int,
 	old *[VP9MaxSpatialLayers]vp9SpatialSVCActiveLayerMetadata,
 ) {
-	for i := 0; i < activeLayerCount; i++ {
+	for i := range activeLayerCount {
 		layer := e.layers[i]
 		layer.opts.SpatialScalability = old[i].spatial
 		layer.svc.NumberSpatialLayers = old[i].svc

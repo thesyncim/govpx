@@ -301,8 +301,8 @@ func ROIMap(width, height int, pattern string) *govpx.ROIMap {
 		Cols:      cols,
 		SegmentID: make([]uint8, rows*cols),
 	}
-	for row := 0; row < rows; row++ {
-		for col := 0; col < cols; col++ {
+	for row := range rows {
+		for col := range cols {
 			idx := row*cols + col
 			switch pattern {
 			case "checker":
@@ -596,13 +596,13 @@ func AppendI420(out []byte, img *govpx.Image) []byte {
 	h := img.Height
 	uvW := (w + 1) >> 1
 	uvH := (h + 1) >> 1
-	for y := 0; y < h; y++ {
+	for y := range h {
 		out = append(out, img.Y[y*img.YStride:y*img.YStride+w]...)
 	}
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		out = append(out, img.U[y*img.UStride:y*img.UStride+uvW]...)
 	}
-	for y := 0; y < uvH; y++ {
+	for y := range uvH {
 		out = append(out, img.V[y*img.VStride:y*img.VStride+uvW]...)
 	}
 	return out

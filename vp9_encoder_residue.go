@@ -667,10 +667,7 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 func vp9InterTxRDSearchMin(maxTx common.TxSize, depth int,
 	bsize common.BlockSize,
 ) common.TxSize {
-	endTx := int(maxTx) - depth
-	if endTx < int(common.Tx4x4) {
-		endTx = int(common.Tx4x4)
-	}
+	endTx := max(int(maxTx)-depth, int(common.Tx4x4))
 	if bsize > common.Block32x32 {
 		endTx = min(endTx+1, int(maxTx))
 	}
@@ -1068,7 +1065,7 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 		return
 	}
 	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
-	for plane := 0; plane < vp9dec.MaxMbPlane; plane++ {
+	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {

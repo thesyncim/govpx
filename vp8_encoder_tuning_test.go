@@ -174,10 +174,7 @@ func TestTunedErrorPerBitActivityMaskStartsFromZbinRD(t *testing.T) {
 
 	rdMult, rdDiv := vp8enc.RDConstantsWithZbin(127, 128)
 	tuned := e.tunedRDMultiplier(rdMult, 0, 0)
-	want := (tuned * 100) / (110 * rdDiv)
-	if want < 1 {
-		want = 1
-	}
+	want := max((tuned*100)/(110*rdDiv), 1)
 	if got := e.tunedErrorPerBit(127, 0, 0); got != want {
 		t.Fatalf("activity zbin-adjusted errorperbit = %d, want %d", got, want)
 	}

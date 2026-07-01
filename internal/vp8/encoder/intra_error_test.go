@@ -27,10 +27,7 @@ func TestMacroblockMeanLumaSSEUsesClampedVisibleEdges(t *testing.T) {
 			sse += v * v
 		}
 	}
-	want := sse - int((int64(sum)*int64(sum)+128)>>8)
-	if want < 0 {
-		want = 0
-	}
+	want := max(sse-int((int64(sum)*int64(sum)+128)>>8), 0)
 	if got != want {
 		t.Fatalf("MacroblockMeanLumaSSE edge MB = %d, want %d", got, want)
 	}

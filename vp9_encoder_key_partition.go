@@ -643,10 +643,7 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionRectBestRD(rdmult int,
 	if !bestSet {
 		return fallback
 	}
-	rate := best.rate - partRate
-	if rate < 0 {
-		rate = 0
-	}
+	rate := max(best.rate-partRate, 0)
 	return encoder.RDCost(rdmult, encoder.RDDivBits, rate, best.distortion)
 }
 

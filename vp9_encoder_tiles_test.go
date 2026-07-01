@@ -312,7 +312,7 @@ func vp9RealtimeWebRTCSVCAutoThreadOptionsForTest() (
 		Mode:    TemporalLayeringThreeLayers,
 	}
 	var layers [VP9MaxSpatialLayers]VP9EncoderOptions
-	for layer := 0; layer < 3; layer++ {
+	for layer := range 3 {
 		layers[layer] = VP9EncoderOptions{
 			Width:                    widths[layer],
 			Height:                   heights[layer],

@@ -98,7 +98,7 @@ func ParseVP9SDPFmtp(fmtp string) (VP9SDPReceiverCapabilities, error) {
 	var out VP9SDPReceiverCapabilities
 	var sawMaxFR bool
 	var sawMaxFS bool
-	for _, part := range strings.Split(fmtp, ";") {
+	for part := range strings.SplitSeq(fmtp, ";") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -141,7 +141,7 @@ func ParseVP9SDPFmtp(fmtp string) (VP9SDPReceiverCapabilities, error) {
 // attribute values from peers.
 func VP9SDPFmtpContainsProfile0(params string) bool {
 	sawProfileID := false
-	for _, rawParam := range strings.Split(params, ";") {
+	for rawParam := range strings.SplitSeq(params, ";") {
 		key, value, ok := strings.Cut(strings.TrimSpace(rawParam), "=")
 		if !ok {
 			continue
@@ -221,7 +221,7 @@ func vp9SDPHasProfile0Matching(
 	sessionDirection := "sendrecv"
 	section := vp9SDPMediaSection{direction: sessionDirection}
 	haveSection := false
-	for _, raw := range strings.Split(sdp, "\n") {
+	for raw := range strings.SplitSeq(sdp, "\n") {
 		line := strings.TrimSpace(strings.ToLower(raw))
 		if strings.HasPrefix(line, "m=") {
 			if haveSection && section.hasVP9Profile0(directionOK, payloadOK) {

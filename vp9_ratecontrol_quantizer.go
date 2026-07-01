@@ -86,10 +86,7 @@ func (rc *vp9RateControlState) onePassCBRInterFrameTargetBits(refreshFlags uint8
 	if rc == nil {
 		return encoder.FrameOverhead
 	}
-	minTarget := rc.bitsPerFrame >> 4
-	if minTarget < encoder.FrameOverhead {
-		minTarget = encoder.FrameOverhead
-	}
+	minTarget := max(rc.bitsPerFrame>>4, encoder.FrameOverhead)
 	target := int64(rc.bitsPerFrame)
 	interval := int64(rc.baselineGFInterval)
 	if interval <= 0 {
@@ -112,16 +109,10 @@ func (rc *vp9RateControlState) onePassCBRInterFrameTargetBits(refreshFlags uint8
 		onePctBits = 1
 	}
 	if diff > 0 {
-		pctLow := diff / onePctBits
-		if pctLow > int64(rc.undershootPct) {
-			pctLow = int64(rc.undershootPct)
-		}
+		pctLow := min(diff/onePctBits, int64(rc.undershootPct))
 		target -= target * pctLow / 200
 	} else if diff < 0 {
-		pctHigh := -diff / onePctBits
-		if pctHigh > int64(rc.overshootPct) {
-			pctHigh = int64(rc.overshootPct)
-		}
+		pctHigh := min(-diff/onePctBits, int64(rc.overshootPct))
 		target += target * pctHigh / 200
 	}
 	if rc.maxInterBitratePct > 0 && rc.bitsPerFrame > 0 {
@@ -519,11 +510,8 @@ func (rc *vp9RateControlState) setGFUpdateOnePassVBR(currentVideoFrame int) {
 			baseline = max(6, baseline>>1)
 		}
 		if rc.avgFrameLowMotion > 0 {
-			boost := encoder.DefaultGFBoost * (rc.avgFrameLowMotion << 1) /
-				(rc.avgFrameLowMotion + 100)
-			if boost < 500 {
-				boost = 500
-			}
+			boost := max(encoder.DefaultGFBoost*(rc.avgFrameLowMotion<<1)/
+				(rc.avgFrameLowMotion+100), 500)
 			rc.gfuBoost = uint16(boost)
 		} else if rc.avgFrameLowMotion == 0 && rateErr > 1.0 {
 			rc.gfuBoost = uint16(encoder.DefaultGFBoost >> 1)
@@ -589,10 +577,7 @@ func (rc *vp9RateControlState) runtimeOnePassVBRGoldenInterval() uint8 {
 	if maxGF == 0 {
 		maxGF = encoder.MaxGFInterval
 	}
-	interval := (minGF + maxGF) / 2
-	if interval < 10 {
-		interval = 10
-	}
+	interval := max((minGF+maxGF)/2, 10)
 	if interval > 20 {
 		interval = 20
 	}

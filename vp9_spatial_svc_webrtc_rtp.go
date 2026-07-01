@@ -47,7 +47,7 @@ func (r VP9SpatialSVCEncodeResult) LimitSpatialLayersForRTP(
 		r.ScalabilityStructure, layerCount)
 	out.Data = nil
 	out.SizeBytes = 0
-	for i := 0; i < layerCount; i++ {
+	for i := range layerCount {
 		layer := out.Layers[i]
 		if layer.Dropped || len(layer.Data) == 0 ||
 			layer.SpatialLayerID != uint8(i) {
@@ -81,7 +81,7 @@ func (r VP9SpatialSVCEncodeResult) WebRTCRTPPacketizationSize(
 	}
 	packets := 0
 	payloadBytes := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		desc, frame, err := r.vp9WebRTCLayerDescriptor(i, pictureID)
 		if err != nil {
 			return 0, 0, err
@@ -124,7 +124,7 @@ func (r VP9SpatialSVCEncodeResult) PacketizeWebRTCRTPInto(
 	}
 	packetOff := 0
 	byteOff := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		desc, frame, err := r.vp9WebRTCLayerDescriptor(i, pictureID)
 		if err != nil {
 			return 0, 0, err
@@ -141,7 +141,7 @@ func (r VP9SpatialSVCEncodeResult) PacketizeWebRTCRTPInto(
 		if err != nil {
 			return 0, 0, err
 		}
-		for j := 0; j < writtenPackets; j++ {
+		for j := range writtenPackets {
 			dst[packetOff+j].Marker = i == count-1 && j == writtenPackets-1
 		}
 		packetOff += writtenPackets
@@ -177,7 +177,7 @@ func (r VP9SpatialSVCEncodeResult) vp9WebRTCLayerCount() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		layer := r.Layers[i]
 		if layer.Dropped || len(layer.Data) == 0 ||
 			layer.SpatialLayerID != uint8(i) ||

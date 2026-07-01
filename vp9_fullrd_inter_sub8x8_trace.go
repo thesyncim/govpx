@@ -178,7 +178,7 @@ func (e *VP9Encoder) vp9TraceSub8x8Producer(inter *vp9InterEncodeState,
 	ent.left = [2]uint8{1, 1}
 	ent0 := ent // pristine seed for the (c) genuine-derivation run
 
-	for block := 0; block < 4; block++ {
+	for block := range 4 {
 		mode := committed[block].mode
 		mv := committed[block].mv
 		modeMvRate := e.setAndCostBmiMvs(inter, &mi, block, mode, mv, bestRefMv,

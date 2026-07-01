@@ -170,7 +170,7 @@ func BenchmarkAddMacroblockResidualYDCPairs(b *testing.B) {
 	v := filledPlane(8, 8, 80)
 	var tokens MacroblockTokens
 	var residual MacroblockResidual
-	for block := 0; block < 16; block++ {
+	for block := range 16 {
 		tokens.EOB[block] = 1
 		residual.Block(block)[0] = int16(16 + block)
 	}

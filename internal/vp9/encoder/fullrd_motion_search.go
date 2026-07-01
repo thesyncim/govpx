@@ -121,10 +121,7 @@ func MvSearchParams(width, height int, autoMvStepSize, isIntraOnly,
 	showFrame bool, maxMvMagnitude int,
 ) (mvStepParam, newMaxMvMagnitude int) {
 	// libvpx: max_mv_def = VPXMIN(cm->width, cm->height).
-	maxMvDef := width
-	if height < maxMvDef {
-		maxMvDef = height
-	}
+	maxMvDef := min(height, width)
 	// libvpx: cpi->mv_step_param = vp9_init_search_range(max_mv_def).
 	mvStepParam = InitSearchRange(maxMvDef)
 	newMaxMvMagnitude = maxMvMagnitude
@@ -203,10 +200,7 @@ func FullRdSingleMotionStepParamAdaptive(stepParam int, adaptiveMotionSearch,
 	predMvSad int,
 ) int {
 	if adaptiveMotionSearch && !isBlock64 {
-		minLog2 := bHeightLog2Bsize
-		if bWidthLog2Bsize < minLog2 {
-			minLog2 = bWidthLog2Bsize
-		}
+		minLog2 := min(bWidthLog2Bsize, bHeightLog2Bsize)
 		boffset := 2 * (bWidthLog2_64x64 - minLog2)
 		if boffset > stepParam {
 			stepParam = boffset
@@ -310,7 +304,7 @@ func DiamondSearchSADWithBatch(refRow, refCol int, startMvSad uint64,
 	// libvpx: i = 0; (flat site cursor within the current step block).
 	i := 0
 	// libvpx: for (step = 0; step < tot_steps; step++).
-	for step := 0; step < totSteps; step++ {
+	for range totSteps {
 		// libvpx: all_in is true if every checked point is within bounds.
 		// The four representative sites tested are i, i+1, i+2, i+3 against
 		// row_min/row_max/col_min/col_max with STRICT >/<.
@@ -387,7 +381,7 @@ func DiamondSearchSADWithBatch(refRow, refCol int, startMvSad uint64,
 			}
 		} else {
 			// libvpx: per-point sdf path with is_mv_in trap.
-			for j := 0; j < ssSearchesPerStep; j++ {
+			for range ssSearchesPerStep {
 				site := ssMV3[ssBase+i]
 				row := bestRow + site.row
 				col := bestCol + site.col
@@ -581,9 +575,9 @@ func refiningSearchSAD(startRow, startCol, sadPerBit, searchRange,
 
 	// libvpx: for (i = 0; i < search_range; i++) { best_site = -1; ...
 	//   for (j = 0; j < 4; j++) check neighbor; if best_site==-1 break; }
-	for i := 0; i < searchRange; i++ {
+	for range searchRange {
 		bestSite := -1
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			nb := refiningSearchNeighbors[j]
 			row := bestRow + nb.row
 			col := bestCol + nb.col

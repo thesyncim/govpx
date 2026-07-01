@@ -174,7 +174,7 @@ func buildNmvComponentCostTable(mvcost []int, c *vp9dec.NmvComponent, useHP bool
 	hpCost := [2]int{VP9CostBit(c.Hp, 0), VP9CostBit(c.Hp, 1)}
 
 	mvcost[offset] = 0
-	for o := 0; o < (vp9dec.Class0Size << 3); o++ {
+	for o := range vp9dec.Class0Size << 3 {
 		d := o >> 3
 		f := (o >> 1) & 3
 		cost := classCost[tables.MvClass0] + class0Cost[d] + class0FPCost[d][f]
@@ -189,10 +189,10 @@ func buildNmvComponentCostTable(mvcost []int, c *vp9dec.NmvComponent, useHP bool
 		for d := 0; d < (1 << uint(cls)); d++ {
 			wholeCost := classCost[cls]
 			n := cls + vp9dec.Class0Bits - 1
-			for i := 0; i < n; i++ {
+			for i := range n {
 				wholeCost += bitsCost[i][(d>>uint(i))&1]
 			}
-			for f := 0; f < vp9dec.MvFpSize; f++ {
+			for f := range vp9dec.MvFpSize {
 				cost := wholeCost + fpCost[f]
 				v := (vp9dec.Class0Size << uint(cls+2)) + d*8 + f*2 + 1
 				if useHP {

@@ -85,14 +85,8 @@ func InterModeMvRateWithDiscount(fc *vp9dec.FrameContext, ctx int,
 	rateMv := MvBitCost(mv, refMv, &fc.Nmvc, allowHP)
 	costMvRef := CostMvRef(fc, ctx, common.NewMv)
 	if discount {
-		discMv := rateMv / newMvDiscountFactor
-		if discMv < 1 {
-			discMv = 1
-		}
-		discCostMvRef := CostMvRef(fc, ctx, common.NearestMv)
-		if costMvRef < discCostMvRef {
-			discCostMvRef = costMvRef
-		}
+		discMv := max(rateMv/newMvDiscountFactor, 1)
+		discCostMvRef := min(costMvRef, CostMvRef(fc, ctx, common.NearestMv))
 		return discMv + discCostMvRef
 	}
 	return rateMv + costMvRef

@@ -1462,10 +1462,7 @@ func (e *VP9Encoder) stampVP9CommittedInterPartitionContext(miRows, miCols,
 		if mi == nil {
 			return
 		}
-		target = mi.SbType
-		if target > bsize {
-			target = bsize
-		}
+		target = min(mi.SbType, bsize)
 	}
 	if int(bsl) >= len(common.PartitionLookup) ||
 		int(target) >= len(common.PartitionLookup[bsl]) {

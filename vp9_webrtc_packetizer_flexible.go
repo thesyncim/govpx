@@ -65,7 +65,7 @@ func (p *VP9WebRTCPacketizer) vp9SpatialSVCWebRTCPacketizationSize(
 	}
 	packets := 0
 	payloadBytes := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		desc, frame, err := p.vp9SpatialSVCWebRTCLayerDescriptor(r, i,
 			p.pictureID)
 		if err != nil {
@@ -102,7 +102,7 @@ func (p *VP9WebRTCPacketizer) vp9PacketizeSpatialSVCWebRTCInto(
 	}
 	packetOff := 0
 	byteOff := 0
-	for i := 0; i < count; i++ {
+	for i := range count {
 		desc, frame, err := p.vp9SpatialSVCWebRTCLayerDescriptor(r, i,
 			p.pictureID)
 		if err != nil {
@@ -120,7 +120,7 @@ func (p *VP9WebRTCPacketizer) vp9PacketizeSpatialSVCWebRTCInto(
 		if err != nil {
 			return 0, 0, err
 		}
-		for j := 0; j < writtenPackets; j++ {
+		for j := range writtenPackets {
 			dst[packetOff+j].Marker = i == count-1 && j == writtenPackets-1
 		}
 		packetOff += writtenPackets
@@ -228,7 +228,7 @@ func (t *vp9WebRTCReferenceTracker) flexibleReferenceDiffs(
 		return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 	}
 	count := 0
-	for i := 0; i < slotCount; i++ {
+	for i := range slotCount {
 		if !t.addReferenceSlotDiff(&refs, &count, pictureID, slots[i]) {
 			return refs, 0, vp9WebRTCRecoveryKeyRequiredError()
 		}
@@ -326,7 +326,7 @@ func vp9WebRTCReferenceSlotsForFrame(
 	_ = r.ReadLiteral(common.RefFrames)
 	interRefs := vp9dec.ReadInterRefBlock(&r)
 	count := 0
-	for i := 0; i < common.RefsPerFrame; i++ {
+	for i := range common.RefsPerFrame {
 		refFrame := vp9dec.LastFrame + int8(i)
 		if referenceMask&(1<<uint(refFrame)) == 0 {
 			continue
@@ -352,7 +352,7 @@ func (p *VP9WebRTCPacketizer) commitVP9SpatialSVCWebRTCReferences(
 	if err != nil {
 		return
 	}
-	for i := 0; i < count; i++ {
+	for i := range count {
 		p.references.commitResult(r.Layers[i], pictureID)
 	}
 }

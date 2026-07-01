@@ -225,7 +225,7 @@ func TestForwardDCT16x16NEONStackStress(t *testing.T) {
 	var want [256]int16
 	forwardDCT16x16Scalar(input[:], 16, want[:])
 
-	for trial := 0; trial < 64; trial++ {
+	for trial := range 64 {
 		var got [256]int16
 		forwardDCT16x16NEONStackStress(t, 48, input[:], got[:])
 		if got != want {

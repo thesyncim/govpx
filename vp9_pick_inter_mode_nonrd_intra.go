@@ -313,10 +313,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			CyclicRefreshAQ: e.opts.AQMode == VP9AQCyclicRefresh,
 			ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 		})
-		mi.TxSize = modelTxSize
-		if mi.TxSize > predTxSize {
-			mi.TxSize = predTxSize
-		}
+		mi.TxSize = min(modelTxSize, predTxSize)
 		coeffRate = rateY
 		distortion = uint64(distY)
 		if !useSimpleIntraBlockYrd {

@@ -638,7 +638,7 @@ func (d *VP9Decoder) runVP9DecoderScheduledTileJobs(descs []vp9DecoderTileDesc,
 	bufStart := 0
 	var err error
 	helpers := workers - 1
-	for worker := 0; worker < helpers; worker++ {
+	for worker := range helpers {
 		count := base + (remain+worker)/workers
 		bufEnd := bufStart + count
 		p.prepareTileJobRange(worker, d, kind, descs[bufStart:bufEnd], comp,
@@ -657,7 +657,7 @@ func (d *VP9Decoder) runVP9DecoderScheduledTileJobs(descs []vp9DecoderTileDesc,
 	}
 
 	p.waitHelperWorkers(epoch, helpers)
-	for worker := 0; worker < helpers; worker++ {
+	for worker := range helpers {
 		job := &p.jobs[worker]
 		if job.unsupported {
 			d.unsupportedReconstruct = true
@@ -709,7 +709,7 @@ func (p *vp9DecoderTileWorkerPool) recordTileSchedule(descs []vp9DecoderTileDesc
 		return
 	}
 	n := min(len(descs), len(p.lastTileSchedule))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		p.lastTileSchedule[i] = descs[i].tile.MiColStart
 	}
 	p.lastTileScheduleLen = uint8(n)

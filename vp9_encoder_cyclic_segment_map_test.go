@@ -161,7 +161,7 @@ func TestVP9CyclicRefreshCBRInterFrameRunsSegmentMapChooser(t *testing.T) {
 	}
 	keyHeader, _ := vp9test.ParseHeader(t, keyPacket)
 	var lastHeader vp9dec.UncompressedHeader
-	for frame := 0; frame < 4; frame++ {
+	for frame := range 4 {
 		src := vp9test.NewYCbCr(width, height, uint8(100+frame*4), 128, 128)
 		pkt, err := enc.Encode(src)
 		if err != nil {

@@ -12,17 +12,17 @@ import (
 func NewYCbCr(width, height int, y, cb, cr byte) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height),
 		image.YCbCrSubsampleRatio420)
-	for yy := 0; yy < height; yy++ {
+	for yy := range height {
 		row := img.Y[yy*img.YStride:]
-		for xx := 0; xx < width; xx++ {
+		for xx := range width {
 			row[xx] = y
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for yy := 0; yy < uvHeight; yy++ {
+	for yy := range uvHeight {
 		cbRow := img.Cb[yy*img.CStride:]
 		crRow := img.Cr[yy*img.CStride:]
-		for xx := 0; xx < uvWidth; xx++ {
+		for xx := range uvWidth {
 			cbRow[xx] = cb
 			crRow[xx] = cr
 		}
@@ -36,17 +36,17 @@ func NewYCbCr(width, height int, y, cb, cr byte) *image.YCbCr {
 func NewMotionYCbCr(width, height int) *image.YCbCr {
 	img := image.NewYCbCr(image.Rect(0, 0, width, height),
 		image.YCbCrSubsampleRatio420)
-	for yy := 0; yy < height; yy++ {
+	for yy := range height {
 		row := img.Y[yy*img.YStride:]
-		for xx := 0; xx < width; xx++ {
+		for xx := range width {
 			row[xx] = byte((xx*3 + yy*5 + (xx/8)*17 + (yy/8)*29) & 0xff)
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for yy := 0; yy < uvHeight; yy++ {
+	for yy := range uvHeight {
 		cbRow := img.Cb[yy*img.CStride:]
 		crRow := img.Cr[yy*img.CStride:]
-		for xx := 0; xx < uvWidth; xx++ {
+		for xx := range uvWidth {
 			cbRow[xx] = 128
 			crRow[xx] = 128
 		}
@@ -180,16 +180,16 @@ func ShiftYCbCrCopy(src *image.YCbCr, dy, dx int) *image.YCbCr {
 	height := src.Rect.Dy()
 	out := image.NewYCbCr(image.Rect(0, 0, width, height),
 		image.YCbCrSubsampleRatio420)
-	for yy := 0; yy < height; yy++ {
-		for xx := 0; xx < width; xx++ {
+	for yy := range height {
+		for xx := range width {
 			sy := arith.ClampCoord(yy-dy, height)
 			sx := arith.ClampCoord(xx-dx, width)
 			out.Y[yy*out.YStride+xx] = src.Y[sy*src.YStride+sx]
 		}
 	}
 	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
-	for yy := 0; yy < uvHeight; yy++ {
-		for xx := 0; xx < uvWidth; xx++ {
+	for yy := range uvHeight {
+		for xx := range uvWidth {
 			sy := arith.ClampCoord(yy-dy/2, uvHeight)
 			sx := arith.ClampCoord(xx-dx/2, uvWidth)
 			out.Cb[yy*out.CStride+xx] = src.Cb[sy*src.CStride+sx]

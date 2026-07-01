@@ -534,14 +534,8 @@ func (rd *RDThreshState) UpdateFullRDThreshFact(bsize common.BlockSize,
 	if bsize < common.Block8x8 {
 		topMode = 6
 	}
-	minSize := bsize - 1
-	if minSize < common.Block4x4 {
-		minSize = common.Block4x4
-	}
-	maxSize := bsize + 2
-	if maxSize > common.Block64x64 {
-		maxSize = common.Block64x64
-	}
+	minSize := max(bsize-1, common.Block4x4)
+	maxSize := min(bsize+2, common.Block64x64)
 	cap := adaptiveRdThresh * vp9RDThreshMaxFact
 	bestMode := int(bestModeIndex)
 	bestModeInRange := bestMode >= 0 && bestMode < topMode
@@ -552,10 +546,7 @@ func (rd *RDThreshState) UpdateFullRDThreshFact(bsize common.BlockSize,
 			bestFact = row[bestMode]
 		}
 		for mode := range topMode {
-			fact := row[mode] + vp9RDThreshInc
-			if fact > cap {
-				fact = cap
-			}
+			fact := min(row[mode]+vp9RDThreshInc, cap)
 			row[mode] = fact
 		}
 		if bestModeInRange {

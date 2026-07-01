@@ -185,7 +185,7 @@ func fastPatternSearchSAD(startDx, startDy int,
 		}
 		searchRange := 1 << s
 		boundsOK := limits.FullpelBoundsOK(br, bc, searchRange)
-		for i := 0; i < 4; i++ {
+		for i := range 4 {
 			if rows[i] == br && cols[i] == bc {
 				return false
 			}
@@ -217,7 +217,7 @@ func fastPatternSearchSAD(startDx, startDy int,
 		i := 0
 		for i+4 <= count {
 			var sites, rows, cols [4]int
-			for j := 0; j < 4; j++ {
+			for j := range 4 {
 				site := i + j
 				c := candidates[s][site]
 				sites[j] = site
@@ -228,7 +228,7 @@ func fastPatternSearchSAD(startDx, startDy int,
 				i += 4
 				continue
 			}
-			for j := 0; j < 4; j++ {
+			for j := range 4 {
 				checkBetter(s, sites[j], rows[j], cols[j], bestSite)
 			}
 			i += 4
@@ -505,7 +505,7 @@ func checkNStepCandidates(centerDx, centerDy int, initialBestScore uint64,
 	for i+4 <= len(candidates) {
 		var dxs, dys [4]int
 		allIn := sadAt4 != nil
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			c := candidates[i+j]
 			dxs[j] = centerDx + c.col
 			dys[j] = centerDy + c.row
@@ -531,7 +531,7 @@ func checkNStepCandidates(centerDx, centerDy int, initialBestScore uint64,
 				continue
 			}
 		}
-		for j := 0; j < 4; j++ {
+		for j := range 4 {
 			checkOne(i+j, dxs[j], dys[j])
 		}
 		i += 4

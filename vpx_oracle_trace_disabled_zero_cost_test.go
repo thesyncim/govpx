@@ -40,14 +40,14 @@ func TestVPxOracleTraceDisabledFieldsAbsentFromProductionStructs(t *testing.T) {
 		typ   reflect.Type
 		field string
 	}{
-		{name: "VP8Encoder", typ: reflect.TypeOf(VP8Encoder{}), field: "oracleTrace"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "oracleTrace"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserNoPredCost"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserTPredCost"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserTemporal"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserNoPredCounts"},
-		{name: "VP9Encoder", typ: reflect.TypeOf(VP9Encoder{}), field: "lastSegMapChooserMiHist"},
-		{name: "VP9Decoder", typ: reflect.TypeOf(VP9Decoder{}), field: "leafTrace"},
+		{name: "VP8Encoder", typ: reflect.TypeFor[VP8Encoder](), field: "oracleTrace"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "oracleTrace"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "lastSegMapChooserNoPredCost"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "lastSegMapChooserTPredCost"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "lastSegMapChooserTemporal"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "lastSegMapChooserNoPredCounts"},
+		{name: "VP9Encoder", typ: reflect.TypeFor[VP9Encoder](), field: "lastSegMapChooserMiHist"},
+		{name: "VP9Decoder", typ: reflect.TypeFor[VP9Decoder](), field: "leafTrace"},
 	}
 	for _, tc := range cases {
 		if _, ok := tc.typ.FieldByName(tc.field); ok {
@@ -64,7 +64,7 @@ func TestVPxOracleTraceDisabledZeroSizeFieldsDoNotTrailHotStructs(t *testing.T) 
 	}{
 		{
 			name:  "predictedMacroblockCoefficientArgs",
-			typ:   reflect.TypeOf(predictedMacroblockCoefficientArgs{}),
+			typ:   reflect.TypeFor[predictedMacroblockCoefficientArgs](),
 			field: "trace",
 		},
 	}
@@ -97,7 +97,7 @@ func TestVPxOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) 
 	}{
 		{
 			name: "VP8Encoder",
-			typ:  reflect.TypeOf(&VP8Encoder{}),
+			typ:  reflect.TypeFor[*VP8Encoder](),
 			methods: []string{
 				"SetOracleTraceWriter",
 				"SetOracleTracePredictorDump",
@@ -108,7 +108,7 @@ func TestVPxOracleTraceDisabledMethodsAbsentFromProductionSurface(t *testing.T) 
 		},
 		{
 			name: "VP9Encoder",
-			typ:  reflect.TypeOf(&VP9Encoder{}),
+			typ:  reflect.TypeFor[*VP9Encoder](),
 			methods: []string{
 				"SetOracleTraceWriter",
 			},

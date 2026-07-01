@@ -64,7 +64,7 @@ func TestEncoderByteIdenticalHash(t *testing.T) {
 	buf := make([]byte, width*height*4)
 	h := sha256.New()
 	totalBytes := 0
-	for i := 0; i < frames; i++ {
+	for i := range frames {
 		fillFrame(i)
 		result, err := e.EncodeInto(buf, img, uint64(i), 1, 0)
 		if err != nil {
