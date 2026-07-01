@@ -76,9 +76,7 @@ func Idct16x16_256Add(input []int16, dest []uint8, stride int) {
 		idct16x16_256AddScalar(input, dest, stride)
 		return
 	}
-	var residual [256]int16
-	idct16x16Residual(input, &residual, 16)
-	idctAddResidualRows16NEON(unsafe.SliceData(dest), stride, &residual[0], 16)
+	idct16x16_256AddNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
 }
 
 // Idct16x16_38Add is the upper-left-8x8 sparse fast path.
@@ -223,9 +221,18 @@ func Iht16x16_256Add(input []int16, dest []uint8, stride int, txType int) {
 		Idct16x16_256Add(input, dest, stride)
 		return
 	}
-	if txType == 3 && dcWindowOK(dest, stride, 16, 16) {
-		iht16x16_256AddAdstAdstNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
-		return
+	if dcWindowOK(dest, stride, 16, 16) {
+		switch txType {
+		case 1:
+			iht16x16_256AddAdstDctNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
+			return
+		case 2:
+			iht16x16_256AddDctAdstNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
+			return
+		case 3:
+			iht16x16_256AddAdstAdstNEON(unsafe.SliceData(input), unsafe.SliceData(dest), stride)
+			return
+		}
 	}
 	if !dcWindowOK(dest, stride, 16, 16) {
 		iht16x16_256AddScalar(input, dest, stride, txType)

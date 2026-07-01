@@ -277,6 +277,12 @@ func BenchmarkVP9Iht4x4AdstAdst(b *testing.B) {
 func BenchmarkVP9Iht8x8AdstAdst(b *testing.B) {
 	benchIht(b, fullIhtCase{size: 8, txType: 3, wrapper: Iht8x8_64Add, reference: iht8x8_64AddScalar})
 }
+func BenchmarkVP9Iht16x16AdstDct(b *testing.B) {
+	benchIht(b, fullIhtCase{size: 16, txType: 1, wrapper: Iht16x16_256Add, reference: iht16x16_256AddScalar})
+}
+func BenchmarkVP9Iht16x16DctAdst(b *testing.B) {
+	benchIht(b, fullIhtCase{size: 16, txType: 2, wrapper: Iht16x16_256Add, reference: iht16x16_256AddScalar})
+}
 func BenchmarkVP9Iht16x16AdstAdst(b *testing.B) {
 	benchIht(b, fullIhtCase{size: 16, txType: 3, wrapper: Iht16x16_256Add, reference: iht16x16_256AddScalar})
 }
