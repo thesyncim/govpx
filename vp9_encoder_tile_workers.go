@@ -94,8 +94,8 @@ type vp9TileWorkerPool struct {
 	start     []chan struct{}
 	shutdown  chan struct{}
 	wg        sync.WaitGroup
-	doneCount atomic.Int32
 	jobEpoch  atomic.Uint64
+	doneEpoch []atomic.Uint64
 	parked    []atomic.Uint32
 
 	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
@@ -428,6 +428,7 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		outputs:     make([][]byte, workers),
 		start:       make([]chan struct{}, workers),
 		shutdown:    make(chan struct{}),
+		doneEpoch:   make([]atomic.Uint64, workers),
 		parked:      make([]atomic.Uint32, workers),
 		workerCount: workers,
 	}
@@ -469,7 +470,7 @@ func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 		if next != epoch {
 			epoch = next
 			p.runHelperWorkerJob(workerIndex)
-			p.doneCount.Add(1)
+			p.doneEpoch[workerIndex].Store(epoch)
 			idleSpins = 0
 			continue
 		}
@@ -531,7 +532,6 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	p.doneCount.Store(0)
 	p.jobKind.Store(uint32(kind))
 	p.jobEpoch.Add(1)
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
@@ -549,13 +549,26 @@ func (p *vp9TileWorkerPool) waitHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	want := int32(p.workerCount - 1)
-	for spins := 0; p.doneCount.Load() < want; spins++ {
+	epoch := p.jobEpoch.Load()
+	for spins := 0; !p.helperWorkersDone(epoch); spins++ {
 		runtimeProcYield(30)
 		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
 			runtime.Gosched()
 		}
 	}
+}
+
+func (p *vp9TileWorkerPool) helperWorkersDone(epoch uint64) bool {
+	if p == nil {
+		return true
+	}
+	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
+		if workerIndex >= len(p.doneEpoch) ||
+			p.doneEpoch[workerIndex].Load() != epoch {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *vp9TileWorkerPool) shutdownPool() {
