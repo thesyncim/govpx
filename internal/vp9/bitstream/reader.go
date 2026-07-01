@@ -41,6 +41,17 @@ type Reader struct {
 	pos int
 }
 
+// ReaderState is a hot-loop-local view of Reader's arithmetic-coder state.
+// libvpx's VP9 detokenizer keeps value, range, and count in locals through
+// decode_coefs and writes them back once; this type gives the same shape to Go
+// callers that need to batch many Read calls without exposing Reader fields.
+type ReaderState struct {
+	r     *Reader
+	Value uint64
+	Range uint32
+	Count int32
+}
+
 // Init seeds the reader from src, mirroring vpx_reader_init. It returns
 // ErrInvalidInput if the first bit read after the initial fill is not
 // zero (libvpx rejects the frame in that case).
@@ -55,6 +66,17 @@ func (r *Reader) Init(src []byte) error {
 		return ErrInvalidInput
 	}
 	return nil
+}
+
+// LocalState returns a local arithmetic-coder state snapshot. Call Commit
+// before the underlying Reader is used again.
+func (r *Reader) LocalState() ReaderState {
+	return ReaderState{
+		r:     r,
+		Value: r.value,
+		Range: r.rng,
+		Count: r.count,
+	}
 }
 
 // Read decodes one bit against the probability prob (out of 256) and
@@ -124,6 +146,89 @@ func (r *Reader) ReadBit() uint32 {
 	return bit
 }
 
+// Read decodes one bit against prob using local arithmetic-coder state.
+func (s *ReaderState) Read(prob uint32) uint32 {
+	baseRange := s.Range
+	split := (baseRange*prob + (256 - prob)) >> 8
+
+	if s.Count < 0 {
+		s.fill()
+	}
+
+	value := s.Value
+	count := s.Count
+	bigsplit := uint64(split) << (valueBits - 8)
+
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = baseRange - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
+	value <<= shift
+	count -= int32(shift)
+
+	s.Value = value
+	s.Count = count
+	s.Range = nextRange
+	return bit
+}
+
+// ReadBit decodes one equally-likely bit using local arithmetic-coder state.
+func (s *ReaderState) ReadBit() uint32 {
+	rng := s.Range
+	split := (rng + 1) >> 1
+
+	if s.Count < 0 {
+		s.fill()
+	}
+
+	value := s.Value
+	count := s.Count
+	bigsplit := uint64(split) << (valueBits - 8)
+
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
+	value <<= shift
+	count -= int32(shift)
+
+	s.Value = value
+	s.Count = count
+	s.Range = nextRange
+	return bit
+}
+
+// Commit writes local arithmetic-coder state back to the underlying Reader.
+func (s *ReaderState) Commit() {
+	if s == nil || s.r == nil {
+		return
+	}
+	s.r.value = s.Value
+	s.r.rng = s.Range
+	s.r.count = s.Count
+}
+
+// Fill refreshes local value/count variables from the underlying byte stream.
+func (s *ReaderState) Fill(value *uint64, count *int32) {
+	s.Value = *value
+	s.Count = *count
+	s.fill()
+	*value = s.Value
+	*count = s.Count
+}
+
 // ReadLiteral decodes bits equally-likely bits, MSB first.
 func (r *Reader) ReadLiteral(bits int) uint32 {
 	var literal uint32
@@ -164,36 +269,40 @@ func (r *Reader) HasError() bool {
 //
 //go:noinline
 func (r *Reader) fill() {
-	count := r.count
-	value := r.value
-	bytesLeft := len(r.buf) - r.pos
+	fillState(r.buf, &r.pos, &r.value, &r.count)
+}
+
+//go:noinline
+func (s *ReaderState) fill() {
+	fillState(s.r.buf, &s.r.pos, &s.Value, &s.Count)
+}
+
+func fillState(buf []byte, pos *int, value *uint64, count *int32) {
+	bytesLeft := len(buf) - *pos
 	bitsLeft := bytesLeft * 8
-	shift := int(valueBits-8) - int(count+8)
+	shift := int(valueBits-8) - int(*count+8)
 
 	if bitsLeft > valueBits {
 		bits := (shift &^ 7) + 8
-		be := binary.BigEndian.Uint64(r.buf[r.pos:])
+		be := binary.BigEndian.Uint64(buf[*pos:])
 		nv := be >> uint(valueBits-bits)
-		count += int32(bits)
-		r.pos += bits >> 3
-		value |= nv << uint(shift&7)
+		*count += int32(bits)
+		*pos += bits >> 3
+		*value |= nv << uint(shift&7)
 	} else {
 		bitsOver := shift + 8 - bitsLeft
 		loopEnd := 0
 		if bitsOver >= 0 {
-			count += lotsOfBits
+			*count += lotsOfBits
 			loopEnd = bitsOver
 		}
 		if bitsOver < 0 || bitsLeft > 0 {
 			for shift >= loopEnd {
-				count += 8
-				value |= uint64(r.buf[r.pos]) << uint(shift)
-				r.pos++
+				*count += 8
+				*value |= uint64(buf[*pos]) << uint(shift)
+				*pos++
 				shift -= 8
 			}
 		}
 	}
-
-	r.value = value
-	r.count = count
 }

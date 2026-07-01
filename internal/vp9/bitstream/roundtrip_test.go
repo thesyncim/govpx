@@ -64,6 +64,9 @@ func TestRoundTripMixedProb(t *testing.T) {
 	for i := range bits {
 		bits[i] = uint32(rng.Intn(2))
 		probs[i] = uint32(1 + rng.Intn(255))
+		if i&7 == 0 {
+			probs[i] = 128
+		}
 	}
 
 	buf := make([]byte, 16384)
@@ -85,6 +88,55 @@ func TestRoundTripMixedProb(t *testing.T) {
 		if got := r.Read(probs[i]); got != bits[i] {
 			t.Fatalf("bit %d (prob %d): got %d, want %d", i, probs[i], got, bits[i])
 		}
+	}
+}
+
+func TestReaderStateMatchesReader(t *testing.T) {
+	const n = 8192
+	rng := rand.New(rand.NewSource(0x51504c4f43414c))
+	bits := make([]uint32, n)
+	probs := make([]uint32, n)
+	for i := range bits {
+		bits[i] = uint32(rng.Intn(2))
+		probs[i] = uint32(1 + rng.Intn(255))
+	}
+
+	buf := make([]byte, 16384)
+	var w Writer
+	w.Start(buf)
+	for i := range bits {
+		w.Write(bits[i], probs[i])
+	}
+	size, err := w.Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	var direct Reader
+	if err := direct.Init(buf[:size]); err != nil {
+		t.Fatalf("direct Init: %v", err)
+	}
+	var local Reader
+	if err := local.Init(buf[:size]); err != nil {
+		t.Fatalf("local Init: %v", err)
+	}
+	state := local.LocalState()
+	for i := range bits {
+		var gotLocal uint32
+		if i&7 == 0 && probs[i] == 128 {
+			gotLocal = state.ReadBit()
+		} else {
+			gotLocal = state.Read(probs[i])
+		}
+		gotDirect := direct.Read(probs[i])
+		if gotLocal != gotDirect || gotDirect != bits[i] {
+			t.Fatalf("bit %d: local=%d direct=%d want=%d prob=%d",
+				i, gotLocal, gotDirect, bits[i], probs[i])
+		}
+	}
+	state.Commit()
+	if local.HasError() != direct.HasError() {
+		t.Fatalf("HasError local=%v direct=%v", local.HasError(), direct.HasError())
 	}
 }
 

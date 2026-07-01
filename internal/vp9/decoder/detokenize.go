@@ -95,12 +95,67 @@ func GetCoefContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
 
 // readCoeffBits pulls `n` raw bits from the boolean coder against the
 // supplied per-bit probabilities, MSB first. Mirrors read_coeff.
-func readCoeffBits(r *bitstream.Reader, probs []uint8, n int) int {
+func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
+	value uint64, rng uint32, count int32,
+) (int, uint64, uint32, int32) {
 	val := 0
 	for i := range n {
-		val = (val << 1) | int(r.Read(uint32(probs[i])))
+		var bit uint32
+		bit, value, rng, count = readBoolLocal(r, uint32(probs[i]), value, rng, count)
+		val = (val << 1) | int(bit)
 	}
-	return val
+	return val, value, rng, count
+}
+
+func readBoolLocal(r *bitstream.ReaderState, prob uint32,
+	value uint64, rng uint32, count int32,
+) (uint32, uint64, uint32, int32) {
+	baseRange := rng
+	split := (baseRange*prob + (256 - prob)) >> 8
+
+	if count < 0 {
+		r.Fill(&value, &count)
+	}
+
+	bigsplit := uint64(split) << (64 - 8)
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = baseRange - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
+	value <<= shift
+	count -= int32(shift)
+	return bit, value, nextRange, count
+}
+
+func readBitLocal(r *bitstream.ReaderState,
+	value uint64, rng uint32, count int32,
+) (uint32, uint64, uint32, int32) {
+	split := (rng + 1) >> 1
+
+	if count < 0 {
+		r.Fill(&value, &count)
+	}
+
+	bigsplit := uint64(split) << (64 - 8)
+	nextRange := split
+	var bit uint32
+	if value >= bigsplit {
+		nextRange = rng - split
+		value -= bigsplit
+		bit = 1
+	}
+
+	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	nextRange <<= shift
+	value <<= shift
+	count -= int32(shift)
+	return bit, value, nextRange, count
 }
 
 // getCoefContext mirrors get_coef_context from vp9_scan.h. Looks up
@@ -220,6 +275,26 @@ func decodeCoefsWithCountsScratch(
 	dqcoeff []int16,
 	tokenCache []uint8,
 ) int {
+	rs := r.LocalState()
+	eob := decodeCoefsWithCountsReaderState(&rs, txSize, planeType, isInter,
+		dequant, ctx, scan, neighbors, fc, counts, dqcoeff, tokenCache)
+	rs.Commit()
+	return eob
+}
+
+func decodeCoefsWithCountsReaderState(
+	r *bitstream.ReaderState,
+	txSize common.TxSize,
+	planeType int,
+	isInter int,
+	dequant [2]int16,
+	ctx int,
+	scan, neighbors []int16,
+	fc *FrameCoefProbs,
+	counts *CoefCounts,
+	dqcoeff []int16,
+	tokenCache []uint8,
+) int {
 	maxEob := maxEobForTxSize(txSize)
 	bandTrans := bandTranslateForTxSize(txSize)
 	dqShift := uint(0)
@@ -232,6 +307,9 @@ func decodeCoefsWithCountsScratch(
 
 	c := 0
 	bandIdx := 0
+	value := r.Value
+	rng := r.Range
+	count := r.Count
 
 	for c < maxEob {
 		band := int(bandTrans[bandIdx])
@@ -242,7 +320,9 @@ func decodeCoefsWithCountsScratch(
 		if counts != nil {
 			counts.EobBranch[txSize][planeType][isInter][band][ctx]++
 		}
-		if r.Read(uint32(probs[eobContextNode])) == 0 {
+		var bit uint32
+		bit, value, rng, count = readBoolLocal(r, uint32(probs[eobContextNode]), value, rng, count)
+		if bit == 0 {
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][eobModelToken]++
 			}
@@ -250,7 +330,8 @@ func decodeCoefsWithCountsScratch(
 		}
 
 		// ZERO node — runs of zero tokens.
-		for r.Read(uint32(probs[zeroContextNode])) == 0 {
+		bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]), value, rng, count)
+		for bit == 0 {
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][zeroToken]++
 			}
@@ -258,60 +339,90 @@ func decodeCoefsWithCountsScratch(
 			tokenCache[scan[c]] = 0
 			c++
 			if c >= maxEob {
+				r.Value = value
+				r.Range = rng
+				r.Count = count
 				return c
 			}
 			ctx = getCoefContext(neighbors, tokenCache, c)
 			band = int(bandTrans[bandIdx])
 			bandIdx++
 			probs = &coefModel[band][ctx]
+			bit, value, rng, count = readBoolLocal(r, uint32(probs[zeroContextNode]), value, rng, count)
 		}
 
 		var val int
-		if r.Read(uint32(probs[oneContextNode])) != 0 {
+		bit, value, rng, count = readBoolLocal(r, uint32(probs[oneContextNode]), value, rng, count)
+		if bit != 0 {
 			// Token >= 2 — read the Pareto8 tail.
 			if counts != nil {
 				counts.Coef[txSize][planeType][isInter][band][ctx][twoToken]++
 			}
 			p := &tables.Pareto8Full[probs[pivotNode]-1]
-			if r.Read(uint32(p[0])) != 0 {
-				if r.Read(uint32(p[3])) != 0 {
+			bit, value, rng, count = readBoolLocal(r, uint32(p[0]), value, rng, count)
+			if bit != 0 {
+				bit, value, rng, count = readBoolLocal(r, uint32(p[3]), value, rng, count)
+				if bit != 0 {
 					tokenCache[scan[c]] = 5
-					if r.Read(uint32(p[5])) != 0 {
-						if r.Read(uint32(p[7])) != 0 {
-							val = cat6MinVal + readCoeffBits(r, tables.Cat6Prob[:], cat6Bits8)
+					bit, value, rng, count = readBoolLocal(r, uint32(p[5]), value, rng, count)
+					if bit != 0 {
+						bit, value, rng, count = readBoolLocal(r, uint32(p[7]), value, rng, count)
+						if bit != 0 {
+							var extra int
+							extra, value, rng, count = readCoeffBits(r, tables.Cat6Prob[:], cat6Bits8, value, rng, count)
+							val = cat6MinVal + extra
 						} else {
-							val = cat5MinVal + readCoeffBits(r, tables.Cat5Prob[:], 5)
+							var extra int
+							extra, value, rng, count = readCoeffBits(r, tables.Cat5Prob[:], 5, value, rng, count)
+							val = cat5MinVal + extra
 						}
-					} else if r.Read(uint32(p[6])) != 0 {
-						val = cat4MinVal + readCoeffBits(r, tables.Cat4Prob[:], 4)
 					} else {
-						val = cat3MinVal + readCoeffBits(r, tables.Cat3Prob[:], 3)
+						bit, value, rng, count = readBoolLocal(r, uint32(p[6]), value, rng, count)
+						if bit != 0 {
+							var extra int
+							extra, value, rng, count = readCoeffBits(r, tables.Cat4Prob[:], 4, value, rng, count)
+							val = cat4MinVal + extra
+						} else {
+							var extra int
+							extra, value, rng, count = readCoeffBits(r, tables.Cat3Prob[:], 3, value, rng, count)
+							val = cat3MinVal + extra
+						}
 					}
 				} else {
 					tokenCache[scan[c]] = 4
-					if r.Read(uint32(p[4])) != 0 {
-						val = cat2MinVal + readCoeffBits(r, tables.Cat2Prob[:], 2)
+					bit, value, rng, count = readBoolLocal(r, uint32(p[4]), value, rng, count)
+					if bit != 0 {
+						var extra int
+						extra, value, rng, count = readCoeffBits(r, tables.Cat2Prob[:], 2, value, rng, count)
+						val = cat2MinVal + extra
 					} else {
-						val = cat1MinVal + readCoeffBits(r, tables.Cat1Prob[:], 1)
+						var extra int
+						extra, value, rng, count = readCoeffBits(r, tables.Cat1Prob[:], 1, value, rng, count)
+						val = cat1MinVal + extra
 					}
 				}
 				v := (val * int(dqv)) >> dqShift
-				if r.ReadBit() != 0 {
+				bit, value, rng, count = readBitLocal(r, value, rng, count)
+				if bit != 0 {
 					v = -v
 				}
 				dqcoeff[scan[c]] = int16(v)
 			} else {
-				if r.Read(uint32(p[1])) != 0 {
+				bit, value, rng, count = readBoolLocal(r, uint32(p[1]), value, rng, count)
+				if bit != 0 {
 					tokenCache[scan[c]] = 3
-					v := ((3 + int(r.Read(uint32(p[2])))) * int(dqv)) >> dqShift
-					if r.ReadBit() != 0 {
+					bit, value, rng, count = readBoolLocal(r, uint32(p[2]), value, rng, count)
+					v := ((3 + int(bit)) * int(dqv)) >> dqShift
+					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if bit != 0 {
 						v = -v
 					}
 					dqcoeff[scan[c]] = int16(v)
 				} else {
 					tokenCache[scan[c]] = 2
 					v := (2 * int(dqv)) >> dqShift
-					if r.ReadBit() != 0 {
+					bit, value, rng, count = readBitLocal(r, value, rng, count)
+					if bit != 0 {
 						v = -v
 					}
 					dqcoeff[scan[c]] = int16(v)
@@ -324,7 +435,8 @@ func decodeCoefsWithCountsScratch(
 			}
 			tokenCache[scan[c]] = 1
 			v := int(dqv) >> dqShift
-			if r.ReadBit() != 0 {
+			bit, value, rng, count = readBitLocal(r, value, rng, count)
+			if bit != 0 {
 				v = -v
 			}
 			dqcoeff[scan[c]] = int16(v)
@@ -335,5 +447,8 @@ func decodeCoefsWithCountsScratch(
 		dqv = dequant[1]
 	}
 
+	r.Value = value
+	r.Range = rng
+	r.Count = count
 	return c
 }
