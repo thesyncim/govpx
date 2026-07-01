@@ -28,6 +28,32 @@ func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 			bsize == common.Block64x32 ||
 			bsize == common.Block32x64
 	}
+	if e.sf.PartitionSearchType == VarBasedPartition {
+		// libvpx VAR_BASED_PARTITION: choose_partitioning pre-bakes the
+		// partition tree, then nonrd_use_partition walks it and seeds
+		// ctx->pred_pixel_ready = 1 before EVERY >=8x8 leaf pick — the
+		// PARTITION_NONE / VERT / HORZ cases at vp9_encodeframe.c:5019,
+		// 5030, 5040, 5052, 5063. The only leaf pick without the seed is
+		// the bsize==BLOCK_8X8 PARTITION_SPLIT (sub-8x8) case at
+		// vp9_encodeframe.c:5078-5082, whose grid stamp is BLOCK_4X4 and
+		// therefore never matches bsize here (bsize < Block8x8 already
+		// returned false above). choose_partitioning stamps the top-left
+		// mi of every terminal leaf — both rect halves included — via
+		// set_block_size (vp9_encodeframe.c:340, set_vt_partitioning), so
+		// SbType == bsize at (miRow, miCol) identifies exactly the leaf
+		// visits of that walk.
+		if !e.varPartFrameValid || len(e.varPartGrid) == 0 {
+			return false
+		}
+		idx := miRow*miCols + miCol
+		if miRows <= 0 || miCols <= 0 || miRow < 0 || miCol < 0 ||
+			miRow >= miRows || miCol >= miCols ||
+			idx < 0 || idx >= len(e.varPartGrid) ||
+			e.varPartGrid[idx].SbType != bsize {
+			return false
+		}
+		return true
+	}
 	if e.sf.PartitionSearchType != MlBasedPartition {
 		return false
 	}
@@ -75,6 +101,27 @@ func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 		}
 	}
 	return !(partitionVertAllowed || partitionHorzAllowed || doSplit)
+}
+
+// vp9NonrdPreIntraPredictCapture is the deferred reuse_inter_pred copy-out
+// the nonrd intra fallback invokes right before its first recon-plane intra
+// predict. It mirrors libvpx vp9_pickmode.c:2543-2562: when best_pred still
+// lives in the real dst buffer as the intra search is about to overwrite it,
+// the predictor is copied out to a spare PRED_BUFFER first. No-op unless the
+// picker armed nonrdBestPredInRect for the current block.
+func (e *VP9Encoder) vp9NonrdPreIntraPredictCapture(miRow, miCol int,
+	bsize common.BlockSize,
+) {
+	if !e.nonrdBestPredInRect {
+		return
+	}
+	e.nonrdBestPredInRect = false
+	plane, stride, x, y, w, h, ok := e.vp9NonrdLumaPredRect(miRow, miCol, bsize)
+	if !ok {
+		return
+	}
+	vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:], plane, stride, x, y, w, h)
+	e.nonrdBestPredCaptured = true
 }
 
 func (e *VP9Encoder) vp9NonrdLumaPredRect(miRow, miCol int,
