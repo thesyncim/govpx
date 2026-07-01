@@ -63,6 +63,18 @@ func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
 }
 
+// predictAnalysisMacroblockLuma builds only the 16x16 luma predictor for the
+// fast intra mode picker. libvpx's vp8_pick_inter_mode scores intra
+// candidates with vp8_build_intra_predictors_mby_s + a luma variance and
+// leaves the UV mode to a separate pass over the winner, so the chroma
+// predictors written by predictAnalysisMacroblock were dead work on this
+// path.
+func predictAnalysisMacroblockLuma(img *vp8common.Image, row int, col int, mode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
+	refs := vp8dec.BuildIntraPredictorRefsLuma(img, row, col, &scratch.Refs)
+	yOff := row*16*img.YStride + col*16
+	return vp8dec.PredictIntraY16x16(mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable)
+}
+
 func predictAnalysisChroma(img *vp8common.Image, row int, col int, uvMode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
 	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
 	uOff := row*8*img.UStride + col*8

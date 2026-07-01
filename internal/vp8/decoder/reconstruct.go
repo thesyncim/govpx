@@ -94,6 +94,31 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 	}
 }
 
+// BuildIntraPredictorRefsLuma gathers only the Y-plane neighbor stripes.
+// The encoder's fast intra picker scores candidate 16x16 modes on luma
+// alone (libvpx vp8/encoder/pickinter.c uses
+// vp8_build_intra_predictors_mby_s in the mode loop and picks the UV mode
+// separately for the winner), so it never reads the U/V stripes.
+func BuildIntraPredictorRefsLuma(img *common.Image, mbRow int, mbCol int, scratch *IntraPredictorScratch) IntraPredictorRefs {
+	yRow := mbRow * 16
+	yCol := mbCol * 16
+	upAvailable := mbRow > 0
+	leftAvailable := mbCol > 0
+	codedWidth := codedImageWidth(img)
+	codedHeight := codedImageHeight(img)
+
+	buildAbove(scratch.YAbove[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	buildLeft(scratch.YLeft[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedHeight, yRow, yCol, img.YBorder, leftAvailable)
+
+	return IntraPredictorRefs{
+		YAbove:        scratch.YAbove[:],
+		YLeft:         scratch.YLeft[:],
+		YTopLeft:      topLeftSample(img.Y, img.YFull, img.YOrigin, img.YStride, yRow, yCol, img.YBorder, upAvailable, leftAvailable),
+		UpAvailable:   upAvailable,
+		LeftAvailable: leftAvailable,
+	}
+}
+
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
 	transformMacroblockTokensLuma(tokens, dequant, is4x4, out)
 	transformMacroblockTokensChroma(tokens, dequant, out)

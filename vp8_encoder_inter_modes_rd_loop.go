@@ -56,7 +56,7 @@ func (e *VP8Encoder) interModeForRDLoopEntry(
 				bestRefMV = modeMVs.best[interModeSignBiasSlotForReference(ref.Frame, signBias)&1]
 			}
 			search := e.interAnalysisSearchConfig()
-			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search, nil)
 			var motionStats interFrameMotionSearchStats
 			var stats *interFrameMotionSearchStats
 			if vp8PhaseStatsEnabled {
