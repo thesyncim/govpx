@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/dsp"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // VP9 loop-filter frame traversal. Ported from libvpx v1.16.0
@@ -98,14 +99,20 @@ func (d *VP9Decoder) applyVP9LoopFilter(hdr *vp9dec.UncompressedHeader) bool {
 }
 
 func (d *VP9Decoder) applyVP9LoopFilterSerial(miRows, miCols int) bool {
+	if !d.prepareVP9LoopFilterMasks(miRows, miCols, 0, miRows) {
+		return false
+	}
+	return d.applyVP9LoopFilterSerialCached(miRows, miCols)
+}
+
+func (d *VP9Decoder) applyVP9LoopFilterSerialCached(miRows, miCols int) bool {
 	for miRow := 0; miRow < miRows; miRow += common.MiBlockSize {
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
-			var lfm vp9LoopFilterMask
-			if !d.vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol, &lfm) {
+			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
+			if !ok {
 				return false
 			}
-			vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol, &lfm)
-			if !d.vp9FilterLoopBlock(miRows, miRow, miCol, &lfm) {
+			if !d.vp9FilterLoopBlock(miRows, miRow, miCol, lfm) {
 				return false
 			}
 		}
@@ -113,10 +120,65 @@ func (d *VP9Decoder) applyVP9LoopFilterSerial(miRows, miCols int) bool {
 	return true
 }
 
+func (d *VP9Decoder) prepareVP9LoopFilterMasks(miRows, miCols int,
+	startMiRow, endMiRow int,
+) bool {
+	if d == nil || miRows <= 0 || miCols <= 0 {
+		return false
+	}
+	if startMiRow < 0 {
+		startMiRow = 0
+	}
+	if endMiRow > miRows {
+		endMiRow = miRows
+	}
+	if startMiRow >= endMiRow {
+		return true
+	}
+	startMiRow &^= common.MiBlockSize - 1
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	d.vp9LoopFilterMasks = buffers.EnsureLenZeroed(d.vp9LoopFilterMasks,
+		sbRows*sbCols)
+	d.vp9LoopFilterMaskRows = sbRows
+	d.vp9LoopFilterMaskCols = sbCols
+	for miRow := startMiRow; miRow < endMiRow; miRow += common.MiBlockSize {
+		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
+			if !ok {
+				return false
+			}
+			if !d.vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol, lfm) {
+				return false
+			}
+			vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol, lfm)
+		}
+	}
+	return true
+}
+
+func (d *VP9Decoder) vp9LoopFilterMaskAt(miRow, miCol int) (*vp9LoopFilterMask, bool) {
+	if d == nil || d.vp9LoopFilterMaskCols <= 0 {
+		return nil, false
+	}
+	sbRow := miRow >> common.MiBlockSizeLog2
+	sbCol := miCol >> common.MiBlockSizeLog2
+	if sbRow < 0 || sbCol < 0 ||
+		sbRow >= d.vp9LoopFilterMaskRows ||
+		sbCol >= d.vp9LoopFilterMaskCols {
+		return nil, false
+	}
+	idx := sbRow*d.vp9LoopFilterMaskCols + sbCol
+	if idx < 0 || idx >= len(d.vp9LoopFilterMasks) {
+		return nil, false
+	}
+	return &d.vp9LoopFilterMasks[idx], true
+}
+
 func (d *VP9Decoder) applyVP9LoopFilterPlane(miRows, miCols int,
 	plane vp9LoopFilterPlane,
 ) bool {
-	return d.applyVP9LoopFilterPlaneRows(miRows, miCols, 0, miRows, plane)
+	return d.applyVP9LoopFilterPlaneRowsCached(miRows, miCols, 0, miRows, plane)
 }
 
 // applyVP9LoopFilterPlaneRows runs the loop filter on a single plane
@@ -153,14 +215,23 @@ func (d *VP9Decoder) applyVP9LoopFilterPlaneRows(miRows, miCols int,
 	if endMiRow > miRows {
 		endMiRow = miRows
 	}
+	if !d.prepareVP9LoopFilterMasks(miRows, miCols, startMiRow, endMiRow) {
+		return false
+	}
+	return d.applyVP9LoopFilterPlaneRowsCached(miRows, miCols, startMiRow,
+		endMiRow, plane)
+}
+
+func (d *VP9Decoder) applyVP9LoopFilterPlaneRowsCached(miRows, miCols int,
+	startMiRow, endMiRow int, plane vp9LoopFilterPlane,
+) bool {
 	for miRow := startMiRow; miRow < endMiRow; miRow += common.MiBlockSize {
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
-			var lfm vp9LoopFilterMask
-			if !d.vp9SetupLoopFilterMask(miRows, miCols, miRow, miCol, &lfm) {
+			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
+			if !ok {
 				return false
 			}
-			vp9AdjustLoopFilterMask(miRows, miCols, miRow, miCol, &lfm)
-			if !d.vp9FilterLoopBlockPlane(miRows, miRow, miCol, plane, &lfm) {
+			if !d.vp9FilterLoopBlockPlane(miRows, miRow, miCol, plane, lfm) {
 				return false
 			}
 		}

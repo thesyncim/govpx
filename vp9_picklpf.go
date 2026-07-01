@@ -474,22 +474,25 @@ func (s *vp9PickLpfProductionScorer) score(filtLevel int, partialFrame bool) int
 	lfTrial.FilterLevel = uint8(filtLevel)
 	vp9dec.LoopFilterFrameInit(&e.lfi, &lfTrial, s.seg, filtLevel)
 	d := VP9Decoder{
-		lfi:          e.lfi,
-		miGrid:       e.miGrid,
-		frameYFull:   e.reconYFull,
-		frameUFull:   e.reconUFull,
-		frameVFull:   e.reconVFull,
-		frameYOrigin: s.layout.YOrigin,
-		frameUOrigin: s.layout.UVOrigin,
-		frameVOrigin: s.layout.UVOrigin,
-		lastFrame:    e.reconFrame,
+		lfi:                e.lfi,
+		miGrid:             e.miGrid,
+		frameYFull:         e.reconYFull,
+		frameUFull:         e.reconUFull,
+		frameVFull:         e.reconVFull,
+		frameYOrigin:       s.layout.YOrigin,
+		frameUOrigin:       s.layout.UVOrigin,
+		frameVOrigin:       s.layout.UVOrigin,
+		lastFrame:          e.reconFrame,
+		vp9LoopFilterMasks: e.vp9LoopFilterMasks,
 	}
 	startMiRow, endMiRow := 0, s.miRows
 	if partialFrame {
 		startMiRow, endMiRow = vp9PickLpfPartialFrameRows(s.miRows)
 	}
-	if !d.applyVP9LoopFilterPlaneRows(s.miRows, s.miCols,
-		startMiRow, endMiRow, vp9LoopFilterPlaneY) {
+	ok := d.applyVP9LoopFilterPlaneRows(s.miRows, s.miCols,
+		startMiRow, endMiRow, vp9LoopFilterPlaneY)
+	e.vp9LoopFilterMasks = d.vp9LoopFilterMasks
+	if !ok {
 		copy(e.reconYFull[s.layout.YOrigin:], s.ufBackupY)
 		return int64(1) << 62
 	}

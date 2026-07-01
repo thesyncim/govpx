@@ -518,6 +518,11 @@ type VP9Encoder struct {
 	// libvpx: vp9_picklpf.c:73,100 (vpx_yv12_copy_y to / from
 	// cpi->last_frame_uf).
 	vp9LpfReconYBackup []byte
+	// vp9LoopFilterMasks is the encoder-owned scratch used by the decoder
+	// loopfilter helper for final filtering and LPF search trials. It mirrors
+	// libvpx's per-SB lfm storage and is reused so steady-state encode paths do
+	// not allocate while filtering.
+	vp9LoopFilterMasks []vp9LoopFilterMask
 
 	// vp9FilterThreshes / vp9FilterThreshesPrev mirror libvpx
 	// RD_OPT::filter_threshes[MAX_REF_FRAMES][SWITCHABLE_FILTER_CONTEXTS]

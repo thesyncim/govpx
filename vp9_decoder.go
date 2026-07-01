@@ -298,9 +298,12 @@ type VP9Decoder struct {
 
 	decryptedPacket []byte
 
-	vp9LoopFilterPool *vp9DecoderLoopFilterPool
-	vp9TilePool       *vp9DecoderTileWorkerPool
-	vp9TileDescs      []vp9DecoderTileDesc
+	vp9LoopFilterPool     *vp9DecoderLoopFilterPool
+	vp9TilePool           *vp9DecoderTileWorkerPool
+	vp9TileDescs          []vp9DecoderTileDesc
+	vp9LoopFilterMasks    []vp9LoopFilterMask
+	vp9LoopFilterMaskRows int
+	vp9LoopFilterMaskCols int
 
 	// rowMTSync is set on the per-tile-column decode worker when
 	// VP9D_SET_ROW_MT is active. parseVP9IntraModeTile and

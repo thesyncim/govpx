@@ -80,6 +80,9 @@ func (d *VP9Decoder) applyVP9LoopFilterThreaded(miRows, miCols int) bool {
 	if p == nil || p.helperCount <= 0 {
 		return d.applyVP9LoopFilterSerial(miRows, miCols)
 	}
+	if !d.prepareVP9LoopFilterMasks(miRows, miCols, 0, miRows) {
+		return false
+	}
 
 	helpers := int(p.helperCount)
 	p.jobs[0] = vp9DecoderLoopFilterJob{

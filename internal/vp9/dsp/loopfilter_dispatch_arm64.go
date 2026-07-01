@@ -57,33 +57,49 @@ func vpxLpfVertical4Dual(plane []uint8, s, pitch int,
 }
 
 func vpxLpfHorizontal8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
-	if canUseLoopfilter4TapNEON(blimit) && hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
-		lpfHorizontal8NEON(&plane[s], pitch, blimit, limit, thresh)
-		return
-	}
 	vpxLpfHorizontal8Scalar(plane, s, pitch, blimit, limit, thresh)
 }
 
+func vpxLpfHorizontal8NEON(plane []uint8, s, pitch int, blimit, limit, thresh uint8) bool {
+	if canUseLoopfilter4TapNEON(blimit) && hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
+		lpfHorizontal8NEON(&plane[s], pitch, blimit, limit, thresh)
+		return true
+	}
+	return false
+}
+
 func vpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
+	vpxLpfVertical8Scalar(plane, s, pitch, blimit, limit, thresh)
+}
+
+func vpxLpfVertical8NEON(plane []uint8, s, pitch int, blimit, limit, thresh uint8) bool {
 	if canUseLoopfilter4TapNEON(blimit) && hasVerticalLfWindow(plane, s-4, pitch, 8) {
 		lpfVertical8NEON(&plane[s], pitch, blimit, limit, thresh)
-		return
+		return true
 	}
-	vpxLpfVertical8Scalar(plane, s, pitch, blimit, limit, thresh)
+	return false
 }
 
 func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	vpxLpfHorizontal8(plane, s, pitch, blimit0, limit0, thresh0)
-	vpxLpfHorizontal8(plane, s+8, pitch, blimit1, limit1, thresh1)
+	if !vpxLpfHorizontal8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
+		vpxLpfHorizontal8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	}
+	if !vpxLpfHorizontal8NEON(plane, s+8, pitch, blimit1, limit1, thresh1) {
+		vpxLpfHorizontal8Scalar(plane, s+8, pitch, blimit1, limit1, thresh1)
+	}
 }
 
 func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
-	vpxLpfVertical8(plane, s, pitch, blimit0, limit0, thresh0)
-	vpxLpfVertical8(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
+	if !vpxLpfVertical8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
+		vpxLpfVertical8Scalar(plane, s, pitch, blimit0, limit0, thresh0)
+	}
+	if !vpxLpfVertical8NEON(plane, s+8*pitch, pitch, blimit1, limit1, thresh1) {
+		vpxLpfVertical8Scalar(plane, s+8*pitch, pitch, blimit1, limit1, thresh1)
+	}
 }
 
 func sameLoopfilterTriplet(blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8) bool {

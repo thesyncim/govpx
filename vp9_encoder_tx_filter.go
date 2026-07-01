@@ -686,19 +686,22 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 	vp9dec.LoopFilterFrameInit(&e.lfi, &hdr.Loopfilter, seg,
 		int(hdr.Loopfilter.FilterLevel))
 	d := VP9Decoder{
-		lfi:          e.lfi,
-		miGrid:       e.miGrid,
-		frameYFull:   e.reconYFull,
-		frameUFull:   e.reconUFull,
-		frameVFull:   e.reconVFull,
-		frameYOrigin: layout.YOrigin,
-		frameUOrigin: layout.UVOrigin,
-		frameVOrigin: layout.UVOrigin,
-		lastFrame:    e.reconFrame,
+		lfi:                e.lfi,
+		miGrid:             e.miGrid,
+		frameYFull:         e.reconYFull,
+		frameUFull:         e.reconUFull,
+		frameVFull:         e.reconVFull,
+		frameYOrigin:       layout.YOrigin,
+		frameUOrigin:       layout.UVOrigin,
+		frameVOrigin:       layout.UVOrigin,
+		lastFrame:          e.reconFrame,
+		vp9LoopFilterMasks: e.vp9LoopFilterMasks,
 	}
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
-	return d.applyVP9LoopFilterSerial(miRows, miCols)
+	ok := d.applyVP9LoopFilterSerial(miRows, miCols)
+	e.vp9LoopFilterMasks = d.vp9LoopFilterMasks
+	return ok
 }
 
 func vp9ModeTreeInterpFilter(kind vp9ModeTreeKind, inter *vp9InterEncodeState) vp9dec.InterpFilter {
