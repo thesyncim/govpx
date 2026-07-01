@@ -21,10 +21,9 @@ func signedCharClamp(t int) int8 {
 }
 
 func absDiff(a, b uint8) int {
-	if a >= b {
-		return int(a) - int(b)
-	}
-	return int(b) - int(a)
+	d := int(a) - int(b)
+	mask := d >> 31
+	return (d ^ mask) - mask
 }
 
 // filterMask returns 0xff if the 8-pixel edge needs filtering, 0
