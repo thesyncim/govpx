@@ -359,6 +359,40 @@ func assignVP9CallStat(stats *vp9CallStats, key string, value uint64) bool {
 		stats.VarpartContentStateLowVarHighSumdiff = value
 	case "varpart_content_state_very_high_sad":
 		stats.VarpartContentStateVeryHighSad = value
+	case "varpart_ysad_valid":
+		stats.VarpartYSADValid = value
+	case "varpart_ysad_select_64x64":
+		stats.VarpartYSADSelect64x64 = value
+	case "varpart_copy_partition_select":
+		stats.VarpartCopyPartitionSelect = value
+	case "varpart_force_split_64":
+		stats.VarpartForceSplit64 = value
+	case "varpart_force_split_32":
+		stats.VarpartForceSplit32 = value
+	case "varpart_force_split_16":
+		stats.VarpartForceSplit16 = value
+	case "varpart_setvt_calls":
+		stats.VarpartSetVTCalls = value
+	case "varpart_setvt_64x64":
+		stats.VarpartSetVT64x64 = value
+	case "varpart_setvt_32x32":
+		stats.VarpartSetVT32x32 = value
+	case "varpart_setvt_16x16":
+		stats.VarpartSetVT16x16 = value
+	case "varpart_setvt_8x8":
+		stats.VarpartSetVT8x8 = value
+	case "varpart_setvt_force_split":
+		stats.VarpartSetVTForceSplit = value
+	case "varpart_setvt_force_split_64x64":
+		stats.VarpartSetVTForceSplit64x64 = value
+	case "varpart_setvt_force_split_32x32":
+		stats.VarpartSetVTForceSplit32x32 = value
+	case "varpart_setvt_force_split_16x16":
+		stats.VarpartSetVTForceSplit16x16 = value
+	case "varpart_setvt_select":
+		stats.VarpartSetVTSelect = value
+	case "varpart_setvt_split":
+		stats.VarpartSetVTSplit = value
 	default:
 		return false
 	}

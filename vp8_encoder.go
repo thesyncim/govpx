@@ -225,6 +225,24 @@ type EncoderPhaseStats struct {
 	VP9VarPartContentStateHighSadHighSumdiff int64 `json:"vp9_varpart_content_state_high_sad_high_sumdiff"`
 	VP9VarPartContentStateLowVarHighSumdiff  int64 `json:"vp9_varpart_content_state_low_var_high_sumdiff"`
 	VP9VarPartContentStateVeryHighSad        int64 `json:"vp9_varpart_content_state_very_high_sad"`
+	// VP9VarPart* split counters instrument choose_partitioning's variance tree.
+	VP9VarPartYSADValid            int64 `json:"vp9_varpart_ysad_valid"`
+	VP9VarPartYSADSelect64x64      int64 `json:"vp9_varpart_ysad_select_64x64"`
+	VP9VarPartCopyPartitionSelect  int64 `json:"vp9_varpart_copy_partition_select"`
+	VP9VarPartForceSplit64         int64 `json:"vp9_varpart_force_split_64"`
+	VP9VarPartForceSplit32         int64 `json:"vp9_varpart_force_split_32"`
+	VP9VarPartForceSplit16         int64 `json:"vp9_varpart_force_split_16"`
+	VP9VarPartSetVTCalls           int64 `json:"vp9_varpart_setvt_calls"`
+	VP9VarPartSetVT64x64           int64 `json:"vp9_varpart_setvt_64x64"`
+	VP9VarPartSetVT32x32           int64 `json:"vp9_varpart_setvt_32x32"`
+	VP9VarPartSetVT16x16           int64 `json:"vp9_varpart_setvt_16x16"`
+	VP9VarPartSetVT8x8             int64 `json:"vp9_varpart_setvt_8x8"`
+	VP9VarPartSetVTForceSplit      int64 `json:"vp9_varpart_setvt_force_split"`
+	VP9VarPartSetVTForceSplit64x64 int64 `json:"vp9_varpart_setvt_force_split_64x64"`
+	VP9VarPartSetVTForceSplit32x32 int64 `json:"vp9_varpart_setvt_force_split_32x32"`
+	VP9VarPartSetVTForceSplit16x16 int64 `json:"vp9_varpart_setvt_force_split_16x16"`
+	VP9VarPartSetVTSelect          int64 `json:"vp9_varpart_setvt_select"`
+	VP9VarPartSetVTSplit           int64 `json:"vp9_varpart_setvt_split"`
 	// VP9InterPredictionBlocks counts VP9 inter-predictor block builds.
 	VP9InterPredictionBlocks int64 `json:"vp9_inter_prediction_blocks"`
 	// VP9InterPredictPlaneCalls counts VP9 per-plane inter-predictor calls.

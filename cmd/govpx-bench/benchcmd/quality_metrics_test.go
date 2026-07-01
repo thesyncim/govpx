@@ -72,7 +72,10 @@ func TestParseLibvpxVP9CallStats(t *testing.T) {
 		"sad_candidates=2819567 mode_block_32x32=51956 " +
 		"mode_block_16x16=161783 mode_block_8x8=30988 " +
 		"varpart_choose_calls=240 varpart_copy_hits=3 " +
-		"varpart_content_state_very_high_sad=42 unknown_key=99\n")
+		"varpart_content_state_very_high_sad=42 " +
+		"varpart_force_split_16=43 varpart_setvt_calls=44 " +
+		"varpart_setvt_force_split_16x16=45 " +
+		"varpart_setvt_select=46 varpart_setvt_split=47 unknown_key=99\n")
 	stats, ok := parseLibvpxVP9CallStats(stderr)
 	if !ok || stats == nil {
 		t.Fatalf("parseLibvpxVP9CallStats failed")
@@ -85,6 +88,11 @@ func TestParseLibvpxVP9CallStats(t *testing.T) {
 	}
 	if stats.VarpartChooseCalls != 240 || stats.VarpartCopyHits != 3 || stats.VarpartContentStateVeryHighSad != 42 {
 		t.Fatalf("varpart counters = %+v", *stats)
+	}
+	if stats.VarpartForceSplit16 != 43 || stats.VarpartSetVTCalls != 44 ||
+		stats.VarpartSetVTForceSplit16x16 != 45 ||
+		stats.VarpartSetVTSelect != 46 || stats.VarpartSetVTSplit != 47 {
+		t.Fatalf("varpart split counters = %+v", *stats)
 	}
 	if stats.ModeBlocks() != 51956+161783+30988 {
 		t.Fatalf("ModeBlocks = %d", stats.ModeBlocks())

@@ -108,6 +108,23 @@ func TestFakeVpxencHelper(t *testing.T) {
 			"varpart_content_state_high_sad_high_sumdiff=35",
 			"varpart_content_state_low_var_high_sumdiff=36",
 			"varpart_content_state_very_high_sad=37",
+			"varpart_ysad_valid=38",
+			"varpart_ysad_select_64x64=39",
+			"varpart_copy_partition_select=40",
+			"varpart_force_split_64=41",
+			"varpart_force_split_32=42",
+			"varpart_force_split_16=43",
+			"varpart_setvt_calls=44",
+			"varpart_setvt_64x64=45",
+			"varpart_setvt_32x32=46",
+			"varpart_setvt_16x16=47",
+			"varpart_setvt_8x8=48",
+			"varpart_setvt_force_split=49",
+			"varpart_setvt_force_split_64x64=50",
+			"varpart_setvt_force_split_32x32=51",
+			"varpart_setvt_force_split_16x16=52",
+			"varpart_setvt_select=53",
+			"varpart_setvt_split=54",
 		}
 		fmt.Fprintln(os.Stderr, strings.Join(fields, " "))
 	}

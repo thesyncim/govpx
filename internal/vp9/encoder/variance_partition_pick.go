@@ -145,6 +145,74 @@ func computeMinmax8x8(s []uint8, sp int, d []uint8, dp int,
 	return minmaxMax - minmaxMin
 }
 
+// ChoosePartitioningStats is opt-in instrumentation for the realtime
+// variance-partition picker. The stats argument and call sites are compiled in
+// only by the govpx_phase_stats build tag, keeping default encoder builds on
+// the source-shaped picker path.
+type ChoosePartitioningStats struct {
+	YSADValid            uint64
+	YSADSelect64x64      uint64
+	CopyPartitionSelect  uint64
+	ForceSplit64         uint64
+	ForceSplit32         uint64
+	ForceSplit16         uint64
+	SetVTCalls           uint64
+	SetVT64x64           uint64
+	SetVT32x32           uint64
+	SetVT16x16           uint64
+	SetVT8x8             uint64
+	SetVTForceSplit      uint64
+	SetVTForceSplit64x64 uint64
+	SetVTForceSplit32x32 uint64
+	SetVTForceSplit16x16 uint64
+	SetVTSelect          uint64
+	SetVTSplit           uint64
+}
+
+func (s *ChoosePartitioningStats) countSetVTCall(bsize common.BlockSize) {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.SetVTCalls++
+	switch bsize {
+	case common.Block64x64:
+		s.SetVT64x64++
+	case common.Block32x32:
+		s.SetVT32x32++
+	case common.Block16x16:
+		s.SetVT16x16++
+	case common.Block8x8:
+		s.SetVT8x8++
+	}
+}
+
+func (s *ChoosePartitioningStats) countSetVTForceSplit(bsize common.BlockSize) {
+	if !choosePartitioningStatsEnabled || s == nil {
+		return
+	}
+	s.SetVTForceSplit++
+	switch bsize {
+	case common.Block64x64:
+		s.SetVTForceSplit64x64++
+	case common.Block32x32:
+		s.SetVTForceSplit32x32++
+	case common.Block16x16:
+		s.SetVTForceSplit16x16++
+	}
+}
+
+func (s *ChoosePartitioningStats) countSetVTSelect() {
+	if choosePartitioningStatsEnabled && s != nil {
+		s.SetVTSelect++
+	}
+}
+
+func (s *ChoosePartitioningStats) countSetVTSplit() {
+	if choosePartitioningStatsEnabled && s != nil {
+		s.SetVTSplit++
+	}
+}
+
 // ChoosePartitioningArgs bundles the inputs to ChoosePartitioning so
 // the Go signature stays manageable. Mirrors libvpx's
 // choose_partitioning(cpi, tile, x, mi_row, mi_col) cpi-derived state.
@@ -220,6 +288,8 @@ type ChoosePartitioningArgs struct {
 	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
 	// is already the segment qindex from vp9_get_qindex().
 	CyclicRefreshSegmentIdBoosted bool
+
+	choosePartitioningStatsArg
 }
 
 // ChoosePartitioning is the verbatim port of libvpx's choose_partitioning
@@ -254,6 +324,11 @@ type ChoosePartitioningArgs struct {
 //
 //nolint:gocyclo // verbatim libvpx body
 func ChoosePartitioning(a ChoosePartitioningArgs) int {
+	var stats *ChoosePartitioningStats
+	if choosePartitioningStatsEnabled {
+		stats = choosePartitioningStats(&a)
+	}
+
 	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals.
 	vt := a.VarianceTree
 	if vt == nil {
@@ -362,6 +437,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 	sp := a.SrcStride
 	// libvpx: vp9_encodeframe.c:1398 — force_split[0].
 	if force64Split {
+		if choosePartitioningStatsEnabled && stats != nil {
+			stats.ForceSplit64++
+		}
 		forceSplit[0] = 1
 	}
 
@@ -394,9 +472,15 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		dst = varOffs64[:]
 		dp = 0
 	}
+	if choosePartitioningStatsEnabled && stats != nil && ySADValid {
+		stats.YSADValid++
+	}
 	if ySADValid && !a.CyclicRefreshSegmentIdBoosted &&
 		int64(ySAD) < aux.ThresholdSAD &&
 		a.MiCol+4 < a.MiCols && a.MiRow+4 < a.MiRows {
+		if choosePartitioningStatsEnabled && stats != nil {
+			stats.YSADSelect64x64++
+		}
 		setBlockSize(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
 			common.Block64x64)
 		if a.VarianceLow != nil {
@@ -413,6 +497,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		}
 		if copySADValid && int64(copySAD) < aux.ThresholdCopy &&
 			copyPartitioning(a) {
+			if choosePartitioningStatsEnabled && stats != nil {
+				stats.CopyPartitionSelect++
+			}
 			return 0
 		}
 	}
@@ -452,6 +539,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				}
 				if int64(vt.Split[i].Split[j].PartVariances.None.Variance) > thresholds[2] {
 					// 16x16 above threshold for split.
+					if choosePartitioningStatsEnabled && stats != nil {
+						stats.ForceSplit16++
+					}
 					forceSplit[splitIndex] = 1
 					forceSplit[i+1] = 1
 					forceSplit[0] = 1
@@ -465,6 +555,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 						threshMinmax = threshMinmax << 1
 					}
 					if minmax > threshMinmax {
+						if choosePartitioningStatsEnabled && stats != nil {
+							stats.ForceSplit16++
+						}
 						forceSplit[splitIndex] = 1
 						forceSplit[i+1] = 1
 						forceSplit[0] = 1
@@ -514,6 +607,9 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				fillVarianceTreeV16x16(vtemp)
 				getVariance(&vtemp.PartVariances.None)
 				if int64(vtemp.PartVariances.None.Variance) > thresholds[2] {
+					if choosePartitioningStatsEnabled && stats != nil {
+						stats.ForceSplit16++
+					}
 					forceSplit[5+i2+j] = 1
 					forceSplit[i+1] = 1
 					forceSplit[0] = 1
@@ -534,12 +630,18 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				(!isKeyFrame &&
 					int64(vt.Split[i].PartVariances.None.Variance) > (thresholds[1]>>1) &&
 					int64(vt.Split[i].PartVariances.None.Variance) > int64(avg16x16[i]>>1)) {
+				if choosePartitioningStatsEnabled && stats != nil {
+					stats.ForceSplit32++
+				}
 				forceSplit[i+1] = 1
 				forceSplit[0] = 1
 			} else if !isKeyFrame && noiseLevel < NoiseLevelLow &&
 				a.FrameHeight <= 360 &&
 				(maxvar16x16[i]-minvar16x16[i]) > int(thresholds[1]>>1) &&
 				maxvar16x16[i] > int(thresholds[1]) {
+				if choosePartitioningStatsEnabled && stats != nil {
+					stats.ForceSplit32++
+				}
 				forceSplit[i+1] = 1
 				forceSplit[0] = 1
 			}
@@ -552,30 +654,54 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 		getVariance(&vt.PartVariances.None)
 		if !isKeyFrame && noiseLevel >= NoiseLevelMedium &&
 			vt.PartVariances.None.Variance > (9*avg32x32)>>5 {
+			if choosePartitioningStatsEnabled && stats != nil {
+				stats.ForceSplit64++
+			}
 			forceSplit[0] = 1
 		} else if !isKeyFrame && noiseLevel < NoiseLevelMedium &&
 			(maxVar32x32-minVar32x32) > int(3*(thresholds[0]>>3)) &&
 			maxVar32x32 > int(thresholds[0]>>1) {
+			if choosePartitioningStatsEnabled && stats != nil {
+				stats.ForceSplit64++
+			}
 			forceSplit[0] = 1
 		}
 	}
 
 	// libvpx: vp9_encodeframe.c:1696-1745 — recursive set_vt_partitioning.
 	chromaOK := func(_ common.BlockSize) bool { return true }
-	if a.MiCol+8 > a.MiCols || a.MiRow+8 > a.MiRows ||
-		!setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
+	rootSet := false
+	if choosePartitioningStatsEnabled {
+		rootSet = setVTPartitioningWithStats(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
 			common.Block64x64, common.Block16x16, thresholds[0],
 			forceSplit[0] != 0, isKeyFrame,
-			setVTPartitioningArgs{V64: vt}, chromaOK) {
+			setVTPartitioningArgs{V64: vt}, chromaOK, stats)
+	} else {
+		rootSet = setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols, a.MiRow, a.MiCol,
+			common.Block64x64, common.Block16x16, thresholds[0],
+			forceSplit[0] != 0, isKeyFrame,
+			setVTPartitioningArgs{V64: vt}, chromaOK)
+	}
+	if a.MiCol+8 > a.MiCols || a.MiRow+8 > a.MiRows || !rootSet {
 		for i := range 4 {
 			x32Idx := (i & 1) << 2
 			y32Idx := (i >> 1) << 2
 			i2 := i << 2
-			if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
-				a.MiRow+y32Idx, a.MiCol+x32Idx,
-				common.Block32x32, common.Block16x16, thresholds[1],
-				forceSplit[i+1] != 0, isKeyFrame,
-				setVTPartitioningArgs{V32: &vt.Split[i]}, chromaOK) {
+			block32Set := false
+			if choosePartitioningStatsEnabled {
+				block32Set = setVTPartitioningWithStats(a.MiGrid, a.MiRows, a.MiCols,
+					a.MiRow+y32Idx, a.MiCol+x32Idx,
+					common.Block32x32, common.Block16x16, thresholds[1],
+					forceSplit[i+1] != 0, isKeyFrame,
+					setVTPartitioningArgs{V32: &vt.Split[i]}, chromaOK, stats)
+			} else {
+				block32Set = setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+					a.MiRow+y32Idx, a.MiCol+x32Idx,
+					common.Block32x32, common.Block16x16, thresholds[1],
+					forceSplit[i+1] != 0, isKeyFrame,
+					setVTPartitioningArgs{V32: &vt.Split[i]}, chromaOK)
+			}
+			if !block32Set {
 				for j := range 4 {
 					x16Idx := (j & 1) << 1
 					y16Idx := (j >> 1) << 1
@@ -591,21 +717,42 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 					} else {
 						bsizeMin = common.Block8x8
 					}
-					if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
-						a.MiRow+y32Idx+y16Idx, a.MiCol+x32Idx+x16Idx,
-						common.Block16x16, bsizeMin, thresholds[2],
-						forceSplit[5+i2+j] != 0, isKeyFrame,
-						setVTPartitioningArgs{V16: vtemp}, chromaOK) {
+					block16Set := false
+					if choosePartitioningStatsEnabled {
+						block16Set = setVTPartitioningWithStats(a.MiGrid, a.MiRows, a.MiCols,
+							a.MiRow+y32Idx+y16Idx, a.MiCol+x32Idx+x16Idx,
+							common.Block16x16, bsizeMin, thresholds[2],
+							forceSplit[5+i2+j] != 0, isKeyFrame,
+							setVTPartitioningArgs{V16: vtemp}, chromaOK, stats)
+					} else {
+						block16Set = setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+							a.MiRow+y32Idx+y16Idx, a.MiCol+x32Idx+x16Idx,
+							common.Block16x16, bsizeMin, thresholds[2],
+							forceSplit[5+i2+j] != 0, isKeyFrame,
+							setVTPartitioningArgs{V16: vtemp}, chromaOK)
+					}
+					if !block16Set {
 						for k := range 4 {
 							x8Idx := k & 1
 							y8Idx := k >> 1
 							if use4x4Partition {
-								if !setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
-									a.MiRow+y32Idx+y16Idx+y8Idx,
-									a.MiCol+x32Idx+x16Idx+x8Idx,
-									common.Block8x8, common.Block8x8,
-									thresholds[3], false, isKeyFrame,
-									setVTPartitioningArgs{V8: &vtemp.Split[k]}, chromaOK) {
+								block8Set := false
+								if choosePartitioningStatsEnabled {
+									block8Set = setVTPartitioningWithStats(a.MiGrid, a.MiRows, a.MiCols,
+										a.MiRow+y32Idx+y16Idx+y8Idx,
+										a.MiCol+x32Idx+x16Idx+x8Idx,
+										common.Block8x8, common.Block8x8,
+										thresholds[3], false, isKeyFrame,
+										setVTPartitioningArgs{V8: &vtemp.Split[k]}, chromaOK, stats)
+								} else {
+									block8Set = setVTPartitioning(a.MiGrid, a.MiRows, a.MiCols,
+										a.MiRow+y32Idx+y16Idx+y8Idx,
+										a.MiCol+x32Idx+x16Idx+x8Idx,
+										common.Block8x8, common.Block8x8,
+										thresholds[3], false, isKeyFrame,
+										setVTPartitioningArgs{V8: &vtemp.Split[k]}, chromaOK)
+								}
+								if !block8Set {
 									setBlockSize(a.MiGrid, a.MiRows, a.MiCols,
 										a.MiRow+y32Idx+y16Idx+y8Idx,
 										a.MiCol+x32Idx+x16Idx+x8Idx,

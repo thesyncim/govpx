@@ -169,6 +169,23 @@ type vp9CallStats struct {
 	VarpartContentStateHighSadHighSumdiff uint64 `json:"varpart_content_state_high_sad_high_sumdiff,omitempty"`
 	VarpartContentStateLowVarHighSumdiff  uint64 `json:"varpart_content_state_low_var_high_sumdiff,omitempty"`
 	VarpartContentStateVeryHighSad        uint64 `json:"varpart_content_state_very_high_sad,omitempty"`
+	VarpartYSADValid                      uint64 `json:"varpart_ysad_valid,omitempty"`
+	VarpartYSADSelect64x64                uint64 `json:"varpart_ysad_select_64x64,omitempty"`
+	VarpartCopyPartitionSelect            uint64 `json:"varpart_copy_partition_select,omitempty"`
+	VarpartForceSplit64                   uint64 `json:"varpart_force_split_64,omitempty"`
+	VarpartForceSplit32                   uint64 `json:"varpart_force_split_32,omitempty"`
+	VarpartForceSplit16                   uint64 `json:"varpart_force_split_16,omitempty"`
+	VarpartSetVTCalls                     uint64 `json:"varpart_setvt_calls,omitempty"`
+	VarpartSetVT64x64                     uint64 `json:"varpart_setvt_64x64,omitempty"`
+	VarpartSetVT32x32                     uint64 `json:"varpart_setvt_32x32,omitempty"`
+	VarpartSetVT16x16                     uint64 `json:"varpart_setvt_16x16,omitempty"`
+	VarpartSetVT8x8                       uint64 `json:"varpart_setvt_8x8,omitempty"`
+	VarpartSetVTForceSplit                uint64 `json:"varpart_setvt_force_split,omitempty"`
+	VarpartSetVTForceSplit64x64           uint64 `json:"varpart_setvt_force_split_64x64,omitempty"`
+	VarpartSetVTForceSplit32x32           uint64 `json:"varpart_setvt_force_split_32x32,omitempty"`
+	VarpartSetVTForceSplit16x16           uint64 `json:"varpart_setvt_force_split_16x16,omitempty"`
+	VarpartSetVTSelect                    uint64 `json:"varpart_setvt_select,omitempty"`
+	VarpartSetVTSplit                     uint64 `json:"varpart_setvt_split,omitempty"`
 }
 
 func (s vp9CallStats) ModeBlocks() uint64 {
@@ -191,6 +208,13 @@ func (s vp9CallStats) VarpartContentStates() uint64 {
 		s.VarpartContentStateHighSadHighSumdiff +
 		s.VarpartContentStateLowVarHighSumdiff +
 		s.VarpartContentStateVeryHighSad
+}
+
+func (s vp9CallStats) VarpartSetVTBlockCalls() uint64 {
+	return s.VarpartSetVT64x64 +
+		s.VarpartSetVT32x32 +
+		s.VarpartSetVT16x16 +
+		s.VarpartSetVT8x8
 }
 
 type decodeBenchReport struct {

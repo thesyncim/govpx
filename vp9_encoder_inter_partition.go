@@ -926,9 +926,14 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseCountVarPartContentState(args.ContentState)
 	}
-	encoder.ChoosePartitioning(args)
 	if vp9PhaseStatsEnabled {
+		var chooseStats encoder.ChoosePartitioningStats
+		e.vp9PhaseAttachChoosePartitioningStats(&args, &chooseStats)
+		encoder.ChoosePartitioning(args)
 		e.vp9PhaseCountVarPartChoose(copiedPartition, inter != nil && inter.counts != nil)
+		e.vp9PhaseAddChoosePartitioningStats(chooseStats)
+	} else {
+		encoder.ChoosePartitioning(args)
 	}
 	if copiedPartition {
 		if sbIdx >= 0 && sbIdx < len(e.varPartSBCopiedPartition) {

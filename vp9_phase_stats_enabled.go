@@ -180,6 +180,30 @@ func (e *VP9Encoder) vp9PhaseCountVarPartContentState(state encoder.ContentState
 	}
 }
 
+func (e *VP9Encoder) vp9PhaseAddChoosePartitioningStats(s encoder.ChoosePartitioningStats) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9VarPartYSADValid, int64(s.YSADValid))
+	atomic.AddInt64(&stats.VP9VarPartYSADSelect64x64, int64(s.YSADSelect64x64))
+	atomic.AddInt64(&stats.VP9VarPartCopyPartitionSelect, int64(s.CopyPartitionSelect))
+	atomic.AddInt64(&stats.VP9VarPartForceSplit64, int64(s.ForceSplit64))
+	atomic.AddInt64(&stats.VP9VarPartForceSplit32, int64(s.ForceSplit32))
+	atomic.AddInt64(&stats.VP9VarPartForceSplit16, int64(s.ForceSplit16))
+	atomic.AddInt64(&stats.VP9VarPartSetVTCalls, int64(s.SetVTCalls))
+	atomic.AddInt64(&stats.VP9VarPartSetVT64x64, int64(s.SetVT64x64))
+	atomic.AddInt64(&stats.VP9VarPartSetVT32x32, int64(s.SetVT32x32))
+	atomic.AddInt64(&stats.VP9VarPartSetVT16x16, int64(s.SetVT16x16))
+	atomic.AddInt64(&stats.VP9VarPartSetVT8x8, int64(s.SetVT8x8))
+	atomic.AddInt64(&stats.VP9VarPartSetVTForceSplit, int64(s.SetVTForceSplit))
+	atomic.AddInt64(&stats.VP9VarPartSetVTForceSplit64x64, int64(s.SetVTForceSplit64x64))
+	atomic.AddInt64(&stats.VP9VarPartSetVTForceSplit32x32, int64(s.SetVTForceSplit32x32))
+	atomic.AddInt64(&stats.VP9VarPartSetVTForceSplit16x16, int64(s.SetVTForceSplit16x16))
+	atomic.AddInt64(&stats.VP9VarPartSetVTSelect, int64(s.SetVTSelect))
+	atomic.AddInt64(&stats.VP9VarPartSetVTSplit, int64(s.SetVTSplit))
+}
+
 func (e *VP9Encoder) vp9PhaseIncInterPredictionBlock() {
 	stats := e.vp9PhaseStats()
 	if stats != nil {

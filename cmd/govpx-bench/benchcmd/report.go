@@ -133,6 +133,28 @@ func appendVP9CallStatsReport(b *bytes.Buffer, stats vp9CallStats) {
 			stats.VarpartContentStateLowVarHighSumdiff,
 			stats.VarpartContentStateVeryHighSad)
 	}
+	if stats.VarpartSetVTCalls > 0 || stats.VarpartForceSplit64 > 0 ||
+		stats.VarpartForceSplit32 > 0 || stats.VarpartForceSplit16 > 0 {
+		fmt.Fprintf(b, "libvpx varpart y_sad=%d  y_sad64=%d  copy_select=%d  force64=%d  force32=%d  force16=%d\n",
+			stats.VarpartYSADValid,
+			stats.VarpartYSADSelect64x64,
+			stats.VarpartCopyPartitionSelect,
+			stats.VarpartForceSplit64,
+			stats.VarpartForceSplit32,
+			stats.VarpartForceSplit16)
+		fmt.Fprintf(b, "libvpx setvt   calls=%d  blocks=%d/%d/%d/%d  force=%d/%d/%d/%d  select=%d  split=%d\n",
+			stats.VarpartSetVTCalls,
+			stats.VarpartSetVT64x64,
+			stats.VarpartSetVT32x32,
+			stats.VarpartSetVT16x16,
+			stats.VarpartSetVT8x8,
+			stats.VarpartSetVTForceSplit,
+			stats.VarpartSetVTForceSplit64x64,
+			stats.VarpartSetVTForceSplit32x32,
+			stats.VarpartSetVTForceSplit16x16,
+			stats.VarpartSetVTSelect,
+			stats.VarpartSetVTSplit)
+	}
 }
 
 func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, frames int) {
@@ -184,6 +206,28 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9InterPredictorAvgHoriz,
 			stats.VP9InterPredictorAvgVert,
 			stats.VP9InterPredictorAvg2D)
+	}
+	if stats.VP9VarPartSetVTCalls > 0 || stats.VP9VarPartForceSplit64 > 0 ||
+		stats.VP9VarPartForceSplit32 > 0 || stats.VP9VarPartForceSplit16 > 0 {
+		fmt.Fprintf(b, "vp9 varpart     y_sad=%d  y_sad64=%d  copy_select=%d  force64=%d  force32=%d  force16=%d\n",
+			stats.VP9VarPartYSADValid,
+			stats.VP9VarPartYSADSelect64x64,
+			stats.VP9VarPartCopyPartitionSelect,
+			stats.VP9VarPartForceSplit64,
+			stats.VP9VarPartForceSplit32,
+			stats.VP9VarPartForceSplit16)
+		fmt.Fprintf(b, "vp9 setvt       calls=%d  blocks=%d/%d/%d/%d  force=%d/%d/%d/%d  select=%d  split=%d\n",
+			stats.VP9VarPartSetVTCalls,
+			stats.VP9VarPartSetVT64x64,
+			stats.VP9VarPartSetVT32x32,
+			stats.VP9VarPartSetVT16x16,
+			stats.VP9VarPartSetVT8x8,
+			stats.VP9VarPartSetVTForceSplit,
+			stats.VP9VarPartSetVTForceSplit64x64,
+			stats.VP9VarPartSetVTForceSplit32x32,
+			stats.VP9VarPartSetVTForceSplit16x16,
+			stats.VP9VarPartSetVTSelect,
+			stats.VP9VarPartSetVTSplit)
 	}
 }
 

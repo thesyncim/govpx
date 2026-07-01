@@ -20,7 +20,7 @@ vpxdec_vp9_bin=${GOVPX_VPXDEC_VP9_BIN:-"$build_dir/vpxdec-vp9"}
 vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
 vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-r1
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-r2
 src_dir=$src_dir
 vpxdec_vp9_bin=$vpxdec_vp9_bin
 vpxenc_vp9_bin=$vpxenc_vp9_bin"
@@ -232,6 +232,11 @@ void govpx_vp9_count_sad_candidates(uint64_t candidates, int batch);
 void govpx_vp9_count_mode_block(int bsize);
 void govpx_vp9_count_varpart_choose(int copied);
 void govpx_vp9_count_varpart_content_state(int state);
+void govpx_vp9_count_varpart_ysad(void);
+void govpx_vp9_count_varpart_ysad_select64(void);
+void govpx_vp9_count_varpart_copy_select(void);
+void govpx_vp9_count_varpart_force_split(int bsize);
+void govpx_vp9_count_varpart_setvt(int bsize, int force_split, int selected);
 
 #ifdef __cplusplus
 }  // extern "C"
@@ -271,6 +276,20 @@ static uint64_t govpx_vp9_mode_block[BLOCK_SIZES];
 static uint64_t govpx_vp9_varpart_choose_calls;
 static uint64_t govpx_vp9_varpart_copy_hits;
 static uint64_t govpx_vp9_varpart_content_state[7];
+static uint64_t govpx_vp9_varpart_ysad_valid;
+static uint64_t govpx_vp9_varpart_ysad_select_64x64;
+static uint64_t govpx_vp9_varpart_copy_partition_select;
+static uint64_t govpx_vp9_varpart_force_split_64;
+static uint64_t govpx_vp9_varpart_force_split_32;
+static uint64_t govpx_vp9_varpart_force_split_16;
+static uint64_t govpx_vp9_varpart_setvt_calls;
+static uint64_t govpx_vp9_varpart_setvt[BLOCK_SIZES];
+static uint64_t govpx_vp9_varpart_setvt_force_split;
+static uint64_t govpx_vp9_varpart_setvt_force_split_64;
+static uint64_t govpx_vp9_varpart_setvt_force_split_32;
+static uint64_t govpx_vp9_varpart_setvt_force_split_16;
+static uint64_t govpx_vp9_varpart_setvt_select;
+static uint64_t govpx_vp9_varpart_setvt_split;
 
 static void govpx_vp9_add_u64(uint64_t *value, uint64_t delta) {
   __sync_fetch_and_add(value, delta);
@@ -337,6 +356,46 @@ void govpx_vp9_count_varpart_content_state(int state) {
     govpx_vp9_add_u64(&govpx_vp9_varpart_content_state[state], 1);
 }
 
+void govpx_vp9_count_varpart_ysad(void) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_ysad_valid, 1);
+}
+
+void govpx_vp9_count_varpart_ysad_select64(void) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_ysad_select_64x64, 1);
+}
+
+void govpx_vp9_count_varpart_copy_select(void) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_copy_partition_select, 1);
+}
+
+void govpx_vp9_count_varpart_force_split(int bsize) {
+  if (bsize == BLOCK_64X64)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_64, 1);
+  else if (bsize == BLOCK_32X32)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_32, 1);
+  else if (bsize == BLOCK_16X16)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_force_split_16, 1);
+}
+
+void govpx_vp9_count_varpart_setvt(int bsize, int force_split, int selected) {
+  govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_calls, 1);
+  if (bsize >= 0 && bsize < BLOCK_SIZES)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_setvt[bsize], 1);
+  if (force_split) {
+    govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_force_split, 1);
+    if (bsize == BLOCK_64X64)
+      govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_force_split_64, 1);
+    else if (bsize == BLOCK_32X32)
+      govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_force_split_32, 1);
+    else if (bsize == BLOCK_16X16)
+      govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_force_split_16, 1);
+  }
+  if (selected)
+    govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_select, 1);
+  else
+    govpx_vp9_add_u64(&govpx_vp9_varpart_setvt_split, 1);
+}
+
 __attribute__((destructor)) static void govpx_vp9_dump_call_stats(void) {
   if (getenv("GOVPX_LIBVPX_VP9_CALL_STATS") == NULL) return;
   fprintf(stderr,
@@ -360,7 +419,24 @@ __attribute__((destructor)) static void govpx_vp9_dump_call_stats(void) {
           "varpart_content_state_high_sad_low_sumdiff=%llu "
           "varpart_content_state_high_sad_high_sumdiff=%llu "
           "varpart_content_state_low_var_high_sumdiff=%llu "
-          "varpart_content_state_very_high_sad=%llu\\n",
+          "varpart_content_state_very_high_sad=%llu "
+          "varpart_ysad_valid=%llu "
+          "varpart_ysad_select_64x64=%llu "
+          "varpart_copy_partition_select=%llu "
+          "varpart_force_split_64=%llu "
+          "varpart_force_split_32=%llu "
+          "varpart_force_split_16=%llu "
+          "varpart_setvt_calls=%llu "
+          "varpart_setvt_64x64=%llu "
+          "varpart_setvt_32x32=%llu "
+          "varpart_setvt_16x16=%llu "
+          "varpart_setvt_8x8=%llu "
+          "varpart_setvt_force_split=%llu "
+          "varpart_setvt_force_split_64x64=%llu "
+          "varpart_setvt_force_split_32x32=%llu "
+          "varpart_setvt_force_split_16x16=%llu "
+          "varpart_setvt_select=%llu "
+          "varpart_setvt_split=%llu\\n",
           (unsigned long long)govpx_vp9_inter_mode_picks,
           (unsigned long long)govpx_vp9_inter_mode_sub8x8_picks,
           (unsigned long long)govpx_vp9_build_sby,
@@ -400,7 +476,24 @@ __attribute__((destructor)) static void govpx_vp9_dump_call_stats(void) {
           (unsigned long long)govpx_vp9_varpart_content_state[3],
           (unsigned long long)govpx_vp9_varpart_content_state[4],
           (unsigned long long)govpx_vp9_varpart_content_state[5],
-          (unsigned long long)govpx_vp9_varpart_content_state[6]);
+          (unsigned long long)govpx_vp9_varpart_content_state[6],
+          (unsigned long long)govpx_vp9_varpart_ysad_valid,
+          (unsigned long long)govpx_vp9_varpart_ysad_select_64x64,
+          (unsigned long long)govpx_vp9_varpart_copy_partition_select,
+          (unsigned long long)govpx_vp9_varpart_force_split_64,
+          (unsigned long long)govpx_vp9_varpart_force_split_32,
+          (unsigned long long)govpx_vp9_varpart_force_split_16,
+          (unsigned long long)govpx_vp9_varpart_setvt_calls,
+          (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_64X64],
+          (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_32X32],
+          (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_16X16],
+          (unsigned long long)govpx_vp9_varpart_setvt[BLOCK_8X8],
+          (unsigned long long)govpx_vp9_varpart_setvt_force_split,
+          (unsigned long long)govpx_vp9_varpart_setvt_force_split_64,
+          (unsigned long long)govpx_vp9_varpart_setvt_force_split_32,
+          (unsigned long long)govpx_vp9_varpart_setvt_force_split_16,
+          (unsigned long long)govpx_vp9_varpart_setvt_select,
+          (unsigned long long)govpx_vp9_varpart_setvt_split);
 }
 ''')
 replace_once(pickmode,
@@ -540,6 +633,7 @@ for old, new in [
 ''', '''      if (cpi->sf.svc_use_lowres_part &&
           cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 2)
         update_partition_svc(cpi, BLOCK_64X64, mi_row, mi_col);
+      govpx_vp9_count_varpart_copy_select();
       govpx_vp9_count_varpart_choose(1);
       return 0;
     }
@@ -559,6 +653,113 @@ for old, new in [
     govpx_vp9_count_varpart_content_state(content_state);
     set_vbp_thresholds(cpi, thresholds, cm->base_qindex, content_state);
   }
+'''),
+    ('''  if (force_split == 1) return 0;
+''', '''  if (force_split == 1) {
+    govpx_vp9_count_varpart_setvt(bsize, 1, 0);
+    return 0;
+  }
+'''),
+    ('''    if (mi_col + block_width / 2 < cm->mi_cols &&
+        mi_row + block_height / 2 < cm->mi_rows &&
+        vt.part_variances->none.variance < threshold) {
+      set_block_size(cpi, x, xd, mi_row, mi_col, bsize);
+      return 1;
+    }
+    return 0;
+  } else if (bsize > bsize_min) {
+''', '''    if (mi_col + block_width / 2 < cm->mi_cols &&
+        mi_row + block_height / 2 < cm->mi_rows &&
+        vt.part_variances->none.variance < threshold) {
+      set_block_size(cpi, x, xd, mi_row, mi_col, bsize);
+      govpx_vp9_count_varpart_setvt(bsize, 0, 1);
+      return 1;
+    }
+    govpx_vp9_count_varpart_setvt(bsize, 0, 0);
+    return 0;
+  } else if (bsize > bsize_min) {
+'''),
+    ('''    if (frame_is_intra_only(cm) &&
+        (bsize > BLOCK_32X32 ||
+         vt.part_variances->none.variance > (threshold << 4))) {
+      return 0;
+    }
+''', '''    if (frame_is_intra_only(cm) &&
+        (bsize > BLOCK_32X32 ||
+         vt.part_variances->none.variance > (threshold << 4))) {
+      govpx_vp9_count_varpart_setvt(bsize, 0, 0);
+      return 0;
+    }
+'''),
+    ('''    if (mi_col + block_width / 2 < cm->mi_cols &&
+        mi_row + block_height / 2 < cm->mi_rows &&
+        vt.part_variances->none.variance < threshold) {
+      set_block_size(cpi, x, xd, mi_row, mi_col, bsize);
+      return 1;
+    }
+
+    // Check vertical split.
+''', '''    if (mi_col + block_width / 2 < cm->mi_cols &&
+        mi_row + block_height / 2 < cm->mi_rows &&
+        vt.part_variances->none.variance < threshold) {
+      set_block_size(cpi, x, xd, mi_row, mi_col, bsize);
+      govpx_vp9_count_varpart_setvt(bsize, 0, 1);
+      return 1;
+    }
+
+    // Check vertical split.
+'''),
+    ('''        set_block_size(cpi, x, xd, mi_row, mi_col, subsize);
+        set_block_size(cpi, x, xd, mi_row, mi_col + block_width / 2, subsize);
+        return 1;
+      }
+    }
+    // Check horizontal split.
+''', '''        set_block_size(cpi, x, xd, mi_row, mi_col, subsize);
+        set_block_size(cpi, x, xd, mi_row, mi_col + block_width / 2, subsize);
+        govpx_vp9_count_varpart_setvt(bsize, 0, 1);
+        return 1;
+      }
+    }
+    // Check horizontal split.
+'''),
+    ('''        set_block_size(cpi, x, xd, mi_row, mi_col, subsize);
+        set_block_size(cpi, x, xd, mi_row + block_height / 2, mi_col, subsize);
+        return 1;
+      }
+    }
+
+    return 0;
+  }
+  return 0;
+}
+''', '''        set_block_size(cpi, x, xd, mi_row, mi_col, subsize);
+        set_block_size(cpi, x, xd, mi_row + block_height / 2, mi_col, subsize);
+        govpx_vp9_count_varpart_setvt(bsize, 0, 1);
+        return 1;
+      }
+    }
+
+    govpx_vp9_count_varpart_setvt(bsize, 0, 0);
+    return 0;
+  }
+  govpx_vp9_count_varpart_setvt(bsize, 0, 0);
+  return 0;
+}
+'''),
+    ('''  force_split[0] = force_64_split;
+''', '''  force_split[0] = force_64_split;
+  if (force_64_split) govpx_vp9_count_varpart_force_split(BLOCK_64X64);
+'''),
+    ('''    y_sad_last = y_sad;
+''', '''    y_sad_last = y_sad;
+    govpx_vp9_count_varpart_ysad();
+'''),
+    ('''        set_block_size(cpi, x, xd, mi_row, mi_col, BLOCK_64X64);
+        x->variance_low[0] = 1;
+''', '''        set_block_size(cpi, x, xd, mi_row, mi_col, BLOCK_64X64);
+        govpx_vp9_count_varpart_ysad_select64();
+        x->variance_low[0] = 1;
 '''),
     ('''        if (cpi->sf.copy_partition_flag) {
           update_prev_partition(cpi, x, segment_id, mi_row, mi_col, sb_offset);
@@ -581,10 +782,73 @@ for old, new in [
 ''', '''      if (cpi->sf.svc_use_lowres_part &&
           cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 2)
         update_partition_svc(cpi, BLOCK_64X64, mi_row, mi_col);
+      govpx_vp9_count_varpart_copy_select();
       govpx_vp9_count_varpart_choose(1);
       return 0;
     }
   } else {
+'''),
+    ('''          force_split[split_index] = 1;
+          force_split[i + 1] = 1;
+          force_split[0] = 1;
+''', '''          govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+          force_split[split_index] = 1;
+          force_split[i + 1] = 1;
+          force_split[0] = 1;
+'''),
+    ('''            force_split[split_index] = 1;
+            force_split[i + 1] = 1;
+            force_split[0] = 1;
+''', '''            govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+            force_split[split_index] = 1;
+            force_split[i + 1] = 1;
+            force_split[0] = 1;
+'''),
+    ('''          force_split[5 + i2 + j] = 1;
+          force_split[i + 1] = 1;
+          force_split[0] = 1;
+''', '''          govpx_vp9_count_varpart_force_split(BLOCK_16X16);
+          force_split[5 + i2 + j] = 1;
+          force_split[i + 1] = 1;
+          force_split[0] = 1;
+'''),
+    ('''        force_split[i + 1] = 1;
+        force_split[0] = 1;
+      } else if (!is_key_frame && noise_level < kLow && cm->height <= 360 &&
+''', '''        govpx_vp9_count_varpart_force_split(BLOCK_32X32);
+        force_split[i + 1] = 1;
+        force_split[0] = 1;
+      } else if (!is_key_frame && noise_level < kLow && cm->height <= 360 &&
+'''),
+    ('''        force_split[i + 1] = 1;
+        force_split[0] = 1;
+      }
+      avg_32x32 += var_32x32;
+''', '''        govpx_vp9_count_varpart_force_split(BLOCK_32X32);
+        force_split[i + 1] = 1;
+        force_split[0] = 1;
+      }
+      avg_32x32 += var_32x32;
+'''),
+    ('''    if (!is_key_frame && noise_level >= kMedium &&
+        vt.part_variances.none.variance > (9 * avg_32x32) >> 5)
+      force_split[0] = 1;
+''', '''    if (!is_key_frame && noise_level >= kMedium &&
+        vt.part_variances.none.variance > (9 * avg_32x32) >> 5) {
+      govpx_vp9_count_varpart_force_split(BLOCK_64X64);
+      force_split[0] = 1;
+    }
+'''),
+    ('''    else if (!is_key_frame && noise_level < kMedium &&
+             (max_var_32x32 - min_var_32x32) > 3 * (thresholds[0] >> 3) &&
+             max_var_32x32 > thresholds[0] >> 1)
+      force_split[0] = 1;
+''', '''    else if (!is_key_frame && noise_level < kMedium &&
+             (max_var_32x32 - min_var_32x32) > 3 * (thresholds[0] >> 3) &&
+             max_var_32x32 > thresholds[0] >> 1) {
+      govpx_vp9_count_varpart_force_split(BLOCK_64X64);
+      force_split[0] = 1;
+    }
 '''),
     ('''  chroma_check(cpi, x, bsize, y_sad, is_key_frame, scene_change_detected);
   if (vt2) vpx_free(vt2);

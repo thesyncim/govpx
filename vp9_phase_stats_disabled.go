@@ -37,6 +37,8 @@ func (e *VP9Encoder) vp9PhaseAddVarPartMergedSBs(int64) {}
 
 func (e *VP9Encoder) vp9PhaseCountVarPartContentState(encoder.ContentStateSB) {}
 
+func (e *VP9Encoder) vp9PhaseAddChoosePartitioningStats(encoder.ChoosePartitioningStats) {}
+
 func (e *VP9Encoder) vp9PhaseIncInterPredictionBlock() {}
 
 func (e *VP9Encoder) vp9PhaseIncInterPredictionVariance() {}
