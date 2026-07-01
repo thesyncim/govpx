@@ -2,129 +2,131 @@ package govpx
 
 import "testing"
 
-// TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed pins the libvpx-realistic
-// HEX/iterative_sub_pixel gate. The gate mirrors the improved_mv_pred gate
-// pattern: at cpu_used > 0 RT after frame 0, govpx's auto-select Speed is
-// pinned to its stable Speed=0 region by interFrameAutoSpeedTimingCompensation
-// while libvpx's cpi->Speed evolves to cpu_used+1. Targeting the
-// search_method gate at the libvpx-realistic Speed (without disturbing the
-// rest of the speed cascade) flips NSTEP+iterative → HEX+step for the
-// cpu_used > 0 RT path that previously sat at NSTEP+iterative under the pin.
+// TestVP8HEXSearchGateFollowsCPISpeed pins that the search_method=HEX /
+// iterative_sub_pixel=0 promotion (libvpx vp8_set_speed_features case 2,
+// vp8/encoder/onyx_if.c:951-955, `Speed > 4`) consults the SAME cpi->Speed
+// as every other speed-conditioned feature: the deterministic auto-select
+// model surfaced by libvpxCPUUsed().
 //
-// Pre-first-frame (frameCount==0) and cpu_used <= 0 RT keep the
-// non-realistic gate semantics so the cold-start path and the
-// byte-parity-gated cpu_used == 0 path are unchanged.
-func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
+// libvpx evaluates all of vp8_set_speed_features against one cpi->Speed
+// value per frame. On the reference host the production vpxenc keeps
+// cpi->Speed clamped at the realtime floor of 4 for cpu_used > 0 RT
+// (per-frame encode time sits far below the ms_for_compress budget, so
+// vp8_auto_select_speed rdopt.c:296 keeps decrementing), and govpx's
+// pinned autoSpeed follows the same trajectory. A former per-gate
+// "libvpx-realistic cpu_used+1" override at >= 1500 MBs was calibrated
+// against instrumented-oracle timings and made govpx run HEX while the
+// production vpxenc ran NSTEP -- the root cause of the 720p RT cpu=8
+// frame-drop divergence (see the drop-parity audit note in
+// vp8_encoder_config.go and vp8_realtime_drop_parity_test.go).
+func TestVP8HEXSearchGateFollowsCPISpeed(t *testing.T) {
 	tests := []struct {
-		name           string
-		deadline       Deadline
-		cpuUsed        int
-		frameCount     uint64
-		wantGateSpeed  int
-		wantHexAfterRT bool
-		wantStepFracRT bool
-		// width/height drive libvpxRealtimeAutoSelectSpeedRamps: the
-		// realistic cpu_used+1 ramp only applies at/above the ~1500-MB
-		// auto-select boundary. Zero (the early-return cases) leaves the
-		// frame geometry irrelevant.
-		width     int
-		height    int
-		autoSpeed int
+		name         string
+		deadline     Deadline
+		cpuUsed      int
+		frameCount   uint64
+		width        int
+		height       int
+		autoSpeed    int
+		wantSpeed    int
+		wantHex      bool
+		wantStepFrac bool
 	}{
 		{
-			// cpu_used=8 RT pre-first-frame: gate falls back to
-			// libvpxCPUUsed()=4 (cold start). Speed > 4 is false →
-			// NSTEP+iterative preserved (matches the existing test
-			// TestInterAnalysisSearchConfigKeepsLibvpxSpeed4RealtimeSearch).
-			name:           "rt-cpu8-pre-first-frame",
-			deadline:       DeadlineRealtime,
-			cpuUsed:        8,
-			frameCount:     0,
-			wantGateSpeed:  4,
-			wantHexAfterRT: false,
-			wantStepFracRT: false,
+			// cpu_used=8 RT pre-first-frame: libvpxCPUUsed()=4 (cold
+			// start). Speed > 4 is false -> NSTEP+iterative preserved.
+			name:         "rt-cpu8-pre-first-frame",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      8,
+			frameCount:   0,
+			wantSpeed:    4,
+			wantHex:      false,
+			wantStepFrac: false,
 		},
 		{
 			// cpu_used=8 RT after first frame on a large (720p = 3600-MB)
-			// frame: at/above the auto-select ramp boundary the gate
-			// escalates to cpu_used+1=9. Speed > 4 is true → HEX. The Step
-			// transition that originally moved with the HEX gate is now
-			// owned by libvpxRealtimeCPISpeedForSubPelSearchGate; the
-			// fractional path further escalates past Step to Half via
-			// libvpxRealtimeCPISpeedForQuarterPelGate (Speed > 8). So at
-			// cpu_used=8 frameCount=1 RT the final fractionalSearch is
-			// Half (not Step). This case still pins that the HEX gate
-			// itself fires; the post-Step transitions are pinned by the
-			// sub-pel and quarter-pel gate tests.
-			name:           "rt-cpu8-post-first-frame-large",
-			deadline:       DeadlineRealtime,
-			cpuUsed:        8,
-			frameCount:     1,
-			width:          1280,
-			height:         720,
-			wantGateSpeed:  9,
-			wantHexAfterRT: true,
-			wantStepFracRT: false,
+			// frame with the pinned autoSpeed=4 trajectory: Speed > 4 is
+			// false -> NSTEP+iterative, matching the production vpxenc
+			// whose cpi->Speed stays at the realtime floor of 4. This is
+			// the drop-parity fix pin: the former realistic-speed override
+			// forced HEX here and inflated interframe sizes ~1.9x.
+			name:         "rt-cpu8-post-first-frame-720p-floor",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      8,
+			frameCount:   1,
+			width:        1280,
+			height:       720,
+			autoSpeed:    4,
+			wantSpeed:    4,
+			wantHex:      false,
+			wantStepFrac: false,
 		},
 		{
 			// cpu_used=8 RT after first frame on a tiny (64x64 = 16-MB)
-			// frame: below the auto-select ramp boundary, so the gate must
-			// surface the real autoSpeed (=4) instead of the cpu_used+1
-			// ramp. Speed > 4 is false → NSTEP+iterative preserved, matching
-			// libvpx which keeps cpi->Speed at the realtime floor of 4 for
-			// frames that encode in microseconds. This is the corrected
-			// behavior behind the tiny cpu_used=8 RT byte-parity fix.
-			name:           "rt-cpu8-post-first-frame-tiny",
-			deadline:       DeadlineRealtime,
-			cpuUsed:        8,
-			frameCount:     1,
-			width:          64,
-			height:         64,
-			autoSpeed:      4,
-			wantGateSpeed:  4,
-			wantHexAfterRT: false,
-			wantStepFracRT: false,
+			// frame: same uniform dispatch, autoSpeed=4 -> NSTEP+iterative,
+			// matching libvpx which keeps cpi->Speed at the realtime floor
+			// of 4 for frames that encode in microseconds.
+			name:         "rt-cpu8-post-first-frame-tiny",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      8,
+			frameCount:   1,
+			width:        64,
+			height:       64,
+			autoSpeed:    4,
+			wantSpeed:    4,
+			wantHex:      false,
+			wantStepFrac: false,
 		},
 		{
-			// cpu_used=0 RT (byte-parity-gated path): gate falls back
-			// to libvpxCPUUsed()=4 (cold start) or autoSpeed; either
-			// way it stays at the realistic Speed=4 for the stable
-			// region. Speed > 4 is false → NSTEP+iterative preserved,
-			// byte-parity sentinels hold.
-			name:           "rt-cpu0-post-first-frame",
-			deadline:       DeadlineRealtime,
-			cpuUsed:        0,
-			frameCount:     5,
-			wantGateSpeed:  0, // autoSpeed=0 from cold-start path (post-first-frame)
-			wantHexAfterRT: false,
-			wantStepFracRT: false,
+			// If auto-select ever ramps (autoSpeed=9, e.g. a genuinely
+			// overloaded host trajectory mirrored by the timing model),
+			// the same uniform dispatch fires HEX; the fractional path
+			// escalates past Step to Half via the Speed > 8 gate.
+			name:         "rt-cpu8-post-first-frame-ramped",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      8,
+			frameCount:   1,
+			width:        1280,
+			height:       720,
+			autoSpeed:    9,
+			wantSpeed:    9,
+			wantHex:      true,
+			wantStepFrac: false, // Speed > 8 promotes Step -> Half
 		},
 		{
-			// cpu_used=-5 RT (explicit Speed=5): gate falls back to
-			// libvpxCPUUsed()=5 because the negative-cpu_used branch
-			// in libvpxRealtimeCPISpeedForHEXSearchGate returns early.
-			// Speed > 4 is true → HEX+step (matches the existing
-			// "realtime explicit speed five switches to hex" test).
-			name:           "rt-negcpu5-post-first-frame",
-			deadline:       DeadlineRealtime,
-			cpuUsed:        -5,
-			frameCount:     1,
-			wantGateSpeed:  5,
-			wantHexAfterRT: true,
-			wantStepFracRT: true,
+			// cpu_used=0 RT (byte-parity-gated path): autoSpeed=0 ->
+			// Speed 0, NSTEP+iterative preserved, byte-parity sentinels
+			// hold.
+			name:         "rt-cpu0-post-first-frame",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      0,
+			frameCount:   5,
+			wantSpeed:    0,
+			wantHex:      false,
+			wantStepFrac: false,
 		},
 		{
-			// Non-realtime (good quality): gate falls back to
-			// libvpxCPUUsed() because the non-realtime branch in the
-			// gate function returns early. No change from the previous
-			// behavior on the good-quality path.
-			name:           "good-cpu8-post-first-frame",
-			deadline:       DeadlineGoodQuality,
-			cpuUsed:        8,
-			frameCount:     1,
-			wantGateSpeed:  5, // good-quality clamps cpu_used to 5
-			wantHexAfterRT: false,
-			wantStepFracRT: false, // good-quality skips the RT-only gate
+			// cpu_used=-5 RT (explicit Speed=5): Speed > 4 is true ->
+			// HEX+step (libvpx encodeframe.c:686-687 explicit-Speed
+			// branch).
+			name:         "rt-negcpu5-post-first-frame",
+			deadline:     DeadlineRealtime,
+			cpuUsed:      -5,
+			frameCount:   1,
+			wantSpeed:    5,
+			wantHex:      true,
+			wantStepFrac: true,
+		},
+		{
+			// Non-realtime (good quality): the RT-only gates are skipped
+			// entirely; good-quality clamps cpu_used to 5.
+			name:         "good-cpu8-post-first-frame",
+			deadline:     DeadlineGoodQuality,
+			cpuUsed:      8,
+			frameCount:   1,
+			wantSpeed:    5,
+			wantHex:      false,
+			wantStepFrac: false,
 		},
 	}
 	for _, tc := range tests {
@@ -139,17 +141,17 @@ func TestVP8HEXSearchGateMirrorsLibvpxRealisticSpeed(t *testing.T) {
 				frameCount: tc.frameCount,
 				autoSpeed:  tc.autoSpeed,
 			}
-			if got := e.libvpxRealtimeCPISpeedForHEXSearchGate(); got != tc.wantGateSpeed {
-				t.Errorf("libvpxRealtimeCPISpeedForHEXSearchGate() = %d, want %d", got, tc.wantGateSpeed)
+			if got := e.libvpxCPUUsed(); got != tc.wantSpeed {
+				t.Errorf("libvpxCPUUsed() = %d, want %d", got, tc.wantSpeed)
 			}
 			cfg := e.interAnalysisSearchConfig()
 			gotHex := cfg.fullPixelSearch == interAnalysisFullPixelSearchHex
-			if gotHex != tc.wantHexAfterRT {
-				t.Errorf("search_method=HEX = %t, want %t (libvpx-realistic Speed > 4)", gotHex, tc.wantHexAfterRT)
+			if gotHex != tc.wantHex {
+				t.Errorf("search_method=HEX = %t, want %t (libvpx onyx_if.c:951 Speed > 4)", gotHex, tc.wantHex)
 			}
 			gotStep := cfg.fractionalSearch == interAnalysisFractionalSearchStep
-			if gotStep != tc.wantStepFracRT {
-				t.Errorf("fractional=Step = %t, want %t (libvpx onyx_if.c:954 iterative_sub_pixel=0 coupled with search_method=HEX)", gotStep, tc.wantStepFracRT)
+			if gotStep != tc.wantStepFrac {
+				t.Errorf("fractional=Step = %t, want %t (libvpx onyx_if.c:954 iterative_sub_pixel=0 coupled with search_method=HEX)", gotStep, tc.wantStepFrac)
 			}
 		})
 	}
