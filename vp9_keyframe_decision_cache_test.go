@@ -139,6 +139,34 @@ func TestVP9LeafDecisionTxSizeClamp(t *testing.T) {
 	}
 }
 
+func TestVP9LeafInterDecisionCacheClearsTransientLumaPred(t *testing.T) {
+	var e VP9Encoder
+	e.ensureVP9LeafInterDecisionCache(2, 2)
+	e.ensureVP9LeafInterRDDecisionCache(2, 2)
+
+	decision := vp9InterModeDecision{
+		mode:          common.NearestMv,
+		refFrame:      vp9dec.LastFrame,
+		refSlot:       0,
+		interpFilter:  vp9dec.InterpEighttap,
+		txSize:        common.Tx8x8,
+		lumaPredReady: true,
+	}
+	e.storeVP9LeafInterDecision(0, 0, common.Block8x8, decision)
+	if got, ok := e.lookupVP9LeafInterDecision(0, 0, common.Block8x8); !ok {
+		t.Fatalf("inter lookup miss after store")
+	} else if got.lumaPredReady {
+		t.Fatalf("leaf cache preserved transient luma predictor readiness")
+	}
+
+	e.storeVP9LeafInterRDDecision(0, 1, common.Block8x8, decision)
+	if got, ok := e.lookupVP9LeafInterRDDecision(0, 1, common.Block8x8); !ok {
+		t.Fatalf("deep inter lookup miss after store")
+	} else if got.lumaPredReady {
+		t.Fatalf("deep leaf cache preserved transient luma predictor readiness")
+	}
+}
+
 func TestVP9TileEncodeWorkerPreservesCountDecisionCaches(t *testing.T) {
 	var src VP9Encoder
 	vp9dec.SetupBlockPlanes(&src.planes, 1, 1)

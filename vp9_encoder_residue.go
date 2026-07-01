@@ -510,8 +510,15 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		}
 		return picked, true
 	}
-	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi) {
-		return vp9InterModeDecision{}, false
+	if pickedValid && picked.lumaPredReady {
+		if !e.predictVP9InterBlockChromaOnly(inter, miRows, miCols, miRow, miCol,
+			bsize, mi) {
+			return vp9InterModeDecision{}, false
+		}
+	} else {
+		if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, mi) {
+			return vp9InterModeDecision{}, false
+		}
 	}
 	return picked, true
 }

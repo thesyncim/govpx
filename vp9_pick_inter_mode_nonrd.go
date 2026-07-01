@@ -1898,6 +1898,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				predW, predH, predScratch)
 			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
 				livePredY, predW, predH, predScratch)
+			best.lumaPredReady = true
 		}
 	}
 	if !bestSet {

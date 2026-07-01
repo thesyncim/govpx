@@ -512,8 +512,13 @@ type vp9InterModeDecision struct {
 	score          uint64
 	skip           bool
 	skipTxfm       encoder.SkipTxfmFlag
-	rdModeIndex    encoder.ThrMode
-	rdModeValid    bool
+	// lumaPredReady is transient: the fresh non-RD picker restored the winning
+	// luma predictor to the recon plane, mirroring libvpx reuse_inter_pred_sby.
+	// Cache stores must clear it because replayed write-pass decisions do not
+	// carry the count pass's recon-plane contents.
+	lumaPredReady bool
+	rdModeIndex   encoder.ThrMode
+	rdModeValid   bool
 	// segEntropy carries the genuine sub-8x8 wrapper's committed plane[0]
 	// entropy context (t_above[2]/t_left[2] at segment end). The partition
 	// recursion stamps it into pd->above_context/left_context after the leaf

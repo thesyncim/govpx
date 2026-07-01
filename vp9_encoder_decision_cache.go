@@ -304,6 +304,7 @@ func (e *VP9Encoder) lookupVP9LeafInterDecision(miRow, miCol int,
 func (e *VP9Encoder) storeVP9LeafInterDecision(miRow, miCol int,
 	bsize common.BlockSize, decision vp9InterModeDecision,
 ) {
+	decision.lumaPredReady = false
 	if e.vp9LeafInterDecisionsCols <= 0 {
 		return
 	}
@@ -386,6 +387,7 @@ func (e *VP9Encoder) lookupVP9LeafInterRDDecision(miRow, miCol int,
 func (e *VP9Encoder) storeVP9LeafInterRDDecision(miRow, miCol int,
 	bsize common.BlockSize, decision vp9InterModeDecision,
 ) {
+	decision.lumaPredReady = false
 	if e.vp9LeafInterRDDecisionsCols <= 0 {
 		return
 	}
