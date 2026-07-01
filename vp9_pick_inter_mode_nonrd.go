@@ -1205,23 +1205,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// alone. block_yrd, the skip-vs-non-skip compare, encode_breakout,
 		// and the outer rate finalize all run once afterward on the winner.
 		var (
-			searchFilterPick bool
-			searchVarY       uint64
-			searchSSEY       uint64
-			searchRateY      int
-			searchDistY      int64
-			searchSkipTxfm   encoder.SkipTxfmFlag
-			searchMrdTxSize  common.TxSize
-			searchEarlyTerm  bool
-			searchUVOK       bool
-			searchVarU       uint64
-			searchSSEU       uint64
-			searchVarV       uint64
-			searchSSEV       uint64
+			searchFilterPick   bool
+			searchVarY         uint64
+			searchSSEY         uint64
+			searchRateY        int
+			searchDistY        int64
+			searchSkipTxfm     encoder.SkipTxfmFlag
+			searchMrdTxSize    common.TxSize
+			searchEarlyTerm    bool
+			searchUVOK         bool
+			searchVarU         uint64
+			searchSSEU         uint64
+			searchVarV         uint64
+			searchSSEV         uint64
+			searchNeedsRebuild bool
 		)
 		if len(filters) > 1 {
 			bestFilterCost := uint64(math.MaxUint64)
 			var searchFilter vp9dec.InterpFilter
+			searchLastFilter := filters[len(filters)-1]
 			searchOK := false
 			searchEarlyTermSticky := false
 			for _, filter := range filters {
@@ -1333,6 +1335,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 			filters = []vp9dec.InterpFilter{searchFilter}
 			searchFilterPick = true
+			searchNeedsRebuild = searchFilter != searchLastFilter
 		}
 
 		// libvpx: vp9_pickmode.c:2318-2410. Filter candidates are scored
@@ -1367,8 +1370,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					uvSSEV = searchSSEV
 					uvStatsOK = true
 				}
-				_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
-					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				if searchNeedsRebuild {
+					_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
+						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				} else {
+					// libvpx search_filter_ref only rebuilds when best_filter
+					// is before filter_end; otherwise the winning predictor is
+					// already the last predictor written into dst.
+					ok = true
+				}
 				searchFilterPick = false
 			} else {
 				// libvpx vp9_pickmode.c:2336 vp9_build_inter_predictors_sby +
