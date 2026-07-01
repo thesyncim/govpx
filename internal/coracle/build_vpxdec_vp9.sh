@@ -18,12 +18,14 @@ build_dir=${GOVPX_CORACLE_BUILD_DIR:-"$root/build"}
 src_dir="$build_dir/libvpx-$tag-vpxdec-vp9"
 vpxdec_vp9_bin=${GOVPX_VPXDEC_VP9_BIN:-"$build_dir/vpxdec-vp9"}
 vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
+vpxenc_vp9_stats_bin=${GOVPX_VPXENC_VP9_CALLSTATS_BIN:-"$build_dir/vpxenc-vp9-callstats"}
 vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-r3
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-split-r1
 src_dir=$src_dir
 vpxdec_vp9_bin=$vpxdec_vp9_bin
-vpxenc_vp9_bin=$vpxenc_vp9_bin"
+vpxenc_vp9_bin=$vpxenc_vp9_bin
+vpxenc_vp9_stats_bin=$vpxenc_vp9_stats_bin"
 jobs=${JOBS:-}
 
 if [ -z "$jobs" ]; then
@@ -1110,12 +1112,9 @@ if [ -f "$config_stamp" ]; then
 	current_config=$(cat "$config_stamp")
 fi
 
-if [ ! -x "$src_dir/vpxdec" ] || [ ! -x "$src_dir/vpxenc" ] || [ "$current_config" != "$want_config" ]; then
-	if [ "$current_config" != "$want_config" ]; then
-		fetch_source
-	fi
+if [ ! -x "$vpxdec_vp9_bin" ] || [ ! -x "$vpxenc_vp9_bin" ] || [ ! -x "$vpxenc_vp9_stats_bin" ] || [ ! -x "$vp9_spatial_svc_bin" ] || [ "$current_config" != "$want_config" ]; then
+	fetch_source
 	patch_vpxdec_vp9_controls
-	patch_vp9_call_stats
 	(
 		cd "$src_dir"
 		./configure \
@@ -1133,15 +1132,30 @@ if [ ! -x "$src_dir/vpxdec" ] || [ ! -x "$src_dir/vpxenc" ] || [ "$current_confi
 			--enable-vp9-postproc
 		make -j"$jobs"
 	)
+
+	cp "$src_dir/vpxdec" "$vpxdec_vp9_bin"
+	chmod +x "$vpxdec_vp9_bin"
+	cp "$src_dir/vpxenc" "$vpxenc_vp9_bin"
+	chmod +x "$vpxenc_vp9_bin"
+	cp "$src_dir/examples/vp9_spatial_svc_encoder" "$vp9_spatial_svc_bin"
+	chmod +x "$vp9_spatial_svc_bin"
+
+	patch_vp9_call_stats
+	(
+		cd "$src_dir"
+		make -j"$jobs"
+	)
+	cp "$src_dir/vpxenc" "$vpxenc_vp9_stats_bin"
+	chmod +x "$vpxenc_vp9_stats_bin"
+
 	printf '%s\n' "$want_config" > "$config_stamp"
 fi
 
-cp "$src_dir/vpxdec" "$vpxdec_vp9_bin"
 chmod +x "$vpxdec_vp9_bin"
-cp "$src_dir/vpxenc" "$vpxenc_vp9_bin"
 chmod +x "$vpxenc_vp9_bin"
-cp "$src_dir/examples/vp9_spatial_svc_encoder" "$vp9_spatial_svc_bin"
+chmod +x "$vpxenc_vp9_stats_bin"
 chmod +x "$vp9_spatial_svc_bin"
 printf '%s\n' "$vpxdec_vp9_bin"
 printf '%s\n' "$vpxenc_vp9_bin"
+printf '%s\n' "$vpxenc_vp9_stats_bin"
 printf '%s\n' "$vp9_spatial_svc_bin"

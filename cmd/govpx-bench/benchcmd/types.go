@@ -7,25 +7,26 @@ import (
 const quantizerHistogramBins = 128
 
 type benchConfig struct {
-	Width               int
-	Height              int
-	Frames              int
-	FPS                 int
-	BitrateKbps         int
-	Mode                string
-	Codec               string
-	Decode              bool
-	SkipQuality         bool
-	Threads             int
-	NoiseSensitivity    int
-	NoiseSensitivitySet bool
-	CpuUsed             int
-	PhaseTiming         bool
-	CPUProfile          string
-	LibvpxVpxenc        string
-	LibvpxVpxencVP9     string
-	LibvpxOracle        string
-	LibvpxArgs          []string
+	Width                int
+	Height               int
+	Frames               int
+	FPS                  int
+	BitrateKbps          int
+	Mode                 string
+	Codec                string
+	Decode               bool
+	SkipQuality          bool
+	Threads              int
+	NoiseSensitivity     int
+	NoiseSensitivitySet  bool
+	CpuUsed              int
+	PhaseTiming          bool
+	CPUProfile           string
+	LibvpxVpxenc         string
+	LibvpxVpxencVP9      string
+	LibvpxVpxencVP9Stats string
+	LibvpxOracle         string
+	LibvpxArgs           []string
 
 	// QualityGate is consulted by runBenchmark/Main after the encode pass
 	// completes. When Enabled is true the bench exits non-zero on regression.

@@ -60,8 +60,12 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 	args = append(args, cfg.LibvpxArgs...)
 	args = append(args, fmt.Sprintf("--output=%s", outPath), rawPath)
 
+	bin := vp9LibvpxEncoderPath(cfg)
+	if bin == "" {
+		return referenceReport{}, errors.New("libvpx vpxenc-vp9 reference not configured")
+	}
 	var stderr bytes.Buffer
-	cmd := exec.Command(cfg.LibvpxVpxencVP9, args...)
+	cmd := exec.Command(bin, args...)
 	cmd.Stderr = &stderr
 	if cfg.PhaseTiming {
 		cmd.Env = append(os.Environ(), "GOVPX_LIBVPX_VP9_CALL_STATS=1")
@@ -174,6 +178,13 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 		ParityFlags:          parityFlags,
 		VP9CallStats:         callStats,
 	}, nil
+}
+
+func vp9LibvpxEncoderPath(cfg benchConfig) string {
+	if cfg.PhaseTiming && cfg.LibvpxVpxencVP9Stats != "" {
+		return cfg.LibvpxVpxencVP9Stats
+	}
+	return cfg.LibvpxVpxencVP9
 }
 
 // libvpxVP9ParityFlags mirrors libvpxParityFlags for VP9: same CBR target /

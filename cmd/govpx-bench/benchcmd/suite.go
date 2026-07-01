@@ -69,7 +69,7 @@ func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, 
 
 func suiteLibvpxReferencePath(cfg benchConfig) string {
 	if benchCodec(cfg) == codecVP9 {
-		return cfg.LibvpxVpxencVP9
+		return vp9LibvpxEncoderPath(cfg)
 	}
 	return cfg.LibvpxVpxenc
 }

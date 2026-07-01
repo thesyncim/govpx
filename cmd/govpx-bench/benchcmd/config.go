@@ -60,6 +60,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for VP8 reference comparison")
 	fs.StringVar(&cfg.LibvpxVpxencVP9, "libvpx-vpxenc-vp9", "", "optional libvpx vpxenc-vp9 path for VP9 reference comparison")
+	fs.StringVar(&cfg.LibvpxVpxencVP9Stats, "libvpx-vpxenc-vp9-stats", "", "optional libvpx vpxenc-vp9-callstats path for VP9 phase diagnostics")
 	fs.StringVar(&cfg.LibvpxOracle, "libvpx-oracle", "", "optional libvpx checksum oracle path for decoder reference timing")
 	fs.StringVar(&cfg.Codec, "codec", codecVP8, "codec to benchmark: vp8 or vp9")
 	fs.BoolVar(&opts.qualityFixtures, "quality-fixtures", false, "run the canonical VP9 quality-gate fixture suite (panning + checker)")
@@ -125,11 +126,13 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	root, haveRoot := findGovpxRoot()
 	repoVpxenc := ""
 	repoVpxencVP9 := ""
+	repoVpxencVP9Stats := ""
 	repoOracle := ""
 	repoVpxdecVP9 := ""
 	if haveRoot {
 		repoVpxenc = filepath.Join(root, "internal", "coracle", "build", "vpxenc")
 		repoVpxencVP9 = filepath.Join(root, "internal", "coracle", "build", "vpxenc-vp9")
+		repoVpxencVP9Stats = filepath.Join(root, "internal", "coracle", "build", "vpxenc-vp9-callstats")
 		repoOracle = filepath.Join(root, "internal", "coracle", "build", "govpx-vpx-oracle")
 		repoVpxdecVP9 = filepath.Join(root, "internal", "coracle", "build", "vpxdec-vp9")
 	}
@@ -137,11 +140,13 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	codec := benchCodec(*cfg)
 	needVpxenc := !cfg.Decode && codec == codecVP8 && cfg.LibvpxVpxenc == "" && haveRoot && !isExecutable(repoVpxenc)
 	needVpxencVP9 := !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" && haveRoot && !isExecutable(repoVpxencVP9)
+	needVpxencVP9Stats := !cfg.Decode && codec == codecVP9 && cfg.PhaseTiming &&
+		cfg.LibvpxVpxencVP9Stats == "" && haveRoot && !isExecutable(repoVpxencVP9Stats)
 	needOracle := cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoOracle)
 	needVpxdecVP9 := cfg.Decode && codec == codecVP9 && cfg.LibvpxOracle == "" && haveRoot && !isExecutable(repoVpxdecVP9)
-	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needOracle || needVpxdecVP9) {
+	if buildIfMissing && haveRoot && (needVpxenc || needVpxencVP9 || needVpxencVP9Stats || needOracle || needVpxdecVP9) {
 		target := "oracle-tools"
-		if needVpxencVP9 || needVpxdecVP9 {
+		if needVpxencVP9 || needVpxencVP9Stats || needVpxdecVP9 {
 			target = "vp9-vpxdec-tools"
 		}
 		fmt.Fprintf(os.Stderr, "govpx-bench: building libvpx oracle tools (make %s)\n", target)
@@ -168,6 +173,13 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 			cfg.LibvpxVpxencVP9 = path
 		}
 	}
+	if !cfg.Decode && codec == codecVP9 && cfg.PhaseTiming && cfg.LibvpxVpxencVP9Stats == "" {
+		if isExecutable(repoVpxencVP9Stats) {
+			cfg.LibvpxVpxencVP9Stats = repoVpxencVP9Stats
+		} else if path, err := exec.LookPath("vpxenc-vp9-callstats"); err == nil {
+			cfg.LibvpxVpxencVP9Stats = path
+		}
+	}
 	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" && isExecutable(repoOracle) {
 		cfg.LibvpxOracle = repoOracle
 	}
@@ -185,6 +197,10 @@ func resolveLibvpxDefaults(cfg *benchConfig, buildIfMissing bool) {
 	if !cfg.Decode && codec == codecVP9 && cfg.LibvpxVpxencVP9 == "" {
 		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but vpxenc-vp9 not found; "+
 			"run `make vp9-vpxdec-tools` or pass -libvpx-vpxenc-vp9=<path> (or -build-libvpx=true)")
+	}
+	if !cfg.Decode && codec == codecVP9 && cfg.PhaseTiming && cfg.LibvpxVpxencVP9Stats == "" {
+		fmt.Fprintln(os.Stderr, "govpx-bench: -phase-timing requested but vpxenc-vp9-callstats not found; "+
+			"run `make vp9-vpxdec-tools` or pass -libvpx-vpxenc-vp9-stats=<path>")
 	}
 	if cfg.Decode && codec == codecVP8 && cfg.LibvpxOracle == "" {
 		fmt.Fprintln(os.Stderr, "govpx-bench: -auto-libvpx requested but govpx-vpx-oracle not found; "+

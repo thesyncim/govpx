@@ -105,6 +105,24 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 	}
 }
 
+func TestVP9LibvpxEncoderPathUsesStatsOnlyForPhaseTiming(t *testing.T) {
+	cfg := benchConfig{
+		LibvpxVpxencVP9:      "/tmp/vpxenc-vp9",
+		LibvpxVpxencVP9Stats: "/tmp/vpxenc-vp9-callstats",
+	}
+	if got := vp9LibvpxEncoderPath(cfg); got != cfg.LibvpxVpxencVP9 {
+		t.Fatalf("normal VP9 libvpx path = %q, want %q", got, cfg.LibvpxVpxencVP9)
+	}
+	cfg.PhaseTiming = true
+	if got := vp9LibvpxEncoderPath(cfg); got != cfg.LibvpxVpxencVP9Stats {
+		t.Fatalf("phase VP9 libvpx path = %q, want %q", got, cfg.LibvpxVpxencVP9Stats)
+	}
+	cfg.LibvpxVpxencVP9Stats = ""
+	if got := vp9LibvpxEncoderPath(cfg); got != cfg.LibvpxVpxencVP9 {
+		t.Fatalf("phase fallback VP9 libvpx path = %q, want %q", got, cfg.LibvpxVpxencVP9)
+	}
+}
+
 func TestRunVP9BenchmarkWithCustomSource(t *testing.T) {
 	report, err := runVP9BenchmarkWithSource(benchConfig{
 		Codec:       codecVP9,

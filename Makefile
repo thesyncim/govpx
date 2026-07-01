@@ -23,6 +23,7 @@ VPXENC_PUREC := $(CORACLE_BUILD)/vpxenc-purec
 VPXDEC_PUREC := $(CORACLE_BUILD)/vpxdec-purec
 VPXDEC_VP9 := $(CORACLE_BUILD)/vpxdec-vp9
 VPXENC_VP9 := $(CORACLE_BUILD)/vpxenc-vp9
+VPXENC_VP9_CALLSTATS := $(CORACLE_BUILD)/vpxenc-vp9-callstats
 VPXENC_VP9_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-vp9-frameflags
 VP9_SPATIAL_SVC_ENCODER := $(CORACLE_BUILD)/vp9_spatial_svc_encoder
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
@@ -408,6 +409,7 @@ vp9-vpxdec-tools:
 	sh internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null
 	test -x "$(VPXDEC_VP9)"
 	test -x "$(VPXENC_VP9)"
+	test -x "$(VPXENC_VP9_CALLSTATS)"
 	test -x "$(VPXENC_VP9_FRAMEFLAGS)"
 	test -x "$(VP9_SPATIAL_SVC_ENCODER)"
 
@@ -420,7 +422,7 @@ vp9-vpxdec-tools:
 # tests, without picking a single verify-* gate.
 oracle-bins: oracle-tools vp9-vpxdec-tools
 	@printf 'oracle binaries ready under %s:\n' "$(CORACLE_BUILD)"
-	@for f in $(ORACLE) $(VPXENC) $(VPXDEC) $(VPXENC_ORACLE) $(VPXENC_FRAMEFLAGS) $(VPXENC_FRAMEFLAGS_ORACLE) $(VPX_TEMPORAL_SVC_ENCODER) $(VPXDEC_VP9) $(VPXENC_VP9) $(VPXENC_VP9_FRAMEFLAGS) $(VP9_SPATIAL_SVC_ENCODER); do \
+	@for f in $(ORACLE) $(VPXENC) $(VPXDEC) $(VPXENC_ORACLE) $(VPXENC_FRAMEFLAGS) $(VPXENC_FRAMEFLAGS_ORACLE) $(VPX_TEMPORAL_SVC_ENCODER) $(VPXDEC_VP9) $(VPXENC_VP9) $(VPXENC_VP9_CALLSTATS) $(VPXENC_VP9_FRAMEFLAGS) $(VP9_SPATIAL_SVC_ENCODER); do \
 		test -x "$$f" && printf '  %s\n' "$$f"; \
 	done
 

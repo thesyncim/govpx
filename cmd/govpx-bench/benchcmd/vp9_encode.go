@@ -233,7 +233,7 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		QuantizerHist: quantizerHistogramMap(&quantHist),
 		Options:       benchSummary(deadlineName),
 	}
-	if cfg.LibvpxVpxencVP9 != "" {
+	if vp9LibvpxEncoderPath(cfg) != "" {
 		reference, err := runLibvpxVP9Benchmark(cfg, frames, deadlineName)
 		if err != nil {
 			return benchReport{}, err
