@@ -1514,7 +1514,7 @@ func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
 		countInter = &job.inter
 	}
 	var bw bitstream.Writer
-	bw.Start(job.worker.scratch[:])
+	bw.StartDiscard()
 	job.worker.writeVP9FrameTile(&bw, job.miRows, job.miCols, job.tile,
 		&job.partitionProbs, &job.seg, job.baseMi, job.txMode, job.kind,
 		countKey, countInter)
