@@ -141,7 +141,78 @@ func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
 	decision.isCompound = true
 	decision.secondRefFrame = vp9dec.GoldenFrame
 	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a compound leaf in the single-ref slice")
+		t.Fatal("replay fast path accepted a compound leaf without a valid second ref slot")
+	}
+	decision.secondRefSlot = len(e.refFrames)
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a compound leaf with an out-of-range second ref slot")
+	}
+	decision.secondRefSlot = 1
+	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path accepted a compound leaf with an invalid second ref")
+	}
+	e.refFrames[1].valid = true
+	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path rejected a preserved compound inter leaf")
+	}
+}
+
+func TestVP9CountPassInterLeafReplayRestoresCompoundModeInfo(t *testing.T) {
+	e := &VP9Encoder{}
+	e.refFrames[0].valid = true
+	e.refFrames[1].valid = true
+	inter := &vp9InterEncodeState{}
+	decision := vp9InterModeDecision{
+		refFrame:       vp9dec.LastFrame,
+		secondRefFrame: vp9dec.GoldenFrame,
+		refSlot:        0,
+		secondRefSlot:  1,
+		isCompound:     true,
+		mode:           common.NewMv,
+		mv: [2]vp9dec.MV{
+			{Row: 8, Col: -16},
+			{Row: -4, Col: 12},
+		},
+		bmi: [4]vp9dec.Bmi{
+			{AsMode: common.NewMv, AsMv: [2]vp9dec.MV{{Row: 1, Col: 2}, {Row: 3, Col: 4}}},
+			{AsMode: common.NearMv, AsMv: [2]vp9dec.MV{{Row: 5, Col: 6}, {Row: 7, Col: 8}}},
+			{AsMode: common.NearestMv, AsMv: [2]vp9dec.MV{{Row: 9, Col: 10}, {Row: 11, Col: 12}}},
+			{AsMode: common.ZeroMv, AsMv: [2]vp9dec.MV{{Row: 13, Col: 14}, {Row: 15, Col: 16}}},
+		},
+		interpFilter: vp9dec.InterpEighttapSmooth,
+		txSize:       common.Tx8x8,
+	}
+
+	var mi vp9dec.NeighborMi
+	e.applyVP9CountPassInterLeaf(inter, &mi, decision, common.Block16x16)
+
+	if mi.Mode != decision.mode {
+		t.Fatalf("mode = %v, want %v", mi.Mode, decision.mode)
+	}
+	if mi.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.GoldenFrame} {
+		t.Fatalf("ref frames = %v, want LAST/GOLDEN", mi.RefFrame)
+	}
+	if mi.Mv != decision.mv {
+		t.Fatalf("mv = %v, want %v", mi.Mv, decision.mv)
+	}
+	if mi.Bmi != decision.bmi {
+		t.Fatalf("bmi = %v, want %v", mi.Bmi, decision.bmi)
+	}
+	if got := vp9dec.InterpFilter(mi.InterpFilter); got != decision.interpFilter {
+		t.Fatalf("interp filter = %v, want %v", got, decision.interpFilter)
+	}
+	if mi.TxSize != decision.txSize {
+		t.Fatalf("tx size = %v, want %v", mi.TxSize, decision.txSize)
+	}
+	if inter.ref != &e.refFrames[0] {
+		t.Fatalf("primary ref pointer was not restored")
+	}
+
+	decision.isCompound = false
+	decision.secondRefFrame = vp9dec.GoldenFrame
+	e.applyVP9CountPassInterLeaf(inter, &mi, decision, common.Block16x16)
+	if mi.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame} {
+		t.Fatalf("single-ref replay ref frames = %v, want LAST/NO_REF", mi.RefFrame)
 	}
 }
 

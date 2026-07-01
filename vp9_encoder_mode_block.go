@@ -12,16 +12,28 @@ import (
 func (e *VP9Encoder) canReplayVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 	decision vp9InterModeDecision, bsize common.BlockSize, forcedRef bool,
 ) bool {
-	return e != nil && inter != nil && inter.counts == nil &&
+	if !(e != nil && inter != nil && inter.counts == nil &&
 		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
 		e.vp9TokenReplay.err == nil && !forcedRef &&
 		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
 		bsize >= common.Block8x8 &&
-		!decision.intra && !decision.isCompound &&
-		decision.refFrame > vp9dec.IntraFrame &&
-		decision.secondRefFrame == vp9dec.NoRefFrame &&
-		decision.refSlot >= 0 && decision.refSlot < len(e.refFrames) &&
-		e.refFrames[decision.refSlot].valid
+		!decision.intra && decision.refFrame > vp9dec.IntraFrame) {
+		return false
+	}
+	refSlot, ok := e.vp9ReferenceSlotForFrame(decision.refFrame)
+	if !ok || refSlot != decision.refSlot ||
+		decision.refSlot < 0 || decision.refSlot >= len(e.refFrames) ||
+		!e.refFrames[decision.refSlot].valid {
+		return false
+	}
+	if !decision.isCompound {
+		return decision.secondRefFrame == vp9dec.NoRefFrame
+	}
+	secondRefSlot, ok := e.vp9ReferenceSlotForFrame(decision.secondRefFrame)
+	return ok && secondRefSlot == decision.secondRefSlot &&
+		decision.secondRefFrame > vp9dec.IntraFrame &&
+		decision.secondRefSlot >= 0 && decision.secondRefSlot < len(e.refFrames) &&
+		e.refFrames[decision.secondRefSlot].valid
 }
 
 func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
@@ -33,7 +45,11 @@ func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 	mi.Mode = decision.mode
 	mi.Mv = decision.mv
 	mi.Bmi = decision.bmi
-	mi.RefFrame = [2]int8{decision.refFrame, vp9dec.NoRefFrame}
+	secondRefFrame := int8(vp9dec.NoRefFrame)
+	if decision.isCompound {
+		secondRefFrame = decision.secondRefFrame
+	}
+	mi.RefFrame = [2]int8{decision.refFrame, secondRefFrame}
 	mi.InterpFilter = uint8(decision.interpFilter)
 	if decision.txSize < common.TxSizes {
 		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
