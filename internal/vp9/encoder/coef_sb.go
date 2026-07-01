@@ -266,3 +266,77 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 	}
 	return nil
 }
+
+// CommitCoefSbContexts mirrors WriteCoefSb's transformed-block walk but only
+// stamps above/left entropy contexts from each tx block's EOB. This is used by
+// token replay: coefficient tokens have already been staged and packed, but the
+// following leaf still needs the same live context state that WriteCoefSb would
+// have produced.
+func CommitCoefSbContexts(a WriteCoefSbArgs) error {
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &a.Planes[plane]
+		planeType := 0
+		if plane > 0 {
+			planeType = 1
+		}
+
+		var txSize common.TxSize
+		if plane == 0 {
+			txSize = a.MiTxSize
+		} else {
+			txSize = vp9dec.GetUvTxSize(a.BSize, a.MiTxSize, pd)
+		}
+
+		planeBsize := vp9dec.GetPlaneBlockSize(a.BSize, pd)
+		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		if a.MiRows > 0 && a.MiCols > 0 {
+			num4x4W, num4x4H = planeMaxBlocks4x4(a.MiRows, a.MiCols,
+				a.MiRow, a.MiCol, a.BSize, pd, planeBsize)
+		}
+		step := 1 << uint(txSize)
+		defaultScan, _ := scanForTxSize(txSize)
+
+		aboveBase := a.AboveOffsets[plane]
+		leftBase := a.LeftOffsets[plane]
+
+		blockIdx := 0
+		for r := 0; r < num4x4H; r += step {
+			for c := 0; c < num4x4W; c += step {
+				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
+				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
+
+				eob, eobValid := 0, false
+				if a.GetEOB != nil {
+					eob, eobValid = a.GetEOB(plane, r, c, txSize)
+				}
+				if !eobValid {
+					scan := defaultScan
+					if a.IsInter == 0 && planeType == 0 && !a.Lossless && a.Mi != nil {
+						so := common.GetScan(txSize, planeType, a.IsInter, a.Lossless,
+							yModeForBlock(a.Mi, blockIdx))
+						scan = so.Scan
+					}
+					coeffs := a.GetCoeffs(plane, r, c, txSize)
+					var qcoeffs []int16
+					if a.GetQCoeffs != nil {
+						qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
+					}
+					eob = coeffBlockEOBEncode(scan, vp9dec.MaxEobForTxSize(txSize),
+						coeffs, qcoeffs)
+				}
+
+				hasResidue := uint8(0)
+				if eob > 0 {
+					hasResidue = 1
+				}
+				for j := range step {
+					aboveCtx[j] = hasResidue
+					leftCtx[j] = hasResidue
+				}
+				blockIdx += step * step
+			}
+		}
+	}
+	return nil
+}

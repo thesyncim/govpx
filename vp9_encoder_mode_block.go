@@ -254,7 +254,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				},
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
-			if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+			if e.packVP9ReplayCoefTokenLeaf(bw) {
+				if e.vp9TokenReplay.err == nil {
+					if err := encoder.CommitCoefSbContexts(coefArgs); err != nil {
+						e.vp9TokenReplay.err = err
+					}
+				}
+			} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
 				e.vp9TokenCollect.err = err
 			}
 			if collectTokens {
@@ -404,7 +410,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			},
 		}
 		collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
-		if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+		if e.packVP9ReplayCoefTokenLeaf(bw) {
+			if e.vp9TokenReplay.err == nil {
+				if err := encoder.CommitCoefSbContexts(coefArgs); err != nil {
+					e.vp9TokenReplay.err = err
+				}
+			}
+		} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
 			e.vp9TokenCollect.err = err
 		}
 		if collectTokens {

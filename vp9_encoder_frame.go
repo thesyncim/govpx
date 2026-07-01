@@ -613,11 +613,26 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	} else if header.IntraOnly {
 		tileKind = vp9ModeTreeKeyframe
 	}
+	tileRows := 1 << uint(header.Tile.Log2TileRows)
+	tileCols := 1 << uint(header.Tile.Log2TileCols)
+	replayTokens := false
+	if header.RefreshFrameContext {
+		replayTokens = e.beginVP9TokenReplay(tileRows, tileCols, tileKind)
+	} else {
+		e.vp9TokenReplay = vp9TokenReplayState{}
+	}
 	tileSize, err := e.writeVP9FrameTiles(dst[tileStart:], miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, tileKind, keyState,
 		interState)
+	var replayErr error
+	if replayTokens {
+		replayErr = e.finishVP9TokenReplay()
+	}
 	if err != nil {
 		return VP9EncodeResult{}, err
+	}
+	if replayErr != nil {
+		return VP9EncodeResult{}, replayErr
 	}
 	e.sf.SkipEncodeFrame = 0
 	if e.sf.SkipEncodeSb != 0 {

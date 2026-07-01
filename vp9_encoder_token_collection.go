@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -13,6 +14,15 @@ type vp9TokenCollectState struct {
 	err     error
 }
 
+type vp9TokenReplayState struct {
+	active  bool
+	tileRow int
+	tileCol int
+	tokens  []encoder.TokenExtra
+	cursor  int
+	err     error
+}
+
 func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
 	return kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource
 }
@@ -21,6 +31,7 @@ func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tile
 	kind vp9ModeTreeKind,
 ) bool {
 	if e == nil || !vp9ModeTreeCollectsTokens(kind) ||
+		e.sf.TxSizeSearchMethod == UseFullRD ||
 		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
 		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols {
 		if e != nil {
@@ -44,14 +55,65 @@ func (e *VP9Encoder) finishVP9CountTokenCollection() error {
 	}
 	err := e.vp9TokenCollect.err
 	e.vp9TokenCollect.active = false
+	if err != nil {
+		e.vp9TokenFrame.Reset()
+	}
+	return err
+}
+
+func (e *VP9Encoder) beginVP9TokenReplay(tileRows, tileCols int,
+	kind vp9ModeTreeKind,
+) bool {
+	if e == nil || !vp9ModeTreeCollectsTokens(kind) ||
+		e.sf.TxSizeSearchMethod == UseFullRD ||
+		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
+		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols ||
+		e.vp9TokenFrame.Used <= 0 || len(e.vp9TokenFrame.Lists) == 0 {
+		if e != nil {
+			e.vp9TokenReplay = vp9TokenReplayState{}
+		}
+		return false
+	}
+	e.vp9TokenReplay = vp9TokenReplayState{active: true}
+	return true
+}
+
+func (e *VP9Encoder) finishVP9TokenReplay() error {
+	if e == nil {
+		return nil
+	}
+	err := e.vp9TokenReplay.err
+	e.vp9TokenReplay = vp9TokenReplayState{}
 	return err
 }
 
 func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) int {
-	if e == nil || !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
+	if e == nil {
 		return -1
 	}
 	tileSBRow := common.AlignToSB(miRow-tile.MiRowStart) >> common.MiBlockSizeLog2
+	if e.vp9TokenReplay.active {
+		if e.vp9TokenReplay.err != nil {
+			return -1
+		}
+		idx, ok := e.vp9TokenFrame.TokenListIndex(e.vp9TokenReplay.tileRow,
+			e.vp9TokenReplay.tileCol, tileSBRow)
+		if !ok {
+			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+			return -1
+		}
+		tokens, ok := e.vp9TokenFrame.TokensForList(e.vp9TokenFrame.Lists[idx])
+		if !ok || len(tokens) == 0 {
+			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+			return -1
+		}
+		e.vp9TokenReplay.tokens = tokens
+		e.vp9TokenReplay.cursor = 0
+		return idx
+	}
+	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
+		return -1
+	}
 	idx, ok := e.vp9TokenFrame.StartTokenList(e.vp9TokenCollect.tileRow,
 		e.vp9TokenCollect.tileCol, tileSBRow)
 	if !ok {
@@ -62,8 +124,19 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 }
 
 func (e *VP9Encoder) finishVP9CountTokenList(idx int) {
-	if e == nil || idx < 0 || !e.vp9TokenCollect.active ||
-		e.vp9TokenCollect.err != nil {
+	if e == nil || idx < 0 {
+		return
+	}
+	if e.vp9TokenReplay.active {
+		if e.vp9TokenReplay.err == nil &&
+			e.vp9TokenReplay.cursor != len(e.vp9TokenReplay.tokens) {
+			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		}
+		e.vp9TokenReplay.tokens = nil
+		e.vp9TokenReplay.cursor = 0
+		return
+	}
+	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
 		return
 	}
 	if !e.vp9TokenFrame.FinishTokenList(idx) {
@@ -83,12 +156,49 @@ func (e *VP9Encoder) collectVP9CoefTokensArgs(args *encoder.WriteCoefSbArgs) boo
 }
 
 func (e *VP9Encoder) finishVP9CoefTokenLeaf() {
-	if e == nil || !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
+	if e == nil {
+		return
+	}
+	if e.vp9TokenReplay.active {
+		e.consumeVP9ReplayEOSBLeaf()
+		return
+	}
+	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
 		return
 	}
 	if !e.vp9TokenFrame.AppendToken(encoder.TokenExtra{Token: encoder.EOSBToken}) {
 		e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
 	}
+}
+
+func (e *VP9Encoder) packVP9ReplayCoefTokenLeaf(bw *bitstream.Writer) bool {
+	if e == nil || bw == nil || !e.vp9TokenReplay.active {
+		return false
+	}
+	if e.vp9TokenReplay.err != nil {
+		return true
+	}
+	tokens := e.vp9TokenReplay.tokens[e.vp9TokenReplay.cursor:]
+	n := encoder.PackTokens(bw, tokens, &e.fc.CoefProbs)
+	if n <= 0 || n > len(tokens) ||
+		tokens[n-1].Token != encoder.EOSBToken {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		return true
+	}
+	e.vp9TokenReplay.cursor += n
+	return true
+}
+
+func (e *VP9Encoder) consumeVP9ReplayEOSBLeaf() {
+	if e == nil || !e.vp9TokenReplay.active || e.vp9TokenReplay.err != nil {
+		return
+	}
+	if e.vp9TokenReplay.cursor >= len(e.vp9TokenReplay.tokens) ||
+		e.vp9TokenReplay.tokens[e.vp9TokenReplay.cursor].Token != encoder.EOSBToken {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		return
+	}
+	e.vp9TokenReplay.cursor++
 }
 
 func (e *VP9Encoder) vp9CountTokenListForTileSBRow(tileRow, tileCol, tileSBRow int) (

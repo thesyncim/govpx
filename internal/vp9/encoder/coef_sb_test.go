@@ -114,6 +114,86 @@ func TestWriteCoefSbBlock8x8AllZero(t *testing.T) {
 	}
 }
 
+func TestCommitCoefSbContextsMatchesWriteCoefSb(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	makePlanes := func() [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane {
+		var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+		vp9dec.SetupBlockPlanes(&planes, 1, 1)
+		planes[0].AboveContext = make([]uint8, 4)
+		planes[0].LeftContext = make([]uint8, 4)
+		planes[1].AboveContext = make([]uint8, 2)
+		planes[1].LeftContext = make([]uint8, 2)
+		planes[2].AboveContext = make([]uint8, 2)
+		planes[2].LeftContext = make([]uint8, 2)
+		return planes
+	}
+	writePlanes := makePlanes()
+	commitPlanes := makePlanes()
+
+	zero := make([]int16, 16)
+	one := make([]int16, 16)
+	one[0] = 16
+	getCoeffs := func(plane, r, c int, tx common.TxSize) []int16 {
+		if (plane == 0 && r == 0 && c == 0) || plane == 1 {
+			return one
+		}
+		return zero
+	}
+	getEOB := func(plane, r, c int, tx common.TxSize) (int, bool) {
+		if (plane == 0 && r == 0 && c == 0) || plane == 1 {
+			return 1, true
+		}
+		return 0, true
+	}
+	baseArgs := WriteCoefSbArgs{
+		BSize:    common.Block8x8,
+		MiTxSize: common.Tx4x4,
+		PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+			{16, 16}, {16, 16}, {16, 16},
+		},
+		Fc:        &fc,
+		GetCoeffs: getCoeffs,
+		GetEOB:    getEOB,
+	}
+
+	writeArgs := baseArgs
+	writeArgs.Planes = &writePlanes
+	var bw bitstream.Writer
+	bw.Start(make([]byte, 256))
+	if err := WriteCoefSb(&bw, writeArgs); err != nil {
+		t.Fatalf("WriteCoefSb: %v", err)
+	}
+	if _, err := bw.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	commitArgs := baseArgs
+	commitArgs.Planes = &commitPlanes
+	if err := CommitCoefSbContexts(commitArgs); err != nil {
+		t.Fatalf("CommitCoefSbContexts: %v", err)
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		if got, want := commitPlanes[plane].AboveContext, writePlanes[plane].AboveContext; !equalUint8s(got, want) {
+			t.Fatalf("plane %d above context = %v, want %v", plane, got, want)
+		}
+		if got, want := commitPlanes[plane].LeftContext, writePlanes[plane].LeftContext; !equalUint8s(got, want) {
+			t.Fatalf("plane %d left context = %v, want %v", plane, got, want)
+		}
+	}
+}
+
+func equalUint8s(a, b []uint8) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestWriteCoefSbClipsFrameEdges(t *testing.T) {
 	cases := []struct {
 		name               string
