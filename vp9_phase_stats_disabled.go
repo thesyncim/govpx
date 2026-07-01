@@ -9,6 +9,17 @@ import (
 
 const vp9PhaseStatsEnabled = false
 
+type vp9FullPelSADSource uint8
+
+const (
+	vp9FullPelSADSourceOther vp9FullPelSADSource = iota
+	vp9FullPelSADSourceZero
+	vp9FullPelSADSourceSeed
+	vp9FullPelSADSourceHint
+	vp9FullPelSADSourcePattern
+	vp9FullPelSADSourceFullRD
+)
+
 type vp9DecoderPhaseStatsOptions struct{}
 
 func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
@@ -45,7 +56,7 @@ func (e *VP9Encoder) vp9PhaseIncInterPredictionVariance() {}
 
 func (e *VP9Encoder) vp9PhaseCountFullPelSearch(common.BlockSize, bool, bool) {}
 
-func (e *VP9Encoder) vp9PhaseAddFullPelSAD(int64, bool) {}
+func (e *VP9Encoder) vp9PhaseAddFullPelSAD(int64, bool, vp9FullPelSADSource) {}
 
 func (d *VP9Decoder) setVP9PhaseStats(*EncoderPhaseStats) {}
 

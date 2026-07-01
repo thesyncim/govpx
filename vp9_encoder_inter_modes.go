@@ -2827,13 +2827,14 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		}
 		return bufY*refStride + bufX, true
 	}
+	fullPelSADSource := vp9FullPelSADSourceOther
 	sadAt := func(dx, dy int) (uint64, bool) {
 		refOff, ok := refOffForFullpel(dx, dy)
 		if !ok {
 			return 0, false
 		}
 		if vp9PhaseStatsEnabled {
-			e.vp9PhaseAddFullPelSAD(1, false)
+			e.vp9PhaseAddFullPelSAD(1, false, fullPelSADSource)
 		}
 		return encoder.BlockSADOffsets(src, srcOff, srcStride, ref, refOff,
 			refStride, blockW, blockH, ^uint64(0)), true
@@ -2858,7 +2859,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			refOffs[i] = refOff
 		}
 		if vp9PhaseStatsEnabled {
-			e.vp9PhaseAddFullPelSAD(4, true)
+			e.vp9PhaseAddFullPelSAD(4, true, fullPelSADSource)
 		}
 		var raw [4]uint32
 		if !encoder.BlockSAD4NoLimitOffsets(src, srcOff, srcStride, ref, refOffs,
@@ -2873,7 +2874,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			return 0, false
 		}
 		if vp9PhaseStatsEnabled {
-			e.vp9PhaseAddFullPelSAD(1, false)
+			e.vp9PhaseAddFullPelSAD(1, false, fullPelSADSource)
 		}
 		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff, srcStride,
 			ref, refOff, refStride, blockW, blockH)
@@ -2885,7 +2886,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			return 0, false
 		}
 		if vp9PhaseStatsEnabled {
-			e.vp9PhaseAddFullPelSAD(1, false)
+			e.vp9PhaseAddFullPelSAD(1, false, fullPelSADSource)
 		}
 		sad, ok := encoder.BlockSADSkipRowsNoLimitOffsets(src, srcOff+srcStride,
 			srcStride, ref, refOff+refStride, refStride, blockW, blockH)
@@ -2911,7 +2912,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			refOffs[i] = refOff
 		}
 		if vp9PhaseStatsEnabled {
-			e.vp9PhaseAddFullPelSAD(4, true)
+			e.vp9PhaseAddFullPelSAD(4, true, fullPelSADSource)
 		}
 		var raw [4]uint32
 		if !encoder.BlockSADSkipRows4NoLimitOffsets(src, srcOff, srcStride, ref,
@@ -2950,13 +2951,45 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		searchFromSeed = true
 		if e.vp9InterSubpelEnabled() && !opts.nonrdSubpelTree &&
 			!e.vp9InterSubpelSearchUsesTree() {
+			fullPelSADSource = vp9FullPelSADSourceSeed
 			if sad, ok := sadAt(seedDx, seedDy); ok {
 				bestSad = sad
 				bestScore = scoreMv(seedDx, seedDy, sad)
 			}
+			fullPelSADSource = vp9FullPelSADSourceOther
 		}
-	} else {
+	} else if !opts.fullRD && opts.seedValid {
+		// libvpx passes mvp_full as vp9_full_pixel_search's start point; do
+		// not pre-score zero MV when a seed is available.
+		seedDx := int(opts.seed.Col) >> 3
+		seedDy := int(opts.seed.Row) >> 3
+		seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
+		fullPelSADSource = vp9FullPelSADSourceSeed
+		if sad, ok := sadAt(seedDx, seedDy); ok {
+			bestSad = sad
+			bestScore = scoreMv(seedDx, seedDy, bestSad)
+			bestDx = seedDx
+			bestDy = seedDy
+			seededStart = true
+			searchCenterDx = seedDx
+			searchCenterDy = seedDy
+			searchFromSeed = true
+		}
+		fullPelSADSource = vp9FullPelSADSourceOther
+		if !seededStart {
+			fullPelSADSource = vp9FullPelSADSourceZero
+			sad, ok := sadAt(0, 0)
+			fullPelSADSource = vp9FullPelSADSourceOther
+			if !ok {
+				return vp9dec.MV{}, 0, false
+			}
+			bestSad = sad
+			bestScore = scoreMv(0, 0, bestSad)
+		}
+	} else if !opts.fullRD {
+		fullPelSADSource = vp9FullPelSADSourceZero
 		sad, ok := sadAt(0, 0)
+		fullPelSADSource = vp9FullPelSADSourceOther
 		if !ok {
 			return vp9dec.MV{}, 0, false
 		}
@@ -2996,31 +3029,17 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		// path must NOT use the SF field.
 		var newSad uint64
 		var ok bool
+		fullPelSADSource = vp9FullPelSADSourceFullRD
 		bestDx, bestDy, newSad, ok = e.vp9FullRDFullPelMv(inter, miRows, miCols,
 			miRow, miCol, bsize, refFrame, opts, &mvLimits, sadAt, sadAt4,
 			sadSkipAt, sadSkipOddAt, sadSkipAt4, sadPerBit, refFullDy, refFullDx)
+		fullPelSADSource = vp9FullPelSADSourceOther
 		if !ok {
 			return vp9dec.MV{}, 0, false
 		}
 		bestSad = newSad
 		bestScore = scoreMv(bestDx, bestDy, bestSad)
 	} else {
-		if opts.seedValid && !skipSearchFromSeed {
-			seedDx := int(opts.seed.Col) >> 3
-			seedDy := int(opts.seed.Row) >> 3
-			seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
-			if sad, ok := sadAt(seedDx, seedDy); ok {
-				bestSad = sad
-				bestScore = scoreMv(seedDx, seedDy, bestSad)
-				bestDx = seedDx
-				bestDy = seedDy
-				seededStart = true
-				searchCenterDx = seedDx
-				searchCenterDy = seedDy
-				searchFromSeed = true
-			}
-		}
-
 		skipMVPartSearch := opts.useMvPart && seededStart
 		skipIntProSearch := opts.skipFullpelSearch && seededStart
 		if vp9PhaseStatsEnabled {
@@ -3043,10 +3062,12 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			searchRadius := e.vp9InterSearchRadius()
 			if refFrame == vp9dec.LastFrame {
 				if hintDx, hintDy, ok := e.vp9MVHintCandidatePixelOffset(miRow, miCol); ok {
+					fullPelSADSource = vp9FullPelSADSourceHint
 					if !seededStart && eval(hintDx, hintDy) && searchFromSeed {
 						searchCenterDx = hintDx
 						searchCenterDy = hintDy
 					}
+					fullPelSADSource = vp9FullPelSADSourceOther
 					// Widen the search radius so the refinement loop can
 					// walk a small fan around the hint when it wins.
 					absDx := hintDx
@@ -3075,19 +3096,26 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 				scanMaxDy = searchCenterDy + searchRadius
 			}
 			if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
+				fullPelSADSource = vp9FullPelSADSourcePattern
 				bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 					&mvLimits, sadAt, searchSadAt4, scoreMv)
+				fullPelSADSource = vp9FullPelSADSourceOther
 			} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
+				fullPelSADSource = vp9FullPelSADSourcePattern
 				bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 					&mvLimits, sadAt, searchSadAt4, scoreMv)
+				fullPelSADSource = vp9FullPelSADSourceOther
 			} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
 				e.sf.Mv.SearchMethod == SearchMethodMesh {
+				fullPelSADSource = vp9FullPelSADSourcePattern
 				bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
 					&mvLimits, sadAt, searchSadAt4, scoreMv)
+				fullPelSADSource = vp9FullPelSADSourceOther
 			} else {
+				fullPelSADSource = vp9FullPelSADSourcePattern
 				// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
 				// step so the fan covers +/-searchRadius without exceeding it.
 				coarseStep := max(e.vp9InterSearchCoarseStep(), 1)
@@ -3114,6 +3142,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 						}
 					}
 				}
+				fullPelSADSource = vp9FullPelSADSourceOther
 			}
 		}
 	}

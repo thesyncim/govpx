@@ -160,6 +160,19 @@ type EncoderPhaseStats struct {
 	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
 	// FullPelBatchCalls counts vectorized multi-candidate SAD batches.
 	FullPelBatchCalls int64 `json:"fullpel_batch_calls"`
+	// VP9FullPelSAD* count VP9 full-pixel SAD calls/candidates by call site.
+	VP9FullPelSADZeroCalls         int64 `json:"vp9_fullpel_sad_zero_calls"`
+	VP9FullPelSADZeroCandidates    int64 `json:"vp9_fullpel_sad_zero_candidates"`
+	VP9FullPelSADSeedCalls         int64 `json:"vp9_fullpel_sad_seed_calls"`
+	VP9FullPelSADSeedCandidates    int64 `json:"vp9_fullpel_sad_seed_candidates"`
+	VP9FullPelSADHintCalls         int64 `json:"vp9_fullpel_sad_hint_calls"`
+	VP9FullPelSADHintCandidates    int64 `json:"vp9_fullpel_sad_hint_candidates"`
+	VP9FullPelSADPatternCalls      int64 `json:"vp9_fullpel_sad_pattern_calls"`
+	VP9FullPelSADPatternCandidates int64 `json:"vp9_fullpel_sad_pattern_candidates"`
+	VP9FullPelSADFullRDCalls       int64 `json:"vp9_fullpel_sad_fullrd_calls"`
+	VP9FullPelSADFullRDCandidates  int64 `json:"vp9_fullpel_sad_fullrd_candidates"`
+	VP9FullPelSADOtherCalls        int64 `json:"vp9_fullpel_sad_other_calls"`
+	VP9FullPelSADOtherCandidates   int64 `json:"vp9_fullpel_sad_other_candidates"`
 	// VP9FullPelSearches counts VP9 full-pixel motion-search invocations.
 	VP9FullPelSearches int64 `json:"vp9_fullpel_searches"`
 	// VP9FullPelSearchSkipMVPart counts searches skipped by variance-partition MVs.

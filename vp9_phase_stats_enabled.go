@@ -11,6 +11,17 @@ import (
 
 const vp9PhaseStatsEnabled = true
 
+type vp9FullPelSADSource uint8
+
+const (
+	vp9FullPelSADSourceOther vp9FullPelSADSource = iota
+	vp9FullPelSADSourceZero
+	vp9FullPelSADSourceSeed
+	vp9FullPelSADSourceHint
+	vp9FullPelSADSourcePattern
+	vp9FullPelSADSourceFullRD
+)
+
 type vp9DecoderPhaseStatsOptions struct {
 	phaseStats *EncoderPhaseStats
 }
@@ -262,7 +273,9 @@ func (e *VP9Encoder) vp9PhaseCountFullPelSearch(bsize common.BlockSize,
 	}
 }
 
-func (e *VP9Encoder) vp9PhaseAddFullPelSAD(candidates int64, batch bool) {
+func (e *VP9Encoder) vp9PhaseAddFullPelSAD(candidates int64, batch bool,
+	source vp9FullPelSADSource,
+) {
 	stats := e.vp9PhaseStats()
 	if stats == nil {
 		return
@@ -271,6 +284,26 @@ func (e *VP9Encoder) vp9PhaseAddFullPelSAD(candidates int64, batch bool) {
 	atomic.AddInt64(&stats.FullPelSADCandidates, candidates)
 	if batch {
 		atomic.AddInt64(&stats.FullPelBatchCalls, 1)
+	}
+	switch source {
+	case vp9FullPelSADSourceZero:
+		atomic.AddInt64(&stats.VP9FullPelSADZeroCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADZeroCandidates, candidates)
+	case vp9FullPelSADSourceSeed:
+		atomic.AddInt64(&stats.VP9FullPelSADSeedCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADSeedCandidates, candidates)
+	case vp9FullPelSADSourceHint:
+		atomic.AddInt64(&stats.VP9FullPelSADHintCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADHintCandidates, candidates)
+	case vp9FullPelSADSourcePattern:
+		atomic.AddInt64(&stats.VP9FullPelSADPatternCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADPatternCandidates, candidates)
+	case vp9FullPelSADSourceFullRD:
+		atomic.AddInt64(&stats.VP9FullPelSADFullRDCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADFullRDCandidates, candidates)
+	default:
+		atomic.AddInt64(&stats.VP9FullPelSADOtherCalls, 1)
+		atomic.AddInt64(&stats.VP9FullPelSADOtherCandidates, candidates)
 	}
 }
 
