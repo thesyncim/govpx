@@ -144,6 +144,53 @@ func TestVP9SyntheticRampRealtimeCBREncodesDecodableFrames(t *testing.T) {
 	}
 }
 
+func TestVP9SyntheticRampThreadedRealtimeNoDenoiseCountReplay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping VP9 threaded synthetic-ramp encode test in -short mode")
+	}
+	const (
+		width       = 1280
+		height      = 720
+		bitrateKbps = 2000
+		nFrames     = 45
+		fps         = 30
+	)
+	enc, err := govpx.NewVP9Encoder(govpx.VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		FPS:                 fps,
+		Threads:             4,
+		Deadline:            govpx.DeadlineRealtime,
+		CpuUsed:             8,
+		TargetBitrateKbps:   bitrateKbps,
+		RateControlModeSet:  true,
+		RateControlMode:     govpx.RateControlCBR,
+		MinQuantizer:        2,
+		MaxQuantizer:        56,
+		MaxKeyframeInterval: 3000,
+		BufferSizeMs:        1000,
+		BufferInitialSizeMs: 500,
+		BufferOptimalSizeMs: 600,
+		UndershootPct:       100,
+		OvershootPct:        15,
+		MaxIntraBitratePct:  900,
+		DropFrameAllowed:    true,
+		DropFrameWaterMark:  30,
+		NoiseSensitivity:    0,
+		StaticThreshold:     1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer enc.Close()
+	dst := make([]byte, max(4096, width*height*6))
+	for i := range nFrames {
+		if _, err := enc.EncodeIntoWithResult(makeSyntheticRampFrame(width, height, i), dst); err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+	}
+}
+
 // TestVP9SyntheticRampDecodes covers the 640x360 / 600 kbps realtime-CBR
 // configuration that previously emitted a packet rejected as invalid VP9 data.
 // The regression assertion is that every emitted non-dropped packet decodes.

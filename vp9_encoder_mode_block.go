@@ -36,6 +36,17 @@ func (e *VP9Encoder) canReplayVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 		e.refFrames[decision.secondRefSlot].valid
 }
 
+func (e *VP9Encoder) canReplayVP9CountPassIntraLeaf(inter *vp9InterEncodeState,
+	decision vp9InterModeDecision, bsize common.BlockSize,
+) bool {
+	return e != nil && inter != nil && inter.counts == nil &&
+		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
+		e.vp9TokenReplay.err == nil &&
+		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
+		bsize >= common.Block8x8 &&
+		decision.intra && decision.refFrame == vp9dec.IntraFrame
+}
+
 func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 	mi *vp9dec.NeighborMi, decision vp9InterModeDecision, bsize common.BlockSize,
 ) {
@@ -55,6 +66,22 @@ func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
 	}
 	inter.ref = &e.refFrames[decision.refSlot]
+}
+
+func (e *VP9Encoder) applyVP9CountPassIntraLeaf(mi *vp9dec.NeighborMi,
+	decision vp9InterModeDecision, bsize common.BlockSize,
+) {
+	if mi == nil {
+		return
+	}
+	mi.Mode = decision.mode
+	mi.Bmi = decision.bmi
+	mi.Mv = decision.mv
+	mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
+	mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
+	if decision.txSize < common.TxSizes {
+		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
+	}
 }
 
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
@@ -143,6 +170,19 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 					cur.Skip = 1
 				}
 				e.vp9AccumulateBlockFilterDiff(inter, cached.score, false)
+			} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize); ok &&
+				e.canReplayVP9CountPassIntraLeaf(inter, cached, reconBsize) {
+				interDecision = cached
+				interDecisionValid = true
+				replayedCountPassLeaf = true
+				e.applyVP9CountPassIntraLeaf(&cur, cached, reconBsize)
+				uvMode = cached.uvMode
+				hasResidue = !cached.skip
+				if hasResidue {
+					cur.Skip = 0
+				} else {
+					cur.Skip = 1
+				}
 			} else {
 				// libvpx x->skip_encode search-context freeze: run the leaf's RD
 				// search + zcoeff_blk decision against the SB-entry entropy context

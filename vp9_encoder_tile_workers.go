@@ -587,6 +587,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 		tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed, dstCounts) {
 		return true
 	}
+	e.vp9TokenCollect = vp9TokenCollectState{}
+	e.vp9TokenReplay = vp9TokenReplayState{}
+	e.vp9TokenFrame.Reset()
 	e.ensureVP9CountWorkers(tileCols)
 
 	var wg sync.WaitGroup
@@ -611,8 +614,8 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&e.vp9CountWorkers[0])
 	}
-	if e.vp9ActiveSegmentMapCodingChooser() &&
-		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, e.vp9CountJobs) {
+	if !e.mergeVP9CountWorkerCodingState(width, height, miRows, miCols,
+		tileCols, e.vp9CountJobs) {
 		return false
 	}
 	return true
@@ -673,9 +676,177 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&pool.workers[0])
 	}
-	if e.vp9ActiveSegmentMapCodingChooser() &&
-		!e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, pool.countJobs) {
+	if !e.mergeVP9CountWorkerCodingState(width, height, miRows, miCols,
+		tileCols, pool.countJobs) {
 		return false
+	}
+	return true
+}
+
+func (e *VP9Encoder) mergeVP9CountWorkerCodingState(width, height, miRows, miCols, tileCols int,
+	jobs []vp9CountTileJob,
+) bool {
+	if e == nil || !e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, jobs) {
+		return false
+	}
+	if !e.mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols, jobs) {
+		return false
+	}
+	layout := common.NewFrameLayout(width, height)
+	for tileCol := range tileCols {
+		job := &jobs[tileCol]
+		if job.worker == nil {
+			return false
+		}
+		x0 := clampVP9TileReconX(job.tile.MiColStart<<3, layout.YWidth)
+		x1 := clampVP9TileReconX(job.tile.MiColEnd<<3, layout.YWidth)
+		uvX0 := clampVP9TileReconX(job.tile.MiColStart<<2, layout.UVWidth)
+		uvX1 := clampVP9TileReconX(job.tile.MiColEnd<<2, layout.UVWidth)
+		if !copyVP9TileReconPlane(e.reconYFull, job.worker.reconYFull,
+			layout.YOrigin, layout.YStride, layout.YHeight, x0, x1) ||
+			!copyVP9TileReconPlane(e.reconUFull, job.worker.reconUFull,
+				layout.UVOrigin, layout.UVStride, layout.UVHeight, uvX0, uvX1) ||
+			!copyVP9TileReconPlane(e.reconVFull, job.worker.reconVFull,
+				layout.UVOrigin, layout.UVStride, layout.UVHeight, uvX0, uvX1) {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *VP9Encoder) mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols int,
+	jobs []vp9CountTileJob,
+) bool {
+	if e == nil || tileCols <= 0 || len(jobs) < tileCols {
+		return false
+	}
+	miGridLen := miRows * miCols
+	sbCols := (miCols + 7) >> 3
+	sbRows := (miRows + 7) >> 3
+	sbCount := sbRows * sbCols
+	merged := false
+	for tileCol := range tileCols {
+		job := &jobs[tileCol]
+		w := job.worker
+		if w == nil || !w.varPartFrameValid {
+			continue
+		}
+		if len(e.varPartGrid) < miGridLen || len(w.varPartGrid) < miGridLen ||
+			len(e.varPartSBComputed) < sbCount ||
+			len(w.varPartSBComputed) < sbCount {
+			return false
+		}
+		start, end := job.tile.MiColStart, job.tile.MiColEnd
+		if start < 0 {
+			start = 0
+		}
+		if end > miCols {
+			end = miCols
+		}
+		if start >= end {
+			return false
+		}
+		for row := range miRows {
+			off := row*miCols + start
+			copy(e.varPartGrid[off:off+end-start],
+				w.varPartGrid[off:off+end-start])
+		}
+		sbStart := start >> 3
+		sbEnd := (end + 7) >> 3
+		if sbEnd > sbCols {
+			sbEnd = sbCols
+		}
+		if sbStart >= sbEnd {
+			return false
+		}
+		for sbRow := range sbRows {
+			off := sbRow*sbCols + sbStart
+			n := sbEnd - sbStart
+			copy(e.varPartSBComputed[off:off+n], w.varPartSBComputed[off:off+n])
+			if len(e.varPartSBUseMvPart) >= off+n && len(w.varPartSBUseMvPart) >= off+n {
+				copy(e.varPartSBUseMvPart[off:off+n], w.varPartSBUseMvPart[off:off+n])
+			}
+			if len(e.varPartSBMvPart) >= off+n && len(w.varPartSBMvPart) >= off+n {
+				copy(e.varPartSBMvPart[off:off+n], w.varPartSBMvPart[off:off+n])
+			}
+			if len(e.varPartSBPredValid) >= off+n && len(w.varPartSBPredValid) >= off+n {
+				copy(e.varPartSBPredValid[off:off+n], w.varPartSBPredValid[off:off+n])
+			}
+			if len(e.varPartSBPredLast) >= off+n && len(w.varPartSBPredLast) >= off+n {
+				copy(e.varPartSBPredLast[off:off+n], w.varPartSBPredLast[off:off+n])
+			}
+			if len(e.varPartSBVarLow) >= off+n && len(w.varPartSBVarLow) >= off+n {
+				copy(e.varPartSBVarLow[off:off+n], w.varPartSBVarLow[off:off+n])
+			}
+			if len(e.varPartSBCopiedPartition) >= off+n &&
+				len(w.varPartSBCopiedPartition) >= off+n {
+				copy(e.varPartSBCopiedPartition[off:off+n],
+					w.varPartSBCopiedPartition[off:off+n])
+			}
+			if len(e.varPartSBSegmentID) >= off+n && len(w.varPartSBSegmentID) >= off+n {
+				copy(e.varPartSBSegmentID[off:off+n], w.varPartSBSegmentID[off:off+n])
+			}
+			if len(e.varPartSBContentState) >= off+n &&
+				len(w.varPartSBContentState) >= off+n {
+				copy(e.varPartSBContentState[off:off+n],
+					w.varPartSBContentState[off:off+n])
+			}
+			if len(e.varPartSBContentStateValid) >= off+n &&
+				len(w.varPartSBContentStateValid) >= off+n {
+				copy(e.varPartSBContentStateValid[off:off+n],
+					w.varPartSBContentStateValid[off:off+n])
+			}
+			if len(e.varPartSBZeroTempSADSource) >= off+n &&
+				len(w.varPartSBZeroTempSADSource) >= off+n {
+				copy(e.varPartSBZeroTempSADSource[off:off+n],
+					w.varPartSBZeroTempSADSource[off:off+n])
+			}
+			if len(e.varPartSBColorSensitivity) >= off+n &&
+				len(w.varPartSBColorSensitivity) >= off+n {
+				copy(e.varPartSBColorSensitivity[off:off+n],
+					w.varPartSBColorSensitivity[off:off+n])
+			}
+			if len(e.varPartSBLastHighContent) >= off+n &&
+				len(w.varPartSBLastHighContent) >= off+n {
+				copy(e.varPartSBLastHighContent[off:off+n],
+					w.varPartSBLastHighContent[off:off+n])
+			}
+			if len(e.varPartSBLastHighContentValid) >= off+n &&
+				len(w.varPartSBLastHighContentValid) >= off+n {
+				copy(e.varPartSBLastHighContentValid[off:off+n],
+					w.varPartSBLastHighContentValid[off:off+n])
+			}
+		}
+		merged = true
+	}
+	if merged {
+		e.varPartFrameValid = true
+	}
+	return true
+}
+
+func clampVP9TileReconX(x, width int) int {
+	if x < 0 {
+		return 0
+	}
+	if x > width {
+		return width
+	}
+	return x
+}
+
+func copyVP9TileReconPlane(dst, src []byte, origin, stride, rows, x0, x1 int) bool {
+	if origin < 0 || stride <= 0 || rows <= 0 || x0 < 0 || x1 <= x0 ||
+		x1 > stride {
+		return false
+	}
+	last := origin + (rows-1)*stride + x1
+	if last > len(dst) || last > len(src) {
+		return false
+	}
+	for row := range rows {
+		off := origin + row*stride
+		copy(dst[off+x0:off+x1], src[off+x0:off+x1])
 	}
 	return true
 }
@@ -1042,6 +1213,31 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.reconU = src.reconU
 	w.reconV = src.reconV
 	w.reconFrame = src.reconFrame
+	if src.vp9CountCodingPreserved && src.varPartFrameValid {
+		w.useVP9SharedVarPartState(src)
+	}
+}
+
+func (w *VP9Encoder) useVP9SharedVarPartState(src *VP9Encoder) {
+	if w == nil || src == nil {
+		return
+	}
+	w.varPartGrid = src.varPartGrid
+	w.varPartSBComputed = src.varPartSBComputed
+	w.varPartSBUseMvPart = src.varPartSBUseMvPart
+	w.varPartSBMvPart = src.varPartSBMvPart
+	w.varPartSBPredLast = src.varPartSBPredLast
+	w.varPartSBPredValid = src.varPartSBPredValid
+	w.varPartSBVarLow = src.varPartSBVarLow
+	w.varPartSBCopiedPartition = src.varPartSBCopiedPartition
+	w.varPartSBSegmentID = src.varPartSBSegmentID
+	w.varPartSBContentState = src.varPartSBContentState
+	w.varPartSBContentStateValid = src.varPartSBContentStateValid
+	w.varPartSBZeroTempSADSource = src.varPartSBZeroTempSADSource
+	w.varPartSBColorSensitivity = src.varPartSBColorSensitivity
+	w.varPartSBLastHighContent = src.varPartSBLastHighContent
+	w.varPartSBLastHighContentValid = src.varPartSBLastHighContentValid
+	w.varPartFrameValid = src.varPartFrameValid
 }
 
 func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,

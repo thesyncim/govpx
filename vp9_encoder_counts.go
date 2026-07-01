@@ -100,7 +100,7 @@ func (e *VP9Encoder) collectVP9FrameTileCounts(width, height, miRows, miCols int
 			tileInfo, partitionProbs, seg, baseMi, txMode, kind, seed) {
 			e.vp9TokenCollect = vp9TokenCollectState{}
 			e.vp9TokenReplay = vp9TokenReplayState{}
-			return e.vp9ActiveSegmentMapCodingChooser()
+			return true
 		}
 	}
 	collectTokens := e.beginVP9CountTokenCollection(miRows, miCols, tileRows, tileCols,

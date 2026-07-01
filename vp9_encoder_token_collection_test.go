@@ -103,6 +103,9 @@ func TestVP9EncoderThreadedCountTokenCollectionBuildsTileLists(t *testing.T) {
 			t.Fatalf("tile %d encode job did not use staged token replay", tileCol)
 		}
 	}
+	if !e.vp9CountCodingPreserved {
+		t.Fatal("threaded inter count pass did not preserve coding state")
+	}
 }
 
 func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
@@ -154,6 +157,41 @@ func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
 	e.refFrames[1].valid = true
 	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
 		t.Fatal("replay fast path rejected a preserved compound inter leaf")
+	}
+}
+
+func TestVP9CountPassIntraLeafReplayRequiresPreservedState(t *testing.T) {
+	e := &VP9Encoder{}
+	e.vp9TokenReplay.active = true
+	inter := &vp9InterEncodeState{}
+	decision := vp9InterModeDecision{
+		intra:          true,
+		refFrame:       vp9dec.IntraFrame,
+		secondRefFrame: vp9dec.NoRefFrame,
+		mode:           common.DcPred,
+		txSize:         common.Tx8x8,
+		uvMode:         common.TmPred,
+	}
+
+	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
+		t.Fatal("intra replay accepted a leaf without preserved coding state")
+	}
+	e.vp9CountCodingPreserved = true
+	if !e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
+		t.Fatal("intra replay rejected a preserved intra leaf")
+	}
+	e.activeMapEnabled = true
+	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
+		t.Fatal("intra replay accepted a dynamic segment-map leaf")
+	}
+	e.activeMapEnabled = false
+	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block4x4) {
+		t.Fatal("intra replay accepted a sub-8x8 leaf")
+	}
+	decision.intra = false
+	decision.refFrame = vp9dec.LastFrame
+	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
+		t.Fatal("intra replay accepted an inter leaf")
 	}
 }
 
