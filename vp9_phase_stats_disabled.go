@@ -43,6 +43,8 @@ func (e *VP9Encoder) vp9PhaseIncInterPredictionBlock() {}
 
 func (e *VP9Encoder) vp9PhaseIncInterPredictionVariance() {}
 
+func (e *VP9Encoder) vp9PhaseCountFullPelSearch(common.BlockSize, bool, bool) {}
+
 func (e *VP9Encoder) vp9PhaseAddFullPelSAD(int64, bool) {}
 
 func (d *VP9Decoder) setVP9PhaseStats(*EncoderPhaseStats) {}

@@ -160,6 +160,21 @@ type EncoderPhaseStats struct {
 	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
 	// FullPelBatchCalls counts vectorized multi-candidate SAD batches.
 	FullPelBatchCalls int64 `json:"fullpel_batch_calls"`
+	// VP9FullPelSearches counts VP9 full-pixel motion-search invocations.
+	VP9FullPelSearches int64 `json:"vp9_fullpel_searches"`
+	// VP9FullPelSearchSkipMVPart counts searches skipped by variance-partition MVs.
+	VP9FullPelSearchSkipMVPart int64 `json:"vp9_fullpel_search_skip_mvpart"`
+	// VP9FullPelSearchSkipIntPro counts searches skipped by int-pro estimation.
+	VP9FullPelSearchSkipIntPro int64 `json:"vp9_fullpel_search_skip_intpro"`
+	// VP9FullPelSearch* count VP9 full-pixel searches by block size.
+	VP9FullPelSearch64x64 int64 `json:"vp9_fullpel_search_64x64"`
+	VP9FullPelSearch32x32 int64 `json:"vp9_fullpel_search_32x32"`
+	VP9FullPelSearch32x16 int64 `json:"vp9_fullpel_search_32x16"`
+	VP9FullPelSearch16x32 int64 `json:"vp9_fullpel_search_16x32"`
+	VP9FullPelSearch16x16 int64 `json:"vp9_fullpel_search_16x16"`
+	VP9FullPelSearch16x8  int64 `json:"vp9_fullpel_search_16x8"`
+	VP9FullPelSearch8x16  int64 `json:"vp9_fullpel_search_8x16"`
+	VP9FullPelSearch8x8   int64 `json:"vp9_fullpel_search_8x8"`
 	// FullPelBoundsRejects counts full-pixel candidates outside legal bounds.
 	FullPelBoundsRejects int64 `json:"fullpel_bounds_rejects"`
 	// FullPelEarlyBreaks counts SAD evaluations stopped by an existing best.

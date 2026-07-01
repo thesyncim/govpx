@@ -226,6 +226,42 @@ func (e *VP9Encoder) vp9PhaseIncInterPredictionVariance() {
 	}
 }
 
+func (e *VP9Encoder) vp9PhaseCountFullPelSearch(bsize common.BlockSize,
+	skipMVPart, skipIntPro bool,
+) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	if skipMVPart {
+		atomic.AddInt64(&stats.VP9FullPelSearchSkipMVPart, 1)
+		return
+	}
+	if skipIntPro {
+		atomic.AddInt64(&stats.VP9FullPelSearchSkipIntPro, 1)
+		return
+	}
+	atomic.AddInt64(&stats.VP9FullPelSearches, 1)
+	switch bsize {
+	case common.Block64x64:
+		atomic.AddInt64(&stats.VP9FullPelSearch64x64, 1)
+	case common.Block32x32:
+		atomic.AddInt64(&stats.VP9FullPelSearch32x32, 1)
+	case common.Block32x16:
+		atomic.AddInt64(&stats.VP9FullPelSearch32x16, 1)
+	case common.Block16x32:
+		atomic.AddInt64(&stats.VP9FullPelSearch16x32, 1)
+	case common.Block16x16:
+		atomic.AddInt64(&stats.VP9FullPelSearch16x16, 1)
+	case common.Block16x8:
+		atomic.AddInt64(&stats.VP9FullPelSearch16x8, 1)
+	case common.Block8x16:
+		atomic.AddInt64(&stats.VP9FullPelSearch8x16, 1)
+	case common.Block8x8:
+		atomic.AddInt64(&stats.VP9FullPelSearch8x8, 1)
+	}
+}
+
 func (e *VP9Encoder) vp9PhaseAddFullPelSAD(candidates int64, batch bool) {
 	stats := e.vp9PhaseStats()
 	if stats == nil {

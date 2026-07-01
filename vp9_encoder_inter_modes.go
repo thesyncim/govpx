@@ -2958,6 +2958,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return false
 	}
 	if opts.fullRD {
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountFullPelSearch(bsize, false, false)
+		}
 		// Full-RD single_motion_search (vp9_rdopt.c:2563) on the no-recode
 		// realtime path: step_param = cpi->mv_step_param == 0 (set_mv_search_
 		// params @ vp9_encoder.c:3728 is never called when recode_loop ==
@@ -2993,7 +2996,12 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 			}
 		}
 
-		if !((opts.useMvPart || opts.skipFullpelSearch) && seededStart) {
+		skipMVPartSearch := opts.useMvPart && seededStart
+		skipIntProSearch := opts.skipFullpelSearch && seededStart
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountFullPelSearch(bsize, skipMVPartSearch, skipIntProSearch)
+		}
+		if !(skipMVPartSearch || skipIntProSearch) {
 			// MV-hint biasing: when a multi-resolution lower-resolution layer
 			// has supplied a scaled MV hint for this SB, evaluate it as an
 			// extra candidate before the (0,0)-centered fan. The hint can

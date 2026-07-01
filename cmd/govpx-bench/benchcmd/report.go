@@ -200,6 +200,21 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.SubpelVarianceCalls,
 			stats.SubpelCacheHits)
 	}
+	if stats.VP9FullPelSearches > 0 || stats.VP9FullPelSearchSkipMVPart > 0 ||
+		stats.VP9FullPelSearchSkipIntPro > 0 {
+		fmt.Fprintf(b, "vp9 fullpel    searches=%d  skip_mvpart=%d  skip_intpro=%d  blocks=%d/%d/%d/%d/%d/%d/%d/%d\n",
+			stats.VP9FullPelSearches,
+			stats.VP9FullPelSearchSkipMVPart,
+			stats.VP9FullPelSearchSkipIntPro,
+			stats.VP9FullPelSearch64x64,
+			stats.VP9FullPelSearch32x32,
+			stats.VP9FullPelSearch32x16,
+			stats.VP9FullPelSearch16x32,
+			stats.VP9FullPelSearch16x16,
+			stats.VP9FullPelSearch16x8,
+			stats.VP9FullPelSearch8x16,
+			stats.VP9FullPelSearch8x8)
+	}
 	if stats.VP9ModeBlocks > 0 || stats.VP9InterPredictionBlocks > 0 {
 		fmt.Fprintf(b, "vp9 topology    mode_blocks=%d  inter_picks=%d  pred_blocks=%d  pred_planes=%d  pred_var=%d\n",
 			stats.VP9ModeBlocks,
