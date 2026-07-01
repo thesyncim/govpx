@@ -272,6 +272,9 @@ type VP9Decoder struct {
 	frameVOrigin        int
 	frameExternal       *vp9ExternalFrameLease
 	lastFrameExternal   *vp9ExternalFrameLease
+	frameInternal       *vp9InternalFrameLease
+	lastFrameInternal   *vp9InternalFrameLease
+	internalFramePool   [common.RefFrames + common.RefsPerFrame + 1]vp9InternalFrameLease
 	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
 	refFrames           [common.RefFrames]vp9ReferenceFrame
@@ -317,6 +320,7 @@ type vp9ReferenceFrame struct {
 	u            []byte
 	v            []byte
 	external     *vp9ExternalFrameLease
+	internal     *vp9InternalFrameLease
 	valid        bool
 }
 
@@ -324,6 +328,13 @@ type vp9ExternalFrameLease struct {
 	buffer   VP9ExternalFrameBuffer
 	refs     int
 	released bool
+}
+
+type vp9InternalFrameLease struct {
+	yFull []byte
+	uFull []byte
+	vFull []byte
+	refs  int
 }
 
 func (f *vp9ReferenceFrame) store(src Image) {
@@ -357,6 +368,7 @@ func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
 	f.renderHeight = renderHeight
 	f.bitDepth = bitDepth
 	f.external = nil
+	f.internal = nil
 	f.valid = true
 }
 
@@ -377,6 +389,28 @@ func (f *vp9ReferenceFrame) storeExternalWithRenderAndBitDepth(src Image,
 	f.renderHeight = renderHeight
 	f.bitDepth = bitDepth
 	f.external = lease
+	f.internal = nil
+	f.valid = true
+}
+
+func (f *vp9ReferenceFrame) storeInternalWithRenderAndBitDepth(src Image,
+	lease *vp9InternalFrameLease, renderWidth, renderHeight, bitDepth int,
+) {
+	f.img = Image{
+		Width:   src.Width,
+		Height:  src.Height,
+		Y:       src.Y,
+		U:       src.U,
+		V:       src.V,
+		YStride: src.YStride,
+		UStride: src.UStride,
+		VStride: src.VStride,
+	}
+	f.renderWidth = renderWidth
+	f.renderHeight = renderHeight
+	f.bitDepth = bitDepth
+	f.external = nil
+	f.internal = lease
 	f.valid = true
 }
 
@@ -810,6 +844,7 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 	defer func() {
 		if retErr != nil {
 			d.releaseVP9ActiveExternalFrame()
+			d.releaseVP9ActiveInternalFrame()
 		}
 	}()
 	hdr, uncSize, err := d.readVP9UncompressedHeader(packet)
@@ -832,6 +867,9 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 		d.lastFrame = output
 		if d.opts.effectivePostProcessFlags() != 0 {
 			d.replaceVP9LastFrameExternal(nil)
+			if !d.transferVP9ActiveFrameToLastIfAliased(output) {
+				d.replaceVP9LastFrameInternal(nil)
+			}
 		}
 		d.finishVP9FrameInfo(info)
 		return nil
@@ -938,8 +976,13 @@ func (d *VP9Decoder) decodeVP9FrameWithPTSStrict(packet []byte, pts uint64) (ret
 				d.releaseVP9ActiveExternalFrame()
 				d.replaceVP9LastFrameExternal(nil)
 			}
+			if !d.transferVP9ActiveFrameToLastIfAliased(output) {
+				d.releaseVP9ActiveInternalFrame()
+				d.replaceVP9LastFrameInternal(nil)
+			}
 		} else {
 			d.releaseVP9ActiveExternalFrame()
+			d.releaseVP9ActiveInternalFrame()
 		}
 		d.finishVP9FrameInfo(info)
 		return nil
@@ -1197,6 +1240,9 @@ func (d *VP9Decoder) concealVP9Frame(hdr *vp9dec.UncompressedHeader,
 	d.lastFrame = output
 	if d.opts.effectivePostProcessFlags() != 0 {
 		d.replaceVP9LastFrameExternal(nil)
+		if !d.transferVP9ActiveFrameToLastIfAliased(output) {
+			d.replaceVP9LastFrameInternal(nil)
+		}
 	}
 	d.width = ref.img.Width
 	d.height = ref.img.Height
@@ -1213,6 +1259,7 @@ func (d *VP9Decoder) publishVP9ReferenceFrame(ref *vp9ReferenceFrame) error {
 		vp9ImagePlanesAligned(ref.img, d.opts.ByteAlignment) {
 		d.lastFrame = ref.img
 		d.retainVP9LastFrameExternal(ref.external)
+		d.retainVP9LastFrameInternal(ref.internal)
 		return nil
 	}
 	output, err := d.alignVP9PublishedFrame(ref.img)
@@ -1221,6 +1268,9 @@ func (d *VP9Decoder) publishVP9ReferenceFrame(ref *vp9ReferenceFrame) error {
 	}
 	d.lastFrame = output
 	d.replaceVP9LastFrameExternal(nil)
+	if !d.transferVP9ActiveFrameToLastIfAliased(output) {
+		d.replaceVP9LastFrameInternal(nil)
+	}
 	return nil
 }
 
@@ -1256,13 +1306,18 @@ func (d *VP9Decoder) vp9ConcealmentReference(
 
 func (d *VP9Decoder) refreshVP9ReferenceFrames(hdr *vp9dec.UncompressedHeader) {
 	flags := hdr.RefreshFrameFlags
+	renderWidth, renderHeight := vp9dec.HeaderRenderSize(hdr)
 	for slot := range d.refFrames {
 		if flags&(1<<uint(slot)) != 0 {
-			renderWidth, renderHeight := vp9dec.HeaderRenderSize(hdr)
-			d.releaseVP9ReferenceExternalFrame(slot)
+			d.releaseVP9ReferenceFrame(slot)
 			if d.frameExternal != nil {
 				d.refFrames[slot].storeExternalWithRenderAndBitDepth(d.lastFrame,
 					d.retainVP9ExternalFrame(d.frameExternal), renderWidth,
+					renderHeight, int(hdr.BitDepthColor.BitDepth))
+			} else if d.frameInternal != nil &&
+				vp9ImageAliasesPlane(d.lastFrame, d.frameY) {
+				d.refFrames[slot].storeInternalWithRenderAndBitDepth(d.lastFrame,
+					d.retainVP9InternalFrame(d.frameInternal), renderWidth,
 					renderHeight, int(hdr.BitDepthColor.BitDepth))
 			} else {
 				d.refFrames[slot].storeWithRenderAndBitDepth(d.lastFrame,
@@ -1314,6 +1369,13 @@ func copyVP9ImageToPublic(dst *Image, src Image) {
 	buffers.CopyPlane(dst.V, dst.VStride, src.V, src.VStride, uvWidth, uvHeight)
 }
 
+func vp9ImageAliasesPlane(img Image, plane []byte) bool {
+	if len(img.Y) == 0 || len(plane) == 0 {
+		return len(img.Y) == 0 && len(plane) == 0
+	}
+	return &img.Y[0] == &plane[0]
+}
+
 func (d *VP9Decoder) prepareVP9OutputFrame(width, height int) error {
 	return d.prepareVP9OutputFrameWithExternal(width, height, true)
 }
@@ -1326,19 +1388,29 @@ func (d *VP9Decoder) prepareVP9OutputFrameWithExternal(width, height int,
 	allowExternal bool,
 ) error {
 	d.replaceVP9LastFrameExternal(nil)
+	d.replaceVP9LastFrameInternal(nil)
 	d.releaseVP9ActiveExternalFrame()
+	d.releaseVP9ActiveInternalFrame()
 	if allowExternal && d.opts.GetFrameBuffer != nil {
 		return d.prepareVP9ExternalOutputFrame(width, height)
 	}
 
 	layout := common.NewDecoderFrameLayout(width, height, d.opts.ByteAlignment)
 	align := common.DecoderFrameAlignment(d.opts.ByteAlignment)
-	d.frameYFull = buffers.EnsureAlignedCapacity(d.frameYFull,
+	lease := d.acquireVP9InternalFrame()
+	if lease == nil {
+		return ErrInvalidConfig
+	}
+	lease.yFull = buffers.EnsureAlignedCapacity(lease.yFull,
 		layout.YFullLen, align)
-	d.frameUFull = buffers.EnsureAlignedCapacity(d.frameUFull,
+	lease.uFull = buffers.EnsureAlignedCapacity(lease.uFull,
 		layout.UVFullLen, align)
-	d.frameVFull = buffers.EnsureAlignedCapacity(d.frameVFull,
+	lease.vFull = buffers.EnsureAlignedCapacity(lease.vFull,
 		layout.UVFullLen, align)
+	d.frameInternal = lease
+	d.frameYFull = lease.yFull
+	d.frameUFull = lease.uFull
+	d.frameVFull = lease.vFull
 	layout = common.NewDecoderFrameLayoutForPlanes(width, height,
 		d.opts.ByteAlignment, d.frameYFull, d.frameUFull, d.frameVFull)
 	d.installVP9OutputFrameLayout(width, height, layout)
@@ -1418,12 +1490,79 @@ func (d *VP9Decoder) releaseVP9ExternalFrame(lease *vp9ExternalFrameLease) {
 	}
 }
 
+func (d *VP9Decoder) acquireVP9InternalFrame() *vp9InternalFrameLease {
+	for i := range d.internalFramePool {
+		lease := &d.internalFramePool[i]
+		if lease.refs == 0 {
+			lease.refs = 1
+			return lease
+		}
+	}
+	return nil
+}
+
+func (d *VP9Decoder) retainVP9InternalFrame(
+	lease *vp9InternalFrameLease,
+) *vp9InternalFrameLease {
+	if lease == nil || lease.refs <= 0 {
+		return nil
+	}
+	lease.refs++
+	return lease
+}
+
+func (d *VP9Decoder) releaseVP9InternalFrame(lease *vp9InternalFrameLease) {
+	if lease == nil || lease.refs <= 0 {
+		return
+	}
+	lease.refs--
+}
+
+func (d *VP9Decoder) releaseVP9ActiveInternalFrame() {
+	if d == nil || d.frameInternal == nil {
+		return
+	}
+	d.releaseVP9InternalFrame(d.frameInternal)
+	d.frameInternal = nil
+}
+
+func (d *VP9Decoder) replaceVP9LastFrameInternal(
+	lease *vp9InternalFrameLease,
+) {
+	if d == nil {
+		return
+	}
+	if d.lastFrameInternal == lease {
+		return
+	}
+	d.releaseVP9InternalFrame(d.lastFrameInternal)
+	d.lastFrameInternal = lease
+}
+
+func (d *VP9Decoder) retainVP9LastFrameInternal(
+	lease *vp9InternalFrameLease,
+) {
+	if d == nil || d.lastFrameInternal == lease {
+		return
+	}
+	d.replaceVP9LastFrameInternal(d.retainVP9InternalFrame(lease))
+}
+
 func (d *VP9Decoder) releaseVP9ActiveExternalFrame() {
 	if d == nil || d.frameExternal == nil {
 		return
 	}
 	d.releaseVP9ExternalFrame(d.frameExternal)
 	d.frameExternal = nil
+}
+
+func (d *VP9Decoder) transferVP9ActiveFrameToLastIfAliased(output Image) bool {
+	if d == nil || d.frameInternal == nil || !vp9ImageAliasesPlane(output, d.frameY) {
+		return false
+	}
+	d.replaceVP9LastFrameInternal(d.frameInternal)
+	d.frameInternal = nil
+	return true
 }
 
 func (d *VP9Decoder) replaceVP9LastFrameExternal(
@@ -1452,6 +1591,19 @@ func (d *VP9Decoder) releaseVP9ReferenceExternalFrame(slot int) {
 	}
 	d.releaseVP9ExternalFrame(d.refFrames[slot].external)
 	d.refFrames[slot].external = nil
+}
+
+func (d *VP9Decoder) releaseVP9ReferenceInternalFrame(slot int) {
+	if d == nil || slot < 0 || slot >= len(d.refFrames) {
+		return
+	}
+	d.releaseVP9InternalFrame(d.refFrames[slot].internal)
+	d.refFrames[slot].internal = nil
+}
+
+func (d *VP9Decoder) releaseVP9ReferenceFrame(slot int) {
+	d.releaseVP9ReferenceExternalFrame(slot)
+	d.releaseVP9ReferenceInternalFrame(slot)
 }
 
 func (d *VP9Decoder) outputVP9FrameImage(hdr *vp9dec.UncompressedHeader,
@@ -1719,6 +1871,8 @@ func (d *VP9Decoder) Reset() {
 	d.unsupportedReconstruct = false
 	d.releaseVP9ActiveExternalFrame()
 	d.replaceVP9LastFrameExternal(nil)
+	d.releaseVP9ActiveInternalFrame()
+	d.replaceVP9LastFrameInternal(nil)
 	d.frameReady = false
 	d.lastFrame = Image{}
 	d.lastInfo = VP9FrameInfo{}
@@ -1728,7 +1882,7 @@ func (d *VP9Decoder) Reset() {
 	d.width = 0
 	d.height = 0
 	for i := range d.refFrames {
-		d.releaseVP9ReferenceExternalFrame(i)
+		d.releaseVP9ReferenceFrame(i)
 		d.refFrames[i].img = Image{}
 		d.refFrames[i].valid = false
 	}
