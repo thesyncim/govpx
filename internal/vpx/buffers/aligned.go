@@ -200,8 +200,15 @@ func WritePlane(w io.Writer, plane []byte, stride, width, height int) error {
 
 // Fill writes value to every byte in buf.
 func Fill(buf []byte, value byte) {
-	for i := range buf {
-		buf[i] = value
+	if len(buf) < 64 {
+		for i := range buf {
+			buf[i] = value
+		}
+		return
+	}
+	buf[0] = value
+	for filled := 1; filled < len(buf); {
+		filled += copy(buf[filled:], buf[:filled])
 	}
 }
 

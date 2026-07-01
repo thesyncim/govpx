@@ -151,6 +151,23 @@ func TestFill(t *testing.T) {
 	}
 }
 
+func BenchmarkFill64(b *testing.B) {
+	buf := make([]byte, 64)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Fill(buf, 128)
+	}
+}
+
+func BenchmarkFill1MiB(b *testing.B) {
+	buf := make([]byte, 1<<20)
+	b.SetBytes(int64(len(buf)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Fill(buf, 128)
+	}
+}
+
 func TestPlaneLen(t *testing.T) {
 	tests := []struct {
 		name                    string
