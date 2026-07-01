@@ -107,6 +107,7 @@ type vp9KeyframePartitionRD struct {
 	rate       int
 	distortion uint64
 	score      uint64
+	skippable  bool
 }
 
 // pickVP9KeyframeRDPartitionBlockSize mirrors libvpx's keyframe
@@ -333,7 +334,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		return rd, true, improved
 	}
 	if noneAllowed {
-		consider(common.PartitionNone, bestRD,
+		noneRD, noneOK, noneImproved := consider(common.PartitionNone, bestRD,
 			func(refBestRD uint64, apply, store bool) (vp9KeyframePartitionRD, bool) {
 				rd, ok := e.scoreVP9KeyframeRDPartitionLeafForTree(key, tile,
 					miRows, miCols, miRow, miCol, root, txMode, refBestRD, apply, store)
@@ -343,6 +344,11 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 				}
 				return rd, ok
 			})
+		if noneOK && noneImproved && (doSplit || doRect) &&
+			e.vp9KeyframeRDPartitionNoneBreakout(root, noneRD, key.lossless) {
+			doSplit = false
+			doRect = false
+		}
 	}
 	if doSplit {
 		splitBestRD := bestRD
@@ -475,9 +481,11 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionSplit(key *vp9KeyframeEncodeStat
 		}
 		out.rate += rd.rate
 		out.distortion += rd.distortion
+		out.skippable = rd.skippable
 	} else {
 		rdmult := e.vp9KeyframePartitionRDMul(miRow, miCol, root)
 		stepMi := int(common.Num8x8BlocksWideLookup[child])
+		haveChild := false
 		for rowOff := 0; rowOff <= stepMi; rowOff += stepMi {
 			for colOff := 0; colOff <= stepMi; colOff += stepMi {
 				if miRow+rowOff >= miRows || miCol+colOff >= miCols {
@@ -500,6 +508,12 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionSplit(key *vp9KeyframeEncodeStat
 				}
 				out.rate += rd.rate
 				out.distortion += rd.distortion
+				if !haveChild {
+					out.skippable = rd.skippable
+					haveChild = true
+				} else {
+					out.skippable = out.skippable && rd.skippable
+				}
 			}
 		}
 	}
@@ -527,6 +541,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionRect(key *vp9KeyframeEncodeState
 		partition:  partition,
 		rate:       first.rate,
 		distortion: first.distortion,
+		skippable:  first.skippable,
 	}
 	if child >= common.Block8x8 {
 		secondRow := miRow + rowOff
@@ -540,6 +555,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionRect(key *vp9KeyframeEncodeState
 			}
 			out.rate += second.rate
 			out.distortion += second.distortion
+			out.skippable = out.skippable && second.skippable
 		}
 	}
 	if apply {
@@ -594,6 +610,17 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockS
 	return uint64(distBreakoutThr), rateBreakoutThr
 }
 
+func (e *VP9Encoder) vp9KeyframeRDPartitionNoneBreakout(root common.BlockSize,
+	rd vp9KeyframePartitionRD, lossless bool,
+) bool {
+	if lossless || !rd.skippable {
+		return false
+	}
+	distBreakoutThr, rateBreakoutThr := e.vp9KeyframeRDPartitionBreakoutThresholds(root)
+	return rd.distortion < distBreakoutThr>>2 ||
+		(rd.distortion < distBreakoutThr && rd.rate < rateBreakoutThr)
+}
+
 func (e *VP9Encoder) vp9KeyframeRDRectAllowedAfterSplitMiss(root common.BlockSize,
 	noneAllowed, doRect bool,
 ) bool {
@@ -644,6 +671,7 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeafForTree(key *vp9KeyframeEnco
 		rate:       rd.rate,
 		distortion: rd.distortion,
 		score:      encoder.RDCost(rdmult, encoder.RDDivBits, rd.rate, rd.distortion),
+		skippable:  rd.skippable,
 	}, true
 }
 

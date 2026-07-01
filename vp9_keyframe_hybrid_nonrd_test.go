@@ -165,6 +165,46 @@ func TestVP9KeyframeRDPartitionBreakoutThresholds(t *testing.T) {
 	}
 }
 
+func TestVP9KeyframeRDPartitionNoneBreakout(t *testing.T) {
+	var e VP9Encoder
+	e.sf.PartitionSearchBreakoutThr.Dist = 1 << 19
+	e.sf.PartitionSearchBreakoutThr.Rate = 80
+
+	dist, rate := e.vp9KeyframeRDPartitionBreakoutThresholds(common.Block64x64)
+	rd := vp9KeyframePartitionRD{
+		rate:       rate - 1,
+		distortion: dist - 1,
+		skippable:  true,
+	}
+	if !e.vp9KeyframeRDPartitionNoneBreakout(common.Block64x64, rd, false) {
+		t.Fatalf("skippable low-rate PARTITION_NONE did not break out")
+	}
+
+	rd.rate = rate + 1
+	rd.distortion = (dist >> 2) - 1
+	if !e.vp9KeyframeRDPartitionNoneBreakout(common.Block64x64, rd, false) {
+		t.Fatalf("very low distortion PARTITION_NONE did not break out")
+	}
+
+	rd.rate = rate - 1
+	rd.distortion = dist - 1
+	rd.skippable = false
+	if e.vp9KeyframeRDPartitionNoneBreakout(common.Block64x64, rd, false) {
+		t.Fatalf("non-skippable PARTITION_NONE broke out")
+	}
+
+	rd.skippable = true
+	if e.vp9KeyframeRDPartitionNoneBreakout(common.Block64x64, rd, true) {
+		t.Fatalf("lossless PARTITION_NONE broke out")
+	}
+
+	rd.rate = rate + 1
+	rd.distortion = dist
+	if e.vp9KeyframeRDPartitionNoneBreakout(common.Block64x64, rd, false) {
+		t.Fatalf("high-rate high-distortion PARTITION_NONE broke out")
+	}
+}
+
 func TestVP9KeyframeRDRectAllowedAfterSplitMiss(t *testing.T) {
 	var e VP9Encoder
 
