@@ -1,12 +1,15 @@
 package govpx
 
 import (
+	"bytes"
+	"slices"
+	"testing"
+
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
-	"testing"
 )
 
 func TestVP9EncoderInterPicksNewMvForTranslatedBlock(t *testing.T) {
@@ -179,6 +182,85 @@ func TestVP9NonrdForceSkipGoldenCandidateTreatsNewMvAsNonzero(t *testing.T) {
 	if vp9NonrdForceSkipGoldenCandidate(true, vp9dec.LastFrame,
 		common.NewMv, vp9dec.MV{}, false) {
 		t.Fatal("LAST NEWMV was skipped by GOLDEN-only force gate")
+	}
+}
+
+func TestVP9NonrdUVVarianceSSEUsesChromaOnlyPrediction(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	defer e.Close()
+	keySrc := vp9test.NewMotionYCbCr(width, height)
+	if _, err := e.Encode(keySrc); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	if !e.refFrames[0].valid {
+		t.Fatal("LAST reference was not refreshed by keyframe")
+	}
+	for i := range e.reconY {
+		e.reconY[i] = 0x7b
+	}
+	for i := range e.reconU {
+		e.reconU[i] = 0x21
+	}
+	for i := range e.reconV {
+		e.reconV[i] = 0x43
+	}
+	lumaBefore := append([]byte(nil), e.reconY...)
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
+	}
+
+	_, _, _, _, ok := e.vp9NonrdUVVarianceSSE(inter, 8, 16,
+		0, 0, common.Block64x64, common.ZeroMv, vp9dec.LastFrame,
+		vp9dec.MV{}, vp9dec.InterpEighttap)
+	if !ok {
+		t.Fatal("vp9NonrdUVVarianceSSE returned !ok")
+	}
+	if !bytes.Equal(e.reconY, lumaBefore) {
+		t.Fatal("UV variance prediction mutated luma plane")
+	}
+	if slices.Equal(e.reconU, bytes.Repeat([]byte{0x21}, len(e.reconU))) ||
+		slices.Equal(e.reconV, bytes.Repeat([]byte{0x43}, len(e.reconV))) {
+		t.Fatal("UV variance prediction did not rebuild both chroma planes")
+	}
+}
+
+func TestVP9NonrdUVVarianceSSEDoesNotAllocate(t *testing.T) {
+	const (
+		width  = 128
+		height = 64
+	)
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	defer e.Close()
+	if _, err := e.Encode(vp9test.NewMotionYCbCr(width, height)); err != nil {
+		t.Fatalf("Encode keyframe: %v", err)
+	}
+	interSrc := shiftedVP9ReferenceYCbCrForTest(e.refFrames[0].img, 8, 0)
+	inter := &vp9InterEncodeState{
+		img:     interSrc,
+		ref:     &e.refFrames[0],
+		allowHP: true,
+	}
+	var failed bool
+	allocs := vp9SteadyStateAllocsPerRun(3, 50, func() {
+		_, _, _, _, ok := e.vp9NonrdUVVarianceSSE(inter, 8, 16,
+			0, 0, common.Block64x64, common.ZeroMv, vp9dec.LastFrame,
+			vp9dec.MV{}, vp9dec.InterpEighttap)
+		if !ok {
+			failed = true
+		}
+	})
+	if failed {
+		t.Fatal("vp9NonrdUVVarianceSSE returned !ok during allocation check")
+	}
+	if allocs != 0 {
+		t.Fatalf("vp9NonrdUVVarianceSSE allocs/run = %.2f, want 0", allocs)
 	}
 }
 

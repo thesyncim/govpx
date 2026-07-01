@@ -337,7 +337,7 @@ func (e *VP9Encoder) vp9NonrdUVVarianceSSE(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	if !e.predictVP9InterBlock(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+	if !e.predictVP9InterBlockChromaOnly(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
 		return 0, 0, 0, 0, false
 	}
 	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
