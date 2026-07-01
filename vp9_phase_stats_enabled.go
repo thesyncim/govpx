@@ -34,6 +34,29 @@ func (e *VP9Encoder) vp9PhaseCountAttempt(keyFrame bool) {
 	}
 }
 
+func (e *VP9Encoder) vp9PhaseCountPreEncodeDrop(reason vp9DropReason) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9PreEncodeDrops, 1)
+	switch reason {
+	case vp9DropNegativeBuffer:
+		atomic.AddInt64(&stats.VP9PreEncodeDropNegativeBuffer, 1)
+	case vp9DropWatermarkDecimation:
+		atomic.AddInt64(&stats.VP9PreEncodeDropWatermarkDecimation, 1)
+	}
+}
+
+func (e *VP9Encoder) vp9PhaseCountPostEncodeDrop(encodedBits int) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9PostEncodeDrops, 1)
+	atomic.AddInt64(&stats.VP9PostEncodeDropBits, int64(encodedBits))
+}
+
 func (e *VP9Encoder) vp9PhaseIncModeBlock(bsize common.BlockSize, countPass bool) {
 	stats := e.vp9PhaseStats()
 	if stats != nil {

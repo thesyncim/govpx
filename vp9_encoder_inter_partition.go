@@ -804,128 +804,101 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 			if len(refPx) > 0 && refStride > 0 &&
 				x0 < refW && y0 < refH {
 				wired := false
-				// libvpx vp9_encodeframe.c:1456-1458:
-				//   y_sad = int-pro motion_estimation(cpi, x, bsize,
-				//                                         mi_row, mi_col,
-				//                                         &dummy_mv);
-				// Followed by vp9_build_inter_predictors_sb (line 1487)
-				// which lands the resulting MV's luma prediction in
-				// xd->plane[0].dst.buf. We fire this on low_res — the
-				// libvpx condition for entering the int_pro branch over
-				// the zero-MV sdf branch at speed >= 8
-				// (vp9_encodeframe.c:1451).
-				var refBordered *common.YV12BorderBuffer
-				if lowRes {
-					if refSlot == vp9LastRefSlot {
-						if e.lastBorderedValid &&
-							e.lastBordered.W == refW &&
-							e.lastBordered.H == refH {
-							refBordered = &e.lastBordered
-						}
-					} else {
-						if !e.subpelRefBorderedValid[refSlot] ||
-							e.subpelRefBordered[refSlot].W != refW ||
-							e.subpelRefBordered[refSlot].H != refH {
-							common.YV12BuildBorderedPlane(&e.subpelRefBordered[refSlot],
-								refPx, refStride, refW, refH,
+				// libvpx vp9_encodeframe.c:1451-1458 skips int-pro only
+				// for speed>=8, non-low-res, non-VeryHighSad content. The
+				// else branch runs int-pro motion estimation, then builds
+				// the 64x64 predictor into xd->plane[0].dst.
+				useZeroMVSADOnly := e.vp9SpeedFeatureCPUUsed() >= 8 &&
+					!lowRes && args.ContentState != encoder.ContentStateVeryHighSad
+				if !useZeroMVSADOnly {
+					paddedRef, paddedRefStride, refOriginX, refOriginY, _, _, refOK :=
+						e.vp9SubpelReferencePlane(vp9dec.LastFrame, &e.refFrames[refSlot])
+					if refOK {
+						// Build the per-frame border-padded source mirror
+						// once per frame; reuse across SBs.
+						if !e.intProSrcBorderedValid ||
+							e.intProSrcBordered.W != srcW ||
+							e.intProSrcBordered.H != srcH {
+							common.YV12BuildBorderedPlane(&e.intProSrcBordered,
+								src, srcStride, srcW, srcH,
 								common.VP9EncBorderInPixels)
-							e.subpelRefBorderedValid[refSlot] = true
+							e.intProSrcBorderedValid = true
 						}
-						if e.subpelRefBorderedValid[refSlot] &&
-							e.subpelRefBordered[refSlot].W == refW &&
-							e.subpelRefBordered[refSlot].H == refH {
-							refBordered = &e.subpelRefBordered[refSlot]
+						// Wire int_pro motion search against the bordered
+						// LAST plane. The visible (mi_row, mi_col) origin
+						// inside the padded buffer is (Border+y0,
+						// Border+x0) so refOff - (bw>>1) stays inside the
+						// allocation for the selected sub-bsize; the
+						// BLOCK_64X64 worst case still fits inside the
+						// encoder border
+						// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
+						srcOriginX := e.intProSrcBordered.OriginX()
+						srcOriginY := e.intProSrcBordered.OriginY()
+						srcStrideB := e.intProSrcBordered.Stride
+						subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow,
+							sbMiCol, miRows, miCols)
+						estIn := &encoder.GetEstimatedPredInterInput{
+							Bsize:                  subBsize,
+							Src:                    e.intProSrcBordered.Pixels,
+							SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+							SrcStride:              srcStrideB,
+							LastRef:                paddedRef,
+							LastRefOff:             (refOriginY+y0)*paddedRefStride + (refOriginX + x0),
+							LastRefStride:          paddedRefStride,
+							Speed:                  e.vp9SpeedFeatureCPUUsed(),
+							ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar != 0,
+							// MvLimits: full-pel limits derived from the
+							// SB origin's distance to the bordered frame
+							// edges (mirrors libvpx's
+							// vp9_set_mv_search_range output for the
+							// BLOCK_64X64 SB at (mi_row, mi_col); see
+							// vp9_encoder.c set_mv_limits at the call
+							// site).
+							MvLimits: encoder.MvLimits{
+								ColMin: -(x0 + common.VP9EncBorderInPixels),
+								ColMax: refW - x0 + common.VP9EncBorderInPixels,
+								RowMin: -(y0 + common.VP9EncBorderInPixels),
+								RowMax: refH - y0 + common.VP9EncBorderInPixels,
+							},
 						}
-					}
-				}
-				if refBordered != nil {
-					// Build the per-frame border-padded source mirror
-					// once per frame; reuse across SBs.
-					if !e.intProSrcBorderedValid ||
-						e.intProSrcBordered.W != srcW ||
-						e.intProSrcBordered.H != srcH {
-						common.YV12BuildBorderedPlane(&e.intProSrcBordered,
-							src, srcStride, srcW, srcH,
-							common.VP9EncBorderInPixels)
-						e.intProSrcBorderedValid = true
-					}
-					// Wire int_pro motion search against the bordered
-					// LAST plane. The visible (mi_row, mi_col) origin
-					// inside the padded buffer is (Border+y0,
-					// Border+x0) so refOff - (bw>>1) stays inside the
-					// allocation for the selected sub-bsize; the
-					// BLOCK_64X64 worst case still fits inside the
-					// encoder border
-					// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
-					srcOriginX := e.intProSrcBordered.OriginX()
-					srcOriginY := e.intProSrcBordered.OriginY()
-					refOriginX := refBordered.OriginX()
-					refOriginY := refBordered.OriginY()
-					srcStrideB := e.intProSrcBordered.Stride
-					refStrideB := refBordered.Stride
-					subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow,
-						sbMiCol, miRows, miCols)
-					estIn := &encoder.GetEstimatedPredInterInput{
-						Bsize:                  subBsize,
-						Src:                    e.intProSrcBordered.Pixels,
-						SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
-						SrcStride:              srcStrideB,
-						LastRef:                refBordered.Pixels,
-						LastRefOff:             (refOriginY+y0)*refStrideB + (refOriginX + x0),
-						LastRefStride:          refStrideB,
-						Speed:                  e.vp9SpeedFeatureCPUUsed(),
-						ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar != 0,
-						// MvLimits: full-pel limits derived from the
-						// SB origin's distance to the bordered frame
-						// edges (mirrors libvpx's
-						// vp9_set_mv_search_range output for the
-						// BLOCK_64X64 SB at (mi_row, mi_col); see
-						// vp9_encoder.c set_mv_limits at the call
-						// site).
-						MvLimits: encoder.MvLimits{
-							ColMin: -(x0 + common.VP9EncBorderInPixels),
-							ColMax: refW - x0 + common.VP9EncBorderInPixels,
-							RowMin: -(y0 + common.VP9EncBorderInPixels),
-							RowMax: refH - y0 + common.VP9EncBorderInPixels,
-						},
-					}
-					// encoder.GetEstimatedPred dispatches to the inter
-					// path for !isKeyFrame, which runs int-pro motion
-					// search + ref-frame selection, then drives the 64x64
-					// luma BILINEAR convolve port of
-					// vp9_build_inter_predictors_sb.
-					// libvpx: vp9_reconinter.c:253-258.
-					chosenRef, intProMV, intProLastSAD := encoder.GetEstimatedPred(false, estIn,
-						e.intProEstPred[:])
-					args.CopyPartitionYSAD = uint64(intProLastSAD)
-					args.CopyPartitionYSADSet = true
-					args.PartitionMV = intProMV
-					if chosenRef == encoder.RefGolden {
-						args.PartitionRefFrame = vp9dec.GoldenFrame
-					} else {
-						args.PartitionRefFrame = vp9dec.LastFrame
-					}
-					if sbIdx >= 0 && sbIdx < len(e.varPartSBUseMvPart) {
-						// libvpx choose_partitioning stores the int-pro MV
-						// in x->sb_mv{row,col}_part and makes the later
-						// nonrd NEWMV search reuse it instead of running a
-						// fresh full-pel search (vp9_pickmode.c:217-224).
-						e.varPartSBUseMvPart[sbIdx] = true
-						e.varPartSBMvPart[sbIdx] = intProMV
-						if chosenRef != encoder.RefGolden &&
-							sbIdx < len(e.varPartSBPredValid) {
-							// When LAST (or source-altref-as-LAST) wins
-							// the partition prepass, libvpx also writes
-							// x->pred_mv[LAST_FRAME] for vp9_mv_pred's
-							// optional third candidate.
-							e.varPartSBPredValid[sbIdx] = true
-							e.varPartSBPredLast[sbIdx] = intProMV
+						// encoder.GetEstimatedPred dispatches to the inter
+						// path for !isKeyFrame, which runs int-pro motion
+						// search + ref-frame selection, then drives the 64x64
+						// luma BILINEAR convolve port of
+						// vp9_build_inter_predictors_sb.
+						// libvpx: vp9_reconinter.c:253-258.
+						chosenRef, intProMV, intProLastSAD := encoder.GetEstimatedPred(false, estIn,
+							e.intProEstPred[:])
+						args.CopyPartitionYSAD = uint64(intProLastSAD)
+						args.CopyPartitionYSADSet = true
+						args.PartitionMV = intProMV
+						if chosenRef == encoder.RefGolden {
+							args.PartitionRefFrame = vp9dec.GoldenFrame
+						} else {
+							args.PartitionRefFrame = vp9dec.LastFrame
 						}
+						if sbIdx >= 0 && sbIdx < len(e.varPartSBUseMvPart) {
+							// libvpx choose_partitioning stores the int-pro MV
+							// in x->sb_mv{row,col}_part and makes the later
+							// nonrd NEWMV search reuse it instead of running a
+							// fresh full-pel search (vp9_pickmode.c:217-224).
+							e.varPartSBUseMvPart[sbIdx] = true
+							e.varPartSBMvPart[sbIdx] = intProMV
+							if chosenRef != encoder.RefGolden &&
+								sbIdx < len(e.varPartSBPredValid) {
+								// When LAST (or source-altref-as-LAST) wins
+								// the partition prepass, libvpx also writes
+								// x->pred_mv[LAST_FRAME] for vp9_mv_pred's
+								// optional third candidate.
+								e.varPartSBPredValid[sbIdx] = true
+								e.varPartSBPredLast[sbIdx] = intProMV
+							}
+						}
+						args.PlaneDst = e.intProEstPred[:]
+						args.PlaneDstOff = 0
+						args.DstStride = 64
+						wired = true
 					}
-					args.PlaneDst = e.intProEstPred[:]
-					args.PlaneDstOff = 0
-					args.DstStride = 64
-					wired = true
 				}
 				if !wired {
 					// Fallback: byte-exact with libvpx's "speed>=8

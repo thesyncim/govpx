@@ -17,6 +17,10 @@ func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 
 func (e *VP9Encoder) vp9PhaseCountAttempt(bool) {}
 
+func (e *VP9Encoder) vp9PhaseCountPreEncodeDrop(vp9DropReason) {}
+
+func (e *VP9Encoder) vp9PhaseCountPostEncodeDrop(int) {}
+
 func (e *VP9Encoder) vp9PhaseIncModeBlock(common.BlockSize, bool) {}
 
 func (e *VP9Encoder) vp9PhaseIncInterModePick(bool) {}

@@ -159,6 +159,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if !isKey && !intraOnly && showFrame && !e.rc.highSourceSAD {
 		dropReason, dropFrame := e.rc.testDropInterFrame()
 		if dropFrame {
+			if vp9PhaseStatsEnabled {
+				e.vp9PhaseCountPreEncodeDrop(dropReason)
+			}
 			droppedFrameIndex := e.frameIndex
 			e.rc.postDropFrame()
 			e.lastFrameDropped = true
@@ -732,9 +735,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		firstPassStats = e.twoPass.statsForFrame()
 		twoPassTargetBits = e.vp9TwoPassFrameTarget
 	}
+	encodedBits := vpxrc.EncodedSizeBits(n)
 	postDrop := e.rc.shouldPostEncodeDrop(isKey || intraOnly,
-		header.ShowFrame, qindex, vpxrc.EncodedSizeBits(n))
+		header.ShowFrame, qindex, encodedBits)
 	if postDrop {
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseCountPostEncodeDrop(encodedBits)
+		}
 		if restorePostDropContext {
 			e.fc = postDropFC
 			e.frameContexts = postDropFrameContexts

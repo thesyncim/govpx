@@ -127,6 +127,16 @@ type EncoderPhaseStats struct {
 	InterAttempts int64 `json:"inter_attempts"`
 	// KeyAttempts counts key-frame encode attempts, including recodes.
 	KeyAttempts int64 `json:"key_attempts"`
+	// VP9PreEncodeDrops counts VP9 frames skipped before mode search.
+	VP9PreEncodeDrops int64 `json:"vp9_pre_encode_drops"`
+	// VP9PreEncodeDropNegativeBuffer counts pre-encode drops from negative CBR buffer.
+	VP9PreEncodeDropNegativeBuffer int64 `json:"vp9_pre_encode_drop_negative_buffer"`
+	// VP9PreEncodeDropWatermarkDecimation counts pre-encode drops from CBR decimation.
+	VP9PreEncodeDropWatermarkDecimation int64 `json:"vp9_pre_encode_drop_watermark_decimation"`
+	// VP9PostEncodeDrops counts VP9 frames encoded and then discarded by CBR.
+	VP9PostEncodeDrops int64 `json:"vp9_post_encode_drops"`
+	// VP9PostEncodeDropBits counts encoded bits spent on VP9 post-encode drops.
+	VP9PostEncodeDropBits int64 `json:"vp9_post_encode_drop_bits"`
 
 	// LoopFilterTrials counts candidate filter-strength evaluations.
 	LoopFilterTrials int64 `json:"loop_filter_trials"`
