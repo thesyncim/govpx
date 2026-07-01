@@ -103,14 +103,24 @@ func ClampMvToUmvBorderSb(edges BlockBoundsEdges, srcMv MV, bw, bh, ssX, ssY int
 	spelBottom := spelTop - SubpelShifts
 	shiftY := 1 << uint(1-ssY)
 	shiftX := 1 << uint(1-ssX)
-	cmv := MV{
-		Row: int16(int(srcMv.Row) * shiftY),
-		Col: int16(int(srcMv.Col) * shiftX),
-	}
 	minCol := int32(edges.MbToLeftEdge*shiftX - spelLeft)
 	maxCol := int32(edges.MbToRightEdge*shiftX + spelRight)
 	minRow := int32(edges.MbToTopEdge*shiftY - spelTop)
 	maxRow := int32(edges.MbToBottomEdge*shiftY + spelBottom)
-	ClampMv(&cmv, minCol, maxCol, minRow, maxRow)
-	return cmv
+	row := int32(srcMv.Row) * int32(shiftY)
+	col := int32(srcMv.Col) * int32(shiftX)
+	if row >= minRow && row <= maxRow && col >= minCol && col <= maxCol {
+		return MV{Row: int16(row), Col: int16(col)}
+	}
+	if row < minRow {
+		row = minRow
+	} else if row > maxRow {
+		row = maxRow
+	}
+	if col < minCol {
+		col = minCol
+	} else if col > maxCol {
+		col = maxCol
+	}
+	return MV{Row: int16(row), Col: int16(col)}
 }
