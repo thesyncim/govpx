@@ -11,18 +11,25 @@ import (
 const (
 	linuxATNull       = 0
 	linuxATHwcap      = 16
+	linuxATHwcap2     = 26
 	linuxHwcapASIMDDP = 1 << 20
+	linuxHwcap2I8MM   = 1 << 13
 )
 
 func init() {
-	if has, ok := linuxAuxvHasASIMDDP(); ok {
+	if has, ok := linuxAuxvHwcapBit(linuxATHwcap, linuxHwcapASIMDDP); ok {
 		HasARM64DotProd = has
-		return
+	} else {
+		HasARM64DotProd = linuxCPUInfoHasFlag("asimddp")
 	}
-	HasARM64DotProd = linuxCPUInfoHasASIMDDP()
+	if has, ok := linuxAuxvHwcapBit(linuxATHwcap2, linuxHwcap2I8MM); ok {
+		HasARM64I8MM = has
+	} else {
+		HasARM64I8MM = linuxCPUInfoHasFlag("i8mm")
+	}
 }
 
-func linuxAuxvHasASIMDDP() (has bool, ok bool) {
+func linuxAuxvHwcapBit(wantTag, bit uint64) (has bool, ok bool) {
 	auxv, err := os.ReadFile("/proc/self/auxv")
 	if err != nil {
 		return false, false
@@ -33,18 +40,18 @@ func linuxAuxvHasASIMDDP() (has bool, ok bool) {
 		if tag == linuxATNull {
 			return false, false
 		}
-		if tag == linuxATHwcap {
-			return val&linuxHwcapASIMDDP != 0, true
+		if tag == wantTag {
+			return val&bit != 0, true
 		}
 		auxv = auxv[16:]
 	}
 	return false, false
 }
 
-func linuxCPUInfoHasASIMDDP() bool {
+func linuxCPUInfoHasFlag(flag string) bool {
 	info, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return false
 	}
-	return bytes.Contains(info, []byte(" asimddp")) || bytes.Contains(info, []byte("\tasimddp"))
+	return bytes.Contains(info, []byte(" "+flag)) || bytes.Contains(info, []byte("\t"+flag))
 }
