@@ -56,9 +56,8 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	fc := vp9InterModeCostFrameContext(inter)
 	varAt := func(row, col int) uint64 {
 		intMv := vp9dec.MV{Row: int16(row * 8), Col: int16(col * 8)}
-		variance, _, vok := e.vp9InterPredictionVarianceSSE(inter, miRows, miCols,
-			miRow, miCol, bsize, common.NewMv, refFrame, intMv,
-			vp9dec.InterpEighttap)
+		variance, _, vok := e.vp9InterPredictionBorderedSubpelVarianceSSE(
+			inter, miRow, miCol, bsize, refFrame, intMv)
 		if !vok {
 			// libvpx returns INT_MAX-equivalent for unreadable offsets; use a
 			// large value so the diamond never selects it.
