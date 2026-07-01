@@ -332,93 +332,56 @@ func TestRealtimeAutoSpeedPositiveCPUStaysInFastEnoughBand(t *testing.T) {
 	}
 }
 
-func TestRealtimeAutoSpeedKeyFrameTimingCapsAtBudgetBoundary(t *testing.T) {
-	e := newSizedTestEncoder(t, 1280, 720)
-	e.opts.CpuUsed = 8
-	e.libvpxAutoSelectSpeed()
+func TestRealtimeAutoSpeedKeyFrameTimingPinsStableRegion(t *testing.T) {
+	// Every keyframe at mbs >= 200 pins its auto-speed duration sample to
+	// budget/3 (the mediumAutoSpeedKeyFrameTimingCompensation stable-band
+	// pin), so the next frame's vp8_auto_select_speed lands in the Speed--
+	// branch and cpi->Speed clamps at the realtime floor of 4 -- the
+	// trajectory the production (untraced) vpxenc follows on the reference
+	// host, where even a 720p keyframe encodes below the rdopt.c:290
+	// `Speed += 2` boundary of budget*100/95. A former 2*budget-2 pin for
+	// 720p-class keyframes deliberately landed ABOVE that boundary (Speed 5
+	// for the first inter frame); it was calibrated against
+	// instrumented-oracle timings and caused the 720p RT cpu=8 frame-drop
+	// divergence (see vp8_realtime_drop_parity_test.go).
+	cases := []struct {
+		name    string
+		width   int
+		height  int
+		cpuUsed int
+	}{
+		{name: "720p-cpu8", width: 1280, height: 720, cpuUsed: 8},
+		{name: "720p-cpu4", width: 1280, height: 720, cpuUsed: 4},
+		{name: "854x480-cpu8", width: 854, height: 480, cpuUsed: 8},
+		{name: "1024x576-cpu8", width: 1024, height: 576, cpuUsed: 8},
+		{name: "svga-cpu8", width: 800, height: 600, cpuUsed: 8},
+		{name: "svga-cpu4", width: 800, height: 600, cpuUsed: 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newSizedTestEncoder(t, tc.width, tc.height)
+			e.opts.CpuUsed = tc.cpuUsed
+			e.libvpxAutoSelectSpeed()
 
-	budget := e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
-	}
-	// libvpxAutoSelectSpeed keys cold-start off e.frameCount==0 (see
-	// libvpxCPUUsed comment). Simulate the post-frame-0 transition so the
-	// follow-up call exercises the budget-vs-encode-time branch rather than
-	// re-entering the cold-start reset.
-	e.frameCount = 1
-	e.libvpxAutoSelectSpeed()
-	if e.autoSpeed != 5 {
-		t.Fatalf("post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
-	}
-
-	e = newSizedTestEncoder(t, 1280, 720)
-	e.opts.CpuUsed = 4
-	e.libvpxAutoSelectSpeed()
-	budget = e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("cpu4 720p key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
-	}
-	e.frameCount = 1
-	e.libvpxAutoSelectSpeed()
-	if e.autoSpeed != 5 {
-		t.Fatalf("cpu4 720p post-key capped autospeed = %d, want speed-5 band", e.autoSpeed)
-	}
-
-	e = newSizedTestEncoder(t, 854, 480)
-	e.opts.CpuUsed = 8
-	e.libvpxAutoSelectSpeed()
-	budget = e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	// 854x480 (1620 MBs) falls below the large-frame gate but above the
-	// medium-frame gate (mbs >= 200) for libvpx-faithful keyframe
-	// avg_encode_time semantics. Expect duration pinned to budget/3 so the
-	// next frame's vp8_auto_select_speed lands in the Speed=0 stable band,
-	// matching libvpx's measured ~12us/MB encode time.
-	if want := budget / 3; e.avgEncodeTime != want || e.avgPickModeTime != want/2 {
-		t.Fatalf("854x480 mid-size key autospeed timers = encode:%d pick:%d, want pinned encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, want, want/2)
-	}
-
-	e = newSizedTestEncoder(t, 1024, 576)
-	e.opts.CpuUsed = 8
-	e.libvpxAutoSelectSpeed()
-	budget = e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("1024x576 cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
-	}
-
-	e = newSizedTestEncoder(t, 800, 600)
-	e.opts.CpuUsed = 8
-	e.libvpxAutoSelectSpeed()
-	budget = e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	if e.avgEncodeTime != 2*budget-2 || e.avgPickModeTime != budget-1 {
-		t.Fatalf("svga cpu8 key autospeed timers = encode:%d pick:%d, want capped encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, 2*budget-2, budget-1)
-	}
-
-	e = newSizedTestEncoder(t, 800, 600)
-	e.opts.CpuUsed = 4
-	e.libvpxAutoSelectSpeed()
-	budget = e.autoSpeedCompressionBudgetUS()
-	e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
-	e.finishAutoSpeedTiming(true)
-	// 800x600 with cpu_used=4 falls outside the large-frame gate but above
-	// the medium-frame gate. Expect the Speed=0 stable-band pin.
-	if want := budget / 3; e.avgEncodeTime != want || e.avgPickModeTime != want/2 {
-		t.Fatalf("svga cpu4 key autospeed timers = encode:%d pick:%d, want pinned encode:%d pick:%d",
-			e.avgEncodeTime, e.avgPickModeTime, want, want/2)
+			budget := e.autoSpeedCompressionBudgetUS()
+			e.autoSpeedFrameStartNS = nowMonotonicNS() - int64(10*budget)*1000
+			e.finishAutoSpeedTiming(true)
+			if want := budget / 3; e.avgEncodeTime != want || e.avgPickModeTime != want/2 {
+				t.Fatalf("key autospeed timers = encode:%d pick:%d, want pinned encode:%d pick:%d",
+					e.avgEncodeTime, e.avgPickModeTime, want, want/2)
+			}
+			// libvpxAutoSelectSpeed keys cold-start off e.frameCount==0 (see
+			// libvpxCPUUsed comment). Simulate the post-frame-0 transition so
+			// the follow-up call exercises the budget-vs-encode-time branch
+			// rather than re-entering the cold-start reset. budget/3 sits
+			// below the auto_speed_thresh stable band, so the Speed-- branch
+			// fires and clamps at the realtime floor of 4.
+			e.frameCount = 1
+			e.libvpxAutoSelectSpeed()
+			if e.autoSpeed != 4 {
+				t.Fatalf("post-key autospeed = %d, want realtime floor 4", e.autoSpeed)
+			}
+		})
 	}
 }
 

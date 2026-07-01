@@ -353,20 +353,19 @@ func (e *VP8Encoder) macroblockIsSkin(mbRow int, mbCol int, mbCols int) bool {
 // rdopt.c line 312, so the gate fires once the auto-selected Speed crosses
 // into the heavy-RT range where ZEROMV is already favored by rate-control).
 //
-// The Speed-conditioned half of this gate is delegated to
-// libvpxRealtimeCPISpeedForZeroMVLastAdjGate (vp8_encoder_config.go), which
-// returns the libvpx-realistic cpi->Speed (matching the targeted-gate
-// pattern of tasks #350 / #361 / #363 / #364). The downstream effect on
-// encode_breakout sensitivity is documented in that helper's comment:
-// rd_adj scales this_rd, and the encode_breakout-skip path only commits
-// when the scaled this_rd wins the best_rd comparison, so the gate
-// indirectly controls how aggressive ZEROMV-LAST is in claiming the
+// The Speed-conditioned half of this gate consults e.libvpxCPUUsed() --
+// the same deterministic cpi->Speed model every other speed-feature gate
+// reads (see the drop-parity audit note in vp8_encoder_config.go). The
+// downstream effect on encode_breakout sensitivity: rd_adj scales
+// this_rd, and the encode_breakout-skip path only commits when the
+// scaled this_rd wins the best_rd comparison, so the gate indirectly
+// controls how aggressive ZEROMV-LAST is in claiming the
 // encode_breakout fast path at higher Speed levels.
 func (e *VP8Encoder) fastZeroMVLastAdjustmentEligible(mbRows int, mbCols int) bool {
 	if e.opts.ScreenContentMode != 0 {
 		return false
 	}
-	if e.opts.Deadline == DeadlineRealtime && e.libvpxRealtimeCPISpeedForZeroMVLastAdjGate() >= 12 {
+	if e.opts.Deadline == DeadlineRealtime && e.libvpxCPUUsed() >= 12 {
 		return false
 	}
 	required := mbRows * mbCols

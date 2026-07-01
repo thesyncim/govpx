@@ -197,7 +197,11 @@ func (e *VP8Encoder) pickLoopFilterLevel(src vp8enc.SourceImage, frameType vp8co
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearchForFrame() bool {
-	return loopFilterUsesFastSearchForDeadlineSpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForAutoFilterGate())
+	// auto_filter (libvpx onyx_if.c vp8_set_speed_features) consults the
+	// same cpi->Speed as every other speed feature; see the drop-parity
+	// audit note in vp8_encoder_config.go for the retirement of the former
+	// per-gate "realistic Speed" override.
+	return e.loopFilterUsesFastSearch()
 }
 
 func (e *VP8Encoder) loopFilterUsesFastSearch() bool {

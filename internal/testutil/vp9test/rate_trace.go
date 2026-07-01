@@ -414,7 +414,7 @@ func FormatAutoAltRefVisibilityRows(govpxRows, libvpxRows []RateTraceRow) string
 	var b bytes.Buffer
 	fmt.Fprintln(&b, "packet,govpx_frame,libvpx_frame,govpx_show,libvpx_show,govpx_key,libvpx_key,govpx_refresh,libvpx_refresh,govpx_q,libvpx_q,govpx_bytes,libvpx_bytes,govpx_first_part,libvpx_first_part")
 	limit := max(len(libvpxRows), len(govpxRows))
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		g, gok := rateTraceRowAt(govpxRows, i)
 		l, lok := rateTraceRowAt(libvpxRows, i)
 		fmt.Fprintf(&b, "%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",

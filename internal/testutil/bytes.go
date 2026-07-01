@@ -10,7 +10,7 @@ import (
 // b. It returns -1 when the slices match exactly.
 func FirstByteDiff(a, b []byte) int {
 	n := min(len(b), len(a))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if a[i] != b[i] {
 			return i
 		}
@@ -25,7 +25,7 @@ func FirstByteDiff(a, b []byte) int {
 // want[:N] have matching SHA-256 sums frame-by-frame.
 func MatchedFramePrefixLength(got, want [][]byte) int {
 	n := min(len(want), len(got))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if sha256.Sum256(got[i]) != sha256.Sum256(want[i]) {
 			return i
 		}

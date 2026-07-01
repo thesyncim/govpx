@@ -52,17 +52,36 @@ func TestLoopFilterUsesFastSearchForThreadedRealtimeInterFrames(t *testing.T) {
 	}
 }
 
-func TestLoopFilterUsesFastSearchForLargeRealtimeAutoSpeedFrame(t *testing.T) {
+func TestLoopFilterUsesFastSearchFollowsAutoSelectSpeed(t *testing.T) {
+	// auto_filter consults the same cpi->Speed as every other
+	// vp8_set_speed_features gate. Under the pinned auto-select trajectory
+	// (Speed clamped at the realtime floor of 4, matching the production
+	// vpxenc on the reference host) the realtime cpu_used=8 path keeps the
+	// FULL loop-filter search at every frame size; only a genuinely ramped
+	// Speed (> 4, or the == 3 special case) flips to the fast picker. The
+	// former per-gate "realistic Speed" override forced the fast picker on
+	// 720p-class frames while the production vpxenc used the full search --
+	// part of the drop-parity divergence pinned by
+	// TestVP8RealtimeOverloadDropParity.
 	large := &VP8Encoder{
 		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 1280, Height: 720},
 		frameCount: 2,
 		autoSpeed:  4,
 	}
-	if !large.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("large post-cold-start realtime cpu=8 frame did not use fast loop-filter search")
+	if large.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("large post-cold-start realtime cpu=8 frame at Speed 4 used fast loop-filter search")
 	}
 	if large.loopFilterUsesFastSearch() {
 		t.Fatalf("static loop-filter speed mirror should keep realtime autoSpeed=4 on full search")
+	}
+
+	ramped := &VP8Encoder{
+		opts:       EncoderOptions{Deadline: DeadlineRealtime, CpuUsed: 8, Width: 1280, Height: 720},
+		frameCount: 2,
+		autoSpeed:  9,
+	}
+	if !ramped.loopFilterUsesFastSearchForFrame() {
+		t.Fatalf("ramped (autoSpeed=9) realtime cpu=8 frame did not use fast loop-filter search")
 	}
 
 	tiny := &VP8Encoder{
@@ -71,7 +90,7 @@ func TestLoopFilterUsesFastSearchForLargeRealtimeAutoSpeedFrame(t *testing.T) {
 		autoSpeed:  4,
 	}
 	if tiny.loopFilterUsesFastSearchForFrame() {
-		t.Fatalf("tiny realtime cpu=8 frame used fast loop-filter search before libvpx would ramp")
+		t.Fatalf("tiny realtime cpu=8 frame at Speed 4 used fast loop-filter search")
 	}
 
 	first := &VP8Encoder{

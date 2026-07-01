@@ -79,65 +79,28 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 		}
 	}
 	cfg.fullPixelFurtherSteps = int8(libvpxInterFrameFurtherSteps(furtherStepsSpeed, int(cfg.fullPixelSearchParam)))
-	// improved_mv_pred uses the libvpx-realistic cpi->Speed
-	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
-	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForImprovedMVPred
-	// Gate comment for the rationale: clamping autoSpeed itself would
-	// cascade every other Speed-conditioned feature simultaneously and
-	// crater BD-rate (~+28923% on the cpu=8 RT 720p fixture). Targeting
-	// only this gate matches the audit-observed Speed=9 → Speed > 6
-	// transition without disturbing the rest of the speed cascade.
-	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForImprovedMVPredGate())
+	// improved_mv_pred (onyx_if.c:957 `Speed > 6`) consults the same
+	// cpi->Speed as every other vp8_set_speed_features gate: the
+	// deterministic auto-select model surfaced by libvpxCPUUsed(). See the
+	// drop-parity audit note in vp8_encoder_config.go for why the former
+	// "libvpx-realistic cpu_used+1" override was retired.
+	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, speed)
 	if e.opts.Deadline != DeadlineRealtime {
 		return cfg
 	}
-	// search_method=HEX / iterative_sub_pixel=0 uses the
-	// libvpx-realistic cpi->Speed (cpu_used+1 at cpu_used > 0 RT after
-	// frame 0) rather than the pin-suppressed e.autoSpeed. See
-	// libvpxRealtimeCPISpeedForHEXSearchGate comment for the rationale:
-	// clamping autoSpeed itself would cascade every other Speed-conditioned
-	// feature simultaneously and crater BD-rate. Targeting only this gate
-	// matches the audit-observed Speed=9 → Speed > 4 transition without
-	// disturbing the rest of the speed cascade. The cpu_used == 0 RT path
-	// (byte-parity gate) keeps the realistic Speed at libvpxCPUUsed()=4,
-	// below the Speed > 4 threshold, so NSTEP+iterative are preserved
-	// and the pinned byte-parity sentinels hold.
-	hexSearchSpeed := e.libvpxRealtimeCPISpeedForHEXSearchGate()
-	// The Speed > 4 (iterative_sub_pixel disable, libvpx
-	// onyx_if.c:954) and Speed >= 15 (half_pixel_search disable, line
-	// 1023) fractional sub-pel gates use the libvpx-realistic cpi->Speed
-	// (cpu_used+1 at cpu_used > 0 RT after frame 0) rather than the pin-
-	// suppressed e.autoSpeed. See libvpxRealtimeCPISpeedForSubPelSearch
-	// Gate comment for the rationale: clamping autoSpeed itself would
-	// cascade every other Speed-conditioned feature simultaneously (at
-	// cpu_used=8 this pushed the BD-rate fixture into a ~+28923% cliff).
-	// The intermediate Speed > 8 gate (quarter_pixel_search disable, line
-	// 1012) is handled by
-	// libvpxRealtimeCPISpeedForQuarterPelGate — that helper returns the
-	// same libvpx-realistic Speed under the same guards, so its branch
-	// remains independent here. For cpu_used <= 0 RT / non-RT /
-	// pre-first-frame both helpers return speed unchanged so byte-parity
-	// sentinels and the cold-start keyframe encode stay on the existing
-	// dispatch.
-	subPelGateSpeed := e.libvpxRealtimeCPISpeedForSubPelSearchGate()
-	if hexSearchSpeed > 4 {
+	// search_method=HEX / iterative_sub_pixel=0 (onyx_if.c:951-955
+	// `Speed > 4`), quarter_pixel_search disable (line 1012 `Speed > 8`)
+	// and half_pixel_search disable (line 1023 `Speed >= 15`) all read
+	// the same cpi->Speed in libvpx; feed the uniform libvpxCPUUsed()
+	// model here as well.
+	if speed > 4 {
 		cfg.fullPixelSearch = interAnalysisFullPixelSearchHex
-	}
-	if subPelGateSpeed > 4 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchStep
 	}
-	// quarter_pixel_search disable (libvpx onyx_if.c:1012, the
-	// `Speed > 8` gate) consults the libvpx-realistic cpi->Speed
-	// (cpu_used+1 at cpu_used > 0 RT after the cold-start frame) rather
-	// than the pin-suppressed e.autoSpeed. Same targeted-gate pattern as
-	// the improved_mv_pred port: clamping autoSpeed itself
-	// would cascade every other Speed-conditioned feature into the
-	// cpu_used+1 path simultaneously and crater BD-rate. See
-	// libvpxRealtimeCPISpeedForQuarterPelGate comment for rationale.
-	if e.libvpxRealtimeCPISpeedForQuarterPelGate() > 8 {
+	if speed > 8 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchHalf
 	}
-	if subPelGateSpeed >= 15 {
+	if speed >= 15 {
 		cfg.fractionalSearch = interAnalysisFractionalSearchSkip
 	}
 	return cfg
@@ -406,13 +369,12 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 	context.totalMBs = e.interAnalysisMacroblockCount()
 	context.staticThreshold = e.opts.StaticThreshold
 	context.errorBins = &e.interModeSpeedErrorBins
-	// Feed the libvpx-realistic cpi->Speed only into the
-	// adaptive error-bin gate. The full multiplier table still tracks
-	// e.libvpxCPUUsed() / e.autoSpeed so the rest of the speed-feature
-	// cascade (search method, fractional search, quarter-pixel, recode
-	// loop, ...) keeps its current evolution. See
-	// libvpxRealtimeCPISpeedForErrorBinGate for the audit chain.
-	context.errorBinGateSpeed = e.libvpxRealtimeCPISpeedForErrorBinGate()
+	// The adaptive error-bin threshold path (onyx_if.c:957-1010,
+	// `Speed > 6`) consults the same cpi->Speed as the rest of
+	// vp8_set_speed_features: the deterministic auto-select model
+	// surfaced by libvpxCPUUsed(). See the drop-parity audit note in
+	// vp8_encoder_config.go.
+	context.errorBinGateSpeed = e.libvpxCPUUsed()
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	gen := e.interRDThreshBaselineGen
 	q32 := int32(qIndex)
@@ -554,15 +516,11 @@ func (e *VP8Encoder) beginInterRDModeDecisionFrame() {
 		// libvpxInterModeThresholdMultipliersForCPISpeed).
 		//
 		// The seven mode_check_freq_map_* speed_map lookups
-		// (vp8/encoder/onyx_if.c lines 860-887) consult the libvpx-realistic
-		// cpi->Speed (cpu_used+1 at cpu_used > 0 RT after frame 0) rather
-		// than the pin-suppressed e.autoSpeed. See
-		// libvpxRealtimeCPISpeedForModeCheckFreqGate comment for the
-		// rationale and the per-Speed transition trace. For cpu_used <= 0
-		// RT / non-RT / pre-first-frame the helper returns the actual
-		// libvpxCPUUsed() so existing semantics (and threads=4 cpu=0 RT
-		// byte-parity sentinels) carry forward unchanged.
-		e.interModeCheckFreq = libvpxInterModeCheckFrequenciesForCPISpeed(e.opts.Deadline, e.libvpxRealtimeCPISpeedForModeCheckFreqGate())
+		// (vp8/encoder/onyx_if.c lines 860-887) consult the same
+		// cpi->Speed as every other vp8_set_speed_features gate: the
+		// deterministic auto-select model surfaced by libvpxCPUUsed().
+		// See the drop-parity audit note in vp8_encoder_config.go.
+		e.interModeCheckFreq = libvpxInterModeCheckFrequenciesForCPISpeed(e.opts.Deadline, e.libvpxCPUUsed())
 	} else {
 		e.interModeCheckFreq = libvpxInterModeCheckFrequencies(e.opts.Deadline, e.opts.CpuUsed)
 	}
@@ -825,20 +783,16 @@ func libvpxInterModeThresholdMultipliersForCPISpeed(deadline Deadline, cpiSpeed 
 		mult[libvpxThrNearest2] >>= shift
 		mult[libvpxThrNear2] >>= shift
 	}
-	// Gate the adaptive error-bin RD-threshold adjustment on
-	// the libvpx-realistic cpi->Speed when the caller supplies one via
-	// context.errorBinGateSpeed. libvpx's vp8_set_speed_features runs
-	// every frame on the wall-clock-evolved cpi->Speed (rdopt.c:163 →
-	// vp8_initialize_rd_consts → vp8_set_speed_features), so at
-	// cpu_used > 0 RT cpi->Speed climbs to cpu_used+1 and the line-957
-	// gate fires the error_bins[] scan that overwrites
-	// sf->thresh_mult[THR_NEW1/NEAREST1/NEAR1/...] proportionally to
-	// (cpi->Speed - 6). govpx's timing-pinned autoSpeed stays at 4-5
-	// (see libvpxRealtimeCPISpeedForErrorBinGate audit), so without the
-	// override the path is unreachable on the cpu>0 RT ladder. When
-	// errorBinGateSpeed is zero (the unset default used by good-quality,
-	// best-quality, and the negate-pass-through fixtures) the gate
-	// continues to read cpiSpeed for byte-parity.
+	// Gate the adaptive error-bin RD-threshold adjustment
+	// (vp8_set_speed_features onyx_if.c:957-1010, `Speed > 6`) on the
+	// caller-supplied cpi->Speed when present via
+	// context.errorBinGateSpeed. Callers on the realtime auto-select
+	// path pass e.libvpxCPUUsed() -- the same deterministic cpi->Speed
+	// model every other speed-feature gate reads (see the drop-parity
+	// audit note in vp8_encoder_config.go). When errorBinGateSpeed is
+	// zero (the unset default used by good-quality, best-quality, and
+	// the negate-pass-through fixtures) the gate continues to read
+	// cpiSpeed for byte-parity.
 	gateSpeed := cpiSpeed
 	if context.errorBinGateSpeed != 0 {
 		gateSpeed = context.errorBinGateSpeed
