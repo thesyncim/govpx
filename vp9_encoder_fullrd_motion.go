@@ -138,13 +138,17 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
 				refRow>>3, refCol>>3, sadPerBit))
 		}
+		patternSadAt4 := sadAt4
+		if int(common.Num4x4BlocksWideLookup[bsize])*4 < 16 {
+			patternSadAt4 = nil
+		}
 		switch searchMethod {
 		case SearchMethodFastHex:
-			bestDx, bestDy, _, _ = encoder.FastHexPatternSearchSAD(mvpCol, mvpRow,
-				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+			bestDx, bestDy, _, _ = encoder.FastHexPatternSearchSADWithBatch(mvpCol, mvpRow,
+				startSad, startScore, stepParam, mvLimits, sadAt, patternSadAt4, scoreMv)
 		case SearchMethodFastDiamond:
-			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSAD(mvpCol,
-				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSADWithBatch(mvpCol,
+				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, patternSadAt4, scoreMv)
 		case SearchMethodHex:
 			bestDx, bestDy, _, _ = encoder.HexPatternSearchSAD(mvpCol, mvpRow,
 				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)

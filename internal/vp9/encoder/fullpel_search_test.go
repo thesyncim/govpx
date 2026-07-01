@@ -33,6 +33,72 @@ func TestFastHexPatternSearchSADFindsLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestFastPatternSearchSADWithBatchMatchesScalar(t *testing.T) {
+	limits := MvLimits{RowMin: -32, RowMax: 32, ColMin: -32, ColMax: 32}
+	tests := []struct {
+		name   string
+		target [2]int
+		scalar func(int, int, uint64, uint64, int, *MvLimits,
+			func(int, int) (uint64, bool),
+			func(int, int, uint64) uint64) (int, int, uint64, uint64)
+		batch func(int, int, uint64, uint64, int, *MvLimits,
+			func(int, int) (uint64, bool), PatternSAD4Func,
+			func(int, int, uint64) uint64) (int, int, uint64, uint64)
+	}{
+		{
+			name:   "fast diamond",
+			target: [2]int{5, -3},
+			scalar: FastDiamondPatternSearchSAD,
+			batch:  FastDiamondPatternSearchSADWithBatch,
+		},
+		{
+			name:   "fast hex",
+			target: [2]int{6, -3},
+			scalar: FastHexPatternSearchSAD,
+			batch:  FastHexPatternSearchSADWithBatch,
+		},
+		{
+			name:   "n-step",
+			target: [2]int{-7, 6},
+			scalar: NStepDiamondSearchSAD,
+			batch:  NStepDiamondSearchSADWithBatch,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sadAt, scoreMv := quadraticSearchSurface(tc.target[0], tc.target[1])
+			startSad, _ := sadAt(0, 0)
+			wantDx, wantDy, wantSad, wantScore := tc.scalar(0, 0,
+				startSad, startSad, 0, &limits, sadAt, scoreMv)
+
+			batchCalls := 0
+			sadAt4 := func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int) (
+				uint64, uint64, uint64, uint64, bool,
+			) {
+				batchCalls++
+				sad0, ok0 := sadAt(dx0, dy0)
+				sad1, ok1 := sadAt(dx1, dy1)
+				sad2, ok2 := sadAt(dx2, dy2)
+				sad3, ok3 := sadAt(dx3, dy3)
+				return sad0, sad1, sad2, sad3, ok0 && ok1 && ok2 && ok3
+			}
+			gotDx, gotDy, gotSad, gotScore := tc.batch(0, 0, startSad,
+				startSad, 0, &limits, sadAt, sadAt4, scoreMv)
+
+			if gotDx != wantDx || gotDy != wantDy || gotSad != wantSad ||
+				gotScore != wantScore {
+				t.Fatalf("batch result = dx=%d dy=%d sad=%d score=%d, want dx=%d dy=%d sad=%d score=%d",
+					gotDx, gotDy, gotSad, gotScore, wantDx, wantDy, wantSad,
+					wantScore)
+			}
+			if batchCalls == 0 {
+				t.Fatal("batch search did not call sadAt4")
+			}
+		})
+	}
+}
+
 func TestRegularPatternSearchSADFindsLocalMinimum(t *testing.T) {
 	limits := MvLimits{RowMin: -64, RowMax: 64, ColMin: -64, ColMax: 64}
 	tests := []struct {

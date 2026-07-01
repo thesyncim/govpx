@@ -2926,6 +2926,10 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
 			refFullDy, refFullDx, sadPerBit))
 	}
+	searchSadAt4 := sadAt4
+	if blockW < 16 {
+		searchSadAt4 = nil
+	}
 	bestSad, ok := sadAt(0, 0)
 	if !ok {
 		return vp9dec.MV{}, 0, false
@@ -3038,18 +3042,18 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 				scanMaxDy = searchCenterDy + searchRadius
 			}
 			if e.sf.Mv.SearchMethod == SearchMethodFastDiamond {
-				bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSAD(
+				bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-					&mvLimits, sadAt, scoreMv)
+					&mvLimits, sadAt, searchSadAt4, scoreMv)
 			} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
-				bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSAD(
+				bestDx, bestDy, bestSad, bestScore = encoder.FastHexPatternSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-					&mvLimits, sadAt, scoreMv)
+					&mvLimits, sadAt, searchSadAt4, scoreMv)
 			} else if e.sf.Mv.SearchMethod == SearchMethodNStep ||
 				e.sf.Mv.SearchMethod == SearchMethodMesh {
-				bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSAD(
+				bestDx, bestDy, bestSad, bestScore = encoder.NStepDiamondSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-					&mvLimits, sadAt, scoreMv)
+					&mvLimits, sadAt, searchSadAt4, scoreMv)
 			} else {
 				// Coarse fan for non-FAST_DIAMOND methods. We size the coarse
 				// step so the fan covers +/-searchRadius without exceeding it.
