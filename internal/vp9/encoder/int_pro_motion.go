@@ -263,15 +263,22 @@ func SADForBsize(bsize common.BlockSize) IntProSadFunc {
 }
 
 // IntProSadX4 mirrors cpi->fn_ptr[bsize].sdx4df — the 4-reference
-// dispatch. libvpx's _x4d_c is literally four sdf calls
-// (vpx_dsp/sad.c:55-74). We replicate that pattern here so callers
-// don't need a separate dispatch table.
+// dispatch (libvpx wires vpx_sad{W}x{H}x4d here, the fused NEON /
+// SSE kernels on SIMD builds; the _x4d_c fallback is literally four
+// sdf calls, vpx_dsp/sad.c:55-74). dsp.VpxSad4D provides the same
+// fused-kernel-with-scalar-fallback split, so route through it and
+// keep the per-call sdf loop only for geometries it rejects.
 func IntProSadX4(
-	sdf IntProSadFunc,
+	sdf IntProSadFunc, bw, bh int,
 	src []uint8, srcOff, srcStride int,
 	ref []uint8, refOffsets [4]int, refStride int,
 	out *[4]uint32,
 ) {
+	if dsp.VpxSad4D(src, srcOff, srcStride, ref,
+		refOffsets[0], refOffsets[1], refOffsets[2], refOffsets[3],
+		refStride, bw, bh, out) {
+		return
+	}
 	for i := range 4 {
 		out[i] = sdf(src, srcOff, srcStride, ref, refOffsets[i], refStride)
 	}
@@ -391,7 +398,7 @@ func IntProEstimate(in *IntProEstimateInput) (bestSad uint32, mv MV) {
 		refOffBest + 1,
 		refOffBest + refStride,
 	}
-	IntProSadX4(sdf, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
+	IntProSadX4(sdf, bw, bh, in.Src, in.SrcOff, srcStride, in.Ref, refOffsets, refStride, &thisSAD)
 
 	for idx := range 4 {
 		if thisSAD[idx] < bestSad {

@@ -532,9 +532,18 @@ func (e *VP9Encoder) vp9RecordVarPartSBColorSensitivity(miRows, miCols int,
 		e.varPartSBColorSensitivity[sbIdx] = [2]bool{}
 		return
 	}
-	ySad := encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
-		args.PlaneDst, args.PlaneDstOff, args.DstStride, blockW, blockH,
-		^uint64(0))
+	// libvpx passes choose_partitioning's y_sad local straight into
+	// chroma_check (vp9_encodeframe.c:1760); reuse the exported value
+	// instead of recomputing the block SAD. The recomputation fallback
+	// covers callers that didn't wire YSadOut.
+	var ySad uint64
+	if args.YSadOut != nil && args.YSadOutValid != nil && *args.YSadOutValid {
+		ySad = *args.YSadOut
+	} else {
+		ySad = encoder.BlockSADOffsets(src, y0*srcStride+x0, srcStride,
+			args.PlaneDst, args.PlaneDstOff, args.DstStride, blockW, blockH,
+			^uint64(0))
+	}
 	uvSad, ok := e.vp9VarPartChromaSAD(inter, miRows, miCols, sbMiRow,
 		sbMiCol, subBsize, args.PartitionRefFrame, args.PartitionMV)
 	if !ok {
@@ -690,8 +699,15 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	e.ensureVP9VarPartCopyState(miRows, miCols)
 	copiedPartition := false
 	copiedPartitionUseMV := false
+	// y_sad computed inside ChoosePartitioning, reused by the
+	// color-sensitivity recorder (libvpx chroma_check receives the
+	// same local, vp9_encodeframe.c:1760).
+	var chooseYSad uint64
+	var chooseYSadValid bool
 
 	args := encoder.ChoosePartitioningArgs{
+		YSadOut:                &chooseYSad,
+		YSadOutValid:           &chooseYSadValid,
 		MiGrid:                 e.varPartGrid,
 		MiRows:                 miRows,
 		MiCols:                 miCols,

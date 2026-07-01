@@ -334,6 +334,16 @@ type ChoosePartitioningArgs struct {
 	CopiedPartition       *bool
 	CopiedPartitionUseMV  *bool
 
+	// YSadOut, when non-nil, receives the y_sad ChoosePartitioning
+	// computed for the inter predictor (libvpx keeps y_sad in a local
+	// and passes it straight to chroma_check at
+	// vp9_encodeframe.c:1760; govpx's color-sensitivity recorder runs
+	// outside this function, so the value is exported instead of
+	// recomputed). YSadOutValid mirrors whether the SAD was computed
+	// on the fully-in-frame fast path.
+	YSadOut      *uint64
+	YSadOutValid *bool
+
 	// CYCLIC_REFRESH boost predicate. Mirrors libvpx's
 	// cyclic_refresh_segment_id_boosted(segment_id). When true, BaseQIndex
 	// is already the segment qindex from vp9_get_qindex().
@@ -525,6 +535,10 @@ func ChoosePartitioning(a ChoosePartitioningArgs) int {
 				a.MiRow, a.MiCol)
 			ySAD, ySADValid = choosePartitioningBlockSAD(src, sp, dst, dp,
 				bsize, pixelsWide, pixelsHigh)
+			if a.YSadOut != nil && a.YSadOutValid != nil && ySADValid {
+				*a.YSadOut = ySAD
+				*a.YSadOutValid = true
+			}
 		}
 	} else {
 		// libvpx: vp9_encodeframe.c:1538-1539 — d = VP9_VAR_OFFS, dp = 0.
