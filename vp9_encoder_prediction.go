@@ -228,21 +228,25 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	predictor.unsupportedReconstruct = false
 	predictor.predictLumaOnly = lumaOnly
 	predictor.predictChromaOnly = chromaOnly
-	hdr := vp9dec.UncompressedHeader{
-		Width:  uint32(e.opts.Width),
-		Height: uint32(e.opts.Height),
-		InterRef: vp9dec.InterRefBlock{
-			RefIndex: e.vp9InterRefIndexForFrame(),
-			SignBias: [3]uint8{
-				vp9InterSignBias(inter)[vp9dec.LastFrame],
-				vp9InterSignBias(inter)[vp9dec.GoldenFrame],
-				vp9InterSignBias(inter)[vp9dec.AltrefFrame],
-			},
+	// hdr is persistent scratch: reconstructVP9InterPredictBlock only reads
+	// it (Width/Height, InterRef, AllowHighPrecisionMv, InterpFilter) and
+	// nothing retains the pointer, so reusing one header avoids re-zeroing
+	// the 200-byte struct on every per-candidate predict call. Every field
+	// consulted by the predictor is (re)assigned below; the rest stay zero.
+	hdr := &e.interPredHdrScratch
+	hdr.Width = uint32(e.opts.Width)
+	hdr.Height = uint32(e.opts.Height)
+	hdr.InterRef = vp9dec.InterRefBlock{
+		RefIndex: e.vp9InterRefIndexForFrame(),
+		SignBias: [3]uint8{
+			vp9InterSignBias(inter)[vp9dec.LastFrame],
+			vp9InterSignBias(inter)[vp9dec.GoldenFrame],
+			vp9InterSignBias(inter)[vp9dec.AltrefFrame],
 		},
-		AllowHighPrecisionMv: true,
-		InterpFilter:         vp9InterFrameInterpFilter(inter),
 	}
-	ok := predictor.reconstructVP9InterPredictBlock(&hdr, mi, miRow, miCol, bsize)
+	hdr.AllowHighPrecisionMv = true
+	hdr.InterpFilter = vp9InterFrameInterpFilter(inter)
+	ok := predictor.reconstructVP9InterPredictBlock(hdr, mi, miRow, miCol, bsize)
 	e.interPredictScratch = predictor.interPredictScratch
 	predictor.refFramesView = nil
 	predictor.setVP9PhaseStats(nil)

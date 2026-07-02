@@ -641,8 +641,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	predFilterSearch := vp9NonrdPredFilterSearch(frameInterp,
 		e.sf.CbPredFilterSearch, miRow, miCol, bsize, e.frameIndex)
 
-	pickSegID := e.vp9PartitionSegmentID(miRow, miCol,
-		e.vp9StaticSegmentIDForMap(), inter.img, inter)
+	// Same segment-map lookup pickSegRD already performed above; only the
+	// MaxSegments clamp differs.
+	pickSegID := pickSegRD
 	if pickSegID >= vp9dec.MaxSegments {
 		pickSegID = 0
 	}
@@ -749,6 +750,67 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// skippable. Replaces the prior heuristic 1/64-ratio early-term which
 	// was a govpx invention and caused libvpx-divergent breaks.
 	bestEarlyTerm := false
+
+	// libvpx: vp9_pickmode.c:1226-1241 init_ref_frame_cost (invoked once per
+	// block at vp9_pickmode.c:2028) — the per-ref signaling cost depends only
+	// on the block's above/left contexts and the frame context, so it is
+	// hoisted out of the candidate loop.
+	var refFrameCost [vp9dec.MaxRefFrames]int
+	for r := int8(vp9dec.LastFrame); r <= int8(vp9dec.AltrefFrame); r++ {
+		if refSlotValid[r] {
+			refFrameCost[r] = encoder.SingleRefModeRateCost(&inter.selectFc,
+				above, left, inter.referenceMode, inter.compoundRefs, r)
+		}
+	}
+
+	// libvpx vp9_pickmode.c:1787 — x->encode_breakout is seeded from
+	// cpi->oxcf.encode_breakout (or the per-segment override) once per block.
+	// govpx's equivalent is the StaticThreshold option; zero by default.
+	encodeBreakout := e.opts.StaticThreshold
+
+	// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test fires when
+	// cpi->allow_encode_breakout is set, !xd->lossless, and the current
+	// frame is not a scene/high-motion change. All inputs are block-invariant.
+	allowEncodeBreakout := encoder.NonrdAllowEncodeBreakout(inter.lossless,
+		sceneChangeDetected, highNumBlocksWithMotion)
+
+	// libvpx vp9_pickmode.c:2369-2374 — skip rate is the skip-bit cost from
+	// the per-frame skip probability at the block's fixed above/left skip
+	// context; the picker consumes both branches because encode_breakout /
+	// block_yrd skip override the dist=sse branch with skip=1.
+	var skipProb uint8
+	if ctx := vp9dec.GetSkipContext(above, left); ctx >= 0 &&
+		ctx < len(e.fc.SkipProbs) {
+		skipProb = e.fc.SkipProbs[ctx]
+	}
+	skipBitOn := 0
+	skipBitOff := 0
+	if skipProb > 0 {
+		skipBitOn = encoder.VP9CostBit(skipProb, 1)
+		skipBitOff = encoder.VP9CostBit(skipProb, 0)
+	}
+
+	// libvpx vp9_speed_features.c:713 / 791 — sf->use_simple_block_yrd is set
+	// at speed >= 8 (and at SVC temporal/spatial layer > 0 at speed >= 7).
+	// The realtime nonrd path uses this to bypass block_yrd for sub-32x32
+	// blocks (vp9_pickmode.c:747-759), returning sse=INT_MAX so the
+	// RDCOST(0, this_sse) skip comparison never wins.
+	useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
+		bsize < common.Block32x32
+
+	// segId for dequant lookup — fixed for the block.
+	segID := pickSegID
+	segQIndex := pickSegQIndex
+	var dequantY [2]int16
+	var dequantU, dequantV [2]int16
+	if inter.dq != nil {
+		dequantY = inter.dq.Y[segID]
+		dequantU = inter.dq.Uv[segID]
+		dequantV = inter.dq.Uv[segID]
+	}
+	useModelYrdLarge := e.vp9UseModelYrdLargeBlock(bsize, contentState) &&
+		!encoder.CyclicRefreshSegmentIDBoosted(segID) &&
+		inter.baseQindex != 0
 
 	// libvpx: vp9_pickmode.c:2050 for (idx = 0; idx < num_inter_modes +
 	//   comp_modes; ++idx).
@@ -957,10 +1019,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 
 		// libvpx: vp9_pickmode.c:2401 ref_frame_cost[ref_frame] is the
-		// per-ref bitcost contribution. govpx computes this through
-		// encoder.SingleRefModeRateCost.
-		refRate := encoder.SingleRefModeRateCost(&inter.selectFc, above, left,
-			inter.referenceMode, inter.compoundRefs, refFrame)
+		// per-ref bitcost contribution, precomputed per block above
+		// (init_ref_frame_cost).
+		refRate := refFrameCost[refFrame]
 
 		// libvpx: vp9_pickmode.c:2259-2264 — search_new_mv issues
 		// vp9_single_motion_search for NEWMV and returns its rate cost.
@@ -1167,58 +1228,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				filters = vp9EighttapInterpFilterOrder[:]
 			}
 		}
-
-		// libvpx vp9_pickmode.c:1787 — x->encode_breakout is seeded from
-		// cpi->oxcf.encode_breakout (or the per-segment override). govpx's
-		// equivalent is the StaticThreshold option; zero by default.
-		encodeBreakout := e.opts.StaticThreshold
-
-		// libvpx vp9_pickmode.c:2425-2435 — encode_breakout_test fires when
-		// cpi->allow_encode_breakout is set, !xd->lossless, and the current
-		// frame is not a scene/high-motion change.
-		allowEncodeBreakout := encoder.NonrdAllowEncodeBreakout(inter.lossless,
-			sceneChangeDetected, highNumBlocksWithMotion)
-
-		// libvpx vp9_pickmode.c:2369-2374 — skip rate is the skip-bit cost
-		// from the per-frame skip probability; the unsigned skip pre-cost
-		// is added once per candidate (see line 2367).
-		var skipProb uint8
-		ctx := vp9dec.GetSkipContext(above, left)
-		if ctx >= 0 && ctx < len(e.fc.SkipProbs) {
-			skipProb = e.fc.SkipProbs[ctx]
-		}
-		// libvpx: vp9_cost_bit(skip_prob, 1/0). The picker computes both
-		// branches because encode_breakout / block_yrd skip override the
-		// dist=sse branch with skip=1.
-		skipBitOn := 0
-		skipBitOff := 0
-		if skipProb > 0 {
-			skipBitOn = encoder.VP9CostBit(skipProb, 1)
-			skipBitOff = encoder.VP9CostBit(skipProb, 0)
-		}
-
-		// libvpx vp9_speed_features.c:713 / 791 — sf->use_simple_block_yrd
-		// is set at speed >= 8 (and at SVC temporal/spatial layer > 0 at
-		// speed >= 7). govpx mirrors via the speed-features field; the
-		// realtime nonrd path uses this to bypass block_yrd for sub-32x32
-		// blocks (vp9_pickmode.c:747-759), returning sse=INT_MAX so the
-		// RDCOST(0, this_sse) skip comparison never wins.
-		useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
-			bsize < common.Block32x32
-
-		// segId for dequant lookup.
-		segID := pickSegID
-		segQIndex := pickSegQIndex
-		var dequantY [2]int16
-		var dequantU, dequantV [2]int16
-		if inter.dq != nil {
-			dequantY = inter.dq.Y[segID]
-			dequantU = inter.dq.Uv[segID]
-			dequantV = inter.dq.Uv[segID]
-		}
-		useModelYrdLarge := e.vp9UseModelYrdLargeBlock(bsize, contentState) &&
-			!encoder.CyclicRefreshSegmentIDBoosted(segID) &&
-			inter.baseQindex != 0
 
 		// libvpx vp9_pickmode.c:1499-1575 search_filter_ref — when multiple
 		// switchable filters are evaluated, libvpx picks the winner from

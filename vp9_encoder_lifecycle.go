@@ -421,6 +421,10 @@ type VP9Encoder struct {
 	// any neighbor context reads it — so the cache is never cleared. Tile
 	// workers are full VP9Encoder values, so each worker owns its own copy.
 	coefTokenCache [1024]uint8
+	// interPredHdrScratch backs predictVP9InterBlockOpts' per-call header;
+	// the reconstruct path only reads it and does not retain the pointer,
+	// and every consulted field is reassigned per call.
+	interPredHdrScratch vp9dec.UncompressedHeader
 	// sub8x8PredScratch backs the genuine sub-8x8 RD producer's per-label
 	// inter predictor (vp9_fullrd_inter_sub8x8_segment.go, encode_inter_mb_segment).
 	// Allocated lazily; only used behind the gated-off deep sub-8x8 path.
