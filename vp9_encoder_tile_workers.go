@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -49,12 +48,26 @@ type vp9CountTileJob struct {
 	key            vp9KeyframeEncodeState
 	inter          vp9InterEncodeState
 	worker         *VP9Encoder
-	miRows         int
-	miCols         int
-	txMode         common.TxMode
-	kind           vp9ModeTreeKind
-	hasKey         bool
-	hasInter       bool
+	// prepSrc, counts, tokenFrame and the geometry fields below let the job
+	// body run the per-worker frame preparation (the multi-megabyte
+	// *worker = *src state copy, counts zeroing and token-frame arming) on
+	// the worker's own goroutine. The dispatcher only fills the small job
+	// struct; the preparation reads the shared encoder state, which is
+	// immutable while count jobs are in flight, so the copies parallelize
+	// across tile columns instead of serializing on the dispatcher.
+	prepSrc      *VP9Encoder
+	counts       *encoder.FrameCounts
+	tokenFrame   *encoder.TokenFrameBuffer
+	width        int
+	height       int
+	tileCol      int
+	collectToken bool
+	miRows       int
+	miCols       int
+	txMode       common.TxMode
+	kind         vp9ModeTreeKind
+	hasKey       bool
+	hasInter     bool
 }
 
 type vp9EncodeTileJob struct {
@@ -66,20 +79,27 @@ type vp9EncodeTileJob struct {
 	key            vp9KeyframeEncodeState
 	inter          vp9InterEncodeState
 	worker         *VP9Encoder
-	output         []byte
-	rowMTSync      *vp9RowMTSync
-	replayTokens   bool
-	replayFrame    *encoder.TokenFrameBuffer
-	replayTileRow  int
-	replayTileCol  int
-	miRows         int
-	miCols         int
-	size           int
-	txMode         common.TxMode
-	kind           vp9ModeTreeKind
-	err            error
-	hasKey         bool
-	hasInter       bool
+	// prepSrc is consumed by the vp9TileWorkerJobEncodePrep epoch: each
+	// helper copies the shared encoder state into its private worker on its
+	// own goroutine while the dispatcher is quiescent, so the per-frame
+	// multi-megabyte worker preparation parallelizes instead of running
+	// serially on the dispatcher. Tile column 0 encodes on the shared
+	// encoder itself and needs no preparation.
+	prepSrc       *VP9Encoder
+	output        []byte
+	rowMTSync     *vp9RowMTSync
+	replayTokens  bool
+	replayFrame   *encoder.TokenFrameBuffer
+	replayTileRow int
+	replayTileCol int
+	miRows        int
+	miCols        int
+	size          int
+	txMode        common.TxMode
+	kind          vp9ModeTreeKind
+	err           error
+	hasKey        bool
+	hasInter      bool
 }
 
 type vp9TileWorkerPool struct {
@@ -93,12 +113,17 @@ type vp9TileWorkerPool struct {
 	outputs     [][]byte
 	outputSize  int
 
-	start     []chan struct{}
-	shutdown  chan struct{}
-	wg        sync.WaitGroup
-	jobEpoch  atomic.Uint64
-	doneEpoch []atomic.Uint64
-	parked    []atomic.Uint32
+	// start / done mirror libvpx's VPxWorker launch/sync handshake
+	// (vpx_util/vpx_thread.c thread_loop + change_state). Each helper
+	// blocks on its start channel exactly like a pthread_cond_wait in
+	// idling mode, runs one job per received token, and posts one token
+	// to done — the sync side (waitHelperWorkers) collects exactly one
+	// token per helper, matching the cond-signal handshake libvpx uses
+	// for sync(). No spinning: libvpx workers sleep between jobs.
+	start    []chan struct{}
+	done     chan struct{}
+	shutdown chan struct{}
+	wg       sync.WaitGroup
 
 	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
 	// ensureRowMTSync when the RowMT option is enabled; released by
@@ -331,6 +356,12 @@ type vp9TileWorkerJobKind uint8
 const (
 	vp9TileWorkerJobEncode vp9TileWorkerJobKind = iota
 	vp9TileWorkerJobCount
+	// vp9TileWorkerJobEncodePrep runs prepareVP9TileEncodeWorker on each
+	// helper's goroutine ahead of the encode epoch. The write pass encodes
+	// tile column 0 directly on the shared encoder, so the helpers must
+	// finish reading it before the encode epoch starts mutating it — the
+	// dedicated epoch provides that barrier.
+	vp9TileWorkerJobEncodePrep
 )
 
 func (e *VP9Encoder) initVP9TileWorkerPool() {
@@ -435,9 +466,8 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		encodeJobs:  make([]vp9EncodeTileJob, workers),
 		outputs:     make([][]byte, workers),
 		start:       make([]chan struct{}, workers),
+		done:        make(chan struct{}, workers-1),
 		shutdown:    make(chan struct{}),
-		doneEpoch:   make([]atomic.Uint64, workers),
-		parked:      make([]atomic.Uint32, workers),
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
@@ -469,37 +499,25 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 	p.outputSize = size
 }
 
+// workerLoop mirrors libvpx's thread_loop (vpx_util/vpx_thread.c): the
+// helper sleeps until launched, runs exactly one job per launch token, and
+// signals completion back to the sync side. Blocking on the channel is the
+// Go analogue of pthread_cond_wait; spinning here previously burned entire
+// cores in runtime.Gosched -> wakep -> pthread_cond_signal storms during
+// the serial sections between tile passes.
 func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	defer p.wg.Done()
-	var epoch uint64
-	idleSpins := 0
 	for {
-		next := p.jobEpoch.Load()
-		if next != epoch {
-			epoch = next
-			p.runHelperWorkerJob(workerIndex)
-			p.doneEpoch[workerIndex].Store(epoch)
-			idleSpins = 0
-			continue
-		}
 		select {
-		case <-p.shutdown:
-			return
-		default:
-		}
-		if idleSpins >= rowWorkerIdleSpinBudget {
-			if !p.parkHelperWorker(workerIndex, start, epoch) {
+		case _, ok := <-start:
+			if !ok {
 				return
 			}
-			idleSpins = 0
-			continue
+		case <-p.shutdown:
+			return
 		}
-		idleSpins++
-		runtimeProcYield(30)
-		if idleSpins >= rowWorkerIdleSchedulerBackoff &&
-			idleSpins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
+		p.runHelperWorkerJob(workerIndex)
+		p.done <- struct{}{}
 	}
 }
 
@@ -510,95 +528,54 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 	switch vp9TileWorkerJobKind(p.jobKind.Load()) {
 	case vp9TileWorkerJobCount:
 		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
+	case vp9TileWorkerJobEncodePrep:
+		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
 	default:
 		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
 	}
 }
 
-func (p *vp9TileWorkerPool) parkHelperWorker(workerIndex int, start <-chan struct{},
-	epoch uint64,
-) bool {
-	if p == nil {
-		return false
+// runVP9EncodeTilePrepJob performs the per-frame worker state preparation for
+// one write-pass helper. It only reads the shared encoder (prepSrc) and
+// writes the helper's private worker, so all helpers can prepare
+// concurrently while the dispatcher waits on the prep epoch.
+func runVP9EncodeTilePrepJob(job *vp9EncodeTileJob) {
+	if job == nil || job.worker == nil || job.prepSrc == nil {
+		return
 	}
-	if vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive() {
-		p.vp9PhaseIncTileWorkerPark()
-	}
-	if workerIndex > 0 && workerIndex < len(p.parked) {
-		p.parked[workerIndex].Store(1)
-		defer p.parked[workerIndex].Store(0)
-	}
-	if p.jobEpoch.Load() != epoch {
-		return true
-	}
-	select {
-	case _, ok := <-start:
-		return ok
-	case <-p.shutdown:
-		return false
-	}
+	job.worker.prepareVP9TileEncodeWorker(job.prepSrc, job.miRows, job.miCols)
 }
 
+// startHelperWorkers mirrors libvpx's vpx_worker launch (vpx_thread.c
+// change_state to VPX_WORKER_STATUS_WORKING + cond signal): publish the job
+// kind, then post one launch token per helper. Every token is consumed by
+// exactly one job, so the buffered(1) channels are always empty here and the
+// sends never block.
 func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	phaseStatsActive := vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive()
-	if phaseStatsActive {
+	if vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive() {
 		p.vp9PhaseStartTileWorkerEpoch(kind)
+		p.vp9PhaseAddTileWorkerWakeSignals(int64(p.workerCount - 1))
 	}
 	p.jobKind.Store(uint32(kind))
-	p.jobEpoch.Add(1)
-	wakeSignals := 0
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		if workerIndex >= len(p.parked) || p.parked[workerIndex].Load() == 0 {
-			continue
-		}
-		select {
-		case p.start[workerIndex] <- struct{}{}:
-			if phaseStatsActive {
-				wakeSignals++
-			}
-		default:
-		}
-	}
-	if phaseStatsActive {
-		p.vp9PhaseAddTileWorkerWakeSignals(int64(wakeSignals))
+		p.start[workerIndex] <- struct{}{}
 	}
 }
 
+// waitHelperWorkers mirrors libvpx's vpx_worker sync (vpx_thread.c
+// change_state waiting for VPX_WORKER_STATUS_OK): collect exactly one
+// completion token per launched helper. Helpers run one job per launch
+// token, so the accounting is exact and no spinning is needed.
 func (p *vp9TileWorkerPool) waitHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	epoch := p.jobEpoch.Load()
-	phaseStatsActive := vp9PhaseStatsEnabled && p.vp9TileWorkerPhaseStatsActive()
-	spins, goscheds := 0, 0
-	for ; !p.helperWorkersDone(epoch); spins++ {
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
-			if phaseStatsActive {
-				goscheds++
-			}
-			runtime.Gosched()
-		}
-	}
-	if phaseStatsActive {
-		p.vp9PhaseAddTileWorkerWait(int64(spins), int64(goscheds))
-	}
-}
-
-func (p *vp9TileWorkerPool) helperWorkersDone(epoch uint64) bool {
-	if p == nil {
-		return true
-	}
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		if workerIndex >= len(p.doneEpoch) ||
-			p.doneEpoch[workerIndex].Load() != epoch {
-			return false
-		}
+		<-p.done
 	}
-	return true
 }
 
 func (p *vp9TileWorkerPool) shutdownPool() {
@@ -681,6 +658,12 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	e.vp9TokenReplay = vp9TokenReplayState{}
 	e.vp9TokenFrame.Reset()
 	e.ensureVP9CountWorkers(tileCols)
+	// Shared recon fill and mode-info grid clear, as in
+	// collectVP9FrameTileCountsWithPool.
+	e.prepareVP9EncoderOutputFrame(width, height)
+	for i := range e.miGrid {
+		e.miGrid[i] = vp9dec.NeighborMi{}
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(tileCols)
@@ -688,11 +671,14 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 		worker := &e.vp9CountWorkers[tileCol]
 		counts := &e.vp9CountCounts[tileCol]
 		job := &e.vp9CountJobs[tileCol]
-		*counts = encoder.FrameCounts{}
-		worker.prepareVP9CountWorker(e, width, height, miRows, miCols)
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
 			partitionProbs, seg, baseMi, txMode, kind, seed)
+		job.prepSrc = e
+		job.counts = counts
+		job.width = width
+		job.height = height
+		job.tileCol = tileCol
 		go runVP9CountTileJob(job, &wg)
 	}
 	wg.Wait()
@@ -731,26 +717,30 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	e.vp9CountJobs = pool.countJobs
 	collectTokens := e.beginVP9ThreadedCountTokenCollection(pool, miRows, miCols,
 		tileRows, tileCols, kind)
+	// Prepare (and 128-fill) the shared reconstruction buffers and clear
+	// the shared mode-info grid once before the workers launch; every
+	// count job aliases these buffers and writes only its own tile
+	// columns, mirroring libvpx's shared cm->frame_to_show / cm->mi.
+	e.prepareVP9EncoderOutputFrame(width, height)
+	for i := range e.miGrid {
+		e.miGrid[i] = vp9dec.NeighborMi{}
+	}
 	for tileCol := range tileCols {
 		worker := &pool.workers[tileCol]
 		counts := &pool.countCounts[tileCol]
 		job := &pool.countJobs[tileCol]
-		*counts = encoder.FrameCounts{}
-		worker.prepareVP9CountWorker(e, width, height, miRows, miCols)
 		tile := vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo)
-		if collectTokens {
-			tokenFrame := &pool.countTokens[tileCol]
-			tokenFrame.Ensure(miRows, tile.MiColEnd-tile.MiColStart)
-			tokenFrame.Reset()
-			worker.vp9TokenFrame = *tokenFrame
-			worker.vp9TokenCollect = vp9TokenCollectState{
-				active:  true,
-				tileRow: 0,
-				tileCol: tileCol,
-			}
-		}
 		prepareVP9CountTileJob(job, worker, counts, miRows, miCols,
 			tile, partitionProbs, seg, baseMi, txMode, kind, seed)
+		job.prepSrc = e
+		job.counts = counts
+		job.width = width
+		job.height = height
+		job.tileCol = tileCol
+		if collectTokens {
+			job.collectToken = true
+			job.tokenFrame = &pool.countTokens[tileCol]
+		}
 	}
 	pool.startHelperWorkers(vp9TileWorkerJobCount)
 	runVP9CountTileJobNoWG(&pool.countJobs[0])
@@ -775,28 +765,19 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 func (e *VP9Encoder) mergeVP9CountWorkerCodingState(width, height, miRows, miCols, tileCols int,
 	jobs []vp9CountTileJob,
 ) bool {
-	if e == nil || !e.mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols, jobs) {
+	// The mode-info grid needs no merge: count workers write their tile
+	// columns directly into the dispatcher's shared grid.
+	if e == nil || len(e.miGrid) < miRows*miCols {
 		return false
 	}
 	if !e.mergeVP9CountWorkerVarPartState(miRows, miCols, tileCols, jobs) {
 		return false
 	}
-	layout := common.NewFrameLayout(width, height)
+	// Reconstruction needs no merge: every count worker writes its tile
+	// columns directly into the dispatcher's recon buffers (shared by
+	// prepareVP9CountWorker), matching libvpx's shared cm->frame_to_show.
 	for tileCol := range tileCols {
-		job := &jobs[tileCol]
-		if job.worker == nil {
-			return false
-		}
-		x0 := clampVP9TileReconX(job.tile.MiColStart<<3, layout.YWidth)
-		x1 := clampVP9TileReconX(job.tile.MiColEnd<<3, layout.YWidth)
-		uvX0 := clampVP9TileReconX(job.tile.MiColStart<<2, layout.UVWidth)
-		uvX1 := clampVP9TileReconX(job.tile.MiColEnd<<2, layout.UVWidth)
-		if !copyVP9TileReconPlane(e.reconYFull, job.worker.reconYFull,
-			layout.YOrigin, layout.YStride, layout.YHeight, x0, x1) ||
-			!copyVP9TileReconPlane(e.reconUFull, job.worker.reconUFull,
-				layout.UVOrigin, layout.UVStride, layout.UVHeight, uvX0, uvX1) ||
-			!copyVP9TileReconPlane(e.reconVFull, job.worker.reconVFull,
-				layout.UVOrigin, layout.UVStride, layout.UVHeight, uvX0, uvX1) {
+		if jobs[tileCol].worker == nil {
 			return false
 		}
 	}
@@ -1031,63 +1012,6 @@ func (e *VP9Encoder) restoreVP9VarPartReplayState(miRows, miCols int) bool {
 	return true
 }
 
-func clampVP9TileReconX(x, width int) int {
-	if x < 0 {
-		return 0
-	}
-	if x > width {
-		return width
-	}
-	return x
-}
-
-func copyVP9TileReconPlane(dst, src []byte, origin, stride, rows, x0, x1 int) bool {
-	if origin < 0 || stride <= 0 || rows <= 0 || x0 < 0 || x1 <= x0 ||
-		x1 > stride {
-		return false
-	}
-	last := origin + (rows-1)*stride + x1
-	if last > len(dst) || last > len(src) {
-		return false
-	}
-	for row := range rows {
-		off := origin + row*stride
-		copy(dst[off+x0:off+x1], src[off+x0:off+x1])
-	}
-	return true
-}
-
-func (e *VP9Encoder) mergeVP9CountWorkerMiGrid(miRows, miCols, tileCols int,
-	jobs []vp9CountTileJob,
-) bool {
-	if e == nil || tileCols <= 0 || len(jobs) < tileCols ||
-		len(e.miGrid) < miRows*miCols {
-		return false
-	}
-	for tileCol := range tileCols {
-		job := &jobs[tileCol]
-		if job.worker == nil || len(job.worker.miGrid) < miRows*miCols {
-			return false
-		}
-		start, end := job.tile.MiColStart, job.tile.MiColEnd
-		if start < 0 {
-			start = 0
-		}
-		if end > miCols {
-			end = miCols
-		}
-		if start >= end {
-			return false
-		}
-		for row := range miRows {
-			off := row*miCols + start
-			copy(e.miGrid[off:off+end-start],
-				job.worker.miGrid[off:off+end-start])
-		}
-	}
-	return true
-}
-
 func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
 	if e == nil || w == nil {
 		return
@@ -1152,7 +1076,6 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		worker := e
 		if tileCol > 0 {
 			worker = &pool.workers[tileCol]
-			worker.prepareVP9TileEncodeWorker(e, miRows, miCols)
 		}
 		var sync *vp9RowMTSync
 		if e.opts.RowMT && tileCol < len(pool.rowMTSyncs) {
@@ -1162,6 +1085,9 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 			pool.outputs[tileCol], miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
 			partitionProbs, seg, baseMi, txMode, kind, seed, sync)
+		if tileCol > 0 {
+			pool.encodeJobs[tileCol].prepSrc = e
+		}
 		if e.vp9TokenReplay.active {
 			pool.encodeJobs[tileCol].replayTokens = true
 			if e.vp9ThreadedTokenReplayReady && tileCol < len(pool.countTokens) {
@@ -1171,6 +1097,13 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 			pool.encodeJobs[tileCol].replayTileCol = tileCol
 		}
 	}
+
+	// Helper workers copy the shared encoder state on their own goroutines.
+	// The dispatcher stays quiescent during this epoch: tile column 0 runs
+	// on the shared encoder itself, and mutating it before the helpers
+	// finish reading it would race with their state copies.
+	pool.startHelperWorkers(vp9TileWorkerJobEncodePrep)
+	pool.waitHelperWorkers()
 
 	pool.startHelperWorkers(vp9TileWorkerJobEncode)
 	runVP9EncodeTileJob(&pool.encodeJobs[0])
@@ -1211,15 +1144,11 @@ func (e *VP9Encoder) ensureVP9CountWorkers(workers int) {
 func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRows, miCols int) {
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
-	miGrid := w.miGrid
 	leafDecisions := w.vp9LeafInterDecisions
 	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
-	reconYFull := w.reconYFull
-	reconUFull := w.reconUFull
-	reconVFull := w.reconVFull
 	varPartGrid := w.varPartGrid
 	varPartSBComputed := w.varPartSBComputed
 	varPartSBUseMvPart := w.varPartSBUseMvPart
@@ -1235,6 +1164,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
 	lastBordered := w.lastBordered
@@ -1251,7 +1181,6 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	*w = *src
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
-	w.miGrid = miGrid
 	// Each worker owns its own leaf-decision cache so concurrent
 	// tile-column writers don't race on the shared slice; the worker's
 	// pre-existing slice is preserved and ensureVP9LeafInterDecisionCache
@@ -1261,9 +1190,11 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
-	w.reconYFull = reconYFull
-	w.reconUFull = reconUFull
-	w.reconVFull = reconVFull
+	// Reconstruction buffers are shared with the dispatching encoder, the
+	// same way libvpx tile workers all write into cm->frame_to_show: the
+	// struct copy above leaves w.recon* aliased to src's buffers and each
+	// tile column only writes its own column range. The dispatcher fills
+	// the shared buffers once per frame before launching the jobs.
 	w.varPartGrid = varPartGrid
 	w.varPartSBComputed = varPartSBComputed
 	w.varPartSBUseMvPart = varPartSBUseMvPart
@@ -1279,6 +1210,11 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	// Worker-private ML-partition context cache: ensureVP9EncoderModeBuffers
+	// resets every per-SB slot at frame preparation, and with the
+	// preparation running on the worker goroutines a shared backing array
+	// would let one tile column's reset race another's in-flight encode.
+	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
@@ -1296,14 +1232,19 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 		w.planes[plane].AboveContext = aboveCtx[plane]
 		w.planes[plane].LeftContext = leftCtx[plane]
 	}
-	w.ensureVP9EncoderModeBuffers(miRows, miCols)
-	w.resetVP9EncoderCodingState(width, height)
+	w.ensureVP9EncoderModeBuffersImpl(miRows, miCols, false)
+	// The shared reconstruction buffers and the shared mode-info grid were
+	// already prepared (filled / cleared) once by the dispatcher; the
+	// struct copy above leaves w.recon* and w.miGrid aliased to src's
+	// buffers, matching libvpx's shared cm->frame_to_show and cm->mi.
+	// Every tile column writes only its own column range, so only the
+	// worker-private syntax contexts are reset here.
+	w.resetVP9EncoderSyntaxContexts()
 }
 
 func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols int) {
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
-	miGrid := w.miGrid
 	leafDecisions := w.vp9LeafInterDecisions
 	leafDecisionRows := w.vp9LeafInterDecisionsRows
 	leafDecisionCols := w.vp9LeafInterDecisionsCols
@@ -1315,9 +1256,6 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
 	interPredictor := w.interPredictor
-	reconYFull := w.reconYFull
-	reconUFull := w.reconUFull
-	reconVFull := w.reconVFull
 	varPartGrid := w.varPartGrid
 	varPartSBComputed := w.varPartSBComputed
 	varPartSBUseMvPart := w.varPartSBUseMvPart
@@ -1333,6 +1271,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	varPartSBColorSensitivity := w.varPartSBColorSensitivity
 	varPartSBLastHighContent := w.varPartSBLastHighContent
 	varPartSBLastHighContentValid := w.varPartSBLastHighContentValid
+	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
 	lastBordered := w.lastBordered
@@ -1349,16 +1288,12 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	*w = *src
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
-	w.miGrid = miGrid
 	// Worker-private leaf-decision cache; see prepareVP9CountWorker.
 	w.vp9LeafInterDecisions = leafDecisions
 	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
 	w.interPredictor = interPredictor
-	w.reconYFull = reconYFull
-	w.reconUFull = reconUFull
-	w.reconVFull = reconVFull
 	w.varPartGrid = varPartGrid
 	w.varPartSBComputed = varPartSBComputed
 	w.varPartSBUseMvPart = varPartSBUseMvPart
@@ -1374,6 +1309,11 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.varPartSBColorSensitivity = varPartSBColorSensitivity
 	w.varPartSBLastHighContent = varPartSBLastHighContent
 	w.varPartSBLastHighContentValid = varPartSBLastHighContentValid
+	// Worker-private ML-partition context cache: ensureVP9EncoderModeBuffers
+	// resets every per-SB slot at frame preparation, and with the
+	// preparation running on the worker goroutines a shared backing array
+	// would let one tile column's reset race another's in-flight encode.
+	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
 	w.prepareVP9WorkerLastBordered(lastBordered)
@@ -1391,7 +1331,11 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 		w.planes[plane].AboveContext = aboveCtx[plane]
 		w.planes[plane].LeftContext = leftCtx[plane]
 	}
-	w.ensureVP9EncoderModeBuffers(miRows, miCols)
+	// Non-clearing variant: w.miGrid aliases the shared grid (assigned
+	// below from src), which may carry preserved count-pass coding state
+	// for the token-replay path; clearing it here would destroy it and
+	// race the dispatcher's tile column 0.
+	w.ensureVP9EncoderModeBuffersImpl(miRows, miCols, false)
 	if leafDecisionRows == miRows && leafDecisionCols == miCols &&
 		leafDecisionVer == src.vp9LeafInterDecisionsVer &&
 		len(leafDecisions) >= miRows*miCols {
@@ -1593,6 +1537,27 @@ func runVP9CountTileJob(job *vp9CountTileJob, wg *sync.WaitGroup) {
 func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
 	if vp9PhaseStatsEnabled && job != nil && job.worker.vp9PhaseStatsActive() {
 		job.worker.vp9PhaseIncTileWorkerJob(vp9TileWorkerJobCount)
+	}
+	// Per-worker frame preparation runs here, on the job's goroutine, so
+	// the heavy encoder-state copy and counts zeroing parallelize across
+	// tile columns. prepSrc is only read; it stays immutable while count
+	// jobs are in flight.
+	if job.prepSrc != nil {
+		if job.counts != nil {
+			*job.counts = encoder.FrameCounts{}
+		}
+		job.worker.prepareVP9CountWorker(job.prepSrc, job.width, job.height,
+			job.miRows, job.miCols)
+		if job.collectToken && job.tokenFrame != nil {
+			job.tokenFrame.Ensure(job.miRows, job.tile.MiColEnd-job.tile.MiColStart)
+			job.tokenFrame.Reset()
+			job.worker.vp9TokenFrame = *job.tokenFrame
+			job.worker.vp9TokenCollect = vp9TokenCollectState{
+				active:  true,
+				tileRow: 0,
+				tileCol: job.tileCol,
+			}
+		}
 	}
 	var countKey *vp9KeyframeEncodeState
 	if job.hasKey {

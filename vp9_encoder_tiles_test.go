@@ -81,8 +81,12 @@ func TestVP9EncoderThreadsHintIncreasesTileColumns(t *testing.T) {
 	if len(e.vp9CountWorkers[0].miGrid) == 0 || len(e.miGrid) == 0 {
 		t.Fatal("VP9 threaded count worker miGrid was not initialized")
 	}
-	if &e.vp9CountWorkers[0].miGrid[0] == &e.miGrid[0] {
-		t.Fatal("VP9 threaded count worker aliases encoder miGrid")
+	// Count workers deliberately share the dispatcher's mode-info grid,
+	// mirroring libvpx tile threads writing cm->mi directly: the grid is
+	// cleared once by the dispatcher and each worker writes only its own
+	// tile columns, so no per-tile merge copy is needed.
+	if &e.vp9CountWorkers[0].miGrid[0] != &e.miGrid[0] {
+		t.Fatal("VP9 threaded count worker should share the encoder miGrid")
 	}
 	assertVP9EncoderTilePrefixForTest(t, packet, tileStart)
 

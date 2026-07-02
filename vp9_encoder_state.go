@@ -577,11 +577,25 @@ func (e *VP9Encoder) useVP9EncoderPrevSegmentMap(miRows, miCols int) bool {
 }
 
 func (e *VP9Encoder) ensureVP9EncoderModeBuffers(miRows, miCols int) {
+	e.ensureVP9EncoderModeBuffersImpl(miRows, miCols, true)
+}
+
+// ensureVP9EncoderModeBuffersImpl backs ensureVP9EncoderModeBuffers.
+// clearMiGrid=false is the tile worker variant: workers adopt the
+// dispatcher's shared mode-info grid (libvpx tile threads all write
+// cm->mi directly), so zeroing it here would race the other tile
+// columns' in-flight writes; the dispatcher clears it once per frame
+// before launching the jobs.
+func (e *VP9Encoder) ensureVP9EncoderModeBuffersImpl(miRows, miCols int,
+	clearMiGrid bool,
+) {
 	miColsAligned := common.AlignToSB(miCols)
 	e.aboveSegCtx = buffers.EnsureLenZeroed(e.aboveSegCtx, miColsAligned)
 	e.leftSegCtx = buffers.EnsureLen(e.leftSegCtx, common.MiBlockSize)
 	miGridLen := miRows * miCols
-	e.miGrid = buffers.EnsureLenZeroed(e.miGrid, miGridLen)
+	if clearMiGrid {
+		e.miGrid = buffers.EnsureLenZeroed(e.miGrid, miGridLen)
+	}
 	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
 	// The var-partition picker stamps decisions into varPartGrid across the
 	// whole encode walk, so reset these once at frame setup and let per-SB
