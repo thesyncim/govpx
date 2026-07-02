@@ -1,6 +1,41 @@
 # VP8/VP9 assembly gap plan
 
-Status: planning, current as of 2026-06-29.
+Status: planning, current as of 2026-06-29. See the 2026-07-02 landing note
+below before trusting per-row "current state" columns.
+
+## 2026-07-02 landings (speed campaign, arm64)
+
+The following rows were partially or fully closed on arm64 by the 2026-07-01/02
+speed campaign (main `a15ff13b..8a45972c`); the tables below still describe the
+pre-campaign state for those rows on arm64 (amd64 columns unchanged):
+
+- **VP9 decoder loopfilter (P1)**: NEON dual-8, 4-tap family, and wide-16
+  kernels landed (`94d72e40`); mask-building/selective-dispatch glue remains.
+- **VP9 inter convolve**: i8mm USDOT 8-tap horiz/vert kernels + `FEAT_I8MM`
+  detection landed (`b4ea786f`); compound-average variants still scalar-ish.
+- **VP9 realtime fused block scoring (P0)**: hadamard 8x8/16x16 (7.3x), satd
+  (5.2x), full-block quantize_fp NEON + NEON subtract wiring landed
+  (`d63bfd08`).
+- **VP9 encoder SAD/variance**: rewritten to libvpx base-NEON accumulator
+  schemes + FEAT_DotProd UABD/UDOT variants incl. 4-ref SAD (`8ba9b675`,
+  `1bfbe9cf`); the old single serialized UADALP accumulator was a ~4x tax.
+- **VP9 int-pro motion estimation**: `vpx_int_pro_row/col` NEON + fused 4D SAD
+  cross-probe + avg8x8 quad kernels (`deb551fb`, `8dbf5fba`).
+- **VP8 fused decoder dequant+IDCT+add (P1)**: block-pair kernels landed
+  (`583d1162`) with the eob<=1 partner sanitization follow-up (`354668f2` —
+  read that commit before extending fused-kernel callers; encoder-analysis
+  token buffers have no dirty-clear contract).
+- **VP8 six-tap predictors (arm64)**: rewritten on libvpx `vmull_u8`/u16
+  modular scheme, ~2.5x fewer vector ops (`22fefc6a`, `558489c0`).
+- **VP8 fused subpel variance (arm64)**: u8 umull/umlal + rshrn arithmetic with
+  urhadd half-pel paths (`df403f03`), two-axis kernel 53→26.7ns.
+- **VP8 MB-level token decode fusion**: `vp8_decode_mb_tokens`-style single
+  boolcoder call (`33cf3a00`).
+
+arm64 NEON authoring gotchas learned (apply to all future kernels): `EOR
+v,v,v` is NOT a zero idiom (false dependency serializes accumulator chains —
+zero via `VMOV` from a pinned zero register); a single UADALP accumulator
+serializes — use the libvpx multi-accumulator schemes verbatim.
 
 This ledger tracks the remaining SIMD/assembly work for VP8 and VP9 encoder
 and decoder paths. It is intentionally scoped to kernels that matter for
