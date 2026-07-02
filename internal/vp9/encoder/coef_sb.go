@@ -97,6 +97,15 @@ type WriteCoefSbArgs struct {
 	TokenDst   []TokenExtra
 	TokenIndex *int
 	TokenOnly  bool
+
+	// TokenCache, when non-nil, is caller-owned (possibly dirty) persistent
+	// scratch for the per-position token energy-class cache shared by every
+	// tx block in this leaf. libvpx tokenize_b keeps the equivalent array
+	// uninitialized across blocks (vp9/encoder/vp9_tokenize.c): the
+	// scan-order walk writes each position before any neighbor context read
+	// touches it, so dirty scratch is byte-equivalent and avoids a 1KB
+	// zeroing per leaf. When nil a zeroed local is used.
+	TokenCache *[1024]uint8
 }
 
 // scanForTxSize returns the default scan/neighbors pair for `tx`.
@@ -156,9 +165,14 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 	// Shared token-cache scratch for every tx block in this leaf. The
 	// scan-order walk writes each position before reading it as a neighbor
-	// context (libvpx tokenize_b keeps this uninitialized), so one zeroed
-	// local per leaf replaces a 1KB clear per transform block.
-	var tokenCache [1024]uint8
+	// context (libvpx tokenize_b keeps this uninitialized), so a.TokenCache
+	// may be dirty persistent caller scratch; the zeroed local is only a
+	// fallback for callers that don't own one.
+	tokenCache := a.TokenCache
+	if tokenCache == nil {
+		var local [1024]uint8
+		tokenCache = &local
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &a.Planes[plane]
 		planeType := 0
@@ -233,7 +247,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					EOB:             &eob,
 					KnownEOB:        knownEOB,
 					KnownEOBValid:   knownEOBValid,
-					TokenCache:      &tokenCache,
+					TokenCache:      tokenCache,
 				}
 				if a.TokenIndex != nil {
 					start := *a.TokenIndex

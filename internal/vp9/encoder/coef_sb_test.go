@@ -843,3 +843,152 @@ func TestWriteCoefSbBlock8x8WithResidue(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteCoefSbEOBBoundedReadsWithDirtyState pins the read contract the
+// zero-copy coefficient path relies on: when GetEOB supplies the
+// quantizer-produced EOB, WriteCoefSb must never consume coefficient values
+// at scan positions >= eob, and a dirty persistent TokenCache must be
+// byte-equivalent to a zeroed one (libvpx tokenize_b keeps token_cache
+// uninitialized; qcoeff/dqcoeff hold stale garbage past eob after
+// vp9_xform_quant). The bitstream bytes, branch counts, and entropy-context
+// stamps must all be identical between the clean and dirty runs, on both the
+// direct write path and the staged token path.
+func TestWriteCoefSbEOBBoundedReadsWithDirtyState(t *testing.T) {
+	fc := seedDefaultCoefProbsForEnc()
+	makePlanes := func() [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane {
+		var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+		vp9dec.SetupBlockPlanes(&planes, 1, 1)
+		planes[0].AboveContext = make([]uint8, 8)
+		planes[0].LeftContext = make([]uint8, 8)
+		planes[1].AboveContext = make([]uint8, 4)
+		planes[1].LeftContext = make([]uint8, 4)
+		planes[2].AboveContext = make([]uint8, 4)
+		planes[2].LeftContext = make([]uint8, 4)
+		return planes
+	}
+
+	// Per-block EOBs for a 16x16 leaf: Y = 2x2 grid of Tx8x8 blocks, UV = one
+	// Tx8x8 block each. Block (0,0) has a zero run inside eob so the
+	// zero-run loop's token-cache neighbor reads are exercised.
+	yEOB := map[[2]int]int{{0, 0}: 5, {0, 2}: 0, {2, 0}: 1, {2, 2}: 2}
+	makeBuffers := func(garbage int16) (get func(plane, r, c int, tx common.TxSize) []int16,
+		getQ func(plane, r, c int, tx common.TxSize) []int16,
+	) {
+		build := func(eob int, tx common.TxSize, scale int16) []int16 {
+			maxEob := vp9dec.MaxEobForTxSize(tx)
+			scan := common.DefaultScanOrders[tx].Scan
+			buf := make([]int16, maxEob)
+			// Garbage at every scan position >= eob: the contract says these
+			// are never read when KnownEOB is valid.
+			for i := eob; i < maxEob; i++ {
+				buf[scan[i]] = garbage
+			}
+			if eob > 0 {
+				buf[scan[0]] = 4 * scale
+				buf[scan[eob-1]] = 1 * scale
+			}
+			if eob > 3 {
+				buf[scan[2]] = -2 * scale
+			}
+			return buf
+		}
+		eobFor := func(plane, r, c int) int {
+			if plane == 0 {
+				return yEOB[[2]int{r, c}]
+			}
+			return 1
+		}
+		get = func(plane, r, c int, tx common.TxSize) []int16 {
+			return build(eobFor(plane, r, c), tx, 16)
+		}
+		getQ = func(plane, r, c int, tx common.TxSize) []int16 {
+			return build(eobFor(plane, r, c), tx, 1)
+		}
+		return get, getQ
+	}
+	getEOB := func(plane, r, c int, tx common.TxSize) (int, bool) {
+		if plane == 0 {
+			return yEOB[[2]int{r, c}], true
+		}
+		return 1, true
+	}
+
+	type result struct {
+		bytes  []byte
+		stats  FrameCoefBranchStats
+		planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+	}
+	run := func(garbage int16, cache *[1024]uint8, staged bool) result {
+		planes := makePlanes()
+		getCoeffs, getQCoeffs := makeBuffers(garbage)
+		var stats FrameCoefBranchStats
+		args := WriteCoefSbArgs{
+			BSize:    common.Block16x16,
+			MiTxSize: common.Tx8x8,
+			IsInter:  1,
+			Planes:   &planes,
+			PlaneDequant: [vp9dec.MaxMbPlane][2]int16{
+				{16, 16}, {16, 16}, {16, 16},
+			},
+			Fc:              &fc,
+			CoefBranchStats: &stats,
+			GetCoeffs:       getCoeffs,
+			GetQCoeffs:      getQCoeffs,
+			GetEOB:          getEOB,
+			TokenCache:      cache,
+		}
+		var tokens []TokenExtra
+		tokenIndex := 0
+		if staged {
+			tokens = make([]TokenExtra, 512)
+			args.TokenDst = tokens
+			args.TokenIndex = &tokenIndex
+		}
+		buf := make([]byte, 512)
+		var bw bitstream.Writer
+		bw.Start(buf)
+		if err := WriteCoefSb(&bw, args); err != nil {
+			t.Fatalf("WriteCoefSb: %v", err)
+		}
+		size, err := bw.Stop()
+		if err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+		return result{bytes: append([]byte(nil), buf[:size]...), stats: stats, planes: planes}
+	}
+
+	for _, staged := range []bool{false, true} {
+		clean := run(0, nil, staged)
+		dirtyCache := new([1024]uint8)
+		for i := range dirtyCache {
+			dirtyCache[i] = 0xAA
+		}
+		dirty := run(-1234, dirtyCache, staged)
+		if !equalInt16Bytes(clean.bytes, dirty.bytes) {
+			t.Fatalf("staged=%v: bitstream differs with dirty beyond-EOB coeffs + dirty token cache:\nclean=%x\ndirty=%x",
+				staged, clean.bytes, dirty.bytes)
+		}
+		if clean.stats != dirty.stats {
+			t.Fatalf("staged=%v: branch counts differ with dirty state", staged)
+		}
+		for plane := range vp9dec.MaxMbPlane {
+			if !equalUint8s(clean.planes[plane].AboveContext, dirty.planes[plane].AboveContext) ||
+				!equalUint8s(clean.planes[plane].LeftContext, dirty.planes[plane].LeftContext) {
+				t.Fatalf("staged=%v plane=%d: entropy context stamps differ with dirty state",
+					staged, plane)
+			}
+		}
+	}
+}
+
+func equalInt16Bytes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

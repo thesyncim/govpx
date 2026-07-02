@@ -406,6 +406,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
 					return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
 				},
+				TokenCache: &e.coefTokenCache,
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
 			if replayedCountPassLeaf &&
@@ -567,6 +568,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
 				return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
 			},
+			TokenCache: &e.coefTokenCache,
 		}
 		collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
 		if e.packVP9ReplayCoefTokenLeaf(bw) {
