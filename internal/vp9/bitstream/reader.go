@@ -1,7 +1,6 @@
 package bitstream
 
 import (
-	"encoding/binary"
 	"errors"
 
 	"github.com/thesyncim/govpx/internal/vp9/tables"
@@ -39,6 +38,15 @@ type Reader struct {
 
 	buf []byte
 	pos int
+
+	// tail mirrors the final min(8, len(buf)) bytes of buf followed by
+	// zeros, and tailBase is the buf position tail[0] corresponds to
+	// (max(0, len(buf)-8)). Together they let the refill path issue one
+	// unconditional 8-byte big-endian load for any pos: reads beyond the
+	// logical end see zero bits, exactly like vpx_reader_fill's
+	// byte-at-a-time tail loop.
+	tail     [16]byte
+	tailBase int
 }
 
 // ReaderState is a hot-loop-local view of Reader's arithmetic-coder state.
@@ -61,6 +69,9 @@ func (r *Reader) Init(src []byte) error {
 	r.value = 0
 	r.count = -8
 	r.rng = 255
+	r.tailBase = max(0, len(src)-8)
+	r.tail = [16]byte{}
+	copy(r.tail[:], src[r.tailBase:])
 	r.fill()
 	if r.ReadBit() != 0 { // marker bit
 		return ErrInvalidInput
@@ -261,48 +272,82 @@ func (r *Reader) HasError() bool {
 	return r.count > valueBits && r.count < lotsOfBits
 }
 
-// fill refreshes the value register from the underlying buffer. It tries
-// to satisfy the entire 64-bit window with a single big-endian 64-bit
-// load when enough bytes remain; otherwise it falls back to the
-// byte-at-a-time loop and stamps lotsOfBits into count when the buffer
-// runs out. Layout follows vpx_reader_fill in vpx_dsp/bitreader.c.
-//
-//go:noinline
+// fill refreshes the value register from the underlying buffer,
+// mirroring vpx_reader_fill in vpx_dsp/bitreader.c (see FillBits).
 func (r *Reader) fill() {
-	fillState(r.buf, &r.pos, &r.value, &r.count)
+	r.value, r.count, r.pos = FillBits(r.buf, &r.tail, r.tailBase, r.pos,
+		r.value, r.count)
 }
 
-//go:noinline
 func (s *ReaderState) fill() {
-	fillState(s.r.buf, &s.r.pos, &s.Value, &s.Count)
+	s.Value, s.Count, s.r.pos = FillBits(s.r.buf, &s.r.tail, s.r.tailBase,
+		s.r.pos, s.Value, s.Count)
 }
 
-func fillState(buf []byte, pos *int, value *uint64, count *int32) {
-	bytesLeft := len(buf) - *pos
-	bitsLeft := bytesLeft * 8
-	shift := int(valueBits-8) - int(*count+8)
+// BitView exposes the refill window of the underlying Reader so external
+// hot loops can keep the entire boolean-decoder state — including the
+// buffer position — in local variables and refill via FillBits without
+// any function call. Callers must write the advanced position back with
+// CommitPos before the Reader is used again.
+func (s *ReaderState) BitView() (buf []byte, tail *[16]byte, tailBase int, pos int) {
+	return s.r.buf, &s.r.tail, s.r.tailBase, s.r.pos
+}
 
-	if bitsLeft > valueBits {
-		bits := (shift &^ 7) + 8
-		be := binary.BigEndian.Uint64(buf[*pos:])
-		nv := be >> uint(valueBits-bits)
-		*count += int32(bits)
-		*pos += bits >> 3
-		*value |= nv << uint(shift&7)
-	} else {
-		bitsOver := shift + 8 - bitsLeft
-		loopEnd := 0
-		if bitsOver >= 0 {
-			*count += lotsOfBits
-			loopEnd = bitsOver
-		}
-		if bitsOver < 0 || bitsLeft > 0 {
-			for shift >= loopEnd {
-				*count += 8
-				*value |= uint64(buf[*pos]) << uint(shift)
-				*pos++
-				shift -= 8
-			}
-		}
+// CommitPos writes a locally advanced buffer position back to the
+// underlying Reader. Pairs with BitView.
+func (s *ReaderState) CommitPos(pos int) {
+	s.r.pos = pos
+}
+
+// FillFast is FillBits restricted to refills that happen more than 8
+// bytes before the end of buf: no zero-padding redirect and no
+// end-of-stream sentinel is possible there, so the whole refill is one
+// unconditional big-endian load plus shift arithmetic. It is small
+// enough to inline, which keeps guarded hot loops (see the coefficient
+// detokenizer) completely call-free. Callers must guarantee
+// len(buf)-pos >= 8 and hand the last few stream bytes to the general
+// FillBits path.
+func FillFast(buf []byte, pos int, value uint64, count int32) (uint64, int32, int) {
+	shift := int32(valueBits-8) - (count + 8)
+	be := load64BE(buf, pos)
+	bits := (shift &^ 7) + 8
+	value |= (be >> uint(64-bits)) << uint(shift&7)
+	return value, count + bits, pos + int(bits>>3)
+}
+
+// FillBits is vpx_reader_fill on caller-held state. It must only be
+// called when count < 0, matching libvpx's `if (r->count < 0)
+// vpx_reader_fill(r)` discipline; the returned value/count/pos triple is
+// bit- and error-exact with the upstream byte-loop implementation.
+//
+// tail/tailBase carry the Reader's zero-padded final-8-byte window: once
+// fewer than 9 bytes remain, the 8-byte load is redirected there so the
+// extra lanes read zeros (vpx_reader_fill shifts in nothing past the
+// end) and the lotsOfBits end-of-stream sentinel is stamped into count
+// exactly when the logical buffer runs out. The function is sized to
+// stay within the inliner budget: keeping refills call-free lets Go hold
+// hot-loop decoder state in registers, which is what libvpx gets from C
+// callee-saved registers around its cold fill call.
+func FillBits(buf []byte, tail *[16]byte, tailBase int, pos int,
+	value uint64, count int32,
+) (uint64, int32, int) {
+	shift := int32(valueBits-8) - (count + 8)
+	src := buf
+	idx := pos
+	if len(buf)-pos <= 8 {
+		src = tail[:]
+		idx = pos - tailBase
 	}
+	be := load64BE(src, idx)
+	bits := (shift &^ 7) + 8
+	value |= (be >> uint(64-bits)) << uint(shift&7)
+	bitsLeft := int32(len(buf)-pos) * 8
+	if shift+8 >= bitsLeft {
+		count += bitsLeft + lotsOfBits
+		pos = len(buf)
+	} else {
+		count += bits
+		pos += int(bits >> 3)
+	}
+	return value, count, pos
 }

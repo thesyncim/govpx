@@ -1121,6 +1121,15 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 			return false
 		}
 	}
+	// One reader-state snapshot per mode-info block: the transform-block
+	// loop below is the only bitstream consumer until this function
+	// returns, so value/range/count round-trip through locals here
+	// instead of being copied in and out of the Reader per tx block.
+	rs := r.LocalState()
+	var coefCounts *vp9dec.CoefCounts
+	if !hdr.FrameParallelDecoding {
+		coefCounts = &d.counts.Coef
+	}
 	eobTotal := 0
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
@@ -1137,6 +1146,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		}
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
 		if planeBsize >= common.BlockSizes {
+			rs.Commit()
 			return false
 		}
 		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
@@ -1148,6 +1158,18 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		aboveBase := aboveOffsets[plane]
 		leftBase := leftOffsets[plane]
 		blockIdx := 0
+
+		// Per-plane invariants for the tx-block loop below.
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		coeffs := d.dqcoeff[:maxEob]
+		// The scan order only varies per tx block for intra Y (the tx
+		// type follows the sub-block prediction mode); everything else
+		// resolves to one table for the whole plane.
+		var planeScan *common.ScanOrder
+		if isInter != 0 || planeType != 0 || hdr.Quant.Lossless {
+			planeScan = common.GetScanPtr(txSize, planeType, isInter,
+				hdr.Quant.Lossless, uvMode)
+		}
 
 		// Hoisted per-plane geometry for the inter residue destination
 		// (vp9InterTxDst inlined: only x0/y0 vary per tx block).
@@ -1210,17 +1232,13 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 						initCtx++
 					}
 				}
-				scanOrder := common.GetScan(txSize, planeType, isInter,
-					hdr.Quant.Lossless, mode)
-				maxEob := vp9dec.MaxEobForTxSize(txSize)
-				coeffs := d.dqcoeff[:maxEob]
-
-				var coefCounts *vp9dec.CoefCounts
-				if !hdr.FrameParallelDecoding {
-					coefCounts = &d.counts.Coef
+				so := planeScan
+				if so == nil {
+					so = common.GetScanPtr(txSize, planeType, isInter,
+						hdr.Quant.Lossless, mode)
 				}
-				eob := vp9dec.DecodeCoefsWithCountsScratch(r, txSize, planeType, isInter, dequant,
-					initCtx, scanOrder.Scan, scanOrder.Neighbors, &d.fc.CoefProbs,
+				eob := vp9dec.DecodeCoefsState(&rs, txSize, planeType, isInter, dequant,
+					initCtx, so, &d.fc.CoefProbs,
 					coefCounts, &d.dqcoeff, &d.coefTokenCache)
 				eobTotal += eob
 				if isInter == 0 && !d.unsupportedReconstruct {
@@ -1290,6 +1308,7 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 			blockIdx += extraStep
 		}
 	}
+	rs.Commit()
 	if isInter != 0 && mi.SbType >= common.Block8x8 && eobTotal == 0 {
 		mi.Skip = 1
 	}

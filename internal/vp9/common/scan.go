@@ -95,8 +95,18 @@ var IntraModeToTxType = [IntraModes]TxType{
 func GetScan(txSize TxSize, planeType int, isInter int, lossless bool,
 	yMode PredictionMode,
 ) ScanOrder {
+	return *GetScanPtr(txSize, planeType, isInter, lossless, yMode)
+}
+
+// GetScanPtr is GetScan without the ScanOrder value copy: it returns a
+// pointer into the global scan-order dispatch tables, which are never
+// mutated after init. Hot per-transform-block callers use this to avoid
+// copying three slice headers per block.
+func GetScanPtr(txSize TxSize, planeType int, isInter int, lossless bool,
+	yMode PredictionMode,
+) *ScanOrder {
 	if isInter != 0 || planeType != 0 || lossless {
-		return DefaultScanOrders[txSize]
+		return &DefaultScanOrders[txSize]
 	}
-	return ScanOrders[txSize][IntraModeToTxType[yMode]]
+	return &ScanOrders[txSize][IntraModeToTxType[yMode]]
 }

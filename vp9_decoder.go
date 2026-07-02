@@ -351,6 +351,12 @@ type vp9InternalFrameLease struct {
 	uFull []byte
 	vFull []byte
 	refs  int
+	// primedYLen tracks the Y-plane length this lease was last primed
+	// (128-filled) for. Reconstruction plus border extension rewrite
+	// every byte of an in-layout frame, so pool buffers only need the
+	// libvpx-style neutral fill on first use or when the layout grows —
+	// not per frame.
+	primedYLen int
 }
 
 func (f *vp9ReferenceFrame) store(src Image) {
@@ -1429,7 +1435,12 @@ func (d *VP9Decoder) prepareVP9OutputFrameWithExternal(width, height int,
 	d.frameVFull = lease.vFull
 	layout = common.NewDecoderFrameLayoutForPlanes(width, height,
 		d.opts.ByteAlignment, d.frameYFull, d.frameUFull, d.frameVFull)
-	d.installVP9OutputFrameLayout(width, height, layout)
+	if lease.primedYLen != layout.YFullLen {
+		lease.primedYLen = layout.YFullLen
+		d.installVP9OutputFrameLayout(width, height, layout)
+		return nil
+	}
+	d.installVP9OutputFrameLayoutPrimed(width, height, layout)
 	return nil
 }
 
@@ -1464,6 +1475,14 @@ func (d *VP9Decoder) installVP9OutputFrameLayout(width, height int,
 	buffers.Fill(d.frameYFull, 128)
 	buffers.Fill(d.frameUFull, 128)
 	buffers.Fill(d.frameVFull, 128)
+	d.installVP9OutputFrameLayoutPrimed(width, height, layout)
+}
+
+// installVP9OutputFrameLayoutPrimed is installVP9OutputFrameLayout for
+// buffers already primed with the neutral 128 fill for this layout.
+func (d *VP9Decoder) installVP9OutputFrameLayoutPrimed(width, height int,
+	layout common.FrameLayout,
+) {
 	d.frameYOrigin = layout.YOrigin
 	d.frameUOrigin = layout.UOrigin
 	d.frameVOrigin = layout.VOrigin
