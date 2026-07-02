@@ -811,8 +811,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if ref == nil || !ref.valid {
 				return false
 			}
-			var sf vp9dec.ScaleFactors
-			vp9dec.SetupScaleFactorsForFrame(&sf, ref.img.Width, ref.img.Height,
+			sf := d.vp9ScaleFactorsFor(ref.img.Width, ref.img.Height,
 				int(hdr.Width), int(hdr.Height))
 			if !sf.IsValidScale() {
 				d.markVP9Unsupported()
@@ -843,7 +842,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 						if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
 							miRow, miCol, x0, y0, 4*x, 4*y, bw, bh, 4, 4,
 							dst, dstStride, dstRows, src, srcStride, srcRows,
-							srcWidth, srcHeight, &sf, mv, vp9dec.BoolInt(avg)) {
+							srcWidth, srcHeight, sf, mv, vp9dec.BoolInt(avg)) {
 							return false
 						}
 						block++
@@ -870,12 +869,43 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
 				miRow, miCol, x0, y0, 0, 0, bw, bh, bw, bh,
 				dst, dstStride, dstRows, src, srcStride, srcRows,
-				srcWidth, srcHeight, &sf, mi.Mv[refIdx], vp9dec.BoolInt(avg)) {
+				srcWidth, srcHeight, sf, mi.Mv[refIdx], vp9dec.BoolInt(avg)) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// vp9ScaleFactorsEntry caches one SetupScaleFactorsForFrame result keyed
+// by the (reference, frame) dimension tuple.
+type vp9ScaleFactorsEntry struct {
+	valid                        bool
+	otherW, otherH, thisW, thisH int
+	sf                           vp9dec.ScaleFactors
+}
+
+// vp9ScaleFactorsFor returns cached scale factors for a (reference,
+// frame) dimension pair. libvpx derives these once per frame per
+// reference buffer (vp9_setup_scale_factors_for_frame during ref
+// setup); the fixed-point scale involves divisions, so recomputing per
+// plane and reference block-by-block is measurable. Caching on the
+// dimension key gives the same amortization without tracking reference
+// lifetimes.
+func (d *VP9Decoder) vp9ScaleFactorsFor(otherW, otherH, thisW, thisH int) *vp9dec.ScaleFactors {
+	for i := range d.sfCache {
+		e := &d.sfCache[i]
+		if e.valid && e.otherW == otherW && e.otherH == otherH &&
+			e.thisW == thisW && e.thisH == thisH {
+			return &e.sf
+		}
+	}
+	e := &d.sfCache[d.sfCacheNext]
+	d.sfCacheNext = (d.sfCacheNext + 1) % len(d.sfCache)
+	e.valid = true
+	e.otherW, e.otherH, e.thisW, e.thisH = otherW, otherH, thisW, thisH
+	vp9dec.SetupScaleFactorsForFrame(&e.sf, otherW, otherH, thisW, thisH)
+	return &e.sf
 }
 
 func (d *VP9Decoder) vp9PredictRefFrame(slot int) *vp9ReferenceFrame {
@@ -1187,6 +1217,20 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 			}
 		}
 
+		// Inter blocks take a specialized loop: the scan order and tx
+		// type are plane constants and the residue destination window
+		// is validated once, so the per-block work reduces to context
+		// lookup + token decode + inverse transform.
+		if isInter != 0 && !d.unsupportedReconstruct && interPlaneOK &&
+			interBaseX+((num4x4W+step-1)&^(step-1))*4 <= interStride &&
+			interBaseY+((num4x4H+step-1)&^(step-1))*4 <= interRows {
+			eobTotal += d.readVP9InterResiduePlane(&rs, pd, planeType, txSize,
+				dequant, planeScan, coefCounts, num4x4W, num4x4H, step,
+				aboveBase, leftBase, interPlane, interStride,
+				interBaseX, interBaseY, hdr.Quant.Lossless)
+			continue
+		}
+
 		for rr := 0; rr < num4x4H; rr += step {
 			for cc := 0; cc < num4x4W; cc += step {
 				mode := uvMode
@@ -1313,6 +1357,106 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 		mi.Skip = 1
 	}
 	return true
+}
+
+// readVP9InterResiduePlane is readVP9ResidueBlock's transform-block loop
+// specialized for one plane of an inter block: the scan order is the
+// plane-constant default (DCT_DCT) order, no per-block prediction-mode
+// or tx-type lookups are needed, and the residue destination window has
+// been bounds-checked by the caller for the whole plane. Returns the
+// plane's summed EOB.
+func (d *VP9Decoder) readVP9InterResiduePlane(
+	rs *bitstream.ReaderState,
+	pd *vp9dec.MacroblockdPlane,
+	planeType int,
+	txSize common.TxSize,
+	dequant [2]int16,
+	so *common.ScanOrder,
+	coefCounts *vp9dec.CoefCounts,
+	num4x4W, num4x4H, step int,
+	aboveBase, leftBase int,
+	dst []byte, dstStride int,
+	baseX, baseY int,
+	lossless bool,
+) int {
+	eobTotal := 0
+	aCtx := pd.AboveContext[aboveBase:]
+	lCtx := pd.LeftContext[leftBase:]
+	coeffs := d.dqcoeff[:vp9dec.MaxEobForTxSize(txSize)]
+	for rr := 0; rr < num4x4H; rr += step {
+		rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+		for cc := 0; cc < num4x4W; cc += step {
+			initCtx := 0
+			switch txSize {
+			case common.Tx4x4:
+				if aCtx[cc] != 0 {
+					initCtx++
+				}
+				if lCtx[rr] != 0 {
+					initCtx++
+				}
+			case common.Tx8x8:
+				if aCtx[cc]|aCtx[cc+1] != 0 {
+					initCtx++
+				}
+				if lCtx[rr]|lCtx[rr+1] != 0 {
+					initCtx++
+				}
+			case common.Tx16x16:
+				if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3] != 0 {
+					initCtx++
+				}
+				if lCtx[rr]|lCtx[rr+1]|lCtx[rr+2]|lCtx[rr+3] != 0 {
+					initCtx++
+				}
+			default:
+				if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]|
+					aCtx[cc+4]|aCtx[cc+5]|aCtx[cc+6]|aCtx[cc+7] != 0 {
+					initCtx++
+				}
+				if lCtx[rr]|lCtx[rr+1]|lCtx[rr+2]|lCtx[rr+3]|
+					lCtx[rr+4]|lCtx[rr+5]|lCtx[rr+6]|lCtx[rr+7] != 0 {
+					initCtx++
+				}
+			}
+			eob := vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
+				initCtx, so, &d.fc.CoefProbs, coefCounts,
+				&d.dqcoeff, &d.coefTokenCache)
+			eobTotal += eob
+			hasResidue := uint8(0)
+			if eob > 0 {
+				vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
+					txSize, common.DctDct, eob, lossless)
+				clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
+				hasResidue = 1
+			}
+			switch txSize {
+			case common.Tx4x4:
+				aCtx[cc] = hasResidue
+				lCtx[rr] = hasResidue
+			case common.Tx8x8:
+				aCtx[cc] = hasResidue
+				aCtx[cc+1] = hasResidue
+				lCtx[rr] = hasResidue
+				lCtx[rr+1] = hasResidue
+			case common.Tx16x16:
+				aCtx[cc] = hasResidue
+				aCtx[cc+1] = hasResidue
+				aCtx[cc+2] = hasResidue
+				aCtx[cc+3] = hasResidue
+				lCtx[rr] = hasResidue
+				lCtx[rr+1] = hasResidue
+				lCtx[rr+2] = hasResidue
+				lCtx[rr+3] = hasResidue
+			default:
+				for i := range 8 {
+					aCtx[cc+i] = hasResidue
+					lCtx[rr+i] = hasResidue
+				}
+			}
+		}
+	}
+	return eobTotal
 }
 
 func (d *VP9Decoder) vp9InterTxDst(

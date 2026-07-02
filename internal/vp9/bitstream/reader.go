@@ -256,6 +256,47 @@ func (r *Reader) ReadLiteral(bits int) uint32 {
 // probability per internal-node index pair. Bit-identical to libvpx's
 // vpx_read_tree in vpx_dsp/bitreader.h.
 func (r *Reader) ReadTree(tree []int8, probs []uint8) int {
+	// Register-resident fast path: VP9 syntax trees are at most ~16
+	// levels deep (the deepest is the MV class tree), each read consumes
+	// at most 8 bits, and a refill prefetches at most 8 bytes, so with
+	// more than 32 readable bytes every refill stays on the inlined
+	// FillFast path and the whole walk runs without function calls.
+	if len(r.buf)-r.pos > 32 {
+		buf := r.buf
+		pos := r.pos
+		value := r.value
+		rng := r.rng
+		count := r.count
+		i := int8(0)
+		for {
+			prob := uint32(probs[i>>1])
+			if count < 0 {
+				value, count, pos = FillFast(buf, pos, value, count)
+			}
+			split := (rng*prob + (256 - prob)) >> 8
+			bigsplit := uint64(split) << (valueBits - 8)
+			nextRange := split
+			bit := 0
+			if value >= bigsplit {
+				nextRange = rng - split
+				value -= bigsplit
+				bit = 1
+			}
+			shift := uint32(tables.VpxNorm[byte(nextRange)])
+			value <<= shift
+			rng = nextRange << shift
+			count -= int32(shift)
+			next := tree[int(i)+bit]
+			if next <= 0 {
+				r.value = value
+				r.rng = rng
+				r.count = count
+				r.pos = pos
+				return -int(next)
+			}
+			i = next
+		}
+	}
 	i := int8(0)
 	for {
 		next := tree[int(i)+int(r.Read(uint32(probs[i>>1])))]

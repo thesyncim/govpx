@@ -289,6 +289,8 @@ type VP9Decoder struct {
 	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
 	convolveScratch     dsp.Convolve8Scratch
+	sfCache             [4]vp9ScaleFactorsEntry
+	sfCacheNext         int
 	vp9DecoderPhaseStatsOptions
 	refFrames       [common.RefFrames]vp9ReferenceFrame
 	refFramesView   *[common.RefFrames]vp9ReferenceFrame
