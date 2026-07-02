@@ -21,15 +21,15 @@
 
 #include "textflag.h"
 
-TEXT ·lpfHorizontal8DualNEON(SB), NOSPLIT, $0-64
+TEXT ·lpfHorizontal8DualNEON(SB), NOSPLIT, $0-32
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit0+16(FP), R2
-	MOVD	limit0+24(FP), R3
-	MOVD	thresh0+32(FP), R4
-	MOVD	blimit1+40(FP), R5
-	MOVD	limit1+48(FP), R6
-	MOVD	thresh1+56(FP), R7
+	MOVD	thr0+16(FP), R2
+	MOVD	thr1+24(FP), R5
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
+	ADD	$1, R5, R6
+	ADD	$2, R5, R7
 	WORD	$0x0d40c0a0	// ld1r.8b { v0 }, [x5]
 	WORD	$0x0d40c051	// ld1r.8b { v17 }, [x2]
 	WORD	$0x6e180411	// mov.d v17[1], v0[0]
@@ -284,15 +284,15 @@ TEXT ·lpfHorizontal8DualNEON(SB), NOSPLIT, $0-64
 	WORD	$0x3ca86940	// str q0, [x10, x8]
 	WORD	$0xd65f03c0	// ret
 
-TEXT ·lpfVertical8DualNEON(SB), NOSPLIT, $0-64
+TEXT ·lpfVertical8DualNEON(SB), NOSPLIT, $0-32
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit0+16(FP), R2
-	MOVD	limit0+24(FP), R3
-	MOVD	thresh0+32(FP), R4
-	MOVD	blimit1+40(FP), R5
-	MOVD	limit1+48(FP), R6
-	MOVD	thresh1+56(FP), R7
+	MOVD	thr0+16(FP), R2
+	MOVD	thr1+24(FP), R5
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
+	ADD	$1, R5, R6
+	ADD	$2, R5, R7
 	WORD	$0x0d40c0a0	// ld1r.8b { v0 }, [x5]
 	WORD	$0x0d40c054	// ld1r.8b { v20 }, [x2]
 	WORD	$0x6e180414	// mov.d v20[1], v0[0]

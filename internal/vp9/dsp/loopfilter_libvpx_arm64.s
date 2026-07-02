@@ -24,12 +24,12 @@
 
 #include "textflag.h"
 
-TEXT ·lpfHorizontal4NEON(SB), NOSPLIT, $0-40
+TEXT ·lpfHorizontal4NEON(SB), NOSPLIT, $0-24
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit+16(FP), R2
-	MOVD	limit+24(FP), R3
-	MOVD	thresh+32(FP), R4
+	MOVD	thr+16(FP), R2
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
 	WORD	$0x531e7428	// lsl w8, w1, #2
 	WORD	$0x0d40c040	// ld1r.8b { v0 }, [x2]
 	WORD	$0x0d40c061	// ld1r.8b { v1 }, [x3]
@@ -109,12 +109,12 @@ TEXT ·lpfHorizontal4NEON(SB), NOSPLIT, $0-40
 	WORD	$0x14000001	// b end (was ret)
 	RET
 
-TEXT ·lpfVertical4NEON(SB), NOSPLIT, $0-40
+TEXT ·lpfVertical4NEON(SB), NOSPLIT, $0-24
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit+16(FP), R2
-	MOVD	limit+24(FP), R3
-	MOVD	thresh+32(FP), R4
+	MOVD	thr+16(FP), R2
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
 	WORD	$0x93407c28	// sxtw x8, w1
 	WORD	$0x0d40c040	// ld1r.8b { v0 }, [x2]
 	WORD	$0x0d40c061	// ld1r.8b { v1 }, [x3]
@@ -209,15 +209,15 @@ TEXT ·lpfVertical4NEON(SB), NOSPLIT, $0-40
 	WORD	$0x14000001	// b end (was ret)
 	RET
 
-TEXT ·lpfHorizontal4DualNEON(SB), NOSPLIT, $0-64
+TEXT ·lpfHorizontal4DualNEON(SB), NOSPLIT, $0-32
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit0+16(FP), R2
-	MOVD	limit0+24(FP), R3
-	MOVD	thresh0+32(FP), R4
-	MOVD	blimit1+40(FP), R5
-	MOVD	limit1+48(FP), R6
-	MOVD	thresh1+56(FP), R7
+	MOVD	thr0+16(FP), R2
+	MOVD	thr1+24(FP), R5
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
+	ADD	$1, R5, R6
+	ADD	$2, R5, R7
 	WORD	$0x0d40c0a0	// ld1r.8b { v0 }, [x5]
 	WORD	$0x0d40c041	// ld1r.8b { v1 }, [x2]
 	WORD	$0x6e180401	// mov.d v1[1], v0[0]
@@ -303,15 +303,15 @@ TEXT ·lpfHorizontal4DualNEON(SB), NOSPLIT, $0-64
 	WORD	$0x14000001	// b end (was ret)
 	RET
 
-TEXT ·lpfVertical4DualNEON(SB), NOSPLIT, $0-64
+TEXT ·lpfVertical4DualNEON(SB), NOSPLIT, $0-32
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit0+16(FP), R2
-	MOVD	limit0+24(FP), R3
-	MOVD	thresh0+32(FP), R4
-	MOVD	blimit1+40(FP), R5
-	MOVD	limit1+48(FP), R6
-	MOVD	thresh1+56(FP), R7
+	MOVD	thr0+16(FP), R2
+	MOVD	thr1+24(FP), R5
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
+	ADD	$1, R5, R6
+	ADD	$2, R5, R7
 	WORD	$0x0d40c0a1	// ld1r.8b { v1 }, [x5]
 	WORD	$0x0d40c040	// ld1r.8b { v0 }, [x2]
 	WORD	$0x6e180420	// mov.d v0[1], v1[0]
@@ -458,12 +458,12 @@ TEXT ·lpfVertical4DualNEON(SB), NOSPLIT, $0-64
 	WORD	$0x14000001	// b end (was ret)
 	RET
 
-TEXT ·lpfHorizontal16NEON(SB), NOSPLIT, $96-40
+TEXT ·lpfHorizontal16NEON(SB), NOSPLIT, $96-24
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit+16(FP), R2
-	MOVD	limit+24(FP), R3
-	MOVD	thresh+32(FP), R4
+	MOVD	thr+16(FP), R2
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
 	WORD	$0xd503201f	// nop (was: sub sp, sp, #0x50 — hosted in Go frame)
 	WORD	$0x6d023bef	// stp d15, d14, [sp, #0x10] (sp offset +16)
 	WORD	$0x6d0333ed	// stp d13, d12, [sp, #0x20] (sp offset +16)
@@ -795,12 +795,12 @@ TEXT ·lpfHorizontal16NEON(SB), NOSPLIT, $96-40
 	WORD	$0x14000001	// b end (was ret)
 	RET
 
-TEXT ·lpfVertical16NEON(SB), NOSPLIT, $176-40
+TEXT ·lpfVertical16NEON(SB), NOSPLIT, $176-24
 	MOVD	s+0(FP), R0
 	MOVD	pitch+8(FP), R1
-	MOVD	blimit+16(FP), R2
-	MOVD	limit+24(FP), R3
-	MOVD	thresh+32(FP), R4
+	MOVD	thr+16(FP), R2
+	ADD	$1, R2, R3
+	ADD	$2, R2, R4
 	WORD	$0xd503201f	// nop (was: sub sp, sp, #0xa0 — hosted in Go frame)
 	WORD	$0x6d073bef	// stp d15, d14, [sp, #0x60] (sp offset +16)
 	WORD	$0x6d0833ed	// stp d13, d12, [sp, #0x70] (sp offset +16)

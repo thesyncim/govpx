@@ -758,83 +758,60 @@ func vp9FilterSelectivelyVertRow2(subsamplingFactor int,
 	ss0 := offset
 	for mask := (mask16 | mask8 | mask4 | mask4Int) & dualMaskCutoff; mask != 0; mask = (mask &^ dualOne) >> 1 {
 		if mask&dualOne != 0 {
-			level0 := lfi.Lfthr[lfl[0]]
-			level1 := lfi.Lfthr[lfl[lflForward]]
+			level0 := &lfi.Lfthr[lfl[0]]
+			level1 := &lfi.Lfthr[lfl[lflForward]]
 			ss1 := ss0 + 8*pitch
 
 			if mask16&dualOne != 0 {
 				if mask16&dualOne == dualOne {
-					dsp.VpxLpfVertical16Dual(plane, ss0, pitch,
-						level0.Mblim, level0.Lim, level0.HevThr)
+					dsp.VpxLpfVertical16DualThr(plane, ss0, pitch, level0)
 				} else {
-					idx := 0
-					if mask16&1 == 0 {
-						idx = 1
-					}
 					level := level0
 					ss := ss0
-					if idx == 1 {
+					if mask16&1 == 0 {
 						level = level1
 						ss = ss1
 					}
-					dsp.VpxLpfVertical16(plane, ss, pitch, level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfVertical16Thr(plane, ss, pitch, level)
 				}
 			}
 			if mask8&dualOne != 0 {
 				if mask8&dualOne == dualOne {
-					dsp.VpxLpfVertical8Dual(plane, ss0, pitch,
-						level0.Mblim, level0.Lim, level0.HevThr,
-						level1.Mblim, level1.Lim, level1.HevThr)
+					dsp.VpxLpfVertical8DualThr(plane, ss0, pitch, level0, level1)
 				} else {
-					idx := 0
-					if mask8&1 == 0 {
-						idx = 1
-					}
 					level := level0
 					ss := ss0
-					if idx == 1 {
+					if mask8&1 == 0 {
 						level = level1
 						ss = ss1
 					}
-					dsp.VpxLpfVertical8(plane, ss, pitch, level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfVertical8Thr(plane, ss, pitch, level)
 				}
 			}
 			if mask4&dualOne != 0 {
 				if mask4&dualOne == dualOne {
-					dsp.VpxLpfVertical4Dual(plane, ss0, pitch,
-						level0.Mblim, level0.Lim, level0.HevThr,
-						level1.Mblim, level1.Lim, level1.HevThr)
+					dsp.VpxLpfVertical4DualThr(plane, ss0, pitch, level0, level1)
 				} else {
-					idx := 0
-					if mask4&1 == 0 {
-						idx = 1
-					}
 					level := level0
 					ss := ss0
-					if idx == 1 {
+					if mask4&1 == 0 {
 						level = level1
 						ss = ss1
 					}
-					dsp.VpxLpfVertical4(plane, ss, pitch, level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfVertical4Thr(plane, ss, pitch, level)
 				}
 			}
 			if mask4Int&dualOne != 0 {
 				if mask4Int&dualOne == dualOne {
-					dsp.VpxLpfVertical4Dual(plane, ss0+4, pitch,
-						level0.Mblim, level0.Lim, level0.HevThr,
-						level1.Mblim, level1.Lim, level1.HevThr)
+					dsp.VpxLpfVertical4DualThr(plane, ss0+4, pitch, level0, level1)
 				} else {
-					idx := 0
-					if mask4Int&1 == 0 {
-						idx = 1
-					}
 					level := level0
 					ss := ss0 + 4
-					if idx == 1 {
+					if mask4Int&1 == 0 {
 						level = level1
 						ss = ss1 + 4
 					}
-					dsp.VpxLpfVertical4(plane, ss, pitch, level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfVertical4Thr(plane, ss, pitch, level)
 				}
 			}
 		}
@@ -854,72 +831,55 @@ func vp9FilterSelectivelyHoriz(plane []byte, offset, pitch int,
 	for mask := mask16 | mask8 | mask4 | mask4Int; mask != 0; {
 		count := 1
 		if mask&1 != 0 {
-			level := lfi.Lfthr[lfl[0]]
+			level := &lfi.Lfthr[lfl[0]]
 			switch {
 			case mask16&1 != 0:
 				if mask16&3 == 3 {
-					dsp.VpxLpfHorizontal16Dual(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfHorizontal16DualThr(plane, offset, pitch, level)
 					count = 2
 				} else {
-					dsp.VpxLpfHorizontal16(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfHorizontal16Thr(plane, offset, pitch, level)
 				}
 			case mask8&1 != 0:
 				if mask8&3 == 3 {
-					next := lfi.Lfthr[lfl[1]]
-					dsp.VpxLpfHorizontal8Dual(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr,
-						next.Mblim, next.Lim, next.HevThr)
+					next := &lfi.Lfthr[lfl[1]]
+					dsp.VpxLpfHorizontal8DualThr(plane, offset, pitch, level, next)
 					if mask4Int&3 == 3 {
-						dsp.VpxLpfHorizontal4Dual(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr,
-							next.Mblim, next.Lim, next.HevThr)
+						dsp.VpxLpfHorizontal4DualThr(plane, offset+4*pitch, pitch,
+							level, next)
 					} else if mask4Int&1 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+4*pitch, pitch, level)
 					} else if mask4Int&2 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+8+4*pitch, pitch,
-							next.Mblim, next.Lim, next.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+8+4*pitch, pitch, next)
 					}
 					count = 2
 				} else {
-					dsp.VpxLpfHorizontal8(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfHorizontal8Thr(plane, offset, pitch, level)
 					if mask4Int&1 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+4*pitch, pitch, level)
 					}
 				}
 			case mask4&1 != 0:
 				if mask4&3 == 3 {
-					next := lfi.Lfthr[lfl[1]]
-					dsp.VpxLpfHorizontal4Dual(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr,
-						next.Mblim, next.Lim, next.HevThr)
+					next := &lfi.Lfthr[lfl[1]]
+					dsp.VpxLpfHorizontal4DualThr(plane, offset, pitch, level, next)
 					if mask4Int&3 == 3 {
-						dsp.VpxLpfHorizontal4Dual(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr,
-							next.Mblim, next.Lim, next.HevThr)
+						dsp.VpxLpfHorizontal4DualThr(plane, offset+4*pitch, pitch,
+							level, next)
 					} else if mask4Int&1 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+4*pitch, pitch, level)
 					} else if mask4Int&2 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+8+4*pitch, pitch,
-							next.Mblim, next.Lim, next.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+8+4*pitch, pitch, next)
 					}
 					count = 2
 				} else {
-					dsp.VpxLpfHorizontal4(plane, offset, pitch,
-						level.Mblim, level.Lim, level.HevThr)
+					dsp.VpxLpfHorizontal4Thr(plane, offset, pitch, level)
 					if mask4Int&1 != 0 {
-						dsp.VpxLpfHorizontal4(plane, offset+4*pitch, pitch,
-							level.Mblim, level.Lim, level.HevThr)
+						dsp.VpxLpfHorizontal4Thr(plane, offset+4*pitch, pitch, level)
 					}
 				}
 			default:
-				dsp.VpxLpfHorizontal4(plane, offset+4*pitch, pitch,
-					level.Mblim, level.Lim, level.HevThr)
+				dsp.VpxLpfHorizontal4Thr(plane, offset+4*pitch, pitch, level)
 			}
 		}
 		offset += 8 * count
