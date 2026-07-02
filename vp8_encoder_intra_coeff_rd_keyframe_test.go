@@ -80,7 +80,8 @@ func TestEstimateFastBPredIntraModeRestrictsCandidatesLikeLibvpx(t *testing.T) {
 	}
 
 	quant := testMacroblockQuant(20)
-	mode, _, _, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt(), &quant)
+	var loopCtx fastInterModeLoopContext
+	mode, _, _, _, _, ok := e.estimateFastBPredIntraModeScore(sourceImageFromPublic(src), 1, 1, 20, maxInt(), &quant, &loopCtx)
 	if !ok {
 		t.Fatalf("estimateFastBPredIntraModeScore returned ok=false")
 	}

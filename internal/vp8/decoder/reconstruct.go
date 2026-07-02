@@ -207,6 +207,29 @@ func dequantIDCTAddMacroblock(tokens *MacroblockTokens, dequant *common.Macroblo
 	dequantIDCTAddChromaBlocks(tokens, &dequant.UV, u, uStride, v, vStride)
 }
 
+// DequantIDCTAddMacroblock exposes the fused reconstruction to encoder
+// analysis callers. libvpx v1.16.0's encoder reconstructs accepted
+// macroblocks with the same kernels as the decoder:
+// vp8cx_encode_inter_macroblock (vp8/encoder/encodeframe.c:1288-1291) calls
+// vp8_inverse_transform_mby (vp8/common/invtrans.h — inverse Walsh + eob
+// promotion + vp8_dequant_idct_add_y_block) followed by
+// vp8_dequant_idct_add_uv_block, so routing encoder recon through this
+// fused path is the verbatim port of the encoder-side inverse transform.
+//
+// Token-buffer contract (audited for the encoder convert pipeline): every
+// caller must guarantee that a block with EOB >= 2 has zeros in all
+// coefficient slots at or beyond its EOB. The encoder quantizers
+// (QuantizeBlockWithZbinAndActivity, FastQuantizeBlock, the trellis
+// optimizer and ResetLibvpxSmallSecondOrderCoefficients) all write every
+// one of the 16 slots, and ConvertMacroblockCoefficients copies the full
+// array for EOB >= 2, so the contract holds there. EOB <= 1 blocks may
+// carry arbitrary stale slots: the DC-pair path only reads slot 0 gated on
+// EOB != 0 (or a Y2-seeded DC), and sanitizeDCOnlyBlock scrubs any EOB <= 1
+// partner that rides the full pair kernel (see 354668f2).
+func DequantIDCTAddMacroblock(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int) {
+	dequantIDCTAddMacroblock(tokens, dequant, is4x4, y, yStride, u, uStride, v, vStride)
+}
+
 // seedLumaDCFromY2 mirrors libvpx decode_macroblock's second-order handling:
 // vp8_short_inv_walsh4x4 (or the DC-only variant) writes the 16 per-block DC
 // values into the luma coefficient blocks at stride 16 (dequant.Y1DC[0] == 1

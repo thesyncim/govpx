@@ -194,6 +194,11 @@ func (e *VP8Encoder) Reset() {
 	// once during the encoder-level scalars block above; leave it at 1 to
 	// match NewVP8Encoder's cold-start trajectory.
 	e.interRDThreshBaselineSlots = [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot{}
+	e.interRDDerivedThresh = [libvpxInterModeCount]int{}
+	e.interRDDerivedBaseline = [libvpxInterModeCount]int{}
+	e.interRDDerivedStamp = 0
+	e.interRDDerivedValid = false
+	e.interRDThreshFillSeq = 0
 	e.interRDFrameBaseQIndex = 0
 	e.interRDFrameRefSearchOrder = [4]int8{}
 	e.interRDFrameRefSearchOrderValid = false

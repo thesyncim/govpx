@@ -165,7 +165,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
@@ -430,7 +430,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
@@ -717,7 +717,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			}
 			bestScoreBefore := bestScore
 			bestSSEBefore := bestSSE
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
