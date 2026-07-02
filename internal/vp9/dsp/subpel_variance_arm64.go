@@ -145,12 +145,8 @@ func finalVarianceFromBlock(temp []byte, w, h int,
 		varianceBlock4xNNEON(tempPtr, 4, refPtr, refStride, h, &sum, &s)
 	case 8:
 		varianceBlock8xNNEON(tempPtr, 8, refPtr, refStride, h, &sum, &s)
-	case 16:
-		varianceBlock16xNNEON(tempPtr, 16, refPtr, refStride, h, &sum, &s)
-	case 32:
-		varianceBlock16ChunksNEON(tempPtr, 32, refPtr, refStride, h, 2, &sum, &s)
-	case 64:
-		varianceBlock16ChunksNEON(tempPtr, 64, refPtr, refStride, h, 4, &sum, &s)
+	default:
+		variance16xNKernel(tempPtr, w, refPtr, refStride, w, h, &sum, &s)
 	}
 	*sse = s
 	return finalVariance(sum, s, w, h)
@@ -172,8 +168,8 @@ func finalVariance16xNFromBlock(temp []byte, h int,
 ) uint32 {
 	var sum int32
 	var s uint32
-	varianceBlock16xNNEON(unsafe.SliceData(temp), 16,
-		unsafe.SliceData(ref[refOff:]), refStride, h, &sum, &s)
+	variance16xNKernel(unsafe.SliceData(temp), 16,
+		unsafe.SliceData(ref[refOff:]), refStride, 16, h, &sum, &s)
 	*sse = s
 	return finalVariance(sum, s, 16, h)
 }

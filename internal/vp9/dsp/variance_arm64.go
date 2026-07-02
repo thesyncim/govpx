@@ -2,7 +2,11 @@
 
 package dsp
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/cpu"
+)
 
 // VP9 ARMv8 NEON variance kernels. Mirrors libvpx v1.16.0
 // vpx_dsp/arm/variance_neon.c variance_neon_w16/w8/w4 plus a chunked
@@ -27,6 +31,33 @@ func varianceBlock8xNNEON(src *byte, srcStride int, ref *byte, refStride int, he
 
 //go:noescape
 func varianceBlock4xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
+
+//go:noescape
+func varianceDotChunksNEON(src *byte, srcStride int, ref *byte, refStride int, height int, chunks int, sumOut *int32, sseOut *uint32)
+
+// variance16xNKernel dispatches the 16/32/64-wide variance kernel:
+// the FEAT_DotProd port of variance_16xh/variance_large_neon_dotprod
+// when available, else the base NEON kernels.
+func variance16xNKernel(src *byte, srcStride int, ref *byte, refStride int,
+	w, h int, sum *int32, sse *uint32,
+) bool {
+	if w != 16 && w != 32 && w != 64 {
+		return false
+	}
+	if cpu.HasARM64DotProd {
+		varianceDotChunksNEON(src, srcStride, ref, refStride, h, w/16, sum, sse)
+		return true
+	}
+	switch w {
+	case 16:
+		varianceBlock16xNNEON(src, srcStride, ref, refStride, h, sum, sse)
+	case 32:
+		varianceBlock16ChunksNEON(src, srcStride, ref, refStride, h, 2, sum, sse)
+	case 64:
+		varianceBlock16ChunksNEON(src, srcStride, ref, refStride, h, 4, sum, sse)
+	}
+	return true
+}
 
 // varWindowOK validates the (w, h) read window lies inside buf. Same
 // invariants as the SAD wrappers.
@@ -71,23 +102,8 @@ func varianceStatsSimd16xN(src []uint8, srcOff, srcStride int, ref []uint8, refO
 	}
 	var sum int32
 	var s uint32
-	switch w {
-	case 16:
-		varianceBlock16xNNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, &sum, &s)
-	case 32:
-		varianceBlock16ChunksNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, 2, &sum, &s)
-	case 64:
-		varianceBlock16ChunksNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, 4, &sum, &s)
-	default:
+	if !variance16xNKernel(unsafe.SliceData(src[srcOff:]), srcStride,
+		unsafe.SliceData(ref[refOff:]), refStride, w, h, &sum, &s) {
 		return VarianceStats{}, false
 	}
 	return varianceStatsFromSumSSE(sum, s, w, h), true
@@ -128,23 +144,8 @@ func varianceSimd16xN(src []uint8, srcOff, srcStride int, ref []uint8, refOff, r
 	}
 	var sum int32
 	var s uint32
-	switch w {
-	case 16:
-		varianceBlock16xNNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, &sum, &s)
-	case 32:
-		varianceBlock16ChunksNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, 2, &sum, &s)
-	case 64:
-		varianceBlock16ChunksNEON(
-			unsafe.SliceData(src[srcOff:]), srcStride,
-			unsafe.SliceData(ref[refOff:]), refStride,
-			h, 4, &sum, &s)
-	default:
+	if !variance16xNKernel(unsafe.SliceData(src[srcOff:]), srcStride,
+		unsafe.SliceData(ref[refOff:]), refStride, w, h, &sum, &s) {
 		return 0, false
 	}
 	*sse = s
