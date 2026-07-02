@@ -128,3 +128,42 @@ sumDoneIPC:
 	SUB	$1, R5, R5
 	CBNZ	R5, rowLoopIPC
 	RET
+
+// vectorVarNEON ABI ($0-32): libvpx v1.16.0 vpx_dsp/arm/avg_neon.c
+// vpx_vector_var_neon arithmetic body. Returns the raw (sse, mean)
+// pair; the Go wrapper applies `sse - ((mean * mean) >> (bwl + 2))`.
+//   ref+0(FP)   *int16
+//   src+8(FP)   *int16
+//   width+16(FP) int (multiple of 8, >= 8)
+//   sse+24(FP)  int32
+//   mean+28(FP) int32
+//
+// The upstream kernel accumulates the running total in int16 lanes
+// (safe for the int_pro domain); this port folds each iteration's
+// diff into int32 lanes via SADALP instead, which is exact for all
+// int16 inputs at the same instruction count.
+TEXT ·vectorVarNEON(SB), NOSPLIT, $0-32
+	MOVD	ref+0(FP), R0
+	MOVD	src+8(FP), R1
+	MOVD	width+16(FP), R2
+
+	WORD	$0x6f00e414	// movi v20.2d, #0 (sse)
+	WORD	$0x6f00e415	// movi v21.2d, #0 (total)
+
+vvar_loop:
+	WORD	$0x3cc10400	// ldr q0, [x0], #16
+	WORD	$0x3cc10421	// ldr q1, [x1], #16
+	WORD	$0x6e618402	// sub v2.8h, v0.8h, v1.8h
+	WORD	$0x0e628054	// smlal  v20.4s, v2.4h, v2.4h
+	WORD	$0x4e628054	// smlal2 v20.4s, v2.8h, v2.8h
+	WORD	$0x4e606855	// sadalp v21.4s, v2.8h
+	SUB	$8, R2, R2
+	CBNZ	R2, vvar_loop
+
+	VADDV	V20.S4, V20
+	VADDV	V21.S4, V21
+	WORD	$0x1e260280	// fmov w0, s20
+	WORD	$0x1e2602a1	// fmov w1, s21
+	MOVW	R0, sse+24(FP)
+	MOVW	R1, mean+28(FP)
+	RET

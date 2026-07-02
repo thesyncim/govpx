@@ -16,6 +16,19 @@ func intProRowStripsNEON(hbuf *int16, ref *byte, refStride, height, strips int)
 //go:noescape
 func intProColsNEON(vbuf *int16, ref *byte, refStride, width, rows, shift int)
 
+//go:noescape
+func vectorVarNEON(ref *int16, src *int16, width int) (sse, mean int32)
+
+// vectorVarAsm ports libvpx v1.16.0 vpx_dsp/arm/avg_neon.c
+// vpx_vector_var_neon. The int16 difference/accumulation domain matches
+// the vpx_int_pro_row/col output contract (|diff| <= 510, width <= 64),
+// where every intermediate fits its lane exactly.
+func vectorVarAsm(ref, src []int16, bwl int) (int, bool) {
+	width := 4 << bwl
+	sse, mean := vectorVarNEON(unsafe.SliceData(ref), unsafe.SliceData(src), width)
+	return int(sse) - ((int(mean) * int(mean)) >> (bwl + 2)), true
+}
+
 // intProRowStripsAsm mirrors `strips` back-to-back vpx_int_pro_row_neon
 // calls with ref advancing 16 columns per call. The NEON row kernel's
 // `>> ((height >> 5) + 3)` normalisation matches the scalar

@@ -12,3 +12,7 @@ func intProRowStripsAsm(hbuf []int16, ref []uint8, refOff, refStride, height, st
 func intProColsAsm(vbuf []int16, ref []uint8, refOff, refStride, width, rows, normFactor int) bool {
 	return false
 }
+
+func vectorVarAsm(ref, src []int16, bwl int) (int, bool) {
+	return 0, false
+}

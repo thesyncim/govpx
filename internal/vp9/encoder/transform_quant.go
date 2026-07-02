@@ -2057,10 +2057,18 @@ func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
 ) int {
 	n := len(coeff)
 	if qcoeff == nil {
+		// Size-classed scratch: the quantizer overwrites every entry it
+		// reads back, but Go still zero-initialises the local array, so
+		// keep the cleared span proportional to the transform size
+		// instead of a fixed 2KB.
+		if n <= 256 {
+			var qcoeffBuf [256]int16
+			return quantizeFPLibvpxDispatch(coeff, n, roundFP, quantFP, dequant,
+				scan, iscan, qcoeffBuf[:n], dqcoeff)
+		}
 		var qcoeffBuf [1024]int16
-		qcoeff = qcoeffBuf[:n]
 		return quantizeFPLibvpxDispatch(coeff, n, roundFP, quantFP, dequant,
-			scan, iscan, qcoeff, dqcoeff)
+			scan, iscan, qcoeffBuf[:n], dqcoeff)
 	}
 	return quantizeFPLibvpxDispatch(coeff, n, roundFP, quantFP, dequant,
 		scan, iscan, qcoeff[:n], dqcoeff)

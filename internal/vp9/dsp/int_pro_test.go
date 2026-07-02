@@ -285,3 +285,46 @@ func TestVpxVectorVarKnownPattern(t *testing.T) {
 		t.Errorf("VpxVectorVar known-pattern: got %d want 34000", got)
 	}
 }
+
+// TestVpxVectorVarSimdMatchesScalar drives the NEON vector-var kernel
+// against the scalar port across the int_pro projection domain
+// (values in [0, 510], the vpx_int_pro_row/col output range).
+func TestVpxVectorVarSimdMatchesScalar(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x77a5))
+	for bwl := 0; bwl <= 4; bwl++ {
+		width := 4 << bwl
+		for trial := range 200 {
+			ref := make([]int16, width)
+			src := make([]int16, width)
+			for i := range ref {
+				ref[i] = int16(rng.Intn(511))
+				src[i] = int16(rng.Intn(511))
+			}
+			got := VpxVectorVar(ref, src, bwl)
+			want := vpxVectorVarScalar(ref, src, bwl)
+			if got != want {
+				t.Fatalf("bwl=%d trial=%d: got %d want %d", bwl, trial, got, want)
+			}
+		}
+	}
+}
+
+func BenchmarkVpxVectorVar(b *testing.B) {
+	rng := rand.New(rand.NewSource(9))
+	const bwl = 4
+	width := 4 << bwl
+	ref := make([]int16, width)
+	src := make([]int16, width)
+	for i := range ref {
+		ref[i] = int16(rng.Intn(511))
+		src[i] = int16(rng.Intn(511))
+	}
+	b.ReportAllocs()
+	acc := 0
+	for i := 0; i < b.N; i++ {
+		acc += VpxVectorVar(ref, src, bwl)
+	}
+	if acc == 0 {
+		b.Fatal("unexpected zero accumulator")
+	}
+}

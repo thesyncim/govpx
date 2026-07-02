@@ -288,3 +288,49 @@ vdot_done:
 	FMOVS	F20, (R4)
 	FMOVS	F22, (R5)
 	RET
+
+// varianceDot16xNNEON ABI ($0-56): FEAT_DotProd variance for 16-wide
+// blocks (libvpx vpx_dsp/arm/variance_neon_dotprod.c
+// variance_16xh_neon_dotprod): single row loop, no chunk loop.
+//   src+0(FP)        *byte
+//   srcStride+8(FP)  int
+//   ref+16(FP)       *byte
+//   refStride+24(FP) int
+//   height+32(FP)    int
+//   sumOut+40(FP)    *int32
+//   sseOut+48(FP)    *uint32
+TEXT ·varianceDot16xNNEON(SB), NOSPLIT, $0-56
+	MOVD	src+0(FP), R0
+	MOVD	srcStride+8(FP), R1
+	MOVD	ref+16(FP), R2
+	MOVD	refStride+24(FP), R3
+	MOVD	height+32(FP), R6
+	MOVD	sumOut+40(FP), R4
+	MOVD	sseOut+48(FP), R5
+
+	WORD	$0x6f00e414	// movi v20.2d, #0 (src sum)
+	WORD	$0x6f00e415	// movi v21.2d, #0 (ref sum)
+	WORD	$0x6f00e416	// movi v22.2d, #0 (sse)
+	WORD	$0x4f00e43f	// movi v31.16b, #1
+
+	CBZ	R6, vdot16_done
+
+vdot16_row:
+	VLD1	(R0), [V0.B16]
+	VLD1	(R2), [V1.B16]
+	WORD	$0x6e217402	// uabd v2.16b, v0.16b, v1.16b
+	WORD	$0x6e829456	// udot v22.4s, v2.16b, v2.16b
+	WORD	$0x6e9f9414	// udot v20.4s, v0.16b, v31.16b
+	WORD	$0x6e9f9435	// udot v21.4s, v1.16b, v31.16b
+	ADD	R1, R0, R0
+	ADD	R3, R2, R2
+	SUB	$1, R6, R6
+	CBNZ	R6, vdot16_row
+
+vdot16_done:
+	WORD	$0x6eb58694	// sub v20.4s, v20.4s, v21.4s
+	VADDV	V20.S4, V20
+	VADDV	V22.S4, V22
+	FMOVS	F20, (R4)
+	FMOVS	F22, (R5)
+	RET

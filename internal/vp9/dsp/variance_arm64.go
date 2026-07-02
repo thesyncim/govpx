@@ -35,6 +35,9 @@ func varianceBlock4xNNEON(src *byte, srcStride int, ref *byte, refStride int, he
 //go:noescape
 func varianceDotChunksNEON(src *byte, srcStride int, ref *byte, refStride int, height int, chunks int, sumOut *int32, sseOut *uint32)
 
+//go:noescape
+func varianceDot16xNNEON(src *byte, srcStride int, ref *byte, refStride int, height int, sumOut *int32, sseOut *uint32)
+
 // variance16xNKernel dispatches the 16/32/64-wide variance kernel:
 // the FEAT_DotProd port of variance_16xh/variance_large_neon_dotprod
 // when available, else the base NEON kernels.
@@ -45,7 +48,11 @@ func variance16xNKernel(src *byte, srcStride int, ref *byte, refStride int,
 		return false
 	}
 	if cpu.HasARM64DotProd {
-		varianceDotChunksNEON(src, srcStride, ref, refStride, h, w/16, sum, sse)
+		if w == 16 {
+			varianceDot16xNNEON(src, srcStride, ref, refStride, h, sum, sse)
+		} else {
+			varianceDotChunksNEON(src, srcStride, ref, refStride, h, w/16, sum, sse)
+		}
 		return true
 	}
 	switch w {

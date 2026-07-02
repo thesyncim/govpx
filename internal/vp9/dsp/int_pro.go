@@ -136,6 +136,16 @@ func IntProCols(vbuf []int16, ref []uint8, refOff, refStride, width, rows, normF
 // 4 → 64.
 func VpxVectorVar(ref, src []int16, bwl int) int {
 	width := 4 << bwl
+	if width >= 8 && width&7 == 0 && len(ref) >= width && len(src) >= width {
+		if v, ok := vectorVarAsm(ref, src, bwl); ok {
+			return v
+		}
+	}
+	return vpxVectorVarScalar(ref, src, bwl)
+}
+
+func vpxVectorVarScalar(ref, src []int16, bwl int) int {
+	width := 4 << bwl
 	var sse, mean int
 	for i := range width {
 		diff := int(ref[i]) - int(src[i])
