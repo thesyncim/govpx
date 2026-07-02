@@ -989,6 +989,18 @@ type VP8Encoder struct {
 	interRDThreshBaselineGen   uint32
 	interRDThreshBaselineSlots [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
 	interRDFrameBaseQIndex     int
+	// Derived per-MB thresholds maintained incrementally, mirroring libvpx's
+	// x->rd_threshes discipline: initialized from the baseline once per
+	// (frame, baseline-slot) and updated at a single mode index inside the
+	// raise/lower helpers (pickinter.c:831/1157/1171/1188, rdopt.c:1896/2266)
+	// instead of re-deriving all 20 entries per macroblock. The stamp ties
+	// the cache to a specific fill of a specific baseline slot; any slot
+	// refill, generation bump or frame begin invalidates it.
+	interRDDerivedThresh   [libvpxInterModeCount]int
+	interRDDerivedBaseline [libvpxInterModeCount]int
+	interRDDerivedStamp    uint64
+	interRDDerivedValid    bool
+	interRDThreshFillSeq   uint32
 	// Per-frame search-order (refs are constant per frame) so the
 	// per-MB picker doesn't recompute it in every loop body.
 	interRDFrameRefSearchOrder      [4]int8

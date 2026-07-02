@@ -316,6 +316,7 @@ type interRDThreshBaselineSlot struct {
 	gen      uint32
 	qIndex   int32
 	refSig   uint32
+	fillSeq  uint32
 	valid    bool
 	baseline [libvpxInterModeCount]int
 }
@@ -358,6 +359,16 @@ func interRDThreshBaselineRefSig(refCount int, lastEnabled bool, goldenEnabled b
 // closest-ref distances). Building the fingerprint is cheap relative to the
 // cached body and only walks the refs slice once.
 func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
+	baseline, _ := e.interModeRDThresholdsBaselineRef(qIndex, refs, refCount)
+	return *baseline
+}
+
+// interModeRDThresholdsBaselineRef is the cache-slot-returning form of
+// interModeRDThresholdsBaseline: it returns a pointer into the live cache
+// slot plus a stamp that uniquely identifies the slot fill (generation in
+// the high half, per-encoder fill sequence in the low half). Callers must
+// consume the pointer before the next call that could refill a slot.
+func (e *VP8Encoder) interModeRDThresholdsBaselineRef(qIndex int, refs []interAnalysisReference, refCount int) (*[libvpxInterModeCount]int, uint64) {
 	context := libvpxInterModeThresholdContext{}
 	if refCount > 0 {
 		context.temporalLayers = e.libvpxTemporalLayerCount()
@@ -383,7 +394,7 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 	for i := range slots {
 		slot := &slots[i]
 		if slot.valid && slot.gen == gen && slot.qIndex == q32 && slot.refSig == refSig {
-			return slot.baseline
+			return &slot.baseline, uint64(gen)<<32 | uint64(slot.fillSeq)
 		}
 	}
 	var baseline [libvpxInterModeCount]int
@@ -426,12 +437,14 @@ func (e *VP8Encoder) interModeRDThresholdsBaseline(qIndex int, refs []interAnaly
 	// victim is 0 or a loop index in [0, interRDThreshBaselineSlotCount=4),
 	// so AND-mask with 3 elides the bounds check on the [4]slot array.
 	slot := &slots[victim&3]
+	e.interRDThreshFillSeq++
 	slot.valid = true
 	slot.gen = gen
 	slot.qIndex = q32
 	slot.refSig = refSig
+	slot.fillSeq = e.interRDThreshFillSeq
 	slot.baseline = baseline
-	return baseline
+	return &slot.baseline, uint64(gen)<<32 | uint64(slot.fillSeq)
 }
 
 func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []interAnalysisReference, refCount int) [libvpxInterModeCount]int {
@@ -441,11 +454,19 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 
 func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, refs []interAnalysisReference, refCount int) ([libvpxInterModeCount]int, [libvpxInterModeCount]int) {
 	baselineQIndex := e.interModeRDThresholdQIndex(qIndex)
-	baseline := e.interModeRDThresholdsBaseline(baselineQIndex, refs, refCount)
+	baseline, stamp := e.interModeRDThresholdsBaselineRef(baselineQIndex, refs, refCount)
 	if !e.interRDFrameActive {
-		return baseline, baseline
+		return *baseline, *baseline
 	}
-	thresholds := baseline
+	// libvpx maintains x->rd_threshes[] incrementally: initialized once per
+	// frame (vp8_initialize_rd_consts) and rewritten at a single mode index
+	// inside the raise/lower helpers. Mirror that by deriving the full table
+	// only when the (frame, baseline-slot) stamp changes; the helpers keep
+	// interRDDerivedThresh in sync at the touched index afterwards.
+	if e.interRDDerivedValid && e.interRDDerivedStamp == stamp {
+		return e.interRDDerivedThresh, *baseline
+	}
+	thresholds := *baseline
 	touched := &e.interRDThreshTouched
 	mult := &e.interRDThreshMult
 	for i := range thresholds {
@@ -457,7 +478,25 @@ func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, r
 			thresholds[i] = (v >> 7) * mult[i]
 		}
 	}
-	return thresholds, baseline
+	e.interRDDerivedThresh = thresholds
+	e.interRDDerivedBaseline = *baseline
+	e.interRDDerivedStamp = stamp
+	e.interRDDerivedValid = true
+	return thresholds, *baseline
+}
+
+// updateDerivedInterRDThreshold keeps the derived per-MB threshold table in
+// sync after a raise/lower mutates interRDThreshMult[modeIndex]. Mirrors the
+// in-place x->rd_threshes[mode_index] update at libvpx pickinter.c:831/1157/
+// 1171/1188 and rdopt.c:1896/2266. Disabled baseline entries stay disabled
+// (the bulk derivation skips them the same way).
+func (e *VP8Encoder) updateDerivedInterRDThreshold(modeIndex int) {
+	if !e.interRDDerivedValid {
+		return
+	}
+	if b := e.interRDDerivedBaseline[modeIndex]; b != libvpxInterModeThresholdDisabled {
+		e.interRDDerivedThresh[modeIndex] = (b >> 7) * e.interRDThreshMult[modeIndex]
+	}
 }
 
 func interModeRDBestThresholdLowerAllowed(baseline [libvpxInterModeCount]int, modeIndex int) bool {
@@ -491,6 +530,7 @@ func (e *VP8Encoder) resetInterRDThresholdMultipliers() {
 		e.interRDThreshMult[i] = libvpxRDThreshMultStart
 	}
 	e.interRDThreshTouched = [libvpxInterModeCount]bool{}
+	e.interRDDerivedValid = false
 	e.interModeTestHitCounts = [libvpxInterModeCount]int{}
 	e.interMBsTestedSoFar = 0
 	// Bump the baseline cache generation so a follow-up frame doesn't
@@ -595,6 +635,7 @@ func (e *VP8Encoder) lowerInterRDThresholdForImprovement(modeIndex int) {
 		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
 	}
 	e.interRDThreshTouched[modeIndex] = true
+	e.updateDerivedInterRDThreshold(modeIndex)
 }
 
 func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
@@ -606,6 +647,7 @@ func (e *VP8Encoder) raiseInterRDThreshold(modeIndex int) {
 		e.interRDThreshMult[modeIndex] = libvpxMaxThreshMult
 	}
 	e.interRDThreshTouched[modeIndex] = true
+	e.updateDerivedInterRDThreshold(modeIndex)
 }
 
 func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
@@ -619,6 +661,7 @@ func (e *VP8Encoder) lowerBestInterRDThreshold(modeIndex int) {
 		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
 	}
 	e.interRDThreshTouched[modeIndex] = true
+	e.updateDerivedInterRDThreshold(modeIndex)
 }
 
 func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
@@ -632,6 +675,7 @@ func (e *VP8Encoder) lowerBestInterFastThreshold(modeIndex int) {
 		e.interRDThreshMult[modeIndex] = libvpxMinThreshMult
 	}
 	e.interRDThreshTouched[modeIndex] = true
+	e.updateDerivedInterRDThreshold(modeIndex)
 }
 
 func (e *VP8Encoder) recordFastInterModeErrorBin(distortion int) {

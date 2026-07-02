@@ -271,13 +271,16 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 	if ref == nil || refFrame == vp8common.IntraFrame || mbMode == vp8common.SplitMV {
 		return 0, 0, 0, 0, false, false
 	}
-	mode := vp8enc.InterFrameMacroblockMode{RefFrame: refFrame, Mode: mbMode, MV: mv, SegmentID: segmentID}
-	var modeRate int
-	if ctx != nil {
-		modeRate = e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(&mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, vp8enc.FastNewMVBitCostWeight)
-	} else {
-		modeRate = e.fastInterMotionModeRateWithReferenceRate(&mode, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, refRate)
-	}
+	// Reuse the loop context's candidate slot instead of rebuilding the
+	// ~100-byte struct literal per candidate (libvpx mutates the shared
+	// mbmi in place). Only the four fields the scoring callees read are
+	// written; the rest stay zero from the per-MB context init.
+	mode := &ctx.candMode
+	mode.RefFrame = refFrame
+	mode.Mode = mbMode
+	mode.MV = mv
+	mode.SegmentID = segmentID
+	modeRate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mv, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
@@ -300,7 +303,7 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 		}
 		score = (score * adj * pickmodeMVBias) / 10000
 	}
-	breakoutSkip := vp8enc.StaticInterFastEncodeBreakout(src, ref, mbRow, mbCol, &mode, quant, e.interStaticThresholdForSegment(segmentID), sse)
+	breakoutSkip := vp8enc.StaticInterFastEncodeBreakout(src, ref, mbRow, mbCol, mode, quant, e.interStaticThresholdForSegment(segmentID), sse)
 	return score, variance, sse, modeRate, breakoutSkip, true
 }
 

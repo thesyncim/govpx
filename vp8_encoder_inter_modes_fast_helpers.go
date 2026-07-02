@@ -17,6 +17,33 @@ type fastInterModeLoopContext struct {
 	search      interAnalysisSearchConfig
 	signBias    [vp8common.MaxRefFrames]bool
 	searchSet   bool
+	// candMode is the per-candidate scoring slot reused across the mode
+	// loop. libvpx's vp8_pick_inter_mode mutates the shared
+	// x->e_mbd.mode_info_context->mbmi in place per candidate; rebuilding
+	// the ~100-byte InterFrameMacroblockMode literal per candidate was a
+	// measurable memset in the 720p realtime profile. Only RefFrame, Mode,
+	// MV and SegmentID are written per candidate — the score/rate/breakout
+	// callees never mutate the struct and never read the remaining fields
+	// (BlockMV/BModes/UVMode/Partition/MBSkipCoeff stay zero from the
+	// per-MB context zeroing).
+	candMode vp8enc.InterFrameMacroblockMode
+	// intraRefs caches the luma intra predictor neighbor stripes for the
+	// whole-block intra candidates. libvpx builds the above/left pointers
+	// once per MB (xd->dst.y_buffer - stride / -1) and reuses them for
+	// every DC/V/H/TM candidate; the stripes only depend on pixels outside
+	// the MB, which no intra candidate scoring write touches.
+	intraRefs    vp8dec.IntraPredictorRefs
+	intraRefsSet bool
+}
+
+// lumaIntraRefs returns the cached per-MB luma intra predictor refs,
+// building them on first use.
+func (ctx *fastInterModeLoopContext) lumaIntraRefs(e *VP8Encoder, mbRow int, mbCol int) vp8dec.IntraPredictorRefs {
+	if !ctx.intraRefsSet {
+		ctx.intraRefs = vp8dec.BuildIntraPredictorRefsLuma(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
+		ctx.intraRefsSet = true
+	}
+	return ctx.intraRefs
 }
 
 const fastInterVarianceCacheSize = 16
@@ -36,9 +63,9 @@ func (ctx *fastInterModeLoopContext) searchConfig(e *VP8Encoder) interAnalysisSe
 	return ctx.search
 }
 
-func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
+func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, mbMode vp8common.MBPredictionMode, bestSSE int, quant *vp8enc.MacroblockQuant, ctx *fastInterModeLoopContext) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
 	if mbMode == vp8common.BPred {
-		return e.estimateFastBPredIntraModeScore(src, mbRow, mbCol, qIndex, bestSSE, quant)
+		return e.estimateFastBPredIntraModeScore(src, mbRow, mbCol, qIndex, bestSSE, quant, ctx)
 	}
 	if mbMode < vp8common.DCPred || mbMode > vp8common.TMPred {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
@@ -47,9 +74,15 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	// derefs e.interRDFrameActive before invoking us); the legacy nil-guarded
 	// branch below was a no-op cost driver. Hoist the analysis image / zbin
 	// loads into locals so the predict + variance calls share a single read.
+	// The neighbor stripes are cached per MB in the loop context: libvpx's
+	// vp8_pick_inter_mode scores every whole-block intra candidate with the
+	// same above/left pointers, and nothing the candidate loop writes
+	// touches the stripe pixels outside the MB.
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	analysisImg := &e.analysis.Img
-	if !predictAnalysisMacroblockLuma(analysisImg, mbRow, mbCol, mbMode, &e.reconstructScratch) {
+	refs := ctx.lumaIntraRefs(e, mbRow, mbCol)
+	yOff := mbRow*16*analysisImg.YStride + mbCol*16
+	if !vp8dec.PredictIntraY16x16(mbMode, analysisImg.Y[yOff:], analysisImg.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	variance, sse := vp8enc.MacroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
@@ -81,7 +114,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 //     (the saved raw predictor blocks, not the reconstructed analysis plane)
 //     is the "distortion2" libvpx feeds into the outer RDCOST in
 //     vp8_pick_inter_mode.
-func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int, quant *vp8enc.MacroblockQuant) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
+func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbRow int, mbCol int, qIndex int, bestSSE int, quant *vp8enc.MacroblockQuant, ctx *fastInterModeLoopContext) (vp8enc.InterFrameMacroblockMode, int, int, int, int, bool) {
 	if quant == nil {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
@@ -96,7 +129,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	analysisImg := &e.analysis.Img
-	refs := vp8dec.BuildIntraPredictorRefsLuma(analysisImg, mbRow, mbCol, &e.reconstructScratch.Refs)
+	refs := ctx.lumaIntraRefs(e, mbRow, mbCol)
 	yStride := analysisImg.YStride
 	yOff := mbRow*16*yStride + mbCol*16
 	y := analysisImg.Y[yOff:]

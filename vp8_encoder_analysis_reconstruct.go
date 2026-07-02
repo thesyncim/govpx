@@ -63,18 +63,6 @@ func predictAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8
 		vp8dec.PredictIntraUV8x8(mode.UVMode, img.V[vOff:], img.VStride, refs.VAbove, refs.VLeft, refs.VTopLeft, refs.UpAvailable, refs.LeftAvailable)
 }
 
-// predictAnalysisMacroblockLuma builds only the 16x16 luma predictor for the
-// fast intra mode picker. libvpx's vp8_pick_inter_mode scores intra
-// candidates with vp8_build_intra_predictors_mby_s + a luma variance and
-// leaves the UV mode to a separate pass over the winner, so the chroma
-// predictors written by predictAnalysisMacroblock were dead work on this
-// path.
-func predictAnalysisMacroblockLuma(img *vp8common.Image, row int, col int, mode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
-	refs := vp8dec.BuildIntraPredictorRefsLuma(img, row, col, &scratch.Refs)
-	yOff := row*16*img.YStride + col*16
-	return vp8dec.PredictIntraY16x16(mode, img.Y[yOff:], img.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable)
-}
-
 func predictAnalysisChroma(img *vp8common.Image, row int, col int, uvMode vp8common.MBPredictionMode, scratch *vp8dec.IntraReconstructionScratch) bool {
 	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
 	uOff := row*8*img.UStride + col*8
@@ -329,7 +317,14 @@ func predictInterAnalysisSplitMVChroma(img *vp8common.Image, last *vp8common.Ima
 }
 
 // addInterResidualToAnalysisMacroblock assumes img already contains the
-// matching inter predictor for mode at row/col.
+// matching inter predictor for mode at row/col. The residual is applied with
+// the fused dequant+IDCT+add pair kernels — the same
+// vp8_inverse_transform_mby + vp8_dequant_idct_add_uv_block pair libvpx's
+// vp8cx_encode_inter_macroblock runs (encodeframe.c:1288-1291). The tokens
+// come from ConvertMacroblockCoefficients, whose EOB >= 2 blocks are full
+// copies of quantizer output (all 16 slots written, zeros beyond EOB) and
+// whose EOB <= 1 blocks are covered by the fused kernels' sanitize/DC-gate
+// guards; see vp8dec.DequantIDCTAddMacroblock for the audit.
 func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
 	if img == nil || mode == nil || tokens == nil || dequant == nil || scratch == nil || mode.RefFrame == vp8common.IntraFrame {
 		return false
@@ -346,9 +341,7 @@ func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
 	is4x4 := mode.Is4x4 || mode.Mode == vp8common.SplitMV
-	vp8dec.TransformMacroblockTokens(tokens, dequant, is4x4, &scratch.Residual)
-	vp8dec.AddMacroblockResidual(tokens, &scratch.Residual, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
-	applyLibvpxY2EobAdjustToAnalysisMacroblock(tokens, is4x4, &scratch.Residual, img.Y[yOff:], img.YStride)
+	vp8dec.DequantIDCTAddMacroblock(tokens, dequant, is4x4, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
 	return true
 }
 
