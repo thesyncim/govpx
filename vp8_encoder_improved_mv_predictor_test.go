@@ -113,7 +113,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingCurrentFrame(t *test
 			start := e.improvedInterFrameSearchStart(
 				sourceImageFromPublic(src), vp8common.LastFrame,
 				tc.row, tc.col, mbRows, mbCols,
-				above, left, aboveLeft, search,
+				above, left, aboveLeft, search, nil,
 			)
 			if !start.ok() {
 				t.Fatalf("expected predictor to return a start, got not-ok")
@@ -202,7 +202,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 				start := e.improvedInterFrameSearchStart(
 					sourceImageFromPublic(src), vp8common.LastFrame,
 					row, col, mbRows, mbCols,
-					nil, nil, nil, search,
+					nil, nil, nil, search, nil,
 				)
 				if !start.ok() {
 					t.Fatalf("predictor returned not-ok at (%d,%d)", row, col)
@@ -258,7 +258,7 @@ func TestImprovedInterFrameSearchStartIgnoresStaleMVOnIntraNeighbor(t *testing.T
 	start := e.improvedInterFrameSearchStart(
 		sourceImageFromPublic(src), vp8common.LastFrame,
 		1, 1, mbRows, mbCols,
-		&above, &left, &aboveLeft, search,
+		&above, &left, &aboveLeft, search, nil,
 	)
 	if !start.ok() {
 		t.Fatalf("predictor returned not-ok")
@@ -331,7 +331,7 @@ func TestImprovedInterFrameSearchStartIntraSlotsAffectSADRank(t *testing.T) {
 		sourceImageFromPublic(src), vp8common.LastFrame,
 		1, 1, mbRows, mbCols,
 		&above, &left, &aboveLeft,
-		interAnalysisSearchConfig{improvedMVPrediction: true},
+		interAnalysisSearchConfig{improvedMVPrediction: true}, nil,
 	)
 	if !start.ok() {
 		t.Fatalf("predictor returned not-ok")

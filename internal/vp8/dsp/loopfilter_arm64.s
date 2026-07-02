@@ -1218,3 +1218,331 @@ TEXT ·loopFilterSimpleEdgeV16NEON(SB), NOSPLIT, $0-17
 	WORD	$0x0d201d20                 // st2.b { v0, v1 }[7], [x9]
 
 	RET
+
+// loopFilterEdgeH8x8PairNEON ABI ($0-27):
+//   u+0(FP)       *byte (points at the p3 row of U, 8 bytes/row)
+//   v+8(FP)       *byte (points at the p3 row of V, 8 bytes/row)
+//   pitch+16(FP)  int
+//   blimit+24(FP) byte
+//   limit+25(FP)  byte
+//   thresh+26(FP) byte
+//
+// Direct libvpx vp8_loop_filter_horizontal_edge_uv_neon port: each U row
+// loads into the low 8 lanes and the matching V row into the high 8 lanes
+// of one q register (vcombine_u8 in the C source); the 16-wide filter body
+// is byte-identical to loopFilterEdgeH16NEON above. Writes p1,p0,q0,q1
+// back to both planes.
+TEXT ·loopFilterEdgeH8x8PairNEON(SB), NOSPLIT, $0-27
+	MOVD	u+0(FP), R0
+	MOVD	v+8(FP), R1
+	MOVD	pitch+16(FP), R2
+	MOVBU	blimit+24(FP), R3
+	MOVBU	limit+25(FP), R4
+	MOVBU	thresh+26(FP), R5
+
+	WORD	$0x4e010c60                 // dup v0.16b, w3  (blimit)
+	WORD	$0x4e010c81                 // dup v1.16b, w4  (limit)
+	WORD	$0x4e010ca2                 // dup v2.16b, w5  (thresh)
+
+	// Interleaved U/V row loads walking both planes by pitch; the four
+	// writeback rows (p1,p0,q0,q1) keep their addresses in R6..R13.
+	// Register map matches loopFilterEdgeH16NEON: v17=p3, v3=p2, v4=p1,
+	// v5=p0, v6=q0, v7=q1, v16=q2, v18=q3.
+	VLD1	(R0), [V17.B8]              // U p3
+	VLD1	(R1), V17.D[1]              // V p3
+	ADD	R2, R0
+	ADD	R2, R1
+	VLD1	(R0), [V3.B8]               // p2
+	VLD1	(R1), V3.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R6                      // U p1 row
+	MOVD	R1, R7                      // V p1 row
+	VLD1	(R0), [V4.B8]               // p1
+	VLD1	(R1), V4.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R8                      // U p0 row
+	MOVD	R1, R9                      // V p0 row
+	VLD1	(R0), [V5.B8]               // p0
+	VLD1	(R1), V5.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R10                     // U q0 row
+	MOVD	R1, R11                     // V q0 row
+	VLD1	(R0), [V6.B8]               // q0
+	VLD1	(R1), V6.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R12                     // U q1 row
+	MOVD	R1, R13                     // V q1 row
+	VLD1	(R0), [V7.B8]               // q1
+	VLD1	(R1), V7.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	VLD1	(R0), [V16.B8]              // q2
+	VLD1	(R1), V16.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	VLD1	(R0), [V18.B8]              // q3
+	VLD1	(R1), V18.D[1]
+
+	// Filter body: byte-identical to loopFilterEdgeH16NEON.
+	WORD	$0x6e237631                 // uabd v17, v17, v3
+	WORD	$0x6e247463                 // uabd v3,  v3,  v4
+	WORD	$0x6e257493                 // uabd v19, v4,  v5
+	WORD	$0x6e2674f4                 // uabd v20, v7,  v6
+	WORD	$0x6e277615                 // uabd v21, v16, v7
+	WORD	$0x6e307650                 // uabd v16, v18, v16
+	WORD	$0x6e2674b2                 // uabd v18, v5,  v6  (|p0-q0|)
+	WORD	$0x6e277496                 // uabd v22, v4,  v7  (|p1-q1|)
+
+	WORD	$0x6e236623                 // umax v3,  v17, v3
+	WORD	$0x6e346671                 // umax v17, v19, v20
+	WORD	$0x6e236623                 // umax v3,  v17, v3
+	WORD	$0x6e356463                 // umax v3,  v3,  v21
+	WORD	$0x6e306463                 // umax v3,  v3,  v16
+
+	WORD	$0x6e313c42                 // cmhs v2, v2, v17  ; NOT hev
+
+	WORD	$0x6e320e50                 // uqadd v16, v18, v18
+	WORD	$0x6f0f06d1                 // ushr  v17, v22, #1
+	WORD	$0x6e310e10                 // uqadd v16, v16, v17
+
+	WORD	$0x6e233c21                 // cmhs v1, v1, v3   ; (limit >= max-internals)
+	WORD	$0x6e303c00                 // cmhs v0, v0, v16  ; (blimit >= composite)
+	WORD	$0x4e201c20                 // and  v0, v1, v0   ; filterMask
+
+	WORD	$0x4f04e401                 // movi v1.16b, #0x80
+	WORD	$0x6e211c83                 // eor v3, v4, v1   ; sps1
+	WORD	$0x6e211ca4                 // eor v4, v5, v1   ; sps0
+	WORD	$0x6e211cc5                 // eor v5, v6, v1   ; sqs0
+	WORD	$0x6e211ce6                 // eor v6, v7, v1   ; sqs1
+
+	WORD	$0x4e262c67                 // sqsub v7, v3, v6
+	WORD	$0x4e621ce7                 // bic v7, v7, v2
+
+	WORD	$0x0f00e470                 // movi v16.8b, #3
+	WORD	$0x0e30c0b1                 // smull  v17, v5_low, v16
+	WORD	$0x0e30a091                 // smlsl  v17, v4_low, v16
+	WORD	$0x4f00e470                 // movi v16.16b, #3
+	WORD	$0x4e30c0b2                 // smull2 v18, v5, v16
+	WORD	$0x4e30a092                 // smlsl2 v18, v4, v16
+
+	WORD	$0x0e271231                 // saddw  v17, v17, v7
+	WORD	$0x4e271247                 // saddw2 v7,  v18, v7
+
+	WORD	$0x0e214a31                 // sqxtn  v17, v17
+	WORD	$0x4e2148f1                 // sqxtn2 v17, v7
+
+	WORD	$0x4e311c00                 // and v0, v0, v17     ; filterMask & fv
+
+	WORD	$0x4f00e487                 // movi v7.16b, #4
+	WORD	$0x4e270c07                 // sqadd v7, v0, v7
+	WORD	$0x4f0d04e7                 // sshr  v7, v7, #3
+	WORD	$0x4e300c00                 // sqadd v0, v0, v16   ; v16 still = 3
+	WORD	$0x4f0d0400                 // sshr  v0, v0, #3
+
+	WORD	$0x4e272ca5                 // sqsub v5, v5, v7    ; sqs0 -= f1
+	WORD	$0x4e200c80                 // sqadd v0, v4, v0    ; v0 = sps0 + f2
+
+	WORD	$0x4f0f24e4                 // srshr v4, v7, #1
+	WORD	$0x4e241c42                 // and   v2, v2, v4    ; (~hev) & rshr(f1,1)
+	WORD	$0x4e222cc4                 // sqsub v4, v6, v2    ; sqs1 - masked
+	WORD	$0x4e220c62                 // sqadd v2, v3, v2    ; sps1 + masked
+
+	WORD	$0x6e211c42                 // eor v2, v2, v1   ; p1
+	WORD	$0x6e211c00                 // eor v0, v0, v1   ; p0
+	VST1	[V2.B8], (R6)               // U p1
+	VST1	V2.D[1], (R7)               // V p1
+	VST1	[V0.B8], (R8)               // U p0
+	VST1	V0.D[1], (R9)               // V p0
+	WORD	$0x6e211ca0                 // eor v0, v5, v1   ; q0
+	WORD	$0x6e211c81                 // eor v1, v4, v1   ; q1
+	VST1	[V0.B8], (R10)              // U q0
+	VST1	V0.D[1], (R11)              // V q0
+	VST1	[V1.B8], (R12)              // U q1
+	VST1	V1.D[1], (R13)              // V q1
+
+	RET
+
+// mbLoopFilterEdgeH8x8PairNEON ABI ($0-27):
+//   u+0(FP)       *byte (points at the p3 row of U, 8 bytes/row)
+//   v+8(FP)       *byte (points at the p3 row of V, 8 bytes/row)
+//   pitch+16(FP)  int
+//   blimit+24(FP) byte
+//   limit+25(FP)  byte
+//   thresh+26(FP) byte
+//
+// Direct libvpx vp8_mbloop_filter_horizontal_edge_uv_neon port: U rows in
+// the low 8 lanes, V rows in the high 8 lanes; the filter body is
+// byte-identical to mbLoopFilterEdgeH16NEON. Writes p2..q2 to both planes.
+TEXT ·mbLoopFilterEdgeH8x8PairNEON(SB), NOSPLIT, $0-27
+	MOVD	u+0(FP), R0
+	MOVD	v+8(FP), R1
+	MOVD	pitch+16(FP), R2
+	MOVBU	blimit+24(FP), R3
+	MOVBU	limit+25(FP), R4
+	MOVBU	thresh+26(FP), R5
+
+	WORD	$0x4e010c60                 // dup v0.16b, w3  (blimit)
+	WORD	$0x4e010c81                 // dup v1.16b, w4  (limit)
+	WORD	$0x4e010ca2                 // dup v2.16b, w5  (thresh)
+
+	// Register map matches mbLoopFilterEdgeH16NEON: v7=p3, v3=p2, v4=p1,
+	// v5=p0, v6=q0, v16=q1, v17=q2, v18=q3. Writeback rows p2..q2 keep
+	// their addresses in R3..R14 (R3..R5 are free after the dups).
+	VLD1	(R0), [V7.B8]               // U p3
+	VLD1	(R1), V7.D[1]               // V p3
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R3                      // U p2 row
+	MOVD	R1, R4                      // V p2 row
+	VLD1	(R0), [V3.B8]               // p2
+	VLD1	(R1), V3.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R5                      // U p1 row
+	MOVD	R1, R6                      // V p1 row
+	VLD1	(R0), [V4.B8]               // p1
+	VLD1	(R1), V4.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R7                      // U p0 row
+	MOVD	R1, R8                      // V p0 row
+	VLD1	(R0), [V5.B8]               // p0
+	VLD1	(R1), V5.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R9                      // U q0 row
+	MOVD	R1, R10                     // V q0 row
+	VLD1	(R0), [V6.B8]               // q0
+	VLD1	(R1), V6.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R11                     // U q1 row
+	MOVD	R1, R12                     // V q1 row
+	VLD1	(R0), [V16.B8]              // q1
+	VLD1	(R1), V16.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	MOVD	R0, R13                     // U q2 row
+	MOVD	R1, R14                     // V q2 row
+	VLD1	(R0), [V17.B8]              // q2
+	VLD1	(R1), V17.D[1]
+	ADD	R2, R0
+	ADD	R2, R1
+	VLD1	(R0), [V18.B8]              // q3
+	VLD1	(R1), V18.D[1]
+
+	// Filter body: byte-identical to mbLoopFilterEdgeH16NEON.
+	WORD	$0x6e2374e7                 // uabd v7, v7, v3   (|p3-p2|)
+	WORD	$0x6e247473                 // uabd v19, v3, v4  (|p2-p1|)
+	WORD	$0x6e257494                 // uabd v20, v4, v5  (|p1-p0|)
+	WORD	$0x6e267615                 // uabd v21, v16, v6 (|q1-q0|)
+	WORD	$0x6e307636                 // uabd v22, v17, v16 (|q2-q1|)
+	WORD	$0x6e317652                 // uabd v18, v18, v17 (|q3-q2|)
+	WORD	$0x6e2674b7                 // uabd v23, v5, v6  (|p0-q0|)
+	WORD	$0x6e307498                 // uabd v24, v4, v16 (|p1-q1|)
+
+	WORD	$0x6e3364e7                 // umax v7, v7, v19
+	WORD	$0x6e356693                 // umax v19, v20, v21
+	WORD	$0x6e276667                 // umax v7, v19, v7
+	WORD	$0x6e3664e7                 // umax v7, v7, v22
+	WORD	$0x6e3264e7                 // umax v7, v7, v18
+
+	WORD	$0x6e370ef2                 // uqadd v18, v23, v23
+	WORD	$0x6f0f0714                 // ushr  v20, v24, #1
+	WORD	$0x6e340e52                 // uqadd v18, v18, v20
+
+	WORD	$0x6e273c21                 // cmhs v1, v1, v7    ; (limit >= max)
+	WORD	$0x6e323c00                 // cmhs v0, v0, v18   ; (blimit >= composite)
+	WORD	$0x4e201c27                 // and  v7, v1, v0    ; filterMask
+
+	WORD	$0x6e333c52                 // cmhs v18, v2, v19  ; NOT-hev
+
+	WORD	$0x4f04e400                 // movi v0.16b, #0x80
+	WORD	$0x6e201c61                 // eor v1, v3,  v0    ; sps2
+	WORD	$0x6e201c83                 // eor v3, v4,  v0    ; sps1
+	WORD	$0x6e201ca4                 // eor v4, v5,  v0    ; sps0
+	WORD	$0x6e201cc5                 // eor v5, v6,  v0    ; sqs0
+	WORD	$0x6e201e06                 // eor v6, v16, v0    ; sqs1
+	WORD	$0x6e201e22                 // eor v2, v17, v0    ; sqs2
+
+	WORD	$0x4e262c70                 // sqsub v16, v3, v6
+	WORD	$0x0f00e471                 // movi v17.8b, #3
+	WORD	$0x0e31c0b3                 // smull v19, v5, v17
+	WORD	$0x0e31a093                 // smlsl v19, v4, v17
+	WORD	$0x4f00e471                 // movi v17.16b, #3
+	WORD	$0x4e31c0b4                 // smull2 v20, v5, v17
+	WORD	$0x4e31a094                 // smlsl2 v20, v4, v17
+	WORD	$0x0e301273                 // saddw  v19, v19, v16
+	WORD	$0x4e301290                 // saddw2 v16, v20, v16
+	WORD	$0x0e214a73                 // sqxtn  v19, v19
+	WORD	$0x4e214a13                 // sqxtn2 v19, v16
+	WORD	$0x4e331ce7                 // and v7, v7, v19    ; filterMask & fv
+
+	WORD	$0x4e721cf0                 // bic v16, v7, v18   ; fv2 = fv & hev
+	WORD	$0x4f00e493                 // movi v19.16b, #4
+	WORD	$0x4e330e13                 // sqadd v19, v16, v19
+	WORD	$0x4f0d0673                 // sshr  v19, v19, #3 ; f1
+	WORD	$0x4e310e10                 // sqadd v16, v16, v17 ; v17 still = 3
+	WORD	$0x4f0d0610                 // sshr  v16, v16, #3 ; f2
+	WORD	$0x4e332ca5                 // sqsub v5, v5, v19  ; sqs0 -= f1
+	WORD	$0x4e300c84                 // sqadd v4, v4, v16  ; sps0 += f2
+
+	WORD	$0x4e271e47                 // and v7, v18, v7    ; (~hev) & fv
+
+	WORD	$0x4f00e770                 // movi v16.16b, #0x1b (27)
+	WORD	$0x0f00e771                 // movi v17.8b,  #0x1b
+	WORD	$0x4f0187f2                 // movi v18.8h,  #0x3f (63)
+	WORD	$0x4f0187f3                 // movi v19.8h,  #0x3f
+	WORD	$0x0e3180f3                 // smlal v19, v7, v17
+	WORD	$0x4f0187f1                 // movi v17.8h, #0x3f
+	WORD	$0x4e3080f1                 // smlal2 v17, v7, v16
+	WORD	$0x0f099670                 // sqshrn  v16, v19, #7
+	WORD	$0x4f099630                 // sqshrn2 v16, v17, #7
+	WORD	$0x4e302ca5                 // sqsub v5, v5, v16
+	WORD	$0x4e300c84                 // sqadd v4, v4, v16
+
+	WORD	$0x4f00e650                 // movi v16.16b, #0x12 (18)
+	WORD	$0x0f00e651                 // movi v17.8b, #0x12
+	WORD	$0x4f0187f3                 // movi v19.8h, #0x3f
+	WORD	$0x0e3180f3                 // smlal v19, v7, v17
+	WORD	$0x4f0187f1                 // movi v17.8h, #0x3f
+	WORD	$0x4e3080f1                 // smlal2 v17, v7, v16
+	WORD	$0x0f099670                 // sqshrn v16, v19, #7
+	WORD	$0x4f099630                 // sqshrn2 v16, v17, #7
+	WORD	$0x4e302cc6                 // sqsub v6, v6, v16
+	WORD	$0x4e300c63                 // sqadd v3, v3, v16
+
+	WORD	$0x4f00e530                 // movi v16.16b, #0x9
+	WORD	$0x0f00e531                 // movi v17.8b, #0x9
+	WORD	$0x4f0187f3                 // movi v19.8h, #0x3f
+	WORD	$0x0e3180f3                 // smlal v19, v7, v17
+	WORD	$0x4e3080f2                 // smlal2 v18, v7, v16
+	WORD	$0x0f099667                 // sqshrn  v7, v19, #7
+	WORD	$0x4f099647                 // sqshrn2 v7, v18, #7
+	WORD	$0x4e272c42                 // sqsub v2, v2, v7
+	WORD	$0x4e270c21                 // sqadd v1, v1, v7
+
+	WORD	$0x6e201c21                 // eor v1, v1, v0  -- p2
+	WORD	$0x6e201c63                 // eor v3, v3, v0  -- p1
+	WORD	$0x6e201c84                 // eor v4, v4, v0  -- p0
+	WORD	$0x6e201ca5                 // eor v5, v5, v0  -- q0
+	VST1	[V1.B8], (R3)               // U p2
+	VST1	V1.D[1], (R4)               // V p2
+	VST1	[V3.B8], (R5)               // U p1
+	VST1	V3.D[1], (R6)               // V p1
+	VST1	[V4.B8], (R7)               // U p0
+	VST1	V4.D[1], (R8)               // V p0
+	VST1	[V5.B8], (R9)               // U q0
+	VST1	V5.D[1], (R10)              // V q0
+	WORD	$0x6e201cc1                 // eor v1, v6, v0  -- q1
+	WORD	$0x6e201c40                 // eor v0, v2, v0  -- q2
+	VST1	[V1.B8], (R11)              // U q1
+	VST1	V1.D[1], (R12)              // V q1
+	VST1	[V0.B8], (R13)              // U q2
+	VST1	V0.D[1], (R14)              // V q2
+
+	RET

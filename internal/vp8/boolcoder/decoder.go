@@ -1,6 +1,7 @@
 package boolcoder
 
 import (
+	"encoding/binary"
 	"errors"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
@@ -64,8 +65,8 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 	}
 
 	shift := tables.BoolNorm[byte(rng)]
-	rng <<= shift
-	value <<= shift
+	rng <<= shift & 31
+	value <<= shift & 63
 	count -= int(shift)
 
 	d.value = value
@@ -96,8 +97,8 @@ func (d *Decoder) ReadBit() uint8 {
 	}
 
 	shift := tables.BoolNorm[byte(rng)]
-	rng <<= shift
-	value <<= shift
+	rng <<= shift & 31
+	value <<= shift & 63
 	count -= int(shift)
 
 	d.value = value
@@ -123,12 +124,23 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	pos := d.pos
 	buf := d.buf
 
-	p := (*probs)[blockType][n][ctx]
-	rng0 := rng
-	split := uint32(1 + (((rng0 - 1) * uint32(p[0])) >> 8))
-	if count < 0 {
+	// fill mirrors libvpx v1.16.0 vp8/decoder/dboolhuff.c
+	// vp8dx_bool_decoder_fill. When more than 8 bytes remain the byte loop
+	// is replaced by a single big-endian 8-byte load that consumes the
+	// identical (shift>>3)+1 bytes and produces bit-identical value/count
+	// evolution; the strictly-greater guard keeps the end-of-buffer
+	// VP8_LOTS_OF_BITS accounting on the byte loop.
+	fill := func() {
 		shift := valueSize - 8 - (count + 8)
 		bytesLeft := len(buf) - pos
+		if bytesLeft > 8 {
+			big := binary.BigEndian.Uint64(buf[pos:])
+			consumed := (shift >> 3) + 1
+			value |= (big >> (uint(56-shift) & 63)) &^ (uint64(1)<<uint(shift&7) - 1)
+			count += consumed << 3
+			pos += consumed
+			return
+		}
 		bitsLeft := bytesLeft * 8
 		x := shift + 8 - bitsLeft
 		loopEnd := 0
@@ -141,11 +153,22 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 		if x < 0 || bitsLeft != 0 {
 			for shift >= loopEnd {
 				count += 8
-				value |= uint64(buf[pos]) << uint(shift)
+				value |= uint64(buf[pos]) << (uint(shift) & 63)
 				pos++
 				shift -= 8
 			}
 		}
+	}
+
+	// Keep p as a pointer into the probability table: copying the 11-byte
+	// entry by value forces a stack spill whose byte-wide reloads stall on
+	// store-to-load forwarding in this hottest decoder loop.
+	bt := &(*probs)[blockType]
+	p := &bt[n][ctx]
+	rng0 := rng
+	split := uint32(1 + (((rng0 - 1) * uint32(p[0])) >> 8))
+	if count < 0 {
+		fill()
 	}
 
 	bigsplit := uint64(split) << (valueSize - 8)
@@ -155,8 +178,8 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 		value -= bigsplit
 	} else {
 		shift := tables.BoolNorm[byte(nextRange)]
-		rng = nextRange << shift
-		value <<= shift
+		rng = nextRange << (shift & 31)
+		value <<= shift & 63
 		count -= int(shift)
 
 		d.value = value
@@ -167,31 +190,9 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 	}
 
 	shift := tables.BoolNorm[byte(nextRange)]
-	rng = nextRange << shift
-	value <<= shift
+	rng = nextRange << (shift & 31)
+	value <<= shift & 63
 	count -= int(shift)
-
-	fill := func() {
-		shift := valueSize - 8 - (count + 8)
-		bytesLeft := len(buf) - pos
-		bitsLeft := bytesLeft * 8
-		x := shift + 8 - bitsLeft
-		loopEnd := 0
-
-		if x >= 0 {
-			count += lotsOfBits
-			loopEnd = x
-		}
-
-		if x < 0 || bitsLeft != 0 {
-			for shift >= loopEnd {
-				count += 8
-				value |= uint64(buf[pos]) << uint(shift)
-				pos++
-				shift -= 8
-			}
-		}
-	}
 	readBool := func(prob uint8) uint8 {
 		rng0 := rng
 		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
@@ -209,8 +210,8 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 		}
 
 		shift := tables.BoolNorm[byte(nextRange)]
-		rng = nextRange << shift
-		value <<= shift
+		rng = nextRange << (shift & 31)
+		value <<= shift & 63
 		count -= int(shift)
 		return bit
 	}
@@ -278,7 +279,9 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				d.pos = pos
 				return 16
 			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][0]
+			// n is 1..15 here and CoefBandsTable values are 0..7; the
+			// masks are numerically no-ops that elide bounds checks.
+			p = &bt[tables.CoefBandsTable[n&15]&7][0]
 		} else {
 			v := 0
 			tokenClass := uint8(2)
@@ -309,8 +312,8 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				}
 			}
 
-			j := tables.DefaultZigZag1D[n-1]
-			out[j] = readSignedCoeff(v)
+			j := tables.DefaultZigZag1D[(n-1)&15]
+			out[j&15] = readSignedCoeff(v)
 			if n == 16 {
 				d.value = value
 				d.count = count
@@ -318,7 +321,7 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 				d.pos = pos
 				return 16
 			}
-			p = (*probs)[blockType][tables.CoefBandsTable[n]][tokenClass]
+			p = &bt[tables.CoefBandsTable[n&15]&7][tokenClass]
 			if readBool(p[0]) == 0 {
 				d.value = value
 				d.count = count
@@ -329,6 +332,262 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 			continue
 		}
 	}
+}
+
+// ReadVP8MacroblockCoeffs decodes every coefficient block of one macroblock
+// in a single call, mirroring libvpx v1.16.0 vp8/decoder/detokenize.c
+// vp8_decode_mb_tokens: the Y2 block first for non-4x4 macroblocks (with the
+// luma DC token skipped), then the 16 luma blocks, then the 8 chroma blocks.
+// Keeping the whole walk in one function keeps the entropy reader state
+// (value/count/range/position) in registers across all block walks instead
+// of reloading and spilling it around a per-block call.
+//
+// aboveY1..leftY2 are the entropy context planes (updated in place exactly
+// as the per-block sequence would). qcoeff and eob receive the decoded
+// coefficients and per-block end-of-block counts for the blocks that decode
+// coefficients; skipped-by-EOB blocks only write eob and contexts, matching
+// DecodeMacroblockTokens' contract over cleared token storage. The returned
+// dirtyMask has bit b set when block b decoded a nonzero coefficient.
+func (d *Decoder) ReadVP8MacroblockCoeffs(
+	probs *tables.CoefficientProbs, is4x4 bool,
+	aboveY1 *[4]uint8, leftY1 *[4]uint8,
+	aboveU *[2]uint8, leftU *[2]uint8,
+	aboveV *[2]uint8, leftV *[2]uint8,
+	aboveY2 *uint8, leftY2 *uint8,
+	qcoeff *[25][16]int16, eob *[25]uint8,
+) (eobTotal int, dirtyMask uint32) {
+	value := d.value
+	count := d.count
+	rng := d.rng
+	pos := d.pos
+	buf := d.buf
+
+	// fill mirrors libvpx v1.16.0 vp8/decoder/dboolhuff.c
+	// vp8dx_bool_decoder_fill; see ReadVP8BlockCoeffs for the batched-load
+	// equivalence argument.
+	fill := func() {
+		shift := valueSize - 8 - (count + 8)
+		bytesLeft := len(buf) - pos
+		if bytesLeft > 8 {
+			big := binary.BigEndian.Uint64(buf[pos:])
+			consumed := (shift >> 3) + 1
+			value |= (big >> (uint(56-shift) & 63)) &^ (uint64(1)<<uint(shift&7) - 1)
+			count += consumed << 3
+			pos += consumed
+			return
+		}
+		bitsLeft := bytesLeft * 8
+		x := shift + 8 - bitsLeft
+		loopEnd := 0
+		if x >= 0 {
+			count += lotsOfBits
+			loopEnd = x
+		}
+		if x < 0 || bitsLeft != 0 {
+			for shift >= loopEnd {
+				count += 8
+				value |= uint64(buf[pos]) << (uint(shift) & 63)
+				pos++
+				shift -= 8
+			}
+		}
+	}
+	readBool := func(prob uint8) uint8 {
+		rng0 := rng
+		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		if count < 0 {
+			fill()
+		}
+
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		bit := uint8(0)
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			bit = 1
+		}
+
+		shift := tables.BoolNorm[byte(nextRange)]
+		rng = nextRange << (shift & 31)
+		value <<= shift & 63
+		count -= int(shift)
+		return bit
+	}
+	// readSignedCoeff mirrors libvpx detokenize.c GetSigned; see
+	// ReadVP8BlockCoeffs for the fixed single-bit normalization argument.
+	readSignedCoeff := func(coeff int) int16 {
+		rng0 := rng
+		split := (rng0 + 1) >> 1
+		if count < 0 {
+			fill()
+		}
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		var mask int16
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			mask = -1
+		}
+		rng = nextRange << 1
+		value <<= 1
+		count--
+		v := int16(coeff)
+		return (v ^ mask) - mask
+	}
+	readTokenCategory := func(cat int) int {
+		v := 0
+		switch cat {
+		case 0:
+			for _, prob := range tables.Cat3Prob {
+				v += v + int(readBool(prob))
+			}
+		case 1:
+			for _, prob := range tables.Cat4Prob {
+				v += v + int(readBool(prob))
+			}
+		case 2:
+			for _, prob := range tables.Cat5Prob {
+				v += v + int(readBool(prob))
+			}
+		default:
+			for _, prob := range tables.Cat6Prob {
+				v += v + int(readBool(prob))
+			}
+		}
+		return v + 3 + (8 << cat)
+	}
+
+	skipDC := 0
+	lumaType := 3
+	idx := 0
+	if !is4x4 {
+		skipDC = 1
+		lumaType = 0
+		idx = -1 // decode the Y2 block first
+	}
+
+	for ; idx < 24; idx++ {
+		var b int
+		var bt *[tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]uint8
+		var aP, lP *uint8
+		var n int
+		switch {
+		case idx < 0:
+			b = 24
+			bt = &(*probs)[1]
+			aP, lP = aboveY2, leftY2
+		case idx < 16:
+			b = idx
+			bt = &(*probs)[lumaType]
+			aP = &aboveY1[idx&3]
+			lP = &leftY1[(idx&0x0c)>>2]
+			n = skipDC
+		default:
+			// libvpx: a = a_ctx+4 + ((i > 19) << 1) + (i & 1);
+			//         l = l_ctx+4 + ((i > 19) << 1) + ((i & 3) > 1).
+			b = idx
+			bt = &(*probs)[2]
+			if idx < 20 {
+				aP = &aboveU[idx&1]
+				lP = &leftU[(idx&3)>>1]
+			} else {
+				aP = &aboveV[idx&1]
+				lP = &leftV[(idx&3)>>1]
+			}
+		}
+
+		ctx := int(*aP + *lP)
+		out := &qcoeff[b]
+		// Keep p as a pointer into the probability table (see
+		// ReadVP8BlockCoeffs).
+		p := &bt[n&1][ctx]
+		nonzeros := 0
+		if readBool(p[0]) != 0 {
+			nn := n
+		walk:
+			for {
+				nn++
+				if readBool(p[1]) == 0 {
+					if nn == 16 {
+						nonzeros = 16
+						break walk
+					}
+					// nn is 1..15 here and CoefBandsTable values are 0..7;
+					// the masks are numeric no-ops that elide bounds checks.
+					p = &bt[tables.CoefBandsTable[nn&15]&7][0]
+					continue
+				}
+				v := 0
+				tokenClass := uint8(2)
+				if readBool(p[2]) == 0 {
+					tokenClass = 1
+					v = 1
+				} else {
+					if readBool(p[3]) == 0 {
+						if readBool(p[4]) == 0 {
+							v = 2
+						} else {
+							v = 3 + int(readBool(p[5]))
+						}
+					} else {
+						if readBool(p[6]) == 0 {
+							if readBool(p[7]) == 0 {
+								v = 5 + int(readBool(159))
+							} else {
+								v = 7 + 2*int(readBool(165))
+								v += int(readBool(145))
+							}
+						} else {
+							bit1 := int(readBool(p[8]))
+							bit0 := int(readBool(p[9+bit1]))
+							cat := 2*bit1 + bit0
+							v = readTokenCategory(cat)
+						}
+					}
+				}
+
+				j := tables.DefaultZigZag1D[(nn-1)&15]
+				out[j&15] = readSignedCoeff(v)
+				if nn == 16 {
+					nonzeros = 16
+					break walk
+				}
+				p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
+				if readBool(p[0]) == 0 {
+					nonzeros = nn
+					break walk
+				}
+			}
+		}
+
+		hasCoeffs := uint8(0)
+		if nonzeros > 0 {
+			hasCoeffs = 1
+			dirtyMask |= 1 << uint(b)
+		}
+		*aP = hasCoeffs
+		*lP = hasCoeffs
+		switch {
+		case idx < 0:
+			eob[24] = uint8(nonzeros)
+			eobTotal += nonzeros - 16
+		case idx < 16:
+			nz := nonzeros + skipDC
+			eob[b] = uint8(nz)
+			eobTotal += nz
+		default:
+			eob[b] = uint8(nonzeros)
+			eobTotal += nonzeros
+		}
+	}
+
+	d.value = value
+	d.count = count
+	d.rng = rng
+	d.pos = pos
+	return eobTotal, dirtyMask
 }
 
 // ReadCoefUpdateProbsInto scans the full VP8 coefficient probability update
@@ -374,7 +633,7 @@ func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, no
 			if x < 0 || bitsLeft != 0 {
 				for shift >= loopEnd {
 					count += 8
-					value |= uint64(buf[pos]) << uint(shift)
+					value |= uint64(buf[pos]) << (uint(shift) & 63)
 					pos++
 					shift -= 8
 				}
@@ -390,8 +649,8 @@ func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, no
 			bit = 1
 		}
 		s := tables.BoolNorm[byte(nextRange)]
-		rng = nextRange << s
-		value <<= s
+		rng = nextRange << (s & 31)
+		value <<= s & 63
 		count -= int(s)
 
 		if bit == 0 {
@@ -416,7 +675,7 @@ func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, no
 				if x < 0 || bitsLeft != 0 {
 					for shift >= loopEnd {
 						count += 8
-						value |= uint64(buf[pos]) << uint(shift)
+						value |= uint64(buf[pos]) << (uint(shift) & 63)
 						pos++
 						shift -= 8
 					}
@@ -431,8 +690,8 @@ func (d *Decoder) ReadCoefUpdateProbsInto(updateProbs []uint8, probs []uint8, no
 				lbit = 1
 			}
 			s = tables.BoolNorm[byte(nextRange)]
-			rng = nextRange << s
-			value <<= s
+			rng = nextRange << (s & 31)
+			value <<= s & 63
 			count -= int(s)
 			lit |= lbit << uint(k)
 		}
@@ -468,6 +727,16 @@ func (d *Decoder) Corrupted() bool {
 func (d *Decoder) fill() {
 	shift := valueSize - 8 - (d.count + 8)
 	bytesLeft := len(d.buf) - d.pos
+	if bytesLeft > 8 {
+		// Batched form of the byte loop below (see ReadVP8BlockCoeffs):
+		// bit-identical when more than 8 bytes remain.
+		big := binary.BigEndian.Uint64(d.buf[d.pos:])
+		consumed := (shift >> 3) + 1
+		d.value |= (big >> (uint(56-shift) & 63)) &^ (uint64(1)<<uint(shift&7) - 1)
+		d.count += consumed << 3
+		d.pos += consumed
+		return
+	}
 	bitsLeft := bytesLeft * 8
 	x := shift + 8 - bitsLeft
 	loopEnd := 0
@@ -480,7 +749,7 @@ func (d *Decoder) fill() {
 	if x < 0 || bitsLeft != 0 {
 		for shift >= loopEnd {
 			d.count += 8
-			d.value |= uint64(d.buf[d.pos]) << uint(shift)
+			d.value |= uint64(d.buf[d.pos]) << (uint(shift) & 63)
 			d.pos++
 			shift -= 8
 		}

@@ -278,6 +278,12 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			predY = (miRow - pickPredOriginMiRow) * common.MiSize
 		}
 		if !ok {
+			// Deferred reuse_inter_pred copy-out: the recon-plane intra
+			// predict below overwrites the rect that may still hold the
+			// best inter candidate's luma predictor. libvpx copies
+			// best_pred out to a spare PRED_BUFFER before the intra loop
+			// touches orig_dst (vp9_pickmode.c:2543-2562).
+			e.vp9NonrdPreIntraPredictCapture(miRow, miCol, bsize)
 			if skipEncode {
 				recon, reconStride := e.vp9EncoderReconPlane(0)
 				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)

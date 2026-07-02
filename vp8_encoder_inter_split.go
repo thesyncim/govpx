@@ -1092,7 +1092,7 @@ func collectInterFrameMotionCandidatesWithEncoder(
 		bestRefMV := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, ref.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
 		start := interFrameSearchStart{}
 		if e != nil {
-			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			start = e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search, nil)
 		}
 		var motionStats interFrameMotionSearchStats
 		var stats *interFrameMotionSearchStats

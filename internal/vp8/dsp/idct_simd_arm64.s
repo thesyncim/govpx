@@ -225,3 +225,154 @@ TEXT ·dcOnlyIDCT4x4AddPairNEON(SB), NOSPLIT, $0-48
 	WORD	$0x2e212800	// sqxtun v0.8b, v0.8h
 	VST1	[V0.B8], (R4)
 	RET
+
+// idctDequantAddFull2xNEON ABI ($0-32):
+//   q+0(FP)      *int16 (32 lanes: two adjacent 4x4 blocks)
+//   dq+8(FP)     *int16 (16 lanes)
+//   dst+16(FP)   *byte  (left block top-left; right block at dst+4)
+//   stride+24(FP) int
+//
+// Direct port of libvpx v1.16.0 vp8/common/arm/neon/idct_blk_neon.c
+// idct_dequant_full_2x_neon: dequantizes both blocks with plain int16
+// (wrapping) multiplies and runs the 4x4 inverse transform for both
+// blocks simultaneously in 8-lane vectors (lanes 0-3 = left block,
+// lanes 4-7 = right block), adding onto the prediction already in dst.
+// libvpx's vswp stage is folded into the loads: coefficient rows load
+// interleaved (left-block row in D[0], right-block row in D[1]) so each
+// vector is one row index across both blocks, and the dq rows are
+// duplicated across halves; the multiply results are lane-identical to
+// libvpx's post-vswp registers. Unlike libvpx, q is left untouched
+// (govpx clears coefficients at the next token decode via the dirty
+// mask).
+TEXT ·idctDequantAddFull2xNEON(SB), NOSPLIT, $0-32
+	MOVD	q+0(FP), R0
+	MOVD	dq+8(FP), R1
+	MOVD	dst+16(FP), R2
+	MOVD	stride+24(FP), R3
+
+	// dq rows duplicated across both halves.
+	VLD1	(R1), [V0.B16, V1.B16]
+	WORD	$0x4e080412	// dup v18.2d, v0.d[0]  ; [dq row0, dq row0]
+	WORD	$0x4e180413	// dup v19.2d, v0.d[1]  ; [dq row1, dq row1]
+	WORD	$0x4e080434	// dup v20.2d, v1.d[0]  ; [dq row2, dq row2]
+	WORD	$0x4e180435	// dup v21.2d, v1.d[1]  ; [dq row3, dq row3]
+
+	// Coefficient rows interleaved: D[0] = left block row, D[1] = right
+	// block row (right block is 32 bytes further into q).
+	VLD1	(R0), V2.D[0]               // left row0 (q+0)
+	ADD	$32, R0, R5
+	VLD1	(R5), V2.D[1]               // right row0
+	ADD	$8, R0, R5
+	VLD1	(R5), V4.D[0]               // left row1
+	ADD	$40, R0, R5
+	VLD1	(R5), V4.D[1]               // right row1
+	ADD	$16, R0, R5
+	VLD1	(R5), V3.D[0]               // left row2
+	ADD	$48, R0, R5
+	VLD1	(R5), V3.D[1]               // right row2
+	ADD	$24, R0, R5
+	VLD1	(R5), V5.D[0]               // left row3
+	ADD	$56, R0, R5
+	VLD1	(R5), V5.D[1]               // right row3
+
+	// Prediction rows: the two blocks are horizontally adjacent, so
+	// each row is 8 contiguous bytes.
+	VLD1	(R2), [V28.B8]
+	ADD	R3, R2, R7
+	VLD1	(R7), [V29.B8]
+	ADD	R3, R7, R7
+	VLD1	(R7), [V30.B8]
+	ADD	R3, R7, R7
+	VLD1	(R7), [V31.B8]
+
+	// Dequantize (vmulq_s16: modular int16).
+	WORD	$0x4e729c42	// mul v2.8h, v2.8h, v18.8h  ; row0 * dq row0
+	WORD	$0x4e739c84	// mul v4.8h, v4.8h, v19.8h  ; row1 * dq row1
+	WORD	$0x4e749c63	// mul v3.8h, v3.8h, v20.8h  ; row2 * dq row2
+	WORD	$0x4e759ca5	// mul v5.8h, v5.8h, v21.8h  ; row3 * dq row3
+
+	// Transform constants (same as idct4x4AddNEON, 8h broadcasts).
+	MOVD	$17734, R5
+	MOVD	$20091, R6
+	WORD	$0x4e020cba	// dup v26.8h, w5  ; sinpi8sqrt2 (doubling mul form)
+	WORD	$0x4e020cdb	// dup v27.8h, w6  ; cospi8sqrt2minus1
+
+	// Pass 1 (v2=row0, v4=row1, v3=row2, v5=row3).
+	WORD	$0x4e7ab486	// sqdmulh v6.8h, v4.8h, v26.8h
+	WORD	$0x4e7ab4a7	// sqdmulh v7.8h, v5.8h, v26.8h
+	WORD	$0x4e7bb488	// sqdmulh v8.8h, v4.8h, v27.8h
+	WORD	$0x4e7bb4a9	// sqdmulh v9.8h, v5.8h, v27.8h
+	WORD	$0x4e630c4a	// sqadd v10.8h, v2.8h, v3.8h    ; a1
+	WORD	$0x4e632c4b	// sqsub v11.8h, v2.8h, v3.8h    ; b1
+	WORD	$0x4f1f0508	// sshr  v8.8h, v8.8h, #1
+	WORD	$0x4f1f0529	// sshr  v9.8h, v9.8h, #1
+	WORD	$0x4e680c84	// sqadd v4.8h, v4.8h, v8.8h
+	WORD	$0x4e690ca5	// sqadd v5.8h, v5.8h, v9.8h
+	WORD	$0x4e652cc2	// sqsub v2.8h, v6.8h, v5.8h     ; c1
+	WORD	$0x4e640ce3	// sqadd v3.8h, v7.8h, v4.8h     ; d1
+	WORD	$0x4e630d44	// sqadd v4.8h, v10.8h, v3.8h    ; a1+d1
+	WORD	$0x4e620d65	// sqadd v5.8h, v11.8h, v2.8h    ; b1+c1
+	WORD	$0x4e622d66	// sqsub v6.8h, v11.8h, v2.8h    ; b1-c1
+	WORD	$0x4e632d47	// sqsub v7.8h, v10.8h, v3.8h    ; a1-d1
+
+	// Transpose (vtrnq_s32 + vtrnq_s16 pairs, as libvpx).
+	WORD	$0x4e86288c	// trn1 v12.4s, v4.4s, v6.4s
+	WORD	$0x4e86688d	// trn2 v13.4s, v4.4s, v6.4s
+	WORD	$0x4e8728ae	// trn1 v14.4s, v5.4s, v7.4s
+	WORD	$0x4e8768af	// trn2 v15.4s, v5.4s, v7.4s
+	WORD	$0x4e4e2982	// trn1 v2.8h, v12.8h, v14.8h    ; q2tmp2.val[0]
+	WORD	$0x4e4e6984	// trn2 v4.8h, v12.8h, v14.8h    ; q2tmp2.val[1]
+	WORD	$0x4e4f29a3	// trn1 v3.8h, v13.8h, v15.8h    ; q2tmp3.val[0]
+	WORD	$0x4e4f69a5	// trn2 v5.8h, v13.8h, v15.8h    ; q2tmp3.val[1]
+
+	// Pass 2.
+	WORD	$0x4e7ab488	// sqdmulh v8.8h, v4.8h, v26.8h
+	WORD	$0x4e7ab4a9	// sqdmulh v9.8h, v5.8h, v26.8h
+	WORD	$0x4e7bb48a	// sqdmulh v10.8h, v4.8h, v27.8h
+	WORD	$0x4e7bb4ab	// sqdmulh v11.8h, v5.8h, v27.8h
+	WORD	$0x4e630c46	// sqadd v6.8h, v2.8h, v3.8h
+	WORD	$0x4e632c47	// sqsub v7.8h, v2.8h, v3.8h
+	WORD	$0x4f1f054a	// sshr  v10.8h, v10.8h, #1
+	WORD	$0x4f1f056b	// sshr  v11.8h, v11.8h, #1
+	WORD	$0x4e6a0c8a	// sqadd v10.8h, v4.8h, v10.8h
+	WORD	$0x4e6b0cab	// sqadd v11.8h, v5.8h, v11.8h
+	WORD	$0x4e6b2d08	// sqsub v8.8h, v8.8h, v11.8h
+	WORD	$0x4e6a0d29	// sqadd v9.8h, v9.8h, v10.8h
+	WORD	$0x4e690cc4	// sqadd v4.8h, v6.8h, v9.8h
+	WORD	$0x4e680ce5	// sqadd v5.8h, v7.8h, v8.8h
+	WORD	$0x4e682cec	// sqsub v12.8h, v7.8h, v8.8h
+	WORD	$0x4e692ccd	// sqsub v13.8h, v6.8h, v9.8h
+	WORD	$0x4f1d2484	// srshr v4.8h, v4.8h, #3
+	WORD	$0x4f1d24a5	// srshr v5.8h, v5.8h, #3
+	WORD	$0x4f1d258c	// srshr v12.8h, v12.8h, #3
+	WORD	$0x4f1d25ad	// srshr v13.8h, v13.8h, #3
+
+	// Transpose back to rows.
+	WORD	$0x4e8c288e	// trn1 v14.4s, v4.4s, v12.4s
+	WORD	$0x4e8c688f	// trn2 v15.4s, v4.4s, v12.4s
+	WORD	$0x4e8d28b0	// trn1 v16.4s, v5.4s, v13.4s
+	WORD	$0x4e8d68b1	// trn2 v17.4s, v5.4s, v13.4s
+	WORD	$0x4e5029c2	// trn1 v2.8h, v14.8h, v16.8h    ; row0
+	WORD	$0x4e5069c4	// trn2 v4.8h, v14.8h, v16.8h    ; row1
+	WORD	$0x4e5129e3	// trn1 v3.8h, v15.8h, v17.8h    ; row2
+	WORD	$0x4e5169e5	// trn2 v5.8h, v15.8h, v17.8h    ; row3
+
+	// Add prediction (uaddw), narrow (sqxtun), store 8 bytes per row.
+	WORD	$0x2e3c1042	// uaddw v2.8h, v2.8h, v28.8b
+	WORD	$0x2e3d1084	// uaddw v4.8h, v4.8h, v29.8b
+	WORD	$0x2e3e1063	// uaddw v3.8h, v3.8h, v30.8b
+	WORD	$0x2e3f10a5	// uaddw v5.8h, v5.8h, v31.8b
+	WORD	$0x2e212842	// sqxtun v2.8b, v2.8h
+	WORD	$0x2e212884	// sqxtun v4.8b, v4.8h
+	WORD	$0x2e212863	// sqxtun v3.8b, v3.8h
+	WORD	$0x2e2128a5	// sqxtun v5.8b, v5.8h
+
+	VST1	[V2.B8], (R2)
+	ADD	R3, R2, R7
+	VST1	[V4.B8], (R7)
+	ADD	R3, R7, R7
+	VST1	[V3.B8], (R7)
+	ADD	R3, R7, R7
+	VST1	[V5.B8], (R7)
+
+	RET

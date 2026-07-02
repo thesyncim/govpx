@@ -11,6 +11,7 @@ type fastInterModeLoopContext struct {
 	mvCosts     *vp8enc.MotionVectorCostTables
 	variance    [fastInterVarianceCacheSize]fastInterVarianceCacheEntry
 	modeMVs     interModeMVSlots
+	nearSADs    improvedInterFrameNearSADCache
 	bestRefMV   vp8enc.MotionVector
 	varianceSet uint16
 	search      interAnalysisSearchConfig
@@ -48,8 +49,7 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	// loads into locals so the predict + variance calls share a single read.
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	analysisImg := &e.analysis.Img
-	mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
-	if !predictAnalysisMacroblock(analysisImg, mbRow, mbCol, &mode, &e.reconstructScratch) {
+	if !predictAnalysisMacroblockLuma(analysisImg, mbRow, mbCol, mbMode, &e.reconstructScratch) {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
 	variance, sse := vp8enc.MacroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
@@ -96,7 +96,7 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	}
 	fastQuant := e.libvpxUseFastQuantForPick()
 	analysisImg := &e.analysis.Img
-	refs := vp8dec.BuildIntraPredictorRefs(analysisImg, mbRow, mbCol, &e.reconstructScratch.Refs)
+	refs := vp8dec.BuildIntraPredictorRefsLuma(analysisImg, mbRow, mbCol, &e.reconstructScratch.Refs)
 	yStride := analysisImg.YStride
 	yOff := mbRow*16*yStride + mbCol*16
 	y := analysisImg.Y[yOff:]

@@ -81,10 +81,7 @@ func loopFilterVerticalEdgesYDispatch(s []byte, stride int, blimit, limit, thres
 
 func loopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
 	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
-		var tmp [8 * 16]byte
-		gatherH8x8PairARM64(&tmp, u, v, stride)
-		loopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterH8x8PairARM64(u, v, stride, &tmp, 2, 4)
+		loopFilterEdgeH8x8PairNEON(unsafe.SliceData(u), unsafe.SliceData(v), stride, blimit, limit, thresh)
 		return
 	}
 	loopFilterHorizontalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
@@ -134,10 +131,7 @@ func mbLoopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thres
 
 func mbLoopFilterHorizontalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, limit, thresh byte) {
 	if len(u) >= 7*stride+8 && len(v) >= 7*stride+8 {
-		var tmp [8 * 16]byte
-		gatherH8x8PairARM64(&tmp, u, v, stride)
-		mbLoopFilterEdgeH16NEON((*byte)(unsafe.Pointer(&tmp[0])), 16, blimit, limit, thresh)
-		scatterH8x8PairARM64(u, v, stride, &tmp, 1, 6)
+		mbLoopFilterEdgeH8x8PairNEON(unsafe.SliceData(u), unsafe.SliceData(v), stride, blimit, limit, thresh)
 		return
 	}
 	mbLoopFilterHorizontalEdgeDispatch(u, stride, blimit, limit, thresh, 1)
@@ -176,28 +170,6 @@ func scatterH8x8ARM64(s []byte, stride int, tmp *[8 * 16]byte, first int, nrows 
 	for r := range nrows {
 		w := binary.LittleEndian.Uint64(src[(first+r)*16 : (first+r)*16+8])
 		binary.LittleEndian.PutUint64(s[(first+r)*stride:(first+r)*stride+8], w)
-	}
-}
-
-func gatherH8x8PairARM64(tmp *[8 * 16]byte, u []byte, v []byte, stride int) {
-	dst := tmp[:]
-	for r := range 8 {
-		base := r * 16
-		uw := binary.LittleEndian.Uint64(u[r*stride : r*stride+8])
-		vw := binary.LittleEndian.Uint64(v[r*stride : r*stride+8])
-		binary.LittleEndian.PutUint64(dst[base:base+8], uw)
-		binary.LittleEndian.PutUint64(dst[base+8:base+16], vw)
-	}
-}
-
-func scatterH8x8PairARM64(u []byte, v []byte, stride int, tmp *[8 * 16]byte, first int, nrows int) {
-	src := tmp[:]
-	for r := range nrows {
-		base := (first + r) * 16
-		uw := binary.LittleEndian.Uint64(src[base : base+8])
-		vw := binary.LittleEndian.Uint64(src[base+8 : base+16])
-		binary.LittleEndian.PutUint64(u[(first+r)*stride:(first+r)*stride+8], uw)
-		binary.LittleEndian.PutUint64(v[(first+r)*stride:(first+r)*stride+8], vw)
 	}
 }
 
