@@ -331,6 +331,17 @@ type VP9Encoder struct {
 	reconU     []byte
 	reconV     []byte
 
+	// reconPool is the encoder-side BufferPool analog (libvpx
+	// vp9_onyxc_int.h frame_bufs[FRAME_BUFFERS] + ref counts).
+	// reconPoolIdx is cm->new_fb_idx: the pool buffer the working
+	// reconstruction (reconYFull/UFull/VFull) is currently backed by.
+	// refPoolIdx is cm->ref_frame_map: which pool buffer each reference
+	// slot aliases. Nil reconPool (worker clones) keeps the historical
+	// copy-based reference store. See vp9_encoder_ref_pool.go.
+	reconPool    *vp9EncoderFramePool
+	reconPoolIdx int
+	refPoolIdx   [common.RefFrames]int
+
 	refFrames [common.RefFrames]vp9ReferenceFrame
 	// refFrameIndex stamps each reference-frame-map slot with the encoder's
 	// frameIndex (current_video_frame) at the moment it was refreshed,
@@ -788,6 +799,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
 	e.initVP9NmvCostCache()
+	e.initVP9EncoderFramePool()
 	e.blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,

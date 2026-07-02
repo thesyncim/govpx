@@ -199,6 +199,11 @@ func TestVP9NonrdUVVarianceSSEUsesChromaOnlyPrediction(t *testing.T) {
 	if !e.refFrames[0].valid {
 		t.Fatal("LAST reference was not refreshed by keyframe")
 	}
+	// The reference slots alias the keyframe's reconstruction buffer
+	// (libvpx ref_cnt_fb pointer swap); rotate the working recon target
+	// off the referenced buffer — as every real frame does — before
+	// scribbling sentinel bytes on the recon planes.
+	e.prepareVP9EncoderOutputFrame(width, height)
 	for i := range e.reconY {
 		e.reconY[i] = 0x7b
 	}

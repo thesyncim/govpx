@@ -15,7 +15,12 @@ func (e *VP9Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if !ok || !src.validForEncode(e.opts.Width, e.opts.Height) {
 		return ErrInvalidConfig
 	}
-	e.refFrames[slot].store(src)
+	// Copy the caller's pixels at the API boundary (libvpx
+	// vp9_set_reference_enc copies via vpx_yv12_copy_frame) into a free
+	// pool buffer; the slot then aliases it like any other reference.
+	if !e.storeVP9EncoderRefCopy(slot, src) {
+		e.refFrames[slot].store(src)
+	}
 	e.refWidth[slot] = uint32(e.opts.Width)
 	e.refHeight[slot] = uint32(e.opts.Height)
 	e.refValid[slot] = true

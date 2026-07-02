@@ -1194,6 +1194,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	}
 
 	*w = *src
+	// Worker clones never touch the parent's reference buffer pool.
+	w.dropVP9EncoderFramePool()
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	// Each worker owns its own leaf-decision cache so concurrent
@@ -1309,6 +1311,9 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	}
 
 	*w = *src
+	// Tile workers never rotate or refresh reference buffers; detach the
+	// clone from the parent's pool so any stray call is inert.
+	w.dropVP9EncoderFramePool()
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	// Worker-private leaf-decision cache; see prepareVP9CountWorker.

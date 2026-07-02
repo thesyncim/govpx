@@ -558,6 +558,12 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 
 	*w = *src
 
+	// Frame-parallel helpers own their reconstruction buffers and must
+	// never rotate the parent's pool or repoint its reference map; their
+	// refresh flags are forced to no-update, so the nil-pool fallback in
+	// refreshVP9EncoderRefs never fires either.
+	w.dropVP9EncoderFramePool()
+
 	// Restore the worker's owned buffer set. The src copy clobbered the
 	// slice headers; we now re-point each to the worker-local backing.
 	w.aboveSegCtx = aboveSegCtx
