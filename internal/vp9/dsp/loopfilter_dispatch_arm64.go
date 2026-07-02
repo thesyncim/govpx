@@ -4,9 +4,23 @@ package dsp
 
 import (
 	"encoding/binary"
+	"unsafe"
 
 	vp8dsp "github.com/thesyncim/govpx/internal/vp8/dsp"
 )
+
+// The pointer-threshold kernels read {blimit, limit, thresh} as three
+// consecutive bytes behind one per-level pointer, exactly like libvpx's
+// loop_filter_thresh dispatch. Pin the LfThresh layout that contract
+// relies on.
+var _ = func() bool {
+	if unsafe.Offsetof(LfThresh{}.Lim) != 1 ||
+		unsafe.Offsetof(LfThresh{}.HevThr) != 2 ||
+		unsafe.Sizeof(LfThresh{}) != 3 {
+		panic("LfThresh layout must be {mblim, lim, hev_thr} at offsets 0/1/2")
+	}
+	return true
+}()
 
 //go:noescape
 func lpfHorizontal8NEON(s *byte, pitch int, blimit, limit, thresh byte)
@@ -15,32 +29,28 @@ func lpfHorizontal8NEON(s *byte, pitch int, blimit, limit, thresh byte)
 func lpfVertical8NEON(s *byte, pitch int, blimit, limit, thresh byte)
 
 //go:noescape
-func lpfHorizontal8DualNEON(s *byte, pitch int,
-	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+func lpfHorizontal8DualNEON(s *byte, pitch int, thr0, thr1 *byte)
 
 //go:noescape
-func lpfVertical8DualNEON(s *byte, pitch int,
-	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+func lpfVertical8DualNEON(s *byte, pitch int, thr0, thr1 *byte)
 
 //go:noescape
-func lpfHorizontal4NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+func lpfHorizontal4NEON(s *byte, pitch int, thr *byte)
 
 //go:noescape
-func lpfVertical4NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+func lpfVertical4NEON(s *byte, pitch int, thr *byte)
 
 //go:noescape
-func lpfHorizontal4DualNEON(s *byte, pitch int,
-	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+func lpfHorizontal4DualNEON(s *byte, pitch int, thr0, thr1 *byte)
 
 //go:noescape
-func lpfVertical4DualNEON(s *byte, pitch int,
-	blimit0, limit0, thresh0, blimit1, limit1, thresh1 *byte)
+func lpfVertical4DualNEON(s *byte, pitch int, thr0, thr1 *byte)
 
 //go:noescape
-func lpfHorizontal16NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+func lpfHorizontal16NEON(s *byte, pitch int, thr *byte)
 
 //go:noescape
-func lpfVertical16NEON(s *byte, pitch int, blimit, limit, thresh *byte)
+func lpfVertical16NEON(s *byte, pitch int, thr *byte)
 
 // vpxLpfHorizontal16Neon dispatches vpx_lpf_horizontal_16_neon: 16 rows
 // read around the edge (s-8*pitch..s+7*pitch), 8 columns.
@@ -50,8 +60,8 @@ func vpxLpfHorizontal16Neon(plane []uint8, s, pitch int, blimit, limit, thresh u
 		len(plane) < start+15*pitch+8 {
 		return false
 	}
-	thr := [3]byte{blimit, limit, thresh}
-	lpfHorizontal16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+	thr := LfThresh{blimit, limit, thresh}
+	lpfHorizontal16NEON(&plane[s], pitch, &thr.Mblim)
 	return true
 }
 
@@ -63,16 +73,16 @@ func vpxLpfVertical16Neon(plane []uint8, s, pitch int, blimit, limit, thresh uin
 		len(plane) < start+7*pitch+16 {
 		return false
 	}
-	thr := [3]byte{blimit, limit, thresh}
-	lpfVertical16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+	thr := LfThresh{blimit, limit, thresh}
+	lpfVertical16NEON(&plane[s], pitch, &thr.Mblim)
 	return true
 }
 
 func vpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	if canUseLoopfilter4TapNEON(blimit) &&
 		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
-		thr := [3]byte{blimit, limit, thresh}
-		lpfHorizontal4NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+		thr := LfThresh{blimit, limit, thresh}
+		lpfHorizontal4NEON(&plane[s], pitch, &thr.Mblim)
 		return
 	}
 	vpxLpfHorizontal4Scalar(plane, s, pitch, blimit, limit, thresh)
@@ -81,8 +91,8 @@ func vpxLpfHorizontal4(plane []uint8, s, pitch int, blimit, limit, thresh uint8)
 func vpxLpfVertical4(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 	if canUseLoopfilter4TapNEON(blimit) &&
 		hasVerticalLfWindow(plane, s-4, pitch, 8) {
-		thr := [3]byte{blimit, limit, thresh}
-		lpfVertical4NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
+		thr := LfThresh{blimit, limit, thresh}
+		lpfVertical4NEON(&plane[s], pitch, &thr.Mblim)
 		return
 	}
 	vpxLpfVertical4Scalar(plane, s, pitch, blimit, limit, thresh)
@@ -93,9 +103,8 @@ func vpxLpfHorizontal4Dual(plane []uint8, s, pitch int,
 ) {
 	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
 		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
-		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
-		lpfHorizontal4DualNEON(&plane[s], pitch,
-			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		thr := [2]LfThresh{{blimit0, limit0, thresh0}, {blimit1, limit1, thresh1}}
+		lpfHorizontal4DualNEON(&plane[s], pitch, &thr[0].Mblim, &thr[1].Mblim)
 		return
 	}
 	vpxLpfHorizontal4(plane, s, pitch, blimit0, limit0, thresh0)
@@ -107,9 +116,8 @@ func vpxLpfVertical4Dual(plane []uint8, s, pitch int,
 ) {
 	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
 		hasVerticalLfWindow(plane, s-4, pitch, 16) {
-		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
-		lpfVertical4DualNEON(&plane[s], pitch,
-			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		thr := [2]LfThresh{{blimit0, limit0, thresh0}, {blimit1, limit1, thresh1}}
+		lpfVertical4DualNEON(&plane[s], pitch, &thr[0].Mblim, &thr[1].Mblim)
 		return
 	}
 	vpxLpfVertical4(plane, s, pitch, blimit0, limit0, thresh0)
@@ -150,9 +158,8 @@ func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	// mblim <= 2*(63+2)+63).
 	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
 		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
-		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
-		lpfHorizontal8DualNEON(&plane[s], pitch,
-			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		thr := [2]LfThresh{{blimit0, limit0, thresh0}, {blimit1, limit1, thresh1}}
+		lpfHorizontal8DualNEON(&plane[s], pitch, &thr[0].Mblim, &thr[1].Mblim)
 		return
 	}
 	if !vpxLpfHorizontal8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
@@ -171,9 +178,8 @@ func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	// blimit==255 falls back (see horizontal note).
 	if canUseLoopfilter4TapNEON(blimit0) && canUseLoopfilter4TapNEON(blimit1) &&
 		hasVerticalLfWindow(plane, s-4, pitch, 16) {
-		thr := [6]byte{blimit0, limit0, thresh0, blimit1, limit1, thresh1}
-		lpfVertical8DualNEON(&plane[s], pitch,
-			&thr[0], &thr[1], &thr[2], &thr[3], &thr[4], &thr[5])
+		thr := [2]LfThresh{{blimit0, limit0, thresh0}, {blimit1, limit1, thresh1}}
+		lpfVertical8DualNEON(&plane[s], pitch, &thr[0].Mblim, &thr[1].Mblim)
 		return
 	}
 	if !vpxLpfVertical8NEON(plane, s, pitch, blimit0, limit0, thresh0) {
@@ -301,9 +307,9 @@ func vpxLpfHorizontal16Dual(plane []uint8, s, pitch int, blimit, limit, thresh u
 	start := s - 8*pitch
 	if canUseLoopfilter4TapNEON(blimit) && start >= 0 && pitch > 0 &&
 		len(plane) >= start+15*pitch+16 {
-		thr := [3]byte{blimit, limit, thresh}
-		lpfHorizontal16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
-		lpfHorizontal16NEON(&plane[s+8], pitch, &thr[0], &thr[1], &thr[2])
+		thr := LfThresh{blimit, limit, thresh}
+		lpfHorizontal16NEON(&plane[s], pitch, &thr.Mblim)
+		lpfHorizontal16NEON(&plane[s+8], pitch, &thr.Mblim)
 		return
 	}
 	mbLpfHorizontalEdgeW(plane, s, pitch, blimit, limit, thresh, 2)
@@ -323,10 +329,150 @@ func vpxLpfVertical16Dual(plane []uint8, s, pitch int, blimit, limit, thresh uin
 	start := s - 8
 	if canUseLoopfilter4TapNEON(blimit) && start >= 0 && pitch > 0 &&
 		len(plane) >= start+15*pitch+16 {
-		thr := [3]byte{blimit, limit, thresh}
-		lpfVertical16NEON(&plane[s], pitch, &thr[0], &thr[1], &thr[2])
-		lpfVertical16NEON(&plane[s+8*pitch], pitch, &thr[0], &thr[1], &thr[2])
+		thr := LfThresh{blimit, limit, thresh}
+		lpfVertical16NEON(&plane[s], pitch, &thr.Mblim)
+		lpfVertical16NEON(&plane[s+8*pitch], pitch, &thr.Mblim)
 		return
 	}
 	mbLpfVerticalEdgeW(plane, s, pitch, blimit, limit, thresh, 16)
+}
+
+// Pointer-threshold loopfilter entry points. These are the hot dispatch
+// layer used by the VP9 selective filter loops: one call layer, no
+// threshold copies (the pointer aims into the decoder's per-level
+// loop_filter_thresh table), with the same window/blimit fallbacks as
+// the value-based wrappers above.
+
+// VpxLpfHorizontal4Thr is VpxLpfHorizontal4 taking a per-level
+// threshold-triplet pointer.
+func VpxLpfHorizontal4Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	if t.Mblim != 255 && hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
+		lpfHorizontal4NEON(&plane[s], pitch, &t.Mblim)
+		return
+	}
+	vpxLpfHorizontal4Scalar(plane, s, pitch, t.Mblim, t.Lim, t.HevThr)
+}
+
+// VpxLpfVertical4Thr is VpxLpfVertical4 taking a threshold pointer.
+func VpxLpfVertical4Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	if t.Mblim != 255 && hasVerticalLfWindow(plane, s-4, pitch, 8) {
+		lpfVertical4NEON(&plane[s], pitch, &t.Mblim)
+		return
+	}
+	vpxLpfVertical4Scalar(plane, s, pitch, t.Mblim, t.Lim, t.HevThr)
+}
+
+// VpxLpfHorizontal4DualThr is VpxLpfHorizontal4Dual taking threshold
+// pointers.
+func VpxLpfHorizontal4DualThr(plane []uint8, s, pitch int, t0, t1 *LfThresh) {
+	if t0.Mblim != 255 && t1.Mblim != 255 &&
+		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
+		lpfHorizontal4DualNEON(&plane[s], pitch, &t0.Mblim, &t1.Mblim)
+		return
+	}
+	VpxLpfHorizontal4Thr(plane, s, pitch, t0)
+	VpxLpfHorizontal4Thr(plane, s+8, pitch, t1)
+}
+
+// VpxLpfVertical4DualThr is VpxLpfVertical4Dual taking threshold
+// pointers.
+func VpxLpfVertical4DualThr(plane []uint8, s, pitch int, t0, t1 *LfThresh) {
+	if t0.Mblim != 255 && t1.Mblim != 255 &&
+		hasVerticalLfWindow(plane, s-4, pitch, 16) {
+		lpfVertical4DualNEON(&plane[s], pitch, &t0.Mblim, &t1.Mblim)
+		return
+	}
+	VpxLpfVertical4Thr(plane, s, pitch, t0)
+	VpxLpfVertical4Thr(plane, s+8*pitch, pitch, t1)
+}
+
+// VpxLpfHorizontal8Thr is VpxLpfHorizontal8 taking a threshold pointer.
+func VpxLpfHorizontal8Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	if t.Mblim != 255 && hasHorizontalLfWindow(plane, s-4*pitch, pitch, 8) {
+		lpfHorizontal8NEON(&plane[s], pitch, t.Mblim, t.Lim, t.HevThr)
+		return
+	}
+	vpxLpfHorizontal8Scalar(plane, s, pitch, t.Mblim, t.Lim, t.HevThr)
+}
+
+// VpxLpfVertical8Thr is VpxLpfVertical8 taking a threshold pointer.
+func VpxLpfVertical8Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	if t.Mblim != 255 && hasVerticalLfWindow(plane, s-4, pitch, 8) {
+		lpfVertical8NEON(&plane[s], pitch, t.Mblim, t.Lim, t.HevThr)
+		return
+	}
+	vpxLpfVertical8Scalar(plane, s, pitch, t.Mblim, t.Lim, t.HevThr)
+}
+
+// VpxLpfHorizontal8DualThr is VpxLpfHorizontal8Dual taking threshold
+// pointers.
+func VpxLpfHorizontal8DualThr(plane []uint8, s, pitch int, t0, t1 *LfThresh) {
+	if t0.Mblim != 255 && t1.Mblim != 255 &&
+		hasHorizontalLfWindow(plane, s-4*pitch, pitch, 16) {
+		lpfHorizontal8DualNEON(&plane[s], pitch, &t0.Mblim, &t1.Mblim)
+		return
+	}
+	VpxLpfHorizontal8Thr(plane, s, pitch, t0)
+	VpxLpfHorizontal8Thr(plane, s+8, pitch, t1)
+}
+
+// VpxLpfVertical8DualThr is VpxLpfVertical8Dual taking threshold
+// pointers.
+func VpxLpfVertical8DualThr(plane []uint8, s, pitch int, t0, t1 *LfThresh) {
+	if t0.Mblim != 255 && t1.Mblim != 255 &&
+		hasVerticalLfWindow(plane, s-4, pitch, 16) {
+		lpfVertical8DualNEON(&plane[s], pitch, &t0.Mblim, &t1.Mblim)
+		return
+	}
+	VpxLpfVertical8Thr(plane, s, pitch, t0)
+	VpxLpfVertical8Thr(plane, s+8*pitch, pitch, t1)
+}
+
+// VpxLpfHorizontal16Thr is VpxLpfHorizontal16 taking a threshold
+// pointer.
+func VpxLpfHorizontal16Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	start := s - 8*pitch
+	if t.Mblim != 255 && start >= 0 && pitch > 0 &&
+		len(plane) >= start+15*pitch+8 {
+		lpfHorizontal16NEON(&plane[s], pitch, &t.Mblim)
+		return
+	}
+	mbLpfHorizontalEdgeW(plane, s, pitch, t.Mblim, t.Lim, t.HevThr, 1)
+}
+
+// VpxLpfHorizontal16DualThr is VpxLpfHorizontal16Dual taking a
+// threshold pointer.
+func VpxLpfHorizontal16DualThr(plane []uint8, s, pitch int, t *LfThresh) {
+	start := s - 8*pitch
+	if t.Mblim != 255 && start >= 0 && pitch > 0 &&
+		len(plane) >= start+15*pitch+16 {
+		lpfHorizontal16NEON(&plane[s], pitch, &t.Mblim)
+		lpfHorizontal16NEON(&plane[s+8], pitch, &t.Mblim)
+		return
+	}
+	mbLpfHorizontalEdgeW(plane, s, pitch, t.Mblim, t.Lim, t.HevThr, 2)
+}
+
+// VpxLpfVertical16Thr is VpxLpfVertical16 taking a threshold pointer.
+func VpxLpfVertical16Thr(plane []uint8, s, pitch int, t *LfThresh) {
+	start := s - 8
+	if t.Mblim != 255 && start >= 0 && pitch > 0 &&
+		len(plane) >= start+7*pitch+16 {
+		lpfVertical16NEON(&plane[s], pitch, &t.Mblim)
+		return
+	}
+	mbLpfVerticalEdgeW(plane, s, pitch, t.Mblim, t.Lim, t.HevThr, 8)
+}
+
+// VpxLpfVertical16DualThr is VpxLpfVertical16Dual taking a threshold
+// pointer.
+func VpxLpfVertical16DualThr(plane []uint8, s, pitch int, t *LfThresh) {
+	start := s - 8
+	if t.Mblim != 255 && start >= 0 && pitch > 0 &&
+		len(plane) >= start+15*pitch+16 {
+		lpfVertical16NEON(&plane[s], pitch, &t.Mblim)
+		lpfVertical16NEON(&plane[s+8*pitch], pitch, &t.Mblim)
+		return
+	}
+	mbLpfVerticalEdgeW(plane, s, pitch, t.Mblim, t.Lim, t.HevThr, 16)
 }

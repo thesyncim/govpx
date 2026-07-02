@@ -1,6 +1,9 @@
 package decoder
 
-import "github.com/thesyncim/govpx/internal/vp9/common"
+import (
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	"github.com/thesyncim/govpx/internal/vp9/dsp"
+)
 
 // VP9 per-frame loopfilter init. Ported from libvpx v1.16.0
 // vp9/common/vp9_loopfilter.c — vp9_loop_filter_init,
@@ -25,11 +28,9 @@ const (
 // per-level limits. Stored as scalars; libvpx broadcasts each to a
 // SIMD_WIDTH vector for the SIMD kernels but the value is the same
 // in every lane.
-type LoopFilterThresh struct {
-	Mblim  uint8
-	Lim    uint8
-	HevThr uint8
-}
+// LoopFilterThresh aliases the DSP-level triplet so filter dispatch can
+// hand kernel wrappers a single per-level pointer without copying.
+type LoopFilterThresh = dsp.LfThresh
 
 // LoopFilterInfoN mirrors libvpx's loop_filter_info_n.
 type LoopFilterInfoN struct {
