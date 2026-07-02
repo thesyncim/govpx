@@ -1240,6 +1240,7 @@ func (e *VP9Encoder) applyVP9ResolutionChange(width, height int) {
 		e.refFrames[slot].img = Image{}
 		e.refFrames[slot].valid = false
 		e.refMap[slot] = 0
+		e.releaseVP9EncoderRefPoolSlot(slot)
 	}
 	e.nextRefMapID = 0
 	e.lfRefDeltas = [vp9dec.MaxRefLfDeltas]int8{}

@@ -1370,7 +1370,9 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 		if !lower.refValid[slot] || !lower.refFrames[slot].valid {
 			continue
 		}
-		e.refFrames[slot].store(lower.refFrames[slot].img)
+		if !e.storeVP9EncoderRefCopy(slot, lower.refFrames[slot].img) {
+			e.refFrames[slot].store(lower.refFrames[slot].img)
+		}
 		e.refWidth[slot] = lower.refWidth[slot]
 		e.refHeight[slot] = lower.refHeight[slot]
 		e.refValid[slot] = true
@@ -1389,7 +1391,10 @@ func (e *VP9Encoder) seedVP9InterLayerReference(lower *VP9Encoder) bool {
 	}
 	lowerLayerSlot := vp9SpatialSVCLayerReferenceSlot(lowerLayerID)
 	if lower.refValid[lowerLayerSlot] && lower.refFrames[lowerLayerSlot].valid {
-		e.refFrames[vp9LastRefSlot].store(lower.refFrames[lowerLayerSlot].img)
+		if !e.storeVP9EncoderRefCopy(vp9LastRefSlot,
+			lower.refFrames[lowerLayerSlot].img) {
+			e.refFrames[vp9LastRefSlot].store(lower.refFrames[lowerLayerSlot].img)
+		}
 		e.refWidth[vp9LastRefSlot] = lower.refWidth[lowerLayerSlot]
 		e.refHeight[vp9LastRefSlot] = lower.refHeight[lowerLayerSlot]
 		e.refValid[vp9LastRefSlot] = true

@@ -1630,7 +1630,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					byrd := encoder.BlockYrd(src, srcStride, x0, y0,
 						dst, dstStride, x0, y0,
 						blockW, blockH, txClamp, dequantY, sseY,
-						e.vp9BlockYrdScratch[:])
+						e.vp9BlockCoeffScratch().blockYrd[:])
 					if byrd.Valid {
 						thisSse = uint64(byrd.SSE)
 						if byrd.Skippable {

@@ -475,7 +475,14 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 		// vp9InterRefSignBias reads this back to reproduce set_ref_sign_bias.
 		e.refFrameIndex[slot] = e.frameIndex
 		if e.reconFrame.Width != 0 && e.reconFrame.Height != 0 {
-			e.refFrames[slot].store(e.reconFrame)
+			// libvpx update_ref_frames (vp9/encoder/vp9_encoder.c:3324-3388)
+			// repoints ref_frame_map[slot] at cm->new_fb_idx via ref_cnt_fb —
+			// a refcounted pointer swap, no pixel copies. Worker clones
+			// (nil pool) keep the historical copy store; their refresh flags
+			// are forced to zero so the branch never fires in practice.
+			if !e.aliasVP9EncoderRefToRecon(slot) {
+				e.refFrames[slot].store(e.reconFrame)
+			}
 		}
 	}
 	// After the reconstruction has been stored into the ref slots, rebuild
@@ -513,6 +520,14 @@ func (e *VP9Encoder) ensureLastBordered() {
 		e.lastBorderedValid = false
 		return
 	}
+	if e.lastBorderedShared {
+		// Worker clone holding a read-only view of the parent's buffer:
+		// never write through the shared pixels — detach to a private
+		// allocation first. Cold path; the shared mirror is valid for the
+		// whole epoch in every steady-state flow.
+		e.lastBordered = common.YV12BorderBuffer{}
+		e.lastBorderedShared = false
+	}
 	common.YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
 		common.VP9EncBorderInPixels)
 	e.lastBorderedValid = true
@@ -523,6 +538,7 @@ func (e *VP9Encoder) ensureLastBordered() {
 func (e *VP9Encoder) prepareVP9WorkerLastBordered(buf common.YV12BorderBuffer) {
 	e.lastBordered = buf
 	e.lastBorderedValid = false
+	e.lastBorderedShared = false
 	e.ensureLastBordered()
 }
 
@@ -696,7 +712,12 @@ func (e *VP9Encoder) vp9EncoderPlaneContextOffsets(miRow, miCol int) (
 }
 
 func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
+	// Rotate the reconstruction target off any pool buffer a reference
+	// slot aliases before clearing/re-arming the planes (libvpx
+	// vp9_encoder.c:6315-6319; see vp9_encoder_ref_pool.go).
+	e.acquireVP9ReconFrameBuffer()
 	layout := common.NewFrameLayout(width, height)
+	e.warmVP9EncoderFramePool(layout)
 	e.reconYFull = buffers.EnsureAlignedCapacity(e.reconYFull, layout.YFullLen, 32)
 	e.reconUFull = buffers.EnsureAlignedCapacity(e.reconUFull, layout.UVFullLen, 32)
 	e.reconVFull = buffers.EnsureAlignedCapacity(e.reconVFull, layout.UVFullLen, 32)
@@ -716,6 +737,7 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 		UStride: layout.UVStride,
 		VStride: layout.UVStride,
 	}
+	e.syncVP9ReconPoolBacking()
 }
 
 func (e *VP9Encoder) resetVP9EncoderCodingState(width, height int) {

@@ -357,7 +357,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 				yrdSrcX, yrdSrcY,
 				predData, predStride, predX, predY,
 				blockW, blockH, txYrd, dequantY, encoder.BlockYrdUnknownSSE,
-				e.vp9BlockYrdScratch[:])
+				e.vp9BlockCoeffScratch().blockYrd[:])
 			if !byrd.Valid {
 				continue
 			}

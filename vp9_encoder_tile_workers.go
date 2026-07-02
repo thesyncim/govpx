@@ -1181,7 +1181,6 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
-	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	nmvCostCache := w.vp9NmvCostCache
@@ -1194,6 +1193,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	}
 
 	*w = *src
+	// Worker clones never touch the parent's reference buffer pool.
+	w.dropVP9EncoderFramePool()
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	// Each worker owns its own leaf-decision cache so concurrent
@@ -1232,7 +1233,14 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
-	w.prepareVP9WorkerLastBordered(lastBordered)
+	// Reference pixels live in refcounted pool buffers that are immutable
+	// while a tile epoch runs, so the parent's border-padded LAST mirror
+	// (rebuilt at the previous frame's reference refresh) is immutable
+	// too: adopt it read-only through the struct copy instead of
+	// rebuilding a private ~1MB padded plane per worker per epoch.
+	// ensureLastBordered detaches to a private buffer before any
+	// cold-path rebuild on a worker.
+	w.lastBorderedShared = true
 	w.subpelRefBordered = subpelRefBordered
 	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered
@@ -1296,7 +1304,6 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	mlPartitionCtx := w.mlPartitionCtx
 	mlPartitionPaddedLast := w.mlPartitionPaddedLast
 	mlPartitionPaddedSrc := w.mlPartitionPaddedSrc
-	lastBordered := w.lastBordered
 	subpelRefBordered := w.subpelRefBordered
 	intProSrcBordered := w.intProSrcBordered
 	nmvCostCache := w.vp9NmvCostCache
@@ -1309,6 +1316,9 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	}
 
 	*w = *src
+	// Tile workers never rotate or refresh reference buffers; detach the
+	// clone from the parent's pool so any stray call is inert.
+	w.dropVP9EncoderFramePool()
 	w.aboveSegCtx = aboveSegCtx
 	w.leftSegCtx = leftSegCtx
 	// Worker-private leaf-decision cache; see prepareVP9CountWorker.
@@ -1339,7 +1349,14 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.mlPartitionCtx = mlPartitionCtx
 	w.mlPartitionPaddedLast = mlPartitionPaddedLast
 	w.mlPartitionPaddedSrc = mlPartitionPaddedSrc
-	w.prepareVP9WorkerLastBordered(lastBordered)
+	// Reference pixels live in refcounted pool buffers that are immutable
+	// while a tile epoch runs, so the parent's border-padded LAST mirror
+	// (rebuilt at the previous frame's reference refresh) is immutable
+	// too: adopt it read-only through the struct copy instead of
+	// rebuilding a private ~1MB padded plane per worker per epoch.
+	// ensureLastBordered detaches to a private buffer before any
+	// cold-path rebuild on a worker.
+	w.lastBorderedShared = true
 	w.subpelRefBordered = subpelRefBordered
 	w.invalidateVP9SubpelRefBordered()
 	w.intProSrcBordered = intProSrcBordered

@@ -220,7 +220,7 @@ func TestVP9EncoderKeyframeSub8x8DispatchUsesPartitionBSize(t *testing.T) {
 	}
 	var seg vp9dec.SegmentationParams
 	var bw bitstream.Writer
-	bw.Start(e.scratch[:])
+	bw.Start(e.vp9BlockCoeffScratch().hdrScratch[:])
 	e.writeVP9ModeBlock(&bw, 8, 8, 0, 0, common.Block4x4,
 		vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8},
 		&seg, baseMi, common.TxModeSelect, vp9ModeTreeKeyframeSource, key, nil)

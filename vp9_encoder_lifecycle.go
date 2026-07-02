@@ -158,11 +158,6 @@ type VP9Encoder struct {
 	// configurator routes there.
 	prevFrameTxMode common.TxMode
 
-	// scratch is the reusable compressed-header staging buffer that
-	// PackBitstream consults. Sized to 64KB so libvpx's
-	// first_partition_size 16-bit cap can never overflow.
-	scratch [65536]byte
-
 	// aboveSegCtx / leftSegCtx are the partition-history arrays the
 	// per-SB walker stamps. Sized to the frame's mi_cols at first
 	// EncodeInto.
@@ -225,8 +220,6 @@ type VP9Encoder struct {
 	varPartReplayRows                   int
 	varPartReplayCols                   int
 	varPartReplayValid                  bool
-	varPartTreeScratch                  encoder.V64x64
-	varPartTreeLowResScratch            [16]encoder.V16x16
 	varPartPrevPartition                []common.BlockSize
 	varPartPrevPartitionMiRows          int
 	varPartPrevPartitionMiCols          int
@@ -331,6 +324,17 @@ type VP9Encoder struct {
 	reconU     []byte
 	reconV     []byte
 
+	// reconPool is the encoder-side BufferPool analog (libvpx
+	// vp9_onyxc_int.h frame_bufs[FRAME_BUFFERS] + ref counts).
+	// reconPoolIdx is cm->new_fb_idx: the pool buffer the working
+	// reconstruction (reconYFull/UFull/VFull) is currently backed by.
+	// refPoolIdx is cm->ref_frame_map: which pool buffer each reference
+	// slot aliases. Nil reconPool (worker clones) keeps the historical
+	// copy-based reference store. See vp9_encoder_ref_pool.go.
+	reconPool    *vp9EncoderFramePool
+	reconPoolIdx int
+	refPoolIdx   [common.RefFrames]int
+
 	refFrames [common.RefFrames]vp9ReferenceFrame
 	// refFrameIndex stamps each reference-frame-map slot with the encoder's
 	// frameIndex (current_video_frame) at the moment it was refreshed,
@@ -365,6 +369,10 @@ type VP9Encoder struct {
 	// (vp9/encoder/vp9_encoder.c:3102 / 3167 / 3424 / 3470).
 	lastBordered      common.YV12BorderBuffer
 	lastBorderedValid bool
+	// lastBorderedShared marks a tile/count worker clone whose lastBordered
+	// aliases the parent encoder's buffer (read-only for the epoch);
+	// ensureLastBordered detaches to a private buffer before rebuilding.
+	lastBorderedShared bool
 	// subpelRefBordered is the on-demand YV12-border mirror for non-LAST
 	// references that the nonrd subpel variance search scores against.
 	// Keep one buffer per reference-map slot so GOLDEN/ALTREF scoring does
@@ -436,13 +444,6 @@ type VP9Encoder struct {
 	txCoeffScratch    [1024]int16
 	qCoeffScratch     [1024]int16
 	dqCoeffScratch    [1024]int16
-	// vp9BlockYrdScratch backs encoder.BlockYrd's src_diff + per-tx-unit
-	// coeff/qcoeff/dqcoeff scratch. Sized for the realtime nonrd worst
-	// case: BLOCK_64X64 + TX_16X16 = 4096 src_diff + 16 tx units × 256
-	// coeffs × 3 (coeff/qcoeff/dqcoeff) = 16384 int16. libvpx clamps
-	// tx_size <= TX_16X16 for nonrd_pickmode (vp9_pickmode.c:2361) so
-	// the TX_8X8 / TX_4X4 paths fit within this allocation too.
-	vp9BlockYrdScratch [16384]int16
 	// cyclicPost{IsInter,MvRow,MvCol} back vp9_cyclic_refresh_postencode's
 	// low-content walk without per-frame allocation on typical mi grids.
 	cyclicPostIsInter []uint8
@@ -734,6 +735,25 @@ type vp9EncoderBlockCoeffScratch struct {
 	blockCoeffs  [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots / vp9EncoderTxCoeffSlots]int16
+
+	// hdrScratch is the reusable compressed-header staging buffer that
+	// PackBitstream consults. Sized to 64KB so libvpx's
+	// first_partition_size 16-bit cap can never overflow. Frame-scoped,
+	// written only during the serial header pack.
+	hdrScratch [65536]byte
+
+	// varPartTree / varPartTreeLowRes back the per-SB variance-partition
+	// tree computation (SB-scoped, single goroutine per SB).
+	varPartTree       encoder.V64x64
+	varPartTreeLowRes [16]encoder.V16x16
+
+	// blockYrd backs encoder.BlockYrd's src_diff + per-tx-unit
+	// coeff/qcoeff/dqcoeff scratch. Sized for the realtime nonrd worst
+	// case: BLOCK_64X64 + TX_16X16 = 4096 src_diff + 16 tx units × 256
+	// coeffs × 3 (coeff/qcoeff/dqcoeff) = 16384 int16. libvpx clamps
+	// tx_size <= TX_16X16 for nonrd_pickmode (vp9_pickmode.c:2361) so
+	// the TX_8X8 / TX_4X4 paths fit within this allocation too.
+	blockYrd [16384]int16
 }
 
 // vp9BlockCoeffScratch returns the encoder's coefficient staging scratch,
@@ -788,6 +808,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
 	e.initVP9NmvCostCache()
+	e.initVP9EncoderFramePool()
 	e.blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
