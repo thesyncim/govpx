@@ -56,6 +56,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 ) bool {
 	hasResidue := false
 	segID := vp9EncoderMiSegmentID(mi)
+	sc := e.vp9BlockCoeffScratch()
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -84,19 +85,19 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 					mode = vp9dec.GetYMode(mi, blockIdx)
 				}
 				blockIdx4x4 := rr*full4x4W + cc
-				if blockIdx4x4 >= 0 && blockIdx4x4 < len(e.blockEOBs[plane]) {
-					e.blockEOBs[plane][blockIdx4x4] = 0
+				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
+					sc.blockEOBs[plane][blockIdx4x4] = 0
 				}
 				coeffBase := blockIdx4x4 * vp9EncoderTxCoeffSlots
-				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
-				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				if ok, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, plane, mode,
 					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
 					dequant, qindex, coeffs, qcoeffs); ok {
-					if blockIdx4x4 >= 0 && blockIdx4x4 < len(e.blockEOBs[plane]) {
-						e.blockEOBs[plane][blockIdx4x4] = int16(eob)
+					if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
+						sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
 					}
 					hasResidue = true
 				}
@@ -240,6 +241,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		zcoeff, _ = e.vp9ComputeInterLeafZcoeffBlk(inter, miRows, miCols,
 			miRow, miCol, bsize, mi.TxSize, uint8(segID))
 	}
+	sc := e.vp9BlockCoeffScratch()
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -261,8 +263,8 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
 				blockIdx4x4 := rr*full4x4W + cc
-				if blockIdx4x4 >= 0 && blockIdx4x4 < len(e.blockEOBs[plane]) {
-					e.blockEOBs[plane][blockIdx4x4] = 0
+				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
+					sc.blockEOBs[plane][blockIdx4x4] = 0
 				}
 				// libvpx zcoeff_blk zero-forcing is luma-only (plane == 0,
 				// vp9_encodemb.c:580). A forced block keeps eob 0 (no tokens)
@@ -275,12 +277,12 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 					}
 				}
 				coeffBase := blockIdx4x4 * vp9EncoderTxCoeffSlots
-				coeffs := e.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				qcoeffs := e.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
 				if ok, eob := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
 					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs); ok {
-					if blockIdx4x4 >= 0 && blockIdx4x4 < len(e.blockEOBs[plane]) {
-						e.blockEOBs[plane][blockIdx4x4] = int16(eob)
+					if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
+						sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
 					}
 					hasResidue = true
 				}

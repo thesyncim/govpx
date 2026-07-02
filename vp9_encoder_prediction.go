@@ -875,9 +875,10 @@ func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 		if planeBsize < common.BlockSizes {
 			full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 			coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+			sc := e.vp9BlockCoeffScratch()
 			if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
-				coeffBase+maxEob <= len(e.blockCoeffs[plane]) {
-				return e.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
+				coeffBase+maxEob <= len(sc.blockCoeffs[plane]) {
+				return sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
 			}
 		}
 	}
@@ -898,9 +899,10 @@ func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
 		if planeBsize < common.BlockSizes {
 			full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 			coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+			sc := e.vp9BlockCoeffScratch()
 			if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
-				coeffBase+maxEob <= len(e.blockQCoeffs[plane]) {
-				return e.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
+				coeffBase+maxEob <= len(sc.blockQCoeffs[plane]) {
+				return sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 			}
 		}
 	}
@@ -922,10 +924,11 @@ func (e *VP9Encoder) vp9BlockEOB(plane int,
 	}
 	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	idx := r*full4x4W + c
-	if idx < 0 || idx >= len(e.blockEOBs[plane]) {
+	sc := e.vp9BlockCoeffScratch()
+	if idx < 0 || idx >= len(sc.blockEOBs[plane]) {
 		return 0, false
 	}
-	eob := int(e.blockEOBs[plane][idx])
+	eob := int(sc.blockEOBs[plane][idx])
 	maxEob := vp9dec.MaxEobForTxSize(tx)
 	if eob < 0 || eob > maxEob {
 		return 0, false

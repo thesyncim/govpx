@@ -408,12 +408,16 @@ type VP9Encoder struct {
 	varianceAQDeltaQindex    int
 	varianceAQDeltaQindexSet bool
 
-	blockCoeffs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
-	blockQCoeffs   [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
-	blockEOBs      [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots / vp9EncoderTxCoeffSlots]int16
-	coefScratch    [1024]int16
-	qCoefScratch   [1024]int16
-	residueScratch [1024]int16
+	// blockCoeffScratch holds the per-superblock coefficient staging arrays
+	// (~3MB). They live behind a pointer so the per-frame tile worker
+	// preparation (*worker = *encoder) does not memcpy them: the content is
+	// block-scoped scratch — produced and consumed within one block's
+	// encode on one goroutine — so each worker keeps its own allocation,
+	// mirroring how the slice-backed scratch fields are preserved.
+	blockCoeffScratch *vp9EncoderBlockCoeffScratch
+	coefScratch       [1024]int16
+	qCoefScratch      [1024]int16
+	residueScratch    [1024]int16
 	// coefTokenCache is the persistent per-encoder token energy-class cache
 	// handed to WriteCoefSb (WriteCoefSbArgs.TokenCache). libvpx tokenize_b
 	// keeps the equivalent array uninitialized across blocks
@@ -722,6 +726,26 @@ type VP9Encoder struct {
 	countArfFrameUsageMiStride int
 }
 
+// vp9EncoderBlockCoeffScratch stages one superblock's transform
+// coefficients, quantized coefficients and per-4x4 EOBs between the residue
+// producer and the token writer. See VP9Encoder.blockCoeffScratch for why it
+// lives behind a pointer.
+type vp9EncoderBlockCoeffScratch struct {
+	blockCoeffs  [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
+	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots / vp9EncoderTxCoeffSlots]int16
+}
+
+// vp9BlockCoeffScratch returns the encoder's coefficient staging scratch,
+// allocating it on first use. Steady-state encode paths never allocate: the
+// constructor and the tile worker preparation both pre-arm the pointer.
+func (e *VP9Encoder) vp9BlockCoeffScratch() *vp9EncoderBlockCoeffScratch {
+	if e.blockCoeffScratch == nil {
+		e.blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
+	}
+	return e.blockCoeffScratch
+}
+
 // NewVP9Encoder creates a VP9 encoder with validated options.
 // Width and Height must be positive; Threads / Log2TileRows / Quantizer /
 // TargetBitrateKbps / MinQuantizer / MaxQuantizer / CQLevel /
@@ -764,6 +788,7 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 		sourceTS:      newEncoderSourceTimestampState(vp9TimingStateFromOptions(opts)),
 	}
 	e.initVP9NmvCostCache()
+	e.blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
 	e.vp9LatchDeadlineModePreviousFrame()
 	e.twoPass.configureWithCorpus(opts.TwoPassStats, rc.bitsPerFrame,
 		opts.TwoPassVBRBiasPct, opts.TwoPassMinPct, opts.TwoPassMaxPct,

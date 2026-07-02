@@ -548,6 +548,7 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	intProSrcBordered := w.intProSrcBordered
 	contentStateSbFd := w.contentStateSbFd
 	nmvCostCache := w.vp9NmvCostCache
+	blockCoeffScratch := w.blockCoeffScratch
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -606,6 +607,12 @@ func (w *VP9Encoder) prepareVP9FrameParallelWorker(src *VP9Encoder, miRows, miCo
 	w.intProSrcBorderedValid = false
 	w.contentStateSbFd = contentStateSbFd
 	w.vp9NmvCostCache = nmvCostCache
+	// Worker-private coefficient staging scratch (see
+	// VP9Encoder.blockCoeffScratch): never alias the parent's arrays.
+	if blockCoeffScratch == nil {
+		blockCoeffScratch = &vp9EncoderBlockCoeffScratch{}
+	}
+	w.blockCoeffScratch = blockCoeffScratch
 	// Drop helpers that must not be transitively driven by a clone.
 	w.vp9CountWorkers = nil
 	w.vp9CountCounts = nil
