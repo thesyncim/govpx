@@ -699,7 +699,17 @@ func (e *VP9Encoder) applyVP9EncoderLoopFilter(hdr *vp9dec.UncompressedHeader,
 	}
 	miRows := int((hdr.Height + 7) >> 3)
 	miCols := int((hdr.Width + 7) >> 3)
-	ok := d.applyVP9LoopFilterSerial(miRows, miCols)
+	var ok bool
+	if pool := e.vp9TilePool; pool != nil && pool.workerCount > 1 {
+		// libvpx loopfilter_frame (vp9/encoder/vp9_encoder.c:3461-3465)
+		// routes through vp9_loop_filter_frame_mt whenever the encoder
+		// owns more than one worker; reuse the tile worker pool the same
+		// way cpi->workers back both the tile encode and the loop filter.
+		ok = e.applyVP9EncoderLoopFilterMT(&d, pool, miRows, miCols,
+			int(hdr.Width))
+	} else {
+		ok = d.applyVP9LoopFilterSerial(miRows, miCols)
+	}
 	e.vp9LoopFilterMasks = d.vp9LoopFilterMasks
 	return ok
 }

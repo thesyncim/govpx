@@ -125,6 +125,13 @@ type vp9TileWorkerPool struct {
 	shutdown chan struct{}
 	wg       sync.WaitGroup
 
+	// lfJobs / lfSync back the vp9TileWorkerJobLoopFilter epoch: the same
+	// worker set that encodes the tiles also runs the frame loop filter as
+	// row-interleaved workers, mirroring libvpx dispatching
+	// vp9_loop_filter_frame_mt over cpi->workers with cpi->lf_row_sync.
+	lfJobs []vp9EncodeLfJob
+	lfSync vp9LfSync
+
 	// rowMTSyncs holds one vp9RowMTSync per tile column. Allocated lazily by
 	// ensureRowMTSync when the RowMT option is enabled; released by
 	// releaseRowMTSync when the option toggles off. The slice is sized to
@@ -362,6 +369,9 @@ const (
 	// finish reading it before the encode epoch starts mutating it — the
 	// dedicated epoch provides that barrier.
 	vp9TileWorkerJobEncodePrep
+	// vp9TileWorkerJobLoopFilter runs one row-interleaved share of the
+	// frame loop filter per worker (libvpx vp9_loop_filter_frame_mt).
+	vp9TileWorkerJobLoopFilter
 )
 
 func (e *VP9Encoder) initVP9TileWorkerPool() {
@@ -530,6 +540,10 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
 	case vp9TileWorkerJobEncodePrep:
 		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
+	case vp9TileWorkerJobLoopFilter:
+		if workerIndex < len(p.lfJobs) {
+			runVP9EncodeLfJob(&p.lfJobs[workerIndex])
+		}
 	default:
 		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
 	}

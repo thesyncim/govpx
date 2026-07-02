@@ -371,10 +371,10 @@ func (p *vp9TileWorkerPool) vp9PhaseStartTileWorkerEpoch(kind vp9TileWorkerJobKi
 	switch kind {
 	case vp9TileWorkerJobCount:
 		atomic.AddInt64(&p.phaseStats.VP9TileWorkerCountEpochs, 1)
-	case vp9TileWorkerJobEncodePrep:
-		// Prep epochs piggyback on the encode pass; only their wake
-		// signals are interesting, so they are not counted as encode
-		// epochs.
+	case vp9TileWorkerJobEncodePrep, vp9TileWorkerJobLoopFilter:
+		// Prep and loop-filter epochs piggyback on the encode pass; only
+		// their wake signals are interesting, so they are not counted as
+		// encode epochs.
 	default:
 		atomic.AddInt64(&p.phaseStats.VP9TileWorkerEncodeEpochs, 1)
 	}

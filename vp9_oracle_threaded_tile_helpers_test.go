@@ -31,8 +31,12 @@ func assertVP9OracleThreadedTileWriterUsed(t *testing.T, enc *VP9Encoder,
 		t.Fatalf("frame %d: VP9 threaded tile worker count = %d, want %d",
 			frame, got, wantJobs)
 	}
-	if got := vp9TileWorkerJobKind(pool.jobKind.Load()); got != vp9TileWorkerJobEncode {
-		t.Fatalf("frame %d: VP9 tile worker job kind = %d, want encode",
+	// The last pool epoch of a frame is the encode pass or, on reference
+	// frames, the row-interleaved loop filter that follows it (libvpx
+	// vp9_loop_filter_frame_mt reusing cpi->workers).
+	if got := vp9TileWorkerJobKind(pool.jobKind.Load()); got != vp9TileWorkerJobEncode &&
+		got != vp9TileWorkerJobLoopFilter {
+		t.Fatalf("frame %d: VP9 tile worker job kind = %d, want encode or loopfilter",
 			frame, got)
 	}
 	if len(pool.encodeJobs) < wantJobs {
