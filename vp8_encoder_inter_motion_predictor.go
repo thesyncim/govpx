@@ -83,37 +83,82 @@ type improvedInterFrameMVSlot struct {
 	sad      int
 }
 
+// improvedInterFrameNearSADCache mirrors libvpx pickinter.c's saddone +
+// near_sad[8] pair: vp8_cal_sad computes the neighbor SAD table once per
+// macroblock and every reference frame's NEWMV vp8_mv_pred call reuses it.
+// The SAD values depend only on the source MB, the reconstructed
+// current-frame neighbors and the previous frame - never on the reference
+// frame being searched - so the fast picker keeps one cache per MB in its
+// loop context.
+type improvedInterFrameNearSADCache struct {
+	sad [8]int
+	set bool
+}
+
+func currentNeighborNearSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode) int {
+	if mode == nil || refMbRow < 0 || refMbCol < 0 {
+		return maxInt()
+	}
+	return macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+}
+
+func lastNeighborNearSAD(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) int {
+	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
+		return maxInt()
+	}
+	return macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
+}
+
 func (e *VP8Encoder) improvedInterFrameSearchStart(
 	src vp8enc.SourceImage, refFrame vp8common.MVReferenceFrame,
 	mbRow int, mbCol int, mbRows int, mbCols int,
 	above *vp8enc.InterFrameMacroblockMode, left *vp8enc.InterFrameMacroblockMode, aboveLeft *vp8enc.InterFrameMacroblockMode,
 	search interAnalysisSearchConfig,
+	sadCache *improvedInterFrameNearSADCache,
 ) interFrameSearchStart {
 	if !search.improvedMVPrediction || refFrame == vp8common.IntraFrame {
 		return interFrameSearchStart{}
 	}
-	var slots [8]improvedInterFrameMVSlot
-	slotCount := 3
 	signBias := e.interFrameSignBias()
-	slots[0].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above, signBias)
-	slots[1].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left, signBias)
-	slots[2].fillCurrent(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft, signBias)
 	lastModesAvailable := e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols
 	includeLastSlots := (lastModesAvailable || e.lastCodedFrameType != vp8common.KeyFrame) && mbRows > 0 && mbCols > 0
+	var localSADs improvedInterFrameNearSADCache
+	cache := sadCache
+	if cache == nil {
+		cache = &localSADs
+	}
+	if !cache.set {
+		cache.sad[0] = currentNeighborNearSAD(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol, above)
+		cache.sad[1] = currentNeighborNearSAD(src, &e.analysis.Img, mbRow, mbCol, mbRow, mbCol-1, left)
+		cache.sad[2] = currentNeighborNearSAD(src, &e.analysis.Img, mbRow, mbCol, mbRow-1, mbCol-1, aboveLeft)
+		if includeLastSlots {
+			cache.sad[3] = lastNeighborNearSAD(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
+			cache.sad[4] = lastNeighborNearSAD(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
+			cache.sad[5] = lastNeighborNearSAD(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
+			cache.sad[6] = lastNeighborNearSAD(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
+			cache.sad[7] = lastNeighborNearSAD(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+		}
+		cache.set = true
+	}
+	var slots [8]improvedInterFrameMVSlot
+	slotCount := 3
+	slots[0].fillCurrent(cache.sad[0], mbRow-1, mbCol, above, signBias)
+	slots[1].fillCurrent(cache.sad[1], mbRow, mbCol-1, left, signBias)
+	slots[2].fillCurrent(cache.sad[2], mbRow-1, mbCol-1, aboveLeft, signBias)
 	if includeLastSlots {
 		slotCount = 8
 		if lastModesAvailable {
-			slots[3].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
-			slots[4].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
-			slots[5].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
-			slots[6].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
-			slots[7].fillLast(src, &e.lastRef.Img, e.lastFrameInterModes, e.lastFrameInterModeBias, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+			slots[3].fillLast(cache.sad[3], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol)
+			slots[4].fillLast(cache.sad[4], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow-1, mbCol)
+			slots[5].fillLast(cache.sad[5], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol-1)
+			slots[6].fillLast(cache.sad[6], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol+1)
+			slots[7].fillLast(cache.sad[7], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow+1, mbCol)
 		} else {
-			slots[3].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol)
-			slots[4].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow-1, mbCol)
-			slots[5].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol-1)
-			slots[6].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow, mbCol+1)
-			slots[7].fillLastIntraSentinel(src, &e.lastRef.Img, mbRow, mbCol, mbRows, mbCols, mbRow+1, mbCol)
+			slots[3] = improvedInterFrameMVSlot{sad: cache.sad[3]}
+			slots[4] = improvedInterFrameMVSlot{sad: cache.sad[4]}
+			slots[5] = improvedInterFrameMVSlot{sad: cache.sad[5]}
+			slots[6] = improvedInterFrameMVSlot{sad: cache.sad[6]}
+			slots[7] = improvedInterFrameMVSlot{sad: cache.sad[7]}
 		}
 	}
 	biasImprovedInterFrameMVSlots(&slots, slotCount, refFrame, signBias, mbRow, mbCol, mbRows, mbCols)
@@ -136,14 +181,15 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	return newInterFrameSearchStart(mv, 0, -1)
 }
 
-func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
+func (slot *improvedInterFrameMVSlot) fillCurrent(sad int, refMbRow int, refMbCol int, mode *vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the current frame: a
 	// nil pointer (border MB) corresponds to libvpx's calloc-zeroed
 	// mode_info sentinel row/column where ref_frame == INTRA_FRAME and
-	// mv == 0, and vp8_cal_sad sets the matching near_sad entry to INT_MAX.
-	// In-frame intra neighbors still receive a real near_sad value; they are
-	// skipped later by the ref-frame match but still affect the matched
-	// neighbor's SAD rank and therefore the search range.
+	// mv == 0, and vp8_cal_sad sets the matching near_sad entry to INT_MAX
+	// (the caller passes that sentinel through sad). In-frame intra
+	// neighbors still receive a real near_sad value; they are skipped later
+	// by the ref-frame match but still affect the matched neighbor's SAD
+	// rank and therefore the search range.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if mode == nil || refMbRow < 0 || refMbCol < 0 {
 		return
@@ -155,24 +201,24 @@ func (slot *improvedInterFrameMVSlot) fillCurrent(src vp8enc.SourceImage, img *v
 	if uint(slot.refFrame)-1 < uint(vp8common.MaxRefFrames-1) {
 		slot.signBias = signBias[slot.refFrame]
 	}
+	slot.sad = sad
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero when the neighbor is intra; do
 		// the same here regardless of any stale MV field on the mode entry.
-		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 		return
 	}
 	slot.mv = mode.MV
-	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
-func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8common.Image, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+func (slot *improvedInterFrameMVSlot) fillLast(sad int, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, mbRows int, mbCols int, refMbRow int, refMbCol int) {
 	// Mirror libvpx's vp8_mv_pred neighbor table for the previous frame:
 	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
 	// sentinel rows (top/bottom) and columns (left/right) which are
 	// calloc-zeroed and therefore report INTRA_FRAME with mv == 0, while
-	// vp8_cal_sad sets the matching near_sad entry to INT_MAX. In-frame
-	// previous-frame intra slots still get their real last-frame SAD and can
-	// change the matched slot's rank.
+	// vp8_cal_sad sets the matching near_sad entry to INT_MAX (the caller
+	// passes that sentinel through sad). In-frame previous-frame intra
+	// slots still get their real last-frame SAD and can change the matched
+	// slot's rank.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
 		return
@@ -186,22 +232,13 @@ func (slot *improvedInterFrameMVSlot) fillLast(src vp8enc.SourceImage, img *vp8c
 	if index < len(modeBias) {
 		slot.signBias = modeBias[index]
 	}
+	slot.sad = sad
 	if slot.refFrame == vp8common.IntraFrame {
 		// libvpx leaves near_mvs[vcnt] at zero for intra last-frame slots even
 		// though it still increments vcnt; mirror that exactly.
-		slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 		return
 	}
 	slot.mv = mode.MV
-	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
-}
-
-func (slot *improvedInterFrameMVSlot) fillLastIntraSentinel(src vp8enc.SourceImage, img *vp8common.Image, srcMbRow int, srcMbCol int, mbRows int, mbCols int, refMbRow int, refMbCol int) {
-	*slot = improvedInterFrameMVSlot{sad: maxInt()}
-	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
-		return
-	}
-	slot.sad = macroblockImageBlockSAD(src, img, srcMbRow, srcMbCol, refMbRow, refMbCol)
 }
 
 func biasImprovedInterFrameMVSlots(slots *[8]improvedInterFrameMVSlot, count int, refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool, mbRow int, mbCol int, mbRows int, mbCols int) {

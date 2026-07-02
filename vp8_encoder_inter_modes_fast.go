@@ -225,7 +225,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			}
 		case vp8common.NewMV:
 			search := loopCtx.searchConfig(e)
-			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search, &loopCtx.nearSADs)
 			improvedStart = start
 			mvCosts := loopCtx.mvCosts
 			if mvCosts == nil {
@@ -491,7 +491,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			}
 		case vp8common.NewMV:
 			search := loopCtx.searchConfig(e)
-			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			start := e.improvedInterFrameSearchStart(src, rs.frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search, &loopCtx.nearSADs)
 			improvedStart = start
 			mvCosts := loopCtx.mvCosts
 			if mvCosts == nil {
@@ -797,7 +797,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			mode.MV = mv
 		case vp8common.NewMV:
 			search := loopCtx.searchConfig(e)
-			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search)
+			start := e.improvedInterFrameSearchStart(src, ref.Frame, mbRow, mbCol, mbRows, mbCols, above, left, aboveLeft, search, &loopCtx.nearSADs)
 			improvedStart = start
 			mvCosts := loopCtx.mvCosts
 			if mvCosts == nil {

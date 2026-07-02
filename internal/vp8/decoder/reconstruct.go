@@ -95,6 +95,31 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 	}
 }
 
+// BuildIntraPredictorRefsLuma gathers only the Y-plane neighbor stripes.
+// The encoder's fast intra picker scores candidate 16x16 modes on luma
+// alone (libvpx vp8/encoder/pickinter.c uses
+// vp8_build_intra_predictors_mby_s in the mode loop and picks the UV mode
+// separately for the winner), so it never reads the U/V stripes.
+func BuildIntraPredictorRefsLuma(img *common.Image, mbRow int, mbCol int, scratch *IntraPredictorScratch) IntraPredictorRefs {
+	yRow := mbRow * 16
+	yCol := mbCol * 16
+	upAvailable := mbRow > 0
+	leftAvailable := mbCol > 0
+	codedWidth := codedImageWidth(img)
+	codedHeight := codedImageHeight(img)
+
+	buildAbove(scratch.YAbove[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	buildLeft(scratch.YLeft[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedHeight, yRow, yCol, img.YBorder, leftAvailable)
+
+	return IntraPredictorRefs{
+		YAbove:        scratch.YAbove[:],
+		YLeft:         scratch.YLeft[:],
+		YTopLeft:      topLeftSample(img.Y, img.YFull, img.YOrigin, img.YStride, yRow, yCol, img.YBorder, upAvailable, leftAvailable),
+		UpAvailable:   upAvailable,
+		LeftAvailable: leftAvailable,
+	}
+}
+
 func TransformMacroblockTokens(tokens *MacroblockTokens, dequant *common.MacroblockDequant, is4x4 bool, out *MacroblockResidual) {
 	transformMacroblockTokensLuma(tokens, dequant, is4x4, out)
 	transformMacroblockTokensChroma(tokens, dequant, out)
@@ -175,7 +200,7 @@ func dequantIDCTAddMacroblock(tokens *MacroblockTokens, dequant *common.Macroblo
 			seeded = true
 		}
 	}
-	dequantIDCTAddLumaBlocks(tokens, yDequant, y, yStride)
+	dequantIDCTAddLumaBlocks(tokens, yDequant, seeded, y, yStride)
 	if seeded {
 		unseedLumaDC(tokens)
 	}
@@ -209,12 +234,31 @@ func unseedLumaDC(tokens *MacroblockTokens) {
 	}
 }
 
+// sanitizeDCOnlyBlock zeroes the coefficient slots an EOB <= 1 block does
+// not own before the block rides the fused pair kernel. The decoder's
+// dirty-clear contract already guarantees these slots are zero, but encoder
+// analysis callers reuse token buffers across macroblocks and only maintain
+// the first EOB coefficients (libvpx's own encoder never routes its analysis
+// reconstruction through the NEON pair kernels, and the pre-fusion
+// addOneChromaBlock explicitly rebuilt "a fresh DC-only block" for the same
+// reason). An EOB == 0 block owns nothing (unless the Y2 inverse Walsh
+// seeded its DC, which is real reconstruction data); an EOB == 1 block owns
+// only its DC.
+func sanitizeDCOnlyBlock(block *[16]int16, eob uint8, seeded bool) {
+	if eob == 0 && !seeded {
+		block[0] = 0
+	}
+	for i := 1; i < 16; i++ {
+		block[i] = 0
+	}
+}
+
 // dequantIDCTAddLumaBlocks mirrors vp8_dequant_idct_add_y_block_neon: the 16
 // luma blocks dispatch in horizontally adjacent pairs. A pair with any
 // EOB > 1 runs the full fused kernel (int16 wrapping dequant of both
 // blocks); otherwise the DC-only pair path applies ((q*dq)+4)>>3 computed in
 // int precision, matching idct_dequant_0_2x_neon.
-func dequantIDCTAddLumaBlocks(tokens *MacroblockTokens, yDequant *[16]int16, y []byte, yStride int) {
+func dequantIDCTAddLumaBlocks(tokens *MacroblockTokens, yDequant *[16]int16, seeded bool, y []byte, yStride int) {
 	qflat := unsafe.Slice(&tokens.QCoeff[0][0], 25*16)
 	for row := range 4 {
 		rowBlock := row * 4
@@ -228,11 +272,22 @@ func dequantIDCTAddLumaBlocks(tokens *MacroblockTokens, yDequant *[16]int16, y [
 			}
 			off := rowOff + col*4
 			if eob0 > 1 || eob1 > 1 {
+				if eob0 <= 1 {
+					sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16:b*16+16]), eob0, seeded)
+				}
+				if eob1 <= 1 {
+					sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16+16:b*16+32]), eob1, seeded)
+				}
 				dsp.DequantIDCTAddFull2x((*[32]int16)(qflat[b*16:]), yDequant, y[off:], yStride)
 				continue
 			}
-			dc0 := int32(tokens.QCoeff[b][0]) * int32(yDequant[0])
-			dc1 := int32(tokens.QCoeff[b+1][0]) * int32(yDequant[0])
+			var dc0, dc1 int32
+			if eob0 != 0 || seeded {
+				dc0 = int32(tokens.QCoeff[b][0]) * int32(yDequant[0])
+			}
+			if eob1 != 0 || seeded {
+				dc1 = int32(tokens.QCoeff[b+1][0]) * int32(yDequant[0])
+			}
 			dsp.DCOnlyIDCT4x4AddPairInt32(dc0, dc1, y[off:], yStride, y[off:], yStride)
 		}
 	}
@@ -256,11 +311,22 @@ func dequantIDCTAddChromaPair(tokens *MacroblockTokens, uvDequant *[16]int16, b 
 	}
 	if eob0 > 1 || eob1 > 1 {
 		qflat := unsafe.Slice(&tokens.QCoeff[0][0], 25*16)
+		if eob0 <= 1 {
+			sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16:b*16+16]), eob0, false)
+		}
+		if eob1 <= 1 {
+			sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16+16:b*16+32]), eob1, false)
+		}
 		dsp.DequantIDCTAddFull2x((*[32]int16)(qflat[b*16:]), uvDequant, dst, stride)
 		return
 	}
-	dc0 := int32(tokens.QCoeff[b][0]) * int32(uvDequant[0])
-	dc1 := int32(tokens.QCoeff[b+1][0]) * int32(uvDequant[0])
+	var dc0, dc1 int32
+	if eob0 != 0 {
+		dc0 = int32(tokens.QCoeff[b][0]) * int32(uvDequant[0])
+	}
+	if eob1 != 0 {
+		dc1 = int32(tokens.QCoeff[b+1][0]) * int32(uvDequant[0])
+	}
 	dsp.DCOnlyIDCT4x4AddPairInt32(dc0, dc1, dst, stride, dst, stride)
 }
 
