@@ -789,7 +789,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeNonRD(key *vp9KeyframeEncodeState,
 			}
 			yrd := encoder.BlockYrd(yrdSrc, yrdSrcStride, yrdSrcX, yrdSrcY,
 				planeData, stride, x0, y0, bs, bs, yrdTxSize, dequant,
-				encoder.BlockYrdUnknownSSE, e.vp9BlockYrdScratch[:])
+				encoder.BlockYrdUnknownSSE, e.vp9BlockCoeffScratch().blockYrd[:])
 			if !yrd.Valid {
 				encoder.RestorePlaneRect(planeData, stride, baseX, baseY,
 					restoreW, restoreH, saved)

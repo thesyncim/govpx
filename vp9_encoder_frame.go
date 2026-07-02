@@ -571,7 +571,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		postDropVarPartCopyState = e.saveVP9VarPartCopyStateForPostDrop()
 	}
 
-	compSize, err := encoder.WriteCompressedHeaderFromCounts(e.scratch[:], encoder.WriteCompressedHeaderFromCountsArgs{
+	hdrScratch := e.vp9BlockCoeffScratch().hdrScratch[:]
+	compSize, err := encoder.WriteCompressedHeaderFromCounts(hdrScratch, encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:                header.Quant.Lossless,
 		TxMode:                  txMode,
 		IntraOnly:               isKey || header.IntraOnly,
@@ -613,7 +614,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if uncSize+compSize >= len(dst) {
 		return VP9EncodeResult{}, encoder.ErrPackBufferFull
 	}
-	copy(dst[uncSize:uncSize+compSize], e.scratch[:compSize])
+	copy(dst[uncSize:uncSize+compSize], hdrScratch[:compSize])
 
 	tileStart := uncSize + compSize
 	tileKind := vp9ModeTreeInterSource

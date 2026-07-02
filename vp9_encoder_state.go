@@ -520,6 +520,14 @@ func (e *VP9Encoder) ensureLastBordered() {
 		e.lastBorderedValid = false
 		return
 	}
+	if e.lastBorderedShared {
+		// Worker clone holding a read-only view of the parent's buffer:
+		// never write through the shared pixels — detach to a private
+		// allocation first. Cold path; the shared mirror is valid for the
+		// whole epoch in every steady-state flow.
+		e.lastBordered = common.YV12BorderBuffer{}
+		e.lastBorderedShared = false
+	}
 	common.YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
 		common.VP9EncBorderInPixels)
 	e.lastBorderedValid = true
@@ -530,6 +538,7 @@ func (e *VP9Encoder) ensureLastBordered() {
 func (e *VP9Encoder) prepareVP9WorkerLastBordered(buf common.YV12BorderBuffer) {
 	e.lastBordered = buf
 	e.lastBorderedValid = false
+	e.lastBorderedShared = false
 	e.ensureLastBordered()
 }
 

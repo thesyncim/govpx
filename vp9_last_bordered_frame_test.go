@@ -181,25 +181,35 @@ func TestSubpelReferenceBorderedCachesPerReferenceSlot(t *testing.T) {
 	}
 }
 
-func TestVP9WorkerPrepKeepsLastBorderedPrivate(t *testing.T) {
+// Tile and count workers run synchronously within one frame epoch, and the
+// reference pixels they mirror are immutable refcounted pool buffers, so
+// their lastBordered is an intentional read-only alias of the parent's
+// buffer (lastBorderedShared). A rebuild on a worker must detach to a
+// private allocation before writing. Frame-parallel helpers run
+// concurrently with the parent across frames and must stay fully private.
+func TestVP9WorkerPrepSharesLastBorderedReadOnly(t *testing.T) {
 	tests := []struct {
 		name    string
+		shared  bool
 		prepare func(worker, src *VP9Encoder)
 	}{
 		{
-			name: "count",
+			name:   "count",
+			shared: true,
 			prepare: func(worker, src *VP9Encoder) {
 				worker.prepareVP9CountWorker(src, 16, 16, 2, 2)
 			},
 		},
 		{
-			name: "tile-encode",
+			name:   "tile-encode",
+			shared: true,
 			prepare: func(worker, src *VP9Encoder) {
 				worker.prepareVP9TileEncodeWorker(src, 2, 2)
 			},
 		},
 		{
-			name: "frame-parallel",
+			name:   "frame-parallel",
+			shared: false,
 			prepare: func(worker, src *VP9Encoder) {
 				worker.prepareVP9FrameParallelWorker(src, 2, 2, 16, 16)
 			},
@@ -221,8 +231,30 @@ func TestVP9WorkerPrepKeepsLastBorderedPrivate(t *testing.T) {
 				len(src.lastBordered.Pixels) == 0 {
 				t.Fatalf("lastBordered buffers unexpectedly empty")
 			}
+			aliases := &worker.lastBordered.Pixels[0] == &src.lastBordered.Pixels[0]
+			if aliases != tc.shared {
+				t.Fatalf("worker lastBordered aliasing = %t, want %t",
+					aliases, tc.shared)
+			}
+			if worker.lastBorderedShared != tc.shared {
+				t.Fatalf("worker lastBorderedShared = %t, want %t",
+					worker.lastBorderedShared, tc.shared)
+			}
+			if !tc.shared {
+				return
+			}
+			// A forced rebuild on the worker must detach from the shared
+			// buffer instead of writing through the parent's pixels.
+			worker.lastBorderedValid = false
+			worker.ensureLastBordered()
+			if !worker.lastBorderedValid {
+				t.Fatalf("worker lastBorderedValid=false after rebuild")
+			}
+			if worker.lastBorderedShared {
+				t.Fatalf("worker still marked shared after rebuild")
+			}
 			if &worker.lastBordered.Pixels[0] == &src.lastBordered.Pixels[0] {
-				t.Fatalf("worker aliases parent lastBordered buffer")
+				t.Fatalf("worker rebuild wrote through the parent's buffer")
 			}
 		})
 	}
