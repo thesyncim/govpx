@@ -121,6 +121,10 @@ func (d *VP9Decoder) parseVP9IntraModeTileRowMTSplit(r *bitstream.Reader,
 	if storage == nil || rowMT == nil {
 		return ErrInvalidVP9Data
 	}
+	if helpers := d.vp9DecoderRowMTQueueHelpers(); helpers > 0 {
+		return d.parseVP9IntraModeTileRowMTQueued(r, hdr, comp, maps, tile,
+			miRows, miCols, partitionProbs, storage, helpers)
+	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
 	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
@@ -178,6 +182,10 @@ func (d *VP9Decoder) parseVP9InterModeTileRowMTSplit(r *bitstream.Reader,
 	if storage == nil || rowMT == nil {
 		return ErrInvalidVP9Data
 	}
+	if helpers := d.vp9DecoderRowMTQueueHelpers(); helpers > 0 {
+		return d.parseVP9InterModeTileRowMTQueued(r, hdr, comp, maps, tile,
+			miRows, miCols, partitionProbs, storage, helpers)
+	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
 	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
@@ -220,6 +228,207 @@ func (d *VP9Decoder) parseVP9InterModeTileRowMTSplit(r *bitstream.Reader,
 	}
 	if r.HasError() {
 		return ErrInvalidVP9Data
+	}
+	return nil
+}
+
+func (d *VP9Decoder) vp9DecoderRowMTQueueHelpers() int {
+	if d == nil || d.vp9TilePool == nil {
+		return 0
+	}
+	return int(d.vp9TilePool.helperCount)
+}
+
+func (d *VP9Decoder) parseVP9IntraModeTileRowMTQueued(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.IntraSegmentMaps, tile vp9dec.TileBounds,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	storage *vp9DecoderRowMTFrameStorage, helpers int,
+) error {
+	p := d.vp9TilePool
+	if p == nil || hdr == nil {
+		return ErrInvalidVP9Data
+	}
+	if helpers > int(p.helperCount) {
+		helpers = int(p.helperCount)
+	}
+	p.header = *hdr
+	workerHdr := &p.header
+	for worker := range helpers {
+		p.prepareRowMTJob(worker, d, vp9DecoderTileJobIntra, workerHdr, comp,
+			tile, miRows, miCols, storage)
+	}
+	epoch := p.startHelperWorkers(helpers)
+	err := d.parseVP9IntraModeTileRowsForRowMT(r, hdr, maps, storage, tile,
+		miRows, miCols, comp.TxMode, partitionProbs)
+	storage.jobq.terminate()
+	p.waitHelperWorkers(epoch, helpers)
+	for worker := range helpers {
+		job := &p.jobs[worker]
+		if job.unsupported {
+			d.unsupportedReconstruct = true
+		}
+		if err == nil && job.err != nil {
+			err = job.err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if r.HasError() {
+		return ErrInvalidVP9Data
+	}
+	return nil
+}
+
+func (d *VP9Decoder) parseVP9InterModeTileRowMTQueued(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.InterSegmentMaps, tile vp9dec.TileBounds,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	storage *vp9DecoderRowMTFrameStorage, helpers int,
+) error {
+	p := d.vp9TilePool
+	if p == nil || hdr == nil {
+		return ErrInvalidVP9Data
+	}
+	if helpers > int(p.helperCount) {
+		helpers = int(p.helperCount)
+	}
+	p.header = *hdr
+	workerHdr := &p.header
+	for worker := range helpers {
+		p.prepareRowMTJob(worker, d, vp9DecoderTileJobInter, workerHdr, comp,
+			tile, miRows, miCols, storage)
+	}
+	epoch := p.startHelperWorkers(helpers)
+	err := d.parseVP9InterModeTileRowsForRowMT(r, hdr, comp, maps, storage, tile,
+		miRows, miCols, partitionProbs)
+	storage.jobq.terminate()
+	p.waitHelperWorkers(epoch, helpers)
+	for worker := range helpers {
+		job := &p.jobs[worker]
+		if job.unsupported {
+			d.unsupportedReconstruct = true
+		}
+		if err == nil && job.err != nil {
+			err = job.err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if r.HasError() {
+		return ErrInvalidVP9Data
+	}
+	return nil
+}
+
+func (d *VP9Decoder) parseVP9IntraModeTileRowsForRowMT(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, maps *vp9dec.IntraSegmentMaps,
+	storage *vp9DecoderRowMTFrameStorage, tile vp9dec.TileBounds,
+	miRows, miCols int, txMode common.TxMode,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) error {
+	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+		for i := range d.leftSegCtx {
+			d.leftSegCtx[i] = 0
+		}
+		d.resetVP9LeftEntropyContexts()
+		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
+			cursor := storage.partitionCursor(sb)
+			residue := vp9DecoderRowMTResidueCursor{}
+			if !d.parseVP9IntraModeSbRowMT(r, hdr, maps, storage, sb, tile,
+				miRows, miCols, miRow, miCol, common.Block64x64, txMode,
+				partitionProbs, &cursor, &residue) {
+				return ErrInvalidVP9Data
+			}
+		}
+		if !storage.jobq.queue(vp9DecoderRowMTJob{
+			rowNum: miRow, tileCol: 0, jobType: vp9DecoderRowMTJobRecon,
+		}) {
+			return ErrInvalidVP9Data
+		}
+	}
+	return nil
+}
+
+func (d *VP9Decoder) parseVP9InterModeTileRowsForRowMT(r *bitstream.Reader,
+	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
+	maps *vp9dec.InterSegmentMaps, storage *vp9DecoderRowMTFrameStorage,
+	tile vp9dec.TileBounds, miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) error {
+	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+		for i := range d.leftSegCtx {
+			d.leftSegCtx[i] = 0
+		}
+		d.resetVP9LeftEntropyContexts()
+		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+			sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
+			cursor := storage.partitionCursor(sb)
+			residue := vp9DecoderRowMTResidueCursor{}
+			if !d.parseVP9InterModeSbRowMT(r, hdr, comp, maps, storage, sb,
+				tile, miRows, miCols, miRow, miCol, common.Block64x64,
+				partitionProbs, &cursor, &residue) {
+				return ErrInvalidVP9Data
+			}
+		}
+		if !storage.jobq.queue(vp9DecoderRowMTJob{
+			rowNum: miRow, tileCol: 0, jobType: vp9DecoderRowMTJobRecon,
+		}) {
+			return ErrInvalidVP9Data
+		}
+	}
+	return nil
+}
+
+func (d *VP9Decoder) reconstructVP9IntraModeTileRowMTRow(
+	hdr *vp9dec.UncompressedHeader, storage *vp9DecoderRowMTFrameStorage,
+	tile vp9dec.TileBounds, miRows, miCols, miRow int,
+) error {
+	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
+	sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
+	for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+		sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
+		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols, sbRow-1) {
+			return ErrInvalidVP9Data
+		}
+		cursor := storage.partitionCursor(sb)
+		residue := vp9DecoderRowMTResidueCursor{}
+		if !d.reconstructVP9IntraModeSbRowMT(hdr, storage, sb, tile, miRows,
+			miCols, miRow, miCol, common.Block64x64, &cursor, &residue) {
+			return ErrInvalidVP9Data
+		}
+		if !storage.reconMapWrite(sb, sbRow) {
+			return ErrInvalidVP9Data
+		}
+	}
+	return nil
+}
+
+func (d *VP9Decoder) reconstructVP9InterModeTileRowMTRow(
+	hdr *vp9dec.UncompressedHeader, storage *vp9DecoderRowMTFrameStorage,
+	tile vp9dec.TileBounds, miRows, miCols, miRow int,
+) error {
+	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
+	sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
+	for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+		sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
+		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols, sbRow-1) {
+			return ErrInvalidVP9Data
+		}
+		cursor := storage.partitionCursor(sb)
+		residue := vp9DecoderRowMTResidueCursor{}
+		if !d.reconstructVP9InterModeSbRowMT(hdr, storage, sb, tile, miRows,
+			miCols, miRow, miCol, common.Block64x64, &cursor, &residue) {
+			return ErrInvalidVP9Data
+		}
+		if !storage.reconMapWrite(sb, sbRow) {
+			return ErrInvalidVP9Data
+		}
 	}
 	return nil
 }

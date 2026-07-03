@@ -187,6 +187,22 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 	if got, want := cap(d.vp9TilePool.rowMTFrame.jobq.jobs), 12; got != want {
 		t.Fatalf("rowMTFrame jobq cap = %d, want %d", got, want)
 	}
+	if !d.vp9TilePool.rowMTFrame.jobq.done() {
+		t.Fatal("rowMTFrame jobq did not finish")
+	}
+	if got, want := len(d.vp9TilePool.rowMTFrame.jobq.jobs), 4; got != want {
+		t.Fatalf("rowMTFrame queued jobs = %d, want %d", got, want)
+	}
+	if got, want := d.vp9TilePool.rowMTFrame.jobq.read, 4; got != want {
+		t.Fatalf("rowMTFrame consumed jobs = %d, want %d", got, want)
+	}
+	for i, job := range d.vp9TilePool.rowMTFrame.jobq.jobs {
+		if job.jobType != vp9DecoderRowMTJobRecon || job.tileCol != 0 ||
+			job.rowNum != i*common.MiBlockSize {
+			t.Fatalf("rowMTFrame job[%d] = %+v; want recon row %d tile 0",
+				i, job, i*common.MiBlockSize)
+		}
+	}
 	if got, want := len(d.vp9TilePool.rowMTFrame.uvMode), 32*16; got != want {
 		t.Fatalf("rowMTFrame uvMode len = %d, want %d", got, want)
 	}

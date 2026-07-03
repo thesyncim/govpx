@@ -172,6 +172,9 @@ func TestVP9DecoderRowMTJobQueueLifecycle(t *testing.T) {
 	if _, ok := q.dequeue(false); ok {
 		t.Fatal("terminated empty queue returned a job")
 	}
+	if q.queue(vp9DecoderRowMTJob{jobType: vp9DecoderRowMTJobRecon}) {
+		t.Fatal("terminated queue accepted a job")
+	}
 
 	q.reset()
 	if !q.queue(vp9DecoderRowMTJob{rowNum: 16, jobType: vp9DecoderRowMTJobLPF}) {
