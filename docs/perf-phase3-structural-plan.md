@@ -77,6 +77,16 @@ about 4.65 ms/frame on both connected no-denoise spots. Keep tile column 0 on
 the shared encoder and retain the current helper prep epoch until a real
 merged handshake or row/tile batching design is ready.
 
+Probe note, 2026-07-03: a VP9 4-thread no-denoise PGO-coverage probe was
+rejected. Adding a 120-frame 720p realtime cpu8 `-threads=4
+-noise-sensitivity=0` capture to `make pgo-refresh` and merging it into
+`default.pgo` kept bytes/topology stable but did not clear the connected
+gate. The 4T paired old/new spots were split with only a small median nudge
+(old median about 4.93 ms/frame, new about 4.82 ms/frame), while the 1T
+default realtime paired median moved the wrong way (old about 12.32 ms/frame,
+new about 12.65 ms/frame). Keep VP9 PGO training on the existing 1T realtime
+profile unless a broader production-profile mix can prove no 1T regression.
+
 Probe note, 2026-07-03: a skip/no-residue token-marker probe was rejected.
 Omitting explicit EOSB terminators for empty coefficient leaves and allowing
 empty SB-row token lists preserved VP9 bytes/topology and replay hits, but it
