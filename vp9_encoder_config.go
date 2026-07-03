@@ -616,6 +616,9 @@ func (e *VP9Encoder) SetRowMT(enabled bool) error {
 		e.vp9TilePool.releaseRowMTSync()
 		e.vp9TilePool.releaseRowWorkers()
 	}
+	if !enabled {
+		e.rdThresh.ReleaseRowMTFreqFactRows()
+	}
 	return nil
 }
 

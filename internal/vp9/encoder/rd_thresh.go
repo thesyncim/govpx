@@ -13,11 +13,12 @@ import (
 // vp9_pickmode.c:2240-2257 plus the supporting per-frame and per-tile state
 // vp9_set_rd_speed_thresholds / set_block_thresholds / update_thresh_freq_fact.
 //
-// The state lives on VP9Encoder as a single non-MT tile (govpx single-tile
-// realtime configuration) and is allocated lazily at first frame init. The
-// allocation matches libvpx vp9_encodeframe.c:5415-5432 — fill
+// The state lives on VP9Encoder and is allocated lazily at first frame init.
+// The non-row table matches libvpx vp9_encodeframe.c:5415-5432 — fill
 // thresh_freq_fact with RD_THRESH_INIT_FACT at tile birth — and the per-frame
-// rebuild matches libvpx vp9_rd.c:355-385 set_block_thresholds.
+// rebuild matches libvpx vp9_rd.c:355-385 set_block_thresholds. When
+// adaptive_rd_thresh_row_mt is active, rowBaseThreshFreqFact mirrors libvpx's
+// TileDataEnc::row_base_thresh_freq_fact from vp9_multi_thread.c.
 
 // vp9MaxModes mirrors libvpx's MAX_MODES (vp9_rd.h:41).
 const vp9MaxModes = 30
@@ -30,6 +31,8 @@ const (
 	vp9RDThreshMaxFact  = 64
 	vp9RDThreshInc      = 1
 )
+
+type rdThreshFreqFactTable [common.BlockSizes][vp9MaxModes]int
 
 // ThrMode mirrors libvpx's THR_MODES enum (vp9_rd.h:53-93). The numeric
 // ordering matters: it is used as an index into thresh_mult[] and
@@ -232,11 +235,12 @@ func ModeOffsetInter(mode common.PredictionMode) int {
 	return int(mode) - int(common.NearestMv)
 }
 
-// RDThreshState carries the per-frame and per-tile state for the
-// mode_rd_thresh gate. govpx's current realtime encoder is single-tile and
-// single-segment for this path, so libvpx's
+// RDThreshState carries the per-frame and per-tile/row state for the
+// mode_rd_thresh gate. govpx is single-segment for this path, so libvpx's
 // [MAX_SEGMENTS][BLOCK_SIZES][MAX_MODES] threshes collapse to a single segment
-// plane and libvpx's per-tile thresh_freq_fact collapses to one tile plane.
+// plane. The non-row thresh_freq_fact table is the current tile plane; when
+// adaptive_rd_thresh_row_mt is enabled, rowBaseThreshFreqFact supplies the
+// libvpx row-indexed sibling.
 //
 // libvpx: vp9/encoder/vp9_rd.h:111-130 RD_OPT + vp9/encoder/vp9_block.h
 // TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES].
@@ -250,9 +254,14 @@ type RDThreshState struct {
 	threshes [common.BlockSizes][vp9MaxModes]int
 
 	// threshFreqFact mirrors TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES]
-	// (vp9_block.h). Single-tile govpx realtime collapses libvpx's per-tile
-	// array to a single tile plane.
-	threshFreqFact [common.BlockSizes][vp9MaxModes]int
+	// (vp9_block.h).
+	threshFreqFact rdThreshFreqFactTable
+
+	// rowBaseThreshFreqFact mirrors
+	// TileDataEnc::row_base_thresh_freq_fact[sb_row][BLOCK_SIZES][MAX_MODES]
+	// (vp9_multi_thread.c:55-74). It is only consulted when
+	// adaptive_rd_thresh_row_mt is enabled.
+	rowBaseThreshFreqFact []rdThreshFreqFactTable
 
 	// initialised tracks whether threshFreqFact has been primed for the
 	// current encode session (RD_THRESH_INIT_FACT init). Cleared on
@@ -276,6 +285,71 @@ func (s *RDThreshState) ThreshFreqFact(bsize common.BlockSize, mode ThrMode) int
 	return s.threshFreqFact[bsize][mode]
 }
 
+// RowMTFreqFactRows reports how many SB-row thresh_freq_fact tables are
+// available for adaptive_rd_thresh_row_mt.
+func (s *RDThreshState) RowMTFreqFactRows() int {
+	return len(s.rowBaseThreshFreqFact)
+}
+
+// EnsureRowMTFreqFactRows mirrors libvpx vp9_row_mt_alloc_rd_thresh(): allocate
+// one BLOCK_SIZES x MAX_MODES freq-fact table per SB row and initialise only
+// newly-created rows to RD_THRESH_INIT_FACT. Existing rows persist across
+// frames so adaptive history is retained.
+func (s *RDThreshState) EnsureRowMTFreqFactRows(sbRows int) {
+	if sbRows <= 0 || len(s.rowBaseThreshFreqFact) >= sbRows {
+		return
+	}
+	oldLen := len(s.rowBaseThreshFreqFact)
+	if cap(s.rowBaseThreshFreqFact) < sbRows {
+		next := make([]rdThreshFreqFactTable, sbRows)
+		copy(next, s.rowBaseThreshFreqFact)
+		s.rowBaseThreshFreqFact = next
+	} else {
+		s.rowBaseThreshFreqFact = s.rowBaseThreshFreqFact[:sbRows]
+	}
+	for row := oldLen; row < sbRows; row++ {
+		initRDThreshFreqFactTable(&s.rowBaseThreshFreqFact[row])
+	}
+}
+
+// ReleaseRowMTFreqFactRows drops the row-MT tables when the row-MT control is
+// disabled or the encoder tears down its row worker state.
+func (s *RDThreshState) ReleaseRowMTFreqFactRows() {
+	s.rowBaseThreshFreqFact = nil
+}
+
+// AdoptFrameThresholdsFrom copies the per-frame RD threshold scalars from src
+// while preserving this tile's adaptive thresh_freq_fact history. Tile workers
+// call this after copying the parent encoder state so slice-backed row-MT
+// tables do not alias across concurrently encoded tile columns.
+func (s *RDThreshState) AdoptFrameThresholdsFrom(src *RDThreshState) {
+	if s == nil || src == nil {
+		return
+	}
+	s.threshMult = src.threshMult
+	s.threshes = src.threshes
+	if !s.initialised {
+		s.InitFreqFact()
+	}
+	if rows := src.RowMTFreqFactRows(); rows > 0 {
+		s.EnsureRowMTFreqFactRows(rows)
+	} else {
+		s.ReleaseRowMTFreqFactRows()
+	}
+}
+
+// RowMTThreshFreqFact returns the row-indexed adaptive frequency factor used
+// by libvpx's rd_less_than_thresh_row_mt branch. Out-of-range rows fall back to
+// the non-row table so callers stay safe during partially-initialised tests.
+func (s *RDThreshState) RowMTThreshFreqFact(sbRow int, bsize common.BlockSize,
+	mode ThrMode,
+) int {
+	if sbRow >= 0 && sbRow < len(s.rowBaseThreshFreqFact) {
+		return s.rowBaseThreshFreqFact[sbRow][bsize][mode]
+	}
+	return s.ThreshFreqFact(bsize, mode)
+}
+
 // InitFreqFact primes thresh_freq_fact to RD_THRESH_INIT_FACT
 // for every (bsize, mode) slot, mirroring libvpx's tile-data birth init
 // at vp9_encodeframe.c:5421-5427.
@@ -287,12 +361,16 @@ func (s *RDThreshState) ThreshFreqFact(bsize common.BlockSize, mode ThrMode) int
 //	  }
 //	}
 func (s *RDThreshState) InitFreqFact() {
-	for i := range s.threshFreqFact {
-		for j := range s.threshFreqFact[i] {
-			s.threshFreqFact[i][j] = vp9RDThreshInitFact
+	initRDThreshFreqFactTable(&s.threshFreqFact)
+	s.initialised = true
+}
+
+func initRDThreshFreqFactTable(table *rdThreshFreqFactTable) {
+	for i := range table {
+		for j := range table[i] {
+			table[i][j] = vp9RDThreshInitFact
 		}
 	}
-	s.initialised = true
 }
 
 // SetRDSpeedThresholds is the verbatim port of libvpx's
@@ -582,6 +660,32 @@ func (rd *RDThreshState) UpdateThreshFreqFact(sourceVariance uint, bsize common.
 ) {
 	thrModeIdx := ModeIdxTable[refFrame][ModeOffsetInterOrIntra(mode)]
 	fact := &rd.threshFreqFact[bsize][thrModeIdx]
+	updateThreshFreqFactValue(fact, sourceVariance, refFrame, bestModeIdx, mode,
+		limitNewMvEarlyExit, adaptiveRdThresh, thrModeIdx)
+}
+
+// UpdateThreshFreqFactRowMT mirrors libvpx update_thresh_freq_fact_row_mt.
+// thresh_freq_fact_idx in C is (sb_row*BLOCK_SIZES+bsize)*MAX_MODES; the Go
+// table keeps that same shape as [sb_row][bsize][mode].
+func (rd *RDThreshState) UpdateThreshFreqFactRowMT(sourceVariance uint,
+	sbRow int, bsize common.BlockSize, refFrame int8, bestModeIdx ThrMode,
+	mode common.PredictionMode, limitNewMvEarlyExit, adaptiveRdThresh int,
+) {
+	if sbRow < 0 || sbRow >= len(rd.rowBaseThreshFreqFact) {
+		rd.UpdateThreshFreqFact(sourceVariance, bsize, refFrame, bestModeIdx,
+			mode, limitNewMvEarlyExit, adaptiveRdThresh)
+		return
+	}
+	thrModeIdx := ModeIdxTable[refFrame][ModeOffsetInterOrIntra(mode)]
+	fact := &rd.rowBaseThreshFreqFact[sbRow][bsize][thrModeIdx]
+	updateThreshFreqFactValue(fact, sourceVariance, refFrame, bestModeIdx, mode,
+		limitNewMvEarlyExit, adaptiveRdThresh, thrModeIdx)
+}
+
+func updateThreshFreqFactValue(fact *int, sourceVariance uint,
+	refFrame int8, bestModeIdx ThrMode, mode common.PredictionMode,
+	limitNewMvEarlyExit, adaptiveRdThresh int, thrModeIdx ThrMode,
+) {
 	if thrModeIdx == bestModeIdx {
 		*fact -= *fact >> 4
 		return

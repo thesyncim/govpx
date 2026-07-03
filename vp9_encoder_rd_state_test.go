@@ -18,7 +18,7 @@ func TestVP9EncoderInitializeRDConstsPopulatesPerFrameState(t *testing.T) {
 	}
 	defer e.Close()
 	e.cbRdmult = 12345 // simulate stale per-SB cache from prior frame.
-	e.vp9EncoderInitializeRDConsts(64, encoder.RDFrameInter)
+	e.vp9EncoderInitializeRDConsts(64, encoder.RDFrameInter, 4)
 	if e.rc.rddiv != encoder.RDDivBits {
 		t.Fatalf("rc.rddiv = %d, want %d", e.rc.rddiv, encoder.RDDivBits)
 	}

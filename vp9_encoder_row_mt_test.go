@@ -372,6 +372,43 @@ func TestVP9RowMTDisabledDoesNotAllocateSyncState(t *testing.T) {
 	}
 }
 
+func TestVP9RowMTAdaptiveRDThreshRowsAllocated(t *testing.T) {
+	const width, height = 1280, 128
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              width,
+		Height:             height,
+		Threads:            4,
+		Deadline:           DeadlineRealtime,
+		CpuUsed:            8,
+		RateControlModeSet: true,
+		RateControlMode:    RateControlCBR,
+		TargetBitrateKbps:  700,
+		RowMT:              true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	if _, err := e.Encode(vp9test.NewPanningYCbCr(width, height, 0)); err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if e.sf.AdaptiveRdThreshRowMt != 1 {
+		t.Fatalf("AdaptiveRdThreshRowMt = %d, want 1", e.sf.AdaptiveRdThreshRowMt)
+	}
+	wantRows := vp9RDThreshSBRows((height + 7) >> 3)
+	if got := e.rdThresh.RowMTFreqFactRows(); got != wantRows {
+		t.Fatalf("row-MT RD-thresh rows = %d, want %d", got, wantRows)
+	}
+
+	if err := e.SetRowMT(false); err != nil {
+		t.Fatalf("SetRowMT(false): %v", err)
+	}
+	if got := e.rdThresh.RowMTFreqFactRows(); got != 0 {
+		t.Fatalf("row-MT RD-thresh rows after disable = %d, want 0", got)
+	}
+}
+
 // TestVP9RowMTBytewiseIdenticalToSerial confirms that arming the wavefront
 // primitive does not perturb bitstream output. Each tile column still encodes
 // on a single goroutine, so the Read/Write hooks must collapse to no-ops and

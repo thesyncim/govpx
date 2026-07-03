@@ -263,7 +263,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		refreshAlt := logicalRefreshFlags&(1<<vp9AltRefSlot) != 0
 		rdFrameType := encoder.RDFrameTypeFor(isKey, srcFrameAltRef, refreshGolden,
 			refreshAlt)
-		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType)
+		e.vp9EncoderInitializeRDConsts(qindex, rdFrameType, miRows)
 		// libvpx vp9/encoder/vp9_encoder.c:3754 / 3765 call
 		// set_speed_features_framesize_independent +
 		// set_speed_features_framesize_dependent (via
@@ -287,6 +287,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			IsSrcFrameAltRef:   srcFrameAltRef,
 			BaseQIndex:         qindex,
 		}))
+		e.ensureVP9RowMTRDThresh(miRows)
 		e.vp9CarryPostEncodeDroppedSceneChange()
 	}
 	header.Quant.BaseQindex = int16(qindex)

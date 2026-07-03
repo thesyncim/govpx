@@ -232,7 +232,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		modeIndex := encoder.ModeIdxTable[vp9dec.IntraFrame][modeOffset]
 		modeRdThresh := e.rdThresh.Threshold(bsize, modeIndex)
 		if encoder.RDLessThanThresh(bestRDCostForThresh, modeRdThresh,
-			e.rdThresh.ThreshFreqFact(bsize, modeIndex)) {
+			e.vp9RDThreshFreqFact(miRow, bsize, modeIndex)) {
 			screenBaseLayerMotion := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
 				(!e.svc.UseSvc || e.svc.SpatialLayerID == 0) &&
 				(sceneChangeDetected || highNumBlocksWithMotion)

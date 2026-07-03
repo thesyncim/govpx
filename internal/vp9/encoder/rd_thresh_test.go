@@ -351,3 +351,97 @@ func TestVP9UpdateThreshFreqFactLoser(t *testing.T) {
 		t.Errorf("freq_fact after loser update = %d, want 33 (32+1)", got)
 	}
 }
+
+func TestVP9RowMTFreqFactRowsInitializeAndPreserve(t *testing.T) {
+	var rd RDThreshState
+	rd.InitFreqFact()
+
+	rd.EnsureRowMTFreqFactRows(2)
+	if got := rd.RowMTFreqFactRows(); got != 2 {
+		t.Fatalf("RowMTFreqFactRows = %d, want 2", got)
+	}
+	if got := rd.RowMTThreshFreqFact(1, common.Block16x16, vp9ThrNearMV); got != 32 {
+		t.Fatalf("row 1 initial freq_fact = %d, want 32", got)
+	}
+	rd.rowBaseThreshFreqFact[0][common.Block16x16][vp9ThrNearMV] = 77
+
+	rd.EnsureRowMTFreqFactRows(1)
+	if got := rd.RowMTFreqFactRows(); got != 2 {
+		t.Fatalf("EnsureRowMTFreqFactRows shrink rows = %d, want 2", got)
+	}
+	rd.EnsureRowMTFreqFactRows(4)
+	if got := rd.RowMTFreqFactRows(); got != 4 {
+		t.Fatalf("EnsureRowMTFreqFactRows grow rows = %d, want 4", got)
+	}
+	if got := rd.RowMTThreshFreqFact(0, common.Block16x16, vp9ThrNearMV); got != 77 {
+		t.Fatalf("row 0 preserved freq_fact = %d, want 77", got)
+	}
+	if got := rd.RowMTThreshFreqFact(3, common.Block16x16, vp9ThrNearMV); got != 32 {
+		t.Fatalf("new row initial freq_fact = %d, want 32", got)
+	}
+
+	rd.ReleaseRowMTFreqFactRows()
+	if got := rd.RowMTFreqFactRows(); got != 0 {
+		t.Fatalf("ReleaseRowMTFreqFactRows rows = %d, want 0", got)
+	}
+	if got := rd.RowMTThreshFreqFact(0, common.Block16x16, vp9ThrNearMV); got != 32 {
+		t.Fatalf("released row fallback freq_fact = %d, want non-row 32", got)
+	}
+}
+
+func TestVP9UpdateThreshFreqFactRowMTIsRowLocal(t *testing.T) {
+	var rd RDThreshState
+	rd.InitFreqFact()
+	rd.EnsureRowMTFreqFactRows(2)
+
+	bestModeIdx := ModeIdxTable[vp9dec.LastFrame][0] // NEARESTMV slot.
+	rd.UpdateThreshFreqFactRowMT(100, 1, common.Block16x16,
+		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
+	if got := rd.RowMTThreshFreqFact(1, common.Block16x16, bestModeIdx); got != 30 {
+		t.Fatalf("row 1 best freq_fact = %d, want 30", got)
+	}
+	if got := rd.RowMTThreshFreqFact(0, common.Block16x16, bestModeIdx); got != 32 {
+		t.Fatalf("row 0 untouched freq_fact = %d, want 32", got)
+	}
+	if got := rd.ThreshFreqFact(common.Block16x16, bestModeIdx); got != 32 {
+		t.Fatalf("non-row freq_fact = %d, want 32", got)
+	}
+
+	nearIdx := ModeIdxTable[vp9dec.LastFrame][1] // NEARMV slot.
+	rd.UpdateThreshFreqFactRowMT(100, 1, common.Block16x16,
+		vp9dec.LastFrame, bestModeIdx, common.NearMv, 0, 4)
+	if got := rd.RowMTThreshFreqFact(1, common.Block16x16, nearIdx); got != 33 {
+		t.Fatalf("row 1 loser freq_fact = %d, want 33", got)
+	}
+}
+
+func TestVP9RDThreshAdoptFrameThresholdsKeepsTileHistory(t *testing.T) {
+	var src RDThreshState
+	src.SetRDSpeedThresholds(4, false)
+	src.SetBlockThresholds(64, 0)
+	src.InitFreqFact()
+	src.EnsureRowMTFreqFactRows(2)
+
+	var tile RDThreshState
+	tile.InitFreqFact()
+	tile.EnsureRowMTFreqFactRows(2)
+	bestModeIdx := ModeIdxTable[vp9dec.LastFrame][0]
+	tile.UpdateThreshFreqFactRowMT(100, 1, common.Block16x16,
+		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
+	tile.UpdateThreshFreqFactRowMT(100, 1, common.Block16x16,
+		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
+
+	tile.AdoptFrameThresholdsFrom(&src)
+	if got := tile.RowMTThreshFreqFact(1, common.Block16x16, bestModeIdx); got != 29 {
+		t.Fatalf("adopted row-MT history = %d, want preserved 29", got)
+	}
+	if got, want := tile.Threshold(common.Block16x16, vp9ThrNearMV),
+		src.Threshold(common.Block16x16, vp9ThrNearMV); got != want {
+		t.Fatalf("adopted frame threshold = %d, want %d", got, want)
+	}
+	src.UpdateThreshFreqFactRowMT(100, 1, common.Block16x16,
+		vp9dec.LastFrame, bestModeIdx, common.NearestMv, 0, 4)
+	if got := tile.RowMTThreshFreqFact(1, common.Block16x16, bestModeIdx); got != 29 {
+		t.Fatalf("tile row-MT history aliased parent after adopt: got %d, want 29", got)
+	}
+}

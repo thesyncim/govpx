@@ -954,8 +954,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		//    || (!cpi->sf.adaptive_rd_thresh_row_mt && rd_less_than_thresh(...)))
 		//     if (frame_mv[this_mode][ref_frame].as_int != 0) continue;
 		//
-		// govpx single-tile no-row-MT: the row-MT branch is folded out.
-		//
 		// The gate skips when best_rdc.rdcost is already below the
 		// scheduled threshold AND the candidate's frame_mv is non-zero.
 		// frame_mv semantics at this point:
@@ -977,7 +975,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bestRd = best.score
 			}
 			thresholdFires := encoder.RDLessThanThresh(bestRd, modeRdThresh,
-				e.rdThresh.ThreshFreqFact(bsize, modeIndex))
+				e.vp9RDThreshFreqFact(miRow, bsize, modeIndex))
 			if thresholdFires {
 				// frame_mv non-zero check. For NEWMV the MV has not yet
 				// been searched (search_new_mv runs below at line 2259);
@@ -2083,7 +2081,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:2714-2750 — update thresh_freq_fact when
 	// sf.adaptive_rd_thresh fires. For inter winners walk
 	// ref_frame ∈ {LAST..GOLDEN}, mode ∈ {NEARESTMV..NEWMV} and update via
-	// update_thresh_freq_fact (the non-row-MT branch).
+	// update_thresh_freq_fact or update_thresh_freq_fact_row_mt.
 	//
 	//   if (cpi->sf.adaptive_rd_thresh) {
 	//     THR_MODES best_mode_idx =
@@ -2113,9 +2111,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					common.DcPred, common.VPred, common.HPred, common.TmPred,
 				}
 				for _, im := range intraModeList {
-					e.rdThresh.UpdateThreshFreqFact(sourceVariance, bsize,
-						vp9dec.IntraFrame, bestModeIdx, im,
-						e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
+					e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
+						bsize, vp9dec.IntraFrame, bestModeIdx, im)
 				}
 			} else {
 				for rf := int8(vp9dec.LastFrame); rf <= vp9dec.GoldenFrame; rf++ {
@@ -2123,9 +2120,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						continue
 					}
 					for tm := common.NearestMv; tm <= common.NewMv; tm++ {
-						e.rdThresh.UpdateThreshFreqFact(sourceVariance, bsize,
-							rf, bestModeIdx, tm,
-							e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
+						e.updateVP9NonrdThreshFreqFact(sourceVariance, miRow,
+							bsize, rf, bestModeIdx, tm)
 					}
 				}
 			}

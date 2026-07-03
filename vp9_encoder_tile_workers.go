@@ -1231,6 +1231,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	intProSrcBordered := w.intProSrcBordered
 	nmvCostCache := w.vp9NmvCostCache
 	blockCoeffScratch := w.blockCoeffScratch
+	rdThresh := w.rdThresh
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -1292,6 +1293,8 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9NmvCostCache = nmvCostCache
+	rdThresh.AdoptFrameThresholdsFrom(&src.rdThresh)
+	w.rdThresh = rdThresh
 	// Workers keep a private coefficient staging scratch: the shared
 	// encoder's pointer must not leak in via the struct copy or the
 	// tile columns would race on the same arrays.
@@ -1358,6 +1361,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	intProSrcBordered := w.intProSrcBordered
 	nmvCostCache := w.vp9NmvCostCache
 	blockCoeffScratch := w.blockCoeffScratch
+	rdThresh := w.rdThresh
 	var aboveCtx [vp9dec.MaxMbPlane][]uint8
 	var leftCtx [vp9dec.MaxMbPlane][]uint8
 	for plane := range vp9dec.MaxMbPlane {
@@ -1411,6 +1415,8 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9NmvCostCache = nmvCostCache
+	rdThresh.AdoptFrameThresholdsFrom(&src.rdThresh)
+	w.rdThresh = rdThresh
 	// Workers keep a private coefficient staging scratch: the shared
 	// encoder's pointer must not leak in via the struct copy or the
 	// tile columns would race on the same arrays.

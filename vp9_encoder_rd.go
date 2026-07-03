@@ -130,7 +130,7 @@ func (e *VP9Encoder) vp9EncoderModeDecisionQIndex() int {
 // y_dc_delta_q is zero for govpx today; when the active-segment Q delta
 // path lands it should be added to qindex here before the rdmult lookup.
 func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
-	frameType encoder.RDFrameType,
+	frameType encoder.RDFrameType, miRows int,
 ) {
 	e.rc.rddiv = encoder.RDDivBits
 	e.rc.rdmult = encoder.ComputeRDMult(qindex, frameType)
@@ -155,6 +155,53 @@ func (e *VP9Encoder) vp9EncoderInitializeRDConsts(qindex int,
 	if !e.rdThresh.Initialized() {
 		e.rdThresh.InitFreqFact()
 	}
+	e.ensureVP9RowMTRDThresh(miRows)
+}
+
+func (e *VP9Encoder) ensureVP9RowMTRDThresh(miRows int) {
+	if e == nil || e.sf.AdaptiveRdThreshRowMt == 0 {
+		return
+	}
+	sbRows := vp9RDThreshSBRows(miRows)
+	e.rdThresh.EnsureRowMTFreqFactRows(sbRows)
+}
+
+func vp9RDThreshSBRows(miRows int) int {
+	if miRows <= 0 {
+		return 0
+	}
+	return (miRows + int(common.MiBlockSize) - 1) >> common.MiBlockSizeLog2
+}
+
+func vp9RDThreshSBRow(miRow int) int {
+	if miRow <= 0 {
+		return 0
+	}
+	return miRow >> common.MiBlockSizeLog2
+}
+
+func (e *VP9Encoder) vp9RDThreshFreqFact(miRow int, bsize common.BlockSize,
+	mode encoder.ThrMode,
+) int {
+	if e != nil && e.sf.AdaptiveRdThreshRowMt != 0 {
+		return e.rdThresh.RowMTThreshFreqFact(vp9RDThreshSBRow(miRow), bsize,
+			mode)
+	}
+	return e.rdThresh.ThreshFreqFact(bsize, mode)
+}
+
+func (e *VP9Encoder) updateVP9NonrdThreshFreqFact(sourceVariance uint,
+	miRow int, bsize common.BlockSize, refFrame int8, bestModeIdx encoder.ThrMode,
+	mode common.PredictionMode,
+) {
+	if e != nil && e.sf.AdaptiveRdThreshRowMt != 0 {
+		e.rdThresh.UpdateThreshFreqFactRowMT(sourceVariance,
+			vp9RDThreshSBRow(miRow), bsize, refFrame, bestModeIdx, mode,
+			e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
+		return
+	}
+	e.rdThresh.UpdateThreshFreqFact(sourceVariance, bsize, refFrame,
+		bestModeIdx, mode, e.sf.LimitNewmvEarlyExit, e.sf.AdaptiveRdThresh)
 }
 
 func (e *VP9Encoder) vp9EncoderFrameQIndex(isKey, intraOnly bool, flags EncodeFlags, refreshFlags uint8, macroblocks int) int {
