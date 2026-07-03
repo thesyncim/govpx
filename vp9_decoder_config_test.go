@@ -150,6 +150,45 @@ func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
+	packet := vp9test.ColumnResidueKeyframe(t, 128, 256, 32, 32)
+	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{}, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok")
+	}
+	assertVP9ImagesEqual(t, serial, frame)
+
+	if got, want := d.vp9TilePool.lastTileJobs, uint8(1); got != want {
+		t.Fatalf("row-mt one-tile jobs = %d, want %d", got, want)
+	}
+	if got, want := len(d.vp9TilePool.rowMTSyncs), 1; got != want {
+		t.Fatalf("rowMTSyncs len = %d, want %d", got, want)
+	}
+	if got, want := d.vp9TilePool.rowMTSyncs[0].rows, 4; got != want {
+		t.Fatalf("rowMTSync rows = %d, want %d", got, want)
+	}
+	if got, want := d.vp9TilePool.rowMTFrame.numSBs, 8; got != want {
+		t.Fatalf("rowMTFrame numSBs = %d, want %d", got, want)
+	}
+	if got, want := d.vp9TilePool.rowMTFrame.numJobs, 4; got != want {
+		t.Fatalf("rowMTFrame numJobs = %d, want %d", got, want)
+	}
+	if got, want := cap(d.vp9TilePool.rowMTFrame.jobq.jobs), 12; got != want {
+		t.Fatalf("rowMTFrame jobq cap = %d, want %d", got, want)
+	}
+}
+
 // TestVP9DecoderLoopFilterOptGatesLoopFilterPool covers the gate: with the
 // option off the deblock pass uses the serial path even on a threaded
 // decoder, and with the option on the threaded helper pool drives the

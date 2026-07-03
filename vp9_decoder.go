@@ -123,11 +123,11 @@ type VP9DecoderOptions struct {
 	DecodeTileCol int
 
 	// DecoderRowMT mirrors libvpx VP9D_SET_ROW_MT. When true and Threads > 1,
-	// the tile-column decode body arms a per-SB-row wavefront sync primitive
-	// so future per-row workers can be slotted in without changing the call
-	// shape. The wavefront calls are no-ops in the single-goroutine
-	// tile-column body but stay byte-identical to libvpx and provide the
-	// foundation for actual per-row parallelism. Requires Threads > 1.
+	// the decoder routes one-tile and multi-tile frames through the row-MT
+	// tile body, arming the per-SB-row wavefront sync plus source-shaped
+	// row-MT frame slabs / job queue scaffolding. The parse/recon/LPF row
+	// worker queue is wired incrementally; until then the tile body remains
+	// byte-identical to serial decode. Requires Threads > 1.
 	DecoderRowMT bool
 
 	// DecoderLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When true

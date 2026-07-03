@@ -347,6 +347,18 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 		{name: "threads-4", opts: VP9DecoderOptions{Threads: 4}},
 		{name: "threads-8", opts: VP9DecoderOptions{Threads: 8}},
 		{
+			name: "row-mt-threads-2",
+			opts: VP9DecoderOptions{Threads: 2, DecoderRowMT: true},
+		},
+		{
+			name: "row-mt-threads-4",
+			opts: VP9DecoderOptions{Threads: 4, DecoderRowMT: true},
+		},
+		{
+			name: "row-mt-threads-8",
+			opts: VP9DecoderOptions{Threads: 8, DecoderRowMT: true},
+		},
+		{
 			name: "loopfilter-opt-threads-2",
 			opts: VP9DecoderOptions{Threads: 2, DecoderLoopFilterOpt: true},
 		},

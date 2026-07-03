@@ -642,8 +642,9 @@ func (p *vp9DecoderTileWorkerPool) releaseRowMTSync() {
 func (d *VP9Decoder) vp9DecoderTileThreadingEnabled(
 	hdr *vp9dec.UncompressedHeader, tileRows, tileCols int,
 ) bool {
+	rowMT := d != nil && d.opts.DecoderRowMT
 	return d != nil && d.vp9TilePool != nil && hdr != nil &&
-		tileRows == 1 && tileCols > 1 && !d.vp9TileFilterActive() &&
+		tileRows == 1 && (tileCols > 1 || rowMT) && !d.vp9TileFilterActive() &&
 		!d.opts.InvertTileDecodeOrder
 }
 

@@ -700,11 +700,13 @@ the broader option grid.
 C3 **Threaded decode**: PARTIAL 2026-07-03. The decoder loop-filter path now
 reuses the encoder VP9LfSync port for row-based LF-MT, replacing the old
 3-plane ≤3-way split; the official corpus threading helper covers the
-{1,2,4,8} matrix plus DecoderLoopFilterOpt. The source-shaped row-mt decode
-queue/recon-map scaffolding is also ported and tested against libvpx's
-JobQueueRowMt / RowMTWorkerData layout. Remaining: wire row-mt decode
-(PARSE/RECON/LPF queue) for 1-tile streams (+26% measured). Gate when wiring
-lands: 128-vector conformance × threads {1,2,4,8}.
+{1,2,4,8} matrix plus DecoderLoopFilterOpt and DecoderRowMT. The
+source-shaped row-mt decode queue/recon-map scaffolding is also ported and
+tested against libvpx's JobQueueRowMt / RowMTWorkerData layout, and one-tile
+DecoderRowMT frames now enter that scaffold instead of bypassing threaded
+tile plumbing. Remaining: wire row-mt decode (PARSE/RECON/LPF queue) for
+1-tile streams (+26% measured). Gate when wiring lands: 128-vector
+conformance × threads {1,2,4,8}.
 C4 VP8 encode: already at MT parity — nothing to do.
 
 ## Sequencing for implementation agents
