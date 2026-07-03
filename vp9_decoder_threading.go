@@ -142,14 +142,127 @@ const (
 	vp9DecoderRowMTDQCoeffAlign      = 32
 )
 
+type vp9DecoderRowMTJobType uint8
+
+const (
+	vp9DecoderRowMTJobParse vp9DecoderRowMTJobType = iota
+	vp9DecoderRowMTJobRecon
+	vp9DecoderRowMTJobLPF
+)
+
+type vp9DecoderRowMTJob struct {
+	rowNum  int
+	tileCol int
+	jobType vp9DecoderRowMTJobType
+}
+
+// vp9DecoderRowMTJobQueue mirrors libvpx's JobQueueRowMt: a fixed-capacity,
+// non-wrapping FIFO that workers block on until a job is queued or the row-mt
+// tile pass terminates.
+type vp9DecoderRowMTJobQueue struct {
+	mu         sync.Mutex
+	cond       *sync.Cond
+	jobs       []vp9DecoderRowMTJob
+	read       int
+	terminated bool
+}
+
+func (q *vp9DecoderRowMTJobQueue) ensureCapacity(jobCap int) {
+	if q == nil || jobCap <= 0 {
+		return
+	}
+	if q.cond == nil {
+		q.cond = sync.NewCond(&q.mu)
+	}
+	if cap(q.jobs) < jobCap {
+		q.jobs = make([]vp9DecoderRowMTJob, 0, jobCap)
+	}
+}
+
+func (q *vp9DecoderRowMTJobQueue) reset() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	q.jobs = q.jobs[:0]
+	q.read = 0
+	q.terminated = false
+	q.mu.Unlock()
+}
+
+func (q *vp9DecoderRowMTJobQueue) release() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	q.jobs = nil
+	q.read = 0
+	q.terminated = false
+	q.mu.Unlock()
+}
+
+func (q *vp9DecoderRowMTJobQueue) terminate() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	q.terminated = true
+	if q.cond != nil {
+		q.cond.Broadcast()
+	}
+	q.mu.Unlock()
+}
+
+func (q *vp9DecoderRowMTJobQueue) queue(job vp9DecoderRowMTJob) bool {
+	if q == nil {
+		return false
+	}
+	q.mu.Lock()
+	ok := len(q.jobs) < cap(q.jobs)
+	if ok {
+		q.jobs = append(q.jobs, job)
+		if q.cond != nil {
+			q.cond.Signal()
+		}
+	}
+	q.mu.Unlock()
+	return ok
+}
+
+func (q *vp9DecoderRowMTJobQueue) dequeue(blocking bool) (vp9DecoderRowMTJob, bool) {
+	if q == nil {
+		return vp9DecoderRowMTJob{}, false
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for {
+		if q.read < len(q.jobs) {
+			job := q.jobs[q.read]
+			q.read++
+			return job, true
+		}
+		if q.terminated || !blocking {
+			return vp9DecoderRowMTJob{}, false
+		}
+		if q.cond == nil {
+			q.cond = sync.NewCond(&q.mu)
+		}
+		q.cond.Wait()
+	}
+}
+
 type vp9DecoderRowMTFrameStorage struct {
-	numSBs int
+	numSBs  int
+	numJobs int
 
 	eob          [vp9dec.MaxMbPlane][]int
 	dqcoeffBytes [vp9dec.MaxMbPlane][]byte
 	dqcoeff      [vp9dec.MaxMbPlane][]int16
 	partition    []common.PartitionType
 	reconMap     []int8
+	reconMu      []sync.Mutex
+	reconCond    []*sync.Cond
+	jobq         vp9DecoderRowMTJobQueue
 }
 
 func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
@@ -165,6 +278,7 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 		}
 		s.partition = s.partition[:0]
 		s.reconMap = s.reconMap[:0]
+		s.numJobs = 0
 		return
 	}
 
@@ -184,11 +298,34 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	s.reconMap = buffers.EnsureLenZeroed(s.reconMap, numSBs)
 }
 
+func (s *vp9DecoderRowMTFrameStorage) ensureJobQueue(tileCols, sbRows int) {
+	if s == nil || tileCols <= 0 || sbRows <= 0 {
+		return
+	}
+	numJobs := tileCols * sbRows
+	s.numJobs = numJobs
+	if cap(s.reconMu) < numJobs {
+		s.reconMu = make([]sync.Mutex, numJobs)
+		s.reconCond = make([]*sync.Cond, numJobs)
+	} else {
+		s.reconMu = s.reconMu[:numJobs]
+		s.reconCond = s.reconCond[:numJobs]
+	}
+	for i := range s.reconCond {
+		if s.reconCond[i] == nil {
+			s.reconCond[i] = sync.NewCond(&s.reconMu[i])
+		}
+	}
+	s.jobq.ensureCapacity(tileCols*sbRows*2 + sbRows)
+	s.jobq.reset()
+}
+
 func (s *vp9DecoderRowMTFrameStorage) release() {
 	if s == nil {
 		return
 	}
 	s.numSBs = 0
+	s.numJobs = 0
 	for plane := range vp9dec.MaxMbPlane {
 		s.eob[plane] = nil
 		s.dqcoeffBytes[plane] = nil
@@ -196,6 +333,9 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 	}
 	s.partition = nil
 	s.reconMap = nil
+	s.reconMu = nil
+	s.reconCond = nil
+	s.jobq.release()
 }
 
 func (s *vp9DecoderRowMTFrameStorage) eobForSB(plane, sb int) []int {
@@ -211,6 +351,33 @@ func (s *vp9DecoderRowMTFrameStorage) dqcoeffForSB(plane, sb int) []int16 {
 func (s *vp9DecoderRowMTFrameStorage) partitionsForSB(sb int) []common.PartitionType {
 	base := sb * vp9DecoderRowMTPartitionsPerSB
 	return s.partition[base : base+vp9DecoderRowMTPartitionsPerSB]
+}
+
+func (s *vp9DecoderRowMTFrameStorage) reconMapWrite(mapIdx, syncIdx int) bool {
+	if s == nil || mapIdx < 0 || mapIdx >= len(s.reconMap) ||
+		syncIdx < 0 || syncIdx >= len(s.reconCond) {
+		return false
+	}
+	mu := &s.reconMu[syncIdx]
+	mu.Lock()
+	s.reconMap[mapIdx] = 1
+	mu.Unlock()
+	s.reconCond[syncIdx].Signal()
+	return true
+}
+
+func (s *vp9DecoderRowMTFrameStorage) reconMapRead(mapIdx, syncIdx int) bool {
+	if s == nil || mapIdx < 0 || mapIdx >= len(s.reconMap) ||
+		syncIdx < 0 || syncIdx >= len(s.reconCond) {
+		return false
+	}
+	mu := &s.reconMu[syncIdx]
+	mu.Lock()
+	for s.reconMap[mapIdx] == 0 {
+		s.reconCond[syncIdx].Wait()
+	}
+	mu.Unlock()
+	return true
 }
 
 type vp9DecoderTileJob struct {
@@ -445,13 +612,16 @@ func (p *vp9DecoderTileWorkerPool) ensureRowMTSync(tileCols, sbRows int) {
 	}
 }
 
-func (p *vp9DecoderTileWorkerPool) ensureRowMTFrameStorage(miRows, miCols int) {
-	if p == nil || miRows <= 0 || miCols <= 0 {
+func (p *vp9DecoderTileWorkerPool) ensureRowMTFrameStorage(miRows, miCols,
+	tileCols int,
+) {
+	if p == nil || miRows <= 0 || miCols <= 0 || tileCols <= 0 {
 		return
 	}
 	sbRows := common.AlignToSB(miRows) >> common.MiBlockSizeLog2
 	sbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
 	p.rowMTFrame.reset(sbRows * sbCols)
+	p.rowMTFrame.ensureJobQueue(tileCols, sbRows)
 }
 
 // releaseRowMTSync drops the per-tile-column vp9RowMTSync state. It is
@@ -551,7 +721,7 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	if d.opts.DecoderRowMT && p.rowMTArmed {
 		sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
 		p.ensureRowMTSync(len(descs), sbRows)
-		p.ensureRowMTFrameStorage(miRows, miCols)
+		p.ensureRowMTFrameStorage(miRows, miCols, len(descs))
 	} else if len(p.rowMTSyncs) > 0 {
 		// Reset stale state when the option toggled off mid-stream.
 		p.rowMTSyncs = p.rowMTSyncs[:0]

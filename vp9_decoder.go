@@ -131,10 +131,10 @@ type VP9DecoderOptions struct {
 	DecoderRowMT bool
 
 	// DecoderLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When true
-	// and Threads > 1, the deblock pass dispatches the U / V planes to the
-	// loop-filter worker pool concurrently with the Y plane, matching
-	// libvpx's pipelined loop-filter optimisation. When false, the deblock
-	// pass runs serially even on a threaded decoder. Requires Threads > 1.
+	// and Threads > 1, the deblock pass dispatches interleaved SB rows to the
+	// loop-filter worker pool under VP9LfSync, matching libvpx's row-based
+	// loop-filter optimisation. When false, the deblock pass runs serially
+	// even on a threaded decoder. Requires Threads > 1.
 	DecoderLoopFilterOpt bool
 
 	// SkipLoopFilter mirrors libvpx VP9_SET_SKIP_LOOP_FILTER. When true, the
