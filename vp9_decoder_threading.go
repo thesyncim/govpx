@@ -19,29 +19,28 @@ const (
 	vp9LoopFilterPlaneV
 )
 
-type vp9DecoderLoopFilterJob struct {
-	d      *VP9Decoder
-	miRows int
-	miCols int
-	plane  vp9LoopFilterPlane
-	ok     bool
-}
-
 type vp9DecoderLoopFilterPool struct {
 	helperCount int8
-	start       [2]chan struct{}
-	done        [2]chan struct{}
-	exited      [2]chan struct{}
-	jobs        [2]vp9DecoderLoopFilterJob
+	start       []chan struct{}
+	done        []chan struct{}
+	exited      []chan struct{}
+	jobs        []vp9EncodeLfJob
+	lfSync      vp9LfSync
+
+	lastActiveWorkers uint8
 }
 
 func newVP9DecoderLoopFilterPool(threads int) *vp9DecoderLoopFilterPool {
-	helpers := min(threads-1, 2)
+	helpers := min(threads-1, 63)
 	if helpers <= 0 {
 		return nil
 	}
 	p := &vp9DecoderLoopFilterPool{
 		helperCount: int8(helpers),
+		start:       make([]chan struct{}, helpers),
+		done:        make([]chan struct{}, helpers),
+		exited:      make([]chan struct{}, helpers),
+		jobs:        make([]vp9EncodeLfJob, helpers+1),
 	}
 	for i := range helpers {
 		p.start[i] = make(chan struct{})
@@ -55,9 +54,7 @@ func newVP9DecoderLoopFilterPool(threads int) *vp9DecoderLoopFilterPool {
 func (p *vp9DecoderLoopFilterPool) workerLoop(worker int) {
 	defer close(p.exited[worker])
 	for range p.start[worker] {
-		job := &p.jobs[worker]
-		job.ok = job.d.applyVP9LoopFilterPlane(job.miRows, job.miCols,
-			job.plane)
+		runVP9EncodeLfJob(&p.jobs[worker+1])
 		p.done[worker] <- struct{}{}
 	}
 }
@@ -73,12 +70,13 @@ func (p *vp9DecoderLoopFilterPool) shutdown() {
 		<-p.exited[i]
 	}
 	for i := range p.jobs {
-		p.jobs[i] = vp9DecoderLoopFilterJob{}
+		p.jobs[i] = vp9EncodeLfJob{}
 	}
 	p.helperCount = 0
+	p.lastActiveWorkers = 0
 }
 
-func (d *VP9Decoder) applyVP9LoopFilterThreaded(miRows, miCols int) bool {
+func (d *VP9Decoder) applyVP9LoopFilterThreaded(miRows, miCols, width int) bool {
 	p := d.vp9LoopFilterPool
 	if p == nil || p.helperCount <= 0 {
 		return d.applyVP9LoopFilterSerial(miRows, miCols)
@@ -87,33 +85,39 @@ func (d *VP9Decoder) applyVP9LoopFilterThreaded(miRows, miCols int) bool {
 		return false
 	}
 
-	helpers := int(p.helperCount)
-	p.jobs[0] = vp9DecoderLoopFilterJob{
-		d:      d,
-		miRows: miRows,
-		miCols: miCols,
-		plane:  vp9LoopFilterPlaneU,
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	workers := min(int(p.helperCount)+1, sbRows)
+	p.lastActiveWorkers = uint8(workers)
+	if workers <= 1 {
+		return d.applyVP9LoopFilterSerialCached(miRows, miCols)
 	}
-	p.start[0] <- struct{}{}
-	if helpers > 1 {
-		p.jobs[1] = vp9DecoderLoopFilterJob{
-			d:      d,
+	p.lfSync.reset(sbRows, width)
+	for i := range p.jobs {
+		start := i
+		if i >= workers {
+			start = sbRows
+		}
+		p.jobs[i] = vp9EncodeLfJob{
+			d:      *d,
+			lfSync: &p.lfSync,
 			miRows: miRows,
 			miCols: miCols,
-			plane:  vp9LoopFilterPlaneV,
+			start:  start,
+			step:   workers,
+			ok:     true,
 		}
-		p.start[1] <- struct{}{}
 	}
-
-	ok := d.applyVP9LoopFilterPlane(miRows, miCols, vp9LoopFilterPlaneY)
-	<-p.done[0]
-	ok = ok && p.jobs[0].ok
-	if helpers > 1 {
-		<-p.done[1]
-		ok = ok && p.jobs[1].ok
-	} else {
-		ok = ok && d.applyVP9LoopFilterPlane(miRows, miCols,
-			vp9LoopFilterPlaneV)
+	helpers := workers - 1
+	for worker := 0; worker < helpers; worker++ {
+		p.start[worker] <- struct{}{}
+	}
+	runVP9EncodeLfJob(&p.jobs[0])
+	for worker := 0; worker < helpers; worker++ {
+		<-p.done[worker]
+	}
+	ok := true
+	for i := 0; i < workers; i++ {
+		ok = ok && p.jobs[i].ok
 	}
 	return ok
 }

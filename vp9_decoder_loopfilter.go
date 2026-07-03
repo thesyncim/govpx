@@ -93,7 +93,7 @@ func (d *VP9Decoder) applyVP9LoopFilter(hdr *vp9dec.UncompressedHeader) bool {
 	// the option is off the deblock pass runs serially even on a threaded
 	// decoder, matching libvpx's lpf_mt_opt = 0 path.
 	if d.vp9LoopFilterPool != nil && d.opts.DecoderLoopFilterOpt {
-		return d.applyVP9LoopFilterThreaded(miRows, miCols)
+		return d.applyVP9LoopFilterThreaded(miRows, miCols, int(hdr.Width))
 	}
 	return d.applyVP9LoopFilterSerial(miRows, miCols)
 }

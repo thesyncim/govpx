@@ -153,7 +153,7 @@ func TestVP9DecoderRowMTDisabledDoesNotRetainSyncState(t *testing.T) {
 // TestVP9DecoderLoopFilterOptGatesLoopFilterPool covers the gate: with the
 // option off the deblock pass uses the serial path even on a threaded
 // decoder, and with the option on the threaded helper pool drives the
-// U / V plane deblock.
+// row-interleaved deblock.
 func TestVP9DecoderLoopFilterOptGatesLoopFilterPool(t *testing.T) {
 	packet := vp9test.ColumnResidueKeyframe(t, 64, 64, 32, 32)
 
@@ -192,4 +192,32 @@ func TestVP9DecoderLoopFilterOptGatesLoopFilterPool(t *testing.T) {
 		t.Fatal("DecoderLoopFilterOpt=false NextFrame returned !ok")
 	}
 	assertVP9ImagesEqual(t, serial, frame)
+}
+
+func TestVP9DecoderLoopFilterOptUsesRowWorkers(t *testing.T) {
+	packet := vp9test.ColumnResidueKeyframe(t, 128, 256, 32, 32)
+	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{}, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{
+		Threads: 4, DecoderLoopFilterOpt: true,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok")
+	}
+	assertVP9ImagesEqual(t, serial, frame)
+	if got, want := d.vp9LoopFilterPool.lastActiveWorkers, uint8(4); got != want {
+		t.Fatalf("loop-filter active workers = %d, want %d", got, want)
+	}
+	if got, want := d.vp9LoopFilterPool.lfSync.rows, 4; got != want {
+		t.Fatalf("loop-filter sync rows = %d, want %d", got, want)
+	}
 }

@@ -12,8 +12,9 @@ import (
 )
 
 // TestVP9DecoderThreadingOfficialIVFMatchesSerial extends the VP9 decoder
-// conformance lane to the threaded loop-filter path. It compares govpx serial
-// decode against Threads=2/4 on every default official VP90 IVF vector.
+// conformance lane to threaded tile decode and threaded loop-filter decode. It
+// compares govpx serial decode against the {1,2,4,8} thread matrix on every
+// default official VP90 IVF vector.
 func TestVP9DecoderThreadingOfficialIVFMatchesSerial(t *testing.T) {
 	root, ok := vp9corpus.IVFRoot(t)
 	if !ok {
@@ -336,22 +337,44 @@ func assertVP9ThreadedDecodeMatchesSerial(t *testing.T, packets [][]byte, want i
 		t.Fatalf("serial Close: %v", err)
 	}
 
-	for _, threads := range []int{2, 3, 4} {
-		threaded, err := NewVP9Decoder(VP9DecoderOptions{Threads: threads})
+	cases := []struct {
+		name string
+		opts VP9DecoderOptions
+	}{
+		{name: "threads-1", opts: VP9DecoderOptions{Threads: 1}},
+		{name: "threads-2", opts: VP9DecoderOptions{Threads: 2}},
+		{name: "threads-3", opts: VP9DecoderOptions{Threads: 3}},
+		{name: "threads-4", opts: VP9DecoderOptions{Threads: 4}},
+		{name: "threads-8", opts: VP9DecoderOptions{Threads: 8}},
+		{
+			name: "loopfilter-opt-threads-2",
+			opts: VP9DecoderOptions{Threads: 2, DecoderLoopFilterOpt: true},
+		},
+		{
+			name: "loopfilter-opt-threads-4",
+			opts: VP9DecoderOptions{Threads: 4, DecoderLoopFilterOpt: true},
+		},
+		{
+			name: "loopfilter-opt-threads-8",
+			opts: VP9DecoderOptions{Threads: 8, DecoderLoopFilterOpt: true},
+		},
+	}
+	for _, tc := range cases {
+		threaded, err := NewVP9Decoder(tc.opts)
 		if err != nil {
-			t.Fatalf("threaded NewVP9Decoder(threads=%d): %v", threads, err)
+			t.Fatalf("%s NewVP9Decoder: %v", tc.name, err)
 		}
 		threadedFrames := decodeFramesForTest(t, "VP9", threaded, packets, want)
 		if err := threaded.Close(); err != nil {
-			t.Fatalf("threaded Close(threads=%d): %v", threads, err)
+			t.Fatalf("%s Close: %v", tc.name, err)
 		}
 		if len(serialFrames) != len(threadedFrames) {
-			t.Fatalf("frame count mismatch: serial=%d threaded=%d threads=%d",
-				len(serialFrames), len(threadedFrames), threads)
+			t.Fatalf("frame count mismatch: serial=%d threaded=%d %s",
+				len(serialFrames), len(threadedFrames), tc.name)
 		}
 		for i := range serialFrames {
 			if !sameCapturedFramePlanes(serialFrames[i], threadedFrames[i]) {
-				t.Fatalf("VP9 frame %d planes diverge with threads=%d", i, threads)
+				t.Fatalf("VP9 frame %d planes diverge with %s", i, tc.name)
 			}
 		}
 	}

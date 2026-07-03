@@ -687,10 +687,10 @@ func (d *VP9Decoder) SetRowMT(enabled bool) error {
 // control because libvpx does not expose one.
 
 // SetLoopFilterOpt mirrors libvpx VP9D_SET_LOOP_FILTER_OPT. When enabled, the
-// deblock pass dispatches the U / V planes to the loop-filter worker pool
-// concurrently with Y, matching libvpx's pipelined loop-filter optimisation.
-// When disabled the deblock pass runs serially even on a threaded decoder.
-// Requires the decoder to have been constructed with Threads > 1; otherwise
+// deblock pass dispatches interleaved SB rows to the loop-filter worker pool
+// under VP9LfSync, matching libvpx's row-based loop-filter optimisation. When
+// disabled the deblock pass runs serially even on a threaded decoder. Requires
+// the decoder to have been constructed with Threads > 1; otherwise
 // ErrInvalidConfig is returned.
 func (d *VP9Decoder) SetLoopFilterOpt(enabled bool) error {
 	if d == nil || d.closed {
