@@ -187,6 +187,29 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 	if got, want := cap(d.vp9TilePool.rowMTFrame.jobq.jobs), 12; got != want {
 		t.Fatalf("rowMTFrame jobq cap = %d, want %d", got, want)
 	}
+	if got, want := len(d.vp9TilePool.rowMTFrame.uvMode), 32*16; got != want {
+		t.Fatalf("rowMTFrame uvMode len = %d, want %d", got, want)
+	}
+	nonZeroEOB := false
+	for _, eob := range d.vp9TilePool.rowMTFrame.eob[0] {
+		if eob != 0 {
+			nonZeroEOB = true
+			break
+		}
+	}
+	if !nonZeroEOB {
+		t.Fatal("rowMTFrame luma eob slab stayed empty")
+	}
+	nonZeroCoeff := false
+	for _, coeff := range d.vp9TilePool.rowMTFrame.dqcoeff[0] {
+		if coeff != 0 {
+			nonZeroCoeff = true
+			break
+		}
+	}
+	if !nonZeroCoeff {
+		t.Fatal("rowMTFrame luma dqcoeff slab stayed empty")
+	}
 }
 
 // TestVP9DecoderLoopFilterOptGatesLoopFilterPool covers the gate: with the

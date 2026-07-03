@@ -255,14 +255,16 @@ type vp9DecoderRowMTFrameStorage struct {
 	numSBs  int
 	numJobs int
 
-	eob          [vp9dec.MaxMbPlane][]int
-	dqcoeffBytes [vp9dec.MaxMbPlane][]byte
-	dqcoeff      [vp9dec.MaxMbPlane][]int16
-	partition    []common.PartitionType
-	reconMap     []int8
-	reconMu      []sync.Mutex
-	reconCond    []*sync.Cond
-	jobq         vp9DecoderRowMTJobQueue
+	eob           [vp9dec.MaxMbPlane][]int
+	dqcoeffBytes  [vp9dec.MaxMbPlane][]byte
+	dqcoeff       [vp9dec.MaxMbPlane][]int16
+	partition     []common.PartitionType
+	uvMode        []common.PredictionMode
+	residueParsed []bool
+	reconMap      []int8
+	reconMu       []sync.Mutex
+	reconCond     []*sync.Cond
+	jobq          vp9DecoderRowMTJobQueue
 }
 
 func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
@@ -277,6 +279,8 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 			s.dqcoeff[plane] = s.dqcoeff[plane][:0]
 		}
 		s.partition = s.partition[:0]
+		s.uvMode = s.uvMode[:0]
+		s.residueParsed = s.residueParsed[:0]
 		s.reconMap = s.reconMap[:0]
 		s.numJobs = 0
 		return
@@ -296,6 +300,14 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	s.partition = buffers.EnsureLenZeroed(s.partition,
 		numSBs*vp9DecoderRowMTPartitionsPerSB)
 	s.reconMap = buffers.EnsureLenZeroed(s.reconMap, numSBs)
+}
+
+func (s *vp9DecoderRowMTFrameStorage) ensureModeStorage(miRows, miCols int) {
+	if s == nil || miRows <= 0 || miCols <= 0 {
+		return
+	}
+	s.uvMode = buffers.EnsureLenZeroed(s.uvMode, miRows*miCols)
+	s.residueParsed = buffers.EnsureLenZeroed(s.residueParsed, miRows*miCols)
 }
 
 func (s *vp9DecoderRowMTFrameStorage) ensureJobQueue(tileCols, sbRows int) {
@@ -332,6 +344,8 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 		s.dqcoeff[plane] = nil
 	}
 	s.partition = nil
+	s.uvMode = nil
+	s.residueParsed = nil
 	s.reconMap = nil
 	s.reconMu = nil
 	s.reconCond = nil
@@ -621,6 +635,7 @@ func (p *vp9DecoderTileWorkerPool) ensureRowMTFrameStorage(miRows, miCols,
 	sbRows := common.AlignToSB(miRows) >> common.MiBlockSizeLog2
 	sbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
 	p.rowMTFrame.reset(sbRows * sbCols)
+	p.rowMTFrame.ensureModeStorage(miRows, miCols)
 	p.rowMTFrame.ensureJobQueue(tileCols, sbRows)
 }
 

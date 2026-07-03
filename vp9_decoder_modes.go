@@ -109,6 +109,10 @@ func (d *VP9Decoder) parseVP9IntraModeTile(data []byte,
 		}
 		return nil
 	}
+	if d.vp9DecoderRowMTOneTileStorage() != nil {
+		return d.parseVP9IntraModeTileRowMTSplit(&r, hdr, comp, maps, tile,
+			miRows, miCols, partitionProbs)
+	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
 	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
@@ -232,6 +236,10 @@ func (d *VP9Decoder) parseVP9InterModeTile(data []byte,
 			return ErrInvalidVP9Data
 		}
 		return nil
+	}
+	if d.vp9DecoderRowMTOneTileStorage() != nil {
+		return d.parseVP9InterModeTileRowMTSplit(&r, hdr, comp, maps, tile,
+			miRows, miCols, partitionProbs)
 	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2

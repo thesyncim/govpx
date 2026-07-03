@@ -23,6 +23,13 @@ func TestVP9DecoderRowMTFrameStorageLayout(t *testing.T) {
 	if got := len(storage.reconMap); got != numSBs {
 		t.Fatalf("reconMap len = %d, want %d", got, numSBs)
 	}
+	storage.ensureModeStorage(3, 4)
+	if got, want := len(storage.uvMode), 12; got != want {
+		t.Fatalf("uvMode len = %d, want %d", got, want)
+	}
+	if got, want := len(storage.residueParsed), 12; got != want {
+		t.Fatalf("residueParsed len = %d, want %d", got, want)
+	}
 	storage.ensureJobQueue(3, 2)
 	if got, want := storage.numJobs, 6; got != want {
 		t.Fatalf("numJobs = %d, want %d", got, want)
@@ -48,8 +55,11 @@ func TestVP9DecoderRowMTFrameStorageLayout(t *testing.T) {
 	storage.eobForSB(0, 3)[7] = 11
 	storage.dqcoeffForSB(1, 4)[19] = -21
 	storage.partitionsForSB(5)[2] = common.PartitionSplit
+	storage.uvMode[7] = common.VPred
+	storage.residueParsed[7] = true
 	storage.reconMap[6] = 1
 	storage.reset(numSBs)
+	storage.ensureModeStorage(3, 4)
 
 	if got := storage.eobForSB(0, 3)[7]; got != 0 {
 		t.Fatalf("reset left stale eob = %d", got)
@@ -59,6 +69,12 @@ func TestVP9DecoderRowMTFrameStorageLayout(t *testing.T) {
 	}
 	if got := storage.partitionsForSB(5)[2]; got != common.PartitionNone {
 		t.Fatalf("reset left stale partition = %d", got)
+	}
+	if got := storage.uvMode[7]; got != common.DcPred {
+		t.Fatalf("reset left stale uvMode = %d", got)
+	}
+	if got := storage.residueParsed[7]; got {
+		t.Fatalf("reset left stale residueParsed = %v", got)
 	}
 	if got := storage.reconMap[6]; got != 0 {
 		t.Fatalf("reset left stale reconMap = %d", got)
@@ -88,6 +104,12 @@ func TestVP9DecoderRowMTFrameStorageRelease(t *testing.T) {
 	}
 	if storage.partition != nil {
 		t.Fatal("partition retained after release")
+	}
+	if storage.uvMode != nil {
+		t.Fatal("uvMode retained after release")
+	}
+	if storage.residueParsed != nil {
+		t.Fatal("residueParsed retained after release")
 	}
 	if storage.reconMap != nil {
 		t.Fatal("reconMap retained after release")
