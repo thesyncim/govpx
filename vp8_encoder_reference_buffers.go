@@ -27,16 +27,11 @@ func (e *VP8Encoder) rememberLastFrameInterModes(signBias [vp8common.MaxRefFrame
 	if len(e.interFrameModes) == 0 {
 		return
 	}
-	if len(e.lastFrameInterModes) != len(e.interFrameModes) {
-		e.lastFrameInterModes = make([]vp8enc.InterFrameMacroblockMode, len(e.interFrameModes))
+	if len(e.lastFrameInterModeRefs) != len(e.interFrameModes) {
+		e.lastFrameInterModeRefs = make([]vp8enc.InterFrameMVRef, len(e.interFrameModes))
 	}
-	if len(e.lastFrameInterModeBias) != len(e.interFrameModes) {
-		e.lastFrameInterModeBias = make([]bool, len(e.interFrameModes))
-	}
-	copy(e.lastFrameInterModes, e.interFrameModes)
 	for i := range e.interFrameModes {
-		ref := e.interFrameModes[i].RefFrame
-		e.lastFrameInterModeBias[i] = ref > vp8common.IntraFrame && ref < vp8common.MaxRefFrames && signBias[ref]
+		e.lastFrameInterModeRefs[i] = vp8enc.InterFrameMVRefFromMode(&e.interFrameModes[i], signBias)
 	}
 	e.lastFrameInterModesValid = true
 }

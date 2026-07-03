@@ -348,7 +348,15 @@ func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	for i := range e.reconY {
 		e.reconY[i] = 73
 	}
+	for i := range e.reconU {
+		e.reconU[i] = 91
+	}
+	for i := range e.reconV {
+		e.reconV[i] = 127
+	}
 	lumaBefore := append([]byte(nil), e.reconY...)
+	uBefore := append([]byte(nil), e.reconU...)
+	vBefore := append([]byte(nil), e.reconV...)
 
 	var dq vp9dec.DequantTables
 	inter := &vp9InterEncodeState{
@@ -370,6 +378,12 @@ func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	}
 	if !bytes.Equal(e.reconY, lumaBefore) {
 		t.Fatalf("color-sensitivity chroma SAD mutated luma prediction plane")
+	}
+	if !bytes.Equal(e.reconU, uBefore) {
+		t.Fatalf("color-sensitivity chroma SAD mutated U prediction plane")
+	}
+	if !bytes.Equal(e.reconV, vBefore) {
+		t.Fatalf("color-sensitivity chroma SAD mutated V prediction plane")
 	}
 }
 

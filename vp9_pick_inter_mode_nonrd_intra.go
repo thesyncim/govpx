@@ -71,10 +71,11 @@ func (e *VP9Encoder) vp9UseModelYrdLargeBlock(bsize common.BlockSize,
 // best-rdc update).
 func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize, qindex int,
+	bsize common.BlockSize, qindex int, rdmult int,
 	above, left *vp9dec.NeighborMi,
 	sourceVariance uint, bestInterScore uint64, forceSkipLowTempVar bool, xSkip bool,
 	sceneChangeDetected, highNumBlocksWithMotion bool,
+	contentState encoder.ContentStateSB, zeroTempSADSource bool,
 	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
 	skipEncode bool,
 ) (vp9InterIntraDecision, bool) {
@@ -97,13 +98,6 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	if !noInterWinner && bsize > maxIntraBsize {
 		return vp9InterIntraDecision{}, false
 	}
-	contentState := encoder.ContentStateInvalid
-	zeroTempSADSource := false
-	if stats, ok := e.vp9SourceSADState(inter.img, miRows, miCols,
-		miRow, miCol); ok {
-		contentState = stats.ContentState
-		zeroTempSADSource = stats.ZeroTempSADSource
-	}
 
 	// libvpx vp9_pickmode.c:1717-1720 — intra_cost_penalty seeds an
 	// inter_mode_thresh = RDCOST(rdmult, rddiv, intra_cost_penalty, 0).
@@ -113,7 +107,9 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// verbatim from vp9_rd.c:778-794.
 	intraCostPenalty := encoder.IntraCostPenalty(qindex, 0, bsize,
 		e.noiseEstimate.Enabled, e.noiseEstimate.ExtractLevel())
-	rdmult := e.activeRDMult(qindex)
+	if rdmult <= 0 {
+		rdmult = e.activeRDMult(qindex)
+	}
 	interModeThresh := encoder.RDCost(rdmult, encoder.RDDivBits, intraCostPenalty, 0)
 	screenFlat := e.opts.ScreenContentMode == int8(VP9ScreenContentScreen) &&
 		sourceVariance == 0
@@ -167,8 +163,13 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	// fc->y_mode_prob[1], and the nonrd intra fallback consumes that table
 	// directly at vp9_pickmode.c:2631.
 	var yModeCosts [common.IntraModes]int
-	encoder.VP9CostTokens(yModeCosts[:], vp9InterModeCostFrameContext(inter).YModeProb[1][:],
-		common.IntraModeTree[:])
+	if inter.nonrdIntraYModeCostsValid {
+		yModeCosts = inter.nonrdIntraYModeCosts
+	} else {
+		encoder.VP9CostTokens(yModeCosts[:],
+			vp9InterModeCostFrameContext(inter).YModeProb[1][:],
+			common.IntraModeTree[:])
+	}
 
 	// libvpx vp9_pickmode.c:1232-1234 — ref_frame_cost[INTRA_FRAME] =
 	// vp9_cost_bit(intra_inter_p, 0). govpx ports the same via
@@ -206,7 +207,6 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	if inter.dq != nil {
 		dequantY = inter.dq.Y[segID]
 	}
-
 	for i, thisMode := range encoder.NonrdIntraModeList {
 		// libvpx vp9_pickmode.c:2573-2575 — screen-content flat-block
 		// shortcut keeps only DC for stationary flat blocks and only

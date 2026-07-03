@@ -179,6 +179,16 @@ func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequ
 	return eob
 }
 
+func quantizeFPLibvpxValidated(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	_, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	return int(quantizeFPFullNEON(unsafe.SliceData(coeff),
+		unsafe.SliceData(iscan), unsafe.SliceData(qcoeff),
+		unsafe.SliceData(dqcoeff), nCoeffs,
+		int(roundFP[0]), int(roundFP[1]), int(quantFP[0]), int(quantFP[1]),
+		int(dequant[0]), int(dequant[1])))
+}
+
 func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizeParams,
 	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {

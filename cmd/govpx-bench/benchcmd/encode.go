@@ -59,41 +59,27 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	}
 	enc.Reset()
 	phaseStats.reset()
-	encodeMallocs := uint64(0)
-	if cfg.CPUProfile != "" {
-		runtime.GC()
-		var memBefore runtime.MemStats
-		var memAfter runtime.MemStats
-		runtime.ReadMemStats(&memBefore)
-		for i, frame := range frames {
-			if _, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0); err != nil {
-				return benchReport{}, err
-			}
-		}
-		runtime.ReadMemStats(&memAfter)
-		encodeMallocs = memAfter.Mallocs - memBefore.Mallocs
-		enc.Reset()
-		phaseStats.reset()
+	encodeMallocs, err := sampleVP8EncodeMallocs(enc, packet, frames)
+	if err != nil {
+		return benchReport{}, err
 	}
+	enc.Reset()
+	phaseStats.reset()
+	runtime.GC()
+	var measuredPackets []measuredEncodePacket
+	if !cfg.SkipQuality {
+		measuredPackets = make([]measuredEncodePacket, cfg.Frames)
+	}
+	measuredPacketCount := 0
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return benchReport{}, err
 	}
 	defer stopCPUProfile()
-	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
 	for i, frame := range frames {
-		var memBefore runtime.MemStats
-		if cfg.CPUProfile == "" {
-			runtime.ReadMemStats(&memBefore)
-		}
 		start := time.Now()
 		result, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0)
 		elapsed := time.Since(start)
-		if cfg.CPUProfile == "" {
-			var memAfter runtime.MemStats
-			runtime.ReadMemStats(&memAfter)
-			encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
-		}
 		if err != nil {
 			return benchReport{}, err
 		}
@@ -102,11 +88,14 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 			droppedFrames++
 			continue
 		}
-		packetCopy := append([]byte(nil), result.Data...)
-		measuredPackets = append(measuredPackets, measuredEncodePacket{
-			data:        packetCopy,
-			sourceIndex: i,
-		})
+		if !cfg.SkipQuality {
+			packetCopy := append([]byte(nil), result.Data...)
+			measuredPackets[measuredPacketCount] = measuredEncodePacket{
+				data:        packetCopy,
+				sourceIndex: i,
+			}
+			measuredPacketCount++
+		}
 		encodedFrames++
 		outputBytes += result.SizeBytes
 		quantSum += result.Quantizer
@@ -131,7 +120,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 	ssim := 0.0
 	qualityFrames := 0
 	if !cfg.SkipQuality {
-		psnr, ssim, qualityFrames, err = measuredEncodeQualityMetrics(measuredPackets, frames)
+		psnr, ssim, qualityFrames, err = measuredEncodeQualityMetrics(measuredPackets[:measuredPacketCount], frames)
 		if err != nil {
 			return benchReport{}, err
 		}
@@ -206,6 +195,31 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 		report.Comparison = buildComparisonReport(report, reference)
 	}
 	return report, nil
+}
+
+func sampleVP8EncodeMallocs(enc *govpx.VP8Encoder, packet []byte, frames []govpx.Image) (uint64, error) {
+	const samplePasses = 5
+	best := ^uint64(0)
+	for pass := 0; pass < samplePasses; pass++ {
+		enc.Reset()
+		runtime.GC()
+		var memBefore runtime.MemStats
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memBefore)
+		for i, frame := range frames {
+			if _, err := enc.EncodeInto(packet, frame, uint64(i), 1, 0); err != nil {
+				return 0, fmt.Errorf("vp8 allocation sample frame %d: %w", i, err)
+			}
+		}
+		runtime.ReadMemStats(&memAfter)
+		if mallocs := memAfter.Mallocs - memBefore.Mallocs; mallocs < best {
+			best = mallocs
+			if best == 0 {
+				break
+			}
+		}
+	}
+	return best, nil
 }
 
 // measuredEncodeQualityMetrics decodes measured govpx packets and compares

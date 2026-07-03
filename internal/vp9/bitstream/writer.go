@@ -54,11 +54,10 @@ func (w *Writer) StartDiscard() {
 // Write encodes one bit against the probability prob (out of 256).
 // Arithmetic matches vpx_write bit-for-bit, including the carry-propagation
 // loop over previously-emitted 0xff bytes when a fresh byte would carry into
-// them. The Go body deviates from the C shape in two output-identical ways
-// tuned for the hot path:
+// them. The Go body keeps the bit branch because branchless arithmetic was
+// slower in the focused writer benchmarks on arm64/Go, and it deviates from
+// the C shape in one output-identical way tuned for the hot path:
 //
-//   - the bit-dependent (lowValue, rng) update is branchless (coefficient
-//     bits are near-random, so the C branch mispredicts), and
 //   - vpx_norm[rng] is computed as LeadingZeros8(rng), which is the table's
 //     defining identity for rng >= 1 (renormalization keeps rng >= 1) and
 //     compiles to a single CLZ.
@@ -113,6 +112,131 @@ func (w *Writer) Write(bit, prob uint32) {
 	}
 
 	lowValue <<= uint(shift)
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WritePacked writes n bits, MSB first, with one byte-packed probability per
+// bit. The first probability is stored in the highest active byte of probs.
+// It is intended for tiny fixed syntax fragments where the caller already
+// knows a 2-4 bit path and would otherwise call Write repeatedly.
+func (w *Writer) WritePacked(bitsValue, probs uint32, n int) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	for i := n - 1; i >= 0; i-- {
+		bit := (bitsValue >> uint(i)) & 1
+		prob := (probs >> uint(i*8)) & 0xff
+
+		split := 1 + (((rng - 1) * prob) >> 8)
+		if bit != 0 {
+			lowValue += split
+			rng -= split
+		} else {
+			rng = split
+		}
+
+		shift := int32(bits.LeadingZeros32(rng)) - 24
+		rng <<= uint(shift)
+		count += shift
+
+		if count >= 0 {
+			offset := shift - count
+
+			if !w.err {
+				if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+					x := int(w.pos) - 1
+					for x >= 0 && w.buf[x] == 0xff {
+						w.buf[x] = 0
+						x--
+					}
+					w.buf[x]++
+				}
+
+				if w.pos < uint32(len(w.buf)) {
+					w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+					w.pos++
+				} else {
+					w.err = true
+				}
+			}
+
+			lowValue <<= uint(offset)
+			shift = count
+			lowValue &= 0xffffff
+			count -= 8
+		}
+
+		lowValue <<= uint(shift)
+	}
+
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WritePacked64 is WritePacked's wider sibling for fixed fragments up to eight
+// bits. Probabilities are stored one byte per bit, with the first probability in
+// the highest active byte.
+func (w *Writer) WritePacked64(bitsValue uint32, probs uint64, n int) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	for i := n - 1; i >= 0; i-- {
+		bit := (bitsValue >> uint(i)) & 1
+		prob := uint32((probs >> uint(i*8)) & 0xff)
+
+		split := 1 + (((rng - 1) * prob) >> 8)
+		if bit != 0 {
+			lowValue += split
+			rng -= split
+		} else {
+			rng = split
+		}
+
+		shift := int32(bits.LeadingZeros32(rng)) - 24
+		rng <<= uint(shift)
+		count += shift
+
+		if count >= 0 {
+			offset := shift - count
+
+			if !w.err {
+				if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+					x := int(w.pos) - 1
+					for x >= 0 && w.buf[x] == 0xff {
+						w.buf[x] = 0
+						x--
+					}
+					w.buf[x]++
+				}
+
+				if w.pos < uint32(len(w.buf)) {
+					w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+					w.pos++
+				} else {
+					w.err = true
+				}
+			}
+
+			lowValue <<= uint(offset)
+			shift = count
+			lowValue &= 0xffffff
+			count -= 8
+		}
+
+		lowValue <<= uint(shift)
+	}
+
 	w.count = count
 	w.lowValue = lowValue
 	w.rng = rng

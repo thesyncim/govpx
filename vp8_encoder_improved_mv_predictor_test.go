@@ -196,7 +196,7 @@ func TestImprovedInterFrameSearchStartBorderModeInfoIndexingLastFrame(t *testing
 				}
 				e := &VP8Encoder{
 					lastRef:                  last,
-					lastFrameInterModes:      modes,
+					lastFrameInterModeRefs:   testInterFrameMVRefs(modes, [vp8common.MaxRefFrames]bool{}),
 					lastFrameInterModesValid: true,
 				}
 				start := e.improvedInterFrameSearchStart(
@@ -308,7 +308,7 @@ func TestImprovedInterFrameSearchStartIntraSlotsAffectSADRank(t *testing.T) {
 	e := &VP8Encoder{
 		analysis:                 analysis,
 		lastRef:                  last,
-		lastFrameInterModes:      prevModes,
+		lastFrameInterModeRefs:   testInterFrameMVRefs(prevModes, [vp8common.MaxRefFrames]bool{}),
 		lastFrameInterModesValid: true,
 	}
 	above := vp8enc.InterFrameMacroblockMode{

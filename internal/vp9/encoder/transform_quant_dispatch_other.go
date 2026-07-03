@@ -51,6 +51,13 @@ func quantizeFPLibvpxDispatch(coeff []int16, nCoeffs int, roundFP, quantFP, dequ
 		scan, iscan, qcoeff, dqcoeff)
 }
 
+func quantizeFPLibvpxValidated(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16,
+) int {
+	return quantizeFPLibvpxScalar(coeff, nCoeffs, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff)
+}
+
 func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizeParams,
 	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {

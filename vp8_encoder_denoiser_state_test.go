@@ -68,6 +68,54 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	}
 }
 
+func TestCopyDenoiserNoFilterMacroblockSkipsOnlyAliasedFilteredCopies(t *testing.T) {
+	e := &VP8Encoder{opts: EncoderOptions{NoiseSensitivity: 3}}
+	e.denoiser.mode = vp8enc.DenoiserOnYUV
+	e.denoiser.allocated = true
+	e.denoiser.runningAvg[denoiserAvgIntra] = testVP8Frame(t, 16, 16, 0, 0, 0)
+	e.denoiser.state = make([]uint8, 1)
+
+	sourceFrame := testVP8Frame(t, 16, 16, 80, 90, 100)
+	source := vp8enc.CodedSourceImageFromImage(&sourceFrame.Img)
+	sourceYBefore := append([]byte(nil), source.Y...)
+	sourceUBefore := append([]byte(nil), source.U...)
+	sourceVBefore := append([]byte(nil), source.V...)
+	e.copyDenoiserNoFilterMacroblock(source, source, 0, 0, 1, 0)
+	if !bytes.Equal(source.Y, sourceYBefore) || !bytes.Equal(source.U, sourceUBefore) || !bytes.Equal(source.V, sourceVBefore) {
+		t.Fatalf("aliased filtered/source buffer changed outside denoiser average")
+	}
+	assertDenoiserMacroblockCopied(t, vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img), source)
+
+	filteredFrame := testVP8Frame(t, 16, 16, 1, 2, 3)
+	filtered := vp8enc.CodedSourceImageFromImage(&filteredFrame.Img)
+	e.copyDenoiserNoFilterMacroblock(source, filtered, 0, 0, 1, 0)
+	assertDenoiserMacroblockCopied(t, filtered, source)
+	assertDenoiserMacroblockCopied(t, vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img), source)
+}
+
+func assertDenoiserMacroblockCopied(t *testing.T, got vp8enc.SourceImage, want vp8enc.SourceImage) {
+	t.Helper()
+	for row := range 16 {
+		gotOff := row * got.YStride
+		wantOff := row * want.YStride
+		if !bytes.Equal(got.Y[gotOff:gotOff+16], want.Y[wantOff:wantOff+16]) {
+			t.Fatalf("Y row %d not copied", row)
+		}
+	}
+	for row := range 8 {
+		gotUOff := row * got.UStride
+		wantUOff := row * want.UStride
+		if !bytes.Equal(got.U[gotUOff:gotUOff+8], want.U[wantUOff:wantUOff+8]) {
+			t.Fatalf("U row %d not copied", row)
+		}
+		gotVOff := row * got.VStride
+		wantVOff := row * want.VStride
+		if !bytes.Equal(got.V[gotVOff:gotVOff+8], want.V[wantVOff:wantVOff+8]) {
+			t.Fatalf("V row %d not copied", row)
+		}
+	}
+}
+
 func TestRuntimeNoiseSensitivityKeepsAllocatedDenoiserModeSticky(t *testing.T) {
 	e := newSizedTestEncoder(t, 32, 32)
 	src := sourceImageFromImage(testImage(32, 32))

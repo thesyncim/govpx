@@ -59,6 +59,17 @@ func ResizeInterFrameModeSlice(s []InterFrameMacroblockMode, n int) []InterFrame
 	return make([]InterFrameMacroblockMode, n)
 }
 
+func ResizeInterFrameMVRefSlice(s []InterFrameMVRef, n int) []InterFrameMVRef {
+	if cap(s) >= n {
+		s = s[:n]
+		for i := range s {
+			s[i] = InterFrameMVRef{}
+		}
+		return s
+	}
+	return make([]InterFrameMVRef, n)
+}
+
 func ResizeMacroblockCoefficientSlice(s []MacroblockCoefficients, n int) []MacroblockCoefficients {
 	if cap(s) >= n {
 		s = s[:n]

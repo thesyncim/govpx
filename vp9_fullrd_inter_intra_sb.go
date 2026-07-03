@@ -759,7 +759,7 @@ func (e *VP9Encoder) vp9FullRDInterIntraPlaneTxCandidate(inter *vp9InterEncodeSt
 			}
 			// coeff_ctx = combine_entropy_contexts(t_left[r], t_above[c])
 			// (vp9_rdopt.c:709-710) feeds BOTH vp9_optimize_b and cost_coeffs.
-			initCtx := vp9dec.GetEntropyContext(txSize,
+			initCtx := vp9dec.GetEntropyContextFull(txSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// vp9_encode_block_intra: intra-predict the tx unit, subtract,
 			// transform, quantize (regular), trellis, inverse-add in place.

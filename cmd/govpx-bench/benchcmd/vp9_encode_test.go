@@ -114,6 +114,10 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 	if report.PhaseNS.VP9ModeBlocks == 0 || report.PhaseNS.VP9InterPredictionBlocks == 0 {
 		t.Fatalf("vp9 topology stats = %+v, want mode and predictor work counted", *report.PhaseNS)
 	}
+	if report.PhaseNS.VP9CountNS <= 0 || report.PhaseNS.VP9HeaderWriteNS <= 0 ||
+		report.PhaseNS.VP9TileWriteNS <= 0 {
+		t.Fatalf("vp9 phase timings = %+v, want count/header/tile work timed", *report.PhaseNS)
+	}
 	if report.Reference == nil || report.Reference.VP9CallStats == nil {
 		t.Fatalf("reference VP9 call stats = %+v, want populated when phase timing is enabled", report.Reference)
 	}
@@ -122,7 +126,8 @@ func TestRunVP9BenchmarkPhaseTiming(t *testing.T) {
 		t.Fatalf("reference VP9 call stats = %+v", *report.Reference.VP9CallStats)
 	}
 	text := formatEncodeReport(report)
-	if !strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 mode pass") ||
+	if !strings.Contains(text, "vp9 phase/frame") ||
+		!strings.Contains(text, "vp9 topology") || !strings.Contains(text, "vp9 mode pass") ||
 		!strings.Contains(text, "vp9 inter pass") || !strings.Contains(text, "vp9 predictor") ||
 		!strings.Contains(text, "vp9 varpass") || !strings.Contains(text, "vp9 content") ||
 		!strings.Contains(text, "libvpx topology") || !strings.Contains(text, "libvpx content") {

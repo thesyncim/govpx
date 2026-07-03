@@ -150,14 +150,17 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSADWithBatch(mvpCol,
 				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, patternSadAt4, scoreMv)
 		case SearchMethodHex:
-			bestDx, bestDy, _, _ = encoder.HexPatternSearchSAD(mvpCol, mvpRow,
-				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+			bestDx, bestDy, _, _ = encoder.HexPatternSearchSADWithBatch(mvpCol,
+				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				patternSadAt4, scoreMv)
 		case SearchMethodBigDia:
-			bestDx, bestDy, _, _ = encoder.BigDiamondPatternSearchSAD(mvpCol,
-				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+			bestDx, bestDy, _, _ = encoder.BigDiamondPatternSearchSADWithBatch(
+				mvpCol, mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				patternSadAt4, scoreMv)
 		case SearchMethodSquare:
-			bestDx, bestDy, _, _ = encoder.SquarePatternSearchSAD(mvpCol, mvpRow,
-				startSad, startScore, stepParam, mvLimits, sadAt, scoreMv)
+			bestDx, bestDy, _, _ = encoder.SquarePatternSearchSADWithBatch(mvpCol,
+				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				patternSadAt4, scoreMv)
 		}
 	default:
 		// NSTEP / MESH (cpu0): libvpx vp9_full_pixel_search:2916-2919 —

@@ -55,8 +55,9 @@ const MvPredMaxCandidates = 3
 
 // MvPredInputCandidate is one of the three MVs that vp9_mv_pred SADs against
 // the source block. libvpx packs these into a stack-local MV[3] array; govpx
-// passes the same shape via a slice so callers can build it from the
-// ref_mvs[0..1] candidate list plus the optional x->pred_mv[ref] entry.
+// passes the same shape via a fixed array on hot paths so callers can build it
+// from the ref_mvs[0..1] candidate list plus the optional x->pred_mv[ref]
+// entry.
 //
 // libvpx: vp9_rd.c:602-606:
 //
@@ -130,9 +131,39 @@ func MvPredScanCandidates(
 	refOriginX, refOriginY, refRows int,
 	blockW, blockH int,
 ) MvPredResult {
+	var fixed [MvPredMaxCandidates]MvPredInputCandidate
+	n := numMvRefs
+	if n > len(candidates) {
+		n = len(candidates)
+	}
+	if n > MvPredMaxCandidates {
+		n = MvPredMaxCandidates
+	}
+	copy(fixed[:], candidates)
+	return MvPredScanCandidateArray(&fixed, n,
+		src, srcStride, srcX, srcY,
+		refY, refYStride, refAnchorX, refAnchorY,
+		refOriginX, refOriginY, refRows,
+		blockW, blockH)
+}
+
+// MvPredScanCandidateArray is the hot-path fixed-array form of
+// MvPredScanCandidates. libvpx's vp9_mv_pred uses a stack MV pred_mv[3]; this
+// keeps the Go caller on that same shape after it has populated the candidate
+// triple.
+func MvPredScanCandidateArray(
+	candidates *[MvPredMaxCandidates]MvPredInputCandidate, numMvRefs int,
+	src []byte, srcStride int, srcX, srcY int,
+	refY []byte, refYStride int, refAnchorX, refAnchorY int,
+	refOriginX, refOriginY, refRows int,
+	blockW, blockH int,
+) MvPredResult {
 	// libvpx: vp9_rd.c:590-593.
 	//   int zero_seen = 0; int best_index = 0; int best_sad = INT_MAX;
 	//   int max_mv = 0;
+	if numMvRefs > MvPredMaxCandidates {
+		numMvRefs = MvPredMaxCandidates
+	}
 	out := MvPredResult{BestSad: ^uint64(0)}
 	zeroSeen := false
 
@@ -141,16 +172,17 @@ func MvPredScanCandidates(
 	//     x->mbmi_ext->ref_mvs[ref_frame][0].as_int ==
 	//     x->mbmi_ext->ref_mvs[ref_frame][1].as_int;
 	nearSameNearest := false
-	if len(candidates) >= 2 && candidates[0].Valid && candidates[1].Valid &&
+	if candidates[0].Valid && candidates[1].Valid &&
 		candidates[0].MV == candidates[1].MV {
 		nearSameNearest = true
 	}
 
+	srcOff := srcY*srcStride + srcX
+	refAnchorLeft := refOriginX + refAnchorX
+	refAnchorTop := refOriginY + refAnchorY
+
 	// libvpx: vp9_rd.c:611 — for (i = 0; i < num_mv_refs; ++i).
-	for i := range numMvRefs {
-		if i >= len(candidates) {
-			break
-		}
+	for i := 0; i < numMvRefs; i++ {
 		c := candidates[i]
 		// libvpx: vp9_rd.c:614 — INT16_MAX skip semantics. The govpx
 		// "valid" boolean covers the same predicate (callers populate
@@ -212,8 +244,8 @@ func MvPredScanCandidates(
 		// border, so fp_row / fp_col can be negative without indexing
 		// out of bounds. govpx callers pass the same bordered-buffer shape:
 		// refOrigin{X,Y} is the visible-plane origin inside refY.
-		refXLeft := refOriginX + refAnchorX + fpCol
-		refYTop := refOriginY + refAnchorY + fpRow
+		refXLeft := refAnchorLeft + fpCol
+		refYTop := refAnchorTop + fpRow
 		if refXLeft < 0 || refYTop < 0 ||
 			refXLeft+blockW > refYStride || refYTop+blockH > refRows {
 			continue
@@ -221,7 +253,7 @@ func MvPredScanCandidates(
 
 		// libvpx: vp9_rd.c:624 fn_ptr[bsize].sdf — size-specialized SAD.
 		// encoder.BlockSAD dispatches to the same vpx_sad{NxM} kernels.
-		thisSad := BlockSADOffsets(src, srcY*srcStride+srcX,
+		thisSad := BlockSADOffsets(src, srcOff,
 			srcStride, refY, refYTop*refYStride+refXLeft, refYStride,
 			blockW, blockH, ^uint64(0))
 

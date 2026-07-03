@@ -15,28 +15,30 @@ import (
 )
 
 type vp9CountTileSeed struct {
-	keyHeader          vp9dec.UncompressedHeader
-	keyImg             *image.YCbCr
-	interImg           *image.YCbCr
-	interSelectFc      vp9dec.FrameContext
-	interModeCostFc    vp9dec.FrameContext
-	interMvCostFc      vp9dec.FrameContext
-	interCompoundRefs  vp9dec.CompoundFrameRefs
-	interRefSignBias   [vp9dec.MaxRefFrames]uint8
-	counts             *encoder.FrameCounts
-	interRefMask       uint8
-	interReferenceMode vp9dec.ReferenceMode
-	interInterpFilter  vp9dec.InterpFilter
-	interBaseQindex    int
-	keyLossless        bool
-	interAllowHP       bool
-	interCompound      bool
-	interLossless      bool
-	interModeCostValid bool
-	interMvCostBuilt   bool
-	hasKey             bool
-	hasKeyHeader       bool
-	hasInter           bool
+	keyHeader                      vp9dec.UncompressedHeader
+	keyImg                         *image.YCbCr
+	interImg                       *image.YCbCr
+	interSelectFc                  vp9dec.FrameContext
+	interModeCostFc                vp9dec.FrameContext
+	interNonrdIntraYModeCosts      [common.IntraModes]int
+	interMvCostFc                  vp9dec.FrameContext
+	interCompoundRefs              vp9dec.CompoundFrameRefs
+	interRefSignBias               [vp9dec.MaxRefFrames]uint8
+	counts                         *encoder.FrameCounts
+	interRefMask                   uint8
+	interReferenceMode             vp9dec.ReferenceMode
+	interInterpFilter              vp9dec.InterpFilter
+	interBaseQindex                int
+	keyLossless                    bool
+	interAllowHP                   bool
+	interCompound                  bool
+	interLossless                  bool
+	interModeCostValid             bool
+	interNonrdIntraYModeCostsValid bool
+	interMvCostBuilt               bool
+	hasKey                         bool
+	hasKeyHeader                   bool
+	hasInter                       bool
 }
 
 type vp9CountTileJob struct {
@@ -560,6 +562,27 @@ func runVP9EncodeTilePrepJob(job *vp9EncodeTileJob) {
 	job.worker.prepareVP9TileEncodeWorker(job.prepSrc, job.miRows, job.miCols)
 }
 
+func (w *VP9Encoder) prepareVP9WorkerSubpelRefBordered(
+	private [common.RefFrames]common.YV12BorderBuffer, src *VP9Encoder,
+) {
+	if w == nil {
+		return
+	}
+	for slot := range w.subpelRefBordered {
+		if src != nil && slot < len(src.subpelRefBorderedValid) &&
+			src.subpelRefBorderedValid[slot] &&
+			len(src.subpelRefBordered[slot].Pixels) > 0 {
+			w.subpelRefBordered[slot] = src.subpelRefBordered[slot]
+			w.subpelRefBorderedValid[slot] = true
+			w.subpelRefBorderedShared[slot] = true
+			continue
+		}
+		w.subpelRefBordered[slot] = private[slot]
+		w.subpelRefBorderedValid[slot] = false
+		w.subpelRefBorderedShared[slot] = false
+	}
+}
+
 // startHelperWorkers mirrors libvpx's vpx_worker launch (vpx_thread.c
 // change_state to VPX_WORKER_STATUS_WORKING + cond signal): publish the job
 // kind, then post one launch token per helper. Every token is consumed by
@@ -634,6 +657,8 @@ func vp9CountTileSeedForState(key *vp9KeyframeEncodeState,
 		seed.interSelectFc = inter.selectFc
 		seed.interModeCostFc = inter.modeCostFc
 		seed.interModeCostValid = inter.modeCostFcValid
+		seed.interNonrdIntraYModeCosts = inter.nonrdIntraYModeCosts
+		seed.interNonrdIntraYModeCostsValid = inter.nonrdIntraYModeCostsValid
 		seed.interMvCostFc = inter.mvCostFc
 		seed.interMvCostBuilt = inter.mvCostFcBuilt
 		seed.interCompoundRefs = inter.compoundRefs
@@ -678,6 +703,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for i := range e.miGrid {
 		e.miGrid[i] = vp9dec.NeighborMi{}
 	}
+	if seed.hasInter {
+		e.prepareVP9SharedSubpelRefBordered(seed.interRefMask)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(tileCols)
@@ -719,7 +747,7 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 ) bool {
 	tileRows := 1 << uint(tileInfo.Log2TileRows)
 	tileCols := 1 << uint(tileInfo.Log2TileCols)
-	if tileRows != 1 || e.opts.NoiseSensitivity > 0 {
+	if tileRows != 1 {
 		return false
 	}
 	pool := e.ensureVP9TileWorkerPool(tileCols)
@@ -738,6 +766,9 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	e.prepareVP9EncoderOutputFrame(width, height)
 	for i := range e.miGrid {
 		e.miGrid[i] = vp9dec.NeighborMi{}
+	}
+	if seed.hasInter {
+		e.prepareVP9SharedSubpelRefBordered(seed.interRefMask)
 	}
 	for tileCol := range tileCols {
 		worker := &pool.workers[tileCol]
@@ -1037,6 +1068,13 @@ func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
 		e.vp9LeafInterDecisionsCols = w.vp9LeafInterDecisionsCols
 		e.vp9LeafInterDecisionsVer = w.vp9LeafInterDecisionsVer
 	}
+	if n := len(w.vp9InterPartitionDecisions); n > 0 {
+		e.vp9InterPartitionDecisions = buffers.EnsureLen(e.vp9InterPartitionDecisions, n)
+		copy(e.vp9InterPartitionDecisions, w.vp9InterPartitionDecisions)
+		e.vp9InterPartitionDecisionsRows = w.vp9InterPartitionDecisionsRows
+		e.vp9InterPartitionDecisionsCols = w.vp9InterPartitionDecisionsCols
+		e.vp9InterPartitionDecisionsVer = w.vp9InterPartitionDecisionsVer
+	}
 	if n := len(w.vp9LeafKeyframeDecisions); n > 0 {
 		e.vp9LeafKeyframeDecisions = buffers.EnsureLen(e.vp9LeafKeyframeDecisions, n)
 		copy(e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions)
@@ -1086,6 +1124,9 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		}
 	}
 	seed := vp9CountTileSeedForState(key, inter)
+	if seed.hasInter {
+		e.prepareVP9SharedSubpelRefBordered(seed.interRefMask)
+	}
 	for tileCol := range tileCols {
 		worker := e
 		if tileCol > 0 {
@@ -1159,6 +1200,11 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
 	leafDecisions := w.vp9LeafInterDecisions
+	interPartitionDecisions := w.vp9InterPartitionDecisions
+	if len(interPartitionDecisions) > 0 && len(src.vp9InterPartitionDecisions) > 0 &&
+		&interPartitionDecisions[0] == &src.vp9InterPartitionDecisions[0] {
+		interPartitionDecisions = nil
+	}
 	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
@@ -1202,6 +1248,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	// pre-existing slice is preserved and ensureVP9LeafInterDecisionCache
 	// below re-sizes it to the active miRows*miCols extent.
 	w.vp9LeafInterDecisions = leafDecisions
+	w.vp9InterPartitionDecisions = interPartitionDecisions
 	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
@@ -1241,8 +1288,7 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	// ensureLastBordered detaches to a private buffer before any
 	// cold-path rebuild on a worker.
 	w.lastBorderedShared = true
-	w.subpelRefBordered = subpelRefBordered
-	w.invalidateVP9SubpelRefBordered()
+	w.prepareVP9WorkerSubpelRefBordered(subpelRefBordered, src)
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9NmvCostCache = nmvCostCache
@@ -1279,6 +1325,10 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	leafDecisionRows := w.vp9LeafInterDecisionsRows
 	leafDecisionCols := w.vp9LeafInterDecisionsCols
 	leafDecisionVer := w.vp9LeafInterDecisionsVer
+	interPartitionDecisions := w.vp9InterPartitionDecisions
+	interPartitionRows := w.vp9InterPartitionDecisionsRows
+	interPartitionCols := w.vp9InterPartitionDecisionsCols
+	interPartitionVer := w.vp9InterPartitionDecisionsVer
 	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	keyframeDecisionRows := w.vp9LeafKeyframeDecisionsRows
 	keyframeDecisionCols := w.vp9LeafKeyframeDecisionsCols
@@ -1357,8 +1407,7 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	// ensureLastBordered detaches to a private buffer before any
 	// cold-path rebuild on a worker.
 	w.lastBorderedShared = true
-	w.subpelRefBordered = subpelRefBordered
-	w.invalidateVP9SubpelRefBordered()
+	w.prepareVP9WorkerSubpelRefBordered(subpelRefBordered, src)
 	w.intProSrcBordered = intProSrcBordered
 	w.intProSrcBorderedValid = false
 	w.vp9NmvCostCache = nmvCostCache
@@ -1390,6 +1439,20 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 		w.vp9LeafInterDecisionsRows = leafDecisionRows
 		w.vp9LeafInterDecisionsCols = leafDecisionCols
 		w.vp9LeafInterDecisionsVer = leafDecisionVer
+	}
+	interPartitionLen := miRows * miCols * int(common.BlockSizes)
+	if interPartitionRows == miRows && interPartitionCols == miCols &&
+		interPartitionVer == src.vp9InterPartitionDecisionsVer &&
+		len(interPartitionDecisions) >= interPartitionLen {
+		w.vp9InterPartitionDecisions = interPartitionDecisions[:interPartitionLen]
+		w.vp9InterPartitionDecisionsRows = interPartitionRows
+		w.vp9InterPartitionDecisionsCols = interPartitionCols
+		w.vp9InterPartitionDecisionsVer = interPartitionVer
+	} else {
+		w.vp9InterPartitionDecisions = src.vp9InterPartitionDecisions
+		w.vp9InterPartitionDecisionsRows = src.vp9InterPartitionDecisionsRows
+		w.vp9InterPartitionDecisionsCols = src.vp9InterPartitionDecisionsCols
+		w.vp9InterPartitionDecisionsVer = src.vp9InterPartitionDecisionsVer
 	}
 	if keyframeDecisionRows == miRows && keyframeDecisionCols == miCols &&
 		keyframeDecisionVer == src.vp9LeafKeyframeDecisionsVer &&
@@ -1499,24 +1562,26 @@ func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,
 	if seed.hasInter {
 		job.hasInter = true
 		job.inter = vp9InterEncodeState{
-			img:             seed.interImg,
-			dq:              &worker.dqScratch,
-			ref:             &worker.refFrames[0],
-			refMask:         seed.interRefMask,
-			allowHP:         seed.interAllowHP,
-			selectFc:        seed.interSelectFc,
-			modeCostFc:      seed.interModeCostFc,
-			modeCostFcValid: seed.interModeCostValid,
-			mvCostFc:        seed.interMvCostFc,
-			mvCostFcBuilt:   seed.interMvCostBuilt,
-			referenceMode:   seed.interReferenceMode,
-			compoundAllowed: seed.interCompound,
-			refSignBias:     seed.interRefSignBias,
-			compoundRefs:    seed.interCompoundRefs,
-			interpFilter:    seed.interInterpFilter,
-			lossless:        seed.interLossless,
-			baseQindex:      seed.interBaseQindex,
-			counts:          counts,
+			img:                       seed.interImg,
+			dq:                        &worker.dqScratch,
+			ref:                       &worker.refFrames[0],
+			refMask:                   seed.interRefMask,
+			allowHP:                   seed.interAllowHP,
+			selectFc:                  seed.interSelectFc,
+			modeCostFc:                seed.interModeCostFc,
+			modeCostFcValid:           seed.interModeCostValid,
+			nonrdIntraYModeCosts:      seed.interNonrdIntraYModeCosts,
+			nonrdIntraYModeCostsValid: seed.interNonrdIntraYModeCostsValid,
+			mvCostFc:                  seed.interMvCostFc,
+			mvCostFcBuilt:             seed.interMvCostBuilt,
+			referenceMode:             seed.interReferenceMode,
+			compoundAllowed:           seed.interCompound,
+			refSignBias:               seed.interRefSignBias,
+			compoundRefs:              seed.interCompoundRefs,
+			interpFilter:              seed.interInterpFilter,
+			lossless:                  seed.interLossless,
+			baseQindex:                seed.interBaseQindex,
+			counts:                    counts,
 		}
 	}
 }
@@ -1555,23 +1620,25 @@ func prepareVP9EncodeTileJob(job *vp9EncodeTileJob, worker *VP9Encoder,
 	if seed.hasInter {
 		job.hasInter = true
 		job.inter = vp9InterEncodeState{
-			img:             seed.interImg,
-			dq:              &worker.dqScratch,
-			ref:             &worker.refFrames[0],
-			refMask:         seed.interRefMask,
-			allowHP:         seed.interAllowHP,
-			selectFc:        seed.interSelectFc,
-			modeCostFc:      seed.interModeCostFc,
-			modeCostFcValid: seed.interModeCostValid,
-			mvCostFc:        seed.interMvCostFc,
-			mvCostFcBuilt:   seed.interMvCostBuilt,
-			referenceMode:   seed.interReferenceMode,
-			compoundAllowed: seed.interCompound,
-			refSignBias:     seed.interRefSignBias,
-			compoundRefs:    seed.interCompoundRefs,
-			interpFilter:    seed.interInterpFilter,
-			lossless:        seed.interLossless,
-			baseQindex:      seed.interBaseQindex,
+			img:                       seed.interImg,
+			dq:                        &worker.dqScratch,
+			ref:                       &worker.refFrames[0],
+			refMask:                   seed.interRefMask,
+			allowHP:                   seed.interAllowHP,
+			selectFc:                  seed.interSelectFc,
+			modeCostFc:                seed.interModeCostFc,
+			modeCostFcValid:           seed.interModeCostValid,
+			nonrdIntraYModeCosts:      seed.interNonrdIntraYModeCosts,
+			nonrdIntraYModeCostsValid: seed.interNonrdIntraYModeCostsValid,
+			mvCostFc:                  seed.interMvCostFc,
+			mvCostFcBuilt:             seed.interMvCostBuilt,
+			referenceMode:             seed.interReferenceMode,
+			compoundAllowed:           seed.interCompound,
+			refSignBias:               seed.interRefSignBias,
+			compoundRefs:              seed.interCompoundRefs,
+			interpFilter:              seed.interInterpFilter,
+			lossless:                  seed.interLossless,
+			baseQindex:                seed.interBaseQindex,
 		}
 	}
 }
@@ -1596,7 +1663,8 @@ func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
 		job.worker.prepareVP9CountWorker(job.prepSrc, job.width, job.height,
 			job.miRows, job.miCols)
 		if job.collectToken && job.tokenFrame != nil {
-			job.tokenFrame.Ensure(job.miRows, job.tile.MiColEnd-job.tile.MiColStart)
+			job.tokenFrame.EnsureForTile(job.miRows,
+				job.tile.MiColEnd-job.tile.MiColStart, 0, job.tileCol)
 			job.tokenFrame.Reset()
 			job.worker.vp9TokenFrame = *job.tokenFrame
 			job.worker.vp9TokenCollect = vp9TokenCollectState{

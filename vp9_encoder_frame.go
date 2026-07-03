@@ -392,6 +392,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	header.AllowHighPrecisionMv = vp9EncoderFrameAllowHighPrecisionMv(isKey, header.IntraOnly)
 	e.updateVP9NonrdModeCostFrameContext(isKey || header.IntraOnly)
 	nonrdModeCostFc := e.vp9NonrdModeCostFrameContext()
+	var nonrdIntraYModeCosts [common.IntraModes]int
+	encoder.VP9CostTokens(nonrdIntraYModeCosts[:],
+		nonrdModeCostFc.YModeProb[1][:], common.IntraModeTree[:])
 	nonrdMvCostFc, nonrdMvCostBuilt := e.vp9NonrdMvCostFrameContext()
 
 	txMode := e.vp9EncoderFrameTxMode(isKey, header.IntraOnly, header.Quant.Lossless)
@@ -436,6 +439,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		BaseQindex: int(header.Quant.BaseQindex),
 		BitDepth:   vp9dec.Bits8,
 	}, dq)
+	e.setupVP9QuantFPTables(&seg, dq)
 	if isKey {
 		keyState = &vp9KeyframeEncodeState{
 			img:      img,
@@ -456,26 +460,28 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			referenceMode = vp9dec.ReferenceModeSelect
 		}
 		interState = &vp9InterEncodeState{
-			img:              img,
-			dq:               dq,
-			ref:              &e.refFrames[0],
-			refMask:          interRefMask,
-			allowHP:          header.AllowHighPrecisionMv,
-			selectFc:         e.fc,
-			modeCostFc:       nonrdModeCostFc,
-			modeCostFcValid:  true,
-			mvCostFc:         nonrdMvCostFc,
-			mvCostFcBuilt:    nonrdMvCostBuilt,
-			referenceMode:    referenceMode,
-			compoundAllowed:  compoundAllowed,
-			refSignBias:      refSignBias,
-			compoundRefs:     compoundRefs,
-			interpFilter:     header.InterpFilter,
-			lossless:         header.Quant.Lossless,
-			txMode:           txMode,
-			baseQindex:       int(header.Quant.BaseQindex),
-			isSrcFrameAltRef: srcFrameAltRef,
-			showFrame:        showFrame,
+			img:                       img,
+			dq:                        dq,
+			ref:                       &e.refFrames[0],
+			refMask:                   interRefMask,
+			allowHP:                   header.AllowHighPrecisionMv,
+			selectFc:                  e.fc,
+			modeCostFc:                nonrdModeCostFc,
+			modeCostFcValid:           true,
+			nonrdIntraYModeCosts:      nonrdIntraYModeCosts,
+			nonrdIntraYModeCostsValid: true,
+			mvCostFc:                  nonrdMvCostFc,
+			mvCostFcBuilt:             nonrdMvCostBuilt,
+			referenceMode:             referenceMode,
+			compoundAllowed:           compoundAllowed,
+			refSignBias:               refSignBias,
+			compoundRefs:              compoundRefs,
+			interpFilter:              header.InterpFilter,
+			lossless:                  header.Quant.Lossless,
+			txMode:                    txMode,
+			baseQindex:                int(header.Quant.BaseQindex),
+			isSrcFrameAltRef:          srcFrameAltRef,
+			showFrame:                 showFrame,
 		}
 	}
 	e.vp9ReuseStableSegmentationState(&seg, isKey || intraOnly, miRows, miCols,
@@ -493,11 +499,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		partitionProbs = e.fc.PartitionProb
 	}
 
+	countPhase := e.vp9PhaseStart()
 	denoiserCountState := e.saveVP9DenoiserForCounts(interState)
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
 		keyState, interState, header.RefreshFrameContext)
 	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
+	e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
 	// libvpx vp9/encoder/vp9_encodeframe.c:5911 gates the post-encode
 	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. Only the
 	// TX_MODE_SELECT partition-context ladder fires here; every other
@@ -518,11 +526,13 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		if e.vp9CountCodingPreserved {
 			e.resetVP9EncoderCodingState(int(width), int(height))
 		}
+		countPhase = e.vp9PhaseStart()
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
 			header.IntraOnly, keyState, interState, header.RefreshFrameContext)
 		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
+		e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
 	}
 	header.Seg = seg
 
@@ -571,6 +581,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		postDropVarPartCopyState = e.saveVP9VarPartCopyStateForPostDrop()
 	}
 
+	headerPhase := e.vp9PhaseStart()
 	hdrScratch := e.vp9BlockCoeffScratch().hdrScratch[:]
 	compSize, err := encoder.WriteCompressedHeaderFromCounts(hdrScratch, encoder.WriteCompressedHeaderFromCountsArgs{
 		Lossless:                header.Quant.Lossless,
@@ -615,6 +626,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		return VP9EncodeResult{}, encoder.ErrPackBufferFull
 	}
 	copy(dst[uncSize:uncSize+compSize], hdrScratch[:compSize])
+	e.vp9PhaseEnd(vp9EncoderPhaseHeaderWrite, headerPhase)
 
 	tileStart := uncSize + compSize
 	tileKind := vp9ModeTreeInterSource
@@ -625,6 +637,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	}
 	tileRows := 1 << uint(header.Tile.Log2TileRows)
 	tileCols := 1 << uint(header.Tile.Log2TileCols)
+	tilePhase := e.vp9PhaseStart()
 	replayTokens := false
 	if header.RefreshFrameContext {
 		replayTokens = e.beginVP9TokenReplay(tileRows, tileCols, tileKind)
@@ -638,6 +651,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if replayTokens {
 		replayErr = e.finishVP9TokenReplay()
 	}
+	e.vp9PhaseEnd(vp9EncoderPhaseTileWrite, tilePhase)
 	if err != nil {
 		return VP9EncodeResult{}, err
 	}
@@ -673,6 +687,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		!vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) &&
 		!header.Quant.Lossless
 	if runFullImageSearch {
+		filterPickPhase := e.vp9PhaseStart()
 		// header.Seg already mirrors seg at this point (line 2426
 		// above); we pass header.Seg so the compiler doesn't have to
 		// heap-promote the local seg in the steady-state FROM_Q /
@@ -715,6 +730,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		// the final post-search level instead of the pre-tile
 		// placeholder.
 		e.vp9LastFiltLevel = header.Loopfilter.FilterLevel
+		e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterPick, filterPickPhase)
 	}
 	// libvpx vp9/encoder/vp9_encodeframe.c:5890-5891 — after the encode
 	// pass produces rdc->filter_diff (per-block best_filter_diff[i] sums
@@ -752,7 +768,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	} else {
 		e.adaptVP9EncoderFrameContext(header, frameContextIdx, counts, txMode)
 		if header.RefreshFrameFlags != 0 {
-			if !e.applyVP9EncoderLoopFilter(header, &seg) {
+			filterApplyPhase := e.vp9PhaseStart()
+			filterOK := e.applyVP9EncoderLoopFilter(header, &seg)
+			e.vp9PhaseEnd(vp9EncoderPhaseLoopFilterApply, filterApplyPhase)
+			if !filterOK {
 				return VP9EncodeResult{}, ErrInvalidVP9Data
 			}
 		}

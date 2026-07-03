@@ -2052,6 +2052,64 @@ func QuantizeFPWithQScanOrder(coeff []int16, dequant [2]int16, scanOrder common.
 		scanOrder.Scan[:n], scanOrder.IScan[:n], qcoeff, dqcoeff[:n])
 }
 
+// QuantizeFPWithQScanOrderValidated is the fast-path sibling of
+// QuantizeFPWithQScanOrder for callers that have already validated the standard
+// transform size, positive dequant tables, scan lengths, and output lengths.
+// It routes arm64 directly to the validated vp9_quantize_fp kernel entry point.
+func QuantizeFPWithQScanOrderValidated(coeff []int16, n int, dequant [2]int16,
+	scanOrder common.ScanOrder, qcoeff, dqcoeff []int16,
+) int {
+	return QuantizeFPWithQScanOrderPtrValidated(coeff, n, dequant, &scanOrder,
+		qcoeff, dqcoeff)
+}
+
+// QuantizeFPTables carries the two per-plane fp quantizer rows libvpx stores
+// on MACROBLOCKD_PLANE. Callers that already own frame/segment dequant tables
+// can derive this once instead of rebuilding it for every transform block.
+type QuantizeFPTables struct {
+	RoundFP [2]int16
+	QuantFP [2]int16
+}
+
+// QuantizeFPTablesForDequant mirrors vp9_init_quantizer's FP table derivation:
+//
+//	quants->*_round_fp[q][i] = (qrounding_factor_fp * quant) >> 7
+//	quants->*_quant_fp[q][i] = (1 << 16) / quant
+//
+// where qrounding_factor_fp is 48 for DC and 42 for AC in this path.
+func QuantizeFPTablesForDequant(dequant [2]int16) QuantizeFPTables {
+	return QuantizeFPTables{
+		RoundFP: [2]int16{
+			int16((48 * int(dequant[0])) >> 7),
+			int16((42 * int(dequant[1])) >> 7),
+		},
+		QuantFP: [2]int16{
+			int16((1 << 16) / int(dequant[0])),
+			int16((1 << 16) / int(dequant[1])),
+		},
+	}
+}
+
+// QuantizeFPWithQScanOrderPtrValidated is the pointer-form sibling of
+// QuantizeFPWithQScanOrderValidated for encoder-owned hot paths that already
+// hold stable global ScanOrder pointers.
+func QuantizeFPWithQScanOrderPtrValidated(coeff []int16, n int, dequant [2]int16,
+	scanOrder *common.ScanOrder, qcoeff, dqcoeff []int16,
+) int {
+	return QuantizeFPWithQTablesScanOrderPtrValidated(coeff, n, dequant,
+		QuantizeFPTablesForDequant(dequant), scanOrder, qcoeff, dqcoeff)
+}
+
+// QuantizeFPWithQTablesScanOrderPtrValidated is the table-hoisted sibling of
+// QuantizeFPWithQScanOrderPtrValidated. The caller must supply tables derived
+// from the same dequant pair via QuantizeFPTablesForDequant.
+func QuantizeFPWithQTablesScanOrderPtrValidated(coeff []int16, n int, dequant [2]int16,
+	fp QuantizeFPTables, scanOrder *common.ScanOrder, qcoeff, dqcoeff []int16,
+) int {
+	return quantizeFPLibvpxValidated(coeff[:n], n, fp.RoundFP, fp.QuantFP, dequant,
+		scanOrder.Scan[:n], scanOrder.IScan[:n], qcoeff[:n], dqcoeff[:n])
+}
+
 func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
 	scan, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {

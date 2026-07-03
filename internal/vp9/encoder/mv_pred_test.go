@@ -158,6 +158,47 @@ func TestVP9MvPredScanCandidatesMaxMvContext(t *testing.T) {
 	}
 }
 
+var benchmarkVP9MvPredResult MvPredResult
+
+func BenchmarkVP9MvPredScanCandidatesSlice(b *testing.B) {
+	src, ref, candidates := benchmarkVP9MvPredInputs()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchmarkVP9MvPredResult = MvPredScanCandidates(candidates[:], 3,
+			src, 64, 16, 16,
+			ref, 96, 16, 16, 16, 16, 96,
+			32, 32)
+	}
+}
+
+func BenchmarkVP9MvPredScanCandidateArray(b *testing.B) {
+	src, ref, candidates := benchmarkVP9MvPredInputs()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchmarkVP9MvPredResult = MvPredScanCandidateArray(&candidates, 3,
+			src, 64, 16, 16,
+			ref, 96, 16, 16, 16, 16, 96,
+			32, 32)
+	}
+}
+
+func benchmarkVP9MvPredInputs() ([]byte, []byte, [MvPredMaxCandidates]MvPredInputCandidate) {
+	src := make([]byte, 64*64)
+	ref := make([]byte, 96*96)
+	for i := range src {
+		src[i] = byte((i*17 + 31) & 0xff)
+	}
+	for i := range ref {
+		ref[i] = byte((i*13 + 7) & 0xff)
+	}
+	candidates := [MvPredMaxCandidates]MvPredInputCandidate{
+		{MV: vp9dec.MV{Row: 12, Col: -9}, Valid: true},
+		{MV: vp9dec.MV{Row: -18, Col: 6}, Valid: true},
+		{MV: vp9dec.MV{Row: 4, Col: 20}, Valid: true},
+	}
+	return src, ref, candidates
+}
+
 // TestVP9NewmvDiffBiasOutOfBandShift pins the libvpx out-of-band row/col
 // shift adjustment.
 // libvpx ref: vp9/encoder/vp9_pickmode.c:1346-1351.

@@ -325,6 +325,68 @@ func (e *VP9Encoder) storeVP9LeafInterDecision(miRow, miCol int,
 	}
 }
 
+func (e *VP9Encoder) ensureVP9InterPartitionDecisionCache(miRows, miCols int) {
+	n := miRows * miCols * int(common.BlockSizes)
+	e.vp9InterPartitionDecisions = buffers.EnsureLen(e.vp9InterPartitionDecisions, n)
+	e.vp9InterPartitionDecisionsRows = miRows
+	e.vp9InterPartitionDecisionsCols = miCols
+	e.vp9InterPartitionDecisionsVer++
+	if e.vp9InterPartitionDecisionsVer == 0 {
+		for i := range e.vp9InterPartitionDecisions {
+			e.vp9InterPartitionDecisions[i] = vp9InterPartitionDecisionEntry{}
+		}
+		e.vp9InterPartitionDecisionsVer = 1
+	}
+}
+
+func (e *VP9Encoder) lookupVP9InterPartitionDecision(miRow, miCol int,
+	root common.BlockSize,
+) (common.BlockSize, bool) {
+	if e.vp9InterPartitionDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return common.BlockInvalid, false
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9InterPartitionDecisionsRows ||
+		miCol >= e.vp9InterPartitionDecisionsCols {
+		return common.BlockInvalid, false
+	}
+	off := (miRow*e.vp9InterPartitionDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9InterPartitionDecisions) {
+		return common.BlockInvalid, false
+	}
+	entry := &e.vp9InterPartitionDecisions[off]
+	if !entry.valid || entry.version != e.vp9InterPartitionDecisionsVer ||
+		entry.root != root {
+		return common.BlockInvalid, false
+	}
+	return entry.target, true
+}
+
+func (e *VP9Encoder) storeVP9InterPartitionDecision(miRow, miCol int,
+	root, target common.BlockSize,
+) {
+	if e.vp9InterPartitionDecisionsCols <= 0 ||
+		root < 0 || root >= common.BlockSizes {
+		return
+	}
+	if miRow < 0 || miCol < 0 ||
+		miRow >= e.vp9InterPartitionDecisionsRows ||
+		miCol >= e.vp9InterPartitionDecisionsCols {
+		return
+	}
+	off := (miRow*e.vp9InterPartitionDecisionsCols+miCol)*int(common.BlockSizes) + int(root)
+	if off < 0 || off >= len(e.vp9InterPartitionDecisions) {
+		return
+	}
+	e.vp9InterPartitionDecisions[off] = vp9InterPartitionDecisionEntry{
+		version: e.vp9InterPartitionDecisionsVer,
+		root:    root,
+		target:  target,
+		valid:   true,
+	}
+}
+
 // ensureVP9LeafInterRDDecisionCache sizes the depth-first full-RD inter
 // SEARCH->WRITE replay cache to the current miGrid extent and bumps the version
 // stamp so stale prior-frame entries can't masquerade as fresh. It mirrors

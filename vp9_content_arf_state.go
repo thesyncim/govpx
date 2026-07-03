@@ -243,9 +243,18 @@ func (e *VP9Encoder) vp9SourceSADState(img *image.YCbCr, miRows, miCols, miRow, 
 	if sbCount <= 0 {
 		return encoder.AvgSourceSADResult{}, false
 	}
-	e.varPartSBContentStateValid = buffers.EnsureLenZeroTail(e.varPartSBContentStateValid, sbCount)
-	e.varPartSBContentState = buffers.EnsureLen(e.varPartSBContentState, sbCount)
-	e.varPartSBZeroTempSADSource = buffers.EnsureLen(e.varPartSBZeroTempSADSource, sbCount)
+	if len(e.varPartSBContentStateValid) != sbCount {
+		e.varPartSBContentStateValid = buffers.EnsureLenZeroTail(
+			e.varPartSBContentStateValid, sbCount)
+	}
+	if len(e.varPartSBContentState) != sbCount {
+		e.varPartSBContentState = buffers.EnsureLen(
+			e.varPartSBContentState, sbCount)
+	}
+	if len(e.varPartSBZeroTempSADSource) != sbCount {
+		e.varPartSBZeroTempSADSource = buffers.EnsureLen(
+			e.varPartSBZeroTempSADSource, sbCount)
+	}
 	sbMiRow := miRow &^ 7
 	sbMiCol := miCol &^ 7
 	idx := e.vp9ChoosePartitioningSBIndex(miCols, sbMiRow, sbMiCol)

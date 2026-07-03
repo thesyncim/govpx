@@ -73,6 +73,41 @@ func GetEntropyContext(txSize common.TxSize, aboveCtx, leftCtx []uint8) int {
 	return above + left
 }
 
+// GetEntropyContextFull is GetEntropyContext for callers that have already
+// sliced both context windows to exactly 1<<txSize bytes.
+func GetEntropyContextFull(txSize common.TxSize, aboveCtx, leftCtx []uint8) int {
+	switch txSize {
+	case common.Tx4x4:
+		return entropyContextBit(aboveCtx[0]) + entropyContextBit(leftCtx[0])
+	case common.Tx8x8:
+		_ = aboveCtx[1]
+		_ = leftCtx[1]
+		return entropyContextBit(aboveCtx[0]|aboveCtx[1]) +
+			entropyContextBit(leftCtx[0]|leftCtx[1])
+	case common.Tx16x16:
+		_ = aboveCtx[3]
+		_ = leftCtx[3]
+		return entropyContextBit(aboveCtx[0]|aboveCtx[1]|aboveCtx[2]|aboveCtx[3]) +
+			entropyContextBit(leftCtx[0]|leftCtx[1]|leftCtx[2]|leftCtx[3])
+	case common.Tx32x32:
+		_ = aboveCtx[7]
+		_ = leftCtx[7]
+		return entropyContextBit(aboveCtx[0]|aboveCtx[1]|aboveCtx[2]|aboveCtx[3]|
+			aboveCtx[4]|aboveCtx[5]|aboveCtx[6]|aboveCtx[7]) +
+			entropyContextBit(leftCtx[0]|leftCtx[1]|leftCtx[2]|leftCtx[3]|
+				leftCtx[4]|leftCtx[5]|leftCtx[6]|leftCtx[7])
+	default:
+		return GetEntropyContext(txSize, aboveCtx, leftCtx)
+	}
+}
+
+func entropyContextBit(v uint8) int {
+	if v != 0 {
+		return 1
+	}
+	return 0
+}
+
 // ResetSkipContext mirrors reset_skip_context. After a skip block,
 // libvpx zeros the matching window of the above + left entropy
 // context buffers so the coefficient-context cache doesn't carry

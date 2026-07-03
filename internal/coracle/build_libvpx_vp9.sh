@@ -13,7 +13,7 @@ src_dir="$build_dir/libvpx-$tag-vp9"
 prefix=${GOVPX_LIBVPX_VP9_PREFIX:-"$build_dir/libvpx-$tag-vp9-install"}
 oracle_bin=${GOVPX_VP9_DSP_ORACLE_BIN:-"$build_dir/govpx-vp9-dsp-oracle"}
 config_stamp="$prefix/.govpx-libvpx-vp9-config"
-want_config="v1.16.0-vp9-decoder+encoder-dsp-only-task264-host-pinned
+want_config="v1.16.0-vp9-decoder+encoder-dsp-only-denoise-task264-host-pinned-r2
 src_dir=$src_dir
 prefix=$prefix"
 
@@ -77,6 +77,7 @@ if { [ ! -f "$prefix/lib/libvpx.a" ] && [ ! -f "$prefix/lib/libvpx.dylib" ] && [
 			--enable-vp9 \
 			--enable-vp9-encoder \
 			--enable-vp9-decoder \
+			--enable-vp9-temporal-denoising \
 			--disable-vp9-highbitdepth \
 			--disable-postproc \
 			--disable-internal-stats

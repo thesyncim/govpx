@@ -154,7 +154,7 @@ func (e *VP9Encoder) vp9ComputeInterLeafZcoeffBlk(inter *vp9InterEncodeState,
 				coeffs[i] = 0
 				qcoeffs[i] = 0
 			}
-			initCtx := vp9dec.GetEntropyContext(txSize,
+			initCtx := vp9dec.GetEntropyContextFull(txSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// Regular quantizer (vp9_xform_quant), segment qindex, inverse-add
 			// into recon — exactly block_rd_txfm (vp9_rdopt.c:792-795).

@@ -137,6 +137,16 @@ type EncoderPhaseStats struct {
 	VP9PostEncodeDrops int64 `json:"vp9_post_encode_drops"`
 	// VP9PostEncodeDropBits counts encoded bits spent on VP9 post-encode drops.
 	VP9PostEncodeDropBits int64 `json:"vp9_post_encode_drop_bits"`
+	// VP9CountNS is time spent in VP9's count/tokencollect mode-tree pre-pass.
+	VP9CountNS int64 `json:"vp9_count_ns"`
+	// VP9HeaderWriteNS is time spent packing VP9 compressed and uncompressed headers.
+	VP9HeaderWriteNS int64 `json:"vp9_header_write_ns"`
+	// VP9TileWriteNS is time spent writing VP9 tile data and replaying staged tokens.
+	VP9TileWriteNS int64 `json:"vp9_tile_write_ns"`
+	// VP9LoopFilterPickNS is time spent in VP9's post-tile loop-filter picker.
+	VP9LoopFilterPickNS int64 `json:"vp9_loop_filter_pick_ns"`
+	// VP9LoopFilterApplyNS is time spent applying VP9's committed loop filter.
+	VP9LoopFilterApplyNS int64 `json:"vp9_loop_filter_apply_ns"`
 
 	// LoopFilterTrials counts candidate filter-strength evaluations.
 	LoopFilterTrials int64 `json:"loop_filter_trials"`
@@ -946,8 +956,7 @@ type VP8Encoder struct {
 	gfActiveMap []bool
 	// libvpx's improved MV predictor reads the previous inter frame's
 	// MODE_INFO grid (lfmv/lf_ref_frame) when the last coded frame was inter.
-	lastFrameInterModes      []vp8enc.InterFrameMacroblockMode
-	lastFrameInterModeBias   []bool
+	lastFrameInterModeRefs   []vp8enc.InterFrameMVRef
 	lastFrameInterModesValid bool
 	lastCodedFrameType       vp8common.FrameType
 	keyFrameCoeffs           []vp8enc.MacroblockCoefficients

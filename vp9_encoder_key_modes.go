@@ -439,7 +439,7 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 				// ratey += cost_coeffs(... coeff_ctx ...). govpx
 				// dispatches to vp9KeyframeCoeffBlockRateCostQ which
 				// reads v = qcoeff[rc] directly (vp9_rdopt.c:392,405).
-				initCtx := vp9dec.GetEntropyContext(common.Tx4x4,
+				initCtx := vp9dec.GetEntropyContextFull(common.Tx4x4,
 					tempa[jx:jx+1], templ[jy:jy+1])
 				totalCoeffRate += e.vp9KeyframeCoeffBlockRateCostQEOB(
 					common.Tx4x4, mode, key.lossless, dequant, coeffs, qcoeffs, initCtx,
@@ -1001,7 +1001,7 @@ func (e *VP9Encoder) scoreVP9KeyframeModeTransformRDWithBest(key *vp9KeyframeEnc
 			// combine_entropy_contexts(t_above[c], t_left[r]).
 			// govpx's vp9dec.GetEntropyContext returns
 			// (above != 0) + (left != 0) which matches.
-			initCtx := vp9dec.GetEntropyContext(txSize,
+			initCtx := vp9dec.GetEntropyContextFull(txSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 			// cost_coeffs(...). The keyframe-Y intra is_inter=0 path
@@ -1499,7 +1499,7 @@ func (e *VP9Encoder) scoreVP9KeyframeUvPlaneRD(key *vp9KeyframeEncodeState,
 
 			// libvpx vp9_rdopt.c:709-710 — coeff_ctx =
 			// combine_entropy_contexts(t_above[c], t_left[r]).
-			initCtx := vp9dec.GetEntropyContext(uvTxSize,
+			initCtx := vp9dec.GetEntropyContextFull(uvTxSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// libvpx vp9_rdopt.c:826 — rate = rate_block(...) =
 			// cost_coeffs(...). For chroma planes the cost_coeffs reads

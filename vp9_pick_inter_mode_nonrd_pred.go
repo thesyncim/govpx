@@ -146,17 +146,24 @@ func (e *VP9Encoder) vp9NonrdLumaPredRect(miRow, miCol int,
 func vp9CopyPredRectToScratch(scratch []byte, src []byte,
 	srcStride, x, y, w, h int,
 ) {
-	for row := range h {
-		copy(scratch[row*w:(row+1)*w], src[(y+row)*srcStride+x:(y+row)*srcStride+x+w])
+	srcOff := y*srcStride + x
+	dstOff := 0
+	for range h {
+		copy(scratch[dstOff:dstOff+w], src[srcOff:srcOff+w])
+		srcOff += srcStride
+		dstOff += w
 	}
 }
 
 func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
 	scratch []byte,
 ) {
-	for row := range h {
-		copy(dst[(y+row)*dstStride+x:(y+row)*dstStride+x+w],
-			scratch[row*w:(row+1)*w])
+	dstOff := y*dstStride + x
+	srcOff := 0
+	for range h {
+		copy(dst[dstOff:dstOff+w], scratch[srcOff:srcOff+w])
+		dstOff += dstStride
+		srcOff += w
 	}
 }
 

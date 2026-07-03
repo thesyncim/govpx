@@ -97,50 +97,35 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	keyframeBytes := 0
 	interBytes := 0
 	interCount := 0
-	encodeMallocs := uint64(0)
 
-	if cfg.CPUProfile != "" {
-		runtime.GC()
-		var memBefore runtime.MemStats
-		var memAfter runtime.MemStats
-		runtime.ReadMemStats(&memBefore)
-		for i := range frames {
-			if _, err := enc.EncodeIntoWithResult(ycbcr[i], packet); err != nil {
-				return benchReport{}, fmt.Errorf("vp9 allocation sample frame %d: %w", i, err)
-			}
-		}
-		runtime.ReadMemStats(&memAfter)
-		encodeMallocs = memAfter.Mallocs - memBefore.Mallocs
-		enc.Close()
-		enc = nil
-		enc, err = govpx.NewVP9Encoder(encoderOpts)
-		if err != nil {
-			return benchReport{}, err
-		}
+	encodeMallocs, err := sampleVP9EncodeMallocs(enc, packet, ycbcr)
+	if err != nil {
+		return benchReport{}, err
+	}
+	enc.Close()
+	enc = nil
+	enc, err = govpx.NewVP9Encoder(encoderOpts)
+	if err != nil {
+		return benchReport{}, err
 	}
 
 	phaseStats.reset()
 	runtime.GC()
+	var measuredPackets []measuredEncodePacket
+	if !cfg.SkipQuality {
+		measuredPackets = make([]measuredEncodePacket, cfg.Frames)
+	}
+	measuredPacketCount := 0
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
 	if err != nil {
 		return benchReport{}, err
 	}
 	defer stopCPUProfile()
 
-	measuredPackets := make([]measuredEncodePacket, 0, cfg.Frames)
 	for i := range frames {
-		var memBefore runtime.MemStats
-		if cfg.CPUProfile == "" {
-			runtime.ReadMemStats(&memBefore)
-		}
 		start := time.Now()
 		result, err := enc.EncodeIntoWithResult(ycbcr[i], packet)
 		elapsed := time.Since(start)
-		if cfg.CPUProfile == "" {
-			var memAfter runtime.MemStats
-			runtime.ReadMemStats(&memAfter)
-			encodeMallocs += memAfter.Mallocs - memBefore.Mallocs
-		}
 		if err != nil {
 			return benchReport{}, fmt.Errorf("vp9 encode frame %d: %w", i, err)
 		}
@@ -154,11 +139,14 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 			// accounting but keep the latency sample.
 			continue
 		}
-		packetCopy := append([]byte(nil), result.Data...)
-		measuredPackets = append(measuredPackets, measuredEncodePacket{
-			data:        packetCopy,
-			sourceIndex: i,
-		})
+		if !cfg.SkipQuality {
+			packetCopy := append([]byte(nil), result.Data...)
+			measuredPackets[measuredPacketCount] = measuredEncodePacket{
+				data:        packetCopy,
+				sourceIndex: i,
+			}
+			measuredPacketCount++
+		}
 		encodedFrames++
 		outputBytes += result.SizeBytes
 		// VP9 reports the public 0..63 quantizer in Quantizer; mirror that
@@ -188,7 +176,7 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	ssim := 0.0
 	qualityFrames := 0
 	if !cfg.SkipQuality {
-		psnr, ssim, qualityFrames, err = measuredVP9EncodeQualityMetrics(measuredPackets, frames, cfg.Width, cfg.Height)
+		psnr, ssim, qualityFrames, err = measuredVP9EncodeQualityMetrics(measuredPackets[:measuredPacketCount], frames, cfg.Width, cfg.Height)
 		if err != nil {
 			return benchReport{}, err
 		}
@@ -273,6 +261,20 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		report.PhaseNS = stats
 	}
 	return report, nil
+}
+
+func sampleVP9EncodeMallocs(enc *govpx.VP9Encoder, packet []byte, frames []*image.YCbCr) (uint64, error) {
+	runtime.GC()
+	var memBefore runtime.MemStats
+	var memAfter runtime.MemStats
+	runtime.ReadMemStats(&memBefore)
+	for i := range frames {
+		if _, err := enc.EncodeIntoWithResult(frames[i], packet); err != nil {
+			return 0, fmt.Errorf("vp9 allocation sample frame %d: %w", i, err)
+		}
+	}
+	runtime.ReadMemStats(&memAfter)
+	return memAfter.Mallocs - memBefore.Mallocs, nil
 }
 
 // newVP9BenchmarkEncoder builds a VP9 encoder that mirrors the VP8 bench

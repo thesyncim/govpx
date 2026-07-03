@@ -197,6 +197,40 @@ func BenchmarkVP9SubPixelVariance32x32(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9SubPixelVariance32x16(b *testing.B) {
+	r := rand.New(rand.NewPCG(0x3333, 0x1616))
+	const stride = 96
+	const off = 8
+	src := make([]uint8, stride*(32+off+8))
+	ref := make([]uint8, stride*(32+off+8))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+		ref[i] = uint8(r.UintN(256))
+	}
+	var sse uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSubPixelVariance32x16(src, off*stride+off, stride, 3, 5, ref, off*stride+off, stride, &sse)
+	}
+}
+
+func BenchmarkVP9SubPixelVariance16x32(b *testing.B) {
+	r := rand.New(rand.NewPCG(0x3333, 0x3216))
+	const stride = 96
+	const off = 8
+	src := make([]uint8, stride*(32+off+8))
+	ref := make([]uint8, stride*(32+off+8))
+	for i := range src {
+		src[i] = uint8(r.UintN(256))
+		ref[i] = uint8(r.UintN(256))
+	}
+	var sse uint32
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		VpxSubPixelVariance16x32(src, off*stride+off, stride, 3, 5, ref, off*stride+off, stride, &sse)
+	}
+}
+
 func BenchmarkVP9SubPixelVariance32x32HalfPel(b *testing.B) {
 	r := rand.New(rand.NewPCG(0x3333, 0x4445))
 	const stride = 96

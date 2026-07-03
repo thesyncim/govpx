@@ -6,6 +6,6 @@ const choosePartitioningStatsEnabled = false
 
 type choosePartitioningStatsArg struct{}
 
-func choosePartitioningStats(*ChoosePartitioningArgs) *ChoosePartitioningStats {
+func choosePartitioningStats(choosePartitioningStatsArg) *ChoosePartitioningStats {
 	return nil
 }

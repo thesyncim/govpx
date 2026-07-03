@@ -593,6 +593,17 @@ type vp9KeyframePartitionDecisionEntry struct {
 	valid   bool
 }
 
+// vp9InterPartitionDecisionEntry stores the normal inter count-pass partition
+// decision for one tree node. The write pass can replay this node when the
+// count pass preserved coding/token state, matching the leaf decision replay
+// path and avoiding a second partition-size picker walk.
+type vp9InterPartitionDecisionEntry struct {
+	version uint32
+	root    common.BlockSize
+	target  common.BlockSize
+	valid   bool
+}
+
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
 // keyed by (version, bsize). The cache mirrors libvpx's mi_grid_visible
 // per-block storage; entries are populated by the count pre-pass at
@@ -2626,7 +2637,7 @@ func (e *VP9Encoder) vp9InterMvPredStateForRef(inter *vp9InterEncodeState,
 	if maxPartitionSize == 0 {
 		maxPartitionSize = common.Block64x64
 	}
-	result := encoder.MvPredScanCandidates(candidates[:],
+	result := encoder.MvPredScanCandidateArray(&candidates,
 		encoder.MvPredNumCandidates(bsize, maxPartitionSize),
 		src, srcStride, x0, y0,
 		refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
@@ -2844,23 +2855,27 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	sadAt4 := func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int,
 	) (uint64, uint64, uint64, uint64, bool) {
-		coords := [4]struct {
-			dx int
-			dy int
-		}{
-			{dx: dx0, dy: dy0},
-			{dx: dx1, dy: dy1},
-			{dx: dx2, dy: dy2},
-			{dx: dx3, dy: dy3},
-		}
 		var refOffs [4]int
-		for i, coord := range coords {
-			refOff, ok := refOffForFullpel(coord.dx, coord.dy)
-			if !ok {
-				return 0, 0, 0, 0, false
-			}
-			refOffs[i] = refOff
+		refOff, ok := refOffForFullpel(dx0, dy0)
+		if !ok {
+			return 0, 0, 0, 0, false
 		}
+		refOffs[0] = refOff
+		refOff, ok = refOffForFullpel(dx1, dy1)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[1] = refOff
+		refOff, ok = refOffForFullpel(dx2, dy2)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[2] = refOff
+		refOff, ok = refOffForFullpel(dx3, dy3)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[3] = refOff
 		if vp9PhaseStatsEnabled {
 			e.vp9PhaseAddFullPelSAD(4, true, fullPelSADSource)
 		}
@@ -2897,23 +2912,27 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	sadSkipAt4 := func(dx0, dy0, dx1, dy1, dx2, dy2, dx3, dy3 int,
 	) (uint64, uint64, uint64, uint64, bool) {
-		coords := [4]struct {
-			dx int
-			dy int
-		}{
-			{dx: dx0, dy: dy0},
-			{dx: dx1, dy: dy1},
-			{dx: dx2, dy: dy2},
-			{dx: dx3, dy: dy3},
-		}
 		var refOffs [4]int
-		for i, coord := range coords {
-			refOff, ok := refOffForFullpel(coord.dx, coord.dy)
-			if !ok {
-				return 0, 0, 0, 0, false
-			}
-			refOffs[i] = refOff
+		refOff, ok := refOffForFullpel(dx0, dy0)
+		if !ok {
+			return 0, 0, 0, 0, false
 		}
+		refOffs[0] = refOff
+		refOff, ok = refOffForFullpel(dx1, dy1)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[1] = refOff
+		refOff, ok = refOffForFullpel(dx2, dy2)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[2] = refOff
+		refOff, ok = refOffForFullpel(dx3, dy3)
+		if !ok {
+			return 0, 0, 0, 0, false
+		}
+		refOffs[3] = refOff
 		if vp9PhaseStatsEnabled {
 			e.vp9PhaseAddFullPelSAD(4, true, fullPelSADSource)
 		}

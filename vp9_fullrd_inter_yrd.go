@@ -432,7 +432,7 @@ func (e *VP9Encoder) vp9FullRDInterYPlaneTxCandidate(inter *vp9InterEncodeState,
 			// t_above[blk_col]) (vp9_rdopt.c:709-710) feeds BOTH vp9_optimize_b
 			// (the trellis) and cost_coeffs, so it must be computed before the
 			// transform/quant/trellis below.
-			initCtx := vp9dec.GetEntropyContext(txSize,
+			initCtx := vp9dec.GetEntropyContextFull(txSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// vp9_xform_quant + vp9_optimize_b (trellis) + inverse-add into
 			// recon (vp9_rdopt.c:792-795) with the REGULAR quantizer (quantize_b)

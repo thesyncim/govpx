@@ -116,7 +116,7 @@ func (e *VP9Encoder) encodeInterMbSegment(inter *vp9InterEncodeState,
 			row := k >> 1
 			// combine_entropy_contexts(ta[k&1], tl[k>>1]) for TX_4X4
 			// (vp9_rdopt.c:1700): (above!=0) + (left!=0).
-			coeffCtx := vp9dec.GetEntropyContext(common.Tx4x4,
+			coeffCtx := vp9dec.GetEntropyContextFull(common.Tx4x4,
 				ent.above[col:col+1], ent.left[row:row+1])
 
 			ux := x0Block + 4*idx

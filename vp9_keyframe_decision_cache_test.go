@@ -39,6 +39,26 @@ func TestVP9LeafKeyframeDecisionCache(t *testing.T) {
 	}
 }
 
+func TestVP9InterPartitionDecisionCache(t *testing.T) {
+	var e VP9Encoder
+	e.ensureVP9InterPartitionDecisionCache(3, 4)
+
+	e.storeVP9InterPartitionDecision(2, 3, common.Block32x32, common.Block16x16)
+	if got, ok := e.lookupVP9InterPartitionDecision(2, 3, common.Block32x32); !ok {
+		t.Fatalf("lookup miss")
+	} else if got != common.Block16x16 {
+		t.Fatalf("lookup = %v, want Block16x16", got)
+	}
+	if _, ok := e.lookupVP9InterPartitionDecision(2, 3, common.Block16x16); ok {
+		t.Fatalf("lookup hit for wrong root")
+	}
+
+	e.ensureVP9InterPartitionDecisionCache(3, 4)
+	if _, ok := e.lookupVP9InterPartitionDecision(2, 3, common.Block32x32); ok {
+		t.Fatalf("lookup hit after frame invalidation")
+	}
+}
+
 func TestVP9KeyframeDecisionRegionSnapshotRestoresOnlyRegion(t *testing.T) {
 	var e VP9Encoder
 	e.ensureVP9LeafKeyframeDecisionCache(4, 4)

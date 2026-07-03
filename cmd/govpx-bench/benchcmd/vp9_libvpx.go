@@ -244,6 +244,8 @@ func vp9LibvpxThreadLayout(cfg benchConfig, p encoderParity) (threadHint int, lo
 }
 
 func vp9BenchEffectiveThreadHint(cfg benchConfig, p encoderParity) int {
+	// Mirror govpx.VP9Encoder.vp9TileWorkerThreadHint so libvpx gets the
+	// same multi-column tile layout for apples-to-apples timing.
 	if p.Threads != 0 {
 		return p.Threads
 	}
@@ -266,9 +268,9 @@ func vp9BenchEffectiveThreadHint(cfg benchConfig, p encoderParity) int {
 }
 
 func vp9BenchRealtimeAutoThreadingEligible(cfg benchConfig, p encoderParity) bool {
+	_ = p
 	return benchCodec(cfg) == codecVP9 &&
-		(cfg.Mode == "" || cfg.Mode == "realtime") &&
-		p.NoiseSensitivity == 0
+		(cfg.Mode == "" || cfg.Mode == "realtime")
 }
 
 func vp9BenchLog2TileCols(width, threads int) int {

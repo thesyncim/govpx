@@ -101,6 +101,102 @@ func BenchmarkVP9QuantizeFP(b *testing.B) {
 	}
 }
 
+func BenchmarkVP9QuantizeFPWithQScanOrderValidated(b *testing.B) {
+	tests := []struct {
+		name string
+		tx   common.TxSize
+		n    int
+	}{
+		{name: "4x4", tx: common.Tx4x4, n: 16},
+		{name: "8x8", tx: common.Tx8x8, n: 64},
+		{name: "16x16", tx: common.Tx16x16, n: 256},
+	}
+	for _, tc := range tests {
+		for _, mode := range []string{"regular", "validated", "precomputed"} {
+			name := fmt.Sprintf("%s/n%d/%s", tc.name, tc.n, mode)
+			b.Run(name, func(b *testing.B) {
+				scanOrder := common.DefaultScanOrders[tc.tx]
+				coeff := make([]int16, tc.n)
+				qcoeff := make([]int16, tc.n)
+				dqcoeff := make([]int16, tc.n)
+				for i := range coeff {
+					v := (i*37)%2048 - 1024
+					if i%5 == 0 {
+						v /= 8
+					}
+					coeff[i] = int16(v)
+				}
+				dequant := [2]int16{7, 7}
+				fpTables := QuantizeFPTablesForDequant(dequant)
+				b.ReportAllocs()
+				b.ResetTimer()
+				eobSum := 0
+				for i := 0; i < b.N; i++ {
+					switch mode {
+					case "validated":
+						eobSum += QuantizeFPWithQScanOrderValidated(coeff, tc.n,
+							dequant, scanOrder, qcoeff, dqcoeff)
+					case "precomputed":
+						eobSum += QuantizeFPWithQTablesScanOrderPtrValidated(coeff,
+							tc.n, dequant, fpTables, &scanOrder, qcoeff, dqcoeff)
+					default:
+						eobSum += QuantizeFPWithQScanOrder(coeff, dequant,
+							scanOrder, qcoeff, dqcoeff)
+					}
+				}
+				if eobSum == 0 {
+					b.Fatal("unexpected zero eob accumulator")
+				}
+			})
+		}
+	}
+}
+
+func TestQuantizeFPWithPrecomputedTablesMatchesValidated(t *testing.T) {
+	tests := []struct {
+		name string
+		tx   common.TxSize
+		n    int
+	}{
+		{name: "4x4", tx: common.Tx4x4, n: 16},
+		{name: "8x8", tx: common.Tx8x8, n: 64},
+		{name: "16x16", tx: common.Tx16x16, n: 256},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scanOrder := common.DefaultScanOrders[tc.tx]
+			coeff := make([]int16, tc.n)
+			for i := range coeff {
+				v := (i*37)%2048 - 1024
+				if i%5 == 0 {
+					v /= 8
+				}
+				coeff[i] = int16(v)
+			}
+			dequant := [2]int16{7, 11}
+			wantQ := make([]int16, tc.n)
+			wantDQ := make([]int16, tc.n)
+			gotQ := make([]int16, tc.n)
+			gotDQ := make([]int16, tc.n)
+
+			wantEOB := QuantizeFPWithQScanOrderPtrValidated(coeff, tc.n, dequant,
+				&scanOrder, wantQ, wantDQ)
+			gotEOB := QuantizeFPWithQTablesScanOrderPtrValidated(coeff, tc.n,
+				dequant, QuantizeFPTablesForDequant(dequant), &scanOrder,
+				gotQ, gotDQ)
+			if gotEOB != wantEOB {
+				t.Fatalf("eob = %d, want %d", gotEOB, wantEOB)
+			}
+			for i := range wantQ {
+				if gotQ[i] != wantQ[i] || gotDQ[i] != wantDQ[i] {
+					t.Fatalf("coeff %d q/dq = %d/%d, want %d/%d",
+						i, gotQ[i], gotDQ[i], wantQ[i], wantDQ[i])
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkVP9QuantizeFP32x32(b *testing.B) {
 	scan := common.DefaultScanOrders[common.Tx32x32].Scan
 	coeff := make([]int16, 1024)

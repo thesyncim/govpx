@@ -99,7 +99,10 @@ func BuildIntraPredictorRefs(img *common.Image, mbRow int, mbCol int, scratch *I
 // The encoder's fast intra picker scores candidate 16x16 modes on luma
 // alone (libvpx vp8/encoder/pickinter.c uses
 // vp8_build_intra_predictors_mby_s in the mode loop and picks the UV mode
-// separately for the winner), so it never reads the U/V stripes.
+// separately for the winner), so it never reads the U/V stripes. When the
+// above row is already contiguous in the visible or extended frame buffer, the
+// returned YAbove slice aliases it directly like libvpx's pointer-based setup;
+// edge-fill cases still fall back to scratch.
 func BuildIntraPredictorRefsLuma(img *common.Image, mbRow int, mbCol int, scratch *IntraPredictorScratch) IntraPredictorRefs {
 	yRow := mbRow * 16
 	yCol := mbCol * 16
@@ -108,11 +111,26 @@ func BuildIntraPredictorRefsLuma(img *common.Image, mbRow int, mbCol int, scratc
 	codedWidth := codedImageWidth(img)
 	codedHeight := codedImageHeight(img)
 
-	buildAbove(scratch.YAbove[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	yAbove := scratch.YAbove[:]
+	if !upAvailable {
+		buildAbove(yAbove, img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	} else if hasFullIntraSampleRange(img.YFull, img.YOrigin, img.YStride, codedWidth, img.YBorder, yRow-1, yCol, len(yAbove)) {
+		start := img.YOrigin + (yRow-1)*img.YStride + yCol
+		yAbove = img.YFull[start : start+len(yAbove)]
+	} else if img.YStride > 0 && yCol+len(yAbove) <= codedWidth {
+		start := (yRow-1)*img.YStride + yCol
+		if start >= 0 && start+len(yAbove) <= len(img.Y) {
+			yAbove = img.Y[start : start+len(yAbove)]
+		} else {
+			buildAbove(yAbove, img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+		}
+	} else {
+		buildAbove(yAbove, img.Y, img.YFull, img.YOrigin, img.YStride, codedWidth, yRow, yCol, img.YBorder, upAvailable)
+	}
 	buildLeft(scratch.YLeft[:], img.Y, img.YFull, img.YOrigin, img.YStride, codedHeight, yRow, yCol, img.YBorder, leftAvailable)
 
 	return IntraPredictorRefs{
-		YAbove:        scratch.YAbove[:],
+		YAbove:        yAbove,
 		YLeft:         scratch.YLeft[:],
 		YTopLeft:      topLeftSample(img.Y, img.YFull, img.YOrigin, img.YStride, yRow, yCol, img.YBorder, upAvailable, leftAvailable),
 		UpAvailable:   upAvailable,

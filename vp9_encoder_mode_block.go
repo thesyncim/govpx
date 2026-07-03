@@ -84,6 +84,25 @@ func (e *VP9Encoder) applyVP9CountPassIntraLeaf(mi *vp9dec.NeighborMi,
 	}
 }
 
+func vp9InterLeafHasNewMv(mi *vp9dec.NeighborMi, bsize common.BlockSize) bool {
+	if mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return false
+	}
+	if bsize >= common.Block8x8 {
+		return mi.Mode == common.NewMv
+	}
+	num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
+	num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
+	for idy := 0; idy < 2; idy += num4x4H {
+		for idx := 0; idx < 2; idx += num4x4W {
+			if mi.Bmi[idy*2+idx].AsMode == common.NewMv {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
@@ -120,7 +139,6 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		forcedIntra := forcedRef && forcedRefFrame == vp9dec.IntraFrame
 		var interDecision vp9InterModeDecision
 		interDecisionValid := false
-		replayedCountPassLeaf := false
 		if forcedIntra {
 			cur.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 			// libvpx vp9_pickmode.c:2644-2645 — intra blocks park mv[0]/mv[1]
@@ -163,7 +181,6 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				// replay instead of re-running prepareVP9InterBlockResidue.
 				interDecision = cached
 				interDecisionValid = true
-				replayedCountPassLeaf = true
 				e.applyVP9CountPassInterLeaf(inter, &cur, cached, reconBsize)
 				uvMode = cached.uvMode
 				hasResidue = !cached.skip
@@ -180,7 +197,6 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				e.canReplayVP9CountPassIntraLeaf(inter, cached, reconBsize) {
 				interDecision = cached
 				interDecisionValid = true
-				replayedCountPassLeaf = true
 				e.applyVP9CountPassIntraLeaf(&cur, cached, reconBsize)
 				uvMode = cached.uvMode
 				hasResidue = !cached.skip
@@ -203,14 +219,19 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				// so WriteCoefSb commits the real coefficient context. No-op when
 				// skip_encode is not armed (snapshot invalid), so frame-1 / production
 				// keep the running-threaded search context.
-				var chosenUvMode common.PredictionMode
-				var residue bool
-				e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
-					interDecision, chosenUvMode, residue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+				if e.vp9SBEntropyValid {
+					var chosenUvMode common.PredictionMode
+					var residue bool
+					e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
+						interDecision, chosenUvMode, residue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+							miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+					})
+					uvMode, hasResidue = chosenUvMode, residue
+				} else {
+					interDecision, uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
 						miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
-				})
+				}
 				interDecisionValid = true
-				uvMode, hasResidue = chosenUvMode, residue
 			}
 			segID = vp9EncoderMiSegmentID(&cur)
 			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
@@ -295,9 +316,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
 		frameInterpFilter := vp9ModeTreeInterpFilter(kind, inter)
 		countVP9Skip(counts, seg, segID, above, left, cur.Skip)
-		bestRefMv := e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
-			miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
-			vp9InterSignBias(inter))
+		hasNewMv := vp9InterLeafHasNewMv(&cur, bsize)
+		var bestRefMv [2]vp9dec.MV
+		if isInter && hasNewMv && (counts == nil || bsize >= common.Block8x8) {
+			bestRefMv = e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
+				miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
+				vp9InterSignBias(inter))
+		}
 		countVP9IntraInter(counts, seg, segID, above, left, vp9dec.BoolInt(isInter))
 		if isInter {
 			frameMode := vp9InterReferenceMode(inter)
@@ -315,9 +340,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			if bsize < common.Block8x8 {
 				countVP9InterSub8Modes(counts, seg, segID, bsize,
 					interModeCtx, &cur.Bmi)
-				e.countVP9InterSub8NewMvs(counts, tile, miRows, miCols,
-					miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
-					signBias)
+				if hasNewMv {
+					e.countVP9InterSub8NewMvs(counts, tile, miRows, miCols,
+						miRow, miCol, bsize, &cur, inter != nil && inter.allowHP,
+						signBias)
+				}
 			} else {
 				countVP9InterMode(counts, seg, segID, bsize, interModeCtx, cur.Mode)
 				if cur.Mode == common.NewMv {
@@ -346,29 +373,33 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				e.vp9TraceCommitBlockPre(e.frameIndex, miRow, miCol, &cur, uvMode)
 			}
 		}
-		encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
-			Seg:              seg,
-			Mi:               &cur,
-			AboveMi:          above,
-			LeftMi:           left,
-			Fc:               &e.fc,
-			TxMode:           txMode,
-			MaxTxSize:        maxTxSize,
-			TxProbs:          vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
-			FrameRefMode:     vp9InterReferenceMode(inter),
-			InterpFilter:     frameInterpFilter,
-			CompFixedRef:     vp9InterCompoundRefs(inter).CompFixedRef,
-			CompVarRef:       vp9InterCompoundRefs(inter).CompVarRef,
-			RefFrameSignBias: vp9InterSignBias(inter),
-			SwitchableInterpCtx: vp9dec.GetPredContextSwitchableInterp(
-				above, left),
-			InterModeCtx: interModeCtx,
-			IsCompound:   cur.RefFrame[1] > vp9dec.IntraFrame,
-			Mv:           cur.Mv,
-			BestRefMv:    bestRefMv,
-			AllowHP:      inter != nil && inter.allowHP,
-			UvMode:       uvMode,
-		})
+		// Count-pass inter leaves already update every syntax histogram above;
+		// only the real pack pass needs to emit the matching wire fragment.
+		if counts == nil {
+			encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
+				Seg:              seg,
+				Mi:               &cur,
+				AboveMi:          above,
+				LeftMi:           left,
+				Fc:               &e.fc,
+				TxMode:           txMode,
+				MaxTxSize:        maxTxSize,
+				TxProbs:          vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
+				FrameRefMode:     vp9InterReferenceMode(inter),
+				InterpFilter:     frameInterpFilter,
+				CompFixedRef:     vp9InterCompoundRefs(inter).CompFixedRef,
+				CompVarRef:       vp9InterCompoundRefs(inter).CompVarRef,
+				RefFrameSignBias: vp9InterSignBias(inter),
+				SwitchableInterpCtx: vp9dec.GetPredContextSwitchableInterp(
+					above, left),
+				InterModeCtx: interModeCtx,
+				IsCompound:   cur.RefFrame[1] > vp9dec.IntraFrame,
+				Mv:           cur.Mv,
+				BestRefMv:    bestRefMv,
+				AllowHP:      inter != nil && inter.allowHP,
+				UvMode:       uvMode,
+			})
+		}
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 			if cur.Skip != 0 {
@@ -409,17 +440,9 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				TokenCache: &e.coefTokenCache,
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
-			if replayedCountPassLeaf &&
-				e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
+			if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
 				// Entropy contexts were committed directly from staged
-				// TOKENEXTRA records; the count pass already populated
-				// qcoeff/eob scratch for the preserved recon state.
-			} else if e.packVP9ReplayCoefTokenLeaf(bw) {
-				if e.vp9TokenReplay.err == nil {
-					if err := encoder.CommitCoefSbContexts(coefArgs); err != nil {
-						e.vp9TokenReplay.err = err
-					}
-				}
+				// TOKENEXTRA records, matching the bytes just packed.
 			} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
 				e.vp9TokenCollect.err = err
 			}
@@ -521,17 +544,22 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
 		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
-		encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
-			Seg:       seg,
-			Mi:        &cur,
-			AboveMi:   above,
-			LeftMi:    left,
-			TxMode:    txMode,
-			MaxTxSize: maxTxSize,
-			TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
-			SkipProbs: e.fc.SkipProbs,
-		})
-		encoder.WriteKeyframeUvMode(bw, uvMode, cur.Mode)
+		// Keyframe mode bits are fixed-probability syntax. The count pass has
+		// already populated skip/tx/coef histograms, so only the pack pass emits
+		// the header fragment.
+		if counts == nil {
+			encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
+				Seg:       seg,
+				Mi:        &cur,
+				AboveMi:   above,
+				LeftMi:    left,
+				TxMode:    txMode,
+				MaxTxSize: maxTxSize,
+				TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
+				SkipProbs: e.fc.SkipProbs,
+			})
+			encoder.WriteKeyframeUvMode(bw, uvMode, cur.Mode)
+		}
 		aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 		if !hasResidue {
 			vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
@@ -571,12 +599,10 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			TokenCache: &e.coefTokenCache,
 		}
 		collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
-		if e.packVP9ReplayCoefTokenLeaf(bw) {
-			if e.vp9TokenReplay.err == nil {
-				if err := encoder.CommitCoefSbContexts(coefArgs); err != nil {
-					e.vp9TokenReplay.err = err
-				}
-			}
+		if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
+			// Entropy contexts were committed directly from staged TOKENEXTRA
+			// records, so keyframe replay stays source-shaped around the token
+			// stream instead of reopening qcoeff/eob buffers.
 		} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
 			e.vp9TokenCollect.err = err
 		}
@@ -601,17 +627,19 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		countVP9TxSize(counts, fallbackTxCtx, fallbackMaxTxSize, cur.TxSize)
 	}
 	countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
-	encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
-		Seg:       seg,
-		Mi:        &cur,
-		AboveMi:   above,
-		LeftMi:    left,
-		TxMode:    txMode,
-		MaxTxSize: fallbackMaxTxSize,
-		TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, fallbackMaxTxSize, fallbackTxCtx),
-		SkipProbs: e.fc.SkipProbs,
-	})
-	encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
+	if counts == nil {
+		encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
+			Seg:       seg,
+			Mi:        &cur,
+			AboveMi:   above,
+			LeftMi:    left,
+			TxMode:    txMode,
+			MaxTxSize: fallbackMaxTxSize,
+			TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, fallbackMaxTxSize, fallbackTxCtx),
+			SkipProbs: e.fc.SkipProbs,
+		})
+		encoder.WriteKeyframeUvMode(bw, common.DcPred, cur.Mode)
+	}
 	e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 }
 

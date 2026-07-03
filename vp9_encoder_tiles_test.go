@@ -9,7 +9,9 @@ import (
 
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 func TestVP9EncoderWideFrameUsesMinimumLegalTileColumns(t *testing.T) {
@@ -184,14 +186,14 @@ func TestVP9RealtimeCBRAutoThreadHint(t *testing.T) {
 			want: 1,
 		},
 		{
-			name: "denoiser-stays-serial",
+			name: "denoiser-keeps-auto-threads",
 			opts: func() VP9EncoderOptions {
 				opts := base
 				opts.NoiseSensitivity = 3
 				return opts
 			}(),
 			cpus: 8,
-			want: 1,
+			want: 4,
 		},
 	}
 	for _, tc := range tests {
@@ -550,7 +552,7 @@ func TestVP9RealtimeCBRAutoThreadingResizeDownReleasesTileWorkers(t *testing.T) 
 	}
 }
 
-func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
+func TestVP9EncoderNoiseSensitivityUsesTileWorkers(t *testing.T) {
 	const width, height = 1280, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:            width,
@@ -565,11 +567,11 @@ func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	if got := e.vp9EffectiveThreadHint(); got != 4 {
 		t.Fatalf("effective thread hint = %d, want caller hint 4", got)
 	}
-	if got := e.vp9TileWorkerThreadHint(); got != 1 {
-		t.Fatalf("tile-worker thread hint = %d, want 1 while denoiser is active", got)
+	if got := e.vp9TileWorkerThreadHint(); got != 4 {
+		t.Fatalf("tile-worker thread hint = %d, want caller hint 4", got)
 	}
-	if e.vp9TilePool != nil {
-		t.Fatal("denoiser initialized VP9 tile worker pool")
+	if e.vp9TilePool == nil {
+		t.Fatal("denoiser did not initialize VP9 tile worker pool")
 	}
 	img := vp9test.NewYCbCr(width, height, 82, 123, 211)
 	packet, err := e.Encode(img)
@@ -578,19 +580,19 @@ func TestVP9EncoderNoiseSensitivityUsesSerialTileWorkers(t *testing.T) {
 	}
 
 	h, _ := vp9test.ParseHeader(t, packet)
-	if h.Tile.Log2TileCols != 0 {
-		t.Fatalf("Log2TileCols = %d, want 0 while denoiser keeps tile workers disabled",
+	if h.Tile.Log2TileCols != 2 {
+		t.Fatalf("Log2TileCols = %d, want 2 with denoiser tile workers",
 			h.Tile.Log2TileCols)
 	}
-	if e.vp9TilePool != nil {
-		t.Fatal("denoiser encode created VP9 tile worker pool")
+	if e.vp9TilePool == nil {
+		t.Fatal("denoiser encode did not retain VP9 tile worker pool")
 	}
-	if len(e.vp9CountWorkers) != 0 {
-		t.Fatalf("denoiser count workers = %d, want 0", len(e.vp9CountWorkers))
+	if got := len(e.vp9CountWorkers); got != 4 {
+		t.Fatalf("denoiser count workers = %d, want 4", got)
 	}
 }
 
-func TestVP9EncoderSetNoiseSensitivityClosesTilePool(t *testing.T) {
+func TestVP9EncoderSetNoiseSensitivityKeepsTilePool(t *testing.T) {
 	const width, height = 1280, 64
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:   width,
@@ -606,9 +608,9 @@ func TestVP9EncoderSetNoiseSensitivityClosesTilePool(t *testing.T) {
 	if err := e.SetNoiseSensitivity(3); err != nil {
 		t.Fatalf("SetNoiseSensitivity: %v", err)
 	}
-	if e.vp9TilePool != nil || len(e.vp9CountWorkers) != 0 ||
-		len(e.vp9CountCounts) != 0 || len(e.vp9CountJobs) != 0 {
-		t.Fatal("SetNoiseSensitivity left VP9 tile worker state installed")
+	if e.vp9TilePool == nil || len(e.vp9CountWorkers) != 4 ||
+		len(e.vp9CountCounts) != 4 || len(e.vp9CountJobs) != 4 {
+		t.Fatal("SetNoiseSensitivity dropped VP9 tile worker state")
 	}
 }
 
@@ -643,6 +645,47 @@ func TestVP9EncoderThreadsHintDeterministicAcrossRuns(t *testing.T) {
 			t.Fatalf("threaded VP9 packet %d differs across runs: %d/%d bytes",
 				frame, nA, nB)
 		}
+	}
+}
+
+func TestVP9EncoderDenoiseThreadedTilesDeterministicAcrossRuns(t *testing.T) {
+	const width, height = 1280, 64
+	opts := VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		Threads:          4,
+		NoiseSensitivity: 3,
+	}
+	a, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(a): %v", err)
+	}
+	b, err := NewVP9Encoder(opts)
+	if err != nil {
+		t.Fatalf("NewVP9Encoder(b): %v", err)
+	}
+	dstA := make([]byte, 1<<20)
+	dstB := make([]byte, 1<<20)
+	for frame := range 3 {
+		src := vp9test.NewPanningYCbCr(width, height, frame)
+		nA, err := a.EncodeInto(src, dstA)
+		if err != nil {
+			t.Fatalf("a EncodeInto[%d]: %v", frame, err)
+		}
+		nB, err := b.EncodeInto(src, dstB)
+		if err != nil {
+			t.Fatalf("b EncodeInto[%d]: %v", frame, err)
+		}
+		if !bytes.Equal(dstA[:nA], dstB[:nB]) {
+			t.Fatalf("threaded denoise VP9 packet %d differs across runs: %d/%d bytes",
+				frame, nA, nB)
+		}
+	}
+	if a.vp9TilePool == nil {
+		t.Fatal("threaded denoise encode did not initialize tile worker pool")
+	}
+	if got := a.vp9TilePool.workerCount; got != 4 {
+		t.Fatalf("threaded denoise tile worker count = %d, want 4", got)
 	}
 }
 
@@ -1004,6 +1047,54 @@ func TestVP9EncoderThreadedTileEncodeSteadyStateAlloc(t *testing.T) {
 			t.Fatalf("threaded 720p tile job %d wrote %d bytes",
 				i, e.vp9TilePool.encodeJobs[i].size)
 		}
+	}
+}
+
+func TestVP9TileWorkerSeedCarriesNonrdIntraYModeCosts(t *testing.T) {
+	var costs [common.IntraModes]int
+	for i := range costs {
+		costs[i] = 100 + i*17
+	}
+	inter := &vp9InterEncodeState{
+		nonrdIntraYModeCosts:      costs,
+		nonrdIntraYModeCostsValid: true,
+	}
+	seed := vp9CountTileSeedForState(nil, inter)
+	if !seed.interNonrdIntraYModeCostsValid {
+		t.Fatal("seed dropped nonrd intra Y-mode cost validity")
+	}
+	if seed.interNonrdIntraYModeCosts != costs {
+		t.Fatalf("seed nonrd intra Y-mode costs = %+v, want %+v",
+			seed.interNonrdIntraYModeCosts, costs)
+	}
+
+	var partitionProbs [common.PartitionContexts][common.PartitionTypes - 1]uint8
+	var seg vp9dec.SegmentationParams
+	var counts vp9enc.FrameCounts
+	worker := &VP9Encoder{}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8}
+	baseMi := vp9dec.NeighborMi{SbType: common.Block64x64, TxSize: common.Tx16x16}
+
+	var countJob vp9CountTileJob
+	prepareVP9CountTileJob(&countJob, worker, &counts, 8, 8, tile,
+		&partitionProbs, &seg, baseMi, common.Only4x4, vp9ModeTreeInterSource,
+		seed)
+	if !countJob.inter.nonrdIntraYModeCostsValid ||
+		countJob.inter.nonrdIntraYModeCosts != costs {
+		t.Fatalf("count job nonrd intra Y-mode costs valid=%t costs=%+v, want valid costs=%+v",
+			countJob.inter.nonrdIntraYModeCostsValid,
+			countJob.inter.nonrdIntraYModeCosts, costs)
+	}
+
+	var encodeJob vp9EncodeTileJob
+	prepareVP9EncodeTileJob(&encodeJob, worker, nil, 8, 8, tile,
+		&partitionProbs, &seg, baseMi, common.Only4x4, vp9ModeTreeInterSource,
+		seed, nil)
+	if !encodeJob.inter.nonrdIntraYModeCostsValid ||
+		encodeJob.inter.nonrdIntraYModeCosts != costs {
+		t.Fatalf("encode job nonrd intra Y-mode costs valid=%t costs=%+v, want valid costs=%+v",
+			encodeJob.inter.nonrdIntraYModeCostsValid,
+			encodeJob.inter.nonrdIntraYModeCosts, costs)
 	}
 }
 

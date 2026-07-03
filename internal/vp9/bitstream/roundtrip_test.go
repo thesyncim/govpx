@@ -131,6 +131,104 @@ func TestWriteBitMatchesGenericProb128(t *testing.T) {
 	}
 }
 
+func TestWritePackedMatchesSequentialWrites(t *testing.T) {
+	type fragment struct {
+		bits  uint32
+		probs uint32
+		n     int
+	}
+	fragments := []fragment{
+		{bits: 0b00, probs: 17<<8 | 229, n: 2},
+		{bits: 0b101, probs: 33<<16 | 128<<8 | 244, n: 3},
+		{bits: 0b1110, probs: 201<<24 | 19<<16 | 88<<8 | 177, n: 4},
+		{bits: 0b0101, probs: 91<<24 | 92<<16 | 93<<8 | 94, n: 4},
+	}
+
+	sequentialBuf := make([]byte, 256)
+	var sequential Writer
+	sequential.Start(sequentialBuf)
+	for _, f := range fragments {
+		for i := f.n - 1; i >= 0; i-- {
+			bit := (f.bits >> uint(i)) & 1
+			prob := (f.probs >> uint(i*8)) & 0xff
+			sequential.Write(bit, prob)
+		}
+	}
+	sequentialSize, err := sequential.Stop()
+	if err != nil {
+		t.Fatalf("sequential Stop: %v", err)
+	}
+
+	packedBuf := make([]byte, 256)
+	var packed Writer
+	packed.Start(packedBuf)
+	for _, f := range fragments {
+		packed.WritePacked(f.bits, f.probs, f.n)
+	}
+	packedSize, err := packed.Stop()
+	if err != nil {
+		t.Fatalf("packed Stop: %v", err)
+	}
+	if packedSize != sequentialSize {
+		t.Fatalf("packed size = %d, want sequential size %d", packedSize, sequentialSize)
+	}
+	for i := range packedSize {
+		if packedBuf[i] != sequentialBuf[i] {
+			t.Fatalf("byte %d: packed = 0x%02x, sequential = 0x%02x",
+				i, packedBuf[i], sequentialBuf[i])
+		}
+	}
+}
+
+func TestWritePacked64MatchesSequentialWrites(t *testing.T) {
+	type fragment struct {
+		bits  uint32
+		probs uint64
+		n     int
+	}
+	fragments := []fragment{
+		{bits: 0b10010, probs: 17<<32 | 229<<24 | 33<<16 | 128<<8 | 244, n: 5},
+		{bits: 0b111010, probs: 201<<40 | 19<<32 | 88<<24 | 177<<16 | 91<<8 | 92, n: 6},
+		{bits: 0b0101101, probs: 93<<48 | 94<<40 | 95<<32 | 96<<24 | 97<<16 | 98<<8 | 99, n: 7},
+		{bits: 0b10110111, probs: 101<<56 | 102<<48 | 103<<40 | 104<<32 | 105<<24 | 106<<16 | 107<<8 | 108, n: 8},
+	}
+
+	sequentialBuf := make([]byte, 256)
+	var sequential Writer
+	sequential.Start(sequentialBuf)
+	for _, f := range fragments {
+		for i := f.n - 1; i >= 0; i-- {
+			bit := (f.bits >> uint(i)) & 1
+			prob := uint32((f.probs >> uint(i*8)) & 0xff)
+			sequential.Write(bit, prob)
+		}
+	}
+	sequentialSize, err := sequential.Stop()
+	if err != nil {
+		t.Fatalf("sequential Stop: %v", err)
+	}
+
+	packedBuf := make([]byte, 256)
+	var packed Writer
+	packed.Start(packedBuf)
+	for _, f := range fragments {
+		packed.WritePacked64(f.bits, f.probs, f.n)
+	}
+	packedSize, err := packed.Stop()
+	if err != nil {
+		t.Fatalf("packed Stop: %v", err)
+	}
+	if packedSize != sequentialSize {
+		t.Fatalf("packed size = %d, want sequential size %d", packedSize, sequentialSize)
+	}
+	for i := range packedSize {
+		if packedBuf[i] != sequentialBuf[i] {
+			t.Fatalf("byte %d: packed = 0x%02x, sequential = 0x%02x",
+				i, packedBuf[i], sequentialBuf[i])
+		}
+	}
+}
+
 func TestReaderStateMatchesReader(t *testing.T) {
 	const n = 8192
 	rng := rand.New(rand.NewSource(0x51504c4f43414c))

@@ -260,6 +260,71 @@ func TestVP9WorkerPrepSharesLastBorderedReadOnly(t *testing.T) {
 	}
 }
 
+func TestVP9TileWorkerPrepSharesSubpelRefBorderedReadOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(worker, src *VP9Encoder)
+	}{
+		{
+			name: "count",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9CountWorker(src, 16, 16, 2, 2)
+			},
+		},
+		{
+			name: "tile-encode",
+			prepare: func(worker, src *VP9Encoder) {
+				worker.prepareVP9TileEncodeWorker(src, 2, 2)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newVP9LastBorderedEncoderForTest(t, 16, 16)
+			src.refFrames[vp9GoldenRefSlot].store(vp9BorderedTestImage(16, 16, 33))
+			golden, _, _, _, _, _, ok := src.vp9SubpelReferencePlane(
+				vp9dec.GoldenFrame, &src.refFrames[vp9GoldenRefSlot])
+			if !ok || len(golden) == 0 ||
+				!src.subpelRefBorderedValid[vp9GoldenRefSlot] {
+				t.Fatalf("source golden subpel cache not ready: ok=%t valid=%v",
+					ok, src.subpelRefBorderedValid)
+			}
+			srcBuf := &golden[0]
+
+			var worker VP9Encoder
+			vp9dec.SetupBlockPlanes(&worker.planes, 1, 1)
+
+			tc.prepare(&worker, src)
+
+			if !worker.subpelRefBorderedValid[vp9GoldenRefSlot] {
+				t.Fatalf("worker golden subpel cache invalid after prep")
+			}
+			if !worker.subpelRefBorderedShared[vp9GoldenRefSlot] {
+				t.Fatalf("worker golden subpel cache not marked shared")
+			}
+			if len(worker.subpelRefBordered[vp9GoldenRefSlot].Pixels) == 0 ||
+				&worker.subpelRefBordered[vp9GoldenRefSlot].Pixels[0] != srcBuf {
+				t.Fatalf("worker golden subpel cache did not alias parent")
+			}
+
+			worker.subpelRefBordered[vp9GoldenRefSlot].W = 0
+			rebuilt, _, _, _, _, _, ok := worker.vp9SubpelReferencePlane(
+				vp9dec.GoldenFrame, &worker.refFrames[vp9GoldenRefSlot])
+			if !ok || len(rebuilt) == 0 {
+				t.Fatalf("worker golden subpel rebuild failed: ok=%t len=%d",
+					ok, len(rebuilt))
+			}
+			if worker.subpelRefBorderedShared[vp9GoldenRefSlot] {
+				t.Fatalf("worker golden subpel cache still marked shared after rebuild")
+			}
+			if &rebuilt[0] == srcBuf {
+				t.Fatalf("worker golden subpel rebuild wrote through parent cache")
+			}
+		})
+	}
+}
+
 func TestVP9WorkerPrepKeepsMLPartitionPaddedBuffersPrivate(t *testing.T) {
 	tests := []struct {
 		name    string

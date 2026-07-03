@@ -20,6 +20,27 @@ type InterFrameMacroblockMode struct {
 	Partition   uint8
 }
 
+// InterFrameMVRef is the compact libvpx lfmv/lf_ref_frame view needed by
+// vp8_mv_pred for the previous coded frame.
+type InterFrameMVRef struct {
+	MV       MotionVector
+	RefFrame common.MVReferenceFrame
+	SignBias bool
+}
+
+func InterFrameMVRefFromMode(mode *InterFrameMacroblockMode, signBias [common.MaxRefFrames]bool) InterFrameMVRef {
+	refFrame := ConvertInterFrameReference(mode)
+	out := InterFrameMVRef{RefFrame: refFrame}
+	if refFrame != common.IntraFrame {
+		out.MV = mode.MV
+	}
+	ref := mode.RefFrame
+	if ref > common.IntraFrame && ref < common.MaxRefFrames {
+		out.SignBias = signBias[ref]
+	}
+	return out
+}
+
 // InterFramePacket owns the packet-writer inputs for a fully reconstructed
 // inter frame. State is a value so convenience callers stay allocation-free;
 // callers that need the adapted probability tables read them from the result.

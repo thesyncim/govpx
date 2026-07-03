@@ -7,7 +7,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 // ErrTokenBufferFull is returned when staged coefficient token storage is too
@@ -34,16 +33,29 @@ func coefProbsBaseOff(tx common.TxSize, planeType, isInter int) int {
 // coefficient syntax after compressed-header probability updates.
 func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok bool) {
 	maxEob := vp9dec.MaxEobForTxSize(a.TxSize)
+	if len(dst) < maxEob {
+		return stageCoefBlockChecked(dst, a, maxEob)
+	}
+	return stageCoefBlockFullWindow(dst[:maxEob], a, maxEob)
+}
+
+func stageCoefBlockFullWindow(tokens []TokenExtra, a WriteCoefBlockArgs, maxEob int) (n int, eob int, ok bool) {
 	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)
+	scan := a.Scan
+	_ = tokens[maxEob-1]
+	_ = scan[maxEob-1]
+	_ = bandTrans[maxEob-1]
+	_ = a.Neighbors[(maxEob<<1)-1]
 	dq := [2]int16{a.DequantDC, a.DequantAC}
 	qcoeffs := a.QCoeffs
-	if len(qcoeffs) < maxEob {
-		qcoeffs = nil
+	if len(qcoeffs) >= maxEob {
+		return stageCoefBlockQCoeff(tokens, a, maxEob, scan, bandTrans, qcoeffs)
 	}
+	qcoeffs = nil
 	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
 		eob = a.KnownEOB
 	} else {
-		eob = coeffBlockEOBEncode(a.Scan, maxEob, a.Coeffs, qcoeffs)
+		eob = coeffBlockEOBEncode(scan, maxEob, a.Coeffs, qcoeffs)
 	}
 	if a.EOB != nil {
 		*a.EOB = eob
@@ -60,50 +72,212 @@ func StageCoefBlock(dst []TokenExtra, a WriteCoefBlockArgs) (n int, eob int, ok 
 		tokenCache = &local
 	}
 	baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
+	branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize,
+		a.PlaneType, a.IsInter)
 	ctx := a.InitCtx
-	bandIdx := 0
 	c := 0
 	for c < maxEob {
-		band := int(bandTrans[bandIdx])
-		bandIdx++
-		branchStats := coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
-			a.PlaneType, a.IsInter, band, ctx)
+		band := int(bandTrans[c])
+		branchStats := coefBranchStatsSlot(branchStatsRows, band, ctx)
 		probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
 		if c == eob {
-			recordCoefBranch(branchStats, 0, 0)
+			recordCoefBranch00(branchStats)
+			tokens[c] = TokenExtra{Token: EobToken, ProbOff: probOff}
+			return c + 1, eob, true
+		}
+		recordCoefBranch01(branchStats)
+
+		raster := int(scan[c])
+		for !coeffBlockHasCoeffAtRaster(raster, a.Coeffs, qcoeffs) {
+			recordCoefBranch10(branchStats)
+			tokens[c] = TokenExtra{Token: ZeroToken, ProbOff: probOff}
+			tokenCacheSet(tokenCache, raster, 0)
+			c++
+			if c >= maxEob {
+				return maxEob, eob, true
+			}
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+			band = int(bandTrans[c])
+			branchStats = coefBranchStatsSlot(branchStatsRows, band, ctx)
+			probOff = uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+			raster = int(scan[c])
+		}
+
+		recordCoefBranch11(branchStats)
+		dqv := dq[1]
+		if c == 0 {
+			dqv = dq[0]
+		}
+		var absVal, sign int
+		if qcoeffs != nil {
+			absVal, sign = coeffMagnitudeAndSignQ(qcoeffs[raster])
+		} else {
+			absVal, sign = coeffMagnitudeAndSignDQ(a.Coeffs[raster],
+				dqv, a.TxSize == common.Tx32x32)
+		}
+		token, extra := TokenForAbsCoeff(absVal)
+		tokens[c] = TokenExtra{
+			Token:   int16(token),
+			Extra:   int16((extra << 1) | sign),
+			ProbOff: probOff,
+		}
+		recordCoefTokenBranches(token, branchStats)
+
+		tokenCacheSet(tokenCache, raster, PtEnergyClass[token])
+		c++
+		if c < maxEob {
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+		}
+	}
+	return maxEob, eob, true
+}
+
+func stageCoefBlockQCoeff(
+	tokens []TokenExtra, a WriteCoefBlockArgs, maxEob int, scan []int16,
+	bandTrans []uint8, qcoeffs []int16,
+) (n int, eob int, ok bool) {
+	_ = tokens[maxEob-1]
+	_ = scan[maxEob-1]
+	_ = bandTrans[maxEob-1]
+	_ = qcoeffs[maxEob-1]
+	_ = a.Neighbors[(maxEob<<1)-1]
+	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
+		eob = a.KnownEOB
+	} else {
+		eob = coeffBlockEOBCompleteQCoeffWindow(scan, maxEob, qcoeffs)
+	}
+	if a.EOB != nil {
+		*a.EOB = eob
+	}
+
+	tokenCache := a.TokenCache
+	if tokenCache == nil {
+		var local [1024]uint8
+		tokenCache = &local
+	}
+	baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
+	branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize,
+		a.PlaneType, a.IsInter)
+	ctx := a.InitCtx
+	c := 0
+	for c < maxEob {
+		band := int(bandTrans[c])
+		branchStats := coefBranchStatsSlot(branchStatsRows, band, ctx)
+		probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+		if c == eob {
+			recordCoefBranch00(branchStats)
+			tokens[c] = TokenExtra{Token: EobToken, ProbOff: probOff}
+			return c + 1, eob, true
+		}
+		recordCoefBranch01(branchStats)
+
+		raster := int(scan[c])
+		for qcoeffAt(qcoeffs, raster) == 0 {
+			recordCoefBranch10(branchStats)
+			tokens[c] = TokenExtra{Token: ZeroToken, ProbOff: probOff}
+			tokenCacheSet(tokenCache, raster, 0)
+			c++
+			if c >= maxEob {
+				return maxEob, eob, true
+			}
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+			band = int(bandTrans[c])
+			branchStats = coefBranchStatsSlot(branchStatsRows, band, ctx)
+			probOff = uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+			raster = int(scan[c])
+		}
+
+		recordCoefBranch11(branchStats)
+		token, extra, energy := coeffTokenExtraQCoeff(qcoeffAt(qcoeffs, raster))
+		tokens[c] = TokenExtra{
+			Token:   int16(token),
+			Extra:   extra,
+			ProbOff: probOff,
+		}
+		recordCoefTokenBranches(token, branchStats)
+
+		tokenCacheSet(tokenCache, raster, energy)
+		c++
+		if c < maxEob {
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+		}
+	}
+	return maxEob, eob, true
+}
+
+// stageCoefBlockChecked preserves the small-buffer contract for defensive
+// callers; the normal production path above gets a full transform-sized token
+// window and avoids the per-token capacity helper.
+func stageCoefBlockChecked(dst []TokenExtra, a WriteCoefBlockArgs, maxEob int) (n int, eob int, ok bool) {
+	scan := a.Scan[:maxEob]
+	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)[:maxEob]
+	dq := [2]int16{a.DequantDC, a.DequantAC}
+	qcoeffs := a.QCoeffs
+	if len(qcoeffs) < maxEob {
+		qcoeffs = nil
+	}
+	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
+		eob = a.KnownEOB
+	} else {
+		eob = coeffBlockEOBEncode(scan, maxEob, a.Coeffs, qcoeffs)
+	}
+	if a.EOB != nil {
+		*a.EOB = eob
+	}
+
+	tokenCache := a.TokenCache
+	if tokenCache == nil {
+		var local [1024]uint8
+		tokenCache = &local
+	}
+	baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
+	branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize,
+		a.PlaneType, a.IsInter)
+	ctx := a.InitCtx
+	c := 0
+	for c < maxEob {
+		band := int(bandTrans[c])
+		branchStats := coefBranchStatsSlot(branchStatsRows, band, ctx)
+		probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+		if c == eob {
+			recordCoefBranch00(branchStats)
 			if !stageToken(dst, &n, probOff, EobToken, 0) {
 				return n, eob, false
 			}
 			return n, eob, true
 		}
-		recordCoefBranch(branchStats, 0, 1)
+		recordCoefBranch01(branchStats)
 
-		for !CoeffBlockHasCoeff(a.Scan, c, a.Coeffs, qcoeffs) {
-			recordCoefBranch(branchStats, 1, 0)
+		raster := int(scan[c])
+		for !coeffBlockHasCoeffAtRaster(raster, a.Coeffs, qcoeffs) {
+			recordCoefBranch10(branchStats)
 			if !stageToken(dst, &n, probOff, ZeroToken, 0) {
 				return n, eob, false
 			}
-			tokenCache[a.Scan[c]] = 0
+			tokenCache[raster] = 0
 			c++
 			if c >= maxEob {
 				return n, eob, true
 			}
 			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
-			band = int(bandTrans[bandIdx])
-			bandIdx++
-			branchStats = coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
-				a.PlaneType, a.IsInter, band, ctx)
+			band = int(bandTrans[c])
+			branchStats = coefBranchStatsSlot(branchStatsRows, band, ctx)
 			probOff = uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+			raster = int(scan[c])
 		}
 
-		recordCoefBranch(branchStats, 1, 1)
-		raster := a.Scan[c]
+		recordCoefBranch11(branchStats)
 		dqv := dq[1]
 		if c == 0 {
 			dqv = dq[0]
 		}
-		absVal, sign := CoeffMagnitudeAndSign(qcoeffs, int(raster),
-			a.Coeffs[raster], dqv, a.TxSize == common.Tx32x32)
+		var absVal, sign int
+		if qcoeffs != nil {
+			absVal, sign = coeffMagnitudeAndSignQ(qcoeffAt(qcoeffs, raster))
+		} else {
+			absVal, sign = coeffMagnitudeAndSignDQ(a.Coeffs[raster],
+				dqv, a.TxSize == common.Tx32x32)
+		}
 		token, extra := TokenForAbsCoeff(absVal)
 		if !stageToken(dst, &n, probOff, token, (extra<<1)|sign) {
 			return n, eob, false
@@ -134,19 +308,79 @@ func stageToken(dst []TokenExtra, n *int, probOff uint16, token, extra int) bool
 
 func recordCoefTokenBranches(token int, branchStats *[EntropyNodes][2]uint32) {
 	if token == OneToken {
-		recordCoefBranch(branchStats, PivotNode, 0)
+		if branchStats != nil {
+			branchStats[PivotNode][0]++
+		}
 		return
 	}
-	recordCoefBranch(branchStats, PivotNode, 1)
-	enc := CoefEncodings[token]
-	bits := int(enc.Value)
-	length := int(enc.Len) - UnconstrainedNodes
-	i := int8(0)
-	for length > 0 {
-		length--
-		bit := (bits >> uint(length)) & 1
-		recordCoefBranch(branchStats, UnconstrainedNodes+int(i>>1), bit)
-		i = CoefConTree[int(i)+bit]
+	if token < TwoToken || token > Category6Tok {
+		panic("encoder: invalid VP9 coefficient token")
+	}
+	if branchStats == nil {
+		return
+	}
+	branchStats[PivotNode][1]++
+	recordCoefTokenTailBranches(token, branchStats)
+}
+
+const (
+	coefTailLowValNode = UnconstrainedNodes + iota
+	coefTailTwoNode
+	coefTailThreeFourNode
+	coefTailHighLowNode
+	coefTailCatOneNode
+	coefTailCatThreeFourNode
+	coefTailCatThreeNode
+	coefTailCatFiveNode
+)
+
+func recordCoefTokenTailBranches(token int, branchStats *[EntropyNodes][2]uint32) {
+	if token < TwoToken || token > Category6Tok {
+		panic("encoder: invalid VP9 coefficient token")
+	}
+	if branchStats == nil {
+		return
+	}
+	switch token {
+	case TwoToken:
+		branchStats[coefTailLowValNode][0]++
+		branchStats[coefTailTwoNode][0]++
+	case ThreeToken:
+		branchStats[coefTailLowValNode][0]++
+		branchStats[coefTailTwoNode][1]++
+		branchStats[coefTailThreeFourNode][0]++
+	case FourToken:
+		branchStats[coefTailLowValNode][0]++
+		branchStats[coefTailTwoNode][1]++
+		branchStats[coefTailThreeFourNode][1]++
+	case Category1Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][0]++
+		branchStats[coefTailCatOneNode][0]++
+	case Category2Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][0]++
+		branchStats[coefTailCatOneNode][1]++
+	case Category3Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][1]++
+		branchStats[coefTailCatThreeFourNode][0]++
+		branchStats[coefTailCatThreeNode][0]++
+	case Category4Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][1]++
+		branchStats[coefTailCatThreeFourNode][0]++
+		branchStats[coefTailCatThreeNode][1]++
+	case Category5Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][1]++
+		branchStats[coefTailCatThreeFourNode][1]++
+		branchStats[coefTailCatFiveNode][0]++
+	case Category6Tok:
+		branchStats[coefTailLowValNode][1]++
+		branchStats[coefTailHighLowNode][1]++
+		branchStats[coefTailCatThreeFourNode][1]++
+		branchStats[coefTailCatFiveNode][1]++
 	}
 }
 
@@ -178,38 +412,150 @@ func PackTokens(bw *bitstream.Writer, tokens []TokenExtra, fc *vp9dec.FrameCoefP
 			probs = stagedTokenProbs(fc, tok)
 		}
 
-		bw.Write(1, uint32(probs[1]))
 		token := int(tok.Token)
-		extra := int(tok.Extra)
-		if token == OneToken {
-			bw.Write(0, uint32(probs[2]))
-			bw.WriteBit(uint32(extra & 1))
-		} else {
-			bw.Write(1, uint32(probs[2]))
-			enc := CoefEncodings[token]
-			pareto := tables.Pareto8Full[probs[2]-1]
-			writeTreeBits(bw, CoefConTree[:], pareto[:], int(enc.Value),
-				int(enc.Len)-UnconstrainedNodes)
-			if token >= Category1Tok {
-				eb := VP9ExtraBits[token]
-				value := extra >> 1
-				for bit := eb.Len - 1; bit >= 0; bit-- {
-					bw.Write(uint32((value>>uint(bit))&1),
-						uint32(eb.Prob[eb.Len-1-bit]))
-				}
-			}
-			bw.WriteBit(uint32(extra & 1))
+		if token < OneToken || token > Category6Tok {
+			panic("encoder: invalid staged VP9 coefficient token")
 		}
+		extra := int(tok.Extra)
+		writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
+			probs[1], probs[2])
 		i++
 	}
 	return i
 }
 
-func stagedTokenProbs(fc *vp9dec.FrameCoefProbs, tok TokenExtra) *[UnconstrainedNodes]uint8 {
-	off := int(tok.ProbOff)
-	if off > coefProbsFlatLen-UnconstrainedNodes {
-		off = 0
+func packTokenBlockAndHasResidue(
+	bw *bitstream.Writer, tokens []TokenExtra, start, maxEob int, fc *vp9dec.FrameCoefProbs,
+) (bool, int, bool) {
+	if maxEob <= 0 || start < 0 || start > len(tokens) {
+		return false, 0, false
 	}
-	flat := (*[coefProbsFlatLen]uint8)(unsafe.Pointer(fc))
-	return (*[UnconstrainedNodes]uint8)(unsafe.Pointer(&flat[off]))
+	if len(tokens)-start >= maxEob {
+		return packTokenBlockAndHasResidueWindow(bw, tokens[start:start+maxEob], fc)
+	}
+	hasResidue := false
+	end := start + maxEob
+	c := start
+	for c < end {
+		if c >= len(tokens) {
+			return false, 0, false
+		}
+		tok := tokens[c]
+		if tok.Token == EOSBToken {
+			return false, 0, false
+		}
+		probs := stagedTokenProbs(fc, tok)
+		if tok.Token == EobToken {
+			bw.Write(0, uint32(probs[0]))
+			return hasResidue, c - start + 1, true
+		}
+		bw.Write(1, uint32(probs[0]))
+		for tok.Token == ZeroToken {
+			bw.Write(0, uint32(probs[1]))
+			c++
+			if c >= end {
+				return hasResidue, c - start, true
+			}
+			if c >= len(tokens) {
+				return false, 0, false
+			}
+			tok = tokens[c]
+			if tok.Token == EOSBToken || tok.Token == EobToken {
+				return false, 0, false
+			}
+			probs = stagedTokenProbs(fc, tok)
+		}
+
+		hasResidue = true
+		token := int(tok.Token)
+		if token < OneToken || token > Category6Tok {
+			panic("encoder: invalid staged VP9 coefficient token")
+		}
+		extra := int(tok.Extra)
+		writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
+			probs[1], probs[2])
+		c++
+	}
+	return hasResidue, maxEob, true
+}
+
+func packTokenBlockAndHasResidueWindow(
+	bw *bitstream.Writer, tokens []TokenExtra, fc *vp9dec.FrameCoefProbs,
+) (bool, int, bool) {
+	hasResidue := false
+	consumed := 0
+	for len(tokens) > 0 {
+		tok := tokens[0]
+		tokens = tokens[1:]
+		consumed++
+		if tok.Token == EOSBToken {
+			return false, 0, false
+		}
+		probs := stagedTokenProbs(fc, tok)
+		if tok.Token == EobToken {
+			bw.Write(0, uint32(probs[0]))
+			return hasResidue, consumed, true
+		}
+		bw.Write(1, uint32(probs[0]))
+		for tok.Token == ZeroToken {
+			bw.Write(0, uint32(probs[1]))
+			if len(tokens) == 0 {
+				return hasResidue, consumed, true
+			}
+			tok = tokens[0]
+			tokens = tokens[1:]
+			consumed++
+			if tok.Token == EOSBToken || tok.Token == EobToken {
+				return false, 0, false
+			}
+			probs = stagedTokenProbs(fc, tok)
+		}
+
+		hasResidue = true
+		token := int(tok.Token)
+		if token < OneToken || token > Category6Tok {
+			panic("encoder: invalid staged VP9 coefficient token")
+		}
+		extra := int(tok.Extra)
+		writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
+			probs[1], probs[2])
+	}
+	return hasResidue, consumed, true
+}
+
+func writePackedCoefTokenTail(bw *bitstream.Writer, token int, probs *[8]uint8) {
+	switch token {
+	case TwoToken:
+		bw.WritePacked(0b00, uint32(probs[0])<<8|uint32(probs[1]), 2)
+	case ThreeToken:
+		bw.WritePacked(0b010, uint32(probs[0])<<16|uint32(probs[1])<<8|
+			uint32(probs[2]), 3)
+	case FourToken:
+		bw.WritePacked(0b011, uint32(probs[0])<<16|uint32(probs[1])<<8|
+			uint32(probs[2]), 3)
+	case Category1Tok:
+		bw.WritePacked(0b100, uint32(probs[0])<<16|uint32(probs[3])<<8|
+			uint32(probs[4]), 3)
+	case Category2Tok:
+		bw.WritePacked(0b101, uint32(probs[0])<<16|uint32(probs[3])<<8|
+			uint32(probs[4]), 3)
+	case Category3Tok:
+		bw.WritePacked(0b1100, uint32(probs[0])<<24|uint32(probs[3])<<16|
+			uint32(probs[5])<<8|uint32(probs[6]), 4)
+	case Category4Tok:
+		bw.WritePacked(0b1101, uint32(probs[0])<<24|uint32(probs[3])<<16|
+			uint32(probs[5])<<8|uint32(probs[6]), 4)
+	case Category5Tok:
+		bw.WritePacked(0b1110, uint32(probs[0])<<24|uint32(probs[3])<<16|
+			uint32(probs[5])<<8|uint32(probs[7]), 4)
+	case Category6Tok:
+		bw.WritePacked(0b1111, uint32(probs[0])<<24|uint32(probs[3])<<16|
+			uint32(probs[5])<<8|uint32(probs[7]), 4)
+	default:
+		panic("encoder: invalid staged VP9 coefficient token")
+	}
+}
+
+func stagedTokenProbs(fc *vp9dec.FrameCoefProbs, tok TokenExtra) *[UnconstrainedNodes]uint8 {
+	return (*[UnconstrainedNodes]uint8)(unsafe.Add(unsafe.Pointer(fc), uintptr(tok.ProbOff)))
 }

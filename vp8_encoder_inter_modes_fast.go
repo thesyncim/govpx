@@ -323,7 +323,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	best := interFrameModeDecision{
 		useIntra:        bestUseIntra,
 		interMode:       bestInterMode,
-		intraMode:       bestIntraMode,
 		projectedRate:   int32(bestProjectedRate),
 		improvedMVStart: bestImprovedStart,
 		predictionError: int32(bestPredictionError),
@@ -333,10 +332,13 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			best.ref = refs[bestRefIndex]
 		}
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
-	} else if best.intraMode.Mode <= vp8common.BPred {
-		uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
-		if ok {
-			best.intraMode.UVMode = uvMode
+	} else {
+		best.intraMode = bestIntraMode
+		if best.intraMode.Mode <= vp8common.BPred {
+			uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
+			if ok {
+				best.intraMode.UVMode = uvMode
+			}
 		}
 	}
 	return best, true
@@ -605,7 +607,6 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	best := interFrameModeDecision{
 		useIntra:        bestUseIntra,
 		interMode:       bestInterMode,
-		intraMode:       bestIntraMode,
 		projectedRate:   int32(bestProjectedRate),
 		improvedMVStart: bestImprovedStart,
 		predictionError: int32(bestPredictionError),
@@ -615,10 +616,13 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			best.ref = refs[bestRefIndex]
 		}
 		best.intraMode = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: vp8common.DCPred, UVMode: vp8common.DCPred, SegmentID: segmentID}
-	} else if best.intraMode.Mode <= vp8common.BPred {
-		uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
-		if ok {
-			best.intraMode.UVMode = uvMode
+	} else {
+		best.intraMode = bestIntraMode
+		if best.intraMode.Mode <= vp8common.BPred {
+			uvMode, _, ok := pickFastIntraChromaMode(src, mbRow, mbCol, &e.analysis.Img, &e.reconstructScratch)
+			if ok {
+				best.intraMode.UVMode = uvMode
+			}
 		}
 	}
 	if denoiseDecision.bestReferenceFrame == vp8common.IntraFrame {

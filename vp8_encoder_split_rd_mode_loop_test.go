@@ -263,7 +263,6 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	// (mbRow,mbCol-1 = 1,0 and mbRow-1,mbCol-1 = 0,0) are intra to mirror an
 	// arbitrary mix; the remaining cells stamp a positive col MV.
 	modes := make([]vp8enc.InterFrameMacroblockMode, mbRows*mbCols)
-	bias := make([]bool, len(modes))
 	for r := range mbRows {
 		for c := range mbCols {
 			modes[r*mbCols+c] = vp8enc.InterFrameMacroblockMode{
@@ -276,8 +275,7 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	e := &VP8Encoder{
 		analysis:                 analysis,
 		lastRef:                  last,
-		lastFrameInterModes:      modes,
-		lastFrameInterModeBias:   bias,
+		lastFrameInterModeRefs:   testInterFrameMVRefs(modes, [vp8common.MaxRefFrames]bool{}),
 		lastFrameInterModesValid: true,
 		sourceAltRefActive:       true, // sign_bias[ALTREF] = 1, sign_bias[LAST] = 0
 	}
@@ -320,8 +318,8 @@ func TestImprovedInterFrameSearchStartReferencePolicyAppliesAltRefSignBias(t *te
 	aboveLeft.RefFrame = vp8common.AltRefFrame
 	for i := range modes {
 		modes[i].RefFrame = vp8common.AltRefFrame
-		bias[i] = true
 	}
+	e.lastFrameInterModeRefs = testInterFrameMVRefs(modes, [vp8common.MaxRefFrames]bool{vp8common.AltRefFrame: true})
 	startAltRef2 := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.AltRefFrame, 1, 1, mbRows, mbCols, &above, &left, &aboveLeft, search, nil)
 	if !startAltRef2.ok() || startAltRef2.mv != (vp8enc.MotionVector{Col: 24}) {
 		t.Fatalf("ALTREF predictor with ALTREF neighbours = %+v, want {Col: 24} (matching sign_bias must not flip)", startAltRef2.mv)

@@ -381,14 +381,19 @@ type ChoosePartitioningArgs struct {
 //	1696-1745  recursive set_vt_partitioning walk that stamps the tree.
 //	1747-1762  post-walk hooks (copy_partitioning, svc_use_lowres_part,
 //	           short_circuit_low_temp_var, chroma_check, vt2 free).
-//
-//nolint:gocyclo // verbatim libvpx body
 func ChoosePartitioning(a ChoosePartitioningArgs) int {
-	var stats *ChoosePartitioningStats
-	if choosePartitioningStatsEnabled {
-		stats = choosePartitioningStats(&a)
-	}
+	return choosePartitioning(a, nil)
+}
 
+func ChoosePartitioningWithStats(a ChoosePartitioningArgs, stats *ChoosePartitioningStats) int {
+	return choosePartitioning(a, stats)
+}
+
+//nolint:gocyclo // verbatim libvpx body
+func choosePartitioning(a ChoosePartitioningArgs, stats *ChoosePartitioningStats) int {
+	if !choosePartitioningStatsEnabled {
+		stats = nil
+	}
 	// libvpx: vp9_encodeframe.c:1258-1289 — scalar locals. libvpx
 	// declares `v64x64 vt;` on the stack WITHOUT initialisation: every
 	// field the walk reads is written first (fill_variance writes the

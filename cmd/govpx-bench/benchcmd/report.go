@@ -178,6 +178,16 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 		formatDuration(stats.LoopFilterApplyNS/int64(frames)),
 		formatDuration(stats.PacketWriteNS/int64(frames)))
 	fmt.Fprintf(b, "phase attempts  inter=%d  key=%d\n", stats.InterAttempts, stats.KeyAttempts)
+	if stats.VP9CountNS > 0 || stats.VP9HeaderWriteNS > 0 ||
+		stats.VP9TileWriteNS > 0 || stats.VP9LoopFilterPickNS > 0 ||
+		stats.VP9LoopFilterApplyNS > 0 {
+		fmt.Fprintf(b, "vp9 phase/frame count=%s  header=%s  tile=%s  lf_pick=%s  lf_apply=%s\n",
+			formatDuration(stats.VP9CountNS/int64(frames)),
+			formatDuration(stats.VP9HeaderWriteNS/int64(frames)),
+			formatDuration(stats.VP9TileWriteNS/int64(frames)),
+			formatDuration(stats.VP9LoopFilterPickNS/int64(frames)),
+			formatDuration(stats.VP9LoopFilterApplyNS/int64(frames)))
+	}
 	if stats.LoopFilterTrials > 0 {
 		fmt.Fprintf(b, "lf trials       count=%d  copy=%s  filter=%s  sse=%s\n",
 			stats.LoopFilterTrials,
@@ -426,6 +436,45 @@ func formatSuiteReport(r suiteReport) string {
 				formatDuration(stats.PacketWriteNS/frames))
 		}
 		tw.Flush()
+
+		hasVP9Phase := false
+		for _, c := range r.Cases {
+			if c.Report.PhaseNS == nil {
+				continue
+			}
+			stats := c.Report.PhaseNS
+			if stats.VP9CountNS > 0 || stats.VP9HeaderWriteNS > 0 ||
+				stats.VP9TileWriteNS > 0 || stats.VP9LoopFilterPickNS > 0 ||
+				stats.VP9LoopFilterApplyNS > 0 {
+				hasVP9Phase = true
+				break
+			}
+		}
+		if hasVP9Phase {
+			fmt.Fprintln(&b, "\ngovpx VP9 phase/frame")
+			tw = tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "case\tcount\theader\ttile\tlf_pick\tlf_apply")
+			fmt.Fprintln(tw, "----\t-----\t------\t----\t-------\t--------")
+			for _, c := range r.Cases {
+				rep := c.Report
+				if rep.PhaseNS == nil {
+					continue
+				}
+				frames := int64(rep.Frames)
+				if frames <= 0 {
+					frames = 1
+				}
+				stats := rep.PhaseNS
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					c.Name,
+					formatDuration(stats.VP9CountNS/frames),
+					formatDuration(stats.VP9HeaderWriteNS/frames),
+					formatDuration(stats.VP9TileWriteNS/frames),
+					formatDuration(stats.VP9LoopFilterPickNS/frames),
+					formatDuration(stats.VP9LoopFilterApplyNS/frames))
+			}
+			tw.Flush()
+		}
 	}
 	return b.String()
 }

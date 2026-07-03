@@ -36,7 +36,7 @@ func sadDot4DNEON(src *byte, srcStride int, ref0 *byte, ref1 *byte,
 
 // sadWide dispatches a 32- or 64-wide single-reference SAD.
 func sadWide(src *byte, srcStride int, ref *byte, refStride int, rows, width int) uint32 {
-	if cpu.HasARM64DotProd {
+	if cpu.HasARM64DotProd && width == 32 {
 		return sadDotWideNEON(src, srcStride, ref, refStride, rows, width/32)
 	}
 	if width == 64 {

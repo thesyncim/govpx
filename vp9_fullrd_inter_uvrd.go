@@ -237,7 +237,7 @@ func (e *VP9Encoder) vp9FullRDInterUVPlaneTxCandidate(inter *vp9InterEncodeState
 			}
 			// coeff_ctx = combine_entropy_contexts(t_left[r], t_above[c])
 			// (vp9_rdopt.c:709-710) feeds BOTH vp9_optimize_b and cost_coeffs.
-			initCtx := vp9dec.GetEntropyContext(txSize,
+			initCtx := vp9dec.GetEntropyContextFull(txSize,
 				aboveCtx[cc:cc+step], leftCtx[rr:rr+step])
 			// vp9_xform_quant + vp9_optimize_b (trellis) + inverse-add into recon
 			// with the REGULAR quantizer at the segment qindex.

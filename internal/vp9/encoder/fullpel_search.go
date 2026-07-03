@@ -105,8 +105,17 @@ func BigDiamondPatternSearchSAD(startDx, startDy int,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
+	return BigDiamondPatternSearchSADWithBatch(startDx, startDy, startSad,
+		startScore, stepParam, limits, sadAt, nil, scoreMv)
+}
+
+func BigDiamondPatternSearchSADWithBatch(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *MvLimits,
+	sadAt func(dx, dy int) (uint64, bool), sadAt4 PatternSAD4Func,
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
 	return patternSearchSAD(startDx, startDy, startSad, startScore,
-		stepParam, true, limits, sadAt, scoreMv,
+		stepParam, true, limits, sadAt, sadAt4, scoreMv,
 		&bigDiamondPatternCandidateCounts, &bigDiamondPatternCandidates)
 }
 
@@ -115,8 +124,17 @@ func HexPatternSearchSAD(startDx, startDy int,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
+	return HexPatternSearchSADWithBatch(startDx, startDy, startSad,
+		startScore, stepParam, limits, sadAt, nil, scoreMv)
+}
+
+func HexPatternSearchSADWithBatch(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *MvLimits,
+	sadAt func(dx, dy int) (uint64, bool), sadAt4 PatternSAD4Func,
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
 	return patternSearchSAD(startDx, startDy, startSad, startScore,
-		stepParam, true, limits, sadAt, scoreMv,
+		stepParam, true, limits, sadAt, sadAt4, scoreMv,
 		&hexPatternCandidateCounts, &hexPatternCandidates)
 }
 
@@ -125,8 +143,17 @@ func SquarePatternSearchSAD(startDx, startDy int,
 	sadAt func(dx, dy int) (uint64, bool),
 	scoreMv func(dx, dy int, sad uint64) uint64,
 ) (int, int, uint64, uint64) {
+	return SquarePatternSearchSADWithBatch(startDx, startDy, startSad,
+		startScore, stepParam, limits, sadAt, nil, scoreMv)
+}
+
+func SquarePatternSearchSADWithBatch(startDx, startDy int,
+	startSad, startScore uint64, stepParam int, limits *MvLimits,
+	sadAt func(dx, dy int) (uint64, bool), sadAt4 PatternSAD4Func,
+	scoreMv func(dx, dy int, sad uint64) uint64,
+) (int, int, uint64, uint64) {
 	return patternSearchSAD(startDx, startDy, startSad, startScore,
-		stepParam, true, limits, sadAt, scoreMv,
+		stepParam, true, limits, sadAt, sadAt4, scoreMv,
 		&squarePatternCandidateCounts, &squarePatternCandidates)
 }
 
@@ -281,7 +308,7 @@ func fastPatternSearchSAD(startDx, startDy int,
 func patternSearchSAD(startDx, startDy int,
 	startSad, startScore uint64, stepParam int, doInitSearch bool,
 	limits *MvLimits,
-	sadAt func(dx, dy int) (uint64, bool),
+	sadAt func(dx, dy int) (uint64, bool), sadAt4 PatternSAD4Func,
 	scoreMv func(dx, dy int, sad uint64) uint64,
 	candidateCounts *[MaxMvSearchSteps]int,
 	candidates *[MaxMvSearchSteps][8]fullpelPatternCandidate,
@@ -321,6 +348,67 @@ func patternSearchSAD(startDx, startDy int,
 		bestScore = score
 		*bestSite = site
 	}
+	checkBetter4 := func(s int, sites [4]int, rows [4]int, cols [4]int,
+		bestSite *int,
+	) bool {
+		if sadAt4 == nil {
+			return false
+		}
+		searchRange := 1 << s
+		boundsOK := limits.FullpelBoundsOK(br, bc, searchRange)
+		for i := range 4 {
+			if rows[i] == br && cols[i] == bc {
+				return false
+			}
+			if !boundsOK && !limits.InFullpelRange(rows[i], cols[i]) {
+				return false
+			}
+		}
+		sad0, sad1, sad2, sad3, ok := sadAt4(cols[0], rows[0], cols[1],
+			rows[1], cols[2], rows[2], cols[3], rows[3])
+		if !ok {
+			return false
+		}
+		sads := [4]uint64{sad0, sad1, sad2, sad3}
+		for i, sad := range sads {
+			if sad >= bestScore {
+				continue
+			}
+			score := scoreMv(cols[i], rows[i], sad)
+			if score >= bestScore {
+				continue
+			}
+			bestSad = sad
+			bestScore = score
+			*bestSite = sites[i]
+		}
+		return true
+	}
+	checkCandidateList := func(s int, count int, bestSite *int) {
+		i := 0
+		for i+4 <= count {
+			var sites, rows, cols [4]int
+			for j := range 4 {
+				site := i + j
+				c := candidates[s][site]
+				sites[j] = site
+				rows[j] = br + c.row
+				cols[j] = bc + c.col
+			}
+			if checkBetter4(s, sites, rows, cols, bestSite) {
+				i += 4
+				continue
+			}
+			for j := range 4 {
+				checkBetter(s, sites[j], rows[j], cols[j], bestSite)
+			}
+			i += 4
+		}
+		for ; i < count; i++ {
+			c := candidates[s][i]
+			checkBetter(s, i, br+c.row, bc+c.col, bestSite)
+		}
+	}
 
 	if doInitSearch {
 		s := bestInitS
@@ -328,10 +416,7 @@ func patternSearchSAD(startDx, startDy int,
 		for t := 0; t <= s; t++ {
 			bestSite := -1
 			numCandidates := candidateCounts[t]
-			for i := range numCandidates {
-				c := candidates[t][i]
-				checkBetter(t, i, br+c.row, bc+c.col, &bestSite)
-			}
+			checkCandidateList(t, numCandidates, &bestSite)
 			if bestSite != -1 {
 				bestInitS = t
 				k = bestSite
@@ -353,10 +438,7 @@ func patternSearchSAD(startDx, startDy int,
 		numCandidates := candidateCounts[s]
 		if !doInitSearch || s != bestInitS {
 			bestSite = -1
-			for i := range numCandidates {
-				c := candidates[s][i]
-				checkBetter(s, i, br+c.row, bc+c.col, &bestSite)
-			}
+			checkCandidateList(s, numCandidates, &bestSite)
 			if bestSite == -1 {
 				continue
 			}

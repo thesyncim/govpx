@@ -412,6 +412,53 @@ func subPixelVarianceSimd16x16(src []uint8, srcOff, srcStride, xOffset, yOffset 
 	return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
 }
 
+func subPixelVarianceSimd32x32(src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) (uint32, bool) {
+	if xOffset < 0 || xOffset > 7 || yOffset < 0 || yOffset > 7 {
+		return 0, false
+	}
+	if xOffset == 0 && yOffset == 0 {
+		if v, ok := varianceSimd16xN(src, srcOff, srcStride, ref, refOff, refStride, 32, 32, sse); ok {
+			return v, true
+		}
+		return 0, false
+	}
+	if !subpelVarWindowOK(src, srcOff, srcStride, 32, 32) ||
+		!varWindowOK(ref, refOff, refStride, 32, 32) {
+		return 0, false
+	}
+
+	srcPtr := unsafe.SliceData(src[srcOff:])
+	var tmp [32 * 32]byte
+	temp := tmp[:]
+	if yOffset == 0 {
+		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 32, 32, 1) {
+			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), 32, 32, xOffset)
+		}
+		return finalVarianceFromBlock(temp, 32, 32, ref, refOff, refStride, sse), true
+	}
+	if xOffset == 0 {
+		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
+			unsafe.SliceData(temp), 32, 32, srcStride) {
+			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), 32, 32, yOffset)
+		}
+		return finalVarianceFromBlock(temp, 32, 32, ref, refOff, refStride, sse), true
+	}
+
+	var fdata [32 * 33]byte
+	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
+		unsafe.SliceData(fdata[:]), 32, 33, 1) {
+		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata[:]), 32, 33, xOffset)
+	}
+	if yOffset != 4 || !runAveragePass(unsafe.SliceData(fdata[:]), 32,
+		unsafe.SliceData(temp), 32, 32, 32) {
+		runSecondPass(unsafe.SliceData(fdata[:]), unsafe.SliceData(temp), 32, 32, yOffset)
+	}
+	return finalVarianceFromBlock(temp, 32, 32, ref, refOff, refStride, sse), true
+}
+
 // Size-specialised dispatchers. Each tries the NEON path first.
 
 func subPixelVariance64x64(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
@@ -433,7 +480,7 @@ func subPixelVariance32x64(src []uint8, srcOff, srcStride, xOffset, yOffset int,
 	return subPixelVarianceScalar(32, 64, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)
 }
 func subPixelVariance32x32(src []uint8, srcOff, srcStride, xOffset, yOffset int, ref []uint8, refOff, refStride int, sse *uint32) uint32 {
-	if v, ok := subPixelVarianceSimd(32, 32, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
+	if v, ok := subPixelVarianceSimd32x32(src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse); ok {
 		return v
 	}
 	return subPixelVarianceScalar(32, 32, src, srcOff, srcStride, xOffset, yOffset, ref, refOff, refStride, sse)

@@ -1,6 +1,8 @@
 package encoder
 
 import (
+	"unsafe"
+
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -73,7 +75,9 @@ type WriteCoefBlockArgs struct {
 // written.
 func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	maxEob := vp9dec.MaxEobForTxSize(a.TxSize)
-	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)
+	scan := a.Scan[:maxEob]
+	bandTrans := vp9dec.BandTranslateForTxSize(a.TxSize)[:maxEob]
+	_ = a.Neighbors[(maxEob<<1)-1]
 	dq := [2]int16{a.DequantDC, a.DequantAC}
 	qcoeffs := a.QCoeffs
 	if len(qcoeffs) < maxEob {
@@ -84,93 +88,151 @@ func WriteCoefBlock(bw *bitstream.Writer, a WriteCoefBlockArgs) error {
 	eob := 0
 	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
 		eob = a.KnownEOB
+	} else if qcoeffs != nil {
+		eob = coeffBlockEOBCompleteQCoeffWindow(scan, maxEob, qcoeffs)
 	} else {
-		eob = coeffBlockEOBEncode(a.Scan, maxEob, a.Coeffs, qcoeffs)
+		eob = coeffBlockEOBEncode(scan, maxEob, a.Coeffs, qcoeffs)
 	}
 	if a.EOB != nil {
 		*a.EOB = eob
 	}
 
 	coefModel := &a.Fc[a.TxSize][a.PlaneType][a.IsInter]
+	branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize,
+		a.PlaneType, a.IsInter)
 	tokenCache := a.TokenCache
 	if tokenCache == nil {
 		var local [1024]uint8
 		tokenCache = &local
 	}
 	ctx := a.InitCtx
-	bandIdx := 0
 
 	c := 0
 	for c < maxEob {
-		band := int(bandTrans[bandIdx])
-		bandIdx++
+		band := int(bandTrans[c])
 		probs := &coefModel[band][ctx]
-		branchStats := coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
-			a.PlaneType, a.IsInter, band, ctx)
+		branchStats := coefBranchStatsSlot(branchStatsRows, band, ctx)
 		if c == eob {
-			recordCoefBranch(branchStats, 0, 0)
+			recordCoefBranch00(branchStats)
 			bw.Write(0, uint32(probs[0])) // EOB
 			return nil
 		}
-		recordCoefBranch(branchStats, 0, 1)
+		recordCoefBranch01(branchStats)
 		bw.Write(1, uint32(probs[0])) // not EOB
 
 		// ZERO inner loop: mirror the decoder, which reads only the
 		// ZERO bit (no fresh EOB) for each zero in a run.
-		for !CoeffBlockHasCoeff(a.Scan, c, a.Coeffs, qcoeffs) {
-			recordCoefBranch(branchStats, 1, 0)
+		raster := int(scan[c])
+		for !coeffBlockHasCoeffAtRaster(raster, a.Coeffs, qcoeffs) {
+			recordCoefBranch10(branchStats)
 			bw.Write(0, uint32(probs[1])) // ZERO
-			tokenCache[a.Scan[c]] = 0
+			tokenCacheSet(tokenCache, raster, 0)
 			c++
 			if c >= maxEob {
 				return nil
 			}
-			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
-			band = int(bandTrans[bandIdx])
-			bandIdx++
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+			band = int(bandTrans[c])
 			probs = &coefModel[band][ctx]
-			branchStats = coefBranchStatsSlot(a.CoefBranchStats, a.TxSize,
-				a.PlaneType, a.IsInter, band, ctx)
+			branchStats = coefBranchStatsSlot(branchStatsRows, band, ctx)
+			raster = int(scan[c])
 		}
 
 		// Non-zero at c.
-		recordCoefBranch(branchStats, 1, 1)
+		recordCoefBranch11(branchStats)
 		bw.Write(1, uint32(probs[1])) // not ZERO
 
-		raster := a.Scan[c]
 		dqv := dq[1]
 		if c == 0 {
 			dqv = dq[0]
 		}
-		absVal, sign := CoeffMagnitudeAndSign(qcoeffs, int(raster),
-			a.Coeffs[raster], dqv, a.TxSize == common.Tx32x32)
-		writeTokenForCoeff(bw, probs[:], absVal, sign, branchStats)
+		var absVal, sign int
+		if qcoeffs != nil {
+			absVal, sign = coeffMagnitudeAndSignQ(qcoeffAt(qcoeffs, raster))
+		} else {
+			absVal, sign = coeffMagnitudeAndSignDQ(a.Coeffs[raster],
+				dqv, a.TxSize == common.Tx32x32)
+		}
+		writeTokenForCoeff(bw, probs, absVal, sign, branchStats)
 
 		switch {
 		case absVal == 1:
-			tokenCache[raster] = 1
+			tokenCacheSet(tokenCache, raster, 1)
 		case absVal == 2:
-			tokenCache[raster] = 2
+			tokenCacheSet(tokenCache, raster, 2)
 		case absVal == 3 || absVal == 4:
-			tokenCache[raster] = 3
+			tokenCacheSet(tokenCache, raster, 3)
 		case absVal <= 10:
-			tokenCache[raster] = 4
+			tokenCacheSet(tokenCache, raster, 4)
 		default:
-			tokenCache[raster] = 5
+			tokenCacheSet(tokenCache, raster, 5)
 		}
 		c++
 		if c < maxEob {
-			ctx = vp9dec.GetCoefContext(a.Neighbors, tokenCache, c)
+			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
 		}
 	}
 	return nil
 }
 
+func tokenCacheSet(tokenCache *[1024]uint8, raster int, v uint8) {
+	tokenCache[raster&1023] = v
+}
+
+func tokenCacheContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
+	off := c << 1
+	// Production callers preflight neighbors for the full transform window.
+	// The VP9 scan-neighbor tables contain token-cache positions in [0,1023],
+	// mirroring libvpx's unchecked table indexing in get_coef_context.
+	neighborPtr := unsafe.SliceData(neighbors)
+	byteOff := uintptr(off) * unsafe.Sizeof(int16(0))
+	aIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff))
+	bIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff+unsafe.Sizeof(int16(0))))
+	a := tokenCache[int(aIdx)&1023]
+	b := tokenCache[int(bIdx)&1023]
+	return (1 + int(a) + int(b)) >> 1
+}
+
+func qcoeffAt(qcoeffs []int16, raster int) int16 {
+	// Full-window coefficient callers have already checked qcoeff length and
+	// use VP9 scan tables whose raster entries are within the transform area.
+	ptr := unsafe.SliceData(qcoeffs)
+	return *(*int16)(unsafe.Add(unsafe.Pointer(ptr), uintptr(raster)*unsafe.Sizeof(int16(0))))
+}
+
+func coeffBlockEOBCompleteQCoeffWindow(scan []int16, maxEob int, qcoeffs []int16) int {
+	_ = scan[maxEob-1]
+	_ = qcoeffs[maxEob-1]
+	for i := maxEob - 1; i >= 0; i-- {
+		if qcoeffAt(qcoeffs, int(scan[i])) != 0 {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+type coefBranchStatsRows = [vp9dec.CoefBands][vp9dec.CoefContexts][EntropyNodes][2]uint32
+
+func coefBranchStatsRowsFor(
+	stats *FrameCoefBranchStats, tx common.TxSize, planeType, isInter int,
+) *coefBranchStatsRows {
+	if stats == nil {
+		return nil
+	}
+	return &stats[tx][planeType][isInter]
+}
+
 func coefBranchStatsSlot(
-	stats *FrameCoefBranchStats, tx common.TxSize, planeType, isInter, band, ctx int,
+	stats *coefBranchStatsRows, band, ctx int,
 ) *[EntropyNodes][2]uint32 {
 	if stats == nil {
 		return nil
 	}
-	return &stats[tx][planeType][isInter][band][ctx]
+	// band is from the VP9 coefficient band tables and ctx is the
+	// coefficient context (0..CoefContexts-1), matching the unchecked
+	// libvpx count-slot access in tokenize_b.
+	bandStride := unsafe.Sizeof([vp9dec.CoefContexts][EntropyNodes][2]uint32{})
+	ctxStride := unsafe.Sizeof([EntropyNodes][2]uint32{})
+	off := uintptr(band)*bandStride + uintptr(ctx)*ctxStride
+	return (*[EntropyNodes][2]uint32)(unsafe.Add(unsafe.Pointer(stats), off))
 }

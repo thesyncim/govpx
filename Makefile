@@ -27,6 +27,8 @@ VPXENC_VP9_CALLSTATS := $(CORACLE_BUILD)/vpxenc-vp9-callstats
 VPXENC_VP9_FRAMEFLAGS := $(CORACLE_BUILD)/vpxenc-vp9-frameflags
 VP9_SPATIAL_SVC_ENCODER := $(CORACLE_BUILD)/vp9_spatial_svc_encoder
 VPX_TEMPORAL_SVC_ENCODER := $(CORACLE_BUILD)/vpx_temporal_svc_encoder
+VP9_LIBVPX_CONFIG := $(CORACLE_BUILD)/libvpx-v1.16.0-vp9/vpx_config.h
+VP9_TOOLS_CONFIG := $(CORACLE_BUILD)/libvpx-v1.16.0-vpxdec-vp9/vpx_config.h
 VP8_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp8
 VP9_TEST_DATA_DIR := $(CORACLE_BUILD)/test-data/vp9
 VP8_ENCODER_SOURCE_DIR := $(CORACLE_BUILD)/test-data/encoder
@@ -184,6 +186,7 @@ $(VPXENC):
 # Run this when libvpx is updated or vp9_dsp_oracle.c changes.
 vp9-dsp-oracle:
 	internal/coracle/build_libvpx_vp9.sh >/dev/null
+	grep -q '^#define CONFIG_VP9_TEMPORAL_DENOISING 1$$' "$(VP9_LIBVPX_CONFIG)"
 	"$(VP9_DSP_ORACLE_BIN)" > "$(VP9_DSP_TESTDATA).tmp"
 	mv "$(VP9_DSP_TESTDATA).tmp" "$(VP9_DSP_TESTDATA)"
 	printf 'wrote %s\n' "$(VP9_DSP_TESTDATA)"
@@ -221,9 +224,10 @@ test-conformance: vp9-vpxdec-tools fetch-vp9-test-data
 pgo-refresh:
 	mkdir -p .pgo
 	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) build -pgo=off -o .pgo/govpx-bench-pgo ./cmd/govpx-bench
-	./.pgo/govpx-bench-pgo -width=1920 -height=1080 -frames=180 -fps=30 -bitrate=4000 -mode=realtime -cpu-used=8 -encode-only -cpuprofile=.pgo/encode.pgo >/dev/null
-	./.pgo/govpx-bench-pgo -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -cpuprofile=.pgo/quality.pgo >/dev/null
-	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) tool pprof -proto .pgo/encode.pgo .pgo/quality.pgo > "$(PGO_PROFILE).tmp"
+	./.pgo/govpx-bench-pgo -width=1920 -height=1080 -frames=180 -fps=30 -bitrate=4000 -mode=realtime -cpu-used=8 -encode-only -cpuprofile=.pgo/vp8-encode.pgo >/dev/null
+	./.pgo/govpx-bench-pgo -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -cpuprofile=.pgo/vp8-quality.pgo >/dev/null
+	./.pgo/govpx-bench-pgo -codec=vp9 -width=1280 -height=720 -frames=120 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -threads=1 -encode-only -cpuprofile=.pgo/vp9-realtime.pgo >/dev/null
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO) tool pprof -proto .pgo/vp8-encode.pgo .pgo/vp8-quality.pgo .pgo/vp9-realtime.pgo > "$(PGO_PROFILE).tmp"
 	mv "$(PGO_PROFILE).tmp" "$(PGO_PROFILE)"
 	rm -rf .pgo
 	$(MAKE) pgo-update-fingerprint
@@ -238,7 +242,7 @@ pgo-check:
 	actual="$$(scripts/pgo-fingerprint.sh)"; \
 	expected="$$(cat "$(PGO_FINGERPRINT)")"; \
 	if [ "$$actual" != "$$expected" ]; then \
-		printf '%s\n' "PGO profile is out of sync with VP8 benchmark hot-path sources."; \
+		printf '%s\n' "PGO profile is out of sync with benchmark hot-path sources."; \
 		printf '%s\n' "Before committing, run: make pgo-refresh"; \
 		printf '%s\n' "Then rerun: make pre-commit"; \
 		printf 'expected %s\nactual   %s\n' "$$expected" "$$actual"; \
@@ -407,6 +411,7 @@ oracle-tools: $(ORACLE)
 vp9-vpxdec-tools:
 	internal/coracle/build_vpxdec_vp9.sh >/dev/null
 	sh internal/coracle/build_vpxenc_vp9_frameflags.sh >/dev/null
+	grep -q '^#define CONFIG_VP9_TEMPORAL_DENOISING 1$$' "$(VP9_TOOLS_CONFIG)"
 	test -x "$(VPXDEC_VP9)"
 	test -x "$(VPXENC_VP9)"
 	test -x "$(VPXENC_VP9_CALLSTATS)"

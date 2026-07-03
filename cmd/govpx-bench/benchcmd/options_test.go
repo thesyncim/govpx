@@ -5,6 +5,7 @@ import (
 	"fmt"
 	govpx "github.com/thesyncim/govpx"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -251,11 +252,53 @@ func TestLibvpxVP9ParityFlagsMirrorRealtimeDenoiseDefaultLayout(t *testing.T) {
 	if opts.Threads != 0 {
 		t.Fatalf("vp9 govpx auto Threads = %d, want 0", opts.Threads)
 	}
-	if threadHint != 1 {
-		t.Fatalf("vp9 denoise default effective threads = %d, want 1", threadHint)
+	if runtime.NumCPU() >= 2 && threadHint <= 1 {
+		t.Fatalf("vp9 denoise default effective threads = %d, want threaded layout", threadHint)
 	}
 	if parity.NoiseSensitivity != 4 {
 		t.Fatalf("vp9 default NoiseSensitivity = %d, want 4", parity.NoiseSensitivity)
+	}
+}
+
+func TestLibvpxVP9ParityFlagsMirrorExplicitThreadsDenoiseThreadedLayout(t *testing.T) {
+	cfg := benchConfig{
+		Codec:       codecVP9,
+		Width:       1280,
+		Height:      720,
+		Frames:      30,
+		FPS:         30,
+		BitrateKbps: 1200,
+		Mode:        "realtime",
+		Threads:     4,
+		CpuUsed:     8,
+	}
+	parity := parityFor(cfg)
+	threadHint, log2TileCols := vp9LibvpxThreadLayout(cfg, parity)
+	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
+
+	required := []string{
+		"--threads=4",
+		"--tile-columns=2",
+		"--noise-sensitivity=4",
+	}
+	have := make(map[string]bool, len(flags))
+	for _, flag := range flags {
+		have[flag] = true
+	}
+	for _, want := range required {
+		if !have[want] {
+			t.Fatalf("vp9 denoise explicit-threads flags missing %q\nhave: %v", want, flags)
+		}
+	}
+	if threadHint != 4 || log2TileCols != 2 {
+		t.Fatalf("vp9 denoise explicit-threads layout = threads:%d log2cols:%d, want 4/2",
+			threadHint, log2TileCols)
+	}
+
+	opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if opts.Threads != 4 || opts.NoiseSensitivity != 4 {
+		t.Fatalf("vp9 govpx caller options threads/noise = %d/%d, want 4/4",
+			opts.Threads, opts.NoiseSensitivity)
 	}
 }
 

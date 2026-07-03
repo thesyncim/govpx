@@ -8,9 +8,6 @@ type choosePartitioningStatsArg struct {
 	Stats *ChoosePartitioningStats
 }
 
-func choosePartitioningStats(a *ChoosePartitioningArgs) *ChoosePartitioningStats {
-	if a == nil {
-		return nil
-	}
+func choosePartitioningStats(a choosePartitioningStatsArg) *ChoosePartitioningStats {
 	return a.Stats
 }

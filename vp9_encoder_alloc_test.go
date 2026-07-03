@@ -485,3 +485,111 @@ func TestVP9EncoderEncodeIntoRejectsTinyBuffer(t *testing.T) {
 		t.Fatalf("tiny EncodeInto error = %v, want ErrBufferTooSmall", err)
 	}
 }
+
+func TestCopyVP9LookaheadImageMatchesRowLoop(t *testing.T) {
+	tests := []struct {
+		name          string
+		width, height int
+		yStride       int
+		cStride       int
+	}{
+		{name: "contiguous_720p", width: 1280, height: 720},
+		{name: "padded", width: 19, height: 17, yStride: 24, cStride: 16},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			src := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			got := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			want := newVP9CopyTestImage(tc.width, tc.height, tc.yStride, tc.cStride)
+			for i := range src.Y {
+				src.Y[i] = byte(i*17 + 3)
+			}
+			for i := range src.Cb {
+				src.Cb[i] = byte(i*11 + 5)
+				src.Cr[i] = byte(i*7 + 9)
+			}
+			for i := range got.Y {
+				got.Y[i] = 0xa5
+				want.Y[i] = 0xa5
+			}
+			for i := range got.Cb {
+				got.Cb[i], got.Cr[i] = 0x5a, 0x33
+				want.Cb[i], want.Cr[i] = 0x5a, 0x33
+			}
+
+			copyVP9LookaheadImage(&got, &src, tc.width, tc.height)
+			copyVP9LookaheadImageRowLoopTest(&want, &src, tc.width, tc.height)
+			if !bytes.Equal(got.Y, want.Y) ||
+				!bytes.Equal(got.Cb, want.Cb) ||
+				!bytes.Equal(got.Cr, want.Cr) {
+				t.Fatal("copyVP9LookaheadImage mismatch")
+			}
+		})
+	}
+}
+
+var benchmarkVP9LookaheadCopySink byte
+
+func BenchmarkCopyVP9LookaheadImage(b *testing.B) {
+	const width, height = 1280, 720
+	src := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	dst := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	for i := range src.Y {
+		src.Y[i] = byte(i)
+	}
+	for i := range src.Cb {
+		src.Cb[i] = byte(i * 3)
+		src.Cr[i] = byte(i * 5)
+	}
+	bytesPerImage := width*height + 2*((width+1)>>1)*((height+1)>>1)
+	for _, tc := range []struct {
+		name string
+		copy func(*image.YCbCr, *image.YCbCr, int, int)
+	}{
+		{name: "row_loop", copy: copyVP9LookaheadImageRowLoopTest},
+		{name: "visible_plane", copy: copyVP9LookaheadImage},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(bytesPerImage))
+			for b.Loop() {
+				tc.copy(dst, src, width, height)
+			}
+			benchmarkVP9LookaheadCopySink ^= dst.Y[0]
+		})
+	}
+}
+
+func newVP9CopyTestImage(width, height, yStride, cStride int) image.YCbCr {
+	if yStride == 0 {
+		yStride = width
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	if cStride == 0 {
+		cStride = uvWidth
+	}
+	return image.YCbCr{
+		Y:              make([]byte, yStride*height),
+		Cb:             make([]byte, cStride*uvHeight),
+		Cr:             make([]byte, cStride*uvHeight),
+		YStride:        yStride,
+		CStride:        cStride,
+		SubsampleRatio: image.YCbCrSubsampleRatio420,
+		Rect:           image.Rect(0, 0, width, height),
+	}
+}
+
+func copyVP9LookaheadImageRowLoopTest(dst *image.YCbCr, src *image.YCbCr,
+	width int, height int,
+) {
+	for y := range height {
+		copy(dst.Y[y*dst.YStride:][:width], src.Y[y*src.YStride:][:width])
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		copy(dst.Cb[y*dst.CStride:][:uvWidth], src.Cb[y*src.CStride:][:uvWidth])
+		copy(dst.Cr[y*dst.CStride:][:uvWidth], src.Cr[y*src.CStride:][:uvWidth])
+	}
+}

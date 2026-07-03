@@ -108,20 +108,20 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	}
 	useSubpelTree := nonrdSubpelTree || e.vp9InterSubpelSearchUsesTree()
 	if useSubpelTree {
-		if variance, ok := e.vp9InterPredictionSubpelVariance(inter, miRow,
-			miCol, bsize, refFrame, best); ok {
+		subpel, ok := e.vp9InterPredictionSubpelVarianceScorer(inter,
+			miRows, miCols, miRow, miCol, bsize, refFrame)
+		if !ok {
+			return best, bestScore
+		}
+		if variance, _, ok := subpel.varianceSSE(best); ok {
 			bestScore = variance + mvCost(best)
 		}
-	} else {
-		if dist, ok := e.vp9InterPredictionDistortion(inter, miRows, miCols,
-			miRow, miCol, bsize, common.NewMv, refFrame, best,
-			vp9dec.InterpEighttap); ok {
-			bestScore = dist + mvCost(best)
-		} else {
-			bestScore = bestSad + mvCost(best)
-		}
+		return e.refineVP9InterSubpelMvTreeWithScorer(subpel, best, bestScore,
+			refMv, allowHP, mvCost)
 	}
 	if !useSubpelTree {
+		// The square walker mirrors libvpx's SAD-scored subpel search; later
+		// mode scoring rebuilds the chosen predictor when it needs SSE.
 		bestScore = bestSad + mvCost(best)
 		iters := 0
 		for step := int16(4); step >= minStep; step >>= 1 {
@@ -164,18 +164,17 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		}
 		return best, bestScore
 	}
-	return e.refineVP9InterSubpelMvTree(inter, miRows, miCols, miRow, miCol,
-		bsize, refFrame, best, bestScore, refMv, allowHP, mvCost)
+	return best, bestScore
 }
 
-func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	refFrame int8, best vp9dec.MV, bestScore uint64, refMv vp9dec.MV, allowHP bool,
+func (e *VP9Encoder) refineVP9InterSubpelMvTreeWithScorer(subpel vp9SubpelVarianceScorer,
+	best vp9dec.MV, bestScore uint64, refMv vp9dec.MV, allowHP bool,
 	mvCost func(vp9dec.MV) uint64,
 ) (vp9dec.MV, uint64) {
 	// Verbatim shape of libvpx vp9_find_best_sub_pixel_tree:
 	// vp9_mcomp.c:721-925. MVs are already in 1/8-pel units here.
-	umvLimits := encoder.EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
+	umvLimits := encoder.EncoderMvLimits(subpel.miRows, subpel.miCols,
+		subpel.miRow, subpel.miCol, subpel.bsize)
 	var subpelLimits encoder.MvLimits
 	encoder.SetSubpelMvSearchRange(&subpelLimits, &umvLimits, &refMv)
 
@@ -193,8 +192,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMvTree(inter *vp9InterEncodeState,
 			return 0, false
 		}
 		cand := vp9dec.MV{Row: int16(row), Col: int16(col)}
-		dist, ok := e.vp9InterPredictionSubpelVariance(inter, miRow, miCol,
-			bsize, refFrame, cand)
+		dist, _, ok := subpel.varianceSSE(cand)
 		if !ok {
 			return 0, false
 		}
@@ -323,18 +321,24 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 	filter vp9dec.InterpFilter, limit uint64,
 ) (uint64, bool) {
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
-	dst, dstStride := e.vp9EncoderReconPlane(0)
-	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+	recon, reconStride := e.vp9EncoderReconPlane(0)
+	if len(src) == 0 || len(recon) == 0 || srcStride <= 0 || reconStride <= 0 {
 		return 0, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
-	dstRows := len(dst) / dstStride
+	reconRows := len(recon) / reconStride
 	scoreW, scoreH, ok := encoder.VisibleInterScoreBlock(x0, y0, blockW, blockH,
-		srcW, srcH, dstStride, dstRows)
+		srcW, srcH, reconStride, reconRows)
 	if !ok {
+		return 0, false
+	}
+	// Motion-search SAD only consults luma; build the candidate into a compact
+	// pick buffer instead of the live reconstruction plane. This mirrors the
+	// libvpx vp9_build_inter_predictors_sby + cpi->fn_ptr[bsize].sdf flow.
+	if blockW*blockH > len(e.blockScratch) {
 		return 0, false
 	}
 	mi := vp9dec.NeighborMi{
@@ -347,15 +351,14 @@ func (e *VP9Encoder) vp9InterPredictionSAD(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	// Motion-search SAD only consults luma; skip chroma reconstruction
-	// to cut ~30% of convolve8 work per candidate. libvpx mirrors this
-	// in nonrd_pickmode via vp9_build_inter_predictors_sby.
-	// libvpx: vp9/encoder/vp9_pickmode.c:2336.
-	if !e.predictVP9InterBlockLumaOnly(inter, miRows, miCols, miRow, miCol, bsize, &mi) {
+	pred := e.blockScratch[:blockW*blockH]
+	if !e.predictVP9InterBlockLumaToScratch(inter, miRow, miCol, bsize, &mi,
+		pred, blockW) {
 		return 0, false
 	}
-	return encoder.BlockSAD(src, srcStride, dst, dstStride,
-		x0, y0, x0, y0, scoreW, scoreH, limit), true
+	srcOff := y0*srcStride + x0
+	return encoder.BlockSADOffsets(src, srcOff, srcStride, pred, 0, blockW,
+		scoreW, scoreH, limit), true
 }
 
 // vp9NonrdUVVarianceSSE rebuilds the UV inter prediction (assuming the Y
@@ -498,22 +501,47 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSEForFilterSearch(
 		bsize, mode, refFrame, mv, filter, true)
 }
 
+func (e *VP9Encoder) vp9InterPredictionVarianceSSEForFilterSearchTo(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, dst []byte, dstStride int,
+) (variance, sse uint64, ok bool) {
+	return e.vp9InterPredictionVarianceSSETo(inter, miRows, miCols, miRow, miCol,
+		bsize, mode, refFrame, mv, filter, dst, dstStride)
+}
+
 func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
 	inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
 	filter vp9dec.InterpFilter, _ bool,
 ) (variance, sse uint64, ok bool) {
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	return e.vp9InterPredictionVarianceSSETo(inter, miRows, miCols, miRow, miCol,
+		bsize, mode, refFrame, mv, filter, e.blockScratch[:], blockW)
+}
+
+func (e *VP9Encoder) vp9InterPredictionVarianceSSETo(
+	inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
+	filter vp9dec.InterpFilter, dst []byte, dstStride int,
+) (variance, sse uint64, ok bool) {
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseIncInterPredictionVariance()
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
-	dst, dstStride := e.vp9EncoderReconPlane(0)
-	if len(src) == 0 || len(dst) == 0 || srcStride <= 0 || dstStride <= 0 {
+	if len(src) == 0 || srcStride <= 0 {
 		return 0, 0, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	needed := blockH * dstStride
+	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
+		needed > len(dst) {
+		return 0, 0, false
+	}
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	mi := vp9dec.NeighborMi{
@@ -526,12 +554,13 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSEOpts(
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
-	if !e.predictVP9InterBlockLumaOnly(inter, miRows, miCols, miRow, miCol,
-		bsize, &mi) {
+	pred := dst[:needed]
+	if !e.predictVP9InterBlockLumaToScratch(inter, miRow, miCol, bsize, &mi,
+		pred, dstStride) {
 		return 0, 0, false
 	}
 	return encoder.BlockDiffVarianceSSEClampedSource(src, srcStride, srcW, srcH,
-		dst, dstStride, x0, y0, x0, y0, blockW, blockH)
+		pred, dstStride, x0, y0, 0, 0, blockW, blockH)
 }
 
 func (e *VP9Encoder) vp9InterPredictionBorderedConvolveVarianceSSE(
@@ -604,6 +633,10 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	if !e.subpelRefBorderedValid[slot] ||
 		e.subpelRefBordered[slot].W != w ||
 		e.subpelRefBordered[slot].H != h {
+		if e.subpelRefBorderedShared[slot] {
+			e.subpelRefBordered[slot] = common.YV12BorderBuffer{}
+			e.subpelRefBorderedShared[slot] = false
+		}
 		common.YV12BuildBorderedPlane(&e.subpelRefBordered[slot], plane,
 			planeStride, w, h, common.VP9EncBorderInPixels)
 		e.subpelRefBorderedValid[slot] = true
@@ -611,6 +644,24 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	return e.subpelRefBordered[slot].Pixels, e.subpelRefBordered[slot].Stride,
 		e.subpelRefBordered[slot].OriginX(), e.subpelRefBordered[slot].OriginY(),
 		w, h, true
+}
+
+func (e *VP9Encoder) prepareVP9SharedSubpelRefBordered(refMask uint8) {
+	if e == nil {
+		return
+	}
+	for _, refFrame := range [...]int8{vp9dec.GoldenFrame, vp9dec.AltrefFrame} {
+		if refMask&(1<<uint(refFrame)) == 0 {
+			continue
+		}
+		slot, ok := e.vp9ReferenceSlotForFrame(refFrame)
+		if !ok || slot == vp9LastRefSlot || slot < 0 ||
+			slot >= len(e.refFrames) || !e.refFrames[slot].valid {
+			continue
+		}
+		_, _, _, _, _, _, _ = e.vp9SubpelReferencePlane(refFrame,
+			&e.refFrames[slot])
+	}
 }
 
 func (e *VP9Encoder) vp9InterPredictionSubpelVariance(inter *vp9InterEncodeState,
@@ -621,93 +672,144 @@ func (e *VP9Encoder) vp9InterPredictionSubpelVariance(inter *vp9InterEncodeState
 	return variance, ok
 }
 
-func (e *VP9Encoder) vp9InterPredictionBorderedSubpelVarianceSSE(
+type vp9SubpelVarianceScorer struct {
+	src                          []byte
+	pre                          []byte
+	srcStride, preStride         int
+	preOriginX, preOriginY       int
+	preRows                      int
+	preMinX, preMinY             int
+	preMaxX, preMaxY             int
+	blockW, blockH               int
+	x0, y0, srcOff               int
+	miRows, miCols, miRow, miCol int
+	bsize                        common.BlockSize
+}
+
+func (e *VP9Encoder) vp9InterPredictionSubpelVarianceScorer(
 	inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
-) (variance, sse uint64, ok bool) {
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize, refFrame int8,
+) (vp9SubpelVarianceScorer, bool) {
 	if inter == nil || inter.img == nil || inter.ref == nil || !inter.ref.valid {
-		return 0, 0, false
+		return vp9SubpelVarianceScorer{}, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, 0)
 	pre, preStride, preOriginX, preOriginY, preW, preH, refOK :=
 		e.vp9SubpelReferencePlane(refFrame, inter.ref)
 	if len(src) == 0 || len(pre) == 0 || srcStride <= 0 || preStride <= 0 {
-		return 0, 0, false
+		return vp9SubpelVarianceScorer{}, false
 	}
 	if !refOK {
-		return 0, 0, false
+		return vp9SubpelVarianceScorer{}, false
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) {
-		return 0, 0, false
+		return vp9SubpelVarianceScorer{}, false
 	}
-	preX := x0 + (int(mv.Col) >> 3)
-	preY := y0 + (int(mv.Row) >> 3)
-	bufX := preOriginX + preX
-	bufY := preOriginY + preY
-	if bufX < 0 || bufY < 0 || bufX+blockW+1 > preStride ||
-		bufY+blockH+1 > len(pre)/preStride ||
-		preX < -preOriginX || preY < -preOriginY ||
-		preX+blockW+1 > preW+preOriginX ||
-		preY+blockH+1 > preH+preOriginY {
-		return 0, 0, false
-	}
-	srcOff := y0*srcStride + x0
-	preOff := bufY*preStride + bufX
+	return vp9SubpelVarianceScorer{
+		src:        src,
+		pre:        pre,
+		srcStride:  srcStride,
+		preStride:  preStride,
+		preOriginX: preOriginX,
+		preOriginY: preOriginY,
+		preRows:    len(pre) / preStride,
+		preMinX:    -preOriginX,
+		preMinY:    -preOriginY,
+		preMaxX:    preW + preOriginX,
+		preMaxY:    preH + preOriginY,
+		blockW:     blockW,
+		blockH:     blockH,
+		x0:         x0,
+		y0:         y0,
+		srcOff:     y0*srcStride + x0,
+		miRows:     miRows,
+		miCols:     miCols,
+		miRow:      miRow,
+		miCol:      miCol,
+		bsize:      bsize,
+	}, true
+}
+
+func (s vp9SubpelVarianceScorer) varianceSSE(mv vp9dec.MV) (variance, sse uint64, ok bool) {
+	preX := s.x0 + (int(mv.Col) >> 3)
+	preY := s.y0 + (int(mv.Row) >> 3)
 	xOffset := int(mv.Col) & 7
 	yOffset := int(mv.Row) & 7
+	bufX := s.preOriginX + preX
+	bufY := s.preOriginY + preY
+	if bufX < 0 || bufY < 0 || bufX+s.blockW+1 > s.preStride ||
+		bufY+s.blockH+1 > s.preRows ||
+		preX < s.preMinX || preY < s.preMinY ||
+		preX+s.blockW+1 > s.preMaxX ||
+		preY+s.blockH+1 > s.preMaxY {
+		return 0, 0, false
+	}
+	preOff := bufY*s.preStride + bufX
 	if xOffset == 0 && yOffset == 0 {
-		variance, sse := encoder.BlockDiffVarianceSSE(src, srcStride, pre, preStride,
-			x0, y0, bufX, bufY, blockW, blockH)
+		variance, sse := encoder.BlockDiffVarianceSSE(s.src, s.srcStride, s.pre, s.preStride,
+			s.x0, s.y0, bufX, bufY, s.blockW, s.blockH)
 		return variance, sse, true
 	}
 	var sse32 uint32
 	var variance32 uint32
-	switch bsize {
+	switch s.bsize {
 	case common.Block64x64:
-		variance32 = vp9dsp.VpxSubPixelVariance64x64(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance64x64(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block64x32:
-		variance32 = vp9dsp.VpxSubPixelVariance64x32(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance64x32(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block32x64:
-		variance32 = vp9dsp.VpxSubPixelVariance32x64(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance32x64(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block32x32:
-		variance32 = vp9dsp.VpxSubPixelVariance32x32(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance32x32(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block32x16:
-		variance32 = vp9dsp.VpxSubPixelVariance32x16(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance32x16(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block16x32:
-		variance32 = vp9dsp.VpxSubPixelVariance16x32(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance16x32(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block16x16:
-		variance32 = vp9dsp.VpxSubPixelVariance16x16(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance16x16(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block16x8:
-		variance32 = vp9dsp.VpxSubPixelVariance16x8(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance16x8(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block8x16:
-		variance32 = vp9dsp.VpxSubPixelVariance8x16(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance8x16(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block8x8:
-		variance32 = vp9dsp.VpxSubPixelVariance8x8(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance8x8(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block8x4:
-		variance32 = vp9dsp.VpxSubPixelVariance8x4(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance8x4(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block4x8:
-		variance32 = vp9dsp.VpxSubPixelVariance4x8(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance4x8(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	case common.Block4x4:
-		variance32 = vp9dsp.VpxSubPixelVariance4x4(pre, preOff, preStride,
-			xOffset, yOffset, src, srcOff, srcStride, &sse32)
+		variance32 = vp9dsp.VpxSubPixelVariance4x4(s.pre, preOff, s.preStride,
+			xOffset, yOffset, s.src, s.srcOff, s.srcStride, &sse32)
 	default:
 		return 0, 0, false
 	}
 	return uint64(variance32), uint64(sse32), true
+}
+
+func (e *VP9Encoder) vp9InterPredictionBorderedSubpelVarianceSSE(
+	inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
+) (variance, sse uint64, ok bool) {
+	scorer, ok := e.vp9InterPredictionSubpelVarianceScorer(inter, 0, 0,
+		miRow, miCol, bsize, refFrame)
+	if !ok {
+		return 0, 0, false
+	}
+	return scorer.varianceSSE(mv)
 }

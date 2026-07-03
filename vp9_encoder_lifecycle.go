@@ -381,6 +381,11 @@ type VP9Encoder struct {
 	// allocation.
 	subpelRefBordered      [common.RefFrames]common.YV12BorderBuffer
 	subpelRefBorderedValid [common.RefFrames]bool
+	// subpelRefBorderedShared marks worker clones whose non-LAST padded
+	// reference cache aliases the parent encoder for the current tile epoch.
+	// vp9SubpelReferencePlane detaches before any rebuild, matching the
+	// lastBordered shared-buffer contract.
+	subpelRefBorderedShared [common.RefFrames]bool
 
 	// intProSrcBordered is the per-encoder border-padded mirror of the
 	// current frame's source luma plane. choose_partitioning's int_pro
@@ -457,6 +462,8 @@ type VP9Encoder struct {
 	// after a resize (setup ResetResize + postencode forced GF).
 	cyclicResizeFramePending    bool
 	dqScratch                   vp9dec.DequantTables
+	dqFPY                       [vp9dec.MaxSegments]encoder.QuantizeFPTables
+	dqFPUv                      [vp9dec.MaxSegments]encoder.QuantizeFPTables
 	frameCounts                 encoder.FrameCounts
 	vp9TokenFrame               encoder.TokenFrameBuffer
 	vp9TokenCollect             vp9TokenCollectState
@@ -482,6 +489,14 @@ type VP9Encoder struct {
 	vp9LeafInterDecisionsRows int
 	vp9LeafInterDecisionsCols int
 	vp9LeafInterDecisionsVer  uint32
+	// vp9InterPartitionDecisions mirrors the normal count-pass to write-pass
+	// replay for inter partition-tree nodes. The count pass stores each chosen
+	// child block size; the write pass reads it back only when coding/token
+	// replay is active and safe.
+	vp9InterPartitionDecisions     []vp9InterPartitionDecisionEntry
+	vp9InterPartitionDecisionsRows int
+	vp9InterPartitionDecisionsCols int
+	vp9InterPartitionDecisionsVer  uint32
 	// vp9LeafInterRDDecisions is the SEARCH->WRITE replay cache for the
 	// depth-first full-RD inter partition recursion (pickVP9InterPartitionRD).
 	// Populated only while vp9InterUseDeepRDPartition is active: the search

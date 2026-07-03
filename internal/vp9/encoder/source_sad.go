@@ -47,9 +47,11 @@ func SourceSADSceneSamples(args SourceSADSceneSamplesArgs) (SourceSADSceneSample
 			if x+64 > args.Width || y+64 > args.Height {
 				continue
 			}
-			sad := BlockSAD(args.SourceY, args.SourceYStride,
-				args.LastSourceY, args.LastSourceYStride,
-				x, y, x, y, 64, 64, ^uint64(0))
+			srcOff := y*args.SourceYStride + x
+			refOff := y*args.LastSourceYStride + x
+			sad := BlockSADOffsets(args.SourceY, srcOff, args.SourceYStride,
+				args.LastSourceY, refOff, args.LastSourceYStride,
+				64, 64, ^uint64(0))
 			avgSAD += sad
 			samples++
 			if sad == 0 {
@@ -147,11 +149,11 @@ func avgSourceSADPlaneOK(plane []byte, stride, width, height int) bool {
 
 func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint64) {
 	if x0+64 <= args.Width && y0+64 <= args.Height {
-		sad = BlockSAD(args.SourceY, args.SourceYStride,
-			args.LastSourceY, args.LastSourceYStride, x0, y0, x0, y0, 64, 64, ^uint64(0))
-		var sse32 uint32
 		srcOff := y0*args.SourceYStride + x0
 		refOff := y0*args.LastSourceYStride + x0
+		sad = BlockSADOffsets(args.SourceY, srcOff, args.SourceYStride,
+			args.LastSourceY, refOff, args.LastSourceYStride, 64, 64, ^uint64(0))
+		var sse32 uint32
 		variance = uint64(vp9dsp.VpxVariance64x64(args.SourceY, srcOff,
 			args.SourceYStride, args.LastSourceY, refOff, args.LastSourceYStride,
 			&sse32))
@@ -159,32 +161,60 @@ func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint6
 		return sad, variance, sse
 	}
 
+	visibleRows := args.Height - y0
+	if visibleRows > 64 {
+		visibleRows = 64
+	}
+	visibleCols := args.Width - x0
+	if visibleCols > 64 {
+		visibleCols = 64
+	}
+	rightRepeat := 64 - visibleCols
 	var sum int64
-	for y := range 64 {
-		sy := y0 + y
-		if sy >= args.Height {
-			sy = args.Height - 1
-		}
-		srcRow := args.SourceY[sy*args.SourceYStride:]
-		refRow := args.LastSourceY[sy*args.LastSourceYStride:]
-		for x := range 64 {
-			sx := x0 + x
-			if sx >= args.Width {
-				sx = args.Width - 1
-			}
-			diff := int(srcRow[sx]) - int(refRow[sx])
-			if diff < 0 {
-				sad += uint64(-diff)
-			} else {
-				sad += uint64(diff)
-			}
-			sum += int64(diff)
-			sse += uint64(diff * diff)
-		}
+	for y := range visibleRows {
+		rowSad, rowSum, rowSSE := avgSourceSAD64ClampedRow(args, x0, y0+y,
+			visibleCols, rightRepeat)
+		sad += rowSad
+		sum += rowSum
+		sse += rowSSE
+	}
+	if bottomRepeat := 64 - visibleRows; bottomRepeat > 0 {
+		rowSad, rowSum, rowSSE := avgSourceSAD64ClampedRow(args, x0,
+			y0+visibleRows-1, visibleCols, rightRepeat)
+		sad += rowSad * uint64(bottomRepeat)
+		sum += rowSum * int64(bottomRepeat)
+		sse += rowSSE * uint64(bottomRepeat)
 	}
 	meanSquares := uint64((sum * sum) >> 12)
 	if sse > meanSquares {
 		variance = sse - meanSquares
 	}
 	return sad, variance, sse
+}
+
+func avgSourceSAD64ClampedRow(args AvgSourceSADArgs, x0, y, cols, rightRepeat int) (sad uint64, sum int64, sse uint64) {
+	srcOff := y*args.SourceYStride + x0
+	refOff := y*args.LastSourceYStride + x0
+	lastDiff := 0
+	for x := range cols {
+		diff := int(args.SourceY[srcOff+x]) - int(args.LastSourceY[refOff+x])
+		lastDiff = diff
+		if diff < 0 {
+			sad += uint64(-diff)
+		} else {
+			sad += uint64(diff)
+		}
+		sum += int64(diff)
+		sse += uint64(diff * diff)
+	}
+	if rightRepeat > 0 {
+		if lastDiff < 0 {
+			sad += uint64(-lastDiff) * uint64(rightRepeat)
+		} else {
+			sad += uint64(lastDiff) * uint64(rightRepeat)
+		}
+		sum += int64(lastDiff) * int64(rightRepeat)
+		sse += uint64(lastDiff*lastDiff) * uint64(rightRepeat)
+	}
+	return sad, sum, sse
 }

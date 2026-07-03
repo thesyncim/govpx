@@ -32,6 +32,7 @@ func (e *VP9Encoder) vp9CountTokenCollectionEligible(tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
 	return e != nil && vp9ModeTreeCollectsTokens(kind) &&
+		!e.svc.UseSvc &&
 		e.sf.TxSizeSearchMethod != UseFullRD &&
 		tileRows > 0 && tileRows <= encoder.TokenStageMaxTileRows &&
 		tileCols > 0 && tileCols <= encoder.TokenStageMaxTileCols
@@ -279,17 +280,21 @@ func (e *VP9Encoder) packVP9ReplayCoefTokenLeafWithContexts(bw *bitstream.Writer
 		return true
 	}
 	tokens := e.vp9TokenReplay.tokens[e.vp9TokenReplay.cursor:]
+	if coefArgs != nil {
+		n, err := encoder.PackTokensAndCommitCoefSbContexts(bw, tokens,
+			&e.fc.CoefProbs, *coefArgs)
+		if err != nil {
+			e.vp9TokenReplay.err = err
+			return true
+		}
+		e.vp9TokenReplay.cursor += n
+		return true
+	}
 	n := encoder.PackTokens(bw, tokens, &e.fc.CoefProbs)
 	if n <= 0 || n > len(tokens) ||
 		tokens[n-1].Token != encoder.EOSBToken {
 		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 		return true
-	}
-	if coefArgs != nil {
-		if err := encoder.CommitCoefSbContextsFromTokens(*coefArgs, tokens[:n]); err != nil {
-			e.vp9TokenReplay.err = err
-			return true
-		}
 	}
 	e.vp9TokenReplay.cursor += n
 	return true

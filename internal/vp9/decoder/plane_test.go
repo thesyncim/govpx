@@ -65,6 +65,32 @@ func TestGetUvTxSizeRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
+func TestGetEntropyContextFullMatchesGeneric(t *testing.T) {
+	for _, txSize := range []common.TxSize{
+		common.Tx4x4, common.Tx8x8, common.Tx16x16, common.Tx32x32,
+	} {
+		n := 1 << uint(txSize)
+		for abovePos := -1; abovePos < n; abovePos++ {
+			for leftPos := -1; leftPos < n; leftPos++ {
+				above := make([]uint8, n)
+				left := make([]uint8, n)
+				if abovePos >= 0 {
+					above[abovePos] = 3
+				}
+				if leftPos >= 0 {
+					left[leftPos] = 7
+				}
+				got := GetEntropyContextFull(txSize, above, left)
+				want := GetEntropyContext(txSize, above, left)
+				if got != want {
+					t.Fatalf("tx=%d above=%d left=%d got %d want %d",
+						txSize, abovePos, leftPos, got, want)
+				}
+			}
+		}
+	}
+}
+
 func TestResetSkipContextZeros(t *testing.T) {
 	above := make([]uint8, 16)
 	left := make([]uint8, 16)

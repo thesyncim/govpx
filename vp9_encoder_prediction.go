@@ -7,6 +7,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vp9/tables"
 	"github.com/thesyncim/govpx/internal/vpx/arith"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
@@ -170,6 +171,232 @@ func (e *VP9Encoder) predictVP9InterBlockLumaOnly(inter *vp9InterEncodeState,
 		bsize, mi, true, false)
 }
 
+func (e *VP9Encoder) predictVP9InterBlockLumaToScratch(inter *vp9InterEncodeState,
+	miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, dst []byte, dstStride int,
+) bool {
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
+	if inter == nil || inter.ref == nil || !inter.ref.valid {
+		return false
+	}
+	if mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame {
+		return false
+	}
+	if e.predictVP9ZeroMVLumaCopyToScratch(miRow, miCol, bsize, mi,
+		dst, dstStride) {
+		return true
+	}
+	if e.predictVP9InterBlockLumaToScratchDirect(miRow, miCol, bsize, mi,
+		dst, dstStride) {
+		return true
+	}
+	predictor := &e.interPredictor
+	predictor.planes = e.planes
+	predictor.frameY = e.reconY
+	predictor.frameU = e.reconU
+	predictor.frameV = e.reconV
+	predictor.lastFrame = e.reconFrame
+	predictor.interPredictScratch = e.interPredictScratch
+	predictor.refFramesView = &e.refFrames
+	predictor.setVP9PhaseStats(e.vp9PhaseStats())
+	predictor.unsupportedReconstruct = false
+	predictor.predictLumaOnly = false
+	predictor.predictChromaOnly = false
+	predictor.predictChromaPlane = 0
+	hdr := &e.interPredHdrScratch
+	hdr.Width = uint32(e.opts.Width)
+	hdr.Height = uint32(e.opts.Height)
+	hdr.InterRef = vp9dec.InterRefBlock{
+		RefIndex: e.vp9InterRefIndexForFrame(),
+		SignBias: [3]uint8{
+			vp9InterSignBias(inter)[vp9dec.LastFrame],
+			vp9InterSignBias(inter)[vp9dec.GoldenFrame],
+			vp9InterSignBias(inter)[vp9dec.AltrefFrame],
+		},
+	}
+	hdr.AllowHighPrecisionMv = true
+	hdr.InterpFilter = vp9InterFrameInterpFilter(inter)
+	ok := predictor.reconstructVP9InterPredictLumaTo(hdr, mi, miRow, miCol,
+		bsize, dst, dstStride)
+	e.interPredictScratch = predictor.interPredictScratch
+	predictor.refFramesView = nil
+	predictor.setVP9PhaseStats(nil)
+	predictor.predictLumaOnly = false
+	predictor.predictChromaOnly = false
+	predictor.predictChromaPlane = 0
+	return ok && !predictor.unsupportedReconstruct
+}
+
+func (e *VP9Encoder) predictVP9ZeroMVLumaCopyToScratch(
+	miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, dst []byte, dstStride int,
+) bool {
+	if mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame ||
+		mi.RefFrame[1] > vp9dec.IntraFrame ||
+		mi.Mv[0] != (vp9dec.MV{}) || bsize < common.Block8x8 {
+		return false
+	}
+	slot, ok := e.vp9ReferenceSlotForFrame(mi.RefFrame[0])
+	if !ok || slot < 0 || slot >= len(e.refFrames) {
+		return false
+	}
+	ref := &e.refFrames[slot]
+	if ref == nil || !ref.valid || ref.img.Width != e.opts.Width ||
+		ref.img.Height != e.opts.Height || (ref.img.Width&0x7) != 0 ||
+		(ref.img.Height&0x7) != 0 {
+		return false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
+		blockH*dstStride > len(dst) || x0 < 0 || y0 < 0 ||
+		x0+blockW > ref.img.Width || y0+blockH > ref.img.Height {
+		return false
+	}
+	refY, refStride := vp9ReferencePlane(ref, 0)
+	if len(refY) == 0 || refStride <= 0 ||
+		(y0+blockH-1)*refStride+x0+blockW > len(refY) {
+		return false
+	}
+	buffers.CopyPlane(dst, dstStride, refY[y0*refStride+x0:], refStride,
+		blockW, blockH)
+	return true
+}
+
+func (e *VP9Encoder) predictVP9InterBlockLumaToScratchDirect(
+	miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, dst []byte, dstStride int,
+) bool {
+	if e == nil || mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame ||
+		mi.RefFrame[1] > vp9dec.IntraFrame || bsize < common.Block8x8 {
+		return false
+	}
+	filterIdx := int(mi.InterpFilter)
+	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
+		return false
+	}
+	slot, ok := e.vp9ReferenceSlotForFrame(mi.RefFrame[0])
+	if !ok || slot < 0 || slot >= len(e.refFrames) {
+		return false
+	}
+	ref := &e.refFrames[slot]
+	if ref == nil || !ref.valid || ref.img.Width != e.opts.Width ||
+		ref.img.Height != e.opts.Height || ref.img.Width <= 0 ||
+		ref.img.Height <= 0 {
+		return false
+	}
+	pd := &e.planes[0]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return false
+	}
+	blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
+		blockH*dstStride > len(dst) {
+		return false
+	}
+	src, srcStride := vp9ReferencePlane(ref, 0)
+	if len(src) == 0 || srcStride <= 0 {
+		return false
+	}
+	srcRows := len(src) / srcStride
+	srcWidth := ref.img.Width
+	srcHeight := ref.img.Height
+	x0 := miCol * common.MiSize
+	y0 := miRow * common.MiSize
+	if x0 < 0 || y0 < 0 {
+		return false
+	}
+	if mi.Mv[0] == (vp9dec.MV{}) && (srcWidth&0x7) == 0 &&
+		(srcHeight&0x7) == 0 {
+		return false
+	}
+
+	miRows := (e.opts.Height + 7) >> 3
+	miCols := (e.opts.Width + 7) >> 3
+	edges := vp9dec.BlockBoundsEdges{
+		MbToLeftEdge:   -((miCol * common.MiSize) * 8),
+		MbToRightEdge:  ((miCols - int(common.Num8x8BlocksWideLookup[bsize]) - miCol) * common.MiSize) * 8,
+		MbToTopEdge:    -((miRow * common.MiSize) * 8),
+		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
+	}
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mi.Mv[0], blockW, blockH, 0, 0)
+	srcX := x0
+	srcY := y0
+	srcX16 := srcX << vp9dec.SubpelBitsConst
+	srcY16 := srcY << vp9dec.SubpelBitsConst
+	scaledMV := vp9dec.MV32{Row: int32(mvQ4.Row), Col: int32(mvQ4.Col)}
+	subpelX := int(scaledMV.Col) & (vp9dec.SubpelShifts - 1)
+	subpelY := int(scaledMV.Row) & (vp9dec.SubpelShifts - 1)
+	srcX += int(scaledMV.Col) >> vp9dec.SubpelBitsConst
+	srcY += int(scaledMV.Row) >> vp9dec.SubpelBitsConst
+	srcX16 += int(scaledMV.Col)
+	srcY16 += int(scaledMV.Row)
+
+	srcOffset := srcY*srcStride + srcX
+	d := &e.interPredictor
+	d.unsupportedReconstruct = false
+	d.interPredictScratch = e.interPredictScratch
+	if scaledMV.Col != 0 || scaledMV.Row != 0 ||
+		(srcWidth&0x7) != 0 || (srcHeight&0x7) != 0 {
+		x1 := ((srcX16 + (blockW-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		y1 := ((srcY16 + (blockH-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		extX0, extY0 := srcX, srcY
+		xPad, yPad := 0, 0
+		if subpelX != 0 {
+			extX0 -= vp9dec.VP9InterpExtend - 1
+			x1 += vp9dec.VP9InterpExtend
+			xPad = 1
+		}
+		if subpelY != 0 {
+			extY0 -= vp9dec.VP9InterpExtend - 1
+			y1 += vp9dec.VP9InterpExtend
+			yPad = 1
+		}
+		if extX0 < 0 || extX0 > srcWidth-1 || x1 < 0 || x1 > srcWidth-1 ||
+			extY0 < 0 || extY0 > srcHeight-1 || y1 < 0 || y1 > srcHeight-1 {
+			extW := x1 - extX0 + 1
+			extH := y1 - extY0 + 1
+			if extW <= 0 || extH <= 0 {
+				return false
+			}
+			borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
+				xPad*(vp9dec.VP9InterpExtend-1)
+			src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(src,
+				srcStride, srcWidth, srcHeight, extX0, extY0, extW, extH,
+				borderOffset)
+			srcRows = extH
+		}
+	}
+	e.interPredictScratch = d.interPredictScratch
+	if srcOffset < 0 || srcOffset >= len(src) || srcRows <= 0 {
+		return false
+	}
+	if vp9PhaseStatsEnabled {
+		d.setVP9PhaseStats(e.vp9PhaseStats())
+		d.vp9PhaseIncInterPredictPlane()
+		key := 0
+		if subpelX != 0 {
+			key |= 4
+		}
+		if subpelY != 0 {
+			key |= 2
+		}
+		d.vp9PhaseCountInterPredictor(key)
+		d.setVP9PhaseStats(nil)
+	}
+	vp9dec.InterPredictorWithScratch(src, srcStride, dst, dstStride,
+		subpelX, subpelY, tables.FilterKernels[filterIdx],
+		vp9dec.SubpelShifts, vp9dec.SubpelShifts, blockW, blockH, 0,
+		srcOffset, &d.convolveScratch)
+	return true
+}
+
 // predictVP9InterBlockChromaOnly reconstructs only U/V for callers that have
 // already built or scored luma. The variance-partition chroma_check path only
 // needs chroma SAD, matching libvpx's use of pd->dst.buf after the luma
@@ -178,6 +405,10 @@ func (e *VP9Encoder) predictVP9InterBlockChromaOnly(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	mi *vp9dec.NeighborMi,
 ) bool {
+	if e.predictVP9InterBlockChromaDirect(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, 0) {
+		return true
+	}
 	return e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
 		bsize, mi, false, true)
 }
@@ -196,11 +427,204 @@ func (e *VP9Encoder) predictVP9InterBlockChromaPlane(inter *vp9InterEncodeState,
 	if plane != 1 && plane != 2 {
 		return false
 	}
+	if e.predictVP9InterBlockChromaDirect(inter, miRows, miCols, miRow, miCol,
+		bsize, mi, plane) {
+		return true
+	}
 	e.interPredictor.predictChromaPlane = int8(plane)
 	ok := e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
 		bsize, mi, false, true)
 	e.interPredictor.predictChromaPlane = 0
 	return ok
+}
+
+func (e *VP9Encoder) predictVP9InterBlockChromaDirect(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, planeOnly int,
+) bool {
+	if e == nil || inter == nil || inter.ref == nil || !inter.ref.valid ||
+		mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame ||
+		mi.RefFrame[1] > vp9dec.IntraFrame || bsize < common.Block8x8 {
+		return false
+	}
+	filterIdx := int(mi.InterpFilter)
+	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
+		return false
+	}
+	slot, ok := e.vp9ReferenceSlotForFrame(mi.RefFrame[0])
+	if !ok || slot < 0 || slot >= len(e.refFrames) {
+		return false
+	}
+	ref := &e.refFrames[slot]
+	if ref == nil || !ref.valid || ref.img.Width != e.opts.Width ||
+		ref.img.Height != e.opts.Height || ref.img.Width <= 0 ||
+		ref.img.Height <= 0 {
+		return false
+	}
+	startPlane, endPlane := 1, 2
+	if planeOnly != 0 {
+		if planeOnly != 1 && planeOnly != 2 {
+			return false
+		}
+		startPlane, endPlane = planeOnly, planeOnly
+	}
+	for plane := startPlane; plane <= endPlane; plane++ {
+		if !e.predictVP9InterBlockPlaneDirect(miRows, miCols, miRow, miCol,
+			bsize, mi, ref, plane, filterIdx) {
+			return false
+		}
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
+	return true
+}
+
+func (e *VP9Encoder) predictVP9InterBlockPlaneDirect(
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, ref *vp9ReferenceFrame, plane int, filterIdx int,
+) bool {
+	if plane < 0 || plane >= vp9dec.MaxMbPlane {
+		return false
+	}
+	pd := &e.planes[plane]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return false
+	}
+	dst, dstStride := e.vp9EncoderReconPlane(plane)
+	if len(dst) == 0 || dstStride <= 0 {
+		return false
+	}
+	x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+	y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+	return e.predictVP9InterBlockPlaneDirectTo(miRows, miCols, miRow, miCol,
+		bsize, mi, ref, plane, filterIdx, dst, dstStride, x0, y0)
+}
+
+func (e *VP9Encoder) predictVP9InterBlockPlaneDirectTo(
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, ref *vp9ReferenceFrame, plane int, filterIdx int,
+	dst []byte, dstStride, dstX, dstY int,
+) bool {
+	if plane < 0 || plane >= vp9dec.MaxMbPlane || len(dst) == 0 || dstStride <= 0 {
+		return false
+	}
+	pd := &e.planes[plane]
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+	if planeBsize >= common.BlockSizes {
+		return false
+	}
+	dstRows := len(dst) / dstStride
+	x0 := (miCol * common.MiSize) >> pd.SubsamplingX
+	y0 := (miRow * common.MiSize) >> pd.SubsamplingY
+	bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if bw <= 0 || bh <= 0 || dstX < 0 || dstY < 0 ||
+		dstX+bw > dstStride || dstY+bh > dstRows {
+		return false
+	}
+	src, srcStride := vp9ReferencePlane(ref, plane)
+	if len(src) == 0 || srcStride <= 0 {
+		return false
+	}
+	srcRows := len(src) / srcStride
+	if x0 >= srcStride || y0 >= srcRows {
+		return false
+	}
+	srcWidth := (ref.img.Width + (1 << pd.SubsamplingX) - 1) >> pd.SubsamplingX
+	srcHeight := (ref.img.Height + (1 << pd.SubsamplingY) - 1) >> pd.SubsamplingY
+	if srcWidth <= 0 || srcHeight <= 0 {
+		return false
+	}
+	if mi.Mv[0] == (vp9dec.MV{}) && (srcWidth&0x7) == 0 &&
+		(srcHeight&0x7) == 0 {
+		if x0+bw > srcStride || y0+bh > srcRows {
+			return false
+		}
+		buffers.CopyPlane(dst[dstY*dstStride+dstX:], dstStride,
+			src[y0*srcStride+x0:], srcStride, bw, bh)
+		return true
+	}
+
+	edges := vp9dec.BlockBoundsEdges{
+		MbToLeftEdge:   -((miCol * common.MiSize) * 8),
+		MbToRightEdge:  ((miCols - int(common.Num8x8BlocksWideLookup[bsize]) - miCol) * common.MiSize) * 8,
+		MbToTopEdge:    -((miRow * common.MiSize) * 8),
+		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
+	}
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(edges, mi.Mv[0], bw, bh,
+		int(pd.SubsamplingX), int(pd.SubsamplingY))
+	srcX := x0
+	srcY := y0
+	srcX16 := srcX << vp9dec.SubpelBitsConst
+	srcY16 := srcY << vp9dec.SubpelBitsConst
+	scaledMV := vp9dec.MV32{Row: int32(mvQ4.Row), Col: int32(mvQ4.Col)}
+	subpelX := int(scaledMV.Col) & (vp9dec.SubpelShifts - 1)
+	subpelY := int(scaledMV.Row) & (vp9dec.SubpelShifts - 1)
+	srcX += int(scaledMV.Col) >> vp9dec.SubpelBitsConst
+	srcY += int(scaledMV.Row) >> vp9dec.SubpelBitsConst
+	srcX16 += int(scaledMV.Col)
+	srcY16 += int(scaledMV.Row)
+
+	srcOffset := srcY*srcStride + srcX
+	d := &e.interPredictor
+	d.unsupportedReconstruct = false
+	d.interPredictScratch = e.interPredictScratch
+	if scaledMV.Col != 0 || scaledMV.Row != 0 ||
+		(srcWidth&0x7) != 0 || (srcHeight&0x7) != 0 {
+		x1 := ((srcX16 + (bw-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		y1 := ((srcY16 + (bh-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		extX0, extY0 := srcX, srcY
+		xPad, yPad := 0, 0
+		if subpelX != 0 {
+			extX0 -= vp9dec.VP9InterpExtend - 1
+			x1 += vp9dec.VP9InterpExtend
+			xPad = 1
+		}
+		if subpelY != 0 {
+			extY0 -= vp9dec.VP9InterpExtend - 1
+			y1 += vp9dec.VP9InterpExtend
+			yPad = 1
+		}
+		if extX0 < 0 || extX0 > srcWidth-1 || x1 < 0 || x1 > srcWidth-1 ||
+			extY0 < 0 || extY0 > srcHeight-1 || y1 < 0 || y1 > srcHeight-1 {
+			extW := x1 - extX0 + 1
+			extH := y1 - extY0 + 1
+			if extW <= 0 || extH <= 0 {
+				return false
+			}
+			borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
+				xPad*(vp9dec.VP9InterpExtend-1)
+			src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(src,
+				srcStride, srcWidth, srcHeight, extX0, extY0, extW, extH,
+				borderOffset)
+			srcRows = extH
+		}
+	}
+	e.interPredictScratch = d.interPredictScratch
+	if srcOffset < 0 || srcOffset >= len(src) || srcRows <= 0 {
+		return false
+	}
+	if vp9PhaseStatsEnabled {
+		d.setVP9PhaseStats(e.vp9PhaseStats())
+		d.vp9PhaseIncInterPredictPlane()
+		key := 0
+		if subpelX != 0 {
+			key |= 4
+		}
+		if subpelY != 0 {
+			key |= 2
+		}
+		d.vp9PhaseCountInterPredictor(key)
+		d.setVP9PhaseStats(nil)
+	}
+	vp9dec.InterPredictorWithScratch(src, srcStride,
+		dst[dstY*dstStride+dstX:], dstStride,
+		subpelX, subpelY, tables.FilterKernels[filterIdx],
+		vp9dec.SubpelShifts, vp9dec.SubpelShifts, bw, bh, 0, srcOffset,
+		&d.convolveScratch)
+	return true
 }
 
 func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
@@ -345,6 +769,45 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQEOB(inter *vp9InterEncodeState
 	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
 	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16, out, qOut []int16,
 ) (bool, int) {
+	return e.prepareVP9InterTxResidueWithQEOBFPTables(inter, pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4, dequant,
+		encoder.QuantizeFPTablesForDequant(dequant), out, qOut)
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidueWithQEOBFPTables(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	fpTables encoder.QuantizeFPTables, out, qOut []int16,
+) (bool, int) {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txSize >= common.TxSizes || maxEob > vp9EncoderTxCoeffSlots ||
+		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
+		return false, 0
+	}
+	if qOut != nil && len(qOut) < maxEob {
+		return false, 0
+	}
+	if inter != nil && inter.lossless && txSize != common.Tx4x4 {
+		return false, 0
+	}
+	scanOrder := &common.ScanOrders[txSize][common.DctDct]
+	if inter != nil && inter.lossless {
+		scanOrder = &common.DefaultScanOrders[txSize]
+	}
+	if fpTables.QuantFP[0] == 0 || fpTables.QuantFP[1] == 0 {
+		fpTables = encoder.QuantizeFPTablesForDequant(dequant)
+	}
+	return e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane, txSize,
+		miRow, miCol, blockRow4x4, blockCol4x4, maxEob, scanOrder, dequant,
+		fpTables, out, qOut)
+}
+
+func (e *VP9Encoder) prepareVP9InterTxResidueDCTFPPrechecked(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, maxEob int,
+	scanOrder *common.ScanOrder, dequant [2]int16,
+	fpTables encoder.QuantizeFPTables, out, qOut []int16,
+) (bool, int) {
 	// Failure paths leave out/qOut untouched; see the read-contract note on
 	// prepareVP9KeyframeTxResidueWithQEOB.
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
@@ -370,12 +833,44 @@ func (e *VP9Encoder) prepareVP9InterTxResidueWithQEOB(inter *vp9InterEncodeState
 	// cpu0 deep mode-pins were calibrated on the FP recon — so the gate must land
 	// together with re-deriving those pins toward byte parity. See
 	// docs/vp9_cpu0_quant_fp_gap.md.
-	eob := e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, common.DctDct, dequant, 0,
-		out, qOut, inter.lossless, true, false, nil)
+	eob := e.quantizeVP9TxResidualFPWithQTablesPrechecked(dst, stride, txSize,
+		common.DctDct, maxEob, scanOrder, dequant, out, qOut, inter.lossless,
+		false, fpTables)
 	if eob == 0 {
 		return false, 0
 	}
 	return true, eob
+}
+
+func (e *VP9Encoder) setupVP9QuantFPTables(seg *vp9dec.SegmentationParams,
+	dq *vp9dec.DequantTables,
+) {
+	if e == nil || dq == nil {
+		return
+	}
+	n := 1
+	if seg != nil && seg.Enabled {
+		n = vp9dec.MaxSegments
+	}
+	for i := 0; i < n; i++ {
+		e.dqFPY[i] = encoder.QuantizeFPTablesForDequant(dq.Y[i])
+		e.dqFPUv[i] = encoder.QuantizeFPTablesForDequant(dq.Uv[i])
+	}
+}
+
+func (e *VP9Encoder) vp9QuantFPTablesForPlaneSegment(plane, segID int,
+	dequant [2]int16,
+) encoder.QuantizeFPTables {
+	if e != nil && uint(segID) < uint(vp9dec.MaxSegments) {
+		if plane > 0 {
+			if e.dqScratch.Uv[segID] == dequant {
+				return e.dqFPUv[segID]
+			}
+		} else if e.dqScratch.Y[segID] == dequant {
+			return e.dqFPY[segID]
+		}
+	}
+	return encoder.QuantizeFPTablesForDequant(dequant)
 }
 
 func (e *VP9Encoder) gatherVP9TxResidual(src []byte, srcStride, srcW, srcH int,
@@ -518,6 +1013,17 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
 	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
 ) int {
+	return e.quantizeVP9TxResidualWithQTrellisFPTables(dst, stride, txSize,
+		txType, dequant, qindex, out, qOut, lossless, useFastQuant,
+		useLp32x32RD, encoder.QuantizeFPTables{}, trellis)
+}
+
+func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellisFPTables(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
+	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
+	fpTables encoder.QuantizeFPTables,
+	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
+) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
@@ -575,9 +1081,9 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 			return 0
 		}
 	}
-	scanOrder := common.ScanOrders[txSize][txType]
+	scanOrder := &common.ScanOrders[txSize][txType]
 	if lossless {
-		scanOrder = common.DefaultScanOrders[txSize]
+		scanOrder = &common.DefaultScanOrders[txSize]
 	}
 	scan := scanOrder.Scan
 	eob := 0
@@ -593,7 +1099,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	if txSize == common.Tx32x32 {
 		if !useFastQuant {
 			eob = encoder.QuantizeB32x32WithQScanOrder(e.txCoeffScratch[:maxEob], qindex,
-				dequant, scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
+				dequant, *scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		} else {
 			eob = encoder.QuantizeFP32x32WithQ(e.txCoeffScratch[:maxEob],
 				dequant, scan, qBuf, e.dqCoeffScratch[:maxEob])
@@ -601,9 +1107,16 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 	} else {
 		if !useFastQuant {
 			eob = encoder.QuantizeBWithQScanOrder(e.txCoeffScratch[:maxEob], qindex,
-				dequant, scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
+				dequant, *scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		} else {
-			eob = encoder.QuantizeFPWithQScanOrder(e.txCoeffScratch[:maxEob], dequant,
+			if qBuf == nil {
+				qBuf = e.qCoeffScratch[:maxEob]
+			}
+			if fpTables.QuantFP[0] == 0 || fpTables.QuantFP[1] == 0 {
+				fpTables = encoder.QuantizeFPTablesForDequant(dequant)
+			}
+			eob = encoder.QuantizeFPWithQTablesScanOrderPtrValidated(
+				e.txCoeffScratch[:maxEob], maxEob, dequant, fpTables,
 				scanOrder, qBuf, e.dqCoeffScratch[:maxEob])
 		}
 	}
@@ -628,6 +1141,93 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellis(dst []byte, stride int,
 		copy(qOut[:maxEob], e.qCoeffScratch[:maxEob])
 	}
 	vp9dec.InverseTransformBlock(out[:maxEob],
+		dst, stride, txSize, txType, eob, lossless)
+	return eob
+}
+
+func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTables(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16,
+	out, qOut []int16, lossless bool, useLp32x32RD bool,
+	fpTables encoder.QuantizeFPTables,
+) int {
+	maxEob := vp9dec.MaxEobForTxSize(txSize)
+	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
+		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
+		return 0
+	}
+	if qOut != nil && len(qOut) < maxEob {
+		return 0
+	}
+	if lossless && txSize != common.Tx4x4 {
+		return 0
+	}
+	if txSize == common.Tx32x32 && txType != common.DctDct {
+		return 0
+	}
+	scanOrder := &common.ScanOrders[txSize][txType]
+	if lossless {
+		scanOrder = &common.DefaultScanOrders[txSize]
+	}
+	if fpTables.QuantFP[0] == 0 || fpTables.QuantFP[1] == 0 {
+		fpTables = encoder.QuantizeFPTablesForDequant(dequant)
+	}
+	return e.quantizeVP9TxResidualFPWithQTablesPrechecked(dst, stride, txSize,
+		txType, maxEob, scanOrder, dequant, out, qOut, lossless, useLp32x32RD,
+		fpTables)
+}
+
+func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTablesPrechecked(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, maxEob int,
+	scanOrder *common.ScanOrder, dequant [2]int16, out, qOut []int16,
+	lossless bool, useLp32x32RD bool, fpTables encoder.QuantizeFPTables,
+) int {
+	if lossless {
+		txType = common.DctDct
+		encoder.ForwardWHT4x4Into(e.residueScratch[:], 4,
+			e.txCoeffScratch[:maxEob])
+	} else {
+		switch txSize {
+		case common.Tx4x4:
+			encoder.ForwardHT4x4Into(e.residueScratch[:], 4, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx8x8:
+			encoder.ForwardHT8x8Into(e.residueScratch[:], 8, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx16x16:
+			encoder.ForwardHT16x16Into(e.residueScratch[:], 16, txType,
+				e.txCoeffScratch[:maxEob])
+		case common.Tx32x32:
+			if useLp32x32RD || e.sf.UseLp32x32Fdct != 0 {
+				encoder.ForwardDCT32x32RDInto(e.residueScratch[:], 32,
+					e.txCoeffScratch[:maxEob])
+			} else {
+				encoder.ForwardDCT32x32Into(e.residueScratch[:], 32,
+					e.txCoeffScratch[:maxEob])
+			}
+		default:
+			return 0
+		}
+	}
+	qBuf := qOut
+	if qBuf == nil {
+		qBuf = e.qCoeffScratch[:maxEob]
+	} else {
+		qBuf = qBuf[:maxEob]
+	}
+	dqBuf := out[:maxEob]
+	var eob int
+	if txSize == common.Tx32x32 {
+		eob = encoder.QuantizeFP32x32WithQ(e.txCoeffScratch[:maxEob],
+			dequant, scanOrder.Scan, qBuf, dqBuf)
+	} else {
+		eob = encoder.QuantizeFPWithQTablesScanOrderPtrValidated(
+			e.txCoeffScratch[:maxEob], maxEob, dequant, fpTables,
+			scanOrder, qBuf, dqBuf)
+	}
+	if eob == 0 {
+		return 0
+	}
+	vp9dec.InverseTransformBlock(dqBuf,
 		dst, stride, txSize, txType, eob, lossless)
 	return eob
 }

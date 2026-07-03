@@ -120,8 +120,9 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 		return interFrameSearchStart{}
 	}
 	signBias := e.interFrameSignBias()
-	lastModesAvailable := e.lastFrameInterModesValid && len(e.lastFrameInterModes) >= mbRows*mbCols
-	includeLastSlots := (lastModesAvailable || e.lastCodedFrameType != vp8common.KeyFrame) && mbRows > 0 && mbCols > 0
+	mbCount := mbRows * mbCols
+	lastRefsAvailable := e.lastFrameInterModesValid && len(e.lastFrameInterModeRefs) >= mbCount
+	includeLastSlots := (lastRefsAvailable || e.lastCodedFrameType != vp8common.KeyFrame) && mbRows > 0 && mbCols > 0
 	var localSADs improvedInterFrameNearSADCache
 	cache := sadCache
 	if cache == nil {
@@ -147,12 +148,12 @@ func (e *VP8Encoder) improvedInterFrameSearchStart(
 	slots[2].fillCurrent(cache.sad[2], mbRow-1, mbCol-1, aboveLeft, signBias)
 	if includeLastSlots {
 		slotCount = 8
-		if lastModesAvailable {
-			slots[3].fillLast(cache.sad[3], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol)
-			slots[4].fillLast(cache.sad[4], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow-1, mbCol)
-			slots[5].fillLast(cache.sad[5], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol-1)
-			slots[6].fillLast(cache.sad[6], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow, mbCol+1)
-			slots[7].fillLast(cache.sad[7], e.lastFrameInterModes, e.lastFrameInterModeBias, mbRows, mbCols, mbRow+1, mbCol)
+		if lastRefsAvailable {
+			slots[3].fillLastRef(cache.sad[3], e.lastFrameInterModeRefs, mbRows, mbCols, mbRow, mbCol)
+			slots[4].fillLastRef(cache.sad[4], e.lastFrameInterModeRefs, mbRows, mbCols, mbRow-1, mbCol)
+			slots[5].fillLastRef(cache.sad[5], e.lastFrameInterModeRefs, mbRows, mbCols, mbRow, mbCol-1)
+			slots[6].fillLastRef(cache.sad[6], e.lastFrameInterModeRefs, mbRows, mbCols, mbRow, mbCol+1)
+			slots[7].fillLastRef(cache.sad[7], e.lastFrameInterModeRefs, mbRows, mbCols, mbRow+1, mbCol)
 		} else {
 			slots[3] = improvedInterFrameMVSlot{sad: cache.sad[3]}
 			slots[4] = improvedInterFrameMVSlot{sad: cache.sad[4]}
@@ -210,35 +211,25 @@ func (slot *improvedInterFrameMVSlot) fillCurrent(sad int, refMbRow int, refMbCo
 	slot.mv = mode.MV
 }
 
-func (slot *improvedInterFrameMVSlot) fillLast(sad int, modes []vp8enc.InterFrameMacroblockMode, modeBias []bool, mbRows int, mbCols int, refMbRow int, refMbCol int) {
-	// Mirror libvpx's vp8_mv_pred neighbor table for the previous frame:
-	// out-of-range MB coordinates correspond to libvpx's lfmv/lf_ref_frame
-	// sentinel rows (top/bottom) and columns (left/right) which are
-	// calloc-zeroed and therefore report INTRA_FRAME with mv == 0, while
-	// vp8_cal_sad sets the matching near_sad entry to INT_MAX (the caller
-	// passes that sentinel through sad). In-frame previous-frame intra
-	// slots still get their real last-frame SAD and can change the matched
-	// slot's rank.
+func (slot *improvedInterFrameMVSlot) fillLastRef(sad int, refs []vp8enc.InterFrameMVRef, mbRows int, mbCols int, refMbRow int, refMbCol int) {
+	// Same previous-frame sentinel semantics as fillLast, but backed by the
+	// compact lfmv/lf_ref_frame sidecar captured at frame refresh.
 	*slot = improvedInterFrameMVSlot{sad: maxInt()}
 	if uint(refMbRow) >= uint(mbRows) || uint(refMbCol) >= uint(mbCols) {
 		return
 	}
 	index := refMbRow*mbCols + refMbCol
-	if uint(index) >= uint(len(modes)) {
+	if uint(index) >= uint(len(refs)) {
 		return
 	}
-	mode := &modes[index]
-	slot.refFrame = vp8enc.ConvertInterFrameReference(mode)
-	if index < len(modeBias) {
-		slot.signBias = modeBias[index]
-	}
+	ref := refs[index]
+	slot.refFrame = ref.RefFrame
+	slot.signBias = ref.SignBias
 	slot.sad = sad
 	if slot.refFrame == vp8common.IntraFrame {
-		// libvpx leaves near_mvs[vcnt] at zero for intra last-frame slots even
-		// though it still increments vcnt; mirror that exactly.
 		return
 	}
-	slot.mv = mode.MV
+	slot.mv = ref.MV
 }
 
 func biasImprovedInterFrameMVSlots(slots *[8]improvedInterFrameMVSlot, count int, refFrame vp8common.MVReferenceFrame, signBias [vp8common.MaxRefFrames]bool, mbRow int, mbCol int, mbRows int, mbCols int) {

@@ -30,11 +30,51 @@ type vp9TileWorkerPhaseStatsOptions struct {
 	phaseStats *EncoderPhaseStats
 }
 
+type vp9EncoderPhase uint8
+
+const (
+	vp9EncoderPhaseCount vp9EncoderPhase = iota
+	vp9EncoderPhaseHeaderWrite
+	vp9EncoderPhaseTileWrite
+	vp9EncoderPhaseLoopFilterPick
+	vp9EncoderPhaseLoopFilterApply
+)
+
 func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 	if e == nil {
 		return nil
 	}
 	return e.opts.PhaseStats
+}
+
+func (e *VP9Encoder) vp9PhaseStart() int64 {
+	if e.vp9PhaseStats() == nil {
+		return 0
+	}
+	return nanotime()
+}
+
+func (e *VP9Encoder) vp9PhaseEnd(phase vp9EncoderPhase, start int64) {
+	if start == 0 {
+		return
+	}
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	elapsed := nanotime() - start
+	switch phase {
+	case vp9EncoderPhaseCount:
+		atomic.AddInt64(&stats.VP9CountNS, elapsed)
+	case vp9EncoderPhaseHeaderWrite:
+		atomic.AddInt64(&stats.VP9HeaderWriteNS, elapsed)
+	case vp9EncoderPhaseTileWrite:
+		atomic.AddInt64(&stats.VP9TileWriteNS, elapsed)
+	case vp9EncoderPhaseLoopFilterPick:
+		atomic.AddInt64(&stats.VP9LoopFilterPickNS, elapsed)
+	case vp9EncoderPhaseLoopFilterApply:
+		atomic.AddInt64(&stats.VP9LoopFilterApplyNS, elapsed)
+	}
 }
 
 func (e *VP9Encoder) vp9PhaseStatsActive() bool {

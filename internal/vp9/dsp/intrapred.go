@@ -67,6 +67,53 @@ func hPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	}
 }
 
+func hPredictor4(dst []uint8, stride int, left []uint8) {
+	for r := 0; r < 4; r++ {
+		row := dst[r*stride:]
+		_ = row[3]
+		v := left[r]
+		row[0], row[1], row[2], row[3] = v, v, v, v
+	}
+}
+
+func hPredictor8(dst []uint8, stride int, left []uint8) {
+	for r := 0; r < 8; r++ {
+		row := dst[r*stride:]
+		_ = row[7]
+		v := left[r]
+		row[0], row[1], row[2], row[3] = v, v, v, v
+		row[4], row[5], row[6], row[7] = v, v, v, v
+	}
+}
+
+func hPredictor16(dst []uint8, stride int, left []uint8) {
+	for r := 0; r < 16; r++ {
+		row := dst[r*stride:]
+		_ = row[15]
+		v := left[r]
+		row[0], row[1], row[2], row[3] = v, v, v, v
+		row[4], row[5], row[6], row[7] = v, v, v, v
+		row[8], row[9], row[10], row[11] = v, v, v, v
+		row[12], row[13], row[14], row[15] = v, v, v, v
+	}
+}
+
+func hPredictor32(dst []uint8, stride int, left []uint8) {
+	for r := 0; r < 32; r++ {
+		row := dst[r*stride:]
+		_ = row[31]
+		v := left[r]
+		row[0], row[1], row[2], row[3] = v, v, v, v
+		row[4], row[5], row[6], row[7] = v, v, v, v
+		row[8], row[9], row[10], row[11] = v, v, v, v
+		row[12], row[13], row[14], row[15] = v, v, v, v
+		row[16], row[17], row[18], row[19] = v, v, v, v
+		row[20], row[21], row[22], row[23] = v, v, v, v
+		row[24], row[25], row[26], row[27] = v, v, v, v
+		row[28], row[29], row[30], row[31] = v, v, v, v
+	}
+}
+
 func fillBlockConstant(dst []uint8, stride, bs int, v uint8) {
 	row0 := dst[:bs]
 	for i := range row0 {
@@ -89,11 +136,26 @@ func tmPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	// reslice into the right offset before invoking the helper.
 	topLeft := int(above[0])
 	above = above[1:]
+	minAbove, maxAbove := int(above[0]), int(above[0])
+	for i := 1; i < bs; i++ {
+		a := int(above[i])
+		if a < minAbove {
+			minAbove = a
+		} else if a > maxAbove {
+			maxAbove = a
+		}
+	}
 	for r := range bs {
-		rowL := int(left[r])
+		base := int(left[r]) - topLeft
 		row := dst[r*stride : r*stride+bs]
+		if base+minAbove >= 0 && base+maxAbove <= 255 {
+			for c := range row {
+				row[c] = uint8(base + int(above[c]))
+			}
+			continue
+		}
 		for c := range row {
-			v := rowL + int(above[c]) - topLeft
+			v := base + int(above[c])
 			if v < 0 {
 				row[c] = 0
 			} else if v > 255 {
@@ -179,16 +241,20 @@ func VpxVPredictor32x32(dst []uint8, stride int, above, left []uint8) {
 }
 
 func VpxHPredictor4x4(dst []uint8, stride int, above, left []uint8) {
-	hPredictor(dst, stride, 4, above[1:], left)
+	_ = above[0]
+	hPredictor4(dst, stride, left)
 }
 func VpxHPredictor8x8(dst []uint8, stride int, above, left []uint8) {
-	hPredictor(dst, stride, 8, above[1:], left)
+	_ = above[0]
+	hPredictor8(dst, stride, left)
 }
 func VpxHPredictor16x16(dst []uint8, stride int, above, left []uint8) {
-	hPredictor(dst, stride, 16, above[1:], left)
+	_ = above[0]
+	hPredictor16(dst, stride, left)
 }
 func VpxHPredictor32x32(dst []uint8, stride int, above, left []uint8) {
-	hPredictor(dst, stride, 32, above[1:], left)
+	_ = above[0]
+	hPredictor32(dst, stride, left)
 }
 
 func VpxTmPredictor4x4(dst []uint8, stride int, above, left []uint8) {

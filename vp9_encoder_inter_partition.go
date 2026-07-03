@@ -584,6 +584,10 @@ func (e *VP9Encoder) vp9VarPartChromaSAD(inter *vp9InterEncodeState,
 		},
 		Mv: [2]vp9dec.MV{mv},
 	}
+	if e.vp9VarPartChromaSADDirect(inter, miRows, miCols, sbMiRow, sbMiCol,
+		bsize, &mi, &sad) {
+		return sad, true
+	}
 	if !e.predictVP9InterBlockChromaOnly(inter, miRows, miCols, sbMiRow, sbMiCol,
 		bsize, &mi) {
 		return sad, false
@@ -605,10 +609,69 @@ func (e *VP9Encoder) vp9VarPartChromaSAD(inter *vp9InterEncodeState,
 			!vp9PlaneWindowFits(dst, dstStride, x0, y0, blockW, blockH) {
 			return sad, false
 		}
-		sad[plane-1] = encoder.BlockSAD(src, srcStride, dst, dstStride,
-			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+		srcOff := y0*srcStride + x0
+		dstOff := y0*dstStride + x0
+		sad[plane-1] = encoder.BlockSADOffsets(src, srcOff, srcStride,
+			dst, dstOff, dstStride, blockW, blockH, ^uint64(0))
 	}
 	return sad, true
+}
+
+func (e *VP9Encoder) vp9VarPartChromaSADDirect(inter *vp9InterEncodeState,
+	miRows, miCols, sbMiRow, sbMiCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, sad *[2]uint64,
+) bool {
+	if e == nil || inter == nil || inter.img == nil || inter.ref == nil ||
+		!inter.ref.valid || mi == nil || sad == nil ||
+		mi.RefFrame[0] <= vp9dec.IntraFrame ||
+		mi.RefFrame[1] > vp9dec.IntraFrame || bsize < common.Block8x8 {
+		return false
+	}
+	filterIdx := int(mi.InterpFilter)
+	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
+		return false
+	}
+	slot, ok := e.vp9ReferenceSlotForFrame(mi.RefFrame[0])
+	if !ok || slot < 0 || slot >= len(e.refFrames) {
+		return false
+	}
+	ref := &e.refFrames[slot]
+	if ref == nil || !ref.valid || ref.img.Width != e.opts.Width ||
+		ref.img.Height != e.opts.Height || ref.img.Width <= 0 ||
+		ref.img.Height <= 0 {
+		return false
+	}
+	for plane := 1; plane < vp9dec.MaxMbPlane; plane++ {
+		pd := &e.planes[plane]
+		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+		if planeBsize >= common.BlockSizes {
+			return false
+		}
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+		blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+		if blockW*blockH > len(e.blockScratch) {
+			return false
+		}
+		x0 := (sbMiCol * common.MiSize) >> pd.SubsamplingX
+		y0 := (sbMiRow * common.MiSize) >> pd.SubsamplingY
+		if !encoder.VisibleBlockFits(x0, y0, blockW, blockH, srcW, srcH) ||
+			!vp9PlaneWindowFits(src, srcStride, x0, y0, blockW, blockH) {
+			return false
+		}
+		pred := e.blockScratch[:blockW*blockH]
+		if !e.predictVP9InterBlockPlaneDirectTo(miRows, miCols, sbMiRow, sbMiCol,
+			bsize, mi, ref, plane, filterIdx, pred, blockW, 0, 0) {
+			return false
+		}
+		srcOff := y0*srcStride + x0
+		(*sad)[plane-1] = encoder.BlockSADOffsets(src, srcOff, srcStride,
+			pred, 0, blockW, blockW, blockH, ^uint64(0))
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
+	return true
 }
 
 func vp9PlaneWindowFits(buf []byte, stride, x0, y0, w, h int) bool {
@@ -705,6 +768,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	var chooseYSad uint64
 	var chooseYSadValid bool
 
+	coeffScratch := e.vp9BlockCoeffScratch()
 	args := encoder.ChoosePartitioningArgs{
 		YSadOut:                &chooseYSad,
 		YSadOutValid:           &chooseYSadValid,
@@ -717,8 +781,8 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		ShortCircuitLowTempVar: e.sf.ShortCircuitLowTempVar,
 		PartitionRefFrame:      vp9dec.LastFrame,
 		VarianceLow:            &e.varPartSBVarLow[sbIdx],
-		VarianceTree:           &e.vp9BlockCoeffScratch().varPartTree,
-		VarianceTreeLowRes:     &e.vp9BlockCoeffScratch().varPartTreeLowRes,
+		VarianceTree:           &coeffScratch.varPartTree,
+		VarianceTreeLowRes:     &coeffScratch.varPartTreeLowRes,
 		NoiseEstimateEnabled:   e.noiseEstimate.Enabled,
 		NoiseLevel:             e.noiseEstimate.ExtractLevel(),
 		CopyPartitionFlag:      e.sf.CopyPartitionFlag != 0 && !e.svc.UseSvc,
@@ -952,8 +1016,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 	}
 	if vp9PhaseStatsEnabled {
 		var chooseStats encoder.ChoosePartitioningStats
-		e.vp9PhaseAttachChoosePartitioningStats(&args, &chooseStats)
-		encoder.ChoosePartitioning(args)
+		encoder.ChoosePartitioningWithStats(args, &chooseStats)
 		e.vp9PhaseCountVarPartChoose(copiedPartition, inter != nil && inter.counts != nil)
 		e.vp9PhaseAddChoosePartitioningStats(chooseStats)
 	} else {
@@ -1177,8 +1240,10 @@ func (e *VP9Encoder) pickVP9CBRVariancePartitionBlockSize(inter *vp9InterEncodeS
 		return common.BlockInvalid, false
 	}
 	if bsize == common.Block64x64 {
-		sad := encoder.BlockSAD(src, srcStride, ref, refStride,
-			x0, y0, x0, y0, blockW, blockH, ^uint64(0))
+		off := y0*srcStride + x0
+		refOff := y0*refStride + x0
+		sad := encoder.BlockSADOffsets(src, off, srcStride,
+			ref, refOff, refStride, blockW, blockH, ^uint64(0))
 		sadThreshold := encoder.CBRVariancePartitionSADThreshold(inter.dq.Y[0][1],
 			srcW, srcH)
 		if sad < sadThreshold {

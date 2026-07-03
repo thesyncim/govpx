@@ -85,6 +85,43 @@ func TestVP9VarPartForceSkipLowTempVarOK(t *testing.T) {
 	}
 }
 
+func BenchmarkVP9VarPartForceSkipLowTempVarOK(b *testing.B) {
+	e := &VP9Encoder{}
+	e.sf.ShortCircuitLowTempVar = 3
+	const miCols = 160
+	sbCount := ((90 + 7) >> 3) * ((miCols + 7) >> 3)
+	e.varPartSBVarLow = make([][25]uint8, sbCount)
+	e.varPartSBComputed = make([]bool, sbCount)
+	for i := range e.varPartSBComputed {
+		e.varPartSBComputed[i] = true
+		e.varPartSBVarLow[i][5] = 1
+		e.varPartSBVarLow[i][encoder.PosShift16x16[1][2]] = 1
+	}
+	cases := [...]struct {
+		row, col int
+		bsize    common.BlockSize
+	}{
+		{0, 0, common.Block64x64},
+		{0, 8, common.Block32x64},
+		{8, 0, common.Block64x32},
+		{10, 12, common.Block16x16},
+		{10, 12, common.Block32x16},
+		{10, 12, common.Block16x32},
+		{10, 12, common.Block8x8},
+	}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		tc := cases[i%len(cases)]
+		force, ok := e.vp9VarPartForceSkipLowTempVarOK(miCols, tc.row, tc.col, tc.bsize)
+		if !ok && tc.bsize != common.Block8x8 {
+			b.Fatalf("force-skip lookup returned !ok for %v", tc.bsize)
+		}
+		if force && tc.bsize == common.Block8x8 {
+			b.Fatal("8x8 force-skip returned true")
+		}
+	}
+}
+
 func TestVP9UseModelYrdLargeBlockContentStateGate(t *testing.T) {
 	e := &VP9Encoder{
 		opts: VP9EncoderOptions{

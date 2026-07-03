@@ -46,15 +46,23 @@ func CoeffTokenExtraCost(absVal, sign int) (token int, cost int) {
 const coeffTokenExtraCostTableSize = 4096
 
 type coeffTokenExtraCostEntry struct {
-	cost  uint16
-	token uint8
+	cost        uint16
+	extraSign   uint16
+	token       uint8
+	energyClass uint8
 }
 
 var coeffTokenExtraCostTable = func() [coeffTokenExtraCostTableSize]coeffTokenExtraCostEntry {
 	var table [coeffTokenExtraCostTableSize]coeffTokenExtraCostEntry
 	for absVal := range table {
 		token, cost := coeffTokenExtraCostSlow(absVal, 0)
-		table[absVal] = coeffTokenExtraCostEntry{token: uint8(token), cost: uint16(cost)}
+		_, extra := TokenForAbsCoeff(absVal)
+		table[absVal] = coeffTokenExtraCostEntry{
+			cost:        uint16(cost),
+			extraSign:   uint16(extra << 1),
+			token:       uint8(token),
+			energyClass: PtEnergyClass[token],
+		}
 	}
 	return table
 }()
@@ -85,8 +93,14 @@ var coeffQCoeffTokenExtraCostTable = func() [coeffQCoeffTokenExtraCostTableSize]
 			q = -q
 			sign = 1
 		}
-		token, cost := coeffTokenExtraCostSlow(q, sign)
-		table[bits] = coeffTokenExtraCostEntry{token: uint8(token), cost: uint16(cost)}
+		token, extra := TokenForAbsCoeff(q)
+		_, cost := coeffTokenExtraCostSlow(q, sign)
+		table[bits] = coeffTokenExtraCostEntry{
+			cost:        uint16(cost),
+			extraSign:   uint16((extra << 1) | sign),
+			token:       uint8(token),
+			energyClass: PtEnergyClass[token],
+		}
 	}
 	return table
 }()
@@ -236,12 +250,20 @@ func CoeffMagnitudeAndSign(qcoeffs []int16, raster int, dqcoeff int16,
 	dqv int16, tx32 bool,
 ) (absVal int, sign int) {
 	if qcoeffs != nil && raster >= 0 && raster < len(qcoeffs) {
-		q := int(qcoeffs[raster])
-		if q < 0 {
-			return -q, 1
-		}
-		return q, 0
+		return coeffMagnitudeAndSignQ(qcoeffs[raster])
 	}
+	return coeffMagnitudeAndSignDQ(dqcoeff, dqv, tx32)
+}
+
+func coeffMagnitudeAndSignQ(qcoeff int16) (absVal int, sign int) {
+	q := int(qcoeff)
+	if q < 0 {
+		return -q, 1
+	}
+	return q, 0
+}
+
+func coeffMagnitudeAndSignDQ(dqcoeff int16, dqv int16, tx32 bool) (absVal int, sign int) {
 	coeff := int(dqcoeff)
 	if coeff < 0 {
 		coeff = -coeff
@@ -674,6 +696,11 @@ func coeffBlockRateCostEOB(in CoeffBlockRateCostInput, scan []int16,
 func coeffTokenExtraCostQCoeff(q int16) (token int, cost int) {
 	entry := coeffQCoeffTokenExtraCostTable[uint16(q)]
 	return int(entry.token), int(entry.cost)
+}
+
+func coeffTokenExtraQCoeff(q int16) (token int, extra int16, energy uint8) {
+	entry := coeffQCoeffTokenExtraCostTable[uint16(q)]
+	return int(entry.token), int16(entry.extraSign), entry.energyClass
 }
 
 func coeffBlockTreeTokenCost(costTable *CoeffTreeTokenCostTable,

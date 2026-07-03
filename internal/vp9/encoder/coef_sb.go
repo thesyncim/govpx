@@ -1,6 +1,8 @@
 package encoder
 
 import (
+	"unsafe"
+
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -112,7 +114,7 @@ type WriteCoefSbArgs struct {
 // Used as the unconditional fallback when there's no intra-mode
 // signal to consult (inter blocks, chroma planes, lossless frames).
 func scanForTxSize(tx common.TxSize) (scan, neighbors []int16) {
-	o := common.DefaultScanOrders[tx]
+	o := &common.DefaultScanOrders[tx]
 	return o.Scan, o.Neighbors
 }
 
@@ -142,6 +144,74 @@ func planeMaxBlocks4x4(miRows, miCols, miRow, miCol int,
 		h = 0
 	}
 	return w, h
+}
+
+func stampCoefContexts(aboveCtx, leftCtx []uint8, v uint8) {
+	switch len(aboveCtx) {
+	case 8:
+		_ = aboveCtx[7]
+		_ = leftCtx[7]
+		aboveCtx[0], leftCtx[0] = v, v
+		aboveCtx[1], leftCtx[1] = v, v
+		aboveCtx[2], leftCtx[2] = v, v
+		aboveCtx[3], leftCtx[3] = v, v
+		aboveCtx[4], leftCtx[4] = v, v
+		aboveCtx[5], leftCtx[5] = v, v
+		aboveCtx[6], leftCtx[6] = v, v
+		aboveCtx[7], leftCtx[7] = v, v
+	case 4:
+		_ = aboveCtx[3]
+		_ = leftCtx[3]
+		aboveCtx[0], leftCtx[0] = v, v
+		aboveCtx[1], leftCtx[1] = v, v
+		aboveCtx[2], leftCtx[2] = v, v
+		aboveCtx[3], leftCtx[3] = v, v
+	case 2:
+		_ = aboveCtx[1]
+		_ = leftCtx[1]
+		aboveCtx[0], leftCtx[0] = v, v
+		aboveCtx[1], leftCtx[1] = v, v
+	case 1:
+		aboveCtx[0], leftCtx[0] = v, v
+	default:
+		for i := range aboveCtx {
+			aboveCtx[i] = v
+			leftCtx[i] = v
+		}
+	}
+}
+
+func stampCoefContextsAt(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, step int, v uint8) {
+	switch step {
+	case 8:
+		_ = aboveCtx[aboveOff+7]
+		_ = leftCtx[leftOff+7]
+		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 8, v)
+	case 4:
+		_ = aboveCtx[aboveOff+3]
+		_ = leftCtx[leftOff+3]
+		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 4, v)
+	case 2:
+		_ = aboveCtx[aboveOff+1]
+		_ = leftCtx[leftOff+1]
+		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 2, v)
+	case 1:
+		_ = aboveCtx[aboveOff]
+		_ = leftCtx[leftOff]
+		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 1, v)
+	default:
+		stampCoefContexts(aboveCtx[aboveOff:aboveOff+step],
+			leftCtx[leftOff:leftOff+step], v)
+	}
+}
+
+func stampCoefContextBytes(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, n int, v uint8) {
+	abovePtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(aboveCtx)), uintptr(aboveOff))
+	leftPtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(leftCtx)), uintptr(leftOff))
+	for i := 0; i < n; i++ {
+		*(*uint8)(unsafe.Add(abovePtr, uintptr(i))) = v
+		*(*uint8)(unsafe.Add(leftPtr, uintptr(i))) = v
+	}
 }
 
 // yModeForBlock mirrors libvpx's get_y_mode — picks the Y mode for
@@ -210,13 +280,15 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 		blockIdx := 0
 		for r := 0; r < num4x4H; r += step {
 			for c := 0; c < num4x4W; c += step {
-				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
-				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
-				initCtx := vp9dec.GetEntropyContext(txSize, aboveCtx, leftCtx)
+				aboveOff := aboveBase + c
+				leftOff := leftBase + r
+				aboveCtx := pd.AboveContext[aboveOff : aboveOff+step]
+				leftCtx := pd.LeftContext[leftOff : leftOff+step]
+				initCtx := vp9dec.GetEntropyContextFull(txSize, aboveCtx, leftCtx)
 
 				scan, neighbors := defaultScan, defaultNeighbors
 				if a.IsInter == 0 && planeType == 0 && !a.Lossless && a.Mi != nil {
-					so := common.GetScan(txSize, planeType, a.IsInter, a.Lossless,
+					so := common.GetScanPtr(txSize, planeType, a.IsInter, a.Lossless,
 						yModeForBlock(a.Mi, blockIdx))
 					scan, neighbors = so.Scan, so.Neighbors
 				}
@@ -231,6 +303,7 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					knownEOB, knownEOBValid = a.GetEOB(plane, r, c, txSize)
 				}
 				eob := 0
+				maxEob := vp9dec.MaxEobForTxSize(txSize)
 				blockArgs := WriteCoefBlockArgs{
 					TxSize:          txSize,
 					PlaneType:       planeType,
@@ -254,14 +327,22 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					if start < 0 || start > len(a.TokenDst) {
 						return ErrTokenBufferFull
 					}
-					n, stagedEOB, ok := StageCoefBlock(a.TokenDst[start:], blockArgs)
+					tokenWindow := a.TokenDst[start:]
+					n, stagedEOB, ok := 0, 0, false
+					if len(tokenWindow) >= maxEob {
+						tokenWindow = tokenWindow[:maxEob]
+						n, stagedEOB, ok = stageCoefBlockFullWindow(tokenWindow,
+							blockArgs, maxEob)
+					} else {
+						n, stagedEOB, ok = StageCoefBlock(tokenWindow, blockArgs)
+					}
 					if !ok {
 						return ErrTokenBufferFull
 					}
 					eob = stagedEOB
 					*a.TokenIndex = start + n
 					if !a.TokenOnly {
-						PackTokens(bw, a.TokenDst[start:start+n], a.Fc)
+						PackTokens(bw, tokenWindow[:n], a.Fc)
 					}
 				} else {
 					if err := WriteCoefBlock(bw, blockArgs); err != nil {
@@ -273,10 +354,8 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 				if eob > 0 {
 					hasResidue = 1
 				}
-				for j := range step {
-					aboveCtx[j] = hasResidue
-					leftCtx[j] = hasResidue
-				}
+				stampCoefContextsAt(pd.AboveContext, aboveOff,
+					pd.LeftContext, leftOff, step, hasResidue)
 				// libvpx's foreach_transformed_block_in_plane bumps the
 				// block-counter `i` by step^2 per tx block — matching
 				// the bmi[] index for sub-8x8 sub-block lookups.
@@ -323,8 +402,8 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 		blockIdx := 0
 		for r := 0; r < num4x4H; r += step {
 			for c := 0; c < num4x4W; c += step {
-				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
-				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
+				aboveOff := aboveBase + c
+				leftOff := leftBase + r
 
 				eob, eobValid := 0, false
 				if a.GetEOB != nil {
@@ -333,7 +412,7 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 				if !eobValid {
 					scan := defaultScan
 					if a.IsInter == 0 && planeType == 0 && !a.Lossless && a.Mi != nil {
-						so := common.GetScan(txSize, planeType, a.IsInter, a.Lossless,
+						so := common.GetScanPtr(txSize, planeType, a.IsInter, a.Lossless,
 							yModeForBlock(a.Mi, blockIdx))
 						scan = so.Scan
 					}
@@ -350,10 +429,8 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 				if eob > 0 {
 					hasResidue = 1
 				}
-				for j := range step {
-					aboveCtx[j] = hasResidue
-					leftCtx[j] = hasResidue
-				}
+				stampCoefContextsAt(pd.AboveContext, aboveOff,
+					pd.LeftContext, leftOff, step, hasResidue)
 				blockIdx += step * step
 			}
 		}
@@ -393,10 +470,7 @@ func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) erro
 
 		for r := 0; r < num4x4H; r += step {
 			for c := 0; c < num4x4W; c += step {
-				aboveCtx := pd.AboveContext[aboveBase+c : aboveBase+c+step]
-				leftCtx := pd.LeftContext[leftBase+r : leftBase+r+step]
-
-				hasResidue, n, ok := stagedBlockHasResidue(tokens[cursor:], maxEob)
+				hasResidue, n, ok := stagedBlockHasResidue(tokens, cursor, maxEob)
 				if !ok {
 					return ErrTokenBufferFull
 				}
@@ -406,10 +480,8 @@ func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) erro
 				if hasResidue {
 					v = 1
 				}
-				for j := range step {
-					aboveCtx[j] = v
-					leftCtx[j] = v
-				}
+				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
+					pd.LeftContext, leftBase+r, step, v)
 			}
 		}
 	}
@@ -419,23 +491,80 @@ func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) erro
 	return nil
 }
 
-func stagedBlockHasResidue(tokens []TokenExtra, maxEob int) (bool, int, bool) {
-	if maxEob <= 0 {
+// PackTokensAndCommitCoefSbContexts replays one staged leaf's TOKENEXTRA
+// stream and advances the above/left coefficient contexts from that same
+// stream. This is the pack-side shape libvpx gets from tokenizing once during
+// encode_sb and later walking TOKENEXTRA records in pack_mb_tokens: replay does
+// not need to re-open qcoeff/dqcoeff buffers just to recover EOB state.
+func PackTokensAndCommitCoefSbContexts(
+	bw *bitstream.Writer, tokens []TokenExtra, fc *vp9dec.FrameCoefProbs,
+	a WriteCoefSbArgs,
+) (int, error) {
+	cursor := 0
+	for plane := range vp9dec.MaxMbPlane {
+		pd := &a.Planes[plane]
+
+		var txSize common.TxSize
+		if plane == 0 {
+			txSize = a.MiTxSize
+		} else {
+			txSize = vp9dec.GetUvTxSize(a.BSize, a.MiTxSize, pd)
+		}
+
+		planeBsize := vp9dec.GetPlaneBlockSize(a.BSize, pd)
+		num4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+		if a.MiRows > 0 && a.MiCols > 0 {
+			num4x4W, num4x4H = planeMaxBlocks4x4(a.MiRows, a.MiCols,
+				a.MiRow, a.MiCol, a.BSize, pd, planeBsize)
+		}
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+
+		aboveBase := a.AboveOffsets[plane]
+		leftBase := a.LeftOffsets[plane]
+
+		for r := 0; r < num4x4H; r += step {
+			for c := 0; c < num4x4W; c += step {
+				hasResidue, n, ok := packTokenBlockAndHasResidue(bw,
+					tokens, cursor, maxEob, fc)
+				if !ok {
+					return cursor, ErrTokenBufferFull
+				}
+				cursor += n
+
+				v := uint8(0)
+				if hasResidue {
+					v = 1
+				}
+				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
+					pd.LeftContext, leftBase+r, step, v)
+			}
+		}
+	}
+	if cursor >= len(tokens) || tokens[cursor].Token != EOSBToken {
+		return cursor, ErrTokenBufferFull
+	}
+	return cursor + 1, nil
+}
+
+func stagedBlockHasResidue(tokens []TokenExtra, start, maxEob int) (bool, int, bool) {
+	if maxEob <= 0 || start < 0 || start > len(tokens) {
 		return false, 0, false
 	}
 	hasResidue := false
-	c := 0
-	for c < maxEob {
-		if len(tokens) == 0 {
+	end := start + maxEob
+	c := start
+	for c < end {
+		if c >= len(tokens) {
 			return false, 0, false
 		}
-		tok := tokens[0]
+		tok := tokens[c]
 		if tok.Token == EOSBToken {
 			return false, 0, false
 		}
-		tokens = tokens[1:]
 		if tok.Token == EobToken {
-			return hasResidue, c + 1, true
+			return hasResidue, c - start + 1, true
 		}
 		if tok.Token != ZeroToken {
 			hasResidue = true

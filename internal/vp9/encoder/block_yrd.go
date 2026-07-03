@@ -1088,9 +1088,9 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	// using vp9_init_quantizer's recipe. nonrd_pickmode runs with
 	// sf->use_quant_fp=1, so these are the same tables the realtime tokenizer
 	// later consumes. qrounding_factor_fp == 64 at q==0; otherwise 48 (dc)
-	// and 42 (ac). govpx routes through QuantizeFPLibvpx which
-	// already takes (roundFP, quantFP, dequant) so we mirror the recipe
-	// inline.
+	// and 42 (ac). govpx routes through the package-internal validated
+	// quantize_fp entry point, which already takes (roundFP, quantFP,
+	// dequant), so we mirror the recipe inline.
 	var roundFP, quantFP [2]int16
 	if int(dequant[0]) <= 0 || int(dequant[1]) <= 0 {
 		return res
@@ -1128,13 +1128,24 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 	// vp9_pickmode.c:781-819. The eobs cap is bounded by the realtime
 	// schedule: BLOCK_64X64 + TX_4X4 -> 256 tx units, which fits the
 	// blockYrdMaxTxUnits ceiling below. govpx clamps tx_size <=
-	// TX_16X16 (vp9_pickmode.c:2361) so the realistic max is 16.
+	// TX_16X16 (vp9_pickmode.c:2361), so each EOB fits in int16. Pick
+	// the smallest stack scratch that fits this block so the common
+	// TX_16X16 path does not clear the TX_4X4 worst case every call.
 	txIdx := 0
-	var eobsBuf [blockYrdMaxTxUnits]int
-	if maxTxUnits > len(eobsBuf) {
+	var eobs []int16
+	switch {
+	case maxTxUnits <= 16:
+		var eobs16 [16]int16
+		eobs = eobs16[:maxTxUnits]
+	case maxTxUnits <= 64:
+		var eobs64 [64]int16
+		eobs = eobs64[:maxTxUnits]
+	case maxTxUnits <= blockYrdMaxTxUnits:
+		var eobs256 [blockYrdMaxTxUnits]int16
+		eobs = eobs256[:maxTxUnits]
+	default:
 		return res
 	}
-	_ = eobsBuf
 	for r := 0; r < maxBlocksHigh; r += blockStep {
 		for c := 0; c < num4x4W; c += blockStep {
 			if c >= maxBlocksWide {
@@ -1161,9 +1172,9 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 				ForwardDCT4x4Into(srcDiff[srcOff:], bw, coeffSlot)
 			}
 			// libvpx: vp9_pickmode.c:799-811 — vp9_quantize_fp_c.
-			eob := QuantizeFPLibvpx(coeffSlot, nCoeffs, roundFP, quantFP,
+			eob := quantizeFPLibvpxValidated(coeffSlot, nCoeffs, roundFP, quantFP,
 				dequant, scan, iscan, qcoeffSlot, dqcoeffSlot)
-			eobsBuf[txIdx] = eob
+			eobs[txIdx] = int16(eob)
 			// libvpx: vp9_pickmode.c:814 *skippable &= (*eob == 0);
 			if eob != 0 {
 				skippable = false
@@ -1207,7 +1218,7 @@ func BlockYrd(src []byte, srcStride int, srcX, srcY int,
 		coeffSlot := coeffsAll[i*nCoeffs : (i+1)*nCoeffs]
 		qcoeffSlot := qcoeffAll[i*nCoeffs : (i+1)*nCoeffs]
 		dqcoeffSlot := dqcoeffAll[i*nCoeffs : (i+1)*nCoeffs]
-		eob := eobsBuf[i]
+		eob := int(eobs[i])
 
 		// libvpx: vp9_pickmode.c:840-843 — rate accumulation.
 		if eob == 1 {

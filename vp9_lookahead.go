@@ -350,13 +350,27 @@ func (e *VP9Encoder) newestVP9LookaheadEntry() (*vp9LookaheadEntry, bool) {
 }
 
 func copyVP9LookaheadImage(dst *image.YCbCr, src *image.YCbCr, width int, height int) {
-	for y := range height {
-		copy(dst.Y[y*dst.YStride:][:width], src.Y[y*src.YStride:][:width])
-	}
+	copyVP9VisiblePlane(dst.Y, dst.YStride, src.Y, src.YStride, width, height)
 	uvWidth := (width + 1) >> 1
 	uvHeight := (height + 1) >> 1
-	for y := range uvHeight {
-		copy(dst.Cb[y*dst.CStride:][:uvWidth], src.Cb[y*src.CStride:][:uvWidth])
-		copy(dst.Cr[y*dst.CStride:][:uvWidth], src.Cr[y*src.CStride:][:uvWidth])
+	copyVP9VisiblePlane(dst.Cb, dst.CStride, src.Cb, src.CStride, uvWidth, uvHeight)
+	copyVP9VisiblePlane(dst.Cr, dst.CStride, src.Cr, src.CStride, uvWidth, uvHeight)
+}
+
+func copyVP9VisiblePlane(dst []byte, dstStride int, src []byte, srcStride int,
+	width int, height int,
+) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	if dstStride == width && srcStride == width {
+		n := width * height
+		if n >= 0 && n <= len(dst) && n <= len(src) {
+			copy(dst[:n], src[:n])
+			return
+		}
+	}
+	for y := range height {
+		copy(dst[y*dstStride:][:width], src[y*srcStride:][:width])
 	}
 }

@@ -130,11 +130,129 @@ func TestBuildIntraPredictorRefsUsesExtendedRightEdge(t *testing.T) {
 	}
 }
 
+func TestBuildIntraPredictorRefsLumaMatchesFullLumaRefs(t *testing.T) {
+	interior := testImage(48, 48)
+	topLeft := testImage(32, 32)
+	syntheticEdge := testImage(18, 18)
+	fb, err := common.NewFrameBuffer(32, 32, 8, 16)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	for row := range fb.Img.CodedHeight {
+		for col := range fb.Img.CodedWidth {
+			fb.Img.Y[row*fb.Img.YStride+col] = byte((row*11 + col*17 + 5) & 0xff)
+		}
+	}
+	extendIntraRightEdgeForRow(&fb.Img, 0)
+
+	cases := []struct {
+		name string
+		img  *common.Image
+		row  int
+		col  int
+	}{
+		{name: "interior", img: &interior, row: 1, col: 1},
+		{name: "top-left", img: &topLeft, row: 0, col: 0},
+		{name: "synthetic-edge", img: &syntheticEdge, row: 1, col: 1},
+		{name: "extended-right-edge", img: &fb.Img, row: 1, col: 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var fullScratch IntraPredictorScratch
+			var lumaScratch IntraPredictorScratch
+			fullRefs := BuildIntraPredictorRefs(tc.img, tc.row, tc.col, &fullScratch)
+			lumaRefs := BuildIntraPredictorRefsLuma(tc.img, tc.row, tc.col, &lumaScratch)
+
+			assertByteSlicesEqual(t, "YAbove", lumaRefs.YAbove, fullRefs.YAbove)
+			assertByteSlicesEqual(t, "YLeft", lumaRefs.YLeft, fullRefs.YLeft)
+			if lumaRefs.YTopLeft != fullRefs.YTopLeft {
+				t.Fatalf("YTopLeft = %d, want %d", lumaRefs.YTopLeft, fullRefs.YTopLeft)
+			}
+			if lumaRefs.UpAvailable != fullRefs.UpAvailable || lumaRefs.LeftAvailable != fullRefs.LeftAvailable {
+				t.Fatalf("availability = %v/%v, want %v/%v", lumaRefs.UpAvailable, lumaRefs.LeftAvailable, fullRefs.UpAvailable, fullRefs.LeftAvailable)
+			}
+		})
+	}
+}
+
+func TestBuildIntraPredictorRefsLumaAliasesVisibleAboveRow(t *testing.T) {
+	img := testImage(64, 64)
+	var scratch IntraPredictorScratch
+
+	refs := BuildIntraPredictorRefsLuma(&img, 1, 1, &scratch)
+
+	if len(refs.YAbove) != 20 {
+		t.Fatalf("YAbove len = %d, want 20", len(refs.YAbove))
+	}
+	if got, want := &refs.YAbove[0], &img.Y[15*img.YStride+16]; got != want {
+		t.Fatalf("YAbove does not alias visible above row")
+	}
+	if got, want := &refs.YLeft[0], &scratch.YLeft[0]; got != want {
+		t.Fatalf("YLeft should still use contiguous scratch")
+	}
+}
+
+func TestBuildIntraPredictorRefsLumaAliasesExtendedAboveRow(t *testing.T) {
+	fb, err := common.NewFrameBuffer(32, 32, 8, 16)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer returned error: %v", err)
+	}
+	img := &fb.Img
+	img.Y[15*img.YStride+31] = 55
+	extendIntraRightEdgeForRow(img, 0)
+	var scratch IntraPredictorScratch
+
+	refs := BuildIntraPredictorRefsLuma(img, 1, 1, &scratch)
+
+	if len(refs.YAbove) != 20 {
+		t.Fatalf("YAbove len = %d, want 20", len(refs.YAbove))
+	}
+	if got, want := &refs.YAbove[0], &img.YFull[img.YOrigin+15*img.YStride+16]; got != want {
+		t.Fatalf("YAbove does not alias extended above row")
+	}
+	for i := 16; i < 20; i++ {
+		if got := refs.YAbove[i]; got != 55 {
+			t.Fatalf("YAbove[%d] = %d, want extended right edge 55", i, got)
+		}
+	}
+}
+
+func TestBuildIntraPredictorRefsLumaUsesScratchForSyntheticEdges(t *testing.T) {
+	img := testImage(18, 18)
+	var scratch IntraPredictorScratch
+
+	refs := BuildIntraPredictorRefsLuma(&img, 1, 1, &scratch)
+
+	if got, want := &refs.YAbove[0], &scratch.YAbove[0]; got != want {
+		t.Fatalf("YAbove should use scratch when right-edge samples are synthetic")
+	}
+	if got, want := refs.YAbove[0], img.Y[15*img.YStride+16]; got != want {
+		t.Fatalf("YAbove[0] = %d, want %d", got, want)
+	}
+	for i := 2; i < len(refs.YAbove); i++ {
+		if got := refs.YAbove[i]; got != 127 {
+			t.Fatalf("YAbove[%d] = %d, want synthetic 127", i, got)
+		}
+	}
+}
+
 func TestBuildIntraPredictorRefsAllocatesZero(t *testing.T) {
 	img := testImage(32, 32)
 	var scratch IntraPredictorScratch
 	allocs := testing.AllocsPerRun(1000, func() {
 		_ = BuildIntraPredictorRefs(&img, 1, 1, &scratch)
+	})
+	if allocs != 0 {
+		t.Fatalf("allocs = %v, want 0", allocs)
+	}
+}
+
+func TestBuildIntraPredictorRefsLumaAllocatesZero(t *testing.T) {
+	img := testImage(32, 32)
+	var scratch IntraPredictorScratch
+	allocs := testing.AllocsPerRun(1000, func() {
+		_ = BuildIntraPredictorRefsLuma(&img, 1, 1, &scratch)
 	})
 	if allocs != 0 {
 		t.Fatalf("allocs = %v, want 0", allocs)
@@ -153,6 +271,18 @@ func TestTransformMacroblockTokensY2DCOnly(t *testing.T) {
 	for i := range 16 {
 		if got := residual.Block(i)[0]; got != 8 {
 			t.Fatalf("Y block %d DC = %d, want 8", i, got)
+		}
+	}
+}
+
+func assertByteSlicesEqual(t *testing.T, name string, got []byte, want []byte) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len = %d, want %d", name, len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("%s[%d] = %d, want %d", name, i, got[i], want[i])
 		}
 	}
 }

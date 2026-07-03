@@ -245,6 +245,9 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	yAvgOff := row*16*avg.Img.YStride + col*16
 	uAvgOff := row*8*avg.Img.UStride + col*8
 	vAvgOff := row*8*avg.Img.VStride + col*8
+	filteredSourceY := sourceImagePlaneMatches(source.Y, source.YStride, filtered.Y, filtered.YStride)
+	filteredSourceU := sourceImagePlaneMatches(source.U, source.UStride, filtered.U, filtered.UStride)
+	filteredSourceV := sourceImagePlaneMatches(source.V, source.VStride, filtered.V, filtered.VStride)
 
 	filterDecision := vp8enc.DenoiserFilterY(
 		e.denoiser.mcRunning.Img.Y[yMcOff:], e.denoiser.mcRunning.Img.YStride,
@@ -261,7 +264,9 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	} else {
 		e.denoiser.state[index] = vp8enc.DenoiserStateNoFilter
 		copyMacroblockY(avg.Img.Y[yAvgOff:], avg.Img.YStride, source.Y[yOff:], source.YStride)
-		copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
+		if !filteredSourceY {
+			copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
+		}
 	}
 
 	applySpatialFilter := func() {
@@ -281,7 +286,9 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 			motionMag, false,
 		) == vp8enc.DenoiserCopyBlock {
 			copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
-			copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
+			if !filteredSourceU {
+				copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
+			}
 		}
 		if vp8enc.DenoiserFilterUV(
 			e.denoiser.mcRunning.Img.V[vMcOff:], e.denoiser.mcRunning.Img.VStride,
@@ -290,15 +297,21 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 			motionMag, false,
 		) == vp8enc.DenoiserCopyBlock {
 			copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
-			copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+			if !filteredSourceV {
+				copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+			}
 		}
 		applySpatialFilter()
 		return
 	}
 	copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
 	copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
-	copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
-	copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+	if !filteredSourceU {
+		copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
+	}
+	if !filteredSourceV {
+		copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+	}
 	applySpatialFilter()
 }
 
@@ -356,17 +369,33 @@ func (e *VP8Encoder) copyDenoiserNoFilterMacroblock(source vp8enc.SourceImage, f
 	uAvgOff := row*8*avg.Img.UStride + col*8
 	vAvgOff := row*8*avg.Img.VStride + col*8
 	copyMacroblockY(avg.Img.Y[yAvgOff:], avg.Img.YStride, source.Y[yOff:], source.YStride)
-	copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
+	if !sourceImagePlaneMatches(source.Y, source.YStride, filtered.Y, filtered.YStride) {
+		copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, source.Y[yOff:], source.YStride)
+	}
 	if e.denoiser.mode != vp8enc.DenoiserOnYOnly {
 		copyMacroblock8x8(avg.Img.U[uAvgOff:], avg.Img.UStride, source.U[uOff:], source.UStride)
 		copyMacroblock8x8(avg.Img.V[vAvgOff:], avg.Img.VStride, source.V[vOff:], source.VStride)
-		copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
-		copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+		if !sourceImagePlaneMatches(source.U, source.UStride, filtered.U, filtered.UStride) {
+			copyMacroblock8x8(filtered.U[uSigOff:], filtered.UStride, source.U[uOff:], source.UStride)
+		}
+		if !sourceImagePlaneMatches(source.V, source.VStride, filtered.V, filtered.VStride) {
+			copyMacroblock8x8(filtered.V[vSigOff:], filtered.VStride, source.V[vOff:], source.VStride)
+		}
 	}
 	e.denoiser.state[index] = vp8enc.DenoiserStateNoFilter
 	if e.applyDenoiserSpatialLoopFilter(filtered, avg, row, col, cols, index, ySigOff, yAvgOff) {
 		copyMacroblockY(filtered.Y[ySigOff:], filtered.YStride, avg.Img.Y[yAvgOff:], avg.Img.YStride)
 	}
+}
+
+func sourceImagePlaneMatches(a []byte, aStride int, b []byte, bStride int) bool {
+	if aStride != bStride || len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	return &a[0] == &b[0]
 }
 
 func copyMacroblockY(dst []byte, dstStride int, src []byte, srcStride int) {

@@ -5,9 +5,9 @@ import "runtime"
 const vp9RealtimeAutoMaxThreads = 4
 
 // VP9RealtimeCBRAutoThreadHint reports the tile-thread hint govpx uses when a
-// VP9 realtime CBR encoder leaves VP9EncoderOptions.Threads at zero with
-// denoising and tile rows disabled. A return value of 1 means the frame size or
-// host CPU count keeps the encoder on the serial tile path.
+// VP9 realtime CBR encoder leaves VP9EncoderOptions.Threads at zero with tile
+// rows disabled. A return value of 1 means the frame size or host CPU count
+// keeps the encoder on the serial tile path.
 func VP9RealtimeCBRAutoThreadHint(width, height int) int {
 	return vp9RealtimeCBRAutoThreadHint(width, height, runtime.NumCPU())
 }
@@ -49,7 +49,7 @@ func vp9EffectiveThreadHint(opts VP9EncoderOptions) int {
 
 func vp9TileWorkerThreadHint(opts VP9EncoderOptions) int {
 	threadHint := vp9EffectiveThreadHint(opts)
-	if threadHint <= 1 || opts.NoiseSensitivity > 0 {
+	if threadHint <= 1 {
 		return 1
 	}
 	return threadHint
@@ -84,6 +84,5 @@ func vp9RealtimeAutoThreadingEligible(opts VP9EncoderOptions) bool {
 		opts.Deadline == DeadlineRealtime &&
 		opts.RateControlModeSet &&
 		opts.RateControlMode == RateControlCBR &&
-		opts.NoiseSensitivity == 0 &&
 		opts.Log2TileRows == 0
 }

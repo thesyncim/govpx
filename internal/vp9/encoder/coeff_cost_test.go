@@ -213,16 +213,25 @@ func TestCoeffTokenExtraCostQCoeffMatchesSlowPath(t *testing.T) {
 	for bits := range coeffQCoeffTokenExtraCostTableSize {
 		q := int16(uint16(bits))
 		gotToken, gotCost := coeffTokenExtraCostQCoeff(q)
+		gotStageToken, gotExtra, gotEnergy := coeffTokenExtraQCoeff(q)
 		absVal := int(q)
 		sign := 0
 		if absVal < 0 {
 			absVal = -absVal
 			sign = 1
 		}
+		wantStageToken, wantExtra := TokenForAbsCoeff(absVal)
 		wantToken, wantCost := coeffTokenExtraCostSlow(absVal, sign)
 		if gotToken != wantToken || gotCost != wantCost {
 			t.Fatalf("coeffTokenExtraCostQCoeff(%d) = (%d,%d), want slow (%d,%d)",
 				q, gotToken, gotCost, wantToken, wantCost)
+		}
+		if gotStageToken != wantStageToken ||
+			uint16(gotExtra) != uint16((wantExtra<<1)|sign) ||
+			gotEnergy != PtEnergyClass[wantStageToken] {
+			t.Fatalf("coeffTokenExtraQCoeff(%d) = (%d,%d,%d), want (%d,%d,%d)",
+				q, gotStageToken, gotExtra, gotEnergy, wantStageToken,
+				(wantExtra<<1)|sign, PtEnergyClass[wantStageToken])
 		}
 	}
 }

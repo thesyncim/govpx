@@ -24,9 +24,25 @@ type vp9DecoderPhaseStatsOptions struct{}
 
 type vp9TileWorkerPhaseStatsOptions struct{}
 
+type vp9EncoderPhase uint8
+
+const (
+	vp9EncoderPhaseCount vp9EncoderPhase = iota
+	vp9EncoderPhaseHeaderWrite
+	vp9EncoderPhaseTileWrite
+	vp9EncoderPhaseLoopFilterPick
+	vp9EncoderPhaseLoopFilterApply
+)
+
 func (e *VP9Encoder) vp9PhaseStats() *EncoderPhaseStats {
 	return nil
 }
+
+func (e *VP9Encoder) vp9PhaseStart() int64 {
+	return 0
+}
+
+func (e *VP9Encoder) vp9PhaseEnd(vp9EncoderPhase, int64) {}
 
 func (e *VP9Encoder) vp9PhaseStatsActive() bool {
 	return false

@@ -112,6 +112,54 @@ func TestFindInterMvRefsUsesPreviousFrameMvs(t *testing.T) {
 	}
 }
 
+var benchFindInterMvRefsRefs [2]MV
+var benchFindInterMvRefsCount int
+
+func BenchmarkFindInterMvRefsFields(b *testing.B) {
+	const miRows = 16
+	const miCols = 16
+	miGrid := make([]NeighborMi, miRows*miCols)
+	tile := TileBounds{MiRowStart: 0, MiRowEnd: miRows, MiColStart: 0, MiColEnd: miCols}
+	signBias := [MaxRefFrames]uint8{}
+	signBias[GoldenFrame] = 1
+	for r := range miRows {
+		for c := range miCols {
+			idx := r*miCols + c
+			miGrid[idx] = NeighborMi{
+				Mode: common.NewMv,
+				RefFrame: [2]int8{
+					LastFrame,
+					GoldenFrame,
+				},
+				Mv: [2]MV{
+					{Row: int16((r - 8) * 8), Col: int16((c - 8) * 8)},
+					{Row: int16((8 - r) * 4), Col: int16((8 - c) * 4)},
+				},
+			}
+		}
+	}
+	miGrid[7*miCols+8].RefFrame[0] = AltrefFrame
+	miGrid[8*miCols+7].RefFrame[0] = LastFrame
+	miGrid[7*miCols+7].RefFrame[0] = GoldenFrame
+
+	b.Run("near-full-walk", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			benchFindInterMvRefsRefs, benchFindInterMvRefsCount =
+				FindInterMvRefsFields(miGrid, false, nil, 0, 0,
+					tile, miRows, miCols, 8, 8, common.Block32x32,
+					common.NearMv, LastFrame, signBias, -1)
+		}
+	})
+	b.Run("nearest-early-break", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			benchFindInterMvRefsRefs, benchFindInterMvRefsCount =
+				FindInterMvRefsFields(miGrid, false, nil, 0, 0,
+					tile, miRows, miCols, 8, 8, common.Block32x32,
+					common.NearestMv, LastFrame, signBias, -1)
+		}
+	})
+}
+
 func TestInterPredictSourceInBounds(t *testing.T) {
 	if !InterPredictSourceInBounds(32, 32, 32, 32, 96, 96, 8, 8) {
 		t.Fatal("interior two-axis subpel window rejected")

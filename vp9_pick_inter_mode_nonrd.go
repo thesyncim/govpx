@@ -156,13 +156,9 @@ type vp9BestPickmode struct {
 	bestSecondRefFrame int8
 	bestModeSkipTxfm   uint8
 	bestPredFilter     vp9dec.InterpFilter
-	// govpx tracks the winning candidate's MV / decision in-place rather than
-	// using libvpx's reuse_inter_pred PRED_BUFFER pool (which exists to avoid
-	// re-running the inter-prediction at commit time). govpx re-runs the
-	// inter predictor at commit time via predictVP9InterBlock, so the pool
-	// is unnecessary. libvpx: vp9_pickmode.c:46 best_pred.
-	winnerSet bool
-	winner    vp9InterModeDecision
+	// govpx tracks the winning candidate in the caller's `best` decision rather
+	// than using libvpx's reuse_inter_pred PRED_BUFFER pool. libvpx:
+	// vp9_pickmode.c:46 best_pred.
 }
 
 // reset mirrors libvpx's init_best_pickmode.
@@ -187,7 +183,6 @@ func (bp *vp9BestPickmode) reset() {
 	bp.bestPredFilter = vp9dec.InterpEighttap
 	bp.bestModeSkipTxfm = 0
 	bp.bestSecondRefFrame = vp9dec.NoRefFrame
-	bp.winnerSet = false
 }
 
 // pickVP9InterReferenceModeNonRD ports libvpx's vp9_pick_inter_mode realtime
@@ -256,9 +251,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx: vp9_pickmode.c:1700 SPEED_FEATURES *const sf = &cpi->sf;
 	//          vp9_pickmode.c:2150 sf->inter_mode_mask[bsize] gate.
 	interModeMask := e.vp9InterModeMaskFor(bsize)
-	modeAllowed := func(mode common.PredictionMode) bool {
-		return interModeMask&(1<<uint(mode)) != 0
-	}
+	speedFeatureCPUUsed := e.vp9SpeedFeatureCPUUsed()
 
 	// libvpx: vp9_pickmode.c:1771 num_inter_modes = (cpi->use_svc) ?
 	//   RT_INTER_MODES_SVC : RT_INTER_MODES.
@@ -348,7 +341,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// libvpx vp9_pickmode.c:1982-1985 — speed>=8 one-pass realtime gate
 	// that clamps usable_ref_frame to LAST based on the per-SB
 	// last_sb_high_content counter.
-	if e.vp9SpeedFeatureCPUUsed() >= 8 {
+	if speedFeatureCPUUsed >= 8 {
 		lastSBHighContent := e.vp9LastSBHighContentForPick(miRows, miCols,
 			miRow, miCol)
 		if int(e.rc.framesSinceGolden)+1 < int(lastSBHighContent) ||
@@ -407,22 +400,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var mvPredSearchSeedValid [vp9dec.MaxRefFrames]bool
 	bestPredSad := vp9NonrdIntMaxSAD
 	usePrevFrameMvs := e.useVP9EncoderPrevFrameMvs(miRows, miCols)
-	var refMvListCache [vp9dec.MaxRefFrames][2]vp9dec.MV
-	var refMvCountCache [vp9dec.MaxRefFrames]int
-	var refMvCached [vp9dec.MaxRefFrames]bool
-	findRefMvList := func(r int8) ([2]vp9dec.MV, int) {
-		if refMvCached[r] {
-			return refMvListCache[r], refMvCountCache[r]
+	var refMvList [vp9dec.MaxRefFrames][2]vp9dec.MV
+	var refMvCount [vp9dec.MaxRefFrames]int
+	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+		if !refSlotValid[r] {
+			continue
 		}
-		refList, refCount := vp9dec.FindInterMvRefsFields(e.miGrid,
+		refMvList[r], refMvCount[r] = vp9dec.FindInterMvRefsFields(e.miGrid,
 			usePrevFrameMvs,
 			e.prevFrameMvs, e.prevFrameMvRows, e.prevFrameMvCols,
 			tile, miRows, miCols, miRow, miCol, bsize,
 			common.NearMv, r, inter.refSignBias, -1)
-		refMvListCache[r] = refList
-		refMvCountCache[r] = refCount
-		refMvCached[r] = true
-		return refList, refCount
 	}
 	for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 		// libvpx: vp9_pickmode.c:1278 — x->pred_mv_sad[ref] = INT_MAX
@@ -468,16 +456,15 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// from vp9dec.FindInterMvRefsFields in its mode-independent
 				// shape: mode=NearMv sets earlyBreak=false in the scanner.
 				var candidates [encoder.MvPredMaxCandidates]encoder.MvPredInputCandidate
-				refList, refCount := findRefMvList(r)
-				if refCount >= 1 {
+				if refMvCount[r] >= 1 {
 					candidates[0] = encoder.MvPredInputCandidate{
-						MV:    refList[0],
+						MV:    refMvList[r][0],
 						Valid: true,
 					}
 				}
-				if refCount >= 2 {
+				if refMvCount[r] >= 2 {
 					candidates[1] = encoder.MvPredInputCandidate{
-						MV:    refList[1],
+						MV:    refMvList[r][1],
 						Valid: true,
 					}
 				}
@@ -492,7 +479,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					}
 				}
 
-				result := encoder.MvPredScanCandidates(candidates[:], numMvRefs,
+				result := encoder.MvPredScanCandidateArray(&candidates, numMvRefs,
 					src, srcStride, x0, y0,
 					refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
 					blockW, blockH)
@@ -549,15 +536,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// govpx vp9dec.FindInterMvRefsFields returns refList[0..1] with
 		// NearMv-mode walk (no earlyBreak) — matches libvpx's
 		// candidates[0..1] post-clamp.
-		refList, refCount := findRefMvList(r)
-		if refCount >= 1 {
-			mvN := refList[0]
+		if refMvCount[r] >= 1 {
+			mvN := refMvList[r][0]
 			vp9dec.LowerMvPrecision(&mvN, inter.allowHP)
 			frameMv[common.NearestMv][r] = mvN
 			frameMvValid[common.NearestMv][r] = true
 		}
-		if refCount >= 2 {
-			mvNear := refList[1]
+		if refMvCount[r] >= 2 {
+			mvNear := refMvList[r][1]
 			vp9dec.LowerMvPrecision(&mvNear, inter.allowHP)
 			frameMv[common.NearMv][r] = mvNear
 			frameMvValid[common.NearMv][r] = true
@@ -574,22 +560,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols, tile,
 		miRows, miRow, miCol, bsize)
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
+	modeCostCtx := vp9InterModeCostFrameContext(inter)
+	var interpFilterRateCost [int(vp9dec.InterpSwitchable)]int
+	for filter := vp9dec.InterpFilter(0); filter < vp9dec.InterpSwitchable; filter++ {
+		interpFilterRateCost[filter] = vp9InterInterpFilterRateCost(inter,
+			modeCostCtx, switchableCtx, filter)
+	}
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	frameTxMode := vp9InterFrameTxMode(inter)
+	noiseEnabled, noiseAtLeastMedium := e.vp9NewmvDiffBiasNoiseInputs()
 	lowvarHighsumdiff := false
 	lowvarHighsumdiffSet := false
-	newmvDiffBiasInputs := func() (bool, bool, bool, bool) {
-		noiseEnabled, noiseAtLeastMedium := e.vp9NewmvDiffBiasNoiseInputs()
-		if !lowvarHighsumdiffSet {
-			if sourceSADReady {
-				lowvarHighsumdiff = encoder.NewmvDiffBiasLowvarInput(contentState)
-			} else if stats, ok := e.vp9AvgSourceSADStats(inter.img, miCols, miRow, miCol); ok {
-				lowvarHighsumdiff = encoder.NewmvDiffBiasLowvarInput(stats.ContentState)
-			}
-			lowvarHighsumdiffSet = true
-		}
-		return noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, false
-	}
 	// libvpx: vp9_encodeframe.c:4244-4248 — every SB's rd_pick_sb_modes call
 	// seeds x->cb_rdmult from get_rdmult_delta so per-mode RDCOST consumes
 	// a TPL-biased multiplier rather than the bare per-frame rd.RDMULT.
@@ -623,6 +604,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 		e.cbRdmult = baseRdmult
 	}
+	rdmult := e.activeRDMult(qindex)
 
 	// libvpx: vp9_pickmode.c:1731 INTERP_FILTER filter_ref;
 	//          vp9_pickmode.c:1874 filter_ref = cm->interp_filter;
@@ -701,6 +683,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		livePredX = predX
 		livePredY = predY
 	}
+	compactPredW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
+	compactPredH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
+	compactPredLen := compactPredW * compactPredH
 	origPredValid := false
 	bestPredValid := false
 	bestPredFromOrig := false
@@ -882,7 +867,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 
 		// libvpx: vp9_pickmode.c:2150 inter_mode_mask gate.
-		if !modeAllowed(thisMode) {
+		if interModeMask&(1<<uint(thisMode)) == 0 {
 			continue
 		}
 
@@ -1067,7 +1052,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				mvOpts.nonrdPrecheck = func(fullpelMv vp9dec.MV) bool {
 					rateModeMv := vp9NonrdInterModeRateCost(inter,
 						interModeCtx, common.NewMv, fullpelMv, refMvOpt)
-					precheckRD := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+					precheckRD := encoder.RDCost(rdmult, encoder.RDDivBits,
 						rateModeMv, 0)
 					return precheckRD <= best.score
 				}
@@ -1076,7 +1061,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// libvpx vp9_pickmode.c:2046-2047 clears sb_use_mv_part for
 				// SVC, speed <= 7, or leaves smaller than BLOCK_32X32. govpx's
 				// non-SVC realtime lane mirrors the speed/block-size legs here.
-				if e.vp9SpeedFeatureCPUUsed() > 7 &&
+				if speedFeatureCPUUsed > 7 &&
 					bsize >= common.Block32x32 {
 					if mvPart, ok := e.vp9VarPartSBMvPart(miCols, miRow, miCol); ok {
 						mvOpts.seed = mvPart
@@ -1250,6 +1235,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			searchVarV         uint64
 			searchSSEV         uint64
 			searchNeedsRebuild bool
+			searchPred         []byte
 		)
 		// Deferred PRED_BUFFER capture: this candidate's builds are about
 		// to overwrite the recon rect. If the rect still holds the running
@@ -1269,13 +1255,16 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			searchLastFilter := filters[len(filters)-1]
 			searchOK := false
 			searchEarlyTermSticky := false
+			evalPred := e.blockScratch[:compactPredLen]
+			sparePred := e.nonrdFilterPredScratch[:compactPredLen]
 			for _, filter := range filters {
 				filterEarlyTerm := searchEarlyTermSticky
 				filterUVOKU := false
 				filterUVOKV := false
 				var filterVarU, filterSSEU, filterVarV, filterSSEV uint64
-				varY, sseY, ok := e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
-					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+				varY, sseY, ok := e.vp9InterPredictionVarianceSSEForFilterSearchTo(inter, miRows,
+					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
+					evalPred, compactPredW)
 				if !ok {
 					continue
 				}
@@ -1293,7 +1282,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				})
 				if useModelYrdLarge {
 					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-					dst, dstStride := e.vp9EncoderReconPlane(0)
 					x0 := miCol * common.MiSize
 					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
@@ -1303,17 +1291,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						SrcStride:         srcStride,
 						SrcX:              x0,
 						SrcY:              y0,
-						Pred:              dst,
-						PredStride:        dstStride,
-						PredX:             x0,
-						PredY:             y0,
+						Pred:              evalPred,
+						PredStride:        compactPredW,
+						PredX:             0,
+						PredY:             0,
 						TxMode:            frameTxMode,
 						SourceVariance:    uint64(sourceVariance),
 						SegmentID:         segID,
 						CyclicRefreshAQ:   e.opts.AQMode == VP9AQCyclicRefresh,
 						ScreenContent:     e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 						ZeroTempSADSource: zeroTempSADSource,
-						Speed:             e.vp9SpeedFeatureCPUUsed(),
+						Speed:             speedFeatureCPUUsed,
 						Width:             e.opts.Width,
 						Height:            e.opts.Height,
 					})
@@ -1359,10 +1347,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				filterEarlyTerm = searchEarlyTermSticky
 				interpFilterCost := 0
 				if vp9MvHasSubpel(mv) {
-					interpFilterCost = vp9InterInterpFilterRateCost(inter,
-						vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+					interpFilterCost = interpFilterRateCost[filter]
 				}
-				filterCost := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+				filterCost := encoder.RDCost(rdmult, encoder.RDDivBits,
 					rateY+interpFilterCost, uint64(distY))
 				if !searchOK || filterCost < bestFilterCost {
 					searchOK = true
@@ -1382,20 +1369,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					searchVarV = filterVarV
 					searchSSEV = filterSSEV
 					// libvpx search_filter_ref PRED_BUFFER discipline
-					// (vp9_pickmode.c:1550-1562): with reuse_inter_pred
-					// the running best filter's predictor is retained in
-					// its PRED_BUFFER and the winner is never re-predicted
-					// (only the !reuse branch rebuilds at
-					// vp9_pickmode.c:1582-1585). govpx builds every filter
-					// into the recon rect, so retain the running best by
-					// capturing the rect; the searchNeedsRebuild consumer
-					// below restores it instead of re-running the
-					// convolve. Skip the capture when this is the sweep's
-					// final filter — its predictor stays in the rect and
-					// searchNeedsRebuild cannot fire for it.
-					if reuseInterPred && filter != searchLastFilter {
-						vp9CopyPredRectToScratch(e.nonrdFilterPredScratch[:],
-							predPlane, predStride, predX, predY, predW, predH)
+					// (vp9_pickmode.c:1550-1562): keep the running best
+					// filter's predictor alive by swapping compact eval /
+					// best buffers instead of copying pixels out after every
+					// new-best filter. This is the small-buffer equivalent
+					// of best_pred adopting the current PRED_BUFFER.
+					searchPred = evalPred
+					if filter != searchLastFilter {
+						evalPred, sparePred = sparePred, evalPred
 					}
 				}
 			}
@@ -1421,6 +1402,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			var modelSkipTxfm encoder.SkipTxfmFlag
 			var mrdTxSize common.TxSize
 			var uvVarU, uvSSEU, uvVarV, uvSSEV uint64
+			var currentPred []byte
 			// Per-plane chroma predictor/variance state, mirroring libvpx's
 			// flag_preduv_computed[2] (vp9_pickmode.c:2059): each chroma
 			// plane is built at most once per candidate and only when a
@@ -1447,7 +1429,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					uvSSEV = searchSSEV
 					uvOKV = true
 				}
-				if searchNeedsRebuild {
+				if len(searchPred) != 0 {
+					currentPred = searchPred
+					ok = true
+				} else if searchNeedsRebuild {
 					if reuseInterPred {
 						// libvpx search_filter_ref with reuse_inter_pred
 						// keeps the winning filter's PRED_BUFFER and points
@@ -1455,18 +1440,20 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						// re-prediction. The winner's rect was captured at
 						// its new-best commit in the sweep above; restore
 						// it instead of re-running the convolve.
-						vp9CopyPredRectFromScratch(predPlane, predStride,
-							predX, predY, predW, predH,
-							e.nonrdFilterPredScratch[:])
+						currentPred = e.nonrdFilterPredScratch[:compactPredLen]
 						ok = true
 					} else {
 						_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
 							miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+						if ok {
+							currentPred = e.blockScratch[:compactPredLen]
+						}
 					}
 				} else {
 					// libvpx search_filter_ref only rebuilds when best_filter
 					// is before filter_end; otherwise the winning predictor is
 					// already the last predictor written into dst.
+					currentPred = e.blockScratch[:compactPredLen]
 					ok = true
 				}
 				searchFilterPick = false
@@ -1478,6 +1465,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				if !ok {
 					continue
 				}
+				currentPred = e.blockScratch[:compactPredLen]
 				rateY, distY, modelSkipTxfm, mrdTxSize = encoder.ModelRdForSbY(encoder.ModelRdForSbYArgs{
 					BSize:           bsize,
 					QIndex:          segQIndex,
@@ -1492,7 +1480,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				})
 				if useModelYrdLarge {
 					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-					dst, dstStride := e.vp9EncoderReconPlane(0)
 					x0 := miCol * common.MiSize
 					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
@@ -1502,17 +1489,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						SrcStride:         srcStride,
 						SrcX:              x0,
 						SrcY:              y0,
-						Pred:              dst,
-						PredStride:        dstStride,
-						PredX:             x0,
-						PredY:             y0,
+						Pred:              currentPred,
+						PredStride:        compactPredW,
+						PredX:             0,
+						PredY:             0,
 						TxMode:            frameTxMode,
 						SourceVariance:    uint64(sourceVariance),
 						SegmentID:         segID,
 						CyclicRefreshAQ:   e.opts.AQMode == VP9AQCyclicRefresh,
 						ScreenContent:     e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 						ZeroTempSADSource: zeroTempSADSource,
-						Speed:             e.vp9SpeedFeatureCPUUsed(),
+						Speed:             speedFeatureCPUUsed,
 						Width:             e.opts.Width,
 						Height:            e.opts.Height,
 					})
@@ -1605,18 +1592,16 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			if runBlockYrd && !thisEarlyTerm {
 				txClamp := min(mrdTxSize, common.Tx16x16)
 				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-				dst, dstStride := e.vp9EncoderReconPlane(0)
 				blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 				blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 				x0 := miCol * common.MiSize
 				y0 := miRow * common.MiSize
 				// libvpx block_yrd does the prediction-build via
 				// vp9_build_inter_predictors_sby just above (line
-				// 2336); govpx's vp9InterPredictionVarianceSSE call
-				// above already wrote the predictor to recon. The
-				// kernel reads src and recon directly.
-				if len(src) > 0 && len(dst) > 0 && srcStride > 0 &&
-					dstStride > 0 {
+				// 2336); govpx's vp9InterPredictionVarianceSSE call above
+				// built the same luma predictor into blockScratch. The
+				// kernel reads src and that compact predictor directly.
+				if len(src) > 0 && len(currentPred) > 0 && srcStride > 0 {
 					// libvpx uses bw/bh from num_4x4_w/h (the full
 					// block extent, not the visible window) for the
 					// src_diff stride. govpx mirrors; the visible-
@@ -1628,7 +1613,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					// inside vp9InterPredictionVarianceSSE), so the
 					// edge clamp is a no-op here.
 					byrd := encoder.BlockYrd(src, srcStride, x0, y0,
-						dst, dstStride, x0, y0,
+						currentPred, compactPredW, 0, 0,
 						blockW, blockH, txClamp, dequantY, sseY,
 						e.vp9BlockCoeffScratch().blockYrd[:])
 					if byrd.Valid {
@@ -1687,9 +1672,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			useSkipCheck := !blockYrdFired && !useSimpleBlockYrd && !thisEarlyTerm
 			isSkip := blockYrdFired || thisEarlyTerm
 			if useSkipCheck {
-				rdNonSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+				rdNonSkip := encoder.RDCost(rdmult, encoder.RDDivBits,
 					finalRate, finalDist)
-				rdSkip := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+				rdSkip := encoder.RDCost(rdmult, encoder.RDDivBits,
 					0, thisSse)
 				if rdSkip < rdNonSkip {
 					// libvpx: this_rdc.rate = vp9_cost_bit(skip_prob, 1);
@@ -1750,8 +1735,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				interModeCtx, thisMode, mv, refMv)
 			interpFilterCost := 0
 			if vp9MvHasSubpel(mv) {
-				interpFilterCost = vp9InterInterpFilterRateCost(inter,
-					vp9InterModeCostFrameContext(inter), switchableCtx, filter)
+				interpFilterCost = interpFilterRateCost[filter]
 			}
 			rate := refRate + interModeBitCost + interpFilterCost + finalRate
 			if isSkip {
@@ -1821,7 +1805,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 
 			// libvpx vp9_pickmode.c:2410 — this_rdc.rdcost = RDCOST(...).
-			score := encoder.RDCost(e.activeRDMult(qindex), encoder.RDDivBits,
+			score := encoder.RDCost(rdmult, encoder.RDDivBits,
 				rate, finalDist)
 			if encoder.NonrdScreenZeroLastBias(
 				e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
@@ -1840,15 +1824,24 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			//     vp9_NEWMV_diff_bias(...);
 			if e.opts.RateControlModeSet &&
 				e.opts.RateControlMode == RateControlCBR &&
-				e.vp9SpeedFeatureCPUUsed() >= 5 &&
+				speedFeatureCPUUsed >= 5 &&
 				e.opts.ScreenContentMode != int8(VP9ScreenContentScreen) {
-				noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin :=
-					newmvDiffBiasInputs()
+				if !lowvarHighsumdiffSet {
+					if sourceSADReady {
+						lowvarHighsumdiff =
+							encoder.NewmvDiffBiasLowvarInput(contentState)
+					} else if stats, ok := e.vp9AvgSourceSADStats(inter.img,
+						miCols, miRow, miCol); ok {
+						lowvarHighsumdiff =
+							encoder.NewmvDiffBiasLowvarInput(stats.ContentState)
+					}
+					lowvarHighsumdiffSet = true
+				}
 				biased := encoder.NewmvDiffBias(thisMode, score, bsize,
 					int(mv.Row), int(mv.Col),
 					above, left,
 					refFrame == vp9dec.LastFrame,
-					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, isSkin)
+					noiseEnabled, noiseAtLeastMedium, lowvarHighsumdiff, false)
 				score = biased.RDCost
 			}
 
@@ -1870,8 +1863,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			scoredIntoOrig := false
 			if reuseInterPred && !deferredPredBuf {
 				if !origPredValid {
-					vp9CopyPredRectToScratch(e.nonrdOrigPredScratch[:],
-						predPlane, predStride, predX, predY, predW, predH)
+					copy(e.nonrdOrigPredScratch[:compactPredLen],
+						currentPred[:compactPredLen])
 					vp9CopyPredRectFromScratch(livePred, livePredStride,
 						livePredX, livePredY, predW, predH,
 						e.nonrdOrigPredScratch[:])
@@ -1902,25 +1895,24 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				bp.bestPredFilter = cand.interpFilter
 				bp.bestTxSize = cand.txSize
 				bp.bestModeSkipTxfm = uint8(cand.skipTxfm)
-				bp.winner = cand
-				bp.winnerSet = true
 				// libvpx: vp9_pickmode.c:2462 best_early_term =
 				// this_early_term.
 				bestEarlyTerm = thisEarlyTerm
 				if deferredPredBuf {
 					// libvpx vp9_pickmode.c:2470-2472 — best_pred adopts
-					// this candidate's buffer. The rect holds this
-					// candidate's luma predictor right now; keep it live
-					// and invalidate any stale capture.
-					e.nonrdBestPredInRect = true
-					e.nonrdBestPredCaptured = false
+					// this candidate's buffer. govpx's candidate predictor
+					// lives in compact scratch, so capture it immediately.
+					copy(e.nonrdBestPredScratch[:compactPredLen],
+						currentPred[:compactPredLen])
+					e.nonrdBestPredInRect = false
+					e.nonrdBestPredCaptured = true
 				} else if reuseInterPred {
 					if scoredIntoOrig {
 						bestPredFromOrig = true
 						bestPredValid = false
 					} else {
-						vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:],
-							predPlane, predStride, predX, predY, predW, predH)
+						copy(e.nonrdBestPredScratch[:compactPredLen],
+							currentPred[:compactPredLen])
 						bestPredFromOrig = false
 						bestPredValid = true
 					}
@@ -2006,9 +1998,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	const qidxSkipThresh = 115
 	skipEncode := e.sf.SkipEncodeFrame != 0 && pickSegQIndex < qidxSkipThresh
 	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
-		miRows, miCols, miRow, miCol, bsize, qindex,
+		miRows, miCols, miRow, miCol, bsize, qindex, rdmult,
 		above, left, sourceVariance, bestInterScore, forceSkipLowTempVar, xSkip,
 		sceneChangeDetected, highNumBlocksWithMotion,
+		contentState, zeroTempSADSource,
 		pickPred, pickPredStride, pickPredOriginMiRow,
 		pickPredOriginMiCol, skipEncode); intraFires {
 		// libvpx: vp9_pickmode.c:2637-2647 — if intra wins, replace
@@ -2032,8 +2025,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		bp.bestSecondRefFrame = vp9dec.NoRefFrame
 		bp.bestIntraTxSize = intra.txSize
 		bp.bestModeSkipTxfm = uint8(intra.skipTxfm)
-		bp.winner = best
-		bp.winnerSet = true
 		if reuseInterPred && !deferredPredBuf && len(intra.predData) != 0 &&
 			intra.predStride > 0 {
 			// ML lane only: mirror the intra winner's predictor into the

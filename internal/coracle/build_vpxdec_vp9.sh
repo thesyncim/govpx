@@ -21,7 +21,7 @@ vpxenc_vp9_bin=${GOVPX_VPXENC_VP9_BIN:-"$build_dir/vpxenc-vp9"}
 vpxenc_vp9_stats_bin=${GOVPX_VPXENC_VP9_CALLSTATS_BIN:-"$build_dir/vpxenc-vp9-callstats"}
 vp9_spatial_svc_bin=${GOVPX_VP9_SPATIAL_SVC_ENCODER_BIN:-"$build_dir/vp9_spatial_svc_encoder"}
 config_stamp="$src_dir/.govpx-vpxdec-vp9-config"
-want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-postproc-vp9-call-stats-split-r2
+want_config="v1.16.0-vp9-encoder+decoder-tools-optimized-govpx-decoder-controls-vp9-denoise-postproc-vp9-call-stats-split-r3
 src_dir=$src_dir
 vpxdec_vp9_bin=$vpxdec_vp9_bin
 vpxenc_vp9_bin=$vpxenc_vp9_bin
@@ -1148,6 +1148,7 @@ if [ ! -x "$vpxdec_vp9_bin" ] || [ ! -x "$vpxenc_vp9_bin" ] || [ ! -x "$vpxenc_v
 			--enable-vp9 \
 			--enable-vp9_decoder \
 			--enable-vp9_encoder \
+			--enable-vp9-temporal-denoising \
 			--disable-vp9-highbitdepth \
 			--enable-postproc \
 			--enable-vp9-postproc

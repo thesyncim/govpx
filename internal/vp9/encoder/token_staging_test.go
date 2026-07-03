@@ -28,6 +28,53 @@ func TestTokenAllocForMIMatchesLibvpxFormula(t *testing.T) {
 	}
 }
 
+func TestTokenFrameBufferTileLocalListIndexAndSlices(t *testing.T) {
+	var buf TokenFrameBuffer
+	buf.EnsureForTile(90, 40, 2, 17)
+	if got, want := len(buf.Lists), TokenListAllocForTileGrid(90, 1, 1); got != want {
+		t.Fatalf("tile-local Lists len = %d, want %d", got, want)
+	}
+	if got, want := len(buf.Tokens), TokenAllocForMI(90, 40); got != want {
+		t.Fatalf("tile-local Tokens len = %d, want %d", got, want)
+	}
+	idx, ok := buf.TokenListIndex(2, 17, 11)
+	if !ok {
+		t.Fatal("TokenListIndex rejected tile-local global coordinate")
+	}
+	if idx != 11 {
+		t.Fatalf("TokenListIndex tile-local idx = %d, want 11", idx)
+	}
+	if _, ok := buf.TokenListIndex(1, 17, 0); ok {
+		t.Fatal("TokenListIndex accepted tile row before tile-local base")
+	}
+	if _, ok := buf.TokenListIndex(2, 16, 0); ok {
+		t.Fatal("TokenListIndex accepted tile col before tile-local base")
+	}
+	if _, ok := buf.TokenListIndex(2, 18, 0); ok {
+		t.Fatal("TokenListIndex accepted tile col after tile-local extent")
+	}
+
+	idx, ok = buf.StartTokenList(2, 17, 3)
+	if !ok {
+		t.Fatal("StartTokenList rejected tile-local global coordinate")
+	}
+	for _, token := range []int16{OneToken, EOSBToken} {
+		if !buf.AppendToken(TokenExtra{Token: token}) {
+			t.Fatalf("AppendToken(%d) returned false", token)
+		}
+	}
+	if !buf.FinishTokenList(idx) {
+		t.Fatal("FinishTokenList returned false for tile-local list")
+	}
+	tokens, ok := buf.TokensForList(buf.Lists[idx])
+	if !ok {
+		t.Fatal("TokensForList rejected tile-local list")
+	}
+	if len(tokens) != 2 || tokens[1].Token != EOSBToken {
+		t.Fatalf("tile-local tokens = %+v, want one token plus EOSB", tokens)
+	}
+}
+
 func TestTokenFrameBufferEnsureResetAndRelease(t *testing.T) {
 	var buf TokenFrameBuffer
 	buf.Ensure(8, 8)

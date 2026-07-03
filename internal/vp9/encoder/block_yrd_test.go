@@ -190,6 +190,31 @@ func TestVP9BlockYrdRateScaling(t *testing.T) {
 	}
 }
 
+var benchmarkBlockYrdResult BlockYrdResult
+
+func BenchmarkVP9BlockYrd(b *testing.B) {
+	const bw, bh = 32, 32
+	var src [bw * bh]byte
+	var dst [bw * bh]byte
+	for y := range bh {
+		for x := range bw {
+			src[y*bw+x] = byte(64 + ((x*3 + y*5) & 127))
+			dst[y*bw+x] = byte(63 + ((x*7 + y*11) & 127))
+		}
+	}
+	dequant := [2]int16{16, 17}
+	const sseY = uint64(32 * 32 * 64 * 64)
+	var scratch [16384]int16
+	b.ReportAllocs()
+	for b.Loop() {
+		benchmarkBlockYrdResult = BlockYrd(src[:], bw, 0, 0, dst[:], bw, 0, 0,
+			bw, bh, common.Tx16x16, dequant, sseY, scratch[:])
+	}
+	if !benchmarkBlockYrdResult.Valid {
+		b.Fatal("BlockYrd returned invalid result")
+	}
+}
+
 func TestVP9CalculateTxSizeMirrorsLibvpxAQAndScreenForces(t *testing.T) {
 	cases := []struct {
 		name string

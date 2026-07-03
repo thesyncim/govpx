@@ -158,6 +158,90 @@ func TestAvgSourceSADEdgeExtendsBottomBorder(t *testing.T) {
 	}
 }
 
+func TestAvgSourceSAD64ClampedEdgesMatchReference(t *testing.T) {
+	const width = 100
+	const height = 90
+	const stride = 112
+	source := makePatternedPlane(stride, width, height, 3)
+	last := makePatternedPlane(stride, width, height, 97)
+	args := AvgSourceSADArgs{
+		SourceY:           source,
+		SourceYStride:     stride,
+		LastSourceY:       last,
+		LastSourceYStride: stride,
+		Width:             width,
+		Height:            height,
+	}
+	cases := []struct {
+		name string
+		x0   int
+		y0   int
+	}{
+		{name: "interior", x0: 0, y0: 0},
+		{name: "right", x0: 64, y0: 0},
+		{name: "bottom", x0: 0, y0: 64},
+		{name: "bottom_right", x0: 64, y0: 64},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotSAD, gotVariance, gotSSE := avgSourceSAD64(args, tc.x0, tc.y0)
+			wantSAD, wantVariance, wantSSE := avgSourceSAD64Reference(args, tc.x0, tc.y0)
+			if gotSAD != wantSAD || gotVariance != wantVariance || gotSSE != wantSSE {
+				t.Fatalf("avgSourceSAD64 = sad:%d variance:%d sse:%d, want sad:%d variance:%d sse:%d",
+					gotSAD, gotVariance, gotSSE, wantSAD, wantVariance, wantSSE)
+			}
+		})
+	}
+}
+
+var benchmarkAvgSourceSAD64Sink struct {
+	sad      uint64
+	variance uint64
+	sse      uint64
+}
+
+func BenchmarkAvgSourceSAD64BottomEdge(b *testing.B) {
+	const width = 1280
+	const height = 720
+	const stride = width
+	source := makePatternedPlane(stride, width, height, 11)
+	last := makePatternedPlane(stride, width, height, 173)
+	args := AvgSourceSADArgs{
+		SourceY:           source,
+		SourceYStride:     stride,
+		LastSourceY:       last,
+		LastSourceYStride: stride,
+		Width:             width,
+		Height:            height,
+	}
+	const x0 = 640
+	const y0 = 704
+	b.Run("reference", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink struct {
+			sad      uint64
+			variance uint64
+			sse      uint64
+		}
+		for b.Loop() {
+			sink.sad, sink.variance, sink.sse = avgSourceSAD64Reference(args, x0, y0)
+		}
+		benchmarkAvgSourceSAD64Sink = sink
+	})
+	b.Run("optimized", func(b *testing.B) {
+		b.ReportAllocs()
+		var sink struct {
+			sad      uint64
+			variance uint64
+			sse      uint64
+		}
+		for b.Loop() {
+			sink.sad, sink.variance, sink.sse = avgSourceSAD64(args, x0, y0)
+		}
+		benchmarkAvgSourceSAD64Sink = sink
+	})
+}
+
 func makeFilledPlane(width, height int, value byte) []byte {
 	p := make([]byte, width*height)
 	for i := range p {
@@ -179,4 +263,45 @@ func makeCheckerPlane(width, height int, lo, hi byte) []byte {
 		}
 	}
 	return p
+}
+
+func makePatternedPlane(stride, width, height int, seed byte) []byte {
+	p := make([]byte, stride*height)
+	for y := range height {
+		row := p[y*stride:]
+		for x := range width {
+			row[x] = byte((x*37 + y*19 + int(seed)) & 0xff)
+		}
+	}
+	return p
+}
+
+func avgSourceSAD64Reference(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint64) {
+	var sum int64
+	for y := range 64 {
+		sy := y0 + y
+		if sy >= args.Height {
+			sy = args.Height - 1
+		}
+		for x := range 64 {
+			sx := x0 + x
+			if sx >= args.Width {
+				sx = args.Width - 1
+			}
+			diff := int(args.SourceY[sy*args.SourceYStride+sx]) -
+				int(args.LastSourceY[sy*args.LastSourceYStride+sx])
+			if diff < 0 {
+				sad += uint64(-diff)
+			} else {
+				sad += uint64(diff)
+			}
+			sum += int64(diff)
+			sse += uint64(diff * diff)
+		}
+	}
+	meanSquares := uint64((sum * sum) >> 12)
+	if sse > meanSquares {
+		variance = sse - meanSquares
+	}
+	return sad, variance, sse
 }

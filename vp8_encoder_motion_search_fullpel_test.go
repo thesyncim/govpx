@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+func testInterFrameMVRefs(modes []vp8enc.InterFrameMacroblockMode, signBias [vp8common.MaxRefFrames]bool) []vp8enc.InterFrameMVRef {
+	refs := make([]vp8enc.InterFrameMVRef, len(modes))
+	for i := range modes {
+		refs[i] = vp8enc.InterFrameMVRefFromMode(&modes[i], signBias)
+	}
+	return refs
+}
+
 func TestSelectInterFrameFullPixelMotionVectorRealtimeHexWalksNextCheckpoints(t *testing.T) {
 	src := testImage(64, 64)
 	fillImage(src, 13, 90, 170)
@@ -424,18 +432,80 @@ func TestImprovedInterFrameSearchStartReadsPreviousInterFrameModes(t *testing.T)
 	}
 	e := &VP8Encoder{
 		lastRef:                  last,
-		lastFrameInterModes:      make([]vp8enc.InterFrameMacroblockMode, 16),
+		lastFrameInterModeRefs:   make([]vp8enc.InterFrameMVRef, 16),
 		lastFrameInterModesValid: true,
 	}
-	e.lastFrameInterModes[1*4+1] = vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.LastFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: 56, Col: -8}}
+	target := vp8enc.MotionVector{Row: 56, Col: -8}
+	e.lastFrameInterModeRefs[1*4+1] = vp8enc.InterFrameMVRef{RefFrame: vp8common.LastFrame, MV: target}
 	search := interAnalysisSearchConfig{improvedMVPrediction: true}
 
 	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, search, nil)
-	if !start.ok() || start.mv != e.lastFrameInterModes[1*4+1].MV || start.searchRange() != 3 {
-		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, e.lastFrameInterModes[1*4+1].MV)
+	if !start.ok() || start.mv != target || start.searchRange() != 3 {
+		t.Fatalf("previous-frame search start = %+v, want %+v with sr 3", start, target)
 	}
 	if start.nearSADIndexInt() != 3 {
 		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndexInt())
+	}
+}
+
+func TestImprovedInterFrameSearchStartReadsPreviousInterFrameMVRefs(t *testing.T) {
+	src := testImage(64, 64)
+	fillImage(src, 19, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			src.Y[(row+16)*src.YStride+col+16] = byte((31 + row*29 + col*13 + row*col*5) & 255)
+		}
+	}
+
+	last := testVP8Frame(t, 64, 64, 151, 90, 170)
+	for row := range 16 {
+		for col := range 16 {
+			last.Img.Y[(row+16)*last.Img.YStride+col+16] = src.Y[(row+16)*src.YStride+col+16]
+		}
+	}
+	target := vp8enc.MotionVector{Row: 56, Col: -8}
+	e := &VP8Encoder{
+		lastRef:                  last,
+		lastFrameInterModeRefs:   make([]vp8enc.InterFrameMVRef, 16),
+		lastFrameInterModesValid: true,
+	}
+	e.lastFrameInterModeRefs[1*4+1] = vp8enc.InterFrameMVRef{RefFrame: vp8common.LastFrame, MV: target}
+
+	start := e.improvedInterFrameSearchStart(sourceImageFromPublic(src), vp8common.LastFrame, 1, 1, 4, 4, nil, nil, nil, interAnalysisSearchConfig{improvedMVPrediction: true}, nil)
+	if !start.ok() || start.mv != target || start.searchRange() != 3 {
+		t.Fatalf("sidecar previous-frame search start = %+v, want %+v with sr 3", start, target)
+	}
+	if start.nearSADIndexInt() != 3 {
+		t.Fatalf("near_sadidx = %d, want previous-frame current-MB slot 3", start.nearSADIndexInt())
+	}
+}
+
+func TestRememberLastFrameInterModesSnapshotsCompactRefs(t *testing.T) {
+	e := &VP8Encoder{
+		interFrameModes: []vp8enc.InterFrameMacroblockMode{
+			{RefFrame: vp8common.LastFrame, Mode: vp8common.ZeroMV, MV: vp8enc.MotionVector{Col: 8}},
+			{RefFrame: vp8common.GoldenFrame, Mode: vp8common.NewMV, MV: vp8enc.MotionVector{Row: -16, Col: 32}},
+			{RefFrame: vp8common.LastFrame, Mode: vp8common.DCPred, MV: vp8enc.MotionVector{Row: 1000, Col: 1000}},
+		},
+	}
+	signBias := [vp8common.MaxRefFrames]bool{vp8common.GoldenFrame: true}
+
+	e.rememberLastFrameInterModes(signBias)
+
+	if !e.lastFrameInterModesValid {
+		t.Fatalf("last-frame compact refs were not marked valid")
+	}
+	if len(e.lastFrameInterModeRefs) != len(e.interFrameModes) {
+		t.Fatalf("compact ref len = %d, want %d", len(e.lastFrameInterModeRefs), len(e.interFrameModes))
+	}
+	if got := e.lastFrameInterModeRefs[0]; got.RefFrame != vp8common.LastFrame || got.MV.Col != 8 || got.SignBias {
+		t.Fatalf("compact ref[0] = %+v, want LAST col=8 no bias", got)
+	}
+	if got := e.lastFrameInterModeRefs[1]; got.RefFrame != vp8common.GoldenFrame || got.MV.Row != -16 || got.MV.Col != 32 || !got.SignBias {
+		t.Fatalf("compact ref[1] = %+v, want GOLDEN mv=(-16,32) biased", got)
+	}
+	if got := e.lastFrameInterModeRefs[2]; got.RefFrame != vp8common.IntraFrame || got.MV != (vp8enc.MotionVector{}) {
+		t.Fatalf("compact ref[2] = %+v, want INTRA zero MV", got)
 	}
 }
 
@@ -471,8 +541,7 @@ func TestImprovedInterFrameSearchStartBiasesPreviousFrameSlots(t *testing.T) {
 	}
 	e := &VP8Encoder{
 		lastRef:                  last,
-		lastFrameInterModes:      modes,
-		lastFrameInterModeBias:   make([]bool, len(modes)),
+		lastFrameInterModeRefs:   testInterFrameMVRefs(modes, [vp8common.MaxRefFrames]bool{}),
 		lastFrameInterModesValid: true,
 		sourceAltRefActive:       true,
 	}

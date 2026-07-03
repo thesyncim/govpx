@@ -255,10 +255,24 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
-		step := 1 << uint(txSize)
 		dequant := inter.dq.Y[segID]
 		if plane > 0 {
 			dequant = inter.dq.Uv[segID]
+		}
+		if txSize >= common.TxSizes {
+			continue
+		}
+		step := 1 << uint(txSize)
+		maxEob := vp9dec.MaxEobForTxSize(txSize)
+		if maxEob > vp9EncoderTxCoeffSlots ||
+			dequant[0] == 0 || dequant[1] == 0 ||
+			(inter.lossless && txSize != common.Tx4x4) {
+			continue
+		}
+		fpTables := e.vp9QuantFPTablesForPlaneSegment(plane, segID, dequant)
+		scanOrder := &common.ScanOrders[txSize][common.DctDct]
+		if inter.lossless {
+			scanOrder = &common.DefaultScanOrders[txSize]
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
@@ -276,11 +290,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 						continue
 					}
 				}
+				if e.vp9InterSkipTxfmACDCLuma(inter, interDecision,
+					plane, segID) {
+					continue
+				}
 				coeffBase := blockIdx4x4 * vp9EncoderTxCoeffSlots
-				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
-				if ok, eob := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
-					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs); ok {
+				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
+				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
+				if ok, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,
+					txSize, miRow, miCol, rr, cc, maxEob, scanOrder, dequant,
+					fpTables, coeffs, qcoeffs); ok {
 					if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 						sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
 					}
@@ -291,6 +310,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	}
 	e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
 	return interDecision, common.DcPred, hasResidue
+}
+
+func (e *VP9Encoder) vp9InterSkipTxfmACDCLuma(inter *vp9InterEncodeState,
+	decision vp9InterModeDecision, plane, segID int,
+) bool {
+	return e != nil && inter != nil &&
+		e.vp9InterUsesNonrdPickmode() &&
+		e.sf.UseQuantFp != 0 &&
+		plane == 0 && segID == 0 && !inter.lossless &&
+		decision.skipTxfm == encoder.SkipTxfmAcDc
 }
 
 func (e *VP9Encoder) vp9StaticThresholdBreakout(inter *vp9InterEncodeState,
@@ -1004,26 +1033,35 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 		}
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
+		if txSize >= common.TxSizes {
+			return 0, 0, false, false
+		}
 		step := 1 << uint(txSize)
 		maxEob := vp9dec.MaxEobForTxSize(txSize)
-		if maxEob > len(e.coefScratch) {
+		if maxEob > len(e.coefScratch) || maxEob > len(e.qCoefScratch) ||
+			dequant[0] == 0 || dequant[1] == 0 ||
+			(inter.lossless && txSize != common.Tx4x4) {
 			return 0, 0, false, false
+		}
+		fpTables := e.vp9QuantFPTablesForPlaneSegment(plane, 0, dequant)
+		scanOrder := &common.ScanOrders[txSize][common.DctDct]
+		if inter.lossless {
+			scanOrder = &common.DefaultScanOrders[txSize]
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
 				coeffs := e.coefScratch[:maxEob]
 				qcoeffs := e.qCoefScratch[:maxEob]
-				for i := range coeffs {
-					coeffs[i] = 0
-					qcoeffs[i] = 0
-				}
+				clear(coeffs)
+				clear(qcoeffs)
 				// libvpx vp9_rdopt.c:367,405 — cost_coeffs reads
 				// v = qcoeff[rc] (p->qcoeff). prepareVP9InterTxResidueWithQ
 				// emits qcoeff alongside dqcoeff so the cost path
 				// consumes the libvpx-equivalent magnitude verbatim
 				// instead of recovering q from int16-wrapped dqcoeff.
-				hasTxResidue, eob := e.prepareVP9InterTxResidueWithQEOB(inter, pd, plane, txSize,
-					miRow, miCol, rr, cc, dequant, coeffs, qcoeffs)
+				hasTxResidue, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd,
+					plane, txSize, miRow, miCol, rr, cc, maxEob, scanOrder,
+					dequant, fpTables, coeffs, qcoeffs)
 				txDist, distOK := e.scoreVP9InterTxReconstruction(inter, pd, plane,
 					txSize, miRow, miCol, rr, cc)
 				if !distOK {
@@ -1031,7 +1069,7 @@ func (e *VP9Encoder) scoreVP9InterTxCandidate(inter *vp9InterEncodeState,
 				}
 				distortion += txDist
 
-				initCtx := vp9dec.GetEntropyContext(txSize,
+				initCtx := vp9dec.GetEntropyContextFull(txSize,
 					aboveCtx[plane][cc:cc+step], leftCtx[plane][rr:rr+step])
 				rate += e.vp9InterCoeffBlockRateCostQEOB(txSize, planeType,
 					dequant, coeffs, qcoeffs, initCtx, eob, true)
@@ -1085,10 +1123,20 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 		lo := leftOffsets[plane]
 		max4x4W, max4x4H := vp9dec.PlaneMaxBlocks4x4(miRows, miCols,
 			miRow, miCol, bsize, pd, planeBsize)
+		if txSize >= common.TxSizes {
+			continue
+		}
 		step := 1 << uint(txSize)
 		maxEob := vp9dec.MaxEobForTxSize(txSize)
-		if maxEob > len(e.coefScratch) {
+		if maxEob > len(e.coefScratch) || maxEob > len(e.qCoefScratch) ||
+			dequant[0] == 0 || dequant[1] == 0 ||
+			(inter.lossless && txSize != common.Tx4x4) {
 			continue
+		}
+		fpTables := e.vp9QuantFPTablesForPlaneSegment(plane, 0, dequant)
+		scanOrder := &common.ScanOrders[txSize][common.DctDct]
+		if inter.lossless {
+			scanOrder = &common.DefaultScanOrders[txSize]
 		}
 		for rr := 0; rr < max4x4H; rr += step {
 			for cc := 0; cc < max4x4W; cc += step {
@@ -1096,12 +1144,11 @@ func (e *VP9Encoder) stampVP9InterLeafTxContext(inter *vp9InterEncodeState,
 				if !skip {
 					coeffs := e.coefScratch[:maxEob]
 					qcoeffs := e.qCoefScratch[:maxEob]
-					for i := range coeffs {
-						coeffs[i] = 0
-						qcoeffs[i] = 0
-					}
-					if e.prepareVP9InterTxResidueWithQ(inter, pd, plane, txSize,
-						miRow, miCol, rr, cc, dequant, coeffs, qcoeffs) {
+					clear(coeffs)
+					clear(qcoeffs)
+					if ok, _ := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd,
+						plane, txSize, miRow, miCol, rr, cc, maxEob, scanOrder,
+						dequant, fpTables, coeffs, qcoeffs); ok {
 						hasCtx = 1
 					}
 				}

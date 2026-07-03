@@ -108,11 +108,15 @@ const UnconstrainedNodes = 3
 // Returns true if the coefficient was emittable. CAT classes that
 // haven't been wired here (none yet) return false.
 func WriteTokenForCoeff(bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sign int) bool {
-	return writeTokenForCoeff(bw, ctxTree, absCoeff, sign, nil)
+	if len(ctxTree) < UnconstrainedNodes {
+		return false
+	}
+	return writeTokenForCoeff(bw, (*[UnconstrainedNodes]uint8)(ctxTree[:UnconstrainedNodes]),
+		absCoeff, sign, nil)
 }
 
 func writeTokenForCoeff(
-	bw *bitstream.Writer, ctxTree []uint8, absCoeff int, sign int,
+	bw *bitstream.Writer, ctxTree *[UnconstrainedNodes]uint8, absCoeff int, sign int,
 	branchStats *[EntropyNodes][2]uint32,
 ) bool {
 	if absCoeff == 0 {
@@ -121,32 +125,172 @@ func writeTokenForCoeff(
 	}
 	token, extra := TokenForAbsCoeff(absCoeff)
 	if token == OneToken {
-		recordCoefBranch(branchStats, PivotNode, 0)
-		bw.Write(0, uint32(ctxTree[2]))
-		bw.WriteBit(uint32(sign))
+		recordCoefBranchPivot0(branchStats)
+		writePackedCoefTokenBody(bw, token, extra, sign, ctxTree[2])
 		return true
 	}
 	// Non-ONE: emit the "go to pareto" bit at ctx[2].
-	recordCoefBranch(branchStats, PivotNode, 1)
-	bw.Write(1, uint32(ctxTree[2]))
-	enc := CoefEncodings[token]
-	pareto := tables.Pareto8Full[ctxTree[2]-1]
-	// vp9_coef_encodings[].len carries the FULL token-tree depth
-	// (including the 3 unconstrained nodes consumed before the
-	// CoefConTree walk). pack_mb_tokens passes (n - UNCONSTRAINED_NODES)
-	// so the tree walk consumes only the pareto-tail bits.
-	walkLen := int(enc.Len) - UnconstrainedNodes
-	writeTreeBitsWithCounts(bw, CoefConTree[:], pareto[:], int(enc.Value), walkLen,
-		branchStats)
-	if token >= Category1Tok {
-		eb := VP9ExtraBits[token]
-		for i := eb.Len - 1; i >= 0; i-- {
-			bit := (extra >> uint(i)) & 1
-			bw.Write(uint32(bit), uint32(eb.Prob[eb.Len-1-i]))
-		}
+	recordCoefBranchPivot1(branchStats)
+	pivot := ctxTree[2]
+	if pivot == 0 {
+		panic("encoder: invalid VP9 coefficient probability")
 	}
-	bw.WriteBit(uint32(sign))
+	recordCoefTokenTailBranches(token, branchStats)
+	writePackedCoefTokenBody(bw, token, extra, sign, pivot)
 	return true
+}
+
+func writePackedCoefTokenBody(
+	bw *bitstream.Writer, token int, extra int, sign int, pivot uint8,
+) {
+	signBit := uint32(sign & 1)
+	switch token {
+	case OneToken:
+		bw.WritePacked(signBit, uint32(pivot)<<8|128, 2)
+		return
+	case TwoToken:
+		if pivot == 0 {
+			panic("encoder: invalid VP9 coefficient probability")
+		}
+		pareto := &tables.Pareto8Full[pivot-1]
+		bw.WritePacked(0b1000|signBit, uint32(pivot)<<24|
+			uint32(pareto[0])<<16|uint32(pareto[1])<<8|128, 4)
+		return
+	case ThreeToken, FourToken, Category1Tok, Category2Tok:
+		if pivot == 0 {
+			panic("encoder: invalid VP9 coefficient probability")
+		}
+		pareto := &tables.Pareto8Full[pivot-1]
+		switch token {
+		case ThreeToken:
+			bw.WritePacked(0b1010, uint32(pivot)<<24|
+				uint32(pareto[0])<<16|uint32(pareto[1])<<8|
+				uint32(pareto[2]), 4)
+		case FourToken:
+			bw.WritePacked(0b1011, uint32(pivot)<<24|
+				uint32(pareto[0])<<16|uint32(pareto[1])<<8|
+				uint32(pareto[2]), 4)
+		case Category1Tok:
+			bw.WritePacked(0b1100, uint32(pivot)<<24|
+				uint32(pareto[0])<<16|uint32(pareto[3])<<8|
+				uint32(pareto[4]), 4)
+		case Category2Tok:
+			bw.WritePacked(0b1101, uint32(pivot)<<24|
+				uint32(pareto[0])<<16|uint32(pareto[3])<<8|
+				uint32(pareto[4]), 4)
+		}
+	default:
+		if pivot == 0 {
+			panic("encoder: invalid VP9 coefficient probability")
+		}
+		bw.Write(1, uint32(pivot))
+		writePackedCoefTokenTail(bw, token, &tables.Pareto8Full[pivot-1])
+	}
+	if token >= Category1Tok {
+		writeCoefExtraBits(bw, token, extra)
+	}
+	bw.WriteBit(signBit)
+}
+
+func writePackedCoefTokenBodyAfterNotZero(
+	bw *bitstream.Writer, token int, extra int, sign int, zeroProb, pivot uint8,
+) {
+	signBit := uint32(sign & 1)
+	switch token {
+	case OneToken:
+		bw.WritePacked(0b100|signBit, uint32(zeroProb)<<16|uint32(pivot)<<8|128, 3)
+		return
+	}
+	if pivot == 0 {
+		panic("encoder: invalid VP9 coefficient probability")
+	}
+	pareto := &tables.Pareto8Full[pivot-1]
+	switch token {
+	case TwoToken:
+		bw.WritePacked64(0b11000|signBit, uint64(zeroProb)<<32|
+			uint64(pivot)<<24|uint64(pareto[0])<<16|
+			uint64(pareto[1])<<8|128, 5)
+	case ThreeToken:
+		bw.WritePacked64(0b110100|signBit, uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|
+			uint64(pareto[1])<<16|uint64(pareto[2])<<8|128, 6)
+	case FourToken:
+		bw.WritePacked64(0b110110|signBit, uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|
+			uint64(pareto[1])<<16|uint64(pareto[2])<<8|128, 6)
+	case Category1Tok:
+		bw.WritePacked64(0b1110000|uint32((extra&1)<<1)|signBit,
+			uint64(zeroProb)<<48|uint64(pivot)<<40|
+				uint64(pareto[0])<<32|uint64(pareto[3])<<24|
+				uint64(pareto[4])<<16|uint64(tables.Cat1Prob[0])<<8|128, 7)
+	case Category2Tok:
+		bw.WritePacked64(0b11101000|uint32((extra&0x3)<<1)|signBit,
+			uint64(zeroProb)<<56|uint64(pivot)<<48|
+				uint64(pareto[0])<<40|uint64(pareto[3])<<32|
+				uint64(pareto[4])<<24|uint64(tables.Cat2Prob[0])<<16|
+				uint64(tables.Cat2Prob[1])<<8|128, 8)
+	case Category3Tok:
+		bw.WritePacked64(0b111100, uint64(zeroProb)<<40|uint64(pivot)<<32|
+			uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[6]), 6)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category4Tok:
+		bw.WritePacked64(0b111101, uint64(zeroProb)<<40|uint64(pivot)<<32|
+			uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[6]), 6)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category5Tok:
+		bw.WritePacked64(0b111110, uint64(zeroProb)<<40|uint64(pivot)<<32|
+			uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[7]), 6)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category6Tok:
+		bw.WritePacked64(0b111111, uint64(zeroProb)<<40|uint64(pivot)<<32|
+			uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[7]), 6)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	default:
+		panic("encoder: invalid staged VP9 coefficient token")
+	}
+}
+
+func writeCoefExtraBits(bw *bitstream.Writer, token, extra int) {
+	switch token {
+	case Category1Tok:
+		bw.Write(uint32(extra&1), uint32(tables.Cat1Prob[0]))
+	case Category2Tok:
+		bw.WritePacked(uint32(extra&0x3),
+			uint32(tables.Cat2Prob[0])<<8|uint32(tables.Cat2Prob[1]), 2)
+	case Category3Tok:
+		bw.WritePacked(uint32(extra&0x7),
+			uint32(tables.Cat3Prob[0])<<16|uint32(tables.Cat3Prob[1])<<8|
+				uint32(tables.Cat3Prob[2]), 3)
+	case Category4Tok:
+		bw.WritePacked(uint32(extra&0xf),
+			uint32(tables.Cat4Prob[0])<<24|uint32(tables.Cat4Prob[1])<<16|
+				uint32(tables.Cat4Prob[2])<<8|uint32(tables.Cat4Prob[3]), 4)
+	case Category5Tok:
+		bw.WritePacked(uint32(extra>>1)&0xf,
+			uint32(tables.Cat5Prob[0])<<24|uint32(tables.Cat5Prob[1])<<16|
+				uint32(tables.Cat5Prob[2])<<8|uint32(tables.Cat5Prob[3]), 4)
+		bw.Write(uint32(extra&1), uint32(tables.Cat5Prob[4]))
+	case Category6Tok:
+		bw.WritePacked(uint32(extra>>10)&0xf,
+			uint32(tables.Cat6Prob[0])<<24|uint32(tables.Cat6Prob[1])<<16|
+				uint32(tables.Cat6Prob[2])<<8|uint32(tables.Cat6Prob[3]), 4)
+		bw.WritePacked(uint32(extra>>6)&0xf,
+			uint32(tables.Cat6Prob[4])<<24|uint32(tables.Cat6Prob[5])<<16|
+				uint32(tables.Cat6Prob[6])<<8|uint32(tables.Cat6Prob[7]), 4)
+		bw.WritePacked(uint32(extra>>2)&0xf,
+			uint32(tables.Cat6Prob[8])<<24|uint32(tables.Cat6Prob[9])<<16|
+				uint32(tables.Cat6Prob[10])<<8|uint32(tables.Cat6Prob[11]), 4)
+		bw.WritePacked(uint32(extra&0x3),
+			uint32(tables.Cat6Prob[12])<<8|uint32(tables.Cat6Prob[13]), 2)
+	}
 }
 
 // writeTreeBits mirrors libvpx's vp9_write_tree — walks the tree
@@ -174,4 +318,40 @@ func recordCoefBranch(stats *[EntropyNodes][2]uint32, node int, bit int) {
 		return
 	}
 	stats[node][bit]++
+}
+
+func recordCoefBranch00(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[0][0]++
+	}
+}
+
+func recordCoefBranch01(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[0][1]++
+	}
+}
+
+func recordCoefBranch10(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[1][0]++
+	}
+}
+
+func recordCoefBranch11(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[1][1]++
+	}
+}
+
+func recordCoefBranchPivot0(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[PivotNode][0]++
+	}
+}
+
+func recordCoefBranchPivot1(stats *[EntropyNodes][2]uint32) {
+	if stats != nil {
+		stats[PivotNode][1]++
+	}
 }

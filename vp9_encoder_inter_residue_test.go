@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -304,6 +305,69 @@ func TestVP9NonrdIntraScratchUsesLiveInteriorAndReconBorder(t *testing.T) {
 			t.Fatalf("VPred scratch top row[%d] = %d, want live scratch above sample 152",
 				x, got)
 		}
+	}
+}
+
+func TestVP9NonrdIntraScratchMatchesReconStats(t *testing.T) {
+	const width, height = 128, 128
+	e, _ := NewVP9Encoder(VP9EncoderOptions{Width: width, Height: height})
+	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	e.prepareVP9EncoderOutputFrame(width, height)
+
+	img := vp9test.NewYCbCr(width, height, 0, 128, 128)
+	for y := range height {
+		for x := range width {
+			img.Y[y*img.YStride+x] = uint8((x*3 + y*5 + 17) & 255)
+			e.reconY[y*e.reconFrame.YStride+x] = uint8((x*7 + y*11 + 91) & 255)
+		}
+	}
+	key := &vp9KeyframeEncodeState{
+		img: img,
+		hdr: &vp9dec.UncompressedHeader{Width: width, Height: height},
+	}
+	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 16, MiColStart: 0, MiColEnd: 16}
+	cases := []struct {
+		name  string
+		mode  common.PredictionMode
+		tx    common.TxSize
+		bsize common.BlockSize
+		row   int
+		col   int
+	}{
+		{"dc_32x32_tx8", common.DcPred, common.Tx8x8, common.Block32x32, 4, 4},
+		{"v_32x32_tx8", common.VPred, common.Tx8x8, common.Block32x32, 4, 4},
+		{"h_16x16_tx4", common.HPred, common.Tx4x4, common.Block16x16, 6, 8},
+		{"tm_16x16_tx8", common.TmPred, common.Tx8x8, common.Block16x16, 8, 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reconBefore := append([]byte(nil), e.reconY...)
+			wantSSE, wantVar, ok := e.vp9NoReferenceIntraResidualStats(key,
+				tc.mode, tc.tx, tile, 16, 16, tc.row, tc.col, tc.bsize)
+			if !ok {
+				t.Fatal("recon stats returned !ok")
+			}
+			if !bytes.Equal(e.reconY, reconBefore) {
+				t.Fatal("recon stats did not restore the reconstruction plane")
+			}
+
+			scratchW := int(common.Num4x4BlocksWideLookup[tc.bsize]) * 4
+			scratchH := int(common.Num4x4BlocksHighLookup[tc.bsize]) * 4
+			scratch := make([]byte, scratchW*scratchH)
+			gotSSE, gotVar, ok := e.vp9NoReferenceIntraResidualStatsScratchNoRestore(
+				key, tc.mode, tc.tx, tile, 16, 16, tc.row, tc.col, tc.bsize,
+				scratch, scratchW, tc.row, tc.col)
+			if !ok {
+				t.Fatal("scratch stats returned !ok")
+			}
+			if gotSSE != wantSSE || gotVar != wantVar {
+				t.Fatalf("scratch stats = (%d,%d), want (%d,%d)",
+					gotSSE, gotVar, wantSSE, wantVar)
+			}
+			if !bytes.Equal(e.reconY, reconBefore) {
+				t.Fatal("scratch stats mutated the reconstruction plane")
+			}
+		})
 	}
 }
 

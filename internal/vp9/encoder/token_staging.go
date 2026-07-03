@@ -47,30 +47,55 @@ type TokenFrameBuffer struct {
 	Lists  []TokenList
 	Used   int
 
-	miRows int
-	miCols int
-	sbRows int
+	miRows          int
+	miCols          int
+	sbRows          int
+	listTileRowBase int
+	listTileColBase int
+	listTileRows    int
+	listTileCols    int
 }
 
 func (b *TokenFrameBuffer) Ensure(miRows, miCols int) {
+	b.ensure(miRows, miCols, 0, 0, TokenStageMaxTileRows, TokenStageMaxTileCols)
+}
+
+func (b *TokenFrameBuffer) EnsureForTile(miRows, miCols, tileRow, tileCol int) {
+	b.ensure(miRows, miCols, tileRow, tileCol, 1, 1)
+}
+
+func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tileRows, tileCols int) {
 	if b == nil {
 		return
 	}
-	if miRows <= 0 || miCols <= 0 {
+	if miRows <= 0 || miCols <= 0 ||
+		tileRows <= 0 || tileCols <= 0 ||
+		tileRowBase < 0 || tileColBase < 0 ||
+		tileRowBase+tileRows > TokenStageMaxTileRows ||
+		tileColBase+tileCols > TokenStageMaxTileCols {
 		b.Reset()
 		b.Tokens = b.Tokens[:0]
 		b.Lists = b.Lists[:0]
 		b.miRows = 0
 		b.miCols = 0
 		b.sbRows = 0
+		b.listTileRowBase = 0
+		b.listTileColBase = 0
+		b.listTileRows = 0
+		b.listTileCols = 0
 		return
 	}
 	b.Tokens = buffers.EnsureLen(b.Tokens, TokenAllocForMI(miRows, miCols))
-	b.Lists = buffers.EnsureLenZeroed(b.Lists, TokenListAllocForMI(miRows))
+	b.Lists = buffers.EnsureLenZeroed(b.Lists,
+		TokenListAllocForTileGrid(miRows, tileRows, tileCols))
 	b.Used = 0
 	b.miRows = miRows
 	b.miCols = miCols
 	b.sbRows = common.AlignToSB(miRows) >> common.MiBlockSizeLog2
+	b.listTileRowBase = tileRowBase
+	b.listTileColBase = tileColBase
+	b.listTileRows = tileRows
+	b.listTileCols = tileCols
 }
 
 func (b *TokenFrameBuffer) Reset() {
@@ -91,6 +116,10 @@ func (b *TokenFrameBuffer) Release() {
 	b.miRows = 0
 	b.miCols = 0
 	b.sbRows = 0
+	b.listTileRowBase = 0
+	b.listTileColBase = 0
+	b.listTileRows = 0
+	b.listTileCols = 0
 }
 
 func (b *TokenFrameBuffer) AppendToken(tok TokenExtra) bool {
@@ -104,12 +133,17 @@ func (b *TokenFrameBuffer) AppendToken(tok TokenExtra) bool {
 
 func (b *TokenFrameBuffer) TokenListIndex(tileRow, tileCol, tileSBRow int) (int, bool) {
 	if b == nil || b.sbRows <= 0 ||
-		tileRow < 0 || tileRow >= TokenStageMaxTileRows ||
-		tileCol < 0 || tileCol >= TokenStageMaxTileCols ||
+		b.listTileRows <= 0 || b.listTileCols <= 0 ||
+		tileRow < b.listTileRowBase ||
+		tileRow >= b.listTileRowBase+b.listTileRows ||
+		tileCol < b.listTileColBase ||
+		tileCol >= b.listTileColBase+b.listTileCols ||
 		tileSBRow < 0 || tileSBRow >= b.sbRows {
 		return 0, false
 	}
-	idx := (tileRow*TokenStageMaxTileCols+tileCol)*b.sbRows + tileSBRow
+	localTileRow := tileRow - b.listTileRowBase
+	localTileCol := tileCol - b.listTileColBase
+	idx := (localTileRow*b.listTileCols+localTileCol)*b.sbRows + tileSBRow
 	if idx < 0 || idx >= len(b.Lists) {
 		return 0, false
 	}
@@ -163,11 +197,18 @@ func TokenAllocForMI(miRows, miCols int) int {
 // TokenListAllocForMI mirrors libvpx's tplist backing allocation:
 // sb_rows * MAX_TILE_ROWS * MAX_TILE_COLS.
 func TokenListAllocForMI(miRows int) int {
+	return TokenListAllocForTileGrid(miRows, TokenStageMaxTileRows, TokenStageMaxTileCols)
+}
+
+func TokenListAllocForTileGrid(miRows, tileRows, tileCols int) int {
 	if miRows <= 0 {
 		return 0
 	}
 	sbRows := common.AlignToSB(miRows) >> common.MiBlockSizeLog2
-	return sbRows * TokenStageMaxTileRows * TokenStageMaxTileCols
+	if tileRows <= 0 || tileCols <= 0 {
+		return 0
+	}
+	return sbRows * tileRows * tileCols
 }
 
 func alignPowerOfTwo(v, align int) int {
