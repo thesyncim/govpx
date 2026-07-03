@@ -190,17 +190,21 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 	if !d.vp9TilePool.rowMTFrame.jobq.done() {
 		t.Fatal("rowMTFrame jobq did not finish")
 	}
-	if got, want := len(d.vp9TilePool.rowMTFrame.jobq.jobs), 4; got != want {
+	if got, want := len(d.vp9TilePool.rowMTFrame.jobq.jobs), 8; got != want {
 		t.Fatalf("rowMTFrame queued jobs = %d, want %d", got, want)
 	}
-	if got, want := d.vp9TilePool.rowMTFrame.jobq.read, 4; got != want {
+	if got, want := d.vp9TilePool.rowMTFrame.jobq.read, 8; got != want {
 		t.Fatalf("rowMTFrame consumed jobs = %d, want %d", got, want)
 	}
 	for i, job := range d.vp9TilePool.rowMTFrame.jobq.jobs {
-		if job.jobType != vp9DecoderRowMTJobRecon || job.tileCol != 0 ||
-			job.rowNum != i*common.MiBlockSize {
-			t.Fatalf("rowMTFrame job[%d] = %+v; want recon row %d tile 0",
-				i, job, i*common.MiBlockSize)
+		wantType := vp9DecoderRowMTJobParse
+		if i%2 == 1 {
+			wantType = vp9DecoderRowMTJobRecon
+		}
+		wantRow := (i / 2) * common.MiBlockSize
+		if job.jobType != wantType || job.tileCol != 0 || job.rowNum != wantRow {
+			t.Fatalf("rowMTFrame job[%d] = %+v; want type %d row %d tile 0",
+				i, job, wantType, wantRow)
 		}
 	}
 	if got, want := len(d.vp9TilePool.rowMTFrame.uvMode), 32*16; got != want {

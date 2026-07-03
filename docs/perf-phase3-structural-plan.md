@@ -17,9 +17,9 @@ flattened nonrd ref-MV/mode-mask call-shape cleanup, plus a phase-stats
 `ChoosePartitioning` allocation artifact fix, plus a VP9 inactive SB-search
 entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
 fast-picker final-mode copy-elision safe points, plus the first VP9 decoder
-row-MT queued-RECON worker safe point landed on 2026-07-02/03; the larger
-A/B/C structural programs remain pending. This is the execution brief for
-implementation agents.
+row-MT queued-PARSE/RECON worker safe points landed on 2026-07-02/03; the
+larger A/B/C structural programs remain pending. This is the execution brief
+for implementation agents.
 Evidence: 2026-07-02/03 design sprint — three verified blueprints (VP9
 single-walk, VP8 MB-walk, MT program) built on first-hand reads of libvpx
 v1.16.0 C and the current govpx tree, plus fresh A/B measurements. Supersedes
@@ -705,13 +705,13 @@ reuses the encoder VP9LfSync port for row-based LF-MT, replacing the old
 source-shaped row-mt decode queue/recon-map scaffolding is also ported and
 tested against libvpx's JobQueueRowMt / RowMTWorkerData layout; one-tile
 DecoderRowMT frames now enter that scaffold and replay a split
-parse/reconstruct walk through per-SB partition/EOB/dqcoeff slabs. The first
-queued worker step is landed too: the parse producer enqueues per-SB-row RECON
-jobs, helper workers drain that fixed-capacity queue, and the local-header
-escape is avoided so the DecoderRowMT steady-state decode canary remains
-0 allocs/op. Remaining: move PARSE into the row queue and then schedule LPF
-jobs for 1-tile streams (+26% measured). Gate when full wiring lands:
-128-vector conformance × threads {1,2,4,8}.
+parse/reconstruct walk through per-SB partition/EOB/dqcoeff slabs. The row
+queue now seeds PARSE jobs, advances the shared tile reader row-by-row through
+workers, enqueues matching RECON jobs, and drains the fixed-capacity queue
+with the main goroutine participating alongside helpers; the local-header and
+steady-state decode paths remain 0 allocs/op. Remaining: schedule LPF jobs
+from completed RECON rows for 1-tile streams (+26% measured). Gate when full
+wiring lands: 128-vector conformance × threads {1,2,4,8}.
 C4 VP8 encode: already at MT parity — nothing to do.
 
 ## Sequencing for implementation agents

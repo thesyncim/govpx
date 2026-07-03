@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -275,6 +276,7 @@ type vp9DecoderRowMTFrameStorage struct {
 	reconMu       []sync.Mutex
 	reconCond     []*sync.Cond
 	jobq          vp9DecoderRowMTJobQueue
+	reader        bitstream.Reader
 }
 
 func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
@@ -417,6 +419,7 @@ type vp9DecoderTileJob struct {
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8
 	kind           vp9DecoderTileJobKind
 	worker         VP9Decoder
+	rowMTParent    *VP9Decoder
 
 	leftSegCtx          [common.MiBlockSize]int8
 	leftEntropy         [vp9dec.MaxMbPlane][16]uint8
@@ -937,6 +940,7 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJob(worker int,
 	job.miCols = miCols
 	job.partitionProbs = partitionProbs
 	job.kind = kind
+	job.rowMTParent = nil
 	job.rowMTStorage = nil
 	job.err = nil
 	job.unsupported = false
@@ -962,28 +966,43 @@ func (p *vp9DecoderTileWorkerPool) prepareTileJobRange(worker int,
 	p.jobs[worker].rowMTStorage = nil
 }
 
+func (j *vp9DecoderTileJob) prepareRowMTJob(
+	parent *VP9Decoder, kind vp9DecoderTileJobKind, hdr *vp9dec.UncompressedHeader,
+	comp vp9dec.CompressedHeader, tile vp9dec.TileBounds,
+	intraMaps vp9dec.IntraSegmentMaps, interMaps vp9dec.InterSegmentMaps,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	storage *vp9DecoderRowMTFrameStorage,
+) {
+	j.descs = nil
+	j.worker = *parent
+	j.rowMTParent = parent
+	j.data = nil
+	j.hdr = hdr
+	j.comp = comp
+	j.intraMaps = intraMaps
+	j.interMaps = interMaps
+	j.tile = tile
+	j.miRows = miRows
+	j.miCols = miCols
+	j.partitionProbs = partitionProbs
+	j.kind = kind
+	j.rowMTSync = nil
+	j.rowMTStorage = storage
+	j.err = nil
+	j.unsupported = false
+}
+
 func (p *vp9DecoderTileWorkerPool) prepareRowMTJob(worker int,
 	parent *VP9Decoder, kind vp9DecoderTileJobKind, hdr *vp9dec.UncompressedHeader,
 	comp vp9dec.CompressedHeader, tile vp9dec.TileBounds,
-	miRows, miCols int, storage *vp9DecoderRowMTFrameStorage,
+	intraMaps vp9dec.IntraSegmentMaps, interMaps vp9dec.InterSegmentMaps,
+	miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	storage *vp9DecoderRowMTFrameStorage,
 ) {
-	job := &p.jobs[worker]
-	job.descs = nil
-	job.worker = *parent
-	job.data = nil
-	job.hdr = hdr
-	job.comp = comp
-	job.intraMaps = vp9dec.IntraSegmentMaps{}
-	job.interMaps = vp9dec.InterSegmentMaps{}
-	job.tile = tile
-	job.miRows = miRows
-	job.miCols = miCols
-	job.partitionProbs = nil
-	job.kind = kind
-	job.rowMTSync = nil
-	job.rowMTStorage = storage
-	job.err = nil
-	job.unsupported = false
+	p.jobs[worker].prepareRowMTJob(parent, kind, hdr, comp, tile, intraMaps,
+		interMaps, miRows, miCols, partitionProbs, storage)
 }
 
 func (j *vp9DecoderTileJob) run() {
@@ -1036,6 +1055,13 @@ func (j *vp9DecoderTileJob) runRowMT() {
 		}
 		spins = 0
 		if rowJob.jobType != vp9DecoderRowMTJobRecon {
+			if rowJob.jobType == vp9DecoderRowMTJobParse {
+				if err := j.runRowMTParse(rowJob); err != nil {
+					j.err = err
+					j.rowMTStorage.jobq.terminate()
+					break
+				}
+			}
 			continue
 		}
 		var err error
@@ -1052,6 +1078,9 @@ func (j *vp9DecoderTileJob) runRowMT() {
 			j.err = err
 			j.rowMTStorage.jobq.terminate()
 			break
+		}
+		if rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd {
+			j.rowMTStorage.jobq.terminate()
 		}
 	}
 	j.interPredictScratch = worker.interPredictScratch
