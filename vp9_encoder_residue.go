@@ -518,12 +518,6 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 			inter.ref = &e.refFrames[decision.refSlot]
 		}
 		pickedValid = true
-		// Commit the leaf decision so a subsequent same-frame visit at
-		// this (miRow, miCol, bsize) — the bitstream write pass — can
-		// skip the picker. libvpx encodes the decision once into
-		// mi_grid_visible during the encode walk; the bitstream pass
-		// reads it back without recomputation.
-		e.storeVP9LeafInterDecision(miRow, miCol, bsize, decision)
 	} else if refFrame, refSlot, ok := e.firstVP9InterReference(inter); ok {
 		mi.RefFrame[0] = refFrame
 		inter.ref = &e.refFrames[refSlot]

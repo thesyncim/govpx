@@ -281,10 +281,19 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   time from about 143.1 ms to 138.6 ms total (about 0.04 ms/input frame).
   The loaded 4T/no-denoise pair also stayed exact at 1,236,037 bytes with
   identical 108/12 topology and 237,683 replayed inter leaves.
-- Replay infra (206B/leaf decision cache, canReplay validation, entropy
+- Replay infra (a 120-byte decision in each full-width leaf-cache entry,
+  `canReplay` validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
   serves count-side storage, partition/fallback replay, keyframes, and sub-8x8;
   delete it only after those remaining pack classes are pure.
+- A4 has started deleting that obsolete ownership. The final leaf caller
+  already stores the post-residue decision (including final skip, tx, refs,
+  and UV mode) before any later lookup, so the fresh picker-side store was an
+  immediately overwritten 120-byte copy on every picked leaf. Removing it
+  leaves the finalized fallback cache intact. Three alternating 120-frame
+  cpu8 1T no-PGO pairs kept exact 1,235,511-byte output; two pairs improved
+  by about 0.08-0.09 ms/frame and median count time improved by about
+  0.046 ms/frame.
 - Denoiser-active token replay is still intentionally blocked: count pass
   mutates denoiser source/intra-average state, and widening replay safely needs
   an all-leaves-or-rollback transaction. The landed safe point is narrower:
@@ -649,7 +658,9 @@ plus tokens without leaf replay/application or write-side residue work, and a
 parallel partition-node stream removes the normal inter write-side partition
 dispatcher/cache walk; keyframe/sub-8x8/fallback pure packing, count-side
 partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 delete replay
-infrastructure (−0.2..0.3); A5 pick-buffer
+infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
+decision store while retaining the finalized fallback entry; remaining
+−0.15..0.25); A5 pick-buffer
 end-state (PARTIAL 2026-07-02: nonrd `search_filter_ref` uses two compact
 luma eval/best buffers and swaps ownership on new-best filters): tmp[0..3]
 PRED_BUFFER discipline, dst-as-4th-buffer, direct convolve into eval buffers,
