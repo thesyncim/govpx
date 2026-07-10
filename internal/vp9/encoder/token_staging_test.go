@@ -63,6 +63,9 @@ func TestTokenFrameBufferTileLocalListIndexAndSlices(t *testing.T) {
 			t.Fatalf("AppendToken(%d) returned false", token)
 		}
 	}
+	if !buf.AppendLeafMode(9) {
+		t.Fatal("AppendLeafMode returned false")
+	}
 	if !buf.FinishTokenList(idx) {
 		t.Fatal("FinishTokenList returned false for tile-local list")
 	}
@@ -72,6 +75,10 @@ func TestTokenFrameBufferTileLocalListIndexAndSlices(t *testing.T) {
 	}
 	if len(tokens) != 2 || tokens[1].Token != EOSBToken {
 		t.Fatalf("tile-local tokens = %+v, want one token plus EOSB", tokens)
+	}
+	modes, ok := buf.LeafModesForList(buf.LeafLists[idx])
+	if !ok || len(modes) != 1 || modes[0] != 9 {
+		t.Fatalf("tile-local leaf modes = %v, want [9]", modes)
 	}
 }
 
@@ -88,19 +95,27 @@ func TestTokenFrameBufferEnsureResetAndRelease(t *testing.T) {
 		t.Fatalf("sbRows = %d, want 1", got)
 	}
 	buf.Used = 7
+	buf.LeafUsed = 2
 	buf.Lists[3] = TokenList{Start: 1, Stop: 6, Count: 5}
+	buf.LeafLists[3] = TokenList{Start: 1, Stop: 2, Count: 1}
 
 	buf.Reset()
 	if buf.Used != 0 {
 		t.Fatalf("Used after Reset = %d, want 0", buf.Used)
 	}
+	if buf.LeafUsed != 0 {
+		t.Fatalf("LeafUsed after Reset = %d, want 0", buf.LeafUsed)
+	}
 	if got := buf.Lists[3]; got != (TokenList{}) {
 		t.Fatalf("Reset left stale TokenList = %+v", got)
 	}
+	if got := buf.LeafLists[3]; got != (TokenList{}) {
+		t.Fatalf("Reset left stale leaf TokenList = %+v", got)
+	}
 	buf.Ensure(0, 0)
-	if len(buf.Tokens) != 0 || len(buf.Lists) != 0 {
-		t.Fatalf("Ensure(0,0) lens = tokens:%d lists:%d, want zeros",
-			len(buf.Tokens), len(buf.Lists))
+	if len(buf.Tokens) != 0 || len(buf.Lists) != 0 ||
+		len(buf.LeafModes) != 0 || len(buf.LeafLists) != 0 {
+		t.Fatalf("Ensure(0,0) retained token or leaf streams")
 	}
 	if buf.sbRows != 0 {
 		t.Fatalf("Ensure(0,0) sbRows = %d, want 0", buf.sbRows)
@@ -113,9 +128,13 @@ func TestTokenFrameBufferEnsureResetAndRelease(t *testing.T) {
 	if buf.Lists != nil {
 		t.Fatal("Lists retained after Release")
 	}
-	if buf.Used != 0 || buf.miRows != 0 || buf.miCols != 0 || buf.sbRows != 0 {
-		t.Fatalf("Release state = used:%d rows:%d cols:%d sbRows:%d, want zeros",
-			buf.Used, buf.miRows, buf.miCols, buf.sbRows)
+	if buf.LeafModes != nil || buf.LeafLists != nil {
+		t.Fatal("leaf streams retained after Release")
+	}
+	if buf.Used != 0 || buf.LeafUsed != 0 ||
+		buf.miRows != 0 || buf.miCols != 0 || buf.sbRows != 0 {
+		t.Fatalf("Release state = used:%d leafUsed:%d rows:%d cols:%d sbRows:%d, want zeros",
+			buf.Used, buf.LeafUsed, buf.miRows, buf.miCols, buf.sbRows)
 	}
 }
 
@@ -162,6 +181,9 @@ func TestTokenFrameBufferListIndexAndSlices(t *testing.T) {
 			t.Fatalf("AppendToken(%d) returned false", token)
 		}
 	}
+	if !buf.AppendLeafMode(3) {
+		t.Fatal("AppendLeafMode returned false")
+	}
 	if !buf.FinishTokenList(idx) {
 		t.Fatal("FinishTokenList returned false")
 	}
@@ -175,6 +197,10 @@ func TestTokenFrameBufferListIndexAndSlices(t *testing.T) {
 	}
 	if len(tokens) != 3 || tokens[2].Token != EOSBToken {
 		t.Fatalf("TokensForList = %+v, want EOSB-terminated 3-token slice", tokens)
+	}
+	modes, ok := buf.LeafModesForList(buf.LeafLists[idx])
+	if !ok || len(modes) != 1 || modes[0] != 3 {
+		t.Fatalf("LeafModesForList = %v, want [3]", modes)
 	}
 	if _, ok := buf.TokensForList(TokenList{Start: 0, Stop: buf.Used + 1}); ok {
 		t.Fatal("TokensForList accepted stop beyond Used")

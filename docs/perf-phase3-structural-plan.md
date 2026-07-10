@@ -251,9 +251,27 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   vs 5.55 ms/frame libvpx with count=9.99 ms and tile=1.20 ms, plus a
   threads=4/no-denoise 30-frame spot at 2.95 ms/frame with 100% inter replay
   hits.
+- A3 now also has a pack-only >=8x8 inter-source leaf path. Each token-list
+  row carries a parallel one-byte UV-mode stream with exactly one record per
+  EOSB-terminated leaf; the pack walk reads the committed `miGrid`, that
+  compact syntax sidecar, and the TOKENEXTRA stream. Eligible leaves no longer
+  re-enter segment selection, `canReplay` / `applyVP9CountPass*`, syntax-count
+  updates, residue preparation, decision-cache stores, filter-diff replay, or
+  `fillVP9MiGrid`. Forced-reference and segment-skip leaves use the same pure
+  path because their committed mode info no longer depends on a leaf picker
+  cache entry. The old walker remains the fallback for SVC, active-map coding,
+  non-preserved count state, and sub-8x8 leaves. Paired 120-frame 720p cpu8 1T
+  runs under the same host load reduced tile-write time from 141.5-143.8 ms to
+  134.2-136.7 ms total (about 0.06-0.08 ms/input frame), with identical
+  1,235,511-byte output and 0.6167 allocs/frame. The connected denoise spot
+  remained byte/topology-equivalent at 108/12 encoded/dropped and 100% inter
+  replay hits; the 30-frame 4T/no-denoise spot remained fully replayed at
+  2.98 ms/frame. Token-list invariants, threaded replay, race, and focused
+  SVC/RTP fallback gates passed.
 - Replay infra (206B/leaf decision cache, canReplay validation, entropy
-  snapshots) exists only to serve the two-pass shape; deletable once pack is
-  pure.
+  snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
+  serves count-side storage, partition/fallback replay, keyframes, and sub-8x8;
+  delete it only after those remaining pack classes are pure.
 - Denoiser-active token replay is still intentionally blocked: count pass
   mutates denoiser source/intra-average state, and widening replay safely needs
   an all-leaves-or-rollback transaction. The landed safe point is narrower:
@@ -609,11 +627,14 @@ now uses trusted scan/qcoeff windows plus tx/plane/ref-narrowed branch-stats
 rows; replay/context-only context stamping uses offset-based fixed-width stores;
 all-class syntax sidecar staging remains −0.1..0.2);
 A3 pure pack
-walk reading miGrid + 16-24B/leaf syntax sidecar + token stream — deletes
+walk reading miGrid + compact per-leaf syntax sidecar + token stream — deletes
 partition dispatcher, canReplay/applyVP9CountPass, write-pass residue
-(PARTIAL 2026-07-03: normal inter partition-node replay removes the write-side
-inter partition picker under count-token replay, but count-side partition
-picking and write-pass residue remain; remaining −0.6..0.8); A4 delete replay
+(PARTIAL 2026-07-11: normal inter partition-node replay removes the write-side
+inter partition picker under count-token replay, and a one-byte UV-mode
+sidecar lets the normal >=8x8 inter-source pack path consume committed miGrid
+plus tokens without leaf replay/application or write-side residue work;
+partition recursion, keyframe/sub-8x8/fallback packing, count-side partition
+picking, and old cache deletion remain; remaining −0.5..0.7); A4 delete replay
 infrastructure (−0.2..0.3); A5 pick-buffer
 end-state (PARTIAL 2026-07-02: nonrd `search_filter_ref` uses two compact
 luma eval/best buffers and swaps ownership on new-best filters): tmp[0..3]

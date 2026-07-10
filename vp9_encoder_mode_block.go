@@ -105,6 +105,101 @@ func vp9InterLeafHasNewMv(mi *vp9dec.NeighborMi, bsize common.BlockSize) bool {
 	return false
 }
 
+// writeVP9PackedInterLeaf emits one committed inter-frame leaf from the count
+// walk's miGrid and TOKENEXTRA stream. It is deliberately narrower than
+// writeVP9ModeBlock: all mode, segment, skip, tx, prediction, residue, and
+// coefficient decisions were already committed by the count walk.
+func (e *VP9Encoder) writeVP9PackedInterLeaf(bw *bitstream.Writer,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	tile vp9dec.TileBounds, seg *vp9dec.SegmentationParams,
+	txMode common.TxMode, inter *vp9InterEncodeState,
+) bool {
+	if e == nil || bw == nil || inter == nil || inter.counts != nil ||
+		!e.vp9CountCodingPreserved || !e.vp9TokenReplay.active ||
+		e.vp9TokenReplay.err != nil || bsize < common.Block8x8 {
+		return false
+	}
+	if e.svc.UseSvc || (e.denoiser.active() && !e.vp9DenoiserCountStateReady) ||
+		e.vp9ActiveSegmentMapCodingChooser() {
+		return false
+	}
+	reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
+	committed := e.vp9MiAt(miRows, miCols, miRow, miCol)
+	if committed == nil || committed.SbType != bsize {
+		return false
+	}
+	uvMode, ok := e.peekVP9PackedLeafMode()
+	if !ok {
+		return false
+	}
+	cur := *committed
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols,
+		tile, miRows, miRow, miCol, bsize)
+	maxTxSize := common.MaxTxsizeLookup[bsize]
+	txCtx := vp9dec.GetTxSizeContext(above, left, maxTxSize)
+	isInter := cur.RefFrame[0] > vp9dec.IntraFrame
+	var bestRefMv [2]vp9dec.MV
+	if isInter && vp9InterLeafHasNewMv(&cur, bsize) {
+		bestRefMv = e.vp9EncoderBestInterRefMvs(tile, miRows, miCols,
+			miRow, miCol, bsize, &cur, inter.allowHP, vp9InterSignBias(inter))
+	}
+	frameInterpFilter := vp9ModeTreeInterpFilter(vp9ModeTreeInterSource, inter)
+	encoder.WriteInterBlock(bw, encoder.WriteInterBlockArgs{
+		Seg:              seg,
+		Mi:               &cur,
+		AboveMi:          above,
+		LeftMi:           left,
+		Fc:               &e.fc,
+		TxMode:           txMode,
+		MaxTxSize:        maxTxSize,
+		TxProbs:          vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
+		FrameRefMode:     vp9InterReferenceMode(inter),
+		InterpFilter:     frameInterpFilter,
+		AllowHP:          inter.allowHP,
+		CompFixedRef:     vp9InterCompoundRefs(inter).CompFixedRef,
+		CompVarRef:       vp9InterCompoundRefs(inter).CompVarRef,
+		RefFrameSignBias: vp9InterSignBias(inter),
+		SwitchableInterpCtx: vp9dec.GetPredContextSwitchableInterp(
+			above, left),
+		InterModeCtx: interModeCtx,
+		IsCompound:   cur.RefFrame[1] > vp9dec.IntraFrame,
+		UvMode:       uvMode,
+		Mv:           cur.Mv,
+		BestRefMv:    bestRefMv,
+	})
+	if vp9OracleTraceBuild {
+		e.vp9TraceCommitBlock(e.frameIndex, miRow, miCol, &cur, uvMode)
+	}
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	if cur.Skip != 0 {
+		vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
+		e.finishVP9CoefTokenLeaf()
+	} else {
+		e.packVP9ReplayCoefTokenLeafWithContexts(bw, &encoder.WriteCoefSbArgs{
+			BSize:        reconBsize,
+			MiTxSize:     cur.TxSize,
+			IsInter:      vp9dec.BoolInt(isInter),
+			Mi:           &cur,
+			MiRows:       miRows,
+			MiCols:       miCols,
+			MiRow:        miRow,
+			MiCol:        miCol,
+			Planes:       &e.planes,
+			AboveOffsets: aboveOffsets,
+			LeftOffsets:  leftOffsets,
+		})
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseCountInterLeafReplay(true)
+	}
+	return true
+}
+
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
@@ -113,6 +208,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 	counts := vp9EncodeCountsForState(key, inter)
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseIncModeBlock(bsize, counts != nil)
+	}
+	if kind == vp9ModeTreeInterSource &&
+		e.writeVP9PackedInterLeaf(bw, miRows, miCols, miRow, miCol, bsize,
+			tile, seg, txMode, inter) {
+		return
 	}
 	cur := baseMi
 	cur.SbType = bsize
@@ -375,6 +475,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				e.vp9TraceCommitBlockPre(e.frameIndex, miRow, miCol, &cur, uvMode)
 			}
 		}
+		e.stageVP9PackedLeafMode(uvMode)
 		// Count-pass inter leaves already update every syntax histogram above;
 		// only the real pack pass needs to emit the matching wire fragment.
 		if counts == nil {
@@ -546,6 +647,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			countVP9TxSize(counts, txCtx, maxTxSize, cur.TxSize)
 		}
 		countVP9TxTotals(counts, bsize, cur.TxSize, &e.planes)
+		e.stageVP9PackedLeafMode(uvMode)
 		// Keyframe mode bits are fixed-probability syntax. The count pass has
 		// already populated skip/tx/coef histograms, so only the pack pass emits
 		// the header fragment.

@@ -15,13 +15,15 @@ type vp9TokenCollectState struct {
 }
 
 type vp9TokenReplayState struct {
-	active  bool
-	tileRow int
-	tileCol int
-	frame   *encoder.TokenFrameBuffer
-	tokens  []encoder.TokenExtra
-	cursor  int
-	err     error
+	active     bool
+	tileRow    int
+	tileCol    int
+	frame      *encoder.TokenFrameBuffer
+	tokens     []encoder.TokenExtra
+	cursor     int
+	leafModes  []uint8
+	leafCursor int
+	err        error
 }
 
 func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
@@ -126,7 +128,9 @@ func (e *VP9Encoder) vp9ThreadedCountTokenFramesReady(pool *vp9TileWorkerPool,
 			}
 			list := src.Lists[srcIdx]
 			tokens, ok := src.TokensForList(list)
-			if !ok || len(tokens) == 0 {
+			leafModes, leafOK := src.LeafModesForList(src.LeafLists[srcIdx])
+			if !ok || len(tokens) == 0 || !leafOK || len(leafModes) == 0 ||
+				len(leafModes) != vp9TokenListEOSBCount(tokens) {
 				return false
 			}
 		}
@@ -166,7 +170,8 @@ func (e *VP9Encoder) beginVP9TokenReplay(tileRows, tileCols int,
 func (e *VP9Encoder) vp9HasCountTokensForReplay() bool {
 	return e != nil &&
 		(e.vp9ThreadedTokenReplayReady ||
-			(e.vp9TokenFrame.Used > 0 && len(e.vp9TokenFrame.Lists) > 0))
+			(e.vp9TokenFrame.Used > 0 && e.vp9TokenFrame.LeafUsed > 0 &&
+				len(e.vp9TokenFrame.Lists) > 0))
 }
 
 func (e *VP9Encoder) finishVP9TokenReplay() error {
@@ -198,12 +203,15 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 			return -1
 		}
 		tokens, ok := frame.TokensForList(frame.Lists[idx])
-		if !ok || len(tokens) == 0 {
+		leafModes, leafOK := frame.LeafModesForList(frame.LeafLists[idx])
+		if !ok || len(tokens) == 0 || !leafOK || len(leafModes) == 0 {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 			return -1
 		}
 		e.vp9TokenReplay.tokens = tokens
 		e.vp9TokenReplay.cursor = 0
+		e.vp9TokenReplay.leafModes = leafModes
+		e.vp9TokenReplay.leafCursor = 0
 		return idx
 	}
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
@@ -224,11 +232,14 @@ func (e *VP9Encoder) finishVP9CountTokenList(idx int) {
 	}
 	if e.vp9TokenReplay.active {
 		if e.vp9TokenReplay.err == nil &&
-			e.vp9TokenReplay.cursor != len(e.vp9TokenReplay.tokens) {
+			(e.vp9TokenReplay.cursor != len(e.vp9TokenReplay.tokens) ||
+				e.vp9TokenReplay.leafCursor != len(e.vp9TokenReplay.leafModes)) {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 		}
 		e.vp9TokenReplay.tokens = nil
 		e.vp9TokenReplay.cursor = 0
+		e.vp9TokenReplay.leafModes = nil
+		e.vp9TokenReplay.leafCursor = 0
 		return
 	}
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
@@ -250,12 +261,44 @@ func (e *VP9Encoder) collectVP9CoefTokensArgs(args *encoder.WriteCoefSbArgs) boo
 	return true
 }
 
+func (e *VP9Encoder) stageVP9PackedLeafMode(mode common.PredictionMode) {
+	if e == nil || !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
+		return
+	}
+	if int(mode) >= common.IntraModes ||
+		!e.vp9TokenFrame.AppendLeafMode(uint8(mode)) {
+		e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+	}
+}
+
+func (e *VP9Encoder) peekVP9PackedLeafMode() (common.PredictionMode, bool) {
+	if e == nil || !e.vp9TokenReplay.active || e.vp9TokenReplay.err != nil ||
+		e.vp9TokenReplay.leafCursor < 0 ||
+		e.vp9TokenReplay.leafCursor >= len(e.vp9TokenReplay.leafModes) {
+		return 0, false
+	}
+	mode := common.PredictionMode(e.vp9TokenReplay.leafModes[e.vp9TokenReplay.leafCursor])
+	return mode, int(mode) < common.IntraModes
+}
+
+func (e *VP9Encoder) consumeVP9PackedLeafMode() {
+	if e == nil || !e.vp9TokenReplay.active || e.vp9TokenReplay.err != nil {
+		return
+	}
+	if _, ok := e.peekVP9PackedLeafMode(); !ok {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		return
+	}
+	e.vp9TokenReplay.leafCursor++
+}
+
 func (e *VP9Encoder) finishVP9CoefTokenLeaf() {
 	if e == nil {
 		return
 	}
 	if e.vp9TokenReplay.active {
 		e.consumeVP9ReplayEOSBLeaf()
+		e.consumeVP9PackedLeafMode()
 		return
 	}
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
@@ -288,6 +331,7 @@ func (e *VP9Encoder) packVP9ReplayCoefTokenLeafWithContexts(bw *bitstream.Writer
 			return true
 		}
 		e.vp9TokenReplay.cursor += n
+		e.consumeVP9PackedLeafMode()
 		return true
 	}
 	n := encoder.PackTokens(bw, tokens, &e.fc.CoefProbs)
@@ -297,6 +341,7 @@ func (e *VP9Encoder) packVP9ReplayCoefTokenLeafWithContexts(bw *bitstream.Writer
 		return true
 	}
 	e.vp9TokenReplay.cursor += n
+	e.consumeVP9PackedLeafMode()
 	return true
 }
 

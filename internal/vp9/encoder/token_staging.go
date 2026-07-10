@@ -43,9 +43,12 @@ type TokenList struct {
 // TokenFrameBuffer owns the per-frame token arena and SB-row token lists used
 // by the staged VP9 bitstream path.
 type TokenFrameBuffer struct {
-	Tokens []TokenExtra
-	Lists  []TokenList
-	Used   int
+	Tokens    []TokenExtra
+	Lists     []TokenList
+	LeafModes []uint8
+	LeafLists []TokenList
+	Used      int
+	LeafUsed  int
 
 	miRows          int
 	miCols          int
@@ -76,6 +79,8 @@ func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tile
 		b.Reset()
 		b.Tokens = b.Tokens[:0]
 		b.Lists = b.Lists[:0]
+		b.LeafModes = b.LeafModes[:0]
+		b.LeafLists = b.LeafLists[:0]
 		b.miRows = 0
 		b.miCols = 0
 		b.sbRows = 0
@@ -88,7 +93,10 @@ func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tile
 	b.Tokens = buffers.EnsureLen(b.Tokens, TokenAllocForMI(miRows, miCols))
 	b.Lists = buffers.EnsureLenZeroed(b.Lists,
 		TokenListAllocForTileGrid(miRows, tileRows, tileCols))
+	b.LeafModes = buffers.EnsureLen(b.LeafModes, miRows*miCols)
+	b.LeafLists = buffers.EnsureLenZeroed(b.LeafLists, len(b.Lists))
 	b.Used = 0
+	b.LeafUsed = 0
 	b.miRows = miRows
 	b.miCols = miCols
 	b.sbRows = common.AlignToSB(miRows) >> common.MiBlockSizeLog2
@@ -103,7 +111,9 @@ func (b *TokenFrameBuffer) Reset() {
 		return
 	}
 	b.Used = 0
+	b.LeafUsed = 0
 	clear(b.Lists)
+	clear(b.LeafLists)
 }
 
 func (b *TokenFrameBuffer) Release() {
@@ -112,7 +122,10 @@ func (b *TokenFrameBuffer) Release() {
 	}
 	b.Tokens = nil
 	b.Lists = nil
+	b.LeafModes = nil
+	b.LeafLists = nil
 	b.Used = 0
+	b.LeafUsed = 0
 	b.miRows = 0
 	b.miCols = 0
 	b.sbRows = 0
@@ -128,6 +141,15 @@ func (b *TokenFrameBuffer) AppendToken(tok TokenExtra) bool {
 	}
 	b.Tokens[b.Used] = tok
 	b.Used++
+	return true
+}
+
+func (b *TokenFrameBuffer) AppendLeafMode(mode uint8) bool {
+	if b == nil || b.LeafUsed < 0 || b.LeafUsed >= len(b.LeafModes) {
+		return false
+	}
+	b.LeafModes[b.LeafUsed] = mode
+	b.LeafUsed++
 	return true
 }
 
@@ -156,6 +178,7 @@ func (b *TokenFrameBuffer) StartTokenList(tileRow, tileCol, tileSBRow int) (int,
 		return 0, false
 	}
 	b.Lists[idx] = TokenList{Start: b.Used}
+	b.LeafLists[idx] = TokenList{Start: b.LeafUsed}
 	return idx, true
 }
 
@@ -169,6 +192,12 @@ func (b *TokenFrameBuffer) FinishTokenList(idx int) bool {
 	}
 	l.Stop = b.Used
 	l.Count = uint32(l.Stop - l.Start)
+	leaf := &b.LeafLists[idx]
+	if leaf.Start < 0 || leaf.Start > b.LeafUsed {
+		return false
+	}
+	leaf.Stop = b.LeafUsed
+	leaf.Count = uint32(leaf.Stop - leaf.Start)
 	return true
 }
 
@@ -178,6 +207,14 @@ func (b *TokenFrameBuffer) TokensForList(list TokenList) ([]TokenExtra, bool) {
 		return nil, false
 	}
 	return b.Tokens[list.Start:list.Stop], true
+}
+
+func (b *TokenFrameBuffer) LeafModesForList(list TokenList) ([]uint8, bool) {
+	if b == nil || list.Start < 0 || list.Stop < list.Start ||
+		list.Stop > b.LeafUsed {
+		return nil, false
+	}
+	return b.LeafModes[list.Start:list.Stop], true
 }
 
 // TokenAllocForMI mirrors libvpx get_token_alloc. miRows/miCols are VP9 8x8

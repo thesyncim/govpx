@@ -423,6 +423,18 @@ func assertVP9CountTokenListAt(t *testing.T, e *VP9Encoder, label string,
 	if got := vp9TokenListEOSBCount(tokens); got == 0 {
 		t.Fatalf("%s token list EOSB count = 0, want at least one leaf", label)
 	}
+	leafModes, ok := frame.LeafModesForList(frame.LeafLists[idx])
+	if !ok {
+		t.Fatalf("%s leaf-mode list slice rejected: %+v", label, frame.LeafLists[idx])
+	}
+	if got, want := len(leafModes), vp9TokenListEOSBCount(tokens); got != want {
+		t.Fatalf("%s leaf-mode count = %d, want EOSB count %d", label, got, want)
+	}
+	for i, mode := range leafModes {
+		if int(mode) >= common.IntraModes {
+			t.Fatalf("%s leaf mode[%d] = %d, want UV mode", label, i, mode)
+		}
+	}
 	if allowOnlyEOSB && len(tokens) != vp9TokenListEOSBCount(tokens) {
 		t.Fatalf("%s token list contains coefficient tokens in skip fixture: len=%d eosb=%d",
 			label, len(tokens), vp9TokenListEOSBCount(tokens))
