@@ -194,6 +194,42 @@ func TestVP9DenoiserCountStateCommitRequiresAllLeafReplay(t *testing.T) {
 	}
 }
 
+func TestVP9DenoiserCountRollbackRestoresCallerInput(t *testing.T) {
+	const width, height = 64, 64
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		NoiseSensitivity: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	input := vp9test.NewCheckerYCbCr(width, height, 32, 224, 96, 160)
+	if prepared := e.prepareVP9DenoiserSource(input); prepared == input {
+		t.Fatal("active denoiser did not prepare a private source")
+	}
+	if !e.saveVP9DenoiserForCounts(&vp9InterEncodeState{}) {
+		t.Fatal("active denoiser did not arm count rollback")
+	}
+	clear(e.denoiser.source.Y)
+	clear(e.denoiser.source.Cb)
+	clear(e.denoiser.source.Cr)
+	clear(e.denoiser.runningAvg[vp9DenoiserAvgIntra].Y)
+	clear(e.denoiser.runningAvg[vp9DenoiserAvgIntra].Cb)
+	clear(e.denoiser.runningAvg[vp9DenoiserAvgIntra].Cr)
+
+	e.restoreVP9DenoiserAfterCounts(true, input)
+	if !vp9test.EqualYCbCr(&e.denoiser.source, input, width, height) {
+		t.Fatal("count rollback did not restore the denoiser source")
+	}
+	if !vp9test.EqualYCbCr(&e.denoiser.runningAvg[vp9DenoiserAvgIntra],
+		input, width, height) {
+		t.Fatal("count rollback did not restore the intra running average")
+	}
+}
+
 func TestVP9CountWorkerDecisionCachesPingPongOwnership(t *testing.T) {
 	e := &VP9Encoder{
 		vp9LeafInterDecisions:          make([]vp9LeafInterDecisionEntry, 2),

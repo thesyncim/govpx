@@ -46,6 +46,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if len(dst) < vp9MinEncodeIntoBuffer {
 		return VP9EncodeResult{}, ErrBufferTooSmall
 	}
+	denoiserInput := img
 	img = e.prepareVP9DenoiserSource(img)
 
 	width := uint32(e.opts.Width)
@@ -505,7 +506,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	defer func() {
 		e.vp9DenoiserCountStateReady = false
 		if denoiserCountStatePending {
-			e.restoreVP9DenoiserAfterCounts(true)
+			e.restoreVP9DenoiserAfterCounts(true, denoiserInput)
 		}
 	}()
 
@@ -527,7 +528,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// can only be the libvpx-faithful TX_MODE_SELECT ladder firing.
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, e.sf.FrameParameterUpdate != 0, counts); reducedTxMode != txMode {
-		e.restoreVP9DenoiserAfterCounts(denoiserCountStatePending)
+		e.restoreVP9DenoiserAfterCounts(denoiserCountStatePending, denoiserInput)
 		denoiserCountStatePending = false
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
@@ -660,7 +661,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		e.vp9DenoiserCountStateReady = e.canCommitVP9DenoiserCountState(
 			replayTokens, tileKind, &seg)
 		if !e.vp9DenoiserCountStateReady {
-			e.restoreVP9DenoiserAfterCounts(true)
+			e.restoreVP9DenoiserAfterCounts(true, denoiserInput)
 			denoiserCountStatePending = false
 		}
 	}

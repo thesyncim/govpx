@@ -115,6 +115,21 @@ removes 134 lines of snapshot plumbing and the retained replay buffers. The
 refreshed-PGO artifact measured 3.692 ms/frame; the focused race/oracle gates,
 full suite, strict byte parity, trace, purego, and PGO checks all passed.
 
+Measurement note, 2026-07-10 (caller-backed denoiser rollback): the final
+count walk now commits denoiser state transactionally, but each count attempt
+still copied both full YUV working images into retained rollback buffers. The
+synchronous caller image is immutable for the duration of EncodeInto and is
+the exact pre-count state used to initialize both working images, so rollback
+now restores from that input only on the reduced-tx/error/cannot-replay paths.
+Normal frames take no rollback snapshots and the two retained backup images
+are gone. Three paired 480-frame 720p realtime cpu8 4T spots improved from
+3.740/3.785/3.740 ms/frame to 3.661/3.725/3.728 ms/frame (0.3-2.1%, median
+paired gain about 1.6%), with identical 4,980,319-byte output and 468/12
+encoded/drop topology. Under a heavily loaded host, paired 1T whole-process
+CPU time was lower in all three runs at 16.62/16.63/16.67 s versus
+16.76/16.77/16.69 s controls; the 1T stream stayed identical at 4,983,461
+bytes and 468/12.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD

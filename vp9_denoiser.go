@@ -29,9 +29,7 @@ const (
 
 type vp9DenoiserState struct {
 	source       image.YCbCr
-	sourceBak    image.YCbCr
 	runningAvg   [4]image.YCbCr
-	intraAvgBak  image.YCbCr
 	mcRunningAvg image.YCbCr
 
 	width       int
@@ -81,11 +79,9 @@ func (d *vp9DenoiserState) ensure(width, height int) {
 	}
 	rect := image.Rect(0, 0, width, height)
 	d.source = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
-	d.sourceBak = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	for i := range d.runningAvg {
 		d.runningAvg[i] = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	}
-	d.intraAvgBak = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	d.mcRunningAvg = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	d.width = width
 	d.height = height
@@ -131,25 +127,17 @@ func vp9DenoiserLevelForNoiseEstimate(level encoder.NoiseLevel) int8 {
 }
 
 func (e *VP9Encoder) saveVP9DenoiserForCounts(inter *vp9InterEncodeState) bool {
-	if e == nil || inter == nil || !e.denoiser.active() {
-		return false
-	}
-	copyVP9LookaheadImage(&e.denoiser.sourceBak, &e.denoiser.source,
-		e.opts.Width, e.opts.Height)
-	copyVP9LookaheadImage(&e.denoiser.intraAvgBak,
-		&e.denoiser.runningAvg[vp9DenoiserAvgIntra],
-		e.opts.Width, e.opts.Height)
-	return true
+	return e != nil && inter != nil && e.denoiser.active()
 }
 
-func (e *VP9Encoder) restoreVP9DenoiserAfterCounts(saved bool) {
-	if e == nil || !saved {
+func (e *VP9Encoder) restoreVP9DenoiserAfterCounts(saved bool, input *image.YCbCr) {
+	if e == nil || !saved || input == nil {
 		return
 	}
-	copyVP9LookaheadImage(&e.denoiser.source, &e.denoiser.sourceBak,
+	copyVP9LookaheadImage(&e.denoiser.source, input,
 		e.opts.Width, e.opts.Height)
 	copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgIntra],
-		&e.denoiser.intraAvgBak, e.opts.Width, e.opts.Height)
+		input, e.opts.Width, e.opts.Height)
 }
 
 func (e *VP9Encoder) canCommitVP9DenoiserCountState(replayTokens bool,
