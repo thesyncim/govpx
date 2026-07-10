@@ -89,6 +89,18 @@ moved from 11.558 to 11.453 ms/frame (about 0.9%); the 4T median moved from
 worker-sharing race gate, denoiser oracle matrix, and full suite passed before
 the strict publish gates.
 
+Measurement note, 2026-07-10 (single threaded reconstruction preparation):
+the frame entry point already acquired and 128-filled a fresh reconstruction
+target for each count attempt, but the threaded count dispatcher repeated the
+full padded-plane preparation immediately before launching tile workers. The
+workers now reuse the entry-point preparation and only clear the shared
+mode-info grid. Three paired 480-frame 720p realtime cpu8 4T spots improved
+from 3.782/3.780/3.829 ms/frame to 3.747/3.762/3.802 ms/frame (about 0.5%
+median-to-median and 0.5-0.9% pairwise), with identical 4,980,319-byte output,
+468/12 encoded/drop topology, and the same near-zero allocation band. The
+focused threaded tests, worker race gate, denoiser oracle matrix, full suite,
+strict byte parity, trace, purego, and PGO checks all passed.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD

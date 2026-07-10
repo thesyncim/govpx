@@ -697,9 +697,10 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	e.vp9TokenReplay = vp9TokenReplayState{}
 	e.vp9TokenFrame.Reset()
 	e.ensureVP9CountWorkers(tileCols)
-	// Shared recon fill and mode-info grid clear, as in
-	// collectVP9FrameTileCountsWithPool.
-	e.prepareVP9EncoderOutputFrame(width, height)
+	// The frame/count-attempt entry point has already prepared and 128-filled
+	// the shared reconstruction buffers. Clear only the shared mode-info grid
+	// before the workers launch; every count job aliases the reconstruction
+	// buffers and writes only its own tile columns.
 	for i := range e.miGrid {
 		e.miGrid[i] = vp9dec.NeighborMi{}
 	}
@@ -759,11 +760,11 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	e.vp9CountJobs = pool.countJobs
 	collectTokens := e.beginVP9ThreadedCountTokenCollection(pool, miRows, miCols,
 		tileRows, tileCols, kind)
-	// Prepare (and 128-fill) the shared reconstruction buffers and clear
-	// the shared mode-info grid once before the workers launch; every
-	// count job aliases these buffers and writes only its own tile
-	// columns, mirroring libvpx's shared cm->frame_to_show / cm->mi.
-	e.prepareVP9EncoderOutputFrame(width, height)
+	// The frame/count-attempt entry point has already prepared and 128-filled
+	// the shared reconstruction buffers. Clear only the shared mode-info grid
+	// before the workers launch; every count job aliases the reconstruction
+	// buffers and writes only its own tile columns, mirroring libvpx's shared
+	// cm->frame_to_show / cm->mi.
 	for i := range e.miGrid {
 		e.miGrid[i] = vp9dec.NeighborMi{}
 	}
