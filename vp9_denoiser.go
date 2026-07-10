@@ -106,7 +106,7 @@ func (e *VP9Encoder) prepareVP9DenoiserSource(img *image.YCbCr) *image.YCbCr {
 	e.denoiser.ensure(e.opts.Width, e.opts.Height)
 	if e.noiseEstimate.Enabled {
 		e.denoiser.level = vp9DenoiserLevelForNoiseEstimate(
-			e.noiseEstimate.ExtractLevel())
+			e.noiseEstimate.Level)
 	}
 	if e.denoiser.level <= vp9DenoiserLowLow {
 		return img
@@ -150,6 +150,23 @@ func (e *VP9Encoder) restoreVP9DenoiserAfterCounts(saved bool) {
 		e.opts.Width, e.opts.Height)
 	copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgIntra],
 		&e.denoiser.intraAvgBak, e.opts.Width, e.opts.Height)
+}
+
+func (e *VP9Encoder) canCommitVP9DenoiserCountState(replayTokens bool,
+	kind vp9ModeTreeKind, seg *vp9dec.SegmentationParams,
+) bool {
+	if e == nil || !replayTokens || kind != vp9ModeTreeInterSource ||
+		!e.denoiser.active() || !e.vp9CountCodingPreserved ||
+		e.svc.UseSvc || e.vp9ActiveSegmentMapCodingChooser() ||
+		e.sf.DefaultMinPartitionSize < common.Block8x8 {
+		return false
+	}
+	for segID := range vp9dec.MaxSegments {
+		if vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlRefFrame) {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *VP9Encoder) finishVP9DenoiserFrame(header *vp9dec.UncompressedHeader, src *image.YCbCr) {

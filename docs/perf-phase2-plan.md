@@ -501,15 +501,18 @@ has spare capacity.
    2500 kbps / realtime cpu8 synthetic benchmark emits 468 packets on both
    govpx and libvpx and drops the same 12 input frames. Emitted packet 0 is
    byte-exact; the first divergence is emitted packet 1, source frame 10
-   (govpx 11575 bytes, libvpx 11315 bytes, first byte diff 4). Keep this
+   (as of the 2026-07-10 temporal-denoiser variance-threshold/count-state
+   replay safe point: govpx 11179 bytes, libvpx 11136 bytes, first byte diff
+   4). Keep this
    frontier stable while landing perf work, and update this section if it
    moves.
 2. **480-frame drift**: the 480f synthetic is NOT byte-exact (4.76 vs 4.75
    MiB). Earlier notes treated 120f as the standard clean gate, but the
    packet-aligned 480f benchmark frontier above is the current benchmark
-   workload truth. The drift may be linked to the ledger oddity that libvpx
-   spends 0.21 ms/f in `vp9_deblock` source denoise (noise-sensitivity path)
-   with no visible govpx counterpart. Diagnose before claiming 480f
+   workload truth. The 2026-07-10 safe point activated the stored denoiser
+   level, ported the denoiser-specific variance threshold, and narrowed this
+   packet's size gap from 260 bytes to 43 bytes, but did not make the stream
+   byte-exact. Diagnose the remaining first-packet drift before claiming 480f
    byte-identity for P1.1.
 3. Production-stream fuzz reds seeds 2-5 (pre-existing, task #6).
 

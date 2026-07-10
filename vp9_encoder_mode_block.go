@@ -15,7 +15,8 @@ func (e *VP9Encoder) canReplayVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 	if !(e != nil && inter != nil && inter.counts == nil &&
 		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
 		e.vp9TokenReplay.err == nil && !forcedRef &&
-		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
+		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
+		!e.vp9ActiveSegmentMapCodingChooser() &&
 		bsize >= common.Block8x8 &&
 		!decision.intra && decision.refFrame > vp9dec.IntraFrame) {
 		return false
@@ -42,7 +43,8 @@ func (e *VP9Encoder) canReplayVP9CountPassIntraLeaf(inter *vp9InterEncodeState,
 	return e != nil && inter != nil && inter.counts == nil &&
 		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
 		e.vp9TokenReplay.err == nil &&
-		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
+		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
+		!e.vp9ActiveSegmentMapCodingChooser() &&
 		bsize >= common.Block8x8 &&
 		decision.intra && decision.refFrame == vp9dec.IntraFrame
 }

@@ -503,7 +503,8 @@ func (e *VP9Encoder) canReplayVP9InterPartitionDecision(inter *vp9InterEncodeSta
 	return e != nil && inter != nil && inter.counts == nil &&
 		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
 		e.vp9TokenReplay.err == nil && !e.svc.UseSvc &&
-		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser()
+		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
+		!e.vp9ActiveSegmentMapCodingChooser()
 }
 
 func (e *VP9Encoder) pickVP9SegmentMapPartitionBlockSize(miRows, miCols, miRow, miCol int,

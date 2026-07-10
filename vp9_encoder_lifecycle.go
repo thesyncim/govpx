@@ -470,12 +470,16 @@ type VP9Encoder struct {
 	vp9TokenReplay              vp9TokenReplayState
 	vp9ThreadedTokenReplayReady bool
 	vp9CountCodingPreserved     bool
-	vp9HeaderScratch            vp9dec.UncompressedHeader
-	vp9InterIntraHdr            vp9dec.UncompressedHeader
-	vp9CountWorkers             []VP9Encoder
-	vp9CountCounts              []encoder.FrameCounts
-	vp9CountJobs                []vp9CountTileJob
-	vp9TilePool                 *vp9TileWorkerPool
+	// vp9DenoiserCountStateReady means the final count walk's denoiser
+	// mutations are the committed single-walk state. While set, the tile walk
+	// must replay every cached leaf instead of applying the denoiser again.
+	vp9DenoiserCountStateReady bool
+	vp9HeaderScratch           vp9dec.UncompressedHeader
+	vp9InterIntraHdr           vp9dec.UncompressedHeader
+	vp9CountWorkers            []VP9Encoder
+	vp9CountCounts             []encoder.FrameCounts
+	vp9CountJobs               []vp9CountTileJob
+	vp9TilePool                *vp9TileWorkerPool
 	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
 	// at the leaf-write site so the count pre-pass populates entries and
 	// the bitstream write pass reuses them without re-running the inter-

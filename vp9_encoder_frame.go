@@ -500,12 +500,21 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		partitionProbs = e.fc.PartitionProb
 	}
 
+	denoiserCountStatePending := false
+	e.vp9DenoiserCountStateReady = false
+	defer func() {
+		e.vp9DenoiserCountStateReady = false
+		if denoiserCountStatePending {
+			e.restoreVP9DenoiserAfterCounts(true)
+		}
+	}()
+
 	countPhase := e.vp9PhaseStart()
 	denoiserCountState := e.saveVP9DenoiserForCounts(interState)
+	denoiserCountStatePending = denoiserCountState
 	counts := e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey, header.IntraOnly,
 		keyState, interState, header.RefreshFrameContext)
-	e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 	e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
 	// libvpx vp9/encoder/vp9_encodeframe.c:5911 gates the post-encode
 	// tx_mode demotion on cm->tx_mode == TX_MODE_SELECT. Only the
@@ -518,6 +527,8 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	// can only be the libvpx-faithful TX_MODE_SELECT ladder firing.
 	if reducedTxMode := vp9EncoderFrameTxModeFromCounts(txMode,
 		header.Quant.Lossless, e.sf.FrameParameterUpdate != 0, counts); reducedTxMode != txMode {
+		e.restoreVP9DenoiserAfterCounts(denoiserCountStatePending)
+		denoiserCountStatePending = false
 		txMode = reducedTxMode
 		baseMi.TxSize = common.TxModeToBiggestTxSize[txMode]
 		e.clampVP9LeafDecisionTxSizes(baseMi.TxSize)
@@ -529,10 +540,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		}
 		countPhase = e.vp9PhaseStart()
 		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+		denoiserCountStatePending = denoiserCountState
 		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
 			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
 			header.IntraOnly, keyState, interState, header.RefreshFrameContext)
-		e.restoreVP9DenoiserAfterCounts(denoiserCountState)
 		e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
 	}
 	header.Seg = seg
@@ -645,6 +656,14 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	} else {
 		e.vp9TokenReplay = vp9TokenReplayState{}
 	}
+	if denoiserCountStatePending {
+		e.vp9DenoiserCountStateReady = e.canCommitVP9DenoiserCountState(
+			replayTokens, tileKind, &seg)
+		if !e.vp9DenoiserCountStateReady {
+			e.restoreVP9DenoiserAfterCounts(true)
+			denoiserCountStatePending = false
+		}
+	}
 	tileSize, err := e.writeVP9FrameTiles(dst[tileStart:], miRows, miCols,
 		header.Tile, &partitionProbs, &seg, baseMi, txMode, tileKind, keyState,
 		interState)
@@ -652,6 +671,10 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	if replayTokens {
 		replayErr = e.finishVP9TokenReplay()
 	}
+	if err == nil && replayErr == nil && e.vp9DenoiserCountStateReady {
+		denoiserCountStatePending = false
+	}
+	e.vp9DenoiserCountStateReady = false
 	e.vp9PhaseEnd(vp9EncoderPhaseTileWrite, tilePhase)
 	if err != nil {
 		return VP9EncodeResult{}, err

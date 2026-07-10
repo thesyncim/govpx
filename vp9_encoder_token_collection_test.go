@@ -133,9 +133,14 @@ func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
 	e.denoiser.sensitivity = 2
 	e.denoiser.level = vp9DenoiserMedium
 	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a denoiser-active leaf")
+		t.Fatal("replay fast path accepted a denoiser-active leaf without committed count state")
+	}
+	e.vp9DenoiserCountStateReady = true
+	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
+		t.Fatal("replay fast path rejected a denoiser leaf with committed count state")
 	}
 	e.denoiser = vp9DenoiserState{}
+	e.vp9DenoiserCountStateReady = false
 	e.activeMapEnabled = true
 	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
 		t.Fatal("replay fast path accepted a dynamic segment-map leaf")
@@ -157,6 +162,35 @@ func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
 	e.refFrames[1].valid = true
 	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
 		t.Fatal("replay fast path rejected a preserved compound inter leaf")
+	}
+}
+
+func TestVP9DenoiserCountStateCommitRequiresAllLeafReplay(t *testing.T) {
+	e := &VP9Encoder{}
+	e.opts.NoiseSensitivity = 2
+	e.denoiser.allocated = true
+	e.denoiser.sensitivity = 2
+	e.denoiser.level = vp9DenoiserMedium
+	e.vp9CountCodingPreserved = true
+	e.sf.DefaultMinPartitionSize = common.Block8x8
+	seg := vp9dec.SegmentationParams{}
+
+	if !e.canCommitVP9DenoiserCountState(true, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("eligible denoiser count state was not committable")
+	}
+	if e.canCommitVP9DenoiserCountState(false, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("denoiser count state committed without token replay")
+	}
+	e.activeMapEnabled = true
+	if e.canCommitVP9DenoiserCountState(true, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("denoiser count state committed with active segment-map coding")
+	}
+	e.activeMapEnabled = false
+	seg.Enabled = true
+	seg.FeatureMask[1] = 1 << uint(vp9dec.SegLvlRefFrame)
+	seg.FeatureData[1][vp9dec.SegLvlRefFrame] = int16(vp9dec.GoldenFrame)
+	if e.canCommitVP9DenoiserCountState(true, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("denoiser count state committed with a forced-reference segment")
 	}
 }
 

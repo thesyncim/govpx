@@ -17,7 +17,9 @@ flattened nonrd ref-MV/mode-mask call-shape cleanup, plus a phase-stats
 `ChoosePartitioning` allocation artifact fix, plus a VP9 inactive SB-search
 entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
 fast-picker final-mode copy-elision safe points, plus the first VP9 decoder
-row-MT queued-PARSE/RECON worker safe points landed on 2026-07-02/03; the
+row-MT queued-PARSE/RECON worker safe points, plus the VP9 temporal-denoiser
+variance-threshold and committed count-state replay safe point landed on
+2026-07-02/03/10; the
 larger A/B/C structural programs remain pending. This is the execution brief
 for implementation agents.
 Evidence: 2026-07-02/03 design sprint — three verified blueprints (VP9
@@ -39,6 +41,27 @@ The 120-frame 720p realtime cpu8 4T no-denoise phase report dropped from about
 220 allocs/frame to 2.15-2.21 allocs/frame; normal non-phase builds remained
 near-zero at about 0.13-0.29 allocs/frame. Treat older phase-stats allocation
 rows for VP9 threaded partition work as polluted.
+
+Measurement note, 2026-07-10: the denoiser-enabled variance-partition path
+still followed the non-denoiser `scale_part_thresh_sumdiff` branch even though
+the pinned libvpx build has `CONFIG_VP9_TEMPORAL_DENOISING=1`; the root
+denoiser also re-extracted a level from the raw estimator value every frame
+instead of consuming the stored `ne->level`. Porting
+`vp9_scale_part_thresh`, threading the live denoiser/SVC temporal state, and
+using the stored level moved the 120-frame 1T threshold-2 average from 129075
+to 160065 versus libvpx's 159984. Count-pass mode blocks fell from 279770 to
+231090 versus libvpx's 238940. Because the real denoiser had previously kept
+count-token replay disabled, the final count walk now commits its denoiser
+state transactionally and the write walk replays every cached leaf; the phase
+spot recorded 216690 replay hits and zero misses. The tagged 1T wall moved
+from 12.05 to 10.56 ms/frame; after PGO refresh the normal 120-frame spots
+were 10.43 ms/frame 1T and 3.70 ms/frame 4T. Three normal 480-frame 4T repeats
+were 4.06/4.08/4.09 ms/frame at 0.57-0.59 allocs/frame. The quality run stayed
+close to libvpx at -0.046 dB PSNR and +0.000019 SSIM, with identical 108/12
+encoded/drop topology. The pinned 480-frame first divergence remains emitted
+packet 1/source 10/byte 4, while its size gap narrowed to 11179 versus 11136
+bytes. Focused denoiser/oracle tests, the 4T race gate, full tests, trace,
+purego, and PGO checks are the safe-point gates.
 
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy

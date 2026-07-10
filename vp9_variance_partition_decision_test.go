@@ -387,6 +387,35 @@ func TestVP9EnsureSBPartitionChosenCachesColorSensitivity(t *testing.T) {
 	}
 }
 
+func TestVP9VariancePartitionDenoiseSVC(t *testing.T) {
+	e := &VP9Encoder{}
+	if e.vp9VariancePartitionDenoiseSVC() {
+		t.Fatal("zero-sensitivity encoder enabled variance-partition denoiser scaling")
+	}
+
+	e.opts.NoiseSensitivity = 1
+	if !e.vp9VariancePartitionDenoiseSVC() {
+		t.Fatal("single-layer encoder disabled variance-partition denoiser scaling")
+	}
+
+	e.svc.UseSvc = true
+	e.svc.NumberSpatialLayers = 3
+	e.svc.SpatialLayerID = 1
+	if e.vp9VariancePartitionDenoiseSVC() {
+		t.Fatal("sensitivity 1 enabled denoising below the top SVC layer")
+	}
+	e.svc.SpatialLayerID = 2
+	if !e.vp9VariancePartitionDenoiseSVC() {
+		t.Fatal("sensitivity 1 disabled denoising on the top SVC layer")
+	}
+
+	e.opts.NoiseSensitivity = 2
+	e.svc.SpatialLayerID = 1
+	if !e.vp9VariancePartitionDenoiseSVC() {
+		t.Fatal("sensitivity 2 disabled denoising on the second-highest SVC layer")
+	}
+}
+
 func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 	const width, height = 160, 96
 	const miRows, miCols = 12, 20

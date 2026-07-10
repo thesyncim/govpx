@@ -40,8 +40,8 @@ func TestVP9BenchmarkSyntheticByteParityFrontier(t *testing.T) {
 		wantDrops            = 12
 		wantPrefix           = 1
 		wantDivergenceSource = 10
-		wantGovpxBytes       = 11575
-		wantLibvpxBytes      = 11315
+		wantGovpxBytes       = 11179
+		wantLibvpxBytes      = 11136
 		wantFirstByteDiff    = 4
 	)
 	if len(govpxPackets) != wantPackets || len(libvpxPackets) != wantPackets {

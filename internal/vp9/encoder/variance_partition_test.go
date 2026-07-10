@@ -126,6 +126,56 @@ func TestVP9SetVBPThresholdsInterLowResHighQ(t *testing.T) {
 	}
 }
 
+func TestVP9SetVBPThresholdsTemporalDenoiserScaling(t *testing.T) {
+	const q = 37
+	base := int64(yDequantAC(q))
+
+	tests := []struct {
+		name            string
+		level           int
+		content         ContentStateSB
+		temporalLayerID int
+		wantBase        int64
+	}{
+		{
+			name:     "medium-very-high-sad-base-layer",
+			level:    2,
+			content:  ContentStateVeryHighSad,
+			wantBase: (5 * base) >> 2,
+		},
+		{
+			name:     "high-noise-base-layer",
+			level:    vp9DenoiserLevelHigh,
+			content:  ContentStateVeryHighSad,
+			wantBase: (3 * base) >> 1,
+		},
+		{
+			name:            "upper-temporal-layer",
+			level:           vp9DenoiserLevelLow,
+			content:         ContentStateVeryHighSad,
+			temporalLayerID: 2,
+			wantBase:        (7 * base) >> 2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := setVBPThresholdsWithDenoiser(q, 1, 8, 1280, 720,
+				false, tc.content, false, NoiseLevelLow, 0, false,
+				true, tc.level, tc.temporalLayerID)
+			if got[0] != tc.wantBase {
+				t.Fatalf("thresholds[0] = %d, want %d", got[0], tc.wantBase)
+			}
+			if got[1] != tc.wantBase<<1 {
+				t.Fatalf("thresholds[1] = %d, want %d", got[1], tc.wantBase<<1)
+			}
+			if got[2] != tc.wantBase<<8 {
+				t.Fatalf("thresholds[2] = %d, want %d", got[2], tc.wantBase<<8)
+			}
+		})
+	}
+}
+
 // TestVP9SetVariancePartitionAuxThresholdsKeyframe verifies the libvpx
 // vp9_set_variance_partition_thresholds keyframe block
 // (vp9/encoder/vp9_encodeframe.c:648-651, :674).

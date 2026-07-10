@@ -64,6 +64,9 @@ type ChromaCheckArgs struct {
 	NoiseLevel             NoiseLevel
 	AvgFrameQIndexInter    int
 	Disable16x16PartNonkey bool
+	DenoiseSVC             bool
+	DenoisingLevel         int
+	TemporalLayerID        int
 }
 
 // ChromaCheck ports vp9_encodeframe.c::chroma_check. It intentionally lives
@@ -75,11 +78,12 @@ func ChromaCheck(args ChromaCheckArgs) [2]bool {
 		return sensitive
 	}
 	if args.Speed > 8 {
-		thresholds := setVBPThresholds(args.BaseQIndex,
+		thresholds := setVBPThresholdsWithDenoiser(args.BaseQIndex,
 			args.VariancePartThreshMult, args.Speed, args.Width, args.Height,
 			false, args.ContentState, args.NoiseEstimateEnabled,
 			args.NoiseLevel, args.AvgFrameQIndexInter,
-			args.Disable16x16PartNonkey)
+			args.Disable16x16PartNonkey, args.DenoiseSVC,
+			args.DenoisingLevel, args.TemporalLayerID)
 		if args.YSAD > uint64(thresholds[1]) &&
 			(!args.NoiseEstimateEnabled || args.NoiseLevel < NoiseLevelMedium) {
 			return sensitive
@@ -159,6 +163,22 @@ func setVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 	noiseEstimateEnabled bool, noiseLevel NoiseLevel,
 	avgFrameQIndexInter int, disable16x16PartNonkey bool,
 ) [4]int64 {
+	return setVBPThresholdsWithDenoiser(q, variancePartThreshMult, speed,
+		width, height, isKeyFrame, contentState, noiseEstimateEnabled,
+		noiseLevel, avgFrameQIndexInter, disable16x16PartNonkey, false, 0, 0)
+}
+
+// setVBPThresholdsWithDenoiser mirrors the CONFIG_VP9_TEMPORAL_DENOISING
+// branch in libvpx set_vbp_thresholds. The non-denoiser wrapper above keeps
+// the existing focused helper surface while production callers pass the live
+// denoiser and temporal-layer state.
+func setVBPThresholdsWithDenoiser(
+	q, variancePartThreshMult, speed, width, height int,
+	isKeyFrame bool, contentState ContentStateSB,
+	noiseEstimateEnabled bool, noiseLevel NoiseLevel,
+	avgFrameQIndexInter int, disable16x16PartNonkey bool,
+	denoiseSVC bool, denoisingLevel, temporalLayerID int,
+) [4]int64 {
 	var thresholds [4]int64
 	thresholdMultiplier := variancePartThreshMult
 	if isKeyFrame {
@@ -186,10 +206,13 @@ func setVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 			thresholdBase = (7 * thresholdBase) >> 3
 		}
 	}
-	// CONFIG_VP9_TEMPORAL_DENOISING is off in the vpx_codec_get_caps default
-	// libvpx build, so we always take the scale_part_thresh_sumdiff branch.
-	thresholdBase = scalePartThreshSumdiff(thresholdBase, speed, width,
-		height, contentState)
+	if denoiseSVC && speed > 5 && denoisingLevel >= vp9DenoiserLevelLow {
+		thresholdBase = scalePartThreshDenoiser(thresholdBase, denoisingLevel,
+			contentState, temporalLayerID)
+	} else {
+		thresholdBase = scalePartThreshSumdiff(thresholdBase, speed, width,
+			height, contentState)
+	}
 	thresholds[0] = thresholdBase
 	thresholds[2] = thresholdBase << uint(speed)
 	if width >= 1280 && height >= 720 && speed < 7 {
@@ -215,6 +238,30 @@ func setVBPThresholds(q, variancePartThreshMult, speed, width, height int,
 		thresholds[2] = vbpThresholdMax
 	}
 	return thresholds
+}
+
+const (
+	vp9DenoiserLevelLow  = 1
+	vp9DenoiserLevelHigh = 3
+)
+
+// scalePartThreshDenoiser is the exact vp9_scale_part_thresh arithmetic from
+// vp9_denoiser.c. It increases the partition threshold to compensate for the
+// temporal denoiser's smoother source while preserving libvpx's content and
+// temporal-layer branches.
+func scalePartThreshDenoiser(threshold int64, denoisingLevel int,
+	contentState ContentStateSB, temporalLayerID int,
+) int64 {
+	if contentState == ContentStateLowSadLowSumdiff ||
+		contentState == ContentStateHighSadLowSumdiff ||
+		contentState == ContentStateLowVarHighSumdiff ||
+		denoisingLevel == vp9DenoiserLevelHigh || temporalLayerID != 0 {
+		if temporalLayerID < 2 {
+			return (3 * threshold) >> 1
+		}
+		return (7 * threshold) >> 2
+	}
+	return (5 * threshold) >> 2
 }
 
 // vbpThresholdMax mirrors libvpx's INT64_MAX sentinel used in

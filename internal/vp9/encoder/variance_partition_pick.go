@@ -305,6 +305,9 @@ type ChoosePartitioningArgs struct {
 	HighSourceSAD          bool           // cpi->rc.high_source_sad
 	NoiseEstimateEnabled   bool
 	NoiseLevel             NoiseLevel
+	DenoiseSVC             bool // noise_sensitivity > 0 && denoise_svc(cpi)
+	DenoisingLevel         int  // cpi->denoiser.denoising_level
+	TemporalLayerID        int  // cpi->svc.temporal_layer_id
 	VariancePartThreshMult int  // cpi->sf.variance_part_thresh_mult
 	Disable16x16PartNonkey bool // cpi->sf.disable_16x16part_nonkey
 	AvgFrameQIndexInter    int  // cpi->rc.avg_frame_qindex[INTER_FRAME]
@@ -431,10 +434,11 @@ func choosePartitioning(a ChoosePartitioningArgs, stats *ChoosePartitioningStats
 	// the local thresholds[4] array. govpx synthesizes the per-call
 	// thresholds by calling setVBPThresholds with the picker inputs,
 	// matching libvpx's set_vbp_thresholds invocation at line 1379.
-	thresholds := setVBPThresholds(a.BaseQIndex, a.VariancePartThreshMult,
+	thresholds := setVBPThresholdsWithDenoiser(a.BaseQIndex, a.VariancePartThreshMult,
 		a.Speed, a.FrameWidth, a.FrameHeight, a.IsKeyFrame, contentState,
 		a.NoiseEstimateEnabled, a.NoiseLevel, a.AvgFrameQIndexInter,
-		a.Disable16x16PartNonkey)
+		a.Disable16x16PartNonkey, a.DenoiseSVC, a.DenoisingLevel,
+		a.TemporalLayerID)
 	if choosePartitioningStatsEnabled && stats != nil {
 		stats.countThreshold2(thresholds[2])
 	}

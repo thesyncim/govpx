@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
 // TestVP9NoiseEstimateConsumerShortCircuitLowTempVar verifies the
@@ -227,5 +228,39 @@ func TestVP9DenoiserUsesNoiseEstimateLowLowAsInactive(t *testing.T) {
 	}
 	if e.denoiser.active() {
 		t.Fatal("denoiser active at LowLow noise estimate; want inactive")
+	}
+}
+
+func TestVP9DenoiserUsesStoredNoiseEstimateLevel(t *testing.T) {
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:              1280,
+		Height:             720,
+		CpuUsed:            8,
+		Deadline:           DeadlineRealtime,
+		RateControlMode:    RateControlCBR,
+		RateControlModeSet: true,
+		TargetBitrateKbps:  2500,
+		NoiseSensitivity:   4,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	if got := e.noiseEstimate.Level; got != encoder.NoiseLevelLow {
+		t.Fatalf("initial noise level = %d, want Low", got)
+	}
+	// libvpx applies ne->level to the denoiser; it does not re-extract a
+	// level from ne->value on every frame. Keep the raw value below the Low
+	// threshold to catch that distinction.
+	e.noiseEstimate.Value = 0
+	src := vp9test.NewYCbCr(1280, 720, 102, 98, 158)
+	if got := e.prepareVP9DenoiserSource(src); got == src {
+		t.Fatal("prepareVP9DenoiserSource returned caller source at stored Low level")
+	}
+	if got := e.denoiser.level; got != vp9DenoiserLow {
+		t.Fatalf("denoiser level = %d, want Low from stored noise estimate", got)
+	}
+	if !e.denoiser.active() {
+		t.Fatal("denoiser inactive at stored Low noise estimate")
 	}
 }

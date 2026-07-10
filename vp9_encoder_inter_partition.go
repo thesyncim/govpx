@@ -565,8 +565,28 @@ func (e *VP9Encoder) vp9RecordVarPartSBColorSensitivity(miRows, miCols int,
 		NoiseLevel:             args.NoiseLevel,
 		AvgFrameQIndexInter:    args.AvgFrameQIndexInter,
 		Disable16x16PartNonkey: args.Disable16x16PartNonkey,
+		DenoiseSVC:             args.DenoiseSVC,
+		DenoisingLevel:         args.DenoisingLevel,
+		TemporalLayerID:        args.TemporalLayerID,
 	})
 	e.varPartSBColorSensitivity[sbIdx] = sensitivity
+}
+
+// vp9VariancePartitionDenoiseSVC mirrors libvpx denoise_svc(cpi) together
+// with the noise-sensitivity gate used by set_vbp_thresholds. SVC denoises at
+// most the top two spatial layers, selected from the configured sensitivity.
+func (e *VP9Encoder) vp9VariancePartitionDenoiseSVC() bool {
+	if e == nil || e.opts.NoiseSensitivity <= 0 {
+		return false
+	}
+	if !e.svc.UseSvc {
+		return true
+	}
+	firstLayer := max(e.svc.NumberSpatialLayers-1, 0)
+	if e.opts.NoiseSensitivity >= 2 {
+		firstLayer = max(e.svc.NumberSpatialLayers-2, 0)
+	}
+	return e.svc.SpatialLayerID >= firstLayer
 }
 
 func (e *VP9Encoder) vp9VarPartChromaSAD(inter *vp9InterEncodeState,
@@ -785,6 +805,9 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		VarianceTreeLowRes:     &coeffScratch.varPartTreeLowRes,
 		NoiseEstimateEnabled:   e.noiseEstimate.Enabled,
 		NoiseLevel:             e.noiseEstimate.ExtractLevel(),
+		DenoiseSVC:             e.vp9VariancePartitionDenoiseSVC(),
+		DenoisingLevel:         int(e.denoiser.level),
+		TemporalLayerID:        e.svc.TemporalLayerID,
 		CopyPartitionFlag:      e.sf.CopyPartitionFlag != 0 && !e.svc.UseSvc,
 		FramesSinceKey:         int(e.rc.framesSinceKey),
 		MaxCopiedFrame:         e.maxCopiedFrame,
