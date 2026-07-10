@@ -77,6 +77,18 @@ same allocation band. The focused ownership test, threaded race gate,
 denoiser oracle matrix, full suite, strict byte parity, trace, and purego gates
 all passed.
 
+Measurement note, 2026-07-10 (reference border lifetime): every nonzero
+refresh mask previously invalidated all per-slot GOLDEN/ALTREF padded luma
+planes, so the normal refresh-LAST cadence rebuilt unchanged non-LAST borders
+before count workers could share them. Invalidation now follows the physical
+refresh bitmask; explicit reference replacement invalidates only the replaced
+slot, while frame-parallel clone setup retains its intentional all-slot reset.
+Three paired 480-frame spots stayed byte/topology-identical. The 1T median
+moved from 11.558 to 11.453 ms/frame (about 0.9%); the 4T median moved from
+3.950 to 3.844 ms/frame (about 2.7%). The selective-invalidation unit test,
+worker-sharing race gate, denoiser oracle matrix, and full suite passed before
+the strict publish gates.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD

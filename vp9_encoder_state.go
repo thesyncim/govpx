@@ -453,7 +453,7 @@ func (e *VP9Encoder) vp9RefDims(slot uint8) (uint32, uint32) {
 func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, flags EncodeFlags) {
 	refreshFlags := header.RefreshFrameFlags
 	if refreshFlags != 0 {
-		e.invalidateVP9SubpelRefBordered()
+		e.invalidateVP9SubpelRefBordered(refreshFlags)
 	}
 	refMapID := 0
 	if refreshFlags != 0 {
@@ -494,8 +494,11 @@ func (e *VP9Encoder) refreshVP9EncoderRefs(header *vp9dec.UncompressedHeader, fl
 	e.ensureLastBordered()
 }
 
-func (e *VP9Encoder) invalidateVP9SubpelRefBordered() {
+func (e *VP9Encoder) invalidateVP9SubpelRefBordered(refreshFlags uint8) {
 	for i := range e.subpelRefBorderedValid {
+		if refreshFlags&(1<<uint(i)) == 0 {
+			continue
+		}
 		e.subpelRefBorderedValid[i] = false
 		e.subpelRefBorderedShared[i] = false
 	}

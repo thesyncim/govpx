@@ -181,6 +181,37 @@ func TestSubpelReferenceBorderedCachesPerReferenceSlot(t *testing.T) {
 	}
 }
 
+func TestSubpelReferenceBorderedInvalidatesOnlyRefreshedSlots(t *testing.T) {
+	var e VP9Encoder
+	for slot := range e.subpelRefBorderedValid {
+		e.subpelRefBorderedValid[slot] = true
+		e.subpelRefBorderedShared[slot] = true
+	}
+
+	e.invalidateVP9SubpelRefBordered(1 << vp9LastRefSlot)
+	if e.subpelRefBorderedValid[vp9LastRefSlot] ||
+		e.subpelRefBorderedShared[vp9LastRefSlot] {
+		t.Fatal("refreshed LAST cache remained valid or shared")
+	}
+	for _, slot := range []int{vp9GoldenRefSlot, vp9AltRefSlot, 7} {
+		if !e.subpelRefBorderedValid[slot] ||
+			!e.subpelRefBorderedShared[slot] {
+			t.Fatalf("unchanged slot %d was invalidated", slot)
+		}
+	}
+
+	e.invalidateVP9SubpelRefBordered((1 << vp9GoldenRefSlot) | (1 << 7))
+	for _, slot := range []int{vp9GoldenRefSlot, 7} {
+		if e.subpelRefBorderedValid[slot] || e.subpelRefBorderedShared[slot] {
+			t.Fatalf("refreshed slot %d remained valid or shared", slot)
+		}
+	}
+	if !e.subpelRefBorderedValid[vp9AltRefSlot] ||
+		!e.subpelRefBorderedShared[vp9AltRefSlot] {
+		t.Fatal("unchanged ALTREF cache was invalidated")
+	}
+}
+
 // Tile and count workers run synchronously within one frame epoch, and the
 // reference pixels they mirror are immutable refcounted pool buffers, so
 // their lastBordered is an intentional read-only alias of the parent's
