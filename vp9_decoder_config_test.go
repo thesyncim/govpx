@@ -246,6 +246,55 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 	}
 }
 
+func TestVP9DecoderRowMTMultiTileUsesSharedQueue(t *testing.T) {
+	packet := vp9test.MultiTileModePacketWithFilter(t, 1024, 256, 2, 32,
+		[]common.PredictionMode{common.DcPred, common.VPred,
+			common.HPred, common.TmPred})
+	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
+		VP9DecoderOptions{}, packet)
+
+	d, err := NewVP9Decoder(VP9DecoderOptions{Threads: 4, DecoderRowMT: true})
+	if err != nil {
+		t.Fatalf("NewVP9Decoder: %v", err)
+	}
+	defer d.Close()
+	if err := d.Decode(packet); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	frame, ok := d.NextFrame()
+	if !ok {
+		t.Fatal("NextFrame returned !ok")
+	}
+	assertVP9ImagesEqual(t, serial, frame)
+
+	storage := &d.vp9TilePool.rowMTFrame
+	if got, want := d.vp9TilePool.lastTileJobs, uint8(4); got != want {
+		t.Fatalf("row-mt tile jobs = %d, want %d", got, want)
+	}
+	if got, want := len(storage.tileStates), 4; got != want {
+		t.Fatalf("row-mt tile states = %d, want %d", got, want)
+	}
+	if got, want := storage.numJobs, 16; got != want {
+		t.Fatalf("row-mt sync jobs = %d, want %d", got, want)
+	}
+	if got, want := cap(storage.jobq.jobs), 36; got != want {
+		t.Fatalf("row-mt queue cap = %d, want %d", got, want)
+	}
+	if !storage.jobq.done() || !storage.loopFilterApplied {
+		t.Fatal("multi-tile row-mt queue or loop filter did not finish")
+	}
+	var counts [3]int
+	for _, job := range storage.jobq.jobs {
+		if job.jobType > vp9DecoderRowMTJobLPF {
+			t.Fatalf("invalid row-mt job type %d", job.jobType)
+		}
+		counts[job.jobType]++
+	}
+	if counts != [3]int{16, 16, 4} {
+		t.Fatalf("row-mt job counts = %v, want [16 16 4]", counts)
+	}
+}
+
 // TestVP9DecoderLoopFilterOptGatesLoopFilterPool covers the gate: with the
 // option off the deblock pass uses the serial path even on a threaded
 // decoder, and with the option on the threaded helper pool drives the

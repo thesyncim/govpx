@@ -16,11 +16,12 @@ point, plus threaded non-LAST subpel-reference cache sharing, plus a
 flattened nonrd ref-MV/mode-mask call-shape cleanup, plus a phase-stats
 `ChoosePartitioning` allocation artifact fix, plus a VP9 inactive SB-search
 entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
-fast-picker final-mode copy-elision safe points, plus the first VP9 decoder
-row-MT queued-PARSE/RECON worker safe points, plus the VP9 temporal-denoiser
-variance-threshold and committed count-state replay safe point landed on
-2026-07-02/03/10; the
-larger A/B/C structural programs remain pending. This is the execution brief
+fast-picker final-mode copy-elision safe points, plus the complete VP9 decoder
+row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
+temporal-denoiser variance-threshold and committed count-state replay safe
+point landed on
+2026-07-02/03/10; the larger A/B and encoder-MT structural programs remain
+pending. This is the execution brief
 for implementation agents.
 Evidence: 2026-07-02/03 design sprint — three verified blueprints (VP9
 single-walk, VP8 MB-walk, MT program) built on first-hand reads of libvpx
@@ -788,7 +789,7 @@ count=3.27 ms and tile=0.47 ms. Remaining C2 work is row-mt denoiser scaling
 after C1, plus any oracle-denoise algorithmic parity fixes that surface under
 the broader option grid.
 
-C3 **Threaded decode**: PARTIAL 2026-07-03. The decoder loop-filter path now
+C3 **Threaded decode**: COMPLETE 2026-07-10. The decoder loop-filter path now
 reuses the encoder VP9LfSync port for row-based LF-MT, replacing the old
 3-plane ≤3-way split; the official corpus threading helper covers the
 {1,2,4,8} matrix plus DecoderLoopFilterOpt and DecoderRowMT. The
@@ -806,7 +807,14 @@ after the final queued LPF row succeeds. The 128-vector conformance gate across
 threads {1,2,4,8} passed on 2026-07-10 across 7 official IVF vectors, 101
 profile-0 WebM vectors, the unsupported-profile corpus, and invalid-stream
 rejection; the one-tile PARSE/RECON/LPF queue is complete. Multi-tile row-MT
-decode remains.
+decode now uses the same shared queue with tile-local readers, left contexts,
+and frame counts, while reconstruction jobs remain stealable across workers.
+The final tile reconstruction for each SB row releases exactly one LPF job,
+and that release happens before publishing the row's final recon-map cell to
+preserve libvpx's FIFO dependency order. Focused four-tile coverage exercises
+16 PARSE, 16 RECON, and 4 LPF jobs with serial-identical output; multi-tile
+steady-state decode remains 0 allocs/op, and the full official threading /
+conformance matrix passes.
 C4 VP8 encode: already at MT parity — nothing to do.
 
 ## Sequencing for implementation agents

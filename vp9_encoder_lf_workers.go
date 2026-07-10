@@ -16,6 +16,7 @@ type vp9LfSync struct {
 	mu        []sync.Mutex
 	cond      []*sync.Cond
 	curSbCol  []int32
+	tilesDone []int
 	rows      int
 	syncRange int
 }
@@ -52,6 +53,7 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 		s.mu = make([]sync.Mutex, sbRows)
 		s.cond = make([]*sync.Cond, sbRows)
 		s.curSbCol = make([]int32, sbRows)
+		s.tilesDone = make([]int, sbRows)
 		for r := range s.cond {
 			s.cond[r] = sync.NewCond(&s.mu[r])
 		}
@@ -59,6 +61,7 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 		s.mu = s.mu[:sbRows]
 		s.cond = s.cond[:sbRows]
 		s.curSbCol = s.curSbCol[:sbRows]
+		s.tilesDone = s.tilesDone[:sbRows]
 		for r := range s.cond {
 			if s.cond[r] == nil {
 				s.cond[r] = sync.NewCond(&s.mu[r])
@@ -67,9 +70,24 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 	}
 	for r := range s.curSbCol {
 		s.curSbCol[r] = -1
+		s.tilesDone[r] = 0
 	}
 	s.rows = sbRows
 	s.syncRange = vp9LfSyncRange(width)
+}
+
+// tileRowDone mirrors lpf_map_write_check: the final tile reconstruction for
+// an SB row releases exactly one LPF job for that row.
+func (s *vp9LfSync) tileRowDone(row, tileCols int) bool {
+	if s == nil || row < 0 || row >= s.rows || tileCols <= 0 {
+		return false
+	}
+	mu := &s.mu[row]
+	mu.Lock()
+	s.tilesDone[row]++
+	done := s.tilesDone[row] == tileCols
+	mu.Unlock()
+	return done
 }
 
 // read mirrors sync_read (vp9_thread_common.c:22): before filtering SB

@@ -399,11 +399,19 @@ func ColumnResidueKeyframe(t testing.TB, width, height int,
 func MultiTileModePacket(t testing.TB, width, height, log2TileCols int,
 	modes []common.PredictionMode,
 ) []byte {
+	return MultiTileModePacketWithFilter(t, width, height, log2TileCols, 0,
+		modes)
+}
+
+func MultiTileModePacketWithFilter(t testing.TB, width, height,
+	log2TileCols int, filterLevel uint8, modes []common.PredictionMode,
+) []byte {
 	t.Helper()
 	if len(modes) == 0 {
 		t.Fatal("MultiTileModePacket requires at least one mode")
 	}
-	return packSyntheticKeyframe(t, width, height, log2TileCols, true,
+	return packSyntheticKeyframeWithFilter(t, width, height, log2TileCols,
+		true, filterLevel,
 		func(tileCol int) common.PredictionMode {
 			return modes[tileCol%len(modes)]
 		})
@@ -411,6 +419,14 @@ func MultiTileModePacket(t testing.TB, width, height, log2TileCols int,
 
 func packSyntheticKeyframe(t testing.TB, width, height, log2TileCols int,
 	frameParallel bool, modeForTile func(tileCol int) common.PredictionMode,
+) []byte {
+	return packSyntheticKeyframeWithFilter(t, width, height, log2TileCols,
+		frameParallel, 0, modeForTile)
+}
+
+func packSyntheticKeyframeWithFilter(t testing.TB, width, height,
+	log2TileCols int, frameParallel bool, filterLevel uint8,
+	modeForTile func(tileCol int) common.PredictionMode,
 ) []byte {
 	t.Helper()
 	w := uint32(width)
@@ -440,6 +456,7 @@ func packSyntheticKeyframe(t testing.TB, width, height, log2TileCols int,
 		},
 	}
 	header.Quant.BaseQindex = 1
+	header.Loopfilter.FilterLevel = filterLevel
 	header.Tile.Log2TileCols = log2TileCols
 
 	var seg vp9dec.SegmentationParams

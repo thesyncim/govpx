@@ -10,7 +10,7 @@ import (
 )
 
 func TestVP9DecoderRowMTMatchesSerial(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 256, 1)
 
 	serial := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		govpx.VP9DecoderOptions{Threads: 4}, packet)
@@ -73,7 +73,7 @@ func TestVP9DecoderSetRowMTValidation(t *testing.T) {
 }
 
 func TestVP9DecoderRowMTRuntimeToggleMatchesSerial(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 256, 1)
 
 	want := vp9DecodeLastVisibleFrameWithOptionsForTest(t,
 		govpx.VP9DecoderOptions{Threads: 4}, packet)
@@ -100,7 +100,7 @@ func TestVP9DecoderRowMTRuntimeToggleMatchesSerial(t *testing.T) {
 }
 
 func TestVP9DecoderRowMTSteadyStateAlloc(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 256, 1)
 
 	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{
 		Threads: 4, DecoderRowMT: true,
@@ -125,7 +125,7 @@ func TestVP9DecoderRowMTSteadyStateAlloc(t *testing.T) {
 }
 
 func TestVP9DecoderRowMTNoGoroutineLeak(t *testing.T) {
-	packet := vp9test.MultiTileStubPacket(t, 1024, 64, 1)
+	packet := vp9test.MultiTileStubPacket(t, 1024, 256, 1)
 	baseline := vp9GoroutineCountForTest()
 
 	d, err := govpx.NewVP9Decoder(govpx.VP9DecoderOptions{

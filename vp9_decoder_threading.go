@@ -263,8 +263,9 @@ func (q *vp9DecoderRowMTJobQueue) done() bool {
 }
 
 type vp9DecoderRowMTFrameStorage struct {
-	numSBs  int
-	numJobs int
+	numSBs   int
+	numJobs  int
+	tileCols int
 
 	eob           [vp9dec.MaxMbPlane][]int
 	dqcoeffBytes  [vp9dec.MaxMbPlane][]byte
@@ -278,9 +279,20 @@ type vp9DecoderRowMTFrameStorage struct {
 	jobq          vp9DecoderRowMTJobQueue
 	reader        bitstream.Reader
 	lfSync        vp9LfSync
+	tileStates    []vp9DecoderRowMTTileState
+	tilesDone     atomic.Int32
 
 	loopFilterActive  bool
 	loopFilterApplied bool
+}
+
+type vp9DecoderRowMTTileState struct {
+	decoder VP9Decoder
+	reader  bitstream.Reader
+	tile    vp9dec.TileBounds
+
+	leftSegCtx  [common.MiBlockSize]int8
+	leftEntropy [vp9dec.MaxMbPlane][16]uint8
 }
 
 func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
@@ -299,6 +311,9 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 		s.residueParsed = s.residueParsed[:0]
 		s.reconMap = s.reconMap[:0]
 		s.numJobs = 0
+		s.tileCols = 0
+		s.tileStates = s.tileStates[:0]
+		s.tilesDone.Store(0)
 		s.loopFilterActive = false
 		s.loopFilterApplied = false
 		return
@@ -318,6 +333,9 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	s.partition = buffers.EnsureLenZeroed(s.partition,
 		numSBs*vp9DecoderRowMTPartitionsPerSB)
 	s.reconMap = buffers.EnsureLenZeroed(s.reconMap, numSBs)
+	s.tileCols = 0
+	s.tileStates = s.tileStates[:0]
+	s.tilesDone.Store(0)
 	s.loopFilterActive = false
 	s.loopFilterApplied = false
 }
@@ -336,6 +354,8 @@ func (s *vp9DecoderRowMTFrameStorage) ensureJobQueue(tileCols, sbRows int) {
 	}
 	numJobs := tileCols * sbRows
 	s.numJobs = numJobs
+	s.tileCols = tileCols
+	s.tilesDone.Store(0)
 	if cap(s.reconMu) < numJobs {
 		s.reconMu = make([]sync.Mutex, numJobs)
 		s.reconCond = make([]*sync.Cond, numJobs)
@@ -358,6 +378,7 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 	}
 	s.numSBs = 0
 	s.numJobs = 0
+	s.tileCols = 0
 	for plane := range vp9dec.MaxMbPlane {
 		s.eob[plane] = nil
 		s.dqcoeffBytes[plane] = nil
@@ -371,8 +392,50 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 	s.reconCond = nil
 	s.jobq.release()
 	s.lfSync = vp9LfSync{}
+	s.tileStates = nil
+	s.tilesDone.Store(0)
 	s.loopFilterActive = false
 	s.loopFilterApplied = false
+}
+
+func (s *vp9DecoderRowMTFrameStorage) prepareTileStates(parent *VP9Decoder,
+	descs []vp9DecoderTileDesc,
+) error {
+	if s == nil || parent == nil || len(descs) == 0 || len(descs) != s.tileCols {
+		return ErrInvalidVP9Data
+	}
+	s.tileStates = buffers.EnsureLen(s.tileStates, len(descs))
+	for tileCol := range descs {
+		state := &s.tileStates[tileCol]
+		state.decoder = *parent
+		state.decoder.vp9LoopFilterPool = nil
+		state.decoder.vp9TilePool = nil
+		state.decoder.rowMTSync = nil
+		state.decoder.leftSegCtx = state.leftSegCtx[:]
+		clear(state.leftSegCtx[:])
+		for plane := range vp9dec.MaxMbPlane {
+			leftLen := len(parent.planes[plane].LeftContext)
+			if leftLen > len(state.leftEntropy[plane]) {
+				return ErrInvalidVP9Data
+			}
+			state.decoder.planes[plane].LeftContext =
+				state.leftEntropy[plane][:leftLen]
+			clear(state.leftEntropy[plane][:leftLen])
+		}
+		state.decoder.counts = vp9dec.FrameCounts{}
+		state.tile = descs[tileCol].tile
+		if err := state.reader.Init(descs[tileCol].data); err != nil {
+			return ErrInvalidVP9Data
+		}
+	}
+	return nil
+}
+
+func (s *vp9DecoderRowMTFrameStorage) tileState(tileCol int) *vp9DecoderRowMTTileState {
+	if s == nil || tileCol < 0 || tileCol >= len(s.tileStates) {
+		return nil
+	}
+	return &s.tileStates[tileCol]
 }
 
 func (s *vp9DecoderRowMTFrameStorage) eobForSB(plane, sb int) []int {
@@ -449,11 +512,12 @@ type vp9DecoderTileJob struct {
 }
 
 type vp9DecoderTileWorkerPool struct {
-	helperCount int8
-	start       []chan struct{}
-	jobs        []vp9DecoderTileJob
-	tileDescs   []vp9DecoderTileDesc
-	header      vp9dec.UncompressedHeader
+	helperCount  int8
+	start        []chan struct{}
+	jobs         []vp9DecoderTileJob
+	mainRowMTJob vp9DecoderTileJob
+	tileDescs    []vp9DecoderTileDesc
+	header       vp9dec.UncompressedHeader
 
 	shutdownCh    chan struct{}
 	wg            sync.WaitGroup
@@ -548,6 +612,7 @@ func (p *vp9DecoderTileWorkerPool) shutdown() {
 	for i := range p.jobs {
 		p.jobs[i] = vp9DecoderTileJob{}
 	}
+	p.mainRowMTJob = vp9DecoderTileJob{}
 	p.tileDescs = nil
 	p.helperCount = 0
 	p.lastTileJobs = 0
@@ -771,6 +836,10 @@ func (d *VP9Decoder) runVP9DecoderTileJobs(descs []vp9DecoderTileDesc,
 	}
 	if !d.opts.DecoderRowMT {
 		return d.runVP9DecoderScheduledTileJobs(descs, kind, comp,
+			intraMaps, interMaps, miRows, miCols, partitionProbs)
+	}
+	if len(descs) > 1 {
+		return d.runVP9DecoderMultiTileRowMTJobs(descs, kind, comp,
 			intraMaps, interMaps, miRows, miCols, partitionProbs)
 	}
 	mergeCounts := !hdr.FrameParallelDecoding
@@ -1065,6 +1134,10 @@ func (j *vp9DecoderTileJob) runRowMT() {
 			continue
 		}
 		spins = 0
+		tile := j.tile
+		if state := j.rowMTStorage.tileState(rowJob.tileCol); state != nil {
+			tile = state.tile
+		}
 		switch rowJob.jobType {
 		case vp9DecoderRowMTJobParse:
 			if err := j.runRowMTParse(rowJob); err != nil {
@@ -1080,7 +1153,7 @@ func (j *vp9DecoderTileJob) runRowMT() {
 				j.rowMTStorage.jobq.terminate()
 				break
 			}
-			if rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd {
+			if rowJob.rowNum+common.MiBlockSize >= j.miRows {
 				j.rowMTStorage.loopFilterApplied = true
 				j.rowMTStorage.jobq.terminate()
 			}
@@ -1097,38 +1170,21 @@ func (j *vp9DecoderTileJob) runRowMT() {
 		var err error
 		if j.kind == vp9DecoderTileJobIntra {
 			err = worker.reconstructVP9IntraModeTileRowMTRow(
-				j.hdr, j.rowMTStorage, j.tile, j.miRows, j.miCols,
-				rowJob.rowNum)
+				j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
+				rowJob.rowNum, rowJob.tileCol)
 		} else {
 			err = worker.reconstructVP9InterModeTileRowMTRow(
-				j.hdr, j.rowMTStorage, j.tile, j.miRows, j.miCols,
-				rowJob.rowNum)
+				j.hdr, j.rowMTStorage, tile, j.miRows, j.miCols,
+				rowJob.rowNum, rowJob.tileCol)
 		}
 		if err != nil {
 			j.err = err
 			j.rowMTStorage.jobq.terminate()
 			break
 		}
-		lastRow := rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd
-		if j.rowMTStorage.loopFilterActive {
-			if rowJob.rowNum > j.tile.MiRowStart &&
-				!j.rowMTStorage.jobq.queue(vp9DecoderRowMTJob{
-					rowNum:  rowJob.rowNum - common.MiBlockSize,
-					jobType: vp9DecoderRowMTJobLPF,
-				}) {
-				j.err = ErrInvalidVP9Data
-				j.rowMTStorage.jobq.terminate()
-				break
-			}
-			if lastRow && !j.rowMTStorage.jobq.queue(vp9DecoderRowMTJob{
-				rowNum:  rowJob.rowNum,
-				jobType: vp9DecoderRowMTJobLPF,
-			}) {
-				j.err = ErrInvalidVP9Data
-				j.rowMTStorage.jobq.terminate()
-				break
-			}
-		} else if lastRow {
+		lastRow := rowJob.rowNum+common.MiBlockSize >= tile.MiRowEnd
+		if !j.rowMTStorage.loopFilterActive && lastRow &&
+			j.rowMTStorage.tilesDone.Add(1) == int32(j.rowMTStorage.tileCols) {
 			j.rowMTStorage.jobq.terminate()
 		}
 	}

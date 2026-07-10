@@ -261,8 +261,73 @@ func (d *VP9Decoder) prepareVP9DecoderRowMTLoopFilter(
 }
 
 func (d *VP9Decoder) vp9DecoderRowMTLoopFilterApplied() bool {
-	storage := d.vp9DecoderRowMTOneTileStorage()
-	return storage != nil && storage.loopFilterApplied
+	if d == nil || d.vp9TilePool == nil || !d.opts.DecoderRowMT {
+		return false
+	}
+	return d.vp9TilePool.rowMTFrame.loopFilterApplied
+}
+
+func (d *VP9Decoder) runVP9DecoderMultiTileRowMTJobs(
+	descs []vp9DecoderTileDesc, kind vp9DecoderTileJobKind,
+	comp vp9dec.CompressedHeader, intraMaps vp9dec.IntraSegmentMaps,
+	interMaps vp9dec.InterSegmentMaps, miRows, miCols int,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+) error {
+	p := d.vp9TilePool
+	if p == nil || len(descs) <= 1 || len(descs) != len(p.rowMTSyncs) {
+		return ErrInvalidVP9Data
+	}
+	storage := &p.rowMTFrame
+	if err := storage.prepareTileStates(d, descs); err != nil {
+		return err
+	}
+	if !d.prepareVP9DecoderRowMTLoopFilter(storage, &p.header, miRows, miCols) {
+		return ErrInvalidVP9Data
+	}
+	helpers := int(p.helperCount)
+	for worker := range helpers {
+		p.prepareRowMTJob(worker, d, kind, &p.header, comp,
+			vp9dec.TileBounds{}, intraMaps, interMaps, miRows, miCols,
+			partitionProbs, storage)
+	}
+	mainJob := &p.mainRowMTJob
+	mainJob.prepareRowMTJob(d, kind, &p.header, comp, vp9dec.TileBounds{},
+		intraMaps, interMaps, miRows, miCols, partitionProbs, storage)
+	for tileCol := range descs {
+		if !storage.jobq.queue(vp9DecoderRowMTJob{
+			rowNum: descs[tileCol].tile.MiRowStart, tileCol: tileCol,
+			jobType: vp9DecoderRowMTJobParse,
+		}) {
+			return ErrInvalidVP9Data
+		}
+	}
+	epoch := p.startHelperWorkers(helpers)
+	mainJob.runRowMT()
+	p.waitHelperWorkers(epoch, helpers)
+	err := mainJob.err
+	if mainJob.unsupported {
+		d.unsupportedReconstruct = true
+	}
+	for worker := range helpers {
+		job := &p.jobs[worker]
+		if job.unsupported {
+			d.unsupportedReconstruct = true
+		}
+		if err == nil && job.err != nil {
+			err = job.err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if !p.header.FrameParallelDecoding {
+		for tileCol := range storage.tileStates {
+			vp9dec.MergeFrameCounts(&d.counts,
+				&storage.tileStates[tileCol].decoder.counts)
+		}
+	}
+	p.lastTileJobs = uint8(len(descs))
+	return nil
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTileRowMTQueued(r *bitstream.Reader,
@@ -291,7 +356,7 @@ func (d *VP9Decoder) parseVP9IntraModeTileRowMTQueued(r *bitstream.Reader,
 			tile, intraMaps, vp9dec.InterSegmentMaps{}, miRows, miCols,
 			partitionProbs, storage)
 	}
-	var mainJob vp9DecoderTileJob
+	mainJob := &p.mainRowMTJob
 	mainJob.prepareRowMTJob(d, vp9DecoderTileJobIntra, workerHdr, comp, tile,
 		intraMaps, vp9dec.InterSegmentMaps{}, miRows, miCols, partitionProbs,
 		storage)
@@ -352,7 +417,7 @@ func (d *VP9Decoder) parseVP9InterModeTileRowMTQueued(r *bitstream.Reader,
 			tile, vp9dec.IntraSegmentMaps{}, interMaps, miRows, miCols,
 			partitionProbs, storage)
 	}
-	var mainJob vp9DecoderTileJob
+	mainJob := &p.mainRowMTJob
 	mainJob.prepareRowMTJob(d, vp9DecoderTileJobInter, workerHdr, comp, tile,
 		vp9dec.IntraSegmentMaps{}, interMaps, miRows, miCols, partitionProbs,
 		storage)
@@ -391,16 +456,24 @@ func (j *vp9DecoderTileJob) runRowMTParse(rowJob vp9DecoderRowMTJob) error {
 	if j == nil || j.rowMTParent == nil || j.rowMTStorage == nil {
 		return ErrInvalidVP9Data
 	}
+	parser := j.rowMTParent
+	reader := &j.rowMTStorage.reader
+	tile := j.tile
+	if state := j.rowMTStorage.tileState(rowJob.tileCol); state != nil {
+		parser = &state.decoder
+		reader = &state.reader
+		tile = state.tile
+	}
 	var err error
 	if j.kind == vp9DecoderTileJobIntra {
-		err = j.rowMTParent.parseVP9IntraModeTileRowForRowMT(
-			&j.rowMTStorage.reader, j.hdr, &j.intraMaps, j.rowMTStorage,
-			j.tile, j.miRows, j.miCols, rowJob.rowNum, j.comp.TxMode,
+		err = parser.parseVP9IntraModeTileRowForRowMT(
+			reader, j.hdr, &j.intraMaps, j.rowMTStorage,
+			tile, j.miRows, j.miCols, rowJob.rowNum, j.comp.TxMode,
 			j.partitionProbs)
 	} else {
-		err = j.rowMTParent.parseVP9InterModeTileRowForRowMT(
-			&j.rowMTStorage.reader, j.hdr, j.comp, &j.interMaps,
-			j.rowMTStorage, j.tile, j.miRows, j.miCols, rowJob.rowNum,
+		err = parser.parseVP9InterModeTileRowForRowMT(
+			reader, j.hdr, j.comp, &j.interMaps,
+			j.rowMTStorage, tile, j.miRows, j.miCols, rowJob.rowNum,
 			j.partitionProbs)
 	}
 	if err != nil {
@@ -413,7 +486,7 @@ func (j *vp9DecoderTileJob) runRowMTParse(rowJob vp9DecoderRowMTJob) error {
 		return ErrInvalidVP9Data
 	}
 	nextRow := rowJob.rowNum + common.MiBlockSize
-	if nextRow < j.tile.MiRowEnd {
+	if nextRow < tile.MiRowEnd {
 		if !j.rowMTStorage.jobq.queue(vp9DecoderRowMTJob{
 			rowNum: nextRow, tileCol: rowJob.tileCol,
 			jobType: vp9DecoderRowMTJobParse,
@@ -472,13 +545,14 @@ func (d *VP9Decoder) parseVP9InterModeTileRowForRowMT(r *bitstream.Reader,
 
 func (d *VP9Decoder) reconstructVP9IntraModeTileRowMTRow(
 	hdr *vp9dec.UncompressedHeader, storage *vp9DecoderRowMTFrameStorage,
-	tile vp9dec.TileBounds, miRows, miCols, miRow int,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, tileCol int,
 ) error {
 	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
 	sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 	for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
 		sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
-		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols, sbRow-1) {
+		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols,
+			(sbRow-1)*storage.tileCols+tileCol) {
 			return ErrInvalidVP9Data
 		}
 		cursor := storage.partitionCursor(sb)
@@ -487,7 +561,11 @@ func (d *VP9Decoder) reconstructVP9IntraModeTileRowMTRow(
 			miCols, miRow, miCol, common.Block64x64, &cursor, &residue) {
 			return ErrInvalidVP9Data
 		}
-		if !storage.reconMapWrite(sb, sbRow) {
+		if miCol+common.MiBlockSize >= tile.MiColEnd &&
+			!storage.queueLoopFilterJobs(miRow, tile.MiRowStart, tile.MiRowEnd) {
+			return ErrInvalidVP9Data
+		}
+		if !storage.reconMapWrite(sb, sbRow*storage.tileCols+tileCol) {
 			return ErrInvalidVP9Data
 		}
 	}
@@ -496,13 +574,14 @@ func (d *VP9Decoder) reconstructVP9IntraModeTileRowMTRow(
 
 func (d *VP9Decoder) reconstructVP9InterModeTileRowMTRow(
 	hdr *vp9dec.UncompressedHeader, storage *vp9DecoderRowMTFrameStorage,
-	tile vp9dec.TileBounds, miRows, miCols, miRow int,
+	tile vp9dec.TileBounds, miRows, miCols, miRow, tileCol int,
 ) error {
 	globalSbCols := common.AlignToSB(miCols) >> common.MiBlockSizeLog2
 	sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
 	for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
 		sb := vp9DecoderRowMTSBIndex(miCols, miRow, miCol)
-		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols, sbRow-1) {
+		if sbRow > 0 && !storage.reconMapRead(sb-globalSbCols,
+			(sbRow-1)*storage.tileCols+tileCol) {
 			return ErrInvalidVP9Data
 		}
 		cursor := storage.partitionCursor(sb)
@@ -511,11 +590,39 @@ func (d *VP9Decoder) reconstructVP9InterModeTileRowMTRow(
 			miCols, miRow, miCol, common.Block64x64, &cursor, &residue) {
 			return ErrInvalidVP9Data
 		}
-		if !storage.reconMapWrite(sb, sbRow) {
+		if miCol+common.MiBlockSize >= tile.MiColEnd &&
+			!storage.queueLoopFilterJobs(miRow, tile.MiRowStart, tile.MiRowEnd) {
+			return ErrInvalidVP9Data
+		}
+		if !storage.reconMapWrite(sb, sbRow*storage.tileCols+tileCol) {
 			return ErrInvalidVP9Data
 		}
 	}
 	return nil
+}
+
+func (s *vp9DecoderRowMTFrameStorage) queueLoopFilterJobs(miRow,
+	miRowStart, miRowEnd int,
+) bool {
+	if s == nil || !s.loopFilterActive {
+		return true
+	}
+	sbRow := miRow >> common.MiBlockSizeLog2
+	if !s.lfSync.tileRowDone(sbRow, s.tileCols) {
+		return true
+	}
+	if miRow > miRowStart && !s.jobq.queue(vp9DecoderRowMTJob{
+		rowNum: miRow - common.MiBlockSize, jobType: vp9DecoderRowMTJobLPF,
+	}) {
+		return false
+	}
+	if miRow+common.MiBlockSize >= miRowEnd &&
+		!s.jobq.queue(vp9DecoderRowMTJob{
+			rowNum: miRow, jobType: vp9DecoderRowMTJobLPF,
+		}) {
+		return false
+	}
+	return true
 }
 
 func (d *VP9Decoder) parseVP9IntraModeSbRowMT(r *bitstream.Reader,
