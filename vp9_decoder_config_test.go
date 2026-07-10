@@ -190,22 +190,36 @@ func TestVP9DecoderRowMTOneTileUsesRowMTScaffold(t *testing.T) {
 	if !d.vp9TilePool.rowMTFrame.jobq.done() {
 		t.Fatal("rowMTFrame jobq did not finish")
 	}
-	if got, want := len(d.vp9TilePool.rowMTFrame.jobq.jobs), 8; got != want {
+	if got, want := len(d.vp9TilePool.rowMTFrame.jobq.jobs), 12; got != want {
 		t.Fatalf("rowMTFrame queued jobs = %d, want %d", got, want)
 	}
-	if got, want := d.vp9TilePool.rowMTFrame.jobq.read, 8; got != want {
+	if got, want := d.vp9TilePool.rowMTFrame.jobq.read, 12; got != want {
 		t.Fatalf("rowMTFrame consumed jobs = %d, want %d", got, want)
 	}
+	var jobCounts [3]int
+	var rowCounts [3][4]int
 	for i, job := range d.vp9TilePool.rowMTFrame.jobq.jobs {
-		wantType := vp9DecoderRowMTJobParse
-		if i%2 == 1 {
-			wantType = vp9DecoderRowMTJobRecon
+		if job.jobType > vp9DecoderRowMTJobLPF || job.tileCol != 0 ||
+			job.rowNum%common.MiBlockSize != 0 || job.rowNum < 0 ||
+			job.rowNum >= 4*common.MiBlockSize {
+			t.Fatalf("rowMTFrame job[%d] = %+v", i, job)
 		}
-		wantRow := (i / 2) * common.MiBlockSize
-		if job.jobType != wantType || job.tileCol != 0 || job.rowNum != wantRow {
-			t.Fatalf("rowMTFrame job[%d] = %+v; want type %d row %d tile 0",
-				i, job, wantType, wantRow)
+		jobCounts[job.jobType]++
+		rowCounts[job.jobType][job.rowNum/common.MiBlockSize]++
+	}
+	for jobType, count := range jobCounts {
+		if count != 4 {
+			t.Fatalf("rowMTFrame job type %d count = %d, want 4", jobType, count)
 		}
+		for row, rowCount := range rowCounts[jobType] {
+			if rowCount != 1 {
+				t.Fatalf("rowMTFrame job type %d row %d count = %d, want 1",
+					jobType, row, rowCount)
+			}
+		}
+	}
+	if !d.vp9TilePool.rowMTFrame.loopFilterApplied {
+		t.Fatal("rowMTFrame loop filter was not applied")
 	}
 	if got, want := len(d.vp9TilePool.rowMTFrame.uvMode), 32*16; got != want {
 		t.Fatalf("rowMTFrame uvMode len = %d, want %d", got, want)

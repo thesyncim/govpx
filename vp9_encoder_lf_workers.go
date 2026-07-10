@@ -182,6 +182,36 @@ func (d *VP9Decoder) applyVP9LoopFilterRowsInterleaved(miRows, miCols,
 	return true
 }
 
+// applyVP9LoopFilterRowMT mirrors vp9_loopfilter_job for one queued SB row.
+// The previous reconstructed row is released by the following RECON job, and
+// VP9LfSync preserves the left-to-right dependency between adjacent LPF rows.
+func (d *VP9Decoder) applyVP9LoopFilterRowMT(miRows, miCols, miRow int,
+	lfSync *vp9LfSync,
+) bool {
+	if lfSync == nil || miRow < 0 || miRow >= miRows {
+		return false
+	}
+	endMiRow := min(miRow+common.MiBlockSize, miRows)
+	if !d.prepareVP9LoopFilterMasksCached(miRows, miCols, miRow, endMiRow) {
+		return false
+	}
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	r := miRow >> common.MiBlockSizeLog2
+	for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
+		c := miCol >> common.MiBlockSizeLog2
+		lfSync.read(r, c)
+		lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)
+		if !ok || !d.vp9FilterLoopBlock(miRows, miRow, miCol, lfm) {
+			lfSync.write(r, sbCols-1, sbCols)
+			lfSync.markRowsDone(r+1, 1, sbRows, sbCols)
+			return false
+		}
+		lfSync.write(r, c, sbCols)
+	}
+	return true
+}
+
 // applyVP9EncoderLoopFilterMT runs the frame loop filter across the tile
 // worker pool, mirroring vp9_loop_filter_frame_mt (vp9_thread_common.c:203):
 // masks are prepared up front (vp9_build_mask_frame in the encoder's

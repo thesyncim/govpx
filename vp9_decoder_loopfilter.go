@@ -123,7 +123,34 @@ func (d *VP9Decoder) applyVP9LoopFilterSerialCached(miRows, miCols int) bool {
 func (d *VP9Decoder) prepareVP9LoopFilterMasks(miRows, miCols int,
 	startMiRow, endMiRow int,
 ) bool {
+	if !d.prepareVP9LoopFilterMaskStorage(miRows, miCols) {
+		return false
+	}
+	return d.prepareVP9LoopFilterMasksCached(miRows, miCols, startMiRow,
+		endMiRow)
+}
+
+func (d *VP9Decoder) prepareVP9LoopFilterMaskStorage(miRows, miCols int) bool {
 	if d == nil || miRows <= 0 || miCols <= 0 {
+		return false
+	}
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	d.vp9LoopFilterMasks = buffers.EnsureLenZeroed(d.vp9LoopFilterMasks,
+		sbRows*sbCols)
+	d.vp9LoopFilterMaskRows = sbRows
+	d.vp9LoopFilterMaskCols = sbCols
+	return true
+}
+
+// prepareVP9LoopFilterMasksCached builds masks for reconstructed rows after
+// the shared frame storage has been allocated and cleared. Row-MT workers call
+// it on disjoint SB rows so mask construction can overlap reconstruction.
+func (d *VP9Decoder) prepareVP9LoopFilterMasksCached(miRows, miCols int,
+	startMiRow, endMiRow int,
+) bool {
+	if d == nil || miRows <= 0 || miCols <= 0 ||
+		d.vp9LoopFilterMaskRows <= 0 || d.vp9LoopFilterMaskCols <= 0 {
 		return false
 	}
 	if startMiRow < 0 {
@@ -136,12 +163,6 @@ func (d *VP9Decoder) prepareVP9LoopFilterMasks(miRows, miCols int,
 		return true
 	}
 	startMiRow &^= common.MiBlockSize - 1
-	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
-	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
-	d.vp9LoopFilterMasks = buffers.EnsureLenZeroed(d.vp9LoopFilterMasks,
-		sbRows*sbCols)
-	d.vp9LoopFilterMaskRows = sbRows
-	d.vp9LoopFilterMaskCols = sbCols
 	for miRow := startMiRow; miRow < endMiRow; miRow += common.MiBlockSize {
 		for miCol := 0; miCol < miCols; miCol += common.MiBlockSize {
 			lfm, ok := d.vp9LoopFilterMaskAt(miRow, miCol)

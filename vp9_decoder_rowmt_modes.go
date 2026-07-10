@@ -239,6 +239,32 @@ func (d *VP9Decoder) vp9DecoderRowMTQueueHelpers() int {
 	return int(d.vp9TilePool.helperCount)
 }
 
+func (d *VP9Decoder) prepareVP9DecoderRowMTLoopFilter(
+	storage *vp9DecoderRowMTFrameStorage, hdr *vp9dec.UncompressedHeader,
+	miRows, miCols int,
+) bool {
+	if d == nil || storage == nil || hdr == nil {
+		return false
+	}
+	storage.loopFilterActive = !d.unsupportedReconstruct &&
+		hdr.Loopfilter.FilterLevel != 0 && !d.opts.SkipLoopFilter
+	storage.loopFilterApplied = false
+	if !storage.loopFilterActive {
+		return true
+	}
+	if !d.prepareVP9LoopFilterMaskStorage(miRows, miCols) {
+		return false
+	}
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	storage.lfSync.reset(sbRows, int(hdr.Width))
+	return true
+}
+
+func (d *VP9Decoder) vp9DecoderRowMTLoopFilterApplied() bool {
+	storage := d.vp9DecoderRowMTOneTileStorage()
+	return storage != nil && storage.loopFilterApplied
+}
+
 func (d *VP9Decoder) parseVP9IntraModeTileRowMTQueued(r *bitstream.Reader,
 	hdr *vp9dec.UncompressedHeader, comp vp9dec.CompressedHeader,
 	maps *vp9dec.IntraSegmentMaps, tile vp9dec.TileBounds,
@@ -257,6 +283,9 @@ func (d *VP9Decoder) parseVP9IntraModeTileRowMTQueued(r *bitstream.Reader,
 	workerHdr := &p.header
 	intraMaps := *maps
 	storage.reader = *r
+	if !d.prepareVP9DecoderRowMTLoopFilter(storage, workerHdr, miRows, miCols) {
+		return ErrInvalidVP9Data
+	}
 	for worker := range helpers {
 		p.prepareRowMTJob(worker, d, vp9DecoderTileJobIntra, workerHdr, comp,
 			tile, intraMaps, vp9dec.InterSegmentMaps{}, miRows, miCols,
@@ -315,6 +344,9 @@ func (d *VP9Decoder) parseVP9InterModeTileRowMTQueued(r *bitstream.Reader,
 	workerHdr := &p.header
 	interMaps := *maps
 	storage.reader = *r
+	if !d.prepareVP9DecoderRowMTLoopFilter(storage, workerHdr, miRows, miCols) {
+		return ErrInvalidVP9Data
+	}
 	for worker := range helpers {
 		p.prepareRowMTJob(worker, d, vp9DecoderTileJobInter, workerHdr, comp,
 			tile, vp9dec.IntraSegmentMaps{}, interMaps, miRows, miCols,

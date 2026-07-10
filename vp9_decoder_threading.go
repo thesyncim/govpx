@@ -277,6 +277,10 @@ type vp9DecoderRowMTFrameStorage struct {
 	reconCond     []*sync.Cond
 	jobq          vp9DecoderRowMTJobQueue
 	reader        bitstream.Reader
+	lfSync        vp9LfSync
+
+	loopFilterActive  bool
+	loopFilterApplied bool
 }
 
 func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
@@ -295,6 +299,8 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 		s.residueParsed = s.residueParsed[:0]
 		s.reconMap = s.reconMap[:0]
 		s.numJobs = 0
+		s.loopFilterActive = false
+		s.loopFilterApplied = false
 		return
 	}
 
@@ -312,6 +318,8 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	s.partition = buffers.EnsureLenZeroed(s.partition,
 		numSBs*vp9DecoderRowMTPartitionsPerSB)
 	s.reconMap = buffers.EnsureLenZeroed(s.reconMap, numSBs)
+	s.loopFilterActive = false
+	s.loopFilterApplied = false
 }
 
 func (s *vp9DecoderRowMTFrameStorage) ensureModeStorage(miRows, miCols int) {
@@ -362,6 +370,9 @@ func (s *vp9DecoderRowMTFrameStorage) release() {
 	s.reconMu = nil
 	s.reconCond = nil
 	s.jobq.release()
+	s.lfSync = vp9LfSync{}
+	s.loopFilterActive = false
+	s.loopFilterApplied = false
 }
 
 func (s *vp9DecoderRowMTFrameStorage) eobForSB(plane, sb int) []int {
@@ -1054,15 +1065,34 @@ func (j *vp9DecoderTileJob) runRowMT() {
 			continue
 		}
 		spins = 0
-		if rowJob.jobType != vp9DecoderRowMTJobRecon {
-			if rowJob.jobType == vp9DecoderRowMTJobParse {
-				if err := j.runRowMTParse(rowJob); err != nil {
-					j.err = err
-					j.rowMTStorage.jobq.terminate()
-					break
-				}
+		switch rowJob.jobType {
+		case vp9DecoderRowMTJobParse:
+			if err := j.runRowMTParse(rowJob); err != nil {
+				j.err = err
+				j.rowMTStorage.jobq.terminate()
+				break
 			}
 			continue
+		case vp9DecoderRowMTJobLPF:
+			if !worker.applyVP9LoopFilterRowMT(j.miRows, j.miCols,
+				rowJob.rowNum, &j.rowMTStorage.lfSync) {
+				j.err = ErrInvalidVP9Data
+				j.rowMTStorage.jobq.terminate()
+				break
+			}
+			if rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd {
+				j.rowMTStorage.loopFilterApplied = true
+				j.rowMTStorage.jobq.terminate()
+			}
+			continue
+		case vp9DecoderRowMTJobRecon:
+		default:
+			j.err = ErrInvalidVP9Data
+			j.rowMTStorage.jobq.terminate()
+			break
+		}
+		if j.err != nil {
+			break
 		}
 		var err error
 		if j.kind == vp9DecoderTileJobIntra {
@@ -1079,7 +1109,26 @@ func (j *vp9DecoderTileJob) runRowMT() {
 			j.rowMTStorage.jobq.terminate()
 			break
 		}
-		if rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd {
+		lastRow := rowJob.rowNum+common.MiBlockSize >= j.tile.MiRowEnd
+		if j.rowMTStorage.loopFilterActive {
+			if rowJob.rowNum > j.tile.MiRowStart &&
+				!j.rowMTStorage.jobq.queue(vp9DecoderRowMTJob{
+					rowNum:  rowJob.rowNum - common.MiBlockSize,
+					jobType: vp9DecoderRowMTJobLPF,
+				}) {
+				j.err = ErrInvalidVP9Data
+				j.rowMTStorage.jobq.terminate()
+				break
+			}
+			if lastRow && !j.rowMTStorage.jobq.queue(vp9DecoderRowMTJob{
+				rowNum:  rowJob.rowNum,
+				jobType: vp9DecoderRowMTJobLPF,
+			}) {
+				j.err = ErrInvalidVP9Data
+				j.rowMTStorage.jobq.terminate()
+				break
+			}
+		} else if lastRow {
 			j.rowMTStorage.jobq.terminate()
 		}
 	}

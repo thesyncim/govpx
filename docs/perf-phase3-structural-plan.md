@@ -799,9 +799,14 @@ parse/reconstruct walk through per-SB partition/EOB/dqcoeff slabs. The row
 queue now seeds PARSE jobs, advances the shared tile reader row-by-row through
 workers, enqueues matching RECON jobs, and drains the fixed-capacity queue
 with the main goroutine participating alongside helpers; the local-header and
-steady-state decode paths remain 0 allocs/op. Remaining: schedule LPF jobs
-from completed RECON rows for 1-tile streams (+26% measured). Gate when full
-wiring lands: 128-vector conformance × threads {1,2,4,8}.
+steady-state decode paths remain 0 allocs/op. Completed RECON rows now enqueue
+LPF jobs with libvpx's one-SB-row lag, sharing the existing VP9LfSync wavefront
+and building masks per released row; the post-frame filter is skipped only
+after the final queued LPF row succeeds. The 128-vector conformance gate across
+threads {1,2,4,8} passed on 2026-07-10 across 7 official IVF vectors, 101
+profile-0 WebM vectors, the unsupported-profile corpus, and invalid-stream
+rejection; the one-tile PARSE/RECON/LPF queue is complete. Multi-tile row-MT
+decode remains.
 C4 VP8 encode: already at MT parity — nothing to do.
 
 ## Sequencing for implementation agents
