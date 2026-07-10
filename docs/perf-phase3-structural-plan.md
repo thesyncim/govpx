@@ -63,6 +63,20 @@ packet 1/source 10/byte 4, while its size gap narrowed to 11179 versus 11136
 bytes. Focused denoiser/oracle tests, the 4T race gate, full tests, trace,
 purego, and PGO checks are the safe-point gates.
 
+Measurement note, 2026-07-10 (threaded cache ownership): an Apple Time
+Profiler capture of the 4T workload attributed about 0.51 s of sampled CPU to
+copying worker 0's leaf and partition decision caches back to the dispatcher.
+The count barrier already gives those buffers exclusive ownership: tile column
+0 is written by the dispatcher, while worker 0 stays quiescent until the next
+count epoch. The caches and their row/column/version metadata now ping-pong
+between worker 0 and the dispatcher instead of copying several megabytes per
+frame. Three paired 480-frame 720p realtime cpu8 4T spots improved from
+4.024/4.025/4.036 ms/frame to 3.941/3.956/3.959 ms/frame (about 1.8-2.1%),
+with identical 4,980,319-byte output, 468/12 encoded/drop topology, and the
+same allocation band. The focused ownership test, threaded race gate,
+denoiser oracle matrix, full suite, strict byte parity, trace, and purego gates
+all passed.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD

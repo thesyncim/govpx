@@ -1061,26 +1061,40 @@ func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
 	if e == nil || w == nil {
 		return
 	}
-	if n := len(w.vp9LeafInterDecisions); n > 0 {
-		e.vp9LeafInterDecisions = buffers.EnsureLen(e.vp9LeafInterDecisions, n)
-		copy(e.vp9LeafInterDecisions, w.vp9LeafInterDecisions)
-		e.vp9LeafInterDecisionsRows = w.vp9LeafInterDecisionsRows
-		e.vp9LeafInterDecisionsCols = w.vp9LeafInterDecisionsCols
-		e.vp9LeafInterDecisionsVer = w.vp9LeafInterDecisionsVer
+	// Worker 0 is quiescent at this barrier and tile-column 0 is written by
+	// the dispatcher. Exchange cache ownership instead of copying several
+	// megabytes of decisions back to the dispatcher every frame. The old
+	// dispatcher buffers become worker 0's private buffers for the next count
+	// epoch, so the pair naturally ping-pongs without allocation or aliasing.
+	if len(w.vp9LeafInterDecisions) > 0 {
+		e.vp9LeafInterDecisions, w.vp9LeafInterDecisions =
+			w.vp9LeafInterDecisions, e.vp9LeafInterDecisions
+		e.vp9LeafInterDecisionsRows, w.vp9LeafInterDecisionsRows =
+			w.vp9LeafInterDecisionsRows, e.vp9LeafInterDecisionsRows
+		e.vp9LeafInterDecisionsCols, w.vp9LeafInterDecisionsCols =
+			w.vp9LeafInterDecisionsCols, e.vp9LeafInterDecisionsCols
+		e.vp9LeafInterDecisionsVer, w.vp9LeafInterDecisionsVer =
+			w.vp9LeafInterDecisionsVer, e.vp9LeafInterDecisionsVer
 	}
-	if n := len(w.vp9InterPartitionDecisions); n > 0 {
-		e.vp9InterPartitionDecisions = buffers.EnsureLen(e.vp9InterPartitionDecisions, n)
-		copy(e.vp9InterPartitionDecisions, w.vp9InterPartitionDecisions)
-		e.vp9InterPartitionDecisionsRows = w.vp9InterPartitionDecisionsRows
-		e.vp9InterPartitionDecisionsCols = w.vp9InterPartitionDecisionsCols
-		e.vp9InterPartitionDecisionsVer = w.vp9InterPartitionDecisionsVer
+	if len(w.vp9InterPartitionDecisions) > 0 {
+		e.vp9InterPartitionDecisions, w.vp9InterPartitionDecisions =
+			w.vp9InterPartitionDecisions, e.vp9InterPartitionDecisions
+		e.vp9InterPartitionDecisionsRows, w.vp9InterPartitionDecisionsRows =
+			w.vp9InterPartitionDecisionsRows, e.vp9InterPartitionDecisionsRows
+		e.vp9InterPartitionDecisionsCols, w.vp9InterPartitionDecisionsCols =
+			w.vp9InterPartitionDecisionsCols, e.vp9InterPartitionDecisionsCols
+		e.vp9InterPartitionDecisionsVer, w.vp9InterPartitionDecisionsVer =
+			w.vp9InterPartitionDecisionsVer, e.vp9InterPartitionDecisionsVer
 	}
-	if n := len(w.vp9LeafKeyframeDecisions); n > 0 {
-		e.vp9LeafKeyframeDecisions = buffers.EnsureLen(e.vp9LeafKeyframeDecisions, n)
-		copy(e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions)
-		e.vp9LeafKeyframeDecisionsRows = w.vp9LeafKeyframeDecisionsRows
-		e.vp9LeafKeyframeDecisionsCols = w.vp9LeafKeyframeDecisionsCols
-		e.vp9LeafKeyframeDecisionsVer = w.vp9LeafKeyframeDecisionsVer
+	if len(w.vp9LeafKeyframeDecisions) > 0 {
+		e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions =
+			w.vp9LeafKeyframeDecisions, e.vp9LeafKeyframeDecisions
+		e.vp9LeafKeyframeDecisionsRows, w.vp9LeafKeyframeDecisionsRows =
+			w.vp9LeafKeyframeDecisionsRows, e.vp9LeafKeyframeDecisionsRows
+		e.vp9LeafKeyframeDecisionsCols, w.vp9LeafKeyframeDecisionsCols =
+			w.vp9LeafKeyframeDecisionsCols, e.vp9LeafKeyframeDecisionsCols
+		e.vp9LeafKeyframeDecisionsVer, w.vp9LeafKeyframeDecisionsVer =
+			w.vp9LeafKeyframeDecisionsVer, e.vp9LeafKeyframeDecisionsVer
 	}
 }
 

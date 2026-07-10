@@ -194,6 +194,66 @@ func TestVP9DenoiserCountStateCommitRequiresAllLeafReplay(t *testing.T) {
 	}
 }
 
+func TestVP9CountWorkerDecisionCachesPingPongOwnership(t *testing.T) {
+	e := &VP9Encoder{
+		vp9LeafInterDecisions:          make([]vp9LeafInterDecisionEntry, 2),
+		vp9LeafInterDecisionsRows:      1,
+		vp9LeafInterDecisionsCols:      2,
+		vp9LeafInterDecisionsVer:       3,
+		vp9InterPartitionDecisions:     make([]vp9InterPartitionDecisionEntry, 2),
+		vp9InterPartitionDecisionsRows: 1,
+		vp9InterPartitionDecisionsCols: 2,
+		vp9InterPartitionDecisionsVer:  4,
+		vp9LeafKeyframeDecisions:       make([]vp9LeafKeyframeDecisionEntry, 2),
+		vp9LeafKeyframeDecisionsRows:   1,
+		vp9LeafKeyframeDecisionsCols:   2,
+		vp9LeafKeyframeDecisionsVer:    5,
+	}
+	w := &VP9Encoder{
+		vp9LeafInterDecisions:          make([]vp9LeafInterDecisionEntry, 3),
+		vp9LeafInterDecisionsRows:      3,
+		vp9LeafInterDecisionsCols:      1,
+		vp9LeafInterDecisionsVer:       13,
+		vp9InterPartitionDecisions:     make([]vp9InterPartitionDecisionEntry, 3),
+		vp9InterPartitionDecisionsRows: 3,
+		vp9InterPartitionDecisionsCols: 1,
+		vp9InterPartitionDecisionsVer:  14,
+		vp9LeafKeyframeDecisions:       make([]vp9LeafKeyframeDecisionEntry, 3),
+		vp9LeafKeyframeDecisionsRows:   3,
+		vp9LeafKeyframeDecisionsCols:   1,
+		vp9LeafKeyframeDecisionsVer:    15,
+	}
+	eInter := &e.vp9LeafInterDecisions[0]
+	ePart := &e.vp9InterPartitionDecisions[0]
+	eKey := &e.vp9LeafKeyframeDecisions[0]
+	wInter := &w.vp9LeafInterDecisions[0]
+	wPart := &w.vp9InterPartitionDecisions[0]
+	wKey := &w.vp9LeafKeyframeDecisions[0]
+
+	e.adoptVP9CountWorkerLeafDecisionCaches(w)
+
+	if &e.vp9LeafInterDecisions[0] != wInter ||
+		&e.vp9InterPartitionDecisions[0] != wPart ||
+		&e.vp9LeafKeyframeDecisions[0] != wKey {
+		t.Fatal("dispatcher did not adopt worker cache ownership")
+	}
+	if &w.vp9LeafInterDecisions[0] != eInter ||
+		&w.vp9InterPartitionDecisions[0] != ePart ||
+		&w.vp9LeafKeyframeDecisions[0] != eKey {
+		t.Fatal("worker did not receive the prior dispatcher cache ownership")
+	}
+	if e.vp9LeafInterDecisionsRows != 3 || e.vp9LeafInterDecisionsCols != 1 ||
+		e.vp9LeafInterDecisionsVer != 13 ||
+		e.vp9InterPartitionDecisionsRows != 3 ||
+		e.vp9InterPartitionDecisionsCols != 1 ||
+		e.vp9InterPartitionDecisionsVer != 14 ||
+		e.vp9LeafKeyframeDecisionsRows != 3 ||
+		e.vp9LeafKeyframeDecisionsCols != 1 ||
+		e.vp9LeafKeyframeDecisionsVer != 15 {
+		t.Fatal("dispatcher did not adopt worker cache metadata")
+	}
+}
+
 func TestVP9CountPassIntraLeafReplayRequiresPreservedState(t *testing.T) {
 	e := &VP9Encoder{}
 	e.vp9TokenReplay.active = true
