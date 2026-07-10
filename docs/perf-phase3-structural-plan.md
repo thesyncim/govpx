@@ -268,6 +268,19 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   replay hits; the 30-frame 4T/no-denoise spot remained fully replayed at
   2.98 ms/frame. Token-list invariants, threaded replay, race, and focused
   SVC/RTP fallback gates passed.
+- The next A3 slice stages one byte per visited partition node in a third
+  SB-row stream. Eligible inter frames now descend that committed stream
+  directly, emit partition bits, update partition contexts, and dispatch the
+  pure leaf packer without entering `writeVP9ModesSb`,
+  `pickVP9BlockSizeForRegion`, or the partition decision cache on the write
+  pass. The stream has an allocation-free fixed capacity above the maximum
+  full-quadtree node count and is cursor-checked beside the leaf/token streams;
+  keyframe and fallback replay validate and consume the same records through
+  the existing walker. Alternating 120-frame 720p cpu8 1T runs against the
+  prior safe point kept exact 1,235,511-byte output and moved median tile-write
+  time from about 143.1 ms to 138.6 ms total (about 0.04 ms/input frame).
+  The loaded 4T/no-denoise pair also stayed exact at 1,236,037 bytes with
+  identical 108/12 topology and 237,683 replayed inter leaves.
 - Replay infra (206B/leaf decision cache, canReplay validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
   serves count-side storage, partition/fallback replay, keyframes, and sub-8x8;
@@ -632,9 +645,10 @@ partition dispatcher, canReplay/applyVP9CountPass, write-pass residue
 (PARTIAL 2026-07-11: normal inter partition-node replay removes the write-side
 inter partition picker under count-token replay, and a one-byte UV-mode
 sidecar lets the normal >=8x8 inter-source pack path consume committed miGrid
-plus tokens without leaf replay/application or write-side residue work;
-partition recursion, keyframe/sub-8x8/fallback packing, count-side partition
-picking, and old cache deletion remain; remaining −0.5..0.7); A4 delete replay
+plus tokens without leaf replay/application or write-side residue work, and a
+parallel partition-node stream removes the normal inter write-side partition
+dispatcher/cache walk; keyframe/sub-8x8/fallback pure packing, count-side
+partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 delete replay
 infrastructure (−0.2..0.3); A5 pick-buffer
 end-state (PARTIAL 2026-07-02: nonrd `search_filter_ref` uses two compact
 luma eval/best buffers and swaps ownership on new-best filters): tmp[0..3]

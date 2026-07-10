@@ -435,6 +435,15 @@ func assertVP9CountTokenListAt(t *testing.T, e *VP9Encoder, label string,
 			t.Fatalf("%s leaf mode[%d] = %d, want UV mode", label, i, mode)
 		}
 	}
+	partitions, ok := frame.PartitionsForList(frame.PartitionLists[idx])
+	if !ok || len(partitions) == 0 {
+		t.Fatalf("%s partition list missing or empty", label)
+	}
+	for i, partition := range partitions {
+		if common.PartitionType(partition) >= common.PartitionTypes {
+			t.Fatalf("%s partition[%d] = %d, want valid partition", label, i, partition)
+		}
+	}
 	if allowOnlyEOSB && len(tokens) != vp9TokenListEOSBCount(tokens) {
 		t.Fatalf("%s token list contains coefficient tokens in skip fixture: len=%d eosb=%d",
 			label, len(tokens), vp9TokenListEOSBCount(tokens))

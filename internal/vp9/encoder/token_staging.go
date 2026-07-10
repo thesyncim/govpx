@@ -43,12 +43,15 @@ type TokenList struct {
 // TokenFrameBuffer owns the per-frame token arena and SB-row token lists used
 // by the staged VP9 bitstream path.
 type TokenFrameBuffer struct {
-	Tokens    []TokenExtra
-	Lists     []TokenList
-	LeafModes []uint8
-	LeafLists []TokenList
-	Used      int
-	LeafUsed  int
+	Tokens         []TokenExtra
+	Lists          []TokenList
+	LeafModes      []uint8
+	LeafLists      []TokenList
+	Partitions     []uint8
+	PartitionLists []TokenList
+	Used           int
+	LeafUsed       int
+	PartitionUsed  int
 
 	miRows          int
 	miCols          int
@@ -81,6 +84,8 @@ func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tile
 		b.Lists = b.Lists[:0]
 		b.LeafModes = b.LeafModes[:0]
 		b.LeafLists = b.LeafLists[:0]
+		b.Partitions = b.Partitions[:0]
+		b.PartitionLists = b.PartitionLists[:0]
 		b.miRows = 0
 		b.miCols = 0
 		b.sbRows = 0
@@ -95,8 +100,11 @@ func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tile
 		TokenListAllocForTileGrid(miRows, tileRows, tileCols))
 	b.LeafModes = buffers.EnsureLen(b.LeafModes, miRows*miCols)
 	b.LeafLists = buffers.EnsureLenZeroed(b.LeafLists, len(b.Lists))
+	b.Partitions = buffers.EnsureLen(b.Partitions, 2*miRows*miCols)
+	b.PartitionLists = buffers.EnsureLenZeroed(b.PartitionLists, len(b.Lists))
 	b.Used = 0
 	b.LeafUsed = 0
+	b.PartitionUsed = 0
 	b.miRows = miRows
 	b.miCols = miCols
 	b.sbRows = common.AlignToSB(miRows) >> common.MiBlockSizeLog2
@@ -112,8 +120,10 @@ func (b *TokenFrameBuffer) Reset() {
 	}
 	b.Used = 0
 	b.LeafUsed = 0
+	b.PartitionUsed = 0
 	clear(b.Lists)
 	clear(b.LeafLists)
+	clear(b.PartitionLists)
 }
 
 func (b *TokenFrameBuffer) Release() {
@@ -124,8 +134,11 @@ func (b *TokenFrameBuffer) Release() {
 	b.Lists = nil
 	b.LeafModes = nil
 	b.LeafLists = nil
+	b.Partitions = nil
+	b.PartitionLists = nil
 	b.Used = 0
 	b.LeafUsed = 0
+	b.PartitionUsed = 0
 	b.miRows = 0
 	b.miCols = 0
 	b.sbRows = 0
@@ -150,6 +163,15 @@ func (b *TokenFrameBuffer) AppendLeafMode(mode uint8) bool {
 	}
 	b.LeafModes[b.LeafUsed] = mode
 	b.LeafUsed++
+	return true
+}
+
+func (b *TokenFrameBuffer) AppendPartition(partition uint8) bool {
+	if b == nil || b.PartitionUsed < 0 || b.PartitionUsed >= len(b.Partitions) {
+		return false
+	}
+	b.Partitions[b.PartitionUsed] = partition
+	b.PartitionUsed++
 	return true
 }
 
@@ -179,6 +201,7 @@ func (b *TokenFrameBuffer) StartTokenList(tileRow, tileCol, tileSBRow int) (int,
 	}
 	b.Lists[idx] = TokenList{Start: b.Used}
 	b.LeafLists[idx] = TokenList{Start: b.LeafUsed}
+	b.PartitionLists[idx] = TokenList{Start: b.PartitionUsed}
 	return idx, true
 }
 
@@ -198,6 +221,12 @@ func (b *TokenFrameBuffer) FinishTokenList(idx int) bool {
 	}
 	leaf.Stop = b.LeafUsed
 	leaf.Count = uint32(leaf.Stop - leaf.Start)
+	partition := &b.PartitionLists[idx]
+	if partition.Start < 0 || partition.Start > b.PartitionUsed {
+		return false
+	}
+	partition.Stop = b.PartitionUsed
+	partition.Count = uint32(partition.Stop - partition.Start)
 	return true
 }
 
@@ -215,6 +244,14 @@ func (b *TokenFrameBuffer) LeafModesForList(list TokenList) ([]uint8, bool) {
 		return nil, false
 	}
 	return b.LeafModes[list.Start:list.Stop], true
+}
+
+func (b *TokenFrameBuffer) PartitionsForList(list TokenList) ([]uint8, bool) {
+	if b == nil || list.Start < 0 || list.Stop < list.Start ||
+		list.Stop > b.PartitionUsed {
+		return nil, false
+	}
+	return b.Partitions[list.Start:list.Stop], true
 }
 
 // TokenAllocForMI mirrors libvpx get_token_alloc. miRows/miCols are VP9 8x8

@@ -272,6 +272,101 @@ func (e *VP9Encoder) vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
 	}
 }
 
+func (e *VP9Encoder) canPackVP9InterPartitionTree(inter *vp9InterEncodeState) bool {
+	return e != nil && inter != nil && inter.counts == nil &&
+		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
+		e.vp9TokenReplay.err == nil && !e.svc.UseSvc &&
+		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
+		!e.vp9ActiveSegmentMapCodingChooser() &&
+		e.sf.DefaultMinPartitionSize >= common.Block8x8
+}
+
+func (e *VP9Encoder) writeVP9PackedModeLeaf(bw *bitstream.Writer,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	tile vp9dec.TileBounds, seg *vp9dec.SegmentationParams,
+	txMode common.TxMode, inter *vp9InterEncodeState,
+) {
+	if e.vp9TokenReplay.err != nil {
+		return
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncModeBlock(bsize, false)
+	}
+	if !e.writeVP9PackedInterLeaf(bw, miRows, miCols, miRow, miCol,
+		bsize, tile, seg, txMode, inter) {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+	}
+}
+
+func (e *VP9Encoder) writeVP9PackedModesSb(bw *bitstream.Writer,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, txMode common.TxMode,
+	inter *vp9InterEncodeState,
+) {
+	if miRow >= miRows || miCol >= miCols || e.vp9TokenReplay.err != nil {
+		return
+	}
+	if vp9PhaseStatsEnabled && e.vp9PhaseStatsActive() {
+		e.vp9PhaseIncModeSB(false)
+	}
+	partition, ok := e.nextVP9PackedPartition()
+	if !ok {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		return
+	}
+	bsl := int(common.BWidthLog2Lookup[bsize])
+	bs := (1 << uint(bsl)) / 4
+	encoder.WritePartitionForBlock(bw, encoder.WriteModesSbArgs{
+		AboveSegCtx:    e.aboveSegCtx,
+		LeftSegCtx:     e.leftSegCtx,
+		MiRows:         miRows,
+		MiCols:         miCols,
+		PartitionProbs: partitionProbs,
+	}, miRow, miCol, partition, bsize, bs)
+
+	subsize := common.SubsizeLookup[partition][bsize]
+	if subsize < common.Block8x8 {
+		e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow, miCol,
+			subsize, tile, seg, txMode, inter)
+	} else {
+		switch partition {
+		case common.PartitionNone:
+			e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow, miCol,
+				subsize, tile, seg, txMode, inter)
+		case common.PartitionHorz:
+			e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow, miCol,
+				subsize, tile, seg, txMode, inter)
+			if miRow+bs < miRows {
+				e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow+bs, miCol,
+					subsize, tile, seg, txMode, inter)
+			}
+		case common.PartitionVert:
+			e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow, miCol,
+				subsize, tile, seg, txMode, inter)
+			if miCol+bs < miCols {
+				e.writeVP9PackedModeLeaf(bw, miRows, miCols, miRow, miCol+bs,
+					subsize, tile, seg, txMode, inter)
+			}
+		default:
+			e.writeVP9PackedModesSb(bw, miRows, miCols, miRow, miCol,
+				subsize, tile, partitionProbs, seg, txMode, inter)
+			e.writeVP9PackedModesSb(bw, miRows, miCols, miRow, miCol+bs,
+				subsize, tile, partitionProbs, seg, txMode, inter)
+			e.writeVP9PackedModesSb(bw, miRows, miCols, miRow+bs, miCol,
+				subsize, tile, partitionProbs, seg, txMode, inter)
+			e.writeVP9PackedModesSb(bw, miRows, miCols, miRow+bs, miCol+bs,
+				subsize, tile, partitionProbs, seg, txMode, inter)
+		}
+	}
+	if bsize >= common.Block8x8 &&
+		(bsize == common.Block8x8 || partition != common.PartitionSplit) {
+		vp9dec.UpdatePartitionContext(e.aboveSegCtx, e.leftSegCtx,
+			miRow, miCol, subsize, vp9dec.PartitionContextUpdateWidth(bs))
+	}
+}
+
 func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
@@ -279,6 +374,11 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
 ) {
 	if miRow >= miRows || miCol >= miCols {
+		return
+	}
+	if kind == vp9ModeTreeInterSource && e.canPackVP9InterPartitionTree(inter) {
+		e.writeVP9PackedModesSb(bw, miRows, miCols, miRow, miCol, bsize,
+			tile, partitionProbs, seg, txMode, inter)
 		return
 	}
 	if vp9PhaseStatsEnabled && e.vp9PhaseStatsActive() {
@@ -312,6 +412,7 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	partition := common.PartitionLookup[bsl][target]
 	counts := vp9EncodeCountsForState(key, inter)
 	if counts != nil {
+		e.stageVP9PackedPartition(partition)
 		ctx := vp9dec.PartitionPlaneContext(e.aboveSegCtx, e.leftSegCtx,
 			miRow, miCol, bsize)
 		counts.Partition[ctx][partition]++
@@ -319,6 +420,13 @@ func (e *VP9Encoder) writeVP9ModesSb(bw *bitstream.Writer, miRows, miCols, miRow
 	// Count-pass partition histograms are updated above. The in-place partition
 	// context update below is the stateful part; the wire bits are pack-pass only.
 	if counts == nil {
+		if e.vp9TokenReplay.active {
+			staged, ok := e.nextVP9PackedPartition()
+			if !ok || staged != partition {
+				e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+				return
+			}
+		}
 		encoder.WritePartitionForBlock(bw, encoder.WriteModesSbArgs{
 			AboveSegCtx:    e.aboveSegCtx,
 			LeftSegCtx:     e.leftSegCtx,

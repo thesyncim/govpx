@@ -15,15 +15,17 @@ type vp9TokenCollectState struct {
 }
 
 type vp9TokenReplayState struct {
-	active     bool
-	tileRow    int
-	tileCol    int
-	frame      *encoder.TokenFrameBuffer
-	tokens     []encoder.TokenExtra
-	cursor     int
-	leafModes  []uint8
-	leafCursor int
-	err        error
+	active          bool
+	tileRow         int
+	tileCol         int
+	frame           *encoder.TokenFrameBuffer
+	tokens          []encoder.TokenExtra
+	cursor          int
+	leafModes       []uint8
+	leafCursor      int
+	partitions      []uint8
+	partitionCursor int
+	err             error
 }
 
 func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
@@ -129,8 +131,10 @@ func (e *VP9Encoder) vp9ThreadedCountTokenFramesReady(pool *vp9TileWorkerPool,
 			list := src.Lists[srcIdx]
 			tokens, ok := src.TokensForList(list)
 			leafModes, leafOK := src.LeafModesForList(src.LeafLists[srcIdx])
+			partitions, partitionOK := src.PartitionsForList(src.PartitionLists[srcIdx])
 			if !ok || len(tokens) == 0 || !leafOK || len(leafModes) == 0 ||
-				len(leafModes) != vp9TokenListEOSBCount(tokens) {
+				len(leafModes) != vp9TokenListEOSBCount(tokens) ||
+				!partitionOK || len(partitions) == 0 {
 				return false
 			}
 		}
@@ -171,6 +175,7 @@ func (e *VP9Encoder) vp9HasCountTokensForReplay() bool {
 	return e != nil &&
 		(e.vp9ThreadedTokenReplayReady ||
 			(e.vp9TokenFrame.Used > 0 && e.vp9TokenFrame.LeafUsed > 0 &&
+				e.vp9TokenFrame.PartitionUsed > 0 &&
 				len(e.vp9TokenFrame.Lists) > 0))
 }
 
@@ -204,7 +209,9 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 		}
 		tokens, ok := frame.TokensForList(frame.Lists[idx])
 		leafModes, leafOK := frame.LeafModesForList(frame.LeafLists[idx])
-		if !ok || len(tokens) == 0 || !leafOK || len(leafModes) == 0 {
+		partitions, partitionOK := frame.PartitionsForList(frame.PartitionLists[idx])
+		if !ok || len(tokens) == 0 || !leafOK || len(leafModes) == 0 ||
+			!partitionOK || len(partitions) == 0 {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 			return -1
 		}
@@ -212,6 +219,8 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 		e.vp9TokenReplay.cursor = 0
 		e.vp9TokenReplay.leafModes = leafModes
 		e.vp9TokenReplay.leafCursor = 0
+		e.vp9TokenReplay.partitions = partitions
+		e.vp9TokenReplay.partitionCursor = 0
 		return idx
 	}
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
@@ -233,13 +242,16 @@ func (e *VP9Encoder) finishVP9CountTokenList(idx int) {
 	if e.vp9TokenReplay.active {
 		if e.vp9TokenReplay.err == nil &&
 			(e.vp9TokenReplay.cursor != len(e.vp9TokenReplay.tokens) ||
-				e.vp9TokenReplay.leafCursor != len(e.vp9TokenReplay.leafModes)) {
+				e.vp9TokenReplay.leafCursor != len(e.vp9TokenReplay.leafModes) ||
+				e.vp9TokenReplay.partitionCursor != len(e.vp9TokenReplay.partitions)) {
 			e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
 		}
 		e.vp9TokenReplay.tokens = nil
 		e.vp9TokenReplay.cursor = 0
 		e.vp9TokenReplay.leafModes = nil
 		e.vp9TokenReplay.leafCursor = 0
+		e.vp9TokenReplay.partitions = nil
+		e.vp9TokenReplay.partitionCursor = 0
 		return
 	}
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
@@ -290,6 +302,32 @@ func (e *VP9Encoder) consumeVP9PackedLeafMode() {
 		return
 	}
 	e.vp9TokenReplay.leafCursor++
+}
+
+func (e *VP9Encoder) stageVP9PackedPartition(partition common.PartitionType) {
+	if e == nil || !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
+		return
+	}
+	if partition >= common.PartitionTypes ||
+		!e.vp9TokenFrame.AppendPartition(uint8(partition)) {
+		e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+	}
+}
+
+func (e *VP9Encoder) nextVP9PackedPartition() (common.PartitionType, bool) {
+	if e == nil || !e.vp9TokenReplay.active || e.vp9TokenReplay.err != nil ||
+		e.vp9TokenReplay.partitionCursor < 0 ||
+		e.vp9TokenReplay.partitionCursor >= len(e.vp9TokenReplay.partitions) {
+		return common.PartitionInvalid, false
+	}
+	partition := common.PartitionType(
+		e.vp9TokenReplay.partitions[e.vp9TokenReplay.partitionCursor])
+	if partition >= common.PartitionTypes {
+		e.vp9TokenReplay.err = encoder.ErrTokenBufferFull
+		return common.PartitionInvalid, false
+	}
+	e.vp9TokenReplay.partitionCursor++
+	return partition, true
 }
 
 func (e *VP9Encoder) finishVP9CoefTokenLeaf() {
