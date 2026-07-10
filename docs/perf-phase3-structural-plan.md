@@ -101,6 +101,20 @@ median-to-median and 0.5-0.9% pairwise), with identical 4,980,319-byte output,
 focused threaded tests, worker race gate, denoiser oracle matrix, full suite,
 strict byte parity, trace, purego, and PGO checks all passed.
 
+Measurement note, 2026-07-10 (direct variance-partition handoff): threaded
+count collection merged each worker's tile-disjoint variance-partition state
+into the dispatcher, copied the merged arrays into 15 replay buffers, then
+copied them straight back immediately before tile write. No operation between
+the count barrier and tile dispatch mutates those arrays, including the
+reduced-tx retry, which starts a fresh count attempt. Tile-write workers now
+consume the merged dispatcher state directly. Three paired 480-frame 720p
+realtime cpu8 4T spots moved from 3.677/3.726/3.791 ms/frame to
+3.681/3.709/3.754 ms/frame (about 0.46% median-to-median), with identical
+4,980,319-byte output and 468/12 encoded/drop topology. The change also
+removes 134 lines of snapshot plumbing and the retained replay buffers. The
+refreshed-PGO artifact measured 3.692 ms/frame; the focused race/oracle gates,
+full suite, strict byte parity, trace, purego, and PGO checks all passed.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD
