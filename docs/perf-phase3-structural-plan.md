@@ -2,6 +2,7 @@
 
 Status: implementation started. The oracle-denoise prerequisite, narrow
 A1/A2 token-walk safe points, the first A5 pick-buffer safe point, the
+A5 non-ML four-buffer ownership safe point, the
 A6 bare-quantize / AC-DC skipTxfm commit safe points, and a denoiser
 count-copy safe point plus a nonrd picker invariant-hoist safe point, a
 small offset-SAD cleanup, a `BlockYrd` EOB-scratch narrowing safe point,
@@ -445,8 +446,26 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   `make pgo-check`, the guarded spot stayed byte/topology-equivalent at
   12.00 ms/frame versus 5.65 ms/frame libvpx, with count phase at 10.13 ms/frame
   and tile write at 1.24 ms/frame.
-  The broader tmp[0..3] PRED_BUFFER discipline, dst-as-4th-buffer handoff, and
-  intra-winner pred carry remain open.
+  The normal non-ML `pred_pixel_ready` lanes now use libvpx's full four-buffer
+  ownership shape: three compact scratch buffers plus the live reconstruction
+  destination as `tmp[3]`. The first candidate predicts directly into dst,
+  later candidates and filter trials acquire free compact buffers, new winners
+  transfer ownership without copying, and commit copies only when `best_pred`
+  is not already dst. If the inter winner still owns dst when intra fallback
+  starts, it is moved once into a free compact buffer before the intra predictor
+  overwrites the rect. This replaces the hybrid path that copied every new-best
+  candidate and carried deferred-capture state whose `InRect` arm was never set.
+  The custom-destination parity test now covers an offset exact-span buffer in
+  addition to padded compact strides, and a focused pool test pins acquire,
+  exhaustion, free, and reuse. The post-change profile no longer attributed a
+  `runtime.memmove` sample to the nonrd picker; total sampled memmove fell from
+  60 ms to 20 ms on the 120-frame profile. Under the heavily loaded host, two
+  order-reversed 480-frame 4T no-denoise whole-process pairs retired about
+  0.13-0.15% fewer instructions and used about 1.3-1.8% fewer cycles, with exact
+  4,981,549-byte output, 468/12 encoded/drop topology, and the same near-zero
+  allocation band. The ML partition lane and intra-winner predictor carry
+  remain open; count this as a substantial A5 ownership slice, not full A5
+  closure.
 - A narrow post-A5 cleanup routes source-SAD, variance-partition chroma/CBR SAD,
   and compact motion-candidate SAD through offset-based SAD calls once callers
   have already validated the windows. A follow-up source-SAD edge safe point
@@ -661,10 +680,11 @@ partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 d
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining
 −0.15..0.25); A5 pick-buffer
-end-state (PARTIAL 2026-07-02: nonrd `search_filter_ref` uses two compact
-luma eval/best buffers and swaps ownership on new-best filters): tmp[0..3]
-PRED_BUFFER discipline, dst-as-4th-buffer, direct convolve into eval buffers,
-intra-winner pred carry (−1.0..1.4); A6 subpel direct on padded refs + bare
+end-state (PARTIAL 2026-07-11: nonrd `search_filter_ref` swaps compact
+eval/best ownership, and normal non-ML `pred_pixel_ready` picks now use three
+compact buffers plus dst as libvpx's fourth PRED_BUFFER, including final and
+pre-intra ownership handoff): ML-lane unification and intra-winner pred carry
+remain (−0.7..1.0); A6 subpel direct on padded refs + bare
 vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-02:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq
 output directly, and hoists tx/dequant/scan/table checks to plane-level for the

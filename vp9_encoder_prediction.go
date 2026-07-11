@@ -253,7 +253,7 @@ func (e *VP9Encoder) predictVP9ZeroMVLumaCopyToScratch(
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
 	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
-		blockH*dstStride > len(dst) || x0 < 0 || y0 < 0 ||
+		(blockH-1)*dstStride+blockW > len(dst) || x0 < 0 || y0 < 0 ||
 		x0+blockW > ref.img.Width || y0+blockH > ref.img.Height {
 		return false
 	}
@@ -297,7 +297,7 @@ func (e *VP9Encoder) predictVP9InterBlockLumaToScratchDirect(
 	blockW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
 	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
-		blockH*dstStride > len(dst) {
+		(blockH-1)*dstStride+blockW > len(dst) {
 		return false
 	}
 	src, srcStride := vp9ReferencePlane(ref, 0)

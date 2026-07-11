@@ -537,7 +537,7 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSETo(
 	}
 	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-	needed := blockH * dstStride
+	needed := (blockH-1)*dstStride + blockW
 	if blockW <= 0 || blockH <= 0 || dstStride < blockW ||
 		needed > len(dst) {
 		return 0, 0, false

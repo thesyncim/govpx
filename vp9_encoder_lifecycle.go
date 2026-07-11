@@ -272,24 +272,15 @@ type VP9Encoder struct {
 	vp9SBEntropyValid   bool
 	vp9SBEntropySaveBuf [vp9dec.MaxMbPlane][]uint8
 
-	intraScratch            vp9dec.IntraPredictorScratch
-	modeScratch             [1024]byte
-	vp9CoeffTokenCosts      encoder.FrameCoeffTokenCostTable
-	vp9CoeffTokenCostsValid bool
-	blockScratch            [64 * 64]byte
-	intraSkipPredScratch    [32 * 32]byte
-	nonrdOrigPredScratch    [64 * 64]byte
-	nonrdBestPredScratch    [64 * 64]byte
-	nonrdFilterPredScratch  [64 * 64]byte
-	// nonrdBestPredInRect / nonrdBestPredCaptured carry the deferred
-	// reuse_inter_pred PRED_BUFFER state for the non-ML nonrd lanes:
-	// InRect means the recon rect currently holds the best candidate's
-	// luma predictor (libvpx best_pred pointing at a live buffer);
-	// Captured means nonrdBestPredScratch holds it (libvpx best_pred
-	// copied out before the buffer is reused, vp9_pickmode.c:2543-2562).
-	// Reset at every pickVP9InterReferenceModeNonRD entry.
-	nonrdBestPredInRect      bool
-	nonrdBestPredCaptured    bool
+	intraScratch             vp9dec.IntraPredictorScratch
+	modeScratch              [1024]byte
+	vp9CoeffTokenCosts       encoder.FrameCoeffTokenCostTable
+	vp9CoeffTokenCostsValid  bool
+	blockScratch             [64 * 64]byte
+	intraSkipPredScratch     [32 * 32]byte
+	nonrdOrigPredScratch     [64 * 64]byte
+	nonrdBestPredScratch     [64 * 64]byte
+	nonrdFilterPredScratch   [64 * 64]byte
 	partitionReconScratch    []byte
 	partitionReconScratchTop int
 	// interPredictScratch is passed through the decoder-shared inter

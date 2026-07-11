@@ -161,6 +161,15 @@ re-run during the write walk), tokenize/stage +0.26.
    pre-load 120-frame cpu8 spots stayed byte/topology-equivalent at 13.01 and
    12.88 ms/frame with `vp9_count_ns` 1,324,989,751 / 1,312,619,880. PGO
    refresh/check stayed green.
+   The phase-3 A5 continuation now ports libvpx's `tmp[0..3]` ownership for
+   normal non-ML `pred_pixel_ready` picks: three compact buffers plus the live
+   destination, ownership transfer on new-best candidates and filter trials,
+   and a single final or pre-intra copy only when required. The 480-frame 4T
+   no-denoise frontier stayed exact at 4,981,549 bytes and 468/12 topology;
+   two order-reversed whole-process pairs used about 1.3-1.8% fewer cycles on
+   the heavily loaded host, and picker-attributed `runtime.memmove` disappeared
+   from the follow-up profile. ML-lane unification, intra-winner carry, and the
+   bordered subpel staging row remain open.
    Remaining work: the broader +1.31/+0.68 rows are not closed until candidate
    prediction storage is source-shaped end-to-end and the bordered subpel
    variance staging is removed. Port the vp9_pickmode.c data flow. Biggest

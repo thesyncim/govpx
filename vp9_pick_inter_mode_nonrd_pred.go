@@ -6,6 +6,28 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
+type vp9NonrdPredBuffer struct {
+	data   []byte
+	stride int
+	inUse  bool
+}
+
+func vp9NonrdGetPredBuffer(p *[4]vp9NonrdPredBuffer) int {
+	for i := 0; i < 3; i++ {
+		if !p[i].inUse {
+			p[i].inUse = true
+			return i
+		}
+	}
+	return -1
+}
+
+func vp9NonrdFreePredBuffer(p *[4]vp9NonrdPredBuffer, idx int) {
+	if idx >= 0 && idx < len(p) {
+		p[idx].inUse = false
+	}
+}
+
 func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 ) bool {
@@ -101,27 +123,6 @@ func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 		}
 	}
 	return !(partitionVertAllowed || partitionHorzAllowed || doSplit)
-}
-
-// vp9NonrdPreIntraPredictCapture is the deferred reuse_inter_pred copy-out
-// the nonrd intra fallback invokes right before its first recon-plane intra
-// predict. It mirrors libvpx vp9_pickmode.c:2543-2562: when best_pred still
-// lives in the real dst buffer as the intra search is about to overwrite it,
-// the predictor is copied out to a spare PRED_BUFFER first. No-op unless the
-// picker armed nonrdBestPredInRect for the current block.
-func (e *VP9Encoder) vp9NonrdPreIntraPredictCapture(miRow, miCol int,
-	bsize common.BlockSize,
-) {
-	if !e.nonrdBestPredInRect {
-		return
-	}
-	e.nonrdBestPredInRect = false
-	plane, stride, x, y, w, h, ok := e.vp9NonrdLumaPredRect(miRow, miCol, bsize)
-	if !ok {
-		return
-	}
-	vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:], plane, stride, x, y, w, h)
-	e.nonrdBestPredCaptured = true
 }
 
 func (e *VP9Encoder) vp9NonrdLumaPredRect(miRow, miCol int,

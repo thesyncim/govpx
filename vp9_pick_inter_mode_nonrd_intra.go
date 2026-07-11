@@ -77,7 +77,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 	sceneChangeDetected, highNumBlocksWithMotion bool,
 	contentState encoder.ContentStateSB, zeroTempSADSource bool,
 	pickPred []byte, pickPredStride, pickPredOriginMiRow, pickPredOriginMiCol int,
-	skipEncode bool,
+	skipEncode bool, preIntraCapture *vp9NonrdPredBuffer,
 ) (vp9InterIntraDecision, bool) {
 	if inter == nil || inter.img == nil {
 		return vp9InterIntraDecision{}, false
@@ -278,12 +278,20 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 			predY = (miRow - pickPredOriginMiRow) * common.MiSize
 		}
 		if !ok {
-			// Deferred reuse_inter_pred copy-out: the recon-plane intra
-			// predict below overwrites the rect that may still hold the
-			// best inter candidate's luma predictor. libvpx copies
-			// best_pred out to a spare PRED_BUFFER before the intra loop
-			// touches orig_dst (vp9_pickmode.c:2543-2562).
-			e.vp9NonrdPreIntraPredictCapture(miRow, miCol, bsize)
+			// libvpx vp9_pickmode.c:2543-2562: if best_pred still owns
+			// orig_dst, move it to a free tmp buffer before intra prediction
+			// overwrites the destination. The ML lane already keeps its winner
+			// in the existing eager scratch path.
+			if preIntraCapture != nil && !preIntraCapture.inUse {
+				plane, stride, x, y, w, h, captureOK :=
+					e.vp9NonrdLumaPredRect(miRow, miCol, bsize)
+				if captureOK && preIntraCapture.stride == w &&
+					w*h <= len(preIntraCapture.data) {
+					vp9CopyPredRectToScratch(preIntraCapture.data,
+						plane, stride, x, y, w, h)
+					preIntraCapture.inUse = true
+				}
+			}
 			if skipEncode {
 				recon, reconStride := e.vp9EncoderReconPlane(0)
 				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)

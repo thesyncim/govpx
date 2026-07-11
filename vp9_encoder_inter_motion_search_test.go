@@ -737,6 +737,47 @@ func TestVP9InterPredictionSADScratchMatchesReconPredictor(t *testing.T) {
 						}
 					}
 				}
+
+				offsetStride := blockW + 11
+				const prefix = 13
+				offsetSpan := (blockH-1)*offsetStride + blockW
+				offsetStorage := bytes.Repeat([]byte{0x6d}, prefix+offsetSpan+17)
+				offsetDst := offsetStorage[prefix : prefix+offsetSpan]
+				gotVar, gotSSE, ok = e.vp9InterPredictionVarianceSSEForFilterSearchTo(
+					inter, miRows, miCols, tc.miRow, tc.miCol, tc.bsize,
+					common.NewMv, vp9dec.LastFrame, tc.mv, filt.filter,
+					offsetDst, offsetStride)
+				if !ok {
+					t.Fatal("offset destination variance/SSE returned !ok")
+				}
+				if gotVar != wantVar || gotSSE != wantSSE {
+					t.Fatalf("offset destination variance/SSE = %d/%d, want %d/%d",
+						gotVar, gotSSE, wantVar, wantSSE)
+				}
+				for _, v := range offsetStorage[:prefix] {
+					if v != 0x6d {
+						t.Fatal("offset destination prefix was overwritten")
+					}
+				}
+				for _, v := range offsetStorage[prefix+offsetSpan:] {
+					if v != 0x6d {
+						t.Fatal("offset destination suffix was overwritten")
+					}
+				}
+				for y := range blockH {
+					rowOff := y * offsetStride
+					if !bytes.Equal(offsetDst[rowOff:rowOff+blockW],
+						want[y*blockW:(y+1)*blockW]) {
+						t.Fatalf("offset destination row %d mismatch", y)
+					}
+					if y+1 < blockH {
+						for _, v := range offsetDst[rowOff+blockW : rowOff+offsetStride] {
+							if v != 0x6d {
+								t.Fatalf("offset destination padding for row %d was overwritten", y)
+							}
+						}
+					}
+				}
 			})
 		}
 	}

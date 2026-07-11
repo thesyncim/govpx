@@ -8,6 +8,31 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
 
+func TestVP9NonrdPredBufferPoolOwnership(t *testing.T) {
+	var pool [4]vp9NonrdPredBuffer
+	for i := 0; i < 3; i++ {
+		pool[i].data = make([]byte, 64)
+		pool[i].stride = 8
+	}
+
+	for want := 0; want < 3; want++ {
+		if got := vp9NonrdGetPredBuffer(&pool); got != want {
+			t.Fatalf("get %d = %d, want %d", want, got, want)
+		}
+	}
+	if got := vp9NonrdGetPredBuffer(&pool); got != -1 {
+		t.Fatalf("exhausted get = %d, want -1", got)
+	}
+	vp9NonrdFreePredBuffer(&pool, 1)
+	if got := vp9NonrdGetPredBuffer(&pool); got != 1 {
+		t.Fatalf("reused get = %d, want 1", got)
+	}
+	vp9NonrdFreePredBuffer(&pool, 3)
+	if pool[3].inUse {
+		t.Fatal("destination buffer remained in use")
+	}
+}
+
 // TestVP9NonrdPickPartitionSplitSize confirms vp9MLSplitSize maps each
 // ML-eligible parent bsize to its libvpx subsize_lookup
 // (vp9/common/vp9_common_data.c subsize_lookup[PARTITION_SPLIT]).
