@@ -117,11 +117,13 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds, mi *vp9dec.NeighborMi,
 	seg *vp9dec.SegmentationParams, forcedRefFrame int8, forcedRef bool,
-) (vp9InterModeDecision, common.PredictionMode, bool) {
+	txMode common.TxMode, deferFinalInter bool,
+) (vp9InterModeDecision, common.PredictionMode, bool, bool) {
+	e.resetVP9ProducerTokens()
 	interDecision, ok := e.prepareVP9InterPredictionBlock(inter, miRows, miCols,
 		miRow, miCol, bsize, tile, mi, seg, forcedRefFrame, forcedRef)
 	if !ok {
-		return vp9InterModeDecision{}, common.DcPred, false
+		return vp9InterModeDecision{}, common.DcPred, false, false
 	}
 	if interDecision.intra {
 		mi.Mode = interDecision.mode
@@ -145,7 +147,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			uvMode = interDecision.mode
 		}
 		return interDecision, uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
-			miRows, miCols, miRow, miCol, bsize, mi, uvMode)
+			miRows, miCols, miRow, miCol, bsize, mi, uvMode), false
 	}
 	if e.opts.AQMode == VP9AQComplexity {
 		mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
@@ -161,7 +163,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	if !forcedRef && e.vp9StaticThresholdBreakout(inter, miRows, miCols,
 		miRow, miCol, bsize, mi) {
 		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, true)
-		return interDecision, common.DcPred, false
+		return interDecision, common.DcPred, false, false
 	}
 	if e.opts.AQMode != VP9AQComplexity {
 		// libvpx vp9/encoder/vp9_encodeframe.c:6100 encode_superblock reads the
@@ -212,13 +214,11 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			interDecision.score = intra.score
 			e.vp9AccumulateBlockFilterDiff(inter, intra.score, true)
 			return interDecision, intra.uvMode, e.prepareVP9InterIntraBlockResidue(inter, tile,
-				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode)
+				miRows, miCols, miRow, miCol, bsize, mi, intra.uvMode), false
 		}
 	}
 	e.applyVP9DenoiserToInterBlock(inter, miRows, miCols, miRow, miCol,
 		bsize, interDecision)
-	hasResidue := false
-	segID := vp9EncoderMiSegmentID(mi)
 	// libvpx vp9/encoder/vp9_rdopt.c:4149,4173 commits mi->skip = best_skip2 ||
 	// best_mode_skippable; encode_superblock then leaves mi->skip set and
 	// vp9_encode_sb/tokenize emit no residual for the whole block (the skip bit
@@ -231,8 +231,23 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 	// deep flag so production keeps deriving skip from the residue.
 	if vp9InterUseDeepRDUsePartition && interDecision.skip {
 		e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
-		return interDecision, common.DcPred, false
+		return interDecision, common.DcPred, false, false
 	}
+	if deferFinalInter {
+		return interDecision, common.DcPred, false, true
+	}
+	hasResidue := e.prepareVP9FinalInterBlockResidue(inter, miRows, miCols,
+		miRow, miCol, bsize, mi, interDecision, forcedRef, txMode)
+	return interDecision, common.DcPred, hasResidue, false
+}
+
+func (e *VP9Encoder) prepareVP9FinalInterBlockResidue(inter *vp9InterEncodeState,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	mi *vp9dec.NeighborMi, interDecision vp9InterModeDecision, forcedRef bool,
+	txMode common.TxMode,
+) bool {
+	hasResidue := false
+	segID := vp9EncoderMiSegmentID(mi)
 	// libvpx encode_block (vp9/encoder/vp9_encodemb.c:580) forces the Y-plane
 	// transform unit's eob to 0 when the full-RD mode search marked it in
 	// x->zcoeff_blk[tx_size][block] (rd1 > rd2: coding the residual costs more
@@ -246,6 +261,10 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			miRow, miCol, bsize, mi.TxSize, uint8(segID))
 	}
 	sc := e.vp9BlockCoeffScratch()
+	producerTxStable := txMode == common.TxModeSelect ||
+		mi.TxSize == min(common.TxModeToBiggestTxSize[txMode], common.MaxTxsizeLookup[bsize])
+	stageTokens := e.canStageVP9ProducerTokens(inter, bsize, forcedRef) &&
+		producerTxStable && e.beginVP9ProducerTokens(miRow, miCol, bsize, mi.TxSize)
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
@@ -264,6 +283,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			dequant = inter.dq.Uv[segID]
 		}
 		if txSize >= common.TxSizes {
+			stageTokens = false
 			continue
 		}
 		step := 1 << uint(txSize)
@@ -271,6 +291,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if maxEob > vp9EncoderTxCoeffSlots ||
 			dequant[0] == 0 || dequant[1] == 0 ||
 			(inter.lossless && txSize != common.Tx4x4) {
+			stageTokens = false
 			continue
 		}
 		fpTables := e.vp9QuantFPTablesForPlaneSegment(plane, segID, dequant)
@@ -284,6 +305,13 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 					sc.blockEOBs[plane][blockIdx4x4] = 0
 				}
+				coeffBase, compactMaxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
+					rr, cc, txSize)
+				if !coeffOK || compactMaxEob != maxEob {
+					stageTokens = false
+					continue
+				}
+				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 				// libvpx zcoeff_blk zero-forcing is luma-only (plane == 0,
 				// vp9_encodemb.c:580). A forced block keeps eob 0 (no tokens)
 				// and leaves the predictor in recon (no inverse-add), so skip
@@ -291,33 +319,48 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				if plane == 0 && zcoeff.valid {
 					if idx := blockIdx4x4; idx >= 0 &&
 						idx < len(zcoeff.flags) && zcoeff.flags[idx] {
+						if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
+							dequant, scanOrder, qcoeffs, 0, inter.counts) {
+							e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+							stageTokens = false
+						}
 						continue
 					}
 				}
 				if e.vp9InterSkipTxfmACDCLuma(inter, interDecision,
 					plane, segID) {
-					continue
-				}
-				coeffBase, compactMaxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
-					rr, cc, txSize)
-				if !coeffOK || compactMaxEob != maxEob {
+					if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
+						dequant, scanOrder, qcoeffs, 0, inter.counts) {
+						e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+						stageTokens = false
+					}
 					continue
 				}
 				coeffs := e.coefScratch[:maxEob]
-				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
-				if ok, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,
+				txHasResidue, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,
 					txSize, miRow, miCol, rr, cc, maxEob, scanOrder, dequant,
-					fpTables, coeffs, qcoeffs); ok {
-					if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
-						sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
-					}
+					fpTables, coeffs, qcoeffs)
+				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
+					sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
+				}
+				if txHasResidue {
 					hasResidue = true
+				}
+				if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
+					dequant, scanOrder, qcoeffs, eob, inter.counts) {
+					e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+					stageTokens = false
 				}
 			}
 		}
 	}
+	if stageTokens {
+		e.finishVP9ProducerTokens(hasResidue)
+	} else {
+		e.abortVP9ProducerTokens()
+	}
 	e.vp9AccumulateBlockFilterDiff(inter, interDecision.score, false)
-	return interDecision, common.DcPred, hasResidue
+	return hasResidue
 }
 
 func (e *VP9Encoder) vp9InterSkipTxfmACDCLuma(inter *vp9InterEncodeState,

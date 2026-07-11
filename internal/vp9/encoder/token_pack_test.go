@@ -92,6 +92,44 @@ func TestStageCoefBlockPackMatchesDirectWriter(t *testing.T) {
 	}
 }
 
+func TestCoefEOBTokenMatchesStagedAllZeroBlock(t *testing.T) {
+	stats := FrameCoefBranchStats{}
+	for tx := common.Tx4x4; tx < common.TxSizes; tx++ {
+		for planeType := range vp9dec.CoefPlaneTypes {
+			for initCtx := range vp9dec.CoefContexts {
+				directStats := FrameCoefBranchStats{}
+				countedStats := FrameCoefBranchStats{}
+				got, ok := CoefEOBToken(tx, planeType, 1, initCtx)
+				if !ok {
+					t.Fatalf("CoefEOBToken(%d,%d,%d) returned !ok", tx, planeType, initCtx)
+				}
+				staged := make([]TokenExtra, vp9dec.MaxEobForTxSize(tx))
+				n, eob, ok := StageCoefBlock(staged, WriteCoefBlockArgs{
+					TxSize: tx, PlaneType: planeType, IsInter: 1,
+					Scan:            common.DefaultScanOrders[tx].Scan,
+					Neighbors:       common.DefaultScanOrders[tx].Neighbors,
+					QCoeffs:         make([]int16, vp9dec.MaxEobForTxSize(tx)),
+					CoefBranchStats: &directStats,
+					InitCtx:         initCtx, KnownEOB: 0, KnownEOBValid: true,
+				})
+				if !ok || n != 1 || eob != 0 || staged[0] != got {
+					t.Fatalf("staged EOB = (%+v,%d,%d,%v), want (%+v,1,0,true)", staged[0], n, eob, ok, got)
+				}
+				if !CountCoefEOBTokens([]TokenExtra{got}, &countedStats) {
+					t.Fatal("CountCoefEOBTokens returned false")
+				}
+				if countedStats != directStats {
+					t.Fatalf("counted stats differ for tx=%d plane=%d ctx=%d",
+						tx, planeType, initCtx)
+				}
+				if !CountCoefEOBTokens([]TokenExtra{got}, &stats) {
+					t.Fatal("CountCoefEOBTokens cumulative call returned false")
+				}
+			}
+		}
+	}
+}
+
 func TestWriteCoefSbStagedPathsMatchDirectWriter(t *testing.T) {
 	direct, directStats, directPlanes := writeCoefSbTokenPathForTest(t, 0)
 	immediate, immediateStats, immediatePlanes := writeCoefSbTokenPathForTest(t, 1)

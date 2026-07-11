@@ -728,6 +728,7 @@ type VP9Encoder struct {
 type vp9EncoderBlockCoeffScratch struct {
 	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockEOBSlots]int16
+	producerTok  vp9ProducerTokenState
 
 	// hdrScratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's
@@ -747,6 +748,24 @@ type vp9EncoderBlockCoeffScratch struct {
 	// tx_size <= TX_16X16 for nonrd_pickmode (vp9_pickmode.c:2361) so
 	// the TX_8X8 / TX_4X4 paths fit within this allocation too.
 	blockYrd [16384]int16
+}
+
+type vp9ProducerTokenState struct {
+	pending [vp9EncoderPendingEOBSlots]encoder.TokenExtra
+	used    int
+	active  bool
+	ready   bool
+	started bool
+
+	miRow  int
+	miCol  int
+	bsize  common.BlockSize
+	txSize common.TxSize
+
+	above    [vp9dec.MaxMbPlane][16]uint8
+	left     [vp9dec.MaxMbPlane][16]uint8
+	aboveLen [vp9dec.MaxMbPlane]int
+	leftLen  [vp9dec.MaxMbPlane]int
 }
 
 // vp9BlockCoeffScratch returns the encoder's coefficient staging scratch,

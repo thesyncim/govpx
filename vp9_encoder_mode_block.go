@@ -407,14 +407,23 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				if e.vp9SBEntropyValid {
 					var chosenUvMode common.PredictionMode
 					var residue bool
+					var finalInterPending bool
+					deferFinalInter := e.canStageVP9ProducerTokens(inter,
+						reconBsize, forcedRef)
 					e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
-						interDecision, chosenUvMode, residue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-							miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+						interDecision, chosenUvMode, residue, finalInterPending = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+							miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef,
+							txMode, deferFinalInter)
 					})
+					if finalInterPending {
+						residue = e.prepareVP9FinalInterBlockResidue(inter, miRows, miCols,
+							miRow, miCol, reconBsize, &cur, interDecision, forcedRef, txMode)
+					}
 					uvMode, hasResidue = chosenUvMode, residue
 				} else {
-					interDecision, uvMode, hasResidue = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-						miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef)
+					interDecision, uvMode, hasResidue, _ = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+						miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef,
+						txMode, false)
 				}
 				interDecisionValid = true
 			}
@@ -590,6 +599,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		if kind == vp9ModeTreeInterSource && inter != nil {
 			aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
 			if cur.Skip != 0 {
+				e.abortVP9ProducerTokens()
 				vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
 				e.finishVP9CoefTokenLeaf()
 				e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
@@ -621,7 +631,11 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				TokenCache:      &e.coefTokenCache,
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
-			if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
+			producerTokens := collectTokens &&
+				e.consumeVP9ProducerTokens(miRow, miCol, reconBsize, cur.TxSize)
+			if producerTokens {
+				// Coefficient production already committed tokens and contexts.
+			} else if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
 				// Entropy contexts were committed directly from staged
 				// TOKENEXTRA records, matching the bytes just packed.
 			} else if err := encoder.WriteCoefSbFromArgs(bw, &coefArgs); err != nil && collectTokens {

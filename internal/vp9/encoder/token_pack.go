@@ -28,6 +28,47 @@ func coefProbsBaseOff(tx common.TxSize, planeType, isInter int) int {
 		isInter) * vp9dec.CoefBands * vp9dec.CoefContexts * UnconstrainedNodes
 }
 
+// CoefEOBToken returns the sole token for an all-zero transform block.
+func CoefEOBToken(tx common.TxSize, planeType, isInter, initCtx int) (TokenExtra, bool) {
+	if tx >= common.TxSizes || planeType < 0 || planeType >= vp9dec.CoefPlaneTypes ||
+		isInter < 0 || isInter >= vp9dec.CoefRefTypes ||
+		initCtx < 0 || initCtx >= vp9dec.CoefContexts {
+		return TokenExtra{}, false
+	}
+	return TokenExtra{
+		Token:   EobToken,
+		ProbOff: uint16(coefProbsBaseOff(tx, planeType, isInter) + initCtx*UnconstrainedNodes),
+	}, true
+}
+
+// CountCoefEOBTokens commits branch counts for validated all-zero blocks.
+func CountCoefEOBTokens(tokens []TokenExtra, stats *FrameCoefBranchStats) bool {
+	if stats == nil {
+		return false
+	}
+	for _, tok := range tokens {
+		probOff := int(tok.ProbOff)
+		if tok.Token != EobToken || probOff%UnconstrainedNodes != 0 ||
+			probOff < 0 || probOff >= coefProbsFlatLen {
+			return false
+		}
+		row := probOff / UnconstrainedNodes
+		ctx := row % vp9dec.CoefContexts
+		row /= vp9dec.CoefContexts
+		band := row % vp9dec.CoefBands
+		row /= vp9dec.CoefBands
+		ref := row % vp9dec.CoefRefTypes
+		row /= vp9dec.CoefRefTypes
+		plane := row % vp9dec.CoefPlaneTypes
+		row /= vp9dec.CoefPlaneTypes
+		if row < 0 || row >= int(common.TxSizes) {
+			return false
+		}
+		recordCoefBranch00(&stats[row][plane][ref][band][ctx])
+	}
+	return true
+}
+
 // StageCoefBlock mirrors libvpx tokenize_b. It records coefficient tokens and
 // branch counts without writing them, so a later pack pass can replay the same
 // coefficient syntax after compressed-header probability updates.

@@ -157,6 +157,16 @@ func (b *TokenFrameBuffer) AppendToken(tok TokenExtra) bool {
 	return true
 }
 
+// AppendTokens appends a complete token prefix without partial publication.
+func (b *TokenFrameBuffer) AppendTokens(tokens []TokenExtra) bool {
+	if b == nil || b.Used < 0 || len(tokens) > len(b.Tokens)-b.Used {
+		return false
+	}
+	copy(b.Tokens[b.Used:], tokens)
+	b.Used += len(tokens)
+	return true
+}
+
 func (b *TokenFrameBuffer) AppendLeafMode(mode uint8) bool {
 	if b == nil || b.LeafUsed < 0 || b.LeafUsed >= len(b.LeafModes) {
 		return false

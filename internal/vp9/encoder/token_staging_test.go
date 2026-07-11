@@ -2,6 +2,23 @@ package encoder
 
 import "testing"
 
+func TestTokenFrameBufferAppendTokensIsTransactional(t *testing.T) {
+	buf := TokenFrameBuffer{Tokens: make([]TokenExtra, 3)}
+	want := []TokenExtra{{Token: OneToken}, {Token: EobToken}}
+	if !buf.AppendTokens(want) || buf.Used != 2 {
+		t.Fatalf("AppendTokens fitting state = used:%d", buf.Used)
+	}
+	before := append([]TokenExtra(nil), buf.Tokens...)
+	if buf.AppendTokens(want) || buf.Used != 2 {
+		t.Fatalf("AppendTokens overflow changed state = used:%d", buf.Used)
+	}
+	for i := range before {
+		if buf.Tokens[i] != before[i] {
+			t.Fatalf("AppendTokens overflow changed token %d", i)
+		}
+	}
+}
+
 func TestTokenAllocForMIMatchesLibvpxFormula(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -759,8 +759,8 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   trace, conformance, strict byte-parity, focused changed-path race, refreshed
   PGO, 1T/4T, and 2000-frame ML gates pass. The broad root race run remains red
   on pre-existing frame-parallel token-buffer, decision-cache, and last-source
-  sharing, with no report in this sidecar path. Producer-time transactional
-  token staging remains open. A producer-adjacent relocation probe kept exact
+  sharing, with no report in this sidecar path. Full-leaf producer-time token
+  fusion remains open. A producer-adjacent relocation probe kept exact
   4,981,549-byte output but failed the wall gate: the 4T median moved from
   3.977 to 3.995 ms/frame, while stable 8T row-MT candidates were 3.605 and
   3.623 ms/frame versus 3.601-3.606 controls, with one 4.081 ms/frame outlier.
@@ -776,7 +776,24 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   the three-pair median regressed from 3.571 to 3.643 ms/frame (about 2.0%).
   The probe was reverted. The next A6 slice must produce token classes inside
   the final quantizer scan itself; another post-quantization transaction is not
-  a structural deletion. A
+  a structural deletion. A narrower zero-prefix transaction then removed the
+  losing full-leaf copy: all-zero transforms stay as at most 384 private EOB
+  descriptors, and the first nonzero transform irrevocably publishes that
+  prefix before staging the current and remaining blocks directly into the
+  frame arena. All-zero leaves discard the prefix without touching frame tokens
+  or coefficient counts. Eligible work remains limited to preserved normal
+  inter count passes with stable post-encode transform size; denoiser, SVC,
+  forced-reference, dynamic segment-map, sub-8x8, and transform-changing leaves
+  keep the established writer. Five interleaved post-PGO 480-frame 4T
+  no-denoise pairs stayed exact at 4,981,549 bytes and 468/12 topology while
+  moving median wall time from 3.572 to 3.530 ms/frame (about 1.2%). After a
+  refreshed profile, an immediate connected trio was 3.508 / 3.511 / 3.521
+  ms/frame, but later loaded spots were noisy up to 3.61 ms/frame. A final
+  profile-independent five-pair adjudication moved the no-PGO median from
+  3.615 to 3.561 ms/frame (about 1.5%), with every run retaining the same bytes
+  and topology. Full normal/pure-Go suites, focused race and determinism, the
+  pinned benchmark frontier, strict byte parity, and PGO checks pass. Full
+  token-class production inside quantization remains open. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
