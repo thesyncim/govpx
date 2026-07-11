@@ -1049,7 +1049,14 @@ agent report "VP8 encode recon redesign"; key verified facts:
   won, two lost, and the three-run median moved from 7.363 to 7.408 ms/frame,
   with exact 5,066,778-byte output and 478/2 topology throughout. The probe was
   removed; future B7 vertical fusion must operate directly on the frame rather
-  than round-trip the full macroblock through a transposed scratch tile.
+  than round-trip the full macroblock through a transposed scratch tile. A
+  follow-up direct-frame probe compiled a whole-TU three-edge wrapper from the
+  pinned libvpx NEON source, producing a 410-instruction inlined body that
+  hoisted threshold splats and stride setup while preserving sequential edge
+  dependencies. Grouped/separate parity passed, but same-state hot-buffer
+  medians regressed from 42.81 to 43.11 ns/op (about 0.7%). The generated
+  kernel was removed; B7 needs to reduce the repeated 16x8 load/transpose/store
+  work itself rather than only inline the three existing kernels.
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:
