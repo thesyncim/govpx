@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -163,15 +164,11 @@ type vp9TileWorkerPool struct {
 // tracks the latest column index encoded for each SB row inside a tile column
 // and exposes Read / Write primitives matching vp9_row_mt_sync_read /
 // vp9_row_mt_sync_write. SyncRange (libvpx's sync_range) caps how far ahead a
-// row can advance before signalling, which lets future per-row workers stay
-// within the configured wavefront slack. The govpx tile-column body still runs
-// on a single goroutine so the Read calls never block; the primitive remains
-// fully exercised so byte-identical output is preserved and the wavefront
-// foundation is in place for actual per-row parallelism.
+// row can advance before publishing progress. Row jobs are active together for
+// a short count-pass batch, so progress uses atomic handoff rather than parking
+// and waking an OS thread for every SB.
 type vp9RowMTSync struct {
-	mu        []sync.Mutex
-	cond      []*sync.Cond
-	curCol    []int32
+	curCol    []atomic.Int32
 	rows      int
 	syncRange int
 }
@@ -186,25 +183,13 @@ func (s *vp9RowMTSync) reset(rows int) {
 	if s == nil || rows <= 0 {
 		return
 	}
-	if cap(s.mu) < rows {
-		s.mu = make([]sync.Mutex, rows)
-		s.cond = make([]*sync.Cond, rows)
-		s.curCol = make([]int32, rows)
-		for r := range s.cond {
-			s.cond[r] = sync.NewCond(&s.mu[r])
-		}
+	if cap(s.curCol) < rows {
+		s.curCol = make([]atomic.Int32, rows)
 	} else {
-		s.mu = s.mu[:rows]
-		s.cond = s.cond[:rows]
 		s.curCol = s.curCol[:rows]
-		for r := range s.cond {
-			if s.cond[r] == nil {
-				s.cond[r] = sync.NewCond(&s.mu[r])
-			}
-		}
 	}
 	for r := range s.curCol {
-		s.curCol[r] = -1
+		s.curCol[r].Store(-1)
 	}
 	s.rows = rows
 	if s.syncRange == 0 {
@@ -216,16 +201,13 @@ func (s *vp9RowMTSync) release() {
 	if s == nil {
 		return
 	}
-	s.mu = s.mu[:0]
-	s.cond = s.cond[:0]
 	s.curCol = s.curCol[:0]
 	s.rows = 0
 }
 
 // read mirrors vp9_row_mt_sync_read. It blocks until the row above has reached
 // column position c - syncRange + 1, ensuring the above and above-right SBs
-// are encoded before the caller proceeds. The implementation matches libvpx's
-// pthread_mutex / pthread_cond_wait shape exactly.
+// are encoded before the caller proceeds.
 func (s *vp9RowMTSync) read(r, c int) {
 	if s == nil || r <= 0 || r >= s.rows {
 		return
@@ -235,12 +217,13 @@ func (s *vp9RowMTSync) read(r, c int) {
 		return
 	}
 	target := int32(c - nsync + 1)
-	mu := &s.mu[r-1]
-	mu.Lock()
-	for s.curCol[r-1] < target {
-		s.cond[r-1].Wait()
+	for spins := 0; s.curCol[r-1].Load() < target; spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff &&
+			spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
 	}
-	mu.Unlock()
 }
 
 // write mirrors vp9_row_mt_sync_write. It records the row's current column
@@ -267,11 +250,7 @@ func (s *vp9RowMTSync) write(r, c, cols int) {
 	if !sig {
 		return
 	}
-	mu := &s.mu[r]
-	mu.Lock()
-	s.curCol[r] = cur
-	mu.Unlock()
-	s.cond[r].Signal()
+	s.curCol[r].Store(cur)
 }
 
 // ensureRowMTSync arms one vp9RowMTSync per tile column sized to sbRows when

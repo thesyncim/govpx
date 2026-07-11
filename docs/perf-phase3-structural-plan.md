@@ -24,7 +24,8 @@ row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
 temporal-denoiser variance-threshold and committed count-state replay safe
 point, plus the A4 normal packed-leaf fallback-cache store deletion, first
 production C1 count-pass row-dispatch safe point, and transactional denoiser
-row-dispatch extension plus the VP9 row-helper blocking-idle safe point, landed on
+row-dispatch extension plus the VP9 row-helper blocking-idle and atomic
+wavefront safe points, landed on
 2026-07-02/03/10/11; the larger A/B and remaining encoder-MT structural
 programs remain pending. This is the execution brief
 for implementation agents.
@@ -964,6 +965,22 @@ Against the published no-PGO `9a090068` control, three interleaved 480-frame
 (about 10.7%). All six runs retained 4,981,549 bytes and 468/12 topology; a
 length-delimited packet hash matched exactly at
 `2adae6a6b4eb95833492055dc23a75b76d8fc30fc34f3c75c0ef8caa34de6b54`.
+
+Measurement note, 2026-07-11 (atomic row wavefront): the active row batch still
+used a `sync.Mutex`/`sync.Cond` handoff for nearly every SB progress update,
+which dominated the post-C1 CPU profile with pthread wait/signal and scheduler
+work. `VP9RowMTSync.curCol` is now an atomic row-progress array: the dependent
+row uses a short `runtime_procyield` loop while the row above is active, and the
+producer publishes progress with one atomic store. Helpers continue to block
+between frame count passes, so the previous idle-policy win is preserved.
+
+Against `4e3f1ea0`, three interleaved no-PGO 480-frame default-denoiser runs
+moved median wall time from 3.57 to 3.50 ms/frame (about 2.0%) and median count
+time from 2.58 to 2.50 ms/frame (about 3.1%). The no-denoise lane moved from
+3.69 to 3.63 ms/frame (about 1.6%) with count moving from 2.74 to
+2.68 ms/frame (about 2.2%). Tile-write and loop-filter phases stayed flat,
+outputs remained exact, the active-denoiser/no-denoiser thread tests remained
+byte-identical, and the focused race gate passed.
 Phase counters report 1,868 count epochs and 22,416 row jobs. The full motion
 search, block-shape, predictor, and tile-walk ledger also matches the baseline,
 the `{2,4,8}` production thread test is byte-identical, and steady-state row

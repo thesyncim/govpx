@@ -681,14 +681,12 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 		t.Fatal("expected row-MT sync arrays after warm-up")
 	}
 	type snapshot struct {
-		muCap     int
-		condCap   int
 		curColCap int
 		rows      int
 	}
 	before := make([]snapshot, len(e.vp9TilePool.rowMTSyncs))
 	for i, s := range e.vp9TilePool.rowMTSyncs {
-		before[i] = snapshot{cap(s.mu), cap(s.cond), cap(s.curCol), s.rows}
+		before[i] = snapshot{cap(s.curCol), s.rows}
 	}
 	// Steady-state encodes must not grow any per-tile sync capacity.
 	for frame := 1; frame < 6; frame++ {
@@ -697,15 +695,11 @@ func TestVP9RowMTSteadyStateAllocations(t *testing.T) {
 			t.Fatalf("steady-state EncodeInto[%d]: %v", frame, err)
 		}
 		for i, s := range e.vp9TilePool.rowMTSyncs {
-			if cap(s.mu) != before[i].muCap ||
-				cap(s.cond) != before[i].condCap ||
-				cap(s.curCol) != before[i].curColCap ||
+			if cap(s.curCol) != before[i].curColCap ||
 				s.rows != before[i].rows {
 				t.Fatalf("frame %d rowMTSyncs[%d] capacity drifted: "+
-					"mu %d→%d, cond %d→%d, curCol %d→%d, rows %d→%d",
+					"curCol %d→%d, rows %d→%d",
 					frame, i,
-					before[i].muCap, cap(s.mu),
-					before[i].condCap, cap(s.cond),
 					before[i].curColCap, cap(s.curCol),
 					before[i].rows, s.rows)
 			}
@@ -725,8 +719,8 @@ func TestVP9RowMTSyncWaitWavefrontProgress(t *testing.T) {
 		t.Fatalf("reset syncRange = %d, want %d", s.syncRange, vp9RowMTSyncDefaultRange)
 	}
 	for r := range rows {
-		if s.curCol[r] != -1 {
-			t.Fatalf("reset curCol[%d] = %d, want -1", r, s.curCol[r])
+		if got := s.curCol[r].Load(); got != -1 {
+			t.Fatalf("reset curCol[%d] = %d, want -1", r, got)
 		}
 	}
 	var wg sync.WaitGroup
@@ -759,8 +753,8 @@ func TestVP9RowMTSyncWaitWavefrontProgress(t *testing.T) {
 	}
 	// release drops the per-row arrays.
 	s.release()
-	if s.rows != 0 || len(s.mu) != 0 || len(s.cond) != 0 || len(s.curCol) != 0 {
-		t.Fatalf("release left state: rows=%d mu=%d cond=%d curCol=%d",
-			s.rows, len(s.mu), len(s.cond), len(s.curCol))
+	if s.rows != 0 || len(s.curCol) != 0 {
+		t.Fatalf("release left state: rows=%d curCol=%d",
+			s.rows, len(s.curCol))
 	}
 }
