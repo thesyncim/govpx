@@ -804,7 +804,13 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   `stageVP9ProducerBlock`, but five no-PGO 480-frame pairs were exact and
   neutral-to-worse (3.566 baseline versus 3.569 ms/frame candidate medians).
   The hoist was reverted; the sampled row needs deeper token-production work,
-  not another leaf-constant pointer reshuffle. A
+  not another leaf-constant pointer reshuffle. Rewriting the hot full-window
+  qcoeff tokenizer to walk only `[0,eob)` and append EOB afterward likewise
+  kept direct/staged parity and exact 4,981,549-byte connected output, but
+  focused sparse/dense tx16 samples overlapped the existing loop and three
+  no-PGO 480-frame pairs were neutral (3.552 versus 3.553 ms/frame medians).
+  That loop rewrite was reverted as well; the per-token EOB comparison is not
+  the remaining A6 cost. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
