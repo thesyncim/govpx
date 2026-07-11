@@ -999,6 +999,22 @@ agent report "VP8 encode recon redesign"; key verified facts:
   the 8.0 to 9.6 ms/frame band makes that result directional only. Count this
   only as setup glue: the per-MB `thismb` staging/filter shape and FDCT-cache
   opportunity remain open.
+- B5 now also has compact whole-MV denoiser predictor staging as of 2026-07-11.
+  Prepared whole-MV reconstruction writes directly into encoder-owned
+  16x16 Y and 8x8 U/V arrays, which row-worker encoder copies own independently,
+  instead of touching the macroblock region of the full-frame `mcRunning`
+  buffer. Split-MV and validation failures retain the frame-backed fallback.
+  A focused decoder test pins compact destinations against canonical
+  frame-backed output for zero-MV, subpel, bilinear, and full-pixel predictors.
+  The tagged 120-frame phase spot was wall/phase-neutral with exact 1,328,027
+  bytes and 118/2 topology. Five explicitly no-PGO 480-frame serial pairs kept
+  exact 5,066,778-byte output, 478/2 topology, and 0 allocs/frame; the candidate
+  won four pairs and moved the median from 7.108 to 7.041 ms/frame (about 0.9%).
+  Three 4T pairs kept exact 5,111,925-byte output and 456/24 topology, with two
+  wins and a 3.854 to 3.844 ms/frame median. After PGO refresh, three serial
+  pairs stayed exact and were wall-neutral (7.006 baseline versus 7.002
+  ms/frame candidate median, with two pairwise wins). Full compact Split-MV
+  staging and the disconnected FDCT winner cache remain open.
 - B7 has a direct ARM64 vertical-fusion safe point as of 2026-07-11. The grouped
   luma kernel processes two 8-row halves, loading each 16-pixel row once and
   transposing it into eight paired column vectors (columns 0-7 in low lanes,
@@ -1126,7 +1142,8 @@ remains); B5 per-MB denoiser staging (thismb shape)
 return probe is closed for realtime cpu8 until an RD-cache-producing fast path
 exists; PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped
 on the normal denoise path; PARTIAL 2026-07-11: persistent running-average
-buffers reuse prepared predictor metadata); B6 glue (PARTIAL 2026-07-03:
+buffers reuse prepared predictor metadata and whole-MV predictors use compact
+per-worker staging); B6 glue (PARTIAL 2026-07-03:
 final-mode copy elision landed; remaining glue still −0.05). Then B7: PARTIAL
 2026-07-11, direct ARM64 inner-horizontal and inner-vertical fusion landed;
 remaining lf-pick wall-stall investigation covers non-ARM64 kernels and buffer

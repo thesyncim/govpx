@@ -37,6 +37,9 @@ type denoiserState struct {
 	refStates  [4]vp8dec.InterFrameRefState
 	mcRunning  vp8common.FrameBuffer
 	source     vp8common.FrameBuffer
+	mcY        [16 * 16]byte
+	mcU        [8 * 8]byte
+	mcV        [8 * 8]byte
 
 	state []uint8
 }
@@ -230,9 +233,28 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	var decMode vp8dec.MacroblockMode
 	vp8enc.ConvertInterFrameMode(&mcMode, &decMode)
 	var zeroTokens vp8dec.MacroblockTokens
-	if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
-		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
-		return
+	mcY := e.denoiser.mcY[:]
+	mcU := e.denoiser.mcU[:]
+	mcV := e.denoiser.mcV[:]
+	mcYStride, mcUStride, mcVStride := 16, 8, 8
+	if !vp8dec.ReconstructWholeMVInterMacroblockWithState(
+		&e.denoiser.refStates[avgIndex], &decMode, &zeroTokens, &e.dequants[0],
+		mcY, mcYStride, mcU, mcUStride, mcV, mcVStride,
+		&e.reconstructScratch.Residual, row, col,
+	) {
+		if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
+			e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
+			return
+		}
+		yMcOff := row*16*e.denoiser.mcRunning.Img.YStride + col*16
+		uMcOff := row*8*e.denoiser.mcRunning.Img.UStride + col*8
+		vMcOff := row*8*e.denoiser.mcRunning.Img.VStride + col*8
+		mcY = e.denoiser.mcRunning.Img.Y[yMcOff:]
+		mcU = e.denoiser.mcRunning.Img.U[uMcOff:]
+		mcV = e.denoiser.mcRunning.Img.V[vMcOff:]
+		mcYStride = e.denoiser.mcRunning.Img.YStride
+		mcUStride = e.denoiser.mcRunning.Img.UStride
+		mcVStride = e.denoiser.mcRunning.Img.VStride
 	}
 
 	avg := &e.denoiser.runningAvg[denoiserAvgIntra]
@@ -242,9 +264,6 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	ySigOff := row*16*filtered.YStride + col*16
 	uSigOff := row*8*filtered.UStride + col*8
 	vSigOff := row*8*filtered.VStride + col*8
-	yMcOff := row*16*e.denoiser.mcRunning.Img.YStride + col*16
-	uMcOff := row*8*e.denoiser.mcRunning.Img.UStride + col*8
-	vMcOff := row*8*e.denoiser.mcRunning.Img.VStride + col*8
 	yAvgOff := row*16*avg.Img.YStride + col*16
 	uAvgOff := row*8*avg.Img.UStride + col*8
 	vAvgOff := row*8*avg.Img.VStride + col*8
@@ -253,7 +272,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	filteredSourceV := sourceImagePlaneMatches(source.V, source.VStride, filtered.V, filtered.VStride)
 
 	filterDecision := vp8enc.DenoiserFilterY(
-		e.denoiser.mcRunning.Img.Y[yMcOff:], e.denoiser.mcRunning.Img.YStride,
+		mcY, mcYStride,
 		avg.Img.Y[yAvgOff:], avg.Img.YStride,
 		filtered.Y[ySigOff:], filtered.YStride,
 		motionMag, increase,
@@ -283,7 +302,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	}
 	if motionMag == 0 && filterDecision == vp8enc.DenoiserFilterBlock {
 		if vp8enc.DenoiserFilterUV(
-			e.denoiser.mcRunning.Img.U[uMcOff:], e.denoiser.mcRunning.Img.UStride,
+			mcU, mcUStride,
 			avg.Img.U[uAvgOff:], avg.Img.UStride,
 			filtered.U[uSigOff:], filtered.UStride,
 			motionMag, false,
@@ -294,7 +313,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 			}
 		}
 		if vp8enc.DenoiserFilterUV(
-			e.denoiser.mcRunning.Img.V[vMcOff:], e.denoiser.mcRunning.Img.VStride,
+			mcV, mcVStride,
 			avg.Img.V[vAvgOff:], avg.Img.VStride,
 			filtered.V[vSigOff:], filtered.VStride,
 			motionMag, false,

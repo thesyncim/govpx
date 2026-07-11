@@ -152,6 +152,27 @@ func TestReconstructWholeMVInterMacroblockPreparedMatchesPerMB(t *testing.T) {
 			assertPlaneEqual(t, "Y", got.Y, want.Y)
 			assertPlaneEqual(t, "U", got.U, want.U)
 			assertPlaneEqual(t, "V", got.V, want.V)
+
+			var compactY [16 * 16]byte
+			var compactU, compactV [8 * 8]byte
+			var compactScratch IntraReconstructionScratch
+			if !ReconstructWholeMVInterMacroblockWithState(&prepared, mode, &tokens, &dequants[0],
+				compactY[:], 16, compactU[:], 8, compactV[:], 8,
+				&compactScratch.Residual, row, col) {
+				t.Fatalf("compact prepared reconstruction failed for config %+v mode %+v", cfg, mode)
+			}
+			assertMacroblockPlaneEqual(t, "compact Y", compactY[:], 16, want.Y[yOff:], want.YStride, 16, 16)
+			assertMacroblockPlaneEqual(t, "compact U", compactU[:], 8, want.U[uOff:], want.UStride, 8, 8)
+			assertMacroblockPlaneEqual(t, "compact V", compactV[:], 8, want.V[vOff:], want.VStride, 8, 8)
+		}
+	}
+}
+
+func assertMacroblockPlaneEqual(t *testing.T, name string, got []byte, gotStride int, want []byte, wantStride int, width int, height int) {
+	t.Helper()
+	for row := range height {
+		if !bytes.Equal(got[row*gotStride:row*gotStride+width], want[row*wantStride:row*wantStride+width]) {
+			t.Fatalf("%s row %d mismatch", name, row)
 		}
 	}
 }
