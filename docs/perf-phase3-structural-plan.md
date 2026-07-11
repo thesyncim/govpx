@@ -1056,7 +1056,11 @@ agent report "VP8 encode recon redesign"; key verified facts:
   dependencies. Grouped/separate parity passed, but same-state hot-buffer
   medians regressed from 42.81 to 43.11 ns/op (about 0.7%). The generated
   kernel was removed; B7 needs to reduce the repeated 16x8 load/transpose/store
-  work itself rather than only inline the three existing kernels.
+  work itself rather than only inline the three existing kernels. Reusing the
+  existing UV-pair vertical kernel with luma rows 0-7 and 8-15 treated as its
+  two planes also preserved grouped/separate parity, but its dual-plane
+  load/store schedule regressed the grouped median to 53.75 ns/op (about 25%
+  slower than the current V16 path), so that dispatch was removed too.
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:
