@@ -313,6 +313,13 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   The odd-MI fallback separately passes full normal/pure-Go, focused race,
   strict byte-parity, refreshed-PGO, and the complete fixture quality/decode
   gate before those inherited later failures.
+  A later mixed-path probe kept pure packing for the interior and routed only
+  sub-8x8 leaves through the full writer. A 66-frame single-thread checker
+  passed, but the complete panning fixture became undecodable at frame 107;
+  retaining sub-8 decisions in the shared fallback cache also made the
+  threaded checker undecodable at frame 25. Both variants were reverted.
+  The remaining sub-8 work needs a complete byte-safe mode/MV/reconstruction
+  sidecar, not a local full-writer splice.
 - Replay infra (a 120-byte decision in each full-width leaf-cache entry,
   `canReplay` validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
@@ -565,7 +572,11 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   params, UV scratch-only prediction, direct coefficient-window `WriteCoefSb`
   call shapes, zero-MV luma copy+variance, and qcoeff-value caching inside
   `stageCoefBlockQCoeff` all failed the 120-frame phase spot despite focused
-  parity or microbench wins. A cached subpel-variance function pointer also
+  parity or microbench wins. Reusing scene-detection 64x64 SAD samples in the
+  later per-SB source-SAD cache was also exact but moved the 120-frame median
+  from 10.033 to 10.140 ms/frame and worsened count time, so the apparent
+  profile duplication should not be retried without new evidence. A cached
+  subpel-variance function pointer also
   failed the hot-path rule directly: the focused scorer benchmark regressed to
   1 alloc/op and slower ns/op; hoisting subpel MV-cost `errorPerBit` out of
   the per-MV closure stayed byte/topology-safe but did not improve the 120-frame
