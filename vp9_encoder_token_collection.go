@@ -8,10 +8,11 @@ import (
 )
 
 type vp9TokenCollectState struct {
-	active  bool
-	tileRow int
-	tileCol int
-	err     error
+	active        bool
+	tileRow       int
+	tileCol       int
+	listSBRowBase int
+	err           error
 }
 
 type vp9TokenReplayState struct {
@@ -226,6 +227,7 @@ func (e *VP9Encoder) startVP9CountTokenList(tile vp9dec.TileBounds, miRow int) i
 	if !e.vp9TokenCollect.active || e.vp9TokenCollect.err != nil {
 		return -1
 	}
+	tileSBRow -= e.vp9TokenCollect.listSBRowBase
 	idx, ok := e.vp9TokenFrame.StartTokenList(e.vp9TokenCollect.tileRow,
 		e.vp9TokenCollect.tileCol, tileSBRow)
 	if !ok {

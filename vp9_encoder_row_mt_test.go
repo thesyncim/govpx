@@ -3,13 +3,14 @@ package govpx
 import (
 	"bytes"
 	"errors"
-	"github.com/thesyncim/govpx/internal/testutil/vp9test"
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/thesyncim/govpx/internal/testutil/vp9test"
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 // TestVP9RowMTValidation pins the constructor-time gating on the RowMT option.
@@ -92,9 +93,17 @@ func TestVP9RowMTAcceptsRealtimeAutoThreads(t *testing.T) {
 		t.Fatalf("realtime auto RowMT syncs = %d, want %d",
 			got, e.vp9TilePool.workerCount)
 	}
-	if got := len(e.vp9TilePool.rowWorkerPools); got != e.vp9TilePool.workerCount {
+	sbRows := ((height + 7) >> 3) + common.MiBlockSize - 1
+	sbRows >>= common.MiBlockSizeLog2
+	wantRowThreads := vp9RowMTThreadsPerTile(wantThreads,
+		e.vp9TilePool.workerCount, sbRows)
+	wantPools := 0
+	if wantRowThreads > 1 {
+		wantPools = e.vp9TilePool.workerCount
+	}
+	if got := len(e.vp9TilePool.rowWorkerPools); got != wantPools {
 		t.Fatalf("realtime auto RowMT row worker pools = %d, want %d",
-			got, e.vp9TilePool.workerCount)
+			got, wantPools)
 	}
 }
 
@@ -409,10 +418,9 @@ func TestVP9RowMTAdaptiveRDThreshRowsAllocated(t *testing.T) {
 	}
 }
 
-// TestVP9RowMTBytewiseIdenticalToSerial confirms that arming the wavefront
-// primitive does not perturb bitstream output. Each tile column still encodes
-// on a single goroutine, so the Read/Write hooks must collapse to no-ops and
-// produce byte-identical packets vs. a serial encode on a 64x64 frame.
+// TestVP9RowMTBytewiseIdenticalToSerial confirms that enabling RowMT does not
+// perturb bitstream output when the frame has one SB row and production row
+// dispatch therefore collapses to the serial tile path.
 func TestVP9RowMTBytewiseIdenticalToSerial(t *testing.T) {
 	const width, height = 1280, 64
 	serial, err := NewVP9Encoder(VP9EncoderOptions{
@@ -467,6 +475,91 @@ func TestVP9RowMTBytewiseIdenticalToSerial(t *testing.T) {
 			t.Fatalf("rowMTSyncs[%d].syncRange = %d, want %d",
 				i, s.syncRange, vp9RowMTSyncDefaultRange)
 		}
+	}
+}
+
+func TestVP9RowMTProductionRowsDeterministicAcrossThreads(t *testing.T) {
+	const width, height = 640, 256
+	encode := func(threads int) [][]byte {
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			Threads:             threads,
+			RowMT:               true,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             8,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   900,
+			NoiseSensitivity:    0,
+			MaxKeyframeInterval: 3000,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder threads=%d: %v", threads, err)
+		}
+		defer e.Close()
+		dst := make([]byte, 1<<20)
+		packets := make([][]byte, 8)
+		for frame := range packets {
+			src := vp9test.NewPanningYCbCr(width, height, frame)
+			n, err := e.EncodeInto(src, dst)
+			if err != nil {
+				t.Fatalf("threads=%d frame=%d: %v", threads, frame, err)
+			}
+			packets[frame] = append([]byte(nil), dst[:n]...)
+		}
+		if threads == 8 && (e.vp9TilePool == nil ||
+			e.vp9TilePool.rowMTThreadCount <= 1) {
+			t.Fatal("threads=8 did not execute multi-worker row-MT")
+		}
+		return packets
+	}
+
+	baseline := encode(2)
+	for _, threads := range []int{4, 8} {
+		packets := encode(threads)
+		for frame := range baseline {
+			if !bytes.Equal(baseline[frame], packets[frame]) {
+				t.Fatalf("row-MT packet %d differs at threads=%d: %d/%d bytes",
+					frame, threads, len(packets[frame]), len(baseline[frame]))
+			}
+		}
+	}
+}
+
+func TestVP9RowMTProductionSteadyStateAllocations(t *testing.T) {
+	const width, height = 640, 256
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		Threads:             8,
+		RowMT:               true,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   900,
+		NoiseSensitivity:    0,
+		MaxKeyframeInterval: 3000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	dst := make([]byte, 1<<20)
+	src := vp9test.NewPanningYCbCr(width, height, 1)
+	for range 4 {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			t.Fatalf("warmup EncodeInto: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(5, func() {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			t.Fatalf("EncodeInto: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("row-MT steady-state allocs = %v, want 0", allocs)
 	}
 }
 

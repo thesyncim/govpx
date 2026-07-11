@@ -326,6 +326,8 @@ type EncoderPhaseStats struct {
 	VP9TileWorkerWaitGoscheds  int64 `json:"vp9_tile_worker_wait_goscheds"`
 	VP9TileWorkerCountJobRuns  int64 `json:"vp9_tile_worker_count_job_runs"`
 	VP9TileWorkerEncodeJobRuns int64 `json:"vp9_tile_worker_encode_job_runs"`
+	VP9RowWorkerCountEpochs    int64 `json:"vp9_row_worker_count_epochs"`
+	VP9RowWorkerCountJobs      int64 `json:"vp9_row_worker_count_jobs"`
 }
 
 // Reset clears all accumulated phase counters.

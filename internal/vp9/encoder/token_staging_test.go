@@ -246,3 +246,44 @@ func TestTokenFrameBufferEnsureSteadyStateAlloc(t *testing.T) {
 		t.Fatalf("TokenFrameBuffer.Ensure steady-state allocs = %v, want 0", allocs)
 	}
 }
+
+func TestTokenFrameBufferAppendRowTokenListPreservesStreams(t *testing.T) {
+	var src TokenFrameBuffer
+	src.EnsureForTile(8, 40, 0, 2)
+	idx, ok := src.StartTokenList(0, 2, 0)
+	if !ok {
+		t.Fatal("StartTokenList returned !ok")
+	}
+	for _, token := range []int16{ZeroToken, OneToken, EOSBToken} {
+		if !src.AppendToken(TokenExtra{Token: token}) {
+			t.Fatal("AppendToken returned false")
+		}
+	}
+	if !src.AppendLeafMode(4) || !src.AppendPartition(2) ||
+		!src.FinishTokenList(idx) {
+		t.Fatal("source row staging failed")
+	}
+
+	var dst TokenFrameBuffer
+	dst.EnsureForTile(90, 40, 0, 2)
+	if !dst.AppendRowTokenList(0, 2, 3, &src) {
+		t.Fatal("AppendRowTokenList returned false")
+	}
+	dstIdx, ok := dst.TokenListIndex(0, 2, 3)
+	if !ok {
+		t.Fatal("destination TokenListIndex returned !ok")
+	}
+	tokens, ok := dst.TokensForList(dst.Lists[dstIdx])
+	if !ok || len(tokens) != 3 || tokens[0].Token != ZeroToken ||
+		tokens[2].Token != EOSBToken {
+		t.Fatalf("merged tokens = %+v", tokens)
+	}
+	modes, ok := dst.LeafModesForList(dst.LeafLists[dstIdx])
+	if !ok || len(modes) != 1 || modes[0] != 4 {
+		t.Fatalf("merged leaf modes = %v", modes)
+	}
+	partitions, ok := dst.PartitionsForList(dst.PartitionLists[dstIdx])
+	if !ok || len(partitions) != 1 || partitions[0] != 2 {
+		t.Fatalf("merged partitions = %v", partitions)
+	}
+}

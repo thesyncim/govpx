@@ -22,9 +22,10 @@ entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
 fast-picker final-mode copy-elision safe points, plus the complete VP9 decoder
 row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
 temporal-denoiser variance-threshold and committed count-state replay safe
-point, plus the A4 normal packed-leaf fallback-cache store deletion, landed on
-2026-07-02/03/10/11; the larger A/B and encoder-MT structural programs remain
-pending. This is the execution brief
+point, plus the A4 normal packed-leaf fallback-cache store deletion and first
+production C1 count-pass row-dispatch safe point, landed on
+2026-07-02/03/10/11; the larger A/B and remaining encoder-MT structural
+programs remain pending. This is the execution brief
 for implementation agents.
 Evidence: 2026-07-02/03 design sprint — three verified blueprints (VP9
 single-walk, VP8 MB-walk, MT program) built on first-hand reads of libvpx
@@ -942,6 +943,32 @@ govpx phase counters still showed only 108 tile count epochs and no row-job
 execution: the existing row pools and wavefront are lifecycle-tested scaffold,
 not production dispatch. This pins the C1 starting point and prevents future
 row-MT comparisons from accidentally benchmarking libvpx with `--row-mt=0`.
+
+Measurement note, 2026-07-11 (first production C1 dispatch): eligible normal
+inter count passes now dispatch SB rows through persistent per-tile worker
+pools. Each row owns a token/leaf-mode/partition arena and worker-private
+decision, transform, predictor, coefficient, left-context, and count scratch;
+the barrier merges staged syntax and counts in raster order. Reconstruction,
+mode-info, above contexts, and row-indexed variance-partition/RD state remain
+shared under the `VP9RowMTSync` dependency. The total thread budget is divided
+across tile columns before the SB-row clamp, avoiding the old N-workers-per-tile
+oversubscription shape. Production dispatch is deliberately limited to
+realtime variance-partition inter frames with count-token staging,
+`adaptive_rd_thresh_row_mt`, and no SVC, denoiser, active segment-map chooser,
+or count fallback; tile write remains serial within each tile.
+
+Against the published no-PGO `9a090068` control, three interleaved 480-frame
+720p realtime cpu8 8T no-denoise runs moved median wall time from 4.04 to
+3.86 ms/frame (about 4.5%) and median count time from 3.08 to 2.75 ms/frame
+(about 10.7%). All six runs retained 4,981,549 bytes and 468/12 topology; a
+length-delimited packet hash matched exactly at
+`2adae6a6b4eb95833492055dc23a75b76d8fc30fc34f3c75c0ef8caa34de6b54`.
+Phase counters report 1,868 count epochs and 22,416 row jobs. The full motion
+search, block-shape, predictor, and tile-walk ledger also matches the baseline,
+the `{2,4,8}` production thread test is byte-identical, and steady-state row
+dispatch is zero-allocation. Remaining C1 work is a global multi-tile stealing
+queue and extension beyond the conservative eligibility envelope; C2 still
+owns denoiser row scaling.
 
 C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03. The
 VP9 `NoiseSensitivity>0 → tile workers disabled` gate is removed for the

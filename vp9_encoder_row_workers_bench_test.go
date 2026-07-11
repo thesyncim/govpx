@@ -7,9 +7,7 @@ import (
 
 // BenchmarkVP9EncodeRowMT compares the same VP9 encode with row-MT off
 // vs on at 1280x720 / 1920x1080. The benchmark exists so future
-// row-worker integration changes have a baseline; today the row workers
-// are allocated but not driving the production encode path, so the
-// numbers should match the serial path within scheduler noise. The timed loop
+// row-worker integration changes have a connected realtime baseline. The timed loop
 // refreshes a reusable panning source while the timer is stopped, so the
 // benchmark measures encode work rather than synthetic source-frame generation.
 // Run with
@@ -37,10 +35,17 @@ func BenchmarkVP9EncodeRowMT(b *testing.B) {
 
 func benchmarkVP9EncodeRowMT(b *testing.B, width, height, threads int, rowMT bool) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:   width,
-		Height:  height,
-		Threads: threads,
-		RowMT:   rowMT,
+		Width:               width,
+		Height:              height,
+		Threads:             threads,
+		RowMT:               rowMT,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   2500,
+		NoiseSensitivity:    0,
+		MaxKeyframeInterval: 3000,
 	})
 	if err != nil {
 		b.Fatalf("NewVP9Encoder: %v", err)

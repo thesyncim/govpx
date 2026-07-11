@@ -394,6 +394,15 @@ func (e *VP9Encoder) vp9PhaseIncTileWorkerJob(kind vp9TileWorkerJobKind) {
 	}
 }
 
+func (e *VP9Encoder) vp9PhaseAddRowWorkerCountEpoch(jobs int) {
+	stats := e.vp9PhaseStats()
+	if stats == nil {
+		return
+	}
+	atomic.AddInt64(&stats.VP9RowWorkerCountEpochs, 1)
+	atomic.AddInt64(&stats.VP9RowWorkerCountJobs, int64(jobs))
+}
+
 func (p *vp9TileWorkerPool) setVP9TileWorkerPhaseStats(stats *EncoderPhaseStats) {
 	if p != nil {
 		p.phaseStats = stats

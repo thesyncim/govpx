@@ -51,6 +51,8 @@ type vp9CountTileJob struct {
 	key            vp9KeyframeEncodeState
 	inter          vp9InterEncodeState
 	worker         *VP9Encoder
+	rowWorkerPool  *vp9RowWorkerPool
+	rowMTSync      *vp9RowMTSync
 	// prepSrc, counts, tokenFrame and the geometry fields below let the job
 	// body run the per-worker frame preparation (the multi-megabyte
 	// *worker = *src state copy, counts zeroing and token-frame arming) on
@@ -305,11 +307,11 @@ func (p *vp9TileWorkerPool) releaseRowMTSync() {
 // when RowMT is enabled. Pools are reused across frames; if the desired
 // worker count changes (resize) the existing pools are torn down and
 // replaced so the worker goroutine count stays in sync.
-func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
+func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, tileCols, sbRows int) {
 	if p == nil || p.workerCount <= 0 || sbRows <= 0 {
 		return
 	}
-	rowThreads := vp9RowMTThreadCount(rowMTThreads, sbRows)
+	rowThreads := vp9RowMTThreadsPerTile(rowMTThreads, tileCols, sbRows)
 	// Single-worker case collapses to the serial path. Tear down any
 	// existing pools so we do not keep goroutines parked for a layout
 	// that no longer wants them.
@@ -319,12 +321,6 @@ func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
 		return
 	}
 	if p.rowMTThreadCount == rowThreads && len(p.rowWorkerPools) == p.workerCount {
-		// Steady-state: re-arm per-row scratch but reuse the goroutines.
-		for i := range p.rowWorkerPools {
-			if pool := p.rowWorkerPools[i]; pool != nil {
-				pool.reset(&p.workers[i])
-			}
-		}
 		return
 	}
 	// Worker count changed: shut down stale pools and build fresh ones.
@@ -337,9 +333,6 @@ func (p *vp9TileWorkerPool) ensureRowWorkers(rowMTThreads, sbRows int) {
 	p.rowWorkerPools = buffers.EnsureLenZeroed(p.rowWorkerPools, p.workerCount)
 	for i := 0; i < p.workerCount; i++ {
 		p.rowWorkerPools[i] = newVP9RowWorkerPool(rowThreads)
-		if p.rowWorkerPools[i] != nil {
-			p.rowWorkerPools[i].reset(&p.workers[i])
-		}
 	}
 	p.rowMTThreadCount = rowThreads
 }
@@ -764,6 +757,18 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	e.vp9CountJobs = pool.countJobs
 	collectTokens := e.beginVP9ThreadedCountTokenCollection(pool, miRows, miCols,
 		tileRows, tileCols, kind)
+	if e.opts.RowMT {
+		sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+		pool.ensureRowMTSync(sbRows)
+		pool.ensureRowWorkers(e.vp9EffectiveThreadHint(), tileCols, sbRows)
+	} else {
+		if len(pool.rowMTSyncs) > 0 {
+			pool.releaseRowMTSync()
+		}
+		if len(pool.rowWorkerPools) > 0 {
+			pool.releaseRowWorkers()
+		}
+	}
 	// The frame/count-attempt entry point has already prepared and 128-filled
 	// the shared reconstruction buffers. Clear only the shared mode-info grid
 	// before the workers launch; every count job aliases the reconstruction
@@ -790,6 +795,11 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 		if collectTokens {
 			job.collectToken = true
 			job.tokenFrame = &pool.countTokens[tileCol]
+		}
+		if e.opts.RowMT && tileCol < len(pool.rowWorkerPools) &&
+			tileCol < len(pool.rowMTSyncs) {
+			job.rowWorkerPool = pool.rowWorkerPools[tileCol]
+			job.rowMTSync = &pool.rowMTSyncs[tileCol]
 		}
 	}
 	pool.startHelperWorkers(vp9TileWorkerJobCount)
@@ -1030,11 +1040,7 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		return 0, nil, false
 	}
 	pool.ensureOutputSize(len(output))
-	if e.opts.RowMT {
-		sbRows := (miRows + (1 << common.MiBlockSizeLog2) - 1) >> common.MiBlockSizeLog2
-		pool.ensureRowMTSync(sbRows)
-		pool.ensureRowWorkers(e.vp9EffectiveThreadHint(), sbRows)
-	} else {
+	if !e.opts.RowMT {
 		if len(pool.rowMTSyncs) > 0 {
 			pool.releaseRowMTSync()
 		}
@@ -1051,14 +1057,10 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		if tileCol > 0 {
 			worker = &pool.workers[tileCol]
 		}
-		var sync *vp9RowMTSync
-		if e.opts.RowMT && tileCol < len(pool.rowMTSyncs) {
-			sync = &pool.rowMTSyncs[tileCol]
-		}
 		prepareVP9EncodeTileJob(&pool.encodeJobs[tileCol], worker,
 			pool.outputs[tileCol], miRows, miCols,
 			vp9EncoderTileBounds(0, tileCol, miRows, miCols, tileInfo),
-			partitionProbs, seg, baseMi, txMode, kind, seed, sync)
+			partitionProbs, seg, baseMi, txMode, kind, seed, nil)
 		if tileCol > 0 {
 			pool.encodeJobs[tileCol].prepSrc = e
 		}
@@ -1608,12 +1610,100 @@ func runVP9CountTileJobNoWG(job *vp9CountTileJob) {
 	if job.hasInter {
 		countInter = &job.inter
 	}
+	if runVP9CountTileRows(job, countInter) {
+		return
+	}
 	var bw bitstream.Writer
 	bw.StartDiscard()
 	job.worker.writeVP9FrameTile(&bw, job.miRows, job.miCols, job.tile,
 		&job.partitionProbs, &job.seg, job.baseMi, job.txMode, job.kind,
 		countKey, countInter)
 	_, _ = bw.Stop()
+}
+
+func runVP9CountTileRows(job *vp9CountTileJob,
+	countInter *vp9InterEncodeState,
+) bool {
+	if job == nil || job.worker == nil || job.rowWorkerPool == nil ||
+		job.rowMTSync == nil || !job.collectToken || job.tokenFrame == nil ||
+		job.kind != vp9ModeTreeInterSource || countInter == nil ||
+		countInter.counts == nil || job.worker.svc.UseSvc ||
+		job.worker.denoiser.active() || job.worker.vp9ActiveSegmentMapCodingChooser() {
+		return false
+	}
+	if job.worker.sf.PartitionSearchType != VarBasedPartition ||
+		job.worker.sf.AdaptiveRdThreshRowMt == 0 {
+		return false
+	}
+	sbRows := (job.tile.MiRowEnd - job.tile.MiRowStart + common.MiBlockSize - 1) >>
+		common.MiBlockSizeLog2
+	if sbRows <= 1 {
+		return false
+	}
+	tileMiCols := job.tile.MiColEnd - job.tile.MiColStart
+	pool := job.rowWorkerPool
+	pool.resetCountWorkers(job.worker, job.width, job.height, job.miRows,
+		job.miCols, tileMiCols, job.tileCol, sbRows)
+	job.rowMTSync.reset(sbRows)
+	if vp9PhaseStatsEnabled && job.worker.vp9PhaseStatsActive() {
+		job.worker.vp9PhaseIncFrameTile(true)
+		job.worker.vp9PhaseAddRowWorkerCountEpoch(sbRows)
+	}
+	pool.queue = buffers.EnsureLen(pool.queue, sbRows)
+	for row := range sbRows {
+		pool.queue[row] = row
+	}
+	err := pool.dispatch(pool.queue, vp9RowWorkerJob{
+		countJob:   job,
+		countInter: countInter,
+	})
+	if err != nil {
+		job.worker.vp9TokenCollect.err = err
+		return true
+	}
+	for row := range sbRows {
+		if !job.worker.vp9TokenFrame.AppendRowTokenList(0, job.tileCol, row,
+			&pool.rowTokens[row]) {
+			job.worker.vp9TokenCollect.err = encoder.ErrTokenBufferFull
+			return true
+		}
+	}
+	for i := range pool.workers {
+		state := &pool.workers[i]
+		addVP9FrameCounts(job.counts, &state.counts)
+		addVP9FilterDiff(&job.worker.vp9FilterDiff, &state.worker.vp9FilterDiff)
+	}
+	job.worker.varPartFrameValid = true
+	return true
+}
+
+func runVP9CountTileRow(job *vp9CountTileJob, countInter *vp9InterEncodeState,
+	row int, state *vp9RowEncoderState,
+) error {
+	pool := job.rowWorkerPool
+	w := &state.worker
+	rowTokens := &pool.rowTokens[row]
+	w.vp9TokenFrame = *rowTokens
+	w.vp9TokenCollect = vp9TokenCollectState{
+		active:        true,
+		tileRow:       0,
+		tileCol:       job.tileCol,
+		listSBRowBase: row,
+	}
+	w.vp9RowMTSync = job.rowMTSync
+	inter := *countInter
+	inter.dq = &w.dqScratch
+	inter.ref = &w.refFrames[0]
+	inter.counts = &state.counts
+	miRow := job.tile.MiRowStart + row*common.MiBlockSize
+	var bw bitstream.Writer
+	bw.StartDiscard()
+	w.writeVP9ModesTileRow(&bw, job.miRows, job.miCols, miRow,
+		job.tile, &job.partitionProbs, &job.seg, job.baseMi, job.txMode,
+		job.kind, nil, &inter, job.rowMTSync, false, 0)
+	_, _ = bw.Stop()
+	*rowTokens = w.vp9TokenFrame
+	return w.vp9TokenCollect.err
 }
 
 func runVP9EncodeTileJob(job *vp9EncodeTileJob) {

@@ -230,6 +230,61 @@ func (b *TokenFrameBuffer) FinishTokenList(idx int) bool {
 	return true
 }
 
+// AppendRowTokenList appends the single SB-row list in src to the requested
+// destination list. Row-MT workers build rows independently, then the tile
+// dispatcher merges them in raster order so token probability order remains
+// identical to the serial count walk.
+func (b *TokenFrameBuffer) AppendRowTokenList(tileRow, tileCol, tileSBRow int,
+	src *TokenFrameBuffer,
+) bool {
+	if b == nil || src == nil || len(src.Lists) != 1 ||
+		len(src.LeafLists) != 1 || len(src.PartitionLists) != 1 {
+		return false
+	}
+	dstIdx, ok := b.TokenListIndex(tileRow, tileCol, tileSBRow)
+	if !ok {
+		return false
+	}
+	tokens, ok := src.TokensForList(src.Lists[0])
+	if !ok || len(tokens) > len(b.Tokens)-b.Used {
+		return false
+	}
+	leafModes, ok := src.LeafModesForList(src.LeafLists[0])
+	if !ok || len(leafModes) > len(b.LeafModes)-b.LeafUsed {
+		return false
+	}
+	partitions, ok := src.PartitionsForList(src.PartitionLists[0])
+	if !ok || len(partitions) > len(b.Partitions)-b.PartitionUsed {
+		return false
+	}
+
+	tokenStart := b.Used
+	copy(b.Tokens[tokenStart:], tokens)
+	b.Used += len(tokens)
+	b.Lists[dstIdx] = TokenList{
+		Start: tokenStart,
+		Stop:  b.Used,
+		Count: uint32(len(tokens)),
+	}
+	leafStart := b.LeafUsed
+	copy(b.LeafModes[leafStart:], leafModes)
+	b.LeafUsed += len(leafModes)
+	b.LeafLists[dstIdx] = TokenList{
+		Start: leafStart,
+		Stop:  b.LeafUsed,
+		Count: uint32(len(leafModes)),
+	}
+	partitionStart := b.PartitionUsed
+	copy(b.Partitions[partitionStart:], partitions)
+	b.PartitionUsed += len(partitions)
+	b.PartitionLists[dstIdx] = TokenList{
+		Start: partitionStart,
+		Stop:  b.PartitionUsed,
+		Count: uint32(len(partitions)),
+	}
+	return true
+}
+
 func (b *TokenFrameBuffer) TokensForList(list TokenList) ([]TokenExtra, bool) {
 	if b == nil || list.Start < 0 || list.Stop < list.Start ||
 		list.Stop > b.Used {

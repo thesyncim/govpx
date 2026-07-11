@@ -300,6 +300,11 @@ func appendEncodePhaseReport(b *bytes.Buffer, stats govpx.EncoderPhaseStats, fra
 			stats.VP9TileWorkerWaitSpins,
 			stats.VP9TileWorkerWaitGoscheds)
 	}
+	if stats.VP9RowWorkerCountEpochs > 0 || stats.VP9RowWorkerCountJobs > 0 {
+		fmt.Fprintf(b, "vp9 row workers  count_epochs=%d  row_jobs=%d\n",
+			stats.VP9RowWorkerCountEpochs,
+			stats.VP9RowWorkerCountJobs)
+	}
 	if stats.VP9VarPartSetVTCalls > 0 || stats.VP9VarPartForceSplit64 > 0 ||
 		stats.VP9VarPartForceSplit32 > 0 || stats.VP9VarPartForceSplit16 > 0 {
 		fmt.Fprintf(b, "vp9 varpass     choose=%d  count=%d  write=%d  cache=%d/%d  copy_hits=%d  merged=%d\n",

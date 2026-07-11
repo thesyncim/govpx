@@ -199,18 +199,18 @@ func TestVP9RowWorkerPoolReleaseFreesScratch(t *testing.T) {
 }
 
 // TestVP9TileWorkerPoolRowWorkerLifecycle pins the lifecycle wiring: a
-// multi-thread encoder with RowMT=true must allocate per-tile-column row
+// eight-thread encoder with RowMT=true must allocate per-tile-column row
 // worker pools on its first encode; SetRowMT(false) must tear them down
 // so the helper goroutines drain.
 func TestVP9TileWorkerPoolRowWorkerLifecycle(t *testing.T) {
 	// Width=1280 → 4 tile columns; height=512 → 8 SB rows so the
-	// rowMTThreadCount clamp picks up at least 4 row workers per tile
-	// column and exercises the per-tile-column pool array fully.
+	// global thread budget assigns 2 row workers per tile column and exercises
+	// the per-tile-column pool array without oversubscription.
 	const width, height = 1280, 512
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:   width,
 		Height:  height,
-		Threads: 4,
+		Threads: 8,
 		RowMT:   true,
 	})
 	if err != nil {
@@ -229,9 +229,10 @@ func TestVP9TileWorkerPoolRowWorkerLifecycle(t *testing.T) {
 		t.Fatalf("rowWorkerPools len = %d, want %d (workerCount)",
 			got, e.vp9TilePool.workerCount)
 	}
-	// rowMTThreadCount should be clamped by min(Threads, sbRows).
-	if e.vp9TilePool.rowMTThreadCount <= 0 {
-		t.Fatalf("rowMTThreadCount = %d, want > 0", e.vp9TilePool.rowMTThreadCount)
+	// The global thread budget is divided across tile columns before the SB-row
+	// clamp, so eight threads across four columns gives two row workers each.
+	if e.vp9TilePool.rowMTThreadCount != 2 {
+		t.Fatalf("rowMTThreadCount = %d, want 2", e.vp9TilePool.rowMTThreadCount)
 	}
 	// Toggling RowMT off must release the row worker pools.
 	if err := e.SetRowMT(false); err != nil {
@@ -266,7 +267,7 @@ func TestVP9TileWorkerPoolRowWorkerSteadyStateAllocations(t *testing.T) {
 	e, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:   width,
 		Height:  height,
-		Threads: 4,
+		Threads: 8,
 		RowMT:   true,
 	})
 	if err != nil {
@@ -316,6 +317,23 @@ func TestVP9RowMTThreadCount(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("vp9RowMTThreadCount(%d, %d) = %d, want %d",
 				tc.rowMTThreads, tc.sbRows, got, tc.want)
+		}
+	}
+}
+
+func TestVP9RowMTThreadsPerTileUsesGlobalBudget(t *testing.T) {
+	tests := []struct {
+		total, tileCols, sbRows, want int
+	}{
+		{4, 4, 12, 1},
+		{8, 4, 12, 2},
+		{8, 2, 3, 3},
+		{8, 1, 12, 8},
+	}
+	for _, tc := range tests {
+		if got := vp9RowMTThreadsPerTile(tc.total, tc.tileCols, tc.sbRows); got != tc.want {
+			t.Errorf("vp9RowMTThreadsPerTile(%d, %d, %d) = %d, want %d",
+				tc.total, tc.tileCols, tc.sbRows, got, tc.want)
 		}
 	}
 }

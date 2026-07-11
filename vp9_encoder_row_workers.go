@@ -16,20 +16,22 @@ import (
 // the rowWorkerIdleSpinBudget/runtimeProcYield idle path used by the VP8
 // row worker pool so steady-state encodes do not park on sync.Cond.
 //
-// Each worker owns a vp9RowEncoderState — a per-row clone of the encoder's
-// mutable scratch (above/left segment contexts, per-plane entropy contexts,
-// partition reconstruction scratch, inter predictor scratch, frame counts
-// accumulator). The shared frame-level state (reference frames, frame
-// context probabilities, loopfilter level table) remains read-only during
-// the wavefront pass.
+// Each worker owns a vp9RowEncoderState containing a persistent encoder clone
+// and private decision, transform, predictor, coefficient, left-context, and
+// count scratch. Committed reconstruction, mode-info, above-context, and
+// row-indexed partition/RD state are shared under wavefront row ownership.
 //
 // Lifecycle: the pool is allocated lazily by ensureRowWorkers when the
 // RowMT option is engaged and a tile-column body is about to dispatch
 // rows. Workers persist for the encoder's lifetime; shutdownPool closes
-// the start channels and the goroutines drain. Worker count is clamped to
-// min(rowMTThreads, sbRows) per the row-MT dispatch rule.
+// the start channels and the goroutines drain. The global thread budget is
+// divided across tile columns, then clamped to the tile's SB-row count.
 type vp9RowWorkerPool struct {
 	workers []vp9RowEncoderState
+	// rowTokens owns one independent token arena per SB row. Workers write
+	// disjoint arenas concurrently; the tile dispatcher merges them in row
+	// order after the wavefront completes.
+	rowTokens []encoder.TokenFrameBuffer
 
 	// start[i] gates worker i. Workers spin on rowWorkerIdleSpinBudget
 	// before parking; the dispatcher sends on start when a row job is
@@ -73,15 +75,33 @@ type vp9RowWorkerPool struct {
 // state clone; it is responsible for calling rowMTSync.read before
 // consuming above-context and rowMTSync.write after publishing it.
 type vp9RowWorkerJob struct {
-	encode func(workerIndex, row int, state *vp9RowEncoderState) error
+	encode     func(workerIndex, row int, state *vp9RowEncoderState) error
+	countJob   *vp9CountTileJob
+	countInter *vp9InterEncodeState
 }
 
-// vp9RowEncoderState is the per-row mutable working set. It is cloned
-// from the tile-column worker once per frame so each row goroutine reads
-// and writes its own buffers. Shared frame-level state is accessed via
-// the parent pointer (read-only during the wavefront pass).
+func (j vp9RowWorkerJob) run(workerIndex, row int,
+	state *vp9RowEncoderState,
+) error {
+	if j.countJob != nil {
+		return runVP9CountTileRow(j.countJob, j.countInter, row, state)
+	}
+	if j.encode != nil {
+		return j.encode(workerIndex, row, state)
+	}
+	return nil
+}
+
+// vp9RowEncoderState is one row worker's persistent mutable working set. It is
+// prepared from the tile-column worker once per count pass while retaining its
+// privately owned buffers across frames.
 type vp9RowEncoderState struct {
 	parent *VP9Encoder
+	worker VP9Encoder
+
+	privateAboveSegCtx   []int8
+	privatePlaneAboveCtx [vp9dec.MaxMbPlane][]uint8
+	privateVarPart       vp9RowPrivateVarPartState
 
 	// leftSegCtx is the per-row left-side partition history; each row
 	// owns its own copy because the SB column loop within a row mutates
@@ -108,6 +128,115 @@ type vp9RowEncoderState struct {
 	// rows finish; counts addition is commutative so the wavefront order
 	// does not perturb the final accumulation.
 	counts encoder.FrameCounts
+}
+
+type vp9RowPrivateVarPartState struct {
+	grid                []vp9dec.NeighborMi
+	sbComputed          []bool
+	sbUseMvPart         []bool
+	sbMvPart            []vp9dec.MV
+	sbPredLast          []vp9dec.MV
+	sbPredValid         []bool
+	sbVarLow            [][25]uint8
+	sbCopiedPartition   []bool
+	sbSegmentID         []uint8
+	sbContentState      []encoder.ContentStateSB
+	sbContentStateValid []bool
+	sbZeroTempSADSource []bool
+	sbColorSensitivity  [][2]bool
+	sbLastHighContent   []uint8
+	sbLastHighContentOK []bool
+}
+
+func (s *vp9RowPrivateVarPartState) restore(w *VP9Encoder) {
+	if s == nil || w == nil || s.grid == nil {
+		return
+	}
+	w.varPartGrid = s.grid
+	w.varPartSBComputed = s.sbComputed
+	w.varPartSBUseMvPart = s.sbUseMvPart
+	w.varPartSBMvPart = s.sbMvPart
+	w.varPartSBPredLast = s.sbPredLast
+	w.varPartSBPredValid = s.sbPredValid
+	w.varPartSBVarLow = s.sbVarLow
+	w.varPartSBCopiedPartition = s.sbCopiedPartition
+	w.varPartSBSegmentID = s.sbSegmentID
+	w.varPartSBContentState = s.sbContentState
+	w.varPartSBContentStateValid = s.sbContentStateValid
+	w.varPartSBZeroTempSADSource = s.sbZeroTempSADSource
+	w.varPartSBColorSensitivity = s.sbColorSensitivity
+	w.varPartSBLastHighContent = s.sbLastHighContent
+	w.varPartSBLastHighContentValid = s.sbLastHighContentOK
+}
+
+func (s *vp9RowPrivateVarPartState) capture(w *VP9Encoder) {
+	if s == nil || w == nil {
+		return
+	}
+	s.grid = w.varPartGrid
+	s.sbComputed = w.varPartSBComputed
+	s.sbUseMvPart = w.varPartSBUseMvPart
+	s.sbMvPart = w.varPartSBMvPart
+	s.sbPredLast = w.varPartSBPredLast
+	s.sbPredValid = w.varPartSBPredValid
+	s.sbVarLow = w.varPartSBVarLow
+	s.sbCopiedPartition = w.varPartSBCopiedPartition
+	s.sbSegmentID = w.varPartSBSegmentID
+	s.sbContentState = w.varPartSBContentState
+	s.sbContentStateValid = w.varPartSBContentStateValid
+	s.sbZeroTempSADSource = w.varPartSBZeroTempSADSource
+	s.sbColorSensitivity = w.varPartSBColorSensitivity
+	s.sbLastHighContent = w.varPartSBLastHighContent
+	s.sbLastHighContentOK = w.varPartSBLastHighContentValid
+}
+
+func (s *vp9RowEncoderState) resetCountWorker(parent *VP9Encoder,
+	width, height, miRows, miCols int,
+) {
+	if s == nil || parent == nil {
+		return
+	}
+	s.parent = parent
+	if s.privateAboveSegCtx != nil {
+		s.worker.aboveSegCtx = s.privateAboveSegCtx
+		for plane := range vp9dec.MaxMbPlane {
+			s.worker.planes[plane].AboveContext = s.privatePlaneAboveCtx[plane]
+		}
+	}
+	s.privateVarPart.restore(&s.worker)
+	s.worker.prepareVP9CountWorker(parent, width, height, miRows, miCols)
+	w := &s.worker
+	s.privateAboveSegCtx = w.aboveSegCtx
+	for plane := range vp9dec.MaxMbPlane {
+		s.privatePlaneAboveCtx[plane] = w.planes[plane].AboveContext
+	}
+	s.privateVarPart.capture(w)
+
+	// Rows share committed frame outputs, above contexts, and row-indexed
+	// partition/RD state. Decision caches, transform, predictor, coefficient,
+	// and left-context scratch remain worker-private.
+	w.aboveSegCtx = parent.aboveSegCtx
+	w.varPartGrid = parent.varPartGrid
+	w.varPartSBComputed = parent.varPartSBComputed
+	w.varPartSBUseMvPart = parent.varPartSBUseMvPart
+	w.varPartSBMvPart = parent.varPartSBMvPart
+	w.varPartSBPredLast = parent.varPartSBPredLast
+	w.varPartSBPredValid = parent.varPartSBPredValid
+	w.varPartSBVarLow = parent.varPartSBVarLow
+	w.varPartSBCopiedPartition = parent.varPartSBCopiedPartition
+	w.varPartSBSegmentID = parent.varPartSBSegmentID
+	w.varPartSBContentState = parent.varPartSBContentState
+	w.varPartSBContentStateValid = parent.varPartSBContentStateValid
+	w.varPartSBZeroTempSADSource = parent.varPartSBZeroTempSADSource
+	w.varPartSBColorSensitivity = parent.varPartSBColorSensitivity
+	w.varPartSBLastHighContent = parent.varPartSBLastHighContent
+	w.varPartSBLastHighContentValid = parent.varPartSBLastHighContentValid
+	w.rdThresh = parent.rdThresh
+	for plane := range vp9dec.MaxMbPlane {
+		w.planes[plane].AboveContext = parent.planes[plane].AboveContext
+	}
+	w.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}
+	s.counts = encoder.FrameCounts{}
 }
 
 // reset arms the row encoder state for a fresh frame on the given
@@ -219,7 +348,7 @@ func (p *vp9RowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
 // to the first error the worker hit, so the dispatcher can surface it.
 func (p *vp9RowWorkerPool) consumeRows(workerIndex int) {
 	job := p.job
-	if job.encode == nil {
+	if job.encode == nil && job.countJob == nil {
 		return
 	}
 	state := &p.workers[workerIndex]
@@ -232,7 +361,7 @@ func (p *vp9RowWorkerPool) consumeRows(workerIndex int) {
 			return
 		}
 		row := p.queue[idx]
-		if err := job.encode(workerIndex, row, state); err != nil {
+		if err := job.run(workerIndex, row, state); err != nil {
 			if p.errors[workerIndex] == nil {
 				p.errors[workerIndex] = err
 			}
@@ -300,6 +429,30 @@ func (p *vp9RowWorkerPool) reset(parent *VP9Encoder) {
 	}
 }
 
+func (p *vp9RowWorkerPool) resetCountWorkers(parent *VP9Encoder,
+	width, height, miRows, miCols, tileMiCols, tileCol, sbRows int,
+) {
+	if p == nil {
+		return
+	}
+	sbCount := ((miRows + 7) >> 3) * ((miCols + 7) >> 3)
+	parent.varPartSBContentState = buffers.EnsureLen(parent.varPartSBContentState, sbCount)
+	parent.varPartSBContentStateValid = buffers.EnsureLenZeroed(
+		parent.varPartSBContentStateValid, sbCount)
+	parent.varPartSBZeroTempSADSource = buffers.EnsureLenZeroed(
+		parent.varPartSBZeroTempSADSource, sbCount)
+	parent.varPartSBLastHighContent = buffers.EnsureLen(parent.varPartSBLastHighContent, sbCount)
+	parent.varPartSBLastHighContentValid = buffers.EnsureLenZeroed(
+		parent.varPartSBLastHighContentValid, sbCount)
+	for i := range p.workers {
+		p.workers[i].resetCountWorker(parent, width, height, miRows, miCols)
+	}
+	p.rowTokens = buffers.EnsureLen(p.rowTokens, sbRows)
+	for row := range sbRows {
+		p.rowTokens[row].EnsureForTile(vp9MiBlockSize(), tileMiCols, 0, tileCol)
+	}
+}
+
 // release drops the per-row scratch arrays. Invoked when the RowMT
 // option toggles off so the steady-state allocation gate stays clean.
 func (p *vp9RowWorkerPool) release() {
@@ -309,6 +462,10 @@ func (p *vp9RowWorkerPool) release() {
 	for i := range p.workers {
 		p.workers[i].release()
 	}
+	for i := range p.rowTokens {
+		p.rowTokens[i].Release()
+	}
+	p.rowTokens = p.rowTokens[:0]
 }
 
 // shutdownPool stops the persistent worker goroutines and waits for them
@@ -346,4 +503,12 @@ func vp9RowMTThreadCount(rowMTThreads, sbRows int) int {
 		return sbRows
 	}
 	return rowMTThreads
+}
+
+func vp9RowMTThreadsPerTile(totalThreads, tileCols, sbRows int) int {
+	if tileCols <= 0 {
+		tileCols = 1
+	}
+	threads := (totalThreads + tileCols - 1) / tileCols
+	return vp9RowMTThreadCount(threads, sbRows)
 }

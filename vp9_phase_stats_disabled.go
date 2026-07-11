@@ -86,6 +86,8 @@ func (e *VP9Encoder) vp9PhaseAddFullPelSAD(int64, bool, vp9FullPelSADSource) {}
 
 func (e *VP9Encoder) vp9PhaseIncTileWorkerJob(vp9TileWorkerJobKind) {}
 
+func (e *VP9Encoder) vp9PhaseAddRowWorkerCountEpoch(int) {}
+
 func (p *vp9TileWorkerPool) setVP9TileWorkerPhaseStats(*EncoderPhaseStats) {}
 
 func (p *vp9TileWorkerPool) vp9TileWorkerPhaseStatsActive() bool {

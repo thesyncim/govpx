@@ -163,64 +163,50 @@ func (e *VP9Encoder) writeVP9ModesTileBounds(bw *bitstream.Writer, miRows, miCol
 		// scratch which holds the final header for this frame.
 		cyclicBaseQindex = int(e.vp9HeaderScratch.Quant.BaseQindex)
 	}
-	if rowMT == nil {
-		for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
-			tokenList := e.startVP9CountTokenList(tile, miRow)
-			for i := range e.leftSegCtx {
-				e.leftSegCtx[i] = 0
-			}
-			if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
-				e.resetVP9EncoderLeftEntropyContexts()
-			}
-			for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
-				e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
-					common.Block64x64, tile, partitionProbs, seg, baseMi,
-					txMode, kind, key, inter)
-				if kind == vp9ModeTreeInterSource {
-					e.vp9CommitVarPartSBPartitionState(miRows, miCols,
-						miRow, miCol, inter)
-				}
-				if doCyclicSbPostencode {
-					e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
-						miRow, miCol, cyclicBaseQindex)
-				}
-			}
-			e.finishVP9CountTokenList(tokenList)
-		}
-		return
+	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
+		e.writeVP9ModesTileRow(bw, miRows, miCols, miRow, tile,
+			partitionProbs, seg, baseMi, txMode, kind, key, inter, rowMT,
+			doCyclicSbPostencode, cyclicBaseQindex)
+	}
+}
+
+func (e *VP9Encoder) writeVP9ModesTileRow(bw *bitstream.Writer,
+	miRows, miCols, miRow int, tile vp9dec.TileBounds,
+	partitionProbs *[common.PartitionContexts][common.PartitionTypes - 1]uint8,
+	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,
+	kind vp9ModeTreeKind, key *vp9KeyframeEncodeState, inter *vp9InterEncodeState,
+	rowMT *vp9RowMTSync, doCyclicSbPostencode bool, cyclicBaseQindex int,
+) {
+	tokenList := e.startVP9CountTokenList(tile, miRow)
+	for i := range e.leftSegCtx {
+		e.leftSegCtx[i] = 0
+	}
+	if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
+		e.resetVP9EncoderLeftEntropyContexts()
 	}
 	tileSbCols := (tile.MiColEnd - tile.MiColStart + common.MiBlockSize - 1) >>
 		common.MiBlockSizeLog2
-	for miRow := tile.MiRowStart; miRow < tile.MiRowEnd; miRow += common.MiBlockSize {
-		tokenList := e.startVP9CountTokenList(tile, miRow)
-		for i := range e.leftSegCtx {
-			e.leftSegCtx[i] = 0
-		}
-		if kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource {
-			e.resetVP9EncoderLeftEntropyContexts()
-		}
-		sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
-		for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
-			sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
-			// Wavefront: wait for the row above to encode the above and
-			// above-right SB before consuming their entropy / above-context
-			// state when RowMT is armed.
+	sbRow := (miRow - tile.MiRowStart) >> common.MiBlockSizeLog2
+	for miCol := tile.MiColStart; miCol < tile.MiColEnd; miCol += common.MiBlockSize {
+		sbCol := (miCol - tile.MiColStart) >> common.MiBlockSizeLog2
+		if rowMT != nil {
 			rowMT.read(sbRow, sbCol)
-			e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
-				common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
-				kind, key, inter)
-			if kind == vp9ModeTreeInterSource {
-				e.vp9CommitVarPartSBPartitionState(miRows, miCols,
-					miRow, miCol, inter)
-			}
-			if doCyclicSbPostencode {
-				e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
-					miRow, miCol, cyclicBaseQindex)
-			}
+		}
+		e.writeVP9ModesSb(bw, miRows, miCols, miRow, miCol,
+			common.Block64x64, tile, partitionProbs, seg, baseMi, txMode,
+			kind, key, inter)
+		if kind == vp9ModeTreeInterSource {
+			e.vp9CommitVarPartSBPartitionState(miRows, miCols, miRow, miCol, inter)
+		}
+		if doCyclicSbPostencode {
+			e.vp9CyclicRefreshUpdateEncodedSb(miRows, miCols,
+				miRow, miCol, cyclicBaseQindex)
+		}
+		if rowMT != nil {
 			rowMT.write(sbRow, sbCol, tileSbCols)
 		}
-		e.finishVP9CountTokenList(tokenList)
 	}
+	e.finishVP9CountTokenList(tokenList)
 }
 
 // vp9CyclicRefreshUpdateEncodedSb mirrors libvpx's per-SB postencode hook
