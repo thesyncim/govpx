@@ -1004,7 +1004,17 @@ agent report "VP8 encode recon redesign"; key verified facts:
   oracle/cold picker shape and kept focused parity green, but candidate
   480-frame spots at 8.052 / 7.963 ms/frame lost to the immediate restored
   control at 7.904 ms/frame, so keep the existing hot-loop shape. Do not retry
-  those exact shapes without a fresh profile.
+  those exact shapes without a fresh profile. A grouped ARM64 vertical-edge
+  probe transposed each 16x16 luma macroblock once, ran the three sequential
+  inner filters on a stack-local transposed tile, then transposed back. It
+  reduced strided frame loads and kept grouped/separate edge parity, but the
+  focused hot-buffer benchmark regressed from about 39.2 to 45.1 ns/op. One
+  120-frame phase pair lowered trial-filter time from 225.1 to 220.3 ms total,
+  but the longer 480-frame gate was unstable and ultimately negative: one pair
+  won, two lost, and the three-run median moved from 7.363 to 7.408 ms/frame,
+  with exact 5,066,778-byte output and 478/2 topology throughout. The probe was
+  removed; future B7 vertical fusion must operate directly on the frame rather
+  than round-trip the full macroblock through a transposed scratch tile.
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:
