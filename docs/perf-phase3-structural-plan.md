@@ -24,7 +24,7 @@ row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
 temporal-denoiser variance-threshold and committed count-state replay safe
 point, plus the A4 normal packed-leaf fallback-cache store deletion, first
 production C1 count-pass row-dispatch safe point, and transactional denoiser
-row-dispatch extension, landed on
+row-dispatch extension plus the VP9 row-helper blocking-idle safe point, landed on
 2026-07-02/03/10/11; the larger A/B and remaining encoder-MT structural
 programs remain pending. This is the execution brief
 for implementation agents.
@@ -1000,6 +1000,25 @@ packet hash matched at
 The field executed 1,868 row epochs / 22,416 row jobs, retained the complete
 baseline search/topology ledger, stayed byte-identical across threads {4,8},
 and remained zero-allocation in steady state.
+
+Measurement note, 2026-07-11 (row-helper idle policy): VP9 row helpers used the
+VP8 row pool's 65,536-iteration `runtime_procyield` idle budget after completing
+their only row batch of the count pass. They therefore competed with the
+immediately following header, packed tile write, and loop filter even though no
+new VP9 row work can arrive until the next frame. Helpers now block on their
+start channel between count passes; the dispatcher still uses the existing
+short join spin while a batch is active.
+
+Against `4f7b2bdf`, three interleaved no-PGO 480-frame default-denoiser runs
+moved median wall time from 3.72 to 3.58 ms/frame (about 3.8%). Count stayed
+essentially flat at 2.59 versus 2.58 ms/frame, while tile write fell from about
+0.515 to 0.412 ms/frame and loop-filter apply from about 0.219 to
+0.202 ms/frame. The no-denoise lane moved from 3.87 to 3.70 ms/frame (about
+4.4%), with count flat around 2.75 ms/frame and tile write falling from about
+0.545 to 0.424 ms/frame. Outputs remained exact at 4,983,704 / 4,981,549 bytes
+and retained the existing denoise/no-denoise packet hashes
+`537d43329c94e6c52f0ed8341b43841b431fed7c8f8d55ee4cfb0a4a578701be` /
+`2adae6a6b4eb95833492055dc23a75b76d8fc30fc34f3c75c0ef8caa34de6b54`.
 
 C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03/11. The
 VP9 `NoiseSensitivity>0 → tile workers disabled` gate is removed for the

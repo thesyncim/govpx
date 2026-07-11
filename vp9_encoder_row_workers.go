@@ -13,8 +13,8 @@ import (
 // vp9RowWorkerPool is the per-tile-column pool of row goroutines that drive
 // the wavefront primitive established by vp9RowMTSync. It mirrors libvpx's
 // per-tile-column row worker layer (vp9/encoder/vp9_ethread.c) and reuses
-// the rowWorkerIdleSpinBudget/runtimeProcYield idle path used by the VP8
-// row worker pool so steady-state encodes do not park on sync.Cond.
+// a blocking inter-batch wait. A VP9 row batch runs only once per count pass,
+// so helpers release their Ps during header, tile-pack, and filter work.
 //
 // Each worker owns a vp9RowEncoderState containing a persistent encoder clone
 // and private decision, transform, predictor, coefficient, left-context, and
@@ -33,9 +33,8 @@ type vp9RowWorkerPool struct {
 	// order after the wavefront completes.
 	rowTokens []encoder.TokenFrameBuffer
 
-	// start[i] gates worker i. Workers spin on rowWorkerIdleSpinBudget
-	// before parking; the dispatcher sends on start when a row job is
-	// queued, matching the VP8 rowWorkerPool latency profile.
+	// start[i] gates worker i. Helpers block between frame count passes and
+	// wake when the dispatcher queues the next row batch.
 	start    []chan struct{}
 	shutdown chan struct{}
 	wg       sync.WaitGroup
@@ -326,17 +325,6 @@ func (p *vp9RowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 }
 
 func (p *vp9RowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
-	for spins := range rowWorkerIdleSpinBudget {
-		select {
-		case _, ok := <-start:
-			return ok
-		default:
-		}
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
-	}
 	_, ok := <-start
 	return ok
 }
