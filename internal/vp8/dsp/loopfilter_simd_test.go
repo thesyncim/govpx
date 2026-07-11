@@ -152,20 +152,30 @@ func TestLoopFilterYEdgeGroupsMatchSeparateEdges(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewPCG(0x51525354, 0x61626364))
-	params := []struct {
+	type filterParams struct {
 		blimit byte
 		limit  byte
 		thresh byte
-	}{
+	}
+	params := []filterParams{
+		{0, 0, 0},
 		{8, 4, 0},
 		{32, 16, 8},
 		{128, 64, 32},
+		{255, 255, 255},
+	}
+	for range 64 {
+		params = append(params, filterParams{
+			blimit: byte(rng.IntN(256)),
+			limit:  byte(rng.IntN(256)),
+			thresh: byte(rng.IntN(256)),
+		})
 	}
 
 	for _, edge := range edges {
 		t.Run(edge.name, func(t *testing.T) {
 			for _, p := range params {
-				for range 12 {
+				for range 64 {
 					base := make([]byte, stride*16)
 					for i := range base {
 						base[i] = byte(rng.IntN(256))

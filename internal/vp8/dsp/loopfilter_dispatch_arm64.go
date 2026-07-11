@@ -68,10 +68,7 @@ func loopFilterVerticalEdgeDispatch(s []byte, stride int, blimit, limit, thresh 
 
 func loopFilterVerticalEdgesYDispatch(s []byte, stride int, blimit, limit, thresh byte) {
 	if len(s) >= 15*stride+16 {
-		base := unsafe.Pointer(unsafe.SliceData(s))
-		loopFilterEdgeV16NEON((*byte)(unsafe.Add(base, 4)), stride, blimit, limit, thresh)
-		loopFilterEdgeV16NEON((*byte)(unsafe.Add(base, 8)), stride, blimit, limit, thresh)
-		loopFilterEdgeV16NEON((*byte)(unsafe.Add(base, 12)), stride, blimit, limit, thresh)
+		loopFilterVerticalEdgesYSharedNEON(unsafe.SliceData(s), stride, blimit, limit, thresh)
 		return
 	}
 	loopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, 2)

@@ -32,6 +32,13 @@ func LoopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte) {
 //go:noescape
 func loopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
+// loopFilterVerticalEdgesYSharedNEON loads each row of a 16x16 macroblock
+// once and applies its three dependent inner vertical edges in two 8-row
+// register domains. src points at the macroblock's top-left pixel.
+//
+//go:noescape
+func loopFilterVerticalEdgesYSharedNEON(src *byte, pitch int, blimit, limit, thresh byte)
+
 //go:noescape
 func mbLoopFilterEdgeV16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
