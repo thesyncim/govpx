@@ -234,6 +234,16 @@ func TestVP9DenoiserCountStateCommitRequiresAllLeafReplay(t *testing.T) {
 	if e.canCommitVP9DenoiserCountState(false, vp9ModeTreeInterSource, &seg) {
 		t.Fatal("denoiser count state committed without token replay")
 	}
+	e.vp9CountCodingPreserved = false
+	inter := &vp9InterEncodeState{preserveCodingState: true}
+	if !e.canDispatchVP9DenoiserCountRows(inter, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("eligible denoiser count rows were rejected before preservation finalized")
+	}
+	inter.preserveCodingState = false
+	if e.canDispatchVP9DenoiserCountRows(inter, vp9ModeTreeInterSource, &seg) {
+		t.Fatal("denoiser count rows accepted without prospective preservation")
+	}
+	e.vp9CountCodingPreserved = true
 	e.activeMapEnabled = true
 	if e.canCommitVP9DenoiserCountState(true, vp9ModeTreeInterSource, &seg) {
 		t.Fatal("denoiser count state committed with active segment-map coding")

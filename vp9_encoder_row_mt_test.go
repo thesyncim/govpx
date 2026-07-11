@@ -527,6 +527,99 @@ func TestVP9RowMTProductionRowsDeterministicAcrossThreads(t *testing.T) {
 	}
 }
 
+func TestVP9RowMTDenoiserRowsDeterministicAcrossThreads(t *testing.T) {
+	const width, height = 1280, 720
+	encode := func(threads int) [][]byte {
+		e, err := NewVP9Encoder(VP9EncoderOptions{
+			Width:               width,
+			Height:              height,
+			Threads:             threads,
+			RowMT:               true,
+			Deadline:            DeadlineRealtime,
+			CpuUsed:             8,
+			RateControlModeSet:  true,
+			RateControlMode:     RateControlCBR,
+			TargetBitrateKbps:   2500,
+			NoiseSensitivity:    4,
+			MaxKeyframeInterval: 3000,
+		})
+		if err != nil {
+			t.Fatalf("NewVP9Encoder threads=%d: %v", threads, err)
+		}
+		defer e.Close()
+		dst := make([]byte, width*height*6)
+		packets := make([][]byte, 8)
+		dispatched := false
+		for frame := range packets {
+			src := vp9test.NewPanningYCbCr(width, height, frame)
+			n, err := e.EncodeInto(src, dst)
+			if err != nil {
+				t.Fatalf("threads=%d frame=%d: %v", threads, frame, err)
+			}
+			packets[frame] = append([]byte(nil), dst[:n]...)
+			if e.vp9TilePool != nil {
+				for _, pool := range e.vp9TilePool.rowWorkerPools {
+					if pool != nil && len(pool.rowTokens) > 0 && pool.rowTokens[0].Used > 0 {
+						dispatched = true
+					}
+				}
+			}
+		}
+		if threads == 8 && !dispatched {
+			t.Fatalf("threads=%d did not dispatch denoiser rows", threads)
+		}
+		if !e.denoiser.active() {
+			t.Fatalf("threads=%d denoiser was not active", threads)
+		}
+		return packets
+	}
+
+	baseline := encode(4)
+	packets := encode(8)
+	for frame := range baseline {
+		if !bytes.Equal(baseline[frame], packets[frame]) {
+			t.Fatalf("denoiser row-MT packet %d differs at threads=8: %d/%d bytes",
+				frame, len(packets[frame]), len(baseline[frame]))
+		}
+	}
+}
+
+func TestVP9RowMTDenoiserSteadyStateAllocations(t *testing.T) {
+	const width, height = 1280, 720
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:               width,
+		Height:              height,
+		Threads:             8,
+		RowMT:               true,
+		Deadline:            DeadlineRealtime,
+		CpuUsed:             8,
+		RateControlModeSet:  true,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   2500,
+		NoiseSensitivity:    4,
+		MaxKeyframeInterval: 3000,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+	dst := make([]byte, width*height*6)
+	src := vp9test.NewPanningYCbCr(width, height, 1)
+	for range 4 {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			t.Fatalf("warmup EncodeInto: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(5, func() {
+		if _, err := e.EncodeInto(src, dst); err != nil {
+			t.Fatalf("EncodeInto: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("denoiser row-MT steady-state allocs = %v, want 0", allocs)
+	}
+}
+
 func TestVP9RowMTProductionSteadyStateAllocations(t *testing.T) {
 	const width, height = 640, 256
 	e, err := NewVP9Encoder(VP9EncoderOptions{

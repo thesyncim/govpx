@@ -22,8 +22,9 @@ entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
 fast-picker final-mode copy-elision safe points, plus the complete VP9 decoder
 row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
 temporal-denoiser variance-threshold and committed count-state replay safe
-point, plus the A4 normal packed-leaf fallback-cache store deletion and first
-production C1 count-pass row-dispatch safe point, landed on
+point, plus the A4 normal packed-leaf fallback-cache store deletion, first
+production C1 count-pass row-dispatch safe point, and transactional denoiser
+row-dispatch extension, landed on
 2026-07-02/03/10/11; the larger A/B and remaining encoder-MT structural
 programs remain pending. This is the execution brief
 for implementation agents.
@@ -970,7 +971,37 @@ dispatch is zero-allocation. Remaining C1 work is a global multi-tile stealing
 queue and extension beyond the conservative eligibility envelope; C2 still
 owns denoiser row scaling.
 
-C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03. The
+Probe note, 2026-07-11 (global tile stealing): a source-shaped per-tile FIFO
+coordinator let every active row worker switch to the queue with the most
+unclaimed rows after its assigned tile emptied. The 480-frame 720p cpu8 8T
+no-denoise field performed 284-314 cross-tile steals per run and stayed
+byte/topology-identical, but median wall time regressed from 3.86 to
+3.89 ms/frame and count time from 2.75 to 2.79 ms/frame. Govpx's per-stolen-row
+tile-state rebinding and atomic queue scans cost more than the modest tile
+imbalance they recovered. The probe was removed completely; keep the fixed
+per-tile pools until worker/tile ownership is restructured more deeply.
+
+Measurement note, 2026-07-11 (transactional denoiser rows): denoiser-active
+count passes now enter the same per-tile row workers only when the prospective
+count state is guaranteed to commit: token replay and coding-state preservation
+are requested, minimum partitions are at least 8x8, and SVC, active segment-map
+coding, and forced-reference segments are absent. The post-count commit still
+checks the finalized preservation state. Denoiser source, intra-average, and
+motion-compensated images are shared exactly as in the existing tile-MT path;
+row workers write disjoint Y/UV blocks while reconstruction/reference handles
+remain worker-private.
+
+Against `ffa236ee`, three interleaved no-PGO 480-frame 720p realtime cpu8 8T
+default-denoiser runs moved median wall time from 3.97 to 3.71 ms/frame (about
+6.5%) and median count time from 3.02 to 2.58 ms/frame (about 14.6%). Output
+remained exact at 4,983,704 bytes and 468/12 topology; the length-delimited
+packet hash matched at
+`537d43329c94e6c52f0ed8341b43841b431fed7c8f8d55ee4cfb0a4a578701be`.
+The field executed 1,868 row epochs / 22,416 row jobs, retained the complete
+baseline search/topology ledger, stayed byte-identical across threads {4,8},
+and remained zero-allocation in steady state.
+
+C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03/11. The
 VP9 `NoiseSensitivity>0 → tile workers disabled` gate is removed for the
 existing tile-MT path; denoiser writes are block/tile-column disjoint in the
 source, intra running average, and motion-compensated scratch image, while the
@@ -979,9 +1010,11 @@ mirrors this layout instead of forcing libvpx serial for denoise. Gates:
 focused thread/bench layout tests, deterministic threaded-denoise packet test,
 and a 120-frame 720p realtime cpu8 denoise spot at 4.24 ms/frame govpx vs
 2.10 ms/frame libvpx with `--threads=4 --tile-columns=2 --noise-sensitivity=4`,
-count=3.27 ms and tile=0.47 ms. Remaining C2 work is row-mt denoiser scaling
-after C1, plus any oracle-denoise algorithmic parity fixes that surface under
-the broader option grid.
+count=3.27 ms and tile=0.47 ms. The transactional normal inter path now also
+uses C1 row workers at 8T, with the 480-frame result recorded above. Remaining
+C2 work is extending row dispatch to denoiser fallback/forced-reference cases
+and any oracle-denoise algorithmic parity fixes that surface under the broader
+option grid.
 
 C3 **Threaded decode**: COMPLETE 2026-07-10. The decoder loop-filter path now
 reuses the encoder VP9LfSync port for row-based LF-MT, replacing the old

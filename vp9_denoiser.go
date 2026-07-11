@@ -143,8 +143,23 @@ func (e *VP9Encoder) restoreVP9DenoiserAfterCounts(saved bool, input *image.YCbC
 func (e *VP9Encoder) canCommitVP9DenoiserCountState(replayTokens bool,
 	kind vp9ModeTreeKind, seg *vp9dec.SegmentationParams,
 ) bool {
-	if e == nil || !replayTokens || kind != vp9ModeTreeInterSource ||
-		!e.denoiser.active() || !e.vp9CountCodingPreserved ||
+	return e.canUseVP9DenoiserCountState(replayTokens,
+		e != nil && e.vp9CountCodingPreserved, kind, seg)
+}
+
+func (e *VP9Encoder) canDispatchVP9DenoiserCountRows(
+	inter *vp9InterEncodeState, kind vp9ModeTreeKind,
+	seg *vp9dec.SegmentationParams,
+) bool {
+	return e.canUseVP9DenoiserCountState(true,
+		inter != nil && inter.preserveCodingState, kind, seg)
+}
+
+func (e *VP9Encoder) canUseVP9DenoiserCountState(replayTokens, preserved bool,
+	kind vp9ModeTreeKind, seg *vp9dec.SegmentationParams,
+) bool {
+	if e == nil || !replayTokens || !preserved ||
+		kind != vp9ModeTreeInterSource || !e.denoiser.active() ||
 		e.svc.UseSvc || e.vp9ActiveSegmentMapCodingChooser() ||
 		e.sf.DefaultMinPartitionSize < common.Block8x8 {
 		return false

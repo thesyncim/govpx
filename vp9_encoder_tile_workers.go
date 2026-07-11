@@ -1628,7 +1628,11 @@ func runVP9CountTileRows(job *vp9CountTileJob,
 		job.rowMTSync == nil || !job.collectToken || job.tokenFrame == nil ||
 		job.kind != vp9ModeTreeInterSource || countInter == nil ||
 		countInter.counts == nil || job.worker.svc.UseSvc ||
-		job.worker.denoiser.active() || job.worker.vp9ActiveSegmentMapCodingChooser() {
+		job.worker.vp9ActiveSegmentMapCodingChooser() {
+		return false
+	}
+	if job.worker.denoiser.active() &&
+		!job.worker.canDispatchVP9DenoiserCountRows(countInter, job.kind, &job.seg) {
 		return false
 	}
 	if job.worker.sf.PartitionSearchType != VarBasedPartition ||
