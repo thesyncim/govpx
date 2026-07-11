@@ -55,6 +55,7 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	cfg.Threads = benchThreadsDefault
 	fs.Var(benchThreadsFlag{cfg: cfg}, "threads", "encoder thread count; default is VP9 realtime auto and 1 otherwise; 0 lets the encoder pick")
+	fs.BoolVar(&cfg.RowMT, "row-mt", false, "enable VP9 encoder row multithreading for govpx and libvpx")
 	fs.Var(benchNoiseSensitivityFlag{cfg: cfg}, "noise-sensitivity", "encoder noise sensitivity override, 0-6; default keeps realtime denoise, 0 enables VP9 tile-threaded no-denoise runs")
 	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")

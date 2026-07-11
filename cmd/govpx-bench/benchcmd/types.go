@@ -17,6 +17,7 @@ type benchConfig struct {
 	Decode               bool
 	SkipQuality          bool
 	Threads              int
+	RowMT                bool
 	NoiseSensitivity     int
 	NoiseSensitivitySet  bool
 	CpuUsed              int

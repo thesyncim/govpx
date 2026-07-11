@@ -299,6 +299,7 @@ func vp9BenchmarkEncoderOptions(cfg benchConfig, deadline govpx.Deadline) govpx.
 		Height:              cfg.Height,
 		FPS:                 cfg.FPS,
 		Threads:             p.Threads,
+		RowMT:               cfg.RowMT,
 		Deadline:            deadline,
 		CpuUsed:             int8(cpuUsed),
 		TargetBitrateKbps:   cfg.BitrateKbps,

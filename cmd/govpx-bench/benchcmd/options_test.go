@@ -217,6 +217,39 @@ func TestLibvpxVP9ParityFlagsMirrorThreadedTileLayout(t *testing.T) {
 	}
 }
 
+func TestLibvpxVP9ParityFlagsMirrorRowMT(t *testing.T) {
+	cfg := benchConfig{
+		Codec:               codecVP9,
+		Width:               1280,
+		Height:              720,
+		Frames:              30,
+		FPS:                 30,
+		BitrateKbps:         1200,
+		Mode:                "realtime",
+		Threads:             8,
+		CpuUsed:             8,
+		RowMT:               true,
+		NoiseSensitivity:    0,
+		NoiseSensitivitySet: true,
+	}
+	parity := parityFor(cfg)
+	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
+	found := false
+	for _, flag := range flags {
+		if flag == "--row-mt=1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("vp9 parity flags missing --row-mt=1\nhave: %v", flags)
+	}
+	opts := vp9BenchmarkEncoderOptions(cfg, govpx.DeadlineRealtime)
+	if !opts.RowMT {
+		t.Fatal("vp9 govpx benchmark options dropped RowMT")
+	}
+}
+
 func TestLibvpxVP9ParityFlagsMirrorRealtimeDenoiseDefaultLayout(t *testing.T) {
 	cfg := benchConfig{
 		Codec:       codecVP9,

@@ -189,17 +189,21 @@ func vp9LibvpxEncoderPath(cfg benchConfig) string {
 
 // libvpxVP9ParityFlags mirrors libvpxParityFlags for VP9: same CBR target /
 // buffer model / q-range / kf cadence / drop / threading config, but using
-// VP9-specific knobs (--row-mt=0, --tile-columns=N, --aq-mode=0,
+// VP9-specific knobs (--row-mt={0,1}, --tile-columns=N, --aq-mode=0,
 // --auto-alt-ref=0, --lag-in-frames=0, no --token-parts) so the comparison
 // stays apples-to-apples with govpx VP9's tile-threaded realtime configuration.
 func libvpxVP9ParityFlags(cfg benchConfig, p encoderParity, deadlineFlag string) []string {
 	threadHint, log2TileCols := vp9LibvpxThreadLayout(cfg, p)
+	rowMT := 0
+	if cfg.RowMT {
+		rowMT = 1
+	}
 	flags := []string{
 		"--passes=1",
 		"--lag-in-frames=0",
 		"--auto-alt-ref=0",
 		"--aq-mode=0",
-		"--row-mt=0",
+		fmt.Sprintf("--row-mt=%d", rowMT),
 		fmt.Sprintf("--tile-columns=%d", log2TileCols),
 		"--tile-rows=0",
 		"--profile=0",

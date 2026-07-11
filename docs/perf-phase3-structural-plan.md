@@ -932,6 +932,17 @@ libvpx makes row-mt bit-exact; measured t2..t8 byte-identical, t1 differs
 only via that gate). Steps: thresh tables/gate → row dispatch within one
 tile → multi-tile queue+stealing → count-pass extension. Gates: threads
 {1,2,4,8} byte-equal on the option grid + vpxenc --row-mt=1 oracle pins.
+
+Measurement note, 2026-07-11: `cmd/govpx-bench` now exposes `-row-mt` and
+applies it symmetrically to `VP9EncoderOptions.RowMT` and libvpx
+`--row-mt={0,1}`. The first 120-frame 720p realtime cpu8 8T no-denoise
+baseline measured 3.62 ms/frame govpx versus 2.26 ms/frame libvpx (1.60x),
+with identical 108/12 topology and govpx count time at 2.72 ms/frame. The
+govpx phase counters still showed only 108 tile count epochs and no row-job
+execution: the existing row pools and wavefront are lifecycle-tested scaffold,
+not production dispatch. This pins the C1 starting point and prevents future
+row-MT comparisons from accidentally benchmarking libvpx with `--row-mt=0`.
+
 C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03. The
 VP9 `NoiseSensitivity>0 → tile workers disabled` gate is removed for the
 existing tile-MT path; denoiser writes are block/tile-column disjoint in the
