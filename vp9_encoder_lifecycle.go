@@ -726,7 +726,6 @@ type VP9Encoder struct {
 // producer and the token writer. See VP9Encoder.blockCoeffScratch for why it
 // lives behind a pointer.
 type vp9EncoderBlockCoeffScratch struct {
-	blockCoeffs  [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockEOBSlots]int16
 

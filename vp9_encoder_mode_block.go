@@ -531,8 +531,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				},
 				Fc:              &e.fc.CoefProbs,
 				CoefBranchStats: vp9CoefBranchStats(counts),
-				GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-					return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
+				GetCoeffs: func(_, _, _ int, _ common.TxSize) []int16 {
+					return nil
 				},
 				GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 					return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)
@@ -691,8 +691,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			},
 			Fc:              &e.fc.CoefProbs,
 			CoefBranchStats: vp9CoefBranchStats(counts),
-			GetCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-				return e.vp9BlockCoeffs(plane, reconBsize, r, c, tx)
+			GetCoeffs: func(_, _, _ int, _ common.TxSize) []int16 {
+				return nil
 			},
 			GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
 				return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)

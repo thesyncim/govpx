@@ -93,7 +93,7 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				if !coeffOK {
 					continue
 				}
-				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
+				coeffs := e.coefScratch[:maxEob]
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
 				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
@@ -303,7 +303,7 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 				if !coeffOK || compactMaxEob != maxEob {
 					continue
 				}
-				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
+				coeffs := e.coefScratch[:maxEob]
 				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 				if ok, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,
 					txSize, miRow, miCol, rr, cc, maxEob, scanOrder, dequant,

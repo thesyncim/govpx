@@ -675,7 +675,15 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   stayed exact at 4,981,549 bytes and 468/12 while improving about 0.13-0.17%;
   the paired profile reduced `WriteCoefSb` cumulative CPU from 500 ms to
   340 ms and `PackTokensAndCommitCoefSbContexts` from 390 ms to 370 ms.
-  Persistent dqcoeff removal and direct token-side staging remain open. A
+  A follow-up removes persistent per-block dqcoeff entirely: transform/
+  quantize writes dqcoeff into the encoder's reusable 1024-entry tx scratch,
+  inverse-add consumes it immediately, and the later token walk explicitly
+  receives nil dqcoeff plus the retained qcoeff/EOB span. The persistent SB
+  coefficient store is now qcoeff-only at 24 KiB across three planes. Focused
+  staged/direct qcoeff token parity and connected 120-frame plus 2000-frame ML
+  byte gates stay exact. Two order-reversed 480-frame 4T pairs improved about
+  0.57-0.74% over the compact-layout safe point, with exact 4,981,549-byte
+  output and 468/12 topology. Direct token-side staging remains open. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
@@ -735,8 +743,8 @@ skipTxfm is consumed for segment-0 non-lossless realtime FP blocks, while
 AC-only remains explicitly non-FP/open; `BlockYrd` EOB scratch is narrowed to
 int16, and edge candidate prediction reads the persistent padded reference
 directly instead of constructing a temporary tap window; q/dq SB staging is
-now tx-block compact, while persistent dqcoeff removal and direct token-side
-staging remain −0.8..1.1).
+now tx-block compact and dqcoeff is tx-local, while direct token-side staging
+remains −0.7..1.0).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first

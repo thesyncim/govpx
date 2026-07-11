@@ -743,8 +743,8 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQ(key *vp9KeyframeEncodeStat
 // tokenize_b and cost_coeffs never read past the recorded eob). Every caller
 // either pre-clears its scratch (the RD scorers in vp9_encoder_key_modes.go /
 // vp9_encoder_residue.go) or gates all coefficient reads on the eob it stores
-// alongside the buffers (the blockCoeffs/blockEOBs producers feeding
-// WriteCoefSb, whose GetEOB contract confines reads to [:eob]).
+// alongside the buffers (the blockQCoeffs/blockEOBs producers feeding
+// WriteCoefSb, whose qcoeff path and GetEOB contract confine reads to [:eob]).
 func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOB(key *vp9KeyframeEncodeState,
 	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
 	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
@@ -1512,29 +1512,9 @@ func vp9BlockCoeffOffset(planeBsize common.BlockSize, r, c int,
 	return off, maxEob, true
 }
 
-// vp9BlockCoeffs returns a read-only view of the tx block's compact
-// dequantized coefficient slot. All consumers read strictly within the
-// quantizer-produced EOB delivered by vp9BlockEOB, so each transformed block
-// needs maxEob slots rather than a 1024-slot reservation at every 4x4 origin.
-func (e *VP9Encoder) vp9BlockCoeffs(plane int,
-	bsize common.BlockSize, r, c int, tx common.TxSize,
-) []int16 {
-	if plane >= 0 && plane < vp9dec.MaxMbPlane {
-		pd := &e.planes[plane]
-		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if coeffBase, maxEob, ok := vp9BlockCoeffOffset(planeBsize, r, c, tx); ok {
-			sc := e.vp9BlockCoeffScratch()
-			return sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
-		}
-	}
-	maxEob := vp9dec.MaxEobForTxSize(tx)
-	coeffs := e.coefScratch[:maxEob]
-	clear(coeffs)
-	return coeffs
-}
-
-// vp9BlockQCoeffs is the qcoeff sibling of vp9BlockCoeffs; the same
-// EOB-bounded read contract applies.
+// vp9BlockQCoeffs returns the quantized coefficient span retained for the
+// later token walk. Dequantized coefficients are consumed by inverse-add
+// immediately and stay in encoder-local tx scratch instead of this SB store.
 func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
 	bsize common.BlockSize, r, c int, tx common.TxSize,
 ) []int16 {

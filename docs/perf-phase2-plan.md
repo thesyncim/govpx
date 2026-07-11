@@ -483,9 +483,14 @@ re-run during the write walk), tokenize/stage +0.26.
    Two order-reversed no-PGO 480-frame 4T pairs kept exact 4,981,549-byte output
    and 468/12 topology while improving about 0.13-0.17%, and the paired profile
    moved `WriteCoefSb` cumulative CPU from 500 ms to 340 ms.
+   The next safe point removes persistent dqcoeff staging: quantize and
+   inverse-add share the encoder's reusable 1024-entry tx scratch, while the
+   later token walk consumes only retained qcoeff plus EOB. Persistent SB
+   coefficient storage is now qcoeff-only at 24 KiB across three planes. Two
+   order-reversed 480-frame 4T pairs improved another 0.57-0.74% with exact
+   bytes/topology, and the 120-frame plus 2000-frame ML gates stayed exact.
    Remaining work:
-   remove persistent dqcoeff and direct token-side staging from the cpu8 commit
-   path, then
+   remove direct token-side staging from the cpu8 commit path, then
    continue toward single-walk packing. Port exactly what vp9_encodemb.c does
    at this speed level.
 4. **Intra fallback diet**: source-check before changing. The original plan
