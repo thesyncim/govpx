@@ -213,6 +213,71 @@ func (e *VP9Encoder) writeVP9PackedInterLeaf(bw *bitstream.Writer,
 	return true
 }
 
+// writeVP9PackedKeyframeLeaf emits one committed keyframe leaf directly from
+// the count walk's mode-info and token streams.
+func (e *VP9Encoder) writeVP9PackedKeyframeLeaf(bw *bitstream.Writer,
+	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	tile vp9dec.TileBounds, seg *vp9dec.SegmentationParams,
+	txMode common.TxMode, key *vp9KeyframeEncodeState,
+) bool {
+	if e == nil || bw == nil || key == nil || key.counts != nil ||
+		!e.vp9CountCodingPreserved || !e.vp9TokenReplay.active ||
+		e.vp9TokenReplay.err != nil || e.svc.UseSvc {
+		return false
+	}
+	committed := e.vp9MiAt(miRows, miCols, miRow, miCol)
+	if committed == nil || committed.SbType != bsize {
+		return false
+	}
+	uvMode, ok := e.peekVP9PackedLeafMode()
+	if !ok {
+		return false
+	}
+	cur := *committed
+	var left *vp9dec.NeighborMi
+	if miCol > tile.MiColStart {
+		left = e.vp9MiAt(miRows, miCols, miRow, miCol-1)
+	}
+	above := e.vp9MiAt(miRows, miCols, miRow-1, miCol)
+	maxTxSize := common.MaxTxsizeLookup[bsize]
+	txCtx := vp9dec.GetTxSizeContext(above, left, maxTxSize)
+	encoder.WriteKeyframeBlock(bw, encoder.WriteKeyframeBlockArgs{
+		Seg:       seg,
+		Mi:        &cur,
+		AboveMi:   above,
+		LeftMi:    left,
+		TxMode:    txMode,
+		MaxTxSize: maxTxSize,
+		TxProbs:   vp9TxProbsRow(&e.fc.TxProbs, maxTxSize, txCtx),
+		SkipProbs: e.fc.SkipProbs,
+	})
+	encoder.WriteKeyframeUvMode(bw, uvMode, cur.Mode)
+	if vp9OracleTraceBuild {
+		e.vp9TraceCommitBlock(e.frameIndex, miRow, miCol, &cur, uvMode)
+	}
+	reconBsize := vp9dec.ModeInfoDecodeBSize(bsize)
+	aboveOffsets, leftOffsets := e.vp9EncoderPlaneContextOffsets(miRow, miCol)
+	if cur.Skip != 0 {
+		vp9dec.ResetSkipContext(e.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
+		e.finishVP9CoefTokenLeaf()
+		return true
+	}
+	e.packVP9ReplayCoefTokenLeafWithContexts(bw, &encoder.WriteCoefSbArgs{
+		BSize:        reconBsize,
+		MiTxSize:     cur.TxSize,
+		IsInter:      0,
+		Mi:           &cur,
+		MiRows:       miRows,
+		MiCols:       miCols,
+		MiRow:        miRow,
+		MiCol:        miCol,
+		Planes:       &e.planes,
+		AboveOffsets: aboveOffsets,
+		LeftOffsets:  leftOffsets,
+	})
+	return true
+}
+
 func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miRow, miCol int,
 	bsize common.BlockSize, tile vp9dec.TileBounds,
 	seg *vp9dec.SegmentationParams, baseMi vp9dec.NeighborMi, txMode common.TxMode,

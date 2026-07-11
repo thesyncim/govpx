@@ -61,6 +61,28 @@ func TestRunVP9BenchmarkSkipQuality(t *testing.T) {
 	}
 }
 
+func TestRunVP9BenchmarkPeriodicKeyframeReplay(t *testing.T) {
+	report, err := runVP9Benchmark(benchConfig{
+		Codec:       codecVP9,
+		Width:       1280,
+		Height:      720,
+		Frames:      31,
+		FPS:         30,
+		BitrateKbps: 2500,
+		Mode:        "good",
+		CpuUsed:     8,
+		Threads:     4,
+		SkipQuality: true,
+	})
+	if err != nil {
+		t.Fatalf("periodic keyframe benchmark: %v", err)
+	}
+	if report.EncodedFrames != 31 || report.OutputBytes <= 0 {
+		t.Fatalf("periodic keyframe result = frames:%d bytes:%d, want 31 and positive bytes",
+			report.EncodedFrames, report.OutputBytes)
+	}
+}
+
 func TestRunVP9BenchmarkCPUProfileKeepsEncodeAllocsScoped(t *testing.T) {
 	profile := t.TempDir() + "/vp9-encode.pprof"
 	report, err := runVP9Benchmark(benchConfig{

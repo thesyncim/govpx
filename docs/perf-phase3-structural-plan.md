@@ -5,7 +5,7 @@ A1/A2 token-walk safe points, the first A5 pick-buffer safe point, the
 A5 non-ML plus ML four-buffer ownership safe points, the
 A6 compact coefficient staging plus padded-reference edge-prediction and
 bare-quantize / AC-DC skipTxfm
-commit safe points, and a denoiser
+commit safe points, the A3 keyframe pure-pack safe point, and a denoiser
 count-copy safe point plus a nonrd picker invariant-hoist safe point, a
 small offset-SAD cleanup, a `BlockYrd` EOB-scratch narrowing safe point,
 a VP9 MV-pred/fullpel callback shape cleanup, a VP9 ARM64 wide-SAD
@@ -287,6 +287,21 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   time from about 143.1 ms to 138.6 ms total (about 0.04 ms/input frame).
   The loaded 4T/no-denoise pair also stayed exact at 1,236,037 bytes with
   identical 108/12 topology and 237,683 replayed inter leaves.
+- Keyframe replay now uses the same pure partition-stream and leaf-pack path:
+  it reads committed mode info plus the UV-mode/TOKENEXTRA sidecars, emits the
+  live skip-probability row, and commits coefficient contexts without
+  re-entering keyframe partition, mode, residue, or decision-cache plumbing.
+  The 480-frame 8T row-MT gate stayed exact at 4,981,549 bytes and 468/12
+  topology; median tile-write time moved from about 0.422 to 0.418 ms/frame
+  while whole-frame timing was neutral. More importantly, the prior good-mode
+  control failed every 720p run on the periodic frame-30 keyframe with
+  `encoder: VP9 token buffer full`; the pure pack path completed 120/120 with
+  four keyframes and stable 1,252,676-byte output. A 31-frame 720p regression
+  test pins that production-volume transition. The separate quality-fixtures
+  warmup still reaches the inherited frame-65 `VP9 token buffer full` failure,
+  which also reproduces on the published pre-row-MT control; this slice does
+  not claim to close that distinct path. Normal, pure-Go, trace, conformance,
+  focused race, strict byte-parity, and refreshed-PGO gates pass.
 - Replay infra (a 120-byte decision in each full-width leaf-cache entry,
   `canReplay` validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
@@ -723,7 +738,12 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   PGO, 1T/4T, and 2000-frame ML gates pass. The broad root race run remains red
   on pre-existing frame-parallel token-buffer, decision-cache, and last-source
   sharing, with no report in this sidecar path. Producer-time transactional
-  token staging remains open. A
+  token staging remains open. A producer-adjacent relocation probe kept exact
+  4,981,549-byte output but failed the wall gate: the 4T median moved from
+  3.977 to 3.995 ms/frame, while stable 8T row-MT candidates were 3.605 and
+  3.623 ms/frame versus 3.601-3.606 controls, with one 4.081 ms/frame outlier.
+  The probe was reverted; the remaining A6 work must delete the sidecar walk
+  by splitting final commit from candidate search, not merely move it. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
@@ -764,7 +784,8 @@ inter partition picker under count-token replay, and a one-byte UV-mode
 sidecar lets the normal >=8x8 inter-source pack path consume committed miGrid
 plus tokens without leaf replay/application or write-side residue work, and a
 parallel partition-node stream removes the normal inter write-side partition
-dispatcher/cache walk; keyframe/sub-8x8/fallback pure packing, count-side
+dispatcher/cache walk, and keyframes now use the same pure partition/leaf
+replay; sub-8x8 inter/fallback pure packing and count-side
 partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 delete replay
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining
