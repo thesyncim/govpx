@@ -112,6 +112,50 @@ func TestReconstructInterFrameGridFastMatchesSlow(t *testing.T) {
 	}
 }
 
+func TestReconstructWholeMVInterMacroblockPreparedMatchesPerMB(t *testing.T) {
+	const width, height = 96, 48
+	ref, err := common.NewFrameBuffer(width, height, 32, 32)
+	if err != nil {
+		t.Fatalf("NewFrameBuffer ref: %v", err)
+	}
+	fillImage(&ref.Img, testImage(width, height))
+	ref.ExtendBorders()
+	dequants := testMacroblockDequants()
+	modes := []MacroblockMode{
+		{Mode: common.ZeroMV, RefFrame: common.LastFrame, MBSkipCoeff: true},
+		{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: 3, Col: 5}, MBSkipCoeff: true},
+		{Mode: common.NewMV, RefFrame: common.LastFrame, MV: MotionVector{Row: -16, Col: 23}, MBSkipCoeff: true},
+	}
+
+	for _, cfg := range []InterPredictionConfig{{}, {UseBilinear: true}, {FullPixel: true}} {
+		prepared := PrepareInterFrameRefState(&ref.Img, cfg)
+		for index := range modes {
+			row, col := index%3, index%6
+			want := blankImage(width, height)
+			got := blankImage(width, height)
+			var wantScratch, gotScratch IntraReconstructionScratch
+			var tokens MacroblockTokens
+			yOff := row*16*want.YStride + col*16
+			uOff := row*8*want.UStride + col*8
+			vOff := row*8*want.VStride + col*8
+			mode := &modes[index]
+			if !ReconstructWholeMVInterMacroblock(mode, &tokens, &dequants[0], &ref.Img,
+				want.Y[yOff:], want.YStride, want.U[uOff:], want.UStride, want.V[vOff:], want.VStride,
+				&wantScratch.Residual, row, col, cfg) {
+				t.Fatalf("per-MB reconstruction failed for config %+v mode %+v", cfg, mode)
+			}
+			if !ReconstructWholeMVInterMacroblockWithState(&prepared, mode, &tokens, &dequants[0],
+				got.Y[yOff:], got.YStride, got.U[uOff:], got.UStride, got.V[vOff:], got.VStride,
+				&gotScratch.Residual, row, col) {
+				t.Fatalf("prepared reconstruction failed for config %+v mode %+v", cfg, mode)
+			}
+			assertPlaneEqual(t, "Y", got.Y, want.Y)
+			assertPlaneEqual(t, "U", got.U, want.U)
+			assertPlaneEqual(t, "V", got.V, want.V)
+		}
+	}
+}
+
 func TestReconstructInterFrameGridZeroMVRunFastMatchesSlow(t *testing.T) {
 	const width, height = 128, 32
 	const cols = width / 16

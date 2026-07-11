@@ -27,6 +27,14 @@ func makeInterMBBenchScene(width, height int) (*common.FrameBuffer, *common.Fram
 // BenchmarkInterMBBuilderSixTap16x16 stresses the per-MB inter predictor
 // builder on a 1280x720 grid where every MB is a sub-pel NewMV using sixtap.
 func BenchmarkInterMBBuilderSixTap16x16(b *testing.B) {
+	benchmarkInterMBBuilder16x16(b, false, false)
+}
+
+func BenchmarkInterMBBuilderSixTap16x16Prepared(b *testing.B) {
+	benchmarkInterMBBuilder16x16(b, false, true)
+}
+
+func benchmarkInterMBBuilder16x16(b *testing.B, useBilinear bool, prepared bool) {
 	const width, height = 1280, 720
 	const cols = width / 16
 	const rows = height / 16
@@ -43,6 +51,8 @@ func BenchmarkInterMBBuilderSixTap16x16(b *testing.B) {
 	var tokens MacroblockTokens
 	dequants := testMacroblockDequants()
 	var scratch IntraReconstructionScratch
+	cfg := InterPredictionConfig{UseBilinear: useBilinear}
+	state := PrepareInterFrameRefState(src, cfg)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -54,11 +64,17 @@ func BenchmarkInterMBBuilderSixTap16x16(b *testing.B) {
 				yOff := yRow + col*16
 				uOff := uRow + col*8
 				vOff := vRow + col*8
-				if !ReconstructWholeMVInterMacroblock(&mode, &tokens, &dequants[0], src,
-					dst.Y[yOff:], dst.YStride,
-					dst.U[uOff:], dst.UStride,
-					dst.V[vOff:], dst.VStride,
-					&scratch.Residual, row, col, InterPredictionConfig{}) {
+				var ok bool
+				if prepared {
+					ok = ReconstructWholeMVInterMacroblockWithState(&state, &mode, &tokens, &dequants[0],
+						dst.Y[yOff:], dst.YStride, dst.U[uOff:], dst.UStride, dst.V[vOff:], dst.VStride,
+						&scratch.Residual, row, col)
+				} else {
+					ok = ReconstructWholeMVInterMacroblock(&mode, &tokens, &dequants[0], src,
+						dst.Y[yOff:], dst.YStride, dst.U[uOff:], dst.UStride, dst.V[vOff:], dst.VStride,
+						&scratch.Residual, row, col, cfg)
+				}
+				if !ok {
 					b.Fatalf("ReconstructWholeMVInterMacroblock failed at (%d,%d)", row, col)
 				}
 			}
@@ -70,45 +86,11 @@ func BenchmarkInterMBBuilderSixTap16x16(b *testing.B) {
 // BenchmarkInterMBBuilderBilinear16x16 same as above but with the bilinear
 // filter selected.
 func BenchmarkInterMBBuilderBilinear16x16(b *testing.B) {
-	const width, height = 1280, 720
-	const cols = width / 16
-	const rows = height / 16
-	srcFB, dstFB := makeInterMBBenchScene(width, height)
-	dst := &dstFB.Img
-	src := &srcFB.Img
+	benchmarkInterMBBuilder16x16(b, true, false)
+}
 
-	mode := MacroblockMode{
-		Mode:        common.NewMV,
-		RefFrame:    common.LastFrame,
-		MV:          MotionVector{Row: 3, Col: 5},
-		MBSkipCoeff: true,
-	}
-	var tokens MacroblockTokens
-	dequants := testMacroblockDequants()
-	var scratch IntraReconstructionScratch
-	cfg := InterPredictionConfig{UseBilinear: true}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for row := range rows {
-			yRow := row * 16 * dst.YStride
-			uRow := row * 8 * dst.UStride
-			vRow := row * 8 * dst.VStride
-			for col := range cols {
-				yOff := yRow + col*16
-				uOff := uRow + col*8
-				vOff := vRow + col*8
-				if !ReconstructWholeMVInterMacroblock(&mode, &tokens, &dequants[0], src,
-					dst.Y[yOff:], dst.YStride,
-					dst.U[uOff:], dst.UStride,
-					dst.V[vOff:], dst.VStride,
-					&scratch.Residual, row, col, cfg) {
-					b.Fatalf("ReconstructWholeMVInterMacroblock failed at (%d,%d)", row, col)
-				}
-			}
-		}
-	}
-	b.ReportMetric(float64(rows*cols), "mb/op")
+func BenchmarkInterMBBuilderBilinear16x16Prepared(b *testing.B) {
+	benchmarkInterMBBuilder16x16(b, true, true)
 }
 
 // BenchmarkInterMBBuilderZeroMV measures dispatch with full-MB copies (no

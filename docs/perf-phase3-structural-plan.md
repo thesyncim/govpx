@@ -964,6 +964,26 @@ agent report "VP8 encode recon redesign"; key verified facts:
   2 dropped. After PGO refresh/check, the 480-frame spot measured
   7.846 ms/frame with unchanged bytes/topology. Count this as copy glue, not
   closure of per-MB denoiser staging.
+- B4 is partial as of 2026-07-11: accepted whole-MV predictor commits now
+  prepare immutable reference-plane metadata once for each enabled LAST / GOLDEN /
+  ALT reference and reuse it across the macroblock walk. The three prepared
+  states stay in a frame-local array keyed by reference-frame enum, so the hot
+  picker continues to copy only the compact `interAnalysisReference`; split-MV,
+  denoiser reconstruction, and zero-value focused-test references retain the
+  existing per-MB path. A direct prepared-vs-per-MB parity test covers ZeroMV,
+  edge-clamped subpel, six-tap, bilinear, and full-pixel predictors. Five
+  order-alternated, explicitly no-PGO 480-frame cpu8 serial pairs kept exact
+  5,066,778-byte output, 478 encoded / 2 dropped, and 0 allocs/frame while the
+  median moved from 7.479 to 7.425 ms/frame (about 0.7%); the candidate won four
+  of five pairs. Three matching 4T pairs kept exact 5,111,925-byte output and
+  456/24 topology while nudging the median from 4.245 to 4.238 ms/frame. A
+  paired serial profile reduced sampled `newFrameInterRefState` from 20 to
+  10 ms cumulative; the remaining sample is the separate denoiser path. This
+  removes accepted-path setup only. After refreshing the repository PGO
+  profile, three 480-frame pairs were wall-neutral (7.314 baseline versus
+  7.320 ms/frame candidate medians, with two candidate pairwise wins) and kept
+  the same bytes/topology. Direct encoder-kernel winner construction /
+  predictor carry remains open before B4 can be called complete.
 - Current-frontier VP8 probes closed on 2026-07-03: inlining/hoisting the
   full-luma loopfilter trial body tied focused 1024x1024 trial samples and was
   reverted; VP8 subpel/DSP one-axis and split-shape benches were already
@@ -1024,7 +1044,9 @@ removed; remaining MB-walk layout work is still open before claiming the
 direct border pointers (PARTIAL 2026-07-03: direct-above luma aliasing landed;
 direct-left / fuller picker scratch layout remains −0.15..0.25); B3 subpel eval fusion after kernel-parity microbench
 adjudication (−0.10..0.20); B4 direct winner predictor with encoder kernels /
-storePredictor reuse (−0.10..0.15); B5 per-MB denoiser staging (thismb shape)
+storePredictor reuse (PARTIAL 2026-07-11: accepted whole-MV commits reuse
+prepared per-reference decoder state; direct encoder-kernel predictor carry
+remains); B5 per-MB denoiser staging (thismb shape)
 + re-enabled FDCT winner cache (−0.10..0.15, but the 2026-07-03 FDCT-cache
 return probe is closed for realtime cpu8 until an RD-cache-producing fast path
 exists; PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped

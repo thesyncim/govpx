@@ -660,7 +660,7 @@ func ReconstructInterFrameGridWithConfig(img *common.Image, last *common.Image, 
 	return nil
 }
 
-func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, lastState *frameInterRefState, goldenState *frameInterRefState, altState *frameInterRefState, row int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch, cfg InterPredictionConfig) error {
+func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden *common.Image, alt *common.Image, lastState *InterFrameRefState, goldenState *InterFrameRefState, altState *InterFrameRefState, row int, cols int, modes []MacroblockMode, tokens []MacroblockTokens, dequants *[common.MaxMBSegments]common.MacroblockDequant, scratch *IntraReconstructionScratch, cfg InterPredictionConfig) error {
 	yRow := row * 16 * img.YStride
 	uRow := row * 8 * img.UStride
 	vRow := row * 8 * img.VStride
@@ -683,7 +683,7 @@ func reconstructInterFrameGridRow(img *common.Image, last *common.Image, golden 
 			continue
 		}
 
-		var refState *frameInterRefState
+		var refState *InterFrameRefState
 		var ref *common.Image
 		switch mode.RefFrame {
 		case common.LastFrame:

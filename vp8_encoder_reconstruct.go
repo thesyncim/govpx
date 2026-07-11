@@ -466,6 +466,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)
+	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount)
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)
@@ -500,6 +501,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 		rows:                   rows,
 		cols:                   cols,
 		refs:                   refs,
+		refStates:              refStates,
 		refCount:               refCount,
 		quants:                 quants,
 		aboveTok:               aboveTok,
@@ -559,6 +561,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)
+	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount)
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)
@@ -688,7 +691,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				predMode.MBSkipCoeff = true
 				acceptedInterCache = e.consumeInterRDCoeffCache()
 				if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &modes[index]) &&
-					!reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+					!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&refStates, decision.ref.Frame), row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				if traceEnabled {

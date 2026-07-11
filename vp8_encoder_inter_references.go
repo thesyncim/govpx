@@ -2,6 +2,7 @@ package govpx
 
 import (
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	"github.com/thesyncim/govpx/internal/vpx/geometry"
 )
@@ -65,6 +66,26 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 		count++
 	}
 	return count
+}
+
+func prepareInterAnalysisReferenceStates(refs []interAnalysisReference, refCount int) [3]vp8dec.InterFrameRefState {
+	var states [3]vp8dec.InterFrameRefState
+	limit := min(refCount, len(refs))
+	for i := range limit {
+		ref := &refs[i]
+		if ref.Img == nil || ref.Frame < vp8common.LastFrame || ref.Frame > vp8common.AltRefFrame {
+			continue
+		}
+		states[int(ref.Frame-vp8common.LastFrame)] = vp8dec.PrepareInterFrameRefState(ref.Img, vp8dec.InterPredictionConfig{})
+	}
+	return states
+}
+
+func interAnalysisReferenceState(states *[3]vp8dec.InterFrameRefState, frame vp8common.MVReferenceFrame) *vp8dec.InterFrameRefState {
+	if states == nil || frame < vp8common.LastFrame || frame > vp8common.AltRefFrame {
+		return nil
+	}
+	return &states[int(frame-vp8common.LastFrame)]
 }
 
 func (e *VP8Encoder) closestInterAnalysisReference(refs []interAnalysisReference, refCount int) vp8common.MVReferenceFrame {

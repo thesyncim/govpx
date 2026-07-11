@@ -21,6 +21,7 @@ type threadedInterRowsArgs struct {
 	rows                   int
 	cols                   int
 	refs                   [3]interAnalysisReference
+	refStates              [3]vp8dec.InterFrameRefState
 	refCount               int
 	quants                 [vp8common.MaxMBSegments]vp8enc.MacroblockQuant
 	aboveTok               []vp8enc.TokenContextPlanes
@@ -544,7 +545,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		predMode.MBSkipCoeff = true
 		acceptedInterCache = e.consumeInterRDCoeffCache()
 		if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &args.modes[index]) &&
-			!reconstructInterAnalysisMacroblock(&e.analysis.Img, decision.ref.Img, row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+			!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&args.refStates, decision.ref.Frame), row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 			return 0, 0, ErrInvalidConfig
 		}
 	}

@@ -23,11 +23,13 @@ import (
 // per-MB validation gates remain in place and any failure reverts to
 // returning false so the caller can surface ErrUnsupportedInterReconstructionMode.
 
-// frameInterRefState caches per-reference-frame plane addresses,
+// InterFrameRefState caches per-reference-frame plane addresses,
 // strides, borders, and coded dimensions so the inner loop only does
 // per-MB work. Built once per ReconstructInterFrameGridWithConfig
 // reference image.
-type frameInterRefState struct {
+type InterFrameRefState struct {
+	ready bool
+
 	yPlane []byte
 	uPlane []byte
 	vPlane []byte
@@ -75,7 +77,7 @@ type frameInterRefState struct {
 	fullPixel   bool
 }
 
-func newFrameInterRefState(ref *common.Image, cfg InterPredictionConfig) frameInterRefState {
+func newFrameInterRefState(ref *common.Image, cfg InterPredictionConfig) InterFrameRefState {
 	yPlane, yOrigin, yBorder := referencePlane(ref.Y, ref.YFull, ref.YOrigin, ref.YBorder)
 	uPlane, uOrigin, uvBorder := referencePlane(ref.U, ref.UFull, ref.UOrigin, ref.UVBorder)
 	vPlane, vOrigin, _ := referencePlane(ref.V, ref.VFull, ref.VOrigin, ref.UVBorder)
@@ -83,7 +85,8 @@ func newFrameInterRefState(ref *common.Image, cfg InterPredictionConfig) frameIn
 	ch := codedImageHeight(ref)
 	uvW := (cw + 1) >> 1
 	uvH := (ch + 1) >> 1
-	return frameInterRefState{
+	return InterFrameRefState{
+		ready:       true,
 		yPlane:      yPlane,
 		uPlane:      uPlane,
 		vPlane:      vPlane,
@@ -124,13 +127,25 @@ func newFrameInterRefState(ref *common.Image, cfg InterPredictionConfig) frameIn
 	}
 }
 
+// PrepareInterFrameRefState prepares immutable reference-plane metadata for
+// repeated whole-MV predictor construction against ref.
+func PrepareInterFrameRefState(ref *common.Image, cfg InterPredictionConfig) InterFrameRefState {
+	if ref == nil {
+		return InterFrameRefState{}
+	}
+	return newFrameInterRefState(ref, cfg)
+}
+
 // reconstructWholeMVInterMacroblockFast is the fast-path equivalent of
 // ReconstructWholeMVInterMacroblock for use inside the grid loop where
 // precomputed reference state is available. Returns false on validation
 // failure so the caller can fall back / surface the error.
 //
 //go:nosplit
-func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+func reconstructWholeMVInterMacroblockFast(state *InterFrameRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+	if state == nil || !state.ready {
+		return false
+	}
 	// Validation gates are intentionally kept identical to the
 	// pre-existing ReconstructWholeMVInterMacroblock to ensure
 	// byte-identical behavior on inputs the slow path would reject.
@@ -299,7 +314,14 @@ func reconstructWholeMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	return true
 }
 
-func reconstructSplitMVInterMacroblockFast(state *frameInterRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
+// ReconstructWholeMVInterMacroblockWithState is the prepared-state equivalent
+// of ReconstructWholeMVInterMacroblock for callers that reuse one reference
+// image across many macroblocks.
+func ReconstructWholeMVInterMacroblockWithState(state *InterFrameRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int) bool {
+	return reconstructWholeMVInterMacroblockFast(state, mode, tokens, dequant, y, yStride, u, uStride, v, vStride, scratch, mbRow, mbCol)
+}
+
+func reconstructSplitMVInterMacroblockFast(state *InterFrameRefState, mode *MacroblockMode, tokens *MacroblockTokens, dequant *common.MacroblockDequant, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, scratch *MacroblockResidual, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
 	if mode.RefFrame == common.IntraFrame || mode.Mode != common.SplitMV || !mode.Is4x4 {
 		return false
 	}
@@ -365,7 +387,7 @@ func reconstructSplitMVInterMacroblockFast(state *frameInterRefState, mode *Macr
 	return true
 }
 
-func predictSplitMVInterChromaFast(state *frameInterRefState, mode *MacroblockMode, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
+func predictSplitMVInterChromaFast(state *InterFrameRefState, mode *MacroblockMode, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, cfg InterPredictionConfig) bool {
 	var mv [4]splitMVChromaVector
 	for block := range mv {
 		mvRow, mvCol := splitChromaMotionVector(mode, block)
@@ -413,7 +435,7 @@ func predictSplitMVInterChromaFast(state *frameInterRefState, mode *MacroblockMo
 	return true
 }
 
-func clampMotionVectorToUMVBorderFast(state *frameInterRefState, mv MotionVector, mbRow int, mbCol int) MotionVector {
+func clampMotionVectorToUMVBorderFast(state *InterFrameRefState, mv MotionVector, mbRow int, mbCol int) MotionVector {
 	top, bottom, left, right := macroblockMotionVectorEdgesFromGrid(mbRow, mbCol, state.mbRows, state.mbCols)
 	return MotionVector{
 		Row: int16(clampUMVComponent(int(mv.Row), top, bottom)),
@@ -421,7 +443,7 @@ func clampMotionVectorToUMVBorderFast(state *frameInterRefState, mv MotionVector
 	}
 }
 
-func clampChromaMotionVectorToUMVBorderFast(state *frameInterRefState, row int, col int, mbRow int, mbCol int) (int, int) {
+func clampChromaMotionVectorToUMVBorderFast(state *InterFrameRefState, row int, col int, mbRow int, mbCol int) (int, int) {
 	top, bottom, left, right := macroblockMotionVectorEdgesFromGrid(mbRow, mbCol, state.mbRows, state.mbCols)
 	return clampChromaUMVComponent(row, top, bottom), clampChromaUMVComponent(col, left, right)
 }
@@ -434,7 +456,7 @@ func macroblockMotionVectorEdgesFromGrid(mbRow int, mbCol int, mbRows int, mbCol
 	return top, bottom, left, right
 }
 
-func copyZeroMVInterMacroblockFast(state *frameInterRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int) bool {
+func copyZeroMVInterMacroblockFast(state *InterFrameRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int) bool {
 	if uint(mbRow) >= uint(state.mbRows) || uint(mbCol) >= uint(state.mbCols) {
 		return false
 	}
@@ -455,7 +477,7 @@ func copyZeroMVInterMacroblockFast(state *frameInterRefState, y []byte, yStride 
 	return true
 }
 
-func copyZeroMVInterMacroblockRunFast(state *frameInterRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, mbCount int) bool {
+func copyZeroMVInterMacroblockRunFast(state *InterFrameRefState, y []byte, yStride int, u []byte, uStride int, v []byte, vStride int, mbRow int, mbCol int, mbCount int) bool {
 	if mbCount <= 0 || mbCount > state.mbCols || mbCol < 0 || mbCol > state.mbCols-mbCount || uint(mbRow) >= uint(state.mbRows) {
 		return false
 	}

@@ -301,11 +301,18 @@ func buildReconstructingBPredMacroblockCoefficients(coefProbs *vp8tables.Coeffic
 }
 
 func reconstructInterAnalysisMacroblock(img *vp8common.Image, last *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
+	return reconstructInterAnalysisMacroblockWithState(img, last, nil, row, col, mode, tokens, dequant, scratch)
+}
+
+func reconstructInterAnalysisMacroblockWithState(img *vp8common.Image, last *vp8common.Image, state *vp8dec.InterFrameRefState, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
 	yOff := row*16*img.YStride + col*16
 	uOff := row*8*img.UStride + col*8
 	vOff := row*8*img.VStride + col*8
 	if mode.Mode == vp8common.SplitMV {
 		return vp8dec.ReconstructSplitMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
+	}
+	if vp8dec.ReconstructWholeMVInterMacroblockWithState(state, mode, tokens, dequant, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col) {
+		return true
 	}
 	return vp8dec.ReconstructWholeMVInterMacroblock(mode, tokens, dequant, last, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride, &scratch.Residual, row, col, vp8dec.InterPredictionConfig{})
 }

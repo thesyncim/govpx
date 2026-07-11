@@ -99,7 +99,7 @@ func ReconstructAndLoopFilterPipelined(
 	}
 
 	// Reconstruction state cached once per frame.
-	var lastState, goldenState, altState frameInterRefState
+	var lastState, goldenState, altState InterFrameRefState
 	if !keyFrame {
 		lastState = newFrameInterRefState(last, cfg)
 		goldenState = newFrameInterRefState(golden, cfg)
