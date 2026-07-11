@@ -168,11 +168,17 @@ re-run during the write walk), tokenize/stage +0.26.
    no-denoise frontier stayed exact at 4,981,549 bytes and 468/12 topology;
    two order-reversed whole-process pairs used about 1.3-1.8% fewer cycles on
    the heavily loaded host, and picker-attributed `runtime.memmove` disappeared
-   from the follow-up profile. ML-lane unification, intra-winner carry, and the
-   bordered subpel staging row remain open.
+   from the follow-up profile. ML-lane unification and intra-winner carry remain
+   open. The phase-3 A6 continuation now reads edge-crossing candidate tap
+   windows directly from the persistent padded reference instead of rebuilding
+   temporary border staging; stable 480-frame 4T pairs improved about 0.3-0.5%
+   with exact bytes/topology, and `vp9ExtendInterPredictSource` disappeared
+   from the follow-up profile. Reference-generation stamps keep those padded
+   reads valid across same-buffer replacement, retries, ROI/active-map passes,
+   and worker aliases.
    Remaining work: the broader +1.31/+0.68 rows are not closed until candidate
-   prediction storage is source-shaped end-to-end and the bordered subpel
-   variance staging is removed. Port the vp9_pickmode.c data flow. Biggest
+   prediction storage is source-shaped end-to-end and the remaining residual
+   gather/stage layers are removed. Port the vp9_pickmode.c data flow. Biggest
    single item; medium parity risk — land behind the existing byte-identity
    gates and the pinned 480f benchmark frontier below. Promote the 480f
    frontier to full byte-identity only after that drift is closed.

@@ -133,6 +133,41 @@ func TestEnsureLastBorderedReusesAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestSubpelReferenceBorderedRebuildsAfterSameBufferStore(t *testing.T) {
+	const w, h = 16, 16
+	var e VP9Encoder
+	ref := &e.refFrames[vp9LastRefSlot]
+	ref.store(vp9BorderedTestImage(w, h, 23))
+	e.ensureLastBordered()
+	if !e.lastBorderedValid {
+		t.Fatal("initial LAST border is invalid")
+	}
+	oldGeneration := ref.generation
+	oldBacking := &ref.y[0]
+
+	second := vp9BorderedTestImage(w, h, 91)
+	ref.store(second)
+	if &ref.y[0] != oldBacking {
+		t.Fatal("reference store did not reuse backing; test needs same-buffer replacement")
+	}
+	if ref.generation == oldGeneration {
+		t.Fatal("reference generation did not advance")
+	}
+
+	pixels, stride, originX, originY, _, _, ok :=
+		e.vp9SubpelReferencePlane(vp9dec.LastFrame, ref)
+	if !ok {
+		t.Fatal("vp9SubpelReferencePlane returned !ok")
+	}
+	if got, want := pixels[originY*stride+originX], second.Y[0]; got != want {
+		t.Fatalf("rebuilt visible origin = %d, want %d", got, want)
+	}
+	if e.lastBorderedGeneration != ref.generation {
+		t.Fatalf("border generation = %d, want %d",
+			e.lastBorderedGeneration, ref.generation)
+	}
+}
+
 func TestSubpelReferenceBorderedCachesPerReferenceSlot(t *testing.T) {
 	const w, h = 16, 16
 	var e VP9Encoder

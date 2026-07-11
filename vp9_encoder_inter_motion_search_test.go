@@ -662,9 +662,23 @@ func TestVP9InterPredictionSADScratchMatchesReconPredictor(t *testing.T) {
 				for i := range got {
 					got[i] = 0xa5
 				}
+				var interPredictScratchPtr *byte
+				var interPredictScratchBefore []byte
+				if tc.name == "32x32-border-subpel" {
+					e.interPredictScratch = bytes.Repeat([]byte{0x7c}, 17)
+					interPredictScratchPtr = &e.interPredictScratch[0]
+					interPredictScratchBefore = append([]byte(nil), e.interPredictScratch...)
+				}
 				if !e.predictVP9InterBlockLumaToScratch(inter, tc.miRow, tc.miCol,
 					tc.bsize, &mi, got, blockW) {
 					t.Fatal("scratch luma predictor returned !ok")
+				}
+				if interPredictScratchPtr != nil {
+					if len(e.interPredictScratch) == 0 ||
+						&e.interPredictScratch[0] != interPredictScratchPtr ||
+						!bytes.Equal(e.interPredictScratch, interPredictScratchBefore) {
+						t.Fatal("border-subpel predictor rebuilt temporary reference staging")
+					}
 				}
 				if !bytes.Equal(got, want) {
 					for i := range got {

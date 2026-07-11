@@ -360,17 +360,44 @@ func (e *VP9Encoder) predictVP9InterBlockLumaToScratchDirect(
 		}
 		if extX0 < 0 || extX0 > srcWidth-1 || x1 < 0 || x1 > srcWidth-1 ||
 			extY0 < 0 || extY0 > srcHeight-1 || y1 < 0 || y1 > srcHeight-1 {
-			extW := x1 - extX0 + 1
-			extH := y1 - extY0 + 1
-			if extW <= 0 || extH <= 0 {
-				return false
+			usedPaddedRef := false
+			if padded, paddedStride, originX, originY, _, _, paddedOK :=
+				e.vp9SubpelReferencePlane(mi.RefFrame[0], ref); paddedOK {
+				bufX := originX + srcX
+				bufY := originY + srcY
+				left, right := 0, 0
+				top, bottom := 0, 0
+				if subpelX != 0 {
+					left = vp9dec.VP9InterpExtend - 1
+					right = vp9dec.VP9InterpExtend
+				}
+				if subpelY != 0 {
+					top = vp9dec.VP9InterpExtend - 1
+					bottom = vp9dec.VP9InterpExtend
+				}
+				paddedRows := len(padded) / paddedStride
+				if bufX-left >= 0 && bufX+blockW+right <= paddedStride &&
+					bufY-top >= 0 && bufY+blockH+bottom <= paddedRows {
+					src = padded
+					srcStride = paddedStride
+					srcRows = paddedRows
+					srcOffset = bufY*paddedStride + bufX
+					usedPaddedRef = true
+				}
 			}
-			borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
-				xPad*(vp9dec.VP9InterpExtend-1)
-			src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(src,
-				srcStride, srcWidth, srcHeight, extX0, extY0, extW, extH,
-				borderOffset)
-			srcRows = extH
+			if !usedPaddedRef {
+				extW := x1 - extX0 + 1
+				extH := y1 - extY0 + 1
+				if extW <= 0 || extH <= 0 {
+					return false
+				}
+				borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
+					xPad*(vp9dec.VP9InterpExtend-1)
+				src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(src,
+					srcStride, srcWidth, srcHeight, extX0, extY0, extW, extH,
+					borderOffset)
+				srcRows = extH
+			}
 		}
 	}
 	e.interPredictScratch = d.interPredictScratch

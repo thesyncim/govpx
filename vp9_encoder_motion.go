@@ -617,7 +617,7 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	slot, slotOK := e.vp9ReferenceSlotForFrame(refFrame)
 	if slotOK && slot == vp9LastRefSlot {
 		if !e.lastBorderedValid || e.lastBordered.W != w ||
-			e.lastBordered.H != h {
+			e.lastBordered.H != h || e.lastBorderedGeneration != ref.generation {
 			e.ensureLastBordered()
 		}
 		if e.lastBorderedValid && e.lastBordered.W == w &&
@@ -632,13 +632,15 @@ func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
 	}
 	if !e.subpelRefBorderedValid[slot] ||
 		e.subpelRefBordered[slot].W != w ||
-		e.subpelRefBordered[slot].H != h {
+		e.subpelRefBordered[slot].H != h ||
+		e.subpelRefBorderedGeneration[slot] != ref.generation {
 		if e.subpelRefBorderedShared[slot] {
 			e.subpelRefBordered[slot] = common.YV12BorderBuffer{}
 			e.subpelRefBorderedShared[slot] = false
 		}
 		common.YV12BuildBorderedPlane(&e.subpelRefBordered[slot], plane,
 			planeStride, w, h, common.VP9EncBorderInPixels)
+		e.subpelRefBorderedGeneration[slot] = ref.generation
 		e.subpelRefBorderedValid[slot] = true
 	}
 	return e.subpelRefBordered[slot].Pixels, e.subpelRefBordered[slot].Stride,

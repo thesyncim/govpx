@@ -339,6 +339,7 @@ type vp9ReferenceFrame struct {
 	v            []byte
 	external     *vp9ExternalFrameLease
 	internal     *vp9InternalFrameLease
+	generation   uint64
 	valid        bool
 }
 
@@ -393,6 +394,7 @@ func (f *vp9ReferenceFrame) storeWithRenderAndBitDepth(src Image,
 	f.bitDepth = bitDepth
 	f.external = nil
 	f.internal = nil
+	f.generation++
 	f.valid = true
 }
 
@@ -414,6 +416,7 @@ func (f *vp9ReferenceFrame) storeExternalWithRenderAndBitDepth(src Image,
 	f.bitDepth = bitDepth
 	f.external = lease
 	f.internal = nil
+	f.generation++
 	f.valid = true
 }
 
@@ -435,6 +438,7 @@ func (f *vp9ReferenceFrame) storeInternalWithRenderAndBitDepth(src Image,
 	f.bitDepth = bitDepth
 	f.external = nil
 	f.internal = lease
+	f.generation++
 	f.valid = true
 }
 

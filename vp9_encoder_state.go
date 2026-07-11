@@ -500,6 +500,7 @@ func (e *VP9Encoder) invalidateVP9SubpelRefBordered(refreshFlags uint8) {
 			continue
 		}
 		e.subpelRefBorderedValid[i] = false
+		e.subpelRefBorderedGeneration[i] = 0
 		e.subpelRefBorderedShared[i] = false
 	}
 }
@@ -517,11 +518,13 @@ func (e *VP9Encoder) invalidateVP9SubpelRefBordered(refreshFlags uint8) {
 func (e *VP9Encoder) ensureLastBordered() {
 	if !e.refFrames[vp9LastRefSlot].valid {
 		e.lastBorderedValid = false
+		e.lastBorderedGeneration = 0
 		return
 	}
 	plane, stride, w, h := vp9ReferenceVisiblePlane(&e.refFrames[vp9LastRefSlot], 0)
 	if len(plane) == 0 || stride <= 0 || w <= 0 || h <= 0 {
 		e.lastBorderedValid = false
+		e.lastBorderedGeneration = 0
 		return
 	}
 	if e.lastBorderedShared {
@@ -534,6 +537,7 @@ func (e *VP9Encoder) ensureLastBordered() {
 	}
 	common.YV12BuildBorderedPlane(&e.lastBordered, plane, stride, w, h,
 		common.VP9EncBorderInPixels)
+	e.lastBorderedGeneration = e.refFrames[vp9LastRefSlot].generation
 	e.lastBorderedValid = true
 }
 
@@ -542,6 +546,7 @@ func (e *VP9Encoder) ensureLastBordered() {
 func (e *VP9Encoder) prepareVP9WorkerLastBordered(buf common.YV12BorderBuffer) {
 	e.lastBordered = buf
 	e.lastBorderedValid = false
+	e.lastBorderedGeneration = 0
 	e.lastBorderedShared = false
 	e.ensureLastBordered()
 }

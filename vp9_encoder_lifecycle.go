@@ -340,8 +340,9 @@ type VP9Encoder struct {
 	// (vpx_scale/yv12config.h:26, vp9/encoder/vp9_encoder.c:1297), maintained
 	// by vpx_extend_frame_borders_c after each frame's reconstruction
 	// (vp9/encoder/vp9_encoder.c:3102 / 3167 / 3424 / 3470).
-	lastBordered      common.YV12BorderBuffer
-	lastBorderedValid bool
+	lastBordered           common.YV12BorderBuffer
+	lastBorderedGeneration uint64
+	lastBorderedValid      bool
 	// lastBorderedShared marks a tile/count worker clone whose lastBordered
 	// aliases the parent encoder's buffer (read-only for the epoch);
 	// ensureLastBordered detaches to a private buffer before rebuilding.
@@ -352,8 +353,9 @@ type VP9Encoder struct {
 	// not thrash a single padded plane inside the block picker. LAST uses
 	// lastBordered so choose_partitioning and pickmode read the same padded
 	// allocation.
-	subpelRefBordered      [common.RefFrames]common.YV12BorderBuffer
-	subpelRefBorderedValid [common.RefFrames]bool
+	subpelRefBordered           [common.RefFrames]common.YV12BorderBuffer
+	subpelRefBorderedGeneration [common.RefFrames]uint64
+	subpelRefBorderedValid      [common.RefFrames]bool
 	// subpelRefBorderedShared marks worker clones whose non-LAST padded
 	// reference cache aliases the parent encoder for the current tile epoch.
 	// vp9SubpelReferencePlane detaches before any rebuild, matching the

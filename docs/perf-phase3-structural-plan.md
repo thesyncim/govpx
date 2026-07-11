@@ -3,7 +3,8 @@
 Status: implementation started. The oracle-denoise prerequisite, narrow
 A1/A2 token-walk safe points, the first A5 pick-buffer safe point, the
 A5 non-ML four-buffer ownership safe point, the
-A6 bare-quantize / AC-DC skipTxfm commit safe points, and a denoiser
+A6 padded-reference edge-prediction plus bare-quantize / AC-DC skipTxfm
+commit safe points, and a denoiser
 count-copy safe point plus a nonrd picker invariant-hoist safe point, a
 small offset-SAD cleanup, a `BlockYrd` EOB-scratch narrowing safe point,
 a VP9 MV-pred/fullpel callback shape cleanup, a VP9 ARM64 wide-SAD
@@ -633,8 +634,22 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   profiled sample. A follow-up now right-sizes that EOB scratch to 16/64/256
   slots by tx-unit count; focused samples moved from ~514-518 ns/op to
   ~506-513 ns/op, still 0 allocs, and post-PGO 120-frame spots stayed
-  byte/topology-equivalent at 12.59, 12.63, and 12.42 ms/frame. Broader
-  gather/stage removal and subpel direct-on-padded-ref work are still open. A
+  byte/topology-equivalent at 12.59, 12.63, and 12.42 ms/frame. Candidate luma
+  prediction now mirrors libvpx's direct reads from the encoder-owned 160-pixel
+  YV12 border when a motion/filter tap window crosses the visible frame edge.
+  Interior candidates keep the existing visible-plane fast path; only the
+  branch that previously called `vp9ExtendInterPredictSource` consults the
+  persistent padded plane, with the exact three-before/four-after 8-tap bounds.
+  Padded caches carry the source reference generation as well as dimensions, so
+  same-backing reference replacement, retries, ROI/active-map passes, and worker
+  aliases rebuild or detach instead of reading stale pixels.
+  Four-shape x four-filter parity, including border subpel, stays byte-exact,
+  and the border case proves the temporary staging buffer remains untouched.
+  Two stable 480-frame 4T no-denoise pairs improved about 0.3-0.5% with exact
+  4,981,549-byte output and 468/12 topology; two 1T pairs retired about 0.2%
+  fewer instructions, and `vp9ExtendInterPredictSource` disappeared from the
+  follow-up profile. The generation-rebuild guard and active-map/ROI zero-alloc
+  tests pass. Broader gather/stage removal remains open. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
@@ -685,14 +700,15 @@ eval/best ownership, and normal non-ML `pred_pixel_ready` picks now use three
 compact buffers plus dst as libvpx's fourth PRED_BUFFER, including final and
 pre-intra ownership handoff): ML-lane unification and intra-winner pred carry
 remain (−0.7..1.0); A6 subpel direct on padded refs + bare
-vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-02:
+vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-11:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq
 output directly, and hoists tx/dequant/scan/table checks to plane-level for the
 normal residual loop plus tx-candidate/context-stamp loops; luma AC/DC
 skipTxfm is consumed for segment-0 non-lossless realtime FP blocks, while
 AC-only remains explicitly non-FP/open; `BlockYrd` EOB scratch is narrowed to
-int16 with post-PGO byte/topology-stable 12.44-12.58 ms/frame spots; broader
-gather/stage removal remains −1.0..1.3).
+int16, and edge candidate prediction reads the persistent padded reference
+directly instead of constructing a temporary tap window; broader gather/stage
+removal remains −0.9..1.2).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first

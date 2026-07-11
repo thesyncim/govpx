@@ -573,11 +573,13 @@ func (w *VP9Encoder) prepareVP9WorkerSubpelRefBordered(
 			src.subpelRefBorderedValid[slot] &&
 			len(src.subpelRefBordered[slot].Pixels) > 0 {
 			w.subpelRefBordered[slot] = src.subpelRefBordered[slot]
+			w.subpelRefBorderedGeneration[slot] = src.subpelRefBorderedGeneration[slot]
 			w.subpelRefBorderedValid[slot] = true
 			w.subpelRefBorderedShared[slot] = true
 			continue
 		}
 		w.subpelRefBordered[slot] = private[slot]
+		w.subpelRefBorderedGeneration[slot] = 0
 		w.subpelRefBorderedValid[slot] = false
 		w.subpelRefBorderedShared[slot] = false
 	}
