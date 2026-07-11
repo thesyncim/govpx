@@ -83,6 +83,20 @@ func TestRunVP9BenchmarkPeriodicKeyframeReplay(t *testing.T) {
 	}
 }
 
+func TestRunVP9BenchmarkCheckerSub8EdgeFallback(t *testing.T) {
+	report, err := runVP9BenchmarkWithSource(benchConfig{
+		Codec: codecVP9, Width: 640, Height: 360, Frames: 66, FPS: 30,
+		BitrateKbps: 600, Mode: "realtime", CpuUsed: 8,
+	}, makeCheckerFrame)
+	if err != nil {
+		t.Fatalf("checker sub-8x8 edge fallback: %v", err)
+	}
+	if report.OutputBytes <= 0 || report.EncodedFrames <= 0 || report.QualityFrames <= 0 {
+		t.Fatalf("checker sub-8x8 fallback result = frames:%d quality:%d bytes:%d, want positive",
+			report.EncodedFrames, report.QualityFrames, report.OutputBytes)
+	}
+}
+
 func TestRunVP9BenchmarkCPUProfileKeepsEncodeAllocsScoped(t *testing.T) {
 	profile := t.TempDir() + "/vp9-encode.pprof"
 	report, err := runVP9Benchmark(benchConfig{

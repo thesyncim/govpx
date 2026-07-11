@@ -298,10 +298,21 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   `encoder: VP9 token buffer full`; the pure pack path completed 120/120 with
   four keyframes and stable 1,252,676-byte output. A 31-frame 720p regression
   test pins that production-volume transition. The separate quality-fixtures
-  warmup still reaches the inherited frame-65 `VP9 token buffer full` failure,
-  which also reproduces on the published pre-row-MT control; this slice does
-  not claim to close that distinct path. Normal, pure-Go, trace, conformance,
-  focused race, strict byte-parity, and refreshed-PGO gates pass.
+  warmup exposed a second boundary: 360p has an odd 45-row MI grid, so the
+  committed partition stream reaches legitimate sub-8x8 bottom-edge leaves.
+  Pure inter packing does not yet own a byte-safe sub-8x8 mode/MV sidecar;
+  lifting its >=8x8 guard removed the frame-65 token-list exhaustion but made
+  measured frame 54 undecodable, so that probe was reverted. Count-token
+  collection and replay now stay off when either MI dimension is odd, keeping
+  those edge shapes on the established full write walk while even-grid 720p
+  remains on pure pack. The 66-frame checker regression now encodes and decodes,
+  and the full panning/checker quality fixtures complete at 2.11/3.94 ms/frame.
+  The later quality target still has inherited ARNR tolerance and cyclic-refresh
+  reference-data failures. Normal, pure-Go, trace, conformance, focused race,
+  strict byte-parity, and refreshed-PGO gates pass for the keyframe safe point.
+  The odd-MI fallback separately passes full normal/pure-Go, focused race,
+  strict byte-parity, refreshed-PGO, and the complete fixture quality/decode
+  gate before those inherited later failures.
 - Replay infra (a 120-byte decision in each full-width leaf-cache entry,
   `canReplay` validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
@@ -785,7 +796,7 @@ sidecar lets the normal >=8x8 inter-source pack path consume committed miGrid
 plus tokens without leaf replay/application or write-side residue work, and a
 parallel partition-node stream removes the normal inter write-side partition
 dispatcher/cache walk, and keyframes now use the same pure partition/leaf
-replay; sub-8x8 inter/fallback pure packing and count-side
+replay; odd-MI sub-8x8 inter/fallback pure packing and count-side
 partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 delete replay
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining

@@ -653,7 +653,7 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 	tilePhase := e.vp9PhaseStart()
 	replayTokens := false
 	if header.RefreshFrameContext {
-		replayTokens = e.beginVP9TokenReplay(tileRows, tileCols, tileKind)
+		replayTokens = e.beginVP9TokenReplay(miRows, miCols, tileRows, tileCols, tileKind)
 	} else {
 		e.vp9TokenReplay = vp9TokenReplayState{}
 	}

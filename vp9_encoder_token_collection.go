@@ -33,10 +33,11 @@ func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
 	return kind == vp9ModeTreeKeyframeSource || kind == vp9ModeTreeInterSource
 }
 
-func (e *VP9Encoder) vp9CountTokenCollectionEligible(tileRows, tileCols int,
+func (e *VP9Encoder) vp9CountTokenCollectionEligible(miRows, miCols, tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
 	return e != nil && vp9ModeTreeCollectsTokens(kind) &&
+		miRows > 0 && miCols > 0 && (miRows|miCols)&1 == 0 &&
 		!e.svc.UseSvc &&
 		e.sf.TxSizeSearchMethod != UseFullRD &&
 		tileRows > 0 && tileRows <= encoder.TokenStageMaxTileRows &&
@@ -49,7 +50,7 @@ func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tile
 	if e != nil {
 		e.vp9ThreadedTokenReplayReady = false
 	}
-	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) {
+	if !e.vp9CountTokenCollectionEligible(miRows, miCols, tileRows, tileCols, kind) {
 		if e != nil {
 			e.vp9TokenCollect = vp9TokenCollectState{}
 			e.vp9TokenFrame.Reset()
@@ -71,7 +72,7 @@ func (e *VP9Encoder) beginVP9ThreadedCountTokenCollection(pool *vp9TileWorkerPoo
 	if e != nil {
 		e.vp9ThreadedTokenReplayReady = false
 	}
-	if !e.vp9CountTokenCollectionEligible(tileRows, tileCols, kind) ||
+	if !e.vp9CountTokenCollectionEligible(miRows, miCols, tileRows, tileCols, kind) ||
 		pool == nil || tileCols <= 1 || len(pool.countTokens) < tileCols {
 		if e != nil {
 			e.vp9TokenCollect = vp9TokenCollectState{}
@@ -155,11 +156,12 @@ func (e *VP9Encoder) finishVP9CountTokenCollection() error {
 	return err
 }
 
-func (e *VP9Encoder) beginVP9TokenReplay(tileRows, tileCols int,
+func (e *VP9Encoder) beginVP9TokenReplay(miRows, miCols, tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
 	if e == nil || !vp9ModeTreeCollectsTokens(kind) ||
 		e.sf.TxSizeSearchMethod == UseFullRD ||
+		miRows <= 0 || miCols <= 0 || (miRows|miCols)&1 != 0 ||
 		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
 		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols ||
 		!e.vp9HasCountTokensForReplay() {
