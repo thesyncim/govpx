@@ -43,6 +43,15 @@ func subpelVarAvg16NEON(src *byte, srcStride int, dst *byte, pixelStep int, heig
 //go:noescape
 func subpelVarAvg16ChunksNEON(src *byte, srcStride int, dst *byte, pixelStep int, width int, height int)
 
+//go:noescape
+func subpelVariance16x16BilinearNEON(src *byte, srcStride int, ref *byte, refStride int, x0 uint64, x1 uint64, y0 uint64, y1 uint64, sumOut *int32, sseOut *uint32)
+
+//go:noescape
+func subpelVariance16x16HorizontalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
+
+//go:noescape
+func subpelVariance16x16VerticalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
+
 // subpelHalfFilter maps libvpx-scale weight (0/16/32/48/64/80/96/112/128)
 // to the 0..8 byte-lane scale used by the NEON kernels.
 func subpelHalfFilter(filterIdx int) (uint64, uint64) {
@@ -381,35 +390,34 @@ func subPixelVarianceSimd16x16(src []uint8, srcOff, srcStride, xOffset, yOffset 
 		!varWindowOK(ref, refOff, refStride, 16, 16) {
 		return 0, false
 	}
-
-	srcPtr := unsafe.SliceData(src[srcOff:])
-	var tmp [16 * 16]byte
-	temp := tmp[:]
-	if yOffset == 0 {
-		if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
-			unsafe.SliceData(temp), 16, 16, 1) {
-			runFirstPass(srcPtr, srcStride, unsafe.SliceData(temp), 16, 16, xOffset)
+	if xOffset == 0 || yOffset == 0 {
+		f0, f1 := subpelHalfFilter(xOffset + yOffset)
+		var sum int32
+		var s uint32
+		if xOffset == 0 {
+			subpelVariance16x16VerticalNEON(
+				unsafe.SliceData(src[srcOff:]), srcStride,
+				unsafe.SliceData(ref[refOff:]), refStride,
+				f0, f1, &sum, &s)
+		} else {
+			subpelVariance16x16HorizontalNEON(
+				unsafe.SliceData(src[srcOff:]), srcStride,
+				unsafe.SliceData(ref[refOff:]), refStride,
+				f0, f1, &sum, &s)
 		}
-		return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
+		*sse = s
+		return finalVariance(sum, s, 16, 16), true
 	}
-	if xOffset == 0 {
-		if yOffset != 4 || !runAveragePass(srcPtr, srcStride,
-			unsafe.SliceData(temp), 16, 16, srcStride) {
-			runVerticalPassFromSource(srcPtr, srcStride, unsafe.SliceData(temp), 16, 16, yOffset)
-		}
-		return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
-	}
-
-	var fdata [16 * 17]byte
-	if xOffset != 4 || !runAveragePass(srcPtr, srcStride,
-		unsafe.SliceData(fdata[:]), 16, 17, 1) {
-		runFirstPass(srcPtr, srcStride, unsafe.SliceData(fdata[:]), 16, 17, xOffset)
-	}
-	if yOffset != 4 || !runAveragePass(unsafe.SliceData(fdata[:]), 16,
-		unsafe.SliceData(temp), 16, 16, 16) {
-		runSecondPass(unsafe.SliceData(fdata[:]), unsafe.SliceData(temp), 16, 16, yOffset)
-	}
-	return finalVariance16xNFromBlock(temp, 16, ref, refOff, refStride, sse), true
+	x0, x1 := subpelHalfFilter(xOffset)
+	y0, y1 := subpelHalfFilter(yOffset)
+	var sum int32
+	var s uint32
+	subpelVariance16x16BilinearNEON(
+		unsafe.SliceData(src[srcOff:]), srcStride,
+		unsafe.SliceData(ref[refOff:]), refStride,
+		x0, x1, y0, y1, &sum, &s)
+	*sse = s
+	return finalVariance(sum, s, 16, 16), true
 }
 
 func subPixelVarianceSimd32x32(src []uint8, srcOff, srcStride, xOffset, yOffset int,

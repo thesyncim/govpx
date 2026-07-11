@@ -12,6 +12,7 @@ a VP9 MV-pred/fullpel callback shape cleanup, a VP9 ARM64 wide-SAD
 dispatch safe point, a VP9 ARM64 32x32 subpel-variance scratch narrowing safe
 point, a VP9 lazy NEWMV best-ref MV write/count safe point, a VP9 intra-H
 predictor fixed-size fill safe point, a VP9 TM-predictor no-clip fast path,
+an ARM64 VP9 16x16 fused subpel-variance safe point,
 an exact-window VP9 entropy-context helper safe point, a normal inter
 partition-node count/write replay safe point, and the VP9 denoiser tile-MT
 gate removal safe point, plus a threaded nonrd intra-cost seed plumbing safe
@@ -584,7 +585,20 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   moved from a 134.9 ns/op median to 132.7 ns/op at 0 allocs, and five no-PGO
   480-frame 4T no-denoise pairs stayed exact at 4,981,549 bytes and 468/12
   topology while moving median wall time from 3.557 to 3.536 ms/frame (about
-  0.6%). Hoisting subpel MV-cost `errorPerBit` out of
+  0.6%). A matching ARM64 kernel safe point now fuses the horizontal and
+  vertical bilinear stages with 16x16 variance accumulation. Fractional
+  candidates no longer write a 17x16 first-pass plane and a 16x16 second-pass
+  plane before a third variance walk; horizontal-only and vertical-only
+  candidates also accumulate directly. The all-offset/stride differential
+  matrix, native, pure-Go, and race DSP suites stayed green. The focused
+  two-axis benchmark moved from a 36.2 ns/op median to 25.1 ns/op (about 31%)
+  at 0 allocs. Five no-PGO 480-frame 4T no-denoise pairs stayed exact at
+  4,981,549 bytes and 468/12 topology; the candidate won all five and moved
+  median wall time from 3.529 to 3.512 ms/frame (about 0.5%).
+  The full native/pure-Go suites, strict byte parity, PGO refresh/check, and
+  pre-commit gate passed; the refreshed-PGO 480-frame spot measured 3.447
+  ms/frame with the same bytes/topology. Hoisting subpel MV-cost
+  `errorPerBit` out of
   the per-MV closure stayed byte/topology-safe but did not improve the 120-frame
   phase spot. Hoisting the luma AC/DC skipTxfm predicate out of the commit-loop
   tx walk and bypassing `BlockDiffVarianceSSEClampedSource` with a caller-side
