@@ -2,7 +2,7 @@
 
 Status: implementation started. The oracle-denoise prerequisite, narrow
 A1/A2 token-walk safe points, the first A5 pick-buffer safe point, the
-A5 non-ML four-buffer ownership safe point, the
+A5 non-ML plus ML four-buffer ownership safe points, the
 A6 padded-reference edge-prediction plus bare-quantize / AC-DC skipTxfm
 commit safe points, and a denoiser
 count-copy safe point plus a nonrd picker invariant-hoist safe point, a
@@ -464,9 +464,21 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   order-reversed 480-frame 4T no-denoise whole-process pairs retired about
   0.13-0.15% fewer instructions and used about 1.3-1.8% fewer cycles, with exact
   4,981,549-byte output, 468/12 encoded/drop topology, and the same near-zero
-  allocation band. The ML partition lane and intra-winner predictor carry
-  remain open; count this as a substantial A5 ownership slice, not full A5
-  closure.
+  allocation band. At that safe point the ML partition lane and intra-winner
+  predictor carry remained open, so it was a substantial A5 ownership slice,
+  not full A5 closure.
+  The ML partition lane now uses the same four-buffer ownership model instead
+  of copying each candidate through `blockScratch`, `pickPred`, and recon.
+  Its `tmp[3]` is the live SB-local `pickPred` rect; filter/mode winners retain
+  a compact buffer by ownership, a destination-owned inter winner is captured
+  once before intra search overwrites it, and only the final inter winner is
+  mirrored into recon. The strided winner-copy test pins the offset geometry.
+  Three order-reversed 320x180, 2000-frame cpu8 1T no-denoise pairs kept exact
+  4,160,881-byte output and 1997/3 topology. The two stable pairs improved from
+  1.537-1.540 ms/frame controls to 1.501 ms/frame candidates (about 2.3-2.5%);
+  the paired profile reduced picker cumulative CPU from 1.39 s to 1.32 s and
+  total sampled `runtime.memmove` from 100 ms to 20 ms. Intra-winner predictor
+  carry remains open; ML ownership unification is closed.
 - A narrow post-A5 cleanup routes source-SAD, variance-partition chroma/CBR SAD,
   and compact motion-candidate SAD through offset-based SAD calls once callers
   have already validated the windows. A follow-up source-SAD edge safe point
@@ -698,8 +710,9 @@ decision store while retaining the finalized fallback entry; remaining
 end-state (PARTIAL 2026-07-11: nonrd `search_filter_ref` swaps compact
 eval/best ownership, and normal non-ML `pred_pixel_ready` picks now use three
 compact buffers plus dst as libvpx's fourth PRED_BUFFER, including final and
-pre-intra ownership handoff): ML-lane unification and intra-winner pred carry
-remain (−0.7..1.0); A6 subpel direct on padded refs + bare
+pre-intra ownership handoff; the ML partition lane now uses the same pool with
+SB-local `pickPred` as dst, leaving intra-winner pred carry at −0.2..0.4); A6
+subpel direct on padded refs + bare
 vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-11:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq
 output directly, and hoists tx/dequant/scan/table checks to plane-level for the

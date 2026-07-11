@@ -660,10 +660,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	if !predOK {
 		reuseInterPred = false
 	}
-	// livePredAliasesRect: livePred IS the recon-plane rect (same buffer,
-	// same geometry), so every scratch->livePred mirror below would write
-	// the exact bytes the paired scratch->predPlane copy already wrote.
-	// Only the ML partition lane keeps a separate SB-local pickPred buffer.
+	// livePredAliasesRect is false only for ML partitioning, where libvpx's
+	// live pd->dst surface is the SB-local pickPred buffer rather than recon.
 	livePredAliasesRect := false
 	if reuseInterPred && reuseMLCtx == nil {
 		livePred = predPlane
@@ -686,16 +684,12 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	compactPredW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
 	compactPredH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	compactPredLen := compactPredW * compactPredH
-	origPredValid := false
-	bestPredValid := false
-	bestPredFromOrig := false
 	// libvpx vp9_pickmode.c:1738-1856: tmp[0..2] are compact predictor
 	// buffers and tmp[3] is the real destination. The first candidate writes
 	// dst directly; later candidates take a free compact buffer, and the best
-	// predictor keeps ownership until commit. Keep the ML partition lane on
-	// its existing SB-local pickPred flow because its destination is consumed
-	// during partition search rather than serving as libvpx's orig_dst.
-	usePredBufferPool := reuseInterPred && livePredAliasesRect
+	// predictor keeps ownership until commit. For ML partitioning tmp[3]
+	// points at the SB-local pickPred rect, matching that lane's live pd->dst.
+	usePredBufferPool := reuseInterPred
 	var predBuffers [4]vp9NonrdPredBuffer
 	thisModePredIdx := -1
 	bestModePredIdx := -1
@@ -703,8 +697,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		predBuffers[0] = vp9NonrdPredBuffer{data: e.nonrdOrigPredScratch[:compactPredLen], stride: compactPredW}
 		predBuffers[1] = vp9NonrdPredBuffer{data: e.nonrdBestPredScratch[:compactPredLen], stride: compactPredW}
 		predBuffers[2] = vp9NonrdPredBuffer{data: e.nonrdFilterPredScratch[:compactPredLen], stride: compactPredW}
-		dstOff := predY*predStride + predX
-		predBuffers[3] = vp9NonrdPredBuffer{data: predPlane[dstOff:], stride: predStride}
+		dstOff := livePredY*livePredStride + livePredX
+		predBuffers[3] = vp9NonrdPredBuffer{data: livePred[dstOff:], stride: livePredStride}
 	}
 	// libvpx: vp9_pickmode.c:1758 unsigned int sse_zeromv_normalized = UINT_MAX.
 	// Updated at vp9_pickmode.c:2350-2354 only when (ref_frame == LAST_FRAME &&
@@ -1896,19 +1890,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				skipTxfm:       skipTxfm,
 			}
 
-			scoredIntoOrig := false
-			if reuseInterPred && !usePredBufferPool {
-				if !origPredValid {
-					copy(e.nonrdOrigPredScratch[:compactPredLen],
-						currentPred[:compactPredLen])
-					vp9CopyPredRectFromScratch(livePred, livePredStride,
-						livePredX, livePredY, predW, predH,
-						e.nonrdOrigPredScratch[:])
-					origPredValid = true
-					scoredIntoOrig = true
-				}
-			}
-
 			// libvpx: vp9_pickmode.c:2460 if (this_rdc.rdcost <
 			//   best_rdc.rdcost || x->skip) {
 			//     best_rdc = this_rdc;
@@ -1939,24 +1920,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					// winner and transfer this candidate's buffer to best_pred.
 					vp9NonrdFreePredBuffer(&predBuffers, bestModePredIdx)
 					bestModePredIdx = thisModePredIdx
-				} else if reuseInterPred {
-					if scoredIntoOrig {
-						bestPredFromOrig = true
-						bestPredValid = false
-					} else {
-						copy(e.nonrdBestPredScratch[:compactPredLen],
-							currentPred[:compactPredLen])
-						bestPredFromOrig = false
-						bestPredValid = true
-					}
 				}
 			} else if usePredBufferPool {
 				vp9NonrdFreePredBuffer(&predBuffers, thisModePredIdx)
-			}
-			if reuseInterPred && !usePredBufferPool && origPredValid &&
-				!scoredIntoOrig {
-				vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
-					predW, predH, e.nonrdOrigPredScratch[:])
 			}
 		}
 		if usePredBufferPool && !scoredThisMode {
@@ -2074,21 +2040,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		bp.bestSecondRefFrame = vp9dec.NoRefFrame
 		bp.bestIntraTxSize = intra.txSize
 		bp.bestModeSkipTxfm = uint8(intra.skipTxfm)
-		if reuseInterPred && !usePredBufferPool && len(intra.predData) != 0 &&
-			intra.predStride > 0 {
-			// ML lane only: mirror the intra winner's predictor into the
-			// SB-local pickPred buffer and the recon rect. The deferred
-			// (non-ML) lane skips this — an intra winner is re-predicted
-			// per tx block at commit (prepareVP9InterIntraBlockResidue),
-			// and its predData already IS the recon rect.
-			vp9CopyPredRectToScratch(e.nonrdBestPredScratch[:],
-				intra.predData, intra.predStride, intra.predX, intra.predY,
-				predW, predH)
-			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
-				livePredY, predW, predH, e.nonrdBestPredScratch[:])
-			vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
-				predW, predH, e.nonrdBestPredScratch[:])
-		}
 	}
 	if preIntraCapture != nil && preIntraCapture.inUse {
 		bestModePredIdx = preIntraPredIdx
@@ -2097,29 +2048,16 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// libvpx vp9_pickmode.c:2668-2684: only copy when best_pred is not
 		// already the real destination buffer.
 		if bestModePredIdx != 3 {
-			vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
-				predW, predH, predBuffers[bestModePredIdx].data)
+			vp9CopyPredRectFromBuffer(livePred, livePredStride, livePredX, livePredY,
+				predW, predH, predBuffers[bestModePredIdx].data,
+				predBuffers[bestModePredIdx].stride)
+		}
+		if !livePredAliasesRect {
+			vp9CopyPredRectFromBuffer(predPlane, predStride, predX, predY,
+				predW, predH, predBuffers[bestModePredIdx].data,
+				predBuffers[bestModePredIdx].stride)
 		}
 		best.lumaPredReady = true
-	} else if bestSet && !best.intra && reuseInterPred && origPredValid {
-		// libvpx: vp9_pickmode.c:2888-2912 restores pd->dst to orig_dst,
-		// then copies best_pickmode.best_pred back when the inter winner was
-		// evaluated in a temporary PRED_BUFFER. If intra fallback overwrote
-		// orig_dst and the first candidate stayed best, the saved orig copy is
-		// the protected tmp buffer created at vp9_pickmode.c:2721-2740.
-		var predScratch []byte
-		if bestPredFromOrig {
-			predScratch = e.nonrdOrigPredScratch[:]
-		} else if bestPredValid {
-			predScratch = e.nonrdBestPredScratch[:]
-		}
-		if predScratch != nil {
-			vp9CopyPredRectFromScratch(predPlane, predStride, predX, predY,
-				predW, predH, predScratch)
-			vp9CopyPredRectFromScratch(livePred, livePredStride, livePredX,
-				livePredY, predW, predH, predScratch)
-			best.lumaPredReady = true
-		}
 	}
 	if !bestSet {
 		e.cbRdmult = prevCbRdmult

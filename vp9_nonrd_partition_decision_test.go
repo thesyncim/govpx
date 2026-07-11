@@ -33,6 +33,29 @@ func TestVP9NonrdPredBufferPoolOwnership(t *testing.T) {
 	}
 }
 
+func TestVP9CopyPredRectFromStridedBuffer(t *testing.T) {
+	src := make([]byte, 7*2)
+	copy(src[0:], []byte{11, 12, 13})
+	copy(src[7:], []byte{21, 22, 23})
+	dst := make([]byte, 8*4)
+	for i := range dst {
+		dst[i] = 0xa5
+	}
+
+	vp9CopyPredRectFromBuffer(dst, 8, 2, 1, 3, 2, src, 7)
+
+	for y, want := range [][]byte{{11, 12, 13}, {21, 22, 23}} {
+		for x, v := range want {
+			if got := dst[(y+1)*8+x+2]; got != v {
+				t.Fatalf("dst(%d,%d) = %d, want %d", x+2, y+1, got, v)
+			}
+		}
+	}
+	if dst[8+1] != 0xa5 || dst[8+5] != 0xa5 || dst[3*8+2] != 0xa5 {
+		t.Fatal("copy modified bytes outside the destination rectangle")
+	}
+}
+
 // TestVP9NonrdPickPartitionSplitSize confirms vp9MLSplitSize maps each
 // ML-eligible parent bsize to its libvpx subsize_lookup
 // (vp9/common/vp9_common_data.c subsize_lookup[PARTITION_SPLIT]).

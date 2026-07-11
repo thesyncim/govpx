@@ -168,9 +168,15 @@ re-run during the write walk), tokenize/stage +0.26.
    no-denoise frontier stayed exact at 4,981,549 bytes and 468/12 topology;
    two order-reversed whole-process pairs used about 1.3-1.8% fewer cycles on
    the heavily loaded host, and picker-attributed `runtime.memmove` disappeared
-   from the follow-up profile. ML-lane unification and intra-winner carry remain
-   open. The phase-3 A6 continuation now reads edge-crossing candidate tap
-   windows directly from the persistent padded reference instead of rebuilding
+   from the follow-up profile. The ML partition lane now uses the same pool,
+   with SB-local `pickPred` as `tmp[3]`, and captures a destination-owned inter
+   winner once before intra search. Three order-reversed 320x180, 2000-frame
+   pairs kept exact 4,160,881-byte output and 1997/3 topology; the two stable
+   pairs improved about 2.3-2.5%, while picker cumulative CPU fell from 1.39 s
+   to 1.32 s and sampled `runtime.memmove` from 100 ms to 20 ms. Intra-winner
+   predictor carry remains open. The phase-3 A6 continuation now reads
+   edge-crossing candidate tap windows directly from the persistent padded
+   reference instead of rebuilding
    temporary border staging; stable 480-frame 4T pairs improved about 0.3-0.5%
    with exact bytes/topology, and `vp9ExtendInterPredictSource` disappeared
    from the follow-up profile. Reference-generation stamps keep those padded
