@@ -165,6 +165,59 @@ func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
 	}
 }
 
+func TestVP9FinalInterLeafDecisionOmissionRequiresPurePackEnvelope(t *testing.T) {
+	e := &VP9Encoder{}
+	e.vp9TokenCollect.active = true
+	e.sf.FrameParameterUpdate = 0
+	inter := &vp9InterEncodeState{
+		counts:              &e.frameCounts,
+		preserveCodingState: true,
+	}
+
+	if !e.canOmitVP9FinalInterLeafDecision(inter, common.TxModeSelect) {
+		t.Fatal("pure-pack count leaf retained the finalized decision cache")
+	}
+
+	tests := []struct {
+		name string
+		set  func(*VP9Encoder, *vp9InterEncodeState)
+	}{
+		{name: "no preserved coding state", set: func(_ *VP9Encoder, inter *vp9InterEncodeState) {
+			inter.preserveCodingState = false
+		}},
+		{name: "inactive token collection", set: func(e *VP9Encoder, _ *vp9InterEncodeState) {
+			e.vp9TokenCollect.active = false
+		}},
+		{name: "svc", set: func(e *VP9Encoder, _ *vp9InterEncodeState) { e.svc.UseSvc = true }},
+		{name: "denoiser", set: func(e *VP9Encoder, _ *vp9InterEncodeState) {
+			e.denoiser.allocated = true
+			e.denoiser.sensitivity = 2
+			e.denoiser.level = vp9DenoiserMedium
+		}},
+		{name: "active segment map", set: func(e *VP9Encoder, _ *vp9InterEncodeState) {
+			e.activeMapEnabled = true
+		}},
+		{name: "tx mode demotion", set: func(e *VP9Encoder, _ *vp9InterEncodeState) {
+			e.sf.FrameParameterUpdate = 1
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			copyEncoder := *e
+			copyInter := *inter
+			tc.set(&copyEncoder, &copyInter)
+			if copyEncoder.canOmitVP9FinalInterLeafDecision(&copyInter, common.TxModeSelect) {
+				t.Fatal("finalized decision cache omitted outside pure-pack envelope")
+			}
+		})
+	}
+
+	e.sf.FrameParameterUpdate = 1
+	if !e.canOmitVP9FinalInterLeafDecision(inter, common.Allow32x32) {
+		t.Fatal("fixed tx mode retained cache despite disabled demotion path")
+	}
+}
+
 func TestVP9DenoiserCountStateCommitRequiresAllLeafReplay(t *testing.T) {
 	e := &VP9Encoder{}
 	e.opts.NoiseSensitivity = 2

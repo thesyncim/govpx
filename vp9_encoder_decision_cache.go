@@ -218,8 +218,9 @@ func (e *VP9Encoder) restoreVP9KeyframeDecisionRegion(snap vp9KeyframeDecisionRe
 
 // clampVP9LeafDecisionTxSizes mirrors libvpx reset_skip_tx_size after
 // frame-level tx_mode demotion. The source function walks the committed
-// mi_grid_visible entries and lowers any tx_size above the new ceiling; in
-// govpx the leaf decision caches are the committed mode-info replay surface.
+// mi_grid_visible entries and lowers any tx_size above the new ceiling. The
+// fallback write/count replay surface remains the leaf decision cache; normal
+// packed writes consume the final count walk's miGrid directly.
 func (e *VP9Encoder) clampVP9LeafDecisionTxSizes(maxTxSize common.TxSize) {
 	if maxTxSize >= common.TxSizes {
 		return
@@ -297,10 +298,9 @@ func (e *VP9Encoder) lookupVP9LeafInterDecision(miRow, miCol int,
 }
 
 // storeVP9LeafInterDecision commits the picker decision for (miRow, miCol,
-// bsize) to the per-frame leaf cache. Subsequent same-frame lookups at the
-// same key return the stored decision, allowing the bitstream write pass to
-// skip pickVP9InterReferenceMode after the count pre-pass populated the
-// entry.
+// bsize) to the per-frame fallback cache. Subsequent same-frame lookups at the
+// same key avoid re-running pickVP9InterReferenceMode when packed count-state
+// replay is unavailable or a tx-mode demotion reruns the count walk.
 func (e *VP9Encoder) storeVP9LeafInterDecision(miRow, miCol int,
 	bsize common.BlockSize, decision vp9InterModeDecision,
 ) {

@@ -64,6 +64,9 @@ type vp9InterEncodeState struct {
 	// segmentation is enabled and segment 0 has a non-zero delta_q).
 	// libvpx ref: vp9_encodeframe.c:1379 (set_vbp_thresholds caller).
 	baseQindex int
+
+	// preserveCodingState is count-walk-only input from refresh_frame_context.
+	preserveCodingState bool
 }
 
 func vp9InterReferenceMode(inter *vp9InterEncodeState) vp9dec.ReferenceMode {

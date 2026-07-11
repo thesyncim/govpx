@@ -36,6 +36,7 @@ type vp9CountTileSeed struct {
 	interModeCostValid             bool
 	interNonrdIntraYModeCostsValid bool
 	interMvCostBuilt               bool
+	interPreserveCodingState       bool
 	hasKey                         bool
 	hasKeyHeader                   bool
 	hasInter                       bool
@@ -672,6 +673,7 @@ func vp9CountTileSeedForState(key *vp9KeyframeEncodeState,
 		seed.interAllowHP = inter.allowHP
 		seed.interCompound = inter.compoundAllowed
 		seed.interLossless = inter.lossless
+		seed.interPreserveCodingState = inter.preserveCodingState
 	}
 	return seed
 }
@@ -1505,6 +1507,7 @@ func prepareVP9CountTileJob(job *vp9CountTileJob, worker *VP9Encoder,
 			lossless:                  seed.interLossless,
 			baseQindex:                seed.interBaseQindex,
 			counts:                    counts,
+			preserveCodingState:       seed.interPreserveCodingState,
 		}
 	}
 }

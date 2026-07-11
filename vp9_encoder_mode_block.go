@@ -49,6 +49,19 @@ func (e *VP9Encoder) canReplayVP9CountPassIntraLeaf(inter *vp9InterEncodeState,
 		decision.intra && decision.refFrame == vp9dec.IntraFrame
 }
 
+func (e *VP9Encoder) canOmitVP9FinalInterLeafDecision(inter *vp9InterEncodeState,
+	txMode common.TxMode,
+) bool {
+	// The packed write reads committed mode info and tokens directly. Keep the
+	// fallback cache whenever coding state may reset or tx-mode demotion may
+	// trigger a second count walk.
+	return e != nil && inter != nil && inter.counts != nil &&
+		inter.preserveCodingState && e.vp9TokenCollect.active &&
+		e.vp9TokenCollect.err == nil && !e.svc.UseSvc &&
+		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
+		(txMode != common.TxModeSelect || e.sf.FrameParameterUpdate == 0)
+}
+
 func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
 	mi *vp9dec.NeighborMi, decision vp9InterModeDecision, bsize common.BlockSize,
 ) {
@@ -355,7 +368,8 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		}
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
 		if interDecisionValid && kind == vp9ModeTreeInterSource && inter != nil &&
-			inter.counts != nil && bsize >= common.Block8x8 && !forcedRef {
+			inter.counts != nil && bsize >= common.Block8x8 && !forcedRef &&
+			!e.canOmitVP9FinalInterLeafDecision(inter, txMode) {
 			interDecision.intra = !isInter
 			interDecision.mode = cur.Mode
 			interDecision.mv = cur.Mv

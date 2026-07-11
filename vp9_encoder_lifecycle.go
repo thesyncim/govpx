@@ -455,13 +455,13 @@ type VP9Encoder struct {
 	vp9CountCounts             []encoder.FrameCounts
 	vp9CountJobs               []vp9CountTileJob
 	vp9TilePool                *vp9TileWorkerPool
-	// vp9LeafInterDecisions caches the result of pickVP9InterReferenceMode
-	// at the leaf-write site so the count pre-pass populates entries and
-	// the bitstream write pass reuses them without re-running the inter-
-	// mode picker. The cache mirrors libvpx's mi_grid_visible[] store: the
-	// picker decision is committed once, the writer reads back the stored
-	// decision without recomputation (libvpx vp9/encoder/vp9_encodeframe.c
-	// encode_b — write_modes_b in vp9_bitstream.c reads mbmi directly).
+	// vp9LeafInterDecisions caches the finalized leaf decision for fallback
+	// writes and tx-mode-demotion count reruns. The normal packed write reads
+	// committed miGrid/token state and does not populate these entries.
+	// The fallback cache mirrors libvpx's mi_grid_visible[] store: the picker
+	// decision is committed once, then read back without recomputation
+	// (libvpx vp9/encoder/vp9_encodeframe.c encode_b; write_modes_b in
+	// vp9_bitstream.c reads mbmi directly).
 	// Sized to miRows*miCols on first frame; the version stamp invalidates
 	// stale entries on each frame so cross-frame state never leaks.
 	vp9LeafInterDecisions     []vp9LeafInterDecisionEntry

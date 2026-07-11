@@ -502,6 +502,15 @@ re-run during the write walk), tokenize/stage +0.26.
    root race run still reports the pre-existing frame-parallel token-buffer,
    decision-cache, and last-source sharing races; no report touched this
    coefficient sidecar path.
+   The phase-3 A4 continuation now removes the finalized 120-byte inter-leaf
+   cache store from normal packed count walks while retaining it for
+   SVC/denoiser/active-map, non-preserved coding state, inactive or
+   already-failed token staging, and tx-mode-demotion reruns. The 120-frame
+   cpu8 4T no-denoise phase spot stayed
+   exact at 1,236,037 bytes and 108/12 topology, with 237,683 packed replay
+   hits, zero misses, and cache stores reduced from 237,683 to zero. Three
+   heavily loaded alternating pairs reduced process retired instructions by
+   about 0.05%, 0.29%, and 0.08%; wall time was not accepted under that load.
    Remaining work:
    stage coefficient tokens transactionally during residue production without
    emitting tokens when the final leaf skip decision wins, then continue

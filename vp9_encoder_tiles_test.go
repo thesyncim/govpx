@@ -1058,6 +1058,7 @@ func TestVP9TileWorkerSeedCarriesNonrdIntraYModeCosts(t *testing.T) {
 	inter := &vp9InterEncodeState{
 		nonrdIntraYModeCosts:      costs,
 		nonrdIntraYModeCostsValid: true,
+		preserveCodingState:       true,
 	}
 	seed := vp9CountTileSeedForState(nil, inter)
 	if !seed.interNonrdIntraYModeCostsValid {
@@ -1084,6 +1085,9 @@ func TestVP9TileWorkerSeedCarriesNonrdIntraYModeCosts(t *testing.T) {
 		t.Fatalf("count job nonrd intra Y-mode costs valid=%t costs=%+v, want valid costs=%+v",
 			countJob.inter.nonrdIntraYModeCostsValid,
 			countJob.inter.nonrdIntraYModeCosts, costs)
+	}
+	if !countJob.inter.preserveCodingState {
+		t.Fatal("count job dropped coding-preservation intent")
 	}
 
 	var encodeJob vp9EncodeTileJob

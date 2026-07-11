@@ -29,6 +29,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	if inter != nil {
 		tmp := *inter
 		tmp.counts = counts
+		tmp.preserveCodingState = preserveCodingState
 		countInter = &tmp
 	}
 

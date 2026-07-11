@@ -22,8 +22,8 @@ entropy-wrapper fast path, and the VP8 compact previous-frame MV sidecar plus
 fast-picker final-mode copy-elision safe points, plus the complete VP9 decoder
 row-MT PARSE/RECON/LPF queue for one- and multi-tile streams, plus the VP9
 temporal-denoiser variance-threshold and committed count-state replay safe
-point landed on
-2026-07-02/03/10; the larger A/B and encoder-MT structural programs remain
+point, plus the A4 normal packed-leaf fallback-cache store deletion, landed on
+2026-07-02/03/10/11; the larger A/B and encoder-MT structural programs remain
 pending. This is the execution brief
 for implementation agents.
 Evidence: 2026-07-02/03 design sprint — three verified blueprints (VP9
@@ -297,11 +297,26 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   cpu8 1T no-PGO pairs kept exact 1,235,511-byte output; two pairs improved
   by about 0.08-0.09 ms/frame and median count time improved by about
   0.046 ms/frame.
-- Denoiser-active token replay is still intentionally blocked: count pass
-  mutates denoiser source/intra-average state, and widening replay safely needs
-  an all-leaves-or-rollback transaction. The landed safe point is narrower:
-  full-width denoiser/lookahead image copies now use contiguous plane copies
-  while padded images keep the old row loop.
+- A4 now also omits that finalized 120-byte cache copy when the count walk is
+  guaranteed to feed the normal packed write: coding-state preservation was
+  requested, token staging is active, SVC/denoiser/active-map fallbacks are
+  absent, and frame-level tx-mode demotion cannot rerun counts. The fallback
+  cache remains intact for every excluded class, including
+  `EncodeNoUpdateEntropy` and `TX_MODE_SELECT` with frame-parameter updates.
+  On the 120-frame 720p realtime cpu8 4T no-denoise spot, finalized stores
+  fell from 237,683 to zero while packed replay remained 237,683 hits and zero
+  misses. Output stayed exact at 1,236,037 bytes and 108/12 encoded/dropped.
+  With the host saturated above load 170 by unrelated fuzzing, three
+  alternating process-level pairs reduced retired instructions by about
+  0.05%, 0.29%, and 0.08%; wall time is deliberately not claimed. Focused
+  threaded/no-update-entropy/denoiser tests, a threaded race slice, the full
+  suite, and refreshed-PGO production replay all passed.
+- Denoiser-active token replay now commits count-side source/intra-average
+  state only when every leaf can use packed replay; otherwise it rolls that
+  state back before the write walk. A4 still retains finalized leaf-cache
+  stores for denoiser frames because that all-leaves commit decision is made
+  after the count walk. Full-width denoiser/lookahead image copies use
+  contiguous plane copies while padded images keep the row loop.
 - A5 is partial: the nonrd pred-filter `search_filter_ref` sweep now keeps the
   winning luma predictor alive by swapping two compact PRED_BUFFER-style
   buffers (`blockScratch` and `nonrdFilterPredScratch`) instead of copying or
