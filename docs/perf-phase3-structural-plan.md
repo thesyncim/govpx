@@ -1038,6 +1038,16 @@ agent report "VP8 encode recon redesign"; key verified facts:
   three order-alternated serial pairs favored the candidate with exact bytes /
   topology; severe thermal drift makes the 9.641 to 9.296 ms/frame median
   (about 3.6%) directional rather than a stable absolute timing claim.
+- A follow-up B7 vertical-lane packing probe is closed. Packing both 8-row
+  transposes into 16-lane column vectors halved the number of filter bodies and
+  kept 5,000 randomized C parity cases exact. It improved the focused Go
+  kernel median from 35.79 to 34.69 ns/op (about 3.1%) at 0 allocs/op, but the
+  connected filter phase was neutral (186.89 versus 187.43 ms total over 120
+  frames). Five no-PGO 480-frame serial pairs stayed exact at 5,066,778 bytes,
+  478/2 topology, and 0 allocs/frame, but the candidate lost four pairs and
+  regressed the median from 7.436 to 7.467 ms/frame (about 0.4%). The 144-byte
+  spill/save frame and packed-lane shuffles were removed; keep the published
+  two-half kernel unless a new code shape removes that pressure.
 - Current-frontier VP8 probes closed on 2026-07-03: inlining/hoisting the
   full-luma loopfilter trial body tied focused 1024x1024 trial samples and was
   reverted; VP8 subpel/DSP one-axis and split-shape benches were already
