@@ -798,7 +798,13 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   3.615 to 3.561 ms/frame (about 1.5%), with every run retaining the same bytes
   and topology. Full normal/pure-Go suites, focused race and determinism, the
   pinned benchmark frontier, strict byte parity, and PGO checks pass. Full
-  token-class production inside quantization remains open. A
+  token-class production inside quantization remains open. A follow-up hoisted
+  the producer-state and coefficient-count pointers out of the per-transform
+  staging call after a long uninstrumented profile sampled
+  `stageVP9ProducerBlock`, but five no-PGO 480-frame pairs were exact and
+  neutral-to-worse (3.566 baseline versus 3.569 ms/frame candidate medians).
+  The hoist was reverted; the sampled row needs deeper token-production work,
+  not another leaf-constant pointer reshuffle. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
