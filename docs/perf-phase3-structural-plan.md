@@ -578,7 +578,13 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   profile duplication should not be retried without new evidence. A cached
   subpel-variance function pointer also
   failed the hot-path rule directly: the focused scorer benchmark regressed to
-  1 alloc/op and slower ns/op; hoisting subpel MV-cost `errorPerBit` out of
+  1 alloc/op and slower ns/op. The scorer itself later moved from a value to a
+  pointer receiver, removing a roughly 200-byte struct copy per subpel
+  candidate without caching a callable. Five focused cached-scorer samples
+  moved from a 134.9 ns/op median to 132.7 ns/op at 0 allocs, and five no-PGO
+  480-frame 4T no-denoise pairs stayed exact at 4,981,549 bytes and 468/12
+  topology while moving median wall time from 3.557 to 3.536 ms/frame (about
+  0.6%). Hoisting subpel MV-cost `errorPerBit` out of
   the per-MV closure stayed byte/topology-safe but did not improve the 120-frame
   phase spot. Hoisting the luma AC/DC skipTxfm predicate out of the commit-loop
   tx walk and bypassing `BlockDiffVarianceSSEClampedSource` with a caller-side

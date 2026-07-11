@@ -116,7 +116,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 		if variance, _, ok := subpel.varianceSSE(best); ok {
 			bestScore = variance + mvCost(best)
 		}
-		return e.refineVP9InterSubpelMvTreeWithScorer(subpel, best, bestScore,
+		return e.refineVP9InterSubpelMvTreeWithScorer(&subpel, best, bestScore,
 			refMv, allowHP, mvCost)
 	}
 	if !useSubpelTree {
@@ -167,7 +167,7 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	return best, bestScore
 }
 
-func (e *VP9Encoder) refineVP9InterSubpelMvTreeWithScorer(subpel vp9SubpelVarianceScorer,
+func (e *VP9Encoder) refineVP9InterSubpelMvTreeWithScorer(subpel *vp9SubpelVarianceScorer,
 	best vp9dec.MV, bestScore uint64, refMv vp9dec.MV, allowHP bool,
 	mvCost func(vp9dec.MV) uint64,
 ) (vp9dec.MV, uint64) {
@@ -736,7 +736,7 @@ func (e *VP9Encoder) vp9InterPredictionSubpelVarianceScorer(
 	}, true
 }
 
-func (s vp9SubpelVarianceScorer) varianceSSE(mv vp9dec.MV) (variance, sse uint64, ok bool) {
+func (s *vp9SubpelVarianceScorer) varianceSSE(mv vp9dec.MV) (variance, sse uint64, ok bool) {
 	preX := s.x0 + (int(mv.Col) >> 3)
 	preY := s.y0 + (int(mv.Row) >> 3)
 	xOffset := int(mv.Col) & 7
