@@ -1019,6 +1019,25 @@ agent report "VP8 encode recon redesign"; key verified facts:
   all favored the fused kernel with exact 5,066,778-byte output, 478/2
   topology, and 0 allocs/frame; the median moved from 8.956 to 8.452 ms/frame
   (about 5.6%).
+- B7 also has a direct ARM64 horizontal-fusion safe point as of 2026-07-11.
+  A rolling eight-row register window carries the four rows shared by adjacent
+  edges, so edges 4, 8, and 12 keep their dependency order while reducing the
+  grouped luma path from 24 row loads to 16. The expanded grouped / separate
+  parity gate covers fixed extremes, randomized pixels, and randomized
+  threshold triples. Seven order-alternated hot-buffer samples moved from a
+  26.36 to 20.15 ns/op median (about 23.6%) at 0 allocs/op. Three tagged
+  120-frame pairs kept exact 1,328,027-byte output, 118/2 topology, and 579
+  trials while median trial-filter time fell from 207.1 to 190.7 ms total
+  (about 0.137 ms/frame or 7.9%); median wall time moved from 7.468 to 7.426
+  ms/frame. Five explicitly no-PGO 480-frame serial pairs kept exact
+  5,066,778-byte output, 478/2 topology, and 0 allocs/frame; the candidate won
+  four pairs and moved the median from 7.874 to 7.591 ms/frame (about 3.6%).
+  Three matching 4T pairs all won with exact 5,111,925-byte output and 456/24
+  topology, moving the median from 7.863 to 7.291 ms/frame (about 7.3%) under
+  degraded machine load. After refreshing the repository PGO profile, all
+  three order-alternated serial pairs favored the candidate with exact bytes /
+  topology; severe thermal drift makes the 9.641 to 9.296 ms/frame median
+  (about 3.6%) directional rather than a stable absolute timing claim.
 - Current-frontier VP8 probes closed on 2026-07-03: inlining/hoisting the
   full-luma loopfilter trial body tied focused 1024x1024 trial samples and was
   reverted; VP8 subpel/DSP one-axis and split-shape benches were already
@@ -1099,8 +1118,9 @@ exists; PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped
 on the normal denoise path; PARTIAL 2026-07-11: persistent running-average
 buffers reuse prepared predictor metadata); B6 glue (PARTIAL 2026-07-03:
 final-mode copy elision landed; remaining glue still −0.05). Then B7: PARTIAL
-2026-07-11, direct ARM64 inner-vertical fusion landed; remaining lf-pick
-wall-stall investigation covers non-ARM64 kernels and buffer reuse/scavenger.
+2026-07-11, direct ARM64 inner-horizontal and inner-vertical fusion landed;
+remaining lf-pick wall-stall investigation covers non-ARM64 kernels and buffer
+reuse/scavenger.
 Risks: threshold cascade (any scoring rounding change → global mode
 avalanche — the SHA pin is the tripwire); border semantics at frame edges;
 sidecar capture timing vs mode fixups; denoiser running-avg order; threaded

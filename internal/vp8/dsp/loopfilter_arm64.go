@@ -14,6 +14,13 @@ package dsp
 //go:noescape
 func loopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
+// loopFilterHorizontalEdgesYSharedNEON keeps the overlapping rows for the
+// three dependent inner horizontal edges in registers between filters.
+// src points at the macroblock's top-left pixel.
+//
+//go:noescape
+func loopFilterHorizontalEdgesYSharedNEON(src *byte, pitch int, blimit, limit, thresh byte)
+
 //go:noescape
 func mbLoopFilterEdgeH16NEON(src *byte, pitch int, blimit, limit, thresh byte)
 
