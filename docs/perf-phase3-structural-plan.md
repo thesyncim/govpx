@@ -766,6 +766,17 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   3.623 ms/frame versus 3.601-3.606 controls, with one 4.081 ms/frame outlier.
   The probe was reverted; the remaining A6 work must delete the sidecar walk
   by splitting final commit from candidate search, not merely move it. A
+  follow-up transaction probe did move final inter residue work outside the
+  frozen skip-encode search context, staged one leaf into fixed worker-private
+  storage, and published tokens/counts/entropy contexts only after skip and
+  transform-size commit. It also rejected post-encode transform-size changes
+  before publication and kept all three 480-frame 4T runs exact at 4,981,549
+  bytes with 468/12 topology. It still called `StageCoefBlock` immediately
+  after quantization, however, so it moved rather than fused the qcoeff walk:
+  the three-pair median regressed from 3.571 to 3.643 ms/frame (about 2.0%).
+  The probe was reverted. The next A6 slice must produce token classes inside
+  the final quantizer scan itself; another post-quantization transaction is not
+  a structural deletion. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
