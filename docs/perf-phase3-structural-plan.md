@@ -984,6 +984,21 @@ agent report "VP8 encode recon redesign"; key verified facts:
   7.320 ms/frame candidate medians, with two candidate pairwise wins) and kept
   the same bytes/topology. Direct encoder-kernel winner construction /
   predictor carry remains open before B4 can be called complete.
+- B5 has a tiny prepared-state safe point as of 2026-07-11: the four persistent
+  denoiser running-average buffers now prepare their immutable reference-plane
+  metadata when they resize, then reuse it for motion-compensated per-MB
+  prediction. Zero-value states still fall back to the original path for tests
+  that manually assemble denoiser buffers. Ten order-alternated, explicitly
+  no-PGO 480-frame serial pairs kept exact 5,066,778-byte output, 478/2
+  topology, and 0 allocs/frame; the candidate won eight pairs and the aggregate
+  median moved from 7.470 to 7.443 ms/frame (about 0.36%). A candidate profile
+  removed `newFrameInterRefState` from the sampled MB walk. Three 4T pairs kept
+  exact 5,111,925-byte output and 456/24 topology but were wall-neutral (4.302
+  baseline versus 4.310 ms/frame candidate medians). Three refreshed-PGO
+  serial pairs also all favored the candidate, but severe thermal drift from
+  the 8.0 to 9.6 ms/frame band makes that result directional only. Count this
+  only as setup glue: the per-MB `thismb` staging/filter shape and FDCT-cache
+  opportunity remain open.
 - Current-frontier VP8 probes closed on 2026-07-03: inlining/hoisting the
   full-luma loopfilter trial body tied focused 1024x1024 trial samples and was
   reverted; VP8 subpel/DSP one-axis and split-shape benches were already
@@ -1050,8 +1065,9 @@ remains); B5 per-MB denoiser staging (thismb shape)
 + re-enabled FDCT winner cache (−0.10..0.15, but the 2026-07-03 FDCT-cache
 return probe is closed for realtime cpu8 until an RD-cache-producing fast path
 exists; PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped
-on the normal denoise path); B6 glue (PARTIAL 2026-07-03: final-mode copy
-elision landed; remaining glue still −0.05). Then B7: the
+on the normal denoise path; PARTIAL 2026-07-11: persistent running-average
+buffers reuse prepared predictor metadata); B6 glue (PARTIAL 2026-07-03:
+final-mode copy elision landed; remaining glue still −0.05). Then B7: the
 lf-pick wall-stall investigation (buffer reuse/scavenger; separate round).
 Risks: threshold cascade (any scoring rounding change → global mode
 avalanche — the SHA pin is the tripwire); border semantics at frame edges;

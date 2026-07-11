@@ -34,6 +34,7 @@ type denoiserState struct {
 	// Running averages for each reference: index 0 is INTRA (the in-progress
 	// frame's running average that becomes LAST), 1=LAST, 2=GOLDEN, 3=ALTREF.
 	runningAvg [4]vp8common.FrameBuffer
+	refStates  [4]vp8dec.InterFrameRefState
 	mcRunning  vp8common.FrameBuffer
 	source     vp8common.FrameBuffer
 
@@ -48,6 +49,7 @@ func (d *denoiserState) ensureAllocated(width int, height int) error {
 		if err := d.runningAvg[i].Resize(width, height, 32, 32); err != nil {
 			return ErrInvalidConfig
 		}
+		d.refStates[i] = vp8dec.PrepareInterFrameRefState(&d.runningAvg[i].Img, vp8dec.InterPredictionConfig{})
 	}
 	if err := d.mcRunning.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
@@ -73,6 +75,7 @@ func (d *denoiserState) ensureAllocated(width int, height int) error {
 func (d *denoiserState) reset() {
 	for i := range d.runningAvg {
 		d.runningAvg[i].Reset()
+		d.refStates[i] = vp8dec.InterFrameRefState{}
 	}
 	d.mcRunning.Reset()
 	d.source.Reset()
@@ -227,7 +230,7 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	var decMode vp8dec.MacroblockMode
 	vp8enc.ConvertInterFrameMode(&mcMode, &decMode)
 	var zeroTokens vp8dec.MacroblockTokens
-	if !reconstructInterAnalysisMacroblock(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
+	if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
 		e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		return
 	}
