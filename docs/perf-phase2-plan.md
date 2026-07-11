@@ -489,10 +489,24 @@ re-run during the write walk), tokenize/stage +0.26.
    coefficient storage is now qcoeff-only at 24 KiB across three planes. Two
    order-reversed 480-frame 4T pairs improved another 0.57-0.74% with exact
    bytes/topology, and the 120-frame plus 2000-frame ML gates stayed exact.
+   The following safe point removes the root encoder's per-tx qcoeff/EOB
+   callbacks from the count-token walk. `WriteCoefSb` now indexes the existing
+   compact tx-block-major stores directly through two fixed-array pointers,
+   and the production pointer entrypoint avoids copying the full leaf argument
+   bundle after token collection has already mutated it in place. Five
+   interleaved post-PGO 480-frame 4T pairs kept exact 4,981,549-byte output and
+   468/12 topology while improving 0.16-1.59%, with a 0.57% median. In the
+   paired profile, sampled cumulative `writeVP9ModeBlock` time fell from 120 ms
+   to 40 ms. Full, pure-Go, trace, conformance, strict byte-parity, focused
+   changed-path race, post-PGO 1T/4T, and 2000-frame ML gates pass. The broad
+   root race run still reports the pre-existing frame-parallel token-buffer,
+   decision-cache, and last-source sharing races; no report touched this
+   coefficient sidecar path.
    Remaining work:
-   remove direct token-side staging from the cpu8 commit path, then
-   continue toward single-walk packing. Port exactly what vp9_encodemb.c does
-   at this speed level.
+   stage coefficient tokens transactionally during residue production without
+   emitting tokens when the final leaf skip decision wins, then continue
+   toward single-walk packing. Port exactly what vp9_encodemb.c does at this
+   speed level.
 4. **Intra fallback diet**: source-check before changing. The original plan
    note was too aggressive: pinned libvpx v1.16.0 `estimate_block_intra` still
    calls `block_yrd` for plane 0, and the nonrd intra fallback path calls

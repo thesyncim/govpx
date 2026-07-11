@@ -683,7 +683,19 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   staged/direct qcoeff token parity and connected 120-frame plus 2000-frame ML
   byte gates stay exact. Two order-reversed 480-frame 4T pairs improved about
   0.57-0.74% over the compact-layout safe point, with exact 4,981,549-byte
-  output and 468/12 topology. Direct token-side staging remains open. A
+  output and 468/12 topology. A direct compact-sidecar handoff now lets
+  `WriteCoefSb` derive each tx span and EOB from the fixed qcoeff/EOB stores
+  without four root callback closures or per-tx indirect calls. The production
+  pointer entrypoint also avoids copying the leaf argument bundle after token
+  collection mutates it in place. Five interleaved post-PGO 480-frame 4T pairs
+  kept exact 4,981,549-byte output and 468/12 topology while improving
+  0.16-1.59%, with a 0.57% median; the paired profile reduced sampled
+  cumulative `writeVP9ModeBlock` time from 120 ms to 40 ms. Full, pure-Go,
+  trace, conformance, strict byte-parity, focused changed-path race, refreshed
+  PGO, 1T/4T, and 2000-frame ML gates pass. The broad root race run remains red
+  on pre-existing frame-parallel token-buffer, decision-cache, and last-source
+  sharing, with no report in this sidecar path. Producer-time transactional
+  token staging remains open. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
@@ -743,8 +755,9 @@ skipTxfm is consumed for segment-0 non-lossless realtime FP blocks, while
 AC-only remains explicitly non-FP/open; `BlockYrd` EOB scratch is narrowed to
 int16, and edge candidate prediction reads the persistent padded reference
 directly instead of constructing a temporary tap window; q/dq SB staging is
-now tx-block compact and dqcoeff is tx-local, while direct token-side staging
-remains −0.7..1.0).
+now tx-block compact, dqcoeff is tx-local, and the token walker consumes the
+compact qcoeff/EOB sidecar directly without callbacks or a value-copy handoff;
+producer-time transactional token staging remains −0.7..1.0).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first

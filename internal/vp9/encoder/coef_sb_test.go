@@ -1,12 +1,102 @@
 package encoder
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 )
+
+func TestWriteCoefSbCompactSidecarMatchesCallbacks(t *testing.T) {
+	type result struct {
+		wire  []byte
+		stats FrameCoefBranchStats
+		above [vp9dec.MaxMbPlane][]uint8
+		left  [vp9dec.MaxMbPlane][]uint8
+	}
+	run := func(compact bool) result {
+		fc := seedDefaultCoefProbsForEnc()
+		var planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
+		vp9dec.SetupBlockPlanes(&planes, 1, 1)
+		for plane := range vp9dec.MaxMbPlane {
+			planes[plane].AboveContext = make([]uint8, 4)
+			planes[plane].LeftContext = make([]uint8, 4)
+		}
+		var qcoeffs [vp9dec.MaxMbPlane][compactCoefSlots]int16
+		var eobs [vp9dec.MaxMbPlane][compactEOBSlots]int16
+		for plane := range vp9dec.MaxMbPlane {
+			pbsize := vp9dec.GetPlaneBlockSize(common.Block8x8, &planes[plane])
+			w := int(common.Num4x4BlocksWideLookup[pbsize])
+			h := int(common.Num4x4BlocksHighLookup[pbsize])
+			for r := 0; r < h; r++ {
+				for c := 0; c < w; c++ {
+					off := (r*w + c) * 16
+					qcoeffs[plane][off] = int16(plane + r + c + 1)
+					eobs[plane][r*w+c] = 1
+				}
+			}
+		}
+		var stats FrameCoefBranchStats
+		args := WriteCoefSbArgs{
+			BSize:           common.Block8x8,
+			MiTxSize:        common.Tx4x4,
+			IsInter:         1,
+			Planes:          &planes,
+			PlaneDequant:    [vp9dec.MaxMbPlane][2]int16{{16, 16}, {16, 16}, {16, 16}},
+			Fc:              &fc,
+			CoefBranchStats: &stats,
+		}
+		if compact {
+			args.CompactQCoeffs = &qcoeffs
+			args.CompactEOBs = &eobs
+		} else {
+			args.GetQCoeffs = func(plane, r, c int, _ common.TxSize) []int16 {
+				pbsize := vp9dec.GetPlaneBlockSize(common.Block8x8, &planes[plane])
+				w := int(common.Num4x4BlocksWideLookup[pbsize])
+				off := (r*w + c) * 16
+				return qcoeffs[plane][off : off+16]
+			}
+			args.GetEOB = func(plane, r, c int, _ common.TxSize) (int, bool) {
+				pbsize := vp9dec.GetPlaneBlockSize(common.Block8x8, &planes[plane])
+				w := int(common.Num4x4BlocksWideLookup[pbsize])
+				return int(eobs[plane][r*w+c]), true
+			}
+		}
+		buf := make([]byte, 512)
+		var bw bitstream.Writer
+		bw.Start(buf)
+		if err := WriteCoefSb(&bw, args); err != nil {
+			t.Fatalf("WriteCoefSb(compact=%v): %v", compact, err)
+		}
+		n, err := bw.Stop()
+		if err != nil {
+			t.Fatalf("Stop(compact=%v): %v", compact, err)
+		}
+		out := result{wire: append([]byte(nil), buf[:n]...), stats: stats}
+		for plane := range vp9dec.MaxMbPlane {
+			out.above[plane] = append([]byte(nil), planes[plane].AboveContext...)
+			out.left[plane] = append([]byte(nil), planes[plane].LeftContext...)
+		}
+		return out
+	}
+
+	callbacks := run(false)
+	compact := run(true)
+	if !bytes.Equal(compact.wire, callbacks.wire) {
+		t.Fatalf("compact wire = %x, callbacks = %x", compact.wire, callbacks.wire)
+	}
+	if compact.stats != callbacks.stats {
+		t.Fatal("compact branch stats differ from callbacks")
+	}
+	for plane := range vp9dec.MaxMbPlane {
+		if !bytes.Equal(compact.above[plane], callbacks.above[plane]) ||
+			!bytes.Equal(compact.left[plane], callbacks.left[plane]) {
+			t.Fatalf("compact contexts differ for plane %d", plane)
+		}
+	}
+}
 
 // TestWriteCoefSbBlock8x8AllZero: 8x8 luma block + 4x4 chroma (4:2:0),
 // all coefficients zero. Walker should emit a per-plane / per-tx-block

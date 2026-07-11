@@ -1512,51 +1512,6 @@ func vp9BlockCoeffOffset(planeBsize common.BlockSize, r, c int,
 	return off, maxEob, true
 }
 
-// vp9BlockQCoeffs returns the quantized coefficient span retained for the
-// later token walk. Dequantized coefficients are consumed by inverse-add
-// immediately and stay in encoder-local tx scratch instead of this SB store.
-func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
-	bsize common.BlockSize, r, c int, tx common.TxSize,
-) []int16 {
-	if plane >= 0 && plane < vp9dec.MaxMbPlane {
-		pd := &e.planes[plane]
-		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if coeffBase, maxEob, ok := vp9BlockCoeffOffset(planeBsize, r, c, tx); ok {
-			sc := e.vp9BlockCoeffScratch()
-			return sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
-		}
-	}
-	maxEob := vp9dec.MaxEobForTxSize(tx)
-	qcoeffs := e.qCoefScratch[:maxEob]
-	clear(qcoeffs)
-	return qcoeffs
-}
-
-func (e *VP9Encoder) vp9BlockEOB(plane int,
-	bsize common.BlockSize, r, c int, tx common.TxSize,
-) (int, bool) {
-	if plane < 0 || plane >= vp9dec.MaxMbPlane || tx >= common.TxSizes {
-		return 0, false
-	}
-	pd := &e.planes[plane]
-	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-	if planeBsize >= common.BlockSizes {
-		return 0, false
-	}
-	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-	idx := r*full4x4W + c
-	sc := e.vp9BlockCoeffScratch()
-	if idx < 0 || idx >= len(sc.blockEOBs[plane]) {
-		return 0, false
-	}
-	eob := int(sc.blockEOBs[plane][idx])
-	maxEob := vp9dec.MaxEobForTxSize(tx)
-	if eob < 0 || eob > maxEob {
-		return 0, false
-	}
-	return eob, true
-}
-
 func (e *VP9Encoder) vp9EncoderReconPlane(plane int) ([]byte, int) {
 	switch plane {
 	case 0:

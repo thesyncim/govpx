@@ -25,6 +25,11 @@ import (
 // and lossless frames use the default scan; intra luma blocks select the
 // DCT/ADST scan from the current Y mode.
 
+const (
+	compactCoefSlots = 64 * 64
+	compactEOBSlots  = 16 * 16
+)
+
 // WriteCoefSbArgs bundles the inputs WriteCoefSb consults across the
 // three planes of one leaf block.
 type WriteCoefSbArgs struct {
@@ -90,6 +95,13 @@ type WriteCoefSbArgs struct {
 	// for the same tx block. When absent, WriteCoefBlock falls back to
 	// deriving EOB from coeff/qcoeff.
 	GetEOB func(plane int, r, c int, txSize common.TxSize) (int, bool)
+
+	// CompactQCoeffs / CompactEOBs provide the production tx-block-major
+	// coefficient sidecar directly. When both stores are present the
+	// walker derives the tx span from the grid it already owns and bypasses the
+	// per-block callbacks above.
+	CompactQCoeffs *[vp9dec.MaxMbPlane][compactCoefSlots]int16
+	CompactEOBs    *[vp9dec.MaxMbPlane][compactEOBSlots]int16
 
 	// TokenDst/TokenIndex opt into libvpx-shaped coefficient token staging.
 	// When TokenOnly is false, WriteCoefSb stages each tx block then replays it
@@ -224,6 +236,37 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 	return mi.Mode
 }
 
+func compactCoefBlock(qcoeffs *[compactCoefSlots]int16,
+	eobs *[compactEOBSlots]int16, planeBsize common.BlockSize,
+	r, c int, txSize common.TxSize,
+) ([]int16, int, bool) {
+	if qcoeffs == nil || eobs == nil ||
+		planeBsize < 0 || planeBsize >= common.BlockSizes ||
+		txSize < 0 || txSize >= common.TxSizes || r < 0 || c < 0 {
+		return nil, 0, false
+	}
+	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	full4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+	shift := uint(txSize)
+	step := 1 << shift
+	if full4x4W <= 0 || full4x4H <= 0 || (r|c)&(step-1) != 0 ||
+		r+step > full4x4H || c+step > full4x4W {
+		return nil, 0, false
+	}
+	maxEob := 16 << (shift << 1)
+	off := ((r>>shift)*(full4x4W>>shift) + (c >> shift)) * maxEob
+	eobOff := r*full4x4W + c
+	if off < 0 || off+maxEob > len(qcoeffs) ||
+		eobOff < 0 || eobOff >= len(eobs) {
+		return nil, 0, false
+	}
+	eob := int(eobs[eobOff])
+	if eob < 0 || eob > maxEob {
+		return nil, 0, false
+	}
+	return qcoeffs[off : off+maxEob], eob, true
+}
+
 // WriteCoefSb mirrors libvpx's per-block residue pack — the loop
 // pack_mb_tokens replays after tokenize_b stages tokens for one
 // leaf. Iterates the Y / U / V planes, walks each plane's tx-block
@@ -233,6 +276,15 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 // above/left context bytes from (eob > 0) after each block so the
 // next neighbor read sees the right state.
 func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
+	return WriteCoefSbFromArgs(bw, &a)
+}
+
+// WriteCoefSbFromArgs avoids copying the leaf argument bundle when the caller
+// already owns it behind a stable pointer.
+func WriteCoefSbFromArgs(bw *bitstream.Writer, a *WriteCoefSbArgs) error {
+	if a == nil {
+		return ErrTokenBufferFull
+	}
 	// Shared token-cache scratch for every tx block in this leaf. The
 	// scan-order walk writes each position before reading it as a neighbor
 	// context (libvpx tokenize_b keeps this uninitialized), so a.TokenCache
@@ -242,6 +294,10 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 	if tokenCache == nil {
 		var local [1024]uint8
 		tokenCache = &local
+	}
+	compactCoeffs := a.CompactQCoeffs != nil || a.CompactEOBs != nil
+	if compactCoeffs && (a.CompactQCoeffs == nil || a.CompactEOBs == nil) {
+		return ErrTokenBufferFull
 	}
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &a.Planes[plane]
@@ -293,14 +349,27 @@ func WriteCoefSb(bw *bitstream.Writer, a WriteCoefSbArgs) error {
 					scan, neighbors = so.Scan, so.Neighbors
 				}
 
-				coeffs := a.GetCoeffs(plane, r, c, txSize)
+				var coeffs []int16
 				var qcoeffs []int16
-				if a.GetQCoeffs != nil {
-					qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
-				}
 				knownEOB, knownEOBValid := 0, false
-				if a.GetEOB != nil {
-					knownEOB, knownEOBValid = a.GetEOB(plane, r, c, txSize)
+				if compactCoeffs {
+					var ok bool
+					qcoeffs, knownEOB, ok = compactCoefBlock(&a.CompactQCoeffs[plane],
+						&a.CompactEOBs[plane], planeBsize, r, c, txSize)
+					if !ok {
+						return ErrTokenBufferFull
+					}
+					knownEOBValid = true
+				} else {
+					if a.GetCoeffs != nil {
+						coeffs = a.GetCoeffs(plane, r, c, txSize)
+					}
+					if a.GetQCoeffs != nil {
+						qcoeffs = a.GetQCoeffs(plane, r, c, txSize)
+					}
+					if a.GetEOB != nil {
+						knownEOB, knownEOBValid = a.GetEOB(plane, r, c, txSize)
+					}
 				}
 				eob := 0
 				maxEob := vp9dec.MaxEobForTxSize(txSize)

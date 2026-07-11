@@ -511,6 +511,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 				return
 			}
+			sc := e.vp9BlockCoeffScratch()
 			coefArgs := encoder.WriteCoefSbArgs{
 				BSize:        reconBsize,
 				MiTxSize:     cur.TxSize,
@@ -531,22 +532,15 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				},
 				Fc:              &e.fc.CoefProbs,
 				CoefBranchStats: vp9CoefBranchStats(counts),
-				GetCoeffs: func(_, _, _ int, _ common.TxSize) []int16 {
-					return nil
-				},
-				GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-					return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)
-				},
-				GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
-					return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
-				},
-				TokenCache: &e.coefTokenCache,
+				CompactQCoeffs:  &sc.blockQCoeffs,
+				CompactEOBs:     &sc.blockEOBs,
+				TokenCache:      &e.coefTokenCache,
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
 			if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
 				// Entropy contexts were committed directly from staged
 				// TOKENEXTRA records, matching the bytes just packed.
-			} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+			} else if err := encoder.WriteCoefSbFromArgs(bw, &coefArgs); err != nil && collectTokens {
 				e.vp9TokenCollect.err = err
 			}
 			if collectTokens {
@@ -671,6 +665,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			e.fillVP9MiGrid(miRows, miCols, miRow, miCol, bsize, cur)
 			return
 		}
+		sc := e.vp9BlockCoeffScratch()
 		coefArgs := encoder.WriteCoefSbArgs{
 			BSize:        reconBsize,
 			MiTxSize:     cur.TxSize,
@@ -691,23 +686,16 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			},
 			Fc:              &e.fc.CoefProbs,
 			CoefBranchStats: vp9CoefBranchStats(counts),
-			GetCoeffs: func(_, _, _ int, _ common.TxSize) []int16 {
-				return nil
-			},
-			GetQCoeffs: func(plane, r, c int, tx common.TxSize) []int16 {
-				return e.vp9BlockQCoeffs(plane, reconBsize, r, c, tx)
-			},
-			GetEOB: func(plane, r, c int, tx common.TxSize) (int, bool) {
-				return e.vp9BlockEOB(plane, reconBsize, r, c, tx)
-			},
-			TokenCache: &e.coefTokenCache,
+			CompactQCoeffs:  &sc.blockQCoeffs,
+			CompactEOBs:     &sc.blockEOBs,
+			TokenCache:      &e.coefTokenCache,
 		}
 		collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
 		if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
 			// Entropy contexts were committed directly from staged TOKENEXTRA
 			// records, so keyframe replay stays source-shaped around the token
 			// stream instead of reopening qcoeff/eob buffers.
-		} else if err := encoder.WriteCoefSb(bw, coefArgs); err != nil && collectTokens {
+		} else if err := encoder.WriteCoefSbFromArgs(bw, &coefArgs); err != nil && collectTokens {
 			e.vp9TokenCollect.err = err
 		}
 		if collectTokens {
