@@ -511,6 +511,11 @@ re-run during the write walk), tokenize/stage +0.26.
    hits, zero misses, and cache stores reduced from 237,683 to zero. Three
    heavily loaded alternating pairs reduced process retired instructions by
    about 0.05%, 0.29%, and 0.08%; wall time was not accepted under that load.
+   A follow-up makes the finalized cache lookup write-only at the mode-block
+   boundary and shares one result across inter/intra replay checks. Three
+   no-PGO pairs stayed exact while reducing retired instructions by about
+   0.13%, 0.04%, and 0.12%; a later five-pair wall check was mixed with a
+   -0.03% median and is treated as neutral.
    Remaining work:
    stage coefficient tokens transactionally during residue production without
    emitting tokens when the final leaf skip decision wins, then continue

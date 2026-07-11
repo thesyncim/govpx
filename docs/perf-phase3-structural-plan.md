@@ -311,6 +311,16 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   0.05%, 0.29%, and 0.08%; wall time is deliberately not claimed. Focused
   threaded/no-update-entropy/denoiser tests, a threaded race slice, the full
   suite, and refreshed-PGO production replay all passed.
+- The next A4 cleanup makes finalized leaf-cache lookup write-only at the mode
+  block boundary. Count callers could never satisfy either replay predicate,
+  but previously still performed both lookups; write callers now share one
+  lookup result across inter and intra replay checks. Three no-PGO 120-frame
+  cpu8 4T pairs kept exact 1,236,037-byte output, 108/12 topology, and
+  237,683/0 packed replay hits/misses while reducing retired instructions by
+  about 0.13%, 0.04%, and 0.12%. After the external fuzzers exited, five
+  additional wall pairs were mixed from +2.93% to -3.01% with a -0.03%
+  median, so wall time is treated as neutral rather than a win. Focused
+  replay/threaded tests, the threaded race slice, and the full suite passed.
 - Denoiser-active token replay now commits count-side source/intra-average
   state only when every leaf can use packed replay; otherwise it rolls that
   state back before the write walk. A4 still retains finalized leaf-cache

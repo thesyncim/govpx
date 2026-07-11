@@ -287,7 +287,12 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 			cur.Skip = 1
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
-			if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize); ok &&
+			var cached vp9InterModeDecision
+			var cachedOK bool
+			if inter.counts == nil {
+				cached, cachedOK = e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize)
+			}
+			if cachedOK &&
 				e.canReplayVP9CountPassInterLeaf(inter, cached, reconBsize, forcedRef) {
 				// libvpx tokenizes during encode_sb and the later bitstream
 				// writer replays those TOKENEXTRA records without rebuilding
@@ -308,7 +313,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				if vp9PhaseStatsEnabled {
 					e.vp9PhaseCountInterLeafReplay(true)
 				}
-			} else if cached, ok := e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize); ok &&
+			} else if cachedOK &&
 				e.canReplayVP9CountPassIntraLeaf(inter, cached, reconBsize) {
 				interDecision = cached
 				interDecisionValid = true
