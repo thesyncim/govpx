@@ -632,6 +632,11 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   even the narrowed single-tx guard broke ROI/active-map encode tests with
   `encoder: VP9 token buffer full`; the picker surface is predictor-only and
   not a safe substitute for the sequential predict + inverse-add commit surface.
+  A later full-block worker-private carry confirmed the same ownership failure
+  on the standard 120-frame no-denoise gate: output moved from 1,236,037 to
+  1,235,865 bytes and wall time regressed from 3.281 to 3.355 ms/frame. It was
+  reverted. Any future A5 carry must preserve the winner's reconstructed tx
+  chain, not copy the model-stage predictor surface.
   Focused DC/V/H/TM intra-predictor scans after the H/TM safe points showed DC
   and V are already too cheap to chase (`dc32` about 55-56 ns/op and `v32`
   about 19-20 ns/op, with smaller sizes in single-digit or low-double-digit
