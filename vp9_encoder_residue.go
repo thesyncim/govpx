@@ -88,11 +88,15 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 					sc.blockEOBs[plane][blockIdx4x4] = 0
 				}
-				coeffBase := blockIdx4x4 * vp9EncoderTxCoeffSlots
-				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				coeffBase, maxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
+					rr, cc, txSize)
+				if !coeffOK {
+					continue
+				}
+				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
 				qindex := vp9dec.GetSegmentQindex(&key.hdr.Seg, segID,
 					int(key.hdr.Quant.BaseQindex))
-				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+vp9EncoderTxCoeffSlots]
+				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 				if ok, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, plane, mode,
 					txSize, tile, miRows, miCols, miRow, miCol, bsize, rr, cc,
 					dequant, qindex, coeffs, qcoeffs); ok {
@@ -294,7 +298,11 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 					plane, segID) {
 					continue
 				}
-				coeffBase := blockIdx4x4 * vp9EncoderTxCoeffSlots
+				coeffBase, compactMaxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
+					rr, cc, txSize)
+				if !coeffOK || compactMaxEob != maxEob {
+					continue
+				}
 				coeffs := sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
 				qcoeffs := sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 				if ok, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,

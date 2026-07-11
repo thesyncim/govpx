@@ -475,8 +475,17 @@ re-run during the write walk), tokenize/stage +0.26.
    A narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing
    it in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
    (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
+   The phase-3 A6 continuation now compacts per-SB q/dq coefficient staging by
+   tx-block `maxEob` instead of reserving 1024 slots at every 4x4 origin. The
+   three-plane q+dq footprint falls from 3 MiB to 48 KiB while the 256-cell EOB
+   map remains unchanged. Exhaustive block-shape/tx layout coverage proves
+   non-overlap and exact coefficient coverage; broad parity gates stay green.
+   Two order-reversed no-PGO 480-frame 4T pairs kept exact 4,981,549-byte output
+   and 468/12 topology while improving about 0.13-0.17%, and the paired profile
+   moved `WriteCoefSb` cumulative CPU from 500 ms to 340 ms.
    Remaining work:
-   remove the broader gather/stage layers from the cpu8 commit path, then
+   remove persistent dqcoeff and direct token-side staging from the cpu8 commit
+   path, then
    continue toward single-walk packing. Port exactly what vp9_encodemb.c does
    at this speed level.
 4. **Intra fallback diet**: source-check before changing. The original plan

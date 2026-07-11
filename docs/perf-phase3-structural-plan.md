@@ -3,7 +3,8 @@
 Status: implementation started. The oracle-denoise prerequisite, narrow
 A1/A2 token-walk safe points, the first A5 pick-buffer safe point, the
 A5 non-ML plus ML four-buffer ownership safe points, the
-A6 padded-reference edge-prediction plus bare-quantize / AC-DC skipTxfm
+A6 compact coefficient staging plus padded-reference edge-prediction and
+bare-quantize / AC-DC skipTxfm
 commit safe points, and a denoiser
 count-copy safe point plus a nonrd picker invariant-hoist safe point, a
 small offset-SAD cleanup, a `BlockYrd` EOB-scratch narrowing safe point,
@@ -662,6 +663,19 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   fewer instructions, and `vp9ExtendInterPredictSource` disappeared from the
   follow-up profile. The generation-rebuild guard and active-map/ROI zero-alloc
   tests pass. Broader gather/stage removal remains open. A
+  compact coefficient-staging safe point replaces the old sparse
+  `(4x4_origin * 1024)` q/dq layout with tx-block-major spans sized by the
+  actual `maxEob`. Every valid VP9 block-shape x transform-size layout now
+  covers a plane's coefficients exactly once through one checked power-of-two
+  offset helper, while the 256-cell 4x4-origin EOB map remains independent.
+  Across three planes, q+dq storage falls from 3 MiB (1,572,864 `int16` slots)
+  to 48 KiB (24,576 slots). Exhaustive overlap/bounds coverage, active-map/ROI
+  zero-allocation tests, race, full tests, conformance, strict byte parity,
+  trace, and pure-Go gates pass. Two order-reversed no-PGO 480-frame 4T pairs
+  stayed exact at 4,981,549 bytes and 468/12 while improving about 0.13-0.17%;
+  the paired profile reduced `WriteCoefSb` cumulative CPU from 500 ms to
+  340 ms and `PackTokensAndCommitCoefSbContexts` from 390 ms to 370 ms.
+  Persistent dqcoeff removal and direct token-side staging remain open. A
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
@@ -720,8 +734,9 @@ normal residual loop plus tx-candidate/context-stamp loops; luma AC/DC
 skipTxfm is consumed for segment-0 non-lossless realtime FP blocks, while
 AC-only remains explicitly non-FP/open; `BlockYrd` EOB scratch is narrowed to
 int16, and edge candidate prediction reads the persistent padded reference
-directly instead of constructing a temporary tap window; broader gather/stage
-removal remains −0.9..1.2).
+directly instead of constructing a temporary tap window; q/dq SB staging is
+now tx-block compact, while persistent dqcoeff removal and direct token-side
+staging remain −0.8..1.1).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first

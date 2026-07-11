@@ -7,7 +7,8 @@ import (
 
 const (
 	vp9EncoderTxCoeffSlots           = 1024
-	vp9EncoderBlockCoeffSlots        = 256 * vp9EncoderTxCoeffSlots
+	vp9EncoderBlockCoeffSlots        = 64 * 64
+	vp9EncoderBlockEOBSlots          = 16 * 16
 	vp9MinEncodeIntoBuffer           = 64
 	vp9MaxPartitionReconScratch      = 64*64 + 2*32*32
 	vp9MaxPartitionReconScratchStack = 2*vp9MaxPartitionReconScratch +

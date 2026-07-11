@@ -728,7 +728,7 @@ type VP9Encoder struct {
 type vp9EncoderBlockCoeffScratch struct {
 	blockCoeffs  [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
-	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots / vp9EncoderTxCoeffSlots]int16
+	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockEOBSlots]int16
 
 	// hdrScratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's

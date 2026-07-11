@@ -1484,31 +1484,50 @@ func (e *VP9Encoder) vp9EncoderTxDst(pd *vp9dec.MacroblockdPlane,
 	return planeData[y0*stride+x0:], stride, x0, y0, true
 }
 
-// vp9BlockCoeffs returns a read-only view of the tx block's dequantized
-// coefficient slot in e.blockCoeffs. All consumers (WriteCoefBlock /
-// StageCoefBlock / CommitCoefSbContexts via the WriteCoefSb walker) read
-// coefficients strictly within the quantizer-produced EOB delivered by
-// vp9BlockEOB (KnownEOBValid), and the producer
-// (quantizeVP9TxResidualWithQTrellis) fully writes [:maxEob] whenever it
-// records eob > 0, so no per-read copy or clear is needed — mirroring libvpx
-// pack_mb_tokens consuming p->qcoeff/pd->dqcoeff in place.
+func vp9BlockCoeffOffset(planeBsize common.BlockSize, r, c int,
+	tx common.TxSize,
+) (off, maxEob int, ok bool) {
+	if planeBsize < 0 || planeBsize >= common.BlockSizes ||
+		tx < 0 || tx >= common.TxSizes || r < 0 || c < 0 {
+		return 0, 0, false
+	}
+	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
+	full4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
+	shift := uint(tx)
+	step := 1 << shift
+	if full4x4W <= 0 || full4x4H <= 0 || (r|c)&(step-1) != 0 ||
+		r+step > full4x4H || c+step > full4x4W {
+		return 0, 0, false
+	}
+	blocksPerRow := full4x4W >> shift
+	if blocksPerRow <= 0 {
+		return 0, 0, false
+	}
+	maxEob = 16 << (shift << 1)
+	off = ((r>>shift)*blocksPerRow + (c >> shift)) * maxEob
+	if maxEob <= 0 || maxEob > vp9EncoderTxCoeffSlots || off < 0 ||
+		off+maxEob > vp9EncoderBlockCoeffSlots {
+		return 0, 0, false
+	}
+	return off, maxEob, true
+}
+
+// vp9BlockCoeffs returns a read-only view of the tx block's compact
+// dequantized coefficient slot. All consumers read strictly within the
+// quantizer-produced EOB delivered by vp9BlockEOB, so each transformed block
+// needs maxEob slots rather than a 1024-slot reservation at every 4x4 origin.
 func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 	bsize common.BlockSize, r, c int, tx common.TxSize,
 ) []int16 {
-	maxEob := vp9dec.MaxEobForTxSize(tx)
 	if plane >= 0 && plane < vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if planeBsize < common.BlockSizes {
-			full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-			coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+		if coeffBase, maxEob, ok := vp9BlockCoeffOffset(planeBsize, r, c, tx); ok {
 			sc := e.vp9BlockCoeffScratch()
-			if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
-				coeffBase+maxEob <= len(sc.blockCoeffs[plane]) {
-				return sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
-			}
+			return sc.blockCoeffs[plane][coeffBase : coeffBase+maxEob]
 		}
 	}
+	maxEob := vp9dec.MaxEobForTxSize(tx)
 	coeffs := e.coefScratch[:maxEob]
 	clear(coeffs)
 	return coeffs
@@ -1519,20 +1538,15 @@ func (e *VP9Encoder) vp9BlockCoeffs(plane int,
 func (e *VP9Encoder) vp9BlockQCoeffs(plane int,
 	bsize common.BlockSize, r, c int, tx common.TxSize,
 ) []int16 {
-	maxEob := vp9dec.MaxEobForTxSize(tx)
 	if plane >= 0 && plane < vp9dec.MaxMbPlane {
 		pd := &e.planes[plane]
 		planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
-		if planeBsize < common.BlockSizes {
-			full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
-			coeffBase := (r*full4x4W + c) * vp9EncoderTxCoeffSlots
+		if coeffBase, maxEob, ok := vp9BlockCoeffOffset(planeBsize, r, c, tx); ok {
 			sc := e.vp9BlockCoeffScratch()
-			if maxEob <= vp9EncoderTxCoeffSlots && coeffBase >= 0 &&
-				coeffBase+maxEob <= len(sc.blockQCoeffs[plane]) {
-				return sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
-			}
+			return sc.blockQCoeffs[plane][coeffBase : coeffBase+maxEob]
 		}
 	}
+	maxEob := vp9dec.MaxEobForTxSize(tx)
 	qcoeffs := e.qCoefScratch[:maxEob]
 	clear(qcoeffs)
 	return qcoeffs
