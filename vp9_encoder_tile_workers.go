@@ -156,8 +156,10 @@ type vp9TileWorkerPool struct {
 	// by the most recent ensureRowWorkers call. Reset across pool rebuilds.
 	rowMTThreadCount int
 
-	jobKind     atomic.Uint32
-	workerCount int
+	jobKind        atomic.Uint32
+	encodePrepDone atomic.Int32
+	encodeStart    atomic.Uint32
+	workerCount    int
 }
 
 // vp9RowMTSync mirrors libvpx's VP9RowMTSync (vp9/encoder/vp9_ethread.h). It
@@ -338,12 +340,6 @@ type vp9TileWorkerJobKind uint8
 const (
 	vp9TileWorkerJobEncode vp9TileWorkerJobKind = iota
 	vp9TileWorkerJobCount
-	// vp9TileWorkerJobEncodePrep runs prepareVP9TileEncodeWorker on each
-	// helper's goroutine ahead of the encode epoch. The write pass encodes
-	// tile column 0 directly on the shared encoder, so the helpers must
-	// finish reading it before the encode epoch starts mutating it — the
-	// dedicated epoch provides that barrier.
-	vp9TileWorkerJobEncodePrep
 	// vp9TileWorkerJobLoopFilter runs one row-interleaved share of the
 	// frame loop filter per worker (libvpx vp9_loop_filter_frame_mt).
 	vp9TileWorkerJobLoopFilter
@@ -513,13 +509,20 @@ func (p *vp9TileWorkerPool) runHelperWorkerJob(workerIndex int) {
 	switch vp9TileWorkerJobKind(p.jobKind.Load()) {
 	case vp9TileWorkerJobCount:
 		runVP9CountTileJobNoWG(&p.countJobs[workerIndex])
-	case vp9TileWorkerJobEncodePrep:
-		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
 	case vp9TileWorkerJobLoopFilter:
 		if workerIndex < len(p.lfJobs) {
 			runVP9EncodeLfJob(&p.lfJobs[workerIndex])
 		}
 	default:
+		runVP9EncodeTilePrepJob(&p.encodeJobs[workerIndex])
+		p.encodePrepDone.Add(1)
+		for spins := 0; p.encodeStart.Load() == 0; spins++ {
+			runtimeProcYield(30)
+			if spins >= rowWorkerIdleSchedulerBackoff &&
+				spins%rowWorkerIdleSchedulerBackoff == 0 {
+				runtime.Gosched()
+			}
+		}
 		runVP9EncodeTileJob(&p.encodeJobs[workerIndex])
 	}
 }
@@ -1053,14 +1056,21 @@ func (e *VP9Encoder) writeVP9FrameTilesThreaded(output []byte, miRows, miCols in
 		}
 	}
 
-	// Helper workers copy the shared encoder state on their own goroutines.
-	// The dispatcher stays quiescent during this epoch: tile column 0 runs
-	// on the shared encoder itself, and mutating it before the helpers
-	// finish reading it would race with their state copies.
-	pool.startHelperWorkers(vp9TileWorkerJobEncodePrep)
-	pool.waitHelperWorkers()
-
+	// Helpers prepare and encode under one launch. The preparation barrier
+	// keeps tile column 0 quiescent until every helper has finished cloning
+	// shared encoder state, then releases all columns into the write pass.
+	pool.encodePrepDone.Store(0)
+	pool.encodeStart.Store(0)
 	pool.startHelperWorkers(vp9TileWorkerJobEncode)
+	wantPrep := int32(pool.workerCount - 1)
+	for spins := 0; pool.encodePrepDone.Load() < wantPrep; spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff &&
+			spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
+	}
+	pool.encodeStart.Store(1)
 	runVP9EncodeTileJob(&pool.encodeJobs[0])
 	pool.waitHelperWorkers()
 

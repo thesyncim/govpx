@@ -25,7 +25,7 @@ temporal-denoiser variance-threshold and committed count-state replay safe
 point, plus the A4 normal packed-leaf fallback-cache store deletion, first
 production C1 count-pass row-dispatch safe point, and transactional denoiser
 row-dispatch extension plus the VP9 row-helper blocking-idle and atomic
-wavefront safe points, landed on
+wavefront safe points, plus a fused tile-helper prepare/write launch, landed on
 2026-07-02/03/10/11; the larger A/B and remaining encoder-MT structural
 programs remain pending. This is the execution brief
 for implementation agents.
@@ -1068,6 +1068,19 @@ essentially flat at 2.59 versus 2.58 ms/frame, while tile write fell from about
 and retained the existing denoise/no-denoise packet hashes
 `537d43329c94e6c52f0ed8341b43841b431fed7c8f8d55ee4cfb0a4a578701be` /
 `2adae6a6b4eb95833492055dc23a75b76d8fc30fc34f3c75c0ef8caa34de6b54`.
+
+Measurement note, 2026-07-11 (fused helper prepare/write launch): threaded
+tile writes previously woke each helper once to clone shared encoder state,
+parked it, then immediately woke it again to pack its tile. Helpers now clone
+and encode under one launch with an atomic preparation barrier; tile column 0
+remains quiescent until every helper has finished reading shared state. On the
+480-frame 8T row-MT no-denoise lane, three interleaved post-PGO pairs moved
+median wall time from 3.605 to 3.581 ms/frame (about 0.7%) while tile-helper
+wake signals fell from 5,616 to 4,212. The default-denoiser median moved from
+2.610 to 2.598 ms/frame (about 0.45%). Both lanes retained exact
+4,981,549/4,983,704-byte output and 468/12 topology. Full normal/pure-Go,
+focused threading race, strict byte-parity, trace, and refreshed-PGO gates
+pass.
 
 C2 **MT-with-denoiser** (default-path multiplier): PARTIAL 2026-07-03/11. The
 VP9 `NoiseSensitivity>0 → tile workers disabled` gate is removed for the
