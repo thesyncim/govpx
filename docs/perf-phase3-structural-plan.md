@@ -1136,6 +1136,16 @@ C2 work is extending row dispatch to denoiser fallback/forced-reference cases
 and any oracle-denoise algorithmic parity fixes that surface under the broader
 option grid.
 
+Probe note, 2026-07-11 (denoiser finalized-decision cache omission): the
+prospective denoiser count-state envelope was reused to omit count-side
+finalized leaf-decision stores when the later tile pass could pure-pack from
+committed `miGrid` plus tokens. On the 120-frame 8T row-MT default-denoiser
+spot, `replay_store` fell from about 220,000 to zero while every write leaf
+still replayed. Output stayed exact, but three no-PGO 480-frame pairs were
+wall-neutral (2.631 vs 2.632 ms/frame medians), and the serial 240-frame spot
+regressed from 10.684 to 10.772 ms/frame. The probe was reverted; do not infer
+a wall win from deleting this cache store without a deeper ownership change.
+
 C3 **Threaded decode**: COMPLETE 2026-07-10. The decoder loop-filter path now
 reuses the encoder VP9LfSync port for row-based LF-MT, replacing the old
 3-plane ≤3-way split; the official corpus threading helper covers the
