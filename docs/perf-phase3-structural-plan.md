@@ -1462,14 +1462,36 @@ agent report "VP8 encode recon redesign"; key verified facts:
   exceeds the direct Convert samples because the per-frame 3 MB
   reconstructTokens staging traffic left the walk's working set), exact
   bytes/topology/allocs on 1T, 4T, and 120f pins.
-- Post-slice state 2026-07-16 (second session): canonical 1T spot now
-  runs in the ~6.94-7.00 ms/f band (from ~7.31-7.38) versus libvpx 5.35;
-  remaining MB-walk deltas are parity-priced (see ledger above) — the
-  gap left in the walk is Go loop/dispatch glue and the priced-below-risk
-  items (accepted-path StaticInterRDEncodeBreakout re-check ~0.09 ms/f
-  whose removal risks skip-semantics divergence, MacroblockCoefficientsEmpty
-  EOB scan ~0.1 ms/f already in its cheap form, token-context updates at
-  shape parity).
+- Post-slice state 2026-07-16 (second session): ten order-alternated
+  no-PGO 480f pairs of base d3d203f2 versus the two landed slices gave
+  8/10 candidate wins with medians 6.972 -> 6.813 ms/f in a cool window
+  (hotter windows earlier in the day showed the same direction from a
+  7.31-7.38 base band); all 20 runs byte-exact 5,066,778 / 478/2 /
+  0 allocs. Against libvpx 5.35 the 1T ratio is now ~1.27-1.31x (from
+  1.37x). The fresh post-slice profile shows every remaining MB-walk
+  item at documented parity or previously-rejected shape: picker
+  0.46s cum sampled (single near-MV walk 30-40ms intrinsic, variance /
+  mode-rate / breakout / motion-search all parity), coefficient walk
+  1.34s cum (gather+FDCT+quant batches at kernel parity, fused
+  residual add 0.10s, token count+record single-pass at
+  vp8_tokenize_mb shape 0.10s, winner rebuild at B4 kernel parity
+  0.07s, denoiser 0.19s matching vp8_denoiser_denoise_mb's
+  copy/MC/filter structure), LF kernels ~25% (parity), packet writer
+  at shape parity. A newly-quantified Go-floor item: ~0.17s sampled
+  (~0.4 ms/f) of runtime scheduler preemption cost
+  (gopreempt_m -> wakep -> pthread_cond_signal waking spare Ms at
+  default GOMAXPROCS on the 1T encode) that libvpx does not pay —
+  runtime overhead, not addressable in encoder code. Priced-below-risk
+  leftovers: accepted-path StaticInterRDEncodeBreakout re-check
+  ~0.09 ms/f (removal risks skip-semantics divergence),
+  MacroblockCoefficientsEmpty EOB scan already in its cheap 25-byte
+  form, per-MB intra neighbor-stripe gather ~0.05-0.1 ms/f (matching
+  libvpx exactly requires strided-left variants of the shared intra
+  predictor DSP entrypoints — kernel surgery, thin upside). Honest
+  end-state: the remaining ~1.4-1.5 ms/f versus libvpx decomposes into
+  parity-shaped phases whose per-op delta is Go codegen versus C+asm,
+  plus the ~0.4 ms/f runtime-scheduler floor; no identified structural
+  (shape-level) delta remains on the canonical realtime cpu8 fixture.
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:
