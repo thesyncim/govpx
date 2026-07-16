@@ -60,6 +60,122 @@ done:
 	MOVW	R0, ret+64(FP)
 	RET
 
+// quantizeFPFullTokenNEON ABI ($0-100):
+//   coeff+0(FP)    *int16  // full raster block including DC
+//   iscan+8(FP)    *int16
+//   qcoeff+16(FP)  *int16
+//   dqcoeff+24(FP) *int16
+//   classes+32(FP) *uint8  // OUT per-raster-position token energy class
+//   count+40(FP)   int     // multiple of 8, >= 16
+//   roundDC+48(FP) int
+//   roundAC+56(FP) int
+//   quantDC+64(FP) int
+//   quantAC+72(FP) int
+//   deqDC+80(FP)   int
+//   deqAC+88(FP)   int
+//   ret+96(FP)     int32
+//
+// quantizeFPFullNEON sibling that additionally produces the coefficient
+// token classes inside the quantizer scan itself: for every raster
+// position it stores vp9_pt_energy_class[token(|qcoeff|)] as one byte.
+// The classifier is the saturating-index table lookup
+// class = T[min(|q|, 15)] with T = {0,1,2,3,3,4,4,4,4,4,4,5,5,5,5,5},
+// exactly the vp9_entropy.c:95 energy mapping of TokenForAbsCoeff:
+// 0->0, 1->1, 2->2, 3..4->3, 5..10->4, >=11->5.
+TEXT ·quantizeFPFullTokenNEON(SB), NOSPLIT, $0-100
+	MOVD	coeff+0(FP), R0
+	MOVD	iscan+8(FP), R1
+	MOVD	qcoeff+16(FP), R2
+	MOVD	dqcoeff+24(FP), R3
+	MOVD	classes+32(FP), R11
+	MOVD	count+40(FP), R4
+	MOVD	roundDC+48(FP), R5
+	MOVD	roundAC+56(FP), R6
+	MOVD	quantDC+64(FP), R7
+	MOVD	quantAC+72(FP), R8
+	MOVD	deqDC+80(FP), R9
+	MOVD	deqAC+88(FP), R10
+
+	WORD	$0x4e020cd8 // dup v24.8h, w6    ; round (AC lanes)
+	WORD	$0x4e021cb8 // ins v24.h[0], w5  ; round DC lane
+	WORD	$0x4e020d19 // dup v25.8h, w8    ; quant (AC lanes)
+	WORD	$0x4e021cf9 // ins v25.h[0], w7  ; quant DC lane
+	WORD	$0x4e020d5a // dup v26.8h, w10   ; dequant / threshold (AC lanes)
+	WORD	$0x4e021d3a // ins v26.h[0], w9  ; dequant DC lane
+	WORD	$0x6f00e41f // movi v31.2d, #0   ; eob max
+
+	// Token-class constants: v28 = 15 splat (index clamp), v29 = class table.
+	MOVD	$15, R12
+	WORD	$0x4e020d9c // dup v28.8h, w12
+	MOVD	$0x0404040303020100, R12
+	MOVD	$0x0505050505040404, R13
+	WORD	$0x9e67019d // fmov d29, x12
+	WORD	$0x4e181dbd // ins v29.d[1], x13
+
+	// Process DC and the first seven AC coefficients.
+	WORD	$0x4cdf7400 // ld1 {v0.8h}, [x0], #16
+	WORD	$0x4cdf7421 // ld1 {v1.8h}, [x1], #16
+	WORD	$0x4e607802 // sqabs v2.8h, v0.8h
+	WORD	$0x4e780c42 // sqadd v2.8h, v2.8h, v24.8h
+	WORD	$0x4e7a3c43 // cmge v3.8h, v2.8h, v26.8h
+	WORD	$0x4e79b444 // sqdmulh v4.8h, v2.8h, v25.8h
+	WORD	$0x4f1f0484 // sshr v4.8h, v4.8h, #1
+	WORD	$0x4e60a805 // cmlt v5.8h, v0.8h, #0
+	WORD	$0x6e251c86 // eor v6.16b, v4.16b, v5.16b
+	WORD	$0x6e6584c6 // sub v6.8h, v6.8h, v5.8h
+	WORD	$0x4e231cc6 // and v6.16b, v6.16b, v3.16b
+	WORD	$0x4c9f7446 // st1 {v6.8h}, [x2], #16
+	WORD	$0x4e7a9cc7 // mul v7.8h, v6.8h, v26.8h
+	WORD	$0x4c9f7467 // st1 {v7.8h}, [x3], #16
+	WORD	$0x4e668cc8 // cmtst v8.8h, v6.8h, v6.8h
+	WORD	$0x4e211d08 // and v8.16b, v8.16b, v1.16b
+	WORD	$0x6e6867ff // umax v31.8h, v31.8h, v8.8h
+	WORD	$0x4e6078c9 // sqabs v9.8h, v6.8h
+	WORD	$0x6e7c6d29 // umin v9.8h, v9.8h, v28.8h
+	WORD	$0x0e212929 // xtn v9.8b, v9.8h
+	WORD	$0x0e0903a9 // tbl v9.8b, {v29.16b}, v9.8b
+	WORD	$0x0c9f7169 // st1 {v9.8b}, [x11], #8
+
+	// update_fp_values: collapse the DC lanes to the AC constants.
+	WORD	$0x4e060718 // dup v24.8h, v24.h[1]
+	WORD	$0x4e060739 // dup v25.8h, v25.h[1]
+	WORD	$0x4e06075a // dup v26.8h, v26.h[1]
+
+	SUB	$8, R4
+	CBZ	R4, token_done
+
+token_loop:
+	WORD	$0x4cdf7400 // ld1 {v0.8h}, [x0], #16
+	WORD	$0x4cdf7421 // ld1 {v1.8h}, [x1], #16
+	WORD	$0x4e607802 // sqabs v2.8h, v0.8h
+	WORD	$0x4e780c42 // sqadd v2.8h, v2.8h, v24.8h
+	WORD	$0x4e7a3c43 // cmge v3.8h, v2.8h, v26.8h
+	WORD	$0x4e79b444 // sqdmulh v4.8h, v2.8h, v25.8h
+	WORD	$0x4f1f0484 // sshr v4.8h, v4.8h, #1
+	WORD	$0x4e60a805 // cmlt v5.8h, v0.8h, #0
+	WORD	$0x6e251c86 // eor v6.16b, v4.16b, v5.16b
+	WORD	$0x6e6584c6 // sub v6.8h, v6.8h, v5.8h
+	WORD	$0x4e231cc6 // and v6.16b, v6.16b, v3.16b
+	WORD	$0x4c9f7446 // st1 {v6.8h}, [x2], #16
+	WORD	$0x4e7a9cc7 // mul v7.8h, v6.8h, v26.8h
+	WORD	$0x4c9f7467 // st1 {v7.8h}, [x3], #16
+	WORD	$0x4e668cc8 // cmtst v8.8h, v6.8h, v6.8h
+	WORD	$0x4e211d08 // and v8.16b, v8.16b, v1.16b
+	WORD	$0x6e6867ff // umax v31.8h, v31.8h, v8.8h
+	WORD	$0x4e6078c9 // sqabs v9.8h, v6.8h
+	WORD	$0x6e7c6d29 // umin v9.8h, v9.8h, v28.8h
+	WORD	$0x0e212929 // xtn v9.8b, v9.8h
+	WORD	$0x0e0903a9 // tbl v9.8b, {v29.16b}, v9.8b
+	WORD	$0x0c9f7169 // st1 {v9.8b}, [x11], #8
+	SUB	$8, R4
+	CBNZ	R4, token_loop
+
+token_done:
+	WORD	$0x6e70abfe // umaxv h30, v31.8h
+	WORD	$0x1e2603c0 // fmov w0, s30
+	MOVW	R0, ret+96(FP)
+	RET
+
 // quantizeBACNEON ABI ($0-84):
 //   coeff+0(FP)       *int16  // starts at AC coefficient 1
 //   iscan+8(FP)       *int16

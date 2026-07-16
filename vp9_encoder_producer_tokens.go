@@ -9,11 +9,18 @@ import (
 func (e *VP9Encoder) canStageVP9ProducerTokens(inter *vp9InterEncodeState,
 	bsize common.BlockSize, forcedRef bool,
 ) bool {
+	// Denoiser-active count passes stage producer tokens too: motion-
+	// compensated denoising mutates the block's source before the final
+	// residue is prepared, so the tokens staged here equal what the
+	// count-walk WriteCoefSb staging would derive from the same committed
+	// qcoeff sidecar. If the post-count denoiser commit check later fails,
+	// the write walk ignores the collected tokens exactly as it ignores
+	// count-walk-staged tokens today.
 	return e != nil && inter != nil && inter.counts != nil &&
 		inter.preserveCodingState && e.vp9TokenCollect.active &&
 		e.vp9TokenCollect.err == nil && !forcedRef &&
 		bsize >= common.Block8x8 && !inter.lossless && !e.svc.UseSvc &&
-		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser()
+		!e.vp9ActiveSegmentMapCodingChooser()
 }
 
 func (e *VP9Encoder) resetVP9ProducerTokens() {
@@ -76,9 +83,13 @@ func (e *VP9Encoder) beginVP9ProducerTokens(miRow, miCol int,
 	return true
 }
 
+// stageVP9ProducerBlock stages one transform block's coefficient tokens at
+// producer time. `classes`, when it spans the block, carries the token energy
+// classes the fused quantizer scan produced for exactly these qcoeffs; nil
+// keeps the incremental token-cache walk.
 func (e *VP9Encoder) stageVP9ProducerBlock(plane int, txSize common.TxSize,
 	rr, cc int, dequant [2]int16, scanOrder *common.ScanOrder,
-	qcoeffs []int16, eob int, counts *encoder.FrameCounts,
+	qcoeffs []int16, eob int, classes []uint8, counts *encoder.FrameCounts,
 ) bool {
 	if e == nil || plane < 0 || plane >= vp9dec.MaxMbPlane ||
 		txSize >= common.TxSizes || scanOrder == nil {
@@ -141,6 +152,7 @@ func (e *VP9Encoder) stageVP9ProducerBlock(plane int, txSize common.TxSize,
 				KnownEOB:        eob,
 				KnownEOBValid:   true,
 				TokenCache:      &e.coefTokenCache,
+				TokenClasses:    classes,
 			})
 		if !ok || stagedEOB != eob {
 			return false

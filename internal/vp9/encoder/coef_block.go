@@ -64,6 +64,16 @@ type WriteCoefBlockArgs struct {
 	// before any neighbor context read touches it, so no clearing between
 	// blocks is required. When nil a zeroed local is used.
 	TokenCache *[1024]uint8
+
+	// TokenClasses, when it spans the transform block, carries the
+	// per-raster-position token energy classes the quantizer scan already
+	// produced for exactly these QCoeffs
+	// (classes[rc] == vp9_pt_energy_class[token(|QCoeffs[rc]|)]). Token
+	// staging then reads neighbor contexts straight from this span instead
+	// of re-deriving and re-writing the token cache; the scan-order walk
+	// only ever consults positions earlier in scan order, whose precomputed
+	// classes match the values the incremental walk would have written.
+	TokenClasses []uint8
 }
 
 // WriteCoefBlock emits the wire fragment for one transform block's
@@ -190,6 +200,30 @@ func tokenCacheContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
 	bIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff+unsafe.Sizeof(int16(0))))
 	a := tokenCache[int(aIdx)&1023]
 	b := tokenCache[int(bIdx)&1023]
+	return (1 + int(a) + int(b)) >> 1
+}
+
+// tokenClassAt reads one quantizer-produced token energy class. Full-window
+// callers have already preflighted the classes span, and VP9 scan tables keep
+// raster positions within the transform area.
+func tokenClassAt(classes []uint8, raster int) uint8 {
+	return *(*uint8)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(classes)),
+		uintptr(raster)))
+}
+
+// tokenClassContext mirrors tokenCacheContext over the quantizer-produced
+// class span: the VP9 scan-neighbor tables reference only raster positions of
+// coefficients earlier in scan order, all inside the same transform block, so
+// the precomputed span substitutes for the incrementally written cache.
+func tokenClassContext(neighbors []int16, classes []uint8, c int) int {
+	off := c << 1
+	neighborPtr := unsafe.SliceData(neighbors)
+	byteOff := uintptr(off) * unsafe.Sizeof(int16(0))
+	aIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff))
+	bIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff+unsafe.Sizeof(int16(0))))
+	base := unsafe.Pointer(unsafe.SliceData(classes))
+	a := *(*uint8)(unsafe.Add(base, uintptr(aIdx)))
+	b := *(*uint8)(unsafe.Add(base, uintptr(bIdx)))
 	return (1 + int(a) + int(b)) >> 1
 }
 

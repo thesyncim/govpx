@@ -834,6 +834,45 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
+  Measurement note, 2026-07-16 (token classes inside the final quantizer scan
+  + denoiser producer staging): the mandated fusion slice landed as one safe
+  point. A fused `vp9_quantize_fp` NEON sibling (`quantizeFPFullTokenNEON`)
+  now emits one `vp9_pt_energy_class[token(|qcoeff|)]` byte per raster
+  position inside the final quantizer scan via a saturating-index table
+  lookup (`T[min(|q|,15)]`, five extra instructions per 8-lane group), into a
+  compact per-block classes sidecar parallel to the qcoeff store with
+  per-4x4-origin validity that every residue producer resets. Token staging
+  consumes the span directly (`stageCoefBlockQCoeffClasses`): zero-run tests
+  and neighbor contexts read precomputed classes, deleting the incremental
+  token-cache writes and the walk's loop-carried context dependency. Kernel
+  parity pins classes against the scalar quantizer plus the ground-truth
+  energy mapping across randomized dequant/coefficient distributions, and a
+  staging gate pins the classes walk token/count-identical to the cache walk.
+  Alone the kernel was wall-neutral on the loaded 1T denoise spot (13
+  interleaved pairs split 6/7, medians 10.588 control vs 10.627 ms/frame
+  candidate): it classifies all maxEob positions while the staging walk only
+  visits eob+1. The same safe point therefore extended producer-time token
+  staging to denoiser-active count passes: motion-compensated denoising
+  mutates the block source before the final residue is prepared, so producer
+  tokens equal what count-walk WriteCoefSb staging derives from the same
+  committed sidecar, and a failed post-count denoiser commit ignores them
+  exactly like count-staged tokens. That deletes the denoise lane's cold
+  count-walk staging: `WriteCoefSbFromArgs` (4.1% cum) disappeared from the
+  240-frame 1T profile, replaced by producer-time `stageVP9ProducerBlock`
+  (4.5% cum, classes walk 1.3%) beside `quantizeFPFullTokenNEON` (1.3%).
+  Thirteen interleaved 120-frame 1T denoise pairs under heavy host load: the
+  candidate won 12 of 13 with pooled medians 10.489 to 10.334 ms/frame (about
+  1.5%; the first ten pairs alone measured 10.492 to 10.280, about 2.0%). The
+  1T no-denoise variant won 3 of 3 pairs at 10.684 to 10.554 ms/frame medians
+  (about 1.2%) with byte-identical 1,234,834-byte output at 108/12.
+  Byte pins stayed exact on every lane: 1T denoise 1,235,511 bytes at 108/12
+  (native and purego), 480-frame 8T row-MT denoise 4,983,704 at 468/12,
+  480-frame 8T row-MT no-denoise 4,981,549 at 468/12, and 480-frame 4T tiles
+  4,981,549 at 468/12. Focused producer/token/denoiser tests, row-MT
+  determinism, the focused race slice, and the full suite pass; the PGO
+  fingerprint was refreshed. Remaining A6 classes work: the keyframe/intra
+  trellis quantizer and sub-8x8/forced-reference/segment classes still stage
+  through the incremental token-cache walk.
   A narrow subpel-variance scratch safe point now routes the ARM64 32x32
   wrapper through size-specific 32x32/32x33 stack buffers instead of the generic
   32-wide 32x64/32x65 scratch. Focused `BenchmarkVP9SubPixelVariance32x32...`
@@ -893,7 +932,13 @@ int16, and edge candidate prediction reads the persistent padded reference
 directly instead of constructing a temporary tap window; q/dq SB staging is
 now tx-block compact, dqcoeff is tx-local, and the token walker consumes the
 compact qcoeff/EOB sidecar directly without callbacks or a value-copy handoff;
-producer-time transactional token staging remains −0.7..1.0).
+producer-time transactional token staging remains −0.7..1.0; PARTIAL
+2026-07-16: token classes are now produced inside the final quantizer scan
+via the fused NEON kernel + compact classes sidecar + classes-driven staging
+walk, and producer-time staging covers denoiser-active count passes — 1T
+denoise moved about −2.0% with all byte pins exact; remaining −0.3..0.6 is
+the keyframe/intra quantizer classes plus sub-8x8/forced-reference/segment
+staging classes).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first
