@@ -1137,6 +1137,32 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   per-call cost on kernel-adjacent leaves at equal call counts (subpel
   variance 2x/call, BlockYrd tx glue ~1.6x, intra predict glue) which is
   Go-vs-C codegen plus staged multi-call kernel shapes, not picker shape.
+- Ledger row LANDED, 2026-07-16 (third session): rate-cost tables. The
+  four inter-mode tree sums are hoisted once per block (mode context is
+  block-invariant on this path: mv_refs_rt's context_counter counts
+  neighbour modes only) and NEWMV MV bits read the prepared NmvCostTable
+  (libvpx's x->mvcost table-read shape) with the tree walk kept as the
+  out-of-range fallback; a focused test pins value-identity against
+  vp9NonrdInterModeRateCost across randomized contexts/modes/MVs/HP plus
+  the unbuilt-context zero case. All byte pins exact (native and purego);
+  ten order-alternated 240f 1T pairs: 6/10 wins, medians 10.960 -> 10.929
+  ms/f (-0.29%, within host noise) — landed as a structural shape port,
+  no wall win claimed.
+- Ledger row LANDED, 2026-07-16 (third session): two-axis subpel-variance
+  column fusion. The fused 16x16 one-axis/bilinear kernels are height-
+  parameterized (16xN, h <= 64 bounded by the int16 sum lanes) and a
+  16-wide column decomposition routes every two-axis 16/32/64-wide shape
+  through the fused bilinear kernel — no (h+1)xW staging buffers and no
+  third variance pass, the same offset-specialised shape libvpx's NEON
+  subpel variance reaches. One-axis offsets stay on the staged filter/avg
+  pass + FEAT_DotProd variance, which measured FASTER than fused smlal
+  accumulation (a fused one-axis routing regressed 94-96 -> 102 ns/op and
+  was immediately re-gated; do not re-route one-axis without a dotprod
+  accumulation design). Focused benches: 32x32 two-axis 140-142 -> ~105
+  ns/op (-26%), 32x32 half-pel 115-117 -> ~102 (-12%), 32x16/16x32
+  two-axis ~110 -> ~56 (-49%), one-axis unchanged ~95, 16x16 unchanged
+  ~26. The full all-offset differential matrix, dsp suite, and focused
+  race slice stay green; all seven byte pins exact.
 
 Steps (each ships green; gate = 120f byte-identity + packet-0
 frontier + SVC/RTP + zero-alloc + conformance decode + pre-merge sequence):

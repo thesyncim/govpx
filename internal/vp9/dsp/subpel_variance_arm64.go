@@ -44,13 +44,13 @@ func subpelVarAvg16NEON(src *byte, srcStride int, dst *byte, pixelStep int, heig
 func subpelVarAvg16ChunksNEON(src *byte, srcStride int, dst *byte, pixelStep int, width int, height int)
 
 //go:noescape
-func subpelVariance16x16BilinearNEON(src *byte, srcStride int, ref *byte, refStride int, x0 uint64, x1 uint64, y0 uint64, y1 uint64, sumOut *int32, sseOut *uint32)
+func subpelVariance16xNBilinearNEON(src *byte, srcStride int, ref *byte, refStride int, x0 uint64, x1 uint64, y0 uint64, y1 uint64, h int, sumOut *int32, sseOut *uint32)
 
 //go:noescape
-func subpelVariance16x16HorizontalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
+func subpelVariance16xNHorizontalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, h int, sumOut *int32, sseOut *uint32)
 
 //go:noescape
-func subpelVariance16x16VerticalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
+func subpelVariance16xNVerticalNEON(src *byte, srcStride int, ref *byte, refStride int, f0 uint64, f1 uint64, h int, sumOut *int32, sseOut *uint32)
 
 // subpelHalfFilter maps libvpx-scale weight (0/16/32/48/64/80/96/112/128)
 // to the 0..8 byte-lane scale used by the NEON kernels.
@@ -208,6 +208,11 @@ func subPixelVarianceSimd(w, h int,
 		stats := varianceStatsStandard(w, h, src, srcOff, srcStride, ref, refOff, refStride)
 		*sse = stats.SSE
 		return stats.Variance, true
+	}
+	if v, ok := subPixelVarianceSimd16ColsFused(w, h,
+		src, srcOff, srcStride, xOffset, yOffset,
+		ref, refOff, refStride, sse); ok {
+		return v, true
 	}
 	if !subpelVarWindowOK(src, srcOff, srcStride, w, h) ||
 		!varWindowOK(ref, refOff, refStride, w, h) {
@@ -395,15 +400,15 @@ func subPixelVarianceSimd16x16(src []uint8, srcOff, srcStride, xOffset, yOffset 
 		var sum int32
 		var s uint32
 		if xOffset == 0 {
-			subpelVariance16x16VerticalNEON(
+			subpelVariance16xNVerticalNEON(
 				unsafe.SliceData(src[srcOff:]), srcStride,
 				unsafe.SliceData(ref[refOff:]), refStride,
-				f0, f1, &sum, &s)
+				f0, f1, 16, &sum, &s)
 		} else {
-			subpelVariance16x16HorizontalNEON(
+			subpelVariance16xNHorizontalNEON(
 				unsafe.SliceData(src[srcOff:]), srcStride,
 				unsafe.SliceData(ref[refOff:]), refStride,
-				f0, f1, &sum, &s)
+				f0, f1, 16, &sum, &s)
 		}
 		*sse = s
 		return finalVariance(sum, s, 16, 16), true
@@ -412,12 +417,51 @@ func subPixelVarianceSimd16x16(src []uint8, srcOff, srcStride, xOffset, yOffset 
 	y0, y1 := subpelHalfFilter(yOffset)
 	var sum int32
 	var s uint32
-	subpelVariance16x16BilinearNEON(
+	subpelVariance16xNBilinearNEON(
 		unsafe.SliceData(src[srcOff:]), srcStride,
 		unsafe.SliceData(ref[refOff:]), refStride,
-		x0, x1, y0, y1, &sum, &s)
+		x0, x1, y0, y1, 16, &sum, &s)
 	*sse = s
 	return finalVariance(sum, s, 16, 16), true
+}
+
+// subPixelVarianceSimd16ColsFused scores a two-axis 16/32/64-wide block as
+// 16-wide column slices through the fused bilinear kernel: no (h+1)xW
+// intermediate buffers and no separate variance pass. One-axis offsets stay
+// on the staged filter/avg pass plus the FEAT_DotProd variance kernel,
+// which measured faster than the fused smlal accumulation for those cases.
+// The bilinear kernel loads 32 source bytes per row, so the window check
+// covers the last column's wide load; unsupported shapes return !ok and
+// callers keep the staged scratch route.
+func subPixelVarianceSimd16ColsFused(w, h int,
+	src []uint8, srcOff, srcStride, xOffset, yOffset int,
+	ref []uint8, refOff, refStride int, sse *uint32,
+) (uint32, bool) {
+	if w < 16 || w%16 != 0 || h < 1 || h > 64 {
+		return 0, false
+	}
+	if xOffset == 0 || yOffset == 0 {
+		return 0, false
+	}
+	if !subpelVarWindowOK(src, srcOff, srcStride, w+15, h) ||
+		!varWindowOK(ref, refOff, refStride, w, h) {
+		return 0, false
+	}
+	x0, x1 := subpelHalfFilter(xOffset)
+	y0, y1 := subpelHalfFilter(yOffset)
+	var sumTotal int64
+	var sseTotal uint64
+	for c := 0; c < w; c += 16 {
+		var sum int32
+		var s uint32
+		subpelVariance16xNBilinearNEON(unsafe.SliceData(src[srcOff+c:]),
+			srcStride, unsafe.SliceData(ref[refOff+c:]), refStride,
+			x0, x1, y0, y1, h, &sum, &s)
+		sumTotal += int64(sum)
+		sseTotal += uint64(s)
+	}
+	*sse = uint32(sseTotal)
+	return uint32(sseTotal) - uint32((sumTotal*sumTotal)/int64(w*h)), true
 }
 
 func subPixelVarianceSimd32x32(src []uint8, srcOff, srcStride, xOffset, yOffset int,
@@ -431,6 +475,11 @@ func subPixelVarianceSimd32x32(src []uint8, srcOff, srcStride, xOffset, yOffset 
 			return v, true
 		}
 		return 0, false
+	}
+	if v, ok := subPixelVarianceSimd16ColsFused(32, 32,
+		src, srcOff, srcStride, xOffset, yOffset,
+		ref, refOff, refStride, sse); ok {
+		return v, true
 	}
 	if !subpelVarWindowOK(src, srcOff, srcStride, 32, 32) ||
 		!varWindowOK(ref, refOff, refStride, 32, 32) {

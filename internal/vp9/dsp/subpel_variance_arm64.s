@@ -295,20 +295,22 @@ avg_chunks_colLoop:
 avg_chunks_done:
 	RET
 
-// Fused one-axis 16x16 filters accumulate variance directly without a
-// temporary prediction block.
+// Fused one-axis 16-wide filters accumulate variance directly without a
+// temporary prediction block. Height is a parameter (1..64: the int16 sum
+// lanes bound 64 rows of +-255 diffs at 16320) so 16-wide column slices of
+// 32/64-wide blocks share the kernels.
 //
-// func subpelVariance16x16HorizontalNEON(src *byte, srcStride int, ref *byte,
-//   refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
-TEXT ·subpelVariance16x16HorizontalNEON(SB), NOSPLIT, $0-64
+// func subpelVariance16xNHorizontalNEON(src *byte, srcStride int, ref *byte,
+//   refStride int, f0 uint64, f1 uint64, h int, sumOut *int32, sseOut *uint32)
+TEXT ·subpelVariance16xNHorizontalNEON(SB), NOSPLIT, $0-72
 	MOVD	src+0(FP), R0
 	MOVD	srcStride+8(FP), R1
 	MOVD	ref+16(FP), R2
 	MOVD	refStride+24(FP), R3
 	MOVD	f0+32(FP), R4
 	MOVD	f1+40(FP), R5
-	MOVD	sumOut+48(FP), R6
-	MOVD	sseOut+56(FP), R7
+	MOVD	sumOut+56(FP), R6
+	MOVD	sseOut+64(FP), R7
 
 	VDUP	R4, V30.B16
 	VDUP	R5, V31.B16
@@ -316,7 +318,7 @@ TEXT ·subpelVariance16x16HorizontalNEON(SB), NOSPLIT, $0-64
 	VEOR	V21.B16, V21.B16, V21.B16
 	VEOR	V22.B16, V22.B16, V22.B16
 	VEOR	V23.B16, V23.B16, V23.B16
-	MOVD	$16, R8
+	MOVD	h+48(FP), R8
 
 	CMP	$4, R4
 	BEQ	vp9_horizontal_avg_loop
@@ -364,17 +366,17 @@ vp9_horizontal_done:
 	FMOVS	F22, (R7)
 	RET
 
-// func subpelVariance16x16VerticalNEON(src *byte, srcStride int, ref *byte,
-//   refStride int, f0 uint64, f1 uint64, sumOut *int32, sseOut *uint32)
-TEXT ·subpelVariance16x16VerticalNEON(SB), NOSPLIT, $0-64
+// func subpelVariance16xNVerticalNEON(src *byte, srcStride int, ref *byte,
+//   refStride int, f0 uint64, f1 uint64, h int, sumOut *int32, sseOut *uint32)
+TEXT ·subpelVariance16xNVerticalNEON(SB), NOSPLIT, $0-72
 	MOVD	src+0(FP), R0
 	MOVD	srcStride+8(FP), R1
 	MOVD	ref+16(FP), R2
 	MOVD	refStride+24(FP), R3
 	MOVD	f0+32(FP), R4
 	MOVD	f1+40(FP), R5
-	MOVD	sumOut+48(FP), R6
-	MOVD	sseOut+56(FP), R7
+	MOVD	sumOut+56(FP), R6
+	MOVD	sseOut+64(FP), R7
 
 	VDUP	R4, V30.B16
 	VDUP	R5, V31.B16
@@ -382,7 +384,7 @@ TEXT ·subpelVariance16x16VerticalNEON(SB), NOSPLIT, $0-64
 	VEOR	V21.B16, V21.B16, V21.B16
 	VEOR	V22.B16, V22.B16, V22.B16
 	VEOR	V23.B16, V23.B16, V23.B16
-	MOVD	$16, R8
+	MOVD	h+48(FP), R8
 
 	VLD1	(R0), [V0.B16]
 	ADD	R1, R0, R0
@@ -431,15 +433,15 @@ vp9_one_axis_done:
 	FMOVS	F22, (R7)
 	RET
 
-// subpelVariance16x16BilinearNEON fuses both bilinear passes with the
+// subpelVariance16xNBilinearNEON fuses both bilinear passes with the
 // variance accumulation. VP9's scaled taps are in [0,8] and each stage
 // rounds by 3 bits. The previous horizontal row stays in V16, avoiding the
-// 17x16 first-pass buffer and the 16x16 second-pass buffer.
+// (h+1)x16 first-pass buffer and the hx16 second-pass buffer.
 //
-// func subpelVariance16x16BilinearNEON(src *byte, srcStride int, ref *byte,
-//   refStride int, x0 uint64, x1 uint64, y0 uint64, y1 uint64,
+// func subpelVariance16xNBilinearNEON(src *byte, srcStride int, ref *byte,
+//   refStride int, x0 uint64, x1 uint64, y0 uint64, y1 uint64, h int,
 //   sumOut *int32, sseOut *uint32)
-TEXT ·subpelVariance16x16BilinearNEON(SB), NOSPLIT, $0-80
+TEXT ·subpelVariance16xNBilinearNEON(SB), NOSPLIT, $0-88
 	MOVD	src+0(FP), R0
 	MOVD	srcStride+8(FP), R1
 	MOVD	ref+16(FP), R2
@@ -448,8 +450,8 @@ TEXT ·subpelVariance16x16BilinearNEON(SB), NOSPLIT, $0-80
 	MOVD	x1+40(FP), R5
 	MOVD	y0+48(FP), R6
 	MOVD	y1+56(FP), R7
-	MOVD	sumOut+64(FP), R8
-	MOVD	sseOut+72(FP), R9
+	MOVD	sumOut+72(FP), R8
+	MOVD	sseOut+80(FP), R9
 
 	VDUP	R4, V30.B16
 	VDUP	R5, V31.B16
@@ -461,7 +463,7 @@ TEXT ·subpelVariance16x16BilinearNEON(SB), NOSPLIT, $0-80
 	VEOR	V22.B16, V22.B16, V22.B16
 	VEOR	V23.B16, V23.B16, V23.B16
 
-	MOVD	$16, R10
+	MOVD	h+64(FP), R10
 
 	// Offset 4 has scaled taps {4,4}, exactly rounded-average.
 	CMP	$4, R6
