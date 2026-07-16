@@ -500,6 +500,23 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	_ = mvBestRefIndex // libvpx writes to x->mv_best_ref_index; cached via mvPredSearchSeed.
 	_ = maxMvContext   // Future NEWMV-diff bias/limit-newmv plumbing reads this.
 
+	// libvpx vp9_pickmode.c:2230-2238 — the per-candidate "select prediction
+	// reference frames" step only copies buf_2d pointers that
+	// find_predictors/vp9_setup_pred_block prepared once per usable ref.
+	// Prepare the same per-(block, ref) padded-plane state here; candidate
+	// prediction below convolves directly from it (clamp -> subpel split ->
+	// convolve/copy) with no per-candidate reference setup. Unsupported
+	// shapes keep the legacy route via the wrapper's fallback.
+	var predCtx vp9NonrdPredBlockCtx
+	if e.vp9NonrdPredBlockCtxInit(&predCtx, inter, miRow, miCol, bsize) {
+		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+			if refSlotValid[r] {
+				e.vp9NonrdPredBlockCtxAddRef(&predCtx, r,
+					&e.refFrames[refSlots[r]])
+			}
+		}
+	}
+
 	// Read the neighbour MIs once for per-candidate rate cost computation.
 	var left *vp9dec.NeighborMi
 	if miCol > tile.MiColStart {
@@ -1262,7 +1279,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				filterUVOKU := false
 				filterUVOKV := false
 				var filterVarU, filterSSEU, filterVarV, filterSSEV uint64
-				varY, sseY, ok := e.vp9InterPredictionVarianceSSEForFilterSearchTo(inter, miRows,
+				varY, sseY, ok := e.vp9NonrdPredictVarianceSSETo(&predCtx,
+					inter, miRows,
 					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 					evalPred, evalPredStride)
 				if !ok {
@@ -1464,8 +1482,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						currentPred = e.nonrdFilterPredScratch[:compactPredLen]
 						ok = true
 					} else {
-						_, _, ok = e.vp9InterPredictionVarianceSSEForFilterSearch(inter, miRows,
-							miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+						_, _, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+							inter, miRows,
+							miCols, miRow, miCol, bsize, thisMode, refFrame,
+							mv, filter,
+							e.blockScratch[:compactPredLen], compactPredW)
 						if ok {
 							currentPred = e.blockScratch[:compactPredLen]
 						}
@@ -1483,14 +1504,17 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// vp9_pickmode.c:2346 model_rd_for_sb_y.
 				if usePredBufferPool {
 					buf := &predBuffers[thisModePredIdx]
-					varY, sseY, ok = e.vp9InterPredictionVarianceSSETo(inter, miRows,
+					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+						inter, miRows,
 						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 						buf.data, buf.stride)
 					currentPred = buf.data
 					currentPredStride = buf.stride
 				} else {
-					varY, sseY, ok = e.vp9InterPredictionVarianceSSE(inter, miRows,
-						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter)
+					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+						inter, miRows,
+						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
+						e.blockScratch[:compactPredLen], compactPredW)
 					currentPred = e.blockScratch[:compactPredLen]
 				}
 				if !ok {
