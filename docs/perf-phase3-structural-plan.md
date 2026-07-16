@@ -1162,7 +1162,36 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   ns/op (-26%), 32x32 half-pel 115-117 -> ~102 (-12%), 32x16/16x32
   two-axis ~110 -> ~56 (-49%), one-axis unchanged ~95, 16x16 unchanged
   ~26. The full all-offset differential matrix, dsp suite, and focused
-  race slice stay green; all seven byte pins exact.
+  race slice stay green; all seven byte pins exact. Fourteen
+  order-alternated 240f 1T pairs on the contended host (load ~10 from
+  parallel agent suites): 8/14 candidate wins, medians 12.337 -> 12.110
+  ms/f (-1.84%); an earlier 10-pair window was load-contaminated
+  (13-16 ms outliers, 6/10 wins with a conflicting median) and is not
+  claimed.
+- A5 ledger post-state + honest end-state, 2026-07-16 (third session):
+  after both rows the fresh 480f 1T profile shows the picker cluster at
+  2.23s/4.78s = 46.7% cum (from 51.2%) with the frame at 10.84 ms/f in
+  that window, and vp9NonrdInterModeRateCost no longer sampled at all.
+  Full battery on the two commits: native + purego full suites, focused
+  dsp/picker race slices, threads {2,4} repeat-run byte determinism, all
+  seven byte pins exact native and purego, pgo-check green, and the
+  oracle stream matrix failing-row set IDENTICAL to a same-day base run
+  (49 PASS / 1 pre-existing fixed-q-rt-cpu0-constant red on both).
+  Remaining ledger rows are documented, NOT landed, because they price
+  as per-call Go-vs-C codegen at equal call counts rather than picker
+  shape: BlockYrd tx glue (+0.36 ms/f: flat loop/slicing 0.26 vs 0.15,
+  subtract-with-nonzero 0.17 vs 0.06, hadamard wrapper 0.19 vs 0.05 —
+  the fixture runs TX_8X8 so the 16x16 combine fusion idea does not
+  apply; a plain-subtract NEON variant would shave the OR-reduce only),
+  intra-fallback per-tx predict glue (+0.34 ms/f at estimate_block_intra
+  shape parity), one-axis subpel variance (staged+dotprod already beats
+  the fused-smlal alternative; closing further needs a dotprod
+  accumulation design inside the fused kernel), pred-ctx setup zeroing
+  (+0.09, below noise alone), and the UV color-sensitivity adds (+0.17,
+  verbatim per-candidate convolves libvpx also runs). The picker's
+  control flow is at libvpx shape end to end; no structural
+  (shape-level) row remains open in the nonrd picker after the rate-cost
+  table port.
 
 Steps (each ships green; gate = 120f byte-identity + packet-0
 frontier + SVC/RTP + zero-alloc + conformance decode + pre-merge sequence):
