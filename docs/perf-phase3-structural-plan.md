@@ -884,6 +884,50 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   A/B with the generic 32x32 path measured 12.49 ms/frame under the same noisy
   conditions. Keep the scratch narrowing, but do not treat it as closing the
   broader subpel direct-on-padded-ref work.
+  Measurement note, 2026-07-16 (nonrd prepared-context candidate prediction):
+  the A5/A6 candidate-evaluation dataflow of vp9_pick_inter_mode is now
+  structurally ported. A per-(block, ref) prepared prediction context
+  (`vp9NonrdPredBlockCtx`) mirrors find_predictors/vp9_setup_pred_block: the
+  block's UMV clamp edges, source window, and per-ref pointers into the
+  persistent padded reference planes are resolved once per block, with a
+  one-time coverage proof that every UMV-clamped 8-tap window stays inside
+  the padded plane. Every luma candidate — whole-block, filter sweep,
+  post-sweep rebuild, and zero-MV — is now the verbatim
+  build_inter_predictors leaf (clamp -> q4 subpel split -> convolve/copy
+  from pre[0] into the active compact PRED_BUFFER), deleting the
+  per-candidate NeighborMi construction, reference slot lookup/validation,
+  geometry/edge recomputation, the zero-MV visible-plane special case, and
+  the visible/padded/extend window triage. The UV skip test,
+  color-sensitivity adds, and encode-breakout chroma checks share the same
+  prepared shape, resolved lazily on the first UV consumer per block (chroma
+  has no persistent padded plane, so replicated-edge staging remains only
+  for tap windows leaving the visible chroma plane). The mv-pred prepass and
+  the NEWMV pred_mv_sad[LAST] refresh read the prepared pre[0] pointers
+  directly, and the candidate loop's per-candidate source-plane refetches
+  are gone. Scaled refs and sub-8x8 shapes keep the legacy route through
+  wrapper fallbacks. An exhaustive gate pins ctx == legacy scratch ==
+  decoder-recon bytes plus identical (variance, sse, ok) across 10 block
+  shapes x 4 filters x 10 MV classes (zero, full-pel, half/quarter/odd/
+  one-axis subpel, edge-crossing, beyond-clamp) x 4 positions on aligned and
+  ragged dims, with a chroma leg pinning the written recon rect. The root
+  cause of the registry's byte-inequivalent scratch-convolve probe is now
+  understood and its dead relic deleted: it fed raw 1/8-pel phase (&7, >>3)
+  into the 1/16-pel kernel tables, skipped clamp_mv_to_umv_border_sb, and
+  convolved the clamped score window instead of the full block — the
+  prepared context uses the q4 clamp/phase chain, which the gate proves
+  byte-exact. Byte pins stayed exact on every lane: 1T 120f/240f/480f at
+  1,235,511 / 2,483,072 / 4,983,461 bytes, threads {2,4} at 1,236,273 /
+  1,234,903, 8T row-MT denoise 1,235,979, and 4T no-denoise 1,236,037, all
+  108-or-468/12; allocs/frame unchanged (0.633 at 120f). Ten interleaved
+  240-frame 1T pairs on the loaded host: the candidate won 6 of 10 with
+  medians 11.109 -> 11.025 ms/frame (about 0.8%). The follow-up profile no
+  longer samples the legacy predict chain (predictVP9InterBlockLumaToScratch
+  / predictVP9ZeroMVLumaCopyToScratch / vp9NonrdUVVariancePlaneSSE) under
+  the picker: candidate prediction is now ctx-predict ->
+  InterPredictorWithScratch plus one variance leaf. Remaining: the
+  intra-winner predictor carry (twice-rejected, needs the reconstructed tx
+  chain), commit-side winner reuse at the pick/commit boundary, and
+  sub-8x8/scaled candidates on the legacy route.
 - CORRECTION to phase-2: libvpx `estimate_block_intra` DOES call block_yrd —
   the intra-fallback row is mostly legitimate work, not waste.
 
@@ -916,11 +960,14 @@ partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 d
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining
 −0.15..0.25); A5 pick-buffer
-end-state (PARTIAL 2026-07-11: nonrd `search_filter_ref` swaps compact
-eval/best ownership, and normal non-ML `pred_pixel_ready` picks now use three
-compact buffers plus dst as libvpx's fourth PRED_BUFFER, including final and
-pre-intra ownership handoff; the ML partition lane now uses the same pool with
-SB-local `pickPred` as dst, leaving intra-winner pred carry at −0.2..0.4); A6
+end-state (PARTIAL 2026-07-16: nonrd `search_filter_ref` swaps compact
+eval/best ownership, normal non-ML `pred_pixel_ready` picks use three
+compact buffers plus dst as libvpx's fourth PRED_BUFFER including final and
+pre-intra ownership handoff, the ML partition lane uses the same pool with
+SB-local `pickPred` as dst, and the prepared per-(block, ref) context now
+makes every luma/chroma candidate a direct clamp/convolve from the
+persistent padded (luma) or visible (chroma) reference into those buffers —
+leaving intra-winner pred carry at −0.2..0.4); A6
 subpel direct on padded refs + bare
 vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-11:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq

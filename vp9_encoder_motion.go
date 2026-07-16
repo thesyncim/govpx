@@ -7,7 +7,6 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	vp9dsp "github.com/thesyncim/govpx/internal/vp9/dsp"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
-	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
 type vp9NmvCostCache struct {
@@ -549,50 +548,6 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSETo(
 	}
 	return encoder.BlockDiffVarianceSSEClampedSource(src, srcStride, srcW, srcH,
 		pred, dstStride, x0, y0, 0, 0, blockW, blockH)
-}
-
-func (e *VP9Encoder) vp9InterPredictionBorderedConvolveVarianceSSE(
-	inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize,
-	refFrame int8, mv vp9dec.MV, filter vp9dec.InterpFilter,
-	src []byte, srcStride int, dst []byte, dstStride int,
-	x0, y0, scoreW, scoreH int,
-) (variance, sse uint64, ok bool) {
-	filterIdx := int(filter)
-	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
-		return 0, 0, false
-	}
-	pre, preStride, preOriginX, preOriginY, preW, preH, refOK :=
-		e.vp9SubpelReferencePlane(refFrame, inter.ref)
-	if len(pre) == 0 || preStride <= 0 || !refOK {
-		return 0, 0, false
-	}
-	blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-	preX := x0 + (int(mv.Col) >> 3)
-	preY := y0 + (int(mv.Row) >> 3)
-	bufX := preOriginX + preX
-	bufY := preOriginY + preY
-	if bufX < 0 || bufY < 0 || bufX+blockW+1 > preStride ||
-		bufY+blockH+1 > len(pre)/preStride ||
-		preX < -preOriginX || preY < -preOriginY ||
-		preX+blockW+1 > preW+preOriginX ||
-		preY+blockH+1 > preH+preOriginY {
-		return 0, 0, false
-	}
-	if x0+scoreW > dstStride || y0+scoreH > len(dst)/dstStride {
-		return 0, 0, false
-	}
-	preOff := bufY*preStride + bufX
-	subpelX := int(mv.Col) & 7
-	subpelY := int(mv.Row) & 7
-	dstOff := y0*dstStride + x0
-	vp9dec.InterPredictor(pre, preStride, dst[dstOff:], dstStride,
-		subpelX, subpelY, tables.FilterKernels[filterIdx],
-		vp9dec.SubpelShifts, vp9dec.SubpelShifts, scoreW, scoreH, 0, preOff)
-	variance, sse = encoder.BlockDiffVarianceSSE(src, srcStride, dst, dstStride,
-		x0, y0, x0, y0, scoreW, scoreH)
-	return variance, sse, true
 }
 
 func (e *VP9Encoder) vp9SubpelReferencePlane(refFrame int8,
