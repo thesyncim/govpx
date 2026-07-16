@@ -1299,9 +1299,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 				})
 				if useModelYrdLarge {
-					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-					x0 := miCol * common.MiSize
-					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
 						BSize:             bsize,
 						Dequant:           dequantY,
@@ -1339,7 +1336,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							uvTxSize := vp9dec.GetUvTxSize(bsize, large.TxSize,
 								&e.planes[1])
 							filterVarU, filterSSEU, filterUVOKU =
-								e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+								e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+									inter, miRows,
 									miCols, miRow, miCol, bsize, thisMode,
 									refFrame, mv, filter, 1)
 							if filterUVOKU &&
@@ -1347,7 +1345,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 									uvBsize, uvTxSize, dequantU,
 									filterVarU, filterSSEU) {
 								filterVarV, filterSSEV, filterUVOKV =
-									e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+									e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+										inter, miRows,
 										miCols, miRow, miCol, bsize, thisMode,
 										refFrame, mv, filter, 2)
 								if filterUVOKV {
@@ -1533,9 +1532,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					ScreenContent:   e.opts.ScreenContentMode == int8(VP9ScreenContentScreen),
 				})
 				if useModelYrdLarge {
-					src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-					x0 := miCol * common.MiSize
-					y0 := miRow * common.MiSize
 					large := encoder.ModelRdForSbYLarge(encoder.ModelRdForSbYLargeArgs{
 						BSize:             bsize,
 						Dequant:           dequantY,
@@ -1574,7 +1570,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							uvTxSize := vp9dec.GetUvTxSize(bsize,
 								large.TxSize, &e.planes[1])
 							uvVarU, uvSSEU, uvOKU =
-								e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+								e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+									inter, miRows,
 									miCols, miRow, miCol, bsize, thisMode,
 									refFrame, mv, filter, 1)
 							if uvOKU &&
@@ -1582,7 +1579,8 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 									uvBsize, uvTxSize, dequantU,
 									uvVarU, uvSSEU) {
 								uvVarV, uvSSEV, uvOKV =
-									e.vp9NonrdUVVariancePlaneSSE(inter, miRows,
+									e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+										inter, miRows,
 										miCols, miRow, miCol, bsize, thisMode,
 										refFrame, mv, filter, 2)
 								if uvOKV {
@@ -1645,11 +1643,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			runBlockYrd := !useSimpleBlockYrd || bsize >= common.Block32x32
 			if runBlockYrd && !thisEarlyTerm {
 				txClamp := min(mrdTxSize, common.Tx16x16)
-				src, srcStride, _, _ := vp9EncoderSourcePlane(inter.img, 0)
-				blockW := int(common.Num4x4BlocksWideLookup[bsize]) * 4
-				blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
-				x0 := miCol * common.MiSize
-				y0 := miRow * common.MiSize
 				// libvpx block_yrd does the prediction-build via
 				// vp9_build_inter_predictors_sby just above (line
 				// 2336); govpx's vp9InterPredictionVarianceSSE call above
@@ -1820,7 +1813,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					// planes via vp9_build_inter_predictors_sbuv when
 					// either flag_preduv_computed entry is unset
 					// (vp9_pickmode.c:1008-1012).
-					if vU, sU, vV, sV, okUV := e.vp9NonrdUVVarianceSSE(inter,
+					if vU, sU, vV, sV, okUV := e.vp9NonrdCtxUVVarianceSSE(&predCtx, inter,
 						miRows, miCols, miRow, miCol, bsize, thisMode,
 						refFrame, mv, filter); okUV {
 						uvVarU, uvSSEU, uvVarV, uvSSEV = vU, sU, vV, sV

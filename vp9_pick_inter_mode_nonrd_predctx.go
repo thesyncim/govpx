@@ -5,6 +5,7 @@ import (
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // vp9NonrdPredBlockCtx is the search-side equivalent of libvpx's prepared
@@ -33,6 +34,44 @@ type vp9NonrdPredBlockCtx struct {
 	srcOff         int
 	edges          vp9dec.BlockBoundsEdges
 	ref            [vp9dec.MaxRefFrames]vp9NonrdRefPredPlane
+
+	// Chroma (plane 1 = U, plane 2 = V) prepared state for the picker's UV
+	// skip / color-sensitivity / encode-breakout checks. libvpx points
+	// pd[1..2].pre[0] at the reference chroma planes once per ref and
+	// convolves candidates into the live pd->dst chroma rect
+	// (vp9_build_inter_predictors_sbp). govpx has no persistent padded
+	// chroma plane, so edge-crossing tap windows keep the replicated-edge
+	// staging fallback — hoisted here to one prepared decision per block.
+	uvX0, uvY0   int
+	uvBw, uvBh   int
+	ssX, ssY     int
+	uvRefW       int
+	uvRefH       int
+	uvValid      bool
+	uvPlane      [2]vp9NonrdChromaPlane
+	uvRef        [vp9dec.MaxRefFrames][2]vp9NonrdChromaRefPlane
+	uvPlaneBsize common.BlockSize
+}
+
+// vp9NonrdChromaPlane is the block-level source/destination state for one
+// chroma plane (index 0 = U, 1 = V).
+type vp9NonrdChromaPlane struct {
+	src       []byte
+	srcStride int
+	srcW      int
+	srcH      int
+	dst       []byte
+	dstStride int
+	valid     bool
+}
+
+// vp9NonrdChromaRefPlane is the per-(ref, chroma plane) visible reference
+// plane pointer.
+type vp9NonrdChromaRefPlane struct {
+	ref       []byte
+	refStride int
+	refRows   int
+	valid     bool
 }
 
 // vp9NonrdRefPredPlane mirrors libvpx's buf_2d pre[0] for one reference: a
@@ -92,8 +131,77 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxInit(c *vp9NonrdPredBlockCtx,
 	}
 	for r := range c.ref {
 		c.ref[r] = vp9NonrdRefPredPlane{}
+		c.uvRef[r][0] = vp9NonrdChromaRefPlane{}
+		c.uvRef[r][1] = vp9NonrdChromaRefPlane{}
 	}
+	c.initChroma(e, inter, bsize)
 	return true
+}
+
+// initChroma prepares the block-level chroma source/destination state; on any
+// unsupported geometry the picker's UV checks keep the legacy route.
+func (c *vp9NonrdPredBlockCtx) initChroma(e *VP9Encoder,
+	inter *vp9InterEncodeState, bsize common.BlockSize,
+) {
+	c.uvValid = false
+	pdU := &e.planes[1]
+	pdV := &e.planes[2]
+	if pdU.SubsamplingX != pdV.SubsamplingX ||
+		pdU.SubsamplingY != pdV.SubsamplingY {
+		return
+	}
+	planeBsize := vp9dec.GetPlaneBlockSize(bsize, pdU)
+	if planeBsize >= common.BlockSizes {
+		return
+	}
+	uvBw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+	uvBh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+	if uvBw <= 0 || uvBh <= 0 {
+		return
+	}
+	ssX := int(pdU.SubsamplingX)
+	ssY := int(pdU.SubsamplingY)
+	uvX0 := c.x0 >> uint(ssX)
+	uvY0 := c.y0 >> uint(ssY)
+	for plane := 1; plane <= 2; plane++ {
+		src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
+		dst, dstStride := e.vp9EncoderReconPlane(plane)
+		if len(src) == 0 || srcStride <= 0 || len(dst) == 0 || dstStride <= 0 {
+			return
+		}
+		dstRows := len(dst) / dstStride
+		// Hoisted legacy per-candidate gates: the variance reader
+		// (vp9NonrdUVPlaneDiffVarianceSSE) requires the full block visible
+		// in both source and destination, and the direct predictor requires
+		// the destination window.
+		if !encoder.VisibleBlockFits(uvX0, uvY0, uvBw, uvBh, srcW, srcH) ||
+			!encoder.VisibleBlockFits(uvX0, uvY0, uvBw, uvBh, dstStride,
+				dstRows) {
+			return
+		}
+		c.uvPlane[plane-1] = vp9NonrdChromaPlane{
+			src:       src,
+			srcStride: srcStride,
+			srcW:      srcW,
+			srcH:      srcH,
+			dst:       dst,
+			dstStride: dstStride,
+			valid:     true,
+		}
+	}
+	c.uvPlaneBsize = planeBsize
+	c.uvBw = uvBw
+	c.uvBh = uvBh
+	c.ssX = ssX
+	c.ssY = ssY
+	c.uvX0 = uvX0
+	c.uvY0 = uvY0
+	c.uvRefW = (e.opts.Width + (1 << uint(ssX)) - 1) >> uint(ssX)
+	c.uvRefH = (e.opts.Height + (1 << uint(ssY)) - 1) >> uint(ssY)
+	if c.uvRefW <= 0 || c.uvRefH <= 0 {
+		return
+	}
+	c.uvValid = true
 }
 
 // vp9NonrdPredBlockCtxAddRef prepares one reference's padded-plane pointer for
@@ -147,7 +255,184 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxAddRef(c *vp9NonrdPredBlockCtx,
 			(ref.img.Height&0x7) == 0,
 		valid: true,
 	}
+	if c.uvValid {
+		for plane := 1; plane <= 2; plane++ {
+			refPlane, refStride := vp9ReferencePlane(ref, plane)
+			if len(refPlane) == 0 || refStride <= 0 {
+				continue
+			}
+			refRows := len(refPlane) / refStride
+			// Hoisted legacy gates: the block origin must be inside the
+			// reference plane, and the zero-MV copy window must fit (the
+			// legacy direct predictor rejected both per candidate).
+			if c.uvX0+c.uvBw > refStride || c.uvY0+c.uvBh > refRows {
+				continue
+			}
+			c.uvRef[refFrame][plane-1] = vp9NonrdChromaRefPlane{
+				ref:       refPlane,
+				refStride: refStride,
+				refRows:   refRows,
+				valid:     true,
+			}
+		}
+	}
 	return true
+}
+
+// vp9NonrdCtxPredictChromaPlaneInner is the per-candidate chroma predictor
+// leaf: the tail of the legacy direct chroma path
+// (predictVP9InterBlockPlaneDirectTo) with every block/ref-invariant lookup
+// hoisted into the prepared context. It writes the candidate's chroma
+// prediction into the live recon plane rect, exactly like libvpx
+// vp9_build_inter_predictors_sbp writing pd->dst.
+func (e *VP9Encoder) vp9NonrdCtxPredictChromaPlaneInner(c *vp9NonrdPredBlockCtx,
+	refFrame int8, plane int, mv vp9dec.MV, filter vp9dec.InterpFilter,
+) bool {
+	filterIdx := int(filter)
+	if filterIdx < 0 || filterIdx >= int(vp9dec.InterpSwitchable) {
+		return false
+	}
+	rp := &c.uvRef[refFrame][plane-1]
+	pp := &c.uvPlane[plane-1]
+	src := rp.ref
+	srcStride := rp.refStride
+	srcRows := rp.refRows
+	dstOff := c.uvY0*pp.dstStride + c.uvX0
+	if mv == (vp9dec.MV{}) && (c.uvRefW&0x7) == 0 && (c.uvRefH&0x7) == 0 {
+		buffers.CopyPlane(pp.dst[dstOff:], pp.dstStride,
+			src[c.uvY0*srcStride+c.uvX0:], srcStride, c.uvBw, c.uvBh)
+		return true
+	}
+	mvQ4 := vp9dec.ClampMvToUmvBorderSb(c.edges, mv, c.uvBw, c.uvBh,
+		c.ssX, c.ssY)
+	srcX := c.uvX0
+	srcY := c.uvY0
+	srcX16 := srcX << vp9dec.SubpelBitsConst
+	srcY16 := srcY << vp9dec.SubpelBitsConst
+	subpelX := int(mvQ4.Col) & (vp9dec.SubpelShifts - 1)
+	subpelY := int(mvQ4.Row) & (vp9dec.SubpelShifts - 1)
+	srcX += int(mvQ4.Col) >> vp9dec.SubpelBitsConst
+	srcY += int(mvQ4.Row) >> vp9dec.SubpelBitsConst
+	srcX16 += int(mvQ4.Col)
+	srcY16 += int(mvQ4.Row)
+
+	srcOffset := srcY*srcStride + srcX
+	d := &e.interPredictor
+	d.unsupportedReconstruct = false
+	d.interPredictScratch = e.interPredictScratch
+	if mvQ4.Col != 0 || mvQ4.Row != 0 ||
+		(c.uvRefW&0x7) != 0 || (c.uvRefH&0x7) != 0 {
+		x1 := ((srcX16 + (c.uvBw-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		y1 := ((srcY16 + (c.uvBh-1)*vp9dec.SubpelShifts) >> vp9dec.SubpelBitsConst) + 1
+		extX0, extY0 := srcX, srcY
+		xPad, yPad := 0, 0
+		if subpelX != 0 {
+			extX0 -= vp9dec.VP9InterpExtend - 1
+			x1 += vp9dec.VP9InterpExtend
+			xPad = 1
+		}
+		if subpelY != 0 {
+			extY0 -= vp9dec.VP9InterpExtend - 1
+			y1 += vp9dec.VP9InterpExtend
+			yPad = 1
+		}
+		if extX0 < 0 || extX0 > c.uvRefW-1 || x1 < 0 || x1 > c.uvRefW-1 ||
+			extY0 < 0 || extY0 > c.uvRefH-1 || y1 < 0 || y1 > c.uvRefH-1 {
+			extW := x1 - extX0 + 1
+			extH := y1 - extY0 + 1
+			if extW <= 0 || extH <= 0 {
+				return false
+			}
+			borderOffset := yPad*(vp9dec.VP9InterpExtend-1)*extW +
+				xPad*(vp9dec.VP9InterpExtend-1)
+			src, srcStride, srcOffset = d.vp9ExtendInterPredictSource(src,
+				srcStride, c.uvRefW, c.uvRefH, extX0, extY0, extW, extH,
+				borderOffset)
+			srcRows = extH
+		}
+	}
+	e.interPredictScratch = d.interPredictScratch
+	if srcOffset < 0 || srcOffset >= len(src) || srcRows <= 0 {
+		return false
+	}
+	if vp9PhaseStatsEnabled {
+		d.setVP9PhaseStats(e.vp9PhaseStats())
+		d.vp9PhaseIncInterPredictPlane()
+		key := 0
+		if subpelX != 0 {
+			key |= 4
+		}
+		if subpelY != 0 {
+			key |= 2
+		}
+		d.vp9PhaseCountInterPredictor(key)
+		d.setVP9PhaseStats(nil)
+	}
+	vp9dec.InterPredictorWithScratch(src, srcStride,
+		pp.dst[dstOff:], pp.dstStride,
+		subpelX, subpelY, tables.FilterKernels[filterIdx],
+		vp9dec.SubpelShifts, vp9dec.SubpelShifts, c.uvBw, c.uvBh, 0,
+		srcOffset, &d.convolveScratch)
+	return true
+}
+
+// vp9NonrdCtxUVVariancePlaneSSE is the prepared-context sibling of
+// vp9NonrdUVVariancePlaneSSE: build one chroma plane's candidate prediction
+// and score (variance, sse) against the source
+// (vp9_build_inter_predictors_sbp + fn_ptr[uv_bsize].vf,
+// vp9_pickmode.c:578-599 and :2392-2400). Falls back to the legacy route for
+// shapes outside the prepared envelope.
+func (e *VP9Encoder) vp9NonrdCtxUVVariancePlaneSSE(c *vp9NonrdPredBlockCtx,
+	inter *vp9InterEncodeState, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
+	mv vp9dec.MV, filter vp9dec.InterpFilter, plane int,
+) (variance, sse uint64, ok bool) {
+	if c == nil || !c.uvValid || plane < 1 || plane > 2 ||
+		refFrame < 0 || int(refFrame) >= len(c.uvRef) ||
+		!c.uvRef[refFrame][plane-1].valid {
+		return e.vp9NonrdUVVariancePlaneSSE(inter, miRows, miCols, miRow,
+			miCol, bsize, mode, refFrame, mv, filter, plane)
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
+	if !e.vp9NonrdCtxPredictChromaPlaneInner(c, refFrame, plane, mv, filter) {
+		return 0, 0, false
+	}
+	pp := &c.uvPlane[plane-1]
+	variance, sse = encoder.BlockDiffVarianceSSE(pp.src, pp.srcStride,
+		pp.dst, pp.dstStride, c.uvX0, c.uvY0, c.uvX0, c.uvY0, c.uvBw, c.uvBh)
+	return variance, sse, true
+}
+
+// vp9NonrdCtxUVVarianceSSE is the prepared-context sibling of
+// vp9NonrdUVVarianceSSE (both chroma planes, encode_breakout_test's UV leg,
+// vp9_pickmode.c:1008-1022).
+func (e *VP9Encoder) vp9NonrdCtxUVVarianceSSE(c *vp9NonrdPredBlockCtx,
+	inter *vp9InterEncodeState, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
+	mv vp9dec.MV, filter vp9dec.InterpFilter,
+) (varU, sseU, varV, sseV uint64, ok bool) {
+	if c == nil || !c.uvValid ||
+		refFrame < 0 || int(refFrame) >= len(c.uvRef) ||
+		!c.uvRef[refFrame][0].valid || !c.uvRef[refFrame][1].valid {
+		return e.vp9NonrdUVVarianceSSE(inter, miRows, miCols, miRow, miCol,
+			bsize, mode, refFrame, mv, filter)
+	}
+	if vp9PhaseStatsEnabled {
+		e.vp9PhaseIncInterPredictionBlock()
+	}
+	if !e.vp9NonrdCtxPredictChromaPlaneInner(c, refFrame, 1, mv, filter) ||
+		!e.vp9NonrdCtxPredictChromaPlaneInner(c, refFrame, 2, mv, filter) {
+		return 0, 0, 0, 0, false
+	}
+	ppU := &c.uvPlane[0]
+	varU, sseU = encoder.BlockDiffVarianceSSE(ppU.src, ppU.srcStride,
+		ppU.dst, ppU.dstStride, c.uvX0, c.uvY0, c.uvX0, c.uvY0, c.uvBw, c.uvBh)
+	ppV := &c.uvPlane[1]
+	varV, sseV = encoder.BlockDiffVarianceSSE(ppV.src, ppV.srcStride,
+		ppV.dst, ppV.dstStride, c.uvX0, c.uvY0, c.uvX0, c.uvY0, c.uvBw, c.uvBh)
+	return varU, sseU, varV, sseV, true
 }
 
 // vp9NonrdCtxPredictLuma is the prepared-context candidate predictor: the

@@ -190,6 +190,61 @@ func testVP9NonrdPredCtxMatchesLegacy(t *testing.T, width, height int) {
 					if wantOK && !bytes.Equal(dst, want) {
 						t.Fatalf("%s: variance-wrapper predictor mismatch", name)
 					}
+
+					// Chroma parity: legacy per-plane UV route vs the
+					// prepared-context route, including the written live
+					// recon chroma rect.
+					for plane := 1; plane <= 2; plane++ {
+						uvW := ctx.uvBw
+						uvH := ctx.uvBh
+						if !ctx.uvValid {
+							pd := &e.planes[plane]
+							pb := vp9dec.GetPlaneBlockSize(bsize, pd)
+							if pb >= common.BlockSizes {
+								continue
+							}
+							uvW = int(common.Num4x4BlocksWideLookup[pb]) * 4
+							uvH = int(common.Num4x4BlocksHighLookup[pb]) * 4
+						}
+						uvX := (pos.miCol * common.MiSize) >> e.planes[plane].SubsamplingX
+						uvY := (pos.miRow * common.MiSize) >> e.planes[plane].SubsamplingY
+						reconUV, reconUVStride := e.vp9EncoderReconPlane(plane)
+						wantUVVar, wantUVSSE, wantUVOK := e.vp9NonrdUVVariancePlaneSSE(
+							inter, miRows, miCols, pos.miRow, pos.miCol,
+							bsize, common.NewMv, vp9dec.LastFrame, mv,
+							filter, plane)
+						var wantRect []byte
+						if wantUVOK {
+							wantRect = make([]byte, uvW*uvH)
+							vp9CopyPredRectToScratch(wantRect, reconUV,
+								reconUVStride, uvX, uvY, uvW, uvH)
+							// Scribble so a no-op ctx call cannot pass.
+							for yy := range uvH {
+								for xx := range uvW {
+									reconUV[(uvY+yy)*reconUVStride+uvX+xx] = 0x33
+								}
+							}
+						}
+						gotUVVar, gotUVSSE, gotUVOK := e.vp9NonrdCtxUVVariancePlaneSSE(
+							&ctx, inter, miRows, miCols, pos.miRow, pos.miCol,
+							bsize, common.NewMv, vp9dec.LastFrame, mv,
+							filter, plane)
+						if gotUVOK != wantUVOK || gotUVVar != wantUVVar ||
+							gotUVSSE != wantUVSSE {
+							t.Fatalf("%s p%d: UV variance/SSE = %d/%d/%v, want %d/%d/%v",
+								name, plane, gotUVVar, gotUVSSE, gotUVOK,
+								wantUVVar, wantUVSSE, wantUVOK)
+						}
+						if wantUVOK {
+							gotRect := make([]byte, uvW*uvH)
+							vp9CopyPredRectToScratch(gotRect, reconUV,
+								reconUVStride, uvX, uvY, uvW, uvH)
+							if !bytes.Equal(gotRect, wantRect) {
+								t.Fatalf("%s p%d: UV recon rect mismatch",
+									name, plane)
+							}
+						}
+					}
 				}
 			}
 		}
