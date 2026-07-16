@@ -619,6 +619,13 @@ func packTokenBlockAndHasResidue(
 func packTokenBlockAndHasResidueWindow(
 	bw *bitstream.Writer, tokens []TokenExtra, fc *vp9dec.FrameCoefProbs,
 ) (bool, int, bool) {
+	// The arm64 register-state batch kernel (token_pack_kernel_arm64.s) was
+	// adjudicated NEUTRAL here on Apple M4 (order-controlled interleaved
+	// pairs, byte-exact): the Go path's per-call writer state traffic is
+	// already hidden by store-forwarding, and the per-bool range-coder
+	// arithmetic is identical. It stays available (differential-tested) for
+	// re-adjudication on other arm64 cores; do not rewire without a fresh
+	// win on the connected spot.
 	hasResidue := false
 	consumed := 0
 	for len(tokens) > 0 {

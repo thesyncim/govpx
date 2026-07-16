@@ -138,6 +138,28 @@ CPU time was lower in all three runs at 16.62/16.63/16.67 s versus
 16.76/16.77/16.69 s controls; the 1T stream stayed identical at 4,983,461
 bytes and 468/12.
 
+Measurement note, 2026-07-16 (pack asm kernel — FLOOR PROVEN, unwired): the
+"token-loop asm mega-kernel" wave was built and adjudicated. An arm64
+register-state batch kernel (token_pack_kernel_arm64.s) executes the whole
+staged token window with lowvalue/range/count in registers and direct byte
+stores, bit-exact with the Go path (6,000-trial randomized differential gate
+against a per-bit Write reference including corrupted-stream bail parity,
+4.5M-exec fuzz session, all four canonical byte pins exact when wired). The
+connected 240-frame 1T adjudication was NEUTRAL and order-biased: control-first
+pairs favored the kernel 4/10 with medians 11.18 vs 11.47 ms/f, kernel-first
+pairs favored it 4/6 with medians 10.97 vs 11.04 — whoever ran first in a
+pair tended to lose, and the combined result is a tie within noise. Verdict:
+on Apple Silicon the Go path's per-call writer state traffic is already
+hidden by store-to-load forwarding, and the serial range-coder arithmetic
+(split/CLZ/renorm, identical instruction count in both) is the irreducible
+cost — the same arithmetic libvpx executes. The pack side is AT ITS FLOOR;
+"beat libvpx" is not reachable on this axis because both implementations run
+the same serial dependency chain. The kernel and its differential harness
+stay in-tree unwired for re-adjudication on non-Apple arm64 cores (Neoverse
+class may reward the register-resident form); do not rewire without a fresh
+connected win. The earlier same-day fused run-head not-EOB fragments
+(4e7b03a9, ~0.5%) stand as the landed Go-level shape.
+
 Research note, 2026-07-16 (denoiser intra-avg prep copy — candidate with a
 parity caveat): the fresh 240-frame 1T profile attributes ~0.2 ms/f of
 `runtime.memmove` to `prepareVP9DenoiserSource`'s two frame-entry copies. The
