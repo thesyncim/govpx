@@ -51,6 +51,22 @@ func InterFrameNearMotionVectorsAt(above *InterFrameMacroblockMode, left *InterF
 	return nearest, near
 }
 
+// InterFrameNearMVsCountsAt returns the clamped nearest/near/best motion
+// predictors and the mode-context counts from a single neighbor walk — the
+// libvpx vp8_find_near_mvs shape (vp8/common/findnearmv.c), which produces
+// all four outputs in one pass over the above/left/above-left modes. The
+// per-output values (including the clamps applied to each vector) are
+// identical to the individual InterFrameNearMotionVectorsAt /
+// InterFrameBestMotionVectorAt / InterFrameModeCounts helpers, which each
+// repeat the same walk.
+func InterFrameNearMVsCountsAt(above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, refFrame common.MVReferenceFrame, mbRow int, mbCol int, mbRows int, mbCols int, signBias [common.MaxRefFrames]bool) (MotionVector, MotionVector, MotionVector, InterModeCounts) {
+	nearest, near, best, counts := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
+	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
+	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
+	best = clampInterMotionVectorToModeEdges(best, mbRow, mbCol, mbRows, mbCols)
+	return nearest, near, best, counts
+}
+
 func InterFrameMotionModeForVector(refFrame common.MVReferenceFrame, mv MotionVector, above *InterFrameMacroblockMode, left *InterFrameMacroblockMode, aboveLeft *InterFrameMacroblockMode, signBias [common.MaxRefFrames]bool) InterFrameMacroblockMode {
 	return InterFrameMotionModeForVectorAt(refFrame, mv, above, left, aboveLeft, 0, 0, 1, 1, signBias)
 }

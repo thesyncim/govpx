@@ -283,10 +283,10 @@ func (e *VP8Encoder) estimateFastInterModeScoreHot(src vp8enc.SourceImage, ref *
 	modeRate := e.interMotionModeRateWithReferenceRateAndModeContextAndCosts(mode, left, above, refRate, ctx.modeMVs.counts, ctx.bestRefMV, ctx.mvCosts, vp8enc.FastNewMVBitCostWeight)
 	variance, sse := macroblockLumaMotionVarianceSSECached(src, ref, mbRow, mbCol, mv, ctx)
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, modeRate, variance)
-	if e.activityMapValid {
-		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, modeRate, variance)
-	}
+	// Per-MB cached RDCOST constants (see fastInterModeLoopContext.rdMult);
+	// value-identical to rdModeScoreWithZbin / tunedRDModeScoreWithZbin.
+	rdMult, rdDiv := ctx.rdConstants(e, qIndex, zbinOverQuant, mbRow, mbCol)
+	score := vp8enc.RDCost(rdMult, rdDiv, modeRate, variance)
 	if refFrame == vp8common.LastFrame && mbMode == vp8common.ZeroMV {
 		adj := 100
 		pickmodeMVBias := e.denoiserPickmodeMVBias()

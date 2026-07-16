@@ -41,6 +41,33 @@ type fastInterModeLoopContext struct {
 	// reconstruction frame. Fully overwritten by each candidate before any
 	// read, so it needs no per-MB reset.
 	intraPred [256]byte
+	// rdMult/rdDiv cache the per-MB resolved RD constants: the frame-level
+	// RDMULT (with the pass-2 iiratio lift) plus the activity-masking
+	// multiplier for this macroblock. libvpx computes x->rdmult / x->rddiv
+	// once (vp8_initialize_rd_consts + vp8_activity_masking) and every
+	// candidate's RDCOST reads the MACROBLOCK fields; the picker previously
+	// re-derived the pair inside every scored candidate. All inputs
+	// (qIndex, zbin_over_quant, iiratio, activity map, mbRow/mbCol) are
+	// invariant across one picker invocation, so the cached pair is
+	// value-identical to the per-candidate recomputation.
+	rdMult int
+	rdDiv  int
+	rdSet  bool
+}
+
+// rdConstants returns the per-MB (rdMult, rdDiv) pair used by every
+// candidate RDCOST in this picker invocation, computing it on first use.
+func (ctx *fastInterModeLoopContext) rdConstants(e *VP8Encoder, qIndex int, zbinOverQuant int, mbRow int, mbCol int) (int, int) {
+	if !ctx.rdSet {
+		rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
+		if e.activityMapValid {
+			rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
+		}
+		ctx.rdMult = rdMult
+		ctx.rdDiv = rdDiv
+		ctx.rdSet = true
+	}
+	return ctx.rdMult, ctx.rdDiv
 }
 
 // lumaIntraRefs returns the cached per-MB luma intra predictor refs,
@@ -150,10 +177,10 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	variance, sse := macroblockLumaVarianceSSEAgainstBuffer(src, mbRow, mbCol, pred)
 	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
-	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)
-	if e.activityMapValid {
-		score = e.tunedRDModeScoreWithZbin(qIndex, zbinOverQuant, mbRow, mbCol, rate, variance)
-	}
+	// Per-MB cached RDCOST constants (see fastInterModeLoopContext.rdMult);
+	// value-identical to rdModeScoreWithZbin / tunedRDModeScoreWithZbin.
+	rdMult, rdDiv := ctx.rdConstants(e, qIndex, zbinOverQuant, mbRow, mbCol)
+	score := vp8enc.RDCost(rdMult, rdDiv, rate, variance)
 	return resultMode, score, variance, sse, rate, true
 }
 
@@ -203,11 +230,9 @@ func (e *VP8Encoder) estimateFastBPredIntraModeScore(src vp8enc.SourceImage, mbR
 	refsYTopLeft := refs.YTopLeft
 	// Hoist RD constants once: rdModeScoreWithZbin recomputes (rdMult, rdDiv)
 	// from qIndex/zbinOverQuant, both invariant across the 64-iteration
-	// {16 blocks} x {4 modes} inner cost loop.
-	rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
-	if e.activityMapValid {
-		rdMult = e.tunedRDMultiplier(rdMult, mbRow, mbCol)
-	}
+	// {16 blocks} x {4 modes} inner cost loop. Shared with the rest of the
+	// picker invocation via the loop-context cache (same derivation).
+	rdMult, rdDiv := ctx.rdConstants(e, qIndex, zbinOverQuant, mbRow, mbCol)
 	quantY1 := &quant.Y1
 	var modes [16]vp8common.BPredictionMode
 	var predictor [256]byte

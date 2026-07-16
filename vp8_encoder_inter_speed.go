@@ -453,10 +453,26 @@ func (e *VP8Encoder) interModeRDThresholdsForReferences(qIndex int, refs []inter
 }
 
 func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, refs []interAnalysisReference, refCount int) ([libvpxInterModeCount]int, [libvpxInterModeCount]int) {
+	thresholds, baseline := e.interModeRDThresholdsAndBaselineRefsForReferences(qIndex, refs, refCount)
+	return *thresholds, *baseline
+}
+
+// interModeRDThresholdsAndBaselineRefsForReferences is the picker hot-path
+// variant of interModeRDThresholdsAndBaselineForReferences: it returns
+// pointers to the live derived-threshold table and the cached baseline slot
+// instead of copying two [libvpxInterModeCount]int arrays per macroblock —
+// the libvpx shape, where the mode loop reads x->rd_threshes[] /
+// cpi->rd_baseline_thresh[] in place. Reads through the derived pointer are
+// value-identical to the snapshot copy: the raise/lower helpers only mutate
+// the current candidate's index after its threshold has been read, and the
+// mode loop visits each index exactly once per macroblock. The baseline
+// slot is never refilled during a picker invocation (fills only happen in
+// this call, once per MB).
+func (e *VP8Encoder) interModeRDThresholdsAndBaselineRefsForReferences(qIndex int, refs []interAnalysisReference, refCount int) (*[libvpxInterModeCount]int, *[libvpxInterModeCount]int) {
 	baselineQIndex := e.interModeRDThresholdQIndex(qIndex)
 	baseline, stamp := e.interModeRDThresholdsBaselineRef(baselineQIndex, refs, refCount)
 	if !e.interRDFrameActive {
-		return *baseline, *baseline
+		return baseline, baseline
 	}
 	// libvpx maintains x->rd_threshes[] incrementally: initialized once per
 	// frame (vp8_initialize_rd_consts) and rewritten at a single mode index
@@ -464,7 +480,7 @@ func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, r
 	// only when the (frame, baseline-slot) stamp changes; the helpers keep
 	// interRDDerivedThresh in sync at the touched index afterwards.
 	if e.interRDDerivedValid && e.interRDDerivedStamp == stamp {
-		return e.interRDDerivedThresh, *baseline
+		return &e.interRDDerivedThresh, baseline
 	}
 	thresholds := *baseline
 	touched := &e.interRDThreshTouched
@@ -482,7 +498,7 @@ func (e *VP8Encoder) interModeRDThresholdsAndBaselineForReferences(qIndex int, r
 	e.interRDDerivedBaseline = *baseline
 	e.interRDDerivedStamp = stamp
 	e.interRDDerivedValid = true
-	return thresholds, *baseline
+	return &e.interRDDerivedThresh, baseline
 }
 
 // updateDerivedInterRDThreshold keeps the derived per-MB threshold table in
@@ -500,6 +516,10 @@ func (e *VP8Encoder) updateDerivedInterRDThreshold(modeIndex int) {
 }
 
 func interModeRDBestThresholdLowerAllowed(baseline [libvpxInterModeCount]int, modeIndex int) bool {
+	return interModeRDBestThresholdLowerAllowedRef(&baseline, modeIndex)
+}
+
+func interModeRDBestThresholdLowerAllowedRef(baseline *[libvpxInterModeCount]int, modeIndex int) bool {
 	if uint(modeIndex) >= uint(libvpxInterModeCount) {
 		return false
 	}

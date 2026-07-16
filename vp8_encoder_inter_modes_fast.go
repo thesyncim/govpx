@@ -92,7 +92,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineRefsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestDistortion := maxInt()
@@ -315,7 +315,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
+	if interModeRDBestThresholdLowerAllowedRef(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	e.recordFastInterModeErrorBin(bestDistortion)
@@ -355,7 +355,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	if !e.interRDFrameActive {
 		e.beginInterRDModeDecisionMacroblock()
 	}
-	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineForReferences(qIndex, refs, refCount)
+	thresholds, baselineThresholds := e.interModeRDThresholdsAndBaselineRefsForReferences(qIndex, refs, refCount)
 	bestSet := false
 	bestScore := maxInt()
 	bestDistortion := maxInt()
@@ -599,7 +599,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	if !bestSet {
 		return interFrameModeDecision{}, false
 	}
-	if interModeRDBestThresholdLowerAllowed(baselineThresholds, bestModeIndex) {
+	if interModeRDBestThresholdLowerAllowedRef(baselineThresholds, bestModeIndex) {
 		e.lowerBestInterFastThreshold(bestModeIndex)
 	}
 	e.recordFastInterModeErrorBin(bestDistortion)

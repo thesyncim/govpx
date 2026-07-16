@@ -74,9 +74,14 @@ func (e *VP8Encoder) interModeMVSlots(
 	}
 	signBias := e.interFrameSignBias()
 	slot := interModeSignBiasSlotForReference(baseRef.Frame, signBias)
-	nearest, near := interAnalysisReferenceMotionPredictorsWithSignBias(baseRef.Frame, above, left, aboveLeft, mbRow, mbCol, mbRows, mbCols, signBias)
-	best := vp8enc.InterFrameBestMotionVectorAt(above, left, aboveLeft, baseRef.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
-	state.counts = vp8enc.InterFrameModeCounts(above, left, aboveLeft, baseRef.Frame, signBias)
+	// Single-pass neighbor walk: libvpx vp8_find_near_mvs_bias computes
+	// nearest/near/best_ref and mdcounts together in one sweep over the
+	// three neighbor modes. The previous three-helper form repeated the
+	// identical findNearInterMotionVectors walk per output and was a
+	// measurable share of the per-MB picker setup in the 720p realtime
+	// profile. Outputs (including clamps) are value-identical.
+	nearest, near, best, counts := vp8enc.InterFrameNearMVsCountsAt(above, left, aboveLeft, baseRef.Frame, mbRow, mbCol, mbRows, mbCols, signBias)
+	state.counts = counts
 	// slot from interModeSignBiasSlotForReference is 0 or 1; AND-mask
 	// with 1 elides the bounds check on the [2]MotionVector slot arrays
 	// for both the active slot and its opposite.
