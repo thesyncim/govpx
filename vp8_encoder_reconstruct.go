@@ -476,16 +476,16 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
 
-	// Mirror the serial denoiser setup: when noise_sensitivity > 0 the
-	// picker and per-MB reconstructor must read from coeffSource (the
-	// denoiser's working-copy buffer the per-MB denoise overlay writes
-	// into), not the raw frame. Without this the threaded path skipped
-	// vp8_denoiser_denoise_mb entirely and the per-frame running_avg
-	// stream drifted from libvpx starting at the first inter frame.
+	// Mirror the serial denoiser setup: coeffSource is the coded view of
+	// the denoiser overlay buffer. Workers read the raw source in place
+	// (all consumers are current-MB scoped), stage filter-candidate and
+	// partial-edge macroblocks into the overlay, and route the coefficient
+	// build per plane through the overlay only where the denoiser wrote.
+	// Row workers touch disjoint macroblock regions, so the shared overlay
+	// needs no cross-worker coordination.
 	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
 	coeffSource := src
 	if denoiseActive {
-		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
 		coeffSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.source.Img)
 	}
 
@@ -571,12 +571,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
 	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
-	coeffSource := src
-	decisionSource := src
+	// The denoiser overlay replaces the historic full-frame working copy:
+	// the raw source is read in place (every consumer is current-MB
+	// scoped), the denoiser stages/writes only the macroblocks it filters,
+	// and partial-edge macroblocks are staged wholesale so their coded-
+	// dimension clamp semantics match the old working copy exactly.
+	var denoiseOverlay vp8enc.SourceImage
 	if denoiseActive {
-		vp8enc.CopySourceToFrameBuffer(&e.denoiser.source, src)
-		coeffSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.source.Img)
-		decisionSource = coeffSource
+		denoiseOverlay = vp8enc.CodedSourceImageFromImage(&e.denoiser.source.Img)
 	}
 	totalRate := 0
 	totalPredictionError := int64(0)
@@ -613,8 +615,21 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 				haveFallbackSnapshot = true
 			}
+			pickSource := src
+			partialMB := false
+			if denoiseActive {
+				partialMB = row*16+16 > src.Height || col*16+16 > src.Width
+				if partialMB {
+					// Stage the clamped macroblock so the picker and the
+					// legacy aliased denoiser path observe the exact
+					// coded-dimension pixels the old full-frame working
+					// copy carried at partial edges.
+					stageDenoiserOverlayMacroblock(denoiseOverlay, src, row, col)
+					pickSource = denoiseOverlay
+				}
+			}
 			decision, ok := e.selectInterFrameModeDecision(
-				decisionSource, refs[:], refCount,
+				pickSource, refs[:], refCount,
 				row, col, rows, cols,
 				qIndex, segmentation, segmentID,
 				above, left, aboveLeft,
@@ -635,8 +650,24 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			}
 			mbSource := src
 			if denoiseActive {
-				e.applyDenoiserToInterMacroblock(coeffSource, coeffSource, rows, cols, row, col, &decision)
-				mbSource = coeffSource
+				if partialMB {
+					e.applyDenoiserToInterMacroblock(denoiseOverlay, denoiseOverlay, rows, cols, row, col, &decision)
+					mbSource = denoiseOverlay
+				} else {
+					overlay := e.applyDenoiserToInterMacroblock(src, denoiseOverlay, rows, cols, row, col, &decision)
+					if overlay.y {
+						mbSource.Y = denoiseOverlay.Y
+						mbSource.YStride = denoiseOverlay.YStride
+					}
+					if overlay.u {
+						mbSource.U = denoiseOverlay.U
+						mbSource.UStride = denoiseOverlay.UStride
+					}
+					if overlay.v {
+						mbSource.V = denoiseOverlay.V
+						mbSource.VStride = denoiseOverlay.VStride
+					}
+				}
 			}
 			if denoiseActive && decision.useIntra && !e.interAnalysisUsesRDModeDecision() && decision.intraMode.Mode <= vp8common.BPred {
 				// The fast libvpx picker repeats pick_intra_mbuv_mode after

@@ -1211,18 +1211,34 @@ agent report "VP8 encode recon redesign"; key verified facts:
   validation gates, ~0.02-0.04 ms/f of samples), priced below the byte-risk
   of restructuring; treat whole-MV B4 as at kernel parity and fold any
   remaining work into a future thismb/staging redesign.
-- B5 remaining-scope note, 2026-07-16: the full-frame denoiser working-copy
-  (CopySourceToFrameBuffer at every inter build, including recodes)
-  measures ~0.08 ms/f of direct samples plus cache pollution. An audit of
-  every coeffSource consumer (picker scoring, residual gather, breakout,
-  chroma re-pick, denoiser sig writes, near-SAD sources) found all reads
-  are current-MB-scoped, so libvpx's exact shape is reachable: per-MB
-  thismb staging for Y (denoiser filter writes its Y result into thismb
-  only) and in-place UV filtering (libvpx mutates its own cpi->Source UV).
-  The Y-plane copy (2/3 of the cost) is removable if govpx owns the source
-  buffer at that point; UV in-place requires the same ownership guarantee.
-  This is the largest single open B5 item and the natural umbrella for the
-  B4 wrapper remainder.
+- B5 denoiser-overlay safe point LANDED 2026-07-16: the full-frame denoiser
+  working copy (CopySourceToFrameBuffer + border extension at every inter
+  build, including recodes) is gone. An audit of every coeffSource consumer
+  (picker scoring, residual gather, breakout, chroma re-pick, denoiser sig
+  reads/writes, near-SAD and dot-artifact sources) proved all source reads
+  are current-MB-scoped, so the walk now reads the raw source in place and
+  the denoiser writes into a per-MB overlay: filter-candidate MBs stage
+  their 16x16 Y (and 8x8 UV when the UV filter is reachable) into the
+  overlay right before the filter kernels — the same per-MB thismb copy
+  libvpx pays on every MB, here only where a kernel must read-modify the
+  signal — and applyDenoiserToInterMacroblock returns a per-plane mask
+  that routes the coefficient build through the overlay only for planes
+  the denoiser actually wrote. No-filter MBs stay raw-backed with zero
+  copies. Partial-edge macroblocks are staged wholesale (clamped
+  replication, value-identical to the old PadFrameVisibleToCoded working
+  copy) and keep the historic aliased flow, so coded-dimension clamp
+  semantics are bit-preserved; complete MBs take identical kernel fast
+  paths under either dimension view. Five order-alternated no-PGO
+  480-frame cpu8 serial pairs against the just-landed e0fae426 control
+  ALL favored the overlay with exact 5,066,778-byte output, 478/2
+  topology, and 0 allocs/frame, moving medians from 7.543 to
+  7.317 ms/frame (about 3.0%; the win exceeds the ~0.08 ms/f direct copy
+  samples because the 2.7 MB/frame staging sweep no longer flushes the
+  reference/recon working set). The 4T spot stayed byte/topology-exact at
+  5,111,925 bytes, 456/24. Remaining B5 scope after this: per-MB thismb
+  staging for the picker's own scoring reads (contiguous stride-16 source
+  view) is now purely a locality play with no copy elimination attached;
+  re-adjudicate only with a fresh profile showing source-side read misses.
 - B3 status note (2026-07-16): the subpel eval path already routes through
   the fused one-axis/bilinear NEON subpel-variance kernels
   (subpelVariance16x16{Horizontal,Vertical,Bilinear}NEON behind
@@ -1242,14 +1258,19 @@ direct-left / fuller picker scratch layout remains −0.15..0.25); B3 subpel eva
 adjudication (CLOSED on the canonical fixture 2026-07-16: fused subpel-variance
 kernels already carry the eval path at ~0.06 ms/f cum); B4 direct winner predictor with encoder kernels /
 storePredictor reuse (PARTIAL 2026-07-11: accepted whole-MV commits reuse
-prepared per-reference decoder state; direct encoder-kernel predictor carry
-remains); B5 per-MB denoiser staging (thismb shape)
-+ re-enabled FDCT winner cache (−0.10..0.15, but the 2026-07-03 FDCT-cache
-return probe is closed for realtime cpu8 until an RD-cache-producing fast path
-exists; PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped
+prepared per-reference decoder state; 2026-07-16 audit: whole-MV rebuild is
+at kernel parity with libvpx's vp8_build_inter16x16_predictors_mb — only
+~0.02-0.04 ms/f wrapper glue remains, deprioritized); B5 per-MB denoiser
+staging (thismb shape)
++ re-enabled FDCT winner cache (the FDCT-cache line item is CLOSED for
+realtime cpu8 on 2026-07-16 libvpx ground truth — pickinter populates no
+cache and vp8_encode_inter16x16 always re-runs the pipeline;
+PARTIAL 2026-07-03: aliased source/signal no-filter copies are skipped
 on the normal denoise path; PARTIAL 2026-07-11: persistent running-average
 buffers reuse prepared predictor metadata and whole-MV predictors use compact
-per-worker staging); B6 glue (PARTIAL 2026-07-03:
+per-worker staging; LANDED 2026-07-16: full-frame denoiser working copy
+replaced by per-MB overlay staging with per-plane raw/overlay routing,
+~3.0% serial wall); B6 glue (PARTIAL 2026-07-03:
 final-mode copy elision landed; remaining glue still −0.05). Then B7: PARTIAL
 2026-07-11, direct ARM64 inner-horizontal and inner-vertical fusion landed;
 the lf-pick wall-stall investigation is CLOSED on ARM64 as of 2026-07-16

@@ -460,16 +460,18 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		snapshotInterMacroblockImage(&e.analysis.Img, row, col, &fallbackSnapshot)
 		haveFallbackSnapshot = true
 	}
-	// Pick using coeffSource (the denoiser working-copy) when the
-	// denoiser is active so the picker observes the same per-MB
-	// denoised left-edge / above-edge pixel context as libvpx's per-row
-	// encode_mb_row loop. Each row worker owns disjoint MB regions and
-	// the wave-front sync below already guarantees row r-1's denoiser
-	// writes complete before row r reads them, so the per-MB denoiser
-	// overlay is byte-identical to the serial walk.
+	// Pick from the raw source; every picker read is current-MB scoped.
+	// Partial-edge macroblocks are staged wholesale into the denoiser
+	// overlay first so their coded-dimension clamp semantics match the
+	// historic full-frame working copy exactly (see the serial walk).
 	pickSource := args.src
+	partialMB := false
 	if args.denoiseActive {
-		pickSource = args.coeffSource
+		partialMB = row*16+16 > args.src.Height || col*16+16 > args.src.Width
+		if partialMB {
+			stageDenoiserOverlayMacroblock(args.coeffSource, args.src, row, col)
+			pickSource = args.coeffSource
+		}
 	}
 	decision, ok := e.selectInterFrameModeDecision(
 		pickSource, args.refs[:], args.refCount,
@@ -494,14 +496,29 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 
 	mbSource := args.src
 	if args.denoiseActive {
-		// vp8_denoiser_denoise_mb overlays the denoised pixels into
-		// coeffSource and updates the per-MB running_avg buffers. The
-		// row worker's encoder view shares the encoder-level denoiser
-		// state (slices alias the backing arrays), so writes here land
-		// in the shared per-MB region just like libvpx's threaded
-		// encode_mb_row.
-		e.applyDenoiserToInterMacroblock(args.coeffSource, args.coeffSource, args.rows, args.cols, row, col, &decision)
-		mbSource = args.coeffSource
+		// vp8_denoiser_denoise_mb updates the per-MB running_avg buffers
+		// and writes the filtered signal into the overlay. The row
+		// worker's encoder view shares the encoder-level denoiser state
+		// (slices alias the backing arrays), and workers write disjoint
+		// MB regions, just like libvpx's threaded encode_mb_row.
+		if partialMB {
+			e.applyDenoiserToInterMacroblock(args.coeffSource, args.coeffSource, args.rows, args.cols, row, col, &decision)
+			mbSource = args.coeffSource
+		} else {
+			overlay := e.applyDenoiserToInterMacroblock(args.src, args.coeffSource, args.rows, args.cols, row, col, &decision)
+			if overlay.y {
+				mbSource.Y = args.coeffSource.Y
+				mbSource.YStride = args.coeffSource.YStride
+			}
+			if overlay.u {
+				mbSource.U = args.coeffSource.U
+				mbSource.UStride = args.coeffSource.UStride
+			}
+			if overlay.v {
+				mbSource.V = args.coeffSource.V
+				mbSource.VStride = args.coeffSource.VStride
+			}
+		}
 	}
 	if args.denoiseActive && decision.useIntra && !e.interAnalysisUsesRDModeDecision() && decision.intraMode.Mode <= vp8common.BPred {
 		if uvMode, _, ok := pickFastIntraChromaMode(mbSource, row, col, &e.analysis.Img, &e.reconstructScratch); ok {

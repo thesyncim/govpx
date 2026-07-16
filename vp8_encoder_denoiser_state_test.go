@@ -68,7 +68,7 @@ func TestDenoiserPickmodeMVBiasReturns75ForAggressiveMode(t *testing.T) {
 	}
 }
 
-func TestCopyDenoiserNoFilterMacroblockSkipsOnlyAliasedFilteredCopies(t *testing.T) {
+func TestCopyDenoiserNoFilterMacroblockKeepsRawBacking(t *testing.T) {
 	e := &VP8Encoder{opts: EncoderOptions{NoiseSensitivity: 3}}
 	e.denoiser.mode = vp8enc.DenoiserOnYUV
 	e.denoiser.allocated = true
@@ -86,10 +86,22 @@ func TestCopyDenoiserNoFilterMacroblockSkipsOnlyAliasedFilteredCopies(t *testing
 	}
 	assertDenoiserMacroblockCopied(t, vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img), source)
 
-	filteredFrame := testVP8Frame(t, 16, 16, 1, 2, 3)
-	filtered := vp8enc.CodedSourceImageFromImage(&filteredFrame.Img)
-	e.copyDenoiserNoFilterMacroblock(source, filtered, 0, 0, 1, 0)
-	assertDenoiserMacroblockCopied(t, filtered, source)
+	// The split source/overlay path leaves no-filter macroblocks raw-backed:
+	// nothing is copied into the overlay (the returned mask says the
+	// coefficient build should keep reading the raw source), while the
+	// running average still receives the raw signal.
+	overlayFrame := testVP8Frame(t, 16, 16, 1, 2, 3)
+	overlaySrc := vp8enc.CodedSourceImageFromImage(&overlayFrame.Img)
+	overlayYBefore := append([]byte(nil), overlaySrc.Y...)
+	overlayUBefore := append([]byte(nil), overlaySrc.U...)
+	overlayVBefore := append([]byte(nil), overlaySrc.V...)
+	mask := e.copyDenoiserNoFilterMacroblock(source, overlaySrc, 0, 0, 1, 0)
+	if mask.y || mask.u || mask.v {
+		t.Fatalf("no-filter MB overlay mask = %+v, want all raw-backed", mask)
+	}
+	if !bytes.Equal(overlaySrc.Y, overlayYBefore) || !bytes.Equal(overlaySrc.U, overlayUBefore) || !bytes.Equal(overlaySrc.V, overlayVBefore) {
+		t.Fatalf("no-filter path wrote into the overlay buffer")
+	}
 	assertDenoiserMacroblockCopied(t, vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img), source)
 }
 
