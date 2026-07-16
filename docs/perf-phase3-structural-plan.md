@@ -138,6 +138,27 @@ CPU time was lower in all three runs at 16.62/16.63/16.67 s versus
 16.76/16.77/16.69 s controls; the 1T stream stayed identical at 4,983,461
 bytes and 468/12.
 
+Research note, 2026-07-16 (denoiser intra-avg prep copy — candidate with a
+parity caveat): the fresh 240-frame 1T profile attributes ~0.2 ms/f of
+`runtime.memmove` to `prepareVP9DenoiserSource`'s two frame-entry copies. The
+mutable-source copy is parity (libvpx pays the equivalent copy inside
+vp9_lookahead_push; govpx's caller image is immutable by API contract). The
+intra running-average copy is NOT libvpx's shape: vp9_denoiser.c maintains
+running_avg_y[INTRA] per block — `denoise_and_copy` always ends with
+vpx_convolve_copy in the filter or copy direction for every visited block —
+and full-copies only on keyframe/resize/reset. Deleting govpx's per-frame
+prep copy (~0.1 ms/f) requires guaranteeing per-block copy coverage at EVERY
+early-return class in `applyVP9DenoiserToInterBlock` (block-size gates,
+SSE/motion threshold exits, MC-predict failures, intra/compound decisions),
+because with the prep copy govpx's unvisited intra-avg regions hold CURRENT
+source where libvpx holds STALE prior-frame content. The pinned denoise lanes
+are byte-exact today, which means those region-content differences have not
+yet influenced a pinned stream — but they are a latent divergence surface on
+unpinned content, and any prep-copy deletion must first reconcile govpx's
+visit/write coverage against libvpx's exact per-block copy sites rather than
+assume the prep copy is a free redundancy. Do the coverage audit and the
+copy deletion as one unit.
+
 Measurement note, 2026-07-03: the realtime VP9 count/write leaf path now calls
 `prepareVP9InterBlockResidue` directly when no SB-entry skip-encode entropy
 snapshot is active, leaving `vp9WithSBSearchEntropy` only on the deep-RD
