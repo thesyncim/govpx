@@ -589,6 +589,19 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	sourceAltRefOverlay := e.vp9OnePassVBRSourceAltRefOverlay(inter)
 	interModeCtx := vp9dec.InterModeContext(e.miGrid, miCols, tile,
 		miRows, miRow, miCol, bsize)
+	// libvpx vp9_rd.c:439-444 — cpi->inter_mode_cost and x->nmvcost are
+	// per-frame COST TABLES built together under the non-intra gate; the
+	// candidate loop reads them as table lookups (vp9_pickmode.c:2406-2407
+	// and vp9_mv_bit_cost's x->mvcost reads). Hoist the four mode-tree sums
+	// once per block and read NEWMV bits from the prepared NmvCostTable so
+	// no candidate re-walks the probability trees.
+	interModeCostTbl, interModeCostOK := vp9NonrdInterModeCostTable(inter,
+		interModeCtx)
+	var nmvCostTbl *encoder.NmvCostTable
+	if mvCostFcPick, mvCostBuiltPick := vp9InterMvCostFrameContext(inter); mvCostBuiltPick &&
+		e.vp9NmvCostCache.prepare(&mvCostFcPick.Nmvc, inter.allowHP) {
+		nmvCostTbl = e.vp9NmvCostCache.table
+	}
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	modeCostCtx := vp9InterModeCostFrameContext(inter)
 	var interpFilterRateCost [int(vp9dec.InterpSwitchable)]int
@@ -1072,9 +1085,18 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				mvOpts.skipFullpelSearch = true
 			}
 			if bestSet {
+				newmvModeCost := interModeCostTbl[encoder.ModeOffsetInter(common.NewMv)]
 				mvOpts.nonrdPrecheck = func(fullpelMv vp9dec.MV) bool {
-					rateModeMv := vp9NonrdInterModeRateCost(inter,
-						interModeCtx, common.NewMv, fullpelMv, refMvOpt)
+					rateModeMv := 0
+					if interModeCostOK {
+						rateModeMv = newmvModeCost
+						if c, ok := nmvCostTbl.MvBitCost(fullpelMv, refMvOpt); ok {
+							rateModeMv += c
+						} else if mvCostFc, built := vp9InterMvCostFrameContext(inter); built {
+							rateModeMv += encoder.MvBitCost(fullpelMv, refMvOpt,
+								&mvCostFc.Nmvc, inter.allowHP)
+						}
+					}
 					precheckRD := encoder.RDCost(rdmult, encoder.RDDivBits,
 						rateModeMv, 0)
 					return precheckRD <= best.score
@@ -1791,8 +1813,22 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// libvpx vp9_pickmode.c:2405-2410 — finalize the
 			// (rate, dist) tuple by adding rate_mv + inter_mode_cost
 			// + ref_frame_cost + the chosen skip bit.
-			interModeBitCost := vp9NonrdInterModeRateCost(inter,
-				interModeCtx, thisMode, mv, refMv)
+			// libvpx vp9_pickmode.c:2405-2407 — rate_mv plus
+			// inter_mode_cost[ctx][INTER_OFFSET(mode)], both table reads
+			// against the per-frame cost tables. The tree-walk fallback
+			// only covers diffs outside the NmvCostTable range.
+			interModeBitCost := 0
+			if interModeCostOK {
+				interModeBitCost = interModeCostTbl[encoder.ModeOffsetInter(thisMode)]
+				if thisMode == common.NewMv {
+					if c, ok := nmvCostTbl.MvBitCost(mv, refMv); ok {
+						interModeBitCost += c
+					} else if mvCostFc, built := vp9InterMvCostFrameContext(inter); built {
+						interModeBitCost += encoder.MvBitCost(mv, refMv,
+							&mvCostFc.Nmvc, inter.allowHP)
+					}
+				}
+			}
 			interpFilterCost := 0
 			if vp9MvHasSubpel(mv) {
 				interpFilterCost = interpFilterRateCost[filter]

@@ -135,6 +135,20 @@ func (t *NmvCostTable) MvCost(mv, ref vp9dec.MV) (int, bool) {
 		t.Component[1][dCol+nmvCostTableMax], true
 }
 
+// MvBitCost returns vp9_mv_bit_cost's MV_COST_WEIGHT-scaled score from a
+// built table — the same table-read shape libvpx uses when the nonrd picker
+// prices a NEWMV candidate (x->nmvjointcost/x->mvcost, vp9_mcomp.c:80-84).
+// Returns false when the table is absent or the diff exceeds its range so
+// callers can fall back to the tree-walking MvBitCost.
+func (t *NmvCostTable) MvBitCost(mv, ref vp9dec.MV) (int, bool) {
+	raw, ok := t.MvCost(mv, ref)
+	if !ok {
+		return 0, false
+	}
+	const mvCostWeight = 108
+	return (raw*mvCostWeight + 64) >> 7, true
+}
+
 // SubpelMVErrorCost returns the scaled mv_err_cost score from a built table.
 func (t *NmvCostTable) SubpelMVErrorCost(mv, ref vp9dec.MV,
 	errorPerBit int,

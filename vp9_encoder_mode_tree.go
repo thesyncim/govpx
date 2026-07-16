@@ -122,6 +122,36 @@ func vp9NonrdInterModeRateCost(inter *vp9InterEncodeState, ctx int,
 	return encoder.InterModeRateCost(mvCostFc, ctx, mode, mv, refMv, inter.allowHP)
 }
 
+// vp9NonrdInterModeCostTable fills the four per-block inter-mode tree sums
+// libvpx keeps in the per-frame cpi->inter_mode_cost[ctx] table
+// (vp9_rd.c:441-443, vp9_cost_tokens over vp9_inter_mode_tree). The nonrd
+// picker's mode context is block-invariant (mv_refs_rt's context_counter
+// counts neighbour MODES only, so mode_context[ref] is identical for every
+// ref), so the candidate loop can read these as table lookups instead of
+// re-walking the VP9CostBit chain per candidate. Indexed by
+// encoder.ModeOffsetInter. Returns ok=false exactly when
+// vp9NonrdInterModeRateCost would return 0 for every mode's tree component
+// (unbuilt cost context or out-of-range ctx).
+func vp9NonrdInterModeCostTable(inter *vp9InterEncodeState,
+	ctx int,
+) (costs [4]int, ok bool) {
+	fc, built := vp9InterMvCostFrameContext(inter)
+	if !built || fc == nil || ctx < 0 || ctx >= len(fc.InterModeProbs) {
+		return costs, false
+	}
+	probs := fc.InterModeProbs[ctx]
+	b0on := encoder.VP9CostBit(probs[0], 1)
+	b1on := b0on + encoder.VP9CostBit(probs[1], 1)
+	costs[encoder.ModeOffsetInter(common.ZeroMv)] = encoder.VP9CostBit(probs[0], 0)
+	costs[encoder.ModeOffsetInter(common.NearestMv)] = b0on +
+		encoder.VP9CostBit(probs[1], 0)
+	costs[encoder.ModeOffsetInter(common.NearMv)] = b1on +
+		encoder.VP9CostBit(probs[2], 0)
+	costs[encoder.ModeOffsetInter(common.NewMv)] = b1on +
+		encoder.VP9CostBit(probs[2], 1)
+	return costs, true
+}
+
 func vp9InterSignBias(inter *vp9InterEncodeState) [vp9dec.MaxRefFrames]uint8 {
 	if inter == nil {
 		return [vp9dec.MaxRefFrames]uint8{}

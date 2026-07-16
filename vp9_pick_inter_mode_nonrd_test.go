@@ -1,9 +1,11 @@
 package govpx
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
@@ -157,5 +159,93 @@ func TestVP9UseModelYrdLargeBlockContentStateGate(t *testing.T) {
 	if e.vp9UseModelYrdLargeBlock(common.Block64x64,
 		encoder.ContentStateInvalid) {
 		t.Fatal("rate-control-disabled Block64x64 = true, want false")
+	}
+}
+
+// TestVP9NonrdInterModeCostTableMatchesTreeWalk pins the per-block hoisted
+// inter-mode cost table plus the NmvCostTable NEWMV bit read against the
+// tree-walking vp9NonrdInterModeRateCost for every mode across randomized
+// probability contexts, MVs, and HP settings — the two paths must be
+// value-identical for the picker's candidate scoring to stay byte-exact.
+func TestVP9NonrdInterModeCostTableMatchesTreeWalk(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x9e3779b9))
+	modes := [...]common.PredictionMode{
+		common.ZeroMv, common.NearestMv, common.NearMv, common.NewMv,
+	}
+	for trial := range 64 {
+		var fc vp9dec.FrameContext
+		vp9dec.ResetFrameContext(&fc)
+		for i := range fc.InterModeProbs {
+			for j := range fc.InterModeProbs[i] {
+				fc.InterModeProbs[i][j] = uint8(1 + rng.Intn(255))
+			}
+		}
+		fc.Nmvc.Joints = [3]uint8{uint8(1 + rng.Intn(255)),
+			uint8(1 + rng.Intn(255)), uint8(1 + rng.Intn(255))}
+		for axis := range fc.Nmvc.Comps {
+			c := &fc.Nmvc.Comps[axis]
+			c.Sign = uint8(1 + rng.Intn(255))
+			for i := range c.Classes {
+				c.Classes[i] = uint8(1 + rng.Intn(255))
+			}
+			for i := range c.Fp {
+				c.Fp[i] = uint8(1 + rng.Intn(255))
+			}
+			c.Class0Hp = uint8(1 + rng.Intn(255))
+			c.Hp = uint8(1 + rng.Intn(255))
+		}
+		allowHP := trial&1 == 0
+		inter := &vp9InterEncodeState{
+			mvCostFc:      fc,
+			mvCostFcBuilt: true,
+			allowHP:       allowHP,
+		}
+		var nmvTbl encoder.NmvCostTable
+		if !nmvTbl.Build(&fc.Nmvc, allowHP) {
+			t.Fatal("NmvCostTable.Build returned false")
+		}
+		for ctx := -1; ctx <= len(fc.InterModeProbs); ctx++ {
+			tbl, ok := vp9NonrdInterModeCostTable(inter, ctx)
+			ctxValid := ctx >= 0 && ctx < len(fc.InterModeProbs)
+			if ok != ctxValid {
+				t.Fatalf("trial %d ctx %d: table ok = %v, want %v",
+					trial, ctx, ok, ctxValid)
+			}
+			for _, mode := range modes {
+				mv := vp9dec.MV{
+					Row: int16(rng.Intn(2049) - 1024),
+					Col: int16(rng.Intn(2049) - 1024),
+				}
+				refMv := vp9dec.MV{
+					Row: int16(rng.Intn(129) - 64),
+					Col: int16(rng.Intn(129) - 64),
+				}
+				want := vp9NonrdInterModeRateCost(inter, ctx, mode, mv, refMv)
+				got := 0
+				if ok {
+					got = tbl[encoder.ModeOffsetInter(mode)]
+					if mode == common.NewMv {
+						if c, tok := nmvTbl.MvBitCost(mv, refMv); tok {
+							got += c
+						} else {
+							got += encoder.MvBitCost(mv, refMv, &fc.Nmvc, allowHP)
+						}
+					}
+				}
+				if got != want {
+					t.Fatalf("trial %d ctx %d mode %v mv %v ref %v hp %v: table %d, tree %d",
+						trial, ctx, mode, mv, refMv, allowHP, got, want)
+				}
+			}
+		}
+	}
+	// Unbuilt cost context: both paths must be exactly zero.
+	inter := &vp9InterEncodeState{}
+	if _, ok := vp9NonrdInterModeCostTable(inter, 0); ok {
+		t.Fatal("unbuilt context: table ok = true, want false")
+	}
+	if got := vp9NonrdInterModeRateCost(inter, 0, common.NewMv,
+		vp9dec.MV{Row: 4, Col: 4}, vp9dec.MV{}); got != 0 {
+		t.Fatalf("unbuilt context tree walk = %d, want 0", got)
 	}
 }
