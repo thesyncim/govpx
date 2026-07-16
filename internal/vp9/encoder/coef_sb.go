@@ -103,6 +103,16 @@ type WriteCoefSbArgs struct {
 	CompactQCoeffs *[vp9dec.MaxMbPlane][compactCoefSlots]int16
 	CompactEOBs    *[vp9dec.MaxMbPlane][compactEOBSlots]int16
 
+	// CompactTokenClasses / CompactClassValid optionally carry the
+	// per-raster-position token energy classes the final quantizer scan
+	// produced alongside CompactQCoeffs. Classes share the qcoeff span
+	// offsets; validity is per 4x4-origin tx block (the CompactEOBs key)
+	// and is set only by the fused quantize+token-class producer, so any
+	// residue path that refilled a block without producing classes leaves
+	// the walker on the incremental token-cache walk.
+	CompactTokenClasses *[vp9dec.MaxMbPlane][compactCoefSlots]uint8
+	CompactClassValid   *[vp9dec.MaxMbPlane][compactEOBSlots]uint8
+
 	// TokenDst/TokenIndex opt into libvpx-shaped coefficient token staging.
 	// When TokenOnly is false, WriteCoefSb stages each tx block then replays it
 	// immediately, byte-matching the direct writer while exercising the staged
@@ -240,10 +250,22 @@ func compactCoefBlock(qcoeffs *[compactCoefSlots]int16,
 	eobs *[compactEOBSlots]int16, planeBsize common.BlockSize,
 	r, c int, txSize common.TxSize,
 ) ([]int16, int, bool) {
+	span, eob, _, _, ok := compactCoefBlockOffsets(qcoeffs, eobs, planeBsize,
+		r, c, txSize)
+	return span, eob, ok
+}
+
+// compactCoefBlockOffsets additionally surfaces the derived coefficient-span
+// and EOB-key offsets so callers can address parallel per-position sidecars
+// (the quantizer-produced token classes) without recomputing the layout.
+func compactCoefBlockOffsets(qcoeffs *[compactCoefSlots]int16,
+	eobs *[compactEOBSlots]int16, planeBsize common.BlockSize,
+	r, c int, txSize common.TxSize,
+) ([]int16, int, int, int, bool) {
 	if qcoeffs == nil || eobs == nil ||
 		planeBsize < 0 || planeBsize >= common.BlockSizes ||
 		txSize < 0 || txSize >= common.TxSizes || r < 0 || c < 0 {
-		return nil, 0, false
+		return nil, 0, 0, 0, false
 	}
 	full4x4W := int(common.Num4x4BlocksWideLookup[planeBsize])
 	full4x4H := int(common.Num4x4BlocksHighLookup[planeBsize])
@@ -251,20 +273,20 @@ func compactCoefBlock(qcoeffs *[compactCoefSlots]int16,
 	step := 1 << shift
 	if full4x4W <= 0 || full4x4H <= 0 || (r|c)&(step-1) != 0 ||
 		r+step > full4x4H || c+step > full4x4W {
-		return nil, 0, false
+		return nil, 0, 0, 0, false
 	}
 	maxEob := 16 << (shift << 1)
 	off := ((r>>shift)*(full4x4W>>shift) + (c >> shift)) * maxEob
 	eobOff := r*full4x4W + c
 	if off < 0 || off+maxEob > len(qcoeffs) ||
 		eobOff < 0 || eobOff >= len(eobs) {
-		return nil, 0, false
+		return nil, 0, 0, 0, false
 	}
 	eob := int(eobs[eobOff])
 	if eob < 0 || eob > maxEob {
-		return nil, 0, false
+		return nil, 0, 0, 0, false
 	}
-	return qcoeffs[off : off+maxEob], eob, true
+	return qcoeffs[off : off+maxEob], eob, off, eobOff, true
 }
 
 // WriteCoefSb mirrors libvpx's per-block residue pack — the loop
@@ -351,15 +373,22 @@ func WriteCoefSbFromArgs(bw *bitstream.Writer, a *WriteCoefSbArgs) error {
 
 				var coeffs []int16
 				var qcoeffs []int16
+				var tokenClasses []uint8
 				knownEOB, knownEOBValid := 0, false
 				if compactCoeffs {
+					var coefOff, eobOff int
 					var ok bool
-					qcoeffs, knownEOB, ok = compactCoefBlock(&a.CompactQCoeffs[plane],
-						&a.CompactEOBs[plane], planeBsize, r, c, txSize)
+					qcoeffs, knownEOB, coefOff, eobOff, ok = compactCoefBlockOffsets(
+						&a.CompactQCoeffs[plane], &a.CompactEOBs[plane],
+						planeBsize, r, c, txSize)
 					if !ok {
 						return ErrTokenBufferFull
 					}
 					knownEOBValid = true
+					if a.CompactTokenClasses != nil && a.CompactClassValid != nil &&
+						a.CompactClassValid[plane][eobOff] != 0 {
+						tokenClasses = a.CompactTokenClasses[plane][coefOff : coefOff+len(qcoeffs)]
+					}
 				} else {
 					if a.GetCoeffs != nil {
 						coeffs = a.GetCoeffs(plane, r, c, txSize)
@@ -390,6 +419,7 @@ func WriteCoefSbFromArgs(bw *bitstream.Writer, a *WriteCoefSbArgs) error {
 					KnownEOB:        knownEOB,
 					KnownEOBValid:   knownEOBValid,
 					TokenCache:      tokenCache,
+					TokenClasses:    tokenClasses,
 				}
 				if a.TokenIndex != nil {
 					start := *a.TokenIndex

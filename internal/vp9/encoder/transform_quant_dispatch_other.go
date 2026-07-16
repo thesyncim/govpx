@@ -58,6 +58,15 @@ func quantizeFPLibvpxValidated(coeff []int16, nCoeffs int, roundFP, quantFP, deq
 		scan, iscan, qcoeff, dqcoeff)
 }
 
+// quantizeFPLibvpxValidatedClasses: no fused token-class kernel on this
+// build; the plain quantizer runs and callers keep the token-cache walk.
+func quantizeFPLibvpxValidatedClasses(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16, _ []uint8,
+) (int, bool) {
+	return quantizeFPLibvpxValidated(coeff, nCoeffs, roundFP, quantFP, dequant,
+		scan, iscan, qcoeff, dqcoeff), false
+}
+
 func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizeParams,
 	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {

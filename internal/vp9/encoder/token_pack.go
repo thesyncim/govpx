@@ -90,6 +90,10 @@ func stageCoefBlockFullWindow(tokens []TokenExtra, a WriteCoefBlockArgs, maxEob 
 	dq := [2]int16{a.DequantDC, a.DequantAC}
 	qcoeffs := a.QCoeffs
 	if len(qcoeffs) >= maxEob {
+		if len(a.TokenClasses) >= maxEob {
+			return stageCoefBlockQCoeffClasses(tokens, a, maxEob, scan, bandTrans,
+				qcoeffs, a.TokenClasses)
+		}
 		return stageCoefBlockQCoeff(tokens, a, maxEob, scan, bandTrans, qcoeffs)
 	}
 	qcoeffs = nil
@@ -241,6 +245,81 @@ func stageCoefBlockQCoeff(
 		c++
 		if c < maxEob {
 			ctx = tokenCacheContext(a.Neighbors, tokenCache, c)
+		}
+	}
+	return maxEob, eob, true
+}
+
+// stageCoefBlockQCoeffClasses is the fused-quantizer sibling of
+// stageCoefBlockQCoeff: the quantizer scan already produced the
+// per-raster-position token energy classes for these qcoeffs, so the walk
+// reads zero-run state and neighbor contexts from that span instead of
+// deriving and re-writing the incremental token cache. Every neighbor read
+// targets a position earlier in scan order, where the precomputed class is
+// exactly the value the incremental walk would have written, so the staged
+// tokens and branch counts are byte-identical.
+func stageCoefBlockQCoeffClasses(
+	tokens []TokenExtra, a WriteCoefBlockArgs, maxEob int, scan []int16,
+	bandTrans []uint8, qcoeffs []int16, classes []uint8,
+) (n int, eob int, ok bool) {
+	_ = tokens[maxEob-1]
+	_ = scan[maxEob-1]
+	_ = bandTrans[maxEob-1]
+	_ = qcoeffs[maxEob-1]
+	_ = classes[maxEob-1]
+	_ = a.Neighbors[(maxEob<<1)-1]
+	if a.KnownEOBValid && a.KnownEOB >= 0 && a.KnownEOB <= maxEob {
+		eob = a.KnownEOB
+	} else {
+		eob = coeffBlockEOBCompleteQCoeffWindow(scan, maxEob, qcoeffs)
+	}
+	if a.EOB != nil {
+		*a.EOB = eob
+	}
+
+	baseOff := coefProbsBaseOff(a.TxSize, a.PlaneType, a.IsInter)
+	branchStatsRows := coefBranchStatsRowsFor(a.CoefBranchStats, a.TxSize,
+		a.PlaneType, a.IsInter)
+	ctx := a.InitCtx
+	c := 0
+	for c < maxEob {
+		band := int(bandTrans[c])
+		branchStats := coefBranchStatsSlot(branchStatsRows, band, ctx)
+		probOff := uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+		if c == eob {
+			recordCoefBranch00(branchStats)
+			tokens[c] = TokenExtra{Token: EobToken, ProbOff: probOff}
+			return c + 1, eob, true
+		}
+		recordCoefBranch01(branchStats)
+
+		raster := int(scan[c])
+		for tokenClassAt(classes, raster) == 0 {
+			recordCoefBranch10(branchStats)
+			tokens[c] = TokenExtra{Token: ZeroToken, ProbOff: probOff}
+			c++
+			if c >= maxEob {
+				return maxEob, eob, true
+			}
+			ctx = tokenClassContext(a.Neighbors, classes, c)
+			band = int(bandTrans[c])
+			branchStats = coefBranchStatsSlot(branchStatsRows, band, ctx)
+			probOff = uint16(baseOff + (band*vp9dec.CoefContexts+ctx)*UnconstrainedNodes)
+			raster = int(scan[c])
+		}
+
+		recordCoefBranch11(branchStats)
+		token, extra, _ := coeffTokenExtraQCoeff(qcoeffAt(qcoeffs, raster))
+		tokens[c] = TokenExtra{
+			Token:   int16(token),
+			Extra:   extra,
+			ProbOff: probOff,
+		}
+		recordCoefTokenBranches(token, branchStats)
+
+		c++
+		if c < maxEob {
+			ctx = tokenClassContext(a.Neighbors, classes, c)
 		}
 	}
 	return maxEob, eob, true

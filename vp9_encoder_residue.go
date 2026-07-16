@@ -87,6 +87,10 @@ func (e *VP9Encoder) prepareVP9KeyframeBlockResidue(key *vp9KeyframeEncodeState,
 				blockIdx4x4 := rr*full4x4W + cc
 				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 					sc.blockEOBs[plane][blockIdx4x4] = 0
+					// The keyframe/intra quantizer does not produce token
+					// classes; drop any stale fused-quantizer validity for
+					// the block being refilled.
+					sc.blockTokenClassValid[plane][blockIdx4x4] = 0
 				}
 				coeffBase, maxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
 					rr, cc, txSize)
@@ -304,6 +308,7 @@ func (e *VP9Encoder) prepareVP9FinalInterBlockResidue(inter *vp9InterEncodeState
 				blockIdx4x4 := rr*full4x4W + cc
 				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 					sc.blockEOBs[plane][blockIdx4x4] = 0
+					sc.blockTokenClassValid[plane][blockIdx4x4] = 0
 				}
 				coeffBase, compactMaxEob, coeffOK := vp9BlockCoeffOffset(planeBsize,
 					rr, cc, txSize)
@@ -320,7 +325,7 @@ func (e *VP9Encoder) prepareVP9FinalInterBlockResidue(inter *vp9InterEncodeState
 					if idx := blockIdx4x4; idx >= 0 &&
 						idx < len(zcoeff.flags) && zcoeff.flags[idx] {
 						if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
-							dequant, scanOrder, qcoeffs, 0, inter.counts) {
+							dequant, scanOrder, qcoeffs, 0, nil, inter.counts) {
 							e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
 							stageTokens = false
 						}
@@ -330,24 +335,31 @@ func (e *VP9Encoder) prepareVP9FinalInterBlockResidue(inter *vp9InterEncodeState
 				if e.vp9InterSkipTxfmACDCLuma(inter, interDecision,
 					plane, segID) {
 					if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
-						dequant, scanOrder, qcoeffs, 0, inter.counts) {
+						dequant, scanOrder, qcoeffs, 0, nil, inter.counts) {
 						e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
 						stageTokens = false
 					}
 					continue
 				}
 				coeffs := e.coefScratch[:maxEob]
-				txHasResidue, eob := e.prepareVP9InterTxResidueDCTFPPrechecked(inter, pd, plane,
-					txSize, miRow, miCol, rr, cc, maxEob, scanOrder, dequant,
-					fpTables, coeffs, qcoeffs)
+				classes := sc.blockTokenClasses[plane][coeffBase : coeffBase+maxEob]
+				txHasResidue, eob, classesOK := e.prepareVP9InterTxResidueDCTFPPrecheckedClasses(
+					inter, pd, plane, txSize, miRow, miCol, rr, cc, maxEob,
+					scanOrder, dequant, fpTables, coeffs, qcoeffs, classes)
+				if !classesOK {
+					classes = nil
+				}
 				if blockIdx4x4 >= 0 && blockIdx4x4 < len(sc.blockEOBs[plane]) {
 					sc.blockEOBs[plane][blockIdx4x4] = int16(eob)
+					if classesOK {
+						sc.blockTokenClassValid[plane][blockIdx4x4] = 1
+					}
 				}
 				if txHasResidue {
 					hasResidue = true
 				}
 				if stageTokens && !e.stageVP9ProducerBlock(plane, txSize, rr, cc,
-					dequant, scanOrder, qcoeffs, eob, inter.counts) {
+					dequant, scanOrder, qcoeffs, eob, classes, inter.counts) {
 					e.vp9TokenCollect.err = encoder.ErrTokenBufferFull
 					stageTokens = false
 				}

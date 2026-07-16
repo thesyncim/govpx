@@ -189,6 +189,26 @@ func quantizeFPLibvpxValidated(coeff []int16, nCoeffs int, roundFP, quantFP, deq
 		int(dequant[0]), int(dequant[1])))
 }
 
+// quantizeFPLibvpxValidatedClasses is the token-class-producing sibling of
+// quantizeFPLibvpxValidated: the same prechecked vp9_quantize_fp NEON walk
+// additionally emits one coefficient token energy class byte per raster
+// position inside the quantizer scan. Returns classesProduced=false only
+// when the classes window cannot hold the block, in which case the plain
+// kernel runs and classes stay untouched.
+func quantizeFPLibvpxValidatedClasses(coeff []int16, nCoeffs int, roundFP, quantFP, dequant [2]int16,
+	scan, iscan []int16, qcoeff, dqcoeff []int16, classes []uint8,
+) (int, bool) {
+	if len(classes) < nCoeffs {
+		return quantizeFPLibvpxValidated(coeff, nCoeffs, roundFP, quantFP, dequant,
+			scan, iscan, qcoeff, dqcoeff), false
+	}
+	return int(quantizeFPFullTokenNEON(unsafe.SliceData(coeff),
+		unsafe.SliceData(iscan), unsafe.SliceData(qcoeff),
+		unsafe.SliceData(dqcoeff), unsafe.SliceData(classes), nCoeffs,
+		int(roundFP[0]), int(roundFP[1]), int(quantFP[0]), int(quantFP[1]),
+		int(dequant[0]), int(dequant[1]))), true
+}
+
 func quantizeBWithQScanOrderRasterDispatch(coeff []int16, params vp9QuantizeParams,
 	dequant [2]int16, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {
@@ -326,6 +346,11 @@ func quantizeFPACNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
 //go:noescape
 func quantizeFPFullNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
 	count int, roundDC int, roundAC int, quantDC int, quantAC int,
+	deqDC int, deqAC int) int32
+
+//go:noescape
+func quantizeFPFullTokenNEON(coeff *int16, iscan *int16, qcoeff *int16, dqcoeff *int16,
+	classes *uint8, count int, roundDC int, roundAC int, quantDC int, quantAC int,
 	deqDC int, deqAC int) int32
 
 //go:noescape

@@ -728,7 +728,16 @@ type VP9Encoder struct {
 type vp9EncoderBlockCoeffScratch struct {
 	blockQCoeffs [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]int16
 	blockEOBs    [vp9dec.MaxMbPlane][vp9EncoderBlockEOBSlots]int16
-	producerTok  vp9ProducerTokenState
+	// blockTokenClasses / blockTokenClassValid carry the per-raster-position
+	// token energy classes the final quantizer scan produced alongside
+	// blockQCoeffs (same span offsets), keyed per 4x4-origin tx block like
+	// blockEOBs. Validity is cleared wherever a residue producer resets a
+	// block's EOB and set only when the fused quantize+token-class kernel
+	// filled that block's qcoeff span, so token staging can never pair stale
+	// classes with fresh coefficients.
+	blockTokenClasses    [vp9dec.MaxMbPlane][vp9EncoderBlockCoeffSlots]uint8
+	blockTokenClassValid [vp9dec.MaxMbPlane][vp9EncoderBlockEOBSlots]uint8
+	producerTok          vp9ProducerTokenState
 
 	// hdrScratch is the reusable compressed-header staging buffer that
 	// PackBitstream consults. Sized to 64KB so libvpx's

@@ -624,11 +624,13 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 					inter.dq.Uv[segID],
 					inter.dq.Uv[segID],
 				},
-				Fc:              &e.fc.CoefProbs,
-				CoefBranchStats: vp9CoefBranchStats(counts),
-				CompactQCoeffs:  &sc.blockQCoeffs,
-				CompactEOBs:     &sc.blockEOBs,
-				TokenCache:      &e.coefTokenCache,
+				Fc:                  &e.fc.CoefProbs,
+				CoefBranchStats:     vp9CoefBranchStats(counts),
+				CompactQCoeffs:      &sc.blockQCoeffs,
+				CompactEOBs:         &sc.blockEOBs,
+				CompactTokenClasses: &sc.blockTokenClasses,
+				CompactClassValid:   &sc.blockTokenClassValid,
+				TokenCache:          &e.coefTokenCache,
 			}
 			collectTokens := e.collectVP9CoefTokensArgs(&coefArgs)
 			producerTokens := collectTokens &&

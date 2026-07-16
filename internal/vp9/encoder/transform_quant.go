@@ -2110,6 +2110,20 @@ func QuantizeFPWithQTablesScanOrderPtrValidated(coeff []int16, n int, dequant [2
 		scanOrder.Scan[:n], scanOrder.IScan[:n], qcoeff[:n], dqcoeff[:n])
 }
 
+// QuantizeFPWithQTablesScanOrderPtrTokenClasses is the token-class-producing
+// sibling of QuantizeFPWithQTablesScanOrderPtrValidated: builds with a fused
+// kernel additionally emit classes[rc] = vp9_pt_energy_class[token(|qcoeff[rc]|)]
+// for every raster position inside the quantizer scan and return true.
+// Builds without the fused kernel run the plain quantizer, leave classes
+// untouched, and return false; callers must then keep the token-cache walk.
+func QuantizeFPWithQTablesScanOrderPtrTokenClasses(coeff []int16, n int, dequant [2]int16,
+	fp QuantizeFPTables, scanOrder *common.ScanOrder, qcoeff, dqcoeff []int16,
+	classes []uint8,
+) (int, bool) {
+	return quantizeFPLibvpxValidatedClasses(coeff[:n], n, fp.RoundFP, fp.QuantFP, dequant,
+		scanOrder.Scan[:n], scanOrder.IScan[:n], qcoeff[:n], dqcoeff[:n], classes)
+}
+
 func quantizeFPWithQTables(coeff []int16, dequant, roundFP, quantFP [2]int16,
 	scan, iscan []int16, qcoeff, dqcoeff []int16,
 ) int {

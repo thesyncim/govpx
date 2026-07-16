@@ -834,6 +834,45 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   narrower attempt to derive `eob_cost` from `txIdx` instead of incrementing it
   in the loop was neutral-to-worse in focused `BenchmarkVP9BlockYrd` samples
   (~515-526 ns/op after a ~511-523 ns/op baseline) and was reverted.
+  Measurement note, 2026-07-16 (token classes inside the final quantizer scan
+  + denoiser producer staging): the mandated fusion slice landed as one safe
+  point. A fused `vp9_quantize_fp` NEON sibling (`quantizeFPFullTokenNEON`)
+  now emits one `vp9_pt_energy_class[token(|qcoeff|)]` byte per raster
+  position inside the final quantizer scan via a saturating-index table
+  lookup (`T[min(|q|,15)]`, five extra instructions per 8-lane group), into a
+  compact per-block classes sidecar parallel to the qcoeff store with
+  per-4x4-origin validity that every residue producer resets. Token staging
+  consumes the span directly (`stageCoefBlockQCoeffClasses`): zero-run tests
+  and neighbor contexts read precomputed classes, deleting the incremental
+  token-cache writes and the walk's loop-carried context dependency. Kernel
+  parity pins classes against the scalar quantizer plus the ground-truth
+  energy mapping across randomized dequant/coefficient distributions, and a
+  staging gate pins the classes walk token/count-identical to the cache walk.
+  Alone the kernel was wall-neutral on the loaded 1T denoise spot (13
+  interleaved pairs split 6/7, medians 10.588 control vs 10.627 ms/frame
+  candidate): it classifies all maxEob positions while the staging walk only
+  visits eob+1. The same safe point therefore extended producer-time token
+  staging to denoiser-active count passes: motion-compensated denoising
+  mutates the block source before the final residue is prepared, so producer
+  tokens equal what count-walk WriteCoefSb staging derives from the same
+  committed sidecar, and a failed post-count denoiser commit ignores them
+  exactly like count-staged tokens. That deletes the denoise lane's cold
+  count-walk staging: `WriteCoefSbFromArgs` (4.1% cum) disappeared from the
+  240-frame 1T profile, replaced by producer-time `stageVP9ProducerBlock`
+  (4.5% cum, classes walk 1.3%) beside `quantizeFPFullTokenNEON` (1.3%).
+  Thirteen interleaved 120-frame 1T denoise pairs under heavy host load: the
+  candidate won 12 of 13 with pooled medians 10.489 to 10.334 ms/frame (about
+  1.5%; the first ten pairs alone measured 10.492 to 10.280, about 2.0%). The
+  1T no-denoise variant won 3 of 3 pairs at 10.684 to 10.554 ms/frame medians
+  (about 1.2%) with byte-identical 1,234,834-byte output at 108/12.
+  Byte pins stayed exact on every lane: 1T denoise 1,235,511 bytes at 108/12
+  (native and purego), 480-frame 8T row-MT denoise 4,983,704 at 468/12,
+  480-frame 8T row-MT no-denoise 4,981,549 at 468/12, and 480-frame 4T tiles
+  4,981,549 at 468/12. Focused producer/token/denoiser tests, row-MT
+  determinism, the focused race slice, and the full suite pass; the PGO
+  fingerprint was refreshed. Remaining A6 classes work: the keyframe/intra
+  trellis quantizer and sub-8x8/forced-reference/segment classes still stage
+  through the incremental token-cache walk.
   A narrow subpel-variance scratch safe point now routes the ARM64 32x32
   wrapper through size-specific 32x32/32x33 stack buffers instead of the generic
   32-wide 32x64/32x65 scratch. Focused `BenchmarkVP9SubPixelVariance32x32...`
@@ -845,6 +884,50 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   A/B with the generic 32x32 path measured 12.49 ms/frame under the same noisy
   conditions. Keep the scratch narrowing, but do not treat it as closing the
   broader subpel direct-on-padded-ref work.
+  Measurement note, 2026-07-16 (nonrd prepared-context candidate prediction):
+  the A5/A6 candidate-evaluation dataflow of vp9_pick_inter_mode is now
+  structurally ported. A per-(block, ref) prepared prediction context
+  (`vp9NonrdPredBlockCtx`) mirrors find_predictors/vp9_setup_pred_block: the
+  block's UMV clamp edges, source window, and per-ref pointers into the
+  persistent padded reference planes are resolved once per block, with a
+  one-time coverage proof that every UMV-clamped 8-tap window stays inside
+  the padded plane. Every luma candidate — whole-block, filter sweep,
+  post-sweep rebuild, and zero-MV — is now the verbatim
+  build_inter_predictors leaf (clamp -> q4 subpel split -> convolve/copy
+  from pre[0] into the active compact PRED_BUFFER), deleting the
+  per-candidate NeighborMi construction, reference slot lookup/validation,
+  geometry/edge recomputation, the zero-MV visible-plane special case, and
+  the visible/padded/extend window triage. The UV skip test,
+  color-sensitivity adds, and encode-breakout chroma checks share the same
+  prepared shape, resolved lazily on the first UV consumer per block (chroma
+  has no persistent padded plane, so replicated-edge staging remains only
+  for tap windows leaving the visible chroma plane). The mv-pred prepass and
+  the NEWMV pred_mv_sad[LAST] refresh read the prepared pre[0] pointers
+  directly, and the candidate loop's per-candidate source-plane refetches
+  are gone. Scaled refs and sub-8x8 shapes keep the legacy route through
+  wrapper fallbacks. An exhaustive gate pins ctx == legacy scratch ==
+  decoder-recon bytes plus identical (variance, sse, ok) across 10 block
+  shapes x 4 filters x 10 MV classes (zero, full-pel, half/quarter/odd/
+  one-axis subpel, edge-crossing, beyond-clamp) x 4 positions on aligned and
+  ragged dims, with a chroma leg pinning the written recon rect. The root
+  cause of the registry's byte-inequivalent scratch-convolve probe is now
+  understood and its dead relic deleted: it fed raw 1/8-pel phase (&7, >>3)
+  into the 1/16-pel kernel tables, skipped clamp_mv_to_umv_border_sb, and
+  convolved the clamped score window instead of the full block — the
+  prepared context uses the q4 clamp/phase chain, which the gate proves
+  byte-exact. Byte pins stayed exact on every lane: 1T 120f/240f/480f at
+  1,235,511 / 2,483,072 / 4,983,461 bytes, threads {2,4} at 1,236,273 /
+  1,234,903, 8T row-MT denoise 1,235,979, and 4T no-denoise 1,236,037, all
+  108-or-468/12; allocs/frame unchanged (0.633 at 120f). Ten interleaved
+  240-frame 1T pairs on the loaded host: the candidate won 6 of 10 with
+  medians 11.109 -> 11.025 ms/frame (about 0.8%). The follow-up profile no
+  longer samples the legacy predict chain (predictVP9InterBlockLumaToScratch
+  / predictVP9ZeroMVLumaCopyToScratch / vp9NonrdUVVariancePlaneSSE) under
+  the picker: candidate prediction is now ctx-predict ->
+  InterPredictorWithScratch plus one variance leaf. Remaining: the
+  intra-winner predictor carry (twice-rejected, needs the reconstructed tx
+  chain), commit-side winner reuse at the pick/commit boundary, and
+  sub-8x8/scaled candidates on the legacy route.
 - CORRECTION to phase-2: libvpx `estimate_block_intra` DOES call block_yrd —
   the intra-fallback row is mostly legitimate work, not waste.
 
@@ -877,11 +960,14 @@ partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 d
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining
 −0.15..0.25); A5 pick-buffer
-end-state (PARTIAL 2026-07-11: nonrd `search_filter_ref` swaps compact
-eval/best ownership, and normal non-ML `pred_pixel_ready` picks now use three
-compact buffers plus dst as libvpx's fourth PRED_BUFFER, including final and
-pre-intra ownership handoff; the ML partition lane now uses the same pool with
-SB-local `pickPred` as dst, leaving intra-winner pred carry at −0.2..0.4); A6
+end-state (PARTIAL 2026-07-16: nonrd `search_filter_ref` swaps compact
+eval/best ownership, normal non-ML `pred_pixel_ready` picks use three
+compact buffers plus dst as libvpx's fourth PRED_BUFFER including final and
+pre-intra ownership handoff, the ML partition lane uses the same pool with
+SB-local `pickPred` as dst, and the prepared per-(block, ref) context now
+makes every luma/chroma candidate a direct clamp/convolve from the
+persistent padded (luma) or visible (chroma) reference into those buffers —
+leaving intra-winner pred carry at −0.2..0.4); A6
 subpel direct on padded refs + bare
 vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-11:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq
@@ -893,7 +979,13 @@ int16, and edge candidate prediction reads the persistent padded reference
 directly instead of constructing a temporary tap window; q/dq SB staging is
 now tx-block compact, dqcoeff is tx-local, and the token walker consumes the
 compact qcoeff/EOB sidecar directly without callbacks or a value-copy handoff;
-producer-time transactional token staging remains −0.7..1.0).
+producer-time transactional token staging remains −0.7..1.0; PARTIAL
+2026-07-16: token classes are now produced inside the final quantizer scan
+via the fused NEON kernel + compact classes sidecar + classes-driven staging
+walk, and producer-time staging covers denoiser-active count passes — 1T
+denoise moved about −2.0% with all byte pins exact; remaining −0.3..0.6 is
+the keyframe/intra quantizer classes plus sub-8x8/forced-reference/segment
+staging classes).
 Risks pinned in the blueprint: all-class token staging (SVC leaf visitation
 — keep SVC on direct path initially + dual-run byte-compare tag); scratch
 convolve byte-inequivalence on recorded filter x size cells (the first

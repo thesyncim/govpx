@@ -835,16 +835,35 @@ func (e *VP9Encoder) prepareVP9InterTxResidueDCTFPPrechecked(inter *vp9InterEnco
 	scanOrder *common.ScanOrder, dequant [2]int16,
 	fpTables encoder.QuantizeFPTables, out, qOut []int16,
 ) (bool, int) {
+	hasResidue, eob, _ := e.prepareVP9InterTxResidueDCTFPPrecheckedClasses(inter,
+		pd, plane, txSize, miRow, miCol, blockRow4x4, blockCol4x4, maxEob,
+		scanOrder, dequant, fpTables, out, qOut, nil)
+	return hasResidue, eob
+}
+
+// prepareVP9InterTxResidueDCTFPPrecheckedClasses is the token-class-producing
+// sibling of prepareVP9InterTxResidueDCTFPPrechecked: when `classes` spans the
+// transform block and the fused quantizer kernel is available, the final
+// quantizer scan additionally emits one token energy class byte per raster
+// position and the third result reports true. All other outcomes (fallback
+// kernels, lossless WHT, Tx32x32, early no-residue exits) leave classes
+// untouched and report false.
+func (e *VP9Encoder) prepareVP9InterTxResidueDCTFPPrecheckedClasses(inter *vp9InterEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, txSize common.TxSize,
+	miRow, miCol int, blockRow4x4, blockCol4x4 int, maxEob int,
+	scanOrder *common.ScanOrder, dequant [2]int16,
+	fpTables encoder.QuantizeFPTables, out, qOut []int16, classes []uint8,
+) (bool, int, bool) {
 	// Failure paths leave out/qOut untouched; see the read-contract note on
 	// prepareVP9KeyframeTxResidueWithQEOB.
 	dst, stride, x0, y0, ok := e.vp9EncoderTxDst(pd, plane, txSize,
 		miRow, miCol, blockRow4x4, blockCol4x4)
 	if !ok {
-		return false, 0
+		return false, 0, false
 	}
 	src, srcStride, srcW, srcH := vp9EncoderSourcePlane(inter.img, plane)
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
-		return false, 0
+		return false, 0, false
 	}
 	// KNOWN DIVERGENCE (cpu0-3 inter coefficient parity): this hardcodes the FP
 	// quantizer (useFastQuant=true). libvpx's encode_block selects the quantizer
@@ -860,13 +879,13 @@ func (e *VP9Encoder) prepareVP9InterTxResidueDCTFPPrechecked(inter *vp9InterEnco
 	// cpu0 deep mode-pins were calibrated on the FP recon — so the gate must land
 	// together with re-deriving those pins toward byte parity. See
 	// docs/vp9_cpu0_quant_fp_gap.md.
-	eob := e.quantizeVP9TxResidualFPWithQTablesPrechecked(dst, stride, txSize,
-		common.DctDct, maxEob, scanOrder, dequant, out, qOut, inter.lossless,
-		false, fpTables)
+	eob, classesProduced := e.quantizeVP9TxResidualFPWithQTablesPrecheckedClasses(
+		dst, stride, txSize, common.DctDct, maxEob, scanOrder, dequant, out, qOut,
+		inter.lossless, false, fpTables, classes)
 	if eob == 0 {
-		return false, 0
+		return false, 0, classesProduced
 	}
-	return true, eob
+	return true, eob, classesProduced
 }
 
 func (e *VP9Encoder) setupVP9QuantFPTables(seg *vp9dec.SegmentationParams,
@@ -1208,6 +1227,24 @@ func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTablesPrechecked(dst []byte, st
 	scanOrder *common.ScanOrder, dequant [2]int16, out, qOut []int16,
 	lossless bool, useLp32x32RD bool, fpTables encoder.QuantizeFPTables,
 ) int {
+	eob, _ := e.quantizeVP9TxResidualFPWithQTablesPrecheckedClasses(dst, stride,
+		txSize, txType, maxEob, scanOrder, dequant, out, qOut, lossless,
+		useLp32x32RD, fpTables, nil)
+	return eob
+}
+
+// quantizeVP9TxResidualFPWithQTablesPrecheckedClasses additionally produces
+// the per-raster-position coefficient token classes inside the final
+// quantizer scan when the fused kernel is available, `classes` spans the
+// block, and the block takes the standard FP quantizer (not lossless WHT,
+// not the 32x32 rounding variant). The bool result reports whether classes
+// were written.
+func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTablesPrecheckedClasses(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, maxEob int,
+	scanOrder *common.ScanOrder, dequant [2]int16, out, qOut []int16,
+	lossless bool, useLp32x32RD bool, fpTables encoder.QuantizeFPTables,
+	classes []uint8,
+) (int, bool) {
 	if lossless {
 		txType = common.DctDct
 		encoder.ForwardWHT4x4Into(e.residueScratch[:], 4,
@@ -1232,7 +1269,7 @@ func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTablesPrechecked(dst []byte, st
 					e.txCoeffScratch[:maxEob])
 			}
 		default:
-			return 0
+			return 0, false
 		}
 	}
 	qBuf := qOut
@@ -1243,20 +1280,25 @@ func (e *VP9Encoder) quantizeVP9TxResidualFPWithQTablesPrechecked(dst []byte, st
 	}
 	dqBuf := out[:maxEob]
 	var eob int
+	classesProduced := false
 	if txSize == common.Tx32x32 {
 		eob = encoder.QuantizeFP32x32WithQ(e.txCoeffScratch[:maxEob],
 			dequant, scanOrder.Scan, qBuf, dqBuf)
+	} else if !lossless && len(classes) >= maxEob {
+		eob, classesProduced = encoder.QuantizeFPWithQTablesScanOrderPtrTokenClasses(
+			e.txCoeffScratch[:maxEob], maxEob, dequant, fpTables,
+			scanOrder, qBuf, dqBuf, classes)
 	} else {
 		eob = encoder.QuantizeFPWithQTablesScanOrderPtrValidated(
 			e.txCoeffScratch[:maxEob], maxEob, dequant, fpTables,
 			scanOrder, qBuf, dqBuf)
 	}
 	if eob == 0 {
-		return 0
+		return 0, classesProduced
 	}
 	vp9dec.InverseTransformBlock(dqBuf,
 		dst, stride, txSize, txType, eob, lossless)
-	return eob
+	return eob, classesProduced
 }
 
 func (e *VP9Encoder) predictVP9KeyframeTx(hdr *vp9dec.UncompressedHeader,
