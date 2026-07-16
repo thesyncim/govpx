@@ -376,6 +376,33 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
   serves count-side storage, partition/fallback replay, keyframes, and sub-8x8;
   delete it only after those remaining pack classes are pure.
+- A4 2026-07-16: with sub-8x8 leaves packable, the DefaultMinPartitionSize
+  >= BLOCK_8X8 gate is lifted from canPackVP9PartitionTree, so every
+  preserved inter frame — including the cpu1-4 realtime class whose interior
+  partition trees reach sub-8x8 — takes the pure partition-stream/leaf-pack
+  walk. That leaves the write-side leaf-cache replay
+  (canReplayVP9CountPassInterLeaf/IntraLeaf + applyVP9CountPassInterLeaf/
+  IntraLeaf and the mode-block lookup) and the entire inter partition
+  decision cache (ensure/store/lookup, canReplayVP9InterPartitionDecision,
+  the miRows*miCols*BlockSizes entry array, and its threaded worker
+  ping-pong/aliasing plumbing) with zero callers; all deleted
+  (net -434 LOC). What genuinely stays and why: the finalized leaf-decision
+  cache itself (vp9LeafInterDecisions) remains the decision source for
+  unpreserved fallback walks (EncodeNoUpdateEntropy, collection-ineligible
+  frames such as SVC/full-RD-tx, denoiser-not-ready rollback frames, and the
+  tx-demotion/poison-recovery count reruns) through the
+  prepareVP9InterPredictionBlock replay, plus clampVP9LeafDecisionTxSizes
+  after tx-mode demotion; the keyframe decision caches remain for
+  collection-ineligible keyframes; the deep-RD SEARCH->WRITE caches are a
+  separate experimental surface. Gates: full suite green, oracle matrix
+  failing-row set identical to base (49/1), all byte pins exact (native and
+  purego 1T 120f/240f/480f, t2/t4, 8T row-MT denoise, 4T no-denoise, and the
+  360p odd-MI spot), steady-state allocs/frame improved 0.633 -> 0.625,
+  focused race clean. Interleaved 1T pairs vs the sub-8x8 safe point: 720p
+  won 4/5 with medians 9.651 -> 9.552 ms/frame (about 1.0%); 360p was a
+  noise-level 5/7 split against (medians 2.917 -> 2.925 ms/frame, +0.3%),
+  so treat the wall effect as neutral-to-slightly-positive; the structural
+  value is the deleted cache and its per-node count-walk stores.
 - A4 has started deleting that obsolete ownership. The final leaf caller
   already stores the post-residue decision (including final skip, tx, refs,
   and UV mode) before any later lookup, so the fresh picker-side store was an
@@ -1064,8 +1091,12 @@ invariant + per-sub-block y_mode counting, omitted-store poison recovery,
 surfaced write-walk errors); count-side partition picking and old cache
 deletion remain; remaining −0.3..0.5); A4 delete replay
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
-decision store while retaining the finalized fallback entry; remaining
-−0.15..0.25); A5 pick-buffer
+decision store while retaining the finalized fallback entry; PARTIAL
+2026-07-16: write-side leaf-cache replay (canReplay*/apply*) and the whole
+inter partition decision cache deleted after the min-partition pack gate was
+lifted — every preserved inter frame packs purely; the finalized leaf cache
+itself stays for unpreserved fallback walks and demotion/recovery reruns;
+remaining −0.05..0.15 is that cache plus keyframe fallback storage); A5 pick-buffer
 end-state (PARTIAL 2026-07-16: nonrd `search_filter_ref` swaps compact
 eval/best ownership, normal non-ML `pred_pixel_ready` picks use three
 compact buffers plus dst as libvpx's fourth PRED_BUFFER including final and

@@ -108,63 +108,6 @@ func TestVP9EncoderThreadedCountTokenCollectionBuildsTileLists(t *testing.T) {
 	}
 }
 
-func TestVP9CountPassInterLeafReplayRequiresPreservedState(t *testing.T) {
-	e := &VP9Encoder{}
-	e.refFrames[0].valid = true
-	e.vp9TokenReplay.active = true
-	inter := &vp9InterEncodeState{}
-	decision := vp9InterModeDecision{
-		refFrame:       vp9dec.LastFrame,
-		secondRefFrame: vp9dec.NoRefFrame,
-		refSlot:        0,
-		mode:           common.ZeroMv,
-		interpFilter:   vp9dec.InterpEighttap,
-		txSize:         common.Tx8x8,
-	}
-
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a leaf without preserved coding state")
-	}
-	e.vp9CountCodingPreserved = true
-	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path rejected a preserved single-reference inter leaf")
-	}
-	e.denoiser.allocated = true
-	e.denoiser.sensitivity = 2
-	e.denoiser.level = vp9DenoiserMedium
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a denoiser-active leaf without committed count state")
-	}
-	e.vp9DenoiserCountStateReady = true
-	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path rejected a denoiser leaf with committed count state")
-	}
-	e.denoiser = vp9DenoiserState{}
-	e.vp9DenoiserCountStateReady = false
-	e.activeMapEnabled = true
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a dynamic segment-map leaf")
-	}
-	e.activeMapEnabled = false
-	decision.isCompound = true
-	decision.secondRefFrame = vp9dec.GoldenFrame
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a compound leaf without a valid second ref slot")
-	}
-	decision.secondRefSlot = len(e.refFrames)
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a compound leaf with an out-of-range second ref slot")
-	}
-	decision.secondRefSlot = 1
-	if e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path accepted a compound leaf with an invalid second ref")
-	}
-	e.refFrames[1].valid = true
-	if !e.canReplayVP9CountPassInterLeaf(inter, decision, common.Block16x16, false) {
-		t.Fatal("replay fast path rejected a preserved compound inter leaf")
-	}
-}
-
 func TestVP9FinalInterLeafDecisionOmissionRequiresPurePackEnvelope(t *testing.T) {
 	e := &VP9Encoder{}
 	e.vp9TokenCollect.active = true
@@ -295,155 +238,46 @@ func TestVP9DenoiserCountRollbackRestoresCallerInput(t *testing.T) {
 
 func TestVP9CountWorkerDecisionCachesPingPongOwnership(t *testing.T) {
 	e := &VP9Encoder{
-		vp9LeafInterDecisions:          make([]vp9LeafInterDecisionEntry, 2),
-		vp9LeafInterDecisionsRows:      1,
-		vp9LeafInterDecisionsCols:      2,
-		vp9LeafInterDecisionsVer:       3,
-		vp9InterPartitionDecisions:     make([]vp9InterPartitionDecisionEntry, 2),
-		vp9InterPartitionDecisionsRows: 1,
-		vp9InterPartitionDecisionsCols: 2,
-		vp9InterPartitionDecisionsVer:  4,
-		vp9LeafKeyframeDecisions:       make([]vp9LeafKeyframeDecisionEntry, 2),
-		vp9LeafKeyframeDecisionsRows:   1,
-		vp9LeafKeyframeDecisionsCols:   2,
-		vp9LeafKeyframeDecisionsVer:    5,
+		vp9LeafInterDecisions:        make([]vp9LeafInterDecisionEntry, 2),
+		vp9LeafInterDecisionsRows:    1,
+		vp9LeafInterDecisionsCols:    2,
+		vp9LeafInterDecisionsVer:     3,
+		vp9LeafKeyframeDecisions:     make([]vp9LeafKeyframeDecisionEntry, 2),
+		vp9LeafKeyframeDecisionsRows: 1,
+		vp9LeafKeyframeDecisionsCols: 2,
+		vp9LeafKeyframeDecisionsVer:  5,
 	}
 	w := &VP9Encoder{
-		vp9LeafInterDecisions:          make([]vp9LeafInterDecisionEntry, 3),
-		vp9LeafInterDecisionsRows:      3,
-		vp9LeafInterDecisionsCols:      1,
-		vp9LeafInterDecisionsVer:       13,
-		vp9InterPartitionDecisions:     make([]vp9InterPartitionDecisionEntry, 3),
-		vp9InterPartitionDecisionsRows: 3,
-		vp9InterPartitionDecisionsCols: 1,
-		vp9InterPartitionDecisionsVer:  14,
-		vp9LeafKeyframeDecisions:       make([]vp9LeafKeyframeDecisionEntry, 3),
-		vp9LeafKeyframeDecisionsRows:   3,
-		vp9LeafKeyframeDecisionsCols:   1,
-		vp9LeafKeyframeDecisionsVer:    15,
+		vp9LeafInterDecisions:        make([]vp9LeafInterDecisionEntry, 3),
+		vp9LeafInterDecisionsRows:    3,
+		vp9LeafInterDecisionsCols:    1,
+		vp9LeafInterDecisionsVer:     13,
+		vp9LeafKeyframeDecisions:     make([]vp9LeafKeyframeDecisionEntry, 3),
+		vp9LeafKeyframeDecisionsRows: 3,
+		vp9LeafKeyframeDecisionsCols: 1,
+		vp9LeafKeyframeDecisionsVer:  15,
 	}
 	eInter := &e.vp9LeafInterDecisions[0]
-	ePart := &e.vp9InterPartitionDecisions[0]
 	eKey := &e.vp9LeafKeyframeDecisions[0]
 	wInter := &w.vp9LeafInterDecisions[0]
-	wPart := &w.vp9InterPartitionDecisions[0]
 	wKey := &w.vp9LeafKeyframeDecisions[0]
 
 	e.adoptVP9CountWorkerLeafDecisionCaches(w)
 
 	if &e.vp9LeafInterDecisions[0] != wInter ||
-		&e.vp9InterPartitionDecisions[0] != wPart ||
 		&e.vp9LeafKeyframeDecisions[0] != wKey {
 		t.Fatal("dispatcher did not adopt worker cache ownership")
 	}
 	if &w.vp9LeafInterDecisions[0] != eInter ||
-		&w.vp9InterPartitionDecisions[0] != ePart ||
 		&w.vp9LeafKeyframeDecisions[0] != eKey {
 		t.Fatal("worker did not receive the prior dispatcher cache ownership")
 	}
 	if e.vp9LeafInterDecisionsRows != 3 || e.vp9LeafInterDecisionsCols != 1 ||
 		e.vp9LeafInterDecisionsVer != 13 ||
-		e.vp9InterPartitionDecisionsRows != 3 ||
-		e.vp9InterPartitionDecisionsCols != 1 ||
-		e.vp9InterPartitionDecisionsVer != 14 ||
 		e.vp9LeafKeyframeDecisionsRows != 3 ||
 		e.vp9LeafKeyframeDecisionsCols != 1 ||
 		e.vp9LeafKeyframeDecisionsVer != 15 {
 		t.Fatal("dispatcher did not adopt worker cache metadata")
-	}
-}
-
-func TestVP9CountPassIntraLeafReplayRequiresPreservedState(t *testing.T) {
-	e := &VP9Encoder{}
-	e.vp9TokenReplay.active = true
-	inter := &vp9InterEncodeState{}
-	decision := vp9InterModeDecision{
-		intra:          true,
-		refFrame:       vp9dec.IntraFrame,
-		secondRefFrame: vp9dec.NoRefFrame,
-		mode:           common.DcPred,
-		txSize:         common.Tx8x8,
-		uvMode:         common.TmPred,
-	}
-
-	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
-		t.Fatal("intra replay accepted a leaf without preserved coding state")
-	}
-	e.vp9CountCodingPreserved = true
-	if !e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
-		t.Fatal("intra replay rejected a preserved intra leaf")
-	}
-	e.activeMapEnabled = true
-	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
-		t.Fatal("intra replay accepted a dynamic segment-map leaf")
-	}
-	e.activeMapEnabled = false
-	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block4x4) {
-		t.Fatal("intra replay accepted a sub-8x8 leaf")
-	}
-	decision.intra = false
-	decision.refFrame = vp9dec.LastFrame
-	if e.canReplayVP9CountPassIntraLeaf(inter, decision, common.Block16x16) {
-		t.Fatal("intra replay accepted an inter leaf")
-	}
-}
-
-func TestVP9CountPassInterLeafReplayRestoresCompoundModeInfo(t *testing.T) {
-	e := &VP9Encoder{}
-	e.refFrames[0].valid = true
-	e.refFrames[1].valid = true
-	inter := &vp9InterEncodeState{}
-	decision := vp9InterModeDecision{
-		refFrame:       vp9dec.LastFrame,
-		secondRefFrame: vp9dec.GoldenFrame,
-		refSlot:        0,
-		secondRefSlot:  1,
-		isCompound:     true,
-		mode:           common.NewMv,
-		mv: [2]vp9dec.MV{
-			{Row: 8, Col: -16},
-			{Row: -4, Col: 12},
-		},
-		bmi: [4]vp9dec.Bmi{
-			{AsMode: common.NewMv, AsMv: [2]vp9dec.MV{{Row: 1, Col: 2}, {Row: 3, Col: 4}}},
-			{AsMode: common.NearMv, AsMv: [2]vp9dec.MV{{Row: 5, Col: 6}, {Row: 7, Col: 8}}},
-			{AsMode: common.NearestMv, AsMv: [2]vp9dec.MV{{Row: 9, Col: 10}, {Row: 11, Col: 12}}},
-			{AsMode: common.ZeroMv, AsMv: [2]vp9dec.MV{{Row: 13, Col: 14}, {Row: 15, Col: 16}}},
-		},
-		interpFilter: vp9dec.InterpEighttapSmooth,
-		txSize:       common.Tx8x8,
-	}
-
-	var mi vp9dec.NeighborMi
-	e.applyVP9CountPassInterLeaf(inter, &mi, decision, common.Block16x16)
-
-	if mi.Mode != decision.mode {
-		t.Fatalf("mode = %v, want %v", mi.Mode, decision.mode)
-	}
-	if mi.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.GoldenFrame} {
-		t.Fatalf("ref frames = %v, want LAST/GOLDEN", mi.RefFrame)
-	}
-	if mi.Mv != decision.mv {
-		t.Fatalf("mv = %v, want %v", mi.Mv, decision.mv)
-	}
-	if mi.Bmi != decision.bmi {
-		t.Fatalf("bmi = %v, want %v", mi.Bmi, decision.bmi)
-	}
-	if got := vp9dec.InterpFilter(mi.InterpFilter); got != decision.interpFilter {
-		t.Fatalf("interp filter = %v, want %v", got, decision.interpFilter)
-	}
-	if mi.TxSize != decision.txSize {
-		t.Fatalf("tx size = %v, want %v", mi.TxSize, decision.txSize)
-	}
-	if inter.ref != &e.refFrames[0] {
-		t.Fatalf("primary ref pointer was not restored")
-	}
-
-	decision.isCompound = false
-	decision.secondRefFrame = vp9dec.GoldenFrame
-	e.applyVP9CountPassInterLeaf(inter, &mi, decision, common.Block16x16)
-	if mi.RefFrame != [2]int8{vp9dec.LastFrame, vp9dec.NoRefFrame} {
-		t.Fatalf("single-ref replay ref frames = %v, want LAST/NO_REF", mi.RefFrame)
 	}
 }
 

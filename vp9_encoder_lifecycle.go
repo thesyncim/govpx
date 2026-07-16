@@ -487,14 +487,6 @@ type VP9Encoder struct {
 	vp9LeafInterDecisionsRows int
 	vp9LeafInterDecisionsCols int
 	vp9LeafInterDecisionsVer  uint32
-	// vp9InterPartitionDecisions mirrors the normal count-pass to write-pass
-	// replay for inter partition-tree nodes. The count pass stores each chosen
-	// child block size; the write pass reads it back only when coding/token
-	// replay is active and safe.
-	vp9InterPartitionDecisions     []vp9InterPartitionDecisionEntry
-	vp9InterPartitionDecisionsRows int
-	vp9InterPartitionDecisionsCols int
-	vp9InterPartitionDecisionsVer  uint32
 	// vp9LeafInterRDDecisions is the SEARCH->WRITE replay cache for the
 	// depth-first full-RD inter partition recursion (pickVP9InterPartitionRD).
 	// Populated only while vp9InterUseDeepRDPartition is active: the search

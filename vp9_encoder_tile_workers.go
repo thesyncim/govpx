@@ -980,16 +980,6 @@ func (e *VP9Encoder) adoptVP9CountWorkerLeafDecisionCaches(w *VP9Encoder) {
 		e.vp9LeafInterDecisionsVer, w.vp9LeafInterDecisionsVer =
 			w.vp9LeafInterDecisionsVer, e.vp9LeafInterDecisionsVer
 	}
-	if len(w.vp9InterPartitionDecisions) > 0 {
-		e.vp9InterPartitionDecisions, w.vp9InterPartitionDecisions =
-			w.vp9InterPartitionDecisions, e.vp9InterPartitionDecisions
-		e.vp9InterPartitionDecisionsRows, w.vp9InterPartitionDecisionsRows =
-			w.vp9InterPartitionDecisionsRows, e.vp9InterPartitionDecisionsRows
-		e.vp9InterPartitionDecisionsCols, w.vp9InterPartitionDecisionsCols =
-			w.vp9InterPartitionDecisionsCols, e.vp9InterPartitionDecisionsCols
-		e.vp9InterPartitionDecisionsVer, w.vp9InterPartitionDecisionsVer =
-			w.vp9InterPartitionDecisionsVer, e.vp9InterPartitionDecisionsVer
-	}
 	if len(w.vp9LeafKeyframeDecisions) > 0 {
 		e.vp9LeafKeyframeDecisions, w.vp9LeafKeyframeDecisions =
 			w.vp9LeafKeyframeDecisions, e.vp9LeafKeyframeDecisions
@@ -1114,11 +1104,6 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	aboveSegCtx := w.aboveSegCtx
 	leftSegCtx := w.leftSegCtx
 	leafDecisions := w.vp9LeafInterDecisions
-	interPartitionDecisions := w.vp9InterPartitionDecisions
-	if len(interPartitionDecisions) > 0 && len(src.vp9InterPartitionDecisions) > 0 &&
-		&interPartitionDecisions[0] == &src.vp9InterPartitionDecisions[0] {
-		interPartitionDecisions = nil
-	}
 	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	partitionReconScratch := w.partitionReconScratch
 	interPredictScratch := w.interPredictScratch
@@ -1163,7 +1148,6 @@ func (w *VP9Encoder) prepareVP9CountWorker(src *VP9Encoder, width, height, miRow
 	// pre-existing slice is preserved and ensureVP9LeafInterDecisionCache
 	// below re-sizes it to the active miRows*miCols extent.
 	w.vp9LeafInterDecisions = leafDecisions
-	w.vp9InterPartitionDecisions = interPartitionDecisions
 	w.vp9LeafKeyframeDecisions = keyframeDecisions
 	w.partitionReconScratch = partitionReconScratch
 	w.interPredictScratch = interPredictScratch
@@ -1242,10 +1226,6 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 	leafDecisionRows := w.vp9LeafInterDecisionsRows
 	leafDecisionCols := w.vp9LeafInterDecisionsCols
 	leafDecisionVer := w.vp9LeafInterDecisionsVer
-	interPartitionDecisions := w.vp9InterPartitionDecisions
-	interPartitionRows := w.vp9InterPartitionDecisionsRows
-	interPartitionCols := w.vp9InterPartitionDecisionsCols
-	interPartitionVer := w.vp9InterPartitionDecisionsVer
 	keyframeDecisions := w.vp9LeafKeyframeDecisions
 	keyframeDecisionRows := w.vp9LeafKeyframeDecisionsRows
 	keyframeDecisionCols := w.vp9LeafKeyframeDecisionsCols
@@ -1359,20 +1339,6 @@ func (w *VP9Encoder) prepareVP9TileEncodeWorker(src *VP9Encoder, miRows, miCols 
 		w.vp9LeafInterDecisionsRows = leafDecisionRows
 		w.vp9LeafInterDecisionsCols = leafDecisionCols
 		w.vp9LeafInterDecisionsVer = leafDecisionVer
-	}
-	interPartitionLen := miRows * miCols * int(common.BlockSizes)
-	if interPartitionRows == miRows && interPartitionCols == miCols &&
-		interPartitionVer == src.vp9InterPartitionDecisionsVer &&
-		len(interPartitionDecisions) >= interPartitionLen {
-		w.vp9InterPartitionDecisions = interPartitionDecisions[:interPartitionLen]
-		w.vp9InterPartitionDecisionsRows = interPartitionRows
-		w.vp9InterPartitionDecisionsCols = interPartitionCols
-		w.vp9InterPartitionDecisionsVer = interPartitionVer
-	} else {
-		w.vp9InterPartitionDecisions = src.vp9InterPartitionDecisions
-		w.vp9InterPartitionDecisionsRows = src.vp9InterPartitionDecisionsRows
-		w.vp9InterPartitionDecisionsCols = src.vp9InterPartitionDecisionsCols
-		w.vp9InterPartitionDecisionsVer = src.vp9InterPartitionDecisionsVer
 	}
 	if keyframeDecisionRows == miRows && keyframeDecisionCols == miCols &&
 		keyframeDecisionVer == src.vp9LeafKeyframeDecisionsVer &&

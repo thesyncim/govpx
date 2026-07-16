@@ -273,8 +273,7 @@ func (e *VP9Encoder) canPackVP9PartitionTree(kind vp9ModeTreeKind,
 	}
 	return kind == vp9ModeTreeInterSource && inter != nil && inter.counts == nil &&
 		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
-		!e.vp9ActiveSegmentMapCodingChooser() &&
-		e.sf.DefaultMinPartitionSize >= common.Block8x8
+		!e.vp9ActiveSegmentMapCodingChooser()
 }
 
 func (e *VP9Encoder) writeVP9PackedModeLeaf(bw *bitstream.Writer,
@@ -519,12 +518,6 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	inter *vp9InterEncodeState,
 ) common.BlockSize {
 	target := vp9StubBlockSizeForRegion(miRows, miCols, miRow, miCol, root)
-	commitInterTarget := func(target common.BlockSize) common.BlockSize {
-		if kind == vp9ModeTreeInterSource && inter != nil && inter.counts != nil {
-			e.storeVP9InterPartitionDecision(miRow, miCol, root, target)
-		}
-		return target
-	}
 	if kind == vp9ModeTreeKeyframeSource {
 		if key != nil && key.counts == nil {
 			if cached, ok := e.lookupVP9KeyframePartitionDecision(miRow, miCol, root); ok {
@@ -581,11 +574,6 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 		if cached, ok := e.vp9LookupDeepInterPartition(miRow, miCol, root); ok {
 			return cached
 		}
-		if e.canReplayVP9InterPartitionDecision(inter) {
-			if cached, ok := e.lookupVP9InterPartitionDecision(miRow, miCol, root); ok {
-				return cached
-			}
-		}
 		if edgeSize, ok := vp9InterEdgeBlockSizeForRegion(miRows, miCols,
 			miRow, miCol, root); ok {
 			target = edgeSize
@@ -594,7 +582,7 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 	if vp9ModeTreeUsesInterSegmentMap(kind) && e.vp9DynamicSegmentMapActive() {
 		if activeMapSize, ok := e.pickVP9SegmentMapPartitionBlockSize(
 			miRows, miCols, miRow, miCol, root, nil, inter); ok {
-			return commitInterTarget(activeMapSize)
+			return activeMapSize
 		}
 	}
 	if kind != vp9ModeTreeInterSource || inter == nil || target != root {
@@ -602,21 +590,13 @@ func (e *VP9Encoder) pickVP9BlockSizeForRegion(miRows, miCols, miRow, miCol int,
 			e.sf.PartitionSearchType == MlBasedPartition &&
 			(root == common.Block64x64 || root == common.Block32x32 ||
 				root == common.Block16x16 || root == common.Block8x8) {
-			return commitInterTarget(e.pickVP9InterPartitionBlockSize(inter, tile,
-				partitionProbs, miRows, miCols, miRow, miCol, root))
+			return e.pickVP9InterPartitionBlockSize(inter, tile,
+				partitionProbs, miRows, miCols, miRow, miCol, root)
 		}
-		return commitInterTarget(target)
+		return target
 	}
-	return commitInterTarget(e.pickVP9InterPartitionBlockSize(inter, tile,
-		partitionProbs, miRows, miCols, miRow, miCol, root))
-}
-
-func (e *VP9Encoder) canReplayVP9InterPartitionDecision(inter *vp9InterEncodeState) bool {
-	return e != nil && inter != nil && inter.counts == nil &&
-		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
-		e.vp9TokenReplay.err == nil && !e.svc.UseSvc &&
-		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
-		!e.vp9ActiveSegmentMapCodingChooser()
+	return e.pickVP9InterPartitionBlockSize(inter, tile,
+		partitionProbs, miRows, miCols, miRow, miCol, root)
 }
 
 func (e *VP9Encoder) pickVP9SegmentMapPartitionBlockSize(miRows, miCols, miRow, miCol int,

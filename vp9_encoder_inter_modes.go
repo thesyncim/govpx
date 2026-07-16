@@ -593,17 +593,6 @@ type vp9KeyframePartitionDecisionEntry struct {
 	valid   bool
 }
 
-// vp9InterPartitionDecisionEntry stores the normal inter count-pass partition
-// decision for one tree node. The write pass can replay this node when the
-// count pass preserved coding/token state, matching the leaf decision replay
-// path and avoiding a second partition-size picker walk.
-type vp9InterPartitionDecisionEntry struct {
-	version uint32
-	root    common.BlockSize
-	target  common.BlockSize
-	valid   bool
-}
-
 // vp9LeafInterDecisionEntry stores one cached leaf-write inter-mode decision
 // keyed by (version, bsize). The cache mirrors libvpx's mi_grid_visible
 // per-block storage; entries are populated by the count pre-pass at

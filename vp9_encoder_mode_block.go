@@ -9,46 +9,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
 )
 
-func (e *VP9Encoder) canReplayVP9CountPassInterLeaf(inter *vp9InterEncodeState,
-	decision vp9InterModeDecision, bsize common.BlockSize, forcedRef bool,
-) bool {
-	if !(e != nil && inter != nil && inter.counts == nil &&
-		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
-		e.vp9TokenReplay.err == nil && !forcedRef &&
-		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
-		!e.vp9ActiveSegmentMapCodingChooser() &&
-		bsize >= common.Block8x8 &&
-		!decision.intra && decision.refFrame > vp9dec.IntraFrame) {
-		return false
-	}
-	refSlot, ok := e.vp9ReferenceSlotForFrame(decision.refFrame)
-	if !ok || refSlot != decision.refSlot ||
-		decision.refSlot < 0 || decision.refSlot >= len(e.refFrames) ||
-		!e.refFrames[decision.refSlot].valid {
-		return false
-	}
-	if !decision.isCompound {
-		return decision.secondRefFrame == vp9dec.NoRefFrame
-	}
-	secondRefSlot, ok := e.vp9ReferenceSlotForFrame(decision.secondRefFrame)
-	return ok && secondRefSlot == decision.secondRefSlot &&
-		decision.secondRefFrame > vp9dec.IntraFrame &&
-		decision.secondRefSlot >= 0 && decision.secondRefSlot < len(e.refFrames) &&
-		e.refFrames[decision.secondRefSlot].valid
-}
-
-func (e *VP9Encoder) canReplayVP9CountPassIntraLeaf(inter *vp9InterEncodeState,
-	decision vp9InterModeDecision, bsize common.BlockSize,
-) bool {
-	return e != nil && inter != nil && inter.counts == nil &&
-		e.vp9CountCodingPreserved && e.vp9TokenReplay.active &&
-		e.vp9TokenReplay.err == nil &&
-		(!e.denoiser.active() || e.vp9DenoiserCountStateReady) &&
-		!e.vp9ActiveSegmentMapCodingChooser() &&
-		bsize >= common.Block8x8 &&
-		decision.intra && decision.refFrame == vp9dec.IntraFrame
-}
-
 func (e *VP9Encoder) canOmitVP9FinalInterLeafDecision(inter *vp9InterEncodeState,
 	txMode common.TxMode,
 ) bool {
@@ -60,43 +20,6 @@ func (e *VP9Encoder) canOmitVP9FinalInterLeafDecision(inter *vp9InterEncodeState
 		e.vp9TokenCollect.err == nil && !e.svc.UseSvc &&
 		!e.denoiser.active() && !e.vp9ActiveSegmentMapCodingChooser() &&
 		(txMode != common.TxModeSelect || e.sf.FrameParameterUpdate == 0)
-}
-
-func (e *VP9Encoder) applyVP9CountPassInterLeaf(inter *vp9InterEncodeState,
-	mi *vp9dec.NeighborMi, decision vp9InterModeDecision, bsize common.BlockSize,
-) {
-	if e == nil || inter == nil || mi == nil {
-		return
-	}
-	mi.Mode = decision.mode
-	mi.Mv = decision.mv
-	mi.Bmi = decision.bmi
-	secondRefFrame := int8(vp9dec.NoRefFrame)
-	if decision.isCompound {
-		secondRefFrame = decision.secondRefFrame
-	}
-	mi.RefFrame = [2]int8{decision.refFrame, secondRefFrame}
-	mi.InterpFilter = uint8(decision.interpFilter)
-	if decision.txSize < common.TxSizes {
-		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
-	}
-	inter.ref = &e.refFrames[decision.refSlot]
-}
-
-func (e *VP9Encoder) applyVP9CountPassIntraLeaf(mi *vp9dec.NeighborMi,
-	decision vp9InterModeDecision, bsize common.BlockSize,
-) {
-	if mi == nil {
-		return
-	}
-	mi.Mode = decision.mode
-	mi.Bmi = decision.bmi
-	mi.Mv = decision.mv
-	mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
-	mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
-	if decision.txSize < common.TxSizes {
-		mi.TxSize = clampVP9TxSizeForBlock(decision.txSize, bsize)
-	}
 }
 
 func vp9InterLeafHasNewMv(mi *vp9dec.NeighborMi, bsize common.BlockSize) bool {
@@ -359,81 +282,46 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			}
 			cur.Skip = 1
 		} else if kind == vp9ModeTreeInterSource && inter != nil {
-			var cached vp9InterModeDecision
-			var cachedOK bool
-			if inter.counts == nil {
-				cached, cachedOK = e.lookupVP9LeafInterDecision(miRow, miCol, reconBsize)
+			// Preserved count-state frames pack every leaf purely from the
+			// committed miGrid and staged streams, so this fallback leaf path
+			// only runs when coding state was reset (EncodeNoUpdateEntropy,
+			// collection-ineligible frames, tx-demotion and poison-recovery
+			// count reruns). Those walks re-run the picker; write-pass callers
+			// replay the count decisions through the finalized leaf cache
+			// inside prepareVP9InterPredictionBlock, mirroring libvpx
+			// write_modes_b reading the committed mbmi.
+			if vp9PhaseStatsEnabled && inter.counts == nil {
+				e.vp9PhaseCountInterLeafReplay(false)
 			}
-			if cachedOK &&
-				e.canReplayVP9CountPassInterLeaf(inter, cached, reconBsize, forcedRef) {
-				// libvpx tokenizes during encode_sb and the later bitstream
-				// writer replays those TOKENEXTRA records without rebuilding
-				// prediction or residual. When the count pass ran on this
-				// encoder and left recon/mi/token state intact, mirror that
-				// replay instead of re-running prepareVP9InterBlockResidue.
-				interDecision = cached
-				interDecisionValid = true
-				e.applyVP9CountPassInterLeaf(inter, &cur, cached, reconBsize)
-				uvMode = cached.uvMode
-				hasResidue = !cached.skip
-				if hasResidue {
-					cur.Skip = 0
-				} else {
-					cur.Skip = 1
-				}
-				e.vp9AccumulateBlockFilterDiff(inter, cached.score, false)
-				if vp9PhaseStatsEnabled {
-					e.vp9PhaseCountInterLeafReplay(true)
-				}
-			} else if cachedOK &&
-				e.canReplayVP9CountPassIntraLeaf(inter, cached, reconBsize) {
-				interDecision = cached
-				interDecisionValid = true
-				e.applyVP9CountPassIntraLeaf(&cur, cached, reconBsize)
-				uvMode = cached.uvMode
-				hasResidue = !cached.skip
-				if hasResidue {
-					cur.Skip = 0
-				} else {
-					cur.Skip = 1
-				}
-				if vp9PhaseStatsEnabled {
-					e.vp9PhaseCountInterLeafReplay(true)
-				}
-			} else {
-				if vp9PhaseStatsEnabled && inter.counts == nil {
-					e.vp9PhaseCountInterLeafReplay(false)
-				}
-				// libvpx x->skip_encode search-context freeze: run the leaf's RD
-				// search + zcoeff_blk decision against the SB-entry entropy context
-				// (frozen because the search-phase intermediate encode never advances
-				// it, vp9_encodeframe.c:6112-6115), then re-thread the running context
-				// so WriteCoefSb commits the real coefficient context. No-op when
-				// skip_encode is not armed (snapshot invalid), so frame-1 / production
-				// keep the running-threaded search context.
-				if e.vp9SBEntropyValid {
-					var chosenUvMode common.PredictionMode
-					var residue bool
-					var finalInterPending bool
-					deferFinalInter := e.canStageVP9ProducerTokens(inter,
-						reconBsize, forcedRef)
-					e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
-						interDecision, chosenUvMode, residue, finalInterPending = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
-							miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef,
-							txMode, deferFinalInter)
-					})
-					if finalInterPending {
-						residue = e.prepareVP9FinalInterBlockResidue(inter, miRows, miCols,
-							miRow, miCol, reconBsize, &cur, interDecision, forcedRef, txMode)
-					}
-					uvMode, hasResidue = chosenUvMode, residue
-				} else {
-					interDecision, uvMode, hasResidue, _ = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+			// libvpx x->skip_encode search-context freeze: run the leaf's RD
+			// search + zcoeff_blk decision against the SB-entry entropy context
+			// (frozen because the search-phase intermediate encode never advances
+			// it, vp9_encodeframe.c:6112-6115), then re-thread the running context
+			// so WriteCoefSb commits the real coefficient context. No-op when
+			// skip_encode is not armed (snapshot invalid), so frame-1 / production
+			// keep the running-threaded search context.
+			if e.vp9SBEntropyValid {
+				var chosenUvMode common.PredictionMode
+				var residue bool
+				var finalInterPending bool
+				deferFinalInter := e.canStageVP9ProducerTokens(inter,
+					reconBsize, forcedRef)
+				e.vp9WithSBSearchEntropy(miRows, miCols, miRow, miCol, reconBsize, func() {
+					interDecision, chosenUvMode, residue, finalInterPending = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
 						miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef,
-						txMode, false)
+						txMode, deferFinalInter)
+				})
+				if finalInterPending {
+					residue = e.prepareVP9FinalInterBlockResidue(inter, miRows, miCols,
+						miRow, miCol, reconBsize, &cur, interDecision, forcedRef, txMode)
 				}
-				interDecisionValid = true
+				uvMode, hasResidue = chosenUvMode, residue
+			} else {
+				interDecision, uvMode, hasResidue, _ = e.prepareVP9InterBlockResidue(inter, miRows, miCols,
+					miRow, miCol, reconBsize, tile, &cur, seg, forcedRefFrame, forcedRef,
+					txMode, false)
 			}
+			interDecisionValid = true
 			segID = vp9EncoderMiSegmentID(&cur)
 			segmentSkip = vp9dec.SegFeatureActive(seg, segID, vp9dec.SegLvlSkip)
 			if hasResidue {
