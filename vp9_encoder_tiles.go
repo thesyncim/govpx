@@ -232,9 +232,25 @@ func (e *VP9Encoder) countVP9InterSub8NewMvs(counts *encoder.FrameCounts,
 }
 
 func countVP9InterIntraMode(counts *encoder.FrameCounts, bsize common.BlockSize,
-	mode common.PredictionMode,
+	mode common.PredictionMode, bmi *[4]vp9dec.Bmi,
 ) {
 	if counts == nil || mode < common.DcPred || int(mode) >= common.IntraModes {
+		return
+	}
+	// libvpx sum_intra_stats (vp9_encodeframe.c:5980-5997): sub-8x8 intra
+	// leaves count every visited per-4x4 bmi mode against y_mode[0]; the
+	// whole-block mode indexes y_mode[size_group] only for >= 8x8.
+	if bsize < common.Block8x8 && bmi != nil {
+		num4x4W := int(common.Num4x4BlocksWideLookup[bsize])
+		num4x4H := int(common.Num4x4BlocksHighLookup[bsize])
+		for idy := 0; idy < 2; idy += num4x4H {
+			for idx := 0; idx < 2; idx += num4x4W {
+				bMode := bmi[idy*2+idx].AsMode
+				if bMode >= common.DcPred && int(bMode) < common.IntraModes {
+					counts.YMode[0][bMode]++
+				}
+			}
+		}
 		return
 	}
 	sg := common.SizeGroupLookup[bsize]
@@ -324,6 +340,7 @@ func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 	}
 	totalSize := 0
 	nTiles := tileRows * tileCols
+	e.vp9WriteWalkErr = nil
 	for tileRow := range tileRows {
 		for tileCol := range tileCols {
 			if e.vp9TokenReplay.active {
@@ -351,6 +368,9 @@ func (e *VP9Encoder) writeVP9FrameTiles(output []byte, miRows, miCols int,
 					return totalSize, encoder.ErrTileBufferFull
 				}
 				return totalSize, err
+			}
+			if e.vp9WriteWalkErr != nil {
+				return totalSize, e.vp9WriteWalkErr
 			}
 			if !isLast {
 				binary.BigEndian.PutUint32(output[totalSize:totalSize+4], uint32(size))

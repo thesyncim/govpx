@@ -36,9 +36,13 @@ func vp9ModeTreeCollectsTokens(kind vp9ModeTreeKind) bool {
 func (e *VP9Encoder) vp9CountTokenCollectionEligible(miRows, miCols, tileRows, tileCols int,
 	kind vp9ModeTreeKind,
 ) bool {
+	// Odd MI dimensions are eligible: their bottom/right partial superblocks
+	// reach legitimate sub-8x8 leaves, and the pack walk consumes those from
+	// the committed miGrid Bmi quartet plus the staged UV-mode / partition /
+	// TOKENEXTRA streams exactly like every other leaf class.
 	return e != nil && vp9ModeTreeCollectsTokens(kind) &&
-		miRows > 0 && miCols > 0 && (miRows|miCols)&1 == 0 &&
-		!e.svc.UseSvc &&
+		miRows > 0 && miCols > 0 &&
+		!e.svc.UseSvc && !e.vp9CountTokenCollectDisabled &&
 		e.sf.TxSizeSearchMethod != UseFullRD &&
 		tileRows > 0 && tileRows <= encoder.TokenStageMaxTileRows &&
 		tileCols > 0 && tileCols <= encoder.TokenStageMaxTileCols
@@ -58,6 +62,11 @@ func (e *VP9Encoder) beginVP9CountTokenCollection(miRows, miCols, tileRows, tile
 		return false
 	}
 	e.vp9TokenFrame.Ensure(miRows, miCols)
+	if cap := e.vp9TokenArenaTestCap; cap > 0 && cap < len(e.vp9TokenFrame.Tokens) {
+		// Test-only arena clamp: forces a mid-walk collection failure so the
+		// omitted-store recovery rerun can be pinned. Zero in production.
+		e.vp9TokenFrame.Tokens = e.vp9TokenFrame.Tokens[:cap]
+	}
 	if len(e.vp9TokenFrame.Tokens) == 0 || len(e.vp9TokenFrame.Lists) == 0 {
 		e.vp9TokenCollect = vp9TokenCollectState{}
 		return false
@@ -161,7 +170,7 @@ func (e *VP9Encoder) beginVP9TokenReplay(miRows, miCols, tileRows, tileCols int,
 ) bool {
 	if e == nil || !vp9ModeTreeCollectsTokens(kind) ||
 		e.sf.TxSizeSearchMethod == UseFullRD ||
-		miRows <= 0 || miCols <= 0 || (miRows|miCols)&1 != 0 ||
+		miRows <= 0 || miCols <= 0 ||
 		tileRows <= 0 || tileRows > encoder.TokenStageMaxTileRows ||
 		tileCols <= 0 || tileCols > encoder.TokenStageMaxTileCols ||
 		!e.vp9HasCountTokensForReplay() {

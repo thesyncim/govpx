@@ -146,6 +146,12 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		if interDecision.txSize < common.TxSizes {
 			mi.TxSize = interDecision.txSize
 		}
+		if mi.SbType < common.Block8x8 {
+			// Sub-8x8 intra leaves transform at TX_4X4 (libvpx
+			// vp9_encodeframe.c:6120); pin before the residual encode so the
+			// compact coefficient sidecar is laid out at the written size.
+			mi.TxSize = common.Tx4x4
+		}
 		uvMode := interDecision.uvMode
 		if uvMode < common.DcPred || int(uvMode) >= common.IntraModes {
 			uvMode = interDecision.mode
@@ -195,6 +201,18 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 			mi.TxSize = e.pickVP9InterTxSize(inter, tile, miRows, miCols, miRow, miCol,
 				bsize, mi.TxSize, mi.SegmentID)
 		}
+	}
+	// libvpx pins sub-8x8 leaves to TX_4X4 BEFORE the residual encode:
+	// vp9_pick_inter_mode_sub8x8 sets mi->tx_size = TX_4X4 (vp9_pickmode.c:2801,
+	// 2984) and encode_superblock transforms/tokenizes at that size. bsize here
+	// is the recon fold (BLOCK_8X8); mi.SbType carries the true sub-8x8 leaf
+	// size. Without this pin the residue ran at the folded block's picked tx
+	// (e.g. TX_8X8), leaving the compact qcoeff/EOB sidecar laid out at the
+	// wrong transform size for the TX_4X4 write (libvpx
+	// vp9_encodeframe.c:6117-6118 re-clamps), which truncated the token walk
+	// and emitted corrupt tile data on sub-8x8-bearing frames.
+	if mi.SbType < common.Block8x8 {
+		mi.TxSize = common.Tx4x4
 	}
 	// libvpx routes the realtime nonrd inter frame purely through
 	// vp9_pick_inter_mode (vp9_encodeframe.c::nonrd_pick_sb_modes:4422-4435),
@@ -265,8 +283,13 @@ func (e *VP9Encoder) prepareVP9FinalInterBlockResidue(inter *vp9InterEncodeState
 			miRow, miCol, bsize, mi.TxSize, uint8(segID))
 	}
 	sc := e.vp9BlockCoeffScratch()
+	// The stability check reads the TRUE leaf size (mi.SbType): sub-8x8 leaves
+	// fold to bsize == BLOCK_8X8 for reconstruction, but their committed tx is
+	// re-clamped against the true size after encode (libvpx
+	// vp9_encodeframe.c:6117-6118 uses max_txsize_lookup[mi->sb_type]).
 	producerTxStable := txMode == common.TxModeSelect ||
-		mi.TxSize == min(common.TxModeToBiggestTxSize[txMode], common.MaxTxsizeLookup[bsize])
+		mi.TxSize == min(common.TxModeToBiggestTxSize[txMode],
+			common.MaxTxsizeLookup[mi.SbType])
 	stageTokens := e.canStageVP9ProducerTokens(inter, bsize, forcedRef) &&
 		producerTxStable && e.beginVP9ProducerTokens(miRow, miCol, bsize, mi.TxSize)
 	for plane := range vp9dec.MaxMbPlane {

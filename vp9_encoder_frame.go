@@ -547,6 +547,26 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 			header.IntraOnly, keyState, interState, header.RefreshFrameContext)
 		e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
 	}
+	if !e.vp9CountCodingPreserved && e.vp9CountLeafStoreOmitted {
+		// The count walk skipped finalized leaf-cache stores because it
+		// predicted a packed write, but a mid-walk token-collection failure
+		// demoted the frame to the fallback write path. Re-run the count walk
+		// with collection disabled so every leaf decision is stored and the
+		// fallback write replays the count picks instead of re-picking against
+		// post-count picker state (which silently desynchronizes mode bits
+		// from the frame's committed reconstruction).
+		e.restoreVP9DenoiserAfterCounts(denoiserCountStatePending, denoiserInput)
+		denoiserCountStatePending = false
+		e.vp9CountTokenCollectDisabled = true
+		countPhase = e.vp9PhaseStart()
+		denoiserCountState = e.saveVP9DenoiserForCounts(interState)
+		denoiserCountStatePending = denoiserCountState
+		counts = e.collectVP9EncodeFrameCounts(int(width), int(height), miRows, miCols,
+			header.Tile, &partitionProbs, &seg, baseMi, txMode, isKey,
+			header.IntraOnly, keyState, interState, header.RefreshFrameContext)
+		e.vp9CountTokenCollectDisabled = false
+		e.vp9PhaseEnd(vp9EncoderPhaseCount, countPhase)
+	}
 	header.Seg = seg
 
 	// libvpx vp9/encoder/vp9_bitstream.c:1312 — fix_interp_filter runs at

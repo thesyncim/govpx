@@ -708,6 +708,8 @@ func (e *VP9Encoder) collectVP9FrameTileCountsThreaded(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &e.vp9CountCounts[i])
 		addVP9FilterDiff(&e.vp9FilterDiff, &e.vp9CountWorkers[i].vp9FilterDiff)
+		e.vp9CountLeafStoreOmitted = e.vp9CountLeafStoreOmitted ||
+			e.vp9CountWorkers[i].vp9CountLeafStoreOmitted
 	}
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&e.vp9CountWorkers[0])
@@ -793,6 +795,8 @@ func (e *VP9Encoder) collectVP9FrameTileCountsWithPool(width, height, miRows, mi
 	for i := range tileCols {
 		addVP9FrameCounts(dstCounts, &pool.countCounts[i])
 		addVP9FilterDiff(&e.vp9FilterDiff, &pool.workers[i].vp9FilterDiff)
+		e.vp9CountLeafStoreOmitted = e.vp9CountLeafStoreOmitted ||
+			pool.workers[i].vp9CountLeafStoreOmitted
 	}
 	if tileCols > 0 {
 		e.adoptVP9CountWorkerLeafDecisionCaches(&pool.workers[0])
@@ -1713,6 +1717,7 @@ func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
 	}
 	job.size = 0
 	job.err = nil
+	job.worker.vp9WriteWalkErr = nil
 	job.worker.vp9RowMTSync = job.rowMTSync
 	if job.replayTokens {
 		job.worker.vp9TokenReplay = vp9TokenReplayState{
@@ -1730,6 +1735,10 @@ func runVP9EncodeTileJob(job *vp9EncodeTileJob) {
 		key, inter)
 	if job.replayTokens && job.worker.vp9TokenReplay.err != nil {
 		job.err = job.worker.vp9TokenReplay.err
+		return
+	}
+	if job.worker.vp9WriteWalkErr != nil {
+		job.err = job.worker.vp9WriteWalkErr
 		return
 	}
 	size, err := bw.Stop()

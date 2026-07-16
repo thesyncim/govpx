@@ -15,6 +15,7 @@ func (e *VP9Encoder) collectVP9EncodeFrameCounts(width, height, miRows, miCols i
 	preserveCodingState bool,
 ) *encoder.FrameCounts {
 	e.vp9CountCodingPreserved = false
+	e.vp9CountLeafStoreOmitted = false
 	counts := &e.frameCounts
 	*counts = encoder.FrameCounts{}
 	e.vp9FilterDiff = [vp9dec.SwitchableFilterContexts]int64{}

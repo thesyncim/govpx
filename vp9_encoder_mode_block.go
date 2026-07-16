@@ -122,6 +122,13 @@ func vp9InterLeafHasNewMv(mi *vp9dec.NeighborMi, bsize common.BlockSize) bool {
 // walk's miGrid and TOKENEXTRA stream. It is deliberately narrower than
 // writeVP9ModeBlock: all mode, segment, skip, tx, prediction, residue, and
 // coefficient decisions were already committed by the count walk.
+//
+// Sub-8x8 leaves pack through the same path: the committed NeighborMi carries
+// the per-4x4 Bmi mode/MV quartet the count walk finalized (libvpx pack_
+// inter_mode_mvs reads mi->bmi the same way, vp9_bitstream.c:316-332), the
+// UV-mode stream carries the leaf's uv_mode byte, and WriteInterBlock's
+// bsize < BLOCK_8X8 arm emits the per-block modes and NEWMV MVs against the
+// same block-level NEAREST reference the fallback writer derives.
 func (e *VP9Encoder) writeVP9PackedInterLeaf(bw *bitstream.Writer,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
 	tile vp9dec.TileBounds, seg *vp9dec.SegmentationParams,
@@ -129,7 +136,7 @@ func (e *VP9Encoder) writeVP9PackedInterLeaf(bw *bitstream.Writer,
 ) bool {
 	if e == nil || bw == nil || inter == nil || inter.counts != nil ||
 		!e.vp9CountCodingPreserved || !e.vp9TokenReplay.active ||
-		e.vp9TokenReplay.err != nil || bsize < common.Block8x8 {
+		e.vp9TokenReplay.err != nil {
 		return false
 	}
 	if e.svc.UseSvc || (e.denoiser.active() && !e.vp9DenoiserCountStateReady) ||
@@ -448,7 +455,18 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 		isInter := cur.RefFrame[0] > vp9dec.IntraFrame
 		if interDecisionValid && kind == vp9ModeTreeInterSource && inter != nil &&
 			inter.counts != nil && bsize >= common.Block8x8 && !forcedRef &&
-			!e.canOmitVP9FinalInterLeafDecision(inter, txMode) {
+			e.canOmitVP9FinalInterLeafDecision(inter, txMode) {
+			// The packed write consumes committed mode info and staged tokens
+			// directly, so the finalized 120-byte cache copy is skipped. Track
+			// the omission: if a later mid-walk collection failure demotes this
+			// frame to the fallback write, the omitted stores must be recovered
+			// by re-running the count walk with collection disabled (see
+			// collectVP9EncodeFrameCounts callers) — otherwise the fallback
+			// write would re-pick against post-count picker state and emit
+			// mode bits that no longer match the frame's committed recon.
+			e.vp9CountLeafStoreOmitted = true
+		} else if interDecisionValid && kind == vp9ModeTreeInterSource && inter != nil &&
+			inter.counts != nil && bsize >= common.Block8x8 && !forcedRef {
 			interDecision.intra = !isInter
 			interDecision.mode = cur.Mode
 			interDecision.mv = cur.Mv
@@ -477,7 +495,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				e.vp9PhaseIncInterLeafCacheStore()
 			}
 		}
-		if isInter && bsize < common.Block8x8 {
+		if bsize < common.Block8x8 {
 			if !e.ensureVP9Sub8InterBmiForWrite(&cur, tile, miRows, miCols,
 				miRow, miCol, bsize, inter) {
 				return
@@ -556,7 +574,7 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 				countVP9SwitchableInterp(counts, above, left, cur.InterpFilter)
 			}
 		} else {
-			countVP9InterIntraMode(counts, bsize, cur.Mode)
+			countVP9InterIntraMode(counts, bsize, cur.Mode, &cur.Bmi)
 		}
 		// Compile-elided per-block ground-truth probe (govpx_oracle_trace builds
 		// only; silent unless GOVPX_GT_TRACE is set). Fire once per leaf on the
@@ -640,8 +658,18 @@ func (e *VP9Encoder) writeVP9ModeBlock(bw *bitstream.Writer, miRows, miCols, miR
 			} else if e.packVP9ReplayCoefTokenLeafWithContexts(bw, &coefArgs) {
 				// Entropy contexts were committed directly from staged
 				// TOKENEXTRA records, matching the bytes just packed.
-			} else if err := encoder.WriteCoefSbFromArgs(bw, &coefArgs); err != nil && collectTokens {
-				e.vp9TokenCollect.err = err
+			} else if err := encoder.WriteCoefSbFromArgs(bw, &coefArgs); err != nil {
+				// Coefficient-walk failures must surface on every pass: a
+				// silently truncated token walk emits corrupt tile data.
+				if collectTokens {
+					e.vp9TokenCollect.err = err
+				} else if e.vp9TokenReplay.active {
+					if e.vp9TokenReplay.err == nil {
+						e.vp9TokenReplay.err = err
+					}
+				} else if e.vp9WriteWalkErr == nil {
+					e.vp9WriteWalkErr = err
+				}
 			}
 			if collectTokens {
 				e.finishVP9CoefTokenLeaf()

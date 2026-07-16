@@ -321,6 +321,56 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   threaded checker undecodable at frame 25. Both variants were reverted.
   The remaining sub-8 work needs a complete byte-safe mode/MV/reconstruction
   sidecar, not a local full-writer splice.
+- Sub-8x8 pure pack landed 2026-07-16. The "sidecar" turned out to already
+  exist: the committed NeighborMi carries the finalized per-4x4 Bmi mode/MV
+  quartet (exactly what libvpx pack_inter_mode_mvs reads from mi->bmi), and
+  WriteInterBlock's sub-8x8 arm consumes it beside the existing UV-mode /
+  partition / TOKENEXTRA streams. What actually made the two earlier attempts
+  undecodable was a chain of four latent bugs the diagnosis isolated with a
+  frame-54 repro, per-leaf count/write field traces, a per-leaf writer/reader
+  bit-position diff, and an in-process packed-vs-fallback byte A/B:
+  1. Producer-token staging registered sub-8x8 leaves at the folded
+     reconBsize == BLOCK_8X8 with the folded tx; the post-encode clamp
+     (vp9_encodeframe.c:6117-6118) re-clamps sub-8x8 to TX_4X4, so the
+     consume check poisoned the whole frame's collection mid-count.
+  2. That poison demoted the frame to the fallback write AFTER canOmit had
+     already skipped finalized leaf stores, so the write pass re-picked
+     against post-count picker state and silently desynchronized mode bits
+     from the frame's committed recon (the frame-54/107/25 class; live on
+     main for threaded 360p-class and 368p parity configs).
+  3. The sub-8x8 residue ran at the folded block's picked tx (TX_8X8),
+     laying out the compact qcoeff/EOB sidecar at the wrong transform size
+     for the TX_4X4 write; the token walk truncated and the write-pass
+     error was silently swallowed (`err != nil && collectTokens`).
+  4. Intra sub-8x8 fallback leaves committed mode != bmi[3] (picked V_PRED
+     with unfilled DC bmi), so the wire's uv_mode probability row
+     (UvModeProb[mode]) disagreed with what a spec decoder derives from
+     bmi[3] — undecodable regardless of staging.
+  The landed slice fixes all four: sub-8x8 residue tx is pinned to TX_4X4
+  before the final residue (libvpx vp9_pick_inter_mode_sub8x8 semantics),
+  producer tx-stability reads the true leaf size (mi.SbType), intra sub-8x8
+  leaves stamp the picked mode into every Bmi slot (mode == bmi[3] invariant)
+  with libvpx sum_intra_stats per-sub-block y_mode[0] counting, write-pass
+  coefficient-walk errors surface through a new vp9WriteWalkErr channel, and
+  an omitted-store recovery rerun (collection force-disabled, mirroring the
+  tx-demotion rerun) makes any future mid-count poison byte-safe instead of
+  silently corrupting. With sub-8x8 leaves packable, the odd-MI disable is
+  lifted: 360p/45-row grids now stage count tokens and pure-pack every leaf
+  class. The partition-node arena grows to 2*rc+3*(r+c)+4 to cover partial-SB
+  and tiny-frame node counts the old 2*rc bound missed. Gates: a 10-config
+  decode-every-frame matrix (odd/even MI x threads 1/2/4 x minimal/parity
+  options, 66 frames each) is fully green, including four configurations that
+  fail on base main (even-368-t1 minimal hard-errors with token-buffer-full;
+  odd-360 t2/t4 minimal and even-368-t4 parity silently emit undecodable
+  frames — libvpx vpxdec rejects them too, "failed to decode tile data").
+  Permanent regressions pin the odd-MI 66-frame checker (1T + threaded), the
+  intra-leaf invariant fixture, and a poison-recovery byte-equality test via
+  a test-only token-arena clamp. All byte pins stayed exact (native and
+  purego 1T 120f/240f/480f at 1,235,511 / 2,483,072 / 4,983,461; t2/t4 at
+  1,236,273 / 1,234,903; 8T row-MT denoise 1,235,979; 4T no-denoise
+  1,236,037; 0.633 allocs/frame), the full suite passes, focused race is
+  clean, and the oracle matrix failing-row set is identical to base
+  (49 pass / 1 pre-existing fixed-q-rt-cpu0-constant fail).
 - Replay infra (a 120-byte decision in each full-width leaf-cache entry,
   `canReplay` validation, entropy
   snapshots) now sits outside the normal >=8x8 inter leaf pack path, but still
@@ -1006,8 +1056,13 @@ sidecar lets the normal >=8x8 inter-source pack path consume committed miGrid
 plus tokens without leaf replay/application or write-side residue work, and a
 parallel partition-node stream removes the normal inter write-side partition
 dispatcher/cache walk, and keyframes now use the same pure partition/leaf
-replay; odd-MI sub-8x8 inter/fallback pure packing and count-side
-partition picking, and old cache deletion remain; remaining −0.45..0.65); A4 delete replay
+replay; PARTIAL 2026-07-16: sub-8x8 leaves pure-pack from the committed
+miGrid Bmi quartet and the odd-MI staging disable is lifted after fixing the
+four latent bugs that broke the earlier attempts (sub-8x8 residue tx pin to
+TX_4X4, true-leaf-size producer tx stability, intra sub-8x8 mode==bmi[3]
+invariant + per-sub-block y_mode counting, omitted-store poison recovery,
+surfaced write-walk errors); count-side partition picking and old cache
+deletion remain; remaining −0.3..0.5); A4 delete replay
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; remaining
 −0.15..0.25); A5 pick-buffer

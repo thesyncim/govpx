@@ -2562,7 +2562,24 @@ func (e *VP9Encoder) ensureVP9Sub8InterBmiForWrite(mi *vp9dec.NeighborMi,
 	if mi == nil {
 		return false
 	}
-	if bsize >= common.Block8x8 || mi.RefFrame[0] <= vp9dec.IntraFrame {
+	if bsize >= common.Block8x8 {
+		return true
+	}
+	if mi.RefFrame[0] <= vp9dec.IntraFrame {
+		// Intra sub-8x8 leaf on an inter frame. libvpx keeps the invariant
+		// mi->mode == mi->bmi[3].as_mode for every sub-8x8 leaf: the wire
+		// carries the per-4x4 bmi modes and the reader derives the block mode
+		// (and the uv_mode probability row) from bmi[3]
+		// (vp9_bitstream.c:283-294, vp9_decodemv.c read_intra_block_mode_info).
+		// The nonrd intra fallback picks one mode at the folded BLOCK_8X8 and
+		// leaves Bmi untouched, which used to emit DC_PRED bmi modes while the
+		// uv_mode row keyed off the picked mode — an internally inconsistent
+		// leaf the decoder cannot follow. Stamp the picked mode into every
+		// sub-block so mode, bmi and the uv row agree.
+		for j := range mi.Bmi {
+			mi.Bmi[j].AsMode = mi.Mode
+			mi.Bmi[j].AsMv = [2]vp9dec.MV{}
+		}
 		return true
 	}
 	if vp9Sub8InterBmiValid(mi) {

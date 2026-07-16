@@ -445,6 +445,25 @@ type VP9Encoder struct {
 	vp9TokenReplay              vp9TokenReplayState
 	vp9ThreadedTokenReplayReady bool
 	vp9CountCodingPreserved     bool
+	// vp9CountLeafStoreOmitted records that the current count walk skipped at
+	// least one finalized leaf-cache store because canOmitVP9FinalInterLeaf-
+	// Decision predicted a packed write. If the walk then fails to preserve
+	// coding state (mid-walk token-collection error), the fallback write would
+	// re-pick those leaves against post-count picker state; the frame caller
+	// recovers by re-running the count walk with collection disabled.
+	vp9CountLeafStoreOmitted bool
+	// vp9CountTokenCollectDisabled is the one-shot recovery switch for that
+	// rerun: it forces vp9CountTokenCollectionEligible to false so the rerun
+	// behaves exactly like the classic fallback double-walk.
+	vp9CountTokenCollectDisabled bool
+	// vp9TokenArenaTestCap clamps the staged-token arena length once per
+	// count-collection begin. Tests use it to force a deterministic mid-walk
+	// collection failure; zero (production) is a no-op.
+	vp9TokenArenaTestCap int
+	// vp9WriteWalkErr surfaces write-pass coefficient-walk failures on tiles
+	// that run without token collection or replay. A silently truncated token
+	// walk would otherwise emit corrupt tile data.
+	vp9WriteWalkErr error
 	// vp9DenoiserCountStateReady means the final count walk's denoiser
 	// mutations are the committed single-walk state. While set, the tile walk
 	// must replay every cached leaf instead of applying the denoiser again.

@@ -100,7 +100,7 @@ func (b *TokenFrameBuffer) ensure(miRows, miCols, tileRowBase, tileColBase, tile
 		TokenListAllocForTileGrid(miRows, tileRows, tileCols))
 	b.LeafModes = buffers.EnsureLen(b.LeafModes, miRows*miCols)
 	b.LeafLists = buffers.EnsureLenZeroed(b.LeafLists, len(b.Lists))
-	b.Partitions = buffers.EnsureLen(b.Partitions, 2*miRows*miCols)
+	b.Partitions = buffers.EnsureLen(b.Partitions, PartitionAllocForMI(miRows, miCols))
 	b.PartitionLists = buffers.EnsureLenZeroed(b.PartitionLists, len(b.Lists))
 	b.Used = 0
 	b.LeafUsed = 0
@@ -317,6 +317,20 @@ func (b *TokenFrameBuffer) PartitionsForList(list TokenList) ([]uint8, bool) {
 		return nil, false
 	}
 	return b.Partitions[list.Start:list.Stop], true
+}
+
+// PartitionAllocForMI bounds the partition-node stream: one byte per node the
+// mode tree visits. Nodes exist at the 8x8, 16x16, 32x32 and 64x64 levels and
+// a level-L node is visited iff its origin lies inside the MI bounds, so the
+// exact count is sum over levels of ceil(r/s)*ceil(c/s) for s in {1,2,4,8}.
+// The closed form below over-approximates every ceil with (x/s + 1), which
+// also covers partial-SB grids (odd MI dimensions, tiny frames) where the
+// old 2*r*c bound was too small (a 1x1-MI frame visits 4 nodes).
+func PartitionAllocForMI(miRows, miCols int) int {
+	if miRows <= 0 || miCols <= 0 {
+		return 0
+	}
+	return 2*miRows*miCols + 3*(miRows+miCols) + 4
 }
 
 // TokenAllocForMI mirrors libvpx get_token_alloc. miRows/miCols are VP9 8x8
