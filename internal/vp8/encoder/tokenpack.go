@@ -397,10 +397,13 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 
 		// magnitude is guaranteed in (0, DCTMaxValue] by the producer
 		// (countBlockCoefficientTokensAndRecords); the offset
-		// (= mag - baseVal) is non-negative for the same reason.
-		mag := int((raw >> coefficientTokenRecordMagnitudeShift) & coefficientTokenRecordMagMask)
-		extra := coefficientExtraBitEncodings[token]
+		// (= mag - baseVal) is non-negative for the same reason. Take a
+		// pointer instead of copying the 14-byte encoding struct: the
+		// common ONE..FOUR tokens have len == 0 and never read probs, so
+		// the copy was pure overhead on most records.
+		extra := &coefficientExtraBitEncodings[token]
 		extraLen := int(extra.len)
+		mag := int((raw >> coefficientTokenRecordMagnitudeShift) & coefficientTokenRecordMagMask)
 		offset := mag - int(extra.baseVal)
 		for i := range extraLen {
 			shiftIndex := extraLen - 1 - i
@@ -581,7 +584,7 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 		}
 
 		if token != tables.ZeroToken {
-			extra := coefficientExtraBitEncodings[token]
+			extra := &coefficientExtraBitEncodings[token]
 			extraLen := int(extra.len)
 			offset := mag - int(extra.baseVal)
 			for i := range extraLen {

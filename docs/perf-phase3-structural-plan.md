@@ -1159,6 +1159,70 @@ agent report "VP8 encode recon redesign"; key verified facts:
   per MB where the fused V16/H16 kernels load once), so lf-pick is at parity
   and the remaining 1T encode gap versus libvpx lives essentially entirely
   in the MB walk and packet write. Non-ARM64 kernels remain unexamined.
+- B2 has a predictor-scratch scoring safe point as of 2026-07-16: the fast
+  picker's whole-MB intra candidates (DC/V/H/TM) now predict into a
+  contiguous 256-byte stride-16 scratch in the picker loop context — the
+  verbatim libvpx pickinter.c shape (vp8_build_intra_predictors_mby_s into
+  x->e_mbd.predictor + vpx_variance16x16 against it) — instead of writing
+  every candidate strided into the analysis frame; the accepted path
+  re-predicts the winner exactly as before, and rejected candidates no
+  longer touch frame pixels. The per-MB neighbor stripes also resolve
+  through a single-gate interior fast path (direct above/top-left alias +
+  inline left-column gather) that defers to the full edge-aware builder for
+  frame-edge and rightmost-column MBs (whose 20-byte above stripe needs the
+  extended border). A new focused test pins the fast-path refs against
+  BuildIntraPredictorRefsLuma at every MB position on three geometries
+  including 65x63, and a second pins the buffer-variance helper against the
+  frame-backed variance on interior and clamped partial-edge MBs. Eight
+  order-alternated, explicitly no-PGO 480-frame cpu8 serial pairs kept
+  exact 5,066,778-byte output, 478/2 topology, and 0 allocs/frame; the
+  candidate won five pairs and aggregate medians moved from 7.392 to
+  7.379 ms/frame — count this as byte-exact structural glue with a
+  directional (within host noise) wall reading, not a measured ms/f win.
+  A tokenpack tweak (pointer-load of the per-token extra-bit encodings so
+  the common ONE..FOUR tokens skip a 14-byte struct copy) rode along and
+  was not separately adjudicated.
+- REJECTED probe, 2026-07-16: hoisting the ~700-byte fastInterModeLoopContext
+  from the picker stack into a persistent encoder field (per-MB flag reset
+  instead of full memclr) lost five of five interleaved no-PGO 480-frame
+  pairs (medians 7.40 → 7.44 ms/frame) with byte-identical output. The
+  heap-pointer form forces the compiler to assume aliasing between the
+  context and other encoder fields across the picker body, which costs more
+  than the per-MB stack zeroing it saves (measured at only ~10-30 ms cum
+  per 480 frames). Do not retry that exact shape; any future persistent
+  context must isolate the state from *VP8Encoder-reachable memory.
+- B5 FDCT-winner-cache line item CLOSED for realtime cpu8 on libvpx ground
+  truth, 2026-07-16: vp8_pick_inter_mode (pickinter.c) populates no
+  DCT/predictor cache at any speed — the encode side
+  (vp8_encode_inter16x16, encodemb.c) unconditionally re-runs
+  vp8_build_inter_predictors_mb + subtract + transform + quantize for the
+  winner. govpx's fast-picker rd_cache=0 / dct_hits=0 telemetry therefore
+  matches libvpx's structure, not a missing optimization; the winner cache
+  only pays on the RD picker path where it is already wired. Reconnecting
+  it for the fast picker would be a govpx-only heuristic and is out of
+  scope.
+- B4 whole-MV audit note, 2026-07-16: the accepted-path winner rebuild
+  (reconstructWholeMVInterMacroblockFast on prepared per-reference state)
+  was read side-by-side against libvpx vp8_build_inter16x16_predictors_mb —
+  both run one 16x16 sixtap/copy plus one fused 8x8 UV pair into the
+  reconstruction frame with precomputed plane metadata, and libvpx itself
+  rebuilds the winner rather than carrying the picker predictor. What
+  remains of B4 is wrapper glue (one ~100-byte MacroblockMode copy and the
+  validation gates, ~0.02-0.04 ms/f of samples), priced below the byte-risk
+  of restructuring; treat whole-MV B4 as at kernel parity and fold any
+  remaining work into a future thismb/staging redesign.
+- B5 remaining-scope note, 2026-07-16: the full-frame denoiser working-copy
+  (CopySourceToFrameBuffer at every inter build, including recodes)
+  measures ~0.08 ms/f of direct samples plus cache pollution. An audit of
+  every coeffSource consumer (picker scoring, residual gather, breakout,
+  chroma re-pick, denoiser sig writes, near-SAD sources) found all reads
+  are current-MB-scoped, so libvpx's exact shape is reachable: per-MB
+  thismb staging for Y (denoiser filter writes its Y result into thismb
+  only) and in-place UV filtering (libvpx mutates its own cpi->Source UV).
+  The Y-plane copy (2/3 of the cost) is removable if govpx owns the source
+  buffer at that point; UV in-place requires the same ownership guarantee.
+  This is the largest single open B5 item and the natural umbrella for the
+  B4 wrapper remainder.
 - B3 status note (2026-07-16): the subpel eval path already routes through
   the fused one-axis/bilinear NEON subpel-variance kernels
   (subpelVariance16x16{Horizontal,Vertical,Bilinear}NEON behind

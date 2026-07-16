@@ -34,16 +34,73 @@ type fastInterModeLoopContext struct {
 	// the MB, which no intra candidate scoring write touches.
 	intraRefs    vp8dec.IntraPredictorRefs
 	intraRefsSet bool
+	// intraPred is the contiguous 16x16 luma candidate predictor scratch
+	// mirroring libvpx's x->e_mbd.predictor: pickinter.c scores DC/V/H/TM
+	// candidates with vp8_build_intra_predictors_mby_s into that stride-16
+	// buffer and runs vpx_variance16x16 against it, never touching the
+	// reconstruction frame. Fully overwritten by each candidate before any
+	// read, so it needs no per-MB reset.
+	intraPred [256]byte
 }
 
 // lumaIntraRefs returns the cached per-MB luma intra predictor refs,
-// building them on first use.
+// building them on first use. Interior macroblocks (mbRow > 0 &&
+// mbCol > 0) take a direct-alias fast path: the contiguous above row and
+// the top-left corner alias the analysis frame, and the left column is
+// gathered straight into the scratch stripe — the same pixels the full
+// builder resolves through its edge-fill branch chain, without the
+// synthetic-border and coded-size re-validation per call.
 func (ctx *fastInterModeLoopContext) lumaIntraRefs(e *VP8Encoder, mbRow int, mbCol int) vp8dec.IntraPredictorRefs {
 	if !ctx.intraRefsSet {
-		ctx.intraRefs = vp8dec.BuildIntraPredictorRefsLuma(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
+		ctx.intraRefs = fastPickerLumaIntraRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
 		ctx.intraRefsSet = true
 	}
 	return ctx.intraRefs
+}
+
+// fastPickerLumaIntraRefs resolves the luma intra neighbor stripes with a
+// single-gate interior alias, deferring to the full edge-aware builder
+// otherwise. Interior in-frame macroblocks always have their above stripe,
+// left column, and top-left corner inside the coded plane, so the values
+// are identical to BuildIntraPredictorRefsLuma's alias/copy resolution.
+func fastPickerLumaIntraRefs(img *vp8common.Image, mbRow int, mbCol int, scratch *vp8dec.IntraPredictorScratch) vp8dec.IntraPredictorRefs {
+	stride := img.YStride
+	if mbRow > 0 && mbCol > 0 && stride > 0 {
+		yRow := mbRow * 16
+		yCol := mbCol * 16
+		aboveStart := (yRow-1)*stride + yCol
+		leftStart := yRow*stride + yCol - 1
+		// The full builder hands out a 20-byte above stripe (the
+		// B_PRED path reads the 4 above-right samples), so the alias
+		// must stay within the coded plane for all 20 samples —
+		// rightmost-column MBs need the extended border and fall back.
+		codedW := img.CodedWidth
+		if codedW <= 0 {
+			codedW = img.Width
+		}
+		codedH := img.CodedHeight
+		if codedH <= 0 {
+			codedH = img.Height
+		}
+		const aboveLen = len(scratch.YAbove)
+		if yCol+aboveLen <= codedW && yRow+16 <= codedH &&
+			leftStart+15*stride+1 <= len(img.Y) && aboveStart+aboveLen <= len(img.Y) {
+			left := scratch.YLeft[:16]
+			src := img.Y[leftStart:]
+			_ = src[15*stride]
+			for i := range 16 {
+				left[i] = src[i*stride]
+			}
+			return vp8dec.IntraPredictorRefs{
+				YAbove:        img.Y[aboveStart : aboveStart+aboveLen],
+				YLeft:         left,
+				YTopLeft:      img.Y[aboveStart-1],
+				UpAvailable:   true,
+				LeftAvailable: true,
+			}
+		}
+	}
+	return vp8dec.BuildIntraPredictorRefsLuma(img, mbRow, mbCol, scratch)
 }
 
 const fastInterVarianceCacheSize = 16
@@ -79,13 +136,18 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	// same above/left pointers, and nothing the candidate loop writes
 	// touches the stripe pixels outside the MB.
 	zbinOverQuant := e.rc.currentZbinOverQuant
-	analysisImg := &e.analysis.Img
 	refs := ctx.lumaIntraRefs(e, mbRow, mbCol)
-	yOff := mbRow*16*analysisImg.YStride + mbCol*16
-	if !vp8dec.PredictIntraY16x16(mbMode, analysisImg.Y[yOff:], analysisImg.YStride, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+	// libvpx pickinter.c scores whole-MB intra candidates in the
+	// contiguous x->e_mbd.predictor scratch (stride 16) and never writes
+	// them into the reconstruction frame; the accepted path re-predicts
+	// the winner via predictAnalysisMacroblock exactly like libvpx's
+	// vp8_encode_intra16x16mby. Mirror that: predict into the loop
+	// context's 256-byte scratch and take the variance against it.
+	pred := &ctx.intraPred
+	if !vp8dec.PredictIntraY16x16(mbMode, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
 		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
 	}
-	variance, sse := vp8enc.MacroblockLumaVarianceSSE(src, analysisImg, mbRow, mbCol)
+	variance, sse := macroblockLumaVarianceSSEAgainstBuffer(src, mbRow, mbCol, pred)
 	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	score := e.rdModeScoreWithZbin(qIndex, zbinOverQuant, rate, variance)
@@ -221,4 +283,22 @@ func macroblockLumaVarianceSSEFromPredictor(src vp8enc.SourceImage, mbRow int, m
 		}
 	}
 	return sse - ((sum * sum) >> 8), sse
+}
+
+// macroblockLumaVarianceSSEAgainstBuffer is the libvpx
+// vpx_variance16x16(*(b->base_src), b->src_stride, x->e_mbd.predictor, 16)
+// shape: source macroblock against a contiguous stride-16 predictor
+// buffer. In-bounds macroblocks take the fused SIMD (sum, sse) kernel;
+// partial-edge macroblocks fall back to the clamped scalar walk, which is
+// value-identical to the frame-backed MacroblockLumaVarianceSSE because
+// the 16x16 predictor region needs no clamping (analysis frames are
+// macroblock-aligned, so its clamp was the identity).
+func macroblockLumaVarianceSSEAgainstBuffer(src vp8enc.SourceImage, mbRow int, mbCol int, pred *[256]byte) (int, int) {
+	baseY := mbRow * 16
+	baseX := mbCol * 16
+	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
+		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &pred[0], 16)
+		return sse - ((sum * sum) >> 8), sse
+	}
+	return macroblockLumaVarianceSSEFromPredictor(src, mbRow, mbCol, pred)
 }
