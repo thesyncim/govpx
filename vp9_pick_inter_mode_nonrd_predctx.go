@@ -48,9 +48,64 @@ type vp9NonrdPredBlockCtx struct {
 	uvRefW       int
 	uvRefH       int
 	uvValid      bool
+	uvPrepared   bool
 	uvPlane      [2]vp9NonrdChromaPlane
 	uvRef        [vp9dec.MaxRefFrames][2]vp9NonrdChromaRefPlane
 	uvPlaneBsize common.BlockSize
+	// bsize and refPtr feed the lazy chroma preparation: most blocks never
+	// reach a UV check (large-block skip test, color sensitivity, or
+	// encode-breakout), so the chroma plane resolution is deferred to first
+	// use.
+	bsize  common.BlockSize
+	refPtr [vp9dec.MaxRefFrames]*vp9ReferenceFrame
+}
+
+// ensureChroma lazily prepares the block's chroma state plus every added
+// reference's chroma planes on the first UV consumer.
+func (c *vp9NonrdPredBlockCtx) ensureChroma(e *VP9Encoder,
+	inter *vp9InterEncodeState,
+) {
+	if c.uvPrepared {
+		return
+	}
+	c.uvPrepared = true
+	c.initChroma(e, inter, c.bsize)
+	if !c.uvValid {
+		return
+	}
+	for r := range c.refPtr {
+		ref := c.refPtr[r]
+		if ref == nil || !c.ref[r].valid {
+			continue
+		}
+		c.addChromaRef(int8(r), ref)
+	}
+}
+
+// addChromaRef prepares one reference's chroma plane pointers (the chroma
+// half of vp9_setup_pred_block).
+func (c *vp9NonrdPredBlockCtx) addChromaRef(refFrame int8,
+	ref *vp9ReferenceFrame,
+) {
+	for plane := 1; plane <= 2; plane++ {
+		refPlane, refStride := vp9ReferencePlane(ref, plane)
+		if len(refPlane) == 0 || refStride <= 0 {
+			continue
+		}
+		refRows := len(refPlane) / refStride
+		// Hoisted legacy gates: the block origin must be inside the
+		// reference plane, and the zero-MV copy window must fit (the
+		// legacy direct predictor rejected both per candidate).
+		if c.uvX0+c.uvBw > refStride || c.uvY0+c.uvBh > refRows {
+			continue
+		}
+		c.uvRef[refFrame][plane-1] = vp9NonrdChromaRefPlane{
+			ref:       refPlane,
+			refStride: refStride,
+			refRows:   refRows,
+			valid:     true,
+		}
+	}
 }
 
 // vp9NonrdChromaPlane is the block-level source/destination state for one
@@ -138,8 +193,11 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxInit(c *vp9NonrdPredBlockCtx,
 		c.ref[r] = vp9NonrdRefPredPlane{}
 		c.uvRef[r][0] = vp9NonrdChromaRefPlane{}
 		c.uvRef[r][1] = vp9NonrdChromaRefPlane{}
+		c.refPtr[r] = nil
 	}
-	c.initChroma(e, inter, bsize)
+	c.bsize = bsize
+	c.uvValid = false
+	c.uvPrepared = false
 	return true
 }
 
@@ -263,26 +321,9 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxAddRef(c *vp9NonrdPredBlockCtx,
 			(ref.img.Height&0x7) == 0,
 		valid: true,
 	}
-	if c.uvValid {
-		for plane := 1; plane <= 2; plane++ {
-			refPlane, refStride := vp9ReferencePlane(ref, plane)
-			if len(refPlane) == 0 || refStride <= 0 {
-				continue
-			}
-			refRows := len(refPlane) / refStride
-			// Hoisted legacy gates: the block origin must be inside the
-			// reference plane, and the zero-MV copy window must fit (the
-			// legacy direct predictor rejected both per candidate).
-			if c.uvX0+c.uvBw > refStride || c.uvY0+c.uvBh > refRows {
-				continue
-			}
-			c.uvRef[refFrame][plane-1] = vp9NonrdChromaRefPlane{
-				ref:       refPlane,
-				refStride: refStride,
-				refRows:   refRows,
-				valid:     true,
-			}
-		}
+	c.refPtr[refFrame] = ref
+	if c.uvPrepared && c.uvValid {
+		c.addChromaRef(refFrame, ref)
 	}
 	return true
 }
@@ -424,9 +465,13 @@ func (e *VP9Encoder) vp9NonrdCtxUVVariancePlaneSSE(c *vp9NonrdPredBlockCtx,
 	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
 	mv vp9dec.MV, filter vp9dec.InterpFilter, plane int,
 ) (variance, sse uint64, ok bool) {
-	if c == nil || !c.uvValid || plane < 1 || plane > 2 ||
-		refFrame < 0 || int(refFrame) >= len(c.uvRef) ||
-		!c.uvRef[refFrame][plane-1].valid {
+	if c == nil || plane < 1 || plane > 2 ||
+		refFrame < 0 || int(refFrame) >= len(c.uvRef) {
+		return e.vp9NonrdUVVariancePlaneSSE(inter, miRows, miCols, miRow,
+			miCol, bsize, mode, refFrame, mv, filter, plane)
+	}
+	c.ensureChroma(e, inter)
+	if !c.uvValid || !c.uvRef[refFrame][plane-1].valid {
 		return e.vp9NonrdUVVariancePlaneSSE(inter, miRows, miCols, miRow,
 			miCol, bsize, mode, refFrame, mv, filter, plane)
 	}
@@ -450,9 +495,13 @@ func (e *VP9Encoder) vp9NonrdCtxUVVarianceSSE(c *vp9NonrdPredBlockCtx,
 	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
 	mv vp9dec.MV, filter vp9dec.InterpFilter,
 ) (varU, sseU, varV, sseV uint64, ok bool) {
-	if c == nil || !c.uvValid ||
-		refFrame < 0 || int(refFrame) >= len(c.uvRef) ||
-		!c.uvRef[refFrame][0].valid || !c.uvRef[refFrame][1].valid {
+	if c == nil || refFrame < 0 || int(refFrame) >= len(c.uvRef) {
+		return e.vp9NonrdUVVarianceSSE(inter, miRows, miCols, miRow, miCol,
+			bsize, mode, refFrame, mv, filter)
+	}
+	c.ensureChroma(e, inter)
+	if !c.uvValid || !c.uvRef[refFrame][0].valid ||
+		!c.uvRef[refFrame][1].valid {
 		return e.vp9NonrdUVVarianceSSE(inter, miRows, miCols, miRow, miCol,
 			bsize, mode, refFrame, mv, filter)
 	}

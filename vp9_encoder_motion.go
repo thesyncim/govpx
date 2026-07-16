@@ -489,18 +489,6 @@ func (e *VP9Encoder) vp9InterPredictionVarianceSSE(inter *vp9InterEncodeState,
 		bsize, mode, refFrame, mv, filter, false)
 }
 
-// vp9InterPredictionVarianceSSEForFilterSearch mirrors libvpx
-// search_filter_ref's vp9_build_inter_predictors_sby + vf path.
-func (e *VP9Encoder) vp9InterPredictionVarianceSSEForFilterSearch(
-	inter *vp9InterEncodeState,
-	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
-	mode common.PredictionMode, refFrame int8, mv vp9dec.MV,
-	filter vp9dec.InterpFilter,
-) (variance, sse uint64, ok bool) {
-	return e.vp9InterPredictionVarianceSSEOpts(inter, miRows, miCols, miRow, miCol,
-		bsize, mode, refFrame, mv, filter, true)
-}
-
 func (e *VP9Encoder) vp9InterPredictionVarianceSSEForFilterSearchTo(
 	inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
@@ -664,14 +652,6 @@ func (e *VP9Encoder) prepareVP9SharedSubpelRefBordered(refMask uint8) {
 		_, _, _, _, _, _, _ = e.vp9SubpelReferencePlane(refFrame,
 			&e.refFrames[slot])
 	}
-}
-
-func (e *VP9Encoder) vp9InterPredictionSubpelVariance(inter *vp9InterEncodeState,
-	miRow, miCol int, bsize common.BlockSize, refFrame int8, mv vp9dec.MV,
-) (uint64, bool) {
-	variance, _, ok := e.vp9InterPredictionBorderedSubpelVarianceSSE(
-		inter, miRow, miCol, bsize, refFrame, mv)
-	return variance, ok
 }
 
 type vp9SubpelVarianceScorer struct {
