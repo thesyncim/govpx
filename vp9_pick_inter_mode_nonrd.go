@@ -423,6 +423,25 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	blockH := int(common.Num4x4BlocksHighLookup[bsize]) * 4
 	x0 := miCol * common.MiSize
 	y0 := miRow * common.MiSize
+
+	// libvpx vp9_pickmode.c:2230-2238 — the per-candidate "select prediction
+	// reference frames" step only copies buf_2d pointers that
+	// find_predictors/vp9_setup_pred_block prepared once per usable ref.
+	// Prepare the same per-(block, ref) padded-plane state here; the mv-pred
+	// prepass below and candidate prediction in the main loop read it
+	// directly (clamp -> subpel split -> convolve/copy) with no
+	// per-candidate reference setup. Unsupported shapes keep the legacy
+	// route via the wrappers' fallback.
+	var predCtx vp9NonrdPredBlockCtx
+	if e.vp9NonrdPredBlockCtxInit(&predCtx, inter, miRow, miCol, bsize) {
+		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
+			if refSlotValid[r] {
+				e.vp9NonrdPredBlockCtxAddRef(&predCtx, r,
+					&e.refFrames[refSlots[r]])
+			}
+		}
+	}
+
 	if len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
 		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 			if !refSlotValid[r] {
@@ -430,15 +449,26 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			}
 			refSlot := refSlots[r]
 			inter.ref = &e.refFrames[refSlot]
-			refBuf, refStride, refOriginX, refOriginY, _, _, refOK :=
-				e.vp9SubpelReferencePlane(r, inter.ref)
-			if len(refBuf) == 0 || refStride <= 0 {
-				continue
+			var refBuf []byte
+			var refStride, refOriginX, refOriginY, refRows int
+			if rp := &predCtx.ref[r]; rp.valid {
+				refBuf = rp.pre
+				refStride = rp.preStride
+				refOriginX = rp.originX
+				refOriginY = rp.originY
+				refRows = rp.preRows
+			} else {
+				var refOK bool
+				refBuf, refStride, refOriginX, refOriginY, _, _, refOK =
+					e.vp9SubpelReferencePlane(r, inter.ref)
+				if len(refBuf) == 0 || refStride <= 0 {
+					continue
+				}
+				if !refOK {
+					continue
+				}
+				refRows = len(refBuf) / refStride
 			}
-			if !refOK {
-				continue
-			}
-			refRows := len(refBuf) / refStride
 
 			if useMvPredSearchSeed || useMvPredCandidateSet {
 				// libvpx: vp9_pickmode.c:1298-1302 — skip vp9_mv_pred for
@@ -499,23 +529,6 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	}
 	_ = mvBestRefIndex // libvpx writes to x->mv_best_ref_index; cached via mvPredSearchSeed.
 	_ = maxMvContext   // Future NEWMV-diff bias/limit-newmv plumbing reads this.
-
-	// libvpx vp9_pickmode.c:2230-2238 — the per-candidate "select prediction
-	// reference frames" step only copies buf_2d pointers that
-	// find_predictors/vp9_setup_pred_block prepared once per usable ref.
-	// Prepare the same per-(block, ref) padded-plane state here; candidate
-	// prediction below convolves directly from it (clamp -> subpel split ->
-	// convolve/copy) with no per-candidate reference setup. Unsupported
-	// shapes keep the legacy route via the wrapper's fallback.
-	var predCtx vp9NonrdPredBlockCtx
-	if e.vp9NonrdPredBlockCtxInit(&predCtx, inter, miRow, miCol, bsize) {
-		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
-			if refSlotValid[r] {
-				e.vp9NonrdPredBlockCtxAddRef(&predCtx, r,
-					&e.refFrames[refSlots[r]])
-			}
-		}
-	}
 
 	// Read the neighbour MIs once for per-candidate rate cost computation.
 	var left *vp9dec.NeighborMi
@@ -1157,7 +1170,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// GOLDEN NEAREST/NEAR/NEW in the candidate set.
 		if useGoldenNonzeromv && thisMode == common.NewMv &&
 			refFrame == vp9dec.LastFrame {
-			if sad, ok := e.vp9NonrdPredMVSAD(inter, miRow, miCol,
+			if sad, ok := e.vp9NonrdCtxPredMVSAD(&predCtx, inter, miRow, miCol,
 				bsize, refFrame, mv); ok {
 				predMvSad[vp9dec.LastFrame] = sad
 				bestPredSad = sad
@@ -1745,14 +1758,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				(colorSensitivity[0] || colorSensitivity[1]) {
 				uvAddOK := true
 				if colorSensitivity[0] && !uvOKU {
-					uvVarU, uvSSEU, uvOKU = e.vp9NonrdUVVariancePlaneSSE(
-						inter, miRows, miCols, miRow, miCol, bsize,
+					uvVarU, uvSSEU, uvOKU = e.vp9NonrdCtxUVVariancePlaneSSE(
+						&predCtx, inter, miRows, miCols, miRow, miCol, bsize,
 						thisMode, refFrame, mv, filter, 1)
 					uvAddOK = uvOKU
 				}
 				if uvAddOK && colorSensitivity[1] && !uvOKV {
-					uvVarV, uvSSEV, uvOKV = e.vp9NonrdUVVariancePlaneSSE(
-						inter, miRows, miCols, miRow, miCol, bsize,
+					uvVarV, uvSSEV, uvOKV = e.vp9NonrdCtxUVVariancePlaneSSE(
+						&predCtx, inter, miRows, miCols, miRow, miCol, bsize,
 						thisMode, refFrame, mv, filter, 2)
 					uvAddOK = uvOKV
 				}

@@ -83,6 +83,11 @@ type vp9NonrdRefPredPlane struct {
 	// baseOff is the offset of (x0, y0) inside pre at zero motion:
 	// (originY+y0)*preStride + originX + x0.
 	baseOff int
+	// originX/originY locate the visible-frame origin inside the padded
+	// plane; preRows caches len(pre)/preStride. The mv-pred prepass and
+	// pred_mv_sad refresh reuse these instead of refetching the plane.
+	originX, originY int
+	preRows          int
 	// dims8 records whether the reference dimensions are multiples of 8;
 	// only used to mirror the legacy zero-MV phase-stat counting shape.
 	dims8 bool
@@ -251,6 +256,9 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxAddRef(c *vp9NonrdPredBlockCtx,
 		pre:       pre,
 		preStride: preStride,
 		baseOff:   (originY+c.y0)*preStride + originX + c.x0,
+		originX:   originX,
+		originY:   originY,
+		preRows:   preRows,
 		dims8: (ref.img.Width&0x7) == 0 &&
 			(ref.img.Height&0x7) == 0,
 		valid: true,
@@ -374,6 +382,35 @@ func (e *VP9Encoder) vp9NonrdCtxPredictChromaPlaneInner(c *vp9NonrdPredBlockCtx,
 		vp9dec.SubpelShifts, vp9dec.SubpelShifts, c.uvBw, c.uvBh, 0,
 		srcOffset, &d.convolveScratch)
 	return true
+}
+
+// vp9NonrdCtxPredMVSAD is the prepared-context sibling of vp9NonrdPredMVSAD:
+// the pred_mv_sad[LAST] refresh at vp9_pickmode.c:2284-2293 is a full-pel SAD
+// read directly off the prepared pre[0] pointer
+// (pre_buf = pre[0].buf + (mv.row>>3)*stride + (mv.col>>3)).
+func (e *VP9Encoder) vp9NonrdCtxPredMVSAD(c *vp9NonrdPredBlockCtx,
+	inter *vp9InterEncodeState, miRow, miCol int, bsize common.BlockSize,
+	refFrame int8, mv vp9dec.MV,
+) (uint64, bool) {
+	if c == nil || refFrame < 0 || int(refFrame) >= len(c.ref) ||
+		!c.ref[refFrame].valid {
+		return e.vp9NonrdPredMVSAD(inter, miRow, miCol, bsize, refFrame, mv)
+	}
+	rp := &c.ref[refFrame]
+	// Legacy gates, hoistable but kept for exact ok-parity: fully visible
+	// source window and an in-plane full-pel reference window.
+	if c.x0+c.blockW > c.srcW || c.y0+c.blockH > c.srcH {
+		return 0, false
+	}
+	refX := rp.originX + c.x0 + (int(mv.Col) >> 3)
+	refY := rp.originY + c.y0 + (int(mv.Row) >> 3)
+	if refX < 0 || refY < 0 || refX+c.blockW > rp.preStride ||
+		refY+c.blockH > rp.preRows {
+		return 0, false
+	}
+	return encoder.BlockSADOffsets(c.src, c.srcOff, c.srcStride,
+		rp.pre, refY*rp.preStride+refX, rp.preStride,
+		c.blockW, c.blockH, ^uint64(0)), true
 }
 
 // vp9NonrdCtxUVVariancePlaneSSE is the prepared-context sibling of
