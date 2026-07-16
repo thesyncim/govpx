@@ -1089,7 +1089,22 @@ four latent bugs that broke the earlier attempts (sub-8x8 residue tx pin to
 TX_4X4, true-leaf-size producer tx stability, intra sub-8x8 mode==bmi[3]
 invariant + per-sub-block y_mode counting, omitted-store poison recovery,
 surfaced write-walk errors); count-side partition picking and old cache
-deletion remain; remaining −0.3..0.5); A4 delete replay
+deletion remain; remaining −0.3..0.5. CLOSED 2026-07-16 as a non-item at
+cpu8: a fresh 240-frame 720p realtime cpu8 1T profile decomposes the
+whole count-walk partition dispatch (`pickVP9BlockSizeForRegion` 0.18s
+cum of 2.26s) into `GetEstimatedPred`/`IntProEstimate` 0.12s — the
+VeryHighSad int-pro branch libvpx also runs under the identical
+`speed >= 8 && !low_res && content_state != kVeryHighSad` gate
+(vp9_encodeframe.c:1451-1497, parity work on this high-SAD synthetic
+fixture) — plus `ChoosePartitioning` 0.03s (the once-per-SB analysis
+itself) and only ~0.02s (~0.08 ms/f) of per-node dispatch glue. The
+per-node consumption already matches libvpx's
+`partition_lookup[bsl][mi[0]->sb_type]` stamp-read shape
+(nonrd_use_partition, vp9_encodeframe.c:5009-5010): govpx reads the
+`choose_partitioning` grid stamp through
+`pickVP9CBRVariancePartitionBlockSize` with an index-test fast path in
+`vp9EnsureSBPartitionChosen`. Do not spend the old estimate; the
+recoverable glue is ~0.08 ms/f with real dispatch-ordering parity risk); A4 delete replay
 infrastructure (PARTIAL 2026-07-11: removed the redundant picker-side leaf
 decision store while retaining the finalized fallback entry; PARTIAL
 2026-07-16: write-side leaf-cache replay (canReplay*/apply*) and the whole
