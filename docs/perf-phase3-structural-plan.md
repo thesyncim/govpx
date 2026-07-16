@@ -1101,6 +1101,42 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   dataflow-only, no byte risk, but unported).
 - CORRECTION to phase-2: libvpx `estimate_block_intra` DOES call block_yrd —
   the intra-fallback row is mostly legitimate work, not waste.
+- A5 per-candidate op LEDGER, 2026-07-16 (third session): first true
+  side-by-side pricing of the nonrd picker against libvpx ON THE SAME
+  fixture. govpx column: fresh 480f 720p realtime cpu8 1T denoise CPU
+  profile at base 857a6bea (4.75s samples, 11.34 ms/f loaded-host wall;
+  ms/f = cum-fraction x wall). libvpx column: `sample -f 1ms` attached to
+  the same vpxenc-vp9 parity invocation (i420 corpus captured from the
+  bench harness via a wrapper, 5x-concatenated to 1200f; 5.067s window ~
+  736 frames at 6.88 ms/f loaded), subtree-summed per function. Both runs
+  were ~10% above their pinned bands from host load, so read ratios, not
+  absolutes. Byte parity pins govpx to libvpx's exact candidate schedule,
+  so per-row deltas are per-call cost, not call-count drift.
+
+  | op (per block/candidate)             | govpx | libvpx | delta | verdict |
+  |--------------------------------------|-------|--------|-------|---------|
+  | NEWMV subpel tree (scorer + kernels) | 1.43  | 0.68   | +0.75 | kernels 1.05 vs 0.50 at equal probe counts: 32x32 staged 3-call path vs libvpx offset-0/4 fused specializations; glue 0.38 vs 0.18 |
+  | NEWMV fullpel + int-pro              | 0.15  | 0.22   | -0.07 | parity |
+  | BlockYrd (inter + intra fallback)    | 0.91  | 0.55   | +0.36 | kernel counts equal; delta is Go per-tx wrapper/slicing glue (flat 0.26 vs 0.15, subtract 0.17 vs 0.06, hadamard 0.19 vs 0.05, quantize 0.21 vs 0.24 parity) |
+  | luma cand pred + var + model_rd_y    | 0.67  | 0.64   | +0.03 | parity — prepared per-(block,ref) ctx holds |
+  | UV pred + var + model_rd_uv          | 0.67  | ~0.50  | +0.17 | shape parity (color-sens V-plane dominates on this fixture, 0.53 ms/f, same per-candidate convolve libvpx runs) |
+  | intra fallback (predict+stats+model) | 0.79  | ~0.45  | +0.34 | shape parity per the estimate_block_intra CORRECTION; per-tx predict glue |
+  | inter mode + MV rate cost            | 0.24  | ~0.02  | +0.22 | NON-PARITY: govpx re-walks VP9CostBit/Mv trees per candidate where libvpx reads per-frame cpi->inter_mode_cost / x->mvcost tables (vp9_rd.c:439-444) |
+  | picker loop glue (flat)              | 0.51  | 0.61   | -0.10 | parity-or-better (prior hoists) |
+  | find_predictors mv-ref walks         | 0.12  | 0.15   | ~0    | parity |
+  | vp9_mv_pred SAD prepass              | 0.10  | 0.12   | ~0    | parity |
+  | pred-block ctx setup (setup_pred_block) | 0.12 | 0.03  | +0.09 | ctx zero/init + coverage proof per block; below-noise alone |
+  | ref cost init + thresh update + winner copy | 0.25 | ~0.11 | +0.14 | parity shape, small glue |
+  | TOTAL picker cluster                 | ~5.9  | ~3.3   | +2.6  | 1.74x |
+
+  Reading: unlike VP8's picker (whose ledger found repeated near-MV walks
+  and threshold copies), the VP9 picker's CONTROL FLOW is already at
+  libvpx shape almost everywhere — the prepared-context and PRED_BUFFER
+  work landed earlier this cycle closed the structural rows. What remains
+  is (a) one true structural row (rate-cost tables, ~0.2), and (b)
+  per-call cost on kernel-adjacent leaves at equal call counts (subpel
+  variance 2x/call, BlockYrd tx glue ~1.6x, intra predict glue) which is
+  Go-vs-C codegen plus staged multi-call kernel shapes, not picker shape.
 
 Steps (each ships green; gate = 120f byte-identity + packet-0
 frontier + SVC/RTP + zero-alloc + conformance decode + pre-merge sequence):
