@@ -871,7 +871,14 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// memset plus the per-MB [16]MotionVector BlockMV fill that the
 			// compiler cannot prove dead.
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
-			if !modes[index].MBSkipCoeff {
+			// The inter winner path consumes coeffs[index] directly through
+			// addInterResidualToAnalysisMacroblockCoeffs below (the libvpx
+			// vp8_inverse_transform_mb shape); only the whole-block intra
+			// winner still stages decoder tokens for
+			// reconstructAnalysisMacroblock. B_PRED reconstructed inside
+			// buildReconstructingBPredMacroblockCoefficients and never read
+			// the staged tokens.
+			if !modes[index].MBSkipCoeff && modes[index].RefFrame == vp8common.IntraFrame && modes[index].Mode != vp8common.BPred {
 				vp8enc.ConvertMacroblockCoefficients(&coeffs[index], is4x4, &e.reconstructTokens[index])
 			}
 			totalRate = addProjectedMacroblockRate(totalRate, projectedRate)
@@ -897,7 +904,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					return 0, ErrInvalidConfig
 				}
 			} else if !modes[index].MBSkipCoeff {
-				if !addInterResidualToAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+				if !addInterResidualToAnalysisMacroblockCoeffs(&e.analysis.Img, row, col, &e.reconstructModes[index], &coeffs[index], &e.dequants[segmentID&3]) {
 					return 0, ErrInvalidConfig
 				}
 			}

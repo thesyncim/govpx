@@ -1411,6 +1411,65 @@ agent report "VP8 encode recon redesign"; key verified facts:
   (~1048 fused evals per frame). Nothing material remains of the
   −0.10..0.20 estimate on the canonical realtime cpu8 fixture; treat B3 as
   closed there unless a different fixture shows a subpel-heavy profile.
+- Picker candidate-scoring ledger + safe point LANDED 2026-07-16 (second
+  session): an item-by-item diff of selectFastInterFrameModeDecisionDenoise
+  against vp8_pick_inter_mode's loop (fresh 480f profile, 3.21s samples,
+  picker 0.55s cum / 0.14s flat) priced every per-candidate op. Parity
+  items (variance16x16 ~30ms sampled, mode-rate/cost_mv_ref ~10ms,
+  fast encode-breakout ~20ms, dot-artifact/skin/zeromv-adjust ~10ms,
+  motion search glue ~40ms, per-MB intra neighbor stripes ~60ms — libvpx
+  reads the same strided left column inside its predictor builder) were
+  left alone. Three non-parity items were fixed, all byte-exact by
+  construction:
+  (1) interModeMVSlots ran the identical findNearInterMotionVectors
+  neighbor walk THREE times per MB (predictors, best, counts; 110ms cum,
+  the single largest picker line) where vp8_find_near_mvs_bias produces
+  all four outputs in one sweep — replaced with a single-pass
+  InterFrameNearMVsCountsAt helper (also feeds the RD picker);
+  (2) every scored candidate re-derived (rdMult, rdDiv) — including the
+  pass-2 iiratio lift and activity multiplier — where libvpx reads the
+  precomputed x->rdmult/x->rddiv MACROBLOCK fields; now cached once per
+  MB in the picker loop context (~30-50ms sampled);
+  (3) the per-MB threshold call copied two [20]int arrays by value plus a
+  third copy in the best-threshold gate, where libvpx's loop reads
+  x->rd_threshes[] in place — Hot/Denoise now read through pointers to
+  the live derived table (reads are value-identical: raise/lower only
+  mutate the already-consumed index). Ten order-alternated no-PGO 480f
+  serial pairs: 6/10 wins, medians 7.381 -> 7.255 ms/f (~1.7%; the three
+  losses were 9.1-9.5 ms thermal-band samples), exact 5,066,778 bytes,
+  478/2, 0 allocs/frame; 4T exact 5,111,925 / 456/24; full oracle lane
+  1881 subtests PASS / 0 skips. Commit a6682789.
+- Coefficient-pipeline staging elision LANDED 2026-07-16 (second session):
+  the accepted inter winner path ran ConvertMacroblockCoefficients per MB
+  (50-70ms sampled) to stage the quantizer's MacroblockCoefficients into a
+  decoder MacroblockTokens that only the immediately-following fused
+  residual add consumed — a staging copy with NO libvpx analogue
+  (vp8_inverse_transform_mb reads the MACROBLOCKD qcoeff/eobs the
+  quantizer just wrote). The fused dequant+IDCT+add core was refactored to
+  a raw qcoeff/eob buffer form (decoder callers unchanged, floor 0 — the
+  decoder token reader already records luma EOBs with the +skipDC
+  promotion) and a new DequantIDCTAddMacroblockCoefficients entry consumes
+  encoder buffers directly with a luma EOB floor of 1 for non-4x4 MBs
+  (exactly the conversion's max(eob,1) promotion). Audited equivalences:
+  encoder quantizers write all 16 slots (zeros at/past EOB) so the
+  kernels' sanitize guards are value-neutral; skip-DC luma blocks carry
+  qcoeff[0]==0 so the transient Y2 seed/unseed leaves the caller's buffer
+  bit-identical. Whole-block intra winners keep the tokens staging for
+  reconstructAnalysisMacroblock; B_PRED never read the staged tokens
+  (that Convert was already dead work and is now skipped). Serial and
+  threaded builders both rewired. Five order-alternated no-PGO 480f
+  serial pairs: 5/5 wins, medians 7.205 -> 6.976 ms/f (~3.2%; the win
+  exceeds the direct Convert samples because the per-frame 3 MB
+  reconstructTokens staging traffic left the walk's working set), exact
+  bytes/topology/allocs on 1T, 4T, and 120f pins.
+- Post-slice state 2026-07-16 (second session): canonical 1T spot now
+  runs in the ~6.94-7.00 ms/f band (from ~7.31-7.38) versus libvpx 5.35;
+  remaining MB-walk deltas are parity-priced (see ledger above) — the
+  gap left in the walk is Go loop/dispatch glue and the priced-below-risk
+  items (accepted-path StaticInterRDEncodeBreakout re-check ~0.09 ms/f
+  whose removal risks skip-semantics divergence, MacroblockCoefficientsEmpty
+  EOB scan ~0.1 ms/f already in its cheap form, token-context updates at
+  shape parity).
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:

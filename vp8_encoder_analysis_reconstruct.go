@@ -352,6 +352,34 @@ func addInterResidualToAnalysisMacroblock(img *vp8common.Image, row int, col int
 	return true
 }
 
+// addInterResidualToAnalysisMacroblockCoeffs is the staging-free twin of
+// addInterResidualToAnalysisMacroblock: it consumes the encoder quantizer's
+// MacroblockCoefficients directly — the libvpx vp8_inverse_transform_mb
+// shape, which reads the MACROBLOCKD qcoeff/eobs the quantizer just wrote —
+// instead of requiring a ConvertMacroblockCoefficients staging copy into a
+// decoder MacroblockTokens. Value-equivalence of the fused reconstruction,
+// including the non-4x4 luma EOB promotion the conversion used to apply, is
+// documented on vp8dec.DequantIDCTAddMacroblockCoefficients.
+func addInterResidualToAnalysisMacroblockCoeffs(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, coeffs *vp8enc.MacroblockCoefficients, dequant *vp8common.MacroblockDequant) bool {
+	if img == nil || mode == nil || coeffs == nil || dequant == nil || mode.RefFrame == vp8common.IntraFrame {
+		return false
+	}
+	switch mode.Mode {
+	case vp8common.ZeroMV, vp8common.NearestMV, vp8common.NearMV, vp8common.NewMV, vp8common.SplitMV:
+	default:
+		return false
+	}
+	if mode.MBSkipCoeff {
+		return true
+	}
+	yOff := row*16*img.YStride + col*16
+	uOff := row*8*img.UStride + col*8
+	vOff := row*8*img.VStride + col*8
+	is4x4 := mode.Is4x4 || mode.Mode == vp8common.SplitMV
+	vp8dec.DequantIDCTAddMacroblockCoefficients(&coeffs.QCoeff, &coeffs.EOB, dequant, is4x4, img.Y[yOff:], img.YStride, img.U[uOff:], img.UStride, img.V[vOff:], img.VStride)
+	return true
+}
+
 func reconstructAnalysisMacroblock(img *vp8common.Image, row int, col int, mode *vp8dec.MacroblockMode, tokens *vp8dec.MacroblockTokens, dequant *vp8common.MacroblockDequant, scratch *vp8dec.IntraReconstructionScratch) bool {
 	refs := vp8dec.BuildIntraPredictorRefs(img, row, col, &scratch.Refs)
 	yOff := row*16*img.YStride + col*16
