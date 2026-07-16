@@ -1,18 +1,67 @@
-# govpx
+# govpx — VP8 & VP9 in pure Go
 
 [![CI](https://github.com/thesyncim/govpx/actions/workflows/ci.yml/badge.svg)](https://github.com/thesyncim/govpx/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/govpx.svg)](https://pkg.go.dev/github.com/thesyncim/govpx)
+[![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/govpx)](https://goreportcard.com/report/github.com/thesyncim/govpx)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-Pure-Go VP8 plus VP9 Profile 0 codec APIs for raw VPx payloads.
+**A production-grade VP8 and VP9 Profile 0 encoder + decoder written entirely
+in Go — validated byte-for-byte against libvpx, with no cgo and no runtime
+dependencies.**
 
-govpx is for Go programs that need VP8 or VP9 Profile 0 support without
-cgo and without a libvpx runtime dependency. It produces and consumes raw VP8
-frame payloads and raw VP9 Profile 0 packets for RTP/WebRTC-compatible
-transport.
+govpx is for Go programs that need real VP8/VP9 support — WebRTC senders,
+SFUs, media servers, transcoders, recorders — without linking C. It produces
+and consumes raw VP8 frame payloads and raw VP9 Profile 0 packets for
+RTP/WebRTC-compatible transport, and ships the full realtime toolbox libvpx
+users expect: CBR rate control, frame dropping, temporal denoising, temporal
+and spatial SVC, ROI/active maps, two-pass encoding, and multithreaded
+encode/decode.
 
-`UPSTREAM.md` is the authoritative scope statement: VP9 scope is Profile 0
-only, RTP/WebRTC payload compatibility is in scope for both VP8 and VP9, and
-validation uses pinned libvpx v1.16.0 as the oracle.
+## Why govpx
+
+- **Correct, provably.** Development is oracle-driven against pinned libvpx
+  v1.16.0: VP8 encoder output is **byte-identical** to libvpx across the
+  repository's pinned parity matrices (rate control, dropping, denoising,
+  segmentation, SVC, error resilience, …). The VP9 decoder passes the full
+  official conformance corpus, and VP9 realtime encode tracks libvpx
+  byte-exactly on the pinned production fixtures. Every hot-path change lands
+  behind byte-parity gates.
+- **Pure Go.** No cgo, no shared libraries, no build headaches. Cross-compile
+  a static media server for any GOOS/GOARCH with a plain `go build`. A
+  `-tags purego` build drops even govpx's own assembly.
+- **Fast.** Hand-written NEON (arm64) and SSE (amd64) kernels, profile-guided
+  optimization, allocation-free steady state, and libvpx-shaped threading:
+  VP8 row multithreading, VP9 tile-column + row-based encoder MT, and
+  row-based decoder MT with a threaded loop filter. See the numbers below.
+- **Realtime-first.** The encoder mirrors the libvpx configuration WebRTC
+  stacks actually use, and the library includes RFC 7741 / RFC 9628 RTP
+  packetizers and assemblers, SDP negotiation helpers, and a stateful VP9
+  WebRTC packetizer that keeps browsers' dependency tracking happy across
+  dropped frames.
+
+## Performance
+
+720p realtime, 30 fps, 2.5 Mbps CBR, `cpu-used=8`, Apple M4 Max, Go 1.26.3,
+measured 2026-07-16 against libvpx v1.16.0's own reported encode times
+(identical output bytes and drop topology in every encode row):
+
+| Workload | govpx | libvpx (C + asm) | gap |
+| --- | --- | --- | --- |
+| VP8 encode, 1 thread | 7.3 ms/frame | 5.4 ms/frame | 1.36× |
+| VP9 encode, 1 thread | 10.3 ms/frame | 5.5 ms/frame | 1.87× |
+| VP9 encode, 8 threads row-MT | 2.6 ms/frame | 1.3 ms/frame | 2.0× |
+| VP8 decode | 1.8 ms/frame | 1.6 ms/frame | 1.17× |
+| VP9 decode | 1.9 ms/frame | 1.4 ms/frame | 1.31× |
+
+Quality on the same runs: VP8 PSNR/SSIM deltas are exactly 0 (byte-identical
+streams); VP9 measures −0.05 dB PSNR / +0.00002 SSIM at identical output size
+and identical encoded/dropped topology.
+
+Benchmark numbers depend on hardware, content, and configuration — reproduce
+them for your workload with the bundled tool (see
+[Benchmarking](#benchmarking)). The speed gap is an active engineering front;
+see `docs/perf-phase3-structural-plan.md` for the measured optimization
+program.
 
 ## Install
 
@@ -96,11 +145,36 @@ Profile 0 packets and valid Profile 0 superframes only.
 | --- | --- |
 | Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, VP9 target-level constraints, frame dropping, buffer model, min/max quantizers, max intra bitrate |
 | Realtime controls | Error resilience, temporal/spatial scalability signaling, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
-| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless` / `SetLossless`, multi-threaded VP8 row encode, VP9 tile-column threading controls |
+| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless` / `SetLossless`, multi-threaded VP8 row encode, VP9 tile-column and row-MT threading controls |
 
 Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
 while frames are queued. Call `FlushInto` at end of stream until it
 returns no more data.
+
+## Correctness and validation
+
+govpx treats libvpx v1.16.0 as a pinned oracle (`UPSTREAM.md` is the
+authoritative scope statement). The repository gates enforce:
+
+- **VP8 encoder byte parity** — pinned stream-SHA matrices across rate
+  control, frame dropping, denoising, segmentation, cyclic refresh, temporal
+  SVC, error resilience, and runtime-control sequences, all compared against
+  an instrumented libvpx vpxenc oracle.
+- **VP9 decoder conformance** — the official Profile 0 vector corpus decodes
+  bit-exactly across thread counts {1, 2, 4, 8}, including tile and row-MT
+  paths, invalid-stream rejection, and unsupported-profile handling.
+- **VP9 encoder parity** — realtime (non-RD) encode paths are byte-exact on
+  pinned production fixtures across thread counts; quality fixtures gate
+  PSNR/SSIM against libvpx on every CI run.
+- **Determinism** — multithreaded encode output is pinned byte-identical
+  across thread counts on the production option grid.
+- **Allocation discipline** — steady-state `EncodeInto` / `Decode` paths are
+  enforced allocation-free by tests.
+- **Fuzzing** — differential fuzzers run govpx against libvpx for both
+  decoders and the VP8 boolean coder; corpus regressions are pinned as seeds.
+
+Run `make ci` locally for the standard gate, `make verify-production` for the
+full oracle/parity lane. See `docs/validation.md` for the complete gate map.
 
 ## API Map
 
@@ -259,6 +333,8 @@ VP8 through pion/webrtc to a browser.
 - `docs/codec-status.md`: supported VP8/VP9 scope and out-of-scope features.
 - `docs/validation.md`: local, CI, oracle, fuzz, allocation, and performance
   gates.
+- `docs/perf-phase3-structural-plan.md`: the live speed-vs-libvpx engineering
+  program with per-change measurements.
 - `UPSTREAM.md`: pinned libvpx baseline and compatibility scope.
 
 ## Benchmarking
@@ -276,6 +352,12 @@ By default the encode benchmark compares against libvpx when
 let the bench build the pinned tools when no binary is found. Decoder
 reference timing uses `govpx-vpx-oracle` only in `-decode` mode.
 
+The table in [Performance](#performance) was produced with this tool at
+`-width=1280 -height=720 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8`
+(VP9 MT rows add `-threads=8 -row-mt -noise-sensitivity=0`). Reproduce on
+the Go version, CPU, frame size, bitrate, deadline, thread count, and build
+tags that match your workload before drawing conclusions.
+
 Plotting is optional and requires an ffmpeg binary with both the
 `libvpx` encoder and the `libvmaf` filter:
 
@@ -289,10 +371,6 @@ go run ./cmd/govpx-bench \
 The plot path encodes the libvpx reference with `ffmpeg -c:v libvpx`,
 scores govpx and libvpx with ffmpeg's `libvmaf`, `psnr`, and `ssim`
 filters, and writes an SVG plus sibling CSV/JSON files.
-
-README numbers are not performance data. Measure on the Go version, CPU,
-frame size, bitrate, deadline, thread count, and build tags that match
-your workload.
 
 `cmd/govpx-bench/default.pgo` is checked in intentionally so `go build`'s
 default `-pgo=auto` picks it up for the benchmark command. Refresh it
