@@ -1239,6 +1239,24 @@ agent report "VP8 encode recon redesign"; key verified facts:
   staging for the picker's own scoring reads (contiguous stride-16 source
   view) is now purely a locality play with no copy elimination attached;
   re-adjudicate only with a fresh profile showing source-side read misses.
+- Token/packet-write front status, 2026-07-16: writePreparedCoefficientTokenRecords
+  already runs libvpx's vp8_pack_tokens shape — one pass over compact
+  4-byte prepared records with bool-coder state (low/range/count/pos) held
+  in locals for the whole row slice, vp8_norm via CLZ, and per-token
+  probability rows resolved by precomputed offset (cheaper than libvpx's
+  16-byte TOKENEXTRA with its context_tree pointer). A side-by-side read
+  of bitstream.c found no structural difference left to port; the
+  remaining cost is intrinsic bool-coder arithmetic. After the extra-bit
+  pointer-load tweak, the fresh post-slice profile attributes 0.13 s cum
+  (~0.27 ms/f) to the writer, down from 0.19 s. The prior one-shot grid
+  writer rejection stands; treat this front as at shape parity unless a
+  future profile shows the writer regressing.
+- Fresh 480-frame profile after the two 2026-07-16 safe points
+  (7.26 ms/f sampled run): runtime.memmove fell from 0.15 s to 0.06 s
+  (the eliminated staging sweep), the MB walk is 1.56 s cum (50.5%), the
+  denoise picker 0.58 s cum, coefficient build 0.32 s cum, LF kernels
+  ~25% (parity). The largest remaining govpx-vs-libvpx deltas now live in
+  picker candidate scoring flat cost and the coefficient-build pipeline.
 - B3 status note (2026-07-16): the subpel eval path already routes through
   the fused one-axis/bilinear NEON subpel-variance kernels
   (subpelVariance16x16{Horizontal,Vertical,Bilinear}NEON behind
