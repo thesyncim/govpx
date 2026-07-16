@@ -200,7 +200,7 @@ func runBenchmark(cfg benchConfig) (benchReport, error) {
 func sampleVP8EncodeMallocs(enc *govpx.VP8Encoder, packet []byte, frames []govpx.Image) (uint64, error) {
 	const samplePasses = 5
 	best := ^uint64(0)
-	for pass := 0; pass < samplePasses; pass++ {
+	for range samplePasses {
 		enc.Reset()
 		runtime.GC()
 		var memBefore runtime.MemStats

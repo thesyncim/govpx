@@ -562,7 +562,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
 	modeCostCtx := vp9InterModeCostFrameContext(inter)
 	var interpFilterRateCost [int(vp9dec.InterpSwitchable)]int
-	for filter := vp9dec.InterpFilter(0); filter < vp9dec.InterpSwitchable; filter++ {
+	for filter := range vp9dec.InterpSwitchable {
 		interpFilterRateCost[filter] = vp9InterInterpFilterRateCost(inter,
 			modeCostCtx, switchableCtx, filter)
 	}
@@ -2004,7 +2004,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	preIntraPredIdx := -1
 	var preIntraCapture *vp9NonrdPredBuffer
 	if usePredBufferPool && bestModePredIdx == 3 {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			if !predBuffers[i].inUse {
 				preIntraPredIdx = i
 				preIntraCapture = &predBuffers[i]

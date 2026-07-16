@@ -7,10 +7,10 @@ import (
 )
 
 func TestVP9BlockCoeffOffsetCompactsEveryTxLayout(t *testing.T) {
-	for bsize := common.Block4x4; bsize < common.BlockSizes; bsize++ {
+	for bsize := range common.BlockSizes {
 		w := int(common.Num4x4BlocksWideLookup[bsize])
 		h := int(common.Num4x4BlocksHighLookup[bsize])
-		for tx := common.Tx4x4; tx < common.TxSizes; tx++ {
+		for tx := range common.TxSizes {
 			step := 1 << uint(tx)
 			if w%step != 0 || h%step != 0 {
 				continue

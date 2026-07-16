@@ -94,7 +94,7 @@ func TestStageCoefBlockPackMatchesDirectWriter(t *testing.T) {
 
 func TestCoefEOBTokenMatchesStagedAllZeroBlock(t *testing.T) {
 	stats := FrameCoefBranchStats{}
-	for tx := common.Tx4x4; tx < common.TxSizes; tx++ {
+	for tx := range common.TxSizes {
 		for planeType := range vp9dec.CoefPlaneTypes {
 			for initCtx := range vp9dec.CoefContexts {
 				directStats := FrameCoefBranchStats{}

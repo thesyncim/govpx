@@ -223,15 +223,14 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		return
 	}
 
-	mcMode := vp8enc.InterFrameMacroblockMode{
+	decMode := vp8dec.MacroblockMode{
 		RefFrame:    frame,
 		Mode:        mode,
-		MV:          mv,
+		MV:          vp8dec.MotionVector{Row: mv.Row, Col: mv.Col},
 		UVMode:      vp8common.DCPred,
+		Is4x4:       mode == vp8common.SplitMV,
 		MBSkipCoeff: true,
 	}
-	var decMode vp8dec.MacroblockMode
-	vp8enc.ConvertInterFrameMode(&mcMode, &decMode)
 	var zeroTokens vp8dec.MacroblockTokens
 	mcY := e.denoiser.mcY[:]
 	mcU := e.denoiser.mcU[:]

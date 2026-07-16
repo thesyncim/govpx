@@ -220,7 +220,7 @@ func stampCoefContextsAt(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOf
 func stampCoefContextBytes(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, n int, v uint8) {
 	abovePtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(aboveCtx)), uintptr(aboveOff))
 	leftPtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(leftCtx)), uintptr(leftOff))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		*(*uint8)(unsafe.Add(abovePtr, uintptr(i))) = v
 		*(*uint8)(unsafe.Add(leftPtr, uintptr(i))) = v
 	}

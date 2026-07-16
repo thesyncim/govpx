@@ -161,14 +161,8 @@ func avgSourceSAD64(args AvgSourceSADArgs, x0, y0 int) (sad, variance, sse uint6
 		return sad, variance, sse
 	}
 
-	visibleRows := args.Height - y0
-	if visibleRows > 64 {
-		visibleRows = 64
-	}
-	visibleCols := args.Width - x0
-	if visibleCols > 64 {
-		visibleCols = 64
-	}
+	visibleRows := min(args.Height-y0, 64)
+	visibleCols := min(args.Width-x0, 64)
 	rightRepeat := 64 - visibleCols
 	var sum int64
 	for y := range visibleRows {

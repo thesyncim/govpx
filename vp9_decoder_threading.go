@@ -109,15 +109,15 @@ func (d *VP9Decoder) applyVP9LoopFilterThreaded(miRows, miCols, width int) bool 
 		}
 	}
 	helpers := workers - 1
-	for worker := 0; worker < helpers; worker++ {
+	for worker := range helpers {
 		p.start[worker] <- struct{}{}
 	}
 	runVP9EncodeLfJob(&p.jobs[0])
-	for worker := 0; worker < helpers; worker++ {
+	for worker := range helpers {
 		<-p.done[worker]
 	}
 	ok := true
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		ok = ok && p.jobs[i].ok
 	}
 	return ok

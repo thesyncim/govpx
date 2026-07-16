@@ -132,10 +132,7 @@ func MvPredScanCandidates(
 	blockW, blockH int,
 ) MvPredResult {
 	var fixed [MvPredMaxCandidates]MvPredInputCandidate
-	n := numMvRefs
-	if n > len(candidates) {
-		n = len(candidates)
-	}
+	n := min(numMvRefs, len(candidates))
 	if n > MvPredMaxCandidates {
 		n = MvPredMaxCandidates
 	}

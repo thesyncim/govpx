@@ -30,8 +30,8 @@ func TestWriteCoefSbCompactSidecarMatchesCallbacks(t *testing.T) {
 			pbsize := vp9dec.GetPlaneBlockSize(common.Block8x8, &planes[plane])
 			w := int(common.Num4x4BlocksWideLookup[pbsize])
 			h := int(common.Num4x4BlocksHighLookup[pbsize])
-			for r := 0; r < h; r++ {
-				for c := 0; c < w; c++ {
+			for r := range h {
+				for c := range w {
 					off := (r*w + c) * 16
 					qcoeffs[plane][off] = int16(plane + r + c + 1)
 					eobs[plane][r*w+c] = 1

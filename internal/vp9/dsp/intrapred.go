@@ -68,7 +68,7 @@ func hPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 }
 
 func hPredictor4(dst []uint8, stride int, left []uint8) {
-	for r := 0; r < 4; r++ {
+	for r := range 4 {
 		row := dst[r*stride:]
 		_ = row[3]
 		v := left[r]
@@ -77,7 +77,7 @@ func hPredictor4(dst []uint8, stride int, left []uint8) {
 }
 
 func hPredictor8(dst []uint8, stride int, left []uint8) {
-	for r := 0; r < 8; r++ {
+	for r := range 8 {
 		row := dst[r*stride:]
 		_ = row[7]
 		v := left[r]
@@ -87,7 +87,7 @@ func hPredictor8(dst []uint8, stride int, left []uint8) {
 }
 
 func hPredictor16(dst []uint8, stride int, left []uint8) {
-	for r := 0; r < 16; r++ {
+	for r := range 16 {
 		row := dst[r*stride:]
 		_ = row[15]
 		v := left[r]
@@ -99,7 +99,7 @@ func hPredictor16(dst []uint8, stride int, left []uint8) {
 }
 
 func hPredictor32(dst []uint8, stride int, left []uint8) {
-	for r := 0; r < 32; r++ {
+	for r := range 32 {
 		row := dst[r*stride:]
 		_ = row[31]
 		v := left[r]

@@ -6,6 +6,7 @@ import (
 	govpx "github.com/thesyncim/govpx"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -234,13 +235,7 @@ func TestLibvpxVP9ParityFlagsMirrorRowMT(t *testing.T) {
 	}
 	parity := parityFor(cfg)
 	flags := libvpxVP9ParityFlags(cfg, parity, "--rt")
-	found := false
-	for _, flag := range flags {
-		if flag == "--row-mt=1" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(flags, "--row-mt=1")
 	if !found {
 		t.Fatalf("vp9 parity flags missing --row-mt=1\nhave: %v", flags)
 	}

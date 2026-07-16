@@ -10,12 +10,12 @@ import (
 
 func TestVP9NonrdPredBufferPoolOwnership(t *testing.T) {
 	var pool [4]vp9NonrdPredBuffer
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pool[i].data = make([]byte, 64)
 		pool[i].stride = 8
 	}
 
-	for want := 0; want < 3; want++ {
+	for want := range 3 {
 		if got := vp9NonrdGetPredBuffer(&pool); got != want {
 			t.Fatalf("get %d = %d, want %d", want, got, want)
 		}

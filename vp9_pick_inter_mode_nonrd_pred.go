@@ -13,7 +13,7 @@ type vp9NonrdPredBuffer struct {
 }
 
 func vp9NonrdGetPredBuffer(p *[4]vp9NonrdPredBuffer) int {
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if !p[i].inUse {
 			p[i].inUse = true
 			return i
