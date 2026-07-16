@@ -28,8 +28,17 @@ func vp9NonrdFreePredBuffer(p *[4]vp9NonrdPredBuffer, idx int) {
 	}
 }
 
+// vp9NonrdReuseInterPredReady is the govpx analogue of libvpx's
+// `cpi->sf.reuse_inter_pred_sby && ctx->pred_pixel_ready` gate
+// (vp9_pickmode.c:1747, vp9_encodeframe.c:6073). ctx->pred_pixel_ready is
+// walker-owned state in libvpx (PICK_MODE_CONTEXT), seeded by whichever
+// partition dispatch calls nonrd_pick_sb_modes; commitLeaf carries the
+// nonrd_use_partition walker seed from govpx's writer (true exactly for the
+// >=8x8 leaf commits of the partition walk, false for partition-search
+// probes and sub-8x8 wrapper picks).
 func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 	miRows, miCols, miRow, miCol int, bsize common.BlockSize,
+	commitLeaf bool,
 ) bool {
 	if e.sf.ReuseInterPredSby == 0 || bsize < common.Block8x8 ||
 		bsize >= common.BlockSizes {
@@ -55,26 +64,17 @@ func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 		// partition tree, then nonrd_use_partition walks it and seeds
 		// ctx->pred_pixel_ready = 1 before EVERY >=8x8 leaf pick — the
 		// PARTITION_NONE / VERT / HORZ cases at vp9_encodeframe.c:5019,
-		// 5030, 5040, 5052, 5063. The only leaf pick without the seed is
-		// the bsize==BLOCK_8X8 PARTITION_SPLIT (sub-8x8) case at
-		// vp9_encodeframe.c:5078-5082, whose grid stamp is BLOCK_4X4 and
-		// therefore never matches bsize here (bsize < Block8x8 already
-		// returned false above). choose_partitioning stamps the top-left
-		// mi of every terminal leaf — both rect halves included — via
-		// set_block_size (vp9_encodeframe.c:340, set_vt_partitioning), so
-		// SbType == bsize at (miRow, miCol) identifies exactly the leaf
-		// visits of that walk.
-		if !e.varPartFrameValid || len(e.varPartGrid) == 0 {
-			return false
-		}
-		idx := miRow*miCols + miCol
-		if miRows <= 0 || miCols <= 0 || miRow < 0 || miCol < 0 ||
-			miRow >= miRows || miCol >= miCols ||
-			idx < 0 || idx >= len(e.varPartGrid) ||
-			e.varPartGrid[idx].SbType != bsize {
-			return false
-		}
-		return true
+		// 5030, 5040, 5052, 5063 — for interior stamps and clipped
+		// frame-edge leaves alike; the seed never re-consults the mi-grid
+		// stamp. The only leaf pick without the seed is the bsize==
+		// BLOCK_8X8 PARTITION_SPLIT (sub-8x8) case at vp9_encodeframe.c:
+		// 5078-5082, and vp9_pick_inter_mode_sub8x8 forces
+		// ctx->pred_pixel_ready = 0 anyway (vp9_pickmode.c:2776).
+		// commitLeaf is exactly that walker signal, so the previous
+		// grid-stamp re-derivation (which missed partial-SB frame-edge
+		// leaves whose geometry comes from the walker's clipped dispatch
+		// rather than a stamped cell) is not consulted here.
+		return commitLeaf
 	}
 	if e.sf.PartitionSearchType != MlBasedPartition {
 		return false

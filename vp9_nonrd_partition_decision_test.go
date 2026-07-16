@@ -191,49 +191,53 @@ func TestVP9ReferencePartitionPredPixelReadyDirectLeaves(t *testing.T) {
 		common.Block32x64,
 	} {
 		setGrid(bsize, true)
-		if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, bsize) {
+		if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, bsize, true) {
 			t.Fatalf("ReferencePartition %v pred_pixel_ready = false, want true for direct nonrd_select_partition leaf", bsize)
 		}
 	}
 
 	setGrid(common.Block32x32, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block32x32) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block32x32, true) {
 		t.Fatal("ReferencePartition Block32x32 pred_pixel_ready = true, want false because libvpx delegates it to nonrd_pick_partition")
 	}
 
 	setGrid(common.Block64x64, false)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64, true) {
 		t.Fatal("ReferencePartition without a valid var-part frame marked pred_pixel_ready")
 	}
 
 	setGrid(common.Block32x32, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64, true) {
 		t.Fatal("ReferencePartition mismatched var-part leaf marked pred_pixel_ready")
 	}
 
 	e.sf.ReuseInterPredSby = 0
 	setGrid(common.Block64x64, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64, true) {
 		t.Fatal("ReferencePartition with ReuseInterPredSby=0 marked pred_pixel_ready")
 	}
 
 	e.sf.ReuseInterPredSby = 1
 	e.sf.PartitionSearchType = MlBasedPartition
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64, true) {
 		t.Fatal("ML partition without ML context marked pred_pixel_ready")
 	}
 }
 
 // TestVP9VarBasedPartitionPredPixelReadyLeaves pins the VAR_BASED_PARTITION
-// reuse gate to libvpx nonrd_use_partition: every >=8x8 stamped leaf gets
-// ctx->pred_pixel_ready = 1 (vp9_encodeframe.c:5019/5030/5040/5052/5063);
-// sub-8x8 splits (grid stamp BLOCK_4X4) and unstamped/mismatched cells do not.
+// reuse gate to libvpx nonrd_use_partition: EVERY >=8x8 leaf pick of the
+// partition walk gets ctx->pred_pixel_ready = 1
+// (vp9_encodeframe.c:5019/5030/5040/5052/5063) — the seed comes from the
+// walker, never from re-consulting the mi-grid stamp, so clipped frame-edge
+// leaves (whose geometry the walker derives without a matching stamp) reuse
+// too. Sub-8x8 wrapper picks and partition-search probes (commitLeaf=false)
+// do not (vp9_pickmode.c:2776).
 func TestVP9VarBasedPartitionPredPixelReadyLeaves(t *testing.T) {
 	e := &VP9Encoder{}
 	e.sf.ReuseInterPredSby = 1
 	e.sf.PartitionSearchType = VarBasedPartition
 
-	const miRows, miCols = 8, 8
+	const miRows, miCols = 12, 8
 	setGrid := func(miRow, miCol int, bsize common.BlockSize, valid bool) {
 		e.varPartFrameValid = valid
 		e.varPartGrid = make([]vp9dec.NeighborMi, miRows*miCols)
@@ -257,35 +261,37 @@ func TestVP9VarBasedPartitionPredPixelReadyLeaves(t *testing.T) {
 	} {
 		setGrid(tc.miRow, tc.miCol, tc.bsize, true)
 		if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols,
-			tc.miRow, tc.miCol, tc.bsize) {
+			tc.miRow, tc.miCol, tc.bsize, true) {
 			t.Fatalf("VarBasedPartition %v at (%d,%d) pred_pixel_ready = false, want true (nonrd_use_partition leaf)",
 				tc.bsize, tc.miRow, tc.miCol)
 		}
 	}
 
-	// bsize==BLOCK_8X8 with a sub-8x8 grid stamp routes through the
-	// leaf_split case that never seeds pred_pixel_ready.
-	setGrid(0, 0, common.Block4x4, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block8x8) {
-		t.Fatal("VarBasedPartition sub-8x8 split leaf marked pred_pixel_ready")
+	// Clipped frame-edge leaf: the walker commits a 32x16 strip at the
+	// partial bottom SB row without a matching grid stamp (the stamp stays
+	// at the zero-init BLOCK_4X4). libvpx still seeds pred_pixel_ready = 1
+	// for it — the PARTITION_HORZ case reads the walker's clipped dispatch,
+	// not the stamp.
+	setGrid(0, 0, common.Block64x64, true) // stamp elsewhere; (8,0) unstamped
+	if !e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 8, 0,
+		common.Block32x16, true) {
+		t.Fatal("VarBasedPartition clipped frame-edge leaf (unstamped cell) not marked pred_pixel_ready")
 	}
 
-	// Mismatched stamp: the pick is not at this walk's leaf size.
-	setGrid(0, 0, common.Block32x32, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
-		t.Fatal("VarBasedPartition mismatched var-part leaf marked pred_pixel_ready")
-	}
-
-	// Stale/unstamped frame grid.
-	setGrid(0, 0, common.Block64x64, false)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
-		t.Fatal("VarBasedPartition without a valid var-part frame marked pred_pixel_ready")
+	// Sub-8x8 wrapper picks and partition-search probes carry
+	// commitLeaf=false (vp9_pick_inter_mode_sub8x8 forces
+	// ctx->pred_pixel_ready = 0; probes never receive the walker seed).
+	setGrid(0, 0, common.Block64x64, true)
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0,
+		common.Block64x64, false) {
+		t.Fatal("VarBasedPartition non-commit pick marked pred_pixel_ready")
 	}
 
 	// Speed feature off.
 	e.sf.ReuseInterPredSby = 0
 	setGrid(0, 0, common.Block64x64, true)
-	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0, common.Block64x64) {
+	if e.vp9NonrdReuseInterPredReady(nil, miRows, miCols, 0, 0,
+		common.Block64x64, true) {
 		t.Fatal("VarBasedPartition with ReuseInterPredSby=0 marked pred_pixel_ready")
 	}
 }

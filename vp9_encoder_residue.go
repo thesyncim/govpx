@@ -567,7 +567,15 @@ func (e *VP9Encoder) prepareVP9InterPredictionBlock(inter *vp9InterEncodeState,
 		}
 		pickedValid = true
 	} else if decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, bsize); ok {
+		miRow, miCol, bsize,
+		// libvpx nonrd_use_partition seeds ctx->pred_pixel_ready = 1 before
+		// every >=8x8 leaf pick (vp9_encodeframe.c:5019/5030/5040/5052/5063);
+		// the sub-8x8 leaf_split pick never gets the seed and
+		// vp9_pick_inter_mode_sub8x8 forces it to 0 (vp9_pickmode.c:2776).
+		// This callsite is exactly the walker's leaf commit: mi.SbType is the
+		// leaf's true coded size (bsize is the recon-clamped VPXMAX(bsize,
+		// BLOCK_8X8) unit), so the seed is SbType >= BLOCK_8X8.
+		mi.SbType >= common.Block8x8); ok {
 		picked = decision
 		mi.Mode = decision.mode
 		mi.Mv = decision.mv

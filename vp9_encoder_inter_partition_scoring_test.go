@@ -258,19 +258,19 @@ func TestVP9EncoderInterPartitionScoringUsesPriorChildContext(t *testing.T) {
 	}
 	tile := vp9dec.TileBounds{MiRowStart: 0, MiRowEnd: 8, MiColStart: 0, MiColEnd: 8}
 	first, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
-		0, 0, common.Block32x64)
+		0, 0, common.Block32x64, false)
 	if !ok {
 		t.Fatal("first child inter mode returned !ok")
 	}
 	withoutContext, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
-		0, 4, common.Block32x64)
+		0, 4, common.Block32x64, false)
 	if !ok {
 		t.Fatal("second child without context returned !ok")
 	}
 	e.fillVP9MiGrid(8, 8, 0, 0, common.Block32x64,
 		vp9InterModeDecisionMi(common.Block32x64, first))
 	withContext, ok := e.pickVP9InterReferenceMode(inter, tile, 8, 8,
-		0, 4, common.Block32x64)
+		0, 4, common.Block32x64, false)
 	if !ok {
 		t.Fatal("second child with context returned !ok")
 	}

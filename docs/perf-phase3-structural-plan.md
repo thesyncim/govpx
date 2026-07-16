@@ -926,8 +926,59 @@ Target: 13.6 → ~9.4-10.2 ms/f (~1.6-1.7x). Full blueprint: agent report
   the picker: candidate prediction is now ctx-predict ->
   InterPredictorWithScratch plus one variance leaf. Remaining: the
   intra-winner predictor carry (twice-rejected, needs the reconstructed tx
-  chain), commit-side winner reuse at the pick/commit boundary, and
+  chain), commit-side winner reuse at the pick/commit boundary (CLOSED
+  2026-07-16, see the reuse_inter_pred boundary note below), and
   sub-8x8/scaled candidates on the legacy route.
+- Measurement note, 2026-07-16 (reuse_inter_pred pick/commit boundary
+  closure): audited the boundary against libvpx ground truth before touching
+  it. libvpx semantics: `sf->reuse_inter_pred_sby = 1` at rt speed >= 5
+  (vp9_speed_features.c:609); `reuse_inter_pred = sf->reuse_inter_pred_sby &&
+  ctx->pred_pixel_ready` (vp9_pickmode.c:1747); pred_pixel_ready is
+  WALKER-owned PICK_MODE_CONTEXT state — nonrd_use_partition seeds 1 before
+  EVERY >=8x8 leaf pick (vp9_encodeframe.c:5019/5030/5040/5052/5063), the
+  sub-8x8 leaf_split pick never gets it and vp9_pick_inter_mode_sub8x8
+  forces 0 (vp9_pickmode.c:2776); at the pick tail the retained best_pred is
+  vpx_convolve_copy'd into pd->dst when not already aliasing it
+  (vp9_pickmode.c:2668-2684); encode_superblock then skips ONLY the luma
+  rebuild — `if (!(sf.reuse_inter_pred_sby && ctx->pred_pixel_ready) ||
+  seg_skip) vp9_build_inter_predictors_sby` (vp9_encodeframe.c:6073) — and
+  ALWAYS rebuilds chroma (sbuv). Instrumented counters on the cpu8 720p 1T
+  denoise spot showed the boundary handoff (lumaPredReady, landed 6e4be836
+  and preserved by the PRED_BUFFER restructure) already consumed the
+  picker-retained winner for 98% of inter commits (637,167 reuse / 12,840
+  rebuilds / 120f); ALL 12,840 rebuilds were one class: clipped frame-edge
+  leaves (the 40 Block32x16 strips at mi row 88 of the partial bottom SB
+  row), where the VarBased gate re-derived pred_pixel_ready from the
+  choose_partitioning grid stamp — an invented derivation; the walker's edge
+  geometry comes from the clipped dispatch, not a stamped cell, and libvpx
+  seeds those leaves like any other. Fix: thread the walker's leaf-commit
+  seed (`commitLeaf`, the PICK_MODE_CONTEXT analogue) from the writer's leaf
+  commit (SbType >= BLOCK_8X8 at prepareVP9InterPredictionBlock) through
+  pickVP9InterReferenceMode(NonRD) into the gate; the VarBased branch now
+  returns exactly that seed and the grid re-derivation is gone
+  (partition-search probes pass false; ReferencePartition/ML branches keep
+  their conservative select/pick-partition models). Post-fix counters:
+  rebuild = 0 for all inter-winner commits. Byte pins exact on every lane —
+  1T 120/240/480f at 1,235,511 / 2,483,072 / 4,983,461 (native AND purego),
+  t2 1,236,273, t4 1,234,903 (repeat-run deterministic), 8T row-mt denoise
+  1,235,979, 4T no-denoise 1,236,037; allocs/frame 0.6333. Oracle stream
+  matrix failing-row set IDENTICAL to base (49 PASS / 1 pre-existing
+  fixed-q-rt-cpu0-constant red on both). Seven interleaved 240f 1T pairs on
+  the loaded host: medians 11.005 -> 11.018 ms/f, candidate 2/7 pairwise —
+  split = neutral, as expected for ~0.7% of blocks (one 32x16 luma convolve
+  x40/frame); the commit is fidelity closure, not a wall win. New gates: the
+  gate unit test re-pinned to walker-seed semantics (incl. an unstamped
+  clipped-edge leaf case), and an end-to-end
+  TestVP9NonrdReuseInterPredReconMatchesDecoder pins encoder recon ==
+  decoder recon byte-for-byte at 144x80 (16px bottom-strip geometry) and
+  128x128 — the decoder always rebuilds prediction, so any drift in a
+  reused predictor fails it. Remaining at the boundary: chroma is rebuilt at
+  commit BY DESIGN (libvpx sbuv); intra winners re-predict at encode
+  (libvpx-verbatim, and the intra-winner carry stays twice-rejected);
+  sub-8x8 stays on the rebuild path (libvpx forces 0); ReferencePartition
+  delegated subtrees and ML probe seeds remain conservatively false vs
+  libvpx's nonrd_pick_partition rect-probe seeds (reuse there is
+  dataflow-only, no byte risk, but unported).
 - CORRECTION to phase-2: libvpx `estimate_block_intra` DOES call block_yrd —
   the intra-fallback row is mostly legitimate work, not waste.
 
@@ -966,8 +1017,11 @@ compact buffers plus dst as libvpx's fourth PRED_BUFFER including final and
 pre-intra ownership handoff, the ML partition lane uses the same pool with
 SB-local `pickPred` as dst, and the prepared per-(block, ref) context now
 makes every luma/chroma candidate a direct clamp/convolve from the
-persistent padded (luma) or visible (chroma) reference into those buffers —
-leaving intra-winner pred carry at −0.2..0.4); A6
+persistent padded (luma) or visible (chroma) reference into those buffers;
+2026-07-16 the pick/commit winner handoff is CLOSED — commit-time luma
+rebuilds are 0 for inter winners after the walker-seeded pred_pixel_ready
+port, clipped frame-edge leaves included — leaving intra-winner pred carry
+at −0.2..0.4); A6
 subpel direct on padded refs + bare
 vp9_xform_quant_fp commit with skipTxfm consumption (PARTIAL 2026-07-11:
 realtime inter FP commit bypasses the trellis-capable wrapper, writes q/dq

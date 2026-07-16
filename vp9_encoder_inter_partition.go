@@ -181,7 +181,7 @@ func (e *VP9Encoder) pickVP9InterPartitionBlockSize(inter *vp9InterEncodeState,
 		miRow, miCol)
 	defer e.restoreVP9MLPickPredSnapshot(pickPredSnap)
 	full, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, root)
+		miRow, miCol, root, false)
 	if !ok {
 		e.restoreVP9PartitionReconSnapshot(reconSnap)
 		inter.ref = savedRef
@@ -1347,7 +1347,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionLeaf(inter *vp9InterEncodeState,
 	bsize common.BlockSize,
 ) (vp9InterPartitionRD, bool) {
 	decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, bsize)
+		miRow, miCol, bsize, false)
 	if !ok {
 		return vp9InterPartitionRD{}, false
 	}
@@ -1855,7 +1855,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionPairShallow(inter *vp9InterEncodeStat
 		return 0, false
 	}
 	first, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow, miCol, child)
+		miRow, miCol, child, false)
 	if !ok {
 		e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 		return 0, false
@@ -1867,7 +1867,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionPairShallow(inter *vp9InterEncodeStat
 		return first.score, true
 	}
 	second, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-		miRow+rowOff, miCol+colOff, child)
+		miRow+rowOff, miCol+colOff, child, false)
 	if !ok {
 		e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 		return 0, false
@@ -1882,7 +1882,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeSta
 ) (uint64, bool) {
 	if child < common.Block8x8 {
 		decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-			miRow, miCol, child)
+			miRow, miCol, child, false)
 		if !ok {
 			return 0, false
 		}
@@ -1906,7 +1906,7 @@ func (e *VP9Encoder) scoreVP9InterPartitionSplitShallow(inter *vp9InterEncodeSta
 				continue
 			}
 			decision, ok := e.pickVP9InterReferenceMode(inter, tile, miRows, miCols,
-				miRow+rowOff, miCol+colOff, child)
+				miRow+rowOff, miCol+colOff, child, false)
 			if !ok {
 				e.restoreVP9MiRect(miRows, miCols, miRow, miCol, rows, cols, saved[:])
 				return 0, false

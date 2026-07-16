@@ -678,9 +678,13 @@ type vp9LeafInterRDDecisionEntry struct {
 	valid    bool
 }
 
+// commitLeaf mirrors libvpx's walker-seeded PICK_MODE_CONTEXT: true when the
+// call is the partition walker committing this >=8x8 leaf (the
+// nonrd_use_partition pred_pixel_ready = 1 seed feeding vp9_pick_inter_mode),
+// false for partition-search probes and sub-8x8 wrapper picks.
 func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize,
+	bsize common.BlockSize, commitLeaf bool,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil {
 		return vp9InterModeDecision{}, false
@@ -843,7 +847,7 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 			}
 		}
 		decision, ok := e.pickVP9InterReferenceModeNonRD(inter, tile,
-			miRows, miCols, miRow, miCol, bsize)
+			miRows, miCols, miRow, miCol, bsize, commitLeaf)
 		inter.refMask = savedRefMask
 		if ok {
 			best = decision

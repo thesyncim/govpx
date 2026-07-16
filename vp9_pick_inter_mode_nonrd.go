@@ -235,7 +235,7 @@ func (bp *vp9BestPickmode) reset() {
 // libvpx: vp9_pickmode.c:1696 vp9_pick_inter_mode.
 func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
-	bsize common.BlockSize,
+	bsize common.BlockSize, commitLeaf bool,
 ) (vp9InterModeDecision, bool) {
 	if inter == nil {
 		return vp9InterModeDecision{}, false
@@ -667,7 +667,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	var best vp9InterModeDecision
 
 	reuseInterPred := e.vp9NonrdReuseInterPredReady(inter, miRows, miCols,
-		miRow, miCol, bsize)
+		miRow, miCol, bsize, commitLeaf)
 	var reuseMLCtx *vp9MLPartitionContext
 	if e.sf.PartitionSearchType == MlBasedPartition {
 		reuseMLCtx = e.vp9MLPickPartitionEntry(inter, miRows, miCols,
