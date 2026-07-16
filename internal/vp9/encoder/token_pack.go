@@ -569,21 +569,37 @@ func packTokenBlockAndHasResidue(
 			bw.Write(0, uint32(probs[0]))
 			return hasResidue, c - start + 1, true
 		}
-		bw.Write(1, uint32(probs[0]))
-		for tok.Token == ZeroToken {
-			bw.Write(0, uint32(probs[1]))
+		if tok.Token == ZeroToken {
+			// Run head: fuse the not-EOB bit with the zero decision.
+			bw.WritePacked(0b10, uint32(probs[0])<<8|uint32(probs[1]), 2)
+			for {
+				c++
+				if c >= end {
+					return hasResidue, c - start, true
+				}
+				if c >= len(tokens) {
+					return false, 0, false
+				}
+				tok = tokens[c]
+				if tok.Token == EOSBToken || tok.Token == EobToken {
+					return false, 0, false
+				}
+				probs = stagedTokenProbs(fc, tok)
+				if tok.Token != ZeroToken {
+					break
+				}
+				bw.Write(0, uint32(probs[1]))
+			}
+			hasResidue = true
+			token := int(tok.Token)
+			if token < OneToken || token > Category6Tok {
+				panic("encoder: invalid staged VP9 coefficient token")
+			}
+			extra := int(tok.Extra)
+			writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
+				probs[1], probs[2])
 			c++
-			if c >= end {
-				return hasResidue, c - start, true
-			}
-			if c >= len(tokens) {
-				return false, 0, false
-			}
-			tok = tokens[c]
-			if tok.Token == EOSBToken || tok.Token == EobToken {
-				return false, 0, false
-			}
-			probs = stagedTokenProbs(fc, tok)
+			continue
 		}
 
 		hasResidue = true
@@ -592,8 +608,9 @@ func packTokenBlockAndHasResidue(
 			panic("encoder: invalid staged VP9 coefficient token")
 		}
 		extra := int(tok.Extra)
-		writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
-			probs[1], probs[2])
+		// Run head: fuse the not-EOB bit with the token body.
+		writePackedCoefTokenBodyWithNotEOB(bw, token, extra>>1, extra&1,
+			probs[0], probs[1], probs[2])
 		c++
 	}
 	return hasResidue, maxEob, true
@@ -616,19 +633,34 @@ func packTokenBlockAndHasResidueWindow(
 			bw.Write(0, uint32(probs[0]))
 			return hasResidue, consumed, true
 		}
-		bw.Write(1, uint32(probs[0]))
-		for tok.Token == ZeroToken {
-			bw.Write(0, uint32(probs[1]))
-			if len(tokens) == 0 {
-				return hasResidue, consumed, true
+		if tok.Token == ZeroToken {
+			// Run head: fuse the not-EOB bit with the zero decision.
+			bw.WritePacked(0b10, uint32(probs[0])<<8|uint32(probs[1]), 2)
+			for {
+				if len(tokens) == 0 {
+					return hasResidue, consumed, true
+				}
+				tok = tokens[0]
+				tokens = tokens[1:]
+				consumed++
+				if tok.Token == EOSBToken || tok.Token == EobToken {
+					return false, 0, false
+				}
+				probs = stagedTokenProbs(fc, tok)
+				if tok.Token != ZeroToken {
+					break
+				}
+				bw.Write(0, uint32(probs[1]))
 			}
-			tok = tokens[0]
-			tokens = tokens[1:]
-			consumed++
-			if tok.Token == EOSBToken || tok.Token == EobToken {
-				return false, 0, false
+			hasResidue = true
+			token := int(tok.Token)
+			if token < OneToken || token > Category6Tok {
+				panic("encoder: invalid staged VP9 coefficient token")
 			}
-			probs = stagedTokenProbs(fc, tok)
+			extra := int(tok.Extra)
+			writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
+				probs[1], probs[2])
+			continue
 		}
 
 		hasResidue = true
@@ -637,8 +669,9 @@ func packTokenBlockAndHasResidueWindow(
 			panic("encoder: invalid staged VP9 coefficient token")
 		}
 		extra := int(tok.Extra)
-		writePackedCoefTokenBodyAfterNotZero(bw, token, extra>>1, extra&1,
-			probs[1], probs[2])
+		// Run head: fuse the not-EOB bit with the token body.
+		writePackedCoefTokenBodyWithNotEOB(bw, token, extra>>1, extra&1,
+			probs[0], probs[1], probs[2])
 	}
 	return hasResidue, consumed, true
 }

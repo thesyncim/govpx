@@ -258,6 +258,80 @@ func writePackedCoefTokenBodyAfterNotZero(
 	}
 }
 
+// writePackedCoefTokenBodyWithNotEOB fuses the run-head not-EOB decision
+// (a 1 bit against notEOB, the EOB_CONTEXT_NODE probability) into the same
+// packed fragment as the coefficient token body. VP9 codes the EOB node only
+// at zero-run heads (skip_eob_node elsewhere), so this is the companion of
+// writePackedCoefTokenBodyAfterNotZero for the run-head shape. Category2 needs
+// nine bits with the fused head, which exceeds the eight-byte packed
+// probability payload, so it keeps the split Write + body form.
+func writePackedCoefTokenBodyWithNotEOB(
+	bw *bitstream.Writer, token int, extra int, sign int,
+	notEOB, zeroProb, pivot uint8,
+) {
+	signBit := uint32(sign & 1)
+	switch token {
+	case OneToken:
+		bw.WritePacked(0b1100|signBit, uint32(notEOB)<<24|uint32(zeroProb)<<16|
+			uint32(pivot)<<8|128, 4)
+		return
+	case Category2Tok:
+		bw.Write(1, uint32(notEOB))
+		writePackedCoefTokenBodyAfterNotZero(bw, token, extra, sign,
+			zeroProb, pivot)
+		return
+	}
+	if pivot == 0 {
+		panic("encoder: invalid VP9 coefficient probability")
+	}
+	pareto := &tables.Pareto8Full[pivot-1]
+	switch token {
+	case TwoToken:
+		bw.WritePacked64(0b111000|signBit, uint64(notEOB)<<40|
+			uint64(zeroProb)<<32|uint64(pivot)<<24|uint64(pareto[0])<<16|
+			uint64(pareto[1])<<8|128, 6)
+	case ThreeToken:
+		bw.WritePacked64(0b1110100|signBit, uint64(notEOB)<<48|
+			uint64(zeroProb)<<40|uint64(pivot)<<32|uint64(pareto[0])<<24|
+			uint64(pareto[1])<<16|uint64(pareto[2])<<8|128, 7)
+	case FourToken:
+		bw.WritePacked64(0b1110110|signBit, uint64(notEOB)<<48|
+			uint64(zeroProb)<<40|uint64(pivot)<<32|uint64(pareto[0])<<24|
+			uint64(pareto[1])<<16|uint64(pareto[2])<<8|128, 7)
+	case Category1Tok:
+		bw.WritePacked64(0b11110000|uint32((extra&1)<<1)|signBit,
+			uint64(notEOB)<<56|uint64(zeroProb)<<48|uint64(pivot)<<40|
+				uint64(pareto[0])<<32|uint64(pareto[3])<<24|
+				uint64(pareto[4])<<16|uint64(tables.Cat1Prob[0])<<8|128, 8)
+	case Category3Tok:
+		bw.WritePacked64(0b1111100, uint64(notEOB)<<48|uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[6]), 7)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category4Tok:
+		bw.WritePacked64(0b1111101, uint64(notEOB)<<48|uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[6]), 7)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category5Tok:
+		bw.WritePacked64(0b1111110, uint64(notEOB)<<48|uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[7]), 7)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	case Category6Tok:
+		bw.WritePacked64(0b1111111, uint64(notEOB)<<48|uint64(zeroProb)<<40|
+			uint64(pivot)<<32|uint64(pareto[0])<<24|uint64(pareto[3])<<16|
+			uint64(pareto[5])<<8|uint64(pareto[7]), 7)
+		writeCoefExtraBits(bw, token, extra)
+		bw.WriteBit(signBit)
+	default:
+		panic("encoder: invalid staged VP9 coefficient token")
+	}
+}
+
 func writeCoefExtraBits(bw *bitstream.Writer, token, extra int) {
 	switch token {
 	case Category1Tok:
