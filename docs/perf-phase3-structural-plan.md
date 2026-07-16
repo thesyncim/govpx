@@ -1126,6 +1126,47 @@ agent report "VP8 encode recon redesign"; key verified facts:
   two planes also preserved grouped/separate parity, but its dual-plane
   load/store schedule regressed the grouped median to 53.75 ns/op (about 25%
   slower than the current V16 path), so that dispatch was removed too.
+- The lf-pick wall-stall front is CLOSED as diagnosed parity on 2026-07-16
+  (base 62e9c05d, M4 Max, canonical 720p realtime cpu8 spots). Fresh 480-frame
+  phase timing fully reconciles the phase with zero unattributed wall:
+  lf_pick 2.04 ms/f = 5.31 trials/frame x (copy 19.98 us + filter 323.5 us +
+  sse 33.0 us per trial) + ~0.04 ms/f context glue. Two structural facts the
+  front's framing missed: (1) the canonical fixture pins auto-Speed at 4,
+  which in libvpx realtime speed mapping sets sf->auto_filter=1 and selects
+  the FULL picker (vp8cx_pick_filter_level: full-plane vpx_yv12_copy_y +
+  vp8_loop_filter_frame_yonly over all 45 MB rows + full-frame
+  vp8_calc_ss_err per trial); a first-vs-rest trial bucket probe measured 0
+  partial fast-picker trials in 2533, so per-trial costs are full-frame, not
+  the 5-MB-row partial window. (2) There is no memory stall: the committed
+  production-geometry benchmark (BenchmarkVP8LoopFilterPickTrial720p)
+  reproduces the connected sub-phase numbers cache-warm (copy ~18.5 us,
+  filter ~330 us, sse ~56-58 us vs connected 19.98 / 323.5 / 33.0 — the
+  connected SSE is faster than isolated because the just-filtered band is
+  still cache-resident), and the V16 inner-edge kernel's in-situ per-call
+  cost from the 480-frame CPU profile (0.30 s flat / ~19k calls per frame =
+  33 ns) equals its hot-buffer microbench exactly. The earlier "2.39 wall vs
+  1.33 CPU" reading was a sampling/attribution undercount (the fresh profile
+  captured 84% of wall; scaled LF-path samples equal the phase wall) taken
+  before the B7 fusions reduced the phase to 2.04 ms/f. Remaining inventory
+  was priced and rejected as below-noise for this front: per-MB dispatch/walk
+  glue is ~0.13 ms/f of samples (a one-call-per-MB fused dispatch could
+  reclaim at most about half), and a single-pass copy+filter+SSE trial
+  pipeline is bounded by the connected-vs-isolated delta at ~0.05-0.12 ms/f
+  because production trials already run effectively warm. Neither approaches
+  the ~1.0 ms/f this front hoped to recover. libvpx runs the identical
+  full-trial structure with per-MB kernel shapes no cheaper than the fused
+  B7 kernels (its ARM bv/bh wrappers do three separate load/transpose rounds
+  per MB where the fused V16/H16 kernels load once), so lf-pick is at parity
+  and the remaining 1T encode gap versus libvpx lives essentially entirely
+  in the MB walk and packet write. Non-ARM64 kernels remain unexamined.
+- B3 status note (2026-07-16): the subpel eval path already routes through
+  the fused one-axis/bilinear NEON subpel-variance kernels
+  (subpelVariance16x16{Horizontal,Vertical,Bilinear}NEON behind
+  SubpelVariance16x16PtrFast), and the fresh 480-frame profile attributes
+  only ~0.06 ms/f cumulative to the whole SubpelVariance16x16 path
+  (~1048 fused evals per frame). Nothing material remains of the
+  −0.10..0.20 estimate on the canonical realtime cpu8 fixture; treat B3 as
+  closed there unless a different fixture shows a subpel-heavy profile.
 
 Steps (gate = TestVP8RealtimeOverloadDropParity SHA + full VP8 parity lane):
 B1 compact last-frame {mv,ref,signBias} sidecars (PARTIAL 2026-07-03:
@@ -1134,7 +1175,8 @@ removed; remaining MB-walk layout work is still open before claiming the
 −0.15..0.20); B2 libvpx-shaped intra scoring into contiguous scratch from
 direct border pointers (PARTIAL 2026-07-03: direct-above luma aliasing landed;
 direct-left / fuller picker scratch layout remains −0.15..0.25); B3 subpel eval fusion after kernel-parity microbench
-adjudication (−0.10..0.20); B4 direct winner predictor with encoder kernels /
+adjudication (CLOSED on the canonical fixture 2026-07-16: fused subpel-variance
+kernels already carry the eval path at ~0.06 ms/f cum); B4 direct winner predictor with encoder kernels /
 storePredictor reuse (PARTIAL 2026-07-11: accepted whole-MV commits reuse
 prepared per-reference decoder state; direct encoder-kernel predictor carry
 remains); B5 per-MB denoiser staging (thismb shape)
@@ -1146,8 +1188,9 @@ buffers reuse prepared predictor metadata and whole-MV predictors use compact
 per-worker staging); B6 glue (PARTIAL 2026-07-03:
 final-mode copy elision landed; remaining glue still −0.05). Then B7: PARTIAL
 2026-07-11, direct ARM64 inner-horizontal and inner-vertical fusion landed;
-remaining lf-pick wall-stall investigation covers non-ARM64 kernels and buffer
-reuse/scavenger.
+the lf-pick wall-stall investigation is CLOSED on ARM64 as of 2026-07-16
+(diagnosed parity, no stall — see the dated bullet above); non-ARM64 kernels
+remain unexamined.
 Risks: threshold cascade (any scoring rounding change → global mode
 avalanche — the SHA pin is the tripwire); border semantics at frame edges;
 sidecar capture timing vs mode fixups; denoiser running-avg order; threaded
