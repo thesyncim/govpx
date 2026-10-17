@@ -1,0 +1,43 @@
+File: govpx-quant-final-bench
+Type: cpu
+Time: 2026-10-17 14:08:13 WEST
+Duration: 5.06s, Total samples = 4.31s (85.26%)
+Showing nodes accounting for 2.72s, 63.11% of 4.31s total
+Dropped 93 nodes (cum <= 0.02s)
+Showing top 35 nodes out of 182
+      flat  flat%   sum%        cum   cum%
+     0.58s 13.46% 13.46%      0.71s 16.47%  github.com/thesyncim/govpx/internal/pixel.loopFilterMacroInternalFusedVertical
+     0.21s  4.87% 18.33%      0.70s 16.24%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise
+     0.19s  4.41% 22.74%      0.24s  5.57%  github.com/thesyncim/govpx/internal/vp8/encoder.writePreparedCoefficientTokenRecords
+     0.11s  2.55% 25.29%      0.22s  5.10%  github.com/thesyncim/govpx/internal/pixel.loopFilterMacroInternalFusedHorizontal
+     0.11s  2.55% 27.84%      0.12s  2.78%  github.com/thesyncim/govpx/internal/vp8/encoder.countBlockCoefficientTokensAndRecords
+     0.09s  2.09% 29.93%      2.27s 52.67%  github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingInterFrameCoefficientsWithSegmentation
+     0.09s  2.09% 32.02%      0.09s  2.09%  github.com/thesyncim/govpx/internal/pixel.square8 (inline)
+     0.09s  2.09% 34.11%      0.09s  2.09%  runtime.memmove
+     0.08s  1.86% 35.96%      0.08s  1.86%  simd/archsimd.BroadcastInt16x8 (inline)
+     0.07s  1.62% 37.59%      0.77s 17.87%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecision
+     0.07s  1.62% 39.21%      0.14s  3.25%  github.com/thesyncim/govpx/internal/vp8/encoder.forwardDCT4BatchGo
+     0.06s  1.39% 40.60%      0.34s  7.89%  github.com/thesyncim/govpx.(*VP8Encoder).applyDenoiserToInterMacroblock
+     0.06s  1.39% 42.00%      0.48s 11.14%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsWork
+     0.06s  1.39% 43.39%      0.06s  1.39%  github.com/thesyncim/govpx.copyMacroblock8x8 (inline)
+     0.06s  1.39% 44.78%      0.13s  3.02%  github.com/thesyncim/govpx/internal/pixel.SSE16
+     0.05s  1.16% 45.94%      0.98s 22.74%  github.com/thesyncim/govpx/internal/pixel.LoopFilterMacroInternal16
+     0.05s  1.16% 47.10%      0.07s  1.62%  github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch
+     0.05s  1.16% 48.26%      0.05s  1.16%  github.com/thesyncim/govpx/internal/pixel.lfAbsByte (inline)
+     0.05s  1.16% 49.42%      0.05s  1.16%  math/bits.LeadingZeros8 (inline)
+     0.05s  1.16% 50.58%      0.08s  1.86%  runtime.findRunnable
+     0.04s  0.93% 51.51%      0.09s  2.09%  github.com/thesyncim/govpx.(*VP8Encoder).interModeMVSlots
+     0.04s  0.93% 52.44%      0.52s 12.06%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsInternal
+     0.04s  0.93% 53.36%      0.04s  0.93%  github.com/thesyncim/govpx/internal/pixel.filterShift7 (inline)
+     0.04s  0.93% 54.29%      0.04s  0.93%  github.com/thesyncim/govpx/internal/pixel.lfByteLE (inline)
+     0.04s  0.93% 55.22%      0.05s  1.16%  github.com/thesyncim/govpx/internal/pixel.load8 (inline)
+     0.04s  0.93% 56.15%      0.11s  2.55%  github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow
+     0.04s  0.93% 57.08%      0.04s  0.93%  github.com/thesyncim/govpx/internal/vp8/encoder.(*MacroblockCoefficients).BlockEOB (inline)
+     0.04s  0.93% 58.00%      0.04s  0.93%  github.com/thesyncim/govpx/internal/vp8/encoder.MacroblockCoefficientUVContextIndex (inline)
+     0.04s  0.93% 58.93%      0.08s  1.86%  github.com/thesyncim/govpx/internal/vp8/encoder.findNearInterMotionVectors
+     0.03s   0.7% 59.63%      0.04s  0.93%  github.com/thesyncim/govpx/internal/pixel.DenoiseFirst
+     0.03s   0.7% 60.32%      0.09s  2.09%  github.com/thesyncim/govpx/internal/pixel.Gather
+     0.03s   0.7% 61.02%      0.04s  0.93%  github.com/thesyncim/govpx/internal/pixel.highBytes (inline)
+     0.03s   0.7% 61.72%      0.03s   0.7%  github.com/thesyncim/govpx/internal/pixel.lfByteShift1 (inline)
+     0.03s   0.7% 62.41%      0.03s   0.7%  github.com/thesyncim/govpx/internal/pixel.loadNPtr
+     0.03s   0.7% 63.11%      0.03s   0.7%  github.com/thesyncim/govpx/internal/pixel.packRows8 (inline)

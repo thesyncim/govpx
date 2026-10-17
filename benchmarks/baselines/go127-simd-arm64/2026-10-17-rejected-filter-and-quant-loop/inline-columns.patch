@@ -1,0 +1,44 @@
+--- a/internal/pixel/loopfilter_macro_internal_fused_arm64.go
++++ b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+@@ -165,7 +165,40 @@
+ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limit, thresh int) {
+ 	const kind, lanes, step = 4, 16, 1
+ 	outer := pitch
+-	p3, p2, p1, p0, q0, q1, q2, q3 := loadLFColumns[[8]byte](p, 0, outer, 16)
++	var p3, p2, p1, p0, q0, q1, q2, q3 archsimd.Uint8x16
++	ptr := unsafe.Pointer(unsafe.SliceData(p))
++	r0 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 0*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 8*pitch))).ReshapeToUint32s()
++	r1 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 1*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 9*pitch))).ReshapeToUint32s()
++	r2 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 2*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 10*pitch))).ReshapeToUint32s()
++	r3 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 3*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 11*pitch))).ReshapeToUint32s()
++	r4 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 4*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 12*pitch))).ReshapeToUint32s()
++	r5 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 5*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 13*pitch))).ReshapeToUint32s()
++	r6 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 6*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 14*pitch))).ReshapeToUint32s()
++	r7 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 7*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 15*pitch))).ReshapeToUint32s()
++	a0 := r0.InterleaveEven(r4).ReshapeToUint16s()
++	a1 := r0.InterleaveOdd(r4).ReshapeToUint16s()
++	a2 := r1.InterleaveEven(r5).ReshapeToUint16s()
++	a3 := r1.InterleaveOdd(r5).ReshapeToUint16s()
++	a4 := r2.InterleaveEven(r6).ReshapeToUint16s()
++	a5 := r2.InterleaveOdd(r6).ReshapeToUint16s()
++	a6 := r3.InterleaveEven(r7).ReshapeToUint16s()
++	a7 := r3.InterleaveOdd(r7).ReshapeToUint16s()
++	b0 := a0.InterleaveEven(a4).ReshapeToUint8s()
++	b1 := a0.InterleaveOdd(a4).ReshapeToUint8s()
++	b2 := a2.InterleaveEven(a6).ReshapeToUint8s()
++	b3 := a2.InterleaveOdd(a6).ReshapeToUint8s()
++	b4 := a1.InterleaveEven(a5).ReshapeToUint8s()
++	b5 := a1.InterleaveOdd(a5).ReshapeToUint8s()
++	b6 := a3.InterleaveEven(a7).ReshapeToUint8s()
++	b7 := a3.InterleaveOdd(a7).ReshapeToUint8s()
++	p3 = b0.InterleaveEven(b2)
++	p2 = b0.InterleaveOdd(b2)
++	p1 = b1.InterleaveEven(b3)
++	p0 = b1.InterleaveOdd(b3)
++	q0 = b4.InterleaveEven(b6)
++	q1 = b4.InterleaveOdd(b6)
++	q2 = b5.InterleaveEven(b7)
++	q3 = b5.InterleaveOdd(b7)
+ 	{
+ 		const kind = 6
+ 		off := 4 * step

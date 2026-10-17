@@ -1,0 +1,240 @@
+{
+  "inline-columns": {
+    "60": {
+      "inline": {
+        "samples": 6,
+        "median_ns": 7859404.0,
+        "median_time_delta_percent": -0.1935198840125163,
+        "paired_time_delta_percent": [
+          3.1752457722619143,
+          2.8477752939542134,
+          -0.9163557883984041,
+          0.5563119546603046,
+          1.3559624767957912,
+          -1.146639696273899
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 7874643.0,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    },
+    "300": {
+      "inline": {
+        "samples": 6,
+        "median_ns": 7930311.5,
+        "median_time_delta_percent": 0.7703482508041093,
+        "paired_time_delta_percent": [
+          2.411470790928849,
+          2.3383931425675186,
+          0.7560079875188253,
+          0.19858009345909977,
+          0.7846305592634328,
+          0.48567041678324596
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 7869687.5,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    }
+  },
+  "correction": {
+    "60": {
+      "factor": {
+        "samples": 6,
+        "median_ns": 8026637.0,
+        "median_time_delta_percent": 0.45749211866761286,
+        "paired_time_delta_percent": [
+          -0.24087470088627327,
+          2.8224755710722693,
+          -4.027582866156454,
+          -0.4197127989949867,
+          1.212883684085564,
+          2.4972273126347977
+        ],
+        "non_timing_fields_match": true
+      },
+      "parallel": {
+        "samples": 6,
+        "median_ns": 7978164.0,
+        "median_time_delta_percent": -0.14917241785848967,
+        "paired_time_delta_percent": [
+          0.8477253140530383,
+          2.504042495194647,
+          -4.088585926574407,
+          1.169297724083207,
+          2.0865924323720364,
+          -0.42458855580355115
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 7990083.0,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    }
+  },
+  "quant-loop": {
+    "60": {
+      "bic": {
+        "samples": 8,
+        "median_ns": 7983608.0,
+        "median_time_delta_percent": 0.7255522892721578,
+        "paired_time_delta_percent": [
+          -0.6955793790285547,
+          0.6719852958248174,
+          -0.5329683651319472,
+          -0.27710979480971565,
+          1.0860730708232014,
+          0.20534606177942116,
+          0.9527017665867055,
+          0.8915605721081965
+        ],
+        "non_timing_fields_match": true
+      },
+      "blockptr": {
+        "samples": 8,
+        "median_ns": 8071784.0,
+        "median_time_delta_percent": 1.8380287909564696,
+        "paired_time_delta_percent": [
+          0.21774139013008842,
+          4.5927712466426796,
+          -0.2681300844917467,
+          -0.7572225970292279,
+          -1.4976960419370022,
+          1.1561240722520738,
+          1.1818075624916435,
+          1.908865018670891
+        ],
+        "non_timing_fields_match": true
+      },
+      "combined": {
+        "samples": 8,
+        "median_ns": 7961691.5,
+        "median_time_delta_percent": 0.4490417733816088,
+        "paired_time_delta_percent": [
+          -0.2653147206206352,
+          0.4193465837260657,
+          1.0515794011575652,
+          -1.5044639282239425,
+          0.24791719333052686,
+          -0.11719314033962203,
+          0.9516027897711776,
+          -0.03525611535005746
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 8,
+        "median_ns": 7926100.0,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    }
+  },
+  "clamped-filter": {
+    "60": {
+      "clamped": {
+        "samples": 6,
+        "median_ns": 8008832.5,
+        "median_time_delta_percent": 1.1407140615558031,
+        "paired_time_delta_percent": [
+          -0.5947185455573489,
+          1.3665241443227005,
+          -1.5681793164649127,
+          0.48907604814070194,
+          5.2653046329571795,
+          1.1780432204602898
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 7918505.0,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    },
+    "300": {
+      "clamped": {
+        "samples": 6,
+        "median_ns": 7959221.0,
+        "median_time_delta_percent": 1.4252534860060173,
+        "paired_time_delta_percent": [
+          5.079924631294119,
+          1.3854182646436675,
+          1.4652988584889393,
+          1.7856898106472174,
+          -1.4278012239980709,
+          1.8198166730576615
+        ],
+        "non_timing_fields_match": true
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 7847376.0,
+        "median_time_delta_percent": 0.0,
+        "paired_time_delta_percent": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "non_timing_fields_match": true
+      }
+    }
+  }
+}

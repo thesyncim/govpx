@@ -1,0 +1,23 @@
+--- a/internal/pixel/quantize_vp8_batch_arm64.go
++++ b/internal/pixel/quantize_vp8_batch_arm64.go
+@@ -47,13 +47,14 @@
+ 	cp, qp, dp := unsafe.Pointer(unsafe.SliceData(coeff)), unsafe.Pointer(unsafe.SliceData(qcoeff)), unsafe.Pointer(unsafe.SliceData(dqcoeff))
+ 	for i := range count {
+ 		off := uintptr(i) * 32
+-		c0, c1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off+16)))
++        cb, qb, db := unsafe.Add(cp, off), unsafe.Add(qp, off), unsafe.Add(dp, off)
++		c0, c1 := archsimd.LoadInt16x8Array((*[8]int16)(cb)), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cb, 16)))
+ 		t0, t1 := vp8QuantPacket(c0, r0, q0), vp8QuantPacket(c1, r1, q1)
+-		t0.StoreArray((*[8]int16)(unsafe.Add(qp, off)))
+-		t1.StoreArray((*[8]int16)(unsafe.Add(qp, off+16)))
+-		t0.Mul(d0).StoreArray((*[8]int16)(unsafe.Add(dp, off)))
+-		t1.Mul(d1).StoreArray((*[8]int16)(unsafe.Add(dp, off+16)))
+-		eobs[i] = uint8(i0.Masked(t0.NotEqual(z)).Max(i1.Masked(t1.NotEqual(z))).ReduceMax())
++		t0.StoreArray((*[8]int16)(qb))
++		t1.StoreArray((*[8]int16)(unsafe.Add(qb, 16)))
++		t0.Mul(d0).StoreArray((*[8]int16)(db))
++		t1.Mul(d1).StoreArray((*[8]int16)(unsafe.Add(db, 16)))
++		eobs[i] = uint8(i0.AndNot(t0.Equal(z).ToInt16x8()).Max(i1.AndNot(t1.Equal(z).ToInt16x8())).ReduceMax())
+ 	}
+ 	return true
+ }
