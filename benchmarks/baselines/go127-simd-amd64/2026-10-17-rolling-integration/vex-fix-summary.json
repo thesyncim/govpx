@@ -1,0 +1,833 @@
+{
+  "artifact": "/private/tmp/govpx-amd64-3d485291-artifact",
+  "variants": [
+    "assembly",
+    "previous",
+    "simd"
+  ],
+  "kernels": {
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks1": {
+      "assembly_ns": 9.9785,
+      "assembly_samples": [
+        9.981,
+        9.999,
+        9.975,
+        9.98,
+        9.975,
+        9.977
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 15.825,
+      "previous_samples": [
+        15.75,
+        15.79,
+        15.88,
+        15.81,
+        15.85,
+        15.84
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 16.62,
+      "simd_samples": [
+        16.68,
+        16.58,
+        16.67,
+        16.62,
+        16.61,
+        16.62
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 66.55809991481686,
+      "throughput_ratio": 0.6003910950661853,
+      "paired_percent": [
+        67.11752329425909,
+        65.8165816581658,
+        67.11779448621556,
+        66.53306613226452,
+        66.51629072681703,
+        66.58314122481708
+      ],
+      "parent_time_delta_percent": 5.0236966824644735,
+      "parent_throughput_ratio": 0.9521660649819493,
+      "parent_paired_percent": [
+        5.9047619047619015,
+        5.003166561114614,
+        4.974811083123432,
+        5.123339658444026,
+        4.7949526813880095,
+        4.924242424242431
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks16": {
+      "assembly_ns": 59.730000000000004,
+      "assembly_samples": [
+        59.57,
+        59.34,
+        59.89,
+        59.26,
+        63.44,
+        63.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 174.45,
+      "previous_samples": [
+        174.0,
+        173.9,
+        174.5,
+        174.4,
+        176.3,
+        174.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 59.425,
+      "simd_samples": [
+        59.46,
+        59.57,
+        59.35,
+        59.46,
+        59.39,
+        59.29
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -0.5106311736146063,
+      "throughput_ratio": 1.0051325199831722,
+      "paired_percent": [
+        -0.18465670639583598,
+        0.3875968992248069,
+        -0.9016530305560155,
+        0.3374957813027324,
+        -6.383984867591419,
+        -5.8888888888888875
+      ],
+      "parent_time_delta_percent": -65.93579822298653,
+      "parent_throughput_ratio": 2.9356331510307108,
+      "parent_paired_percent": [
+        -65.82758620689656,
+        -65.74468085106383,
+        -65.98853868194843,
+        -65.9059633027523,
+        -66.31310266591038,
+        -66.02292263610316
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks2": {
+      "assembly_ns": 12.785,
+      "assembly_samples": [
+        12.8,
+        12.83,
+        12.78,
+        12.79,
+        12.78,
+        12.78
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 25.625,
+      "previous_samples": [
+        25.56,
+        25.55,
+        25.63,
+        25.63,
+        25.62,
+        25.63
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 27.395,
+      "simd_samples": [
+        27.4,
+        27.47,
+        27.35,
+        27.37,
+        27.39,
+        27.65
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 114.27454047712162,
+      "throughput_ratio": 0.46669100200766567,
+      "paired_percent": [
+        114.06249999999996,
+        114.10756040530008,
+        114.00625978090768,
+        113.9953088350274,
+        114.3192488262911,
+        116.35367762128324
+      ],
+      "parent_time_delta_percent": 6.907317073170738,
+      "parent_throughput_ratio": 0.935389669647746,
+      "parent_paired_percent": [
+        7.198748043818459,
+        7.514677103718181,
+        6.710885680842771,
+        6.788919235271185,
+        6.908665105386413,
+        7.881388997268823
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks25": {
+      "assembly_ns": 89.195,
+      "assembly_samples": [
+        89.32,
+        89.17,
+        89.15,
+        89.01,
+        89.23,
+        89.22
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 277.6,
+      "previous_samples": [
+        277.3,
+        277.0,
+        277.5,
+        277.7,
+        278.2,
+        277.9
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 85.135,
+      "simd_samples": [
+        85.12,
+        85.49,
+        85.01,
+        85.15,
+        85.12,
+        85.26
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -4.551824653848302,
+      "throughput_ratio": 1.047688964585658,
+      "paired_percent": [
+        -4.702194357366762,
+        -4.126948525288787,
+        -4.643858665171063,
+        -4.336591394225364,
+        -4.6060741902947395,
+        -4.438466711499656
+      ],
+      "parent_time_delta_percent": -69.33177233429394,
+      "parent_throughput_ratio": 3.2607035884183944,
+      "parent_paired_percent": [
+        -69.30400288496213,
+        -69.13718411552348,
+        -69.36576576576576,
+        -69.3374144760533,
+        -69.40330697340042,
+        -69.31989924433249
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks8": {
+      "assembly_ns": 33.07,
+      "assembly_samples": [
+        33.1,
+        33.06,
+        32.96,
+        33.08,
+        33.0,
+        33.13
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 89.325,
+      "previous_samples": [
+        89.15,
+        89.21,
+        89.31,
+        89.34,
+        89.39,
+        90.4
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 36.295,
+      "simd_samples": [
+        36.29,
+        36.38,
+        36.29,
+        36.3,
+        36.31,
+        36.29
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 9.752041124886613,
+      "throughput_ratio": 0.9111447857831657,
+      "paired_percent": [
+        9.63746223564954,
+        10.042347247428918,
+        10.103155339805813,
+        9.733978234582818,
+        10.030303030303035,
+        9.538182915786276
+      ],
+      "parent_time_delta_percent": -59.3674783095438,
+      "parent_throughput_ratio": 2.461082793773247,
+      "parent_paired_percent": [
+        -59.29332585530006,
+        -59.219818406008294,
+        -59.36625237935282,
+        -59.36870382807253,
+        -59.380243875153816,
+        -59.85619469026548
+      ]
+    }
+  },
+  "encoders": {
+    "VP9 320x180": {
+      "assembly_ns": 7000491.0,
+      "assembly_samples": [
+        6981134,
+        6993953,
+        7010580,
+        7007029,
+        6989918,
+        7026453
+      ],
+      "assembly_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "previous_ns": 4376901.5,
+      "previous_samples": [
+        4347468,
+        4390876,
+        4342424,
+        4396524,
+        4377117,
+        4376686
+      ],
+      "previous_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "simd_ns": 4349938.0,
+      "simd_samples": [
+        4345593,
+        4566188,
+        4343087,
+        4378275,
+        4336931,
+        4354283
+      ],
+      "simd_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "time_delta_percent": -37.86238708113474,
+      "throughput_ratio": 1.6093312134563758,
+      "paired_percent": [
+        -37.752333646653966,
+        -34.71234364886353,
+        -38.04953370477193,
+        -37.51595719098636,
+        -37.954479580447156,
+        -38.030141239114535
+      ],
+      "parent_time_delta_percent": -0.6160408224859526,
+      "parent_throughput_ratio": 1.0061985940949043,
+      "parent_paired_percent": [
+        -0.04312855206755062,
+        3.992642925921852,
+        0.015267970147547771,
+        -0.4150779115501213,
+        -0.9180928908228858,
+        -0.5118713108502648
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 246893
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 117
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 3
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0.6166666666666667
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 9,
+            "max": 47,
+            "mean": 43.64102564102564
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "41": 1,
+            "42": 8,
+            "43": 29,
+            "44": 47,
+            "45": 26,
+            "47": 5,
+            "9": 1
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 29346
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 1875.405172413793
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 246893
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 117
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 3
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0.6166666666666667
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 9,
+            "max": 47,
+            "mean": 43.64102564102564
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "41": 1,
+            "42": 8,
+            "43": 29,
+            "44": 47,
+            "45": 26,
+            "47": 5,
+            "9": 1
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 29346
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 1875.405172413793
+        }
+      }
+    },
+    "VP8 720p": {
+      "assembly_ns": 23061369.0,
+      "assembly_samples": [
+        23040444,
+        23071145,
+        23220897,
+        23377821,
+        23051593,
+        23014219
+      ],
+      "assembly_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "previous_ns": 22081515.0,
+      "previous_samples": [
+        21991440,
+        22066491,
+        22369332,
+        22172852,
+        22071152,
+        22091878
+      ],
+      "previous_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "simd_ns": 21930276.5,
+      "simd_samples": [
+        21936979,
+        21897920,
+        21923574,
+        21989539,
+        21883564,
+        22041089
+      ],
+      "simd_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "time_delta_percent": -4.904706654665647,
+      "throughput_ratio": 1.0515767550856006,
+      "paired_percent": [
+        -4.78925232517221,
+        -5.085248261410524,
+        -5.586877199446683,
+        -5.938457651805962,
+        -5.0670207477635065,
+        -4.228385938275814
+      ],
+      "parent_time_delta_percent": -0.6849099801349734,
+      "parent_throughput_ratio": 1.006896333477601,
+      "parent_paired_percent": [
+        -0.24764635694615178,
+        -0.763922999809985,
+        -1.992719317680114,
+        -0.8267452468451064,
+        -0.8499239187877428,
+        -0.22989897011018723
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 685957
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 58
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 2
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 39,
+            "max": 56,
+            "mean": 55.706896551724135
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "39": 1,
+            "56": 57
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 133700
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 9688.719298245614
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 685957
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 58
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 2
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 39,
+            "max": 56,
+            "mean": 55.706896551724135
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "39": 1,
+            "56": 57
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 133700
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 9688.719298245614
+        }
+      }
+    },
+    "VP9 720p": {
+      "assembly_ns": 59766023.0,
+      "assembly_samples": [
+        59841462,
+        59660196,
+        60453025,
+        59943092,
+        59690584,
+        59583812
+      ],
+      "assembly_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "previous_ns": 32350687.0,
+      "previous_samples": [
+        31996359,
+        32233181,
+        32938330,
+        32959871,
+        32364786,
+        32336588
+      ],
+      "previous_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "simd_ns": 32259224.5,
+      "simd_samples": [
+        32203395,
+        32045599,
+        32474023,
+        32948861,
+        31975965,
+        32315054
+      ],
+      "simd_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "time_delta_percent": -46.02414067270295,
+      "throughput_ratio": 1.852680091550248,
+      "paired_percent": [
+        -46.18548089617196,
+        -46.28646711117074,
+        -46.282219955080826,
+        -45.03309739177285,
+        -46.43047050771023,
+        -45.76538003308684
+      ],
+      "parent_time_delta_percent": -0.28272197125210896,
+      "parent_throughput_ratio": 1.0028352355463475,
+      "parent_paired_percent": [
+        0.6470611234234536,
+        -0.5819531122292942,
+        -1.4096251995775133,
+        -0.03340425695234073,
+        -1.2013705265964014,
+        -0.0665932967324867
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 642654
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 48
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 12
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 1.25
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 27,
+            "max": 56,
+            "mean": 49.229166666666664
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "27": 1,
+            "48": 6,
+            "49": 29,
+            "50": 6,
+            "51": 1,
+            "54": 2,
+            "56": 3
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 262153
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 8095.765957446809
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 642654
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 48
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 12
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 1.25
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 27,
+            "max": 56,
+            "mean": 49.229166666666664
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "27": 1,
+            "48": 6,
+            "49": 29,
+            "50": 6,
+            "51": 1,
+            "54": 2,
+            "56": 3
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 262153
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 8095.765957446809
+        }
+      }
+    }
+  },
+  "artifact_url": "https://github.com/thesyncim/govpx/actions/runs/39037424049/artifacts/12102912998"
+}

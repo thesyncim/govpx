@@ -1,0 +1,63 @@
+=== RUN   TestSixTapPredict16x16NativeMatchesScalar
+--- PASS: TestSixTapPredict16x16NativeMatchesScalar (0.00s)
+=== RUN   TestSixTapPredictSIMDMatchesScalar
+=== RUN   TestSixTapPredictSIMDMatchesScalar/16x16
+=== RUN   TestSixTapPredictSIMDMatchesScalar/16x16-stride48
+=== RUN   TestSixTapPredictSIMDMatchesScalar/16x8
+=== RUN   TestSixTapPredictSIMDMatchesScalar/16x8-stride48
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x16
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x16-stride40
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x8
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x8-stride40
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x4
+=== RUN   TestSixTapPredictSIMDMatchesScalar/8x4-stride40
+=== RUN   TestSixTapPredictSIMDMatchesScalar/4x4
+=== RUN   TestSixTapPredictSIMDMatchesScalar/4x4-stride24
+--- PASS: TestSixTapPredictSIMDMatchesScalar (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/16x16 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/16x16-stride48 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/16x8 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/16x8-stride48 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x16 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x16-stride40 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x8 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x8-stride40 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x4 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/8x4-stride40 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/4x4 (0.00s)
+    --- PASS: TestSixTapPredictSIMDMatchesScalar/4x4-stride24 (0.00s)
+=== RUN   TestSixTapPredict8x8PairMatchesSeparateCalls
+--- PASS: TestSixTapPredict8x8PairMatchesSeparateCalls (0.00s)
+=== RUN   TestSixTapPredictRectangularMaybeMatchesScalar
+=== RUN   TestSixTapPredictRectangularMaybeMatchesScalar/16x8
+=== RUN   TestSixTapPredictRectangularMaybeMatchesScalar/8x16
+--- PASS: TestSixTapPredictRectangularMaybeMatchesScalar (0.00s)
+    --- PASS: TestSixTapPredictRectangularMaybeMatchesScalar/16x8 (0.00s)
+    --- PASS: TestSixTapPredictRectangularMaybeMatchesScalar/8x16 (0.00s)
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/16x16
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/16x8
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/8x16
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/8x8
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/8x4
+=== RUN   TestSixTapPredictZeroOffsetsCopyCentralBlock/4x4
+--- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/16x16 (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/16x8 (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/8x16 (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/8x8 (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/8x4 (0.00s)
+    --- PASS: TestSixTapPredictZeroOffsetsCopyCentralBlock/4x4 (0.00s)
+=== RUN   TestSixTapPredictRectangularMatchesScalar
+=== RUN   TestSixTapPredictRectangularMatchesScalar/16x8
+=== RUN   TestSixTapPredictRectangularMatchesScalar/8x16
+--- PASS: TestSixTapPredictRectangularMatchesScalar (0.00s)
+    --- PASS: TestSixTapPredictRectangularMatchesScalar/16x8 (0.00s)
+    --- PASS: TestSixTapPredictRectangularMatchesScalar/8x16 (0.00s)
+=== RUN   TestSixTapPredictHorizontalHalfPixel
+--- PASS: TestSixTapPredictHorizontalHalfPixel (0.00s)
+=== RUN   TestSixTapPredictVerticalHalfPixel
+--- PASS: TestSixTapPredictVerticalHalfPixel (0.00s)
+=== RUN   TestSixTapPredict16x16AllocatesZero
+--- PASS: TestSixTapPredict16x16AllocatesZero (0.00s)
+PASS

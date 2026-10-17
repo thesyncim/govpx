@@ -1,0 +1,1536 @@
+{
+  "scope": "Independent native same-run old-ASM/parent/current comparisons. Compare each candidate with its own pinned parent; do not divide absolute times across jobs or CPUs. PGO off throughout. Experimental branches were not PR source.",
+  "selection": {
+    "selected": "675e2821: 128-bit rolling rows",
+    "rejected": [
+      "dba057f7: horizontal dot plus rolling",
+      "ad445194: safe256-bit rolling"
+    ],
+    "limit": "128-bit rolling public win was measured on EPYC9V74. The wide comparison was EPYC7763; no cross-CPU absolute comparison or universal performance claim. All experiments predate final quant VEX/return-boundary integration; final combined source still requires native validation."
+  },
+  "complete_comparison_path": "/private/tmp/govpx-x64-filter-probes-comparison.json",
+  "probes": {
+    "675e2821": {
+      "description": "128-bit rolling rows",
+      "run_id": 39036578442,
+      "run_url": "https://github.com/thesyncim/govpx/actions/runs/39036578442",
+      "artifact_id": 12102243864,
+      "decision": "measured public VP8 improvement; candidate for promotion",
+      "raw_directory": "/private/tmp/govpx-amd64-675e2821-artifact",
+      "status": "completed_success",
+      "raw_file_count": 86,
+      "assembly_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+      "parent_sha": "048a5f3e8c8dac4e49acd3fe64bbe2f00e3c6f3e",
+      "head_sha": "675e2821f308377fe0c950194e95563ac53babb1",
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "go_version": "go version go1.27.2 linux/amd64",
+      "controls": "GOMAXPROCS=1 PGO=off rounds=6 kernel-benchtime=150ms",
+      "kernel_cases": 80,
+      "all_kernels_six_samples_per_variant": true,
+      "all_kernels_zero_bytes_and_allocations": true,
+      "native_validation": {
+        "passed_tests": [
+          "TestVP8QuantBatchDeclinesBeforeWriting",
+          "TestVP8QuantBatchPreservesOverlappingInputOrder",
+          "TestQuantBatchExtremesScalar",
+          "TestQuantBatchNativeSelected",
+          "TestSixTapPreservesEightPixelAliasOrder",
+          "TestSixTapNarrowBoundsAndRounding",
+          "TestRollingSixTapNativeSelected",
+          "TestSixTapPredict16x16NativeMatchesScalar",
+          "TestSixTapPredictSIMDMatchesScalar",
+          "TestSixTapPredict8x8PairMatchesSeparateCalls",
+          "TestSixTapPredictRectangularMaybeMatchesScalar",
+          "TestSixTapPredictZeroOffsetsCopyCentralBlock",
+          "TestSixTapPredictRectangularMatchesScalar",
+          "TestSixTapPredictHorizontalHalfPixel",
+          "TestSixTapPredictVerticalHalfPixel",
+          "TestSixTapPredict16x16AllocatesZero"
+        ],
+        "contains_failure": false,
+        "contains_skip": false,
+        "current_simd_selected": true,
+        "parent_simd_selected": true
+      },
+      "raw_sha256_manifest": "/private/tmp/govpx-amd64-675e2821-files.json",
+      "public": {
+        "VP9 320x180": {
+          "asm_ns": 5506537.5,
+          "parent_ns": 3277439.5,
+          "current_ns": 3285415.5,
+          "vs_parent_pct": 0.243361,
+          "vs_asm_pct": -40.336091,
+          "parent_paired_range_pct": [
+            -0.053403,
+            1.25235
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 4
+          },
+          "asm_paired_range_pct": [
+            -40.654827,
+            -38.282141
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "VP8 720p": {
+          "asm_ns": 14182580.0,
+          "parent_ns": 17304824.5,
+          "current_ns": 16887157.0,
+          "vs_parent_pct": -2.41359,
+          "vs_asm_pct": 19.069711,
+          "parent_paired_range_pct": [
+            -3.640449,
+            -1.285713
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            15.685879,
+            19.670631
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "VP9 720p": {
+          "asm_ns": 47422342.5,
+          "parent_ns": 24518842.0,
+          "current_ns": 24497867.5,
+          "vs_parent_pct": -0.085544,
+          "vs_asm_pct": -48.341085,
+          "parent_paired_range_pct": [
+            -2.796471,
+            2.070486
+          ],
+          "parent_pair_signs": {
+            "current_faster": 3,
+            "current_slower": 3
+          },
+          "asm_paired_range_pct": [
+            -49.00379,
+            -47.633211
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "six_tap_kernels": {
+        "SixTapPhases/16x16/0,4": {
+          "asm_ns": 103.9,
+          "parent_ns": 239.85000000000002,
+          "current_ns": 116.75,
+          "vs_parent_pct": -51.323744,
+          "vs_asm_pct": 12.367661,
+          "parent_paired_range_pct": [
+            -51.355861,
+            -51.231733
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            11.98466,
+            12.620424
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/2,4": {
+          "asm_ns": 104.1,
+          "parent_ns": 410.5,
+          "current_ns": 284.70000000000005,
+          "vs_parent_pct": -30.645554,
+          "vs_asm_pct": 173.487032,
+          "parent_paired_range_pct": [
+            -30.756139,
+            -30.516318
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            172.344498,
+            174.255524
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/3,5": {
+          "asm_ns": 104.05,
+          "parent_ns": 340.05,
+          "current_ns": 260.7,
+          "vs_parent_pct": -23.334804,
+          "vs_asm_pct": 150.552619,
+          "parent_paired_range_pct": [
+            -23.721881,
+            -23.108625
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            150.240154,
+            150.865385
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/4,0": {
+          "asm_ns": 104.05,
+          "parent_ns": 138.05,
+          "current_ns": 135.85000000000002,
+          "vs_parent_pct": -1.593625,
+          "vs_asm_pct": 30.56223,
+          "parent_paired_range_pct": [
+            -1.736614,
+            0.506879
+          ],
+          "parent_pair_signs": {
+            "current_faster": 5,
+            "current_slower": 1
+          },
+          "asm_paired_range_pct": [
+            30.422265,
+            33.205374
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/0,4": {
+          "asm_ns": 28.740000000000002,
+          "parent_ns": 47.585,
+          "current_ns": 46.265,
+          "vs_parent_pct": -2.773983,
+          "vs_asm_pct": 60.977731,
+          "parent_paired_range_pct": [
+            -3.001679,
+            -2.62605
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            58.961128,
+            62.403913
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/2,4": {
+          "asm_ns": 28.73,
+          "parent_ns": 99.58,
+          "current_ns": 97.725,
+          "vs_parent_pct": -1.862824,
+          "vs_asm_pct": 240.149669,
+          "parent_paired_range_pct": [
+            -2.095448,
+            -1.657792
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            226.043406,
+            241.283124
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/3,5": {
+          "asm_ns": 28.689999999999998,
+          "parent_ns": 90.475,
+          "current_ns": 89.73500000000001,
+          "vs_parent_pct": -0.817905,
+          "vs_asm_pct": 212.774486,
+          "parent_paired_range_pct": [
+            -2.532333,
+            -0.55371
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            209.751037,
+            213.896648
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/4,0": {
+          "asm_ns": 28.674999999999997,
+          "parent_ns": 34.685,
+          "current_ns": 34.370000000000005,
+          "vs_parent_pct": -0.908174,
+          "vs_asm_pct": 19.860506,
+          "parent_paired_range_pct": [
+            -1.207591,
+            -0.23175
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            17.354245,
+            20.251397
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/0,4": {
+          "asm_ns": 57.905,
+          "parent_ns": 75.475,
+          "current_ns": 45.165,
+          "vs_parent_pct": -40.158993,
+          "vs_asm_pct": -22.001554,
+          "parent_paired_range_pct": [
+            -40.264901,
+            -39.814815
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -22.321582,
+            -21.44337
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/8x8/2,4": {
+          "asm_ns": 57.89,
+          "parent_ns": 145.2,
+          "current_ns": 111.9,
+          "vs_parent_pct": -22.933884,
+          "vs_asm_pct": 93.297633,
+          "parent_paired_range_pct": [
+            -23.071625,
+            -20.344828
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            92.831294,
+            99.654278
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/3,5": {
+          "asm_ns": 57.91,
+          "parent_ns": 128.7,
+          "current_ns": 107.15,
+          "vs_parent_pct": -16.744367,
+          "vs_asm_pct": 85.028492,
+          "parent_paired_range_pct": [
+            -17.651573,
+            -16.705517
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            84.655172,
+            85.242786
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/4,0": {
+          "asm_ns": 57.905,
+          "parent_ns": 51.195,
+          "current_ns": 50.28,
+          "vs_parent_pct": -1.787284,
+          "vs_asm_pct": -13.16812,
+          "parent_paired_range_pct": [
+            -2.0265,
+            -1.624266
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -13.536292,
+            -12.913277
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "parity": {
+        "VP9 320x180": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.6166666666666667
+            ],
+            "previous": [
+              0.6166666666666667
+            ],
+            "simd": [
+              0.6166666666666667
+            ]
+          }
+        },
+        "VP8 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              1.25
+            ],
+            "previous": [
+              1.25
+            ],
+            "simd": [
+              1.25
+            ]
+          }
+        },
+        "VP8 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.625
+            ],
+            "previous": [
+              0.625
+            ],
+            "simd": [
+              0.625
+            ]
+          }
+        }
+      },
+      "sampled_profiles": {
+        "parent": {
+          "total_cpu_ns": 2020000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 10000000,
+              "cum_ns": 90000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 40000000,
+              "cum_ns": 60000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        },
+        "simd": {
+          "total_cpu_ns": 2000000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 0,
+              "cum_ns": 50000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 20000000,
+              "cum_ns": 40000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+              "flat_ns": 0,
+              "cum_ns": 10000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        }
+      }
+    },
+    "dba057f7": {
+      "description": "128-bit horizontal dot plus rolling",
+      "run_id": 39037054706,
+      "run_url": "https://github.com/thesyncim/govpx/actions/runs/39037054706",
+      "artifact_id": 12102354427,
+      "decision": "rejected: mixed flat public VP8 and consistent 4x4 kernel regressions",
+      "raw_directory": "/private/tmp/govpx-amd64-dba057f7-artifact",
+      "status": "completed_success",
+      "raw_file_count": 86,
+      "assembly_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+      "parent_sha": "675e2821f308377fe0c950194e95563ac53babb1",
+      "head_sha": "dba057f7335084770255c8a291cf1e20b961dbae",
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "go_version": "go version go1.27.2 linux/amd64",
+      "controls": "GOMAXPROCS=1 PGO=off rounds=6 kernel-benchtime=150ms",
+      "kernel_cases": 80,
+      "all_kernels_six_samples_per_variant": true,
+      "all_kernels_zero_bytes_and_allocations": true,
+      "native_validation": {
+        "passed_tests": [
+          "TestVP8QuantBatchDeclinesBeforeWriting",
+          "TestVP8QuantBatchPreservesOverlappingInputOrder",
+          "TestQuantBatchExtremesScalar",
+          "TestQuantBatchNativeSelected",
+          "TestSixTapPreservesEightPixelAliasOrder",
+          "TestSixTapNarrowBoundsAndRounding",
+          "TestRollingSixTapNativeSelected",
+          "TestSixTapDotExtremesScalar",
+          "TestSixTapDotHorizontalAliasOrder",
+          "TestSixTapPredict16x16NativeMatchesScalar",
+          "TestSixTapPredictSIMDMatchesScalar",
+          "TestSixTapPredict8x8PairMatchesSeparateCalls",
+          "TestSixTapPredictRectangularMaybeMatchesScalar",
+          "TestSixTapPredictZeroOffsetsCopyCentralBlock",
+          "TestSixTapPredictRectangularMatchesScalar",
+          "TestSixTapPredictHorizontalHalfPixel",
+          "TestSixTapPredictVerticalHalfPixel",
+          "TestSixTapPredict16x16AllocatesZero"
+        ],
+        "contains_failure": false,
+        "contains_skip": false,
+        "current_simd_selected": true,
+        "parent_simd_selected": true
+      },
+      "raw_sha256_manifest": "/private/tmp/govpx-amd64-dba057f7-files.json",
+      "public": {
+        "VP9 320x180": {
+          "asm_ns": 5493938.0,
+          "parent_ns": 3306171.5,
+          "current_ns": 3269977.0,
+          "vs_parent_pct": -1.094756,
+          "vs_asm_pct": -40.480271,
+          "parent_paired_range_pct": [
+            -2.339332,
+            1.138544
+          ],
+          "parent_pair_signs": {
+            "current_faster": 4,
+            "current_slower": 2
+          },
+          "asm_paired_range_pct": [
+            -40.613926,
+            -39.652227
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "VP8 720p": {
+          "asm_ns": 14075049.0,
+          "parent_ns": 16813577.5,
+          "current_ns": 16831046.0,
+          "vs_parent_pct": 0.103895,
+          "vs_asm_pct": 19.580728,
+          "parent_paired_range_pct": [
+            -0.300404,
+            1.327778
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 4
+          },
+          "asm_paired_range_pct": [
+            19.190328,
+            21.292469
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "VP9 720p": {
+          "asm_ns": 47095775.0,
+          "parent_ns": 24277919.0,
+          "current_ns": 24205257.5,
+          "vs_parent_pct": -0.29929,
+          "vs_asm_pct": -48.604185,
+          "parent_paired_range_pct": [
+            -1.440381,
+            0.0755
+          ],
+          "parent_pair_signs": {
+            "current_faster": 5,
+            "current_slower": 1
+          },
+          "asm_paired_range_pct": [
+            -48.873053,
+            -48.539457
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "six_tap_kernels": {
+        "SixTapPhases/16x16/0,4": {
+          "asm_ns": 104.05,
+          "parent_ns": 116.65,
+          "current_ns": 118.1,
+          "vs_parent_pct": 1.243035,
+          "vs_asm_pct": 13.503123,
+          "parent_paired_range_pct": [
+            0.340426,
+            3.687822
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            13.339731,
+            16.138329
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/2,4": {
+          "asm_ns": 103.95,
+          "parent_ns": 284.6,
+          "current_ns": 243.2,
+          "vs_parent_pct": -14.546732,
+          "vs_asm_pct": 133.958634,
+          "parent_paired_range_pct": [
+            -15.083799,
+            -12.412096
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            128.611632,
+            139.519231
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/3,5": {
+          "asm_ns": 104.0,
+          "parent_ns": 260.9,
+          "current_ns": 261.55,
+          "vs_parent_pct": 0.249138,
+          "vs_asm_pct": 151.490385,
+          "parent_paired_range_pct": [
+            -0.647372,
+            2.610365
+          ],
+          "parent_pair_signs": {
+            "current_faster": 1,
+            "current_slower": 5
+          },
+          "asm_paired_range_pct": [
+            150.6244,
+            156.772334
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/16x16/4,0": {
+          "asm_ns": 103.95,
+          "parent_ns": 136.64999999999998,
+          "current_ns": 101.0,
+          "vs_parent_pct": -26.088547,
+          "vs_asm_pct": -2.837903,
+          "parent_paired_range_pct": [
+            -27.00361,
+            -25.552283
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -4.36019,
+            -2.017291
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/4x4/0,4": {
+          "asm_ns": 28.634999999999998,
+          "parent_ns": 46.22,
+          "current_ns": 46.495000000000005,
+          "vs_parent_pct": 0.594981,
+          "vs_asm_pct": 62.371224,
+          "parent_paired_range_pct": [
+            0.21575,
+            3.418434
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            62.020906,
+            67.074449
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/2,4": {
+          "asm_ns": 28.65,
+          "parent_ns": 97.71000000000001,
+          "current_ns": 100.35,
+          "vs_parent_pct": 2.701873,
+          "vs_asm_pct": 250.26178,
+          "parent_paired_range_pct": [
+            2.537863,
+            4.892248
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            249.599163,
+            255.855856
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/3,5": {
+          "asm_ns": 28.665,
+          "parent_ns": 89.595,
+          "current_ns": 89.85,
+          "vs_parent_pct": 0.284614,
+          "vs_asm_pct": 213.448456,
+          "parent_paired_range_pct": [
+            -0.022306,
+            0.93323
+          ],
+          "parent_pair_signs": {
+            "current_faster": 1,
+            "current_slower": 5
+          },
+          "asm_paired_range_pct": [
+            212.661318,
+            216.992324
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/4,0": {
+          "asm_ns": 28.655,
+          "parent_ns": 34.35,
+          "current_ns": 37.01,
+          "vs_parent_pct": 7.743814,
+          "vs_asm_pct": 29.157215,
+          "parent_paired_range_pct": [
+            7.275362,
+            10.2594
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            28.417765,
+            32.087989
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/0,4": {
+          "asm_ns": 57.905,
+          "parent_ns": 45.125,
+          "current_ns": 45.415,
+          "vs_parent_pct": 0.642659,
+          "vs_asm_pct": -21.569813,
+          "parent_paired_range_pct": [
+            -1.067538,
+            2.946389
+          ],
+          "parent_pair_signs": {
+            "current_faster": 1,
+            "current_slower": 5
+          },
+          "asm_paired_range_pct": [
+            -21.771409,
+            -19.934528
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/8x8/2,4": {
+          "asm_ns": 57.9,
+          "parent_ns": 111.65,
+          "current_ns": 100.35,
+          "vs_parent_pct": -10.120914,
+          "vs_asm_pct": 73.316062,
+          "parent_paired_range_pct": [
+            -10.295434,
+            -8.050089
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            73.05038,
+            77.394305
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/3,5": {
+          "asm_ns": 57.94,
+          "parent_ns": 107.1,
+          "current_ns": 107.45,
+          "vs_parent_pct": 0.326797,
+          "vs_asm_pct": 85.450466,
+          "parent_paired_range_pct": [
+            0.093197,
+            2.609506
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            84.581044,
+            89.991372
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/4,0": {
+          "asm_ns": 57.83,
+          "parent_ns": 50.269999999999996,
+          "current_ns": 41.94,
+          "vs_parent_pct": -16.570519,
+          "vs_asm_pct": -27.477088,
+          "parent_paired_range_pct": [
+            -16.729585,
+            -14.297093
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -27.588591,
+            -25.549213
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "parity": {
+        "VP9 320x180": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.6166666666666667
+            ],
+            "previous": [
+              0.6166666666666667
+            ],
+            "simd": [
+              0.6166666666666667
+            ]
+          }
+        },
+        "VP8 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              1.25
+            ],
+            "previous": [
+              1.25
+            ],
+            "simd": [
+              1.25
+            ]
+          }
+        },
+        "VP8 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.625
+            ],
+            "previous": [
+              0.625
+            ],
+            "simd": [
+              0.625
+            ]
+          }
+        }
+      },
+      "sampled_profiles": {
+        "parent": {
+          "total_cpu_ns": 1990000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 0,
+              "cum_ns": 70000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 30000000,
+              "cum_ns": 60000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+              "flat_ns": 20000000,
+              "cum_ns": 30000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        },
+        "simd": {
+          "total_cpu_ns": 1980000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 0,
+              "cum_ns": 100000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+              "flat_ns": 50000000,
+              "cum_ns": 90000000
+            },
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 10000000,
+              "cum_ns": 120000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        }
+      }
+    },
+    "ad445194": {
+      "description": "safe 256-bit rolling rows",
+      "run_id": 39037784958,
+      "run_url": "https://github.com/thesyncim/govpx/actions/runs/39037784958",
+      "artifact_id": 12102498533,
+      "decision": "rejected: no public VP8 improvement, consistent 8x8 kernel regressions and all-six VP9 320p control slowdown",
+      "raw_directory": "/private/tmp/govpx-amd64-ad445194-artifact",
+      "status": "completed_success",
+      "raw_file_count": 86,
+      "assembly_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+      "parent_sha": "675e2821f308377fe0c950194e95563ac53babb1",
+      "head_sha": "ad44519452cbedc0d8202a3fd03c05e4af9edf38",
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "go_version": "go version go1.27.2 linux/amd64",
+      "controls": "GOMAXPROCS=1 PGO=off rounds=6 kernel-benchtime=150ms",
+      "kernel_cases": 80,
+      "all_kernels_six_samples_per_variant": true,
+      "all_kernels_zero_bytes_and_allocations": true,
+      "native_validation": {
+        "passed_tests": [
+          "TestVP8QuantBatchDeclinesBeforeWriting",
+          "TestVP8QuantBatchPreservesOverlappingInputOrder",
+          "TestQuantBatchExtremesScalar",
+          "TestQuantBatchNativeSelected",
+          "TestSixTapPreservesEightPixelAliasOrder",
+          "TestSixTapNarrowBoundsAndRounding",
+          "TestRollingSixTapNativeSelected",
+          "TestSixTapPredict16x16NativeMatchesScalar",
+          "TestSixTapPredictSIMDMatchesScalar",
+          "TestSixTapPredict8x8PairMatchesSeparateCalls",
+          "TestSixTapPredictRectangularMaybeMatchesScalar",
+          "TestSixTapPredictZeroOffsetsCopyCentralBlock",
+          "TestSixTapPredictRectangularMatchesScalar",
+          "TestSixTapPredictHorizontalHalfPixel",
+          "TestSixTapPredictVerticalHalfPixel",
+          "TestSixTapPredict16x16AllocatesZero"
+        ],
+        "contains_failure": false,
+        "contains_skip": false,
+        "current_simd_selected": true,
+        "parent_simd_selected": true
+      },
+      "raw_sha256_manifest": "/private/tmp/govpx-amd64-ad445194-files.json",
+      "public": {
+        "VP9 320x180": {
+          "asm_ns": 7037821.5,
+          "parent_ns": 4361432.0,
+          "current_ns": 4435433.0,
+          "vs_parent_pct": 1.696713,
+          "vs_asm_pct": -36.977188,
+          "parent_paired_range_pct": [
+            0.950948,
+            2.008122
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            -38.046922,
+            -36.293053
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "VP8 720p": {
+          "asm_ns": 23464295.5,
+          "parent_ns": 22873302.5,
+          "current_ns": 22965699.5,
+          "vs_parent_pct": 0.403951,
+          "vs_asm_pct": -2.124914,
+          "parent_paired_range_pct": [
+            -1.397517,
+            1.542791
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 4
+          },
+          "asm_paired_range_pct": [
+            -3.511448,
+            -1.18463
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "VP9 720p": {
+          "asm_ns": 60369980.0,
+          "parent_ns": 33129630.5,
+          "current_ns": 33059257.0,
+          "vs_parent_pct": -0.212419,
+          "vs_asm_pct": -45.238913,
+          "parent_paired_range_pct": [
+            -0.670693,
+            1.149762
+          ],
+          "parent_pair_signs": {
+            "current_faster": 3,
+            "current_slower": 3
+          },
+          "asm_paired_range_pct": [
+            -45.517733,
+            -44.736992
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "six_tap_kernels": {
+        "SixTapPhases/16x16/0,4": {
+          "asm_ns": 710.2,
+          "parent_ns": 142.1,
+          "current_ns": 106.5,
+          "vs_parent_pct": -25.05278,
+          "vs_asm_pct": -85.004224,
+          "parent_paired_range_pct": [
+            -25.403509,
+            -24.806202
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -85.047123,
+            -84.980293
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/16x16/2,4": {
+          "asm_ns": 710.45,
+          "parent_ns": 349.25,
+          "current_ns": 316.35,
+          "vs_parent_pct": -9.420186,
+          "vs_asm_pct": -55.471884,
+          "parent_paired_range_pct": [
+            -9.897025,
+            -7.562303
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -55.702433,
+            -54.587672
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/16x16/3,5": {
+          "asm_ns": 710.4,
+          "parent_ns": 315.9,
+          "current_ns": 286.29999999999995,
+          "vs_parent_pct": -9.370054,
+          "vs_asm_pct": -59.698761,
+          "parent_paired_range_pct": [
+            -10.900031,
+            -8.708043
+          ],
+          "parent_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          },
+          "asm_paired_range_pct": [
+            -59.769144,
+            -59.400084
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/16x16/4,0": {
+          "asm_ns": 710.4000000000001,
+          "parent_ns": 169.3,
+          "current_ns": 168.14999999999998,
+          "vs_parent_pct": -0.679268,
+          "vs_asm_pct": -76.330236,
+          "parent_paired_range_pct": [
+            -10.117773,
+            0.237954
+          ],
+          "parent_pair_signs": {
+            "current_faster": 5,
+            "current_slower": 1
+          },
+          "asm_paired_range_pct": [
+            -76.37208,
+            -76.274289
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/4x4/0,4": {
+          "asm_ns": 36.55,
+          "parent_ns": 60.565,
+          "current_ns": 60.605000000000004,
+          "vs_parent_pct": 0.066045,
+          "vs_asm_pct": 65.813953,
+          "parent_paired_range_pct": [
+            -1.495206,
+            0.347625
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 3
+          },
+          "asm_paired_range_pct": [
+            64.997278,
+            66.328211
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/2,4": {
+          "asm_ns": 36.525000000000006,
+          "parent_ns": 127.30000000000001,
+          "current_ns": 123.4,
+          "vs_parent_pct": -3.063629,
+          "vs_asm_pct": 237.850787,
+          "parent_paired_range_pct": [
+            -3.296703,
+            0.470958
+          ],
+          "parent_pair_signs": {
+            "current_faster": 5,
+            "current_slower": 1
+          },
+          "asm_paired_range_pct": [
+            213.72549,
+            238.537387
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/3,5": {
+          "asm_ns": 36.57,
+          "parent_ns": 112.55,
+          "current_ns": 114.1,
+          "vs_parent_pct": 1.377166,
+          "vs_asm_pct": 212.004375,
+          "parent_paired_range_pct": [
+            -10.015773,
+            1.691897
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 4
+          },
+          "asm_paired_range_pct": [
+            211.068702,
+            212.876712
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/4x4/4,0": {
+          "asm_ns": 36.625,
+          "parent_ns": 41.77,
+          "current_ns": 41.6,
+          "vs_parent_pct": -0.406991,
+          "vs_asm_pct": 13.583618,
+          "parent_paired_range_pct": [
+            -9.665508,
+            0.456621
+          ],
+          "parent_pair_signs": {
+            "current_faster": 4,
+            "current_slower": 2
+          },
+          "asm_paired_range_pct": [
+            12.334325,
+            14.395183
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/0,4": {
+          "asm_ns": 71.475,
+          "parent_ns": 57.754999999999995,
+          "current_ns": 63.055,
+          "vs_parent_pct": 9.176695,
+          "vs_asm_pct": -11.780343,
+          "parent_paired_range_pct": [
+            8.50551,
+            9.452909
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            -12.093737,
+            -11.468982
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        },
+        "SixTapPhases/8x8/2,4": {
+          "asm_ns": 71.43,
+          "parent_ns": 139.05,
+          "current_ns": 147.8,
+          "vs_parent_pct": 6.2927,
+          "vs_asm_pct": 106.915862,
+          "parent_paired_range_pct": [
+            5.679367,
+            7.234957
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            98.247978,
+            109.634505
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/3,5": {
+          "asm_ns": 71.485,
+          "parent_ns": 130.7,
+          "current_ns": 137.4,
+          "vs_parent_pct": 5.126243,
+          "vs_asm_pct": 92.208156,
+          "parent_paired_range_pct": [
+            4.729214,
+            6.508423
+          ],
+          "parent_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          },
+          "asm_paired_range_pct": [
+            90.060908,
+            94.817927
+          ],
+          "asm_pair_signs": {
+            "current_faster": 0,
+            "current_slower": 6
+          }
+        },
+        "SixTapPhases/8x8/4,0": {
+          "asm_ns": 71.5,
+          "parent_ns": 61.6,
+          "current_ns": 61.73,
+          "vs_parent_pct": 0.211039,
+          "vs_asm_pct": -13.664336,
+          "parent_paired_range_pct": [
+            -0.258523,
+            0.779094
+          ],
+          "parent_pair_signs": {
+            "current_faster": 2,
+            "current_slower": 4
+          },
+          "asm_paired_range_pct": [
+            -14.052698,
+            -13.027035
+          ],
+          "asm_pair_signs": {
+            "current_faster": 6,
+            "current_slower": 0
+          }
+        }
+      },
+      "parity": {
+        "VP9 320x180": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.6166666666666667
+            ],
+            "previous": [
+              0.6166666666666667
+            ],
+            "simd": [
+              0.6166666666666667
+            ]
+          }
+        },
+        "VP8 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              1.25
+            ],
+            "previous": [
+              1.25
+            ],
+            "simd": [
+              1.25
+            ]
+          }
+        },
+        "VP8 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0
+            ],
+            "previous": [
+              0
+            ],
+            "simd": [
+              0
+            ]
+          }
+        },
+        "VP9 720p profile": {
+          "semantic_fields_checked": 22,
+          "all_semantic_fields_equal": true,
+          "allocation_values": {
+            "assembly": [
+              0.625
+            ],
+            "previous": [
+              0.625
+            ],
+            "simd": [
+              0.625
+            ]
+          }
+        }
+      },
+      "sampled_profiles": {
+        "parent": {
+          "total_cpu_ns": 2710000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 0,
+              "cum_ns": 90000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+              "flat_ns": 40000000,
+              "cum_ns": 50000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 10000000,
+              "cum_ns": 60000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        },
+        "simd": {
+          "total_cpu_ns": 2690000000,
+          "six_tap_functions": {
+            "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+              "flat_ns": 20000000,
+              "cum_ns": 130000000
+            },
+            "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+              "flat_ns": 0,
+              "cum_ns": 160000000
+            },
+            "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+              "flat_ns": 60000000,
+              "cum_ns": 90000000
+            }
+          },
+          "note": "One separate 120-frame profile per variant, 10 ms CPU sampling. Nested cumulative values must not be added or treated as precise per-call ratios."
+        }
+      }
+    }
+  }
+}

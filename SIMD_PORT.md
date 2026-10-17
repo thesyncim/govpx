@@ -1237,5 +1237,17 @@ all semantic fields match. [Raw failed candidate and analysis](benchmarks/baseli
 remain available. Generated code exposes legacy MOVUPS for the signed-table
 zero comparison while YMM values are live; the profile concentrates in this
 check. The follow-up uses the existing VEX-loaded zero table. Its required-SIMD
-oracles, generated-code check, refreshed PGO and source gates pass; native
-performance awaits the next CI run. [Validation](benchmarks/baselines/go127-simd-amd64/2026-10-17-quant-vex-validation).
+oracles, generated-code check, refreshed PGO and source gates pass. Native
+`3d485291` validation on EPYC 7763 confirms the fix: quantization batches of
+8/16/25 blocks improve 59.4%/65.9%/69.3% versus base, all six pairs faster.
+Public VP8 improves 0.685% versus base and 4.905% versus old assembly, all six
+pairs faster. Counts 1/2 regress 5.0%/6.9%; these remain recorded tradeoffs.
+[Validation](benchmarks/baselines/go127-simd-amd64/2026-10-17-quant-vex-validation).
+
+The next x64 candidate retains rolling rows in 128-bit vertical filters and
+clears AVX upper bits at quantizer exits. Its isolated filter test on EPYC
+9V74 improves public VP8 2.414%, all six pairs faster, but still trails old
+assembly by 19.070%. Horizontal dot-product and wider rolling variants are
+excluded because they do not improve the public workload. These independent
+measurements are not additive; the combined source awaits native validation.
+[Comparisons and integration checks](benchmarks/baselines/go127-simd-amd64/2026-10-17-rolling-integration).

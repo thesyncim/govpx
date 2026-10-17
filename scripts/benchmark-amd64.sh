@@ -77,6 +77,8 @@ GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestBac
 {
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestVP8QuantBatch(DeclinesBeforeWriting|PreservesOverlappingInputOrder)$' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/encoder -run '^TestQuantBatch(NativeSelected|ExtremesScalar)$' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^Test(SixTap|RollingSixTap)' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestSixTap' -count=1 -v
 } > "$output_dir/quant-batch-validation.txt" 2>&1
 if [ -n "$previous_dir" ]; then
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh -C "$previous_dir" test -pgo=off ./internal/pixel -run '^TestBackendSelected$' -count=1 -v > "$output_dir/previous-dispatch.txt" 2>&1
