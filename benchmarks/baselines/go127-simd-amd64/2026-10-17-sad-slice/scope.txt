@@ -1,0 +1,25 @@
+PR31 native x64 / optimized-C evidence preservation
+
+Tested source: f4ad9ecfaae6f7a135705a7c1f9a6b46e1e04340
+Base/main: a6eec452dd5b76db988b41bc081a529a18416a3a
+Old assembly: 691cd0512c4829d9ee40d483205dd223f9eb028d
+Squash merge/main: 1a7e69af9e299d87fc5ad141b0674725815365ad
+Tested and merged tree: ca01269556a6c30803ffbe95acef1d1dd33a67bf
+PR: https://github.com/thesyncim/govpx/pull/31
+All three exact-head checks passed before merge. Only this PR's remote source branch was deleted; no local checkout/index/branch changed.
+
+Source scope: three production lines route enabled 16x16 slice SAD through the existing fixed-pointer SIMD kernel, retaining the disabled backend's prior visible-slice bounds behavior. The internal AMD dispatcher now has an extra non-inlined call boundary; public wrapper and PtrFast remain inline. Existing pointer kernel source is unchanged; distinguish the 20 new slice fixtures from 20 unchanged pointer controls. Native comparisons use PGO off despite refreshed profile/fingerprint files.
+
+Native EPYC 7763, Go 1.27.2, PGO off, GOMAXPROCS=1; six paired rounds compare current/base/old assembly on the same job CPU. All 20 new slice cases improve versus base in every pair: full/wide 2.018-2.046x (minimum paired 2.014x), early 1.498-1.502x ratio of medians (minimum paired 1.385x), middle 1.006-1.169x, near 1.016-1.039x. Eight full/wide fixtures exceed 1.5x in every pair. Do NOT assert every early pair exceeds 1.5x. Full/wide cases take 8.69-8.86% less time than assembly; early/middle/near still take 24.74-80.69% more time. Old BenchmarkSAD16x16LimitEarly improves 1.650x versus base, all pairs at least 1.644x, resolving the preceding base-relative regression but still 21.273% slower than assembly.
+
+Whole VP8 +0.449% time versus base (2/6 faster), -13.277% versus assembly (6/6 faster). VP9 320 -0.572% versus base (4/6 faster), -39.486% versus assembly (6/6 faster). VP9 720 -1.013% versus base (3/6 faster), -46.461% versus assembly (6/6 faster). These are mixed whole-codec results; no general overall win, no VP9 algorithm improvement and no closure of earlier ARM/9V74/other-CPU gaps. Short profiles sample ordinary SAD symbols, not a material slice-dispatch contribution; do not infer isolated throughput from differences between short profiles.
+
+Unchanged pointer-SAD controls range -0.149% to +0.289% versus base. Preserve all 62 median-regressing kernels; only all-six-slower control is Variance16x16 +0.213%. Largest median drift is picker pitch32/mixed +0.888% (4/6 slower). Compact audit retains selected paired fixture analyses and all median regressions. Raw logs contain all 134 cases and every round.
+
+All 134 kernel cases have six samples per variant, zero B/op and zero allocs/op. Targeted validation passes 75 top-level tests plus 6 retained panic child probes = 81 checks; 103 PASS lines include 22 older subtests. No failures/skips; base/current SIMD dispatch selected. All 22 semantic fields match across three public and two profile datasets. Allocation is a separate control; every sample matches and there are no outliers this run. Exact arrays remain in audit.json.
+
+Separate optimized-C EPYC 9V74 job: libvpx v1.16.0, commit 1024874c5919305883187e2953de8fcb4c3d7fa6, optimized configure, runtime dispatch, SSE2/AVX2 and assembly objects enabled. Fixed-speed VP8 Go 13.097341ms/input versus C 5.3570245ms/input = 2.444891x (+144.489%). Measured PSNR/SSIM/payload size/encoded and dropped counts match; this is not a bitstream-identity assertion. Adaptive VP8 +83.612% and VP9 +178.365%/+189.335% have unequal quality/output work. All quality-pass output statistics match timed outputs. Reference timer is vpxenc-stats. Do not compare absolute timings across these separate CPU jobs or infer a source effect from C timing drift.
+
+Parent-supplied ARM evidence (not independently measured by this audit): native M4 Max, Go 1.27.2, PGO off, fresh six-round confirmations. All 20 new slice cases faster in all pairs; early 1.592-1.601x versus base, minimum 1.576 across 24 pairs. Full/wide 1.418-1.428x versus base, 2.547-2.576x versus assembly. Early approximately tied with assembly. Whole 300 +0.151% versus base (3/6 faster), whole 60 -0.734% (3/6), still +4.811%/+11.734% versus assembly. All 23 non-timing fields exact, zero allocations. Retain verified component gains independently of mixed whole results; no general ARM gap closure.
+
+Preservation: native-raw.tar.gz holds 86 raw files and libvpx-raw.tar.gz holds 74. raw-sha256.json records all 160 original member hashes. Every decompressed member was checked byte-for-byte against source artifacts/manifests. sha256.json covers the other five bundle files. No README/source changes and no local Go work were performed by this audit.

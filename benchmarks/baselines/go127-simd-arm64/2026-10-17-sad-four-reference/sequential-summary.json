@@ -1,0 +1,646 @@
+{
+  "BenchmarkSADLimitX4Native/pitch32/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        51.16,
+        52.09,
+        50.63,
+        49.62,
+        53.21,
+        50.09
+      ],
+      "assembly": [
+        26.17,
+        26.78,
+        25.34,
+        24.89,
+        26.63,
+        24.94
+      ],
+      "candidate": [
+        35.14,
+        34.19,
+        34.27,
+        34.12,
+        34.14,
+        34.08
+      ]
+    },
+    "speedup_vs_parent": 1.4896824235328552,
+    "min_paired_speedup_vs_parent": 1.4542790152403282,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7538416508122349,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremefalse/wide": {
+    "samples": {
+      "parent": [
+        61.05,
+        55.63,
+        50.48,
+        49.87,
+        52.9,
+        50.18
+      ],
+      "assembly": [
+        25.6,
+        25.3,
+        25.41,
+        24.91,
+        26.92,
+        24.89
+      ],
+      "candidate": [
+        39.83,
+        34.66,
+        35.12,
+        33.97,
+        34.09,
+        34.05
+      ]
+    },
+    "speedup_vs_parent": 1.5037090909090909,
+    "min_paired_speedup_vs_parent": 1.4373576309794989,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7376,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremefalse/near": {
+    "samples": {
+      "parent": [
+        50.67,
+        51.82,
+        52.18,
+        49.68,
+        56.66,
+        50.49
+      ],
+      "assembly": [
+        25.39,
+        25.2,
+        25.98,
+        24.86,
+        27.44,
+        25.51
+      ],
+      "candidate": [
+        43.8,
+        42.35,
+        44.65,
+        43.06,
+        42.54,
+        42.71
+      ]
+    },
+    "speedup_vs_parent": 1.1949399556954645,
+    "min_paired_speedup_vs_parent": 1.1537389688806317,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.5934475923982745,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremefalse/early": {
+    "samples": {
+      "parent": [
+        12.6,
+        14.46,
+        13.57,
+        12.39,
+        13.14,
+        12.48
+      ],
+      "assembly": [
+        2.87,
+        2.942,
+        3.036,
+        2.798,
+        2.864,
+        2.861
+      ],
+      "candidate": [
+        6.408,
+        6.277,
+        6.457,
+        6.331,
+        6.341,
+        6.234
+      ]
+    },
+    "speedup_vs_parent": 2.03125,
+    "min_paired_speedup_vs_parent": 1.9570368030326961,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.45249368686868685,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        39.64,
+        43.44,
+        40.78,
+        39.12,
+        41.96,
+        39.24
+      ],
+      "candidate": [
+        32.37,
+        32.94,
+        33.48,
+        34.39,
+        33.11,
+        33.33
+      ]
+    },
+    "speedup_vs_parent": 1.2104154124021675,
+    "min_paired_speedup_vs_parent": 1.1375399825530677,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": null,
+    "assembly_scope": "Pinned NEON x4 has incompatible row-prefix results for patterned middle cases; initial failed exact-oracle log retained. Those two cases have no assembly timing."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremetrue/bound": {
+    "samples": {
+      "parent": [
+        50.06,
+        54.43,
+        50.49,
+        49.56,
+        52.58,
+        49.51
+      ],
+      "assembly": [
+        25.23,
+        25.19,
+        27.59,
+        24.94,
+        28.37,
+        24.99
+      ],
+      "candidate": [
+        34.97,
+        34.08,
+        35.52,
+        34.56,
+        34.24,
+        33.94
+      ]
+    },
+    "speedup_vs_parent": 1.4614825581395348,
+    "min_paired_speedup_vs_parent": 1.4214527027027026,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7328488372093023,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremetrue/wide": {
+    "samples": {
+      "parent": [
+        49.84,
+        54.36,
+        49.77,
+        49.47,
+        52.27,
+        49.8
+      ],
+      "assembly": [
+        26.59,
+        25.03,
+        24.98,
+        24.93,
+        27.71,
+        24.83
+      ],
+      "candidate": [
+        38.88,
+        34.89,
+        35.21,
+        34.33,
+        34.19,
+        34.21
+      ]
+    },
+    "speedup_vs_parent": 1.4394683617451605,
+    "min_paired_speedup_vs_parent": 1.2818930041152263,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.722479052297024,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremetrue/near": {
+    "samples": {
+      "parent": [
+        51.48,
+        51.18,
+        49.11,
+        48.25,
+        52.61,
+        48.95
+      ],
+      "assembly": [
+        28.55,
+        24.97,
+        24.83,
+        25.11,
+        25.42,
+        24.93
+      ],
+      "candidate": [
+        42.5,
+        41.28,
+        41.1,
+        40.95,
+        39.92,
+        40.79
+      ]
+    },
+    "speedup_vs_parent": 1.222303473491773,
+    "min_paired_speedup_vs_parent": 1.178266178266178,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.6103595368677635,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremetrue/early": {
+    "samples": {
+      "parent": [
+        12.58,
+        13.24,
+        14.21,
+        12.32,
+        12.54,
+        12.46
+      ],
+      "assembly": [
+        2.828,
+        2.816,
+        2.82,
+        2.815,
+        2.862,
+        2.818
+      ],
+      "candidate": [
+        6.65,
+        6.378,
+        6.441,
+        6.274,
+        6.457,
+        6.381
+      ]
+    },
+    "speedup_vs_parent": 1.9591327406020902,
+    "min_paired_speedup_vs_parent": 1.8917293233082706,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.4397129932927781,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch32/extremetrue/middle": {
+    "samples": {
+      "parent": [
+        22.18,
+        22.97,
+        24.49,
+        21.82,
+        21.92,
+        22.09
+      ],
+      "assembly": [
+        8.293,
+        8.181,
+        8.221,
+        8.226,
+        9.377,
+        8.155
+      ],
+      "candidate": [
+        15.05,
+        14.37,
+        14.69,
+        14.2,
+        14.64,
+        15.04
+      ]
+    },
+    "speedup_vs_parent": 1.5093760654619843,
+    "min_paired_speedup_vs_parent": 1.46875,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.5607569041936585,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        51.03,
+        52.61,
+        50.66,
+        50.23,
+        49.54,
+        49.97
+      ],
+      "assembly": [
+        25.6,
+        29.43,
+        25.36,
+        24.94,
+        25.65,
+        25.1
+      ],
+      "candidate": [
+        45.6,
+        34.11,
+        35.62,
+        34.12,
+        36.52,
+        34.07
+      ]
+    },
+    "speedup_vs_parent": 1.4466590192142241,
+    "min_paired_speedup_vs_parent": 1.119078947368421,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7307140808718097,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremefalse/wide": {
+    "samples": {
+      "parent": [
+        57.12,
+        52.11,
+        50.94,
+        49.27,
+        49.67,
+        50.21
+      ],
+      "assembly": [
+        35.05,
+        25.62,
+        24.99,
+        24.84,
+        25.18,
+        24.89
+      ],
+      "candidate": [
+        36.61,
+        34.2,
+        34.72,
+        34.32,
+        37.45,
+        34.22
+      ]
+    },
+    "speedup_vs_parent": 1.4650926998841254,
+    "min_paired_speedup_vs_parent": 1.32630173564753,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7266801853997683,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremefalse/near": {
+    "samples": {
+      "parent": [
+        49.95,
+        50.23,
+        50.34,
+        49.44,
+        49.84,
+        50.08
+      ],
+      "assembly": [
+        29.11,
+        25.58,
+        25.14,
+        24.97,
+        25.18,
+        24.92
+      ],
+      "candidate": [
+        43.88,
+        43.18,
+        42.92,
+        43.33,
+        49.65,
+        42.55
+      ]
+    },
+    "speedup_vs_parent": 1.1562825106924057,
+    "min_paired_speedup_vs_parent": 1.0038267875125881,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.5816668593226217,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremefalse/early": {
+    "samples": {
+      "parent": [
+        12.46,
+        12.69,
+        12.48,
+        12.51,
+        12.36,
+        12.45
+      ],
+      "assembly": [
+        2.842,
+        2.851,
+        3.069,
+        2.818,
+        2.832,
+        2.811
+      ],
+      "candidate": [
+        6.435,
+        6.426,
+        6.455,
+        6.285,
+        6.368,
+        6.412
+      ]
+    },
+    "speedup_vs_parent": 1.9426701978501324,
+    "min_paired_speedup_vs_parent": 1.9333849728892332,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.4419691540738432,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        42.26,
+        40.68,
+        41.74,
+        39.37,
+        39.07,
+        40.09
+      ],
+      "candidate": [
+        31.95,
+        33.61,
+        33.83,
+        32.74,
+        33.03,
+        33.13
+      ]
+    },
+    "speedup_vs_parent": 1.220828295042322,
+    "min_paired_speedup_vs_parent": 1.1828640629730547,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": null,
+    "assembly_scope": "Pinned NEON x4 has incompatible row-prefix results for patterned middle cases; initial failed exact-oracle log retained. Those two cases have no assembly timing."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremetrue/bound": {
+    "samples": {
+      "parent": [
+        55.74,
+        50.67,
+        51.18,
+        49.51,
+        49.37,
+        50.29
+      ],
+      "assembly": [
+        25.53,
+        26.49,
+        25.16,
+        24.89,
+        27.84,
+        25.1
+      ],
+      "candidate": [
+        34.39,
+        34.25,
+        34.75,
+        34.21,
+        34.72,
+        34.5
+      ]
+    },
+    "speedup_vs_parent": 1.465524749600813,
+    "min_paired_speedup_vs_parent": 1.421947004608295,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7358107127304397,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremetrue/wide": {
+    "samples": {
+      "parent": [
+        50.58,
+        49.92,
+        50.25,
+        50.23,
+        49.58,
+        49.81
+      ],
+      "assembly": [
+        25.71,
+        26.38,
+        24.88,
+        24.97,
+        26.55,
+        25.4
+      ],
+      "candidate": [
+        34.84,
+        34.67,
+        34.15,
+        34.03,
+        35.77,
+        34.0
+      ]
+    },
+    "speedup_vs_parent": 1.4552455681487941,
+    "min_paired_speedup_vs_parent": 1.3860777187587363,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.7426620168555653,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremetrue/near": {
+    "samples": {
+      "parent": [
+        48.6,
+        49.65,
+        49.16,
+        48.07,
+        48.12,
+        48.6
+      ],
+      "assembly": [
+        26.11,
+        25.67,
+        24.95,
+        24.93,
+        27.35,
+        25.52
+      ],
+      "candidate": [
+        46.81,
+        43.31,
+        42.13,
+        40.34,
+        49.85,
+        41.24
+      ]
+    },
+    "speedup_vs_parent": 1.1376404494382024,
+    "min_paired_speedup_vs_parent": 0.9652958876629889,
+    "faster_parent_pairs": 5,
+    "speedup_vs_assembly": 0.5991338951310862,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremetrue/early": {
+    "samples": {
+      "parent": [
+        12.67,
+        12.69,
+        12.89,
+        12.38,
+        12.43,
+        12.4
+      ],
+      "assembly": [
+        2.83,
+        2.858,
+        2.804,
+        2.819,
+        2.981,
+        2.862
+      ],
+      "candidate": [
+        6.909,
+        6.604,
+        6.677,
+        6.347,
+        6.523,
+        6.254
+      ]
+    },
+    "speedup_vs_parent": 1.912089586348747,
+    "min_paired_speedup_vs_parent": 1.833839918946302,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.43330540108174,
+    "assembly_scope": "Exact fixture oracle passes."
+  },
+  "BenchmarkSADLimitX4Native/pitch1312/extremetrue/middle": {
+    "samples": {
+      "parent": [
+        22.88,
+        22.42,
+        22.88,
+        21.84,
+        21.86,
+        21.84
+      ],
+      "assembly": [
+        8.435,
+        8.264,
+        8.219,
+        8.175,
+        8.827,
+        8.393
+      ],
+      "candidate": [
+        16.38,
+        15.17,
+        14.69,
+        14.19,
+        15.17,
+        14.4
+      ]
+    },
+    "speedup_vs_parent": 1.4829202947086404,
+    "min_paired_speedup_vs_parent": 1.3968253968253967,
+    "faster_parent_pairs": 6,
+    "speedup_vs_assembly": 0.5578365706630944,
+    "assembly_scope": "Exact fixture oracle passes."
+  }
+}

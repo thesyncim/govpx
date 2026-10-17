@@ -1,0 +1,50 @@
+{
+  "native_race_checkptr2": {
+    "log": "govpx-next-sad-x4-fused-race.log",
+    "top_level_pass_lines": 3,
+    "failed_lines": [],
+    "sha256": "10ab66cb0f60874e792b346a75160b798e19737d49266272e6b685298d38f91b"
+  },
+  "amd_rosetta_checkptr2": {
+    "log": "govpx-next-sad-x4-fused-amd64-correct.log",
+    "top_level_pass_lines": 3,
+    "failed_lines": [],
+    "sha256": "69f6e8445698f254d065b4f5025a630f058d7e8a37932a46f60033f67a2d1302"
+  },
+  "amd_avx_off": {
+    "log": "govpx-next-sad-x4-fused-amd64-off.log",
+    "top_level_pass_lines": 3,
+    "failed_lines": [],
+    "sha256": "fc39e6695c3d173aa96a2d20efadfc8fdce48cc196583d47822914888bfbd84a"
+  },
+  "purego": {
+    "log": "govpx-next-sad-x4-fused-purego.log",
+    "top_level_pass_lines": 2,
+    "failed_lines": [],
+    "sha256": "f95708a24e9ecb6d96806be9f44562e3a8dc000e853a87cf83eddb7ebdd5e4b9"
+  },
+  "nosimd": {
+    "log": "govpx-next-sad-x4-fused-nosimd.log",
+    "top_level_pass_lines": 2,
+    "failed_lines": [],
+    "sha256": "6dc1316f9d422704b510e80c55ffd0895584931e45db3fd0acaef19427400d79"
+  },
+  "full": {
+    "log": "govpx-next-sad-x4-full.log",
+    "top_level_pass_lines": 0,
+    "failed_lines": [],
+    "sha256": "0edce6443b8e1ca2d504bff2d76b26d37e9eabfdd7a60d3c2df439316ea8581b"
+  },
+  "pgo_refresh": {
+    "log": "govpx-next-sad-x4-pgo-refresh.log",
+    "top_level_pass_lines": 0,
+    "failed_lines": [],
+    "sha256": "8e66a6082439a6ab6bcdc3cf6bad60898d71e1e2fa3fac4e7855e66e6b3c0b3f"
+  },
+  "gates": {
+    "log": "govpx-next-sad-x4-gates.log",
+    "top_level_pass_lines": 0,
+    "failed_lines": [],
+    "sha256": "41f3c302183eceb65649a7a449488bd8f74ef7c390acecb445a6d62917d1aa75"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "parent": {
+    "binary_sha256": "ecc9cab373672d7427d3471c2f1d208135a831e009a2a2d2f6f9059d76d71478",
+    "sections": {
+      "__TEXT,__text": {
+        "length": 3448868,
+        "offset": 4096,
+        "sha256": "4b3dd91d8c35e65cb208458db25d6122b6c2e231f7817409ef3a1ec11b6a5927"
+      }
+    },
+    "go_build_id_payload_bytes": [
+      16,
+      99
+    ],
+    "text_with_only_build_id_payload_zeroed_sha256": "c819397349a344ee85c6fc85dcac2858b434d05bc645b279af1b2d8114b586d3"
+  },
+  "fused": {
+    "binary_sha256": "fede1d8b135cbed0fe661f62f7e7768617aa6c956e3a270cea35a72f4dbe367e",
+    "sections": {
+      "__TEXT,__text": {
+        "length": 3448868,
+        "offset": 4096,
+        "sha256": "303549aaa4c1c6a0297f21fb72f503a818129f3d5a3f0847c50dec04250a9a0c"
+      }
+    },
+    "go_build_id_payload_bytes": [
+      16,
+      99
+    ],
+    "text_with_only_build_id_payload_zeroed_sha256": "c819397349a344ee85c6fc85dcac2858b434d05bc645b279af1b2d8114b586d3"
+  },
+  "instruction_text_identical": false,
+  "scope": "Native ARM PGO-off CLI builds. Source search finds the x4 limited entry point only at its definition in production. Machine-text identity is code-generation evidence, not an end-to-end timing measurement. Debug/build metadata can differ. Raw text differs only in the validated Go build-ID string payload. Zero only that non-instruction payload; every remaining text byte matches. X4 limited entry and guard symbols are absent from the selected CLI. No whole-codec speedup is measured or claimed.",
+  "instruction_text_identical_after_build_id_payload_normalization": true,
+  "unused_x4_entry_and_guard_symbols_absent": true
+}

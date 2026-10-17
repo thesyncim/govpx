@@ -1,0 +1,24 @@
+{
+  "cpu": "Apple M4 Max",
+  "os": "Darwin arm64",
+  "go": "1.27.2",
+  "experiment": "simd",
+  "pgo": "off for all measurements",
+  "gomaxprocs": 1,
+  "parent": "f4ad9ecfaae6f7a135705a7c1f9a6b46e1e04340",
+  "merged_parent": "1a7e69af9e299d87fc5ad141b0674725815365ad",
+  "parent_tree": "ca01269556a6c30803ffbe95acef1d1dd33a67bf",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "binary_sha256": {
+    "govpx-next-sad-x4-candidate.test": "f7e42f1e53a7d8473ad2d6212ba21d1392dad32d1036711639eb892af91fa544",
+    "govpx-next-sad-x4-assembly.test": "7cac6ae55877fb833cfc79a509d15136b3a105e67e826efebbedf3da574a8321",
+    "govpx-next-sad-x4-fused-amd64.test": "b159c3cc2670dc72d030771d0dfd97c6a3c6863e887491e6e554c4da53ba7d09",
+    "govpx-next-sad-x4-assembly-amd64.test": "1103633ba9148f7e369e731f353ead675df1912d0ba3acb4b96a451a7cd45488",
+    "govpx-next-sad-x4-candidate-amd64.test": "3153a10732dce75b63f01eba1d0d14a6ee7f175ca9fc824868d6972b3f29e89d",
+    "govpx-next-sad-x4-parent.test": "88696d11320532de7bf748319213b5ca04ed6e2fabe5d19623213a42034bd1c3",
+    "govpx-next-sad-x4-fused.test": "fddeca408d67f6591a770c172decfd63759715b4745b15d45700c93a1c96b4ea",
+    "govpx-next-sad-x4-fused-bench": "fede1d8b135cbed0fe661f62f7e7768617aa6c956e3a270cea35a72f4dbe367e",
+    "govpx-next-sad-x4-parent-bench": "ecc9cab373672d7427d3471c2f1d208135a831e009a2a2d2f6f9059d76d71478"
+  },
+  "scope": "Shared desktop native timing windows, quiet before/mid-run checks; no concurrent root builds/tests/profiles. Unrelated builds were allowed to finish before native timings. AMD Rosetta results are correctness-only."
+}

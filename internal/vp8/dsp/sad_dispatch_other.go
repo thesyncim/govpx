@@ -24,10 +24,14 @@ func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *b
 
 // SAD16x16x4LimitPtrFast evaluates each reference with its own row limit.
 func SAD16x16x4LimitPtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, limits *[4]int32, out *[4]uint32) {
-	out[0] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref0, refStride, 16, 16, int(limits[0])))
-	out[1] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref1, refStride, 16, 16, int(limits[1])))
-	out[2] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref2, refStride, 16, 16, int(limits[2])))
-	out[3] = uint32(sadBlockLimitScalarPtr(src, srcStride, ref3, refStride, 16, 16, int(limits[3])))
+	if pixel.Enabled && limits[0] >= 65280 && limits[1] >= 65280 && limits[2] >= 65280 && limits[3] >= 65280 && sadX4FullDisjoint(src, srcStride, ref0, ref1, ref2, ref3, refStride, limits, out) {
+		SAD16x16x4PtrFast(src, srcStride, ref0, ref1, ref2, ref3, refStride, out)
+		return
+	}
+	out[0] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref0, refStride, int(limits[0])))
+	out[1] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref1, refStride, int(limits[1])))
+	out[2] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref2, refStride, int(limits[2])))
+	out[3] = uint32(SAD16x16LimitPtrFast(src, srcStride, ref3, refStride, int(limits[3])))
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
@@ -160,4 +164,21 @@ func sadBlockLimitScalar(src []byte, srcStride int, ref []byte, refStride int, w
 		}
 	}
 	return sad
+}
+
+// Only disjoint output permits computing all four full sums before storing.
+// The stride bound proves reconstructed spans fit before multiplication.
+func sadX4FullDisjoint(src *byte, ss int, r0, r1, r2, r3 *byte, rs int, limits *[4]int32, out *[4]uint32) bool {
+	if src == nil || r0 == nil || r1 == nil || r2 == nil || r3 == nil || out == nil || (uint(ss)|uint(rs))>>48 != 0 {
+		return false
+	}
+	a := uintptr(unsafe.Pointer(out))
+	disjoint := func(p unsafe.Pointer, n uintptr) bool {
+		b := uintptr(p)
+		if a <= b {
+			return b-a >= 16
+		}
+		return a-b >= n
+	}
+	return disjoint(unsafe.Pointer(limits), 16) && disjoint(unsafe.Pointer(src), uintptr(15*ss+16)) && disjoint(unsafe.Pointer(r0), uintptr(15*rs+16)) && disjoint(unsafe.Pointer(r1), uintptr(15*rs+16)) && disjoint(unsafe.Pointer(r2), uintptr(15*rs+16)) && disjoint(unsafe.Pointer(r3), uintptr(15*rs+16))
 }
