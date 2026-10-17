@@ -23,7 +23,6 @@ env:
 
 jobs:
   benchmark:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 23
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -37,7 +36,7 @@ jobs:
           go-version: '1.27.2'
 
       - name: Compare assembly, previous and current SIMD on the same CPU
-        run: sh scripts/benchmark-amd64.sh 691cd0512c4829d9ee40d483205dd223f9eb028d "$RUNNER_TEMP/amd64-bench" "HEAD^"
+        run: sh scripts/benchmark-amd64.sh 691cd0512c4829d9ee40d483205dd223f9eb028d "$RUNNER_TEMP/amd64-bench" "${{ github.event.pull_request.base.sha || 'origin/main' }}"
 
       - name: Save raw benchmarks and environment
         if: always()
@@ -51,7 +50,6 @@ jobs:
           if-no-files-found: error
 
   libvpx-reference:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 23
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

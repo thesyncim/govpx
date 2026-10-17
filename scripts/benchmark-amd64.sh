@@ -71,6 +71,13 @@ export GOTOOLCHAIN=local GOEXPERIMENT=simd GOAMD64=v1 GOMAXPROCS=1
 
 # This test fails if runtime feature detection selected the scalar backend.
 GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestBackendSelected$' -count=1 -v > "$output_dir/dispatch.txt" 2>&1
+# The current batch implementation must accept eligible native work and match
+# the scalar oracle over signed inputs before collecting any timing samples.
+# Older references keep their own production tests and identical bench fixture.
+{
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestVP8QuantBatch(DeclinesBeforeWriting|PreservesOverlappingInputOrder)$' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/encoder -run '^TestQuantBatch(NativeSelected|ExtremesScalar)$' -count=1 -v
+} > "$output_dir/quant-batch-validation.txt" 2>&1
 if [ -n "$previous_dir" ]; then
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh -C "$previous_dir" test -pgo=off ./internal/pixel -run '^TestBackendSelected$' -count=1 -v > "$output_dir/previous-dispatch.txt" 2>&1
 fi

@@ -1,0 +1,15 @@
+{
+  "go_production_commit": "3599f121",
+  "go_binary": "/private/tmp/govpx-quant-final-bench",
+  "go_binary_sha256": "3babd77c9b49a85228b677d767015733aca06d1165f00aaa4f4fe413bca1025f",
+  "pgo": "off",
+  "source_fingerprint": "0cd31c57c927dfe7fd2e283f507e985f7c2264c8",
+  "libvpx_binary_sha256": "522cae8963b7c86caf76ed6c4611c7f8d9d550c612d7c50b96dd50e1787da568",
+  "libvpx_build_provenance": "Copied unchanged from ../2026-10-17-libvpx; same pristine C source/build/binary. All timing and quality JSON newly measured for this Go production codec.",
+  "cpu": "Apple M4 Max",
+  "go": "1.27.2",
+  "GOEXPERIMENT": "simd",
+  "GOMAXPROCS": 1,
+  "encoder_threads": 1,
+  "competing_local_go_jobs": false
+}

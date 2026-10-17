@@ -1,0 +1,798 @@
+{
+  "timing_contract": {
+    "govpx": "sum of EncodeInto call durations; input construction, warmup and allocation sampling excluded",
+    "libvpx": "vpxenc cumulative vpx_codec_encode timer; subprocess/file wall timing reported separately",
+    "libvpx_latency": "legacy helper latency fields repeat the mean, not measured latency quantiles; not used here",
+    "order": "three govpx-first and three reference-first runs per case",
+    "quality": "separate post-timing decode/PSNR/SSIM pass, same inputs and flags",
+    "scope": "synthetic same-input/controls comparison; differing output/quality/drop work is reported, not assumed equivalent"
+  },
+  "cases": {
+    "vp9-320p": {
+      "govpx_median_ns_per_input": 1567646.5,
+      "libvpx_median_ns_per_input": 617099.5,
+      "govpx_time_delta_percent": 154.03464109110442,
+      "paired_govpx_time_delta_percent": [
+        155.31359298849162,
+        156.63857461835224,
+        151.33237524254696,
+        155.98027867652192,
+        151.74874154017365,
+        153.48610926321626
+      ],
+      "libvpx_wall_median_ns_per_input": 686481.5,
+      "libvpx_subprocess_overhead_ns": [
+        8541083,
+        8603750,
+        8039167,
+        8280167,
+        8132458,
+        8353667
+      ],
+      "actual_libvpx_controls": [
+        "--passes=1",
+        "--lag-in-frames=0",
+        "--auto-alt-ref=0",
+        "--aq-mode=0",
+        "--row-mt=0",
+        "--tile-columns=0",
+        "--tile-rows=0",
+        "--profile=0",
+        "--end-usage=cbr",
+        "--target-bitrate=500",
+        "--min-q=2",
+        "--max-q=56",
+        "--kf-min-dist=0",
+        "--kf-max-dist=3000",
+        "--buf-sz=1000",
+        "--buf-initial-sz=500",
+        "--buf-optimal-sz=600",
+        "--undershoot-pct=100",
+        "--overshoot-pct=15",
+        "--threads=1",
+        "--timebase=1/30",
+        "--noise-sensitivity=4",
+        "--rt",
+        "--cpu-used=8",
+        "--drop-frame=30",
+        "--max-intra-rate=900",
+        "--static-thresh=1"
+      ],
+      "govpx_output_samples": [
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        },
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        },
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        },
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        },
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        },
+        {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793
+        }
+      ],
+      "libvpx_output_samples": [
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        },
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        },
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        },
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        },
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        },
+        {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414
+        }
+      ],
+      "govpx_allocations_per_input": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "govpx_quality": {
+        "output_bytes": 246893,
+        "output_bitrate_kbps": 493.786,
+        "bitrate_error_pct": -1.2427999999999997,
+        "encoded_frames": 117,
+        "dropped_frames": 3,
+        "keyframe_bytes": 29346,
+        "avg_interframe_bytes": 1875.405172413793,
+        "psnr": 28.91097432360832,
+        "ssim": 0.9663734052397467,
+        "quality_frames": 117
+      },
+      "libvpx_quality": {
+        "output_bytes": 246912,
+        "output_bitrate_kbps": 493.824,
+        "bitrate_error_pct": -1.2351999999999976,
+        "encoded_frames": 117,
+        "dropped_frames": 3,
+        "keyframe_bytes": 29346,
+        "avg_interframe_bytes": 1875.5689655172414,
+        "psnr": 28.969582895630573,
+        "ssim": 0.9670114862649619,
+        "quality_frames": 117
+      },
+      "quality_output_matches_timing": {
+        "govpx": true,
+        "libvpx": true
+      }
+    },
+    "vp9-720p": {
+      "govpx_median_ns_per_input": 12061530.0,
+      "libvpx_median_ns_per_input": 4599933.0,
+      "govpx_time_delta_percent": 162.21099307315998,
+      "paired_govpx_time_delta_percent": [
+        163.19428348996271,
+        167.00220143470906,
+        160.87545799422847,
+        155.96679501067152,
+        166.19583003829482,
+        164.87538797774062
+      ],
+      "libvpx_wall_median_ns_per_input": 5059498.5,
+      "libvpx_subprocess_overhead_ns": [
+        26966916,
+        28264416,
+        27848042,
+        27142958,
+        29472875,
+        27299792
+      ],
+      "actual_libvpx_controls": [
+        "--passes=1",
+        "--lag-in-frames=0",
+        "--auto-alt-ref=0",
+        "--aq-mode=0",
+        "--row-mt=0",
+        "--tile-columns=0",
+        "--tile-rows=0",
+        "--profile=0",
+        "--end-usage=cbr",
+        "--target-bitrate=2500",
+        "--min-q=2",
+        "--max-q=56",
+        "--kf-min-dist=0",
+        "--kf-max-dist=3000",
+        "--buf-sz=1000",
+        "--buf-initial-sz=500",
+        "--buf-optimal-sz=600",
+        "--undershoot-pct=100",
+        "--overshoot-pct=15",
+        "--threads=1",
+        "--timebase=1/30",
+        "--noise-sensitivity=4",
+        "--rt",
+        "--cpu-used=8",
+        "--drop-frame=30",
+        "--max-intra-rate=900",
+        "--static-thresh=1"
+      ],
+      "govpx_output_samples": [
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        },
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        },
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        },
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        },
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        },
+        {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809
+        }
+      ],
+      "libvpx_output_samples": [
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        },
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        },
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        },
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        },
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        },
+        {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404
+        }
+      ],
+      "govpx_allocations_per_input": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "govpx_quality": {
+        "output_bytes": 642654,
+        "output_bitrate_kbps": 2570.616,
+        "bitrate_error_pct": 2.8246399999999996,
+        "encoded_frames": 48,
+        "dropped_frames": 12,
+        "keyframe_bytes": 262153,
+        "avg_interframe_bytes": 8095.765957446809,
+        "psnr": 27.516433674845157,
+        "ssim": 0.9493477953174687,
+        "quality_frames": 48
+      },
+      "libvpx_quality": {
+        "output_bytes": 643059,
+        "output_bitrate_kbps": 2572.236,
+        "bitrate_error_pct": 2.889439999999995,
+        "encoded_frames": 48,
+        "dropped_frames": 12,
+        "keyframe_bytes": 262153,
+        "avg_interframe_bytes": 8104.382978723404,
+        "psnr": 27.54611662978128,
+        "ssim": 0.9490956230208724,
+        "quality_frames": 48
+      },
+      "quality_output_matches_timing": {
+        "govpx": true,
+        "libvpx": true
+      }
+    },
+    "vp8-720p-adaptive": {
+      "govpx_median_ns_per_input": 7699581.0,
+      "libvpx_median_ns_per_input": 4730708.0,
+      "govpx_time_delta_percent": 62.75747731629178,
+      "paired_govpx_time_delta_percent": [
+        63.537626365665446,
+        62.663478756646796,
+        63.60383615385563,
+        61.919039754257874,
+        65.42019409881956,
+        61.82808995829055
+      ],
+      "libvpx_wall_median_ns_per_input": 5169469.0,
+      "libvpx_subprocess_overhead_ns": [
+        25971666,
+        24536042,
+        26074041,
+        26577250,
+        50173083,
+        45705875
+      ],
+      "actual_libvpx_controls": [
+        "--passes=1",
+        "--lag-in-frames=0",
+        "--end-usage=cbr",
+        "--target-bitrate=2500",
+        "--min-q=2",
+        "--max-q=56",
+        "--kf-min-dist=3000",
+        "--kf-max-dist=3000",
+        "--buf-sz=1000",
+        "--buf-initial-sz=500",
+        "--buf-optimal-sz=600",
+        "--undershoot-pct=100",
+        "--overshoot-pct=15",
+        "--threads=1",
+        "--token-parts=0",
+        "--timebase=1/30",
+        "--noise-sensitivity=4",
+        "--rt",
+        "--cpu-used=8",
+        "--drop-frame=30",
+        "--max-intra-rate=900",
+        "--static-thresh=1"
+      ],
+      "govpx_output_samples": [
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        }
+      ],
+      "libvpx_output_samples": [
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        },
+        {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614
+        }
+      ],
+      "govpx_allocations_per_input": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "govpx_quality": {
+        "output_bytes": 685957,
+        "output_bitrate_kbps": 2743.828,
+        "bitrate_error_pct": 9.75312,
+        "encoded_frames": 58,
+        "dropped_frames": 2,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 9688.719298245614,
+        "psnr": 27.983950811796223,
+        "ssim": 0.9085039479857895,
+        "quality_frames": 58
+      },
+      "libvpx_quality": {
+        "output_bytes": 685957,
+        "output_bitrate_kbps": 2743.828,
+        "bitrate_error_pct": 9.75312,
+        "encoded_frames": 58,
+        "dropped_frames": 2,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 9688.719298245614,
+        "psnr": 27.983950811796223,
+        "ssim": 0.9085039479857895,
+        "quality_frames": 58
+      },
+      "quality_output_matches_timing": {
+        "govpx": true,
+        "libvpx": true
+      }
+    },
+    "vp8-720p-fixed": {
+      "govpx_median_ns_per_input": 6509612.5,
+      "libvpx_median_ns_per_input": 3011758.0,
+      "govpx_time_delta_percent": 116.1399587881895,
+      "paired_govpx_time_delta_percent": [
+        115.10593996735183,
+        117.26969458498799,
+        115.92372487004869,
+        114.78753173588333,
+        112.025962594263,
+        119.5682750341792
+      ],
+      "libvpx_wall_median_ns_per_input": 3405025.0,
+      "libvpx_subprocess_overhead_ns": [
+        23385333,
+        22607708,
+        23697750,
+        24077459,
+        23594834,
+        22864958
+      ],
+      "actual_libvpx_controls": [
+        "--passes=1",
+        "--lag-in-frames=0",
+        "--end-usage=cbr",
+        "--target-bitrate=2500",
+        "--min-q=2",
+        "--max-q=56",
+        "--kf-min-dist=3000",
+        "--kf-max-dist=3000",
+        "--buf-sz=1000",
+        "--buf-initial-sz=500",
+        "--buf-optimal-sz=600",
+        "--undershoot-pct=100",
+        "--overshoot-pct=15",
+        "--threads=1",
+        "--token-parts=0",
+        "--timebase=1/30",
+        "--noise-sensitivity=4",
+        "--rt",
+        "--cpu-used=-8",
+        "--drop-frame=30",
+        "--max-intra-rate=900",
+        "--static-thresh=1"
+      ],
+      "govpx_output_samples": [
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        }
+      ],
+      "libvpx_output_samples": [
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        },
+        {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349
+        }
+      ],
+      "govpx_allocations_per_input": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "govpx_quality": {
+        "output_bytes": 723593,
+        "output_bitrate_kbps": 2894.372,
+        "bitrate_error_pct": 15.774879999999992,
+        "encoded_frames": 58,
+        "dropped_frames": 2,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10349,
+        "psnr": 27.157610871537482,
+        "ssim": 0.9259273287259608,
+        "quality_frames": 58
+      },
+      "libvpx_quality": {
+        "output_bytes": 723593,
+        "output_bitrate_kbps": 2894.372,
+        "bitrate_error_pct": 15.774879999999992,
+        "encoded_frames": 58,
+        "dropped_frames": 2,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10349,
+        "psnr": 27.157610871537482,
+        "ssim": 0.9259273287259608,
+        "quality_frames": 58
+      },
+      "quality_output_matches_timing": {
+        "govpx": true,
+        "libvpx": true
+      }
+    }
+  }
+}
