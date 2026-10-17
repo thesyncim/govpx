@@ -1,0 +1,72 @@
+# round 1
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1909999	        94.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1912968	        93.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 3817838	        46.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1918842	        93.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1933611	        92.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3984236	        45.73 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 2
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1931898	        93.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1936585	        93.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 4002093	        45.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1939560	        92.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1941640	        92.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3980656	        45.35 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 3
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1932886	        93.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1920166	        93.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 3947040	        46.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1937707	        93.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1912879	        93.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3997508	        44.90 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 4
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1946607	        92.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1941922	        93.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 3931386	        45.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1944664	        93.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1911811	        93.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3940692	        45.79 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 5
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1939922	        92.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1941972	        93.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 4008189	        45.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1944786	        92.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1943115	        92.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3981056	        45.06 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 6
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/decoder
+cpu: Apple M4 Max
+BenchmarkVP8PickerFilterNative/pitch32/smooth         	 1941056	        93.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/mixed          	 1933375	        92.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch32/noop           	 3986946	        45.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/smooth       	 1951344	        92.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/mixed        	 1941334	        92.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP8PickerFilterNative/pitch1312/noop         	 3990034	        45.17 ns/op	       0 B/op	       0 allocs/op
+PASS

@@ -1,0 +1,5 @@
+Go 1.27.2. ARM full-suite and portable fallback correctness; x64 GOAMD64=v1 required-SIMD Rosetta correctness only. No native x64 performance claim before this PR is measured.
+All 14 generated SIMD outputs exactly match isolated regeneration. Current prototype hot body has 15 vector stack accesses in x64 disassembly; native measurement must decide whether reuse outweighs this pressure.
+Full native suite initially failed only the missing libvpx citation in the new decoder dispatch file. That comment is fixed; fresh full suite passes. Original and successful logs are retained.
+The independent pixel/DSP scalar oracles validate arithmetic, boundaries/canaries and declines before writing. New decoder fixtures restore input on every iteration and compare complete output with separate public edges; single-iteration Rosetta/ARM runs establish live-work correctness only.
+Older prototype checkptr2 full-decoder allocation assertions fail identically on baseline; ordinary full decoder and targeted new checkptr2 oracles pass. See validation evidence and PR26 archives for measured performance scope.

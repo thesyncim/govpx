@@ -1,0 +1,3090 @@
+{
+  "pr": 26,
+  "pr_url": "https://github.com/thesyncim/govpx/pull/26",
+  "head_sha": "2272d7e447427cbfcb979d3bfbd3b487e9a24cfa",
+  "base_sha": "5f507e121ad1a394113f0035960554b4353e027a",
+  "old_assembly_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "scope": "Read-only audit of exact-head hosted/native/C evidence. Audit itself changes no source or branches; parent later authorized a separate exact-green-head merge. Compare public and component measurements separately within the same job. Native and C job CPUs may differ; no summing cross-run gains.",
+  "native_run_url": "https://github.com/thesyncim/govpx/actions/runs/39054388453",
+  "hosted_run_url": "https://github.com/thesyncim/govpx/actions/runs/39054388454",
+  "raw_inputs": {
+    "native_directory": "/private/tmp/govpx-amd64-2272d7e4-artifact",
+    "native_sha256_manifest": "/private/tmp/govpx-amd64-2272d7e4-files.json",
+    "full88_kernel_summary": "/private/tmp/govpx-amd64-2272d7e4-summary.json",
+    "complete_parity": "/private/tmp/govpx-amd64-2272d7e4-complete-parity.json",
+    "c_directory": "/private/tmp/govpx-libvpx-amd64-2272d7e4-artifact",
+    "c_sha256_manifest": "/private/tmp/govpx-libvpx-amd64-2272d7e4-files.json"
+  },
+  "native": {
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "go_version": "go version go1.27.2 linux/amd64",
+    "raw_directory": "/private/tmp/govpx-amd64-2272d7e4-artifact",
+    "raw_file_count": 86,
+    "assembly_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+    "base_sha": "5f507e121ad1a394113f0035960554b4353e027a",
+    "head_sha": "2272d7e447427cbfcb979d3bfbd3b487e9a24cfa",
+    "controls": "GOMAXPROCS=1 PGO=off rounds=6 kernel-benchtime=150ms",
+    "kernel_cases": 88,
+    "all_kernels_six_samples_per_variant": true,
+    "all_kernels_zero_bytes_and_allocations": true,
+    "public": {
+      "VP9 320x180": {
+        "assembly_ns": 7024790.0,
+        "base_ns": 4246566.0,
+        "current_ns": 4271880.0,
+        "current_vs_base_percent": 0.5961051823991426,
+        "base_speedup": 0.9940742717492065,
+        "base_paired_percent": [
+          1.281829445844207,
+          0.16836333131897696,
+          -0.2966358508843303,
+          0.7906097562990766,
+          -1.1738084057426157,
+          -0.3315258696627299
+        ],
+        "base_paired_speedup": [
+          0.9873439347130908,
+          0.9983191965435025,
+          1.0029751839711314,
+          0.9921559185105568,
+          1.011877503188242,
+          1.0033262861958656
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -39.18850243210117,
+        "assembly_speedup": 1.6444258733859565,
+        "assembly_paired_percent": [
+          -39.90686902484523,
+          -39.3400648910757,
+          -39.70736780533258,
+          -39.2382993342694,
+          -39.116756178526124,
+          -39.20775665444518
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "VP8 720p": {
+        "assembly_ns": 23658222.0,
+        "base_ns": 20734691.0,
+        "current_ns": 20585565.5,
+        "current_vs_base_percent": -0.7192077277640596,
+        "base_speedup": 1.0072441779653807,
+        "base_paired_percent": [
+          0.5003507957965558,
+          -1.9347012333826297,
+          -0.9544243436029332,
+          -1.4836317262340248,
+          -0.1760895316934019,
+          -0.33671629377075574
+        ],
+        "base_paired_speedup": [
+          0.9950214024942738,
+          1.0197287038097642,
+          1.0096362138063992,
+          1.0150597484685102,
+          1.001764001538983,
+          1.00337853902911
+        ],
+        "current_faster_than_base_pairs": 5,
+        "current_slower_than_base_pairs": 1,
+        "current_vs_assembly_percent": -12.987689861055497,
+        "assembly_speedup": 1.1492626714578231,
+        "assembly_paired_percent": [
+          -12.379826113736048,
+          -12.830501850259123,
+          -13.607435116418731,
+          -14.260210077673596,
+          -11.04711580338803,
+          -12.22374426165791
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "VP9 720p": {
+        "assembly_ns": 60813059.0,
+        "base_ns": 32935746.0,
+        "current_ns": 32297842.5,
+        "current_vs_base_percent": -1.9368120582421322,
+        "base_speedup": 1.0197506536233805,
+        "base_paired_percent": [
+          -2.125007438366333,
+          -1.644798292206362,
+          -2.7345661129329124,
+          -1.0950685833242657,
+          -1.5729730313149726,
+          -1.3780834055933555
+        ],
+        "base_paired_speedup": [
+          1.0217114441876272,
+          1.0167230432518755,
+          1.0281144698959341,
+          1.0110719310719791,
+          1.015981108845393,
+          1.0139733991508284
+        ],
+        "current_faster_than_base_pairs": 6,
+        "current_slower_than_base_pairs": 0,
+        "current_vs_assembly_percent": -46.889955823468775,
+        "assembly_speedup": 1.8828830130062093,
+        "assembly_paired_percent": [
+          -46.70586138384441,
+          -46.94536564428808,
+          -46.983708529658905,
+          -46.868786356593105,
+          -45.922891778627516,
+          -45.539278163450646
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      }
+    },
+    "plane_scoring_fixtures": {
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkLoopFilterLumaSSENative/1088p": {
+        "assembly_ns": 226064.0,
+        "base_ns": 315100.5,
+        "current_ns": 133687.5,
+        "current_vs_base_percent": -57.573060023706724,
+        "base_speedup": 2.356992987377279,
+        "base_paired_percent": [
+          -57.179157295620286,
+          -57.482468175928034,
+          -58.07222558955338,
+          -57.48022007642424,
+          -61.71358389732763,
+          -57.32953839190951
+        ],
+        "base_paired_speedup": [
+          2.335311350371253,
+          2.3519709566815314,
+          2.3850538552574414,
+          2.3518466036216106,
+          2.61189241980317,
+          2.3435415561813278
+        ],
+        "current_faster_than_base_pairs": 6,
+        "current_slower_than_base_pairs": 0,
+        "current_vs_assembly_percent": -40.8629857031637,
+        "assembly_speedup": 1.6909883122954652,
+        "assembly_paired_percent": [
+          -40.857708788457536,
+          -41.05439750601041,
+          -40.15867324069924,
+          -41.48074438741665,
+          -41.22062908190076,
+          -39.435517434811715
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0,
+        "all_six_at_least_1_5x_vs_base": true
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkLoopFilterLumaSSENative/128x128": {
+        "assembly_ns": 2590.0,
+        "base_ns": 2000.0,
+        "current_ns": 1174.0,
+        "current_vs_base_percent": -41.300000000000004,
+        "base_speedup": 1.7035775127768313,
+        "base_paired_percent": [
+          -41.49625935162094,
+          -41.19119119119119,
+          -41.04627766599598,
+          -41.123370110330995,
+          -41.35864135864136,
+          -40.49751243781095
+        ],
+        "base_paired_speedup": [
+          1.7092924126172204,
+          1.7004255319148935,
+          1.696245733788396,
+          1.6984667802385012,
+          1.705281090289608,
+          1.6806020066889633
+        ],
+        "current_faster_than_base_pairs": 6,
+        "current_slower_than_base_pairs": 0,
+        "current_vs_assembly_percent": -54.67181467181468,
+        "assembly_speedup": 2.2061328790459966,
+        "assembly_paired_percent": [
+          -54.65790490916119,
+          -54.79030396306271,
+          -54.95772482705611,
+          -54.63678516228748,
+          -54.601701469450894,
+          -53.85802469135803
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0,
+        "all_six_at_least_1_5x_vs_base": true
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkLoopFilterLumaSSENative/720p": {
+        "assembly_ns": 105847.5,
+        "base_ns": 138118.5,
+        "current_ns": 60870.5,
+        "current_vs_base_percent": -55.9287857890145,
+        "base_speedup": 2.2690547966584798,
+        "base_paired_percent": [
+          -55.447996726964554,
+          -54.496196650054344,
+          -56.57478989188298,
+          -54.64038414439554,
+          -56.354360258608935,
+          -56.29909679826104
+        ],
+        "base_paired_speedup": [
+          2.2445679801905514,
+          2.197618498633025,
+          2.3028098137240343,
+          2.2046042082528876,
+          2.291179613645705,
+          2.28828222470287
+        ],
+        "current_faster_than_base_pairs": 6,
+        "current_slower_than_base_pairs": 0,
+        "current_vs_assembly_percent": -42.49226481494603,
+        "assembly_speedup": 1.7388965098035996,
+        "assembly_paired_percent": [
+          -42.49354029535467,
+          -43.35954626442411,
+          -42.6339053316044,
+          -42.109400899834235,
+          -43.11380045639894,
+          -41.948825463382086
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0,
+        "all_six_at_least_1_5x_vs_base": true
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkLoopFilterLumaSSENative/720pPartial": {
+        "assembly_ns": 23669.5,
+        "base_ns": 13288.0,
+        "current_ns": 6713.5,
+        "current_vs_base_percent": -49.47697170379289,
+        "base_speedup": 1.9792954494674908,
+        "base_paired_percent": [
+          -50.00745156482862,
+          -49.649928480012036,
+          -48.9202657807309,
+          -49.063416835928685,
+          -49.99627837737254,
+          -49.59472767214606
+        ],
+        "base_paired_speedup": [
+          2.0002981070204204,
+          1.9860944976076553,
+          1.9577235772357724,
+          1.96322552060257,
+          1.9998511461744568,
+          1.9839194469492036
+        ],
+        "current_faster_than_base_pairs": 6,
+        "current_slower_than_base_pairs": 0,
+        "current_vs_assembly_percent": -71.63649422252266,
+        "assembly_speedup": 3.5256572577642062,
+        "assembly_paired_percent": [
+          -71.66209081309398,
+          -71.87316006392463,
+          -71.35659242950292,
+          -71.4701049172039,
+          -71.58206429780034,
+          -71.88133874239351
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0,
+        "all_six_at_least_1_5x_vs_base": true
+      }
+    },
+    "denoiser_controls": {
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkDenoiserFilterYNative/mixed": {
+        "assembly_ns": 1311.5,
+        "base_ns": 158.4,
+        "current_ns": 158.7,
+        "current_vs_base_percent": 0.18939393939392257,
+        "base_speedup": 0.9981096408317581,
+        "base_paired_percent": [
+          0.633312222925908,
+          -0.1260239445494582,
+          -0.5015673981191293,
+          0.25268477574225123,
+          0.6337135614702172,
+          0.06309148264984632
+        ],
+        "base_paired_speedup": [
+          0.9937067337948394,
+          1.0012618296529967,
+          1.0050409577819786,
+          0.9974795211090108,
+          0.9937027707808564,
+          0.9993694829760403
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -87.89935188715212,
+        "assembly_speedup": 8.264020163831129,
+        "assembly_paired_percent": [
+          -88.4014598540146,
+          -87.91920731707317,
+          -87.89473684210527,
+          -87.87624140565318,
+          -87.82208588957056,
+          -87.92998477929986
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkDenoiserFilterYNative/saturating": {
+        "assembly_ns": 733.0,
+        "base_ns": 95.16,
+        "current_ns": 95.4,
+        "current_vs_base_percent": 0.2522068095838659,
+        "base_speedup": 0.9974842767295596,
+        "base_paired_percent": [
+          0.8671742808798566,
+          -0.7181515403830163,
+          -0.16741655331170557,
+          0.2626878217925732,
+          0.6629485425655002,
+          0.13662637940095035
+        ],
+        "base_paired_speedup": [
+          0.9914028098133781,
+          1.0072334626271098,
+          1.0016769730636201,
+          0.9973800041919934,
+          0.993414175203847,
+          0.9986356003358522
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -86.9849931787176,
+        "assembly_speedup": 7.683438155136268,
+        "assembly_paired_percent": [
+          -87.0266594124048,
+          -86.99345514044178,
+          -86.96228477726154,
+          -86.96804151871073,
+          -86.94239694239694,
+          -87.03673469387755
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkDenoiserFilterYNative/smooth": {
+        "assembly_ns": 79.485,
+        "base_ns": 121.8,
+        "current_ns": 121.8,
+        "current_vs_base_percent": 0.0,
+        "base_speedup": 1.0,
+        "base_paired_percent": [
+          0.3292181069958877,
+          0.164473684210531,
+          0.0,
+          0.0,
+          0.0,
+          -0.08203445447088065
+        ],
+        "base_paired_speedup": [
+          0.9967186218211649,
+          0.9983579638752053,
+          1.0,
+          1.0,
+          1.0,
+          1.0008210180623973
+        ],
+        "current_faster_than_base_pairs": 1,
+        "current_slower_than_base_pairs": 2,
+        "current_vs_assembly_percent": 53.23645970937913,
+        "assembly_speedup": 0.6525862068965518,
+        "assembly_paired_percent": [
+          53.371917463512844,
+          52.97663903541823,
+          54.27485750474983,
+          52.92936896248903,
+          54.02124430955995,
+          53.22682098377154
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      }
+    },
+    "all_median_slower_kernels_vs_base": {
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkLoopFilterHorizontalEdgeUV": {
+        "assembly_ns": 29.384999999999998,
+        "base_ns": 28.07,
+        "current_ns": 28.08,
+        "current_vs_base_percent": 0.03562522265763146,
+        "base_speedup": 0.9996438746438747,
+        "base_paired_percent": [
+          0.0,
+          0.0,
+          0.39215686274509665,
+          -0.21291696238466828,
+          -1.5082427218519934,
+          0.0
+        ],
+        "base_paired_speedup": [
+          1.0,
+          1.0,
+          0.99609375,
+          1.0021337126600285,
+          1.0153133903133904,
+          1.0
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 1,
+        "current_vs_assembly_percent": -4.44104134762634,
+        "assembly_speedup": 1.046474358974359,
+        "assembly_paired_percent": [
+          -4.489795918367346,
+          -4.622705642420133,
+          -4.087193460490457,
+          -4.256043581886281,
+          -4.554724677090427,
+          -4.362644853442399
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkMBLoopFilterHorizontalEdgeUV": {
+        "assembly_ns": 31.375,
+        "base_ns": 32.175,
+        "current_ns": 32.275,
+        "current_vs_base_percent": 0.3108003108003077,
+        "base_speedup": 0.9969016266460108,
+        "base_paired_percent": [
+          0.6525792417650722,
+          0.5904288377874378,
+          0.15561780267661085,
+          0.0,
+          0.062208398133756226,
+          0.6216972334472937
+        ],
+        "base_paired_speedup": [
+          0.9935165174436554,
+          0.9941303676243436,
+          0.9984462399005595,
+          1.0,
+          0.9993783027665526,
+          0.9938214396045723
+        ],
+        "current_faster_than_base_pairs": 0,
+        "current_slower_than_base_pairs": 5,
+        "current_vs_assembly_percent": 2.868525896414331,
+        "assembly_speedup": 0.9721146398140976,
+        "assembly_paired_percent": [
+          3.383338653048207,
+          3.1877590054191884,
+          1.9322141273360849,
+          2.549394518801784,
+          2.4196115886660374,
+          3.220663265306123
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkResidualGatherNative/16x16": {
+        "assembly_ns": 24.049999999999997,
+        "base_ns": 51.565,
+        "current_ns": 51.58,
+        "current_vs_base_percent": 0.029089498690981763,
+        "base_speedup": 0.9997091896083753,
+        "base_paired_percent": [
+          0.11645962732917958,
+          -0.07759456838021261,
+          -0.077684987376192,
+          0.019387359441647156,
+          -0.03875968992248513,
+          0.0
+        ],
+        "base_paired_speedup": [
+          0.9988367584335015,
+          1.0007765482430595,
+          1.0007774538386784,
+          0.9998061639852684,
+          1.000387747188833,
+          1.0
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 2,
+        "current_vs_assembly_percent": 114.4698544698545,
+        "assembly_speedup": 0.46626599457153933,
+        "assembly_paired_percent": [
+          114.64835622138989,
+          114.44629475437137,
+          113.57409713574098,
+          114.42227763923528,
+          113.93612608875986,
+          114.55906821963393
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSAD16x16LimitEarly": {
+        "assembly_ns": 4.375,
+        "base_ns": 8.746500000000001,
+        "current_ns": 8.747,
+        "current_vs_base_percent": 0.0057165723432062165,
+        "base_speedup": 0.999942837544301,
+        "base_paired_percent": [
+          0.3322639780018344,
+          -0.28538812785388057,
+          0.011437721605855877,
+          0.0,
+          -0.045761354536089094,
+          -0.022846698652034814
+        ],
+        "base_paired_speedup": [
+          0.9966883635948384,
+          1.0028620492272466,
+          0.9998856358645929,
+          1.0,
+          1.0004578230513905,
+          1.0002285191956124
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 2,
+        "current_vs_assembly_percent": 99.93142857142855,
+        "assembly_speedup": 0.5001714873670973,
+        "assembly_paired_percent": [
+          99.70353477765109,
+          99.70278920896205,
+          99.81718464351003,
+          100.36638424547743,
+          99.47488584474885,
+          100.45808520384796
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/16x16/3,5": {
+        "assembly_ns": 704.3,
+        "base_ns": 321.45,
+        "current_ns": 322.0,
+        "current_vs_base_percent": 0.17109970446413936,
+        "base_speedup": 0.9982919254658384,
+        "base_paired_percent": [
+          0.24906600249066102,
+          0.15552099533437946,
+          -0.15542430836182897,
+          0.8720024914356861,
+          -0.062227753578092404,
+          -0.49428483163421744
+        ],
+        "base_paired_speedup": [
+          0.9975155279503105,
+          0.998447204968944,
+          1.0015566625155667,
+          0.9913553565915406,
+          1.0006226650062267,
+          1.0049674014281278
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -54.28084623029959,
+        "assembly_speedup": 2.1872670807453414,
+        "assembly_paired_percent": [
+          -54.339194554736245,
+          -54.33271876329599,
+          -54.34906196702672,
+          -53.99147727272728,
+          -54.407381121362675,
+          -54.25365715097288
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/0,4": {
+        "assembly_ns": 36.65,
+        "base_ns": 60.935,
+        "current_ns": 60.959999999999994,
+        "current_vs_base_percent": 0.041027324197906445,
+        "base_speedup": 0.9995898950131235,
+        "base_paired_percent": [
+          0.1149991785772908,
+          0.08203445447088065,
+          0.06577865482650935,
+          0.1805646749835743,
+          -1.3305208502352728,
+          -0.06555227794167173
+        ],
+        "base_paired_speedup": [
+          0.998851329176239,
+          0.9991803278688525,
+          0.999342645850452,
+          0.9981976077339014,
+          1.0134846242394342,
+          1.0006559527714005
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": 66.33015006821282,
+        "assembly_speedup": 0.6012139107611549,
+        "assembly_paired_percent": [
+          66.13958560523446,
+          66.66666666666666,
+          65.89422028353327,
+          66.52114597544339,
+          65.92087312414736,
+          66.79431072210065
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/4,0": {
+        "assembly_ns": 36.69,
+        "base_ns": 41.925,
+        "current_ns": 41.965,
+        "current_vs_base_percent": 0.0954084675015121,
+        "base_speedup": 0.999046824734898,
+        "base_paired_percent": [
+          0.28673835125447855,
+          0.023837902264589594,
+          -0.1909307875894939,
+          1.9061234214915457,
+          -0.023889154323930573,
+          0.07151370679379099
+        ],
+        "base_paired_speedup": [
+          0.9971408148677627,
+          0.99976167778837,
+          1.0019129603060737,
+          0.9812953004442366,
+          1.0002389486260452,
+          0.9992853739876133
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": 14.377214499863733,
+        "assembly_speedup": 0.8743000119146906,
+        "assembly_paired_percent": [
+          14.266267356384432,
+          14.676141022137191,
+          13.982011447260835,
+          16.794101583833985,
+          14.032697547683926,
+          14.418097574270927
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/8x8/0,4": {
+        "assembly_ns": 71.545,
+        "base_ns": 57.775,
+        "current_ns": 57.82,
+        "current_vs_base_percent": 0.07788836001731969,
+        "base_speedup": 0.99922172258734,
+        "base_paired_percent": [
+          0.13852813852812673,
+          -0.9435580717104042,
+          0.12135922330096527,
+          2.5121275121275266,
+          0.10380622837371511,
+          -2.52908447142135
+        ],
+        "base_paired_speedup": [
+          0.9986166349645514,
+          1.0095254589539313,
+          0.9987878787878789,
+          0.9754943383471353,
+          0.9989630141721395,
+          1.025947067981318
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -19.183730519253615,
+        "assembly_speedup": 1.2373746108612937,
+        "assembly_paired_percent": [
+          -19.288206559665046,
+          -19.357541899441333,
+          -19.23076923076923,
+          -17.221600447677677,
+          -19.1786562369046,
+          -19.135543432647918
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/16x8": {
+        "assembly_ns": 1590.5,
+        "base_ns": 45.445,
+        "current_ns": 45.45,
+        "current_vs_base_percent": 0.01100231048520861,
+        "base_speedup": 0.9998899889988998,
+        "base_paired_percent": [
+          -4.856604563533596,
+          -0.17594018033868508,
+          0.0,
+          8.348017621145365,
+          0.044014084507049134,
+          0.15425297487881018
+        ],
+        "base_paired_speedup": [
+          1.051045104510451,
+          1.0017625027539105,
+          1.0,
+          0.9229518194755032,
+          0.9995600527936647,
+          0.9984598459845984
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -97.14240804778372,
+        "assembly_speedup": 34.99449944994499,
+        "assembly_paired_percent": [
+          -97.14689265536724,
+          -97.14528301886793,
+          -97.13610586011342,
+          -96.9062893081761,
+          -97.14267756128221,
+          -97.14330609679448
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/4x4": {
+        "assembly_ns": 46.605000000000004,
+        "base_ns": 21.935000000000002,
+        "current_ns": 21.94,
+        "current_vs_base_percent": 0.022794620469568372,
+        "base_speedup": 0.9997721057429353,
+        "base_paired_percent": [
+          -0.09115770282588365,
+          -0.18256503879506836,
+          -0.5449591280654031,
+          0.1823154056517673,
+          0.9584664536741228,
+          0.1367989056087593
+        ],
+        "base_paired_speedup": [
+          1.0009124087591241,
+          1.0018289894833103,
+          1.0054794520547945,
+          0.9981801637852594,
+          0.990506329113924,
+          0.9986338797814207
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -52.923506061581385,
+        "assembly_speedup": 2.1242023701002735,
+        "assembly_paired_percent": [
+          -53.062098501070665,
+          -53.02835051546392,
+          -53.024453024453024,
+          -52.822494097445805,
+          -52.552552552552555,
+          -52.83505154639175
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/4x8": {
+        "assembly_ns": 51.36,
+        "base_ns": 32.58,
+        "current_ns": 32.595,
+        "current_vs_base_percent": 0.04604051565377798,
+        "base_speedup": 0.9995398067188219,
+        "base_paired_percent": [
+          0.06138735420504471,
+          0.09196811771918778,
+          0.2769230769230857,
+          0.1535155050659931,
+          -0.1532801961986463,
+          -0.09208103130755596
+        ],
+        "base_paired_speedup": [
+          0.9993865030674846,
+          0.9990811638591118,
+          0.9972384166922368,
+          0.9984671980380136,
+          1.0015351550506602,
+          1.0009216589861751
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -36.53621495327103,
+        "assembly_speedup": 1.5757017947537966,
+        "assembly_paired_percent": [
+          -36.67443667443667,
+          -36.37957911145753,
+          -36.446957878315125,
+          -36.475170399221035,
+          -36.59723574070469,
+          -36.74698795180723
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/8x4": {
+        "assembly_ns": 46.82,
+        "base_ns": 23.205,
+        "current_ns": 23.215,
+        "current_vs_base_percent": 0.04309416074121941,
+        "base_speedup": 0.9995692440232608,
+        "base_paired_percent": [
+          0.04297378599056323,
+          -0.17241379310344307,
+          -0.08616975441619878,
+          -0.21533161068043594,
+          0.38826574633303856,
+          0.5625270445694497
+        ],
+        "base_paired_speedup": [
+          0.999570446735395,
+          1.0017271157167529,
+          1.0008624407072013,
+          1.0021579628830384,
+          0.996132359260851,
+          0.9944061962134252
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -50.416488680051266,
+        "assembly_speedup": 2.0167994830928277,
+        "assembly_paired_percent": [
+          -50.34129692832765,
+          -50.544522741832154,
+          -50.45930356761376,
+          -50.43850267379679,
+          -50.24588411374813,
+          -50.78356628547226
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/8x8": {
+        "assembly_ns": 52.43,
+        "base_ns": 32.0,
+        "current_ns": 32.015,
+        "current_vs_base_percent": 0.046875000000001776,
+        "base_speedup": 0.9995314696236139,
+        "base_paired_percent": [
+          -0.187090739008422,
+          0.09375000000000355,
+          0.0,
+          0.1877346683354153,
+          0.18744142455482393,
+          -0.031289111389243285
+        ],
+        "base_paired_speedup": [
+          1.0018744142455482,
+          0.9990633780830471,
+          1.0,
+          0.9981261711430356,
+          0.9981290926099159,
+          1.0003129890453835
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -38.937631127217244,
+        "assembly_speedup": 1.63766984226144,
+        "assembly_paired_percent": [
+          -38.97044804575788,
+          -38.885708834191945,
+          -44.68452895419188,
+          -38.84644766997708,
+          -38.75095492742552,
+          -39.48863636363637
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkVariance16x16Native": {
+        "assembly_ns": 241.14999999999998,
+        "base_ns": 26.48,
+        "current_ns": 26.525,
+        "current_vs_base_percent": 0.16993957703925755,
+        "base_speedup": 0.9983034872761546,
+        "base_paired_percent": [
+          0.0,
+          -0.26345502446367686,
+          0.0,
+          0.18889308651304226,
+          1.283987915407847,
+          0.1888217522658664
+        ],
+        "base_paired_speedup": [
+          1.0,
+          1.0026415094339622,
+          1.0,
+          0.9981146304675715,
+          0.9873228933631619,
+          0.9981153411232566
+        ],
+        "current_faster_than_base_pairs": 1,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -89.00062201948994,
+        "assembly_speedup": 9.091423185673893,
+        "assembly_paired_percent": [
+          -88.99668325041459,
+          -89.00414937759335,
+          -88.94319131161237,
+          -89.0049751243781,
+          -88.88059701492537,
+          -88.99626710908338
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkDenoiserFilterYNative/mixed": {
+        "assembly_ns": 1311.5,
+        "base_ns": 158.4,
+        "current_ns": 158.7,
+        "current_vs_base_percent": 0.18939393939392257,
+        "base_speedup": 0.9981096408317581,
+        "base_paired_percent": [
+          0.633312222925908,
+          -0.1260239445494582,
+          -0.5015673981191293,
+          0.25268477574225123,
+          0.6337135614702172,
+          0.06309148264984632
+        ],
+        "base_paired_speedup": [
+          0.9937067337948394,
+          1.0012618296529967,
+          1.0050409577819786,
+          0.9974795211090108,
+          0.9937027707808564,
+          0.9993694829760403
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -87.89935188715212,
+        "assembly_speedup": 8.264020163831129,
+        "assembly_paired_percent": [
+          -88.4014598540146,
+          -87.91920731707317,
+          -87.89473684210527,
+          -87.87624140565318,
+          -87.82208588957056,
+          -87.92998477929986
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkDenoiserFilterYNative/saturating": {
+        "assembly_ns": 733.0,
+        "base_ns": 95.16,
+        "current_ns": 95.4,
+        "current_vs_base_percent": 0.2522068095838659,
+        "base_speedup": 0.9974842767295596,
+        "base_paired_percent": [
+          0.8671742808798566,
+          -0.7181515403830163,
+          -0.16741655331170557,
+          0.2626878217925732,
+          0.6629485425655002,
+          0.13662637940095035
+        ],
+        "base_paired_speedup": [
+          0.9914028098133781,
+          1.0072334626271098,
+          1.0016769730636201,
+          0.9973800041919934,
+          0.993414175203847,
+          0.9986356003358522
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -86.9849931787176,
+        "assembly_speedup": 7.683438155136268,
+        "assembly_paired_percent": [
+          -87.0266594124048,
+          -86.99345514044178,
+          -86.96228477726154,
+          -86.96804151871073,
+          -86.94239694239694,
+          -87.03673469387755
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks1": {
+        "assembly_ns": 10.01,
+        "base_ns": 16.700000000000003,
+        "current_ns": 17.585,
+        "current_vs_base_percent": 5.2994011976047695,
+        "base_speedup": 0.9496730167756612,
+        "base_paired_percent": [
+          4.946364719904639,
+          5.332534451767512,
+          5.455635491606725,
+          5.0269299820466795,
+          5.002977963073252,
+          5.472038484666264
+        ],
+        "base_paired_speedup": [
+          0.9528676888131744,
+          0.9493742889647327,
+          0.9482660602615122,
+          0.9521367521367521,
+          0.9523539421440727,
+          0.9481185860889396
+        ],
+        "current_faster_than_base_pairs": 0,
+        "current_slower_than_base_pairs": 6,
+        "current_vs_assembly_percent": 75.67432567432569,
+        "assembly_speedup": 0.5692351435882854,
+        "assembly_paired_percent": [
+          76.27627627627626,
+          75.6243756243756,
+          74.50396825396825,
+          75.14970059880241,
+          76.44115292233784,
+          75.22477522477521
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks2": {
+        "assembly_ns": 12.82,
+        "base_ns": 27.37,
+        "current_ns": 28.305,
+        "current_vs_base_percent": 3.416149068322971,
+        "base_speedup": 0.966966966966967,
+        "base_paired_percent": [
+          3.0214779759738075,
+          14.249177932042368,
+          3.405346027096301,
+          3.5479151426481392,
+          3.281079110462981,
+          3.142126415783708
+        ],
+        "base_paired_speedup": [
+          0.9706713780918726,
+          0.8752798209146148,
+          0.9670679886685553,
+          0.9657364888731896,
+          0.9682315566537241,
+          0.969535954658165
+        ],
+        "current_faster_than_base_pairs": 0,
+        "current_slower_than_base_pairs": 6,
+        "current_vs_assembly_percent": 120.78783151326053,
+        "assembly_speedup": 0.45292351174704115,
+        "assembly_paired_percent": [
+          121.26661454261142,
+          143.9157566302652,
+          120.45277127244339,
+          120.82683307332292,
+          118.42713955281417,
+          120.20280811232449
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBlockSIMD": {
+        "assembly_ns": 6.877000000000001,
+        "base_ns": 8.119,
+        "current_ns": 8.1255,
+        "current_vs_base_percent": 0.080059120581355,
+        "base_speedup": 0.9992000492277398,
+        "base_paired_percent": [
+          -0.4400977995109967,
+          -0.07395538025392057,
+          1.1471567780930059,
+          0.12324377618930793,
+          0.024615384615400693,
+          -0.2461841457410352
+        ],
+        "base_paired_speedup": [
+          1.0044204322200392,
+          1.0007401011471568,
+          0.9886585365853658,
+          0.9987690792712949,
+          0.9997539067306508,
+          1.0024679170779864
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": 18.15471862730842,
+        "assembly_speedup": 0.8463479170512584,
+        "assembly_paired_percent": [
+          18.630735615440642,
+          17.902850494473512,
+          15.525500140884741,
+          18.098560837331014,
+          18.19371727748691,
+          17.824949113114275
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkForwardDCT4x4SIMD": {
+        "assembly_ns": 8.748999999999999,
+        "base_ns": 15.235,
+        "current_ns": 15.26,
+        "current_vs_base_percent": 0.1640958319658603,
+        "base_speedup": 0.9983617300131061,
+        "base_paired_percent": [
+          0.06565988181221893,
+          0.1312335958005173,
+          -0.2616088947024142,
+          0.32873109796185407,
+          0.460223537146609,
+          -0.3916449086161955
+        ],
+        "base_paired_speedup": [
+          0.9993438320209973,
+          0.998689384010485,
+          1.002622950819672,
+          0.9967234600262125,
+          0.9954188481675393,
+          1.0039318479685453
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": 74.41993370670936,
+        "assembly_speedup": 0.5733289646133682,
+        "assembly_paired_percent": [
+          74.21124828532237,
+          73.92295418281287,
+          74.26579819449206,
+          74.4,
+          74.7284162378502,
+          74.57956755519963
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkForwardDCTBatchResidual25": {
+        "assembly_ns": 217.3,
+        "base_ns": 215.75,
+        "current_ns": 216.05,
+        "current_vs_base_percent": 0.13904982618773154,
+        "base_speedup": 0.9986114325387642,
+        "base_paired_percent": [
+          0.18570102135562205,
+          -2.875112309074579,
+          -0.23137436372050457,
+          0.32497678737233304,
+          0.4176334106728463,
+          0.0
+        ],
+        "base_paired_speedup": [
+          0.9981464318813716,
+          1.0296022201665125,
+          1.0023191094619666,
+          0.9967607589079129,
+          0.995841035120148,
+          1.0
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -0.5752416014726203,
+        "assembly_speedup": 1.0057856977551494,
+        "assembly_paired_percent": [
+          -0.9637448370812263,
+          -0.5062126092959196,
+          -0.690925840626444,
+          -0.6436781609195474,
+          -0.32243205895899907,
+          -0.5982512655315242
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x1": {
+        "assembly_ns": 20.130000000000003,
+        "base_ns": 14.67,
+        "current_ns": 14.675,
+        "current_vs_base_percent": 0.034083162917530885,
+        "base_speedup": 0.9996592844974446,
+        "base_paired_percent": [
+          0.13651877133105117,
+          -0.06821282401091588,
+          0.06816632583503957,
+          -0.0680735194009463,
+          -0.06811989100817817,
+          0.06816632583503957
+        ],
+        "base_paired_speedup": [
+          0.9986366734832993,
+          1.0006825938566553,
+          0.9993188010899182,
+          1.0006811989100817,
+          1.0006816632583504,
+          0.9993188010899182
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -27.098857426726287,
+        "assembly_speedup": 1.3717206132879047,
+        "assembly_paired_percent": [
+          -27.483934750370743,
+          -28.00982800982801,
+          -26.342197691921733,
+          -31.784386617100367,
+          -26.503006012024056,
+          -26.709935097353977
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x128": {
+        "assembly_ns": 2472.5,
+        "base_ns": 371.0,
+        "current_ns": 371.05,
+        "current_vs_base_percent": 0.013477088948787852,
+        "base_speedup": 0.9998652472712573,
+        "base_paired_percent": [
+          0.0,
+          0.6474237928243864,
+          0.1349163518618468,
+          0.02693965517241992,
+          -0.08084074373484462,
+          -0.13477088948786742
+        ],
+        "base_paired_speedup": [
+          1.0,
+          0.9935674082015545,
+          0.998652654271086,
+          0.9997306760032318,
+          1.000809061488673,
+          1.001349527665317
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -84.99292214357938,
+        "assembly_speedup": 6.663522436329336,
+        "assembly_paired_percent": [
+          -85.14811849479584,
+          -84.7402862985685,
+          -85.03629032258064,
+          -85.02822580645162,
+          -84.95740365111561,
+          -84.8031173092699
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x7": {
+        "assembly_ns": 139.0,
+        "base_ns": 32.75,
+        "current_ns": 32.78,
+        "current_vs_base_percent": 0.09160305343511865,
+        "base_speedup": 0.99908480780964,
+        "base_paired_percent": [
+          0.5190839694656502,
+          0.15267175572517555,
+          0.030543677458760854,
+          -0.18237082066867583,
+          -0.15239256324293127,
+          -0.03054367745878306
+        ],
+        "base_paired_speedup": [
+          0.9948359659781287,
+          0.9984756097560977,
+          0.9996946564885497,
+          1.001827040194884,
+          1.0015262515262517,
+          1.0003055300947146
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -76.41726618705036,
+        "assembly_speedup": 4.24039048200122,
+        "assembly_paired_percent": [
+          -76.09295570079884,
+          -76.36887608069165,
+          -76.38788752703677,
+          -76.72572643515238,
+          -76.46551724137932,
+          -77.15980460572227
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/64x1": {
+        "assembly_ns": 47.805,
+        "base_ns": 16.535,
+        "current_ns": 16.54,
+        "current_vs_base_percent": 0.0302388872089443,
+        "base_speedup": 0.9996977025392987,
+        "base_paired_percent": [
+          -0.3012048192771122,
+          0.060459492140285676,
+          0.12113870381587066,
+          0.06038647342996306,
+          0.0,
+          0.0605326876513379
+        ],
+        "base_paired_speedup": [
+          1.0030211480362539,
+          0.9993957703927491,
+          0.9987900786448881,
+          0.9993964996982497,
+          1.0,
+          0.999395039322444
+        ],
+        "current_faster_than_base_pairs": 1,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -65.40110867064115,
+        "assembly_speedup": 2.8902660217654175,
+        "assembly_paired_percent": [
+          -65.36932412638627,
+          -65.33305404273146,
+          -65.44010035542547,
+          -65.34922626516102,
+          -65.5768429820908,
+          -65.39669248482312
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9Convolve8Vert16x16": {
+        "assembly_ns": 801.65,
+        "base_ns": 104.15,
+        "current_ns": 104.25,
+        "current_vs_base_percent": 0.09601536245797959,
+        "base_speedup": 0.9990407673860912,
+        "base_paired_percent": [
+          0.19212295869357465,
+          0.7677543186180413,
+          -1.4231499051233443,
+          0.19230769230769162,
+          0.0,
+          -0.09606147934677622
+        ],
+        "base_paired_speedup": [
+          0.9980824544582932,
+          0.9923809523809524,
+          1.014436958614052,
+          0.998080614203455,
+          1.0,
+          1.0009615384615385
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -86.9955716335059,
+        "assembly_speedup": 7.689688249400479,
+        "assembly_paired_percent": [
+          -86.98689956331877,
+          -86.92403486924036,
+          -87.03357044802196,
+          -87.00424045896732,
+          -86.97064334790755,
+          -87.0372678549171
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9LoopFilterHorizontal8DualNonFlat": {
+        "assembly_ns": 63.335,
+        "base_ns": 50.565,
+        "current_ns": 50.57,
+        "current_vs_base_percent": 0.009888262632262723,
+        "base_speedup": 0.9999011271504844,
+        "base_paired_percent": [
+          0.13853156540668543,
+          0.019770660340068247,
+          -0.07906700929039001,
+          0.17804154302671904,
+          -0.5313914583743418,
+          -0.019790223629523318
+        ],
+        "base_paired_speedup": [
+          0.9986166007905138,
+          0.999802332476774,
+          1.0007912957467855,
+          0.9982227488151657,
+          1.0053423031262367,
+          1.0001979414093427
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -20.154732770190254,
+        "assembly_speedup": 1.2524223848131304,
+        "assembly_paired_percent": [
+          -20.126282557221785,
+          -20.192459378450856,
+          -20.16740366392925,
+          -19.898766213223663,
+          -20.459553037456722,
+          -20.08857956342929
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance16x16": {
+        "assembly_ns": 208.0,
+        "base_ns": 72.155,
+        "current_ns": 72.17,
+        "current_vs_base_percent": 0.020788580139985413,
+        "base_speedup": 0.9997921574061244,
+        "base_paired_percent": [
+          0.1384657989476512,
+          0.0,
+          0.7222222222222241,
+          -0.027716186252768615,
+          -0.041539739684304244,
+          -0.04159733777038266
+        ],
+        "base_paired_speedup": [
+          0.9986172566371683,
+          1.0,
+          0.9928295642581356,
+          1.000277238702523,
+          1.000415570023549,
+          1.0004161464835621
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 2,
+        "current_vs_assembly_percent": -65.30288461538461,
+        "assembly_speedup": 2.8820839684079256,
+        "assembly_paired_percent": [
+          -65.18054886856042,
+          -65.32916866890918,
+          -65.11784511784512,
+          -65.36725876140183,
+          -65.5417661097852,
+          -65.32467532467533
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance64x64": {
+        "assembly_ns": 1192.0,
+        "base_ns": 881.6,
+        "current_ns": 882.85,
+        "current_vs_base_percent": 0.1417876588021727,
+        "base_speedup": 0.9985841309395707,
+        "base_paired_percent": [
+          0.21563954148222653,
+          -0.4174187725631717,
+          0.4197390811117474,
+          -0.1810774105930335,
+          0.4650107746398957,
+          0.02269889910337941
+        ],
+        "base_paired_speedup": [
+          0.9978482446206116,
+          1.0041916846040557,
+          0.995820153637596,
+          1.0018140589569162,
+          0.9953714156694514,
+          0.9997730625212755
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -25.93540268456376,
+        "assembly_speedup": 1.3501727360253724,
+        "assembly_paired_percent": [
+          -26.232247284878863,
+          -25.698653198653197,
+          -25.550883095037847,
+          -26.377295492487473,
+          -25.812395309882753,
+          -25.941176470588236
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance8x8": {
+        "assembly_ns": 168.2,
+        "base_ns": 32.715,
+        "current_ns": 32.739999999999995,
+        "current_vs_base_percent": 0.07641754546841018,
+        "base_speedup": 0.9992364080635311,
+        "base_paired_percent": [
+          0.21400183430144715,
+          -0.7303712720633015,
+          0.12224938875304847,
+          0.030571690614489277,
+          0.9485924112607069,
+          -0.4872107186358221
+        ],
+        "base_paired_speedup": [
+          0.9978645515558267,
+          1.0073574494175352,
+          0.9987789987789989,
+          0.9996943765281173,
+          0.9906032130948773,
+          1.0048959608323134
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -80.53507728894174,
+        "assembly_speedup": 5.137446548564448,
+        "assembly_paired_percent": [
+          -80.52287581699346,
+          -80.57176891006552,
+          -80.5116002379536,
+          -80.58160237388724,
+          -80.40973871733968,
+          -80.55919095776324
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT16x16/scalar": {
+        "assembly_ns": 1280.5,
+        "base_ns": 1279.5,
+        "current_ns": 1282.0,
+        "current_vs_base_percent": 0.19538882375929045,
+        "base_speedup": 0.9980499219968799,
+        "base_paired_percent": [
+          0.0,
+          0.3915426781519127,
+          0.46874999999999556,
+          0.07843137254901489,
+          -0.5430566330488773,
+          0.390625
+        ],
+        "base_paired_speedup": [
+          1.0,
+          0.9960998439937598,
+          0.995334370139969,
+          0.9992163009404389,
+          1.0054602184087365,
+          0.9961089494163424
+        ],
+        "current_faster_than_base_pairs": 1,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": 0.11714174150723178,
+        "assembly_speedup": 0.998829953198128,
+        "assembly_paired_percent": [
+          -0.15612802498048417,
+          0.15624999999999112,
+          0.5473025801407294,
+          -0.31250000000000444,
+          -2.8051554207733087,
+          0.31225604996096834
+        ],
+        "current_faster_than_assembly_pairs": 3,
+        "current_slower_than_assembly_pairs": 3
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT32x32Native/rd": {
+        "assembly_ns": 9369.5,
+        "base_ns": 3295.5,
+        "current_ns": 3297.5,
+        "current_vs_base_percent": 0.06068881808527493,
+        "base_speedup": 0.9993934799090219,
+        "base_paired_percent": [
+          0.09101941747573505,
+          0.030349013657060553,
+          -0.36330608537693543,
+          -0.12139605462822001,
+          0.21244309559940167,
+          0.09099181073703999
+        ],
+        "base_paired_speedup": [
+          0.9990906335253106,
+          0.9996966019417475,
+          1.0036463081130356,
+          1.0012154360376784,
+          0.9978800726832222,
+          0.999090909090909
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -64.80601953145846,
+        "assembly_speedup": 2.8413949962092495,
+        "assembly_paired_percent": [
+          -64.83692176508207,
+          -64.80512546716497,
+          -64.82471141513467,
+          -64.85851575013348,
+          -64.77490932366119,
+          -64.82251359130157
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FPNoClassesNative": {
+        "assembly_ns": 40.165,
+        "base_ns": 61.795,
+        "current_ns": 61.87,
+        "current_vs_base_percent": 0.12136904280279914,
+        "base_speedup": 0.9987877808307742,
+        "base_paired_percent": [
+          -0.22591576569307437,
+          0.06475635421725467,
+          0.6443298969072142,
+          0.01618384851918009,
+          0.17799352750809128,
+          0.2589834898025112
+        ],
+        "base_paired_speedup": [
+          1.0022642730066311,
+          0.999352855524996,
+          0.9935979513444302,
+          0.9998381877022654,
+          0.9982232272653853,
+          0.9974168550209882
+        ],
+        "current_faster_than_base_pairs": 1,
+        "current_slower_than_base_pairs": 5,
+        "current_vs_assembly_percent": 54.03958670484252,
+        "assembly_speedup": 0.6491837724260546,
+        "assembly_paired_percent": [
+          54.11266201395812,
+          53.986048829098166,
+          55.075701166542565,
+          53.96113602391628,
+          54.04329435182882,
+          54.07960199004973
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/4x4/dense": {
+        "assembly_ns": 95.85,
+        "base_ns": 38.29,
+        "current_ns": 38.31,
+        "current_vs_base_percent": 0.05223295899714486,
+        "base_speedup": 0.9994779430957974,
+        "base_paired_percent": [
+          -0.18238665971860302,
+          -0.20887728459529908,
+          0.7816571130797145,
+          0.0,
+          0.3396029258098121,
+          0.3667801938695314
+        ],
+        "base_paired_speedup": [
+          1.001827199164709,
+          1.002093144950288,
+          0.9922440537745606,
+          1.0,
+          0.9966154647227286,
+          0.9963456016705821
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -60.03129890453833,
+        "assembly_speedup": 2.5019577133907593,
+        "assembly_paired_percent": [
+          -60.180854381041456,
+          -60.150140756959644,
+          -60.19757151677301,
+          -59.98535411653939,
+          -59.90186867105126,
+          -59.98119711689125
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/4x4/zero": {
+        "assembly_ns": 74.14500000000001,
+        "base_ns": 38.265,
+        "current_ns": 38.32,
+        "current_vs_base_percent": 0.14373448320919024,
+        "base_speedup": 0.9985647181628392,
+        "base_paired_percent": [
+          1.0718954248365886,
+          -0.0783903841128808,
+          0.9143155694879779,
+          -0.10449320794148065,
+          0.1306847882906581,
+          0.4981646565285658
+        ],
+        "base_paired_speedup": [
+          0.9893947232281429,
+          1.0007845188284519,
+          0.9909396841832773,
+          1.0010460251046025,
+          0.9986948577394934,
+          0.9950430472214976
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -48.31748600714816,
+        "assembly_speedup": 1.934890396659708,
+        "assembly_paired_percent": [
+          -48.23938947650288,
+          -48.35224203133441,
+          -47.81140232369629,
+          -48.40102550263122,
+          -48.355351846858994,
+          -48.32839040172554
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/8x8/zero": {
+        "assembly_ns": 225.9,
+        "base_ns": 76.31,
+        "current_ns": 76.385,
+        "current_vs_base_percent": 0.09828331804482282,
+        "base_speedup": 0.9990181318321659,
+        "base_paired_percent": [
+          0.0,
+          0.3414762280010475,
+          0.35377358490567,
+          -0.03934942287513454,
+          0.18341412288747083,
+          -0.026212319790297478
+        ],
+        "base_paired_speedup": [
+          1.0,
+          0.9965968586387435,
+          0.9964747356051703,
+          1.0003936491274112,
+          0.9981692166862821,
+          1.0002621919244887
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -66.18636564851704,
+        "assembly_speedup": 2.9573869215160045,
+        "assembly_paired_percent": [
+          -66.41600703605981,
+          -66.14975631369073,
+          -66.09561752988049,
+          -66.2488928255093,
+          -66.14873837981408,
+          -66.32229580573951
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      }
+    },
+    "all_six_slower_controls": {
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks1": {
+        "assembly_ns": 10.01,
+        "base_ns": 16.700000000000003,
+        "current_ns": 17.585,
+        "current_vs_base_percent": 5.2994011976047695,
+        "base_speedup": 0.9496730167756612,
+        "base_paired_percent": [
+          4.946364719904639,
+          5.332534451767512,
+          5.455635491606725,
+          5.0269299820466795,
+          5.002977963073252,
+          5.472038484666264
+        ],
+        "base_paired_speedup": [
+          0.9528676888131744,
+          0.9493742889647327,
+          0.9482660602615122,
+          0.9521367521367521,
+          0.9523539421440727,
+          0.9481185860889396
+        ],
+        "current_faster_than_base_pairs": 0,
+        "current_slower_than_base_pairs": 6,
+        "current_vs_assembly_percent": 75.67432567432569,
+        "assembly_speedup": 0.5692351435882854,
+        "assembly_paired_percent": [
+          76.27627627627626,
+          75.6243756243756,
+          74.50396825396825,
+          75.14970059880241,
+          76.44115292233784,
+          75.22477522477521
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks2": {
+        "assembly_ns": 12.82,
+        "base_ns": 27.37,
+        "current_ns": 28.305,
+        "current_vs_base_percent": 3.416149068322971,
+        "base_speedup": 0.966966966966967,
+        "base_paired_percent": [
+          3.0214779759738075,
+          14.249177932042368,
+          3.405346027096301,
+          3.5479151426481392,
+          3.281079110462981,
+          3.142126415783708
+        ],
+        "base_paired_speedup": [
+          0.9706713780918726,
+          0.8752798209146148,
+          0.9670679886685553,
+          0.9657364888731896,
+          0.9682315566537241,
+          0.969535954658165
+        ],
+        "current_faster_than_base_pairs": 0,
+        "current_slower_than_base_pairs": 6,
+        "current_vs_assembly_percent": 120.78783151326053,
+        "assembly_speedup": 0.45292351174704115,
+        "assembly_paired_percent": [
+          121.26661454261142,
+          143.9157566302652,
+          120.45277127244339,
+          120.82683307332292,
+          118.42713955281417,
+          120.20280811232449
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      }
+    },
+    "parity": {
+      "VP9 320x180": {
+        "semantic_fields_checked": 22,
+        "all_semantic_fields_equal": true,
+        "mismatched_fields": [],
+        "allocation_samples": {
+          "assembly": [
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667
+          ],
+          "previous": [
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667
+          ],
+          "simd": [
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667,
+            0.6166666666666667
+          ]
+        }
+      },
+      "VP8 720p": {
+        "semantic_fields_checked": 22,
+        "all_semantic_fields_equal": true,
+        "mismatched_fields": [],
+        "allocation_samples": {
+          "assembly": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "previous": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "simd": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      },
+      "VP9 720p": {
+        "semantic_fields_checked": 22,
+        "all_semantic_fields_equal": true,
+        "mismatched_fields": [],
+        "allocation_samples": {
+          "assembly": [
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25
+          ],
+          "previous": [
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25
+          ],
+          "simd": [
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25,
+            1.25
+          ]
+        }
+      },
+      "VP8 720p profile": {
+        "semantic_fields_checked": 22,
+        "all_semantic_fields_equal": true,
+        "mismatched_fields": [],
+        "allocation_samples": {
+          "assembly": 0,
+          "previous": 0,
+          "simd": 0
+        }
+      },
+      "VP9 720p profile": {
+        "semantic_fields_checked": 22,
+        "all_semantic_fields_equal": true,
+        "mismatched_fields": [],
+        "allocation_samples": {
+          "assembly": 0.625,
+          "previous": 0.625,
+          "simd": 0.625
+        }
+      }
+    },
+    "native_validation": {
+      "logs": {
+        "quant-batch-validation.txt": {
+          "passed_tests": [
+            "TestVP8QuantBatchDeclinesBeforeWriting",
+            "TestVP8QuantBatchPreservesOverlappingInputOrder",
+            "TestQuantBatchExtremesScalar",
+            "TestQuantBatchNativeSelected",
+            "TestSixTapPreservesEightPixelAliasOrder",
+            "TestSixTapNarrowBoundsAndRounding",
+            "TestRollingSixTapNativeSelected",
+            "TestSixTapPredict16x16NativeMatchesScalar",
+            "TestSixTapPredictSIMDMatchesScalar",
+            "TestSixTapPredict8x8PairMatchesSeparateCalls",
+            "TestSixTapPredictRectangularMaybeMatchesScalar",
+            "TestSixTapPredictZeroOffsetsCopyCentralBlock",
+            "TestSixTapPredictRectangularMatchesScalar",
+            "TestSixTapPredictHorizontalHalfPixel",
+            "TestSixTapPredictVerticalHalfPixel",
+            "TestSixTapPredict16x16AllocatesZero",
+            "TestDenoiseBytesScalar",
+            "TestDenoiseBytesDeclinesAliasesAndShortRows",
+            "TestDenoiseBytesPacketAliasOrder",
+            "TestDenoiseBytesDistinctStridesAndPublicDispatch",
+            "TestDenoiseBytesShortDestAndSignal",
+            "TestDenoiseBytesFallbackParameters",
+            "TestDenoiseBytesRuntimeFallback",
+            "TestDiffMetricsAndStatsExtremeSums",
+            "TestStats16NarrowRowsAndBounds",
+            "TestStats16NativeSelected",
+            "TestVarianceBlockSizedSIMDMatchesScalar",
+            "TestVarianceBlock16xNNativeMatchesScalar",
+            "TestVarianceBlock8x16NativeMatchesScalar",
+            "TestVarianceBlocks",
+            "TestVarianceAllocatesZero",
+            "TestDenoiserCompleteDecisionsScalar",
+            "TestDenoiserCompleteDeclinesBeforeWriting",
+            "TestDenoiserCompleteAliasedInputsScalar",
+            "TestDenoiserCompleteInvalidParametersDecline",
+            "TestDenoiserCompleteRuntimeFallback",
+            "TestDenoiserFilterYDispatchMatchesScalar",
+            "TestDenoiserFilterUVDispatchMatchesScalar",
+            "TestDenoiserModeMappingMatchesLibvpx",
+            "TestDenoiserSetParametersMatchesLibvpxModes",
+            "TestDenoiserFilterYReturnsCopyForSharpDifference",
+            "TestDenoiserFilterYUsesMCWhenAbsdiffSmall",
+            "TestDenoiserFilterUVCopiesNearNeutralBlocks",
+            "TestSSEPlane16Disabled",
+            "TestSSEPlane16Scalar",
+            "TestSSEPlane16DeclinesUnsupported",
+            "TestSSEPlane16BoundaryGuards",
+            "TestLoopFilterLumaSSEPlaneMatchesColumns",
+            "TestLoopFilterLumaSSEPlaneKeepsClampedEdges",
+            "TestLoopFilterLumaSSEPartialScoresOnlyMiddleWindow"
+          ],
+          "failed_tests": [],
+          "skipped_tests": []
+        }
+      },
+      "current_simd_selected": true,
+      "base_simd_selected": true
+    },
+    "artifact_id": 12109196955,
+    "artifact_url": "https://github.com/thesyncim/govpx/actions/runs/39054388453/artifacts/12109196955",
+    "profile_liveness": {
+      "source": "/private/tmp/govpx-amd64-2272d7e4-artifact/simd-vp8-720p-profile-top.txt",
+      "matching_lines": [
+        "     0.02s  0.83% 64.17%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.SSEPlane16"
+      ],
+      "limit": "Short independent profile demonstrates production liveness, not a precise old/new isolated throughput ratio."
+    }
+  },
+  "native_full_parity": {
+    "VP9 320x180": {
+      "semantic_fields": {
+        "avg_interframe_bytes": true,
+        "bitrate_error_pct": true,
+        "codec": true,
+        "dropped_frames": true,
+        "encoded_frames": true,
+        "encoder": true,
+        "fps": true,
+        "frames": true,
+        "height": true,
+        "keyframe_bytes": true,
+        "mode": true,
+        "options": true,
+        "output_bitrate_kbps": true,
+        "output_bytes": true,
+        "psnr": true,
+        "quality_frames": true,
+        "quality_skipped": true,
+        "quantizer_histogram": true,
+        "quantizers": true,
+        "ssim": true,
+        "target_bitrate_kbps": true,
+        "width": true
+      },
+      "all_semantic_fields_equal": true,
+      "allocation_samples": {
+        "assembly": [
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667
+        ],
+        "previous": [
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667
+        ],
+        "simd": [
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667
+        ]
+      }
+    },
+    "VP8 720p": {
+      "semantic_fields": {
+        "avg_interframe_bytes": true,
+        "bitrate_error_pct": true,
+        "codec": true,
+        "dropped_frames": true,
+        "encoded_frames": true,
+        "encoder": true,
+        "fps": true,
+        "frames": true,
+        "height": true,
+        "keyframe_bytes": true,
+        "mode": true,
+        "options": true,
+        "output_bitrate_kbps": true,
+        "output_bytes": true,
+        "psnr": true,
+        "quality_frames": true,
+        "quality_skipped": true,
+        "quantizer_histogram": true,
+        "quantizers": true,
+        "ssim": true,
+        "target_bitrate_kbps": true,
+        "width": true
+      },
+      "all_semantic_fields_equal": true,
+      "allocation_samples": {
+        "assembly": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "previous": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "simd": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "VP9 720p": {
+      "semantic_fields": {
+        "avg_interframe_bytes": true,
+        "bitrate_error_pct": true,
+        "codec": true,
+        "dropped_frames": true,
+        "encoded_frames": true,
+        "encoder": true,
+        "fps": true,
+        "frames": true,
+        "height": true,
+        "keyframe_bytes": true,
+        "mode": true,
+        "options": true,
+        "output_bitrate_kbps": true,
+        "output_bytes": true,
+        "psnr": true,
+        "quality_frames": true,
+        "quality_skipped": true,
+        "quantizer_histogram": true,
+        "quantizers": true,
+        "ssim": true,
+        "target_bitrate_kbps": true,
+        "width": true
+      },
+      "all_semantic_fields_equal": true,
+      "allocation_samples": {
+        "assembly": [
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25
+        ],
+        "previous": [
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25
+        ],
+        "simd": [
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25
+        ]
+      }
+    },
+    "VP8 720p profile": {
+      "semantic_fields": {
+        "avg_interframe_bytes": true,
+        "bitrate_error_pct": true,
+        "codec": true,
+        "dropped_frames": true,
+        "encoded_frames": true,
+        "encoder": true,
+        "fps": true,
+        "frames": true,
+        "height": true,
+        "keyframe_bytes": true,
+        "mode": true,
+        "options": true,
+        "output_bitrate_kbps": true,
+        "output_bytes": true,
+        "psnr": true,
+        "quality_frames": true,
+        "quality_skipped": true,
+        "quantizer_histogram": true,
+        "quantizers": true,
+        "ssim": true,
+        "target_bitrate_kbps": true,
+        "width": true
+      },
+      "all_semantic_fields_equal": true,
+      "allocation_samples": {
+        "assembly": 0,
+        "previous": 0,
+        "simd": 0
+      }
+    },
+    "VP9 720p profile": {
+      "semantic_fields": {
+        "avg_interframe_bytes": true,
+        "bitrate_error_pct": true,
+        "codec": true,
+        "dropped_frames": true,
+        "encoded_frames": true,
+        "encoder": true,
+        "fps": true,
+        "frames": true,
+        "height": true,
+        "keyframe_bytes": true,
+        "mode": true,
+        "options": true,
+        "output_bitrate_kbps": true,
+        "output_bytes": true,
+        "psnr": true,
+        "quality_frames": true,
+        "quality_skipped": true,
+        "quantizer_histogram": true,
+        "quantizers": true,
+        "ssim": true,
+        "target_bitrate_kbps": true,
+        "width": true
+      },
+      "all_semantic_fields_equal": true,
+      "allocation_samples": {
+        "assembly": 0.625,
+        "previous": 0.625,
+        "simd": 0.625
+      }
+    }
+  },
+  "optimized_c": {
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
+    "go_version": "go version go1.27.2 linux/amd64",
+    "raw_directory": "/private/tmp/govpx-libvpx-amd64-2272d7e4-artifact",
+    "raw_file_count": 74,
+    "optimized_build_macros": {
+      "HAVE_SSE2": true,
+      "HAVE_AVX2": true,
+      "CONFIG_RUNTIME_CPU_DETECT": true,
+      "CONFIG_VP8_ENCODER": true,
+      "CONFIG_VP9_ENCODER": true
+    },
+    "optimized_object_counts": {
+      "sse2": 45,
+      "avx2": 15,
+      ".asm.o": 39
+    },
+    "timing_contract": {
+      "govpx": "sum of EncodeInto call durations; input construction, warmup and allocation sampling excluded",
+      "libvpx": "vpxenc cumulative vpx_codec_encode timer; subprocess/file wall timing reported separately",
+      "libvpx_latency": "legacy helper latency fields repeat the mean, not measured latency quantiles; not used here",
+      "order": "three govpx-first and three reference-first runs per case",
+      "quality": "separate post-timing decode/PSNR/SSIM pass, same inputs and flags",
+      "scope": "synthetic same-input/controls comparison; differing output/quality/drop work is reported, not assumed equivalent"
+    },
+    "upstream_release": "v1.16.0",
+    "upstream_commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
+    "cases": {
+      "vp9-320p": {
+        "govpx_median_ns_per_input": 4235988.0,
+        "libvpx_median_ns_per_input": 1429466.5,
+        "govpx_time_delta_percent": 196.3334922504305,
+        "paired_govpx_time_delta_percent": [
+          199.78234751635034,
+          194.7080405057721,
+          195.38612570004835,
+          196.91925902492181,
+          198.47451138778163,
+          193.32731753028148
+        ],
+        "govpx_allocations_per_input": [
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667,
+          0.6166666666666667
+        ],
+        "govpx_quality": {
+          "output_bytes": 246893,
+          "output_bitrate_kbps": 493.786,
+          "bitrate_error_pct": -1.2427999999999997,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.405172413793,
+          "psnr": 28.91097432360832,
+          "ssim": 0.9663734052397466,
+          "quality_frames": 117
+        },
+        "libvpx_quality": {
+          "output_bytes": 246912,
+          "output_bitrate_kbps": 493.824,
+          "bitrate_error_pct": -1.2351999999999976,
+          "encoded_frames": 117,
+          "dropped_frames": 3,
+          "keyframe_bytes": 29346,
+          "avg_interframe_bytes": 1875.5689655172414,
+          "psnr": 28.969582895630573,
+          "ssim": 0.9670114862649618,
+          "quality_frames": 117
+        },
+        "quality_output_matches_timing": {
+          "govpx": true,
+          "libvpx": true
+        },
+        "actual_libvpx_controls": [
+          "--passes=1",
+          "--lag-in-frames=0",
+          "--auto-alt-ref=0",
+          "--aq-mode=0",
+          "--row-mt=0",
+          "--tile-columns=0",
+          "--tile-rows=0",
+          "--profile=0",
+          "--end-usage=cbr",
+          "--target-bitrate=500",
+          "--min-q=2",
+          "--max-q=56",
+          "--kf-min-dist=0",
+          "--kf-max-dist=3000",
+          "--buf-sz=1000",
+          "--buf-initial-sz=500",
+          "--buf-optimal-sz=600",
+          "--undershoot-pct=100",
+          "--overshoot-pct=15",
+          "--threads=1",
+          "--timebase=1/30",
+          "--noise-sensitivity=4",
+          "--rt",
+          "--cpu-used=8",
+          "--drop-frame=30",
+          "--max-intra-rate=900",
+          "--static-thresh=1"
+        ],
+        "unique_timing_output_stats": {
+          "govpx": [
+            {
+              "avg_interframe_bytes": 1875.405172413793,
+              "bitrate_error_pct": -1.2427999999999997,
+              "dropped_frames": 3,
+              "encoded_frames": 117,
+              "keyframe_bytes": 29346,
+              "output_bitrate_kbps": 493.786,
+              "output_bytes": 246893
+            }
+          ],
+          "libvpx": [
+            {
+              "avg_interframe_bytes": 1875.5689655172414,
+              "bitrate_error_pct": -1.2351999999999976,
+              "dropped_frames": 3,
+              "encoded_frames": 117,
+              "keyframe_bytes": 29346,
+              "output_bitrate_kbps": 493.824,
+              "output_bytes": 246912
+            }
+          ]
+        },
+        "matched_measured_quality_payload_counts": {
+          "psnr": false,
+          "ssim": false,
+          "output_bytes": false,
+          "encoded_frames": true,
+          "dropped_frames": true
+        }
+      },
+      "vp9-720p": {
+        "govpx_median_ns_per_input": 31773940.5,
+        "libvpx_median_ns_per_input": 9900258.0,
+        "govpx_time_delta_percent": 220.94053003467184,
+        "paired_govpx_time_delta_percent": [
+          218.95881541854564,
+          220.09885633794224,
+          223.09353587548185,
+          219.74202324632336,
+          217.9589498759008,
+          217.69453036810873
+        ],
+        "govpx_allocations_per_input": [
+          1.2666666666666666,
+          1.25,
+          1.25,
+          1.25,
+          1.25,
+          1.25
+        ],
+        "govpx_quality": {
+          "output_bytes": 642654,
+          "output_bitrate_kbps": 2570.616,
+          "bitrate_error_pct": 2.8246399999999996,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8095.765957446809,
+          "psnr": 27.516433674845157,
+          "ssim": 0.9493477953174687,
+          "quality_frames": 48
+        },
+        "libvpx_quality": {
+          "output_bytes": 643059,
+          "output_bitrate_kbps": 2572.236,
+          "bitrate_error_pct": 2.889439999999995,
+          "encoded_frames": 48,
+          "dropped_frames": 12,
+          "keyframe_bytes": 262153,
+          "avg_interframe_bytes": 8104.382978723404,
+          "psnr": 27.54611662978128,
+          "ssim": 0.9490956230208725,
+          "quality_frames": 48
+        },
+        "quality_output_matches_timing": {
+          "govpx": true,
+          "libvpx": true
+        },
+        "actual_libvpx_controls": [
+          "--passes=1",
+          "--lag-in-frames=0",
+          "--auto-alt-ref=0",
+          "--aq-mode=0",
+          "--row-mt=0",
+          "--tile-columns=0",
+          "--tile-rows=0",
+          "--profile=0",
+          "--end-usage=cbr",
+          "--target-bitrate=2500",
+          "--min-q=2",
+          "--max-q=56",
+          "--kf-min-dist=0",
+          "--kf-max-dist=3000",
+          "--buf-sz=1000",
+          "--buf-initial-sz=500",
+          "--buf-optimal-sz=600",
+          "--undershoot-pct=100",
+          "--overshoot-pct=15",
+          "--threads=1",
+          "--timebase=1/30",
+          "--noise-sensitivity=4",
+          "--rt",
+          "--cpu-used=8",
+          "--drop-frame=30",
+          "--max-intra-rate=900",
+          "--static-thresh=1"
+        ],
+        "unique_timing_output_stats": {
+          "govpx": [
+            {
+              "avg_interframe_bytes": 8095.765957446809,
+              "bitrate_error_pct": 2.8246399999999996,
+              "dropped_frames": 12,
+              "encoded_frames": 48,
+              "keyframe_bytes": 262153,
+              "output_bitrate_kbps": 2570.616,
+              "output_bytes": 642654
+            }
+          ],
+          "libvpx": [
+            {
+              "avg_interframe_bytes": 8104.382978723404,
+              "bitrate_error_pct": 2.889439999999995,
+              "dropped_frames": 12,
+              "encoded_frames": 48,
+              "keyframe_bytes": 262153,
+              "output_bitrate_kbps": 2572.236,
+              "output_bytes": 643059
+            }
+          ]
+        },
+        "matched_measured_quality_payload_counts": {
+          "psnr": false,
+          "ssim": false,
+          "output_bytes": false,
+          "encoded_frames": true,
+          "dropped_frames": true
+        }
+      },
+      "vp8-720p-adaptive": {
+        "govpx_median_ns_per_input": 20198890.0,
+        "libvpx_median_ns_per_input": 10192625.0,
+        "govpx_time_delta_percent": 98.17161918544046,
+        "paired_govpx_time_delta_percent": [
+          97.68200066005626,
+          100.49360966792733,
+          98.43404366163978,
+          97.9184628612745,
+          96.46501343574201,
+          97.9381869807243
+        ],
+        "govpx_allocations_per_input": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "govpx_quality": {
+          "output_bytes": 685957,
+          "output_bitrate_kbps": 2743.828,
+          "bitrate_error_pct": 9.75312,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9688.719298245614,
+          "psnr": 27.983950811796223,
+          "ssim": 0.9085039479857897,
+          "quality_frames": 58
+        },
+        "libvpx_quality": {
+          "output_bytes": 678205,
+          "output_bitrate_kbps": 2712.82,
+          "bitrate_error_pct": 8.512800000000006,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 9552.719298245614,
+          "psnr": 29.176639055341766,
+          "ssim": 0.9330880863420581,
+          "quality_frames": 58
+        },
+        "quality_output_matches_timing": {
+          "govpx": true,
+          "libvpx": true
+        },
+        "actual_libvpx_controls": [
+          "--passes=1",
+          "--lag-in-frames=0",
+          "--end-usage=cbr",
+          "--target-bitrate=2500",
+          "--min-q=2",
+          "--max-q=56",
+          "--kf-min-dist=3000",
+          "--kf-max-dist=3000",
+          "--buf-sz=1000",
+          "--buf-initial-sz=500",
+          "--buf-optimal-sz=600",
+          "--undershoot-pct=100",
+          "--overshoot-pct=15",
+          "--threads=1",
+          "--token-parts=0",
+          "--timebase=1/30",
+          "--noise-sensitivity=4",
+          "--rt",
+          "--cpu-used=8",
+          "--drop-frame=30",
+          "--max-intra-rate=900",
+          "--static-thresh=1"
+        ],
+        "unique_timing_output_stats": {
+          "govpx": [
+            {
+              "avg_interframe_bytes": 9688.719298245614,
+              "bitrate_error_pct": 9.75312,
+              "dropped_frames": 2,
+              "encoded_frames": 58,
+              "keyframe_bytes": 133700,
+              "output_bitrate_kbps": 2743.828,
+              "output_bytes": 685957
+            }
+          ],
+          "libvpx": [
+            {
+              "avg_interframe_bytes": 9552.719298245614,
+              "bitrate_error_pct": 8.512800000000006,
+              "dropped_frames": 2,
+              "encoded_frames": 58,
+              "keyframe_bytes": 133700,
+              "output_bitrate_kbps": 2712.82,
+              "output_bytes": 678205
+            }
+          ]
+        },
+        "matched_measured_quality_payload_counts": {
+          "psnr": false,
+          "ssim": false,
+          "output_bytes": false,
+          "encoded_frames": true,
+          "dropped_frames": true
+        }
+      },
+      "vp8-720p-fixed": {
+        "govpx_median_ns_per_input": 16578083.0,
+        "libvpx_median_ns_per_input": 6582299.5,
+        "govpx_time_delta_percent": 151.85853363250942,
+        "paired_govpx_time_delta_percent": [
+          153.63290723125317,
+          152.77620397467672,
+          151.7453911882168,
+          151.53259964820745,
+          150.9058234724734,
+          152.648466043293
+        ],
+        "govpx_allocations_per_input": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "govpx_quality": {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349,
+          "psnr": 27.157610871537482,
+          "ssim": 0.9259273287259608,
+          "quality_frames": 58
+        },
+        "libvpx_quality": {
+          "output_bytes": 723593,
+          "output_bitrate_kbps": 2894.372,
+          "bitrate_error_pct": 15.774879999999992,
+          "encoded_frames": 58,
+          "dropped_frames": 2,
+          "keyframe_bytes": 133700,
+          "avg_interframe_bytes": 10349,
+          "psnr": 27.157610871537482,
+          "ssim": 0.9259273287259608,
+          "quality_frames": 58
+        },
+        "quality_output_matches_timing": {
+          "govpx": true,
+          "libvpx": true
+        },
+        "actual_libvpx_controls": [
+          "--passes=1",
+          "--lag-in-frames=0",
+          "--end-usage=cbr",
+          "--target-bitrate=2500",
+          "--min-q=2",
+          "--max-q=56",
+          "--kf-min-dist=3000",
+          "--kf-max-dist=3000",
+          "--buf-sz=1000",
+          "--buf-initial-sz=500",
+          "--buf-optimal-sz=600",
+          "--undershoot-pct=100",
+          "--overshoot-pct=15",
+          "--threads=1",
+          "--token-parts=0",
+          "--timebase=1/30",
+          "--noise-sensitivity=4",
+          "--rt",
+          "--cpu-used=-8",
+          "--drop-frame=30",
+          "--max-intra-rate=900",
+          "--static-thresh=1"
+        ],
+        "unique_timing_output_stats": {
+          "govpx": [
+            {
+              "avg_interframe_bytes": 10349,
+              "bitrate_error_pct": 15.774879999999992,
+              "dropped_frames": 2,
+              "encoded_frames": 58,
+              "keyframe_bytes": 133700,
+              "output_bitrate_kbps": 2894.372,
+              "output_bytes": 723593
+            }
+          ],
+          "libvpx": [
+            {
+              "avg_interframe_bytes": 10349,
+              "bitrate_error_pct": 15.774879999999992,
+              "dropped_frames": 2,
+              "encoded_frames": 58,
+              "keyframe_bytes": 133700,
+              "output_bitrate_kbps": 2894.372,
+              "output_bytes": 723593
+            }
+          ]
+        },
+        "matched_measured_quality_payload_counts": {
+          "psnr": true,
+          "ssim": true,
+          "output_bytes": true,
+          "encoded_frames": true,
+          "dropped_frames": true
+        }
+      }
+    },
+    "reference_timer_sources": [
+      "vpxenc-stats"
+    ],
+    "all_reference_timers_vpxenc_stats": true,
+    "artifact_id": 12109400393,
+    "artifact_url": "https://github.com/thesyncim/govpx/actions/runs/39054388453/artifacts/12109400393"
+  },
+  "hosted_snapshot": {
+    "conclusion": "success",
+    "headSha": "2272d7e447427cbfcb979d3bfbd3b487e9a24cfa",
+    "jobs": [
+      {
+        "completedAt": "2026-10-17T17:44:02Z",
+        "conclusion": "success",
+        "databaseId": 117459266507,
+        "name": "Exhaustive test",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-17T17:35:02Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-17T17:35:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:05Z",
+            "conclusion": "success",
+            "name": "Checkout",
+            "number": 2,
+            "startedAt": "2026-10-17T17:35:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:13Z",
+            "conclusion": "success",
+            "name": "Setup Go",
+            "number": 3,
+            "startedAt": "2026-10-17T17:35:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:22Z",
+            "conclusion": "success",
+            "name": "Install libvpx build tools",
+            "number": 4,
+            "startedAt": "2026-10-17T17:35:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:35Z",
+            "conclusion": "success",
+            "name": "Source and PGO checks",
+            "number": 5,
+            "startedAt": "2026-10-17T17:35:22Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:36Z",
+            "conclusion": "success",
+            "name": "Prepare pinned upstream control tables",
+            "number": 6,
+            "startedAt": "2026-10-17T17:35:35Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:36:58Z",
+            "conclusion": "success",
+            "name": "Native SIMD tests",
+            "number": 7,
+            "startedAt": "2026-10-17T17:35:36Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:53Z",
+            "conclusion": "success",
+            "name": "Scalar fallback tests",
+            "number": 8,
+            "startedAt": "2026-10-17T17:36:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:40:13Z",
+            "conclusion": "success",
+            "name": "Oracle trace build",
+            "number": 9,
+            "startedAt": "2026-10-17T17:39:53Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:41:39Z",
+            "conclusion": "success",
+            "name": "VP9 decoder conformance",
+            "number": 10,
+            "startedAt": "2026-10-17T17:40:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:41:45Z",
+            "conclusion": "success",
+            "name": "Encoder quality gates",
+            "number": 11,
+            "startedAt": "2026-10-17T17:41:39Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:42:58Z",
+            "conclusion": "success",
+            "name": "Libvpx oracle tests",
+            "number": 12,
+            "startedAt": "2026-10-17T17:41:45Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:43Z",
+            "conclusion": "success",
+            "name": "Encoder byte parity",
+            "number": 13,
+            "startedAt": "2026-10-17T17:42:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:58Z",
+            "conclusion": "success",
+            "name": "Parity regression report",
+            "number": 14,
+            "startedAt": "2026-10-17T17:43:43Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:59Z",
+            "conclusion": "success",
+            "name": "Save complete parity diagnostics",
+            "number": 15,
+            "startedAt": "2026-10-17T17:43:58Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:59Z",
+            "conclusion": "success",
+            "name": "Post Setup Go",
+            "number": 29,
+            "startedAt": "2026-10-17T17:43:59Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:59Z",
+            "conclusion": "success",
+            "name": "Post Checkout",
+            "number": 30,
+            "startedAt": "2026-10-17T17:43:59Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:43:59Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 31,
+            "startedAt": "2026-10-17T17:43:59Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/thesyncim/govpx/actions/runs/39054388454/job/117459266507"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/thesyncim/govpx/actions/runs/39054388454"
+  },
+  "native_snapshot": {
+    "conclusion": "success",
+    "headSha": "2272d7e447427cbfcb979d3bfbd3b487e9a24cfa",
+    "jobs": [
+      {
+        "completedAt": "2026-10-17T17:48:24Z",
+        "conclusion": "success",
+        "databaseId": 117459266203,
+        "name": "benchmark",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-17T17:35:01Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-17T17:35:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:05Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v6",
+            "number": 2,
+            "startedAt": "2026-10-17T17:35:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:14Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-go@v6",
+            "number": 3,
+            "startedAt": "2026-10-17T17:35:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:48:20Z",
+            "conclusion": "success",
+            "name": "Compare assembly, previous and current SIMD on the same CPU",
+            "number": 4,
+            "startedAt": "2026-10-17T17:35:14Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:48:21Z",
+            "conclusion": "success",
+            "name": "Save raw benchmarks and environment",
+            "number": 5,
+            "startedAt": "2026-10-17T17:48:20Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:48:21Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-go@v6",
+            "number": 9,
+            "startedAt": "2026-10-17T17:48:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:48:22Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@v6",
+            "number": 10,
+            "startedAt": "2026-10-17T17:48:21Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:48:22Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 11,
+            "startedAt": "2026-10-17T17:48:22Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/thesyncim/govpx/actions/runs/39054388453/job/117459266203"
+      },
+      {
+        "completedAt": "2026-10-17T17:39:18Z",
+        "conclusion": "success",
+        "databaseId": 117459266415,
+        "name": "libvpx-reference",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "completed",
+        "steps": [
+          {
+            "completedAt": "2026-10-17T17:35:02Z",
+            "conclusion": "success",
+            "name": "Set up job",
+            "number": 1,
+            "startedAt": "2026-10-17T17:35:01Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:05Z",
+            "conclusion": "success",
+            "name": "Run actions/checkout@v6",
+            "number": 2,
+            "startedAt": "2026-10-17T17:35:02Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:15Z",
+            "conclusion": "success",
+            "name": "Run actions/setup-go@v6",
+            "number": 3,
+            "startedAt": "2026-10-17T17:35:05Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:35:23Z",
+            "conclusion": "success",
+            "name": "Install upstream assembly build tools",
+            "number": 4,
+            "startedAt": "2026-10-17T17:35:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:13Z",
+            "conclusion": "success",
+            "name": "Compare current SIMD with optimized upstream libvpx",
+            "number": 5,
+            "startedAt": "2026-10-17T17:35:23Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:15Z",
+            "conclusion": "success",
+            "name": "Save libvpx timing, controls and quality evidence",
+            "number": 6,
+            "startedAt": "2026-10-17T17:39:13Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:15Z",
+            "conclusion": "success",
+            "name": "Post Run actions/setup-go@v6",
+            "number": 11,
+            "startedAt": "2026-10-17T17:39:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:15Z",
+            "conclusion": "success",
+            "name": "Post Run actions/checkout@v6",
+            "number": 12,
+            "startedAt": "2026-10-17T17:39:15Z",
+            "status": "completed"
+          },
+          {
+            "completedAt": "2026-10-17T17:39:15Z",
+            "conclusion": "success",
+            "name": "Complete job",
+            "number": 13,
+            "startedAt": "2026-10-17T17:39:15Z",
+            "status": "completed"
+          }
+        ],
+        "url": "https://github.com/thesyncim/govpx/actions/runs/39054388453/job/117459266415"
+      }
+    ],
+    "status": "completed",
+    "url": "https://github.com/thesyncim/govpx/actions/runs/39054388453"
+  },
+  "limits": [
+    "ARM whole-encoder evidence belongs to parent task and is not inferred from x64 or component figures.",
+    "Project automatically retains correctness-verified >=1.5x representative components even with flat whole codec; report exact fixture ratios rather than asserting all exceed that threshold.",
+    "Fixed VP8 matching measured quality/payload/counts does not prove bitstream identity. Adaptive speed and VP9 may perform different coding work.",
+    "All raw timing/allocation samples and regressions retained, including unchanged controls. No cross-CPU absolute timing attribution.",
+    "Parent later explicitly authorized GitHub-only exact-green-head merge; audit measurements remain tied to2272d7e4."
+  ],
+  "arm_parent_report": {
+    "source": "Parent report and PR26 body; native ARM raw evidence maintained by parent, not independently remeasured by this audit.",
+    "cpu": "Apple M4 Max",
+    "go": "1.27.2",
+    "pgo": "off",
+    "component_speedup_vs_main": {
+      "720p": 1.141,
+      "1088p": 1.181
+    },
+    "component_speedup_vs_old_assembly": {
+      "720p": 1.068,
+      "1088p": 1.109
+    },
+    "small_partial_limit": "Improve versus main but remain slower than assembly.",
+    "fresh_300_input_whole_encoder_time_delta_percent": -0.314,
+    "pairs_faster": 6,
+    "pairs_slower": 2,
+    "exact_output_options_controls": 23,
+    "allocations_per_input": 0,
+    "current_whole_encoder_vs_assembly": "Not measured/reported in the supplied fresh confirmation; historical ARM gap cannot be recomputed from these component/control results."
+  },
+  "pr_snapshot": {
+    "body": "VP8 loop-filter scoring previously revisited the frame once per 16-pixel column. Scan complete rows with Go archsimd on ARM64 and AVX2, reducing cache traffic and x64 return-fence/reduction overhead. Bounded four-row accumulation preserves the original uint32 column semantics; unsupported inputs and backends retain the existing path.\n\nNative Apple M4 Max, Go 1.27.2, PGO off, one thread, six balanced rounds: public scoring improves 1.141\u00d7 at 720p and 1.181\u00d7 at 1088p versus main, and beats the old assembly reference by 1.068\u00d7 and 1.109\u00d7. Small and partial-frame cases improve versus main but still trail assembly. Every component sample is allocation-free and checked against an independent scalar oracle. The first ARM whole-codec run is mixed: +0.83% at 60 frames, \u22122.69% at 300 frames versus main, with both faster and slower pairs and 23 exact output/options controls plus zero allocations. A fresh eight-pair alternating 300-frame confirmation is effectively flat (median \u22120.314%, six pairs faster and two slower), again with all 23 controls exact and zero allocations; no overall speedup is claimed. Native x64 measurements are pending; component gains are reported separately and retained under the project's performance policy.\n\nAdds numeric-extreme, minimal-span, spare-capacity, overlapping-input, disabled-backend and encoder integration tests, including frame totals above 2\u00b3\u00b2 and wrapped-column fallback. Extends the native x64 harness with the same four public scoring fixtures for assembly/main/current. Refreshes PGO and preserves PR #25's native assembly/libvpx comparisons under benchmarks/baselines. README unchanged.\n\nValidation: full native `go test ./...`, scalar/integration oracles, race/checkptr, purego and SIMD-off tests, required-SIMD AMD64 Rosetta correctness, and format/no-assembly/build-selection/PGO gates all pass. Native libvpx-backed VP8 timing, extended and 720p runtime-transition byte parity also passes (158 tests/subtests, no skips). The integrated ARM scorer matches all 136 measured instructions after address normalization. CI will provide fresh x64 kernel, whole VP8/VP9 and optimized-libvpx results on the exact head.\n",
+    "headRefOid": "2272d7e447427cbfcb979d3bfbd3b487e9a24cfa",
+    "isDraft": true,
+    "state": "OPEN",
+    "statusCheckRollup": [
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-17T17:44:02Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/thesyncim/govpx/actions/runs/39054388454/job/117459266507",
+        "name": "Exhaustive test",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "COMPLETED",
+        "workflowName": "CI"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-17T17:48:24Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/thesyncim/govpx/actions/runs/39054388453/job/117459266203",
+        "name": "benchmark",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "COMPLETED",
+        "workflowName": "Native amd64 SIMD benchmarks"
+      },
+      {
+        "__typename": "CheckRun",
+        "completedAt": "2026-10-17T17:39:18Z",
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/thesyncim/govpx/actions/runs/39054388453/job/117459266415",
+        "name": "libvpx-reference",
+        "startedAt": "2026-10-17T17:35:00Z",
+        "status": "COMPLETED",
+        "workflowName": "Native amd64 SIMD benchmarks"
+      }
+    ]
+  },
+  "all_three_exact_head_checks_pass": true
+}

@@ -1,0 +1,64 @@
+{
+  "generator": "scripts/gensimd.go",
+  "source_sha256": "9a9583c28c317f27a1dbd6470ab0d9a921abd469d2d237766f775b5b8a3e85f7",
+  "regenerated_in_isolated_snapshot": true,
+  "all_generated_outputs_identical_to_root": true,
+  "outputs": [
+    {
+      "path": "internal/pixel/loopfilter_internal_fused_simd.go",
+      "sha256": "ec1db6b0bcfa6594bb2cac92ab2edf9150fc80fb5145fd605deaff02e9cd1b91"
+    },
+    {
+      "path": "internal/pixel/loopfilter_internal_arith_simd.go",
+      "sha256": "829477b41c2465df4981050c11a537901054f9c6ad37900f29fe90bd4c38a477"
+    },
+    {
+      "path": "internal/pixel/loopfilter_core_avx2.go",
+      "sha256": "0e577f2d882070dea5c572d5feaa35dd373177b5c0a907e004a7e733bfcd6a70"
+    },
+    {
+      "path": "internal/pixel/loopfilter_macro_internal_fused_arm64.go",
+      "sha256": "a25c09156d8b379fe66297ff4275ecd5a0d388b48aaf75216502d3064e674959"
+    },
+    {
+      "path": "internal/pixel/loopfilter_rowstore_arm64.go",
+      "sha256": "ca6a830d362b05dfbf9654d734d5c047bc3fe4995e93f6ea8696d96381cdf6c2"
+    },
+    {
+      "path": "internal/pixel/loopfilter_nonflat_arith_simd.go",
+      "sha256": "d00129ba6f21359564b77486df490316cc62a2082ee195507a1546768f7d373e"
+    },
+    {
+      "path": "internal/pixel/loopfilter_uv_arith_simd.go",
+      "sha256": "3f3a6d018f2020288b7cca96aa01c15785151c99dbc14c3a40051c7c6be5c55e"
+    },
+    {
+      "path": "internal/pixel/loopfilter_macro_internal_fused_amd64.go",
+      "sha256": "b69d744831c843e19ca85dee962d37da3f5e43bbd82413f221fb4a4ad5f79e67"
+    },
+    {
+      "path": "internal/vp9/encoder/dct_core_simd.go",
+      "sha256": "d408df8867dc200cb0d24314f7d5567defdb354fbf6eb2367170bba1bd3cc8a2"
+    },
+    {
+      "path": "internal/vp9/encoder/transform_network_simd.go",
+      "sha256": "d7bbb16af5605f595029586bb5eee9c4d3938ee564cc4f908a5ab4e94fcd52e3"
+    },
+    {
+      "path": "internal/vp9/encoder/dct_core_avx2.go",
+      "sha256": "ed8300d044da38f783d41bfa29591a12aeb8412663a473712d758ad39a413dcd"
+    },
+    {
+      "path": "internal/vp9/dsp/idct_core_simd.go",
+      "sha256": "f2c37a0a97c5ce1ae32c87ff0aecc280252588fe1c9a34b6802b386ee89b60e2"
+    },
+    {
+      "path": "internal/vp9/dsp/transform_network_simd.go",
+      "sha256": "92e93755e4bf71604b2191266aa665ffffd1ded32f6bdccf3ad6da6b44270f36"
+    },
+    {
+      "path": "internal/vp9/dsp/dct_core_avx2.go",
+      "sha256": "3b9cde86f9fb585d240f9e939976cbf5a35a652b101094d3fadd6c9a16e2e90e"
+    }
+  ]
+}

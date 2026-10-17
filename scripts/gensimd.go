@@ -970,6 +970,22 @@ q0,q1,q2,q3=a0.InterleaveEven(a2),a0.InterleaveOdd(a2),a1.InterleaveEven(a3),a1.
 	if err = os.WriteFile("internal/pixel/loopfilter_macro_internal_fused_arm64.go", data, 0644); err != nil {
 		panic(err)
 	}
+	// AMD64 shares the sequential horizontal byte network. Its existing vertical
+	// path remains separate; ARM keeps its packed TRN schedule.
+	arm := string(data)
+	horizontalEnd := strings.Index(arm, "\nfunc loopFilterMacroInternalFusedVertical(")
+	if horizontalEnd < 0 {
+		panic("macro horizontal function boundary missing")
+	}
+	amd := strings.Replace(arm[:horizontalEnd], "goexperiment.simd && arm64", "goexperiment.simd && amd64", 1)
+	amd = strings.Replace(amd, "// Disjoint vertical rows are packed after all dependent edges are computed.", "// Horizontal macroblock/internal edges share the same exact byte dataflow.", 1)
+	amdData, err := format.Source([]byte(amd))
+	if err != nil {
+		panic(err)
+	}
+	if err = os.WriteFile("internal/pixel/loopfilter_macro_internal_fused_amd64.go", amdData, 0644); err != nil {
+		panic(err)
+	}
 	generateLoopFilterRowStore()
 }
 

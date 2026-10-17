@@ -1,0 +1,102 @@
+{
+  "assembly": {
+    "BenchmarkVP8PickerFilterNative/pitch32/smooth": [
+      84.4,
+      84.52,
+      84.33,
+      83.88,
+      84.6,
+      85.13
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch32/mixed": [
+      84.9,
+      84.29,
+      84.05,
+      85.53,
+      84.44,
+      84.1
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch32/noop": [
+      84.96,
+      84.22,
+      83.81,
+      84.26,
+      84.04,
+      84.11
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/smooth": [
+      85.01,
+      84.06,
+      83.98,
+      84.05,
+      84.23,
+      84.1
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/mixed": [
+      85.29,
+      83.93,
+      84.11,
+      84.28,
+      84.53,
+      83.67
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/noop": [
+      86.03,
+      84.22,
+      84.1,
+      84.2,
+      84.67,
+      83.95
+    ]
+  },
+  "main": {
+    "BenchmarkVP8PickerFilterNative/pitch32/smooth": [
+      94.23,
+      93.61,
+      93.05,
+      92.74,
+      92.85,
+      93.23
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch32/mixed": [
+      93.92,
+      93.04,
+      93.23,
+      93.3,
+      93.13,
+      92.74
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch32/noop": [
+      46.63,
+      45.02,
+      46.13,
+      45.63,
+      45.21,
+      45.35
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/smooth": [
+      93.98,
+      92.73,
+      93.08,
+      93.63,
+      92.63,
+      92.42
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/mixed": [
+      92.86,
+      92.6,
+      93.44,
+      93.86,
+      92.81,
+      92.55
+    ],
+    "BenchmarkVP8PickerFilterNative/pitch1312/noop": [
+      45.73,
+      45.35,
+      44.9,
+      45.79,
+      45.06,
+      45.17
+    ]
+  }
+}
