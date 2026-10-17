@@ -1,0 +1,24 @@
+{
+  "cpu": "Apple M4 Max",
+  "compiler": "Go1.27.2 darwin/arm64 archsimd PGOoff",
+  "goprocs": 1,
+  "parent": "a54017990dbf927ff67b48681f46c81309614f25",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "raw_members": 66,
+  "final_source_sha256": {
+    "internal/pixel/kernels_simd.go": "d0438dc3f3bf2163749e4cee3fa37b9681abf5062a4866642fce8e5385701ce0",
+    "internal/pixel/subpel_identity_simd_test.go": "f1153c8af3b9e70de730dce17a7e47df0b8b1c9fd9d159da9ee0c6fd2f7c26e7",
+    "internal/pixel/goav1_pixelstats_simd.go": "efc3f4af8a63e2ad8cdf37ae4462f57d01967e614f8ab8554be48b68473b74ca",
+    "internal/pixel/stats16_arm64.go": "453494eb7dfc56693efe167562212a70067a8b8e743ba19c9ac45939f5af5a5d",
+    "internal/pixel/stats16_amd64.go": "34a2b5ceb568645b87169c087ea0230729a87f08a90ea93de8736468d3b595db",
+    "internal/vp9/dsp/subpel_pointer_native_test.go": "b2057f648d94c89683213f2a1e40f3518178b6b29d8c8946bbb7f13a381c3b18",
+    "scripts/benchmark-amd64.sh": "a6d20461b029e966f3a91297a5e3d4757be0742a1c8c84904c4db45e23aa1fc3"
+  },
+  "binaries_sha256": {
+    "govpx-next-subpel-identity-parent.test": "55f43428eb6268ee443a3310aa6508724af8bbb12c4673af3b20ad46fbb8836f",
+    "govpx-next-subpel-identity-candidate.test": "4f69301ae1647ca90899ef4afb594b844de06328cd213533e2fa81bdaec5ab7c",
+    "govpx-next-subpel-identity-assembly.test": "22d49ed4e691627b29dd9f3a4cfd429bf1bcba2590b4024c939482f1fad5e764"
+  },
+  "whole_codec": "pending for this shared shortcut; earlier vertical-only results separate",
+  "native_x64_speed": "pending CI; no emulated speed claims"
+}

@@ -433,6 +433,16 @@ func SubpelStats(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16) 
 		return SubpelStatsScalar(src, ss, ref, rs, w, h, fx, fy)
 	}
 
+	// Exact identity filters need only the already optimized SIMD difference
+	// statistics. Retain the bilinear read-window checks, including the extra
+	// row/column, before taking this shortcut. Codec-sized geometry and bounded
+	// nonnegative strides prove the endpoint arithmetic cannot overflow.
+	if fx == [2]int16{128, 0} && fy == [2]int16{128, 0} && w <= 64 && h <= 64 && (uint(ss)|uint(rs))>>30 == 0 {
+		_ = src[h*ss+w]
+		_ = ref[(h-1)*rs+w-1]
+		return Stats(src, ss, ref, rs, w, h)
+	}
+
 	if w == 4 {
 		return subpelStatsKernel[[4]byte](src, ss, ref, rs, w, h, fx, fy)
 	}

@@ -1,0 +1,1322 @@
+{
+  "BenchmarkVP9SubpelPointerNative/16x8/phase0-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        21.42,
+        21.44,
+        21.31,
+        21.14,
+        21.13,
+        21.19
+      ],
+      "assembly": [
+        12.29,
+        12.46,
+        12.67,
+        12.47,
+        12.03,
+        11.81
+      ],
+      "candidate": [
+        11.86,
+        12.02,
+        12.07,
+        11.93,
+        11.91,
+        11.92
+      ]
+    },
+    "speedup": 1.7819706498951782,
+    "minimum_paired_speedup": 1.7655343827671912,
+    "faster_assembly_pairs": 5,
+    "speedup_assembly": 1.0377358490566038,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase0-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        20.88,
+        21.57,
+        21.24,
+        21.25,
+        21.23,
+        21.1
+      ],
+      "assembly": [
+        12.38,
+        13.16,
+        12.7,
+        12.81,
+        12.8,
+        12.9
+      ],
+      "candidate": [
+        11.88,
+        12.04,
+        12.17,
+        11.87,
+        12.14,
+        11.94
+      ]
+    },
+    "speedup": 1.7710592160133447,
+    "minimum_paired_speedup": 1.745275267050123,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.0679733110925773,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase3-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        20.98,
+        21.19,
+        21.66,
+        21.15,
+        21.14,
+        21.12
+      ],
+      "assembly": [
+        30.86,
+        31.12,
+        31.01,
+        31.57,
+        31.43,
+        31.4
+      ],
+      "candidate": [
+        21.37,
+        21.36,
+        21.34,
+        21.49,
+        21.42,
+        21.64
+      ]
+    },
+    "speedup": 0.988315026875438,
+    "minimum_paired_speedup": 0.9759704251386322,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.461089039495209,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase3-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        20.98,
+        21.08,
+        21.5,
+        21.14,
+        21.12,
+        21.25
+      ],
+      "assembly": [
+        30.92,
+        31.13,
+        31.2,
+        31.66,
+        31.23,
+        31.42
+      ],
+      "candidate": [
+        21.43,
+        21.52,
+        21.34,
+        21.38,
+        21.66,
+        21.44
+      ]
+    },
+    "speedup": 0.9857709353860509,
+    "minimum_paired_speedup": 0.9750692520775623,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.4562631210636807,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase0-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        20.97,
+        21.01,
+        21.32,
+        21.16,
+        21.12,
+        21.06
+      ],
+      "assembly": [
+        30.96,
+        31.82,
+        31.49,
+        31.55,
+        32.11,
+        31.65
+      ],
+      "candidate": [
+        21.4,
+        21.41,
+        21.37,
+        21.42,
+        21.44,
+        21.42
+      ]
+    },
+    "speedup": 0.984823721690404,
+    "minimum_paired_speedup": 0.9799065420560747,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.475601214102265,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase0-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        21.08,
+        21.25,
+        21.15,
+        21.29,
+        21.17,
+        21.09
+      ],
+      "assembly": [
+        31.08,
+        31.34,
+        31.5,
+        31.47,
+        31.78,
+        31.94
+      ],
+      "candidate": [
+        21.36,
+        21.38,
+        21.36,
+        21.56,
+        21.4,
+        21.39
+      ]
+    },
+    "speedup": 0.9894786064998832,
+    "minimum_paired_speedup": 0.9859747545582047,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.4722936637830255,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase4-4/paddedfalse": {
+    "samples": {
+      "parent": [
+        21.13,
+        21.12,
+        21.2,
+        21.25,
+        21.12,
+        21.14
+      ],
+      "assembly": [
+        39.64,
+        40.28,
+        40.67,
+        40.58,
+        40.71,
+        40.85
+      ],
+      "candidate": [
+        21.59,
+        21.41,
+        21.54,
+        21.38,
+        21.39,
+        21.38
+      ]
+    },
+    "speedup": 0.9876168224299066,
+    "minimum_paired_speedup": 0.9786938397406206,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.8983644859813085,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase4-4/paddedtrue": {
+    "samples": {
+      "parent": [
+        21.02,
+        20.95,
+        21.33,
+        21.15,
+        21.12,
+        21.12
+      ],
+      "assembly": [
+        40.01,
+        40.26,
+        40.18,
+        40.84,
+        40.57,
+        40.77
+      ],
+      "candidate": [
+        21.34,
+        21.5,
+        21.47,
+        21.41,
+        21.51,
+        21.49
+      ]
+    },
+    "speedup": 0.9832402234636873,
+    "minimum_paired_speedup": 0.9744186046511628,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.881517690875233,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase3-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        21.01,
+        21.16,
+        21.13,
+        21.19,
+        21.21,
+        21.26
+      ],
+      "assembly": [
+        47.95,
+        47.97,
+        47.72,
+        49.2,
+        48.41,
+        48.45
+      ],
+      "candidate": [
+        21.32,
+        22.42,
+        21.47,
+        21.48,
+        21.67,
+        21.42
+      ]
+    },
+    "speedup": 0.9860302677532014,
+    "minimum_paired_speedup": 0.9438001784121319,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 2.2440046565774154,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x8/phase3-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        21.12,
+        21.02,
+        21.16,
+        21.2,
+        21.12,
+        21.12
+      ],
+      "assembly": [
+        47.88,
+        47.84,
+        48.76,
+        48.74,
+        48.5,
+        48.6
+      ],
+      "candidate": [
+        21.38,
+        22.36,
+        21.36,
+        21.39,
+        21.4,
+        21.41
+      ]
+    },
+    "speedup": 0.9871465295629821,
+    "minimum_paired_speedup": 0.9400715563506261,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 2.269221780789904,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase0-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        38.78,
+        39.14,
+        39.66,
+        39.07,
+        39.91,
+        39.17
+      ],
+      "assembly": [
+        11.88,
+        11.97,
+        11.96,
+        11.94,
+        11.95,
+        12.02
+      ],
+      "candidate": [
+        16.85,
+        16.98,
+        17.08,
+        16.91,
+        16.88,
+        16.97
+      ]
+    },
+    "speedup": 2.3113931523022435,
+    "minimum_paired_speedup": 2.3014836795252225,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7057260920897286,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase0-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        38.86,
+        39.49,
+        39.1,
+        39.64,
+        39.11,
+        39.14
+      ],
+      "assembly": [
+        11.98,
+        11.99,
+        12.03,
+        12.02,
+        12.07,
+        12.07
+      ],
+      "candidate": [
+        17.13,
+        16.87,
+        16.86,
+        16.97,
+        17.04,
+        17.02
+      ]
+    },
+    "speedup": 2.3021476904972054,
+    "minimum_paired_speedup": 2.2685347343841213,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7075610473668726,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase3-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        38.84,
+        38.96,
+        39.4,
+        39.23,
+        39.19,
+        39.44
+      ],
+      "assembly": [
+        24.87,
+        25.04,
+        25.41,
+        25.16,
+        25.1,
+        25.46
+      ],
+      "candidate": [
+        39.09,
+        39.11,
+        39.16,
+        39.3,
+        39.58,
+        39.32
+      ]
+    },
+    "speedup": 0.99949018608208,
+    "minimum_paired_speedup": 0.9901465386558868,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6405811878664289,
+    "faster_parent_pairs": 2
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase3-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        38.89,
+        38.93,
+        38.96,
+        39.4,
+        39.17,
+        39.16
+      ],
+      "assembly": [
+        24.56,
+        24.92,
+        24.99,
+        25.14,
+        25.32,
+        25.3
+      ],
+      "candidate": [
+        38.72,
+        39.14,
+        39.41,
+        39.23,
+        39.72,
+        39.26
+      ]
+    },
+    "speedup": 0.9952860236972864,
+    "minimum_paired_speedup": 0.9861530715005036,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6386800866352401,
+    "faster_parent_pairs": 2
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase0-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        38.79,
+        38.9,
+        39.1,
+        39.21,
+        39.61,
+        39.03
+      ],
+      "assembly": [
+        25.31,
+        24.77,
+        25.11,
+        24.78,
+        25.08,
+        25.3
+      ],
+      "candidate": [
+        38.74,
+        39.23,
+        39.7,
+        39.13,
+        39.51,
+        39.3
+      ]
+    },
+    "speedup": 0.9949064051954666,
+    "minimum_paired_speedup": 0.9848866498740554,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6391188080988157,
+    "faster_parent_pairs": 3
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase0-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        38.36,
+        39.1,
+        39.05,
+        39.17,
+        39.64,
+        39.15
+      ],
+      "assembly": [
+        24.73,
+        24.84,
+        24.77,
+        24.82,
+        25.1,
+        25.39
+      ],
+      "candidate": [
+        39.36,
+        39.09,
+        39.16,
+        39.5,
+        39.54,
+        39.03
+      ]
+    },
+    "speedup": 0.9965613856342334,
+    "minimum_paired_speedup": 0.9745934959349594,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6324503311258278,
+    "faster_parent_pairs": 3
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase4-4/paddedfalse": {
+    "samples": {
+      "parent": [
+        38.86,
+        39.03,
+        39.12,
+        39.11,
+        39.18,
+        39.24
+      ],
+      "assembly": [
+        24.64,
+        24.86,
+        24.77,
+        24.87,
+        25.08,
+        24.99
+      ],
+      "candidate": [
+        38.95,
+        39.17,
+        39.2,
+        39.27,
+        39.79,
+        39.46
+      ]
+    },
+    "speedup": 0.9969415063081432,
+    "minimum_paired_speedup": 0.984669514953506,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6337453804001529,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase4-4/paddedtrue": {
+    "samples": {
+      "parent": [
+        38.85,
+        39.01,
+        39.1,
+        39.49,
+        39.18,
+        39.47
+      ],
+      "assembly": [
+        24.1,
+        24.68,
+        25.05,
+        24.91,
+        25.15,
+        25.02
+      ],
+      "candidate": [
+        39.1,
+        39.02,
+        38.87,
+        39.23,
+        39.69,
+        39.24
+      ]
+    },
+    "speedup": 0.9993616749648921,
+    "minimum_paired_speedup": 0.9871504157218444,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6374313800587259,
+    "faster_parent_pairs": 3
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase3-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        38.78,
+        38.88,
+        39.23,
+        39.64,
+        39.45,
+        39.32
+      ],
+      "assembly": [
+        24.97,
+        25.18,
+        25.55,
+        25.44,
+        25.62,
+        25.73
+      ],
+      "candidate": [
+        38.94,
+        39.08,
+        39.03,
+        39.18,
+        40.32,
+        39.72
+      ]
+    },
+    "speedup": 1.0037055967288526,
+    "minimum_paired_speedup": 0.9784226190476191,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6515461282903144,
+    "faster_parent_pairs": 2
+  },
+  "BenchmarkVP9SubpelPointerNative/16x16/phase3-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        38.5,
+        39.02,
+        39.13,
+        39.05,
+        39.15,
+        39.16
+      ],
+      "assembly": [
+        25.07,
+        25.59,
+        25.31,
+        25.31,
+        25.59,
+        25.62
+      ],
+      "candidate": [
+        39.67,
+        39.17,
+        39.15,
+        39.37,
+        39.3,
+        39.64
+      ]
+    },
+    "speedup": 0.993771450362273,
+    "minimum_paired_speedup": 0.970506680110915,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6470064827761537,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase0-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        76.48,
+        76.64,
+        77.05,
+        76.4,
+        76.48,
+        77.23
+      ],
+      "assembly": [
+        21.54,
+        21.62,
+        21.58,
+        21.59,
+        21.63,
+        21.66
+      ],
+      "candidate": [
+        44.1,
+        45.37,
+        44.33,
+        44.99,
+        44.86,
+        45.4
+      ]
+    },
+    "speedup": 1.7041736227045077,
+    "minimum_paired_speedup": 1.689221952832268,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.480912632164719,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase0-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        74.8,
+        76.24,
+        76.59,
+        76.64,
+        76.79,
+        76.99
+      ],
+      "assembly": [
+        22.05,
+        22.13,
+        22.13,
+        22.22,
+        22.2,
+        22.14
+      ],
+      "candidate": [
+        44.21,
+        46.11,
+        45.61,
+        44.77,
+        44.39,
+        46.36
+      ]
+    },
+    "speedup": 1.6953972117725162,
+    "minimum_paired_speedup": 1.6534374322272825,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.48982075680460274,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase3-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        76.73,
+        76.89,
+        76.92,
+        77.67,
+        77.09,
+        78.01
+      ],
+      "assembly": [
+        70.66,
+        71.6,
+        74.15,
+        71.79,
+        72.11,
+        73.03
+      ],
+      "candidate": [
+        76.14,
+        76.42,
+        77.33,
+        76.69,
+        76.76,
+        77.21
+      ]
+    },
+    "speedup": 1.0036493971977842,
+    "minimum_paired_speedup": 0.9946980473296263,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9377647442163572,
+    "faster_parent_pairs": 5
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase3-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        77.02,
+        76.48,
+        76.63,
+        76.71,
+        77.7,
+        77.38
+      ],
+      "assembly": [
+        70.45,
+        73.38,
+        72.3,
+        71.46,
+        71.63,
+        72.34
+      ],
+      "candidate": [
+        76.15,
+        76.37,
+        77.05,
+        76.69,
+        76.68,
+        76.84
+      ]
+    },
+    "speedup": 1.002347264784508,
+    "minimum_paired_speedup": 0.9945489941596366,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9384495012062333,
+    "faster_parent_pairs": 5
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase0-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        76.47,
+        77.49,
+        77.83,
+        76.44,
+        76.32,
+        76.73
+      ],
+      "assembly": [
+        70.31,
+        71.82,
+        71.67,
+        71.45,
+        72.25,
+        72.23
+      ],
+      "candidate": [
+        77.16,
+        77.16,
+        76.74,
+        76.48,
+        77.46,
+        77.79
+      ]
+    },
+    "speedup": 0.9927423535510627,
+    "minimum_paired_speedup": 0.9852827265685515,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9298211508553655,
+    "faster_parent_pairs": 2
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase0-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        76.49,
+        76.74,
+        76.94,
+        76.69,
+        76.69,
+        77.06
+      ],
+      "assembly": [
+        70.81,
+        71.01,
+        71.64,
+        71.96,
+        72.25,
+        71.76
+      ],
+      "candidate": [
+        76.22,
+        76.91,
+        76.84,
+        76.78,
+        76.63,
+        76.89
+      ]
+    },
+    "speedup": 0.9987631818773597,
+    "minimum_paired_speedup": 0.9977896242361202,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9334722041400859,
+    "faster_parent_pairs": 4
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase4-4/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.03,
+        76.18,
+        76.86,
+        77.0,
+        76.73,
+        76.75
+      ],
+      "assembly": [
+        97.84,
+        98.77,
+        100.2,
+        99.5,
+        99.8,
+        99.82
+      ],
+      "candidate": [
+        75.12,
+        76.36,
+        76.95,
+        76.89,
+        76.8,
+        76.98
+      ]
+    },
+    "speedup": 0.9986336131173142,
+    "minimum_paired_speedup": 0.9970122109638867,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.2967662177109767,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase4-4/paddedtrue": {
+    "samples": {
+      "parent": [
+        76.73,
+        76.16,
+        76.46,
+        76.87,
+        76.96,
+        76.85
+      ],
+      "assembly": [
+        97.03,
+        98.36,
+        99.55,
+        100.0,
+        99.19,
+        100.4
+      ],
+      "candidate": [
+        76.87,
+        76.55,
+        77.49,
+        76.65,
+        77.05,
+        76.91
+      ]
+    },
+    "speedup": 0.9986994407595264,
+    "minimum_paired_speedup": 0.9867079623177184,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.292365717258421,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase3-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.3,
+        75.71,
+        76.59,
+        76.69,
+        76.94,
+        76.87
+      ],
+      "assembly": [
+        106.1,
+        108.2,
+        108.0,
+        110.6,
+        108.6,
+        117.5
+      ],
+      "candidate": [
+        76.67,
+        76.66,
+        76.79,
+        76.84,
+        76.8,
+        76.88
+      ]
+    },
+    "speedup": 0.9979816394296503,
+    "minimum_paired_speedup": 0.9821312116864483,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.4115502311348396,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/32x16/phase3-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        76.63,
+        76.54,
+        77.66,
+        76.89,
+        76.86,
+        77.48
+      ],
+      "assembly": [
+        109.8,
+        108.2,
+        107.8,
+        107.9,
+        109.2,
+        112.9
+      ],
+      "candidate": [
+        76.84,
+        76.37,
+        76.67,
+        76.77,
+        76.91,
+        76.77
+      ]
+    },
+    "speedup": 1.001367721766315,
+    "minimum_paired_speedup": 0.9972670484122852,
+    "faster_assembly_pairs": 6,
+    "speedup_assembly": 1.4159176761755896,
+    "faster_parent_pairs": 4
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase0-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.32,
+        76.05,
+        75.8,
+        76.4,
+        76.4,
+        75.93
+      ],
+      "assembly": [
+        21.88,
+        21.68,
+        22.11,
+        21.97,
+        22.36,
+        22.3
+      ],
+      "candidate": [
+        32.66,
+        32.44,
+        32.71,
+        32.72,
+        32.6,
+        32.86
+      ]
+    },
+    "speedup": 2.3249196879302434,
+    "minimum_paired_speedup": 2.3061849357011637,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6743154352149303,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase0-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        75.39,
+        75.54,
+        75.8,
+        75.91,
+        76.09,
+        76.08
+      ],
+      "assembly": [
+        21.34,
+        21.93,
+        21.75,
+        22.05,
+        22.06,
+        22.35
+      ],
+      "candidate": [
+        32.47,
+        32.3,
+        32.76,
+        32.52,
+        32.48,
+        32.76
+      ]
+    },
+    "speedup": 2.3339999999999996,
+    "minimum_paired_speedup": 2.313797313797314,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.6766153846153847,
+    "faster_parent_pairs": 6
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase3-0/paddedfalse": {
+    "samples": {
+      "parent": [
+        74.98,
+        75.52,
+        76.0,
+        75.86,
+        75.51,
+        76.0
+      ],
+      "assembly": [
+        53.73,
+        54.77,
+        54.09,
+        54.24,
+        54.88,
+        54.78
+      ],
+      "candidate": [
+        76.76,
+        75.82,
+        75.84,
+        76.68,
+        76.09,
+        76.88
+      ]
+    },
+    "speedup": 0.9909013549780715,
+    "minimum_paired_speedup": 0.9768108389786347,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7135563265038948,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase3-0/paddedtrue": {
+    "samples": {
+      "parent": [
+        75.2,
+        75.04,
+        75.89,
+        76.12,
+        75.89,
+        75.94
+      ],
+      "assembly": [
+        53.64,
+        54.25,
+        54.25,
+        54.13,
+        54.69,
+        54.76
+      ],
+      "candidate": [
+        77.18,
+        75.87,
+        75.96,
+        76.06,
+        76.16,
+        75.96
+      ]
+    },
+    "speedup": 0.998421260360479,
+    "minimum_paired_speedup": 0.9743456854107281,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7137218787001711,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase0-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.0,
+        75.96,
+        76.12,
+        76.04,
+        77.14,
+        76.11
+      ],
+      "assembly": [
+        54.27,
+        54.14,
+        54.37,
+        54.68,
+        54.88,
+        54.84
+      ],
+      "candidate": [
+        76.64,
+        76.03,
+        75.81,
+        75.91,
+        75.94,
+        75.93
+      ]
+    },
+    "speedup": 1.00184368209653,
+    "minimum_paired_speedup": 0.9786012526096033,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7180483308092447,
+    "faster_parent_pairs": 4
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase0-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        74.82,
+        76.37,
+        75.63,
+        76.81,
+        76.07,
+        76.36
+      ],
+      "assembly": [
+        53.47,
+        53.7,
+        54.32,
+        54.33,
+        54.35,
+        54.85
+      ],
+      "candidate": [
+        76.95,
+        75.39,
+        76.49,
+        76.21,
+        76.0,
+        75.93
+      ]
+    },
+    "speedup": 1.001445371526181,
+    "minimum_paired_speedup": 0.9723196881091617,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.7138164378161752,
+    "faster_parent_pairs": 4
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase4-4/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.74,
+        75.89,
+        75.69,
+        75.92,
+        75.8,
+        76.16
+      ],
+      "assembly": [
+        69.59,
+        71.05,
+        69.75,
+        70.55,
+        70.47,
+        71.21
+      ],
+      "candidate": [
+        76.96,
+        75.31,
+        75.88,
+        76.56,
+        76.03,
+        76.2
+      ]
+    },
+    "speedup": 0.9964527359915916,
+    "minimum_paired_speedup": 0.9841476091476091,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.926361426788412,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase4-4/paddedtrue": {
+    "samples": {
+      "parent": [
+        74.8,
+        74.84,
+        75.51,
+        76.08,
+        75.94,
+        76.01
+      ],
+      "assembly": [
+        69.38,
+        70.26,
+        70.62,
+        70.69,
+        70.56,
+        70.4
+      ],
+      "candidate": [
+        76.21,
+        75.59,
+        75.93,
+        78.19,
+        76.47,
+        77.01
+      ]
+    },
+    "speedup": 0.9919439350275084,
+    "minimum_paired_speedup": 0.973014451975956,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9232381451401624,
+    "faster_parent_pairs": 0
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase3-5/paddedfalse": {
+    "samples": {
+      "parent": [
+        75.58,
+        75.86,
+        75.75,
+        75.94,
+        75.78,
+        77.02
+      ],
+      "assembly": [
+        70.26,
+        70.49,
+        70.46,
+        71.01,
+        71.22,
+        71.6
+      ],
+      "candidate": [
+        77.02,
+        76.21,
+        78.06,
+        76.24,
+        76.18,
+        76.46
+      ]
+    },
+    "speedup": 0.9930582842174197,
+    "minimum_paired_speedup": 0.9704073789392774,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.9266535690897185,
+    "faster_parent_pairs": 1
+  },
+  "BenchmarkVP9SubpelPointerNative/16x32/phase3-5/paddedtrue": {
+    "samples": {
+      "parent": [
+        75.84,
+        75.72,
+        75.9,
+        76.41,
+        75.88,
+        76.08
+      ],
+      "assembly": [
+        70.05,
+        70.82,
+        70.71,
+        71.26,
+        71.2,
+        71.7
+      ],
+      "candidate": [
+        76.48,
+        76.92,
+        76.23,
+        76.01,
+        75.95,
+        76.39
+      ]
+    },
+    "speedup": 0.9944961341894902,
+    "minimum_paired_speedup": 0.984399375975039,
+    "faster_assembly_pairs": 0,
+    "speedup_assembly": 0.930546455248329,
+    "faster_parent_pairs": 1
+  }
+}
