@@ -1,0 +1,26 @@
+{
+  "cpu": "Apple M4 Max",
+  "compiler": "Go1.27.2 darwin/arm64 archsimd",
+  "pgo": "off",
+  "goprocs": 1,
+  "parent": "34b00fb49753cec53def480c97d1b6825d426d31",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "raw_members": 147,
+  "final_root_source_sha256": {
+    "internal/pixel/loopfilter_macro_internal_fused_arm64.go": "e39cbb9482023ee304006262fd05a92b46727d9829eaff51e4d49960f893e93b",
+    "internal/pixel/loopfilter_columns_wide20_arm64.go": "eb3d3e1b8df6a0d699e70a0c0622c30ec3bebb3f03c845e9eb9f0a89406e8f49",
+    "scripts/gensimd.go": "53c1826e959b97fd4df55aa4b7cbddeb82bd1b8c648e56a40720e2653bd25f89",
+    "cmd/govpx-bench/default.pgo": "e9eaaad76d8e722891d4a90fceb00e58001d9033d5b196af85c872119636382c",
+    "cmd/govpx-bench/default.pgo.sources.sha256": "07c2029868aa08fbf315918987bf960d02e3a7029bf6b5410fbd1f173bf91989"
+  },
+  "binary_sha256": {
+    "govpx-next-macro-widen-parent.test": "36499220db8330f3dca16f61566994f6fe86a4cf4198ccb88ee7fe5a2c9e30eb",
+    "govpx-next-macro-widen-assembly.test": "63659a2fd68c2a0c14507ed828ac789f60fb172257c25292c10d0bcfad8e9ee7",
+    "govpx-next-vertical-edges-candidate.test": "3b2ed9bf7758037c4932a701eda359b69b0f896a6ce7f7b82e700aa714a7c0e2",
+    "govpx-next-vertical-wide-candidate.test": "86feaa4d9d82cd706d3d9d500c64d9fa83287f2e887063791f91520692ae5635",
+    "govpx-next-vertical-wide-regenerated.test": "09d4bf1513a7167aeb619d25d35ccc1172ee6b6afa31bdb4588cad3b7cc4c0d6",
+    "govpx-next-vertical-wide-bench": "f2ed07911e48c6f2832b5af027e0ac0de2edeaf91ec2360fb1faaf5b1b2d7e59",
+    "govpx-next-gather-unrolled-root-bench": "bbf4dc28368e5185ae4efc6550827d56398d631d68a470461b92a348d42f89b0",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  }
+}

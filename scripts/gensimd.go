@@ -1000,7 +1000,7 @@ q0,q1,q2,q3=a0.InterleaveEven(a2),a0.InterleaveOdd(a2),a1.InterleaveEven(a3),a1.
 	}
 	// ARM has a single unsigned byte reduction for the zero-correction check.
 	// Preserve the separately measured AMD64 network.
-	armData, err := format.Source([]byte(skipRoundedZeroMacroCorrections(arm)))
+	armData, err := format.Source([]byte(specializeMacroVerticalLoads(skipRoundedZeroMacroCorrections(arm))))
 	if err != nil {
 		panic(err)
 	}
@@ -1065,6 +1065,100 @@ func skipRoundedZeroMacroCorrections(source string) string {
 		source = source[:e.start] + fmt.Sprintf("\nif f.Abs().ToBits().ReduceMax() >= %d {", e.threshold) + source[e.start:]
 	}
 	return source
+}
+
+// Specialize the three dependent vertical edges to fixed indices. The wrapper
+// proves sixteen disjoint rows of twenty bytes, so wide row loads at column
+// four remain within that same window. Arithmetic and carry order are unchanged.
+func specializeMacroVerticalLoads(source string) string {
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		panic(err)
+	}
+	source = string(formatted)
+	const name = "func loopFilterMacroInternalFusedVertical("
+	start := strings.Index(source, name)
+	if start < 0 {
+		panic("vertical macro function missing")
+	}
+	head, body := source[:start], source[start:]
+	const initial = "loadLFColumns[[8]byte](p, 0, outer, 16)"
+	if strings.Count(body, initial) != 1 {
+		panic("vertical initial load changed")
+	}
+	body = strings.Replace(body, initial, "loadLFColumnsWide20(p, outer)", 1)
+	const loop = "for edge := 8; edge <= 16; edge += 4 {"
+	pos := strings.Index(body, loop)
+	if pos < 0 || strings.Count(body, loop) != 1 {
+		panic("vertical edge loop changed")
+	}
+	open := pos + len(loop)
+	close, depth := open, 1
+	for ; close < len(body) && depth > 0; close++ {
+		if body[close] == '{' {
+			depth++
+		}
+		if body[close] == '}' {
+			depth--
+		}
+	}
+	if depth != 0 {
+		panic("vertical edge loop unbalanced")
+	}
+	loopBody := body[open : close-1]
+	const stop = "\n\t\tif edge == 16 {\n\t\t\tbreak\n\t\t}"
+	if strings.Count(loopBody, stop) != 1 {
+		panic("vertical final carry changed")
+	}
+	parts := strings.Split(loopBody, stop)
+	var edges strings.Builder
+	for _, edge := range []int{8, 12, 16} {
+		fmt.Fprintf(&edges, "{\nconst edge=%d\n%s", edge, parts[0])
+		if edge < 16 {
+			edges.WriteString(parts[1])
+		}
+		edges.WriteString("\n}\n")
+	}
+	body = body[:pos] + edges.String() + body[close:]
+	const ptr = "ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4)"
+	const last = "q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)"
+	if strings.Count(body, ptr) != 3 {
+		panic("vertical incoming load count changed")
+	}
+	offset := 0
+	for _, word := range []int{1, 2, 3} {
+		begin := strings.Index(body[offset:], ptr) + offset
+		end := strings.Index(body[begin:], last)
+		if begin < offset || end < 0 {
+			panic("vertical incoming loads changed")
+		}
+		end += begin + len(last)
+		op, join := "Odd", "Lo"
+		if word == 2 {
+			op = "Even"
+		}
+		if word >= 2 {
+			join = "Hi"
+		}
+		var tile strings.Builder
+		tile.WriteString("// The wrapper proves all twenty columns, including the wide loads at column four.\nptr:=unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)),4)\nvar r0,r1,r2,r3 archsimd.Uint16x8\n")
+		for i := 0; i < 4; i++ {
+			tile.WriteString("{\n")
+			for j := 0; j < 4; j++ {
+				fmt.Fprintf(&tile, "w%d:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,%d*outer))).ReshapeToUint32s()\n", j, i+4*j)
+			}
+			fmt.Fprintf(&tile, "w01,w23:=w0.Interleave%s(w1).ReshapeToUint64s(),w2.Interleave%s(w3).ReshapeToUint64s()\nr%d=w01.Interleave%s(w23).ReshapeToUint16s()\n}\n", op, op, i, join)
+		}
+		tile.WriteString("a0,a1:=r0.InterleaveEven(r2).ReshapeToUint8s(),r0.InterleaveOdd(r2).ReshapeToUint8s()\na2,a3:=r1.InterleaveEven(r3).ReshapeToUint8s(),r1.InterleaveOdd(r3).ReshapeToUint8s()\n" + last)
+		body = body[:begin] + tile.String() + body[end:]
+		offset = begin + tile.Len()
+	}
+	// The first carry now has fixed loads and no longer needs its edge variable.
+	if strings.Count(body, "edge := 4") != 1 {
+		panic("vertical first carry changed")
+	}
+	body = strings.Replace(body, "edge := 4", "", 1)
+	return head + body
 }
 
 // Specialize the canonical byte filter for a VP9 eight-position packet. A

@@ -170,7 +170,7 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
 func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limit, thresh int) {
 	const kind, lanes, step = 4, 16, 1
 	outer := pitch
-	p3, p2, p1, p0, q0, q1, q2, q3 := loadLFColumns[[8]byte](p, 0, outer, 16)
+	p3, p2, p1, p0, q0, q1, q2, q3 := loadLFColumnsWide20(p, outer)
 	var output [16]archsimd.Uint8x16
 	output[0], output[1], output[2] = p2, p1, p0
 	changed := false
@@ -218,14 +218,43 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 		}
 	}
 	{
-		edge := 4
 
 		p3, p2, p1, p0 = q0, q1, q2, q3
-		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4)
-		r0 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 0*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 4*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 8*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 12*outer)))<<32).ReshapeToUint16s()
-		r1 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 1*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 5*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 9*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 13*outer)))<<32).ReshapeToUint16s()
-		r2 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 2*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 6*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 10*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 14*outer)))<<32).ReshapeToUint16s()
-		r3 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 3*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 7*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 11*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 15*outer)))<<32).ReshapeToUint16s()
+		// The wrapper proves all twenty columns, including the wide loads at column four.
+		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), 4)
+		var r0, r1, r2, r3 archsimd.Uint16x8
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r0 = w01.InterleaveLo(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r1 = w01.InterleaveLo(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r2 = w01.InterleaveLo(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r3 = w01.InterleaveLo(w23).ReshapeToUint16s()
+		}
 		a0, a1 := r0.InterleaveEven(r2).ReshapeToUint8s(), r0.InterleaveOdd(r2).ReshapeToUint8s()
 		a2, a3 := r1.InterleaveEven(r3).ReshapeToUint8s(), r1.InterleaveOdd(r3).ReshapeToUint8s()
 		q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)
@@ -233,7 +262,9 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 	}
 
 	blim, lim, thr := archsimd.BroadcastUint8x16(byte(blimit)), archsimd.BroadcastUint8x16(byte(limit)), archsimd.BroadcastUint8x16(byte(thresh))
-	for edge := 8; edge <= 16; edge += 4 {
+	{
+		const edge = 8
+
 		output[edge-5], output[edge-4], output[edge-3], output[edge-2] = p3, p2, p1, p0
 		off := edge * step
 		d1, d2, d0, d3 := lfAbsByte(p1, p0), lfAbsByte(q1, q0), lfAbsByte(p0, q0), lfAbsByte(p1, q1)
@@ -288,20 +319,204 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 				q0, q1 = nq0, nq1
 			}
 		}
-		if edge == 16 {
-			break
-		}
 		p3, p2, p1, p0 = q0, q1, q2, q3
-		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4)
-		r0 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 0*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 4*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 8*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 12*outer)))<<32).ReshapeToUint16s()
-		r1 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 1*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 5*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 9*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 13*outer)))<<32).ReshapeToUint16s()
-		r2 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 2*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 6*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 10*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 14*outer)))<<32).ReshapeToUint16s()
-		r3 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 3*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 7*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 11*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 15*outer)))<<32).ReshapeToUint16s()
+		// The wrapper proves all twenty columns, including the wide loads at column four.
+		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), 4)
+		var r0, r1, r2, r3 archsimd.Uint16x8
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveEven(w1).ReshapeToUint64s(), w2.InterleaveEven(w3).ReshapeToUint64s()
+			r0 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveEven(w1).ReshapeToUint64s(), w2.InterleaveEven(w3).ReshapeToUint64s()
+			r1 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveEven(w1).ReshapeToUint64s(), w2.InterleaveEven(w3).ReshapeToUint64s()
+			r2 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveEven(w1).ReshapeToUint64s(), w2.InterleaveEven(w3).ReshapeToUint64s()
+			r3 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
 		a0, a1 := r0.InterleaveEven(r2).ReshapeToUint8s(), r0.InterleaveOdd(r2).ReshapeToUint8s()
 		a2, a3 := r1.InterleaveEven(r3).ReshapeToUint8s(), r1.InterleaveOdd(r3).ReshapeToUint8s()
 		q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)
 
 	}
+	{
+		const edge = 12
+
+		output[edge-5], output[edge-4], output[edge-3], output[edge-2] = p3, p2, p1, p0
+		off := edge * step
+		d1, d2, d0, d3 := lfAbsByte(p1, p0), lfAbsByte(q1, q0), lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+		threshold := d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3))
+		need := lfByteLE(threshold, blim)
+		if kind != 2 {
+			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+			need = need.And(lfByteLE(delta, lim))
+		}
+		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+			hev := lfByteGT(d1.Max(d2), thr)
+			bias := archsimd.BroadcastUint8x16(128)
+			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+			outerF := p1c.SubSaturated(q1c)
+			if kind == 4 {
+				outerF = outerF.Masked(hev)
+			}
+			// Add the same signed delta monotonically from the already-clamped
+			// outer correction. Intermediate saturation is then exact: a delta
+			// outside int8 forces the final clamp even at the opposite outer extreme.
+			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+			if f.Abs().ToBits().ReduceMax() >= 4 {
+				three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
+				z := archsimd.Uint8x16{}
+				if kind == 6 {
+					fh := f.Masked(hev)
+					ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+					qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+					ff := f.Masked(lfByteNot(hev))
+					u := lfMacroCorrection(ff, 27)
+					np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+					u = lfMacroCorrection(ff, 18)
+					np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+					u = lfMacroCorrection(ff, 9)
+					np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+					storeLFBytes(p, off-3*step, step, outer, lanes, 6, np2, np1, np0, nq0, nq1, nq2)
+					return
+				}
+				f1, f2 := lfByteShift3(f.AddSaturated(four)), lfByteShift3(f.AddSaturated(three))
+				np0, nq0 := p0c.AddSaturated(f2).ToBits().Xor(bias), q0c.SubSaturated(f1).ToBits().Xor(bias)
+				if kind == 2 {
+					storeLFBytes(p, off-step, step, outer, lanes, 2, np0, nq0, z, z, z, z)
+					return
+				}
+				u := lfByteShift1(f1.Add(archsimd.BroadcastInt8x16(1))).Masked(lfByteNot(hev))
+				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+
+				output[edge-3], output[edge-2] = np1, np0
+				changed = true
+
+				q0, q1 = nq0, nq1
+			}
+		}
+		p3, p2, p1, p0 = q0, q1, q2, q3
+		// The wrapper proves all twenty columns, including the wide loads at column four.
+		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), 4)
+		var r0, r1, r2, r3 archsimd.Uint16x8
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r0 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r1 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r2 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		{
+			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*outer))).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*outer))).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*outer))).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*outer))).ReshapeToUint32s()
+			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
+			r3 = w01.InterleaveHi(w23).ReshapeToUint16s()
+		}
+		a0, a1 := r0.InterleaveEven(r2).ReshapeToUint8s(), r0.InterleaveOdd(r2).ReshapeToUint8s()
+		a2, a3 := r1.InterleaveEven(r3).ReshapeToUint8s(), r1.InterleaveOdd(r3).ReshapeToUint8s()
+		q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)
+
+	}
+	{
+		const edge = 16
+
+		output[edge-5], output[edge-4], output[edge-3], output[edge-2] = p3, p2, p1, p0
+		off := edge * step
+		d1, d2, d0, d3 := lfAbsByte(p1, p0), lfAbsByte(q1, q0), lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+		threshold := d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3))
+		need := lfByteLE(threshold, blim)
+		if kind != 2 {
+			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+			need = need.And(lfByteLE(delta, lim))
+		}
+		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+			hev := lfByteGT(d1.Max(d2), thr)
+			bias := archsimd.BroadcastUint8x16(128)
+			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+			outerF := p1c.SubSaturated(q1c)
+			if kind == 4 {
+				outerF = outerF.Masked(hev)
+			}
+			// Add the same signed delta monotonically from the already-clamped
+			// outer correction. Intermediate saturation is then exact: a delta
+			// outside int8 forces the final clamp even at the opposite outer extreme.
+			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+			if f.Abs().ToBits().ReduceMax() >= 4 {
+				three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
+				z := archsimd.Uint8x16{}
+				if kind == 6 {
+					fh := f.Masked(hev)
+					ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+					qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+					ff := f.Masked(lfByteNot(hev))
+					u := lfMacroCorrection(ff, 27)
+					np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+					u = lfMacroCorrection(ff, 18)
+					np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+					u = lfMacroCorrection(ff, 9)
+					np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+					storeLFBytes(p, off-3*step, step, outer, lanes, 6, np2, np1, np0, nq0, nq1, nq2)
+					return
+				}
+				f1, f2 := lfByteShift3(f.AddSaturated(four)), lfByteShift3(f.AddSaturated(three))
+				np0, nq0 := p0c.AddSaturated(f2).ToBits().Xor(bias), q0c.SubSaturated(f1).ToBits().Xor(bias)
+				if kind == 2 {
+					storeLFBytes(p, off-step, step, outer, lanes, 2, np0, nq0, z, z, z, z)
+					return
+				}
+				u := lfByteShift1(f1.Add(archsimd.BroadcastInt8x16(1))).Masked(lfByteNot(hev))
+				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+
+				output[edge-3], output[edge-2] = np1, np0
+				changed = true
+
+				q0, q1 = nq0, nq1
+			}
+		}
+	}
+
 	if changed {
 		output[15] = q0
 		storeLFRowVectors(p, pitch, &output, q1)
