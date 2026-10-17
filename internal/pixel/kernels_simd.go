@@ -596,6 +596,12 @@ func DenoiseFirst(mc []byte, ms int, avg []byte, as int, sig []byte, ss, w, inc,
 		return DenoiseFirstScalar(mc, ms, avg, as, sig, ss, w, inc, level)
 	}
 
+	if byteDenoise16 && w == 16 && inc >= 0 && inc <= 1 && level >= 3 && level <= 5 {
+		if sum, ok := denoiseFirst16Bytes(mc, ms, avg, as, sig, ss, inc, level); ok {
+			return sum
+		}
+	}
+
 	var columns [2]archsimd.Int16x8
 	l1, l2, l3 := archsimd.BroadcastInt16x8(int16(level)), archsimd.BroadcastInt16x8(int16(level+1)), archsimd.BroadcastInt16x8(int16(level+3))
 	zero := archsimd.Int16x8{}
