@@ -1,0 +1,130 @@
+{
+  "300": {
+    "samples": {
+      "assembly": [
+        7334848,
+        7500456,
+        6909031,
+        6932664,
+        6884757,
+        6828505
+      ],
+      "parent": [
+        8059465,
+        9236789,
+        7833592,
+        7647421,
+        7547378,
+        7631064
+      ],
+      "candidate": [
+        7997950,
+        7928174,
+        7787799,
+        7894333,
+        7946167,
+        7641951
+      ]
+    },
+    "median_ns": {
+      "assembly": 6920847.5,
+      "parent": 7740506.5,
+      "candidate": 7911253.5
+    },
+    "vs_parent_percent": 2.205889239935388,
+    "vs_assembly_percent": 14.310472814203745,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 0,
+    "exact_fields": [
+      "allocs_per_frame",
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocations": 0,
+    "limits": "Same shared desktop timing window; no isolated causal attribution for shifts larger than the component/profile expectation."
+  },
+  "60": {
+    "samples": {
+      "assembly": [
+        6931431,
+        6905256,
+        6956260,
+        7230554,
+        6951697,
+        6900860
+      ],
+      "parent": [
+        7951881,
+        7721977,
+        8058124,
+        7808900,
+        7647955,
+        7787730
+      ],
+      "candidate": [
+        7879478,
+        7660067,
+        7629428,
+        7628061,
+        7658266,
+        7744125
+      ]
+    },
+    "median_ns": {
+      "assembly": 6941564.0,
+      "parent": 7798315.0,
+      "candidate": 7659166.5
+    },
+    "vs_parent_percent": -1.7843405915252242,
+    "vs_assembly_percent": 10.337763939077703,
+    "faster_parent_pairs": 5,
+    "faster_assembly_pairs": 0,
+    "exact_fields": [
+      "allocs_per_frame",
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocations": 0,
+    "limits": "Same shared desktop timing window; no isolated causal attribution for shifts larger than the component/profile expectation."
+  }
+}

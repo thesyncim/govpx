@@ -1,0 +1,25 @@
+{
+  "cpu": "Apple M4 Max",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.3.1\nProductVersionExtra:\t(a)\nBuildVersion:\t\t25D771280a\n",
+  "compiler": "Go 1.27.2 darwin/arm64, GOEXPERIMENT=simd",
+  "pgo": "off in all timing binaries",
+  "goprocs": 1,
+  "encoder_threads": 1,
+  "parent": "20bc81cbbf68985f4619b6d69f3f3d60566ba013 (same production sources as a39defa3)",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "binary_sha256": {
+    "govpx-next-filter-zero-parent.test": "c3637c12aa6b1d750ef7d307fbc157018d67bbb6feda375c6bf16e875aaf320a",
+    "govpx-next-filter-zero-candidate.test": "15e2a8ea09fe954ae8e8868d391185371f4ab1b11d32039bb59cc1ff0744edb2",
+    "govpx-next-filter-zero-assembly.test": "37a7ef60065b35893c53588c6ac94576449d46c003a6ce2cbc5e375c2a74f86d",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1",
+    "govpx-next-search-limited-parent-bench": "9c75e90f95d5f21b7158a7ada9e4a15d7876d9199f94f38cc39e839bbaf5e4f7",
+    "govpx-next-filter-zero-candidate-bench": "bd54bf428debbeb72df1bfe492067b56efcc5cfe5bd3fc3ca41394b9618b4c74"
+  },
+  "source_sha256": {
+    "scripts/gensimd.go": "66f9790b1e9e86782847f87dfe3cc8177926a8aa819d3d10a94857639d954dad",
+    "internal/pixel/loopfilter_macro_internal_fused_arm64.go": "8f4ab00f3acc77c59a6b860efd80db15ef4892fc374f9a8a498730d6e2f0a548",
+    "internal/pixel/loopfilter_macro_internal_arm64_test.go": "296a3d86d81cbbfcc549bf2305cce86da030ac17d06632ee974ea77f6617dc6d",
+    "internal/vp8/decoder/picker_filter_native_bench_test.go": "6f7d0039e30ea12c2ba64dd448f2d54c303cec70429018921d0a800124f8d1f4"
+  },
+  "raw_file_count": 56
+}

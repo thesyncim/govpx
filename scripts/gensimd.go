@@ -967,9 +967,6 @@ q0,q1,q2,q3=a0.InterleaveEven(a2),a0.InterleaveOdd(a2),a1.InterleaveEven(a3),a1.
 	if err != nil {
 		panic(err)
 	}
-	if err = os.WriteFile("internal/pixel/loopfilter_macro_internal_fused_arm64.go", data, 0644); err != nil {
-		panic(err)
-	}
 	// AMD64 shares the sequential horizontal byte network. Its existing vertical
 	// path remains separate; ARM keeps its packed TRN schedule.
 	arm := string(data)
@@ -986,7 +983,73 @@ q0,q1,q2,q3=a0.InterleaveEven(a2),a0.InterleaveOdd(a2),a1.InterleaveEven(a3),a1.
 	if err = os.WriteFile("internal/pixel/loopfilter_macro_internal_fused_amd64.go", amdData, 0644); err != nil {
 		panic(err)
 	}
+	// ARM has a single unsigned byte reduction for the zero-correction check.
+	// Preserve the separately measured AMD64 network.
+	armData, err := format.Source([]byte(skipRoundedZeroMacroCorrections(arm)))
+	if err != nil {
+		panic(err)
+	}
+	if err = os.WriteFile("internal/pixel/loopfilter_macro_internal_fused_arm64.go", armData, 0644); err != nil {
+		panic(err)
+	}
 	generateLoopFilterRowStore()
+}
+
+// Macroblock corrections with |f|<=2 and internal corrections with |f|<=3
+// round to zero in every HEV/non-HEV branch. Retain the original vectors for
+// the next dependent edge and avoid the remaining arithmetic/stores.
+func skipRoundedZeroMacroCorrections(source string) string {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "macro.go", source, 0)
+	if err != nil {
+		panic(err)
+	}
+	type insertion struct{ start, end, threshold int }
+	var edits []insertion
+	macro, internal := 0, 0
+	ast.Inspect(file, func(n ast.Node) bool {
+		block, ok := n.(*ast.BlockStmt)
+		if !ok {
+			return true
+		}
+		for _, stmt := range block.List {
+			assign, ok := stmt.(*ast.AssignStmt)
+			if !ok || assign.Tok != token.DEFINE || len(assign.Lhs) != 1 {
+				continue
+			}
+			id, ok := assign.Lhs[0].(*ast.Ident)
+			if !ok || id.Name != "f" {
+				continue
+			}
+			start := fset.Position(assign.Pos()).Offset
+			if !strings.HasPrefix(source[start:], "f := lfFilterDelta(outerF, p0c, q0c).Masked(need)") {
+				panic("macro correction expression changed")
+			}
+			end := fset.Position(block.Rbrace).Offset
+			threshold := 3
+			// The canonical internal network retains its kind=6 branch. The
+			// macroblock specialization has already replaced that branch.
+			if strings.Contains(source[start:end], "if kind == 6 {") {
+				threshold = 4
+				internal++
+			} else {
+				macro++
+			}
+			edits = append(edits, insertion{fset.Position(assign.End()).Offset, end, threshold})
+		}
+		return true
+	})
+	if len(edits) != 4 || macro != 2 || internal != 2 {
+		panic("macro correction block count changed")
+	}
+	for i := len(edits) - 1; i >= 0; i-- {
+		e := edits[i]
+		source = source[:e.end] + "}\n" + source[e.end:]
+		// Reinterpret ABS as unsigned so abs(-128), whose signed byte bits
+		// remain 0x80, cannot be mistaken for a small correction.
+		source = source[:e.start] + fmt.Sprintf("\nif f.Abs().ToBits().ReduceMax() >= %d {", e.threshold) + source[e.start:]
+	}
+	return source
 }
 
 // Specialize the canonical byte filter for a VP9 eight-position packet. A

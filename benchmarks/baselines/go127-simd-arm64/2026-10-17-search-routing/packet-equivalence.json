@@ -1,0 +1,34 @@
+{
+  "parent": [
+    "PACKET_DIGEST 17x16/60/flatfalse sha256=f8239c17d6514415b52c1dce3140471e2a69e9bfd7651b7309892a77a970f1a2 outputs=60 drops=0",
+    "PACKET_DIGEST 64x64/120/flatfalse sha256=edb3d607b74b77477f1f7cf40f7fd3cb352072cbdf162ccfc04341a240acde92 outputs=120 drops=0",
+    "PACKET_DIGEST 64x64/120/flattrue sha256=26084e1dfbd13e9858d4510e643eae2d830706d5e74b51e238ea49da3eb52f8b outputs=120 drops=0",
+    "PACKET_DIGEST 320x180/120/flatfalse sha256=75352b929f8256c37c5d6b36ecdcf766327bc4d21a57a1de5f1d6e080500bd72 outputs=120 drops=0",
+    "PACKET_DIGEST 1280x720/60/flatfalse sha256=951224172d2561e9064bcb2202076b1b383f6f6fb5fd2c6e85da3d73b7776906 outputs=58 drops=2",
+    "PACKET_DIGEST 1280x720/300/flatfalse sha256=133b83624e992c814a47e0876aae21a66274a0269409fb71aa4f7464de85fb86 outputs=298 drops=2"
+  ],
+  "zero": [
+    "PACKET_DIGEST 17x16/60/flatfalse sha256=f8239c17d6514415b52c1dce3140471e2a69e9bfd7651b7309892a77a970f1a2 outputs=60 drops=0",
+    "PACKET_DIGEST 64x64/120/flatfalse sha256=edb3d607b74b77477f1f7cf40f7fd3cb352072cbdf162ccfc04341a240acde92 outputs=120 drops=0",
+    "PACKET_DIGEST 64x64/120/flattrue sha256=26084e1dfbd13e9858d4510e643eae2d830706d5e74b51e238ea49da3eb52f8b outputs=120 drops=0",
+    "PACKET_DIGEST 320x180/120/flatfalse sha256=75352b929f8256c37c5d6b36ecdcf766327bc4d21a57a1de5f1d6e080500bd72 outputs=120 drops=0",
+    "PACKET_DIGEST 1280x720/60/flatfalse sha256=951224172d2561e9064bcb2202076b1b383f6f6fb5fd2c6e85da3d73b7776906 outputs=58 drops=2",
+    "PACKET_DIGEST 1280x720/300/flatfalse sha256=133b83624e992c814a47e0876aae21a66274a0269409fb71aa4f7464de85fb86 outputs=298 drops=2"
+  ],
+  "all": [
+    "PACKET_DIGEST 17x16/60/flatfalse sha256=f8239c17d6514415b52c1dce3140471e2a69e9bfd7651b7309892a77a970f1a2 outputs=60 drops=0",
+    "PACKET_DIGEST 64x64/120/flatfalse sha256=edb3d607b74b77477f1f7cf40f7fd3cb352072cbdf162ccfc04341a240acde92 outputs=120 drops=0",
+    "PACKET_DIGEST 64x64/120/flattrue sha256=26084e1dfbd13e9858d4510e643eae2d830706d5e74b51e238ea49da3eb52f8b outputs=120 drops=0",
+    "PACKET_DIGEST 320x180/120/flatfalse sha256=8ec49d8e5bbb9f87765dd93042d482c6d767ccd3be7597861af192cbf7b1db20 outputs=120 drops=0",
+    "PACKET_DIGEST 1280x720/60/flatfalse sha256=951224172d2561e9064bcb2202076b1b383f6f6fb5fd2c6e85da3d73b7776906 outputs=58 drops=2",
+    "PACKET_DIGEST 1280x720/300/flatfalse sha256=133b83624e992c814a47e0876aae21a66274a0269409fb71aa4f7464de85fb86 outputs=298 drops=2"
+  ],
+  "4096": [
+    "PACKET_DIGEST 17x16/60/flatfalse sha256=f8239c17d6514415b52c1dce3140471e2a69e9bfd7651b7309892a77a970f1a2 outputs=60 drops=0",
+    "PACKET_DIGEST 64x64/120/flatfalse sha256=edb3d607b74b77477f1f7cf40f7fd3cb352072cbdf162ccfc04341a240acde92 outputs=120 drops=0",
+    "PACKET_DIGEST 64x64/120/flattrue sha256=26084e1dfbd13e9858d4510e643eae2d830706d5e74b51e238ea49da3eb52f8b outputs=120 drops=0",
+    "PACKET_DIGEST 320x180/120/flatfalse sha256=75352b929f8256c37c5d6b36ecdcf766327bc4d21a57a1de5f1d6e080500bd72 outputs=120 drops=0",
+    "PACKET_DIGEST 1280x720/60/flatfalse sha256=951224172d2561e9064bcb2202076b1b383f6f6fb5fd2c6e85da3d73b7776906 outputs=58 drops=2",
+    "PACKET_DIGEST 1280x720/300/flatfalse sha256=133b83624e992c814a47e0876aae21a66274a0269409fb71aa4f7464de85fb86 outputs=298 drops=2"
+  ]
+}

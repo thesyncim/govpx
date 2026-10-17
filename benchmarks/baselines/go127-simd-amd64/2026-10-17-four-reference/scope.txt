@@ -1,0 +1,25 @@
+PR32 native x64 / optimized-C evidence preservation
+
+Tested source: a39defa388e7b93a84f42ab00887c0febc84bb8b
+Base/main: 1a7e69af9e299d87fc5ad141b0674725815365ad
+Old assembly: 691cd0512c4829d9ee40d483205dd223f9eb028d
+Squash merge/main: 20bc81cbbf68985f4619b6d69f3f3d60566ba013
+Tested and merged tree: 62ec6e0015217a8edbc9b01b670495784fc9f2b3
+PR: https://github.com/thesyncim/govpx/pull/32
+All three exact-head checks passed before merge. Only this PR's remote source branch was deleted; no local checkout/index/branch changed.
+
+Source scope: four-reference limited SAD uses existing full-x4 SIMD when all four limits >= 65280 and output is disjoint from input/limit spans. Otherwise four ordered fixed-pointer calls preserve alias/store/read behavior. No production callers exist outside tests/benchmarks; exact-head call-site inventory is preserved in audit.json. Parent additionally verified PGO-off CLI machine text after normalizing only its Go BuildID string payload, with the new limited-x4 entry/guard absent. Every whole-codec timing difference is a control, not an algorithmic gain. Native timing explicitly uses PGO off.
+
+Native EPYC 9V74, Go 1.27.2, PGO off, GOMAXPROCS=1; six paired rounds compare current/base/old assembly on the same job CPU. All 20 new x4 cases improve versus base in every pair: full/wide 3.097-3.135x (minimum paired 2.768x), early 1.705-1.706x (minimum paired 1.678x), middle 1.084-1.250x, near 1.068-1.084x. Twelve full/wide/early fixtures exceed 1.5x in every pair. Full/wide take 34.75-39.22% less time than assembly. Early still takes 5.53-5.65% more time, middle/near 51.29-91.24% more. All 20 AMD fixtures pass exact scalar oracles for old assembly, base and current; no AMD case excluded.
+
+Whole-codec controls: VP8 -0.180% time versus base (4/6 faster), but +11.196% versus assembly in all six pairs. VP9 320 +0.362% versus base (1/6 faster), -41.526% versus assembly (6/6 faster). VP9 720 -0.473% versus base (3/6 faster), -48.736% versus assembly (6/6 faster). Do not attribute changes to the unused helper; remaining 9V74 VP8 gap is explicit. Short independent profiles sample existing SAD symbols and do not provide an isolated limited-x4 throughput measurement.
+
+Unchanged pointer-SAD controls range -0.249% to +0.031% versus base; slice controls -0.263% to +0.201%. Old early-SAD +0.012% mixed versus base, still 15.401% slower than assembly. Preserve all 53 median-regressing controls. All-six-slower controls: LoopFilterVerticalEdgesY +0.331%, slice pitch32/patterned/middle +0.201%, Variance16x16 +0.259%. Selected paired fixture analyses and every median regression are retained in compact audit; raw logs contain all 154 cases and all rounds.
+
+All 154 kernel cases have six samples per variant, zero B/op and zero allocs/op. Native validation passes 78 top-level tests plus 6 retained panic child probes = 84 targeted checks; 106 PASS lines include 22 older subtests. No failures/skips, base/current SIMD dispatch selected. New exact-row, aliased-store-order and full-window-guard tests pass. All 22 semantic fields match in three public and two profile datasets. Allocation is a separate control; every sample matches and there are no outliers this run. Exact fields/arrays remain in audit.json.
+
+Separate optimized-C job, also EPYC 9V74: pinned libvpx v1.16.0, commit 1024874c5919305883187e2953de8fcb4c3d7fa6; optimized configure, runtime CPU dispatch, SSE2/AVX2 and assembly objects enabled. Fixed-speed VP8 Go takes 2.314990x libvpx time (+131.499%) with matching measured PSNR/SSIM/payload/encoded and dropped counts. This does not assert bitstream identity. Adaptive VP8 +81.143% and VP9 +180.597%/+178.641% perform unequal quality/output work. Every quality-pass output statistic matches its corresponding timed output. Reference timer is vpxenc-stats. Separate jobs do not permit absolute cross-job comparison or attribution of C timing drift to source changes.
+
+Parent-supplied ARM evidence (not independently remeasured in this audit): native M4 Max, Go 1.27.2, PGO off. Full/wide 1.634-1.658x versus base, 48 pairs minimum 1.565x; early 1.908-1.924x, 24 pairs minimum 1.854x. All 20 cases improve in every pair with zero allocations. Assembly remains faster: full scans take 19.7-22.4% more time, early about 130% more. Strict scalar oracle is retained: two patterned middle-exit legacy ARM NEON witnesses differ, and those two ASM timings are omitted only from the ARM report; other 18 ARM ASM cases pass. All 20 old AMD fixtures remain exact. These component-only gains do not claim a whole-codec win.
+
+Preservation: native-raw.tar.gz holds 86 raw files and libvpx-raw.tar.gz holds 74. raw-sha256.json records all 160 original member hashes. Every decompressed member was checked byte-for-byte against source artifacts/manifests. sha256.json covers the other five bundle files. No README/source changes and no local Go jobs were performed by this audit.

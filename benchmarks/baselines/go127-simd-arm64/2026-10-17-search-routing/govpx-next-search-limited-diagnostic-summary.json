@@ -1,0 +1,26 @@
+{
+  "parent": {
+    "median_ns": 7746149.5,
+    "samples": [
+      7735527,
+      7756772
+    ],
+    "speedup_vs_parent": 1.0
+  },
+  "all": {
+    "median_ns": 7877155.5,
+    "samples": [
+      7893387,
+      7860924
+    ],
+    "speedup_vs_parent": 0.9833688696382851
+  },
+  "4096": {
+    "median_ns": 7806351.5,
+    "samples": [
+      7734604,
+      7878099
+    ],
+    "speedup_vs_parent": 0.9922880746530566
+  }
+}

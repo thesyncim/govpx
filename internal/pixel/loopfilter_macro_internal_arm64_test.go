@@ -83,3 +83,61 @@ func TestMacroInternalDeclinesWithoutStores(t *testing.T) {
 		}
 	}
 }
+
+func TestMacroInternalZeroCorrectionsAndLaterEdges(t *testing.T) {
+	if !Enabled {
+		t.Fatal("ARM SIMD backend unavailable")
+	}
+	for _, vertical := range []bool{false, true} {
+		for _, pitch := range []int{20, 21, 32, 1312} {
+			step, outer := pitch, 1
+			if vertical {
+				step, outer = 1, pitch
+			}
+			for align := range 8 {
+				for pattern := range 10 {
+					p := bytes.Repeat([]byte{0xa7}, align+19*step+15*outer+1+13)
+					for axis := range 20 {
+						for lane := range 16 {
+							v := byte([]int{0, 127, 128, 255, 0, 0, 0, 0, 0, 0}[pattern])
+							if pattern >= 6 {
+								delta := axis / 4
+								if pattern >= 8 {
+									delta *= 2
+								}
+								if pattern%2 != 0 {
+									delta = -delta
+								}
+								v = byte(128 + delta)
+							} else if pattern >= 4 {
+								// A linear ramp with HEV threshold zero has cancelling
+								// outer and central terms at all four edges.
+								v = byte(32 + lane*3 + axis)
+								if pattern == 5 && axis == 16 && lane == 15 {
+									v += 6 // Only the last edge/lane needs a correction.
+								}
+							}
+							p[align+axis*step+lane*outer] = v
+						}
+					}
+					got, want := bytes.Clone(p), bytes.Clone(p)
+					if !LoopFilterMacroInternal16(got[align:len(got)-13], step, outer, 254, 254, 255, 0) {
+						t.Fatal("eligible zero-correction fixture declined")
+					}
+					for _, edge := range []int{4, 8, 12, 16} {
+						kind := 4
+						if edge == 4 {
+							kind = 6
+						}
+						for lane := 0; lane < 16; lane += 8 {
+							loopFilterNarrow8(want, align+edge*step+lane*outer, step, outer, 254, 255, 0, kind)
+						}
+					}
+					if !bytes.Equal(got, want) || bytes.Equal(want, p) != (pattern != 5 && pattern < 8) {
+						t.Fatalf("vertical=%v pitch=%d align=%d pattern=%d", vertical, pitch, align, pattern)
+					}
+				}
+			}
+		}
+	}
+}

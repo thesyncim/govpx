@@ -1,0 +1,412 @@
+{
+  "BenchmarkVP8PickerFilterNative/pitch32/flat": {
+    "samples": {
+      "parent": [
+        99.73,
+        93.44,
+        92.62,
+        95.21,
+        93.69,
+        92.83
+      ],
+      "assembly": [
+        87.62,
+        83.79,
+        83.71,
+        84.28,
+        85.54,
+        84.03
+      ],
+      "candidate": [
+        53.14,
+        50.91,
+        50.78,
+        50.75,
+        50.36,
+        50.55
+      ],
+      "zero": [
+        52.7,
+        51.3,
+        50.43,
+        50.26,
+        50.7,
+        55.43
+      ]
+    },
+    "speedup": 1.8431005614104206,
+    "minimum_paired_speedup": 1.8239464356045687,
+    "speedup_assembly": 1.6577366295676155,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkVP8PickerFilterNative/pitch32/ramp": {
+    "samples": {
+      "parent": [
+        93.27,
+        92.55,
+        92.47,
+        92.77,
+        94.49,
+        92.61
+      ],
+      "assembly": [
+        84.12,
+        84.01,
+        83.82,
+        83.92,
+        87.81,
+        83.93
+      ],
+      "candidate": [
+        51.56,
+        51.38,
+        51.85,
+        50.82,
+        50.4,
+        51.24
+      ],
+      "zero": [
+        81.66,
+        83.01,
+        82.53,
+        82.25,
+        82.48,
+        82.14
+      ]
+    },
+    "speedup": 1.8064704735918924,
+    "minimum_paired_speedup": 1.7834136933461908,
+    "speedup_assembly": 1.636523094913272,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkVP8PickerFilterNative/pitch32/smooth": {
+    "samples": {
+      "parent": [
+        93.28,
+        92.6,
+        93.19,
+        93.42,
+        93.03,
+        93.12
+      ],
+      "assembly": [
+        83.65,
+        84.07,
+        85.23,
+        84.06,
+        85.01,
+        84.06
+      ],
+      "candidate": [
+        92.36,
+        92.36,
+        93.27,
+        92.62,
+        94.2,
+        95.18
+      ],
+      "zero": [
+        93.12,
+        95.15,
+        93.04,
+        92.72,
+        93.28,
+        93.25
+      ]
+    },
+    "speedup": 1.0022594007208565,
+    "minimum_paired_speedup": 0.9783567976465644,
+    "speedup_assembly": 0.9044596266609285,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkVP8PickerFilterNative/pitch32/mixed": {
+    "samples": {
+      "parent": [
+        92.84,
+        92.44,
+        94.7,
+        92.63,
+        92.54,
+        95.23
+      ],
+      "assembly": [
+        83.72,
+        84.33,
+        83.8,
+        84.23,
+        84.34,
+        84.72
+      ],
+      "candidate": [
+        92.75,
+        92.37,
+        92.47,
+        92.46,
+        91.8,
+        92.45
+      ],
+      "zero": [
+        93.01,
+        92.89,
+        92.94,
+        93.02,
+        92.43,
+        92.61
+      ]
+    },
+    "speedup": 1.0030285003515225,
+    "minimum_paired_speedup": 1.0007578218036157,
+    "speedup_assembly": 0.911578605808231,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkVP8PickerFilterNative/pitch32/noop": {
+    "samples": {
+      "parent": [
+        45.23,
+        45.58,
+        46.06,
+        45.36,
+        45.65,
+        45.88
+      ],
+      "assembly": [
+        84.5,
+        84.0,
+        84.29,
+        83.77,
+        83.99,
+        85.02
+      ],
+      "candidate": [
+        45.33,
+        45.96,
+        45.77,
+        45.64,
+        45.92,
+        45.32
+      ],
+      "zero": [
+        45.93,
+        45.57,
+        45.81,
+        45.36,
+        45.63,
+        45.44
+      ]
+    },
+    "speedup": 0.9980308500164095,
+    "minimum_paired_speedup": 0.9917319408181027,
+    "speedup_assembly": 1.8410458374357295,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkVP8PickerFilterNative/pitch1312/flat": {
+    "samples": {
+      "parent": [
+        92.83,
+        93.22,
+        92.91,
+        93.0,
+        94.19,
+        93.12
+      ],
+      "assembly": [
+        84.73,
+        83.7,
+        83.77,
+        84.1,
+        83.9,
+        85.21
+      ],
+      "candidate": [
+        50.5,
+        51.26,
+        51.23,
+        50.5,
+        51.19,
+        50.98
+      ],
+      "zero": [
+        51.03,
+        50.49,
+        50.74,
+        50.57,
+        50.18,
+        50.45
+      ]
+    },
+    "speedup": 1.8216697660761478,
+    "minimum_paired_speedup": 1.81358578957642,
+    "speedup_assembly": 1.6443182930410103,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkVP8PickerFilterNative/pitch1312/ramp": {
+    "samples": {
+      "parent": [
+        92.88,
+        92.66,
+        99.79,
+        93.08,
+        93.58,
+        92.87
+      ],
+      "assembly": [
+        84.98,
+        84.08,
+        84.89,
+        83.92,
+        83.88,
+        84.05
+      ],
+      "candidate": [
+        51.0,
+        51.19,
+        50.94,
+        51.27,
+        50.87,
+        52.45
+      ],
+      "zero": [
+        84.39,
+        82.32,
+        82.64,
+        82.24,
+        82.2,
+        81.94
+      ]
+    },
+    "speedup": 1.8197475291124374,
+    "minimum_paired_speedup": 1.7706387035271687,
+    "speedup_assembly": 1.6452686172815343,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkVP8PickerFilterNative/pitch1312/smooth": {
+    "samples": {
+      "parent": [
+        93.37,
+        93.2,
+        94.22,
+        92.88,
+        93.21,
+        93.28
+      ],
+      "assembly": [
+        83.97,
+        84.01,
+        84.73,
+        85.42,
+        84.15,
+        84.07
+      ],
+      "candidate": [
+        92.77,
+        92.46,
+        93.18,
+        93.1,
+        92.57,
+        93.25
+      ],
+      "zero": [
+        101.4,
+        94.22,
+        94.03,
+        92.91,
+        93.11,
+        93.2
+      ]
+    },
+    "speedup": 1.0033356647118954,
+    "minimum_paired_speedup": 0.9976369495166488,
+    "speedup_assembly": 0.9050411577984613,
+    "faster_parent_pairs": 5,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkVP8PickerFilterNative/pitch1312/mixed": {
+    "samples": {
+      "parent": [
+        93.45,
+        94.28,
+        93.28,
+        92.7,
+        92.82,
+        92.75
+      ],
+      "assembly": [
+        83.76,
+        83.77,
+        84.61,
+        84.05,
+        83.48,
+        84.02
+      ],
+      "candidate": [
+        92.33,
+        92.38,
+        91.71,
+        92.37,
+        95.4,
+        92.66
+      ],
+      "zero": [
+        93.19,
+        93.17,
+        92.59,
+        92.57,
+        92.43,
+        92.86
+      ]
+    },
+    "speedup": 1.0073071718538564,
+    "minimum_paired_speedup": 0.9729559748427672,
+    "speedup_assembly": 0.9082002706359945,
+    "faster_parent_pairs": 5,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkVP8PickerFilterNative/pitch1312/noop": {
+    "samples": {
+      "parent": [
+        45.44,
+        45.93,
+        45.56,
+        45.34,
+        45.6,
+        45.39
+      ],
+      "assembly": [
+        94.76,
+        84.0,
+        85.55,
+        85.01,
+        84.01,
+        83.6
+      ],
+      "candidate": [
+        45.91,
+        45.91,
+        45.57,
+        45.92,
+        46.61,
+        45.86
+      ],
+      "zero": [
+        46.29,
+        45.78,
+        45.66,
+        46.12,
+        45.4,
+        45.32
+      ]
+    },
+    "speedup": 0.9910694837725986,
+    "minimum_paired_speedup": 0.9783308302939284,
+    "speedup_assembly": 1.8407754301895014,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 6
+  }
+}
