@@ -1,0 +1,34 @@
+{
+  "review_utc": "2026-10-17T17:31:16.798059+00:00",
+  "scope": "Read-only source correctness review of isolated row-major planeSSE experiment, no edits/builds/timing. Root owns integration; no performanceacceptance claim.",
+  "root": "/private/tmp/govpx-perf-after25",
+  "sha256": {
+    "internal/pixel/sse_plane_arm64.go": "239d3ea50701a58e00f8ae255f4ebaeaf9a1869e5421af1d6e9acbaf1e7d64bd",
+    "internal/pixel/sse_plane_amd64.go": "5b8cea5f80fe63806af47c07b965ec8418c5ce1a692db2992f600a932d13cf80",
+    "internal/pixel/sse_plane_other.go": "7ce4261aa42fe7c34c0465f0174dc2e24a45304a19130b6090e33af8c7782e1e",
+    "internal/pixel/sse_plane_test.go": "346fbe29f2e9ec702ba317fdfa74e159ea717f0d4890e71b57291868d354bb65",
+    "internal/vp8/encoder/loopfilter_score.go": "4527e74772ad7ae43ed45aac763f1eb530c7e1804162b16aac184051b5fe4119",
+    "internal/vp8/dsp/variance_block_sized_other.go": "a870124ace03ee37ef1dbd13f245adb40f5fde25e1315c41e6f34885d2eb4386"
+  },
+  "actionable_correctness_findings": [],
+  "proofs": {
+    "column_uint32_semantics": "Originalfastcolumn returns int(uint32SSE16(...height)); height<=4096 ensures16*4096*65025=4261478400<2^32, so eachcolumn isexact ratherthanwrapped. Summing allcolumns therefore equals fullmathematicalframeSSE. Height>4096 declines andcallerretains originalcolumn path, preserving itsper-columnmod2^32 behavior forlargeheights.",
+    "chunk_uint32_semantics": "Fourrows*maxwidth16384=65536pixels; maxchunksum=4261478400<2^32. Int32vectoradd/reduce maywrapsign but finaluint32 recovers exactchunksum. Widen eachchunk beforeaddinguint64. Maxacceptedframe16384*4096*65025=4363753881600 fitsuint64 and64bitint; returnintscore inARM64/AMD64 integrationcannotoverflow.",
+    "arm_arithmetic": "ssePacket bytewiden differencesfitint16[-255,255], squares/pairs accumulated32bit. Withinchunkper-laneaccfits; finalringreductionuint32exact underbound.",
+    "amd_arithmetic": "ExtendUint8x16 to16unsignedwords thenBitInt16 differencesfit; signedDotProductPairs(d,d) adds two65025max squaresintoInt32, no signedwordpair overflow. Splitlo/hisum32 recovers sameexactboundedchunk.",
+    "span_and_overflow": "Afterpositivealignedw<=16384,h<=4096, nonnegativestrides,len>=w checks, h>1 divisionbounds imply(h-1)*stride+w<=len andallrowproducts/endindicesfitint. h1 usesonlyoffset0 evenMaxIntstride. Rowcapclampedtolength; perpacketchecked16Bwindow withinrow. y+4 andx+16 bounded bysmallheight/width.",
+    "aliases_and_lifetime": "Read-only src/ref mayoverlap withoneanother orwiththeirownrows, includingstride0; no mutablealias restrictionneeded. No rawpointeraccess; checked slices heldsynchronously.",
+    "feature_fallbacks": "Botharchfunctions declinebeforeSIMDwhen!Enabled, allunsupportedshape/span exitsnowrites. Other/off/purego stubfalse retainsoldcolumnimplementation. AMDacceptedpaths deferClearAVXUpperBits; rejectedpaths executebeforedefersetupandbeforewideops. No AVXreturn fence omission seen.",
+    "integration": "Only triesnewhelper insideexistingfullcolumns/fullrowsbranch; partialwindowstart/count retained. Acceptedscore equals originalsum byheightbound. Unsupportedgeometry returnsfalse andruns unchangedcolumn loop; no new clamping ofrows/cols or partialpixels. 32bitarchitecturesuseotherstub, preservingoldintoverflowbehavior."
+  },
+  "missing_correctness_edges": [
+    "Addexplicitloop-filterintegration differential against oldcolumn path forfull andpartial windows, minspan/paddedstrides and totals>2^32; helpertestsagainstfulluint64oracle alone do not exercisecallsitepartialoffsets.",
+    "Addw32,h4096,src255/ref0,zeroorordinarystrides: expected8522956800 fulluint64 sum, originaltwoexactuint32columns.",
+    "Addh4097/stride0/len16 supportedmemorybutrejectedheight. Currenth4097declinetest alsohasinsufficientspan, so couldpassafteraccidentalheightguardremoval; heightgate preserves originalcolumnwrapsemantics.",
+    "Addalignedw16400,h1 withvalidspan expecteddecline, toisolatemaxwidthgate (existing16385 isalsounaligned/short).",
+    "Single-rowMaxIntstrideswithvalidspan shouldaccept; invalidmatrixcurrentlyonlyMaxIntstrideh2.",
+    "OnAMD addtemporaryEnabled=false directguard/no-write test; currentdisabledtest isexercisedonlyifbackendinitiallyfalse, so requiredSIMD CI doesnotdynamicallycheckthisbranch.",
+    "Expose requiredSIMD selection fornewdirectkerneltests whenrequested: currentuntaggedtest silentlyreturnsif!Enabled. Existingharnessbackendchecks maycoverglobalEnabled butmust include newtests explicitly."
+  ],
+  "parent_reported_validation": "Nativeprivate timingactive; no tests or timing independentlyexecuted byreviewer. Tests currentlycoverchunkrowremainders1/2/3/4/5, extremebytes, width16..16384, heightupto64plus4096overlappingreadrows, independentstrides/alignment, shortlengthsparecapacity andunsupportedshapes."
+}

@@ -1,0 +1,104 @@
+{
+  "assembly": {
+    "BenchmarkLoopFilterLumaSSENative/128x128": [
+      409.1,
+      407.3,
+      407.7,
+      408.0,
+      406.8,
+      409.3
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720p": [
+      55092.0,
+      54985.0,
+      55064.0,
+      55209.0,
+      55452.0,
+      55285.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720pPartial": [
+      3127.0,
+      3168.0,
+      3136.0,
+      3122.0,
+      3126.0,
+      3155.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/1088p": [
+      131187.0,
+      129856.0,
+      130446.0,
+      130209.0,
+      131025.0,
+      129481.0
+    ]
+  },
+  "parent": {
+    "BenchmarkLoopFilterLumaSSENative/128x128": [
+      1028.0,
+      1027.0,
+      1031.0,
+      1033.0,
+      1031.0,
+      1028.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720p": [
+      61028.0,
+      58752.0,
+      59080.0,
+      58719.0,
+      58908.0,
+      59026.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720pPartial": [
+      6280.0,
+      6241.0,
+      6255.0,
+      6274.0,
+      6239.0,
+      6592.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/1088p": [
+      140470.0,
+      137843.0,
+      139003.0,
+      138529.0,
+      138535.0,
+      139376.0
+    ]
+  },
+  "candidate": {
+    "BenchmarkLoopFilterLumaSSENative/128x128": [
+      926.1,
+      922.4,
+      923.2,
+      926.1,
+      926.0,
+      925.8
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720p": [
+      51941.0,
+      51420.0,
+      51572.0,
+      51836.0,
+      51753.0,
+      51531.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/720pPartial": [
+      5770.0,
+      5760.0,
+      5747.0,
+      5771.0,
+      5742.0,
+      5724.0
+    ],
+    "BenchmarkLoopFilterLumaSSENative/1088p": [
+      117373.0,
+      117729.0,
+      116800.0,
+      117685.0,
+      118127.0,
+      116364.0
+    ]
+  }
+}

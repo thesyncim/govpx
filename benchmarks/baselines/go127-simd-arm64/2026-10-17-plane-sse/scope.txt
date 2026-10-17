@@ -1,0 +1,5 @@
+Native Apple M4 Max, darwin/arm64, Go 1.27.2 GOEXPERIMENT=simd GOMAXPROCS=1 PGO=off.
+Assembly reference 691cd0512c4829d9ee40d483205dd223f9eb028d; parent af94215e (same tree as merged 5f507e12).
+Six rounds use all six three-variant orders with identical independent scalar-checked B.Loop public encoder scoring fixture. Four cases, six samples each, zero bytes/allocations for every sample. No builds/tests during timing.
+Selected row-major scan improves 720p by 1.141x and 1088p by 1.181x versus parent; 1.068x/1.109x versus assembly. Small/partial cases still trail assembly. These are component gains; whole-codec results recorded separately.
+Byte squaring and two-packet unroll did not improve main workloads and were not selected. Separate SSE16 safe-row and bounded-pointer prototypes, correctness and raw timings are preserved in experiments.tar.gz, but are not integrated.

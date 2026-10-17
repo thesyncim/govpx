@@ -1,6 +1,7 @@
 package encoder
 
 import (
+	"github.com/thesyncim/govpx/internal/pixel"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 )
@@ -115,6 +116,9 @@ func LoopFilterLumaSSE(src SourceImage, img *vp8common.Image, rows int, cols int
 		if startRow >= 0 && height > 0 && (startRow+rowCount)*16 <= srcH && (startRow+rowCount)*16 <= imgH {
 			srcRowOff := startRow * 16 * srcStride
 			imgRowOff := startRow * 16 * imgStride
+			if score, ok := pixel.SSEPlane16(srcY[srcRowOff:], srcStride, imgY[imgRowOff:], imgStride, cols*16, height); ok {
+				return int(score)
+			}
 			for mbCol := range cols {
 				baseX := mbCol * 16
 				total += dsp.SSE16xNPtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride, height)

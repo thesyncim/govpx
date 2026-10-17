@@ -1,0 +1,4 @@
+PR #25 merged as 5f507e121ad1a394113f0035960554b4353e027a; tree exactly matches tested af94215e.
+Native kernel/public results use AMD EPYC 9V74; optimized-C comparison uses separate Intel Xeon Platinum 8370C. Do not compare absolute timings across jobs.
+All 84 kernel cases have six samples per variant and zero allocations. Denoiser kernel wins are retained independently of whole-codec performance.
+See audit.json for results, run URLs, remaining assembly/C gaps, and quality/output scope. Raw archives preserve every downloaded evidence file.
