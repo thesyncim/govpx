@@ -17,12 +17,6 @@ func SAD16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
 	return pixel.SAD16(unsafe.Slice(src, 15*srcStride+16), srcStride, unsafe.Slice(ref, 15*refStride+16), refStride, 16)
 }
 
-// SAD16x16LimitPtrFast returns after the first row exceeding limit.
-// Both pointers must address readable 16x16 blocks.
-func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, limit int) int {
-	return sadBlockLimitScalarPtr(src, srcStride, ref, refStride, 16, 16, limit)
-}
-
 // SAD16x16x4PtrFast mirrors libvpx's vpx_sad16x16x4d interface.
 func SAD16x16x4PtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, ref2 *byte, ref3 *byte, refStride int, out *[4]uint32) {
 	pixel.SAD16x4(unsafe.Slice(src, 15*srcStride+16), srcStride, unsafe.Slice(ref0, 15*refStride+16), unsafe.Slice(ref1, 15*refStride+16), unsafe.Slice(ref2, 15*refStride+16), unsafe.Slice(ref3, 15*refStride+16), refStride, 16, out)

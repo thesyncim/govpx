@@ -1,0 +1,113 @@
+[
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/bound",
+    "median_ns": {
+      "assembly": 24.68,
+      "parent": 12.66,
+      "candidate": 9.3245
+    },
+    "main_speedup": 1.3577135503244142,
+    "asm_speedup": 2.6467907126387473,
+    "main_faster_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.52,
+        24.72,
+        24.64,
+        24.73,
+        24.46,
+        24.79
+      ],
+      "parent": [
+        12.55,
+        12.63,
+        12.74,
+        12.65,
+        12.67,
+        12.75
+      ],
+      "candidate": [
+        9.24,
+        9.421,
+        9.332,
+        9.321,
+        9.286,
+        9.328
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/early",
+    "median_ns": {
+      "assembly": 2.02,
+      "parent": 3.2439999999999998,
+      "candidate": 2.2705
+    },
+    "main_speedup": 1.4287601849812814,
+    "asm_speedup": 0.889671878440872,
+    "main_faster_pairs": 6,
+    "samples": {
+      "assembly": [
+        2.023,
+        2.011,
+        2.031,
+        2.013,
+        2.017,
+        2.032
+      ],
+      "parent": [
+        3.246,
+        3.308,
+        3.242,
+        3.199,
+        3.242,
+        3.27
+      ],
+      "candidate": [
+        2.266,
+        2.295,
+        2.282,
+        2.262,
+        2.263,
+        2.275
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/middle",
+    "median_ns": {
+      "assembly": 20.075,
+      "parent": 10.58,
+      "candidate": 9.387
+    },
+    "main_speedup": 1.1270906572919994,
+    "asm_speedup": 2.1385959305422393,
+    "main_faster_pairs": 6,
+    "samples": {
+      "assembly": [
+        20.11,
+        20.05,
+        20.06,
+        20.02,
+        20.09,
+        20.13
+      ],
+      "parent": [
+        10.48,
+        10.56,
+        10.63,
+        10.5,
+        10.71,
+        10.6
+      ],
+      "candidate": [
+        9.379,
+        9.786,
+        9.327,
+        9.255,
+        9.395,
+        9.546
+      ]
+    }
+  }
+]

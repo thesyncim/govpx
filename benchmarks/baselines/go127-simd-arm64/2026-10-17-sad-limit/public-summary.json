@@ -1,0 +1,65 @@
+{
+  "cpu": "Apple M4 Max",
+  "workload": "VP8 1280x720 300inputframes realtime cpu-used8 2500kbps 1thread PGOoff",
+  "median_ms_per_input": {
+    "assembly": 7.0759065,
+    "parent": 7.7080424999999995,
+    "candidate": 7.7541095
+  },
+  "samples_ms": {
+    "assembly": [
+      7.167314,
+      7.301373,
+      6.971757,
+      6.913004,
+      7.363812,
+      6.984499
+    ],
+    "parent": [
+      7.817399,
+      7.685559,
+      7.70819,
+      8.263538,
+      7.700532,
+      7.707895
+    ],
+    "candidate": [
+      7.840049,
+      7.775474,
+      7.804265,
+      7.731886,
+      7.732745,
+      7.724312
+    ]
+  },
+  "candidate_vs_main_pct": 0.5976484950621419,
+  "candidate_vs_asm_pct": 9.584680068907069,
+  "faster_main_pairs": 1,
+  "equal_control_fields": [
+    "codec",
+    "encoder",
+    "mode",
+    "width",
+    "height",
+    "frames",
+    "fps",
+    "target_bitrate_kbps",
+    "output_bitrate_kbps",
+    "bitrate_error_pct",
+    "allocs_per_frame",
+    "psnr",
+    "ssim",
+    "quality_frames",
+    "quality_skipped",
+    "keyframe_bytes",
+    "avg_interframe_bytes",
+    "quantizers",
+    "output_bytes",
+    "encoded_frames",
+    "dropped_frames",
+    "quantizer_histogram",
+    "options"
+  ],
+  "zero_alloc_every_sample": true,
+  "interpretation": "Paired signs mixed; no whole-codec speedup established. All raw samples retained. Unrelated low-activity goav.test observed immediately before run; no competing Go work in mid-run snapshot."
+}

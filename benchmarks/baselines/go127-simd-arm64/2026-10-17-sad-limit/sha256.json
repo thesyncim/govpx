@@ -1,0 +1,14 @@
+{
+  "confirm-summary.json": "05509408255ef7ace7405e5c536527e3f27ccba43780d9703e07d113f00c939f",
+  "final-environment.json": "a1a05ede5d87052ec4f651d7b5d6a42be258aa88d483828c892a660f7109be6f",
+  "final-summary.json": "f02276e95e9d0b00f3b7787aa8cbc2ee2e38406105bf681c35af03457c1c2b3c",
+  "measurements.tar.gz": "c8e974423c836b7e2ebbfc39c95e5e693775ee706af0b701ffdf2317a285e0cf",
+  "public-summary.json": "81e01c4f2a4a80c3869bf8abaa02d13d60a6551df966d08abebb7e537c459fb0",
+  "raw-sha256.json": "6d0d6ea41bd281582321d134306fadc06726837eac9257f4dfe4e06ec4a51a91",
+  "scope.txt": "64b8edc36645c751f5c7f3a7e2b85feadab229f26bc38df2c45b068ff812694c",
+  "selected-environment.json": "39a33dac94b69b4f68dad126fc94c273ca3900e6b0fa66f06d185f33d9b19994",
+  "selected-public-summary.json": "7591b1023ff5549fde5e3f6f39c8bddc8472cefd591ebb0d793b33be8a043f8f",
+  "selected-public60-summary.json": "1ef6d3d0e2d618d0bdee459d4238915538c7f7b74fd22343398c95cc57be0409",
+  "selected-summary.json": "a3b84f8e3b5172758170f0ccf5d33bc7e8a1a24efd6fd1f4a1a114ec574ee53a",
+  "sources.tar.gz": "8f7e243407bbe53a4c882680e4901405ed93ee0330a33ef5a9f778090f2761a7"
+}

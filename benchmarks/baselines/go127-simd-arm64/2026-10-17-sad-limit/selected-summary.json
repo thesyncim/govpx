@@ -1,0 +1,762 @@
+[
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremefalse/bound",
+    "median_ns": {
+      "assembly": 24.65,
+      "parent": 12.695,
+      "candidate": 8.8195
+    },
+    "main_speedup": 1.4394240036283237,
+    "asm_speedup": 2.7949430239809514,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.64,
+        24.6,
+        24.71,
+        24.56,
+        25.62,
+        24.66
+      ],
+      "parent": [
+        12.62,
+        12.79,
+        12.64,
+        12.7,
+        12.81,
+        12.69
+      ],
+      "candidate": [
+        8.806,
+        8.839,
+        8.776,
+        8.962,
+        8.798,
+        8.833
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremefalse/wide",
+    "median_ns": {
+      "assembly": 24.66,
+      "parent": 12.735,
+      "candidate": 8.8335
+    },
+    "main_speedup": 1.4416709118695872,
+    "asm_speedup": 2.7916454406520628,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.56,
+        24.57,
+        24.88,
+        24.55,
+        24.75,
+        24.78
+      ],
+      "parent": [
+        12.72,
+        12.75,
+        12.71,
+        12.59,
+        12.83,
+        13.07
+      ],
+      "candidate": [
+        8.782,
+        8.809,
+        8.768,
+        8.983,
+        8.858,
+        9.086
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremefalse/near",
+    "median_ns": {
+      "assembly": 24.665,
+      "parent": 12.745000000000001,
+      "candidate": 10.93
+    },
+    "main_speedup": 1.1660567246111622,
+    "asm_speedup": 2.256633119853614,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.6,
+        24.69,
+        24.83,
+        24.64,
+        24.86,
+        24.63
+      ],
+      "parent": [
+        12.75,
+        12.74,
+        12.86,
+        12.56,
+        12.58,
+        12.92
+      ],
+      "candidate": [
+        10.82,
+        10.87,
+        10.8,
+        11.55,
+        10.99,
+        11.23
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremefalse/early",
+    "median_ns": {
+      "assembly": 2.0115,
+      "parent": 3.261,
+      "candidate": 1.813
+    },
+    "main_speedup": 1.798676227247656,
+    "asm_speedup": 1.1094870380584665,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        2.006,
+        2.131,
+        2.006,
+        2.005,
+        2.125,
+        2.017
+      ],
+      "parent": [
+        3.284,
+        3.262,
+        3.134,
+        3.26,
+        3.164,
+        3.273
+      ],
+      "candidate": [
+        1.805,
+        1.787,
+        1.831,
+        1.878,
+        1.787,
+        1.821
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremefalse/middle",
+    "median_ns": {
+      "assembly": 20.29,
+      "parent": 10.57,
+      "candidate": 8.4755
+    },
+    "main_speedup": 1.247124063477081,
+    "asm_speedup": 2.3939590584626274,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        20.06,
+        20.43,
+        20.06,
+        20.58,
+        20.78,
+        20.15
+      ],
+      "parent": [
+        10.65,
+        10.42,
+        10.6,
+        10.44,
+        10.61,
+        10.54
+      ],
+      "candidate": [
+        8.311,
+        8.64,
+        8.373,
+        8.552,
+        8.399,
+        8.705
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremetrue/bound",
+    "median_ns": {
+      "assembly": 24.905,
+      "parent": 12.865,
+      "candidate": 8.8325
+    },
+    "main_speedup": 1.4565525049532975,
+    "asm_speedup": 2.819699971695443,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.62,
+        25.19,
+        24.59,
+        27.56,
+        26.22,
+        24.56
+      ],
+      "parent": [
+        12.82,
+        13.02,
+        12.7,
+        12.85,
+        12.88,
+        13.14
+      ],
+      "candidate": [
+        8.773,
+        8.782,
+        8.82,
+        8.981,
+        8.845,
+        8.889
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremetrue/wide",
+    "median_ns": {
+      "assembly": 24.895,
+      "parent": 12.645,
+      "candidate": 8.836500000000001
+    },
+    "main_speedup": 1.4309964352401967,
+    "asm_speedup": 2.8172919142194304,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.82,
+        25.04,
+        24.55,
+        25.02,
+        24.97,
+        24.61
+      ],
+      "parent": [
+        12.62,
+        12.67,
+        12.56,
+        12.53,
+        12.78,
+        12.77
+      ],
+      "candidate": [
+        8.805,
+        8.799,
+        8.809,
+        9.102,
+        8.947,
+        8.864
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremetrue/near",
+    "median_ns": {
+      "assembly": 24.645,
+      "parent": 12.365,
+      "candidate": 9.9485
+    },
+    "main_speedup": 1.2429009398401771,
+    "asm_speedup": 2.4772578780720713,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.56,
+        24.71,
+        24.57,
+        24.87,
+        25.47,
+        24.58
+      ],
+      "parent": [
+        12.24,
+        12.38,
+        12.59,
+        12.2,
+        12.35,
+        12.73
+      ],
+      "candidate": [
+        9.973,
+        9.924,
+        9.812,
+        10.25,
+        9.987,
+        9.804
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremetrue/early",
+    "median_ns": {
+      "assembly": 2.0235,
+      "parent": 3.2110000000000003,
+      "candidate": 1.8065
+    },
+    "main_speedup": 1.7774702463326877,
+    "asm_speedup": 1.1201217824522556,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        2.018,
+        2.022,
+        2.013,
+        2.051,
+        2.051,
+        2.025
+      ],
+      "parent": [
+        3.237,
+        3.194,
+        3.201,
+        3.29,
+        3.132,
+        3.221
+      ],
+      "candidate": [
+        1.85,
+        1.793,
+        1.789,
+        1.989,
+        1.802,
+        1.811
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch32/extremetrue/middle",
+    "median_ns": {
+      "assembly": 8.0435,
+      "parent": 5.5465,
+      "candidate": 3.776
+    },
+    "main_speedup": 1.4688824152542375,
+    "asm_speedup": 2.1301641949152543,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        8.035,
+        8.02,
+        8.031,
+        8.123,
+        8.183,
+        8.052
+      ],
+      "parent": [
+        5.513,
+        5.517,
+        5.512,
+        5.602,
+        5.576,
+        5.605
+      ],
+      "candidate": [
+        3.762,
+        3.764,
+        3.766,
+        3.938,
+        3.841,
+        3.786
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/bound",
+    "median_ns": {
+      "assembly": 24.63,
+      "parent": 12.83,
+      "candidate": 8.813500000000001
+    },
+    "main_speedup": 1.4557213365859192,
+    "asm_speedup": 2.7945765019572244,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.56,
+        24.56,
+        24.61,
+        24.96,
+        24.99,
+        24.65
+      ],
+      "parent": [
+        12.89,
+        12.77,
+        12.56,
+        12.6,
+        13.18,
+        13.05
+      ],
+      "candidate": [
+        8.772,
+        8.974,
+        8.84,
+        9.005,
+        8.787,
+        8.777
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/wide",
+    "median_ns": {
+      "assembly": 24.66,
+      "parent": 12.82,
+      "candidate": 8.797
+    },
+    "main_speedup": 1.4573149937478684,
+    "asm_speedup": 2.8032283733090826,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.6,
+        24.72,
+        24.59,
+        25.65,
+        25.09,
+        24.59
+      ],
+      "parent": [
+        12.82,
+        12.63,
+        12.74,
+        12.82,
+        15.5,
+        12.98
+      ],
+      "candidate": [
+        8.827,
+        8.92,
+        8.804,
+        8.79,
+        8.77,
+        8.789
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/near",
+    "median_ns": {
+      "assembly": 24.6,
+      "parent": 12.675,
+      "candidate": 10.86
+    },
+    "main_speedup": 1.1671270718232045,
+    "asm_speedup": 2.265193370165746,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.59,
+        24.57,
+        24.57,
+        27.64,
+        25.16,
+        24.61
+      ],
+      "parent": [
+        12.57,
+        12.54,
+        12.77,
+        12.58,
+        15.74,
+        12.85
+      ],
+      "candidate": [
+        10.83,
+        10.89,
+        11.03,
+        11.47,
+        10.83,
+        10.82
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/early",
+    "median_ns": {
+      "assembly": 2.01,
+      "parent": 3.2525,
+      "candidate": 1.8079999999999998
+    },
+    "main_speedup": 1.798949115044248,
+    "asm_speedup": 1.1117256637168142,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        2.005,
+        2.005,
+        2.011,
+        2.225,
+        2.055,
+        2.009
+      ],
+      "parent": [
+        3.166,
+        3.242,
+        3.266,
+        3.263,
+        4.225,
+        3.171
+      ],
+      "candidate": [
+        1.799,
+        1.817,
+        1.792,
+        1.882,
+        1.798,
+        1.817
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/middle",
+    "median_ns": {
+      "assembly": 20.27,
+      "parent": 10.49,
+      "candidate": 8.4175
+    },
+    "main_speedup": 1.2462132462132463,
+    "asm_speedup": 2.408078408078408,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        20.54,
+        20.11,
+        20.16,
+        20.38,
+        20.5,
+        20.06
+      ],
+      "parent": [
+        10.42,
+        10.52,
+        10.43,
+        10.46,
+        11.9,
+        10.93
+      ],
+      "candidate": [
+        8.339,
+        8.78,
+        8.409,
+        8.426,
+        8.291,
+        8.519
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/bound",
+    "median_ns": {
+      "assembly": 24.73,
+      "parent": 12.99,
+      "candidate": 8.776
+    },
+    "main_speedup": 1.4801731996353693,
+    "asm_speedup": 2.817912488605287,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.71,
+        24.56,
+        24.75,
+        25.72,
+        25.13,
+        24.57
+      ],
+      "parent": [
+        12.64,
+        12.6,
+        12.97,
+        13.16,
+        13.12,
+        13.01
+      ],
+      "candidate": [
+        8.768,
+        8.881,
+        8.782,
+        8.811,
+        8.77,
+        8.683
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/wide",
+    "median_ns": {
+      "assembly": 24.775,
+      "parent": 12.684999999999999,
+      "candidate": 8.8215
+    },
+    "main_speedup": 1.4379640650682988,
+    "asm_speedup": 2.8084792835685537,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.63,
+        24.66,
+        24.74,
+        24.93,
+        25.11,
+        24.81
+      ],
+      "parent": [
+        12.57,
+        12.6,
+        12.75,
+        12.62,
+        13.16,
+        12.81
+      ],
+      "candidate": [
+        8.788,
+        8.883,
+        8.85,
+        8.866,
+        8.793,
+        8.697
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/near",
+    "median_ns": {
+      "assembly": 24.689999999999998,
+      "parent": 12.26,
+      "candidate": 9.900500000000001
+    },
+    "main_speedup": 1.2383212969041966,
+    "asm_speedup": 2.493813443765466,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        24.63,
+        24.57,
+        24.56,
+        24.9,
+        25.37,
+        24.75
+      ],
+      "parent": [
+        12.23,
+        12.18,
+        12.16,
+        12.29,
+        12.46,
+        12.64
+      ],
+      "candidate": [
+        9.84,
+        9.948,
+        9.772,
+        10.07,
+        9.966,
+        9.853
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/early",
+    "median_ns": {
+      "assembly": 2.009,
+      "parent": 3.2685,
+      "candidate": 1.81
+    },
+    "main_speedup": 1.8058011049723757,
+    "asm_speedup": 1.1099447513812153,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        2.008,
+        2.01,
+        2.005,
+        2.007,
+        2.052,
+        2.071
+      ],
+      "parent": [
+        3.202,
+        3.25,
+        3.261,
+        3.276,
+        4.243,
+        3.301
+      ],
+      "candidate": [
+        1.789,
+        1.818,
+        1.803,
+        1.807,
+        1.813,
+        1.813
+      ]
+    }
+  },
+  {
+    "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/middle",
+    "median_ns": {
+      "assembly": 8.074,
+      "parent": 5.5295000000000005,
+      "candidate": 3.808
+    },
+    "main_speedup": 1.452074579831933,
+    "asm_speedup": 2.1202731092436977,
+    "faster_main_pairs": 6,
+    "faster_asm_pairs": 6,
+    "samples": {
+      "assembly": [
+        8.039,
+        8.083,
+        8.031,
+        8.135,
+        8.065,
+        8.164
+      ],
+      "parent": [
+        5.57,
+        5.512,
+        5.533,
+        5.526,
+        5.922,
+        5.512
+      ],
+      "candidate": [
+        3.789,
+        3.858,
+        3.884,
+        3.807,
+        3.809,
+        3.73
+      ]
+    }
+  }
+]

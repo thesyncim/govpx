@@ -1,0 +1,39 @@
+{
+  "workload": "VP8 1280x720 60frames 2500kbps realtime cpu-used8 1thread PGOoff",
+  "median_ms": {
+    "assembly": 7.0913405,
+    "parent": 7.80329,
+    "candidate": 7.8673345
+  },
+  "samples_ms": {
+    "assembly": [
+      7.237695,
+      6.944986,
+      6.925314,
+      6.874869,
+      7.79754,
+      7.432118
+    ],
+    "parent": [
+      7.890349,
+      7.716231,
+      7.96,
+      7.672366,
+      8.312257,
+      7.710743
+    ],
+    "candidate": [
+      8.048338,
+      7.654899,
+      7.66006,
+      7.898117,
+      7.836552,
+      8.105827
+    ]
+  },
+  "main_pct": 0.8207371506121275,
+  "asm_pct": 10.942839368663781,
+  "main_faster_pairs": 3,
+  "exact_controls": 23,
+  "zero_alloc": true
+}

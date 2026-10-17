@@ -1,0 +1,27 @@
+{
+  "cpu": "Apple M4 Max",
+  "os": "Darwin arm64",
+  "toolchain": "Go1.27.2",
+  "GOEXPERIMENT": "simd",
+  "GOMAXPROCS": 1,
+  "PGO": "off",
+  "rounds": 6,
+  "kernel_cases": 20,
+  "benchtime": "150ms",
+  "parent": "0589d8feddc920ccf9dac4f31da1716f7487de6d",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "source_sha256": {
+    "internal/pixel/sad_limit16_arm64.go": "6c042c96e6db843b7b8095ac5a6c60f69759cf6c4709ca9778978cff862b475b",
+    "internal/pixel/sad_limit16_arm64_test.go": "21d68c8373754e317b31473ea968a5627521326eded7032219c52cc83a944b42",
+    "internal/vp8/dsp/sad_dispatch_other.go": "b91576a91700c58faf5df632ea385f634a5dab0154156ef5b2173f62659a7ea7",
+    "internal/vp8/dsp/sad_limit16_arm64.go": "0a3fe376167b3286f2fba26977810cd48f7f72347d2139c4e1fa3e269718a7fc",
+    "internal/vp8/dsp/sad_limit16_other.go": "894d23ac1810599b5b3bd54f3fd97fc4c301ec72d4fc345bb5e732f605e80db0",
+    "internal/vp8/dsp/sad_limit_native_test.go": "d3a2102d055dea1ca1b5c81efc1b0e584e1e4558129722446249ba1348442574"
+  },
+  "binary_sha256": {
+    "assembly": "dc815c4ed9e81ea7b49cf9a34429ffcb67af2072ef02f95aea22fb960373fd42",
+    "parent": "ca00199c13d8f301b73f934b70b3e750533076b61997ab3a1d8ddf7fe44de6a2",
+    "candidate": "c4a9d6d55ef5290413072b7977a585d5ce7376666329d8c404d7a4dce0e71f91",
+    "candidate_cli": "3bd366b11e58d88e975851ccb38ae613a6eaee322eddcb9ed0da49b54230ab65"
+  }
+}
