@@ -3,11 +3,13 @@ package benchcmd
 import (
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	govpx "github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/vpx/ivf"
 )
 
@@ -35,15 +37,54 @@ func TestRunDecodeBenchmarkOutputsJSONMetrics(t *testing.T) {
 	if report.NSPerFrame <= 0 || report.DecodeFPS <= 0 || report.MacroblocksPerSec <= 0 || report.CodedMegabytesPerSec <= 0 || report.LatencyNS.P50 <= 0 {
 		t.Fatalf("decode timing metrics = ns:%d fps:%f mbps:%f coded:%f p50:%d", report.NSPerFrame, report.DecodeFPS, report.MacroblocksPerSec, report.CodedMegabytesPerSec, report.LatencyNS.P50)
 	}
+	if math.IsNaN(report.AllocsPerFrame) || math.IsInf(report.AllocsPerFrame, 0) || report.AllocsPerFrame < 0 {
+		t.Fatalf("AllocsPerFrame = %f, want a finite nonnegative measurement", report.AllocsPerFrame)
+	}
+	if _, err := json.Marshal(report); err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+}
+
+func TestDecodeBenchmarkPacketsAllocations(t *testing.T) {
+	cfg := benchConfig{Width: 16, Height: 16, Frames: 3, FPS: 30, BitrateKbps: 1200, Mode: "realtime"}
+	deadline, _, err := benchmarkDeadline(cfg.Mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := make([]govpx.Image, cfg.Frames)
+	for i := range frames {
+		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
+	}
+	packets, err := encodeDecodeBenchmarkPackets(cfg, deadline, frames, codecVP8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packets) != cfg.Frames {
+		t.Fatalf("encoded packets = %d, want %d", len(packets), cfg.Frames)
+	}
+	dec, err := newBenchmarkDecoder(codecVP8, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBenchmarkDecoder(dec)
+	latencies := make([]int64, 0, len(packets))
+	var decodedFrames int
+	// The CLI reports a process-wide MemStats delta over one timed pass.
+	// Check its hot-path allocation contract with AllocsPerRun, which warms
+	// the decoder and uses one P to reduce scheduling interference.
+	allocs := testing.AllocsPerRun(100, func() {
+		decodedFrames, latencies, err = decodeBenchmarkPackets(dec, packets, latencies[:0])
+		if err != nil || decodedFrames != len(packets) {
+			t.Fatalf("measured decode = %d frames, %v; want %d frames", decodedFrames, err, len(packets))
+		}
+	}) / float64(len(packets))
 	maxAllocs := 0.0
 	if puregoBuild {
 		maxAllocs = 1
 	}
-	if report.AllocsPerFrame > maxAllocs {
-		t.Fatalf("AllocsPerFrame = %f, want <= %f for measured decode pass", report.AllocsPerFrame, maxAllocs)
-	}
-	if _, err := json.Marshal(report); err != nil {
-		t.Fatalf("Marshal returned error: %v", err)
+	t.Logf("decodeBenchmarkPackets allocations/frame = %f (limit %f)", allocs, maxAllocs)
+	if allocs > maxAllocs {
+		t.Fatalf("decodeBenchmarkPackets allocations/frame = %f, want <= %f", allocs, maxAllocs)
 	}
 }
 
