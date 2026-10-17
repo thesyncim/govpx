@@ -1,0 +1,1058 @@
+{
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind4/flat": {
+    "samples": {
+      "parent": [
+        15.53,
+        15.45,
+        15.5,
+        15.44,
+        15.48,
+        15.42
+      ],
+      "assembly": [
+        13.32,
+        13.91,
+        13.44,
+        13.4,
+        13.62,
+        13.43
+      ],
+      "candidate": [
+        9.776,
+        10.1,
+        9.731,
+        9.791,
+        9.675,
+        9.721
+      ]
+    },
+    "speedup": 1.5855846619162353,
+    "minimum_paired_speedup": 1.5297029702970297,
+    "speedup_assembly": 1.3774542471933153,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind4/ramp": {
+    "samples": {
+      "parent": [
+        15.41,
+        15.63,
+        15.47,
+        15.61,
+        15.47,
+        15.68
+      ],
+      "assembly": [
+        13.37,
+        14.01,
+        13.52,
+        13.47,
+        13.73,
+        13.49
+      ],
+      "candidate": [
+        9.697,
+        10.17,
+        9.498,
+        9.777,
+        9.729,
+        9.691
+      ]
+    },
+    "speedup": 1.5999176361577268,
+    "minimum_paired_speedup": 1.536873156342183,
+    "speedup_assembly": 1.3904046123751672,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind4/smooth": {
+    "samples": {
+      "parent": [
+        19.37,
+        19.35,
+        19.48,
+        19.41,
+        19.51,
+        19.52
+      ],
+      "assembly": [
+        13.84,
+        14.29,
+        13.73,
+        13.84,
+        14.06,
+        13.8
+      ],
+      "candidate": [
+        19.85,
+        20.55,
+        19.62,
+        19.97,
+        19.75,
+        19.89
+      ]
+    },
+    "speedup": 0.9786109713135379,
+    "minimum_paired_speedup": 0.9416058394160585,
+    "speedup_assembly": 0.696527428283845,
+    "faster_parent_pairs": 0,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind4/noop": {
+    "samples": {
+      "parent": [
+        8.659,
+        8.667,
+        8.681,
+        8.736,
+        8.676,
+        8.666
+      ],
+      "assembly": [
+        13.48,
+        14.5,
+        13.52,
+        13.7,
+        13.52,
+        13.42
+      ],
+      "candidate": [
+        8.778,
+        9.149,
+        8.824,
+        8.82,
+        8.673,
+        8.75
+      ]
+    },
+    "speedup": 0.985509717013297,
+    "minimum_paired_speedup": 0.9473166466280468,
+    "speedup_assembly": 1.536538242982157,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind6/flat": {
+    "samples": {
+      "parent": [
+        18.12,
+        18.47,
+        18.33,
+        18.34,
+        18.3,
+        18.39
+      ],
+      "assembly": [
+        13.94,
+        15.06,
+        14.01,
+        14.03,
+        13.99,
+        14.35
+      ],
+      "candidate": [
+        9.998,
+        10.13,
+        9.804,
+        9.744,
+        9.819,
+        9.678
+      ]
+    },
+    "speedup": 1.8687254752076645,
+    "minimum_paired_speedup": 1.812362472494499,
+    "speedup_assembly": 1.42893543291036,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind6/ramp": {
+    "samples": {
+      "parent": [
+        18.2,
+        18.44,
+        18.39,
+        18.25,
+        18.49,
+        18.18
+      ],
+      "assembly": [
+        13.93,
+        15.12,
+        14.0,
+        14.11,
+        14.09,
+        14.01
+      ],
+      "candidate": [
+        10.04,
+        10.07,
+        9.673,
+        9.643,
+        9.904,
+        9.676
+      ]
+    },
+    "speedup": 1.871297242083759,
+    "minimum_paired_speedup": 1.812749003984064,
+    "speedup_assembly": 1.4351378958120533,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind6/smooth": {
+    "samples": {
+      "parent": [
+        21.13,
+        21.88,
+        21.12,
+        21.19,
+        21.69,
+        21.27
+      ],
+      "assembly": [
+        14.94,
+        15.82,
+        14.92,
+        14.9,
+        15.28,
+        15.02
+      ],
+      "candidate": [
+        21.7,
+        22.71,
+        21.95,
+        21.95,
+        21.66,
+        21.65
+      ]
+    },
+    "speedup": 0.9727376861397481,
+    "minimum_paired_speedup": 0.9621867881548976,
+    "speedup_assembly": 0.686368843069874,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticalfalse/kind6/noop": {
+    "samples": {
+      "parent": [
+        8.91,
+        8.835,
+        8.758,
+        8.928,
+        8.875,
+        8.965
+      ],
+      "assembly": [
+        14.08,
+        14.81,
+        14.18,
+        13.97,
+        13.96,
+        14.07
+      ],
+      "candidate": [
+        9.027,
+        8.98,
+        8.951,
+        8.917,
+        8.947,
+        8.933
+      ]
+    },
+    "speedup": 0.9936864454128953,
+    "minimum_paired_speedup": 0.9784381633337056,
+    "speedup_assembly": 1.572801430327411,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind4/flat": {
+    "samples": {
+      "parent": [
+        25.04,
+        25.16,
+        25.54,
+        25.06,
+        25.65,
+        25.48
+      ],
+      "assembly": [
+        17.78,
+        19.24,
+        18.1,
+        18.11,
+        17.99,
+        18.16
+      ],
+      "candidate": [
+        13.05,
+        12.71,
+        12.86,
+        12.75,
+        12.85,
+        12.61
+      ]
+    },
+    "speedup": 1.978125,
+    "minimum_paired_speedup": 1.9187739463601532,
+    "speedup_assembly": 1.4144531249999999,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind4/ramp": {
+    "samples": {
+      "parent": [
+        25.02,
+        25.3,
+        25.39,
+        25.48,
+        25.31,
+        25.56
+      ],
+      "assembly": [
+        17.92,
+        19.04,
+        18.05,
+        18.03,
+        18.16,
+        18.17
+      ],
+      "candidate": [
+        12.88,
+        12.87,
+        12.85,
+        12.87,
+        12.66,
+        12.66
+      ]
+    },
+    "speedup": 1.9712286158631418,
+    "minimum_paired_speedup": 1.9425465838509315,
+    "speedup_assembly": 1.4078538102643858,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind4/smooth": {
+    "samples": {
+      "parent": [
+        25.76,
+        26.06,
+        26.01,
+        25.94,
+        26.45,
+        25.8
+      ],
+      "assembly": [
+        17.15,
+        17.84,
+        17.03,
+        17.17,
+        17.0,
+        17.41
+      ],
+      "candidate": [
+        26.4,
+        26.28,
+        26.23,
+        26.15,
+        26.27,
+        26.22
+      ]
+    },
+    "speedup": 0.9895238095238096,
+    "minimum_paired_speedup": 0.9757575757575758,
+    "speedup_assembly": 0.6537142857142857,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind4/noop": {
+    "samples": {
+      "parent": [
+        12.24,
+        12.18,
+        12.17,
+        11.81,
+        12.07,
+        12.19
+      ],
+      "assembly": [
+        17.86,
+        18.81,
+        18.06,
+        18.24,
+        18.01,
+        18.3
+      ],
+      "candidate": [
+        12.57,
+        12.27,
+        12.04,
+        11.83,
+        12.09,
+        12.13
+      ]
+    },
+    "speedup": 1.0053674649050373,
+    "minimum_paired_speedup": 0.9737470167064439,
+    "speedup_assembly": 1.4987613542526836,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind6/flat": {
+    "samples": {
+      "parent": [
+        29.13,
+        29.91,
+        29.91,
+        29.21,
+        29.84,
+        30.03
+      ],
+      "assembly": [
+        19.32,
+        19.89,
+        19.52,
+        19.42,
+        19.49,
+        19.79
+      ],
+      "candidate": [
+        13.13,
+        13.37,
+        12.79,
+        13.16,
+        13.04,
+        12.74
+      ]
+    },
+    "speedup": 2.2831486434849064,
+    "minimum_paired_speedup": 2.2185833968012183,
+    "speedup_assembly": 1.4906381352693923,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind6/ramp": {
+    "samples": {
+      "parent": [
+        28.88,
+        29.91,
+        29.32,
+        29.08,
+        30.45,
+        29.31
+      ],
+      "assembly": [
+        19.38,
+        20.28,
+        19.51,
+        19.62,
+        19.64,
+        19.8
+      ],
+      "candidate": [
+        13.01,
+        13.18,
+        12.96,
+        13.01,
+        12.78,
+        12.56
+      ]
+    },
+    "speedup": 2.2576049287639584,
+    "minimum_paired_speedup": 2.2198308993082243,
+    "speedup_assembly": 1.5117443203696577,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind6/smooth": {
+    "samples": {
+      "parent": [
+        33.1,
+        32.8,
+        33.0,
+        32.83,
+        34.12,
+        32.98
+      ],
+      "assembly": [
+        17.32,
+        18.12,
+        17.35,
+        17.51,
+        17.48,
+        17.64
+      ],
+      "candidate": [
+        33.55,
+        33.42,
+        33.26,
+        33.41,
+        33.04,
+        33.23
+      ]
+    },
+    "speedup": 0.9896505174741264,
+    "minimum_paired_speedup": 0.9814482345900657,
+    "speedup_assembly": 0.5248237588120596,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch32/verticaltrue/kind6/noop": {
+    "samples": {
+      "parent": [
+        12.19,
+        12.03,
+        12.06,
+        12.1,
+        12.4,
+        12.19
+      ],
+      "assembly": [
+        19.16,
+        20.73,
+        19.53,
+        19.48,
+        19.48,
+        19.67
+      ],
+      "candidate": [
+        12.22,
+        12.29,
+        12.23,
+        12.12,
+        11.97,
+        11.87
+      ]
+    },
+    "speedup": 0.9979457682826622,
+    "minimum_paired_speedup": 0.9788445890968267,
+    "speedup_assembly": 1.6027115858668861,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind4/flat": {
+    "samples": {
+      "parent": [
+        15.47,
+        15.57,
+        15.45,
+        15.54,
+        15.8,
+        15.6
+      ],
+      "assembly": [
+        13.51,
+        14.43,
+        13.7,
+        13.43,
+        13.51,
+        13.59
+      ],
+      "candidate": [
+        9.694,
+        9.687,
+        9.661,
+        9.589,
+        9.673,
+        9.606
+      ]
+    },
+    "speedup": 1.609082445432916,
+    "minimum_paired_speedup": 1.595832473695069,
+    "speedup_assembly": 1.401675804282611,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind4/ramp": {
+    "samples": {
+      "parent": [
+        15.46,
+        15.51,
+        15.56,
+        15.46,
+        15.84,
+        15.48
+      ],
+      "assembly": [
+        13.35,
+        14.5,
+        13.36,
+        13.41,
+        13.53,
+        13.6
+      ],
+      "candidate": [
+        9.789,
+        9.547,
+        9.674,
+        9.626,
+        9.549,
+        9.557
+      ]
+    },
+    "speedup": 1.6154928843246625,
+    "minimum_paired_speedup": 1.5793237307181531,
+    "speedup_assembly": 1.4043684512328622,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind4/smooth": {
+    "samples": {
+      "parent": [
+        19.32,
+        19.49,
+        19.33,
+        19.48,
+        19.92,
+        19.76
+      ],
+      "assembly": [
+        13.68,
+        14.85,
+        13.76,
+        13.7,
+        13.73,
+        13.68
+      ],
+      "candidate": [
+        19.95,
+        19.69,
+        19.57,
+        19.57,
+        19.89,
+        19.75
+      ]
+    },
+    "speedup": 0.9880831643002028,
+    "minimum_paired_speedup": 0.968421052631579,
+    "speedup_assembly": 0.6954868154158216,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind4/noop": {
+    "samples": {
+      "parent": [
+        8.7,
+        8.813,
+        8.697,
+        8.749,
+        8.768,
+        8.677
+      ],
+      "assembly": [
+        13.43,
+        14.33,
+        13.47,
+        13.49,
+        13.48,
+        13.45
+      ],
+      "candidate": [
+        8.828,
+        8.737,
+        8.731,
+        8.76,
+        8.709,
+        8.668
+      ]
+    },
+    "speedup": 0.9989122967712387,
+    "minimum_paired_speedup": 0.9855006796556411,
+    "speedup_assembly": 1.5428211586901766,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind6/flat": {
+    "samples": {
+      "parent": [
+        18.1,
+        18.5,
+        18.28,
+        18.25,
+        18.38,
+        18.33
+      ],
+      "assembly": [
+        13.93,
+        15.1,
+        13.97,
+        14.06,
+        14.03,
+        13.98
+      ],
+      "candidate": [
+        9.825,
+        9.757,
+        10.07,
+        9.869,
+        9.919,
+        10.01
+      ]
+    },
+    "speedup": 1.8501111784920152,
+    "minimum_paired_speedup": 1.8152929493545185,
+    "speedup_assembly": 1.415504346068324,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind6/ramp": {
+    "samples": {
+      "parent": [
+        18.13,
+        18.55,
+        18.19,
+        18.52,
+        18.31,
+        18.45
+      ],
+      "assembly": [
+        14.06,
+        14.73,
+        14.08,
+        13.99,
+        13.99,
+        13.99
+      ],
+      "candidate": [
+        10.11,
+        9.815,
+        9.849,
+        9.879,
+        9.971,
+        9.914
+      ]
+    },
+    "speedup": 1.8572222502905067,
+    "minimum_paired_speedup": 1.7932739861523244,
+    "speedup_assembly": 1.417167685545395,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind6/smooth": {
+    "samples": {
+      "parent": [
+        21.43,
+        21.38,
+        21.42,
+        21.66,
+        21.26,
+        21.42
+      ],
+      "assembly": [
+        14.92,
+        15.67,
+        14.85,
+        15.33,
+        15.13,
+        14.93
+      ],
+      "candidate": [
+        23.06,
+        21.89,
+        21.88,
+        21.79,
+        22.02,
+        21.71
+      ]
+    },
+    "speedup": 0.9787525702535985,
+    "minimum_paired_speedup": 0.9293148308759758,
+    "speedup_assembly": 0.6867717614804661,
+    "faster_parent_pairs": 0,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticalfalse/kind6/noop": {
+    "samples": {
+      "parent": [
+        8.916,
+        9.024,
+        8.941,
+        8.937,
+        8.92,
+        8.92
+      ],
+      "assembly": [
+        14.07,
+        14.69,
+        13.97,
+        14.01,
+        14.02,
+        14.03
+      ],
+      "candidate": [
+        9.537,
+        8.974,
+        8.951,
+        8.933,
+        9.376,
+        8.813
+      ]
+    },
+    "speedup": 0.9962064156206415,
+    "minimum_paired_speedup": 0.9348851840201321,
+    "speedup_assembly": 1.5648535564853554,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind4/flat": {
+    "samples": {
+      "parent": [
+        25.54,
+        25.99,
+        25.1,
+        25.73,
+        25.54,
+        25.59
+      ],
+      "assembly": [
+        18.05,
+        18.65,
+        18.12,
+        18.07,
+        18.07,
+        18.09
+      ],
+      "candidate": [
+        13.59,
+        13.05,
+        12.89,
+        12.69,
+        12.97,
+        12.75
+      ]
+    },
+    "speedup": 1.9771848414539828,
+    "minimum_paired_speedup": 1.8793230316409124,
+    "speedup_assembly": 1.3982985305491105,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind4/ramp": {
+    "samples": {
+      "parent": [
+        25.57,
+        25.46,
+        25.72,
+        25.6,
+        25.48,
+        25.44
+      ],
+      "assembly": [
+        18.27,
+        18.73,
+        18.02,
+        18.05,
+        18.08,
+        18.08
+      ],
+      "candidate": [
+        13.43,
+        12.82,
+        12.79,
+        12.9,
+        12.75,
+        12.96
+      ]
+    },
+    "speedup": 1.9848367029548988,
+    "minimum_paired_speedup": 1.9039463886820551,
+    "speedup_assembly": 1.405909797822706,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind4/smooth": {
+    "samples": {
+      "parent": [
+        26.38,
+        25.95,
+        26.26,
+        25.96,
+        26.14,
+        26.4
+      ],
+      "assembly": [
+        17.27,
+        17.7,
+        16.89,
+        17.02,
+        17.1,
+        17.02
+      ],
+      "candidate": [
+        27.23,
+        26.15,
+        26.35,
+        26.63,
+        26.14,
+        26.23
+      ]
+    },
+    "speedup": 0.9965766451122101,
+    "minimum_paired_speedup": 0.9687844289386706,
+    "speedup_assembly": 0.6489159376188666,
+    "faster_parent_pairs": 1,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind4/noop": {
+    "samples": {
+      "parent": [
+        11.97,
+        12.0,
+        12.11,
+        12.13,
+        12.14,
+        11.83
+      ],
+      "assembly": [
+        18.23,
+        18.97,
+        18.06,
+        18.01,
+        18.02,
+        18.12
+      ],
+      "candidate": [
+        12.66,
+        12.15,
+        12.08,
+        12.16,
+        12.11,
+        12.13
+      ]
+    },
+    "speedup": 0.992998352553542,
+    "minimum_paired_speedup": 0.9454976303317536,
+    "speedup_assembly": 1.4901153212520593,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind6/flat": {
+    "samples": {
+      "parent": [
+        29.78,
+        29.59,
+        29.95,
+        29.43,
+        29.86,
+        29.55
+      ],
+      "assembly": [
+        19.61,
+        20.78,
+        19.34,
+        19.58,
+        19.51,
+        19.49
+      ],
+      "candidate": [
+        13.57,
+        13.07,
+        13.06,
+        13.21,
+        12.84,
+        12.89
+      ]
+    },
+    "speedup": 2.2721010332950633,
+    "minimum_paired_speedup": 2.1945467943994106,
+    "speedup_assembly": 1.4959816303099884,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind6/ramp": {
+    "samples": {
+      "parent": [
+        29.12,
+        29.45,
+        29.53,
+        29.9,
+        29.93,
+        29.99
+      ],
+      "assembly": [
+        19.7,
+        21.03,
+        19.41,
+        19.55,
+        19.62,
+        19.45
+      ],
+      "candidate": [
+        13.37,
+        13.19,
+        12.82,
+        13.15,
+        12.82,
+        12.75
+      ]
+    },
+    "speedup": 2.288409703504043,
+    "minimum_paired_speedup": 2.1780104712041886,
+    "speedup_assembly": 1.508278783211398,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind6/smooth": {
+    "samples": {
+      "parent": [
+        32.9,
+        33.12,
+        33.38,
+        32.96,
+        33.04,
+        32.97
+      ],
+      "assembly": [
+        17.63,
+        18.38,
+        17.41,
+        17.35,
+        17.36,
+        17.5
+      ],
+      "candidate": [
+        34.55,
+        33.04,
+        32.83,
+        33.2,
+        33.8,
+        33.2
+      ]
+    },
+    "speedup": 0.9941265060240961,
+    "minimum_paired_speedup": 0.9522431259044863,
+    "speedup_assembly": 0.5257530120481927,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 0
+  },
+  "BenchmarkUVRoundedZeroNative/pitch672/verticaltrue/kind6/noop": {
+    "samples": {
+      "parent": [
+        12.21,
+        12.14,
+        11.89,
+        12.35,
+        12.22,
+        11.66
+      ],
+      "assembly": [
+        19.76,
+        20.48,
+        19.6,
+        19.53,
+        19.5,
+        19.53
+      ],
+      "candidate": [
+        12.45,
+        12.15,
+        11.91,
+        12.21,
+        12.14,
+        12.22
+      ]
+    },
+    "speedup": 0.9995894909688013,
+    "minimum_paired_speedup": 0.9541734860883797,
+    "speedup_assembly": 1.60632183908046,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 6
+  }
+}

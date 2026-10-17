@@ -636,6 +636,16 @@ func generateUVLoopFilter() {
 	body = body[start:end]
 	body = strings.ReplaceAll(body, "storeLFBytes(p, ", "storeLFUV(planeU, planeV, ")
 	body = strings.ReplaceAll(body, "step, outer, lanes, ", "step, outer, ")
+	const correction = "f := lfFilterDelta(outerF, p0c, q0c).Masked(need)"
+	if strings.Count(body, correction) != 1 {
+		panic("UV correction marker changed")
+	}
+	body = strings.Replace(body, correction, correction+`
+	// Identity corrections leave both disjoint chroma planes unchanged.
+	if uvRoundedZero(f, kind) {
+		return
+	}`, 1)
+
 	out := `// SPDX-License-Identifier: BSD-2-Clause
 // Byte-domain dataflow extracted from goav1 ff46346e73f063ff1ea3a8d7f06ee26cd9baaad4.
 // See UPSTREAM.md and ../../third_party/goav1/LICENSE.

@@ -1,0 +1,29 @@
+{
+  "cpu": "Apple M4 Max",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t26.3.1\nProductVersionExtra:\t(a)\nBuildVersion:\t\t25D771280a\n",
+  "compiler": "Go 1.27.2 darwin/arm64, GOEXPERIMENT=simd",
+  "pgo": "off in all timing binaries",
+  "goprocs": 1,
+  "encoder_threads": 1,
+  "parent": "42bac3ce697f71ae783a13b9c9a4fb540c29e581 (PR33 tested source)",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "binary_sha256": {
+    "govpx-next-uv-zero-parent.test": "d2bd08e6b0f3b05455fbbad3a011e67b00fa23e6c01bd78a088f023d14070f0d",
+    "govpx-next-uv-zero-assembly.test": "705bea51ca91d8adaeec9828388b292e3b0db6479c5a19dde1f2273082871f73",
+    "govpx-next-uv-zero-candidate.test": "832d508e05f0f126c75e89b541ad4fa36526bd3e704a79d62e1df3b3c8d45354",
+    "govpx-next-uv-zero-candidate-final.test": "12aba2baed5c9e19986dd279dd50c22ebf4dfc0d05dc98e38517c052f5a86d79",
+    "govpx-next-uv-zero-candidate-bench": "d2b002107ed9f2b2fee6ec59dae94e1caa107b238ca2367a3d3ecdaa0a1bc7b7",
+    "govpx-next-filter-small-bench": "4cf4fc51b3554c455c3d01177c0014badcdc385c55440bb3115abcfd1d3ac5bb",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  },
+  "source_sha256": {
+    "scripts/gensimd.go": "199b298c2a111f112d235a1a600a41567e5c566f6527a344684c3496bd4541db",
+    "internal/pixel/loopfilter_uv_arith_simd.go": "afee8294a0ab094396b7757d52c84666c5dc9906ab105d8f2d33840c008627ea",
+    "internal/pixel/loopfilter_uv_zero_arm64.go": "70b7f6641a931133b19b09a00de3d02f87be242646be92b1ea4005be13b01f34",
+    "internal/pixel/loopfilter_uv_zero_amd64.go": "fe90155a621da4c2cb389c6914daf114335359cf212dee4e3f6a915266b7fd38",
+    "internal/pixel/uv_zero_boundaries_arm64_test.go": "4989f8e6248cdf6effdc7e70282e92942fb0f10e5b122fe1a37762307dbc75a3",
+    "internal/vp8/dsp/uv_zero_native_test.go": "7eaf193366b5360d426e2407dc0cffb728afa773fb7bb415393deba4f49be5c2"
+  },
+  "raw_file_count": 91,
+  "scope": "UV flat/gradient identity-correction shortcut. ARM instructions match timed prototype; AMD instructions match parent. Kernel and whole-codec evidence are independent."
+}

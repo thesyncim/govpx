@@ -39,6 +39,10 @@ func loopFilterUVBytes(planeU, planeV []byte, off, step, outer, blimit, limit, t
 	// outer correction. Intermediate saturation is then exact: a delta
 	// outside int8 forces the final clamp even at the opposite outer extreme.
 	f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+	// Identity corrections leave both disjoint chroma planes unchanged.
+	if uvRoundedZero(f, kind) {
+		return
+	}
 	three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
 	z := archsimd.Uint8x16{}
 	if kind == 6 {

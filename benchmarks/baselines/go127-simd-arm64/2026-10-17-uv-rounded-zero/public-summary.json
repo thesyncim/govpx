@@ -1,0 +1,130 @@
+{
+  "300": {
+    "samples": {
+      "assembly": [
+        6926473,
+        6809274,
+        6828893,
+        6775360,
+        6783588,
+        7256680
+      ],
+      "parent": [
+        7792003,
+        7581444,
+        7845470,
+        7656600,
+        7493136,
+        7473300
+      ],
+      "candidate": [
+        7624344,
+        7553686,
+        7481336,
+        7716978,
+        7615740,
+        7652522
+      ]
+    },
+    "median_ns": {
+      "assembly": 6819083.5,
+      "parent": 7619022.0,
+      "candidate": 7620042.0
+    },
+    "vs_parent_percent": 0.013387545015630664,
+    "vs_assembly_percent": 11.745837985412555,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 0,
+    "exact_fields": [
+      "allocs_per_frame",
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocations": 0,
+    "limits": "Shared desktop balanced serial confirmation; no isolated causal attribution for shifts larger than component/profile expectation."
+  },
+  "60": {
+    "samples": {
+      "assembly": [
+        7272018,
+        6895838,
+        6777952,
+        6780833,
+        7132702,
+        6786303
+      ],
+      "parent": [
+        7808236,
+        7650925,
+        7651465,
+        7597415,
+        7640772,
+        7653786
+      ],
+      "candidate": [
+        7706840,
+        7614303,
+        7633984,
+        7657164,
+        7692044,
+        7702981
+      ]
+    },
+    "median_ns": {
+      "assembly": 6841070.5,
+      "parent": 7651195.0,
+      "candidate": 7674604.0
+    },
+    "vs_parent_percent": 0.3059522074656318,
+    "vs_assembly_percent": 12.184255373482845,
+    "faster_parent_pairs": 3,
+    "faster_assembly_pairs": 0,
+    "exact_fields": [
+      "allocs_per_frame",
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocations": 0,
+    "limits": "Shared desktop balanced serial confirmation; no isolated causal attribution for shifts larger than component/profile expectation."
+  }
+}
