@@ -1,0 +1,23 @@
+{
+  "host": "Apple M4 Max darwin/arm64; Rosetta correctness only",
+  "compiler": "Go1.27.2 GOEXPERIMENT=simd GOAMD64=v1 PGOoff",
+  "parent": "c3930581b42837b421c9d83389ac435bb05fcb55; AMD production matches mergedmain f56c66d7",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "native_speed": "pending native CI; no emulated speed evidence",
+  "new_fixture_cases": 40,
+  "native_matrix_cases": 246,
+  "raw_members": 32,
+  "final_source_sha256": {
+    "internal/pixel/subpel16_amd64.go": "76da71b984d8b97aa3de3ab2297eca1bfb9803e053ca3256d1870e7886860e36",
+    "internal/pixel/subpel_pointer_amd64_test.go": "bcd74905fe369ed060225f18779c3a0436fb8f6f54117c269e468d7c61c4cf0e",
+    "internal/vp9/dsp/subpel_pointer_native_test.go": "b2057f648d94c89683213f2a1e40f3518178b6b29d8c8946bbb7f13a381c3b18",
+    "scripts/benchmark-amd64.sh": "043b2cd5ef7dbfa855f819d8420f94ee86fecf15202b4f169d409ee8aaa8b18c"
+  },
+  "binaries_sha256": {
+    "govpx-next-subpel-pointer-amd64.test": "58ac8ff34be1dbf749ff8b2ac2a623ea6cc5659249d008210891e895aeafb42a",
+    "govpx-next-subpel-pointer-amd64-checkptr.test": "66e6a15fddf46d55878cf4df5485718e4ea1dc60ac1e056fcfb40fc529513171",
+    "govpx-next-subpel-pointer-final-amd64.test": "7d6fdb76923a5320648567780c2ac58cb0a7f7521bcb4488ec855ad1c55504b7",
+    "govpx-next-subpel-pointer-dsp-amd64.test": "08feb738ec8fb0c37b8be4753687aa5154177b18373048d8bc9159e4424857c8",
+    "govpx-next-subpel-pointer-assembly-amd64.test": "ca6a1642a250bf43d680cd3e81c19853867ca158aae715cde535cf2bd179e427"
+  }
+}
