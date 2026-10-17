@@ -1,0 +1,762 @@
+{
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        13.59,
+        13.55,
+        13.44,
+        13.55,
+        13.41,
+        13.48
+      ],
+      "assembly": [
+        24.92,
+        24.57,
+        24.28,
+        24.06,
+        24.13,
+        24.18
+      ],
+      "candidate": [
+        9.639,
+        9.543,
+        9.537,
+        9.488,
+        9.416,
+        9.429
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5577796120511762,
+      "candidate": 1.420762155059133
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/wide": {
+    "samples": {
+      "parent": [
+        13.38,
+        13.45,
+        13.55,
+        13.45,
+        13.42,
+        13.41
+      ],
+      "assembly": [
+        23.57,
+        24.68,
+        24.39,
+        24.37,
+        24.25,
+        24.26
+      ],
+      "candidate": [
+        9.453,
+        9.561,
+        9.492,
+        9.427,
+        9.469,
+        9.463
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5525395846185481,
+      "candidate": 1.4192900908514683
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/near": {
+    "samples": {
+      "parent": [
+        13.42,
+        13.48,
+        13.39,
+        13.44,
+        13.57,
+        13.43
+      ],
+      "assembly": [
+        25.0,
+        24.45,
+        24.66,
+        24.28,
+        24.22,
+        24.21
+      ],
+      "candidate": [
+        11.8,
+        11.74,
+        11.63,
+        11.62,
+        11.55,
+        11.58
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5514057049045762,
+      "candidate": 1.1556989247311826
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/early": {
+    "samples": {
+      "parent": [
+        3.965,
+        3.972,
+        3.994,
+        3.975,
+        4.011,
+        4.03
+      ],
+      "assembly": [
+        2.495,
+        2.48,
+        2.507,
+        2.447,
+        2.481,
+        2.505
+      ],
+      "candidate": [
+        2.5,
+        2.52,
+        2.484,
+        2.483,
+        2.507,
+        2.512
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.6014871382636657,
+      "candidate": 1.5915717994807272
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        11.3,
+        11.36,
+        11.26,
+        11.18,
+        11.22,
+        11.23
+      ],
+      "assembly": [
+        19.96,
+        20.06,
+        19.74,
+        19.76,
+        19.8,
+        19.75
+      ],
+      "candidate": [
+        9.072,
+        9.173,
+        8.984,
+        9.128,
+        9.096,
+        8.995
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5685035389282104,
+      "candidate": 1.2378907970057245
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremetrue/bound": {
+    "samples": {
+      "parent": [
+        13.44,
+        13.52,
+        13.52,
+        13.6,
+        13.43,
+        13.4
+      ],
+      "assembly": [
+        24.86,
+        24.57,
+        23.96,
+        24.1,
+        24.15,
+        24.36
+      ],
+      "candidate": [
+        9.496,
+        9.532,
+        9.501,
+        9.545,
+        9.461,
+        9.493
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5557616986188415,
+      "candidate": 1.419171448123388
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremetrue/wide": {
+    "samples": {
+      "parent": [
+        13.38,
+        13.49,
+        13.44,
+        13.4,
+        13.46,
+        13.43
+      ],
+      "assembly": [
+        24.82,
+        24.64,
+        24.16,
+        24.13,
+        24.45,
+        24.23
+      ],
+      "candidate": [
+        9.474,
+        9.473,
+        9.428,
+        9.426,
+        9.511,
+        9.491
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5519720624486442,
+      "candidate": 1.4181664643479175
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremetrue/near": {
+    "samples": {
+      "parent": [
+        12.97,
+        12.9,
+        13.02,
+        13.04,
+        13.02,
+        13.14
+      ],
+      "assembly": [
+        25.29,
+        24.57,
+        24.58,
+        24.05,
+        24.42,
+        24.2
+      ],
+      "candidate": [
+        10.55,
+        10.76,
+        10.44,
+        10.61,
+        10.6,
+        10.63
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5315370483772198,
+      "candidate": 1.2277227722772277
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremetrue/early": {
+    "samples": {
+      "parent": [
+        3.979,
+        3.991,
+        4.034,
+        3.972,
+        4.056,
+        3.985
+      ],
+      "assembly": [
+        2.547,
+        2.513,
+        2.515,
+        2.498,
+        2.47,
+        2.479
+      ],
+      "candidate": [
+        2.482,
+        2.505,
+        2.499,
+        2.486,
+        2.48,
+        2.51
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.591698263819597,
+      "candidate": 1.5999999999999999
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremetrue/middle": {
+    "samples": {
+      "parent": [
+        6.545,
+        6.387,
+        6.288,
+        6.204,
+        6.302,
+        6.212
+      ],
+      "assembly": [
+        8.187,
+        8.062,
+        8.146,
+        8.075,
+        8.062,
+        7.948
+      ],
+      "candidate": [
+        4.502,
+        4.519,
+        4.466,
+        4.521,
+        4.462,
+        4.813
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.7801945838755654,
+      "candidate": 1.3956324132579536
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        13.49,
+        13.46,
+        13.42,
+        13.57,
+        13.6,
+        13.54
+      ],
+      "assembly": [
+        24.02,
+        24.64,
+        24.38,
+        24.91,
+        24.51,
+        24.15
+      ],
+      "candidate": [
+        9.514,
+        9.431,
+        9.48,
+        9.497,
+        9.537,
+        9.506
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5528737983227654,
+      "candidate": 1.4224069883702575
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/wide": {
+    "samples": {
+      "parent": [
+        13.41,
+        13.43,
+        13.53,
+        13.4,
+        13.64,
+        13.5
+      ],
+      "assembly": [
+        23.71,
+        24.52,
+        24.18,
+        24.82,
+        24.91,
+        24.31
+      ],
+      "candidate": [
+        9.564,
+        9.531,
+        9.411,
+        9.526,
+        9.469,
+        9.444
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5515052221994675,
+      "candidate": 1.4177415109239275
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/near": {
+    "samples": {
+      "parent": [
+        13.44,
+        13.39,
+        13.62,
+        13.53,
+        13.44,
+        13.57
+      ],
+      "assembly": [
+        23.74,
+        24.71,
+        24.18,
+        25.1,
+        24.49,
+        24.39
+      ],
+      "candidate": [
+        11.57,
+        11.72,
+        11.74,
+        11.59,
+        11.59,
+        11.68
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.551759410801964,
+      "candidate": 1.1590030081650193
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/early": {
+    "samples": {
+      "parent": [
+        3.985,
+        3.972,
+        4.037,
+        3.972,
+        4.011,
+        3.977
+      ],
+      "assembly": [
+        2.492,
+        2.465,
+        2.479,
+        2.541,
+        2.489,
+        2.498
+      ],
+      "candidate": [
+        2.487,
+        2.487,
+        2.485,
+        2.498,
+        2.495,
+        2.479
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.5984742019674765,
+      "candidate": 1.600723763570567
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        11.2,
+        11.23,
+        11.36,
+        11.2,
+        11.23,
+        11.18
+      ],
+      "assembly": [
+        19.23,
+        20.08,
+        20.01,
+        20.23,
+        19.81,
+        19.86
+      ],
+      "candidate": [
+        9.158,
+        8.946,
+        9.203,
+        9.078,
+        9.096,
+        8.97
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5625783797341358,
+      "candidate": 1.234180697700011
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremetrue/bound": {
+    "samples": {
+      "parent": [
+        13.47,
+        13.49,
+        13.65,
+        13.44,
+        13.64,
+        13.53
+      ],
+      "assembly": [
+        23.61,
+        24.56,
+        24.13,
+        24.87,
+        24.51,
+        24.22
+      ],
+      "candidate": [
+        9.434,
+        9.451,
+        9.559,
+        9.486,
+        9.464,
+        9.416
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5544838908270059,
+      "candidate": 1.4284959027227069
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremetrue/wide": {
+    "samples": {
+      "parent": [
+        13.4,
+        13.48,
+        14.09,
+        13.46,
+        13.57,
+        13.39
+      ],
+      "assembly": [
+        23.45,
+        24.57,
+        24.16,
+        24.3,
+        24.25,
+        24.33
+      ],
+      "candidate": [
+        9.44,
+        9.469,
+        9.469,
+        9.587,
+        9.51,
+        9.476
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5548918640576725,
+      "candidate": 1.4220110847189233
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremetrue/near": {
+    "samples": {
+      "parent": [
+        13.01,
+        12.92,
+        13.07,
+        13.01,
+        12.98,
+        13.02
+      ],
+      "assembly": [
+        23.64,
+        24.59,
+        24.11,
+        24.37,
+        24.62,
+        24.15
+      ],
+      "candidate": [
+        10.62,
+        10.58,
+        10.68,
+        10.71,
+        10.52,
+        10.45
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.5362737015663644,
+      "candidate": 1.2273584905660377
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremetrue/early": {
+    "samples": {
+      "parent": [
+        3.98,
+        3.966,
+        3.989,
+        4.017,
+        3.987,
+        3.97
+      ],
+      "assembly": [
+        2.492,
+        2.526,
+        2.479,
+        2.501,
+        2.444,
+        2.424
+      ],
+      "candidate": [
+        2.499,
+        2.487,
+        2.504,
+        2.498,
+        2.514,
+        2.501
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.6026956346811507,
+      "candidate": 1.5934000000000001
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "candidate": 6
+    }
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremetrue/middle": {
+    "samples": {
+      "parent": [
+        6.258,
+        6.268,
+        6.23,
+        6.253,
+        6.224,
+        6.344
+      ],
+      "assembly": [
+        7.916,
+        8.06,
+        7.955,
+        7.946,
+        8.08,
+        7.984
+      ],
+      "candidate": [
+        4.476,
+        4.495,
+        4.466,
+        4.47,
+        4.466,
+        4.46
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.784930045799611,
+      "candidate": 1.4000671441360788
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "candidate": 6
+    }
+  }
+}

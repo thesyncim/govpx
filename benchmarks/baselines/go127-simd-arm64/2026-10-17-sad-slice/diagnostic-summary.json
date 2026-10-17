@@ -1,0 +1,134 @@
+{
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        13.58,
+        13.39,
+        13.45,
+        13.41,
+        13.69,
+        13.43
+      ],
+      "candidate": [
+        10.08,
+        9.474,
+        9.445,
+        9.489,
+        9.494,
+        9.529
+      ]
+    },
+    "speedup": 1.4160037928673022,
+    "faster_pairs": 6
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/early": {
+    "samples": {
+      "parent": [
+        4.046,
+        3.991,
+        3.98,
+        3.978,
+        3.985,
+        4.006
+      ],
+      "candidate": [
+        2.485,
+        2.58,
+        2.49,
+        2.484,
+        2.539,
+        2.483
+      ]
+    },
+    "speedup": 1.6032160804020101,
+    "faster_pairs": 6
+  },
+  "BenchmarkSADLimitSliceNative/pitch32/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        11.42,
+        11.25,
+        11.27,
+        11.18,
+        11.26,
+        11.24
+      ],
+      "candidate": [
+        9.522,
+        9.083,
+        9.048,
+        9.015,
+        9.199,
+        9.023
+      ]
+    },
+    "speedup": 1.241520048535657,
+    "faster_pairs": 6
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/bound": {
+    "samples": {
+      "parent": [
+        13.61,
+        13.49,
+        13.5,
+        13.48,
+        13.71,
+        13.41
+      ],
+      "candidate": [
+        9.495,
+        9.443,
+        9.518,
+        9.436,
+        9.938,
+        9.419
+      ]
+    },
+    "speedup": 1.4251768930193265,
+    "faster_pairs": 6
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/early": {
+    "samples": {
+      "parent": [
+        4.016,
+        3.974,
+        3.992,
+        4.009,
+        4.008,
+        3.97
+      ],
+      "candidate": [
+        2.517,
+        2.508,
+        2.487,
+        2.515,
+        2.48,
+        2.49
+      ]
+    },
+    "speedup": 1.6006402561024409,
+    "faster_pairs": 6
+  },
+  "BenchmarkSADLimitSliceNative/pitch1312/extremefalse/middle": {
+    "samples": {
+      "parent": [
+        11.32,
+        11.26,
+        11.17,
+        11.27,
+        11.19,
+        11.26
+      ],
+      "candidate": [
+        9.26,
+        9.018,
+        8.986,
+        9.003,
+        9.26,
+        9.032
+      ]
+    },
+    "speedup": 1.247645429362881,
+    "faster_pairs": 6
+  }
+}

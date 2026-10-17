@@ -31,6 +31,9 @@ func SAD16x16x4LimitPtrFast(src *byte, srcStride int, ref0 *byte, ref1 *byte, re
 }
 
 func sadBlock16x16Limit(src []byte, srcStride int, ref []byte, refStride int, limit int) int {
+	if pixel.Enabled {
+		return SAD16x16LimitPtrFast(unsafe.SliceData(src), srcStride, unsafe.SliceData(ref), refStride, limit)
+	}
 	return sadBlockLimitScalar(src, srcStride, ref, refStride, 16, 16, limit)
 }
 

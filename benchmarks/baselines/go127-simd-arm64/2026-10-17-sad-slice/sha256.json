@@ -1,0 +1,11 @@
+{
+  "scope.txt": "fcabffca71851d882f25d645542fa798f67de067562773af34ee189ffb9e440f",
+  "diagnostic-summary.json": "5cd21c708d48b84f511eda45ccc3013fa6da3532c86aa18d80f6dcd823d1f031",
+  "public-summary.json": "fa7e1ddd0460a15c633e49d2f9774e404a42d57e837013b5d6bd1811c6fe0194",
+  "sources.tar.gz": "f053690a92c50e849b72be10f928e8758d1b3daae3c4cb23c06d59b57e77e640",
+  "measurements.tar.gz": "c00a6b471e7ebcda3610d67ba17e4eba9d9daa5ce4fe96208c163600530f9f87",
+  "confirmation-summary.json": "5e9f589ac5e061c97775e9ed02f586340ecbdb135d4039370a83cddd357a6f3c",
+  "validation.json": "b84e2f69581392743398af3019184ff400eb41da5eb9abb5b95cfebca5835f90",
+  "environment.json": "b94c8c07311a24eb3c232ff1e86e40e57ae76b0a2db738f19b970f0548609170",
+  "raw-sha256.json": "95263dede67ec63d4b924278a7055427abc6d7139516ebda8aa02deebdf8a67c"
+}

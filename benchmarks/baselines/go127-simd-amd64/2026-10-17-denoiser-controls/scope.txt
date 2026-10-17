@@ -1,0 +1,23 @@
+PR30 native x64 / optimized-C evidence preservation
+
+Tested source: b05fb1f7e68d587fe698de3b6bf0dd610b8df818
+Base/main: ed00fc3b53fde3b2bff302037bdbf97bde5ee60a
+Old assembly: 691cd0512c4829d9ee40d483205dd223f9eb028d
+Squash merge/main: a6eec452dd5b76db988b41bc081a529a18416a3a
+Tested and merged tree: 55c3095551164e84db2098c1a170db1f2de4f0c3
+PR: https://github.com/thesyncim/govpx/pull/30
+All three exact-head checks passed before merge. Only this PR's remote source branch was deleted; no local checkout/index/branch changed.
+
+Source scope: ARM-only DenoiseLuma16 validated pointer windows. Changed production file is internal/pixel/denoise_complete_arm64.go, plus ARM test, PGO/fingerprint and evidence. AMD production source is unchanged. Native comparisons explicitly use PGO off. Every AMD component and public timing difference versus base is a control; no ARM-to-AMD or cross-CPU gain attribution.
+
+Native EPYC 9V74, Go 1.27.2, PGO off, GOMAXPROCS=1; six paired rounds compare current, base and old assembly on the same job CPU. Whole VP8 -1.188% versus base (5/6 pairs faster), but +12.043% versus assembly (all six slower). VP9 320 -1.096% versus base (5/6 faster), -41.061% versus assembly (all six faster). VP9 720 +0.004% versus base (4/6 faster), -48.141% versus assembly (all six faster). The remaining x64 VP8 gap is explicit; no x64 algorithm improvement is claimed.
+
+AMD denoiser smooth/mixed/saturating controls -0.046%/-0.040%/+0.026% versus base, each 3/6 pairs faster. Preserve all 52 median-regressing kernels; none slower in all six pairs. Largest unchanged control is SAD16x16 +1.583% (4/6 slower). The 20 unchanged pointer-SAD controls range -0.122% to +0.042% versus base; no new AMD SAD source change. Selected paired fixture analyses and all median regressions are in audit.json; raw logs retain every case and round.
+
+All 114 kernel cases have six samples per variant, zero B/op and zero allocs/op. Native validation passes 73 top-level tests plus six retained panic child probes = 79 targeted checks; 101 PASS lines include 22 older subtests. No failures or skips; base/current SIMD dispatch selected. All 22 semantic fields match in three public and two profile datasets. Allocation is a separate control; every sample matches this run, with no outliers: VP8 public/profile 0, VP9 320 public 0.616667, VP9 720 public 1.25, VP9 profile 0.625 allocations/input. Exact values and all arrays remain in audit.json.
+
+Separate optimized-C EPYC 9V45 job: libvpx v1.16.0, commit 1024874c5919305883187e2953de8fcb4c3d7fa6, optimized configure, runtime dispatch, SSE2/AVX2 and assembly objects enabled. Fixed-speed VP8 Go 10.8095155ms/input versus C 4.972583ms/input = 2.173823x (+117.382%). Measured PSNR/SSIM/payload size/encoded and dropped counts match; this is not a bitstream-identity claim. Adaptive VP8 +59.688% and VP9 +174.932%/+171.797% have unequal quality/output work. All quality-pass output statistics match timed outputs. Reference timer is vpxenc-stats. Do not compare absolute timings across separate CPU jobs or attribute fresh C drift to the ARM code change.
+
+Parent-supplied ARM evidence (not independently remeasured by this audit): native Apple M4 Max, Go 1.27.2, PGO off, six balanced confirmations. Smooth 1.554x over base, every pair above 1.5x (minimum 1.533x); mixed 1.372x, saturating 1.424x, all six faster, zero allocations. Versus assembly smooth 1.199x, mixed 14.134x, saturating 13.308x; most mixed/saturating gains predate this change. Whole 300 +0.391% versus base (3/6 faster), whole 60 -0.714% (5/6), still +11.547%/+8.317% versus assembly. All 23 non-timing fields match; no overall win or ARM gap closure. Parent validation includes 18 ordinary and 18 race/checkptr2 tests, 84 new unaligned/alias scalar cases and 21 short-window declines.
+
+Preservation: native-raw.tar.gz holds 86 raw files and libvpx-raw.tar.gz holds 74. raw-sha256.json records all 160 original member hashes. Every decompressed member was checked byte-for-byte against source artifacts/manifests. sha256.json covers the other five bundle files. No README or source changes and no local Go work were performed by this audit.

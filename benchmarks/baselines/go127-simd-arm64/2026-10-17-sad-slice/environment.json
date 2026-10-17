@@ -1,0 +1,25 @@
+{
+  "cpu": "Apple M4 Max",
+  "os": "Darwin arm64",
+  "go": "1.27.2",
+  "sdk": "/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64",
+  "experiment": "simd",
+  "pgo": "off for all measurements",
+  "gomaxprocs": 1,
+  "parent": "b05fb1f7e68d587fe698de3b6bf0dd610b8df818",
+  "merged_parent": "a6eec452dd5b76db988b41bc081a529a18416a3a",
+  "parent_tree": "55c3095551164e84db2098c1a170db1f2de4f0c3",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "binary_sha256": {
+    "govpx-next-sad-slice-candidate-amd64-codegen.test": "77cb91386380c551315ab3841d299d86fc4c76722c66cf8c5684de635a219348",
+    "govpx-next-sad-slice-parent.test": "2da3fc193670aaa6d496f73f64d5285f1c051eb35a42adcf5d9a49c29fc76579",
+    "govpx-next-sad-slice-assembly.test": "2a789163f1a103bb330e946a1190d992ce296f121c9d6c2b1ba817699c3fbcab",
+    "govpx-next-sad-slice-amd64.test": "efd9383d03ddb59a7c91d749a2ae282c45788944ac2dd292b1e1b66cf9d53cb3",
+    "govpx-next-sad-slice-parent-amd64-codegen.test": "981ca8c49e7f4aded607f587daec09edd68022e091da8a7772e57a6937044e1b",
+    "govpx-next-sad-slice-candidate.test": "b37d008e4fca9b5c2acb023b3cdc49a6275516ea84e638a30ecafadb8af64aaf",
+    "govpx-next-sad-slice-amd64-final.test": "29f8a12f6fdba774afdd3412b1a657d23866cc1b6fffdb540ea8d18e49be0cb3",
+    "govpx-next-sad-slice-candidate-bench": "6a6502158685ea8e7b2df0342944c2cf6e4944d3ccc9edb1e6bdf3c0b2480c30",
+    "govpx-next-sad-slice-parent-bench": "6c342c6f49f9fbd7758f70a02aca221cffcd737064b84e194ef6671577550169"
+  },
+  "scope": "Single desktop native timing windows, ps quiet before and mid-whole run; no concurrent root Go builds/tests/profiles. Desktop background variability remains. AMD Rosetta results are correctness-only; native x64 performance requires CI."
+}
