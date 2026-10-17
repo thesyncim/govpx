@@ -1,0 +1,37 @@
+diff --git a/internal/pixel/quantize_vp8_batch_arm64.go b/internal/pixel/quantize_vp8_batch_arm64.go
+index 8e16bd19..0b900a46 100644
+--- a/internal/pixel/quantize_vp8_batch_arm64.go
++++ b/internal/pixel/quantize_vp8_batch_arm64.go
+@@ -45,7 +45,31 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
+ 	i0, i1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Pointer(iscan))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(unsafe.Pointer(iscan), 16)))
+ 	z := archsimd.Int16x8{}
+ 	cp, qp, dp := unsafe.Pointer(unsafe.SliceData(coeff)), unsafe.Pointer(unsafe.SliceData(qcoeff)), unsafe.Pointer(unsafe.SliceData(dqcoeff))
+-	for i := range count {
++	i := 0
++	// Two independent blocks expose both multiply chains before either store.
++	// Overlapping coefficients retain the original block-by-block load order.
++	if !overlap(uintptr(cp), uintptr(n)*2, uintptr(qp), uintptr(n)*2) &&
++		!overlap(uintptr(cp), uintptr(n)*2, uintptr(dp), uintptr(n)*2) &&
++		!overlap(uintptr(cp), uintptr(n)*2, uintptr(unsafe.Pointer(unsafe.SliceData(eobs))), uintptr(count)) {
++		for ; i+1 < count; i += 2 {
++			off := uintptr(i) * 32
++			c0, c1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off+16)))
++			c2, c3 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off+32))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off+48)))
++			t0, t1 := vp8QuantPacket(c0, r0, q0), vp8QuantPacket(c1, r1, q1)
++			t2, t3 := vp8QuantPacket(c2, r0, q0), vp8QuantPacket(c3, r1, q1)
++			t0.StoreArray((*[8]int16)(unsafe.Add(qp, off)))
++			t1.StoreArray((*[8]int16)(unsafe.Add(qp, off+16)))
++			t0.Mul(d0).StoreArray((*[8]int16)(unsafe.Add(dp, off)))
++			t1.Mul(d1).StoreArray((*[8]int16)(unsafe.Add(dp, off+16)))
++			eobs[i] = uint8(i0.Masked(t0.NotEqual(z)).Max(i1.Masked(t1.NotEqual(z))).ReduceMax())
++			t2.StoreArray((*[8]int16)(unsafe.Add(qp, off+32)))
++			t3.StoreArray((*[8]int16)(unsafe.Add(qp, off+48)))
++			t2.Mul(d0).StoreArray((*[8]int16)(unsafe.Add(dp, off+32)))
++			t3.Mul(d1).StoreArray((*[8]int16)(unsafe.Add(dp, off+48)))
++			eobs[i+1] = uint8(i0.Masked(t2.NotEqual(z)).Max(i1.Masked(t3.NotEqual(z))).ReduceMax())
++		}
++	}
++	for ; i < count; i++ {
+ 		off := uintptr(i) * 32
+ 		c0, c1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, off+16)))
+ 		t0, t1 := vp8QuantPacket(c0, r0, q0), vp8QuantPacket(c1, r1, q1)

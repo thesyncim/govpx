@@ -1,0 +1,54 @@
+# round 1
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5368132	        33.30 ns/op	7687.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  329553	       553.0 ns/op	 462.97 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  577933	       317.7 ns/op	 805.84 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 2
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5431482	        33.20 ns/op	7710.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  331303	       549.4 ns/op	 465.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  566066	       305.4 ns/op	 838.26 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 3
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5427189	        33.54 ns/op	7633.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  314600	       566.9 ns/op	 451.56 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  547230	       312.7 ns/op	 818.58 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 4
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5430990	        33.47 ns/op	7648.74 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  332346	       554.1 ns/op	 462.05 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  566913	       306.2 ns/op	 836.08 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 5
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5313855	        33.80 ns/op	7574.64 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  309716	       566.1 ns/op	 452.18 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  532603	       300.2 ns/op	 852.86 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 6
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkDenoiserFilterYNative/smooth         	 5420434	        33.26 ns/op	7697.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/mixed          	  323745	       548.6 ns/op	 466.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDenoiserFilterYNative/saturating     	  545385	       315.4 ns/op	 811.61 MB/s	       0 B/op	       0 allocs/op
+PASS

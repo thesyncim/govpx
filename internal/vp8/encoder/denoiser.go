@@ -119,6 +119,9 @@ func DenoiserModeForSensitivity(level int) int {
 // average into runningAvg when filtering succeeds. Caller must ensure the
 // slices cover the 16x16 macroblock at their respective strides.
 func DenoiserFilterY(mcRunningAvg []byte, mcStride int, runningAvg []byte, avgStride int, sig []byte, sigStride int, motionMagnitude uint32, increaseDenoising bool) int {
+	if decision, ok := denoiserFilterYCompleteSIMD(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising); ok {
+		return decision
+	}
 	if sumDiff, ok := denoiserFilterYFirstPassSIMD(mcRunningAvg, mcStride, runningAvg, avgStride, sig, sigStride, motionMagnitude, increaseDenoising); ok {
 		thresh := denoiserSumDiffThreshold
 		if increaseDenoising {

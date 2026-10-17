@@ -1,0 +1,22 @@
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+GO="/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go" sh scripts/check-build-selection.sh
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/native build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/purego build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/scalar build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/native build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/purego build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/scalar build selection OK
+files="$(gofmt -l $(git ls-files '*.go'))" || exit $?; \
+	if [ -n "$files" ]; then \
+		printf 'gofmt needed:\n%s\n' "$files"; \
+		exit 1; \
+	fi
+lstat internal/pixel/denoise_bytes_arm64_test.go: no such file or directory
+make: *** [fmtcheck] Error 2

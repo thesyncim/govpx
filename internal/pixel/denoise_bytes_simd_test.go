@@ -1,13 +1,15 @@
-//go:build goexperiment.simd && arm64 && !purego
+//go:build goexperiment.simd && (arm64 || amd64) && !purego
 
 package pixel
 
 import (
 	"bytes"
+	"os"
 	"testing"
 )
 
 func TestDenoiseBytesScalar(t *testing.T) {
+	requireDenoiseBytes(t)
 	if !Enabled {
 		t.Skip("SIMD unavailable")
 	}
@@ -71,6 +73,7 @@ func TestDenoiseBytesScalar(t *testing.T) {
 }
 
 func TestDenoiseBytesDeclinesAliasesAndShortRows(t *testing.T) {
+	requireDenoiseBytes(t)
 	for _, stride := range []int{0, 1, 15, 16, 17, 23} {
 		for _, off := range []int{0, 1, 7, 8, 17, 32} {
 			backing := make([]byte, 1024)
@@ -106,6 +109,7 @@ func TestDenoiseBytesDeclinesAliasesAndShortRows(t *testing.T) {
 
 // Partial aliases retain the preexisting eight-pixel load-before-store order.
 func TestDenoiseBytesPacketAliasOrder(t *testing.T) {
+	requireDenoiseBytes(t)
 	for _, stride := range []int{15, 16, 17, 23} {
 		for _, offsets := range [][3]int{{0, 1, 400}, {0, 7, 400}, {0, 8, 400}, {0, 17, 400}, {0, 400, 401}, {0, 400, 407}, {0, 400, 408}, {0, 400, 417}, {0, 0, 1}} {
 			for inc := range 2 {
@@ -158,8 +162,9 @@ func TestDenoiseBytesPacketAliasOrder(t *testing.T) {
 }
 
 func TestDenoiseBytesDistinctStridesAndPublicDispatch(t *testing.T) {
-	if !Enabled || !byteDenoise16 {
-		t.Fatal("required ARM byte denoiser unavailable")
+	requireDenoiseBytes(t)
+	if !byteDenoise16 {
+		t.Fatal("byte denoiser specialization disabled")
 	}
 	for trial := range 64 {
 		ms, as, ss := 16+trial%5, 16+(trial/5)%7, 16+(trial/7)%9
@@ -193,6 +198,7 @@ func TestDenoiseBytesDistinctStridesAndPublicDispatch(t *testing.T) {
 }
 
 func TestDenoiseBytesShortDestAndSignal(t *testing.T) {
+	requireDenoiseBytes(t)
 	for short := range 3 {
 		for _, size := range []int{0, 1, 15, 16, 254, 255} {
 			var bufs, before [3][]byte
@@ -217,6 +223,7 @@ func TestDenoiseBytesShortDestAndSignal(t *testing.T) {
 }
 
 func TestDenoiseBytesFallbackParameters(t *testing.T) {
+	requireDenoiseBytes(t)
 	for _, width := range []int{8, 16} {
 		for _, parameters := range [][2]int{{-1, 3}, {2, 3}, {0, 2}, {0, 6}, {1, 6}, {0, 0}, {0, 8}} {
 			mc, sig := make([]byte, width*width), make([]byte, width*width)
@@ -231,5 +238,15 @@ func TestDenoiseBytesFallbackParameters(t *testing.T) {
 				t.Fatalf("width%d inc%d level%d sum%d/%d", width, inc, level, got, expected)
 			}
 		}
+	}
+}
+
+func requireDenoiseBytes(t *testing.T) {
+	t.Helper()
+	if !Enabled {
+		if os.Getenv("GOVPX_REQUIRE_SIMD") == "1" {
+			t.Fatal("required SIMD byte denoiser unavailable")
+		}
+		t.Skip("SIMD unavailable")
 	}
 }

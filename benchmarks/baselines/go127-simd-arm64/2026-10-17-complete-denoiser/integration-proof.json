@@ -1,0 +1,7 @@
+{
+  "function": "pixel.DenoiseLuma16",
+  "measured_vs_integrated_normalized_instructions_identical": true,
+  "instruction_count": 326,
+  "normalization": "Drop instruction PC/encoding and replace absolute branch PC only when explicit symbol+offset annotation remains; keep mnemonics, immediates, registers and target offsets.",
+  "integrated_binary_sha256": "82a8e24b451a0aa140074caa932120626c34495a53cbf2fdc623612e7ce5abb3"
+}

@@ -1,0 +1,13 @@
+{
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.2 darwin/arm64",
+  "PGO": "off",
+  "GOEXPERIMENT": "simd",
+  "GOMAXPROCS": 1,
+  "source_base": "928b4e0824772a897239fb43b91e2abaeee2c9cd",
+  "source_state": "Integrated complete-denoiser candidate; source hashes and326-instruction ARM equivalence proof in sibling evidence.",
+  "binary_sha256": "82a8e24b451a0aa140074caa932120626c34495a53cbf2fdc623612e7ce5abb3",
+  "vpxenc_sha256": "522cae8963b7c86caf76ed6c4611c7f8d9d550c612d7c50b96dd50e1787da568",
+  "libvpx": "v1.16.0 optimized NEON/dotprod/I8MM",
+  "scope": "Same-input six alternating-order codec-timer rounds plus separate quality pass; matching summary quality/payload fields do not alone prove bitstream identity."
+}

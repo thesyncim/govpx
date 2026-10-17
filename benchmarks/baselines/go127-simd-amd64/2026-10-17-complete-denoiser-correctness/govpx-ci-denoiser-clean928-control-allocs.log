@@ -1,0 +1,7 @@
+=== RUN   TestForwardTransformsAllocateZero
+--- PASS: TestForwardTransformsAllocateZero (0.00s)
+=== RUN   TestWriteCoefficientInterFrameAllocatesZero
+--- PASS: TestWriteCoefficientInterFrameAllocatesZero (0.01s)
+=== RUN   TestBuildNeutralPredictorKeyFrameCoefficientsAllocatesZero
+--- PASS: TestBuildNeutralPredictorKeyFrameCoefficientsAllocatesZero (0.00s)
+PASS

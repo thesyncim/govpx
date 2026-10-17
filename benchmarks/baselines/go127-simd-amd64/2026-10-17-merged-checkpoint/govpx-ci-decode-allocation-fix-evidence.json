@@ -1,0 +1,30 @@
+{
+  "commit": "a1e45db1",
+  "files_changed": [
+    "cmd/govpx-bench/benchcmd/decode_run_test.go"
+  ],
+  "production_benchmark_unchanged": true,
+  "allocation_thresholds_unchanged": {
+    "native": 0,
+    "purego": 1
+  },
+  "hosted_failure": "8f39049129376 processglobal3frame metric2/frame limit1; not reproduced locally.",
+  "before": "100 ARMpurego,100 AMDRosettapurego,1000 AMDRosettapurego GOGC1/GOMEMLIMIT8MiB allpass; no claim exact CI trigger proven.",
+  "change": "JSONmeasurement finite/nonnegative; strict0/native1/purego ceiling now independent warmed100iteration AllocsPerRun around same Reset/Decode/NextFrame/timing loop. Callback verifies error/frame count every invocation; nonempty three-packet fixture asserted. Existing CPUprofile30frame report allocation ceiling unchanged.",
+  "validation": "Full nativebenchcmd10.206s and puregobenchcmd47.450s pass. Focused JSON/newallocation/CPUprofile10repeats each ARMnative/ARMpurego/AMDv1native/AMDv1purego pass. Finalpacket-count assertion ARMnative/purego pass. AMDRosetta correctness only, ROSETTA_ADVERTISE_AVX=1 fornative.",
+  "limits": "AllocsPerRun reduces scheduling interference through oneP and repeated measurement; it is still a processglobal allocation measurement and does not categorically eliminate background allocations. No original-source codec allocation regression identified.",
+  "logs": {
+    "/private/tmp/govpx-ci-decode-alloc-arm-before.log": "a2038d2105405267d831d36c821225028426b0ff4fed667c6d9f6cf1167935e2",
+    "/private/tmp/govpx-ci-decode-alloc-amd64-before.log": "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431",
+    "/private/tmp/govpx-ci-decode-alloc-amd64-gc-before.log": "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431",
+    "/private/tmp/govpx-ci-decode-alloc-arm-native-after.log": "481aafa45d3c57cba54f5f590e08d0c998cd855942035ad2ffc6c41abafab0bc",
+    "/private/tmp/govpx-ci-decode-alloc-arm-purego-after.log": "9adb8656c03c4e4bda589bf783bacc603f280c2a9c5a2392bbf85c837efedcc4",
+    "/private/tmp/govpx-ci-decode-alloc-amd64-purego-after.log": "6ccd79fde4a997c34d2a56b0c34c85cf740d3d54b1b11efe7dff4efb2736850a",
+    "/private/tmp/govpx-ci-decode-alloc-amd64-native-v1-after.log": "912f3eeb5e781f87cbe1720c487b2f79125f07793bbaf438a5e72ecbb9445631",
+    "/private/tmp/govpx-ci-decode-alloc-arm-native-final.log": "dc02ed370a5681d70943b8cd57f0d8b2827fdf46b8e1b1e7a8b74d909449383a",
+    "/private/tmp/govpx-ci-decode-alloc-arm-purego-final.log": "83c06908f21cac311070447bb352834835f59d6926fd9b015729e2cd1435d45d",
+    "/private/tmp/govpx-ci-decode-benchcmd-native-after.log": "1b68756107976be9c400784aaea5a9ce30b5576902fa389dc13bdd869e45e370",
+    "/private/tmp/govpx-ci-decode-benchcmd-purego-after.log": "0cdcb5450579152debf4276cc932ef3d6c376c3db0023fa6155f1bcc6bdbed7a"
+  },
+  "push_status": "Not pushed by ci_validation; merge_checkpoint owns push and final green-head merge."
+}

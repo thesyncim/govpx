@@ -1,0 +1,46 @@
+{
+  "review_utc": "2026-10-17T16:53:57.310035+00:00",
+  "scope": "Independent read-only source review of uncommitted ARM complete-denoiser candidate. No Go/build/timing jobs or source edits, no promotion based on micros.",
+  "worktree": "/private/tmp/govpx-merge-checkpoint",
+  "head": "8f87643c20e09b478a8ac5e85a51e46f2f701481",
+  "sha256": {
+    "internal/pixel/denoise_complete_arm64.go": "267e558c6c3b1c68b00fd398b126f0b33d290dfdb3ecd14c7d6134b73f1f8eb4",
+    "internal/vp8/encoder/denoiser_complete_arm64.go": "34869638e4c6a1fdd90a350317bc00beef017cf97d135394ccc9d61c0b7a39e4",
+    "internal/vp8/encoder/denoiser_complete_other.go": "421ce88067b68026107f50c0f89c2dbf5a7c7be16c0882529106bce77eaff16a",
+    "internal/vp8/encoder/denoiser.go": "d2bea76badffd357b738f95a46ca4021a68306b0dbd5817d329482148cf8c077",
+    "internal/vp8/encoder/denoiser_complete_arm64_test.go": "188738a3d29ef36986f280dd2b6916f816835d2cfbd3eaa10e26161448467b6f",
+    "internal/vp8/encoder/denoiser_simd_test.go": "07365bee2c8761ee9cbd72dda838d71052a7fa4176b47d0fe95dd69da78789a9",
+    "internal/pixel/enabled_arm64.go": "a05fa4c4827f436bbfcfd0968ca993e12bc0ee68f2c477ca118b4e4b77534366"
+  },
+  "scalar_oracle_body_sha256": "108937f396d2a7bb987e3407c655263affb4c23ec5a9a29cd9771e4151257f08",
+  "scalar_oracle_body_unchanged_from_HEAD": true,
+  "actionable_correctness_findings": [],
+  "proofs": {
+    "initial_sum": "Each adjustment<=8 in magnitude. First15 column additions lie[-120,120], final[-128,128]; signed saturating addition only changes+128 to127 on final row. Widened initial columns therefore exactly match scalar per-column min(sum,127) BEFORE initial threshold and delta computation. Sum fits int16.",
+    "correction_sum": "Correction is opposite signed min(abs(mc-sig),delta), delta1..3 after earlydelta>=4COPY. Corrections accumulate into widened already-clamped columns, matching scalar clamp-before-correction semantics; possible[-176,175] safely fits int16. Final per-column min127 is applied again BEFORE second threshold. No lower clamp is introduced.",
+    "pixels_and_decisions": "Initial avg is clipped signal+adjustment; correction clips avg+opposite delta. For COPY after initial or weaker pass, avg writes remain but sig untouched, matching scalar side effects. Sig copied from avg only after accepted threshold.",
+    "bounds": "All strides>=16 and lengths>=16 before quotientcheck stride <=(len-16)/15, proving checked16-byte row slices and multiplication fit. Sixteen output rows disjoint. No unsafe packet dereference; pointer values classify overlap only.",
+    "aliases": "Avg must be disjoint by conservative full-slice ordered-address interval checks; declines happen before vector load/store. Thus all existing avg aliases retain preexisting first-pass/scalar fallback ordering. MC andsig may alias eachother: both are read-only until entire initial/correction pass finishes; finalsig copy reads disjointavg only, so mc/sig overlap cannot affect future computation.",
+    "dispatch": "ARMEnabled is compiletime true because ASIMD mandatory; ARMtagged completewrapper matches motion<=24/inc/level/threshold mapping. Off/purego/nonARM stub returns handled=false, so previous flow remains. No requiredCPU feature missing onARM.",
+    "lifetime": "Checked slices remain live through synchronous loop; pointer values never dereferenced after uintptr conversion. No global or async capture; no lifetime defect observed. No compiler escape analysis run."
+  },
+  "coverage_review": {
+    "present": [
+      "Structured scalaroracle checks motion0/24/25/100 andbothincrease states, difference thresholds/positive-columncounts, mixedstrides17/23/31 minimalspans+avgcanary",
+      "Explicit seen-delta0/1/2/3/4 andbothCOPY/FILTER assertions",
+      "Shortbuffers eachinput+dest declinewithnowrites",
+      "Avg/input exactandpartial aliases declinenowrites",
+      "Existing200-case public dispatch randommixedstride oracle compares allavg/sigbytes"
+    ],
+    "gaps_to_consider": [
+      "Newstructuredtest calls completewrapper directly; existingpublicrandomoracle exercises publichook but lacks explicit handled/liveness assertion. Preserve publicfixture/profile evidence and requiredSIMDARM gates.",
+      "ARMtagged tests not run onordinaryLinuxAMD CI; retain explicitARM race/checkptr/oracle logs."
+    ],
+    "closed_after_review": [
+      "Accepted mc/sig exactandpartialaliases withdisjointavg now checkedagainstunchangedscalar and allbacking/avgbytes",
+      "Negative/too-small/maxInt strides; invalidinc/level/threshold nowrite guards now explicit"
+    ]
+  },
+  "parent_reported_validation": "Expanded allDenoiser race/checkptr pass /private/tmp/govpx-arm-full-denoise-race-checkptr.log. Sourceproduction unchanged fromreview. Parent will keep9-10x publicDenoiser improvement despite neutral/mixed defaultencoder300+.198%; no wholecodec speed claim.",
+  "coverage_update_utc": "2026-10-17T17:00:58.773535+00:00"
+}

@@ -82,6 +82,7 @@ GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestBac
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/encoder -run '^TestQuantBatch(NativeSelected|ExtremesScalar)$' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^Test(SixTap|RollingSixTap)' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestSixTap' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestDenoiseBytes' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^Test(Stats16|DiffMetricsAndStats)' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestVariance' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/encoder -run '^TestDenoiser' -count=1 -v

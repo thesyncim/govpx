@@ -1,0 +1,432 @@
+
+/private/tmp/govpx-ci-denoiser-amd64-control/encoder.test:	file format mach-o 64-bit x86-64
+
+Disassembly of section __TEXT,__text:
+
+00000000011e9a80 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16>:
+ 11e9a80: 55                           	pushq	%rbp
+ 11e9a81: 48 89 e5                     	movq	%rsp, %rbp
+ 11e9a84: 48 83 ec 40                  	subq	$0x40, %rsp
+ 11e9a88: 48 89 84 24 80 00 00 00      	movq	%rax, 0x80(%rsp)
+ 11e9a90: 48 89 b4 24 a0 00 00 00      	movq	%rsi, 0xa0(%rsp)
+ 11e9a98: 80 3d 4f 05 3f 00 00         	cmpb	$0x0, 0x3f054f(%rip)    ## 0x15d9fee <_github.com/thesyncim/govpx/internal/pixel.Enabled>
+ 11e9a9f: 90                           	nop
+ 11e9aa0: 0f 84 f9 01 00 00            	je	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9aa6: 48 8b 54 24 68               	movq	0x68(%rsp), %rdx
+ 11e9aab: 48 83 fa 01                  	cmpq	$0x1, %rdx
+ 11e9aaf: 0f 87 ea 01 00 00            	ja	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9ab5: 4c 8b 64 24 70               	movq	0x70(%rsp), %r12
+ 11e9aba: 4d 8d 6c 24 fd               	leaq	-0x3(%r12), %r13
+ 11e9abf: 90                           	nop
+ 11e9ac0: 49 83 fd 02                  	cmpq	$0x2, %r13
+ 11e9ac4: 0f 87 d5 01 00 00            	ja	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9aca: 4c 8b 6c 24 78               	movq	0x78(%rsp), %r13
+ 11e9acf: 49 81 fd 00 02 00 00         	cmpq	$0x200, %r13            ## imm = 0x200
+ 11e9ad6: 74 15                        	je	0x11e9aed <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6d>
+ 11e9ad8: 0f 1f 84 00 00 00 00 00      	nopl	(%rax,%rax)
+ 11e9ae0: 49 81 fd 58 02 00 00         	cmpq	$0x258, %r13            ## imm = 0x258
+ 11e9ae7: 0f 85 b2 01 00 00            	jne	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9aed: 48 83 ff 10                  	cmpq	$0x10, %rdi
+ 11e9af1: 0f 8c a8 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9af7: 66 0f 1f 84 00 00 00 00 00   	nopw	(%rax,%rax)
+ 11e9b00: 49 83 fa 10                  	cmpq	$0x10, %r10
+ 11e9b04: 0f 8c 95 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b0a: 49 83 fb 10                  	cmpq	$0x10, %r11
+ 11e9b0e: 0f 8c 8b 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b14: 48 83 fb 10                  	cmpq	$0x10, %rbx
+ 11e9b18: 0f 8c 81 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b1e: 66 90                        	nop
+ 11e9b20: 49 83 f8 10                  	cmpq	$0x10, %r8
+ 11e9b24: 0f 8c 75 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b2a: 4c 8b 7c 24 58               	movq	0x58(%rsp), %r15
+ 11e9b2f: 49 83 ff 10                  	cmpq	$0x10, %r15
+ 11e9b33: 0f 8c 66 01 00 00            	jl	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b39: 48 89 84 24 80 00 00 00      	movq	%rax, 0x80(%rsp)
+ 11e9b41: 4c 8d 6b f0                  	leaq	-0x10(%rbx), %r13
+ 11e9b45: 48 b8 89 88 88 88 88 88 88 88	movabsq	$-0x7777777777777777, %rax ## imm = 0x8888888888888889
+ 11e9b4f: 49 f7 e5                     	mulq	%r13
+ 11e9b52: 48 c1 ea 03                  	shrq	$0x3, %rdx
+ 11e9b56: 48 39 d7                     	cmpq	%rdx, %rdi
+ 11e9b59: 0f 8f 40 01 00 00            	jg	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b5f: 49 8d 50 f0                  	leaq	-0x10(%r8), %rdx
+ 11e9b63: 48 b8 89 88 88 88 88 88 88 88	movabsq	$-0x7777777777777777, %rax ## imm = 0x8888888888888889
+ 11e9b6d: 48 f7 e2                     	mulq	%rdx
+ 11e9b70: 48 c1 ea 03                  	shrq	$0x3, %rdx
+ 11e9b74: 49 39 d2                     	cmpq	%rdx, %r10
+ 11e9b77: 0f 8f 22 01 00 00            	jg	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b7d: 49 8d 57 f0                  	leaq	-0x10(%r15), %rdx
+ 11e9b81: 48 b8 89 88 88 88 88 88 88 88	movabsq	$-0x7777777777777777, %rax ## imm = 0x8888888888888889
+ 11e9b8b: 48 f7 e2                     	mulq	%rdx
+ 11e9b8e: 48 c1 ea 03                  	shrq	$0x3, %rdx
+ 11e9b92: 49 39 d3                     	cmpq	%rdx, %r11
+ 11e9b95: 0f 8f 04 01 00 00            	jg	0x11e9c9f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x21f>
+ 11e9b9b: 48 89 f2                     	movq	%rsi, %rdx
+ 11e9b9e: 4c 8b ac 24 80 00 00 00      	movq	0x80(%rsp), %r13
+ 11e9ba6: 4c 89 e8                     	movq	%r13, %rax
+ 11e9ba9: 49 39 f5                     	cmpq	%rsi, %r13
+ 11e9bac: 72 1b                        	jb	0x11e9bc9 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x149>
+ 11e9bae: 4c 89 6c 24 20               	movq	%r13, 0x20(%rsp)
+ 11e9bb3: 49 29 f5                     	subq	%rsi, %r13
+ 11e9bb6: 4d 39 e8                     	cmpq	%r13, %r8
+ 11e9bb9: 76 24                        	jbe	0x11e9bdf <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x15f>
+ 11e9bbb: 4c 8b 6c 24 20               	movq	0x20(%rsp), %r13
+ 11e9bc0: 49 39 f5                     	cmpq	%rsi, %r13
+ 11e9bc3: 0f 83 cc 00 00 00            	jae	0x11e9c95 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x215>
+ 11e9bc9: 48 89 74 24 28               	movq	%rsi, 0x28(%rsp)
+ 11e9bce: 4c 29 ee                     	subq	%r13, %rsi
+ 11e9bd1: 48 39 f3                     	cmpq	%rsi, %rbx
+ 11e9bd4: 0f 87 bb 00 00 00            	ja	0x11e9c95 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x215>
+ 11e9bda: 48 8b 74 24 28               	movq	0x28(%rsp), %rsi
+ 11e9bdf: 48 89 54 24 38               	movq	%rdx, 0x38(%rsp)
+ 11e9be4: 4c 8b 6c 24 50               	movq	0x50(%rsp), %r13
+ 11e9be9: 49 39 f5                     	cmpq	%rsi, %r13
+ 11e9bec: 72 1b                        	jb	0x11e9c09 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x189>
+ 11e9bee: 4c 89 6c 24 18               	movq	%r13, 0x18(%rsp)
+ 11e9bf3: 49 29 f5                     	subq	%rsi, %r13
+ 11e9bf6: 4d 39 e8                     	cmpq	%r13, %r8
+ 11e9bf9: 76 1a                        	jbe	0x11e9c15 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x195>
+ 11e9bfb: 4c 8b 6c 24 18               	movq	0x18(%rsp), %r13
+ 11e9c00: 49 39 f5                     	cmpq	%rsi, %r13
+ 11e9c03: 0f 83 8c 00 00 00            	jae	0x11e9c95 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x215>
+ 11e9c09: 4c 29 ee                     	subq	%r13, %rsi
+ 11e9c0c: 49 39 f7                     	cmpq	%rsi, %r15
+ 11e9c0f: 0f 87 80 00 00 00            	ja	0x11e9c95 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x215>
+ 11e9c15: 48 89 8c 24 90 00 00 00      	movq	%rcx, 0x90(%rsp)
+ 11e9c1d: 48 89 9c 24 88 00 00 00      	movq	%rbx, 0x88(%rsp)
+ 11e9c25: 49 8d 74 24 01               	leaq	0x1(%r12), %rsi
+ 11e9c2a: 4d 8d 6c 24 03               	leaq	0x3(%r12), %r13
+ 11e9c2f: 48 8b 54 24 68               	movq	0x68(%rsp), %rdx
+ 11e9c34: 48 83 c2 03                  	addq	$0x3, %rdx
+ 11e9c38: c4 c1 f9 6e c4               	vmovq	%r12, %xmm0
+ 11e9c3d: c4 e1 f9 6e ce               	vmovq	%rsi, %xmm1
+ 11e9c42: c4 c1 f9 6e d5               	vmovq	%r13, %xmm2
+ 11e9c47: be 07 00 00 00               	movl	$0x7, %esi
+ 11e9c4c: c4 e1 f9 6e de               	vmovq	%rsi, %xmm3
+ 11e9c51: be 0f 00 00 00               	movl	$0xf, %esi
+ 11e9c56: c4 e1 f9 6e e6               	vmovq	%rsi, %xmm4
+ 11e9c5b: c4 e1 f9 6e ea               	vmovq	%rdx, %xmm5
+ 11e9c60: c4 e2 79 78 c0               	vpbroadcastb	%xmm0, %xmm0
+ 11e9c65: c4 e2 79 78 c9               	vpbroadcastb	%xmm1, %xmm1
+ 11e9c6a: c4 e2 79 78 d2               	vpbroadcastb	%xmm2, %xmm2
+ 11e9c6f: c4 e2 79 78 db               	vpbroadcastb	%xmm3, %xmm3
+ 11e9c74: c4 e2 79 78 e4               	vpbroadcastb	%xmm4, %xmm4
+ 11e9c79: c4 e2 79 78 ed               	vpbroadcastb	%xmm5, %xmm5
+ 11e9c7e: 31 d2                        	xorl	%edx, %edx
+ 11e9c80: 41 0f 10 f7                  	movups	%xmm15, %xmm6
+ 11e9c84: 48 8b 74 24 60               	movq	0x60(%rsp), %rsi
+ 11e9c89: 4c 8b 64 24 50               	movq	0x50(%rsp), %r12
+ 11e9c8e: 4c 8b 6c 24 38               	movq	0x38(%rsp), %r13
+ 11e9c93: eb 3d                        	jmp	0x11e9cd2 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x252>
+ 11e9c95: 31 c0                        	xorl	%eax, %eax
+ 11e9c97: 89 c3                        	movl	%eax, %ebx
+ 11e9c99: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11e9c9d: 5d                           	popq	%rbp
+ 11e9c9e: c3                           	retq
+ 11e9c9f: 31 c0                        	xorl	%eax, %eax
+ 11e9ca1: 89 c3                        	movl	%eax, %ebx
+ 11e9ca3: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11e9ca7: 5d                           	popq	%rbp
+ 11e9ca8: c3                           	retq
+ 11e9ca9: c4 c1 7a 7f 3f               	vmovdqu	%xmm7, (%r15)
+ 11e9cae: 48 8d 5e 01                  	leaq	0x1(%rsi), %rbx
+ 11e9cb2: 48 8b 8c 24 90 00 00 00      	movq	0x90(%rsp), %rcx
+ 11e9cba: 48 8b 74 24 60               	movq	0x60(%rsp), %rsi
+ 11e9cbf: 49 89 d0                     	movq	%rdx, %r8
+ 11e9cc2: 4c 8b 7c 24 58               	movq	0x58(%rsp), %r15
+ 11e9cc7: 48 89 da                     	movq	%rbx, %rdx
+ 11e9cca: 48 8b 9c 24 88 00 00 00      	movq	0x88(%rsp), %rbx
+ 11e9cd2: 48 83 fa 10                  	cmpq	$0x10, %rdx
+ 11e9cd6: 0f 8d 49 01 00 00            	jge	0x11e9e25 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x3a5>
+ 11e9cdc: 48 89 54 24 08               	movq	%rdx, 0x8(%rsp)
+ 11e9ce1: 48 0f af d7                  	imulq	%rdi, %rdx
+ 11e9ce5: 48 39 d3                     	cmpq	%rdx, %rbx
+ 11e9ce8: 0f 82 4b 04 00 00            	jb	0x11ea139 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6b9>
+ 11e9cee: 48 89 54 24 30               	movq	%rdx, 0x30(%rsp)
+ 11e9cf3: 48 29 d3                     	subq	%rdx, %rbx
+ 11e9cf6: 48 29 ca                     	subq	%rcx, %rdx
+ 11e9cf9: 48 c1 fa 3f                  	sarq	$0x3f, %rdx
+ 11e9cfd: 48 8b 4c 24 30               	movq	0x30(%rsp), %rcx
+ 11e9d02: 48 21 d1                     	andq	%rdx, %rcx
+ 11e9d05: 48 01 c1                     	addq	%rax, %rcx
+ 11e9d08: 48 83 fb 10                  	cmpq	$0x10, %rbx
+ 11e9d0c: 0f 82 22 04 00 00            	jb	0x11ea134 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6b4>
+ 11e9d12: 48 8b 54 24 08               	movq	0x8(%rsp), %rdx
+ 11e9d17: 48 89 d3                     	movq	%rdx, %rbx
+ 11e9d1a: 49 0f af d3                  	imulq	%r11, %rdx
+ 11e9d1e: 66 90                        	nop
+ 11e9d20: 49 39 d7                     	cmpq	%rdx, %r15
+ 11e9d23: 0f 82 06 04 00 00            	jb	0x11ea12f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6af>
+ 11e9d29: 48 89 54 24 30               	movq	%rdx, 0x30(%rsp)
+ 11e9d2e: 49 29 d7                     	subq	%rdx, %r15
+ 11e9d31: 48 29 f2                     	subq	%rsi, %rdx
+ 11e9d34: 48 c1 fa 3f                  	sarq	$0x3f, %rdx
+ 11e9d38: 48 8b 74 24 30               	movq	0x30(%rsp), %rsi
+ 11e9d3d: 48 21 d6                     	andq	%rdx, %rsi
+ 11e9d40: 49 8d 14 34                  	leaq	(%r12,%rsi), %rdx
+ 11e9d44: 49 83 ff 10                  	cmpq	$0x10, %r15
+ 11e9d48: 0f 82 dc 03 00 00            	jb	0x11ea12a <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6aa>
+ 11e9d4e: 48 89 de                     	movq	%rbx, %rsi
+ 11e9d51: 49 0f af da                  	imulq	%r10, %rbx
+ 11e9d55: c5 fa 6f 39                  	vmovdqu	(%rcx), %xmm7
+ 11e9d59: c5 7a 6f 02                  	vmovdqu	(%rdx), %xmm8
+ 11e9d5d: c5 39 de cf                  	vpmaxub	%xmm7, %xmm8, %xmm9
+ 11e9d61: c5 39 da d7                  	vpminub	%xmm7, %xmm8, %xmm10
+ 11e9d65: c4 41 31 f8 ca               	vpsubb	%xmm10, %xmm9, %xmm9
+ 11e9d6a: c4 41 31 74 d1               	vpcmpeqb	%xmm9, %xmm9, %xmm10
+ 11e9d6f: b9 80 ff ff ff               	movl	$0xffffff80, %ecx       ## imm = 0xFFFFFF80
+ 11e9d74: c4 61 f9 6e d9               	vmovq	%rcx, %xmm11
+ 11e9d79: c4 42 79 78 db               	vpbroadcastb	%xmm11, %xmm11
+ 11e9d7e: c4 41 59 ef e3               	vpxor	%xmm11, %xmm4, %xmm12
+ 11e9d83: c4 41 61 ef eb               	vpxor	%xmm11, %xmm3, %xmm13
+ 11e9d88: c4 41 21 ef f1               	vpxor	%xmm9, %xmm11, %xmm14
+ 11e9d8d: c4 41 09 64 e4               	vpcmpgtb	%xmm12, %xmm14, %xmm12
+ 11e9d92: c4 41 19 ef e2               	vpxor	%xmm10, %xmm12, %xmm12
+ 11e9d97: c4 63 69 4c e1 c0            	vpblendvb	%xmm12, %xmm1, %xmm2, %xmm12
+ 11e9d9d: c4 41 09 64 ed               	vpcmpgtb	%xmm13, %xmm14, %xmm13
+ 11e9da2: c4 41 11 ef ea               	vpxor	%xmm10, %xmm13, %xmm13
+ 11e9da7: c4 63 19 4c e0 d0            	vpblendvb	%xmm13, %xmm0, %xmm12, %xmm12
+ 11e9dad: c4 41 51 ef eb               	vpxor	%xmm11, %xmm5, %xmm13
+ 11e9db2: c4 41 09 64 ed               	vpcmpgtb	%xmm13, %xmm14, %xmm13
+ 11e9db7: c4 41 11 ef d2               	vpxor	%xmm10, %xmm13, %xmm10
+ 11e9dbc: c4 43 19 4c c9 a0            	vpblendvb	%xmm10, %xmm9, %xmm12, %xmm9
+ 11e9dc2: c4 41 39 ef d3               	vpxor	%xmm11, %xmm8, %xmm10
+ 11e9dc7: c4 c1 41 ef fb               	vpxor	%xmm11, %xmm7, %xmm7
+ 11e9dcc: c5 a9 64 ff                  	vpcmpgtb	%xmm7, %xmm10, %xmm7
+ 11e9dd0: c4 43 31 4c d7 70            	vpblendvb	%xmm7, %xmm15, %xmm9, %xmm10
+ 11e9dd6: c4 41 39 dc c2               	vpaddusb	%xmm10, %xmm8, %xmm8
+ 11e9ddb: c5 b1 db ff                  	vpand	%xmm7, %xmm9, %xmm7
+ 11e9ddf: c5 29 f8 cf                  	vpsubb	%xmm7, %xmm10, %xmm9
+ 11e9de3: 90                           	nop
+ 11e9de4: 90                           	nop
+ 11e9de5: 90                           	nop
+ 11e9de6: 90                           	nop
+ 11e9de7: 90                           	nop
+ 11e9de8: 90                           	nop
+ 11e9de9: 90                           	nop
+ 11e9dea: 90                           	nop
+ 11e9deb: 90                           	nop
+ 11e9dec: c4 c1 49 ec f1               	vpaddsb	%xmm9, %xmm6, %xmm6
+ 11e9df1: c5 b9 d8 ff                  	vpsubusb	%xmm7, %xmm8, %xmm7
+ 11e9df5: 90                           	nop
+ 11e9df6: 49 39 d8                     	cmpq	%rbx, %r8
+ 11e9df9: 0f 82 26 03 00 00            	jb	0x11ea125 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x6a5>
+ 11e9dff: 4c 89 c2                     	movq	%r8, %rdx
+ 11e9e02: 49 29 d8                     	subq	%rbx, %r8
+ 11e9e05: 49 89 df                     	movq	%rbx, %r15
+ 11e9e08: 4c 29 cb                     	subq	%r9, %rbx
+ 11e9e0b: 48 c1 fb 3f                  	sarq	$0x3f, %rbx
+ 11e9e0f: 49 21 df                     	andq	%rbx, %r15
+ 11e9e12: 4d 01 ef                     	addq	%r13, %r15
+ 11e9e15: 49 83 f8 10                  	cmpq	$0x10, %r8
+ 11e9e19: 0f 83 8a fe ff ff            	jae	0x11e9ca9 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x229>
+ 11e9e1f: 90                           	nop
+ 11e9e20: e9 f9 02 00 00               	jmp	0x11ea11e <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x69e>
+ 11e9e25: c4 e2 79 20 c6               	vpmovsxbw	%xmm6, %xmm0
+ 11e9e2a: c5 f9 70 ce 4e               	vpshufd	$0x4e, %xmm6, %xmm1     ## xmm1 = xmm6[2,3,0,1]
+ 11e9e2f: c4 e2 79 20 c9               	vpmovsxbw	%xmm1, %xmm1
+ 11e9e34: c5 f9 fd d1                  	vpaddw	%xmm1, %xmm0, %xmm2
+ 11e9e38: ba 01 00 00 00               	movl	$0x1, %edx
+ 11e9e3d: c4 e1 f9 6e da               	vmovq	%rdx, %xmm3
+ 11e9e42: c4 e2 79 79 db               	vpbroadcastw	%xmm3, %xmm3
+ 11e9e47: c5 e9 f5 d3                  	vpmaddwd	%xmm3, %xmm2, %xmm2
+ 11e9e4b: c5 f9 70 e2 4e               	vpshufd	$0x4e, %xmm2, %xmm4     ## xmm4 = xmm2[2,3,0,1]
+ 11e9e50: c5 d9 fe d2                  	vpaddd	%xmm2, %xmm4, %xmm2
+ 11e9e54: c5 f9 70 e2 b1               	vpshufd	$0xb1, %xmm2, %xmm4     ## xmm4 = xmm2[1,0,3,2]
+ 11e9e59: c5 e9 fe d4                  	vpaddd	%xmm4, %xmm2, %xmm2
+ 11e9e5d: c4 e3 79 16 d2 00            	vpextrd	$0x0, %xmm2, %edx
+ 11e9e63: 48 63 d2                     	movslq	%edx, %rdx
+ 11e9e66: 48 89 54 24 10               	movq	%rdx, 0x10(%rsp)
+ 11e9e6b: 48 f7 da                     	negq	%rdx
+ 11e9e6e: 90                           	nop
+ 11e9e6f: 4c 8b 64 24 10               	movq	0x10(%rsp), %r12
+ 11e9e74: 49 39 d4                     	cmpq	%rdx, %r12
+ 11e9e77: 4c 0f 4c e2                  	cmovlq	%rdx, %r12
+ 11e9e7b: 48 8b 54 24 78               	movq	0x78(%rsp), %rdx
+ 11e9e80: 4c 39 e2                     	cmpq	%r12, %rdx
+ 11e9e83: 7d 35                        	jge	0x11e9eba <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x43a>
+ 11e9e85: 49 29 d4                     	subq	%rdx, %r12
+ 11e9e88: 49 c1 fc 08                  	sarq	$0x8, %r12
+ 11e9e8c: 49 ff c4                     	incq	%r12
+ 11e9e8f: 49 83 fc 04                  	cmpq	$0x4, %r12
+ 11e9e93: 7d 18                        	jge	0x11e9ead <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x42d>
+ 11e9e95: c4 c1 f9 6e d4               	vmovq	%r12, %xmm2
+ 11e9e9a: 90                           	nop
+ 11e9e9b: c4 e2 79 78 d2               	vpbroadcastb	%xmm2, %xmm2
+ 11e9ea0: 45 31 e4                     	xorl	%r12d, %r12d
+ 11e9ea3: 48 8b 54 24 50               	movq	0x50(%rsp), %rdx
+ 11e9ea8: e9 d9 00 00 00               	jmp	0x11e9f86 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x506>
+ 11e9ead: 31 c0                        	xorl	%eax, %eax
+ 11e9eaf: bb 01 00 00 00               	movl	$0x1, %ebx
+ 11e9eb4: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11e9eb8: 5d                           	popq	%rbp
+ 11e9eb9: c3                           	retq
+ 11e9eba: 31 c9                        	xorl	%ecx, %ecx
+ 11e9ebc: 48 8b 54 24 50               	movq	0x50(%rsp), %rdx
+ 11e9ec1: eb 12                        	jmp	0x11e9ed5 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x455>
+ 11e9ec3: c5 fa 6f 01                  	vmovdqu	(%rcx), %xmm0
+ 11e9ec7: c5 fa 7f 07                  	vmovdqu	%xmm0, (%rdi)
+ 11e9ecb: 49 8d 48 01                  	leaq	0x1(%r8), %rcx
+ 11e9ecf: 4d 89 e0                     	movq	%r12, %r8
+ 11e9ed2: 49 89 c7                     	movq	%rax, %r15
+ 11e9ed5: 48 83 f9 10                  	cmpq	$0x10, %rcx
+ 11e9ed9: 7d 56                        	jge	0x11e9f31 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4b1>
+ 11e9edb: 48 89 cf                     	movq	%rcx, %rdi
+ 11e9ede: 49 0f af ca                  	imulq	%r10, %rcx
+ 11e9ee2: 49 39 c8                     	cmpq	%rcx, %r8
+ 11e9ee5: 72 68                        	jb	0x11e9f4f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4cf>
+ 11e9ee7: 4d 89 c4                     	movq	%r8, %r12
+ 11e9eea: 49 29 c8                     	subq	%rcx, %r8
+ 11e9eed: 48 89 c8                     	movq	%rcx, %rax
+ 11e9ef0: 4c 29 c9                     	subq	%r9, %rcx
+ 11e9ef3: 48 c1 f9 3f                  	sarq	$0x3f, %rcx
+ 11e9ef7: 48 21 c8                     	andq	%rcx, %rax
+ 11e9efa: 4a 8d 0c 28                  	leaq	(%rax,%r13), %rcx
+ 11e9efe: 66 90                        	nop
+ 11e9f00: 49 83 f8 10                  	cmpq	$0x10, %r8
+ 11e9f04: 72 44                        	jb	0x11e9f4a <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4ca>
+ 11e9f06: 49 89 f8                     	movq	%rdi, %r8
+ 11e9f09: 49 0f af fb                  	imulq	%r11, %rdi
+ 11e9f0d: 49 39 ff                     	cmpq	%rdi, %r15
+ 11e9f10: 72 33                        	jb	0x11e9f45 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4c5>
+ 11e9f12: 4c 89 f8                     	movq	%r15, %rax
+ 11e9f15: 49 29 ff                     	subq	%rdi, %r15
+ 11e9f18: 48 89 fb                     	movq	%rdi, %rbx
+ 11e9f1b: 48 29 f7                     	subq	%rsi, %rdi
+ 11e9f1e: 48 c1 ff 3f                  	sarq	$0x3f, %rdi
+ 11e9f22: 48 21 fb                     	andq	%rdi, %rbx
+ 11e9f25: 48 8d 3c 13                  	leaq	(%rbx,%rdx), %rdi
+ 11e9f29: 49 83 ff 10                  	cmpq	$0x10, %r15
+ 11e9f2d: 73 94                        	jae	0x11e9ec3 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x443>
+ 11e9f2f: eb 0d                        	jmp	0x11e9f3e <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4be>
+ 11e9f31: b8 01 00 00 00               	movl	$0x1, %eax
+ 11e9f36: 89 c3                        	movl	%eax, %ebx
+ 11e9f38: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11e9f3c: 5d                           	popq	%rbp
+ 11e9f3d: c3                           	retq
+ 11e9f3e: 66 90                        	nop
+ 11e9f40: e8 bb 2c ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11e9f45: e8 b6 2c ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11e9f4a: e8 b1 2c ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11e9f4f: e8 ac 2c ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11e9f54: c4 c1 7a 6f 37               	vmovdqu	(%r15), %xmm6
+ 11e9f59: c5 c9 d8 e4                  	vpsubusb	%xmm4, %xmm6, %xmm4
+ 11e9f5d: c5 d9 dc e5                  	vpaddusb	%xmm5, %xmm4, %xmm4
+ 11e9f61: c4 c1 7a 7f 27               	vmovdqu	%xmm4, (%r15)
+ 11e9f66: 49 ff c4                     	incq	%r12
+ 11e9f69: 48 8b 8c 24 90 00 00 00      	movq	0x90(%rsp), %rcx
+ 11e9f71: 48 8b 9c 24 88 00 00 00      	movq	0x88(%rsp), %rbx
+ 11e9f79: 49 89 f0                     	movq	%rsi, %r8
+ 11e9f7c: 4c 8b 7c 24 58               	movq	0x58(%rsp), %r15
+ 11e9f81: 48 8b 74 24 60               	movq	0x60(%rsp), %rsi
+ 11e9f86: 49 83 fc 10                  	cmpq	$0x10, %r12
+ 11e9f8a: 0f 8d 0c 01 00 00            	jge	0x11ea09c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x61c>
+ 11e9f90: 4c 89 24 24                  	movq	%r12, (%rsp)
+ 11e9f94: 4c 0f af e7                  	imulq	%rdi, %r12
+ 11e9f98: 0f 1f 84 00 00 00 00 00      	nopl	(%rax,%rax)
+ 11e9fa0: 4c 39 e3                     	cmpq	%r12, %rbx
+ 11e9fa3: 0f 82 70 01 00 00            	jb	0x11ea119 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x699>
+ 11e9fa9: 4c 89 64 24 30               	movq	%r12, 0x30(%rsp)
+ 11e9fae: 4c 29 e3                     	subq	%r12, %rbx
+ 11e9fb1: 49 29 cc                     	subq	%rcx, %r12
+ 11e9fb4: 49 c1 fc 3f                  	sarq	$0x3f, %r12
+ 11e9fb8: 48 8b 4c 24 30               	movq	0x30(%rsp), %rcx
+ 11e9fbd: 4c 21 e1                     	andq	%r12, %rcx
+ 11e9fc0: 48 01 c1                     	addq	%rax, %rcx
+ 11e9fc3: 48 83 fb 10                  	cmpq	$0x10, %rbx
+ 11e9fc7: 0f 82 47 01 00 00            	jb	0x11ea114 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x694>
+ 11e9fcd: 4c 8b 24 24                  	movq	(%rsp), %r12
+ 11e9fd1: 4c 89 e3                     	movq	%r12, %rbx
+ 11e9fd4: 4d 0f af e3                  	imulq	%r11, %r12
+ 11e9fd8: 0f 1f 84 00 00 00 00 00      	nopl	(%rax,%rax)
+ 11e9fe0: 4d 39 e7                     	cmpq	%r12, %r15
+ 11e9fe3: 0f 82 26 01 00 00            	jb	0x11ea10f <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x68f>
+ 11e9fe9: 4c 89 64 24 30               	movq	%r12, 0x30(%rsp)
+ 11e9fee: 4d 29 e7                     	subq	%r12, %r15
+ 11e9ff1: 49 29 f4                     	subq	%rsi, %r12
+ 11e9ff4: 49 c1 fc 3f                  	sarq	$0x3f, %r12
+ 11e9ff8: 48 8b 74 24 30               	movq	0x30(%rsp), %rsi
+ 11e9ffd: 4c 21 e6                     	andq	%r12, %rsi
+ 11ea000: 48 01 d6                     	addq	%rdx, %rsi
+ 11ea003: 49 83 ff 10                  	cmpq	$0x10, %r15
+ 11ea007: 0f 82 fd 00 00 00            	jb	0x11ea10a <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x68a>
+ 11ea00d: 49 89 dc                     	movq	%rbx, %r12
+ 11ea010: 49 0f af da                  	imulq	%r10, %rbx
+ 11ea014: c5 fa 6f 21                  	vmovdqu	(%rcx), %xmm4
+ 11ea018: c5 fa 6f 2e                  	vmovdqu	(%rsi), %xmm5
+ 11ea01c: c5 d1 de f4                  	vpmaxub	%xmm4, %xmm5, %xmm6
+ 11ea020: c5 d1 da fc                  	vpminub	%xmm4, %xmm5, %xmm7
+ 11ea024: c5 c9 f8 f7                  	vpsubb	%xmm7, %xmm6, %xmm6
+ 11ea028: c5 e9 da f6                  	vpminub	%xmm6, %xmm2, %xmm6
+ 11ea02c: b9 80 ff ff ff               	movl	$0xffffff80, %ecx       ## imm = 0xFFFFFF80
+ 11ea031: c4 e1 f9 6e f9               	vmovq	%rcx, %xmm7
+ 11ea036: c4 e2 79 78 ff               	vpbroadcastb	%xmm7, %xmm7
+ 11ea03b: c5 d1 ef ef                  	vpxor	%xmm7, %xmm5, %xmm5
+ 11ea03f: c5 d9 ef e7                  	vpxor	%xmm7, %xmm4, %xmm4
+ 11ea043: c5 d1 64 e4                  	vpcmpgtb	%xmm4, %xmm5, %xmm4
+ 11ea047: c5 d9 db ee                  	vpand	%xmm6, %xmm4, %xmm5
+ 11ea04b: c4 c3 49 4c e7 40            	vpblendvb	%xmm4, %xmm15, %xmm6, %xmm4
+ 11ea051: c5 d1 f8 f4                  	vpsubb	%xmm4, %xmm5, %xmm6
+ 11ea055: c4 e2 79 20 fe               	vpmovsxbw	%xmm6, %xmm7
+ 11ea05a: c5 f9 70 f6 4e               	vpshufd	$0x4e, %xmm6, %xmm6     ## xmm6 = xmm6[2,3,0,1]
+ 11ea05f: c4 e2 79 20 f6               	vpmovsxbw	%xmm6, %xmm6
+ 11ea064: 90                           	nop
+ 11ea065: 90                           	nop
+ 11ea066: 90                           	nop
+ 11ea067: c5 f9 fd c7                  	vpaddw	%xmm7, %xmm0, %xmm0
+ 11ea06b: c5 f1 fd ce                  	vpaddw	%xmm6, %xmm1, %xmm1
+ 11ea06f: 90                           	nop
+ 11ea070: 90                           	nop
+ 11ea071: 49 39 d8                     	cmpq	%rbx, %r8
+ 11ea074: 0f 82 8b 00 00 00            	jb	0x11ea105 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x685>
+ 11ea07a: 4c 89 c6                     	movq	%r8, %rsi
+ 11ea07d: 49 29 d8                     	subq	%rbx, %r8
+ 11ea080: 49 89 df                     	movq	%rbx, %r15
+ 11ea083: 4c 29 cb                     	subq	%r9, %rbx
+ 11ea086: 48 c1 fb 3f                  	sarq	$0x3f, %rbx
+ 11ea08a: 49 21 df                     	andq	%rbx, %r15
+ 11ea08d: 4d 01 ef                     	addq	%r13, %r15
+ 11ea090: 49 83 f8 10                  	cmpq	$0x10, %r8
+ 11ea094: 0f 83 ba fe ff ff            	jae	0x11e9f54 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4d4>
+ 11ea09a: eb 63                        	jmp	0x11ea0ff <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x67f>
+ 11ea09c: b9 7f 00 00 00               	movl	$0x7f, %ecx
+ 11ea0a1: c4 e1 f9 6e d1               	vmovq	%rcx, %xmm2
+ 11ea0a6: c4 e2 79 79 d2               	vpbroadcastw	%xmm2, %xmm2
+ 11ea0ab: c5 f9 ea c2                  	vpminsw	%xmm2, %xmm0, %xmm0
+ 11ea0af: c5 f1 ea ca                  	vpminsw	%xmm2, %xmm1, %xmm1
+ 11ea0b3: c5 f9 fd c1                  	vpaddw	%xmm1, %xmm0, %xmm0
+ 11ea0b7: c5 f9 f5 c3                  	vpmaddwd	%xmm3, %xmm0, %xmm0
+ 11ea0bb: c5 f9 70 c8 4e               	vpshufd	$0x4e, %xmm0, %xmm1     ## xmm1 = xmm0[2,3,0,1]
+ 11ea0c0: c5 f1 fe c0                  	vpaddd	%xmm0, %xmm1, %xmm0
+ 11ea0c4: c5 f9 70 c8 b1               	vpshufd	$0xb1, %xmm0, %xmm1     ## xmm1 = xmm0[1,0,3,2]
+ 11ea0c9: c5 f9 fe c1                  	vpaddd	%xmm1, %xmm0, %xmm0
+ 11ea0cd: c4 e3 79 16 c1 00            	vpextrd	$0x0, %xmm0, %ecx
+ 11ea0d3: 48 63 c9                     	movslq	%ecx, %rcx
+ 11ea0d6: 48 89 cf                     	movq	%rcx, %rdi
+ 11ea0d9: 48 f7 d9                     	negq	%rcx
+ 11ea0dc: 90                           	nop
+ 11ea0dd: 48 39 cf                     	cmpq	%rcx, %rdi
+ 11ea0e0: 48 0f 4c f9                  	cmovlq	%rcx, %rdi
+ 11ea0e4: 48 8b 4c 24 78               	movq	0x78(%rsp), %rcx
+ 11ea0e9: 48 39 f9                     	cmpq	%rdi, %rcx
+ 11ea0ec: 0f 8d c8 fd ff ff            	jge	0x11e9eba <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x43a>
+ 11ea0f2: 31 c0                        	xorl	%eax, %eax
+ 11ea0f4: bb 01 00 00 00               	movl	$0x1, %ebx
+ 11ea0f9: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11ea0fd: 5d                           	popq	%rbp
+ 11ea0fe: c3                           	retq
+ 11ea0ff: 90                           	nop
+ 11ea100: e8 fb 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea105: e8 f6 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea10a: e8 f1 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea10f: e8 ec 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea114: e8 e7 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea119: e8 e2 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea11e: 66 90                        	nop
+ 11ea120: e8 db 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea125: e8 d6 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea12a: e8 d1 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea12f: e8 cc 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea134: e8 c7 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea139: e8 c2 2a ea ff               	callq	0x108cc00 <_runtime.panicBounds>
+ 11ea13e: 90                           	nop
+ 11ea13f: cc                           	int3

@@ -1,0 +1,8 @@
+{
+  "pr": 24,
+  "merged_main": "928b4e0824772a897239fb43b91e2abaeee2c9cd",
+  "tested_head": "a1e45db1b589ff03a941afc4cac63734b40870c8",
+  "identical_git_tree": "caf33d581c5d192ee33c11ce296bab257ea14ad0",
+  "all_three_final_checks_passed": true,
+  "scope": "Previous-source baseline evidence; new denoiser native x64 measurements are separate."
+}

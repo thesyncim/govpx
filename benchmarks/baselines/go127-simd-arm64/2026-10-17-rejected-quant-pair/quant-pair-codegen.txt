@@ -1,0 +1,337 @@
+
+/private/tmp/govpx-arm-quant-pair-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000eddc0 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch>:
+1000eddc0: f9400b90    	ldr	x16, [x28, #0x10]
+1000eddc4: eb3063ff    	cmp	sp, x16
+1000eddc8: 540026a9    	b.ls	0x1000ee29c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x4dc>
+1000eddcc: f81d0ffe    	str	x30, [sp, #-0x30]!
+1000eddd0: f81f83fd    	stur	x29, [sp, #-0x8]
+1000eddd4: d10023fd    	sub	x29, sp, #0x8
+1000eddd8: f90023e0    	str	x0, [sp, #0x40]
+1000edddc: f9003be6    	str	x6, [sp, #0x70]
+1000edde0: f90047e9    	str	x9, [sp, #0x88]
+1000edde4: f90057ed    	str	x13, [sp, #0xa8]
+1000edde8: f9401fe2    	ldr	x2, [sp, #0x38]
+1000eddec: f100005f    	cmp	x2, #0x0
+1000eddf0: 540003ed    	b.le	0x1000ede6c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xac>
+1000eddf4: eb0100ff    	cmp	x7, x1
+1000eddf8: 9a81b0e1    	csel	x1, x7, x1, lt
+1000eddfc: eb01015f    	cmp	x10, x1
+1000ede00: 9a81b141    	csel	x1, x10, x1, lt
+1000ede04: eb41105f    	cmp	x2, x1, lsr #4
+1000ede08: 5400032c    	b.gt	0x1000ede6c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xac>
+1000ede0c: eb0201df    	cmp	x14, x2
+1000ede10: 540002eb    	b.lt	0x1000ede6c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xac>
+1000ede14: aa0303e1    	mov	x1, x3
+1000ede18: aa0403e7    	mov	x7, x4
+1000ede1c: aa0503e8    	mov	x8, x5
+1000ede20: aa0603ea    	mov	x10, x6
+1000ede24: aa0c03eb    	mov	x11, x12
+1000ede28: f9000be6    	str	x6, [sp, #0x10]
+1000ede2c: aa0903e6    	mov	x6, x9
+1000ede30: f9000fe9    	str	x9, [sp, #0x18]
+1000ede34: aa0d03e9    	mov	x9, x13
+1000ede38: f90013ed    	str	x13, [sp, #0x20]
+1000ede3c: d37be84d    	lsl	x13, x2, #5
+1000ede40: eb03009f    	cmp	x4, x3
+1000ede44: 9a83308f    	csel	x15, x4, x3, lo
+1000ede48: 9a838083    	csel	x3, x4, x3, hi
+1000ede4c: eb0f00bf    	cmp	x5, x15
+1000ede50: 9a8f30a4    	csel	x4, x5, x15, lo
+1000ede54: eb0300bf    	cmp	x5, x3
+1000ede58: 9a8380a3    	csel	x3, x5, x3, hi
+1000ede5c: cb040063    	sub	x3, x3, x4
+1000ede60: 91008063    	add	x3, x3, #0x20
+1000ede64: aa1f03e5    	mov	x5, xzr
+1000ede68: 14000006    	b	0x1000ede80 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xc0>
+1000ede6c: aa1f03e0    	mov	x0, xzr
+1000ede70: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ede74: f84307fe    	ldr	x30, [sp], #0x30
+1000ede78: d65f03c0    	ret
+1000ede7c: 910004a5    	add	x5, x5, #0x1
+1000ede80: f1000cbf    	cmp	x5, #0x3
+1000ede84: 540003aa    	b.ge	0x1000edef8 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x138>
+1000ede88: 910043ef    	add	x15, sp, #0x10
+1000ede8c: f86579f0    	ldr	x16, [x15, x5, lsl #3]
+1000ede90: f10008bf    	cmp	x5, #0x2
+1000ede94: 9a8d0051    	csel	x17, x2, x13, eq
+1000ede98: eb10009f    	cmp	x4, x16
+1000ede9c: 540000c3    	b.lo	0x1000edeb4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xf4>
+1000edea0: cb100093    	sub	x19, x4, x16
+1000edea4: eb13023f    	cmp	x17, x19
+1000edea8: 54000208    	b.hi	0x1000edee8 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x128>
+1000edeac: eb10009f    	cmp	x4, x16
+1000edeb0: 54000082    	b.hs	0x1000edec0 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x100>
+1000edeb4: cb040213    	sub	x19, x16, x4
+1000edeb8: eb03027f    	cmp	x19, x3
+1000edebc: 54000163    	b.lo	0x1000edee8 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x128>
+1000edec0: eb10019f    	cmp	x12, x16
+1000edec4: 540000c3    	b.lo	0x1000ededc <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x11c>
+1000edec8: cb100193    	sub	x19, x12, x16
+1000edecc: eb13023f    	cmp	x17, x19
+1000eded0: 540000c8    	b.hi	0x1000edee8 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x128>
+1000eded4: eb10019f    	cmp	x12, x16
+1000eded8: 54fffd22    	b.hs	0x1000ede7c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xbc>
+1000ededc: cb0c0210    	sub	x16, x16, x12
+1000edee0: f100821f    	cmp	x16, #0x20
+1000edee4: 54fffcc2    	b.hs	0x1000ede7c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xbc>
+1000edee8: aa1f03e0    	mov	x0, xzr
+1000edeec: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000edef0: f84307fe    	ldr	x30, [sp], #0x30
+1000edef4: d65f03c0    	ret
+1000edef8: 3dc00020    	ldr	q0, [x1]
+1000edefc: 3dc00421    	ldr	q1, [x1, #0x10]
+1000edf00: 3dc000e2    	ldr	q2, [x7]
+1000edf04: 3dc004e3    	ldr	q3, [x7, #0x10]
+1000edf08: 4ea01c24    	orr.16b	v4, v1, v0
+1000edf0c: 4ea41c44    	orr.16b	v4, v2, v4
+1000edf10: 4ea41c64    	orr.16b	v4, v3, v4
+1000edf14: 4e71a884    	sminv.8h	h4, v4
+1000edf18: 0e023c81    	umov.h	w1, v4[0]
+1000edf1c: 93403c21    	sxth	x1, w1
+1000edf20: 37f80781    	tbnz	w1, #0x1f, 0x1000ee010 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x250>
+1000edf24: aa0003e1    	mov	x1, x0
+1000edf28: aa0a03e3    	mov	x3, x10
+1000edf2c: 3dc00104    	ldr	q4, [x8]
+1000edf30: 3dc00505    	ldr	q5, [x8, #0x10]
+1000edf34: 3dc00166    	ldr	q6, [x11]
+1000edf38: 3dc00567    	ldr	q7, [x11, #0x10]
+1000edf3c: 4f00e408    	movi.16b	v8, #0x0
+1000edf40: eb00015f    	cmp	x10, x0
+1000edf44: 54000103    	b.lo	0x1000edf64 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1a4>
+1000edf48: cb000144    	sub	x4, x10, x0
+1000edf4c: eb02149f    	cmp	x4, x2, lsl #5
+1000edf50: 54000062    	b.hs	0x1000edf5c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x19c>
+1000edf54: aa1f03e0    	mov	x0, xzr
+1000edf58: 1400009b    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000edf5c: eb00015f    	cmp	x10, x0
+1000edf60: 540000c2    	b.hs	0x1000edf78 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1b8>
+1000edf64: cb0a0004    	sub	x4, x0, x10
+1000edf68: eb02149f    	cmp	x4, x2, lsl #5
+1000edf6c: 54000062    	b.hs	0x1000edf78 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1b8>
+1000edf70: aa1f03e0    	mov	x0, xzr
+1000edf74: 14000094    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000edf78: aa0603e4    	mov	x4, x6
+1000edf7c: eb0000df    	cmp	x6, x0
+1000edf80: 54000123    	b.lo	0x1000edfa4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1e4>
+1000edf84: cb0000c5    	sub	x5, x6, x0
+1000edf88: eb0214bf    	cmp	x5, x2, lsl #5
+1000edf8c: 54000082    	b.hs	0x1000edf9c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1dc>
+1000edf90: aa0403e6    	mov	x6, x4
+1000edf94: aa1f03e0    	mov	x0, xzr
+1000edf98: 1400008b    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000edf9c: eb0000df    	cmp	x6, x0
+1000edfa0: 540000e2    	b.hs	0x1000edfbc <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1fc>
+1000edfa4: cb060005    	sub	x5, x0, x6
+1000edfa8: eb0214bf    	cmp	x5, x2, lsl #5
+1000edfac: 54000082    	b.hs	0x1000edfbc <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1fc>
+1000edfb0: aa0403e6    	mov	x6, x4
+1000edfb4: aa1f03e0    	mov	x0, xzr
+1000edfb8: 14000083    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000edfbc: aa0903e5    	mov	x5, x9
+1000edfc0: eb00013f    	cmp	x9, x0
+1000edfc4: 54000143    	b.lo	0x1000edfec <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x22c>
+1000edfc8: cb000126    	sub	x6, x9, x0
+1000edfcc: eb0214df    	cmp	x6, x2, lsl #5
+1000edfd0: 540000a2    	b.hs	0x1000edfe4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x224>
+1000edfd4: aa0403e6    	mov	x6, x4
+1000edfd8: aa0503e9    	mov	x9, x5
+1000edfdc: aa1f03e0    	mov	x0, xzr
+1000edfe0: 14000079    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000edfe4: eb00013f    	cmp	x9, x0
+1000edfe8: 54000102    	b.hs	0x1000ee008 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x248>
+1000edfec: cb090006    	sub	x6, x0, x9
+1000edff0: eb06005f    	cmp	x2, x6
+1000edff4: 540000a9    	b.ls	0x1000ee008 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x248>
+1000edff8: aa0403e6    	mov	x6, x4
+1000edffc: aa0503e9    	mov	x9, x5
+1000ee000: aa1f03e0    	mov	x0, xzr
+1000ee004: 14000070    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000ee008: aa1f03e6    	mov	x6, xzr
+1000ee00c: 14000009    	b	0x1000ee030 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x270>
+1000ee010: aa1f03e0    	mov	x0, xzr
+1000ee014: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ee018: f84307fe    	ldr	x30, [sp], #0x30
+1000ee01c: d65f03c0    	ret
+1000ee020: 4e70a929    	smaxv.8h	h9, v9
+1000ee024: 0e023d28    	umov.h	w8, v9[0]
+1000ee028: 382768a8    	strb	w8, [x5, x7]
+1000ee02c: 910008c6    	add	x6, x6, #0x2
+1000ee030: 910004c7    	add	x7, x6, #0x1
+1000ee034: eb07005f    	cmp	x2, x7
+1000ee038: 54000b6d    	b.le	0x1000ee1a4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x3e4>
+1000ee03c: d37be8c8    	lsl	x8, x6, #5
+1000ee040: 8b061429    	add	x9, x1, x6, lsl #5
+1000ee044: 3dc00129    	ldr	q9, [x9]
+1000ee048: 91008109    	add	x9, x8, #0x20
+1000ee04c: 8b09002a    	add	x10, x1, x9
+1000ee050: 3dc0014a    	ldr	q10, [x10]
+1000ee054: 9100c10a    	add	x10, x8, #0x30
+1000ee058: 8b0a002b    	add	x11, x1, x10
+1000ee05c: 3dc0016b    	ldr	q11, [x11]
+1000ee060: 8b06146b    	add	x11, x3, x6, lsl #5
+1000ee064: 91004108    	add	x8, x8, #0x10
+1000ee068: 8b08002c    	add	x12, x1, x8
+1000ee06c: 3dc0018c    	ldr	q12, [x12]
+1000ee070: 8b03010c    	add	x12, x8, x3
+1000ee074: 8b06148d    	add	x13, x4, x6, lsl #5
+1000ee078: 8b040108    	add	x8, x8, x4
+1000ee07c: 4e60b92d    	abs.8h	v13, v9
+1000ee080: 4e6085ad    	add.8h	v13, v13, v0
+1000ee084: 4e60b98e    	abs.8h	v14, v12
+1000ee088: 4e6185ce    	add.8h	v14, v14, v1
+1000ee08c: 4e60b94f    	abs.8h	v15, v10
+1000ee090: 4e6085ef    	add.8h	v15, v15, v0
+1000ee094: 4e60b970    	abs.8h	v16, v11
+1000ee098: 4e618610    	add.8h	v16, v16, v1
+1000ee09c: 2e62c1b1    	umull.4s	v17, v13, v2
+1000ee0a0: 6e62c1ad    	umull2.4s	v13, v13, v2
+1000ee0a4: 4e4d5a2d    	uzp2.8h	v13, v17, v13
+1000ee0a8: 6e6d8511    	sub.8h	v17, v8, v13
+1000ee0ac: 4e693509    	cmgt.8h	v9, v8, v9
+1000ee0b0: 6ee91db1    	bif.16b	v17, v13, v9
+1000ee0b4: 4e649e29    	mul.8h	v9, v17, v4
+1000ee0b8: 6e688e2d    	cmeq.8h	v13, v17, v8
+1000ee0bc: 6e2059ad    	mvn.16b	v13, v13
+1000ee0c0: 4e261dad    	and.16b	v13, v13, v6
+1000ee0c4: 2e63c1d2    	umull.4s	v18, v14, v3
+1000ee0c8: 6e63c1ce    	umull2.4s	v14, v14, v3
+1000ee0cc: 4e4e5a4e    	uzp2.8h	v14, v18, v14
+1000ee0d0: 6e6e8512    	sub.8h	v18, v8, v14
+1000ee0d4: 4e6c350c    	cmgt.8h	v12, v8, v12
+1000ee0d8: 6eec1dd2    	bif.16b	v18, v14, v12
+1000ee0dc: 4e659e4c    	mul.8h	v12, v18, v5
+1000ee0e0: 6e688e4e    	cmeq.8h	v14, v18, v8
+1000ee0e4: 6e2059ce    	mvn.16b	v14, v14
+1000ee0e8: 4e271dce    	and.16b	v14, v14, v7
+1000ee0ec: 2e62c1f3    	umull.4s	v19, v15, v2
+1000ee0f0: 6e62c1ef    	umull2.4s	v15, v15, v2
+1000ee0f4: 4e4f5a6f    	uzp2.8h	v15, v19, v15
+1000ee0f8: 6e6f8513    	sub.8h	v19, v8, v15
+1000ee0fc: 4e6a350a    	cmgt.8h	v10, v8, v10
+1000ee100: 2e63c214    	umull.4s	v20, v16, v3
+1000ee104: 6e63c210    	umull2.4s	v16, v16, v3
+1000ee108: 4e505a90    	uzp2.8h	v16, v20, v16
+1000ee10c: 6e708514    	sub.8h	v20, v8, v16
+1000ee110: 4e6b350b    	cmgt.8h	v11, v8, v11
+1000ee114: d503201f    	nop
+1000ee118: d503201f    	nop
+1000ee11c: d503201f    	nop
+1000ee120: d503201f    	nop
+1000ee124: 4e6d65cd    	smax.8h	v13, v14, v13
+1000ee128: 3d800171    	str	q17, [x11]
+1000ee12c: 3d800192    	str	q18, [x12]
+1000ee130: 3d8001a9    	str	q9, [x13]
+1000ee134: 3d80010c    	str	q12, [x8]
+1000ee138: 6eea1df3    	bif.16b	v19, v15, v10
+1000ee13c: 6eeb1e14    	bif.16b	v20, v16, v11
+1000ee140: eb0601df    	cmp	x14, x6
+1000ee144: 54000a89    	b.ls	0x1000ee294 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x4d4>
+1000ee148: 8b090068    	add	x8, x3, x9
+1000ee14c: 8b03014b    	add	x11, x10, x3
+1000ee150: 4e649e69    	mul.8h	v9, v19, v4
+1000ee154: 8b090089    	add	x9, x4, x9
+1000ee158: 4e659e8a    	mul.8h	v10, v20, v5
+1000ee15c: 8b0a008a    	add	x10, x4, x10
+1000ee160: 4e70a9ab    	smaxv.8h	h11, v13
+1000ee164: 0e023d6c    	umov.h	w12, v11[0]
+1000ee168: 382668ac    	strb	w12, [x5, x6]
+1000ee16c: 3d800113    	str	q19, [x8]
+1000ee170: 3d800174    	str	q20, [x11]
+1000ee174: 3d800129    	str	q9, [x9]
+1000ee178: 3d80014a    	str	q10, [x10]
+1000ee17c: 6e688e69    	cmeq.8h	v9, v19, v8
+1000ee180: 6e205929    	mvn.16b	v9, v9
+1000ee184: 4e261d29    	and.16b	v9, v9, v6
+1000ee188: 6e688e8a    	cmeq.8h	v10, v20, v8
+1000ee18c: 6e20594a    	mvn.16b	v10, v10
+1000ee190: 4e271d4a    	and.16b	v10, v10, v7
+1000ee194: 4e696549    	smax.8h	v9, v10, v9
+1000ee198: eb0701df    	cmp	x14, x7
+1000ee19c: 54fff428    	b.hi	0x1000ee020 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x260>
+1000ee1a0: 1400003c    	b	0x1000ee290 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x4d0>
+1000ee1a4: aa0503e9    	mov	x9, x5
+1000ee1a8: aa0603e0    	mov	x0, x6
+1000ee1ac: aa0403e6    	mov	x6, x4
+1000ee1b0: 14000005    	b	0x1000ee1c4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x404>
+1000ee1b4: 4e70a969    	smaxv.8h	h9, v11
+1000ee1b8: 0e023d24    	umov.h	w4, v9[0]
+1000ee1bc: 38206924    	strb	w4, [x9, x0]
+1000ee1c0: 91000400    	add	x0, x0, #0x1
+1000ee1c4: eb00005f    	cmp	x2, x0
+1000ee1c8: 540005ad    	b.le	0x1000ee27c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x4bc>
+1000ee1cc: d37be804    	lsl	x4, x0, #5
+1000ee1d0: 8b001425    	add	x5, x1, x0, lsl #5
+1000ee1d4: 3dc000a9    	ldr	q9, [x5]
+1000ee1d8: 8b001465    	add	x5, x3, x0, lsl #5
+1000ee1dc: 91004084    	add	x4, x4, #0x10
+1000ee1e0: 8b040027    	add	x7, x1, x4
+1000ee1e4: 3dc000ea    	ldr	q10, [x7]
+1000ee1e8: 8b030087    	add	x7, x4, x3
+1000ee1ec: 8b0014c8    	add	x8, x6, x0, lsl #5
+1000ee1f0: 8b060084    	add	x4, x4, x6
+1000ee1f4: 4e60b92b    	abs.8h	v11, v9
+1000ee1f8: 4e60856b    	add.8h	v11, v11, v0
+1000ee1fc: 4e60b94c    	abs.8h	v12, v10
+1000ee200: 4e61858c    	add.8h	v12, v12, v1
+1000ee204: 2e62c16d    	umull.4s	v13, v11, v2
+1000ee208: 6e62c16b    	umull2.4s	v11, v11, v2
+1000ee20c: 4e4b59ab    	uzp2.8h	v11, v13, v11
+1000ee210: 6e6b850d    	sub.8h	v13, v8, v11
+1000ee214: 4e693509    	cmgt.8h	v9, v8, v9
+1000ee218: 6ee91d6d    	bif.16b	v13, v11, v9
+1000ee21c: 4e649da9    	mul.8h	v9, v13, v4
+1000ee220: 6e688dab    	cmeq.8h	v11, v13, v8
+1000ee224: 6e20596b    	mvn.16b	v11, v11
+1000ee228: 4e261d6b    	and.16b	v11, v11, v6
+1000ee22c: 2e63c18e    	umull.4s	v14, v12, v3
+1000ee230: 6e63c18c    	umull2.4s	v12, v12, v3
+1000ee234: 4e4c59cc    	uzp2.8h	v12, v14, v12
+1000ee238: 6e6c850e    	sub.8h	v14, v8, v12
+1000ee23c: 4e6a350a    	cmgt.8h	v10, v8, v10
+1000ee240: 6eea1d8e    	bif.16b	v14, v12, v10
+1000ee244: 4e659dca    	mul.8h	v10, v14, v5
+1000ee248: 6e688dcc    	cmeq.8h	v12, v14, v8
+1000ee24c: 6e20598c    	mvn.16b	v12, v12
+1000ee250: 4e271d8c    	and.16b	v12, v12, v7
+1000ee254: d503201f    	nop
+1000ee258: d503201f    	nop
+1000ee25c: 4e6b658b    	smax.8h	v11, v12, v11
+1000ee260: 3d8000ad    	str	q13, [x5]
+1000ee264: 3d8000ee    	str	q14, [x7]
+1000ee268: 3d800109    	str	q9, [x8]
+1000ee26c: 3d80008a    	str	q10, [x4]
+1000ee270: eb0001df    	cmp	x14, x0
+1000ee274: 54fffa08    	b.hi	0x1000ee1b4 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x3f4>
+1000ee278: 14000005    	b	0x1000ee28c <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x4cc>
+1000ee27c: b24003e0    	orr	x0, xzr, #0x1
+1000ee280: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ee284: f84307fe    	ldr	x30, [sp], #0x30
+1000ee288: d65f03c0    	ret
+1000ee28c: 97fe5235    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee290: 97fe5234    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee294: 97fe5233    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee298: d503201f    	nop
+1000ee29c: a90107e0    	stp	x0, x1, [sp, #0x10]
+1000ee2a0: a9020fe2    	stp	x2, x3, [sp, #0x20]
+1000ee2a4: a90317e4    	stp	x4, x5, [sp, #0x30]
+1000ee2a8: a9041fe6    	stp	x6, x7, [sp, #0x40]
+1000ee2ac: a90527e8    	stp	x8, x9, [sp, #0x50]
+1000ee2b0: a9062fea    	stp	x10, x11, [sp, #0x60]
+1000ee2b4: a90737ec    	stp	x12, x13, [sp, #0x70]
+1000ee2b8: a9083fee    	stp	x14, x15, [sp, #0x80]
+1000ee2bc: aa1e03e3    	mov	x3, x30
+1000ee2c0: 97fe49e4    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000ee2c4: a94107e0    	ldp	x0, x1, [sp, #0x10]
+1000ee2c8: a9420fe2    	ldp	x2, x3, [sp, #0x20]
+1000ee2cc: a94317e4    	ldp	x4, x5, [sp, #0x30]
+1000ee2d0: a9441fe6    	ldp	x6, x7, [sp, #0x40]
+1000ee2d4: a94527e8    	ldp	x8, x9, [sp, #0x50]
+1000ee2d8: a9462fea    	ldp	x10, x11, [sp, #0x60]
+1000ee2dc: a94737ec    	ldp	x12, x13, [sp, #0x70]
+1000ee2e0: a9483fee    	ldp	x14, x15, [sp, #0x80]
+1000ee2e4: 17fffeb7    	b	0x1000eddc0 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch>
+		...

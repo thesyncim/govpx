@@ -1,0 +1,39 @@
+{
+  "decision": "Keep the correctness-verified 9-10x kernel gain per user rule, even though default whole-encoder measurements are neutral/mixed. No end-to-end speedup claim.",
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.2 darwin/arm64",
+  "GOEXPERIMENT": "simd",
+  "PGO": "off",
+  "GOMAXPROCS": 1,
+  "source_base": "8f87643c20e09b478a8ac5e85a51e46f2f701481",
+  "merged_equivalent_production_base": "928b4e0824772a897239fb43b91e2abaeee2c9cd",
+  "original_assembly_commit": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "pixel_source_sha256": "267e558c6c3b1c68b00fd398b126f0b33d290dfdb3ecd14c7d6134b73f1f8eb4",
+  "measured_encoder_binary_sha256": "8b207b63b4e22cd5df55a647142fea1ae2740d9661e26616dc6ad65de0d6f22f",
+  "measured_public_binary_sha256": "fb1fd34844d95c44455d2ef86af3c7390a2732662465930f3f5ea43db909e183",
+  "kernel_ratios": {
+    "smooth": {
+      "candidate_ns": 43.42,
+      "parent_ns": 44.980000000000004,
+      "assembly_ns": 33.385,
+      "parent_speedup": 1.035928143712575,
+      "assembly_speedup": 0.7688853063104559
+    },
+    "mixed": {
+      "candidate_ns": 54.400000000000006,
+      "parent_ns": 576.2,
+      "assembly_ns": 553.55,
+      "parent_speedup": 10.591911764705882,
+      "assembly_speedup": 10.175551470588234
+    },
+    "saturating": {
+      "candidate_ns": 33.65,
+      "parent_ns": 320.6,
+      "assembly_ns": 309.45,
+      "parent_speedup": 9.527488855869244,
+      "assembly_speedup": 9.196136701337295
+    }
+  },
+  "scope": "Six balanced-order native rounds, live public DenoiserFilterY B.Loop with signal reset and scalar-checked decision/both outputs, all0B/0alloc. Whole encoder720p realtime cpu8 threads1 bitrate2500 frames60/300, six permutations across assembly/parent/candidate, all23 non-timing fields identical and0alloc. Default300-input median+.198%, mixedpair signs; no overall improvement inferred. AMD port awaits native measurement.",
+  "wrapper_integration": "Measured ARM wrapper subsequently shared with AMD; added feature test is compile-time true on ARM. Integrated generated-code equivalence is checked separately."
+}

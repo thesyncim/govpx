@@ -1357,3 +1357,36 @@ in VP8; VP9 supplies full eight-tap arrays and cannot select this six-tap
 helper, so the VP9 shift is not direct evidence of dot arithmetic cost.
 All 81 kernels have six zero-allocation samples; scalar/alias oracles pass.
 [Full results, controls and dispatch evidence](benchmarks/baselines/go127-simd-amd64/2026-10-17-gated-dot-hold).
+
+
+The complete luma denoiser now retains the first pass's clamped columns and
+uses SIMD for the weaker correction and final signal copy, avoiding a repeated
+scalar first pass. On M4 Max, six-round public DenoiserFilterY medians are
+576.2→54.4 ns for mixed blocks (10.59×) and 320.6→33.65 ns for saturating
+blocks (9.53×), all allocation-free with scalar-checked outputs. These are
+10.18×/9.20× faster than old assembly for those cases; smooth 43.42 ns still
+trails assembly 33.385 ns. Default whole-encoder 300-input median is +0.198%
+with mixed signs and identical 23 non-timing fields. The kernel gain is kept
+under the user's explicit 1.5× acceptance rule; no whole-encoder improvement
+is claimed. The corresponding x64 byte and correction paths have required
+SIMD scalar/alias correctness coverage; native performance is measured in
+the follow-up PR. [Raw measurements, proofs and reproduction](benchmarks/baselines/go127-simd-arm64/2026-10-17-complete-denoiser).
+
+Two-block ARM quantization unrolling is excluded: 300-input median regresses
+0.290%, five of six pairs slower, while short runs are mixed. All 23 non-timing
+and allocation fields match. [Rejected source and complete results](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-quant-pair).
+
+
+Fresh integrated-source M4 Max fixed-speed VP8 Go/libvpx medians are
+6.906217/3.226242 ms/input (+114.064%), with matching measured quality,
+payload and frame counts, including every timing/quality pass. Adaptive
+medians are 8.029216/5.547350 ms (+44.740%), but libvpx's timed output varies;
+its separate quality pass therefore does not establish matched work for all
+adaptive timings. Six rounds alternate execution order; codec-internal timers
+are separate from subprocess wall time. [Raw controls, samples and quality](benchmarks/baselines/go127-simd-arm64/2026-10-17-complete-denoiser-libvpx).
+
+[The merged checkpoint audit](benchmarks/baselines/go127-simd-amd64/2026-10-17-merged-checkpoint) retains final main-equivalent native/C results, CPU-specific gaps,
+small-count quantization regressions and the isolated VP9 allocation outlier.
+[The new x64 port's correctness evidence](benchmarks/baselines/go127-simd-amd64/2026-10-17-complete-denoiser-correctness) includes required-SIMD ordinary tests and checkptr oracles. Three unrelated
+allocation assertions under checkptr instrumentation fail identically on clean
+main; ordinary baseline and new-source allocation tests pass unchanged.

@@ -119,9 +119,3 @@ func fpClassIndices(v archsimd.Int16x8) archsimd.Uint8x16 {
 func loadLFColumns16(p []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
 	return loadLFColumns[[8]byte](p, off, pitch, 16)
 }
-
-const byteDenoise16 = false
-
-func denoiseFirst16Bytes(_ []byte, _ int, _ []byte, _ int, _ []byte, _, _, _ int) (int, bool) {
-	return 0, false
-}

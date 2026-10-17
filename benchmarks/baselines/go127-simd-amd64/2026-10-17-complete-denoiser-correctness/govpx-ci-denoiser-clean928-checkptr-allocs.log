@@ -1,0 +1,10 @@
+=== RUN   TestForwardTransformsAllocateZero
+    dct_test.go:81: allocs = 2, want 0
+--- FAIL: TestForwardTransformsAllocateZero (0.00s)
+=== RUN   TestWriteCoefficientInterFrameAllocatesZero
+    interframe_misc_test.go:213: allocs = 1, want 0
+--- FAIL: TestWriteCoefficientInterFrameAllocatesZero (0.01s)
+=== RUN   TestBuildNeutralPredictorKeyFrameCoefficientsAllocatesZero
+    residual_test.go:138: allocs = 7, want 0
+--- FAIL: TestBuildNeutralPredictorKeyFrameCoefficientsAllocatesZero (0.00s)
+FAIL

@@ -1,0 +1,73 @@
+{
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.2",
+  "PGO": "off",
+  "GOMAXPROCS": 1,
+  "decision": "Rejected: 60-input mixed signs and 300-input regression in five of six pairs. No production promotion or further confirmation.",
+  "cases": {
+    "60": {
+      "medians_ns": {
+        "parent": 7646232.0,
+        "candidate": 7661683.0
+      },
+      "median_percent": 0.20207338725792834,
+      "paired_percent": [
+        1.3341123898147123,
+        1.271048183456136,
+        -0.23873773429732292,
+        -1.4229774490029712,
+        -0.276935468679973,
+        1.4415141782710972
+      ],
+      "all_nontiming_fields_match": true,
+      "nontiming_field_count": 23,
+      "allocations": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "300": {
+      "medians_ns": {
+        "parent": 7754254.0,
+        "candidate": 7776712.5
+      },
+      "median_percent": 0.2896281189654015,
+      "paired_percent": [
+        1.3653088494409271,
+        0.030542963168556092,
+        0.8600644876986641,
+        0.08308245601094111,
+        -0.06480904743564331,
+        1.151904510875057
+      ],
+      "all_nontiming_fields_match": true,
+      "nontiming_field_count": 23,
+      "allocations": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "source_base": "8f87643c20e09b478a8ac5e85a51e46f2f701481",
+  "binary_sha256": "7eea28e035701bd542025057c110d5375ae0f8e6afbc1b87ac6c3ae1d7151918"
+}

@@ -1,0 +1,333 @@
+
+/private/tmp/govpx-complete-denoise-final-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000dfda0 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16>:
+1000dfda0: f9400b90    	ldr	x16, [x28, #0x10]
+1000dfda4: eb3063ff    	cmp	sp, x16
+1000dfda8: 54002629    	b.ls	0x1000e026c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4cc>
+1000dfdac: f81f0ffe    	str	x30, [sp, #-0x10]!
+1000dfdb0: f81f83fd    	stur	x29, [sp, #-0x8]
+1000dfdb4: d10023fd    	sub	x29, sp, #0x8
+1000dfdb8: f9000fe0    	str	x0, [sp, #0x18]
+1000dfdbc: f9001fe4    	str	x4, [sp, #0x38]
+1000dfdc0: f9002fe8    	str	x8, [sp, #0x58]
+1000dfdc4: f100059f    	cmp	x12, #0x1
+1000dfdc8: 54000a68    	b.hi	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfdcc: d1000daf    	sub	x15, x13, #0x3
+1000dfdd0: f10009ff    	cmp	x15, #0x2
+1000dfdd4: 54000a08    	b.hi	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfdd8: f10801df    	cmp	x14, #0x200
+1000dfddc: 54000060    	b.eq	0x1000dfde8 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x48>
+1000dfde0: f10961df    	cmp	x14, #0x258
+1000dfde4: 54000981    	b.ne	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfde8: f100407f    	cmp	x3, #0x10
+1000dfdec: 5400094b    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfdf0: f10040ff    	cmp	x7, #0x10
+1000dfdf4: 5400090b    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfdf8: f100417f    	cmp	x11, #0x10
+1000dfdfc: 540008cb    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe00: f100403f    	cmp	x1, #0x10
+1000dfe04: 5400088b    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe08: f10040bf    	cmp	x5, #0x10
+1000dfe0c: 5400084b    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe10: f100413f    	cmp	x9, #0x10
+1000dfe14: 5400080b    	b.lt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe18: d100402f    	sub	x15, x1, #0x10
+1000dfe1c: b201e3f0    	mov	x16, #-0x7777777777777778 ; =-8608480567731124088
+1000dfe20: f2911130    	movk	x16, #0x8889
+1000dfe24: 9bd07def    	umulh	x15, x15, x16
+1000dfe28: eb4f0c7f    	cmp	x3, x15, lsr #3
+1000dfe2c: 5400074c    	b.gt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe30: d10040af    	sub	x15, x5, #0x10
+1000dfe34: 9bd07def    	umulh	x15, x15, x16
+1000dfe38: eb4f0cff    	cmp	x7, x15, lsr #3
+1000dfe3c: 540006cc    	b.gt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe40: d100412f    	sub	x15, x9, #0x10
+1000dfe44: 9bd07def    	umulh	x15, x15, x16
+1000dfe48: eb4f0d7f    	cmp	x11, x15, lsr #3
+1000dfe4c: 5400064c    	b.gt	0x1000dff14 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x174>
+1000dfe50: aa0403ef    	mov	x15, x4
+1000dfe54: aa0003f0    	mov	x16, x0
+1000dfe58: eb04001f    	cmp	x0, x4
+1000dfe5c: 540000c3    	b.lo	0x1000dfe74 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0xd4>
+1000dfe60: cb040011    	sub	x17, x0, x4
+1000dfe64: eb1100bf    	cmp	x5, x17
+1000dfe68: 540000c9    	b.ls	0x1000dfe80 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0xe0>
+1000dfe6c: eb04001f    	cmp	x0, x4
+1000dfe70: 54000482    	b.hs	0x1000dff00 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x160>
+1000dfe74: cb000091    	sub	x17, x4, x0
+1000dfe78: eb11003f    	cmp	x1, x17
+1000dfe7c: 54000428    	b.hi	0x1000dff00 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x160>
+1000dfe80: aa0803f1    	mov	x17, x8
+1000dfe84: eb04011f    	cmp	x8, x4
+1000dfe88: 540000c3    	b.lo	0x1000dfea0 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x100>
+1000dfe8c: cb040113    	sub	x19, x8, x4
+1000dfe90: eb1300bf    	cmp	x5, x19
+1000dfe94: 540000c9    	b.ls	0x1000dfeac <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x10c>
+1000dfe98: eb04011f    	cmp	x8, x4
+1000dfe9c: 54000322    	b.hs	0x1000dff00 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x160>
+1000dfea0: cb080084    	sub	x4, x4, x8
+1000dfea4: eb04013f    	cmp	x9, x4
+1000dfea8: 540002c8    	b.hi	0x1000dff00 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x160>
+1000dfeac: 910005a4    	add	x4, x13, #0x1
+1000dfeb0: 91000da8    	add	x8, x13, #0x3
+1000dfeb4: 91000d8c    	add	x12, x12, #0x3
+1000dfeb8: 4f00e400    	movi.16b	v0, #0x0
+1000dfebc: 4ea01c01    	mov.16b	v1, v0
+1000dfec0: 4e011da0    	mov.b	v0[0], w13
+1000dfec4: 4ea11c22    	mov.16b	v2, v1
+1000dfec8: 4e011c81    	mov.b	v1[0], w4
+1000dfecc: 4ea21c43    	mov.16b	v3, v2
+1000dfed0: 4e011d02    	mov.b	v2[0], w8
+1000dfed4: 4ea31c64    	mov.16b	v4, v3
+1000dfed8: 4e011d83    	mov.b	v3[0], w12
+1000dfedc: 4f00e405    	movi.16b	v5, #0x0
+1000dfee0: 4e010400    	dup.16b	v0, v0[0]
+1000dfee4: 4e010421    	dup.16b	v1, v1[0]
+1000dfee8: 4e010442    	dup.16b	v2, v2[0]
+1000dfeec: 4f00e4e6    	movi.16b	v6, #0x7
+1000dfef0: 4f00e5e7    	movi.16b	v7, #0xf
+1000dfef4: 4e010463    	dup.16b	v3, v3[0]
+1000dfef8: aa1f03e4    	mov	x4, xzr
+1000dfefc: 14000010    	b	0x1000dff3c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x19c>
+1000dff00: aa1f03e0    	mov	x0, xzr
+1000dff04: aa1f03e1    	mov	x1, xzr
+1000dff08: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000dff0c: f84107fe    	ldr	x30, [sp], #0x10
+1000dff10: d65f03c0    	ret
+1000dff14: aa1f03e0    	mov	x0, xzr
+1000dff18: aa1f03e1    	mov	x1, xzr
+1000dff1c: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000dff20: f84107fe    	ldr	x30, [sp], #0x10
+1000dff24: d65f03c0    	ret
+1000dff28: 3d800180    	str	q0, [x12]
+1000dff2c: 91000484    	add	x4, x4, #0x1
+1000dff30: 4ead1da0    	mov.16b	v0, v13
+1000dff34: 4ea11c25    	mov.16b	v5, v1
+1000dff38: 4eac1d81    	mov.16b	v1, v12
+1000dff3c: f100409f    	cmp	x4, #0x10
+1000dff40: 5400072a    	b.ge	0x1000e0024 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x284>
+1000dff44: 9b037c88    	mul	x8, x4, x3
+1000dff48: eb08003f    	cmp	x1, x8
+1000dff4c: 540018c3    	b.lo	0x1000e0264 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4c4>
+1000dff50: cb08002c    	sub	x12, x1, x8
+1000dff54: cb02010d    	sub	x13, x8, x2
+1000dff58: 8a8dfd08    	and	x8, x8, x13, asr #63
+1000dff5c: 8b080208    	add	x8, x16, x8
+1000dff60: f100419f    	cmp	x12, #0x10
+1000dff64: 540017e3    	b.lo	0x1000e0260 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4c0>
+1000dff68: 9b0b7c8c    	mul	x12, x4, x11
+1000dff6c: eb0c013f    	cmp	x9, x12
+1000dff70: 54001763    	b.lo	0x1000e025c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4bc>
+1000dff74: cb0c012d    	sub	x13, x9, x12
+1000dff78: cb0a0193    	sub	x19, x12, x10
+1000dff7c: 8a93fd8c    	and	x12, x12, x19, asr #63
+1000dff80: 8b11018c    	add	x12, x12, x17
+1000dff84: f10041bf    	cmp	x13, #0x10
+1000dff88: 54001683    	b.lo	0x1000e0258 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4b8>
+1000dff8c: 9b077c8d    	mul	x13, x4, x7
+1000dff90: 3dc00108    	ldr	q8, [x8]
+1000dff94: 3dc00189    	ldr	q9, [x12]
+1000dff98: 6e28652a    	umax.16b	v10, v9, v8
+1000dff9c: 6e286d2b    	umin.16b	v11, v9, v8
+1000dffa0: 6e2b854a    	sub.16b	v10, v10, v11
+1000dffa4: 6e2a3ceb    	cmhs.16b	v11, v7, v10
+1000dffa8: 4ea11c2c    	mov.16b	v12, v1
+1000dffac: 6eeb1c41    	bif.16b	v1, v2, v11
+1000dffb0: 6e2a3ccb    	cmhs.16b	v11, v6, v10
+1000dffb4: 4ea01c0d    	mov.16b	v13, v0
+1000dffb8: 6eeb1c20    	bif.16b	v0, v1, v11
+1000dffbc: 6e2a3c61    	cmhs.16b	v1, v3, v10
+1000dffc0: 6ee11c0a    	bif.16b	v10, v0, v1
+1000dffc4: 6e283520    	cmhi.16b	v0, v9, v8
+1000dffc8: 6e205801    	mvn.16b	v1, v0
+1000dffcc: 4e211d41    	and.16b	v1, v10, v1
+1000dffd0: 6e210d28    	uqadd.16b	v8, v9, v1
+1000dffd4: 4e201d40    	and.16b	v0, v10, v0
+1000dffd8: 6e208421    	sub.16b	v1, v1, v0
+1000dffdc: d503201f    	nop
+1000dffe0: d503201f    	nop
+1000dffe4: d503201f    	nop
+1000dffe8: d503201f    	nop
+1000dffec: d503201f    	nop
+1000dfff0: d503201f    	nop
+1000dfff4: d503201f    	nop
+1000dfff8: 4e210ca1    	sqadd.16b	v1, v5, v1
+1000dfffc: 6e202d00    	uqsub.16b	v0, v8, v0
+1000e0000: eb0d00bf    	cmp	x5, x13
+1000e0004: 54001283    	b.lo	0x1000e0254 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4b4>
+1000e0008: cb0d00a8    	sub	x8, x5, x13
+1000e000c: cb0601ac    	sub	x12, x13, x6
+1000e0010: 8a8cfdac    	and	x12, x13, x12, asr #63
+1000e0014: 8b0c01ec    	add	x12, x15, x12
+1000e0018: f100411f    	cmp	x8, #0x10
+1000e001c: 54fff862    	b.hs	0x1000dff28 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x188>
+1000e0020: 1400008c    	b	0x1000e0250 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4b0>
+1000e0024: 0f08a4a0    	sshll.8h	v0, v5, #0x0
+1000e0028: 4f08a4a1    	sshll2.8h	v1, v5, #0x0
+1000e002c: 4e608422    	add.8h	v2, v1, v0
+1000e0030: 4e71b842    	addv.8h	h2, v2
+1000e0034: 0e023c44    	umov.h	w4, v2[0]
+1000e0038: 93403c84    	sxth	x4, w4
+1000e003c: cb0403e8    	neg	x8, x4
+1000e0040: eb08009f    	cmp	x4, x8
+1000e0044: da84a484    	cneg	x4, x4, lt
+1000e0048: eb0401df    	cmp	x14, x4
+1000e004c: 5400020a    	b.ge	0x1000e008c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x2ec>
+1000e0050: cb0e0084    	sub	x4, x4, x14
+1000e0054: 9348fc84    	asr	x4, x4, #8
+1000e0058: 91000484    	add	x4, x4, #0x1
+1000e005c: f100109f    	cmp	x4, #0x4
+1000e0060: 540000ca    	b.ge	0x1000e0078 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x2d8>
+1000e0064: 4e011c84    	mov.b	v4[0], w4
+1000e0068: d503201f    	nop
+1000e006c: 4e010482    	dup.16b	v2, v4[0]
+1000e0070: aa1f03e4    	mov	x4, xzr
+1000e0074: 1400002e    	b	0x1000e012c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x38c>
+1000e0078: aa1f03e0    	mov	x0, xzr
+1000e007c: b24003e1    	orr	x1, xzr, #0x1
+1000e0080: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000e0084: f84107fe    	ldr	x30, [sp], #0x10
+1000e0088: d65f03c0    	ret
+1000e008c: aa1f03e2    	mov	x2, xzr
+1000e0090: 14000004    	b	0x1000e00a0 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x300>
+1000e0094: 3dc00060    	ldr	q0, [x3]
+1000e0098: 3d800080    	str	q0, [x4]
+1000e009c: 91000442    	add	x2, x2, #0x1
+1000e00a0: f100405f    	cmp	x2, #0x10
+1000e00a4: 5400028a    	b.ge	0x1000e00f4 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x354>
+1000e00a8: 9b077c43    	mul	x3, x2, x7
+1000e00ac: eb0300bf    	cmp	x5, x3
+1000e00b0: 54000323    	b.lo	0x1000e0114 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x374>
+1000e00b4: cb0300a4    	sub	x4, x5, x3
+1000e00b8: cb060068    	sub	x8, x3, x6
+1000e00bc: 8a88fc63    	and	x3, x3, x8, asr #63
+1000e00c0: 8b0f0063    	add	x3, x3, x15
+1000e00c4: f100409f    	cmp	x4, #0x10
+1000e00c8: 54000243    	b.lo	0x1000e0110 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x370>
+1000e00cc: 9b0b7c44    	mul	x4, x2, x11
+1000e00d0: eb04013f    	cmp	x9, x4
+1000e00d4: 540001c3    	b.lo	0x1000e010c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x36c>
+1000e00d8: cb040128    	sub	x8, x9, x4
+1000e00dc: cb0a008c    	sub	x12, x4, x10
+1000e00e0: 8a8cfc84    	and	x4, x4, x12, asr #63
+1000e00e4: 8b110084    	add	x4, x4, x17
+1000e00e8: f100411f    	cmp	x8, #0x10
+1000e00ec: 54fffd42    	b.hs	0x1000e0094 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x2f4>
+1000e00f0: 14000006    	b	0x1000e0108 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x368>
+1000e00f4: b24003e0    	orr	x0, xzr, #0x1
+1000e00f8: aa0003e1    	mov	x1, x0
+1000e00fc: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000e0100: f84107fe    	ldr	x30, [sp], #0x10
+1000e0104: d65f03c0    	ret
+1000e0108: 97fe8a96    	bl	0x100082b60 <_runtime.panicBounds>
+1000e010c: 97fe8a95    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0110: 97fe8a94    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0114: 97fe8a93    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0118: 3dc00105    	ldr	q5, [x8]
+1000e011c: 6e242ca4    	uqsub.16b	v4, v5, v4
+1000e0120: 6e230c83    	uqadd.16b	v3, v4, v3
+1000e0124: 3d800103    	str	q3, [x8]
+1000e0128: 91000484    	add	x4, x4, #0x1
+1000e012c: f100409f    	cmp	x4, #0x10
+1000e0130: 540005aa    	b.ge	0x1000e01e4 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x444>
+1000e0134: 9b037c88    	mul	x8, x4, x3
+1000e0138: eb08003f    	cmp	x1, x8
+1000e013c: 54000883    	b.lo	0x1000e024c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4ac>
+1000e0140: cb08002c    	sub	x12, x1, x8
+1000e0144: cb02010d    	sub	x13, x8, x2
+1000e0148: 8a8dfd08    	and	x8, x8, x13, asr #63
+1000e014c: 8b080208    	add	x8, x16, x8
+1000e0150: f100419f    	cmp	x12, #0x10
+1000e0154: 540007a3    	b.lo	0x1000e0248 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4a8>
+1000e0158: 9b0b7c8c    	mul	x12, x4, x11
+1000e015c: eb0c013f    	cmp	x9, x12
+1000e0160: 54000723    	b.lo	0x1000e0244 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4a4>
+1000e0164: cb0c012d    	sub	x13, x9, x12
+1000e0168: cb0a0193    	sub	x19, x12, x10
+1000e016c: 8a93fd8c    	and	x12, x12, x19, asr #63
+1000e0170: 8b11018c    	add	x12, x12, x17
+1000e0174: f10041bf    	cmp	x13, #0x10
+1000e0178: 54000643    	b.lo	0x1000e0240 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x4a0>
+1000e017c: 9b077c8d    	mul	x13, x4, x7
+1000e0180: 3dc00103    	ldr	q3, [x8]
+1000e0184: 3dc00184    	ldr	q4, [x12]
+1000e0188: 6e236485    	umax.16b	v5, v4, v3
+1000e018c: 6e236c86    	umin.16b	v6, v4, v3
+1000e0190: 6e2684a5    	sub.16b	v5, v5, v6
+1000e0194: 6e256c45    	umin.16b	v5, v2, v5
+1000e0198: 6e233483    	cmhi.16b	v3, v4, v3
+1000e019c: 6e205864    	mvn.16b	v4, v3
+1000e01a0: 4e231ca3    	and.16b	v3, v5, v3
+1000e01a4: 4e241ca4    	and.16b	v4, v5, v4
+1000e01a8: 6e248465    	sub.16b	v5, v3, v4
+1000e01ac: 0f08a4a6    	sshll.8h	v6, v5, #0x0
+1000e01b0: 4f08a4a5    	sshll2.8h	v5, v5, #0x0
+1000e01b4: d503201f    	nop
+1000e01b8: 4e668400    	add.8h	v0, v0, v6
+1000e01bc: 4e658421    	add.8h	v1, v1, v5
+1000e01c0: eb0d00bf    	cmp	x5, x13
+1000e01c4: 540003c3    	b.lo	0x1000e023c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x49c>
+1000e01c8: cb0601a8    	sub	x8, x13, x6
+1000e01cc: 8a88fda8    	and	x8, x13, x8, asr #63
+1000e01d0: cb0d00ac    	sub	x12, x5, x13
+1000e01d4: 8b0801e8    	add	x8, x15, x8
+1000e01d8: f100419f    	cmp	x12, #0x10
+1000e01dc: 54fff9e2    	b.hs	0x1000e0118 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x378>
+1000e01e0: 14000016    	b	0x1000e0238 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x498>
+1000e01e4: 4f00e402    	movi.16b	v2, #0x0
+1000e01e8: b2401be2    	orr	x2, xzr, #0x7f
+1000e01ec: 4e021c42    	mov.h	v2[0], w2
+1000e01f0: 4e020442    	dup.8h	v2, v2[0]
+1000e01f4: 4e626c00    	smin.8h	v0, v0, v2
+1000e01f8: 4e626c21    	smin.8h	v1, v1, v2
+1000e01fc: 4e618400    	add.8h	v0, v0, v1
+1000e0200: 4e71b800    	addv.8h	h0, v0
+1000e0204: 0e023c02    	umov.h	w2, v0[0]
+1000e0208: 93403c42    	sxth	x2, w2
+1000e020c: cb0203e3    	neg	x3, x2
+1000e0210: d503201f    	nop
+1000e0214: eb03005f    	cmp	x2, x3
+1000e0218: da82a442    	cneg	x2, x2, lt
+1000e021c: eb0201df    	cmp	x14, x2
+1000e0220: 54fff36a    	b.ge	0x1000e008c <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16+0x2ec>
+1000e0224: aa1f03e0    	mov	x0, xzr
+1000e0228: b24003e1    	orr	x1, xzr, #0x1
+1000e022c: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000e0230: f84107fe    	ldr	x30, [sp], #0x10
+1000e0234: d65f03c0    	ret
+1000e0238: 97fe8a4a    	bl	0x100082b60 <_runtime.panicBounds>
+1000e023c: 97fe8a49    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0240: 97fe8a48    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0244: 97fe8a47    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0248: 97fe8a46    	bl	0x100082b60 <_runtime.panicBounds>
+1000e024c: 97fe8a45    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0250: 97fe8a44    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0254: 97fe8a43    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0258: 97fe8a42    	bl	0x100082b60 <_runtime.panicBounds>
+1000e025c: 97fe8a41    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0260: 97fe8a40    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0264: 97fe8a3f    	bl	0x100082b60 <_runtime.panicBounds>
+1000e0268: d503201f    	nop
+1000e026c: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000e0270: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000e0274: a90297e4    	stp	x4, x5, [sp, #0x28]
+1000e0278: a9039fe6    	stp	x6, x7, [sp, #0x38]
+1000e027c: a904a7e8    	stp	x8, x9, [sp, #0x48]
+1000e0280: a905afea    	stp	x10, x11, [sp, #0x58]
+1000e0284: a906b7ec    	stp	x12, x13, [sp, #0x68]
+1000e0288: f9003fee    	str	x14, [sp, #0x78]
+1000e028c: aa1e03e3    	mov	x3, x30
+1000e0290: 97fe81f0    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000e0294: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000e0298: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000e029c: a94297e4    	ldp	x4, x5, [sp, #0x28]
+1000e02a0: a9439fe6    	ldp	x6, x7, [sp, #0x38]
+1000e02a4: a944a7e8    	ldp	x8, x9, [sp, #0x48]
+1000e02a8: a945afea    	ldp	x10, x11, [sp, #0x58]
+1000e02ac: a946b7ec    	ldp	x12, x13, [sp, #0x68]
+1000e02b0: f9403fee    	ldr	x14, [sp, #0x78]
+1000e02b4: 17fffebb    	b	0x1000dfda0 <_github.com/thesyncim/govpx/internal/pixel.DenoiseLuma16>
+		...
