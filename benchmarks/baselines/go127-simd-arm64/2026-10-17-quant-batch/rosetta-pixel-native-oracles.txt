@@ -1,0 +1,8 @@
+=== RUN   TestBackendSelected
+    kernels_test.go:12: GOARCH=amd64 native SIMD=true
+--- PASS: TestBackendSelected (0.00s)
+=== RUN   TestVP8QuantBatchDeclinesBeforeWriting
+--- PASS: TestVP8QuantBatchDeclinesBeforeWriting (0.00s)
+=== RUN   TestVP8QuantBatchPreservesOverlappingInputOrder
+--- PASS: TestVP8QuantBatchPreservesOverlappingInputOrder (0.00s)
+PASS

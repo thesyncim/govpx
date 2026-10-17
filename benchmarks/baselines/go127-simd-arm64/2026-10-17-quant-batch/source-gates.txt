@@ -1,0 +1,39 @@
+files="$(gofmt -l $(git ls-files '*.go'))" || exit $?; \
+	if [ -n "$files" ]; then \
+		printf 'gofmt needed:\n%s\n' "$files"; \
+		exit 1; \
+	fi
+hashseeds="$(find testdata/fuzz -mindepth 2 -maxdepth 2 -type f -regex '.*/[0-9a-f]\{16\}' 2>/dev/null)"; \
+	if [ -n "$hashseeds" ]; then \
+		printf 'hash-named fuzz seeds detected (run: make fuzz-rename):\n%s\n' "$hashseeds"; \
+		exit 1; \
+	fi
+test -s "cmd/govpx-bench/default.pgo"
+test -s "cmd/govpx-bench/default.pgo.sources.sha256"
+actual="$(scripts/pgo-fingerprint.sh)"; \
+	expected="$(cat "cmd/govpx-bench/default.pgo.sources.sha256")"; \
+	if [ "$actual" != "$expected" ]; then \
+		printf '%s\n' "PGO profile is out of sync with benchmark hot-path sources."; \
+		printf '%s\n' "Before committing, run: make pgo-refresh"; \
+		printf '%s\n' "Then rerun: make pre-commit"; \
+		printf 'expected %s\nactual   %s\n' "$expected" "$actual"; \
+		exit 1; \
+	fi
+GOTOOLCHAIN="local" GO="/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go" scripts/go.sh build -pgo="cmd/govpx-bench/default.pgo" -o /tmp/govpx-bench-pgo-check ./cmd/govpx-bench
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+rm -f /tmp/govpx-bench-pgo-check
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+GO="/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go" sh scripts/check-build-selection.sh
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/native build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/purego build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+amd64/scalar build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/native build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/purego build selection OK
+go: writing stat cache: mkdir /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx: operation not permitted
+arm64/scalar build selection OK

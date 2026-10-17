@@ -1,0 +1,198 @@
+ROUND 0 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	37216066	         4.497 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	35364033	         5.073 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14684388	        12.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7576726	        23.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4889869	        36.89 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 0 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	27428740	         6.155 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	20092274	         9.020 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5981870	        30.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 3081145	        58.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1880394	        95.71 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 0 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	26923359	         6.266 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19979278	         9.010 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	11542530	        15.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6552790	        27.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4211367	        42.82 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 1 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31932348	         5.538 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	20003889	         8.995 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5981647	        30.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 3078631	        58.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1874984	        95.82 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 1 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31493307	         5.666 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19965428	         9.048 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	11701069	        15.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6495614	        28.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4081497	        43.44 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 1 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	42106494	         4.198 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	35302188	         5.103 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14550109	        12.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7549662	        23.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4861376	        37.08 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 2 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31786444	         5.686 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	20011579	         9.070 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	11663979	        15.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6515306	        27.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4195701	        43.74 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 2 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	42823576	         4.130 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	35252353	         5.160 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14352682	        12.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7386382	        25.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4571631	        38.16 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 2 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31231022	         5.746 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19471914	         9.265 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5783743	        30.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 3040022	        59.19 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1838726	        97.92 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 3 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	42832492	         4.106 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	35131088	         5.121 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14413741	        12.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7366004	        24.01 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4871046	        37.15 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 3 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	32064601	         5.775 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	20007873	         9.166 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	10848982	        15.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6450118	        27.82 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4175356	        43.16 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 3 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31853005	         5.572 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19345910	         9.252 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5850082	        30.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 3047670	        59.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1841361	        97.83 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 4 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31792992	         5.694 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19739817	         9.174 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	11469472	        16.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6329187	        28.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4149508	        43.52 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 4 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	31544823	         5.690 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19452187	         9.184 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5857912	        30.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 3028200	        59.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1835289	        98.31 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 4 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	42944053	         4.118 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	34929128	         5.194 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14431942	        12.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7447299	        23.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4880220	        37.21 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 5 VARIANT parent
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	32137117	         5.647 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19334048	         9.176 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	 5887057	        30.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 2978590	        60.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 1842204	        98.22 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 5 VARIANT assembly
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	42818482	         4.213 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	34664266	         5.267 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	14220301	        12.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 7378635	        24.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4798053	        37.43 ns/op	       0 B/op	       0 allocs/op
+PASS
+ROUND 5 VARIANT current
+goos: darwin
+goarch: arm64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: Apple M4 Max
+BenchmarkFastQuantizeBatchNative/blocks1         	30631779	         5.738 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks2         	19519071	         9.314 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks8         	11468833	        15.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks16        	 6437498	        28.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBatchNative/blocks25        	 4112989	        43.60 ns/op	       0 B/op	       0 allocs/op
+PASS

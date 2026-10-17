@@ -1,0 +1,6 @@
+Apple M4 Max; native darwin/arm64; Go1.27.2; SIMD; PGOoff; GOMAXPROCS=1; threads=1
+Parent production codec db5b44fe; oldASM691cd051; current integrated shared-table kernel.
+No competing local Go builds/tests during native timings.
+Final unsigned-offset hardening produces instruction-identical148-instruction ARM kernel.
+AVX2 correctness runs require native SIMD under Rosetta; no emulated performance claims.
+PGO fingerprint:0cd31c57c927dfe7fd2e283f507e985f7c2264c8

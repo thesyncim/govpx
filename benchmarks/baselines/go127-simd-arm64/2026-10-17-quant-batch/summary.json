@@ -1,0 +1,143 @@
+{
+  "vp8": {
+    "assembly": {
+      "median_ns_per_input": 6840786.0,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "current": {
+      "median_ns_per_input": 7844486.5,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "parent": {
+      "median_ns_per_input": 7963865.0,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "current_vs_assembly": {
+      "median_delta_percent": 14.672297890914866,
+      "paired_delta_percent": [
+        13.987564226400128,
+        8.573611739856846,
+        16.002727378115324,
+        8.812405793202128,
+        15.501035051247026,
+        14.414197661332008
+      ]
+    },
+    "current_vs_parent": {
+      "median_delta_percent": -1.4990020549067617,
+      "paired_delta_percent": [
+        -1.7192750859137185,
+        -2.142063101760616,
+        -1.251763059825639,
+        -2.0012751567474063,
+        -4.307003717888547,
+        -1.1854954076563229
+      ]
+    },
+    "non_timing_fields_match": true
+  },
+  "vp9": {
+    "current": {
+      "median_ns_per_input": 12237217.0,
+      "allocations_per_input": [
+        1.25
+      ]
+    },
+    "parent": {
+      "median_ns_per_input": 12108482.5,
+      "allocations_per_input": [
+        1.25
+      ]
+    },
+    "current_vs_parent": {
+      "median_delta_percent": 1.0631761659646521,
+      "paired_delta_percent": [
+        -1.4584743787173449,
+        -0.5518723558647909,
+        2.1506311898163544,
+        -0.20802555430052827,
+        0.7472496631082404,
+        0.13582972308219254
+      ]
+    },
+    "non_timing_fields_match": true
+  },
+  "kernels": {
+    "blocks1": {
+      "assembly": {
+        "samples": 6,
+        "median_ns": 4.164
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 5.6685
+      },
+      "current": {
+        "samples": 6,
+        "median_ns": 5.716
+      }
+    },
+    "blocks2": {
+      "assembly": {
+        "samples": 6,
+        "median_ns": 5.1405
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 9.18
+      },
+      "current": {
+        "samples": 6,
+        "median_ns": 9.118
+      }
+    },
+    "blocks8": {
+      "assembly": {
+        "samples": 6,
+        "median_ns": 12.5
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 30.59
+      },
+      "current": {
+        "samples": 6,
+        "median_ns": 15.71
+      }
+    },
+    "blocks16": {
+      "assembly": {
+        "samples": 6,
+        "median_ns": 23.97
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 59.16
+      },
+      "current": {
+        "samples": 6,
+        "median_ns": 27.95
+      }
+    },
+    "blocks25": {
+      "assembly": {
+        "samples": 6,
+        "median_ns": 37.18
+      },
+      "parent": {
+        "samples": 6,
+        "median_ns": 97.875
+      },
+      "current": {
+        "samples": 6,
+        "median_ns": 43.480000000000004
+      }
+    }
+  }
+}

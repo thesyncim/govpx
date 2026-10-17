@@ -1,0 +1,62 @@
+{
+  "integrated-public.json": {
+    "vp8": {
+      "parent_median_ns": 8122887.5,
+      "current_median_ns": 8116094.5,
+      "median_time_delta_percent": -0.0836278970994031,
+      "paired_time_delta_percent": [
+        0.7972593829725927,
+        -2.088672006249326,
+        -0.39576287718317005,
+        -2.731443526895083,
+        0.6060540850461926,
+        -0.4754476979877742
+      ],
+      "non_timing_fields_match": true
+    },
+    "vp9": {
+      "parent_median_ns": 12510870.0,
+      "current_median_ns": 12542250.0,
+      "median_time_delta_percent": 0.25082188528855465,
+      "paired_time_delta_percent": [
+        1.5734698795988988,
+        -0.5406396909034661,
+        1.2835806231777713,
+        -0.16514315967671722,
+        -0.47771418412624334,
+        -2.1006369569917527
+      ],
+      "non_timing_fields_match": true
+    }
+  },
+  "integrated-confirm.json": {
+    "300": {
+      "parent_median_ns": 8178435.5,
+      "current_median_ns": 8117258.0,
+      "median_time_delta_percent": -0.7480342664559769,
+      "paired_time_delta_percent": [
+        -1.0312459466950696,
+        -0.825787292436464,
+        -1.3193975329217622,
+        0.5463810756036525,
+        -1.1201153463961444,
+        -0.29568640762911436
+      ],
+      "non_timing_fields_match": true
+    },
+    "60": {
+      "parent_median_ns": 8239985.5,
+      "current_median_ns": 8243686.0,
+      "median_time_delta_percent": 0.04490905960938818,
+      "paired_time_delta_percent": [
+        0.19741480668242772,
+        -2.436350873851434,
+        0.27341713435067305,
+        0.0554195555734216,
+        -0.9373060761226348,
+        0.3336380778380166
+      ],
+      "non_timing_fields_match": true
+    }
+  }
+}

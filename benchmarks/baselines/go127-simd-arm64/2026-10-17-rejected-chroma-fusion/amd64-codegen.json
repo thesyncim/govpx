@@ -1,0 +1,68 @@
+{
+  "symbol": "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterChromaOnlyMB",
+  "binaries": {
+    "parent": "/private/tmp/govpx-fusion-root-amd64.test",
+    "root": "/private/tmp/govpx-uv-root-amd64.test"
+  },
+  "addresses": {
+    "parent": "0x5660e0",
+    "root": "0x5660e0"
+  },
+  "bytes": {
+    "parent": 1073,
+    "root": 1073
+  },
+  "raw_byte_equal": false,
+  "normalized_instruction_equal": false,
+  "instruction_lines": {
+    "parent": 269,
+    "root": 269
+  },
+  "sha256": {
+    "parent": "8abe8702fabb571c975337440fc96abc3f479030022130785a87ce6afe1dfdbf",
+    "root": "9cb2f312fa570fb4ad6b5059f4022f7e43d0e1c17299ca83543c8735a519c82e"
+  },
+  "calls": {
+    "parent": [
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterVerticalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterVerticalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterHorizontalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterHorizontalEdgeUVDispatch>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.morestack_noctxt.abi0>"
+    ],
+    "root": [
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterVerticalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterVerticalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterHorizontalEdgeUVDispatch>",
+      "callq\t <github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterHorizontalEdgeUVDispatch>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.panicBounds>",
+      "callq\t <runtime.morestack_noctxt.abi0>"
+    ]
+  },
+  "equivalent_after_documented_independent_and_commutative_ordering": true,
+  "differences": [
+    "Two adjacent independent SUB RSI->R8 and SUB RSI->R9 exchange order; following ADD overwrites FLAGS before any use.",
+    "LEA (RDX+RSI)->RDI exchanges base/index operands, both scale 1."
+  ]
+}
