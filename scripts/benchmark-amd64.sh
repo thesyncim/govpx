@@ -52,6 +52,7 @@ for source_dir in "$reference_dir" "$previous_dir"; do
 	cp "$root/internal/vp8/dsp/sad_limit_slice_native_test.go" "$source_dir/internal/vp8/dsp/sad_limit_slice_native_test.go"
 	cp "$root/internal/vp8/dsp/sad_limit_x4_native_test.go" "$source_dir/internal/vp8/dsp/sad_limit_x4_native_test.go"
 	cp "$root/internal/vp8/dsp/uv_zero_native_test.go" "$source_dir/internal/vp8/dsp/uv_zero_native_test.go"
+	cp "$root/internal/vp8/dsp/gather_pointer_native_test.go" "$source_dir/internal/vp8/dsp/gather_pointer_native_test.go"
 	cp "$root/internal/vp8/dsp/sse_strip_test.go" "$source_dir/internal/vp8/dsp/sse_strip_test.go"
 	cp "$root/internal/vp8/dsp/residual_gather_native_test.go" "$source_dir/internal/vp8/dsp/residual_gather_native_test.go"
 	cp "$root/internal/vp8/dsp/dc_pair_bench_test.go" "$source_dir/internal/vp8/dsp/dc_pair_bench_test.go"
@@ -73,6 +74,8 @@ export GOTOOLCHAIN=local GOEXPERIMENT=simd GOAMD64=v1 GOMAXPROCS=1
 	sha256sum "$root/internal/vp9/encoder/quant_fp_classes_native_bench_test.go"
 	sha256sum "$root/internal/vp8/encoder/quant_batch_native_test.go"
 	sha256sum "$root/internal/vp8/encoder/denoiser_native_bench_test.go"
+	sha256sum "$root/internal/vp8/dsp/gather_pointer_native_test.go"
+	sha256sum "$root/internal/pixel/gather_pointer_simd.go"
 	scripts/go.sh version
 	scripts/go.sh env GOOS GOARCH GOAMD64 GOEXPERIMENT GOTOOLCHAIN GOCACHE
 	lscpu
@@ -95,6 +98,8 @@ GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestBac
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestSSEPlane16' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/encoder -run '^TestLoopFilterLumaSSE' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestMacroInternal' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestGatherPointer' -count=1 -v
+	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestResidualGather' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestMacroInternal' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/vp8/dsp -run '^TestSADLimit(PointerRows|SliceRows|SliceVisibleSpan|X4ExactRows|X4AliasedStoreOrder|X4FullWindowGuard)$' -count=1 -v
 	GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel -run '^TestSADLimit16Pointer' -count=1 -v
@@ -106,7 +111,7 @@ if [ -n "$previous_dir" ]; then
 fi
 
 packages='internal/vp9/dsp internal/vp8/dsp internal/vp9/encoder internal/vp8/encoder internal/vp8/decoder'
-benchmarks='Benchmark(Avg8x8Quad|ProjectionColumnsNative|Variance16x16Native)$|BenchmarkVP9(FusedFPClassesNative|FPNoClassesNative|Idct4x4_16Add|Idct8x8_64Add|Convolve8Horiz16x16|Convolve8Vert16x16|SubPixelVariance(8x8|16x16|32x32|64x64)|LoopFilter(Horizontal|Vertical)8(Dual)?NonFlat)$|BenchmarkSAD16x16$|BenchmarkForwardDCT(16x16|32x32Native)$|Benchmark(SADLimitNative|SADLimitSliceNative|SADLimitX4Native|UVRoundedZeroNative|ResidualGatherNative|SixTapPhases|SplitSubpelPhases|DenoiserFilterYNative|LoopFilterLumaSSENative|VP8PickerFilterNative|FastQuantizeBatchNative|FastQuantizeBlockSIMD|ForwardDCT4x4SIMD|ForwardDCTBatchResidual25|DCOnlyIDCT4x4AddPairInt32|DCOnlyPairInPlace|ResidualGather16x16|ResidualGather8x8|SSE16x720PtrFast|SSE16x16|SSE8x8|LoopFilterHorizontalEdgesY|LoopFilterVerticalEdgesY|(MB)?LoopFilter(Horizontal|Vertical)EdgeUV|SAD16x16LimitEarly|SAD16x16x4LimitPtrFastFull)$'
+benchmarks='Benchmark(Avg8x8Quad|ProjectionColumnsNative|Variance16x16Native)$|BenchmarkVP9(FusedFPClassesNative|FPNoClassesNative|Idct4x4_16Add|Idct8x8_64Add|Convolve8Horiz16x16|Convolve8Vert16x16|SubPixelVariance(8x8|16x16|32x32|64x64)|LoopFilter(Horizontal|Vertical)8(Dual)?NonFlat)$|BenchmarkSAD16x16$|BenchmarkForwardDCT(16x16|32x32Native)$|Benchmark(SADLimitNative|SADLimitSliceNative|SADLimitX4Native|UVRoundedZeroNative|GatherPointerNative|GatherPackedPredictionNative|ResidualGatherNative|SixTapPhases|SplitSubpelPhases|DenoiserFilterYNative|LoopFilterLumaSSENative|VP8PickerFilterNative|FastQuantizeBatchNative|FastQuantizeBlockSIMD|ForwardDCT4x4SIMD|ForwardDCTBatchResidual25|DCOnlyIDCT4x4AddPairInt32|DCOnlyPairInPlace|ResidualGather16x16|ResidualGather8x8|SSE16x720PtrFast|SSE16x16|SSE8x8|LoopFilterHorizontalEdgesY|LoopFilterVerticalEdgesY|(MB)?LoopFilter(Horizontal|Vertical)EdgeUV|SAD16x16LimitEarly|SAD16x16x4LimitPtrFastFull)$'
 for variant in $variants; do
 	case "$variant" in
 		assembly) source_dir=$reference_dir ;;

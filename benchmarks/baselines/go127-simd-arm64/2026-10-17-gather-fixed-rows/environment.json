@@ -1,0 +1,29 @@
+{
+  "cpu": "Apple M4 Max",
+  "compiler": "Go1.27.2 darwin/arm64 GOEXPERIMENT=simd",
+  "pgo": "off",
+  "goprocs": 1,
+  "threads": 1,
+  "parent_tested": "03afac7c47a7ce3e7f52d0925308f95932b2a9df",
+  "parent_merged": "9f333e012876038ad46800217ff64e186c7b8796 (identical tested tree)",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "binary_sha256": {
+    "govpx-next-gather-unrolled.test": "7f05d14bfcce611c089c320dc45f5c0460ee6e8ab3f71820abd673fddf58fb86",
+    "govpx-next-gather-unrolled-root-bench": "bbf4dc28368e5185ae4efc6550827d56398d631d68a470461b92a348d42f89b0",
+    "govpx-next-gather-pointer-parent-packed-confirm.test": "bbdc7b9c4386ec57c79c9c37d6364463a47683aaaa15d400a1fdb9a797dc6e5e",
+    "govpx-next-gather-pointer-assembly-packed-confirm.test": "1ecb1d1739eff74f0d33fd4766f0128d369509e6cd6e37aa6cb5c5b96da9ce98",
+    "govpx-next-gather-pointer-candidate-packed-confirm.test": "9d02167e2e8ab79c3cb668bee343a1e68aa932813126db9d75a008ce7cc3cb63",
+    "govpx-next-uv-zero-candidate-bench": "d2b002107ed9f2b2fee6ec59dae94e1caa107b238ca2367a3d3ecdaa0a1bc7b7",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  },
+  "final_source_sha256": {
+    "internal/pixel/gather_pointer_simd.go": "2cb052b0596d9dc535db8d9da4f9b2cd0b80a26570b10b2eabfd113b7f320d80",
+    "internal/pixel/gather_pointer_generic.go": "da1b4812dcf5dc584d18af5986c563a156a852f32ea45e42c925d7aca77ee0d1",
+    "internal/pixel/gather_pointer_test.go": "d8828c6a490e6e481182bf83cbd37b0ff03fe49602831a04eb7ec1f3e3b25351",
+    "internal/pixel/gather_pointer_disabled_amd64_test.go": "611cff7f8a59d64fd8a0eadc869649811a65b553b1c880902d0e45c6fbc027d4",
+    "internal/vp8/dsp/gather_pointer_native_test.go": "b40b64c4615c3b9104d42c27ea5e943f1fc087b5a212b9bdd7288ff287d3c300",
+    "internal/vp8/dsp/gather_pointer_rows_test.go": "12995660f6572a27bb56ff7cd07dcd6083c24bc2ca6eba0a50392849b4beb8d8",
+    "internal/vp8/dsp/residual_gather_other.go": "aeb7118f6b303fe8d8ffc750fc70eeb13144ffc30f32e8ec0bbb76eef16319bc"
+  },
+  "raw_members": 94
+}

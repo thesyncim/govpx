@@ -18,7 +18,7 @@ func TestMacroInternalMatchesScalarEdges(t *testing.T) {
 	seed := uint32(0x92713)
 	next := func() byte { seed = seed*1664525 + 1013904223; return byte(seed >> 24) }
 	changed := 0
-	for _, vertical := range []bool{false} {
+	for _, vertical := range []bool{false, true} {
 		for _, extra := range []int{0, 1, 31} {
 			step, outer := 16+extra, 1
 			if vertical {

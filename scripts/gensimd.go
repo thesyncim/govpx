@@ -877,6 +877,7 @@ func generateMacroInternalLoopFilter() {
 package pixel
 import("simd/archsimd";"unsafe")
 `)
+	var amdVertical string
 	for _, orientation := range []string{"Horizontal", "Vertical"} {
 		name := "func loopFilterInternalFused" + orientation + "("
 		begin := strings.Index(source, name)
@@ -935,6 +936,9 @@ import("simd/archsimd";"unsafe")
 		}
 		body = strings.Replace(body, marker, stores.String(), 1)
 		if orientation == "Vertical" {
+			amdVertical = body
+		}
+		if orientation == "Vertical" {
 			// Pack four exact uint32 row loads into each vector. The two 64-bit
 			// insertions reduce scalar-to-vector transfers; eight TRNs recover the
 			// four columns. Incoming columns are read after preceding edge stores.
@@ -977,15 +981,16 @@ q0,q1,q2,q3=a0.InterleaveEven(a2),a0.InterleaveOdd(a2),a1.InterleaveEven(a3),a1.
 	if err != nil {
 		panic(err)
 	}
-	// AMD64 shares the sequential horizontal byte network. Its existing vertical
-	// path remains separate; ARM keeps its packed TRN schedule.
+	// AMD64 shares the horizontal network and the generic exact-column
+	// vertical network. ARM keeps its separately measured packed TRN schedule.
 	arm := string(data)
 	horizontalEnd := strings.Index(arm, "\nfunc loopFilterMacroInternalFusedVertical(")
 	if horizontalEnd < 0 {
 		panic("macro horizontal function boundary missing")
 	}
 	amd := strings.Replace(arm[:horizontalEnd], "goexperiment.simd && arm64", "goexperiment.simd && amd64", 1)
-	amd = strings.Replace(amd, "// Disjoint vertical rows are packed after all dependent edges are computed.", "// Horizontal macroblock/internal edges share the same exact byte dataflow.", 1)
+	amd = strings.Replace(amd, "// Disjoint vertical rows are packed after all dependent edges are computed.", "// Horizontal and vertical macroblock/internal edges carry exact byte dataflow.", 1)
+	amd += "\n" + amdVertical
 	amdData, err := format.Source([]byte(amd))
 	if err != nil {
 		panic(err)

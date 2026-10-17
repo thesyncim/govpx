@@ -1,0 +1,31 @@
+{
+  "cpu": "Apple M4 Max",
+  "compiler": "Go1.27.2 darwin/arm64 GOEXPERIMENT=simd",
+  "parent": "03afac7c47a7ce3e7f52d0925308f95932b2a9df",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "pgo": "off",
+  "goprocs": 1,
+  "threads": 1,
+  "raw_members": 107,
+  "binary_sha256": {
+    "govpx-next-gather-pointer-parent-confirm.test": "6fbb257e145c234ee99535eb366b8eeebcc167c7fc5ecead4275e2997b3bd9e6",
+    "govpx-next-gather-pointer-parent-packed-confirm.test": "bbdc7b9c4386ec57c79c9c37d6364463a47683aaaa15d400a1fdb9a797dc6e5e",
+    "govpx-next-gather-pointer-assembly-confirm.test": "ebfd6f404aa9c3881156b58b123e58f7faa715102407adce811547018fb3c2b6",
+    "govpx-next-gather-pointer-assembly-packed-confirm.test": "1ecb1d1739eff74f0d33fd4766f0128d369509e6cd6e37aa6cb5c5b96da9ce98",
+    "govpx-next-gather-pointer-candidate-confirm.test": "ffba630945cc608d39179b09f7b0dd3c19541a77ce681e6b9579432218bd1a7a",
+    "govpx-next-gather-pointer-candidate-packed-confirm.test": "9d02167e2e8ab79c3cb668bee343a1e68aa932813126db9d75a008ce7cc3cb63",
+    "govpx-next-gather-pointer-bench": "fc83287a86020390ad58699dcd81be4a9b2e2c852805437dad10477bb4d623d2",
+    "govpx-next-uv-zero-candidate-bench": "d2b002107ed9f2b2fee6ec59dae94e1caa107b238ca2367a3d3ecdaa0a1bc7b7",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  },
+  "source_sha256": {
+    "internal/pixel/gather_pointer_simd.go": "4f170b3281e65758992eb33f0a8eb63a2c6c3d1d8c95a06bb5274dfc78ff684e",
+    "internal/pixel/gather_pointer_generic.go": "da1b4812dcf5dc584d18af5986c563a156a852f32ea45e42c925d7aca77ee0d1",
+    "internal/pixel/gather_pointer_test.go": "d8828c6a490e6e481182bf83cbd37b0ff03fe49602831a04eb7ec1f3e3b25351",
+    "internal/pixel/gather_pointer_disabled_amd64_test.go": "611cff7f8a59d64fd8a0eadc869649811a65b553b1c880902d0e45c6fbc027d4",
+    "internal/vp8/dsp/residual_gather_other.go": "aeb7118f6b303fe8d8ffc750fc70eeb13144ffc30f32e8ec0bbb76eef16319bc",
+    "internal/vp8/dsp/gather_pointer_native_test.go": "21b0f87cf6764a1cb114159fb0b0c0310f05daa1dfd6898446f7af27160a1825",
+    "internal/vp8/dsp/gather_pointer_rows_test.go": "12995660f6572a27bb56ff7cd07dcd6083c24bc2ca6eba0a50392849b4beb8d8",
+    "internal/pixel/kernels_simd.go": "c6bfe64fe58c669265026fa3093a8000406e971653efd1a104012ccd1c3a166f"
+  }
+}

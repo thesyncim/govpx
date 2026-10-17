@@ -14,6 +14,9 @@ import (
 // ResidualGather16x16PtrFast reads full 16x16 blocks at the supplied
 // strides and writes 256 coefficients in 4x4 block-scan order.
 func ResidualGather16x16PtrFast(src *byte, srcStride int, pred *byte, predStride int, out *int16) {
+	if pixel.Gather16PtrFast(src, srcStride, pred, predStride, out) {
+		return
+	}
 	if pixel.Enabled {
 		pixel.Gather(unsafe.Slice(src, 15*srcStride+16), srcStride, unsafe.Slice(pred, 15*predStride+16), predStride, unsafe.Slice(out, 256), 16)
 		return
@@ -43,6 +46,9 @@ func ResidualGather16x16PtrFast(src *byte, srcStride int, pred *byte, predStride
 
 // ResidualGather8x8PtrFast gathers an 8x8 chroma block into 64 coefficients.
 func ResidualGather8x8PtrFast(src *byte, srcStride int, pred *byte, predStride int, out *int16) {
+	if pixel.Gather8PtrFast(src, srcStride, pred, predStride, out) {
+		return
+	}
 	if pixel.Enabled {
 		pixel.Gather(unsafe.Slice(src, 7*srcStride+8), srcStride, unsafe.Slice(pred, 7*predStride+8), predStride, unsafe.Slice(out, 64), 8)
 		return

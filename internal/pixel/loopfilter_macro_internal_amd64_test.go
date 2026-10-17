@@ -13,7 +13,7 @@ func TestMacroInternalFusionOracle(t *testing.T) {
 	}
 	seed := uint32(0x73101)
 	next := func() byte { seed = seed*1664525 + 1013904223; return byte(seed >> 24) }
-	for _, vertical := range []bool{false} {
+	for _, vertical := range []bool{false, true} {
 		for _, extra := range []int{0, 1, 7, 31, 61} {
 			step, outer := 16+extra, 1
 			if vertical {

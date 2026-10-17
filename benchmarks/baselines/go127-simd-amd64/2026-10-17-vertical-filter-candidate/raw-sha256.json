@@ -1,0 +1,19 @@
+{
+  "govpx-next-amd-vertical-fusion-amd64-pixel-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "govpx-next-amd-vertical-fusion-amd64-pixel-rosetta.log": "212a80930b17aa445994fd0093bc2067fe3e91ff1db40e765e50c9bcc277c746",
+  "govpx-next-amd-vertical-fusion-amd64-vp8-dsp-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "govpx-next-amd-vertical-fusion-amd64-vp8-dsp-rosetta.log": "aa65e1db8f4cd07aeb31065d9dfbd15446a53cee9f6f2c1ab4b206ee6b070da5",
+  "govpx-next-amd-vertical-fusion-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "govpx-next-amd-vertical-fusion-disassembly.txt": "1a06d96afcedc547f38345b2a3d07ff38b1afec0c45414501312f923831a598f",
+  "govpx-next-amd-vertical-fusion-generate-retry.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "govpx-next-amd-vertical-fusion-generate.log": "5ae66e4711b4f51048e143c6a9af705d3625749246082f89ad255d90572d3139",
+  "govpx-next-amd-vertical-fusion-review.txt": "63bc7a36c14662562d84c0cbcc19c1c57f03b09a392e4608280a0b83a3be15df",
+  "govpx-next-amd-vertical-fusion-rosetta.log": "212a80930b17aa445994fd0093bc2067fe3e91ff1db40e765e50c9bcc277c746",
+  "govpx-prepare-amd-vertical-fusion.py": "d94d5bde03b9be413964a11735e38aa5f72c9e2d4c6fb5f84d8878e954a32ecb",
+  "sources/govpx-next-amd-vertical-fusion/internal/pixel/loopfilter_macro_disabled_amd64_test.go": "12f541014855bbe98d2b81bf3442285366e0f812812ccb80977c7c603e46b701",
+  "sources/govpx-next-amd-vertical-fusion/internal/pixel/loopfilter_macro_internal_amd64.go": "fbd432aa2434d3f6568d6966728ea5b4f5019f49e72acef143d08ed040b2c71d",
+  "sources/govpx-next-amd-vertical-fusion/internal/pixel/loopfilter_macro_internal_amd64_test.go": "21035012dad24686a90e399f0637660f297c6c2f83a5fe818ffa6ea59b233d97",
+  "sources/govpx-next-amd-vertical-fusion/internal/pixel/loopfilter_macro_internal_fused_amd64.go": "4b2ff55687c7f9b123d93479754716622aed385242d2f016b9aca95530bc7982",
+  "sources/govpx-next-amd-vertical-fusion/internal/vp8/dsp/loopfilter_macro_internal_amd64_test.go": "91e6eec08b366e255404a71174de6543ba3cdde589a165ce61641944ce22c30c",
+  "sources/govpx-next-amd-vertical-fusion/scripts/gensimd.go": "ef3049d1571540b366a9291010242582ab4142070702869f15b503db013793dc"
+}

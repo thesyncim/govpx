@@ -1,0 +1,758 @@
+{
+  "BenchmarkGatherPointerNative/w8/pitch32/extremefalse": {
+    "samples": {
+      "parent": [
+        9.457,
+        9.506,
+        9.451,
+        9.446,
+        9.534,
+        9.598
+      ],
+      "assembly": [
+        5.329,
+        5.342,
+        5.4,
+        5.374,
+        5.339,
+        5.341
+      ],
+      "candidate": [
+        4.811,
+        4.781,
+        4.791,
+        4.796,
+        4.817,
+        4.828
+      ],
+      "loop": [
+        6.262,
+        6.177,
+        6.197,
+        6.298,
+        6.328,
+        6.204
+      ]
+    },
+    "speedup": 1.9738732174456128,
+    "minimum_paired_speedup": 1.9657035959260032,
+    "speedup_assembly": 1.1120016654522744,
+    "speedup_loop": 1.297595503278859,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w8/pitch32/extremetrue": {
+    "samples": {
+      "parent": [
+        9.506,
+        9.43,
+        9.449,
+        9.536,
+        9.518,
+        9.425
+      ],
+      "assembly": [
+        5.365,
+        5.339,
+        5.501,
+        5.377,
+        5.341,
+        5.349
+      ],
+      "candidate": [
+        4.718,
+        4.781,
+        4.717,
+        4.739,
+        4.722,
+        4.734
+      ],
+      "loop": [
+        6.183,
+        6.184,
+        6.216,
+        6.37,
+        6.258,
+        6.181
+      ]
+    },
+    "speedup": 2.004547377326565,
+    "minimum_paired_speedup": 1.972390713239908,
+    "speedup_assembly": 1.1330372250423013,
+    "speedup_loop": 1.311336717428088,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w8/pitch1312/extremefalse": {
+    "samples": {
+      "parent": [
+        9.477,
+        9.415,
+        9.49,
+        9.482,
+        9.545,
+        9.469
+      ],
+      "assembly": [
+        5.34,
+        5.353,
+        5.429,
+        5.402,
+        5.395,
+        5.325
+      ],
+      "candidate": [
+        4.772,
+        4.787,
+        4.786,
+        4.86,
+        4.786,
+        4.823
+      ],
+      "loop": [
+        6.179,
+        6.209,
+        6.229,
+        6.279,
+        6.216,
+        6.181
+      ]
+    },
+    "speedup": 1.9804658936592499,
+    "minimum_paired_speedup": 1.951028806584362,
+    "speedup_assembly": 1.1227410425154078,
+    "speedup_loop": 1.2979212368118667,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w8/pitch1312/extremetrue": {
+    "samples": {
+      "parent": [
+        9.422,
+        9.474,
+        9.437,
+        9.868,
+        9.789,
+        9.433
+      ],
+      "assembly": [
+        5.328,
+        5.34,
+        5.41,
+        5.443,
+        5.339,
+        5.433
+      ],
+      "candidate": [
+        4.741,
+        4.712,
+        4.744,
+        4.747,
+        4.832,
+        4.737
+      ],
+      "loop": [
+        6.2,
+        6.181,
+        6.184,
+        6.332,
+        6.219,
+        6.269
+      ]
+    },
+    "speedup": 1.9937796520822353,
+    "minimum_paired_speedup": 1.9873444421008228,
+    "speedup_assembly": 1.1333684765419083,
+    "speedup_loop": 1.3093305218766476,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w16/pitch32/extremefalse": {
+    "samples": {
+      "parent": [
+        17.13,
+        17.13,
+        17.13,
+        17.81,
+        17.38,
+        17.16
+      ],
+      "assembly": [
+        14.84,
+        14.68,
+        14.98,
+        15.44,
+        14.77,
+        15.67
+      ],
+      "candidate": [
+        9.48,
+        9.519,
+        9.46,
+        9.562,
+        9.566,
+        9.505
+      ],
+      "loop": [
+        11.07,
+        11.05,
+        11.12,
+        11.24,
+        11.15,
+        11.05
+      ]
+    },
+    "speedup": 1.8024600504625734,
+    "minimum_paired_speedup": 1.799558777182477,
+    "speedup_assembly": 1.567493692178301,
+    "speedup_loop": 1.1664213624894868,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w16/pitch32/extremetrue": {
+    "samples": {
+      "parent": [
+        17.14,
+        17.13,
+        17.21,
+        17.49,
+        18.08,
+        17.21
+      ],
+      "assembly": [
+        14.75,
+        14.85,
+        14.91,
+        15.05,
+        14.9,
+        14.98
+      ],
+      "candidate": [
+        9.494,
+        9.468,
+        9.488,
+        9.53,
+        9.512,
+        9.483
+      ],
+      "loop": [
+        11.13,
+        11.08,
+        11.04,
+        11.26,
+        11.09,
+        11.24
+      ]
+    },
+    "speedup": 1.813296807501844,
+    "minimum_paired_speedup": 1.8053507478407416,
+    "speedup_assembly": 1.5704351490886104,
+    "speedup_loop": 1.1705826572542408,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w16/pitch1312/extremefalse": {
+    "samples": {
+      "parent": [
+        17.1,
+        17.36,
+        17.1,
+        17.56,
+        17.59,
+        17.11
+      ],
+      "assembly": [
+        14.71,
+        14.72,
+        14.89,
+        15.12,
+        14.8,
+        14.96
+      ],
+      "candidate": [
+        9.503,
+        9.503,
+        9.592,
+        9.484,
+        9.538,
+        9.5
+      ],
+      "loop": [
+        11.06,
+        11.05,
+        11.04,
+        11.21,
+        11.08,
+        11.13
+      ]
+    },
+    "speedup": 1.8136377985899188,
+    "minimum_paired_speedup": 1.7827356130108425,
+    "speedup_assembly": 1.5621382721245922,
+    "speedup_loop": 1.1648952962222456,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPointerNative/w16/pitch1312/extremetrue": {
+    "samples": {
+      "parent": [
+        17.15,
+        17.16,
+        17.17,
+        17.17,
+        17.35,
+        17.27
+      ],
+      "assembly": [
+        14.82,
+        14.74,
+        14.75,
+        14.95,
+        14.74,
+        14.82
+      ],
+      "candidate": [
+        9.476,
+        9.535,
+        9.497,
+        9.577,
+        9.674,
+        9.492
+      ],
+      "loop": [
+        11.08,
+        11.04,
+        11.11,
+        11.21,
+        11.13,
+        11.25
+      ]
+    },
+    "speedup": 1.8043295502311898,
+    "minimum_paired_speedup": 1.7928370053252587,
+    "speedup_assembly": 1.55369903320723,
+    "speedup_loop": 1.1685582177385456,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w8/pitch32/extremefalse": {
+    "samples": {
+      "parent": [
+        9.501,
+        9.443,
+        9.433,
+        9.519,
+        9.559,
+        9.442
+      ],
+      "assembly": [
+        5.307,
+        5.328,
+        5.332,
+        5.415,
+        5.363,
+        5.409
+      ],
+      "candidate": [
+        4.805,
+        4.816,
+        4.828,
+        4.906,
+        4.9,
+        4.804
+      ],
+      "loop": [
+        6.163,
+        6.202,
+        6.178,
+        6.397,
+        6.198,
+        6.234
+      ]
+    },
+    "speedup": 1.964330153463293,
+    "minimum_paired_speedup": 1.94027721157766,
+    "speedup_assembly": 1.1089796764827873,
+    "speedup_loop": 1.2857735379510578,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w8/pitch32/extremetrue": {
+    "samples": {
+      "parent": [
+        9.423,
+        9.474,
+        9.429,
+        9.651,
+        9.506,
+        9.454
+      ],
+      "assembly": [
+        5.336,
+        5.337,
+        5.356,
+        5.395,
+        5.334,
+        5.349
+      ],
+      "candidate": [
+        4.807,
+        4.74,
+        4.749,
+        4.761,
+        4.812,
+        4.762
+      ],
+      "loop": [
+        6.206,
+        6.186,
+        6.248,
+        6.284,
+        6.195,
+        6.206
+      ]
+    },
+    "speedup": 1.9876089467604747,
+    "minimum_paired_speedup": 1.9602662783440814,
+    "speedup_assembly": 1.122125380657356,
+    "speedup_loop": 1.303370786516854,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w8/pitch1312/extremefalse": {
+    "samples": {
+      "parent": [
+        9.426,
+        9.465,
+        9.461,
+        9.671,
+        9.492,
+        9.484
+      ],
+      "assembly": [
+        5.331,
+        5.326,
+        5.336,
+        5.4,
+        5.334,
+        5.341
+      ],
+      "candidate": [
+        4.801,
+        4.836,
+        4.851,
+        4.833,
+        4.875,
+        4.802
+      ],
+      "loop": [
+        6.168,
+        6.221,
+        6.184,
+        6.293,
+        6.296,
+        6.239
+      ]
+    },
+    "speedup": 1.9597683317819834,
+    "minimum_paired_speedup": 1.9470769230769231,
+    "speedup_assembly": 1.1035267349260522,
+    "speedup_loop": 1.2886544627158962,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w8/pitch1312/extremetrue": {
+    "samples": {
+      "parent": [
+        9.454,
+        9.506,
+        9.427,
+        9.554,
+        9.485,
+        9.424
+      ],
+      "assembly": [
+        5.332,
+        5.376,
+        5.329,
+        5.484,
+        5.359,
+        5.378
+      ],
+      "candidate": [
+        4.738,
+        4.757,
+        4.759,
+        4.733,
+        4.875,
+        4.735
+      ],
+      "loop": [
+        6.191,
+        6.208,
+        6.217,
+        6.294,
+        6.221,
+        6.246
+      ]
+    },
+    "speedup": 1.9946287519747234,
+    "minimum_paired_speedup": 1.9456410256410255,
+    "speedup_assembly": 1.1305950500263295,
+    "speedup_loop": 1.3099526066350708,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w16/pitch32/extremefalse": {
+    "samples": {
+      "parent": [
+        17.13,
+        17.21,
+        17.12,
+        17.15,
+        17.52,
+        17.1
+      ],
+      "assembly": [
+        14.85,
+        14.89,
+        14.93,
+        15.09,
+        14.84,
+        14.86
+      ],
+      "candidate": [
+        9.519,
+        9.653,
+        9.534,
+        9.444,
+        9.515,
+        9.49
+      ],
+      "loop": [
+        11.09,
+        11.09,
+        11.12,
+        11.27,
+        11.05,
+        11.06
+      ]
+    },
+    "speedup": 1.8009877062099402,
+    "minimum_paired_speedup": 1.7828654304361338,
+    "speedup_assembly": 1.5629925396658613,
+    "speedup_loop": 1.1652831774718924,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w16/pitch32/extremetrue": {
+    "samples": {
+      "parent": [
+        17.59,
+        17.1,
+        17.23,
+        17.23,
+        17.5,
+        17.29
+      ],
+      "assembly": [
+        15.18,
+        15.05,
+        14.96,
+        15.08,
+        15.12,
+        14.89
+      ],
+      "candidate": [
+        9.453,
+        9.559,
+        9.457,
+        9.549,
+        9.513,
+        9.442
+      ],
+      "loop": [
+        11.08,
+        11.15,
+        11.04,
+        11.22,
+        11.11,
+        11.08
+      ]
+    },
+    "speedup": 1.8197153400105428,
+    "minimum_paired_speedup": 1.7888900512605923,
+    "speedup_assembly": 1.5882973115445442,
+    "speedup_loop": 1.169741697416974,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w16/pitch1312/extremefalse": {
+    "samples": {
+      "parent": [
+        18.24,
+        17.46,
+        17.12,
+        18.56,
+        17.5,
+        17.12
+      ],
+      "assembly": [
+        15.04,
+        14.94,
+        14.83,
+        15.06,
+        15.05,
+        15.03
+      ],
+      "candidate": [
+        9.459,
+        9.563,
+        9.507,
+        9.47,
+        9.491,
+        9.44
+      ],
+      "loop": [
+        11.1,
+        11.04,
+        11.04,
+        11.39,
+        11.06,
+        11.12
+      ]
+    },
+    "speedup": 1.8437846105163231,
+    "minimum_paired_speedup": 1.8007783738298098,
+    "speedup_assembly": 1.5858868203153844,
+    "speedup_loop": 1.1687147302357472,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkGatherPackedPredictionNative/w16/pitch1312/extremetrue": {
+    "samples": {
+      "parent": [
+        17.18,
+        17.11,
+        17.12,
+        17.69,
+        17.63,
+        17.11
+      ],
+      "assembly": [
+        14.83,
+        15.11,
+        14.85,
+        15.06,
+        14.81,
+        14.97
+      ],
+      "candidate": [
+        9.513,
+        9.568,
+        9.457,
+        9.433,
+        9.443,
+        9.549
+      ],
+      "loop": [
+        11.03,
+        11.04,
+        11.08,
+        11.26,
+        11.13,
+        11.07
+      ]
+    },
+    "speedup": 1.8081180811808117,
+    "minimum_paired_speedup": 1.788252508361204,
+    "speedup_assembly": 1.5719557195571956,
+    "speedup_loop": 1.1676331049024775,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkResidualGatherNative/16x16": {
+    "samples": {
+      "parent": [
+        16.9,
+        16.84,
+        16.96,
+        17.14,
+        17.23,
+        17.05
+      ],
+      "assembly": [
+        15.42,
+        15.66,
+        15.52,
+        15.76,
+        15.6,
+        15.55
+      ],
+      "candidate": [
+        10.23,
+        10.33,
+        10.22,
+        10.25,
+        10.21,
+        10.19
+      ],
+      "loop": [
+        10.9,
+        11.04,
+        10.92,
+        11.01,
+        10.9,
+        10.9
+      ]
+    },
+    "speedup": 1.663080684596577,
+    "minimum_paired_speedup": 1.6302032913843174,
+    "speedup_assembly": 1.5232273838630803,
+    "speedup_loop": 1.0669926650366748,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  },
+  "BenchmarkResidualGatherNative/8x8": {
+    "samples": {
+      "parent": [
+        9.219,
+        9.247,
+        9.187,
+        9.314,
+        9.265,
+        9.181
+      ],
+      "assembly": [
+        5.5,
+        5.486,
+        5.488,
+        5.618,
+        5.593,
+        5.564
+      ],
+      "candidate": [
+        4.244,
+        4.332,
+        4.254,
+        4.216,
+        4.25,
+        4.224
+      ],
+      "loop": [
+        6.022,
+        6.042,
+        5.977,
+        5.993,
+        5.985,
+        6.015
+      ]
+    },
+    "speedup": 2.174005180127149,
+    "minimum_paired_speedup": 2.134579870729455,
+    "speedup_assembly": 1.3025665175417942,
+    "speedup_loop": 1.4137037909112313,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 6
+  }
+}
