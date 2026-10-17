@@ -139,5 +139,48 @@
         "median_ns": 43.480000000000004
       }
     }
+  },
+  "vp8_long_300_inputs": {
+    "assembly": {
+      "median_ns_per_input": 7150375.5,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "parent": {
+      "median_ns_per_input": 7993609.5,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "current": {
+      "median_ns_per_input": 7857802.5,
+      "allocations_per_input": [
+        0
+      ]
+    },
+    "current_vs_parent": {
+      "median_delta_percent": -1.6989446382138174,
+      "paired_delta_percent": [
+        -0.23514740280723423,
+        -1.563635923494222,
+        -1.5152663681556988,
+        -4.956500348289483,
+        -1.5475952694019912,
+        -1.1341865145422125
+      ]
+    },
+    "current_vs_assembly": {
+      "median_delta_percent": 9.893564330992133,
+      "paired_delta_percent": [
+        17.511681872588802,
+        7.624424592991685,
+        8.320389910597935,
+        14.847960129219807,
+        11.875923699589164,
+        10.823226572941923
+      ]
+    },
+    "non_timing_fields_match": true
   }
 }
