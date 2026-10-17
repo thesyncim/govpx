@@ -1,0 +1,49 @@
+File: previous-govpx-bench
+Build ID: 1ac1ad76648ab31e933190df290b7d91b68dbd51
+Type: cpu
+Time: 2026-10-17 13:32:34 UTC
+Duration: 4.57s, Total samples = 4.59s (100.49%)
+Showing nodes accounting for 2.82s, 61.44% of 4.59s total
+Dropped 178 nodes (cum <= 0.02s)
+Showing top 40 nodes out of 214
+      flat  flat%   sum%        cum   cum%
+     0.27s  5.88%  5.88%      0.30s  6.54%  github.com/thesyncim/govpx/internal/pixel.subpelStats16
+     0.21s  4.58% 10.46%      0.33s  7.19%  github.com/thesyncim/govpx/internal/pixel.quantizeFPBlockSIMD
+     0.18s  3.92% 14.38%      0.22s  4.79%  github.com/thesyncim/govpx/internal/pixel.Subtract
+     0.15s  3.27% 17.65%      0.15s  3.27%  runtime.memmove
+     0.11s  2.40% 20.04%      0.14s  3.05%  github.com/thesyncim/govpx/internal/pixel.pixelDiffAcc (inline)
+     0.10s  2.18% 22.22%      0.16s  3.49%  github.com/thesyncim/govpx/internal/pixel.filterNarrow8
+     0.10s  2.18% 24.40%      0.15s  3.27%  github.com/thesyncim/govpx/internal/pixel.filterWide8
+     0.09s  1.96% 26.36%      2.26s 49.24%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterReferenceModeNonRD
+     0.09s  1.96% 28.32%      0.83s 18.08%  github.com/thesyncim/govpx.(*VP9Encoder).prepareVP9FinalInterBlockResidue
+     0.09s  1.96% 30.28%      0.24s  5.23%  github.com/thesyncim/govpx/internal/vp9/encoder.hadamardGo
+     0.09s  1.96% 32.24%      0.09s  1.96%  simd/archsimd.LoadUint8x16 (inline)
+     0.08s  1.74% 33.99%      3.46s 75.38%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModeBlock
+     0.08s  1.74% 35.73%      0.80s 17.43%  github.com/thesyncim/govpx/internal/vp9/encoder.BlockYrd
+     0.08s  1.74% 37.47%      0.08s  1.74%  github.com/thesyncim/govpx/internal/vp9/encoder.transpose8
+     0.07s  1.53% 39.00%      0.07s  1.53%  github.com/thesyncim/govpx/internal/pixel.sadAdd (inline)
+     0.07s  1.53% 40.52%      0.07s  1.53%  github.com/thesyncim/govpx/internal/vp9/common.extendPlane
+     0.07s  1.53% 42.05%      0.07s  1.53%  github.com/thesyncim/govpx/internal/vp9/encoder.hadamardNetwork
+     0.06s  1.31% 43.36%      0.13s  2.83%  github.com/thesyncim/govpx.(*VP9Encoder).predictVP9KeyframeTxGeneric
+     0.06s  1.31% 44.66%      0.12s  2.61%  github.com/thesyncim/govpx.(*VP9Encoder).stageVP9ProducerBlock
+     0.05s  1.09% 45.75%      0.06s  1.31%  github.com/thesyncim/govpx/internal/vp9/bitstream.(*Writer).Write
+     0.04s  0.87% 46.62%      0.04s  0.87%  github.com/thesyncim/govpx/internal/pixel.ProjectionCols16
+     0.04s  0.87% 47.49%      0.06s  1.31%  github.com/thesyncim/govpx/internal/pixel.packBytes (inline)
+     0.04s  0.87% 48.37%      0.21s  4.58%  github.com/thesyncim/govpx/internal/pixel.pixelStatsRows16
+     0.04s  0.87% 49.24%      0.04s  0.87%  github.com/thesyncim/govpx/internal/pixel.sad16ColsDualPtr (inline)
+     0.04s  0.87% 50.11%      0.05s  1.09%  github.com/thesyncim/govpx/internal/pixel.sad16ColsX4Ptr
+     0.04s  0.87% 50.98%      0.04s  0.87%  github.com/thesyncim/govpx/internal/pixel.sqSumInt32 (inline)
+     0.04s  0.87% 51.85%      0.08s  1.74%  github.com/thesyncim/govpx/internal/pixel.sumSquares (inline)
+     0.04s  0.87% 52.72%      0.09s  1.96%  github.com/thesyncim/govpx/internal/vp9/encoder.ModelRdForSbY
+     0.04s  0.87% 53.59%      0.04s  0.87%  github.com/thesyncim/govpx/internal/vp9/encoder.ModelRdNorm
+     0.04s  0.87% 54.47%      0.08s  1.74%  github.com/thesyncim/govpx/internal/vp9/encoder.choosePartitioning
+     0.04s  0.87% 55.34%      0.12s  2.61%  github.com/thesyncim/govpx/internal/vp9/encoder.packTokenBlockAndHasResidueWindow
+     0.04s  0.87% 56.21%      0.04s  0.87%  simd/archsimd.BroadcastInt16x8 (inline)
+     0.03s  0.65% 56.86%      0.03s  0.65%  github.com/thesyncim/govpx.(*VP9Decoder).vp9ExtendInterPredictSource
+     0.03s  0.65% 57.52%      0.03s  0.65%  github.com/thesyncim/govpx.(*VP9Encoder).refreshVP9EncoderMvRefs
+     0.03s  0.65% 58.17%      0.13s  2.83%  github.com/thesyncim/govpx/internal/pixel.Error
+     0.03s  0.65% 58.82%      0.03s  0.65%  github.com/thesyncim/govpx/internal/pixel.loadLFColumnTile[go.shape.[8]uint8].func1
+     0.03s  0.65% 59.48%      0.03s  0.65%  github.com/thesyncim/govpx/internal/pixel.narrow8Mode
+     0.03s  0.65% 60.13%      0.08s  1.74%  github.com/thesyncim/govpx/internal/pixel.sadGeneric
+     0.03s  0.65% 60.78%      0.16s  3.49%  github.com/thesyncim/govpx/internal/vp9/encoder.PackTokensAndCommitCoefSbContexts
+     0.03s  0.65% 61.44%      0.10s  2.18%  github.com/thesyncim/govpx/internal/vp9/encoder.forwardDCT8AVX2

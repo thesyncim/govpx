@@ -1,0 +1,74 @@
+=== RUN   TestQuantBatchExtremesScalar
+--- PASS: TestQuantBatchExtremesScalar (0.00s)
+=== RUN   TestQuantBatchNativeSelected
+--- PASS: TestQuantBatchNativeSelected (0.00s)
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock/#00
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock/#01
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock/#02
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock/#03
+=== RUN   TestFastQuantizeBlockBatchMatchesPerBlock/#04
+--- PASS: TestFastQuantizeBlockBatchMatchesPerBlock (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchMatchesPerBlock/#00 (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchMatchesPerBlock/#01 (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchMatchesPerBlock/#02 (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchMatchesPerBlock/#03 (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchMatchesPerBlock/#04 (0.00s)
+=== RUN   TestFastQuantizeBlockBatchSentinels
+=== RUN   TestFastQuantizeBlockBatchSentinels/zero
+=== RUN   TestFastQuantizeBlockBatchSentinels/dc_only_pos
+=== RUN   TestFastQuantizeBlockBatchSentinels/dc_only_neg
+=== RUN   TestFastQuantizeBlockBatchSentinels/last_pos
+=== RUN   TestFastQuantizeBlockBatchSentinels/last_neg
+=== RUN   TestFastQuantizeBlockBatchSentinels/all_pos
+=== RUN   TestFastQuantizeBlockBatchSentinels/alt_signs
+=== RUN   TestFastQuantizeBlockBatchSentinels/boundary_high_pos
+=== RUN   TestFastQuantizeBlockBatchSentinels/boundary_high_neg
+--- PASS: TestFastQuantizeBlockBatchSentinels (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/zero (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/dc_only_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/dc_only_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/last_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/last_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/all_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/alt_signs (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/boundary_high_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockBatchSentinels/boundary_high_neg (0.00s)
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/zero
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/dc_only_pos
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/dc_only_neg
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/last_pos
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/last_neg
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/all_pos
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/all_neg
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/alt_signs
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/boundary_high_pos
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/boundary_high_neg
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/below_round
+=== RUN   TestFastQuantizeBlockSIMDMatchesScalar/high_q
+--- PASS: TestFastQuantizeBlockSIMDMatchesScalar (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/zero (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/dc_only_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/dc_only_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/last_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/last_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/all_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/all_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/alt_signs (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/boundary_high_pos (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/boundary_high_neg (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/below_round (0.00s)
+    --- PASS: TestFastQuantizeBlockSIMDMatchesScalar/high_q (0.00s)
+=== RUN   TestFastQuantizeFullSignedCoefficientsAndTables
+--- PASS: TestFastQuantizeFullSignedCoefficientsAndTables (0.00s)
+=== RUN   TestFastQuantizeBlockSentinel
+--- PASS: TestFastQuantizeBlockSentinel (0.00s)
+=== RUN   TestFastQuantizeBlockZeroesOutputs
+--- PASS: TestFastQuantizeBlockZeroesOutputs (0.00s)
+=== RUN   TestFastQuantizeBlockAllocatesZero
+--- PASS: TestFastQuantizeBlockAllocatesZero (0.00s)
+=== RUN   TestFastQuantizeBlockMatchesLibvpxC
+    quant_test.go:403: FastQuantizeBlock byte-matches libvpx vp8_fast_quantize_b_c on 33280 (Q, channel, coeff) cases
+--- PASS: TestFastQuantizeBlockMatchesLibvpxC (0.00s)
+PASS

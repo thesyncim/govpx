@@ -1,0 +1,170 @@
+
+/private/tmp/govpx-quant-vex-encoder.test:	file format mach-o 64-bit x86-64
+
+Disassembly of section __TEXT,__text:
+
+00000000011f6e80 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch>:
+ 11f6e80: 55                           	pushq	%rbp
+ 11f6e81: 48 89 e5                     	movq	%rsp, %rbp
+ 11f6e84: 48 83 ec 40                  	subq	$0x40, %rsp
+ 11f6e88: 48 89 84 24 90 00 00 00      	movq	%rax, 0x90(%rsp)
+ 11f6e90: 4c 89 8c 24 c0 00 00 00      	movq	%r9, 0xc0(%rsp)
+ 11f6e98: 80 3d af a0 3d 00 00         	cmpb	$0x0, 0x3da0af(%rip)    ## 0x15d0f4e <_github.com/thesyncim/govpx/internal/pixel.Enabled>
+ 11f6e9f: 90                           	nop
+ 11f6ea0: 0f 84 a8 00 00 00            	je	0x11f6f4e <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xce>
+ 11f6ea6: 48 8b 8c 24 88 00 00 00      	movq	0x88(%rsp), %rcx
+ 11f6eae: 48 85 c9                     	testq	%rcx, %rcx
+ 11f6eb1: 0f 8e 97 00 00 00            	jle	0x11f6f4e <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xce>
+ 11f6eb7: 49 39 da                     	cmpq	%rbx, %r10
+ 11f6eba: 49 0f 4c da                  	cmovlq	%r10, %rbx
+ 11f6ebe: 48 8b 54 24 58               	movq	0x58(%rsp), %rdx
+ 11f6ec3: 48 39 da                     	cmpq	%rbx, %rdx
+ 11f6ec6: 48 0f 4c da                  	cmovlq	%rdx, %rbx
+ 11f6eca: 48 c1 eb 04                  	shrq	$0x4, %rbx
+ 11f6ece: 48 39 d9                     	cmpq	%rbx, %rcx
+ 11f6ed1: 7f 7b                        	jg	0x11f6f4e <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xce>
+ 11f6ed3: 48 8b 54 24 78               	movq	0x78(%rsp), %rdx
+ 11f6ed8: 48 39 ca                     	cmpq	%rcx, %rdx
+ 11f6edb: 7c 71                        	jl	0x11f6f4e <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xce>
+ 11f6edd: 48 89 fa                     	movq	%rdi, %rdx
+ 11f6ee0: 48 89 7c 24 10               	movq	%rdi, 0x10(%rsp)
+ 11f6ee5: 48 89 f3                     	movq	%rsi, %rbx
+ 11f6ee8: 4d 89 c2                     	movq	%r8, %r10
+ 11f6eeb: 4d 89 cb                     	movq	%r9, %r11
+ 11f6eee: 4c 8b 64 24 68               	movq	0x68(%rsp), %r12
+ 11f6ef3: 4d 89 e5                     	movq	%r12, %r13
+ 11f6ef6: 4c 89 64 24 08               	movq	%r12, 0x8(%rsp)
+ 11f6efb: 4c 89 4c 24 28               	movq	%r9, 0x28(%rsp)
+ 11f6f00: 4c 8b 4c 24 50               	movq	0x50(%rsp), %r9
+ 11f6f05: 4c 89 4c 24 30               	movq	%r9, 0x30(%rsp)
+ 11f6f0a: 4c 8b 4c 24 70               	movq	0x70(%rsp), %r9
+ 11f6f0f: 4c 89 4c 24 38               	movq	%r9, 0x38(%rsp)
+ 11f6f14: 49 89 c9                     	movq	%rcx, %r9
+ 11f6f17: 48 c1 e1 05                  	shlq	$0x5, %rcx
+ 11f6f1b: 48 89 0c 24                  	movq	%rcx, (%rsp)
+ 11f6f1f: 48 39 fe                     	cmpq	%rdi, %rsi
+ 11f6f22: 48 0f 42 fe                  	cmovbq	%rsi, %rdi
+ 11f6f26: 4c 8b 7c 24 10               	movq	0x10(%rsp), %r15
+ 11f6f2b: 4c 0f 47 fe                  	cmovaq	%rsi, %r15
+ 11f6f2f: 49 39 f8                     	cmpq	%rdi, %r8
+ 11f6f32: 49 0f 42 f8                  	cmovbq	%r8, %rdi
+ 11f6f36: 48 89 7c 24 20               	movq	%rdi, 0x20(%rsp)
+ 11f6f3b: 4d 39 f8                     	cmpq	%r15, %r8
+ 11f6f3e: 4d 0f 47 f8                  	cmovaq	%r8, %r15
+ 11f6f42: 49 29 ff                     	subq	%rdi, %r15
+ 11f6f45: 49 8d 77 20                  	leaq	0x20(%r15), %rsi
+ 11f6f49: 45 31 c0                     	xorl	%r8d, %r8d
+ 11f6f4c: eb 14                        	jmp	0x11f6f62 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xe2>
+ 11f6f4e: 31 c0                        	xorl	%eax, %eax
+ 11f6f50: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11f6f54: 5d                           	popq	%rbp
+ 11f6f55: c3                           	retq
+ 11f6f56: 49 ff c0                     	incq	%r8
+ 11f6f59: 48 8b 0c 24                  	movq	(%rsp), %rcx
+ 11f6f5d: 4c 8b 64 24 08               	movq	0x8(%rsp), %r12
+ 11f6f62: 49 83 f8 03                  	cmpq	$0x3, %r8
+ 11f6f66: 7d 66                        	jge	0x11f6fce <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x14e>
+ 11f6f68: 4e 8b 7c c4 28               	movq	0x28(%rsp,%r8,8), %r15
+ 11f6f6d: 49 83 f8 02                  	cmpq	$0x2, %r8
+ 11f6f71: 49 0f 44 c9                  	cmoveq	%r9, %rcx
+ 11f6f75: 49 39 ff                     	cmpq	%rdi, %r15
+ 11f6f78: 77 15                        	ja	0x11f6f8f <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x10f>
+ 11f6f7a: 4c 29 ff                     	subq	%r15, %rdi
+ 11f6f7d: 0f 1f 00                     	nopl	(%rax)
+ 11f6f80: 48 39 f9                     	cmpq	%rdi, %rcx
+ 11f6f83: 77 41                        	ja	0x11f6fc6 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x146>
+ 11f6f85: 48 8b 7c 24 20               	movq	0x20(%rsp), %rdi
+ 11f6f8a: 49 39 ff                     	cmpq	%rdi, %r15
+ 11f6f8d: 76 12                        	jbe	0x11f6fa1 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x121>
+ 11f6f8f: 4c 89 7c 24 18               	movq	%r15, 0x18(%rsp)
+ 11f6f94: 49 29 ff                     	subq	%rdi, %r15
+ 11f6f97: 49 39 f7                     	cmpq	%rsi, %r15
+ 11f6f9a: 72 2a                        	jb	0x11f6fc6 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x146>
+ 11f6f9c: 4c 8b 7c 24 18               	movq	0x18(%rsp), %r15
+ 11f6fa1: 4d 39 fc                     	cmpq	%r15, %r12
+ 11f6fa4: 72 14                        	jb	0x11f6fba <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x13a>
+ 11f6fa6: 4d 29 fc                     	subq	%r15, %r12
+ 11f6fa9: 4c 39 e1                     	cmpq	%r12, %rcx
+ 11f6fac: 77 18                        	ja	0x11f6fc6 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x146>
+ 11f6fae: 48 8b 4c 24 08               	movq	0x8(%rsp), %rcx
+ 11f6fb3: 4c 39 f9                     	cmpq	%r15, %rcx
+ 11f6fb6: 72 05                        	jb	0x11f6fbd <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x13d>
+ 11f6fb8: eb 9c                        	jmp	0x11f6f56 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xd6>
+ 11f6fba: 4c 89 e1                     	movq	%r12, %rcx
+ 11f6fbd: 49 29 cf                     	subq	%rcx, %r15
+ 11f6fc0: 49 83 ff 20                  	cmpq	$0x20, %r15
+ 11f6fc4: 73 90                        	jae	0x11f6f56 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0xd6>
+ 11f6fc6: 31 c0                        	xorl	%eax, %eax
+ 11f6fc8: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11f6fcc: 5d                           	popq	%rbp
+ 11f6fcd: c3                           	retq
+ 11f6fce: c5 fe 6f 02                  	vmovdqu	(%rdx), %ymm0
+ 11f6fd2: c5 fe 6f 0b                  	vmovdqu	(%rbx), %ymm1
+ 11f6fd6: c5 fd eb d1                  	vpor	%ymm1, %ymm0, %ymm2
+ 11f6fda: c4 e3 7d 39 d3 00            	vextracti128	$0x0, %ymm2, %xmm3
+ 11f6fe0: c4 e3 7d 39 d2 01            	vextracti128	$0x1, %ymm2, %xmm2
+ 11f6fe6: c5 e1 eb d2                  	vpor	%xmm2, %xmm3, %xmm2
+ 11f6fea: c5 fa 6f 1d 1e a3 3d 00      	vmovdqu	0x3da31e(%rip), %xmm3   ## 0x15d1310 <_github.com/thesyncim/govpx/internal/pixel.packZero16>
+ 11f6ff2: c5 e1 65 d2                  	vpcmpgtw	%xmm2, %xmm3, %xmm2
+ 11f6ff6: c4 e3 f9 16 d1 00            	vpextrq	$0x0, %xmm2, %rcx
+ 11f6ffc: c4 e3 f9 16 d2 01            	vpextrq	$0x1, %xmm2, %rdx
+ 11f7002: 48 09 d1                     	orq	%rdx, %rcx
+ 11f7005: 48 85 c9                     	testq	%rcx, %rcx
+ 11f7008: 75 20                        	jne	0x11f702a <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1aa>
+ 11f700a: c4 c1 7e 6f 12               	vmovdqu	(%r10), %ymm2
+ 11f700f: c4 c1 7e 6f 5d 00            	vmovdqu	(%r13), %ymm3
+ 11f7015: c5 dd ef e4                  	vpxor	%ymm4, %ymm4, %ymm4
+ 11f7019: 31 c9                        	xorl	%ecx, %ecx
+ 11f701b: 48 8b 54 24 50               	movq	0x50(%rsp), %rdx
+ 11f7020: 48 8b 5c 24 70               	movq	0x70(%rsp), %rbx
+ 11f7025: e9 9e 00 00 00               	jmp	0x11f70c8 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x248>
+ 11f702a: 31 c0                        	xorl	%eax, %eax
+ 11f702c: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11f7030: 5d                           	popq	%rbp
+ 11f7031: c3                           	retq
+ 11f7032: 48 89 ce                     	movq	%rcx, %rsi
+ 11f7035: 48 c1 e6 05                  	shlq	$0x5, %rsi
+ 11f7039: 48 8d 3c 30                  	leaq	(%rax,%rsi), %rdi
+ 11f703d: c5 fe 6f 2f                  	vmovdqu	(%rdi), %ymm5
+ 11f7041: c4 e2 7d 1d f5               	vpabsw	%ymm5, %ymm6
+ 11f7046: c5 cd fd f0                  	vpaddw	%ymm0, %ymm6, %ymm6
+ 11f704a: c5 cd e4 f1                  	vpmulhuw	%ymm1, %ymm6, %ymm6
+ 11f704e: c5 d5 71 e5 0f               	vpsraw	$0xf, %ymm5, %ymm5
+ 11f7053: c5 d5 ef f6                  	vpxor	%ymm6, %ymm5, %ymm6
+ 11f7057: c5 cd f9 ed                  	vpsubw	%ymm5, %ymm6, %ymm5
+ 11f705b: 49 8d 3c 33                  	leaq	(%r11,%rsi), %rdi
+ 11f705f: c5 fe 7f 2f                  	vmovdqu	%ymm5, (%rdi)
+ 11f7063: c5 d5 d5 f2                  	vpmullw	%ymm2, %ymm5, %ymm6
+ 11f7067: 48 01 d6                     	addq	%rdx, %rsi
+ 11f706a: c5 fe 7f 36                  	vmovdqu	%ymm6, (%rsi)
+ 11f706e: c5 d5 75 f5                  	vpcmpeqw	%ymm5, %ymm5, %ymm6
+ 11f7072: c5 d5 75 ec                  	vpcmpeqw	%ymm4, %ymm5, %ymm5
+ 11f7076: c5 d5 ef ee                  	vpxor	%ymm6, %ymm5, %ymm5
+ 11f707a: c5 d5 db eb                  	vpand	%ymm3, %ymm5, %ymm5
+ 11f707e: c4 e3 7d 39 ee 00            	vextracti128	$0x0, %ymm5, %xmm6
+ 11f7084: c4 e3 7d 39 ed 01            	vextracti128	$0x1, %ymm5, %xmm5
+ 11f708a: c5 c9 ee ed                  	vpmaxsw	%xmm5, %xmm6, %xmm5
+ 11f708e: c4 e2 79 23 f5               	vpmovsxwd	%xmm5, %xmm6
+ 11f7093: c5 f9 70 ed 4e               	vpshufd	$0x4e, %xmm5, %xmm5     ## xmm5 = xmm5[2,3,0,1]
+ 11f7098: c4 e2 79 23 ed               	vpmovsxwd	%xmm5, %xmm5
+ 11f709d: c4 e2 51 3d ee               	vpmaxsd	%xmm6, %xmm5, %xmm5
+ 11f70a2: c5 f9 70 f5 4e               	vpshufd	$0x4e, %xmm5, %xmm6     ## xmm6 = xmm5[2,3,0,1]
+ 11f70a7: c4 e2 49 3d ed               	vpmaxsd	%xmm5, %xmm6, %xmm5
+ 11f70ac: c5 f9 70 f5 b1               	vpshufd	$0xb1, %xmm5, %xmm6     ## xmm6 = xmm5[1,0,3,2]
+ 11f70b1: c4 e2 49 3d ed               	vpmaxsd	%xmm5, %xmm6, %xmm5
+ 11f70b6: c4 e3 79 16 ee 00            	vpextrd	$0x0, %xmm5, %esi
+ 11f70bc: 48 63 f6                     	movslq	%esi, %rsi
+ 11f70bf: 90                           	nop
+ 11f70c0: 90                           	nop
+ 11f70c1: 40 88 34 0b                  	movb	%sil, (%rbx,%rcx)
+ 11f70c5: 48 ff c1                     	incq	%rcx
+ 11f70c8: 49 39 c9                     	cmpq	%rcx, %r9
+ 11f70cb: 0f 8f 61 ff ff ff            	jg	0x11f7032 <_github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch+0x1b2>
+ 11f70d1: b8 01 00 00 00               	movl	$0x1, %eax
+ 11f70d6: 48 83 c4 40                  	addq	$0x40, %rsp
+ 11f70da: 5d                           	popq	%rbp
+ 11f70db: c3                           	retq
+ 11f70dc: cc                           	int3
+ 11f70dd: cc                           	int3
+ 11f70de: cc                           	int3
+ 11f70df: cc                           	int3

@@ -1229,3 +1229,13 @@ driver are retained alongside the short-run batch evidence.
 Further [filter and quantization-loop designs](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-filter-and-quant-loop)
 are excluded from production after mixed or slower integrated results. The
 profile and reproducible patches are retained for future compiler/CPU work.
+
+The first x64 batch checkpoint (`048a5f3e`) regresses on EPYC 7763: eight-block
+quantization is +63.866% versus the base, and VP8 encode is +2.902%, all six
+pairs slower. All 80 kernels have six allocation-free samples per variant;
+all semantic fields match. [Raw failed candidate and analysis](benchmarks/baselines/go127-simd-amd64/2026-10-17-048a5f3e)
+remain available. Generated code exposes legacy MOVUPS for the signed-table
+zero comparison while YMM values are live; the profile concentrates in this
+check. The follow-up uses the existing VEX-loaded zero table. Its required-SIMD
+oracles, generated-code check, refreshed PGO and source gates pass; native
+performance awaits the next CI run. [Validation](benchmarks/baselines/go127-simd-amd64/2026-10-17-quant-vex-validation).

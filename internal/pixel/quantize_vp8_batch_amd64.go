@@ -40,7 +40,9 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
 	r := archsimd.LoadInt16x16Array(round)
 	q := archsimd.LoadInt16x16Array(quant)
 	rq := r.Or(q)
-	if any16(rq.GetLo().Or(rq.GetHi()).Less(archsimd.Int16x8{})) {
+	// Keep this load VEX encoded while r/q YMM values are live. A literal
+	// XMM zero makes Go 1.27 emit legacy MOVUPS and pay an AVX/SSE transition.
+	if any16(rq.GetLo().Or(rq.GetHi()).Less(archsimd.LoadInt16x8Array(&packZero16))) {
 		return false
 	}
 	d := archsimd.LoadInt16x16Array(dequant)

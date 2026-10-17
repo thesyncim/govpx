@@ -1,0 +1,11 @@
+{
+  "old_source": "048a5f3e",
+  "compiler": "Go 1.27.2",
+  "codegen_target": "darwin/amd64",
+  "runtime_correctness": "Rosetta, required SIMD, no timing claims",
+  "old_instruction": "legacy MOVUPS from XMM15 while r/q YMM registers are live",
+  "new_instruction": "VEX VMOVDQU from existing packZero16",
+  "legacy_vector_instructions_after": [],
+  "source_fingerprint": "38e5addfadc66b75aac8150b786f31f20b06ca8b",
+  "native_performance": "pending next CI; 048 EPYC7763 regression preserved separately"
+}
