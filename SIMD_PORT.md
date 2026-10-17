@@ -1184,3 +1184,48 @@ cumulative / 1.62 s total CPU, versus the old batch ASM leaf's 0.02 s /
 batch candidates require new matched observable fixtures.
 [All 85 raw files and analysis](benchmarks/baselines/go127-simd-amd64/2026-10-17-db5b44fe)
 preserve the CPU-specific evidence and the outlier.
+
+## Shared-table VP8 quantization follow-up
+
+The batch path now retains shared quantization tables across blocks, using
+128-bit ARM vectors and full-block 256-bit AVX2 vectors. Batches below eight
+blocks retain the existing path. Conservative bounds/alias guards preserve
+fallback behavior, including signed tables and overlapping block buffers.
+
+On the M4 Max, six balanced 720p realtime comparisons reduce VP8 median encode
+time from 7.963865 to 7.844487 ms/input (-1.499%, all six pairs faster). The
+same-run old assembly median is 6.840786 ms: current SIMD remains +14.672%
+slower, with every pair slower. Eight/16/25-block quantization medians improve
+48.6%/52.8%/55.6% versus the parent, with zero allocations; they still trail
+assembly. The unchanged VP9 control has mixed pairs and no attributed gain.
+
+Full native tests, experiment-off/purego codec suites, race/checkptr scalar
+oracles, strict byte parity, 18/18 parity cases and refreshed PGO/source gates
+pass. Required-SIMD x64 differential tests pass under Rosetta; native AVX2
+performance remains pending CI. This is not evidence of a native x64 speedup.
+[Raw measurements, codegen and validation](benchmarks/baselines/go127-simd-arm64/2026-10-17-quant-batch)
+record the remaining assembly gap. A separate
+[rejected chroma fusion](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-chroma-fusion)
+retains its raw results and source patch; it is excluded from production
+because integrated public comparisons did not sustain the prototype gain.
+
+A fresh optimized libvpx comparison for this codec measures VP8 adaptive at
+7.699581/4.730708 ms/input (Go/C, +62.76%) and fixed speed at 6.509613/3.011758
+ms (+116.14%). Within each VP8 workload, measured PSNR, SSIM, payload size and
+encoded/drop counts match. VP9 720p measures 12.061530/4.599933 ms (+162.21%),
+with small documented output/quality differences. Six rounds alternate
+execution order; codec-internal timers and separate quality passes exclude
+subprocess/file wall time. Optimized C remains substantially faster.
+[Current ARM Go/C raw evidence and provenance](benchmarks/baselines/go127-simd-arm64/2026-10-17-quant-batch-libvpx)
+keep these results separate from the older codec's C comparison.
+
+A fresh 300-input three-way comparison confirms the batch change at
+7.993610 to 7.857803 ms/input (-1.699%, all six pairs faster). Same-run old
+assembly is 7.150376 ms: current remains +9.894% slower, with every pair slower.
+Non-timing outputs and zero allocations match across all variants. This longer
+workload is distinct from the 60-input comparison above. Its raw reports and
+driver are retained alongside the short-run batch evidence.
+
+Further [filter and quantization-loop designs](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-filter-and-quant-loop)
+are excluded from production after mixed or slower integrated results. The
+profile and reproducible patches are retained for future compiler/CPU work.
