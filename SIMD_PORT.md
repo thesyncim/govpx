@@ -1249,5 +1249,25 @@ clears AVX upper bits at quantizer exits. Its isolated filter test on EPYC
 9V74 improves public VP8 2.414%, all six pairs faster, but still trails old
 assembly by 19.070%. Horizontal dot-product and wider rolling variants are
 excluded because they do not improve the public workload. These independent
-measurements are not additive; the combined source awaits native validation.
+measurements are not additive. Combined `04c05786` native validation on EPYC
+9V45 improves VP8 5.528% versus base (all six pairs faster), but still trails
+old assembly by 13.026% (all six slower). All 80 kernels have six zero-allocation
+samples per variant; all recorded semantic/configuration fields match. Its
+separate optimized-C job on 9V45 measures fixed-8 VP8 at 10.723892/4.366983 ms
+(Go/C, +145.568%) with matching measured output/quality; adaptive C output
+varies across timed samples and is not a matched-quality throughput claim.
 [Comparisons and integration checks](benchmarks/baselines/go127-simd-amd64/2026-10-17-rolling-integration).
+
+
+ARM VP8 vertical filtering now retains finalized columns and transposes them
+into exact 16-byte row stores plus one tail byte. The complete disjoint tile
+is already proved by the entry point; all edge arithmetic still occurs in
+its original order. The 720p 60-input confirmation improves 1.190% versus
+parent (all six pairs faster); 300 inputs improve 1.558%, all six faster.
+Current/assembly medians in that longer run are 7.820088/6.942207 ms/input:
+the remaining assembly gap is 12.646%, all six pairs slower. All 23 non-timing
+fields, including zero allocations, match. Short-run repeats include one
+mixed control, retained alongside the two all-six wins; no universal CPU or
+noise claim is made. Direct high-half interleaves, preloaded constants and
+an inline row-store body are excluded after unconvincing fresh comparisons.
+[Complete accepted/rejected measurements and reproduction](benchmarks/baselines/go127-simd-arm64/2026-10-17-filter-row-stores).

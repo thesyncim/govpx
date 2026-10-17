@@ -1,0 +1,12 @@
+{
+  "filter": {
+    "measured_instructions": 492,
+    "generated_instructions": 492,
+    "instructions_identical_except_relocations": true
+  },
+  "store": {
+    "measured_instructions": 260,
+    "generated_instructions": 260,
+    "instructions_identical_except_relocations": true
+  }
+}

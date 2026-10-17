@@ -1,0 +1,7 @@
+{
+  "generated_files_identical": true,
+  "sha256": {
+    "internal/pixel/loopfilter_macro_internal_fused_arm64.go": "a25c09156d8b379fe66297ff4275ecd5a0d388b48aaf75216502d3064e674959",
+    "internal/pixel/loopfilter_rowstore_arm64.go": "ca6a830d362b05dfbf9654d734d5c047bc3fe4995e93f6ea8696d96381cdf6c2"
+  }
+}

@@ -1,0 +1,151 @@
+--- a/internal/pixel/loopfilter_macro_internal_fused_arm64.go
++++ b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+@@ -30,7 +30,7 @@
+ 		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+ 		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+ 			hev := lfByteGT(d1.Max(d2), archsimd.BroadcastUint8x16(byte(thresh)))
+-			bias := archsimd.BroadcastUint8x16(128)
++			bias := lfFilterBias
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+ 			outerF := p1c.SubSaturated(q1c)
+ 			if kind == 4 {
+@@ -40,17 +40,17 @@
+ 			// outer correction. Intermediate saturation is then exact: a delta
+ 			// outside int8 forces the final clamp even at the opposite outer extreme.
+ 			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+-			three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
++			three, four := lfFilterThree, lfFilterFour
+ 			{
+ 				fh := f.Masked(hev)
+ 				ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+ 				qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+ 				ff := f.Masked(lfByteNot(hev))
+-				u := lfMacroCorrection(ff, 27)
++				u := lfMacroCorrectionConstants(ff, 27)
+ 				np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 18)
++				u = lfMacroCorrectionConstants(ff, 18)
+ 				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 9)
++				u = lfMacroCorrectionConstants(ff, 9)
+ 				np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+ 				np2.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-3*step)))
+ 				np1.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-2*step)))
+@@ -83,7 +83,7 @@
+ 		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+ 		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+ 			hev := lfByteGT(d1.Max(d2), thr)
+-			bias := archsimd.BroadcastUint8x16(128)
++			bias := lfFilterBias
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+ 			outerF := p1c.SubSaturated(q1c)
+ 			if kind == 4 {
+@@ -93,18 +93,18 @@
+ 			// outer correction. Intermediate saturation is then exact: a delta
+ 			// outside int8 forces the final clamp even at the opposite outer extreme.
+ 			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+-			three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
++			three, four := lfFilterThree, lfFilterFour
+ 			z := archsimd.Uint8x16{}
+ 			if kind == 6 {
+ 				fh := f.Masked(hev)
+ 				ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+ 				qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+ 				ff := f.Masked(lfByteNot(hev))
+-				u := lfMacroCorrection(ff, 27)
++				u := lfMacroCorrectionConstants(ff, 27)
+ 				np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 18)
++				u = lfMacroCorrectionConstants(ff, 18)
+ 				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 9)
++				u = lfMacroCorrectionConstants(ff, 9)
+ 				np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+ 				storeLFBytes(p, off-3*step, step, outer, lanes, 6, np2, np1, np0, nq0, nq1, nq2)
+ 				return
+@@ -179,7 +179,7 @@
+ 		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+ 		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+ 			hev := lfByteGT(d1.Max(d2), archsimd.BroadcastUint8x16(byte(thresh)))
+-			bias := archsimd.BroadcastUint8x16(128)
++			bias := lfFilterBias
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+ 			outerF := p1c.SubSaturated(q1c)
+ 			if kind == 4 {
+@@ -189,17 +189,17 @@
+ 			// outer correction. Intermediate saturation is then exact: a delta
+ 			// outside int8 forces the final clamp even at the opposite outer extreme.
+ 			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+-			three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
++			three, four := lfFilterThree, lfFilterFour
+ 			{
+ 				fh := f.Masked(hev)
+ 				ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+ 				qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+ 				ff := f.Masked(lfByteNot(hev))
+-				u := lfMacroCorrection(ff, 27)
++				u := lfMacroCorrectionConstants(ff, 27)
+ 				np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 18)
++				u = lfMacroCorrectionConstants(ff, 18)
+ 				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 9)
++				u = lfMacroCorrectionConstants(ff, 9)
+ 				np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+ 				{
+ 					ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-3*step+0*outer)
+@@ -276,7 +276,7 @@
+ 		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+ 		if bits.GetElem(0)|bits.GetElem(1) != 0 {
+ 			hev := lfByteGT(d1.Max(d2), thr)
+-			bias := archsimd.BroadcastUint8x16(128)
++			bias := lfFilterBias
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+ 			outerF := p1c.SubSaturated(q1c)
+ 			if kind == 4 {
+@@ -286,18 +286,18 @@
+ 			// outer correction. Intermediate saturation is then exact: a delta
+ 			// outside int8 forces the final clamp even at the opposite outer extreme.
+ 			f := lfFilterDelta(outerF, p0c, q0c).Masked(need)
+-			three, four := archsimd.BroadcastInt8x16(3), archsimd.BroadcastInt8x16(4)
++			three, four := lfFilterThree, lfFilterFour
+ 			z := archsimd.Uint8x16{}
+ 			if kind == 6 {
+ 				fh := f.Masked(hev)
+ 				ps0 := p0c.AddSaturated(lfByteShift3(fh.AddSaturated(three)))
+ 				qs0 := q0c.SubSaturated(lfByteShift3(fh.AddSaturated(four)))
+ 				ff := f.Masked(lfByteNot(hev))
+-				u := lfMacroCorrection(ff, 27)
++				u := lfMacroCorrectionConstants(ff, 27)
+ 				np0, nq0 := ps0.AddSaturated(u).ToBits().Xor(bias), qs0.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 18)
++				u = lfMacroCorrectionConstants(ff, 18)
+ 				np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
+-				u = lfMacroCorrection(ff, 9)
++				u = lfMacroCorrectionConstants(ff, 9)
+ 				np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
+ 				storeLFBytes(p, off-3*step, step, outer, lanes, 6, np2, np1, np0, nq0, nq1, nq2)
+ 				return
+--- a/internal/pixel/goav1_loopfilter_arm64.go
++++ b/internal/pixel/goav1_loopfilter_arm64.go
+@@ -19,3 +19,20 @@
+ func lfTruncSigned(v archsimd.Int16x8) archsimd.Int8x16 { return v.TruncToInt8() }
+ 
+ func lfByteNot(v archsimd.Mask8x16) archsimd.Mask8x16 { return v.Not() }
++
++var (
++ lfFilterThree=archsimd.BroadcastInt8x16(3)
++ lfFilterFour=archsimd.BroadcastInt8x16(4)
++ lfFilterBias=archsimd.BroadcastUint8x16(128)
++ lfFilterCoeff9=archsimd.BroadcastInt16x8(9)
++ lfFilterCoeff18=archsimd.BroadcastInt16x8(18)
++ lfFilterCoeff27=archsimd.BroadcastInt16x8(27)
++ lfFilterRound=archsimd.BroadcastInt16x8(63)
++)
++func lfMacroCorrectionConstants(f archsimd.Int8x16,c int16) archsimd.Int8x16 {
++ k:=lfFilterCoeff9
++ if c==18 { k=lfFilterCoeff18 } else if c==27 { k=lfFilterCoeff27 }
++ lo:=lfTruncSigned(filterShift7(f.ExtendLo8ToInt16().Mul(k).Add(lfFilterRound)))
++ hi:=lfTruncSigned(filterShift7(highBytes(f.ToBits()).BitsToInt8().ExtendLo8ToInt16().Mul(k).Add(lfFilterRound)))
++ return lfJoinSigned(lo,hi)
++}

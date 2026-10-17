@@ -1,0 +1,29 @@
+--- a/internal/pixel/loopfilter_macro_internal_fused_arm64.go
++++ b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+@@ -140,7 +140,7 @@
+ 					*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+ 				}
+ 				{
+-					ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
++					ab, cd := np1.InterleaveHi(np0).ReshapeToUint16s(), nq0.InterleaveHi(nq1).ReshapeToUint16s()
+ 					lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
+ 					*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
+ 					*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)
+@@ -224,7 +224,7 @@
+ 				}
+ 				{
+ 					ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-3*step+8*outer)
+-					ab, cd, ef := zipBytesLo(highBytes(np2), highBytes(np1)), zipBytesLo(highBytes(np0), highBytes(nq0)), zipBytesLo(highBytes(nq1), highBytes(nq2))
++					ab, cd, ef := np2.InterleaveHi(np1).ReshapeToUint16s(), np0.InterleaveHi(nq0).ReshapeToUint16s(), nq1.InterleaveHi(nq2).ReshapeToUint16s()
+ 					lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
+ 					*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
+ 					*(*uint16)(unsafe.Add(ptr, 0*outer+4)) = ef.GetElem(0)
+@@ -333,7 +333,7 @@
+ 					*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+ 				}
+ 				{
+-					ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
++					ab, cd := np1.InterleaveHi(np0).ReshapeToUint16s(), nq0.InterleaveHi(nq1).ReshapeToUint16s()
+ 					lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
+ 					*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
+ 					*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)

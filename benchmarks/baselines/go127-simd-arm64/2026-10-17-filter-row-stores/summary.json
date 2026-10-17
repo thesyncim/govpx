@@ -1,0 +1,136 @@
+{
+  "environment": {
+    "cpu": "Apple M4 Max",
+    "go": "1.27.2",
+    "GOEXPERIMENT": "simd",
+    "GOMAXPROCS": 1,
+    "encoder_threads": 1,
+    "pgo": "off",
+    "local_go_jobs_during_timing": false,
+    "project_cache": "git-common-dir derived"
+  },
+  "scope": "Synthetic720p VP8 realtime cpu8 bitrate2500kbps; ns per input includes dropped inputs; same-run ASM/parent/current only. Older assembly-gap percentages are different measurement sessions.",
+  "parent_production": "04c057867bd7f906bc066871fd49373305cd6037 (ARM production matches3599f121 timed parent)",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "selected": "row-store helper; full16-byte row store plus1-byte tail, exact changed columns1..17",
+  "decisions": {
+    "high_half_interleaves": "rejected: fresh300-input median+0.518%, mixed4/6 slower",
+    "preloaded_constants": "rejected: fresh300-input median+0.399%, mixed4/6 slower",
+    "inline_row_stores": "rejected: vs selected helper median-.327%,4/6 slower; all raw samples retained"
+  },
+  "workloads": {
+    "60": {
+      "medians_ns": {
+        "assembly": 7009705.5,
+        "parent": 7968822.5,
+        "candidate": 7873967.5
+      },
+      "vs_parent_pct": -1.1903264252654644,
+      "vs_assembly_pct": 12.329505141121832,
+      "parent_paired_pct": [
+        -0.4581148490339082,
+        -2.7259784013741406,
+        -1.8593587138032497,
+        -0.42726278542907226,
+        -1.742556891426561,
+        -0.5455238716741029
+      ],
+      "assembly_paired_pct": [
+        6.525794854678035,
+        17.078667439492,
+        13.760649451082706,
+        7.376656604376874,
+        14.941662237393816,
+        11.150941494640243
+      ],
+      "all23_nontiming_fields_equal": true,
+      "allocations_per_input": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "300": {
+      "medians_ns": {
+        "assembly": 6942207.0,
+        "parent": 7943816.5,
+        "candidate": 7820088.0
+      },
+      "vs_parent_pct": -1.5575447897115957,
+      "vs_assembly_pct": 12.645560698492563,
+      "parent_paired_pct": [
+        -1.0526306648047434,
+        -0.8389095954850601,
+        -0.6517642201628315,
+        -1.7326732046804572,
+        -2.105609846049039,
+        -0.8842142872527603
+      ],
+      "assembly_paired_pct": [
+        14.619798914423598,
+        15.04538712573904,
+        13.257477993618917,
+        5.620319574024624,
+        13.66314063329015,
+        7.612883754418087
+      ],
+      "all23_nontiming_fields_equal": true,
+      "allocations_per_input": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "limits": "Initial short preliminary median-1.542% and confirmation-1.190% are all6 faster. A later3-way inline experiment retains a mixed selected-helper short control (-1.558%,4/6 faster); no universal noise claim. Long confirmation-1.558%,all6 faster. No hardware-counter or universal CPU win claim.",
+  "binaries": {
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1",
+    "govpx-quant-final-bench": "3babd77c9b49a85228b677d767015733aca06d1165f00aaa4f4fe413bca1025f",
+    "govpx-arm-rowstore-bench": "da6cbd8e015549b0a1675123682a80c1bce445af8636a5696092d7055d1606a3",
+    "govpx-arm-rowstore-generated-bench": "e9a41677b42114f57d9fee02378a2b197026b660d5b7c379926f004653af946a"
+  },
+  "final_root_codegen": {
+    "filter": {
+      "instructions": 492,
+      "root_matches_measured_except_address_relocations": true
+    },
+    "store": {
+      "instructions": 260,
+      "root_matches_measured_except_address_relocations": true
+    }
+  },
+  "codegen_normalization": "Strip absolute branch/data addresses and their paired ADRP+ADD low12 relocations; retain all arithmetic immediates.",
+  "final_root_binary_sha256": "5db0924f2ea1f8f9995f1cfd34f8bf70d604fbeb8f3064f84818b712a8a95468",
+  "pgo_source_fingerprint": "47c8be6a75ed65cf0e0e7f9a390c7638a04657c2",
+  "validation": "Full native suite, scalar macro oracle, race/checkptr, purego/experiment-off pixel+VP8DSP, strict byte parity, all6 build selections, noasm, format and refreshedPGO gates pass. InitialPGO build hit local disk limit; retired private snapshots were archived and exact check rerun successfully."
+}

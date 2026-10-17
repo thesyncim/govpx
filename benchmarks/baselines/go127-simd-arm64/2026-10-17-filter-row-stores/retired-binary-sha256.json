@@ -1,0 +1,8 @@
+{
+  "/private/tmp/govpx-arm-highzip-bench": "57cc36615e6f2dce59ac8f728759e7d5199ab8a9584bdccd919c72c41d6cd6ea",
+  "/private/tmp/govpx-arm-filter-constants-bench": "3b1d429366a0c40c3715be8f28528970a3d4eb705023f9daaaa9b0ae4b1b11e8",
+  "/private/tmp/govpx-arm-rowstore-inline-bench": "65686fa63fab6d2f2428d9202c06de85b48436f1a8046f8a7d98afc658e7329b",
+  "/private/tmp/govpx-rolling-integrated-pixel.test": "df164fcd059dbd56b66e212999eb4a4c90110cf49532b52befaed752fe086ff5",
+  "/private/tmp/govpx-rolling-integrated-dsp.test": "02741df9d9796549df20ae896a9d4a3c4703f732d34da3deeb559457353cda30",
+  "/private/tmp/govpx-rolling-integrated-encoder.test": "72ed563a4b8e878966101a4c3985098d1c5f882715b82619219a598f9d3294d6"
+}
