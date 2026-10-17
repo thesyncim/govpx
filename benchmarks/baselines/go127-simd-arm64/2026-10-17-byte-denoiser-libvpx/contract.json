@@ -1,0 +1,12 @@
+{
+  "production_source_commit": "61547b7b089824976e83ba8937489c816da32455",
+  "go_version": "go1.27.2 darwin/arm64",
+  "cpu": "Apple M4 Max",
+  "GOEXPERIMENT": "simd",
+  "PGO": "off",
+  "GOMAXPROCS": 1,
+  "bench_sha256": "d6a48f924c293929a0d59868975ea8d7fba9a38032709873ad7b5694f93f2b81",
+  "libvpx_version": "v1.16.0 optimized NEON/dotprod/I8MM",
+  "vpxenc_sha256": "522cae8963b7c86caf76ed6c4611c7f8d9d550c612d7c50b96dd50e1787da568",
+  "scope": "Six same-input rounds, alternating execution order, codec internal timers, separate decoded-quality pass. Matching summary fields do not independently prove bitstream identity."
+}

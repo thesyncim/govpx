@@ -1,0 +1,225 @@
+{
+  "VP9 320x180": {
+    "semantic_fields": {
+      "avg_interframe_bytes": true,
+      "bitrate_error_pct": true,
+      "codec": true,
+      "dropped_frames": true,
+      "encoded_frames": true,
+      "encoder": true,
+      "fps": true,
+      "frames": true,
+      "height": true,
+      "keyframe_bytes": true,
+      "mode": true,
+      "options": true,
+      "output_bitrate_kbps": true,
+      "output_bytes": true,
+      "psnr": true,
+      "quality_frames": true,
+      "quality_skipped": true,
+      "quantizer_histogram": true,
+      "quantizers": true,
+      "ssim": true,
+      "target_bitrate_kbps": true,
+      "width": true
+    },
+    "all_semantic_fields_equal": true,
+    "allocation_samples": {
+      "assembly": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "previous": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "simd": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ]
+    }
+  },
+  "VP8 720p": {
+    "semantic_fields": {
+      "avg_interframe_bytes": true,
+      "bitrate_error_pct": true,
+      "codec": true,
+      "dropped_frames": true,
+      "encoded_frames": true,
+      "encoder": true,
+      "fps": true,
+      "frames": true,
+      "height": true,
+      "keyframe_bytes": true,
+      "mode": true,
+      "options": true,
+      "output_bitrate_kbps": true,
+      "output_bytes": true,
+      "psnr": true,
+      "quality_frames": true,
+      "quality_skipped": true,
+      "quantizer_histogram": true,
+      "quantizers": true,
+      "ssim": true,
+      "target_bitrate_kbps": true,
+      "width": true
+    },
+    "all_semantic_fields_equal": true,
+    "allocation_samples": {
+      "assembly": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "previous": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "simd": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "VP9 720p": {
+    "semantic_fields": {
+      "avg_interframe_bytes": true,
+      "bitrate_error_pct": true,
+      "codec": true,
+      "dropped_frames": true,
+      "encoded_frames": true,
+      "encoder": true,
+      "fps": true,
+      "frames": true,
+      "height": true,
+      "keyframe_bytes": true,
+      "mode": true,
+      "options": true,
+      "output_bitrate_kbps": true,
+      "output_bytes": true,
+      "psnr": true,
+      "quality_frames": true,
+      "quality_skipped": true,
+      "quantizer_histogram": true,
+      "quantizers": true,
+      "ssim": true,
+      "target_bitrate_kbps": true,
+      "width": true
+    },
+    "all_semantic_fields_equal": true,
+    "allocation_samples": {
+      "assembly": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "previous": [
+        1.25,
+        1.25,
+        1.25,
+        1.2666666666666666,
+        1.25,
+        1.25
+      ],
+      "simd": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ]
+    }
+  },
+  "VP8 720p profile": {
+    "semantic_fields": {
+      "avg_interframe_bytes": true,
+      "bitrate_error_pct": true,
+      "codec": true,
+      "dropped_frames": true,
+      "encoded_frames": true,
+      "encoder": true,
+      "fps": true,
+      "frames": true,
+      "height": true,
+      "keyframe_bytes": true,
+      "mode": true,
+      "options": true,
+      "output_bitrate_kbps": true,
+      "output_bytes": true,
+      "psnr": true,
+      "quality_frames": true,
+      "quality_skipped": true,
+      "quantizer_histogram": true,
+      "quantizers": true,
+      "ssim": true,
+      "target_bitrate_kbps": true,
+      "width": true
+    },
+    "all_semantic_fields_equal": true,
+    "allocation_samples": {
+      "assembly": 0,
+      "previous": 0,
+      "simd": 0
+    }
+  },
+  "VP9 720p profile": {
+    "semantic_fields": {
+      "avg_interframe_bytes": true,
+      "bitrate_error_pct": true,
+      "codec": true,
+      "dropped_frames": true,
+      "encoded_frames": true,
+      "encoder": true,
+      "fps": true,
+      "frames": true,
+      "height": true,
+      "keyframe_bytes": true,
+      "mode": true,
+      "options": true,
+      "output_bitrate_kbps": true,
+      "output_bytes": true,
+      "psnr": true,
+      "quality_frames": true,
+      "quality_skipped": true,
+      "quantizer_histogram": true,
+      "quantizers": true,
+      "ssim": true,
+      "target_bitrate_kbps": true,
+      "width": true
+    },
+    "all_semantic_fields_equal": true,
+    "allocation_samples": {
+      "assembly": 0.625,
+      "previous": 0.625,
+      "simd": 0.625
+    }
+  }
+}

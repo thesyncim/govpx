@@ -1,0 +1,183 @@
+{
+  "head_sha": "2dc55d04c02c46170025d3ed914f1acb38bf3dae",
+  "base_sha": "c065a26523b0b9899e5846431a919229ac498f99",
+  "original_asm_sha": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "decision": "Do not promote mask reduction. One prespecified confirmation finished; no additional rerun planned.",
+  "first": {
+    "summary": "/private/tmp/govpx-2dc55d04-first-compact.json",
+    "cpu": "AMD EPYC 7763 64-Core Processor",
+    "run_id": 39045901047,
+    "public": {
+      "VP9 320x180": {
+        "assembly_ns": 7062760.5,
+        "base_ns": 4289420.0,
+        "current_ns": 4294623.0,
+        "current_vs_base_percent": 0.12129845060637745,
+        "base_paired_percent": [
+          0.8400740155801056,
+          -0.443833446803954,
+          0.4007853513877224,
+          -1.318432665242808,
+          0.8917460524917376,
+          -0.231882581945686
+        ],
+        "current_faster_than_base_pairs": 3,
+        "current_slower_than_base_pairs": 3,
+        "current_vs_assembly_percent": -39.193421609015346,
+        "assembly_paired_percent": [
+          -40.10570808597382,
+          -39.998297234613155,
+          -38.62810025738781,
+          -38.918186929105225,
+          -38.49885023872024,
+          -38.493148786500306
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "VP8 720p": {
+        "assembly_ns": 23256520.0,
+        "base_ns": 20944636.0,
+        "current_ns": 20685876.0,
+        "current_vs_base_percent": -1.2354475866756531,
+        "base_paired_percent": [
+          0.10085865617870393,
+          -0.6181589459596015,
+          -0.33867514404308796,
+          -2.247372100588918,
+          -1.1879745461091162,
+          -1.156999475248699
+        ],
+        "current_faster_than_base_pairs": 5,
+        "current_slower_than_base_pairs": 1,
+        "current_vs_assembly_percent": -11.05343361775537,
+        "assembly_paired_percent": [
+          -10.98682121226494,
+          -11.060680235876108,
+          -11.819119917316446,
+          -11.054591182020312,
+          -11.324955621449062,
+          -12.538269644134614
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "VP9 720p": {
+        "assembly_ns": 60574205.0,
+        "base_ns": 33235403.5,
+        "current_ns": 33542419.0,
+        "current_vs_base_percent": 0.9237604110929443,
+        "base_paired_percent": [
+          -2.5861717654885763,
+          2.2196561492731304,
+          3.159696963107006,
+          -0.6062755353057225,
+          1.3746404176267824,
+          0.6388970314356923
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -44.62590305559932,
+        "assembly_paired_percent": [
+          -45.374507608176174,
+          -44.69079880857388,
+          -44.33028063180413,
+          -44.368636854566375,
+          -44.75507452609856,
+          -44.77398373962351
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      }
+    }
+  },
+  "confirmation": {
+    "summary": "/private/tmp/govpx-2dc55d04-confirmation-compact.json",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "run_id": 39046959931,
+    "public": {
+      "VP9 320x180": {
+        "assembly_ns": 5487358.5,
+        "base_ns": 3185525.5,
+        "current_ns": 3193461.5,
+        "current_vs_base_percent": 0.2491268709040373,
+        "base_paired_percent": [
+          0.3690747043493703,
+          0.38341679180200483,
+          -0.2705006844672009,
+          0.30362963281902466,
+          0.05775324846379881,
+          -0.03342971974280573
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -41.803301169406005,
+        "assembly_paired_percent": [
+          -41.743720176178186,
+          -41.68738815778188,
+          -41.88520289386446,
+          -41.90731959130686,
+          -41.711640747793275,
+          -42.14783358852869
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      },
+      "VP8 720p": {
+        "assembly_ns": 14049311.5,
+        "base_ns": 16315748.0,
+        "current_ns": 16273055.0,
+        "current_vs_base_percent": -0.26166743933530023,
+        "base_paired_percent": [
+          -0.14848071902190396,
+          0.829164020715778,
+          -0.6983978431975291,
+          -0.39348853209283385,
+          0.03605523972403102,
+          -0.12940455425692887
+        ],
+        "current_faster_than_base_pairs": 4,
+        "current_slower_than_base_pairs": 2,
+        "current_vs_assembly_percent": 15.828131506657828,
+        "assembly_paired_percent": [
+          15.628114797824754,
+          17.930113807123703,
+          15.45512539684346,
+          15.840192725239866,
+          15.87438824995806,
+          15.98233532859419
+        ],
+        "current_faster_than_assembly_pairs": 0,
+        "current_slower_than_assembly_pairs": 6
+      },
+      "VP9 720p": {
+        "assembly_ns": 47076930.5,
+        "base_ns": 23879469.5,
+        "current_ns": 23963831.0,
+        "current_vs_base_percent": 0.35328046127658386,
+        "base_paired_percent": [
+          1.596282865461518,
+          2.579546747144068,
+          -0.04749491154265595,
+          0.16156179646451552,
+          -0.6153141842006882,
+          0.3228334394939525
+        ],
+        "current_faster_than_base_pairs": 2,
+        "current_slower_than_base_pairs": 4,
+        "current_vs_assembly_percent": -49.09644544475983,
+        "assembly_paired_percent": [
+          -48.57215513910017,
+          -47.966781942950156,
+          -49.17282173830401,
+          -49.14996254474957,
+          -49.536114320597115,
+          -49.05086597146081
+        ],
+        "current_faster_than_assembly_pairs": 6,
+        "current_slower_than_assembly_pairs": 0
+      }
+    }
+  },
+  "scope": "Compare each same-job CPU/base/ASM independently, retain both. Repeated VP9 positive medians and mixed confirmation VP8 prevent supported public promotion. All raw samples unchanged."
+}

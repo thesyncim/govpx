@@ -1,0 +1,22 @@
+{
+  "previous": [],
+  "simd": [
+    {
+      "cpu_ns": 10000000,
+      "stack": [
+        "github.com/thesyncim/govpx/internal/pixel.loopFilterByteWide",
+        "github.com/thesyncim/govpx/internal/pixel.loopFilterWide",
+        "github.com/thesyncim/govpx/internal/pixel.LoopFilter",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.vpxLpfVertical4Dual",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.VpxLpfVertical4DualThr",
+        "github.com/thesyncim/govpx.vp9FilterSelectivelyVertRow2",
+        "github.com/thesyncim/govpx.(*VP9Decoder).vp9FilterLoopBlockPlaneSS11",
+        "github.com/thesyncim/govpx.(*VP9Decoder).vp9FilterLoopBlock",
+        "github.com/thesyncim/govpx.(*VP9Decoder).applyVP9LoopFilterSerialCached",
+        "github.com/thesyncim/govpx.(*VP9Decoder).applyVP9LoopFilterSerial",
+        "github.com/thesyncim/govpx.(*VP9Encoder).applyVP9EncoderLoopFilter",
+        "github.com/thesyncim/govpx.(*VP9Encoder).encodeVP9FrameIntoWithFlagsResultInternal"
+      ]
+    }
+  ]
+}

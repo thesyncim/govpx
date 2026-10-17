@@ -1,0 +1,817 @@
+
+/private/tmp/govpx-x64-gated-dot-pixel.test:	file format mach-o 64-bit x86-64
+
+Disassembly of section __TEXT,__text:
+
+000000000113fa20 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8>:
+ 113fa20: 55                           	pushq	%rbp
+ 113fa21: 48 89 e5                     	movq	%rsp, %rbp
+ 113fa24: 48 83 ec 28                  	subq	$0x28, %rsp
+ 113fa28: 48 89 44 24 58               	movq	%rax, 0x58(%rsp)
+ 113fa2d: 48 89 74 24 78               	movq	%rsi, 0x78(%rsp)
+ 113fa32: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 113fa36: 0f 84 59 01 00 00            	je	0x113fb95 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x175>
+ 113fa3c: 48 8b 54 24 48               	movq	0x48(%rsp), %rdx
+ 113fa41: 48 85 d2                     	testq	%rdx, %rdx
+ 113fa44: 0f 86 34 03 00 00            	jbe	0x113fd7e <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x35e>
+ 113fa4a: 48 83 fa 02                  	cmpq	$0x2, %rdx
+ 113fa4e: 0f 86 25 03 00 00            	jbe	0x113fd79 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x359>
+ 113fa54: 4c 8b 64 24 40               	movq	0x40(%rsp), %r12
+ 113fa59: 45 0f b7 2c 24               	movzwl	(%r12), %r13d
+ 113fa5e: 66 44 89 6c 24 06            	movw	%r13w, 0x6(%rsp)
+ 113fa64: 45 0f b7 7c 24 04            	movzwl	0x4(%r12), %r15d
+ 113fa6a: 66 45 39 ef                  	cmpw	%r13w, %r15w
+ 113fa6e: 66 45 0f 4f ef               	cmovgw	%r15w, %r13w
+ 113fa73: 48 83 fa 03                  	cmpq	$0x3, %rdx
+ 113fa77: 0f 86 f7 02 00 00            	jbe	0x113fd74 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x354>
+ 113fa7d: 48 89 74 24 78               	movq	%rsi, 0x78(%rsp)
+ 113fa82: 41 0f b7 74 24 06            	movzwl	0x6(%r12), %esi
+ 113fa88: 66 44 39 ee                  	cmpw	%r13w, %si
+ 113fa8c: 66 44 0f 4f ee               	cmovgw	%si, %r13w
+ 113fa91: 48 83 fa 05                  	cmpq	$0x5, %rdx
+ 113fa95: 0f 86 d4 02 00 00            	jbe	0x113fd6f <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x34f>
+ 113fa9b: 41 0f b7 54 24 0a            	movzwl	0xa(%r12), %edx
+ 113faa1: 66 44 39 ea                  	cmpw	%r13w, %dx
+ 113faa5: 66 44 0f 4f ea               	cmovgw	%dx, %r13w
+ 113faaa: 66 41 83 fd 7f               	cmpw	$0x7f, %r13w
+ 113faaf: 0f 8f e0 00 00 00            	jg	0x113fb95 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x175>
+ 113fab5: 4c 89 8c 24 88 00 00 00      	movq	%r9, 0x88(%rsp)
+ 113fabd: 4c 89 84 24 80 00 00 00      	movq	%r8, 0x80(%rsp)
+ 113fac5: 44 0f b7 6c 24 06            	movzwl	0x6(%rsp), %r13d
+ 113facb: 4d 0f bf cd                  	movswq	%r13w, %r9
+ 113facf: 4c 0f bf c2                  	movswq	%dx, %r8
+ 113fad3: 4d 01 c8                     	addq	%r9, %r8
+ 113fad6: 66 0f 1f 84 00 00 00 00 00   	nopw	(%rax,%rax)
+ 113fadf: 90                           	nop
+ 113fae0: 49 81 f8 80 00 00 00         	cmpq	$0x80, %r8
+ 113fae7: 0f 8f a8 00 00 00            	jg	0x113fb95 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x175>
+ 113faed: 48 89 7c 24 70               	movq	%rdi, 0x70(%rsp)
+ 113faf2: 4c 89 94 24 90 00 00 00      	movq	%r10, 0x90(%rsp)
+ 113fafa: 48 89 4c 24 68               	movq	%rcx, 0x68(%rsp)
+ 113faff: 48 89 5c 24 60               	movq	%rbx, 0x60(%rsp)
+ 113fb04: 45 0f b6 44 24 02            	movzbl	0x2(%r12), %r8d
+ 113fb0a: 45 0f b6 4c 24 08            	movzbl	0x8(%r12), %r9d
+ 113fb10: 45 0f b6 e7                  	movzbl	%r15b, %r12d
+ 113fb14: 41 c1 e4 08                  	shll	$0x8, %r12d
+ 113fb18: 45 09 e0                     	orl	%r12d, %r8d
+ 113fb1b: 40 0f b6 f6                  	movzbl	%sil, %esi
+ 113fb1f: c1 e6 08                     	shll	$0x8, %esi
+ 113fb22: 41 09 f1                     	orl	%esi, %r9d
+ 113fb25: 41 0f b6 f5                  	movzbl	%r13b, %esi
+ 113fb29: 0f b6 d2                     	movzbl	%dl, %edx
+ 113fb2c: c1 e2 08                     	shll	$0x8, %edx
+ 113fb2f: 09 d6                        	orl	%edx, %esi
+ 113fb31: ba 40 00 00 00               	movl	$0x40, %edx
+ 113fb36: c4 e1 f9 6e c2               	vmovq	%rdx, %xmm0
+ 113fb3b: c4 c1 f9 6e c8               	vmovq	%r8, %xmm1
+ 113fb40: c4 c1 f9 6e d1               	vmovq	%r9, %xmm2
+ 113fb45: c4 e1 f9 6e de               	vmovq	%rsi, %xmm3
+ 113fb4a: c5 fa 6f 25 ae 1d 1d 00      	vmovdqu	0x1d1dae(%rip), %xmm4   ## 0x1311900 <_github.com/thesyncim/govpx/internal/pixel.sixDot12>
+ 113fb52: c5 fa 6f 2d b6 1d 1d 00      	vmovdqu	0x1d1db6(%rip), %xmm5   ## 0x1311910 <_github.com/thesyncim/govpx/internal/pixel.sixDot43>
+ 113fb5a: c5 fa 6f 35 be 1d 1d 00      	vmovdqu	0x1d1dbe(%rip), %xmm6   ## 0x1311920 <_github.com/thesyncim/govpx/internal/pixel.sixDot05>
+ 113fb62: 90                           	nop
+ 113fb63: c4 e2 79 79 c0               	vpbroadcastw	%xmm0, %xmm0
+ 113fb68: c4 e2 79 79 c9               	vpbroadcastw	%xmm1, %xmm1
+ 113fb6d: c4 e2 79 79 d2               	vpbroadcastw	%xmm2, %xmm2
+ 113fb72: c4 e2 79 79 db               	vpbroadcastw	%xmm3, %xmm3
+ 113fb77: 31 d2                        	xorl	%edx, %edx
+ 113fb79: 48 8b 74 24 38               	movq	0x38(%rsp), %rsi
+ 113fb7e: 4c 8b 84 24 80 00 00 00      	movq	0x80(%rsp), %r8
+ 113fb86: 4c 8b 8c 24 88 00 00 00      	movq	0x88(%rsp), %r9
+ 113fb8e: 4c 8b 64 24 78               	movq	0x78(%rsp), %r12
+ 113fb93: eb 14                        	jmp	0x113fba9 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x189>
+ 113fb95: 31 c0                        	xorl	%eax, %eax
+ 113fb97: 48 83 c4 28                  	addq	$0x28, %rsp
+ 113fb9b: 5d                           	popq	%rbp
+ 113fb9c: c3                           	retq
+ 113fb9d: 49 8d 57 01                  	leaq	0x1(%r15), %rdx
+ 113fba1: 4c 8b 94 24 90 00 00 00      	movq	0x90(%rsp), %r10
+ 113fba9: 48 39 d6                     	cmpq	%rdx, %rsi
+ 113fbac: 0f 8e 8d 01 00 00            	jle	0x113fd3f <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x31f>
+ 113fbb2: 48 89 54 24 08               	movq	%rdx, 0x8(%rsp)
+ 113fbb7: 49 89 d5                     	movq	%rdx, %r13
+ 113fbba: 48 0f af d7                  	imulq	%rdi, %rdx
+ 113fbbe: 4d 89 ef                     	movq	%r13, %r15
+ 113fbc1: 4d 0f af ea                  	imulq	%r10, %r13
+ 113fbc5: 45 31 d2                     	xorl	%r10d, %r10d
+ 113fbc8: eb 29                        	jmp	0x113fbf3 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x1d3>
+ 113fbca: c4 e2 41 00 3d 6d 1d 1d 00   	vpshufb	0x1d1d6d(%rip), %xmm7, %xmm7 ## 0x1311940 <_github.com/thesyncim/govpx/internal/pixel.packByteIndices>
+ 113fbd3: c4 c3 f9 16 f8 00            	vpextrq	$0x0, %xmm7, %r8
+ 113fbd9: 4d 89 04 34                  	movq	%r8, (%r12,%rsi)
+ 113fbdd: 49 83 c2 08                  	addq	$0x8, %r10
+ 113fbe1: 48 8b 74 24 38               	movq	0x38(%rsp), %rsi
+ 113fbe6: 49 89 f8                     	movq	%rdi, %r8
+ 113fbe9: 4c 8b 7c 24 08               	movq	0x8(%rsp), %r15
+ 113fbee: 48 8b 7c 24 70               	movq	0x70(%rsp), %rdi
+ 113fbf3: 4d 39 d3                     	cmpq	%r10, %r11
+ 113fbf6: 7e a5                        	jle	0x113fb9d <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x17d>
+ 113fbf8: 4a 8d 3c 12                  	leaq	(%rdx,%r10), %rdi
+ 113fbfc: 48 29 fb                     	subq	%rdi, %rbx
+ 113fbff: 90                           	nop
+ 113fc00: 48 83 fb 10                  	cmpq	$0x10, %rbx
+ 113fc04: 7c 2f                        	jl	0x113fc35 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x215>
+ 113fc06: 48 8b 5c 24 60               	movq	0x60(%rsp), %rbx
+ 113fc0b: 48 39 fb                     	cmpq	%rdi, %rbx
+ 113fc0e: 0f 82 56 01 00 00            	jb	0x113fd6a <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x34a>
+ 113fc14: 48 89 7c 24 18               	movq	%rdi, 0x18(%rsp)
+ 113fc19: 48 29 cf                     	subq	%rcx, %rdi
+ 113fc1c: 48 c1 ff 3f                  	sarq	$0x3f, %rdi
+ 113fc20: 48 8b 74 24 18               	movq	0x18(%rsp), %rsi
+ 113fc25: 48 21 f7                     	andq	%rsi, %rdi
+ 113fc28: 48 8d 34 38                  	leaq	(%rax,%rdi), %rsi
+ 113fc2c: c5 fa 6f 3e                  	vmovdqu	(%rsi), %xmm7
+ 113fc30: e9 8c 00 00 00               	jmp	0x113fcc1 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x2a1>
+ 113fc35: 48 8b 74 24 60               	movq	0x60(%rsp), %rsi
+ 113fc3a: 66 0f 1f 44 00 00            	nopw	(%rax,%rax)
+ 113fc40: 48 39 fe                     	cmpq	%rdi, %rsi
+ 113fc43: 0f 82 1c 01 00 00            	jb	0x113fd65 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x345>
+ 113fc49: 48 29 f9                     	subq	%rdi, %rcx
+ 113fc4c: 48 89 4c 24 10               	movq	%rcx, 0x10(%rsp)
+ 113fc51: 48 f7 d9                     	negq	%rcx
+ 113fc54: 48 c1 f9 3f                  	sarq	$0x3f, %rcx
+ 113fc58: 48 21 f9                     	andq	%rdi, %rcx
+ 113fc5b: 48 01 c1                     	addq	%rax, %rcx
+ 113fc5e: 66 90                        	nop
+ 113fc60: 48 83 fb 07                  	cmpq	$0x7, %rbx
+ 113fc64: 0f 86 f4 00 00 00            	jbe	0x113fd5e <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x33e>
+ 113fc6a: 4a 8d 3c 12                  	leaq	(%rdx,%r10), %rdi
+ 113fc6e: 48 8d 7f 05                  	leaq	0x5(%rdi), %rdi
+ 113fc72: 48 39 fe                     	cmpq	%rdi, %rsi
+ 113fc75: 0f 82 de 00 00 00            	jb	0x113fd59 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x339>
+ 113fc7b: 48 83 c3 fb                  	addq	$-0x5, %rbx
+ 113fc7f: 4c 8b 7c 24 10               	movq	0x10(%rsp), %r15
+ 113fc84: 49 83 c7 fb                  	addq	$-0x5, %r15
+ 113fc88: 49 f7 df                     	negq	%r15
+ 113fc8b: 49 c1 ff 3f                  	sarq	$0x3f, %r15
+ 113fc8f: 4c 21 ff                     	andq	%r15, %rdi
+ 113fc92: 48 83 fb 07                  	cmpq	$0x7, %rbx
+ 113fc96: 0f 86 b8 00 00 00            	jbe	0x113fd54 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x334>
+ 113fc9c: c4 61 f9 6e 01               	vmovq	(%rcx), %xmm8
+ 113fca1: 48 8b 0c 38                  	movq	(%rax,%rdi), %rcx
+ 113fca5: 48 c1 e9 18                  	shrq	$0x18, %rcx
+ 113fca9: c4 42 79 59 c0               	vpbroadcastq	%xmm8, %xmm8
+ 113fcae: c4 e3 b9 22 f9 01            	vpinsrq	$0x1, %rcx, %xmm8, %xmm7
+ 113fcb4: 48 8b 4c 24 68               	movq	0x68(%rsp), %rcx
+ 113fcb9: 48 89 f3                     	movq	%rsi, %rbx
+ 113fcbc: 4c 8b 7c 24 08               	movq	0x8(%rsp), %r15
+ 113fcc1: c4 62 41 00 c4               	vpshufb	%xmm4, %xmm7, %xmm8
+ 113fcc6: c4 62 39 04 c1               	vpmaddubsw	%xmm1, %xmm8, %xmm8
+ 113fccb: c5 39 fd c0                  	vpaddw	%xmm0, %xmm8, %xmm8
+ 113fccf: c4 62 41 00 cd               	vpshufb	%xmm5, %xmm7, %xmm9
+ 113fcd4: c4 62 31 04 ca               	vpmaddubsw	%xmm2, %xmm9, %xmm9
+ 113fcd9: c4 41 31 ed c0               	vpaddsw	%xmm8, %xmm9, %xmm8
+ 113fcde: c4 e2 41 00 fe               	vpshufb	%xmm6, %xmm7, %xmm7
+ 113fce3: c4 e2 41 04 fb               	vpmaddubsw	%xmm3, %xmm7, %xmm7
+ 113fce8: 4b 8d 74 15 00               	leaq	(%r13,%r10), %rsi
+ 113fced: c4 c1 41 ed f8               	vpaddsw	%xmm8, %xmm7, %xmm7
+ 113fcf2: 49 39 f0                     	cmpq	%rsi, %r8
+ 113fcf5: 72 58                        	jb	0x113fd4f <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x32f>
+ 113fcf7: 48 89 74 24 20               	movq	%rsi, 0x20(%rsp)
+ 113fcfc: 4c 89 c7                     	movq	%r8, %rdi
+ 113fcff: 49 29 f0                     	subq	%rsi, %r8
+ 113fd02: 4c 29 ce                     	subq	%r9, %rsi
+ 113fd05: 48 c1 fe 3f                  	sarq	$0x3f, %rsi
+ 113fd09: c5 c1 71 e7 07               	vpsraw	$0x7, %xmm7, %xmm7
+ 113fd0e: c5 c1 ee 3d 9a 53 21 00      	vpmaxsw	0x21539a(%rip), %xmm7, %xmm7 ## 0x13550b0 <_github.com/thesyncim/govpx/internal/pixel.packZero16>
+ 113fd16: 41 bf ff 00 00 00            	movl	$0xff, %r15d
+ 113fd1c: c4 41 f9 6e c7               	vmovq	%r15, %xmm8
+ 113fd21: c4 42 79 79 c0               	vpbroadcastw	%xmm8, %xmm8
+ 113fd26: 4c 8b 7c 24 20               	movq	0x20(%rsp), %r15
+ 113fd2b: 4c 21 fe                     	andq	%r15, %rsi
+ 113fd2e: c4 c1 41 ea f8               	vpminsw	%xmm8, %xmm7, %xmm7
+ 113fd33: 49 83 f8 07                  	cmpq	$0x7, %r8
+ 113fd37: 0f 87 8d fe ff ff            	ja	0x113fbca <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x1aa>
+ 113fd3d: eb 0b                        	jmp	0x113fd4a <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8+0x32a>
+ 113fd3f: b8 01 00 00 00               	movl	$0x1, %eax
+ 113fd44: 48 83 c4 28                  	addq	$0x28, %rsp
+ 113fd48: 5d                           	popq	%rbp
+ 113fd49: c3                           	retq
+ 113fd4a: e8 b1 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd4f: e8 ac 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd54: e8 a7 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd59: e8 a2 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd5e: 66 90                        	nop
+ 113fd60: e8 9b 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd65: e8 96 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd6a: e8 91 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd6f: e8 8c 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd74: e8 87 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd79: e8 82 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd7e: 66 90                        	nop
+ 113fd80: e8 7b 92 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 113fd85: 90                           	nop
+ 113fd86: cc                           	int3
+ 113fd87: cc                           	int3
+ 113fd88: cc                           	int3
+ 113fd89: cc                           	int3
+ 113fd8a: cc                           	int3
+ 113fd8b: cc                           	int3
+ 113fd8c: cc                           	int3
+ 113fd8d: cc                           	int3
+ 113fd8e: cc                           	int3
+ 113fd8f: cc                           	int3
+ 113fd90: cc                           	int3
+ 113fd91: cc                           	int3
+ 113fd92: cc                           	int3
+ 113fd93: cc                           	int3
+ 113fd94: cc                           	int3
+ 113fd95: cc                           	int3
+ 113fd96: cc                           	int3
+ 113fd97: cc                           	int3
+ 113fd98: cc                           	int3
+ 113fd99: cc                           	int3
+ 113fd9a: cc                           	int3
+ 113fd9b: cc                           	int3
+ 113fd9c: cc                           	int3
+ 113fd9d: cc                           	int3
+ 113fd9e: cc                           	int3
+ 113fd9f: cc                           	int3
+
+000000000113fda0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8>:
+ 113fda0: 4c 8d 64 24 d0               	leaq	-0x30(%rsp), %r12
+ 113fda5: 4d 3b 66 10                  	cmpq	0x10(%r14), %r12
+ 113fda9: 0f 86 b0 09 00 00            	jbe	0x114075f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9bf>
+ 113fdaf: 55                           	pushq	%rbp
+ 113fdb0: 48 89 e5                     	movq	%rsp, %rbp
+ 113fdb3: 48 81 ec a8 00 00 00         	subq	$0xa8, %rsp
+ 113fdba: 48 89 84 24 e0 00 00 00      	movq	%rax, 0xe0(%rsp)
+ 113fdc2: 48 89 b4 24 00 01 00 00      	movq	%rsi, 0x100(%rsp)
+ 113fdca: 48 8b 94 24 d0 00 00 00      	movq	0xd0(%rsp), %rdx
+ 113fdd2: 48 83 fa 06                  	cmpq	$0x6, %rdx
+ 113fdd6: 0f 85 66 04 00 00            	jne	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fddc: 0f 1f 40 00                  	nopl	(%rax)
+ 113fde0: 4d 85 db                     	testq	%r11, %r11
+ 113fde3: 0f 8e 59 04 00 00            	jle	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fde9: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 113fded: 74 0d                        	je	0x113fdfc <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x5c>
+ 113fdef: 49 f7 c3 07 00 00 00         	testq	$0x7, %r11
+ 113fdf6: 0f 85 46 04 00 00            	jne	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fdfc: 4c 8b a4 24 b8 00 00 00      	movq	0xb8(%rsp), %r12
+ 113fe04: 4d 85 e4                     	testq	%r12, %r12
+ 113fe07: 0f 8e 35 04 00 00            	jle	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fe0d: 48 85 ff                     	testq	%rdi, %rdi
+ 113fe10: 0f 8c 2c 04 00 00            	jl	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fe16: 4d 85 d2                     	testq	%r10, %r10
+ 113fe19: 0f 8c 23 04 00 00            	jl	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fe1f: 4c 8b ac 24 c0 00 00 00      	movq	0xc0(%rsp), %r13
+ 113fe27: 4d 85 ed                     	testq	%r13, %r13
+ 113fe2a: 0f 8c 12 04 00 00            	jl	0x1140242 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4a2>
+ 113fe30: 4c 89 8c 24 10 01 00 00      	movq	%r9, 0x110(%rsp)
+ 113fe38: 48 89 b4 24 00 01 00 00      	movq	%rsi, 0x100(%rsp)
+ 113fe40: 48 89 84 24 e0 00 00 00      	movq	%rax, 0xe0(%rsp)
+ 113fe48: 4c 8b bc 24 c8 00 00 00      	movq	0xc8(%rsp), %r15
+ 113fe50: 41 0f b7 17                  	movzwl	(%r15), %edx
+ 113fe54: 66 89 54 24 76               	movw	%dx, 0x76(%rsp)
+ 113fe59: 41 0f b7 77 04               	movzwl	0x4(%r15), %esi
+ 113fe5e: 45 0f b7 4f 06               	movzwl	0x6(%r15), %r9d
+ 113fe63: 41 0f b7 47 0a               	movzwl	0xa(%r15), %eax
+ 113fe68: 66 39 d6                     	cmpw	%dx, %si
+ 113fe6b: 66 0f 4c d6                  	cmovlw	%si, %dx
+ 113fe6f: 66 41 39 d1                  	cmpw	%dx, %r9w
+ 113fe73: 66 41 0f 4c d1               	cmovlw	%r9w, %dx
+ 113fe78: 66 39 d0                     	cmpw	%dx, %ax
+ 113fe7b: 66 0f 4c d0                  	cmovlw	%ax, %dx
+ 113fe7f: 90                           	nop
+ 113fe80: 66 85 d2                     	testw	%dx, %dx
+ 113fe83: 0f 8c ae 03 00 00            	jl	0x1140237 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x497>
+ 113fe89: 48 89 8c 24 f0 00 00 00      	movq	%rcx, 0xf0(%rsp)
+ 113fe91: 41 0f b7 57 02               	movzwl	0x2(%r15), %edx
+ 113fe96: 66 89 54 24 74               	movw	%dx, 0x74(%rsp)
+ 113fe9b: 41 0f b7 4f 08               	movzwl	0x8(%r15), %ecx
+ 113fea0: 66 39 d1                     	cmpw	%dx, %cx
+ 113fea3: 66 0f 4f d1                  	cmovgw	%cx, %dx
+ 113fea7: 66 85 d2                     	testw	%dx, %dx
+ 113feaa: 0f 8f 87 03 00 00            	jg	0x1140237 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x497>
+ 113feb0: 0f b7 54 24 74               	movzwl	0x74(%rsp), %edx
+ 113feb5: 66 39 d1                     	cmpw	%dx, %cx
+ 113feb8: 66 0f 4c d1                  	cmovlw	%cx, %dx
+ 113febc: 0f 1f 40 00                  	nopl	(%rax)
+ 113fec0: 66 83 fa 80                  	cmpw	$-0x80, %dx
+ 113fec4: 0f 8c 6d 03 00 00            	jl	0x1140237 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x497>
+ 113feca: 0f b7 54 24 76               	movzwl	0x76(%rsp), %edx
+ 113fecf: 66 39 d6                     	cmpw	%dx, %si
+ 113fed2: 66 0f 4f d6                  	cmovgw	%si, %dx
+ 113fed6: 66 41 39 d1                  	cmpw	%dx, %r9w
+ 113feda: 66 41 0f 4f d1               	cmovgw	%r9w, %dx
+ 113fedf: 66 39 d0                     	cmpw	%dx, %ax
+ 113fee2: 66 0f 4f d0                  	cmovgw	%ax, %dx
+ 113fee6: 66 81 fa 80 00               	cmpw	$0x80, %dx
+ 113feeb: 0f 8f 46 03 00 00            	jg	0x1140237 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x497>
+ 113fef1: 0f b7 54 24 74               	movzwl	0x74(%rsp), %edx
+ 113fef6: 48 0f bf d2                  	movswq	%dx, %rdx
+ 113fefa: 48 f7 da                     	negq	%rdx
+ 113fefd: 48 0f bf c9                  	movswq	%cx, %rcx
+ 113ff01: 48 29 ca                     	subq	%rcx, %rdx
+ 113ff04: 48 81 fa 80 00 00 00         	cmpq	$0x80, %rdx
+ 113ff0b: 0f 8f 26 03 00 00            	jg	0x1140237 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x497>
+ 113ff11: 49 8d 54 24 ff               	leaq	-0x1(%r12), %rdx
+ 113ff16: 48 89 d1                     	movq	%rdx, %rcx
+ 113ff19: 48 0f af d7                  	imulq	%rdi, %rdx
+ 113ff1d: 4c 01 da                     	addq	%r11, %rdx
+ 113ff20: 4b 8d 74 ad 00               	leaq	(%r13,%r13,4), %rsi
+ 113ff25: 48 8d 14 32                  	leaq	(%rdx,%rsi), %rdx
+ 113ff29: 48 8d 52 ff                  	leaq	-0x1(%rdx), %rdx
+ 113ff2d: 48 39 d3                     	cmpq	%rdx, %rbx
+ 113ff30: 0f 86 23 08 00 00            	jbe	0x1140759 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9b9>
+ 113ff36: 49 0f af ca                  	imulq	%r10, %rcx
+ 113ff3a: 4a 8d 14 19                  	leaq	(%rcx,%r11), %rdx
+ 113ff3e: 48 8d 52 ff                  	leaq	-0x1(%rdx), %rdx
+ 113ff42: 49 39 d0                     	cmpq	%rdx, %r8
+ 113ff45: 0f 86 09 08 00 00            	jbe	0x1140754 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9b4>
+ 113ff4b: 0f b7 54 24 76               	movzwl	0x76(%rsp), %edx
+ 113ff50: 66 85 d2                     	testw	%dx, %dx
+ 113ff53: 0f 85 8c 00 00 00            	jne	0x113ffe5 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x245>
+ 113ff59: 66 85 c0                     	testw	%ax, %ax
+ 113ff5c: 74 09                        	je	0x113ff67 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x1c7>
+ 113ff5e: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 113ff62: e9 82 00 00 00               	jmp	0x113ffe9 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x249>
+ 113ff67: 4c 39 eb                     	cmpq	%r13, %rbx
+ 113ff6a: 0f 82 df 07 00 00            	jb	0x114074f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9af>
+ 113ff70: 4c 89 24 24                  	movq	%r12, (%rsp)
+ 113ff74: 4c 89 6c 24 08               	movq	%r13, 0x8(%rsp)
+ 113ff79: 49 8d 57 02                  	leaq	0x2(%r15), %rdx
+ 113ff7d: 48 89 54 24 10               	movq	%rdx, 0x10(%rsp)
+ 113ff82: 48 c7 44 24 18 04 00 00 00   	movq	$0x4, 0x18(%rsp)
+ 113ff8b: 48 8b 8c 24 f0 00 00 00      	movq	0xf0(%rsp), %rcx
+ 113ff93: 4c 29 e9                     	subq	%r13, %rcx
+ 113ff96: 4c 29 eb                     	subq	%r13, %rbx
+ 113ff99: 48 89 ca                     	movq	%rcx, %rdx
+ 113ff9c: 48 f7 da                     	negq	%rdx
+ 113ff9f: 48 c1 fa 3f                  	sarq	$0x3f, %rdx
+ 113ffa3: 49 21 d5                     	andq	%rdx, %r13
+ 113ffa6: 48 8b 94 24 e0 00 00 00      	movq	0xe0(%rsp), %rdx
+ 113ffae: 4a 8d 04 2a                  	leaq	(%rdx,%r13), %rax
+ 113ffb2: 48 8b 94 24 d8 00 00 00      	movq	0xd8(%rsp), %rdx
+ 113ffba: 48 ff ca                     	decq	%rdx
+ 113ffbd: 48 89 54 24 20               	movq	%rdx, 0x20(%rsp)
+ 113ffc2: 48 8b b4 24 00 01 00 00      	movq	0x100(%rsp), %rsi
+ 113ffca: 4c 8b 8c 24 10 01 00 00      	movq	0x110(%rsp), %r9
+ 113ffd2: e8 09 e8 ff ff               	callq	0x113e7e0 <_github.com/thesyncim/govpx/internal/pixel.filterFourNarrow8>
+ 113ffd7: b8 01 00 00 00               	movl	$0x1, %eax
+ 113ffdc: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 113ffe3: 5d                           	popq	%rbp
+ 113ffe4: c3                           	retq
+ 113ffe5: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 113ffe9: 48 89 bc 24 f8 00 00 00      	movq	%rdi, 0xf8(%rsp)
+ 113fff1: 4c 89 94 24 18 01 00 00      	movq	%r10, 0x118(%rsp)
+ 113fff9: 4c 89 9c 24 20 01 00 00      	movq	%r11, 0x120(%rsp)
+ 1140001: 48 89 b4 24 a0 00 00 00      	movq	%rsi, 0xa0(%rsp)
+ 1140009: 4c 89 84 24 08 01 00 00      	movq	%r8, 0x108(%rsp)
+ 1140011: 48 89 9c 24 e8 00 00 00      	movq	%rbx, 0xe8(%rsp)
+ 1140019: 0f 84 c1 00 00 00            	je	0x11400e0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x340>
+ 114001f: 90                           	nop
+ 1140020: 49 83 fc 01                  	cmpq	$0x1, %r12
+ 1140024: 0f 8e b6 00 00 00            	jle	0x11400e0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x340>
+ 114002a: 4c 39 ef                     	cmpq	%r13, %rdi
+ 114002d: 0f 85 ad 00 00 00            	jne	0x11400e0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x340>
+ 1140033: 4c 89 24 24                  	movq	%r12, (%rsp)
+ 1140037: 4c 89 7c 24 08               	movq	%r15, 0x8(%rsp)
+ 114003c: 48 8b 94 24 d0 00 00 00      	movq	0xd0(%rsp), %rdx
+ 1140044: 48 89 54 24 10               	movq	%rdx, 0x10(%rsp)
+ 1140049: 48 8b 94 24 d8 00 00 00      	movq	0xd8(%rsp), %rdx
+ 1140051: 48 89 54 24 18               	movq	%rdx, 0x18(%rsp)
+ 1140056: 48 8b 84 24 e0 00 00 00      	movq	0xe0(%rsp), %rax
+ 114005e: 48 8b 8c 24 f0 00 00 00      	movq	0xf0(%rsp), %rcx
+ 1140066: 48 8b b4 24 00 01 00 00      	movq	0x100(%rsp), %rsi
+ 114006e: 4c 8b 8c 24 10 01 00 00      	movq	0x110(%rsp), %r9
+ 1140076: e8 65 07 00 00               	callq	0x11407e0 <_github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8>
+ 114007b: 84 c0                        	testb	%al, %al
+ 114007d: 75 4a                        	jne	0x11400c9 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x329>
+ 114007f: 48 8b 9c 24 e8 00 00 00      	movq	0xe8(%rsp), %rbx
+ 1140087: 48 8b b4 24 a0 00 00 00      	movq	0xa0(%rsp), %rsi
+ 114008f: 48 8b bc 24 f8 00 00 00      	movq	0xf8(%rsp), %rdi
+ 1140097: 4c 8b 84 24 08 01 00 00      	movq	0x108(%rsp), %r8
+ 114009f: 4c 8b 94 24 18 01 00 00      	movq	0x118(%rsp), %r10
+ 11400a7: 4c 8b 9c 24 20 01 00 00      	movq	0x120(%rsp), %r11
+ 11400af: 4c 8b a4 24 b8 00 00 00      	movq	0xb8(%rsp), %r12
+ 11400b7: 4c 8b ac 24 c0 00 00 00      	movq	0xc0(%rsp), %r13
+ 11400bf: 4c 8b bc 24 c8 00 00 00      	movq	0xc8(%rsp), %r15
+ 11400c7: eb 17                        	jmp	0x11400e0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x340>
+ 11400c9: b8 01 00 00 00               	movl	$0x1, %eax
+ 11400ce: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 11400d5: 5d                           	popq	%rbp
+ 11400d6: c3                           	retq
+ 11400d7: 66 0f 1f 84 00 00 00 00 00   	nopw	(%rax,%rax)
+ 11400e0: 49 83 fb 08                  	cmpq	$0x8, %r11
+ 11400e4: 0f 8c be 00 00 00            	jl	0x11401a8 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x408>
+ 11400ea: 49 83 fd 01                  	cmpq	$0x1, %r13
+ 11400ee: 74 09                        	je	0x11400f9 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x359>
+ 11400f0: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 11400f4: e9 b3 00 00 00               	jmp	0x11401ac <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x40c>
+ 11400f9: 4c 89 24 24                  	movq	%r12, (%rsp)
+ 11400fd: 4c 89 7c 24 08               	movq	%r15, 0x8(%rsp)
+ 1140102: 48 8b 94 24 d0 00 00 00      	movq	0xd0(%rsp), %rdx
+ 114010a: 48 89 54 24 10               	movq	%rdx, 0x10(%rsp)
+ 114010f: 48 8b 94 24 d8 00 00 00      	movq	0xd8(%rsp), %rdx
+ 1140117: 48 89 54 24 18               	movq	%rdx, 0x18(%rsp)
+ 114011c: 48 8b 84 24 e0 00 00 00      	movq	0xe0(%rsp), %rax
+ 1140124: 48 8b 8c 24 f0 00 00 00      	movq	0xf0(%rsp), %rcx
+ 114012c: 48 8b b4 24 00 01 00 00      	movq	0x100(%rsp), %rsi
+ 1140134: 4c 8b 8c 24 10 01 00 00      	movq	0x110(%rsp), %r9
+ 114013c: 0f 1f 40 00                  	nopl	(%rax)
+ 1140140: e8 db f8 ff ff               	callq	0x113fa20 <_github.com/thesyncim/govpx/internal/pixel.filterHorizontalSixDot8>
+ 1140145: 84 c0                        	testb	%al, %al
+ 1140147: 75 51                        	jne	0x114019a <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x3fa>
+ 1140149: 48 8b 8c 24 20 01 00 00      	movq	0x120(%rsp), %rcx
+ 1140151: 48 83 f9 04                  	cmpq	$0x4, %rcx
+ 1140155: 48 8b 9c 24 e8 00 00 00      	movq	0xe8(%rsp), %rbx
+ 114015d: 48 8b b4 24 a0 00 00 00      	movq	0xa0(%rsp), %rsi
+ 1140165: 48 8b bc 24 f8 00 00 00      	movq	0xf8(%rsp), %rdi
+ 114016d: 4c 8b 84 24 08 01 00 00      	movq	0x108(%rsp), %r8
+ 1140175: 4c 8b 94 24 18 01 00 00      	movq	0x118(%rsp), %r10
+ 114017d: 49 89 cb                     	movq	%rcx, %r11
+ 1140180: 4c 8b a4 24 b8 00 00 00      	movq	0xb8(%rsp), %r12
+ 1140188: 4c 8b ac 24 c0 00 00 00      	movq	0xc0(%rsp), %r13
+ 1140190: 4c 8b bc 24 c8 00 00 00      	movq	0xc8(%rsp), %r15
+ 1140198: eb 12                        	jmp	0x11401ac <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x40c>
+ 114019a: b8 01 00 00 00               	movl	$0x1, %eax
+ 114019f: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 11401a6: 5d                           	popq	%rbp
+ 11401a7: c3                           	retq
+ 11401a8: 49 83 fb 04                  	cmpq	$0x4, %r11
+ 11401ac: 90                           	nop
+ 11401ad: 75 07                        	jne	0x11401b6 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x416>
+ 11401af: b8 04 00 00 00               	movl	$0x4, %eax
+ 11401b4: eb 05                        	jmp	0x11401bb <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x41b>
+ 11401b6: b8 08 00 00 00               	movl	$0x8, %eax
+ 11401bb: 41 0f b7 0f                  	movzwl	(%r15), %ecx
+ 11401bf: 41 0f b7 57 02               	movzwl	0x2(%r15), %edx
+ 11401c4: 45 0f b7 4f 04               	movzwl	0x4(%r15), %r9d
+ 11401c9: 41 0f b7 77 06               	movzwl	0x6(%r15), %esi
+ 11401ce: 45 0f b7 47 08               	movzwl	0x8(%r15), %r8d
+ 11401d3: 45 0f b7 7f 0a               	movzwl	0xa(%r15), %r15d
+ 11401d8: c4 e1 f9 6e c1               	vmovq	%rcx, %xmm0
+ 11401dd: c4 e1 f9 6e ca               	vmovq	%rdx, %xmm1
+ 11401e2: c4 c1 f9 6e d1               	vmovq	%r9, %xmm2
+ 11401e7: c4 e1 f9 6e de               	vmovq	%rsi, %xmm3
+ 11401ec: c4 c1 f9 6e e0               	vmovq	%r8, %xmm4
+ 11401f1: c4 c1 f9 6e ef               	vmovq	%r15, %xmm5
+ 11401f6: b9 40 00 00 00               	movl	$0x40, %ecx
+ 11401fb: c4 e1 f9 6e f1               	vmovq	%rcx, %xmm6
+ 1140200: c4 e2 79 79 c0               	vpbroadcastw	%xmm0, %xmm0
+ 1140205: c4 e2 79 79 c9               	vpbroadcastw	%xmm1, %xmm1
+ 114020a: c4 e2 79 79 d2               	vpbroadcastw	%xmm2, %xmm2
+ 114020f: c4 e2 79 79 db               	vpbroadcastw	%xmm3, %xmm3
+ 1140214: c4 e2 79 79 e4               	vpbroadcastw	%xmm4, %xmm4
+ 1140219: c4 e2 79 79 ed               	vpbroadcastw	%xmm5, %xmm5
+ 114021e: c4 e2 79 79 f6               	vpbroadcastw	%xmm6, %xmm6
+ 1140223: 31 c9                        	xorl	%ecx, %ecx
+ 1140225: 48 8b 94 24 f0 00 00 00      	movq	0xf0(%rsp), %rdx
+ 114022d: 48 8b b4 24 e0 00 00 00      	movq	0xe0(%rsp), %rsi
+ 1140235: eb 1e                        	jmp	0x1140255 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4b5>
+ 1140237: 31 c0                        	xorl	%eax, %eax
+ 1140239: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 1140240: 5d                           	popq	%rbp
+ 1140241: c3                           	retq
+ 1140242: 31 c0                        	xorl	%eax, %eax
+ 1140244: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 114024b: 5d                           	popq	%rbp
+ 114024c: c3                           	retq
+ 114024d: 48 8b 4c 24 78               	movq	0x78(%rsp), %rcx
+ 1140252: 48 ff c1                     	incq	%rcx
+ 1140255: 49 39 cc                     	cmpq	%rcx, %r12
+ 1140258: 0f 8e 69 04 00 00            	jle	0x11406c7 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x927>
+ 114025e: 48 89 4c 24 78               	movq	%rcx, 0x78(%rsp)
+ 1140263: 49 89 c8                     	movq	%rcx, %r8
+ 1140266: 48 0f af cf                  	imulq	%rdi, %rcx
+ 114026a: 4f 8d 4c 6d 00               	leaq	(%r13,%r13,2), %r9
+ 114026f: 4c 89 8c 24 98 00 00 00      	movq	%r9, 0x98(%rsp)
+ 1140277: 4d 89 c7                     	movq	%r8, %r15
+ 114027a: 4d 0f af c2                  	imulq	%r10, %r8
+ 114027e: 4c 89 84 24 90 00 00 00      	movq	%r8, 0x90(%rsp)
+ 1140286: 4d 0f af fa                  	imulq	%r10, %r15
+ 114028a: 45 31 c9                     	xorl	%r9d, %r9d
+ 114028d: eb 23                        	jmp	0x11402b2 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x512>
+ 114028f: 49 01 c1                     	addq	%rax, %r9
+ 1140292: 48 8b bc 24 f8 00 00 00      	movq	0xf8(%rsp), %rdi
+ 114029a: 4c 8b 84 24 90 00 00 00      	movq	0x90(%rsp), %r8
+ 11402a2: 4c 8b 94 24 18 01 00 00      	movq	0x118(%rsp), %r10
+ 11402aa: 4c 8b a4 24 b8 00 00 00      	movq	0xb8(%rsp), %r12
+ 11402b2: 4d 39 cb                     	cmpq	%r9, %r11
+ 11402b5: 7e 96                        	jle	0x114024d <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4ad>
+ 11402b7: 4e 8d 14 09                  	leaq	(%rcx,%r9), %r10
+ 11402bb: 4c 89 94 24 80 00 00 00      	movq	%r10, 0x80(%rsp)
+ 11402c3: 49 83 fd 01                  	cmpq	$0x1, %r13
+ 11402c7: 0f 85 83 00 00 00            	jne	0x1140350 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x5b0>
+ 11402cd: 4c 29 d3                     	subq	%r10, %rbx
+ 11402d0: 48 83 fb 10                  	cmpq	$0x10, %rbx
+ 11402d4: 7c 72                        	jl	0x1140348 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x5a8>
+ 11402d6: 48 8b 9c 24 e8 00 00 00      	movq	0xe8(%rsp), %rbx
+ 11402de: 66 90                        	nop
+ 11402e0: 4c 39 d3                     	cmpq	%r10, %rbx
+ 11402e3: 0f 82 61 04 00 00            	jb	0x114074a <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9aa>
+ 11402e9: 49 29 d2                     	subq	%rdx, %r10
+ 11402ec: 49 c1 fa 3f                  	sarq	$0x3f, %r10
+ 11402f0: 48 8b bc 24 80 00 00 00      	movq	0x80(%rsp), %rdi
+ 11402f8: 4c 21 d7                     	andq	%r10, %rdi
+ 11402fb: 48 01 f7                     	addq	%rsi, %rdi
+ 11402fe: c5 fa 6f 3f                  	vmovdqu	(%rdi), %xmm7
+ 1140302: 45 0f 10 c7                  	movups	%xmm15, %xmm8
+ 1140306: c4 63 39 0f cf 01            	vpalignr	$0x1, %xmm7, %xmm8, %xmm9 ## xmm9 = xmm7[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],xmm8[0]
+ 114030c: c4 63 39 0f d7 02            	vpalignr	$0x2, %xmm7, %xmm8, %xmm10 ## xmm10 = xmm7[2,3,4,5,6,7,8,9,10,11,12,13,14,15],xmm8[0,1]
+ 1140312: c4 63 39 0f df 03            	vpalignr	$0x3, %xmm7, %xmm8, %xmm11 ## xmm11 = xmm7[3,4,5,6,7,8,9,10,11,12,13,14,15],xmm8[0,1,2]
+ 1140318: c4 63 39 0f e7 04            	vpalignr	$0x4, %xmm7, %xmm8, %xmm12 ## xmm12 = xmm7[4,5,6,7,8,9,10,11,12,13,14,15],xmm8[0,1,2,3]
+ 114031e: c4 63 39 0f ef 05            	vpalignr	$0x5, %xmm7, %xmm8, %xmm13 ## xmm13 = xmm7[5,6,7,8,9,10,11,12,13,14,15],xmm8[0,1,2,3,4]
+ 1140324: 90                           	nop
+ 1140325: c4 e2 79 30 ff               	vpmovzxbw	%xmm7, %xmm7    ## xmm7 = xmm7[0],zero,xmm7[1],zero,xmm7[2],zero,xmm7[3],zero,xmm7[4],zero,xmm7[5],zero,xmm7[6],zero,xmm7[7],zero
+ 114032a: c4 42 79 30 c9               	vpmovzxbw	%xmm9, %xmm9    ## xmm9 = xmm9[0],zero,xmm9[1],zero,xmm9[2],zero,xmm9[3],zero,xmm9[4],zero,xmm9[5],zero,xmm9[6],zero,xmm9[7],zero
+ 114032f: c4 42 79 30 d2               	vpmovzxbw	%xmm10, %xmm10  ## xmm10 = xmm10[0],zero,xmm10[1],zero,xmm10[2],zero,xmm10[3],zero,xmm10[4],zero,xmm10[5],zero,xmm10[6],zero,xmm10[7],zero
+ 1140334: c4 42 79 30 db               	vpmovzxbw	%xmm11, %xmm11  ## xmm11 = xmm11[0],zero,xmm11[1],zero,xmm11[2],zero,xmm11[3],zero,xmm11[4],zero,xmm11[5],zero,xmm11[6],zero,xmm11[7],zero
+ 1140339: c4 42 79 30 e4               	vpmovzxbw	%xmm12, %xmm12  ## xmm12 = xmm12[0],zero,xmm12[1],zero,xmm12[2],zero,xmm12[3],zero,xmm12[4],zero,xmm12[5],zero,xmm12[6],zero,xmm12[7],zero
+ 114033e: c4 42 79 30 ed               	vpmovzxbw	%xmm13, %xmm13  ## xmm13 = xmm13[0],zero,xmm13[1],zero,xmm13[2],zero,xmm13[3],zero,xmm13[4],zero,xmm13[5],zero,xmm13[6],zero,xmm13[7],zero
+ 1140343: e9 69 02 00 00               	jmp	0x11405b1 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x811>
+ 1140348: 48 8b 9c 24 e8 00 00 00      	movq	0xe8(%rsp), %rbx
+ 1140350: 4c 39 d3                     	cmpq	%r10, %rbx
+ 1140353: 0f 82 ec 03 00 00            	jb	0x1140745 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x9a5>
+ 1140359: 49 29 d2                     	subq	%rdx, %r10
+ 114035c: 49 c1 fa 3f                  	sarq	$0x3f, %r10
+ 1140360: 48 8b bc 24 80 00 00 00      	movq	0x80(%rsp), %rdi
+ 1140368: 49 21 fa                     	andq	%rdi, %r10
+ 114036b: 48 29 fb                     	subq	%rdi, %rbx
+ 114036e: 49 01 f2                     	addq	%rsi, %r10
+ 1140371: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 1140375: 75 1a                        	jne	0x1140391 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x5f1>
+ 1140377: 90                           	nop
+ 1140378: 0f 1f 84 00 00 00 00 00      	nopl	(%rax,%rax)
+ 1140380: 48 83 fb 03                  	cmpq	$0x3, %rbx
+ 1140384: 0f 86 b4 03 00 00            	jbe	0x114073e <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x99e>
+ 114038a: c4 c1 79 6e 3a               	vmovd	(%r10), %xmm7
+ 114038f: eb 11                        	jmp	0x11403a2 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x602>
+ 1140391: 90                           	nop
+ 1140392: 90                           	nop
+ 1140393: 48 83 fb 07                  	cmpq	$0x7, %rbx
+ 1140397: 0f 86 9c 03 00 00            	jbe	0x1140739 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x999>
+ 114039d: c4 c1 f9 6e 3a               	vmovq	(%r10), %xmm7
+ 11403a2: 49 8d 5c 3d 00               	leaq	(%r13,%rdi), %rbx
+ 11403a7: 4c 8b 94 24 e8 00 00 00      	movq	0xe8(%rsp), %r10
+ 11403af: 49 39 da                     	cmpq	%rbx, %r10
+ 11403b2: 0f 82 7c 03 00 00            	jb	0x1140734 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x994>
+ 11403b8: 48 89 9c 24 88 00 00 00      	movq	%rbx, 0x88(%rsp)
+ 11403c0: 48 29 d3                     	subq	%rdx, %rbx
+ 11403c3: 48 c1 fb 3f                  	sarq	$0x3f, %rbx
+ 11403c7: 4c 8b a4 24 88 00 00 00      	movq	0x88(%rsp), %r12
+ 11403cf: 4c 21 e3                     	andq	%r12, %rbx
+ 11403d2: 4d 29 e2                     	subq	%r12, %r10
+ 11403d5: 48 01 f3                     	addq	%rsi, %rbx
+ 11403d8: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 11403dc: 75 12                        	jne	0x11403f0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x650>
+ 11403de: 90                           	nop
+ 11403df: 90                           	nop
+ 11403e0: 49 83 fa 03                  	cmpq	$0x3, %r10
+ 11403e4: 0f 86 45 03 00 00            	jbe	0x114072f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x98f>
+ 11403ea: c5 79 6e 03                  	vmovd	(%rbx), %xmm8
+ 11403ee: eb 11                        	jmp	0x1140401 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x661>
+ 11403f0: 90                           	nop
+ 11403f1: 90                           	nop
+ 11403f2: 49 83 fa 07                  	cmpq	$0x7, %r10
+ 11403f6: 0f 86 2e 03 00 00            	jbe	0x114072a <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x98a>
+ 11403fc: c4 61 f9 6e 03               	vmovq	(%rbx), %xmm8
+ 1140401: 4a 8d 1c 6f                  	leaq	(%rdi,%r13,2), %rbx
+ 1140405: 4c 8b 94 24 e8 00 00 00      	movq	0xe8(%rsp), %r10
+ 114040d: 49 39 da                     	cmpq	%rbx, %r10
+ 1140410: 0f 82 0f 03 00 00            	jb	0x1140725 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x985>
+ 1140416: 49 89 dc                     	movq	%rbx, %r12
+ 1140419: 48 29 d3                     	subq	%rdx, %rbx
+ 114041c: 48 c1 fb 3f                  	sarq	$0x3f, %rbx
+ 1140420: 4c 21 e3                     	andq	%r12, %rbx
+ 1140423: 4d 29 e2                     	subq	%r12, %r10
+ 1140426: 48 01 f3                     	addq	%rsi, %rbx
+ 1140429: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 114042d: 75 13                        	jne	0x1140442 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x6a2>
+ 114042f: 90                           	nop
+ 1140430: 49 83 fa 03                  	cmpq	$0x3, %r10
+ 1140434: 0f 86 e4 02 00 00            	jbe	0x114071e <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x97e>
+ 114043a: c5 79 6e 0b                  	vmovd	(%rbx), %xmm9
+ 114043e: 66 90                        	nop
+ 1140440: eb 11                        	jmp	0x1140453 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x6b3>
+ 1140442: 90                           	nop
+ 1140443: 90                           	nop
+ 1140444: 49 83 fa 07                  	cmpq	$0x7, %r10
+ 1140448: 0f 86 cb 02 00 00            	jbe	0x1140719 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x979>
+ 114044e: c4 61 f9 6e 0b               	vmovq	(%rbx), %xmm9
+ 1140453: 48 8b 9c 24 98 00 00 00      	movq	0x98(%rsp), %rbx
+ 114045b: 4c 8d 14 1f                  	leaq	(%rdi,%rbx), %r10
+ 114045f: 4c 8b a4 24 e8 00 00 00      	movq	0xe8(%rsp), %r12
+ 1140467: 4d 39 d4                     	cmpq	%r10, %r12
+ 114046a: 0f 82 a4 02 00 00            	jb	0x1140714 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x974>
+ 1140470: 4c 89 94 24 88 00 00 00      	movq	%r10, 0x88(%rsp)
+ 1140478: 49 29 d2                     	subq	%rdx, %r10
+ 114047b: 49 c1 fa 3f                  	sarq	$0x3f, %r10
+ 114047f: 48 8b 9c 24 88 00 00 00      	movq	0x88(%rsp), %rbx
+ 1140487: 49 21 da                     	andq	%rbx, %r10
+ 114048a: 49 29 dc                     	subq	%rbx, %r12
+ 114048d: 4a 8d 1c 16                  	leaq	(%rsi,%r10), %rbx
+ 1140491: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 1140495: 75 19                        	jne	0x11404b0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x710>
+ 1140497: 90                           	nop
+ 1140498: 0f 1f 84 00 00 00 00 00      	nopl	(%rax,%rax)
+ 11404a0: 49 83 fc 03                  	cmpq	$0x3, %r12
+ 11404a4: 0f 86 65 02 00 00            	jbe	0x114070f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x96f>
+ 11404aa: c5 79 6e 13                  	vmovd	(%rbx), %xmm10
+ 11404ae: eb 11                        	jmp	0x11404c1 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x721>
+ 11404b0: 90                           	nop
+ 11404b1: 90                           	nop
+ 11404b2: 49 83 fc 07                  	cmpq	$0x7, %r12
+ 11404b6: 0f 86 4e 02 00 00            	jbe	0x114070a <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x96a>
+ 11404bc: c4 61 f9 6e 13               	vmovq	(%rbx), %xmm10
+ 11404c1: 4a 8d 1c af                  	leaq	(%rdi,%r13,4), %rbx
+ 11404c5: 4c 8b 94 24 e8 00 00 00      	movq	0xe8(%rsp), %r10
+ 11404cd: 49 39 da                     	cmpq	%rbx, %r10
+ 11404d0: 0f 82 2f 02 00 00            	jb	0x1140705 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x965>
+ 11404d6: 49 89 dc                     	movq	%rbx, %r12
+ 11404d9: 48 29 d3                     	subq	%rdx, %rbx
+ 11404dc: 48 c1 fb 3f                  	sarq	$0x3f, %rbx
+ 11404e0: 4c 21 e3                     	andq	%r12, %rbx
+ 11404e3: 4d 29 e2                     	subq	%r12, %r10
+ 11404e6: 48 01 f3                     	addq	%rsi, %rbx
+ 11404e9: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 11404ed: 75 13                        	jne	0x1140502 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x762>
+ 11404ef: 90                           	nop
+ 11404f0: 49 83 fa 03                  	cmpq	$0x3, %r10
+ 11404f4: 0f 86 04 02 00 00            	jbe	0x11406fe <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x95e>
+ 11404fa: c5 79 6e 1b                  	vmovd	(%rbx), %xmm11
+ 11404fe: 66 90                        	nop
+ 1140500: eb 11                        	jmp	0x1140513 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x773>
+ 1140502: 90                           	nop
+ 1140503: 90                           	nop
+ 1140504: 49 83 fa 07                  	cmpq	$0x7, %r10
+ 1140508: 0f 86 eb 01 00 00            	jbe	0x11406f9 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x959>
+ 114050e: c4 61 f9 6e 1b               	vmovq	(%rbx), %xmm11
+ 1140513: 48 8b 9c 24 a0 00 00 00      	movq	0xa0(%rsp), %rbx
+ 114051b: 48 01 df                     	addq	%rbx, %rdi
+ 114051e: 4c 8b 94 24 e8 00 00 00      	movq	0xe8(%rsp), %r10
+ 1140526: 49 39 fa                     	cmpq	%rdi, %r10
+ 1140529: 0f 82 c5 01 00 00            	jb	0x11406f4 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x954>
+ 114052f: 49 89 fc                     	movq	%rdi, %r12
+ 1140532: 48 29 d7                     	subq	%rdx, %rdi
+ 1140535: 48 c1 ff 3f                  	sarq	$0x3f, %rdi
+ 1140539: 4c 21 e7                     	andq	%r12, %rdi
+ 114053c: 4d 29 e2                     	subq	%r12, %r10
+ 114053f: 48 01 f7                     	addq	%rsi, %rdi
+ 1140542: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 1140546: 75 11                        	jne	0x1140559 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x7b9>
+ 1140548: 90                           	nop
+ 1140549: 49 83 fa 03                  	cmpq	$0x3, %r10
+ 114054d: 0f 86 9c 01 00 00            	jbe	0x11406ef <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x94f>
+ 1140553: c5 79 6e 27                  	vmovd	(%rdi), %xmm12
+ 1140557: eb 16                        	jmp	0x114056f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x7cf>
+ 1140559: 90                           	nop
+ 114055a: 90                           	nop
+ 114055b: 0f 1f 44 00 00               	nopl	(%rax,%rax)
+ 1140560: 49 83 fa 07                  	cmpq	$0x7, %r10
+ 1140564: 0f 86 80 01 00 00            	jbe	0x11406ea <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x94a>
+ 114056a: c4 61 f9 6e 27               	vmovq	(%rdi), %xmm12
+ 114056f: c4 e2 79 30 ff               	vpmovzxbw	%xmm7, %xmm7    ## xmm7 = xmm7[0],zero,xmm7[1],zero,xmm7[2],zero,xmm7[3],zero,xmm7[4],zero,xmm7[5],zero,xmm7[6],zero,xmm7[7],zero
+ 1140574: c4 42 79 30 c0               	vpmovzxbw	%xmm8, %xmm8    ## xmm8 = xmm8[0],zero,xmm8[1],zero,xmm8[2],zero,xmm8[3],zero,xmm8[4],zero,xmm8[5],zero,xmm8[6],zero,xmm8[7],zero
+ 1140579: c4 42 79 30 f1               	vpmovzxbw	%xmm9, %xmm14   ## xmm14 = xmm9[0],zero,xmm9[1],zero,xmm9[2],zero,xmm9[3],zero,xmm9[4],zero,xmm9[5],zero,xmm9[6],zero,xmm9[7],zero
+ 114057e: c4 42 79 30 ca               	vpmovzxbw	%xmm10, %xmm9   ## xmm9 = xmm10[0],zero,xmm10[1],zero,xmm10[2],zero,xmm10[3],zero,xmm10[4],zero,xmm10[5],zero,xmm10[6],zero,xmm10[7],zero
+ 1140583: c4 42 79 30 d3               	vpmovzxbw	%xmm11, %xmm10  ## xmm10 = xmm11[0],zero,xmm11[1],zero,xmm11[2],zero,xmm11[3],zero,xmm11[4],zero,xmm11[5],zero,xmm11[6],zero,xmm11[7],zero
+ 1140588: c4 42 79 30 ec               	vpmovzxbw	%xmm12, %xmm13  ## xmm13 = xmm12[0],zero,xmm12[1],zero,xmm12[2],zero,xmm12[3],zero,xmm12[4],zero,xmm12[5],zero,xmm12[6],zero,xmm12[7],zero
+ 114058d: 48 8b 9c 24 e8 00 00 00      	movq	0xe8(%rsp), %rbx
+ 1140595: 4c 8b a4 24 b8 00 00 00      	movq	0xb8(%rsp), %r12
+ 114059d: 45 0f 10 d9                  	movups	%xmm9, %xmm11
+ 11405a1: 45 0f 10 e2                  	movups	%xmm10, %xmm12
+ 11405a5: 45 0f 10 c8                  	movups	%xmm8, %xmm9
+ 11405a9: 45 0f 10 d6                  	movups	%xmm14, %xmm10
+ 11405ad: 45 0f 10 c7                  	movups	%xmm15, %xmm8
+ 11405b1: c5 31 d5 c9                  	vpmullw	%xmm1, %xmm9, %xmm9
+ 11405b5: c4 41 49 fd c9               	vpaddw	%xmm9, %xmm6, %xmm9
+ 11405ba: c5 c1 d5 f8                  	vpmullw	%xmm0, %xmm7, %xmm7
+ 11405be: c5 29 d5 d2                  	vpmullw	%xmm2, %xmm10, %xmm10
+ 11405c2: c5 21 d5 db                  	vpmullw	%xmm3, %xmm11, %xmm11
+ 11405c6: c5 11 d5 ed                  	vpmullw	%xmm5, %xmm13, %xmm13
+ 11405ca: c5 19 d5 e4                  	vpmullw	%xmm4, %xmm12, %xmm12
+ 11405ce: c4 41 31 fd cc               	vpaddw	%xmm12, %xmm9, %xmm9
+ 11405d3: c5 b1 ed ff                  	vpaddsw	%xmm7, %xmm9, %xmm7
+ 11405d7: c4 c1 41 ed fa               	vpaddsw	%xmm10, %xmm7, %xmm7
+ 11405dc: c4 c1 41 ed fb               	vpaddsw	%xmm11, %xmm7, %xmm7
+ 11405e1: c5 91 ed ff                  	vpaddsw	%xmm7, %xmm13, %xmm7
+ 11405e5: c5 c1 71 e7 07               	vpsraw	$0x7, %xmm7, %xmm7
+ 11405ea: c5 c1 ee 3d be 4a 21 00      	vpmaxsw	0x214abe(%rip), %xmm7, %xmm7 ## 0x13550b0 <_github.com/thesyncim/govpx/internal/pixel.packZero16>
+ 11405f2: bf ff 00 00 00               	movl	$0xff, %edi
+ 11405f7: c4 61 f9 6e cf               	vmovq	%rdi, %xmm9
+ 11405fc: c4 42 79 79 c9               	vpbroadcastw	%xmm9, %xmm9
+ 1140601: c4 c1 41 ea f9               	vpminsw	%xmm9, %xmm7, %xmm7
+ 1140606: 90                           	nop
+ 1140607: 90                           	nop
+ 1140608: c4 e2 41 00 3d 2f 13 1d 00   	vpshufb	0x1d132f(%rip), %xmm7, %xmm7 ## 0x1311940 <_github.com/thesyncim/govpx/internal/pixel.packByteIndices>
+ 1140611: 48 83 f8 04                  	cmpq	$0x4, %rax
+ 1140615: 75 5b                        	jne	0x1140672 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x8d2>
+ 1140617: 4f 8d 14 01                  	leaq	(%r9,%r8), %r10
+ 114061b: 4c 8b a4 24 08 01 00 00      	movq	0x108(%rsp), %r12
+ 1140623: 4d 39 d4                     	cmpq	%r10, %r12
+ 1140626: 0f 82 b9 00 00 00            	jb	0x11406e5 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x945>
+ 114062c: 4c 89 94 24 88 00 00 00      	movq	%r10, 0x88(%rsp)
+ 1140634: 4d 29 d4                     	subq	%r10, %r12
+ 1140637: 4c 8b 84 24 10 01 00 00      	movq	0x110(%rsp), %r8
+ 114063f: 4d 29 c2                     	subq	%r8, %r10
+ 1140642: 49 c1 fa 3f                  	sarq	$0x3f, %r10
+ 1140646: 4c 8b 84 24 88 00 00 00      	movq	0x88(%rsp), %r8
+ 114064e: 4d 21 c2                     	andq	%r8, %r10
+ 1140651: 49 83 fc 03                  	cmpq	$0x3, %r12
+ 1140655: 0f 86 84 00 00 00            	jbe	0x11406df <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x93f>
+ 114065b: c4 c3 79 16 f8 00            	vpextrd	$0x0, %xmm7, %r8d
+ 1140661: 4c 8b a4 24 00 01 00 00      	movq	0x100(%rsp), %r12
+ 1140669: 47 89 04 14                  	movl	%r8d, (%r12,%r10)
+ 114066d: e9 1d fc ff ff               	jmp	0x114028f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4ef>
+ 1140672: 4f 8d 14 39                  	leaq	(%r9,%r15), %r10
+ 1140676: 4c 8b a4 24 08 01 00 00      	movq	0x108(%rsp), %r12
+ 114067e: 66 90                        	nop
+ 1140680: 4d 39 d4                     	cmpq	%r10, %r12
+ 1140683: 72 55                        	jb	0x11406da <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x93a>
+ 1140685: 4c 89 94 24 88 00 00 00      	movq	%r10, 0x88(%rsp)
+ 114068d: 4d 29 d4                     	subq	%r10, %r12
+ 1140690: 4c 8b 84 24 10 01 00 00      	movq	0x110(%rsp), %r8
+ 1140698: 4d 29 c2                     	subq	%r8, %r10
+ 114069b: 49 c1 fa 3f                  	sarq	$0x3f, %r10
+ 114069f: 4c 8b 84 24 88 00 00 00      	movq	0x88(%rsp), %r8
+ 11406a7: 4d 21 c2                     	andq	%r8, %r10
+ 11406aa: 49 83 fc 07                  	cmpq	$0x7, %r12
+ 11406ae: 76 25                        	jbe	0x11406d5 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x935>
+ 11406b0: c4 c3 f9 16 f8 00            	vpextrq	$0x0, %xmm7, %r8
+ 11406b6: 4c 8b a4 24 00 01 00 00      	movq	0x100(%rsp), %r12
+ 11406be: 4f 89 04 14                  	movq	%r8, (%r12,%r10)
+ 11406c2: e9 c8 fb ff ff               	jmp	0x114028f <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8+0x4ef>
+ 11406c7: b8 01 00 00 00               	movl	$0x1, %eax
+ 11406cc: 48 81 c4 a8 00 00 00         	addq	$0xa8, %rsp
+ 11406d3: 5d                           	popq	%rbp
+ 11406d4: c3                           	retq
+ 11406d5: e8 26 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406da: e8 21 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406df: 90                           	nop
+ 11406e0: e8 1b 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406e5: e8 16 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406ea: e8 11 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406ef: e8 0c 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406f4: e8 07 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406f9: e8 02 89 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 11406fe: 66 90                        	nop
+ 1140700: e8 fb 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140705: e8 f6 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114070a: e8 f1 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114070f: e8 ec 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140714: e8 e7 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140719: e8 e2 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114071e: 66 90                        	nop
+ 1140720: e8 db 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140725: e8 d6 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114072a: e8 d1 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114072f: e8 cc 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140734: e8 c7 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140739: e8 c2 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114073e: 66 90                        	nop
+ 1140740: e8 bb 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140745: e8 b6 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114074a: e8 b1 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114074f: e8 ac 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140754: e8 a7 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 1140759: e8 a2 88 f4 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114075e: 90                           	nop
+ 114075f: 48 89 44 24 30               	movq	%rax, 0x30(%rsp)
+ 1140764: 48 89 5c 24 38               	movq	%rbx, 0x38(%rsp)
+ 1140769: 48 89 4c 24 40               	movq	%rcx, 0x40(%rsp)
+ 114076e: 48 89 7c 24 48               	movq	%rdi, 0x48(%rsp)
+ 1140773: 48 89 74 24 50               	movq	%rsi, 0x50(%rsp)
+ 1140778: 4c 89 44 24 58               	movq	%r8, 0x58(%rsp)
+ 114077d: 4c 89 4c 24 60               	movq	%r9, 0x60(%rsp)
+ 1140782: 4c 89 54 24 68               	movq	%r10, 0x68(%rsp)
+ 1140787: 4c 89 5c 24 70               	movq	%r11, 0x70(%rsp)
+ 114078c: e8 0f 6c f4 ff               	callq	0x10873a0 <_runtime.morestack_noctxt.abi0>
+ 1140791: 48 8b 44 24 30               	movq	0x30(%rsp), %rax
+ 1140796: 48 8b 5c 24 38               	movq	0x38(%rsp), %rbx
+ 114079b: 48 8b 4c 24 40               	movq	0x40(%rsp), %rcx
+ 11407a0: 48 8b 7c 24 48               	movq	0x48(%rsp), %rdi
+ 11407a5: 48 8b 74 24 50               	movq	0x50(%rsp), %rsi
+ 11407aa: 4c 8b 44 24 58               	movq	0x58(%rsp), %r8
+ 11407af: 4c 8b 4c 24 60               	movq	0x60(%rsp), %r9
+ 11407b4: 4c 8b 54 24 68               	movq	0x68(%rsp), %r10
+ 11407b9: 4c 8b 5c 24 70               	movq	0x70(%rsp), %r11
+ 11407be: 66 90                        	nop
+ 11407c0: e9 db f5 ff ff               	jmp	0x113fda0 <_github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8>
+ 11407c5: cc                           	int3
+ 11407c6: cc                           	int3
+ 11407c7: cc                           	int3
+ 11407c8: cc                           	int3
+ 11407c9: cc                           	int3
+ 11407ca: cc                           	int3
+ 11407cb: cc                           	int3
+ 11407cc: cc                           	int3
+ 11407cd: cc                           	int3
+ 11407ce: cc                           	int3
+ 11407cf: cc                           	int3
+ 11407d0: cc                           	int3
+ 11407d1: cc                           	int3
+ 11407d2: cc                           	int3
+ 11407d3: cc                           	int3
+ 11407d4: cc                           	int3
+ 11407d5: cc                           	int3
+ 11407d6: cc                           	int3
+ 11407d7: cc                           	int3
+ 11407d8: cc                           	int3
+ 11407d9: cc                           	int3
+ 11407da: cc                           	int3
+ 11407db: cc                           	int3
+ 11407dc: cc                           	int3
+ 11407dd: cc                           	int3
+ 11407de: cc                           	int3
+ 11407df: cc                           	int3

@@ -1332,3 +1332,28 @@ Temporary x64 probe sources are retained in a verified Git bundle before
 remote branch cleanup. Accepted rolling and statistics implementations are
 already integrated; rejected experiments remain evidence rather than merge
 candidates. [Source archive and branch audit](benchmarks/baselines/go127-simd-amd64/2026-10-17-experiment-archive).
+
+
+The selected ARM byte denoiser has a fresh optimized-libvpx comparison:
+adaptive VP8 Go/C medians are 7.681322/4.866042 ms/input (+57.856%);
+fixed-speed medians are 6.610026/3.064633 ms/input (+115.687%). Each has
+six alternating-order rounds, separate decoded-quality verification, matching
+measured quality/output/frame statistics and unchanged binary hashes.
+[Complete controls, timings and quality](benchmarks/baselines/go127-simd-arm64/2026-10-17-byte-denoiser-libvpx).
+
+The x64 byte-zip and mask probes remain excluded: byte-zip has mixed public
+VP8 signs and a VP9 regression; mask reduction does not confirm its first
+VP8 gain and regresses VP9 in its second run. The same-run preceding selected
+SIMD source on EPYC 9V74 still trails assembly by about 16.1% in VP8. Wins
+on EPYC 7763 and Xeon 8573C therefore do not establish an all-x64 win.
+[Both rejected designs, complete native samples and control drift](benchmarks/baselines/go127-simd-amd64/2026-10-17-byte-zip-and-mask-rejections).
+
+
+A width-gated x64 horizontal dot-product probe improves VP8 2.999% versus
+its pinned SIMD parent on EPYC 7763, all six pairs faster. It is held out
+of production pending confirmation: VP9 320p regresses 0.754% in five pairs,
+720p is mixed, and unrelated controls also drift. The dot helper is live
+in VP8; VP9 supplies full eight-tap arrays and cannot select this six-tap
+helper, so the VP9 shift is not direct evidence of dot arithmetic cost.
+All 81 kernels have six zero-allocation samples; scalar/alias oracles pass.
+[Full results, controls and dispatch evidence](benchmarks/baselines/go127-simd-amd64/2026-10-17-gated-dot-hold).
