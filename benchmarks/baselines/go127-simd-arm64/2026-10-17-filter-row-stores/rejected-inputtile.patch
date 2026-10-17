@@ -1,0 +1,158 @@
+--- a/internal/pixel/loopfilter_macro_internal_fused_arm64.go
++++ b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+@@ -166,7 +166,9 @@
+ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limit, thresh int) {
+ 	const kind, lanes, step = 4, 16, 1
+ 	outer := pitch
+-	p3, p2, p1, p0, q0, q1, q2, q3 := loadLFColumns[[8]byte](p, 0, outer, 16)
++	var input [20]archsimd.Uint8x16
++loadLFInputColumns20(p,pitch,&input)
++p3,p2,p1,p0,q0,q1,q2,q3:=input[0],input[1],input[2],input[3],input[4],input[5],input[6],input[7]
+ 	var output [16]archsimd.Uint8x16
+ 	output[0], output[1], output[2] = p2, p1, p0
+ 	changed := false
+@@ -215,14 +217,7 @@
+ 		edge := 4
+ 
+ 		p3, p2, p1, p0 = q0, q1, q2, q3
+-		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4)
+-		r0 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 0*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 4*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 8*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 12*outer)))<<32).ReshapeToUint16s()
+-		r1 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 1*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 5*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 9*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 13*outer)))<<32).ReshapeToUint16s()
+-		r2 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 2*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 6*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 10*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 14*outer)))<<32).ReshapeToUint16s()
+-		r3 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 3*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 7*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 11*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 15*outer)))<<32).ReshapeToUint16s()
+-		a0, a1 := r0.InterleaveEven(r2).ReshapeToUint8s(), r0.InterleaveOdd(r2).ReshapeToUint8s()
+-		a2, a3 := r1.InterleaveEven(r3).ReshapeToUint8s(), r1.InterleaveOdd(r3).ReshapeToUint8s()
+-		q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)
++q0,q1,q2,q3=input[edge+4],input[edge+5],input[edge+6],input[edge+7]
+ 
+ 	}
+ 
+@@ -284,14 +279,7 @@
+ 			break
+ 		}
+ 		p3, p2, p1, p0 = q0, q1, q2, q3
+-		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4)
+-		r0 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 0*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 4*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 8*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 12*outer)))<<32).ReshapeToUint16s()
+-		r1 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 1*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 5*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 9*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 13*outer)))<<32).ReshapeToUint16s()
+-		r2 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 2*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 6*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 10*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 14*outer)))<<32).ReshapeToUint16s()
+-		r3 := archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr, 3*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 7*outer)))<<32).SetElem(1, uint64(*(*uint32)(unsafe.Add(ptr, 11*outer)))|uint64(*(*uint32)(unsafe.Add(ptr, 15*outer)))<<32).ReshapeToUint16s()
+-		a0, a1 := r0.InterleaveEven(r2).ReshapeToUint8s(), r0.InterleaveOdd(r2).ReshapeToUint8s()
+-		a2, a3 := r1.InterleaveEven(r3).ReshapeToUint8s(), r1.InterleaveOdd(r3).ReshapeToUint8s()
+-		q0, q1, q2, q3 = a0.InterleaveEven(a2), a0.InterleaveOdd(a2), a1.InterleaveEven(a3), a1.InterleaveOdd(a3)
++q0,q1,q2,q3=input[edge+4],input[edge+5],input[edge+6],input[edge+7]
+ 
+ 	}
+ 	if changed {
+--- /dev/null
++++ b/internal/pixel/loopfilter_inputtile_arm64.go
+@@ -0,0 +1,110 @@
++//go:build goexperiment.simd && arm64 && !purego
++package pixel
++import("simd/archsimd";"unsafe")
++// The caller proves sixteen disjoint rows of twenty readable bytes.
++func loadLFInputColumns20(p []byte,pitch int,cols *[20]archsimd.Uint8x16) {
++ptr:=unsafe.Pointer(unsafe.SliceData(p))
++r0:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,0*pitch+4)))
++r1:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,1*pitch+4)))
++r2:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,2*pitch+4)))
++r3:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,3*pitch+4)))
++r4:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,4*pitch+4)))
++r5:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,5*pitch+4)))
++r6:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,6*pitch+4)))
++r7:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,7*pitch+4)))
++r8:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,8*pitch+4)))
++r9:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,9*pitch+4)))
++r10:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,10*pitch+4)))
++r11:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,11*pitch+4)))
++r12:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,12*pitch+4)))
++r13:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,13*pitch+4)))
++r14:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,14*pitch+4)))
++r15:=archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr,15*pitch+4)))
++t0_0_0_Lo:=r0.InterleaveLo(r1)
++t0_0_0_Hi:=r0.InterleaveHi(r1)
++t0_2_0_Lo:=r2.InterleaveLo(r3)
++t0_2_0_Hi:=r2.InterleaveHi(r3)
++t0_4_0_Lo:=r4.InterleaveLo(r5)
++t0_4_0_Hi:=r4.InterleaveHi(r5)
++t0_6_0_Lo:=r6.InterleaveLo(r7)
++t0_6_0_Hi:=r6.InterleaveHi(r7)
++t0_8_0_Lo:=r8.InterleaveLo(r9)
++t0_8_0_Hi:=r8.InterleaveHi(r9)
++t0_10_0_Lo:=r10.InterleaveLo(r11)
++t0_10_0_Hi:=r10.InterleaveHi(r11)
++t0_12_0_Lo:=r12.InterleaveLo(r13)
++t0_12_0_Hi:=r12.InterleaveHi(r13)
++t0_14_0_Lo:=r14.InterleaveLo(r15)
++t0_14_0_Hi:=r14.InterleaveHi(r15)
++t1_0_0_Lo:=t0_0_0_Lo.ReshapeToUint16s().InterleaveLo(t0_2_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_0_0_Hi:=t0_0_0_Lo.ReshapeToUint16s().InterleaveHi(t0_2_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_0_1_Lo:=t0_0_0_Hi.ReshapeToUint16s().InterleaveLo(t0_2_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_0_1_Hi:=t0_0_0_Hi.ReshapeToUint16s().InterleaveHi(t0_2_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_2_0_Lo:=t0_4_0_Lo.ReshapeToUint16s().InterleaveLo(t0_6_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_2_0_Hi:=t0_4_0_Lo.ReshapeToUint16s().InterleaveHi(t0_6_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_2_1_Lo:=t0_4_0_Hi.ReshapeToUint16s().InterleaveLo(t0_6_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_2_1_Hi:=t0_4_0_Hi.ReshapeToUint16s().InterleaveHi(t0_6_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_4_0_Lo:=t0_8_0_Lo.ReshapeToUint16s().InterleaveLo(t0_10_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_4_0_Hi:=t0_8_0_Lo.ReshapeToUint16s().InterleaveHi(t0_10_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_4_1_Lo:=t0_8_0_Hi.ReshapeToUint16s().InterleaveLo(t0_10_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_4_1_Hi:=t0_8_0_Hi.ReshapeToUint16s().InterleaveHi(t0_10_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_6_0_Lo:=t0_12_0_Lo.ReshapeToUint16s().InterleaveLo(t0_14_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_6_0_Hi:=t0_12_0_Lo.ReshapeToUint16s().InterleaveHi(t0_14_0_Lo.ReshapeToUint16s()).ReshapeToUint8s()
++t1_6_1_Lo:=t0_12_0_Hi.ReshapeToUint16s().InterleaveLo(t0_14_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t1_6_1_Hi:=t0_12_0_Hi.ReshapeToUint16s().InterleaveHi(t0_14_0_Hi.ReshapeToUint16s()).ReshapeToUint8s()
++t2_0_0_Lo:=t1_0_0_Lo.ReshapeToUint32s().InterleaveLo(t1_2_0_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_0_Hi:=t1_0_0_Lo.ReshapeToUint32s().InterleaveHi(t1_2_0_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_1_Lo:=t1_0_0_Hi.ReshapeToUint32s().InterleaveLo(t1_2_0_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_1_Hi:=t1_0_0_Hi.ReshapeToUint32s().InterleaveHi(t1_2_0_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_2_Lo:=t1_0_1_Lo.ReshapeToUint32s().InterleaveLo(t1_2_1_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_2_Hi:=t1_0_1_Lo.ReshapeToUint32s().InterleaveHi(t1_2_1_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_3_Lo:=t1_0_1_Hi.ReshapeToUint32s().InterleaveLo(t1_2_1_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_0_3_Hi:=t1_0_1_Hi.ReshapeToUint32s().InterleaveHi(t1_2_1_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_0_Lo:=t1_4_0_Lo.ReshapeToUint32s().InterleaveLo(t1_6_0_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_0_Hi:=t1_4_0_Lo.ReshapeToUint32s().InterleaveHi(t1_6_0_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_1_Lo:=t1_4_0_Hi.ReshapeToUint32s().InterleaveLo(t1_6_0_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_1_Hi:=t1_4_0_Hi.ReshapeToUint32s().InterleaveHi(t1_6_0_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_2_Lo:=t1_4_1_Lo.ReshapeToUint32s().InterleaveLo(t1_6_1_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_2_Hi:=t1_4_1_Lo.ReshapeToUint32s().InterleaveHi(t1_6_1_Lo.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_3_Lo:=t1_4_1_Hi.ReshapeToUint32s().InterleaveLo(t1_6_1_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t2_2_3_Hi:=t1_4_1_Hi.ReshapeToUint32s().InterleaveHi(t1_6_1_Hi.ReshapeToUint32s()).ReshapeToUint8s()
++t3_0_0_Lo:=t2_0_0_Lo.ReshapeToUint64s().InterleaveLo(t2_2_0_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_0_Hi:=t2_0_0_Lo.ReshapeToUint64s().InterleaveHi(t2_2_0_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_1_Lo:=t2_0_0_Hi.ReshapeToUint64s().InterleaveLo(t2_2_0_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_1_Hi:=t2_0_0_Hi.ReshapeToUint64s().InterleaveHi(t2_2_0_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_2_Lo:=t2_0_1_Lo.ReshapeToUint64s().InterleaveLo(t2_2_1_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_2_Hi:=t2_0_1_Lo.ReshapeToUint64s().InterleaveHi(t2_2_1_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_3_Lo:=t2_0_1_Hi.ReshapeToUint64s().InterleaveLo(t2_2_1_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_3_Hi:=t2_0_1_Hi.ReshapeToUint64s().InterleaveHi(t2_2_1_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_4_Lo:=t2_0_2_Lo.ReshapeToUint64s().InterleaveLo(t2_2_2_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_4_Hi:=t2_0_2_Lo.ReshapeToUint64s().InterleaveHi(t2_2_2_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_5_Lo:=t2_0_2_Hi.ReshapeToUint64s().InterleaveLo(t2_2_2_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_5_Hi:=t2_0_2_Hi.ReshapeToUint64s().InterleaveHi(t2_2_2_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_6_Lo:=t2_0_3_Lo.ReshapeToUint64s().InterleaveLo(t2_2_3_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_6_Hi:=t2_0_3_Lo.ReshapeToUint64s().InterleaveHi(t2_2_3_Lo.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_7_Lo:=t2_0_3_Hi.ReshapeToUint64s().InterleaveLo(t2_2_3_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++t3_0_7_Hi:=t2_0_3_Hi.ReshapeToUint64s().InterleaveHi(t2_2_3_Hi.ReshapeToUint64s()).ReshapeToUint8s()
++cols[4]=t3_0_0_Lo
++cols[5]=t3_0_0_Hi
++cols[6]=t3_0_1_Lo
++cols[7]=t3_0_1_Hi
++cols[8]=t3_0_2_Lo
++cols[9]=t3_0_2_Hi
++cols[10]=t3_0_3_Lo
++cols[11]=t3_0_3_Hi
++cols[12]=t3_0_4_Lo
++cols[13]=t3_0_4_Hi
++cols[14]=t3_0_5_Lo
++cols[15]=t3_0_5_Hi
++cols[16]=t3_0_6_Lo
++cols[17]=t3_0_6_Hi
++cols[18]=t3_0_7_Lo
++cols[19]=t3_0_7_Hi
++a0:=archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr,0*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,4*pitch)))<<32).SetElem(1,uint64(*(*uint32)(unsafe.Add(ptr,8*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,12*pitch)))<<32).ReshapeToUint16s()
++a1:=archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr,1*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,5*pitch)))<<32).SetElem(1,uint64(*(*uint32)(unsafe.Add(ptr,9*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,13*pitch)))<<32).ReshapeToUint16s()
++a2:=archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr,2*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,6*pitch)))<<32).SetElem(1,uint64(*(*uint32)(unsafe.Add(ptr,10*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,14*pitch)))<<32).ReshapeToUint16s()
++a3:=archsimd.BroadcastUint64x2(uint64(*(*uint32)(unsafe.Add(ptr,3*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,7*pitch)))<<32).SetElem(1,uint64(*(*uint32)(unsafe.Add(ptr,11*pitch)))|uint64(*(*uint32)(unsafe.Add(ptr,15*pitch)))<<32).ReshapeToUint16s()
++b0,b1:=a0.InterleaveEven(a2).ReshapeToUint8s(),a0.InterleaveOdd(a2).ReshapeToUint8s()
++b2,b3:=a1.InterleaveEven(a3).ReshapeToUint8s(),a1.InterleaveOdd(a3).ReshapeToUint8s()
++cols[0],cols[1],cols[2],cols[3]=b0.InterleaveEven(b2),b0.InterleaveOdd(b2),b1.InterleaveEven(b3),b1.InterleaveOdd(b3)
++}

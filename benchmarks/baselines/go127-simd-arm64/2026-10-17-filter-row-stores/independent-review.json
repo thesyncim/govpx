@@ -1,0 +1,15 @@
+{
+  "reviewed_commit": "d87df7a7c953ee0afd8dd963f6a47a86cf4bfaff",
+  "reviewer": "ci_validation subagent, read-only",
+  "result": "No actionable issue found",
+  "checks": [
+    "Overflow-safe19*step+15*outer window proof; vertical step1/pitch>=20 provides disjoint20-byte rows.",
+    "Finalized column mapping: slots0..2=cols1..3; edges8/12/16 finalize4..7/8..11/12..15; slot15=q0 is16, tailq1 is17.",
+    "Updated macro/internal q values feed each subsequent edge before new incoming columns; skipped edges preserve carried values.",
+    "changed=false suppresses writes when all masks empty; any active edge may rewrite unchanged bytes only within the final17-byte span.",
+    "Byte/word/dword/qword interleaves yield rows0..15 in order; surrounding cols0,18,19 untouched.",
+    "256-byte output array synchronously consumed with no retained pointer; observed public zero allocations support stack lifetime.",
+    "Generator validates store/shape markers and preserves canonical arithmetic; horizontal function unchanged."
+  ],
+  "limitation": "Independent source review only; no additional Go executions or escape analysis by reviewer."
+}

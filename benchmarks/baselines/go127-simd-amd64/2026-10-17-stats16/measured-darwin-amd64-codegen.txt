@@ -1,0 +1,119 @@
+
+/private/tmp/govpx-x64-stats-pixel.test:	file format mach-o 64-bit x86-64
+
+Disassembly of section __TEXT,__text:
+
+000000000114d700 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow>:
+ 114d700: 49 3b 66 10                  	cmpq	0x10(%r14), %rsp
+ 114d704: 0f 86 21 01 00 00            	jbe	0x114d82b <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x12b>
+ 114d70a: 55                           	pushq	%rbp
+ 114d70b: 48 89 e5                     	movq	%rsp, %rbp
+ 114d70e: 48 83 ec 50                  	subq	$0x50, %rsp
+ 114d712: 48 89 44 24 60               	movq	%rax, 0x60(%rsp)
+ 114d717: 48 89 b4 24 80 00 00 00      	movq	%rsi, 0x80(%rsp)
+ 114d71f: 48 89 fa                     	movq	%rdi, %rdx
+ 114d722: 4c 09 d2                     	orq	%r10, %rdx
+ 114d725: 48 c1 ea 39                  	shrq	$0x39, %rdx
+ 114d729: 48 85 d2                     	testq	%rdx, %rdx
+ 114d72c: 75 38                        	jne	0x114d766 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x66>
+ 114d72e: 49 8d 4b ff                  	leaq	-0x1(%r11), %rcx
+ 114d732: 48 89 ca                     	movq	%rcx, %rdx
+ 114d735: 48 0f af cf                  	imulq	%rdi, %rcx
+ 114d739: 48 83 c1 0f                  	addq	$0xf, %rcx
+ 114d73d: 0f 1f 00                     	nopl	(%rax)
+ 114d740: 48 39 cb                     	cmpq	%rcx, %rbx
+ 114d743: 0f 86 dc 00 00 00            	jbe	0x114d825 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x125>
+ 114d749: 49 0f af d2                  	imulq	%r10, %rdx
+ 114d74d: 48 8d 4a 0f                  	leaq	0xf(%rdx), %rcx
+ 114d751: 49 39 c8                     	cmpq	%rcx, %r8
+ 114d754: 0f 86 c3 00 00 00            	jbe	0x114d81d <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x11d>
+ 114d75a: c5 fd ef c0                  	vpxor	%ymm0, %ymm0, %ymm0
+ 114d75e: c5 f5 ef c9                  	vpxor	%ymm1, %ymm1, %ymm1
+ 114d762: 31 c9                        	xorl	%ecx, %ecx
+ 114d764: eb 46                        	jmp	0x114d7ac <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0xac>
+ 114d766: 4c 89 1c 24                  	movq	%r11, (%rsp)
+ 114d76a: 41 bb 10 00 00 00            	movl	$0x10, %r11d
+ 114d770: e8 8b 45 ff ff               	callq	0x1141d00 <_github.com/thesyncim/govpx/internal/pixel.pixelStatsRows16>
+ 114d775: 48 83 c4 50                  	addq	$0x50, %rsp
+ 114d779: 5d                           	popq	%rbp
+ 114d77a: c3                           	retq
+ 114d77b: 48 89 ca                     	movq	%rcx, %rdx
+ 114d77e: 48 0f af d7                  	imulq	%rdi, %rdx
+ 114d782: 48 01 c2                     	addq	%rax, %rdx
+ 114d785: c4 e2 7d 30 12               	vpmovzxbw	(%rdx), %ymm2
+ 114d78a: 48 89 ca                     	movq	%rcx, %rdx
+ 114d78d: 49 0f af d2                  	imulq	%r10, %rdx
+ 114d791: 48 01 f2                     	addq	%rsi, %rdx
+ 114d794: c4 e2 7d 30 1a               	vpmovzxbw	(%rdx), %ymm3
+ 114d799: c5 ed f9 d3                  	vpsubw	%ymm3, %ymm2, %ymm2
+ 114d79d: c5 ed f5 da                  	vpmaddwd	%ymm2, %ymm2, %ymm3
+ 114d7a1: c5 fd fe c3                  	vpaddd	%ymm3, %ymm0, %ymm0
+ 114d7a5: c5 f5 fd ca                  	vpaddw	%ymm2, %ymm1, %ymm1
+ 114d7a9: 48 ff c1                     	incq	%rcx
+ 114d7ac: 49 39 cb                     	cmpq	%rcx, %r11
+ 114d7af: 7f ca                        	jg	0x114d77b <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x7b>
+ 114d7b1: c4 e3 7d 39 c2 00            	vextracti128	$0x0, %ymm0, %xmm2
+ 114d7b7: c4 e3 7d 39 c0 01            	vextracti128	$0x1, %ymm0, %xmm0
+ 114d7bd: c5 f9 fe c2                  	vpaddd	%xmm2, %xmm0, %xmm0
+ 114d7c1: b9 01 00 00 00               	movl	$0x1, %ecx
+ 114d7c6: c4 e1 f9 6e d1               	vmovq	%rcx, %xmm2
+ 114d7cb: c4 e2 7d 79 d2               	vpbroadcastw	%xmm2, %ymm2
+ 114d7d0: c5 f5 f5 ca                  	vpmaddwd	%ymm2, %ymm1, %ymm1
+ 114d7d4: c4 e3 7d 39 ca 00            	vextracti128	$0x0, %ymm1, %xmm2
+ 114d7da: c4 e3 7d 39 c9 01            	vextracti128	$0x1, %ymm1, %xmm1
+ 114d7e0: c5 f1 fe ca                  	vpaddd	%xmm2, %xmm1, %xmm1
+ 114d7e4: c5 f9 70 d0 4e               	vpshufd	$0x4e, %xmm0, %xmm2     ## xmm2 = xmm0[2,3,0,1]
+ 114d7e9: c5 f9 fe c2                  	vpaddd	%xmm2, %xmm0, %xmm0
+ 114d7ed: c5 f9 70 d0 b1               	vpshufd	$0xb1, %xmm0, %xmm2     ## xmm2 = xmm0[1,0,3,2]
+ 114d7f2: c5 f9 fe c2                  	vpaddd	%xmm2, %xmm0, %xmm0
+ 114d7f6: c4 e3 79 16 c0 00            	vpextrd	$0x0, %xmm0, %eax
+ 114d7fc: c5 f9 70 c1 4e               	vpshufd	$0x4e, %xmm1, %xmm0     ## xmm0 = xmm1[2,3,0,1]
+ 114d801: c5 f1 fe c0                  	vpaddd	%xmm0, %xmm1, %xmm0
+ 114d805: c5 f9 70 c8 b1               	vpshufd	$0xb1, %xmm0, %xmm1     ## xmm1 = xmm0[1,0,3,2]
+ 114d80a: c5 f9 fe c1                  	vpaddd	%xmm1, %xmm0, %xmm0
+ 114d80e: c4 e3 79 16 c3 00            	vpextrd	$0x0, %xmm0, %ebx
+ 114d814: c5 f8 77                     	vzeroupper
+ 114d817: 48 83 c4 50                  	addq	$0x50, %rsp
+ 114d81b: 5d                           	popq	%rbp
+ 114d81c: c3                           	retq
+ 114d81d: 0f 1f 00                     	nopl	(%rax)
+ 114d820: e8 db b7 f3 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114d825: e8 d6 b7 f3 ff               	callq	0x1089000 <_runtime.panicBounds>
+ 114d82a: 90                           	nop
+ 114d82b: 48 89 44 24 08               	movq	%rax, 0x8(%rsp)
+ 114d830: 48 89 5c 24 10               	movq	%rbx, 0x10(%rsp)
+ 114d835: 48 89 4c 24 18               	movq	%rcx, 0x18(%rsp)
+ 114d83a: 48 89 7c 24 20               	movq	%rdi, 0x20(%rsp)
+ 114d83f: 48 89 74 24 28               	movq	%rsi, 0x28(%rsp)
+ 114d844: 4c 89 44 24 30               	movq	%r8, 0x30(%rsp)
+ 114d849: 4c 89 4c 24 38               	movq	%r9, 0x38(%rsp)
+ 114d84e: 4c 89 54 24 40               	movq	%r10, 0x40(%rsp)
+ 114d853: 4c 89 5c 24 48               	movq	%r11, 0x48(%rsp)
+ 114d858: e8 43 9b f3 ff               	callq	0x10873a0 <_runtime.morestack_noctxt.abi0>
+ 114d85d: 48 8b 44 24 08               	movq	0x8(%rsp), %rax
+ 114d862: 48 8b 5c 24 10               	movq	0x10(%rsp), %rbx
+ 114d867: 48 8b 4c 24 18               	movq	0x18(%rsp), %rcx
+ 114d86c: 48 8b 7c 24 20               	movq	0x20(%rsp), %rdi
+ 114d871: 48 8b 74 24 28               	movq	0x28(%rsp), %rsi
+ 114d876: 4c 8b 44 24 30               	movq	0x30(%rsp), %r8
+ 114d87b: 4c 8b 4c 24 38               	movq	0x38(%rsp), %r9
+ 114d880: 4c 8b 54 24 40               	movq	0x40(%rsp), %r10
+ 114d885: 4c 8b 5c 24 48               	movq	0x48(%rsp), %r11
+ 114d88a: e9 71 fe ff ff               	jmp	0x114d700 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow>
+ 114d88f: cc                           	int3
+ 114d890: cc                           	int3
+ 114d891: cc                           	int3
+ 114d892: cc                           	int3
+ 114d893: cc                           	int3
+ 114d894: cc                           	int3
+ 114d895: cc                           	int3
+ 114d896: cc                           	int3
+ 114d897: cc                           	int3
+ 114d898: cc                           	int3
+ 114d899: cc                           	int3
+ 114d89a: cc                           	int3
+ 114d89b: cc                           	int3
+ 114d89c: cc                           	int3
+ 114d89d: cc                           	int3
+ 114d89e: cc                           	int3
+ 114d89f: cc                           	int3

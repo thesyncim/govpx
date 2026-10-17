@@ -1,0 +1,14 @@
+{
+  "probe": "618ff11d84c16b4c248a6da64fd13661453689e6",
+  "pgo": "off",
+  "compiler": "Go1.27.2",
+  "selection": "AVX2 required; direct Stats16 selection/scalar/fullpixel/fullVP8DSP/native variance fixtures pass",
+  "local_execution": "Rosetta correctness only; full pixel checkptr + VP8/VP9DSP tests pass on integrated sources. No emulated performance claims.",
+  "codegen": "Measured-probe DarwinAMD64 body has no legacy vector operations and exactly1 VZEROUPPER. Integrated kernel/helper/dispatch bytes match that probe.",
+  "source_sha256": {
+    "internal/pixel/enabled_amd64.go": "816f8a38646ee3ec875f5c6a4be7e29ad36437d69fa91db87f372941d5118007",
+    "internal/pixel/helpers_amd64.go": "d8a0c0145548a8a47b24aa6f875902b0724e214dd2e5a616623cce1eadbf7336",
+    "internal/pixel/stats16_amd64.go": "34a2b5ceb568645b87169c087ea0230729a87f08a90ea93de8736468d3b595db"
+  },
+  "pgo_source_fingerprint": "019e5b106882fc1c215b7eb23e95726906822666"
+}

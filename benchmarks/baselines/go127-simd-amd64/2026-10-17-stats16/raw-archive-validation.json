@@ -1,0 +1,17 @@
+{
+  "govpx-libvpx-amd64-d87df7a7-raw.tar.gz": {
+    "file_count": 74,
+    "all_raw_bytes_match": true,
+    "archive_sha256": "168a1dc390c526cfc59c30c92eeeeec43f197e87ee9ad654122f1a0ebe0aa35f"
+  },
+  "govpx-amd64-618ff11d-raw.tar.gz": {
+    "file_count": 86,
+    "all_raw_bytes_match": true,
+    "archive_sha256": "a6ab66fd9579b9c98f864be50da4f0ee3bf8ba147df10c5f1cc525ae91854e32"
+  },
+  "govpx-amd64-d87df7a7-raw.tar.gz": {
+    "file_count": 86,
+    "all_raw_bytes_match": true,
+    "archive_sha256": "f2bc876089dbdba5a511963f25452aad5a081bdeef16a5462af3f3d33cd07ae3"
+  }
+}

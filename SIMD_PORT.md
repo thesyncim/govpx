@@ -1271,3 +1271,24 @@ mixed control, retained alongside the two all-six wins; no universal CPU or
 noise claim is made. Direct high-half interleaves, preloaded constants and
 an inline row-store body are excluded after unconvincing fresh comparisons.
 [Complete accepted/rejected measurements and reproduction](benchmarks/baselines/go127-simd-arm64/2026-10-17-filter-row-stores).
+
+The refreshed optimized-libvpx comparison for `d87df7a7` measures VP8 adaptive
+at 7.818055/4.910325 ms/input (Go/C, +59.217%) and fixed speed at
+6.634663/3.088625 ms (+114.810%). Measured PSNR, SSIM, output sizes and frame/drop
+counts match within each workload, including timing/quality passes; this does
+not by itself prove bitstream identity. Six rounds alternate execution order,
+with codec timers and separate quality passes. The optimized C build is the
+same pinned v1.16.0 NEON binary as the prior comparison; all timing samples
+are new. [Raw timings and controls](benchmarks/baselines/go127-simd-arm64/2026-10-17-filter-row-stores-libvpx).
+
+
+The next x64 kernel processes a full 16-byte statistics row in one AVX2
+packet, retaining exact int16 signed sums for at most 64 rows and int32
+squared-error accumulators. Native `618ff11d` on EPYC 7763 reduces VP8 encode
+time 3.363% versus its preceding SIMD source, all six pairs faster; it takes
+11.662% less time than original assembly in that run, all six faster. Shared
+statistics are also live in VP9: its 320p workload improves 2.967%, all six
+pairs faster, while 720p improves 1.299% with mixed pairs. No cross-CPU gain or
+closure of the prior 9V45 gap is inferred. All 81 kernel cases are allocation
+free; two one-allocation public VP9 outliers and an unrelated quant8 control
+regression remain in the [native evidence and raw archives](benchmarks/baselines/go127-simd-amd64/2026-10-17-stats16).

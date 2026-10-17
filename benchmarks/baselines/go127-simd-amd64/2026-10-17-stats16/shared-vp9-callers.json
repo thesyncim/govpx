@@ -1,0 +1,62 @@
+{
+  "vp8": [
+    {
+      "cpu_ns": 50000000,
+      "stack": [
+        "github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow",
+        "github.com/thesyncim/govpx/internal/pixel.pixelStatsSIMD",
+        "github.com/thesyncim/govpx/internal/pixel.Stats",
+        "github.com/thesyncim/govpx/internal/vp8/dsp.variancePtr",
+        "github.com/thesyncim/govpx/internal/vp8/dsp.VarianceBlock16x16PtrFast",
+        "github.com/thesyncim/govpx.macroblockLumaMotionVarianceSSE",
+        "github.com/thesyncim/govpx.macroblockLumaMotionVarianceSSECached",
+        "github.com/thesyncim/govpx.(*VP8Encoder).estimateFastInterModeScoreHot",
+        "github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise"
+      ]
+    },
+    {
+      "cpu_ns": 20000000,
+      "stack": [
+        "github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow",
+        "github.com/thesyncim/govpx/internal/pixel.pixelStatsSIMD",
+        "github.com/thesyncim/govpx/internal/pixel.Stats",
+        "github.com/thesyncim/govpx/internal/vp8/dsp.variancePtr",
+        "github.com/thesyncim/govpx/internal/vp8/dsp.VarianceBlock16x16PtrFast",
+        "github.com/thesyncim/govpx.macroblockLumaVarianceSSEAgainstBuffer",
+        "github.com/thesyncim/govpx.(*VP8Encoder).estimateFastIntraModeScore",
+        "github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise",
+        "github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecision"
+      ]
+    }
+  ],
+  "vp9": [
+    {
+      "cpu_ns": 10000000,
+      "stack": [
+        "github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow",
+        "github.com/thesyncim/govpx/internal/pixel.pixelStatsSIMD",
+        "github.com/thesyncim/govpx/internal/pixel.Stats",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.varianceStatsStandard",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.VpxVarianceStats",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.blockDiffStatsVP9DSP",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.blockDiffStats",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.BlockDiffStatsClampedSource",
+        "github.com/thesyncim/govpx.(*VP9Encoder).vp9NoReferenceIntraResidualStatsWithRestore"
+      ]
+    },
+    {
+      "cpu_ns": 10000000,
+      "stack": [
+        "github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow",
+        "github.com/thesyncim/govpx/internal/pixel.pixelStatsSIMD",
+        "github.com/thesyncim/govpx/internal/pixel.Stats",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.varianceStatsStandard",
+        "github.com/thesyncim/govpx/internal/vp9/dsp.VpxVarianceStats",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.blockDiffStatsVP9DSP",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.blockDiffStats",
+        "github.com/thesyncim/govpx/internal/vp9/encoder.BlockDiffVarianceSSE",
+        "github.com/thesyncim/govpx.(*VP9Encoder).vp9StaticThresholdBreakout"
+      ]
+    }
+  ]
+}

@@ -16,7 +16,8 @@
   "decisions": {
     "high_half_interleaves": "rejected: fresh300-input median+0.518%, mixed4/6 slower",
     "preloaded_constants": "rejected: fresh300-input median+0.399%, mixed4/6 slower",
-    "inline_row_stores": "rejected: vs selected helper median-.327%,4/6 slower; all raw samples retained"
+    "inline_row_stores": "rejected: vs selected helper median-.327%,4/6 slower; all raw samples retained",
+    "full_input_tile": "Rejected: vs selected row-store parent median+0.309%,4/6 slower; scalar oracle and all23 non-timing fields/zero allocation checks pass. Initial20x16 tile transpose does not improve this public workload."
   },
   "workloads": {
     "60": {
@@ -132,5 +133,14 @@
   "codegen_normalization": "Strip absolute branch/data addresses and their paired ADRP+ADD low12 relocations; retain all arithmetic immediates.",
   "final_root_binary_sha256": "5db0924f2ea1f8f9995f1cfd34f8bf70d604fbeb8f3064f84818b712a8a95468",
   "pgo_source_fingerprint": "47c8be6a75ed65cf0e0e7f9a390c7638a04657c2",
-  "validation": "Full native suite, scalar macro oracle, race/checkptr, purego/experiment-off pixel+VP8DSP, strict byte parity, all6 build selections, noasm, format and refreshedPGO gates pass. InitialPGO build hit local disk limit; retired private snapshots were archived and exact check rerun successfully."
+  "validation": "Full native suite, scalar macro oracle, race/checkptr, purego/experiment-off pixel+VP8DSP, strict byte parity, all6 build selections, noasm, format and refreshedPGO gates pass. InitialPGO build hit local disk limit; retired private snapshots were archived and exact check rerun successfully.",
+  "input_tile_paired_pct": [
+    -0.4137086260974865,
+    0.19580775294516517,
+    0.014623951494718845,
+    2.768534846472681,
+    0.7768447788243371,
+    -1.1402176487274485
+  ],
+  "input_tile_binary_sha256": "c79045757ab1f2643d735c1b47472dcf5a9d3e1aaf3829b982828459419dc3b9"
 }

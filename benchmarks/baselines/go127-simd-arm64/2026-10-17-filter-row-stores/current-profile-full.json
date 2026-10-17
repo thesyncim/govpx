@@ -1,0 +1,1209 @@
+{
+  "total_ns": 4000000000,
+  "functions": {
+    "github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.Main": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "main.main": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingKeyFrameCoefficientsWithSegmentation": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).encodeKeyFrameWithQuantizerFeedback": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime.main": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "github.com/thesyncim/govpx.bPredModeRate": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).encodeSourceInto": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingKeyFrameCoefficientsWithSegmentationSerial": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).EncodeInto": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.runBenchmark": {
+      "flat_ns": 0,
+      "cum_ns": 3860000000
+    },
+    "github.com/thesyncim/govpx.bPredModeRateWithProbs": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.predictBestKeyFrameIntraModeFastWithRDConstants": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).encodeKeyFrameAttempt": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.pickFastBPredLumaModeKFWithRDConstants": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime/pprof.newProfileBuilder": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime/pprof.profileWriter": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).encodeInterFrameWithQuantizerFeedback": {
+      "flat_ns": 0,
+      "cum_ns": 3820000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).encodeInterFrameAttempt": {
+      "flat_ns": 0,
+      "cum_ns": 3820000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.adaptInterFrameModeProbabilitiesWithBasesAndBias": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*InterFramePacket).Write": {
+      "flat_ns": 0,
+      "cum_ns": 330000000
+    },
+    "github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsInternal": {
+      "flat_ns": 20000000,
+      "cum_ns": 560000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.ForwardDCT4x4Batch": {
+      "flat_ns": 0,
+      "cum_ns": 160000000
+    },
+    "github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsWork": {
+      "flat_ns": 80000000,
+      "cum_ns": 540000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.forwardDCT4x4BatchSIMD": {
+      "flat_ns": 10000000,
+      "cum_ns": 160000000
+    },
+    "github.com/thesyncim/govpx.buildPredictedMacroblockCoefficients": {
+      "flat_ns": 0,
+      "cum_ns": 560000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.forwardDCT4BatchGo": {
+      "flat_ns": 60000000,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingInterFrameCoefficientsWithSegmentation": {
+      "flat_ns": 90000000,
+      "cum_ns": 2360000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.ApplyLoopFilterFullLumaConfiguredUnchecked": {
+      "flat_ns": 0,
+      "cum_ns": 800000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterPartialLumaMB": {
+      "flat_ns": 20000000,
+      "cum_ns": 790000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).pickLoopFilterLevel": {
+      "flat_ns": 0,
+      "cum_ns": 970000000
+    },
+    "github.com/thesyncim/govpx.(*loopFilterPickContext).cachedFullLumaSSE": {
+      "flat_ns": 0,
+      "cum_ns": 960000000
+    },
+    "github.com/thesyncim/govpx.(*loopFilterPickContext).pickFull": {
+      "flat_ns": 0,
+      "cum_ns": 970000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterPartialLumaUnchecked": {
+      "flat_ns": 10000000,
+      "cum_ns": 800000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.LoopFilterMacroInternal16": {
+      "flat_ns": 90000000,
+      "cum_ns": 730000000
+    },
+    "github.com/thesyncim/govpx.(*loopFilterPickContext).pickFullNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 970000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterMacroInternalFusedHorizontal": {
+      "flat_ns": 120000000,
+      "cum_ns": 320000000
+    },
+    "github.com/thesyncim/govpx.(*loopFilterPickContext).trialLumaSSEFull": {
+      "flat_ns": 0,
+      "cum_ns": 960000000
+    },
+    "simd/archsimd.LoadInt16x8": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*MacroblockCoefficients).BlockEOB": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.updateInterAnalysisTokenContextAndCount": {
+      "flat_ns": 0,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.AccumulateInterMacroblockTokenCountsAndRecords": {
+      "flat_ns": 0,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.countCoefficientMacroblockTokensAndRecords": {
+      "flat_ns": 20000000,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Batch": {
+      "flat_ns": 130000000,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.fastQuantizeBlockBatchSIMD": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.FastQuantizeBlockBatch": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.SSE16xNPtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.ssePacket": {
+      "flat_ns": 50000000,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.SSE16": {
+      "flat_ns": 90000000,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.LoopFilterLumaSSE": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterByteWide": {
+      "flat_ns": 10000000,
+      "cum_ns": 80000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterWide": {
+      "flat_ns": 0,
+      "cum_ns": 80000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.MBLoopFilterVerticalEdge": {
+      "flat_ns": 0,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).applyDenoiserSpatialLoopFilter": {
+      "flat_ns": 10000000,
+      "cum_ns": 80000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.LoopFilter": {
+      "flat_ns": 10000000,
+      "cum_ns": 90000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).applyDenoiserToInterMacroblock": {
+      "flat_ns": 20000000,
+      "cum_ns": 240000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterVerticalEdgeDispatch": {
+      "flat_ns": 0,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).applyDenoiserToInterMacroblock.func1": {
+      "flat_ns": 0,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.sixTapPredict8x8PairMaybe": {
+      "flat_ns": 10000000,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.reconstructWholeMVInterMacroblockFast": {
+      "flat_ns": 10000000,
+      "cum_ns": 200000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.sixTapPredictGo": {
+      "flat_ns": 10000000,
+      "cum_ns": 140000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.ReconstructWholeMVInterMacroblockWithState": {
+      "flat_ns": 0,
+      "cum_ns": 200000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.Filter": {
+      "flat_ns": 20000000,
+      "cum_ns": 130000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.filterVerticalSix8": {
+      "flat_ns": 40000000,
+      "cum_ns": 90000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8": {
+      "flat_ns": 20000000,
+      "cum_ns": 110000000
+    },
+    "runtime.morestack": {
+      "flat_ns": 0,
+      "cum_ns": 120000000
+    },
+    "runtime.findRunnable": {
+      "flat_ns": 10000000,
+      "cum_ns": 60000000
+    },
+    "runtime.(*timer).unlockAndRun": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "_.goready.func1": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "runtime.goschedImpl": {
+      "flat_ns": 0,
+      "cum_ns": 140000000
+    },
+    "runtime.newstack": {
+      "flat_ns": 0,
+      "cum_ns": 140000000
+    },
+    "runtime.(*timers).run": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "runtime.goroutineReady": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "runtime.goready": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "runtime.schedule": {
+      "flat_ns": 10000000,
+      "cum_ns": 100000000
+    },
+    "runtime.gopreempt_m": {
+      "flat_ns": 0,
+      "cum_ns": 140000000
+    },
+    "runtime.(*timers).check": {
+      "flat_ns": 10000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterChromaOnlyRow": {
+      "flat_ns": 0,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterChromaOnlyGrid": {
+      "flat_ns": 0,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.ApplyLoopFilterChromaOnlyPrepared": {
+      "flat_ns": 0,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterChromaOnlyMB": {
+      "flat_ns": 10000000,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.LoopFilterHorizontalEdgeUV": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.LoopFilterUV8": {
+      "flat_ns": 0,
+      "cum_ns": 80000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).applyChromaOnlyLoopFilter": {
+      "flat_ns": 0,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterHorizontalEdgeUVDispatch": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterUVBytes": {
+      "flat_ns": 30000000,
+      "cum_ns": 80000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).applyReconstructionLoopFilter": {
+      "flat_ns": 0,
+      "cum_ns": 120000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterMacroInternalFusedVertical": {
+      "flat_ns": 140000000,
+      "cum_ns": 320000000
+    },
+    "github.com/thesyncim/govpx.fastPickerLumaIntraRefs": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise": {
+      "flat_ns": 190000000,
+      "cum_ns": 710000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).estimateFastIntraModeScore": {
+      "flat_ns": 0,
+      "cum_ns": 140000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).selectInterFrameModeDecision": {
+      "flat_ns": 10000000,
+      "cum_ns": 770000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecision": {
+      "flat_ns": 30000000,
+      "cum_ns": 740000000
+    },
+    "github.com/thesyncim/govpx.(*fastInterModeLoopContext).lumaIntraRefs": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.MBLoopFilterHorizontalEdgeUV": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterHorizontalEdgeUVDispatch": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.dequantIDCTAddChromaPair": {
+      "flat_ns": 20000000,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx.addInterResidualToAnalysisMacroblockCoeffs": {
+      "flat_ns": 0,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.DequantIDCTAddMacroblockCoefficients": {
+      "flat_ns": 0,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.dequantIDCTAddMacroblockRaw": {
+      "flat_ns": 0,
+      "cum_ns": 230000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.dequantIDCTAddChromaBlocks": {
+      "flat_ns": 0,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.WriteLastFrameZeroMVModeGridWithSkip": {
+      "flat_ns": 20000000,
+      "cum_ns": 90000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.writeInterReferenceFrameWithProbs": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFBytes": {
+      "flat_ns": 20000000,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFByteTileRows[go.shape.[6]uint8]": {
+      "flat_ns": 0,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFByteTile": {
+      "flat_ns": 0,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterBytes": {
+      "flat_ns": 0,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFByteTileRows[go.shape.[6]uint8].func1": {
+      "flat_ns": 50000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.InterPredictionModeRate": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.BoolBitCost": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interMotionModeRateWithReferenceRateAndModeContextAndCosts": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).estimateFastInterModeScoreHot": {
+      "flat_ns": 30000000,
+      "cum_ns": 170000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.coefTokenCostElided": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.FillCoefficientTokenCostTable": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.countBlockCoefficientTokensAndRecords": {
+      "flat_ns": 130000000,
+      "cum_ns": 180000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.writePreparedInterCoefficientTokenGrid": {
+      "flat_ns": 0,
+      "cum_ns": 220000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.writePreparedCoefficientTokenRecords": {
+      "flat_ns": 190000000,
+      "cum_ns": 220000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.Stats": {
+      "flat_ns": 10000000,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.StaticInterRDEncodeBreakoutDistortion": {
+      "flat_ns": 10000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.MacroblockLumaVarianceSSE": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.StaticInterRDEncodeBreakout": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.variancePtr": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.VarianceBlock16x16PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 150000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*InterCoefficientTokenRecords).appendTokenUnchecked": {
+      "flat_ns": 50000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.GatherMacroblockUVResiduals4x4": {
+      "flat_ns": 10000000,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.Gather": {
+      "flat_ns": 30000000,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.ResidualGather8x8PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.gatherMacroblockUVResiduals4x4Unchecked": {
+      "flat_ns": 10000000,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.packRows8": {
+      "flat_ns": 60000000,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx.(*fullPelMotionSearch).searchSitesNoStats": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.SAD16x16x4PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.SAD16x4": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*fullPelMotionSearch).nstepNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx.selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.interFrameMotionVectorSearch.selectFast": {
+      "flat_ns": 0,
+      "cum_ns": 90000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.sad16ColsX4Ptr": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*fullPelSearchCtx).fullPelSADFull4": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.interFrameMotionVectorSearch.fullPixel": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.(*fullPelMotionSearch).steppedDiamondNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx.copyMacroblockY": {
+      "flat_ns": 40000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).copyDenoiserNoFilterMacroblock": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors": {
+      "flat_ns": 90000000,
+      "cum_ns": 90000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.WriteInterPredictionMode": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.intraDCPredict16x16": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.Sum": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.IntraDCPredict16x16": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.intraDCGo": {
+      "flat_ns": 10000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.PredictIntraY16x16": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.square8": {
+      "flat_ns": 120000000,
+      "cum_ns": 120000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.InterFrameNearMVsCountsAt": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interModeMVSlots": {
+      "flat_ns": 20000000,
+      "cum_ns": 70000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.findNearInterMotionVectors": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.MBLoopFilterVerticalEdgeUV": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.storeLFUV": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterVerticalEdgeUVDispatch": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.highBytes": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "simd/archsimd.Uint8x16.HiToLo": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfByteHalf": {
+      "flat_ns": 30000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).updateMotionVectorCostTablesFromInterAttempt": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*MotionVectorCostTables).BuildComponents": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.motionVectorComponentCost": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*MotionVectorCostTables).buildComponent": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).commitInterFrameAttempt": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).commitInterFrameEntropy": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.FillBlock": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).denoiserPickmodeMVBias": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.reconstructInterAnalysisMacroblockWithState": {
+      "flat_ns": 0,
+      "cum_ns": 160000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.pixelStatsSIMD": {
+      "flat_ns": 10000000,
+      "cum_ns": 140000000
+    },
+    "github.com/thesyncim/govpx.macroblockLumaVarianceSSEAgainstBuffer": {
+      "flat_ns": 0,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.AddConstantPair4.func2": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.AddConstantPair4": {
+      "flat_ns": 70000000,
+      "cum_ns": 100000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.dequantIDCTAddLumaBlocks": {
+      "flat_ns": 60000000,
+      "cum_ns": 170000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.DCOnlyIDCT4x4AddPairInt32": {
+      "flat_ns": 10000000,
+      "cum_ns": 130000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.dcOnlyIDCT4x4AddPairSIMD": {
+      "flat_ns": 20000000,
+      "cum_ns": 120000000
+    },
+    "github.com/thesyncim/govpx.macroblockLumaMotionVarianceSSECached": {
+      "flat_ns": 50000000,
+      "cum_ns": 110000000
+    },
+    "github.com/thesyncim/govpx.macroblockLumaMotionVarianceSSE": {
+      "flat_ns": 10000000,
+      "cum_ns": 60000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow": {
+      "flat_ns": 20000000,
+      "cum_ns": 130000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loadLFColumns[go.shape.[8]uint8]": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loadLFColumns16": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "math/bits.LeadingZeros8": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.BroadcastInt16x8": {
+      "flat_ns": 40000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.copyBlock": {
+      "flat_ns": 40000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.Copy16x16": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loadLFByte": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfByteGT": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.GatherMacroblockYResiduals4x4": {
+      "flat_ns": 10000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.newFullPelMotionSearch": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.clampInterMotionVectorToModeEdges": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "runtime.asyncPreempt": {
+      "flat_ns": 30000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.writeMacroblockSegmentID": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime.unlockWithRank": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime.unlock": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime.unlock2": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime.execute": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "runtime.gogo": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.copyMacroblock8x8": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfMacroCorrection": {
+      "flat_ns": 0,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfByteShift3": {
+      "flat_ns": 50000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.denoiserFilterYFirstPassSIMD": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.DenoiseFirst": {
+      "flat_ns": 40000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.DenoiserFilterY": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfFilterDelta": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.StaticInterFastEncodeBreakout": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*MacroblockCoefficients).SetBlockEOB": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.forwardWalsh4x4SIMD": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.Transpose4": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.forward4Go": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.ForwardWalsh4x4": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfByteLE": {
+      "flat_ns": 40000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.interReferenceBySearchSlot": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).updateConsecutiveZeroLast": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.updateConsecutiveZeroLastWithDotSuppress": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.BroadcastInt32x4": {
+      "flat_ns": 30000000,
+      "cum_ns": 30000000
+    },
+    "runtime.globrunqgetbatch": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.load8": {
+      "flat_ns": 40000000,
+      "cum_ns": 40000000
+    },
+    "github.com/thesyncim/govpx.interAnalysisValidReferenceCount": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interModeRDThresholdsAndBaselineRefsForReferences": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interModeRDThresholdsBaselineRef": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime.pidlegetSpinning": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "runtime.wakep": {
+      "flat_ns": 0,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.filterShift7": {
+      "flat_ns": 50000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interRDModeTestAllowedFast": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*interRDCoeffCacheState).restorePredictor": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.interRDPredictorCacheReusable": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.lfAbsByte": {
+      "flat_ns": 50000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*interFrameSubpixelSearch).refine": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*interFrameSubpixelSearch).iterativeNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.SubpelVariance16x16PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.subpelVariance16x16PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*interFrameSubpixelSearch).boundedCandidateEvalNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*subpelSearchCtx).subpelVarianceForQuarterMV": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.SubpelStats": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx.(*interFrameSubpixelSearch).candidateEvalNoStats": {
+      "flat_ns": 0,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.subpelStats16": {
+      "flat_ns": 20000000,
+      "cum_ns": 50000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.sumU16": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.Uint32x4.ReduceSum": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.skinPixel": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).prepareInterFrameSkinMap": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.computeSkinMap16x16": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.computeSkinMap": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).updateDerivedInterRDThreshold": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).lowerBestInterFastThreshold": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/common.CopyImageLuma": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "runtime.memmove": {
+      "flat_ns": 30000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx.(*loopFilterPickContext).preserveBestLoopFilterLumaBeforeTrial": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.validInterFrameMacroblockModeAt": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "simd/archsimd.Int16x8.IfElse": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.vp8QuantPacket": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.MBLoopFilterHorizontalEdge": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.mbLoopFilterHorizontalEdgeDispatch": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "runtime.mapassign_fast64": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime/pprof.(*profileBuilder).addCPUData": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "internal/runtime/maps.probeSeq.next": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime/pprof.(*profMap).lookup": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.DequantIDCTAddFull2x": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.inverse4Go": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.LoadPixels4": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.dequantIDCTAddFull2xSIMD": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.idct4x4AddSIMD": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.gatherMacroblockYResiduals4x4Unchecked": {
+      "flat_ns": 10000000,
+      "cum_ns": 30000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.ResidualGather16x16PtrFast": {
+      "flat_ns": 0,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).interAnalysisUsesRDModeDecision": {
+      "flat_ns": 10000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loopFilterInternalFusedHorizontal": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.LoopFilterInternal16": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterHorizontalEdgesYDispatch": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp.LoopFilterHorizontalEdgesY": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).assignInterFrameStaticSegmentsForQuantizer": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.AssignInterFrameStaticSegmentsWithMap": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).prepareInterFrameCyclicRefreshSegmentsForRecode": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.Int16x8.Store": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.evaluateSkinColorDifference": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.mulAdd16": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.loadLFUVByte": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.clampInterFrameModeMotionVectorComponent": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.clampInterFrameModeMotionVector": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/common.extendPlane": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/common.(*FrameBuffer).ExtendBorders": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.clampInterModeMVComponent": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.(*BoolWriter).WriteBool": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "runtime.pidleget": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.biasImprovedInterFrameMVSlots": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).improvedInterFrameSearchStart": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "internal/runtime/atomic.(*Uint8).Load": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.BroadcastInt8x16": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.vp8Right12": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).libvpxCPUUsed": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.MacroblockCoefficientsEmpty": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.extendIntraRightEdgeForRow": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.ExtendIntraRightEdgeForRow": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/decoder.extendIntraRightEdgeRows": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.InterFrameUMVFullPixelInRange": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.transposeBytes8": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder.getTokenUVContext": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime.traceEnabled": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "runtime.traceAcquire": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/pixel.AddConstantPair4.func1": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "simd/archsimd.Int8x16.Masked": {
+      "flat_ns": 20000000,
+      "cum_ns": 20000000
+    },
+    "github.com/thesyncim/govpx.(*fastInterModeLoopContext).rdConstants": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx/internal/vp8/common.CopyImage": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "github.com/thesyncim/govpx.(*VP8Encoder).copyDenoiserAvgForRefresh": {
+      "flat_ns": 0,
+      "cum_ns": 10000000
+    },
+    "runtime.ready": {
+      "flat_ns": 10000000,
+      "cum_ns": 10000000
+    }
+  }
+}

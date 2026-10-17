@@ -1,0 +1,14 @@
+{
+  "production_commit": "d87df7a7",
+  "cpu": "Apple M4 Max",
+  "go": "1.27.2",
+  "GOEXPERIMENT": "simd",
+  "GOMAXPROCS": 1,
+  "pgo": "off",
+  "encoder_threads": 1,
+  "local_go_jobs_during_timing": false,
+  "go_binary": "/private/tmp/govpx-arm-rowstore-final-bench",
+  "go_binary_sha256": "5db0924f2ea1f8f9995f1cfd34f8bf70d604fbeb8f3064f84818b712a8a95468",
+  "libvpx_binary_sha256": "522cae8963b7c86caf76ed6c4611c7f8d9d550c612d7c50b96dd50e1787da568",
+  "libvpx_provenance": "Unchanged optimized v1.16.0 source/build/binary preserved in benchmarks/baselines/go127-simd-arm64/2026-10-17-quant-batch-libvpx; all VP8 timings and quality passes refreshed for d87df7a7."
+}
