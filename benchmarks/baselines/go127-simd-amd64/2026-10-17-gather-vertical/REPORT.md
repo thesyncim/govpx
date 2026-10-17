@@ -36,8 +36,8 @@ All five recorded source hashes match exact tested HEAD. ARM results belong to
 a separate M4Max report; do not infer ARM speed or compare absolute cross-CPU
 latencies from this native x64 job.
 
-Separate optimized-C comparison on AMD EPYC9V45: fixed-quality VP8 throughput
-2.415902x libvpxv1.16.0, with matched measuredPSNR/SSIM/payload/frame/drop
+Separate optimized-C comparison on AMD EPYC9V45: fixed-quality VP8 encode time
+2.415902x libvpxv1.16.0 (+141.5902% time; libvpx is faster), with matched measuredPSNR/SSIM/payload/frame/drop
 counts. This does not prove bitstream identity. Adaptive VP8 and VP9 do different
 quality/output work and retain their full controls/quality evidence; no equivalent
 speed claim. Never add this ratio to assembly or main-relative gains.
