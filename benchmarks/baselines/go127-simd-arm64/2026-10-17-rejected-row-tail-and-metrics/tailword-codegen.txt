@@ -1,0 +1,266 @@
+
+/private/tmp/govpx-arm-tailword-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000eab20 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors>:
+1000eab20: f9400b90    	ldr	x16, [x28, #0x10]
+1000eab24: eb3063ff    	cmp	sp, x16
+1000eab28: 54001ee9    	b.ls	0x1000eaf04 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3e4>
+1000eab2c: f81f0ffe    	str	x30, [sp, #-0x10]!
+1000eab30: f81f83fd    	stur	x29, [sp, #-0x8]
+1000eab34: d10023fd    	sub	x29, sp, #0x8
+1000eab38: f9000fe0    	str	x0, [sp, #0x18]
+1000eab3c: 3dc00081    	ldr	q1, [x4]
+1000eab40: 3dc00482    	ldr	q2, [x4, #0x10]
+1000eab44: 4e023823    	zip1.16b	v3, v1, v2
+1000eab48: 4e027821    	zip2.16b	v1, v1, v2
+1000eab4c: 3dc00882    	ldr	q2, [x4, #0x20]
+1000eab50: 3dc00c84    	ldr	q4, [x4, #0x30]
+1000eab54: 4e043845    	zip1.16b	v5, v2, v4
+1000eab58: 4e047842    	zip2.16b	v2, v2, v4
+1000eab5c: 3dc01084    	ldr	q4, [x4, #0x40]
+1000eab60: 3dc01486    	ldr	q6, [x4, #0x50]
+1000eab64: 4e063887    	zip1.16b	v7, v4, v6
+1000eab68: 4e067884    	zip2.16b	v4, v4, v6
+1000eab6c: 3dc01886    	ldr	q6, [x4, #0x60]
+1000eab70: 3dc01c88    	ldr	q8, [x4, #0x70]
+1000eab74: 4e0838c9    	zip1.16b	v9, v6, v8
+1000eab78: 4e0878c6    	zip2.16b	v6, v6, v8
+1000eab7c: 3dc02088    	ldr	q8, [x4, #0x80]
+1000eab80: 3dc0248a    	ldr	q10, [x4, #0x90]
+1000eab84: 4e0a390b    	zip1.16b	v11, v8, v10
+1000eab88: 4e0a7908    	zip2.16b	v8, v8, v10
+1000eab8c: 3dc0288a    	ldr	q10, [x4, #0xa0]
+1000eab90: 3dc02c8c    	ldr	q12, [x4, #0xb0]
+1000eab94: 4e0c394d    	zip1.16b	v13, v10, v12
+1000eab98: 4e0c794a    	zip2.16b	v10, v10, v12
+1000eab9c: 3dc0308c    	ldr	q12, [x4, #0xc0]
+1000eaba0: 3dc0348e    	ldr	q14, [x4, #0xd0]
+1000eaba4: 4e0e398f    	zip1.16b	v15, v12, v14
+1000eaba8: 4e0e798c    	zip2.16b	v12, v12, v14
+1000eabac: 3dc0388e    	ldr	q14, [x4, #0xe0]
+1000eabb0: 3dc03c90    	ldr	q16, [x4, #0xf0]
+1000eabb4: 4e1039d1    	zip1.16b	v17, v14, v16
+1000eabb8: 4e1079ce    	zip2.16b	v14, v14, v16
+1000eabbc: 4e453870    	zip1.8h	v16, v3, v5
+1000eabc0: 4e457863    	zip2.8h	v3, v3, v5
+1000eabc4: 4e423825    	zip1.8h	v5, v1, v2
+1000eabc8: 4e427821    	zip2.8h	v1, v1, v2
+1000eabcc: 4e4938e2    	zip1.8h	v2, v7, v9
+1000eabd0: 4e4978e7    	zip2.8h	v7, v7, v9
+1000eabd4: 4e463889    	zip1.8h	v9, v4, v6
+1000eabd8: 4e467884    	zip2.8h	v4, v4, v6
+1000eabdc: 4e4d3966    	zip1.8h	v6, v11, v13
+1000eabe0: 4e4d796b    	zip2.8h	v11, v11, v13
+1000eabe4: 4e4a390d    	zip1.8h	v13, v8, v10
+1000eabe8: 4e4a7908    	zip2.8h	v8, v8, v10
+1000eabec: 4e5139ea    	zip1.8h	v10, v15, v17
+1000eabf0: 4e5179ef    	zip2.8h	v15, v15, v17
+1000eabf4: 4e4e3991    	zip1.8h	v17, v12, v14
+1000eabf8: 4e4e798c    	zip2.8h	v12, v12, v14
+1000eabfc: 4e823a0e    	zip1.4s	v14, v16, v2
+1000eac00: 4e827a02    	zip2.4s	v2, v16, v2
+1000eac04: 4e873870    	zip1.4s	v16, v3, v7
+1000eac08: 4e877863    	zip2.4s	v3, v3, v7
+1000eac0c: 4e8938a7    	zip1.4s	v7, v5, v9
+1000eac10: 4e8978a5    	zip2.4s	v5, v5, v9
+1000eac14: 4e843829    	zip1.4s	v9, v1, v4
+1000eac18: 4e847821    	zip2.4s	v1, v1, v4
+1000eac1c: 4e8a38c4    	zip1.4s	v4, v6, v10
+1000eac20: 4e8a78c6    	zip2.4s	v6, v6, v10
+1000eac24: 4e8f396a    	zip1.4s	v10, v11, v15
+1000eac28: 4e8f796b    	zip2.4s	v11, v11, v15
+1000eac2c: 4e9139af    	zip1.4s	v15, v13, v17
+1000eac30: 4e9179ad    	zip2.4s	v13, v13, v17
+1000eac34: 4e8c3911    	zip1.4s	v17, v8, v12
+1000eac38: 4e8c7908    	zip2.4s	v8, v8, v12
+1000eac3c: 4ec439cc    	zip1.2d	v12, v14, v4
+1000eac40: 3c80100c    	stur	q12, [x0, #0x1]
+1000eac44: 4ec479c4    	zip2.2d	v4, v14, v4
+1000eac48: 4ec6384c    	zip1.2d	v12, v2, v6
+1000eac4c: 4ec67842    	zip2.2d	v2, v2, v6
+1000eac50: 4eca3a06    	zip1.2d	v6, v16, v10
+1000eac54: 4eca7a0a    	zip2.2d	v10, v16, v10
+1000eac58: 4ecb386e    	zip1.2d	v14, v3, v11
+1000eac5c: 4ecb7863    	zip2.2d	v3, v3, v11
+1000eac60: 4ecf38eb    	zip1.2d	v11, v7, v15
+1000eac64: 4ecf78e7    	zip2.2d	v7, v7, v15
+1000eac68: 4ecd38af    	zip1.2d	v15, v5, v13
+1000eac6c: 4ecd78a5    	zip2.2d	v5, v5, v13
+1000eac70: 4ed1392d    	zip1.2d	v13, v9, v17
+1000eac74: 4ed17929    	zip2.2d	v9, v9, v17
+1000eac78: 4ec83830    	zip1.2d	v16, v1, v8
+1000eac7c: 4ec87821    	zip2.2d	v1, v1, v8
+1000eac80: f100443f    	cmp	x1, #0x11
+1000eac84: 540013c9    	b.ls	0x1000eaefc <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3dc>
+1000eac88: 4e083c02    	mov.d	x2, v0[0]
+1000eac8c: 39004402    	strb	w2, [x0, #0x11]
+1000eac90: 91000464    	add	x4, x3, #0x1
+1000eac94: 8b000084    	add	x4, x4, x0
+1000eac98: 3d800084    	str	q4, [x4]
+1000eac9c: 91004464    	add	x4, x3, #0x11
+1000eaca0: eb04003f    	cmp	x1, x4
+1000eaca4: 540012a9    	b.ls	0x1000eaef8 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3d8>
+1000eaca8: d348fc45    	lsr	x5, x2, #8
+1000eacac: 38246805    	strb	w5, [x0, x4]
+1000eacb0: 8b030064    	add	x4, x3, x3
+1000eacb4: 91000485    	add	x5, x4, #0x1
+1000eacb8: 8b0000a5    	add	x5, x5, x0
+1000eacbc: 3d8000ac    	str	q12, [x5]
+1000eacc0: 91004485    	add	x5, x4, #0x11
+1000eacc4: eb05003f    	cmp	x1, x5
+1000eacc8: 54001169    	b.ls	0x1000eaef4 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3d4>
+1000eaccc: d350fc46    	lsr	x6, x2, #16
+1000eacd0: 38256806    	strb	w6, [x0, x5]
+1000eacd4: 8b030465    	add	x5, x3, x3, lsl #1
+1000eacd8: 910004a6    	add	x6, x5, #0x1
+1000eacdc: 8b0000c6    	add	x6, x6, x0
+1000eace0: 3d8000c2    	str	q2, [x6]
+1000eace4: 910044a5    	add	x5, x5, #0x11
+1000eace8: eb05003f    	cmp	x1, x5
+1000eacec: 54001029    	b.ls	0x1000eaef0 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3d0>
+1000eacf0: d358fc46    	lsr	x6, x2, #24
+1000eacf4: 38256806    	strb	w6, [x0, x5]
+1000eacf8: d37ef465    	lsl	x5, x3, #2
+1000eacfc: 910004a6    	add	x6, x5, #0x1
+1000ead00: 8b0000c6    	add	x6, x6, x0
+1000ead04: 3d8000c6    	str	q6, [x6]
+1000ead08: 910044a6    	add	x6, x5, #0x11
+1000ead0c: eb06003f    	cmp	x1, x6
+1000ead10: 54000ee9    	b.ls	0x1000eaeec <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3cc>
+1000ead14: d360fc47    	lsr	x7, x2, #32
+1000ead18: 38266807    	strb	w7, [x0, x6]
+1000ead1c: 8b030866    	add	x6, x3, x3, lsl #2
+1000ead20: 910004c7    	add	x7, x6, #0x1
+1000ead24: 8b0000e7    	add	x7, x7, x0
+1000ead28: 3d8000ea    	str	q10, [x7]
+1000ead2c: 910044c6    	add	x6, x6, #0x11
+1000ead30: eb06003f    	cmp	x1, x6
+1000ead34: 54000da9    	b.ls	0x1000eaee8 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3c8>
+1000ead38: d368fc47    	lsr	x7, x2, #40
+1000ead3c: 38266807    	strb	w7, [x0, x6]
+1000ead40: 8b040486    	add	x6, x4, x4, lsl #1
+1000ead44: 910004c7    	add	x7, x6, #0x1
+1000ead48: 8b0000e7    	add	x7, x7, x0
+1000ead4c: 3d8000ee    	str	q14, [x7]
+1000ead50: 910044c6    	add	x6, x6, #0x11
+1000ead54: eb06003f    	cmp	x1, x6
+1000ead58: 54000c69    	b.ls	0x1000eaee4 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3c4>
+1000ead5c: d370fc47    	lsr	x7, x2, #48
+1000ead60: 38266807    	strb	w7, [x0, x6]
+1000ead64: d37df066    	lsl	x6, x3, #3
+1000ead68: cb0300c7    	sub	x7, x6, x3
+1000ead6c: 910004e8    	add	x8, x7, #0x1
+1000ead70: 8b000108    	add	x8, x8, x0
+1000ead74: 3d800103    	str	q3, [x8]
+1000ead78: 910044e7    	add	x7, x7, #0x11
+1000ead7c: eb07003f    	cmp	x1, x7
+1000ead80: 54000b09    	b.ls	0x1000eaee0 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3c0>
+1000ead84: d378fc42    	lsr	x2, x2, #56
+1000ead88: 38276802    	strb	w2, [x0, x7]
+1000ead8c: 910004c2    	add	x2, x6, #0x1
+1000ead90: 8b000042    	add	x2, x2, x0
+1000ead94: 3d80004b    	str	q11, [x2]
+1000ead98: 910044c2    	add	x2, x6, #0x11
+1000ead9c: eb02003f    	cmp	x1, x2
+1000eada0: 540009e9    	b.ls	0x1000eaedc <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3bc>
+1000eada4: 4e183c06    	mov.d	x6, v0[1]
+1000eada8: 38226806    	strb	w6, [x0, x2]
+1000eadac: 8b030c62    	add	x2, x3, x3, lsl #3
+1000eadb0: 91000447    	add	x7, x2, #0x1
+1000eadb4: 8b0000e7    	add	x7, x7, x0
+1000eadb8: 3d8000e7    	str	q7, [x7]
+1000eadbc: 91004442    	add	x2, x2, #0x11
+1000eadc0: eb02003f    	cmp	x1, x2
+1000eadc4: 540008a9    	b.ls	0x1000eaed8 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3b8>
+1000eadc8: d348fcc7    	lsr	x7, x6, #8
+1000eadcc: 38226807    	strb	w7, [x0, x2]
+1000eadd0: 8b040882    	add	x2, x4, x4, lsl #2
+1000eadd4: 91000444    	add	x4, x2, #0x1
+1000eadd8: 8b000084    	add	x4, x4, x0
+1000eaddc: 3d80008f    	str	q15, [x4]
+1000eade0: 91004442    	add	x2, x2, #0x11
+1000eade4: eb02003f    	cmp	x1, x2
+1000eade8: 54000769    	b.ls	0x1000eaed4 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3b4>
+1000eadec: d350fcc4    	lsr	x4, x6, #16
+1000eadf0: 38226804    	strb	w4, [x0, x2]
+1000eadf4: d2800162    	mov	x2, #0xb                ; =11
+1000eadf8: 9b037c42    	mul	x2, x2, x3
+1000eadfc: 91000444    	add	x4, x2, #0x1
+1000eae00: 8b000084    	add	x4, x4, x0
+1000eae04: 3d800085    	str	q5, [x4]
+1000eae08: 91004442    	add	x2, x2, #0x11
+1000eae0c: eb02003f    	cmp	x1, x2
+1000eae10: 54000609    	b.ls	0x1000eaed0 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3b0>
+1000eae14: d358fcc4    	lsr	x4, x6, #24
+1000eae18: 38226804    	strb	w4, [x0, x2]
+1000eae1c: 8b0504a2    	add	x2, x5, x5, lsl #1
+1000eae20: 91000444    	add	x4, x2, #0x1
+1000eae24: 8b000084    	add	x4, x4, x0
+1000eae28: 3d80008d    	str	q13, [x4]
+1000eae2c: 91004442    	add	x2, x2, #0x11
+1000eae30: eb02003f    	cmp	x1, x2
+1000eae34: 540004c9    	b.ls	0x1000eaecc <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3ac>
+1000eae38: d360fcc4    	lsr	x4, x6, #32
+1000eae3c: 38226804    	strb	w4, [x0, x2]
+1000eae40: d28001a2    	mov	x2, #0xd                ; =13
+1000eae44: 9b037c42    	mul	x2, x2, x3
+1000eae48: 91000444    	add	x4, x2, #0x1
+1000eae4c: 8b000084    	add	x4, x4, x0
+1000eae50: 3d800089    	str	q9, [x4]
+1000eae54: 91004442    	add	x2, x2, #0x11
+1000eae58: eb02003f    	cmp	x1, x2
+1000eae5c: 54000369    	b.ls	0x1000eaec8 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3a8>
+1000eae60: d368fcc4    	lsr	x4, x6, #40
+1000eae64: 38226804    	strb	w4, [x0, x2]
+1000eae68: d37cec62    	lsl	x2, x3, #4
+1000eae6c: cb030444    	sub	x4, x2, x3, lsl #1
+1000eae70: 91000485    	add	x5, x4, #0x1
+1000eae74: 8b0000a5    	add	x5, x5, x0
+1000eae78: 3d8000b0    	str	q16, [x5]
+1000eae7c: 91004484    	add	x4, x4, #0x11
+1000eae80: eb04003f    	cmp	x1, x4
+1000eae84: 54000209    	b.ls	0x1000eaec4 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3a4>
+1000eae88: d370fcc5    	lsr	x5, x6, #48
+1000eae8c: 38246805    	strb	w5, [x0, x4]
+1000eae90: cb030042    	sub	x2, x2, x3
+1000eae94: 91000443    	add	x3, x2, #0x1
+1000eae98: 8b000063    	add	x3, x3, x0
+1000eae9c: 3d800061    	str	q1, [x3]
+1000eaea0: 91004442    	add	x2, x2, #0x11
+1000eaea4: eb02003f    	cmp	x1, x2
+1000eaea8: 540000c9    	b.ls	0x1000eaec0 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors+0x3a0>
+1000eaeac: d378fcc1    	lsr	x1, x6, #56
+1000eaeb0: 38226801    	strb	w1, [x0, x2]
+1000eaeb4: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000eaeb8: f84107fe    	ldr	x30, [sp], #0x10
+1000eaebc: d65f03c0    	ret
+1000eaec0: 97fe5f28    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaec4: 97fe5f27    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaec8: 97fe5f26    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaecc: 97fe5f25    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaed0: 97fe5f24    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaed4: 97fe5f23    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaed8: 97fe5f22    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaedc: 97fe5f21    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaee0: 97fe5f20    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaee4: 97fe5f1f    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaee8: 97fe5f1e    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaeec: 97fe5f1d    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaef0: 97fe5f1c    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaef4: 97fe5f1b    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaef8: 97fe5f1a    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaefc: 97fe5f19    	bl	0x100082b60 <_runtime.panicBounds>
+1000eaf00: d503201f    	nop
+1000eaf04: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000eaf08: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000eaf0c: f90017e4    	str	x4, [sp, #0x28]
+1000eaf10: 3d800fe0    	str	q0, [sp, #0x30]
+1000eaf14: aa1e03e3    	mov	x3, x30
+1000eaf18: 97fe56ce    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000eaf1c: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000eaf20: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000eaf24: f94017e4    	ldr	x4, [sp, #0x28]
+1000eaf28: 3dc00fe0    	ldr	q0, [sp, #0x30]
+1000eaf2c: 17fffefd    	b	0x1000eab20 <_github.com/thesyncim/govpx/internal/pixel.storeLFRowVectors>

@@ -1,0 +1,141 @@
+{
+  "selected_parent_sha": "c065a26523b0b9899e5846431a919229ac498f99",
+  "isolated_probe_parent_sha": "29a8f43f839d11311a4148d27c2a97155e74c51d",
+  "parent_arm_source_unchanged_by_x64_probe": true,
+  "compiler": "Go 1.27.2 darwin/arm64 GOEXPERIMENT=simd PGO=off",
+  "cpu": "Apple M4 Max, same host as preceding committed ARM measurements",
+  "GOMAXPROCS": 1,
+  "workload": "VP8 realtime cpu-used8 1280x720 bitrate2500 threads1 fps30; alternating6 paired rounds; encode-only; no concurrent Go builds or timing jobs",
+  "quality_scope": "encode-only results verify all23 non-timing fields and zero allocations, not decoded quality or byte identity",
+  "parent_binary_sha256": "5db0924f2ea1f8f9995f1cfd34f8bf70d604fbeb8f3064f84818b712a8a95468",
+  "probes": {
+    "tailword": {
+      "binary_sha256": "6bc374d1fdb589a67a68661db3871757386f5dcce4d6263227e8982bd4eb20f8",
+      "short_summary": {
+        "parent_median_ns": 7782982.5,
+        "candidate_median_ns": 7727675.5,
+        "median_change_pct": -0.7106144720227747,
+        "paired_pct": [
+          -0.2908751349616323,
+          -0.8183341681852752,
+          1.0154867457121242,
+          -2.923198637863722,
+          0.06103595134441253,
+          -0.9461672458644488
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      },
+      "decision": "excluded: no sustained public encoder gain",
+      "long_summary": {
+        "parent_median_ns": 7775433.0,
+        "candidate_median_ns": 7764962.5,
+        "median_change_pct": -0.13466131082345845,
+        "paired_pct": [
+          -0.13340098301333203,
+          -0.07619611666549453,
+          -0.2539574052539795,
+          -0.11565136976157131,
+          0.06779302306638701,
+          -0.2733307800658058
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      }
+    },
+    "sse-bounds": {
+      "binary_sha256": "59ab17e924e2424b9bc3cba753fc9d37ae818cd97f753d5d12acf653ac901f00",
+      "short_summary": {
+        "parent_median_ns": 7849002.5,
+        "candidate_median_ns": 7837875.0,
+        "median_change_pct": -0.14176960702968477,
+        "paired_pct": [
+          0.4385653680846202,
+          0.8261601767732829,
+          -1.8785320793315963,
+          1.1575869008187967,
+          -0.9495666494681476,
+          -0.13864406387974482
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      },
+      "decision": "excluded: no sustained public encoder gain",
+      "long_summary": {
+        "parent_median_ns": 7770280.5,
+        "candidate_median_ns": 7788027.5,
+        "median_change_pct": 0.22839587322491806,
+        "paired_pct": [
+          0.8884474783406482,
+          -0.6772389217363561,
+          0.39445084497513605,
+          -0.1963636700452298,
+          0.43252277781911097,
+          3.4142333925048396
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      }
+    },
+    "maskreduce": {
+      "binary_sha256": "8f1007c665e8fd827bbc8a71febdd4616d24aa494ff8228038d863e4fae738da",
+      "short_summary": {
+        "parent_median_ns": 7788357.5,
+        "candidate_median_ns": 7763249.0,
+        "median_change_pct": -0.3223850471681611,
+        "paired_pct": [
+          -1.7267745207941942,
+          -0.1452455247506479,
+          1.3388096370316127,
+          0.3338209441933415,
+          -0.6405279403698394,
+          -1.1738241062834165
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      },
+      "decision": "excluded: no sustained public encoder gain",
+      "long_summary": {
+        "parent_median_ns": 7753921.5,
+        "candidate_median_ns": 7788688.0,
+        "median_change_pct": 0.4483731231996524,
+        "paired_pct": [
+          0.2890220359641482,
+          0.005807212195407807,
+          0.9054138704758241,
+          0.6078303096199722,
+          1.2315086125541885,
+          -0.25954928534113186
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      }
+    },
+    "highwiden": {
+      "binary_sha256": "8e9f4c9633855e3cedef3b8a406f57579aff9b60a7b3bb2f0839fcea9601ca9f",
+      "short_summary": {
+        "parent_median_ns": 7807928.0,
+        "candidate_median_ns": 7794196.5,
+        "median_change_pct": -0.17586611966708965,
+        "paired_pct": [
+          1.097644646382756,
+          -0.5752958678960751,
+          -0.6068766038049733,
+          -2.252068606043478,
+          0.0264533786116683,
+          0.7019450390152837
+        ],
+        "nontiming_fields": 23,
+        "all_equal": true,
+        "allocs_per_frame": 0
+      },
+      "decision": "excluded: no sustained public encoder gain"
+    }
+  }
+}

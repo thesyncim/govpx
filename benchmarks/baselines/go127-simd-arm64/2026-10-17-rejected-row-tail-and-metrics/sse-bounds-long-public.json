@@ -1,0 +1,580 @@
+{
+  "samples": [
+    {
+      "round": 0,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7765006,
+        "encode_fps": 128.78290113362436,
+        "macroblocks_per_second": 463618.4440810477,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7528958,
+          "p95": 9264541,
+          "p99": 10469542
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 0,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7833994,
+        "encode_fps": 127.64880851325645,
+        "macroblocks_per_second": 459535.71064772323,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7568083,
+          "p95": 9066875,
+          "p99": 10034500
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 1,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7731243,
+        "encode_fps": 129.345307087101,
+        "macroblocks_per_second": 465643.1055135636,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7511708,
+          "p95": 8932542,
+          "p99": 9956000
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 1,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7783959,
+        "encode_fps": 128.46933032406773,
+        "macroblocks_per_second": 462489.58916664385,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7540250,
+          "p95": 9057000,
+          "p99": 10709292
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7771057,
+        "encode_fps": 128.68262322615828,
+        "macroblocks_per_second": 463257.44361416984,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7534500,
+          "p95": 9005417,
+          "p99": 10315583
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7801710,
+        "encode_fps": 128.17702785671347,
+        "macroblocks_per_second": 461437.30028416845,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7571458,
+          "p95": 9091750,
+          "p99": 10051500
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7758068,
+        "encode_fps": 128.89807101458766,
+        "macroblocks_per_second": 464033.05565251556,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7511542,
+          "p95": 8952625,
+          "p99": 10239208
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 3,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7773332,
+        "encode_fps": 128.6449620317259,
+        "macroblocks_per_second": 463121.8633142133,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7559000,
+          "p95": 8885291,
+          "p99": 9988250
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7740864,
+        "encode_fps": 129.18454580780647,
+        "macroblocks_per_second": 465064.3649081033,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7516750,
+          "p95": 8995042,
+          "p99": 10104833
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 4,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7774345,
+        "encode_fps": 128.62819954607107,
+        "macroblocks_per_second": 463061.5183658559,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7571584,
+          "p95": 9181250,
+          "p99": 9908833
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "variant": "candidate",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 8034773,
+        "encode_fps": 124.45902329785795,
+        "macroblocks_per_second": 448052.4838722886,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7830750,
+          "p95": 9469709,
+          "p99": 10417250
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    },
+    {
+      "round": 5,
+      "variant": "parent",
+      "result": {
+        "codec": "vp8",
+        "encoder": "govpx",
+        "mode": "realtime",
+        "width": 1280,
+        "height": 720,
+        "frames": 300,
+        "fps": 30,
+        "target_bitrate_kbps": 2500,
+        "output_bitrate_kbps": 2496.5944,
+        "bitrate_error_pct": -0.13622400000000198,
+        "ns_per_frame": 7769504,
+        "encode_fps": 128.7083448312788,
+        "macroblocks_per_second": 463350.0413926037,
+        "allocs_per_frame": 0,
+        "psnr": 0,
+        "ssim": 0,
+        "quality_frames": 0,
+        "quality_skipped": true,
+        "keyframe_bytes": 133700,
+        "avg_interframe_bytes": 10057.38383838384,
+        "quantizers": {
+          "min": 39,
+          "max": 56,
+          "mean": 55.92953020134228
+        },
+        "latency_ns": {
+          "p50": 7554667,
+          "p95": 8972833,
+          "p99": 10049750
+        },
+        "output_bytes": 3120743,
+        "encoded_frames": 298,
+        "dropped_frames": 2,
+        "quantizer_histogram": {
+          "39": 1,
+          "54": 1,
+          "55": 2,
+          "56": 294
+        },
+        "options": {
+          "deadline": "realtime"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+diff --git a/internal/pixel/sse16_simd_arm64.go b/internal/pixel/sse16_simd_arm64.go
+index 7c5697ef..d9a9cf3d 100644
+--- a/internal/pixel/sse16_simd_arm64.go
++++ b/internal/pixel/sse16_simd_arm64.go
+@@ -2,7 +2,10 @@
+ 
+ package pixel
+ 
+-import "simd/archsimd"
++import (
++ "simd/archsimd"
++ "unsafe"
++)
+ 
+ // SSE16 computes squared error over sixteen columns, without the signed
+ // sum needed by variance. Only the requested rows and columns are read;
+@@ -11,6 +14,19 @@ func SSE16(src []byte, ss int, ref []byte, rs, h int) uint32 {
+ 	if !Enabled {
+ 		return SSE16Scalar(src, ss, ref, rs, h)
+ 	}
++	// Codec blocks contain at most 64 rows. Nonnegative strides below 2^57
++	// make the final-row offsets fit int64; the checked last window covers
++	// every exact 16-byte load, including overlapping read-only rows.
++	if uint(h-1) < 64 && (uint(ss)|uint(rs))>>57 == 0 {
++		_ = src[(h-1)*ss+15]
++		_ = ref[(h-1)*rs+15]
++		sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
++		var lo, hi archsimd.Int32x4
++		for y := range h {
++			lo, hi = ssePacket(lo, hi, archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, y*ss))), archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, y*rs))))
++		}
++		return uint32(sum32(lo.Add(hi)))
++	}
+ 	var lo, hi archsimd.Int32x4
+ 	for y := range h {
+ 		lo, hi = ssePacket(lo, hi, archsimd.LoadUint8x16(src[y*ss:]), archsimd.LoadUint8x16(ref[y*rs:]))

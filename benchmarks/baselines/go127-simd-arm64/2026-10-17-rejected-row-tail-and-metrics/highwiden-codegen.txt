@@ -1,0 +1,168 @@
+
+/private/tmp/govpx-arm-highwiden-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000ee800 <_github.com/thesyncim/govpx/internal/pixel.SSE16>:
+1000ee800: f9400b90    	ldr	x16, [x28, #0x10]
+1000ee804: eb3063ff    	cmp	sp, x16
+1000ee808: 54000789    	b.ls	0x1000ee8f8 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xf8>
+1000ee80c: f81f0ffe    	str	x30, [sp, #-0x10]!
+1000ee810: f81f83fd    	stur	x29, [sp, #-0x8]
+1000ee814: d10023fd    	sub	x29, sp, #0x8
+1000ee818: f9000fe0    	str	x0, [sp, #0x18]
+1000ee81c: f9001fe4    	str	x4, [sp, #0x38]
+1000ee820: 4f00e400    	movi.16b	v0, #0x0
+1000ee824: aa1f03e9    	mov	x9, xzr
+1000ee828: 4ea01c01    	mov.16b	v1, v0
+1000ee82c: 14000012    	b	0x1000ee874 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x74>
+1000ee830: 3dc00142    	ldr	q2, [x10]
+1000ee834: 3dc00163    	ldr	q3, [x11]
+1000ee838: 2f08a444    	ushll.8h	v4, v2, #0x0
+1000ee83c: 2f08a465    	ushll.8h	v5, v3, #0x0
+1000ee840: 6e658484    	sub.8h	v4, v4, v5
+1000ee844: 6f08a442    	ushll2.8h	v2, v2, #0x0
+1000ee848: 6f08a463    	ushll2.8h	v3, v3, #0x0
+1000ee84c: 6e638442    	sub.8h	v2, v2, v3
+1000ee850: 0e64c083    	smull.4s	v3, v4, v4
+1000ee854: 4e64c084    	smull2.4s	v4, v4, v4
+1000ee858: 4ea38483    	add.4s	v3, v4, v3
+1000ee85c: 0e62c044    	smull.4s	v4, v2, v2
+1000ee860: 4e62c042    	smull2.4s	v2, v2, v2
+1000ee864: 4ea48442    	add.4s	v2, v2, v4
+1000ee868: 4ea18461    	add.4s	v1, v3, v1
+1000ee86c: 4ea08440    	add.4s	v0, v2, v0
+1000ee870: 91000529    	add	x9, x9, #0x1
+1000ee874: eb09011f    	cmp	x8, x9
+1000ee878: 5400028d    	b.le	0x1000ee8c8 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xc8>
+1000ee87c: 9b037d2a    	mul	x10, x9, x3
+1000ee880: eb0a003f    	cmp	x1, x10
+1000ee884: 54000363    	b.lo	0x1000ee8f0 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xf0>
+1000ee888: cb0a002b    	sub	x11, x1, x10
+1000ee88c: cb02014c    	sub	x12, x10, x2
+1000ee890: 8a8cfd4a    	and	x10, x10, x12, asr #63
+1000ee894: 8b0a000a    	add	x10, x0, x10
+1000ee898: f100417f    	cmp	x11, #0x10
+1000ee89c: 54000283    	b.lo	0x1000ee8ec <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xec>
+1000ee8a0: 9b077d2b    	mul	x11, x9, x7
+1000ee8a4: eb0b00bf    	cmp	x5, x11
+1000ee8a8: 54000203    	b.lo	0x1000ee8e8 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xe8>
+1000ee8ac: cb0b00ac    	sub	x12, x5, x11
+1000ee8b0: cb06016d    	sub	x13, x11, x6
+1000ee8b4: 8a8dfd6b    	and	x11, x11, x13, asr #63
+1000ee8b8: 8b0b008b    	add	x11, x4, x11
+1000ee8bc: f100419f    	cmp	x12, #0x10
+1000ee8c0: 54fffb82    	b.hs	0x1000ee830 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x30>
+1000ee8c4: 14000008    	b	0x1000ee8e4 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xe4>
+1000ee8c8: 4ea08420    	add.4s	v0, v1, v0
+1000ee8cc: 4eb1b800    	addv.4s	s0, v0
+1000ee8d0: 0e043c00    	mov.s	w0, v0[0]
+1000ee8d4: d503201f    	nop
+1000ee8d8: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ee8dc: f84107fe    	ldr	x30, [sp], #0x10
+1000ee8e0: d65f03c0    	ret
+1000ee8e4: 97fe509f    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee8e8: 97fe509e    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee8ec: 97fe509d    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee8f0: 97fe509c    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee8f4: d503201f    	nop
+1000ee8f8: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000ee8fc: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000ee900: a90297e4    	stp	x4, x5, [sp, #0x28]
+1000ee904: a9039fe6    	stp	x6, x7, [sp, #0x38]
+1000ee908: f90027e8    	str	x8, [sp, #0x48]
+1000ee90c: aa1e03e3    	mov	x3, x30
+1000ee910: 97fe4850    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000ee914: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000ee918: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000ee91c: a94297e4    	ldp	x4, x5, [sp, #0x28]
+1000ee920: a9439fe6    	ldp	x6, x7, [sp, #0x38]
+1000ee924: f94027e8    	ldr	x8, [sp, #0x48]
+1000ee928: 17ffffb6    	b	0x1000ee800 <_github.com/thesyncim/govpx/internal/pixel.SSE16>
+1000ee92c: 00000000    	udf	#0x0
+
+00000001000eeb80 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow>:
+1000eeb80: f9400b90    	ldr	x16, [x28, #0x10]
+1000eeb84: eb3063ff    	cmp	sp, x16
+1000eeb88: 54000889    	b.ls	0x1000eec98 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x118>
+1000eeb8c: f81a0ffe    	str	x30, [sp, #-0x60]!
+1000eeb90: f81f83fd    	stur	x29, [sp, #-0x8]
+1000eeb94: d10023fd    	sub	x29, sp, #0x8
+1000eeb98: f90037e0    	str	x0, [sp, #0x68]
+1000eeb9c: f90047e4    	str	x4, [sp, #0x88]
+1000eeba0: aa07006a    	orr	x10, x3, x7
+1000eeba4: d379fd4a    	lsr	x10, x10, #57
+1000eeba8: b50001ea    	cbnz	x10, 0x1000eebe4 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x64>
+1000eebac: d1000502    	sub	x2, x8, #0x1
+1000eebb0: 9b037c46    	mul	x6, x2, x3
+1000eebb4: 91003cc6    	add	x6, x6, #0xf
+1000eebb8: eb06003f    	cmp	x1, x6
+1000eebbc: 540006a9    	b.ls	0x1000eec90 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x110>
+1000eebc0: 9b077c42    	mul	x2, x2, x7
+1000eebc4: 91003c42    	add	x2, x2, #0xf
+1000eebc8: eb0200bf    	cmp	x5, x2
+1000eebcc: 54000609    	b.ls	0x1000eec8c <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x10c>
+1000eebd0: 4f00e400    	movi.16b	v0, #0x0
+1000eebd4: 4f00e401    	movi.16b	v1, #0x0
+1000eebd8: aa1f03e2    	mov	x2, xzr
+1000eebdc: 4ea01c02    	mov.16b	v2, v0
+1000eebe0: 1400001c    	b	0x1000eec50 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0xd0>
+1000eebe4: aa0803e9    	mov	x9, x8
+1000eebe8: b27c03e8    	orr	x8, xzr, #0x10
+1000eebec: 97ffd025    	bl	0x1000e2c80 <_github.com/thesyncim/govpx/internal/pixel.pixelStatsRows16>
+1000eebf0: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000eebf4: f84607fe    	ldr	x30, [sp], #0x60
+1000eebf8: d65f03c0    	ret
+1000eebfc: 9b020065    	madd	x5, x3, x2, x0
+1000eec00: 3dc000a3    	ldr	q3, [x5]
+1000eec04: 9b0210e5    	madd	x5, x7, x2, x4
+1000eec08: 3dc000a4    	ldr	q4, [x5]
+1000eec0c: 2f08a465    	ushll.8h	v5, v3, #0x0
+1000eec10: 2f08a486    	ushll.8h	v6, v4, #0x0
+1000eec14: 6e6684a5    	sub.8h	v5, v5, v6
+1000eec18: 4e658426    	add.8h	v6, v1, v5
+1000eec1c: 6f08a463    	ushll2.8h	v3, v3, #0x0
+1000eec20: 6f08a484    	ushll2.8h	v4, v4, #0x0
+1000eec24: 6e648463    	sub.8h	v3, v3, v4
+1000eec28: 0e65c0a4    	smull.4s	v4, v5, v5
+1000eec2c: 4e65c0a5    	smull2.4s	v5, v5, v5
+1000eec30: 4ea484a4    	add.4s	v4, v5, v4
+1000eec34: 0e63c065    	smull.4s	v5, v3, v3
+1000eec38: 4e63c067    	smull2.4s	v7, v3, v3
+1000eec3c: 4ea584e5    	add.4s	v5, v7, v5
+1000eec40: 4e668461    	add.8h	v1, v3, v6
+1000eec44: 4ea28482    	add.4s	v2, v4, v2
+1000eec48: 4ea084a0    	add.4s	v0, v5, v0
+1000eec4c: 91000442    	add	x2, x2, #0x1
+1000eec50: eb02011f    	cmp	x8, x2
+1000eec54: 54fffd4c    	b.gt	0x1000eebfc <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow+0x7c>
+1000eec58: 4ea08440    	add.4s	v0, v2, v0
+1000eec5c: 0f10a422    	sshll.4s	v2, v1, #0x0
+1000eec60: 4f10a421    	sshll2.4s	v1, v1, #0x0
+1000eec64: 4ea28421    	add.4s	v1, v1, v2
+1000eec68: 4eb1b800    	addv.4s	s0, v0
+1000eec6c: 0e043c00    	mov.s	w0, v0[0]
+1000eec70: 4eb1b820    	addv.4s	s0, v1
+1000eec74: 0e043c01    	mov.s	w1, v0[0]
+1000eec78: d503201f    	nop
+1000eec7c: d503201f    	nop
+1000eec80: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000eec84: f84607fe    	ldr	x30, [sp], #0x60
+1000eec88: d65f03c0    	ret
+1000eec8c: 97fe4fb5    	bl	0x100082b60 <_runtime.panicBounds>
+1000eec90: 97fe4fb4    	bl	0x100082b60 <_runtime.panicBounds>
+1000eec94: d503201f    	nop
+1000eec98: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000eec9c: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000eeca0: a90297e4    	stp	x4, x5, [sp, #0x28]
+1000eeca4: a9039fe6    	stp	x6, x7, [sp, #0x38]
+1000eeca8: f90027e8    	str	x8, [sp, #0x48]
+1000eecac: aa1e03e3    	mov	x3, x30
+1000eecb0: 97fe4768    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000eecb4: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000eecb8: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000eecbc: a94297e4    	ldp	x4, x5, [sp, #0x28]
+1000eecc0: a9439fe6    	ldp	x6, x7, [sp, #0x38]
+1000eecc4: f94027e8    	ldr	x8, [sp, #0x48]
+1000eecc8: 17ffffae    	b	0x1000eeb80 <_github.com/thesyncim/govpx/internal/pixel.pixelStats16Narrow>
+1000eeccc: 00000000    	udf	#0x0

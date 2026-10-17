@@ -1292,3 +1292,25 @@ pairs faster, while 720p improves 1.299% with mixed pairs. No cross-CPU gain or
 closure of the prior 9V45 gap is inferred. All 81 kernel cases are allocation
 free; two one-allocation public VP9 outliers and an unrelated quant8 control
 regression remain in the [native evidence and raw archives](benchmarks/baselines/go127-simd-amd64/2026-10-17-stats16).
+
+
+Combined `c065a265` validation on EPYC 7763 improves VP8 7.441% versus the
+PR base and 12.409% versus original assembly, all six pairs faster. VP9
+320p improves 1.894% versus base, all six faster; 720p improves 0.996% at the
+median with mixed pairs. All 81 kernel cases have six allocation-free samples
+per variant, and every recorded public semantic/configuration and allocation
+field matches in this run. Quantization counts 1/2 still regress 3.308%/2.342%
+versus base, all six slower. Hosted tests, native selected-backend/oracle tests
+and the optimized-C job all pass. Its separate EPYC 9V45 C job measures
+fixed-speed VP8 at 10.267339/4.104000 ms (Go/C, +150.179%) with matching measured
+quality, payload and frame statistics. Adaptive output quality differs.
+This does not supply a 9V45 assembly comparison for the newer variance source.
+[Exact-head audit and complete raw archives](benchmarks/baselines/go127-simd-amd64/2026-10-17-c065a265-validation).
+
+Further ARM tail extraction, bounded squared-error loads, mask reduction and
+high-byte widening are excluded. Short comparisons have mixed pair signs;
+fresh 300-input tail, bounds and mask comparisons measure -0.135%, +0.228%
+and +0.448% versus the selected row-store implementation, with mixed pairs.
+All 23 recorded non-timing fields and zero allocations match, and scalar
+oracles pass; these changes do not establish a sustained encoder gain.
+[Reproducible rejected probes, raw samples and generated code](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-row-tail-and-metrics).

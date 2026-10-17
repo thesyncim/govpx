@@ -1,0 +1,13 @@
+diff --git a/internal/pixel/goav1_ops_arm64.go b/internal/pixel/goav1_ops_arm64.go
+index 7d2694ef..9fd2e3bb 100644
+--- a/internal/pixel/goav1_ops_arm64.go
++++ b/internal/pixel/goav1_ops_arm64.go
+@@ -10,7 +10,7 @@ import (
+ )
+ 
+ func widenHi8(v archsimd.Uint8x16) archsimd.Uint16x8 {
+-	return v.InterleaveHi(archsimd.BroadcastUint8x16(0)).ReshapeToUint16s()
++	return v.HiToLo().ExtendLo8ToUint16()
+ }
+ 
+ func hiInt16(v archsimd.Int16x8) archsimd.Int16x8 {

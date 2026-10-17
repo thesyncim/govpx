@@ -1,0 +1,5924 @@
+{
+  "artifact": "/private/tmp/govpx-amd64-c065a265-artifact",
+  "variants": [
+    "assembly",
+    "previous",
+    "simd"
+  ],
+  "kernels": {
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkDCOnlyIDCT4x4AddPairInt32": {
+      "assembly_ns": 11.86,
+      "assembly_samples": [
+        11.86,
+        12.13,
+        11.88,
+        11.84,
+        11.86,
+        11.84
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 15.295,
+      "previous_samples": [
+        15.29,
+        15.29,
+        15.25,
+        15.3,
+        15.33,
+        15.66
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 15.305,
+      "simd_samples": [
+        15.31,
+        15.28,
+        15.32,
+        15.36,
+        15.3,
+        15.3
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 29.04721753794266,
+      "throughput_ratio": 0.7749101600784057,
+      "paired_percent": [
+        29.089376053962912,
+        25.96867271228358,
+        28.95622895622896,
+        29.729729729729737,
+        29.00505902192243,
+        29.222972972972983
+      ],
+      "parent_time_delta_percent": 0.06538084341287664,
+      "parent_throughput_ratio": 0.9993466187520418,
+      "parent_paired_percent": [
+        0.1308044473512293,
+        -0.06540222367560355,
+        0.459016393442635,
+        0.39215686274509665,
+        -0.1956947162426559,
+        -2.298850574712641
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkDCOnlyPairInPlace": {
+      "assembly_ns": 13.43,
+      "assembly_samples": [
+        13.42,
+        13.84,
+        13.43,
+        13.41,
+        13.43,
+        13.44
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 17.83,
+      "previous_samples": [
+        17.8,
+        17.84,
+        17.81,
+        17.86,
+        17.82,
+        17.87
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 17.525,
+      "simd_samples": [
+        17.8,
+        17.49,
+        17.53,
+        17.61,
+        17.52,
+        17.48
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 30.49143708116158,
+      "throughput_ratio": 0.7663338088445079,
+      "paired_percent": [
+        32.63785394932937,
+        26.372832369942188,
+        30.52866716306777,
+        31.31991051454137,
+        30.454206999255405,
+        30.059523809523814
+      ],
+      "parent_time_delta_percent": -1.7106001121705017,
+      "parent_throughput_ratio": 1.0174037089871613,
+      "parent_paired_percent": [
+        0.0,
+        -1.9618834080717518,
+        -1.5721504772599482,
+        -1.399776035834266,
+        -1.683501683501687,
+        -2.1824286513710156
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkLoopFilterHorizontalEdgeUV": {
+      "assembly_ns": 29.299999999999997,
+      "assembly_samples": [
+        29.19,
+        29.81,
+        29.29,
+        29.28,
+        29.31,
+        29.46
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 28.064999999999998,
+      "previous_samples": [
+        28.05,
+        28.13,
+        28.06,
+        28.07,
+        28.16,
+        28.06
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 28.105,
+      "simd_samples": [
+        28.11,
+        28.07,
+        28.11,
+        28.07,
+        28.11,
+        28.1
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -4.078498293515342,
+      "throughput_ratio": 1.0425191247109054,
+      "paired_percent": [
+        -3.6998972250770867,
+        -5.836967460583686,
+        -4.028678729941959,
+        -4.132513661202186,
+        -4.094165813715456,
+        -4.616429056347593
+      ],
+      "parent_time_delta_percent": 0.14252627828257314,
+      "parent_throughput_ratio": 0.9985767657000533,
+      "parent_paired_percent": [
+        0.21390374331551332,
+        -0.21329541414859543,
+        0.1781895937277289,
+        0.0,
+        -0.17755681818182323,
+        0.14255167498218313
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkLoopFilterHorizontalEdgesY": {
+      "assembly_ns": 35.61,
+      "assembly_samples": [
+        35.66,
+        44.63,
+        35.46,
+        35.55,
+        36.12,
+        35.56
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 43.32,
+      "previous_samples": [
+        43.3,
+        43.34,
+        43.37,
+        43.29,
+        43.54,
+        43.24
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 43.385,
+      "simd_samples": [
+        43.41,
+        43.34,
+        43.36,
+        43.44,
+        43.6,
+        43.36
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 21.833754563324902,
+      "throughput_ratio": 0.8207905958280511,
+      "paired_percent": [
+        21.733034212002256,
+        -2.890432444544022,
+        22.278623801466434,
+        22.19409282700422,
+        20.70874861572538,
+        21.934758155230583
+      ],
+      "parent_time_delta_percent": 0.15004616805169846,
+      "parent_throughput_ratio": 0.9985017863316815,
+      "parent_paired_percent": [
+        0.25404157043880105,
+        0.0,
+        -0.02305741295826058,
+        0.34650034650034467,
+        0.13780431786862835,
+        0.27752081406104967
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkLoopFilterVerticalEdgeUV": {
+      "assembly_ns": 37.0,
+      "assembly_samples": [
+        36.89,
+        37.44,
+        36.84,
+        36.78,
+        37.11,
+        39.89
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 45.26,
+      "previous_samples": [
+        45.2,
+        45.28,
+        45.22,
+        45.26,
+        45.28,
+        45.26
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 45.254999999999995,
+      "simd_samples": [
+        45.43,
+        45.2,
+        45.25,
+        45.23,
+        45.26,
+        45.52
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 22.31081081081079,
+      "throughput_ratio": 0.8175892166611425,
+      "paired_percent": [
+        23.149905123339654,
+        20.72649572649574,
+        22.82844733984799,
+        22.974442631865124,
+        21.96173538129884,
+        14.113812985710705
+      ],
+      "parent_time_delta_percent": -0.011047282368548128,
+      "parent_throughput_ratio": 1.0001104850292786,
+      "parent_paired_percent": [
+        0.5088495575221064,
+        -0.17667844522968323,
+        0.06634232640425619,
+        -0.06628369421122215,
+        -0.04416961130743191,
+        0.5744586831639475
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkLoopFilterVerticalEdgesY": {
+      "assembly_ns": 117.0,
+      "assembly_samples": [
+        117.2,
+        116.9,
+        117.0,
+        117.1,
+        117.0,
+        116.9
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 124.7,
+      "previous_samples": [
+        125.1,
+        124.8,
+        124.3,
+        124.7,
+        124.7,
+        124.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 124.85,
+      "simd_samples": [
+        124.9,
+        124.7,
+        125.0,
+        124.8,
+        124.6,
+        125.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 6.709401709401708,
+      "throughput_ratio": 0.9371245494593513,
+      "paired_percent": [
+        6.5699658703071595,
+        6.672369546621049,
+        6.8376068376068355,
+        6.575576430401364,
+        6.495726495726495,
+        6.928999144567993
+      ],
+      "parent_time_delta_percent": 0.1202886928628688,
+      "parent_throughput_ratio": 0.998798558269924,
+      "parent_paired_percent": [
+        -0.1598721023181371,
+        -0.08012820512820484,
+        0.5631536604987941,
+        0.0801924619085792,
+        -0.0801924619085903,
+        0.40160642570281624
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkMBLoopFilterHorizontalEdgeUV": {
+      "assembly_ns": 31.32,
+      "assembly_samples": [
+        31.31,
+        32.09,
+        31.33,
+        31.38,
+        31.31,
+        31.3
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 32.16,
+      "previous_samples": [
+        32.13,
+        32.16,
+        32.38,
+        32.16,
+        32.19,
+        32.12
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 32.245000000000005,
+      "simd_samples": [
+        32.46,
+        32.2,
+        32.31,
+        32.14,
+        32.29,
+        32.19
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 2.9533844189016722,
+      "throughput_ratio": 0.9713133819196773,
+      "paired_percent": [
+        3.6729479399552956,
+        0.3427859146151402,
+        3.127992339610608,
+        2.421924792861696,
+        3.1299904183966776,
+        2.8434504792332227
+      ],
+      "parent_time_delta_percent": 0.2643034825870805,
+      "parent_throughput_ratio": 0.9973639323926188,
+      "parent_paired_percent": [
+        1.0270774976657293,
+        0.12437810945276073,
+        -0.21618282890673024,
+        -0.06218905472635816,
+        0.3106554830692776,
+        0.2179327521793395
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkMBLoopFilterVerticalEdgeUV": {
+      "assembly_ns": 39.305,
+      "assembly_samples": [
+        39.31,
+        39.6,
+        39.33,
+        39.26,
+        39.28,
+        39.3
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 59.144999999999996,
+      "previous_samples": [
+        59.07,
+        59.19,
+        59.12,
+        59.17,
+        59.2,
+        59.07
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 59.28,
+      "simd_samples": [
+        64.95,
+        59.25,
+        59.29,
+        59.26,
+        59.27,
+        59.32
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 50.820506296908796,
+      "throughput_ratio": 0.6630398110661269,
+      "paired_percent": [
+        65.2251335538031,
+        49.62121212121211,
+        50.75006356470888,
+        50.94243504839531,
+        50.891038696537684,
+        50.94147582697202
+      ],
+      "parent_time_delta_percent": 0.2282525995435103,
+      "parent_throughput_ratio": 0.9977226720647773,
+      "parent_paired_percent": [
+        9.954291518537328,
+        0.10136847440447294,
+        0.28755074424899885,
+        0.1521041068108797,
+        0.11824324324325453,
+        0.4232266802099094
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkResidualGather16x16": {
+      "assembly_ns": 22.155,
+      "assembly_samples": [
+        22.16,
+        22.14,
+        22.16,
+        22.2,
+        22.15,
+        22.15
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 50.28,
+      "previous_samples": [
+        50.9,
+        50.26,
+        50.13,
+        50.27,
+        50.32,
+        50.29
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 50.275000000000006,
+      "simd_samples": [
+        50.27,
+        50.64,
+        50.45,
+        50.25,
+        50.13,
+        50.28
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 126.92394493342363,
+      "throughput_ratio": 0.4406762804574838,
+      "paired_percent": [
+        126.85018050541518,
+        128.72628726287263,
+        127.6624548736462,
+        126.35135135135135,
+        126.32054176072236,
+        126.99774266365691
+      ],
+      "parent_time_delta_percent": -0.009944311853615773,
+      "parent_throughput_ratio": 1.0000994530084535,
+      "parent_paired_percent": [
+        -1.2377210216109935,
+        0.7560684440907295,
+        0.63834031518053,
+        -0.039785160135275,
+        -0.3775834658187538,
+        -0.019884668920255866
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkResidualGather8x8": {
+      "assembly_ns": 9.9635,
+      "assembly_samples": [
+        9.836,
+        10.06,
+        9.975,
+        9.952,
+        10.15,
+        9.766
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 23.115000000000002,
+      "previous_samples": [
+        23.13,
+        23.12,
+        23.1,
+        23.11,
+        23.12,
+        23.08
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 23.085,
+      "simd_samples": [
+        23.13,
+        23.1,
+        23.06,
+        23.07,
+        23.07,
+        23.14
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 131.69568926582028,
+      "throughput_ratio": 0.4316006064544076,
+      "paired_percent": [
+        135.15656771045138,
+        129.62226640159048,
+        131.17794486215536,
+        131.81270096463024,
+        127.29064039408868,
+        136.9445013311489
+      ],
+      "parent_time_delta_percent": -0.12978585334199044,
+      "parent_throughput_ratio": 1.0012995451591944,
+      "parent_paired_percent": [
+        0.0,
+        -0.08650519031141446,
+        -0.17316017316018062,
+        -0.17308524448290674,
+        -0.21626297577854725,
+        0.25996533795495935
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkResidualGatherNative/16x16": {
+      "assembly_ns": 24.025,
+      "assembly_samples": [
+        24.09,
+        24.0,
+        24.04,
+        24.04,
+        24.01,
+        23.99
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 51.17,
+      "previous_samples": [
+        51.25,
+        51.19,
+        51.11,
+        51.14,
+        51.21,
+        51.15
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 51.504999999999995,
+      "simd_samples": [
+        51.51,
+        51.5,
+        52.35,
+        51.44,
+        51.4,
+        51.58
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 114.3808532778356,
+      "throughput_ratio": 0.466459567032327,
+      "paired_percent": [
+        113.82316313823165,
+        114.58333333333334,
+        117.76206322795342,
+        113.97670549084857,
+        114.07746772178258,
+        115.00625260525221
+      ],
+      "parent_time_delta_percent": 0.6546804768418957,
+      "parent_throughput_ratio": 0.9934957771090187,
+      "parent_paired_percent": [
+        0.5073170731707322,
+        0.6055870287165588,
+        2.4261396986891004,
+        0.5866249511145893,
+        0.37102128490529296,
+        0.8406647116324439
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkResidualGatherNative/8x8": {
+      "assembly_ns": 11.55,
+      "assembly_samples": [
+        11.56,
+        11.54,
+        11.53,
+        11.56,
+        11.54,
+        11.56
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 24.055,
+      "previous_samples": [
+        24.06,
+        24.04,
+        24.0,
+        24.06,
+        24.05,
+        24.11
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 24.335,
+      "simd_samples": [
+        24.35,
+        24.32,
+        24.35,
+        24.32,
+        24.3,
+        24.35
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 110.69264069264068,
+      "throughput_ratio": 0.4746250256831724,
+      "paired_percent": [
+        110.6401384083045,
+        110.74523396880416,
+        111.18820468343453,
+        110.38062283737023,
+        110.57192374350086,
+        110.6401384083045
+      ],
+      "parent_time_delta_percent": 1.1639991685720164,
+      "parent_throughput_ratio": 0.988493938771317,
+      "parent_paired_percent": [
+        1.2053200332502234,
+        1.1647254575707144,
+        1.4583333333333393,
+        1.0806317539484578,
+        1.039501039501034,
+        0.9954375777685653
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSAD16x16": {
+      "assembly_ns": 122.4,
+      "assembly_samples": [
+        122.4,
+        122.8,
+        122.5,
+        122.4,
+        122.4,
+        122.4
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 14.614999999999998,
+      "previous_samples": [
+        14.62,
+        14.61,
+        14.61,
+        14.83,
+        14.71,
+        14.61
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 14.705,
+      "simd_samples": [
+        14.72,
+        14.84,
+        14.68,
+        14.69,
+        14.69,
+        14.72
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -87.98611111111111,
+      "throughput_ratio": 8.323699421965319,
+      "paired_percent": [
+        -87.97385620915033,
+        -87.91530944625407,
+        -88.01632653061225,
+        -87.99836601307189,
+        -87.99836601307189,
+        -87.97385620915033
+      ],
+      "parent_time_delta_percent": 0.6158056790968258,
+      "parent_throughput_ratio": 0.9938796327779665,
+      "parent_paired_percent": [
+        0.6839945280437965,
+        1.5742642026009612,
+        0.4791238877481119,
+        -0.9440323668240103,
+        -0.13596193065942286,
+        0.7529089664613409
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSAD16x16LimitEarly": {
+      "assembly_ns": 4.37,
+      "assembly_samples": [
+        4.382,
+        4.364,
+        4.369,
+        4.372,
+        4.366,
+        4.371
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 8.736,
+      "previous_samples": [
+        9.238,
+        8.743,
+        8.725,
+        8.729,
+        8.727,
+        8.877
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 8.7325,
+      "simd_samples": [
+        8.743,
+        8.735,
+        8.728,
+        8.727,
+        8.73,
+        8.743
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 99.82837528604118,
+      "throughput_ratio": 0.5004294302891498,
+      "paired_percent": [
+        99.52076677316298,
+        100.16040329972502,
+        99.77111467154955,
+        99.61116193961574,
+        99.95419147961525,
+        100.0228780599405
+      ],
+      "parent_time_delta_percent": -0.04006410256410797,
+      "parent_throughput_ratio": 1.0004008016032064,
+      "parent_paired_percent": [
+        -5.3583026629140385,
+        -0.09150177284685812,
+        0.034383954154737495,
+        -0.022912131973862326,
+        0.034376074252318034,
+        -1.5095189816379473
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSAD16x16x4LimitPtrFastFull": {
+      "assembly_ns": 52.415,
+      "assembly_samples": [
+        52.37,
+        52.61,
+        52.33,
+        52.52,
+        52.39,
+        52.44
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 100.95,
+      "previous_samples": [
+        101.0,
+        101.0,
+        100.9,
+        100.9,
+        100.8,
+        104.6
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 101.25,
+      "simd_samples": [
+        101.3,
+        101.2,
+        101.2,
+        101.3,
+        101.1,
+        101.4
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 93.16989411428027,
+      "throughput_ratio": 0.517679012345679,
+      "paired_percent": [
+        93.43135382852779,
+        92.35886713552557,
+        93.38811389260464,
+        92.87890327494286,
+        92.97575873258255,
+        93.36384439359269
+      ],
+      "parent_time_delta_percent": 0.2971768202080227,
+      "parent_throughput_ratio": 0.997037037037037,
+      "parent_paired_percent": [
+        0.2970297029702973,
+        0.1980198019801982,
+        0.29732408325073845,
+        0.3964321110009772,
+        0.29761904761904656,
+        -3.0592734225621254
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSSE16x16": {
+      "assembly_ns": 239.64999999999998,
+      "assembly_samples": [
+        238.0,
+        239.6,
+        241.2,
+        239.7,
+        239.7,
+        239.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 33.2,
+      "previous_samples": [
+        33.22,
+        33.2,
+        33.2,
+        33.17,
+        33.16,
+        33.22
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 33.315,
+      "simd_samples": [
+        33.24,
+        33.34,
+        33.32,
+        33.54,
+        33.31,
+        33.3
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -86.09847694554558,
+      "throughput_ratio": 7.193456401020561,
+      "paired_percent": [
+        -86.03361344537815,
+        -86.08514190317196,
+        -86.18573797678275,
+        -86.00750938673342,
+        -86.1034626616604,
+        -86.09603340292276
+      ],
+      "parent_time_delta_percent": 0.346385542168659,
+      "parent_throughput_ratio": 0.9965481014558009,
+      "parent_paired_percent": [
+        0.060204695966303845,
+        0.42168674698794817,
+        0.3614457831325302,
+        1.1154657823334357,
+        0.4523522316043582,
+        0.24081878386512656
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSSE16x720PtrFast": {
+      "assembly_ns": 1172.5,
+      "assembly_samples": [
+        1166.0,
+        1194.0,
+        1168.0,
+        1180.0,
+        1177.0,
+        1165.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 1589.0,
+      "previous_samples": [
+        1585.0,
+        1594.0,
+        1578.0,
+        1603.0,
+        1588.0,
+        1590.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 1600.0,
+      "simd_samples": [
+        1597.0,
+        1602.0,
+        1601.0,
+        1597.0,
+        1608.0,
+        1599.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 36.46055437100213,
+      "throughput_ratio": 0.7328125,
+      "paired_percent": [
+        36.9639794168096,
+        34.170854271356774,
+        37.07191780821917,
+        35.33898305084746,
+        36.61852166525064,
+        37.253218884120166
+      ],
+      "parent_time_delta_percent": 0.6922592825676421,
+      "parent_throughput_ratio": 0.993125,
+      "parent_paired_percent": [
+        0.7570977917981114,
+        0.5018820577164407,
+        1.4575411913815062,
+        -0.37429819089207506,
+        1.2594458438287104,
+        0.5660377358490676
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSSE8x8": {
+      "assembly_ns": 11.87,
+      "assembly_samples": [
+        11.93,
+        11.86,
+        13.63,
+        11.86,
+        11.87,
+        11.87
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 18.39,
+      "previous_samples": [
+        18.39,
+        18.39,
+        18.38,
+        18.42,
+        18.39,
+        18.39
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 18.415,
+      "simd_samples": [
+        18.39,
+        18.4,
+        18.43,
+        18.39,
+        18.43,
+        18.43
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 55.139005897219896,
+      "throughput_ratio": 0.6445832202009232,
+      "paired_percent": [
+        54.14920368818106,
+        55.14333895446879,
+        35.21643433602346,
+        55.05902192242835,
+        55.26537489469252,
+        55.26537489469252
+      ],
+      "parent_time_delta_percent": 0.13594344752583254,
+      "parent_throughput_ratio": 0.9986424110779257,
+      "parent_paired_percent": [
+        0.0,
+        0.054377379010328575,
+        0.2720348204570122,
+        -0.16286644951141183,
+        0.2175095160413143,
+        0.2175095160413143
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/16x16/0,4": {
+      "assembly_ns": 704.25,
+      "assembly_samples": [
+        706.4,
+        703.7,
+        704.3,
+        704.6,
+        704.2,
+        703.4
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 297.75,
+      "previous_samples": [
+        297.8,
+        298.3,
+        297.7,
+        297.5,
+        297.6,
+        298.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 142.35000000000002,
+      "simd_samples": [
+        142.4,
+        142.5,
+        142.2,
+        142.3,
+        142.3,
+        142.5
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -79.78700745473908,
+      "throughput_ratio": 4.9473129610115905,
+      "paired_percent": [
+        -79.841449603624,
+        -79.74989342049169,
+        -79.80974016754224,
+        -79.8041441952881,
+        -79.79267253621131,
+        -79.74125675291441
+      ],
+      "parent_time_delta_percent": -52.191435768261954,
+      "parent_throughput_ratio": 2.091675447839831,
+      "parent_paired_percent": [
+        -52.18267293485561,
+        -52.22929936305732,
+        -52.23379240846491,
+        -52.168067226890756,
+        -52.18413978494624,
+        -52.18120805369127
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/16x16/2,4": {
+      "assembly_ns": 704.2,
+      "assembly_samples": [
+        703.9,
+        704.3,
+        705.7,
+        703.7,
+        705.3,
+        704.1
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 513.8,
+      "previous_samples": [
+        513.9,
+        514.3,
+        513.5,
+        514.4,
+        513.7,
+        513.1
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 350.75,
+      "simd_samples": [
+        350.3,
+        350.6,
+        351.0,
+        350.5,
+        356.8,
+        350.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -50.191706901448455,
+      "throughput_ratio": 2.007697790449038,
+      "paired_percent": [
+        -50.234408296633035,
+        -50.22007667187278,
+        -50.26215105568939,
+        -50.19184311496376,
+        -49.41159790160216,
+        -50.163329072574925
+      ],
+      "parent_time_delta_percent": -31.734137796808092,
+      "parent_throughput_ratio": 1.4648610121168923,
+      "parent_paired_percent": [
+        -31.83498735162482,
+        -31.829671398016714,
+        -31.645569620253166,
+        -31.862363919129077,
+        -30.543118551683868,
+        -31.61177158448646
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/16x16/3,5": {
+      "assembly_ns": 703.6500000000001,
+      "assembly_samples": [
+        703.6,
+        703.7,
+        704.4,
+        703.3,
+        704.2,
+        703.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 449.75,
+      "previous_samples": [
+        449.6,
+        449.9,
+        450.3,
+        448.8,
+        449.6,
+        451.2
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 321.35,
+      "simd_samples": [
+        321.2,
+        320.8,
+        321.5,
+        321.4,
+        326.9,
+        321.3
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -54.33098841753713,
+      "throughput_ratio": 2.189668585654271,
+      "paired_percent": [
+        -54.34906196702672,
+        -54.41239164416656,
+        -54.358319136854064,
+        -54.301151713351345,
+        -53.57852882703777,
+        -54.32835820895523
+      ],
+      "parent_time_delta_percent": -28.549193996664812,
+      "parent_throughput_ratio": 1.3995643379492764,
+      "parent_paired_percent": [
+        -28.558718861209975,
+        -28.69526561458101,
+        -28.603153453253395,
+        -28.386809269162217,
+        -27.29092526690392,
+        -28.789893617021267
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/16x16/4,0": {
+      "assembly_ns": 704.2,
+      "assembly_samples": [
+        705.9,
+        704.0,
+        704.3,
+        704.1,
+        704.4,
+        703.7
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 171.3,
+      "previous_samples": [
+        171.3,
+        171.5,
+        170.8,
+        171.3,
+        171.4,
+        171.1
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 168.75,
+      "simd_samples": [
+        168.7,
+        168.5,
+        168.7,
+        169.0,
+        168.8,
+        168.8
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -76.03663731894348,
+      "throughput_ratio": 4.173037037037037,
+      "paired_percent": [
+        -76.1014307975634,
+        -76.0653409090909,
+        -76.04713900326566,
+        -75.997727595512,
+        -76.03634298693925,
+        -76.01250532897541
+      ],
+      "parent_time_delta_percent": -1.4886164623467701,
+      "parent_throughput_ratio": 1.015111111111111,
+      "parent_paired_percent": [
+        -1.517805020432006,
+        -1.7492711370262426,
+        -1.2295081967213295,
+        -1.3426736719206134,
+        -1.516919486581092,
+        -1.3442431326709414
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/0,4": {
+      "assembly_ns": 36.605000000000004,
+      "assembly_samples": [
+        36.65,
+        36.55,
+        36.74,
+        36.62,
+        36.53,
+        36.59
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 60.845,
+      "previous_samples": [
+        64.86,
+        60.92,
+        60.87,
+        60.82,
+        60.82,
+        60.82
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 60.875,
+      "simd_samples": [
+        60.79,
+        60.88,
+        60.89,
+        60.83,
+        60.87,
+        61.03
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 66.30241770249965,
+      "throughput_ratio": 0.6013141683778235,
+      "paired_percent": [
+        65.86630286493862,
+        66.56634746922028,
+        65.73217201959716,
+        66.11141452758056,
+        66.63016698603886,
+        66.79420606723147
+      ],
+      "parent_time_delta_percent": 0.04930561262224131,
+      "parent_throughput_ratio": 0.9995071868583162,
+      "parent_paired_percent": [
+        -6.275053962380516,
+        -0.06565988181220783,
+        0.032856908164946574,
+        0.016441959881619006,
+        0.08220979940809503,
+        0.3452811575139769
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/2,4": {
+      "assembly_ns": 36.59,
+      "assembly_samples": [
+        36.69,
+        36.59,
+        36.59,
+        36.76,
+        36.55,
+        36.54
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 125.1,
+      "previous_samples": [
+        125.4,
+        125.2,
+        125.0,
+        125.0,
+        125.0,
+        125.2
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 122.7,
+      "simd_samples": [
+        122.5,
+        123.7,
+        122.5,
+        122.7,
+        122.7,
+        122.8
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 235.33752391363757,
+      "throughput_ratio": 0.2982070089649552,
+      "paired_percent": [
+        233.878440992096,
+        238.07051106859794,
+        234.7909264826455,
+        233.7867247007617,
+        235.70451436388512,
+        236.07006020799128
+      ],
+      "parent_time_delta_percent": -1.9184652278177339,
+      "parent_throughput_ratio": 1.0195599022004889,
+      "parent_paired_percent": [
+        -2.3125996810207328,
+        -1.198083067092648,
+        -2.0000000000000018,
+        -1.8399999999999972,
+        -1.8399999999999972,
+        -1.9169329073482455
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/3,5": {
+      "assembly_ns": 36.644999999999996,
+      "assembly_samples": [
+        36.94,
+        36.65,
+        36.59,
+        36.64,
+        36.68,
+        36.55
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 116.15,
+      "previous_samples": [
+        116.1,
+        116.3,
+        117.4,
+        115.9,
+        116.0,
+        116.2
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 113.15,
+      "simd_samples": [
+        113.1,
+        132.8,
+        113.1,
+        113.1,
+        113.3,
+        113.2
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 208.7733660799564,
+      "throughput_ratio": 0.3238621299160406,
+      "paired_percent": [
+        206.17217108825122,
+        262.3465211459755,
+        209.10084722601798,
+        208.67903930131004,
+        208.8876772082879,
+        209.71272229822168
+      ],
+      "parent_time_delta_percent": -2.582866982350407,
+      "parent_throughput_ratio": 1.0265134776844895,
+      "parent_paired_percent": [
+        -2.5839793281653756,
+        14.187446259673276,
+        -3.662691652470196,
+        -2.415875754961183,
+        -2.327586206896559,
+        -2.5817555938037917
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/4x4/4,0": {
+      "assembly_ns": 36.67,
+      "assembly_samples": [
+        36.68,
+        36.68,
+        37.13,
+        36.66,
+        36.58,
+        36.55
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 43.64,
+      "previous_samples": [
+        44.07,
+        43.67,
+        43.57,
+        43.56,
+        43.72,
+        43.61
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 41.885000000000005,
+      "simd_samples": [
+        42.28,
+        41.83,
+        41.88,
+        41.93,
+        41.74,
+        41.89
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 14.221434415053192,
+      "throughput_ratio": 0.8754924197206636,
+      "paired_percent": [
+        15.267175572519086,
+        14.040348964013072,
+        12.792889846485323,
+        14.37534097108566,
+        14.106068890103884,
+        14.61012311901506
+      ],
+      "parent_time_delta_percent": -4.021539871677349,
+      "parent_throughput_ratio": 1.0419004416855675,
+      "parent_paired_percent": [
+        -4.061719990923529,
+        -4.213418822990622,
+        -3.878815698875371,
+        -3.7419651056014747,
+        -4.528819762122593,
+        -3.9440495299243317
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/8x8/0,4": {
+      "assembly_ns": 71.50999999999999,
+      "assembly_samples": [
+        71.42,
+        71.45,
+        71.5,
+        71.55,
+        71.6,
+        71.52
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 93.935,
+      "previous_samples": [
+        94.02,
+        94.08,
+        93.84,
+        93.93,
+        93.86,
+        93.94
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 57.745000000000005,
+      "simd_samples": [
+        58.59,
+        57.67,
+        57.62,
+        57.75,
+        57.74,
+        57.75
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -19.249056076073256,
+      "throughput_ratio": 1.238375616936531,
+      "paired_percent": [
+        -17.964155698683836,
+        -19.286214135759273,
+        -19.412587412587413,
+        -19.287211740041922,
+        -19.357541899441333,
+        -19.253355704697984
+      ],
+      "parent_time_delta_percent": -38.526640762229206,
+      "parent_throughput_ratio": 1.6267209282188932,
+      "parent_paired_percent": [
+        -37.68347160178684,
+        -38.70110544217687,
+        -38.597612958226776,
+        -38.51804535292239,
+        -38.482846793096094,
+        -38.52459016393443
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/8x8/2,4": {
+      "assembly_ns": 71.535,
+      "assembly_samples": [
+        71.53,
+        71.34,
+        71.55,
+        71.54,
+        71.52,
+        72.95
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 178.55,
+      "previous_samples": [
+        178.5,
+        179.1,
+        178.6,
+        178.4,
+        178.4,
+        179.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 139.5,
+      "simd_samples": [
+        140.1,
+        139.5,
+        139.5,
+        139.5,
+        139.5,
+        139.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 95.00943594044875,
+      "throughput_ratio": 0.5127956989247312,
+      "paired_percent": [
+        95.86187613588703,
+        95.54247266610597,
+        94.9685534591195,
+        94.99580654179478,
+        95.0503355704698,
+        91.77518848526387
+      ],
+      "parent_time_delta_percent": -21.870624474936996,
+      "parent_throughput_ratio": 1.2799283154121865,
+      "parent_paired_percent": [
+        -21.51260504201681,
+        -22.11055276381909,
+        -21.892497200447924,
+        -21.804932735426007,
+        -21.804932735426007,
+        -21.84357541899441
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/8x8/3,5": {
+      "assembly_ns": 71.53,
+      "assembly_samples": [
+        71.45,
+        71.42,
+        71.81,
+        71.59,
+        71.53,
+        71.53
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 165.1,
+      "previous_samples": [
+        165.1,
+        165.4,
+        166.5,
+        164.9,
+        165.0,
+        165.1
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 131.25,
+      "simd_samples": [
+        131.0,
+        131.7,
+        131.1,
+        131.1,
+        131.5,
+        131.4
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 83.48944498811687,
+      "throughput_ratio": 0.5449904761904762,
+      "paired_percent": [
+        83.34499650104968,
+        84.40212825539062,
+        82.56510235343266,
+        83.12613493504676,
+        83.83894869285615,
+        83.69914721096043
+      ],
+      "parent_time_delta_percent": -20.50272562083585,
+      "parent_throughput_ratio": 1.2579047619047619,
+      "parent_paired_percent": [
+        -20.654149000605692,
+        -20.374848851269654,
+        -21.261261261261268,
+        -20.49727107337781,
+        -20.3030303030303,
+        -20.411871592973952
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSixTapPhases/8x8/4,0": {
+      "assembly_ns": 71.565,
+      "assembly_samples": [
+        71.54,
+        71.59,
+        71.44,
+        71.61,
+        71.63,
+        71.47
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 64.07499999999999,
+      "previous_samples": [
+        64.09,
+        64.07,
+        64.07,
+        64.17,
+        63.98,
+        64.08
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 61.629999999999995,
+      "simd_samples": [
+        61.99,
+        61.68,
+        61.5,
+        61.61,
+        61.62,
+        61.64
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -13.882484454691546,
+      "throughput_ratio": 1.1612039591108227,
+      "paired_percent": [
+        -13.349175286552983,
+        -13.842715463053501,
+        -13.913773796192608,
+        -13.964530093562356,
+        -13.974591651542646,
+        -13.754022666853228
+      ],
+      "parent_time_delta_percent": -3.815840811548954,
+      "parent_throughput_ratio": 1.0396722375466492,
+      "parent_paired_percent": [
+        -3.276642221875492,
+        -3.730294989854832,
+        -4.011237708756033,
+        -3.989403147888426,
+        -3.6886527039699857,
+        -3.8077403245942554
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/16x8": {
+      "assembly_ns": 1590.0,
+      "assembly_samples": [
+        1590.0,
+        1590.0,
+        1591.0,
+        1590.0,
+        1591.0,
+        1590.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 46.004999999999995,
+      "previous_samples": [
+        46.04,
+        46.05,
+        45.98,
+        46.01,
+        46.0,
+        45.9
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 45.435,
+      "simd_samples": [
+        45.55,
+        45.42,
+        45.39,
+        45.41,
+        45.45,
+        45.46
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -97.14245283018867,
+      "throughput_ratio": 34.99504787058435,
+      "paired_percent": [
+        -97.13522012578616,
+        -97.14339622641509,
+        -97.147077309868,
+        -97.1440251572327,
+        -97.14330609679448,
+        -97.14088050314466
+      ],
+      "parent_time_delta_percent": -1.238995761330275,
+      "parent_throughput_ratio": 1.0125453945196432,
+      "parent_paired_percent": [
+        -1.0642919200695045,
+        -1.3680781758957594,
+        -1.28316659417137,
+        -1.3040643338404712,
+        -1.1956521739130421,
+        -0.9586056644880103
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/4x4": {
+      "assembly_ns": 47.0,
+      "assembly_samples": [
+        47.08,
+        46.97,
+        47.03,
+        46.97,
+        47.14,
+        46.71
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 21.85,
+      "previous_samples": [
+        21.92,
+        21.84,
+        21.86,
+        21.84,
+        21.82,
+        21.96
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 21.925,
+      "simd_samples": [
+        21.88,
+        21.89,
+        24.69,
+        21.89,
+        21.96,
+        22.15
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -53.35106382978723,
+      "throughput_ratio": 2.143671607753706,
+      "paired_percent": [
+        -53.525913338997455,
+        -53.39578454332552,
+        -47.50159472677014,
+        -53.39578454332552,
+        -53.41535850657615,
+        -52.57974737743525
+      ],
+      "parent_time_delta_percent": 0.3432494279176135,
+      "parent_throughput_ratio": 0.9965792474344356,
+      "parent_paired_percent": [
+        -0.18248175182482562,
+        0.22893772893772812,
+        12.94602012808783,
+        0.22893772893772812,
+        0.6416131989001039,
+        0.8652094717668479
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/4x8": {
+      "assembly_ns": 51.465,
+      "assembly_samples": [
+        51.94,
+        51.41,
+        51.54,
+        51.42,
+        51.48,
+        51.45
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 31.655,
+      "previous_samples": [
+        31.67,
+        31.64,
+        31.64,
+        31.64,
+        31.67,
+        32.14
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 32.58,
+      "simd_samples": [
+        33.91,
+        32.57,
+        32.61,
+        32.57,
+        32.59,
+        32.57
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -36.69484115418247,
+      "throughput_ratio": 1.5796500920810315,
+      "paired_percent": [
+        -34.71313053523296,
+        -36.64656681579459,
+        -36.72875436554133,
+        -36.65888759237651,
+        -36.693861693861685,
+        -36.695821185617106
+      ],
+      "parent_time_delta_percent": 2.9221292054967485,
+      "parent_throughput_ratio": 0.971608348680172,
+      "parent_paired_percent": [
+        7.072939690558866,
+        2.939317319848289,
+        3.0657395701643386,
+        2.939317319848289,
+        2.9049573729081235,
+        1.3378967019290533
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/8x16": {
+      "assembly_ns": 1052.0,
+      "assembly_samples": [
+        1050.0,
+        1052.0,
+        1052.0,
+        1052.0,
+        1052.0,
+        1051.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 49.66,
+      "previous_samples": [
+        49.66,
+        49.72,
+        49.62,
+        49.7,
+        49.66,
+        49.63
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 49.644999999999996,
+      "simd_samples": [
+        53.1,
+        49.64,
+        50.59,
+        49.56,
+        49.64,
+        49.65
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -95.28089353612167,
+      "throughput_ratio": 21.19045221069594,
+      "paired_percent": [
+        -94.94285714285714,
+        -95.28136882129277,
+        -95.19106463878327,
+        -95.28897338403041,
+        -95.28136882129277,
+        -95.27592768791628
+      ],
+      "parent_time_delta_percent": -0.03020539669754685,
+      "parent_throughput_ratio": 1.0003021452311411,
+      "parent_paired_percent": [
+        6.927104309303278,
+        -0.16090104585679832,
+        1.9548569125352744,
+        -0.28169014084507005,
+        -0.0402738622633847,
+        0.04029820672979412
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/8x4": {
+      "assembly_ns": 46.845,
+      "assembly_samples": [
+        46.86,
+        47.14,
+        46.88,
+        46.72,
+        46.83,
+        46.79
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 23.060000000000002,
+      "previous_samples": [
+        23.14,
+        23.01,
+        23.12,
+        22.94,
+        22.97,
+        23.11
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 23.2,
+      "simd_samples": [
+        23.15,
+        23.2,
+        23.15,
+        23.23,
+        23.2,
+        23.24
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -50.474970647881314,
+      "throughput_ratio": 2.0191810344827585,
+      "paired_percent": [
+        -50.59752454118651,
+        -50.784896054306316,
+        -50.618600682593865,
+        -50.27825342465753,
+        -50.45910740978006,
+        -50.33126736482154
+      ],
+      "parent_time_delta_percent": 0.6071118820468291,
+      "parent_throughput_ratio": 0.9939655172413795,
+      "parent_paired_percent": [
+        0.043215211754521476,
+        0.8257279443720122,
+        0.1297577854671106,
+        1.2641673931996555,
+        1.0013060513713645,
+        0.5625270445694497
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkSplitSubpelPhases/8x8": {
+      "assembly_ns": 52.35,
+      "assembly_samples": [
+        52.36,
+        52.33,
+        52.65,
+        52.34,
+        52.38,
+        52.33
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 31.97,
+      "previous_samples": [
+        31.98,
+        31.97,
+        31.97,
+        32.04,
+        31.97,
+        31.96
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 32.004999999999995,
+      "simd_samples": [
+        31.98,
+        32.0,
+        32.24,
+        31.94,
+        32.02,
+        32.01
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -38.863419293218726,
+      "throughput_ratio": 1.635681924699266,
+      "paired_percent": [
+        -38.92284186401833,
+        -38.84960825530288,
+        -38.76543209876543,
+        -38.975926633549875,
+        -38.86979763268423,
+        -38.83049875788267
+      ],
+      "parent_time_delta_percent": 0.10947763528306176,
+      "parent_throughput_ratio": 0.9989064208717389,
+      "parent_paired_percent": [
+        0.0,
+        0.09383797309978625,
+        0.8445417578980319,
+        -0.3121098626716501,
+        0.1563966218329771,
+        0.15644555694618312
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/dsp/BenchmarkVariance16x16Native": {
+      "assembly_ns": 240.8,
+      "assembly_samples": [
+        239.5,
+        240.9,
+        241.0,
+        240.6,
+        241.0,
+        240.7
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 70.18,
+      "previous_samples": [
+        70.18,
+        70.18,
+        70.07,
+        70.19,
+        70.16,
+        70.21
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 26.495,
+      "simd_samples": [
+        27.74,
+        26.44,
+        29.04,
+        26.48,
+        26.48,
+        26.51
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -88.99709302325581,
+      "throughput_ratio": 9.088507265521796,
+      "paired_percent": [
+        -88.41753653444677,
+        -89.02449149024491,
+        -87.95020746887967,
+        -88.99418121363259,
+        -89.0124481327801,
+        -88.98628998753635
+      ],
+      "parent_time_delta_percent": -62.24707893986891,
+      "parent_throughput_ratio": 2.6488016606906966,
+      "parent_paired_percent": [
+        -60.473069250498725,
+        -62.32544884582503,
+        -58.55572998430141,
+        -62.273828180652515,
+        -62.25769669327252,
+        -62.24184589089873
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks1": {
+      "assembly_ns": 9.9985,
+      "assembly_samples": [
+        9.998,
+        9.978,
+        10.01,
+        10.07,
+        9.987,
+        9.999
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 15.87,
+      "previous_samples": [
+        15.88,
+        15.83,
+        15.87,
+        15.89,
+        15.87,
+        15.82
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 16.395,
+      "simd_samples": [
+        16.42,
+        16.35,
+        16.57,
+        16.38,
+        16.41,
+        16.35
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 63.974596189428404,
+      "throughput_ratio": 0.6098505641964014,
+      "paired_percent": [
+        64.23284656931389,
+        63.86049308478654,
+        65.53446553446554,
+        62.66137040714994,
+        64.31360768999699,
+        63.51635163516352
+      ],
+      "parent_time_delta_percent": 3.3081285444234387,
+      "parent_throughput_ratio": 0.9679780420860018,
+      "parent_paired_percent": [
+        3.400503778337538,
+        3.2849020846493993,
+        4.410838059231259,
+        3.083700440528614,
+        3.402646502835549,
+        3.3501896333754777
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks16": {
+      "assembly_ns": 59.379999999999995,
+      "assembly_samples": [
+        59.4,
+        59.25,
+        59.44,
+        59.36,
+        59.59,
+        59.35
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 174.35000000000002,
+      "previous_samples": [
+        174.4,
+        174.2,
+        175.9,
+        174.3,
+        174.0,
+        174.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 59.485,
+      "simd_samples": [
+        60.81,
+        59.37,
+        59.59,
+        59.5,
+        59.41,
+        59.47
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 0.17682721455036798,
+      "throughput_ratio": 0.9982348491216272,
+      "paired_percent": [
+        2.3737373737373835,
+        0.20253164556962577,
+        0.25235531628533536,
+        0.2358490566037652,
+        -0.30206410471557144,
+        0.20219039595619215
+      ],
+      "parent_time_delta_percent": -65.88184685976485,
+      "parent_throughput_ratio": 2.930991006136001,
+      "parent_paired_percent": [
+        -65.13188073394495,
+        -65.91848450057405,
+        -66.12279704377487,
+        -65.86345381526104,
+        -65.85632183908045,
+        -65.91977077363897
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks2": {
+      "assembly_ns": 12.8,
+      "assembly_samples": [
+        12.79,
+        12.97,
+        12.79,
+        12.8,
+        12.8,
+        12.81
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 25.619999999999997,
+      "previous_samples": [
+        25.61,
+        25.63,
+        25.66,
+        25.59,
+        25.56,
+        25.64
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 26.22,
+      "simd_samples": [
+        26.19,
+        26.22,
+        26.43,
+        26.22,
+        26.3,
+        26.22
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 104.84374999999999,
+      "throughput_ratio": 0.48817696414950423,
+      "paired_percent": [
+        104.76935105551215,
+        102.15882806476482,
+        106.64581704456606,
+        104.84374999999999,
+        105.46875,
+        104.68384074941453
+      ],
+      "parent_time_delta_percent": 2.3419203747072626,
+      "parent_throughput_ratio": 0.977116704805492,
+      "parent_paired_percent": [
+        2.2647403358063256,
+        2.3019898556379204,
+        3.000779423226807,
+        2.4618991793669442,
+        2.8951486697965656,
+        2.262090483619339
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks25": {
+      "assembly_ns": 89.08,
+      "assembly_samples": [
+        89.1,
+        88.93,
+        88.87,
+        89.72,
+        89.06,
+        89.15
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 277.7,
+      "previous_samples": [
+        277.7,
+        277.9,
+        277.8,
+        276.8,
+        277.2,
+        277.7
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 85.12,
+      "simd_samples": [
+        85.36,
+        85.09,
+        85.37,
+        85.1,
+        85.14,
+        85.1
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -4.445442299057023,
+      "throughput_ratio": 1.0465225563909775,
+      "paired_percent": [
+        -4.19753086419753,
+        -4.318002923647812,
+        -3.938336896590522,
+        -5.149353544360236,
+        -4.401527060408716,
+        -4.5429052159282275
+      ],
+      "parent_time_delta_percent": -69.34821750090026,
+      "parent_throughput_ratio": 3.2624530075187965,
+      "parent_paired_percent": [
+        -69.26179330212459,
+        -69.38107232817559,
+        -69.26925845932325,
+        -69.2557803468208,
+        -69.28571428571428,
+        -69.3554195174649
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBatchNative/blocks8": {
+      "assembly_ns": 33.03,
+      "assembly_samples": [
+        32.97,
+        33.0,
+        33.87,
+        33.08,
+        33.0,
+        33.06
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 89.305,
+      "previous_samples": [
+        89.33,
+        89.32,
+        89.29,
+        89.25,
+        89.14,
+        89.42
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 36.315,
+      "simd_samples": [
+        36.37,
+        36.29,
+        36.51,
+        36.27,
+        36.33,
+        36.3
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 9.945504087193457,
+      "throughput_ratio": 0.9095415117719952,
+      "paired_percent": [
+        10.312405216863807,
+        9.969696969696962,
+        7.794508414526136,
+        9.643288996372457,
+        10.090909090909083,
+        9.800362976406518
+      ],
+      "parent_time_delta_percent": -59.33598342757964,
+      "parent_throughput_ratio": 2.4591766487677273,
+      "parent_paired_percent": [
+        -59.28579424605396,
+        -59.37080161218091,
+        -59.11076268339121,
+        -59.36134453781512,
+        -59.24388602198789,
+        -59.40505479758444
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkFastQuantizeBlockSIMD": {
+      "assembly_ns": 6.8835,
+      "assembly_samples": [
+        6.879,
+        6.861,
+        6.888,
+        6.884,
+        6.887,
+        6.883
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 7.8045,
+      "previous_samples": [
+        7.802,
+        7.807,
+        7.794,
+        7.835,
+        7.792,
+        7.808
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 7.7985,
+      "simd_samples": [
+        7.803,
+        7.791,
+        7.813,
+        7.797,
+        7.8,
+        7.789
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 13.292656352146448,
+      "throughput_ratio": 0.8826697441815734,
+      "paired_percent": [
+        13.432184910597478,
+        13.554875382597299,
+        13.429152148664336,
+        13.262638001162097,
+        13.25686075214172,
+        13.162865029783521
+      ],
+      "parent_time_delta_percent": -0.07687872381318961,
+      "parent_throughput_ratio": 1.0007693787266783,
+      "parent_paired_percent": [
+        0.012817226352224154,
+        -0.20494428077366678,
+        0.2437772645624836,
+        -0.4850031908104735,
+        0.10266940451746365,
+        -0.2433401639344246
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkForwardDCT4x4SIMD": {
+      "assembly_ns": 8.7485,
+      "assembly_samples": [
+        8.751,
+        8.759,
+        8.737,
+        8.746,
+        8.739,
+        8.754
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 15.28,
+      "previous_samples": [
+        15.27,
+        15.27,
+        15.68,
+        15.31,
+        15.23,
+        15.29
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 15.27,
+      "simd_samples": [
+        15.27,
+        15.27,
+        15.31,
+        15.23,
+        15.26,
+        15.28
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 74.54420757844203,
+      "throughput_ratio": 0.572920759659463,
+      "paired_percent": [
+        74.49434350359961,
+        74.33496974540472,
+        75.2317729197665,
+        74.13674822776126,
+        74.61952168440322,
+        74.54877770162211
+      ],
+      "parent_time_delta_percent": -0.06544502617801262,
+      "parent_throughput_ratio": 1.0006548788474132,
+      "parent_paired_percent": [
+        0.0,
+        0.0,
+        -2.359693877551017,
+        -0.5225342913128705,
+        0.1969796454366346,
+        -0.06540222367560355
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp8/encoder/BenchmarkForwardDCTBatchResidual25": {
+      "assembly_ns": 217.05,
+      "assembly_samples": [
+        217.2,
+        217.0,
+        216.9,
+        217.1,
+        217.0,
+        217.7
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 215.95,
+      "previous_samples": [
+        215.9,
+        217.1,
+        216.0,
+        215.9,
+        215.6,
+        216.6
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 216.4,
+      "simd_samples": [
+        216.3,
+        216.5,
+        216.8,
+        216.4,
+        216.4,
+        216.2
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -0.2994701681640177,
+      "throughput_ratio": 1.003003696857671,
+      "paired_percent": [
+        -0.4143646408839685,
+        -0.23041474654378336,
+        -0.04610419548178868,
+        -0.32243205895899907,
+        -0.2764976958525289,
+        -0.6890215893431306
+      ],
+      "parent_time_delta_percent": 0.20838156980782507,
+      "parent_throughput_ratio": 0.9979205175600738,
+      "parent_paired_percent": [
+        0.18527095877720612,
+        -0.2763703362505754,
+        0.37037037037037646,
+        0.23158869847150765,
+        0.37105751391466324,
+        -0.1846722068328699
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkAvg8x8Quad": {
+      "assembly_ns": 69.05,
+      "assembly_samples": [
+        68.96,
+        69.16,
+        71.16,
+        69.08,
+        69.02,
+        69.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 19.785,
+      "previous_samples": [
+        19.78,
+        19.75,
+        19.79,
+        19.8,
+        19.75,
+        19.79
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 19.83,
+      "simd_samples": [
+        19.77,
+        19.92,
+        19.86,
+        19.75,
+        19.81,
+        19.85
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -71.28167994207097,
+      "throughput_ratio": 3.482097831568331,
+      "paired_percent": [
+        -71.33120649651971,
+        -71.19722382880278,
+        -72.09106239460371,
+        -71.4099594672843,
+        -71.29817444219067,
+        -71.231884057971
+      ],
+      "parent_time_delta_percent": 0.22744503411673556,
+      "parent_throughput_ratio": 0.997730711043873,
+      "parent_paired_percent": [
+        -0.050556117290201374,
+        0.860759493670904,
+        0.3537139969681746,
+        -0.2525252525252597,
+        0.30379746835442756,
+        0.3031834259727306
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/16x1": {
+      "assembly_ns": 10.565,
+      "assembly_samples": [
+        10.73,
+        10.78,
+        10.52,
+        10.61,
+        10.49,
+        10.32
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 13.735,
+      "previous_samples": [
+        13.73,
+        13.74,
+        13.71,
+        13.79,
+        13.74,
+        13.71
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 13.1,
+      "simd_samples": [
+        13.11,
+        13.1,
+        13.11,
+        13.09,
+        13.1,
+        13.1
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 23.994320870799825,
+      "throughput_ratio": 0.8064885496183206,
+      "paired_percent": [
+        22.18080149114632,
+        21.52133580705009,
+        24.61977186311788,
+        23.374175306314804,
+        24.880838894184933,
+        26.937984496124034
+      ],
+      "parent_time_delta_percent": -4.6232253367309735,
+      "parent_throughput_ratio": 1.048473282442748,
+      "parent_paired_percent": [
+        -4.515659140568107,
+        -4.657933042212525,
+        -4.376367614879662,
+        -5.076142131979688,
+        -4.657933042212525,
+        -4.449307075127651
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/16x128": {
+      "assembly_ns": 1248.5,
+      "assembly_samples": [
+        1255.0,
+        1257.0,
+        1244.0,
+        1253.0,
+        1232.0,
+        1219.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 259.55,
+      "previous_samples": [
+        259.7,
+        259.5,
+        259.1,
+        259.6,
+        262.0,
+        259.2
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 258.20000000000005,
+      "simd_samples": [
+        258.4,
+        258.3,
+        258.5,
+        258.1,
+        257.9,
+        258.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -79.31918301962355,
+      "throughput_ratio": 4.835398915569325,
+      "paired_percent": [
+        -79.41035856573706,
+        -79.45107398568018,
+        -79.22025723472669,
+        -79.40143655227455,
+        -79.06655844155844,
+        -78.83511074651354
+      ],
+      "parent_time_delta_percent": -0.5201309959545264,
+      "parent_throughput_ratio": 1.0052285050348566,
+      "parent_paired_percent": [
+        -0.5005775895263853,
+        -0.46242774566473965,
+        -0.23157082207643231,
+        -0.5778120184899871,
+        -1.5648854961832104,
+        -0.4629629629629539
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/16x7": {
+      "assembly_ns": 72.985,
+      "assembly_samples": [
+        74.69,
+        73.41,
+        74.01,
+        72.56,
+        71.97,
+        72.08
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 26.21,
+      "previous_samples": [
+        26.23,
+        26.19,
+        26.16,
+        26.23,
+        26.23,
+        26.19
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 25.57,
+      "simd_samples": [
+        25.63,
+        25.57,
+        25.62,
+        25.57,
+        25.54,
+        25.57
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -64.96540385010618,
+      "throughput_ratio": 2.8543214704732107,
+      "paired_percent": [
+        -65.68483063328424,
+        -65.16823321073423,
+        -65.38305634373734,
+        -64.76019845644984,
+        -64.51299152424622,
+        -64.52552719200888
+      ],
+      "parent_time_delta_percent": -2.441816100724914,
+      "parent_throughput_ratio": 1.0250293312475558,
+      "parent_paired_percent": [
+        -2.287457110179192,
+        -2.3673157693776314,
+        -2.0642201834862317,
+        -2.5162028211971,
+        -2.6305756767060706,
+        -2.3673157693776314
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x1": {
+      "assembly_ns": 20.21,
+      "assembly_samples": [
+        20.03,
+        20.17,
+        20.72,
+        20.25,
+        20.14,
+        20.39
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 15.285,
+      "previous_samples": [
+        15.28,
+        15.3,
+        15.26,
+        15.3,
+        15.29,
+        15.25
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 14.655000000000001,
+      "simd_samples": [
+        14.67,
+        14.65,
+        14.67,
+        14.63,
+        14.65,
+        14.66
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -27.48639287481445,
+      "throughput_ratio": 1.379051518253156,
+      "paired_percent": [
+        -26.75986020968547,
+        -27.36737729300942,
+        -29.198841698841694,
+        -27.75308641975308,
+        -27.25918570009931,
+        -28.10201078960275
+      ],
+      "parent_time_delta_percent": -4.121687929342488,
+      "parent_throughput_ratio": 1.0429887410440122,
+      "parent_paired_percent": [
+        -3.9921465968586367,
+        -4.2483660130719025,
+        -3.8663171690694664,
+        -4.3790849673202565,
+        -4.185742315238706,
+        -3.868852459016392
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x128": {
+      "assembly_ns": 2467.5,
+      "assembly_samples": [
+        2459.0,
+        2486.0,
+        2467.0,
+        2468.0,
+        2443.0,
+        2483.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 372.25,
+      "previous_samples": [
+        372.2,
+        372.0,
+        372.4,
+        372.3,
+        372.2,
+        376.4
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 371.04999999999995,
+      "simd_samples": [
+        370.4,
+        373.8,
+        371.3,
+        370.3,
+        370.9,
+        371.2
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -84.96251266464031,
+      "throughput_ratio": 6.650047163455061,
+      "paired_percent": [
+        -84.93696624644164,
+        -84.96379726468221,
+        -84.94933117146331,
+        -84.99594813614262,
+        -84.81784690953745,
+        -85.05034232782924
+      ],
+      "parent_time_delta_percent": -0.32236400268638166,
+      "parent_throughput_ratio": 1.0032340654898262,
+      "parent_paired_percent": [
+        -0.4836109618484685,
+        0.4838709677419395,
+        -0.29538131041889626,
+        -0.5372011818425948,
+        -0.3492745835572353,
+        -1.381509032943673
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/32x7": {
+      "assembly_ns": 140.65,
+      "assembly_samples": [
+        138.6,
+        140.8,
+        141.1,
+        140.5,
+        137.6,
+        143.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 33.39,
+      "previous_samples": [
+        33.38,
+        33.39,
+        33.32,
+        33.39,
+        33.51,
+        33.41
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 32.769999999999996,
+      "simd_samples": [
+        32.81,
+        32.71,
+        32.82,
+        32.78,
+        32.76,
+        32.76
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -76.70103092783506,
+      "throughput_ratio": 4.292035398230089,
+      "paired_percent": [
+        -76.32756132756133,
+        -76.7684659090909,
+        -76.73990077958894,
+        -76.66903914590748,
+        -76.19186046511628,
+        -77.0909090909091
+      ],
+      "parent_time_delta_percent": -1.8568433662773387,
+      "parent_throughput_ratio": 1.018919743667989,
+      "parent_paired_percent": [
+        -1.7076093469143183,
+        -2.0365378855944916,
+        -1.5006002400960394,
+        -1.826894279724467,
+        -2.2381378692927445,
+        -1.9455252918287869
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/64x1": {
+      "assembly_ns": 47.815,
+      "assembly_samples": [
+        47.91,
+        47.78,
+        47.95,
+        47.73,
+        47.69,
+        47.85
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 17.16,
+      "previous_samples": [
+        17.15,
+        17.14,
+        17.15,
+        17.17,
+        17.17,
+        17.21
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 16.52,
+      "simd_samples": [
+        16.53,
+        16.52,
+        16.54,
+        16.52,
+        16.52,
+        16.52
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -65.45017253999791,
+      "throughput_ratio": 2.894370460048426,
+      "paired_percent": [
+        -65.49780839073263,
+        -65.42486395981582,
+        -65.50573514077165,
+        -65.3886444584119,
+        -65.35961417487943,
+        -65.47544409613376
+      ],
+      "parent_time_delta_percent": -3.7296037296037365,
+      "parent_throughput_ratio": 1.0387409200968523,
+      "parent_paired_percent": [
+        -3.6151603498542073,
+        -3.617269544924162,
+        -3.5568513119533463,
+        -3.785672684915564,
+        -3.785672684915564,
+        -4.009296920395123
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/64x128": {
+      "assembly_ns": 5993.0,
+      "assembly_samples": [
+        5857.0,
+        6567.0,
+        6064.0,
+        5865.0,
+        5922.0,
+        6195.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 589.5,
+      "previous_samples": [
+        588.4,
+        598.3,
+        588.3,
+        590.3,
+        589.3,
+        589.7
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 587.6500000000001,
+      "simd_samples": [
+        587.7,
+        587.6,
+        588.9,
+        587.5,
+        587.0,
+        588.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -90.19439345903554,
+      "throughput_ratio": 10.198247256019737,
+      "paired_percent": [
+        -89.96585282567867,
+        -91.05223085122583,
+        -90.28858839050132,
+        -89.98294970161977,
+        -90.08780817291455,
+        -90.50847457627118
+      ],
+      "parent_time_delta_percent": -0.3138252756573201,
+      "parent_throughput_ratio": 1.0031481323917295,
+      "parent_paired_percent": [
+        -0.11896668932697141,
+        -1.7884004679926346,
+        0.10198878123406363,
+        -0.47433508385565926,
+        -0.3902935686407538,
+        -0.2882821773783406
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkProjectionColumnsNative/64x7": {
+      "assembly_ns": 327.25,
+      "assembly_samples": [
+        327.5,
+        327.5,
+        354.0,
+        326.2,
+        327.0,
+        326.7
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 46.25,
+      "previous_samples": [
+        46.21,
+        46.23,
+        46.19,
+        46.27,
+        46.28,
+        46.3
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 45.65,
+      "simd_samples": [
+        45.62,
+        45.76,
+        45.68,
+        45.62,
+        45.58,
+        45.68
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -86.05042016806723,
+      "throughput_ratio": 7.168674698795181,
+      "paired_percent": [
+        -86.07022900763359,
+        -86.02748091603054,
+        -87.09604519774011,
+        -86.01471489883508,
+        -86.0611620795107,
+        -86.01775329048056
+      ],
+      "parent_time_delta_percent": -1.2972972972972951,
+      "parent_throughput_ratio": 1.013143483023001,
+      "parent_paired_percent": [
+        -1.2767799177667238,
+        -1.0166558511788826,
+        -1.1041350941762285,
+        -1.4047979252215348,
+        -1.512532411408818,
+        -1.3390928725701912
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9Convolve8Horiz16x16": {
+      "assembly_ns": 291.95,
+      "assembly_samples": [
+        291.9,
+        292.0,
+        292.8,
+        293.0,
+        291.8,
+        291.9
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 103.55,
+      "previous_samples": [
+        103.6,
+        103.5,
+        103.4,
+        103.6,
+        103.6,
+        103.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 103.9,
+      "simd_samples": [
+        104.9,
+        104.1,
+        106.4,
+        103.7,
+        103.6,
+        103.6
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -64.41171433464635,
+      "throughput_ratio": 2.809913378248315,
+      "paired_percent": [
+        -64.06303528605686,
+        -64.34931506849315,
+        -63.66120218579234,
+        -64.60750853242321,
+        -64.49623029472242,
+        -64.5083932853717
+      ],
+      "parent_time_delta_percent": 0.33800096571705573,
+      "parent_throughput_ratio": 0.9966313763233878,
+      "parent_paired_percent": [
+        1.254826254826269,
+        0.5797101449275255,
+        2.9013539651837617,
+        0.09652509652511299,
+        0.0,
+        0.09661835748790981
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9Convolve8Vert16x16": {
+      "assembly_ns": 801.45,
+      "assembly_samples": [
+        799.7,
+        800.8,
+        800.8,
+        802.1,
+        802.2,
+        809.3
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 103.95,
+      "previous_samples": [
+        104.1,
+        103.9,
+        104.0,
+        104.3,
+        103.7,
+        103.8
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 103.9,
+      "simd_samples": [
+        103.9,
+        104.0,
+        103.9,
+        103.8,
+        103.8,
+        103.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -87.03599725497536,
+      "throughput_ratio": 7.7136669874879695,
+      "paired_percent": [
+        -87.00762786044767,
+        -87.01298701298701,
+        -87.02547452547452,
+        -87.05897020321656,
+        -87.06058339566192,
+        -87.16174471765723
+      ],
+      "parent_time_delta_percent": -0.04810004810004154,
+      "parent_throughput_ratio": 1.0004812319538017,
+      "parent_paired_percent": [
+        -0.19212295869355245,
+        0.09624639076033503,
+        -0.09615384615384581,
+        -0.47938638542665,
+        0.0964320154291265,
+        0.09633911368016612
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9Idct4x4_16Add": {
+      "assembly_ns": 70.535,
+      "assembly_samples": [
+        70.73,
+        70.26,
+        70.69,
+        70.53,
+        70.32,
+        70.54
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 22.5,
+      "previous_samples": [
+        22.53,
+        22.48,
+        22.47,
+        22.5,
+        22.52,
+        22.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 22.68,
+      "simd_samples": [
+        22.84,
+        22.65,
+        22.7,
+        22.66,
+        22.62,
+        22.99
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -67.84575033671227,
+      "throughput_ratio": 3.1100088183421515,
+      "paired_percent": [
+        -67.70818605966352,
+        -67.76259607173355,
+        -67.88796152213892,
+        -67.871827591096,
+        -67.83276450511944,
+        -67.40856251772045
+      ],
+      "parent_time_delta_percent": 0.8000000000000007,
+      "parent_throughput_ratio": 0.9920634920634921,
+      "parent_paired_percent": [
+        1.375943186861961,
+        0.7562277580070997,
+        1.023587004895421,
+        0.7111111111111068,
+        0.4440497335701732,
+        2.1777777777777674
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9Idct8x8_64Add": {
+      "assembly_ns": 373.4,
+      "assembly_samples": [
+        373.0,
+        373.5,
+        374.0,
+        374.2,
+        373.0,
+        373.3
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 63.535,
+      "previous_samples": [
+        63.5,
+        63.63,
+        63.57,
+        63.5,
+        63.59,
+        63.48
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 63.239999999999995,
+      "simd_samples": [
+        67.47,
+        63.12,
+        63.26,
+        63.07,
+        63.22,
+        63.43
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -83.06373861810391,
+      "throughput_ratio": 5.9044908285895,
+      "paired_percent": [
+        -81.91152815013405,
+        -83.1004016064257,
+        -83.0855614973262,
+        -83.14537680384821,
+        -83.05093833780161,
+        -83.00830431288509
+      ],
+      "parent_time_delta_percent": -0.4643110096797076,
+      "parent_throughput_ratio": 1.0046647691334598,
+      "parent_paired_percent": [
+        6.251968503937011,
+        -0.8015087223008144,
+        -0.4876514078968053,
+        -0.677165354330711,
+        -0.581852492530277,
+        -0.07876496534341415
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9LoopFilterHorizontal8DualNonFlat": {
+      "assembly_ns": 63.32,
+      "assembly_samples": [
+        63.23,
+        64.06,
+        63.6,
+        63.34,
+        63.3,
+        63.22
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 50.845,
+      "previous_samples": [
+        50.91,
+        50.82,
+        50.77,
+        50.87,
+        50.89,
+        50.76
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 50.49,
+      "simd_samples": [
+        50.63,
+        50.49,
+        50.55,
+        50.45,
+        50.49,
+        50.46
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -20.26216045483259,
+      "throughput_ratio": 1.25410972469796,
+      "paired_percent": [
+        -19.92724972323263,
+        -21.18326568841711,
+        -20.518867924528305,
+        -20.350489422166085,
+        -20.236966824644544,
+        -20.18348623853211
+      ],
+      "parent_time_delta_percent": -0.698200413019956,
+      "parent_throughput_ratio": 1.0070310952663892,
+      "parent_paired_percent": [
+        -0.5499901787467953,
+        -0.649350649350644,
+        -0.43332676777625423,
+        -0.8256339689404313,
+        -0.786009039103952,
+        -0.5910165484633523
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9LoopFilterHorizontal8NonFlat": {
+      "assembly_ns": 28.965,
+      "assembly_samples": [
+        28.95,
+        28.97,
+        29.02,
+        29.01,
+        28.93,
+        28.96
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 26.515,
+      "previous_samples": [
+        28.45,
+        26.54,
+        26.48,
+        26.49,
+        26.55,
+        26.49
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 26.520000000000003,
+      "simd_samples": [
+        26.55,
+        26.53,
+        26.54,
+        26.48,
+        26.51,
+        26.48
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -8.441222164681506,
+      "throughput_ratio": 1.0921945701357465,
+      "paired_percent": [
+        -8.290155440414503,
+        -8.42250604073178,
+        -8.545830461750514,
+        -8.721130644605314,
+        -8.365019011406838,
+        -8.563535911602216
+      ],
+      "parent_time_delta_percent": 0.01885725061288035,
+      "parent_throughput_ratio": 0.999811463046757,
+      "parent_paired_percent": [
+        -6.678383128295251,
+        -0.037678975131871795,
+        0.22658610271901747,
+        -0.03775009437523291,
+        -0.15065913370997386,
+        -0.03775009437523291
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9LoopFilterVertical8DualNonFlat": {
+      "assembly_ns": 75.32499999999999,
+      "assembly_samples": [
+        75.07,
+        75.43,
+        75.35,
+        75.3,
+        82.71,
+        75.18
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 61.495000000000005,
+      "previous_samples": [
+        61.64,
+        61.47,
+        61.46,
+        61.52,
+        61.62,
+        61.42
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 61.504999999999995,
+      "simd_samples": [
+        62.13,
+        61.44,
+        61.6,
+        61.5,
+        61.45,
+        61.51
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -18.347162296714238,
+      "throughput_ratio": 1.2246971790911307,
+      "paired_percent": [
+        -17.237245237778065,
+        -18.546997215961824,
+        -18.24817518248174,
+        -18.326693227091628,
+        -25.704267924072056,
+        -18.183027400904507
+      ],
+      "parent_time_delta_percent": 0.016261484673529836,
+      "parent_throughput_ratio": 0.9998374115925536,
+      "parent_paired_percent": [
+        0.7949383517196651,
+        -0.048804294777937685,
+        0.2277904328018332,
+        -0.03250975292587999,
+        -0.2758844530996396,
+        0.14653207424291104
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9LoopFilterVertical8NonFlat": {
+      "assembly_ns": 36.07,
+      "assembly_samples": [
+        36.05,
+        36.02,
+        36.09,
+        36.17,
+        36.23,
+        36.04
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 31.865000000000002,
+      "previous_samples": [
+        31.87,
+        31.86,
+        31.8,
+        31.9,
+        31.87,
+        31.77
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 31.81,
+      "simd_samples": [
+        31.83,
+        31.84,
+        31.86,
+        31.78,
+        31.78,
+        31.79
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -11.810368727474362,
+      "throughput_ratio": 1.1339201508959447,
+      "paired_percent": [
+        -11.70596393897364,
+        -11.604664075513615,
+        -11.720698254364104,
+        -12.13713021841305,
+        -12.282638697212246,
+        -11.792452830188683
+      ],
+      "parent_time_delta_percent": -0.1726031696218544,
+      "parent_throughput_ratio": 1.0017290160326942,
+      "parent_paired_percent": [
+        -0.12550988390336304,
+        -0.06277463904582614,
+        0.18867924528300772,
+        -0.37617554858933033,
+        -0.2823972387825502,
+        0.06295247088448086
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance16x16": {
+      "assembly_ns": 207.85000000000002,
+      "assembly_samples": [
+        207.8,
+        213.0,
+        208.4,
+        207.9,
+        207.5,
+        207.7
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 73.225,
+      "previous_samples": [
+        73.25,
+        73.11,
+        72.96,
+        73.2,
+        73.42,
+        73.42
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 72.125,
+      "simd_samples": [
+        72.11,
+        72.01,
+        72.31,
+        72.15,
+        72.04,
+        72.14
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -65.29949482800097,
+      "throughput_ratio": 2.8818024263431545,
+      "paired_percent": [
+        -65.29836381135708,
+        -66.1924882629108,
+        -65.30230326295585,
+        -65.2958152958153,
+        -65.28192771084336,
+        -65.26721232546943
+      ],
+      "parent_time_delta_percent": -1.5022191874359825,
+      "parent_throughput_ratio": 1.0152512998266896,
+      "parent_paired_percent": [
+        -1.5563139931740633,
+        -1.504582136506627,
+        -0.8908991228070096,
+        -1.43442622950819,
+        -1.8795968400980634,
+        -1.7433941705257472
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance32x32": {
+      "assembly_ns": 420.25,
+      "assembly_samples": [
+        419.4,
+        431.5,
+        421.0,
+        421.8,
+        419.3,
+        419.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 229.4,
+      "previous_samples": [
+        229.7,
+        229.2,
+        229.5,
+        229.4,
+        229.4,
+        229.4
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 225.64999999999998,
+      "simd_samples": [
+        225.3,
+        225.6,
+        225.8,
+        225.4,
+        225.7,
+        228.1
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -46.30577037477692,
+      "throughput_ratio": 1.862397518280523,
+      "paired_percent": [
+        -46.28040057224606,
+        -47.71726535341831,
+        -46.365795724465556,
+        -46.562351825509715,
+        -46.17219174815168,
+        -45.62574493444577
+      ],
+      "parent_time_delta_percent": -1.6346992153443929,
+      "parent_throughput_ratio": 1.0166186572124973,
+      "parent_paired_percent": [
+        -1.9155420113191046,
+        -1.5706806282722474,
+        -1.612200435729838,
+        -1.7436791630340065,
+        -1.6129032258064613,
+        -0.5666957279860552
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance64x64": {
+      "assembly_ns": 1191.5,
+      "assembly_samples": [
+        1188.0,
+        1225.0,
+        1192.0,
+        1191.0,
+        1187.0,
+        1196.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 881.1500000000001,
+      "previous_samples": [
+        881.3,
+        880.7,
+        880.9,
+        881.2,
+        881.1,
+        881.5
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 881.0999999999999,
+      "simd_samples": [
+        880.8,
+        880.7,
+        883.1,
+        881.4,
+        881.3,
+        880.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -26.051195971464548,
+      "throughput_ratio": 1.352286914084667,
+      "paired_percent": [
+        -25.858585858585858,
+        -28.106122448979587,
+        -25.914429530201343,
+        -25.994962216624685,
+        -25.75400168491997,
+        -26.346153846153854
+      ],
+      "parent_time_delta_percent": -0.0056744027691291166,
+      "parent_throughput_ratio": 1.0000567472477586,
+      "parent_paired_percent": [
+        -0.056734369681155083,
+        0.0,
+        0.24974457940742933,
+        0.022696323195625645,
+        0.02269889910337941,
+        -0.06806579693704462
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/dsp/BenchmarkVP9SubPixelVariance8x8": {
+      "assembly_ns": 168.25,
+      "assembly_samples": [
+        167.8,
+        172.2,
+        168.4,
+        168.1,
+        167.8,
+        168.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 33.075,
+      "previous_samples": [
+        33.1,
+        33.06,
+        33.03,
+        33.09,
+        33.09,
+        33.05
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 32.715,
+      "simd_samples": [
+        32.71,
+        32.72,
+        32.79,
+        32.8,
+        32.69,
+        32.66
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -80.555720653789,
+      "throughput_ratio": 5.142900810025981,
+      "paired_percent": [
+        -80.50655542312278,
+        -80.99883855981417,
+        -80.52850356294536,
+        -80.48780487804879,
+        -80.51847437425506,
+        -80.61721068249258
+      ],
+      "parent_time_delta_percent": -1.0884353741496544,
+      "parent_throughput_ratio": 1.0110041265474552,
+      "parent_paired_percent": [
+        -1.1782477341389708,
+        -1.0284331518451428,
+        -0.7266121707538709,
+        -0.8763977032336223,
+        -1.2088244182532626,
+        -1.1800302571860821
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT16x16/dispatch": {
+      "assembly_ns": 1279.0,
+      "assembly_samples": [
+        1275.0,
+        1280.0,
+        1280.0,
+        1281.0,
+        1278.0,
+        1277.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 259.9,
+      "previous_samples": [
+        259.9,
+        259.9,
+        259.4,
+        260.0,
+        260.2,
+        259.8
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 261.0,
+      "simd_samples": [
+        261.4,
+        262.6,
+        261.0,
+        261.0,
+        260.8,
+        260.7
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -79.59343236903831,
+      "throughput_ratio": 4.900383141762452,
+      "paired_percent": [
+        -79.49803921568628,
+        -79.484375,
+        -79.609375,
+        -79.62529274004683,
+        -79.59311424100156,
+        -79.58496476115897
+      ],
+      "parent_time_delta_percent": 0.42323970757984775,
+      "parent_throughput_ratio": 0.9957854406130268,
+      "parent_paired_percent": [
+        0.5771450557906954,
+        1.0388611004232606,
+        0.6168080185042557,
+        0.38461538461538325,
+        0.2305918524212247,
+        0.34642032332563577
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT16x16/scalar": {
+      "assembly_ns": 1278.0,
+      "assembly_samples": [
+        1280.0,
+        1278.0,
+        1279.0,
+        1278.0,
+        1277.0,
+        1277.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 1352.5,
+      "previous_samples": [
+        1353.0,
+        1352.0,
+        1352.0,
+        1353.0,
+        1355.0,
+        1352.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 1280.5,
+      "simd_samples": [
+        1281.0,
+        1280.0,
+        1284.0,
+        1278.0,
+        1280.0,
+        1282.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 0.1956181533646406,
+      "throughput_ratio": 0.9980476376415462,
+      "paired_percent": [
+        0.07812499999999556,
+        0.15649452269170805,
+        0.390930414386248,
+        0.0,
+        0.2349256068911565,
+        0.3915426781519127
+      ],
+      "parent_time_delta_percent": -5.323475046210724,
+      "parent_throughput_ratio": 1.0562280359234675,
+      "parent_paired_percent": [
+        -5.3215077605321515,
+        -5.3254437869822535,
+        -5.029585798816571,
+        -5.543237250554323,
+        -5.535055350553508,
+        -5.177514792899407
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT32x32Native/precise": {
+      "assembly_ns": 9028.5,
+      "assembly_samples": [
+        9102.0,
+        9024.0,
+        9045.0,
+        9033.0,
+        9020.0,
+        9021.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 3289.5,
+      "previous_samples": [
+        3284.0,
+        3295.0,
+        3287.0,
+        3285.0,
+        3292.0,
+        3292.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 3242.0,
+      "simd_samples": [
+        3240.0,
+        3339.0,
+        3246.0,
+        3244.0,
+        3229.0,
+        3236.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -64.09148806557015,
+      "throughput_ratio": 2.7848550277606416,
+      "paired_percent": [
+        -64.40342781806197,
+        -62.99867021276595,
+        -64.11276948590381,
+        -64.08723569135392,
+        -64.20177383592018,
+        -64.12814543842147
+      ],
+      "parent_time_delta_percent": -1.4439884480924148,
+      "parent_throughput_ratio": 1.0146514497223935,
+      "parent_paired_percent": [
+        -1.3398294762484775,
+        1.3353566009104645,
+        -1.2473379981746247,
+        -1.2480974124809752,
+        -1.9137302551640367,
+        -1.7010935601458055
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkForwardDCT32x32Native/rd": {
+      "assembly_ns": 9349.5,
+      "assembly_samples": [
+        9350.0,
+        9349.0,
+        9362.0,
+        9371.0,
+        9349.0,
+        9343.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 3315.0,
+      "previous_samples": [
+        3318.0,
+        3315.0,
+        3315.0,
+        3315.0,
+        3314.0,
+        3348.0
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 3297.5,
+      "simd_samples": [
+        3297.0,
+        3313.0,
+        3291.0,
+        3298.0,
+        3293.0,
+        3299.0
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -64.73073426386438,
+      "throughput_ratio": 2.835329795299469,
+      "paired_percent": [
+        -64.73796791443851,
+        -64.56305487217884,
+        -64.84725486007264,
+        -64.80631736207448,
+        -64.7769814953471,
+        -64.69014235256341
+      ],
+      "parent_time_delta_percent": -0.5279034690799378,
+      "parent_throughput_ratio": 1.0053070507960575,
+      "parent_paired_percent": [
+        -0.6329113924050667,
+        -0.060331825037707176,
+        -0.7239819004524861,
+        -0.512820512820511,
+        -0.6336753168376563,
+        -1.46356033452808
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FPNoClassesNative": {
+      "assembly_ns": 40.15,
+      "assembly_samples": [
+        40.31,
+        40.12,
+        40.14,
+        40.16,
+        40.11,
+        40.25
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 61.875,
+      "previous_samples": [
+        61.8,
+        61.93,
+        62.09,
+        61.69,
+        61.99,
+        61.82
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 61.855000000000004,
+      "simd_samples": [
+        61.87,
+        61.83,
+        61.94,
+        62.01,
+        61.69,
+        61.84
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": 54.05977584059778,
+      "throughput_ratio": 0.6490986985692344,
+      "paired_percent": [
+        53.48548747209128,
+        54.11266201395812,
+        54.309915296462364,
+        54.4073705179283,
+        53.80204437796061,
+        53.63975155279503
+      ],
+      "parent_time_delta_percent": -0.03232323232322809,
+      "parent_throughput_ratio": 1.000323336836149,
+      "parent_paired_percent": [
+        0.11326860841422981,
+        -0.16147263038914783,
+        -0.24158479626349427,
+        0.5187226454854921,
+        -0.4839490240361455,
+        0.03235198964737229
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/16x16/dense": {
+      "assembly_ns": 1175.5,
+      "assembly_samples": [
+        1172.0,
+        1174.0,
+        1177.0,
+        1175.0,
+        1176.0,
+        1253.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 227.10000000000002,
+      "previous_samples": [
+        225.9,
+        235.4,
+        225.7,
+        228.3,
+        233.2,
+        225.6
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 225.95,
+      "simd_samples": [
+        225.9,
+        230.7,
+        226.0,
+        226.0,
+        225.6,
+        225.8
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -80.77839217354317,
+      "throughput_ratio": 5.202478424430184,
+      "paired_percent": [
+        -80.72525597269625,
+        -80.34923339011925,
+        -80.79864061172472,
+        -80.76595744680851,
+        -80.81632653061224,
+        -81.97924980047885
+      ],
+      "parent_time_delta_percent": -0.5063848524879067,
+      "parent_throughput_ratio": 1.0050896215976988,
+      "parent_paired_percent": [
+        0.0,
+        -1.9966015293118144,
+        0.13291980505096834,
+        -1.0074463425317592,
+        -3.2590051457976,
+        0.08865248226950229
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/16x16/sparse": {
+      "assembly_ns": 915.55,
+      "assembly_samples": [
+        914.1,
+        914.9,
+        916.7,
+        919.4,
+        916.1,
+        915.0
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 225.9,
+      "previous_samples": [
+        225.9,
+        226.1,
+        225.8,
+        225.7,
+        232.7,
+        225.9
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 226.05,
+      "simd_samples": [
+        226.0,
+        226.1,
+        226.1,
+        231.2,
+        225.7,
+        225.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -75.30992299710556,
+      "throughput_ratio": 4.0502101305021005,
+      "paired_percent": [
+        -75.27622798380922,
+        -75.28691660290743,
+        -75.335442347551,
+        -74.85316510767892,
+        -75.36295164283375,
+        -75.31147540983608
+      ],
+      "parent_time_delta_percent": 0.06640106241699861,
+      "parent_throughput_ratio": 0.9993364299933643,
+      "parent_paired_percent": [
+        0.044267374944673143,
+        0.0,
+        0.13286093888396078,
+        2.436863092600805,
+        -3.008165019338205,
+        0.0
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/16x16/zero": {
+      "assembly_ns": 823.2,
+      "assembly_samples": [
+        829.0,
+        822.5,
+        825.9,
+        822.7,
+        823.7,
+        822.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 225.85000000000002,
+      "previous_samples": [
+        225.9,
+        226.1,
+        225.8,
+        225.7,
+        233.3,
+        225.8
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 226.1,
+      "simd_samples": [
+        226.3,
+        226.2,
+        226.1,
+        226.1,
+        225.6,
+        225.9
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -72.53401360544218,
+      "throughput_ratio": 3.6408668730650158,
+      "paired_percent": [
+        -72.70205066344995,
+        -72.4984802431611,
+        -72.62380433466522,
+        -72.51732101616628,
+        -72.61138764113149,
+        -72.53495440729483
+      ],
+      "parent_time_delta_percent": 0.11069293779055744,
+      "parent_throughput_ratio": 0.9988942945599294,
+      "parent_paired_percent": [
+        0.17706949977867037,
+        0.04422821760283746,
+        0.13286093888396078,
+        0.17722640673460965,
+        -3.3004714959279924,
+        0.04428697962799433
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/4x4/dense": {
+      "assembly_ns": 95.82,
+      "assembly_samples": [
+        98.26,
+        96.41,
+        95.55,
+        95.88,
+        95.76,
+        95.68
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 38.144999999999996,
+      "previous_samples": [
+        38.13,
+        38.15,
+        38.14,
+        38.2,
+        38.48,
+        38.11
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 38.27,
+      "simd_samples": [
+        38.37,
+        38.31,
+        38.27,
+        38.27,
+        38.21,
+        38.25
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -60.06053016071801,
+      "throughput_ratio": 2.5037888685654557,
+      "paired_percent": [
+        -60.9505393853043,
+        -60.26345814749507,
+        -59.947671376242795,
+        -60.08552357113057,
+        -60.09816207184628,
+        -60.0229933110368
+      ],
+      "parent_time_delta_percent": 0.3276969458644752,
+      "parent_throughput_ratio": 0.9967337339952964,
+      "parent_paired_percent": [
+        0.6294256490951833,
+        0.41939711664482626,
+        0.3408495018353497,
+        0.18324607329842646,
+        -0.7016632016631941,
+        0.3673576489110486
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/4x4/sparse": {
+      "assembly_ns": 76.325,
+      "assembly_samples": [
+        76.27,
+        76.47,
+        76.36,
+        76.34,
+        76.31,
+        76.22
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 38.13,
+      "previous_samples": [
+        38.11,
+        38.17,
+        38.15,
+        38.13,
+        38.13,
+        38.13
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 38.245000000000005,
+      "simd_samples": [
+        38.22,
+        38.31,
+        38.25,
+        38.28,
+        38.24,
+        38.22
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -49.89190959711759,
+      "throughput_ratio": 1.9956857105503987,
+      "paired_percent": [
+        -49.88855382194834,
+        -49.9019223224794,
+        -49.9083289680461,
+        -49.85590778097983,
+        -49.888612239549204,
+        -49.85568092364209
+      ],
+      "parent_time_delta_percent": 0.30159979019146466,
+      "parent_throughput_ratio": 0.9969930709896718,
+      "parent_paired_percent": [
+        0.2886381527158255,
+        0.3667801938695314,
+        0.2621231979030192,
+        0.3933910306844979,
+        0.28848675583530436,
+        0.2360346184106854
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/4x4/zero": {
+      "assembly_ns": 74.08500000000001,
+      "assembly_samples": [
+        73.95,
+        74.09,
+        74.11,
+        74.16,
+        74.08,
+        74.06
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 38.12,
+      "previous_samples": [
+        38.12,
+        38.17,
+        38.12,
+        38.11,
+        38.1,
+        38.13
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 38.265,
+      "simd_samples": [
+        38.27,
+        38.25,
+        38.26,
+        38.28,
+        38.16,
+        38.28
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -48.349868394411835,
+      "throughput_ratio": 1.9361034888279107,
+      "paired_percent": [
+        -48.24881676808654,
+        -48.373599676069645,
+        -48.37403859128323,
+        -48.38187702265372,
+        -48.488120950323975,
+        -48.31217931406967
+      ],
+      "parent_time_delta_percent": 0.3803777544596043,
+      "parent_throughput_ratio": 0.9962106363517574,
+      "parent_paired_percent": [
+        0.3934942287513232,
+        0.20958868221114813,
+        0.3672612801678854,
+        0.4460771451062717,
+        0.15748031496061188,
+        0.3933910306844979
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/8x8/dense": {
+      "assembly_ns": 293.8,
+      "assembly_samples": [
+        293.0,
+        294.6,
+        280.3,
+        280.3,
+        294.9,
+        294.6
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 76.46000000000001,
+      "previous_samples": [
+        76.54,
+        76.86,
+        76.45,
+        76.3,
+        76.47,
+        76.36
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 76.245,
+      "simd_samples": [
+        76.28,
+        76.33,
+        76.46,
+        76.21,
+        76.16,
+        76.17
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -74.04867256637169,
+      "throughput_ratio": 3.8533674339300936,
+      "paired_percent": [
+        -73.96587030716724,
+        -74.09029192124915,
+        -72.72208348198359,
+        -72.81127363539066,
+        -74.17429637165141,
+        -74.14460285132382
+      ],
+      "parent_time_delta_percent": -0.28119278053885255,
+      "parent_throughput_ratio": 1.002819857039806,
+      "parent_paired_percent": [
+        -0.3396916644891612,
+        -0.6895654436638088,
+        0.01308044473511405,
+        -0.11795543905636086,
+        -0.40538773375180526,
+        -0.2488213724463062
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/8x8/sparse": {
+      "assembly_ns": 237.0,
+      "assembly_samples": [
+        237.2,
+        236.6,
+        237.1,
+        237.1,
+        236.9,
+        236.5
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 76.57,
+      "previous_samples": [
+        76.34,
+        76.62,
+        76.89,
+        76.32,
+        76.62,
+        76.52
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 76.28,
+      "simd_samples": [
+        76.16,
+        76.29,
+        76.37,
+        76.72,
+        76.1,
+        76.27
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -67.81434599156117,
+      "throughput_ratio": 3.1069743051914003,
+      "paired_percent": [
+        -67.8920741989882,
+        -67.7557058326289,
+        -67.78996204133276,
+        -67.64234500210881,
+        -67.87674124102998,
+        -67.75052854122622
+      ],
+      "parent_time_delta_percent": -0.3787384092986734,
+      "parent_throughput_ratio": 1.0038017829050865,
+      "parent_paired_percent": [
+        -0.23578726748756385,
+        -0.43069694596711283,
+        -0.6762908050461647,
+        0.524109014675056,
+        -0.6786739754633397,
+        -0.32671197072661196
+      ]
+    },
+    "github.com/thesyncim/govpx/internal/vp9/encoder/BenchmarkVP9FusedFPClassesNative/8x8/zero": {
+      "assembly_ns": 225.75,
+      "assembly_samples": [
+        225.3,
+        225.9,
+        226.0,
+        225.7,
+        225.8,
+        225.3
+      ],
+      "assembly_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "previous_ns": 76.38,
+      "previous_samples": [
+        76.39,
+        76.37,
+        76.13,
+        76.34,
+        76.56,
+        76.46
+      ],
+      "previous_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "simd_ns": 76.25999999999999,
+      "simd_samples": [
+        76.24,
+        76.28,
+        76.4,
+        76.46,
+        76.16,
+        76.2
+      ],
+      "simd_allocation_samples": [
+        [
+          0.0,
+          0.0
+        ]
+      ],
+      "time_delta_percent": -66.21926910299003,
+      "throughput_ratio": 2.9602675059008656,
+      "paired_percent": [
+        -66.16067465601421,
+        -66.23284639220894,
+        -66.19469026548673,
+        -66.12317235268054,
+        -66.2710363153233,
+        -66.17842876165113
+      ],
+      "parent_time_delta_percent": -0.15710919088767206,
+      "parent_throughput_ratio": 1.0015735641227381,
+      "parent_paired_percent": [
+        -0.196360780206839,
+        -0.1178473222469556,
+        0.35465650860371234,
+        0.1571915116583611,
+        -0.5224660397074254,
+        -0.3400470834423075
+      ]
+    }
+  },
+  "encoders": {
+    "VP9 320x180": {
+      "assembly_ns": 7014718.0,
+      "assembly_samples": [
+        6991384,
+        7016645,
+        7036920,
+        7023520,
+        7012791,
+        6998384
+      ],
+      "assembly_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "previous_ns": 4368247.0,
+      "previous_samples": [
+        4350141,
+        4389955,
+        4373878,
+        4381613,
+        4355921,
+        4362616
+      ],
+      "previous_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "simd_ns": 4285500.5,
+      "simd_samples": [
+        4249256,
+        4264019,
+        4303354,
+        4321981,
+        4318047,
+        4267647
+      ],
+      "simd_allocation_samples": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "time_delta_percent": -38.90701664699849,
+      "throughput_ratio": 1.6368491848268365,
+      "paired_percent": [
+        -39.22153324720827,
+        -39.22994536562702,
+        -38.84605765022198,
+        -38.464174658860514,
+        -38.42612734359258,
+        -39.01953651014291
+      ],
+      "parent_time_delta_percent": -1.8942724621570206,
+      "parent_throughput_ratio": 1.0193084798380025,
+      "parent_paired_percent": [
+        -2.319120230815508,
+        -2.8687310006594635,
+        -1.6123906519569187,
+        -1.3609599935001104,
+        -0.8694831701493211,
+        -2.1768819442279597
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 246893
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 117
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 3
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0.6166666666666667
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 9,
+            "max": 47,
+            "mean": 43.64102564102564
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "41": 1,
+            "42": 8,
+            "43": 29,
+            "44": 47,
+            "45": 26,
+            "47": 5,
+            "9": 1
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 29346
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 1875.405172413793
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 246893
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 117
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 3
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0.6166666666666667
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 9,
+            "max": 47,
+            "mean": 43.64102564102564
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "41": 1,
+            "42": 8,
+            "43": 29,
+            "44": 47,
+            "45": 26,
+            "47": 5,
+            "9": 1
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 29346
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 1875.405172413793
+        }
+      }
+    },
+    "VP8 720p": {
+      "assembly_ns": 23542500.5,
+      "assembly_samples": [
+        23827890,
+        23429822,
+        23579642,
+        23734354,
+        23505359,
+        23306861
+      ],
+      "assembly_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "previous_ns": 22278843.0,
+      "previous_samples": [
+        22288964,
+        22159982,
+        22390424,
+        22174832,
+        22268722,
+        22301633
+      ],
+      "previous_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "simd_ns": 20621122.5,
+      "simd_samples": [
+        20667628,
+        20413187,
+        20864152,
+        20878195,
+        20481236,
+        20574617
+      ],
+      "simd_allocation_samples": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "time_delta_percent": -12.408953755783081,
+      "throughput_ratio": 1.1416692035072291,
+      "paired_percent": [
+        -13.262869687580391,
+        -12.875193844835863,
+        -11.516247786968092,
+        -12.03386028539054,
+        -12.865674589356413,
+        -11.722917127278532
+      ],
+      "parent_time_delta_percent": -7.440783616994828,
+      "parent_throughput_ratio": 1.080389440487539,
+      "parent_paired_percent": [
+        -7.274164918566872,
+        -7.882655319846377,
+        -6.816628394352875,
+        -5.847336295490313,
+        -8.026890811246378,
+        -7.7438992920383924
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 685957
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 58
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 2
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 39,
+            "max": 56,
+            "mean": 55.706896551724135
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "39": 1,
+            "56": 57
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 133700
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 9688.719298245614
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 685957
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 58
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 2
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 0
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 39,
+            "max": 56,
+            "mean": 55.706896551724135
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "39": 1,
+            "56": 57
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 133700
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 9688.719298245614
+        }
+      }
+    },
+    "VP9 720p": {
+      "assembly_ns": 60322405.0,
+      "assembly_samples": [
+        60275104,
+        60783264,
+        60507167,
+        60046333,
+        60369706,
+        60067419
+      ],
+      "assembly_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "previous_ns": 32744661.5,
+      "previous_samples": [
+        33050535,
+        32708475,
+        33232678,
+        32346827,
+        32309020,
+        32780848
+      ],
+      "previous_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "simd_ns": 32418467.5,
+      "simd_samples": [
+        32377561,
+        32202930,
+        32890709,
+        32956157,
+        32130350,
+        32459374
+      ],
+      "simd_allocation_samples": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "time_delta_percent": -46.257998997221684,
+      "throughput_ratio": 1.860742029215292,
+      "paired_percent": [
+        -46.283691190313,
+        -47.02007118275189,
+        -45.64163118065005,
+        -45.11545442750018,
+        -46.7773621425289,
+        -45.961763397891296
+      ],
+      "parent_time_delta_percent": -0.9961745978042891,
+      "parent_throughput_ratio": 1.010061980875561,
+      "parent_paired_percent": [
+        -2.036196993482864,
+        -1.5456085922685214,
+        -1.0290142732403362,
+        1.8837396323293065,
+        -0.5530034646671456,
+        -0.980676277807091
+      ],
+      "parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 642654
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 48
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 12
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 1.25
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 27,
+            "max": 56,
+            "mean": 49.229166666666664
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "27": 1,
+            "48": 6,
+            "49": 29,
+            "50": 6,
+            "51": 1,
+            "54": 2,
+            "56": 3
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 262153
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 8095.765957446809
+        }
+      },
+      "parent_parity": {
+        "output_bytes": {
+          "equal": true,
+          "value": 642654
+        },
+        "encoded_frames": {
+          "equal": true,
+          "value": 48
+        },
+        "dropped_frames": {
+          "equal": true,
+          "value": 12
+        },
+        "allocs_per_frame": {
+          "equal": true,
+          "value": 1.25
+        },
+        "quantizers": {
+          "equal": true,
+          "value": {
+            "min": 27,
+            "max": 56,
+            "mean": 49.229166666666664
+          }
+        },
+        "quantizer_histogram": {
+          "equal": true,
+          "value": {
+            "27": 1,
+            "48": 6,
+            "49": 29,
+            "50": 6,
+            "51": 1,
+            "54": 2,
+            "56": 3
+          }
+        },
+        "keyframe_bytes": {
+          "equal": true,
+          "value": 262153
+        },
+        "avg_interframe_bytes": {
+          "equal": true,
+          "value": 8095.765957446809
+        }
+      }
+    }
+  }
+}

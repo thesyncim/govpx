@@ -1,0 +1,12 @@
+{
+  "govpx-amd64-c065a265-raw.tar.gz": {
+    "file_count": 86,
+    "all_raw_bytes_match": true,
+    "archive_sha256": "51b04306eb02bf4ed955fa66d559a017cbca0e1d8eed9d26751f0cc0ec0bf680"
+  },
+  "govpx-libvpx-amd64-c065a265-raw.tar.gz": {
+    "file_count": 74,
+    "all_raw_bytes_match": true,
+    "archive_sha256": "1876693c3082b11d6b46589ac600bb6edbcaf2701d36a75d01bced5152a76cf8"
+  }
+}

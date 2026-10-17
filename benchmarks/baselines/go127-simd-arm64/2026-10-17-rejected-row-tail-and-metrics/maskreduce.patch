@@ -1,0 +1,44 @@
+diff --git a/internal/pixel/loopfilter_macro_internal_fused_arm64.go b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+index 7bb30f9d..d1a1ac2c 100644
+--- a/internal/pixel/loopfilter_macro_internal_fused_arm64.go
++++ b/internal/pixel/loopfilter_macro_internal_fused_arm64.go
+@@ -28,8 +28,7 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
+ 			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+ 			need = need.And(lfByteLE(delta, archsimd.BroadcastUint8x16(byte(limit))))
+ 		}
+-		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+-		if bits.GetElem(0)|bits.GetElem(1) != 0 {
++		if need.ToInt8x16().ToBits().ReduceMax() != 0 {
+ 			hev := lfByteGT(d1.Max(d2), archsimd.BroadcastUint8x16(byte(thresh)))
+ 			bias := archsimd.BroadcastUint8x16(128)
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+@@ -81,8 +80,7 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
+ 			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+ 			need = need.And(lfByteLE(delta, lim))
+ 		}
+-		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+-		if bits.GetElem(0)|bits.GetElem(1) != 0 {
++		if need.ToInt8x16().ToBits().ReduceMax() != 0 {
+ 			hev := lfByteGT(d1.Max(d2), thr)
+ 			bias := archsimd.BroadcastUint8x16(128)
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+@@ -179,8 +177,7 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
+ 			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+ 			need = need.And(lfByteLE(delta, archsimd.BroadcastUint8x16(byte(limit))))
+ 		}
+-		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+-		if bits.GetElem(0)|bits.GetElem(1) != 0 {
++		if need.ToInt8x16().ToBits().ReduceMax() != 0 {
+ 			hev := lfByteGT(d1.Max(d2), archsimd.BroadcastUint8x16(byte(thresh)))
+ 			bias := archsimd.BroadcastUint8x16(128)
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+@@ -237,8 +234,7 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
+ 			delta := d1.Max(d2).Max(lfAbsByte(p3, p2)).Max(lfAbsByte(p2, p1)).Max(lfAbsByte(q2, q1)).Max(lfAbsByte(q3, q2))
+ 			need = need.And(lfByteLE(delta, lim))
+ 		}
+-		bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+-		if bits.GetElem(0)|bits.GetElem(1) != 0 {
++		if need.ToInt8x16().ToBits().ReduceMax() != 0 {
+ 			hev := lfByteGT(d1.Max(d2), thr)
+ 			bias := archsimd.BroadcastUint8x16(128)
+ 			p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()

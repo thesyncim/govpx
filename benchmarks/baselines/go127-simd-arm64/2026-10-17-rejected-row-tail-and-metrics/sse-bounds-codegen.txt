@@ -1,0 +1,130 @@
+
+/private/tmp/govpx-arm-sse-bounds-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000ee840 <_github.com/thesyncim/govpx/internal/pixel.SSE16>:
+1000ee840: f9400b90    	ldr	x16, [x28, #0x10]
+1000ee844: eb3063ff    	cmp	sp, x16
+1000ee848: 54000da9    	b.ls	0x1000ee9fc <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x1bc>
+1000ee84c: f81f0ffe    	str	x30, [sp, #-0x10]!
+1000ee850: f81f83fd    	stur	x29, [sp, #-0x8]
+1000ee854: d10023fd    	sub	x29, sp, #0x8
+1000ee858: f9000fe0    	str	x0, [sp, #0x18]
+1000ee85c: f9001fe4    	str	x4, [sp, #0x38]
+1000ee860: d1000509    	sub	x9, x8, #0x1
+1000ee864: 4f00e400    	movi.16b	v0, #0x0
+1000ee868: f101013f    	cmp	x9, #0x40
+1000ee86c: 540001e2    	b.hs	0x1000ee8a8 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x68>
+1000ee870: aa07006a    	orr	x10, x3, x7
+1000ee874: d379fd4a    	lsr	x10, x10, #57
+1000ee878: b500018a    	cbnz	x10, 0x1000ee8a8 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x68>
+1000ee87c: 9b037d22    	mul	x2, x9, x3
+1000ee880: 91003c42    	add	x2, x2, #0xf
+1000ee884: eb02003f    	cmp	x1, x2
+1000ee888: 54000b69    	b.ls	0x1000ee9f4 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x1b4>
+1000ee88c: 9b077d21    	mul	x1, x9, x7
+1000ee890: 91003c21    	add	x1, x1, #0xf
+1000ee894: eb0100bf    	cmp	x5, x1
+1000ee898: 54000ac9    	b.ls	0x1000ee9f0 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x1b0>
+1000ee89c: aa1f03e1    	mov	x1, xzr
+1000ee8a0: 4ea01c01    	mov.16b	v1, v0
+1000ee8a4: 1400004a    	b	0x1000ee9cc <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x18c>
+1000ee8a8: aa1f03e9    	mov	x9, xzr
+1000ee8ac: 4ea01c01    	mov.16b	v1, v0
+1000ee8b0: 14000013    	b	0x1000ee8fc <_github.com/thesyncim/govpx/internal/pixel.SSE16+0xbc>
+1000ee8b4: 3dc00142    	ldr	q2, [x10]
+1000ee8b8: 3dc00163    	ldr	q3, [x11]
+1000ee8bc: 2f08a444    	ushll.8h	v4, v2, #0x0
+1000ee8c0: 2f08a465    	ushll.8h	v5, v3, #0x0
+1000ee8c4: 6e658484    	sub.8h	v4, v4, v5
+1000ee8c8: 0e64c085    	smull.4s	v5, v4, v4
+1000ee8cc: 4e64c084    	smull2.4s	v4, v4, v4
+1000ee8d0: 4ea484a4    	add.4s	v4, v5, v4
+1000ee8d4: 4f00e405    	movi.16b	v5, #0x0
+1000ee8d8: 4e057842    	zip2.16b	v2, v2, v5
+1000ee8dc: 4e057863    	zip2.16b	v3, v3, v5
+1000ee8e0: 6e638442    	sub.8h	v2, v2, v3
+1000ee8e4: 0e62c043    	smull.4s	v3, v2, v2
+1000ee8e8: 4e62c042    	smull2.4s	v2, v2, v2
+1000ee8ec: 4ea28462    	add.4s	v2, v3, v2
+1000ee8f0: 4ea48421    	add.4s	v1, v1, v4
+1000ee8f4: 4ea28400    	add.4s	v0, v0, v2
+1000ee8f8: 91000529    	add	x9, x9, #0x1
+1000ee8fc: eb09011f    	cmp	x8, x9
+1000ee900: 5400028d    	b.le	0x1000ee950 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x110>
+1000ee904: 9b037d2a    	mul	x10, x9, x3
+1000ee908: eb0a003f    	cmp	x1, x10
+1000ee90c: 54000363    	b.lo	0x1000ee978 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x138>
+1000ee910: cb0a002b    	sub	x11, x1, x10
+1000ee914: cb02014c    	sub	x12, x10, x2
+1000ee918: 8a8cfd4a    	and	x10, x10, x12, asr #63
+1000ee91c: 8b0a000a    	add	x10, x0, x10
+1000ee920: f100417f    	cmp	x11, #0x10
+1000ee924: 54000283    	b.lo	0x1000ee974 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x134>
+1000ee928: 9b077d2b    	mul	x11, x9, x7
+1000ee92c: eb0b00bf    	cmp	x5, x11
+1000ee930: 54000203    	b.lo	0x1000ee970 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x130>
+1000ee934: cb0b00ac    	sub	x12, x5, x11
+1000ee938: cb06016d    	sub	x13, x11, x6
+1000ee93c: 8a8dfd6b    	and	x11, x11, x13, asr #63
+1000ee940: 8b0b008b    	add	x11, x4, x11
+1000ee944: f100419f    	cmp	x12, #0x10
+1000ee948: 54fffb62    	b.hs	0x1000ee8b4 <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x74>
+1000ee94c: 14000008    	b	0x1000ee96c <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x12c>
+1000ee950: 4ea08420    	add.4s	v0, v1, v0
+1000ee954: 4eb1b800    	addv.4s	s0, v0
+1000ee958: 0e043c00    	mov.s	w0, v0[0]
+1000ee95c: d503201f    	nop
+1000ee960: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ee964: f84107fe    	ldr	x30, [sp], #0x10
+1000ee968: d65f03c0    	ret
+1000ee96c: 97fe507d    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee970: 97fe507c    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee974: 97fe507b    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee978: 97fe507a    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee97c: 9b010062    	madd	x2, x3, x1, x0
+1000ee980: 3dc00042    	ldr	q2, [x2]
+1000ee984: 9b0110e2    	madd	x2, x7, x1, x4
+1000ee988: 3dc00043    	ldr	q3, [x2]
+1000ee98c: 2f08a444    	ushll.8h	v4, v2, #0x0
+1000ee990: 2f08a465    	ushll.8h	v5, v3, #0x0
+1000ee994: 6e658484    	sub.8h	v4, v4, v5
+1000ee998: 0e64c085    	smull.4s	v5, v4, v4
+1000ee99c: 4e64c084    	smull2.4s	v4, v4, v4
+1000ee9a0: 4ea484a4    	add.4s	v4, v5, v4
+1000ee9a4: 4f00e405    	movi.16b	v5, #0x0
+1000ee9a8: 4e057842    	zip2.16b	v2, v2, v5
+1000ee9ac: 4e057863    	zip2.16b	v3, v3, v5
+1000ee9b0: 6e638442    	sub.8h	v2, v2, v3
+1000ee9b4: 0e62c043    	smull.4s	v3, v2, v2
+1000ee9b8: 4e62c042    	smull2.4s	v2, v2, v2
+1000ee9bc: 4ea28462    	add.4s	v2, v3, v2
+1000ee9c0: 4ea48421    	add.4s	v1, v1, v4
+1000ee9c4: 4ea28400    	add.4s	v0, v0, v2
+1000ee9c8: 91000421    	add	x1, x1, #0x1
+1000ee9cc: eb01011f    	cmp	x8, x1
+1000ee9d0: 54fffd6c    	b.gt	0x1000ee97c <_github.com/thesyncim/govpx/internal/pixel.SSE16+0x13c>
+1000ee9d4: 4ea08420    	add.4s	v0, v1, v0
+1000ee9d8: 4eb1b800    	addv.4s	s0, v0
+1000ee9dc: 0e043c00    	mov.s	w0, v0[0]
+1000ee9e0: d503201f    	nop
+1000ee9e4: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000ee9e8: f84107fe    	ldr	x30, [sp], #0x10
+1000ee9ec: d65f03c0    	ret
+1000ee9f0: 97fe505c    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee9f4: 97fe505b    	bl	0x100082b60 <_runtime.panicBounds>
+1000ee9f8: d503201f    	nop
+1000ee9fc: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000eea00: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000eea04: a90297e4    	stp	x4, x5, [sp, #0x28]
+1000eea08: a9039fe6    	stp	x6, x7, [sp, #0x38]
+1000eea0c: f90027e8    	str	x8, [sp, #0x48]
+1000eea10: aa1e03e3    	mov	x3, x30
+1000eea14: 97fe480f    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000eea18: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000eea1c: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000eea20: a94297e4    	ldp	x4, x5, [sp, #0x28]
+1000eea24: a9439fe6    	ldp	x6, x7, [sp, #0x38]
+1000eea28: f94027e8    	ldr	x8, [sp, #0x48]
+1000eea2c: 17ffff85    	b	0x1000ee840 <_github.com/thesyncim/govpx/internal/pixel.SSE16>
