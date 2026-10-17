@@ -1,0 +1,41 @@
+ok  	github.com/thesyncim/govpx	52.346s
+ok  	github.com/thesyncim/govpx/benchmarks	0.299s
+?   	github.com/thesyncim/govpx/cmd/govpx-bench	[no test files]
+ok  	github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd	10.242s
+ok  	github.com/thesyncim/govpx/cmd/govpx-fuzz-rename	0.555s
+?   	github.com/thesyncim/govpx/cmd/govpx-oracle	[no test files]
+ok  	github.com/thesyncim/govpx/cmd/parity-report	0.290s
+ok  	github.com/thesyncim/govpx/internal/coracle	1.566s
+?   	github.com/thesyncim/govpx/internal/coracle/coracletest	[no test files]
+ok  	github.com/thesyncim/govpx/internal/pixel	0.426s
+ok  	github.com/thesyncim/govpx/internal/testutil	0.295s
+?   	github.com/thesyncim/govpx/internal/testutil/controlsurface	[no test files]
+ok  	github.com/thesyncim/govpx/internal/testutil/rtptest	0.268s
+ok  	github.com/thesyncim/govpx/internal/testutil/vp8corpus	0.285s
+ok  	github.com/thesyncim/govpx/internal/testutil/vp8test	0.262s
+?   	github.com/thesyncim/govpx/internal/testutil/vp9corpus	[no test files]
+ok  	github.com/thesyncim/govpx/internal/testutil/vp9oracle	0.285s
+ok  	github.com/thesyncim/govpx/internal/testutil/vp9test	0.280s
+ok  	github.com/thesyncim/govpx/internal/vp8/boolcoder	0.274s
+ok  	github.com/thesyncim/govpx/internal/vp8/common	0.276s
+ok  	github.com/thesyncim/govpx/internal/vp8/decoder	0.288s
+ok  	github.com/thesyncim/govpx/internal/vp8/dsp	0.349s
+ok  	github.com/thesyncim/govpx/internal/vp8/encoder	0.380s
+ok  	github.com/thesyncim/govpx/internal/vp8/rtp	0.296s
+ok  	github.com/thesyncim/govpx/internal/vp8/scale	0.265s
+ok  	github.com/thesyncim/govpx/internal/vp8/tables	0.266s
+ok  	github.com/thesyncim/govpx/internal/vp9/bitstream	0.301s
+ok  	github.com/thesyncim/govpx/internal/vp9/common	0.266s
+ok  	github.com/thesyncim/govpx/internal/vp9/decoder	0.272s
+ok  	github.com/thesyncim/govpx/internal/vp9/dsp	0.358s
+ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.498s
+ok  	github.com/thesyncim/govpx/internal/vp9/rtp	0.306s
+ok  	github.com/thesyncim/govpx/internal/vp9/tables	0.330s
+ok  	github.com/thesyncim/govpx/internal/vpx/arith	0.380s
+ok  	github.com/thesyncim/govpx/internal/vpx/buffers	0.287s
+ok  	github.com/thesyncim/govpx/internal/vpx/conformance	0.293s
+?   	github.com/thesyncim/govpx/internal/vpx/errors	[no test files]
+ok  	github.com/thesyncim/govpx/internal/vpx/geometry	0.283s
+ok  	github.com/thesyncim/govpx/internal/vpx/ivf	0.290s
+ok  	github.com/thesyncim/govpx/internal/vpx/ratecontrol	0.283s
+ok  	github.com/thesyncim/govpx/internal/vpx/rtp	0.284s

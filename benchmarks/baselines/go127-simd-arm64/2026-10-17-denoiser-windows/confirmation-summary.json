@@ -1,0 +1,116 @@
+{
+  "BenchmarkDenoiserFilterYNative/smooth": {
+    "samples": {
+      "parent": [
+        45.53,
+        42.59,
+        44.1,
+        43.38,
+        43.12,
+        43.45
+      ],
+      "assembly": [
+        35.02,
+        33.38,
+        33.21,
+        33.62,
+        33.9,
+        33.0
+      ],
+      "pointers": [
+        27.9,
+        27.77,
+        27.97,
+        27.98,
+        28.13,
+        27.81
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.2959701492537314,
+      "pointers": 1.5541435475210312
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointers": 6
+    }
+  },
+  "BenchmarkDenoiserFilterYNative/mixed": {
+    "samples": {
+      "parent": [
+        55.2,
+        53.99,
+        54.07,
+        53.87,
+        54.63,
+        54.1
+      ],
+      "assembly": [
+        558.3,
+        551.1,
+        553.0,
+        559.8,
+        556.3,
+        566.7
+      ],
+      "pointers": [
+        39.23,
+        39.39,
+        39.65,
+        39.47,
+        39.74,
+        39.35
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.0970482684371075,
+      "pointers": 1.3716713162566574
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointers": 6
+    }
+  },
+  "BenchmarkDenoiserFilterYNative/saturating": {
+    "samples": {
+      "parent": [
+        34.49,
+        33.73,
+        33.75,
+        33.33,
+        33.61,
+        33.42
+      ],
+      "assembly": [
+        315.5,
+        315.3,
+        313.9,
+        279.3,
+        317.8,
+        291.4
+      ],
+      "pointers": [
+        23.64,
+        23.64,
+        23.85,
+        23.59,
+        23.85,
+        23.41
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.10702479338842975,
+      "pointers": 1.4242808798646363
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointers": 6
+    }
+  }
+}

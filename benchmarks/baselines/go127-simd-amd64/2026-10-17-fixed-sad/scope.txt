@@ -1,0 +1,25 @@
+PR29 native x64 / optimized-C evidence preservation
+
+Tested source: 38d1183877b37727e36c53e9cf7bd4e9dd01d4ff
+Base/main: 33c53431ca0a0febd3af322a0bb24a2b4e38f464
+Old assembly: 691cd0512c4829d9ee40d483205dd223f9eb028d
+Squash merge/main: ed00fc3b53fde3b2bff302037bdbf97bde5ee60a
+Tested and merged tree: 6dfab3b0097ddefe822f64d468505c6edf36f5dc
+PR: https://github.com/thesyncim/govpx/pull/29
+All three exact-head checks passed before merge. Only the PR's own remote branch was deleted.
+
+Source scope: new x64 fixed-window limited pointer SAD with independent even/odd PSADBW accumulators; ARM batch EOB masking uses AndNot/BIC. Do not carry PR28's AMD instruction-identity claim into this change. Public pointer fixtures and the older slice-caller fixture remain distinct workloads.
+
+Native EPYC 7763, Go 1.27.2, PGO off, GOMAXPROCS=1; six paired rounds on the same CPU compare current, base and old assembly. All 20 pointer-SAD fixtures improve over base in every pair: full/wide bounds 2.147-2.160x, early 1.665-1.666x, middle 1.029-1.193x, near 1.009-1.018x. Twelve exceed 1.5x in every pair. Full/wide cases take 11.89-16.13% less time than assembly, but early/middle/near cases take 20.87-88.02% more. The older slice-caller BenchmarkSAD16x16LimitEarly regresses 3.783% versus base in all six pairs and remains 100.195% slower than assembly. Preserve it; the pointer wins do not describe every caller.
+
+Whole VP8: +0.326% versus base (2/6 faster), -14.875% versus assembly (6/6 faster). VP9 320: -0.878% versus base (6/6 faster), -38.980% versus assembly (6/6 faster). VP9 720: +0.159% versus base (2/6 faster), -46.586% versus assembly (6/6 faster). No general whole-codec improvement, VP9 algorithm improvement, or closure of earlier 9V74/other-CPU gaps is inferred. Short profiles sample ordinary SAD/plane scoring but do not sample the limited-pointer symbol; they do not establish a material whole-codec contribution from this kernel.
+
+All 114 kernel cases have six samples per variant, zero B/op and zero allocs/op. Targeted validation has 73 top-level PASS plus six new panic child probes = 79 required checks; 101 PASS lines include 22 older subtests. No failures or skips; base and current SIMD dispatch confirmed. All 22 semantic fields match across three public and two profile datasets. Allocation is a separate control: preserve VP9 720 assembly round 4 and base round 2 outliers of 1.266667 allocations/input versus usual 1.25. All current VP9 720 rounds are 1.25. Every other public/profile allocation sample matches its dataset.
+
+All 42 median-regressing kernels are retained in audit.json. All-six-slower controls besides old early-SAD: SSE16x16 +0.880%, SixTap4x4/2,4 +4.850%, SixTap8x8/3,5 +0.342%, SplitSubpel8x4 +2.384%. Selected paired analyses and all median regressions are in the compact audit; all 114 cases and every raw round remain in native-raw.tar.gz.
+
+Separate optimized-C EPYC 9V45 job: pinned libvpx v1.16.0, commit 1024874c5919305883187e2953de8fcb4c3d7fa6, optimized configure flags, runtime CPU dispatch, SSE2/AVX2 and assembly objects enabled. Fixed-speed VP8 Go 9.990673ms/input versus C 4.028333ms/input = 2.480101x (+148.010%). Measured PSNR/SSIM/payload size/encoded and dropped counts match; this does not assert bitstream identity. Adaptive VP8 +72.827% and VP9 +165.041%/+178.845% use different quality/output work. All quality-pass output statistics match their corresponding timed outputs. Reference timers are vpxenc-stats. Do not compare absolute timings across the native and C jobs.
+
+Parent-supplied ARM confirmation (not independently measured in this archive audit): Apple M4 Max, Go 1.27.2, PGO off; quant 8/16/25 1.038/1.080/1.086x over main, all six pairs faster, below 1.5x. Whole 300 -3.053% versus main (5/6 faster), whole 60 +0.556% (2/6 faster); still +8.342%/+11.004% versus assembly. All 23 non-timing controls match. ARM gap remains.
+
+Preservation: native-raw.tar.gz holds 86 raw files; libvpx-raw.tar.gz holds 74. raw-sha256.json records every member's original SHA256. All 160 decompressed member bytes were checked against source artifacts and manifests. sha256.json covers the other five bundle files. No README changes or local Go work were performed by this audit.

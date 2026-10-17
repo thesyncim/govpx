@@ -22,11 +22,14 @@ func DenoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, l
 	if !independent(mc) || !independent(sig) {
 		return false, false
 	}
+	// The stride/span guards prove every y*stride+16 fits its input.
+	// Keep pointers anchored and touch exactly sixteen bytes per row.
+	mp, avp, sp := unsafe.Pointer(unsafe.SliceData(mc)), unsafe.Pointer(unsafe.SliceData(avg)), unsafe.Pointer(unsafe.SliceData(sig))
 	l1, l2, l3 := archsimd.BroadcastUint8x16(byte(level)), archsimd.BroadcastUint8x16(byte(level+1)), archsimd.BroadcastUint8x16(byte(level+3))
 	seven, fifteen, threshold := archsimd.BroadcastUint8x16(7), archsimd.BroadcastUint8x16(15), archsimd.BroadcastUint8x16(byte(3+inc))
 	var columns archsimd.Int8x16
 	for y := range 16 {
-		m, s := archsimd.LoadUint8x16(mc[y*ms:]), archsimd.LoadUint8x16(sig[y*ss:])
+		m, s := load16(unsafe.Add(mp, y*ms)), load16(unsafe.Add(sp, y*ss))
 		a := m.Max(s).Sub(m.Min(s))
 		magnitude := l2.IfElse(a.LessEqual(fifteen), l3)
 		magnitude = l1.IfElse(a.LessEqual(seven), magnitude)
@@ -37,7 +40,7 @@ func DenoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, l
 		// column sum is in [-120,120], so signed saturation can only occur on
 		// the final addition, exactly implementing the required upper clamp to 127.
 		columns = columns.AddSaturated(plus.BitsToInt8().Sub(minus.BitsToInt8()))
-		s.AddSaturated(plus).SubSaturated(minus).Store(avg[y*as:])
+		s.AddSaturated(plus).SubSaturated(minus).StoreArray((*[16]byte)(unsafe.Add(avp, y*as)))
 	}
 	c0, c1 := columns.ExtendLo8ToInt16(), columns.HiToLo().ExtendLo8ToInt16()
 	sum := int(c0.Add(c1).ReduceSum())
@@ -48,14 +51,14 @@ func DenoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, l
 		}
 		limit := archsimd.BroadcastUint8x16(byte(delta))
 		for y := range 16 {
-			m, s := archsimd.LoadUint8x16(mc[y*ms:]), archsimd.LoadUint8x16(sig[y*ss:])
+			m, s := load16(unsafe.Add(mp, y*ms)), load16(unsafe.Add(sp, y*ss))
 			a := m.Max(s).Sub(m.Min(s)).Min(limit)
 			negative := m.Less(s)
 			plus, minus := a.Masked(negative), a.Masked(negative.Not())
 			correction := plus.BitsToInt8().Sub(minus.BitsToInt8())
 			c0 = c0.Add(correction.ExtendLo8ToInt16())
 			c1 = c1.Add(correction.HiToLo().ExtendLo8ToInt16())
-			archsimd.LoadUint8x16(avg[y*as:]).SubSaturated(minus).AddSaturated(plus).Store(avg[y*as:])
+			load16(unsafe.Add(avp, y*as)).SubSaturated(minus).AddSaturated(plus).StoreArray((*[16]byte)(unsafe.Add(avp, y*as)))
 		}
 		upper := archsimd.BroadcastInt16x8(127)
 		sum = int(c0.Min(upper).Add(c1.Min(upper)).ReduceSum())
@@ -64,7 +67,7 @@ func DenoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, l
 		}
 	}
 	for y := range 16 {
-		archsimd.LoadUint8x16(avg[y*as:]).Store(sig[y*ss:])
+		load16(unsafe.Add(avp, y*as)).StoreArray((*[16]byte)(unsafe.Add(sp, y*ss)))
 	}
 	return true, true
 }

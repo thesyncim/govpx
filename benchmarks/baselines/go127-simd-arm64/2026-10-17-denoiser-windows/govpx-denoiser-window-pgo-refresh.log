@@ -1,0 +1,12 @@
+mkdir -p .pgo
+GOTOOLCHAIN="local" GO="/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go" scripts/go.sh build -pgo=off -o .pgo/govpx-bench-pgo ./cmd/govpx-bench
+go: writing stat cache: open /Users/thesyncim/go/pkg/mod/cache/download/github.com/thesyncim/govpx/@v/v0.0.0-20261017193235-ed00fc3b53fd.info886278565.tmp: operation not permitted
+./.pgo/govpx-bench-pgo -auto-libvpx=false -width=1920 -height=1080 -frames=180 -fps=30 -bitrate=4000 -mode=realtime -cpu-used=8 -encode-only -cpuprofile=.pgo/vp8-encode.pgo >/dev/null
+./.pgo/govpx-bench-pgo -auto-libvpx=false -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -cpuprofile=.pgo/vp8-quality.pgo >/dev/null
+./.pgo/govpx-bench-pgo -auto-libvpx=false -codec=vp9 -width=1280 -height=720 -frames=120 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -threads=1 -encode-only -cpuprofile=.pgo/vp9-realtime.pgo >/dev/null
+GOTOOLCHAIN="local" GO="/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go" scripts/go.sh tool pprof -proto .pgo/vp8-encode.pgo .pgo/vp8-quality.pgo .pgo/vp9-realtime.pgo > "cmd/govpx-bench/default.pgo.tmp"
+mv "cmd/govpx-bench/default.pgo.tmp" "cmd/govpx-bench/default.pgo"
+rm -rf .pgo
+/Applications/Xcode.app/Contents/Developer/usr/bin/make pgo-update-fingerprint
+scripts/pgo-fingerprint.sh > "cmd/govpx-bench/default.pgo.sources.sha256.tmp"
+mv "cmd/govpx-bench/default.pgo.sources.sha256.tmp" "cmd/govpx-bench/default.pgo.sources.sha256"

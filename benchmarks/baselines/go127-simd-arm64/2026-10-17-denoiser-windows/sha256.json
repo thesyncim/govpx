@@ -1,0 +1,15 @@
+{
+  "confirmation-summary.json": "9fbafbdfb0b008a4a6c9cc72cd188e0049c3dd208d0b14e1e9ea43709e6e82e0",
+  "environment.json": "a4617374b21c453d55969d311beffced0060b44c194eb2cb40760dc890ca4831",
+  "govpx-denoiser-window-full.log": "84c26281ddc3f24037cb9baca512be2d6542d04f6c22a4eb1fe10850b32dceb7",
+  "govpx-denoiser-window-gates.log": "00a32058e565704a4577f5cc75c58739b69cf1d85b12daf91532e345295554d4",
+  "govpx-denoiser-window-pgo-refresh.log": "924a54022bf9a09f7f6c5489eddf39620baafc498a9685eff63bf82dfa20b869",
+  "measurements.tar.gz": "26ac82e382be9cbd1b511b5662e870402dbf1fb97f40cadc10d22dda7b94b11b",
+  "profile-sha256.json": "6e2fcd4b2e986f6a4a935e585506e19e2d823dc61d126ed71accc28affb75bc1",
+  "profiles.tar.gz": "5fd74c6dc60747ce68924fae3c4303ac14e19a76b8bef0ef837baff158e92979",
+  "public-summary.json": "d137719e36b4770e6e5907f19dc5e01d28facb5295dcd83e7922b0d1ac38ebb6",
+  "raw-sha256.json": "b14c7c82c76689235cad91b90f6ada6bff802aea897622fe36ab99869fb4fac1",
+  "scope.txt": "6a026690253d45feadae4fc4eefffe4d05ceca4bdc3d7ad728741f106f33b783",
+  "sources.tar.gz": "18b30186038c58b0c0226a182113ebb5056b689707bba28e40c580e3c61bbe5f",
+  "validation-summary.json": "3122fc9ead1176d1ab84930d20e020e208ca899e95edfdbab59cb8c4896093fe"
+}

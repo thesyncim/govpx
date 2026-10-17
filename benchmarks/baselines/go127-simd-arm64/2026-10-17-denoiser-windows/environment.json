@@ -1,0 +1,25 @@
+{
+  "base": "38d1183877b37727e36c53e9cf7bd4e9dd01d4ff",
+  "cpu": "Apple M4 Max",
+  "os": "Darwin arm64",
+  "go": "go1.27.2",
+  "experiment": "simd",
+  "pgo": "off",
+  "threads": 1,
+  "kernel_fixture": "internal/vp8/encoder/denoiser_native_bench_test.go",
+  "fixture_sha256": "2389eb62dea024f78331f693822ee5b4b0a1f376434ad38c408265402f43cc3a",
+  "source_sha256": {
+    "parent": "267e558c6c3b1c68b00fd398b126f0b33d290dfdb3ecd14c7d6134b73f1f8eb4",
+    "pointers": "3672ee0e1e6a152810aaa6343ecdb97e2e9cbcd8681cf80e97297b025dc4cda5"
+  },
+  "binaries": {
+    "/private/tmp/govpx-next-denoise-parent.test": "8a693f6595b00c7c343a7dfb51cf45ec5caabe44a8a26274e25ecf8b69eebde4",
+    "/private/tmp/govpx-next-denoise-pointers.test": "84c8a6a58b569d9e8830d6e769f4e0064470931242bd8f479fcfce532b78da08",
+    "/private/tmp/govpx-next-denoise-assembly.test": "e5e0eb37243017d36d9ac7ec4ac9536b74d909eda0ed2300236b0ecf1e303b75",
+    "/private/tmp/govpx-next-denoise-pointers-public-bench": "9edad00af2df5f9b6b58c3a17d4d35135972791da6dcf8e4d45e461b0f23f75a",
+    "/private/tmp/govpx-next-quant-eob-public-bench": "8bfa34cda6a4ff77cfae5e10c6bde61004bd382edd5eebd683fe8795c37dc307",
+    "/private/tmp/govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  },
+  "bounds_proof": "Existing stride>=16, len>=16, stride<=(len-16)/15 prove y*stride+16<=len and no signed overflow for y0..15. Anchored unsafe.Pointer and exact16B Load/StoreArray preserve unaligned minimal windows. Avg remains disjoint from both inputs; MC/Sig read-only overlap allowed until final copy phase. No new branch, no reordered alias-visible stores.",
+  "scope": "Initial parent encoder binary reused from quant-private snapshot (ARM production equivalent); fresh confirmation rebuilds exactPR29 root parent and pinned691ASM with identical fixture. Selected source changes only one ARM file. Whole measurement pending until all Go jobs stop. No code added to root or PR29."
+}

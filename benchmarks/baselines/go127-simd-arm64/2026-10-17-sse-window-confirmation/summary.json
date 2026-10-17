@@ -1,0 +1,610 @@
+{
+  "BenchmarkSSE16WindowNative/h1/pitch32/mode0": {
+    "samples": {
+      "parent": [
+        3.616,
+        3.223,
+        3.229,
+        3.225,
+        3.234,
+        3.231
+      ],
+      "assembly": [
+        11.45,
+        10.86,
+        10.98,
+        10.9,
+        10.92,
+        10.88
+      ],
+      "pointer": [
+        3.394,
+        3.003,
+        3.012,
+        2.996,
+        2.999,
+        2.977
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.29605866177818513,
+      "pointer": 1.076307897367544
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h1/pitch32/mode1": {
+    "samples": {
+      "parent": [
+        3.224,
+        3.244,
+        3.224,
+        3.225,
+        3.233,
+        3.238
+      ],
+      "assembly": [
+        10.58,
+        10.87,
+        10.94,
+        10.85,
+        10.87,
+        10.81
+      ],
+      "pointer": [
+        2.986,
+        2.982,
+        2.974,
+        2.979,
+        3.001,
+        2.98
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.29732965009208107,
+      "pointer": 1.0831935592083195
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h1/pitch1312/mode0": {
+    "samples": {
+      "parent": [
+        3.22,
+        3.22,
+        3.223,
+        3.244,
+        3.232,
+        3.224
+      ],
+      "assembly": [
+        10.66,
+        10.9,
+        10.81,
+        10.89,
+        10.83,
+        10.78
+      ],
+      "pointer": [
+        2.977,
+        2.999,
+        3.005,
+        2.976,
+        3.017,
+        3.017
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.2979205175600739,
+      "pointer": 1.073784143904064
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h1/pitch1312/mode1": {
+    "samples": {
+      "parent": [
+        3.25,
+        3.227,
+        3.231,
+        3.223,
+        3.221,
+        3.224
+      ],
+      "assembly": [
+        10.61,
+        10.8,
+        10.8,
+        10.89,
+        10.88,
+        10.91
+      ],
+      "pointer": [
+        2.976,
+        3.0,
+        2.978,
+        3.058,
+        3.011,
+        2.977
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 0.29755535055350557,
+      "pointer": 1.0791234526597526
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 0,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h8/pitch32/mode0": {
+    "samples": {
+      "parent": [
+        9.714,
+        9.714,
+        9.666,
+        9.715,
+        9.699,
+        9.716
+      ],
+      "assembly": [
+        4.827,
+        4.977,
+        4.843,
+        4.818,
+        4.919,
+        4.792
+      ],
+      "pointer": [
+        7.213,
+        7.177,
+        7.14,
+        7.209,
+        7.269,
+        7.136
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.0091003102378493,
+      "pointer": 1.350479632976505
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h8/pitch32/mode1": {
+    "samples": {
+      "parent": [
+        9.682,
+        9.668,
+        9.673,
+        9.748,
+        9.703,
+        9.676
+      ],
+      "assembly": [
+        5.599,
+        6.093,
+        4.875,
+        4.789,
+        4.951,
+        5.583
+      ],
+      "pointer": [
+        7.19,
+        7.14,
+        7.219,
+        7.14,
+        7.557,
+        7.179
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 1.837668501993545,
+      "pointer": 1.347205790242884
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h8/pitch1312/mode0": {
+    "samples": {
+      "parent": [
+        9.707,
+        9.697,
+        9.715,
+        9.663,
+        9.702,
+        9.706
+      ],
+      "assembly": [
+        4.802,
+        4.793,
+        4.784,
+        4.812,
+        4.838,
+        4.836
+      ],
+      "pointer": [
+        7.243,
+        7.182,
+        7.169,
+        7.225,
+        7.189,
+        7.135
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.0187226960682336,
+      "pointer": 1.350497529747408
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h8/pitch1312/mode1": {
+    "samples": {
+      "parent": [
+        9.664,
+        9.717,
+        9.666,
+        9.829,
+        9.831,
+        9.849
+      ],
+      "assembly": [
+        4.807,
+        4.912,
+        4.823,
+        5.172,
+        4.895,
+        4.81
+      ],
+      "pointer": [
+        7.375,
+        7.135,
+        7.133,
+        7.137,
+        7.126,
+        7.147
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.0113192014817862,
+      "pointer": 1.3695347533632287
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h16/pitch32/mode0": {
+    "samples": {
+      "parent": [
+        17.17,
+        17.43,
+        17.42,
+        17.32,
+        17.48,
+        17.13
+      ],
+      "assembly": [
+        7.718,
+        7.721,
+        7.68,
+        7.693,
+        7.844,
+        7.709
+      ],
+      "pointer": [
+        14.44,
+        14.13,
+        14.29,
+        14.08,
+        14.17,
+        14.07
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.251896026447138,
+      "pointer": 1.2275618374558304
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h16/pitch32/mode1": {
+    "samples": {
+      "parent": [
+        17.13,
+        17.18,
+        17.52,
+        17.13,
+        17.15,
+        17.19
+      ],
+      "assembly": [
+        7.679,
+        7.683,
+        7.68,
+        7.757,
+        7.843,
+        7.69
+      ],
+      "pointer": [
+        14.35,
+        14.17,
+        14.11,
+        14.13,
+        14.08,
+        14.07
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.2331360176933583,
+      "pointer": 1.2156515580736542
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h16/pitch1312/mode0": {
+    "samples": {
+      "parent": [
+        17.11,
+        17.1,
+        17.13,
+        17.11,
+        17.51,
+        17.1
+      ],
+      "assembly": [
+        7.715,
+        7.709,
+        7.724,
+        7.722,
+        7.85,
+        7.742
+      ],
+      "pointer": [
+        14.23,
+        14.41,
+        14.16,
+        14.26,
+        14.07,
+        14.19
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.2154603133497344,
+      "pointer": 1.204081632653061
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h16/pitch1312/mode1": {
+    "samples": {
+      "parent": [
+        17.31,
+        17.11,
+        17.16,
+        17.24,
+        17.23,
+        17.1
+      ],
+      "assembly": [
+        7.687,
+        7.698,
+        7.695,
+        7.688,
+        7.683,
+        7.749
+      ],
+      "pointer": [
+        14.63,
+        14.21,
+        14.06,
+        14.07,
+        14.12,
+        14.29
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.235584736397322,
+      "pointer": 1.213907518531592
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h720/pitch32/mode0": {
+    "samples": {
+      "parent": [
+        669.2,
+        669.7,
+        670.0,
+        667.5,
+        670.9,
+        676.2
+      ],
+      "assembly": [
+        268.3,
+        268.9,
+        269.3,
+        269.7,
+        270.4,
+        273.0
+      ],
+      "pointer": [
+        626.5,
+        638.0,
+        624.7,
+        628.5,
+        624.6,
+        625.1
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.4855287569573283,
+      "pointer": 1.0703899009268139
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h720/pitch32/mode1": {
+    "samples": {
+      "parent": [
+        675.2,
+        666.9,
+        671.2,
+        672.6,
+        670.9,
+        668.3
+      ],
+      "assembly": [
+        269.2,
+        269.9,
+        271.9,
+        270.7,
+        268.9,
+        270.4
+      ],
+      "pointer": [
+        624.8,
+        629.6,
+        626.8,
+        627.8,
+        627.3,
+        629.3
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.483990375717194,
+      "pointer": 1.069317185881603
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h720/pitch1312/mode0": {
+    "samples": {
+      "parent": [
+        677.3,
+        668.7,
+        672.4,
+        675.9,
+        671.1,
+        670.2
+      ],
+      "assembly": [
+        273.3,
+        271.3,
+        274.6,
+        273.4,
+        273.8,
+        273.3
+      ],
+      "pointer": [
+        628.7,
+        628.0,
+        626.6,
+        628.1,
+        630.9,
+        644.6
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.4574721053594293,
+      "pointer": 1.0689847231063017
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  },
+  "BenchmarkSSE16WindowNative/h720/pitch1312/mode1": {
+    "samples": {
+      "parent": [
+        668.6,
+        673.1,
+        676.6,
+        670.0,
+        670.8,
+        672.5
+      ],
+      "assembly": [
+        272.8,
+        271.2,
+        273.3,
+        273.7,
+        273.6,
+        273.6
+      ],
+      "pointer": [
+        632.5,
+        625.1,
+        626.1,
+        630.2,
+        640.3,
+        629.4
+      ]
+    },
+    "speedup_vs_parent": {
+      "parent": 1.0,
+      "assembly": 2.4562077162186866,
+      "pointer": 1.066449666560813
+    },
+    "faster_pairs": {
+      "parent": 0,
+      "assembly": 6,
+      "pointer": 6
+    }
+  }
+}

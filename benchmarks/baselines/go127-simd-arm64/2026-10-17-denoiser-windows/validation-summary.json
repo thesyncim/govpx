@@ -1,0 +1,122 @@
+{
+  "status": "REVIEW_AND_FOCUSED_CORRECTNESS_PASS",
+  "recorded_utc": "2026-10-17T19:21:32.130848+00:00",
+  "scope": "Private ARM anchored-pointer complete-denoiser candidate only. Root/PR29 unchanged; no production edits by validation agent, no benchmarks or PGO refresh.",
+  "snapshot": "/private/tmp/govpx-next-denoise-pointers",
+  "base_PR29_head": "38d11838",
+  "source_sha256": {
+    "internal/pixel/denoise_complete_arm64.go": "3672ee0e1e6a152810aaa6343ecdb97e2e9cbcd8681cf80e97297b025dc4cda5",
+    "internal/pixel/goav1_sad_arm64.go": "dac369d3679f4e9126f0c4c68afb657413ed0bc046ce4e8f26b5cae535efbf30",
+    "internal/vp8/encoder/denoiser_complete_simd.go": "badc760c79299ed67c36b2c4a4f631881fcbae5248d933842caa146b6f84c69b",
+    "internal/vp8/encoder/denoiser_complete_simd_test.go": "28b91cbc4ca0f9e32b0bc3a12c31e638882834607b3bd7e20f813c923d1031d7",
+    "internal/vp8/encoder/denoiser.go": "d2bea76badffd357b738f95a46ca4021a68306b0dbd5817d329482148cf8c077",
+    "internal/vp8/encoder/denoiser_native_bench_test.go": "2389eb62dea024f78331f693822ee5b4b0a1f376434ad38c408265402f43cc3a",
+    "internal/vp8/encoder/denoiser_complete_pointer_arm64_test.go": "317b106405738ff79008e8e4c4107b40d96f468c9fd056f6cf541fed8f8af006"
+  },
+  "production_source_unchanged_from_readonly_review": true,
+  "review": "review.json",
+  "new_private_test": {
+    "path": "/private/tmp/govpx-next-denoise-pointers/internal/vp8/encoder/denoiser_complete_pointer_arm64_test.go",
+    "sha256": "317b106405738ff79008e8e4c4107b40d96f468c9fd056f6cf541fed8f8af006",
+    "valid_direct_handled_scalar_comparisons": 84,
+    "layouts": 7,
+    "MC_Sig_overlap_layouts_with_unequal_strides": 3,
+    "short_window_decline_cases": 21,
+    "details": [
+      "Every accepted call uses denoiserFilterYCompleteSIMD directly and asserts handled=true; compares decision and all backing storage to independent DenoiserFilterYScalar.",
+      "Explicit odd base offsets forMC/Avg/Sig; distinctstrides16/17/19/23/31; visiblelength exactly15*stride+16 withsparecapacity andprefix/suffixtailpadding canaries.",
+      "SharedMC/Sig backing reproducespartial/exactbase alias withunequal strides; clones preservealiaslayout before independent oracle.",
+      "Both FILTER and COPY decisions required; one-byte-short checks declinewithoutchanginganybacking."
+    ]
+  },
+  "results": {
+    "native-denois-race-checkptr.log": {
+      "status": "PASS",
+      "top_level_tests": 18,
+      "skips": 0,
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t1.415s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t1.453s"
+      ]
+    },
+    "native-denois-tests.log": {
+      "status": "PASS",
+      "top_level_tests": 18,
+      "skips": 0,
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t0.195s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t0.317s"
+      ]
+    }
+  },
+  "logs": {
+    "native-denois-race-checkptr.log": {
+      "sha256": "ea7e2af622b9d0fb5debfe59d3794b28b0174bfb60c5d7a14dd22d71c4dd5c9d",
+      "bytes": 2898,
+      "passed_top_level_tests": [
+        "--- PASS: TestDenoiseBytesScalar (0.11s)",
+        "--- PASS: TestDenoiseBytesDeclinesAliasesAndShortRows (0.00s)",
+        "--- PASS: TestDenoiseBytesPacketAliasOrder (0.00s)",
+        "--- PASS: TestDenoiseBytesDistinctStridesAndPublicDispatch (0.00s)",
+        "--- PASS: TestDenoiseBytesShortDestAndSignal (0.00s)",
+        "--- PASS: TestDenoiseBytesFallbackParameters (0.00s)",
+        "--- PASS: TestDenoiserCompletePointerWindowsScalar (0.00s)",
+        "--- PASS: TestDenoiserCompleteDecisionsScalar (0.03s)",
+        "--- PASS: TestDenoiserCompleteDeclinesBeforeWriting (0.00s)",
+        "--- PASS: TestDenoiserCompleteAliasedInputsScalar (0.00s)",
+        "--- PASS: TestDenoiserCompleteInvalidParametersDecline (0.00s)",
+        "--- PASS: TestDenoiserFilterYDispatchMatchesScalar (0.02s)",
+        "--- PASS: TestDenoiserFilterUVDispatchMatchesScalar (0.01s)",
+        "--- PASS: TestDenoiserModeMappingMatchesLibvpx (0.00s)",
+        "--- PASS: TestDenoiserSetParametersMatchesLibvpxModes (0.00s)",
+        "--- PASS: TestDenoiserFilterYReturnsCopyForSharpDifference (0.00s)",
+        "--- PASS: TestDenoiserFilterYUsesMCWhenAbsdiffSmall (0.00s)",
+        "--- PASS: TestDenoiserFilterUVCopiesNearNeutralBlocks (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t1.415s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t1.453s"
+      ]
+    },
+    "native-denois-tests.log": {
+      "sha256": "9ad077d5f0547d04e164eecb4ea625e4a6a4ec7bb9301ff53c487d3b98178902",
+      "bytes": 2898,
+      "passed_top_level_tests": [
+        "--- PASS: TestDenoiseBytesScalar (0.01s)",
+        "--- PASS: TestDenoiseBytesDeclinesAliasesAndShortRows (0.00s)",
+        "--- PASS: TestDenoiseBytesPacketAliasOrder (0.00s)",
+        "--- PASS: TestDenoiseBytesDistinctStridesAndPublicDispatch (0.00s)",
+        "--- PASS: TestDenoiseBytesShortDestAndSignal (0.00s)",
+        "--- PASS: TestDenoiseBytesFallbackParameters (0.00s)",
+        "--- PASS: TestDenoiserCompletePointerWindowsScalar (0.00s)",
+        "--- PASS: TestDenoiserCompleteDecisionsScalar (0.00s)",
+        "--- PASS: TestDenoiserCompleteDeclinesBeforeWriting (0.00s)",
+        "--- PASS: TestDenoiserCompleteAliasedInputsScalar (0.00s)",
+        "--- PASS: TestDenoiserCompleteInvalidParametersDecline (0.00s)",
+        "--- PASS: TestDenoiserFilterYDispatchMatchesScalar (0.00s)",
+        "--- PASS: TestDenoiserFilterUVDispatchMatchesScalar (0.00s)",
+        "--- PASS: TestDenoiserModeMappingMatchesLibvpx (0.00s)",
+        "--- PASS: TestDenoiserSetParametersMatchesLibvpxModes (0.00s)",
+        "--- PASS: TestDenoiserFilterYReturnsCopyForSharpDifference (0.00s)",
+        "--- PASS: TestDenoiserFilterYUsesMCWhenAbsdiffSmall (0.00s)",
+        "--- PASS: TestDenoiserFilterUVCopiesNearNeutralBlocks (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t0.195s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t0.317s"
+      ]
+    }
+  },
+  "commands": "commands.json",
+  "limitations": [
+    "These are correctness/review checks; native performance values belong to root measurements, not this validation.",
+    "Only private testfile edited; root must transplant the test with productioncandidate if selected.",
+    "No whole-codec improvement claimed."
+  ],
+  "agent_Go_jobs_stopped": true,
+  "window_released_for_root_native_whole_timing": true
+}
