@@ -1,0 +1,643 @@
+{
+  "status": "FOCUSED_CORRECTNESS_AND_REVIEW_PASS; NATIVE_PERFORMANCE_PENDING",
+  "recorded_utc": "2026-10-17T19:03:09.888989+00:00",
+  "scope": "Isolated NEXT x64 experiment only. No root or private production/index edits, no timing/performance claim.",
+  "snapshot": "/private/tmp/govpx-next-sad-amd64",
+  "root_tracked_head": "b3584e1700d889d2ebe1646f9ab9e7e180b3c045",
+  "source_sha256": {
+    "internal/pixel/sad_limit16_amd64.go": "fb27a5c4d459a52366b813ae96e9d080e69dcba348de57eda3867eb761893967",
+    "internal/pixel/sad_limit16_amd64_test.go": "dacbbaa536960d0f3cef5dd6d79aa8e72f9b87a4b5241b041ae5febe69083260",
+    "internal/pixel/enabled_amd64.go": "816f8a38646ee3ec875f5c6a4be7e29ad36437d69fa91db87f372941d5118007",
+    "internal/vp8/dsp/sad_limit16_amd64.go": "c7309563ec0b50349ba6677ad66bdf632773da0d07400d08f2c9356443e39a6b",
+    "internal/vp8/dsp/sad_limit16_other.go": "1bd3e574be7ced8a9a2d3841944ac01a9626470135831e2d63f6f68444c144eb",
+    "internal/vp8/dsp/sad_dispatch_other.go": "b91576a91700c58faf5df632ea385f634a5dab0154156ef5b2173f62659a7ea7",
+    "internal/vp8/dsp/sad_limit_native_test.go": "d3a2102d055dea1ca1b5c81efc1b0e584e1e4558129722446249ba1348442574",
+    "internal/vp8/dsp/sad_limit16_disabled_amd64_test.go": "e84f8a241e8fb3b8f4bd9ee05c0b0111b9c6054e7542d2892d4e210a57906659"
+  },
+  "environment": {
+    "agent_id": "ci-next-sad-amd64",
+    "GOARCH": "amd64",
+    "GOAMD64": "v1",
+    "GOFLAGS": "-p=2",
+    "GOMAXPROCS": 2,
+    "GOTOOLCHAIN": "local",
+    "GO": "/Users/thesyncim/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go",
+    "wrapper": "root project-env/scripts/go.sh -C /private/tmp/govpx-next-sad-amd64",
+    "pgo": "off",
+    "ordinary_and_instrumented": "ordinary; -gcflags=all=-d=checkptr=2",
+    "run": "ROSETTA_ADVERTISE_AVX=1 GOVPX_REQUIRE_SIMD=1 /usr/bin/arch -x86_64"
+  },
+  "test_runs": {
+    "pixel_ordinary": "^(TestBackendSelected|TestSAD)",
+    "pixel_checkptr2": "^(TestBackendSelected|TestSAD)",
+    "DSP_ordinary": "^TestSAD",
+    "DSP_checkptr2": "^TestSAD"
+  },
+  "logs": {
+    "dsp-checkptr2-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-checkptr2-tests.log": {
+      "sha256": "7718e2e55885144cba8c608edfdaff54a23c37c81d1576aeabd0af1956a6dce1",
+      "bytes": 1711,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADNativeMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16x4NativeMatchesScalar (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADNativeMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/4x4 (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-final-checkptr2-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-final-checkptr2-tests.log": {
+      "sha256": "75c2868737efb38a7486d76fc76f5939b670f49bd4d2b5eede1b962222113cc9",
+      "bytes": 1801,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADNativeMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16x4NativeMatchesScalar (0.00s)",
+        "--- PASS: TestSADLimitPointerAMDDisabled (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADNativeMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/4x4 (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-final-ordinary-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-final-ordinary-tests.log": {
+      "sha256": "75c2868737efb38a7486d76fc76f5939b670f49bd4d2b5eede1b962222113cc9",
+      "bytes": 1801,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADNativeMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16x4NativeMatchesScalar (0.00s)",
+        "--- PASS: TestSADLimitPointerAMDDisabled (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADNativeMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/4x4 (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-ordinary-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-ordinary-tests.log": {
+      "sha256": "7718e2e55885144cba8c608edfdaff54a23c37c81d1576aeabd0af1956a6dce1",
+      "bytes": 1711,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADNativeMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16x4NativeMatchesScalar (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADNativeMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADNativeMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/16x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x16 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/8x8 (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar/4x4 (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-runtime-disabled-checkptr2-tests.log": {
+      "sha256": "05c23ea0caca45d6fe32f7b1635f0dc9c989e5af228b6993d223eeebdefe3aa2",
+      "bytes": 171,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADLimitPointerAMDDisabled (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "dsp-runtime-disabled-ordinary-tests.log": {
+      "sha256": "05c23ea0caca45d6fe32f7b1635f0dc9c989e5af228b6993d223eeebdefe3aa2",
+      "bytes": 171,
+      "passed_top_level_tests": [
+        "--- PASS: TestSADLimitPointerAMDDisabled (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "final-fixture-1x.log": {
+      "sha256": "9bc821c17a5cdcda71722e18904cb44d9c421020c147fd242ec797d3c9f23ead",
+      "bytes": 2571,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "pixel-checkptr2-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "pixel-checkptr2-tests.log": {
+      "sha256": "96c0495bfdf03bad8e9518e81584b4d4f8742eae2082fc3b6ff7e2fd18212a63",
+      "bytes": 397,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=true"
+      ]
+    },
+    "pixel-final-checkptr2-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "pixel-final-checkptr2-tests.log": {
+      "sha256": "cd6512e3ef1c7c79a9dcc67d137e14fa3ee224d519b30dc10879095bc6f987d1",
+      "bytes": 1145,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics (0.12s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADLimit16PointerFallbackPanics/0 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/1 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/2 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/3 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/4 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/5 (0.02s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=true"
+      ]
+    },
+    "pixel-final-ordinary-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "pixel-final-ordinary-tests.log": {
+      "sha256": "cd6512e3ef1c7c79a9dcc67d137e14fa3ee224d519b30dc10879095bc6f987d1",
+      "bytes": 1145,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics (0.12s)"
+      ],
+      "passed_subtests": [
+        "--- PASS: TestSADLimit16PointerFallbackPanics/0 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/1 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/2 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/3 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/4 (0.02s)",
+        "--- PASS: TestSADLimit16PointerFallbackPanics/5 (0.02s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=true"
+      ]
+    },
+    "pixel-ordinary-build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "passed_top_level_tests": [],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": []
+    },
+    "pixel-ordinary-tests.log": {
+      "sha256": "96c0495bfdf03bad8e9518e81584b4d4f8742eae2082fc3b6ff7e2fd18212a63",
+      "bytes": 397,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=true"
+      ]
+    },
+    "pixel-runtime-disabled-checkptr2-tests.log": {
+      "sha256": "8253222ae26524fdf243b8e020d9cde480fff8bc5b0896c9f391066d0ac001c5",
+      "bytes": 328,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=false"
+      ]
+    },
+    "pixel-runtime-disabled-tests.log": {
+      "sha256": "8253222ae26524fdf243b8e020d9cde480fff8bc5b0896c9f391066d0ac001c5",
+      "bytes": 328,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSADLimit16PointerMatchesRows (0.00s)",
+        "--- PASS: TestSADLimit16PointerDisabledBackwards (0.00s)"
+      ],
+      "passed_subtests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "    kernels_test.go:12: GOARCH=amd64 native SIMD=false"
+      ]
+    }
+  },
+  "binaries": {
+    "dsp-checkptr2.test": {
+      "sha256": "1fdf90ef47c5d6700a7e0d21bd9103edb9b4594697faf25125db669224c62ba9",
+      "bytes": 7901984
+    },
+    "dsp-final-checkptr2.test": {
+      "sha256": "23ca2bcd53b0d3e35cd80892852c1b398d94dcd3a532a097324939decbf52cd2",
+      "bytes": 7906288
+    },
+    "dsp-final-ordinary.test": {
+      "sha256": "e2d2835f38f4420abe65e7929b1572751fec590e0dfb719529d449535b1a7d1d",
+      "bytes": 7646592
+    },
+    "dsp-ordinary.test": {
+      "sha256": "79ebdd2dd2e152bb9de401258223aed33daef28d6f16445a8744c952cf2c0f36",
+      "bytes": 7638192
+    },
+    "pixel-checkptr2.test": {
+      "sha256": "e7e1d19f262b697079482a5b1276afd0e85c720ec495bedc2517599719f8deec",
+      "bytes": 5388144
+    },
+    "pixel-final-checkptr2.test": {
+      "sha256": "2954f6a7713c2f1efe35a8a760815e996f1fadb3ab0e846c5c9b2cf33a74ac41",
+      "bytes": 5514368
+    },
+    "pixel-final-ordinary.test": {
+      "sha256": "972095a9906800d2455d2bd9c19ab85bf91733f00cec7b13c3e05296bb80aefc",
+      "bytes": 5328272
+    },
+    "pixel-ordinary.test": {
+      "sha256": "60fc497cf7d59505940a648b813a65cce6548d3eb6c39f4131f9c4bd4ab429c7",
+      "bytes": 5206032
+    }
+  },
+  "review": {
+    "findings": "No actionable correctness bug found in reviewed supported selections.",
+    "feature_selection": "AMD Enabled is runtime AVX2 feature guard; disabled branch executes copied raw-pointer scalar loop, preserving backwards-readable windows. Purego/nosimd/other tags still select exact original DSP wrapper; ARM wrapper unchanged.",
+    "numeric": "PSADBW sums each8-byte group to<=2040 perrow;16rows each64bitlane<=32640, finalsum<=65280. Dual-row even/odd accumulators cannot overflow. sumU64 returns exact int.",
+    "early_exit": "Limited path reduces aftereveryrow and exits strictly when sum>limit; supports negative limits and exactprefix limits. Full bound limit>=65280 never early-exits, so dual-row finalsum exact.",
+    "pointer_span": "Guard accepts0<=strides<2^48, proving15*stride+16<2^52. Everyload exactly16B; aliases/unaligned/zero stride/overlapping readrows valid. Pointerextent/lifetime still callerpreconditions, no uintptr roundtrip.",
+    "fallback": "When Enabled=true and guarddeclines, exact original slice expression routes to SAD16Limit; when Enabled=false, no sliceconstruction and copied rawpointer loop preserves negative strides."
+  },
+  "codegen": {
+    "public_wrapper_inlined": {
+      "SAD16x16LimitPtrFast": {
+        "present": false,
+        "SAD_calls": []
+      },
+      "TestSADLimitPointerRows": {
+        "present": true,
+        "SAD_calls": [
+          "121a625: e8 96 bd fd ff               \tcallq\t0x11f63c0 <_github.com/thesyncim/govpx/internal/pixel.SAD16Limit16Ptr>"
+        ]
+      },
+      "BenchmarkSADLimitNative.func1": {
+        "present": true,
+        "SAD_calls": [
+          "1231a16: e8 a5 49 fc ff               \tcallq\t0x11f63c0 <_github.com/thesyncim/govpx/internal/pixel.SAD16Limit16Ptr>"
+        ]
+      }
+    },
+    "wide_instructions": [],
+    "legacy_zero_initializations": [
+      {
+        "pc": "114e2cb",
+        "op": "movups",
+        "args": "%xmm15, %xmm0"
+      },
+      {
+        "pc": "114e2cf",
+        "op": "movups",
+        "args": "%xmm15, %xmm1"
+      },
+      {
+        "pc": "114e2da",
+        "op": "movups",
+        "args": "%xmm15, %xmm0"
+      }
+    ],
+    "VPSADBW_count": 3,
+    "finding": "Ordinary public wrapper absent; public test and live fixture call pixel helper directly. Scalar fallback is inlined in pixel helper. VEX hotloops only128bit;3 legacyMOVUPS zeroinitializations precede those loops. No local wide vector state created; no universal ABI/fence performance assertion."
+  },
+  "recommended_before_promotion": [
+    "Obtain repeated native x64 public/component evidence; Rosetta remains correctness/output/allocation-only.",
+    "Preserve required nativeSIMD selection, all new Enabled=false and invalid-window subprocess tests in futureCI."
+  ],
+  "window_released": true,
+  "expanded_final_checks": {
+    "status": "PASS",
+    "ordinary_requiredSIMD": {
+      "pixel_top_level_tests": 5,
+      "pixel_invalid_window_subtests": 6,
+      "DSP_top_level_tests": 12,
+      "skips": 0
+    },
+    "checkptr2_requiredSIMD": {
+      "pixel_top_level_tests": 5,
+      "pixel_invalid_window_subtests": 6,
+      "DSP_top_level_tests": 12,
+      "skips": 0
+    },
+    "public_disabled_test": "TestSADLimitPointerAMDDisabled covers8mixed-sign/zero stride combinations, exactprefix\u00b11 andMaxInt limits, unaligned inputs and immutability.",
+    "runtime_disabled": {
+      "GODEBUG": "cpu.avx=off,cpu.avx2=off",
+      "GOVPX_REQUIRE_SIMD": "0",
+      "selection_observed": "GOARCH=amd64 native SIMD=false",
+      "modes": [
+        "ordinary",
+        "checkptr2"
+      ],
+      "pixel_tests": [
+        "TestBackendSelected",
+        "TestSADLimit16PointerMatchesRows",
+        "TestSADLimit16PointerDisabledBackwards"
+      ],
+      "DSP_tests": [
+        "TestSADLimitPointerRows",
+        "TestSADLimitPointerAMDDisabled"
+      ],
+      "skips": 0,
+      "scope": "Deliberately excludes invalid-window fallback panic test, which is guarded for Enabled=true; these scoped semantic runs have no skips."
+    },
+    "fixture_1x": [
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremefalse/bound-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremefalse/wide-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremefalse/near-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremefalse/early-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremefalse/middle-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremetrue/bound-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremetrue/wide-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremetrue/near-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremetrue/early-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch32/extremetrue/middle-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/bound-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/wide-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/near-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/early-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremefalse/middle-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/bound-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/wide-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/near-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/early-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      },
+      {
+        "case": "BenchmarkSADLimitNative/pitch1312/extremetrue/middle-2",
+        "iterations": 1,
+        "bytes_per_op": 0,
+        "allocs_per_op": 0
+      }
+    ],
+    "final_public_inlining": {
+      "SAD16x16LimitPtrFast": {
+        "present": false,
+        "SAD_calls": []
+      },
+      "TestSADLimitPointerRows": {
+        "present": true,
+        "SAD_calls": [
+          "121b245: e8 76 b1 fd ff               \tcallq\t0x11f63c0 <_github.com/thesyncim/govpx/internal/pixel.SAD16Limit16Ptr>"
+        ]
+      },
+      "BenchmarkSADLimitNative.func1": {
+        "present": true,
+        "SAD_calls": [
+          "1232656: e8 65 3d fc ff               \tcallq\t0x11f63c0 <_github.com/thesyncim/govpx/internal/pixel.SAD16Limit16Ptr>"
+        ]
+      }
+    },
+    "agent_id": "ci-next-sad-amd64-final"
+  }
+}

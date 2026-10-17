@@ -1,0 +1,14 @@
+{
+  "confirmation-summary.json": "1eae1ed22f73fdc5099f63f48c71aa370f4751f9640a0b3d490397b1faaf5012",
+  "correctness.tar.gz": "8e1bdacbbde90bbd83c74eb8064529aec33af9f17fec33e078509722de1ff898",
+  "environment.json": "7bbe5803a08f07de5b59b2c4538dd73d9a0604bb3a953be5669b02492b1acd2f",
+  "govpx-sad-quant-gates.log": "bcd9041380a6918f42a2eda9fdebb53a717ecf04c97968d52c32b679e39ca69b",
+  "govpx-sad-quant-pgo-refresh.log": "ae9c4df1e0d34c036f6fa80dbb99b2a155058abb9ba5867778258234750401c8",
+  "measurements.tar.gz": "7e1fa63adeb9d63759c0fdd70bd56936b4ca24c37de0666f6a157795ac320f9d",
+  "public-summary.json": "c362996d15dacf8a8d7ee145a22b838512fca64df8d0292ead2cb7e7b390c1b2",
+  "raw-sha256.json": "524a5ec7304cf53b6208976194166786a484399948f66e8fadefda734f81d37c",
+  "scope.txt": "3c2619cc20080c5e2e3d4e0205db507e9a5a4928cf50cbc2ba94658f1aa7f3bb",
+  "sources.tar.gz": "f20ce54b0df38199f6d75e5a818f500ba1a4c458a2d56cf715bcb3dc31fb706f",
+  "validation-raw-sha256.json": "d68ddbcf5fe42af6c9c51bef537b08c8d96630c3010c054729ec71d4dd8d767c",
+  "validation-summary.json": "6f6c9a754c8af39edc2dcbd6d44dbb4cd83a5ac20879725147a83c312c1dc529"
+}

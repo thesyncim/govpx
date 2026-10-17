@@ -53,7 +53,7 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
 		t1.StoreArray((*[8]int16)(unsafe.Add(qp, off+16)))
 		t0.Mul(d0).StoreArray((*[8]int16)(unsafe.Add(dp, off)))
 		t1.Mul(d1).StoreArray((*[8]int16)(unsafe.Add(dp, off+16)))
-		eobs[i] = uint8(i0.Masked(t0.NotEqual(z)).Max(i1.Masked(t1.NotEqual(z))).ReduceMax())
+		eobs[i] = uint8(i0.AndNot(t0.Equal(z).ToInt16x8()).Max(i1.AndNot(t1.Equal(z).ToInt16x8())).ReduceMax())
 	}
 	return true
 }

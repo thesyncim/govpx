@@ -1,0 +1,13 @@
+//go:build goexperiment.simd && amd64 && !purego
+
+package dsp
+
+import "github.com/thesyncim/govpx/internal/pixel"
+
+// Limited SAD follows libvpx v1.16.0 vp8/encoder/mcomp.c row boundaries.
+
+// SAD16x16LimitPtrFast returns after the first row exceeding limit.
+// Both pointers must address readable 16x16 blocks.
+func SAD16x16LimitPtrFast(src *byte, srcStride int, ref *byte, refStride int, limit int) int {
+	return pixel.SAD16Limit16Ptr(src, srcStride, ref, refStride, limit)
+}

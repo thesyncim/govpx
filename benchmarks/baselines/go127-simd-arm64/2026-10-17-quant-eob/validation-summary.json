@@ -1,0 +1,211 @@
+{
+  "status": "PASS",
+  "recorded_utc": "2026-10-17T19:12:06.176691+00:00",
+  "scope": "Combined ROOT correctness validation: reviewed x64 limited-SAD integration plus ARM quant EOB mask lowering. No source/index/README edits, no benchmarks, no PGO refresh by validation agent.",
+  "source_head_before_validation": "33c53431ca0a0febd3af322a0bb24a2b4e38f464",
+  "host": {
+    "system": "Darwin",
+    "machine": "arm64"
+  },
+  "source_sha256": {
+    "internal/pixel/sad_limit16_amd64.go": "fb27a5c4d459a52366b813ae96e9d080e69dcba348de57eda3867eb761893967",
+    "internal/pixel/sad_limit16_amd64_test.go": "dacbbaa536960d0f3cef5dd6d79aa8e72f9b87a4b5241b041ae5febe69083260",
+    "internal/pixel/enabled_amd64.go": "816f8a38646ee3ec875f5c6a4be7e29ad36437d69fa91db87f372941d5118007",
+    "internal/vp8/dsp/sad_limit16_amd64.go": "c7309563ec0b50349ba6677ad66bdf632773da0d07400d08f2c9356443e39a6b",
+    "internal/vp8/dsp/sad_limit16_other.go": "1bd3e574be7ced8a9a2d3841944ac01a9626470135831e2d63f6f68444c144eb",
+    "internal/vp8/dsp/sad_dispatch_other.go": "b91576a91700c58faf5df632ea385f634a5dab0154156ef5b2173f62659a7ea7",
+    "internal/vp8/dsp/sad_limit_native_test.go": "d3a2102d055dea1ca1b5c81efc1b0e584e1e4558129722446249ba1348442574",
+    "internal/vp8/dsp/sad_limit16_disabled_amd64_test.go": "e84f8a241e8fb3b8f4bd9ee05c0b0111b9c6054e7542d2892d4e210a57906659",
+    "internal/pixel/quantize_vp8_batch_arm64.go": "e5acc1928bf6e51abab779e505d39ca71f4959e1e637e20f483018be54979dd4",
+    "scripts/benchmark-amd64.sh": "940371376aa2e2c7f82ed4e5ddb90f0afeeb93b964baff5c9c30c9469da18137"
+  },
+  "sources_unchanged_across_checks": true,
+  "results": {
+    "native_full_all_packages": "PASS PGOoff -count=1 ./...",
+    "ARM_quant_race_checkptr2": "PASS12 top-level tests including table/shortdecline, overlap order, native selection, fullsigned/batch independent scalar parity, zeroallocation and33,280libvpx scalar cases; no skips",
+    "purego_SAD_quant_pixel_DSP_encoder": "PASS22 top-level tests, no skips, nativeSIMD=false observed",
+    "nosimd_SAD_quant_pixel_DSP_encoder": "PASS22 top-level tests, no skips, nativeSIMD=false observed"
+  },
+  "logs": {
+    "native-full.log": {
+      "sha256": "a6f56b9142629cfef4c43b5236cb15033a400c97e690d30a039f6647bdf37c77",
+      "bytes": 2501,
+      "passed_top_level_tests": [],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx\t54.099s",
+        "ok  \tgithub.com/thesyncim/govpx/benchmarks\t0.561s",
+        "?   \tgithub.com/thesyncim/govpx/cmd/govpx-bench\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/cmd/govpx-bench/benchcmd\t10.233s",
+        "ok  \tgithub.com/thesyncim/govpx/cmd/govpx-fuzz-rename\t0.633s",
+        "?   \tgithub.com/thesyncim/govpx/cmd/govpx-oracle\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/cmd/parity-report\t0.315s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/coracle\t1.641s",
+        "?   \tgithub.com/thesyncim/govpx/internal/coracle/coracletest\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t0.467s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil\t0.317s",
+        "?   \tgithub.com/thesyncim/govpx/internal/testutil/controlsurface\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil/rtptest\t0.307s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil/vp8corpus\t0.311s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil/vp8test\t0.314s",
+        "?   \tgithub.com/thesyncim/govpx/internal/testutil/vp9corpus\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil/vp9oracle\t0.310s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/testutil/vp9test\t0.319s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/boolcoder\t0.323s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/common\t0.312s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/decoder\t0.348s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/dsp\t0.402s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t0.383s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/rtp\t0.297s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/scale\t0.286s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/tables\t0.282s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/bitstream\t0.298s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/common\t0.283s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/decoder\t0.297s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/dsp\t0.390s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/encoder\t0.542s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/rtp\t0.305s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp9/tables\t0.288s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/arith\t0.290s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/buffers\t0.297s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/conformance\t0.293s",
+        "?   \tgithub.com/thesyncim/govpx/internal/vpx/errors\t[no test files]",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/geometry\t0.297s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/ivf\t0.289s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/ratecontrol\t0.289s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vpx/rtp\t0.296s"
+      ]
+    },
+    "native-quant-race-checkptr.log": {
+      "sha256": "4c061d9d3a1c4a5a75a0a6b095e1c329951d84d61339f1d624387138d68677f4",
+      "bytes": 4804,
+      "passed_top_level_tests": [
+        "--- PASS: TestVP8QuantBatchDeclinesBeforeWriting (0.00s)",
+        "--- PASS: TestVP8QuantBatchPreservesOverlappingInputOrder (0.00s)",
+        "--- PASS: TestQuantBatchExtremesScalar (0.03s)",
+        "--- PASS: TestQuantBatchNativeSelected (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchMatchesPerBlock (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchSentinels (0.00s)",
+        "--- PASS: TestFastQuantizeBlockSIMDMatchesScalar (0.01s)",
+        "--- PASS: TestFastQuantizeFullSignedCoefficientsAndTables (0.01s)",
+        "--- PASS: TestFastQuantizeBlockSentinel (0.00s)",
+        "--- PASS: TestFastQuantizeBlockZeroesOutputs (0.00s)",
+        "--- PASS: TestFastQuantizeBlockAllocatesZero (0.00s)",
+        "--- PASS: TestFastQuantizeBlockMatchesLibvpxC (0.06s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t4.690s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t4.835s"
+      ]
+    },
+    "nosimd-sad-quant.log": {
+      "sha256": "5e28bec8dd7124244c4d111f86392d9001ebce7fc83487f627b9c712a8e4dc9d",
+      "bytes": 6106,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestVP8QuantBatchDeclinesBeforeWriting (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)",
+        "--- PASS: TestQuantBatchExtremesScalar (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchMatchesPerBlock (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchSentinels (0.00s)",
+        "--- PASS: TestFastQuantizeBlockSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestFastQuantizeFullSignedCoefficientsAndTables (0.00s)",
+        "--- PASS: TestFastQuantizeBlockSentinel (0.00s)",
+        "--- PASS: TestFastQuantizeBlockZeroesOutputs (0.00s)",
+        "--- PASS: TestFastQuantizeBlockAllocatesZero (0.00s)",
+        "--- PASS: TestFastQuantizeBlockMatchesLibvpxC (0.00s)",
+        "--- PASS: TestSADPerBitTablesMatchInitializeMEConsts (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "kernels_test.go:12: GOARCH=arm64 native SIMD=false"
+      ],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t0.282s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/dsp\t0.305s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t0.381s"
+      ]
+    },
+    "purego-sad-quant.log": {
+      "sha256": "0f71d8662b1315e192c15623b180ed9f632b31afa0e90bc2bfcd8332893cbf22",
+      "bytes": 6106,
+      "passed_top_level_tests": [
+        "--- PASS: TestBackendSelected (0.00s)",
+        "--- PASS: TestSAD16MaxContrast (0.00s)",
+        "--- PASS: TestVP8QuantBatchDeclinesBeforeWriting (0.00s)",
+        "--- PASS: TestSADLimitPointerRows (0.00s)",
+        "--- PASS: TestSADSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestSAD16x16LimitSIMDEarlyExit (0.00s)",
+        "--- PASS: TestSADBlocks (0.00s)",
+        "--- PASS: TestSAD16x16Limit (0.00s)",
+        "--- PASS: TestSAD16x16x4PtrFast (0.00s)",
+        "--- PASS: TestSAD16x16x4LimitPtrFast (0.00s)",
+        "--- PASS: TestSADAllocatesZero (0.00s)",
+        "--- PASS: TestQuantBatchExtremesScalar (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchMatchesPerBlock (0.00s)",
+        "--- PASS: TestFastQuantizeBlockBatchSentinels (0.00s)",
+        "--- PASS: TestFastQuantizeBlockSIMDMatchesScalar (0.00s)",
+        "--- PASS: TestFastQuantizeFullSignedCoefficientsAndTables (0.00s)",
+        "--- PASS: TestFastQuantizeBlockSentinel (0.00s)",
+        "--- PASS: TestFastQuantizeBlockZeroesOutputs (0.00s)",
+        "--- PASS: TestFastQuantizeBlockAllocatesZero (0.00s)",
+        "--- PASS: TestFastQuantizeBlockMatchesLibvpxC (0.00s)",
+        "--- PASS: TestSADPerBitTablesMatchInitializeMEConsts (0.00s)"
+      ],
+      "failed": [],
+      "skipped": [],
+      "native_selection": [
+        "kernels_test.go:12: GOARCH=arm64 native SIMD=false"
+      ],
+      "package_results": [
+        "ok  \tgithub.com/thesyncim/govpx/internal/pixel\t0.316s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/dsp\t0.309s",
+        "ok  \tgithub.com/thesyncim/govpx/internal/vp8/encoder\t0.307s"
+      ]
+    }
+  },
+  "commands": "commands.json",
+  "AMD_reused_evidence": {
+    "summary": "/private/tmp/govpx-next-sad-amd64-validation/summary.json",
+    "summary_sha256": "953c07d0633b6afff7d91281042ffe25c6670313c7c03147eaf33768d7f6af5a",
+    "root_source_identity": {
+      "internal/pixel/sad_limit16_amd64.go": true,
+      "internal/pixel/sad_limit16_amd64_test.go": true,
+      "internal/pixel/enabled_amd64.go": true,
+      "internal/vp8/dsp/sad_limit16_amd64.go": true,
+      "internal/vp8/dsp/sad_limit16_other.go": true,
+      "internal/vp8/dsp/sad_dispatch_other.go": true,
+      "internal/vp8/dsp/sad_limit_native_test.go": true,
+      "internal/vp8/dsp/sad_limit16_disabled_amd64_test.go": true
+    },
+    "tests": "Ordinary/checkptr2 AMDv1 requiredSIMD5pixel+12DSP incl6invalid-window childprobes; actual CPUflagsoff scoped3pixel+2DSP semantic tests; no skips;20fixture1x zeroB/alloc.",
+    "codegen_reference": "/private/tmp/govpx-next-sad-amd64-validation/inline-codegen.json",
+    "codegen_reference_note": "Expanded final proof in old summary expanded_final_checks.final_public_inlining and final-dsp-* raw files. Publicwrapper inlined; no YMM/ZMM,3legacy zeroinitializations before128bitVEXloops.",
+    "scope": "Exact-byte matching source and same pinned Go1.27.2 compiler; no redundant AMD builds/runs as root instructed. Rosetta evidence is correctness/output/allocation only."
+  },
+  "ARM_quant_review": "Perlane index &^ mask(q==0) equals index & mask(q!=0) since true mask\u2192allbits. SignedMax/reduction/storeorder unchanged. No timing claim here.",
+  "x4_limited_readonly_review": "x4-limited-review.json; feasible perreference wrapper routing with sequential stores, but no current production callers; no implementation or performance claim.",
+  "limitations": [
+    "Focused fallback scopes intentionally omit native-only selected/overlap tests; those pass in native instrumented scope.",
+    "No PGO validation/refresh was performed here; root is refreshing PGO after release.",
+    "No new compiler/disassembly or native performance claim beyond reused exact-source AMD evidence."
+  ],
+  "Go_jobs_stopped": true,
+  "window_released_for_root_PGO": true
+}

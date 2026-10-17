@@ -1,0 +1,27 @@
+{
+  "base": "33c53431ca0a0febd3af322a0bb24a2b4e38f464",
+  "cpu": "Apple M4 Max",
+  "os": "darwin/arm64",
+  "go": "go1.27.2",
+  "experiment": "simd",
+  "pgo": "off",
+  "threads": 1,
+  "workload": "VP8 1280x720, realtime cpu8 2500kbps; 300 and 60 frames. Public FastQuantizeBlockBatch count1/2/8/16/25, balanced six rounds at200ms plus fresh250ms three-way confirmation.",
+  "fixture_sha256": "e24605112366faaf043246cfd7389de48ecb634c64f07ff1fbc44ed6a7deb82d",
+  "change": "ARM batch EOB uses equality mask and AndNot, replacing MVN+AND with BIC twice per block. All other production ARM instructions retain source.",
+  "binaries": {
+    "/private/tmp/govpx-next-quant-eob-candidate.test": "086e1df4754650ef1af34c37348162b3a2075f23da60461b8d9f529d0f899bcf",
+    "/private/tmp/govpx-next-quant-eob-parent.test": "32194903e67dc7fd8c2eb6fc37472782a92c21448b6f1e33c1b57b6f4921ba66",
+    "/private/tmp/govpx-quant-batch-asm-encoder.test": "5286da6cb1c097871daf68ab6cc0d1aa6c027172a533ad232a6c5d8e4cfa2966",
+    "/private/tmp/govpx-next-quant-eob-public-bench": "8bfa34cda6a4ff77cfae5e10c6bde61004bd382edd5eebd683fe8795c37dc307",
+    "/private/tmp/govpx-sad-limit-selected-arm-bench": "3bd366b11e58d88e975851ccb38ae613a6eaee322eddcb9ed0da49b54230ab65",
+    "/private/tmp/govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1"
+  },
+  "limits": [
+    "Counts1 and2 are unchanged per-block controls.",
+    "Codegen is diagnostic; acceptance uses native public-caller measurements.",
+    "Old ASM benchmark binary was built for pinned691cd051 reference with identical current quant batch fixture in the earlier quant experiment; source fixture retained in experiment archives.",
+    "Whole codec and assembly results must be reported separately; no extrapolation across CPUs.",
+    "Initial and confirmation measurements retained, including unchanged control outliers."
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "BenchmarkFastQuantizeBatchNative/blocks1": {
+    "assembly": [
+      4.162,
+      4.158,
+      4.071,
+      4.23,
+      4.095,
+      4.075
+    ],
+    "assembly_speedup": 0.7299018307243301,
+    "parent": [
+      5.646,
+      5.63,
+      5.775,
+      5.624,
+      5.596,
+      5.608
+    ],
+    "candidate": [
+      5.91,
+      5.676,
+      5.635,
+      5.645,
+      5.617,
+      5.662
+    ],
+    "speedup": 0.9953126381887327,
+    "faster_pairs": 1
+  },
+  "BenchmarkFastQuantizeBatchNative/blocks2": {
+    "assembly": [
+      5.147,
+      5.17,
+      5.099,
+      5.187,
+      5.092,
+      5.096
+    ],
+    "assembly_speedup": 0.5670171555063641,
+    "parent": [
+      9.069,
+      9.014,
+      9.349,
+      9.061,
+      9.119,
+      9.194
+    ],
+    "candidate": [
+      9.053,
+      9.001,
+      9.203,
+      9.034,
+      8.998,
+      9.036
+    ],
+    "speedup": 1.0065301604869952,
+    "faster_pairs": 6
+  },
+  "BenchmarkFastQuantizeBatchNative/blocks8": {
+    "assembly": [
+      12.41,
+      12.35,
+      12.47,
+      12.32,
+      12.4,
+      12.93
+    ],
+    "assembly_speedup": 0.8226127320954908,
+    "parent": [
+      15.76,
+      15.69,
+      16.58,
+      15.58,
+      15.48,
+      15.62
+    ],
+    "candidate": [
+      15.43,
+      14.82,
+      15.2,
+      15.0,
+      15.08,
+      15.08
+    ],
+    "speedup": 1.038129973474801,
+    "faster_pairs": 6
+  },
+  "BenchmarkFastQuantizeBatchNative/blocks16": {
+    "assembly": [
+      23.9,
+      24.16,
+      23.97,
+      23.96,
+      24.07,
+      23.91
+    ],
+    "assembly_speedup": 0.9326717260167348,
+    "parent": [
+      31.88,
+      27.71,
+      28.31,
+      27.79,
+      27.57,
+      27.62
+    ],
+    "candidate": [
+      25.69,
+      25.68,
+      25.81,
+      25.83,
+      25.68,
+      25.7
+    ],
+    "speedup": 1.0799766491535319,
+    "faster_pairs": 6
+  },
+  "BenchmarkFastQuantizeBatchNative/blocks25": {
+    "assembly": [
+      37.2,
+      37.27,
+      37.62,
+      37.25,
+      37.51,
+      37.72
+    ],
+    "assembly_speedup": 0.9360370509450494,
+    "parent": [
+      48.89,
+      43.59,
+      43.73,
+      42.94,
+      43.16,
+      42.9
+    ],
+    "candidate": [
+      39.97,
+      39.92,
+      39.89,
+      39.85,
+      40.02,
+      40.19
+    ],
+    "speedup": 1.0858680685943172,
+    "faster_pairs": 6
+  }
+}
