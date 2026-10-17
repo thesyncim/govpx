@@ -1,0 +1,49 @@
+File: simd-govpx-bench
+Build ID: ce964263182a1874c0a89c7fdf9a9aae2ed93433
+Type: cpu
+Time: 2026-10-17 12:20:39 UTC
+Duration: 2.57s, Total samples = 2.59s (100.63%)
+Showing nodes accounting for 1.81s, 69.88% of 2.59s total
+Dropped 62 nodes (cum <= 0.01s)
+Showing top 40 nodes out of 174
+      flat  flat%   sum%        cum   cum%
+     0.13s  5.02%  5.02%      0.15s  5.79%  github.com/thesyncim/govpx/internal/vp8/encoder.writePreparedCoefficientTokenRecords
+     0.11s  4.25%  9.27%      1.62s 62.55%  github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingInterFrameCoefficientsWithSegmentation
+     0.11s  4.25% 13.51%      0.14s  5.41%  github.com/thesyncim/govpx/internal/vp8/encoder.forwardDCT4BatchGo
+     0.09s  3.47% 16.99%      0.44s 16.99%  github.com/thesyncim/govpx/internal/pixel.loopFilterBytes
+     0.08s  3.09% 20.08%      0.10s  3.86%  github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8
+     0.08s  3.09% 23.17%      0.14s  5.41%  github.com/thesyncim/govpx/internal/pixel.pixelStatsRows16
+     0.07s  2.70% 25.87%      0.37s 14.29%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise
+     0.07s  2.70% 28.57%      0.07s  2.70%  github.com/thesyncim/govpx/internal/pixel.SSE16
+     0.07s  2.70% 31.27%      0.07s  2.70%  github.com/thesyncim/govpx/internal/pixel.storeLFByteTileRows[go.shape.[6]uint8].func1 (inline)
+     0.06s  2.32% 33.59%      0.06s  2.32%  github.com/thesyncim/govpx/internal/pixel.storeLFByteTileRows[go.shape.[4]uint8]
+     0.06s  2.32% 35.91%      0.06s  2.32%  github.com/thesyncim/govpx/internal/vp8/dsp.inverse4Go
+     0.05s  1.93% 37.84%      0.39s 15.06%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsWork
+     0.05s  1.93% 39.77%      0.06s  2.32%  github.com/thesyncim/govpx/internal/pixel.DenoiseFirst
+     0.05s  1.93% 41.70%      0.16s  6.18%  github.com/thesyncim/govpx/internal/vp8/encoder.fastQuantizeBlockBatchSIMD
+     0.04s  1.54% 43.24%      0.41s 15.83%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecision
+     0.04s  1.54% 44.79%      0.45s 17.37%  github.com/thesyncim/govpx.(*VP8Encoder).selectInterFrameModeDecision
+     0.04s  1.54% 46.33%      0.28s 10.81%  github.com/thesyncim/govpx/internal/pixel.LoopFilterInternal16
+     0.04s  1.54% 47.88%      0.10s  3.86%  github.com/thesyncim/govpx/internal/pixel.loadLFColumns[go.shape.[8]uint8]
+     0.04s  1.54% 49.42%      0.06s  2.32%  github.com/thesyncim/govpx/internal/vp8/encoder.countBlockCoefficientTokensAndRecords
+     0.04s  1.54% 50.97%      0.04s  1.54%  runtime.memmove
+     0.03s  1.16% 52.12%      0.03s  1.16%  github.com/thesyncim/govpx/internal/pixel.any16 (inline)
+     0.03s  1.16% 53.28%      0.03s  1.16%  github.com/thesyncim/govpx/internal/pixel.loadLFColumnTile[go.shape.[8]uint8].func1 (inline)
+     0.03s  1.16% 54.44%      0.07s  2.70%  github.com/thesyncim/govpx/internal/pixel.loopFilterInternalEdge
+     0.03s  1.16% 55.60%      0.11s  4.25%  github.com/thesyncim/govpx/internal/pixel.storeLFByteTileRows[go.shape.[6]uint8]
+     0.03s  1.16% 56.76%      0.04s  1.54%  github.com/thesyncim/govpx/internal/pixel.transposeBytes8
+     0.03s  1.16% 57.92%      0.10s  3.86%  github.com/thesyncim/govpx/internal/vp8/encoder.countCoefficientMacroblockTokensAndRecords
+     0.03s  1.16% 59.07%      0.03s  1.16%  github.com/thesyncim/govpx/internal/vp8/encoder.vp8BatchUnzip (inline)
+     0.03s  1.16% 60.23%      0.03s  1.16%  math/bits.LeadingZeros8 (inline)
+     0.03s  1.16% 61.39%      0.03s  1.16%  simd/archsimd.BroadcastInt16x8 (inline)
+     0.02s  0.77% 62.16%      0.19s  7.34%  github.com/thesyncim/govpx.(*VP8Encoder).estimateFastInterModeScoreHot
+     0.02s  0.77% 62.93%      0.03s  1.16%  github.com/thesyncim/govpx.(*VP8Encoder).interMotionModeRateWithReferenceRateAndModeContextAndCosts
+     0.02s  0.77% 63.71%      0.02s  0.77%  github.com/thesyncim/govpx.copyMacroblock8x8 (inline)
+     0.02s  0.77% 64.48%      0.02s  0.77%  github.com/thesyncim/govpx.fastPickerLumaIntraRefs
+     0.02s  0.77% 65.25%      0.02s  0.77%  github.com/thesyncim/govpx/internal/pixel.AddConstantPair4.func1 (inline)
+     0.02s  0.77% 66.02%      0.02s  0.77%  github.com/thesyncim/govpx/internal/pixel.FillBlock
+     0.02s  0.77% 66.80%      0.11s  4.25%  github.com/thesyncim/govpx/internal/pixel.QuantizeVP8Block
+     0.02s  0.77% 67.57%      0.02s  0.77%  github.com/thesyncim/govpx/internal/pixel.filterShift7 (inline)
+     0.02s  0.77% 68.34%      0.02s  0.77%  github.com/thesyncim/govpx/internal/pixel.lfByteLE (inline)
+     0.02s  0.77% 69.11%      0.29s 11.20%  github.com/thesyncim/govpx/internal/pixel.loopFilterWide
+     0.02s  0.77% 69.88%      0.04s  1.54%  github.com/thesyncim/govpx/internal/pixel.pixelDiffAcc (inline)

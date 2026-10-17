@@ -1140,3 +1140,47 @@ source/build-selection gates pass. Further helper expansion reduced instruction
 count without establishing an additional reliable encoder gain and is excluded.
 [Complete designs, raw measurements and validation](benchmarks/baselines/go127-simd-arm64/2026-10-17-macro-fusion)
 are retained. The ARM assembly gap and optimized-C gaps remain open.
+
+
+### Three-way x64 harness control at 9a442f66
+
+All three remote jobs at `9a442f66` pass: hosted exhaustive checks, native
+ASM/parent/current and optimized libvpx. The [three-way control](https://github.com/thesyncim/govpx/actions/runs/39031352624/artifacts/12100503682)
+uses native EPYC 7763, Go 1.27.2, PGO off and all six variant permutations.
+Against parent `211125e5`, VP9 320p changes 4.311819 to 4.318367 ms (+0.152%,
+five of six pairs slower), VP8 720p 21.865938 to 21.938879 ms (+0.334%, all
+six pairs slower, +0.017..+1.028%), and VP9 720p 32.083129 to 31.963131 ms
+(-0.374%, all six pairs faster). This benchmark-harness checkpoint changes
+no codec arithmetic; no optimization attribution or universal noise claim
+is made for these small controls. Every current/ASM pair remains faster:
+37.920% less VP9 320p time, 4.343% less VP8 time and 46.272% less VP9 720p time.
+All 22 semantic/configuration fields and allocations match across all 18
+samples and corresponding profile runs; all 75 kernel cases have six samples
+per variant and zero allocations. The much larger optimized-C gaps remain
+separate evidence. [All 85 raw files and analysis](benchmarks/baselines/go127-simd-amd64/2026-10-17-9a442f66)
+are retained without discarding any pair.
+
+
+### EPYC 9V45 control at db5b44fe
+
+Both native jobs on `db5b44fe` pass. Its [three-way control](https://github.com/thesyncim/govpx/actions/runs/39032233232/artifacts/12100668761)
+ran on EPYC 9V45; the separate optimized-C job ran on EPYC 7763. Same-run
+9V45 ASM / parent `9a442f66` / current VP8 720p medians are 11.386280 /
+14.331529 / 13.866399 ms: current remains 21.782% slower than old ASM,
+every pair slower by 13.646–28.404%. The final gather is now measured on
+this CPU and does not establish assembly parity. VP9 320p uses 44.280% less
+ASM time, and VP9 720p uses 48.693% less, every pair faster. All parent/current
+ranges cross zero, including large -13.895% / +18.835% control outliers;
+no x64 change is attributed to ARM-only fusion. All 22 recorded semantic
+fields agree. Parent/current allocations match; ASM VP9 round 5 retains one
+extra allocation (1.266667 versus 1.25 per input). All 75 kernels have six
+allocation-free samples per variant. Cross-CPU absolute times are not compared.
+
+The single-block VP8 quant fixture is 4.304 ns versus old ASM 3.5485 ns
+(+21.291%, all six slower); no batch benchmark was selected. Separate short
+profiles show the current per-block batch dispatcher is live at 0.06 s
+cumulative / 1.62 s total CPU, versus the old batch ASM leaf's 0.02 s /
+1.36 s. This is not a precise direct batch ratio; table-hoist/full-block
+batch candidates require new matched observable fixtures.
+[All 85 raw files and analysis](benchmarks/baselines/go127-simd-amd64/2026-10-17-db5b44fe)
+preserve the CPU-specific evidence and the outlier.

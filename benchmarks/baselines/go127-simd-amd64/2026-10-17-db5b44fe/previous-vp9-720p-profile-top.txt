@@ -1,0 +1,49 @@
+File: previous-govpx-bench
+Build ID: 3065f4373538125e378425368b54e50456a10ae1
+Type: cpu
+Time: 2026-10-17 12:31:20 UTC
+Duration: 2.38s, Total samples = 2.40s (100.94%)
+Showing nodes accounting for 1.64s, 68.33% of 2.40s total
+Dropped 114 nodes (cum <= 0.01s)
+Showing top 40 nodes out of 185
+      flat  flat%   sum%        cum   cum%
+     0.13s  5.42%  5.42%      1.38s 57.50%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterReferenceModeNonRD
+     0.13s  5.42% 10.83%      0.15s  6.25%  github.com/thesyncim/govpx/internal/pixel.quantizeFPBlockSIMD
+     0.11s  4.58% 15.42%      0.14s  5.83%  github.com/thesyncim/govpx/internal/pixel.subpelStats16
+     0.10s  4.17% 19.58%      0.19s  7.92%  github.com/thesyncim/govpx/internal/pixel.pixelStatsRows16
+     0.09s  3.75% 23.33%      0.11s  4.58%  github.com/thesyncim/govpx/internal/pixel.Subtract
+     0.08s  3.33% 26.67%      0.08s  3.33%  runtime.memmove
+     0.07s  2.92% 29.58%      0.11s  4.58%  github.com/thesyncim/govpx/internal/pixel.filterNarrow8
+     0.06s  2.50% 32.08%      0.06s  2.50%  github.com/thesyncim/govpx/internal/pixel.filterWide8
+     0.06s  2.50% 34.58%      0.06s  2.50%  github.com/thesyncim/govpx/internal/vp9/encoder.transpose8
+     0.05s  2.08% 36.67%      0.06s  2.50%  github.com/thesyncim/govpx/internal/pixel.sadGeneric
+     0.05s  2.08% 38.75%      0.13s  5.42%  github.com/thesyncim/govpx/internal/vp9/encoder.hadamardGo
+     0.04s  1.67% 40.42%      0.08s  3.33%  github.com/thesyncim/govpx/internal/pixel.pixelDiffAcc (inline)
+     0.04s  1.67% 42.08%      0.04s  1.67%  github.com/thesyncim/govpx/internal/vp9/dsp.VpxConvolveCopy (inline)
+     0.04s  1.67% 43.75%      0.04s  1.67%  github.com/thesyncim/govpx/internal/vp9/encoder.CalculateTxSize
+     0.04s  1.67% 45.42%      0.04s  1.67%  simd/archsimd.LoadUint8x16 (inline)
+     0.03s  1.25% 46.67%      0.19s  7.92%  github.com/thesyncim/govpx.(*VP9Encoder).vp9NonrdPredictVarianceSSETo
+     0.03s  1.25% 47.92%      1.92s 80.00%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModeBlock
+     0.03s  1.25% 49.17%      0.09s  3.75%  github.com/thesyncim/govpx/internal/pixel.loopFilterNonFlatBytes
+     0.03s  1.25% 50.42%      0.03s  1.25%  github.com/thesyncim/govpx/internal/pixel.widen8 (inline)
+     0.03s  1.25% 51.67%      0.36s 15.00%  github.com/thesyncim/govpx/internal/vp9/encoder.BlockYrd
+     0.02s  0.83% 52.50%      0.04s  1.67%  github.com/thesyncim/govpx.(*VP9Encoder).beginVP9ProducerTokens
+     0.02s  0.83% 53.33%      0.07s  2.92%  github.com/thesyncim/govpx.(*VP9Encoder).gatherVP9TxResidual
+     0.02s  0.83% 54.17%      0.36s 15.00%  github.com/thesyncim/govpx.(*VP9Encoder).prepareVP9FinalInterBlockResidue
+     0.02s  0.83% 55.00%      0.07s  2.92%  github.com/thesyncim/govpx.(*VP9Encoder).stageVP9ProducerBlock
+     0.02s  0.83% 55.83%      0.02s  0.83%  github.com/thesyncim/govpx.(*VP9Encoder).vp9EncoderTxDst
+     0.02s  0.83% 56.67%      0.15s  6.25%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9PackedModesSb
+     0.02s  0.83% 57.50%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.AbsSum
+     0.02s  0.83% 58.33%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.AverageQuad16
+     0.02s  0.83% 59.17%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.ProjectionRow
+     0.02s  0.83% 60.00%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.fpMulHigh16 (inline)
+     0.02s  0.83% 60.83%      0.02s  0.83%  github.com/thesyncim/govpx/internal/pixel.lfAbsByte (inline)
+     0.02s  0.83% 61.67%      0.03s  1.25%  github.com/thesyncim/govpx/internal/vp9/bitstream.(*Writer).WritePacked
+     0.02s  0.83% 62.50%      0.02s  0.83%  github.com/thesyncim/govpx/internal/vp9/decoder.FindInterMvRefsFields
+     0.02s  0.83% 63.33%      0.16s  6.67%  github.com/thesyncim/govpx/internal/vp9/dsp.subPixelVarianceGo
+     0.02s  0.83% 64.17%      0.14s  5.83%  github.com/thesyncim/govpx/internal/vp9/encoder.BlockDiffStatsClampedSource
+     0.02s  0.83% 65.00%      0.03s  1.25%  github.com/thesyncim/govpx/internal/vp9/encoder.ModelRDFromVarLapndz
+     0.02s  0.83% 65.83%      0.06s  2.50%  github.com/thesyncim/govpx/internal/vp9/encoder.MvPredScanCandidateArray
+     0.02s  0.83% 66.67%      0.05s  2.08%  github.com/thesyncim/govpx/internal/vp9/encoder.choosePartitioning
+     0.02s  0.83% 67.50%      0.15s  6.25%  github.com/thesyncim/govpx/internal/vp9/encoder.hadamard8x8Into
+     0.02s  0.83% 68.33%      0.02s  0.83%  github.com/thesyncim/govpx/internal/vp9/encoder.hadamardNetwork

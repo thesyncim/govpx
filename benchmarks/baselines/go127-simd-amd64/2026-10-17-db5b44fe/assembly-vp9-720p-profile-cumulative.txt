@@ -1,0 +1,49 @@
+File: assembly-govpx-bench
+Build ID: c35cb9c9825b386998785492586f80e6401081b3
+Type: cpu
+Time: 2026-10-17 12:31:05 UTC
+Duration: 5.16s, Total samples = 5.17s (100.15%)
+Showing nodes accounting for 2.24s, 43.33% of 5.17s total
+Dropped 89 nodes (cum <= 0.03s)
+Showing top 40 nodes out of 166
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx.(*VP9Encoder).EncodeIntoWithFlagsResult
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx.(*VP9Encoder).EncodeIntoWithResult (inline)
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx.(*VP9Encoder).encodeVP9FrameIntoWithFlagsResult (inline)
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx.(*VP9Encoder).encodeVP9FrameIntoWithFlagsResultInternal
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.Main
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.runVP9Benchmark (inline)
+         0     0%     0%      5.17s   100%  github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.runVP9BenchmarkInternal
+         0     0%     0%      5.17s   100%  main.main
+         0     0%     0%      5.17s   100%  runtime.main
+         0     0%     0%      4.63s 89.56%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9FrameTile
+         0     0%     0%      4.63s 89.56%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModesSb
+         0     0%     0%      4.63s 89.56%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModesTileBounds
+         0     0%     0%      4.63s 89.56%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModesTileRow
+         0     0%     0%      4.49s 86.85%  github.com/thesyncim/govpx.(*VP9Encoder).collectVP9EncodeFrameCounts
+         0     0%     0%      4.49s 86.85%  github.com/thesyncim/govpx.(*VP9Encoder).collectVP9FrameTileCounts
+     0.01s  0.19%  0.19%      3.27s 63.25%  github.com/thesyncim/govpx.(*VP9Encoder).writeVP9ModeBlock
+     0.03s  0.58%  0.77%      3.21s 62.09%  github.com/thesyncim/govpx.(*VP9Encoder).prepareVP9InterBlockResidue
+         0     0%  0.77%      2.79s 53.97%  github.com/thesyncim/govpx.(*VP9Encoder).prepareVP9InterPredictionBlock
+     0.01s  0.19%  0.97%      2.58s 49.90%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterReferenceMode
+     0.10s  1.93%  2.90%      2.57s 49.71%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterReferenceModeNonRD
+         0     0%  2.90%      1.27s 24.56%  github.com/thesyncim/govpx/internal/vp9/dsp.VpxSad4D
+         0     0%  2.90%      1.27s 24.56%  github.com/thesyncim/govpx/internal/vp9/dsp.sad4D (inline)
+     0.01s  0.19%  3.09%      1.27s 24.56%  github.com/thesyncim/govpx/internal/vp9/dsp.sad4DScalar
+     1.26s 24.37% 27.47%      1.26s 24.37%  github.com/thesyncim/govpx/internal/vp9/dsp.sad (inline)
+         0     0% 27.47%      1.21s 23.40%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9BlockSizeForRegion
+         0     0% 27.47%      1.21s 23.40%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9CBRVariancePartitionBlockSize
+         0     0% 27.47%      1.21s 23.40%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterPartitionBlockSize
+         0     0% 27.47%      1.21s 23.40%  github.com/thesyncim/govpx.(*VP9Encoder).vp9EnsureSBPartitionChosen
+         0     0% 27.47%      1.14s 22.05%  github.com/thesyncim/govpx/internal/vp9/encoder.IntProEstimate
+         0     0% 27.47%      1.08s 20.89%  github.com/thesyncim/govpx/internal/vp9/encoder.GetEstimatedPred
+         0     0% 27.47%      1.07s 20.70%  github.com/thesyncim/govpx/internal/vp9/encoder.GetEstimatedPredInter
+         0     0% 27.47%      0.91s 17.60%  github.com/thesyncim/govpx/internal/vp9/encoder.IntProSadX4
+     0.01s  0.19% 27.66%      0.87s 16.83%  github.com/thesyncim/govpx/internal/vp9/decoder.InterPredictorWithScratch
+     0.06s  1.16% 28.82%      0.75s 14.51%  github.com/thesyncim/govpx/internal/vp9/encoder.BlockYrd
+         0     0% 28.82%      0.74s 14.31%  github.com/thesyncim/govpx/internal/vp9/dsp.VpxConvolve8Vert
+     0.74s 14.31% 43.13%      0.74s 14.31%  github.com/thesyncim/govpx/internal/vp9/dsp.convolveVert8wSSE2
+     0.01s  0.19% 43.33%      0.66s 12.77%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterMvWithOptions
+         0     0% 43.33%      0.65s 12.57%  github.com/thesyncim/govpx.(*VP9Encoder).pickVP9InterMvAllowZero
+         0     0% 43.33%      0.55s 10.64%  github.com/thesyncim/govpx.(*VP9Encoder).vp9NonrdPredictVarianceSSETo
+         0     0% 43.33%      0.51s  9.86%  github.com/thesyncim/govpx.(*VP9Encoder).vp9NonrdCtxPredictLuma

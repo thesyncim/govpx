@@ -1,0 +1,5 @@
+=== RUN   TestBackendSelected
+    kernels_test.go:12: GOARCH=amd64 native SIMD=true
+--- PASS: TestBackendSelected (0.00s)
+PASS
+ok  	github.com/thesyncim/govpx/internal/pixel	0.002s

@@ -342,9 +342,9 @@ VP8 through pion/webrtc to a browser.
 ## Benchmarking
 
 ```sh
-go run ./cmd/govpx-bench
-go run ./cmd/govpx-bench -decode -frames=120
-go run ./cmd/govpx-bench -format=json
+scripts/go.sh run ./cmd/govpx-bench
+scripts/go.sh run ./cmd/govpx-bench -decode -frames=120
+scripts/go.sh run ./cmd/govpx-bench -format=json
 ```
 
 By default the encode benchmark compares against libvpx when
@@ -364,7 +364,7 @@ Plotting is optional and requires an ffmpeg binary with both the
 `libvpx` encoder and the `libvmaf` filter:
 
 ```sh
-go run ./cmd/govpx-bench \
+scripts/go.sh run ./cmd/govpx-bench \
     -plot benchmarks/govpx-vs-libvpx.svg \
     -width=1280 -height=720 -frames=120 -fps=30 \
     -bitrate=2500 -mode=realtime -threads=1

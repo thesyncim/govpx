@@ -1,0 +1,594 @@
+# round 1, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	14226247	        12.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 2926753	        61.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 2974971	        60.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12179755	        14.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4491135	        41.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	13327089	        13.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	10833363	        16.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 6949036	        26.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 4787244	        33.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	25270716	         7.208 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	12845107	        13.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1247408	       144.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	23236425	         7.821 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	 9865168	        18.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  824428	       218.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	19668940	         9.134 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 6862195	        26.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  512697	       353.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4345065	        41.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1389621	       129.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  361743	       496.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	 9464112	        19.15 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 1, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	17838316	        10.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	18740810	         9.618 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12131571	        14.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 5866345	        30.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	 9878186	        18.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4506672	        39.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5627001	        31.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 2093150	        85.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6223453	        28.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	13377730	        13.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6255076	        28.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	13424764	        13.41 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	19579226	         9.198 ns/op	27833.52 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2572988	        70.03 ns/op	14621.81 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	35759608	         4.681 ns/op	54685.37 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 7538055	        23.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5110263	        35.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2517468	        71.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2747876	        65.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 4820062	        37.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3216154	        55.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1728508	       104.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 1959488	        91.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1801682	        99.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	  963486	       186.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  567666	       316.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  646120	       275.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  223880	       797.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7038519	        25.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6258938	        28.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	 9705726	        18.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	14471612	        12.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	 9764790	        18.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	14898630	        12.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	 9456368	        19.05 ns/op	13441.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	17446441	        10.29 ns/op	6217.32 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 1, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   92440	      1949 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   91284	      1961 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9072129	        19.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 9100722	        19.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9110233	        19.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4524190	        39.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4533087	        39.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4119822	        45.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1501016	       119.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1513136	       119.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1511504	       119.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5582997	        33.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  226566	       796.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1000000	       151.5 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 1, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1267372	       142.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	21884024	         8.226 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	41829715	         4.337 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 2, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	15004328	        12.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 3076286	        58.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 3070425	        58.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12471404	        14.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4673866	        40.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	13537053	        13.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	11138745	        16.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 7382670	        24.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 5939334	        30.70 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	25867899	         6.999 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	13314060	        13.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1301458	       138.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	23675577	         7.433 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	10136055	        17.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  844999	       213.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	19390948	         8.931 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 6556801	        27.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  526591	       343.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4375471	        41.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1392104	       129.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  361524	       494.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	 9273472	        19.14 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 2, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	17815965	         9.981 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	19161904	         9.244 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12468729	        14.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 5999802	        30.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	 9836139	        17.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4676565	        38.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5858863	        30.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 2154801	        83.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6449172	        27.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	14124021	        12.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6527799	        27.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	13796358	        12.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	20312594	         8.922 ns/op	28692.96 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2644659	        67.99 ns/op	15060.45 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	40509591	         4.424 ns/op	57859.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 8134785	        22.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5342299	        33.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2643961	        67.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2722396	        64.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 4956031	        36.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3259242	        55.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1761175	       101.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 1994510	        89.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1863331	        96.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	 1000000	       180.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  583353	       306.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  667008	       267.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  232702	       764.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7557327	        23.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6751512	        32.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	 9492379	        17.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	15137001	        11.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	10339634	        17.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	15862341	        11.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	10150074	        17.70 ns/op	14463.13 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	18799208	         9.770 ns/op	6550.62 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 2, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   93914	      1963 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   98536	      1826 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9649500	        18.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 9611294	        18.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9571497	        19.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4600704	        39.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4735950	        40.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4509423	        39.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1591716	       114.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1559322	       117.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1550206	       114.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5876120	        31.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  227875	       778.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1216785	       154.1 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 2, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1260709	       142.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	21972285	         8.169 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	42388396	         4.256 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 3, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	15222772	        11.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 3205260	        55.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 3226668	        58.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12805881	        14.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4688192	        38.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	14140768	        12.77 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	11630378	        15.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 7588197	        23.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 6177980	        29.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	26265404	         6.793 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	13916916	        13.81 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1148060	       152.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	24850210	         7.455 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	10698765	        17.41 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  889653	       230.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	21392018	         8.705 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 7324674	        24.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  549603	       327.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4703418	        39.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1500694	       120.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  390115	       458.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	10059495	        17.89 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 3, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	18402457	         9.502 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	20408107	         9.341 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12230749	        14.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 6336373	        29.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	 9759280	        17.98 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4902770	        37.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5805331	        30.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 2208867	        79.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6773390	        27.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	11937260	        12.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6779226	        26.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	14473767	        12.59 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	21167733	         8.681 ns/op	29489.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2667782	        65.99 ns/op	15518.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	42548744	         4.374 ns/op	58523.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 8164473	        22.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5296112	        33.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2714679	        68.49 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2911262	        62.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 5142145	        34.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3488737	        51.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1868376	        96.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 1985538	        91.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1456592	       115.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	  963259	       186.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  572840	       308.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  667380	       269.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  227632	       783.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7137136	        24.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6395112	        28.01 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	 9761089	        18.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	15012085	        11.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	10147856	        17.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	15450807	        11.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	 9705925	        17.93 ns/op	14274.32 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	18777602	         9.883 ns/op	6475.66 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 3, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   93452	      1990 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   98156	      1855 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9418213	        19.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 9324615	        19.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9299974	        18.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4807375	        37.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4698945	        37.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4606974	        39.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1575908	       113.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1567630	       115.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1593770	       113.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5867180	        30.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  240154	       750.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1256017	       142.8 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 3, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1345046	       133.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	23340536	         7.749 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	44629972	         4.086 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 4, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	14506303	        12.38 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 3034158	        59.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 3012031	        60.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12214821	        14.61 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4571430	        40.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	13494639	        13.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	10954963	        16.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 7100773	        25.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 5771002	        30.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	25698499	         6.985 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	13009682	        13.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1281765	       140.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	23590802	         7.665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	10047523	        17.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  840879	       213.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	20210108	         8.930 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 6961182	        25.79 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  522339	       344.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4408953	        40.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1420741	       127.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  371354	       484.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	 9628352	        18.78 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 4, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	18138475	         9.839 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	19143454	         9.352 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12525969	        14.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 5984119	        29.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	10170361	        17.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4617331	        39.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5470321	        32.80 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 2048990	        88.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6050684	        29.57 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	13044458	        13.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6131985	        29.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	13294087	        13.54 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	19150572	         9.272 ns/op	27610.66 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2561625	        70.56 ns/op	14512.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	35446551	         4.762 ns/op	53754.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 7536084	        24.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5076297	        35.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2498425	        72.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2736832	        65.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 4797234	        37.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3241014	        55.39 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1741848	       103.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 1971253	       108.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1822886	        99.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	  940998	       189.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  570870	       315.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  657540	       274.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  220436	       794.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7037732	        25.27 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6303006	        28.59 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	 9733261	        18.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	14621695	        12.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	 9842407	        18.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	14927323	        12.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	 9516961	        18.92 ns/op	13534.00 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	17441598	        10.30 ns/op	6210.82 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 4, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   91929	      1947 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   91761	      1957 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9103237	        19.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 8771667	        20.20 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9066554	        20.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4445491	        40.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4462723	        40.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4393411	        41.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1425211	       126.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1428319	       125.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1441321	       125.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5150655	        34.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  221964	       820.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1000000	       153.7 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 4, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1255749	       143.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	21637291	         8.356 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	38547991	         4.383 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 5, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	14629566	        12.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 3015422	        60.75 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 2924118	        60.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12358726	        14.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4639848	        40.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	13308825	        13.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	10922296	        16.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 7124649	        25.13 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 5846443	        30.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	24800558	         7.163 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	12914703	        13.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1288965	       139.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	23280944	         7.702 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	10221254	        17.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  849480	       210.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	20380060	         8.853 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 7085034	        25.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  523820	       343.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4428205	        40.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1433956	       127.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  372484	       484.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	 9566708	        18.71 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 5, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	18259370	         9.783 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	19103361	         9.356 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12387795	        14.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 6005929	        30.10 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	10211144	        17.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4682025	        38.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5958091	        30.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 2173618	        82.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6436983	        27.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	14053974	        12.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6495244	        27.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	13766563	        13.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	20073358	         8.935 ns/op	28651.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2637451	        67.70 ns/op	15125.24 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	40328858	         4.487 ns/op	57055.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 7705574	        23.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5359089	        33.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2590994	        68.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2900818	        62.36 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 5035633	        35.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3339436	        53.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1801504	        99.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 2061676	        87.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1864093	        96.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	 1000000	       177.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  590992	       298.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  700803	       254.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  243679	       744.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7487330	        24.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6681944	        27.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	10162816	        19.34 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	15039703	        12.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	10360400	        17.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	15897537	        11.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	 9617806	        17.95 ns/op	14258.38 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	18499660	         9.916 ns/op	6454.36 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 5, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   95983	      1839 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   96954	      1833 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9351894	        20.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 8920904	        19.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9370064	        18.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4795377	        38.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4592204	        39.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4631270	        41.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1517062	       117.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1586850	       114.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1537126	       117.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5652204	        31.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  225313	       779.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1207702	       149.1 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 5, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1292564	       139.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	22559788	         8.222 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	42443100	         4.313 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 6, internal/vp9/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkAvg8x8Quad                          	14927706	        12.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Horiz16x16              	 3090553	        58.45 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Convolve8Vert16x16               	 3103278	        57.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct4x4_16Add                    	12501190	        14.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9Idct8x8_64Add                    	 4714722	        39.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8NonFlat     	13534038	        12.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8NonFlat       	11782797	        15.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterHorizontal8DualNonFlat 	 7477988	        23.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9LoopFilterVertical8DualNonFlat   	 6008180	        29.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x1        	26132164	         6.668 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x7        	13671891	        14.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/16x128      	 1314387	       137.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x1        	24241826	         7.434 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x7        	10710957	        17.35 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/32x128      	  854700	       206.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x1        	21470912	         8.570 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x7        	 7435423	        25.28 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProjectionColumnsNative/64x128      	  513475	       371.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance16x16            	 4513333	        39.90 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance32x32            	 1450000	       122.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance64x64            	  387627	       480.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9SubPixelVariance8x8              	 9685501	        18.57 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 6, internal/vp8/dsp
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/dsp
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkDCOnlyPairInPlace            	18296353	         9.642 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDCOnlyIDCT4x4AddPairInt32    	19594533	         9.246 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgeUV   	12797731	        13.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgeUV     	 6314834	        28.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterHorizontalEdgeUV 	10266000	        18.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMBLoopFilterVerticalEdgeUV   	 4643064	        39.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterHorizontalEdgesY   	 5505846	        35.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLoopFilterVerticalEdgesY     	 1680998	        91.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/16x16   	 6458904	        28.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGatherNative/8x8     	13825587	        12.77 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather16x16          	 6572026	        27.50 ns/op	       0 B/op	       0 allocs/op
+BenchmarkResidualGather8x8            	14090671	        12.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16                     	20225575	         8.797 ns/op	29099.33 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16x4LimitPtrFastFull   	 2674479	        67.53 ns/op	15164.55 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSAD16x16LimitEarly           	40358770	         4.510 ns/op	56760.70 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/4,0         	 7565073	        23.12 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/0,4         	 5345553	        33.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/2,4         	 2606475	        68.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/4x4/3,5         	 2895448	        62.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/4,0         	 4983373	        36.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/0,4         	 3311092	        55.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/2,4         	 1782078	       101.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/8x8/3,5         	 2031064	        88.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/4,0       	 1820558	        98.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/0,4       	  966200	       185.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/2,4       	  590246	       367.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSixTapPhases/16x16/3,5       	  675159	       260.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x720PtrFast             	  239728	       778.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/16x8       	 7144801	        24.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x16       	 6395822	        28.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x8        	 9921781	        18.40 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/8x4        	14809516	        12.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x8        	 9915540	        18.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSplitSubpelPhases/4x4        	14983600	        11.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSSE16x16                     	10023741	        17.99 ns/op	14232.36 MB/s	       0 B/op	       0 allocs/op
+BenchmarkSSE8x8                       	18060139	         9.988 ns/op	6407.66 MB/s	       0 B/op	       0 allocs/op
+PASS
+# round 6, internal/vp9/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp9/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCT32x32Native/precise         	   94908	      1900 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT32x32Native/rd              	   93451	      1917 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/zero      	 9310486	        19.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/sparse    	 9475119	        19.15 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/4x4/dense     	 9288118	        19.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/zero      	 4698351	        38.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/sparse    	 4829094	        37.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/8x8/dense     	 4608376	        39.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/zero    	 1534900	       117.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/sparse  	 1532145	       118.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FusedFPClassesNative/16x16/dense   	 1541732	       117.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkVP9FPNoClassesNative                  	 5499960	        32.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/scalar                	  226233	       792.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT16x16/dispatch              	 1000000	       152.8 ns/op	       0 B/op	       0 allocs/op
+PASS
+# round 6, internal/vp8/encoder
+goos: linux
+goarch: amd64
+pkg: github.com/thesyncim/govpx/internal/vp8/encoder
+cpu: AMD EPYC 9V45 96-Core Processor                
+BenchmarkForwardDCTBatchResidual25 	 1292991	       139.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkForwardDCT4x4SIMD         	21408943	         8.228 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFastQuantizeBlockSIMD     	41664390	         4.196 ns/op	       0 B/op	       0 allocs/op
+PASS

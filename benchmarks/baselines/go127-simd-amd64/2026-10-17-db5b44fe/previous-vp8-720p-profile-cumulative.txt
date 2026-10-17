@@ -1,0 +1,48 @@
+File: previous-govpx-bench
+Build ID: 3065f4373538125e378425368b54e50456a10ae1
+Type: cpu
+Time: 2026-10-17 12:31:13 UTC
+Duration: 1.66s, Total samples = 1.67s (100.86%)
+Showing nodes accounting for 0.43s, 25.75% of 1.67s total
+Showing top 40 nodes out of 204
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      1.67s   100%  github.com/thesyncim/govpx.(*VP8Encoder).EncodeInto
+         0     0%     0%      1.67s   100%  github.com/thesyncim/govpx.(*VP8Encoder).encodeSourceInto
+         0     0%     0%      1.67s   100%  github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.Main
+         0     0%     0%      1.67s   100%  github.com/thesyncim/govpx/cmd/govpx-bench/benchcmd.runBenchmark
+         0     0%     0%      1.67s   100%  main.main
+         0     0%     0%      1.67s   100%  runtime.main
+         0     0%     0%      1.61s 96.41%  github.com/thesyncim/govpx.(*VP8Encoder).encodeInterFrameAttempt
+         0     0%     0%      1.61s 96.41%  github.com/thesyncim/govpx.(*VP8Encoder).encodeInterFrameWithQuantizerFeedback
+     0.05s  2.99%  2.99%      1.04s 62.28%  github.com/thesyncim/govpx.(*VP8Encoder).buildReconstructingInterFrameCoefficientsWithSegmentation
+         0     0%  2.99%      0.42s 25.15%  github.com/thesyncim/govpx.(*VP8Encoder).pickLoopFilterLevel
+         0     0%  2.99%      0.42s 25.15%  github.com/thesyncim/govpx.(*loopFilterPickContext).pickFull (inline)
+         0     0%  2.99%      0.42s 25.15%  github.com/thesyncim/govpx.(*loopFilterPickContext).pickFullNoStats
+         0     0%  2.99%      0.41s 24.55%  github.com/thesyncim/govpx.(*loopFilterPickContext).cachedFullLumaSSE
+         0     0%  2.99%      0.41s 24.55%  github.com/thesyncim/govpx.(*loopFilterPickContext).trialLumaSSEFull
+         0     0%  2.99%      0.40s 23.95%  github.com/thesyncim/govpx/internal/vp8/decoder.ApplyLoopFilterFullLumaConfiguredUnchecked
+         0     0%  2.99%      0.40s 23.95%  github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterPartialLumaMB
+         0     0%  2.99%      0.40s 23.95%  github.com/thesyncim/govpx/internal/vp8/decoder.applyNormalLoopFilterPartialLumaUnchecked
+     0.08s  4.79%  7.78%      0.33s 19.76%  github.com/thesyncim/govpx/internal/pixel.loopFilterBytes
+     0.01s   0.6%  8.38%      0.31s 18.56%  github.com/thesyncim/govpx/internal/pixel.LoopFilterInternal16
+     0.02s  1.20%  9.58%      0.30s 17.96%  github.com/thesyncim/govpx.(*VP8Encoder).selectInterFrameModeDecision
+     0.01s   0.6% 10.18%      0.27s 16.17%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecision
+     0.06s  3.59% 13.77%      0.26s 15.57%  github.com/thesyncim/govpx.(*VP8Encoder).selectFastInterFrameModeDecisionDenoise
+         0     0% 13.77%      0.26s 15.57%  github.com/thesyncim/govpx/internal/vp8/dsp.LoopFilterVerticalEdgesY (inline)
+         0     0% 13.77%      0.26s 15.57%  github.com/thesyncim/govpx/internal/vp8/dsp.loopFilterVerticalEdgesYDispatch
+         0     0% 13.77%      0.20s 11.98%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficients (inline)
+         0     0% 13.77%      0.20s 11.98%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsInternal
+     0.05s  2.99% 16.77%      0.20s 11.98%  github.com/thesyncim/govpx.buildPredictedMacroblockCoefficientsWork
+     0.03s  1.80% 18.56%      0.16s  9.58%  github.com/thesyncim/govpx.addInterResidualToAnalysisMacroblockCoeffs
+     0.02s  1.20% 19.76%      0.14s  8.38%  github.com/thesyncim/govpx.(*VP8Encoder).applyDenoiserToInterMacroblock
+         0     0% 19.76%      0.14s  8.38%  github.com/thesyncim/govpx/internal/vp8/decoder.ReconstructWholeMVInterMacroblockWithState (inline)
+         0     0% 19.76%      0.14s  8.38%  github.com/thesyncim/govpx/internal/vp8/decoder.reconstructWholeMVInterMacroblockFast
+         0     0% 19.76%      0.14s  8.38%  github.com/thesyncim/govpx/internal/vp8/dsp.SixTapPredict8x8Pair
+     0.01s   0.6% 20.36%      0.14s  8.38%  github.com/thesyncim/govpx/internal/vp8/dsp.sixTapPredict8x8PairMaybe
+     0.01s   0.6% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/pixel.Filter
+         0     0% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/pixel.storeLFBytes
+         0     0% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/vp8/decoder.DequantIDCTAddMacroblockCoefficients
+         0     0% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/vp8/decoder.dequantIDCTAddMacroblockRaw
+         0     0% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/vp8/dsp.sixTapPredictGo
+         0     0% 20.96%      0.13s  7.78%  github.com/thesyncim/govpx/internal/vp8/encoder.(*InterFramePacket).Write
+     0.08s  4.79% 25.75%      0.12s  7.19%  github.com/thesyncim/govpx/internal/pixel.filterSixNarrow8

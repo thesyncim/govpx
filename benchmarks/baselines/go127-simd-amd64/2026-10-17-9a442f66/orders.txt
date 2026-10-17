@@ -1,0 +1,6 @@
+round 1: assembly previous simd
+round 2: previous simd assembly
+round 3: simd assembly previous
+round 4: assembly simd previous
+round 5: simd previous assembly
+round 6: previous assembly simd
