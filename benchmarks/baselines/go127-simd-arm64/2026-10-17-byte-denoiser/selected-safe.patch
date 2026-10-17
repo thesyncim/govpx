@@ -1,0 +1,374 @@
+diff --git a/internal/pixel/denoise_arm64.go b/internal/pixel/denoise_arm64.go
+new file mode 100644
+index 00000000..6b262c34
+--- /dev/null
++++ b/internal/pixel/denoise_arm64.go
+@@ -0,0 +1,42 @@
++//go:build goexperiment.simd && arm64 && !purego
++
++package pixel
++
++import (
++	"simd/archsimd"
++	"unsafe"
++)
++
++const byteDenoise16 = true
++
++func denoiseFirst16Bytes(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, level int) (int, bool) {
++	if ms < 16 || as < 16 || ss < 16 || len(mc) < 16 || len(avg) < 16 || len(sig) < 16 || ms > (len(mc)-16)/15 || as > (len(avg)-16)/15 || ss > (len(sig)-16)/15 {
++		return 0, false
++	}
++	ap := uintptr(unsafe.Pointer(unsafe.SliceData(avg)))
++	independent := func(in []byte, stride int) bool {
++		ip := uintptr(unsafe.Pointer(unsafe.SliceData(in)))
++		return ap == ip && as == stride || ap <= ip && ip-ap >= uintptr(len(avg)) || ip < ap && ap-ip >= uintptr(len(in))
++	}
++	if !independent(mc, ms) || !independent(sig, ss) {
++		return 0, false
++	}
++	l1, l2, l3 := archsimd.BroadcastUint8x16(byte(level)), archsimd.BroadcastUint8x16(byte(level+1)), archsimd.BroadcastUint8x16(byte(level+3))
++	seven, fifteen, threshold := archsimd.BroadcastUint8x16(7), archsimd.BroadcastUint8x16(15), archsimd.BroadcastUint8x16(byte(3+inc))
++	var columns archsimd.Int8x16
++	for y := range 16 {
++		m, s := archsimd.LoadUint8x16(mc[y*ms:]), archsimd.LoadUint8x16(sig[y*ss:])
++		a := m.Max(s).Sub(m.Min(s))
++		magnitude := l2.IfElse(a.LessEqual(fifteen), l3)
++		magnitude = l1.IfElse(a.LessEqual(seven), magnitude)
++		magnitude = a.IfElse(a.LessEqual(threshold), magnitude)
++		negative := m.Less(s)
++		plus, minus := magnitude.Masked(negative.Not()), magnitude.Masked(negative)
++		// Every adjustment is in [-8,8]. Before the last of sixteen rows the
++		// column sum is in [-120,120], so signed saturation can only occur on
++		// the final addition, exactly implementing the required upper clamp127.
++		columns = columns.AddSaturated(plus.BitsToInt8().Sub(minus.BitsToInt8()))
++		s.AddSaturated(plus).SubSaturated(minus).Store(avg[y*as:])
++	}
++	return int(columns.ExtendLo8ToInt16().Add(columns.HiToLo().ExtendLo8ToInt16()).ReduceSum()), true
++}
+diff --git a/internal/pixel/denoise_bytes_arm64_test.go b/internal/pixel/denoise_bytes_arm64_test.go
+new file mode 100644
+index 00000000..e839741c
+--- /dev/null
++++ b/internal/pixel/denoise_bytes_arm64_test.go
+@@ -0,0 +1,235 @@
++//go:build goexperiment.simd && arm64 && !purego
++
++package pixel
++
++import (
++	"bytes"
++	"testing"
++)
++
++func TestDenoiseBytesScalar(t *testing.T) {
++	if !Enabled {
++		t.Skip("SIMD unavailable")
++	}
++	seed := uint32(0x841651)
++	for _, stride := range []int{16, 17, 23, 41} {
++		for align := range 8 {
++			for inc := range 2 {
++				for _, level := range []int{3, 4, 5} {
++					for trial := range 20 {
++						size := 15*stride + 16
++						mc, avg, sig := make([]byte, size+align)[align:], make([]byte, size+align)[align:], make([]byte, size+align)[align:]
++						for i := range mc {
++							seed = seed*1664525 + 1013904223
++							mc[i] = byte(seed >> 24)
++							seed = seed*1664525 + 1013904223
++							sig[i] = byte(seed >> 24)
++							avg[i] = 71
++						}
++						if trial < 4 {
++							for y := range 16 {
++								for x := range 16 {
++									i := y*stride + x
++									switch trial {
++									case 0:
++										mc[i], sig[i] = 255, 0
++									case 1:
++										mc[i], sig[i] = 0, 255
++									case 2:
++										mc[i], sig[i] = 255, 0
++										if y == 15 {
++											mc[i], sig[i] = 0, 255
++										}
++									case 3:
++										mc[i] = sig[i]
++									}
++								}
++							}
++						}
++						for _, alias := range []int{0, 1, 2} {
++							m, s, a := bytes.Clone(mc), bytes.Clone(sig), bytes.Clone(avg)
++							wm, ws, wa := bytes.Clone(mc), bytes.Clone(sig), bytes.Clone(avg)
++							if alias == 1 {
++								a = m
++								wa = wm
++							}
++							if alias == 2 {
++								a = s
++								wa = ws
++							}
++							want := DenoiseFirstScalar(wm, stride, wa, stride, ws, stride, 16, inc, level)
++							got, ok := denoiseFirst16Bytes(m, stride, a, stride, s, stride, inc, level)
++							if !ok || got != want || !bytes.Equal(a, wa) || !bytes.Equal(m, wm) || !bytes.Equal(s, ws) {
++								t.Fatalf("stride%d align%d inc%d level%d trial%d alias%d sum%d/%d selected%v", stride, align, inc, level, trial, alias, got, want, ok)
++							}
++						}
++					}
++				}
++			}
++		}
++	}
++}
++
++func TestDenoiseBytesDeclinesAliasesAndShortRows(t *testing.T) {
++	for _, stride := range []int{0, 1, 15, 16, 17, 23} {
++		for _, off := range []int{0, 1, 7, 8, 17, 32} {
++			backing := make([]byte, 1024)
++			for i := range backing {
++				backing[i] = byte(i*37 + 11)
++			}
++			original := bytes.Clone(backing)
++			_, ok := denoiseFirst16Bytes(backing, stride, backing[off:], stride, backing[400:], stride, 1, 5)
++			if stride < 16 || off != 0 {
++				if ok || !bytes.Equal(backing, original) {
++					t.Fatalf("stride%d off%d decline wrote or accepted", stride, off)
++				}
++			}
++		}
++	}
++	const maxInt = int(^uint(0) >> 1)
++	for _, shape := range [][3]int{{16, 17, 16}, {17, 16, 16}, {16, 16, 17}, {maxInt, 16, 16}, {16, maxInt, 16}, {16, 16, maxInt}, {-1, 16, 16}, {16, -1, 16}, {16, 16, -1}} {
++		backing := bytes.Repeat([]byte{71}, 512)
++		before := bytes.Clone(backing)
++		if _, ok := denoiseFirst16Bytes(backing, shape[0], backing, shape[1], backing, shape[2], 1, 5); ok || !bytes.Equal(backing, before) {
++			t.Fatalf("shape%v accepted/wrote", shape)
++		}
++	}
++
++	for _, size := range []int{0, 1, 15, 16, 254, 255} {
++		mc, avg, sig := make([]byte, size), bytes.Repeat([]byte{71}, 256), make([]byte, 256)
++		before := bytes.Clone(avg)
++		if _, ok := denoiseFirst16Bytes(mc, 16, avg, 16, sig, 16, 1, 5); ok || !bytes.Equal(avg, before) {
++			t.Fatalf("size%d accepted/wrote", size)
++		}
++	}
++}
++
++// Partial aliases retain the preexisting eight-pixel load-before-store order.
++func TestDenoiseBytesPacketAliasOrder(t *testing.T) {
++	for _, stride := range []int{15, 16, 17, 23} {
++		for _, offsets := range [][3]int{{0, 1, 400}, {0, 7, 400}, {0, 8, 400}, {0, 17, 400}, {0, 400, 401}, {0, 400, 407}, {0, 400, 408}, {0, 400, 417}, {0, 0, 1}} {
++			for inc := range 2 {
++				for _, level := range []int{3, 4, 5} {
++					got := make([]byte, 2048)
++					for i := range got {
++						got[i] = byte(i*37 + 11)
++					}
++					want := bytes.Clone(got)
++					m, a, s := offsets[0], offsets[1], offsets[2]
++					var cols [16]int
++					for y := range 16 {
++						for x := 0; x < 16; x += 8 {
++							var mp, sp [8]byte
++							copy(mp[:], want[m+y*stride+x:])
++							copy(sp[:], want[s+y*stride+x:])
++							for i := range 8 {
++								d := int(mp[i]) - int(sp[i])
++								abs := max(d, -d)
++								adj := level + 3
++								if abs <= 15 {
++									adj = level + 1
++								}
++								if abs <= 7 {
++									adj = level
++								}
++								if abs <= 3+inc {
++									adj = abs
++								}
++								if d < 0 {
++									adj = -adj
++								}
++								cols[x+i] += adj
++								want[a+y*stride+x+i] = byte(min(255, max(0, int(sp[i])+adj)))
++							}
++						}
++					}
++					sum := 0
++					for _, v := range cols {
++						sum += min(v, 127)
++					}
++					result := DenoiseFirst(got[m:], stride, got[a:], stride, got[s:], stride, 16, inc, level)
++					if result != sum || !bytes.Equal(got, want) {
++						t.Fatalf("stride%d offsets%v inc%d level%d sum%d/%d", stride, offsets, inc, level, result, sum)
++					}
++				}
++			}
++		}
++	}
++}
++
++func TestDenoiseBytesDistinctStridesAndPublicDispatch(t *testing.T) {
++	if !Enabled || !byteDenoise16 {
++		t.Fatal("required ARM byte denoiser unavailable")
++	}
++	for trial := range 64 {
++		ms, as, ss := 16+trial%5, 16+(trial/5)%7, 16+(trial/7)%9
++		mc, sig := make([]byte, 15*ms+16), make([]byte, 15*ss+16)
++		for i := range mc {
++			mc[i] = byte(i*37 + trial*13)
++		}
++		for i := range sig {
++			sig[i] = byte(i*19 + trial*31)
++		}
++		align := trial % 8
++		size := 15*as + 16
++		for inc := range 2 {
++			for _, level := range []int{3, 4, 5} {
++				got, want := bytes.Repeat([]byte{71}, align+size+13), bytes.Repeat([]byte{71}, align+size+13)
++				expected := DenoiseFirstScalar(mc, ms, want[align:align+size], as, sig, ss, 16, inc, level)
++				actual := DenoiseFirst(mc, ms, got[align:align+size], as, sig, ss, 16, inc, level)
++				if actual != expected || !bytes.Equal(got, want) {
++					t.Fatalf("public trial%d inc%d level%d", trial, inc, level)
++				}
++				for i := range got {
++					got[i] = 71
++				}
++				actual, ok := denoiseFirst16Bytes(mc, ms, got[align:align+size], as, sig, ss, inc, level)
++				if !ok || actual != expected || !bytes.Equal(got, want) {
++					t.Fatalf("selected trial%d inc%d level%d", trial, inc, level)
++				}
++			}
++		}
++	}
++}
++
++func TestDenoiseBytesShortDestAndSignal(t *testing.T) {
++	for short := range 3 {
++		for _, size := range []int{0, 1, 15, 16, 254, 255} {
++			var bufs, before [3][]byte
++			for i := range bufs {
++				n := 256
++				if i == short {
++					n = size
++				}
++				bufs[i] = bytes.Repeat([]byte{71}, n)
++				before[i] = bytes.Clone(bufs[i])
++			}
++			if _, ok := denoiseFirst16Bytes(bufs[0], 16, bufs[1], 16, bufs[2], 16, 1, 5); ok {
++				t.Fatalf("short%d size%d accepted", short, size)
++			}
++			for i := range bufs {
++				if !bytes.Equal(bufs[i], before[i]) {
++					t.Fatalf("short%d size%d buffer%d changed", short, size, i)
++				}
++			}
++		}
++	}
++}
++
++func TestDenoiseBytesFallbackParameters(t *testing.T) {
++	for _, width := range []int{8, 16} {
++		for _, parameters := range [][2]int{{-1, 3}, {2, 3}, {0, 2}, {0, 6}, {1, 6}, {0, 0}, {0, 8}} {
++			mc, sig := make([]byte, width*width), make([]byte, width*width)
++			for i := range mc {
++				mc[i] = byte(i*37 + 11)
++				sig[i] = byte(i*19 + 53)
++			}
++			avg, want := make([]byte, width*width), make([]byte, width*width)
++			inc, level := parameters[0], parameters[1]
++			expected := DenoiseFirstScalar(mc, width, want, width, sig, width, width, inc, level)
++			if got := DenoiseFirst(mc, width, avg, width, sig, width, width, inc, level); got != expected || !bytes.Equal(avg, want) {
++				t.Fatalf("width%d inc%d level%d sum%d/%d", width, inc, level, got, expected)
++			}
++		}
++	}
++}
+diff --git a/internal/pixel/helpers_amd64.go b/internal/pixel/helpers_amd64.go
+index 865d4b4c..1bdd8bf1 100644
+--- a/internal/pixel/helpers_amd64.go
++++ b/internal/pixel/helpers_amd64.go
+@@ -119,3 +119,9 @@ func fpClassIndices(v archsimd.Int16x8) archsimd.Uint8x16 {
+ func loadLFColumns16(p []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
+ 	return loadLFColumns[[8]byte](p, off, pitch, 16)
+ }
++
++const byteDenoise16 = false
++
++func denoiseFirst16Bytes(_ []byte, _ int, _ []byte, _ int, _ []byte, _, _, _ int) (int, bool) {
++	return 0, false
++}
+diff --git a/internal/pixel/kernels_simd.go b/internal/pixel/kernels_simd.go
+index 3107d7bb..cdb88567 100644
+--- a/internal/pixel/kernels_simd.go
++++ b/internal/pixel/kernels_simd.go
+@@ -596,6 +596,12 @@ func DenoiseFirst(mc []byte, ms int, avg []byte, as int, sig []byte, ss, w, inc,
+ 		return DenoiseFirstScalar(mc, ms, avg, as, sig, ss, w, inc, level)
+ 	}
+ 
++	if byteDenoise16 && w == 16 && inc >= 0 && inc <= 1 && level >= 3 && level <= 5 {
++		if sum, ok := denoiseFirst16Bytes(mc, ms, avg, as, sig, ss, inc, level); ok {
++			return sum
++		}
++	}
++
+ 	var columns [2]archsimd.Int16x8
+ 	l1, l2, l3 := archsimd.BroadcastInt16x8(int16(level)), archsimd.BroadcastInt16x8(int16(level+1)), archsimd.BroadcastInt16x8(int16(level+3))
+ 	zero := archsimd.Int16x8{}
+diff --git a/internal/vp8/encoder/denoiser_native_bench_test.go b/internal/vp8/encoder/denoiser_native_bench_test.go
+new file mode 100644
+index 00000000..8ae547b5
+--- /dev/null
++++ b/internal/vp8/encoder/denoiser_native_bench_test.go
+@@ -0,0 +1,48 @@
++package encoder
++
++import (
++	"bytes"
++	"testing"
++)
++
++// Reset signal pixels inside the timed operation so filtering cannot turn
++// later iterations into an already-converged block. The scalar result and
++// both observable output buffers are checked after the live benchmark loop.
++func BenchmarkDenoiserFilterYNative(b *testing.B) {
++	for _, mode := range []string{"smooth", "mixed", "saturating"} {
++		b.Run(mode, func(b *testing.B) {
++			const stride = 19
++			size := 15*stride + 16
++			mc, seed, avg := make([]byte, size), make([]byte, size), bytes.Repeat([]byte{71}, size)
++			pairs := [][2]byte{{0, 255}, {255, 0}, {127, 128}, {121, 128}, {120, 128}, {113, 128}, {112, 128}, {255, 253}}
++			for y := range 16 {
++				for x := range 16 {
++					i := y*stride + x
++					switch mode {
++					case "smooth":
++						seed[i] = byte(96 + x%8)
++						mc[i] = seed[i] + 2
++					case "mixed":
++						p := pairs[(x+y)%len(pairs)]
++						mc[i], seed[i] = p[0], p[1]
++					case "saturating":
++						mc[i], seed[i] = 255, 0
++					}
++				}
++			}
++			wantSig, wantAvg := bytes.Clone(seed), bytes.Clone(avg)
++			want := DenoiserFilterYScalar(mc, stride, wantAvg, stride, wantSig, stride, 0, true)
++			sig := bytes.Clone(seed)
++			got := -1
++			b.ReportAllocs()
++			b.SetBytes(256)
++			for b.Loop() {
++				copy(sig, seed)
++				got = DenoiserFilterY(mc, stride, avg, stride, sig, stride, 0, true)
++			}
++			if got != want || !bytes.Equal(avg, wantAvg) || !bytes.Equal(sig, wantSig) {
++				b.Fatalf("decision%d/%d or output differs", got, want)
++			}
++		})
++	}
++}

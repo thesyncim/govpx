@@ -1,0 +1,36 @@
+{
+  "purpose": "Preserve accepted and rejected experiment sources before deleting temporary remote branch refs. Production winners are incorporated into PR24. Rejected branches must not be merged as a group.",
+  "bundle_sha256": "2559677ed34571c7b1db789c53042d92888224d6b0a7bc998f9b9ae62d1d2eb7",
+  "refs": {
+    "refs/heads/codex/vp8-x64-byte-zip-probe": "29a8f43f839d11311a4148d27c2a97155e74c51d",
+    "refs/heads/codex/vp8-x64-dot-probe": "dba057f7335084770255c8a291cf1e20b961dbae",
+    "refs/heads/codex/vp8-x64-filter-dot-gated-probe": "fbf3e8f947aaf7546992e39d81a3de9f5057615e",
+    "refs/heads/codex/vp8-x64-mask-probe": "2dc55d04c02c46170025d3ed914f1acb38bf3dae",
+    "refs/heads/codex/vp8-x64-rolling-probe": "675e2821f308377fe0c950194e95563ac53babb1",
+    "refs/heads/codex/vp8-x64-rolling-wide-probe": "ad44519452cbedc0d8202a3fd03c05e4af9edf38",
+    "refs/heads/codex/vp8-x64-stats-probe": "618ff11d84c16b4c248a6da64fd13661453689e6",
+    "refs/heads/codex/vp8-arm-byte-denoiser-probe": "62c102ea64f260e1bd852ac23e8031558e5644f3"
+  },
+  "prerequisites": [
+    "db5b44fe245072525cc0dbc39285d5bcf56c0f3a",
+    "4e397136d0370239e4fce6e3ccddc034deaa1a03"
+  ],
+  "prerequisites_reachable_from_main": true,
+  "merged_pr23": {
+    "branch": "codex/go127-native-simd",
+    "head": "dfb9cd34e37dc5abbd14a83fca6c365cc0b72c7e",
+    "head_is_ancestor_of_main": true,
+    "note": "Already retained in main history; git bundle omits reachable refs."
+  },
+  "restore": "From a clone containing the prerequisite main history: git bundle verify PATH/experiment-sources.bundle; git fetch PATH/experiment-sources.bundle refs/heads/codex/BRANCH:refs/heads/codex/BRANCH",
+  "decisions": {
+    "byte-zip": "rejected: mixed public VP8 results and VP9 regression",
+    "dot": "rejected: no sustained public gain",
+    "filter-dot-gated": "pending native validation at archive creation; not promoted",
+    "mask": "rejected after two native runs",
+    "rolling": "accepted 128-bit implementation integrated",
+    "rolling-wide": "rejected public encoder regression",
+    "stats": "accepted full-row AVX2 statistics integrated",
+    "arm-byte-denoiser": "safe checked-slice implementation integrated; pointer variant excluded"
+  }
+}

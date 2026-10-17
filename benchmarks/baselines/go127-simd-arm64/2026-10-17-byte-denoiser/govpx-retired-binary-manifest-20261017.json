@@ -1,0 +1,89 @@
+{
+  "reason": "Retired task experiment/test binaries only; raw evidence/source patches or immutable probe commits retained. Four active ARM baseline/selected binaries and all shared caches preserved.",
+  "files": {
+    "govpx-arm-denoise-parent-encoder.test": {
+      "size": 8388706,
+      "sha256": "4fa56c01ad5f34c5eba0a73d295ecfa523ff53af94b8b0905c3382b6d79a0fa4"
+    },
+    "govpx-arm-denoise-safe-encoder.test": {
+      "size": 8388786,
+      "sha256": "32bc7946fcef0d8c457fbdb3a77594a2532872f1083af730c68078aafd3bbf9d"
+    },
+    "govpx-arm-denoise-pointer-encoder.test": {
+      "size": 8388786,
+      "sha256": "cd9eae2956413a6408c921a816713e4aba8511993f9a2dd28931b609a10f105a"
+    },
+    "govpx-x64-bytezip-pixel.test": {
+      "size": 5113168,
+      "sha256": "48a0611f26519d1b96abc45e7001b91656da91cbdcabc74a7f0771b3be82c617"
+    },
+    "govpx-x64-bytezip-dsp.test": {
+      "size": 7608704,
+      "sha256": "04921dc57e1fa3248b362b76995f4ae4075adf72337cc68a1df0320838404240"
+    },
+    "govpx-x64-bytezip-vp9dsp.test": {
+      "size": 5731536,
+      "sha256": "d39b0c3452bea6ede7c4eb504cacdea7e12632f443978bdcf825addd34408111"
+    },
+    "govpx-x64-mask-pixel.test": {
+      "size": 5113088,
+      "sha256": "a989a87d89e92ca936b7ab9d9f2391684f0381fefd8ba2fc8ba8527c46fdd6a0"
+    },
+    "govpx-x64-mask-vp8dsp.test": {
+      "size": 7608624,
+      "sha256": "d0b3942c52ed0a233417de45dbd0ea030c21968f7872c8b607d52d909a0ca78a"
+    },
+    "govpx-x64-mask-vp9dsp.test": {
+      "size": 5731456,
+      "sha256": "65f274b2ab3741043483f5aa162082e083cfb4ec5dd8a9d501d74cb6eab759fd"
+    },
+    "govpx-stats-integrated-pixel.test": {
+      "size": 5146064,
+      "sha256": "8a10df16885267bf64d03cc4012c4a4f1def69f01489da4598792bb1c9c28a5c"
+    },
+    "govpx-stats-integrated-vp8dsp.test": {
+      "size": 7608624,
+      "sha256": "c68e150bec97771d58e5f5134a71222b5155c5a14fdc08496a83965667eeeed8"
+    },
+    "govpx-stats-integrated-vp9dsp.test": {
+      "size": 5735552,
+      "sha256": "98acfcd8d0a54caa4faea54b2d77ae85627cd0dced0b1d61abb0bd6a20376036"
+    },
+    "govpx-quant-batch-span-bench": {
+      "size": 11720210,
+      "sha256": "b4acb8174cfaf74f7d3e621f5dcbe4fa41c0c4aba75882dee5b9c73f5abefc1c"
+    },
+    "govpx-quant-batch-safe-bench": {
+      "size": 11720210,
+      "sha256": "d8a8feb7fe95975784b5b1baf3e692b4420fe4a779a57d3c225fa61f5d4e2b43"
+    },
+    "govpx-quant-batch-ptr-bench": {
+      "size": 11720210,
+      "sha256": "c35a2e5334471e3fb45116d03cb4e5ab08379efac96c69c030e5593e5226365a"
+    },
+    "govpx-quant-batch-noguard-bench": {
+      "size": 11703698,
+      "sha256": "003c22988e8f8bb87be9f9baf754dd7ccf726ccec8df466c476e2937f6e9c411"
+    },
+    "govpx-fusion-uvinline-bench": {
+      "size": 11720418,
+      "sha256": "1f612a0ea8d305bcada5708134581db7445d707f3b36e341f798512a156b17d1"
+    },
+    "govpx-fusion-uvflat-bench": {
+      "size": 11720418,
+      "sha256": "ba6db6a46e2418e8182d010c94f7047ee1d98bf3009f6a81eaa9fd14276f29a7"
+    },
+    "govpx-fusion-uv-bench": {
+      "size": 11720418,
+      "sha256": "e9ba0414fcdc2d342b305fe4d29ca948b090b3b48edffd10aba226f6c56e0d4c"
+    },
+    "govpx-x64-dot-arm-bench": {
+      "size": 11703698,
+      "sha256": "4a119f79a1728790f54d1dd952309eaf5dccef76e8b60408d4fa337e58526ad5"
+    },
+    "govpx-macro-fused-bench": {
+      "size": 11703602,
+      "sha256": "9ef4d253bee96c0a123e622c630ad126067f791980cfa34caa6c125514c93926"
+    }
+  }
+}

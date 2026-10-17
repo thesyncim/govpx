@@ -1,0 +1,200 @@
+
+/private/tmp/govpx-arm-byte-denoise-final-bench:	file format mach-o arm64
+
+Disassembly of section __TEXT,__text:
+
+00000001000dfa90 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes>:
+1000dfa90: f9400b90    	ldr	x16, [x28, #0x10]
+1000dfa94: eb3063ff    	cmp	sp, x16
+1000dfa98: 540015c9    	b.ls	0x1000dfd50 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2c0>
+1000dfa9c: f81f0ffe    	str	x30, [sp, #-0x10]!
+1000dfaa0: f81f83fd    	stur	x29, [sp, #-0x8]
+1000dfaa4: d10023fd    	sub	x29, sp, #0x8
+1000dfaa8: f9000fe0    	str	x0, [sp, #0x18]
+1000dfaac: f9001fe4    	str	x4, [sp, #0x38]
+1000dfab0: f9002fe8    	str	x8, [sp, #0x58]
+1000dfab4: f100407f    	cmp	x3, #0x10
+1000dfab8: 54000a2b    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfabc: f10040ff    	cmp	x7, #0x10
+1000dfac0: 540009eb    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfac4: f100417f    	cmp	x11, #0x10
+1000dfac8: 540009ab    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfacc: f100403f    	cmp	x1, #0x10
+1000dfad0: 5400096b    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfad4: f10040bf    	cmp	x5, #0x10
+1000dfad8: 5400092b    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfadc: f100413f    	cmp	x9, #0x10
+1000dfae0: 540008eb    	b.lt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfae4: d100402e    	sub	x14, x1, #0x10
+1000dfae8: b201e3ef    	mov	x15, #-0x7777777777777778 ; =-8608480567731124088
+1000dfaec: f291112f    	movk	x15, #0x8889
+1000dfaf0: 9bcf7dce    	umulh	x14, x14, x15
+1000dfaf4: eb4e0c7f    	cmp	x3, x14, lsr #3
+1000dfaf8: 5400082c    	b.gt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfafc: d10040ae    	sub	x14, x5, #0x10
+1000dfb00: 9bcf7dce    	umulh	x14, x14, x15
+1000dfb04: eb4e0cff    	cmp	x7, x14, lsr #3
+1000dfb08: 540007ac    	b.gt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfb0c: d100412e    	sub	x14, x9, #0x10
+1000dfb10: 9bcf7dce    	umulh	x14, x14, x15
+1000dfb14: eb4e0d7f    	cmp	x11, x14, lsr #3
+1000dfb18: 5400072c    	b.gt	0x1000dfbfc <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x16c>
+1000dfb1c: aa0403ee    	mov	x14, x4
+1000dfb20: aa0003ef    	mov	x15, x0
+1000dfb24: eb04001f    	cmp	x0, x4
+1000dfb28: 54000081    	b.ne	0x1000dfb38 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xa8>
+1000dfb2c: eb0300ff    	cmp	x7, x3
+1000dfb30: 54000160    	b.eq	0x1000dfb5c <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xcc>
+1000dfb34: eb04001f    	cmp	x0, x4
+1000dfb38: 540000c3    	b.lo	0x1000dfb50 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xc0>
+1000dfb3c: cb040010    	sub	x16, x0, x4
+1000dfb40: eb1000bf    	cmp	x5, x16
+1000dfb44: 540000c9    	b.ls	0x1000dfb5c <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xcc>
+1000dfb48: eb04001f    	cmp	x0, x4
+1000dfb4c: 540004e2    	b.hs	0x1000dfbe8 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x158>
+1000dfb50: cb000090    	sub	x16, x4, x0
+1000dfb54: eb10003f    	cmp	x1, x16
+1000dfb58: 54000488    	b.hi	0x1000dfbe8 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x158>
+1000dfb5c: aa0803f0    	mov	x16, x8
+1000dfb60: eb04011f    	cmp	x8, x4
+1000dfb64: 54000081    	b.ne	0x1000dfb74 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xe4>
+1000dfb68: eb07017f    	cmp	x11, x7
+1000dfb6c: 54000160    	b.eq	0x1000dfb98 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x108>
+1000dfb70: eb04011f    	cmp	x8, x4
+1000dfb74: 540000c3    	b.lo	0x1000dfb8c <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0xfc>
+1000dfb78: cb040111    	sub	x17, x8, x4
+1000dfb7c: eb1100bf    	cmp	x5, x17
+1000dfb80: 540000c9    	b.ls	0x1000dfb98 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x108>
+1000dfb84: eb04011f    	cmp	x8, x4
+1000dfb88: 54000302    	b.hs	0x1000dfbe8 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x158>
+1000dfb8c: cb080084    	sub	x4, x4, x8
+1000dfb90: eb04013f    	cmp	x9, x4
+1000dfb94: 540002a8    	b.hi	0x1000dfbe8 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x158>
+1000dfb98: 910005a4    	add	x4, x13, #0x1
+1000dfb9c: 91000da8    	add	x8, x13, #0x3
+1000dfba0: 91000d8c    	add	x12, x12, #0x3
+1000dfba4: 4f00e400    	movi.16b	v0, #0x0
+1000dfba8: 4ea01c01    	mov.16b	v1, v0
+1000dfbac: 4e011da0    	mov.b	v0[0], w13
+1000dfbb0: 4ea11c22    	mov.16b	v2, v1
+1000dfbb4: 4e011c81    	mov.b	v1[0], w4
+1000dfbb8: 4ea21c43    	mov.16b	v3, v2
+1000dfbbc: 4e011d02    	mov.b	v2[0], w8
+1000dfbc0: 4e011d83    	mov.b	v3[0], w12
+1000dfbc4: 4f00e404    	movi.16b	v4, #0x0
+1000dfbc8: 4e010400    	dup.16b	v0, v0[0]
+1000dfbcc: 4e010421    	dup.16b	v1, v1[0]
+1000dfbd0: 4e010442    	dup.16b	v2, v2[0]
+1000dfbd4: 4f00e4e5    	movi.16b	v5, #0x7
+1000dfbd8: 4f00e5e6    	movi.16b	v6, #0xf
+1000dfbdc: 4e010463    	dup.16b	v3, v3[0]
+1000dfbe0: aa1f03e4    	mov	x4, xzr
+1000dfbe4: 14000010    	b	0x1000dfc24 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x194>
+1000dfbe8: aa1f03e0    	mov	x0, xzr
+1000dfbec: aa1f03e1    	mov	x1, xzr
+1000dfbf0: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000dfbf4: f84107fe    	ldr	x30, [sp], #0x10
+1000dfbf8: d65f03c0    	ret
+1000dfbfc: aa1f03e0    	mov	x0, xzr
+1000dfc00: aa1f03e1    	mov	x1, xzr
+1000dfc04: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000dfc08: f84107fe    	ldr	x30, [sp], #0x10
+1000dfc0c: d65f03c0    	ret
+1000dfc10: 3d800180    	str	q0, [x12]
+1000dfc14: 91000484    	add	x4, x4, #0x1
+1000dfc18: 4eac1d80    	mov.16b	v0, v12
+1000dfc1c: 4ea11c24    	mov.16b	v4, v1
+1000dfc20: 4eab1d61    	mov.16b	v1, v11
+1000dfc24: f100409f    	cmp	x4, #0x10
+1000dfc28: 5400072a    	b.ge	0x1000dfd0c <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x27c>
+1000dfc2c: 9b037c88    	mul	x8, x4, x3
+1000dfc30: eb08003f    	cmp	x1, x8
+1000dfc34: 540008a3    	b.lo	0x1000dfd48 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2b8>
+1000dfc38: cb08002c    	sub	x12, x1, x8
+1000dfc3c: cb02010d    	sub	x13, x8, x2
+1000dfc40: 8a8dfd08    	and	x8, x8, x13, asr #63
+1000dfc44: 8b0801e8    	add	x8, x15, x8
+1000dfc48: f100419f    	cmp	x12, #0x10
+1000dfc4c: 540007c3    	b.lo	0x1000dfd44 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2b4>
+1000dfc50: 9b0b7c8c    	mul	x12, x4, x11
+1000dfc54: eb0c013f    	cmp	x9, x12
+1000dfc58: 54000743    	b.lo	0x1000dfd40 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2b0>
+1000dfc5c: cb0c012d    	sub	x13, x9, x12
+1000dfc60: cb0a0191    	sub	x17, x12, x10
+1000dfc64: 8a91fd8c    	and	x12, x12, x17, asr #63
+1000dfc68: 8b0c020c    	add	x12, x16, x12
+1000dfc6c: f10041bf    	cmp	x13, #0x10
+1000dfc70: 54000663    	b.lo	0x1000dfd3c <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2ac>
+1000dfc74: 9b077c8d    	mul	x13, x4, x7
+1000dfc78: 3dc00107    	ldr	q7, [x8]
+1000dfc7c: 3dc00188    	ldr	q8, [x12]
+1000dfc80: 6e2864e9    	umax.16b	v9, v7, v8
+1000dfc84: 6e286cea    	umin.16b	v10, v7, v8
+1000dfc88: 6e2a8529    	sub.16b	v9, v9, v10
+1000dfc8c: 6e293cca    	cmhs.16b	v10, v6, v9
+1000dfc90: 4ea11c2b    	mov.16b	v11, v1
+1000dfc94: 6eea1c41    	bif.16b	v1, v2, v10
+1000dfc98: 6e293caa    	cmhs.16b	v10, v5, v9
+1000dfc9c: 4ea01c0c    	mov.16b	v12, v0
+1000dfca0: 6eea1c20    	bif.16b	v0, v1, v10
+1000dfca4: 6e293c61    	cmhs.16b	v1, v3, v9
+1000dfca8: 6ee11c09    	bif.16b	v9, v0, v1
+1000dfcac: 6e273500    	cmhi.16b	v0, v8, v7
+1000dfcb0: 6e205801    	mvn.16b	v1, v0
+1000dfcb4: 4e291c21    	and.16b	v1, v1, v9
+1000dfcb8: 6e210d07    	uqadd.16b	v7, v8, v1
+1000dfcbc: 4e291c00    	and.16b	v0, v0, v9
+1000dfcc0: 6e208421    	sub.16b	v1, v1, v0
+1000dfcc4: d503201f    	nop
+1000dfcc8: d503201f    	nop
+1000dfccc: d503201f    	nop
+1000dfcd0: d503201f    	nop
+1000dfcd4: d503201f    	nop
+1000dfcd8: d503201f    	nop
+1000dfcdc: d503201f    	nop
+1000dfce0: 4e210c81    	sqadd.16b	v1, v4, v1
+1000dfce4: 6e202ce0    	uqsub.16b	v0, v7, v0
+1000dfce8: eb0d00bf    	cmp	x5, x13
+1000dfcec: 54000263    	b.lo	0x1000dfd38 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2a8>
+1000dfcf0: cb0d00a8    	sub	x8, x5, x13
+1000dfcf4: cb0601ac    	sub	x12, x13, x6
+1000dfcf8: 8a8cfdac    	and	x12, x13, x12, asr #63
+1000dfcfc: 8b0c01cc    	add	x12, x14, x12
+1000dfd00: f100411f    	cmp	x8, #0x10
+1000dfd04: 54fff862    	b.hs	0x1000dfc10 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x180>
+1000dfd08: 1400000b    	b	0x1000dfd34 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes+0x2a4>
+1000dfd0c: 0f08a480    	sshll.8h	v0, v4, #0x0
+1000dfd10: 4f08a481    	sshll2.8h	v1, v4, #0x0
+1000dfd14: 4e618400    	add.8h	v0, v0, v1
+1000dfd18: 4e71b800    	addv.8h	h0, v0
+1000dfd1c: 0e023c02    	umov.h	w2, v0[0]
+1000dfd20: 93403c40    	sxth	x0, w2
+1000dfd24: b24003e1    	orr	x1, xzr, #0x1
+1000dfd28: f85f83fd    	ldur	x29, [sp, #-0x8]
+1000dfd2c: f84107fe    	ldr	x30, [sp], #0x10
+1000dfd30: d65f03c0    	ret
+1000dfd34: 97fe8b8b    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd38: 97fe8b8a    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd3c: 97fe8b89    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd40: 97fe8b88    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd44: 97fe8b87    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd48: 97fe8b86    	bl	0x100082b60 <_runtime.panicBounds>
+1000dfd4c: d503201f    	nop
+1000dfd50: a90087e0    	stp	x0, x1, [sp, #0x8]
+1000dfd54: a9018fe2    	stp	x2, x3, [sp, #0x18]
+1000dfd58: a90297e4    	stp	x4, x5, [sp, #0x28]
+1000dfd5c: a9039fe6    	stp	x6, x7, [sp, #0x38]
+1000dfd60: a904a7e8    	stp	x8, x9, [sp, #0x48]
+1000dfd64: a905afea    	stp	x10, x11, [sp, #0x58]
+1000dfd68: a906b7ec    	stp	x12, x13, [sp, #0x68]
+1000dfd6c: aa1e03e3    	mov	x3, x30
+1000dfd70: 97fe8338    	bl	0x100080a50 <_runtime.morestack_noctxt.abi0>
+1000dfd74: a94087e0    	ldp	x0, x1, [sp, #0x8]
+1000dfd78: a9418fe2    	ldp	x2, x3, [sp, #0x18]
+1000dfd7c: a94297e4    	ldp	x4, x5, [sp, #0x28]
+1000dfd80: a9439fe6    	ldp	x6, x7, [sp, #0x38]
+1000dfd84: a944a7e8    	ldp	x8, x9, [sp, #0x48]
+1000dfd88: a945afea    	ldp	x10, x11, [sp, #0x58]
+1000dfd8c: a946b7ec    	ldp	x12, x13, [sp, #0x68]
+1000dfd90: 17ffff40    	b	0x1000dfa90 <_github.com/thesyncim/govpx/internal/pixel.denoiseFirst16Bytes>
+		...

@@ -1,0 +1,28 @@
+{
+  "selected": "full-row byte kernel with safe slice loads/stores",
+  "excluded": "extra unsafe load/store variant: no sustained incremental encoder benefit over safe indexing",
+  "compiler": "Go1.27.2 darwin/arm64 GOEXPERIMENT=simd PGO=off",
+  "cpu": "Apple M4 Max",
+  "GOMAXPROCS": 1,
+  "parent_source": "c065a265 (ARM codec source unchanged from d87df7a7)",
+  "prototype_commit": "62c102ea64f260e1bd852ac23e8031558e5644f3",
+  "workload": "VP8 realtime cpu8 1280x720 bitrate2500 threads1 fps30; 6 balanced three-way permutations; all 23 non-timing fields and zero allocations match",
+  "acceptance": "Final300-input safe-vs-parent median-.614486%, all6 faster .530136\u20131.599194%. Earlier300 comparison-.893801%,5/6 faster (remaining+.008676%); short runs mixed. All runs retained; no cross-run gain addition.",
+  "assembly_limit": "The selected safe kernel remains11.743375% slower than old ASM in its matched300-input comparison, all6 slower; the excluded pointer result is not substituted.",
+  "micro_scope": "Live public DenoiserFilterY with signal reset and scalar verification of decision and output buffers; smooth/mixed/saturating variants,6 balanced rounds, all0B/0alloc. Kernel timing does not replace encoder timing.",
+  "profile_scope": "One1800-input original-ASM/selected-parent profile each, unbalanced order; diagnostic CPU samples only, no precise attribution or accepted timing ratio.",
+  "raw_archive": {
+    "file_count": 54,
+    "all_original_bytes_match": true,
+    "sha256": "b29aa495b71cb5e968f35c4b7cdc3ae7efcb3a2df27f93ece34c01169f6938ee"
+  },
+  "source_hashes": {
+    "internal/pixel/denoise_arm64.go": "7da6dad169bd3102e9edbb5ffc0bd741bac8f13a3acc9039e49aabcf5c6046bf",
+    "internal/pixel/helpers_amd64.go": "540e7ed5014d536b88122edb0b54a4172667614d6e35358676281362dcf14692",
+    "internal/pixel/kernels_simd.go": "c6bfe64fe58c669265026fa3093a8000406e971653efd1a104012ccd1c3a166f",
+    "internal/pixel/denoise_bytes_arm64_test.go": "0751a19f4337518b43ca69cdc6d38eb010e68da2b13a5793fd4b21bce9e32e0a",
+    "internal/vp8/encoder/denoiser_native_bench_test.go": "2389eb62dea024f78331f693822ee5b4b0a1f376434ad38c408265402f43cc3a"
+  },
+  "measured_safe_binary_sha256": "5e26b917cada719395a28fb994fa1755d76efb564d436d975cbf0f1de368d501",
+  "measured_pointer_binary_sha256": "2875da9b4a43435c58d49d914d45bee06184b7817f09665305752c9833c8911a"
+}

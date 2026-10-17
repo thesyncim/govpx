@@ -1314,3 +1314,21 @@ and +0.448% versus the selected row-store implementation, with mixed pairs.
 All 23 recorded non-timing fields and zero allocations match, and scalar
 oracles pass; these changes do not establish a sustained encoder gain.
 [Reproducible rejected probes, raw samples and generated code](benchmarks/baselines/go127-simd-arm64/2026-10-17-rejected-row-tail-and-metrics).
+
+
+ARM full-width denoising now processes sixteen pixels in checked byte-vector
+loads and stores. Signed per-column adjustment sums remain exact through the
+scalar upper clamp; short spans, unsupported parameters and partial aliases
+retain the existing path. The fresh 300-input six-pair confirmation improves
+VP8 0.614% versus its preceding SIMD implementation, all six pairs faster,
+with identical recorded non-timing fields and zero allocations. A separate
+same-run assembly comparison leaves an 11.743% ARM VP8 gap. A pointer-load
+variant is excluded because its incremental encoder gain does not survive
+the direct confirmation. Full tests, race/checkptr, experiment-off, purego,
+strict byte parity and refreshed PGO checks pass.
+[Measurements, scalar oracles and generated-code proof](benchmarks/baselines/go127-simd-arm64/2026-10-17-byte-denoiser).
+
+Temporary x64 probe sources are retained in a verified Git bundle before
+remote branch cleanup. Accepted rolling and statistics implementations are
+already integrated; rejected experiments remain evidence rather than merge
+candidates. [Source archive and branch audit](benchmarks/baselines/go127-simd-amd64/2026-10-17-experiment-archive).

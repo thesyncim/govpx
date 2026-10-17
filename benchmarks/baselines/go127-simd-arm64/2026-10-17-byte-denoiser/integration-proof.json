@@ -1,0 +1,8 @@
+{
+  "production_commit": "61547b7b089824976e83ba8937489c816da32455",
+  "all_normalized_instructions_match": true,
+  "instruction_count": 193,
+  "normalization": "Remove only line addresses/encoding and PC target addresses with explicit symbol annotations. Every mnemonic, branch symbol/relative offset and arithmetic immediate is retained.",
+  "comment_free_selected_source_matches_measured_source": true,
+  "root_bench_sha256": "d6a48f924c293929a0d59868975ea8d7fba9a38032709873ad7b5694f93f2b81"
+}

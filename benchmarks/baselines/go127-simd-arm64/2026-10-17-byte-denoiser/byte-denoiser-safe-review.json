@@ -1,0 +1,51 @@
+{
+  "review_utc": "2026-10-17T16:06:05.131467+00:00",
+  "scope": "Independent read-only review of selected SAFE ARM byte denoiser currently integrated in root, including existing expanded tests. No Go/build/benchmark execution by reviewer. Previous pointer implementation not selected.",
+  "worktree": "/Users/thesyncim/GolandProjects/govpx",
+  "head": "40bd8edf2f82d921a0771bc0d0eb4cb83f1e29a6",
+  "branch": "codex/vp8-shared-table-simd",
+  "sha256": {
+    "internal/pixel/denoise_arm64.go": "7da6dad169bd3102e9edbb5ffc0bd741bac8f13a3acc9039e49aabcf5c6046bf",
+    "internal/pixel/kernels_simd.go": "c6bfe64fe58c669265026fa3093a8000406e971653efd1a104012ccd1c3a166f",
+    "internal/pixel/helpers_amd64.go": "540e7ed5014d536b88122edb0b54a4172667614d6e35358676281362dcf14692",
+    "internal/pixel/denoise_bytes_arm64_test.go": "0751a19f4337518b43ca69cdc6d38eb010e68da2b13a5793fd4b21bce9e32e0a",
+    "internal/vp8/encoder/denoiser_native_bench_test.go": "2389eb62dea024f78331f693822ee5b4b0a1f376434ad38c408265402f43cc3a"
+  },
+  "actionable_correctness_findings": [],
+  "proofs": {
+    "numeric": "Public domain inc=0..1 and level=3..5 bounds adjustment to 8. First 15 rows sum is [-120,120], final [-128,128]. Signed saturating accumulation changes only +128 to 127 on final row, matching scalar upper clamp; lower bound -128 is representable. Mutually exclusive plus/minus saturating byte arithmetic matches clipped signal+adjustment. Final widened pair sum/reduction fits int16.",
+    "bounds": "Strides >=16 and lengths >=16 checked before (len-16)/15; division check proves 15*stride+16 <= len without overflow. All sixteen rows use checked Go slice loads/stores of exactly16 bytes, rows disjoint. No unsafe packet dereference remains.",
+    "aliases": "Output may equal an input base only with identical stride, or must be disjoint by full-slice interval checks. Loads of both input packets precede corresponding output store. Exact aliases cannot modify later rows; partial aliases decline to existing eight-pixel packet semantics. Read/read input overlap is harmless. Conservative full-slice checks can decline unused-tail overlaps without correctness loss.",
+    "lifetime": "Row loads/stores operate on live slices; unsafe pointer values are used only for synchronous alias classification, never converted back into dereferenceable pointers. No lifetime defect or asynchronous/global capture observed. No reviewer escape-analysis run; allocation evidence is parent-reported.",
+    "dispatch": "ARM constant true plus public width/inc/level gates selects helper only in proven numeric domain. AMD constant false folds away new branch/stub. Existing Enabled=false fallback precedes selection. Purego/off builds exclude tagged file.",
+    "generator": "No generator changes in reviewed denoiser files; candidate is handwritten Go archsimd, no assembly."
+  },
+  "updated_test_coverage": {
+    "reviewed_test_names": [
+      "TestDenoiseBytesScalar",
+      "TestDenoiseBytesDeclinesAliasesAndShortRows",
+      "TestDenoiseBytesPacketAliasOrder",
+      "TestDenoiseBytesDistinctStridesAndPublicDispatch",
+      "TestDenoiseBytesShortDestAndSignal",
+      "TestDenoiseBytesFallbackParameters"
+    ],
+    "closed_gaps": [
+      "Distinct mc/avg/sig strides with exact minimal spans and output alignment/canaries",
+      "Public eligible path compared with scalar; helper must explicitly return selected=true",
+      "Independent mc/avg/sig short-buffer declines checked for no writes",
+      "Negative and maxInt strides decline",
+      "Public out-of-domain inc/level plus width8 fallback compared with scalar",
+      "Exact aliases and partial packet aliases checked with independent eight-pixel load-before-store oracle"
+    ],
+    "remaining_limits": [
+      "ARM-tagged tests are not exercised by ordinary Linux AMD CI; retain explicit required-SIMD ARM local gates and logs.",
+      "Public output parity alone does not prove public dispatch liveness. Direct helper selected=true and Enabled/byteDenoise16 assertion establish helper eligibility; retain live public fixture/profile/codegen evidence before claiming encoder attribution.",
+      "Race/checkptr/oracle passes are parent-reported; reviewer did not execute them.",
+      "Numeric helper contract depends on public caller domain; unexported direct helper has no inc/level check and should remain confined to this caller."
+    ]
+  },
+  "parent_reported_validation": "Selected safe direct300 -0.614% vs parent, all6 pairs faster 0.530\u20131.599%; pointer-vs-safe mixed, so pointer loads excluded. Earlier safe300 -0.894% five/six and short mixed retained. Live smooth/mixed/saturating public denoiser fixtures scalar-buffer-checked and zeroB/zeroalloc all3variants x6. Full native suite plus race/checkptr plus PGO pass reported by parent; remaining gates active. Reviewer makes no independent timing claim.",
+  "selected_load_store_form": "archsimd.LoadUint8x16(slice[y*stride:]) and Store(slice[y*stride:]); checked Go slices. unsafe.Pointer/uintptr used solely for conservative alias interval classification, never for packet accesses.",
+  "prior_pointer_review": "/private/tmp/govpx-arm-byte-denoiser-review.json",
+  "fixture_review": "Identical public DenoiserFilterY fixture uses B.Loop; resets signal from immutable seed inside timer to avoid convergence, consumes final decision and compares both avg/signal buffers to independent DenoiserFilterYScalar after loop. Smooth/mixed/saturating cases include large signed adjustment/clamp cases; 0B/0alloc parent-reported. Reset cost is common to all variants and must remain identical when copied to oldrefs. No fixture-based encoder attribution claim."
+}
