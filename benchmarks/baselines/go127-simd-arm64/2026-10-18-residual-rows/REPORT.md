@@ -108,3 +108,5 @@ small-width SIMD removed that regression. Final fresh runs confirm all 48 gains
 independently. No competing local Go builds/tests/profiles ran during timing.
 Shared-desktop results do not isolate small control shifts or support adding
 gains from different checkpoints/CPUs.
+
+The successor was rebased onto merged main 8ee816b14603fd34dccbcb629f021cf5ee57e396, whose tree exactly equals the measured parent6a7. The complete successor tree was unchanged by the rebase (proof in rebase-proof.json), and all six measured source SHA256 values still match. Only benchmark evidence and source-provenance documentation were added after the production validation. The original immediate-parent hashes above remain the measurement identifiers.
