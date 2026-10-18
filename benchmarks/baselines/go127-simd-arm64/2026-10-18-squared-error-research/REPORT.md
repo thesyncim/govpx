@@ -1,0 +1,13 @@
+# ARM squared-error arithmetic research
+
+Diagnostic native Apple M4 Max, Go 1.27.2 archsimd, PGO off, GOMAXPROCS=1. Parent a5e6071db00393aa3a1985220773586ba3bf1f43; old assembly profile 691cd0512c4829d9ee40d483205dd223f9eb028d. No production change selected.
+
+A fresh 600-frame 720p realtime CPU8 VP8-only profile attributes 18.99% of sampled CPU time to the macro/internal loop-filter wrapper and 4.33% to plane squared-error scoring. These short, independently sampled old/new profiles are exploratory and cannot isolate causal per-kernel speedups, combine timing gains, or replace balanced benchmarks.
+
+New hypothesis versus the previously rejected bounds-only SSE16 design: compute unsigned byte absolute difference before widening, or square byte magnitudes into uint16 (maximum65025) before exact uint32 accumulation. A two-row independent-accumulator variant additionally tests dependency pressure. All variants retain checked-loop fallback, exact unaligned/minimum input windows, and modulo2^32 SSE16 sums. These private prototypes are not production-approved unsafe implementations.
+
+Three rotating native orders, 80ms per16 identical existing public SSE16xNPtrFast B.Loop fixtures: h1/8/16/720, pitches32/1312, patterned/max-error pixels, independent scalar output check and observable sink. Zero bytes/allocations throughout. Bounds+byte-abs reaches1.072–1.392x parent, uint8-square reaches1.069–1.454x; no measured median meets1.5x. The unrolled variant ranges0.916–1.355x and regresses h1. No fresh six-run confirmation, assembly timing comparison or whole-codec benefit is claimed. Prior bounded-row research is already preserved; this experiment changes arithmetic rather than presenting the earlier bounds-only probe as new.
+
+Three rotating orders, 150ms per four identical public LoopFilterLumaSSE B.Loop fixtures, with independent scalar oracles and observable sinks: 128x128,720p full/partial,1088p. Bounds-proven exact-pointer loads alone are1.001–1.014x; adding uint8-square arithmetic is1.075–1.089x. Zero bytes/allocations. No1.5x component gain or whole-codec gain established. Existing pixel TestSSE differential tests pass for all five candidates; logs retained. These limited diagnostic results do not justify broadening the residual SIMD production change.
+
+No competing Go builds/tests/profiles ran during timing. Every sample, variant source, test fixture, driver, correctness/build log and both short CPU profiles is retained with hashes. README files unchanged.
