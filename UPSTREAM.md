@@ -26,6 +26,18 @@ build tag selects scalar fallbacks. New optimization work must preserve scalar
 correctness, oracle coverage, allocation behavior, and public API
 compatibility.
 
+## Go SIMD source copies
+
+Selected kernels in `internal/pixel` copy or adapt Go SIMD dataflow from
+`thesyncim/goav1` at `ff46346e73f063ff1ea3a8d7f06ee26cd9baaad4`; their source
+comments identify the extracted helpers. The sixteen-column residual layout
+also adapts `residualBlockSIMD` in `internal/av1/encoder/rdstats_gosimd.go` at
+`0f40b2bd848d8c5c7bdbaa016f2ced3085f7fc7a`.
+
+These are source copies with govpx-specific bounds, dispatch and fallback
+contracts, without a Go module dependency. The associated license, notices
+and patent text are preserved in `third_party/goav1/`.
+
 ## Gates
 
 - `make verify-decoder-parity`: decoder oracle checks, including VP9
