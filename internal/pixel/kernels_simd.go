@@ -71,6 +71,12 @@ func Subtract(src []byte, ss int, pred []byte, ps int, out []int16, os, w, h int
 		return SubtractScalar(src, ss, pred, ps, out, os, w, h)
 	}
 
+	if (w == 4 || w == 8 || (w >= 16 && w <= 64 && w%16 == 0)) && h > 0 && h <= 64 && (uint(ss)|uint(ps)|uint(os))>>30 == 0 {
+		if nz, ok := subtractRowsBounded(src, ss, pred, ps, out, os, w, h); ok {
+			return nz
+		}
+	}
+
 	var bits archsimd.Int16x8
 	tail := int16(0)
 	for y := range h {

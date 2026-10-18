@@ -1,0 +1,269 @@
+{
+  "vp9-320p": {
+    "samples": {
+      "assembly": [
+        1403596,
+        1403708,
+        1399954,
+        1408162,
+        1399446,
+        1419603
+      ],
+      "parent": [
+        1543131,
+        1548669,
+        1569524,
+        1538137,
+        1548274,
+        1567599
+      ],
+      "candidate": [
+        1528552,
+        1526990,
+        1526929,
+        1529351,
+        1522893,
+        1557410
+      ]
+    },
+    "median_ns": {
+      "assembly": 1403652.0,
+      "parent": 1548471.5,
+      "candidate": 1527771.0
+    },
+    "vs_parent_percent": -1.3368344202653981,
+    "vs_assembly_percent": 8.842576365081944,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 0,
+    "exact_semantic_fields": [
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocation_samples": {
+      "assembly": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "parent": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ],
+      "candidate": [
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667,
+        0.6166666666666667
+      ]
+    },
+    "all_allocation_samples_match": true,
+    "scope": "Native serial M4 Max, PGO off, GOMAXPROCS1; whole codec separate from kernel. Shared desktop does not isolate small shifts or cross-run causal effects."
+  },
+  "vp9-720p": {
+    "samples": {
+      "assembly": [
+        8512647,
+        8799637,
+        8599148,
+        8505797,
+        8461956,
+        8522703
+      ],
+      "parent": [
+        11856518,
+        11887052,
+        11794397,
+        11876435,
+        11866944,
+        12024523
+      ],
+      "candidate": [
+        11361874,
+        11520868,
+        11514956,
+        11479334,
+        11665827,
+        11939383
+      ]
+    },
+    "median_ns": {
+      "assembly": 8517675.0,
+      "parent": 11871689.5,
+      "candidate": 11517912.0
+    },
+    "vs_parent_percent": -2.9800097113388935,
+    "vs_assembly_percent": 35.22366138646991,
+    "faster_parent_pairs": 6,
+    "faster_assembly_pairs": 0,
+    "exact_semantic_fields": [
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocation_samples": {
+      "assembly": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "parent": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ],
+      "candidate": [
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
+        1.25
+      ]
+    },
+    "all_allocation_samples_match": true,
+    "scope": "Native serial M4 Max, PGO off, GOMAXPROCS1; whole codec separate from kernel. Shared desktop does not isolate small shifts or cross-run causal effects."
+  },
+  "vp8-720p-control": {
+    "samples": {
+      "assembly": [
+        6749019,
+        6745468,
+        6760995,
+        6768313,
+        7167563,
+        7151183
+      ],
+      "parent": [
+        7564053,
+        7528661,
+        7536651,
+        7560511,
+        7515447,
+        7521147
+      ],
+      "candidate": [
+        7641615,
+        7580302,
+        7525429,
+        7534280,
+        7605767,
+        7559383
+      ]
+    },
+    "median_ns": {
+      "assembly": 6764654.0,
+      "parent": 7532656.0,
+      "candidate": 7569842.5
+    },
+    "vs_parent_percent": 0.49367049285138354,
+    "vs_assembly_percent": 11.902877811636792,
+    "faster_parent_pairs": 2,
+    "faster_assembly_pairs": 0,
+    "exact_semantic_fields": [
+      "avg_interframe_bytes",
+      "bitrate_error_pct",
+      "codec",
+      "dropped_frames",
+      "encoded_frames",
+      "encoder",
+      "fps",
+      "frames",
+      "height",
+      "keyframe_bytes",
+      "mode",
+      "options",
+      "output_bitrate_kbps",
+      "output_bytes",
+      "psnr",
+      "quality_frames",
+      "quality_skipped",
+      "quantizer_histogram",
+      "quantizers",
+      "ssim",
+      "target_bitrate_kbps",
+      "width"
+    ],
+    "allocation_samples": {
+      "assembly": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parent": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "candidate": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "all_allocation_samples_match": true,
+    "scope": "Native serial M4 Max, PGO off, GOMAXPROCS1; whole codec separate from kernel. Shared desktop does not isolate small shifts or cross-run causal effects."
+  }
+}

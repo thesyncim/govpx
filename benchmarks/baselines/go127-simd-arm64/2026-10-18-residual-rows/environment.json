@@ -1,0 +1,29 @@
+{
+  "base": "6a7b1444765e30fcbcc4a5aca8abd1af73dd9013",
+  "assembly": "691cd0512c4829d9ee40d483205dd223f9eb028d",
+  "cpu": "Apple M4 Max",
+  "go": "go1.27.2 darwin/arm64",
+  "experiment": "simd",
+  "pgo": "off",
+  "goprocs": 1,
+  "source_sha256": {
+    "internal/pixel/kernels_simd.go": "12490545bd02bf9366f2178810f28b9422b345a09dfb1e1aa065059f3f87c08c",
+    "internal/pixel/subtract_rows_simd.go": "64665513a103efb1d3749e350cfbbcff4f249be52cda0ac398b34a6bff9e459b",
+    "internal/pixel/subtract_rows_arm64.go": "4de827fca0ecf6b363233248b38f62a23c8c4e2a2e84abd8e182659bbf55eb9c",
+    "internal/pixel/subtract_rows_amd64.go": "f30914eb04b930c2298a254f3a2bdf785ce33deac07b2c7b516796010f5bb0d1",
+    "internal/pixel/subtract_rows_simd_test.go": "5413924101c07985015ee3cbacd7fdb38ad1c0bd0e658061ac7c25a0d605b20c",
+    "internal/vp9/dsp/subtract_rows_native_test.go": "1367d4cdbdbcc7d9ce0598fef310581075b3759cf23e034ab5c89b24b2d39a36"
+  },
+  "goav1_reference": "0f40b2bd848d8c5c7bdbaa016f2ced3085f7fc7a internal/av1/encoder/rdstats_gosimd.go, clean source; adapted sixteen-column residual layout, no dependency",
+  "scope": "Native M4 speed; AMD optimized crossbuild/codegen and Rosetta correctness only. All local timings serial; actual Linux x64 performance pending successor CI. Parent includes repaired AMD subpixel row carrier.",
+  "binaries_sha256": {
+    "govpx-next-subtract-final-parent.test": "ec7734f01592440faa927ca145c59b4947223c0f88cbd3a379c1916aa4bce9d6",
+    "govpx-next-subtract-final-candidate.test": "abda1928d0a2b6b35d3a2cfdc9799b2d57a86463333518a24b494807bef7d64e",
+    "govpx-next-subtract-final-assembly.test": "6f15b8297fdffde0ca3a3f9590872c7243e610de74955b938726628167299bec",
+    "govpx-next-subtract-final-parent-bench": "48cb620b1851a835d682e6d5fbf2cdc9b7ba7ea4af66ae22c8e03850befae49d",
+    "govpx-next-subtract-final-candidate-bench": "38486d05339c129099ff8329fdd670acb6786e0e276d7ec13dce615a097dd813",
+    "govpx-asm-bench": "093829cce3fff728a7016b9e7909cbb4a990c6c554cbf633332d7392d64840e1",
+    "govpx-next-subtract-final-amd64-optimized.test": "8c88dde20bc3f82c5cb38843d015c71b6389348449b25dc4efed9e649570bef1"
+  },
+  "raw_members": 155
+}
