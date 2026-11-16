@@ -20,6 +20,9 @@ import (
 // above + left entropy-context cache, the residual is emitted via
 // WriteCoefBlock, and the above + left bytes are stamped with the
 // (eob > 0) flag so the next neighbor read sees the right state.
+// At clipped frame edges, each writer/commit path below also clears the
+// out-of-frame context tail, matching libvpx's vp9_set_contexts. Leaving
+// nonzero values there desynchronizes later transforms from standard decoders.
 //
 // Scan order picking mirrors libvpx's get_scan: inter blocks, chroma planes,
 // and lossless frames use the default scan; intra luma blocks select the
@@ -455,6 +458,12 @@ func WriteCoefSbFromArgs(bw *bitstream.Writer, a *WriteCoefSbArgs) error {
 				}
 				stampCoefContextsAt(pd.AboveContext, aboveOff,
 					pd.LeftContext, leftOff, step, hasResidue)
+				if c+step > num4x4W {
+					clear(pd.AboveContext[aboveBase+num4x4W : aboveBase+c+step])
+				}
+				if r+step > num4x4H {
+					clear(pd.LeftContext[leftBase+num4x4H : leftBase+r+step])
+				}
 				// libvpx's foreach_transformed_block_in_plane bumps the
 				// block-counter `i` by step^2 per tx block — matching
 				// the bmi[] index for sub-8x8 sub-block lookups.
@@ -530,6 +539,12 @@ func CommitCoefSbContexts(a WriteCoefSbArgs) error {
 				}
 				stampCoefContextsAt(pd.AboveContext, aboveOff,
 					pd.LeftContext, leftOff, step, hasResidue)
+				if c+step > num4x4W {
+					clear(pd.AboveContext[aboveBase+num4x4W : aboveBase+c+step])
+				}
+				if r+step > num4x4H {
+					clear(pd.LeftContext[leftBase+num4x4H : leftBase+r+step])
+				}
 				blockIdx += step * step
 			}
 		}
@@ -581,6 +596,12 @@ func CommitCoefSbContextsFromTokens(a WriteCoefSbArgs, tokens []TokenExtra) erro
 				}
 				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
 					pd.LeftContext, leftBase+r, step, v)
+				if c+step > num4x4W {
+					clear(pd.AboveContext[aboveBase+num4x4W : aboveBase+c+step])
+				}
+				if r+step > num4x4H {
+					clear(pd.LeftContext[leftBase+num4x4H : leftBase+r+step])
+				}
 			}
 		}
 	}
@@ -638,6 +659,12 @@ func PackTokensAndCommitCoefSbContexts(
 				}
 				stampCoefContextsAt(pd.AboveContext, aboveBase+c,
 					pd.LeftContext, leftBase+r, step, v)
+				if c+step > num4x4W {
+					clear(pd.AboveContext[aboveBase+num4x4W : aboveBase+c+step])
+				}
+				if r+step > num4x4H {
+					clear(pd.LeftContext[leftBase+num4x4H : leftBase+r+step])
+				}
 			}
 		}
 	}

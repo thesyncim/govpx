@@ -1229,6 +1229,12 @@ func (d *VP9Decoder) parseVP9ResidueBlockRowMT(r *bitstream.Reader,
 					hasResidue = 1
 				}
 				vp9SetHasResidueContexts(aboveCtx, leftCtx, txSize, hasResidue)
+				if cc+step > num4x4W {
+					clear(aboveCtx[num4x4W-cc:])
+				}
+				if rr+step > num4x4H {
+					clear(leftCtx[num4x4H-rr:])
+				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep

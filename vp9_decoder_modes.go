@@ -1489,6 +1489,14 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 					leftCtx[6] = hasResidue
 					leftCtx[7] = hasResidue
 				}
+				// Match vp9_set_contexts: pixels outside the frame cannot
+				// contribute a nonzero context to a later transform.
+				if cc+step > num4x4W {
+					clear(aboveCtx[num4x4W-cc:])
+				}
+				if rr+step > num4x4H {
+					clear(leftCtx[num4x4H-rr:])
+				}
 				blockIdx += blockStep
 			}
 			blockIdx += extraStep
@@ -1595,6 +1603,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					aCtx[cc+i] = hasResidue
 					lCtx[rr+i] = hasResidue
 				}
+			}
+			if cc+step > num4x4W {
+				clear(aCtx[num4x4W : cc+step])
+			}
+			if rr+step > num4x4H {
+				clear(lCtx[num4x4H : rr+step])
 			}
 		}
 	}
