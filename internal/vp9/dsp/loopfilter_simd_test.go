@@ -325,6 +325,10 @@ const (
 )
 
 func randomVP9LfPlane(rng *rand.Rand, trial int) []uint8 {
+	if trial%3 == 2 {
+		// Flat packets, so the flat and flat2 (15-tap) branches run too.
+		return flatVP9LfPlane(rng, trial)
+	}
 	plane := make([]uint8, vp9LfPitch*vp9LfHeight)
 	for i := range plane {
 		plane[i] = uint8(rng.IntN(256))

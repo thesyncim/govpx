@@ -108,6 +108,10 @@ func storeEdgeTile(p []byte, off, pitch, tileFirst, width, first, last int, b *[
 		case 6:
 			binary.LittleEndian.PutUint32(out, uint32(bits))
 			binary.LittleEndian.PutUint16(out[4:], uint16(bits>>32))
+		case 7:
+			binary.LittleEndian.PutUint32(out, uint32(bits))
+			binary.LittleEndian.PutUint16(out[4:], uint16(bits>>32))
+			out[6] = byte(bits >> 48)
 		}
 	}
 }
@@ -206,9 +210,17 @@ func loopFilter8(p []byte, off, step, outer, blimit, limit, thresh, kind int) {
 		}
 		if kind == 16 && any16(flat) {
 			far := archsimd.Int16x8{}
+			if tiled {
+				// Vertical edge: the two far four-column strips transpose
+				// in registers instead of eight scalar byte loads per row.
+				loadEdgeTile(p, off-8, outer, 4, &a, 0)
+				loadEdgeTile(p, off+4, outer, 4, &a, 12)
+			}
 			for i := range 4 {
-				a[i] = edgeLoad(p, off+(i-8)*step, outer)
-				a[12+i] = edgeLoad(p, off+(i+4)*step, outer)
+				if !tiled {
+					a[i] = edgeLoad(p, off+(i-8)*step, outer)
+					a[12+i] = edgeLoad(p, off+(i+4)*step, outer)
+				}
 				b[i] = a[i]
 				b[12+i] = a[12+i]
 				far = far.Max(a[i].Sub(p0).Abs()).Max(a[12+i].Sub(q0).Abs())
@@ -222,6 +234,11 @@ func loopFilter8(p []byte, off, step, outer, blimit, limit, thresh, kind int) {
 	}
 	if tiled && first >= tileFirst && last <= tileFirst+tileWidth {
 		storeEdgeTile(p, off+tileFirst-8, outer, tileFirst, tileWidth, first, last, &b)
+	} else if tiled && first == 1 && last == 15 {
+		// The 15-tap filter rewrites columns p6..q6. Two eight-column tiles
+		// cover them; columns p7 and q7 stay untouched.
+		storeEdgeTile(p, off-8, outer, 0, 8, 1, 8, &b)
+		storeEdgeTile(p, off, outer, 8, 8, 8, 15, &b)
 	} else {
 		for i := first; i < last; i++ {
 			edgeStore(p, off+(i-8)*step, outer, b[i])
