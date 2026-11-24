@@ -29,10 +29,10 @@ fast:
 		if span > len(dst) || len(above) < w || len(left) < w {
 			break fast
 		}
-		if slicesOverlap(dst, above, span, w) {
+		if slicesOverlapExact(dst, above, span, w) {
 			break fast
 		}
-		if !slicesOverlap(dst, left, span, w) {
+		if !slicesOverlapExact(dst, left, span, w) {
 			// Only disjoint left/output windows may capture all left rows up front.
 			// The original per-row left read remains below for every alias.
 			t := archsimd.BroadcastUint8x16(top)

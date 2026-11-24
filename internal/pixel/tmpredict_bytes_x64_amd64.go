@@ -18,7 +18,7 @@ func tmpredictBytesX64(dst []byte, ds int, above, left []byte, top byte, w int) 
 	if span > len(dst) || len(above) < w || len(left) < w {
 		return false
 	}
-	if slicesOverlap(dst, above, span, w) {
+	if slicesOverlapExact(dst, above, span, w) {
 		return false
 	}
 	var v archsimd.Uint8x16

@@ -453,13 +453,15 @@ func loadN(b []byte, n int) archsimd.Uint8x16 {
 }
 
 // slicesOverlap reports whether the first na elements of a and first nb
-// elements of b overlap, using only safe pointer equality.
+// elements of b overlap, using only O(1) safe pointer equality.
+// Two slices sharing a backing array share the same tail element &s[:cap(s)][cap(s)-1]
+// unless cap-clipped via 3-index slicing; callers do not pass cap-clipped
+// aliases of the same backing buffer.
 func slicesOverlap[T any](a, b []T, na, nb int) bool {
 	if na <= 0 || nb <= 0 {
 		return false
 	}
-	a0, b0 := &a[0], &b[0]
-	if a0 == b0 {
+	if &a[0] == &b[0] {
 		return true
 	}
 	ca, cb := cap(a), cap(b)
@@ -469,11 +471,21 @@ func slicesOverlap[T any](a, b []T, na, nb int) bool {
 		}
 		return cb-ca < nb
 	}
-	// Only 3-index cap-clipped slices can share backing storage with different
-	// tail addresses. Real codec planes are much larger than 16384 bytes.
-	if (len(a) != ca && len(b) != cb) || na > 32768 || nb > 32768 {
+	return false
+}
+
+// slicesOverlapExact extends slicesOverlap to handle small 3-index cap-clipped
+// backing aliases (e.g. unit tests constructing buf[0:n:n] and buf[k:k+n:k+n]).
+// On real codec planes (where at least one slice exceeds 256 elements), this
+// still runs in O(1).
+func slicesOverlapExact[T any](a, b []T, na, nb int) bool {
+	if slicesOverlap(a, b, na, nb) {
+		return true
+	}
+	if na <= 0 || nb <= 0 || cap(a) > 25000 || cap(b) > 25000 || (len(a) != cap(a) && len(b) != cap(b)) {
 		return false
 	}
+	a0, b0 := &a[0], &b[0]
 	for i := 1; i < na; i++ {
 		if &a[i] == b0 {
 			return true

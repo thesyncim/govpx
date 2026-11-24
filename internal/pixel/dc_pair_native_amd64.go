@@ -24,7 +24,7 @@ fast:
 			if ps != ds {
 				break fast
 			}
-		} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
+		} else if slicesOverlapExact(pred, dst, len(pred), len(dst)) {
 			break fast
 		}
 		plus, minus := dcPairCoeffBytes(c0, c1)

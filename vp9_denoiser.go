@@ -186,6 +186,14 @@ func (e *VP9Encoder) finishVP9DenoiserFrame(header *vp9dec.UncompressedHeader, s
 	}
 	intra := &e.denoiser.runningAvg[vp9DenoiserAvgIntra]
 	refresh := e.vp9LogicalRefreshForFrame(header.RefreshFrameFlags)
+	if refresh.Last && !refresh.Golden && !refresh.AltRef {
+		// Common realtime path: swap the denoised INTRA buffer directly into
+		// LAST instead of copying the full frame; the next frame overwrites
+		// runningAvg[vp9DenoiserAvgIntra].
+		e.denoiser.runningAvg[vp9DenoiserAvgLast], e.denoiser.runningAvg[vp9DenoiserAvgIntra] =
+			e.denoiser.runningAvg[vp9DenoiserAvgIntra], e.denoiser.runningAvg[vp9DenoiserAvgLast]
+		return
+	}
 	if refresh.Last {
 		copyVP9LookaheadImage(&e.denoiser.runningAvg[vp9DenoiserAvgLast],
 			intra, e.opts.Width, e.opts.Height)

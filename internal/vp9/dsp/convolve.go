@@ -289,12 +289,10 @@ func VpxConvolve8AvgVertWithScratch(src []byte, srcStride int, dst []byte, dstSt
 		xStepQ4, y0Q4, yStepQ4, w, h, srcOffset, scratch)
 }
 
-// VpxConvolveCopy mirrors vpx_convolve_copy_c — a straight memcpy of
+// VpxConvolveCopy mirrors vpx_convolve_copy_c — a straight copy of
 // w x h pixels from src to dst at the given strides.
 func VpxConvolveCopy(src []byte, srcStride int, dst []byte, dstStride, w, h, srcOffset int) {
-	for y := range h {
-		copy(dst[y*dstStride:y*dstStride+w], src[srcOffset+y*srcStride:srcOffset+y*srcStride+w])
-	}
+	pixel.CopyBlock(src[srcOffset:], srcStride, dst, dstStride, w, h)
 }
 
 // VpxConvolveAvg mirrors vpx_convolve_avg_c — blend src and dst by

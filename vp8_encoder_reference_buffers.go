@@ -7,7 +7,7 @@ import (
 
 func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.resetGoldenFrameStats()
-	vp8common.CopyImage(&e.current.Img, &e.analysis.Img)
+	e.analysis, e.current = e.current, e.analysis
 	e.current.ExtendBorders()
 	vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
 	e.lastRef.ExtendBorders()
@@ -60,7 +60,7 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
-	vp8common.CopyImage(&e.current.Img, &e.analysis.Img)
+	e.analysis, e.current = e.current, e.analysis
 	e.current.ExtendBorders()
 	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast {

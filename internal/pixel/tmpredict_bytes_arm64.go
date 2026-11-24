@@ -14,7 +14,7 @@ func TMPredictBytes(dst []byte, ds int, above, left []byte, top byte, w int) boo
 	if span > len(dst) || len(above) < w || len(left) < w {
 		return false
 	}
-	if slicesOverlap(dst, above, span, w) {
+	if slicesOverlapExact(dst, above, span, w) {
 		return false
 	}
 	TMPredictNative(dst, ds, above, left, top, w)

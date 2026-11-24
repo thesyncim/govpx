@@ -32,7 +32,7 @@ fast:
 		if span > len(dst) || len(above) < 4 || len(left) < 4 {
 			break fast
 		}
-		if slicesOverlap(dst, above, span, 4) || slicesOverlap(dst, left, span, 4) {
+		if slicesOverlapExact(dst, above, span, 4) || slicesOverlapExact(dst, left, span, 4) {
 			break fast
 		}
 		av := archsimd.BroadcastUint32x4(binary.LittleEndian.Uint32(above)).ReshapeToUint8s()

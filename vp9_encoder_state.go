@@ -737,22 +737,22 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	e.warmVP9EncoderFramePool(layout)
 	if cap(e.reconYFull) < layout.YFullLen {
 		e.reconYFull = buffers.NewAligned(layout.YFullLen, 32)
+		buffers.Fill(e.reconYFull, 128)
 	} else {
 		e.reconYFull = e.reconYFull[:layout.YFullLen]
 	}
 	if cap(e.reconUFull) < layout.UVFullLen {
 		e.reconUFull = buffers.NewAligned(layout.UVFullLen, 32)
+		buffers.Fill(e.reconUFull, 128)
 	} else {
 		e.reconUFull = e.reconUFull[:layout.UVFullLen]
 	}
 	if cap(e.reconVFull) < layout.UVFullLen {
 		e.reconVFull = buffers.NewAligned(layout.UVFullLen, 32)
+		buffers.Fill(e.reconVFull, 128)
 	} else {
 		e.reconVFull = e.reconVFull[:layout.UVFullLen]
 	}
-	buffers.Fill(e.reconYFull, 128)
-	buffers.Fill(e.reconUFull, 128)
-	buffers.Fill(e.reconVFull, 128)
 	e.reconY = e.reconYFull[layout.YOrigin:]
 	e.reconU = e.reconUFull[layout.UVOrigin:]
 	e.reconV = e.reconVFull[layout.UVOrigin:]

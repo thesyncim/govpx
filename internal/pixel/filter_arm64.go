@@ -20,10 +20,6 @@ func filterWide8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int1
 	if step != 1 && step != ss {
 		return false
 	}
-	mode := narrow8Mode(taps)
-	if mode == 0 {
-		return false
-	}
 	_ = src[(h-1)*ss+w-1+7*step]
 	_ = dst[(h-1)*ds+w-1]
 
@@ -31,6 +27,11 @@ func filterWide8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int1
 	if (taps[0]|taps[1]|taps[2]|taps[5]|taps[6]|taps[7]) == 0 &&
 		taps[3] >= 0 && taps[4] >= 0 && int(taps[3])+int(taps[4]) <= 128 {
 		return filterBilinear8ARM64(src[3*step:], ss, dst, ds, w, h, step, uint8(taps[3]), uint8(taps[4]))
+	}
+
+	mode := narrow8Mode(taps)
+	if mode == 0 {
+		return false
 	}
 
 	// Verify unsigned positive/negative sums fit uint16 with +64 bias.
@@ -195,7 +196,7 @@ func filterHoriz8ARM64(src []byte, ss int, dst []byte, ds, w, h int, taps []int1
 			}
 			outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
 			outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
-			outLo.ReshapeToUint64s().SetElem(1, outHi.ReshapeToUint64s().GetElem(0)).ReshapeToUint8s().Store(dst[do+x : do+x+16])
+			outLo.ReshapeToUint64s().InterleaveLo(outHi.ReshapeToUint64s()).ReshapeToUint8s().Store(dst[do+x : do+x+16])
 		}
 		if x < w {
 			p := src[so+x:]
@@ -246,26 +247,34 @@ func filterVert8ARM64(src []byte, ss int, dst []byte, ds, w, h int, taps []int16
 		v5 := archsimd.LoadUint8x16(src[5*ss+x : 5*ss+x+16])
 		v6 := archsimd.LoadUint8x16(src[6*ss+x : 6*ss+x+16])
 		so, do := 7*ss+x, x
-		for range h {
-			v7 := archsimd.LoadUint8x16(src[so : so+16])
-			var posLo, negLo, posHi, negHi archsimd.Uint16x8
-			if mode == 1 {
-				negLo = v0.MulWidenLo(c0).Add(v2.MulWidenLo(c2)).Add(v5.MulWidenLo(c5)).Add(v7.MulWidenLo(c7))
-				posLo = bias.Add(v1.MulWidenLo(c1)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v6.MulWidenLo(c6))
-				negHi = v0.HiToLo().MulWidenLo(c0).Add(v2.HiToLo().MulWidenLo(c2)).Add(v5.HiToLo().MulWidenLo(c5)).Add(v7.HiToLo().MulWidenLo(c7))
-				posHi = bias.Add(v1.HiToLo().MulWidenLo(c1)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v6.HiToLo().MulWidenLo(c6))
-			} else {
-				negLo = v0.MulWidenLo(c0).Add(v1.MulWidenLo(c1)).Add(v6.MulWidenLo(c6)).Add(v7.MulWidenLo(c7))
-				posLo = bias.Add(v2.MulWidenLo(c2)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v5.MulWidenLo(c5))
-				negHi = v0.HiToLo().MulWidenLo(c0).Add(v1.HiToLo().MulWidenLo(c1)).Add(v6.HiToLo().MulWidenLo(c6)).Add(v7.HiToLo().MulWidenLo(c7))
-				posHi = bias.Add(v2.HiToLo().MulWidenLo(c2)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v5.HiToLo().MulWidenLo(c5))
+		if mode == 1 {
+			for range h {
+				v7 := archsimd.LoadUint8x16(src[so : so+16])
+				negLo := v0.MulWidenLo(c0).Add(v2.MulWidenLo(c2)).Add(v5.MulWidenLo(c5)).Add(v7.MulWidenLo(c7))
+				posLo := bias.Add(v1.MulWidenLo(c1)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v6.MulWidenLo(c6))
+				negHi := v0.HiToLo().MulWidenLo(c0).Add(v2.HiToLo().MulWidenLo(c2)).Add(v5.HiToLo().MulWidenLo(c5)).Add(v7.HiToLo().MulWidenLo(c7))
+				posHi := bias.Add(v1.HiToLo().MulWidenLo(c1)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v6.HiToLo().MulWidenLo(c6))
+				outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
+				outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
+				outLo.ReshapeToUint64s().InterleaveLo(outHi.ReshapeToUint64s()).ReshapeToUint8s().Store(dst[do : do+16])
+				v0, v1, v2, v3, v4, v5, v6 = v1, v2, v3, v4, v5, v6, v7
+				so += ss
+				do += ds
 			}
-			outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
-			outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
-			outLo.ReshapeToUint64s().SetElem(1, outHi.ReshapeToUint64s().GetElem(0)).ReshapeToUint8s().Store(dst[do : do+16])
-			v0, v1, v2, v3, v4, v5, v6 = v1, v2, v3, v4, v5, v6, v7
-			so += ss
-			do += ds
+		} else {
+			for range h {
+				v7 := archsimd.LoadUint8x16(src[so : so+16])
+				negLo := v0.MulWidenLo(c0).Add(v1.MulWidenLo(c1)).Add(v6.MulWidenLo(c6)).Add(v7.MulWidenLo(c7))
+				posLo := bias.Add(v2.MulWidenLo(c2)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v5.MulWidenLo(c5))
+				negHi := v0.HiToLo().MulWidenLo(c0).Add(v1.HiToLo().MulWidenLo(c1)).Add(v6.HiToLo().MulWidenLo(c6)).Add(v7.HiToLo().MulWidenLo(c7))
+				posHi := bias.Add(v2.HiToLo().MulWidenLo(c2)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v5.HiToLo().MulWidenLo(c5))
+				outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
+				outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
+				outLo.ReshapeToUint64s().InterleaveLo(outHi.ReshapeToUint64s()).ReshapeToUint8s().Store(dst[do : do+16])
+				v0, v1, v2, v3, v4, v5, v6 = v1, v2, v3, v4, v5, v6, v7
+				so += ss
+				do += ds
+			}
 		}
 	}
 	if x < w {

@@ -18,7 +18,7 @@ func AddConstantPair4(pred []byte, ps int, dst []byte, ds int, d0, d1 int16) boo
 		if ps != ds {
 			return false
 		}
-	} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
+	} else if slicesOverlapExact(pred, dst, len(pred), len(dst)) {
 		return false
 	}
 

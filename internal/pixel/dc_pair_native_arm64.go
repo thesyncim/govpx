@@ -24,7 +24,7 @@ fast:
 			if ps != ds {
 				break fast
 			}
-		} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
+		} else if slicesOverlapExact(pred, dst, len(pred), len(dst)) {
 			break fast
 		}
 		delta := dcPairSignedCoeff8(c0, c1)
@@ -60,7 +60,7 @@ func AddConstantPair4(pred []byte, ps int, dst []byte, ds int, d0, d1 int16) boo
 		if ps != ds {
 			return false
 		}
-	} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
+	} else if slicesOverlapExact(pred, dst, len(pred), len(dst)) {
 		return false
 	}
 	DCPairInt32Native(int32(d0)<<3, int32(d1)<<3, pred, ps, dst, ds)
