@@ -908,5 +908,13 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 	}
 	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
 	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
-	e.vp9LoopFilterMasks = buffers.EnsureLenZeroed(e.vp9LoopFilterMasks, sbRows*sbCols)
+	sbCount := sbRows * sbCols
+	e.vp9LoopFilterMasks = buffers.EnsureLenZeroed(e.vp9LoopFilterMasks, sbCount)
+	e.prevSegmentMap = buffers.EnsureLen(e.prevSegmentMap, miRows*miCols)
+	e.varPartSBLastHighContent = buffers.EnsureLen(e.varPartSBLastHighContent, sbCount)
+	e.varPartSBLastHighContentValid = buffers.EnsureLenZeroTail(e.varPartSBLastHighContentValid, sbCount)
+	e.varPartSBContentStateValid = buffers.EnsureLenZeroTail(e.varPartSBContentStateValid, sbCount)
+	e.varPartSBContentState = buffers.EnsureLen(e.varPartSBContentState, sbCount)
+	e.varPartSBZeroTempSADSource = buffers.EnsureLen(e.varPartSBZeroTempSADSource, sbCount)
+	e.interPredictScratch = buffers.EnsureLen(e.interPredictScratch, 80*80)
 }

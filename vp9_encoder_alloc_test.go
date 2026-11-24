@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -591,5 +592,54 @@ func copyVP9LookaheadImageRowLoopTest(dst *image.YCbCr, src *image.YCbCr,
 	for y := range uvHeight {
 		copy(dst.Cb[y*dst.CStride:][:uvWidth], src.Cb[y*src.CStride:][:uvWidth])
 		copy(dst.Cr[y*dst.CStride:][:uvWidth], src.Cr[y*src.CStride:][:uvWidth])
+	}
+}
+
+// TestVP9EncoderZeroAllocFromFrameZero verifies that a freshly constructed
+// realtime 720p VP9Encoder encodes both keyframes and interframes with zero
+// heap allocations starting from frame 0.
+func TestVP9EncoderZeroAllocFromFrameZero(t *testing.T) {
+	const (
+		width  = 1280
+		height = 720
+	)
+	e, err := NewVP9Encoder(VP9EncoderOptions{
+		Width:            width,
+		Height:           height,
+		Deadline:          DeadlineRealtime,
+		CpuUsed:           8,
+		RateControlMode:   RateControlCBR,
+		TargetBitrateKbps: 2500,
+		NoiseSensitivity:  4,
+		Threads:          1,
+	})
+	if err != nil {
+		t.Fatalf("NewVP9Encoder: %v", err)
+	}
+	defer e.Close()
+
+	frames := make([]*image.YCbCr, 5)
+	for f := range frames {
+		img := vp9test.NewYCbCr(width, height, byte(40+f*20), 128, 128)
+		for y := 0; y < height; y += 8 {
+			for x := 0; x < width; x += 8 {
+				img.Y[y*img.YStride+x] = byte((x + y + f*17) & 0xff)
+			}
+		}
+		frames[f] = img
+	}
+	dst := make([]byte, 1<<20)
+
+	var memBefore, memAfter runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&memBefore)
+	for i, img := range frames {
+		if _, err := e.EncodeIntoWithResult(img, dst); err != nil {
+			t.Fatalf("EncodeIntoWithResult frame %d: %v", i, err)
+		}
+	}
+	runtime.ReadMemStats(&memAfter)
+	if got := memAfter.Mallocs - memBefore.Mallocs; got != 0 {
+		t.Fatalf("EncodeIntoWithResult from frame 0 allocated %d objects across %d frames, want 0", got, len(frames))
 	}
 }
