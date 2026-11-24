@@ -1,0 +1,277 @@
+package govpx
+
+import (
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+)
+
+func selectInterFrameMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	return selectInterFrameMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{}, mvProbs)
+}
+
+// selectInterFrameMotionVectorWithSearchStart mirrors libvpx pickinter.c's
+// fast NEWMV path: integer-pel search followed by unconditional acceptance of
+// the fractional refinement (find_fractional_mv_step). libvpx uses bilinear
+// variance during the subpel search and trusts that result; second-guessing
+// it with a 6-tap SSE recompute biases us toward integer-pel even when the
+// bilinear-best candidate scores lower distortion AND lower MV-rate, which
+// is the realtime-cbr cpu0/4/8 NEWMV mv_row divergence at frame=2 mb=(0,3),
+// (2,3) on the 64x64 panning fixture.
+func selectInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	return selectInterFrameMotionVectorWithSearchStartAndStats(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs, nil)
+}
+
+func selectInterFrameMotionVectorWithSearchStartAndStats(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
+	var mvCosts vp8enc.MotionVectorCostTables
+	var mvCostPtr *vp8enc.MotionVectorCostTables
+	if mvProbs != nil {
+		mvCosts.Build(mvProbs)
+		mvCostPtr = &mvCosts
+	}
+	searcher := interFrameMotionVectorSearch{
+		src:       src,
+		ref:       ref,
+		mbRow:     mbRow,
+		mbCol:     mbCol,
+		mbRows:    mbRows,
+		mbCols:    mbCols,
+		bestRefMV: bestRefMV,
+		qIndex:    qIndex,
+		search:    search,
+		start:     start,
+		mvProbs:   mvProbs,
+		mvCosts:   mvCostPtr,
+	}
+	if stats != nil {
+		return searcher.selectFastWithStats(stats).motionCost()
+	}
+	return searcher.selectFast().motionCost()
+}
+
+func selectRDInterFrameMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	return selectRDInterFrameMotionVectorWithSearchStartAndStats(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, mvProbs, nil)
+}
+
+func selectRDInterFrameMotionVectorWithSearchStartAndStats(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
+	var mvCosts vp8enc.MotionVectorCostTables
+	var mvCostPtr *vp8enc.MotionVectorCostTables
+	if mvProbs != nil {
+		mvCosts.Build(mvProbs)
+		mvCostPtr = &mvCosts
+	}
+	searcher := interFrameMotionVectorSearch{
+		src:       src,
+		ref:       ref,
+		mbRow:     mbRow,
+		mbCol:     mbCol,
+		mbRows:    mbRows,
+		mbCols:    mbCols,
+		bestRefMV: bestRefMV,
+		qIndex:    qIndex,
+		search:    search,
+		start:     start,
+		mvProbs:   mvProbs,
+		mvCosts:   mvCostPtr,
+	}
+	if stats != nil {
+		return searcher.selectRDWithStats(stats).motionCost()
+	}
+	return searcher.selectRD().motionCost()
+}
+
+type interFrameMotionVectorSearch struct {
+	mvCosts *vp8enc.MotionVectorCostTables
+	ref     *vp8common.Image
+	mvProbs *[2][vp8tables.MVPCount]uint8
+	src     vp8enc.SourceImage
+	mbRow   int
+	mbCol   int
+	mbRows  int
+	mbCols  int
+	qIndex  int
+	// errorPerBit, when non-zero, overrides vp8enc.ErrorPerBit(qIndex) for
+	// the sub-pel refinement. Populated by per-MB picker dispatches that
+	// apply libvpx's vp8_activity_masking errorperbit adjustment when
+	// TuneSSIM is active; otherwise zero (default keeps the libvpx
+	// qIndex-only baseline that drives the PSNR-tuned path).
+	errorPerBit             int
+	start                   interFrameSearchStart
+	bestRefMV               vp8enc.MotionVector
+	search                  interAnalysisSearchConfig
+	skipQuarterIfHalfStatic bool
+}
+
+type interFrameMotionVectorSearchResult struct {
+	cost      int
+	variance  int32
+	sse       int32
+	mv        vp8enc.MotionVector
+	haveError bool
+}
+
+func (r interFrameMotionVectorSearchResult) motionCost() (vp8enc.MotionVector, int) {
+	return r.mv, r.cost
+}
+
+func (s interFrameMotionVectorSearch) selectFast() interFrameMotionVectorSearchResult {
+	best, bestCost := s.fullPixel()
+	if bestCost == 0 {
+		return interFrameMotionVectorSearchResult{mv: best, cost: bestCost, haveError: true}
+	}
+	subpel := s.subpixel(best)
+	if refined, refinedCost, variance, sse, ok := subpel.refine(); ok {
+		return interFrameMotionVectorSearchResult{mv: refined, cost: refinedCost, variance: variance, sse: sse, haveError: true}
+	}
+	return interFrameMotionVectorSearchResult{mv: best, cost: bestCost}
+}
+
+func (s interFrameMotionVectorSearch) selectFastWithStats(stats *interFrameMotionSearchStats) interFrameMotionVectorSearchResult {
+	best, bestCost := s.fullPixelWithStats(stats)
+	if bestCost == 0 {
+		return interFrameMotionVectorSearchResult{mv: best, cost: bestCost, haveError: true}
+	}
+	subpel := s.subpixel(best)
+	if refined, refinedCost, variance, sse, ok := subpel.refineWithStats(stats); ok {
+		return interFrameMotionVectorSearchResult{mv: refined, cost: refinedCost, variance: variance, sse: sse, haveError: true}
+	}
+	return interFrameMotionVectorSearchResult{mv: best, cost: bestCost}
+}
+
+func (s interFrameMotionVectorSearch) selectRD() interFrameMotionVectorSearchResult {
+	best, bestCost := s.fullPixel()
+	subpel := s.subpixel(best)
+	if refined, refinedCost, variance, sse, ok := subpel.refine(); ok {
+		return interFrameMotionVectorSearchResult{mv: refined, cost: refinedCost, variance: variance, sse: sse, haveError: true}
+	}
+	return interFrameMotionVectorSearchResult{mv: best, cost: bestCost}
+}
+
+func (s interFrameMotionVectorSearch) selectRDWithStats(stats *interFrameMotionSearchStats) interFrameMotionVectorSearchResult {
+	best, bestCost := s.fullPixelWithStats(stats)
+	subpel := s.subpixel(best)
+	if refined, refinedCost, variance, sse, ok := subpel.refineWithStats(stats); ok {
+		return interFrameMotionVectorSearchResult{mv: refined, cost: refinedCost, variance: variance, sse: sse, haveError: true}
+	}
+	return interFrameMotionVectorSearchResult{mv: best, cost: bestCost}
+}
+
+func (s interFrameMotionVectorSearch) fullPixel() (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithOptions(s.src, s.ref, s.mbRow, s.mbCol, s.mbRows, s.mbCols, s.bestRefMV, s.qIndex, s.errorPerBit, s.search, s.start, s.mvProbs, s.mvCosts, s.skipQuarterIfHalfStatic)
+}
+
+func (s interFrameMotionVectorSearch) fullPixelWithStats(stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndStats(s.src, s.ref, s.mbRow, s.mbCol, s.mbRows, s.mbCols, s.bestRefMV, s.qIndex, s.errorPerBit, s.search, s.start, s.mvProbs, s.mvCosts, stats)
+}
+
+func (s interFrameMotionVectorSearch) subpixel(best vp8enc.MotionVector) interFrameSubpixelSearch {
+	return interFrameSubpixelSearch{
+		src:                     s.src,
+		ref:                     s.ref,
+		mbRow:                   s.mbRow,
+		mbCol:                   s.mbCol,
+		best:                    best,
+		bestRefMV:               s.bestRefMV,
+		qIndex:                  s.qIndex,
+		errorPerBit:             s.errorPerBit,
+		search:                  s.search,
+		mvProbs:                 s.mvProbs,
+		mvCosts:                 s.mvCosts,
+		skipQuarterIfHalfStatic: s.skipQuarterIfHalfStatic,
+	}
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearch(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearchStart(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, interFrameSearchStart{})
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStart(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, search, start, &vp8tables.DefaultMVContext)
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbs(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, 0, search, start, mvProbs, nil)
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndStats(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, 0, search, start, mvProbs, nil, stats)
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithOptions(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, errorPerBit, search, start, mvProbs, mvCosts, false)
+}
+
+func selectInterFrameFullPixelMotionVectorWithOptions(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, rowSkip2 bool) (vp8enc.MotionVector, int) {
+	searchStart := bestRefMV
+	if start.ok() && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+		searchStart = start.mv
+		search = search.adjustedForImprovedMVStart(start)
+	}
+	centerRow := int(searchStart.Row) & ^7
+	centerCol := int(searchStart.Col) & ^7
+	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+		best = bounds.ClampEighth(best)
+	}
+	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, nil)
+	searcher.ctx.rowSkip2 = rowSkip2
+	bestWalkCost := searcher.walkCostNoStats(best, maxInt())
+	if bestWalkCost == 0 {
+		return best, searcher.costNoStats(best)
+	}
+	// libvpx mcomp.c's mvsad_err_cost is nonnegative and its minimum
+	// is the zero-delta entry. Once SAD+MV cost reaches that floor,
+	// strict CHECK_BETTER comparisons cannot move any search candidate.
+	// Keep HEX's SAD return and NSTEP/DIAMOND's variance return distinct.
+	if search.fullPixelSearch >= interAnalysisFullPixelSearchNstep && search.fullPixelSearch <= interAnalysisFullPixelSearchHex &&
+		bestWalkCost == vp8enc.FullPelMVSADCost16FromDeltas(0, 0, 0, 0, qIndex) {
+		if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+			return best, bestWalkCost
+		}
+		return best, searcher.costNoStats(best)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchNstep {
+		return searcher.nstepNoStats(best, bestWalkCost, search)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchDiamond {
+		return searcher.diamondNoStats(best, bestWalkCost, search)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+		return searcher.hexNoStats(best, bestWalkCost)
+	}
+	return searcher.exhaustiveNoStats(best, bestWalkCost)
+}
+
+func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTablesAndStats(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
+	if stats == nil {
+		return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, errorPerBit, search, start, mvProbs, mvCosts)
+	}
+	searchStart := bestRefMV
+	if start.ok() && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+		searchStart = start.mv
+		search = search.adjustedForImprovedMVStart(start)
+	}
+	centerRow := int(searchStart.Row) & ^7
+	centerCol := int(searchStart.Col) & ^7
+	best := vp8enc.MotionVector{Row: int16(centerRow), Col: int16(centerCol)}
+	bounds := vp8enc.InterFrameFullPixelSearchBounds(bestRefMV, mbRow, mbCol, mbRows, mbCols)
+	if search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
+		best = bounds.ClampEighth(best)
+	}
+	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, stats)
+	bestWalkCost := searcher.walkCost(best, maxInt())
+	if bestWalkCost == 0 {
+		return best, searcher.cost(best)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchNstep {
+		return searcher.nstep(best, bestWalkCost, search)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchDiamond {
+		return searcher.diamond(best, bestWalkCost, search)
+	}
+	if search.fullPixelSearch == interAnalysisFullPixelSearchHex {
+		return searcher.hex(best, bestWalkCost)
+	}
+	return searcher.exhaustive(best, bestWalkCost)
+}

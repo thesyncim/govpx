@@ -1,0 +1,191 @@
+# govpx WebRTC VP8 demo
+
+End-to-end demo of govpx's VP8 realtime stack:
+
+- **Three simulcast encoders** running in parallel: 320x180, 640x360,
+  1280x720, each with libwebrtc-style CBR + thread / cpu-used defaults.
+- **Three temporal layers** per rendition (libvpx
+  `TemporalLayeringThreeLayers`) with the page able to cap emission to
+  TL0 / TL≤1 / all per rendition.
+- **Three WebRTC video tracks** in one peer connection; the browser
+  shows all three side by side and each one is a native VP8 decode.
+- **Bidirectional DataChannel control surface** with per-rendition
+  knobs (bitrate, **resolution** picker from 160x90 up to 1920x1088,
+  screen-content tuning, denoiser level, temporal cap, force
+  keyframe, pause/resume) and global knobs (active map edge-mask,
+  multi-rendition force-key, ROI clear). Resolution changes go
+  through `enc.SetRealtimeTarget`; the source/output buffers grow in
+  place and a fresh keyframe lands on the next tick so the browser
+  decoder picks up the new dimensions.
+- **Click-to-set ROI**: clicking on any rendition's video installs a
+  libvpx VP8 ROI map with a boosted-quality segment centred on the
+  click. The encoder picks up the new map on the next tick.
+- **Live telemetry overlay** per rendition: q, byte count, rolling
+  kbps, target kbps, temporal layer id + sync flag, TL0PICIDX, drop
+  state, denoiser/scenecut flags, current ROI state. Each rendition
+  also draws a rolling kbps chart in its panel.
+
+This is a separate Go module (its own `go.mod`) so the `pion/webrtc`
+dependency tree stays out of the core `govpx` module. It requires the
+same Go 1.27+ toolchain as govpx itself.
+
+## Run
+
+```sh
+cd examples/webrtc-vp8
+go run .
+```
+
+Then open <http://localhost:8080>. You should see three live
+synthetic-pattern feeds at 30 fps with stat overlays. Try:
+
+- moving the bitrate slider on the `high` rendition while watching
+  the kbps chart and q follow,
+- clicking the `screen` button for any rendition and noticing the
+  visible bitrate footprint shift,
+- clicking on a video to drop an ROI marker; the encoder pushes more
+  bits into that region (visible as a sharper area near the marker),
+- pressing `force key` to see the kf flag fire,
+- toggling `edge mask` to mask the outer macroblock ring on all
+  three renditions,
+- pressing `pause` to halt one rendition while the others keep
+  flowing.
+
+Flags:
+
+- `-addr` — listen address (default `:8080`).
+- `-fps` — frame rate driven into all three encoders (default `30`).
+- `-low-kbps` / `-mid-kbps` / `-high-kbps` — per-rendition starting
+  CBR bitrate. The page's slider rewrites these live.
+
+## How it works
+
+- The browser opens an `RTCPeerConnection` with three `recvonly`
+  video transceivers (one per simulcast rendition) and one
+  bidirectional `demo` DataChannel, then POSTs the SDP offer to
+  `/offer`.
+- The server (`main.go`) creates a pion `PeerConnection`, attaches
+  three `TrackLocalStaticRTP` tracks (`video/VP8` at 90 kHz)
+  in low/mid/high order, answers, and spins up:
+  - **One encoder goroutine per rendition.** Each runs a 30 fps
+    ticker, draws into a reused `govpx.Image` at its native
+    resolution, encodes with `enc.EncodeInto`, packetises with
+    govpx's VP8 WebRTC RTP descriptor helpers, and writes RTP packets
+    to its own track.
+  - **RTCP drain per sender.** PLI/FIR from the receiver flips a
+    rendition-local `forceKey` atomic, so the next encode of that
+    rendition refreshes.
+  - **Telemetry pump.** Every coded (or dropped, or temporally
+    suppressed) frame pushes one JSON message onto a buffered
+    channel; the DataChannel goroutine drains it and forwards. The
+    page tags each message by rendition id and updates that
+    rendition's stat panel and chart.
+
+- Controls from the page apply between encoder ticks:
+  - `bitrate` → `enc.SetBitrateKbps`
+  - `screen` → `enc.SetScreenContentMode`
+  - `denoise` → `enc.SetNoiseSensitivity`
+  - `temporal` (0/1/2) → the encoder still pays the full pattern
+    cost but the loop suppresses RTP writes for frames above the
+    cap so the wire only carries TL0 / TL≤1 / all.
+  - `keyframe` → `enc.ForceKeyFrame` (id < 0 fans out to every
+    rendition)
+  - `withhold` → locally suppresses droppable packetized access units
+    on one or all renditions so browser decode continuity is exercised
+    without poisoning the reference chain or creating network loss
+  - `pause` → halts the ticker work for that rendition only
+  - `roi` → builds a fresh `govpx.ROIMap` with a disc-shaped boost
+    segment centred at the click coordinate and installs it through
+    `enc.SetROIMap`
+  - `roi-clear` → installs a disabled `ROIMap` on every rendition
+  - `activemap` → on every rendition, installs an active map that
+    marks the outer-ring macroblocks inactive (visibly freezes the
+    edges and saves bits)
+
+- Cleanup tears down all three encoders and closes the telemetry
+  channel when the peer connection closes.
+
+## Tests
+
+```sh
+go test ./...
+```
+
+`smoke_test.go` boots the server, opens a pion peer that mirrors the
+browser handshake, asserts every rendition delivers RTP and
+telemetry, then exercises **every** control end-to-end (bitrate,
+screen, denoise, temporal cap, ROI install + clear, force keyframe,
+pause/resume per rendition, plus the global active map) and waits
+for the corresponding telemetry change. The whole suite runs in
+roughly seven seconds.
+
+For a real-browser smoke run:
+
+```sh
+node browser_smoke.mjs
+```
+
+The browser smoke starts `go run .` on a free localhost port, opens a
+headless Chrome instance through the DevTools Protocol, waits for all
+three browser video elements and all three inbound RTP streams to
+decode VP8, then samples WebRTC `getStats()` counters and video
+playback time. It enforces zero packet loss, freezes, repair packets,
+NACK, PLI, and FIR by default where Chrome exposes those counters.
+With `--local-withhold`, it also asks the sender to withhold droppable
+encoded access units locally and still requires the browser to keep
+decoding with zero receiver loss, repair traffic, NACK, PLI, or FIR.
+
+Useful knobs:
+
+- `--soak-ms`, `--sample-ms`, `--poll-ms` - control the observation
+  window and polling cadence.
+- `--cdp-timeout-ms` - bounds Chrome DevTools Protocol open and command
+  waits so browser gate failures report instead of hanging.
+- `--min-decoded-delta` - minimum decoded-frame advance required per
+  VP8 inbound stream in each sample.
+- `--min-video-time-ratio` - minimum video `currentTime` advance as a
+  ratio of the sample window.
+- `--cpu-burners` - starts local CPU load processes around the browser
+  smoke. The demo server itself only exposes `-fps`, `-low-kbps`,
+  `-mid-kbps`, and `-high-kbps`; it does not have a built-in load
+  injection flag.
+- `--local-withhold`, `--local-withhold-count` - prove local unsent
+  droppable access units do not stall decode or create receiver-side
+  packet loss, repair packets, NACK, PLI, or FIR.
+- `--server-fps`, `--server-low-kbps`, `--server-mid-kbps`,
+  `--server-high-kbps` - forward startup settings to `go run .`.
+
+For the focused VP8 production gate:
+
+```sh
+node production_gate.mjs
+```
+
+The gate runs the JavaScript syntax check, the focused VP8 Go tests,
+a VP8-only libvpx oracle step (`GOVPX_WITH_ORACLE=1` with
+`govpx_oracle_trace`), and the real-browser smoke with explicit zero
+budgets for loss, freezes, repair packets, NACK, PLI, and FIR. A
+second browser step enables local droppable-frame withhold and requires
+continued decode without receiver-side repair traffic. The oracle
+step covers vpxdec acceptance, output parity, and temporal SVC
+WebRTC-style byte parity, and the gate fails if those required oracle
+tests skip. The browser gate can be made longer or run under local CPU
+load with `VP8_WEBRTC_GATE_SOAK_MS`, `VP8_WEBRTC_GATE_REPEAT`,
+`VP8_WEBRTC_GATE_WITHHOLD_COUNT`, and `VP8_WEBRTC_GATE_CPU_BURNERS`.
+
+## What this proves
+
+- `govpx`'s VP8 realtime APIs can drive three independent simulcast streams.
+  On the development host used for this fixture, the 1280x720 top rendition
+  holds 30 fps in pure Go; measure on the Go version, CPU, and build tags that
+  match your workload.
+- Every public VP8 runtime control (`SetBitrateKbps`,
+  `SetScreenContentMode`, `SetNoiseSensitivity`, `SetROIMap`,
+  `SetActiveMap`, `ForceKeyFrame`, etc.) takes effect mid-stream
+  without dropping the WebRTC peer.
+- The temporal SVC pattern threads cleanly through govpx's VP8 WebRTC
+  RTP packetizer and is readable by stock browser decoders, including
+  the TL0PICIDX / sync-flag metadata the page surfaces.
+- A bidirectional WebRTC DataChannel is enough plumbing to wire a
+  whole control panel and a live per-rendition telemetry overlay
+  with no separate REST or WebSocket endpoint.

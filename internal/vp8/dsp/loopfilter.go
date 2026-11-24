@@ -1,0 +1,352 @@
+package dsp
+
+// Ported from libvpx v1.16.0 vp8/common/loopfilter_filters.c.
+
+const MaxLoopFilter = 63
+
+func LoopFilterSimpleHorizontalEdge(s []byte, stride int, blimit byte) {
+	loopFilterSimpleHorizontalEdgeDispatch(s, stride, blimit)
+}
+
+func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
+	loopFilterSimpleVerticalEdgeDispatch(s, stride, blimit)
+}
+
+// loopFilterSimpleHorizontalEdgeScalar is the libvpx-style scalar reference
+// for LoopFilterSimpleHorizontalEdge; kept as the per-platform fallback
+// when the SIMD dispatch can't take the fast path.
+func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
+	_ = s[3*stride+15]
+
+	for i := range 16 {
+		p1 := &s[i]
+		p0 := &s[i+stride]
+		q0 := &s[i+2*stride]
+		q1 := &s[i+3*stride]
+		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
+		simpleFilter(mask, p1, p0, q0, q1)
+	}
+}
+
+func loopFilterSimpleVerticalEdgeScalar(s []byte, stride int, blimit byte) {
+	_ = s[15*stride+3]
+
+	for i := range 16 {
+		row := s[i*stride:]
+		p1 := &row[0]
+		p0 := &row[1]
+		q0 := &row[2]
+		q1 := &row[3]
+		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
+		simpleFilter(mask, p1, p0, q0, q1)
+	}
+}
+
+func LoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	loopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+// LoopFilterHorizontalEdgesY applies the three 16-wide inner luma horizontal
+// edges of one macroblock. This mirrors libvpx's vp8_loop_filter_bh wrapper.
+func LoopFilterHorizontalEdgesY(s []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterHorizontalEdgesYDispatch(s, stride, blimit, limit, thresh)
+}
+
+func LoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	loopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+// LoopFilterVerticalEdgesY applies the three 16-wide inner luma vertical edges
+// of one macroblock. This mirrors libvpx's vp8_loop_filter_bv wrapper.
+func LoopFilterVerticalEdgesY(s []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterVerticalEdgesYDispatch(s, stride, blimit, limit, thresh)
+}
+
+func LoopFilterHorizontalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterHorizontalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+func LoopFilterVerticalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	loopFilterVerticalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+func MBLoopFilterHorizontalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	mbLoopFilterHorizontalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func MBLoopFilterVerticalEdge(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	mbLoopFilterVerticalEdgeDispatch(s, stride, blimit, limit, thresh, count)
+}
+
+func MBLoopFilterHorizontalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	mbLoopFilterHorizontalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+func MBLoopFilterVerticalEdgeUV(u []byte, v []byte, stride int, blimit byte, limit byte, thresh byte) {
+	mbLoopFilterVerticalEdgeUVDispatch(u, v, stride, blimit, limit, thresh)
+}
+
+// loopFilterHorizontalEdgeScalar is the libvpx-style scalar reference for
+// LoopFilterHorizontalEdge; it stays as the per-platform fallback when
+// the SIMD dispatch can't take the fast path. Body unchanged from the
+// original libvpx loopfilter_filters.c port.
+func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	n := count * 8
+	_ = s[7*stride+n-1]
+
+	for i := range n {
+		p3v := s[i]
+		p2v := s[i+stride]
+		p1 := &s[i+2*stride]
+		p0 := &s[i+3*stride]
+		q0 := &s[i+4*stride]
+		q1 := &s[i+5*stride]
+		q2v := s[i+6*stride]
+		q3v := s[i+7*stride]
+		p1v, p0v := *p1, *p0
+		q0v, q1v := *q0, *q1
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
+			continue
+		}
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		loopFilter(-1, hev, p1, p0, q0, q1)
+	}
+}
+
+func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	n := count * 8
+	_ = s[(n-1)*stride+7]
+
+	for i := range n {
+		row := s[i*stride:]
+		p3v, p2v := row[0], row[1]
+		p1, p0 := &row[2], &row[3]
+		q0, q1 := &row[4], &row[5]
+		q2v, q3v := row[6], row[7]
+		p1v, p0v := *p1, *p0
+		q0v, q1v := *q0, *q1
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
+			continue
+		}
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		loopFilter(-1, hev, p1, p0, q0, q1)
+	}
+}
+
+func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	n := count * 8
+	_ = s[7*stride+n-1]
+
+	for i := range n {
+		p3v := s[i]
+		p2 := &s[i+stride]
+		p1 := &s[i+2*stride]
+		p0 := &s[i+3*stride]
+		q0 := &s[i+4*stride]
+		q1 := &s[i+5*stride]
+		q2 := &s[i+6*stride]
+		q3v := s[i+7*stride]
+		p2v, p1v, p0v := *p2, *p1, *p0
+		q0v, q1v, q2v := *q0, *q1, *q2
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
+			continue
+		}
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		mbLoopFilter(-1, hev, p2, p1, p0, q0, q1, q2)
+	}
+}
+
+func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
+	n := count * 8
+	_ = s[(n-1)*stride+7]
+
+	for i := range n {
+		row := s[i*stride:]
+		p3v := row[0]
+		p2, p1, p0 := &row[1], &row[2], &row[3]
+		q0, q1, q2 := &row[4], &row[5], &row[6]
+		q3v := row[7]
+		p2v, p1v, p0v := *p2, *p1, *p0
+		q0v, q1v, q2v := *q0, *q1, *q2
+		if absByteDiff(p3v, p2v) > limit ||
+			absByteDiff(p2v, p1v) > limit ||
+			absByteDiff(p1v, p0v) > limit ||
+			absByteDiff(q1v, q0v) > limit ||
+			absByteDiff(q2v, q1v) > limit ||
+			absByteDiff(q3v, q2v) > limit ||
+			int(absByteDiff(p0v, q0v))*2+int(absByteDiff(p1v, q1v))/2 > int(blimit) {
+			continue
+		}
+		hev := hevMask(thresh, p1v, p0v, q0v, q1v)
+		mbLoopFilter(-1, hev, p2, p1, p0, q0, q1, q2)
+	}
+}
+
+// signedCharClamp saturates v into [-128, 127] without conditional branches.
+// Called per-pixel from the loopfilter inner kernel.
+func signedCharClamp(v int) int8 {
+	// (v + 128) maps the target window to [0, 255]; the unsigned compare
+	// catches both under- and overflow with one branch that the compiler
+	// turns into a cmov when it pays off.
+	u := v + 128
+	low := u >> signShift          // -1 if v < -128
+	high := (255 - u) >> signShift // -1 if v > 127
+	u = (u &^ low) | (0 & low)     // clamp low side
+	u = (u &^ high) | (255 & high) // clamp high side
+	return int8(u - 128)
+}
+
+func filterMask(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) int8 {
+	if loopFilterAllowed(limit, blimit, p3, p2, p1, p0, q0, q1, q2, q3) {
+		return -1
+	}
+	return 0
+}
+
+func loopFilterAllowed(limit byte, blimit byte, p3 byte, p2 byte, p1 byte, p0 byte, q0 byte, q1 byte, q2 byte, q3 byte) bool {
+	return absByteDiff(p3, p2) <= limit &&
+		absByteDiff(p2, p1) <= limit &&
+		absByteDiff(p1, p0) <= limit &&
+		absByteDiff(q1, q0) <= limit &&
+		absByteDiff(q2, q1) <= limit &&
+		absByteDiff(q3, q2) <= limit &&
+		int(absByteDiff(p0, q0))*2+int(absByteDiff(p1, q1))/2 <= int(blimit)
+}
+
+// hevMask returns -1 when either p1-p0 or q1-q0 exceeds the high-edge
+// threshold, 0 otherwise. Branchless: subtract once each, splat the sign
+// bit from `thresh - diff` and OR the two masks so the inner loopfilter
+// kernel can stay branch-free.
+func hevMask(thresh byte, p1 byte, p0 byte, q0 byte, q1 byte) int8 {
+	d1 := int(absByteDiff(p1, p0)) - int(thresh) - 1
+	d2 := int(absByteDiff(q1, q0)) - int(thresh) - 1
+	// d1<0 (diff <= thresh) → mask 0; d1>=0 → mask -1.
+	mask := ^(d1 >> signShift) | ^(d2 >> signShift)
+	return int8(mask)
+}
+
+func loopFilter(mask int8, hev int8, op1 *byte, op0 *byte, oq0 *byte, oq1 *byte) {
+	ps1 := signedPixel(*op1)
+	ps0 := signedPixel(*op0)
+	qs0 := signedPixel(*oq0)
+	qs1 := signedPixel(*oq1)
+
+	filterValue := signedCharClamp(int(ps1) - int(qs1))
+	filterValue &= hev
+	filterValue = signedCharClamp(int(filterValue) + 3*(int(qs0)-int(ps0)))
+	filterValue &= mask
+
+	filter1 := signedCharClamp(int(filterValue) + 4)
+	filter2 := signedCharClamp(int(filterValue) + 3)
+	filter1 = int8(int(filter1) >> 3)
+	filter2 = int8(int(filter2) >> 3)
+	*oq0 = unsignedPixel(signedCharClamp(int(qs0) - int(filter1)))
+	*op0 = unsignedPixel(signedCharClamp(int(ps0) + int(filter2)))
+
+	filterValue = filter1
+	filterValue++
+	filterValue = int8(int(filterValue) >> 1)
+	filterValue &= ^hev
+
+	*oq1 = unsignedPixel(signedCharClamp(int(qs1) - int(filterValue)))
+	*op1 = unsignedPixel(signedCharClamp(int(ps1) + int(filterValue)))
+}
+
+func mbLoopFilter(mask int8, hev int8, op2 *byte, op1 *byte, op0 *byte, oq0 *byte, oq1 *byte, oq2 *byte) {
+	ps2 := signedPixel(*op2)
+	ps1 := signedPixel(*op1)
+	ps0 := signedPixel(*op0)
+	qs0 := signedPixel(*oq0)
+	qs1 := signedPixel(*oq1)
+	qs2 := signedPixel(*oq2)
+
+	filterValue := signedCharClamp(int(ps1) - int(qs1))
+	filterValue = signedCharClamp(int(filterValue) + 3*(int(qs0)-int(ps0)))
+	filterValue &= mask
+
+	filter2 := filterValue & hev
+	filter1 := signedCharClamp(int(filter2) + 4)
+	filter2 = signedCharClamp(int(filter2) + 3)
+	filter1 = int8(int(filter1) >> 3)
+	filter2 = int8(int(filter2) >> 3)
+	qs0 = signedCharClamp(int(qs0) - int(filter1))
+	ps0 = signedCharClamp(int(ps0) + int(filter2))
+
+	filterValue &= ^hev
+	filter2 = filterValue
+
+	u := signedCharClamp((63 + int(filter2)*27) >> 7)
+	*oq0 = unsignedPixel(signedCharClamp(int(qs0) - int(u)))
+	*op0 = unsignedPixel(signedCharClamp(int(ps0) + int(u)))
+
+	u = signedCharClamp((63 + int(filter2)*18) >> 7)
+	*oq1 = unsignedPixel(signedCharClamp(int(qs1) - int(u)))
+	*op1 = unsignedPixel(signedCharClamp(int(ps1) + int(u)))
+
+	u = signedCharClamp((63 + int(filter2)*9) >> 7)
+	*oq2 = unsignedPixel(signedCharClamp(int(qs2) - int(u)))
+	*op2 = unsignedPixel(signedCharClamp(int(ps2) + int(u)))
+}
+
+// simpleFilterMask returns -1 when the combined |p0-q0|*2 + |p1-q1|/2
+// step stays within blimit, 0 otherwise. Sign-mask splat replaces the
+// trailing if so the loopfilter row scan stays branch-free.
+func simpleFilterMask(blimit byte, p1 byte, p0 byte, q0 byte, q1 byte) int8 {
+	diff := int(blimit) - (int(absByteDiff(p0, q0))*2 + int(absByteDiff(p1, q1))/2)
+	// diff >= 0 → mask -1; diff < 0 → mask 0.
+	return int8(^(diff >> signShift))
+}
+
+func simpleFilter(mask int8, op1 *byte, op0 *byte, oq0 *byte, oq1 *byte) {
+	p1 := signedPixel(*op1)
+	p0 := signedPixel(*op0)
+	q0 := signedPixel(*oq0)
+	q1 := signedPixel(*oq1)
+
+	filterValue := signedCharClamp(int(p1) - int(q1))
+	filterValue = signedCharClamp(int(filterValue) + 3*(int(q0)-int(p0)))
+	filterValue &= mask
+
+	filter1 := signedCharClamp(int(filterValue) + 4)
+	filter1 = int8(int(filter1) >> 3)
+	*oq0 = unsignedPixel(signedCharClamp(int(q0) - int(filter1)))
+
+	filter2 := signedCharClamp(int(filterValue) + 3)
+	filter2 = int8(int(filter2) >> 3)
+	*op0 = unsignedPixel(signedCharClamp(int(p0) + int(filter2)))
+}
+
+func signedPixel(v byte) int8 {
+	return int8(v ^ 0x80)
+}
+
+func unsignedPixel(v int8) byte {
+	return byte(v) ^ 0x80
+}
+
+// absByteDiff returns |a-b| without a conditional branch. The unsigned
+// subtraction wraps when a < b; XOR by the sign-extended top bit
+// reflects the value back into a positive byte.
+func absByteDiff(a byte, b byte) byte {
+	d := int(a) - int(b)
+	mask := d >> signShift // -1 when d < 0, 0 otherwise
+	return byte((d ^ mask) - mask)
+}

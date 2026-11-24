@@ -1,0 +1,118 @@
+goav1
+=====
+
+Pure-Go AV1 implementation focused on realtime/WebRTC decoding.
+
+This project ports behavior from a set of pinned upstream sources.
+See third_party/upstream.lock for the exact pinned git object of
+every upstream consulted while writing this code. Local working
+clones of each upstream live under third_party/upstream/<name>/ and
+are ignored by git but produced on demand by `make sync-upstreams`.
+
+The list below covers the third-party projects whose code, behavior,
+or specifications this repository derives from. Each upstream is
+distributed under its own license; the local checkout preserves the
+upstream LICENSE / COPYING / PATENTS files verbatim.
+
+-------------------------------------------------------------------------------
+1. libaom (AV1 reference encoder/decoder)
+-------------------------------------------------------------------------------
+
+Upstream:   https://aomedia.googlesource.com/aom
+Pinned tag: v3.14.0
+Pinned at:  third_party/upstream/libaom/ (sync via `make sync-upstreams`)
+License:    BSD 2-Clause + Alliance for Open Media Patent License 1.0
+Files:      third_party/upstream/libaom/LICENSE
+            third_party/upstream/libaom/PATENTS
+
+Copyright notice (verbatim from libaom LICENSE):
+
+    Copyright (c) 2016, Alliance for Open Media. All rights reserved.
+
+A copy of the libaom BSD 2-Clause license is reproduced as the goav1
+root LICENSE file. The Alliance for Open Media Patent License 1.0 is
+reproduced verbatim as the goav1 root PATENTS file, satisfying the
+"reproduce this License with any Implementation" condition in section
+1.2.1 of that grant.
+
+Files in this repository whose logic is derived from libaom should
+cite their upstream source path with a comment of the form
+
+    // Ported from libaom: av1/<path>.c
+
+near the top of the file or function. Direct numerical tables (CDF
+defaults, dequantization scales, transform scan orders, qmatrix
+levels, etc.) are reproduced as published in libaom.
+
+-------------------------------------------------------------------------------
+2. dav1d (VideoLAN AV1 decoder)
+-------------------------------------------------------------------------------
+
+Upstream:   https://code.videolan.org/videolan/dav1d.git
+Pinned tag: 1.5.3
+Pinned at:  third_party/upstream/dav1d/ (sync via `make sync-upstreams`)
+License:    BSD 2-Clause
+File:       third_party/upstream/dav1d/COPYING
+
+Copyright notice (verbatim from dav1d COPYING):
+
+    Copyright (c) 2018-2025, VideoLAN and dav1d authors
+    All rights reserved.
+
+dav1d is consulted as a reference for decoder architecture, OBU
+parsing layout, tile/decode pipeline shape, and DSP organization.
+No source code is copied verbatim from dav1d into this repository,
+but several internal Go packages are structurally inspired by its
+layout and that influence is acknowledged here.
+
+-------------------------------------------------------------------------------
+3. libwebrtc (Chromium WebRTC AV1 RTP behavior)
+-------------------------------------------------------------------------------
+
+Upstream:   https://webrtc.googlesource.com/src
+Pinned ref: refs/branch-heads/7778_178 (Chrome Stable Mac 148.0.7778.179)
+Pinned at:  third_party/upstream/webrtc/ (sync via `make sync-upstreams`)
+License:    BSD 3-Clause + Additional IP Rights Grant (see upstream
+            https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE
+            and PATENTS in the upstream project root).
+
+libwebrtc is consulted as a reference for AV1 RTP payload and
+depayload behavior (modules/rtp_rtcp/source/rtp_packetizer_av1.cc and
+its companions). No source code is copied verbatim from libwebrtc
+into this repository; the influence on the RTP packetization and
+assembly code is acknowledged here.
+
+-------------------------------------------------------------------------------
+4. AV1 specifications
+-------------------------------------------------------------------------------
+
+AV1 Bitstream & Decoding Process Specification
+    https://aomediacodec.github.io/av1-spec/av1-spec.pdf
+
+RTP Payload Format For AV1 (v1.0.0)
+    https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html
+
+Both specifications are published by the Alliance for Open Media and
+are reproduced in derived form (parsing logic, syntax structures)
+under the AOM specification licensing terms covered by the patent
+grant reproduced in the root PATENTS file.
+
+-------------------------------------------------------------------------------
+5. Test vectors
+-------------------------------------------------------------------------------
+
+A curated slice of the libaom AV1 conformance test vectors is
+committed under internal/av1/testdata/libaom/. The remote manifest
+and the full corpus referenced by `make testvectors-full` live at
+
+    https://storage.googleapis.com/aom-test-data
+
+and are distributed by the Alliance for Open Media under the same
+terms as libaom itself.
+
+-------------------------------------------------------------------------------
+
+For the full text of every license referenced above, see the
+corresponding file in third_party/upstream/<name>/ after running
+`make sync-upstreams`. Questions about attribution gaps or license
+compliance should be filed as issues against this repository.

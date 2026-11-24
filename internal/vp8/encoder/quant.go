@@ -1,0 +1,175 @@
+package encoder
+
+import (
+	"math/bits"
+
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
+
+// Ported from libvpx v1.16.0 vp8/encoder/vp8_quantize.c block
+// quantization setup, vp8_fast_quantize_b_c, and vp8_regular_quantize_b_c.
+//
+// Reference anchors:
+//   - vp8cx_init_quantizer  -> InitRegularBlockQuant / InitFastBlockQuant
+//   - vp8cx_invert_quant    -> invertRegularQuant
+//   - vp8_fast_quantize_b_c -> FastQuantizeBlock
+//   - qrounding_factors[Q]  -> quantRoundFactor (constant 48 across Q)
+//   - qzbin_factors[Q]      -> 84 for Q < 48, 80 otherwise
+//   - zbin_boost[16]        -> quantZbinBoost
+
+const quantRoundFactor = 48
+
+// quantZbinBoost mirrors zbin_boost in libvpx vp8/encoder/vp8_quantize.c
+// vp8cx_init_quantizer.
+var quantZbinBoost = [...]int{0, 0, 8, 10, 12, 14, 16, 20, 24, 28, 32, 36, 40, 44, 44, 44}
+
+type BlockQuant struct {
+	Quant      [16]int16
+	QuantFast  [16]int16
+	QuantShift [16]int16
+	Zbin       [16]int16
+	Round      [16]int16
+	ZbinBoost  [16]int16
+	Dequant    [16]int16
+}
+
+type MacroblockQuant struct {
+	Y1   BlockQuant
+	Y1DC BlockQuant
+	Y2   BlockQuant
+	UV   BlockQuant
+}
+
+// InitFastBlockQuant mirrors the per-Q-index setup of quant_fast/round/dequant
+// performed by libvpx v1.16.0 vp8/encoder/vp8_quantize.c vp8cx_init_quantizer
+// for a single block (the fast path used by vp8_fast_quantize_b_c).
+func InitFastBlockQuant(dequant *[16]int16, out *BlockQuant) {
+	for i := range 16 {
+		d := int(dequant[i])
+		out.QuantFast[i] = int16((1 << 16) / d)
+		out.Round[i] = int16((quantRoundFactor * d) >> 7)
+		out.Dequant[i] = dequant[i]
+	}
+}
+
+func InitFastMacroblockQuant(dequant *common.MacroblockDequant, out *MacroblockQuant) {
+	InitFastBlockQuant(&dequant.Y1, &out.Y1)
+	InitFastBlockQuant(&dequant.Y1DC, &out.Y1DC)
+	InitFastBlockQuant(&dequant.Y2, &out.Y2)
+	InitFastBlockQuant(&dequant.UV, &out.UV)
+}
+
+// InitRegularBlockQuant mirrors the per-Q-index setup of quant/quant_shift/zbin
+// /round/zrun_zbin_boost performed by libvpx v1.16.0
+// vp8/encoder/vp8_quantize.c vp8cx_init_quantizer for a single block, including
+// the qzbin_factors split (84 for Q<48, 80 otherwise).
+func InitRegularBlockQuant(qIndex int, dequant *[16]int16, out *BlockQuant) {
+	InitFastBlockQuant(dequant, out)
+	q := common.ClampQIndex(qIndex)
+	zbinFactor := 80
+	if q < 48 {
+		zbinFactor = 84
+	}
+	for i := range 16 {
+		d := int(dequant[i])
+		out.Zbin[i] = int16((zbinFactor*d + 64) >> 7)
+		out.ZbinBoost[i] = int16((d * quantZbinBoost[i]) >> 7)
+		invertRegularQuant(d, &out.Quant[i], &out.QuantShift[i])
+	}
+}
+
+func InitRegularMacroblockQuant(qIndex int, dequant *common.MacroblockDequant, out *MacroblockQuant) {
+	InitRegularBlockQuant(qIndex, &dequant.Y1, &out.Y1)
+	InitRegularBlockQuant(qIndex, &dequant.Y1DC, &out.Y1DC)
+	InitRegularBlockQuant(qIndex, &dequant.Y2, &out.Y2)
+	InitRegularBlockQuant(qIndex, &dequant.UV, &out.UV)
+}
+
+// invertRegularQuant mirrors invert_quant(improved_quant=1, ...) in libvpx
+// v1.16.0 vp8/encoder/vp8_quantize.c. The improved_quant=0 branch is unused by
+// the regular quantizer path that govpx exercises, so it is intentionally not
+// ported here.
+func invertRegularQuant(dequant int, quant *int16, shift *int16) {
+	l := bits.Len(uint(dequant)) - 1
+	m := 1 + (1<<(16+l))/dequant
+	*quant = int16(m - (1 << 16))
+	*shift = int16(1 << (16 - l))
+}
+
+func InitSegmentMacroblockQuants(baseQIndex int, deltas common.QuantDeltas, segmentation SegmentationConfig, out *[common.MaxMBSegments]MacroblockQuant) error {
+	// uint range check: common.MinQ==0, so (baseQIndex < 0 || > MaxQ)
+	// collapses to uint(baseQIndex) > uint(MaxQ).
+	if uint(baseQIndex) > uint(common.MaxQ) || out == nil || !validSegmentationConfig(segmentation) {
+		return ErrInvalidPacketConfig
+	}
+	var tables common.FrameDequantTables
+	var dequant common.MacroblockDequant
+	var previousQ [common.MaxMBSegments]int
+	for segment := range common.MaxMBSegments {
+		qIndex := baseQIndex
+		if segmentation.Enabled && segmentation.FeatureEnabled[common.MBLvlAltQ][segment] {
+			altQ := int(segmentation.FeatureData[common.MBLvlAltQ][segment])
+			if segmentation.AbsDelta {
+				qIndex = altQ
+			} else {
+				qIndex = baseQIndex + altQ
+			}
+		}
+		q := common.ClampQIndex(qIndex)
+		previousQ[segment] = q
+		reused := false
+		for prior := 0; prior < segment; prior++ {
+			if previousQ[prior] == q {
+				out[segment] = out[prior]
+				reused = true
+				break
+			}
+		}
+		if reused {
+			continue
+		}
+		tables.Y1[q] = [2]int16{int16(common.DCQuant(q, deltas.Y1DC)), int16(common.ACYQuant(q))}
+		tables.Y2[q] = [2]int16{int16(common.DC2Quant(q, deltas.Y2DC)), int16(common.AC2Quant(q, deltas.Y2AC))}
+		tables.UV[q] = [2]int16{int16(common.DCUVQuant(q, deltas.UVDC)), int16(common.ACUVQuant(q, deltas.UVAC))}
+		common.InitMacroblockDequant(&tables, qIndex, &dequant)
+		InitRegularMacroblockQuant(qIndex, &dequant, &out[segment])
+	}
+	return nil
+}
+
+// FastQuantizeBlock dispatches to the SIMD or scalar fast-quantize kernel.
+// The SIMD entry point is plugged in by per-arch dispatch files
+// (quant_simd_arm64.go, quant_simd_amd64.go); on platforms without a SIMD
+// port it falls through to fastQuantizeBlockScalar.
+func FastQuantizeBlock(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	return fastQuantizeBlockSIMD(coeff, quant, qcoeff, dqcoeff)
+}
+
+// fastQuantizeBlockScalar is the canonical scalar fast quantize port of
+// libvpx v1.16.0 vp8/encoder/vp8_quantize.c vp8_fast_quantize_b_c.
+//
+// SIMD ports must produce byte-identical qcoeff/dqcoeff and the same EOB
+// count for any input that occurs in the encoder's coefficient range.
+func fastQuantizeBlockScalar(coeff *[16]int16, quant *BlockQuant, qcoeff *[16]int16, dqcoeff *[16]int16) int {
+	eob := -1
+	for i := range 16 {
+		rc := int(tables.DefaultZigZag1D[i])
+		z := int(coeff[rc])
+		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
+		// Quantize the magnitude then fold the sign back in. The zero-z
+		// case naturally produces y==0 with the same writes as the
+		// previous early-return, so the conditional skip vanishes.
+		sign := z >> intSignShift
+		x := (z ^ sign) - sign
+		y := ((x + int(quant.Round[rc])) * int(quant.QuantFast[rc])) >> 16
+		y = (y ^ sign) - sign
+		q := int16(y)
+		qcoeff[rc] = q
+		dqcoeff[rc] = q * quant.Dequant[rc]
+		if y != 0 {
+			eob = i
+		}
+	}
+	return eob + 1
+}

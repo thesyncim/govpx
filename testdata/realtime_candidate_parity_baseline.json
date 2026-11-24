@@ -1,0 +1,19 @@
+{
+  "fixtures": {
+    "realtime-cbr-cpu0": {
+      "divergent_rows": 0,
+      "total_rows": 285,
+      "field_hist": {}
+    },
+    "realtime-cbr-cpu4": {
+      "divergent_rows": 0,
+      "total_rows": 285,
+      "field_hist": {}
+    },
+    "realtime-cbr-cpu8": {
+      "divergent_rows": 0,
+      "total_rows": 285,
+      "field_hist": {}
+    }
+  }
+}

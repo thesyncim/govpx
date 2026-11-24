@@ -1,0 +1,18 @@
+{
+  "fixtures": {
+    "good-cpu3-vbr": {
+      "mb_total_newmv": 14,
+      "near_sadidx_match_pct": 100,
+      "mv_match_pct": 100,
+      "sr_match_pct": 100,
+      "combined_match_pct": 100
+    },
+    "rt-cpu0-cbr": {
+      "mb_total_newmv": 8,
+      "near_sadidx_match_pct": 100,
+      "mv_match_pct": 100,
+      "sr_match_pct": 100,
+      "combined_match_pct": 100
+    }
+  }
+}

@@ -1,0 +1,313 @@
+package encoder
+
+import (
+	"testing"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
+	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
+)
+
+// TestVP9MvPredNumCandidates pins the libvpx num_mv_refs formula.
+// libvpx ref: vp9/encoder/vp9_rd.c:599-601.
+func TestVP9MvPredNumCandidates(t *testing.T) {
+	cases := []struct {
+		name             string
+		bsize            common.BlockSize
+		maxPartitionSize common.BlockSize
+		want             int
+	}{
+		{"bsize_lt_max", common.Block16x16, common.Block64x64, 3},
+		{"bsize_eq_max", common.Block64x64, common.Block64x64, 2},
+		{"bsize_gt_max_impossible", common.Block64x64, common.Block32x32, 2},
+		{"bsize_4x4_max_64", common.Block4x4, common.Block64x64, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MvPredNumCandidates(tc.bsize, tc.maxPartitionSize)
+			if got != tc.want {
+				t.Errorf("MvPredNumCandidates(%v, %v) = %d, want %d",
+					tc.bsize, tc.maxPartitionSize, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestVP9MvPredScanCandidatesNearSameNearest pins the i==1 dedup when
+// ref_mvs[0] == ref_mvs[1].
+// libvpx ref: vp9/encoder/vp9_rd.c:608-609 + 615.
+func TestVP9MvPredScanCandidatesNearSameNearest(t *testing.T) {
+	const w, h = 8, 8
+	const stride = 32
+	const refRows = 32
+	src := make([]byte, stride*h)
+	ref := make([]byte, stride*refRows)
+	for i := range src {
+		src[i] = byte(i & 0xff)
+	}
+	for i := range ref {
+		ref[i] = byte(i & 0xff)
+	}
+	cands := []MvPredInputCandidate{
+		{MV: vp9dec.MV{Row: 8, Col: 8}, Valid: true}, // fp=(1,1)
+		{MV: vp9dec.MV{Row: 8, Col: 8}, Valid: true}, // duplicate
+		{Valid: false},
+	}
+	// Both candidates would scan position (1,1) but near_same_nearest
+	// triggers and only one is scanned. The expected best_index = 0.
+	result := MvPredScanCandidates(cands, 3,
+		src, stride, 0, 0,
+		ref, stride, 0, 0, 0, 0, refRows,
+		w, h)
+	if result.BestIndex != 0 {
+		t.Errorf("BestIndex = %d, want 0 (libvpx near_same_nearest dedup)",
+			result.BestIndex)
+	}
+	if result.BestSad == ^uint64(0) {
+		t.Error("BestSad sentinel — candidate scan never ran")
+	}
+}
+
+// TestVP9MvPredScanCandidatesZeroSeenDedup pins the libvpx zero_seen
+// guard: when two candidates resolve to (0,0) full-pel, only the first
+// is scanned.
+// libvpx ref: vp9/encoder/vp9_rd.c:620-621.
+func TestVP9MvPredScanCandidatesZeroSeenDedup(t *testing.T) {
+	const w, h = 8, 8
+	const stride = 16
+	src := make([]byte, stride*h)
+	ref := make([]byte, stride*h)
+	// Make src = ref so SAD at (0,0) is zero.
+	for i := range src {
+		src[i] = 100
+		ref[i] = 100
+	}
+	cands := []MvPredInputCandidate{
+		// MV (3,3) eighth-pel rounds to (1,1) full-pel:
+		//   fp_row = (3 + 3 + 1) >> 3 = 0
+		//   fp_col = (3 + 3 + 1) >> 3 = 0
+		// So this is a "near-zero" candidate.
+		{MV: vp9dec.MV{Row: 3, Col: 3}, Valid: true},
+		// MV (1,1) eighth-pel also rounds to (0,0).
+		{MV: vp9dec.MV{Row: 1, Col: 1}, Valid: true},
+		{Valid: false},
+	}
+	result := MvPredScanCandidates(cands, 3,
+		src, stride, 0, 0,
+		ref, stride, 0, 0, 0, 0, h,
+		w, h)
+	if result.BestSad != 0 {
+		t.Errorf("BestSad = %d, want 0 (matched ref at fp_offset (0,0))",
+			result.BestSad)
+	}
+	if result.BestIndex != 0 {
+		t.Errorf("BestIndex = %d, want 0 (libvpx zero_seen dedup keeps first)",
+			result.BestIndex)
+	}
+}
+
+// TestVP9MvPredScanCandidatesInvalidSkip pins the INT16_MAX skip semantics.
+// govpx encodes "absent" as valid=false; libvpx encodes it as
+// row==INT16_MAX || col==INT16_MAX.
+// libvpx ref: vp9/encoder/vp9_rd.c:614.
+func TestVP9MvPredScanCandidatesInvalidSkip(t *testing.T) {
+	const w, h = 8, 8
+	const stride = 16
+	src := make([]byte, stride*h)
+	ref := make([]byte, stride*h)
+	for i := range src {
+		src[i] = byte(i & 0xff)
+		ref[i] = byte(i & 0xff)
+	}
+	cands := []MvPredInputCandidate{
+		{Valid: false},
+		{Valid: false},
+		{Valid: false},
+	}
+	result := MvPredScanCandidates(cands, 3,
+		src, stride, 0, 0,
+		ref, stride, 0, 0, 0, 0, h,
+		w, h)
+	if result.BestSad != ^uint64(0) {
+		t.Errorf("BestSad = %d, want sentinel (no valid candidates scanned)",
+			result.BestSad)
+	}
+}
+
+// TestVP9MvPredScanCandidatesMaxMvContext pins the max_mv tracker that
+// libvpx writes to x->max_mv_context[ref_frame].
+// libvpx ref: vp9/encoder/vp9_rd.c:618 + 637.
+func TestVP9MvPredScanCandidatesMaxMvContext(t *testing.T) {
+	const w, h = 8, 8
+	const stride = 16
+	src := make([]byte, stride*h)
+	ref := make([]byte, stride*h)
+	cands := []MvPredInputCandidate{
+		// |row|/|col| = max(|8|, |16|) >> 3 = 2.
+		{MV: vp9dec.MV{Row: 8, Col: 16}, Valid: true},
+		// |row|/|col| = max(|24|, |-7|) >> 3 = 3.
+		{MV: vp9dec.MV{Row: 24, Col: -7}, Valid: true},
+		{Valid: false},
+	}
+	result := MvPredScanCandidates(cands, 3,
+		src, stride, 0, 0,
+		ref, stride, 0, 0, 0, 0, h,
+		w, h)
+	if result.MaxMvContext != 3 {
+		t.Errorf("MaxMvContext = %d, want 3 (max(|row|,|col|) >> 3 across candidates)",
+			result.MaxMvContext)
+	}
+}
+
+var benchmarkVP9MvPredResult MvPredResult
+
+func BenchmarkVP9MvPredScanCandidatesSlice(b *testing.B) {
+	src, ref, candidates := benchmarkVP9MvPredInputs()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchmarkVP9MvPredResult = MvPredScanCandidates(candidates[:], 3,
+			src, 64, 16, 16,
+			ref, 96, 16, 16, 16, 16, 96,
+			32, 32)
+	}
+}
+
+func BenchmarkVP9MvPredScanCandidateArray(b *testing.B) {
+	src, ref, candidates := benchmarkVP9MvPredInputs()
+	b.ReportAllocs()
+	for b.Loop() {
+		benchmarkVP9MvPredResult = MvPredScanCandidateArray(&candidates, 3,
+			src, 64, 16, 16,
+			ref, 96, 16, 16, 16, 16, 96,
+			32, 32)
+	}
+}
+
+func benchmarkVP9MvPredInputs() ([]byte, []byte, [MvPredMaxCandidates]MvPredInputCandidate) {
+	src := make([]byte, 64*64)
+	ref := make([]byte, 96*96)
+	for i := range src {
+		src[i] = byte((i*17 + 31) & 0xff)
+	}
+	for i := range ref {
+		ref[i] = byte((i*13 + 7) & 0xff)
+	}
+	candidates := [MvPredMaxCandidates]MvPredInputCandidate{
+		{MV: vp9dec.MV{Row: 12, Col: -9}, Valid: true},
+		{MV: vp9dec.MV{Row: -18, Col: 6}, Valid: true},
+		{MV: vp9dec.MV{Row: 4, Col: 20}, Valid: true},
+	}
+	return src, ref, candidates
+}
+
+// TestVP9NewmvDiffBiasOutOfBandShift pins the libvpx out-of-band row/col
+// shift adjustment.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1346-1351.
+func TestVP9NewmvDiffBiasOutOfBandShift(t *testing.T) {
+	above := &vp9dec.NeighborMi{
+		Mv: [2]vp9dec.MV{{Row: 0, Col: 0}},
+	}
+	left := &vp9dec.NeighborMi{
+		Mv: [2]vp9dec.MV{{Row: 0, Col: 0}},
+	}
+	// row_diff = 0 - 100 = -100, abs > 48 → fire.
+	// bsize > BLOCK_32X32 → RDCost << 1.
+	got := NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
+		100, 0, above, left, false, false, false, false, false)
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when |row_diff| > 48 and bsize > 32x32")
+	}
+	if got.RDCost != 2000 {
+		t.Errorf("RDCost = %d, want 2000 (1000 << 1 for bsize > BLOCK_32X32)",
+			got.RDCost)
+	}
+
+	// bsize <= BLOCK_32X32 → RDCost = 3 * RDCost / 2.
+	got = NewmvDiffBias(common.NewMv, 1000, common.Block16x16,
+		100, 0, above, left, false, false, false, false, false)
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when |row_diff| > 48 and bsize <= 32x32")
+	}
+	if got.RDCost != 1500 {
+		t.Errorf("RDCost = %d, want 1500 (3 * 1000 / 2 for bsize <= BLOCK_32X32)",
+			got.RDCost)
+	}
+}
+
+// TestVP9NewmvDiffBiasNoFireUnderThreshold pins the gate that no
+// adjustment is applied when the MV is close to the neighbour average.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1346.
+func TestVP9NewmvDiffBiasNoFireUnderThreshold(t *testing.T) {
+	above := &vp9dec.NeighborMi{
+		Mv: [2]vp9dec.MV{{Row: 100, Col: 100}},
+	}
+	left := &vp9dec.NeighborMi{
+		Mv: [2]vp9dec.MV{{Row: 100, Col: 100}},
+	}
+	// al_avg = (100+100)/2 = 100. mv = (100,100). diff = 0.
+	got := NewmvDiffBias(common.NewMv, 1000, common.Block64x64,
+		100, 100, above, left, false, false, false, false, false)
+	if got.Adjusted {
+		t.Error("expected Adjusted=false when row/col_diff is below 48")
+	}
+	if got.RDCost != 1000 {
+		t.Errorf("RDCost = %d, want 1000 (no adjustment)", got.RDCost)
+	}
+}
+
+// TestVP9NewmvDiffBiasSkipsNonNewMv pins the libvpx mode gate.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1313 — outer if(this_mode == NEWMV).
+func TestVP9NewmvDiffBiasSkipsNonNewMv(t *testing.T) {
+	above := &vp9dec.NeighborMi{}
+	left := &vp9dec.NeighborMi{}
+	got := NewmvDiffBias(common.NearestMv, 1000, common.Block64x64,
+		100, 100, above, left, false, false, false, false, false)
+	if got.Adjusted {
+		t.Error("expected NEARESTMV to bypass the NEWMV branch (no shift)")
+	}
+	if got.RDCost != 1000 {
+		t.Errorf("RDCost = %d, want 1000 (NEARESTMV unmodified)", got.RDCost)
+	}
+}
+
+// TestVP9NewmvDiffBiasNoiseEstimateBias pins the libvpx noise-estimate
+// bias clause.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1354-1356.
+func TestVP9NewmvDiffBiasNoiseEstimateBias(t *testing.T) {
+	// Skip the NEWMV branch by choosing ZEROMV; we want only the
+	// noise-estimate branch to fire.
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
+		1, 1, nil, nil, true, true, true, false, false)
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when noise-estimate gate passes")
+	}
+	// libvpx: this_rdc->RDCost = 7 * (this_rdc->RDCost >> 3);
+	// 8000 >> 3 = 1000; 7 * 1000 = 7000.
+	if got.RDCost != 7000 {
+		t.Errorf("RDCost = %d, want 7000 (7 * 8000 >> 3)", got.RDCost)
+	}
+}
+
+// TestVP9NewmvDiffBiasNoiseEstimateGateLast pins the is_last_frame gate
+// on the noise-estimate clause.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1354.
+func TestVP9NewmvDiffBiasNoiseEstimateRequiresLast(t *testing.T) {
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block32x32,
+		1, 1, nil, nil, false, true, true, false, false)
+	if got.Adjusted {
+		t.Error("noise-estimate clause must require is_last_frame")
+	}
+}
+
+// TestVP9NewmvDiffBiasLowvarHighsumdiffBias pins the lowvar_highsumdiff
+// branch.
+// libvpx ref: vp9/encoder/vp9_pickmode.c:1358-1361.
+func TestVP9NewmvDiffBiasLowvarHighsumdiffBias(t *testing.T) {
+	got := NewmvDiffBias(common.ZeroMv, 8000, common.Block16x16,
+		1, 1, nil, nil, true, false, false, true, false)
+	if !got.Adjusted {
+		t.Error("expected Adjusted=true when lowvar_highsumdiff gate passes")
+	}
+	if got.RDCost != 7000 {
+		t.Errorf("RDCost = %d, want 7000 (7 * 8000 >> 3)", got.RDCost)
+	}
+}

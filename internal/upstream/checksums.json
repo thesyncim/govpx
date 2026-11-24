@@ -1,0 +1,183 @@
+{
+  "upstream": {
+    "project": "chromium/webm/libvpx",
+    "tag": "v1.16.0",
+    "tag_object": "04def0a07f8bfa95785e30e6db95036cda17f9b2",
+    "commit": "1024874c5919305883187e2953de8fcb4c3d7fa6",
+    "tree": "5e48c010122b13fe684e4419d45feee3157d7387"
+  },
+  "archive": {
+    "url": "https://github.com/webmproject/libvpx/archive/v1.16.0/libvpx-1.16.0.tar.gz",
+    "md5": "fb51551487ecfdec93f3d243b7fb1a67"
+  },
+  "ported_files": [
+    {
+      "path": "vp8/common/blockd.h",
+      "sha256": "63bf20f34fadbd989596fde3bcbbeafa2f804a7084f375679592dee6e7aa6c7e"
+    },
+    {
+      "path": "vp8/common/coefupdateprobs.h",
+      "sha256": "4e3e4cb5df8292bcd6ff49a317dadeaab4b5c53be6665e2ac82377424161e981"
+    },
+    {
+      "path": "vp8/common/dequantize.c",
+      "sha256": "1c6fcef0275aa7680718789cd34c57aed6bfd453cfccd7b0cc2bba7068464626"
+    },
+    {
+      "path": "vp8/common/default_coef_probs.h",
+      "sha256": "a3aab021e2a4524f530205eae1463aa861cef0108c77770ba85050e1f94bde4a"
+    },
+    {
+      "path": "vp8/common/entropymode.c",
+      "sha256": "a8b1d914c9ec1e75e823cc8eb9444e6e20fd754ed70cb6851220c20e4940ef2f"
+    },
+    {
+      "path": "vp8/common/entropymode.h",
+      "sha256": "69d990d690b11465ffc8010b950367a3f9eb0d9af2eab91b974d13636bab003e"
+    },
+    {
+      "path": "vp8/common/vp8_entropymodedata.h",
+      "sha256": "6d0ea636a3242aada520d72cc17086700cbed6698508c3dcbd407e3821d506f1"
+    },
+    {
+      "path": "vp8/common/entropymv.c",
+      "sha256": "4f03678d718fe592dabdab9e151e8efed322e6ac10e43f410f93eaae76bbec4c"
+    },
+    {
+      "path": "vp8/common/entropymv.h",
+      "sha256": "fb13e5ca70886b46b2a32dfb2261a91410b8e4c13560871502261dcae6e027f7"
+    },
+    {
+      "path": "vp8/common/entropy.c",
+      "sha256": "b678063f72e2a153d11b47502c9c4d9ec63d99ae80d7d610b445277658022eb2"
+    },
+    {
+      "path": "vp8/common/entropy.h",
+      "sha256": "3cec64b7018cd9a7aeccaca07ff747981e616c7f3de8407cec56b852c33f632a"
+    },
+    {
+      "path": "vp8/common/filter.c",
+      "sha256": "6bfa6b03201d825731401cde4a2145df9f9af83a295be14b3503cf336e947dc3"
+    },
+    {
+      "path": "vp8/common/filter.h",
+      "sha256": "a563876cb35c94c4921cbc1081f7cabfe15eb73f10c7e8434db4e0f376423988"
+    },
+    {
+      "path": "vp8/common/findnearmv.h",
+      "sha256": "f081103e72a85be09df98e70bbc102275433aaeddf90724d7b030669862dabf2"
+    },
+    {
+      "path": "vp8/common/findnearmv.c",
+      "sha256": "80231cfb34c69ff7f7a6ce7a77386e74c90085344ed2b4579f3eeec9140bc49f"
+    },
+    {
+      "path": "vp8/common/idct_blk.c",
+      "sha256": "a3ac9af0931ad1786a079f4d84699d21e305d671ae317ddd9bd05c209bd13bb2"
+    },
+    {
+      "path": "vp8/common/idctllm.c",
+      "sha256": "a6833e959660a6496672ff7d4ba603f57a8eae4379247a9f40c14fc898f656e4"
+    },
+    {
+      "path": "vp8/common/loopfilter.h",
+      "sha256": "113cc38a41503434075d9ec4e936d1739cc12985c50c7650a7f608905692cff8"
+    },
+    {
+      "path": "vp8/common/modecont.c",
+      "sha256": "e894dbd079305db82cd029bce46032a102970f4521700f4a6f7cf2d2b7d846bf"
+    },
+    {
+      "path": "vp8/common/modecont.h",
+      "sha256": "9fe20879395536d1c0df10667e1dbe08aa95fd20ed3306bfc1bfb5b57fce7ccf"
+    },
+    {
+      "path": "vp8/common/loopfilter_filters.c",
+      "sha256": "279786a3f0563986507274e5ac91132852bd620d7ed4a8f2db92039b5c6da4f9"
+    },
+    {
+      "path": "vp8/common/onyx.h",
+      "sha256": "a238b4c0bb609914c545d93a35c54655a04ca35484a5f00a89d578c075c0710c"
+    },
+    {
+      "path": "vp8/common/onyxc_int.h",
+      "sha256": "94b6db61c954bf9153f1c4558162807402a87944b168f2d784268e50391424cd"
+    },
+    {
+      "path": "vp8/common/quant_common.c",
+      "sha256": "fc8471698f061e5dcb9e7caef0df3bceec9921ec3aada2e1dc4c3348a5d7e8f2"
+    },
+    {
+      "path": "vp8/common/quant_common.h",
+      "sha256": "a1cf144ce2e77ac9a6ff233bf40c055bc520141bb9fce9205b364a489757354c"
+    },
+    {
+      "path": "vp8/common/reconinter.c",
+      "sha256": "c84c43167981f89b966fef57abc58ec0e347f74916459a07a6f10c6d459291b0"
+    },
+    {
+      "path": "vp8/common/reconinter.h",
+      "sha256": "382e2eef893d2eda4fc158e09353c13b23c8bfb4e0c725f0e7b1615fbf8bc7d9"
+    },
+    {
+      "path": "vp8/common/reconintra.c",
+      "sha256": "3a14f08fc0674ccfa092043fdcf5804ae7dbc8fcd5e393fbd25afc5dbe3b1e9a"
+    },
+    {
+      "path": "vp8/common/reconintra4x4.c",
+      "sha256": "7346991d8bd1ba071d8b941f55ca64e2fbac82eea5198822a3a063fa3915bae0"
+    },
+    {
+      "path": "vpx_dsp/intrapred.c",
+      "sha256": "a12832eeaf5c74b765d001f278f02698b435baad64b486522ab80de269968cea"
+    },
+    {
+      "path": "vpx_dsp/vpx_dsp_common.h",
+      "sha256": "2c33e52935eefc7a2aa72ee04e2e235b25d64c7fa06ea51215ee2bcc6baf2893"
+    },
+    {
+      "path": "vp8/decoder/dboolhuff.c",
+      "sha256": "a4adbe494cbf7a75c3c6743deeb8ffc99e605c5b21a23f76a5871c27dbc1fe12"
+    },
+    {
+      "path": "vp8/decoder/dboolhuff.h",
+      "sha256": "dd08337dc4178f3da7421c032bc7fea51268c01fcea5a11d77268464627c19b5"
+    },
+    {
+      "path": "vp8/decoder/decodeframe.c",
+      "sha256": "828ec9e7a0e168aa4cb445a9d420271987ac8cf99c14812dc2eaa696e4d41559"
+    },
+    {
+      "path": "vp8/decoder/decodemv.c",
+      "sha256": "5423431b7d6913f30e41f41e1db7b7e284b04e99736d22ffbdb80e715b0e267c"
+    },
+    {
+      "path": "vp8/decoder/decodemv.h",
+      "sha256": "e336b9252f71dffd538782524a9889891b9985bba38102a614b166dc826f88eb"
+    },
+    {
+      "path": "vp8/decoder/detokenize.c",
+      "sha256": "0d0680c1ce295cd780b1f973b4eab6cfd0144c3afc8a53555faf79afc4903b41"
+    },
+    {
+      "path": "vp8/decoder/detokenize.h",
+      "sha256": "3ecc6e20a9c26fa4bc3035ea0a34ceabf97db63e5998c5635e44e067616c56a2"
+    },
+    {
+      "path": "vp8/decoder/treereader.h",
+      "sha256": "b5b8227e322c342ff224a432f1c6da7f62b16c68349f21931c08371ece4545f4"
+    },
+    {
+      "path": "vp8/common/treecoder.h",
+      "sha256": "bb478e554f554078a2c41400694be5eae022fb9163e2cd72a091720eba056f24"
+    },
+    {
+      "path": "vp8/vp8_dx_iface.c",
+      "sha256": "583db9b3a0a5515aa8830a6140fbae52761210496a88688ba2a0302743b49ea5"
+    },
+    {
+      "path": "vp8/common/vp8_loopfilter.c",
+      "sha256": "85e3a09c7ab53a38f78db870f06de44abde1ce0553d8245fab51a27cf10e3a83"
+    }
+  ]
+}

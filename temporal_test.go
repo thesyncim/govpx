@@ -1,0 +1,346 @@
+package govpx
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestTemporalLayeringPatternsMatchLibvpxExample(t *testing.T) {
+	f := temporalTestFlags
+	tests := []struct {
+		mode            TemporalLayeringMode
+		layers          int
+		periodicity     int
+		flagPeriodicity int
+		rateDecimator   []int
+		layerID         []int
+		flags           []EncodeFlags
+	}{
+		{
+			mode:            TemporalLayeringOneLayer,
+			layers:          1,
+			periodicity:     1,
+			flagPeriodicity: 1,
+			rateDecimator:   []int{1},
+			layerID:         []int{0},
+			flags:           []EncodeFlags{f(EncodeForceKeyFrame, EncodeNoUpdateGolden, EncodeNoUpdateAltRef)},
+		},
+		{
+			mode:            TemporalLayeringTwoLayers,
+			layers:          2,
+			periodicity:     2,
+			flagPeriodicity: 2,
+			rateDecimator:   []int{2, 1},
+			layerID:         []int{0, 1},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoReferenceGolden, EncodeNoReferenceAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoReferenceAltRef),
+			},
+		},
+		{
+			mode:            TemporalLayeringTwoLayersThreeFrame,
+			layers:          2,
+			periodicity:     3,
+			flagPeriodicity: 3,
+			rateDecimator:   []int{3, 1},
+			layerID:         []int{0, 1, 1},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersSixFrame,
+			layers:          3,
+			periodicity:     6,
+			flagPeriodicity: 6,
+			rateDecimator:   []int{6, 3, 1},
+			layerID:         []int{0, 2, 2, 1, 2, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateLast),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateLast),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersNoInterLayerPrediction,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 4,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersLayerOnePrediction,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 4,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayers,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 4,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden),
+			},
+		},
+		{
+			mode:            TemporalLayeringFiveLayers,
+			layers:          5,
+			periodicity:     16,
+			flagPeriodicity: 16,
+			rateDecimator:   []int{16, 8, 4, 2, 1},
+			layerID:         []int{0, 4, 3, 4, 2, 4, 3, 4, 1, 4, 3, 4, 2, 4, 3, 4},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateGolden),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceLast, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateGolden),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceLast, EncodeNoReferenceGolden),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateGolden),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceLast, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateGolden),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+			},
+		},
+		{
+			mode:            TemporalLayeringTwoLayersWithSync,
+			layers:          2,
+			periodicity:     2,
+			flagPeriodicity: 8,
+			rateDecimator:   []int{2, 1},
+			layerID:         []int{0, 1},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateLast, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersWithSync,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 8,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden),
+				f(EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateAltRef),
+				f(EncodeNoUpdateLast, EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateEntropy),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersAltRefWithSync,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 8,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeForceKeyFrame, EncodeNoUpdateAltRef, EncodeNoReferenceGolden),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoReferenceGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoReferenceGolden),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersOneReference,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 4,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateGolden, EncodeNoUpdateAltRef),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden),
+				f(EncodeNoReferenceGolden, EncodeNoReferenceAltRef, EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoReferenceLast, EncodeNoReferenceAltRef, EncodeNoUpdateLast, EncodeNoUpdateGolden),
+			},
+		},
+		{
+			mode:            TemporalLayeringThreeLayersNoSync,
+			layers:          3,
+			periodicity:     4,
+			flagPeriodicity: 8,
+			rateDecimator:   []int{4, 2, 1},
+			layerID:         []int{0, 2, 1, 2},
+			flags: []EncodeFlags{
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoReferenceGolden),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoReferenceGolden),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+				f(EncodeNoUpdateAltRef, EncodeNoUpdateLast),
+				f(EncodeNoUpdateGolden, EncodeNoUpdateAltRef, EncodeNoUpdateLast, EncodeNoUpdateEntropy),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		pattern, ok := temporalLayeringPattern(tc.mode)
+		if !ok {
+			t.Fatalf("mode %d not available", tc.mode)
+		}
+		if pattern.Layers != tc.layers || pattern.Periodicity != tc.periodicity || pattern.FlagPeriodicity != tc.flagPeriodicity {
+			t.Fatalf("mode %d shape = layers:%d periodicity:%d flag:%d, want %d/%d/%d", tc.mode, pattern.Layers, pattern.Periodicity, pattern.FlagPeriodicity, tc.layers, tc.periodicity, tc.flagPeriodicity)
+		}
+		assertIntPrefix(t, "rate decimator", pattern.RateDecimator[:], tc.rateDecimator)
+		assertIntPrefix(t, "layer id", pattern.LayerID[:], tc.layerID)
+		assertFlagPrefix(t, "flags", pattern.Flags[:], tc.flags)
+	}
+}
+
+func TestTemporalScalabilityDerivesLibvpxVP8RTCBitrates(t *testing.T) {
+	two, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1000,
+		TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers},
+	})
+	if err != nil {
+		t.Fatalf("two-layer NewVP8Encoder returned error: %v", err)
+	}
+	if got := two.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 600 || got[1] != 1000 {
+		t.Fatalf("two-layer bitrates = %v, want 600/1000", got)
+	}
+	if err := two.SetBitrateKbps(800); err != nil {
+		t.Fatalf("two-layer SetBitrateKbps returned error: %v", err)
+	}
+	if got := two.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 480 || got[1] != 800 {
+		t.Fatalf("two-layer updated bitrates = %v, want 480/800", got)
+	}
+
+	three, err := NewVP8Encoder(EncoderOptions{
+		Width:               16,
+		Height:              16,
+		FPS:                 30,
+		RateControlMode:     RateControlCBR,
+		TargetBitrateKbps:   1000,
+		TemporalScalability: TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringThreeLayers},
+	})
+	if err != nil {
+		t.Fatalf("three-layer NewVP8Encoder returned error: %v", err)
+	}
+	if got := three.opts.TemporalScalability.LayerTargetBitrateKbps; got[0] != 400 || got[1] != 600 || got[2] != 1000 {
+		t.Fatalf("three-layer bitrates = %v, want 400/600/1000", got)
+	}
+}
+
+func TestTemporalLayerIDOverrideSupersedesPatternLayer(t *testing.T) {
+	var temporal temporalState
+	if err := temporal.configure(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}, 1200); err != nil {
+		t.Fatalf("configure returned error: %v", err)
+	}
+	if err := temporal.setLayerID(1); err != nil {
+		t.Fatalf("setLayerID returned error: %v", err)
+	}
+	meta := temporal.nextFrame(timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if meta.LayerID != 1 || meta.LayerCount != 2 || meta.LayerTargetBitrateKbps != 480 || meta.LayerFrameTargetBits != 32000 {
+		t.Fatalf("manual layer meta = id:%d count:%d target:%d frame:%d, want 1/2/480/32000", meta.LayerID, meta.LayerCount, meta.LayerTargetBitrateKbps, meta.LayerFrameTargetBits)
+	}
+	if meta.Flags != temporal.pattern.Flags[0] {
+		t.Fatalf("manual layer flags = 0x%x, want unchanged pattern flags 0x%x", uint32(meta.Flags), uint32(temporal.pattern.Flags[0]))
+	}
+
+	if err := temporal.setLayerID(0); err != nil {
+		t.Fatalf("setLayerID base returned error: %v", err)
+	}
+	meta = temporal.nextFrame(timingState{timebaseNum: 1, timebaseDen: 30, frameDuration: 1})
+	if meta.LayerID != 0 || meta.LayerTargetBitrateKbps != 720 || meta.LayerFrameTargetBits != 48000 {
+		t.Fatalf("manual base meta = id:%d target:%d frame:%d, want 0/720/48000", meta.LayerID, meta.LayerTargetBitrateKbps, meta.LayerFrameTargetBits)
+	}
+}
+
+func TestTemporalLayerIDValidationMirrorsLibvpx(t *testing.T) {
+	var temporal temporalState
+	if err := temporal.setLayerID(0); err != nil {
+		t.Fatalf("setLayerID one-layer returned error: %v", err)
+	}
+	if err := temporal.setLayerID(1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID one-layer high error = %v, want ErrInvalidConfig", err)
+	}
+	if err := temporal.setLayerID(-1); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID negative error = %v, want ErrInvalidConfig", err)
+	}
+
+	if err := temporal.configure(TemporalScalabilityConfig{Enabled: true, Mode: TemporalLayeringTwoLayers}, 1200); err != nil {
+		t.Fatalf("configure returned error: %v", err)
+	}
+	if err := temporal.setLayerID(2); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("setLayerID two-layer high error = %v, want ErrInvalidConfig", err)
+	}
+}
+
+func temporalTestFlags(flags ...EncodeFlags) EncodeFlags {
+	var out EncodeFlags
+	for _, flag := range flags {
+		out |= flag
+	}
+	return out
+}
+
+func assertIntPrefix(t *testing.T, name string, got []int, want []int) {
+	t.Helper()
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s[%d] = %d, want %d", name, i, got[i], want[i])
+		}
+	}
+}
+
+func assertFlagPrefix(t *testing.T, name string, got []EncodeFlags, want []EncodeFlags) {
+	t.Helper()
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s[%d] = 0x%x, want 0x%x", name, i, uint32(got[i]), uint32(want[i]))
+		}
+	}
+}

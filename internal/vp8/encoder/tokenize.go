@@ -1,0 +1,395 @@
+package encoder
+
+import (
+	"encoding/binary"
+	"github.com/thesyncim/govpx/internal/vp8/common"
+	"github.com/thesyncim/govpx/internal/vp8/tables"
+)
+
+// Ported from libvpx v1.16.0 vp8/encoder/tokenize.c coefficient token
+// selection and vp8/encoder/bitstream.c coefficient token packing.
+
+type TokenContextPlanes struct {
+	Y1 [4]uint8
+	U  [2]uint8
+	V  [2]uint8
+	Y2 uint8
+}
+
+func WriteBlockTokens(w *BoolWriter, probs *tables.CoefficientProbs, blockType int, ctx int, skipDC int, qcoeff *[16]int16) error {
+	// Uint range checks collapse the (x < 0 || x >= max) dual-bound
+	// pairs into one branch each.
+	if w == nil || probs == nil || qcoeff == nil ||
+		uint(blockType) >= uint(tables.BlockTypes) ||
+		uint(ctx) >= uint(tables.PrevCoefContexts) ||
+		uint(skipDC) > 1 {
+		return ErrInvalidPacketConfig
+	}
+
+	return writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, qcoeff, BlockCoeffEOB(qcoeff, skipDC))
+}
+
+func WriteCoefficientMacroblockTokens(w *BoolWriter, probs *tables.CoefficientProbs, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
+	if w == nil || probs == nil || above == nil || left == nil || coeffs == nil {
+		return ErrInvalidPacketConfig
+	}
+	return writeCoefficientMacroblockTokensWithEOBs(w, probs, is4x4, above, left, coeffs)
+}
+
+func writeCoefficientMacroblockTokensWithEOBs(w *BoolWriter, probs *tables.CoefficientProbs, is4x4 bool, above *TokenContextPlanes, left *TokenContextPlanes, coeffs *MacroblockCoefficients) error {
+	blockType := 0
+	skipDC := 0
+	if !is4x4 {
+		eob := int(coeffs.EOB[24])
+		ctx := int(above.Y2 + left.Y2)
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
+		if eob == 0 {
+			w.WriteBool(0, (*probs)[1][0][ctx][0])
+		} else {
+			if err := writeBlockTokensEOB(w, probs, 1, ctx, 0, &coeffs.QCoeff[24], eob); err != nil {
+				return err
+			}
+		}
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		above.Y2 = hasCoeffs
+		left.Y2 = hasCoeffs
+
+		blockType = 0
+		skipDC = 1
+	} else {
+		blockType = 3
+	}
+
+	for block := range 16 {
+		eob := max(int(coeffs.EOB[block]), skipDC)
+		a := block & 3
+		l := (block & 0x0c) >> 2
+		ctx := int(above.Y1[a] + left.Y1[l])
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
+		if eob <= skipDC {
+			w.WriteBool(0, (*probs)[blockType][skipDC][ctx][0])
+		} else {
+			if err := writeBlockTokensEOB(w, probs, blockType, ctx, skipDC, &coeffs.QCoeff[block], eob); err != nil {
+				return err
+			}
+		}
+		hasCoeffs := uint8(0)
+		if eob > skipDC {
+			hasCoeffs = 1
+		}
+		above.Y1[a] = hasCoeffs
+		left.Y1[l] = hasCoeffs
+	}
+
+	for block := 16; block < 24; block++ {
+		eob := int(coeffs.EOB[block])
+		a, l := common.UVTokenContextIndex(block)
+		ctx := int(getTokenUVContext(above, a) + getTokenUVContext(left, l))
+		if ctx >= tables.PrevCoefContexts {
+			return ErrInvalidPacketConfig
+		}
+		if eob == 0 {
+			w.WriteBool(0, (*probs)[2][0][ctx][0])
+		} else {
+			if err := writeBlockTokensEOB(w, probs, 2, ctx, 0, &coeffs.QCoeff[block], eob); err != nil {
+				return err
+			}
+		}
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		setTokenUVContext(above, a, hasCoeffs)
+		setTokenUVContext(left, l, hasCoeffs)
+	}
+	return nil
+}
+
+func WriteCoefficientTokenGrid(w *BoolWriter, rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if w == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := range cols {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := range rows {
+		left := TokenContextPlanes{}
+		for col := range cols {
+			index := row*cols + col
+			mode := &modes[index]
+			if !validKeyFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
+			if mode.MBSkipCoeff {
+				resetTokenContext(&above[col], &left, mode.YMode == common.BPred)
+				continue
+			}
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
+	}
+	if w.Err() != nil {
+		return w.Err()
+	}
+	return nil
+}
+
+func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients, above []TokenContextPlanes, probs *tables.CoefficientProbs) error {
+	if rows < 0 || cols < 0 {
+		return ErrModeBufferTooSmall
+	}
+	if rows != 0 && cols > int(^uint(0)>>1)/rows {
+		return ErrModeBufferTooSmall
+	}
+	required := rows * cols
+	if writers == nil || probs == nil || len(modes) < required || len(coeffs) < required || len(above) < cols || partitions != 2 && partitions != 4 && partitions != 8 {
+		return ErrModeBufferTooSmall
+	}
+
+	for col := range cols {
+		above[col] = TokenContextPlanes{}
+	}
+	for row := range rows {
+		w := &writers[row&(partitions-1)]
+		left := TokenContextPlanes{}
+		for col := range cols {
+			index := row*cols + col
+			mode := &modes[index]
+			if !validKeyFrameMacroblockMode(mode) {
+				return ErrInvalidPacketConfig
+			}
+			if mode.MBSkipCoeff {
+				resetTokenContext(&above[col], &left, mode.YMode == common.BPred)
+				continue
+			}
+			if err := writeCoefficientMacroblockTokensWithEOBs(w, probs, mode.YMode == common.BPred, &above[col], &left, &coeffs[index]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
+	if uint(skipDC) <= 1 {
+		if qcoeff[0]|qcoeff[1]|qcoeff[2]|qcoeff[3]|qcoeff[4]|qcoeff[5]|qcoeff[6]|qcoeff[7]|
+			qcoeff[8]|qcoeff[9]|qcoeff[10]|qcoeff[11]|qcoeff[12]|qcoeff[13]|qcoeff[14]|qcoeff[15] == 0 {
+			return skipDC
+		}
+		for start := 15; start >= skipDC; start-- {
+			rc := int(tables.DefaultZigZag1D[start])
+			if qcoeff[rc] != 0 {
+				return start + 1
+			}
+		}
+		return skipDC
+	}
+
+	for pos := 15; pos >= skipDC; pos-- {
+		rc := int(tables.DefaultZigZag1D[pos])
+		if qcoeff[rc] != 0 {
+			return pos + 1
+		}
+	}
+	return skipDC
+}
+
+func (coeffs *MacroblockCoefficients) SetBlockEOB(block int, eob int) {
+	if coeffs == nil || uint(block) >= uint(len(coeffs.EOB)) {
+		return
+	}
+	eob = min(max(eob, 0), 16)
+	coeffs.EOB[block] = uint8(eob)
+}
+
+func (coeffs *MacroblockCoefficients) BlockEOB(block int, skipDC int) int {
+	if coeffs == nil || uint(block) >= uint(len(coeffs.EOB)) {
+		return skipDC
+	}
+	return max(int(coeffs.EOB[block]), skipDC)
+}
+
+// coeffAbsTokenLUT maps abs(coeff) in [0, DCTMaxValue] to the VP8 entropy
+// token id. Index 0 carries tables.ZeroToken so the table can also be
+// consulted by callers that prefer a single load over an explicit
+// "coeff == 0" branch.
+//
+// Materializing the classifier as a 2049-byte lookup turns the hot
+// per-coefficient classification (previously a helper with a six-way
+// range-comparison switch) into a single byte load that the compiler can fold
+// into the surrounding loop body. Out-of-range magnitudes
+// (abs(coeff) > DCTMaxValue) are filtered by the caller before
+// indexing, so the LUT itself never needs a sentinel value.
+var coeffAbsTokenLUT = buildCoeffAbsTokenLUT()
+
+func buildCoeffAbsTokenLUT() [tables.DCTMaxValue + 1]uint8 {
+	var lut [tables.DCTMaxValue + 1]uint8
+	for i := 0; i <= tables.DCTMaxValue; i++ {
+		switch {
+		case i == 0:
+			lut[i] = tables.ZeroToken
+		case i == 1:
+			lut[i] = tables.OneToken
+		case i == 2:
+			lut[i] = tables.TwoToken
+		case i == 3:
+			lut[i] = tables.ThreeToken
+		case i == 4:
+			lut[i] = tables.FourToken
+		case i <= 6:
+			lut[i] = tables.DCTValCategory1
+		case i <= 10:
+			lut[i] = tables.DCTValCategory2
+		case i <= 18:
+			lut[i] = tables.DCTValCategory3
+		case i <= 34:
+			lut[i] = tables.DCTValCategory4
+		case i <= 66:
+			lut[i] = tables.DCTValCategory5
+		default:
+			lut[i] = tables.DCTValCategory6
+		}
+	}
+	return lut
+}
+
+// DeriveKeyFrameModeSkipFlags mirrors libvpx vp8_tokenize_mb's
+// mb_is_skippable assignment for keyframe macroblocks.
+func DeriveKeyFrameModeSkipFlags(rows int, cols int, modes []KeyFrameMacroblockMode, coeffs []MacroblockCoefficients) {
+	required := rows * cols
+	if rows <= 0 || cols <= 0 || required <= 0 || len(modes) < required || len(coeffs) < required {
+		return
+	}
+	for i := range required {
+		modes[i].MBSkipCoeff = KeyFrameMacroblockIsSkippable(&modes[i], &coeffs[i])
+	}
+}
+
+// KeyFrameMacroblockIsSkippable ports libvpx's keyframe mb_is_skippable EOB
+// test from vp8/encoder/tokenize.c.
+func KeyFrameMacroblockIsSkippable(mode *KeyFrameMacroblockMode, coeffs *MacroblockCoefficients) bool {
+	if mode == nil || coeffs == nil {
+		return false
+	}
+	e := &coeffs.EOB
+	if mode.YMode != common.BPred {
+		return (binary.LittleEndian.Uint64(e[:8])|binary.LittleEndian.Uint64(e[8:16]))&0xfefefefefefefefe == 0 && binary.LittleEndian.Uint64(e[16:24]) == 0 && e[24] == 0
+	}
+	return binary.LittleEndian.Uint64(e[:8])|binary.LittleEndian.Uint64(e[8:16])|binary.LittleEndian.Uint64(e[16:24]) == 0
+}
+
+// ResetTokenContextPlanes applies the VP8 mb_no_coeff_skip context reset.
+// Whole-block modes clear all contexts; 4x4 modes preserve Y2 because no Y2
+// tokens are coded for the macroblock.
+func ResetTokenContextPlanes(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool) {
+	if above == nil || left == nil {
+		return
+	}
+	if !is4x4 {
+		*above = TokenContextPlanes{}
+		*left = TokenContextPlanes{}
+		return
+	}
+	aboveY2, leftY2 := above.Y2, left.Y2
+	*above = TokenContextPlanes{Y2: aboveY2}
+	*left = TokenContextPlanes{Y2: leftY2}
+}
+
+// UpdateTokenContextPlanesFromCoefficients updates above/left token contexts
+// after a macroblock has been built, matching the EOB-derived updates inside
+// WriteCoefficientMacroblockTokens. Used by mode-decision to keep RD scoring
+// in step with libvpx's above_context / left_context plumbing across MBs.
+func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool, coeffs *MacroblockCoefficients) {
+	if above != nil && left != nil && coeffs != nil && above != left {
+		skip := uint8(0)
+		if !is4x4 {
+			skip = 1
+			v := uint8(0)
+			if coeffs.EOB[24] > 0 {
+				v = 1
+			}
+			above.Y2 = v
+			left.Y2 = v
+		}
+		flag := func(i int, s uint8) uint8 {
+			if coeffs.EOB[i] > s {
+				return 1
+			}
+			return 0
+		}
+		for i := range 4 {
+			above.Y1[i] = flag(12+i, skip)
+			left.Y1[i] = flag(i*4+3, skip)
+		}
+		above.U = [2]uint8{flag(18, 0), flag(19, 0)}
+		left.U = [2]uint8{flag(17, 0), flag(19, 0)}
+		above.V = [2]uint8{flag(22, 0), flag(23, 0)}
+		left.V = [2]uint8{flag(21, 0), flag(23, 0)}
+		return
+	}
+
+	if above == nil || left == nil || coeffs == nil {
+		return
+	}
+	skipDC := 0
+	if !is4x4 {
+		eob := coeffs.BlockEOB(24, 0)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		above.Y2 = hasCoeffs
+		left.Y2 = hasCoeffs
+		skipDC = 1
+	}
+	for block := range 16 {
+		eob := coeffs.BlockEOB(block, skipDC)
+		hasCoeffs := uint8(0)
+		if eob > skipDC {
+			hasCoeffs = 1
+		}
+		above.Y1[block&3] = hasCoeffs
+		left.Y1[(block&0x0c)>>2] = hasCoeffs
+	}
+	for block := 16; block < 24; block++ {
+		eob := coeffs.BlockEOB(block, 0)
+		a, l := common.UVTokenContextIndex(block)
+		hasCoeffs := uint8(0)
+		if eob > 0 {
+			hasCoeffs = 1
+		}
+		setTokenUVContext(above, a, hasCoeffs)
+		setTokenUVContext(left, l, hasCoeffs)
+	}
+}
+
+func getTokenUVContext(ctx *TokenContextPlanes, index int) uint8 {
+	if index < 2 {
+		return ctx.U[index]
+	}
+	return ctx.V[index-2]
+}
+
+func setTokenUVContext(ctx *TokenContextPlanes, index int, value uint8) {
+	if index < 2 {
+		ctx.U[index] = value
+		return
+	}
+	ctx.V[index-2] = value
+}

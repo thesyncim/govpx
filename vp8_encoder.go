@@ -1,0 +1,1524 @@
+package govpx
+
+import (
+	"runtime"
+	"time"
+
+	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
+	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
+)
+
+var monotonicOrigin = time.Now()
+
+// nanotime returns the monotonic clock in nanoseconds without unsafe linkname.
+func nanotime() int64 {
+	return time.Since(monotonicOrigin).Nanoseconds()
+}
+
+// runtimeProcYield performs a brief non-preemptive CPU spin pause during
+// wavefront/worker waits. Callers escalate to runtime.Gosched() on backoff,
+// avoiding Go scheduler/pthread_cond thrashing on every spin iteration.
+//
+//go:noinline
+func runtimeProcYield(cycles uint32) {
+	for i := uint32(0); i < cycles; i++ {
+		if i == ^uint32(0) {
+			runtime.Gosched()
+		}
+	}
+}
+
+// Deadline selects the encoder speed/quality operating mode.
+type Deadline int
+
+const (
+	// DeadlineBestQuality favors quality and exhaustive decisions.
+	DeadlineBestQuality Deadline = iota
+	// DeadlineGoodQuality favors quality with bounded speed features.
+	DeadlineGoodQuality
+	// DeadlineRealtime favors low-latency realtime decisions.
+	DeadlineRealtime
+)
+
+// ScalingMode mirrors libvpx's vpx_scaling_mode_t enum (vpx/vp8cx.h)
+// used by the VP8E_SET_SCALEMODE control. The value selects a fixed
+// down-scaling ratio that the encoder writes into the keyframe
+// uncompressed-data chunk's scale bits (RFC 6386 §9.1: 2-bit horizontal
+// scale << 14 | 14-bit width; same for vertical) for decoders to
+// interpret as an intended display ratio.
+type ScalingMode int
+
+const (
+	// ScalingNormal is the 1:1 identity ratio. Matches libvpx VP8E_NORMAL.
+	ScalingNormal ScalingMode = 0
+	// ScalingFourFive scales by 4/5. Matches libvpx VP8E_FOURFIVE.
+	ScalingFourFive ScalingMode = 1
+	// ScalingThreeFive scales by 3/5. Matches libvpx VP8E_THREEFIVE.
+	ScalingThreeFive ScalingMode = 2
+	// ScalingOneTwo scales by 1/2. Matches libvpx VP8E_ONETWO.
+	ScalingOneTwo ScalingMode = 3
+)
+
+// Tuning selects the encoder's visual quality model.
+type Tuning int
+
+const (
+	// TunePSNR selects the default PSNR-oriented rate-distortion model.
+	TunePSNR Tuning = iota
+	// TuneSSIM selects libvpx-style SSIM activity masking.
+	TuneSSIM
+)
+
+// EncodeFlags controls per-frame VP8 reference and packet behavior on a
+// single [VP8Encoder.EncodeInto] call. The zero value asks the encoder
+// to use its configured defaults. Flag bits mirror libvpx's
+// VPX_EFLAG_FORCE_* / VP8_EFLAG_NO_REF_* / VP8_EFLAG_NO_UPD_* /
+// VP8_EFLAG_NO_UPD_ENTROPY / VP8_EFLAG_FORCE_GF / VP8_EFLAG_FORCE_ARF.
+type EncodeFlags uint32
+
+const (
+	// EncodeForceKeyFrame forces this input frame to be encoded as a key frame.
+	EncodeForceKeyFrame EncodeFlags = 1 << iota
+
+	// EncodeInvisibleFrame encodes a hidden frame that updates references but
+	// is not displayed.
+	EncodeInvisibleFrame
+
+	// EncodeNoReferenceLast prevents inter prediction from LAST.
+	EncodeNoReferenceLast
+	// EncodeNoReferenceGolden prevents inter prediction from GOLDEN.
+	EncodeNoReferenceGolden
+	// EncodeNoReferenceAltRef prevents inter prediction from ALTREF.
+	EncodeNoReferenceAltRef
+
+	// EncodeNoUpdateLast prevents refreshing LAST from this frame.
+	EncodeNoUpdateLast
+	// EncodeNoUpdateGolden prevents refreshing GOLDEN from this frame.
+	EncodeNoUpdateGolden
+	// EncodeNoUpdateAltRef prevents refreshing ALTREF from this frame.
+	EncodeNoUpdateAltRef
+
+	// EncodeNoUpdateEntropy prevents the frame from committing updated entropy
+	// probabilities.
+	EncodeNoUpdateEntropy
+
+	// EncodeForceGoldenFrame forces a GOLDEN refresh from this frame.
+	EncodeForceGoldenFrame
+	// EncodeForceAltRefFrame forces an ALTREF refresh from this frame.
+	EncodeForceAltRefFrame
+)
+
+// EncoderPhaseStats accumulates opt-in coarse encoder phase timing in
+// nanoseconds and counters for the SAD/subpel search hot path when govpx is
+// built with the govpx_phase_stats tag. Normal builds compile the option path
+// out of VP8 encode hot paths: no clock reads, counter writes, or nil-check
+// branches. The caller owns the value, may [EncoderPhaseStats.Reset] it between
+// warmup and measurement, and may sample it concurrently with EncodeInto only
+// under its own synchronization.
+type EncoderPhaseStats struct {
+	// InterReconstructNS is time spent rebuilding inter-frame prediction and
+	// residual planes.
+	InterReconstructNS int64 `json:"inter_reconstruct_ns"`
+	// KeyReconstructNS is time spent rebuilding key-frame prediction and
+	// residual planes.
+	KeyReconstructNS int64 `json:"key_reconstruct_ns"`
+	// LoopFilterPickNS is time spent selecting loop-filter parameters.
+	LoopFilterPickNS int64 `json:"loop_filter_pick_ns"`
+	// LoopFilterApplyNS is time spent applying the loop filter to committed
+	// frames.
+	LoopFilterApplyNS int64 `json:"loop_filter_apply_ns"`
+	// PacketWriteNS is time spent packing VP8 frame data.
+	PacketWriteNS int64 `json:"packet_write_ns"`
+	// InterAttempts counts inter-frame encode attempts, including recodes.
+	InterAttempts int64 `json:"inter_attempts"`
+	// KeyAttempts counts key-frame encode attempts, including recodes.
+	KeyAttempts int64 `json:"key_attempts"`
+	// VP9PreEncodeDrops counts VP9 frames skipped before mode search.
+	VP9PreEncodeDrops int64 `json:"vp9_pre_encode_drops"`
+	// VP9PreEncodeDropNegativeBuffer counts pre-encode drops from negative CBR buffer.
+	VP9PreEncodeDropNegativeBuffer int64 `json:"vp9_pre_encode_drop_negative_buffer"`
+	// VP9PreEncodeDropWatermarkDecimation counts pre-encode drops from CBR decimation.
+	VP9PreEncodeDropWatermarkDecimation int64 `json:"vp9_pre_encode_drop_watermark_decimation"`
+	// VP9PostEncodeDrops counts VP9 frames encoded and then discarded by CBR.
+	VP9PostEncodeDrops int64 `json:"vp9_post_encode_drops"`
+	// VP9PostEncodeDropBits counts encoded bits spent on VP9 post-encode drops.
+	VP9PostEncodeDropBits int64 `json:"vp9_post_encode_drop_bits"`
+	// VP9CountNS is time spent in VP9's count/tokencollect mode-tree pre-pass.
+	VP9CountNS int64 `json:"vp9_count_ns"`
+	// VP9HeaderWriteNS is time spent packing VP9 compressed and uncompressed headers.
+	VP9HeaderWriteNS int64 `json:"vp9_header_write_ns"`
+	// VP9TileWriteNS is time spent writing VP9 tile data and replaying staged tokens.
+	VP9TileWriteNS int64 `json:"vp9_tile_write_ns"`
+	// VP9LoopFilterPickNS is time spent in VP9's post-tile loop-filter picker.
+	VP9LoopFilterPickNS int64 `json:"vp9_loop_filter_pick_ns"`
+	// VP9LoopFilterApplyNS is time spent applying VP9's committed loop filter.
+	VP9LoopFilterApplyNS int64 `json:"vp9_loop_filter_apply_ns"`
+
+	// LoopFilterTrials counts candidate filter-strength evaluations.
+	LoopFilterTrials int64 `json:"loop_filter_trials"`
+	// LoopFilterTrialCopyNS is time spent copying trial frame buffers.
+	LoopFilterTrialCopyNS int64 `json:"loop_filter_trial_copy_ns"`
+	// LoopFilterTrialFilterNS is time spent filtering trial frame buffers.
+	LoopFilterTrialFilterNS int64 `json:"loop_filter_trial_filter_ns"`
+	// LoopFilterTrialSSENS is time spent scoring loop-filter trials.
+	LoopFilterTrialSSENS int64 `json:"loop_filter_trial_sse_ns"`
+
+	// InterRDCoeffCacheRequests counts inter RD coefficient-cache lookups.
+	InterRDCoeffCacheRequests int64 `json:"inter_rd_coeff_cache_requests"`
+	// InterRDCoeffCacheDCTHits counts cached DCT/residual reuse hits.
+	InterRDCoeffCacheDCTHits int64 `json:"inter_rd_coeff_cache_dct_hits"`
+	// InterCoefTokenRecords counts token-rate records produced during inter RD.
+	InterCoefTokenRecords int64 `json:"inter_coef_token_records"`
+
+	// FullPelSADCalls counts full-pixel SAD search invocations.
+	FullPelSADCalls int64 `json:"fullpel_sad_calls"`
+	// FullPelSADCandidates counts full-pixel candidate positions scored.
+	FullPelSADCandidates int64 `json:"fullpel_sad_candidates"`
+	// FullPelBatchCalls counts vectorized multi-candidate SAD batches.
+	FullPelBatchCalls int64 `json:"fullpel_batch_calls"`
+	// VP9FullPelSAD* count VP9 full-pixel SAD calls/candidates by call site.
+	VP9FullPelSADZeroCalls         int64 `json:"vp9_fullpel_sad_zero_calls"`
+	VP9FullPelSADZeroCandidates    int64 `json:"vp9_fullpel_sad_zero_candidates"`
+	VP9FullPelSADSeedCalls         int64 `json:"vp9_fullpel_sad_seed_calls"`
+	VP9FullPelSADSeedCandidates    int64 `json:"vp9_fullpel_sad_seed_candidates"`
+	VP9FullPelSADHintCalls         int64 `json:"vp9_fullpel_sad_hint_calls"`
+	VP9FullPelSADHintCandidates    int64 `json:"vp9_fullpel_sad_hint_candidates"`
+	VP9FullPelSADPatternCalls      int64 `json:"vp9_fullpel_sad_pattern_calls"`
+	VP9FullPelSADPatternCandidates int64 `json:"vp9_fullpel_sad_pattern_candidates"`
+	VP9FullPelSADFullRDCalls       int64 `json:"vp9_fullpel_sad_fullrd_calls"`
+	VP9FullPelSADFullRDCandidates  int64 `json:"vp9_fullpel_sad_fullrd_candidates"`
+	VP9FullPelSADOtherCalls        int64 `json:"vp9_fullpel_sad_other_calls"`
+	VP9FullPelSADOtherCandidates   int64 `json:"vp9_fullpel_sad_other_candidates"`
+	// VP9FullPelSearches counts VP9 full-pixel motion-search invocations.
+	VP9FullPelSearches int64 `json:"vp9_fullpel_searches"`
+	// VP9FullPelSearchSkipMVPart counts searches skipped by variance-partition MVs.
+	VP9FullPelSearchSkipMVPart int64 `json:"vp9_fullpel_search_skip_mvpart"`
+	// VP9FullPelSearchSkipIntPro counts searches skipped by int-pro estimation.
+	VP9FullPelSearchSkipIntPro int64 `json:"vp9_fullpel_search_skip_intpro"`
+	// VP9FullPelSearch* count VP9 full-pixel searches by block size.
+	VP9FullPelSearch64x64 int64 `json:"vp9_fullpel_search_64x64"`
+	VP9FullPelSearch32x32 int64 `json:"vp9_fullpel_search_32x32"`
+	VP9FullPelSearch32x16 int64 `json:"vp9_fullpel_search_32x16"`
+	VP9FullPelSearch16x32 int64 `json:"vp9_fullpel_search_16x32"`
+	VP9FullPelSearch16x16 int64 `json:"vp9_fullpel_search_16x16"`
+	VP9FullPelSearch16x8  int64 `json:"vp9_fullpel_search_16x8"`
+	VP9FullPelSearch8x16  int64 `json:"vp9_fullpel_search_8x16"`
+	VP9FullPelSearch8x8   int64 `json:"vp9_fullpel_search_8x8"`
+	// FullPelBoundsRejects counts full-pixel candidates outside legal bounds.
+	FullPelBoundsRejects int64 `json:"fullpel_bounds_rejects"`
+	// FullPelEarlyBreaks counts SAD evaluations stopped by an existing best.
+	FullPelEarlyBreaks int64 `json:"fullpel_early_breaks"`
+	// SubpelCandidates counts sub-pixel candidate positions scored.
+	SubpelCandidates int64 `json:"subpel_candidates"`
+	// SubpelVarianceCalls counts sub-pixel variance evaluations.
+	SubpelVarianceCalls int64 `json:"subpel_variance_calls"`
+	// SubpelCacheHits counts sub-pixel predictor-cache hits.
+	SubpelCacheHits int64 `json:"subpel_cache_hits"`
+	// SubpelBoundsRejects counts sub-pixel candidates outside legal bounds.
+	SubpelBoundsRejects int64 `json:"subpel_bounds_rejects"`
+	// SubpelEarlyBreaks counts sub-pixel evaluations stopped by an existing best.
+	SubpelEarlyBreaks int64 `json:"subpel_early_breaks"`
+
+	// VP9ModeBlocks counts write_modes_b-equivalent VP9 mode-block visits.
+	VP9ModeBlocks int64 `json:"vp9_mode_blocks"`
+	// VP9FrameTiles counts VP9 tile writer entries.
+	VP9FrameTiles int64 `json:"vp9_frame_tiles"`
+	// VP9FrameTilesCountPass counts VP9 tile writer entries in the count pre-pass.
+	VP9FrameTilesCountPass int64 `json:"vp9_frame_tiles_count_pass"`
+	// VP9FrameTilesWritePass counts VP9 tile writer entries in the bitstream pass.
+	VP9FrameTilesWritePass int64 `json:"vp9_frame_tiles_write_pass"`
+	// VP9ModeSBs counts recursive write_modes_sb-equivalent VP9 superblock visits.
+	VP9ModeSBs int64 `json:"vp9_mode_sbs"`
+	// VP9ModeSBsCountPass counts VP9 superblock visits in the count pre-pass.
+	VP9ModeSBsCountPass int64 `json:"vp9_mode_sbs_count_pass"`
+	// VP9ModeSBsWritePass counts VP9 superblock visits in the bitstream pass.
+	VP9ModeSBsWritePass int64 `json:"vp9_mode_sbs_write_pass"`
+	// VP9ModeBlocksCountPass counts VP9 mode-block visits in the count pre-pass.
+	VP9ModeBlocksCountPass int64 `json:"vp9_mode_blocks_count_pass"`
+	// VP9ModeBlocksWritePass counts VP9 mode-block visits in the bitstream pass.
+	VP9ModeBlocksWritePass int64 `json:"vp9_mode_blocks_write_pass"`
+	// VP9ModeBlock* count VP9 leaf block-size visits.
+	VP9ModeBlock64x64 int64 `json:"vp9_mode_block_64x64"`
+	VP9ModeBlock32x32 int64 `json:"vp9_mode_block_32x32"`
+	VP9ModeBlock32x16 int64 `json:"vp9_mode_block_32x16"`
+	VP9ModeBlock16x32 int64 `json:"vp9_mode_block_16x32"`
+	VP9ModeBlock16x16 int64 `json:"vp9_mode_block_16x16"`
+	VP9ModeBlock16x8  int64 `json:"vp9_mode_block_16x8"`
+	VP9ModeBlock8x16  int64 `json:"vp9_mode_block_8x16"`
+	VP9ModeBlock8x8   int64 `json:"vp9_mode_block_8x8"`
+	VP9ModeBlockSub8  int64 `json:"vp9_mode_block_sub8"`
+	// VP9InterModePicks counts VP9 realtime inter-mode picker calls.
+	VP9InterModePicks int64 `json:"vp9_inter_mode_picks"`
+	// VP9InterModePicksCountPass counts inter-mode picks in the count pre-pass.
+	VP9InterModePicksCountPass int64 `json:"vp9_inter_mode_picks_count_pass"`
+	// VP9InterModePicksWritePass counts inter-mode picks in the bitstream pass.
+	VP9InterModePicksWritePass int64 `json:"vp9_inter_mode_picks_write_pass"`
+	// VP9InterLeafCacheStores counts count-pass inter leaf decisions cached.
+	VP9InterLeafCacheStores int64 `json:"vp9_inter_leaf_cache_stores"`
+	// VP9InterLeafCacheReplayHits counts write-pass leaf-decision replay hits.
+	VP9InterLeafCacheReplayHits int64 `json:"vp9_inter_leaf_cache_replay_hits"`
+	// VP9InterLeafCacheReplayMisses counts write-pass leaf-decision replay misses.
+	VP9InterLeafCacheReplayMisses int64 `json:"vp9_inter_leaf_cache_replay_misses"`
+	// VP9VarPartChooseCalls counts 64x64 variance-partition prepass invocations.
+	VP9VarPartChooseCalls int64 `json:"vp9_varpart_choose_calls"`
+	// VP9VarPartCacheHits counts choose_partitioning SB-cache hits.
+	VP9VarPartCacheHits int64 `json:"vp9_varpart_cache_hits"`
+	// VP9VarPartCacheMisses counts choose_partitioning SB-cache misses.
+	VP9VarPartCacheMisses int64 `json:"vp9_varpart_cache_misses"`
+	// VP9VarPartMergedSBs counts computed SB flags merged from threaded count workers.
+	VP9VarPartMergedSBs int64 `json:"vp9_varpart_merged_sbs"`
+	// VP9VarPartChooseCountPass counts variance-partition invocations in the count pre-pass.
+	VP9VarPartChooseCountPass int64 `json:"vp9_varpart_choose_count_pass"`
+	// VP9VarPartChooseWritePass counts variance-partition invocations in the bitstream pass.
+	VP9VarPartChooseWritePass int64 `json:"vp9_varpart_choose_write_pass"`
+	// VP9VarPartCopyHits counts choose_partitioning copy_partitioning successes.
+	VP9VarPartCopyHits int64 `json:"vp9_varpart_copy_hits"`
+	// VP9VarPartContentState* count choose_partitioning content-state inputs.
+	VP9VarPartContentStateInvalid            int64 `json:"vp9_varpart_content_state_invalid"`
+	VP9VarPartContentStateLowSadLowSumdiff   int64 `json:"vp9_varpart_content_state_low_sad_low_sumdiff"`
+	VP9VarPartContentStateLowSadHighSumdiff  int64 `json:"vp9_varpart_content_state_low_sad_high_sumdiff"`
+	VP9VarPartContentStateHighSadLowSumdiff  int64 `json:"vp9_varpart_content_state_high_sad_low_sumdiff"`
+	VP9VarPartContentStateHighSadHighSumdiff int64 `json:"vp9_varpart_content_state_high_sad_high_sumdiff"`
+	VP9VarPartContentStateLowVarHighSumdiff  int64 `json:"vp9_varpart_content_state_low_var_high_sumdiff"`
+	VP9VarPartContentStateVeryHighSad        int64 `json:"vp9_varpart_content_state_very_high_sad"`
+	// VP9VarPart* split counters instrument choose_partitioning's variance tree.
+	VP9VarPartYSADValid            int64 `json:"vp9_varpart_ysad_valid"`
+	VP9VarPartYSADSelect64x64      int64 `json:"vp9_varpart_ysad_select_64x64"`
+	VP9VarPartCopyPartitionSelect  int64 `json:"vp9_varpart_copy_partition_select"`
+	VP9VarPartForceSplit64         int64 `json:"vp9_varpart_force_split_64"`
+	VP9VarPartForceSplit32         int64 `json:"vp9_varpart_force_split_32"`
+	VP9VarPartForceSplit16         int64 `json:"vp9_varpart_force_split_16"`
+	VP9VarPartForceSplit16Variance int64 `json:"vp9_varpart_force_split_16_variance"`
+	VP9VarPartForceSplit16Minmax   int64 `json:"vp9_varpart_force_split_16_minmax"`
+	VP9VarPartThreshold2Count      int64 `json:"vp9_varpart_threshold2_count"`
+	VP9VarPartThreshold2Sum        int64 `json:"vp9_varpart_threshold2_sum"`
+	VP9VarPartVar16Samples         int64 `json:"vp9_varpart_var16_samples"`
+	VP9VarPartVar16Sum             int64 `json:"vp9_varpart_var16_sum"`
+	VP9VarPartForce16VarianceSum   int64 `json:"vp9_varpart_force16_variance_sum"`
+	VP9VarPartForce16ThresholdSum  int64 `json:"vp9_varpart_force16_threshold_sum"`
+	VP9VarPartSetVTCalls           int64 `json:"vp9_varpart_setvt_calls"`
+	VP9VarPartSetVT64x64           int64 `json:"vp9_varpart_setvt_64x64"`
+	VP9VarPartSetVT32x32           int64 `json:"vp9_varpart_setvt_32x32"`
+	VP9VarPartSetVT16x16           int64 `json:"vp9_varpart_setvt_16x16"`
+	VP9VarPartSetVT8x8             int64 `json:"vp9_varpart_setvt_8x8"`
+	VP9VarPartSetVTForceSplit      int64 `json:"vp9_varpart_setvt_force_split"`
+	VP9VarPartSetVTForceSplit64x64 int64 `json:"vp9_varpart_setvt_force_split_64x64"`
+	VP9VarPartSetVTForceSplit32x32 int64 `json:"vp9_varpart_setvt_force_split_32x32"`
+	VP9VarPartSetVTForceSplit16x16 int64 `json:"vp9_varpart_setvt_force_split_16x16"`
+	VP9VarPartSetVTSelect          int64 `json:"vp9_varpart_setvt_select"`
+	VP9VarPartSetVTSplit           int64 `json:"vp9_varpart_setvt_split"`
+	// VP9InterPredictionBlocks counts VP9 inter-predictor block builds.
+	VP9InterPredictionBlocks int64 `json:"vp9_inter_prediction_blocks"`
+	// VP9InterPredictPlaneCalls counts VP9 per-plane inter-predictor calls.
+	VP9InterPredictPlaneCalls int64 `json:"vp9_inter_predict_plane_calls"`
+	// VP9InterPredictionVarianceCalls counts VP9 predictor+variance scoring calls.
+	VP9InterPredictionVarianceCalls int64 `json:"vp9_inter_prediction_variance_calls"`
+	// VP9InterPredictor* count libvpx inter_predictor dispatch keys.
+	VP9InterPredictorCopy     int64 `json:"vp9_inter_predictor_copy"`
+	VP9InterPredictorAvg      int64 `json:"vp9_inter_predictor_avg"`
+	VP9InterPredictorVert     int64 `json:"vp9_inter_predictor_vert"`
+	VP9InterPredictorAvgVert  int64 `json:"vp9_inter_predictor_avg_vert"`
+	VP9InterPredictorHoriz    int64 `json:"vp9_inter_predictor_horiz"`
+	VP9InterPredictorAvgHoriz int64 `json:"vp9_inter_predictor_avg_horiz"`
+	VP9InterPredictor2D       int64 `json:"vp9_inter_predictor_2d"`
+	VP9InterPredictorAvg2D    int64 `json:"vp9_inter_predictor_avg_2d"`
+
+	// VP9TileWorker* count persistent tile-worker scheduling activity.
+	VP9TileWorkerCountEpochs   int64 `json:"vp9_tile_worker_count_epochs"`
+	VP9TileWorkerEncodeEpochs  int64 `json:"vp9_tile_worker_encode_epochs"`
+	VP9TileWorkerWakeSignals   int64 `json:"vp9_tile_worker_wake_signals"`
+	VP9TileWorkerParks         int64 `json:"vp9_tile_worker_parks"`
+	VP9TileWorkerWaitSpins     int64 `json:"vp9_tile_worker_wait_spins"`
+	VP9TileWorkerWaitGoscheds  int64 `json:"vp9_tile_worker_wait_goscheds"`
+	VP9TileWorkerCountJobRuns  int64 `json:"vp9_tile_worker_count_job_runs"`
+	VP9TileWorkerEncodeJobRuns int64 `json:"vp9_tile_worker_encode_job_runs"`
+	VP9RowWorkerCountEpochs    int64 `json:"vp9_row_worker_count_epochs"`
+	VP9RowWorkerCountJobs      int64 `json:"vp9_row_worker_count_jobs"`
+}
+
+// Reset clears all accumulated phase counters.
+func (s *EncoderPhaseStats) Reset() {
+	if s == nil {
+		return
+	}
+	*s = EncoderPhaseStats{}
+}
+
+type encoderPhase uint8
+
+const (
+	encoderPhaseInterReconstruct encoderPhase = iota
+	encoderPhaseKeyReconstruct
+	encoderPhaseLoopFilterPick
+	encoderPhaseLoopFilterApply
+	encoderPhasePacketWrite
+)
+
+// EncoderOptions configures a VP8 encoder.
+type EncoderOptions struct {
+	// Width and Height are the fixed visible dimensions accepted by EncodeInto.
+	Width  int
+	Height int
+
+	// FPS sets a 1/FPS timebase when TimebaseNum and TimebaseDen are zero.
+	FPS int
+
+	// TimebaseNum is the numerator of the caller timebase.
+	TimebaseNum int
+	// TimebaseDen is the denominator of the caller timebase.
+	TimebaseDen int
+
+	// Threads selects the worker-goroutine count for the inter-frame
+	// row-threaded macroblock pipeline.
+	//
+	//   - 0 is treated as 1.
+	//   - 1 uses the serial reference path: no row-worker pool, no
+	//     atomics or channel work in the reconstruction hot path.
+	//   - Values >1 allocate a persistent row-worker pool and enable
+	//     the libvpx-style wave-front inter-frame encode when the
+	//     frame is large enough and oracle tracing is disabled.
+	//     Thread counts are deterministic but produce a bitstream
+	//     that may differ from Threads=1, matching libvpx.
+	//   - Negative values return [ErrInvalidConfig].
+	//
+	// Mirrors libvpx's --threads / cpi->oxcf.multi_threaded.
+	Threads int
+
+	// RateControlMode selects VBR, CBR, constrained-quality, or VPX_Q behavior.
+	RateControlMode RateControlMode
+	// TargetBitrateKbps is the total target bitrate in kbps. Required.
+	TargetBitrateKbps int
+	// MinBitrateKbps optionally bounds runtime bitrate updates from below.
+	// Zero means no lower bound.
+	MinBitrateKbps int
+	// MaxBitrateKbps optionally bounds runtime bitrate updates from above.
+	// Zero means no upper bound.
+	MaxBitrateKbps int
+
+	// MinQuantizer is the lowest public 0..63 quantizer the encoder may use.
+	MinQuantizer int
+	// MaxQuantizer is the highest public 0..63 quantizer the encoder may use.
+	MaxQuantizer int
+	// QuantizerRangeSet forces MinQuantizer/MaxQuantizer to be honored even
+	// when both are zero. When false, the all-zero range uses libvpx's default
+	// 4..56 vpxenc range so zero-valued EncoderOptions remain useful.
+	QuantizerRangeSet bool
+	// CQLevel mirrors libvpx's VP8E_SET_CQ_LEVEL. [RateControlCQ] applies
+	// it as a floor; [RateControlQ] validates and stores it like libvpx
+	// VPX_Q. Zero uses libvpx's default level after MinQuantizer
+	// resolution (a zero MinQuantizer is itself promoted to 4 first).
+	CQLevel int
+
+	// UndershootPct caps libvpx-style downward rate adjustment as a percentage
+	// of the target frame size; valid range is [0, 100]. Zero uses the libvpx
+	// default.
+	UndershootPct int
+	// OvershootPct caps libvpx-style upward rate adjustment as a percentage of
+	// the target frame size; valid range is [0, 100]. Zero uses the libvpx
+	// default.
+	OvershootPct int
+
+	// BufferSizeMs is the virtual rate-control buffer size in milliseconds.
+	// Zero selects libvpx's default sizing.
+	BufferSizeMs int
+	// BufferInitialSizeMs is the initial virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
+	BufferInitialSizeMs int
+	// BufferOptimalSizeMs is the target virtual buffer fill in milliseconds.
+	// Zero selects libvpx's default.
+	BufferOptimalSizeMs int
+	// MaxIntraBitratePct caps key-frame bitrate as a percentage of the
+	// per-frame target. Zero disables the cap; valid range is non-negative.
+	MaxIntraBitratePct int
+	// GFCBRBoostPct controls golden-frame boost in CBR mode as a percentage of
+	// the per-frame target. Zero uses libvpx's default; valid range is
+	// non-negative.
+	GFCBRBoostPct int
+
+	// DropFrameAllowed enables rate-control frame dropping when
+	// DropFrameWaterMark is positive.
+	DropFrameAllowed bool
+	// DropFrameWaterMark is the percentage of optimal_buffer_level at
+	// which rate control begins dropping frames. Zero disables dropping.
+	// Mirrors libvpx's rc_dropframe_thresh / oxcf.drop_frames_water_mark.
+	DropFrameWaterMark int
+
+	// TemporalScalability configures automatic temporal-layer scheduling.
+	TemporalScalability TemporalScalabilityConfig
+
+	// Deadline selects the encoder speed/quality operating mode.
+	Deadline Deadline
+	// CpuUsed selects the libvpx-style speed preset in [-16, 16].
+	CpuUsed int
+	// Tuning selects the PSNR or SSIM visual quality model.
+	Tuning Tuning
+
+	// KeyFrameInterval is the maximum GOP distance in frames. In
+	// EncoderOptions, zero defaults to libvpx's startup default of 120.
+	// Runtime SetKeyFrameInterval(0) mirrors libvpx's fixed interval of zero
+	// and interval-forces every accepted input frame unless keyframes are
+	// disabled by runtime control.
+	KeyFrameInterval int
+	// LookaheadFrames enables buffered encoding. When positive, EncodeInto
+	// queues input frames and returns ErrFrameNotReady until enough future
+	// frames are available; FlushInto drains the queue at end of stream.
+	LookaheadFrames int
+	// AutoAltRef gates automatic alternate-reference scheduling. When true,
+	// LookaheadFrames > 1, and ErrorResilient is false, the driver inserts
+	// hidden alt-ref frames from the lookahead window and flips the
+	// alt-ref sign bias on the matching deferred show frame. Mirrors
+	// libvpx's oxcf.play_alternate.
+	AutoAltRef bool
+	// AdaptiveKeyFrames enables libvpx-compatible one-pass auto-key recode.
+	// Eligible visible inter frames are first encoded as inter frames; when
+	// the committed inter-mode map crosses libvpx's intra-percentage
+	// thresholds, the encoder discards that packet and recodes the same
+	// source as a scene-cut keyframe.
+	AdaptiveKeyFrames bool
+
+	// ErrorResilient writes frames that reset inter-frame entropy adaptation.
+	ErrorResilient bool
+	// ErrorResilientPartitions mirrors libvpx's
+	// VPX_ERROR_RESILIENT_PARTITIONS bit (set via `--error-resilient=2` or
+	// `--error-resilient=3`). It enables the independent-prev-coef-context
+	// algorithm in vp8_update_coef_probs (bitstream.c:879-928) so a lost
+	// partition cannot corrupt the per-context coefficient-probability
+	// tables. Off by default; the plain ErrorResilient bool maps to
+	// VPX_ERROR_RESILIENT_DEFAULT, which does NOT touch the per-context
+	// algorithm.
+	ErrorResilientPartitions bool
+	// TokenPartitions is VP8's token partition selector: 0=one, 1=two, 2=four, 3=eight.
+	TokenPartitions int
+
+	// Sharpness is the VP8 loop-filter sharpness level in [0, 7].
+	Sharpness int
+	// NoiseSensitivity mirrors libvpx's VP8E_SET_NOISE_SENSITIVITY: 0=off,
+	// 1=Y denoise, 2=YUV denoise, 3=aggressive YUV denoise, 4=adaptive YUV
+	// denoise. Levels 5 and 6 follow libvpx's default YUV denoise path.
+	NoiseSensitivity int
+	// ARNRMaxFrames is the alt-ref noise reduction temporal window in frames.
+	// Mirrors libvpx's VP8E_SET_ARNR_MAXFRAMES. Zero disables ARNR.
+	ARNRMaxFrames int
+	// ARNRStrength is the alt-ref noise reduction filter strength in [0, 6].
+	// Mirrors libvpx's VP8E_SET_ARNR_STRENGTH.
+	ARNRStrength int
+	// ARNRType selects the alt-ref filter direction: 1=backward, 2=forward,
+	// 3=centered. Mirrors libvpx's VP8E_SET_ARNR_TYPE. Zero defaults to 3
+	// (centered), matching libvpx.
+	ARNRType int
+	// TwoPassStats enables second-pass VBR planning when non-empty.
+	TwoPassStats []FirstPassFrameStats
+	// TwoPassVBRBiasPct controls second-pass VBR bias when stats are present.
+	TwoPassVBRBiasPct int
+	// TwoPassMinPct sets the second-pass minimum section bitrate percentage.
+	TwoPassMinPct int
+	// TwoPassMaxPct sets the second-pass maximum section bitrate percentage.
+	TwoPassMaxPct int
+	// ScreenContentMode mirrors libvpx's VP8E_SET_SCREEN_CONTENT_MODE:
+	// 0=off, 1=on, 2=on with more aggressive rate control.
+	ScreenContentMode int
+	// RTCExternalRateControl mirrors libvpx's VP8E_SET_RTC_EXTERNAL_RATECTRL.
+	// For VP8 this disables cyclic refresh and post-encode overshoot recode
+	// while keeping rate-correction-factor updates active.
+	RTCExternalRateControl bool
+	encoderPhaseStatsOptions
+	// StaticThreshold mirrors libvpx's VP8E_SET_STATIC_THRESHOLD /
+	// oxcf.encode_breakout for first-pass and inter-frame static skips.
+	StaticThreshold int
+}
+
+// EncodeResult is the value returned by [VP8Encoder.EncodeInto] and
+// [VP8Encoder.FlushInto] for one call. Data is empty when the call
+// produced no output (frame dropped by rate control or buffered by
+// lookahead). PTS and Duration echo the caller-supplied values; the
+// rate-control and temporal-layer accounting fields are populated even
+// when Data is empty so callers can drive feedback loops on dropped
+// frames.
+type EncodeResult struct {
+	// Data aliases the caller-provided output buffer passed to EncodeInto or
+	// FlushInto. Copy it if it must outlive that buffer.
+	Data []byte
+
+	// KeyFrame reports whether Data is a VP8 key frame.
+	KeyFrame bool
+	// Dropped reports that rate control intentionally emitted no packet.
+	Dropped bool
+	// Droppable reports libvpx's encoded-frame discardability signal: true
+	// when the frame updates no reference, entropy, or segmentation state.
+	Droppable bool
+	// SceneCut reports that adaptive or two-pass scene-cut logic promoted this
+	// frame to a keyframe.
+	SceneCut bool
+	// LookaheadDepth reports queued future frames remaining after this frame.
+	LookaheadDepth int
+	// ARNRFiltered reports that the frame used alt-ref noise reduction.
+	ARNRFiltered bool
+	// Denoised reports that denoiser preprocessing changed the source.
+	Denoised bool
+	// FirstPassStats is populated from TwoPassStats when second-pass planning
+	// drives this frame.
+	FirstPassStats FirstPassFrameStats
+	// TwoPassFrameTargetBits reports the second-pass VBR target when
+	// TwoPassStats drives the frame.
+	TwoPassFrameTargetBits int
+
+	// PTS and Duration echo the caller-provided frame timing values.
+	PTS      uint64
+	Duration uint64
+
+	// Quantizer is the public 0..63 quantizer. InternalQuantizer is the VP8
+	// base qindex reported by libvpx's VP8E_GET_LAST_QUANTIZER control.
+	Quantizer         int
+	InternalQuantizer int
+
+	// SizeBytes is len(Data) for emitted frames.
+	SizeBytes int
+
+	// TargetBitrateKbps is the active total target bitrate.
+	TargetBitrateKbps int
+	// FrameTargetBits is the final rate-control target for this frame.
+	FrameTargetBits int
+	// BufferLevelBits is the post-frame rate-control buffer level.
+	BufferLevelBits int
+
+	// TemporalLayerID is the emitted frame's temporal-layer index.
+	TemporalLayerID int
+	// TemporalLayerCount is the active temporal layer count.
+	TemporalLayerCount int
+	// TemporalLayerSync reports a WebRTC-style temporal sync frame.
+	TemporalLayerSync bool
+	// TL0PICIDX is the temporal-layer-zero picture index.
+	TL0PICIDX uint8
+	// TemporalLayerTargetBitrateKbps is the instantaneous bitrate assigned to
+	// TemporalLayerID.
+	TemporalLayerTargetBitrateKbps int
+	// TemporalLayerCumulativeBitrateKbps reports the cumulative libvpx
+	// ts_target_bitrate[] entry for TemporalLayerID.
+	TemporalLayerCumulativeBitrateKbps int
+	// TemporalLayerFrameBandwidthBits is the per-frame budget for the layer.
+	TemporalLayerFrameBandwidthBits int
+	// TemporalLayerBufferLevelBits is the post-frame layer buffer level.
+	TemporalLayerBufferLevelBits int
+	// TemporalLayerMaximumBufferBits is the layer buffer cap.
+	TemporalLayerMaximumBufferBits int
+	// TemporalLayerInputFrames counts input frames assigned to the layer.
+	TemporalLayerInputFrames int
+	// TemporalLayerEncodedFrames counts non-dropped frames assigned to the layer.
+	TemporalLayerEncodedFrames int
+	// TemporalLayerTotalEncodedFrames counts all encoded frames up to this frame.
+	TemporalLayerTotalEncodedFrames int
+	// TemporalLayerEncodedBits accumulates layer output bits.
+	TemporalLayerEncodedBits int
+
+	// PSNRHint is reserved for a future per-frame quality hint. It is
+	// not currently populated and always reads as zero.
+	PSNRHint float64
+}
+
+// VP8Encoder encodes caller-provided I420 images into raw VP8 frame
+// payloads. A VP8Encoder is not safe for concurrent use by multiple
+// goroutines; the optional worker pool selected by EncoderOptions.Threads
+// is internal to a single encode call.
+type VP8Encoder struct {
+	opts EncoderOptions
+
+	timing   timingState
+	sourceTS encoderSourceTimestampState
+	rc       rateControlState
+	temporal temporalState
+	oracleTraceHolder
+
+	closed        bool
+	forceKeyFrame bool
+	// controlFrameFlags mirrors libvpx's control_frame_flags set by
+	// VP8E_SET_FRAME_FLAGS. It is consumed by the next EncodeInto call that
+	// passes zero per-call flags, and cleared by any accepted EncodeInto call.
+	controlFrameFlags EncodeFlags
+	frameCount        uint64
+
+	// lastChangeConfigWidth / lastChangeConfigHeight snapshot the dimensions
+	// last observed by the libvpx vp8_change_config tail. applyVP8Change
+	// ConfigRuntimeSideEffects compares them against e.opts.Width/Height to
+	// mirror libvpx's force_next_frame_intra resolution-change trigger
+	// (vp8/encoder/onyx_if.c:1689-1691):
+	//
+	//   if (last_w != cpi->oxcf.Width || last_h != cpi->oxcf.Height) {
+	//     cpi->force_next_frame_intra = 1;
+	//   }
+	//
+	// libvpx captures last_w / last_h at the entry of vp8_change_config and
+	// evaluates the comparison at the function's tail; govpx stores the
+	// most recent snapshot on the encoder so any path that mutates the
+	// configured Width / Height and then runs the shared side-effect tail
+	// is caught, not just applyResolutionChange.
+	lastChangeConfigWidth  int
+	lastChangeConfigHeight int
+
+	// horizScale and vertScale carry the libvpx pc->horiz_scale /
+	// pc->vert_scale pair set by VP8E_SET_SCALEMODE (vp8_set_internal_size
+	// in vp8/encoder/onyx_if.c:5416-5430). They flow into the keyframe
+	// uncompressed-data chunk as the 2-bit scale field per axis. Default
+	// zero == VP8E_NORMAL.
+	horizScale uint8
+	vertScale  uint8
+	// keyFrameFrequency mirrors cpi->key_frame_frequency. libvpx seeds it
+	// from oxcf.key_freq during compressor creation and does not rewrite it
+	// on runtime vpx_codec_enc_config_set updates; adaptive auto-key forcing
+	// must therefore not read the live EncoderOptions.KeyFrameInterval.
+	keyFrameFrequency int
+	// keyFramesDisabled mirrors libvpx cfg.kf_mode == VPX_KF_DISABLED for
+	// runtime controls. The cold-start default keeps fixed key-frame cadence
+	// active even when AdaptiveKeyFrames is false.
+	keyFramesDisabled bool
+	// fixedKeyFrameCounter mirrors libvpx's wrapper-level fixed_kf_cntr for
+	// kf_min_dist == kf_max_dist. It is intentionally not reset by runtime
+	// config changes.
+	fixedKeyFrameCounter int
+
+	lastQuantizerPublic   int
+	lastQuantizerInternal int
+	lastQuantizerValid    bool
+
+	// libvpx vp8_auto_select_speed (rdopt.c:261) state. Mirrored exactly:
+	// at realtime+positive-cpu_used, at the start of each encode_mb_row
+	// libvpx runs vp8_auto_select_speed, which evolves cpi->Speed in
+	// [4,16] based on avg_pick_mode_time and avg_encode_time vs the
+	// (1e6/framerate)*(16-cpu_used)/16 budget. After each frame's encode
+	// the timers IIR-update (7*avg + duration)>>3. Cold start: Speed=4,
+	// timers=0. Govpx tracks the same state and feeds e.autoSpeed to
+	// libvpxCPUUsed for realtime+positive-cpu_used branches.
+	autoSpeed             int // current adaptive Speed (libvpx cpi->Speed)
+	avgPickModeTime       int // microseconds (libvpx cpi->avg_pick_mode_time, signed int per onyx_int.h)
+	avgEncodeTime         int // microseconds (libvpx cpi->avg_encode_time, signed int per onyx_int.h)
+	autoSpeedFrameStartNS int64
+	// configuredCPUUsed mirrors the wrapper-level vp8_extracfg.cpu_used.
+	// libvpx stores the unclamped VP8E_SET_CPUUSED value there and only
+	// clamps the compressor copy when vp8_change_config applies the active
+	// deadline mode. Keeping this separate prevents good-quality's [-5,5]
+	// clamp from leaking into a later realtime deadline switch.
+	configuredCPUUsed      int
+	configuredCPUUsedValid bool
+	// Runtime VP8E_SET_CPUUSED follows a slightly different temporal RD
+	// frame-context path from cold-start cpu_used config when it pins
+	// realtime speed. Track that control call so temporal GF refresh scoring
+	// can mirror libvpx without changing cold-start pinned-speed streams.
+	runtimePinnedCPUUsed bool
+
+	// libvpx vp8/encoder/onyx_if.c forced-key bookkeeping. this_key_frame_forced
+	// is set when the encoder is producing a key frame whose timing was
+	// dictated by the fixed-interval scheduler (rather than a content scene
+	// cut); the recode loop uses it to drive the SS-error feedback Q
+	// adjustment (encode_frame_to_data_rate around line 4065). ambient_err
+	// stores the just-encoded SS error (Y plane vs source) of the frame
+	// preceding a forced key, set by the next_key_frame_forced branch at the
+	// tail of the previous frame's encode (line 4282); the forced KF recode
+	// branch compares the new attempt's kf_err against this baseline.
+	thisKeyFrameForced bool
+	ambientErr         int
+
+	// savedContext mirrors cpi->coding_context. Populated by
+	// saveCodingContext at the top of each recode loop and consumed by
+	// restoreCodingContext when an attempt is rejected.
+	savedContext savedCodingContext
+
+	cyclicRefreshIndex                int
+	cyclicRefreshConfigured           bool
+	cyclicRefreshMap                  []int8
+	cyclicRefreshAttemptMap           []int8
+	segmentationHeaderEnabled         bool
+	lastSegmentationConfig            vp8enc.SegmentationConfig
+	runtimePreserveSegmentation       bool
+	runtimePreservedSegmentation      vp8enc.SegmentationConfig
+	runtimePreserveSegmentationUpdate bool
+	runtimeSegmentationUpdatePending  bool
+	rtcExternalDisableCyclicRefresh   bool
+	skinMap                           []uint8
+	consecZeroLast                    []uint8
+	lastInterZeroMVCount              int
+	lastInterSkipCount                int
+
+	// libvpx active-map: when enabled, MBs flagged 0 skip mode decision in
+	// inter frames and code as ZEROMV-LAST with skip=1 (see pickinter.c
+	// evaluate_inter_mode and rdopt.c rd_pick_inter_mode active_ptr checks).
+	// Key frames ignore the map.
+	activeMap        []uint8
+	activeMapEnabled bool
+	roi              roiMapState
+	// segmentEncodeBreakout mirrors cpi->segment_encode_breakout. When
+	// segmentation is enabled libvpx encodeframe.c always reads
+	// segment_encode_breakout[segment_id] for x->encode_breakout.
+	segmentEncodeBreakout [vp8common.MaxMBSegments]int
+	// useROIStaticThreshold mirrors cpi->use_roi_static_threshold. vp8_set_roimap
+	// sets it to 1 when any threshold is non-zero and never clears it.
+	useROIStaticThreshold bool
+	activityMap           []uint32
+	activityAvg           uint32
+	activityMapValid      bool
+	// libvpx's TuneSSIM build_activity_map reuses MACROBLOCK.rdmult/rddiv
+	// left by the last encoded macroblock; vp8_initialize_rd_consts updates
+	// cpi->RDMULT/RDDIV but not the MACROBLOCK copies before the activity
+	// probe runs. Carry that stale pair across frames for the probe's
+	// optimize_mby trellis.
+	activityProbeRDMult  int
+	activityProbeRDDiv   int
+	activityProbeRDValid bool
+
+	// activityProbeStaleActZbinAdj mirrors libvpx's stale-act_zbin_adj
+	// carry across recode attempts and frames. vp8cx_frame_init_quantizer
+	// (vp8_quantize.c:433) resets cpi->mb.zbin_mode_boost to 0 at the head
+	// of every vp8_encode_frame call, but cpi->mb.act_zbin_adj is left at
+	// the value adjust_act_zbin (encodeframe.c:1071-1090) computed for the
+	// PREVIOUS attempt's last encoded MB (mb_rows-1, mb_cols-1). The next
+	// vp8cx_mb_init_quantizer call folds that stale value into
+	// b->zbin_extra via the ZBIN_EXTRA_Y macro, and the activity probe's
+	// vp8_quantize_mby then uses that bias for every MB it quantizes.
+	// govpx mirrors that pointer lifetime exactly: zero on cold start
+	// (matching VP8_COMP's calloc-zero init at onyx_if.c:1774), updated at
+	// the end of every encoded frame to the activity-mask adjustment of
+	// the last MB row's last column (so the next attempt / frame reads the
+	// same stale value). The reset to zero on Reset() keeps the cold-start
+	// trajectory deterministic.
+	activityProbeStaleActZbinAdj int
+
+	// activityProbeAboveContextSeeded mirrors libvpx's `xd->above_context !=
+	// NULL` semantics at the entry of mb_activity_measure's optimize hook:
+	//
+	//   vp8/encoder/encodemb.c:436-438 vp8_optimize_mby short-circuits when
+	//   xd->above_context is NULL. The VP8_COMP struct is zero-init at
+	//   allocation (onyx_if.c:1774 memset). The first encode_mb_row of the
+	//   first encoded frame assigns xd->above_context = cm->above_context
+	//   (encodeframe.c:357); subsequent encode_mb_rows (same-frame recodes
+	//   and every later frame) carry the non-NULL pointer.
+	//
+	// build_activity_map walks ALL macroblocks BEFORE encode_mb_row runs
+	// (encodeframe.c:731). The probe's mb_activity_measure→vp8_encode_intra
+	// path calls vp8_encode_intra16x16mby (which would invoke
+	// vp8_optimize_mby when x->optimize=1) only on DC16 edge MBs, so the
+	// activity SSE returned for the first frame's first attempt is biased
+	// by exactly the trellis-skipped reconstruction on those edge MBs.
+	//
+	// Mirror the gate here: the activity probe forces optimize=false when
+	// activityProbeAboveContextSeeded is false. The flag flips to true at
+	// the start of every frame's first encode_mb_row equivalent (the
+	// reconstructing key-frame / inter-frame coefficient pass), which
+	// matches the libvpx pointer's lifetime exactly.
+	activityProbeAboveContextSeeded bool
+
+	// libvpx dot-artifact suppression: count of MBs that have biased
+	// against ZEROMV-LAST this frame (capped at MBs/10), and the current
+	// frame's temporal layer ID. See vp8/encoder/pickinter.c
+	// check_dot_artifact_candidate. consecZeroLastMVBias mirrors
+	// cpi->consec_zero_last_mvbias and resets to 0 on any MB that was
+	// dot-suppression-checked this frame, so the threshold gate gives the
+	// same MB a fresh chance after num_frames have passed.
+	mbsZeroLastDotSuppress int
+	currentTemporalLayer   int
+	consecZeroLastMVBias   []uint8
+	dotArtifactChecked     []bool
+
+	// forceMaxQuantizer mirrors libvpx's cpi->force_maxqp. It is set when an
+	// overshoot drop forces the *next* inter frame to be encoded at max Q
+	// (vp8/encoder/ratectrl.c vp8_drop_encodedframe_overshoot) and disables
+	// cyclic background refresh while it is set (vp8/encoder/onyx_if.c). The
+	// flag is cleared after the next non-dropped frame commits.
+	forceMaxQuantizer bool
+
+	// carriedExternalRefresh mirrors libvpx refresh-mask state across dropped
+	// frames. VP8E_SET_FRAME_FLAGS updates common.refresh_* before drop checks;
+	// dropped frames clear ext_refresh_frame_flags_pending but do not restore
+	// the default LAST-only refresh mask, so the next source frame inherits it.
+	carriedExternalRefresh       bool
+	carriedExternalRefreshLast   bool
+	carriedExternalRefreshGolden bool
+	carriedExternalRefreshAltRef bool
+
+	// carriedExternalReference mirrors ref_frame_flags across dropped frames.
+	// VP8E_SET_FRAME_FLAGS updates cpi->ref_frame_flags before drop checks,
+	// and dropped frames do not restore the previous reference mask.
+	carriedExternalReference       bool
+	carriedExternalReferenceLast   bool
+	carriedExternalReferenceGolden bool
+	carriedExternalReferenceAltRef bool
+
+	// carriedNoUpdateEntropy mirrors common.refresh_entropy_probs across
+	// dropped frames. VP8_EFLAG_NO_UPD_ENTROPY sets it before drop checks;
+	// libvpx only restores the default refresh-on state after a packet is
+	// actually emitted, so a dropped no-update frame suppresses entropy
+	// refresh on the next encoded frame.
+	carriedNoUpdateEntropy bool
+
+	// framePredictionError mirrors libvpx's cpi->mb.prediction_error for
+	// the current inter encode attempt. The overshoot-drop gate reads it
+	// before the caller updates lastPredErrorMB, matching onyx_if.c.
+	framePredictionError int64
+
+	// lastPredErrorMB mirrors libvpx's cpi->last_pred_err_mb
+	// (vp8/encoder/onyx_int.h). After every non-key frame, libvpx records
+	// `cpi->mb.prediction_error / cpi->common.MBs` into this field at
+	// vp8/encoder/onyx_if.c:3978-3980; the next frame's
+	// vp8_drop_encodedframe_overshoot consults it via the
+	// `pred_err_mb > 2 * last_pred_err_mb` gate. govpx does not yet
+	// accumulate cpi->mb.prediction_error during inter mode picking, so
+	// this field stays at 0; the overshoot drop's inner gate therefore
+	// never fires until pred_err tracking lands. Outer state management
+	// (frames_since_last_drop_overshoot, force_maxqp clears) runs
+	// regardless, matching libvpx for the common no-drop case.
+	lastPredErrorMB int
+
+	// Cross-frame inter-mode reference-frame probabilities. libvpx
+	// (onyx_if.c init) seeds these with 63/128/128 and updates them after each
+	// inter frame from observed mb_ref_frame counts (see
+	// vp8_estimate_entropy_savings); RD scoring needs the previous-frame
+	// values, not the per-frame static 128 default.
+	refProbIntra                   uint8
+	refProbLast                    uint8
+	refProbGolden                  uint8
+	refProbUseDefaultOnNextInterRD bool
+	temporalLayerRefUsage          [vp8common.MaxRefFrames]int
+	// libvpx update_rd_ref_frame_probs (onyx_if.c) adjusts the reference-frame
+	// probabilities used by the *current* frame's RD scoring based on the
+	// upcoming refresh policy. It tracks frames_since_golden and
+	// source_alt_ref_active to drive the bumps; see update_golden_frame_stats
+	// for the lifecycle of those counters.
+	framesSinceGolden  int
+	sourceAltRefActive bool
+	// libvpx vp8/encoder/onyx_if.c automatic ARF scheduling state:
+	// source_alt_ref_pending is set when the encoder has decided to
+	// insert a hidden ARF on a future frame; alt_ref_source identifies
+	// the lookahead entry that will become the ARF source so the
+	// later show-frame can detect is_src_frame_alt_ref.
+	// framesTillAltRefFrame counts down from the current ARF section
+	// length so the encoder knows when to emit the hidden frame.
+	sourceAltRefPending   bool
+	altRefSourcePTS       uint64
+	altRefSourceValid     bool
+	framesTillAltRefFrame int
+	// autoAltRefStash holds a single input frame deferred by the auto
+	// alternate-reference driver. Emitting a hidden ARF in EncodeInto does
+	// not pop the lookahead, leaving it at capacity; the user's source frame
+	// is stashed here and flushed into the lookahead on the next call. The
+	// stash is populated/consumed exclusively by vp8_encoder_altref_driver.go.
+	autoAltRefStashValid    bool
+	autoAltRefStashFrame    vp8common.FrameBuffer
+	autoAltRefStashPTS      uint64
+	autoAltRefStashDuration uint64
+	autoAltRefStashFlags    EncodeFlags
+	autoAltRefStashForceLF  bool
+	// currentSourcePTS mirrors libvpx onyx_if.c's per-frame
+	// `cpi->source` PTS so isSrcFrameAltRef can detect the deferred
+	// show frame after a hidden ARF.
+	currentSourcePTS uint64
+	// libvpx vp8/encoder/onyx_if.c decide_key_frame heuristic compares
+	// this_frame_percent_intra against last_frame_percent_intra; track
+	// the rolling lookback here so the helper sees the same state libvpx
+	// would.
+	lastFramePercentIntra int
+	// libvpx also carries a skip-false probability for inter RD costing. The
+	// packet writer adapts the final value from this frame's skip counts; mode
+	// decision uses the previous refreshed reference's value, clamped away from
+	// the extremes.
+	probSkipFalse      uint8
+	lastSkipFalseProbs [3]uint8
+	baseSkipFalseProbs [vp8common.QIndexRange]uint8
+
+	lookahead []lookaheadEntry
+
+	preprocess vp8common.FrameBuffer
+	// arnrScratch is govpx's analogue of libvpx's `cpi->alt_ref_buffer`
+	// (vp8/encoder/onyx_int.h, allocated in vp8/encoder/onyx_if.c with
+	// VP8BORDERINPIXELS=32). When the auto-ARF driver fires the hidden
+	// alt-ref encode, applyARNRFilter writes the temporal-filter output
+	// into this buffer and preprocessSource redirects the encode source
+	// to it (the libvpx `cpi->Source = force_src_buffer ? force_src_buffer
+	// : &cpi->source->img;` branch in vp8_get_compressed_data). Every
+	// downstream reader that consumes the source pixels for the ARF encode
+	// — motion search, RD picker, inter-frame reconstruction, loop-filter
+	// trial SSE — therefore reads the filtered pixels rather than the raw
+	// lookahead source.
+	arnrScratch    vp8common.FrameBuffer
+	arnrLastSource vp8common.FrameBuffer
+	arnrLastReady  bool
+	// libvpx-style temporal denoiser. Maintains a parallel running_avg
+	// stream (per reference) that mc-filters the source toward the picked
+	// motion-compensated prediction, plus a per-MB FILTER/COPY/NoFilter
+	// state machine. See vp8/encoder/denoising.c.
+	denoiser denoiserState
+
+	firstPassLastRef    vp8common.FrameBuffer
+	firstPassGoldenRef  vp8common.FrameBuffer
+	firstPassLastSource vp8common.FrameBuffer
+	firstPassNewRef     vp8common.FrameBuffer
+	firstPassCount      uint64
+
+	twoPass twoPassState
+
+	lookaheadRead  int
+	lookaheadWrite int
+	lookaheadCount int
+
+	keyFrameModes   []vp8enc.KeyFrameMacroblockMode
+	interFrameModes []vp8enc.InterFrameMacroblockMode
+	// Mirrors libvpx's gf_active_flags map used by calc_gf_params. Each
+	// macroblock stays active while it either uses GOLDEN/ALTREF or keeps a
+	// LAST/ZEROMV prediction; non-zero/intra choices clear the flag.
+	gfActiveMap []bool
+	// libvpx's improved MV predictor reads the previous inter frame's
+	// MODE_INFO grid (lfmv/lf_ref_frame) when the last coded frame was inter.
+	lastFrameInterModeRefs   []vp8enc.InterFrameMVRef
+	lastFrameInterModesValid bool
+	lastCodedFrameType       vp8common.FrameType
+	keyFrameCoeffs           []vp8enc.MacroblockCoefficients
+	tokenAbove               []vp8enc.TokenContextPlanes
+	// reconstructAboveTok is a per-frame scratch buffer reused by the
+	// reconstructing key-frame and inter-frame builders to track each row's
+	// above-token context without allocating per call. Sized by
+	// NewVP8Encoder to geometry.MacroblockCols(width) and zeroed at the start
+	// of every reconstruction pass. Distinct from tokenAbove to avoid
+	// aliasing with the bitstream-pack stage that consumes tokenAbove
+	// downstream of the build.
+	reconstructAboveTok []vp8enc.TokenContextPlanes
+
+	// partScratch holds reusable per-token-partition byte buffers for the
+	// multi-token-partition packet writer (TokenPartitions in {1,2,3} maps
+	// to 2/4/8 partitions). Single-partition mode (TokenPartitions=0, the
+	// default) does not consult this; the field stays zero-valued. The
+	// buffers grow to len(dst) lazily on the first multi-partition frame
+	// and are reused thereafter so steady-state encodes hit zero
+	// allocations even with --token-parts=N>1.
+	partScratch vp8enc.PartitionScratch
+
+	interRDThreshMult       [libvpxInterModeCount]int
+	interRDThreshTouched    [libvpxInterModeCount]bool
+	interModeCheckFreq      [libvpxInterModeCount]int
+	interModeTestHitCounts  [libvpxInterModeCount]int
+	interMBsTestedSoFar     int
+	interModeErrorBins      [1024]uint32
+	interModeSpeedErrorBins [1024]uint32
+	interRDFrameActive      bool
+
+	// Per-frame cached baseline threshold tables for the fast/RD inter-mode
+	// pickers. Libvpx initializes cpi->rd_baseline_thresh once per frame
+	// from cm->base_qindex before per-MB segment quant selection, so the
+	// picker thresholds are frame-level even when cyclic refresh changes the
+	// macroblock's quantizer. The generation counter is bumped at each
+	// beginInterRDModeDecisionFrame so we don't have to clear the table every
+	// frame.
+	interRDThreshBaselineGen   uint32
+	interRDThreshBaselineSlots [interRDThreshBaselineSlotCount]interRDThreshBaselineSlot
+	interRDFrameBaseQIndex     int
+	// Derived per-MB thresholds maintained incrementally, mirroring libvpx's
+	// x->rd_threshes discipline: initialized from the baseline once per
+	// (frame, baseline-slot) and updated at a single mode index inside the
+	// raise/lower helpers (pickinter.c:831/1157/1171/1188, rdopt.c:1896/2266)
+	// instead of re-deriving all 20 entries per macroblock. The stamp ties
+	// the cache to a specific fill of a specific baseline slot; any slot
+	// refill, generation bump or frame begin invalidates it.
+	interRDDerivedThresh   [libvpxInterModeCount]int
+	interRDDerivedBaseline [libvpxInterModeCount]int
+	interRDDerivedStamp    uint64
+	interRDDerivedValid    bool
+	interRDThreshFillSeq   uint32
+	// Per-frame search-order (refs are constant per frame) so the
+	// per-MB picker doesn't recompute it in every loop body.
+	interRDFrameRefSearchOrder      [4]int8
+	interRDFrameRefSearchOrderValid bool
+
+	current   vp8common.FrameBuffer
+	analysis  vp8common.FrameBuffer
+	lastRef   vp8common.FrameBuffer
+	goldenRef vp8common.FrameBuffer
+	altRef    vp8common.FrameBuffer
+	// Mirrors libvpx cpi->current_ref_frames[] for closest-reference policy.
+	// Values are frameCount values from the encoded frame that last refreshed
+	// or was copied into each reference buffer.
+	referenceFrameNumbers [vp8common.MaxRefFrames]uint64
+	// Mirrors libvpx gold_is_last / alt_is_last / gold_is_alt. These flags
+	// prune duplicate reference candidates after refreshes make buffers alias.
+	goldenRefAliasesLast          bool
+	altRefAliasesLast             bool
+	goldenRefAliasesAlt           bool
+	pendingLookaheadSetReferences []queuedReferenceSet
+	latestLookaheadSetReferences  []queuedReferenceSet
+	nextReferenceSetSeq           uint64
+
+	loopFilterPick vp8common.FrameBuffer
+	loopFilterBest vp8common.FrameBuffer
+	// loopFilterPickAlt is the second LF-trial scratch buffer used by the
+	// full picker when running filt_low/filt_high trials concurrently at
+	// Threads >= 2. Resized only when the row-worker pool exists; remains
+	// zero-sized on Threads=1 so the canonical serial path stays
+	// byte-identical with zero added cost.
+	loopFilterPickAlt                    vp8common.FrameBuffer
+	loopFilterPickReady                  bool
+	loopFilterPickLevel                  uint8
+	loopFilterPickBest                   bool
+	loopFilterSegmentLF                  [vp8common.MaxMBSegments]int8
+	reconstructModes                     []vp8dec.MacroblockMode
+	reconstructTokens                    []vp8dec.MacroblockTokens
+	dequantTables                        vp8common.FrameDequantTables
+	dequants                             [vp8common.MaxMBSegments]vp8common.MacroblockDequant
+	reconstructScratch                   vp8dec.IntraReconstructionScratch
+	fastInterLoopCtx                     fastInterModeLoopContext
+	fastCoeffScratch                     vp8FastCoeffScratch
+	currentIsLastRef                     bool
+	previewPostProcessFlags              PostProcessFlag
+	previewPostProcessDeblockingLevel    int
+	previewPostProcessDeblockingLevelSet bool
+	previewPostProcessNoiseLevel         int
+	preview                              vp8common.FrameBuffer
+	previewPostprocScratch               []byte
+	previewPostprocState                 vp8dec.PostProcessState
+	previewFrameValid                    bool
+	previewFrameSuppressed               bool
+	previewPostprocessedValid            bool
+	previewFrameType                     vp8common.FrameType
+	previewBaseQIndex                    int
+	previewLoopFilterLevel               uint8
+	previewFrameNumber                   int
+	// keyFrameCoefTokenCounts is populated by the threaded key-frame
+	// reconstruction pass with the same per-thread count accumulation libvpx
+	// later sums for vp8_update_coef_probs. Packet write consumes it only
+	// when valid; serial keyframes keep the established row-major count walk.
+	keyFrameCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
+	keyFrameCoefTokenCountsValid bool
+	// interCoefTokenCounts is the Lane D per-frame coefficient token count
+	// cache. Populated during single-threaded inter-frame accepted-MB
+	// reconstruction (buildReconstructingInterFrameCoefficientsWithSegmentation)
+	// and consumed by InterFramePacket.Write via PrebuiltCoefCounts so the
+	// packet writer skips its own count walk. Reset at the start of each
+	// reconstruction pass. interCoefTokenCountsValid gates consumption so
+	// threaded reconstruct paths (which do not populate the cache) fall back
+	// to recomputing during Write.
+	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
+	interCoefTokenCountsValid bool
+	// interCoefTokenRecords is the matching Lane D coefficient token stream.
+	// Populated during the same accepted-MB walk as interCoefTokenCounts so
+	// InterFramePacket.Write can emit coefficient tokens without re-walking
+	// QCoeff/EOB/context state. Only valid for the single-threaded builder.
+	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
+	interCoefTokenRecordsValid bool
+	// mtHelperYModeCountAccum / mtHelperUVModeCountAccum mirror libvpx's
+	// per-helper `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulated
+	// across every MT inter frame. Per libvpx v1.16.0
+	// vp8/encoder/ethreading.c vp8cx_init_mbrthread_data the helper-thread
+	// counts are NOT zeroed per frame (only main's are), so they carry
+	// historical state into update_mbintra_mode_probs's branch-cost compare
+	// in vp8/encoder/bitstream.c. govpx tracks them at encoder scope and
+	// feeds the value as `YModeCountBias` / `UVModeCountBias` to the inter
+	// packet writer; after pack the accumulator absorbs this frame's
+	// helper-row intra-mode counts so the next MT frame sees the libvpx
+	// MT-biased distribution. mtHelperRowAccumWorkerCount records the
+	// worker partition the accumulator was last updated under so a thread
+	// reconfiguration drops the stale snapshot, matching the libvpx
+	// vp8cx_create_encoder_threads memset reset on thread-count changes.
+	mtHelperYModeCountAccum     [vp8tables.YModeProbCount][2]int
+	mtHelperUVModeCountAccum    [vp8tables.UVModeProbCount][2]int
+	mtHelperRowAccumWorkerCount int
+	mtHelperRowAccumValid       bool
+	// lastInterReconstructWorkerCount records the worker count used by the
+	// most recent inter-frame reconstruction (>=2 = MT, 0/1 = serial). Set
+	// inside buildReconstructingInterFrameCoefficients{Threaded,WithSegmentation}
+	// and read by the inter-packet writer dispatch in encodeInterFrameAttempt
+	// to gate the libvpx-MT ymode/uv_mode_count bias hand-off.
+	lastInterReconstructWorkerCount int
+	// lastKeyFrameReconstructWorkerCount mirrors lastInterReconstructWorkerCount
+	// for the key-frame path. libvpx VP8 MT uses the same helper threads for
+	// both frame types and accumulates ymode_count / uv_mode_count on every
+	// MB they process (sum_intra_stats fires on every KF MB and on inter
+	// intra MBs, vp8/encoder/encodeframe.c:1067), so the mtHelper*CountAccum
+	// rolls forward across keyframes too.
+	lastKeyFrameReconstructWorkerCount int
+	// interRDCoeffCache stages the winning RD candidate's post-FDCT DCT
+	// inputs across the picker → accepted-path boundary in
+	// selectRDInterFrameModeDecision /
+	// buildReconstructingInterFrameCoefficientsWithSegmentation. Two slots
+	// alternate: the picker writes each candidate's DCTs into the
+	// non-winner slot, and when a candidate becomes best the slot index
+	// flips (no data copy). The accepted-path reads from the winner slot
+	// to skip predict + residual gather + FDCT for the winning inter mode.
+	interRDCoeffCacheSlots         [2]interRDCoeffCacheState
+	interRDCoeffCacheWinner        uint8
+	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
+	loopInfo                       vp8common.LoopFilterInfo
+	// loopInfoAlt is the worker-private LoopFilterInfo for the
+	// parallel filt_low/filt_high trials run by pickFull at Threads >= 2.
+	// vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked mutates the
+	// passed *LoopFilterInfo (via InitLoopFilterFrame) so the parallel
+	// trial cannot share loopInfo with the calling goroutine's trial.
+	loopInfoAlt     vp8common.LoopFilterInfo
+	loopFilterLevel uint8
+	// Mirror libvpx vp8/encoder/onyx_if.c set_default_lf_deltas /
+	// vp8/encoder/bitstream.c pack_lf_deltas: the encoder signals the
+	// mode/ref loop-filter deltas with `update=1` on the very first packed
+	// frame (when xd->mode_ref_lf_delta_update is 1 from set_default_lf_deltas)
+	// and clears the flag after the bitstream is written, so subsequent
+	// frames pack `update=0` until something changes the deltas. We mirror
+	// that by tracking whether the deltas have been signaled at least once
+	// and what values were last signaled; the bitstream writer compares the
+	// frame's deltas against that snapshot to decide whether to emit
+	// `mode_ref_lf_delta_update`. The snapshot is committed to the encoder
+	// state only on the accepted attempt (see commitKeyFrameAttempt /
+	// commitInterFrameAttempt) so recode iterations see consistent state.
+	lfDeltasSignaledOnce     bool
+	lastSignaledRefLFDeltas  [vp8common.MaxRefLFDeltas]int8
+	lastSignaledModeLFDeltas [vp8common.MaxModeLFDeltas]int8
+	pendingLFDeltaUpdate     bool
+	currentLFDeltaUpdate     bool
+	coefProbs                vp8tables.CoefficientProbs
+	// coefProbsLast/Golden/AltRef mirror libvpx vp8/encoder/onyx.h cpi->lfc_n,
+	// cpi->lfc_g, cpi->lfc_a: per-reference snapshots of cm->fc.coef_probs
+	// captured at the END of the most recent frame that refreshed that slot.
+	// They are seeded to default at every keyframe (vp8_setup_key_frame copies
+	// cpi->common.fc into all three) and updated independently per
+	// refresh_last/refresh_golden/refresh_alt_ref_frame flags after a frame's
+	// bitstream is packed.
+	//
+	// vp8_initialize_rd_consts (rdopt.c) feeds the RD picker's per-frame
+	// fill_token_costs from one of these snapshots, choosing
+	//
+	//	l = refresh_alt_ref_frame ? lfc_a
+	//	  : refresh_golden_frame  ? lfc_g
+	//	  : lfc_n
+	//
+	// govpx's RD picker (selectRDInterFrameModeDecision via
+	// buildPredictedMacroblockCoefficientsRD) needs this same selection so
+	// frames that boost golden/altref score against the colder lfc_g/lfc_a
+	// snapshot — which is exactly the condition that lets SPLITMV's
+	// rd_threshes gate fire. See parity-close-r3-h-rd-scale.
+	coefProbsLast           vp8tables.CoefficientProbs
+	coefProbsGolden         vp8tables.CoefficientProbs
+	coefProbsAltRef         vp8tables.CoefficientProbs
+	coefProbsSnapshotsValid bool
+	// rdPickerCoefProbsActive is set to one of {coefProbsLast, coefProbsGolden,
+	// coefProbsAltRef} during inter-frame RD picker passes (see
+	// encodeInterFrameAttempt). When non-nil, picker call sites read from it
+	// instead of e.coefProbs so token costs match libvpx's per-reference
+	// fill_token_costs source. nil during key-frame and committed-encode paths.
+	rdPickerCoefProbsActive      *vp8tables.CoefficientProbs
+	rdPickerCoefTokenCosts       vp8enc.CoefficientTokenCostTable
+	rdPickerCoefTokenCostsActive *vp8enc.CoefficientTokenCostTable
+	modeProbs                    vp8dec.ModeProbs
+	subMVRefProbs                [3]uint8
+	noUpdateEntropyCoefProbs     vp8tables.CoefficientProbs
+	noUpdateEntropyModeProbs     vp8dec.ModeProbs
+	noUpdateEntropySubMVRefProbs [3]uint8
+	noUpdateEntropyContextValid  bool
+	mvCostTables                 vp8enc.MotionVectorCostTables
+	mvCostProbs                  [2][vp8tables.MVPCount]uint8
+	mvCostTablesValid            bool
+
+	// threadedRowsActive marks the worker-private encoder view used by the
+	// row-threaded inter-frame builder. It is false on the canonical encoder
+	// state so Threads=1 remains byte-identical and does not branch into
+	// threaded-only search features.
+	threadedRowsActive bool
+
+	// threadedHelperRowsActive marks helper row-worker encoder views. Libvpx's
+	// setup_mbby_copy intentionally does not copy MACROBLOCK.ref_frame_cost
+	// into helper workers, so helper-row RD pickers see zero reference-frame
+	// signalling cost while the main lane uses the frame-initialized costs.
+	threadedHelperRowsActive bool
+
+	// rowWorkers is the row-parallel encoder worker pool. Allocated
+	// only when EncoderOptions.Threads >= 2 so the canonical
+	// Threads=1 path stays zero-cost (no goroutine spawn, no
+	// atomic ops, no channel allocation, no per-row scratch
+	// allocation). Mirrors libvpx vp8/encoder/ethreading.c's
+	// cpi->mb_row_ei + cpi->encoding_thread_count layout. nil at
+	// Threads=1 so picker / reconstruct hot paths can branch on a
+	// single nil-check before any threading code path executes.
+	rowWorkers *rowWorkerPool
+}
+
+// savedCodingContext mirrors libvpx vp8/encoder/ratectrl.c CODING_CONTEXT.
+// vp8_save_coding_context snapshots these fields before the recode do-loop in
+// encode_frame_to_data_rate; vp8_restore_coding_context puts them back when a
+// recode attempt is rejected (Loop==1) so the next attempt sees the same
+// pre-encode state. govpx defers entropy/skip-prob commits past the loop, so
+// most fields are also untouched mid-loop, but the snapshot/restore pair makes
+// that contract explicit and verifiable.
+type savedCodingContext struct {
+	// libvpx CODING_CONTEXT scalars.
+	framesSinceKey        int
+	filterLevel           uint8
+	framesTillGFUpdateDue int
+	framesSinceGolden     int
+	thisFramePercentIntra int
+	// libvpx CODING_CONTEXT array fields (mvc/ymode_prob/uv_mode_prob).
+	// govpx stores MV/Y/UV/B mode probabilities in e.modeProbs
+	// (vp8dec.ModeProbs), SPLITMV RD label probabilities in e.subMVRefProbs,
+	// and coefficient probabilities in e.coefProbs.
+	modeProbs     vp8dec.ModeProbs
+	subMVRefProbs [3]uint8
+	coefProbs     vp8tables.CoefficientProbs
+	// libvpx also tracks ref-frame and skip-false probabilities across the
+	// recode loop via cpi->prob_intra/prob_last/prob_gf and
+	// cpi->prob_skip_false; govpx's per-attempt deferred restore covers them
+	// inside one attempt, but the recode-loop snapshot pins the values that
+	// survive a rejected attempt.
+	refProbIntra                   uint8
+	refProbLast                    uint8
+	refProbGolden                  uint8
+	refProbUseDefaultOnNextInterRD bool
+	probSkipFalse                  uint8
+	lastSkipFalseProbs             [3]uint8
+	valid                          bool
+}
+
+// saveCodingContext mirrors libvpx vp8_save_coding_context. Called once before
+// the encode/recode do-loop; the snapshot is consumed by restoreCodingContext
+// when a recode attempt is rejected.
+func (e *VP8Encoder) saveCodingContext() {
+	e.savedContext = savedCodingContext{
+		framesSinceKey:                 e.rc.framesSinceKeyframe,
+		filterLevel:                    e.loopFilterLevel,
+		framesTillGFUpdateDue:          e.rc.framesTillGFUpdateDue,
+		framesSinceGolden:              e.framesSinceGolden,
+		thisFramePercentIntra:          e.rc.thisFramePercentIntra,
+		modeProbs:                      e.modeProbs,
+		subMVRefProbs:                  e.subMVRefProbs,
+		coefProbs:                      e.coefProbs,
+		refProbIntra:                   e.refProbIntra,
+		refProbLast:                    e.refProbLast,
+		refProbGolden:                  e.refProbGolden,
+		refProbUseDefaultOnNextInterRD: e.refProbUseDefaultOnNextInterRD,
+		probSkipFalse:                  e.probSkipFalse,
+		lastSkipFalseProbs:             e.lastSkipFalseProbs,
+		valid:                          true,
+	}
+}
+
+// restoreCodingContext mirrors libvpx vp8_restore_coding_context. Called when
+// the recode loop decides to re-encode at a different Q so the next attempt
+// starts from the pre-encode state captured by saveCodingContext.
+func (e *VP8Encoder) restoreCodingContext() {
+	if !e.savedContext.valid {
+		return
+	}
+	e.rc.framesSinceKeyframe = e.savedContext.framesSinceKey
+	e.loopFilterLevel = e.savedContext.filterLevel
+	e.rc.framesTillGFUpdateDue = e.savedContext.framesTillGFUpdateDue
+	e.framesSinceGolden = e.savedContext.framesSinceGolden
+	e.rc.thisFramePercentIntra = e.savedContext.thisFramePercentIntra
+	e.modeProbs = e.savedContext.modeProbs
+	e.subMVRefProbs = e.savedContext.subMVRefProbs
+	e.coefProbs = e.savedContext.coefProbs
+	e.refProbIntra = e.savedContext.refProbIntra
+	e.refProbLast = e.savedContext.refProbLast
+	e.refProbGolden = e.savedContext.refProbGolden
+	e.refProbUseDefaultOnNextInterRD = e.savedContext.refProbUseDefaultOnNextInterRD
+	e.probSkipFalse = e.savedContext.probSkipFalse
+	e.lastSkipFalseProbs = e.savedContext.lastSkipFalseProbs
+}
+
+type keyFrameEncodeAttempt struct {
+	FrameCoefProbs    vp8tables.CoefficientProbs
+	Size              int
+	ProjectedSizeBits int
+	// CoefSavingsBits and RefFrameSavingsBits expose the entropy-savings
+	// breakdown that fed projectedFrameSizeBitsFromRate for this attempt.
+	// Used by the oracle trace to localize entropy-savings parity gaps.
+	// On key frames RefFrameSavingsBits is always 0.
+	CoefSavingsBits     int
+	RefFrameSavingsBits int
+	LoopFilterLevel     uint8
+	SharpnessLevel      uint8
+	LFDeltaEnabled      bool
+	LFDeltaUpdate       bool
+	RefLFDeltas         [vp8common.MaxRefLFDeltas]int8
+	ModeLFDeltas        [vp8common.MaxModeLFDeltas]int8
+	RefreshEntropyProbs bool
+	SegmentationEnabled bool
+	SegmentationConfig  vp8enc.SegmentationConfig
+}
+
+type interFrameEncodeAttempt struct {
+	Config            vp8enc.InterFrameStateConfig
+	FrameCoefProbs    vp8tables.CoefficientProbs
+	FrameYModeProbs   [vp8tables.YModeProbCount]uint8
+	FrameUVModeProbs  [vp8tables.UVModeProbCount]uint8
+	FrameMVProbs      [2][vp8tables.MVPCount]uint8
+	RefFrame          vp8common.MVReferenceFrame
+	Ref               *vp8common.Image
+	Size              int
+	ProjectedSizeBits int
+	// PickerProjectedSizeBytes mirrors libvpx's pre-pack
+	// cpi->projected_frame_size (totalrate >> 8) before
+	// vp8_estimate_entropy_savings subtracts the coef / ref-frame savings.
+	// vp8_drop_encodedframe_overshoot consumes this value at
+	// onyx_if.c:3977 (i.e. before line 3986's savings subtraction), so the
+	// overshoot drop gate must see the raw picker rate rather than the
+	// post-savings projection or the final packed size. Always populated
+	// for non-zero-ref attempts so the overshoot drop can fire even when
+	// the recode loop is disabled.
+	PickerProjectedSizeBytes int
+	// OvershootDropped is set when the libvpx post-encode overshoot gate
+	// fired for this attempt inside the inter recode loop.
+	OvershootDropped bool
+	// Entropy-savings breakdown (see keyFrameEncodeAttempt).
+	CoefSavingsBits        int
+	RefFrameSavingsBits    int
+	ZeroReference          bool
+	CyclicRefresh          bool
+	CyclicRefreshNextIndex int
+	CyclicRefreshMapLive   bool
+	// Snapshot the picker-side prob_intra/last/gf the
+	// per-MB RD pass consumed for this attempt (i.e. the values active
+	// before the recode-loop defer restored the pre-attempt snapshot).
+	// Used by the recode_iter trace to localize the first iter where
+	// libvpx's rfct[INTRA] > 0 while govpx stays at 0.
+	PickerProbIntra  int
+	PickerProbLast   int
+	PickerProbGolden int
+}
+
+// NewVP8Encoder creates a VP8 encoder with validated options. Allocations
+// happen here, not on the hot path: per-frame buffers, the row-worker
+// pool when EncoderOptions.Threads > 1, and rate-control state are sized
+// for EncoderOptions.Width and EncoderOptions.Height.
+//
+// opts is validated up front; invalid combinations return
+// [ErrInvalidConfig], [ErrInvalidBitrate], or [ErrInvalidQuantizer]
+// without allocating any encoder state. Width, Height, FPS (or
+// TimebaseNum/Den), and TargetBitrateKbps are required.
+func NewVP8Encoder(opts EncoderOptions) (*VP8Encoder, error) {
+	configuredCPUUsed := opts.CpuUsed
+	normalized, timing, err := normalizeEncoderOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := defaultRateControlConfig(normalized)
+	e := &VP8Encoder{
+		opts:                   normalized,
+		timing:                 timing,
+		sourceTS:               newEncoderSourceTimestampState(timing),
+		coefProbs:              vp8tables.DefaultCoefProbs,
+		refProbIntra:           63,
+		refProbLast:            128,
+		refProbGolden:          128,
+		probSkipFalse:          128,
+		baseSkipFalseProbs:     vp8enc.DefaultBaseSkipFalseProbs,
+		configuredCPUUsed:      configuredCPUUsed,
+		configuredCPUUsedValid: true,
+		// Seed the libvpx vp8_change_config last_w / last_h snapshot to the
+		// initial coded dimensions so the first runtime config side-effect
+		// pass with unchanged Width/Height does not spuriously promote the
+		// next frame to a key frame. See VP8Encoder.lastChangeConfigWidth.
+		lastChangeConfigWidth:  normalized.Width,
+		lastChangeConfigHeight: normalized.Height,
+	}
+	if err := e.reallocateForDimensions(normalized.Width, normalized.Height); err != nil {
+		return nil, err
+	}
+	e.resetInterRDThresholdMultipliers()
+	vp8dec.ResetModeProbs(&e.modeProbs)
+	e.subMVRefProbs = vp8enc.DefaultSubMVRefProbs
+	e.resetNoUpdateEntropyRollbackContext()
+	if err := e.initLookahead(normalized.Width, normalized.Height, normalized.LookaheadFrames); err != nil {
+		return nil, err
+	}
+	// Cache frame dimensions on the rate-control state before
+	// applyConfig so setBitrateKbps can apply the libvpx
+	// raw-target-rate cap to the internal effective bitrate (see
+	// libvpxClampToRawTargetRate). The user-facing
+	// `targetBitrateKbps` is unaffected.
+	e.rc.setFrameDimensions(normalized.Width, normalized.Height)
+	if err := e.rc.applyConfig(cfg, timing); err != nil {
+		return nil, err
+	}
+	e.applyChangeConfigSegmentEncodeBreakout()
+	// libvpx vp8/encoder/ratectrl.c estimate_keyframe_frequency uses
+	// cpi->output_framerate plus cpi->oxcf.auto_key/key_freq for the
+	// first-keyframe bootstrap; seed the options that are not part of the
+	// public rate-control config so early kf_bitrate_adjustment matches
+	// libvpx.
+	e.rc.keyFrameFrequency = normalized.KeyFrameInterval
+	// Mirror libvpx vp8_cx_iface.c:377-378 auto_key derivation. See the
+	// equivalent comment in vp8_encoder_lifecycle.go resetEncoderState.
+	e.rc.autoKeyFrames = !e.keyFramesDisabled && normalized.KeyFrameInterval > 0
+	e.keyFrameFrequency = normalized.KeyFrameInterval
+	// libvpx vp8/encoder/onyx_if.c sets cpi->min_frame_bandwidth =
+	// av_per_frame_bandwidth * two_pass_vbrmin_section / 100; mirror
+	// that so calc_pframe_target_size's min_frame_target floor and
+	// calcGFParams allocation_chunks see the same value.
+	e.rc.minFrameBandwidth = vbrMinFrameBandwidthBits(e.rc.bitsPerFrame, normalized.TwoPassMinPct)
+	// libvpx's one-pass VBR/CQ setup seeds a provisional GF countdown from
+	// DEFAULT_GF_INTERVAL before the first key frame. The key-frame GOLDEN
+	// refresh then decrements it, preventing an immediate frame-1 auto_gold
+	// refresh.
+	if e.rc.mode != RateControlCBR && len(normalized.TwoPassStats) == 0 {
+		e.rc.framesTillGFUpdateDue = libvpxDefaultGFInterval
+		e.rc.onePassAutoGold = true
+	}
+	// libvpx onyx_if.c vp8_create_compressor (line 1818 then re-overridden
+	// at line 1886) leaves cpi->baseline_gf_interval == gf_interval_onepass_cbr
+	// for any (CBR && !error_resilient) one-pass compressor, regardless of
+	// MODE_REALTIME / MODE_GOODQUALITY / MODE_BESTQUALITY. All other one-pass
+	// cohorts retain DEFAULT_GF_INTERVAL. Mirror that initial seed here so
+	// vp8_setup_key_frame (ratectrl.c:269-273) reads the correct value at
+	// first-keyframe time. Sentinel 0 defers gf_interval_onepass_cbr
+	// derivation to libvpxKeyFrameSetupGFInterval (rows/cols are not final
+	// until temporal config is settled).
+	// libvpx onyx_if.c:1876 gates the GF-interval seeding on
+	// `!cpi->oxcf.error_resilient_mode`, which is a bitmask so any of
+	// {VPX_ERROR_RESILIENT_DEFAULT=1, VPX_ERROR_RESILIENT_PARTITIONS=2}
+	// makes the predicate false. Mirror both bits here so the
+	// ErrorResilientPartitions-only path takes the same DEFAULT_GF_INTERVAL
+	// branch libvpx does.
+	if e.rc.mode == RateControlCBR && !normalized.ErrorResilient && !normalized.ErrorResilientPartitions && len(normalized.TwoPassStats) == 0 {
+		e.rc.baselineGFInterval = 0
+	} else {
+		e.rc.baselineGFInterval = libvpxDefaultGFInterval
+	}
+	// libvpx onyx_if.c:1857-1860 enables cyclic_refresh_mode for
+	// `error_resilient_mode || (end_usage == USAGE_STREAM_FROM_SERVER &&
+	// Mode <= 2)`, where error_resilient_mode is the libvpx bitmask
+	// VPX_ERROR_RESILIENT_DEFAULT|VPX_ERROR_RESILIENT_PARTITIONS. Any bit
+	// makes the predicate true, so ErrorResilientPartitions=true alone
+	// (mask=2) is sufficient to enable the cyclic background refresh path
+	// and the segmentation header it emits (KF: seg_map=0,
+	// FeatureData[MB_LVL_ALT_Q][1]=Q/2-Q, TreeProbs default 255s).
+	e.cyclicRefreshConfigured = normalized.ErrorResilient || normalized.ErrorResilientPartitions ||
+		(e.rc.mode == RateControlCBR && len(normalized.TwoPassStats) == 0)
+	e.rtcExternalDisableCyclicRefresh = normalized.RTCExternalRateControl
+	if e.rc.mode == RateControlCQ {
+		e.rc.currentQuantizer = e.rc.cqLevel
+	} else {
+		e.rc.currentQuantizer = e.rc.minQuantizer
+	}
+	e.rc.lastQuantizer = e.rc.currentQuantizer
+	e.rc.lastInterQuantizer = e.rc.currentQuantizer
+	e.opts.MinQuantizer = cfg.MinQuantizer
+	e.opts.MaxQuantizer = cfg.MaxQuantizer
+	e.opts.CQLevel = normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
+	if err := e.temporal.configure(normalized.TemporalScalability, e.rc.targetBitrateKbps); err != nil {
+		return nil, err
+	}
+	e.opts.TemporalScalability = e.temporal.config
+	e.initializeTemporalLayerCodingStates()
+	e.twoPass.configure(normalized.TwoPassStats, e.rc.bitsPerFrame, normalized.TwoPassVBRBiasPct, normalized.TwoPassMinPct, normalized.TwoPassMaxPct)
+	e.twoPass.configureQuantizerBounds(e.rc.minQuantizer, e.rc.maxQuantizer)
+	e.twoPass.configureErrorResilient(normalized.ErrorResilient || normalized.ErrorResilientPartitions)
+	e.twoPass.configureFrameDims(e.opts.Width, e.opts.Height)
+	e.configureTwoPassEstimateMaxQSpeedCorrection()
+	// libvpx vp8_cx_iface.c sets cpi->oxcf.auto_key = (g_kf_mode ==
+	// VPX_KF_AUTO && key_max_dist != 0). govpx's AdaptiveKeyFrames
+	// mirrors VPX_KF_AUTO; key_max_dist > 0 mirrors the
+	// KeyFrameInterval > 0 gate. Pass both through so prepareKFGroup
+	// and framesToKey run the libvpx natural-KF walk with parity
+	// bounds.
+	e.twoPass.configureKeyFrameInterval(normalized.KeyFrameInterval, normalized.AdaptiveKeyFrames && normalized.KeyFrameInterval > 0)
+	// libvpx vp8/encoder/firstpass.c frame_max_bits (lines 316-368)
+	// dispatches on cpi->oxcf.end_usage. Translate govpx's
+	// RateControlMode into the libvpx END_USAGE enum so the pass-2
+	// allocator routes through the correct CBR/VBR branch at every
+	// libvpx call site (firstpass.c lines 1602, 2162, 2657).
+	e.twoPass.configureEndUsage(libvpxVP8EndUsageFromRateControlMode(e.rc.mode))
+	if err := e.ensureRowWorkerPool(normalized.Width, normalized.Height); err != nil {
+		return nil, err
+	}
+	return e, nil
+}

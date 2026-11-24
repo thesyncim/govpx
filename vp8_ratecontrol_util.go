@@ -1,0 +1,265 @@
+package govpx
+
+import vp8common "github.com/thesyncim/govpx/internal/vp8/common"
+
+func (rc *rateControlState) applyPass2CBRBufferAdjustment(targetBits int, keyFrame bool) int {
+	if rc.mode != RateControlCBR || keyFrame || targetBits <= 0 || rc.bufferOptimalBits <= 0 {
+		return targetBits
+	}
+	return rc.bufferAdjustedFrameTargetBits(targetBits)
+}
+
+func (rc *rateControlState) cqFloorActive() bool {
+	// libvpx's temporal SVC path applies the constrained-quality floor to
+	// the base temporal layer, while enhancement layers follow the VBR/Q
+	// regulator path. Single-layer CQ keeps the usual floor on every inter.
+	return rc.mode == RateControlCQ && (rc.currentTemporalLayers <= 1 || rc.currentTemporalLayerID == 0)
+}
+
+// applyCQFloor ports the libvpx vp8/encoder/firstpass.c estimate_max_q
+// CQ floor (`USAGE_CONSTRAINED_QUALITY -> Q = max(Q, cq_target_quality)`)
+// applied AFTER the second-pass Q regulation. govpx's selectQuantizer
+// regulation already clamps via `clampedCQQuantizerValue` for the
+// one-pass path; this helper makes the post-regulation floor explicit so
+// callers (e.g. the per-frame two-pass wiring) can re-assert the floor
+// even after recode-style adjustments push currentQuantizer below
+// cqLevel. Mirrors libvpx's `if (Q < cpi->cq_target_quality) Q =
+// cpi->cq_target_quality` clamp.
+func (rc *rateControlState) applyCQFloor() {
+	if !rc.cqFloorActive() {
+		return
+	}
+	if rc.currentQuantizer < rc.cqLevel {
+		rc.currentQuantizer = rc.cqLevel
+		if rc.currentQuantizer < vp8common.MaxQ {
+			rc.currentZbinOverQuant = 0
+		}
+	}
+}
+
+func (rc *rateControlState) bufferAdjustedFrameTargetBits(targetBits int) int {
+	if targetBits <= 0 || rc.bufferOptimalBits <= 0 {
+		return targetBits
+	}
+	onePercentBits := 1 + rc.bufferOptimalBits/100
+	if onePercentBits <= 0 {
+		return targetBits
+	}
+	target := int64(targetBits)
+	switch {
+	case rc.bufferLevelBits < rc.bufferOptimalBits:
+		var percentLow int
+		if rc.mode == RateControlCBR {
+			percentLow = (rc.bufferOptimalBits - rc.bufferLevelBits) / onePercentBits
+		} else {
+			if rc.bufferLevelBits >= 0 || rc.totalActualBits <= 0 {
+				return targetBits
+			}
+			percentLow = int((100 * int64(-rc.bufferLevelBits)) / rc.totalActualBits)
+		}
+		percentLow = min(max(percentLow, 0), rc.undershootPct)
+		target -= target * int64(percentLow) / 200
+	case rc.bufferLevelBits > rc.bufferOptimalBits:
+		var percentHigh int
+		if rc.mode == RateControlCBR {
+			percentHigh = (rc.bufferLevelBits - rc.bufferOptimalBits) / onePercentBits
+		} else if rc.totalActualBits > 0 {
+			percentHigh = int((100 * int64(rc.bufferLevelBits)) / rc.totalActualBits)
+		} else {
+			percentHigh = rc.overshootPct
+		}
+		percentHigh = min(max(percentHigh, 0), rc.overshootPct)
+		target += target * int64(percentHigh) / 200
+	default:
+		return targetBits
+	}
+	if target > int64(maxInt()) {
+		return maxInt()
+	}
+	if target < 1 {
+		return 1
+	}
+	return int(target)
+}
+
+func libvpxRollingBits(previous int, current int, weight int, shift uint) int {
+	previous = max(previous, 0)
+	current = max(current, 0)
+	if weight <= 0 {
+		return current
+	}
+	round := 0
+	if shift > 0 {
+		round = 1 << (shift - 1)
+	}
+	if current > maxInt()-round {
+		return maxInt()
+	}
+	limit := (maxInt() - current - round) / weight
+	if previous > limit {
+		return maxInt()
+	}
+	value := previous*weight + current + round
+	return value >> shift
+}
+
+func computeBitsPerFrame(targetBandwidthBits int, timing timingState) int {
+	if targetBandwidthBits <= 0 {
+		return 0
+	}
+	if timing.frameRate > 0 {
+		v := float64(targetBandwidthBits)/timing.frameRate + 0.5
+		if v > float64(maxInt()) {
+			return 0
+		}
+		return int(v)
+	}
+	if timing.timebaseNum <= 0 || timing.timebaseDen <= 0 || timing.frameDuration <= 0 {
+		return 0
+	}
+	num := int64(targetBandwidthBits) * int64(timing.timebaseNum) * int64(timing.frameDuration)
+	den := int64(timing.timebaseDen)
+	if den <= 0 {
+		return 0
+	}
+	v := (num + den/2) / den
+	if v > int64(maxInt()) {
+		return 0
+	}
+	return int(v)
+}
+
+func validRateControlMode(mode RateControlMode) bool {
+	return mode >= RateControlVBR && mode <= RateControlQ
+}
+
+func rateControlModeUsesCQLevel(mode RateControlMode) bool {
+	return mode == RateControlCQ || mode == RateControlQ
+}
+
+func rateControlModeUsesQuantizerRegulator(mode RateControlMode) bool {
+	return mode == RateControlCBR || mode == RateControlVBR || mode == RateControlCQ || mode == RateControlQ
+}
+
+func validateRateControlConfig(cfg RateControlConfig) error {
+	if !validRateControlMode(cfg.Mode) {
+		return ErrInvalidConfig
+	}
+	if cfg.TargetBitrateKbps <= 0 {
+		return ErrInvalidBitrate
+	}
+	if min(cfg.MinBitrateKbps, cfg.MaxBitrateKbps) < 0 {
+		return ErrInvalidBitrate
+	}
+	if cfg.MinBitrateKbps > 0 && cfg.MaxBitrateKbps > 0 && cfg.MinBitrateKbps > cfg.MaxBitrateKbps {
+		return ErrInvalidBitrate
+	}
+	if cfg.TargetBitrateKbps < cfg.MinBitrateKbps {
+		return ErrInvalidBitrate
+	}
+	if cfg.MaxBitrateKbps > 0 && cfg.TargetBitrateKbps > cfg.MaxBitrateKbps {
+		return ErrInvalidBitrate
+	}
+	if uint(cfg.MinQuantizer) > uint(maxQuantizer) || uint(cfg.MaxQuantizer) > uint(maxQuantizer) {
+		return ErrInvalidQuantizer
+	}
+	if cfg.MinQuantizer > cfg.MaxQuantizer {
+		return ErrInvalidQuantizer
+	}
+	if uint(cfg.CQLevel) > uint(maxQuantizer) {
+		return ErrInvalidQuantizer
+	}
+	cqLevel := normalizedCQLevel(cfg.CQLevel, cfg.MinQuantizer)
+	if rateControlModeUsesCQLevel(cfg.Mode) && (cqLevel < cfg.MinQuantizer || cqLevel > cfg.MaxQuantizer) {
+		return ErrInvalidQuantizer
+	}
+	if cfg.UndershootPct < 0 || cfg.UndershootPct > maxRateControlUndershootPct ||
+		cfg.OvershootPct < 0 || cfg.OvershootPct > maxRateControlOvershootPct {
+		return ErrInvalidConfig
+	}
+	if cfg.BufferSizeMs <= 0 || min(cfg.BufferInitialSizeMs, cfg.BufferOptimalSizeMs) < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.MaxIntraBitratePct < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.GFCBRBoostPct < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func defaultRateControlConfig(opts EncoderOptions) RateControlConfig {
+	minQ := opts.MinQuantizer
+	maxQ := opts.MaxQuantizer
+	if minQ == 0 && maxQ == 0 && !opts.QuantizerRangeSet {
+		minQ = 4
+		maxQ = 56
+	}
+
+	undershoot := opts.UndershootPct
+	if undershoot == 0 {
+		undershoot = defaultRateControlUndershootPct
+	}
+	overshoot := opts.OvershootPct
+	if overshoot == 0 {
+		overshoot = defaultRateControlOvershootPct
+	}
+
+	bufferSize := opts.BufferSizeMs
+	if bufferSize == 0 {
+		bufferSize = libvpxDefaultBufferSizeMs
+	}
+	bufferInitial := opts.BufferInitialSizeMs
+	if bufferInitial == 0 {
+		bufferInitial = libvpxDefaultBufferInitialMs
+	}
+	bufferOptimal := opts.BufferOptimalSizeMs
+	if bufferOptimal == 0 {
+		bufferOptimal = libvpxDefaultBufferOptimalMs
+	}
+
+	return RateControlConfig{
+		Mode:                opts.RateControlMode,
+		TargetBitrateKbps:   opts.TargetBitrateKbps,
+		MinBitrateKbps:      opts.MinBitrateKbps,
+		MaxBitrateKbps:      opts.MaxBitrateKbps,
+		MinQuantizer:        minQ,
+		MaxQuantizer:        maxQ,
+		CQLevel:             opts.CQLevel,
+		UndershootPct:       undershoot,
+		OvershootPct:        overshoot,
+		BufferSizeMs:        bufferSize,
+		BufferInitialSizeMs: bufferInitial,
+		BufferOptimalSizeMs: bufferOptimal,
+		DropFrameAllowed:    opts.DropFrameAllowed,
+		DropFrameWaterMark:  opts.DropFrameWaterMark,
+		MaxIntraBitratePct:  opts.MaxIntraBitratePct,
+		GFCBRBoostPct:       opts.GFCBRBoostPct,
+	}
+}
+
+func boostedFrameTargetBits(baseTargetBits int, boostPct int) int {
+	if baseTargetBits <= 0 || boostPct <= 0 {
+		return baseTargetBits
+	}
+	if boostPct > (maxInt()/baseTargetBits)-100 {
+		return maxInt()
+	}
+	return baseTargetBits * (100 + boostPct) / 100
+}
+
+func normalizedCQLevel(level int, minQuantizer int) int {
+	if level == 0 && minQuantizer > 0 {
+		return defaultCQLevel
+	}
+	return level
+}
+
+func maxInt() int {
+	return int(^uint(0) >> 1)
+}
+
+func clampQuantizerValue(q int, minQ int, maxQ int) int {
+	return min(max(q, minQ), maxQ)
+}

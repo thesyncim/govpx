@@ -1,0 +1,38 @@
+package vp9test
+
+import "github.com/thesyncim/govpx/internal/vpx/geometry"
+
+// ActiveMap returns a VP9 active-map fixture and its macroblock dimensions.
+func ActiveMap(width int, height int, pattern string) ([]uint8, int, int) {
+	rows := geometry.MacroblockRows(height)
+	cols := geometry.MacroblockCols(width)
+	activeMap := make([]uint8, rows*cols)
+	for row := range rows {
+		for col := range cols {
+			idx := row*cols + col
+			switch pattern {
+			case "all":
+				activeMap[idx] = 1
+			case "checker":
+				if (row+col)&1 == 0 {
+					activeMap[idx] = 1
+				}
+			case "left-off":
+				if col != 0 {
+					activeMap[idx] = 1
+				}
+			case "right-off":
+				if col != cols-1 {
+					activeMap[idx] = 1
+				}
+			case "border-off":
+				if row != 0 && col != 0 && row != rows-1 && col != cols-1 {
+					activeMap[idx] = 1
+				}
+			default:
+				panic("unknown VP9 active-map pattern")
+			}
+		}
+	}
+	return activeMap, rows, cols
+}

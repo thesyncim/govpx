@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'benchmarks/baselines/**'
+      - 'AGENTS.md'
+      - 'README*'
+  pull_request:
+    paths-ignore:
+      - 'benchmarks/baselines/**'
+      - 'AGENTS.md'
+      - 'README*'
+
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Full validation only after 1.5x codec throughput versus the fixed baseline
+        default: false
+        required: false
+        type: boolean
+      purego_math:
+        description: Optional selected pure-Go math checks during iteration
+        default: false
+        required: false
+        type: boolean
+      trace_compile:
+        description: Optional affected-package oracle trace compile during iteration
+        default: false
+        required: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOEXPERIMENT: simd
+  GOTOOLCHAIN: go1.27.4
+  GOVPX_FULL_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
+
+jobs:
+  test:
+    name: Exhaustive test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Report CI scope
+        run: |
+          if [ "$GOVPX_FULL_CI" = true ]; then
+            echo 'Explicit manual full validation: source/PGO, full suites, conformance, quality, oracle and parity gates. Dispatch only after the recorded 1.5x fixed-baseline codec throughput threshold.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Short iteration CI: affected kernel correctness and root ML stream only. Full suites, control-source fetches, profiles and broad audits stay deferred until the fixed-baseline throughput threshold.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Affected kernel correctness
+        if: ${{ env.GOVPX_FULL_CI != 'true' }}
+        run: GOVPX_REQUIRE_SIMD=1 scripts/go.sh test -pgo=off ./internal/pixel ./internal/vp8/encoder ./internal/vp9/encoder ./internal/vp9/dsp -run '^Test(BackendSelected|FPPacket|FP32ActualFeature|Hadamard|VP9BlockYrd|BlockYrd|FDCTZero|ForwardDCT4x4SIMDMatchesScalar|ForwardDCTBatchIndependentScalar|TokenZeroY1|VP8WorkElision|IntraBridge57|ModelRDIterations58|X64Round2|InitSegmentMacroblockQuants|FP16DisjointScalar|FP16AliasedStoreOrder|FP32DispatchBoundaries|Subpel)' -count=1
+
+      - name: Root ML stream correctness
+        if: ${{ env.GOVPX_FULL_CI != 'true' }}
+        run: scripts/go.sh test -pgo=off . -run '^Test(VP8Algorithm2|MLCacheStreamNative|VP9ScratchLiveEdgeReads56)' -count=1 -v
+
+      - name: Optional selected pure-Go math
+        if: ${{ env.GOVPX_FULL_CI != 'true' && inputs.purego_math }}
+        run: scripts/go.sh test -pgo=off -tags purego ./internal/pixel ./internal/vp8/encoder ./internal/vp9/encoder ./internal/vp9/dsp -run '^Test(FPPacket|Hadamard|VP9BlockYrd|BlockYrd|FDCTZero|ForwardDCT4x4SIMDMatchesScalar|ForwardDCTBatchIndependentScalar|TokenZeroY1|VP8WorkElision|IntraBridge57|ModelRDIterations58|X64Round2|InitSegmentMacroblockQuants|FP16DisjointScalar|FP16AliasedStoreOrder|FP32DispatchBoundaries|Subpel)' -count=1
+
+      - name: Optional affected trace compile
+        if: ${{ env.GOVPX_FULL_CI != 'true' && inputs.trace_compile }}
+        run: scripts/go.sh test -pgo=off -tags govpx_oracle_trace ./internal/pixel ./internal/vp8/encoder ./internal/vp9/encoder ./internal/vp9/dsp -run '^$' -count=1
+
+      - name: Install libvpx build tools
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm yasm
+
+      - name: Source and PGO checks
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-noasm test-simd-selection fmtcheck pgo-check
+
+      - name: Prepare pinned upstream control tables
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: sh scripts/prepare-control-sources.sh
+
+      - name: Native SIMD tests
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test
+
+      - name: Scalar fallback tests
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-purego
+
+      - name: Oracle trace build
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-trace
+
+      - name: VP9 decoder conformance
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-conformance
+
+      - name: Encoder quality gates
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-quality
+
+      - name: Libvpx oracle tests
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-oracle
+
+      - name: Encoder byte parity
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-byte-parity
+
+      - name: Parity regression report
+        if: ${{ env.GOVPX_FULL_CI == 'true' }}
+        run: make test-parity-report
+
+      - name: Save complete parity diagnostics
+        if: ${{ always() && env.GOVPX_FULL_CI == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-report-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .parity-report.log
+          include-hidden-files: true
+          if-no-files-found: ignore

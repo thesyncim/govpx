@@ -1,0 +1,730 @@
+// Package rtp implements VP9 RTP payload descriptors and frame fragment
+// assembly. libvpx v1.16.0 does not provide these RTP packetization helpers;
+// the wire format follows RFC 9628.
+package rtp
+
+import (
+	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
+	vpxrtp "github.com/thesyncim/govpx/internal/vpx/rtp"
+)
+
+const (
+	vp9RTPFlagPictureID             = 0x80
+	vp9RTPFlagInterPicturePredicted = 0x40
+	vp9RTPFlagLayerIndices          = 0x20
+	vp9RTPFlagFlexibleMode          = 0x10
+	vp9RTPFlagStartOfFrame          = 0x08
+	vp9RTPFlagEndOfFrame            = 0x04
+	vp9RTPFlagScalabilityStructure  = 0x02
+	vp9RTPFlagNotRefUpperSpatial    = 0x01
+)
+
+const (
+	// MaxReferenceIndices is the maximum number of reference-index
+	// entries in a VP9 RTP payload descriptor or scalability-structure entry.
+	MaxReferenceIndices = 3
+	// MaxSpatialLayers is the maximum number of spatial layers described
+	// by a VP9 RTP scalability structure.
+	MaxSpatialLayers = 8
+)
+
+// PayloadDescriptor describes the VP9 RTP payload descriptor from RFC
+// 9628. It is the bytes after the RTP header and before the raw VP9 payload.
+type PayloadDescriptor struct {
+	PictureIDPresent bool
+	PictureID        uint16
+	PictureID15Bit   bool
+
+	InterPicturePredicted       bool
+	LayerIndicesPresent         bool
+	FlexibleMode                bool
+	StartOfFrame                bool
+	EndOfFrame                  bool
+	ScalabilityStructurePresent bool
+	NotRefForUpperSpatialLayer  bool
+
+	TemporalID           uint8
+	SwitchingUpPoint     bool
+	SpatialID            uint8
+	InterLayerDependency bool
+	TL0PICIDX            uint8
+	ReferenceIndexCount  int
+	ReferenceIndices     [MaxReferenceIndices]uint8
+	ScalabilityStructure ScalabilityStructure
+}
+
+// ScalabilityStructure describes the optional VP9 RTP scalability
+// structure. SpatialLayerCount defaults to one when marshaling.
+type ScalabilityStructure struct {
+	SpatialLayerCount int
+	ResolutionPresent bool
+	Width             [MaxSpatialLayers]uint16
+	Height            [MaxSpatialLayers]uint16
+
+	PictureGroupPresent bool
+	PictureGroups       []PictureGroup
+}
+
+// PictureGroup describes one picture-group entry in a VP9 RTP
+// scalability structure.
+type PictureGroup struct {
+	TemporalID          uint8
+	SwitchingUpPoint    bool
+	ReferenceIndexCount int
+	ReferenceIndices    [MaxReferenceIndices]uint8
+}
+
+// Size returns the number of bytes needed to marshal d, excluding the raw VP9
+// payload bytes.
+func (d PayloadDescriptor) Size() (int, error) {
+	if err := d.validate(); err != nil {
+		return 0, err
+	}
+	size := 1
+	if d.PictureIDPresent {
+		pidSize, err := d.pictureID().Size()
+		if err != nil {
+			return 0, err
+		}
+		size += pidSize
+	}
+	if d.LayerIndicesPresent {
+		size++
+		if !d.FlexibleMode {
+			size++
+		}
+	}
+	if d.InterPicturePredicted && d.FlexibleMode {
+		size += d.ReferenceIndexCount
+	}
+	if d.ScalabilityStructurePresent {
+		ssSize, err := d.ScalabilityStructure.size()
+		if err != nil {
+			return 0, err
+		}
+		size += ssSize
+	}
+	return size, nil
+}
+
+// MarshalInto writes d into dst and returns the descriptor length. If dst is
+// too small, it returns the required descriptor length and [vpxerrors.ErrBufferTooSmall].
+func (d PayloadDescriptor) MarshalInto(dst []byte) (int, error) {
+	need, err := d.Size()
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+
+	var first byte
+	if d.PictureIDPresent {
+		first |= vp9RTPFlagPictureID
+	}
+	if d.InterPicturePredicted {
+		first |= vp9RTPFlagInterPicturePredicted
+	}
+	if d.LayerIndicesPresent {
+		first |= vp9RTPFlagLayerIndices
+	}
+	if d.FlexibleMode {
+		first |= vp9RTPFlagFlexibleMode
+	}
+	if d.StartOfFrame {
+		first |= vp9RTPFlagStartOfFrame
+	}
+	if d.EndOfFrame {
+		first |= vp9RTPFlagEndOfFrame
+	}
+	if d.ScalabilityStructurePresent {
+		first |= vp9RTPFlagScalabilityStructure
+	}
+	if d.NotRefForUpperSpatialLayer {
+		first |= vp9RTPFlagNotRefUpperSpatial
+	}
+
+	dst[0] = first
+	off := 1
+	if d.PictureIDPresent {
+		n, err := d.pictureID().MarshalInto(dst[off:])
+		if err != nil {
+			return 0, err
+		}
+		off += n
+	}
+	if d.LayerIndicesPresent {
+		layer := d.TemporalID<<5 | d.SpatialID<<1
+		if d.SwitchingUpPoint {
+			layer |= 0x10
+		}
+		if d.InterLayerDependency {
+			layer |= 0x01
+		}
+		dst[off] = layer
+		off++
+		if !d.FlexibleMode {
+			dst[off] = d.TL0PICIDX
+			off++
+		}
+	}
+	if d.InterPicturePredicted && d.FlexibleMode {
+		for i := 0; i < d.ReferenceIndexCount; i++ {
+			ref := d.ReferenceIndices[i] << 1
+			if i+1 < d.ReferenceIndexCount {
+				ref |= 0x01
+			}
+			dst[off] = ref
+			off++
+		}
+	}
+	if d.ScalabilityStructurePresent {
+		off += d.ScalabilityStructure.marshalInto(dst[off:])
+	}
+	return need, nil
+}
+
+// Marshal returns d as a newly allocated VP9 RTP payload descriptor.
+func (d PayloadDescriptor) Marshal() ([]byte, error) {
+	return vpxrtp.MarshalDescriptor(d)
+}
+
+// ParsePayloadDescriptor parses the VP9 RTP payload descriptor at the
+// front of packet and returns the descriptor plus the remaining raw VP9
+// payload bytes.
+func ParsePayloadDescriptor(packet []byte) (PayloadDescriptor, []byte, error) {
+	if len(packet) == 0 {
+		return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+	}
+	first := packet[0]
+	d := PayloadDescriptor{
+		PictureIDPresent:            first&vp9RTPFlagPictureID != 0,
+		InterPicturePredicted:       first&vp9RTPFlagInterPicturePredicted != 0,
+		LayerIndicesPresent:         first&vp9RTPFlagLayerIndices != 0,
+		FlexibleMode:                first&vp9RTPFlagFlexibleMode != 0,
+		StartOfFrame:                first&vp9RTPFlagStartOfFrame != 0,
+		EndOfFrame:                  first&vp9RTPFlagEndOfFrame != 0,
+		ScalabilityStructurePresent: first&vp9RTPFlagScalabilityStructure != 0,
+		NotRefForUpperSpatialLayer:  first&vp9RTPFlagNotRefUpperSpatial != 0,
+	}
+	if d.FlexibleMode && !d.PictureIDPresent {
+		return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+	}
+
+	off := 1
+	if d.PictureIDPresent {
+		pid, n, err := vpxrtp.ParsePictureID(packet[off:], vpxerrors.ErrInvalidVP9Data)
+		if err != nil {
+			return PayloadDescriptor{}, nil, err
+		}
+		d.setPictureID(pid)
+		off += n
+	}
+	if d.LayerIndicesPresent {
+		if off >= len(packet) {
+			return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+		}
+		layer := packet[off]
+		off++
+		d.TemporalID = layer >> 5
+		d.SwitchingUpPoint = layer&0x10 != 0
+		d.SpatialID = (layer >> 1) & 0x07
+		d.InterLayerDependency = layer&0x01 != 0
+		if !d.InterPicturePredicted && d.TemporalID != 0 {
+			return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+		}
+		if d.SpatialID == 0 && d.InterLayerDependency {
+			return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+		}
+		if !d.FlexibleMode {
+			if off >= len(packet) {
+				return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+			}
+			d.TL0PICIDX = packet[off]
+			off++
+		}
+	}
+	if d.InterPicturePredicted && d.FlexibleMode {
+		for i := 0; ; i++ {
+			if i == MaxReferenceIndices || off >= len(packet) {
+				return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+			}
+			ref := packet[off]
+			off++
+			pdiff := ref >> 1
+			if pdiff == 0 {
+				return PayloadDescriptor{}, nil, vpxerrors.ErrInvalidVP9Data
+			}
+			d.ReferenceIndices[i] = pdiff
+			d.ReferenceIndexCount = i + 1
+			if ref&0x01 == 0 {
+				break
+			}
+		}
+	}
+	if d.ScalabilityStructurePresent {
+		ss, n, err := parseScalabilityStructure(packet[off:])
+		if err != nil {
+			return PayloadDescriptor{}, nil, err
+		}
+		d.ScalabilityStructure = ss
+		off += n
+	}
+	return d, packet[off:], nil
+}
+
+// FramePacketizationSize returns the number of RTP payload bodies and
+// total payload-body bytes needed to packetize one raw VP9 Profile 0 frame at
+// mtu bytes.
+//
+// mtu includes the VP9 RTP payload descriptor but excludes the RTP header.
+// This helper packetizes one VP9 frame per call. Layer indices, flexible-mode
+// references, and scalability structures are carried from desc. Scalability
+// structure data is emitted on the first fragment only; later fragments carry
+// the same frame descriptor without repeating that optional metadata.
+func FramePacketizationSize(desc PayloadDescriptor, frame []byte, mtu int) (int, int, error) {
+	if err := validatePacketizerDescriptor(desc); err != nil {
+		return 0, 0, err
+	}
+	firstDescSize, restDescSize, err := fragmentDescriptorSizes(desc)
+	if err != nil {
+		return 0, 0, err
+	}
+	return vpxrtp.VariableFramePacketizationSize(len(frame), firstDescSize, restDescSize, mtu)
+}
+
+// PacketizeFrameInto packetizes one raw VP9 frame into caller-owned
+// RTP payload storage. dst receives packet metadata; payloadBuf receives the
+// payload bodies. On [vpxerrors.ErrBufferTooSmall], the returned packet and byte counts
+// are the required capacities.
+//
+// The returned payload bodies do not include RTP headers. Marker is true only
+// on the last payload body. If desc contains VP9 scalability structure data,
+// only the first payload body carries it.
+func PacketizeFrameInto(dst []vpxrtp.PayloadFragment, payloadBuf []byte,
+	desc PayloadDescriptor, frame []byte, mtu int,
+) (int, int, error) {
+	packets, totalBytes, err := FramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		return 0, 0, err
+	}
+	return vpxrtp.PacketizeFrameInto(dst, payloadBuf, frame, mtu,
+		packets, totalBytes, vp9PacketDescriptorForFragment(desc))
+}
+
+// PacketizeFrame returns RTP payload bodies for one raw VP9 frame.
+// Payloads do not include RTP headers; Marker is true only on the last body.
+func PacketizeFrame(desc PayloadDescriptor, frame []byte, mtu int) ([]vpxrtp.PayloadFragment, error) {
+	packets, totalBytes, err := FramePacketizationSize(desc, frame, mtu)
+	if err != nil {
+		return nil, err
+	}
+	return vpxrtp.PacketizeFrame(frame, mtu, packets, totalBytes,
+		vp9PacketDescriptorForFragment(desc))
+}
+
+func vp9PacketDescriptorForFragment(desc PayloadDescriptor) vpxrtp.PacketDescriptor[PayloadDescriptor] {
+	return func(i, packets int) (PayloadDescriptor, int, error) {
+		packetDesc := payloadDescriptorForFragment(desc, i == 0)
+		descSize, err := packetDesc.Size()
+		if err != nil {
+			return PayloadDescriptor{}, 0, err
+		}
+		packetDesc.StartOfFrame = i == 0
+		packetDesc.EndOfFrame = i == packets-1
+		return packetDesc, descSize, nil
+	}
+}
+
+// FrameAssemblySize validates an ordered set of VP9 RTP payload bodies
+// for one frame and returns the raw VP9 frame size.
+//
+// The caller owns RTP sequence-number validation, loss handling, and jitter
+// buffering. Payloads must be in decode order and must include the marker bit
+// value from each RTP header. For spatial scalability, the final packet of a
+// non-highest spatial-layer frame has E=true and Marker=false; this helper
+// therefore rejects early Marker bits but does not require Marker on the last
+// fragment.
+func FrameAssemblySize(payloads []vpxrtp.PayloadFragment) (int, error) {
+	if len(payloads) == 0 {
+		return 0, vpxerrors.ErrInvalidVP9Data
+	}
+	total := 0
+	validate := vp9FrameAssemblyValidator()
+	for i := range payloads {
+		desc, fragment, err := ParsePayloadDescriptor(payloads[i].Payload)
+		if err != nil {
+			return 0, err
+		}
+		if len(fragment) == 0 {
+			return 0, vpxerrors.ErrInvalidVP9Data
+		}
+		if i+1 < len(payloads) && payloads[i].Marker {
+			return 0, vpxerrors.ErrInvalidVP9Data
+		}
+		if err := validate(i, len(payloads), desc); err != nil {
+			return 0, err
+		}
+		total, err = vpxrtp.AddPayloadSize(total, len(fragment))
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+// AssembleFrameInto writes the raw VP9 frame carried by payloads into
+// dst and returns the frame length. On [vpxerrors.ErrBufferTooSmall], the returned
+// length is the required capacity.
+func AssembleFrameInto(dst []byte, payloads []vpxrtp.PayloadFragment) (int, error) {
+	need, err := FrameAssemblySize(payloads)
+	if err != nil {
+		return 0, err
+	}
+	if len(dst) < need {
+		return need, vpxerrors.ErrBufferTooSmall
+	}
+	return vpxrtp.AssemblePayloadFragmentsInto(dst, payloads, need,
+		parseVP9PayloadFragment)
+}
+
+// AssembleFrame returns the raw VP9 frame carried by an ordered set of
+// RTP payload bodies.
+func AssembleFrame(payloads []vpxrtp.PayloadFragment) ([]byte, error) {
+	need, err := FrameAssemblySize(payloads)
+	if err != nil {
+		return nil, err
+	}
+	return vpxrtp.AssemblePayloadFragments(payloads, need, parseVP9PayloadFragment)
+}
+
+func parseVP9PayloadFragment(payload []byte) ([]byte, error) {
+	_, fragment, err := ParsePayloadDescriptor(payload)
+	if err != nil {
+		return nil, err
+	}
+	return fragment, nil
+}
+
+func vp9FrameAssemblyValidator() vpxrtp.FragmentValidator[PayloadDescriptor] {
+	var base PayloadDescriptor
+	return func(i, fragments int, desc PayloadDescriptor) error {
+		if desc.StartOfFrame != (i == 0) || desc.EndOfFrame != (i == fragments-1) {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		if err := validatePacketizerDescriptor(desc); err != nil {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		if i == 0 {
+			base = desc
+			base.StartOfFrame = false
+			base.EndOfFrame = false
+			return nil
+		}
+		if !sameFrameDescriptorForAssembly(base, desc) {
+			return vpxerrors.ErrInvalidVP9Data
+		}
+		return nil
+	}
+}
+
+func validatePacketizerDescriptor(desc PayloadDescriptor) error {
+	return desc.validate()
+}
+
+func payloadDescriptorForFragment(desc PayloadDescriptor, first bool) PayloadDescriptor {
+	if first || !desc.ScalabilityStructurePresent {
+		return desc
+	}
+	desc.ScalabilityStructurePresent = false
+	desc.ScalabilityStructure = ScalabilityStructure{}
+	return desc
+}
+
+func fragmentDescriptorSizes(desc PayloadDescriptor) (int, int, error) {
+	firstDescSize, err := desc.Size()
+	if err != nil {
+		return 0, 0, err
+	}
+	restDescSize := firstDescSize
+	if desc.ScalabilityStructurePresent {
+		restDesc := payloadDescriptorForFragment(desc, false)
+		restDescSize, err = restDesc.Size()
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	return firstDescSize, restDescSize, nil
+}
+
+func sameFrameDescriptorForAssembly(base, desc PayloadDescriptor) bool {
+	desc.StartOfFrame = false
+	desc.EndOfFrame = false
+	if desc.ScalabilityStructurePresent {
+		return sameFrameDescriptor(base, desc)
+	}
+	base.ScalabilityStructurePresent = false
+	base.ScalabilityStructure = ScalabilityStructure{}
+	return sameFrameDescriptor(base, desc)
+}
+
+func sameFrameDescriptor(base, desc PayloadDescriptor) bool {
+	desc.StartOfFrame = false
+	desc.EndOfFrame = false
+	return base.PictureIDPresent == desc.PictureIDPresent &&
+		base.PictureID == desc.PictureID &&
+		base.PictureID15Bit == desc.PictureID15Bit &&
+		base.InterPicturePredicted == desc.InterPicturePredicted &&
+		base.LayerIndicesPresent == desc.LayerIndicesPresent &&
+		base.FlexibleMode == desc.FlexibleMode &&
+		base.ScalabilityStructurePresent == desc.ScalabilityStructurePresent &&
+		base.NotRefForUpperSpatialLayer == desc.NotRefForUpperSpatialLayer &&
+		base.TemporalID == desc.TemporalID &&
+		base.SwitchingUpPoint == desc.SwitchingUpPoint &&
+		base.SpatialID == desc.SpatialID &&
+		base.InterLayerDependency == desc.InterLayerDependency &&
+		base.TL0PICIDX == desc.TL0PICIDX &&
+		base.ReferenceIndexCount == desc.ReferenceIndexCount &&
+		base.ReferenceIndices == desc.ReferenceIndices &&
+		sameScalabilityStructure(base.ScalabilityStructure, desc.ScalabilityStructure)
+}
+
+func sameScalabilityStructure(a, b ScalabilityStructure) bool {
+	if a.SpatialLayerCount != b.SpatialLayerCount ||
+		a.ResolutionPresent != b.ResolutionPresent ||
+		a.Width != b.Width ||
+		a.Height != b.Height ||
+		a.PictureGroupPresent != b.PictureGroupPresent ||
+		len(a.PictureGroups) != len(b.PictureGroups) {
+		return false
+	}
+	for i := range a.PictureGroups {
+		if a.PictureGroups[i] != b.PictureGroups[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (d PayloadDescriptor) validate() error {
+	if err := d.pictureID().Validate(); err != nil {
+		return err
+	}
+	if d.FlexibleMode && !d.PictureIDPresent {
+		return vpxerrors.ErrInvalidConfig
+	}
+	if d.LayerIndicesPresent {
+		if d.TemporalID > 7 || d.SpatialID > 7 {
+			return vpxerrors.ErrInvalidConfig
+		}
+		if !d.InterPicturePredicted && d.TemporalID != 0 {
+			return vpxerrors.ErrInvalidConfig
+		}
+		if d.SpatialID == 0 && d.InterLayerDependency {
+			return vpxerrors.ErrInvalidConfig
+		}
+	} else if d.TemporalID != 0 || d.SwitchingUpPoint || d.SpatialID != 0 ||
+		d.InterLayerDependency || d.TL0PICIDX != 0 {
+		return vpxerrors.ErrInvalidConfig
+	}
+	if d.InterPicturePredicted && d.FlexibleMode {
+		if d.ReferenceIndexCount <= 0 || d.ReferenceIndexCount > MaxReferenceIndices {
+			return vpxerrors.ErrInvalidConfig
+		}
+		for i := 0; i < d.ReferenceIndexCount; i++ {
+			if d.ReferenceIndices[i] == 0 || d.ReferenceIndices[i] > 0x7f {
+				return vpxerrors.ErrInvalidConfig
+			}
+		}
+	} else if d.ReferenceIndexCount != 0 {
+		return vpxerrors.ErrInvalidConfig
+	}
+	if !d.ScalabilityStructurePresent && !d.ScalabilityStructure.isZero() {
+		return vpxerrors.ErrInvalidConfig
+	}
+	return nil
+}
+
+func (d PayloadDescriptor) pictureID() vpxrtp.PictureID {
+	return vpxrtp.PictureID{
+		Present:    d.PictureIDPresent,
+		Value:      d.PictureID,
+		FifteenBit: d.PictureID15Bit,
+	}
+}
+
+func (d *PayloadDescriptor) setPictureID(pid vpxrtp.PictureID) {
+	d.PictureIDPresent = pid.Present
+	d.PictureID = pid.Value
+	d.PictureID15Bit = pid.FifteenBit
+}
+
+func (ss ScalabilityStructure) size() (int, error) {
+	layerCount, err := ss.normalizedSpatialLayerCount()
+	if err != nil {
+		return 0, err
+	}
+	size := 1
+	if ss.ResolutionPresent {
+		for i := range layerCount {
+			if ss.Width[i] == 0 || ss.Height[i] == 0 {
+				return 0, vpxerrors.ErrInvalidConfig
+			}
+		}
+		size += layerCount * 4
+	}
+	if ss.PictureGroupPresent {
+		if len(ss.PictureGroups) > 255 {
+			return 0, vpxerrors.ErrInvalidConfig
+		}
+		size++
+		for i := range ss.PictureGroups {
+			group := ss.PictureGroups[i]
+			if group.TemporalID > 7 ||
+				group.ReferenceIndexCount < 0 ||
+				group.ReferenceIndexCount > MaxReferenceIndices {
+				return 0, vpxerrors.ErrInvalidConfig
+			}
+			size++
+			for j := 0; j < group.ReferenceIndexCount; j++ {
+				if group.ReferenceIndices[j] == 0 {
+					return 0, vpxerrors.ErrInvalidConfig
+				}
+				size++
+			}
+		}
+	} else if len(ss.PictureGroups) != 0 {
+		return 0, vpxerrors.ErrInvalidConfig
+	}
+	return size, nil
+}
+
+func (ss ScalabilityStructure) marshalInto(dst []byte) int {
+	layerCount, _ := ss.normalizedSpatialLayerCount()
+	dst[0] = byte(layerCount-1) << 5
+	if ss.ResolutionPresent {
+		dst[0] |= 0x10
+	}
+	if ss.PictureGroupPresent {
+		dst[0] |= 0x08
+	}
+
+	off := 1
+	if ss.ResolutionPresent {
+		for i := range layerCount {
+			dst[off] = byte(ss.Width[i] >> 8)
+			dst[off+1] = byte(ss.Width[i])
+			dst[off+2] = byte(ss.Height[i] >> 8)
+			dst[off+3] = byte(ss.Height[i])
+			off += 4
+		}
+	}
+	if ss.PictureGroupPresent {
+		dst[off] = byte(len(ss.PictureGroups))
+		off++
+		for i := range ss.PictureGroups {
+			group := ss.PictureGroups[i]
+			dst[off] = group.TemporalID<<5 | byte(group.ReferenceIndexCount)<<2
+			if group.SwitchingUpPoint {
+				dst[off] |= 0x10
+			}
+			off++
+			for j := 0; j < group.ReferenceIndexCount; j++ {
+				dst[off] = group.ReferenceIndices[j]
+				off++
+			}
+		}
+	}
+	return off
+}
+
+func (ss ScalabilityStructure) normalizedSpatialLayerCount() (int, error) {
+	if ss.SpatialLayerCount == 0 {
+		return 1, nil
+	}
+	if ss.SpatialLayerCount < 0 || ss.SpatialLayerCount > MaxSpatialLayers {
+		return 0, vpxerrors.ErrInvalidConfig
+	}
+	return ss.SpatialLayerCount, nil
+}
+
+func (ss ScalabilityStructure) isZero() bool {
+	if ss.SpatialLayerCount != 0 || ss.ResolutionPresent || ss.PictureGroupPresent ||
+		len(ss.PictureGroups) != 0 {
+		return false
+	}
+	for i := range MaxSpatialLayers {
+		if ss.Width[i] != 0 || ss.Height[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// ScalabilityStructureIsZero reports whether ss has no optional RTP
+// scalability-structure fields set.
+func ScalabilityStructureIsZero(ss ScalabilityStructure) bool {
+	return ss.isZero()
+}
+
+func parseScalabilityStructure(packet []byte) (ScalabilityStructure, int, error) {
+	if len(packet) == 0 {
+		return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+	}
+	header := packet[0]
+	off := 1
+	ss := ScalabilityStructure{
+		SpatialLayerCount:   int(header>>5) + 1,
+		ResolutionPresent:   header&0x10 != 0,
+		PictureGroupPresent: header&0x08 != 0,
+	}
+	if ss.ResolutionPresent {
+		need := ss.SpatialLayerCount * 4
+		if len(packet)-off < need {
+			return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+		}
+		for i := 0; i < ss.SpatialLayerCount; i++ {
+			ss.Width[i] = uint16(packet[off])<<8 | uint16(packet[off+1])
+			ss.Height[i] = uint16(packet[off+2])<<8 | uint16(packet[off+3])
+			if ss.Width[i] == 0 || ss.Height[i] == 0 {
+				return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+			}
+			off += 4
+		}
+	}
+	if ss.PictureGroupPresent {
+		if off >= len(packet) {
+			return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+		}
+		count := int(packet[off])
+		off++
+		if count != 0 {
+			ss.PictureGroups = make([]PictureGroup, count)
+		}
+		for i := range count {
+			if off >= len(packet) {
+				return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+			}
+			header := packet[off]
+			off++
+			group := PictureGroup{
+				TemporalID:          header >> 5,
+				SwitchingUpPoint:    header&0x10 != 0,
+				ReferenceIndexCount: int((header >> 2) & 0x03),
+			}
+			if len(packet)-off < group.ReferenceIndexCount {
+				return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+			}
+			for j := 0; j < group.ReferenceIndexCount; j++ {
+				ref := packet[off]
+				off++
+				if ref == 0 {
+					return ScalabilityStructure{}, 0, vpxerrors.ErrInvalidVP9Data
+				}
+				group.ReferenceIndices[j] = ref
+			}
+			ss.PictureGroups[i] = group
+		}
+	}
+	return ss, off, nil
+}

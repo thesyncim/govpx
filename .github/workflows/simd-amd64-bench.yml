@@ -1,0 +1,196 @@
+name: Native amd64 SIMD benchmarks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'benchmarks/baselines/**'
+      - 'AGENTS.md'
+      - 'README*'
+  workflow_dispatch:
+    inputs:
+      libvpx_only:
+        description: Run the optimized libvpx comparison without the full native matrix
+        default: false
+        required: false
+        type: boolean
+      fp_quick_only:
+        description: Run preliminary two-round packet feedback instead of the full matrices
+        default: false
+        required: false
+        type: boolean
+      oracle_only:
+        description: Run only focused parent/current quick oracles; requires test_regex
+        default: false
+        required: false
+        type: boolean
+      head_ref:
+        description: Quick comparison head (resolved and recorded as an exact commit)
+        required: false
+        type: string
+      base_ref:
+        description: Quick comparison base (defaults to origin/main)
+        required: false
+        type: string
+      quick_fixtures:
+        description: Optional newline-separated shared _test.go paths for quick mode
+        required: false
+        type: string
+      bench_regex:
+        description: Optional custom quick benchmark regex
+        required: false
+        type: string
+      test_regex:
+        description: Optional ordinary oracle regex for quick mode
+        required: false
+        type: string
+      bench_package:
+        description: Comma-separated packages for custom quick benchmarks (defaults to ./internal/pixel)
+        required: false
+        type: string
+      codec:
+        description: Optional vp8 or vp9; enables two balanced 720p quick codec rounds
+        required: false
+        type: string
+      codec_cpu_used:
+        description: Optional comma-separated CPU-used values for quick codec rounds (e.g. -8,+8)
+        required: false
+        type: string
+      quick_manifest:
+        description: Optional tracked candidate manifest for short native component screens
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simd-amd64-bench-${{ github.event_name }}-${{ github.ref }}
+  # Preserve the active measurement when a newer checkpoint is pushed.
+  # GitHub keeps only the newest pending run in this group.
+  cancel-in-progress: false
+
+env:
+  GOEXPERIMENT: simd
+  GOTOOLCHAIN: local
+  GOAMD64: v1
+  GOMAXPROCS: '1'
+  CODEX_AGENT_ID: amd64-bench
+
+jobs:
+  fp-quick:
+    if: ${{ github.event_name == 'pull_request' || inputs.fp_quick_only || inputs.oracle_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '1'
+      CODEX_AGENT_ID: amd64-fp-quick
+      GOVPX_NATIVE_FP_QUICK: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+      - name: Preliminary native packet feedback
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.sha || github.sha }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha || 'origin/main' }}
+          GOVPX_QUICK_FIXTURES: ${{ inputs.quick_fixtures }}
+          QUICK_ORACLE_ONLY: ${{ inputs.oracle_only }}
+          QUICK_BENCH: ${{ inputs.bench_regex }}
+          QUICK_TEST: ${{ inputs.test_regex }}
+          QUICK_PACKAGE: ${{ inputs.bench_package }}
+          QUICK_MANIFEST: ${{ inputs.quick_manifest }}
+          QUICK_CODEC: ${{ inputs.codec }}
+          QUICK_CODEC_CPU_USED: ${{ inputs.codec_cpu_used }}
+        run: |
+          head_sha=$(git rev-parse --verify --end-of-options "$HEAD_REF^{commit}")
+          base_sha=$(git rev-parse --verify --end-of-options "$BASE_REF^{commit}")
+          set -- "$head_sha" "$base_sha" "$RUNNER_TEMP/fp-quick"
+          if [ -n "$QUICK_MANIFEST" ]; then
+            [ "$QUICK_ORACLE_ONLY" != "true" ] || { echo "Oracle-only mode requires the regular quick driver" >&2; exit 1; }
+            [ -z "$QUICK_CODEC$QUICK_CODEC_CPU_USED" ] || { echo "Codec options require the regular quick driver, not a variant manifest" >&2; exit 1; }
+            python3 scripts/benchmark-x64-variants.py "$@" --manifest "$QUICK_MANIFEST"
+            exit
+          fi
+          if [ "$QUICK_ORACLE_ONLY" = "true" ]; then set -- "$@" --oracle-only; fi
+          if [ -n "$QUICK_BENCH" ]; then set -- "$@" --bench "$QUICK_BENCH"; fi
+          if [ -n "$QUICK_TEST" ]; then set -- "$@" --test "$QUICK_TEST"; fi
+          if [ -n "$QUICK_PACKAGE" ]; then set -- "$@" --package "$QUICK_PACKAGE"; fi
+          if [ -n "$QUICK_CODEC" ]; then set -- "$@" --codec "$QUICK_CODEC"; fi
+          if [ -n "$QUICK_CODEC_CPU_USED" ]; then set -- "$@" "--codec-cpu-used=$QUICK_CODEC_CPU_USED"; fi
+          python3 scripts/benchmark-fp-quick-amd64.py "$@"
+      - name: Show preliminary scope
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/fp-quick/summary.md" ]; then
+            cat "$RUNNER_TEMP/fp-quick/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save every quick sample and oracle result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-fp-quick-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fp-quick/
+          if-no-files-found: error
+
+  benchmark:
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fp_quick_only && !inputs.libvpx_only && !inputs.oracle_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+
+      - name: Compare assembly, previous and current SIMD on the same CPU
+        run: sh scripts/benchmark-amd64.sh 691cd0512c4829d9ee40d483205dd223f9eb028d "$RUNNER_TEMP/amd64-bench" "${{ github.event.pull_request.base.sha || 'origin/main' }}"
+
+      - name: Save raw benchmarks and environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-simd-benchmarks-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            ${{ runner.temp }}/amd64-bench/*.txt
+            ${{ runner.temp }}/amd64-bench/*.json
+            ${{ runner.temp }}/amd64-bench/pixel-optional-stats-codegen/
+            ${{ runner.temp }}/amd64-bench/*.pgo
+          if-no-files-found: error
+
+  libvpx-reference:
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fp_quick_only && !inputs.oracle_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CODEX_AGENT_ID: amd64-libvpx-bench
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+
+      - name: Install upstream assembly build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential nasm
+
+      - name: Compare current SIMD with optimized upstream libvpx
+        run: sh scripts/benchmark-libvpx-amd64.sh "$RUNNER_TEMP/libvpx-bench"
+
+      - name: Save libvpx timing, controls and quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-libvpx-benchmarks-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/libvpx-bench/
+          if-no-files-found: error

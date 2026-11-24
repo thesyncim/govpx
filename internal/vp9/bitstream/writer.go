@@ -1,0 +1,327 @@
+package bitstream
+
+import "math/bits"
+
+// Ported from libvpx v1.16.0:
+//   - vpx_dsp/bitwriter.h (vpx_writer, vpx_write, vpx_write_bit, vpx_write_literal)
+//   - vpx_dsp/bitwriter.c (vpx_start_encode, vpx_stop_encode)
+
+// Writer is the VP9 boolean range coder writer. It mirrors vpx_writer
+// byte-for-byte: same field layout, same split formula, same carry-fixup
+// rule on the previously-emitted bytes. The output is appended into a
+// caller-owned slice so the writer is allocation-free in steady state.
+type Writer struct {
+	lowValue uint32
+	rng      uint32
+	count    int32
+
+	buf []byte
+	pos uint32
+
+	err     bool
+	discard bool
+}
+
+// Start seeds the writer with a caller-owned destination buffer. The
+// buffer is written into directly; if a Write would advance past the end
+// it is left unchanged and the writer goes into the error state. Start
+// emits the marker bit (0) that the reader checks during Init.
+func (w *Writer) Start(dst []byte) {
+	w.lowValue = 0
+	w.rng = 255
+	w.count = -24
+	w.err = false
+	w.discard = false
+	w.pos = 0
+	w.buf = dst
+	w.WriteBit(0)
+}
+
+// StartDiscard seeds a writer that accepts every write but intentionally
+// produces no bytes. Count-only encoder pre-passes still need to walk the same
+// syntax tree to update mode/coefficient statistics, but they do not need the
+// boolean coder state for the disposable first partition.
+func (w *Writer) StartDiscard() {
+	w.lowValue = 0
+	w.rng = 255
+	w.count = -24
+	w.err = false
+	w.discard = true
+	w.pos = 0
+	w.buf = nil
+}
+
+// Write encodes one bit against the probability prob (out of 256).
+// Arithmetic matches vpx_write bit-for-bit, including the carry-propagation
+// loop over previously-emitted 0xff bytes when a fresh byte would carry into
+// them. The Go body keeps the bit branch because branchless arithmetic was
+// slower in the focused writer benchmarks on arm64/Go, and it deviates from
+// the C shape in one output-identical way tuned for the hot path:
+//
+//   - vpx_norm[rng] is computed as LeadingZeros8(rng), which is the table's
+//     defining identity for rng >= 1 (renormalization keeps rng >= 1) and
+//     compiles to a single CLZ.
+//
+// emitByte flushes one output byte (and propagates any carry) when count >= 0.
+// Kept out-of-line so Write and WritePacked stay tiny and inlineable.
+//
+//go:noinline
+func (w *Writer) emitByte(lowValue uint32, shift, count int32) (uint32, int32) {
+	offset := shift - count
+	if !w.err {
+		if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+			x := int(w.pos) - 1
+			for x >= 0 && w.buf[x] == 0xff {
+				w.buf[x] = 0
+				x--
+			}
+			w.buf[x]++
+		}
+		if w.pos < uint32(len(w.buf)) {
+			w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+			w.pos++
+		} else {
+			w.err = true
+		}
+	}
+	lowValue = ((lowValue << uint(offset)) & 0xffffff) << uint(count)
+	return lowValue, count - 8
+}
+
+// Write encodes a single boolean symbol with probability prob (1..255).
+// The byte-emit path runs once per ~8 output bits and lives in emitByte so
+// Write inlines into token and syntax writers.
+func (w *Writer) Write(bit, prob uint32) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	split := 1 + (((rng - 1) * prob) >> 8)
+	if bit != 0 {
+		lowValue += split
+		rng -= split
+	} else {
+		rng = split
+	}
+
+	shift := int32(bits.LeadingZeros32(rng)) - 24
+	rng <<= uint(shift)
+	count += shift
+
+	if count >= 0 {
+		lowValue, count = w.emitByte(lowValue, shift, count)
+	} else {
+		lowValue <<= uint(shift)
+	}
+
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WritePacked writes n bits, MSB first, with one byte-packed probability per
+// bit. The first probability is stored in the highest active byte of probs.
+// It is intended for tiny fixed syntax fragments where the caller already
+// knows a 2-4 bit path and would otherwise call Write repeatedly.
+func (w *Writer) WritePacked(bitsValue, probs uint32, n int) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	for i := n - 1; i >= 0; i-- {
+		bit := (bitsValue >> uint(i)) & 1
+		prob := (probs >> uint(i*8)) & 0xff
+
+		split := 1 + (((rng - 1) * prob) >> 8)
+		if bit != 0 {
+			lowValue += split
+			rng -= split
+		} else {
+			rng = split
+		}
+
+		shift := int32(bits.LeadingZeros32(rng)) - 24
+		rng <<= uint(shift)
+		count += shift
+
+		if count >= 0 {
+			lowValue, count = w.emitByte(lowValue, shift, count)
+		} else {
+			lowValue <<= uint(shift)
+		}
+	}
+
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WritePacked64 is WritePacked's wider sibling for fixed fragments up to eight
+// bits. Probabilities are stored one byte per bit, with the first probability in
+// the highest active byte.
+func (w *Writer) WritePacked64(bitsValue uint32, probs uint64, n int) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	for i := n - 1; i >= 0; i-- {
+		bit := (bitsValue >> uint(i)) & 1
+		prob := uint32((probs >> uint(i*8)) & 0xff)
+
+		split := 1 + (((rng - 1) * prob) >> 8)
+		if bit != 0 {
+			lowValue += split
+			rng -= split
+		} else {
+			rng = split
+		}
+
+		shift := int32(bits.LeadingZeros32(rng)) - 24
+		rng <<= uint(shift)
+		count += shift
+
+		if count >= 0 {
+			offset := shift - count
+
+			if !w.err {
+				if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+					x := int(w.pos) - 1
+					for x >= 0 && w.buf[x] == 0xff {
+						w.buf[x] = 0
+						x--
+					}
+					w.buf[x]++
+				}
+
+				if w.pos < uint32(len(w.buf)) {
+					w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+					w.pos++
+				} else {
+					w.err = true
+				}
+			}
+
+			lowValue <<= uint(offset)
+			shift = count
+			lowValue &= 0xffffff
+			count -= 8
+		}
+
+		lowValue <<= uint(shift)
+	}
+
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WriteBit encodes one equally-likely bit. Equivalent to Write(bit, 128),
+// with the fixed-probability split reduced to (range + 1) >> 1.
+func (w *Writer) WriteBit(bit uint32) {
+	if w.discard {
+		return
+	}
+	rng := w.rng
+	lowValue := w.lowValue
+	count := w.count
+
+	split := (rng + 1) >> 1
+	if bit != 0 {
+		lowValue += split
+		rng -= split
+	} else {
+		rng = split
+	}
+
+	shift := int32(bits.LeadingZeros32(rng)) - 24
+	rng <<= uint(shift)
+	count += shift
+
+	if count >= 0 {
+		offset := shift - count
+
+		if !w.err {
+			if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+				x := int(w.pos) - 1
+				for x >= 0 && w.buf[x] == 0xff {
+					w.buf[x] = 0
+					x--
+				}
+				w.buf[x]++
+			}
+
+			if w.pos < uint32(len(w.buf)) {
+				w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+				w.pos++
+			} else {
+				w.err = true
+			}
+		}
+
+		lowValue <<= uint(offset)
+		shift = count
+		lowValue &= 0xffffff
+		count -= 8
+	}
+
+	lowValue <<= uint(shift)
+	w.count = count
+	w.lowValue = lowValue
+	w.rng = rng
+}
+
+// WriteLiteral writes bits equally-likely bits of data, MSB first.
+func (w *Writer) WriteLiteral(data, bits uint32) {
+	if w.discard {
+		return
+	}
+	for b := int(bits) - 1; b >= 0; b-- {
+		w.WriteBit((data >> uint(b)) & 1)
+	}
+}
+
+// Stop flushes the remaining 32 trailing bits and inserts a fix-up zero
+// byte to avoid collisions with libvpx's superframe-index marker
+// (0b110xxxxx). Returns the number of bytes written into the destination
+// buffer and an error if the buffer overflowed at any point.
+func (w *Writer) Stop() (int, error) {
+	if w.discard {
+		return 0, nil
+	}
+	for range 32 {
+		w.WriteBit(0)
+	}
+
+	if !w.err && w.pos > 0 && (w.buf[w.pos-1]&0xe0) == 0xc0 {
+		if w.pos < uint32(len(w.buf)) {
+			w.buf[w.pos] = 0
+			w.pos++
+		} else {
+			w.err = true
+		}
+	}
+
+	if w.err {
+		return int(w.pos), ErrBufferOverflow
+	}
+	return int(w.pos), nil
+}
+
+// ErrBufferOverflow is returned by Stop when the destination buffer
+// passed to Start was too small to hold the encoded payload.
+var ErrBufferOverflow = errBufferOverflow{}
+
+type errBufferOverflow struct{}
+
+func (errBufferOverflow) Error() string {
+	return "govpx: VP9 bitstream writer overflowed destination buffer"
+}

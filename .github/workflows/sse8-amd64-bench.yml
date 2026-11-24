@@ -1,0 +1,191 @@
+name: Native amd64 SSE8 focused benchmarks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths-ignore:
+      - 'benchmarks/baselines/**'
+      - 'AGENTS.md'
+      - 'README*'
+  workflow_dispatch:
+    inputs:
+      head_ref:
+        description: Head commit or ref (defaults to this workflow commit)
+        required: false
+        type: string
+      base_ref:
+        description: Comparison base commit or ref
+        default: origin/main
+        required: false
+        type: string
+
+      fp_packets_only:
+        description: Run only the isolated quantizer packet comparison
+        default: false
+        required: false
+        type: boolean
+
+      fp_quick_only:
+        description: Run preliminary two-round packet feedback only
+        default: false
+        required: false
+        type: boolean
+
+      quick_fixtures:
+        description: Optional newline-separated shared _test.go paths for quick mode
+        required: false
+        type: string
+      bench_regex:
+        description: Optional custom quick benchmark regex
+        required: false
+        type: string
+      test_regex:
+        description: Optional ordinary oracle regex for quick mode
+        required: false
+        type: string
+      bench_package:
+        description: Package for a custom quick benchmark (defaults to ./internal/pixel)
+        required: false
+        type: string
+
+      runner_label:
+        description: Hosted runner pool for native ISA coverage (CPU features are still checked)
+        default: ubuntu-latest
+        required: false
+        type: choice
+        options:
+          - ubuntu-latest
+          - ubuntu-24.04
+          - ubuntu-22.04
+
+permissions:
+  contents: read
+
+concurrency:
+  # This lane never queues behind or cancels the full native/C comparisons.
+  group: ${{ inputs.fp_quick_only && 'fp-quick-focused' || 'sse8-amd64-focused' }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOEXPERIMENT: simd
+  GOTOOLCHAIN: local
+  GOAMD64: v1
+  GOMAXPROCS: '1'
+  CODEX_AGENT_ID: amd64-sse8-focused
+
+jobs:
+  sse8:
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fp_packets_only && !inputs.fp_quick_only }}
+    runs-on: ${{ inputs.runner_label || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+
+      - name: Verify GNU native code capture tools
+        run: |
+          command -v objdump
+          objdump --version | grep '^GNU objdump'
+
+      - name: Compare SSE8 and optional pixel APIs on the same native CPU
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.event.pull_request.head.sha || github.sha }}
+          BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha || 'origin/main' }}
+        run: sh scripts/benchmark-sse8-amd64.sh "$HEAD_REF" "$BASE_REF" "$RUNNER_TEMP/sse8-amd64" 691cd0512c4829d9ee40d483205dd223f9eb028d
+
+      - name: Show all focused comparisons
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/sse8-amd64/summary.md" ]; then
+            cat "$RUNNER_TEMP/sse8-amd64/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$RUNNER_TEMP/sse8-amd64/dc-pair/summary.md" ]; then
+            cat "$RUNNER_TEMP/sse8-amd64/dc-pair/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "$RUNNER_TEMP/sse8-amd64/pixel-optional.txt" ]; then
+            grep '^# SELECTED_AVX512\|^# OPTIONAL_PIXEL_UNAVAILABLE' "$RUNNER_TEMP/sse8-amd64/pixel-optional.txt" >> "$GITHUB_STEP_SUMMARY" || true
+            tail -n 1 "$RUNNER_TEMP/sse8-amd64/pixel-optional.txt" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save every sample, oracle check and source hash
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-sse8-focused-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sse8-amd64/
+          if-no-files-found: error
+
+  fp-packets:
+    if: ${{ inputs.fp_packets_only && !inputs.fp_quick_only }}
+    runs-on: ${{ inputs.runner_label || 'ubuntu-latest' }}
+    timeout-minutes: 25
+    env:
+      CGO_ENABLED: '1'
+      CODEX_AGENT_ID: amd64-fp-packets
+      GOVPX_NATIVE_FP_PACKETS_BENCH: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+      - name: Compare exact packet skips on the actual native CPU
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.sha }}
+          BASE_REF: ${{ inputs.base_ref || 'origin/main' }}
+        run: python3 scripts/benchmark-fp-packets-amd64.py "$HEAD_REF" "$BASE_REF" "$RUNNER_TEMP/fp-packets"
+      - name: Save all samples, profiles, packet counts, source and code captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-fp-packets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fp-packets/
+          if-no-files-found: error
+
+  fp-quick:
+    if: ${{ inputs.fp_quick_only }}
+    runs-on: ${{ inputs.runner_label || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '1'
+      CODEX_AGENT_ID: amd64-fp-quick-focused
+      GOVPX_NATIVE_FP_QUICK: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.4'
+      - name: Preliminary native packet feedback
+        env:
+          HEAD_REF: ${{ inputs.head_ref || github.sha }}
+          BASE_REF: ${{ inputs.base_ref || 'origin/main' }}
+          GOVPX_QUICK_FIXTURES: ${{ inputs.quick_fixtures }}
+          QUICK_BENCH: ${{ inputs.bench_regex }}
+          QUICK_TEST: ${{ inputs.test_regex }}
+          QUICK_PACKAGE: ${{ inputs.bench_package }}
+        run: |
+          head_sha=$(git rev-parse --verify --end-of-options "$HEAD_REF^{commit}")
+          base_sha=$(git rev-parse --verify --end-of-options "$BASE_REF^{commit}")
+          set -- "$head_sha" "$base_sha" "$RUNNER_TEMP/fp-quick"
+          if [ -n "$QUICK_BENCH" ]; then set -- "$@" --bench "$QUICK_BENCH"; fi
+          if [ -n "$QUICK_TEST" ]; then set -- "$@" --test "$QUICK_TEST"; fi
+          if [ -n "$QUICK_PACKAGE" ]; then set -- "$@" --package "$QUICK_PACKAGE"; fi
+          python3 scripts/benchmark-fp-quick-amd64.py "$@"
+      - name: Save preliminary samples and packet oracles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amd64-fp-quick-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fp-quick/
+          if-no-files-found: error

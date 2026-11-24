@@ -1,0 +1,12 @@
+govpx
+
+This project is a pure-Go VP8 codec implementation scaffold inspired by libvpx.
+
+Ported VP8 algorithms, when added, must cite the corresponding libvpx v1.16.0
+source files in comments and preserve applicable copyright, license, and patent
+notices.
+
+Go-native SIMD primitives in internal/pixel/goav1_* are extracted from
+goav1, copyright (c) 2025-2026 goav1 authors, under BSD-2-Clause.
+See internal/pixel/UPSTREAM.md and third_party/goav1/ for provenance,
+license, notices and the accompanying patent grant.
