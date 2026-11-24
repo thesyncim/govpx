@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/pixel"
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
@@ -87,12 +88,12 @@ func (ctx *fastInterModeLoopContext) rdConstants(e *VP8Encoder, qIndex int, zbin
 // gathered straight into the scratch stripe — the same pixels the full
 // builder resolves through its edge-fill branch chain, without the
 // synthetic-border and coded-size re-validation per call.
-func (ctx *fastInterModeLoopContext) lumaIntraRefs(e *VP8Encoder, mbRow int, mbCol int) vp8dec.IntraPredictorRefs {
+func (ctx *fastInterModeLoopContext) lumaIntraRefs(e *VP8Encoder, mbRow int, mbCol int) *vp8dec.IntraPredictorRefs {
 	if !ctx.intraRefsSet {
 		ctx.intraRefs = fastPickerLumaIntraRefs(&e.analysis.Img, mbRow, mbCol, &e.reconstructScratch.Refs)
 		ctx.intraRefsSet = true
 	}
-	return ctx.intraRefs
+	return &ctx.intraRefs
 }
 
 // fastPickerLumaIntraRefs resolves the luma intra neighbor stripes with a
@@ -174,17 +175,39 @@ func (e *VP8Encoder) estimateFastIntraModeScore(src vp8enc.SourceImage, mbRow in
 	// touches the stripe pixels outside the MB.
 	zbinOverQuant := e.rc.currentZbinOverQuant
 	refs := ctx.lumaIntraRefs(e, mbRow, mbCol)
-	// libvpx pickinter.c scores whole-MB intra candidates in the
-	// contiguous x->e_mbd.predictor scratch (stride 16) and never writes
-	// them into the reconstruction frame; the accepted path re-predicts
-	// the winner via predictAnalysisMacroblock exactly like libvpx's
-	// vp8_encode_intra16x16mby. Mirror that: predict into the loop
-	// context's 256-byte scratch and take the variance against it.
-	pred := &ctx.intraPred
-	if !vp8dec.PredictIntraY16x16(mbMode, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
-		return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+	var variance, sse int
+	if mbMode == vp8common.DCPred && uint(mbRow*16) <= uint(src.Height-16) && uint(mbCol*16) <= uint(src.Width-16) &&
+		(!refs.UpAvailable || len(refs.YAbove) >= 16) && (!refs.LeftAvailable || len(refs.YLeft) >= 16) {
+		var dc byte = 128
+		if refs.UpAvailable && refs.LeftAvailable {
+			s := 16
+			for i := range 16 {
+				s += int(refs.YAbove[i]) + int(refs.YLeft[i])
+			}
+			dc = byte(s >> 5)
+		} else if refs.UpAvailable {
+			s := 8
+			for i := range 16 {
+				s += int(refs.YAbove[i])
+			}
+			dc = byte(s >> 4)
+		} else if refs.LeftAvailable {
+			s := 8
+			for i := range 16 {
+				s += int(refs.YLeft[i])
+			}
+			dc = byte(s >> 4)
+		}
+		sum, sseVal := pixel.Stats16x16Const(src.Y[mbRow*16*src.YStride+mbCol*16:], src.YStride, dc)
+		variance = sseVal - ((sum * sum) >> 8)
+		sse = sseVal
+	} else {
+		pred := &ctx.intraPred
+		if !vp8dec.PredictIntraY16x16(mbMode, pred[:], 16, refs.YAbove, refs.YLeft, refs.YTopLeft, refs.UpAvailable, refs.LeftAvailable) {
+			return vp8enc.InterFrameMacroblockMode{}, 0, 0, 0, 0, false
+		}
+		variance, sse = macroblockLumaVarianceSSEAgainstBuffer(src, mbRow, mbCol, pred)
 	}
-	variance, sse := macroblockLumaVarianceSSEAgainstBuffer(src, mbRow, mbCol, pred)
 	rate := e.interIntraReferenceRate() + e.interIntraYModeRate(mbMode)
 	resultMode := vp8enc.InterFrameMacroblockMode{RefFrame: vp8common.IntraFrame, Mode: mbMode, UVMode: vp8common.DCPred}
 	// Per-MB cached RDCOST constants (see fastInterModeLoopContext.rdMult);

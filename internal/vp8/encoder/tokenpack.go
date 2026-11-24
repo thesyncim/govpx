@@ -329,6 +329,9 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 
 			split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
 			rng = split
+			if rng&0x80 != 0 && count < 0 {
+				continue
+			}
 
 			shift := uint(bits.LeadingZeros8(uint8(rng)))
 			rng <<= shift
