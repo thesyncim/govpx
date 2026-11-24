@@ -48,7 +48,7 @@ against pinned `libvpx v1.16.0` (C + NEON assembly). All encode rows pass
 | VP9 realtime 720p, 1T (`-cpu-used 8`) | **5.75 ms** (174.0 fps) | 6.45 ms (155.0 fps) | **0.89×** | 0.71× wall, 1.00× bytes |
 | VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`) | **1.83 ms** (547.0 fps) | 1.66 ms (600.6 fps) | **1.10×** | 0.78× wall, 0.93 allocs/frame |
 | VP8 decode 720p, 1T | **1.48 ms** (675.3 fps) | 1.24 ms (803.7 fps) | **1.19×** | 0.00 allocs/frame |
-| VP9 decode 720p, 1T (300 frames) | **0.99 ms** (1,011 fps) | 0.79 ms (1,259 fps) | **1.25×** | p50 0.89 ms, 0.00 allocs/frame |
+| VP9 decode 720p, 1T (300 frames) | **0.80 ms** (1,244 fps) | 0.60 ms (1,669 fps) | **1.34×** | p50 0.75 ms, 0.00 allocs/frame |
 
 Performance depends on CPU, resolution, bitrate, and mode — reproduce for your
 workload with `cmd/govpx-bench` (see [Benchmarking](#benchmarking)).

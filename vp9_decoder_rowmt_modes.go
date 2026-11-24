@@ -979,7 +979,7 @@ func (d *VP9Decoder) readVP9IntraModeBlockRowMT(r *bitstream.Reader,
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 		return true
 	}
 	if !storage.setResidueParsed(miCols, miRow, miCol, true) {
@@ -990,7 +990,7 @@ func (d *VP9Decoder) readVP9IntraModeBlockRowMT(r *bitstream.Reader,
 		residue); !ok {
 		return false
 	}
-	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	return true
 }
 
@@ -1050,7 +1050,7 @@ func (d *VP9Decoder) readVP9InterModeBlockRowMT(r *bitstream.Reader,
 		aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 		vp9dec.ResetSkipContext(d.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 		return true
 	}
 	if isInter != 0 && !vp9dec.CanReconstructInterBlock(mi) {
@@ -1068,7 +1068,7 @@ func (d *VP9Decoder) readVP9InterModeBlockRowMT(r *bitstream.Reader,
 		mi.Skip = 1
 	}
 	d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	return true
 }
 

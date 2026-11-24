@@ -479,13 +479,13 @@ func (d *VP9Decoder) readVP9IntraModeBlock(r *bitstream.Reader,
 				miRow, miCol, reconBsize)
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 		return true
 	}
 	if !d.readVP9IntraResidueBlock(r, hdr, mi, out.UvMode, tile, miRow, miCol, reconBsize) {
 		return false
 	}
-	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	return true
 }
 
@@ -551,7 +551,7 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 			}
 		}
 		d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 		return true
 	}
 	if isInter != 0 && !vp9dec.CanReconstructInterBlock(mi) {
@@ -561,7 +561,7 @@ func (d *VP9Decoder) readVP9InterModeBlock(r *bitstream.Reader,
 		return false
 	}
 	d.storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol, xMis, yMis, mi)
-	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+	d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	return true
 }
 
@@ -1274,11 +1274,12 @@ func (d *VP9Decoder) storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol,
 		return
 	}
 	v := vp9dec.MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
-	for r := miRow; r < yEnd; r++ {
-		row := d.curFrameMvs[r*miCols+miCol : r*miCols+xEnd]
-		for x := range row {
-			row[x] = v
-		}
+	firstRow := d.curFrameMvs[miRow*miCols+miCol : miRow*miCols+xEnd]
+	for x := range firstRow {
+		firstRow[x] = v
+	}
+	for r := miRow + 1; r < yEnd; r++ {
+		copy(d.curFrameMvs[r*miCols+miCol:r*miCols+xEnd], firstRow)
 	}
 }
 
@@ -1532,7 +1533,13 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 // is needed, rs is left untouched so DecodeCoefsState runs identically.
 func tryConsumeVP9ZeroEOB(rs *bitstream.ReaderState, prob uint32) bool {
 	if rs.Count < 0 {
-		return false
+		buf, _, _, pos := rs.BitView()
+		if len(buf)-pos < 8 {
+			return false
+		}
+		var newPos int
+		rs.Value, rs.Count, newPos = bitstream.FillFast(buf, pos, rs.Value, rs.Count)
+		rs.CommitPos(newPos)
 	}
 	split := (rs.Range*prob + (256 - prob)) >> 8
 	if rs.Value >= uint64(split)<<56 {
@@ -1971,15 +1978,25 @@ func (d *VP9Decoder) vp9DecoderMiAt(miRows, miCols, r, c int) *vp9dec.NeighborMi
 }
 
 func (d *VP9Decoder) fillVP9DecoderMiGrid(miRows, miCols, r, c int,
-	bsize common.BlockSize, mi vp9dec.NeighborMi,
+	bsize common.BlockSize, mi *vp9dec.NeighborMi,
 ) {
 	rows := int(common.Num8x8BlocksHighLookup[bsize])
 	cols := int(common.Num8x8BlocksWideLookup[bsize])
-	for rr := 0; rr < rows && r+rr < miRows; rr++ {
-		row := d.miGrid[(r+rr)*miCols:]
-		for cc := 0; cc < cols && c+cc < miCols; cc++ {
-			row[c+cc] = mi
-		}
+	if rows == 1 && cols == 1 {
+		return
+	}
+	rEnd := min(r+rows, miRows)
+	cEnd := min(c+cols, miCols)
+	if r >= rEnd || c >= cEnd {
+		return
+	}
+	v := *mi
+	firstRow := d.miGrid[r*miCols+c : r*miCols+cEnd]
+	for cc := 1; cc < len(firstRow); cc++ {
+		firstRow[cc] = v
+	}
+	for rr := r + 1; rr < rEnd; rr++ {
+		copy(d.miGrid[rr*miCols+c:rr*miCols+cEnd], firstRow)
 	}
 }
 
