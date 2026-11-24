@@ -191,10 +191,10 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			if bestSSE <= hdNewMVSkipSSE>>1 {
 				break
 			}
-			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
+			if (mbMode == vp8common.NewMV || mbMode == vp8common.NearMV) && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
-			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE<<1 {
+			if refSlot > 1 && (mbMode != vp8common.ZeroMV || bestSSE <= hdNewMVSkipSSE<<2) {
 				continue
 			}
 			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {
@@ -487,10 +487,10 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			if bestSSE <= hdNewMVSkipSSE>>1 {
 				break
 			}
-			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
+			if (mbMode == vp8common.NewMV || mbMode == vp8common.NearMV) && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
-			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE<<1 {
+			if refSlot > 1 && (mbMode != vp8common.ZeroMV || bestSSE <= hdNewMVSkipSSE<<2) {
 				continue
 			}
 			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {

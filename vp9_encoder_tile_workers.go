@@ -126,10 +126,10 @@ type vp9TileWorkerPool struct {
 	// to done — the sync side (waitHelperWorkers) collects exactly one
 	// token per helper, matching the cond-signal handshake libvpx uses
 	// for sync(). No spinning: libvpx workers sleep between jobs.
-	start    []chan struct{}
-	done     chan struct{}
-	shutdown chan struct{}
-	wg       sync.WaitGroup
+	start     []chan struct{}
+	doneCount atomic.Int32
+	shutdown  chan struct{}
+	wg        sync.WaitGroup
 
 	// lfJobs / lfSync back the vp9TileWorkerJobLoopFilter epoch: the same
 	// worker set that encodes the tiles also runs the frame loop filter as
@@ -447,7 +447,6 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		encodeJobs:  make([]vp9EncodeTileJob, workers),
 		outputs:     make([][]byte, workers),
 		start:       make([]chan struct{}, workers),
-		done:        make(chan struct{}, workers-1),
 		shutdown:    make(chan struct{}),
 		workerCount: workers,
 	}
@@ -459,6 +458,7 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 	}
 	for i := range pool.workers {
 		pool.workers[i].initVP9NmvCostCache()
+		pool.workers[i].interPredictScratch = make([]byte, 80*80)
 	}
 	return pool
 }
@@ -488,17 +488,9 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 // the serial sections between tile passes.
 func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	defer p.wg.Done()
-	for {
-		select {
-		case _, ok := <-start:
-			if !ok {
-				return
-			}
-		case <-p.shutdown:
-			return
-		}
+	for range start {
 		p.runHelperWorkerJob(workerIndex)
-		p.done <- struct{}{}
+		p.doneCount.Add(1)
 	}
 }
 
@@ -575,21 +567,25 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 		p.vp9PhaseAddTileWorkerWakeSignals(int64(p.workerCount - 1))
 	}
 	p.jobKind.Store(uint32(kind))
+	p.doneCount.Store(0)
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
 		p.start[workerIndex] <- struct{}{}
 	}
 }
 
-// waitHelperWorkers mirrors libvpx's vpx_worker sync (vpx_thread.c
-// change_state waiting for VPX_WORKER_STATUS_OK): collect exactly one
-// completion token per launched helper. Helpers run one job per launch
-// token, so the accounting is exact and no spinning is needed.
+// waitHelperWorkers collects completion from all launched helpers via atomic
+// doneCount (zero channel/sudog allocations).
 func (p *vp9TileWorkerPool) waitHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
-	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		<-p.done
+	want := int32(p.workerCount - 1)
+	for spins := 0; p.doneCount.Load() < want; spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff &&
+			spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
 	}
 }
 
