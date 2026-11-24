@@ -17,19 +17,61 @@ func idct8Rotate16(a, b archsimd.Int16x8, ca, cb int64) archsimd.Int16x8 {
 	hi := pixel.RoundTransform4(a.HiToLo().MulWidenLo(ka).Add(b.HiToLo().MulWidenLo(kb))).TruncToInt16().ToBits().ReshapeToUint64s()
 	return lo.InterleaveLo(hi).ReshapeToUint16s().BitsToInt16()
 }
+
+// idct8PairCos16 computes (a*cospi16 + b*cospi16, a*cospi16 - b*cospi16)
+// sharing the two widen-multiplies instead of computing them twice.
+func idct8PairCos16(a, b archsimd.Int16x8) (archsimd.Int16x8, archsimd.Int16x8) {
+	k := archsimd.BroadcastInt16x8(int16(cospi16_64))
+	alo, blo := a.MulWidenLo(k), b.MulWidenLo(k)
+	ahi, bhi := a.HiToLo().MulWidenLo(k), b.HiToLo().MulWidenLo(k)
+	sumLo := pixel.RoundTransform4(alo.Add(blo)).TruncToInt16().ToBits().ReshapeToUint64s()
+	sumHi := pixel.RoundTransform4(ahi.Add(bhi)).TruncToInt16().ToBits().ReshapeToUint64s()
+	diffLo := pixel.RoundTransform4(alo.Sub(blo)).TruncToInt16().ToBits().ReshapeToUint64s()
+	diffHi := pixel.RoundTransform4(ahi.Sub(bhi)).TruncToInt16().ToBits().ReshapeToUint64s()
+	return sumLo.InterleaveLo(sumHi).ReshapeToUint16s().BitsToInt16(),
+		diffLo.InterleaveLo(diffHi).ReshapeToUint16s().BitsToInt16()
+}
+
 func idct8Lines16(a0, a1, a2, a3, a4, a5, a6, a7 archsimd.Int16x8) (archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8) {
 	s4 := idct8Rotate16(a1, a7, cospi28_64, -cospi4_64)
 	s7 := idct8Rotate16(a1, a7, cospi4_64, cospi28_64)
 	s5 := idct8Rotate16(a5, a3, cospi12_64, -cospi20_64)
 	s6 := idct8Rotate16(a5, a3, cospi20_64, cospi12_64)
-	t0 := idct8Rotate16(a0, a4, cospi16_64, cospi16_64)
-	t1 := idct8Rotate16(a0, a4, cospi16_64, -cospi16_64)
+	t0, t1 := idct8PairCos16(a0, a4)
 	t2 := idct8Rotate16(a2, a6, cospi24_64, -cospi8_64)
 	t3 := idct8Rotate16(a2, a6, cospi8_64, cospi24_64)
 	t4, t5, t6, t7 := s4.Add(s5), s4.Sub(s5), s7.Sub(s6), s6.Add(s7)
 	u0, u1, u2, u3 := t0.Add(t3), t1.Add(t2), t1.Sub(t2), t0.Sub(t3)
-	u5 := idct8Rotate16(t6, t5, cospi16_64, -cospi16_64)
-	u6 := idct8Rotate16(t5, t6, cospi16_64, cospi16_64)
+	u6, u5 := idct8PairCos16(t6, t5)
+	return u0.Add(t7), u1.Add(u6), u2.Add(u5), u3.Add(t4), u3.Sub(t4), u2.Sub(u5), u1.Sub(u6), u0.Sub(t7)
+}
+
+// idct8Lines16Top4 transforms 8 rows whose high 4 lanes are all zero
+// (rows==4 after transpose, i.e. EOB <= 10 top-left 4x4), avoiding all
+// HiToLo() multiplies in pass 1.
+func idct8Lines16Top4(a0, a1, a2, a3, a4, a5, a6, a7 archsimd.Int16x8) (archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8, archsimd.Int16x8) {
+	var zero64 archsimd.Uint64x2
+	rotLo := func(a, b archsimd.Int16x8, ca, cb int64) archsimd.Int16x8 {
+		ka, kb := archsimd.BroadcastInt16x8(int16(ca)), archsimd.BroadcastInt16x8(int16(cb))
+		return pixel.RoundTransform4(a.MulWidenLo(ka).Add(b.MulWidenLo(kb))).TruncToInt16().ToBits().ReshapeToUint64s().InterleaveLo(zero64).ReshapeToUint16s().BitsToInt16()
+	}
+	pairCos16Lo := func(a, b archsimd.Int16x8) (archsimd.Int16x8, archsimd.Int16x8) {
+		k := archsimd.BroadcastInt16x8(int16(cospi16_64))
+		alo, blo := a.MulWidenLo(k), b.MulWidenLo(k)
+		sum := pixel.RoundTransform4(alo.Add(blo)).TruncToInt16().ToBits().ReshapeToUint64s().InterleaveLo(zero64).ReshapeToUint16s().BitsToInt16()
+		diff := pixel.RoundTransform4(alo.Sub(blo)).TruncToInt16().ToBits().ReshapeToUint64s().InterleaveLo(zero64).ReshapeToUint16s().BitsToInt16()
+		return sum, diff
+	}
+	s4 := rotLo(a1, a7, cospi28_64, -cospi4_64)
+	s7 := rotLo(a1, a7, cospi4_64, cospi28_64)
+	s5 := rotLo(a5, a3, cospi12_64, -cospi20_64)
+	s6 := rotLo(a5, a3, cospi20_64, cospi12_64)
+	t0, t1 := pairCos16Lo(a0, a4)
+	t2 := rotLo(a2, a6, cospi24_64, -cospi8_64)
+	t3 := rotLo(a2, a6, cospi8_64, cospi24_64)
+	t4, t5, t6, t7 := s4.Add(s5), s4.Sub(s5), s7.Sub(s6), s6.Add(s7)
+	u0, u1, u2, u3 := t0.Add(t3), t1.Add(t2), t1.Sub(t2), t0.Sub(t3)
+	u6, u5 := pairCos16Lo(t6, t5)
 	return u0.Add(t7), u1.Add(u6), u2.Add(u5), u3.Add(t4), u3.Sub(t4), u2.Sub(u5), u1.Sub(u6), u0.Sub(t7)
 }
 
@@ -51,9 +93,12 @@ func inverseDCT8ARM(input []int16, dst []byte, stride, rows int) bool {
 	var a4, a5, a6, a7 archsimd.Int16x8
 	if rows == 8 {
 		a4, a5, a6, a7 = archsimd.LoadInt16x8(input[32:]), archsimd.LoadInt16x8(input[40:]), archsimd.LoadInt16x8(input[48:]), archsimd.LoadInt16x8(input[56:])
+		a0, a1, a2, a3, a4, a5, a6, a7 = pixel.Transpose8Int16(a0, a1, a2, a3, a4, a5, a6, a7)
+		a0, a1, a2, a3, a4, a5, a6, a7 = idct8Lines16(a0, a1, a2, a3, a4, a5, a6, a7)
+	} else {
+		a0, a1, a2, a3, a4, a5, a6, a7 = pixel.Transpose8Int16(a0, a1, a2, a3, a4, a5, a6, a7)
+		a0, a1, a2, a3, a4, a5, a6, a7 = idct8Lines16Top4(a0, a1, a2, a3, a4, a5, a6, a7)
 	}
-	a0, a1, a2, a3, a4, a5, a6, a7 = pixel.Transpose8Int16(a0, a1, a2, a3, a4, a5, a6, a7)
-	a0, a1, a2, a3, a4, a5, a6, a7 = idct8Lines16(a0, a1, a2, a3, a4, a5, a6, a7)
 	a0, a1, a2, a3, a4, a5, a6, a7 = pixel.Transpose8Int16(a0, a1, a2, a3, a4, a5, a6, a7)
 	a0, a1, a2, a3, a4, a5, a6, a7 = idct8Lines16(a0, a1, a2, a3, a4, a5, a6, a7)
 	idct8Store16(dst, a0)

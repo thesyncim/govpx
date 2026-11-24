@@ -105,21 +105,40 @@ func WriteLastFrameZeroMVModeGridWithSkip(w *BoolWriter, rows int, cols int, cfg
 			if row > 0 && col > 0 {
 				aboveLeft = &modes[index-cols-1]
 			}
-			if !validInterFrameMacroblockModeAt(mode, above, left, aboveLeft, row, col, rows, cols, signBias) {
+			nearest, near, best, counts := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
+			switch mode.Mode {
+			case common.ZeroMV:
+				if !mode.MV.IsZero() {
+					return ErrInvalidPacketConfig
+				}
+			case common.NearestMV:
+				if mode.MV != clampInterMotionVectorToModeEdges(nearest, row, col, rows, cols) {
+					return ErrInvalidPacketConfig
+				}
+			case common.NearMV:
+				if mode.MV != clampInterMotionVectorToModeEdges(near, row, col, rows, cols) {
+					return ErrInvalidPacketConfig
+				}
+			case common.NewMV:
+			case common.SplitMV:
+				if !validSplitMVModeWithContext(mode, left, above) {
+					return ErrInvalidPacketConfig
+				}
+			default:
 				return ErrInvalidPacketConfig
 			}
-			if !WriteInterPredictionMode(w, interModeCounts(above, left, aboveLeft, refFrame, signBias), mode.Mode) {
+			if !WriteInterPredictionMode(w, counts, mode.Mode) {
 				return ErrInvalidPacketConfig
 			}
 			switch mode.Mode {
 			case common.NewMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
+				best = clampInterMotionVectorToModeEdges(best, row, col, rows, cols)
 				delta := MotionVector{Row: mode.MV.Row - best.Row, Col: mode.MV.Col - best.Col}
 				if err := WriteMotionVector(w, &mvProbs, delta); err != nil {
 					return err
 				}
 			case common.SplitMV:
-				best := interBestMotionVectorAt(above, left, aboveLeft, refFrame, row, col, rows, cols, signBias)
+				best = clampInterMotionVectorToModeEdges(best, row, col, rows, cols)
 				if err := WriteSplitMotionVectors(w, &mvProbs, mode, left, above, best); err != nil {
 					return err
 				}
