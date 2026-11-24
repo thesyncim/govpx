@@ -268,13 +268,25 @@ func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, p
 	return nil
 }
 
-// flushTokenPackByte handles the infrequent byte-emission and carry-propagation
-// path for writePreparedCoefficientTokenRecords, keeping the hot renormalization
-// loop compact in L1 instruction cache.
-//
-//go:noinline
+// flushTokenPackByte handles the byte-emission path for
+// writePreparedCoefficientTokenRecords. The common non-carry, in-bounds case
+// stays inlineable so hot token loops avoid spilling live registers across a
+// call; carry propagation and buffer-overflow errors stay outlined.
 func flushTokenPackByte(w *BoolWriter, buf []byte, low uint32, count int, shift uint, pos int) (uint32, int, int, bool) {
 	offset := int(shift) - count
+	if ((low<<uint(offset-1))&0x80000000) == 0 && uint(pos) < uint(len(buf)) {
+		buf[pos] = byte(low >> uint(24-offset))
+		pos++
+		tailShift := uint(count)
+		low = ((low << uint(offset)) & 0xffffff) << tailShift
+		count -= 8
+		return low, count, pos, true
+	}
+	return flushTokenPackByteSlow(w, buf, low, count, offset, pos)
+}
+
+//go:noinline
+func flushTokenPackByteSlow(w *BoolWriter, buf []byte, low uint32, count int, offset int, pos int) (uint32, int, int, bool) {
 	if ((low << uint(offset-1)) & 0x80000000) != 0 {
 		w.pos = pos
 		w.propagateCarry()
@@ -326,10 +338,9 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
 		probOffset := (raw >> coefficientTokenRecordProbOffsetShift) & coefficientTokenRecordProbOffsetMask
-		p := (*[tables.EntropyNodes]uint8)(flatProbs[probOffset : probOffset+tables.EntropyNodes])
 
 		if token == tables.DCTEOBToken {
-			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+			split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset])) >> 8))
 			rng = split
 			// A normalized EOB needs neither a shift nor a byte flush.
 			if rng&0x80 != 0 && count < 0 {
@@ -353,7 +364,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 
 		if token == tables.ZeroToken {
 			if raw&(1<<coefficientTokenRecordSkipEOBNodeShift) == 0 {
-				split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+				split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset])) >> 8))
 				low += split
 				rng -= split
 
@@ -371,7 +382,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 				}
 			}
 
-			split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
+			split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset+1])) >> 8))
 			rng = split
 			if rng&0x80 != 0 && count < 0 {
 				continue
@@ -397,7 +408,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 			// tree path is (node0=1 if !skipEOB), node1=1, node2=0, followed by
 			// the sign bit with zero extra magnitude bits.
 			if raw&(1<<coefficientTokenRecordSkipEOBNodeShift) == 0 {
-				split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+				split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset])) >> 8))
 				low += split
 				rng -= split
 				shift := uint(bits.LeadingZeros8(uint8(rng)))
@@ -415,7 +426,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 			}
 			// node 1 -> bit 1 (non-zero)
 			{
-				split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
+				split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset+1])) >> 8))
 				low += split
 				rng -= split
 				shift := uint(bits.LeadingZeros8(uint8(rng)))
@@ -433,7 +444,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 			}
 			// node 2 -> bit 0 (OneToken)
 			{
-				split := uint32(1 + (((rng - 1) * uint32(p[2])) >> 8))
+				split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset+2])) >> 8))
 				rng = split
 				if rng&0x80 == 0 || count >= 0 {
 					shift := uint(bits.LeadingZeros8(uint8(rng)))
@@ -480,6 +491,8 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 			}
 			continue
 		}
+
+		p := (*[tables.EntropyNodes]uint8)(flatProbs[probOffset : probOffset+tables.EntropyNodes])
 
 		// Take a pointer instead of copying the 15-byte path struct on each
 		// record; the table never moves so the indirection has no aliasing

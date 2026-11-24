@@ -227,7 +227,11 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 		bestRow = nextRow
 		bestCol = nextCol
 		k := bestSite
-		for j := 1; j < 127; j++ {
+		maxHexSteps := 127
+		if ctx.rowSkip2 {
+			maxHexSteps = 16
+		}
+		for j := 1; j < maxHexSteps; j++ {
 			bestSite = -1
 			nextRow = bestRow
 			nextCol = bestCol
@@ -315,7 +319,11 @@ func (s *fullPelMotionSearch) hexSuperKernel(best vp8enc.MotionVector, bestCost 
 	}
 
 	// --- 4-neighbour final refine ----------------------------------------
-	for range 8 {
+	maxRefineSteps := 8
+	if ctx.rowSkip2 {
+		maxRefineSteps = 2
+	}
+	for range maxRefineSteps {
 		bestSite = -1
 		nextRow = bestRow
 		nextCol = bestCol
@@ -501,7 +509,11 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 		bestRow = nextRow
 		bestCol = nextCol
 		k := bestSite
-		for j := 1; j < 127; j++ {
+		maxHexSteps := 127
+		if ctx.rowSkip2 {
+			maxHexSteps = 16
+		}
+		for j := 1; j < maxHexSteps; j++ {
 			bestSite = -1
 			nextRow = bestRow
 			nextCol = bestCol
@@ -579,7 +591,11 @@ func (s *fullPelMotionSearch) hexSuperKernelNoStats(best vp8enc.MotionVector, be
 		}
 	}
 
-	for range 8 {
+	maxRefineSteps := 8
+	if ctx.rowSkip2 {
+		maxRefineSteps = 2
+	}
+	for range maxRefineSteps {
 		bestSite = -1
 		nextRow = bestRow
 		nextCol = bestCol

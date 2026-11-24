@@ -2,6 +2,7 @@ package govpx
 
 import (
 	"encoding/binary"
+	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -819,18 +820,23 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 			if ref == nil || !ref.valid {
 				return false
 			}
-			sf := d.vp9ScaleFactorsFor(ref.img.Width, ref.img.Height,
-				int(hdr.Width), int(hdr.Height))
-			if !sf.IsValidScale() {
-				d.markVP9Unsupported()
-				return true
+			var sf *vp9dec.ScaleFactors
+			scaled := false
+			if ref.img.Width != int(hdr.Width) || ref.img.Height != int(hdr.Height) {
+				sf = d.vp9ScaleFactorsFor(ref.img.Width, ref.img.Height,
+					int(hdr.Width), int(hdr.Height))
+				if !sf.IsValidScale() {
+					d.markVP9Unsupported()
+					return true
+				}
+				scaled = sf.IsScaled()
 			}
 			src, srcStride := vp9ReferencePlane(ref, plane)
 			if srcStride <= 0 || len(src) == 0 {
 				return false
 			}
 			srcRows := len(src) / srcStride
-			if !sf.IsScaled() && (x0 >= srcStride || y0 >= srcRows) {
+			if !scaled && (x0 >= srcStride || y0 >= srcRows) {
 				continue
 			}
 			srcWidth := (ref.img.Width + (1 << pd.SubsamplingX) - 1) >> pd.SubsamplingX
@@ -858,7 +864,7 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				}
 				continue
 			}
-			if !sf.IsScaled() && mi.Mv[refIdx] == (vp9dec.MV{}) &&
+			if !scaled && mi.Mv[refIdx] == (vp9dec.MV{}) &&
 				(srcWidth&0x7) == 0 && (srcHeight&0x7) == 0 {
 				w := min(bw, min(dstStride-x0, srcStride-x0))
 				h := min(bh, min(dstRows-y0, srcRows-y0))
@@ -1167,6 +1173,16 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 		}
 		d.vp9PhaseCountInterPredictor(key)
 	}
+	if !scaled && subpelX == 0 && subpelY == 0 {
+		if avg != 0 {
+			buffers.AveragePlaneInto(dst[dstY*dstStride+dstX:], dstStride,
+				src[srcOffset:], srcStride, predW, predH)
+		} else {
+			buffers.CopyPlane(dst[dstY*dstStride+dstX:], dstStride,
+				src[srcOffset:], srcStride, predW, predH)
+		}
+		return true
+	}
 	vp9dec.InterPredictorWithScratch(src, srcStride,
 		dst[dstY*dstStride+dstX:], dstStride,
 		subpelX, subpelY, tables.FilterKernels[filterIdx],
@@ -1252,12 +1268,16 @@ func (d *VP9Decoder) storeVP9CurrentFrameMvs(miRows, miCols, miRow, miCol,
 	if len(d.curFrameMvs) < miRows*miCols || mi == nil {
 		return
 	}
-	refFrame := mi.RefFrame
-	mv := mi.Mv
-	for y := 0; y < yMis && miRow+y < miRows; y++ {
-		row := d.curFrameMvs[(miRow+y)*miCols:]
-		for x := 0; x < xMis && miCol+x < miCols; x++ {
-			row[miCol+x] = vp9dec.MvRef{RefFrame: refFrame, Mv: mv}
+	yEnd := min(miRow+yMis, miRows)
+	xEnd := min(miCol+xMis, miCols)
+	if miRow >= yEnd || miCol >= xEnd {
+		return
+	}
+	v := vp9dec.MvRef{RefFrame: mi.RefFrame, Mv: mi.Mv}
+	for r := miRow; r < yEnd; r++ {
+		row := d.curFrameMvs[r*miCols+miCol : r*miCols+xEnd]
+		for x := range row {
+			row[x] = v
 		}
 	}
 }
@@ -1507,6 +1527,24 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 // or tx-type lookups are needed, and the residue destination window has
 // been bounds-checked by the caller for the whole plane. Returns the
 // plane's summed EOB.
+// tryConsumeVP9ZeroEOB checks whether the next inter tx block's DC EOB bit is 0
+// (all-zero block) without entering DecodeCoefsState. When bit==1 or a refill
+// is needed, rs is left untouched so DecodeCoefsState runs identically.
+func tryConsumeVP9ZeroEOB(rs *bitstream.ReaderState, prob uint32) bool {
+	if rs.Count < 0 {
+		return false
+	}
+	split := (rs.Range*prob + (256 - prob)) >> 8
+	if rs.Value >= uint64(split)<<56 {
+		return false
+	}
+	shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
+	rs.Range = split << shift
+	rs.Value <<= shift
+	rs.Count -= int32(shift)
+	return true
+}
+
 func (d *VP9Decoder) readVP9InterResiduePlane(
 	rs *bitstream.ReaderState,
 	pd *vp9dec.MacroblockdPlane,
@@ -1525,6 +1563,7 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 	aCtx := pd.AboveContext[aboveBase:]
 	lCtx := pd.LeftContext[leftBase:]
 	coeffs := d.dqcoeff[:vp9dec.MaxEobForTxSize(txSize)]
+	dcProbs := &d.fc.CoefProbs[txSize][planeType][1][0]
 	// Hoist txSize switch out of the inner (rr, cc) loop so each size runs a
 	// tight branch-free context read/update without repeated switching.
 	switch txSize {
@@ -1539,6 +1578,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				}
 				if lv != 0 {
 					initCtx++
+				}
+				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
+					aCtx[cc] = 0
+					lv = 0
+					continue
 				}
 				eob := vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
 					initCtx, so, &d.fc.CoefProbs, coefCounts,
@@ -1567,6 +1611,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				}
 				if lv != 0 {
 					initCtx++
+				}
+				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
+					aCtx[cc] = 0
+					aCtx[cc+1] = 0
+					lv = 0
+					continue
 				}
 				eob := vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
 					initCtx, so, &d.fc.CoefProbs, coefCounts,
@@ -1597,6 +1647,14 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				}
 				if lv != 0 {
 					initCtx++
+				}
+				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
+					aCtx[cc] = 0
+					aCtx[cc+1] = 0
+					aCtx[cc+2] = 0
+					aCtx[cc+3] = 0
+					lv = 0
+					continue
 				}
 				eob := vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
 					initCtx, so, &d.fc.CoefProbs, coefCounts,

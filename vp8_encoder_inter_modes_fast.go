@@ -163,7 +163,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = yAC * yAC
+		hdNewMVSkipSSE = yAC * yAC * 2
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -180,17 +180,20 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
+		if hdFast && refSlot == 3 && !e.opts.AutoAltRef {
+			continue
+		}
 		if hdFast && bestSet && !bestUseIntra {
 			if bestSSE <= hdNewMVSkipSSE>>1 {
 				break
 			}
-			if mbMode == vp8common.NewMV && bestSSE <= hdNewMVSkipSSE {
+			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
 			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
 				continue
 			}
-			if refSlot == 0 && bestSSE <= hdNewMVSkipSSE<<1 {
+			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {
 				continue
 			}
 		}
@@ -452,7 +455,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = yAC * yAC
+		hdNewMVSkipSSE = yAC * yAC * 2
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -469,17 +472,20 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
+		if hdFast && refSlot == 3 && !e.opts.AutoAltRef {
+			continue
+		}
 		if hdFast && bestSet && !bestUseIntra {
 			if bestSSE <= hdNewMVSkipSSE>>1 {
 				break
 			}
-			if mbMode == vp8common.NewMV && bestSSE <= hdNewMVSkipSSE {
+			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
 			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
 				continue
 			}
-			if refSlot == 0 && bestSSE <= hdNewMVSkipSSE<<1 {
+			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {
 				continue
 			}
 		}

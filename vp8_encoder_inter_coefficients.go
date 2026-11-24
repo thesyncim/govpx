@@ -474,7 +474,9 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 	}
 	vp8enc.FastQuantizeBlockBatchOnly(dcts, yQuant, qBuf, coeffs.EOB[:16], 16)
 	for block := range 16 {
-		copy(coeffs.QCoeff[block][:], qBuf[block*16:])
+		if coeffs.EOB[block] != 0 {
+			copy(coeffs.QCoeff[block][:], qBuf[block*16:])
+		}
 	}
 
 	if !is4x4 {
@@ -482,7 +484,6 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 		vp8enc.FastQuantizeBlockBatchOnly(y2Coeff[:], &quant.Y2, coeffs.QCoeff[24][:], coeffs.EOB[24:25], 1)
 	} else {
-		coeffs.QCoeff[24] = [16]int16{}
 		coeffs.EOB[24] = 0
 	}
 
@@ -492,7 +493,9 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 	vp8enc.ForwardDCT4x4BatchResiduals(residuals[:128], dcts[:128], 8)
 	vp8enc.FastQuantizeBlockBatchOnly(dcts[:128], &quant.UV, qBuf[:128], coeffs.EOB[16:24], 8)
 	for block := range 8 {
-		copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])
+		if coeffs.EOB[16+block] != 0 {
+			copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])
+		}
 	}
 }
 

@@ -14,9 +14,25 @@ func SAD16x16Fast(src []byte, srcStride int, ref []byte, refStride int) int {
 	return pixel.SAD16(src, srcStride, ref, refStride, 16)
 }
 
+// SAD16x16RowSkip2Fast computes a 2x-decimated 16x16 SAD over the 8 even rows
+// and scales the result by 2 for fast HD full-pel motion search.
+func SAD16x16RowSkip2Fast(src []byte, srcStride int, ref []byte, refStride int) int {
+	return pixel.SAD16(src, srcStride*2, ref, refStride*2, 8) << 1
+}
+
 // SAD16x16x4Fast mirrors libvpx's vpx_sad16x16x4d interface.
 func SAD16x16x4Fast(src []byte, srcStride int, ref0, ref1, ref2, ref3 []byte, refStride int, out *[4]uint32) {
 	pixel.SAD16x4(src, srcStride, ref0, ref1, ref2, ref3, refStride, 16, out)
+}
+
+// SAD16x16x4RowSkip2Fast evaluates 4 candidates over the 8 even rows and scales
+// each SAD by 2 for fast HD full-pel hex search.
+func SAD16x16x4RowSkip2Fast(src []byte, srcStride int, ref0, ref1, ref2, ref3 []byte, refStride int, out *[4]uint32) {
+	pixel.SAD16x4(src, srcStride*2, ref0, ref1, ref2, ref3, refStride*2, 8, out)
+	out[0] <<= 1
+	out[1] <<= 1
+	out[2] <<= 1
+	out[3] <<= 1
 }
 
 // SAD16x16x4LimitFast evaluates each reference with its own row limit.

@@ -221,6 +221,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 	vp8dec.InitSegmentDequants(quantHeaderForFrame(qIndex, quantDeltas), &decSegmentation, &e.dequantTables, &e.dequants)
 
 	aboveTok := e.acquireReconstructAboveTok(cols)
+	useFastIntraPick := e.libvpxUseFastIntraPick()
+	useFastQuant := e.libvpxUseFastQuant()
+	optimizeCoeffs := e.libvpxOptimizeCoefficients()
+	useDirectFastCoeff := useFastQuant && !optimizeCoeffs && !oracleTraceBuild
 	totalRate := 0
 	// libvpx-stale BLOCK->zbin_extra carry: even though
 	// vp8/encoder/encodeframe.c vp8_activity_masking (line 433) runs at
@@ -338,10 +342,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 			// where libvpx still uses regular, causing single-MB mode
 			// flips and a 1-byte first-partition drift on
 			// good-quality-cbr-cpu2.
-			if e.libvpxUseFastIntraPick() {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+			if useFastIntraPick {
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeFastWithRDConstants(src, segmentQIndex, modeZbinOverQuant, row, col, above, left, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, useFastQuant, rdMult, rdDiv)
 			} else {
-				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, zbinOverQuant, pickActZbinAdj, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, e.libvpxUseFastQuant(), rdMult, rdDiv)
+				mode, projectedRate, ok = predictBestKeyFrameIntraModeWithRDConstants(src, segmentQIndex, zbinOverQuant, pickActZbinAdj, row, col, above, left, &aboveTok[col], &leftTok, &quants[segmentID&3], &e.analysis.Img, &e.reconstructScratch, useFastQuant, rdMult, rdDiv)
 			}
 			// Mirror libvpx encodeframe.c line 1106-1108:
 			// adjust_act_zbin updates x->act_zbin_adj using THIS MB's
@@ -375,32 +379,36 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				return 0, ErrInvalidConfig
 			}
 			is4x4 := modes[index].YMode == vp8common.BPred
-			var trace predictedMacroblockCoefficientTrace
-			if oracleTraceBuild {
-				trace = newPretrellisUVTrace(e)
+			if useDirectFastCoeff {
+				buildFastRealtimeMacroblockCoefficientsDirect(&e.fastCoeffScratch, src, row, col, &e.analysis.Img, &quants[segmentID&3], is4x4, &coeffs[index])
+			} else {
+				var trace predictedMacroblockCoefficientTrace
+				if oracleTraceBuild {
+					trace = newPretrellisUVTrace(e)
+				}
+				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+					coefProbs:     &vp8tables.DefaultCoefProbs,
+					src:           src,
+					mbRow:         row,
+					mbCol:         col,
+					pred:          &e.analysis.Img,
+					aboveTok:      &aboveTok[col],
+					leftTok:       &leftTok,
+					quant:         &quants[segmentID&3],
+					qIndex:        segmentQIndex,
+					zbinOverQuant: zbinOverQuant,
+					actZbinAdj:    actZbinAdj,
+					rdMult:        rdMult,
+					rdDiv:         rdDiv,
+					is4x4:         is4x4,
+					intra:         true,
+					fastQuant:     useFastQuant,
+					optimize:      optimizeCoeffs,
+					collectOracle: traceEnabled,
+					coeffs:        &coeffs[index],
+					trace:         trace,
+				})
 			}
-			buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-				coefProbs:     &vp8tables.DefaultCoefProbs,
-				src:           src,
-				mbRow:         row,
-				mbCol:         col,
-				pred:          &e.analysis.Img,
-				aboveTok:      &aboveTok[col],
-				leftTok:       &leftTok,
-				quant:         &quants[segmentID&3],
-				qIndex:        segmentQIndex,
-				zbinOverQuant: zbinOverQuant,
-				actZbinAdj:    actZbinAdj,
-				rdMult:        rdMult,
-				rdDiv:         rdDiv,
-				is4x4:         is4x4,
-				intra:         true,
-				fastQuant:     e.libvpxUseFastQuant(),
-				optimize:      e.libvpxOptimizeCoefficients(),
-				collectOracle: traceEnabled,
-				coeffs:        &coeffs[index],
-				trace:         trace,
-			})
 			modes[index].MBSkipCoeff = vp8enc.KeyFrameMacroblockIsSkippable(&modes[index], &coeffs[index])
 			e.reconstructModes[index].MBSkipCoeff = modes[index].MBSkipCoeff
 			if modes[index].MBSkipCoeff {
@@ -574,6 +582,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 	e.beginInterRDModeDecisionFrame()
 	defer e.endInterRDModeDecisionFrame()
 	aboveTok := e.acquireReconstructAboveTok(cols)
+	hdFast := e.vp8HDRealtimeFastPath()
+	useFastQuant := e.libvpxUseFastQuant()
+	optimizeCoeffs := e.libvpxOptimizeCoefficients()
+	useRDModeDecision := e.interAnalysisUsesRDModeDecision()
+	useDirectFastCoeff := useFastQuant && !optimizeCoeffs && !oracleTraceBuild
 	denoiseActive := e.opts.NoiseSensitivity > 0 && e.denoiser.allocated
 	// The denoiser overlay replaces the historic full-frame working copy:
 	// the raw source is read in place (every consumer is current-MB
@@ -632,15 +645,38 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					pickSource = denoiseOverlay
 				}
 			}
-			decision, ok := e.selectInterFrameModeDecision(
-				pickSource, refs[:], refCount,
-				row, col, rows, cols,
-				qIndex, segmentation, segmentID,
-				above, left, aboveLeft,
-				&aboveTok[col], &leftTok,
-				&quants[segmentID&3],
-				sourceAltRefZeroMVOnly,
-			)
+			var decision interFrameModeDecision
+			if !useRDModeDecision && !traceEnabled {
+				if denoiseActive {
+					decision, ok = e.selectFastInterFrameModeDecisionDenoise(
+						pickSource, refs[:], refCount,
+						row, col, rows, cols,
+						qIndex, segmentID,
+						above, left, aboveLeft,
+						&quants[segmentID&3],
+						sourceAltRefZeroMVOnly,
+					)
+				} else {
+					decision, ok = e.selectFastInterFrameModeDecisionHot(
+						pickSource, refs[:], refCount,
+						row, col, rows, cols,
+						qIndex, segmentID,
+						above, left, aboveLeft,
+						&quants[segmentID&3],
+						sourceAltRefZeroMVOnly,
+					)
+				}
+			} else {
+				decision, ok = e.selectInterFrameModeDecision(
+					pickSource, refs[:], refCount,
+					row, col, rows, cols,
+					qIndex, segmentation, segmentID,
+					above, left, aboveLeft,
+					&aboveTok[col], &leftTok,
+					&quants[segmentID&3],
+					sourceAltRefZeroMVOnly,
+				)
+			}
 			if !ok {
 				return 0, ErrInvalidConfig
 			}
@@ -676,7 +712,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					}
 				}
 			}
-			if denoiseActive && decision.useIntra && !e.interAnalysisUsesRDModeDecision() && decision.intraMode.Mode <= vp8common.BPred {
+			if denoiseActive && decision.useIntra && !useRDModeDecision && decision.intraMode.Mode <= vp8common.BPred {
 				// The fast libvpx picker repeats pick_intra_mbuv_mode after
 				// temporal denoising, so the accepted intra MB's chroma mode
 				// is chosen against the source that will feed coefficients.
@@ -726,8 +762,12 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				modes[index] = decision.interMode
 				vp8enc.ConvertInterFrameMode(&modes[index], &e.reconstructModes[index])
 				e.reconstructModes[index].MBSkipCoeff = true
-				acceptedInterCache = e.consumeInterRDCoeffCache()
-				if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &modes[index]) &&
+				restoredPred := false
+				if useRDModeDecision {
+					acceptedInterCache = e.consumeInterRDCoeffCache()
+					restoredPred = acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &modes[index])
+				}
+				if !restoredPred &&
 					!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&refStates, decision.ref.Frame), row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
@@ -744,12 +784,13 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			isInactiveMB := e.interMacroblockInactive(row, col, cols)
 			staticBreakout := false
 			if modes[index].RefFrame != vp8common.IntraFrame && !isInactiveMB {
-				if e.vp8HDRealtimeFastPath() && decision.interMode.MBSkipCoeff {
+				if hdFast && decision.interMode.MBSkipCoeff {
 					staticBreakout = true
 				} else {
 					encodeBreakout := e.interStaticThresholdForSegment(segmentID)
-					if encodeBreakout == 0 && e.vp8HDRealtimeFastPath() {
-						encodeBreakout = 1
+					if encodeBreakout == 0 && hdFast {
+						yAC := int(quant.Y1.Dequant[1])
+						encodeBreakout = max((yAC*yAC)>>1, 1)
 					}
 					if encodeBreakout > 0 {
 						yAC := int(quant.Y1.Dequant[1])
@@ -762,7 +803,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 				(isInactiveMB || staticBreakout)
 			if breakoutSkip {
-				vp8enc.ClearMacroblockCoefficients(&coeffs[index])
+				coeffs[index].EOB = [25]uint8{}
 			} else if modes[index].RefFrame != vp8common.IntraFrame || modes[index].Mode != vp8common.BPred {
 				is4x4 := vp8enc.InterFrameModeUses4x4Tokens(modes[index].Mode)
 				// When the RD picker staged the winning candidate's
@@ -779,7 +820,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if denoiseActive {
 					cacheIn = nil
 				}
-				if e.libvpxUseFastQuant() && !e.libvpxOptimizeCoefficients() && !oracleTraceBuild && cacheIn == nil {
+				if useDirectFastCoeff && cacheIn == nil {
 					buildFastRealtimeMacroblockCoefficientsDirect(&e.fastCoeffScratch, mbSource, row, col, &e.analysis.Img, quant, is4x4, &coeffs[index])
 				} else {
 					zbinOverQuant := e.rc.currentZbinOverQuant

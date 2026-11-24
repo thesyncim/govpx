@@ -73,16 +73,12 @@ func predictBestKeyFrameIntraModeFastWithRDConstants(src vp8enc.SourceImage, qIn
 	// mode, but returns only the Y-mode/B_PRED rate through *rate.
 	wholeRate := bestYRate
 
-	// On HD keyframes, skip the 16x4x4 B_PRED search when the 16x16 intra mode
-	// already has RD cost below the mode-bit overhead of signaling B_PRED + 16
-	// sub-block modes.
+	// On HD keyframes, skip the 16x4x4 B_PRED search (64x Intra4x4Predict +
+	// 16x DCT/Quant/IDCT) in favor of the best 16x16 intra mode.
 	if src.Width*src.Height >= 1280*720 {
-		bPredFloor := vp8enc.RDCost(rdMult, rdDiv, intraYModeRate(true, vp8common.BPred)+16*512, 0)
-		if bestY16RD <= bPredFloor {
-			mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: bestUVMode}
-			predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch)
-			return whole, wholeRate, true
-		}
+		mode := vp8dec.MacroblockMode{RefFrame: vp8common.IntraFrame, Mode: bestYMode, UVMode: bestUVMode}
+		predictAnalysisMacroblock(pred, mbRow, mbCol, &mode, scratch)
+		return whole, wholeRate, true
 	}
 
 	bModes, bRate, bRD, ok := pickFastBPredLumaModeKFWithRDConstants(src, qIndex, zbinOverQuant, mbRow, mbCol, above, left, quant, pred, scratch, fastQuant, rdMult, rdDiv)

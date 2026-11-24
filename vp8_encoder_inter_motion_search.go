@@ -157,7 +157,7 @@ func (s interFrameMotionVectorSearch) selectRDWithStats(stats *interFrameMotionS
 }
 
 func (s interFrameMotionVectorSearch) fullPixel() (vp8enc.MotionVector, int) {
-	return selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(s.src, s.ref, s.mbRow, s.mbCol, s.mbRows, s.mbCols, s.bestRefMV, s.qIndex, s.errorPerBit, s.search, s.start, s.mvProbs, s.mvCosts)
+	return selectInterFrameFullPixelMotionVectorWithOptions(s.src, s.ref, s.mbRow, s.mbCol, s.mbRows, s.mbCols, s.bestRefMV, s.qIndex, s.errorPerBit, s.search, s.start, s.mvProbs, s.mvCosts, s.skipQuarterIfHalfStatic)
 }
 
 func (s interFrameMotionVectorSearch) fullPixelWithStats(stats *interFrameMotionSearchStats) (vp8enc.MotionVector, int) {
@@ -198,6 +198,10 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsAndStats(src vp
 }
 
 func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables) (vp8enc.MotionVector, int) {
+	return selectInterFrameFullPixelMotionVectorWithOptions(src, ref, mbRow, mbCol, mbRows, mbCols, bestRefMV, qIndex, errorPerBit, search, start, mvProbs, mvCosts, false)
+}
+
+func selectInterFrameFullPixelMotionVectorWithOptions(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int, mbRows int, mbCols int, bestRefMV vp8enc.MotionVector, qIndex int, errorPerBit int, search interAnalysisSearchConfig, start interFrameSearchStart, mvProbs *[2][vp8tables.MVPCount]uint8, mvCosts *vp8enc.MotionVectorCostTables, rowSkip2 bool) (vp8enc.MotionVector, int) {
 	searchStart := bestRefMV
 	if start.ok() && search.fullPixelSearch != interAnalysisFullPixelSearchExhaustive {
 		searchStart = start.mv
@@ -211,6 +215,7 @@ func selectInterFrameFullPixelMotionVectorWithSearchStartAndProbsCostTables(src 
 		best = bounds.ClampEighth(best)
 	}
 	searcher := newFullPelMotionSearch(src, ref, mbRow, mbCol, bestRefMV, qIndex, bounds, mvProbs, mvCosts, errorPerBit, nil)
+	searcher.ctx.rowSkip2 = rowSkip2
 	bestWalkCost := searcher.walkCostNoStats(best, maxInt())
 	if bestWalkCost == 0 {
 		return best, searcher.costNoStats(best)

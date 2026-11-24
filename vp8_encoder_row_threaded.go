@@ -575,15 +575,21 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		} else {
 			encodeBreakout := e.interStaticThresholdForSegment(segmentID)
 			if encodeBreakout == 0 && e.vp8HDRealtimeFastPath() {
-				encodeBreakout = 1
+				yAC := int(quant.Y1.Dequant[1])
+				encodeBreakout = max((yAC*yAC)>>1, 1)
 			}
-			staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout)
+			if encodeBreakout > 0 {
+				yAC := int(quant.Y1.Dequant[1])
+				if int(decision.predictionError) < max((yAC*yAC)>>4, encodeBreakout) {
+					staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout)
+				}
+			}
 		}
 	}
 	breakoutSkip := args.modes[index].RefFrame != vp8common.IntraFrame &&
 		(isInactiveMB || staticBreakout)
 	if breakoutSkip {
-		vp8enc.ClearMacroblockCoefficients(&args.coeffs[index])
+		args.coeffs[index].EOB = [25]uint8{}
 	} else if args.modes[index].RefFrame != vp8common.IntraFrame || args.modes[index].Mode != vp8common.BPred {
 		is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)
 		// Same picker → accepted-path cache short-circuit as the serial

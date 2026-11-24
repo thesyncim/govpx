@@ -38,6 +38,7 @@ type fullPelSearchCtx struct {
 	srcScratch [16 * 16]byte
 	srcFull    bool
 	srcClamped bool
+	rowSkip2   bool
 }
 
 const (
@@ -69,6 +70,7 @@ type splitFullPelSearchCtx struct {
 	srcScratch [16 * 16]byte
 	srcFull    bool
 	srcClamped bool
+	rowSkip2   bool
 }
 
 func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCol int) fullPelSearchCtx {
@@ -213,6 +215,9 @@ func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 		uint(refBaseX+c.refYBorder) <= c.refRowW {
 		refSlice := c.refYFull[c.refYOrigin+refBaseY*c.refYStride+refBaseX:]
 		srcSlice, srcStride := c.sourceSADSlice()
+		if c.rowSkip2 {
+			return dsp.SAD16x16RowSkip2Fast(srcSlice, srcStride, refSlice, c.refYStride)
+		}
 		return dsp.SAD16x16Fast(srcSlice, srcStride, refSlice, c.refYStride)
 	}
 	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
@@ -253,7 +258,11 @@ func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 in
 	refSlice2 := c.refYFull[c.refYOrigin+refBaseY2*c.refYStride+refBaseX2:]
 	refSlice3 := c.refYFull[c.refYOrigin+refBaseY3*c.refYStride+refBaseX3:]
 	srcSlice, srcStride := c.sourceSADSlice()
-	dsp.SAD16x16x4Fast(srcSlice, srcStride, refSlice0, refSlice1, refSlice2, refSlice3, c.refYStride, out)
+	if c.rowSkip2 {
+		dsp.SAD16x16x4RowSkip2Fast(srcSlice, srcStride, refSlice0, refSlice1, refSlice2, refSlice3, c.refYStride, out)
+	} else {
+		dsp.SAD16x16x4Fast(srcSlice, srcStride, refSlice0, refSlice1, refSlice2, refSlice3, c.refYStride, out)
+	}
 	return true
 }
 

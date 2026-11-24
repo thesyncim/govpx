@@ -1,6 +1,8 @@
 package encoder
 
 import (
+	"encoding/binary"
+
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 )
@@ -9,20 +11,16 @@ import (
 // vp8/encoder/rdopt.c and vp8/encoder/pickinter.c.
 
 func MacroblockCoefficientsEmpty(coeffs *MacroblockCoefficients, is4x4 bool) bool {
-	if coeffs.EOB[24] != 0 {
-		return false
+	u0 := binary.LittleEndian.Uint64(coeffs.EOB[0:8])
+	u1 := binary.LittleEndian.Uint64(coeffs.EOB[8:16])
+	u2 := binary.LittleEndian.Uint64(coeffs.EOB[16:24])
+	if !is4x4 {
+		// Non-4x4 Y1 blocks skip DC (index 0), so EOB <= 1 is empty; EOB > 1
+		// iff any bit above bit 0 is set.
+		const mask = ^uint64(0x0101010101010101)
+		return (u0&mask)|(u1&mask)|u2|uint64(coeffs.EOB[24]) == 0
 	}
-	for i := range 16 {
-		if (is4x4 && coeffs.EOB[i] != 0) || (!is4x4 && coeffs.EOB[i] > 1) {
-			return false
-		}
-	}
-	for i := 16; i < 24; i++ {
-		if coeffs.EOB[i] != 0 {
-			return false
-		}
-	}
-	return true
+	return u0|u1|u2|uint64(coeffs.EOB[24]) == 0
 }
 
 func ClearMacroblockCoefficients(coeffs *MacroblockCoefficients) {

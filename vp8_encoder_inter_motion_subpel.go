@@ -129,9 +129,8 @@ func (s *interFrameSubpixelSearch) stepNoStats(quarter bool) (vp8enc.MotionVecto
 	if !bestEval.ok {
 		return vp8enc.MotionVector{}, 0, 0, 0, false
 	}
-	startRow, startCol := bestRow, bestCol
 	bestEval, bestRow, bestCol = s.directionalStepNoStats(&subCtx, bestRow, bestCol, 2, bestEval, errorPerBit)
-	if quarter && (!s.skipQuarterIfHalfStatic || bestRow != startRow || bestCol != startCol) {
+	if quarter && !s.skipQuarterIfHalfStatic {
 		bestEval, bestRow, bestCol = s.directionalStepNoStats(&subCtx, bestRow, bestCol, 1, bestEval, errorPerBit)
 	}
 	finalMV := vp8enc.MotionVector{Row: int16(bestRow * 2), Col: int16(bestCol * 2)}
