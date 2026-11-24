@@ -442,15 +442,10 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	return buildPredictedMacroblockCoefficientsWork(args)
 }
 
-func buildFastRealtimeMacroblockCoefficients(args *predictedMacroblockCoefficientArgs) {
-	src := args.src
-	mbRow := args.mbRow
-	mbCol := args.mbCol
-	pred := args.pred
-	quant := args.quant
-	is4x4 := args.is4x4
-	coeffs := args.coeffs
-
+func buildFastRealtimeMacroblockCoefficientsDirect(
+	src vp8enc.SourceImage, mbRow, mbCol int, pred *vp8common.Image,
+	quant *vp8enc.MacroblockQuant, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients,
+) {
 	// Reuse a single pair of 256-int16 scratch buffers across Y and UV so the
 	// realtime fast-quant path avoids stack-zeroing unused RD/DQ/UV arrays.
 	var residuals [16 * 16]int16
@@ -492,6 +487,10 @@ func buildFastRealtimeMacroblockCoefficients(args *predictedMacroblockCoefficien
 	for block := range 8 {
 		copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])
 	}
+}
+
+func buildFastRealtimeMacroblockCoefficients(args *predictedMacroblockCoefficientArgs) {
+	buildFastRealtimeMacroblockCoefficientsDirect(args.src, args.mbRow, args.mbCol, args.pred, args.quant, args.is4x4, args.coeffs)
 }
 
 func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficientArgs) predictedMacroblockRDStats {

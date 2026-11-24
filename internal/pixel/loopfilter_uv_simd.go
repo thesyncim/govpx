@@ -16,9 +16,9 @@ func LoopFilterUV8(u, v []byte, step, outer, blimit, limit, thresh, kind int) bo
 	if !((outer == 1 && step >= 8) || (step == 1 && outer >= 8)) {
 		return false
 	}
-	// An eight-by-eight tile ends at 7*pitch+7. Dividing before
-	// multiplying keeps the proof valid even for oversized stride arguments.
-	if min(len(u), len(v)) < 8 || max(step, outer) > (min(len(u), len(v))-8)/7 {
+	// An eight-by-eight tile ends at 7*pitch+7.
+	pitch := max(step, outer)
+	if uint(pitch) >= 1<<28 || 7*pitch+8 > min(len(u), len(v)) {
 		return false
 	}
 	if slicesOverlap(u, v, len(u), len(v)) {

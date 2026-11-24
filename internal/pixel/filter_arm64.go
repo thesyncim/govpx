@@ -239,39 +239,45 @@ func filterVert8ARM64(src []byte, ss int, dst []byte, ds, w, h int, taps []int16
 
 	x := 0
 	for ; x+16 <= w; x += 16 {
-		v0 := archsimd.LoadUint8x16(src[0*ss+x : 0*ss+x+16])
-		v1 := archsimd.LoadUint8x16(src[1*ss+x : 1*ss+x+16])
-		v2 := archsimd.LoadUint8x16(src[2*ss+x : 2*ss+x+16])
-		v3 := archsimd.LoadUint8x16(src[3*ss+x : 3*ss+x+16])
-		v4 := archsimd.LoadUint8x16(src[4*ss+x : 4*ss+x+16])
-		v5 := archsimd.LoadUint8x16(src[5*ss+x : 5*ss+x+16])
-		v6 := archsimd.LoadUint8x16(src[6*ss+x : 6*ss+x+16])
+		v0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0*ss+x : 0*ss+x+16]))
+		v1 := archsimd.LoadUint8x16Array((*[16]byte)(src[1*ss+x : 1*ss+x+16]))
+		v2 := archsimd.LoadUint8x16Array((*[16]byte)(src[2*ss+x : 2*ss+x+16]))
+		v3 := archsimd.LoadUint8x16Array((*[16]byte)(src[3*ss+x : 3*ss+x+16]))
+		v4 := archsimd.LoadUint8x16Array((*[16]byte)(src[4*ss+x : 4*ss+x+16]))
+		v5 := archsimd.LoadUint8x16Array((*[16]byte)(src[5*ss+x : 5*ss+x+16]))
+		v6 := archsimd.LoadUint8x16Array((*[16]byte)(src[6*ss+x : 6*ss+x+16]))
+		h0, h1, h2, h3 := v0.HiToLo(), v1.HiToLo(), v2.HiToLo(), v3.HiToLo()
+		h4, h5, h6 := v4.HiToLo(), v5.HiToLo(), v6.HiToLo()
 		so, do := 7*ss+x, x
 		if mode == 1 {
 			for range h {
 				v7 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				h7 := v7.HiToLo()
 				negLo := v0.MulWidenLo(c0).Add(v2.MulWidenLo(c2)).Add(v5.MulWidenLo(c5)).Add(v7.MulWidenLo(c7))
 				posLo := bias.Add(v1.MulWidenLo(c1)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v6.MulWidenLo(c6))
-				negHi := v0.HiToLo().MulWidenLo(c0).Add(v2.HiToLo().MulWidenLo(c2)).Add(v5.HiToLo().MulWidenLo(c5)).Add(v7.HiToLo().MulWidenLo(c7))
-				posHi := bias.Add(v1.HiToLo().MulWidenLo(c1)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v6.HiToLo().MulWidenLo(c6))
+				negHi := h0.MulWidenLo(c0).Add(h2.MulWidenLo(c2)).Add(h5.MulWidenLo(c5)).Add(h7.MulWidenLo(c7))
+				posHi := bias.Add(h1.MulWidenLo(c1)).Add(h3.MulWidenLo(c3)).Add(h4.MulWidenLo(c4)).Add(h6.MulWidenLo(c6))
 				outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
 				outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
 				outLo.ReshapeToUint64s().InterleaveLo(outHi.ReshapeToUint64s()).ReshapeToUint8s().StoreArray((*[16]byte)(dst[do : do+16]))
 				v0, v1, v2, v3, v4, v5, v6 = v1, v2, v3, v4, v5, v6, v7
+				h0, h1, h2, h3, h4, h5, h6 = h1, h2, h3, h4, h5, h6, h7
 				so += ss
 				do += ds
 			}
 		} else {
 			for range h {
 				v7 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+				h7 := v7.HiToLo()
 				negLo := v0.MulWidenLo(c0).Add(v1.MulWidenLo(c1)).Add(v6.MulWidenLo(c6)).Add(v7.MulWidenLo(c7))
 				posLo := bias.Add(v2.MulWidenLo(c2)).Add(v3.MulWidenLo(c3)).Add(v4.MulWidenLo(c4)).Add(v5.MulWidenLo(c5))
-				negHi := v0.HiToLo().MulWidenLo(c0).Add(v1.HiToLo().MulWidenLo(c1)).Add(v6.HiToLo().MulWidenLo(c6)).Add(v7.HiToLo().MulWidenLo(c7))
-				posHi := bias.Add(v2.HiToLo().MulWidenLo(c2)).Add(v3.HiToLo().MulWidenLo(c3)).Add(v4.HiToLo().MulWidenLo(c4)).Add(v5.HiToLo().MulWidenLo(c5))
+				negHi := h0.MulWidenLo(c0).Add(h1.MulWidenLo(c1)).Add(h6.MulWidenLo(c6)).Add(h7.MulWidenLo(c7))
+				posHi := bias.Add(h2.MulWidenLo(c2)).Add(h3.MulWidenLo(c3)).Add(h4.MulWidenLo(c4)).Add(h5.MulWidenLo(c5))
 				outLo := posLo.SubSaturated(negLo).ShiftAllRight(7).SaturateToUint8()
 				outHi := posHi.SubSaturated(negHi).ShiftAllRight(7).SaturateToUint8()
 				outLo.ReshapeToUint64s().InterleaveLo(outHi.ReshapeToUint64s()).ReshapeToUint8s().StoreArray((*[16]byte)(dst[do : do+16]))
 				v0, v1, v2, v3, v4, v5, v6 = v1, v2, v3, v4, v5, v6, v7
+				h0, h1, h2, h3, h4, h5, h6 = h1, h2, h3, h4, h5, h6, h7
 				so += ss
 				do += ds
 			}

@@ -790,54 +790,52 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if denoiseActive {
 					cacheIn = nil
 				}
-				zbinOverQuant := e.rc.currentZbinOverQuant
-				actZbinAdj := 0
-				// Same libvpx anchor as the BPred branch above: trellis
-				// optimize_b uses mb->rdmult = cpi->RDMULT (frame-level),
-				// so the rdMult fed into buildPredictedMacroblockCoefficients
-				// uses qIndex (frame base) not segmentQIndex. The pass-2
-				// iiratio lift at rdopt.c:189-196 lands on the same
-				// cpi->RDMULT before optimize_b consumes it.
-				rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
-				if e.activityMapValid {
-					if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
-						actZbinAdj = adjustment
+				if e.libvpxUseFastQuant() && !e.libvpxOptimizeCoefficients() && !oracleTraceBuild && cacheIn == nil {
+					buildFastRealtimeMacroblockCoefficientsDirect(mbSource, row, col, &e.analysis.Img, quant, is4x4, &coeffs[index])
+				} else {
+					zbinOverQuant := e.rc.currentZbinOverQuant
+					actZbinAdj := 0
+					rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(qIndex, zbinOverQuant)
+					if e.activityMapValid {
+						if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+							actZbinAdj = adjustment
+						}
+						rdMult = e.tunedRDMultiplier(rdMult, row, col)
 					}
-					rdMult = e.tunedRDMultiplier(rdMult, row, col)
+					var phaseStats *EncoderPhaseStats
+					if vp8PhaseStatsEnabled {
+						phaseStats = e.phaseStats()
+					}
+					var trace predictedMacroblockCoefficientTrace
+					if oracleTraceBuild {
+						trace = newPretrellisUVTrace(e)
+					}
+					buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+						coefProbs:     e.pickerCoefProbs(),
+						src:           mbSource,
+						mbRow:         row,
+						mbCol:         col,
+						pred:          &e.analysis.Img,
+						aboveTok:      &aboveTok[col],
+						leftTok:       &leftTok,
+						quant:         quant,
+						qIndex:        segmentQIndex,
+						zbinOverQuant: zbinOverQuant,
+						zbinModeBoost: vp8enc.InterZbinModeBoost(&modes[index]),
+						actZbinAdj:    actZbinAdj,
+						rdMult:        rdMult,
+						rdDiv:         rdDiv,
+						is4x4:         is4x4,
+						intra:         modes[index].RefFrame == vp8common.IntraFrame,
+						fastQuant:     e.libvpxUseFastQuant(),
+						optimize:      e.libvpxOptimizeCoefficients(),
+						collectOracle: traceEnabled,
+						coeffs:        &coeffs[index],
+						cacheIn:       cacheIn,
+						phaseStats:    phaseStats,
+						trace:         trace,
+					})
 				}
-				var phaseStats *EncoderPhaseStats
-				if vp8PhaseStatsEnabled {
-					phaseStats = e.phaseStats()
-				}
-				var trace predictedMacroblockCoefficientTrace
-				if oracleTraceBuild {
-					trace = newPretrellisUVTrace(e)
-				}
-				buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-					coefProbs:     e.pickerCoefProbs(),
-					src:           mbSource,
-					mbRow:         row,
-					mbCol:         col,
-					pred:          &e.analysis.Img,
-					aboveTok:      &aboveTok[col],
-					leftTok:       &leftTok,
-					quant:         quant,
-					qIndex:        segmentQIndex,
-					zbinOverQuant: zbinOverQuant,
-					zbinModeBoost: vp8enc.InterZbinModeBoost(&modes[index]),
-					actZbinAdj:    actZbinAdj,
-					rdMult:        rdMult,
-					rdDiv:         rdDiv,
-					is4x4:         is4x4,
-					intra:         modes[index].RefFrame == vp8common.IntraFrame,
-					fastQuant:     e.libvpxUseFastQuant(),
-					optimize:      e.libvpxOptimizeCoefficients(),
-					collectOracle: traceEnabled,
-					coeffs:        &coeffs[index],
-					cacheIn:       cacheIn,
-					phaseStats:    phaseStats,
-					trace:         trace,
-				})
 				if is4x4 {
 					if oracleTraceBuild {
 						applyOracleStaleY2Snapshot(&coeffs[index], decision.staleY2)

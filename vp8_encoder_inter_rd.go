@@ -329,9 +329,6 @@ func (ctx *fastInterModeLoopContext) storeVariance(ref *vp8common.Image, mv vp8e
 
 func fastInterVarianceCacheIndex(ref *vp8common.Image, mv vp8enc.MotionVector) int {
 	h := uint(uint16(mv.Row))*17 + uint(uint16(mv.Col))*31
-	if ref != nil && len(ref.Y) > 0 {
-		h ^= uint(ref.Y[0]) * 5
-	}
 	return int(h & (fastInterVarianceCacheSize - 1))
 }
 

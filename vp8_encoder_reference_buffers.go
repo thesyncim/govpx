@@ -60,8 +60,9 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
+	// e.analysis already had ExtendBorders() called by applyReconstructionLoopFilter
+	// (or buildReconstructingInterFrameCoefficientsWithSegmentation when LF level == 0).
 	e.analysis, e.current = e.current, e.analysis
-	e.current.ExtendBorders()
 	e.copyInterFrameReferences(cfg)
 	if cfg.RefreshLast {
 		vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
