@@ -62,8 +62,35 @@ func (w *Writer) StartDiscard() {
 //     defining identity for rng >= 1 (renormalization keeps rng >= 1) and
 //     compiles to a single CLZ.
 //
-// The byte-emit path runs once per ~8 output bits and lives in emitByte to
-// keep this body small.
+// emitByte flushes one output byte (and propagates any carry) when count >= 0.
+// Kept out-of-line so Write and WritePacked stay tiny and inlineable.
+//
+//go:noinline
+func (w *Writer) emitByte(lowValue uint32, shift, count int32) (uint32, int32) {
+	offset := shift - count
+	if !w.err {
+		if (lowValue<<uint(offset-1))&0x80000000 != 0 {
+			x := int(w.pos) - 1
+			for x >= 0 && w.buf[x] == 0xff {
+				w.buf[x] = 0
+				x--
+			}
+			w.buf[x]++
+		}
+		if w.pos < uint32(len(w.buf)) {
+			w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
+			w.pos++
+		} else {
+			w.err = true
+		}
+	}
+	lowValue = ((lowValue << uint(offset)) & 0xffffff) << uint(count)
+	return lowValue, count - 8
+}
+
+// Write encodes a single boolean symbol with probability prob (1..255).
+// The byte-emit path runs once per ~8 output bits and lives in emitByte so
+// Write inlines into token and syntax writers.
 func (w *Writer) Write(bit, prob uint32) {
 	if w.discard {
 		return
@@ -85,33 +112,11 @@ func (w *Writer) Write(bit, prob uint32) {
 	count += shift
 
 	if count >= 0 {
-		offset := shift - count
-
-		if !w.err {
-			if (lowValue<<uint(offset-1))&0x80000000 != 0 {
-				x := int(w.pos) - 1
-				for x >= 0 && w.buf[x] == 0xff {
-					w.buf[x] = 0
-					x--
-				}
-				w.buf[x]++
-			}
-
-			if w.pos < uint32(len(w.buf)) {
-				w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
-				w.pos++
-			} else {
-				w.err = true
-			}
-		}
-
-		lowValue <<= uint(offset)
-		shift = count
-		lowValue &= 0xffffff
-		count -= 8
+		lowValue, count = w.emitByte(lowValue, shift, count)
+	} else {
+		lowValue <<= uint(shift)
 	}
 
-	lowValue <<= uint(shift)
 	w.count = count
 	w.lowValue = lowValue
 	w.rng = rng
@@ -146,33 +151,10 @@ func (w *Writer) WritePacked(bitsValue, probs uint32, n int) {
 		count += shift
 
 		if count >= 0 {
-			offset := shift - count
-
-			if !w.err {
-				if (lowValue<<uint(offset-1))&0x80000000 != 0 {
-					x := int(w.pos) - 1
-					for x >= 0 && w.buf[x] == 0xff {
-						w.buf[x] = 0
-						x--
-					}
-					w.buf[x]++
-				}
-
-				if w.pos < uint32(len(w.buf)) {
-					w.buf[w.pos] = byte((lowValue >> uint(24-offset)) & 0xff)
-					w.pos++
-				} else {
-					w.err = true
-				}
-			}
-
-			lowValue <<= uint(offset)
-			shift = count
-			lowValue &= 0xffffff
-			count -= 8
+			lowValue, count = w.emitByte(lowValue, shift, count)
+		} else {
+			lowValue <<= uint(shift)
 		}
-
-		lowValue <<= uint(shift)
 	}
 
 	w.count = count
