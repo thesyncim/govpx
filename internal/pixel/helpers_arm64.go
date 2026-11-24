@@ -106,12 +106,8 @@ func filterVertical8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16)
 	return true
 }
 
-// Adapted from goav1's fwdShr: fixed register shifts avoid rebuilding and
-// negating an immediate shift vector for every transform stage.
-var transformRight14 = archsimd.BroadcastInt32x4(-14)
-
 func RoundTransform4(v archsimd.Int32x4) archsimd.Int32x4 {
-	return v.Add(archsimd.BroadcastInt32x4(8192)).Shift(transformRight14)
+	return v.Add(archsimd.BroadcastInt32x4(8192)).ShiftAllRight(14)
 }
 func WrapTransform4(v archsimd.Int32x4) archsimd.Int32x4 { return v.TruncToInt16().ExtendLo4ToInt32() }
 

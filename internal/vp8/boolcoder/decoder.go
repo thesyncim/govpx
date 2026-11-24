@@ -371,6 +371,21 @@ func (d *Decoder) ReadVP8BlockCoeffs(probs *tables.CoefficientProbs, blockType i
 // coefficients; skipped-by-EOB blocks only write eob and contexts, matching
 // DecodeMacroblockTokens' contract over cleared token storage. The returned
 // dirtyMask has bit b set when block b decoded a nonzero coefficient.
+// vp8BlockFastMargin is the headroom (in bytes) required before the end of
+// the token partition buffer to decode a complete 4x4 block with unconditional
+// 8-byte big-endian refills. One 4x4 block has at most 16 coefficients, each
+// taking at most 18 boolean reads of <=7 bits plus 1 sign bit (<= 254 bytes),
+// plus 8 bytes for the final 64-bit load.
+const vp8BlockFastMargin = 288
+
+func fillBoolFast(buf []byte, pos int, value uint64, count int) (uint64, int, int) {
+	shift := valueSize - 8 - (count + 8)
+	big := binary.BigEndian.Uint64(buf[pos:])
+	n := (shift &^ 7) + 8
+	value |= (big >> uint(64-n)) << uint(shift&7)
+	return value, count + n, pos + (n >> 3)
+}
+
 func (d *Decoder) ReadVP8MacroblockCoeffs(
 	probs *tables.CoefficientProbs, is4x4 bool,
 	aboveY1 *[4]uint8, leftY1 *[4]uint8,
@@ -379,6 +394,256 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	aboveY2 *uint8, leftY2 *uint8,
 	qcoeff *[25][16]int16, eob *[25]uint8,
 ) (eobTotal int, dirtyMask uint32) {
+	value := d.value
+	count := d.count
+	rng := d.rng
+	pos := d.pos
+	buf := d.buf
+	fastLimit := len(buf) - vp8BlockFastMargin
+
+	readBoolNoFill := func(prob uint8) uint8 {
+		rng0 := rng
+		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		bit := uint8(0)
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			bit = 1
+		}
+		shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+		rng = nextRange << shift
+		value <<= shift
+		count -= int(shift)
+		return bit
+	}
+	readSignedCoeffNoFill := func(coeff int) int16 {
+		rng0 := rng
+		split := (rng0 + 1) >> 1
+		bigsplit := uint64(split) << (valueSize - 8)
+		nextRange := split
+		var m16 int16
+		if value >= bigsplit {
+			nextRange = rng0 - split
+			value -= bigsplit
+			m16 = -1
+		}
+		rng = nextRange << 1
+		value <<= 1
+		count--
+		v := int16(coeff)
+		return (v ^ m16) - m16
+	}
+
+	skipDC := 0
+	lumaType := 3
+	idx := 0
+	if !is4x4 {
+		skipDC = 1
+		lumaType = 0
+		idx = -1 // decode the Y2 block first
+	}
+
+	for ; idx < 24; idx++ {
+		if pos > fastLimit {
+			d.value = value
+			d.count = count
+			d.rng = rng
+			d.pos = pos
+			return d.readVP8MacroblockCoeffsSlow(
+				probs, is4x4, idx, eobTotal, dirtyMask,
+				aboveY1, leftY1, aboveU, leftU, aboveV, leftV,
+				aboveY2, leftY2, qcoeff, eob,
+			)
+		}
+		var b int
+		var bt *[tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]uint8
+		var aP, lP *uint8
+		var n int
+		switch {
+		case idx < 0:
+			b = 24
+			bt = &(*probs)[1]
+			aP, lP = aboveY2, leftY2
+		case idx < 16:
+			b = idx
+			bt = &(*probs)[lumaType]
+			aP = &aboveY1[idx&3]
+			lP = &leftY1[(idx&0x0c)>>2]
+			n = skipDC
+		default:
+			b = idx
+			bt = &(*probs)[2]
+			if idx < 20 {
+				aP = &aboveU[idx&1]
+				lP = &leftU[(idx&3)>>1]
+			} else {
+				aP = &aboveV[idx&1]
+				lP = &leftV[(idx&3)>>1]
+			}
+		}
+
+		ctx := int(*aP + *lP)
+		p := &bt[n&1][ctx]
+		// One batched refill guarantees count >= 24, covering p[0] (<=7) +
+		// p[1] (<=7) + p[2] (<=7) + sign (1) = <=22 bits on the hot ±1 path.
+		if count < 24 {
+			value, count, pos = fillBoolFast(buf, pos, value, count)
+		}
+		if readBoolNoFill(p[0]) == 0 {
+			*aP = 0
+			*lP = 0
+			if idx < 0 {
+				eob[24] = 0
+				eobTotal -= 16
+			} else if idx < 16 {
+				eob[b] = uint8(skipDC)
+				eobTotal += skipDC
+			} else {
+				eob[b] = 0
+			}
+			continue
+		}
+		out := &qcoeff[b]
+		nonzeros := 0
+		nn := n
+	walk:
+		for {
+			nn++
+			if readBoolNoFill(p[1]) == 0 {
+				if nn == 16 {
+					nonzeros = 16
+					break walk
+				}
+				p = &bt[tables.CoefBandsTable[nn&15]&7][0]
+				if count < 16 {
+					value, count, pos = fillBoolFast(buf, pos, value, count)
+				}
+				continue
+			}
+			v := 0
+			tokenClass := uint8(2)
+			if readBoolNoFill(p[2]) == 0 {
+				tokenClass = 1
+				v = 1
+			} else {
+				if count < 32 {
+					value, count, pos = fillBoolFast(buf, pos, value, count)
+				}
+				if readBoolNoFill(p[3]) == 0 {
+					if readBoolNoFill(p[4]) == 0 {
+						v = 2
+					} else {
+						v = 3 + int(readBoolNoFill(p[5]))
+					}
+				} else {
+					if count < 32 {
+						value, count, pos = fillBoolFast(buf, pos, value, count)
+					}
+					if readBoolNoFill(p[6]) == 0 {
+						if readBoolNoFill(p[7]) == 0 {
+							v = 5 + int(readBoolNoFill(159))
+						} else {
+							v = 7 + 2*int(readBoolNoFill(165))
+							v += int(readBoolNoFill(145))
+						}
+					} else {
+						bit1 := int(readBoolNoFill(p[8]))
+						bit0 := int(readBoolNoFill(p[9+bit1]))
+						cat := 2*bit1 + bit0
+						switch cat {
+						case 0:
+							for _, prob := range tables.Cat3Prob {
+								if count < 0 {
+									value, count, pos = fillBoolFast(buf, pos, value, count)
+								}
+								v += v + int(readBoolNoFill(prob))
+							}
+						case 1:
+							for _, prob := range tables.Cat4Prob {
+								if count < 0 {
+									value, count, pos = fillBoolFast(buf, pos, value, count)
+								}
+								v += v + int(readBoolNoFill(prob))
+							}
+						case 2:
+							for _, prob := range tables.Cat5Prob {
+								if count < 0 {
+									value, count, pos = fillBoolFast(buf, pos, value, count)
+								}
+								v += v + int(readBoolNoFill(prob))
+							}
+						default:
+							for _, prob := range tables.Cat6Prob {
+								if count < 0 {
+									value, count, pos = fillBoolFast(buf, pos, value, count)
+								}
+								v += v + int(readBoolNoFill(prob))
+							}
+						}
+						v += 3 + (8 << cat)
+						if count < 0 {
+							value, count, pos = fillBoolFast(buf, pos, value, count)
+						}
+					}
+				}
+			}
+
+			j := tables.DefaultZigZag1D[(nn-1)&15]
+			out[j&15] = readSignedCoeffNoFill(v)
+			if nn == 16 {
+				nonzeros = 16
+				break walk
+			}
+			p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
+			if count < 24 {
+				value, count, pos = fillBoolFast(buf, pos, value, count)
+			}
+			if readBoolNoFill(p[0]) == 0 {
+				nonzeros = nn
+				break walk
+			}
+		}
+
+		hasCoeffs := uint8(0)
+		if nonzeros > 0 {
+			hasCoeffs = 1
+			dirtyMask |= 1 << uint(b)
+		}
+		*aP = hasCoeffs
+		*lP = hasCoeffs
+		switch {
+		case idx < 0:
+			eob[24] = uint8(nonzeros)
+			eobTotal += nonzeros - 16
+		case idx < 16:
+			nz := nonzeros + skipDC
+			eob[b] = uint8(nz)
+			eobTotal += nz
+		default:
+			eob[b] = uint8(nonzeros)
+			eobTotal += nonzeros
+		}
+	}
+
+	d.value = value
+	d.count = count
+	d.rng = rng
+	d.pos = pos
+	return eobTotal, dirtyMask
+}
+
+//go:noinline
+func (d *Decoder) readVP8MacroblockCoeffsSlow(
+	probs *tables.CoefficientProbs, is4x4 bool,
+	startIdx, eobTotal int, dirtyMask uint32,
+	aboveY1 *[4]uint8, leftY1 *[4]uint8,
+	aboveU *[2]uint8, leftU *[2]uint8,
+	aboveV *[2]uint8, leftV *[2]uint8,
+	aboveY2 *uint8, leftY2 *uint8,
+	qcoeff *[25][16]int16, eob *[25]uint8,
+) (int, uint32) {
 	value := d.value
 	count := d.count
 	rng := d.rng
@@ -407,8 +672,6 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		count -= int(shift)
 		return bit
 	}
-	// readSignedCoeff mirrors libvpx detokenize.c GetSigned; see
-	// ReadVP8BlockCoeffs for the fixed single-bit normalization argument.
 	readSignedCoeff := func(coeff int) int16 {
 		rng0 := rng
 		split := (rng0 + 1) >> 1
@@ -454,14 +717,12 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 
 	skipDC := 0
 	lumaType := 3
-	idx := 0
 	if !is4x4 {
 		skipDC = 1
 		lumaType = 0
-		idx = -1 // decode the Y2 block first
 	}
 
-	for ; idx < 24; idx++ {
+	for idx := startIdx; idx < 24; idx++ {
 		var b int
 		var bt *[tables.CoefBands][tables.PrevCoefContexts][tables.EntropyNodes]uint8
 		var aP, lP *uint8
@@ -478,8 +739,6 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			lP = &leftY1[(idx&0x0c)>>2]
 			n = skipDC
 		default:
-			// libvpx: a = a_ctx+4 + ((i > 19) << 1) + (i & 1);
-			//         l = l_ctx+4 + ((i > 19) << 1) + ((i & 3) > 1).
 			b = idx
 			bt = &(*probs)[2]
 			if idx < 20 {
@@ -518,8 +777,6 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 					nonzeros = 16
 					break walk
 				}
-				// nn is 1..15 here and CoefBandsTable values are 0..7;
-				// the masks are numeric no-ops that elide bounds checks.
 				p = &bt[tables.CoefBandsTable[nn&15]&7][0]
 				continue
 			}

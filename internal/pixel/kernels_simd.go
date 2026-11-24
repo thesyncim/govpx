@@ -405,11 +405,119 @@ func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 		AddConstantScalar(pred, ps, dst, ds, w, h, delta)
 		return
 	}
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if delta == 0 && ps == ds && len(pred) > 0 && len(dst) > 0 && &pred[0] == &dst[0] {
+		return
+	}
+	_ = pred[(h-1)*ps+w-1]
+	_ = dst[(h-1)*ds+w-1]
+	canBatchRows := ps >= w && ds >= w &&
+		((&pred[0] == &dst[0] && ps == ds) || !slicesOverlap(pred, dst, (h-1)*ps+w, (h-1)*ds+w))
 
-	v := archsimd.BroadcastInt32x4(int32(delta))
+	// Saturating 8-bit add/sub (UQADD/UQSUB on ARM64, PADDUSB/PSUBUSB on AMD64)
+	// processes 16 pixels per instruction without widening to int32.
+	if delta >= 0 {
+		d := uint8(255)
+		if delta < 255 {
+			d = uint8(delta)
+		}
+		dv := archsimd.BroadcastUint8x16(d)
+		if canBatchRows && w == 4 && h == 4 {
+			v := archsimd.LoadUint32x4Array(&[4]uint32{
+				binary.LittleEndian.Uint32(pred[0:]),
+				binary.LittleEndian.Uint32(pred[ps:]),
+				binary.LittleEndian.Uint32(pred[2*ps:]),
+				binary.LittleEndian.Uint32(pred[3*ps:]),
+			}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint32s()
+			binary.LittleEndian.PutUint32(dst[0:], v.GetElem(0))
+			binary.LittleEndian.PutUint32(dst[ds:], v.GetElem(1))
+			binary.LittleEndian.PutUint32(dst[2*ds:], v.GetElem(2))
+			binary.LittleEndian.PutUint32(dst[3*ds:], v.GetElem(3))
+			return
+		}
+		if canBatchRows && w == 8 {
+			po, do := 0, 0
+			y := 0
+			for ; y+1 < h; y += 2 {
+				v := archsimd.LoadUint64x2Array(&[2]uint64{
+					binary.LittleEndian.Uint64(pred[po:]),
+					binary.LittleEndian.Uint64(pred[po+ps:]),
+				}).ReshapeToUint8s().AddSaturated(dv).ReshapeToUint64s()
+				binary.LittleEndian.PutUint64(dst[do:], v.GetElem(0))
+				binary.LittleEndian.PutUint64(dst[do+ds:], v.GetElem(1))
+				po += 2 * ps
+				do += 2 * ds
+			}
+			if y < h {
+				storeBytes8(dst[do:], load8(pred[po:]).AddSaturated(dv))
+			}
+			return
+		}
+		for y := range h {
+			po, do := y*ps, y*ds
+			x := 0
+			for ; x+16 <= w; x += 16 {
+				archsimd.LoadUint8x16Array((*[16]byte)(pred[po+x : po+x+16])).AddSaturated(dv).StoreArray((*[16]byte)(dst[do+x : do+x+16]))
+			}
+			for ; x+8 <= w; x += 8 {
+				storeBytes8(dst[do+x:], load8(pred[po+x:]).AddSaturated(dv))
+			}
+			for ; x < w; x += 4 {
+				StorePixels4(dst[do+x:], LoadPixels4(pred[po+x:]).Add(archsimd.BroadcastInt32x4(int32(delta))))
+			}
+		}
+		return
+	}
+
+	d := uint8(255)
+	if -delta < 255 {
+		d = uint8(-delta)
+	}
+	dv := archsimd.BroadcastUint8x16(d)
+	if canBatchRows && w == 4 && h == 4 {
+		v := archsimd.LoadUint32x4Array(&[4]uint32{
+			binary.LittleEndian.Uint32(pred[0:]),
+			binary.LittleEndian.Uint32(pred[ps:]),
+			binary.LittleEndian.Uint32(pred[2*ps:]),
+			binary.LittleEndian.Uint32(pred[3*ps:]),
+		}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint32s()
+		binary.LittleEndian.PutUint32(dst[0:], v.GetElem(0))
+		binary.LittleEndian.PutUint32(dst[ds:], v.GetElem(1))
+		binary.LittleEndian.PutUint32(dst[2*ds:], v.GetElem(2))
+		binary.LittleEndian.PutUint32(dst[3*ds:], v.GetElem(3))
+		return
+	}
+	if canBatchRows && w == 8 {
+		po, do := 0, 0
+		y := 0
+		for ; y+1 < h; y += 2 {
+			v := archsimd.LoadUint64x2Array(&[2]uint64{
+				binary.LittleEndian.Uint64(pred[po:]),
+				binary.LittleEndian.Uint64(pred[po+ps:]),
+			}).ReshapeToUint8s().SubSaturated(dv).ReshapeToUint64s()
+			binary.LittleEndian.PutUint64(dst[do:], v.GetElem(0))
+			binary.LittleEndian.PutUint64(dst[do+ds:], v.GetElem(1))
+			po += 2 * ps
+			do += 2 * ds
+		}
+		if y < h {
+			storeBytes8(dst[do:], load8(pred[po:]).SubSaturated(dv))
+		}
+		return
+	}
 	for y := range h {
-		for x := 0; x < w; x += 4 {
-			StorePixels4(dst[y*ds+x:], LoadPixels4(pred[y*ps+x:]).Add(v))
+		po, do := y*ps, y*ds
+		x := 0
+		for ; x+16 <= w; x += 16 {
+			archsimd.LoadUint8x16Array((*[16]byte)(pred[po+x : po+x+16])).SubSaturated(dv).StoreArray((*[16]byte)(dst[do+x : do+x+16]))
+		}
+		for ; x+8 <= w; x += 8 {
+			storeBytes8(dst[do+x:], load8(pred[po+x:]).SubSaturated(dv))
+		}
+		for ; x < w; x += 4 {
+			StorePixels4(dst[do+x:], LoadPixels4(pred[po+x:]).Add(archsimd.BroadcastInt32x4(int32(delta))))
 		}
 	}
 }
