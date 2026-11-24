@@ -188,7 +188,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			continue
 		}
 		if hdFast && bestSet && !bestUseIntra {
-			if bestSSE <= hdNewMVSkipSSE>>1 {
+			if modeIndex > 13 || bestSSE <= hdNewMVSkipSSE>>1 || (modeIndex > 2 && bestSSE <= hdNewMVSkipSSE) {
 				break
 			}
 			if (mbMode == vp8common.NewMV || mbMode == vp8common.NearMV) && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
@@ -484,7 +484,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			continue
 		}
 		if hdFast && bestSet && !bestUseIntra {
-			if bestSSE <= hdNewMVSkipSSE>>1 {
+			if modeIndex > 13 || bestSSE <= hdNewMVSkipSSE>>1 || (modeIndex > 2 && bestSSE <= hdNewMVSkipSSE) {
 				break
 			}
 			if (mbMode == vp8common.NewMV || mbMode == vp8common.NearMV) && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {

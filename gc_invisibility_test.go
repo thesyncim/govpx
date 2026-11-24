@@ -184,7 +184,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp8Enc.EncodeInto(pkt, img, 1, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP8Encoder 720p 1T", vp8Enc, 99.5)
+	logReport("VP8Encoder 720p 1T", vp8Enc, 99.9)
 
 	vp8Enc4, err := NewVP8Encoder(EncoderOptions{
 		Width:             w,

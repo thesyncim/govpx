@@ -1070,13 +1070,21 @@ type VP8Encoder struct {
 	preview                              vp8common.FrameBuffer
 	previewPostprocScratch               []byte
 	previewPostprocState                 vp8dec.PostProcessState
-	previewFrameValid                    bool
-	previewFrameSuppressed               bool
-	previewPostprocessedValid            bool
-	previewFrameType                     vp8common.FrameType
-	previewBaseQIndex                    int
-	previewLoopFilterLevel               uint8
-	previewFrameNumber                   int
+	// Pointer fields grouped above the pure-value tables below so Go's GC
+	// stops scanning VP8Encoder at PtrBytes (~15 KiB instead of ~90 KiB).
+	rowWorkers                     *rowWorkerPool
+	rdPickerCoefProbsActive        *vp8tables.CoefficientProbs
+	rdPickerCoefTokenCostsActive   *vp8enc.CoefficientTokenCostTable
+	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
+	interCoefTokenRecords          vp8enc.InterCoefficientTokenRecords
+	interCoefTokenRecordsValid     bool
+	previewFrameValid              bool
+	previewFrameSuppressed         bool
+	previewPostprocessedValid      bool
+	previewFrameType               vp8common.FrameType
+	previewBaseQIndex              int
+	previewLoopFilterLevel         uint8
+	previewFrameNumber             int
 	// keyFrameCoefTokenCounts is populated by the threaded key-frame
 	// reconstruction pass with the same per-thread count accumulation libvpx
 	// later sums for vp8_update_coef_probs. Packet write consumes it only
@@ -1093,12 +1101,6 @@ type VP8Encoder struct {
 	// to recomputing during Write.
 	interCoefTokenCounts      vp8enc.InterCoefficientTokenCounts
 	interCoefTokenCountsValid bool
-	// interCoefTokenRecords is the matching Lane D coefficient token stream.
-	// Populated during the same accepted-MB walk as interCoefTokenCounts so
-	// InterFramePacket.Write can emit coefficient tokens without re-walking
-	// QCoeff/EOB/context state. Only valid for the single-threaded builder.
-	interCoefTokenRecords      vp8enc.InterCoefficientTokenRecords
-	interCoefTokenRecordsValid bool
 	// mtHelperYModeCountAccum / mtHelperUVModeCountAccum mirror libvpx's
 	// per-helper `mb_row_ei[i].mb.ymode_count` / `uv_mode_count` accumulated
 	// across every MT inter frame. Per libvpx v1.16.0
@@ -1138,10 +1140,9 @@ type VP8Encoder struct {
 	// non-winner slot, and when a candidate becomes best the slot index
 	// flips (no data copy). The accepted-path reads from the winner slot
 	// to skip predict + residual gather + FDCT for the winning inter mode.
-	interRDCoeffCacheSlots         [2]interRDCoeffCacheState
-	interRDCoeffCacheWinner        uint8
-	interRDCoeffCacheScratchTarget *interRDCoeffCacheState
-	loopInfo                       vp8common.LoopFilterInfo
+	interRDCoeffCacheSlots  [2]interRDCoeffCacheState
+	interRDCoeffCacheWinner uint8
+	loopInfo                vp8common.LoopFilterInfo
 	// loopInfoAlt is the worker-private LoopFilterInfo for the
 	// parallel filt_low/filt_high trials run by pickFull at Threads >= 2.
 	// vp8dec.ApplyLoopFilterFullLumaConfiguredUnchecked mutates the
@@ -1187,18 +1188,11 @@ type VP8Encoder struct {
 	// frames that boost golden/altref score against the colder lfc_g/lfc_a
 	// snapshot — which is exactly the condition that lets SPLITMV's
 	// rd_threshes gate fire. See parity-close-r3-h-rd-scale.
-	coefProbsLast           vp8tables.CoefficientProbs
-	coefProbsGolden         vp8tables.CoefficientProbs
-	coefProbsAltRef         vp8tables.CoefficientProbs
-	coefProbsSnapshotsValid bool
-	// rdPickerCoefProbsActive is set to one of {coefProbsLast, coefProbsGolden,
-	// coefProbsAltRef} during inter-frame RD picker passes (see
-	// encodeInterFrameAttempt). When non-nil, picker call sites read from it
-	// instead of e.coefProbs so token costs match libvpx's per-reference
-	// fill_token_costs source. nil during key-frame and committed-encode paths.
-	rdPickerCoefProbsActive      *vp8tables.CoefficientProbs
+	coefProbsLast                vp8tables.CoefficientProbs
+	coefProbsGolden              vp8tables.CoefficientProbs
+	coefProbsAltRef              vp8tables.CoefficientProbs
+	coefProbsSnapshotsValid      bool
 	rdPickerCoefTokenCosts       vp8enc.CoefficientTokenCostTable
-	rdPickerCoefTokenCostsActive *vp8enc.CoefficientTokenCostTable
 	modeProbs                    vp8dec.ModeProbs
 	subMVRefProbs                [3]uint8
 	noUpdateEntropyCoefProbs     vp8tables.CoefficientProbs
@@ -1208,28 +1202,8 @@ type VP8Encoder struct {
 	mvCostTables                 vp8enc.MotionVectorCostTables
 	mvCostProbs                  [2][vp8tables.MVPCount]uint8
 	mvCostTablesValid            bool
-
-	// threadedRowsActive marks the worker-private encoder view used by the
-	// row-threaded inter-frame builder. It is false on the canonical encoder
-	// state so Threads=1 remains byte-identical and does not branch into
-	// threaded-only search features.
-	threadedRowsActive bool
-
-	// threadedHelperRowsActive marks helper row-worker encoder views. Libvpx's
-	// setup_mbby_copy intentionally does not copy MACROBLOCK.ref_frame_cost
-	// into helper workers, so helper-row RD pickers see zero reference-frame
-	// signalling cost while the main lane uses the frame-initialized costs.
-	threadedHelperRowsActive bool
-
-	// rowWorkers is the row-parallel encoder worker pool. Allocated
-	// only when EncoderOptions.Threads >= 2 so the canonical
-	// Threads=1 path stays zero-cost (no goroutine spawn, no
-	// atomic ops, no channel allocation, no per-row scratch
-	// allocation). Mirrors libvpx vp8/encoder/ethreading.c's
-	// cpi->mb_row_ei + cpi->encoding_thread_count layout. nil at
-	// Threads=1 so picker / reconstruct hot paths can branch on a
-	// single nil-check before any threading code path executes.
-	rowWorkers *rowWorkerPool
+	threadedRowsActive           bool
+	threadedHelperRowsActive     bool
 }
 
 // savedCodingContext mirrors libvpx vp8/encoder/ratectrl.c CODING_CONTEXT.

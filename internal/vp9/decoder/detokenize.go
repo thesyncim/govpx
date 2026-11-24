@@ -408,14 +408,14 @@ fastLoop:
 			ctx = getCoefContextArr(neighbors, tokenCache, c)
 			band = int(bt[c&1023])
 			probs = &coefModel[band][ctx]
-			if pos > fastLimit {
-				slowResume = true
-				skipEob = true
-				break fastLoop
-			}
 			// Keep count >= 16 before zeroContextNode so exiting the zero-run
 			// still leaves count >= 9 for oneContextNode (<=7) + sign (<=1).
 			if count < 16 {
+				if pos > fastLimit {
+					slowResume = true
+					skipEob = true
+					break fastLoop
+				}
 				value, count, pos = bitstream.FillFast(buf, pos, value, count)
 			}
 			bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
