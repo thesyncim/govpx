@@ -375,8 +375,10 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 				}
 				continue
 			}
-			if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
-				return 0, ErrInvalidConfig
+			if !useFastIntraPick {
+				if !predictAnalysisMacroblock(&e.analysis.Img, row, col, &e.reconstructModes[index], &e.reconstructScratch) {
+					return 0, ErrInvalidConfig
+				}
 			}
 			is4x4 := modes[index].YMode == vp8common.BPred
 			if useDirectFastCoeff {

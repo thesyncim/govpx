@@ -163,7 +163,11 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = yAC * yAC * 2
+		if e.opts.Deadline == DeadlineRealtime {
+			hdNewMVSkipSSE = yAC * yAC * 3
+		} else {
+			hdNewMVSkipSSE = yAC * yAC * 2
+		}
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -190,7 +194,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
-			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
+			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE<<1 {
 				continue
 			}
 			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {
@@ -455,7 +459,11 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = yAC * yAC * 2
+		if e.opts.Deadline == DeadlineRealtime {
+			hdNewMVSkipSSE = yAC * yAC * 3
+		} else {
+			hdNewMVSkipSSE = yAC * yAC * 2
+		}
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -482,7 +490,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			if mbMode == vp8common.NewMV && (refSlot > 1 || bestSSE <= hdNewMVSkipSSE) {
 				continue
 			}
-			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
+			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE<<1 {
 				continue
 			}
 			if refSlot == 0 && (mbMode != vp8common.DCPred || bestSSE <= hdNewMVSkipSSE<<1) {

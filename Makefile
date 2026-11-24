@@ -229,7 +229,9 @@ pgo-refresh:
 	./.pgo/govpx-bench-pgo -auto-libvpx=false -width=1920 -height=1080 -frames=180 -fps=30 -bitrate=4000 -mode=realtime -cpu-used=8 -encode-only -cpuprofile=.pgo/vp8-encode.pgo >/dev/null
 	./.pgo/govpx-bench-pgo -auto-libvpx=false -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -cpuprofile=.pgo/vp8-quality.pgo >/dev/null
 	./.pgo/govpx-bench-pgo -auto-libvpx=false -codec=vp9 -width=1280 -height=720 -frames=120 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8 -threads=1 -encode-only -cpuprofile=.pgo/vp9-realtime.pgo >/dev/null
-	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO_CMD) tool pprof -proto .pgo/vp8-encode.pgo .pgo/vp8-quality.pgo .pgo/vp9-realtime.pgo > "$(PGO_PROFILE).tmp"
+	./.pgo/govpx-bench-pgo -auto-libvpx=false -codec=vp9 -mode=good -width=1280 -height=720 -frames=30 -fps=30 -bitrate=2500 -cpu-used=4 -threads=1 -encode-only -cpuprofile=.pgo/vp9-good.pgo >/dev/null
+	./.pgo/govpx-bench-pgo -auto-libvpx=false -decode -codec=vp9 -width=1280 -height=720 -frames=240 -fps=30 -bitrate=2500 -threads=1 -cpuprofile=.pgo/vp9-decode.pgo >/dev/null
+	GOTOOLCHAIN="$(GOTOOLCHAIN)" $(GO_CMD) tool pprof -proto .pgo/vp8-encode.pgo .pgo/vp8-quality.pgo .pgo/vp9-realtime.pgo .pgo/vp9-good.pgo .pgo/vp9-decode.pgo > "$(PGO_PROFILE).tmp"
 	mv "$(PGO_PROFILE).tmp" "$(PGO_PROFILE)"
 	rm -rf .pgo
 	$(MAKE) pgo-update-fingerprint
