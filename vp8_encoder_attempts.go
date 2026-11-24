@@ -944,6 +944,14 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if e.interCoefTokenRecordsValid {
 		packet.PrebuiltCoefTokens = &e.interCoefTokenRecords
 	}
+	lfWaited := false
+	if e.rowWorkers != nil && e.opts.TokenPartitions > 0 && e.interCoefTokenRecordsValid {
+		if lfErr := lfApply.wait(); lfErr != nil {
+			return interFrameEncodeAttempt{}, lfErr
+		}
+		lfWaited = true
+		packet.PartitionPacker = e.rowWorkers
+	}
 	if vp8PhaseStatsEnabled {
 		phase = e.phaseStart()
 	}
@@ -951,8 +959,10 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if vp8PhaseStatsEnabled {
 		e.phaseEnd(encoderPhasePacketWrite, phase)
 	}
-	if lfErr := lfApply.wait(); lfErr != nil {
-		return interFrameEncodeAttempt{}, lfErr
+	if !lfWaited {
+		if lfErr := lfApply.wait(); lfErr != nil {
+			return interFrameEncodeAttempt{}, lfErr
+		}
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)

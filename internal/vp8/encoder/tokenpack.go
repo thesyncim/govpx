@@ -183,6 +183,29 @@ func (records *InterCoefficientTokenRecords) validPreparedRows(rows int) bool {
 	return true
 }
 
+// FlatCoefficientProbs is the pre-flattened 11-bit-indexed probability table
+// shared across all token partitions of a frame.
+type FlatCoefficientProbs [2048 + tables.EntropyNodes]uint8
+
+// PartitionPacker optionally dispatches independent VP8 token partitions across
+// caller-owned worker goroutines with zero heap allocation.
+type PartitionPacker interface {
+	PackTokenPartitions(writers *[8]BoolWriter, partitions int, rows int, records *InterCoefficientTokenRecords, flatProbs *FlatCoefficientProbs) error
+}
+
+// WritePreparedInterCoefficientTokenPartition packs all MB rows assigned to
+// partition `part` (row % partitions == part) into `w`.
+func WritePreparedInterCoefficientTokenPartition(w *BoolWriter, part int, partitions int, rows int, records *InterCoefficientTokenRecords, flatProbs *FlatCoefficientProbs) error {
+	rowStarts := records.rowStarts()
+	for row := part; row < rows; row += partitions {
+		start, end := int(rowStarts[row]), int(rowStarts[row+1])
+		if err := writePreparedCoefficientTokenRecordsFlat(w, (*[2048 + tables.EntropyNodes]uint8)(flatProbs), records.Records[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func buildFlatCoefficientProbs(probs *tables.CoefficientProbs, flatProbs *[2048 + tables.EntropyNodes]uint8) {
 	flatIdx := 0
 	for t := range tables.BlockTypes {
@@ -216,20 +239,29 @@ func writePreparedInterCoefficientTokenGrid(w *BoolWriter, rows int, records *In
 	return nil
 }
 
-func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, records *InterCoefficientTokenRecords, probs *tables.CoefficientProbs) error {
+func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int, rows int, records *InterCoefficientTokenRecords, probs *tables.CoefficientProbs, packer PartitionPacker, scratch *PartitionScratch) error {
 	if writers == nil || probs == nil || partitions != 2 && partitions != 4 && partitions != 8 {
 		return ErrModeBufferTooSmall
 	}
 	if !records.validPreparedRows(rows) {
 		return ErrModeBufferTooSmall
 	}
-	var flatProbs [2048 + tables.EntropyNodes]uint8
-	buildFlatCoefficientProbs(probs, &flatProbs)
+	var flatProbs *FlatCoefficientProbs
+	if scratch != nil {
+		flatProbs = &scratch.flatProbs
+	} else {
+		var local FlatCoefficientProbs
+		flatProbs = &local
+	}
+	buildFlatCoefficientProbs(probs, (*[2048 + tables.EntropyNodes]uint8)(flatProbs))
+	if packer != nil {
+		return packer.PackTokenPartitions(writers, partitions, rows, records, flatProbs)
+	}
 	rowStarts := records.rowStarts()
 	for row := range rows {
 		w := &writers[row&(partitions-1)]
 		start, end := int(rowStarts[row]), int(rowStarts[row+1])
-		if err := writePreparedCoefficientTokenRecordsFlat(w, &flatProbs, records.Records[start:end]); err != nil {
+		if err := writePreparedCoefficientTokenRecordsFlat(w, (*[2048 + tables.EntropyNodes]uint8)(flatProbs), records.Records[start:end]); err != nil {
 			return err
 		}
 	}

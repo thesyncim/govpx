@@ -267,8 +267,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
 				search:      search,
 				start:       start,
-				mvProbs:     &e.modeProbs.MV,
-				mvCosts:     mvCosts,
+				mvProbs:                 &e.modeProbs.MV,
+				mvCosts:                 mvCosts,
+				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),
 			}
 			var result interFrameMotionVectorSearchResult
 			if stats != nil {
@@ -536,8 +537,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
 				search:      search,
 				start:       start,
-				mvProbs:     &e.modeProbs.MV,
-				mvCosts:     mvCosts,
+				mvProbs:                 &e.modeProbs.MV,
+				mvCosts:                 mvCosts,
+				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),
 			}
 			var result interFrameMotionVectorSearchResult
 			if stats != nil {
@@ -845,8 +847,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
 				search:      search,
 				start:       start,
-				mvProbs:     &e.modeProbs.MV,
-				mvCosts:     mvCosts,
+				mvProbs:                 &e.modeProbs.MV,
+				mvCosts:                 mvCosts,
+				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),
 			}
 			var result interFrameMotionVectorSearchResult
 			if stats != nil {

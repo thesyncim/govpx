@@ -96,9 +96,10 @@ type interFrameMotionVectorSearch struct {
 	// TuneSSIM is active; otherwise zero (default keeps the libvpx
 	// qIndex-only baseline that drives the PSNR-tuned path).
 	errorPerBit int
-	start       interFrameSearchStart
-	bestRefMV   vp8enc.MotionVector
-	search      interAnalysisSearchConfig
+	start                   interFrameSearchStart
+	bestRefMV               vp8enc.MotionVector
+	search                  interAnalysisSearchConfig
+	skipQuarterIfHalfStatic bool
 }
 
 type interFrameMotionVectorSearchResult struct {
@@ -174,8 +175,9 @@ func (s interFrameMotionVectorSearch) subpixel(best vp8enc.MotionVector) interFr
 		qIndex:      s.qIndex,
 		errorPerBit: s.errorPerBit,
 		search:      s.search,
-		mvProbs:     s.mvProbs,
-		mvCosts:     s.mvCosts,
+		mvProbs:                 s.mvProbs,
+		mvCosts:                 s.mvCosts,
+		skipQuarterIfHalfStatic: s.skipQuarterIfHalfStatic,
 	}
 }
 

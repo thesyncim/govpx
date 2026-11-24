@@ -19,6 +19,10 @@ func vp8BatchUnzip(a, b archsimd.Int16x8, index *[16]int8) archsimd.Int16x8 {
 	return x.InterleaveLo(y).ReshapeToUint16s().BitsToInt16()
 }
 
+func forwardDCT4BatchResidualsGo(input, output []int16, count int) int {
+	return forwardDCT4BatchGo(input, output, count)
+}
+
 func forwardDCT4BatchGo(input, output []int16, count int) int {
 	if count < 2 || !pixel.Enabled {
 		return 0

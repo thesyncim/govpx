@@ -40,6 +40,73 @@ func subpelStats16(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16
 		return int(sum32(sum)), uint32(sum32(sse0.Add(sse1)))
 	}
 
+	// Fast path: 1-axis half-pel (horizontal [64,64], vertical quarter-pel).
+	if fx[0] == 64 && fx[1] == 64 && fy[0] >= 0 && fy[1] >= 0 && int(fy[0])+int(fy[1]) <= 128 && h <= 64 {
+		uy0, uy1 := archsimd.BroadcastUint8x16(uint8(fy[0])), archsimd.BroadcastUint8x16(uint8(fy[1]))
+		uround := archsimd.BroadcastUint16x8(64)
+		var sum, sse0, sse1 archsimd.Int32x4
+		for x := 0; x < w; x += 16 {
+			var sum0, sum1 archsimd.Int16x8
+			row0 := src[x : x+17]
+			prev := archsimd.LoadUint8x16Array((*[16]byte)(row0[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row0[1:17])))
+			so, ro := ss+x, x
+			for range h {
+				row := src[so : so+17]
+				cur := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row[1:17])))
+				v0 := prev.MulWidenLo(uy0).Add(cur.MulWidenLo(uy1)).Add(uround).ShiftAllRight(7)
+				v1 := prev.HiToLo().MulWidenLo(uy0).Add(cur.HiToLo().MulWidenLo(uy1)).Add(uround).ShiftAllRight(7)
+				prev = cur
+				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
+				d0 := v0.BitsToInt16().Sub(r.ExtendLo8ToUint16().BitsToInt16())
+				d1 := v1.BitsToInt16().Sub(r.HiToLo().ExtendLo8ToUint16().BitsToInt16())
+				sum0 = sum0.Add(d0)
+				sum1 = sum1.Add(d1)
+				sse0 = sse0.Add(square8(d0))
+				sse1 = sse1.Add(square8(d1))
+				so += ss
+				ro += rs
+			}
+			sum = sum.Add(sumDiff16(sum0)).Add(sumDiff16(sum1))
+		}
+		return int(sum32(sum)), uint32(sum32(sse0.Add(sse1)))
+	}
+
+	// Fast path: 1-axis half-pel (vertical [64,64], horizontal quarter-pel).
+	if fy[0] == 64 && fy[1] == 64 && fx[0] >= 0 && fx[1] >= 0 && int(fx[0])+int(fx[1]) <= 128 && h <= 64 {
+		ux0, ux1 := archsimd.BroadcastUint8x16(uint8(fx[0])), archsimd.BroadcastUint8x16(uint8(fx[1]))
+		uround := archsimd.BroadcastUint16x8(64)
+		var sum, sse0, sse1 archsimd.Int32x4
+		for x := 0; x < w; x += 16 {
+			var sum0, sum1 archsimd.Int16x8
+			row0 := src[x : x+17]
+			r0, r1 := archsimd.LoadUint8x16Array((*[16]byte)(row0[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row0[1:17]))
+			h0 := r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
+			h1 := r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
+			prev := h0.ReshapeToUint8s().ConcatEven(h1.ReshapeToUint8s())
+			so, ro := ss+x, x
+			for range h {
+				row := src[so : so+17]
+				r0, r1 := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
+				h0 := r0.MulWidenLo(ux0).Add(r1.MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
+				h1 := r0.HiToLo().MulWidenLo(ux0).Add(r1.HiToLo().MulWidenLo(ux1)).Add(uround).ShiftAllRight(7)
+				cur := h0.ReshapeToUint8s().ConcatEven(h1.ReshapeToUint8s())
+				pred := prev.Average(cur)
+				prev = cur
+				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
+				d0 := pred.ExtendLo8ToUint16().BitsToInt16().Sub(r.ExtendLo8ToUint16().BitsToInt16())
+				d1 := pred.HiToLo().ExtendLo8ToUint16().BitsToInt16().Sub(r.HiToLo().ExtendLo8ToUint16().BitsToInt16())
+				sum0 = sum0.Add(d0)
+				sum1 = sum1.Add(d1)
+				sse0 = sse0.Add(square8(d0))
+				sse1 = sse1.Add(square8(d1))
+				so += ss
+				ro += rs
+			}
+			sum = sum.Add(sumDiff16(sum0)).Add(sumDiff16(sum1))
+		}
+		return int(sum32(sum)), uint32(sum32(sse0.Add(sse1)))
+	}
+
 	// Non-negative standard bilinear weights (0..128) use uint8 MulWidenLo (UMULL)
 	// directly without separate uint8->int16 widening.
 	if fx[0] >= 0 && fx[1] >= 0 && fy[0] >= 0 && fy[1] >= 0 &&

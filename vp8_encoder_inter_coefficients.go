@@ -460,7 +460,7 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 	qBuf := scratch.qBuf[:]
 
 	vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals)
-	vp8enc.ForwardDCT4x4Batch(residuals, dcts, 16)
+	vp8enc.ForwardDCT4x4BatchResiduals(residuals, dcts, 16)
 
 	var y2Input [16]int16
 	yQuant := &quant.Y1DC
@@ -489,7 +489,7 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
 	vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
 	vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
-	vp8enc.ForwardDCT4x4Batch(residuals[:128], dcts[:128], 8)
+	vp8enc.ForwardDCT4x4BatchResiduals(residuals[:128], dcts[:128], 8)
 	vp8enc.FastQuantizeBlockBatchOnly(dcts[:128], &quant.UV, qBuf[:128], coeffs.EOB[16:24], 8)
 	for block := range 8 {
 		copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])

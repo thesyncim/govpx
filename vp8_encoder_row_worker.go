@@ -216,6 +216,7 @@ type rowWorkerPool struct {
 	args         threadedInterRowsArgs
 	lfTrial      lfTrialArgs
 	lfApply      lfApplyArgs
+	tokenPack    tokenPackArgs
 	workerCount  int
 	required     int
 	abort        atomic.Int32
@@ -275,6 +276,8 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 			p.runLFTrialWorker(workerIndex)
 		case rowWorkerJobLFApply:
 			p.runLFApplyWorker(workerIndex)
+		case rowWorkerJobTokenPack:
+			p.runTokenPackWorker(workerIndex)
 		default:
 			p.runThreadedInterFrameWorker(workerIndex)
 		}
@@ -328,7 +331,59 @@ const (
 	rowWorkerJobKeyFrame
 	rowWorkerJobLFTrial
 	rowWorkerJobLFApply
+	rowWorkerJobTokenPack
 )
+
+type tokenPackArgs struct {
+	writers    *[8]vp8enc.BoolWriter
+	partitions int
+	rows       int
+	records    *vp8enc.InterCoefficientTokenRecords
+	flatProbs  *vp8enc.FlatCoefficientProbs
+}
+
+func (p *rowWorkerPool) runTokenPackWorker(workerIndex int) {
+	a := &p.tokenPack
+	for part := workerIndex; part < a.partitions; part += p.workerCount {
+		if err := vp8enc.WritePreparedInterCoefficientTokenPartition(&a.writers[part], part, a.partitions, a.rows, a.records, a.flatProbs); err != nil {
+			p.workerErrors[workerIndex] = err
+			return
+		}
+	}
+}
+
+func (p *rowWorkerPool) PackTokenPartitions(writers *[8]vp8enc.BoolWriter, partitions int, rows int, records *vp8enc.InterCoefficientTokenRecords, flatProbs *vp8enc.FlatCoefficientProbs) error {
+	workers := min(len(p.workers), partitions)
+	if workers <= 1 {
+		for part := range partitions {
+			if err := vp8enc.WritePreparedInterCoefficientTokenPartition(&writers[part], part, partitions, rows, records, flatProbs); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	p.job = rowWorkerJobTokenPack
+	p.workerCount = workers
+	p.tokenPack = tokenPackArgs{
+		writers:    writers,
+		partitions: partitions,
+		rows:       rows,
+		records:    records,
+		flatProbs:  flatProbs,
+	}
+	for i := range workers {
+		p.workerErrors[i] = nil
+	}
+	p.startHelperWorkers()
+	p.runTokenPackWorker(0)
+	p.waitHelperWorkers()
+	for i := range workers {
+		if p.workerErrors[i] != nil {
+			return p.workerErrors[i]
+		}
+	}
+	return nil
+}
 
 func (p *rowWorkerPool) runThreadedInterFrameWorker(workerIndex int) {
 	workerCount := p.workerCount

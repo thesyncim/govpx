@@ -25,7 +25,9 @@ func tokenPartitionCount(tokenPartition common.TokenPartition) (int, bool) {
 // the BoolWriters initialised against them do not race or stomp each other
 // when the row scheduler eventually drives them in parallel.
 type PartitionScratch struct {
-	buffers [8][]byte
+	buffers   [8][]byte
+	writers   [8]BoolWriter
+	flatProbs FlatCoefficientProbs
 }
 
 func (s *PartitionScratch) Reset() {

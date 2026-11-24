@@ -88,6 +88,9 @@ type InterFramePacket struct {
 	// libvpx's MT-biased probability-update decision.
 	YModeCountBias  *[tables.YModeProbCount][2]int
 	UVModeCountBias *[tables.UVModeProbCount][2]int
+
+	// PartitionPacker optionally packs independent token partitions in parallel.
+	PartitionPacker PartitionPacker
 }
 
 type InterFramePacketResult struct {
@@ -202,24 +205,29 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 		n = tokenStart + tokens.BytesWritten()
 	} else {
 		var (
-			writers    [8]BoolWriter
+			writers    *[8]BoolWriter
 			partitions int
 			resolved   *PartitionScratch
 		)
-		resolved, partitions, err = preparePartitionWriters(p.Scratch, &writers, p.Dst, tokenStart, cfg.TokenPartition)
+		if p.Scratch != nil {
+			writers = &p.Scratch.writers
+		} else {
+			writers = new([8]BoolWriter)
+		}
+		resolved, partitions, err = preparePartitionWriters(p.Scratch, writers, p.Dst, tokenStart, cfg.TokenPartition)
 		if err != nil {
 			return result, err
 		}
 		if p.PrebuiltCoefTokens != nil {
-			if err := writePreparedInterCoefficientTokenGridPartitioned(&writers, partitions, rows, p.PrebuiltCoefTokens, &frameCoefProbs); err != nil {
+			if err := writePreparedInterCoefficientTokenGridPartitioned(writers, partitions, rows, p.PrebuiltCoefTokens, &frameCoefProbs, p.PartitionPacker, resolved); err != nil {
 				return result, err
 			}
 		} else {
-			if err := WriteInterCoefficientTokenGridPartitioned(&writers, partitions, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
+			if err := WriteInterCoefficientTokenGridPartitioned(writers, partitions, rows, cols, p.Modes, p.Coeffs, p.Above, &frameCoefProbs); err != nil {
 				return result, err
 			}
 		}
-		n, err = finalizePartitionedTokenPayload(resolved, &writers, p.Dst, tokenStart, partitions)
+		n, err = finalizePartitionedTokenPayload(resolved, writers, p.Dst, tokenStart, partitions)
 		if err != nil {
 			return result, err
 		}
