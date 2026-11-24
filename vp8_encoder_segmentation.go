@@ -329,7 +329,7 @@ func (e *VP8Encoder) prepareInterFrameSkinMap(src vp8enc.SourceImage, rows int, 
 	if count <= 0 || len(e.skinMap) < count {
 		return
 	}
-	if e.opts.ScreenContentMode != 0 {
+	if e.opts.ScreenContentMode != 0 || e.opts.Deadline == DeadlineGoodQuality {
 		clearUint8Map(e.skinMap[:count])
 		return
 	}

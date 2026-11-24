@@ -323,7 +323,10 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	dqcoeffLen := numSBs << vp9DecoderRowMTDQCoeffsPerSBLog2
 	for plane := range vp9dec.MaxMbPlane {
 		s.eob[plane] = buffers.EnsureLenZeroed(s.eob[plane], eobLen)
-		s.dqcoeff[plane] = buffers.EnsureLenZeroed(s.dqcoeff[plane], dqcoeffLen+1024)
+		// Keep 1024 int16s of trailing capacity so vp9DecoderRowMTDQCoeffScratch
+		// can safely form a *[1024]int16 view at the final SB offset while
+		// preserving the exact len == dqcoeffLen expected by layout checks.
+		s.dqcoeff[plane] = buffers.EnsureLenZeroed(s.dqcoeff[plane], dqcoeffLen+1024)[:dqcoeffLen]
 	}
 	s.partition = buffers.EnsureLenZeroed(s.partition,
 		numSBs*vp9DecoderRowMTPartitionsPerSB)

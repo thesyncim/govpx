@@ -604,14 +604,14 @@ func TestVP9EncoderZeroAllocFromFrameZero(t *testing.T) {
 		height = 720
 	)
 	e, err := NewVP9Encoder(VP9EncoderOptions{
-		Width:            width,
-		Height:           height,
+		Width:             width,
+		Height:            height,
 		Deadline:          DeadlineRealtime,
 		CpuUsed:           8,
 		RateControlMode:   RateControlCBR,
 		TargetBitrateKbps: 2500,
 		NoiseSensitivity:  4,
-		Threads:          1,
+		Threads:           1,
 	})
 	if err != nil {
 		t.Fatalf("NewVP9Encoder: %v", err)

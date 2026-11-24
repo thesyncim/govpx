@@ -65,7 +65,7 @@ func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFra
 	// Fast path (98% of realtime interframes): only LAST is refreshed and
 	// e.analysis already has extended borders from applyReconstructionLoopFilter.
 	// Swap e.analysis <-> e.lastRef directly for zero CopyImage & zero ExtendBorders.
-	if cfg.RefreshLast && !cfg.RefreshGolden && !cfg.RefreshAltRef &&
+	if e.vp8HDRealtimeFastPath() && cfg.RefreshLast && !cfg.RefreshGolden && !cfg.RefreshAltRef &&
 		cfg.CopyBufferToGolden == 0 && cfg.CopyBufferToAltRef == 0 {
 		e.analysis, e.lastRef = e.lastRef, e.analysis
 		e.currentIsLastRef = true

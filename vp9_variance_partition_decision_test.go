@@ -451,16 +451,14 @@ func TestVP9EnsureSBPartitionChosenLowResEdgeUsesSubBsize(t *testing.T) {
 
 	x0 := sbMiCol * common.MiSize
 	y0 := sbMiRow * common.MiSize
-	srcOriginX := e.intProSrcBordered.OriginX()
-	srcOriginY := e.intProSrcBordered.OriginY()
+	srcBuf, srcOff, srcStrideB := vp9IntProSrcWindow(src.Y, src.YStride, width, height, x0, y0, 64, 64, &e.intProSrcScratch)
 	refOriginX := e.lastBordered.OriginX()
 	refOriginY := e.lastBordered.OriginY()
-	srcStrideB := e.intProSrcBordered.Stride
 	refStrideB := e.lastBordered.Stride
 	estIn := &encoder.GetEstimatedPredInterInput{
 		Bsize:         subBsize,
-		Src:           e.intProSrcBordered.Pixels,
-		SrcOff:        (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
+		Src:           srcBuf,
+		SrcOff:        srcOff,
 		SrcStride:     srcStrideB,
 		LastRef:       e.lastBordered.Pixels,
 		LastRefOff:    (refOriginY+y0)*refStrideB + (refOriginX + x0),

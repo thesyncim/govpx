@@ -103,7 +103,8 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	// NSTEP full_pixel_diamond runs exactly as before.
 	stepParam := 0
 	searchMethod := e.sf.Mv.SearchMethod
-	if vp9InterUseDeepRDUsePartition || searchMethod != SearchMethodNStep {
+	goodFastRD := e.vp9GoodHDFastPath()
+	if vp9InterUseDeepRDUsePartition || (goodFastRD && searchMethod != SearchMethodNStep) {
 		const mvStepParam = 0 // no-recode RT runtime cpi->mv_step_param
 		stepParam = encoder.FullRdSingleMotionStepParam(mvStepParam,
 			opts.maxMvContext, e.sf.Mv.AutoMvStepSize != 0,
@@ -117,6 +118,9 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			e.sf.AdaptiveMotionSearch != 0, bsize == common.Block64x64,
 			int(common.BWidthLog2Lookup[common.Block64x64]), bwl, bhl,
 			int(opts.predSad))
+	} else {
+		// Preserve exact NSTEP diamond on cpu-0 / full-RD parity paths.
+		searchMethod = SearchMethodNStep
 	}
 
 	switch searchMethod {
@@ -134,28 +138,40 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
 				refRow>>3, refCol>>3, sadPerBit))
 		}
+		patternSadAt := sadAt
 		patternSadAt4 := sadAt4
+		patternStartSad := startSad
 		if int(common.Num4x4BlocksWideLookup[bsize])*4 < 16 {
 			patternSadAt4 = nil
+		} else if searchMethod == SearchMethodBigDia &&
+			e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4 &&
+			bsize >= common.Block16x16 && sadSkipAt != nil && sadSkipAt4 != nil {
+			if skipStart, ok := sadSkipAt(mvpCol, mvpRow); ok {
+				patternSadAt = sadSkipAt
+				patternSadAt4 = sadSkipAt4
+				patternStartSad = skipStart
+				startScore = skipStart + uint64(encoder.FullPelMVSADCost(mvpRow, mvpCol,
+					refRow>>3, refCol>>3, sadPerBit))
+			}
 		}
 		switch searchMethod {
 		case SearchMethodFastHex:
 			bestDx, bestDy, _, _ = encoder.FastHexPatternSearchSADWithBatch(mvpCol, mvpRow,
-				startSad, startScore, stepParam, mvLimits, sadAt, patternSadAt4, scoreMv)
+				patternStartSad, startScore, stepParam, mvLimits, patternSadAt, patternSadAt4, scoreMv)
 		case SearchMethodFastDiamond:
 			bestDx, bestDy, _, _ = encoder.FastDiamondPatternSearchSADWithBatch(mvpCol,
-				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt, patternSadAt4, scoreMv)
+				mvpRow, patternStartSad, startScore, stepParam, mvLimits, patternSadAt, patternSadAt4, scoreMv)
 		case SearchMethodHex:
 			bestDx, bestDy, _, _ = encoder.HexPatternSearchSADWithBatch(mvpCol,
-				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				mvpRow, patternStartSad, startScore, stepParam, mvLimits, patternSadAt,
 				patternSadAt4, scoreMv)
 		case SearchMethodBigDia:
 			bestDx, bestDy, _, _ = encoder.BigDiamondPatternSearchSADWithBatch(
-				mvpCol, mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				mvpCol, mvpRow, patternStartSad, startScore, stepParam, mvLimits, patternSadAt,
 				patternSadAt4, scoreMv)
 		case SearchMethodSquare:
 			bestDx, bestDy, _, _ = encoder.SquarePatternSearchSADWithBatch(mvpCol,
-				mvpRow, startSad, startScore, stepParam, mvLimits, sadAt,
+				mvpRow, patternStartSad, startScore, stepParam, mvLimits, patternSadAt,
 				patternSadAt4, scoreMv)
 		}
 	default:

@@ -523,17 +523,18 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 		if ctx.width*ctx.height > 352*288 {
 			sf.CbPredFilterSearch = 2
 		}
-		// Pure-Go SIMD realtime fast-path at speed >= 8: prefer 2-tap
-		// bilinear interpolation (single NEON URHADD instruction per 16
+		// Pure-Go SIMD HD realtime fast-path at speed >= 8 (720p+): prefer
+		// 2-tap bilinear interpolation (single NEON URHADD instruction per 16
 		// pixels vs 8-tap multiply-accumulate), DC-only inter-frame intra
-		// fallback, half-pel subpel force-stop, single-ref LAST on CBR,
-		// and coarser HD variance partitioning. Keeps PSNR/SSIM well
-		// within the quality gate while cutting inter-search work by >2x.
-		if !isKeyframe {
-			for i := range common.BlockSizes {
-				sf.IntraYModeBsizeMask[i] = sfIntraDC
-			}
-			if ctx.width >= 640 && ctx.height >= 360 {
+		// fallback, full-pel subpel force-stop, single-ref LAST on CBR, and
+		// coarser 32x32 partitioning. Keeps PSNR/SSIM well within the quality
+		// gate while cutting HD inter-search work by >2x and preserving exact
+		// libvpx parity on smaller frames.
+		if ctx.width*ctx.height >= 1280*720 {
+			if !isKeyframe {
+				for i := range common.BlockSizes {
+					sf.IntraYModeBsizeMask[i] = sfIntraDC
+				}
 				sf.Disable16x16PartNonKey = 1
 				sf.VariancePartThreshMult = 2
 				if !ctx.svc.UseSvc {
@@ -541,11 +542,11 @@ func vp9SetRtSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures, 
 					sf.AlwaysThisBlockSize = common.Block32x32
 				}
 			}
-		}
-		sf.DefaultInterpFilter = vp9dec.InterpBilinear
-		sf.Mv.SubpelForceStop = FullPel
-		if e.opts.RateControlMode == RateControlCBR {
-			sf.DisableGoldenRef = 1
+			sf.DefaultInterpFilter = vp9dec.InterpBilinear
+			sf.Mv.SubpelForceStop = FullPel
+			if e.opts.RateControlMode == RateControlCBR {
+				sf.DisableGoldenRef = 1
+			}
 		}
 	}
 

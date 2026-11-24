@@ -11,14 +11,19 @@ var vp8StaticModeCosts = func() (out struct {
 	b  [10][10][10]int
 	y  [5]int
 	uv [4]int
-}) { for a := range 10 {
-	for l := range 10 {
-		for m := range 10 {
-			out.b[a][l][m] = vp8enc.TreeTokenCost(vp8tables.BModeTree[:], vp8tables.KeyFrameBModeProbs[a][l][:], m)
+}) {
+	for a := range 10 {
+		for l := range 10 {
+			for m := range 10 {
+				out.b[a][l][m] = vp8enc.TreeTokenCost(vp8tables.BModeTree[:], vp8tables.KeyFrameBModeProbs[a][l][:], m)
+			}
 		}
 	}
-}; for m := range out.y {
-	out.y[m] = vp8enc.TreeTokenCost(vp8tables.KeyFrameYModeTree[:], vp8tables.KeyFrameYModeProbs[:], m)
-}; for m := range out.uv {
-	out.uv[m] = vp8enc.TreeTokenCost(vp8tables.UVModeTree[:], vp8tables.KeyFrameUVModeProbs[:], m)
-}; return }()
+	for m := range out.y {
+		out.y[m] = vp8enc.TreeTokenCost(vp8tables.KeyFrameYModeTree[:], vp8tables.KeyFrameYModeProbs[:], m)
+	}
+	for m := range out.uv {
+		out.uv[m] = vp8enc.TreeTokenCost(vp8tables.UVModeTree[:], vp8tables.KeyFrameUVModeProbs[:], m)
+	}
+	return
+}()

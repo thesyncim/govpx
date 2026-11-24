@@ -129,10 +129,85 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 	origMode := mi.Mode
 	origTx := mi.TxSize
 	modeMask := 0
-	if mi.TxSize < common.TxSizes {
+	if e.vp9GoodHDFastPath() && mi.TxSize < common.TxSizes {
 		modeMask = e.sf.IntraYModeMask[mi.TxSize]
 	}
-	goodFastIntra := e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4
+	goodFastIntra := e.vp9GoodHDFastPath()
+	if goodFastIntra {
+		const goodFastMask = sfIntraDCHV | (1 << uint(common.TmPred))
+		if modeMask == 0 {
+			modeMask = goodFastMask
+		} else {
+			modeMask &= goodFastMask
+		}
+		// At good speed >= 4 with UseLargestAll (non-FullRD tx), pre-select the
+		// winning Y mode among {DC, V, H, TM} using pixel-domain prediction SSE
+		// + mode bit cost, then evaluate exact transform-domain RD ONCE on the
+		// winner. This cuts keyframe forward-transform/quantize calls by ~4x
+		// while preserving exact partition RD scoring.
+		if !(e.sf.TxSizeSearchMethod == UseFullRD && e.vp9KeyframeRDRefinementEnabled()) {
+			pd := &e.planes[0]
+			txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
+			bestPxMode := common.DcPred
+			bestPxScore := uint64(^uint64(0))
+			bestPxValid := false
+			for mode := common.DcPred; mode <= common.TmPred; mode++ {
+				if modeMask&(1<<uint(mode)) == 0 {
+					continue
+				}
+				sse, ok := e.scoreVP9KeyframePlanePrediction(key, pd, mode, 0,
+					txSize, tile, miRows, miCols, miRow, miCol, bsize)
+				if !ok {
+					continue
+				}
+				pxScore := encoder.RDCost(rdmult, encoder.RDDivBits, yModeCosts[mode], sse*16)
+				if !bestPxValid || pxScore < bestPxScore {
+					bestPxScore = pxScore
+					bestPxMode = mode
+					bestPxValid = true
+				}
+			}
+			if !bestPxValid {
+				mi.Mode = origMode
+				mi.TxSize = origTx
+				return vp9KeyframeIntraRD{}, false
+			}
+			mi.Mode = bestPxMode
+			modeBestRD := bestScore
+			if modeBestRD != ^uint64(0) {
+				modeCostRD := encoder.RDCost(rdmult, encoder.RDDivBits, yModeCosts[bestPxMode], 0)
+				if modeCostRD >= modeBestRD {
+					mi.Mode = origMode
+					mi.TxSize = origTx
+					return vp9KeyframeIntraRD{}, false
+				}
+				modeBestRD -= modeCostRD
+			}
+			distortion, coeffRate, skippable, ok := e.scoreVP9KeyframeModeTransformRDWithBest(
+				key, bestPxMode, tile, miRows, miCols, miRow, miCol, bsize, mi, modeBestRD)
+			if !ok {
+				mi.Mode = origMode
+				mi.TxSize = origTx
+				return vp9KeyframeIntraRD{}, false
+			}
+			cand := vp9KeyframeIntraRD{
+				mode:          bestPxMode,
+				rate:          yModeCosts[bestPxMode] + coeffRate,
+				rateTokenOnly: coeffRate,
+				distortion:    distortion,
+				skippable:     skippable,
+			}
+			if bestScore != ^uint64(0) &&
+				encoder.RDCost(rdmult, encoder.RDDivBits, cand.rate, cand.distortion) >= bestScore {
+				mi.Mode = origMode
+				mi.TxSize = origTx
+				return vp9KeyframeIntraRD{}, false
+			}
+			mi.Mode = bestPxMode
+			mi.TxSize = origTx
+			return cand, true
+		}
+	}
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if modeMask != 0 && modeMask&(1<<uint(mode)) == 0 {
 			continue
@@ -407,12 +482,87 @@ func (e *VP9Encoder) pickVP9Sub4x4IntraBlockMode(key *vp9KeyframeEncodeState,
 	}
 	// When the sub-block is a single 4x4 cell, intra prediction only reads
 	// above/left neighbors outside [baseY:baseY+4, baseX:baseX+4] and scoring
-	// uses transform-domain distortion exclusively. Skip the inverse transform
-	// and recon save/restore during the 10-mode loop, then reconstruct only the
-	// winning mode once at the end.
+	// uses transform-domain distortion exclusively.
+	// At good speed >= 4, pick the winning 4x4 mode among {DC, V, H, TM} in the
+	// pixel domain (4x4 SSE + mode bit cost), then run transform/quantize/RD
+	// cost ONCE on the winner. This avoids 4x scalar ForwardHT4x4+Quantize per
+	// 4x4 cell while keeping the returned partition RD cost exact.
 	single4x4 := num4x4W == 1 && num4x4H == 1
+	if single4x4 && e.vp9GoodHDFastPath() {
+		bestPxMode := common.DcPred
+		bestPxScore := uint64(^uint64(0))
+		bestPxValid := false
+		fastMask := mask & (sfIntraDCHV | (1 << uint(common.TmPred)))
+		for mode := common.DcPred; mode <= common.TmPred; mode++ {
+			if fastMask&(1<<mode) == 0 {
+				continue
+			}
+			dst, dstStride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, 0, mode,
+				common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize, idy, idx)
+			if !ok {
+				continue
+			}
+			// 4x4 pixel SSE (scaled by 16 to match VP9 transform-domain distortion units).
+			var sse uint64
+			for r := range 4 {
+				sRow := src[(y0+r)*srcStride+x0:]
+				pRow := dst[r*dstStride:]
+				d0 := int(sRow[0]) - int(pRow[0])
+				d1 := int(sRow[1]) - int(pRow[1])
+				d2 := int(sRow[2]) - int(pRow[2])
+				d3 := int(sRow[3]) - int(pRow[3])
+				sse += uint64(d0*d0 + d1*d1 + d2*d2 + d3*d3)
+			}
+			pxScore := encoder.RDCost(rdmult, encoder.RDDivBits, bmodeCosts[mode], sse*16)
+			if !bestPxValid || pxScore < bestPxScore {
+				bestPxScore = pxScore
+				bestPxMode = mode
+				bestPxValid = true
+			}
+		}
+		if !bestPxValid {
+			encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+			return common.DcPred, vp9KeyframeIntraRD{}, false
+		}
+		coeffs := e.coefScratch[:maxEob]
+		qcoeffs := e.qCoefScratch[:maxEob]
+		hasResidue, eob := e.prepareVP9KeyframeTxResidueWithQEOB(key, pd, 0, bestPxMode,
+			common.Tx4x4, tile, miRows, miCols, miRow, miCol, bsize,
+			idy, idx, dequant, qindex, coeffs, qcoeffs)
+		totalDistortion := encoder.TransformBlockErrorShifted(
+			e.txCoeffScratch[:maxEob], e.dqCoeffScratch[:maxEob])
+		initCtx := vp9dec.GetEntropyContextFull(common.Tx4x4, ta[:1], tl[:1])
+		totalCoeffRate := e.vp9KeyframeCoeffBlockRateCostQEOB(
+			common.Tx4x4, bestPxMode, key.lossless, dequant, coeffs, qcoeffs, initCtx,
+			eob, true)
+		rate := bmodeCosts[bestPxMode] + totalCoeffRate
+		thisRD := encoder.RDCost(rdmult, encoder.RDDivBits, rate, totalDistortion)
+		if thisRD >= bestRD {
+			encoder.RestorePlaneRect(planeData, stride, baseX, baseY, rectW, rectH, saved)
+			return common.DcPred, vp9KeyframeIntraRD{}, false
+		}
+		eobFlag := uint8(0)
+		if hasResidue {
+			eobFlag = 1
+		}
+		if len(aboveCtx) > 0 {
+			aboveCtx[0] = eobFlag
+		}
+		if len(leftCtx) > 0 {
+			leftCtx[0] = eobFlag
+		}
+		return bestPxMode, vp9KeyframeIntraRD{
+			mode:          bestPxMode,
+			rate:          rate,
+			rateTokenOnly: totalCoeffRate,
+			distortion:    totalDistortion,
+		}, true
+	}
 	skipDirMismatch := e.sf.ModeSearchSkipFlags&FlagSkipIntraDirMismatch != 0 ||
-		(e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4)
+		e.vp9GoodHDFastPath()
+	if e.vp9GoodHDFastPath() {
+		mask &= sfIntraDCHV | (1 << uint(common.TmPred))
+	}
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if mask&(1<<mode) == 0 {
 			continue
@@ -1150,6 +1300,7 @@ func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState
 
 	step := 1 << uint(txSize)
 	bs := 4 << uint(txSize)
+	singleTx := step >= max4x4H && step >= max4x4W
 	var distortion uint64
 	ok := true
 scoreLoop:
@@ -1162,10 +1313,12 @@ scoreLoop:
 				break scoreLoop
 			}
 			distortion += score
-			txX := baseX + cc*4
-			txY := baseY + rr*4
-			vp9CopySourceRectClamped(planeData, stride, src, srcStride,
-				srcW, srcH, txX, txY, bs, bs)
+			if !singleTx && (rr+step < max4x4H || cc+step < max4x4W) {
+				txX := baseX + cc*4
+				txY := baseY + rr*4
+				vp9CopySourceRectClamped(planeData, stride, src, srcStride,
+					srcW, srcH, txX, txY, bs, bs)
+			}
 		}
 	}
 	restoreRecon()
@@ -1290,8 +1443,8 @@ func (e *VP9Encoder) pickVP9KeyframeUvModeRD(key *vp9KeyframeEncodeState,
 	bestValid := false
 	useTxDomainDistortion := e.vp9KeyframeUseTransformDomainDistortion(key,
 		miRows, miCols, miRow, miCol, bsize)
-	if e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4 {
-		uvMask &= sfIntraDCHV | (1 << uint(common.TmPred))
+	if e.vp9GoodHDFastPath() {
+		uvMask = 1 << uint(common.DcPred)
 	}
 	for mode := common.DcPred; mode <= common.TmPred; mode++ {
 		if uvMask&(1<<uint(mode)) == 0 {

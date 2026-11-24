@@ -1,3 +1,4 @@
+// Ported from libvpx v1.16.0.
 package dsp
 
 import "github.com/thesyncim/govpx/internal/pixel"

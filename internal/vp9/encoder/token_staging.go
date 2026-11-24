@@ -30,6 +30,7 @@ type TokenExtra struct {
 	// UnconstrainedNodes. Always a multiple of UnconstrainedNodes and
 	// < len(FrameCoefProbs) flattened.
 	ProbOff uint16
+	_       uint16 // pad to 8 bytes for aligned power-of-2 indexing and single-store writes
 }
 
 // TokenList mirrors libvpx TOKENLIST. Start/Stop are indices into

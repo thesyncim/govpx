@@ -257,8 +257,9 @@ func TestVP8SpeedFeaturesCPUExtremePinsLibvpxCascade(t *testing.T) {
 				if got := libvpxInterFrameImprovedMVPredictionForFeatureSpeed(DeadlineRealtime, tc.cpiSpeed); got != w.improvedMVPred {
 					t.Errorf("improved_mv_pred = %t, want %t (libvpx onyx_if.c:1009)", got, w.improvedMVPred)
 				}
-				if got := e.encoderUsesSimpleLoopFilter(); got != w.simpleLoopFilter {
-					t.Errorf("filter_type = SimpleLoopFilter %t, want %t (libvpx onyx_if.c:1017; Speed >= 14 gate)", got, w.simpleLoopFilter)
+				wantSimple := w.simpleLoopFilter || e.vp8HDRealtimeFastPath()
+				if got := e.encoderUsesSimpleLoopFilter(); got != wantSimple {
+					t.Errorf("filter_type = SimpleLoopFilter %t, want %t (libvpx onyx_if.c:1017 / HD Profile 1 fast-path)", got, wantSimple)
 				}
 				if got := int(cfg.fullPixelSearchParam); got != w.stepParam {
 					t.Errorf("step_param = %d, want %d (libvpx pickinter.c:932)", got, w.stepParam)
@@ -431,11 +432,13 @@ func TestVP8ExtremeCPUUsedSimpleLoopFilterStaysOff(t *testing.T) {
 		{cpuUsed: -14, wantSimpleFilter: true},  // sentinel: gate triggers
 	} {
 		t.Run(cpuUsedTag(tc.cpuUsed), func(t *testing.T) {
+			// Test at 320x240 so the Speed >= 14 gate is pinned independently of
+			// the HD (>=640x360) RFC 6386 Profile 1 simple-loopfilter fast path.
 			e := &VP8Encoder{opts: EncoderOptions{
 				Deadline: DeadlineRealtime,
 				CpuUsed:  tc.cpuUsed,
-				Width:    1280,
-				Height:   720,
+				Width:    320,
+				Height:   240,
 			}}
 			if got := e.encoderUsesSimpleLoopFilter(); got != tc.wantSimpleFilter {
 				t.Fatalf("encoderUsesSimpleLoopFilter() at cpu_used=%d = %t, want %t (libvpx onyx_if.c:1017; Speed >= 14)", tc.cpuUsed, got, tc.wantSimpleFilter)

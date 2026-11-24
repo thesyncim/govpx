@@ -149,7 +149,7 @@ func (e *VP9Encoder) snapshotVP9KeyframeDecisionRegion(miRows, miCols, miRow, mi
 	if snap == nil {
 		return false
 	}
-	*snap = vp9KeyframeDecisionRegionSnapshot{}
+	snap.ok = false
 	if root < 0 || root >= common.BlockSizes || miRow < 0 || miCol < 0 ||
 		miRow >= miRows || miCol >= miCols ||
 		e.vp9LeafKeyframeDecisionsCols <= 0 ||
@@ -165,23 +165,22 @@ func (e *VP9Encoder) snapshotVP9KeyframeDecisionRegion(miRows, miCols, miRow, mi
 	if rows*cols*blockSizes > len(snap.partition) {
 		return false
 	}
+	leafCols := e.vp9LeafKeyframeDecisionsCols
+	partCols := e.vp9KeyframePartitionDecisionsCols
 	for r := range rows {
-		for c := range cols {
-			cell := r*cols + c
-			row := miRow + r
-			col := miCol + c
-			leafOff := row*e.vp9LeafKeyframeDecisionsCols + col
-			if leafOff < 0 || leafOff >= len(e.vp9LeafKeyframeDecisions) {
-				return false
-			}
-			partOff := (row*e.vp9KeyframePartitionDecisionsCols + col) * blockSizes
-			if partOff < 0 || partOff+blockSizes > len(e.vp9KeyframePartitionDecisions) {
-				return false
-			}
-			snap.leaf[cell] = e.vp9LeafKeyframeDecisions[leafOff]
-			copy(snap.partition[cell*blockSizes:(cell+1)*blockSizes],
-				e.vp9KeyframePartitionDecisions[partOff:partOff+blockSizes])
+		row := miRow + r
+		leafRowOff := row*leafCols + miCol
+		if leafRowOff < 0 || leafRowOff+cols > len(e.vp9LeafKeyframeDecisions) {
+			return false
 		}
+		partRowOff := (row*partCols + miCol) * blockSizes
+		if partRowOff < 0 || partRowOff+cols*blockSizes > len(e.vp9KeyframePartitionDecisions) {
+			return false
+		}
+		cellRow := r * cols
+		copy(snap.leaf[cellRow:cellRow+cols], e.vp9LeafKeyframeDecisions[leafRowOff:leafRowOff+cols])
+		copy(snap.partition[cellRow*blockSizes:(cellRow+cols)*blockSizes],
+			e.vp9KeyframePartitionDecisions[partRowOff:partRowOff+cols*blockSizes])
 	}
 	snap.miRow = miRow
 	snap.miCol = miCol
@@ -191,27 +190,27 @@ func (e *VP9Encoder) snapshotVP9KeyframeDecisionRegion(miRows, miCols, miRow, mi
 	return true
 }
 
-func (e *VP9Encoder) restoreVP9KeyframeDecisionRegion(snap vp9KeyframeDecisionRegionSnapshot) {
-	if !snap.ok || snap.rows <= 0 || snap.cols <= 0 ||
+func (e *VP9Encoder) restoreVP9KeyframeDecisionRegion(snap *vp9KeyframeDecisionRegionSnapshot) {
+	if snap == nil || !snap.ok || snap.rows <= 0 || snap.cols <= 0 ||
 		e.vp9LeafKeyframeDecisionsCols <= 0 ||
 		e.vp9KeyframePartitionDecisionsCols <= 0 {
 		return
 	}
 	const blockSizes = int(common.BlockSizes)
+	leafCols := e.vp9LeafKeyframeDecisionsCols
+	partCols := e.vp9KeyframePartitionDecisionsCols
+	cols := snap.cols
 	for r := 0; r < snap.rows; r++ {
-		for c := 0; c < snap.cols; c++ {
-			cell := r*snap.cols + c
-			row := snap.miRow + r
-			col := snap.miCol + c
-			leafOff := row*e.vp9LeafKeyframeDecisionsCols + col
-			if leafOff >= 0 && leafOff < len(e.vp9LeafKeyframeDecisions) {
-				e.vp9LeafKeyframeDecisions[leafOff] = snap.leaf[cell]
-			}
-			partOff := (row*e.vp9KeyframePartitionDecisionsCols + col) * blockSizes
-			if partOff >= 0 && partOff+blockSizes <= len(e.vp9KeyframePartitionDecisions) {
-				copy(e.vp9KeyframePartitionDecisions[partOff:partOff+blockSizes],
-					snap.partition[cell*blockSizes:(cell+1)*blockSizes])
-			}
+		row := snap.miRow + r
+		cellRow := r * cols
+		leafRowOff := row*leafCols + snap.miCol
+		if leafRowOff >= 0 && leafRowOff+cols <= len(e.vp9LeafKeyframeDecisions) {
+			copy(e.vp9LeafKeyframeDecisions[leafRowOff:leafRowOff+cols], snap.leaf[cellRow:cellRow+cols])
+		}
+		partRowOff := (row*partCols + snap.miCol) * blockSizes
+		if partRowOff >= 0 && partRowOff+cols*blockSizes <= len(e.vp9KeyframePartitionDecisions) {
+			copy(e.vp9KeyframePartitionDecisions[partRowOff:partRowOff+cols*blockSizes],
+				snap.partition[cellRow*blockSizes:(cellRow+cols)*blockSizes])
 		}
 	}
 }

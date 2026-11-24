@@ -783,9 +783,13 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOBOpt(key *vp9KeyframeEnco
 	}
 	useFastQuant := skipInvTx && e.sf.UseFastCoefCosting != 0
 	useLp32x32RD := skipInvTx && e.sf.UseLp32x32Fdct != 0
+	var fpTables encoder.QuantizeFPTables
+	if useFastQuant && txSize != common.Tx32x32 {
+		fpTables = encoder.QuantizeFPTablesForDequant(dequant)
+	}
 	eob := e.quantizeVP9TxResidualWithQTrellisFPTablesOpt(dst, stride, txSize, txType,
 		dequant, qindex, out, qOut, key.lossless, useFastQuant, useLp32x32RD,
-		encoder.QuantizeFPTables{}, nil, skipInvTx)
+		fpTables, nil, skipInvTx)
 	if eob == 0 {
 		return false, 0
 	}

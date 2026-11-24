@@ -95,7 +95,7 @@ type interFrameMotionVectorSearch struct {
 	// apply libvpx's vp8_activity_masking errorperbit adjustment when
 	// TuneSSIM is active; otherwise zero (default keeps the libvpx
 	// qIndex-only baseline that drives the PSNR-tuned path).
-	errorPerBit int
+	errorPerBit             int
 	start                   interFrameSearchStart
 	bestRefMV               vp8enc.MotionVector
 	search                  interAnalysisSearchConfig
@@ -166,15 +166,15 @@ func (s interFrameMotionVectorSearch) fullPixelWithStats(stats *interFrameMotion
 
 func (s interFrameMotionVectorSearch) subpixel(best vp8enc.MotionVector) interFrameSubpixelSearch {
 	return interFrameSubpixelSearch{
-		src:         s.src,
-		ref:         s.ref,
-		mbRow:       s.mbRow,
-		mbCol:       s.mbCol,
-		best:        best,
-		bestRefMV:   s.bestRefMV,
-		qIndex:      s.qIndex,
-		errorPerBit: s.errorPerBit,
-		search:      s.search,
+		src:                     s.src,
+		ref:                     s.ref,
+		mbRow:                   s.mbRow,
+		mbCol:                   s.mbCol,
+		best:                    best,
+		bestRefMV:               s.bestRefMV,
+		qIndex:                  s.qIndex,
+		errorPerBit:             s.errorPerBit,
+		search:                  s.search,
 		mvProbs:                 s.mvProbs,
 		mvCosts:                 s.mvCosts,
 		skipQuarterIfHalfStatic: s.skipQuarterIfHalfStatic,

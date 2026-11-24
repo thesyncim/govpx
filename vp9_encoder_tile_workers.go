@@ -1594,7 +1594,8 @@ func runVP9CountTileRows(job *vp9CountTileJob,
 		!job.worker.canDispatchVP9DenoiserCountRows(countInter, job.kind, &job.seg) {
 		return false
 	}
-	if job.worker.sf.PartitionSearchType != VarBasedPartition ||
+	if (job.worker.sf.PartitionSearchType != VarBasedPartition &&
+		job.worker.sf.PartitionSearchType != FixedPartition) ||
 		job.worker.sf.AdaptiveRdThreshRowMt == 0 {
 		return false
 	}

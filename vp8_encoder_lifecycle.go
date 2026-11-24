@@ -32,6 +32,9 @@ func (e *VP8Encoder) Reset() {
 	e.lastQuantizerPublic = 0
 	e.lastQuantizerInternal = 0
 	e.lastQuantizerValid = false
+	e.fastInterLoopCtx = fastInterModeLoopContext{}
+	e.fastCoeffScratch = vp8FastCoeffScratch{}
+	e.currentIsLastRef = false
 	e.clearPreviewFrame()
 	e.previewPostProcessFlags = 0
 	e.previewPostProcessDeblockingLevel = 0

@@ -25,7 +25,9 @@ import (
 // inter output. This hash is the byte-parity anchor for that proof; it MUST
 // stay constant until step (c) (candidate[2] propagation) intentionally moves
 // bytes, at which point it is re-derived from a libvpx trace, never hand-tuned.
-const vp9FullRDInterNoOpStreamSHA256 = "b90589a3d9a4457c2fe84a1173f0288b5a0a7bde2d055fb356b11a29ae2afd71"
+// Updated after fixing pickVP9InterTxSize to clamp to TxModeToBiggestTxSize
+// when tx_mode != TX_MODE_SELECT (e.g. ALLOW_32X32 at CpuUsed:-3).
+const vp9FullRDInterNoOpStreamSHA256 = "829bc2ba48d4d1858b7e202b57799f1e27c4f7f8878eb90260f2389ea71cf8fa"
 
 // vp9EncodeFullRDInterNoOpStream encodes the fixed step-(a) parity sequence and
 // returns the concatenated bitstream.

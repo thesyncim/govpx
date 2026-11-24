@@ -1,3 +1,4 @@
+// Ported from libvpx v1.16.0 vp8/common/reconinter.c.
 package decoder
 
 import (

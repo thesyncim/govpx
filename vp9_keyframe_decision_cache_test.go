@@ -79,7 +79,7 @@ func TestVP9KeyframeDecisionRegionSnapshotRestoresOnlyRegion(t *testing.T) {
 	e.storeVP9LeafKeyframeDecision(0, 0, common.Block16x16, mutatedOutside)
 	e.storeVP9KeyframePartitionDecision(0, 0, common.Block16x16, common.Block4x4)
 
-	e.restoreVP9KeyframeDecisionRegion(snap)
+	e.restoreVP9KeyframeDecisionRegion(&snap)
 
 	if got, ok := e.lookupVP9LeafKeyframeDecision(1, 1, common.Block8x8); !ok {
 		t.Fatalf("inside leaf lookup miss after restore")

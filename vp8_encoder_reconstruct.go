@@ -747,7 +747,16 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 				if e.vp8HDRealtimeFastPath() && decision.interMode.MBSkipCoeff {
 					staticBreakout = true
 				} else {
-					staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+					encodeBreakout := e.interStaticThresholdForSegment(segmentID)
+					if encodeBreakout == 0 && e.vp8HDRealtimeFastPath() {
+						encodeBreakout = 1
+					}
+					if encodeBreakout > 0 {
+						yAC := int(quant.Y1.Dequant[1])
+						if int(decision.predictionError) < max((yAC*yAC)>>4, encodeBreakout) {
+							staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout)
+						}
+					}
 				}
 			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&

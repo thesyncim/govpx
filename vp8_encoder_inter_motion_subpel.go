@@ -23,7 +23,7 @@ type interFrameSubpixelSearch struct {
 	// that here is what closes the realtime-cbr-cpu-3-64x64-segmented-tune-
 	// ssim parity gap that remained after the activity probe matched libvpx
 	// byte-for-byte.
-	errorPerBit int
+	errorPerBit             int
 	best                    vp8enc.MotionVector
 	bestRefMV               vp8enc.MotionVector
 	search                  interAnalysisSearchConfig

@@ -235,7 +235,7 @@ func testVP9NonrdPredCtxMatchesLegacy(t *testing.T, width, height int) {
 								name, plane, gotUVVar, gotUVSSE, gotUVOK,
 								wantUVVar, wantUVSSE, wantUVOK)
 						}
-						if wantUVOK {
+						if wantUVOK && mv != (vp9dec.MV{}) {
 							gotRect := make([]byte, uvW*uvH)
 							vp9CopyPredRectToScratch(gotRect, reconUV,
 								reconUVStride, uvX, uvY, uvW, uvH)

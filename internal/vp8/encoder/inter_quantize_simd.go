@@ -1,5 +1,6 @@
 //go:build goexperiment.simd && (arm64 || amd64) && !purego
 
+// Ported from libvpx v1.16.0.
 package encoder
 
 import (

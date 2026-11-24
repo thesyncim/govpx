@@ -163,7 +163,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = (yAC * yAC) >> 2
+		hdNewMVSkipSSE = yAC * yAC
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -180,8 +180,19 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
-		if hdFast && mbMode == vp8common.NewMV && bestSet && !bestUseIntra && bestSSE <= hdNewMVSkipSSE {
-			continue
+		if hdFast && bestSet && !bestUseIntra {
+			if bestSSE <= hdNewMVSkipSSE>>1 {
+				break
+			}
+			if mbMode == vp8common.NewMV && bestSSE <= hdNewMVSkipSSE {
+				continue
+			}
+			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
+				continue
+			}
+			if refSlot == 0 && bestSSE <= hdNewMVSkipSSE<<1 {
+				continue
+			}
 		}
 		if refSlot == 0 {
 			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
@@ -268,17 +279,17 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 				}
 			}
 			searcher := interFrameMotionVectorSearch{
-				src:         src,
-				ref:         rs.img,
-				mbRow:       mbRow,
-				mbCol:       mbCol,
-				mbRows:      mbRows,
-				mbCols:      mbCols,
-				bestRefMV:   bestRefMV,
-				qIndex:      qIndex,
-				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
-				search:      search,
-				start:       start,
+				src:                     src,
+				ref:                     rs.img,
+				mbRow:                   mbRow,
+				mbCol:                   mbCol,
+				mbRows:                  mbRows,
+				mbCols:                  mbCols,
+				bestRefMV:               bestRefMV,
+				qIndex:                  qIndex,
+				errorPerBit:             e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:                  search,
+				start:                   start,
 				mvProbs:                 &e.modeProbs.MV,
 				mvCosts:                 mvCosts,
 				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),
@@ -441,7 +452,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	hdNewMVSkipSSE := 0
 	if hdFast && quant != nil {
 		yAC := int(quant.Y1.Dequant[1])
-		hdNewMVSkipSSE = (yAC * yAC) >> 2
+		hdNewMVSkipSSE = yAC * yAC
 	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
@@ -458,8 +469,19 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
-		if hdFast && mbMode == vp8common.NewMV && bestSet && !bestUseIntra && bestSSE <= hdNewMVSkipSSE {
-			continue
+		if hdFast && bestSet && !bestUseIntra {
+			if bestSSE <= hdNewMVSkipSSE>>1 {
+				break
+			}
+			if mbMode == vp8common.NewMV && bestSSE <= hdNewMVSkipSSE {
+				continue
+			}
+			if refSlot > 1 && bestSSE <= hdNewMVSkipSSE {
+				continue
+			}
+			if refSlot == 0 && bestSSE <= hdNewMVSkipSSE<<1 {
+				continue
+			}
 		}
 		if refSlot == 0 {
 			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
@@ -547,17 +569,17 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 				}
 			}
 			searcher := interFrameMotionVectorSearch{
-				src:         src,
-				ref:         rs.img,
-				mbRow:       mbRow,
-				mbCol:       mbCol,
-				mbRows:      mbRows,
-				mbCols:      mbCols,
-				bestRefMV:   bestRefMV,
-				qIndex:      qIndex,
-				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
-				search:      search,
-				start:       start,
+				src:                     src,
+				ref:                     rs.img,
+				mbRow:                   mbRow,
+				mbCol:                   mbCol,
+				mbRows:                  mbRows,
+				mbCols:                  mbCols,
+				bestRefMV:               bestRefMV,
+				qIndex:                  qIndex,
+				errorPerBit:             e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:                  search,
+				start:                   start,
 				mvProbs:                 &e.modeProbs.MV,
 				mvCosts:                 mvCosts,
 				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),
@@ -857,17 +879,17 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 				}
 			}
 			searcher := interFrameMotionVectorSearch{
-				src:         src,
-				ref:         ref.Img,
-				mbRow:       mbRow,
-				mbCol:       mbCol,
-				mbRows:      mbRows,
-				mbCols:      mbCols,
-				bestRefMV:   bestRefMV,
-				qIndex:      qIndex,
-				errorPerBit: e.tunedErrorPerBit(qIndex, mbRow, mbCol),
-				search:      search,
-				start:       start,
+				src:                     src,
+				ref:                     ref.Img,
+				mbRow:                   mbRow,
+				mbCol:                   mbCol,
+				mbRows:                  mbRows,
+				mbCols:                  mbCols,
+				bestRefMV:               bestRefMV,
+				qIndex:                  qIndex,
+				errorPerBit:             e.tunedErrorPerBit(qIndex, mbRow, mbCol),
+				search:                  search,
+				start:                   start,
 				mvProbs:                 &e.modeProbs.MV,
 				mvCosts:                 mvCosts,
 				skipQuarterIfHalfStatic: e.vp8HDRealtimeFastPath(),

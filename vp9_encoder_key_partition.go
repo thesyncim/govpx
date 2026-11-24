@@ -262,11 +262,10 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			e.releaseVP9PartitionReconSnapshot(recon)
 			return false
 		}
-		var cache vp9KeyframeDecisionRegionSnapshot
 		haveCache := false
 		if store {
 			if !e.snapshotVP9KeyframeDecisionRegion(miRows, miCols,
-				miRow, miCol, root, &cache) {
+				miRow, miCol, root, &bestReplay.cache) {
 				e.releaseVP9PartitionReconSnapshot(recon)
 				return false
 			}
@@ -276,7 +275,6 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		bestReplay.ctx = ctx
 		bestReplay.miRows = rows
 		bestReplay.miCols = cols
-		bestReplay.cache = cache
 		bestReplay.haveCache = haveCache
 		bestReplay.ok = true
 		return true
@@ -290,25 +288,25 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 		e.restoreVP9PartitionContexts(bestReplay.ctx)
 		e.restoreVP9PartitionReconSnapshotPixels(bestReplay.recon)
 		if bestReplay.haveCache {
-			e.restoreVP9KeyframeDecisionRegion(bestReplay.cache)
+			e.restoreVP9KeyframeDecisionRegion(&bestReplay.cache)
 		}
 		return true
 	}
+	var cacheBefore vp9KeyframeDecisionRegionSnapshot
 	consider := func(partition common.PartitionType,
 		refBestRD uint64, score func(uint64, bool, bool) (vp9KeyframePartitionRD, bool),
 	) (vp9KeyframePartitionRD, bool, bool) {
 		restoreBase()
 		scoreStore := false
-		var cacheBefore vp9KeyframeDecisionRegionSnapshot
 		if store && e.snapshotVP9KeyframeDecisionRegion(miRows, miCols,
 			miRow, miCol, root, &cacheBefore) {
 			scoreStore = true
 		}
 		rd, ok := score(refBestRD, true, scoreStore)
-		if scoreStore {
-			defer e.restoreVP9KeyframeDecisionRegion(cacheBefore)
-		}
 		if !ok {
+			if scoreStore {
+				e.restoreVP9KeyframeDecisionRegion(&cacheBefore)
+			}
 			return vp9KeyframePartitionRD{}, false, false
 		}
 		rd.partition = partition
@@ -330,6 +328,9 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionTree(key *vp9KeyframeEncodeState
 			if !saveBestReplay() {
 				bestReplay.ok = false
 			}
+		}
+		if scoreStore {
+			e.restoreVP9KeyframeDecisionRegion(&cacheBefore)
 		}
 		return rd, true, improved
 	}
@@ -610,6 +611,11 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockS
 	return uint64(distBreakoutThr), rateBreakoutThr
 }
 
+func (e *VP9Encoder) vp9GoodHDFastPath() bool {
+	return e != nil && e.opts.Deadline == DeadlineGoodQuality &&
+		e.opts.CpuUsed >= 4 && e.opts.Width*e.opts.Height >= 1280*720
+}
+
 func (e *VP9Encoder) vp9KeyframeRDPartitionNoneBreakout(root common.BlockSize,
 	rd vp9KeyframePartitionRD, lossless bool,
 ) bool {
@@ -621,11 +627,11 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionNoneBreakout(root common.BlockSize,
 		return rd.distortion < distBreakoutThr>>2 ||
 			(rd.distortion < distBreakoutThr && rd.rate < rateBreakoutThr)
 	}
-	// At good speed >= 4, break out of deeper partition splits when NONE
+	// At HD good speed >= 4, break out of deeper partition splits when NONE
 	// already fits the block with low transform-domain distortion. This avoids
 	// exhaustive 64x64 -> 4x4 recursion on smooth/medium keyframe regions while
 	// preserving 4x4 splits on sharp high-detail edges.
-	if e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4 && distBreakoutThr > 0 {
+	if e.vp9GoodHDFastPath() && distBreakoutThr > 0 {
 		if root == common.Block8x8 {
 			return rd.distortion < distBreakoutThr>>5
 		}
@@ -859,6 +865,11 @@ func (e *VP9Encoder) scoreVP9KeyframeRDPartitionLeaf(key *vp9KeyframeEncodeState
 			miRow, miCol, bsize, &mi, txMode, rdmult, refBestRD)
 	}
 	if !ok {
+		e.cbRdmult = prevCbRdmult
+		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
+	}
+	if refBestRD != ^uint64(0) &&
+		encoder.RDCost(rdmult, encoder.RDDivBits, yRD.rate, yRD.distortion) >= refBestRD {
 		e.cbRdmult = prevCbRdmult
 		return vp9KeyframeIntraRD{}, vp9KeyframeModeDecision{}, false
 	}
