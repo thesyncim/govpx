@@ -164,7 +164,7 @@ func readCoeffBits(r *bitstream.ReaderState, probs []uint8, n int,
 func vpxReadNoFill(prob uint32,
 	value uint64, rng uint32, count int32,
 ) (uint32, uint64, uint32, int32) {
-	split := (rng*prob + (256 - prob)) >> 8
+	split := 1 + (((rng - 1) * prob) >> 8)
 	bigsplit := uint64(split) << (64 - 8)
 	nextRange := split
 	var bit uint32
@@ -174,7 +174,7 @@ func vpxReadNoFill(prob uint32,
 		bit = 1
 	}
 
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange)))
 	return bit, value << shift, nextRange << shift, count - int32(shift)
 }
 
@@ -193,7 +193,8 @@ func vpxReadBitNoFill(
 		bit = 1
 	}
 
-	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	// nextRange is always in [64, 128]; shift is 0 iff nextRange == 128, else 1.
+	shift := uint32(1) - (nextRange >> 7)
 	return bit, value << shift, nextRange << shift, count - int32(shift)
 }
 
