@@ -53,12 +53,19 @@ func (e *VP8Encoder) setPreviewPostProcessConfig(flags PostProcessFlag, deblocki
 // FlushInto, Reset, Close, or preview postprocess configuration call.
 // Hidden alt-ref refresh frames return ok=false, mirroring
 // vp8_get_preview_raw_frame's refresh_alt_ref_frame guard.
+func (e *VP8Encoder) currentFrameImage() *vp8common.Image {
+	if e.currentIsLastRef {
+		return &e.lastRef.Img
+	}
+	return &e.current.Img
+}
+
 func (e *VP8Encoder) PreviewFrame() (Image, bool) {
 	if e == nil || e.closed || !e.previewFrameValid || e.previewFrameSuppressed {
 		return Image{}, false
 	}
 	if e.previewPostProcessFlags == 0 {
-		return publicImageFromVP8(&e.current.Img), true
+		return publicImageFromVP8(e.currentFrameImage()), true
 	}
 	if e.previewPostprocessedValid {
 		return publicImageFromVP8(&e.preview.Img), true
@@ -141,7 +148,7 @@ func (e *VP8Encoder) applyPreviewPostProcess() error {
 		CurrentFrame:    e.previewFrameNumber,
 		KeyFrame:        e.previewFrameType == vp8common.KeyFrame,
 	}
-	if err := vp8dec.ApplyPostProcessWithOptions(&e.current.Img, &e.preview, rows, cols, e.reconstructModes[:required], e.previewLoopFilterLevel, e.previewPostprocScratch, opts, &e.previewPostprocState); err != nil {
+	if err := vp8dec.ApplyPostProcessWithOptions(e.currentFrameImage(), &e.preview, rows, cols, e.reconstructModes[:required], e.previewLoopFilterLevel, e.previewPostprocScratch, opts, &e.previewPostprocState); err != nil {
 		return ErrInvalidConfig
 	}
 	return nil

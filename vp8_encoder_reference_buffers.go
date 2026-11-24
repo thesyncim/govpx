@@ -7,6 +7,7 @@ import (
 
 func (e *VP8Encoder) refreshKeyFrameReferencesFromAnalysis() {
 	e.resetGoldenFrameStats()
+	e.currentIsLastRef = false
 	e.analysis, e.current = e.current, e.analysis
 	e.current.ExtendBorders()
 	vp8common.CopyImage(&e.lastRef.Img, &e.current.Img)
@@ -37,6 +38,7 @@ func (e *VP8Encoder) rememberLastFrameInterModes(signBias [vp8common.MaxRefFrame
 }
 
 func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateConfig, ref *vp8common.Image, refFrame vp8common.MVReferenceFrame) {
+	e.currentIsLastRef = false
 	vp8common.CopyImage(&e.current.Img, ref)
 	e.current.ExtendBorders()
 	e.copyInterFrameReferences(cfg)
@@ -60,6 +62,19 @@ func (e *VP8Encoder) refreshZeroInterFrameReferences(cfg vp8enc.InterFrameStateC
 }
 
 func (e *VP8Encoder) refreshInterFrameReferencesFromAnalysis(cfg vp8enc.InterFrameStateConfig) {
+	// Fast path (98% of realtime interframes): only LAST is refreshed and
+	// e.analysis already has extended borders from applyReconstructionLoopFilter.
+	// Swap e.analysis <-> e.lastRef directly for zero CopyImage & zero ExtendBorders.
+	if cfg.RefreshLast && !cfg.RefreshGolden && !cfg.RefreshAltRef &&
+		cfg.CopyBufferToGolden == 0 && cfg.CopyBufferToAltRef == 0 {
+		e.analysis, e.lastRef = e.lastRef, e.analysis
+		e.currentIsLastRef = true
+		e.clearLatestLookaheadReferenceFrame(ReferenceLast)
+		e.updateInterReferenceAliases(cfg)
+		e.updateInterReferenceFrameNumbers(cfg)
+		return
+	}
+	e.currentIsLastRef = false
 	// e.analysis already had ExtendBorders() called by applyReconstructionLoopFilter
 	// (or buildReconstructingInterFrameCoefficientsWithSegmentation when LF level == 0).
 	e.analysis, e.current = e.current, e.analysis

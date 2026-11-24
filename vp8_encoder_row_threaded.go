@@ -559,11 +559,10 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 	} else {
 		args.modes[index] = decision.interMode
 		vp8enc.ConvertInterFrameMode(&args.modes[index], &e.reconstructModes[index])
-		predMode := e.reconstructModes[index]
-		predMode.MBSkipCoeff = true
+		e.reconstructModes[index].MBSkipCoeff = true
 		acceptedInterCache = e.consumeInterRDCoeffCache()
 		if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &args.modes[index]) &&
-			!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&args.refStates, decision.ref.Frame), row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+			!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&args.refStates, decision.ref.Frame), row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 			return 0, 0, ErrInvalidConfig
 		}
 	}
@@ -612,41 +611,45 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// into buildPredictedMacroblockCoefficients uses args.qIndex (base)
 		// not segmentQIndex. The pass-2 iiratio lift (rdopt.c:189-196)
 		// lands on the same cpi->RDMULT before optimize_b runs.
-		rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(args.qIndex, zbinOverQuant)
-		if e.activityMapValid {
-			if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
-				actZbinAdj = adjustment
+		if e.libvpxUseFastQuant() && !e.libvpxOptimizeCoefficients() && !oracleTraceBuild && cacheIn == nil {
+			buildFastRealtimeMacroblockCoefficientsDirect(mbSource, row, col, &e.analysis.Img, quant, is4x4, &args.coeffs[index])
+		} else {
+			rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(args.qIndex, zbinOverQuant)
+			if e.activityMapValid {
+				if adjustment, ok := e.tunedZbinAdjustment(row, col); ok {
+					actZbinAdj = adjustment
+				}
+				rdMult = e.tunedRDMultiplier(rdMult, row, col)
 			}
-			rdMult = e.tunedRDMultiplier(rdMult, row, col)
+			var trace predictedMacroblockCoefficientTrace
+			if oracleTraceBuild {
+				trace = newPretrellisUVTrace(e)
+			}
+			buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
+				coefProbs:     e.pickerCoefProbs(),
+				src:           mbSource,
+				mbRow:         row,
+				mbCol:         col,
+				pred:          &e.analysis.Img,
+				aboveTok:      &args.aboveTok[col],
+				leftTok:       &rs.leftTok,
+				quant:         quant,
+				qIndex:        segmentQIndex,
+				zbinOverQuant: zbinOverQuant,
+				zbinModeBoost: vp8enc.InterZbinModeBoost(&args.modes[index]),
+				actZbinAdj:    actZbinAdj,
+				rdMult:        rdMult,
+				rdDiv:         rdDiv,
+				is4x4:         is4x4,
+				intra:         args.modes[index].RefFrame == vp8common.IntraFrame,
+				fastQuant:     e.libvpxUseFastQuant(),
+				optimize:      e.libvpxOptimizeCoefficients(),
+				collectOracle: false,
+				coeffs:        &args.coeffs[index],
+				cacheIn:       cacheIn,
+				trace:         trace,
+			})
 		}
-		var trace predictedMacroblockCoefficientTrace
-		if oracleTraceBuild {
-			trace = newPretrellisUVTrace(e)
-		}
-		buildPredictedMacroblockCoefficients(predictedMacroblockCoefficientArgs{
-			coefProbs:     e.pickerCoefProbs(),
-			src:           mbSource,
-			mbRow:         row,
-			mbCol:         col,
-			pred:          &e.analysis.Img,
-			aboveTok:      &args.aboveTok[col],
-			leftTok:       &rs.leftTok,
-			quant:         quant,
-			qIndex:        segmentQIndex,
-			zbinOverQuant: zbinOverQuant,
-			zbinModeBoost: vp8enc.InterZbinModeBoost(&args.modes[index]),
-			actZbinAdj:    actZbinAdj,
-			rdMult:        rdMult,
-			rdDiv:         rdDiv,
-			is4x4:         is4x4,
-			intra:         args.modes[index].RefFrame == vp8common.IntraFrame,
-			fastQuant:     e.libvpxUseFastQuant(),
-			optimize:      e.libvpxOptimizeCoefficients(),
-			collectOracle: false,
-			coeffs:        &args.coeffs[index],
-			cacheIn:       cacheIn,
-			trace:         trace,
-		})
 	}
 
 	is4x4 := vp8enc.InterFrameModeUses4x4Tokens(args.modes[index].Mode)

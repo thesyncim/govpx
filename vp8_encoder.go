@@ -1061,6 +1061,7 @@ type VP8Encoder struct {
 	dequants                             [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	reconstructScratch                   vp8dec.IntraReconstructionScratch
 	fastInterLoopCtx                     fastInterModeLoopContext
+	currentIsLastRef                     bool
 	previewPostProcessFlags              PostProcessFlag
 	previewPostProcessDeblockingLevel    int
 	previewPostProcessDeblockingLevelSet bool

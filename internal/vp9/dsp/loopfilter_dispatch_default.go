@@ -59,6 +59,10 @@ func vpxLpfVertical8(plane []uint8, s, pitch int, blimit, limit, thresh uint8) {
 func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
+	if blimit0 == blimit1 && limit0 == limit1 && thresh0 == thresh1 &&
+		pixel.LoopFilter(plane, s, pitch, 1, 16, int(blimit0), int(limit0), int(thresh0), 8) {
+		return
+	}
 	if pixel.LoopFilter(plane, s, pitch, 1, 8, int(blimit0), int(limit0), int(thresh0), 8) {
 		pixel.LoopFilter(plane, s+8*1, pitch, 1, 8, int(blimit1), int(limit1), int(thresh1), 8)
 		return
@@ -70,6 +74,10 @@ func vpxLpfHorizontal8Dual(plane []uint8, s, pitch int,
 func vpxLpfVertical8Dual(plane []uint8, s, pitch int,
 	blimit0, limit0, thresh0, blimit1, limit1, thresh1 uint8,
 ) {
+	if blimit0 == blimit1 && limit0 == limit1 && thresh0 == thresh1 &&
+		pixel.LoopFilter(plane, s, 1, pitch, 16, int(blimit0), int(limit0), int(thresh0), 8) {
+		return
+	}
 	if pixel.LoopFilter(plane, s, 1, pitch, 8, int(blimit0), int(limit0), int(thresh0), 8) {
 		pixel.LoopFilter(plane, s+8*pitch, 1, pitch, 8, int(blimit1), int(limit1), int(thresh1), 8)
 		return
