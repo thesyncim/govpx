@@ -1590,9 +1590,16 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
-					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
-						common.Tx4x4, common.DctDct, eob, lossless)
-					clearVP9DecodedDQCoeffs(coeffs, common.Tx4x4, common.DctDct, eob)
+					if lossless {
+						vp9dec.Iwht4x4Add(coeffs, rowDst[cc*4:], dstStride, eob)
+					} else {
+						vp9dec.Idct4x4Add(coeffs, rowDst[cc*4:], dstStride, eob)
+					}
+					if eob == 1 {
+						coeffs[0] = 0
+					} else {
+						clearVP9DecodedDQCoeffs(coeffs, common.Tx4x4, common.DctDct, eob)
+					}
 					hasResidue = 1
 				}
 				aCtx[cc] = hasResidue
@@ -1624,9 +1631,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
-					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
-						common.Tx8x8, common.DctDct, eob, lossless)
-					clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
+					vp9dec.Idct8x8Add(coeffs, rowDst[cc*4:], dstStride, eob)
+					if eob == 1 {
+						coeffs[0] = 0
+					} else {
+						clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
+					}
 					hasResidue = 1
 				}
 				aCtx[cc] = hasResidue
@@ -1662,9 +1672,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
-					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
-						common.Tx16x16, common.DctDct, eob, lossless)
-					clearVP9DecodedDQCoeffs(coeffs, common.Tx16x16, common.DctDct, eob)
+					vp9dec.Idct16x16Add(coeffs, rowDst[cc*4:], dstStride, eob)
+					if eob == 1 {
+						coeffs[0] = 0
+					} else {
+						clearVP9DecodedDQCoeffs(coeffs, common.Tx16x16, common.DctDct, eob)
+					}
 					hasResidue = 1
 				}
 				aCtx[cc] = hasResidue
@@ -1705,9 +1718,12 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				eobTotal += eob
 				hasResidue := uint8(0)
 				if eob > 0 {
-					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
-						txSize, common.DctDct, eob, lossless)
-					clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
+					vp9dec.Idct32x32Add(coeffs, rowDst[cc*4:], dstStride, eob)
+					if eob == 1 {
+						coeffs[0] = 0
+					} else {
+						clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
+					}
 					hasResidue = 1
 				}
 				for i := range 8 {

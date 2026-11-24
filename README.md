@@ -44,7 +44,7 @@ against pinned `libvpx v1.16.0` (C + NEON assembly). All encode rows pass
 | — VP8 good 1080p, 1T (`good-1080p-8m-30f`) | **9.65 ms** (103.6 fps) | 8.00 ms (125.0 fps) | **1.21×** | 0.87× inter bytes, SSIM −0.002 |
 | VP8 realtime 720p, 4T (`-cpu-used -8`) | **0.98 ms** (1,019 fps) | 1.26 ms (793 fps) | **0.78×** | 0.20 allocs/frame |
 | VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **2.51 ms** (399.1 fps) | 2.51 ms (399.1 fps) | **1.00×** | 0.58× wall, 1.00× bytes |
-| VP9 good 720p, 1T (`-cpu-used 4`) | **43.69 ms** (22.9 fps) | 45.39 ms (22.0 fps) | **0.96×** | p50 20.82 ms, 0.93× inter bytes |
+| VP9 good 720p, 1T (`-cpu-used 4`) | **35.28 ms** (28.3 fps) | 42.85 ms (23.3 fps) | **0.82×** | SSIM −0.004, 0.91× inter bytes |
 | VP9 realtime 720p, 1T (`-cpu-used 8`) | **5.75 ms** (174.0 fps) | 6.45 ms (155.0 fps) | **0.89×** | 0.71× wall, 1.00× bytes |
 | VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`) | **1.83 ms** (547.0 fps) | 1.66 ms (600.6 fps) | **1.10×** | 0.78× wall, 0.93 allocs/frame |
 | VP8 decode 720p, 1T | **1.48 ms** (675.3 fps) | 1.24 ms (803.7 fps) | **1.19×** | 0.00 allocs/frame |
