@@ -44,8 +44,13 @@ type vp9InterEncodeState struct {
 	// (libvpx vp9_build_nmv_cost_table). When mvCostFcBuilt is false the nonrd
 	// subpel motion search costs MVs with a zero entropy table (the calloc'd
 	// default), as on the first inter frame after two adjacent keyframes.
-	mvCostFc         vp9dec.FrameContext
-	mvCostFcBuilt    bool
+	mvCostFc                   vp9dec.FrameContext
+	mvCostFcBuilt              bool
+	nmvCostTable               *encoder.NmvCostTable
+	interModeCosts             [common.InterModeContexts][4]int
+	interModeCostsValid        bool
+	switchableInterpCosts      [vp9dec.SwitchableFilterContexts][int(vp9dec.InterpSwitchable)]int
+	switchableInterpCostsValid bool
 	referenceMode    vp9dec.ReferenceMode
 	compoundAllowed  bool
 	refSignBias      [vp9dec.MaxRefFrames]uint8

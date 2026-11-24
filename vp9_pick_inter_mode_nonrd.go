@@ -432,11 +432,11 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// directly (clamp -> subpel split -> convolve/copy) with no
 	// per-candidate reference setup. Unsupported shapes keep the legacy
 	// route via the wrappers' fallback.
-	var predCtx vp9NonrdPredBlockCtx
-	if e.vp9NonrdPredBlockCtxInit(&predCtx, inter, miRow, miCol, bsize) {
+	predCtx := &e.nonrdPredCtx
+	if e.vp9NonrdPredBlockCtxInit(predCtx, inter, miRow, miCol, bsize) {
 		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 			if refSlotValid[r] {
-				e.vp9NonrdPredBlockCtxAddRef(&predCtx, r,
+				e.vp9NonrdPredBlockCtxAddRef(predCtx, r,
 					&e.refFrames[refSlots[r]])
 			}
 		}
@@ -595,19 +595,31 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// and vp9_mv_bit_cost's x->mvcost reads). Hoist the four mode-tree sums
 	// once per block and read NEWMV bits from the prepared NmvCostTable so
 	// no candidate re-walks the probability trees.
-	interModeCostTbl, interModeCostOK := vp9NonrdInterModeCostTable(inter,
-		interModeCtx)
+	var interModeCostTbl [4]int
+	var interModeCostOK bool
+	if inter != nil && inter.interModeCostsValid && uint(interModeCtx) < uint(len(inter.interModeCosts)) {
+		interModeCostTbl = inter.interModeCosts[interModeCtx]
+		interModeCostOK = true
+	} else {
+		interModeCostTbl, interModeCostOK = vp9NonrdInterModeCostTable(inter, interModeCtx)
+	}
 	var nmvCostTbl *encoder.NmvCostTable
-	if mvCostFcPick, mvCostBuiltPick := vp9InterMvCostFrameContext(inter); mvCostBuiltPick &&
+	if inter != nil && inter.nmvCostTable != nil {
+		nmvCostTbl = inter.nmvCostTable
+	} else if mvCostFcPick, mvCostBuiltPick := vp9InterMvCostFrameContext(inter); mvCostBuiltPick &&
 		e.vp9NmvCostCache.prepare(&mvCostFcPick.Nmvc, inter.allowHP) {
 		nmvCostTbl = e.vp9NmvCostCache.table
 	}
 	switchableCtx := vp9dec.GetPredContextSwitchableInterp(above, left)
-	modeCostCtx := vp9InterModeCostFrameContext(inter)
 	var interpFilterRateCost [int(vp9dec.InterpSwitchable)]int
-	for filter := range vp9dec.InterpSwitchable {
-		interpFilterRateCost[filter] = vp9InterInterpFilterRateCost(inter,
-			modeCostCtx, switchableCtx, filter)
+	if inter != nil && inter.switchableInterpCostsValid && uint(switchableCtx) < uint(len(inter.switchableInterpCosts)) {
+		interpFilterRateCost = inter.switchableInterpCosts[switchableCtx]
+	} else {
+		modeCostCtx := vp9InterModeCostFrameContext(inter)
+		for filter := range vp9dec.InterpSwitchable {
+			interpFilterRateCost[filter] = vp9InterInterpFilterRateCost(inter,
+				modeCostCtx, switchableCtx, filter)
+		}
 	}
 	qindex := e.vp9EncoderModeDecisionQIndex()
 	frameTxMode := vp9InterFrameTxMode(inter)
@@ -1192,7 +1204,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		// GOLDEN NEAREST/NEAR/NEW in the candidate set.
 		if useGoldenNonzeromv && thisMode == common.NewMv &&
 			refFrame == vp9dec.LastFrame {
-			if sad, ok := e.vp9NonrdCtxPredMVSAD(&predCtx, inter, miRow, miCol,
+			if sad, ok := e.vp9NonrdCtxPredMVSAD(predCtx, inter, miRow, miCol,
 				bsize, refFrame, mv); ok {
 				predMvSad[vp9dec.LastFrame] = sad
 				bestPredSad = sad
@@ -1314,7 +1326,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				filterUVOKU := false
 				filterUVOKV := false
 				var filterVarU, filterSSEU, filterVarV, filterSSEV uint64
-				varY, sseY, ok := e.vp9NonrdPredictVarianceSSETo(&predCtx,
+				varY, sseY, ok := e.vp9NonrdPredictVarianceSSETo(predCtx,
 					inter, miRows,
 					miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 					evalPred, evalPredStride)
@@ -1365,7 +1377,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							uvTxSize := vp9dec.GetUvTxSize(bsize, large.TxSize,
 								&e.planes[1])
 							filterVarU, filterSSEU, filterUVOKU =
-								e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+								e.vp9NonrdCtxUVVariancePlaneSSE(predCtx,
 									inter, miRows,
 									miCols, miRow, miCol, bsize, thisMode,
 									refFrame, mv, filter, 1)
@@ -1374,7 +1386,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 									uvBsize, uvTxSize, dequantU,
 									filterVarU, filterSSEU) {
 								filterVarV, filterSSEV, filterUVOKV =
-									e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+									e.vp9NonrdCtxUVVariancePlaneSSE(predCtx,
 										inter, miRows,
 										miCols, miRow, miCol, bsize, thisMode,
 										refFrame, mv, filter, 2)
@@ -1524,7 +1536,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						currentPred = e.nonrdFilterPredScratch[:compactPredLen]
 						ok = true
 					} else {
-						_, _, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+						_, _, ok = e.vp9NonrdPredictVarianceSSETo(predCtx,
 							inter, miRows,
 							miCols, miRow, miCol, bsize, thisMode, refFrame,
 							mv, filter,
@@ -1546,14 +1558,14 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				// vp9_pickmode.c:2346 model_rd_for_sb_y.
 				if usePredBufferPool {
 					buf := &predBuffers[thisModePredIdx]
-					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(predCtx,
 						inter, miRows,
 						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 						buf.data, buf.stride)
 					currentPred = buf.data
 					currentPredStride = buf.stride
 				} else {
-					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(&predCtx,
+					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(predCtx,
 						inter, miRows,
 						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 						e.blockScratch[:compactPredLen], compactPredW)
@@ -1603,7 +1615,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 							uvTxSize := vp9dec.GetUvTxSize(bsize,
 								large.TxSize, &e.planes[1])
 							uvVarU, uvSSEU, uvOKU =
-								e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+								e.vp9NonrdCtxUVVariancePlaneSSE(predCtx,
 									inter, miRows,
 									miCols, miRow, miCol, bsize, thisMode,
 									refFrame, mv, filter, 1)
@@ -1612,7 +1624,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 									uvBsize, uvTxSize, dequantU,
 									uvVarU, uvSSEU) {
 								uvVarV, uvSSEV, uvOKV =
-									e.vp9NonrdCtxUVVariancePlaneSSE(&predCtx,
+									e.vp9NonrdCtxUVVariancePlaneSSE(predCtx,
 										inter, miRows,
 										miCols, miRow, miCol, bsize, thisMode,
 										refFrame, mv, filter, 2)
@@ -1793,13 +1805,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				uvAddOK := true
 				if colorSensitivity[0] && !uvOKU {
 					uvVarU, uvSSEU, uvOKU = e.vp9NonrdCtxUVVariancePlaneSSE(
-						&predCtx, inter, miRows, miCols, miRow, miCol, bsize,
+						predCtx, inter, miRows, miCols, miRow, miCol, bsize,
 						thisMode, refFrame, mv, filter, 1)
 					uvAddOK = uvOKU
 				}
 				if uvAddOK && colorSensitivity[1] && !uvOKV {
 					uvVarV, uvSSEV, uvOKV = e.vp9NonrdCtxUVVariancePlaneSSE(
-						&predCtx, inter, miRows, miCols, miRow, miCol, bsize,
+						predCtx, inter, miRows, miCols, miRow, miCol, bsize,
 						thisMode, refFrame, mv, filter, 2)
 					uvAddOK = uvOKV
 				}
@@ -1874,7 +1886,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					// planes via vp9_build_inter_predictors_sbuv when
 					// either flag_preduv_computed entry is unset
 					// (vp9_pickmode.c:1008-1012).
-					if vU, sU, vV, sV, okUV := e.vp9NonrdCtxUVVarianceSSE(&predCtx, inter,
+					if vU, sU, vV, sV, okUV := e.vp9NonrdCtxUVVarianceSSE(predCtx, inter,
 						miRows, miCols, miRow, miCol, bsize, thisMode,
 						refFrame, mv, filter); okUV {
 						uvVarU, uvSSEU, uvVarV, uvSSEV = vU, sU, vV, sV

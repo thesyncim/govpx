@@ -288,6 +288,7 @@ type VP9Encoder struct {
 	// predictor so odd luma MVs can use the same chroma/subpel extension
 	// path as the real decoder without per-block allocations after warmup.
 	interPredictScratch []byte
+	nonrdPredCtx        vp9NonrdPredBlockCtx
 	interPredictor      VP9Decoder
 
 	reconFrame Image

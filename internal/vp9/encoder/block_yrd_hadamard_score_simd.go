@@ -48,14 +48,86 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 	ad := archsimd.BroadcastInt16x8(d[1])
 	rr, qq, dd := ar.SetElem(0, uint16(r[0])), aq.SetElem(0, q[0]), ad.SetElem(0, d[0])
 	max16 := archsimd.BroadcastUint16x8(32767)
-	rate, err := archsimd.Uint32x4{}, archsimd.Uint32x4{}
+	err0, err1 := archsimd.Uint32x4{}, archsimd.Uint32x4{}
+	if d[0] >= 16 && d[1] >= 16 {
+		// When both DC and AC dequants are >= 16, each quantized token magnitude
+		// is <= 4096, so 8 rows per lane sum to <= 32768 < 65535 (fits Uint16x8).
+		var rate16 archsimd.Uint16x8
+		{
+			mag := v0.Abs().ToBits()
+			a := mag.Add(rr).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, qq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(dd).ToBits()).BitsToInt16()
+			err0 = err0.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v1.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err1 = err1.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v2.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err0 = err0.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v3.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err1 = err1.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v4.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err0 = err0.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v5.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err1 = err1.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v6.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err0 = err0.Add(blockYrdSquarePairs16(diff))
+		}
+		{
+			mag := v7.Abs().ToBits()
+			a := mag.Add(ar).Min(max16).BitsToInt16()
+			t := blockYrdMulHigh16(a, aq)
+			rate16 = rate16.Add(t.ToBits())
+			diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
+			err1 = err1.Add(blockYrdSquarePairs16(diff))
+		}
+		rate := blockYrdSumPairs16(rate16.BitsToInt16())
+		return int(blockYrdSum32(rate)), blockYrdSum32(err0.Add(err1))
+	}
+	rate := archsimd.Uint32x4{}
 	{
 		mag := v0.Abs().ToBits()
 		a := mag.Add(rr).Min(max16).BitsToInt16()
 		t := blockYrdMulHigh16(a, qq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(dd).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err0 = err0.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v1.Abs().ToBits()
@@ -63,7 +135,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err1 = err1.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v2.Abs().ToBits()
@@ -71,7 +143,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err0 = err0.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v3.Abs().ToBits()
@@ -79,7 +151,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err1 = err1.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v4.Abs().ToBits()
@@ -87,7 +159,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err0 = err0.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v5.Abs().ToBits()
@@ -95,7 +167,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err1 = err1.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v6.Abs().ToBits()
@@ -103,7 +175,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err0 = err0.Add(blockYrdSquarePairs16(diff))
 	}
 	{
 		mag := v7.Abs().ToBits()
@@ -111,7 +183,7 @@ func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, u
 		t := blockYrdMulHigh16(a, aq)
 		rate = rate.Add(blockYrdSumPairs16(t))
 		diff := mag.Sub(t.Mul(ad).ToBits()).BitsToInt16()
-		err = err.Add(blockYrdSquarePairs16(diff))
+		err1 = err1.Add(blockYrdSquarePairs16(diff))
 	}
-	return int(blockYrdSum32(rate)), blockYrdSum32(err)
+	return int(blockYrdSum32(rate)), blockYrdSum32(err0.Add(err1))
 }

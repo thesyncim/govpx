@@ -190,9 +190,9 @@ func (e *VP9Encoder) vp9NonrdPredBlockCtxInit(c *vp9NonrdPredBlockCtx,
 		MbToBottomEdge: ((miRows - int(common.Num8x8BlocksHighLookup[bsize]) - miRow) * common.MiSize) * 8,
 	}
 	for r := range c.ref {
-		c.ref[r] = vp9NonrdRefPredPlane{}
-		c.uvRef[r][0] = vp9NonrdChromaRefPlane{}
-		c.uvRef[r][1] = vp9NonrdChromaRefPlane{}
+		c.ref[r].valid = false
+		c.uvRef[r][0].valid = false
+		c.uvRef[r][1].valid = false
 		c.refPtr[r] = nil
 	}
 	c.bsize = bsize

@@ -40,19 +40,31 @@ func CoefEOBToken(tx common.TxSize, planeType, isInter, initCtx int) (TokenExtra
 	}, true
 }
 
+// coefProbCoordLUT maps each row index (off / UnconstrainedNodes, 0..575) to
+// its 5D coordinates in FrameCoefProbs / FrameCoefBranchStats, eliminating
+// 5 integer divisions and 4 modulos per token during staging/packing.
+var coefProbCoordLUT = func() [coefProbsFlatLen / UnconstrainedNodes][5]uint8 {
+	var lut [coefProbsFlatLen / UnconstrainedNodes][5]uint8
+	for r := range lut {
+		row := r
+		ctx := row % vp9dec.CoefContexts
+		row /= vp9dec.CoefContexts
+		band := row % vp9dec.CoefBands
+		row /= vp9dec.CoefBands
+		isInter := row % vp9dec.CoefRefTypes
+		row /= vp9dec.CoefRefTypes
+		planeType := row % vp9dec.CoefPlaneTypes
+		tx := row / vp9dec.CoefPlaneTypes
+		lut[r] = [5]uint8{uint8(tx), uint8(planeType), uint8(isInter), uint8(band), uint8(ctx)}
+	}
+	return lut
+}()
+
 // coefProbCoords decodes a flat probability offset into its 5D coordinates in
 // FrameCoefProbs and FrameCoefBranchStats.
 func coefProbCoords(off int) (tx, planeType, isInter, band, ctx int) {
-	row := off / UnconstrainedNodes
-	ctx = row % vp9dec.CoefContexts
-	row /= vp9dec.CoefContexts
-	band = row % vp9dec.CoefBands
-	row /= vp9dec.CoefBands
-	isInter = row % vp9dec.CoefRefTypes
-	row /= vp9dec.CoefRefTypes
-	planeType = row % vp9dec.CoefPlaneTypes
-	tx = row / vp9dec.CoefPlaneTypes
-	return tx, planeType, isInter, band, ctx
+	c := &coefProbCoordLUT[uint(off)/UnconstrainedNodes]
+	return int(c[0]), int(c[1]), int(c[2]), int(c[3]), int(c[4])
 }
 
 // CountCoefEOBTokens commits branch counts for validated all-zero blocks.

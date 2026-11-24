@@ -43,10 +43,32 @@ func (c *vp9NmvCostCache) prepare(ctx *vp9dec.NmvContext, useHP bool) bool {
 }
 
 func (e *VP9Encoder) prepareVP9NmvCostCacheForInter(inter *vp9InterEncodeState) {
-	if e == nil || inter == nil || !inter.mvCostFcBuilt {
+	if e == nil || inter == nil {
 		return
 	}
-	e.vp9NmvCostCache.prepare(&inter.mvCostFc.Nmvc, inter.allowHP)
+	inter.nmvCostTable = nil
+	if inter.mvCostFcBuilt && e.vp9NmvCostCache.prepare(&inter.mvCostFc.Nmvc, inter.allowHP) {
+		inter.nmvCostTable = e.vp9NmvCostCache.table
+	}
+	// Precompute frame-level inter mode and switchable interp filter cost tables
+	// once per frame (mirrors libvpx cpi->inter_mode_cost / switchable_interp_costs).
+	inter.interModeCostsValid = true
+	for ctx := range common.InterModeContexts {
+		tbl, ok := vp9NonrdInterModeCostTable(inter, ctx)
+		if !ok {
+			inter.interModeCostsValid = false
+			break
+		}
+		inter.interModeCosts[ctx] = tbl
+	}
+	modeCostCtx := vp9InterModeCostFrameContext(inter)
+	for ctx := range vp9dec.SwitchableFilterContexts {
+		for filter := range vp9dec.InterpSwitchable {
+			inter.switchableInterpCosts[ctx][filter] = vp9InterInterpFilterRateCost(inter,
+				modeCostCtx, ctx, filter)
+		}
+	}
+	inter.switchableInterpCostsValid = true
 }
 
 func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
@@ -82,15 +104,21 @@ func (e *VP9Encoder) refineVP9InterSubpelMv(inter *vp9InterEncodeState,
 	// keeps the live cost FrameContext so its subpel scoring is unchanged.
 	mvCostFc, mvCostBuilt := vp9InterMvCostFrameContext(inter)
 	var mvCostTable *encoder.NmvCostTable
-	if refMvValid && nonrdSubpelTree && mvCostBuilt &&
-		e.vp9NmvCostCache.prepare(&mvCostFc.Nmvc, allowHP) {
-		mvCostTable = e.vp9NmvCostCache.table
+	if refMvValid && nonrdSubpelTree && mvCostBuilt {
+		if inter != nil && inter.nmvCostTable != nil {
+			mvCostTable = inter.nmvCostTable
+		} else if e.vp9NmvCostCache.prepare(&mvCostFc.Nmvc, allowHP) {
+			mvCostTable = e.vp9NmvCostCache.table
+		}
+	}
+	errorPerBit := 0
+	if refMvValid {
+		errorPerBit = e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
 	}
 	mvCost := func(mv vp9dec.MV) uint64 {
 		if !refMvValid {
 			return 0
 		}
-		errorPerBit := e.vp9MVErrorPerBit(e.vp9EncoderModeDecisionQIndex())
 		if nonrdSubpelTree {
 			if !mvCostBuilt {
 				return 0
