@@ -10,6 +10,7 @@ import (
 
 type InterFrameStateConfig struct {
 	InvisibleFrame        bool
+	UseBilinear           bool
 	Segmentation          SegmentationConfig
 	SimpleLoopFilter      bool
 	LoopFilterLevel       uint8
@@ -201,7 +202,11 @@ func WriteZeroReferenceInterFrame(dst []byte, width int, height int, cfg InterFr
 		}
 	}
 
-	if err := PutFrameTag(dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+	version := 0
+	if cfg.UseBilinear {
+		version = 1
+	}
+	if err := PutFrameTag(dst, false, version, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	return n, nil

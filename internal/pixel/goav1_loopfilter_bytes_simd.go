@@ -253,3 +253,56 @@ func lfFilterDelta(outer, p0, q0 archsimd.Int8x16) archsimd.Int8x16 {
 	delta := q0.SubSaturated(p0)
 	return outer.AddSaturated(delta).AddSaturated(delta).AddSaturated(delta)
 }
+
+// LoopFilterSimpleHorizontal16 applies the VP8 simple 16-pixel horizontal edge
+// filter directly in byte-domain SIMD without multi-layer dispatch or normal-LF
+// limit/hev work. s points at row p1 (2 rows above the edge).
+func LoopFilterSimpleHorizontal16(s []byte, stride int, blimit byte) bool {
+	if stride < 16 || blimit >= 255 || 3*stride+16 > len(s) {
+		return false
+	}
+	p1 := archsimd.LoadUint8x16Array((*[16]byte)(s[0:16]))
+	p0 := archsimd.LoadUint8x16Array((*[16]byte)(s[stride : stride+16]))
+	q0 := archsimd.LoadUint8x16Array((*[16]byte)(s[2*stride : 2*stride+16]))
+	q1 := archsimd.LoadUint8x16Array((*[16]byte)(s[3*stride : 3*stride+16]))
+	d0, d3 := lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+	need := lfByteLE(d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3)), archsimd.BroadcastUint8x16(blimit))
+	bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+	if bits.GetElem(0)|bits.GetElem(1) == 0 {
+		return true
+	}
+	bias := archsimd.BroadcastUint8x16(128)
+	p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+	f := lfFilterDelta(p1c.SubSaturated(q1c), p0c, q0c).Masked(need)
+	f1 := lfByteShift3(f.AddSaturated(archsimd.BroadcastInt8x16(4)))
+	f2 := lfByteShift3(f.AddSaturated(archsimd.BroadcastInt8x16(3)))
+	p0c.AddSaturated(f2).ToBits().Xor(bias).StoreArray((*[16]byte)(s[stride : stride+16]))
+	q0c.SubSaturated(f1).ToBits().Xor(bias).StoreArray((*[16]byte)(s[2*stride : 2*stride+16]))
+	return true
+}
+
+// LoopFilterSimpleVertical16 applies the VP8 simple 16-pixel vertical edge
+// filter directly in byte-domain SIMD. s points at column p1 (2 cols left of edge).
+func LoopFilterSimpleVertical16(s []byte, stride int, blimit byte) bool {
+	if stride < 4 || blimit >= 255 || 15*stride+4 > len(s) {
+		return false
+	}
+	p1, p0, q0, q1, _, _, _, _ := loadLFColumns[[4]byte](s, 0, stride, 16)
+	d0, d3 := lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+	need := lfByteLE(d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3)), archsimd.BroadcastUint8x16(blimit))
+	bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+	if bits.GetElem(0)|bits.GetElem(1) == 0 {
+		return true
+	}
+	bias := archsimd.BroadcastUint8x16(128)
+	p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+	f := lfFilterDelta(p1c.SubSaturated(q1c), p0c, q0c).Masked(need)
+	f1 := lfByteShift3(f.AddSaturated(archsimd.BroadcastInt8x16(4)))
+	f2 := lfByteShift3(f.AddSaturated(archsimd.BroadcastInt8x16(3)))
+	np0 := p0c.AddSaturated(f2).ToBits().Xor(bias)
+	nq0 := q0c.SubSaturated(f1).ToBits().Xor(bias)
+	z := archsimd.Uint8x16{}
+	storeLFByteTileRows[[2]byte](s, 1, stride, np0, nq0, z, z, z, z)
+	storeLFByteTileRows[[2]byte](s, 1+8*stride, stride, highBytes(np0), highBytes(nq0), z, z, z, z)
+	return true
+}

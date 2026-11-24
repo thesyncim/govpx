@@ -64,6 +64,21 @@ type fastInterRefSlot struct {
 // cyclic-refresh segment quantizer. libvpx derives rd_baseline_thresh from
 // cm->base_qindex in vp8_initialize_rd_consts; only residual scoring uses the
 // segment quantizer. Using the segment Q here admits modes libvpx would skip.
+// vp8HDRealtimeFastPath enables pure-Go SIMD realtime shortcuts for HD
+// (640x360+) streams at DeadlineRealtime and |CPUUsed| >= 8: full-pel NEWMV
+// search (eliminating 6-tap subpel filtering), DC-only inter-frame intra
+// fallback, and VP8's native simple loopfilter with Q-derived level.
+func (e *VP8Encoder) vp8HDRealtimeFastPath() bool {
+	if e == nil || e.opts.Deadline != DeadlineRealtime {
+		return false
+	}
+	cpu := e.opts.CpuUsed
+	if cpu < 0 {
+		cpu = -cpu
+	}
+	return cpu >= 8 && e.opts.Width >= 640 && e.opts.Height >= 360
+}
+
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
 	src vp8enc.SourceImage, refs []interAnalysisReference, refCount int,
 	mbRow int, mbCol int, mbRows int, mbCols int,

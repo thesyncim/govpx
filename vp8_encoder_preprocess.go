@@ -82,7 +82,9 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 		// noise-sensitivity controls update oxcf but leave the active
 		// denoiser parameters sticky.
 		configure := !e.denoiser.allocated || e.denoiser.width != e.opts.Width || e.denoiser.height != e.opts.Height
-		_ = e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height)
+		if err := e.denoiser.ensureAllocated(e.opts.Width, e.opts.Height); err == nil && e.vp8HDRealtimeFastPath() {
+			e.denoiser.setUseBilinear(true)
+		}
 		if configure {
 			mode := vp8enc.DenoiserModeForSensitivity(e.opts.NoiseSensitivity)
 			e.denoiser.mode, e.denoiser.params = vp8enc.DenoiserSetParameters(mode)

@@ -94,7 +94,11 @@ func WriteNeutralKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateCo
 		}
 	}
 
-	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+	version := 0
+	if cfg.UseBilinear {
+		version = 1
+	}
+	if err := PutFrameTag(dst, true, version, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, int(cfg.HorizScale), int(cfg.VertScale)); err != nil {
@@ -172,7 +176,11 @@ func WriteZeroKeyFrame(dst []byte, width int, height int, cfg KeyFrameStateConfi
 		}
 	}
 
-	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+	version := 0
+	if cfg.UseBilinear {
+		version = 1
+	}
+	if err := PutFrameTag(dst, true, version, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, int(cfg.HorizScale), int(cfg.VertScale)); err != nil {
@@ -290,7 +298,11 @@ func WriteCoefficientKeyFrameWithProbabilityBaseScratchAndCounts(dst []byte, wid
 		}
 	}
 
-	if err := PutFrameTag(dst, true, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+	version := 0
+	if cfg.UseBilinear {
+		version = 1
+	}
+	if err := PutFrameTag(dst, true, version, !cfg.InvisibleFrame, firstSize); err != nil {
 		return 0, tables.CoefficientProbs{}, err
 	}
 	if err := PutKeyFrameExtraHeader(dst[FrameTagSize:], width, height, int(cfg.HorizScale), int(cfg.VertScale)); err != nil {

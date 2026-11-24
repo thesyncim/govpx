@@ -464,7 +464,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)
-	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount)
+	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount, e.vp8HDRealtimeFastPath())
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)
@@ -559,7 +559,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 
 	var refs [3]interAnalysisReference
 	refCount := e.interAnalysisReferences(flags, &refs)
-	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount)
+	refStates := prepareInterAnalysisReferenceStates(refs[:], refCount, e.vp8HDRealtimeFastPath())
 	sourceAltRefZeroMVOnly := e.sourceAltRefZeroMVOnly(flags)
 	if traceEnabled {
 		e.emitOracleLastRefWindow(&e.lastRef.Img)

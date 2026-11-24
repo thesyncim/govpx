@@ -4,6 +4,10 @@ package pixel
 
 import "simd/archsimd"
 
+func filterLinearFast(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) bool {
+	return false
+}
+
 // Sixteen output pixels per AVX2 register. The same negative-first proof as
 // filterNarrow8 permits exact int16 arithmetic; byte stores use AVX2-safe
 // 128-bit packing rather than AVX-512 narrowing operations.

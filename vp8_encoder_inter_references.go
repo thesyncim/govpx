@@ -68,15 +68,16 @@ func (e *VP8Encoder) interAnalysisReferences(flags EncodeFlags, refs *[3]interAn
 	return count
 }
 
-func prepareInterAnalysisReferenceStates(refs []interAnalysisReference, refCount int) [3]vp8dec.InterFrameRefState {
+func prepareInterAnalysisReferenceStates(refs []interAnalysisReference, refCount int, useBilinear bool) [3]vp8dec.InterFrameRefState {
 	var states [3]vp8dec.InterFrameRefState
+	cfg := vp8dec.InterPredictionConfig{UseBilinear: useBilinear}
 	limit := min(refCount, len(refs))
 	for i := range limit {
 		ref := &refs[i]
 		if ref.Img == nil || ref.Frame < vp8common.LastFrame || ref.Frame > vp8common.AltRefFrame {
 			continue
 		}
-		states[int(ref.Frame-vp8common.LastFrame)] = vp8dec.PrepareInterFrameRefState(ref.Img, vp8dec.InterPredictionConfig{})
+		states[int(ref.Frame-vp8common.LastFrame)] = vp8dec.PrepareInterFrameRefState(ref.Img, cfg)
 	}
 	return states
 }

@@ -11,6 +11,7 @@ type KeyFrameStateConfig struct {
 	ClampType common.ClampType
 
 	InvisibleFrame        bool
+	UseBilinear           bool
 	Segmentation          SegmentationConfig
 	SimpleLoopFilter      bool
 	LoopFilterLevel       uint8

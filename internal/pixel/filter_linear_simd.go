@@ -16,6 +16,9 @@ func filterLinear8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []in
 	}
 	_ = src[(h-1)*ss+w-1+step]
 	_ = dst[(h-1)*ds+w-1]
+	if w >= 8 && (step == 1 || step == ss) && filterLinearFast(src, ss, dst, ds, w, h, step, uint8(taps[0]), uint8(taps[1])) {
+		return true
+	}
 	c0, c1, bias := archsimd.BroadcastInt16x8(taps[0]), archsimd.BroadcastInt16x8(taps[1]), archsimd.BroadcastInt16x8(64)
 	n := 8
 	if w == 4 {

@@ -225,7 +225,11 @@ func (p *InterFramePacket) Write() (InterFramePacketResult, error) {
 		}
 	}
 
-	if err := PutFrameTag(p.Dst, false, 0, !cfg.InvisibleFrame, firstSize); err != nil {
+	version := 0
+	if cfg.UseBilinear {
+		version = 1
+	}
+	if err := PutFrameTag(p.Dst, false, version, !cfg.InvisibleFrame, firstSize); err != nil {
 		return result, err
 	}
 	result.Size = n

@@ -87,6 +87,9 @@ func mbLoopFilterVerticalEdgeUVDispatch(u []byte, v []byte, stride int, blimit, 
 }
 
 func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if pixel.LoopFilterSimpleHorizontal16(s, stride, blimit) {
+		return
+	}
 	if pixel.LoopFilter(s, 2*stride, stride, 1, 16, int(blimit), 0, 0, 2) {
 		return
 	}
@@ -95,6 +98,9 @@ func loopFilterSimpleHorizontalEdgeDispatch(s []byte, stride int, blimit byte) {
 }
 
 func loopFilterSimpleVerticalEdgeDispatch(s []byte, stride int, blimit byte) {
+	if pixel.LoopFilterSimpleVertical16(s, stride, blimit) {
+		return
+	}
 	if pixel.LoopFilter(s, 2*1, 1, stride, 16, int(blimit), 0, 0, 2) {
 		return
 	}

@@ -29,6 +29,11 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 	if count > len(input)/16 || count > len(output)/16 {
 		return 0
 	}
+	k2217, k5352, kNeg5352 := vp8BatchK2217, vp8BatchK5352, vp8BatchKNeg5352
+	seven, one := vp8BatchSeven, vp8BatchOne
+	b14500, b7500 := vp8BatchB14500, vp8BatchB7500
+	b12000, b51000 := vp8BatchB12000, vp8BatchB51000
+	var zero16 archsimd.Int16x8
 	i := 0
 	for ; i+2 <= count; i += 2 {
 		in, out := input[i*16:i*16+32], output[i*16:i*16+32]
@@ -41,33 +46,15 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 			if peak == 0 {
 				// libvpx v1.16.0 rounding leaves raster coefficient 1 equal to 1.
 				v := archsimd.Int16x8{}.SetElem(1, 1)
-				z := archsimd.Int16x8{}
 				v.StoreArray((*[8]int16)(out[0:8]))
-				z.StoreArray((*[8]int16)(out[8:16]))
+				zero16.StoreArray((*[8]int16)(out[8:16]))
 				v.StoreArray((*[8]int16)(out[16:24]))
-				z.StoreArray((*[8]int16)(out[24:32]))
+				zero16.StoreArray((*[8]int16)(out[24:32]))
 			} else {
 				forwardDCT4x4Scalar(in, 4, (*[16]int16)(out))
 				forwardDCT4x4Scalar(in[16:], 4, (*[16]int16)(out[16:]))
 			}
 			continue
-		}
-		// Constant blocks have one DC term and the exact raster-1 rounding term.
-		dc0, dc1 := r0.GetElem(0), r2.GetElem(0)
-		if dc0 == r1.GetElem(7) && dc1 == r3.GetElem(7) {
-			same0, same1 := archsimd.BroadcastInt16x8(dc0), archsimd.BroadcastInt16x8(dc1)
-			diff := r0.Xor(same0).Or(r1.Xor(same0)).Or(r2.Xor(same1)).Or(r3.Xor(same1))
-			if diff.ToBits().ReduceMax() == 0 {
-				v0 := archsimd.Int16x8{}.SetElem(0, dc0*8).SetElem(1, 1)
-				v1 := archsimd.Int16x8{}.SetElem(0, dc1*8).SetElem(1, 1)
-				z := archsimd.Int16x8{}
-				v0.StoreArray((*[8]int16)(out[0:8]))
-				z.StoreArray((*[8]int16)(out[8:16]))
-				v1.StoreArray((*[8]int16)(out[16:24]))
-				z.StoreArray((*[8]int16)(out[24:32]))
-				continue
-			}
-
 		}
 		// Deinterleave the four input columns across eight rows (two blocks).
 		even0, odd0 := r0.ConcatEven(r1), r0.ConcatOdd(r1)
@@ -77,12 +64,11 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 		x, y := a.Add(d).ShiftAllLeft(3), b.Add(c).ShiftAllLeft(3)
 		z, w := b.Sub(c).ShiftAllLeft(3), a.Sub(d).ShiftAllLeft(3)
 		v0, v2 := x.Add(y), x.Sub(y)
-		k2217, k5352, kNeg5352 := vp8BatchK2217, vp8BatchK5352, vp8BatchKNeg5352
-		v1lo := vp8Right12(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(vp8BatchB14500))
-		v1hi := vp8Right12(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(vp8BatchB14500))
+		v1lo := z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(b14500).ShiftAllRight(12)
+		v1hi := z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(b14500).ShiftAllRight(12)
 		v1 := v1lo.ToBits().ReshapeToUint16s().ConcatEven(v1hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		v3lo := vp8Right12(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(vp8BatchB7500))
-		v3hi := vp8Right12(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(vp8BatchB7500))
+		v3lo := w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(b7500).ShiftAllRight(12)
+		v3hi := w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(b7500).ShiftAllRight(12)
 		v3 := v3lo.ToBits().ReshapeToUint16s().ConcatEven(v3hi.ToBits().ReshapeToUint16s()).BitsToInt16()
 		// Transpose each block independently, retaining all eight lanes.
 		t0, t1 := v0.InterleaveLo(v1).ToBits().ReshapeToUint32s(), v2.InterleaveLo(v3).ToBits().ReshapeToUint32s()
@@ -94,14 +80,14 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 		// For residuals within +/-255 the first pass is bounded by 8160;
 		// each second-pass int16 sum plus rounding is at most 32647.
 		x, y, z, w = a.Add(d), b.Add(c), b.Sub(c), a.Sub(d)
-		v0, v2 = x.Add(y).Add(vp8BatchSeven).ShiftAllRight(4), x.Sub(y).Add(vp8BatchSeven).ShiftAllRight(4)
-		o1lo := vp8Right16(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(vp8BatchB12000))
-		o1hi := vp8Right16(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(vp8BatchB12000))
+		v0, v2 = x.Add(y).Add(seven).ShiftAllRight(4), x.Sub(y).Add(seven).ShiftAllRight(4)
+		o1lo := z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(b12000).ShiftAllRight(16)
+		o1hi := z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(b12000).ShiftAllRight(16)
 		o1 := o1lo.ToBits().ReshapeToUint16s().ConcatEven(o1hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		o3lo := vp8Right16(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(vp8BatchB51000))
-		o3hi := vp8Right16(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(vp8BatchB51000))
+		o3lo := w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(b51000).ShiftAllRight(16)
+		o3hi := w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(b51000).ShiftAllRight(16)
 		o3 := o3lo.ToBits().ReshapeToUint16s().ConcatEven(o3hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		v1 = o1.Add(w.NotEqual(archsimd.Int16x8{}).ToInt16x8().And(vp8BatchOne))
+		v1 = o1.Add(w.NotEqual(zero16).ToInt16x8().And(one))
 		v3 = o3
 		a0, a1, a2, a3 := v0.ToBits().ReshapeToUint64s(), v1.ToBits().ReshapeToUint64s(), v2.ToBits().ReshapeToUint64s(), v3.ToBits().ReshapeToUint64s()
 		a0.InterleaveLo(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[0:8]))

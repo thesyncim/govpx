@@ -53,6 +53,10 @@ func filterWide8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int1
 	return filterHoriz8ARM64(src, ss, dst, ds, w, h, taps, mode)
 }
 
+func filterLinearFast(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) bool {
+	return filterBilinear8ARM64(src, ss, dst, ds, w, h, step, t0, t1)
+}
+
 func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) bool {
 	// Half-pel (64, 64): single NEON URHADD instruction per 16 pixels.
 	if t0 == 64 && t1 == 64 {

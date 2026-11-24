@@ -183,6 +183,18 @@ func (records *InterCoefficientTokenRecords) validPreparedRows(rows int) bool {
 	return true
 }
 
+func buildFlatCoefficientProbs(probs *tables.CoefficientProbs, flatProbs *[2048 + tables.EntropyNodes]uint8) {
+	flatIdx := 0
+	for t := range tables.BlockTypes {
+		for b := range tables.CoefBands {
+			for c := range tables.PrevCoefContexts {
+				copy(flatProbs[flatIdx:flatIdx+tables.EntropyNodes], probs[t][b][c][:])
+				flatIdx += tables.EntropyNodes
+			}
+		}
+	}
+}
+
 func writePreparedInterCoefficientTokenGrid(w *BoolWriter, rows int, records *InterCoefficientTokenRecords, probs *tables.CoefficientProbs) error {
 	if w == nil || probs == nil {
 		return ErrInvalidPacketConfig
@@ -190,12 +202,13 @@ func writePreparedInterCoefficientTokenGrid(w *BoolWriter, rows int, records *In
 	if !records.validPreparedRows(rows) {
 		return ErrModeBufferTooSmall
 	}
-	rowStarts := records.rowStarts()
-	for row := range rows {
-		start, end := int(rowStarts[row]), int(rowStarts[row+1])
-		if err := writePreparedCoefficientTokenRecords(w, probs, records.Records[start:end]); err != nil {
-			return err
-		}
+	// validPreparedRows guarantees rowStarts[0]==0 and rowStarts[rows]==len(Records),
+	// so the single-partition frame can pack the contiguous slice in one call with
+	// flatProbs built once per frame instead of once per MB row.
+	var flatProbs [2048 + tables.EntropyNodes]uint8
+	buildFlatCoefficientProbs(probs, &flatProbs)
+	if err := writePreparedCoefficientTokenRecordsFlat(w, &flatProbs, records.Records); err != nil {
+		return err
 	}
 	if w.Err() != nil {
 		return w.Err()
@@ -210,19 +223,57 @@ func writePreparedInterCoefficientTokenGridPartitioned(writers *[8]BoolWriter, p
 	if !records.validPreparedRows(rows) {
 		return ErrModeBufferTooSmall
 	}
+	var flatProbs [2048 + tables.EntropyNodes]uint8
+	buildFlatCoefficientProbs(probs, &flatProbs)
 	rowStarts := records.rowStarts()
 	for row := range rows {
 		w := &writers[row&(partitions-1)]
 		start, end := int(rowStarts[row]), int(rowStarts[row+1])
-		if err := writePreparedCoefficientTokenRecords(w, probs, records.Records[start:end]); err != nil {
+		if err := writePreparedCoefficientTokenRecordsFlat(w, &flatProbs, records.Records[start:end]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// flushTokenPackByte handles the infrequent byte-emission and carry-propagation
+// path for writePreparedCoefficientTokenRecords, keeping the hot renormalization
+// loop compact in L1 instruction cache.
+//
+//go:noinline
+func flushTokenPackByte(w *BoolWriter, buf []byte, low uint32, count int, shift uint, pos int) (uint32, int, int, bool) {
+	offset := int(shift) - count
+	if ((low << uint(offset-1)) & 0x80000000) != 0 {
+		w.pos = pos
+		w.propagateCarry()
+		if w.err != 0 {
+			return low, count, pos, false
+		}
+	}
+	if pos >= len(buf) {
+		w.err = boolWriterErrBufferTooSmall
+		return low, count, pos, false
+	}
+	boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
+	pos++
+	tailShift := uint(count)
+	low = (low << uint(offset)) & 0xffffff
+	count -= 8
+	low <<= tailShift
+	return low, count, pos, true
+}
+
 func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.CoefficientProbs, records []CoefficientTokenRecord) error {
 	if w == nil || probs == nil {
+		return ErrInvalidPacketConfig
+	}
+	var flatProbs [2048 + tables.EntropyNodes]uint8
+	buildFlatCoefficientProbs(probs, &flatProbs)
+	return writePreparedCoefficientTokenRecordsFlat(w, &flatProbs, records)
+}
+
+func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + tables.EntropyNodes]uint8, records []CoefficientTokenRecord) error {
+	if w == nil || flatProbs == nil {
 		return ErrInvalidPacketConfig
 	}
 	if w.err != 0 {
@@ -234,19 +285,6 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	count := w.count
 	pos := w.pos
 	buf := w.buf
-	// Pad flatProbs to 2048+EntropyNodes so the masked 11-bit probOffset
-	// (0..2047) proves flatProbs[probOffset:probOffset+EntropyNodes] in-bounds
-	// at compile time, eliminating per-token bounds checks.
-	var flatProbs [2048 + tables.EntropyNodes]uint8
-	flatIdx := 0
-	for t := range tables.BlockTypes {
-		for b := range tables.CoefBands {
-			for c := range tables.PrevCoefContexts {
-				copy(flatProbs[flatIdx:flatIdx+tables.EntropyNodes], probs[t][b][c][:])
-				flatIdx += tables.EntropyNodes
-			}
-		}
-	}
 
 	// Records are validated at the producer (countBlockCoefficientTokensAndRecords)
 	// before being packed by appendTokenUnchecked. By the time we reach this
@@ -270,24 +308,11 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
-						return storeBlockTokenPack(w, low, rng, count, pos)
-					}
-				}
-				if pos >= len(buf) {
-					w.err = boolWriterErrBufferTooSmall
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
 			} else {
 				low <<= shift
 			}
@@ -304,24 +329,11 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 				rng <<= shift
 				count += int(shift)
 				if count >= 0 {
-					offset := int(shift) - count
-					if ((low << uint(offset-1)) & 0x80000000) != 0 {
-						w.pos = pos
-						w.propagateCarry()
-						if w.err != 0 {
-							return storeBlockTokenPack(w, low, rng, count, pos)
-						}
-					}
-					if pos >= len(buf) {
-						w.err = boolWriterErrBufferTooSmall
+					var ok bool
+					low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+					if !ok {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
-					boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-					pos++
-					tailShift := uint(count)
-					low = (low << uint(offset)) & 0xffffff
-					count -= 8
-					low <<= tailShift
 				} else {
 					low <<= shift
 				}
@@ -337,26 +349,102 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
+					return storeBlockTokenPack(w, low, rng, count, pos)
+				}
+			} else {
+				low <<= shift
+			}
+			continue
+		}
+
+		if token == tables.OneToken {
+			// OneToken is the dominant non-zero token at realtime quantizers:
+			// tree path is (node0=1 if !skipEOB), node1=1, node2=0, followed by
+			// the sign bit with zero extra magnitude bits.
+			if raw&(1<<coefficientTokenRecordSkipEOBNodeShift) == 0 {
+				split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
+				low += split
+				rng -= split
+				shift := uint(bits.LeadingZeros8(uint8(rng)))
+				rng <<= shift
+				count += int(shift)
+				if count >= 0 {
+					var ok bool
+					low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+					if !ok {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
+				} else {
+					low <<= shift
 				}
+			}
+			// node 1 -> bit 1 (non-zero)
+			{
+				split := uint32(1 + (((rng - 1) * uint32(p[1])) >> 8))
+				low += split
+				rng -= split
+				shift := uint(bits.LeadingZeros8(uint8(rng)))
+				rng <<= shift
+				count += int(shift)
+				if count >= 0 {
+					var ok bool
+					low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+					if !ok {
+						return storeBlockTokenPack(w, low, rng, count, pos)
+					}
+				} else {
+					low <<= shift
+				}
+			}
+			// node 2 -> bit 0 (OneToken)
+			{
+				split := uint32(1 + (((rng - 1) * uint32(p[2])) >> 8))
+				rng = split
+				if rng&0x80 == 0 || count >= 0 {
+					shift := uint(bits.LeadingZeros8(uint8(rng)))
+					rng <<= shift
+					count += int(shift)
+					if count >= 0 {
+						var ok bool
+						low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+						if !ok {
+							return storeBlockTokenPack(w, low, rng, count, pos)
+						}
+					} else {
+						low <<= shift
+					}
+				}
+			}
+			// sign bit
+			split := (rng + 1) >> 1
+			if (raw>>coefficientTokenRecordSignShift)&1 == 0 {
+				rng = split
+			} else {
+				low += split
+				rng -= split
+			}
+			rng <<= 1
+			if (low & 0x80000000) != 0 {
+				w.pos = pos
+				w.propagateCarry()
+				if w.err != 0 {
+					return storeBlockTokenPack(w, low, rng, count, pos)
+				}
+			}
+			low <<= 1
+			count++
+			if count == 0 {
+				count = -8
 				if pos >= len(buf) {
 					w.err = boolWriterErrBufferTooSmall
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
+				boolWriterStoreByte(buf, pos, byte(low>>24))
 				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
-			} else {
-				low <<= shift
+				low &= 0xffffff
 			}
 			continue
 		}
@@ -390,24 +478,11 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
-						return storeBlockTokenPack(w, low, rng, count, pos)
-					}
-				}
-				if pos >= len(buf) {
-					w.err = boolWriterErrBufferTooSmall
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
 			} else {
 				low <<= shift
 			}
@@ -439,24 +514,11 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
-						return storeBlockTokenPack(w, low, rng, count, pos)
-					}
-				}
-				if pos >= len(buf) {
-					w.err = boolWriterErrBufferTooSmall
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
 			} else {
 				low <<= shift
 			}
@@ -578,24 +640,11 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
-						return storeBlockTokenPack(w, low, rng, count, pos)
-					}
-				}
-				if pos >= len(buf) {
-					w.err = boolWriterErrBufferTooSmall
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
 			} else {
 				low <<= shift
 			}
@@ -621,24 +670,11 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 				rng <<= shift
 				count += int(shift)
 				if count >= 0 {
-					offset := int(shift) - count
-					if ((low << uint(offset-1)) & 0x80000000) != 0 {
-						w.pos = pos
-						w.propagateCarry()
-						if w.err != 0 {
-							return storeBlockTokenPack(w, low, rng, count, pos)
-						}
-					}
-					if pos >= len(buf) {
-						w.err = boolWriterErrBufferTooSmall
+					var ok bool
+					low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+					if !ok {
 						return storeBlockTokenPack(w, low, rng, count, pos)
 					}
-					boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-					pos++
-					tailShift := uint(count)
-					low = (low << uint(offset)) & 0xffffff
-					count -= 8
-					low <<= tailShift
 				} else {
 					low <<= shift
 				}
@@ -699,24 +735,11 @@ func writeBlockTokensEOB(w *BoolWriter, probs *tables.CoefficientProbs, blockTyp
 			rng <<= shift
 			count += int(shift)
 			if count >= 0 {
-				offset := int(shift) - count
-				if ((low << uint(offset-1)) & 0x80000000) != 0 {
-					w.pos = pos
-					w.propagateCarry()
-					if w.err != 0 {
-						return storeBlockTokenPack(w, low, rng, count, pos)
-					}
-				}
-				if pos >= len(buf) {
-					w.err = boolWriterErrBufferTooSmall
+				var ok bool
+				low, count, pos, ok = flushTokenPackByte(w, buf, low, count, shift, pos)
+				if !ok {
 					return storeBlockTokenPack(w, low, rng, count, pos)
 				}
-				boolWriterStoreByte(buf, pos, byte((low>>uint(24-offset))&0xff))
-				pos++
-				tailShift := uint(count)
-				low = (low << uint(offset)) & 0xffffff
-				count -= 8
-				low <<= tailShift
 			} else {
 				low <<= shift
 			}

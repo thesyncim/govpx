@@ -236,6 +236,7 @@ func (e *VP8Encoder) encodeKeyFrameAttempt(dst []byte, source vp8enc.SourceImage
 
 	cfg := vp8enc.KeyFrameStateConfig{
 		InvisibleFrame:        invisible,
+		UseBilinear:           e.vp8HDRealtimeFastPath(),
 		SimpleLoopFilter:      lfHeader.Type == vp8dec.SimpleLoopFilter,
 		TokenPartition:        vp8common.TokenPartition(e.opts.TokenPartitions),
 		BaseQIndex:            uint8(e.rc.currentQuantizer),
@@ -661,6 +662,7 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	e.framePredictionError = 0
 	cfg := vp8enc.DefaultInterFrameStateConfig(uint8(e.rc.currentQuantizer))
 	cfg.InvisibleFrame = flags&EncodeInvisibleFrame != 0
+	cfg.UseBilinear = e.vp8HDRealtimeFastPath()
 	cfg.TokenPartition = vp8common.TokenPartition(e.opts.TokenPartitions)
 	cfg.QuantDeltas = libvpxFrameQuantDeltas(e.rc.currentQuantizer, e.opts.ScreenContentMode)
 	cfg.LoopFilterLevel, cfg.SharpnessLevel = e.encoderLoopFilter(vp8common.InterFrame)
@@ -836,12 +838,16 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if vp8PhaseStatsEnabled {
 		phase = e.phaseStart()
 	}
-	loopFilterSource := source
-	if e.opts.NoiseSensitivity > 0 && e.denoiser.allocated {
-		e.denoiser.runningAvg[denoiserAvgIntra].ExtendBorders()
-		loopFilterSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
+	if e.vp8HDRealtimeFastPath() {
+		cfg.LoopFilterLevel = uint8(min(vp8enc.LibvpxInitialLoopFilterLevel(e.rc.currentQuantizer), 63))
+	} else {
+		loopFilterSource := source
+		if e.opts.NoiseSensitivity > 0 && e.denoiser.allocated {
+			e.denoiser.runningAvg[denoiserAvgIntra].ExtendBorders()
+			loopFilterSource = vp8enc.CodedSourceImageFromImage(&e.denoiser.runningAvg[denoiserAvgIntra].Img)
+		}
+		cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(loopFilterSource, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	}
-	cfg.LoopFilterLevel, err = e.pickLoopFilterLevel(loopFilterSource, vp8common.InterFrame, cfg.LoopFilterLevel, cfg.SharpnessLevel, rows, cols, required, segmentation, cfg.RefreshGolden, cfg.RefreshAltRef)
 	if vp8PhaseStatsEnabled {
 		e.phaseEnd(encoderPhaseLoopFilterPick, phase)
 	}

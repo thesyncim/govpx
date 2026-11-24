@@ -45,6 +45,16 @@ type denoiserState struct {
 	state []uint8
 }
 
+func (d *denoiserState) setUseBilinear(useBilinear bool) {
+	if !d.allocated {
+		return
+	}
+	cfg := vp8dec.InterPredictionConfig{UseBilinear: useBilinear}
+	for i := range d.runningAvg {
+		d.refStates[i] = vp8dec.PrepareInterFrameRefState(&d.runningAvg[i].Img, cfg)
+	}
+}
+
 func (d *denoiserState) ensureAllocated(width int, height int) error {
 	if d.allocated && d.width == width && d.height == height {
 		return nil
