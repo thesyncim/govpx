@@ -792,7 +792,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					encodeBreakout := e.interStaticThresholdForSegment(segmentID)
 					if encodeBreakout == 0 && hdFast {
 						yAC := int(quant.Y1.Dequant[1])
-						encodeBreakout = max((yAC*yAC)>>1, 1)
+						encodeBreakout = max(yAC*yAC*2, 1)
 					}
 					if encodeBreakout > 0 {
 						yAC := int(quant.Y1.Dequant[1])

@@ -86,6 +86,9 @@ func (e *VP8Encoder) interAnalysisSearchConfig() interAnalysisSearchConfig {
 	// "libvpx-realistic cpu_used+1" override was retired.
 	cfg.improvedMVPrediction = libvpxInterFrameImprovedMVPredictionForFeatureSpeed(e.opts.Deadline, speed)
 	if e.opts.Deadline != DeadlineRealtime {
+		if e.vp8HDRealtimeFastPath() {
+			cfg.fractionalSearch = interAnalysisFractionalSearchHalf
+		}
 		return cfg
 	}
 	// search_method=HEX / iterative_sub_pixel=0 (onyx_if.c:951-955

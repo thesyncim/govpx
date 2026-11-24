@@ -46,9 +46,9 @@ against pinned `libvpx v1.16.0` (C + NEON assembly). All encode rows pass
 | VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **2.51 ms** (399.1 fps) | 2.51 ms (399.1 fps) | **1.00×** | 0.58× wall, 1.00× bytes |
 | VP9 good 720p, 1T (`-cpu-used 4`) | **35.28 ms** (28.3 fps) | 42.85 ms (23.3 fps) | **0.82×** | SSIM −0.004, 0.91× inter bytes |
 | VP9 realtime 720p, 1T (`-cpu-used 8`) | **5.75 ms** (174.0 fps) | 6.45 ms (155.0 fps) | **0.89×** | 0.71× wall, 1.00× bytes |
-| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`) | **2.77 ms** (361.2 fps) | 3.02 ms (331.4 fps) | **0.92×** | 0.70× wall, 0.55 allocs/frame |
-| VP8 decode 720p, 1T | **1.48 ms** (675.3 fps) | 1.24 ms (803.7 fps) | **1.19×** | 0.00 allocs/frame |
-| VP9 decode 720p, 1T (300 frames) | **0.80 ms** (1,244 fps) | 0.60 ms (1,669 fps) | **1.34×** | p50 0.75 ms, 0.00 allocs/frame |
+| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **5.11 ms** (195.6 fps) | 7.54 ms (132.7 fps) | **0.68×** | 1.47× faster, 1.00× bytes |
+| VP8 decode 720p, 1T | **2.14 ms** (467.6 fps) | 2.28 ms (437.9 fps) | **0.94×** | 1.07× faster, 0.00 allocs/frame |
+| VP9 decode 720p, 1T (287 frames) | **1.14 ms** (878.8 fps) | 0.91 ms (1,095 fps) | **1.25×** | p50 1.10 ms, 0.00 allocs/frame |
 
 Performance depends on CPU, resolution, bitrate, and mode — reproduce for your
 workload with `cmd/govpx-bench` (see [Benchmarking](#benchmarking)).

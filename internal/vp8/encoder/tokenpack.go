@@ -342,8 +342,8 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 		if token == tables.DCTEOBToken {
 			split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset])) >> 8))
 			rng = split
-			// A normalized EOB needs neither a shift nor a byte flush.
-			if rng&0x80 != 0 && count < 0 {
+			// A normalized EOB needs neither a shift nor a byte flush (count is always < 0 here).
+			if rng&0x80 != 0 {
 				continue
 			}
 
@@ -384,7 +384,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 
 			split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset+1])) >> 8))
 			rng = split
-			if rng&0x80 != 0 && count < 0 {
+			if rng&0x80 != 0 {
 				continue
 			}
 
@@ -446,7 +446,7 @@ func writePreparedCoefficientTokenRecordsFlat(w *BoolWriter, flatProbs *[2048 + 
 			{
 				split := uint32(1 + (((rng - 1) * uint32(flatProbs[probOffset+2])) >> 8))
 				rng = split
-				if rng&0x80 == 0 || count >= 0 {
+				if rng&0x80 == 0 {
 					shift := uint(bits.LeadingZeros8(uint8(rng)))
 					rng <<= shift
 					count += int(shift)
