@@ -944,12 +944,11 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if e.interCoefTokenRecordsValid {
 		packet.PrebuiltCoefTokens = &e.interCoefTokenRecords
 	}
-	lfWaited := false
 	if e.rowWorkers != nil && e.opts.TokenPartitions > 0 && e.interCoefTokenRecordsValid {
-		if lfErr := lfApply.wait(); lfErr != nil {
-			return interFrameEncodeAttempt{}, lfErr
-		}
-		lfWaited = true
+		// Overlap async loopfilter with the first-partition header/mode write;
+		// PackTokenPartitions awaits pendingLF right before reusing the pool.
+		e.rowWorkers.pendingLF = lfApply
+		lfApply = asyncLFApply{}
 		packet.PartitionPacker = e.rowWorkers
 	}
 	if vp8PhaseStatsEnabled {
@@ -959,10 +958,12 @@ func (e *VP8Encoder) encodeInterFrameAttempt(dst []byte, source vp8enc.SourceIma
 	if vp8PhaseStatsEnabled {
 		e.phaseEnd(encoderPhasePacketWrite, phase)
 	}
-	if !lfWaited {
-		if lfErr := lfApply.wait(); lfErr != nil {
-			return interFrameEncodeAttempt{}, lfErr
-		}
+	if e.rowWorkers != nil && e.rowWorkers.pendingLF.pool != nil {
+		lfApply = e.rowWorkers.pendingLF
+		e.rowWorkers.pendingLF = asyncLFApply{}
+	}
+	if lfErr := lfApply.wait(); lfErr != nil {
+		return interFrameEncodeAttempt{}, lfErr
 	}
 	if err != nil {
 		return interFrameEncodeAttempt{}, translateEncoderError(err)

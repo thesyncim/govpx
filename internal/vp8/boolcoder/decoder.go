@@ -3,6 +3,7 @@ package boolcoder
 import (
 	"encoding/binary"
 	"errors"
+	"math/bits"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -43,6 +44,40 @@ func (d *Decoder) Init(src []byte) error {
 	return nil
 }
 
+// fillBoolSlow refills the 64-bit boolean decoder register when count < 0.
+// Kept //go:noinline so hot coefficient loops do not inline the cold refill
+// path at every readBool site (which bloats code size and spills registers).
+//
+//go:noinline
+func fillBoolSlow(buf []byte, pos int, value uint64, count int) (uint64, int, int) {
+	shift := valueSize - 8 - (count + 8)
+	bytesLeft := len(buf) - pos
+	if bytesLeft > 8 {
+		big := binary.BigEndian.Uint64(buf[pos:])
+		consumed := (shift >> 3) + 1
+		value |= (big >> (uint(56-shift) & 63)) &^ (uint64(1)<<uint(shift&7) - 1)
+		count += consumed << 3
+		pos += consumed
+		return value, count, pos
+	}
+	bitsLeft := bytesLeft * 8
+	x := shift + 8 - bitsLeft
+	loopEnd := 0
+	if x >= 0 {
+		count += lotsOfBits
+		loopEnd = x
+	}
+	if x < 0 || bitsLeft != 0 {
+		for shift >= loopEnd {
+			count += 8
+			value |= uint64(buf[pos]) << (uint(shift) & 63)
+			pos++
+			shift -= 8
+		}
+	}
+	return value, count, pos
+}
+
 func (d *Decoder) ReadBool(prob uint8) uint8 {
 	rng0 := d.rng
 	split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
@@ -53,25 +88,19 @@ func (d *Decoder) ReadBool(prob uint8) uint8 {
 	}
 
 	bigsplit := uint64(split) << (valueSize - 8)
-
 	value := d.value
 	rng := split
 	bit := uint8(0)
-
 	if value >= bigsplit {
 		rng = rng0 - split
 		value -= bigsplit
 		bit = 1
 	}
 
-	shift := tables.BoolNorm[byte(rng)]
-	rng <<= shift & 31
-	value <<= shift & 63
-	count -= int(shift)
-
-	d.value = value
-	d.count = count
-	d.rng = rng
+	shift := uint32(bits.LeadingZeros8(uint8(rng))) & 7
+	d.rng = rng << shift
+	d.value = value << shift
+	d.count = count - int(shift)
 	return bit
 }
 
@@ -85,25 +114,19 @@ func (d *Decoder) ReadBit() uint8 {
 	}
 
 	bigsplit := uint64(split) << (valueSize - 8)
-
 	value := d.value
 	rng := split
 	bit := uint8(0)
-
 	if value >= bigsplit {
 		rng = rng0 - split
 		value -= bigsplit
 		bit = 1
 	}
 
-	shift := tables.BoolNorm[byte(rng)]
-	rng <<= shift & 31
-	value <<= shift & 63
-	count -= int(shift)
-
-	d.value = value
-	d.count = count
-	d.rng = rng
+	shift := uint32(bits.LeadingZeros8(uint8(rng))) & 7
+	d.rng = rng << shift
+	d.value = value << shift
+	d.count = count - int(shift)
 	return bit
 }
 
@@ -362,41 +385,11 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 	pos := d.pos
 	buf := d.buf
 
-	// fill mirrors libvpx v1.16.0 vp8/decoder/dboolhuff.c
-	// vp8dx_bool_decoder_fill; see ReadVP8BlockCoeffs for the batched-load
-	// equivalence argument.
-	fill := func() {
-		shift := valueSize - 8 - (count + 8)
-		bytesLeft := len(buf) - pos
-		if bytesLeft > 8 {
-			big := binary.BigEndian.Uint64(buf[pos:])
-			consumed := (shift >> 3) + 1
-			value |= (big >> (uint(56-shift) & 63)) &^ (uint64(1)<<uint(shift&7) - 1)
-			count += consumed << 3
-			pos += consumed
-			return
-		}
-		bitsLeft := bytesLeft * 8
-		x := shift + 8 - bitsLeft
-		loopEnd := 0
-		if x >= 0 {
-			count += lotsOfBits
-			loopEnd = x
-		}
-		if x < 0 || bitsLeft != 0 {
-			for shift >= loopEnd {
-				count += 8
-				value |= uint64(buf[pos]) << (uint(shift) & 63)
-				pos++
-				shift -= 8
-			}
-		}
-	}
 	readBool := func(prob uint8) uint8 {
 		rng0 := rng
 		split := uint32(1 + (((rng0 - 1) * uint32(prob)) >> 8))
 		if count < 0 {
-			fill()
+			value, count, pos = fillBoolSlow(buf, pos, value, count)
 		}
 
 		bigsplit := uint64(split) << (valueSize - 8)
@@ -408,9 +401,9 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 			bit = 1
 		}
 
-		shift := tables.BoolNorm[byte(nextRange)]
-		rng = nextRange << (shift & 31)
-		value <<= shift & 63
+		shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+		rng = nextRange << shift
+		value <<= shift
 		count -= int(shift)
 		return bit
 	}
@@ -420,21 +413,21 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		rng0 := rng
 		split := (rng0 + 1) >> 1
 		if count < 0 {
-			fill()
+			value, count, pos = fillBoolSlow(buf, pos, value, count)
 		}
 		bigsplit := uint64(split) << (valueSize - 8)
 		nextRange := split
-		var mask int16
+		var m16 int16
 		if value >= bigsplit {
 			nextRange = rng0 - split
 			value -= bigsplit
-			mask = -1
+			m16 = -1
 		}
 		rng = nextRange << 1
 		value <<= 1
 		count--
 		v := int16(coeff)
-		return (v ^ mask) - mask
+		return (v ^ m16) - m16
 	}
 	readTokenCategory := func(cat int) int {
 		v := 0

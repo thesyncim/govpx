@@ -29,13 +29,8 @@ func dcOnlyIDCT4x4AddPairSIMD(delta0 int16, delta1 int16, pred []byte, predStrid
 }
 
 func dequantIDCTAddFull2xSIMD(q *[32]int16, dq *[16]int16, dst []byte, stride int) {
-	if !pixel.Enabled {
-		dequantIDCTAddFull2xFallback(q, dq, dst, stride)
+	if dequantInverse4PairGo(q, dq, dst, stride) {
 		return
 	}
-	var tmp [16]int16
-	pixel.Mul16(q[:16], dq[:], tmp[:], 16)
-	idct4x4AddSIMD(&tmp, dst, stride, dst, stride)
-	pixel.Mul16(q[16:], dq[:], tmp[:], 16)
-	idct4x4AddSIMD(&tmp, dst[4:], stride, dst[4:], stride)
+	dequantIDCTAddFull2xFallback(q, dq, dst, stride)
 }

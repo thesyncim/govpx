@@ -216,6 +216,7 @@ type rowWorkerPool struct {
 	args         threadedInterRowsArgs
 	lfTrial      lfTrialArgs
 	lfApply      lfApplyArgs
+	pendingLF    asyncLFApply
 	tokenPack    tokenPackArgs
 	workerCount  int
 	required     int
@@ -353,6 +354,13 @@ func (p *rowWorkerPool) runTokenPackWorker(workerIndex int) {
 }
 
 func (p *rowWorkerPool) PackTokenPartitions(writers *[8]vp8enc.BoolWriter, partitions int, rows int, records *vp8enc.InterCoefficientTokenRecords, flatProbs *vp8enc.FlatCoefficientProbs) error {
+	if p.pendingLF.pool != nil {
+		lf := p.pendingLF
+		p.pendingLF = asyncLFApply{}
+		if err := lf.wait(); err != nil {
+			return err
+		}
+	}
 	workers := min(len(p.workers), partitions)
 	if workers <= 1 {
 		for part := range partitions {

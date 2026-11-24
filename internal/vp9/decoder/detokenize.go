@@ -1,6 +1,8 @@
 package decoder
 
 import (
+	"math/bits"
+
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
@@ -172,7 +174,7 @@ func vpxReadNoFill(prob uint32,
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
 	return bit, value << shift, nextRange << shift, count - int32(shift)
 }
 
@@ -191,7 +193,7 @@ func vpxReadBitNoFill(
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
 	return bit, value << shift, nextRange << shift, count - int32(shift)
 }
 
@@ -350,6 +352,8 @@ func decodeCoefsReaderState(
 	tokenCache *[1024]uint8,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
+	_ = scan[maxEob-1]
+	_ = neighbors[(maxEob<<1)-1]
 	bt := bandTranslatePadded(txSize)
 	dqShift := uint(0)
 	if txSize == common.Tx32x32 {
@@ -614,6 +618,8 @@ func decodeCoefsWithCountsReaderState(
 	tokenCache *[1024]uint8,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
+	_ = scan[maxEob-1]
+	_ = neighbors[(maxEob<<1)-1]
 	bt := bandTranslatePadded(txSize)
 	dqShift := uint(0)
 	if txSize == common.Tx32x32 {
@@ -890,6 +896,8 @@ func decodeCoefsSlowTail(
 	skipEob bool,
 ) int {
 	maxEob := maxEobForTxSize(txSize)
+	_ = scan[maxEob-1]
+	_ = neighbors[(maxEob<<1)-1]
 	bt := bandTranslatePadded(txSize)
 	dqShift := uint(0)
 	if txSize == common.Tx32x32 {

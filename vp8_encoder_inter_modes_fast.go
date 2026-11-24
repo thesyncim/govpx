@@ -64,19 +64,22 @@ type fastInterRefSlot struct {
 // cyclic-refresh segment quantizer. libvpx derives rd_baseline_thresh from
 // cm->base_qindex in vp8_initialize_rd_consts; only residual scoring uses the
 // segment quantizer. Using the segment Q here admits modes libvpx would skip.
-// vp8HDRealtimeFastPath enables pure-Go SIMD realtime shortcuts for HD
-// (640x360+) streams at DeadlineRealtime and |CPUUsed| >= 8: full-pel NEWMV
-// search (eliminating 6-tap subpel filtering), DC-only inter-frame intra
-// fallback, and VP8's native simple loopfilter with Q-derived level.
+// vp8HDRealtimeFastPath enables pure-Go SIMD Profile 1 shortcuts (2-tap
+// bilinear subpel, simple loopfilter with Q-derived level, and conditional
+// quarter-pel refinement) for HD (640x360+) streams at fast realtime
+// (|CpuUsed| >= 8) and fast good-quality (|CpuUsed| >= 5) settings.
 func (e *VP8Encoder) vp8HDRealtimeFastPath() bool {
-	if e == nil || e.opts.Deadline != DeadlineRealtime {
+	if e == nil || e.opts.Width < 640 || e.opts.Height < 360 {
 		return false
 	}
 	cpu := e.opts.CpuUsed
 	if cpu < 0 {
 		cpu = -cpu
 	}
-	return cpu >= 8 && e.opts.Width >= 640 && e.opts.Height >= 360
+	if e.opts.Deadline == DeadlineRealtime {
+		return cpu >= 8
+	}
+	return e.opts.Deadline == DeadlineGoodQuality && cpu >= 5
 }
 
 func (e *VP8Encoder) selectFastInterFrameModeDecision(
@@ -156,6 +159,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	}
 
 	rdActive := e.interRDFrameActive
+	hdFast := e.vp8HDRealtimeFastPath()
+	hdNewMVSkipSSE := 0
+	if hdFast && quant != nil {
+		yAC := int(quant.Y1.Dequant[1])
+		hdNewMVSkipSSE = (yAC * yAC) >> 2
+	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
@@ -171,6 +180,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
+		if hdFast && mbMode == vp8common.NewMV && bestSet && !bestUseIntra && bestSSE <= hdNewMVSkipSSE {
+			continue
+		}
 		if refSlot == 0 {
 			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
 				continue
@@ -425,6 +437,12 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	}
 
 	rdActive := e.interRDFrameActive
+	hdFast := e.vp8HDRealtimeFastPath()
+	hdNewMVSkipSSE := 0
+	if hdFast && quant != nil {
+		yAC := int(quant.Y1.Dequant[1])
+		hdNewMVSkipSSE = (yAC * yAC) >> 2
+	}
 	modeOrder := &libvpxFastInterModeOrder
 	refOrder := &libvpxFastRefFrameOrder
 	inactiveMB := e.interMacroblockInactive(mbRow, mbCol, mbCols)
@@ -440,6 +458,9 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 
 		mbMode := modeOrder[modeIndex]
 		refSlot := refOrder[modeIndex]
+		if hdFast && mbMode == vp8common.NewMV && bestSet && !bestUseIntra && bestSSE <= hdNewMVSkipSSE {
+			continue
+		}
 		if refSlot == 0 {
 			if rdActive && !e.interRDModeTestAllowedFast(modeIndex) {
 				continue

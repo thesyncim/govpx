@@ -143,7 +143,16 @@ func (e *VP9Encoder) prepareVP9InterBlockResidue(inter *vp9InterEncodeState,
 		mi.Mv = e.vp9InterIntraCommitMv()
 		mi.RefFrame = [2]int8{vp9dec.IntraFrame, vp9dec.NoRefFrame}
 		mi.InterpFilter = uint8(vp9dec.SwitchableFilters)
-		if interDecision.txSize < common.TxSizes {
+		if txMode := vp9InterFrameTxMode(inter); txMode != common.TxModeSelect {
+			maxTx := clampVP9TxSizeForBlock(common.MaxTxsizeLookup[bsize], bsize)
+			if inter.lossless {
+				mi.TxSize = common.Tx4x4
+			} else if txMode < common.TxModes {
+				mi.TxSize = min(common.TxModeToBiggestTxSize[txMode], maxTx)
+			} else {
+				mi.TxSize = maxTx
+			}
+		} else if interDecision.txSize < common.TxSizes {
 			mi.TxSize = interDecision.txSize
 		}
 		if mi.SbType < common.Block8x8 {
@@ -676,6 +685,15 @@ func (e *VP9Encoder) pickVP9InterTxSize(inter *vp9InterEncodeState,
 		return maxTx
 	}
 	maxTx = clampVP9TxSizeForBlock(maxTx, bsize)
+	if txMode := vp9InterFrameTxMode(inter); txMode != common.TxModeSelect {
+		if inter.lossless {
+			return common.Tx4x4
+		}
+		if txMode < common.TxModes {
+			return min(common.TxModeToBiggestTxSize[txMode], maxTx)
+		}
+		return maxTx
+	}
 	if maxTx < common.Tx8x8 {
 		return maxTx
 	}

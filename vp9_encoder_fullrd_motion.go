@@ -103,7 +103,7 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 	// NSTEP full_pixel_diamond runs exactly as before.
 	stepParam := 0
 	searchMethod := e.sf.Mv.SearchMethod
-	if vp9InterUseDeepRDUsePartition {
+	if vp9InterUseDeepRDUsePartition || searchMethod != SearchMethodNStep {
 		const mvStepParam = 0 // no-recode RT runtime cpi->mv_step_param
 		stepParam = encoder.FullRdSingleMotionStepParam(mvStepParam,
 			opts.maxMvContext, e.sf.Mv.AutoMvStepSize != 0,
@@ -117,10 +117,6 @@ func (e *VP9Encoder) vp9FullRDFullPelMv(inter *vp9InterEncodeState,
 			e.sf.AdaptiveMotionSearch != 0, bsize == common.Block64x64,
 			int(common.BWidthLog2Lookup[common.Block64x64]), bwl, bhl,
 			int(opts.predSad))
-	} else {
-		// Flag OFF: the production/cpu0 path used the fixed NSTEP diamond
-		// regardless of the SF method. Preserve that exactly.
-		searchMethod = SearchMethodNStep
 	}
 
 	switch searchMethod {

@@ -613,12 +613,25 @@ func (e *VP9Encoder) vp9KeyframeRDPartitionBreakoutThresholds(root common.BlockS
 func (e *VP9Encoder) vp9KeyframeRDPartitionNoneBreakout(root common.BlockSize,
 	rd vp9KeyframePartitionRD, lossless bool,
 ) bool {
-	if lossless || !rd.skippable {
+	if lossless {
 		return false
 	}
 	distBreakoutThr, rateBreakoutThr := e.vp9KeyframeRDPartitionBreakoutThresholds(root)
-	return rd.distortion < distBreakoutThr>>2 ||
-		(rd.distortion < distBreakoutThr && rd.rate < rateBreakoutThr)
+	if rd.skippable {
+		return rd.distortion < distBreakoutThr>>2 ||
+			(rd.distortion < distBreakoutThr && rd.rate < rateBreakoutThr)
+	}
+	// At good speed >= 4, break out of deeper partition splits when NONE
+	// already fits the block with low transform-domain distortion. This avoids
+	// exhaustive 64x64 -> 4x4 recursion on smooth/medium keyframe regions while
+	// preserving 4x4 splits on sharp high-detail edges.
+	if e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 4 && distBreakoutThr > 0 {
+		if root == common.Block8x8 {
+			return rd.distortion < distBreakoutThr>>5
+		}
+		return rd.distortion < distBreakoutThr>>7
+	}
+	return false
 }
 
 func (e *VP9Encoder) vp9KeyframeRDRectAllowedAfterSplitMiss(root common.BlockSize,

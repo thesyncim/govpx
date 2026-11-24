@@ -2,8 +2,7 @@ package bitstream
 
 import (
 	"errors"
-
-	"github.com/thesyncim/govpx/internal/vp9/tables"
+	"math/bits"
 )
 
 // Ported from libvpx v1.16.0:
@@ -114,14 +113,10 @@ func (r *Reader) Read(prob uint32) uint32 {
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-
-	r.value = value
-	r.count = count
-	r.rng = nextRange
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	r.rng = nextRange << shift
+	r.value = value << shift
+	r.count = count - int32(shift)
 	return bit
 }
 
@@ -146,14 +141,10 @@ func (r *Reader) ReadBit() uint32 {
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-
-	r.value = value
-	r.count = count
-	r.rng = nextRange
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	r.rng = nextRange << shift
+	r.value = value << shift
+	r.count = count - int32(shift)
 	return bit
 }
 
@@ -178,14 +169,10 @@ func (s *ReaderState) Read(prob uint32) uint32 {
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-
-	s.Value = value
-	s.Count = count
-	s.Range = nextRange
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	s.Range = nextRange << shift
+	s.Value = value << shift
+	s.Count = count - int32(shift)
 	return bit
 }
 
@@ -210,14 +197,10 @@ func (s *ReaderState) ReadBit() uint32 {
 		bit = 1
 	}
 
-	shift := uint32(tables.VpxNorm[byte(nextRange)])
-	nextRange <<= shift
-	value <<= shift
-	count -= int32(shift)
-
-	s.Value = value
-	s.Count = count
-	s.Range = nextRange
+	shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
+	s.Range = nextRange << shift
+	s.Value = value << shift
+	s.Count = count - int32(shift)
 	return bit
 }
 
@@ -282,7 +265,7 @@ func (r *Reader) ReadTree(tree []int8, probs []uint8) int {
 				value -= bigsplit
 				bit = 1
 			}
-			shift := uint32(tables.VpxNorm[byte(nextRange)])
+			shift := uint32(bits.LeadingZeros8(uint8(nextRange))) & 7
 			value <<= shift
 			rng = nextRange << shift
 			count -= int32(shift)

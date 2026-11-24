@@ -1525,76 +1525,133 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 	aCtx := pd.AboveContext[aboveBase:]
 	lCtx := pd.LeftContext[leftBase:]
 	coeffs := d.dqcoeff[:vp9dec.MaxEobForTxSize(txSize)]
-	for rr := 0; rr < num4x4H; rr += step {
-		rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
-		for cc := 0; cc < num4x4W; cc += step {
-			initCtx := 0
-			switch txSize {
-			case common.Tx4x4:
+	// Hoist txSize switch out of the inner (rr, cc) loop so each size runs a
+	// tight branch-free context read/update without repeated switching.
+	switch txSize {
+	case common.Tx4x4:
+		for rr := 0; rr < num4x4H; rr++ {
+			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+			lv := lCtx[rr]
+			for cc := 0; cc < num4x4W; cc++ {
+				initCtx := 0
 				if aCtx[cc] != 0 {
 					initCtx++
 				}
-				if lCtx[rr] != 0 {
+				if lv != 0 {
 					initCtx++
 				}
-			case common.Tx8x8:
+				eob := vp9dec.DecodeCoefsState(rs, common.Tx4x4, planeType, 1, dequant,
+					initCtx, so, &d.fc.CoefProbs, coefCounts,
+					&d.dqcoeff, &d.coefTokenCache)
+				eobTotal += eob
+				hasResidue := uint8(0)
+				if eob > 0 {
+					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
+						common.Tx4x4, common.DctDct, eob, lossless)
+					clearVP9DecodedDQCoeffs(coeffs, common.Tx4x4, common.DctDct, eob)
+					hasResidue = 1
+				}
+				aCtx[cc] = hasResidue
+				lv = hasResidue
+			}
+			lCtx[rr] = lv
+		}
+	case common.Tx8x8:
+		for rr := 0; rr < num4x4H; rr += 2 {
+			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+			lv := lCtx[rr] | lCtx[rr+1]
+			for cc := 0; cc < num4x4W; cc += 2 {
+				initCtx := 0
 				if aCtx[cc]|aCtx[cc+1] != 0 {
 					initCtx++
 				}
-				if lCtx[rr]|lCtx[rr+1] != 0 {
+				if lv != 0 {
 					initCtx++
 				}
-			case common.Tx16x16:
+				eob := vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
+					initCtx, so, &d.fc.CoefProbs, coefCounts,
+					&d.dqcoeff, &d.coefTokenCache)
+				eobTotal += eob
+				hasResidue := uint8(0)
+				if eob > 0 {
+					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
+						common.Tx8x8, common.DctDct, eob, lossless)
+					clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
+					hasResidue = 1
+				}
+				aCtx[cc] = hasResidue
+				aCtx[cc+1] = hasResidue
+				lv = hasResidue
+			}
+			lCtx[rr] = lv
+			lCtx[rr+1] = lv
+		}
+	case common.Tx16x16:
+		for rr := 0; rr < num4x4H; rr += 4 {
+			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+			lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3]
+			for cc := 0; cc < num4x4W; cc += 4 {
+				initCtx := 0
 				if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3] != 0 {
 					initCtx++
 				}
-				if lCtx[rr]|lCtx[rr+1]|lCtx[rr+2]|lCtx[rr+3] != 0 {
+				if lv != 0 {
 					initCtx++
 				}
-			default:
-				if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]|
-					aCtx[cc+4]|aCtx[cc+5]|aCtx[cc+6]|aCtx[cc+7] != 0 {
-					initCtx++
+				eob := vp9dec.DecodeCoefsState(rs, common.Tx16x16, planeType, 1, dequant,
+					initCtx, so, &d.fc.CoefProbs, coefCounts,
+					&d.dqcoeff, &d.coefTokenCache)
+				eobTotal += eob
+				hasResidue := uint8(0)
+				if eob > 0 {
+					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
+						common.Tx16x16, common.DctDct, eob, lossless)
+					clearVP9DecodedDQCoeffs(coeffs, common.Tx16x16, common.DctDct, eob)
+					hasResidue = 1
 				}
-				if lCtx[rr]|lCtx[rr+1]|lCtx[rr+2]|lCtx[rr+3]|
-					lCtx[rr+4]|lCtx[rr+5]|lCtx[rr+6]|lCtx[rr+7] != 0 {
-					initCtx++
-				}
-			}
-			eob := vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
-				initCtx, so, &d.fc.CoefProbs, coefCounts,
-				&d.dqcoeff, &d.coefTokenCache)
-			eobTotal += eob
-			hasResidue := uint8(0)
-			if eob > 0 {
-				vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
-					txSize, common.DctDct, eob, lossless)
-				clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
-				hasResidue = 1
-			}
-			switch txSize {
-			case common.Tx4x4:
-				aCtx[cc] = hasResidue
-				lCtx[rr] = hasResidue
-			case common.Tx8x8:
-				aCtx[cc] = hasResidue
-				aCtx[cc+1] = hasResidue
-				lCtx[rr] = hasResidue
-				lCtx[rr+1] = hasResidue
-			case common.Tx16x16:
 				aCtx[cc] = hasResidue
 				aCtx[cc+1] = hasResidue
 				aCtx[cc+2] = hasResidue
 				aCtx[cc+3] = hasResidue
-				lCtx[rr] = hasResidue
-				lCtx[rr+1] = hasResidue
-				lCtx[rr+2] = hasResidue
-				lCtx[rr+3] = hasResidue
-			default:
+				lv = hasResidue
+			}
+			lCtx[rr] = lv
+			lCtx[rr+1] = lv
+			lCtx[rr+2] = lv
+			lCtx[rr+3] = lv
+		}
+	default:
+		for rr := 0; rr < num4x4H; rr += step {
+			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+			lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3] |
+				lCtx[rr+4] | lCtx[rr+5] | lCtx[rr+6] | lCtx[rr+7]
+			for cc := 0; cc < num4x4W; cc += step {
+				initCtx := 0
+				if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]|
+					aCtx[cc+4]|aCtx[cc+5]|aCtx[cc+6]|aCtx[cc+7] != 0 {
+					initCtx++
+				}
+				if lv != 0 {
+					initCtx++
+				}
+				eob := vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
+					initCtx, so, &d.fc.CoefProbs, coefCounts,
+					&d.dqcoeff, &d.coefTokenCache)
+				eobTotal += eob
+				hasResidue := uint8(0)
+				if eob > 0 {
+					vp9dec.InverseTransformBlock(coeffs, rowDst[cc*4:], dstStride,
+						txSize, common.DctDct, eob, lossless)
+					clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
+					hasResidue = 1
+				}
 				for i := range 8 {
 					aCtx[cc+i] = hasResidue
-					lCtx[rr+i] = hasResidue
 				}
+				lv = hasResidue
+			}
+			for i := range 8 {
+				lCtx[rr+i] = lv
 			}
 		}
 	}

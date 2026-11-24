@@ -517,7 +517,6 @@ func (e *VP8Encoder) copyDenoiserAvgForRefresh(cfg vp8enc.InterFrameStateConfig)
 		return
 	}
 	intra := &e.denoiser.runningAvg[denoiserAvgIntra]
-	intra.ExtendBorders()
 	if cfg.RefreshLast {
 		vp8common.CopyImage(&e.denoiser.runningAvg[denoiserAvgLast].Img, &intra.Img)
 		e.denoiser.runningAvg[denoiserAvgLast].ExtendBorders()

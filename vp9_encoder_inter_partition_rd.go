@@ -336,8 +336,20 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 	// NONE search left in x->pred_mv[] into the node. In step (a) the source
 	// is the sentinel-seeded node value (no thread yet); the call keeps the
 	// skeleton shaped like libvpx so step (b) only has to feed real MVs in.
-	_ = noneRD
 	node.storePredMv(node.predMv)
+
+	// Honor PartitionSearchBreakoutThr (libvpx vp9_encodeframe.c:3830) on
+	// speed >= 1 good-mode inter frames when PARTITION_NONE already achieved
+	// very low distortion/rate.
+	if e.opts.Deadline == DeadlineGoodQuality && e.opts.CpuUsed >= 3 &&
+		e.sf.PartitionSearchBreakoutThr.Dist > 0 {
+		distThr, rateThr := e.vp9KeyframeRDPartitionBreakoutThresholds(root)
+		if noneRD.distortion < distThr>>2 ||
+			(noneRD.distortion < distThr && noneRD.rate < rateThr) {
+			node.partitioning = bestSize
+			return bestSize
+		}
+	}
 
 	// The arm scorers below re-seed x->pred_mv from the node via loadPredMv
 	// before each child (mirroring load_pred_mv at :3898/:4037/:4087). The
@@ -346,7 +358,9 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 	// current tail (NONE done; then HORZ, VERT, SPLIT) so the committed size
 	// is byte-identical — see the file header for why the libvpx canonical
 	// order is deferred.
-	if hasRows {
+	allowRect := !(e.sf.UseSquarePartitionOnly != 0 &&
+		(root > e.sf.UseSquareOnlyThreshHigh || root < e.sf.UseSquareOnlyThreshLow))
+	if hasRows && (allowRect || !hasCols) {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_HORZ (:4037)
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, horzSize, bs, 0); ok {
@@ -358,7 +372,7 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	if hasCols {
+	if hasCols && (allowRect || !hasRows) {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_VERT (:4087)
 		if score, ok := e.scoreVP9InterPartitionPairShallow(inter, tile,
 			miRows, miCols, miRow, miCol, vertSize, 0, bs); ok {
@@ -370,7 +384,7 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	if hasRows && hasCols {
+	if hasRows && hasCols && splitSize >= e.sf.RdAutoPartitionMinLimit {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_SPLIT (:3898)
 		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
 			miRows, miCols, miRow, miCol, splitSize); ok {

@@ -190,7 +190,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationThre
 	if err != nil {
 		return 0, err
 	}
-	e.analysis.ExtendBorders()
+	if !e.vp8HDRealtimeFastPath() {
+		e.analysis.ExtendBorders()
+	}
 	return threadedRate, nil
 }
 
@@ -415,7 +417,9 @@ func (e *VP8Encoder) buildReconstructingKeyFrameCoefficientsWithSegmentationSeri
 		}
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
-	e.analysis.ExtendBorders()
+	if !e.vp8HDRealtimeFastPath() {
+		e.analysis.ExtendBorders()
+	}
 	e.lastKeyFrameReconstructWorkerCount = 1
 	return totalRate, nil
 }
@@ -509,7 +513,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentationTh
 	if err != nil {
 		return 0, err
 	}
-	e.analysis.ExtendBorders()
+	if !e.vp8HDRealtimeFastPath() {
+		e.analysis.ExtendBorders()
+	}
 	return threadedRate, nil
 }
 
@@ -735,41 +741,15 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			// mode is chosen (rdopt.c:2298, vp8_denoiser_denoise_mb) and
 			// never resets x->skip. The previous denoiser guard hid a
 			// genuine breakout-fires miss on static-thresh=1000+noise=6.
-			staticBreakout := vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
-			// libvpx vp8/encoder/encodeframe.c vp8cx_encode_inter_macroblock
-			// (line 1275-1281): vp8_encode_inter16x16 runs whenever x->skip
-			// is 0. libvpx sets x->skip = 1 in exactly two places inside
-			// evaluate_inter_mode_rd:
-			//   (1) rdopt.c:1607-1608 — active_map_enabled && active_ptr[0]==0
-			//   (2) rdopt.c:1620-1628 — static encode_breakout (sse/var/uvsse
-			//                            triple threshold) fires.
-			// The picker's downstream mbmi.mb_skip_coeff signal (set from
-			// tteob==0 rate accounting in calculate_final_rd_costs at
-			// rdopt.c:1700) does NOT set x->skip and does NOT gate the
-			// encode-side vp8_encode_inter16x16 rebuild. The encode-side
-			// re-runs vp8_subtract_mb + transform_mb + vp8_quantize_mb +
-			// optimize_mb with the regular quantizer (post-pick switch at
-			// encodeframe.c:1176-1178) and trellis, which can yield non-
-			// zero coefficients even when the picker's fastquant /
-			// fastquant-for-pick reported tteob==0 (different b->zbin_extra
-			// carry, trellis KEEP decisions on small-magnitude tokens,
-			// SPLITMV per-subblock predictor rebuild). govpx's picker MB
-			// MBSkipCoeff conflated the inactive-map case (real libvpx
-			// x->skip=1) with the tteob==0 rate-adjustment case (libvpx
-			// leaves x->skip=0). Mirror libvpx faithfully by gating
-			// breakoutSkip only on the two real x->skip sources:
-			// inactiveMB (active-map) and staticBreakout (encode_breakout).
-			//
-			// Closes the BestARNR -5 / GoodARNR -6 byte pins at
-			// threads=1, threads=2, and threads=4 on the 19981bff /
-			// 22f3d67c / 788d442c cohort. Discovery: at
-			// threads=1, the entire picker parity report (mode/ref/mv) is
-			// byte-identical to libvpx for all 3600 frame-1 MBs; the only
-			// divergent state is MB(17,79) SPLITMV/LAST where govpx's
-			// picker tteob==0 short-circuit zeroed the qcoeff while
-			// libvpx's encode produced block-7 eob=13 from its regular
-			// trellis-optimized rebuild.
 			isInactiveMB := e.interMacroblockInactive(row, col, cols)
+			staticBreakout := false
+			if modes[index].RefFrame != vp8common.IntraFrame && !isInactiveMB {
+				if e.vp8HDRealtimeFastPath() && decision.interMode.MBSkipCoeff {
+					staticBreakout = true
+				} else {
+					staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, e.interStaticThresholdForSegment(segmentID))
+				}
+			}
 			breakoutSkip := modes[index].RefFrame != vp8common.IntraFrame &&
 				(isInactiveMB || staticBreakout)
 			if breakoutSkip {
@@ -910,7 +890,9 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 		e.interCoefTokenRecords.MarkRowEnd(row)
 		vp8dec.ExtendIntraRightEdgeForRow(&e.analysis.Img, row)
 	}
-	e.analysis.ExtendBorders()
+	if !e.vp8HDRealtimeFastPath() {
+		e.analysis.ExtendBorders()
+	}
 	e.framePredictionError = totalPredictionError
 	// Lane D: cache is now fully populated for the consumer (packet writer).
 	e.interCoefTokenCountsValid = true

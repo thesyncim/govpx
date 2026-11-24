@@ -751,6 +751,23 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOB(key *vp9KeyframeEncodeS
 	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
 	qindex int, out, qOut []int16,
 ) (bool, int) {
+	return e.prepareVP9KeyframeTxResidueWithQEOBOpt(key, pd, plane, mode, txSize,
+		tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4,
+		dequant, qindex, out, qOut, false)
+}
+
+// prepareVP9KeyframeTxResidueWithQEOBOpt is prepareVP9KeyframeTxResidueWithQEOB
+// with an optional skipInvTx flag. During RD scoring, when transform-domain
+// distortion is active and no later transform block in the partition reads this
+// block's reconstructed pixels before the recon rect is restored, skipping the
+// inverse transform is 100% bit-exact and avoids the hottest scalar kernel on
+// keyframes.
+func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOBOpt(key *vp9KeyframeEncodeState,
+	pd *vp9dec.MacroblockdPlane, plane int, mode common.PredictionMode,
+	txSize common.TxSize, tile vp9dec.TileBounds, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, blockRow4x4, blockCol4x4 int, dequant [2]int16,
+	qindex int, out, qOut []int16, skipInvTx bool,
+) (bool, int) {
 	dst, stride, x0, y0, ok := e.predictVP9KeyframeTx(key.hdr, pd, plane, mode,
 		txSize, tile, miRows, miCols, miRow, miCol, bsize, blockRow4x4, blockCol4x4)
 	if !ok {
@@ -764,8 +781,11 @@ func (e *VP9Encoder) prepareVP9KeyframeTxResidueWithQEOB(key *vp9KeyframeEncodeS
 	if !e.gatherVP9TxResidual(src, srcStride, srcW, srcH, dst, stride, x0, y0, txSize) {
 		return false, 0
 	}
-	eob := e.quantizeVP9TxResidualWithQTrellis(dst, stride, txSize, txType, dequant, qindex,
-		out, qOut, key.lossless, false, false, nil)
+	useFastQuant := skipInvTx && e.sf.UseFastCoefCosting != 0
+	useLp32x32RD := skipInvTx && e.sf.UseLp32x32Fdct != 0
+	eob := e.quantizeVP9TxResidualWithQTrellisFPTablesOpt(dst, stride, txSize, txType,
+		dequant, qindex, out, qOut, key.lossless, useFastQuant, useLp32x32RD,
+		encoder.QuantizeFPTables{}, nil, skipInvTx)
 	if eob == 0 {
 		return false, 0
 	}
@@ -1070,6 +1090,18 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellisFPTables(dst []byte, strid
 	fpTables encoder.QuantizeFPTables,
 	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
 ) int {
+	return e.quantizeVP9TxResidualWithQTrellisFPTablesOpt(dst, stride, txSize, txType,
+		dequant, qindex, out, qOut, lossless, useFastQuant, useLp32x32RD,
+		fpTables, trellis, false)
+}
+
+func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellisFPTablesOpt(dst []byte, stride int,
+	txSize common.TxSize, txType common.TxType, dequant [2]int16, qindex int,
+	out, qOut []int16, lossless bool, useFastQuant bool, useLp32x32RD bool,
+	fpTables encoder.QuantizeFPTables,
+	trellis func(coeff, qcoeff, dqcoeff []int16, eob int) int,
+	skipInvTx bool,
+) int {
 	maxEob := vp9dec.MaxEobForTxSize(txSize)
 	if txType >= common.TxTypes || maxEob > vp9EncoderTxCoeffSlots ||
 		dequant[0] == 0 || dequant[1] == 0 || len(out) < maxEob {
@@ -1186,8 +1218,10 @@ func (e *VP9Encoder) quantizeVP9TxResidualWithQTrellisFPTables(dst []byte, strid
 	if wantQ {
 		copy(qOut[:maxEob], e.qCoeffScratch[:maxEob])
 	}
-	vp9dec.InverseTransformBlock(out[:maxEob],
-		dst, stride, txSize, txType, eob, lossless)
+	if !skipInvTx {
+		vp9dec.InverseTransformBlock(out[:maxEob],
+			dst, stride, txSize, txType, eob, lossless)
+	}
 	return eob
 }
 

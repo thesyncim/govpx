@@ -12,6 +12,13 @@ func QuantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *BlockQuant, zbinO
 	if coeff == nil || quant == nil || qcoeff == nil || dqcoeff == nil {
 		return 0
 	}
+	zbinExtra := (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+	minZbin := min(int(quant.Zbin[0]), int(quant.Zbin[1])) + int(quant.ZbinBoost[0]) + zbinExtra
+	if quantizeBlockAllZeroSIMD(coeff, minZbin) {
+		*qcoeff = [16]int16{}
+		*dqcoeff = [16]int16{}
+		return 0
+	}
 	eob := -1
 	zeroRun := 0
 	for pos := range 16 {
@@ -32,9 +39,7 @@ func QuantizeBlockWithZbinAndActivity(coeff *[16]int16, quant *BlockQuant, zbinO
 		// Branchless |z| via sign mask: sign is -1 when z<0, 0 otherwise.
 		sign := z >> intSignShift
 		x := (z ^ sign) - sign
-		zbin := int(quant.Zbin[rc])
-		zbin += int(quant.ZbinBoost[zeroRun&15])
-		zbin += (int(quant.Dequant[1]) * (zbinOverQuant + zbinModeBoost + actZbinAdj)) >> 7
+		zbin := int(quant.Zbin[rc]) + int(quant.ZbinBoost[zeroRun&15]) + zbinExtra
 		if x < zbin {
 			qcoeff[rc] = 0
 			dqcoeff[rc] = 0
