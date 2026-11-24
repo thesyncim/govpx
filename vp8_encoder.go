@@ -17,10 +17,17 @@ func nanotime() int64 {
 	return time.Since(monotonicOrigin).Nanoseconds()
 }
 
-// runtimeProcYield yields the current goroutine during short worker waits.
+// runtimeProcYield performs a brief non-preemptive CPU spin pause during
+// wavefront/worker waits. Callers escalate to runtime.Gosched() on backoff,
+// avoiding Go scheduler/pthread_cond thrashing on every spin iteration.
+//
+//go:noinline
 func runtimeProcYield(cycles uint32) {
-	_ = cycles
-	runtime.Gosched()
+	for i := uint32(0); i < cycles; i++ {
+		if i == ^uint32(0) {
+			runtime.Gosched()
+		}
+	}
 }
 
 // Deadline selects the encoder speed/quality operating mode.
