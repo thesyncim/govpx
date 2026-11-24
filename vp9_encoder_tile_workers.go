@@ -119,17 +119,14 @@ type vp9TileWorkerPool struct {
 	outputs     [][]byte
 	outputSize  int
 
-	// start / done mirror libvpx's VPxWorker launch/sync handshake
-	// (vpx_util/vpx_thread.c thread_loop + change_state). Each helper
-	// blocks on its start channel exactly like a pthread_cond_wait in
-	// idling mode, runs one job per received token, and posts one token
-	// to done — the sync side (waitHelperWorkers) collects exactly one
-	// token per helper, matching the cond-signal handshake libvpx uses
-	// for sync(). No spinning: libvpx workers sleep between jobs.
-	start     []chan struct{}
-	doneCount atomic.Int32
-	shutdown  chan struct{}
-	wg        sync.WaitGroup
+	// wakeSlots / doneCount drive helper launch and join using pure atomics
+	// during active frames (zero channel ops, zero runtime.acquireSudog
+	// allocations), parking cleanly on the wake channel only when idle.
+	wakeSlots     []workerWakeSlot
+	dispatchEpoch uint64
+	doneCount     atomic.Int32
+	shutdown      chan struct{}
+	wg            sync.WaitGroup
 
 	// lfJobs / lfSync back the vp9TileWorkerJobLoopFilter epoch: the same
 	// worker set that encodes the tiles also runs the frame loop filter as
@@ -446,15 +443,14 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		countTokens: make([]encoder.TokenFrameBuffer, workers),
 		encodeJobs:  make([]vp9EncodeTileJob, workers),
 		outputs:     make([][]byte, workers),
-		start:       make([]chan struct{}, workers),
+		wakeSlots:   make([]workerWakeSlot, workers),
 		shutdown:    make(chan struct{}),
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
-		start := make(chan struct{}, 1)
-		pool.start[i] = start
+		pool.wakeSlots[i].init()
 		pool.wg.Add(1)
-		go pool.workerLoop(i, start)
+		go pool.workerLoop(i)
 	}
 	for i := range pool.workers {
 		pool.workers[i].initVP9NmvCostCache()
@@ -480,15 +476,19 @@ func (p *vp9TileWorkerPool) ensureOutputSize(size int) {
 	p.outputSize = size
 }
 
-// workerLoop mirrors libvpx's thread_loop (vpx_util/vpx_thread.c): the
-// helper sleeps until launched, runs exactly one job per launch token, and
-// signals completion back to the sync side. Blocking on the channel is the
-// Go analogue of pthread_cond_wait; spinning here previously burned entire
-// cores in runtime.Gosched -> wakep -> pthread_cond_signal storms during
-// the serial sections between tile passes.
-func (p *vp9TileWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
+// workerLoop waits on the worker's atomic epoch lane (spinning briefly to
+// bridge inter-pass/inter-frame gaps without channel sudog allocations, then
+// parking when idle), runs one job per epoch, and increments doneCount.
+func (p *vp9TileWorkerPool) workerLoop(workerIndex int) {
 	defer p.wg.Done()
-	for range start {
+	slot := &p.wakeSlots[workerIndex]
+	var seenEpoch uint64
+	for {
+		var ok bool
+		seenEpoch, ok = slot.wait(seenEpoch, vp9WorkerIdleSpinBudget)
+		if !ok {
+			return
+		}
 		p.runHelperWorkerJob(workerIndex)
 		p.doneCount.Add(1)
 	}
@@ -568,8 +568,10 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	}
 	p.jobKind.Store(uint32(kind))
 	p.doneCount.Store(0)
+	p.dispatchEpoch++
+	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.start[workerIndex] <- struct{}{}
+		p.wakeSlots[workerIndex].signal(epoch)
 	}
 }
 
@@ -603,8 +605,8 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 	case <-p.shutdown:
 	default:
 		close(p.shutdown)
-		for workerIndex := 1; workerIndex < len(p.start); workerIndex++ {
-			close(p.start[workerIndex])
+		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
+			p.wakeSlots[workerIndex].close()
 		}
 	}
 	p.wg.Wait()

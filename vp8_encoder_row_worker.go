@@ -151,12 +151,73 @@ func (p *paddedAtomicInt64) Load() int64 {
 }
 
 const (
-	// Helpers usually receive the next frame immediately after finishing
-	// their row slice. Spin briefly before parking so steady realtime
-	// encodes avoid runtime sudog churn on the worker start channels.
+	// Helpers usually receive the next pass or frame immediately after finishing
+	// their slice. Spin briefly with infrequent Gosched backoff so steady-state
+	// encodes avoid channel/sudog churn without triggering Gosched lock storms.
 	rowWorkerIdleSpinBudget       = 65536
+	vp9WorkerIdleSpinBudget       = 16384
 	rowWorkerIdleSchedulerBackoff = 4096
+	workerWakeShutdownEpoch       = ^uint64(0)
 )
+
+// workerWakeSlot is a cache-line-padded atomic epoch + lazy-park wakeup lane.
+// Under steady-state encoding, helpers observe epoch updates via pure atomics
+// (zero channel operations, zero runtime.acquireSudog allocations). When idle
+// longer than spinBudget, the helper parks cleanly on wake.
+type workerWakeSlot struct {
+	epoch    atomic.Uint64
+	sleeping atomic.Bool
+	wake     chan struct{}
+	_        [encoderCacheLineSize - 24]byte
+}
+
+func (s *workerWakeSlot) init() {
+	s.wake = make(chan struct{}, 1)
+}
+
+func (s *workerWakeSlot) signal(nextEpoch uint64) {
+	s.epoch.Store(nextEpoch)
+	if s.sleeping.Load() {
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *workerWakeSlot) close() {
+	s.epoch.Store(workerWakeShutdownEpoch)
+	if s.wake != nil {
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (s *workerWakeSlot) wait(seenEpoch uint64, spinBudget int) (uint64, bool) {
+	for spins := range spinBudget {
+		if cur := s.epoch.Load(); cur != seenEpoch {
+			return cur, cur != workerWakeShutdownEpoch
+		}
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
+	}
+	for {
+		s.sleeping.Store(true)
+		if cur := s.epoch.Load(); cur != seenEpoch {
+			s.sleeping.Store(false)
+			return cur, cur != workerWakeShutdownEpoch
+		}
+		<-s.wake
+		s.sleeping.Store(false)
+		if cur := s.epoch.Load(); cur != seenEpoch {
+			return cur, cur != workerWakeShutdownEpoch
+		}
+	}
+}
 
 func encoderThreadSyncRange(mbCols int) int {
 	switch {
@@ -203,9 +264,11 @@ type rowWorkerPool struct {
 	// syncRange mirrors libvpx's cpi->mt_sync_range.
 	syncRange int
 
-	// start has one lane per helper worker. The main goroutine owns lane 0,
-	// so only lanes [1, len(workers)) have persistent goroutines.
-	start []chan struct{}
+	// wakeSlots has one atomic epoch+park lane per helper worker. The main
+	// goroutine owns lane 0, so only lanes [1, len(workers)) have persistent
+	// goroutines.
+	wakeSlots     []workerWakeSlot
+	dispatchEpoch uint64
 
 	// Frame-local dispatch state read by persistent worker goroutines.
 	// The dispatcher writes these fields before sending on start and
@@ -244,7 +307,7 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		workers:      make([]rowEncoderState, threads),
 		rowProgress:  make([]paddedAtomicInt64, mbRows),
 		syncRange:    encoderThreadSyncRange(mbCols),
-		start:        make([]chan struct{}, threads),
+		wakeSlots:    make([]workerWakeSlot, threads),
 		workerErrors: make([]error, threads),
 		shutdown:     make(chan struct{}),
 	}
@@ -252,18 +315,21 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		pool.workers[i].dotArtifactChecked = make([]bool, mbRows*mbCols)
 	}
 	for i := 1; i < len(pool.workers); i++ {
-		start := make(chan struct{}, 1)
-		pool.start[i] = start
+		pool.wakeSlots[i].init()
 		pool.wg.Add(1)
-		go pool.workerLoop(i, start)
+		go pool.workerLoop(i)
 	}
 	return pool
 }
 
-func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
+func (p *rowWorkerPool) workerLoop(workerIndex int) {
 	defer p.wg.Done()
+	slot := &p.wakeSlots[workerIndex]
+	var seenEpoch uint64
 	for {
-		if !p.waitForWorkerStart(start) {
+		var ok bool
+		seenEpoch, ok = slot.wait(seenEpoch, rowWorkerIdleSpinBudget)
+		if !ok {
 			return
 		}
 		workerCount := p.workerCount
@@ -286,29 +352,15 @@ func (p *rowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 	}
 }
 
-func (p *rowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
-	for spins := range rowWorkerIdleSpinBudget {
-		select {
-		case _, ok := <-start:
-			return ok
-		default:
-		}
-		runtimeProcYield(30)
-		if spins >= rowWorkerIdleSchedulerBackoff && spins%rowWorkerIdleSchedulerBackoff == 0 {
-			runtime.Gosched()
-		}
-	}
-	_, ok := <-start
-	return ok
-}
-
 func (p *rowWorkerPool) startHelperWorkers() {
 	if p == nil || p.workerCount <= 1 {
 		return
 	}
 	p.doneCount.Store(0)
+	p.dispatchEpoch++
+	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.start[workerIndex] <- struct{}{}
+		p.wakeSlots[workerIndex].signal(epoch)
 	}
 }
 
@@ -513,7 +565,14 @@ func (p *rowWorkerPool) resetForEncoderReset() {
 		return
 	}
 	for i := range p.workers {
-		p.workers[i] = rowEncoderState{}
+		dot := p.workers[i].dotArtifactChecked
+		records := p.workers[i].interCoefTokenRecords
+		p.workers[i] = rowEncoderState{
+			dotArtifactChecked:    dot,
+			interCoefTokenRecords: records,
+		}
+		clear(p.workers[i].dotArtifactChecked)
+		p.workers[i].interCoefTokenRecords.Reset(0, 0)
 	}
 	for i := range p.rowProgress {
 		p.rowProgress[i].value.Store(0)
@@ -585,8 +644,8 @@ func (p *rowWorkerPool) shutdownPool() {
 		// already closed
 	default:
 		close(p.shutdown)
-		for workerIndex := 1; workerIndex < len(p.start); workerIndex++ {
-			close(p.start[workerIndex])
+		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
+			p.wakeSlots[workerIndex].close()
 		}
 	}
 	p.wg.Wait()

@@ -33,11 +33,12 @@ type vp9RowWorkerPool struct {
 	// order after the wavefront completes.
 	rowTokens []encoder.TokenFrameBuffer
 
-	// start[i] gates worker i. Helpers block between frame count passes and
-	// wake when the dispatcher queues the next row batch.
-	start    []chan struct{}
-	shutdown chan struct{}
-	wg       sync.WaitGroup
+	// wakeSlots[i] gates worker i using atomic epoch + lazy-park wakeup
+	// (zero channel ops / zero sudog allocations during active frames).
+	wakeSlots     []workerWakeSlot
+	dispatchEpoch uint64
+	shutdown      chan struct{}
+	wg            sync.WaitGroup
 
 	// queue is the shared FIFO of SB-row indices the row workers consume.
 	// nextRow is the atomic claim cursor; rows are popped via FetchAdd so
@@ -297,24 +298,27 @@ func newVP9RowWorkerPool(workers int) *vp9RowWorkerPool {
 	}
 	pool := &vp9RowWorkerPool{
 		workers:     make([]vp9RowEncoderState, workers),
-		start:       make([]chan struct{}, workers),
+		wakeSlots:   make([]workerWakeSlot, workers),
 		shutdown:    make(chan struct{}),
 		errors:      make([]error, workers),
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
-		ch := make(chan struct{}, 1)
-		pool.start[i] = ch
+		pool.wakeSlots[i].init()
 		pool.wg.Add(1)
-		go pool.workerLoop(i, ch)
+		go pool.workerLoop(i)
 	}
 	return pool
 }
 
-func (p *vp9RowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
+func (p *vp9RowWorkerPool) workerLoop(workerIndex int) {
 	defer p.wg.Done()
+	slot := &p.wakeSlots[workerIndex]
+	var seenEpoch uint64
 	for {
-		if !p.waitForWorkerStart(start) {
+		var ok bool
+		seenEpoch, ok = slot.wait(seenEpoch, vp9WorkerIdleSpinBudget)
+		if !ok {
 			return
 		}
 		if workerIndex < p.workerCount {
@@ -322,11 +326,6 @@ func (p *vp9RowWorkerPool) workerLoop(workerIndex int, start <-chan struct{}) {
 		}
 		p.doneCount.Add(1)
 	}
-}
-
-func (p *vp9RowWorkerPool) waitForWorkerStart(start <-chan struct{}) bool {
-	_, ok := <-start
-	return ok
 }
 
 // consumeRows is the per-worker hot loop. It claims the next row index
@@ -382,8 +381,10 @@ func (p *vp9RowWorkerPool) dispatch(rows []int, job vp9RowWorkerJob) error {
 		p.errors[i] = nil
 	}
 	// Wake helpers (workers 1..workerCount-1).
+	p.dispatchEpoch++
+	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.start[workerIndex] <- struct{}{}
+		p.wakeSlots[workerIndex].signal(epoch)
 	}
 	// Drive worker 0 on the dispatcher goroutine.
 	if p.workerCount > 0 {
@@ -467,10 +468,8 @@ func (p *vp9RowWorkerPool) shutdownPool() {
 	case <-p.shutdown:
 	default:
 		close(p.shutdown)
-		for workerIndex := 1; workerIndex < len(p.start); workerIndex++ {
-			if p.start[workerIndex] != nil {
-				close(p.start[workerIndex])
-			}
+		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
+			p.wakeSlots[workerIndex].close()
 		}
 	}
 	p.wg.Wait()

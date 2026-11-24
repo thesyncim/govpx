@@ -31,14 +31,18 @@ func bilinearPredict8x8Maybe(src []byte, srcStride int, xoffset int, yoffset int
 
 func bilinearPredictGo(src []byte, ss, x, y int, dst []byte, ds, w, h int) {
 	if y == 0 {
-		pixel.Filter(src, ss, dst, ds, w, h, 1, tables.BilinearFilters[x][:])
+		fx := tables.BilinearFilters[x]
+		pixel.FilterBilinear(src, ss, dst, ds, w, h, 1, uint8(fx[0]), uint8(fx[1]))
 		return
 	}
 	if x == 0 {
-		pixel.Filter(src, ss, dst, ds, w, h, ss, tables.BilinearFilters[y][:])
+		fy := tables.BilinearFilters[y]
+		pixel.FilterBilinear(src, ss, dst, ds, w, h, ss, uint8(fy[0]), uint8(fy[1]))
 		return
 	}
+	fx := tables.BilinearFilters[x]
+	fy := tables.BilinearFilters[y]
 	var tmp [17 * 16]byte
-	pixel.Filter(src, ss, tmp[:], w, w, h+1, 1, tables.BilinearFilters[x][:])
-	pixel.Filter(tmp[:], w, dst, ds, w, h, w, tables.BilinearFilters[y][:])
+	pixel.FilterBilinear(src, ss, tmp[:], w, w, h+1, 1, uint8(fx[0]), uint8(fx[1]))
+	pixel.FilterBilinear(tmp[:], w, dst, ds, w, h, w, uint8(fy[0]), uint8(fy[1]))
 }

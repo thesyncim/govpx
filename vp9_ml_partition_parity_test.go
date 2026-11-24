@@ -80,7 +80,6 @@ func TestVP9MLPredictVarPartitioningSyntheticUniform(t *testing.T) {
 		estPred:     estPred,
 		sbMiRow:     0,
 		sbMiCol:     0,
-		src:         src,
 		srcStride:   64,
 		srcOriginX:  0,
 		srcOriginY:  0,
@@ -105,7 +104,7 @@ func TestVP9MLPredictVarPartitioningSyntheticUniform(t *testing.T) {
 	}
 	expectedScore := referenceNNPredictVarPart64(features)
 
-	got := vp9MLPredictVarPartitioning(common.Block64x64, 0, 0, ctx)
+	got := vp9MLPredictVarPartitioning(common.Block64x64, 0, 0, src, ctx)
 
 	// libvpx (vp9_encodeframe.c:4549 + 4590-4592):
 	//   thresh = speed <= 5 ? 1.25f : 0.0f;

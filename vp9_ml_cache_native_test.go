@@ -25,7 +25,8 @@ func BenchmarkMLPartitionAndReuseNative(b *testing.B) {
 				src[i] = byte(i * 13)
 				ctx.estPred[i] = byte(i * 7)
 			}
-			ctx.src, ctx.srcStride, ctx.baseQindex, ctx.speed = src, 64, 128, 8
+			e.intProSrcBordered.Pixels = src
+			ctx.srcStride, ctx.baseQindex, ctx.speed = 64, 128, 8
 			ctx.ready, ctx.frameValid = true, true
 			var img image.YCbCr
 			var dq vp9dec.DequantTables

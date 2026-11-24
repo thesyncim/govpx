@@ -116,7 +116,7 @@ func (e *VP9Encoder) vp9NonrdReuseInterPredReady(inter *vp9InterEncodeState,
 	if partitionNoneAllowed && doSplit {
 		if mlCtx := e.vp9MLPickPartitionEntry(inter, miRows, miCols,
 			miRow, miCol); mlCtx != nil {
-			switch vp9MLPredictVarPartitioningCached(bsize, miRow, miCol, mlCtx) {
+			switch vp9MLPredictVarPartitioningCached(bsize, miRow, miCol, e.intProSrcBordered.Pixels, mlCtx) {
 			case vp9MLPredictNone:
 				doSplit = false
 			}

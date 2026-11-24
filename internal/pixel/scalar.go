@@ -15,6 +15,10 @@ func Subtract(src []byte, ss int, pred []byte, ps int, out []int16, os, w, h int
 func Filter(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int16) {
 	FilterScalar(src, ss, dst, ds, w, h, step, taps)
 }
+func FilterBilinear(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) {
+	taps := [2]int16{int16(t0), int16(t1)}
+	FilterScalar(src, ss, dst, ds, w, h, step, taps[:])
+}
 func Average(src []byte, ss int, dst []byte, ds, w, h int) { AverageScalar(src, ss, dst, ds, w, h) }
 func Error(a, b []int16, n int) (sum uint64)               { return ErrorScalar(a, b, n) }
 func Quantize(coeff, iscan, qcoeff, dqcoeff []int16, n, zbin, round, quant, shift, dequant int, fp bool) (eob int) {

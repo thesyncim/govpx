@@ -95,6 +95,20 @@ func Subtract(src []byte, ss int, pred []byte, ps int, out []int16, os, w, h int
 	return bits.ToBits().ReshapeToUint64s().GetElem(0)|bits.ToBits().ReshapeToUint64s().GetElem(1) != 0 || tail != 0
 }
 
+// FilterBilinear runs a nonnegative 2-tap bilinear filter (t0+t1 <= 128)
+// directly without slice-tap dispatch overhead.
+func FilterBilinear(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) {
+	if Enabled && (w == 4 || w%8 == 0) && (step == 1 || step == ss) &&
+		filterLinearFast(src, ss, dst, ds, w, h, step, t0, t1) {
+		return
+	}
+	taps := [2]int16{int16(t0), int16(t1)}
+	if Enabled && filterLinear8(src, ss, dst, ds, w, h, step, taps[:]) {
+		return
+	}
+	FilterScalar(src, ss, dst, ds, w, h, step, taps[:])
+}
+
 // Filter uses widening int32 products: negative filter lobes cannot overflow
 // or saturate before the codec's single rounding and clipping operation.
 func Filter(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int16) {
