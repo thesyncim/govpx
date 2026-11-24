@@ -1692,6 +1692,13 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 				if lv != 0 {
 					initCtx++
 				}
+				if coefCounts == nil && tryConsumeVP9ZeroEOB(rs, uint32(dcProbs[initCtx][0])) {
+					for i := range 8 {
+						aCtx[cc+i] = 0
+					}
+					lv = 0
+					continue
+				}
 				eob := vp9dec.DecodeCoefsState(rs, txSize, planeType, 1, dequant,
 					initCtx, so, &d.fc.CoefProbs, coefCounts,
 					&d.dqcoeff, &d.coefTokenCache)

@@ -492,66 +492,76 @@ func (d *Decoder) ReadVP8MacroblockCoeffs(
 		}
 
 		ctx := int(*aP + *lP)
-		out := &qcoeff[b]
-		// Keep p as a pointer into the probability table (see
-		// ReadVP8BlockCoeffs).
 		p := &bt[n&1][ctx]
+		if readBool(p[0]) == 0 {
+			*aP = 0
+			*lP = 0
+			if idx < 0 {
+				eob[24] = 0
+				eobTotal -= 16
+			} else if idx < 16 {
+				eob[b] = uint8(skipDC)
+				eobTotal += skipDC
+			} else {
+				eob[b] = 0
+			}
+			continue
+		}
+		out := &qcoeff[b]
 		nonzeros := 0
-		if readBool(p[0]) != 0 {
-			nn := n
-		walk:
-			for {
-				nn++
-				if readBool(p[1]) == 0 {
-					if nn == 16 {
-						nonzeros = 16
-						break walk
-					}
-					// nn is 1..15 here and CoefBandsTable values are 0..7;
-					// the masks are numeric no-ops that elide bounds checks.
-					p = &bt[tables.CoefBandsTable[nn&15]&7][0]
-					continue
-				}
-				v := 0
-				tokenClass := uint8(2)
-				if readBool(p[2]) == 0 {
-					tokenClass = 1
-					v = 1
-				} else {
-					if readBool(p[3]) == 0 {
-						if readBool(p[4]) == 0 {
-							v = 2
-						} else {
-							v = 3 + int(readBool(p[5]))
-						}
-					} else {
-						if readBool(p[6]) == 0 {
-							if readBool(p[7]) == 0 {
-								v = 5 + int(readBool(159))
-							} else {
-								v = 7 + 2*int(readBool(165))
-								v += int(readBool(145))
-							}
-						} else {
-							bit1 := int(readBool(p[8]))
-							bit0 := int(readBool(p[9+bit1]))
-							cat := 2*bit1 + bit0
-							v = readTokenCategory(cat)
-						}
-					}
-				}
-
-				j := tables.DefaultZigZag1D[(nn-1)&15]
-				out[j&15] = readSignedCoeff(v)
+		nn := n
+	walk:
+		for {
+			nn++
+			if readBool(p[1]) == 0 {
 				if nn == 16 {
 					nonzeros = 16
 					break walk
 				}
-				p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
-				if readBool(p[0]) == 0 {
-					nonzeros = nn
-					break walk
+				// nn is 1..15 here and CoefBandsTable values are 0..7;
+				// the masks are numeric no-ops that elide bounds checks.
+				p = &bt[tables.CoefBandsTable[nn&15]&7][0]
+				continue
+			}
+			v := 0
+			tokenClass := uint8(2)
+			if readBool(p[2]) == 0 {
+				tokenClass = 1
+				v = 1
+			} else {
+				if readBool(p[3]) == 0 {
+					if readBool(p[4]) == 0 {
+						v = 2
+					} else {
+						v = 3 + int(readBool(p[5]))
+					}
+				} else {
+					if readBool(p[6]) == 0 {
+						if readBool(p[7]) == 0 {
+							v = 5 + int(readBool(159))
+						} else {
+							v = 7 + 2*int(readBool(165))
+							v += int(readBool(145))
+						}
+					} else {
+						bit1 := int(readBool(p[8]))
+						bit0 := int(readBool(p[9+bit1]))
+						cat := 2*bit1 + bit0
+						v = readTokenCategory(cat)
+					}
 				}
+			}
+
+			j := tables.DefaultZigZag1D[(nn-1)&15]
+			out[j&15] = readSignedCoeff(v)
+			if nn == 16 {
+				nonzeros = 16
+				break walk
+			}
+			p = &bt[tables.CoefBandsTable[nn&15]&7][tokenClass]
+			if readBool(p[0]) == 0 {
+				nonzeros = nn
+				break walk
 			}
 		}
 
