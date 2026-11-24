@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -875,8 +876,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 					buffers.AveragePlaneInto(dst[y0*dstStride+x0:], dstStride,
 						src[y0*srcStride+x0:], srcStride, w, h)
 				} else {
-					buffers.CopyPlane(dst[y0*dstStride+x0:], dstStride,
-						src[y0*srcStride+x0:], srcStride, w, h)
+					pixel.CopyBlock(src[y0*srcStride+x0:], srcStride,
+						dst[y0*dstStride+x0:], dstStride, w, h)
 				}
 				continue
 			}
@@ -987,8 +988,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictLumaTo(
 				buffers.AveragePlaneInto(dst, dstStride,
 					src[y0*srcStride+x0:], srcStride, w, h)
 			} else {
-				buffers.CopyPlane(dst, dstStride,
-					src[y0*srcStride+x0:], srcStride, w, h)
+				pixel.CopyBlock(src[y0*srcStride+x0:], srcStride,
+					dst, dstStride, w, h)
 			}
 			continue
 		}
@@ -1178,8 +1179,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
 			buffers.AveragePlaneInto(dst[dstY*dstStride+dstX:], dstStride,
 				src[srcOffset:], srcStride, predW, predH)
 		} else {
-			buffers.CopyPlane(dst[dstY*dstStride+dstX:], dstStride,
-				src[srcOffset:], srcStride, predW, predH)
+			pixel.CopyBlock(src[srcOffset:], srcStride,
+				dst[dstY*dstStride+dstX:], dstStride, predW, predH)
 		}
 		return true
 	}
