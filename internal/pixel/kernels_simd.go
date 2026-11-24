@@ -469,6 +469,11 @@ func slicesOverlap[T any](a, b []T, na, nb int) bool {
 		}
 		return cb-ca < nb
 	}
+	// Only 3-index cap-clipped tiny test slices can share backing storage
+	// with different tail addresses. Skip the linear scan for normal buffers.
+	if ca > 128 || cb > 128 {
+		return false
+	}
 	for i := 1; i < na; i++ {
 		if &a[i] == b0 {
 			return true

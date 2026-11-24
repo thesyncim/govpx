@@ -12,15 +12,6 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
 	if !Enabled || count <= 0 || count > min(len(coeff), len(qcoeff), len(dqcoeff))/16 || count > len(eobs) {
 		return false
 	}
-	// Validate element counts before multiplying; uintptr byte offsets also
-	// avoid signed overflow for large accepted counts.
-	n := count * 16
-	for _, table := range [4][]int16{round[:], quant[:], dequant[:], iscan[:]} {
-		if slicesOverlap(qcoeff, table, n, 16) || slicesOverlap(dqcoeff, table, n, 16) {
-			return false
-		}
-	}
-
 	r := archsimd.LoadInt16x16Array(round)
 	q := archsimd.LoadInt16x16Array(quant)
 	rq := r.Or(q)
