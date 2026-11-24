@@ -3229,3 +3229,9 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 	}
 	return mv, bestScore, true
 }
+
+// vp9DoTrellisOptInterY mirrors libvpx do_trellis_opt for the inter Y/UV
+// planes on the full-RD mode-selection path.
+func (e *VP9Encoder) vp9DoTrellisOptInterY(_ common.TxSize) bool {
+	return e.sf.TrellisOptTxRd.Method != DisableTrellisOpt
+}

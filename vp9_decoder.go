@@ -1996,3 +1996,7 @@ func (d *VP9Decoder) Close() error {
 
 // Codec reports the codec this decoder is built for.
 func (d *VP9Decoder) Codec() Codec { return CodecVP9 }
+
+func (d *VP9Decoder) markVP9Unsupported() {
+	d.unsupportedReconstruct = true
+}
