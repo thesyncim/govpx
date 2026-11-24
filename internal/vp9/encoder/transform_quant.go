@@ -2384,6 +2384,9 @@ func isDefaultVP9Scan32x32(scan []int16) bool {
 func quantizeFP32x32Raster(coeff []int16, dequant [2]int16, quant, round [2]int,
 	iscan []int16, qcoeff, dqcoeff []int16,
 ) int {
+	if eob, ok := quantizeFP32x32RasterSIMD(coeff, dequant, quant, round, iscan, qcoeff, dqcoeff); ok {
+		return eob
+	}
 	deqDC, deqAC := int(dequant[0]), int(dequant[1])
 	quantDC, quantAC := quant[0], quant[1]
 	roundDC, roundAC := round[0], round[1]

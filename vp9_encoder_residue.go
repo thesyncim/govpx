@@ -1,6 +1,7 @@
 package govpx
 
 import (
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -1059,6 +1060,13 @@ func (e *VP9Encoder) vp9InterTxResidualStats(inter *vp9InterEncodeState,
 	if x0+blockW > srcW || y0+blockH > srcH ||
 		x0+blockW > predStride || y0+blockH > predRows {
 		return 0, 0, false
+	}
+	if s, a, ok := pixel.ResidualSSEActivity(
+		src[y0*srcStride+x0:], srcStride,
+		pred[y0*predStride+x0:], predStride,
+		blockW, blockH,
+	); ok {
+		return s, a, true
 	}
 	var prevDiffs [64]int16
 	for y := range blockH {
