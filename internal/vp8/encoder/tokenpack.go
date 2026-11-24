@@ -234,7 +234,10 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	count := w.count
 	pos := w.pos
 	buf := w.buf
-	var flatProbs [tables.BlockTypes * tables.CoefBands * tables.PrevCoefContexts * tables.EntropyNodes]uint8
+	// Pad flatProbs to 2048+EntropyNodes so the masked 11-bit probOffset
+	// (0..2047) proves flatProbs[probOffset:probOffset+EntropyNodes] in-bounds
+	// at compile time, eliminating per-token bounds checks.
+	var flatProbs [2048 + tables.EntropyNodes]uint8
 	flatIdx := 0
 	for t := range tables.BlockTypes {
 		for b := range tables.CoefBands {

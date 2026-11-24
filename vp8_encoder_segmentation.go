@@ -554,11 +554,66 @@ func computeSkinMap(src vp8enc.SourceImage, rows int, cols int, consecZeroLast [
 }
 
 func computeSkinMap16x16(src vp8enc.SourceImage, rows int, cols int, uvWidth int, uvHeight int, consecZeroLast []uint8, skinMap []uint8) {
+	hasConsec := len(consecZeroLast) >= rows*cols
+	fullCols := min(cols, (src.Width-8)/16)
+	if uvFullCols := (uvWidth - 4) / 8; uvFullCols < fullCols {
+		fullCols = uvFullCols
+	}
+	if fullCols < 0 {
+		fullCols = 0
+	}
 	for row := range rows {
 		yRow := row*16 + 7
 		uvRow := row*8 + 3
-		for col := range cols {
-			index := row*cols + col
+		rowBase := row * cols
+		inBoundsRow := uint(yRow) < uint(src.Height-1) && uint(uvRow) < uint(uvHeight-1) &&
+			fullCols > 0 &&
+			(yRow+1)*src.YStride+fullCols*16 <= len(src.Y) &&
+			(uvRow+1)*src.UStride+fullCols*8 <= len(src.U) &&
+			(uvRow+1)*src.VStride+fullCols*8 <= len(src.V)
+		col := 0
+		if inBoundsRow {
+			y0 := src.Y[yRow*src.YStride:]
+			y1 := src.Y[(yRow+1)*src.YStride:]
+			u0 := src.U[uvRow*src.UStride:]
+			u1 := src.U[(uvRow+1)*src.UStride:]
+			v0 := src.V[uvRow*src.VStride:]
+			v1 := src.V[(uvRow+1)*src.VStride:]
+			skinRow := skinMap[rowBase : rowBase+fullCols]
+			for ; col < fullCols; col++ {
+				consecutive := 0
+				if hasConsec {
+					consecutive = int(consecZeroLast[rowBase+col])
+				}
+				if consecutive > 60 {
+					skinRow[col] = 0
+					continue
+				}
+				yc := col*16 + 7
+				y := (int(y0[yc]) + int(y0[yc+1]) + int(y1[yc]) + int(y1[yc+1]) + 2) >> 2
+				if y < skinYLow || y > skinYHigh {
+					skinRow[col] = 0
+					continue
+				}
+				uc := col*8 + 3
+				u := (int(u0[uc]) + int(u0[uc+1]) + int(u1[uc]) + int(u1[uc+1]) + 2) >> 2
+				v := (int(v0[uc]) + int(v0[uc+1]) + int(v1[uc]) + int(v1[uc+1]) + 2) >> 2
+				shift := uint(0)
+				if y < 60 {
+					shift += 2
+				}
+				if consecutive > 25 {
+					shift++
+				}
+				if skinChromaClasses[u*256+v]&(1<<shift) != 0 {
+					skinRow[col] = 1
+				} else {
+					skinRow[col] = 0
+				}
+			}
+		}
+		for ; col < cols; col++ {
+			index := rowBase + col
 			consecutive := 0
 			if len(consecZeroLast) > index {
 				consecutive = int(consecZeroLast[index])
