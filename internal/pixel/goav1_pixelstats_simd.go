@@ -30,6 +30,50 @@ func reducePixelAcc(sse, sum archsimd.Int32x4) (total, signed pixelStatsReductio
 }
 
 func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h int) (sse uint32, sum int32) {
+	if (uint(srcStride)|uint(refStride))>>57 == 0 && h > 0 && w == 32 && h <= 64 {
+		_ = src[(h-1)*srcStride+31]
+		_ = ref[(h-1)*refStride+31]
+		var s0, s1, sumAcc archsimd.Int32x4
+		for r := range h {
+			srow := src[r*srcStride : r*srcStride+32]
+			rrow := ref[r*refStride : r*refStride+32]
+			a0 := archsimd.LoadUint8x16Array((*[16]byte)(srow[0:16]))
+			b0 := archsimd.LoadUint8x16Array((*[16]byte)(rrow[0:16]))
+			lo0 := a0.ExtendLo8ToUint16().BitsToInt16().Sub(b0.ExtendLo8ToUint16().BitsToInt16())
+			hi0 := widenHi8(a0).BitsToInt16().Sub(widenHi8(b0).BitsToInt16())
+			a1 := archsimd.LoadUint8x16Array((*[16]byte)(srow[16:32]))
+			b1 := archsimd.LoadUint8x16Array((*[16]byte)(rrow[16:32]))
+			lo1 := a1.ExtendLo8ToUint16().BitsToInt16().Sub(b1.ExtendLo8ToUint16().BitsToInt16())
+			hi1 := widenHi8(a1).BitsToInt16().Sub(widenHi8(b1).BitsToInt16())
+			sumAcc = sumAcc.Add(sumDiff16(lo0.Add(hi0).Add(lo1).Add(hi1)))
+			s0 = s0.Add(square8(lo0)).Add(square8(lo1))
+			s1 = s1.Add(square8(hi0)).Add(square8(hi1))
+		}
+		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
+		return uint32(total), int32(signed)
+	}
+	if (uint(srcStride)|uint(refStride))>>57 == 0 && h > 0 && w == 64 && h <= 64 {
+		_ = src[(h-1)*srcStride+63]
+		_ = ref[(h-1)*refStride+63]
+		var s0, s1, sumAcc archsimd.Int32x4
+		for r := range h {
+			srow := src[r*srcStride : r*srcStride+64]
+			rrow := ref[r*refStride : r*refStride+64]
+			var rowSum archsimd.Int16x8
+			for c := 0; c < 64; c += 16 {
+				a := archsimd.LoadUint8x16Array((*[16]byte)(srow[c : c+16]))
+				b := archsimd.LoadUint8x16Array((*[16]byte)(rrow[c : c+16]))
+				lo := a.ExtendLo8ToUint16().BitsToInt16().Sub(b.ExtendLo8ToUint16().BitsToInt16())
+				hi := widenHi8(a).BitsToInt16().Sub(widenHi8(b).BitsToInt16())
+				rowSum = rowSum.Add(lo).Add(hi)
+				s0 = s0.Add(square8(lo))
+				s1 = s1.Add(square8(hi))
+			}
+			sumAcc = sumAcc.Add(sumDiff16(rowSum))
+		}
+		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
+		return uint32(total), int32(signed)
+	}
 	sseAcc := archsimd.BroadcastInt32x4(0)
 	sumAcc := archsimd.BroadcastInt32x4(0)
 	for r := range h {

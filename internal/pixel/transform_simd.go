@@ -7,8 +7,13 @@ import (
 	"simd/archsimd"
 )
 
-// Load4 reads exactly four int16 samples, including minimally sized rows.
+// Load4 reads four int16 samples widened to Int32x4. When at least 8 int16s
+// are available in s, a single SIMD vector load + SXTL replaces four scalar
+// lane-insert instructions.
 func Load4(s []int16) archsimd.Int32x4 {
+	if len(s) >= 8 {
+		return archsimd.LoadInt16x8Array((*[8]int16)(s[:8])).ExtendLo4ToInt32()
+	}
 	_ = s[3]
 	return archsimd.Int32x4{}.SetElem(0, int32(s[0])).SetElem(1, int32(s[1])).SetElem(2, int32(s[2])).SetElem(3, int32(s[3]))
 }

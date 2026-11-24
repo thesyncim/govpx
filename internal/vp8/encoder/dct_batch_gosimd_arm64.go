@@ -8,8 +8,17 @@ import (
 	"simd/archsimd"
 )
 
-var vp8BatchLeft3 = archsimd.BroadcastInt16x8(3)
-var vp8BatchRight4 = archsimd.BroadcastInt16x8(-4)
+var (
+	vp8BatchK2217    = archsimd.BroadcastInt16x8(2217)
+	vp8BatchK5352    = archsimd.BroadcastInt16x8(5352)
+	vp8BatchKNeg5352 = archsimd.BroadcastInt16x8(-5352)
+	vp8BatchSeven    = archsimd.BroadcastInt16x8(7)
+	vp8BatchOne      = archsimd.BroadcastInt16x8(1)
+	vp8BatchB14500   = archsimd.BroadcastInt32x4(14500)
+	vp8BatchB7500    = archsimd.BroadcastInt32x4(7500)
+	vp8BatchB12000   = archsimd.BroadcastInt32x4(12000)
+	vp8BatchB51000   = archsimd.BroadcastInt32x4(51000)
+)
 
 func forwardDCT4BatchGo(input, output []int16, count int) int {
 	if count < 2 || !pixel.Enabled {
@@ -65,16 +74,15 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 		even1, odd1 := r2.ConcatEven(r3), r2.ConcatOdd(r3)
 		a, c := even0.ConcatEven(even1), even0.ConcatOdd(even1)
 		b, d := odd0.ConcatEven(odd1), odd0.ConcatOdd(odd1)
-		x, y := a.Add(d).Shift(vp8BatchLeft3), b.Add(c).Shift(vp8BatchLeft3)
-		z, w := b.Sub(c).Shift(vp8BatchLeft3), a.Sub(d).Shift(vp8BatchLeft3)
+		x, y := a.Add(d).ShiftAllLeft(3), b.Add(c).ShiftAllLeft(3)
+		z, w := b.Sub(c).ShiftAllLeft(3), a.Sub(d).ShiftAllLeft(3)
 		v0, v2 := x.Add(y), x.Sub(y)
-		k2217, k5352 := archsimd.BroadcastInt16x8(2217), archsimd.BroadcastInt16x8(5352)
-		v1lo := vp8Right12(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(archsimd.BroadcastInt32x4(14500)))
-		v1hi := vp8Right12(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(archsimd.BroadcastInt32x4(14500)))
+		k2217, k5352, kNeg5352 := vp8BatchK2217, vp8BatchK5352, vp8BatchKNeg5352
+		v1lo := vp8Right12(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(vp8BatchB14500))
+		v1hi := vp8Right12(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(vp8BatchB14500))
 		v1 := v1lo.ToBits().ReshapeToUint16s().ConcatEven(v1hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		kNeg5352 := archsimd.BroadcastInt16x8(-5352)
-		v3lo := vp8Right12(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(archsimd.BroadcastInt32x4(7500)))
-		v3hi := vp8Right12(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(archsimd.BroadcastInt32x4(7500)))
+		v3lo := vp8Right12(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(vp8BatchB7500))
+		v3hi := vp8Right12(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(vp8BatchB7500))
 		v3 := v3lo.ToBits().ReshapeToUint16s().ConcatEven(v3hi.ToBits().ReshapeToUint16s()).BitsToInt16()
 		// Transpose each block independently, retaining all eight lanes.
 		t0, t1 := v0.InterleaveLo(v1).ToBits().ReshapeToUint32s(), v2.InterleaveLo(v3).ToBits().ReshapeToUint32s()
@@ -83,18 +91,17 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 		u2, u3 := t2.InterleaveLo(t3).ReshapeToUint64s(), t2.InterleaveHi(t3).ReshapeToUint64s()
 		a, b = u0.InterleaveLo(u2).ReshapeToUint16s().BitsToInt16(), u0.InterleaveHi(u2).ReshapeToUint16s().BitsToInt16()
 		c, d = u1.InterleaveLo(u3).ReshapeToUint16s().BitsToInt16(), u1.InterleaveHi(u3).ReshapeToUint16s().BitsToInt16()
-		// For residuals within +/-255 the first pass is bounded by8160;
-		// each second-pass int16 sum plus rounding is at most32647.
+		// For residuals within +/-255 the first pass is bounded by 8160;
+		// each second-pass int16 sum plus rounding is at most 32647.
 		x, y, z, w = a.Add(d), b.Add(c), b.Sub(c), a.Sub(d)
-		seven := archsimd.BroadcastInt16x8(7)
-		v0, v2 = x.Add(y).Add(seven).Shift(vp8BatchRight4), x.Sub(y).Add(seven).Shift(vp8BatchRight4)
-		o1lo := vp8Right16(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(archsimd.BroadcastInt32x4(12000)))
-		o1hi := vp8Right16(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(archsimd.BroadcastInt32x4(12000)))
+		v0, v2 = x.Add(y).Add(vp8BatchSeven).ShiftAllRight(4), x.Sub(y).Add(vp8BatchSeven).ShiftAllRight(4)
+		o1lo := vp8Right16(z.MulWidenLo(k2217).Add(w.MulWidenLo(k5352)).Add(vp8BatchB12000))
+		o1hi := vp8Right16(z.HiToLo().MulWidenLo(k2217).Add(w.HiToLo().MulWidenLo(k5352)).Add(vp8BatchB12000))
 		o1 := o1lo.ToBits().ReshapeToUint16s().ConcatEven(o1hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		o3lo := vp8Right16(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(archsimd.BroadcastInt32x4(51000)))
-		o3hi := vp8Right16(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(archsimd.BroadcastInt32x4(51000)))
+		o3lo := vp8Right16(w.MulWidenLo(k2217).Add(z.MulWidenLo(kNeg5352)).Add(vp8BatchB51000))
+		o3hi := vp8Right16(w.HiToLo().MulWidenLo(k2217).Add(z.HiToLo().MulWidenLo(kNeg5352)).Add(vp8BatchB51000))
 		o3 := o3lo.ToBits().ReshapeToUint16s().ConcatEven(o3hi.ToBits().ReshapeToUint16s()).BitsToInt16()
-		v1 = o1.Add(w.NotEqual(archsimd.Int16x8{}).ToInt16x8().And(archsimd.BroadcastInt16x8(1)))
+		v1 = o1.Add(w.NotEqual(archsimd.Int16x8{}).ToInt16x8().And(vp8BatchOne))
 		v3 = o3
 		a0, a1, a2, a3 := v0.ToBits().ReshapeToUint64s(), v1.ToBits().ReshapeToUint64s(), v2.ToBits().ReshapeToUint64s(), v3.ToBits().ReshapeToUint64s()
 		a0.InterleaveLo(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[0:8]))

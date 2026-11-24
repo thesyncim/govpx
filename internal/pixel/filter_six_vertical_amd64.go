@@ -11,6 +11,10 @@ func filterVerticalRowsAllowed(src, dst []byte, ds, w, h int) bool {
 	}
 	return !slicesOverlap(src, dst, len(src), len(dst))
 }
+func filterHorizSix16(_ []byte, _ int, _ []byte, _, _, _ int, _ []int16) bool {
+	return false
+}
+
 func filterVerticalSix8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16) bool {
 	if !filterVerticalRowsAllowed(src, dst, ds, w, h) {
 		return false
