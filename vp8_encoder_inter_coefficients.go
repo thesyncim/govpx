@@ -442,18 +442,25 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	return buildPredictedMacroblockCoefficientsWork(args)
 }
 
+// vp8FastCoeffScratch holds encoder-owned 256-int16 scratch arrays reused
+// across macroblocks so the realtime fast-quant path zeroes 0 stack bytes/MB.
+type vp8FastCoeffScratch struct {
+	residuals [16 * 16]int16
+	dcts      [16 * 16]int16
+	qBuf      [16 * 16]int16
+}
+
 func buildFastRealtimeMacroblockCoefficientsDirect(
+	scratch *vp8FastCoeffScratch,
 	src vp8enc.SourceImage, mbRow, mbCol int, pred *vp8common.Image,
 	quant *vp8enc.MacroblockQuant, is4x4 bool, coeffs *vp8enc.MacroblockCoefficients,
 ) {
-	// Reuse a single pair of 256-int16 scratch buffers across Y and UV so the
-	// realtime fast-quant path avoids stack-zeroing unused RD/DQ/UV arrays.
-	var residuals [16 * 16]int16
-	var dcts [16 * 16]int16
-	var qBuf [16 * 16]int16
+	residuals := scratch.residuals[:]
+	dcts := scratch.dcts[:]
+	qBuf := scratch.qBuf[:]
 
-	vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
-	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 16)
+	vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals)
+	vp8enc.ForwardDCT4x4Batch(residuals, dcts, 16)
 
 	var y2Input [16]int16
 	yQuant := &quant.Y1DC
@@ -465,7 +472,7 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 			dcts[block*16] = 0
 		}
 	}
-	vp8enc.FastQuantizeBlockBatchOnly(dcts[:], yQuant, qBuf[:], coeffs.EOB[:16], 16)
+	vp8enc.FastQuantizeBlockBatchOnly(dcts, yQuant, qBuf, coeffs.EOB[:16], 16)
 	for block := range 16 {
 		copy(coeffs.QCoeff[block][:], qBuf[block*16:])
 	}
@@ -490,7 +497,8 @@ func buildFastRealtimeMacroblockCoefficientsDirect(
 }
 
 func buildFastRealtimeMacroblockCoefficients(args *predictedMacroblockCoefficientArgs) {
-	buildFastRealtimeMacroblockCoefficientsDirect(args.src, args.mbRow, args.mbCol, args.pred, args.quant, args.is4x4, args.coeffs)
+	var scratch vp8FastCoeffScratch
+	buildFastRealtimeMacroblockCoefficientsDirect(&scratch, args.src, args.mbRow, args.mbCol, args.pred, args.quant, args.is4x4, args.coeffs)
 }
 
 func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficientArgs) predictedMacroblockRDStats {

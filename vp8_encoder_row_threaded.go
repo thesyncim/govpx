@@ -612,7 +612,7 @@ func (rs *rowEncoderState) encodeThreadedInterFrameMacroblock(args *threadedInte
 		// not segmentQIndex. The pass-2 iiratio lift (rdopt.c:189-196)
 		// lands on the same cpi->RDMULT before optimize_b runs.
 		if e.libvpxUseFastQuant() && !e.libvpxOptimizeCoefficients() && !oracleTraceBuild && cacheIn == nil {
-			buildFastRealtimeMacroblockCoefficientsDirect(mbSource, row, col, &e.analysis.Img, quant, is4x4, &args.coeffs[index])
+			buildFastRealtimeMacroblockCoefficientsDirect(&e.fastCoeffScratch, mbSource, row, col, &e.analysis.Img, quant, is4x4, &args.coeffs[index])
 		} else {
 			rdMult, rdDiv := e.libvpxRDConstantsWithZbinForFrame(args.qIndex, zbinOverQuant)
 			if e.activityMapValid {

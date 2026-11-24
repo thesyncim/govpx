@@ -791,7 +791,7 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					cacheIn = nil
 				}
 				if e.libvpxUseFastQuant() && !e.libvpxOptimizeCoefficients() && !oracleTraceBuild && cacheIn == nil {
-					buildFastRealtimeMacroblockCoefficientsDirect(mbSource, row, col, &e.analysis.Img, quant, is4x4, &coeffs[index])
+					buildFastRealtimeMacroblockCoefficientsDirect(&e.fastCoeffScratch, mbSource, row, col, &e.analysis.Img, quant, is4x4, &coeffs[index])
 				} else {
 					zbinOverQuant := e.rc.currentZbinOverQuant
 					actZbinAdj := 0
