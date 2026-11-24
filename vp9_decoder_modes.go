@@ -1469,7 +1469,16 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 							common.DctDct, eob, hdr.Quant.Lossless)
 					}
 				}
-				clearVP9DecodedDQCoeffs(coeffs, txSize, txType, eob)
+				if eob == 1 {
+					coeffs[0] = 0
+				} else if eob > 1 && eob <= 8 {
+					scan := so.Scan
+					for k := range eob {
+						coeffs[scan[k]] = 0
+					}
+				} else if eob > 8 {
+					clearVP9DecodedDQCoeffs(coeffs, txSize, txType, eob)
+				}
 				hasResidue := uint8(0)
 				if eob > 0 {
 					hasResidue = 1
@@ -1604,6 +1613,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					}
 					if eob == 1 {
 						coeffs[0] = 0
+					} else if eob <= 8 {
+						scan := so.Scan
+						for k := range eob {
+							coeffs[scan[k]] = 0
+						}
 					} else {
 						clearVP9DecodedDQCoeffs(coeffs, common.Tx4x4, common.DctDct, eob)
 					}
@@ -1641,6 +1655,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					vp9dec.Idct8x8Add(coeffs, rowDst[cc*4:], dstStride, eob)
 					if eob == 1 {
 						coeffs[0] = 0
+					} else if eob <= 8 {
+						scan := so.Scan
+						for k := range eob {
+							coeffs[scan[k]] = 0
+						}
 					} else {
 						clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
 					}
@@ -1682,6 +1701,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					vp9dec.Idct16x16Add(coeffs, rowDst[cc*4:], dstStride, eob)
 					if eob == 1 {
 						coeffs[0] = 0
+					} else if eob <= 8 {
+						scan := so.Scan
+						for k := range eob {
+							coeffs[scan[k]] = 0
+						}
 					} else {
 						clearVP9DecodedDQCoeffs(coeffs, common.Tx16x16, common.DctDct, eob)
 					}
@@ -1728,6 +1752,11 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 					vp9dec.Idct32x32Add(coeffs, rowDst[cc*4:], dstStride, eob)
 					if eob == 1 {
 						coeffs[0] = 0
+					} else if eob <= 8 {
+						scan := so.Scan
+						for k := range eob {
+							coeffs[scan[k]] = 0
+						}
 					} else {
 						clearVP9DecodedDQCoeffs(coeffs, txSize, common.DctDct, eob)
 					}

@@ -61,9 +61,48 @@ func filterLinearFast(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1
 }
 
 func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0, t1 uint8) bool {
+	if w <= 0 || h <= 0 || ss < 0 || ds < 0 || step < 0 {
+		return false
+	}
+	_ = src[(h-1)*ss+w-1+step]
+	_ = dst[(h-1)*ds+w-1]
 	// Half-pel (64, 64): single NEON URHADD instruction per 16 pixels.
 	if t0 == 64 && t1 == 64 {
 		if step == 1 {
+			if w == 4 {
+				so, do := 0, 0
+				y := 0
+				for ; y+3 < h; y += 4 {
+					s0, s1, s2, s3 := src[so:], src[so+ss:], src[so+2*ss:], src[so+3*ss:]
+					a := archsimd.LoadUint32x4Array(&[4]uint32{
+						binary.LittleEndian.Uint32(s0),
+						binary.LittleEndian.Uint32(s1),
+						binary.LittleEndian.Uint32(s2),
+						binary.LittleEndian.Uint32(s3),
+					}).ReshapeToUint8s()
+					b := archsimd.LoadUint32x4Array(&[4]uint32{
+						binary.LittleEndian.Uint32(s0[1:]),
+						binary.LittleEndian.Uint32(s1[1:]),
+						binary.LittleEndian.Uint32(s2[1:]),
+						binary.LittleEndian.Uint32(s3[1:]),
+					}).ReshapeToUint8s()
+					out := a.Average(b).ReshapeToUint32s()
+					binary.LittleEndian.PutUint32(dst[do:], out.GetElem(0))
+					binary.LittleEndian.PutUint32(dst[do+ds:], out.GetElem(1))
+					binary.LittleEndian.PutUint32(dst[do+2*ds:], out.GetElem(2))
+					binary.LittleEndian.PutUint32(dst[do+3*ds:], out.GetElem(3))
+					so += 4 * ss
+					do += 4 * ds
+				}
+				for ; y < h; y++ {
+					a := archsimd.LoadUint32x4Array(&[4]uint32{binary.LittleEndian.Uint32(src[so:])}).ReshapeToUint8s()
+					b := archsimd.LoadUint32x4Array(&[4]uint32{binary.LittleEndian.Uint32(src[so+1:])}).ReshapeToUint8s()
+					binary.LittleEndian.PutUint32(dst[do:], a.Average(b).ReshapeToUint32s().GetElem(0))
+					so += ss
+					do += ds
+				}
+				return true
+			}
 			if w == 8 {
 				so, do := 0, 0
 				y := 0
@@ -98,6 +137,37 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 			return true
 		}
 		// Vertical half-pel.
+		if w == 4 {
+			r0 := binary.LittleEndian.Uint32(src)
+			so, do := ss, 0
+			y := 0
+			for ; y+3 < h; y += 4 {
+				r1 := binary.LittleEndian.Uint32(src[so:])
+				r2 := binary.LittleEndian.Uint32(src[so+ss:])
+				r3 := binary.LittleEndian.Uint32(src[so+2*ss:])
+				r4 := binary.LittleEndian.Uint32(src[so+3*ss:])
+				a := archsimd.LoadUint32x4Array(&[4]uint32{r0, r1, r2, r3}).ReshapeToUint8s()
+				b := archsimd.LoadUint32x4Array(&[4]uint32{r1, r2, r3, r4}).ReshapeToUint8s()
+				out := a.Average(b).ReshapeToUint32s()
+				binary.LittleEndian.PutUint32(dst[do:], out.GetElem(0))
+				binary.LittleEndian.PutUint32(dst[do+ds:], out.GetElem(1))
+				binary.LittleEndian.PutUint32(dst[do+2*ds:], out.GetElem(2))
+				binary.LittleEndian.PutUint32(dst[do+3*ds:], out.GetElem(3))
+				r0 = r4
+				so += 4 * ss
+				do += 4 * ds
+			}
+			for ; y < h; y++ {
+				r1 := binary.LittleEndian.Uint32(src[so:])
+				a := archsimd.LoadUint32x4Array(&[4]uint32{r0}).ReshapeToUint8s()
+				b := archsimd.LoadUint32x4Array(&[4]uint32{r1}).ReshapeToUint8s()
+				binary.LittleEndian.PutUint32(dst[do:], a.Average(b).ReshapeToUint32s().GetElem(0))
+				r0 = r1
+				so += ss
+				do += ds
+			}
+			return true
+		}
 		if w == 8 {
 			r0 := binary.LittleEndian.Uint64(src)
 			so, do := ss, 0
@@ -152,6 +222,43 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 	c0, c1 := archsimd.BroadcastUint8x16(t0), archsimd.BroadcastUint8x16(t1)
 	bias := archsimd.BroadcastUint16x8(64)
 	if step == 1 {
+		if w == 4 {
+			so, do := 0, 0
+			y := 0
+			for ; y+3 < h; y += 4 {
+				s0, s1, s2, s3 := src[so:], src[so+ss:], src[so+2*ss:], src[so+3*ss:]
+				a := archsimd.LoadUint32x4Array(&[4]uint32{
+					binary.LittleEndian.Uint32(s0),
+					binary.LittleEndian.Uint32(s1),
+					binary.LittleEndian.Uint32(s2),
+					binary.LittleEndian.Uint32(s3),
+				}).ReshapeToUint8s()
+				b := archsimd.LoadUint32x4Array(&[4]uint32{
+					binary.LittleEndian.Uint32(s0[1:]),
+					binary.LittleEndian.Uint32(s1[1:]),
+					binary.LittleEndian.Uint32(s2[1:]),
+					binary.LittleEndian.Uint32(s3[1:]),
+				}).ReshapeToUint8s()
+				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				hi := a.HiToLo().MulWidenLo(c0).Add(b.HiToLo().MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				out := lo.ReshapeToUint8s().ConcatEven(hi.ReshapeToUint8s()).ReshapeToUint32s()
+				binary.LittleEndian.PutUint32(dst[do:], out.GetElem(0))
+				binary.LittleEndian.PutUint32(dst[do+ds:], out.GetElem(1))
+				binary.LittleEndian.PutUint32(dst[do+2*ds:], out.GetElem(2))
+				binary.LittleEndian.PutUint32(dst[do+3*ds:], out.GetElem(3))
+				so += 4 * ss
+				do += 4 * ds
+			}
+			for ; y < h; y++ {
+				a := archsimd.LoadUint32x4Array(&[4]uint32{binary.LittleEndian.Uint32(src[so:])}).ReshapeToUint8s()
+				b := archsimd.LoadUint32x4Array(&[4]uint32{binary.LittleEndian.Uint32(src[so+1:])}).ReshapeToUint8s()
+				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				binary.LittleEndian.PutUint32(dst[do:], lo.TruncToUint8().ReshapeToUint32s().GetElem(0))
+				so += ss
+				do += ds
+			}
+			return true
+		}
 		if w == 8 {
 			so, do := 0, 0
 			y := 0
@@ -189,6 +296,40 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
 				storeBytes8(dst[do+x:], lo.TruncToUint8())
 			}
+		}
+		return true
+	}
+	if w == 4 {
+		r0 := binary.LittleEndian.Uint32(src)
+		so, do := ss, 0
+		y := 0
+		for ; y+3 < h; y += 4 {
+			r1 := binary.LittleEndian.Uint32(src[so:])
+			r2 := binary.LittleEndian.Uint32(src[so+ss:])
+			r3 := binary.LittleEndian.Uint32(src[so+2*ss:])
+			r4 := binary.LittleEndian.Uint32(src[so+3*ss:])
+			a := archsimd.LoadUint32x4Array(&[4]uint32{r0, r1, r2, r3}).ReshapeToUint8s()
+			b := archsimd.LoadUint32x4Array(&[4]uint32{r1, r2, r3, r4}).ReshapeToUint8s()
+			lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			hi := a.HiToLo().MulWidenLo(c0).Add(b.HiToLo().MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			out := lo.ReshapeToUint8s().ConcatEven(hi.ReshapeToUint8s()).ReshapeToUint32s()
+			binary.LittleEndian.PutUint32(dst[do:], out.GetElem(0))
+			binary.LittleEndian.PutUint32(dst[do+ds:], out.GetElem(1))
+			binary.LittleEndian.PutUint32(dst[do+2*ds:], out.GetElem(2))
+			binary.LittleEndian.PutUint32(dst[do+3*ds:], out.GetElem(3))
+			r0 = r4
+			so += 4 * ss
+			do += 4 * ds
+		}
+		for ; y < h; y++ {
+			r1 := binary.LittleEndian.Uint32(src[so:])
+			a := archsimd.LoadUint32x4Array(&[4]uint32{r0}).ReshapeToUint8s()
+			b := archsimd.LoadUint32x4Array(&[4]uint32{r1}).ReshapeToUint8s()
+			lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			binary.LittleEndian.PutUint32(dst[do:], lo.TruncToUint8().ReshapeToUint32s().GetElem(0))
+			r0 = r1
+			so += ss
+			do += ds
 		}
 		return true
 	}

@@ -196,124 +196,44 @@ type VP9Decoder struct {
 	opts   VP9DecoderOptions
 	closed bool
 
-	// frameContexts mirrors VP9's four entropy-context slots. fc is the
-	// active scratch copy selected by frame_context_idx for the current
-	// frame; compressed-header updates are committed back only when the
-	// header's refresh_frame_context bit allows it.
-	frameContexts [common.FrameContexts]vp9dec.FrameContext
-	fc            vp9dec.FrameContext
-
-	// lastHeader carries the previous frame's uncompressed-header
-	// state so the parser can seed the fields VP9's wire format
-	// preserves across frames (loopfilter + segmentation in
-	// particular).
-	lastHeader      vp9dec.UncompressedHeader
-	lastHeaderValid bool
-
-	// lfi is the per-(seg, ref, mode) loopfilter level table built
-	// by LoopFilterFrameInit on every key/show frame.
-	lfi vp9dec.LoopFilterInfoN
-
-	// dq carries the per-segment dequant tables built by
-	// SetupSegmentationDequant.
-	dq vp9dec.DequantTables
-
-	// aboveSegCtx / leftSegCtx are the partition-history arrays the
-	// tile mode-info pass stamps while walking SBs. miGrid mirrors the
-	// decoder-visible MODE_INFO grid at 8x8 granularity so above/left
-	// mode contexts match libvpx across SB and tile edges.
+	// Pointer-containing fields are grouped at the top of VP9Decoder so Go's
+	// GC only scans up to PtrBytes (the end of this group) and skips the ~40 KiB
+	// of pure value tables and scratch arrays placed below.
 	aboveSegCtx []int8
 	leftSegCtx  []int8
 	miGrid      []vp9dec.NeighborMi
 
-	// segMap is the current-frame segmentation map used by the
-	// mode-info readers; lastSegMap is kept for copy/predicted segment
-	// id paths on later frames.
 	segMap       []uint8
 	lastSegMap   []uint8
 	segMapMiRows int
 	segMapMiCols int
 
-	// planes carries the per-plane coefficient entropy contexts the
-	// residual token pass updates. dqcoeff is stack-equivalent decoder
-	// scratch for one 32x32 transform block; coefTokenCache mirrors
-	// libvpx's decode_coefs token_cache scratch beside it.
-	planes                [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
-	dqcoeff               [1024]int16
-	coefTokenCache        [1024]uint8
-	segIDPredictedScratch uint8
+	planes [vp9dec.MaxMbPlane]vp9dec.MacroblockdPlane
 
-	// The first public reconstruction slice handles intra frames.
-	// Unsupported frame classes keep parsing intact but stop before
-	// publishing output.
-	unsupportedReconstruct bool
-	// predictLumaOnly skips chroma (U/V) reconstruction in the inter
-	// predictor. Encoder-side motion-search and distortion measurement
-	// only consult the luma plane, matching libvpx's
-	// vp9_build_inter_predictors_sby fast path in nonrd_pickmode
-	// (vp9/encoder/vp9_pickmode.c:2336). Skipping U/V cuts the per-
-	// candidate convolution count by ~30-40% for 4:2:0 sources.
-	predictLumaOnly bool
-	// predictChromaOnly is the companion encoder prepass path for
-	// variance-partition color sensitivity: luma prediction has already
-	// been produced by choose_partitioning, so chroma_check only needs U/V.
-	predictChromaOnly bool
-	// predictChromaPlane narrows predictChromaOnly to a single chroma
-	// plane (1 = U, 2 = V; 0 = both). libvpx's nonrd picker builds chroma
-	// per plane via vp9_build_inter_predictors_sbp: the color-sensitivity
-	// rate add only builds the sensitive plane(s)
-	// (vp9/encoder/vp9_pickmode.c:2392-2398) and the
-	// model_rd_for_sb_y_large UV skip test builds U first and only builds
-	// V when U proved skippable (vp9/encoder/vp9_pickmode.c:578-605).
-	predictChromaPlane  int8
-	frameReady          bool
 	lastFrame           Image
-	lastInfo            VP9FrameInfo
-	lastInfoValid       bool
-	initialized         bool
-	visibleFrames       int
 	frameY              []byte
 	frameU              []byte
 	frameV              []byte
 	frameYFull          []byte
 	frameUFull          []byte
 	frameVFull          []byte
-	frameYOrigin        int
-	frameUOrigin        int
-	frameVOrigin        int
 	frameExternal       *vp9ExternalFrameLease
 	lastFrameExternal   *vp9ExternalFrameLease
 	frameInternal       *vp9InternalFrameLease
 	lastFrameInternal   *vp9InternalFrameLease
 	internalFramePool   [common.RefFrames + common.RefsPerFrame + 1]vp9InternalFrameLease
-	intraScratch        vp9dec.IntraPredictorScratch
 	interPredictScratch []byte
-	convolveScratch     dsp.Convolve8Scratch
-	sfCache             [4]vp9ScaleFactorsEntry
-	sfCacheNext         int
 	vp9DecoderPhaseStatsOptions
 	refFrames       [common.RefFrames]vp9ReferenceFrame
 	refFramesView   *[common.RefFrames]vp9ReferenceFrame
 	prevFrameMvs    []vp9dec.MvRef
 	curFrameMvs     []vp9dec.MvRef
-	prevFrameMvRows int
-	prevFrameMvCols int
-	usePrevFrameMvs bool
-	counts          vp9dec.FrameCounts
-
-	// width and height carry the most recent decoded frame dimensions.
-	// They stay zero until the first successful frame parse.
-	width  int
-	height int
-
 	decryptedPacket []byte
 
-	vp9LoopFilterPool     *vp9DecoderLoopFilterPool
-	vp9TilePool           *vp9DecoderTileWorkerPool
-	vp9TileDescs          []vp9DecoderTileDesc
-	vp9LoopFilterMasks    []vp9LoopFilterMask
-	vp9LoopFilterMaskRows int
-	vp9LoopFilterMaskCols int
+	vp9LoopFilterPool  *vp9DecoderLoopFilterPool
+	vp9TilePool        *vp9DecoderTileWorkerPool
+	vp9TileDescs       []vp9DecoderTileDesc
+	vp9LoopFilterMasks []vp9LoopFilterMask
 
 	// rowMTSync is set on the per-tile-column decode worker when
 	// VP9D_SET_ROW_MT is active. parseVP9IntraModeTile and
@@ -327,6 +247,42 @@ type VP9Decoder struct {
 	postModes       []vp8dec.MacroblockMode
 	postprocScratch []byte
 	postprocState   vp8dec.PostProcessState
+
+	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
+	frameYOrigin           int
+	frameUOrigin           int
+	frameVOrigin           int
+	prevFrameMvRows        int
+	prevFrameMvCols        int
+	usePrevFrameMvs        bool
+	width                  int
+	height                 int
+	vp9LoopFilterMaskRows  int
+	vp9LoopFilterMaskCols  int
+	visibleFrames          int
+	sfCacheNext            int
+	sfCache                [4]vp9ScaleFactorsEntry
+	lastInfo               VP9FrameInfo
+	lastInfoValid          bool
+	lastHeaderValid        bool
+	initialized            bool
+	frameReady             bool
+	unsupportedReconstruct bool
+	predictLumaOnly        bool
+	predictChromaOnly      bool
+	predictChromaPlane     int8
+	segIDPredictedScratch  uint8
+
+	lastHeader      vp9dec.UncompressedHeader
+	lfi             vp9dec.LoopFilterInfoN
+	dq              vp9dec.DequantTables
+	dqcoeff         [1024]int16
+	coefTokenCache  [1024]uint8
+	intraScratch    vp9dec.IntraPredictorScratch
+	convolveScratch dsp.Convolve8Scratch
+	counts          vp9dec.FrameCounts
+	frameContexts   [common.FrameContexts]vp9dec.FrameContext
+	fc              vp9dec.FrameContext
 }
 
 type vp9ReferenceFrame struct {

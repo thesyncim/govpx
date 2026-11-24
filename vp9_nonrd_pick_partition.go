@@ -86,11 +86,9 @@ type vp9MLPartitionContext struct {
 	sbMiRow int
 	sbMiCol int
 
-	// Padded source plane window — points at the border-padded source
-	// copy built by vp9BuildPaddedPlane. Offsets are relative to the
-	// padded buffer; the variance calc shifts by (srcOriginX, srcOriginY)
-	// before indexing.
-	src         []uint8
+	// Padded source plane geometry — offsets are relative to the encoder's
+	// intProSrcBordered.Pixels buffer (kept off vp9MLPartitionContext so the
+	// ~2 MiB per-encoder mlPartitionCtx slice stays 100% GC noscan).
 	srcStride   int
 	srcOriginX  int
 	srcOriginY  int
@@ -377,7 +375,6 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 		return nil
 	}
 
-	ctx.src = paddedSrc
 	ctx.srcStride = paddedSrcStride
 	ctx.srcOriginX = srcOriginX
 	ctx.srcOriginY = srcOriginY
@@ -442,7 +439,7 @@ func (e *VP9Encoder) vp9MLPickPartitionEntry(inter *vp9InterEncodeState,
 //   - vp9MLPredictSplit (3) : NN voted PARTITION_SPLIT — recurse.
 //   - vp9MLPredictNone1 (-1): no confidence — caller falls back.
 func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
-	ctx *vp9MLPartitionContext,
+	src []uint8, ctx *vp9MLPartitionContext,
 ) vp9MLPredictResult {
 	if ctx == nil || !ctx.ready {
 		return vp9MLPredictNone1
@@ -509,7 +506,7 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 	blockSrcX := ctx.srcOriginX + srcX0 + sbOffsetCol
 	blockSrcY := ctx.srcOriginY + srcY0 + sbOffsetRow
 
-	varWhole := vp9PredVariance(ctx.src, ctx.srcStride, blockSrcX, blockSrcY,
+	varWhole := vp9PredVariance(src, ctx.srcStride, blockSrcX, blockSrcY,
 		ctx.estPred[:], predStride, predOff/predStride, predOff%predStride,
 		bs, bs)
 	var factor float32
@@ -534,7 +531,7 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 	for i := range 4 {
 		xIdx := (i & 1) * hbs
 		yIdx := (i >> 1) * hbs
-		subVar := vp9PredVariance(ctx.src, ctx.srcStride,
+		subVar := vp9PredVariance(src, ctx.srcStride,
 			blockSrcX+xIdx, blockSrcY+yIdx,
 			ctx.estPred[:], predStride,
 			(predOff/predStride)+yIdx, (predOff%predStride)+xIdx,
@@ -569,7 +566,7 @@ func vp9MLPredictVarPartitioning(bsize common.BlockSize, miRow, miCol int,
 // excludes unsupported or non-tree-aligned windows, retaining the original
 // helper's behavior for those callers.
 func vp9MLPredictVarPartitioningCached(bsize common.BlockSize, miRow, miCol int,
-	ctx *vp9MLPartitionContext,
+	src []uint8, ctx *vp9MLPartitionContext,
 ) vp9MLPredictResult {
 	if ctx == nil || !ctx.ready {
 		return vp9MLPredictNone1
@@ -591,11 +588,11 @@ func vp9MLPredictVarPartitioningCached(bsize common.BlockSize, miRow, miCol int,
 		}
 	}
 	if index < 0 {
-		return vp9MLPredictVarPartitioning(bsize, miRow, miCol, ctx)
+		return vp9MLPredictVarPartitioning(bsize, miRow, miCol, src, ctx)
 	}
 	bit := uint32(1) << uint(index)
 	if ctx.predictValid&bit == 0 {
-		ctx.predictResult[index] = vp9MLPredictVarPartitioning(bsize, miRow, miCol, ctx)
+		ctx.predictResult[index] = vp9MLPredictVarPartitioning(bsize, miRow, miCol, src, ctx)
 		ctx.predictValid |= bit
 	}
 	return ctx.predictResult[index]
@@ -721,7 +718,7 @@ func (e *VP9Encoder) vp9NonrdPickPartition(ctx *vp9MLPartitionContext,
 
 	// libvpx vp9_encodeframe.c:4660-4667 — ML predictor dispatch.
 	if partitionNoneAllowed && doSplit {
-		pred := vp9MLPredictVarPartitioningCached(bsize, miRow, miCol, ctx)
+		pred := vp9MLPredictVarPartitioningCached(bsize, miRow, miCol, e.intProSrcBordered.Pixels, ctx)
 		switch pred {
 		case vp9MLPredictNone:
 			// libvpx: do_split = 0 — commit current bsize.
