@@ -16,6 +16,7 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 	acR, acQ, acD := archsimd.BroadcastInt16x8(r[1]), archsimd.BroadcastInt16x8(q[1]), archsimd.BroadcastInt16x8(d[1])
 	dcR, dcQ, dcD := acR.SetElem(0, r[0]), acQ.SetElem(0, q[0]), acD.SetElem(0, d[0])
 	max16 := archsimd.BroadcastUint16x8(32767)
+	eleven := archsimd.BroadcastInt16x8(11)
 	zero := archsimd.Int16x8{}
 	last := zero
 	lut := archsimd.LoadUint8x16Array(&fpClassLUT)
@@ -25,7 +26,7 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		if i == 0 {
 			vr, vq, vd = dcR, dcQ, dcD
 		}
-		c := archsimd.LoadInt16x8(coeff[i:])
+		c := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i : i+8]))
 		// Unsigned magnitude handles -32768; adding a nonnegative int16 round
 		// fits uint16 exactly, then clips to the scalar signed-int16 bound.
 		a := c.Abs().ToBits().Add(vr.ToBits()).Min(max16).BitsToInt16()
@@ -34,11 +35,11 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		// Use the exact public threshold, rather than its table-specific shortcut.
 		if active.ToInt16x8().ToBits().ReduceMax() == 0 {
 			if qcoeff != nil {
-				zero.Store(qcoeff[i:])
+				zero.StoreArray((*[8]int16)(qcoeff[i : i+8]))
 			}
-			zero.Store(dqcoeff[i:])
+			zero.StoreArray((*[8]int16)(dqcoeff[i : i+8]))
 			if classes != nil {
-				binary.LittleEndian.PutUint64(classes[i:], 0)
+				binary.LittleEndian.PutUint64(classes[i:i+8], 0)
 			}
 			continue
 		}
@@ -46,13 +47,13 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		magnitude := t
 		t = zero.Sub(t).IfElse(c.Less(zero), t)
 		if qcoeff != nil {
-			t.Store(qcoeff[i:])
+			t.StoreArray((*[8]int16)(qcoeff[i : i+8]))
 		}
-		t.Mul(vd).Store(dqcoeff[i:])
-		last = last.Max(archsimd.LoadInt16x8(iscan[i:]).Masked(t.NotEqual(zero)))
+		t.Mul(vd).StoreArray((*[8]int16)(dqcoeff[i : i+8]))
+		last = last.Max(archsimd.LoadInt16x8Array((*[8]int16)(iscan[i : i+8])).Masked(t.NotEqual(zero)))
 		if classes != nil {
-			indices := fpClassIndices(magnitude.Min(archsimd.BroadcastInt16x8(11)))
-			binary.LittleEndian.PutUint64(classes[i:], permute16(lut, indices).ReshapeToUint64s().GetElem(0))
+			indices := fpClassIndices(magnitude.Min(eleven))
+			binary.LittleEndian.PutUint64(classes[i:i+8], permute16(lut, indices).ReshapeToUint64s().GetElem(0))
 		}
 	}
 	return max(fpReduceMax16(last), quantizeFPBlockTail(coeff, iscan, qcoeff, dqcoeff, i, n, r, q, d, classes))

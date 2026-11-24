@@ -1,5 +1,7 @@
 package common
 
+import "encoding/binary"
+
 // This file ports the YV12 frame-border substrate from libvpx
 // v1.16.0. Constants and the edge-replication body are verbatim ports
 // of the libvpx headers / sources cited inline below.
@@ -156,12 +158,8 @@ func extendPlane(pixels []uint8, srcOff, srcStride, width, height,
 	for range height {
 		left := pixels[src1Off]
 		right := pixels[src2Off]
-		for j := range extendLeft {
-			pixels[dst1Off+j] = left
-		}
-		for j := range extendRight {
-			pixels[dst2Off+j] = right
-		}
+		fillBorderBytes(pixels[dst1Off:dst1Off+extendLeft], left)
+		fillBorderBytes(pixels[dst2Off:dst2Off+extendRight], right)
 		src1Off += srcStride
 		src2Off += srcStride
 		dst1Off += srcStride
@@ -188,6 +186,28 @@ func extendPlane(pixels []uint8, srcOff, srcStride, width, height,
 	for range extendBottom {
 		copy(pixels[dst2Off:dst2Off+linesize], pixels[src2Off:src2Off+linesize])
 		dst2Off += srcStride
+	}
+}
+
+func fillBorderBytes(dst []uint8, val uint8) {
+	n := len(dst)
+	if n == 0 {
+		return
+	}
+	word := uint64(val) * 0x0101010101010101
+	i := 0
+	for ; i+32 <= n; i += 32 {
+		b := dst[i : i+32]
+		binary.LittleEndian.PutUint64(b[0:8], word)
+		binary.LittleEndian.PutUint64(b[8:16], word)
+		binary.LittleEndian.PutUint64(b[16:24], word)
+		binary.LittleEndian.PutUint64(b[24:32], word)
+	}
+	for ; i+8 <= n; i += 8 {
+		binary.LittleEndian.PutUint64(dst[i:i+8], word)
+	}
+	for ; i < n; i++ {
+		dst[i] = val
 	}
 }
 

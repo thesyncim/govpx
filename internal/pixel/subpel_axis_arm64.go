@@ -16,8 +16,8 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 			var sum0, sum1 archsimd.Int16x8
 			for range h {
 				row := src[so : so+17]
-				pred := archsimd.LoadUint8x16(row[0:16]).Average(archsimd.LoadUint8x16(row[1:17]))
-				r := archsimd.LoadUint8x16(ref[ro : ro+16])
+				pred := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])).Average(archsimd.LoadUint8x16Array((*[16]byte)(row[1:17])))
+				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 				d0 := pred.ExtendLo8ToUint16().BitsToInt16().Sub(r.ExtendLo8ToUint16().BitsToInt16())
 				d1 := pred.HiToLo().ExtendLo8ToUint16().BitsToInt16().Sub(r.HiToLo().ExtendLo8ToUint16().BitsToInt16())
 				sum0 = sum0.Add(d0)
@@ -41,8 +41,8 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 			var sum0, sum1 archsimd.Int16x8
 			for range h {
 				row := src[so : so+17]
-				a, b := archsimd.LoadUint8x16(row[0:16]), archsimd.LoadUint8x16(row[1:17])
-				r := archsimd.LoadUint8x16(ref[ro : ro+16])
+				a, b := archsimd.LoadUint8x16Array((*[16]byte)(row[0:16])), archsimd.LoadUint8x16Array((*[16]byte)(row[1:17]))
+				r := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 				v0 := a.MulWidenLo(u0).Add(b.MulWidenLo(u1)).Add(uround).ShiftAllRight(7).BitsToInt16()
 				v1 := a.HiToLo().MulWidenLo(u0).Add(b.HiToLo().MulWidenLo(u1)).Add(uround).ShiftAllRight(7).BitsToInt16()
 				d0 := v0.Sub(r.ExtendLo8ToUint16().BitsToInt16())
