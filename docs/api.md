@@ -1,20 +1,20 @@
 # API
 
-The public import path is:
+The only public import path is:
 
 ```go
 import "github.com/thesyncim/govpx"
 ```
 
-The root package exposes constructors, options, errors, image buffers, RTP
-helpers, and codec handles. Codec implementation details live under `internal/`
-or are being moved there; callers should only depend on the root package.
+The root package exposes constructors, options, errors, `Image`, RTP/SDP
+helpers, and codec handles. Implementation packages live under `internal/`.
 
 ## Decode
 
-Use `NewVP8Decoder` for raw VP8 frame payloads and `NewVP9Decoder` for raw VP9
-Profile 0 packets. `Decode` publishes decoder-owned output through
-`NextFrame`; `DecodeInto` writes into caller-owned `Image` buffers.
+Use `NewVP8Decoder` for raw VP8 payloads and `NewVP9Decoder` for raw VP9
+Profile 0 packets (including superframes). `Decode` publishes decoder-owned
+output through `NextFrame`; `DecodeInto` / `DecodeIntoWithPTS` write into
+caller-owned `Image` buffers.
 
 ```go
 dec, err := govpx.NewVP8Decoder(govpx.DecoderOptions{})
@@ -26,26 +26,21 @@ defer dec.Close()
 if err := dec.Decode(packet); err != nil {
     return err
 }
-frame, ok := dec.NextFrame()
-if ok {
-    use(frame)
+if frame, ok := dec.NextFrame(); ok {
+    use(frame) // valid until the next Decode, Reset, or Close
 }
 ```
 
-`NextFrame` returns storage owned by the decoder. It remains valid until the
-next `Decode`, `Reset`, or `Close` call. Use `DecodeInto` or
-`DecodeIntoWithPTS` when the caller owns the destination buffers.
-
-VP8 and VP9 decoder options include threading, error concealment, postprocess
-flags, maximum dimensions, resolution-change policy, and decryptor callbacks.
-VP9 also exposes external frame buffers, byte alignment, tile/row controls, and
-spatial-SVC layer selection.
+Decoder options cover threading, error concealment, postprocess flags, max
+dimensions, resolution-change rejection, and decryptor callbacks. VP9 also
+exposes external frame buffers, byte alignment, tile/row-MT controls, and
+spatial-SVC layer selection (`SetSVCSpatialLayer`).
 
 ## Encode
 
 Use `NewVP8Encoder` or `NewVP9Encoder` with explicit dimensions, frame rate or
 timebase, rate control, and deadline. `EncodeInto` writes into a caller-owned
-byte buffer and returns a result whose `Data` slice aliases that buffer.
+byte slice and returns a result aliasing that buffer.
 
 ```go
 enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
@@ -57,7 +52,7 @@ enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
     MinQuantizer:      2,
     MaxQuantizer:      56,
     Deadline:          govpx.DeadlineRealtime,
-    CpuUsed:           -6,
+    CpuUsed:           -8,
 })
 if err != nil {
     return err
@@ -74,95 +69,57 @@ if !res.Dropped {
 }
 ```
 
-Lookahead, auto-alt-ref, and two-pass encoders may accept a frame without
-emitting a packet. In that case `EncodeInto` returns `ErrFrameNotReady`. At end
-of stream, call `FlushInto` until no more output is available.
+Lookahead, auto-alt-ref, and two-pass encoders may queue frames and return
+`ErrFrameNotReady`; drain remaining output with `FlushInto` at end of stream.
 
-VP9 uses `VP9EncoderOptions` and the same caller-owned-buffer contract. VP9
-encoder APIs are limited to Profile 0: 8-bit 4:2:0 packets, Profile 0
-superframes, show-existing frames, intra-only packets, spatial-layer signaling,
-tile settings, row-MT settings, color/render metadata, segmentation, lossless
-mode, AQ modes, and first-pass/two-pass stats.
-
-VP9 rate control reports the requested `TargetBitrateKbps`, but its internal
-frame budgets and CBR buffers mirror libvpx's raw-target-rate cap for Profile 0
-sources and fixed target-level bitrate caps. Runtime `SetRateControlBuffer`
-accepts literal zero values: max and optimal buffers fall back to
-`target_bandwidth/8`, while the initial buffer can be zero.
+VP9 encoder APIs target Profile 0 (8-bit 4:2:0) and support superframes,
+show-existing frames, intra-only frames, spatial-SVC signaling, tiles, row-MT,
+color/render metadata, segmentation, lossless mode, AQ modes, and two-pass
+stats.
 
 ## Runtime Controls
 
-Common runtime controls include:
+- `SetRealtimeTarget`: runtime bitrate, FPS, frame-drop, and in-place
+  resolution updates (invalidates references and forces a keyframe).
+- `SetRateControl` / `SetRateControlBuffer`: replace rate-control config or
+  buffer parameters at runtime.
+- `SetFrameDropAllowed` / `SetPostEncodeDrop`: toggle frame dropping.
+- `SetTargetLevel`: VP9 level-constrained encode adaptation (`1` = auto,
+  `255` = disabled).
+- `ForceKeyFrame`: sticky PLI/FIR keyframe request (`EncodeForceKeyFrame` for
+  a single frame).
+- `SetReferenceFrame` / `CopyReferenceFrame`: direct `LAST`/`GOLDEN`/`ALTREF`
+  buffer control.
+- `SetScalingMode` (VP8): writes keyframe scale bits and forces a keyframe;
+  callers supply frames at the coded size (no internal resampler).
 
-- `SetRealtimeTarget` for bitrate, FPS, frame-drop, and caller-driven size
-  changes.
-- `SetRateControl` for replacing the public rate-control configuration.
-- `SetFrameDropAllowed` for runtime frame-drop policy.
-- `SetPostEncodeDrop` for VP9 CBR post-encode drops when a packed inter frame
-  would underflow the CBR buffer.
-- `SetTargetLevel` for VP9 level-constrained encode decisions. Fixed levels
-  adapt internal bitrate, overshoot, quantizer, GF interval, and tile-column
-  limits instead of rejecting otherwise valid source geometry; level `1`
-  selects libvpx-style auto level decisions, and `255` disables fixed level
-  constraints.
-- `ForceKeyFrame` for sticky PLI/FIR-style requests.
-- `SetReferenceFrame` and `CopyReferenceFrame` for LAST/GOLDEN/ALTREF buffers.
+## RTP, SDP, and Superframes
 
-VP8 `SetScalingMode` writes VP8 keyframe scale bits and forces a keyframe. It
-does not run libvpx's internal source resampler; callers provide frames at the
-coded size they want govpx to encode.
+RTP helpers operate on RFC 7741 (VP8) and RFC 9628 (VP9) payload bodies. RTP
+headers, sequence/loss policy, jitter buffering, SRTP, and signaling remain
+caller-owned.
 
-## RTP And Superframes
-
-VP8 and VP9 RTP helpers operate on payload bodies, not RTP sessions. The
-package provides payload descriptor parsing/packing, MTU-aware packetization,
-ordered frame assembly, marker-bit results, and VP9 scalability-structure
-support. RTP headers, sequence/loss policy, jitter buffering, SRTP, SDP, and
-signaling stay caller-owned.
-
-For VP9 WebRTC senders, use `VP9WebRTCPacketizer` around the WebRTC-specific
-encoder-result packetizers. It sets 15-bit PictureID, preserves temporal-layer
-metadata, emits keyframe scalability-structure data, uses explicit
-flexible-mode references, and advances PictureID after successful
-packetization or after consuming an encoder-dropped temporal slot. If VP9 CBR
-intentionally drops a frame, `VP9WebRTCPacketizer.Packetize` returns
-`sent=false` with no RTP
-payloads and leaves a PictureID gap so the receiver's RTP PictureID timeline
-remains aligned. `PacketizationSize` has the same dropped-frame consume
-behavior because dropped frames need no follow-up payload write. Top
-temporal-layer drops can continue as ordinary PictureID gaps. Base and middle
-temporal-layer drops require a recovery keyframe; after those drops
-`NeedsKeyFrame` returns true and the sender should call `ForceKeyFrame` before
-emitting another VP9 RTP frame. If the application withholds a coded VP9
-frame/access unit locally after encode but before packetization, call
-`MarkEncodedAccessUnitUnsent`; if packetization already succeeded, call
-`MarkAccessUnitUnsent`. Then force a keyframe before emitting more VP9 RTP.
-That protects browser receivers from waiting on a PictureID that was never
-sent even though the WebRTC stats show no RTP loss. The lower-level VP9 RTP
-packetizers and stateless WebRTC result packetizers are still available for
-single access units when a caller deliberately owns PictureID sequencing,
-dependency recovery, layer-count transitions, and descriptor policy.
-
-Use `VP8SDPOffersReceiveFrame` or `VP9SDPOffersProfile0ReceiveFrame` around
-offer handling before sending WebRTC video to peers that advertise `max-fr` or
-`max-fs` receiver caps. Use `VP8SDPAnswersSend` and
-`VP9SDPAnswersProfile0Send` around answer handling before sending over WebRTC.
-The lower-level `VP9SDPFmtpContainsProfile0` helper is available for callers
-that already own their SDP section parsing.
-
-VP9 superframe helpers are Profile 0 only:
-
-- `VP9SuperframeSize`
-- `PackVP9SuperframeInto`
+- **Stateful VP9 WebRTC senders**: use `VP9WebRTCPacketizer`
+  (`PacketizeWebRTCNonFlexibleInto`, `PacketizeSpatialSVCWebRTCNonFlexibleInto`,
+  or `PacketizeInto` for flexible mode). It manages 15-bit PictureIDs,
+  temporal/spatial metadata, keyframe scalability structures, and PictureID
+  gaps for dropped frames.
+- **Recovery**: when `NeedsKeyFrame` is true (after a base/middle temporal drop
+  or after calling `MarkEncodedAccessUnitUnsent` / `MarkAccessUnitUnsent` for
+  locally withheld frames), call `ForceKeyFrame` before sending the next VP9
+  frame.
+- **SDP checks**: validate receiver capabilities and Profile 0 negotiation with
+  `VP8SDPOffersReceiveFrame`, `VP8SDPAnswersSend`,
+  `VP9SDPOffersProfile0ReceiveFrame`, and `VP9SDPAnswersProfile0Send`.
+- **VP9 superframes**: `VP9SuperframeSize` and `PackVP9SuperframeInto` (Profile 0).
 
 ## Errors
 
-Sentinel errors are exported from the root package and are safe to compare with
-`errors.Is`: `ErrInvalidData`, `ErrNeedKeyFrame`, `ErrFrameNotReady`,
-`ErrBufferTooSmall`, `ErrFrameRejected`, `ErrInvalidConfig`,
-`ErrInvalidBitrate`, `ErrInvalidQuantizer`, `ErrInvalidVP9Data`,
-`ErrVP9NotImplemented`, and `ErrClosed`.
+Exported sentinel errors (safe with `errors.Is`):
+`ErrInvalidData`, `ErrNeedKeyFrame`, `ErrFrameNotReady`, `ErrBufferTooSmall`,
+`ErrFrameRejected`, `ErrInvalidConfig`, `ErrInvalidBitrate`,
+`ErrInvalidQuantizer`, `ErrInvalidVP9Data`, `ErrVP9NotImplemented`, `ErrClosed`.
 
-The zero value of `DecoderOptions` is valid. Encoder options require at least a
-positive width, height, frame rate or timebase, and target bitrate where the
-selected rate-control mode needs one.
+Zero-valued `DecoderOptions` is valid. Encoder options require positive
+dimensions, frame rate or timebase, and a target bitrate when required by the
+rate-control mode.

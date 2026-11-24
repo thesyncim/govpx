@@ -5,79 +5,71 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/govpx)](https://goreportcard.com/report/github.com/thesyncim/govpx)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-**A production-grade VP8 and VP9 Profile 0 encoder + decoder written entirely
-in Go — validated byte-for-byte against libvpx, with no cgo and no runtime
-dependencies.**
+**A memory-safe VP8 and VP9 Profile 0 encoder + decoder written in pure Go —
+zero `cgo`, zero `unsafe`, zero hand-written assembly, and competitive with
+`libvpx`.**
 
-govpx is for Go programs that need real VP8/VP9 support — WebRTC senders,
-SFUs, media servers, transcoders, recorders — without linking C. It produces
-and consumes raw VP8 frame payloads and raw VP9 Profile 0 packets for
-RTP/WebRTC-compatible transport, and ships the full realtime toolbox libvpx
-users expect: CBR rate control, frame dropping, temporal denoising, temporal
-and spatial SVC, ROI/active maps, two-pass encoding, and multithreaded
-encode/decode.
+govpx targets Go applications that need production VP8/VP9 support — WebRTC
+senders, SFUs, media servers, transcoders, and recorders — without linking C.
+It produces and consumes raw VP8 frame payloads and raw VP9 Profile 0 packets
+with CBR/VBR/CQ/two-pass rate control, frame dropping, temporal denoising,
+temporal and spatial SVC, ROI/active maps, and multithreaded encode/decode.
 
 ## Why govpx
 
-- **Correct, provably.** Development is oracle-driven against pinned libvpx
-  v1.16.0: VP8 encoder output is **byte-identical** to libvpx across the
-  repository's pinned parity matrices (rate control, dropping, denoising,
-  segmentation, SVC, error resilience, …). The VP9 decoder passes the full
-  official conformance corpus, and VP9 realtime encode tracks libvpx
-  byte-exactly on the pinned production fixtures. Every hot-path change lands
-  behind byte-parity gates.
-- **Pure Go.** No cgo, no shared libraries, no build headaches. Cross-compile
-  a static media server for any GOOS/GOARCH with a plain `go build`. There is no hand-written assembly in govpx.
-- **Fast.** Go-native SIMD kernels for arm64 and amd64, profile-guided
-  optimization, allocation-free steady state, and libvpx-shaped threading:
-  VP8 row multithreading, VP9 tile-column + row-based encoder MT, and
-  row-based decoder MT with a threaded loop filter. See the numbers below.
-- **Realtime-first.** The encoder mirrors the libvpx configuration WebRTC
-  stacks actually use, and the library includes RFC 7741 / RFC 9628 RTP
-  packetizers and assemblers, SDP negotiation helpers, and a stateful VP9
-  WebRTC packetizer that keeps browsers' dependency tracking happy across
-  dropped frames.
+- **Memory-safe pure Go.** Zero `cgo`, zero `unsafe`, and zero `.s` assembly
+  files. Cross-compile a static binary with a plain `go build`.
+- **Fast.** Pure-Go `simd/archsimd` kernels (arm64 NEON / amd64 AVX2),
+  profile-guided optimization, allocation-free steady state (`0.00 allocs/frame`
+  on decode, GC-invisible `noscan` buffers), VP8 row multithreading, and VP9
+  tile-column + row-MT encode/decode.
+- **Oracle-validated.** Verified against pinned `libvpx v1.16.0`: VP8 encoder
+  output is byte-identical on pinned non-HD parity matrices, the VP9 decoder
+  passes the official Profile 0 conformance corpus across thread counts, and
+  encode workloads are quality-gated (`-quality-gate`) against `libvpx`.
+- **WebRTC-ready.** Includes RFC 7741 (VP8) and RFC 9628 (VP9) RTP payload
+  packetizers/assemblers, SDP profile/cap helpers, and `VP9WebRTCPacketizer`
+  for stateful PictureID and dependency tracking across dropped frames.
 
 ## Performance
 
-Historical assembly baseline (before the Go 1.27 SIMD migration; see
-[SIMD_PORT.md](SIMD_PORT.md) for current measurements and limitations):
-720p realtime, 30 fps, 2.5 Mbps CBR, `cpu-used=8`, Apple M4 Max, Go 1.26.3,
-measured 2026-07-16 against libvpx v1.16.0's own reported encode times
-(identical output bytes and drop topology in every encode row):
+Measured on Apple M4 Max with Go 1.27.4 (`GOEXPERIMENT=simd`, checked-in PGO)
+against pinned `libvpx v1.16.0` (C + NEON assembly). All encode rows pass
+`-quality-gate` (PSNR within 2 dB, SSIM within 0.03 of `libvpx`):
 
-| Workload | govpx | libvpx (C + asm) | gap |
-| --- | --- | --- | --- |
-| VP8 encode, 1 thread | 7.3 ms/frame | 5.4 ms/frame | 1.36× |
-| VP9 encode, 1 thread | 10.3 ms/frame | 5.5 ms/frame | 1.87× |
-| VP9 encode, 8 threads row-MT | 2.6 ms/frame | 1.3 ms/frame | 2.0× |
-| VP8 decode | 1.8 ms/frame | 1.6 ms/frame | 1.17× |
-| VP9 decode | 1.9 ms/frame | 1.4 ms/frame | 1.31× |
+| Workload | govpx | libvpx (C + asm) | Ratio (core) | Notes |
+| --- | ---: | ---: | ---: | --- |
+| **Quick suite geomean** (`-suite quick -suite-runs 3`) | — | — | **0.92×** | 1.08× encode fps |
+| — VP8 realtime 720p, 1T (`rt-720p-2m-30f`) | **3.49 ms** (286.9 fps) | 4.93 ms (202.7 fps) | **0.71×** | SSIM −0.00004 |
+| — VP8 good 1080p, 1T (`good-1080p-8m-30f`) | **9.65 ms** (103.6 fps) | 8.00 ms (125.0 fps) | **1.21×** | 0.87× inter bytes, SSIM −0.002 |
+| VP8 realtime 720p, 4T (`-cpu-used -8`) | **0.98 ms** (1,019 fps) | 1.26 ms (793 fps) | **0.78×** | 0.20 allocs/frame |
+| VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **2.51 ms** (399.1 fps) | 2.51 ms (399.1 fps) | **1.00×** | 0.58× wall, 1.00× bytes |
+| VP9 good 720p, 1T (`-cpu-used 4`) | **43.69 ms** (22.9 fps) | 45.39 ms (22.0 fps) | **0.96×** | p50 20.82 ms, 0.93× inter bytes |
+| VP9 realtime 720p, 1T (`-cpu-used 8`) | **5.20 ms** (192.1 fps) | 5.18 ms (192.9 fps) | **1.00×** | 0.86× wall, 48/12 exact drops |
+| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`) | **1.83 ms** (547.0 fps) | 1.66 ms (600.6 fps) | **1.10×** | 0.78× wall, 48/12 exact drops |
+| VP8 decode 720p, 1T | **1.48 ms** (675.3 fps) | 1.24 ms (803.7 fps) | **1.19×** | 0.00 allocs/frame |
+| VP9 decode 720p, 1T (300 frames) | **1.29 ms** (773.6 fps) | 1.01 ms (990.0 fps) | **1.28×** | 0.00 allocs/frame |
 
-Quality on the same runs: VP8 PSNR/SSIM deltas are exactly 0 (byte-identical
-streams); VP9 measures −0.05 dB PSNR / +0.00002 SSIM at identical output size
-and identical encoded/dropped topology.
-
-Benchmark numbers depend on hardware, content, and configuration — reproduce
-them for your workload with the bundled tool (see
-[Benchmarking](#benchmarking)). The speed gap is an active engineering front;
-see `docs/perf-phase3-structural-plan.md` for the measured optimization
-program.
+Performance depends on CPU, resolution, bitrate, and mode — reproduce for your
+workload with `cmd/govpx-bench` (see [Benchmarking](#benchmarking)).
 
 ## Install
 
-Go 1.27.4 or newer is required. The module pins `go 1.27.4` and the default
-toolchain to Go 1.27.4 so local `go` commands use the same patch level as CI.
+Requires **Go 1.27.4+**.
 
 ```sh
 go get github.com/thesyncim/govpx
 ```
 
-Use `GOEXPERIMENT=simd go build ./...` to enable Go's experimental
-`simd/archsimd` kernels. `make` targets and `scripts/go.sh` enable SIMD by
-default. On amd64, runtime AVX2 detection guards the SIMD kernels; arm64 uses
-mandatory ASIMD. Plain `go build` and `-tags purego` select scalar Go fallbacks.
-See [SIMD_PORT.md](SIMD_PORT.md) for migration and performance validation.
+Enable Go's native SIMD kernels with `GOEXPERIMENT=simd`:
+
+```sh
+GOEXPERIMENT=simd go build ./...
+```
+
+`make` targets and `scripts/go.sh` set `GOEXPERIMENT=simd` automatically. On
+amd64, AVX2 kernels are guarded by runtime CPU detection; arm64 uses mandatory
+ASIMD. Plain `go build` or `-tags purego` selects scalar Go fallbacks.
 
 ## Decode
 
@@ -96,30 +88,26 @@ if frame, ok := dec.NextFrame(); ok {
 }
 ```
 
-`NextFrame` returns decoder-owned storage that stays valid until the next
-`Decode`, `Reset`, or `Close`. Use `DecodeInto` / `DecodeIntoWithPTS` when
-the caller owns the destination buffers.
-
-Decoder features: configurable threading, error concealment, granular
-postprocess (deblock, demacroblock, MFQE, additive noise), maximum
-dimensions, resolution-change rejection, frame metadata, and LAST /
-GOLDEN / ALTREF reference-buffer set/copy.
-
-Use `NewVP9Decoder` for raw VP9 Profile 0 packets. A VP9 packet may
-contain a superframe index; the decoder consumes each contained Profile 0
-frame in packet order and publishes the final visible output through `NextFrame`.
-Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
+- `NextFrame` returns decoder-owned I420 storage valid until the next `Decode`,
+  `Reset`, or `Close`. Use `DecodeInto` / `DecodeIntoWithPTS` for caller-owned
+  buffers.
+- Use `NewVP9Decoder` for raw VP9 Profile 0 packets (including superframes).
+  Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
+- Supported controls: threading, error concealment, postprocess flags, max
+  dimensions, resolution-change rejection, decryptor callbacks, and reference
+  buffer set/copy.
 
 ## Encode
 
 ```go
 enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
-    Width:             640,
-    Height:            480,
+    Width:             1280,
+    Height:            720,
     FPS:               30,
     RateControlMode:   govpx.RateControlCBR,
-    TargetBitrateKbps: 1500,
+    TargetBitrateKbps: 2500,
     Deadline:          govpx.DeadlineRealtime,
+    CpuUsed:           -8,
 })
 if err != nil {
     return err
@@ -135,289 +123,94 @@ for i, src := range frames {
     if res.Dropped {
         continue
     }
-    writePacket(res.Data) // res.Data aliases packet; copy if it must outlive packet.
+    writePacket(res.Data) // aliases packet; copy if it must outlive packet.
 }
 ```
 
-Input images are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). VP8 output is
-one raw VP8 payload per packet -- not IVF, not WebM. VP9 encoder APIs emit
-Profile 0 packets and valid Profile 0 superframes only.
+Inputs are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Outputs are raw VP8
+payloads or VP9 Profile 0 packets/superframes (not IVF or WebM). When lookahead
+or auto-alt-ref queues frames, `EncodeInto` returns `ErrFrameNotReady`; drain
+with `FlushInto` at end of stream.
 
-| Capability | Knobs |
+| Area | Controls |
 | --- | --- |
-| Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass + two-pass VBR, runtime bitrate and target updates, VP9 target-level constraints, frame dropping, buffer model, min/max quantizers, max intra bitrate |
-| Realtime controls | Error resilience, temporal/spatial scalability signaling, keyframe forcing, runtime CPU-used / deadline, VP8 RTC external rate control, reference set/copy. RTP/WebRTC payload compatibility is covered below. |
-| Quality and tools | Adaptive keyframes, lookahead, auto alt-ref, ARNR, denoise, token partitions, loop-filter sharpness, screen-content mode, static threshold, active maps, ROI maps, PSNR/SSIM tuning, VP9 lossless via `VP9EncoderOptions.Lossless` / `SetLossless`, multi-threaded VP8 row encode, VP9 tile-column and row-MT threading controls |
+| Rate control | `RateControlMode` (VBR / CBR / CQ / Q), one-pass and two-pass VBR, runtime `SetRealtimeTarget` / `SetRateControl`, VP9 target levels, frame dropping, buffer model, min/max quantizers, max intra bitrate |
+| Realtime & SVC | Error resilience, temporal/spatial scalability, `ForceKeyFrame` / `EncodeForceKeyFrame`, runtime `CpuUsed` / `Deadline`, external rate control, reference set/copy |
+| Quality & threading | Adaptive keyframes, lookahead, auto-alt-ref, ARNR, denoise, token partitions, screen-content mode, static threshold, active/ROI maps, PSNR/SSIM tuning, VP9 lossless, VP8 row-MT, VP9 tile-column + row-MT |
 
-Lookahead and auto-alt-ref can make `EncodeInto` return `ErrFrameNotReady`
-while frames are queued. Call `FlushInto` at end of stream until it
-returns no more data.
+## WebRTC & RTP
 
-## Correctness and validation
+govpx provides RFC 7741 (VP8) and RFC 9628 (VP9) payload descriptors, MTU-aware
+packetizers, ordered frame assemblers, and SDP profile/capability helpers. RTP
+headers, sequence/loss policy, jitter buffering, SRTP, and signaling remain
+caller-owned.
 
-govpx treats libvpx v1.16.0 as a pinned oracle (`UPSTREAM.md` is the
-authoritative scope statement). The repository gates enforce:
+- **SDP negotiation**: check `VP8SDPOffersReceiveFrame` /
+  `VP9SDPOffersProfile0ReceiveFrame` and `VP8SDPAnswersSend` /
+  `VP9SDPAnswersProfile0Send` before sending to peers with `max-fr` / `max-fs`
+  or profile constraints.
+- **VP9 WebRTC senders**: prefer `VP9WebRTCPacketizer` (`PacketizeWebRTCNonFlexibleInto`
+  or `PacketizeSpatialSVCWebRTCNonFlexibleInto`) and write payloads directly to
+  `pion/webrtc`'s `TrackLocalStaticRTP`. It manages 15-bit PictureIDs,
+  temporal/spatial metadata, keyframe scalability structures, and PictureID
+  gaps for dropped frames.
+- **Recovery**: when `VP9WebRTCPacketizer.NeedsKeyFrame` becomes true (or if
+  you locally withhold a coded/packetized access unit via
+  `MarkEncodedAccessUnitUnsent` / `MarkAccessUnitUnsent`), call `ForceKeyFrame`
+  before sending the next VP9 frame.
+- **Runtime resolution change**: update `Width` / `Height` via
+  `SetRealtimeTarget` to resize buffers in place and force a keyframe.
 
-- **VP8 encoder byte parity** — pinned stream-SHA matrices across rate
-  control, frame dropping, denoising, segmentation, cyclic refresh, temporal
-  SVC, error resilience, and runtime-control sequences, all compared against
-  an instrumented libvpx vpxenc oracle.
-- **VP9 decoder conformance** — the official Profile 0 vector corpus decodes
-  bit-exactly across thread counts {1, 2, 4, 8}, including tile and row-MT
-  paths, invalid-stream rejection, and unsupported-profile handling.
-- **VP9 encoder parity** — realtime (non-RD) encode paths are byte-exact on
-  pinned production fixtures across thread counts; quality fixtures gate
-  PSNR/SSIM against libvpx on every CI run.
-- **Determinism** — multithreaded encode output is pinned byte-identical
-  across thread counts on the production option grid.
-- **Allocation discipline** — steady-state `EncodeInto` / `Decode` paths are
-  enforced allocation-free by tests.
-- **Fuzzing** — differential fuzzers run govpx against libvpx for both
-  decoders and the VP8 boolean coder; corpus regressions are pinned as seeds.
-
-Run `make ci` locally for the standard gate, `make verify-production` for the
-full oracle/parity lane. See `docs/validation.md` for the complete gate map.
-
-## API Map
-
-| Task | API |
-| --- | --- |
-| Decode one packet | `Decode`, then `NextFrame` |
-| Decode into caller-owned buffers | `DecodeInto`, `DecodeIntoWithPTS` |
-| Configure VP9 decode recovery/postprocess | `VP9DecoderOptions.ErrorConcealment`, `VP9DecoderOptions.PostProcessFlags`, `VP9DecoderOptions.PostProcessNoiseLevel` |
-| Select VP9 decoded spatial-SVC layer | `SetSVCSpatialLayer`, `ClearSVCSpatialLayer` |
-| Inspect a packet header | `PeekVP8StreamInfo`, `PeekVP9StreamInfo` |
-| Encode one frame | `EncodeInto`, `EncodeIntoWithFlags` (VP9 Profile 0 flag subset), `EncodeIntraOnlyFrameInto`, `EncodeShowExistingFrameInto` |
-| Encode a VP9 spatial-SVC access unit | `NewVP9SpatialSVCEncoder`, `VP9SpatialSVCEncoder.EncodeIntoWithResult` |
-| Signal VP9 encoded spatial layer | `VP9EncoderOptions.SpatialScalability`, `SetSpatialScalability`, `SetSpatialLayerID` |
-| Validate VP9 WebRTC SDP/profile negotiation | `VP9SDPNegotiatesProfile0`, `VP9SDPOffersProfile0Receive`, `VP9SDPOffersProfile0ReceiveFrame`, `VP9SDPAnswersProfile0Send`, `VP9SDPFmtpContainsProfile0`, `ParseVP9SDPFmtp`, `VP9SDPReceiverCapabilities` |
-| Validate VP8 WebRTC SDP negotiation | `VP8SDPNegotiates`, `VP8SDPOffersReceive`, `VP8SDPOffersReceiveFrame`, `VP8SDPAnswersSend`, `ParseVP8SDPFmtp`, `VP8SDPReceiverCapabilities` |
-| Packetize, assemble, pack, or inspect VP8 RTP payload bodies | `VP8RTPFramePacketizationSize`, `PacketizeVP8RTPFrameInto`, `PacketizeVP8RTPFrame`, `VP8RTPFrameAssemblySize`, `AssembleVP8RTPFrameInto`, `AssembleVP8RTPFrame`, `VP8RTPPayloadDescriptor`, `ParseVP8RTPPayloadDescriptor`, `PackVP8RTPPayloadInto`, `PackVP8RTPPayload` |
-| Pack VP9 superframes | `VP9SuperframeSize`, `PackVP9SuperframeInto` |
-| Packetize, assemble, pack, or inspect VP9 RTP payload bodies | `VP9RTPFramePacketizationSize`, `PacketizeVP9RTPFrameInto`, `PacketizeVP9RTPFrame`, `VP9RTPFrameAssemblySize`, `AssembleVP9RTPFrameInto`, `AssembleVP9RTPFrame`, `VP9RTPPayloadDescriptor`, `ParseVP9RTPPayloadDescriptor`, `PackVP9RTPPayloadInto`, `PackVP9RTPPayload` |
-| Packetize plain VP9 for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeInto`, `VP9WebRTCPacketizer.Packetize` |
-| Packetize VP9 spatial SVC for long-lived WebRTC senders | `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexibleInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCNonFlexible`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTCInto`, `VP9WebRTCPacketizer.PacketizeSpatialSVCWebRTC` |
-| Build one VP9 WebRTC RTP access unit only when caller owns all sender state | `VP9EncodeResult.PacketizeWebRTCRTPInto`, `VP9EncodeResult.PacketizeWebRTCRTP`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTPInto`, `VP9SpatialSVCEncodeResult.PacketizeWebRTCRTP` |
-| Drain delayed encoder output | `FlushInto` |
-| Force a keyframe | `ForceKeyFrame` (VP8/VP9 sticky) or `EncodeForceKeyFrame` (VP8/VP9 one frame) |
-| Runtime bitrate/FPS/size update | `SetRealtimeTarget` (VP8 and VP9 Profile 0; VP9 explicit CBR updates bitrate/FPS/size and frame-drop state) |
-| Toggle frame dropping | `SetFrameDropAllowed` or `RealtimeTarget.FrameDrop` |
-| Toggle VP9 CBR post-encode drops | `SetPostEncodeDrop` |
-| Runtime rate-control replacement | `SetRateControl` |
-| Two-pass encode | `CollectFirstPassStats`, `govpx.FinalizeFirstPassStats`, `SetTwoPassStats` |
-| Reference buffer control | `SetReferenceFrame`, `CopyReferenceFrame` |
-| Last decoded/encoded metadata | `LastFrameInfo`, `LastQuantizer`, `EncodeResult` |
-
-## RTP/WebRTC Compatibility
-
-govpx's RTP/WebRTC contract is codec-payload compatibility for VP8 and VP9
-Profile 0. VP8 and VP9 expose payload-descriptor helpers plus MTU-aware
-packetizers and assemblers for RFC 7741 and RFC 9628 payload bodies.
-Packetizers return payload bodies plus marker bits; assemblers consume ordered
-payload bodies plus marker bits. RTP headers, sequence/loss policy, jitter
-buffering, SRTP, and signaling remain caller-owned. Use
-`VP8SDPOffersReceiveFrame` or `VP9SDPOffersProfile0ReceiveFrame` before
-sending to peers that advertise receiver caps, so an under-cap decoder is
-rejected before it can look like a clean-RTP frozen video path. VP9 helpers carry
-picture IDs, layer indices, flexible-mode references, and scalability
-structures through packetization and assembly. Use `VP9SDPOffersProfile0Receive`
-and `VP9SDPAnswersProfile0Send` around offer/answer handling before sending
-VP9 Profile 0 RTP to a peer; profile or direction mismatches can otherwise
-look like a frozen decoder even when RTP loss counters stay at zero. For
-WebRTC VP9 senders, prefer
-`VP9WebRTCPacketizer`: it wraps the result packetizers, forces 15-bit PictureID,
-preserves temporal metadata, emits keyframe scalability-structure data on the
-first payload, and advances PictureID after packetizing a frame/access unit or
-consuming an encoder-dropped temporal slot. Encoder-dropped frames return no
-RTP payloads but leave a PictureID gap, which keeps the RTP PictureID timeline
-aligned with the encoder timeline.
-`PacketizationSize` consumes dropped-frame slots for the same reason, since
-dropped frames need no follow-up payload write. After a dropped base or middle
-temporal layer, `NeedsKeyFrame` reports that the sender must force a TL0
-keyframe before emitting more VP9 RTP payloads; continuing with inter frames can
-leave WebRTC's VP9 dependency finder waiting for references that will never
-arrive. If an application intentionally withholds a coded VP9 frame/access unit
-after encoding but before successful packetization, call
-`VP9WebRTCPacketizer.MarkEncodedAccessUnitUnsent`; if packetization already
-succeeded, call `VP9WebRTCPacketizer.MarkAccessUnitUnsent`. Then force a
-keyframe before sending more VP9 RTP. That local pacing/backpressure drop does
-not show up as RTP loss, but later VP9 inter frames can otherwise reference a
-PictureID the receiver never saw. With pion/webrtc, write the payloads from
-`VP9WebRTCPacketizer` to a `TrackLocalStaticRTP`; do not pass govpx VP9 SVC
-superframes to `TrackLocalStaticSample`, because Pion's generic VP9 payloader
-cannot reconstruct govpx's temporal/spatial dependency metadata from raw VP9
-bytes. The generic VP9 RTP packetizers remain available for callers that
-already own their full PictureID, dependency, recovery, and descriptor policy.
-They are not the production long-lived WebRTC sender path. The VP9 decoder also
-exposes libvpx-style spatial-SVC
-superframe filtering with `SetSVCSpatialLayer`; the VP9 encoder exposes spatial
-layer signaling through `SetSpatialScalability`.
-
-For WebRTC senders, start with the same one-stream VP8/libvpx profile
-used by libwebrtc: realtime CBR, no lookahead, frame dropping, adaptive
-denoising, a small realtime buffer, and a capped keyframe target:
-
-```go
-enc, err := govpx.NewVP8Encoder(govpx.EncoderOptions{
-    Width:                  1280,
-    Height:                 720,
-    FPS:                    30,
-    RateControlMode:        govpx.RateControlCBR,
-    TargetBitrateKbps:      2500,
-    MinQuantizer:           2,
-    MaxQuantizer:           56,
-    UndershootPct:          100,
-    OvershootPct:           15,
-    BufferSizeMs:           1000,
-    BufferInitialSizeMs:    500,
-    BufferOptimalSizeMs:    600,
-    DropFrameAllowed:       true,
-    DropFrameWaterMark:     30,
-    MaxIntraBitratePct:     900, // max(300, 600*30/20)
-    KeyFrameInterval:       3000,
-    Deadline:               govpx.DeadlineRealtime,
-    CpuUsed:                -6,
-    NoiseSensitivity:       4,
-    StaticThreshold:        1,
-})
-```
-
-- Use `ForceKeyFrame()` for sticky PLI/FIR. Use `EncodeForceKeyFrame`
-  on `EncodeInto` (VP8) or `EncodeIntoWithFlags` (VP9) for a one-frame request.
-- VP9 `EncodeIntoWithFlags` is Profile-0-only and supports the VP9-compatible
-  keyframe, visibility, reference, and entropy hints documented by
-  `EncodeFlags`.
-- For plain single-spatial/single-temporal VP9 over WebRTC, call
-  `EncodeIntoWithResult`, then
-  `VP9WebRTCPacketizer.PacketizeWebRTCNonFlexibleInto` or
-  `PacketizeWebRTCNonFlexible` for the browser-oriented realtime RTP shape
-  with TL0PICIDX and keyframe GOF metadata. `PacketizeInto` / `Packetize`
-  remain available when a sender explicitly wants flexible-mode VP9 reference
-  diffs. Both stateful modes leave a PictureID gap for CBR-dropped frames. If
-  the packetizer's `NeedsKeyFrame` becomes true after a dropped frame, call
-  `ForceKeyFrame` before sending another VP9 frame.
-- If your sender drops or withholds a coded VP9 frame/access unit locally after
-  encode but before packetization, call
-  `VP9WebRTCPacketizer.MarkEncodedAccessUnitUnsent`. If packetization already
-  succeeded, call `VP9WebRTCPacketizer.MarkAccessUnitUnsent`. Then force a
-  keyframe before the next VP9 send; otherwise the browser can freeze with no
-  RTP loss while waiting on an app-local missing reference.
-- `EncodeIntraOnlyFrameInto` plus `EncodeShowExistingFrameInto` covers the VP9
-  hidden intra-only refresh / show-existing packet pattern used by payload-level
-  refresh flows.
-- Use `SetRealtimeTarget` for bandwidth-estimation updates. The zero value
-  of `RealtimeTarget.FrameDrop` leaves VP8 frame dropping unchanged, so
-  bitrate-only BWE updates do not accidentally disable dropping. VP9 explicit
-  CBR accepts bitrate/FPS/size, frame-drop, and public quantizer runtime
-  updates.
-- Use `SetTargetLevel` when a VP9 stream must fit a fixed level. Fixed levels
-  adapt encoder decisions in the libvpx style; they are not constructor-time
-  geometry rejection gates. Use level `1` for libvpx-style auto level
-  decisions and `255` for no fixed level constraint.
-- Drive caller-driven runtime resolution change through
-  `SetRealtimeTarget` by setting a new `Width` / `Height` pair:
-  size-dependent buffers are resized in place (capacity is reused), the
-  `LAST` / `GOLDEN` / `ALTREF` references are invalidated, and the next
-  encoded frame is forced to be a key frame at the new size. Mirrors
-  libvpx's `vpx_codec_enc_config_set` with a new width / height. The
-  VP8 `SetScalingMode` writes keyframe scale bits and forces a keyframe, but
-  govpx does not run libvpx's internal source resampler or `rc_resize_*`
-  watermarks. The decoder also handles key-frame resolution change; see
-  `DecoderOptions.RejectResolutionChange`.
-
-See `examples/webrtc-vp8` for a VP8 separate-module demo that streams govpx
-VP8 through pion/webrtc to a browser.
-
-## More
-
-- `docs/api.md`: public API guide and examples.
-- `docs/architecture.md`: package ownership and data flow.
-- `docs/codec-status.md`: supported VP8/VP9 scope and out-of-scope features.
-- `docs/validation.md`: local, CI, oracle, fuzz, allocation, and performance
-  gates.
-- `docs/perf-phase3-structural-plan.md`: the live speed-vs-libvpx engineering
-  program with per-change measurements.
-- `UPSTREAM.md`: pinned libvpx baseline and compatibility scope.
+See [examples/webrtc-vp8](examples/webrtc-vp8) and
+[examples/webrtc-vp9](examples/webrtc-vp9) for complete Pion WebRTC demos.
 
 ## Benchmarking
 
 ```sh
-scripts/go.sh run ./cmd/govpx-bench
-scripts/go.sh run ./cmd/govpx-bench -decode -frames=120
-scripts/go.sh run ./cmd/govpx-bench -format=json
+scripts/go.sh run ./cmd/govpx-bench -suite quick -suite-runs 3 -quality-gate
+scripts/go.sh run ./cmd/govpx-bench -codec vp9 -mode realtime -width 1280 -height 720 -frames 60 -bitrate 2500 -cpu-used 8 -threads 4 -row-mt -quality-gate
+scripts/go.sh run ./cmd/govpx-bench -decode -codec vp9 -width 1280 -height 720 -frames 300 -bitrate 2500 -threads 1
 ```
 
-By default the encode benchmark compares against libvpx when
-`cmd/govpx-bench` can find `internal/coracle/build/vpxenc` or `vpxenc` on
-`PATH`. Pass `-libvpx-vpxenc=/path/to/vpxenc` to pin a binary or
-`-auto-libvpx=false` for a govpx-only run. Use `-build-libvpx=true` to
-let the bench build the pinned tools when no binary is found. Decoder
-reference timing uses `govpx-vpx-oracle` only in `-decode` mode.
+By default, `govpx-bench` auto-locates `internal/coracle/build/vpxenc` or
+`vpxenc` on `PATH` (pass `-auto-libvpx=false` for govpx-only runs, or
+`-build-libvpx=true` to build the pinned libvpx tools). Optional VMAF/PSNR/SSIM
+plotting is available via `-plot` when `ffmpeg` includes `libvpx` and `libvmaf`.
 
-The table in [Performance](#performance) was produced with this tool at
-`-width=1280 -height=720 -fps=30 -bitrate=2500 -mode=realtime -cpu-used=8`
-(VP9 MT rows add `-threads=8 -row-mt -noise-sensitivity=0`). Reproduce on
-the Go version, CPU, frame size, bitrate, deadline, thread count, and build
-tags that match your workload before drawing conclusions.
-
-Plotting is optional and requires an ffmpeg binary with both the
-`libvpx` encoder and the `libvmaf` filter:
+`cmd/govpx-bench/default.pgo` is checked in for `-pgo=auto`. Refresh it after
+hot-path edits:
 
 ```sh
-scripts/go.sh run ./cmd/govpx-bench \
-    -plot benchmarks/govpx-vs-libvpx.svg \
-    -width=1280 -height=720 -frames=120 -fps=30 \
-    -bitrate=2500 -mode=realtime -threads=1
+make pgo-refresh && make pre-commit
 ```
 
-The plot path encodes the libvpx reference with `ffmpeg -c:v libvpx`,
-scores govpx and libvpx with ffmpeg's `libvmaf`, `psnr`, and `ssim`
-filters, and writes an SVG plus sibling CSV/JSON files.
+## Documentation
 
-`cmd/govpx-bench/default.pgo` is checked in intentionally so `go build`'s
-default `-pgo=auto` picks it up for the benchmark command. Refresh it
-after material hot-path changes. `make ci` runs `make pgo-check`, which
-fails when VP8 benchmark hot-path sources changed without refreshing the
-checked-in profile and source fingerprint:
-
-```sh
-make pgo-refresh
-make pre-commit
-```
+- [docs/api.md](docs/api.md) — public API guide and runtime controls
+- [docs/architecture.md](docs/architecture.md) — package ownership and data flow
+- [docs/codec-status.md](docs/codec-status.md) — supported VP8/VP9 scope
+- [docs/validation.md](docs/validation.md) — local, CI, oracle, fuzz, and allocation gates
+- [UPSTREAM.md](UPSTREAM.md) — pinned `libvpx v1.16.0` baseline and compatibility scope
 
 ## Repository layout
 
 ```text
-.                         public govpx package
-internal/vp8/common       VP8 shared state, headers, loop filter, quant tables
-internal/vp8/decoder      VP8 decoder internals
-internal/vp8/encoder      VP8 packet, token, transform, quant, motion helpers
-internal/vp8/dsp          VP8 scalar and architecture-specific pixel kernels
-internal/vp9/bitstream    VP9 boolean range coder (reader + writer)
-internal/vp9/common       VP9 shared state, headers, partition tree, references
-internal/vp9/decoder      VP9 decoder internals
-internal/vp9/encoder      VP9 header, mode, coefficient, probability, and pack writers
-internal/vp9/dsp          VP9 scalar and architecture-specific pixel kernels
-internal/vp9/tables       VP9 entropy / scan / quant / probability constants
-internal/coracle          pinned libvpx oracle build and comparison helpers
-cmd/govpx-bench           encode/decode benchmark CLI
-cmd/govpx-oracle          oracle wrapper command
+.                         public govpx API, encoders, decoders, RTP/SDP facade
+internal/pixel            pure-Go simd/archsimd pixel, transform, quant, and filter kernels
+internal/vp8/*            VP8 common, boolcoder, decoder, encoder, dsp, rtp, scale, tables
+internal/vp9/*            VP9 bitstream, common, decoder, encoder, dsp, rtp, tables
+internal/vpx/*            codec-neutral arith, buffers, conformance, errors, geometry, ivf, ratecontrol, rtp
+internal/coracle          pinned libvpx oracle build scripts and trace comparison helpers
+cmd/govpx-bench           encode/decode benchmark and quality-gate CLI
+cmd/govpx-oracle          oracle wrapper CLI
 cmd/parity-report         oracle parity report runner
-examples/webrtc-vp8       separate-module WebRTC example
-testdata                  oracle parity baselines
+examples/webrtc-vp8       Pion WebRTC VP8 simulcast demo (separate module)
+examples/webrtc-vp9       Pion WebRTC VP9 spatial-SVC demo (separate module)
+testdata                  oracle parity baselines and fuzz seeds
 ```
-
-## Contributing
-
-- Keep hot paths allocation-aware. Steady-state `EncodeInto` and `Decode`
-  reuse caller- and codec-owned buffers; the test suite enforces this.
-- Keep oracle diagnostics out of normal builds. Trace hooks are either
-  build-tagged (`govpx_oracle_trace`) or test-only, and optional VP8 phase
-  timing is compiled in only with the `govpx_phase_stats` tag.
-- Run `make ci` before opening a PR. Run `make verify-production` when a
-  change touches parity-sensitive code or oracle baselines.
 
 ## License
 
-BSD-3-Clause. See `LICENSE`, `NOTICE`, `LICENSE.libvpx`, `PATENTS.libvpx`,
-and `UPSTREAM.md`.
+BSD-3-Clause. See [LICENSE](LICENSE), [NOTICE](NOTICE),
+[LICENSE.libvpx](LICENSE.libvpx), [PATENTS.libvpx](PATENTS.libvpx), and
+[UPSTREAM.md](UPSTREAM.md).
