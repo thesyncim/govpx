@@ -11,6 +11,9 @@ func QuantizeVP8BatchOnly(coeff []int16, round, quant *[16]int16, qcoeff []int16
 	if !Enabled || count <= 0 || count > min(len(coeff), len(qcoeff))/16 || count > len(eobs) {
 		return false
 	}
+	if &qcoeff[0] == &round[0] || &qcoeff[0] == &quant[0] || &qcoeff[0] == &iscan[0] {
+		return false
+	}
 	r := archsimd.LoadInt16x16Array(round)
 	q := archsimd.LoadInt16x16Array(quant)
 	rq := r.Or(q)

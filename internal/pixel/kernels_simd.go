@@ -469,9 +469,9 @@ func slicesOverlap[T any](a, b []T, na, nb int) bool {
 		}
 		return cb-ca < nb
 	}
-	// Only 3-index cap-clipped tiny test slices can share backing storage
-	// with different tail addresses. Skip the linear scan for normal buffers.
-	if ca > 128 || cb > 128 {
+	// Only 3-index cap-clipped slices can share backing storage with different
+	// tail addresses. Real codec planes are much larger than 16384 bytes.
+	if (len(a) != ca && len(b) != cb) || na > 32768 || nb > 32768 {
 		return false
 	}
 	for i := 1; i < na; i++ {

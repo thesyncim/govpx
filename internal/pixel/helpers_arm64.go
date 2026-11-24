@@ -117,9 +117,7 @@ func WrapTransform4(v archsimd.Int32x4) archsimd.Int32x4 { return v.TruncToInt16
 
 func mulAdd16(sum, a, b archsimd.Int16x8) archsimd.Int16x8 { return a.MulAdd(b, sum) }
 
-var filterRight7 = archsimd.BroadcastInt16x8(-7)
-
-func filterShift7(v archsimd.Int16x8) archsimd.Int16x8 { return v.Shift(filterRight7) }
+func filterShift7(v archsimd.Int16x8) archsimd.Int16x8 { return v.ShiftAllRight(7) }
 
 func filterVerticalNarrow8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16, mode int) bool {
 	if len(taps) != 8 || w <= 0 || w%8 != 0 || h <= 0 || ss < 0 || ds < 0 {
@@ -168,8 +166,6 @@ func filterVerticalNarrow8(src []byte, ss int, dst []byte, ds, w, h int, taps []
 }
 
 func MulAdd4(a, b, c archsimd.Int32x4) archsimd.Int32x4 { return a.MulAdd(b, c) }
-
-func filterWide8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []int16) bool { return false }
 
 func fpMulHigh16(a, b archsimd.Int16x8) archsimd.Int16x8 {
 	lo := a.MulWidenLo(b).ToBits().ReshapeToUint16s()

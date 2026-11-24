@@ -12,6 +12,10 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
 	if !Enabled || count <= 0 || count > min(len(coeff), len(qcoeff), len(dqcoeff))/16 || count > len(eobs) {
 		return false
 	}
+	if &qcoeff[0] == &round[0] || &qcoeff[0] == &quant[0] || &qcoeff[0] == &dequant[0] || &qcoeff[0] == &iscan[0] ||
+		&dqcoeff[0] == &round[0] || &dqcoeff[0] == &quant[0] || &dqcoeff[0] == &dequant[0] || &dqcoeff[0] == &iscan[0] {
+		return false
+	}
 	r0, r1 := archsimd.LoadInt16x8(round[:8]), archsimd.LoadInt16x8(round[8:])
 	q0, q1 := archsimd.LoadInt16x8(quant[:8]), archsimd.LoadInt16x8(quant[8:])
 	if r0.Or(r1).Or(q0).Or(q1).ReduceMin() < 0 {
