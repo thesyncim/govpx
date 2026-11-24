@@ -373,6 +373,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 		projectedRate:   int32(bestProjectedRate),
 		improvedMVStart: bestImprovedStart,
 		predictionError: int32(bestPredictionError),
+		lumaSSE:         int32(bestSSE),
+		lumaSSEValid:    !bestUseIntra && !inactiveMB && bestSSE != maxInt(),
 	}
 	if !best.useIntra {
 		if bestRefIndex >= 0 && bestRefIndex < len(refs) {
@@ -686,6 +688,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 		projectedRate:   int32(bestProjectedRate),
 		improvedMVStart: bestImprovedStart,
 		predictionError: int32(bestPredictionError),
+		lumaSSE:         int32(bestSSE),
+		lumaSSEValid:    !bestUseIntra && !inactiveMB && bestSSE != maxInt(),
 	}
 	if !best.useIntra {
 		if bestRefIndex >= 0 && bestRefIndex < len(refs) {

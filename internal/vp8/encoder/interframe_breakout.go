@@ -32,6 +32,27 @@ func StaticInterRDEncodeBreakout(src SourceImage, pred *vp8common.Image, mbRow i
 	return breakout
 }
 
+// StaticInterRDEncodeBreakoutWithLuma evaluates the RD encode-breakout test
+// using caller-provided luma variance/SSE from mode picking, avoiding a second
+// 16x16 pixel.Stats pass over the luma plane.
+func StaticInterRDEncodeBreakoutWithLuma(src SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *MacroblockQuant, encodeBreakout int, lumaVar int, lumaSSE int) bool {
+	if encodeBreakout <= 0 || pred == nil || quant == nil {
+		return false
+	}
+	yAC := int(quant.Y1.Dequant[1])
+	threshold := max((yAC*yAC)>>4, encodeBreakout)
+	if lumaSSE >= threshold {
+		return false
+	}
+	y2DC := int(quant.Y2.Dequant[0])
+	dcError := lumaSSE - lumaVar
+	if dcError >= (y2DC*y2DC)>>4 && (lumaSSE/2 <= lumaVar || dcError >= 64) {
+		return false
+	}
+	chromaSSE := MacroblockChromaSSE(src, pred, mbRow, mbCol)
+	return chromaSSE*2 < threshold
+}
+
 func StaticInterRDEncodeBreakoutDistortion(src SourceImage, pred *vp8common.Image, mbRow int, mbCol int, quant *MacroblockQuant, encodeBreakout int) (bool, int) {
 	if encodeBreakout <= 0 || pred == nil || quant == nil {
 		return false, 0

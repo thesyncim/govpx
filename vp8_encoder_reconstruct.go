@@ -797,7 +797,11 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 					if encodeBreakout > 0 {
 						yAC := int(quant.Y1.Dequant[1])
 						if int(decision.predictionError) < max((yAC*yAC)>>4, encodeBreakout) {
-							staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout)
+							if decision.lumaSSEValid && !denoiseActive && (hdFast || modes[index].MV.IsZero()) {
+								staticBreakout = vp8enc.StaticInterRDEncodeBreakoutWithLuma(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout, int(decision.predictionError), int(decision.lumaSSE))
+							} else {
+								staticBreakout = vp8enc.StaticInterRDEncodeBreakout(mbSource, &e.analysis.Img, row, col, quant, encodeBreakout)
+							}
 						}
 					}
 				}

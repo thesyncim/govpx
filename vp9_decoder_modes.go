@@ -854,8 +854,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 					for x := range num4x4W {
 						mv := vp9dec.AverageSplitMvs(&mi.Bmi, refIdx, block,
 							int(pd.SubsamplingX), int(pd.SubsamplingY))
-						if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
-							miRow, miCol, x0, y0, 4*x, 4*y, bw, bh, 4, 4,
+						if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
+							miRow, miCol, x0, y0, x0, y0, 4*x, 4*y, bw, bh, 4, 4,
 							dst, dstStride, dstRows, src, srcStride, srcRows,
 							srcWidth, srcHeight, sf, mv, vp9dec.BoolInt(avg)) {
 							return false
@@ -881,8 +881,8 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 				}
 				continue
 			}
-			if !d.reconstructVP9InterPredictPlane(hdr, pd, mi, bsize,
-				miRow, miCol, x0, y0, 0, 0, bw, bh, bw, bh,
+			if !d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
+				miRow, miCol, x0, y0, x0, y0, 0, 0, bw, bh, bw, bh,
 				dst, dstStride, dstRows, src, srcStride, srcRows,
 				srcWidth, srcHeight, sf, mi.Mv[refIdx], vp9dec.BoolInt(avg)) {
 				return false
@@ -1042,28 +1042,6 @@ func (d *VP9Decoder) vp9PredictRefFrame(slot int) *vp9ReferenceFrame {
 		return &(*d.refFramesView)[slot]
 	}
 	return &d.refFrames[slot]
-}
-
-func (d *VP9Decoder) reconstructVP9InterPredictPlane(
-	hdr *vp9dec.UncompressedHeader,
-	pd *vp9dec.MacroblockdPlane,
-	mi *vp9dec.NeighborMi,
-	bsize common.BlockSize,
-	miRow, miCol int,
-	baseX, baseY, blockX, blockY, bw, bh, predW, predH int,
-	dst []byte,
-	dstStride, dstRows int,
-	src []byte,
-	srcStride, srcRows int,
-	srcWidth, srcHeight int,
-	sf *vp9dec.ScaleFactors,
-	mv vp9dec.MV,
-	avg int,
-) bool {
-	return d.reconstructVP9InterPredictPlaneAt(hdr, pd, mi, bsize,
-		miRow, miCol, baseX, baseY, baseX, baseY, blockX, blockY, bw, bh,
-		predW, predH, dst, dstStride, dstRows, src, srcStride, srcRows,
-		srcWidth, srcHeight, sf, mv, avg)
 }
 
 func (d *VP9Decoder) reconstructVP9InterPredictPlaneAt(
