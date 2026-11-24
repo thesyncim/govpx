@@ -4,6 +4,14 @@ package pixel
 
 import "simd/archsimd"
 
+func subpelStatsAxisHorizontal8(src []byte, ss int, ref []byte, rs, h int, f [2]int16) (int, uint32) {
+	return subpelStatsKernel[[8]byte](src, ss, ref, rs, 8, h, f, [2]int16{128, 0})
+}
+
+func subpelStatsAxisVertical8(src []byte, ss int, ref []byte, rs, h int, f [2]int16) (int, uint32) {
+	return subpelStatsKernel[[8]byte](src, ss, ref, rs, 8, h, [2]int16{128, 0}, f)
+}
+
 // The public dispatcher proves the complete bilinear window and bounded
 // positive geometry before these exact read-only loads.
 func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {

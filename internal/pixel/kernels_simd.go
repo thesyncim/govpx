@@ -519,13 +519,23 @@ func SubpelStats(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16) 
 
 	// Check phases first so ordinary two-axis work skips one-axis setup.
 	// Original endpoint checks prove each exact row load in the bounded kernels.
-	if (fxIdentity || fyIdentity) && w%16 == 0 && w <= 64 && h <= 64 && (uint(ss)|uint(rs))>>30 == 0 {
-		_ = src[h*ss+w]
-		_ = ref[(h-1)*rs+w-1]
-		if fyIdentity {
-			return subpelStatsAxisHorizontal16(src, ss, ref, rs, w, h, fx)
+	if (fxIdentity || fyIdentity) && w <= 64 && h <= 64 && (uint(ss)|uint(rs))>>30 == 0 {
+		if w%16 == 0 {
+			_ = src[h*ss+w]
+			_ = ref[(h-1)*rs+w-1]
+			if fyIdentity {
+				return subpelStatsAxisHorizontal16(src, ss, ref, rs, w, h, fx)
+			}
+			return subpelStatsAxisVertical16(src, ss, ref, rs, w, h, fy)
 		}
-		return subpelStatsAxisVertical16(src, ss, ref, rs, w, h, fy)
+		if w == 8 {
+			_ = src[h*ss+8]
+			_ = ref[(h-1)*rs+7]
+			if fyIdentity {
+				return subpelStatsAxisHorizontal8(src, ss, ref, rs, h, fx)
+			}
+			return subpelStatsAxisVertical8(src, ss, ref, rs, h, fy)
+		}
 	}
 
 	if w == 4 {
