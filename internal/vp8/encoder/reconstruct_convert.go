@@ -21,19 +21,21 @@ func ConvertKeyFrameMode(src *KeyFrameMacroblockMode, dst *vp8dec.MacroblockMode
 }
 
 func ConvertInterFrameMode(src *InterFrameMacroblockMode, dst *vp8dec.MacroblockMode) {
-	*dst = vp8dec.MacroblockMode{
-		SegmentID:   src.SegmentID,
-		RefFrame:    ConvertInterFrameReference(src),
-		Mode:        src.Mode,
-		UVMode:      src.UVMode,
-		Is4x4:       InterFrameModeUses4x4Tokens(src.Mode),
-		BModes:      src.BModes,
-		MV:          vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col},
-		MBSkipCoeff: src.MBSkipCoeff,
-		Partition:   src.Partition,
+	dst.SegmentID = src.SegmentID
+	dst.RefFrame = ConvertInterFrameReference(src)
+	dst.Mode = src.Mode
+	dst.UVMode = src.UVMode
+	dst.Is4x4 = InterFrameModeUses4x4Tokens(src.Mode)
+	dst.MV = vp8dec.MotionVector{Row: src.MV.Row, Col: src.MV.Col}
+	dst.MBSkipCoeff = src.MBSkipCoeff
+	dst.Partition = src.Partition
+	if src.Mode == vp8common.BPred {
+		dst.BModes = src.BModes
 	}
-	for i := range 16 {
-		dst.BlockMV[i] = vp8dec.MotionVector{Row: src.BlockMV[i].Row, Col: src.BlockMV[i].Col}
+	if src.Mode == vp8common.SplitMV {
+		for i := range 16 {
+			dst.BlockMV[i] = vp8dec.MotionVector{Row: src.BlockMV[i].Row, Col: src.BlockMV[i].Col}
+		}
 	}
 }
 

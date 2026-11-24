@@ -442,7 +442,63 @@ func buildPredictedMacroblockCoefficientsInternal(args *predictedMacroblockCoeff
 	return buildPredictedMacroblockCoefficientsWork(args)
 }
 
+func buildFastRealtimeMacroblockCoefficients(args *predictedMacroblockCoefficientArgs) {
+	src := args.src
+	mbRow := args.mbRow
+	mbCol := args.mbCol
+	pred := args.pred
+	quant := args.quant
+	is4x4 := args.is4x4
+	coeffs := args.coeffs
+
+	// Reuse a single pair of 256-int16 scratch buffers across Y and UV so the
+	// realtime fast-quant path avoids stack-zeroing unused RD/DQ/UV arrays.
+	var residuals [16 * 16]int16
+	var dcts [16 * 16]int16
+	var qBuf [16 * 16]int16
+
+	vp8enc.GatherMacroblockYResiduals4x4(src.Y, src.YStride, src.Width, src.Height, pred.Y, pred.YStride, mbCol*16, mbRow*16, residuals[:])
+	vp8enc.ForwardDCT4x4Batch(residuals[:], dcts[:], 16)
+
+	var y2Input [16]int16
+	yQuant := &quant.Y1DC
+	if is4x4 {
+		yQuant = &quant.Y1
+	} else {
+		for block := range 16 {
+			y2Input[block] = dcts[block*16]
+			dcts[block*16] = 0
+		}
+	}
+	vp8enc.FastQuantizeBlockBatchOnly(dcts[:], yQuant, qBuf[:], coeffs.EOB[:16], 16)
+	for block := range 16 {
+		copy(coeffs.QCoeff[block][:], qBuf[block*16:])
+	}
+
+	if !is4x4 {
+		var y2Coeff [16]int16
+		vp8enc.ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
+		vp8enc.FastQuantizeBlockBatchOnly(y2Coeff[:], &quant.Y2, coeffs.QCoeff[24][:], coeffs.EOB[24:25], 1)
+	} else {
+		coeffs.QCoeff[24] = [16]int16{}
+		coeffs.EOB[24] = 0
+	}
+
+	uvWidth, uvHeight := vp8enc.SourceImageUVDimensions(src)
+	vp8enc.GatherMacroblockUVResiduals4x4(src.U, src.UStride, uvWidth, uvHeight, pred.U, pred.UStride, mbCol*8, mbRow*8, residuals[0:64])
+	vp8enc.GatherMacroblockUVResiduals4x4(src.V, src.VStride, uvWidth, uvHeight, pred.V, pred.VStride, mbCol*8, mbRow*8, residuals[64:128])
+	vp8enc.ForwardDCT4x4Batch(residuals[:128], dcts[:128], 8)
+	vp8enc.FastQuantizeBlockBatchOnly(dcts[:128], &quant.UV, qBuf[:128], coeffs.EOB[16:24], 8)
+	for block := range 8 {
+		copy(coeffs.QCoeff[16+block][:], qBuf[block*16:])
+	}
+}
+
 func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficientArgs) predictedMacroblockRDStats {
+	if args.fastQuant && !args.collectStats && !args.optimize && !(oracleTraceBuild && args.collectOracle) && args.cacheIn == nil && args.cacheOut == nil {
+		buildFastRealtimeMacroblockCoefficients(args)
+		return predictedMacroblockRDStats{}
+	}
 	var stats predictedMacroblockRDStats
 	coefProbs := args.coefProbs
 	coefTokenCosts := args.coefTokenCosts

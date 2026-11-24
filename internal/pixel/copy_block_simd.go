@@ -28,31 +28,31 @@ func CopyBlock(src []byte, ss int, dst []byte, ds, w, h int) {
 			return
 		case 16:
 			for y := range h {
-				archsimd.LoadUint8x16(src[y*ss:]).Store(dst[y*ds:])
+				archsimd.LoadUint8x16Array((*[16]byte)(src[y*ss : y*ss+16])).StoreArray((*[16]byte)(dst[y*ds : y*ds+16]))
 			}
 			return
 		case 32:
 			for y := range h {
-				s := src[y*ss:]
-				d := dst[y*ds:]
-				v0 := archsimd.LoadUint8x16(s[0:16])
-				v1 := archsimd.LoadUint8x16(s[16:32])
-				v0.Store(d[0:16])
-				v1.Store(d[16:32])
+				s := src[y*ss : y*ss+32]
+				d := dst[y*ds : y*ds+32]
+				v0 := archsimd.LoadUint8x16Array((*[16]byte)(s[0:16]))
+				v1 := archsimd.LoadUint8x16Array((*[16]byte)(s[16:32]))
+				v0.StoreArray((*[16]byte)(d[0:16]))
+				v1.StoreArray((*[16]byte)(d[16:32]))
 			}
 			return
 		case 64:
 			for y := range h {
-				s := src[y*ss:]
-				d := dst[y*ds:]
-				v0 := archsimd.LoadUint8x16(s[0:16])
-				v1 := archsimd.LoadUint8x16(s[16:32])
-				v2 := archsimd.LoadUint8x16(s[32:48])
-				v3 := archsimd.LoadUint8x16(s[48:64])
-				v0.Store(d[0:16])
-				v1.Store(d[16:32])
-				v2.Store(d[32:48])
-				v3.Store(d[48:64])
+				s := src[y*ss : y*ss+64]
+				d := dst[y*ds : y*ds+64]
+				v0 := archsimd.LoadUint8x16Array((*[16]byte)(s[0:16]))
+				v1 := archsimd.LoadUint8x16Array((*[16]byte)(s[16:32]))
+				v2 := archsimd.LoadUint8x16Array((*[16]byte)(s[32:48]))
+				v3 := archsimd.LoadUint8x16Array((*[16]byte)(s[48:64]))
+				v0.StoreArray((*[16]byte)(d[0:16]))
+				v1.StoreArray((*[16]byte)(d[16:32]))
+				v2.StoreArray((*[16]byte)(d[32:48]))
+				v3.StoreArray((*[16]byte)(d[48:64]))
 			}
 			return
 		}

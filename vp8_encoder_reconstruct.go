@@ -719,11 +719,10 @@ func (e *VP8Encoder) buildReconstructingInterFrameCoefficientsWithSegmentation(s
 			} else {
 				modes[index] = decision.interMode
 				vp8enc.ConvertInterFrameMode(&modes[index], &e.reconstructModes[index])
-				predMode := e.reconstructModes[index]
-				predMode.MBSkipCoeff = true
+				e.reconstructModes[index].MBSkipCoeff = true
 				acceptedInterCache = e.consumeInterRDCoeffCache()
 				if !acceptedInterCache.restorePredictor(&e.analysis.Img, row, col, decision.ref.Img, &modes[index]) &&
-					!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&refStates, decision.ref.Frame), row, col, &predMode, &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
+					!reconstructInterAnalysisMacroblockWithState(&e.analysis.Img, decision.ref.Img, interAnalysisReferenceState(&refStates, decision.ref.Frame), row, col, &e.reconstructModes[index], &e.reconstructTokens[index], &e.dequants[segmentID&3], &e.reconstructScratch) {
 					return 0, ErrInvalidConfig
 				}
 				if traceEnabled {

@@ -285,7 +285,6 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 		Is4x4:       mode == vp8common.SplitMV,
 		MBSkipCoeff: true,
 	}
-	var zeroTokens vp8dec.MacroblockTokens
 	mcY := e.denoiser.mcY[:]
 	mcU := e.denoiser.mcU[:]
 	mcV := e.denoiser.mcV[:]
@@ -296,11 +295,11 @@ func (e *VP8Encoder) applyDenoiserToInterMacroblock(source vp8enc.SourceImage, f
 	predicted := lumaOnly && vp8dec.PredictWholeMVInterLumaWithState(
 		&e.denoiser.refStates[avgIndex], &decMode, mcY, mcYStride, row, col)
 	if !predicted && !vp8dec.ReconstructWholeMVInterMacroblockWithState(
-		&e.denoiser.refStates[avgIndex], &decMode, &zeroTokens, &e.dequants[0],
+		&e.denoiser.refStates[avgIndex], &decMode, &vp8DenoiserZeroTokens, &e.dequants[0],
 		mcY, mcYStride, mcU, mcUStride, mcV, mcVStride,
 		&e.reconstructScratch.Residual, row, col,
 	) {
-		if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &zeroTokens, &e.dequants[0], &e.reconstructScratch) {
+		if !reconstructInterAnalysisMacroblockWithState(&e.denoiser.mcRunning.Img, &e.denoiser.runningAvg[avgIndex].Img, &e.denoiser.refStates[avgIndex], row, col, &decMode, &vp8DenoiserZeroTokens, &e.dequants[0], &e.reconstructScratch) {
 			return e.copyDenoiserNoFilterMacroblock(source, filtered, row, col, cols, index)
 		}
 		yMcOff := row*16*e.denoiser.mcRunning.Img.YStride + col*16
@@ -522,6 +521,10 @@ func (e *VP8Encoder) copyDenoiserAvgForRefresh(cfg vp8enc.InterFrameStateConfig)
 		e.denoiser.runningAvg[denoiserAvgAltRef].ExtendBorders()
 	}
 }
+
+// vp8DenoiserZeroTokens is a read-only zero token block passed to the inter
+// predictor when MBSkipCoeff is true, avoiding 832 bytes of stack zeroing per MB.
+var vp8DenoiserZeroTokens vp8dec.MacroblockTokens
 
 // denoiserNoiseMotionThreshold mirrors libvpx's NOISE_MOTION_THRESHOLD
 // (denoising.c) and is used to scale the increase_denoising decision.

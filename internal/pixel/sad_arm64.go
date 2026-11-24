@@ -80,26 +80,26 @@ func sad64ARM64(src []byte, ss int, ref []byte, rs, h int) int {
 	for range h {
 		a := src[so : so+64]
 		b := ref[ro : ro+64]
-		d0 := archsimd.LoadUint8x16(a[0:16])
-		r0 := archsimd.LoadUint8x16(b[0:16])
+		d0 := archsimd.LoadUint8x16Array((*[16]byte)(a[0:16]))
+		r0 := archsimd.LoadUint8x16Array((*[16]byte)(b[0:16]))
 		d0 = d0.Max(r0).Sub(d0.Min(r0))
 		lo0 = lo0.Add(d0.ExtendLo8ToUint16())
 		hi0 = hi0.Add(d0.HiToLo().ExtendLo8ToUint16())
 
-		d1 := archsimd.LoadUint8x16(a[16:32])
-		r1 := archsimd.LoadUint8x16(b[16:32])
+		d1 := archsimd.LoadUint8x16Array((*[16]byte)(a[16:32]))
+		r1 := archsimd.LoadUint8x16Array((*[16]byte)(b[16:32]))
 		d1 = d1.Max(r1).Sub(d1.Min(r1))
 		lo1 = lo1.Add(d1.ExtendLo8ToUint16())
 		hi1 = hi1.Add(d1.HiToLo().ExtendLo8ToUint16())
 
-		d2 := archsimd.LoadUint8x16(a[32:48])
-		r2 := archsimd.LoadUint8x16(b[32:48])
+		d2 := archsimd.LoadUint8x16Array((*[16]byte)(a[32:48]))
+		r2 := archsimd.LoadUint8x16Array((*[16]byte)(b[32:48]))
 		d2 = d2.Max(r2).Sub(d2.Min(r2))
 		lo0 = lo0.Add(d2.ExtendLo8ToUint16())
 		hi0 = hi0.Add(d2.HiToLo().ExtendLo8ToUint16())
 
-		d3 := archsimd.LoadUint8x16(a[48:64])
-		r3 := archsimd.LoadUint8x16(b[48:64])
+		d3 := archsimd.LoadUint8x16Array((*[16]byte)(a[48:64]))
+		r3 := archsimd.LoadUint8x16Array((*[16]byte)(b[48:64]))
 		d3 = d3.Max(r3).Sub(d3.Min(r3))
 		lo1 = lo1.Add(d3.ExtendLo8ToUint16())
 		hi1 = hi1.Add(d3.HiToLo().ExtendLo8ToUint16())
@@ -116,14 +116,14 @@ func sad32ARM64(src []byte, ss int, ref []byte, rs, h int) int {
 	for range h {
 		a := src[so : so+32]
 		b := ref[ro : ro+32]
-		d0 := archsimd.LoadUint8x16(a[0:16])
-		r0 := archsimd.LoadUint8x16(b[0:16])
+		d0 := archsimd.LoadUint8x16Array((*[16]byte)(a[0:16]))
+		r0 := archsimd.LoadUint8x16Array((*[16]byte)(b[0:16]))
 		d0 = d0.Max(r0).Sub(d0.Min(r0))
 		lo0 = lo0.Add(d0.ExtendLo8ToUint16())
 		hi0 = hi0.Add(d0.HiToLo().ExtendLo8ToUint16())
 
-		d1 := archsimd.LoadUint8x16(a[16:32])
-		r1 := archsimd.LoadUint8x16(b[16:32])
+		d1 := archsimd.LoadUint8x16Array((*[16]byte)(a[16:32]))
+		r1 := archsimd.LoadUint8x16Array((*[16]byte)(b[16:32]))
 		d1 = d1.Max(r1).Sub(d1.Min(r1))
 		lo1 = lo1.Add(d1.ExtendLo8ToUint16())
 		hi1 = hi1.Add(d1.HiToLo().ExtendLo8ToUint16())
@@ -139,8 +139,8 @@ func sad16ARM64(src []byte, ss int, ref []byte, rs, h int) int {
 	so, ro := 0, 0
 	y := 0
 	for ; y+1 < h; y += 2 {
-		a0 := archsimd.LoadUint8x16(src[so : so+16])
-		b0 := archsimd.LoadUint8x16(ref[ro : ro+16])
+		a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+		b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 		d0 := a0.Max(b0).Sub(a0.Min(b0))
 		lo0 = lo0.Add(d0.ExtendLo8ToUint16())
 		hi0 = hi0.Add(d0.HiToLo().ExtendLo8ToUint16())
@@ -148,8 +148,8 @@ func sad16ARM64(src []byte, ss int, ref []byte, rs, h int) int {
 		so += ss
 		ro += rs
 
-		a1 := archsimd.LoadUint8x16(src[so : so+16])
-		b1 := archsimd.LoadUint8x16(ref[ro : ro+16])
+		a1 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+		b1 := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 		d1 := a1.Max(b1).Sub(a1.Min(b1))
 		lo1 = lo1.Add(d1.ExtendLo8ToUint16())
 		hi1 = hi1.Add(d1.HiToLo().ExtendLo8ToUint16())
@@ -158,8 +158,8 @@ func sad16ARM64(src []byte, ss int, ref []byte, rs, h int) int {
 		ro += rs
 	}
 	if y < h {
-		a0 := archsimd.LoadUint8x16(src[so : so+16])
-		b0 := archsimd.LoadUint8x16(ref[ro : ro+16])
+		a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16]))
+		b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[ro : ro+16]))
 		d0 := a0.Max(b0).Sub(a0.Min(b0))
 		lo0 = lo0.Add(d0.ExtendLo8ToUint16())
 		hi0 = hi0.Add(d0.HiToLo().ExtendLo8ToUint16())

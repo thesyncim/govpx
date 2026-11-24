@@ -106,7 +106,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 	bestProjectedRate := 0
 	bestPredictionError := 0
 
-	var loopCtx fastInterModeLoopContext
+	loopCtx := &e.fastInterLoopCtx
+	loopCtx.reset()
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
@@ -165,7 +166,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
@@ -288,7 +289,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionHot(
 			bestPredictionError = 0
 			break
 		}
-		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, &loopCtx)
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, loopCtx)
 		if !ok {
 			continue
 		}
@@ -371,7 +372,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 	denoiseDecision := newDenoiserMacroblockDecision()
 	denoiseDecision.useSkinGate = true
 
-	var loopCtx fastInterModeLoopContext
+	loopCtx := &e.fastInterLoopCtx
+	loopCtx.reset()
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
@@ -432,7 +434,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			if !sourceAltRefCandidateAllowed(sourceAltRefZeroMVOnly, vp8common.IntraFrame, mbMode) {
 				continue
 			}
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
@@ -559,7 +561,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionDenoise(
 			bestPredictionError = 0
 			break
 		}
-		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, &loopCtx)
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreHot(src, rs.img, mbRow, mbCol, mbRows, mbCols, rs.frame, mbMode, mv, segmentID, above, left, aboveLeft, qIndex, rs.rate, quant, loopCtx)
 		if !ok {
 			continue
 		}
@@ -667,7 +669,8 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 	if denoiseActive {
 		denoiseDecision.useSkinGate = true
 	}
-	var loopCtx fastInterModeLoopContext
+	loopCtx := &e.fastInterLoopCtx
+	loopCtx.reset()
 	if !e.interRDFrameRefSearchOrderValid {
 		e.interRDFrameRefSearchOrder = interReferenceSearchOrder(refs, refCount)
 		e.interRDFrameRefSearchOrderValid = true
@@ -721,7 +724,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			}
 			bestScoreBefore := bestScore
 			bestSSEBefore := bestSSE
-			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, &loopCtx)
+			mode, score, distortion, sse, rate, ok := e.estimateFastIntraModeScore(src, mbRow, mbCol, qIndex, mbMode, bestSSE, quant, loopCtx)
 			if !ok {
 				e.raiseInterRDThreshold(modeIndex)
 				continue
@@ -874,7 +877,7 @@ func (e *VP8Encoder) selectFastInterFrameModeDecisionCold(
 			}
 			break
 		}
-		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkipCached(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant, &loopCtx)
+		score, distortion, sse, rate, breakoutSkip, ok := e.estimateFastInterModeScoreWithReferenceRateAndSkipCached(src, ref.Img, mbRow, mbCol, mbRows, mbCols, &mode, above, left, aboveLeft, qIndex, e.interReferenceFrameRateForReference(ref), quant, loopCtx)
 		if !ok {
 			continue
 		}

@@ -55,6 +55,16 @@ type fastInterModeLoopContext struct {
 	rdSet  bool
 }
 
+// reset clears only the validity flags so the ~1 KB loop context can be reused
+// across macroblocks without zeroing variance/intraPred/intraRefs/candMode.
+func (ctx *fastInterModeLoopContext) reset() {
+	ctx.varianceSet = 0
+	ctx.nearSADs.set = false
+	ctx.intraRefsSet = false
+	ctx.searchSet = false
+	ctx.rdSet = false
+}
+
 // rdConstants returns the per-MB (rdMult, rdDiv) pair used by every
 // candidate RDCOST in this picker invocation, computing it on first use.
 func (ctx *fastInterModeLoopContext) rdConstants(e *VP8Encoder, qIndex int, zbinOverQuant int, mbRow int, mbCol int) (int, int) {
