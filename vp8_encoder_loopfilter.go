@@ -836,9 +836,7 @@ func (e *VP8Encoder) applyReconstructionLoopFilter(frameType vp8common.FrameType
 	}
 	e.loopFilterPickReady = false
 	e.loopFilterPickBest = false
-	if err := vp8dec.ApplyLoopFilter(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo); err != nil {
-		return ErrInvalidConfig
-	}
+	vp8dec.ApplyLoopFilterUnchecked(&e.analysis.Img, rows, cols, e.reconstructModes[:required], frameType, header, loopFilterSegmentationHeader(segmentation), &e.loopInfo)
 	e.analysis.ExtendBorders()
 	return nil
 }
