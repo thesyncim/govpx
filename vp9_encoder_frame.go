@@ -319,7 +319,9 @@ func (e *VP9Encoder) encodeVP9FrameIntoWithFlagsResultInternal(img *image.YCbCr,
 		resetLoopfilterDeltas, header.Quant.Lossless,
 		e.vp9SegEnabledForLoopfilter(isKey, intraOnly), e.opts.Sharpness,
 		e.opts.Width, e.opts.Height, common.TxModeSelect)
-	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) {
+	if vp9DisableLoopfilterForFrame(e.opts.DisableLoopfilter, isKey) ||
+		(!isKey && !intraOnly && e.opts.Deadline == DeadlineRealtime &&
+			e.vp9SpeedFeatureCPUUsed() >= 8 && e.opts.Width >= 640 && e.opts.Height >= 360) {
 		header.Loopfilter.FilterLevel = 0
 	}
 	if isKey {

@@ -42,7 +42,7 @@ func loadLFByte(p []byte, off, lanes int) archsimd.Uint8x16 {
 	if lanes == 8 {
 		return load8(p[off:])
 	}
-	return archsimd.LoadUint8x16(p[off:])
+	return archsimd.LoadUint8x16Array((*[16]byte)(p[off : off+16]))
 }
 
 // The filter entry point has already proved the complete tile. Each shape
@@ -161,7 +161,7 @@ func storeLFBytes(p []byte, off, step, outer, lanes, count int, a, b, c, d, e, f
 	if outer == 1 {
 		store := func(at int, v archsimd.Uint8x16) {
 			if lanes == 16 {
-				v.Store(p[at:])
+				v.StoreArray((*[16]byte)(p[at : at+16]))
 			} else {
 				binary.LittleEndian.PutUint64(p[at:], v.ReshapeToUint64s().GetElem(0))
 			}
