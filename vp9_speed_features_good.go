@@ -389,6 +389,10 @@ func vp9SetGoodSpeedFeatureFramesizeIndependent(e *VP9Encoder, sf *SpeedFeatures
 		if ctx.frameType != common.KeyFrame {
 			sf.ModeSearchSkipFlags |= FlagEarlyTerminate
 		}
+		if ctx.width*ctx.height >= 1280*720 && ctx.frameType != common.KeyFrame {
+			sf.LpfPick = LpfPickFromQ
+			sf.Mv.SubpelForceStop = HalfPel
+		}
 		sf.DisableFilterSearchVarThresh = 200
 		sf.UseLp32x32Fdct = 1
 		sf.UseFastCoefUpdates = OneLoopReduced

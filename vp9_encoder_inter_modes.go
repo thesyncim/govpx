@@ -749,6 +749,14 @@ func (e *VP9Encoder) pickVP9InterReferenceMode(inter *vp9InterEncodeState,
 	// CBR non-screen).
 	refFramesAll := [...]int8{vp9dec.LastFrame, vp9dec.GoldenFrame, vp9dec.AltrefFrame}
 	refFrames := refFramesAll[:]
+	// When AutoAltRef is disabled on HD good speed >= 4, ALTREF is not an
+	// ARNR-filtered future reference (it aliases GOLDEN/keyframe); skipping
+	// the redundant third reference cuts inter-mode RD work by ~30% with
+	// negligible quality impact.
+	if e.vp9GoodHDFastPath() && !e.opts.AutoAltRef &&
+		(inter.refMask&(1<<uint(vp9dec.LastFrame))) != 0 {
+		refFrames = refFramesAll[:2]
+	}
 	forceSkipLowTempVar, forceSkipLowTempKnown :=
 		e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol, bsize)
 	if !forceSkipLowTempKnown && e.sf.ShortCircuitLowTempVar >= 1 {

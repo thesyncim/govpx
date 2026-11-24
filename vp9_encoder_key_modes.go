@@ -140,11 +140,9 @@ func (e *VP9Encoder) pickVP9KeyframeYModeRD(key *vp9KeyframeEncodeState,
 		} else {
 			modeMask &= goodFastMask
 		}
-		// At good speed >= 4 with UseLargestAll (non-FullRD tx), pre-select the
-		// winning Y mode among {DC, V, H, TM} using pixel-domain prediction SSE
-		// + mode bit cost, then evaluate exact transform-domain RD ONCE on the
-		// winner. This cuts keyframe forward-transform/quantize calls by ~4x
-		// while preserving exact partition RD scoring.
+		// At HD good speed >= 4 with UseLargestAll, pre-select the winning Y
+		// mode among {DC, V, H, TM} using pixel-domain prediction SSE + mode
+		// bit cost, then evaluate exact transform-domain RD ONCE on the winner.
 		if !(e.sf.TxSizeSearchMethod == UseFullRD && e.vp9KeyframeRDRefinementEnabled()) {
 			pd := &e.planes[0]
 			txSize := clampVP9TxSizeForBlock(mi.TxSize, bsize)
@@ -1270,6 +1268,21 @@ func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState
 	if baseX >= stride || baseY >= rows {
 		return 0, false
 	}
+	step := 1 << uint(txSize)
+	bs := 4 << uint(txSize)
+	singleTx := step >= max4x4H && step >= max4x4W
+	if singleTx {
+		// Single-tx block: intra prediction only reads above/left neighbors
+		// outside [baseY..baseY+bs, baseX..baseX+bs] and writes inside it,
+		// which the caller immediately overwrites or restores. Avoid copying
+		// recon out and back in.
+		score, scoreOK := e.scoreVP9KeyframeTxPrediction(key, pd, mode, plane,
+			txSize, tile, miRows, miCols, miRow, miCol, bsize, 0, 0)
+		if !scoreOK {
+			return 0, false
+		}
+		return score, true
+	}
 	restoreW := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
 	restoreH := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
 	if baseX+restoreW > stride {
@@ -1298,9 +1311,6 @@ func (e *VP9Encoder) scoreVP9KeyframePlanePrediction(key *vp9KeyframeEncodeState
 		}
 	}
 
-	step := 1 << uint(txSize)
-	bs := 4 << uint(txSize)
-	singleTx := step >= max4x4H && step >= max4x4W
 	var distortion uint64
 	ok := true
 scoreLoop:
@@ -1313,7 +1323,7 @@ scoreLoop:
 				break scoreLoop
 			}
 			distortion += score
-			if !singleTx && (rr+step < max4x4H || cc+step < max4x4W) {
+			if rr+step < max4x4H || cc+step < max4x4W {
 				txX := baseX + cc*4
 				txY := baseY + rr*4
 				vp9CopySourceRectClamped(planeData, stride, src, srcStride,

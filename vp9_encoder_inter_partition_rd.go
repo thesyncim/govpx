@@ -344,7 +344,7 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 	if e.vp9GoodHDFastPath() &&
 		e.sf.PartitionSearchBreakoutThr.Dist > 0 {
 		distThr, rateThr := e.vp9KeyframeRDPartitionBreakoutThresholds(root)
-		if noneRD.distortion < distThr>>2 ||
+		if noneRD.distortion < distThr>>1 ||
 			(noneRD.distortion < distThr && noneRD.rate < rateThr) {
 			node.partitioning = bestSize
 			return bestSize
@@ -385,7 +385,11 @@ func (e *VP9Encoder) rdPickVP9InterPartition(inter *vp9InterEncodeState,
 			}
 		}
 	}
-	if hasRows && hasCols && (!goodFastPart || splitSize >= e.sf.RdAutoPartitionMinLimit) {
+	minSplit := e.sf.RdAutoPartitionMinLimit
+	if goodFastPart && minSplit < common.Block16x16 {
+		minSplit = common.Block16x16
+	}
+	if hasRows && hasCols && (!goodFastPart || splitSize >= minSplit) {
 		_ = node.loadPredMv() // load_pred_mv before PARTITION_SPLIT (:3898)
 		if score, ok := e.scoreVP9InterPartitionSplitShallow(inter, tile,
 			miRows, miCols, miRow, miCol, splitSize); ok {
