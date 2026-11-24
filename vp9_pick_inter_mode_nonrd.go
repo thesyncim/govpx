@@ -442,7 +442,13 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		}
 	}
 
-	if len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
+	// When only LAST_FRAME is usable, predMvSad is never compared across
+	// references and mvPredSearchSeed is only needed if the loop reaches NEWMV.
+	// Defer MvPredScanCandidateArray to NEWMV so early-terminated ZERO/NEAREST
+	// blocks skip the SAD scan completely (bit-exact).
+	deferLastMvPred := maxUsableRef == vp9dec.LastFrame
+	lastMvPredDone := false
+	if !deferLastMvPred && len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
 		for r := int8(vp9dec.LastFrame); r <= maxUsableRef; r++ {
 			if !refSlotValid[r] {
 				continue
@@ -1128,6 +1134,64 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 						mvOpts.seed = mvPart
 						mvOpts.seedValid = true
 						mvOpts.useMvPart = true
+					}
+				}
+				if !mvOpts.useMvPart && deferLastMvPred && !lastMvPredDone &&
+					refFrame == vp9dec.LastFrame && bsize >= common.Block8x8 &&
+					len(src) > 0 && srcStride > 0 && x0+blockW <= srcW && y0+blockH <= srcH {
+					lastMvPredDone = true
+					var refBuf []byte
+					var refStride, refOriginX, refOriginY, refRows int
+					if rp := &predCtx.ref[vp9dec.LastFrame]; rp.valid {
+						refBuf = rp.pre
+						refStride = rp.preStride
+						refOriginX = rp.originX
+						refOriginY = rp.originY
+						refRows = rp.preRows
+					} else {
+						inter.ref = &e.refFrames[refSlots[vp9dec.LastFrame]]
+						var refOK bool
+						refBuf, refStride, refOriginX, refOriginY, _, _, refOK =
+							e.vp9SubpelReferencePlane(vp9dec.LastFrame, inter.ref)
+						if refOK && len(refBuf) > 0 && refStride > 0 {
+							refRows = len(refBuf) / refStride
+						} else {
+							refBuf = nil
+						}
+					}
+					if len(refBuf) > 0 && refStride > 0 {
+						var candidates [encoder.MvPredMaxCandidates]encoder.MvPredInputCandidate
+						if refMvCount[vp9dec.LastFrame] >= 1 {
+							candidates[0] = encoder.MvPredInputCandidate{
+								MV:    refMvList[vp9dec.LastFrame][0],
+								Valid: true,
+							}
+						}
+						if refMvCount[vp9dec.LastFrame] >= 2 {
+							candidates[1] = encoder.MvPredInputCandidate{
+								MV:    refMvList[vp9dec.LastFrame][1],
+								Valid: true,
+							}
+						}
+						if predMv, ok := e.vp9VarPartSBPredMv(miCols, miRow, miCol, vp9dec.LastFrame); ok {
+							candidates[2] = encoder.MvPredInputCandidate{
+								MV:    predMv,
+								Valid: true,
+							}
+						}
+						result := encoder.MvPredScanCandidateArray(&candidates, numMvRefs,
+							src, srcStride, x0, y0,
+							refBuf, refStride, x0, y0, refOriginX, refOriginY, refRows,
+							blockW, blockH)
+						if result.BestSad != ^uint64(0) {
+							predMvSad[vp9dec.LastFrame] = result.BestSad
+							if result.BestIndex >= 0 &&
+								result.BestIndex < len(candidates) &&
+								candidates[result.BestIndex].Valid {
+								mvPredSearchSeed[vp9dec.LastFrame] = candidates[result.BestIndex].MV
+								mvPredSearchSeedValid[vp9dec.LastFrame] = true
+							}
+						}
 					}
 				}
 				if !mvOpts.useMvPart && mvPredSearchSeedValid[refFrame] {

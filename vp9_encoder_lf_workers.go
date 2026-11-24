@@ -1,7 +1,8 @@
 package govpx
 
 import (
-	"sync"
+	"runtime"
+	"sync/atomic"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
@@ -12,11 +13,13 @@ import (
 // filter workers stay one sync range behind the row above, since filtering a
 // superblock's top horizontal edge writes pixels that the row above's
 // vertical pass must have finished first.
+//
+// Uses lock-free atomic handoff with brief spin-yield (mirroring vp9RowMTSync)
+// so 4T realtime loop filtering does not park/wake OS threads via condvars on
+// every superblock row boundary.
 type vp9LfSync struct {
-	mu        []sync.Mutex
-	cond      []*sync.Cond
-	curSbCol  []int32
-	tilesDone []int
+	curSbCol  []atomic.Int32
+	tilesDone []atomic.Int32
 	rows      int
 	syncRange int
 }
@@ -49,28 +52,16 @@ func (s *vp9LfSync) reset(sbRows, width int) {
 	if s == nil || sbRows <= 0 {
 		return
 	}
-	if cap(s.mu) < sbRows {
-		s.mu = make([]sync.Mutex, sbRows)
-		s.cond = make([]*sync.Cond, sbRows)
-		s.curSbCol = make([]int32, sbRows)
-		s.tilesDone = make([]int, sbRows)
-		for r := range s.cond {
-			s.cond[r] = sync.NewCond(&s.mu[r])
-		}
+	if cap(s.curSbCol) < sbRows {
+		s.curSbCol = make([]atomic.Int32, sbRows)
+		s.tilesDone = make([]atomic.Int32, sbRows)
 	} else {
-		s.mu = s.mu[:sbRows]
-		s.cond = s.cond[:sbRows]
 		s.curSbCol = s.curSbCol[:sbRows]
 		s.tilesDone = s.tilesDone[:sbRows]
-		for r := range s.cond {
-			if s.cond[r] == nil {
-				s.cond[r] = sync.NewCond(&s.mu[r])
-			}
-		}
 	}
 	for r := range s.curSbCol {
-		s.curSbCol[r] = -1
-		s.tilesDone[r] = 0
+		s.curSbCol[r].Store(-1)
+		s.tilesDone[r].Store(0)
 	}
 	s.rows = sbRows
 	s.syncRange = vp9LfSyncRange(width)
@@ -82,12 +73,7 @@ func (s *vp9LfSync) tileRowDone(row, tileCols int) bool {
 	if s == nil || row < 0 || row >= s.rows || tileCols <= 0 {
 		return false
 	}
-	mu := &s.mu[row]
-	mu.Lock()
-	s.tilesDone[row]++
-	done := s.tilesDone[row] == tileCols
-	mu.Unlock()
-	return done
+	return int(s.tilesDone[row].Add(1)) == tileCols
 }
 
 // read mirrors sync_read (vp9_thread_common.c:22): before filtering SB
@@ -101,17 +87,18 @@ func (s *vp9LfSync) read(r, c int) {
 	if nsync <= 0 || (c&(nsync-1)) != 0 {
 		return
 	}
-	mu := &s.mu[r-1]
-	mu.Lock()
-	for int32(c) > s.curSbCol[r-1]-int32(nsync) {
-		s.cond[r-1].Wait()
+	target := int32(c + nsync)
+	for spins := 0; s.curSbCol[r-1].Load() < target; spins++ {
+		runtimeProcYield(30)
+		if spins >= rowWorkerIdleSchedulerBackoff &&
+			spins%rowWorkerIdleSchedulerBackoff == 0 {
+			runtime.Gosched()
+		}
 	}
-	mu.Unlock()
 }
 
 // write mirrors sync_write (vp9_thread_common.c:42): record the row's
-// progress and signal waiters when crossing a sync range boundary or when
-// the row completes.
+// progress when crossing a sync range boundary or when the row completes.
 func (s *vp9LfSync) write(r, c, sbCols int) {
 	if s == nil || r < 0 || r >= s.rows {
 		return
@@ -133,11 +120,7 @@ func (s *vp9LfSync) write(r, c, sbCols int) {
 	if !sig {
 		return
 	}
-	mu := &s.mu[r]
-	mu.Lock()
-	s.curSbCol[r] = cur
-	mu.Unlock()
-	s.cond[r].Signal()
+	s.curSbCol[r].Store(cur)
 }
 
 // markRowsDone releases any rows this worker still owns so sibling workers

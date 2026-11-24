@@ -383,7 +383,10 @@ fastLoop:
 		band := int(bt[c&1023])
 		probs := &coefModel[band][ctx]
 
-		if count < 0 {
+		// One batched refill guarantees count >= 24 (>= 32 valid bits),
+		// enough for EOB (<=7) + zero (<=7) + one (<=7) + sign (<=1) = <=22
+		// bits without another refill check on the hot ±1 path.
+		if count < 24 {
 			value, count, pos = bitstream.FillFast(buf, pos, value, count)
 		}
 		var bit uint32
@@ -393,9 +396,6 @@ fastLoop:
 			break
 		}
 
-		if count < 0 {
-			value, count, pos = bitstream.FillFast(buf, pos, value, count)
-		}
 		bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
 			value, rng, count)
 		for bit == 0 {
@@ -413,7 +413,9 @@ fastLoop:
 				skipEob = true
 				break fastLoop
 			}
-			if count < 0 {
+			// Keep count >= 16 before zeroContextNode so exiting the zero-run
+			// still leaves count >= 9 for oneContextNode (<=7) + sign (<=1).
+			if count < 16 {
 				value, count, pos = bitstream.FillFast(buf, pos, value, count)
 			}
 			bit, value, rng, count = vpxReadNoFill(uint32(probs[zeroContextNode]),
@@ -421,35 +423,28 @@ fastLoop:
 		}
 
 		var val int
-		if count < 0 {
-			value, count, pos = bitstream.FillFast(buf, pos, value, count)
-		}
 		bit, value, rng, count = vpxReadNoFill(uint32(probs[oneContextNode]),
 			value, rng, count)
 		if bit != 0 {
 			p := &tables.Pareto8Full[probs[pivotNode]-1]
-			if count < 0 {
+			// count >= 32 covers p[0], p[1], p[2], and sign (<=22 bits) for ±2..±4,
+			// and p[0], p[3], p[4], cat1/cat2, and sign for small categories.
+			if count < 32 {
 				value, count, pos = bitstream.FillFast(buf, pos, value, count)
 			}
 			bit, value, rng, count = vpxReadNoFill(uint32(p[0]), value, rng,
 				count)
 			if bit != 0 {
-				if count < 0 {
-					value, count, pos = bitstream.FillFast(buf, pos, value, count)
-				}
 				bit, value, rng, count = vpxReadNoFill(uint32(p[3]), value,
 					rng, count)
 				if bit != 0 {
 					tokenCache[int(scan[c])&1023] = 5
-					if count < 0 {
+					if count < 32 {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
 					}
 					bit, value, rng, count = vpxReadNoFill(uint32(p[5]),
 						value, rng, count)
 					if bit != 0 {
-						if count < 0 {
-							value, count, pos = bitstream.FillFast(buf, pos, value, count)
-						}
 						bit, value, rng, count = vpxReadNoFill(uint32(p[7]),
 							value, rng, count)
 						if bit != 0 {
@@ -474,9 +469,6 @@ fastLoop:
 							}
 						}
 					} else {
-						if count < 0 {
-							value, count, pos = bitstream.FillFast(buf, pos, value, count)
-						}
 						bit, value, rng, count = vpxReadNoFill(uint32(p[6]),
 							value, rng, count)
 						if bit != 0 {
@@ -503,9 +495,6 @@ fastLoop:
 					}
 				} else {
 					tokenCache[int(scan[c])&1023] = 4
-					if count < 0 {
-						value, count, pos = bitstream.FillFast(buf, pos, value, count)
-					}
 					bit, value, rng, count = vpxReadNoFill(uint32(p[4]),
 						value, rng, count)
 					if bit != 0 {
@@ -537,22 +526,13 @@ fastLoop:
 				}
 				dqcoeff[int(scan[c])&1023] = int16(v)
 			} else {
-				if count < 0 {
-					value, count, pos = bitstream.FillFast(buf, pos, value, count)
-				}
 				bit, value, rng, count = vpxReadNoFill(uint32(p[1]), value,
 					rng, count)
 				if bit != 0 {
 					tokenCache[int(scan[c])&1023] = 3
-					if count < 0 {
-						value, count, pos = bitstream.FillFast(buf, pos, value, count)
-					}
 					bit, value, rng, count = vpxReadNoFill(uint32(p[2]),
 						value, rng, count)
 					v := ((3 + int(bit)) * int(dqv)) >> dqShift
-					if count < 0 {
-						value, count, pos = bitstream.FillFast(buf, pos, value, count)
-					}
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
@@ -561,9 +541,6 @@ fastLoop:
 				} else {
 					tokenCache[int(scan[c])&1023] = 2
 					v := (2 * int(dqv)) >> dqShift
-					if count < 0 {
-						value, count, pos = bitstream.FillFast(buf, pos, value, count)
-					}
 					bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 					if bit != 0 {
 						v = -v
@@ -574,9 +551,6 @@ fastLoop:
 		} else {
 			tokenCache[int(scan[c])&1023] = 1
 			v := int(dqv) >> dqShift
-			if count < 0 {
-				value, count, pos = bitstream.FillFast(buf, pos, value, count)
-			}
 			bit, value, rng, count = vpxReadBitNoFill(value, rng, count)
 			if bit != 0 {
 				v = -v

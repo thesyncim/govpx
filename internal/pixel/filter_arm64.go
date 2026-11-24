@@ -64,9 +64,10 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 	// Half-pel (64, 64): single NEON URHADD instruction per 16 pixels.
 	if t0 == 64 && t1 == 64 {
 		if step == 1 {
-			if w == 8 && h&1 == 0 {
+			if w == 8 {
 				so, do := 0, 0
-				for y := 0; y < h; y += 2 {
+				y := 0
+				for ; y+1 < h; y += 2 {
 					s0, s1 := src[so:], src[so+ss:]
 					a := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(s0), binary.LittleEndian.Uint64(s1)}).ReshapeToUint8s()
 					b := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(s0[1:]), binary.LittleEndian.Uint64(s1[1:])}).ReshapeToUint8s()
@@ -75,6 +76,10 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 					binary.LittleEndian.PutUint64(dst[do+ds:], out.GetElem(1))
 					so += 2 * ss
 					do += 2 * ds
+				}
+				if y < h {
+					a, b := load8(src[so:]), load8(src[so+1:])
+					storeBytes8(dst[do:], a.Average(b))
 				}
 				return true
 			}
@@ -93,10 +98,11 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 			return true
 		}
 		// Vertical half-pel.
-		if w == 8 && h&1 == 0 {
+		if w == 8 {
 			r0 := binary.LittleEndian.Uint64(src)
 			so, do := ss, 0
-			for y := 0; y < h; y += 2 {
+			y := 0
+			for ; y+1 < h; y += 2 {
 				r1 := binary.LittleEndian.Uint64(src[so:])
 				r2 := binary.LittleEndian.Uint64(src[so+ss:])
 				a := archsimd.LoadUint64x2Array(&[2]uint64{r0, r1}).ReshapeToUint8s()
@@ -107,6 +113,10 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 				r0 = r2
 				so += 2 * ss
 				do += 2 * ds
+			}
+			if y < h {
+				a, b := load8(src[so-ss:]), load8(src[so:])
+				storeBytes8(dst[do:], a.Average(b))
 			}
 			return true
 		}
@@ -142,9 +152,10 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 	c0, c1 := archsimd.BroadcastUint8x16(t0), archsimd.BroadcastUint8x16(t1)
 	bias := archsimd.BroadcastUint16x8(64)
 	if step == 1 {
-		if w == 8 && h&1 == 0 {
+		if w == 8 {
 			so, do := 0, 0
-			for y := 0; y < h; y += 2 {
+			y := 0
+			for ; y+1 < h; y += 2 {
 				s0, s1 := src[so:], src[so+ss:]
 				a := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(s0), binary.LittleEndian.Uint64(s1)}).ReshapeToUint8s()
 				b := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(s0[1:]), binary.LittleEndian.Uint64(s1[1:])}).ReshapeToUint8s()
@@ -155,6 +166,11 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 				binary.LittleEndian.PutUint64(dst[do+ds:], out.GetElem(1))
 				so += 2 * ss
 				do += 2 * ds
+			}
+			if y < h {
+				a, b := load8(src[so:]), load8(src[so+1:])
+				lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+				storeBytes8(dst[do:], lo.TruncToUint8())
 			}
 			return true
 		}
@@ -176,10 +192,11 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 		}
 		return true
 	}
-	if w == 8 && h&1 == 0 {
+	if w == 8 {
 		r0 := binary.LittleEndian.Uint64(src)
 		so, do := ss, 0
-		for y := 0; y < h; y += 2 {
+		y := 0
+		for ; y+1 < h; y += 2 {
 			r1 := binary.LittleEndian.Uint64(src[so:])
 			r2 := binary.LittleEndian.Uint64(src[so+ss:])
 			a := archsimd.LoadUint64x2Array(&[2]uint64{r0, r1}).ReshapeToUint8s()
@@ -192,6 +209,11 @@ func filterBilinear8ARM64(src []byte, ss int, dst []byte, ds, w, h, step int, t0
 			r0 = r2
 			so += 2 * ss
 			do += 2 * ds
+		}
+		if y < h {
+			a, b := load8(src[so-ss:]), load8(src[so:])
+			lo := a.MulWidenLo(c0).Add(b.MulWidenLo(c1)).Add(bias).ShiftAllRight(7)
+			storeBytes8(dst[do:], lo.TruncToUint8())
 		}
 		return true
 	}
