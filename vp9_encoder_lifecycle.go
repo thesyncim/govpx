@@ -118,38 +118,13 @@ type VP9Encoder struct {
 	deadlineModePreviousFrame    vp9DeadlineMode
 	deadlineModePreviousFrameSet bool
 
-	// fc carries the per-frame entropy context across frames.
-	// Reset on every keyframe via ResetFrameContext.
-	frameContexts [common.FrameContexts]vp9dec.FrameContext
-	fc            vp9dec.FrameContext
-	// vp9NonrdModeCostFc mirrors the mode/filter cost tables libvpx stores
-	// on VP9_COMP for the realtime nonrd path. vp9_initialize_rd_consts
-	// (vp9_rd.c:435-437) refreshes fill_mode_costs on keyframes, on non-nonrd
-	// frames, and on current_video_frame&7 == 1; nonrd pickmode reuses the
-	// snapshot between refreshes.
-	vp9NonrdModeCostFc      vp9dec.FrameContext
-	vp9NonrdModeCostFcValid bool
-	// vp9NonrdMvCostFc mirrors the x->nmvcost MV-entropy cost table libvpx
-	// rebuilds via vp9_build_nmv_cost_table. Unlike fill_mode_costs, that
-	// rebuild is additionally guarded by !frame_is_intra_only
-	// (vp9_rd.c:439-443): it runs only on (!use_nonrd_pick_mode ||
-	// current_video_frame&7 == 1) AND a non-intra frame. The table is
-	// vpx_calloc'd (zeroed) at create time (vp9_encoder.c:2441) and only
-	// populated by that build, so until the first non-intra build runs the
-	// nonrd subpel motion search costs MVs with a ZERO entropy table. This
-	// state is reachable when two adjacent keyframes precede the first inter
-	// frame (a forced KF at frame 1): neither keyframe builds the table and
-	// the first inter frame (frame 2, &7 != 1) does not either, so its NEWMV
-	// subpel refinement runs with zero MV cost (picking lowest pure variance).
-	// vp9NonrdMvCostFcValid stays false until the first build; while false the
-	// subpel MV cost is zero, matching the calloc'd table.
-	vp9NonrdMvCostFc      vp9dec.FrameContext
-	vp9NonrdMvCostFcValid bool
-	vp9NmvCostCache       vp9NmvCostCache
 	// lastVP9HeaderFrameType feeds non-frame-parallel coefficient probability
 	// adaptation, which uses a distinct after-key update factor.
-	lastVP9HeaderFrameType common.FrameType
-	lastVP9HeaderValid     bool
+	lastVP9HeaderFrameType  common.FrameType
+	lastVP9HeaderValid      bool
+	vp9NonrdModeCostFcValid bool
+	vp9NonrdMvCostFcValid   bool
+	vp9CoeffTokenCostsValid bool
 
 	// prevFrameTxMode tracks libvpx cm->tx_mode across frames so the final
 	// else branch of select_tx_mode (vp9/encoder/vp9_encodeframe.c:4343-4344)
@@ -273,15 +248,6 @@ type VP9Encoder struct {
 	vp9SBEntropyValid   bool
 	vp9SBEntropySaveBuf [vp9dec.MaxMbPlane][]uint8
 
-	intraScratch             vp9dec.IntraPredictorScratch
-	modeScratch              [1024]byte
-	vp9CoeffTokenCosts       encoder.FrameCoeffTokenCostTable
-	vp9CoeffTokenCostsValid  bool
-	blockScratch             [64 * 64]byte
-	intraSkipPredScratch     [32 * 32]byte
-	nonrdOrigPredScratch     [64 * 64]byte
-	nonrdBestPredScratch     [64 * 64]byte
-	nonrdFilterPredScratch   [64 * 64]byte
 	partitionReconScratch    []byte
 	partitionReconScratchTop int
 	// interPredictScratch is passed through the decoder-shared inter
@@ -372,15 +338,6 @@ type VP9Encoder struct {
 	intProSrcBordered      common.YV12BorderBuffer
 	intProSrcBorderedValid bool
 
-	// intProEstPred is the 64x64 luma predictor scratch built by
-	// vp9_build_inter_predictors_sb (vp9_reconinter.c:253-258) from the
-	// int_pro-resolved MV. Mirrors libvpx's xd->plane[0].dst.buf at
-	// vp9_encodeframe.c:1487 (which writes a 64x64 dst with stride 64).
-	intProEstPred [64 * 64]uint8
-	// intProSrcScratch holds the edge-replicated 64x64 source block for
-	// frame-edge SBs in vp9IntProSrcWindow without heap allocation.
-	intProSrcScratch [64 * 64]uint8
-
 	prevFrameMvs      []vp9dec.MvRef
 	prevFrameMvRows   int
 	prevFrameMvCols   int
@@ -408,27 +365,7 @@ type VP9Encoder struct {
 	// encode on one goroutine — so each worker keeps its own allocation,
 	// mirroring how the slice-backed scratch fields are preserved.
 	blockCoeffScratch *vp9EncoderBlockCoeffScratch
-	coefScratch       [1024]int16
-	qCoefScratch      [1024]int16
-	residueScratch    [1024]int16
-	// coefTokenCache is the persistent per-encoder token energy-class cache
-	// handed to WriteCoefSb (WriteCoefSbArgs.TokenCache). libvpx tokenize_b
-	// keeps the equivalent array uninitialized across blocks
-	// (vp9/encoder/vp9_tokenize.c) — every scan position is written before
-	// any neighbor context reads it — so the cache is never cleared. Tile
-	// workers are full VP9Encoder values, so each worker owns its own copy.
-	coefTokenCache [1024]uint8
-	// interPredHdrScratch backs predictVP9InterBlockOpts' per-call header;
-	// the reconstruct path only reads it and does not retain the pointer,
-	// and every consulted field is reassigned per call.
-	interPredHdrScratch vp9dec.UncompressedHeader
-	// sub8x8PredScratch backs the genuine sub-8x8 RD producer's per-label
-	// inter predictor (vp9_fullrd_inter_sub8x8_segment.go, encode_inter_mb_segment).
-	// Allocated lazily; only used behind the gated-off deep sub-8x8 path.
 	sub8x8PredScratch []byte
-	txCoeffScratch    [1024]int16
-	qCoeffScratch     [1024]int16
-	dqCoeffScratch    [1024]int16
 	// cyclicPost{IsInter,MvRow,MvCol} back vp9_cyclic_refresh_postencode's
 	// low-content walk without per-frame allocation on typical mi grids.
 	cyclicPostIsInter []uint8
@@ -441,10 +378,6 @@ type VP9Encoder struct {
 	// cyclicResizeFramePending is true only on the first encoded frame
 	// after a resize (setup ResetResize + postencode forced GF).
 	cyclicResizeFramePending    bool
-	dqScratch                   vp9dec.DequantTables
-	dqFPY                       [vp9dec.MaxSegments]encoder.QuantizeFPTables
-	dqFPUv                      [vp9dec.MaxSegments]encoder.QuantizeFPTables
-	frameCounts                 encoder.FrameCounts
 	vp9TokenFrame               encoder.TokenFrameBuffer
 	vp9TokenCollect             vp9TokenCollectState
 	vp9TokenReplay              vp9TokenReplayState
@@ -735,6 +668,35 @@ type VP9Encoder struct {
 	countArfFrameUsageMiCols   int
 	countArfFrameUsageMiRows   int
 	countArfFrameUsageMiStride int
+
+	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
+	frameContexts          [common.FrameContexts]vp9dec.FrameContext
+	fc                     vp9dec.FrameContext
+	vp9NonrdModeCostFc     vp9dec.FrameContext
+	vp9NonrdMvCostFc       vp9dec.FrameContext
+	vp9NmvCostCache        vp9NmvCostCache
+	vp9CoeffTokenCosts     encoder.FrameCoeffTokenCostTable
+	intraScratch           vp9dec.IntraPredictorScratch
+	modeScratch            [1024]byte
+	blockScratch           [64 * 64]byte
+	intraSkipPredScratch   [32 * 32]byte
+	nonrdOrigPredScratch   [64 * 64]byte
+	nonrdBestPredScratch   [64 * 64]byte
+	nonrdFilterPredScratch [64 * 64]byte
+	intProEstPred          [64 * 64]uint8
+	intProSrcScratch       [64 * 64]uint8
+	coefScratch            [1024]int16
+	qCoefScratch           [1024]int16
+	residueScratch         [1024]int16
+	coefTokenCache         [1024]uint8
+	interPredHdrScratch    vp9dec.UncompressedHeader
+	txCoeffScratch         [1024]int16
+	qCoeffScratch          [1024]int16
+	dqCoeffScratch         [1024]int16
+	dqScratch              vp9dec.DequantTables
+	dqFPY                  [vp9dec.MaxSegments]encoder.QuantizeFPTables
+	dqFPUv                 [vp9dec.MaxSegments]encoder.QuantizeFPTables
+	frameCounts            encoder.FrameCounts
 }
 
 // vp9EncoderBlockCoeffScratch stages one superblock's transform

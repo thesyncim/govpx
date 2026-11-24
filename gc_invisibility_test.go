@@ -239,7 +239,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp9Enc.EncodeIntoWithResult(ycbcr, pkt); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Encoder 720p 1T", vp9Enc, 99.5)
+	logReport("VP9Encoder 720p 1T", vp9Enc, 99.8)
 
 	vp9Enc4, err := NewVP9Encoder(VP9EncoderOptions{
 		Width:             w,
@@ -260,7 +260,7 @@ func TestGCInvisibilityAudit(t *testing.T) {
 	if _, err := vp9Enc4.EncodeIntoWithResult(ycbcr, pkt); err != nil {
 		t.Fatal(err)
 	}
-	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.0)
+	logReport("VP9Encoder 720p 4T", vp9Enc4, 99.3)
 
 	// 4. VP9Decoder
 	vp9Dec, err := NewVP9Decoder(VP9DecoderOptions{})
