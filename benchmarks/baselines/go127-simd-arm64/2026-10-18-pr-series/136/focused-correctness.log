@@ -1,4 +1,0 @@
-=== RUN   TestAlgo136Round3SearchSeed
---- PASS: TestAlgo136Round3SearchSeed (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.316s

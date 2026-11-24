@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // DCPairNative selects a single arithmetic owner for paired DC reconstruction.
 // Complete x64 windows use byte SIMD; fallback access order stays unchanged.
@@ -23,16 +20,16 @@ fast:
 		if ps < 8 || ds < 8 || len(pred) < 8 || len(dst) < 8 || ps > (len(pred)-8)/3 || ds > (len(dst)-8)/3 {
 			break fast
 		}
-		pp, dp := uintptr(unsafe.Pointer(unsafe.SliceData(pred))), uintptr(unsafe.Pointer(unsafe.SliceData(dst)))
-		exact := pp == dp && ps == ds
-		disjoint := (pp <= dp && dp-pp >= uintptr(len(pred))) || (dp < pp && pp-dp >= uintptr(len(dst)))
-		if !exact && !disjoint {
+		if &pred[0] == &dst[0] {
+			if ps != ds {
+				break fast
+			}
+		} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
 			break fast
 		}
 		plus, minus := dcPairCoeffBytes(c0, c1)
-		sp, out := unsafe.Pointer(unsafe.SliceData(pred)), unsafe.Pointer(unsafe.SliceData(dst))
-		dcPairByteRows2(sp, ps, out, ds, plus, minus)
-		dcPairByteRows2(unsafe.Add(sp, 2*ps), ps, unsafe.Add(out, 2*ds), ds, plus, minus)
+		dcPairByteRows2(pred, ps, dst, ds, plus, minus)
+		dcPairByteRows2(pred[2*ps:], ps, dst[2*ds:], ds, plus, minus)
 		return
 	}
 	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)

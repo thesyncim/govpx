@@ -114,13 +114,11 @@ func BenchmarkSubpelVariance16x16Dispatch(b *testing.B) {
 	}
 }
 
-func BenchmarkSubpelVariance16x16PtrFast(b *testing.B) {
+func BenchmarkSubpelVariance16x16Fast(b *testing.B) {
 	src, ref := benchSrc16x16()
-	srcPtr := &src[0]
-	refPtr := &ref[0]
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = SubpelVariance16x16PtrFast(srcPtr, 64, 3, 5, refPtr, 64)
+		_, _ = SubpelVariance16x16Fast(src, 64, 3, 5, ref, 64)
 	}
 }
 
@@ -132,13 +130,11 @@ func BenchmarkSubpelVariance16x16HorizontalOnly(b *testing.B) {
 	}
 }
 
-func BenchmarkSubpelVariance16x16HorizontalOnlyPtrFast(b *testing.B) {
+func BenchmarkSubpelVariance16x16HorizontalOnlyFast(b *testing.B) {
 	src, ref := benchSrc16x16()
-	srcPtr := &src[0]
-	refPtr := &ref[0]
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = SubpelVariance16x16PtrFast(srcPtr, 64, 5, 0, refPtr, 64)
+		_, _ = SubpelVariance16x16Fast(src, 64, 5, 0, ref, 64)
 	}
 }
 
@@ -150,13 +146,11 @@ func BenchmarkSubpelVariance16x16VerticalOnly(b *testing.B) {
 	}
 }
 
-func BenchmarkSubpelVariance16x16VerticalOnlyPtrFast(b *testing.B) {
+func BenchmarkSubpelVariance16x16VerticalOnlyFast(b *testing.B) {
 	src, ref := benchSrc16x16()
-	srcPtr := &src[0]
-	refPtr := &ref[0]
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = SubpelVariance16x16PtrFast(srcPtr, 64, 0, 5, refPtr, 64)
+		_, _ = SubpelVariance16x16Fast(src, 64, 0, 5, ref, 64)
 	}
 }
 

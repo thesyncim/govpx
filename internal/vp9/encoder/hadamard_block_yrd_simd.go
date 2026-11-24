@@ -3,9 +3,9 @@
 package encoder
 
 import (
-	"github.com/thesyncim/govpx/internal/pixel"
 	"simd/archsimd"
-	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/pixel"
 )
 
 // hadamardBlockYrdGo mirrors the scoring-only layout of libvpx v1.16.0
@@ -17,40 +17,39 @@ func hadamardBlockYrdGo(src []int16, stride int, coeff []int16, n int) bool {
 		stride > (len(src)-n)/(n-1) || len(coeff) < n*n {
 		return false
 	}
-	sp, cp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(coeff))
 	if n == 8 {
-		hadamardBlockYrd8(sp, stride, cp)
+		hadamardBlockYrd8(src, stride, coeff)
 		return true
 	}
-	hadamardBlockYrd8(sp, stride, cp)
-	hadamardBlockYrd8(unsafe.Add(sp, 16), stride, unsafe.Add(cp, 128))
-	hadamardBlockYrd8(unsafe.Add(sp, 16*stride), stride, unsafe.Add(cp, 256))
-	hadamardBlockYrd8(unsafe.Add(sp, 16*stride+16), stride, unsafe.Add(cp, 384))
-	for i := 0; i < 128; i += 16 {
-		a := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i)))
-		b := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i+128)))
-		c := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i+256)))
-		d := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i+384)))
+	hadamardBlockYrd8(src, stride, coeff)
+	hadamardBlockYrd8(src[8:], stride, coeff[64:])
+	hadamardBlockYrd8(src[8*stride:], stride, coeff[128:])
+	hadamardBlockYrd8(src[8*stride+8:], stride, coeff[192:])
+	for i := 0; i < 64; i += 8 {
+		a := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i : i+8]))
+		b := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i+64 : i+72]))
+		c := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i+128 : i+136]))
+		d := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i+192 : i+200]))
 		u, v, w, z := a.Add(b).ShiftAllRight(1), a.Sub(b).ShiftAllRight(1), c.Add(d).ShiftAllRight(1), c.Sub(d).ShiftAllRight(1)
-		u.Add(w).StoreArray((*[8]int16)(unsafe.Add(cp, i)))
-		v.Add(z).StoreArray((*[8]int16)(unsafe.Add(cp, i+128)))
-		u.Sub(w).StoreArray((*[8]int16)(unsafe.Add(cp, i+256)))
-		v.Sub(z).StoreArray((*[8]int16)(unsafe.Add(cp, i+384)))
+		u.Add(w).StoreArray((*[8]int16)(coeff[i : i+8]))
+		v.Add(z).StoreArray((*[8]int16)(coeff[i+64 : i+72]))
+		u.Sub(w).StoreArray((*[8]int16)(coeff[i+128 : i+136]))
+		v.Sub(z).StoreArray((*[8]int16)(coeff[i+192 : i+200]))
 	}
 	return true
 }
 
 // The caller proves all eight complete input rows and the 64 output samples.
 // Named vectors keep both butterflies and the single transpose in registers.
-func hadamardBlockYrd8(src unsafe.Pointer, stride int, coeff unsafe.Pointer) {
-	v0 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 0*stride)))
-	v1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 2*stride)))
-	v2 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 4*stride)))
-	v3 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 6*stride)))
-	v4 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 8*stride)))
-	v5 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 10*stride)))
-	v6 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 12*stride)))
-	v7 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 14*stride)))
+func hadamardBlockYrd8(src []int16, stride int, coeff []int16) {
+	v0 := archsimd.LoadInt16x8Array((*[8]int16)(src[0*stride : 0*stride+8]))
+	v1 := archsimd.LoadInt16x8Array((*[8]int16)(src[1*stride : 1*stride+8]))
+	v2 := archsimd.LoadInt16x8Array((*[8]int16)(src[2*stride : 2*stride+8]))
+	v3 := archsimd.LoadInt16x8Array((*[8]int16)(src[3*stride : 3*stride+8]))
+	v4 := archsimd.LoadInt16x8Array((*[8]int16)(src[4*stride : 4*stride+8]))
+	v5 := archsimd.LoadInt16x8Array((*[8]int16)(src[5*stride : 5*stride+8]))
+	v6 := archsimd.LoadInt16x8Array((*[8]int16)(src[6*stride : 6*stride+8]))
+	v7 := archsimd.LoadInt16x8Array((*[8]int16)(src[7*stride : 7*stride+8]))
 	{
 		b0, b1 := v0.Add(v1), v0.Sub(v1)
 		b2, b3 := v2.Add(v3), v2.Sub(v3)
@@ -79,12 +78,12 @@ func hadamardBlockYrd8(src unsafe.Pointer, stride int, coeff unsafe.Pointer) {
 		c4, c5, c6, c7 := b4.Add(b6), b5.Add(b7), b4.Sub(b6), b5.Sub(b7)
 		v0, v7, v3, v4, v2, v6, v1, v5 = c0.Add(c4), c1.Add(c5), c2.Add(c6), c3.Add(c7), c0.Sub(c4), c1.Sub(c5), c2.Sub(c6), c3.Sub(c7)
 	}
-	v0.StoreArray((*[8]int16)(unsafe.Add(coeff, 0)))
-	v1.StoreArray((*[8]int16)(unsafe.Add(coeff, 16)))
-	v2.StoreArray((*[8]int16)(unsafe.Add(coeff, 32)))
-	v3.StoreArray((*[8]int16)(unsafe.Add(coeff, 48)))
-	v4.StoreArray((*[8]int16)(unsafe.Add(coeff, 64)))
-	v5.StoreArray((*[8]int16)(unsafe.Add(coeff, 80)))
-	v6.StoreArray((*[8]int16)(unsafe.Add(coeff, 96)))
-	v7.StoreArray((*[8]int16)(unsafe.Add(coeff, 112)))
+	v0.StoreArray((*[8]int16)(coeff[0:8]))
+	v1.StoreArray((*[8]int16)(coeff[8:16]))
+	v2.StoreArray((*[8]int16)(coeff[16:24]))
+	v3.StoreArray((*[8]int16)(coeff[24:32]))
+	v4.StoreArray((*[8]int16)(coeff[32:40]))
+	v5.StoreArray((*[8]int16)(coeff[40:48]))
+	v6.StoreArray((*[8]int16)(coeff[48:56]))
+	v7.StoreArray((*[8]int16)(coeff[56:64]))
 }

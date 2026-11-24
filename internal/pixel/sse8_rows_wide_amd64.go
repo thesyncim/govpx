@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // SSE8 packs pairs of exact eight-byte rows into one SIMD packet. An odd
@@ -20,21 +20,20 @@ func SSE8(src []byte, ss int, ref []byte, rs, h int) uint32 {
 	if h > 0 && h <= 64 && (uint(ss)|uint(rs))>>30 == 0 {
 		_ = src[(h-1)*ss+7]
 		_ = ref[(h-1)*rs+7]
-		sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 		if h >= 8 {
 			var acc archsimd.Int32x8
 			so, ro, y := 0, 0, 0
 			for ; y+2 <= h; y += 2 {
-				a := (archsimd.Uint64x2{}).SetElem(0, *(*uint64)(unsafe.Add(sp, so))).SetElem(1, *(*uint64)(unsafe.Add(sp, so+ss))).ReshapeToUint8s().ExtendToUint16().BitsToInt16()
-				b := (archsimd.Uint64x2{}).SetElem(0, *(*uint64)(unsafe.Add(rp, ro))).SetElem(1, *(*uint64)(unsafe.Add(rp, ro+rs))).ReshapeToUint8s().ExtendToUint16().BitsToInt16()
+				a := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(src[so:])).SetElem(1, binary.LittleEndian.Uint64(src[so+ss:])).ReshapeToUint8s().ExtendToUint16().BitsToInt16()
+				b := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(ref[ro:])).SetElem(1, binary.LittleEndian.Uint64(ref[ro+rs:])).ReshapeToUint8s().ExtendToUint16().BitsToInt16()
 				d := a.Sub(b)
 				acc = acc.Add(d.DotProductPairs(d))
 				so += 2 * ss
 				ro += 2 * rs
 			}
 			if y < h {
-				a := archsimd.BroadcastUint64x4(*(*uint64)(unsafe.Add(sp, so))).InterleaveLoGrouped(archsimd.Uint64x4{}).GetLo().ReshapeToUint8s().ExtendToUint16().BitsToInt16()
-				b := archsimd.BroadcastUint64x4(*(*uint64)(unsafe.Add(rp, ro))).InterleaveLoGrouped(archsimd.Uint64x4{}).GetLo().ReshapeToUint8s().ExtendToUint16().BitsToInt16()
+				a := archsimd.BroadcastUint64x4(binary.LittleEndian.Uint64(src[so:])).InterleaveLoGrouped(archsimd.Uint64x4{}).GetLo().ReshapeToUint8s().ExtendToUint16().BitsToInt16()
+				b := archsimd.BroadcastUint64x4(binary.LittleEndian.Uint64(ref[ro:])).InterleaveLoGrouped(archsimd.Uint64x4{}).GetLo().ReshapeToUint8s().ExtendToUint16().BitsToInt16()
 				d := a.Sub(b)
 				acc = acc.Add(d.DotProductPairs(d))
 			}
@@ -45,8 +44,8 @@ func SSE8(src []byte, ss int, ref []byte, rs, h int) uint32 {
 		var lo, hi archsimd.Int32x4
 		so, ro, y := 0, 0, 0
 		for ; y+2 <= h; y += 2 {
-			a := (archsimd.Uint64x2{}).SetElem(0, *(*uint64)(unsafe.Add(sp, so))).SetElem(1, *(*uint64)(unsafe.Add(sp, so+ss))).ReshapeToUint8s()
-			b := (archsimd.Uint64x2{}).SetElem(0, *(*uint64)(unsafe.Add(rp, ro))).SetElem(1, *(*uint64)(unsafe.Add(rp, ro+rs))).ReshapeToUint8s()
+			a := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(src[so:])).SetElem(1, binary.LittleEndian.Uint64(src[so+ss:])).ReshapeToUint8s()
+			b := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(ref[ro:])).SetElem(1, binary.LittleEndian.Uint64(ref[ro+rs:])).ReshapeToUint8s()
 			d := a.Max(b).Sub(a.Min(b))
 			dl := widen8(d)
 			dh := widen8(highBytes(d))
@@ -56,8 +55,8 @@ func SSE8(src []byte, ss int, ref []byte, rs, h int) uint32 {
 			ro += 2 * rs
 		}
 		if y < h {
-			a := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(sp, so))).ReshapeToUint8s()
-			b := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(rp, ro))).ReshapeToUint8s()
+			a := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(src[so:])).ReshapeToUint8s()
+			b := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(ref[ro:])).ReshapeToUint8s()
 			lo = lo.Add(square8(widen8(a.Max(b).Sub(a.Min(b)))))
 		}
 		return uint32(sum32(lo.Add(hi)))

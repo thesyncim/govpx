@@ -46,13 +46,6 @@ func varianceStatsFromSumSSE(sum int32, sse uint32, w, h int) VarianceStats {
 	}
 }
 
-func varianceStatsScalar(w, h int, src []uint8, srcOff, srcStride int,
-	ref []uint8, refOff, refStride int,
-) VarianceStats {
-	sse, sum := computeVariance(src, srcOff, srcStride, ref, refOff, refStride, w, h)
-	return varianceStatsFromSumSSE(int32(sum), sse, w, h)
-}
-
 // VpxVarianceStats returns variance, SSE, and signed sum for the standard VP9
 // variance block sizes. Unsupported sizes return ok=false.
 func VpxVarianceStats(src []uint8, srcOff, srcStride int,

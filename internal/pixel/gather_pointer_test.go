@@ -7,16 +7,16 @@ import (
 	"testing"
 )
 
-func TestGatherPointerDeclines(t *testing.T) {
+func TestGatherFastDeclines(t *testing.T) {
 	var a, b [16]byte
 	var out [256]int16
-	for _, fn := range []func(*byte, int, *byte, int, *int16) bool{Gather8PtrFast, Gather16PtrFast} {
-		for _, strides := range [][2]int{{-1, 0}, {0, -1}, {int(^uint(0) >> 1), 0}, {0, int(^uint(0) >> 1)}, {1 << 48, 0}, {0, 1 << 48}} {
-			if fn(&a[0], strides[0], &b[0], strides[1], &out[0]) {
+	for _, fn := range []func([]byte, int, []byte, int, []int16) bool{Gather8Fast, Gather16Fast} {
+		for _, strides := range [][2]int{{-1, 0}, {0, -1}, {int(^uint(0) >> 1), 0}, {0, int(^uint(0) >> 1)}, {1 << 30, 0}, {0, 1 << 30}} {
+			if fn(a[:], strides[0], b[:], strides[1], out[:]) {
 				t.Fatal("invalid stride accepted")
 			}
 		}
-		if fn(nil, 0, &b[0], 0, &out[0]) || fn(&a[0], 0, nil, 0, &out[0]) || fn(&a[0], 0, &b[0], 0, nil) {
+		if fn(nil, 0, b[:], 0, out[:]) || fn(a[:], 0, nil, 0, out[:]) || fn(a[:], 0, b[:], 0, nil) {
 			t.Fatal("nil accepted")
 		}
 	}
@@ -27,7 +27,7 @@ func TestGatherPointerDeclines(t *testing.T) {
 	}
 }
 
-func TestGatherPointerSelected(t *testing.T) {
+func TestGatherFastSelected(t *testing.T) {
 	if !Enabled {
 		t.Skip("SIMD unavailable")
 	}
@@ -51,19 +51,19 @@ func TestGatherPointerSelected(t *testing.T) {
 			for i := range out {
 				out[i] = 12345
 			}
-			fn := Gather16PtrFast
+			fn := Gather16Fast
 			if w == 8 {
-				fn = Gather8PtrFast
+				fn = Gather8Fast
 			}
-			if !fn(&src[3], ss, &pred[4], ps, &out[8]) {
-				t.Fatal("eligible pointer SIMD declined")
+			if !fn(src[3:], ss, pred[4:], ps, out[8:]) {
+				t.Fatal("eligible SIMD declined")
 			}
 			for y := range w {
 				for x := range w {
 					at := 8 + ((y/4)*(w/4)+x/4)*16 + (y%4)*4 + x%4
 					want := int16(src[3+y*ss+x]) - int16(pred[4+y*ps+x])
 					if out[at] != want {
-						t.Fatal("selected pointer output differs from scalar")
+						t.Fatal("selected output differs from scalar")
 					}
 				}
 			}

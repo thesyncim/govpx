@@ -1,3 +1,0 @@
-=== RUN   TestRound3EOBCount
---- PASS: TestRound3EOBCount (0.00s)
-PASS

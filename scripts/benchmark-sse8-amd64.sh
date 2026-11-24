@@ -40,8 +40,8 @@ trap 'exit 130' HUP INT TERM
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/govpx-sse8-focused.XXXXXX")
 export GOTOOLCHAIN=local GOEXPERIMENT=simd GOAMD64=v1 GOMAXPROCS=1 GOOS=linux GOARCH=amd64
 version=$(scripts/go.sh env GOVERSION)
-if [ "$version" != go1.27.2 ]; then
- printf 'Expected go1.27.2, got %s\n' "$version" >&2
+if [ "$version" != go1.27.4 ]; then
+ printf 'Expected go1.27.4, got %s\n' "$version" >&2
  exit 1
 fi
 {

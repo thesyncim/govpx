@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The public dispatcher proves the complete bilinear window and bounded
 // positive geometry before these exact read-only loads.
@@ -18,16 +15,15 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 			return subpelStatsAxisHorizontal16SumR2(src, ss, ref, rs, w, h, f)
 		}
 	}
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	f0, f1, round, ones := archsimd.BroadcastInt16x16(f[0]), archsimd.BroadcastInt16x16(f[1]), archsimd.BroadcastInt16x16(64), archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
 	for x := 0; x < w; x += 16 {
 		so, ro := x, x
 		for range h {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			a := archsimd.LoadUint8x16(src[so:])
+			b := archsimd.LoadUint8x16(src[so+1:])
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.ExtendToUint16().BitsToInt16().Mul(f0).Add(b.ExtendToUint16().BitsToInt16().Mul(f1)).Add(round).ShiftAllRight(7)
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			sum = sum.Add(d.DotProductPairs(ones))
@@ -50,17 +46,16 @@ func subpelStatsAxisVertical16(src []byte, ss int, ref []byte, rs, w, h int, f [
 			return subpelStatsAxisVertical16SumR2(src, ss, ref, rs, w, h, f)
 		}
 	}
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	f0, f1, round, ones := archsimd.BroadcastInt16x16(f[0]), archsimd.BroadcastInt16x16(f[1]), archsimd.BroadcastInt16x16(64), archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
 	for x := 0; x < w; x += 16 {
 		so, ro := x, x
-		a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, x))).ExtendToUint16().BitsToInt16()
+		a := archsimd.LoadUint8x16(src[x:]).ExtendToUint16().BitsToInt16()
 		so += ss
 		for range h {
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so))).ExtendToUint16().BitsToInt16()
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			b := archsimd.LoadUint8x16(src[so:]).ExtendToUint16().BitsToInt16()
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.Mul(f0).Add(b.Mul(f1)).Add(round).ShiftAllRight(7)
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			sum = sum.Add(d.DotProductPairs(ones))
@@ -74,16 +69,15 @@ func subpelStatsAxisVertical16(src []byte, ss int, ref []byte, rs, w, h int, f [
 }
 
 func subpelStatsAxisHorizontal16HalfR2(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	ones := archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
 	for x := 0; x < w; x += 16 {
 		so, ro := x, x
 		for range h {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			a := archsimd.LoadUint8x16(src[so:])
+			b := archsimd.LoadUint8x16(src[so+1:])
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.Average(b).ExtendToUint16().BitsToInt16()
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			sum = sum.Add(d.DotProductPairs(ones))
@@ -95,17 +89,16 @@ func subpelStatsAxisHorizontal16HalfR2(src []byte, ss int, ref []byte, rs, w, h 
 	return int(sum32(sum.GetLo().Add(sum.GetHi()))), uint32(sum32(sse.GetLo().Add(sse.GetHi())))
 }
 func subpelStatsAxisVertical16HalfR2(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	ones := archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
 	for x := 0; x < w; x += 16 {
 		so, ro := x, x
-		a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, x))).ExtendToUint16().BitsToInt16()
+		a := archsimd.LoadUint8x16(src[x:]).ExtendToUint16().BitsToInt16()
 		so += ss
 		for range h {
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so))).ExtendToUint16().BitsToInt16()
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			b := archsimd.LoadUint8x16(src[so:]).ExtendToUint16().BitsToInt16()
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.ToBits().Average(b.ToBits()).BitsToInt16()
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			sum = sum.Add(d.DotProductPairs(ones))
@@ -119,7 +112,6 @@ func subpelStatsAxisVertical16HalfR2(src []byte, ss int, ref []byte, rs, w, h in
 }
 
 func subpelStatsAxisHorizontal16SumR2(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	f0, f1, round, ones := archsimd.BroadcastInt16x16(f[0]), archsimd.BroadcastInt16x16(f[1]), archsimd.BroadcastInt16x16(64), archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
@@ -127,9 +119,9 @@ func subpelStatsAxisHorizontal16SumR2(src []byte, ss int, ref []byte, rs, w, h i
 		var strip archsimd.Int16x16
 		so, ro := x, x
 		for range h {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			a := archsimd.LoadUint8x16(src[so:])
+			b := archsimd.LoadUint8x16(src[so+1:])
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.ExtendToUint16().BitsToInt16().Mul(f0).Add(b.ExtendToUint16().BitsToInt16().Mul(f1)).Add(round).ShiftAllRight(7)
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			strip = strip.Add(d)
@@ -142,18 +134,17 @@ func subpelStatsAxisHorizontal16SumR2(src []byte, ss int, ref []byte, rs, w, h i
 	return int(sum32(sum.GetLo().Add(sum.GetHi()))), uint32(sum32(sse.GetLo().Add(sse.GetHi())))
 }
 func subpelStatsAxisVertical16SumR2(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	defer archsimd.ClearAVXUpperBits()
 	f0, f1, round, ones := archsimd.BroadcastInt16x16(f[0]), archsimd.BroadcastInt16x16(f[1]), archsimd.BroadcastInt16x16(64), archsimd.BroadcastInt16x16(1)
 	var sum, sse archsimd.Int32x8
 	for x := 0; x < w; x += 16 {
 		var strip archsimd.Int16x16
 		so, ro := x, x
-		a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, x))).ExtendToUint16().BitsToInt16()
+		a := archsimd.LoadUint8x16(src[x:]).ExtendToUint16().BitsToInt16()
 		so += ss
 		for range h {
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so))).ExtendToUint16().BitsToInt16()
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			b := archsimd.LoadUint8x16(src[so:]).ExtendToUint16().BitsToInt16()
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v := a.Mul(f0).Add(b.Mul(f1)).Add(round).ShiftAllRight(7)
 			d := v.Sub(r.ExtendToUint16().BitsToInt16())
 			strip = strip.Add(d)

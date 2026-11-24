@@ -1,6 +1,0 @@
-{
-  "measured_sha256": "400f59a7709f89c046019dcc928ec0b1fac2d48d67f028eeb625e6583804740e",
-  "retained_sha256": "52a883f1869efcf9007851dad97e35d581de9400210651017bb5d83a587d75e3",
-  "difference": "required libvpx baseline citation comment only",
-  "code_and_globals_identical_after_removing_comments_and_whitespace": true
-}

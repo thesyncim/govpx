@@ -1,7 +1,8 @@
 package govpx
 
 import (
-	_ "unsafe" // for go:linkname
+	"runtime"
+	"time"
 
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
@@ -9,18 +10,18 @@ import (
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
-// nanotime returns the monotonic clock in nanoseconds. Linked to
-// runtime.nanotime to avoid time.Now()'s per-call wall+mono allocation.
-//
-//go:linkname nanotime runtime.nanotime
-func nanotime() int64
+var monotonicOrigin = time.Now()
 
-// runtimeProcYield issues the runtime's architecture-specific processor
-// pause/yield instruction without handing the P back to the scheduler.
-// Row-thread wave-front waits use it for short producer/consumer gaps.
-//
-//go:linkname runtimeProcYield runtime.procyield
-func runtimeProcYield(cycles uint32)
+// nanotime returns the monotonic clock in nanoseconds without unsafe linkname.
+func nanotime() int64 {
+	return time.Since(monotonicOrigin).Nanoseconds()
+}
+
+// runtimeProcYield yields the current goroutine during short worker waits.
+func runtimeProcYield(cycles uint32) {
+	_ = cycles
+	runtime.Gosched()
+}
 
 // Deadline selects the encoder speed/quality operating mode.
 type Deadline int

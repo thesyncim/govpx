@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
-	"unsafe"
 )
 
 // Ported from libvpx v1.16.0 vp8/encoder/tokenize.c coefficient token
@@ -189,16 +188,11 @@ func WriteCoefficientTokenGridPartitioned(writers *[8]BoolWriter, partitions int
 
 func BlockCoeffEOB(qcoeff *[16]int16, skipDC int) int {
 	if uint(skipDC) <= 1 {
-		raw := unsafe.Slice((*byte)(unsafe.Pointer(qcoeff)), 32)
-		start := 15
-		if binary.LittleEndian.Uint64(raw[16:24])|binary.LittleEndian.Uint64(raw[24:32]) == 0 {
-			if binary.LittleEndian.Uint64(raw[:8])|binary.LittleEndian.Uint64(raw[8:16]) == 0 {
-				return skipDC
-			}
-			// A zero raster high half does not imply a zero scan high half. The scan suffix is filtered below.
-			start = 15
+		if qcoeff[0]|qcoeff[1]|qcoeff[2]|qcoeff[3]|qcoeff[4]|qcoeff[5]|qcoeff[6]|qcoeff[7]|
+			qcoeff[8]|qcoeff[9]|qcoeff[10]|qcoeff[11]|qcoeff[12]|qcoeff[13]|qcoeff[14]|qcoeff[15] == 0 {
+			return skipDC
 		}
-		for ; start >= skipDC; start-- {
+		for start := 15; start >= skipDC; start-- {
 			rc := int(tables.DefaultZigZag1D[start])
 			if qcoeff[rc] != 0 {
 				return start + 1
@@ -322,46 +316,32 @@ func ResetTokenContextPlanes(above *TokenContextPlanes, left *TokenContextPlanes
 // WriteCoefficientMacroblockTokens. Used by mode-decision to keep RD scoring
 // in step with libvpx's above_context / left_context plumbing across MBs.
 func UpdateTokenContextPlanesFromCoefficients(above *TokenContextPlanes, left *TokenContextPlanes, is4x4 bool, coeffs *MacroblockCoefficients) {
-	// Independent planes permit dropping transient context writes. The original walk handles every alias.
 	if above != nil && left != nil && coeffs != nil && above != left {
-		cp := uintptr(unsafe.Pointer(coeffs))
-		ap := uintptr(unsafe.Pointer(above))
-		lp := uintptr(unsafe.Pointer(left))
-		cn := unsafe.Sizeof(*coeffs)
-		an := unsafe.Sizeof(*above)
-		disjoint := func(a, b, na, nb uintptr) bool {
-			if a <= b {
-				return b-a >= na
+		skip := uint8(0)
+		if !is4x4 {
+			skip = 1
+			v := uint8(0)
+			if coeffs.EOB[24] > 0 {
+				v = 1
 			}
-			return a-b >= nb
+			above.Y2 = v
+			left.Y2 = v
 		}
-		if disjoint(cp, ap, cn, an) && disjoint(cp, lp, cn, an) && disjoint(ap, lp, an, an) {
-			skip := uint8(0)
-			if !is4x4 {
-				skip = 1
-				v := uint8(0)
-				if coeffs.EOB[24] > 0 {
-					v = 1
-				}
-				above.Y2 = v
-				left.Y2 = v
+		flag := func(i int, s uint8) uint8 {
+			if coeffs.EOB[i] > s {
+				return 1
 			}
-			flag := func(i int, s uint8) uint8 {
-				if coeffs.EOB[i] > s {
-					return 1
-				}
-				return 0
-			}
-			for i := range 4 {
-				above.Y1[i] = flag(12+i, skip)
-				left.Y1[i] = flag(i*4+3, skip)
-			}
-			above.U = [2]uint8{flag(18, 0), flag(19, 0)}
-			left.U = [2]uint8{flag(17, 0), flag(19, 0)}
-			above.V = [2]uint8{flag(22, 0), flag(23, 0)}
-			left.V = [2]uint8{flag(21, 0), flag(23, 0)}
-			return
+			return 0
 		}
+		for i := range 4 {
+			above.Y1[i] = flag(12+i, skip)
+			left.Y1[i] = flag(i*4+3, skip)
+		}
+		above.U = [2]uint8{flag(18, 0), flag(19, 0)}
+		left.U = [2]uint8{flag(17, 0), flag(19, 0)}
+		above.V = [2]uint8{flag(22, 0), flag(23, 0)}
+		left.V = [2]uint8{flag(21, 0), flag(23, 0)}
+		return
 	}
 
 	if above == nil || left == nil || coeffs == nil {

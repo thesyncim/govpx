@@ -40,7 +40,7 @@ concurrency:
 
 env:
   GOEXPERIMENT: simd
-  GOTOOLCHAIN: go1.27.2
+  GOTOOLCHAIN: go1.27.4
   GOVPX_FULL_CI: ${{ github.event_name == 'workflow_dispatch' && inputs.full }}
 
 jobs:

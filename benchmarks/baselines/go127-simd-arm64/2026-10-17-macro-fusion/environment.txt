@@ -1,5 +1,0 @@
-Apple M4 Max; native darwin/arm64; Go 1.27.2; GOEXPERIMENT=simd
-PGO=off; GOMAXPROCS=1; encoder threads=1; no concurrent local Go builds/tests during measurements
-Final parent: 9a442f66. Old Go assembly: 691cd0512c4829d9ee40d483205dd223f9eb028d
-Final current: generated ARM macro/internal filter integration in this checkpoint
-Exploratory variants are private pre-integration source candidates; only final-public/final-confirm measure the integrated source.

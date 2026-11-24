@@ -2,24 +2,19 @@
 
 package encoder
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The BlockYrd scoring caller proves complete residual rows, disjoint scratch,
 // and the bounded quantizer contract documented by blockYrdQuantScore.
 func blockYrdHadamard8Score(input []int16, stride int, r, q, d [2]int16) (int, uint32) {
-	src := unsafe.Pointer(unsafe.SliceData(input))
-
-	v0 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 0*stride)))
-	v1 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 2*stride)))
-	v2 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 4*stride)))
-	v3 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 6*stride)))
-	v4 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 8*stride)))
-	v5 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 10*stride)))
-	v6 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 12*stride)))
-	v7 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(src, 14*stride)))
+	v0 := archsimd.LoadInt16x8Array((*[8]int16)(input[0*stride : 0*stride+8]))
+	v1 := archsimd.LoadInt16x8Array((*[8]int16)(input[1*stride : 1*stride+8]))
+	v2 := archsimd.LoadInt16x8Array((*[8]int16)(input[2*stride : 2*stride+8]))
+	v3 := archsimd.LoadInt16x8Array((*[8]int16)(input[3*stride : 3*stride+8]))
+	v4 := archsimd.LoadInt16x8Array((*[8]int16)(input[4*stride : 4*stride+8]))
+	v5 := archsimd.LoadInt16x8Array((*[8]int16)(input[5*stride : 5*stride+8]))
+	v6 := archsimd.LoadInt16x8Array((*[8]int16)(input[6*stride : 6*stride+8]))
+	v7 := archsimd.LoadInt16x8Array((*[8]int16)(input[7*stride : 7*stride+8]))
 	{
 		b0, b1 := v0.Add(v1), v0.Sub(v1)
 		b2, b3 := v2.Add(v3), v2.Sub(v3)

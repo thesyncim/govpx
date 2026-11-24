@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -191,24 +189,14 @@ func tokenCacheSet(tokenCache *[1024]uint8, raster int, v uint8) {
 
 func tokenCacheContext(neighbors []int16, tokenCache *[1024]uint8, c int) int {
 	off := c << 1
-	// Production callers preflight neighbors for the full transform window.
-	// The VP9 scan-neighbor tables contain token-cache positions in [0,1023],
-	// mirroring libvpx's unchecked table indexing in get_coef_context.
-	neighborPtr := unsafe.SliceData(neighbors)
-	byteOff := uintptr(off) * unsafe.Sizeof(int16(0))
-	aIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff))
-	bIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff+unsafe.Sizeof(int16(0))))
-	a := tokenCache[int(aIdx)&1023]
-	b := tokenCache[int(bIdx)&1023]
+	a := tokenCache[int(neighbors[off])&1023]
+	b := tokenCache[int(neighbors[off+1])&1023]
 	return (1 + int(a) + int(b)) >> 1
 }
 
-// tokenClassAt reads one quantizer-produced token energy class. Full-window
-// callers have already preflighted the classes span, and VP9 scan tables keep
-// raster positions within the transform area.
+// tokenClassAt reads one quantizer-produced token energy class.
 func tokenClassAt(classes []uint8, raster int) uint8 {
-	return *(*uint8)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(classes)),
-		uintptr(raster)))
+	return classes[raster]
 }
 
 // tokenClassContext mirrors tokenCacheContext over the quantizer-produced
@@ -217,21 +205,13 @@ func tokenClassAt(classes []uint8, raster int) uint8 {
 // the precomputed span substitutes for the incrementally written cache.
 func tokenClassContext(neighbors []int16, classes []uint8, c int) int {
 	off := c << 1
-	neighborPtr := unsafe.SliceData(neighbors)
-	byteOff := uintptr(off) * unsafe.Sizeof(int16(0))
-	aIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff))
-	bIdx := *(*int16)(unsafe.Add(unsafe.Pointer(neighborPtr), byteOff+unsafe.Sizeof(int16(0))))
-	base := unsafe.Pointer(unsafe.SliceData(classes))
-	a := *(*uint8)(unsafe.Add(base, uintptr(aIdx)))
-	b := *(*uint8)(unsafe.Add(base, uintptr(bIdx)))
+	a := classes[neighbors[off]]
+	b := classes[neighbors[off+1]]
 	return (1 + int(a) + int(b)) >> 1
 }
 
 func qcoeffAt(qcoeffs []int16, raster int) int16 {
-	// Full-window coefficient callers have already checked qcoeff length and
-	// use VP9 scan tables whose raster entries are within the transform area.
-	ptr := unsafe.SliceData(qcoeffs)
-	return *(*int16)(unsafe.Add(unsafe.Pointer(ptr), uintptr(raster)*unsafe.Sizeof(int16(0))))
+	return qcoeffs[raster]
 }
 
 func coeffBlockEOBCompleteQCoeffWindow(scan []int16, maxEob int, qcoeffs []int16) int {
@@ -262,11 +242,5 @@ func coefBranchStatsSlot(
 	if stats == nil {
 		return nil
 	}
-	// band is from the VP9 coefficient band tables and ctx is the
-	// coefficient context (0..CoefContexts-1), matching the unchecked
-	// libvpx count-slot access in tokenize_b.
-	bandStride := unsafe.Sizeof([vp9dec.CoefContexts][EntropyNodes][2]uint32{})
-	ctxStride := unsafe.Sizeof([EntropyNodes][2]uint32{})
-	off := uintptr(band)*bandStride + uintptr(ctx)*ctxStride
-	return (*[EntropyNodes][2]uint32)(unsafe.Add(unsafe.Pointer(stats), off))
+	return &stats[band][ctx]
 }

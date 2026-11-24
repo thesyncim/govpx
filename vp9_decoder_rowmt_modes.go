@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -102,12 +100,12 @@ func vp9DecoderRowMTSBIndex(miCols, miRow, miCol int) int {
 func vp9DecoderRowMTDQCoeffScratch(coeffs []int16, off, maxEob int) (
 	*[1024]int16, bool,
 ) {
-	if off < 0 || maxEob <= 0 || off+maxEob > len(coeffs) {
+	if off < 0 || maxEob <= 0 || off+maxEob > len(coeffs) || off+1024 > len(coeffs) {
 		return nil, false
 	}
 	// libvpx points xd.plane[].dqcoeff at the transform's first coefficient
 	// inside the per-SB slab. DecodeCoefsState only touches maxEob entries.
-	return (*[1024]int16)(unsafe.Pointer(&coeffs[off])), true
+	return (*[1024]int16)(coeffs[off : off+1024]), true
 }
 
 func (d *VP9Decoder) parseVP9IntraModeTileRowMTSplit(r *bitstream.Reader,

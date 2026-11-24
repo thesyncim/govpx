@@ -34,8 +34,8 @@ func motion03ParentMacroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 		}
 	}
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SSE16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride)
 		}
 	}
 
@@ -77,8 +77,8 @@ func motion03ParentMacroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *
 	// Uint range collapses (baseY/X >= 0) and (baseY/X+16 <= dim) into
 	// one compare each, matching the pattern in macroblockLumaSSE.
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			sum, sse := dsp.VarianceBlock16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride)
 			return sse - ((sum * sum) >> 8), sse
 		}
 	}

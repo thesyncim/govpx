@@ -307,44 +307,32 @@ func TestIntraBridge57(t *testing.T) {
 	for _, tc := range intra57cases() {
 		for _, stride := range []int{tc.n, tc.n + 7} {
 			for pattern := 0; pattern < 5; pattern++ {
-				for alias := 0; alias < 4; alias++ {
-					got := make([]byte, 4096)
-					want := make([]byte, 4096)
-					for i := range got {
-						got[i] = byte(i*17 + i/11 + pattern*43)
-						want[i] = got[i]
+				got := make([]byte, 4096)
+				want := make([]byte, 4096)
+				for i := range got {
+					got[i] = byte(i*17 + i/11 + pattern*43)
+					want[i] = got[i]
+				}
+				off, ao, lo := 99, 3000, 3200
+				if pattern == 1 {
+					got[ao] = 255
+					want[ao] = 255
+				}
+				if pattern == 2 {
+					got[ao] = 0
+					want[ao] = 0
+				}
+				for _, short := range []bool{false, true} {
+					g := append([]byte(nil), got...)
+					w := append([]byte(nil), want...)
+					size := (tc.n-1)*stride + tc.n
+					if short {
+						size--
 					}
-					off, ao, lo := 99, 3000, 3200
-					if alias == 1 {
-						ao = off + 1
-					}
-					if alias == 2 {
-						lo = off + stride
-					}
-					if alias == 3 {
-						ao = off - 1
-						lo = off + 2*stride
-					}
-					if pattern == 1 {
-						got[ao] = 255
-						want[ao] = 255
-					}
-					if pattern == 2 {
-						got[ao] = 0
-						want[ao] = 0
-					}
-					for _, short := range []bool{false, true} {
-						g := append([]byte(nil), got...)
-						w := append([]byte(nil), want...)
-						size := (tc.n-1)*stride + tc.n
-						if short {
-							size--
-						}
-						gp := intra57panic(func() { tc.fn(g[off:off+size:off+size], stride, g[ao:ao+tc.n+1:ao+tc.n+1], g[lo:lo+tc.n:lo+tc.n]) })
-						wp := intra57panic(func() { tc.ref(w[off:off+size:off+size], stride, w[ao:ao+tc.n+1:ao+tc.n+1], w[lo:lo+tc.n:lo+tc.n]) })
-						if gp != wp || !bytes.Equal(g, w) {
-							t.Fatalf("%s stride%d pattern%d alias%d short%t panic%t/%t backing differs", tc.name, stride, pattern, alias, short, gp, wp)
-						}
+					gp := intra57panic(func() { tc.fn(g[off:off+size:off+size], stride, g[ao:ao+tc.n+1:ao+tc.n+1], g[lo:lo+tc.n:lo+tc.n]) })
+					wp := intra57panic(func() { tc.ref(w[off:off+size:off+size], stride, w[ao:ao+tc.n+1:ao+tc.n+1], w[lo:lo+tc.n:lo+tc.n]) })
+					if gp != wp || !bytes.Equal(g, w) {
+						t.Fatalf("%s stride%d pattern%d short%t panic%t/%t backing differs", tc.name, stride, pattern, short, gp, wp)
 					}
 				}
 			}

@@ -1,9 +1,0 @@
-['/private/tmp/govpx-frame-prs/frame03.test', '-test.run=^$', '-test.bench=^BenchmarkFramePR03$', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx
-cpu: Apple M4 Max
-BenchmarkFramePR03/dark-reject         	 5732824	         8.611 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFramePR03/skin-accept         	 1213162	        39.47 ns/op	       0 B/op	       0 allocs/op
-BenchmarkFramePR03/mixed               	 1687760	        28.42 ns/op	       0 B/op	       0 allocs/op
-PASS

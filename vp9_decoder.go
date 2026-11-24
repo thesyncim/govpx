@@ -1429,12 +1429,21 @@ func (d *VP9Decoder) prepareVP9OutputFrameWithExternal(width, height int,
 	if lease == nil {
 		return ErrInvalidConfig
 	}
-	lease.yFull = buffers.EnsureAlignedCapacity(lease.yFull,
-		layout.YFullLen, align)
-	lease.uFull = buffers.EnsureAlignedCapacity(lease.uFull,
-		layout.UVFullLen, align)
-	lease.vFull = buffers.EnsureAlignedCapacity(lease.vFull,
-		layout.UVFullLen, align)
+	if cap(lease.yFull) < layout.YFullLen {
+		lease.yFull = buffers.NewAligned(layout.YFullLen, align)
+	} else {
+		lease.yFull = lease.yFull[:layout.YFullLen]
+	}
+	if cap(lease.uFull) < layout.UVFullLen {
+		lease.uFull = buffers.NewAligned(layout.UVFullLen, align)
+	} else {
+		lease.uFull = lease.uFull[:layout.UVFullLen]
+	}
+	if cap(lease.vFull) < layout.UVFullLen {
+		lease.vFull = buffers.NewAligned(layout.UVFullLen, align)
+	} else {
+		lease.vFull = lease.vFull[:layout.UVFullLen]
+	}
 	d.frameInternal = lease
 	d.frameYFull = lease.yFull
 	d.frameUFull = lease.uFull

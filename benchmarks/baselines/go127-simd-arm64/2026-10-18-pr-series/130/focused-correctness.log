@@ -1,4 +1,0 @@
-=== RUN   TestAlgo130Round3Average
---- PASS: TestAlgo130Round3Average (0.01s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/pixel	0.393s

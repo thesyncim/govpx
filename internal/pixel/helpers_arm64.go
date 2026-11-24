@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func load8(b []byte) archsimd.Uint8x16 {
@@ -50,7 +49,13 @@ func Max4(v archsimd.Int32x4) int32     { return v.ReduceMax() }
 
 // Four int16 outputs occupy precisely the eight bytes written here. This
 // store is unaligned-safe on amd64 and arm64 and stays within the Go slice.
-func put4(out []int16, v uint64) { _ = out[3]; *(*uint64)(unsafe.Pointer(&out[0])) = v }
+func put4(out []int16, v uint64) {
+	_ = out[3]
+	out[0] = int16(v)
+	out[1] = int16(v >> 16)
+	out[2] = int16(v >> 32)
+	out[3] = int16(v >> 48)
+}
 
 func highBytes(v archsimd.Uint8x16) archsimd.Uint8x16 { return v.HiToLo() }
 
@@ -66,7 +71,6 @@ func filterVertical8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16)
 	}
 	_ = src[(h+6)*ss+w-1]
 	_ = dst[(h-1)*ds+w-1]
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	c0 := archsimd.BroadcastInt16x8(taps[0])
 	c1 := archsimd.BroadcastInt16x8(taps[1])
 	c2 := archsimd.BroadcastInt16x8(taps[2])
@@ -77,15 +81,15 @@ func filterVertical8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16)
 	c7 := archsimd.BroadcastInt16x8(taps[7])
 	bias := archsimd.BroadcastInt32x4(64)
 	for x := 0; x < w; x += 8 {
-		p0 := widen8(loadNPtr(unsafe.Add(sp, 0*ss+x), 8))
-		p1 := widen8(loadNPtr(unsafe.Add(sp, 1*ss+x), 8))
-		p2 := widen8(loadNPtr(unsafe.Add(sp, 2*ss+x), 8))
-		p3 := widen8(loadNPtr(unsafe.Add(sp, 3*ss+x), 8))
-		p4 := widen8(loadNPtr(unsafe.Add(sp, 4*ss+x), 8))
-		p5 := widen8(loadNPtr(unsafe.Add(sp, 5*ss+x), 8))
-		p6 := widen8(loadNPtr(unsafe.Add(sp, 6*ss+x), 8))
+		p0 := widen8(load8(src[0*ss+x:]))
+		p1 := widen8(load8(src[1*ss+x:]))
+		p2 := widen8(load8(src[2*ss+x:]))
+		p3 := widen8(load8(src[3*ss+x:]))
+		p4 := widen8(load8(src[4*ss+x:]))
+		p5 := widen8(load8(src[5*ss+x:]))
+		p6 := widen8(load8(src[6*ss+x:]))
 		for y := 0; y < h; y++ {
-			p7 := widen8(loadNPtr(unsafe.Add(sp, (y+7)*ss+x), 8))
+			p7 := widen8(load8(src[(y+7)*ss+x:]))
 			lo, hi := bias, bias
 			lo, hi = mac(lo, hi, p0, c0)
 			lo, hi = mac(lo, hi, p1, c1)
@@ -123,7 +127,6 @@ func filterVerticalNarrow8(src []byte, ss int, dst []byte, ds, w, h int, taps []
 	}
 	_ = src[(h+6)*ss+w-1]
 	_ = dst[(h-1)*ds+w-1]
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	c0 := archsimd.BroadcastInt16x8(taps[0])
 	c1 := archsimd.BroadcastInt16x8(taps[1])
 	c2 := archsimd.BroadcastInt16x8(taps[2])
@@ -134,15 +137,15 @@ func filterVerticalNarrow8(src []byte, ss int, dst []byte, ds, w, h int, taps []
 	c7 := archsimd.BroadcastInt16x8(taps[7])
 	bias := archsimd.BroadcastInt16x8(64)
 	for x := 0; x < w; x += 8 {
-		p0 := widen8(loadNPtr(unsafe.Add(sp, 0*ss+x), 8))
-		p1 := widen8(loadNPtr(unsafe.Add(sp, 1*ss+x), 8))
-		p2 := widen8(loadNPtr(unsafe.Add(sp, 2*ss+x), 8))
-		p3 := widen8(loadNPtr(unsafe.Add(sp, 3*ss+x), 8))
-		p4 := widen8(loadNPtr(unsafe.Add(sp, 4*ss+x), 8))
-		p5 := widen8(loadNPtr(unsafe.Add(sp, 5*ss+x), 8))
-		p6 := widen8(loadNPtr(unsafe.Add(sp, 6*ss+x), 8))
+		p0 := widen8(load8(src[0*ss+x:]))
+		p1 := widen8(load8(src[1*ss+x:]))
+		p2 := widen8(load8(src[2*ss+x:]))
+		p3 := widen8(load8(src[3*ss+x:]))
+		p4 := widen8(load8(src[4*ss+x:]))
+		p5 := widen8(load8(src[5*ss+x:]))
+		p6 := widen8(load8(src[6*ss+x:]))
 		for y := 0; y < h; y++ {
-			p7 := widen8(loadNPtr(unsafe.Add(sp, (y+7)*ss+x), 8))
+			p7 := widen8(load8(src[(y+7)*ss+x:]))
 			acc := bias
 			if mode == 1 {
 				acc = mulAdd16(acc, p0, c0)

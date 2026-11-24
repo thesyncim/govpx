@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // IntraDCFill follows libvpx v1.16.0 vpx_dsp/intrapred.c DC rounding.
@@ -20,19 +20,19 @@ func IntraDCFill(dst []byte, ds int, above, left []byte, n int, up, lf bool) boo
 		var acc archsimd.Uint16x8
 		if up {
 			if n == 8 {
-				v := archsimd.Uint64x2{}.SetElem(0, *(*uint64)(unsafe.Pointer(unsafe.SliceData(above)))).ReshapeToUint8s()
+				v := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(above)).ReshapeToUint8s()
 				acc = acc.Add(v.ExtendLo8ToUint16())
 			} else {
-				v := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Pointer(unsafe.SliceData(above))))
+				v := archsimd.LoadUint8x16(above)
 				acc = acc.Add(v.ExtendLo8ToUint16()).Add(v.HiToLo().ExtendLo8ToUint16())
 			}
 		}
 		if lf {
 			if n == 8 {
-				v := archsimd.Uint64x2{}.SetElem(0, *(*uint64)(unsafe.Pointer(unsafe.SliceData(left)))).ReshapeToUint8s()
+				v := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(left)).ReshapeToUint8s()
 				acc = acc.Add(v.ExtendLo8ToUint16())
 			} else {
-				v := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Pointer(unsafe.SliceData(left))))
+				v := archsimd.LoadUint8x16(left)
 				acc = acc.Add(v.ExtendLo8ToUint16()).Add(v.HiToLo().ExtendLo8ToUint16())
 			}
 		}
@@ -51,25 +51,24 @@ func IntraDCFill(dst []byte, ds int, above, left []byte, n int, up, lf bool) boo
 			}
 		}
 	}
-	p := unsafe.Pointer(unsafe.SliceData(dst))
 	v := archsimd.BroadcastUint8x16(value)
 	d2, d3 := 2*ds, 3*ds
 	if n == 8 {
 		word := v.ReshapeToUint64s().GetElem(0)
 		for row := 0; row < 8; row += 4 {
-			at := unsafe.Add(p, row*ds)
-			*(*uint64)(at) = word
-			*(*uint64)(unsafe.Add(at, ds)) = word
-			*(*uint64)(unsafe.Add(at, d2)) = word
-			*(*uint64)(unsafe.Add(at, d3)) = word
+			at := dst[row*ds:]
+			binary.LittleEndian.PutUint64(at, word)
+			binary.LittleEndian.PutUint64(at[ds:], word)
+			binary.LittleEndian.PutUint64(at[d2:], word)
+			binary.LittleEndian.PutUint64(at[d3:], word)
 		}
 	} else {
 		for row := 0; row < 16; row += 4 {
-			at := unsafe.Add(p, row*ds)
-			v.StoreArray((*[16]byte)(at))
-			v.StoreArray((*[16]byte)(unsafe.Add(at, ds)))
-			v.StoreArray((*[16]byte)(unsafe.Add(at, d2)))
-			v.StoreArray((*[16]byte)(unsafe.Add(at, d3)))
+			at := dst[row*ds:]
+			v.Store(at)
+			v.Store(at[ds:])
+			v.Store(at[d2:])
+			v.Store(at[d3:])
 		}
 	}
 	return true

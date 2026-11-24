@@ -5,7 +5,7 @@ GOFMT ?= gofmt
 GIT ?= git
 CURL ?= curl
 AWK ?= awk
-GOTOOLCHAIN ?= go1.27.2
+GOTOOLCHAIN ?= go1.27.4
 GOEXPERIMENT ?= simd
 export GOTOOLCHAIN GOEXPERIMENT
 GO_CMD = GO="$(GO)" scripts/go.sh

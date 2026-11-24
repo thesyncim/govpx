@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 var tm4LeftRows = [16]byte{0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3}
@@ -32,29 +32,22 @@ fast:
 		if span > len(dst) || len(above) < 4 || len(left) < 4 {
 			break fast
 		}
-		dp, ap, lp := unsafe.Pointer(unsafe.SliceData(dst)), unsafe.Pointer(unsafe.SliceData(above)), unsafe.Pointer(unsafe.SliceData(left))
-		d, a, l := uintptr(dp), uintptr(ap), uintptr(lp)
-		// A four-byte input overlaps the bounded output span exactly when
-		// its start is within [dst-3, dst+span-1]. No pointer addition is used.
-		if a-d+3 < uintptr(span)+3 {
+		if slicesOverlap(dst, above, span, 4) || slicesOverlap(dst, left, span, 4) {
 			break fast
 		}
-		if l-d+3 < uintptr(span)+3 {
-			break fast
-		}
-		av := archsimd.BroadcastUint32x4(*(*uint32)(ap)).ReshapeToUint8s()
-		lv := archsimd.Uint32x4{}.SetElem(0, *(*uint32)(lp)).ReshapeToUint8s().LookupOrZero(archsimd.LoadUint8x16Array(&tm4LeftRows))
+		av := archsimd.BroadcastUint32x4(binary.LittleEndian.Uint32(above)).ReshapeToUint8s()
+		lv := archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(left)).ReshapeToUint8s().LookupOrZero(archsimd.LoadUint8x16Array(&tm4LeftRows))
 		t := archsimd.BroadcastUint8x16(top)
 		pos, neg := lv.SubSaturated(t), t.SubSaturated(lv)
 		tile := av.AddSaturated(pos).SubSaturated(neg)
 		if ds == 4 {
-			tile.StoreArray((*[16]byte)(dp))
+			tile.Store(dst)
 		} else {
 			rows := tile.ReshapeToUint32s()
-			*(*uint32)(dp) = rows.GetElem(0)
-			*(*uint32)(unsafe.Add(dp, ds)) = rows.GetElem(1)
-			*(*uint32)(unsafe.Add(dp, 2*ds)) = rows.GetElem(2)
-			*(*uint32)(unsafe.Add(dp, 3*ds)) = rows.GetElem(3)
+			binary.LittleEndian.PutUint32(dst, rows.GetElem(0))
+			binary.LittleEndian.PutUint32(dst[ds:], rows.GetElem(1))
+			binary.LittleEndian.PutUint32(dst[2*ds:], rows.GetElem(2))
+			binary.LittleEndian.PutUint32(dst[3*ds:], rows.GetElem(3))
 		}
 		return
 	}

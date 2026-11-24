@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func sadGeneric(src []byte, ss int, ref []byte, rs, w, h int) int {
@@ -453,11 +452,34 @@ func loadN(b []byte, n int) archsimd.Uint8x16 {
 	return load8(b)
 }
 
-func loadNPtr(p unsafe.Pointer, n int) archsimd.Uint8x16 {
-	if n == 4 {
-		return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(p)).ReshapeToUint8s()
+// slicesOverlap reports whether the first na elements of a and first nb
+// elements of b overlap, using only safe pointer equality.
+func slicesOverlap[T any](a, b []T, na, nb int) bool {
+	if na <= 0 || nb <= 0 {
+		return false
 	}
-	return archsimd.Uint64x2{}.SetElem(0, *(*uint64)(p)).ReshapeToUint8s()
+	a0, b0 := &a[0], &b[0]
+	if a0 == b0 {
+		return true
+	}
+	ca, cb := cap(a), cap(b)
+	if &a[:ca][ca-1] == &b[:cb][cb-1] {
+		if ca >= cb {
+			return ca-cb < na
+		}
+		return cb-ca < nb
+	}
+	for i := 1; i < na; i++ {
+		if &a[i] == b0 {
+			return true
+		}
+	}
+	for j := 1; j < nb; j++ {
+		if &b[j] == a0 {
+			return true
+		}
+	}
+	return false
 }
 
 // SubpelStats fuses two bilinear passes with variance accumulation. Horizontal
@@ -503,26 +525,25 @@ func SubpelStats(src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16) 
 // in the selected row loop.
 func subpelStatsKernel[Packet interface{ [4]byte | [8]byte }](src []byte, ss int, ref []byte, rs, w, h int, fx, fy [2]int16) (int, uint32) {
 	var packet Packet
-	n := int(unsafe.Sizeof(packet))
+	n := len(packet)
 
 	// Each read is exactly n bytes. These endpoints prove all source and
 	// reference accesses, including the extra bilinear row and column, stay
 	// in the original allocations. Neither input is written or retained.
 	_ = src[h*ss+w]
 	_ = ref[(h-1)*rs+w-1]
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	x0, x1, y0, y1 := archsimd.BroadcastInt16x8(fx[0]), archsimd.BroadcastInt16x8(fx[1]), archsimd.BroadcastInt16x8(fy[0]), archsimd.BroadcastInt16x8(fy[1])
 	round := archsimd.BroadcastInt16x8(64)
 	var sum, sse archsimd.Int32x4
 	for x := 0; x < w; x += n {
-		a := filterShift7(mulAdd16(widen8(loadNPtr(unsafe.Add(sp, x), n)).Mul(x0).Add(round), widen8(loadNPtr(unsafe.Add(sp, x+1), n)), x1))
+		a := filterShift7(mulAdd16(widen8(loadN(src[x:], n)).Mul(x0).Add(round), widen8(loadN(src[x+1:], n)), x1))
 		srcOff, refOff := ss+x, x
 		for range h {
-			p := unsafe.Add(sp, srcOff)
-			b := filterShift7(mulAdd16(widen8(loadNPtr(p, n)).Mul(x0).Add(round), widen8(loadNPtr(unsafe.Add(p, 1), n)), x1))
+			p := src[srcOff:]
+			b := filterShift7(mulAdd16(widen8(loadN(p, n)).Mul(x0).Add(round), widen8(loadN(p[1:], n)), x1))
 			v := filterShift7(mulAdd16(a.Mul(y0).Add(round), b, y1))
 			a = b
-			d := v.Sub(widen8(loadNPtr(unsafe.Add(rp, refOff), n)))
+			d := v.Sub(widen8(loadN(ref[refOff:], n)))
 			sum = sum.Add(sumDiff16(d))
 			sse = sse.Add(square8(d))
 			srcOff += ss
@@ -719,36 +740,35 @@ func FillBlock(dst []byte, ds, w, h int, value byte) {
 	// Prove the full fixed-width window before stores. Declining retains
 	// the original row-by-row bounds and partial-write panic behavior.
 	if fillFixedRows && h > 1 && h <= 64 && uint(ds)>>30 == 0 && (w == 4 || w == 8 || w == 16) && (h-1)*ds+w <= len(dst) {
-		p := unsafe.Pointer(unsafe.SliceData(dst))
 		v := archsimd.BroadcastUint8x16(value)
 		if h&3 == 0 {
 			d2, d3 := 2*ds, 3*ds
 			switch w {
 			case 16:
 				for row := 0; row < h; row += 4 {
-					at := unsafe.Add(p, row*ds)
-					v.StoreArray((*[16]byte)(at))
-					v.StoreArray((*[16]byte)(unsafe.Add(at, ds)))
-					v.StoreArray((*[16]byte)(unsafe.Add(at, d2)))
-					v.StoreArray((*[16]byte)(unsafe.Add(at, d3)))
+					at := dst[row*ds:]
+					v.Store(at)
+					v.Store(at[ds:])
+					v.Store(at[d2:])
+					v.Store(at[d3:])
 				}
 			case 8:
 				word := v.ReshapeToUint64s().GetElem(0)
 				for row := 0; row < h; row += 4 {
-					at := unsafe.Add(p, row*ds)
-					*(*uint64)(at) = word
-					*(*uint64)(unsafe.Add(at, ds)) = word
-					*(*uint64)(unsafe.Add(at, d2)) = word
-					*(*uint64)(unsafe.Add(at, d3)) = word
+					at := dst[row*ds:]
+					binary.LittleEndian.PutUint64(at, word)
+					binary.LittleEndian.PutUint64(at[ds:], word)
+					binary.LittleEndian.PutUint64(at[d2:], word)
+					binary.LittleEndian.PutUint64(at[d3:], word)
 				}
 			case 4:
 				word := v.ReshapeToUint32s().GetElem(0)
 				for row := 0; row < h; row += 4 {
-					at := unsafe.Add(p, row*ds)
-					*(*uint32)(at) = word
-					*(*uint32)(unsafe.Add(at, ds)) = word
-					*(*uint32)(unsafe.Add(at, d2)) = word
-					*(*uint32)(unsafe.Add(at, d3)) = word
+					at := dst[row*ds:]
+					binary.LittleEndian.PutUint32(at, word)
+					binary.LittleEndian.PutUint32(at[ds:], word)
+					binary.LittleEndian.PutUint32(at[d2:], word)
+					binary.LittleEndian.PutUint32(at[d3:], word)
 				}
 			}
 			return
@@ -756,17 +776,17 @@ func FillBlock(dst []byte, ds, w, h int, value byte) {
 		switch w {
 		case 16:
 			for row := range h {
-				v.StoreArray((*[16]byte)(unsafe.Add(p, row*ds)))
+				v.Store(dst[row*ds:])
 			}
 		case 8:
 			word := v.ReshapeToUint64s().GetElem(0)
 			for row := range h {
-				*(*uint64)(unsafe.Add(p, row*ds)) = word
+				binary.LittleEndian.PutUint64(dst[row*ds:], word)
 			}
 		case 4:
 			word := v.ReshapeToUint32s().GetElem(0)
 			for row := range h {
-				*(*uint32)(unsafe.Add(p, row*ds)) = word
+				binary.LittleEndian.PutUint32(dst[row*ds:], word)
 			}
 		}
 		return

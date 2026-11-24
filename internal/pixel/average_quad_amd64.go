@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // Two PSADBW accumulators keep the left/right 8x8 totals independent.
 func AverageQuad16(src []byte, ss int, out *[4]int32) bool {
@@ -13,11 +10,10 @@ func AverageQuad16(src []byte, ss int, out *[4]int32) bool {
 		return false
 	}
 	var top, bottom archsimd.Uint64x2
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	zero := archsimd.Uint8x16{}
 	for y := range 8 {
-		top = top.Add(archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, y*ss))).SumOf8AbsDiff(zero))
-		bottom = bottom.Add(archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+8)*ss))).SumOf8AbsDiff(zero))
+		top = top.Add(archsimd.LoadUint8x16(src[y*ss:]).SumOf8AbsDiff(zero))
+		bottom = bottom.Add(archsimd.LoadUint8x16(src[(y+8)*ss:]).SumOf8AbsDiff(zero))
 	}
 	out[0] = int32((top.GetElem(0) + 32) >> 6)
 	out[1] = int32((top.GetElem(1) + 32) >> 6)

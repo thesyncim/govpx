@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -111,20 +109,6 @@ func init() {
 	fillTreeTokenPaths(tables.SubMVRefTree[:], subMVRefTokenPaths[:])
 }
 
-// Tree base pointers used by lookupTreeTokenPaths to dispatch by tree
-// identity. Comparing slice data pointers avoids the cost of length-based
-// or shape-based identification when the caller already passes a global
-// fixed tree.
-var (
-	keyFrameYModeTreeBase = unsafe.SliceData(tables.KeyFrameYModeTree[:])
-	yModeTreeBase         = unsafe.SliceData(tables.YModeTree[:])
-	uvModeTreeBase        = unsafe.SliceData(tables.UVModeTree[:])
-	bModeTreeBase         = unsafe.SliceData(tables.BModeTree[:])
-	coefTreeBase          = unsafe.SliceData(tables.CoefTree[:])
-	mbSplitTreeBase       = unsafe.SliceData(tables.MBSplitTree[:])
-	subMVRefTreeBase      = unsafe.SliceData(tables.SubMVRefTree[:])
-)
-
 // lookupTreeTokenPaths resolves the precomputed path table for a known
 // fixed VP8 tree. Returns nil if the tree pointer is not one of the known
 // fixed trees, in which case callers fall back to the slow walker.
@@ -134,21 +118,21 @@ func lookupTreeTokenPaths(tree []int16) []treeTokenPath {
 	if len(tree) == 0 {
 		return nil
 	}
-	base := unsafe.SliceData(tree)
+	base := &tree[0]
 	switch base {
-	case coefTreeBase:
+	case &tables.CoefTree[0]:
 		return coefTokenPaths[:]
-	case keyFrameYModeTreeBase:
+	case &tables.KeyFrameYModeTree[0]:
 		return keyFrameYModeTokenPaths[:]
-	case yModeTreeBase:
+	case &tables.YModeTree[0]:
 		return yModeTokenPaths[:]
-	case uvModeTreeBase:
+	case &tables.UVModeTree[0]:
 		return uvModeTokenPaths[:]
-	case bModeTreeBase:
+	case &tables.BModeTree[0]:
 		return bModeTokenPaths[:]
-	case mbSplitTreeBase:
+	case &tables.MBSplitTree[0]:
 		return mbSplitTokenPaths[:]
-	case subMVRefTreeBase:
+	case &tables.SubMVRefTree[0]:
 		return subMVRefTokenPaths[:]
 	}
 	return nil

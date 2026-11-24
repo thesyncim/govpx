@@ -58,17 +58,6 @@ func vPredictor(dst []uint8, stride, bs int, above, left []uint8) {
 	}
 }
 
-func hPredictor(dst []uint8, stride, bs int, above, left []uint8) {
-	_ = above
-	for r := range bs {
-		row := dst[r*stride : r*stride+bs]
-		v := left[r]
-		for i := range row {
-			row[i] = v
-		}
-	}
-}
-
 func hPredictor4(dst []uint8, stride int, left []uint8) {
 	for r := range 4 {
 		row := dst[r*stride:]

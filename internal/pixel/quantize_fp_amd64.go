@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 var fpClassLUT = [16]byte{0, 1, 2, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5}
@@ -15,8 +15,6 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		if archsimd.X86.AVX512() && n >= 256 && n&31 == 0 {
 			return quantizeFPBlock32AVX512(coeff, iscan, qcoeff, dqcoeff, n, r, q, d, classes)
 		}
-		cp, ip, qp, dp := unsafe.Pointer(unsafe.SliceData(coeff)), unsafe.Pointer(unsafe.SliceData(iscan)), unsafe.Pointer(unsafe.SliceData(qcoeff)), unsafe.Pointer(unsafe.SliceData(dqcoeff))
-		clp := unsafe.Pointer(unsafe.SliceData(classes))
 		max16 := archsimd.BroadcastUint16x16(32767)
 		zero := archsimd.Int16x16{}
 		last := zero
@@ -29,31 +27,31 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		{
 			i := 0
 			vr, vq, vd := archsimd.BroadcastInt16x16(r[1]).SetLo(archsimd.BroadcastInt16x8(r[1]).SetElem(0, r[0])), archsimd.BroadcastInt16x16(q[1]).SetLo(archsimd.BroadcastInt16x8(q[1]).SetElem(0, q[0])), archsimd.BroadcastInt16x16(d[1]).SetLo(archsimd.BroadcastInt16x8(d[1]).SetElem(0, d[0]))
-			c := archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(cp, uintptr(i)*2)))
+			c := archsimd.LoadInt16x16(coeff[i:])
 			a := c.Abs().ToBits().Add(vr.ToBits()).Min(max16).BitsToInt16()
 			below := vd.Greater(a)
 			if below.ToInt16x16().ToBits().ReshapeToUint8s().Equal(archsimd.Uint8x32{}).ToBits() == 0 {
 				if qcoeff != nil {
-					zero.StoreArray((*[16]int16)(unsafe.Add(qp, uintptr(i)*2)))
+					zero.Store(qcoeff[i:])
 				}
-				zero.StoreArray((*[16]int16)(unsafe.Add(dp, uintptr(i)*2)))
+				zero.Store(dqcoeff[i:])
 				if classes != nil {
-					archsimd.Uint8x16{}.StoreArray((*[16]byte)(unsafe.Add(clp, uintptr(i))))
+					archsimd.Uint8x16{}.Store(classes[i:])
 				}
 			} else {
 				magnitude := a.MulHigh(vq).ToBits().AndNot(below.ToInt16x16().ToBits()).BitsToInt16()
 				sign := c.ShiftAllRight(15)
 				t := magnitude.Xor(sign).Sub(sign)
 				if qcoeff != nil {
-					t.StoreArray((*[16]int16)(unsafe.Add(qp, uintptr(i)*2)))
+					t.Store(qcoeff[i:])
 				}
-				t.Mul(vd).StoreArray((*[16]int16)(unsafe.Add(dp, uintptr(i)*2)))
-				last = last.Max(archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(ip, uintptr(i)*2))).Masked(t.NotEqual(zero)))
+				t.Mul(vd).Store(dqcoeff[i:])
+				last = last.Max(archsimd.LoadInt16x16(iscan[i:]).Masked(t.NotEqual(zero)))
 				if classes != nil {
 					lo := fpClassIndices(magnitude.GetLo().Min(eleven))
 					hi := fpClassIndices(magnitude.GetHi().Min(eleven))
-					*(*uint64)(unsafe.Add(clp, uintptr(i))) = permute16(lut, lo).ReshapeToUint64s().GetElem(0)
-					*(*uint64)(unsafe.Add(clp, uintptr(i+8))) = permute16(lut, hi).ReshapeToUint64s().GetElem(0)
+					binary.LittleEndian.PutUint64(classes[i:], permute16(lut, lo).ReshapeToUint64s().GetElem(0))
+					binary.LittleEndian.PutUint64(classes[i+8:], permute16(lut, hi).ReshapeToUint64s().GetElem(0))
 				}
 			}
 		}
@@ -62,16 +60,16 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 			{
 
 				vr, vq, vd := acR, acQ, acD
-				c := archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(cp, uintptr(i)*2)))
+				c := archsimd.LoadInt16x16(coeff[i:])
 				a := c.Abs().ToBits().Add(vr.ToBits()).Min(max16).BitsToInt16()
 				below := vd.Greater(a)
 				if below.ToInt16x16().ToBits().ReshapeToUint8s().Equal(archsimd.Uint8x32{}).ToBits() == 0 {
 					if qcoeff != nil {
-						zero.StoreArray((*[16]int16)(unsafe.Add(qp, uintptr(i)*2)))
+						zero.Store(qcoeff[i:])
 					}
-					zero.StoreArray((*[16]int16)(unsafe.Add(dp, uintptr(i)*2)))
+					zero.Store(dqcoeff[i:])
 					if classes != nil {
-						archsimd.Uint8x16{}.StoreArray((*[16]byte)(unsafe.Add(clp, uintptr(i))))
+						archsimd.Uint8x16{}.Store(classes[i:])
 					}
 					continue
 				}
@@ -79,15 +77,15 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 				sign := c.ShiftAllRight(15)
 				t := magnitude.Xor(sign).Sub(sign)
 				if qcoeff != nil {
-					t.StoreArray((*[16]int16)(unsafe.Add(qp, uintptr(i)*2)))
+					t.Store(qcoeff[i:])
 				}
-				t.Mul(vd).StoreArray((*[16]int16)(unsafe.Add(dp, uintptr(i)*2)))
-				last = last.Max(archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(ip, uintptr(i)*2))).Masked(t.NotEqual(zero)))
+				t.Mul(vd).Store(dqcoeff[i:])
+				last = last.Max(archsimd.LoadInt16x16(iscan[i:]).Masked(t.NotEqual(zero)))
 				if classes != nil {
 					lo := fpClassIndices(magnitude.GetLo().Min(eleven))
 					hi := fpClassIndices(magnitude.GetHi().Min(eleven))
-					*(*uint64)(unsafe.Add(clp, uintptr(i))) = permute16(lut, lo).ReshapeToUint64s().GetElem(0)
-					*(*uint64)(unsafe.Add(clp, uintptr(i+8))) = permute16(lut, hi).ReshapeToUint64s().GetElem(0)
+					binary.LittleEndian.PutUint64(classes[i:], permute16(lut, lo).ReshapeToUint64s().GetElem(0))
+					binary.LittleEndian.PutUint64(classes[i+8:], permute16(lut, hi).ReshapeToUint64s().GetElem(0))
 				}
 			}
 		}
@@ -95,8 +93,6 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		archsimd.ClearAVXUpperBits()
 		return result
 	}
-	cp, ip, qp, dp := unsafe.Pointer(unsafe.SliceData(coeff)), unsafe.Pointer(unsafe.SliceData(iscan)), unsafe.Pointer(unsafe.SliceData(qcoeff)), unsafe.Pointer(unsafe.SliceData(dqcoeff))
-	clp := unsafe.Pointer(unsafe.SliceData(classes))
 	acR, acQ, acD := archsimd.BroadcastInt16x8(r[1]), archsimd.BroadcastInt16x8(q[1]), archsimd.BroadcastInt16x8(d[1])
 	dcR, dcQ, dcD := acR.SetElem(0, r[0]), acQ.SetElem(0, q[0]), acD.SetElem(0, d[0])
 	max16 := archsimd.BroadcastUint16x8(32767)
@@ -109,7 +105,7 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		if i == 0 {
 			vr, vq, vd = dcR, dcQ, dcD
 		}
-		c := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i*2)))
+		c := archsimd.LoadInt16x8(coeff[i:])
 		// Unsigned magnitude handles -32768; adding a nonnegative int16 round
 		// fits uint16 exactly, then clips to the scalar signed-int16 bound.
 		a := c.Abs().ToBits().Add(vr.ToBits()).Min(max16).BitsToInt16()
@@ -118,11 +114,11 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		// Use the exact public threshold, rather than its table-specific shortcut.
 		if below.ToInt16x8().ToBits().ReshapeToUint8s().Equal(archsimd.Uint8x16{}).ToBits() == 0 {
 			if qcoeff != nil {
-				zero.StoreArray((*[8]int16)(unsafe.Add(qp, i*2)))
+				zero.Store(qcoeff[i:])
 			}
-			zero.StoreArray((*[8]int16)(unsafe.Add(dp, i*2)))
+			zero.Store(dqcoeff[i:])
 			if classes != nil {
-				*(*uint64)(unsafe.Add(clp, i)) = 0
+				binary.LittleEndian.PutUint64(classes[i:], 0)
 			}
 			continue
 		}
@@ -130,13 +126,13 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 		magnitude := t
 		t = zero.Sub(t).IfElse(c.Less(zero), t)
 		if qcoeff != nil {
-			t.StoreArray((*[8]int16)(unsafe.Add(qp, i*2)))
+			t.Store(qcoeff[i:])
 		}
-		t.Mul(vd).StoreArray((*[8]int16)(unsafe.Add(dp, i*2)))
-		last = last.Max(archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(ip, i*2))).Masked(t.NotEqual(zero)))
+		t.Mul(vd).Store(dqcoeff[i:])
+		last = last.Max(archsimd.LoadInt16x8(iscan[i:]).Masked(t.NotEqual(zero)))
 		if classes != nil {
 			indices := fpClassIndices(magnitude.Min(archsimd.BroadcastInt16x8(11)))
-			*(*uint64)(unsafe.Add(clp, i)) = permute16(lut, indices).ReshapeToUint64s().GetElem(0)
+			binary.LittleEndian.PutUint64(classes[i:], permute16(lut, indices).ReshapeToUint64s().GetElem(0))
 		}
 	}
 	return max(fpReduceMax16(last), quantizeFPBlockTail(coeff, iscan, qcoeff, dqcoeff, i, n, r, q, d, classes))
@@ -146,28 +142,11 @@ func quantizeFPBlockSIMD(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [
 // The public entry has already checked every required length; n is bounded.
 // Even read-only input aliases decline, keeping this specialization conservative.
 func fp16WindowsDisjoint(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte, n int) bool {
-	c := uintptr(unsafe.Pointer(unsafe.SliceData(coeff)))
-	i := uintptr(unsafe.Pointer(unsafe.SliceData(iscan)))
-	d := uintptr(unsafe.Pointer(unsafe.SliceData(dqcoeff)))
-	bytes := uintptr(n) * 2
-	sameLimit := bytes + bytes - 1
-	if i-c+bytes-1 < sameLimit || d-c+bytes-1 < sameLimit || d-i+bytes-1 < sameLimit {
+	if slicesOverlap(coeff, iscan, n, n) || slicesOverlap(coeff, dqcoeff, n, n) || slicesOverlap(iscan, dqcoeff, n, n) {
 		return false
 	}
 	if qcoeff != nil {
-		q := uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff)))
-		if q-c+bytes-1 < sameLimit || q-i+bytes-1 < sameLimit || q-d+bytes-1 < sameLimit {
-			return false
-		}
-	}
-	if classes != nil {
-		cl := uintptr(unsafe.Pointer(unsafe.SliceData(classes)))
-		classBytes := uintptr(n)
-		classLimit := classBytes + bytes - 1
-		if cl-c+classBytes-1 < classLimit || cl-i+classBytes-1 < classLimit || cl-d+classBytes-1 < classLimit {
-			return false
-		}
-		if qcoeff != nil && cl-uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff)))+classBytes-1 < classLimit {
+		if slicesOverlap(qcoeff, coeff, n, n) || slicesOverlap(qcoeff, iscan, n, n) || slicesOverlap(qcoeff, dqcoeff, n, n) {
 			return false
 		}
 	}

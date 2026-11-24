@@ -1,4 +1,0 @@
-=== RUN   TestAlgo128Round3CoefUpdates
---- PASS: TestAlgo128Round3CoefUpdates (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.308s

@@ -1,9 +1,0 @@
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/encoder
-cpu: Apple M4 Max
-BenchmarkPreparedTokenEOBNative/sparse/p0         	   51916	      1388 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPreparedTokenEOBNative/gappy/p0          	   10000	      6673 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPreparedTokenEOBNative/denseSmall/p0     	    1588	     44580 ns/op	       0 B/op	       0 allocs/op
-BenchmarkPreparedTokenEOBNative/denseMixed/p0     	     439	    162366 ns/op	       0 B/op	       0 allocs/op
-PASS

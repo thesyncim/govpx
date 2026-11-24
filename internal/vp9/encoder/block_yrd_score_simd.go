@@ -4,7 +4,6 @@ package encoder
 
 import (
 	"simd/archsimd"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -93,7 +92,6 @@ func blockYrdQuantScore(coeff []int16, n int, r, q, d [2]int16) (int, uint32) {
 	// For d>=16, each qabs<=2047. At most 32 packets contribute to
 	// a lane, so 32*2047=65504 fits uint16 without per-packet widening.
 	if d[0] >= 16 && d[1] >= 16 {
-		cp := unsafe.Pointer(unsafe.SliceData(coeff))
 		acR := archsimd.BroadcastUint16x8(uint16(r[1]))
 		acQ, acD := archsimd.BroadcastInt16x8(q[1]), archsimd.BroadcastInt16x8(d[1])
 		vr := acR.SetElem(0, uint16(r[0]))
@@ -101,7 +99,7 @@ func blockYrdQuantScore(coeff []int16, n int, r, q, d [2]int16) (int, uint32) {
 		max16 := archsimd.BroadcastUint16x8(32767)
 		rate, err := archsimd.Uint16x8{}, archsimd.Uint32x4{}
 		for i := 0; i < n; i += 8 {
-			c := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i*2)))
+			c := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i : i+8]))
 			mag := c.Abs().ToBits()
 			a := mag.Add(vr).Min(max16).BitsToInt16()
 			t := blockYrdMulHigh16(a, vq)
@@ -113,7 +111,6 @@ func blockYrdQuantScore(coeff []int16, n int, r, q, d [2]int16) (int, uint32) {
 		return int(blockYrdSumUnsigned16(rate)), blockYrdSum32(err)
 	}
 
-	cp := unsafe.Pointer(unsafe.SliceData(coeff))
 	acR := archsimd.BroadcastUint16x8(uint16(r[1]))
 	acQ, acD := archsimd.BroadcastInt16x8(q[1]), archsimd.BroadcastInt16x8(d[1])
 	vr := acR.SetElem(0, uint16(r[0]))
@@ -121,7 +118,7 @@ func blockYrdQuantScore(coeff []int16, n int, r, q, d [2]int16) (int, uint32) {
 	max16 := archsimd.BroadcastUint16x8(32767)
 	rate, err := archsimd.Uint32x4{}, archsimd.Uint32x4{}
 	for i := 0; i < n; i += 8 {
-		c := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(cp, i*2)))
+		c := archsimd.LoadInt16x8Array((*[8]int16)(coeff[i : i+8]))
 		mag := c.Abs().ToBits()
 		a := mag.Add(vr).Min(max16).BitsToInt16()
 		t := blockYrdMulHigh16(a, vq)

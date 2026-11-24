@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"unsafe"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -24,8 +22,7 @@ func interMotionSplitBlockSearchCost(src vp8enc.SourceImage, ref *vp8common.Imag
 // candidates stay on the same SIMD path as interior candidates.
 type fullPelSearchCtx struct {
 	ref        *vp8common.Image
-	refYFullP  *byte
-	srcRowPtrP *byte
+	refYFull   []byte
 	srcRowPtr  []byte
 	src        vp8enc.SourceImage
 	baseY      int
@@ -80,11 +77,10 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 	srcRowPtr := src.Y[baseY*src.YStride+baseX:]
 	srcFull := uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16)
 	refYFull := ref.YFull
-	refYFullP := unsafe.SliceData(refYFull)
 	refRowH := uint(ref.CodedHeight + 2*ref.YBorder - 16)
 	refRowW := uint(ref.CodedWidth + 2*ref.YBorder - 16)
 	if !refFullPelBufferOK(ref, 16, 16) {
-		refYFullP = nil
+		refYFull = nil
 		refRowH = 0
 		refRowW = 0
 	}
@@ -96,10 +92,9 @@ func newFullPelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int
 		baseY:      baseY,
 		baseX:      baseX,
 		srcRowPtr:  srcRowPtr,
-		srcRowPtrP: unsafe.SliceData(srcRowPtr),
 		srcYStride: src.YStride,
 		srcFull:    srcFull,
-		refYFullP:  refYFullP,
+		refYFull:   refYFull,
 		refYStride: ref.YStride,
 		refYOrigin: ref.YOrigin,
 		refYBorder: ref.YBorder,
@@ -195,15 +190,15 @@ func (c *splitFullPelSearchCtx) fullPelSADFull(row int, col int) int {
 	return splitBlockSAD(c.src, c.ref, c.mbRow, c.mbCol, c.block, c.width, c.height, mv)
 }
 
-func (c *fullPelSearchCtx) sourceSADPtr() (*byte, int) {
+func (c *fullPelSearchCtx) sourceSADSlice() ([]byte, int) {
 	if c.srcFull {
-		return c.srcRowPtrP, c.srcYStride
+		return c.srcRowPtr, c.srcYStride
 	}
 	if !c.srcClamped {
 		vp8enc.GatherClampedLumaBlock(c.src, c.baseY, c.baseX, 16, 16, c.srcScratch[:], 16)
 		c.srcClamped = true
 	}
-	return &c.srcScratch[0], 16
+	return c.srcScratch[:], 16
 }
 
 func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol8 int, qIndex int) int {
@@ -213,12 +208,12 @@ func (c *fullPelSearchCtx) fullPelCostFull(row int, col int, refRow8 int, refCol
 func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 	refBaseY := c.baseY + row
 	refBaseX := c.baseX + col
-	if c.refYFullP != nil &&
+	if len(c.refYFull) != 0 &&
 		uint(refBaseY+c.refYBorder) <= c.refRowH &&
 		uint(refBaseX+c.refYBorder) <= c.refRowW {
-		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
-		srcPtr, srcStride := c.sourceSADPtr()
-		return dsp.SAD16x16PtrFast(srcPtr, srcStride, refPtr, c.refYStride)
+		refSlice := c.refYFull[c.refYOrigin+refBaseY*c.refYStride+refBaseX:]
+		srcSlice, srcStride := c.sourceSADSlice()
+		return dsp.SAD16x16Fast(srcSlice, srcStride, refSlice, c.refYStride)
 	}
 	return c.fullPelCostLimitedSlow(col*interFrameMVFullPixelStep, row*interFrameMVFullPixelStep, refBaseY, refBaseX, maxInt())
 }
@@ -226,14 +221,14 @@ func (c *fullPelSearchCtx) fullPelSADFull(row int, col int) int {
 func (c *fullPelSearchCtx) fullPelVarianceFull(row int, col int) (int, bool) {
 	refBaseY := c.baseY + row
 	refBaseX := c.baseX + col
-	if c.refYFullP == nil ||
+	if len(c.refYFull) == 0 ||
 		uint(refBaseY+c.refYBorder) > c.refRowH ||
 		uint(refBaseX+c.refYBorder) > c.refRowW {
 		return 0, false
 	}
-	refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
-	srcPtr, srcStride := c.sourceSADPtr()
-	sum, sse := dsp.VarianceBlock16x16PtrFast(srcPtr, srcStride, refPtr, c.refYStride)
+	refSlice := c.refYFull[c.refYOrigin+refBaseY*c.refYStride+refBaseX:]
+	srcSlice, srcStride := c.sourceSADSlice()
+	sum, sse := dsp.VarianceBlock16x16Fast(srcSlice, srcStride, refSlice, c.refYStride)
 	return sse - ((sum * sum) >> 8), true
 }
 
@@ -246,20 +241,19 @@ func (c *fullPelSearchCtx) fullPelSADFull4(row0 int, col0 int, row1 int, col1 in
 	refBaseX2 := c.baseX + col2
 	refBaseY3 := c.baseY + row3
 	refBaseX3 := c.baseX + col3
-	if c.refYFullP == nil ||
+	if len(c.refYFull) == 0 ||
 		uint(refBaseY0+c.refYBorder) > c.refRowH || uint(refBaseX0+c.refYBorder) > c.refRowW ||
 		uint(refBaseY1+c.refYBorder) > c.refRowH || uint(refBaseX1+c.refYBorder) > c.refRowW ||
 		uint(refBaseY2+c.refYBorder) > c.refRowH || uint(refBaseX2+c.refYBorder) > c.refRowW ||
 		uint(refBaseY3+c.refYBorder) > c.refRowH || uint(refBaseX3+c.refYBorder) > c.refRowW {
 		return false
 	}
-	base := unsafe.Pointer(c.refYFullP)
-	refPtr0 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY0*c.refYStride+refBaseX0))
-	refPtr1 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY1*c.refYStride+refBaseX1))
-	refPtr2 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY2*c.refYStride+refBaseX2))
-	refPtr3 := (*byte)(unsafe.Add(base, c.refYOrigin+refBaseY3*c.refYStride+refBaseX3))
-	srcPtr, srcStride := c.sourceSADPtr()
-	dsp.SAD16x16x4PtrFast(srcPtr, srcStride, refPtr0, refPtr1, refPtr2, refPtr3, c.refYStride, out)
+	refSlice0 := c.refYFull[c.refYOrigin+refBaseY0*c.refYStride+refBaseX0:]
+	refSlice1 := c.refYFull[c.refYOrigin+refBaseY1*c.refYStride+refBaseX1:]
+	refSlice2 := c.refYFull[c.refYOrigin+refBaseY2*c.refYStride+refBaseX2:]
+	refSlice3 := c.refYFull[c.refYOrigin+refBaseY3*c.refYStride+refBaseX3:]
+	srcSlice, srcStride := c.sourceSADSlice()
+	dsp.SAD16x16x4Fast(srcSlice, srcStride, refSlice0, refSlice1, refSlice2, refSlice3, c.refYStride, out)
 	return true
 }
 
@@ -271,12 +265,12 @@ func (c *fullPelSearchCtx) fullPelCostLimited(mvRow int, mvCol int, limit int, r
 	}
 	refBaseY := c.baseY + (mvRow >> 3)
 	refBaseX := c.baseX + (mvCol >> 3)
-	if c.refYFullP != nil &&
+	if len(c.refYFull) != 0 &&
 		uint(refBaseY+c.refYBorder) <= c.refRowH &&
 		uint(refBaseX+c.refYBorder) <= c.refRowW {
-		refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), c.refYOrigin+refBaseY*c.refYStride+refBaseX))
-		srcPtr, srcStride := c.sourceSADPtr()
-		return dsp.SAD16x16LimitPtrFast(srcPtr, srcStride, refPtr, c.refYStride, sadLimit) + mvCost
+		refSlice := c.refYFull[c.refYOrigin+refBaseY*c.refYStride+refBaseX:]
+		srcSlice, srcStride := c.sourceSADSlice()
+		return dsp.SAD16x16LimitFast(srcSlice, srcStride, refSlice, c.refYStride, sadLimit) + mvCost
 	}
 	return c.fullPelCostLimitedSlow(mvCol, mvRow, refBaseY, refBaseX, sadLimit) + mvCost
 }
@@ -314,14 +308,6 @@ func refFullPelYOffset(ref *vp8common.Image, refBaseY int, refBaseX int, width i
 		return 0, false
 	}
 	return off, true
-}
-
-func refFullPelYPtr(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int) (*byte, bool) {
-	off, ok := refFullPelYOffset(ref, refBaseY, refBaseX, width, height)
-	if !ok {
-		return nil, false
-	}
-	return (*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(ref.YFull)), off)), true
 }
 
 func refFullPelYSlice(ref *vp8common.Image, refBaseY int, refBaseX int, width int, height int) ([]byte, bool) {

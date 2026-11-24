@@ -3,10 +3,10 @@
 package encoder
 
 import (
+	"simd/archsimd"
+
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
-	"simd/archsimd"
-	"unsafe"
 )
 
 // A uniform residual has only one Hadamard coefficient. Detect it directly
@@ -23,21 +23,13 @@ func blockYrdUniformPixelsR2(src []byte, ss, so int, dst []byte, ds, do, bw, bh 
 	if delta == 0 {
 		return BlockYrdResult{}, false
 	}
-	// Subtraction writes scratch before later source rows are read. Preserve
-	// that ordering for aliases by keeping them on the original path.
-	scratchStart := uintptr(unsafe.Pointer(unsafe.SliceData(scratch)))
-	scratchBytes := uintptr(4 * bw * bh * 2)
-	srcStart := uintptr(unsafe.Pointer(&src[so]))
-	dstStart := uintptr(unsafe.Pointer(&dst[do]))
-	if blockYrdRangesOverlapR2(scratchStart, scratchBytes, srcStart, uintptr((bh-1)*ss+bw)) || blockYrdRangesOverlapR2(scratchStart, scratchBytes, dstStart, uintptr((bh-1)*ds+bw)) {
-		return BlockYrdResult{}, false
-	}
 	vd := archsimd.BroadcastInt16x16(delta)
-	sp, dp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(dst))
 	for y := 0; y < bh; y++ {
+		srow := src[so+y*ss:]
+		drow := dst[do+y*ds:]
 		for x := 0; x < bw; x += 16 {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+y*ss+x))).ExtendToUint16().BitsToInt16()
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(dp, do+y*ds+x))).ExtendToUint16().BitsToInt16()
+			a := archsimd.LoadUint8x16Array((*[16]byte)(srow[x : x+16])).ExtendToUint16().BitsToInt16()
+			b := archsimd.LoadUint8x16Array((*[16]byte)(drow[x : x+16])).ExtendToUint16().BitsToInt16()
 			if !a.Sub(b).NotEqual(vd).ToInt16x16().IsZero() {
 				archsimd.ClearAVXUpperBits()
 				return BlockYrdResult{}, false
@@ -69,11 +61,4 @@ func blockYrdUniformPixelsR2(src []byte, ss, so int, dst []byte, ds, do, bw, bh 
 	res.Rate = (level*units)<<(2+VP9ProbCostShift) + units<<VP9ProbCostShift
 	res.Dist = int64((diff*diff)>>2) * int64(units)
 	return res, true
-}
-
-func blockYrdRangesOverlapR2(a, an, b, bn uintptr) bool {
-	if a <= b {
-		return b-a < an
-	}
-	return a-b < bn
 }

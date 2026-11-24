@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"unsafe"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -330,8 +328,10 @@ func (ctx *fastInterModeLoopContext) storeVariance(ref *vp8common.Image, mv vp8e
 }
 
 func fastInterVarianceCacheIndex(ref *vp8common.Image, mv vp8enc.MotionVector) int {
-	h := uintptr(unsafe.Pointer(ref)) >> 4
-	h ^= uintptr(uint16(mv.Row))*17 + uintptr(uint16(mv.Col))*31
+	h := uint(uint16(mv.Row))*17 + uint(uint16(mv.Col))*31
+	if ref != nil && len(ref.Y) > 0 {
+		h ^= uint(ref.Y[0]) * 5
+	}
 	return int(h & (fastInterVarianceCacheSize - 1))
 }
 

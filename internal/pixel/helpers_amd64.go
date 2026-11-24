@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func load8(b []byte) archsimd.Uint8x16 {
@@ -62,7 +61,13 @@ func Max4(v archsimd.Int32x4) int32 {
 
 // Four int16 outputs occupy precisely the eight bytes written here. This
 // store is unaligned-safe on amd64 and arm64 and stays within the Go slice.
-func put4(out []int16, v uint64) { _ = out[3]; *(*uint64)(unsafe.Pointer(&out[0])) = v }
+func put4(out []int16, v uint64) {
+	_ = out[3]
+	out[0] = int16(v)
+	out[1] = int16(v >> 16)
+	out[2] = int16(v >> 32)
+	out[3] = int16(v >> 48)
+}
 
 func highBytes(v archsimd.Uint8x16) archsimd.Uint8x16 {
 	return v.ReshapeToUint32s().PermuteScalars(2, 3, 0, 1).ReshapeToUint8s()

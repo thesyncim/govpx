@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math/rand"
 	"testing"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -126,8 +125,8 @@ func refPackTokenWindow(
 // randStagedTokens builds a random staged token stream shaped like real
 // producer output: zero runs followed by non-zero tokens, an optional EOB at
 // a run head, and valid ProbOff rows.
-func randStagedTokens(rng *rand.Rand, fc *vp9dec.FrameCoefProbs, maxLen int) []TokenExtra {
-	rows := int(unsafe.Sizeof(*fc)) / UnconstrainedNodes
+func randStagedTokens(rng *rand.Rand, _ *vp9dec.FrameCoefProbs, maxLen int) []TokenExtra {
+	rows := coefProbsFlatLen / UnconstrainedNodes
 	randOff := func() uint16 {
 		return uint16(rng.Intn(rows) * UnconstrainedNodes)
 	}
@@ -164,9 +163,18 @@ func randStagedTokens(rng *rand.Rand, fc *vp9dec.FrameCoefProbs, maxLen int) []T
 }
 
 func randCoefProbs(rng *rand.Rand, fc *vp9dec.FrameCoefProbs) {
-	p := (*[1 << 16]uint8)(unsafe.Pointer(fc))[:unsafe.Sizeof(*fc):unsafe.Sizeof(*fc)]
-	for i := range p {
-		p[i] = uint8(1 + rng.Intn(255))
+	for tx := range fc {
+		for pt := range fc[tx] {
+			for rt := range fc[tx][pt] {
+				for b := range fc[tx][pt][rt] {
+					for c := range fc[tx][pt][rt][b] {
+						for n := range fc[tx][pt][rt][b][c] {
+							fc[tx][pt][rt][b][c][n] = uint8(1 + rng.Intn(255))
+						}
+					}
+				}
+			}
+		}
 	}
 }
 

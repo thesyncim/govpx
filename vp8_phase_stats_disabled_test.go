@@ -5,7 +5,6 @@ package govpx
 import (
 	"reflect"
 	"testing"
-	"unsafe"
 )
 
 func TestVP8PhaseStatsDisabledOptionShape(t *testing.T) {
@@ -15,7 +14,7 @@ func TestVP8PhaseStatsDisabledOptionShape(t *testing.T) {
 	if _, ok := reflect.TypeFor[EncoderOptions]().FieldByName("PhaseStats"); ok {
 		t.Fatal("default EncoderOptions exposes PhaseStats")
 	}
-	if got := unsafe.Sizeof(encoderPhaseStatsOptions{}); got != 0 {
+	if got := reflect.TypeFor[encoderPhaseStatsOptions]().Size(); got != 0 {
 		t.Fatalf("disabled phase stats option size = %d, want 0", got)
 	}
 
@@ -28,7 +27,7 @@ func TestVP8PhaseStatsDisabledOptionShape(t *testing.T) {
 		enabled  bool
 		trailing int
 	}
-	if got, want := unsafe.Sizeof(withDisabledStats{}), unsafe.Sizeof(withoutDisabledStats{}); got != want {
+	if got, want := reflect.TypeFor[withDisabledStats]().Size(), reflect.TypeFor[withoutDisabledStats]().Size(); got != want {
 		t.Fatalf("disabled phase stats changed struct size: got %d want %d", got, want)
 	}
 }

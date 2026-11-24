@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 type pixelStatsReduction = int32
 
@@ -27,9 +24,8 @@ func pixelStats16Narrow(src []byte, ss int, ref []byte, rs, h int) (uint32, int3
 	}
 	_ = src[(h-1)*ss+15]
 	_ = ref[(h-1)*rs+15]
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	for y := range h {
-		a, b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, y*ss))), archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, y*rs)))
+		a, b := archsimd.LoadUint8x16(src[y*ss:]), archsimd.LoadUint8x16(ref[y*rs:])
 		lo := a.ExtendLo8ToUint16().BitsToInt16().Sub(b.ExtendLo8ToUint16().BitsToInt16())
 		hi := widenHi8(a).BitsToInt16().Sub(widenHi8(b).BitsToInt16())
 		sum = sum.Add(lo).Add(hi)

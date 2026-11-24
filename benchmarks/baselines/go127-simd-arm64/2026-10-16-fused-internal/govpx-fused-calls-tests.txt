@@ -1,5 +1,0 @@
-ok  	github.com/thesyncim/govpx/internal/pixel	0.443s
-ok  	github.com/thesyncim/govpx/internal/vp8/dsp	0.582s
-ok  	github.com/thesyncim/govpx/internal/vp9/dsp	0.389s
-ok  	github.com/thesyncim/govpx/internal/vp8/encoder	0.660s
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.516s

@@ -2,7 +2,6 @@ package encoder
 
 import (
 	"errors"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -15,11 +14,11 @@ var ErrBufferTooSmall = errors.New("govpx: VP8 encoder buffer too small")
 const boolWriterErrBufferTooSmall uint8 = 1
 
 func boolWriterLoadByte(buf []byte, pos int) byte {
-	return *(*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(buf)), uintptr(pos)))
+	return buf[pos]
 }
 
 func boolWriterStoreByte(buf []byte, pos int, value byte) {
-	*(*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(buf)), uintptr(pos))) = value
+	buf[pos] = value
 }
 
 type BoolWriter struct {

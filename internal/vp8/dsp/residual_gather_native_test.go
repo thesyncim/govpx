@@ -20,14 +20,13 @@ func BenchmarkResidualGatherNative(b *testing.B) {
 			for i := range src {
 				src[i], pred[i] = byte(i*37+71), byte(i*13+199)
 			}
-			fn := ResidualGather16x16PtrFast
+			fn := ResidualGather16x16Fast
 			if c.w == 8 {
-				fn = ResidualGather8x8PtrFast
+				fn = ResidualGather8x8Fast
 			}
-			a, p, o := &src[0], &pred[0], &out[0]
 			b.ReportAllocs()
 			for b.Loop() {
-				fn(a, stride, p, stride, o)
+				fn(src, stride, pred, stride, out)
 			}
 			residualGatherNativeSink = out[len(out)-1]
 		})

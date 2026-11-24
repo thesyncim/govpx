@@ -1,1 +1,0 @@
-Initial auditor incorrectly required parent all-Go identity including the added shared frozen caller oracle test. Actual only delta from strongTM4 is loopfilter_axis_frozen_test.go, byte-identical in both LF parent/candidate. Production Go identity remains exact; now asserted separately. Initial assertion failure preserved, no measurement/source changes.

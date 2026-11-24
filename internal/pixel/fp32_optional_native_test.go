@@ -6,9 +6,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"simd/archsimd"
+	"slices"
 	"testing"
-	"unsafe"
 )
 
 func TestFP32PublicHost(t *testing.T) {
@@ -18,11 +19,21 @@ func TestFP32PublicHost(t *testing.T) {
 	}
 }
 
-func fp32OptionalWindow(size, offset int) ([]byte, []byte) {
+func fp32OptionalWindowBytes(size, offset int) ([]byte, []byte, int) {
 	p := bytes.Repeat([]byte{0xa7}, size+192)
-	base := uintptr(unsafe.Pointer(unsafe.SliceData(p)))
+	base := reflect.ValueOf(p).Pointer()
 	start := 64 + int((-base)&63) + offset
-	return p, p[start : start+size : start+size]
+	return p, p[start : start+size : start+size], start
+}
+
+func fp32OptionalWindowInt16(n, byteOffset int) ([]int16, []int16, int) {
+	p := make([]int16, n+96)
+	for i := range p {
+		p[i] = int16(0x5757)
+	}
+	base := reflect.ValueOf(p).Pointer()
+	start := (64 + int((-base)&63) + byteOffset) / 2
+	return p, p[start : start+n : start+n], start
 }
 
 // Independent fixed-point equations and scalar energy thresholds; no production
@@ -89,24 +100,20 @@ func BenchmarkFP32PublicOptionalNative(b *testing.B) {
 							if unaligned {
 								offset, coff = 2, 1
 							}
-							var backing, want [5][]byte
-							var off [5]int
-							var views [5][]byte
-							for k := 0; k < 5; k++ {
-								size := 2 * n
-								align := offset
-								if k == 4 {
-									size = n
-									align = coff
-								}
-								backing[k], views[k] = fp32OptionalWindow(size, align)
-								off[k] = int(uintptr(unsafe.Pointer(unsafe.SliceData(views[k]))) - uintptr(unsafe.Pointer(unsafe.SliceData(backing[k]))))
-								if uintptr(unsafe.Pointer(unsafe.SliceData(views[k])))&63 != uintptr(align) {
+							var backing16, want16 [4][]int16
+							var views16 [4][]int16
+							var off16 [4]int
+							for k := 0; k < 4; k++ {
+								backing16[k], views16[k], off16[k] = fp32OptionalWindowInt16(n, offset)
+								if reflect.ValueOf(views16[k]).Pointer()&63 != uintptr(offset) {
 									b.Fatal("fixture alignment")
 								}
 							}
-							word := func(v []byte) []int16 { return unsafe.Slice((*int16)(unsafe.Pointer(unsafe.SliceData(v))), n) }
-							c, s, q, dq, cl := word(views[0]), word(views[1]), word(views[2]), word(views[3]), views[4]
+							classBacking, cl, classOff := fp32OptionalWindowBytes(n, coff)
+							if reflect.ValueOf(cl).Pointer()&63 != uintptr(coff) {
+								b.Fatal("fixture alignment")
+							}
+							c, s, q, dq := views16[0], views16[1], views16[2], views16[3]
 							for i := range c {
 								if pattern == "zero" {
 									c[i] = 0
@@ -119,10 +126,11 @@ func BenchmarkFP32PublicOptionalNative(b *testing.B) {
 								}
 								s[i] = int16((i*37)%n + 1)
 							}
-							for k := range backing {
-								want[k] = bytes.Clone(backing[k])
+							for k := range backing16 {
+								want16[k] = slices.Clone(backing16[k])
 							}
-							wc, ws, wq, wd, wcl := word(want[0][off[0]:off[0]+2*n]), word(want[1][off[1]:off[1]+2*n]), word(want[2][off[2]:off[2]+2*n]), word(want[3][off[3]:off[3]+2*n]), want[4][off[4]:off[4]+n]
+							wantClass := bytes.Clone(classBacking)
+							wc, ws, wq, wd, wcl := want16[0][off16[0]:off16[0]+n], want16[1][off16[1]:off16[1]+n], want16[2][off16[2]:off16[2]+n], want16[3][off16[3]:off16[3]+n], wantClass[classOff:classOff+n]
 							if qnil {
 								q, wq = nil, nil
 							}
@@ -136,10 +144,13 @@ func BenchmarkFP32PublicOptionalNative(b *testing.B) {
 								if e != expected {
 									b.Fatal("EOB", e, expected)
 								}
-								for k := range backing {
-									if !bytes.Equal(backing[k], want[k]) {
+								for k := range backing16 {
+									if !slices.Equal(backing16[k], want16[k]) {
 										b.Fatal("full input/output/canary backing", k)
 									}
+								}
+								if !bytes.Equal(classBacking, wantClass) {
+									b.Fatal("full input/output/canary backing", 4)
 								}
 							}
 							eob := QuantizeFPBlock(c, s, q, dq, n, r, qt, dequant, cl)

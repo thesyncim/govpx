@@ -1,9 +1,0 @@
-['/private/tmp/govpx-arm-round3-components/next/parent.test', '-test.run=^$', '-test.bench=^BenchmarkR4Components/EOB', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/encoder
-cpu: Apple M4 Max
-BenchmarkR4Components/EOB/pos-1         	 7292338	         5.867 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR4Components/EOB/pos0          	 8178100	         5.001 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR4Components/EOB/pos15         	27126306	         1.759 ns/op	       0 B/op	       0 allocs/op
-PASS

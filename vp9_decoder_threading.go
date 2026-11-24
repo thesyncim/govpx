@@ -4,7 +4,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -324,11 +323,7 @@ func (s *vp9DecoderRowMTFrameStorage) reset(numSBs int) {
 	dqcoeffLen := numSBs << vp9DecoderRowMTDQCoeffsPerSBLog2
 	for plane := range vp9dec.MaxMbPlane {
 		s.eob[plane] = buffers.EnsureLenZeroed(s.eob[plane], eobLen)
-		s.dqcoeffBytes[plane] = buffers.EnsureAlignedCapacity(
-			s.dqcoeffBytes[plane], dqcoeffLen*2, vp9DecoderRowMTDQCoeffAlign)
-		s.dqcoeff[plane] = unsafe.Slice(
-			(*int16)(unsafe.Pointer(&s.dqcoeffBytes[plane][0])), dqcoeffLen)
-		clear(s.dqcoeff[plane])
+		s.dqcoeff[plane] = buffers.EnsureLenZeroed(s.dqcoeff[plane], dqcoeffLen+1024)
 	}
 	s.partition = buffers.EnsureLenZeroed(s.partition,
 		numSBs*vp9DecoderRowMTPartitionsPerSB)

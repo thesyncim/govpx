@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The codec's 16-wide hot path avoids a dynamic horizontal loop. For at
 // most 64 rows the paired byte differences fit exactly in uint16 lanes.
@@ -22,13 +19,12 @@ func SAD16(src []byte, ss int, ref []byte, rs, h int) int {
 	}
 	_ = src[(h-1)*ss+15]
 	_ = ref[(h-1)*rs+15]
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	if h%2 == 0 {
-		return sad16ColsDualPtr(sp, ss, rp, rs, h)
+		return sad16ColsDualSlice(src, ss, ref, rs, h)
 	}
 	var sum archsimd.Uint16x8
 	for y := range h {
-		sum = sum.Add(absPairs(load16(step(sp, y*ss)), load16(step(rp, y*rs))))
+		sum = sum.Add(absPairs(archsimd.LoadUint8x16(src[y*ss:]), archsimd.LoadUint8x16(ref[y*rs:])))
 	}
 	return sumPairs(sum)
 }
@@ -44,10 +40,11 @@ func SAD16Limit(src []byte, ss int, ref []byte, rs, h, limit int) int {
 	if h <= 0 {
 		return 0
 	}
-	_ = src[(h-1)*ss+15]
-	_ = ref[(h-1)*rs+15]
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
-	return sad16LimitPtr(sp, ss, rp, rs, h, limit)
+	needSrc, needRef := (h-1)*ss+16, (h-1)*rs+16
+	if cap(src) >= needSrc && cap(ref) >= needRef {
+		return sad16LimitSlice(src[:needSrc], ss, ref[:needRef], rs, h, limit)
+	}
+	return SAD16LimitScalar(src, ss, ref, rs, h, limit)
 }
 func absPairs(a, b archsimd.Uint8x16) archsimd.Uint16x8 {
 	d := a.Max(b).Sub(a.Min(b))
@@ -76,6 +73,6 @@ func SAD16x4(src []byte, ss int, r0, r1, r2, r3 []byte, rs, h int, out *[4]uint3
 	_ = r1[(h-1)*rs+15]
 	_ = r2[(h-1)*rs+15]
 	_ = r3[(h-1)*rs+15]
-	a, b, c, d := sad16ColsX4Ptr(unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(r0)), unsafe.Pointer(unsafe.SliceData(r1)), unsafe.Pointer(unsafe.SliceData(r2)), unsafe.Pointer(unsafe.SliceData(r3)), ss, rs, h)
+	a, b, c, d := sad16ColsX4Slice(src, r0, r1, r2, r3, ss, rs, h)
 	out[0], out[1], out[2], out[3] = uint32(a), uint32(b), uint32(c), uint32(d)
 }

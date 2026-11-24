@@ -1,8 +1,0 @@
-{
-  "main": "398057f313a2f9b13f613d9822bb29d5478601c3",
-  "resolution": "Retain pixel import, vector DequantizeBlock and sparse DequantIDCT4x4Add. Only conflicting import declarations required resolution.",
-  "source_sha256": "66f591f3b6abd4e78b597bbb222fd7a8d2c23d2d2fcdc42b4a8fb9f0464ef335",
-  "affected_test": "^TestDSP(03|04|06)",
-  "root_test": "^Test(VP8Algorithm2Stream|MLCacheStreamNative)$",
-  "result": "PASS; native per-kernel bodies unchanged, reuse component timings."
-}

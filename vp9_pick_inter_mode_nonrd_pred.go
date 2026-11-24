@@ -156,12 +156,6 @@ func vp9CopyPredRectToScratch(scratch []byte, src []byte,
 	}
 }
 
-func vp9CopyPredRectFromScratch(dst []byte, dstStride, x, y, w, h int,
-	scratch []byte,
-) {
-	vp9CopyPredRectFromBuffer(dst, dstStride, x, y, w, h, scratch, w)
-}
-
 func vp9CopyPredRectFromBuffer(dst []byte, dstStride, x, y, w, h int,
 	src []byte, srcStride int,
 ) {

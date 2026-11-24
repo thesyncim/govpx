@@ -2,8 +2,6 @@ package decoder
 
 import (
 	"errors"
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
@@ -293,13 +291,19 @@ func DequantIDCTAddMacroblockCoefficients(qcoeff *[25][16]int16, eob *[25]uint8,
 // values into the luma coefficient blocks at stride 16 (dequant.Y1DC[0] == 1
 // carries them through the fused multiply unchanged, exactly as libvpx).
 func seedLumaDCFromY2(qcoeff *[25][16]int16, eob *[25]uint8, dequant *common.MacroblockDequant) {
-	qflat := unsafe.Slice(&qcoeff[0][0], 16*16)
 	if eob[24] > 1 {
 		var y2 [16]int16
+		var flat [16 * 16]int16
 		dsp.DequantizeBlock(&qcoeff[24], &dequant.Y2, &y2)
-		dsp.InverseWalsh4x4(&y2, qflat)
+		dsp.InverseWalsh4x4(&y2, flat[:])
+		for i := range 16 {
+			qcoeff[i][0] = flat[i*16]
+		}
 	} else {
-		dsp.DCOnlyInverseWalsh4x4(qcoeff[24][0]*dequant.Y2[0], qflat)
+		dc := (qcoeff[24][0]*dequant.Y2[0] + 3) >> 3
+		for i := range 16 {
+			qcoeff[i][0] = dc
+		}
 	}
 }
 
@@ -340,7 +344,6 @@ func sanitizeDCOnlyBlock(block *[16]int16, eob uint8, seeded bool) {
 // blocks); otherwise the DC-only pair path applies ((q*dq)+4)>>3 computed in
 // int precision, matching idct_dequant_0_2x_neon.
 func dequantIDCTAddLumaBlocks(qcoeff *[25][16]int16, eob *[25]uint8, eobFloor uint8, yDequant *[16]int16, seeded bool, y []byte, yStride int) {
-	qflat := unsafe.Slice(&qcoeff[0][0], 25*16)
 	for row := range 4 {
 		rowBlock := row * 4
 		rowOff := row * 4 * yStride
@@ -353,13 +356,16 @@ func dequantIDCTAddLumaBlocks(qcoeff *[25][16]int16, eob *[25]uint8, eobFloor ui
 			}
 			off := rowOff + col*4
 			if eob0 > 1 || eob1 > 1 {
+				var pair [32]int16
+				copy(pair[:16], qcoeff[b][:])
+				copy(pair[16:], qcoeff[b+1][:])
 				if eob0 <= 1 {
-					sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16:b*16+16]), eob0, seeded)
+					sanitizeDCOnlyBlock((*[16]int16)(pair[:16]), eob0, seeded)
 				}
 				if eob1 <= 1 {
-					sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16+16:b*16+32]), eob1, seeded)
+					sanitizeDCOnlyBlock((*[16]int16)(pair[16:32]), eob1, seeded)
 				}
-				dsp.DequantIDCTAddFull2x((*[32]int16)(qflat[b*16:]), yDequant, y[off:], yStride)
+				dsp.DequantIDCTAddFull2x(&pair, yDequant, y[off:], yStride)
 				continue
 			}
 			var dc0, dc1 int32
@@ -395,14 +401,16 @@ func dequantIDCTAddChromaPair(qcoeff *[25][16]int16, eob *[25]uint8, uvDequant *
 		return
 	}
 	if eob0 > 1 || eob1 > 1 {
-		qflat := unsafe.Slice(&qcoeff[0][0], 25*16)
+		var pair [32]int16
+		copy(pair[:16], qcoeff[b][:])
+		copy(pair[16:], qcoeff[b+1][:])
 		if eob0 <= 1 {
-			sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16:b*16+16]), eob0, false)
+			sanitizeDCOnlyBlock((*[16]int16)(pair[:16]), eob0, false)
 		}
 		if eob1 <= 1 {
-			sanitizeDCOnlyBlock((*[16]int16)(qflat[b*16+16:b*16+32]), eob1, false)
+			sanitizeDCOnlyBlock((*[16]int16)(pair[16:32]), eob1, false)
 		}
-		dsp.DequantIDCTAddFull2x((*[32]int16)(qflat[b*16:]), uvDequant, dst, stride)
+		dsp.DequantIDCTAddFull2x(&pair, uvDequant, dst, stride)
 		return
 	}
 	var dc0, dc1 int32

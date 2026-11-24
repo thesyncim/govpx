@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // AddConstantPair4 adds independent clamped DC deltas to two adjacent 4x4
@@ -15,10 +14,11 @@ func AddConstantPair4(pred []byte, ps int, dst []byte, ds int, d0, d1 int16) boo
 	if !Enabled || ps < 8 || ds < 8 || len(pred) < 8 || len(dst) < 8 || ps > (len(pred)-8)/3 || ds > (len(dst)-8)/3 || d0 < -255 || d0 > 255 || d1 < -255 || d1 > 255 {
 		return false
 	}
-	pp, dp := uintptr(unsafe.Pointer(unsafe.SliceData(pred))), uintptr(unsafe.Pointer(unsafe.SliceData(dst)))
-	exact := pp == dp && ps == ds
-	disjoint := (pp <= dp && dp-pp >= uintptr(len(pred))) || (dp < pp && pp-dp >= uintptr(len(dst)))
-	if !exact && !disjoint {
+	if &pred[0] == &dst[0] {
+		if ps != ds {
+			return false
+		}
+	} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
 		return false
 	}
 

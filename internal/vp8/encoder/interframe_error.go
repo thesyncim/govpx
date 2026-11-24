@@ -24,8 +24,8 @@ func MacroblockChromaSSE(src SourceImage, ref *vp8common.Image, mbRow int, mbCol
 		refUOffset := baseY*ref.UStride + baseX
 		srcVOffset := baseY*src.VStride + baseX
 		refVOffset := baseY*ref.VStride + baseX
-		return dsp.SSE8x8PtrFast(&src.U[srcUOffset], src.UStride, &ref.U[refUOffset], ref.UStride) +
-			dsp.SSE8x8PtrFast(&src.V[srcVOffset], src.VStride, &ref.V[refVOffset], ref.VStride)
+		return dsp.SSE8x8Fast(src.U[srcUOffset:], src.UStride, ref.U[refUOffset:], ref.UStride) +
+			dsp.SSE8x8Fast(src.V[srcVOffset:], src.VStride, ref.V[refVOffset:], ref.VStride)
 	}
 
 	sse := 0
@@ -53,7 +53,7 @@ func MacroblockLumaVarianceSSE(src SourceImage, ref *vp8common.Image, mbRow int,
 		uint(baseY) <= uint(ref.CodedHeight-16) && uint(baseX) <= uint(ref.CodedWidth-16) {
 		// Fused (sum, sse) read collapses Variance16x16 + SSE16x16 into one
 		// SIMD pass (variance = sse - sum*sum/256).
-		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &ref.Y[baseY*ref.YStride+baseX], ref.YStride)
+		sum, sse := dsp.VarianceBlock16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, ref.Y[baseY*ref.YStride+baseX:], ref.YStride)
 		return sse - ((sum * sum) >> 8), sse
 	}
 

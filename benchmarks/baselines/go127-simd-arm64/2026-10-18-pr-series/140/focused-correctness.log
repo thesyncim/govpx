@@ -1,4 +1,0 @@
-=== RUN   TestAlgo140Round3FirstPass
---- PASS: TestAlgo140Round3FirstPass (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.325s

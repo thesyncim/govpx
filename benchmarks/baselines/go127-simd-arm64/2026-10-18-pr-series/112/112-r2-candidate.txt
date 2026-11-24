@@ -1,7 +1,0 @@
-['/private/tmp/govpx-arm-round3-components/112.test', '-test.run=^$', '-test.bench=^BenchmarkR3Components/Branches', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/encoder
-cpu: Apple M4 Max
-BenchmarkR3Components/Branches         	 3348933	        14.25 ns/op	       0 B/op	       0 allocs/op
-PASS

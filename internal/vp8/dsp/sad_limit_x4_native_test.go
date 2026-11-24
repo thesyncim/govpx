@@ -38,7 +38,7 @@ func BenchmarkSADLimitX4Native(b *testing.B) {
 					}
 					b.ReportAllocs()
 					for b.Loop() {
-						SAD16x16x4LimitPtrFast(&a[0], ss, &refs[0][0], &refs[1][0], &refs[2][0], &refs[3][0], rs, &limits, &out)
+						SAD16x16x4LimitFast(a, ss, refs[0], refs[1], refs[2], refs[3], rs, &limits, &out)
 					}
 					if out != want {
 						b.Fatalf("got %v want %v", out, want)

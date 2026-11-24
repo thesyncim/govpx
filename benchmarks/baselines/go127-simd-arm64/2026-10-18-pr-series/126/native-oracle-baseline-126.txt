@@ -1,9 +1,0 @@
-=== RUN   TestCoeffTreeTokenCostMatchesCostTokens
---- PASS: TestCoeffTreeTokenCostMatchesCostTokens (0.00s)
-=== RUN   TestCoeffTreeTokenCostTableMatchesScalar
---- PASS: TestCoeffTreeTokenCostTableMatchesScalar (0.00s)
-=== RUN   TestRound3CostTable
---- PASS: TestRound3CostTable (0.00s)
-=== RUN   TestRound3CostTableInvalidState
---- PASS: TestRound3CostTableInvalidState (0.00s)
-PASS

@@ -51,7 +51,7 @@ func TestSADLimitPointerRows(t *testing.T) {
 			}
 			for _, limit := range limits {
 				want := sadLimitRowsOracle(a, stride, ref, stride+3, 16, limit)
-				if got := SAD16x16LimitPtrFast(&a[0], stride, &ref[0], stride+3, limit); got != want {
+				if got := SAD16x16LimitFast(a, stride, ref, stride+3, limit); got != want {
 					t.Fatalf("stride%d mode%d limit%d got%d want%d", stride, mode, limit, got, want)
 				}
 			}
@@ -90,7 +90,7 @@ func BenchmarkSADLimitNative(b *testing.B) {
 					got := 0
 					b.ReportAllocs()
 					for b.Loop() {
-						got = SAD16x16LimitPtrFast(&a[0], ss, &ref[0], rs, tc.limit)
+						got = SAD16x16LimitFast(a, ss, ref, rs, tc.limit)
 					}
 					if got != want {
 						b.Fatalf("got %d want %d", got, want)

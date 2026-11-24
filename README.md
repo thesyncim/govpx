@@ -66,8 +66,8 @@ program.
 
 ## Install
 
-Go 1.27 or newer is required. The module pins the default toolchain to Go
-1.27.2 so local `go` commands use the same patch level as CI.
+Go 1.27.4 or newer is required. The module pins `go 1.27.4` and the default
+toolchain to Go 1.27.4 so local `go` commands use the same patch level as CI.
 
 ```sh
 go get github.com/thesyncim/govpx

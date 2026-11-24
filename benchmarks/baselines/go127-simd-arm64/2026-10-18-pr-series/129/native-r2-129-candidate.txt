@@ -1,9 +1,0 @@
-goos: linux
-goarch: amd64
-pkg: github.com/thesyncim/govpx/internal/vp9/encoder
-cpu: AMD EPYC 7763 64-Core Processor                
-BenchmarkRound3EOBCount/1         	18706062	         2.501 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRound3EOBCount/16        	 2263203	        21.18 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRound3EOBCount/256       	  145237	       328.3 ns/op	       0 B/op	       0 allocs/op
-BenchmarkRound3EOBCount/4096      	    7795	      6049 ns/op	       0 B/op	       0 allocs/op
-PASS

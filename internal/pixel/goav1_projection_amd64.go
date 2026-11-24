@@ -5,10 +5,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // ProjectionCols16 batches independent row sums before their normalization.
 // Each accepted row totals at most 64*255=16320, so int16 conversion is exact.
@@ -22,7 +19,6 @@ func ProjectionCols16(src []byte, ss, w, rows, norm int, out []int16) bool {
 	if len(src) < w || (rows > 1 && ss > (len(src)-w)/(rows-1)) {
 		return false
 	}
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	zero := archsimd.Uint8x16{}
 	y := 0
 	for ; y+4 <= rows; y += 4 {
@@ -31,13 +27,13 @@ func ProjectionCols16(src []byte, ss, w, rows, norm int, out []int16) bool {
 		a2 := archsimd.Uint64x2{}
 		a3 := archsimd.Uint64x2{}
 		for x := 0; x < w; x += 16 {
-			r0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+0)*ss+x)))
+			r0 := archsimd.LoadUint8x16(src[(y+0)*ss+x:])
 			a0 = a0.Add(r0.SumOf8AbsDiff(zero))
-			r1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+1)*ss+x)))
+			r1 := archsimd.LoadUint8x16(src[(y+1)*ss+x:])
 			a1 = a1.Add(r1.SumOf8AbsDiff(zero))
-			r2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+2)*ss+x)))
+			r2 := archsimd.LoadUint8x16(src[(y+2)*ss+x:])
 			a2 = a2.Add(r2.SumOf8AbsDiff(zero))
-			r3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+3)*ss+x)))
+			r3 := archsimd.LoadUint8x16(src[(y+3)*ss+x:])
 			a3 = a3.Add(r3.SumOf8AbsDiff(zero))
 		}
 		out[y+0] = int16(a0.GetElem(0)+a0.GetElem(1)) >> uint(norm)
@@ -48,7 +44,7 @@ func ProjectionCols16(src []byte, ss, w, rows, norm int, out []int16) bool {
 	for ; y < rows; y++ {
 		a0 := archsimd.Uint64x2{}
 		for x := 0; x < w; x += 16 {
-			r0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, (y+0)*ss+x)))
+			r0 := archsimd.LoadUint8x16(src[(y+0)*ss+x:])
 			a0 = a0.Add(r0.SumOf8AbsDiff(zero))
 		}
 		out[y] = int16(a0.GetElem(0)+a0.GetElem(1)) >> uint(norm)

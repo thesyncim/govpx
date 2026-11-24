@@ -1,8 +1,0 @@
-{
-  "frozen_manifest_nonself_files_verified": 91,
-  "raw_tar_exact_members_verified": 90,
-  "FPproduction_overlay_byte_identical_to_integrated": true,
-  "ARM_retag_only_and_original8lane_fallback_source_exact": true,
-  "independent_root_source_numeric_bounds_and_alias_review": "pass; all table/window validation remains at public entry; disjoint spans are compared without end pointers; unsigned magnitude+round<=65535; signed quant magnitude<=16383; scalar EOB extracted before VZEROUPPER",
-  "native_performance": "UNMEASURED; nextCI required, preserveall36newcases+10oldcontrolsandallSAD/SSE8/copy/subtractcontrols"
-}

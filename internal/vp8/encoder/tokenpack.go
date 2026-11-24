@@ -2,7 +2,6 @@ package encoder
 
 import (
 	"math/bits"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
@@ -235,7 +234,16 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 	count := w.count
 	pos := w.pos
 	buf := w.buf
-	probBase := unsafe.Pointer(probs)
+	var flatProbs [tables.BlockTypes * tables.CoefBands * tables.PrevCoefContexts * tables.EntropyNodes]uint8
+	flatIdx := 0
+	for t := range tables.BlockTypes {
+		for b := range tables.CoefBands {
+			for c := range tables.PrevCoefContexts {
+				copy(flatProbs[flatIdx:flatIdx+tables.EntropyNodes], probs[t][b][c][:])
+				flatIdx += tables.EntropyNodes
+			}
+		}
+	}
 
 	// Records are validated at the producer (countBlockCoefficientTokensAndRecords)
 	// before being packed by appendTokenUnchecked. By the time we reach this
@@ -245,7 +253,7 @@ func writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.Coefficie
 		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
 		probOffset := (raw >> coefficientTokenRecordProbOffsetShift) & coefficientTokenRecordProbOffsetMask
-		p := (*[tables.EntropyNodes]uint8)(unsafe.Add(probBase, uintptr(probOffset)))
+		p := (*[tables.EntropyNodes]uint8)(flatProbs[probOffset : probOffset+tables.EntropyNodes])
 
 		if token == tables.DCTEOBToken {
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))

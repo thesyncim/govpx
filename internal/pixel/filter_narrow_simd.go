@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // Standard VP9 filters have at most 128 total negative weight, and every
@@ -24,7 +23,6 @@ func filterNarrow8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []in
 	}
 	_ = src[(h-1)*ss+w-1+7*step]
 	_ = dst[(h-1)*ds+w-1]
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	if step == ss && filterVerticalNarrow8(src, ss, dst, ds, w, h, taps, mode) {
 		return true
 	}
@@ -37,10 +35,10 @@ func filterNarrow8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []in
 	}
 	for y := range h {
 		for x := 0; x < w; x += n {
-			p := unsafe.Add(sp, y*ss+x)
+			p := src[y*ss+x:]
 			var p0, p1, p2, p3, p4, p5, p6, p7 archsimd.Int16x8
-			if step == 1 && len(src)-y*ss-x >= 16 {
-				a := load16(p)
+			if step == 1 && len(p) >= 16 {
+				a := archsimd.LoadUint8x16(p)
 				z := archsimd.Uint8x16{}
 				p0 = widen8(a)
 				p1 = widen8(z.ConcatShiftBytesRight(a, 1))
@@ -51,8 +49,8 @@ func filterNarrow8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []in
 				p6 = widen8(z.ConcatShiftBytesRight(a, 6))
 				p7 = widen8(z.ConcatShiftBytesRight(a, 7))
 			} else {
-				p0, p1, p2, p3 = widen8(loadNPtr(p, n)), widen8(loadNPtr(unsafe.Add(p, step), n)), widen8(loadNPtr(unsafe.Add(p, 2*step), n)), widen8(loadNPtr(unsafe.Add(p, 3*step), n))
-				p4, p5, p6, p7 = widen8(loadNPtr(unsafe.Add(p, 4*step), n)), widen8(loadNPtr(unsafe.Add(p, 5*step), n)), widen8(loadNPtr(unsafe.Add(p, 6*step), n)), widen8(loadNPtr(unsafe.Add(p, 7*step), n))
+				p0, p1, p2, p3 = widen8(loadN(p, n)), widen8(loadN(p[step:], n)), widen8(loadN(p[2*step:], n)), widen8(loadN(p[3*step:], n))
+				p4, p5, p6, p7 = widen8(loadN(p[4*step:], n)), widen8(loadN(p[5*step:], n)), widen8(loadN(p[6*step:], n)), widen8(loadN(p[7*step:], n))
 			}
 
 			acc := bias

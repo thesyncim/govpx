@@ -1,6 +1,6 @@
 module github.com/thesyncim/govpx/examples/webrtc-vp8
 
-go 1.27.0
+go 1.27.4
 
 require (
 	github.com/pion/webrtc/v4 v4.2.11

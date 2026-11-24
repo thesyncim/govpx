@@ -1,8 +1,0 @@
-package dsp
-
-// Reference-only compatibility adapter for the new one-window public API.
-// It invokes the reference's ORIGINAL generic paired public operation. Codegen
-// must prove this adapter inlines, with no additional call/frame in B.Loop.
-func DCOnlyIDCT4x4AddPairInPlaceInt32(c0, c1 int32, b []byte, stride int) {
-	DCOnlyIDCT4x4AddPairInt32(c0, c1, b, stride, b, stride)
-}

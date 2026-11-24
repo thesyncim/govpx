@@ -1,4 +1,0 @@
-=== RUN   TestDenoiserAverageOnlyMatchesScalar
---- PASS: TestDenoiserAverageOnlyMatchesScalar (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp8/encoder	0.346s

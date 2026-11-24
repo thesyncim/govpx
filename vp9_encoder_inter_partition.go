@@ -421,14 +421,6 @@ func (e *VP9Encoder) vp9VarPartSBColorSensitivity(miCols, miRow, miCol int) (
 	return e.varPartSBColorSensitivity[idx], true
 }
 
-func (e *VP9Encoder) vp9VarPartForceSkipLowTempVar(miCols, miRow, miCol int,
-	bsize common.BlockSize,
-) bool {
-	forceSkip, _ := e.vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol,
-		bsize)
-	return forceSkip
-}
-
 func (e *VP9Encoder) vp9VarPartForceSkipLowTempVarOK(miCols, miRow, miCol int,
 	bsize common.BlockSize,
 ) (forceSkip bool, ok bool) {

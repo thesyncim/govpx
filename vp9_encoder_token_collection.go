@@ -360,10 +360,6 @@ func (e *VP9Encoder) finishVP9CoefTokenLeaf() {
 	}
 }
 
-func (e *VP9Encoder) packVP9ReplayCoefTokenLeaf(bw *bitstream.Writer) bool {
-	return e.packVP9ReplayCoefTokenLeafWithContexts(bw, nil)
-}
-
 func (e *VP9Encoder) packVP9ReplayCoefTokenLeafWithContexts(bw *bitstream.Writer,
 	coefArgs *encoder.WriteCoefSbArgs,
 ) bool {
@@ -408,23 +404,6 @@ func (e *VP9Encoder) consumeVP9ReplayEOSBLeaf() {
 	e.vp9TokenReplay.cursor++
 }
 
-func (e *VP9Encoder) vp9CountTokenListForTileSBRow(tileRow, tileCol, tileSBRow int) (
-	encoder.TokenList, bool,
-) {
-	if e == nil {
-		return encoder.TokenList{}, false
-	}
-	idx, ok := e.vp9TokenFrame.TokenListIndex(tileRow, tileCol, tileSBRow)
-	if !ok || idx >= len(e.vp9TokenFrame.Lists) {
-		return encoder.TokenList{}, false
-	}
-	list := e.vp9TokenFrame.Lists[idx]
-	if list.Count == 0 {
-		return encoder.TokenList{}, false
-	}
-	return list, true
-}
-
 func vp9TokenListEOSBCount(tokens []encoder.TokenExtra) int {
 	count := 0
 	for _, tok := range tokens {
@@ -440,12 +419,4 @@ func vp9TokenListHasOnlyEOSBTerminatedLeaves(tokens []encoder.TokenExtra) bool {
 		return false
 	}
 	return tokens[len(tokens)-1].Token == encoder.EOSBToken
-}
-
-func vp9TokenCollectionPlaneDequant(dq *vp9dec.DequantTables, segID int) [vp9dec.MaxMbPlane][2]int16 {
-	return [vp9dec.MaxMbPlane][2]int16{
-		dq.Y[segID],
-		dq.Uv[segID],
-		dq.Uv[segID],
-	}
 }

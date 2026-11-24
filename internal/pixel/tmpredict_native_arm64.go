@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 const TMNative = true
@@ -29,149 +29,40 @@ fast:
 		if span > len(dst) || len(above) < w || len(left) < w {
 			break fast
 		}
-		dp, ap := unsafe.Pointer(unsafe.SliceData(dst)), unsafe.Pointer(unsafe.SliceData(above))
-		d, a := uintptr(dp), uintptr(ap)
-		if (d <= a && a-d < uintptr(span)) || (a < d && d-a < uintptr(w)) {
+		if slicesOverlap(dst, above, span, w) {
 			break fast
 		}
-		lp := unsafe.Pointer(unsafe.SliceData(left))
-		l := uintptr(lp)
-		if !((d <= l && l-d < uintptr(span)) || (l < d && d-l < uintptr(w))) {
+		if !slicesOverlap(dst, left, span, w) {
 			// Only disjoint left/output windows may capture all left rows up front.
 			// The original per-row left read remains below for every alias.
 			t := archsimd.BroadcastUint8x16(top)
 			if w == 8 {
-				a8 := *(*uint64)(ap)
+				a8 := binary.LittleEndian.Uint64(above)
 				v := archsimd.Uint64x2{}.SetElem(0, a8).SetElem(1, a8).ReshapeToUint8s()
-				lv := archsimd.Uint64x2{}.SetElem(0, *(*uint64)(lp)).ReshapeToUint8s()
+				lv := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(left)).ReshapeToUint8s()
 				pos, neg := lv.SubSaturated(t), t.SubSaturated(lv)
 				idx := archsimd.Uint64x2{}.SetElem(1, 0x0101010101010101).ReshapeToUint8s()
 				step := archsimd.BroadcastUint8x16(2)
-				{
+				off := 0
+				for range 4 {
 					rows := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx)).ReshapeToUint64s()
-					*(*uint64)(dp) = rows.GetElem(0)
-					*(*uint64)(unsafe.Add(dp, ds)) = rows.GetElem(1)
-				}
-				dp = unsafe.Add(dp, 2*ds)
-				idx = idx.Add(step)
-				{
-					rows := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx)).ReshapeToUint64s()
-					*(*uint64)(dp) = rows.GetElem(0)
-					*(*uint64)(unsafe.Add(dp, ds)) = rows.GetElem(1)
-				}
-				dp = unsafe.Add(dp, 2*ds)
-				idx = idx.Add(step)
-				{
-					rows := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx)).ReshapeToUint64s()
-					*(*uint64)(dp) = rows.GetElem(0)
-					*(*uint64)(unsafe.Add(dp, ds)) = rows.GetElem(1)
-				}
-				dp = unsafe.Add(dp, 2*ds)
-				idx = idx.Add(step)
-				{
-					rows := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx)).ReshapeToUint64s()
-					*(*uint64)(dp) = rows.GetElem(0)
-					*(*uint64)(unsafe.Add(dp, ds)) = rows.GetElem(1)
+					binary.LittleEndian.PutUint64(dst[off:], rows.GetElem(0))
+					binary.LittleEndian.PutUint64(dst[off+ds:], rows.GetElem(1))
+					off += 2 * ds
+					idx = idx.Add(step)
 				}
 			} else {
-				v := archsimd.LoadUint8x16Array((*[16]byte)(ap))
-				lv := archsimd.LoadUint8x16Array((*[16]byte)(lp))
+				v := archsimd.LoadUint8x16(above)
+				lv := archsimd.LoadUint8x16(left)
 				pos, neg := lv.SubSaturated(t), t.SubSaturated(lv)
 				idx := archsimd.Uint8x16{}
 				step := archsimd.BroadcastUint8x16(1)
-				{
+				off := 0
+				for range 16 {
 					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
-				}
-				dp = unsafe.Add(dp, ds)
-				idx = idx.Add(step)
-				{
-					row := v.AddSaturated(pos.LookupOrZero(idx)).SubSaturated(neg.LookupOrZero(idx))
-					row.StoreArray((*[16]byte)(dp))
+					row.Store(dst[off:])
+					off += ds
+					idx = idx.Add(step)
 				}
 			}
 			return
@@ -180,18 +71,18 @@ fast:
 		// delta is in [-255,255]. Only one of plus/minus is nonzero, so these
 		// two unsigned saturations equal clamp(above+left-top,0,255) exactly.
 		if w == 8 {
-			v := archsimd.Uint64x2{}.SetElem(0, *(*uint64)(ap)).ReshapeToUint8s()
+			v := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(above)).ReshapeToUint8s()
 			for y := 0; y < 8; y++ {
-				delta := int(*(*byte)(unsafe.Add(lp, y))) - int(top)
+				delta := int(left[y]) - int(top)
 				row := v.AddSaturated(archsimd.BroadcastUint8x16(byte(max(delta, 0)))).SubSaturated(archsimd.BroadcastUint8x16(byte(max(-delta, 0))))
-				*(*uint64)(unsafe.Add(dp, y*ds)) = row.ReshapeToUint64s().GetElem(0)
+				binary.LittleEndian.PutUint64(dst[y*ds:], row.ReshapeToUint64s().GetElem(0))
 			}
 		} else {
-			v := archsimd.LoadUint8x16Array((*[16]byte)(ap))
+			v := archsimd.LoadUint8x16(above)
 			for y := 0; y < 16; y++ {
-				delta := int(*(*byte)(unsafe.Add(lp, y))) - int(top)
+				delta := int(left[y]) - int(top)
 				row := v.AddSaturated(archsimd.BroadcastUint8x16(byte(max(delta, 0)))).SubSaturated(archsimd.BroadcastUint8x16(byte(max(-delta, 0))))
-				row.StoreArray((*[16]byte)(unsafe.Add(dp, y*ds)))
+				row.Store(dst[y*ds:])
 			}
 		}
 		return

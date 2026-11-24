@@ -5,13 +5,12 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // Load4 reads exactly four int16 samples, including minimally sized rows.
 func Load4(s []int16) archsimd.Int32x4 {
 	_ = s[3]
-	return archsimd.Uint64x2{}.SetElem(0, *(*uint64)(unsafe.Pointer(unsafe.SliceData(s)))).ReshapeToUint16s().BitsToInt16().ExtendLo4ToInt32()
+	return archsimd.Int32x4{}.SetElem(0, int32(s[0])).SetElem(1, int32(s[1])).SetElem(2, int32(s[2])).SetElem(3, int32(s[3]))
 }
 
 // Store4 preserves Go's wrapping int16 conversion, without saturating it.
@@ -29,9 +28,12 @@ func LoadPixels4(s []byte) archsimd.Int32x4 {
 
 func loadU16(s []uint16) archsimd.Int32x4 {
 	_ = s[3]
-	return archsimd.Uint64x2{}.SetElem(0, *(*uint64)(unsafe.Pointer(unsafe.SliceData(s)))).ReshapeToUint16s().ExtendLo4ToUint32().BitsToInt32()
+	return archsimd.Int32x4{}.SetElem(0, int32(s[0])).SetElem(1, int32(s[1])).SetElem(2, int32(s[2])).SetElem(3, int32(s[3]))
 }
 func storeU16(s []uint16, v archsimd.Int32x4) {
 	_ = s[3]
-	Store4(unsafe.Slice((*int16)(unsafe.Pointer(unsafe.SliceData(s))), 4), v)
+	s[0] = uint16(v.GetElem(0))
+	s[1] = uint16(v.GetElem(1))
+	s[2] = uint16(v.GetElem(2))
+	s[3] = uint16(v.GetElem(3))
 }

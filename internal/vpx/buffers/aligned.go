@@ -2,7 +2,7 @@ package buffers
 
 import (
 	"io"
-	"unsafe"
+	"reflect"
 
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
@@ -19,11 +19,24 @@ func NewAligned(size int, align int) []byte {
 	if align&(align-1) != 0 {
 		align = nextPowerOfTwo(align)
 	}
-
 	buf := make([]byte, size+align-1)
-	ptr := uintptr(unsafe.Pointer(&buf[0]))
+	ptr := reflect.ValueOf(buf).Pointer()
 	off := int((uintptr(align) - ptr&uintptr(align-1)) & uintptr(align-1))
 	return buf[off : off+size]
+}
+
+func nextPowerOfTwo(v int) int {
+	if v <= 1 {
+		return 1
+	}
+	v--
+	v |= v >> 1
+	v |= v >> 2
+	v |= v >> 4
+	v |= v >> 8
+	v |= v >> 16
+	v |= v >> 32
+	return v + 1
 }
 
 // EnsureCapacity returns buf sliced to size, growing it with make when needed.
@@ -88,7 +101,10 @@ func ByteSliceAligned(buf []byte, align int) bool {
 	if align <= 1 || len(buf) == 0 {
 		return true
 	}
-	return uintptr(unsafe.Pointer(&buf[0]))%uintptr(align) == 0
+	if align&(align-1) != 0 {
+		align = nextPowerOfTwo(align)
+	}
+	return reflect.ValueOf(buf).Pointer()%uintptr(align) == 0
 }
 
 // AlignmentPadding returns the prefix needed to align buf to align bytes.
@@ -96,7 +112,7 @@ func AlignmentPadding(buf []byte, align int) int {
 	if align <= 1 || len(buf) == 0 {
 		return 0
 	}
-	ptr := uintptr(unsafe.Pointer(&buf[0]))
+	ptr := reflect.ValueOf(buf).Pointer()
 	rem := ptr % uintptr(align)
 	if rem == 0 {
 		return 0
@@ -104,13 +120,13 @@ func AlignmentPadding(buf []byte, align int) int {
 	return int(uintptr(align) - rem)
 }
 
-// AlignOffsetForSlice returns off rounded up so &buf[off] has align-byte
-// alignment.
+// AlignOffsetForSlice returns the smallest offset >= off where &buf[offset]
+// is aligned to align bytes.
 func AlignOffsetForSlice(buf []byte, off, align int) int {
 	if align <= 1 || len(buf) == 0 {
 		return off
 	}
-	ptr := uintptr(unsafe.Pointer(&buf[0])) + uintptr(off)
+	ptr := reflect.ValueOf(buf).Pointer() + uintptr(off)
 	rem := ptr % uintptr(align)
 	if rem == 0 {
 		return off
@@ -252,16 +268,3 @@ func I420EncodeBufferSize(width, height, headerSlack, minSize int) (int, error) 
 	size := max(headerSlack+raw420*4, minSize)
 	return size, nil
 }
-
-func nextPowerOfTwo(v int) int {
-	if v <= 1 {
-		return 1
-	}
-	v--
-	for shift := 1; shift < intSizeBits; shift <<= 1 {
-		v |= v >> shift
-	}
-	return v + 1
-}
-
-const intSizeBits = 32 << (^uint(0) >> 63)

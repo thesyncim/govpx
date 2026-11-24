@@ -9,8 +9,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, limit, thresh int) {
@@ -54,12 +54,12 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
 					np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
 					u = lfMacroCorrection(ff, 9)
 					np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
-					np2.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-3*step)))
-					np1.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-2*step)))
-					np0.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-1*step)))
-					nq0.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+0*step)))
-					nq1.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+1*step)))
-					nq2.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+2*step)))
+					np2.Store(p[off-3*step:])
+					np1.Store(p[off-2*step:])
+					np0.Store(p[off-1*step:])
+					nq0.Store(p[off+0*step:])
+					nq1.Store(p[off+1*step:])
+					nq2.Store(p[off+2*step:])
 
 					q0, q1, q2 = nq0, nq1, nq2
 				}
@@ -124,36 +124,36 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
 
 				// The caller proves the complete 16x16 window. These stores touch exactly
 				// four filtered bytes at each position, including overlapping logical rows.
-				ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-2*step)
+				base := p[off-2*step:]
 				if outer == 1 {
-					np1.StoreArray((*[16]byte)(ptr))
-					np0.StoreArray((*[16]byte)(unsafe.Add(ptr, step)))
-					nq0.StoreArray((*[16]byte)(unsafe.Add(ptr, 2*step)))
-					nq1.StoreArray((*[16]byte)(unsafe.Add(ptr, 3*step)))
+					np1.Store(base)
+					np0.Store(base[step:])
+					nq0.Store(base[2*step:])
+					nq1.Store(base[3*step:])
 				} else {
 					{
 						ab, cd := zipBytesLo(np1, np0), zipBytesLo(nq0, nq1)
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
 					}
 					{
 						ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 10*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 11*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 12*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 13*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 14*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 15*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[8*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[9*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[10*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[11*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[12*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[13*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[14*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[15*outer:], hi.GetElem(3))
 					}
 				}
 
@@ -208,46 +208,46 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 					u = lfMacroCorrection(ff, 9)
 					np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
 					{
-						ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-3*step+0*outer)
+						base := p[off-3*step+0*outer:]
 						ab, cd, ef := zipBytesLo(np2, np1), zipBytesLo(np0, nq0), zipBytesLo(nq1, nq2)
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-						*(*uint16)(unsafe.Add(ptr, 0*outer+4)) = ef.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-						*(*uint16)(unsafe.Add(ptr, 1*outer+4)) = ef.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-						*(*uint16)(unsafe.Add(ptr, 2*outer+4)) = ef.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-						*(*uint16)(unsafe.Add(ptr, 3*outer+4)) = ef.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-						*(*uint16)(unsafe.Add(ptr, 4*outer+4)) = ef.GetElem(4)
-						*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-						*(*uint16)(unsafe.Add(ptr, 5*outer+4)) = ef.GetElem(5)
-						*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-						*(*uint16)(unsafe.Add(ptr, 6*outer+4)) = ef.GetElem(6)
-						*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
-						*(*uint16)(unsafe.Add(ptr, 7*outer+4)) = ef.GetElem(7)
+						binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint16(base[0*outer+4:], ef.GetElem(0))
+						binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint16(base[1*outer+4:], ef.GetElem(1))
+						binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint16(base[2*outer+4:], ef.GetElem(2))
+						binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint16(base[3*outer+4:], ef.GetElem(3))
+						binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint16(base[4*outer+4:], ef.GetElem(4))
+						binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint16(base[5*outer+4:], ef.GetElem(5))
+						binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint16(base[6*outer+4:], ef.GetElem(6))
+						binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
+						binary.LittleEndian.PutUint16(base[7*outer+4:], ef.GetElem(7))
 					}
 					{
-						ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-3*step+8*outer)
+						base := p[off-3*step+8*outer:]
 						ab, cd, ef := zipBytesLo(highBytes(np2), highBytes(np1)), zipBytesLo(highBytes(np0), highBytes(nq0)), zipBytesLo(highBytes(nq1), highBytes(nq2))
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-						*(*uint16)(unsafe.Add(ptr, 0*outer+4)) = ef.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-						*(*uint16)(unsafe.Add(ptr, 1*outer+4)) = ef.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-						*(*uint16)(unsafe.Add(ptr, 2*outer+4)) = ef.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-						*(*uint16)(unsafe.Add(ptr, 3*outer+4)) = ef.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-						*(*uint16)(unsafe.Add(ptr, 4*outer+4)) = ef.GetElem(4)
-						*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-						*(*uint16)(unsafe.Add(ptr, 5*outer+4)) = ef.GetElem(5)
-						*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-						*(*uint16)(unsafe.Add(ptr, 6*outer+4)) = ef.GetElem(6)
-						*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
-						*(*uint16)(unsafe.Add(ptr, 7*outer+4)) = ef.GetElem(7)
+						binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint16(base[0*outer+4:], ef.GetElem(0))
+						binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint16(base[1*outer+4:], ef.GetElem(1))
+						binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint16(base[2*outer+4:], ef.GetElem(2))
+						binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint16(base[3*outer+4:], ef.GetElem(3))
+						binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint16(base[4*outer+4:], ef.GetElem(4))
+						binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint16(base[5*outer+4:], ef.GetElem(5))
+						binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint16(base[6*outer+4:], ef.GetElem(6))
+						binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
+						binary.LittleEndian.PutUint16(base[7*outer+4:], ef.GetElem(7))
 					}
 
 					q0, q1, q2 = nq0, nq1, nq2
@@ -261,9 +261,9 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 		p3, p2, p1, p0 = q0, q1, q2, q3
 		var l0, l1, l2, l3 archsimd.Uint8x16
 		{
-			ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4+0*outer)
+			base := p[edge+4+0*outer:]
 			row := func(y int) archsimd.Uint8x16 {
-				return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(unsafe.Add(ptr, y*outer))).ReshapeToUint8s()
+				return archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(base[y*outer:])).ReshapeToUint8s()
 			}
 			a0, a1 := zipBytesLo(row(0), row(1)), zipBytesLo(row(2), row(3))
 			a2, a3 := zipBytesLo(row(4), row(5)), zipBytesLo(row(6), row(7))
@@ -272,9 +272,9 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 			l0, l1, l2, l3 = c01, highBytes(c01), c23, highBytes(c23)
 		}
 		{
-			ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4+8*outer)
+			base := p[edge+4+8*outer:]
 			row := func(y int) archsimd.Uint8x16 {
-				return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(unsafe.Add(ptr, y*outer))).ReshapeToUint8s()
+				return archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(base[y*outer:])).ReshapeToUint8s()
 			}
 			a0, a1 := zipBytesLo(row(0), row(1)), zipBytesLo(row(2), row(3))
 			a2, a3 := zipBytesLo(row(4), row(5)), zipBytesLo(row(6), row(7))
@@ -335,36 +335,36 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 
 				// The caller proves the complete 16x16 window. These stores touch exactly
 				// four filtered bytes at each position, including overlapping logical rows.
-				ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-2*step)
+				base := p[off-2*step:]
 				if outer == 1 {
-					np1.StoreArray((*[16]byte)(ptr))
-					np0.StoreArray((*[16]byte)(unsafe.Add(ptr, step)))
-					nq0.StoreArray((*[16]byte)(unsafe.Add(ptr, 2*step)))
-					nq1.StoreArray((*[16]byte)(unsafe.Add(ptr, 3*step)))
+					np1.Store(base)
+					np0.Store(base[step:])
+					nq0.Store(base[2*step:])
+					nq1.Store(base[3*step:])
 				} else {
 					{
 						ab, cd := zipBytesLo(np1, np0), zipBytesLo(nq0, nq1)
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
 					}
 					{
 						ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 10*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 11*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 12*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 13*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 14*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 15*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[8*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[9*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[10*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[11*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[12*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[13*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[14*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[15*outer:], hi.GetElem(3))
 					}
 				}
 
@@ -377,9 +377,9 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 		p3, p2, p1, p0 = q0, q1, q2, q3
 		var l0, l1, l2, l3 archsimd.Uint8x16
 		{
-			ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4+0*outer)
+			base := p[edge+4+0*outer:]
 			row := func(y int) archsimd.Uint8x16 {
-				return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(unsafe.Add(ptr, y*outer))).ReshapeToUint8s()
+				return archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(base[y*outer:])).ReshapeToUint8s()
 			}
 			a0, a1 := zipBytesLo(row(0), row(1)), zipBytesLo(row(2), row(3))
 			a2, a3 := zipBytesLo(row(4), row(5)), zipBytesLo(row(6), row(7))
@@ -388,9 +388,9 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 			l0, l1, l2, l3 = c01, highBytes(c01), c23, highBytes(c23)
 		}
 		{
-			ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), edge+4+8*outer)
+			base := p[edge+4+8*outer:]
 			row := func(y int) archsimd.Uint8x16 {
-				return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(unsafe.Add(ptr, y*outer))).ReshapeToUint8s()
+				return archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(base[y*outer:])).ReshapeToUint8s()
 			}
 			a0, a1 := zipBytesLo(row(0), row(1)), zipBytesLo(row(2), row(3))
 			a2, a3 := zipBytesLo(row(4), row(5)), zipBytesLo(row(6), row(7))

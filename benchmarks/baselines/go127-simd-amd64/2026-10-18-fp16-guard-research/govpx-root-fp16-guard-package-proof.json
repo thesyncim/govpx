@@ -1,8 +1,0 @@
-{
-  "private_only": true,
-  "native_AMD_performance_unmeasured": true,
-  "manifest_members": 125,
-  "all_member_hashes_bytes_verified": true,
-  "manifest_sha256": "1ab0e4abaf556701e442df4edcef2e4889cb59a0a529a7c19e8c81b993a1533b",
-  "scope": "Byte integrity proof only; native guard/public throughput still pending. Original pairwise/nil policy and public validation must be preserved."
-}

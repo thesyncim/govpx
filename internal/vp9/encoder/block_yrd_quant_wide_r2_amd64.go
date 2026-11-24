@@ -2,14 +2,10 @@
 
 package encoder
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // Process sixteen bounded scoring coefficients per packet; no q/dq output exists.
 func blockYrdQuantWideR2(c []int16, n int, r, q, d [2]int16) (int, uint32, bool) {
-	cp := unsafe.Pointer(unsafe.SliceData(c))
 	ar := archsimd.BroadcastUint16x16(uint16(r[1]))
 	aq, ad := archsimd.BroadcastInt16x16(q[1]), archsimd.BroadcastInt16x16(d[1])
 	rr := ar.SetLo(ar.GetLo().SetElem(0, uint16(r[0])))
@@ -18,7 +14,7 @@ func blockYrdQuantWideR2(c []int16, n int, r, q, d [2]int16) (int, uint32, bool)
 	ones := archsimd.BroadcastInt16x16(1)
 	rate, err := archsimd.Int32x8{}, archsimd.Int32x8{}
 	for i := 0; i < n; i += 16 {
-		mag := archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(cp, i*2))).Abs().ToBits()
+		mag := archsimd.LoadInt16x16Array((*[16]int16)(c[i : i+16])).Abs().ToBits()
 		a := mag.Add(rr).Min(max16).BitsToInt16()
 		t := a.MulHigh(qq)
 		rate = rate.Add(t.DotProductPairs(ones))

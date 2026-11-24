@@ -36,7 +36,7 @@ func TestSixTapPredict16x16NativeMatchesScalar(t *testing.T) {
 			var tmp [21 * 16]byte
 			hF := &tables.SubPelFilters[xoff]
 			vF := &tables.SubPelFilters[yoff]
-			sixTapPredict16x16Native(&dst[0], 16, &src[0], stride, hF, vF, &tmp)
+			sixTapPredict16x16Native(dst[:], 16, src, stride, hF, vF, &tmp)
 			sixTapPredict(src, stride, xoff, yoff, ref, 16, 16, 16)
 			for i := range 16 * 16 {
 				if dst[i] != ref[i] {
@@ -63,7 +63,7 @@ func BenchmarkSixTapPredict16x16Native(b *testing.B) {
 	vF := &tables.SubPelFilters[5]
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sixTapPredict16x16Native(&dst[0], 16, &src[0], stride, hF, vF, &tmp)
+		sixTapPredict16x16Native(dst[:], 16, src, stride, hF, vF, &tmp)
 	}
 }
 
@@ -79,7 +79,7 @@ func BenchmarkSixTapPredict16x16ReferenceDirect(b *testing.B) {
 	vF := &tables.SubPelFilters[5]
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sixTapPredict16x16Reference(&dst[0], 16, &src[0], stride, hF, vF, &tmp)
+		sixTapPredict16x16Reference(dst[:], 16, src, stride, hF, vF, &tmp)
 	}
 }
 
@@ -100,7 +100,7 @@ func TestSADNativeMatchesScalar(t *testing.T) {
 	}
 	cases := []struct {
 		name string
-		fn   func(src *byte, srcStride int, ref *byte, refStride int) int32
+		fn   func(src []byte, srcStride int, ref []byte, refStride int) int32
 		w, h int
 	}{
 		{"16x16", sadBlock16x16Native, 16, 16},
@@ -114,7 +114,7 @@ func TestSADNativeMatchesScalar(t *testing.T) {
 				for refOff := range 8 {
 					srcSlice := plane[srcOff*planeStride+srcOff:]
 					refSlice := ref[refOff*planeStride+refOff:]
-					got := int(c.fn(&srcSlice[0], planeStride, &refSlice[0], planeStride))
+					got := int(c.fn(srcSlice, planeStride, refSlice, planeStride))
 					want := scalarSAD(srcSlice, planeStride, refSlice, planeStride, c.w, c.h)
 					if got != want {
 						t.Fatalf("%s offsets src=%d ref=%d: got %d want %d", c.name, srcOff, refOff, got, want)
@@ -146,8 +146,8 @@ func TestSAD16x16x4NativeMatchesScalar(t *testing.T) {
 			ref2 := ref[(refOff+1)*planeStride+refOff:]
 			ref3 := ref[(refOff+1)*planeStride+refOff+1:]
 			var got [4]uint32
-			sadBlock16x16x4Native(&srcSlice[0], planeStride, &ref0[0],
-				&ref1[0], &ref2[0], &ref3[0], planeStride, &got)
+			sadBlock16x16x4Native(srcSlice, planeStride, ref0,
+				ref1, ref2, ref3, planeStride, &got)
 			refs := [][]byte{ref0, ref1, ref2, ref3}
 			for i, refSlice := range refs {
 				want := scalarSAD(srcSlice, planeStride, refSlice,
@@ -173,7 +173,7 @@ func BenchmarkSAD16x16Native(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock16x16Native(&src[0], 64, &ref[0], 64)
+		sadBlock16x16Native(src, 64, ref, 64)
 	}
 }
 
@@ -188,15 +188,15 @@ func BenchmarkSAD16x16x4Native(b *testing.B) {
 		src[i] = byte(i*3 + 7)
 		ref[i] = byte(i*5 + 11)
 	}
-	srcPtr := &src[3*stride+5]
-	ref0 := &ref[2*stride+7]
-	ref1 := &ref[3*stride+9]
-	ref2 := &ref[4*stride+11]
-	ref3 := &ref[5*stride+13]
+	srcSlice := src[3*stride+5:]
+	ref0 := ref[2*stride+7:]
+	ref1 := ref[3*stride+9:]
+	ref2 := ref[4*stride+11:]
+	ref3 := ref[5*stride+13:]
 	var out [4]uint32
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock16x16x4Native(srcPtr, stride, ref0, ref1, ref2, ref3,
+		sadBlock16x16x4Native(srcSlice, stride, ref0, ref1, ref2, ref3,
 			stride, &out)
 	}
 }
@@ -210,7 +210,7 @@ func BenchmarkSAD16x16ReferenceDirect(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock16x16Reference(&src[0], 64, &ref[0], 64)
+		sadBlock16x16Reference(src, 64, ref, 64)
 	}
 }
 
@@ -222,7 +222,7 @@ func BenchmarkSAD16x8Native(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock16x8Native(&src[0], 64, &ref[0], 64)
+		sadBlock16x8Native(src, 64, ref, 64)
 	}
 }
 
@@ -231,7 +231,7 @@ func BenchmarkSAD16x8ReferenceDirect(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock16x8Reference(&src[0], 64, &ref[0], 64)
+		sadBlock16x8Reference(src, 64, ref, 64)
 	}
 }
 
@@ -243,7 +243,7 @@ func BenchmarkSAD8x16Native(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock8x16Native(&src[0], 64, &ref[0], 64)
+		sadBlock8x16Native(src, 64, ref, 64)
 	}
 }
 
@@ -252,7 +252,7 @@ func BenchmarkSAD8x16ReferenceDirect(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock8x16Reference(&src[0], 64, &ref[0], 64)
+		sadBlock8x16Reference(src, 64, ref, 64)
 	}
 }
 
@@ -264,7 +264,7 @@ func BenchmarkSAD8x8Native(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock8x8Native(&src[0], 64, &ref[0], 64)
+		sadBlock8x8Native(src, 64, ref, 64)
 	}
 }
 
@@ -273,7 +273,7 @@ func BenchmarkSAD8x8ReferenceDirect(b *testing.B) {
 	ref := make([]byte, 64*64)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		sadBlock8x8Reference(&src[0], 64, &ref[0], 64)
+		sadBlock8x8Reference(src, 64, ref, 64)
 	}
 }
 
@@ -306,8 +306,8 @@ func TestLoopFilterEdgeH16NativeMatchesReference(t *testing.T) {
 			}
 			gotBuf := append([]byte(nil), base...)
 			wantBuf := append([]byte(nil), base...)
-			loopFilterEdgeH16Native(&gotBuf[0], stride, p.blimit, p.limit, p.thresh)
-			loopFilterEdgeH16Reference(&wantBuf[0], stride, p.blimit, p.limit, p.thresh)
+			loopFilterEdgeH16Native(gotBuf, stride, p.blimit, p.limit, p.thresh)
+			loopFilterEdgeH16Reference(wantBuf, stride, p.blimit, p.limit, p.thresh)
 			for i, w := range wantBuf {
 				if g := gotBuf[i]; g != w {
 					t.Fatalf("blimit=%d limit=%d thresh=%d trial=%d byte %d avx2=%d sse2=%d",
@@ -345,8 +345,8 @@ func TestMBLoopFilterEdgeH16NativeMatchesReference(t *testing.T) {
 			}
 			gotBuf := append([]byte(nil), base...)
 			wantBuf := append([]byte(nil), base...)
-			mbLoopFilterEdgeH16Native(&gotBuf[0], stride, p.blimit, p.limit, p.thresh)
-			mbLoopFilterEdgeH16Reference(&wantBuf[0], stride, p.blimit, p.limit, p.thresh)
+			mbLoopFilterEdgeH16Native(gotBuf, stride, p.blimit, p.limit, p.thresh)
+			mbLoopFilterEdgeH16Reference(wantBuf, stride, p.blimit, p.limit, p.thresh)
 			for i, w := range wantBuf {
 				if g := gotBuf[i]; g != w {
 					t.Fatalf("blimit=%d limit=%d thresh=%d trial=%d byte %d avx2=%d sse2=%d",
@@ -368,7 +368,7 @@ func BenchmarkLoopFilterEdgeH16Native(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		loopFilterEdgeH16Native(&buf[0], stride, 32, 16, 8)
+		loopFilterEdgeH16Native(buf, stride, 32, 16, 8)
 	}
 }
 
@@ -380,7 +380,7 @@ func BenchmarkLoopFilterEdgeH16ReferenceDirect(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		loopFilterEdgeH16Reference(&buf[0], stride, 32, 16, 8)
+		loopFilterEdgeH16Reference(buf, stride, 32, 16, 8)
 	}
 }
 
@@ -395,7 +395,7 @@ func BenchmarkMBLoopFilterEdgeH16Native(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		mbLoopFilterEdgeH16Native(&buf[0], stride, 32, 16, 8)
+		mbLoopFilterEdgeH16Native(buf, stride, 32, 16, 8)
 	}
 }
 
@@ -407,6 +407,6 @@ func BenchmarkMBLoopFilterEdgeH16ReferenceDirect(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		mbLoopFilterEdgeH16Reference(&buf[0], stride, 32, 16, 8)
+		mbLoopFilterEdgeH16Reference(buf, stride, 32, 16, 8)
 	}
 }

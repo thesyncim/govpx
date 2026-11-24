@@ -6,8 +6,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // Saturating the threshold sum is exact for block limits below 255. The
@@ -39,27 +39,26 @@ func loopFilterByteWide(p []byte, q0, step, outer, n, blimit, limit, thresh, kin
 	return true
 }
 func loadLFByte(p []byte, off, lanes int) archsimd.Uint8x16 {
-	ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
 	if lanes == 8 {
-		return loadNPtr(ptr, 8)
+		return load8(p[off:])
 	}
-	return archsimd.LoadUint8x16Array((*[16]byte)(ptr))
+	return archsimd.LoadUint8x16(p[off:])
 }
 
 // The filter entry point has already proved the complete tile. Each shape
 // reads only its exact four/eight bytes, with no per-row width dispatch.
 func loadLFColumnTile[Size [4]byte | [8]byte](p []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
-	ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
+	base := p[off:]
 	row := func(y int) archsimd.Uint8x16 {
-		at := unsafe.Add(ptr, y*pitch)
+		at := base[y*pitch:]
 		var size Size
-		if unsafe.Sizeof(size) == 4 {
-			return archsimd.Uint32x4{}.SetElem(0, *(*uint32)(at)).ReshapeToUint8s()
+		if len(size) == 4 {
+			return archsimd.Uint32x4{}.SetElem(0, binary.LittleEndian.Uint32(at)).ReshapeToUint8s()
 		}
-		return archsimd.Uint64x2{}.SetElem(0, *(*uint64)(at)).ReshapeToUint8s()
+		return archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(at)).ReshapeToUint8s()
 	}
 	var size Size
-	if unsafe.Sizeof(size) == 4 {
+	if len(size) == 4 {
 		a0, a1 := zipBytesLo(row(0), row(1)), zipBytesLo(row(2), row(3))
 		a2, a3 := zipBytesLo(row(4), row(5)), zipBytesLo(row(6), row(7))
 		b0, b2 := a0.InterleaveLo(a1).ReshapeToUint32s(), a2.InterleaveLo(a3).ReshapeToUint32s()
@@ -74,7 +73,7 @@ func joinLFBytes(a, b archsimd.Uint8x16) archsimd.Uint8x16 {
 }
 func loadLFColumns[Size [4]byte | [8]byte](p []byte, off, pitch, lanes int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
 	var size Size
-	if transposeLFColumns16 && lanes == 16 && unsafe.Sizeof(size) == 8 {
+	if transposeLFColumns16 && lanes == 16 && len(size) == 8 {
 		return loadLFColumns16(p, off, pitch)
 	}
 	a0, a1, a2, a3, a4, a5, a6, a7 := loadLFColumnTile[Size](p, off, pitch)
@@ -160,13 +159,11 @@ func loopFilterBytes(p []byte, off, step, outer, lanes, blimit, limit, thresh, k
 }
 func storeLFBytes(p []byte, off, step, outer, lanes, count int, a, b, c, d, e, f archsimd.Uint8x16) {
 	if outer == 1 {
-		ptr := unsafe.Pointer(unsafe.SliceData(p))
 		store := func(at int, v archsimd.Uint8x16) {
-			dest := unsafe.Add(ptr, at)
 			if lanes == 16 {
-				v.StoreArray((*[16]byte)(dest))
+				v.Store(p[at:])
 			} else {
-				*(*uint64)(dest) = v.ReshapeToUint64s().GetElem(0)
+				binary.LittleEndian.PutUint64(p[at:], v.ReshapeToUint64s().GetElem(0))
 			}
 		}
 		store(off, a)
@@ -198,31 +195,31 @@ func storeLFByteTile(p []byte, off, pitch, count int, a, b, c, d, e, f archsimd.
 }
 
 func storeLFByteTileRows[Size [2]byte | [4]byte | [6]byte](p []byte, off, pitch int, a, b, c, d, e, f archsimd.Uint8x16) {
-	ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
+	base := p[off:]
 	var width Size
-	if unsafe.Sizeof(width) == 2 {
+	if len(width) == 2 {
 		rows := zipBytesLo(a, b)
-		*(*uint16)(ptr) = rows.GetElem(0)
-		*(*uint16)(unsafe.Add(ptr, pitch)) = rows.GetElem(1)
-		*(*uint16)(unsafe.Add(ptr, 2*pitch)) = rows.GetElem(2)
-		*(*uint16)(unsafe.Add(ptr, 3*pitch)) = rows.GetElem(3)
-		*(*uint16)(unsafe.Add(ptr, 4*pitch)) = rows.GetElem(4)
-		*(*uint16)(unsafe.Add(ptr, 5*pitch)) = rows.GetElem(5)
-		*(*uint16)(unsafe.Add(ptr, 6*pitch)) = rows.GetElem(6)
-		*(*uint16)(unsafe.Add(ptr, 7*pitch)) = rows.GetElem(7)
+		binary.LittleEndian.PutUint16(base, rows.GetElem(0))
+		binary.LittleEndian.PutUint16(base[pitch:], rows.GetElem(1))
+		binary.LittleEndian.PutUint16(base[2*pitch:], rows.GetElem(2))
+		binary.LittleEndian.PutUint16(base[3*pitch:], rows.GetElem(3))
+		binary.LittleEndian.PutUint16(base[4*pitch:], rows.GetElem(4))
+		binary.LittleEndian.PutUint16(base[5*pitch:], rows.GetElem(5))
+		binary.LittleEndian.PutUint16(base[6*pitch:], rows.GetElem(6))
+		binary.LittleEndian.PutUint16(base[7*pitch:], rows.GetElem(7))
 		return
 	}
-	if unsafe.Sizeof(width) == 4 {
+	if len(width) == 4 {
 		ab, cd := zipBytesLo(a, b), zipBytesLo(c, d)
 		lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-		*(*uint32)(ptr) = lo.GetElem(0)
-		*(*uint32)(unsafe.Add(ptr, pitch)) = lo.GetElem(1)
-		*(*uint32)(unsafe.Add(ptr, 2*pitch)) = lo.GetElem(2)
-		*(*uint32)(unsafe.Add(ptr, 3*pitch)) = lo.GetElem(3)
-		*(*uint32)(unsafe.Add(ptr, 4*pitch)) = hi.GetElem(0)
-		*(*uint32)(unsafe.Add(ptr, 5*pitch)) = hi.GetElem(1)
-		*(*uint32)(unsafe.Add(ptr, 6*pitch)) = hi.GetElem(2)
-		*(*uint32)(unsafe.Add(ptr, 7*pitch)) = hi.GetElem(3)
+		binary.LittleEndian.PutUint32(base, lo.GetElem(0))
+		binary.LittleEndian.PutUint32(base[pitch:], lo.GetElem(1))
+		binary.LittleEndian.PutUint32(base[2*pitch:], lo.GetElem(2))
+		binary.LittleEndian.PutUint32(base[3*pitch:], lo.GetElem(3))
+		binary.LittleEndian.PutUint32(base[4*pitch:], hi.GetElem(0))
+		binary.LittleEndian.PutUint32(base[5*pitch:], hi.GetElem(1))
+		binary.LittleEndian.PutUint32(base[6*pitch:], hi.GetElem(2))
+		binary.LittleEndian.PutUint32(base[7*pitch:], hi.GetElem(3))
 		return
 	}
 	z := archsimd.Uint8x16{}
@@ -232,13 +229,13 @@ func storeLFByteTileRows[Size [2]byte | [4]byte | [6]byte](p []byte, off, pitch 
 	store := func(y int, row archsimd.Uint8x16) {
 		var size Size
 		v := row.ReshapeToUint64s().GetElem(0)
-		dest := unsafe.Add(ptr, y*pitch)
-		if unsafe.Sizeof(size) == 2 {
-			*(*uint16)(dest) = uint16(v)
+		dest := base[y*pitch:]
+		if len(size) == 2 {
+			binary.LittleEndian.PutUint16(dest, uint16(v))
 		} else {
-			*(*uint32)(dest) = uint32(v)
-			if unsafe.Sizeof(size) == 6 {
-				*(*uint16)(unsafe.Add(dest, 4)) = uint16(v >> 32)
+			binary.LittleEndian.PutUint32(dest, uint32(v))
+			if len(size) == 6 {
+				binary.LittleEndian.PutUint16(dest[4:], uint16(v>>32))
 			}
 		}
 	}

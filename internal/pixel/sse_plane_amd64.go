@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // SSEPlane16 keeps row-major traversal and one AVX return fence for the frame.
 // Four rows of at most 16384 pixels have a squared sum below 2^32; each chunk
@@ -25,7 +22,6 @@ func SSEPlane16(src []byte, ss int, ref []byte, rs, w, h int) (uint64, bool) {
 	}
 	defer archsimd.ClearAVXUpperBits()
 	src, ref = src[:len(src):len(src)], ref[:len(ref):len(ref)]
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	var total uint64
 	for y := 0; y < h; {
 		var acc archsimd.Int32x8
@@ -33,8 +29,8 @@ func SSEPlane16(src []byte, ss int, ref []byte, rs, w, h int) (uint64, bool) {
 		for ; y < end; y++ {
 			so, ro := y*ss, y*rs
 			for x := 0; x <= w-16; x += 16 {
-				av := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+x))).ExtendToUint16().BitsToInt16()
-				bv := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro+x))).ExtendToUint16().BitsToInt16()
+				av := archsimd.LoadUint8x16(src[so+x:]).ExtendToUint16().BitsToInt16()
+				bv := archsimd.LoadUint8x16(ref[ro+x:]).ExtendToUint16().BitsToInt16()
 				d := av.Sub(bv)
 				acc = acc.Add(d.DotProductPairs(d))
 			}
@@ -48,7 +44,6 @@ func SSEPlane16(src []byte, ss int, ref []byte, rs, w, h int) (uint64, bool) {
 // At most 65536 pixels enter each chunk, so its complete sum fits uint32.
 func ssePlane32AVX512(src []byte, ss int, ref []byte, rs, w, h int) uint64 {
 	defer archsimd.ClearAVXUpperBits()
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	var total uint64
 	for y := 0; y < h; {
 		var acc archsimd.Int32x16
@@ -56,8 +51,8 @@ func ssePlane32AVX512(src []byte, ss int, ref []byte, rs, w, h int) uint64 {
 		for ; y < end; y++ {
 			so, ro := y*ss, y*rs
 			for x := 0; x <= w-32; x += 32 {
-				av := archsimd.LoadUint8x32Array((*[32]byte)(unsafe.Add(sp, so+x))).ExtendToUint16().BitsToInt16()
-				bv := archsimd.LoadUint8x32Array((*[32]byte)(unsafe.Add(rp, ro+x))).ExtendToUint16().BitsToInt16()
+				av := archsimd.LoadUint8x32(src[so+x:]).ExtendToUint16().BitsToInt16()
+				bv := archsimd.LoadUint8x32(ref[ro+x:]).ExtendToUint16().BitsToInt16()
 				d := av.Sub(bv)
 				acc = acc.Add(d.DotProductPairs(d))
 			}
@@ -71,14 +66,13 @@ func ssePlane32AVX512(src []byte, ss int, ref []byte, rs, w, h int) uint64 {
 // Contiguous planes need neither row slicing nor four-row reductions.
 func ssePlaneContiguousR2(src, ref []byte, n int) uint64 {
 	defer archsimd.ClearAVXUpperBits()
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	var total uint64
 	for start := 0; start < n; {
 		end := min(start+65536, n)
 		var acc archsimd.Int32x8
 		for ; start < end; start += 16 {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, start))).ExtendToUint16().BitsToInt16()
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, start))).ExtendToUint16().BitsToInt16()
+			a := archsimd.LoadUint8x16(src[start:]).ExtendToUint16().BitsToInt16()
+			b := archsimd.LoadUint8x16(ref[start:]).ExtendToUint16().BitsToInt16()
 			d := a.Sub(b)
 			acc = acc.Add(d.DotProductPairs(d))
 		}

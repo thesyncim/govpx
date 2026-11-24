@@ -7,7 +7,6 @@ package encoder
 import (
 	"github.com/thesyncim/govpx/internal/pixel"
 	"simd/archsimd"
-	"unsafe"
 )
 
 const denseTokenAvailable = true
@@ -22,7 +21,7 @@ var denseMagnitudeShift = archsimd.BroadcastInt32x4(15)
 var denseRecordSignShift = archsimd.BroadcastInt32x4(27)
 
 func denseTokenPrepack(q *[16]int16, out *[16]uint32) bool {
-	if !pixel.Enabled || q == nil || out == nil || denseTokenOverlap(unsafe.Pointer(q), 32, unsafe.Pointer(out), 64) {
+	if !pixel.Enabled || q == nil || out == nil {
 		return false
 	}
 	a, b := archsimd.LoadInt16x8(q[:8]), archsimd.LoadInt16x8(q[8:])

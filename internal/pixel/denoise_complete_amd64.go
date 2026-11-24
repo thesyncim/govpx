@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // DenoiseLuma16 filters a complete disjoint luma block, including the weaker
 // correction pass. It returns (filtered, handled). Declines do not write.
@@ -24,12 +21,7 @@ func denoiseLuma16(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, l
 	if !Enabled || inc < 0 || inc > 1 || level < 3 || level > 5 || (thresholdSum != 512 && thresholdSum != 600) || ms < 16 || as < 16 || ss < 16 || len(mc) < 16 || len(avg) < 16 || len(sig) < 16 || ms > (len(mc)-16)/15 || as > (len(avg)-16)/15 || ss > (len(sig)-16)/15 {
 		return false, false
 	}
-	ap := uintptr(unsafe.Pointer(unsafe.SliceData(avg)))
-	independent := func(in []byte) bool {
-		ip := uintptr(unsafe.Pointer(unsafe.SliceData(in)))
-		return ap <= ip && ip-ap >= uintptr(len(avg)) || ip < ap && ap-ip >= uintptr(len(in))
-	}
-	if !independent(mc) || !independent(sig) {
+	if slicesOverlap(avg, mc, len(avg), len(mc)) || slicesOverlap(avg, sig, len(avg), len(sig)) {
 		return false, false
 	}
 	l1, l2, l3 := archsimd.BroadcastUint8x16(byte(level)), archsimd.BroadcastUint8x16(byte(level+1)), archsimd.BroadcastUint8x16(byte(level+3))

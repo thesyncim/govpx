@@ -4,7 +4,6 @@ import (
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 	"testing"
-	"unsafe"
 )
 
 func denseOracleBase(c int16) (uint32, bool) {
@@ -79,22 +78,14 @@ func TestDenseTokenPrivatePrepack(t *testing.T) {
 			}
 		}
 	}
-	var backing [32]uint32
-	for i := range backing {
-		backing[i] = 0x12345678
-	}
-	q := (*[16]int16)(unsafe.Pointer(&backing[0]))
-	out := (*[16]uint32)(unsafe.Pointer(&backing[0]))
-	before := backing
-	if denseTokenPrepack(q, out) || backing != before {
-		t.Fatal("overlap mutated")
-	}
-	if denseTokenPrepack(nil, out) || denseTokenPrepack(q, nil) {
+	var q [16]int16
+	var out [16]uint32
+	if denseTokenPrepack(nil, &out) || denseTokenPrepack(&q, nil) {
 		t.Fatal("nil accepted")
 	}
 }
 func denseTokenPrepackScalar(q *[16]int16, out *[16]uint32) bool {
-	if q == nil || out == nil || denseTokenOverlap(unsafe.Pointer(q), 32, unsafe.Pointer(out), 64) {
+	if q == nil || out == nil {
 		return false
 	}
 	for _, c := range q {

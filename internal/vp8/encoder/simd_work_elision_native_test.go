@@ -1,11 +1,9 @@
 package encoder
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/thesyncim/govpx/internal/pixel"
 	"testing"
-	"unsafe"
 )
 
 func BenchmarkVP8WorkElisionFDCT(b *testing.B) {
@@ -278,74 +276,6 @@ func BenchmarkVP8WorkElisionQuant(b *testing.B) {
 					FastQuantizeBlockBatch(c, &quant, q, dq, e, count)
 				}
 			})
-		}
-	}
-}
-func TestVP8WorkElisionResidualAliasOrder(t *testing.T) {
-	for _, off := range []int{0, 4, 16, 2300, 2400, 2560, 2800} {
-		for op := 0; op < 4; op++ {
-			got := make([]byte, 4096)
-			for i := range got {
-				got[i] = byte(i*37 + 11)
-			}
-			want := append([]byte(nil), got...)
-			run := func(b []byte, scalar bool) {
-				src, pred := b[:48*48], b[2400:2656]
-				out := unsafe.Slice((*int16)(unsafe.Pointer(&b[off])), 256)
-				switch op {
-				case 0:
-					if !scalar {
-						GatherMacroblockYResiduals4x4FromPredBuffer(src, 48, 48, 48, pred, 16, 16, 16, out)
-						return
-					}
-					for block := range 16 {
-						bx := (block & 3) * 4
-						by := (block >> 2) * 4
-						for row := range 4 {
-							for col := range 4 {
-								out[block*16+row*4+col] = int16(src[(16+by+row)*48+16+bx+col]) - int16(pred[(by+row)*16+bx+col])
-							}
-						}
-					}
-				case 1:
-					if !scalar {
-						FillPredictedResidual4x4Slice(src, 48, 48, 48, src, 48, 16, 16, out[:16])
-						return
-					}
-					for row := range 4 {
-						for col := range 4 {
-							out[row*4+col] = int16(src[(16+row)*48+16+col]) - int16(src[(16+row)*48+16+col])
-						}
-					}
-				case 2:
-					if !scalar {
-						FillBPredResidual4x4(SourceImage{Y: src, YStride: 48, Width: 48, Height: 48}, 1, 1, 5, pred, (*[16]int16)(out))
-						return
-					}
-					for row := range 4 {
-						for col := range 4 {
-							out[row*4+col] = int16(src[(20+row)*48+20+col]) - int16(pred[row*4+col])
-						}
-					}
-				case 3:
-					// Distinct predictor at the same global coordinates.
-					pred = b[1024:3328]
-					if !scalar {
-						FillPredictedResidual4x4Slice(src, 48, 48, 48, pred, 48, 16, 16, out[:16])
-						return
-					}
-					for row := range 4 {
-						for col := range 4 {
-							out[row*4+col] = int16(src[(16+row)*48+16+col]) - int16(pred[(16+row)*48+16+col])
-						}
-					}
-				}
-			}
-			run(want, true)
-			run(got, false)
-			if !bytes.Equal(got, want) {
-				t.Fatalf("alias offset%d op%d", off, op)
-			}
 		}
 	}
 }

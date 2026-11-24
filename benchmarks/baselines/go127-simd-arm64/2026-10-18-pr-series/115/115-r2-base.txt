@@ -1,9 +1,0 @@
-['/private/tmp/govpx-arm-round3-components/parent.test', '-test.run=^$', '-test.bench=^BenchmarkR3Components/Skippable', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/encoder
-cpu: Apple M4 Max
-BenchmarkR3Components/Skippable/pos-1         	 5718824	         8.412 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR3Components/Skippable/pos0          	27722972	         1.756 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR3Components/Skippable/pos24         	 5635014	         8.143 ns/op	       0 B/op	       0 allocs/op
-PASS

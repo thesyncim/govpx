@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"unsafe"
 )
 
 // TestEncoderResetMatchesColdStart pins the contract that VP8Encoder.Reset()
@@ -278,30 +277,95 @@ func encoderStateDiffs(a, b *VP8Encoder) []string {
 		}
 		fa := va.Field(i)
 		fb := vb.Field(i)
-		fa2 := reflect.NewAt(fa.Type(), unsafe.Pointer(fa.UnsafeAddr())).Elem()
-		fb2 := reflect.NewAt(fb.Type(), unsafe.Pointer(fb.UnsafeAddr())).Elem()
-		if reflect.DeepEqual(fa2.Interface(), fb2.Interface()) {
+		if reflectValuesEqual(fa, fb) {
 			continue
 		}
 		if fname == "rc" {
-			tya := fa2.Type()
-			for j := 0; j < fa2.NumField(); j++ {
+			tya := fa.Type()
+			for j := 0; j < fa.NumField(); j++ {
 				sub := tya.Field(j).Name
-				sa := fa2.Field(j)
-				sb := fb2.Field(j)
-				sa2 := reflect.NewAt(sa.Type(), unsafe.Pointer(sa.UnsafeAddr())).Elem()
-				sb2 := reflect.NewAt(sb.Type(), unsafe.Pointer(sb.UnsafeAddr())).Elem()
-				if !reflect.DeepEqual(sa2.Interface(), sb2.Interface()) {
+				sa := fa.Field(j)
+				sb := fb.Field(j)
+				if !reflectValuesEqual(sa, sb) {
 					diffs = append(diffs, fmt.Sprintf("rc.%s: cold=%v reset=%v",
-						sub, abridge(sa2.Interface()), abridge(sb2.Interface())))
+						sub, abridge(sa), abridge(sb)))
 				}
 			}
 			continue
 		}
 		diffs = append(diffs, fmt.Sprintf("%s: cold=%v reset=%v",
-			fname, abridge(fa2.Interface()), abridge(fb2.Interface())))
+			fname, abridge(fa), abridge(fb)))
 	}
 	return diffs
+}
+
+func reflectValuesEqual(a, b reflect.Value) bool {
+	if !a.IsValid() || !b.IsValid() {
+		return a.IsValid() == b.IsValid()
+	}
+	if a.Type() != b.Type() {
+		return false
+	}
+	switch a.Kind() {
+	case reflect.Bool:
+		return a.Bool() == b.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return a.Int() == b.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return a.Uint() == b.Uint()
+	case reflect.Float32, reflect.Float64:
+		return a.Float() == b.Float()
+	case reflect.String:
+		return a.String() == b.String()
+	case reflect.Array:
+		for i := range a.Len() {
+			if !reflectValuesEqual(a.Index(i), b.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Slice:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		for i := range a.Len() {
+			if !reflectValuesEqual(a.Index(i), b.Index(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Struct:
+		for i := range a.NumField() {
+			if !reflectValuesEqual(a.Field(i), b.Field(i)) {
+				return false
+			}
+		}
+		return true
+	case reflect.Pointer:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() == b.IsNil()
+		}
+		return reflectValuesEqual(a.Elem(), b.Elem())
+	case reflect.Interface:
+		if a.IsNil() || b.IsNil() {
+			return a.IsNil() == b.IsNil()
+		}
+		return reflectValuesEqual(a.Elem(), b.Elem())
+	case reflect.Map:
+		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
+			return false
+		}
+		iter := a.MapRange()
+		for iter.Next() {
+			bv := b.MapIndex(iter.Key())
+			if !bv.IsValid() || !reflectValuesEqual(iter.Value(), bv) {
+				return false
+			}
+		}
+		return true
+	default:
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	}
 }
 
 func abridge(v any) string {

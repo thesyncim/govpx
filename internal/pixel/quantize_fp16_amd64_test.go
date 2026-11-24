@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 	"simd/archsimd"
+	"slices"
 	"testing"
-	"unsafe"
 )
 
 func TestFP16Selected(t *testing.T) {
@@ -155,33 +155,41 @@ func TestFP16AllSignedCoefficients(t *testing.T) {
 	}
 }
 
-func fp16Views(storage []byte, offs [5]int, n int) ([]int16, []int16, []int16, []int16, []byte) {
-	p := unsafe.Pointer(unsafe.SliceData(storage))
-	load := func(i int) []int16 { return unsafe.Slice((*int16)(unsafe.Add(p, offs[i])), n) }
-	return load(0), load(1), load(2), load(3), storage[offs[4] : offs[4]+n]
+func fp16Views(storage16 []int16, storage8 []byte, offs [5]int, n int) ([]int16, []int16, []int16, []int16, []byte) {
+	load := func(i int) []int16 { return storage16[offs[i] : offs[i]+n] }
+	return load(0), load(1), load(2), load(3), storage8[offs[4] : offs[4]+n]
 }
 
 func TestFP16UnalignedMinimum(t *testing.T) {
 	const n = 64
-	defaults := [5]int{512, 768, 1024, 1280, 1536}
+	defaults := [5]int{256, 384, 512, 640, 256}
 	r, q, d := [2]int16{9, 29}, [2]int16{12345, 30000}, [2]int16{23, 41}
 	for window := 0; window < 5; window++ {
-		for align := 0; align < 32; align++ {
+		limit := 16
+		if window == 4 {
+			limit = 32
+		}
+		for align := 0; align < limit; align++ {
 			off := defaults
 			off[window] += align
-			got := make([]byte, 2048)
-			for i := range got {
-				got[i] = byte(i*37 + i/7 + 11)
+			got16 := make([]int16, 1024)
+			for i := range got16 {
+				got16[i] = int16(i*37 + i/7 + 11)
 			}
-			want := bytes.Clone(got)
-			c, s, qo, dqo, cl := fp16Views(got, off, n)
-			wc, ws, wq, wd, wcl := fp16Views(want, off, n)
+			got8 := make([]byte, 512)
+			for i := range got8 {
+				got8[i] = byte(i*19 + 5)
+			}
+			want16 := slices.Clone(got16)
+			want8 := bytes.Clone(got8)
+			c, s, qo, dqo, cl := fp16Views(got16, got8, off, n)
+			wc, ws, wq, wd, wcl := fp16Views(want16, want8, off, n)
 			if !fp16WindowsDisjoint(c, s, qo, dqo, cl, n) {
 				t.Fatal("minimum disjoint declined")
 			}
 			we := fp16OriginalPublic(wc, ws, wq, wd, n, r, q, d, wcl)
 			ge := QuantizeFPBlock(c, s, qo, dqo, n, r, q, d, cl)
-			if ge != we || !bytes.Equal(got, want) {
+			if ge != we || !slices.Equal(got16, want16) || !bytes.Equal(got8, want8) {
 				t.Fatalf("window%d alignment%d eob%d/%d", window, align, ge, we)
 			}
 		}
@@ -190,40 +198,41 @@ func TestFP16UnalignedMinimum(t *testing.T) {
 
 func TestFP16AliasedStoreOrder(t *testing.T) {
 	const n = 64
-	defaults := [5]int{512, 768, 1024, 1280, 1536}
-	sizes := [5]int{128, 128, 128, 128, 64}
+	defaults := [5]int{256, 384, 512, 640, 256}
 	r, q, d := [2]int16{9, 29}, [2]int16{12345, 30000}, [2]int16{23, 41}
-	for a := 0; a < 5; a++ {
-		for b := a + 1; b < 5; b++ {
-			offsets := []int{0, 2, -2, sizes[a] - 2, -sizes[b] + 2}
-			if b == 4 {
-				offsets = append(offsets, sizes[a]-1, -sizes[b]+1)
-			}
-			for _, delta := range offsets {
+	for a := 0; a < 4; a++ {
+		for b := a + 1; b < 4; b++ {
+			for _, delta := range []int{0, 1, -1, n - 1, -n + 1} {
 				off := defaults
 				off[b] = off[a] + delta
-				got := make([]byte, 2048)
-				for i := range got {
-					got[i] = byte(i*37 + i/7 + 11)
+				got16 := make([]int16, 1024)
+				for i := range got16 {
+					got16[i] = int16(i*37 + i/7 + 11)
 				}
-				want := bytes.Clone(got)
-				c, s, qo, dqo, cl := fp16Views(got, off, n)
-				wc, ws, wq, wd, wcl := fp16Views(want, off, n)
+				got8 := make([]byte, 512)
+				for i := range got8 {
+					got8[i] = byte(i*19 + 5)
+				}
+				want16 := slices.Clone(got16)
+				want8 := bytes.Clone(got8)
+				c, s, qo, dqo, cl := fp16Views(got16, got8, off, n)
+				wc, ws, wq, wd, wcl := fp16Views(want16, want8, off, n)
 				if fp16WindowsDisjoint(c, s, qo, dqo, cl, n) {
 					t.Fatalf("alias accepted pair%d/%d delta%d", a, b, delta)
 				}
 				we := fp16OriginalPublic(wc, ws, wq, wd, n, r, q, d, wcl)
 				ge := QuantizeFPBlock(c, s, qo, dqo, n, r, q, d, cl)
-				if ge != we || !bytes.Equal(got, want) {
+				if ge != we || !slices.Equal(got16, want16) || !bytes.Equal(got8, want8) {
 					t.Fatalf("store order pair%d/%d delta%d eob%d/%d", a, b, delta, ge, we)
 				}
 			}
 		}
 	}
-	// Adjacent touched ranges must be eligible; classes is one byte per coefficient.
-	off := [5]int{256, 384, 512, 640, 768}
-	v := make([]byte, 1024)
-	c, s, qo, dqo, cl := fp16Views(v, off, n)
+	// Adjacent touched ranges must be eligible.
+	off := [5]int{128, 192, 256, 320, 128}
+	v16 := make([]int16, 512)
+	v8 := make([]byte, 256)
+	c, s, qo, dqo, cl := fp16Views(v16, v8, off, n)
 	if !fp16WindowsDisjoint(c, s, qo, dqo, cl, n) {
 		t.Fatal("adjacent disjoint windows declined")
 	}

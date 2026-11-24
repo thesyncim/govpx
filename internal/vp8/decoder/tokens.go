@@ -186,18 +186,3 @@ func clearMacroblockTokens(out *MacroblockTokens) {
 func clearMacroblockTokensIfNeeded(out *MacroblockTokens) {
 	clearMacroblockTokens(out)
 }
-
-func getUVContext(ctx *EntropyContextPlanes, index int) uint8 {
-	if index < 2 {
-		return ctx.U[index]
-	}
-	return ctx.V[index-2]
-}
-
-func setUVContext(ctx *EntropyContextPlanes, index int, value uint8) {
-	if index < 2 {
-		ctx.U[index] = value
-		return
-	}
-	ctx.V[index-2] = value
-}

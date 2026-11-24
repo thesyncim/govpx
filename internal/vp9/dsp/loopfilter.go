@@ -119,28 +119,6 @@ func filter4(mask int8, thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 in
 	dst[idxP1] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
 }
 
-func filter4Pass(thresh uint8, dst []uint8, idxP1, idxP0, idxQ0, idxQ1 int, op1, op0, oq0, oq1 uint8) {
-	ps1 := int8(op1 ^ 0x80)
-	ps0 := int8(op0 ^ 0x80)
-	qs0 := int8(oq0 ^ 0x80)
-	qs1 := int8(oq1 ^ 0x80)
-	hev := hevMask(thresh, op1, op0, oq0, oq1)
-
-	filter := signedCharClamp(int(ps1)-int(qs1)) & hev
-	filter = signedCharClamp(int(filter) + 3*(int(qs0)-int(ps0)))
-	filter1 := signedCharClamp(int(filter)+4) >> 3
-	filter2 := signedCharClamp(int(filter)+3) >> 3
-
-	dst[idxQ0] = uint8(signedCharClamp(int(qs0)-int(filter1))) ^ 0x80
-	dst[idxP0] = uint8(signedCharClamp(int(ps0)+int(filter2))) ^ 0x80
-
-	outer := (filter1 + 1) >> 1
-	outer &= ^hev
-
-	dst[idxQ1] = uint8(signedCharClamp(int(qs1)-int(outer))) ^ 0x80
-	dst[idxP1] = uint8(signedCharClamp(int(ps1)+int(outer))) ^ 0x80
-}
-
 // VpxLpfHorizontal4 mirrors vpx_lpf_horizontal_4_c. It filters 8
 // horizontally-adjacent edge columns above and below the cursor pixel
 // `s` (interpreted as offset within `plane`), each spanning 4 rows

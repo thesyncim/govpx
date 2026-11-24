@@ -1,8 +1,0 @@
-['/private/tmp/govpx-motion-prs/motion07.test', '-test.run=^$', '-test.bench=^BenchmarkMotionPR07$', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx
-cpu: Apple M4 Max
-BenchmarkMotionPR07/partial_8x8         	   56156	       833.3 ns/op	       0 B/op	       0 allocs/op
-BenchmarkMotionPR07/partial_4x4         	   92367	       521.3 ns/op	       0 B/op	       0 allocs/op
-PASS

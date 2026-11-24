@@ -2,7 +2,6 @@ package encoder
 
 import (
 	"errors"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
@@ -41,20 +40,33 @@ func CoefEOBToken(tx common.TxSize, planeType, isInter, initCtx int) (TokenExtra
 	}, true
 }
 
+// coefProbCoords decodes a flat probability offset into its 5D coordinates in
+// FrameCoefProbs and FrameCoefBranchStats.
+func coefProbCoords(off int) (tx, planeType, isInter, band, ctx int) {
+	row := off / UnconstrainedNodes
+	ctx = row % vp9dec.CoefContexts
+	row /= vp9dec.CoefContexts
+	band = row % vp9dec.CoefBands
+	row /= vp9dec.CoefBands
+	isInter = row % vp9dec.CoefRefTypes
+	row /= vp9dec.CoefRefTypes
+	planeType = row % vp9dec.CoefPlaneTypes
+	tx = row / vp9dec.CoefPlaneTypes
+	return tx, planeType, isInter, band, ctx
+}
+
 // CountCoefEOBTokens commits branch counts for validated all-zero blocks.
 func CountCoefEOBTokens(tokens []TokenExtra, stats *FrameCoefBranchStats) bool {
 	if stats == nil {
 		return false
 	}
-	// FrameCoefBranchStats is a nested array of identical, pointer-free rows.
-	// The checked probability offset indexes precisely the same flattened row.
-	rows := (*[coefProbsFlatLen / UnconstrainedNodes][EntropyNodes][2]uint32)(unsafe.Pointer(stats))
 	for _, tok := range tokens {
 		off := int(tok.ProbOff)
 		if tok.Token != EobToken || off%UnconstrainedNodes != 0 || off >= coefProbsFlatLen {
 			return false
 		}
-		rows[off/UnconstrainedNodes][0][0]++
+		tx, planeType, isInter, band, ctx := coefProbCoords(off)
+		stats[tx][planeType][isInter][band][ctx][0][0]++
 	}
 	return true
 }
@@ -700,5 +712,6 @@ func writePackedCoefTokenTail(bw *bitstream.Writer, token int, probs *[8]uint8) 
 }
 
 func stagedTokenProbs(fc *vp9dec.FrameCoefProbs, tok TokenExtra) *[UnconstrainedNodes]uint8 {
-	return (*[UnconstrainedNodes]uint8)(unsafe.Add(unsafe.Pointer(fc), uintptr(tok.ProbOff)))
+	tx, planeType, isInter, band, ctx := coefProbCoords(int(tok.ProbOff))
+	return &fc[tx][planeType][isInter][band][ctx]
 }

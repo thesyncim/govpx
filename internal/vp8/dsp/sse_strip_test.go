@@ -2,7 +2,7 @@ package dsp
 
 import "testing"
 
-func BenchmarkSSE16x720PtrFast(b *testing.B) {
+func BenchmarkSSE16x720Fast(b *testing.B) {
 	a, ref := make([]byte, 720*1312), make([]byte, 720*1344)
 	for i := range a {
 		a[i] = byte(i*37 + 11)
@@ -12,6 +12,6 @@ func BenchmarkSSE16x720PtrFast(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		SSE16xNPtrFast(&a[0], 1312, &ref[0], 1344, 720)
+		SSE16xNFast(a, 1312, ref, 1344, 720)
 	}
 }

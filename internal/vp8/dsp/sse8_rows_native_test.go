@@ -13,8 +13,7 @@ func BenchmarkSSE8RowsNative(b *testing.B) {
 		name string
 		h    int
 		fn   func([]byte, int, []byte, int) int
-		ptr  bool
-	}{{"slice8x4", 4, SSE8x4, false}, {"slice8x8", 8, SSE8x8, false}, {"slice8x16", 16, SSE8x16, false}, {"pointer8x8", 8, nil, true}} {
+	}{{"slice8x4", 4, SSE8x4}, {"slice8x8", 8, SSE8x8}, {"slice8x16", 16, SSE8x16}, {"fast8x8", 8, SSE8x8Fast}} {
 		for _, strides := range [][2]int{{8, 8}, {32, 37}, {1312, 1320}} {
 			for pattern := range 3 {
 				b.Run(fmt.Sprintf("%s/pitch%d-%d/pattern%d", api.name, strides[0], strides[1], pattern), func(b *testing.B) {
@@ -46,27 +45,15 @@ func BenchmarkSSE8RowsNative(b *testing.B) {
 							want += d * d
 						}
 					}
-					got := 0
-					if api.ptr {
-						got = SSE8x8PtrFast(&a[0], ss, &r[0], rs)
-					} else {
-						got = api.fn(a, ss, r, rs)
-					}
+					got := api.fn(a, ss, r, rs)
 					if got != want {
 						b.Fatalf("public SSE8 got%d want%d", got, want)
 					}
 					b.ReportAllocs()
 					b.ResetTimer()
-					if api.ptr {
-						fn, sp, rp := SSE8x8PtrFast, &a[0], &r[0]
-						for b.Loop() {
-							got = fn(sp, ss, rp, rs)
-						}
-					} else {
-						fn := api.fn
-						for b.Loop() {
-							got = fn(a, ss, r, rs)
-						}
+					fn := api.fn
+					for b.Loop() {
+						got = fn(a, ss, r, rs)
 					}
 					if got != want || !bytes.Equal(src, beforeA) || !bytes.Equal(ref, beforeB) {
 						b.Fatal("final SSE8 result, immutable inputs or backing canaries changed")

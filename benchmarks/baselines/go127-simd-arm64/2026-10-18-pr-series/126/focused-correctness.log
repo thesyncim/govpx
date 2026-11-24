@@ -1,6 +1,0 @@
-=== RUN   TestAlgo126Round3CostTable
---- PASS: TestAlgo126Round3CostTable (0.00s)
-=== RUN   TestAlgo126Round3CostTableInvalidState
---- PASS: TestAlgo126Round3CostTableInvalidState (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.402s

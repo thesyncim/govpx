@@ -1,5 +1,0 @@
-=== RUN   TestQuantBatchExtremesScalar
---- PASS: TestQuantBatchExtremesScalar (0.00s)
-=== RUN   TestQuantBatchNativeSelected
---- PASS: TestQuantBatchNativeSelected (0.00s)
-PASS

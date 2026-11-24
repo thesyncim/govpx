@@ -1,8 +1,0 @@
-['/private/tmp/govpx-dsp-prs/base-twelve.test', '-test.run=^$', '-test.bench=^BenchmarkDSPPRSAD4$', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/dsp
-cpu: Apple M4 Max
-BenchmarkDSPPRSAD4/stride4         	 5396895	         9.050 ns/op	       0 B/op	       0 allocs/op
-BenchmarkDSPPRSAD4/stride24        	 5314609	         8.746 ns/op	       0 B/op	       0 allocs/op
-PASS

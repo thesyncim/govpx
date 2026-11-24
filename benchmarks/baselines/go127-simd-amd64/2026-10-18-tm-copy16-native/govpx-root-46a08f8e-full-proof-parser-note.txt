@@ -1,1 +1,0 @@
-Initial independent auditor expected pitch1312_1312 ordinary geometry, but committed fixture and actual raw geometry are pitch1312_1320. Corrected selection to exact fixture; all raw samples retained. Initial assertion failed before performance approval.

@@ -1,4 +1,0 @@
-=== RUN   TestAlgo137Round3ProbCost
---- PASS: TestAlgo137Round3ProbCost (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.499s

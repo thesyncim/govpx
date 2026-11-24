@@ -35,11 +35,11 @@ func TestResidualGatherPointerRows(t *testing.T) {
 					for i := range out {
 						out[i] = 12345
 					}
-					fn := ResidualGather16x16PtrFast
+					fn := ResidualGather16x16Fast
 					if w == 8 {
-						fn = ResidualGather8x8PtrFast
+						fn = ResidualGather8x8Fast
 					}
-					fn(&src[align], ss, &pred[align], ps, &out[8])
+					fn(src[align:], ss, pred[align:], ps, out[8:])
 					for y := range w {
 						for x := range w {
 							at := 8 + ((y/4)*(w/4)+x/4)*16 + (y%4)*4 + x%4

@@ -2,24 +2,21 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 const byteDenoise16 = true
 
 // denoiseFirst16Bytes uses the existing denoiser's byte arithmetic for a
 // complete luma block. The caller restricts inc to 0..1 and level to 3..5.
-// Pointer values only detect aliases; row loads and stores use checked slices.
 func denoiseFirst16Bytes(mc []byte, ms int, avg []byte, as int, sig []byte, ss, inc, level int) (int, bool) {
 	if ms < 16 || as < 16 || ss < 16 || len(mc) < 16 || len(avg) < 16 || len(sig) < 16 || ms > (len(mc)-16)/15 || as > (len(avg)-16)/15 || ss > (len(sig)-16)/15 {
 		return 0, false
 	}
-	ap := uintptr(unsafe.Pointer(unsafe.SliceData(avg)))
 	independent := func(in []byte, stride int) bool {
-		ip := uintptr(unsafe.Pointer(unsafe.SliceData(in)))
-		return ap == ip && as == stride || ap <= ip && ip-ap >= uintptr(len(avg)) || ip < ap && ap-ip >= uintptr(len(in))
+		if &avg[0] == &in[0] {
+			return as == stride
+		}
+		return !slicesOverlap(avg, in, len(avg), len(in))
 	}
 	if !independent(mc, ms) || !independent(sig, ss) {
 		return 0, false

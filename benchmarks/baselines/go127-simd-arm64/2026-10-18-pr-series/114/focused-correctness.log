@@ -1,4 +1,0 @@
-=== RUN   TestR3Contexts
-    round3_components_test.go:533: 72 full backing alias scenarios
---- PASS: TestR3Contexts (0.00s)
-PASS

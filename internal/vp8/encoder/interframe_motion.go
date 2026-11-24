@@ -172,16 +172,15 @@ func validInterFrameMacroblockModeAt(mode *InterFrameMacroblockMode, above *Inte
 	if refFrame != common.LastFrame && refFrame != common.GoldenFrame && refFrame != common.AltRefFrame {
 		return false
 	}
-	nearest, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
-	nearest = clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
-	near = clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	switch mode.Mode {
 	case common.ZeroMV:
 		return mode.MV.IsZero()
 	case common.NearestMV:
-		return mode.MV == nearest
+		nearest, _, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
+		return mode.MV == clampInterMotionVectorToModeEdges(nearest, mbRow, mbCol, mbRows, mbCols)
 	case common.NearMV:
-		return mode.MV == near
+		_, near, _, _ := findNearInterMotionVectors(above, left, aboveLeft, refFrame, signBias)
+		return mode.MV == clampInterMotionVectorToModeEdges(near, mbRow, mbCol, mbRows, mbCols)
 	case common.NewMV:
 		return true
 	case common.SplitMV:

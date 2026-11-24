@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // DCPairInPlaceInt32Native specializes libvpx v1.16.0's idct_dequant_0_2x_neon
@@ -16,10 +16,9 @@ func DCPairInPlaceInt32Native(c0, c1 int32, b []byte, stride int) {
 	}
 	if stride >= 8 && len(b) >= 8 && stride <= (len(b)-8)/3 {
 		delta := dcPairSignedCoeff8(c0, c1)
-		sp := unsafe.Pointer(unsafe.SliceData(b))
-		dcPairSignedRows2(sp, stride, sp, stride, delta)
-		sp2 := unsafe.Add(sp, 2*stride)
-		dcPairSignedRows2(sp2, stride, sp2, stride, delta)
+		dcPairSignedRows2(b, stride, b, stride, delta)
+		b2 := b[2*stride:]
+		dcPairSignedRows2(b2, stride, b2, stride, delta)
 		return
 	}
 	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)
@@ -51,11 +50,11 @@ func dcPairSignedCoeff8(c0, c1 int32) archsimd.Int16x8 {
 // Callers prove both exact eight-byte windows and preserve the original
 // two-row read packet before its two ordered stores. Saturating signed sums
 // preserve the final byte clipping for every rounded int32 coefficient.
-func dcPairSignedRows2(sp unsafe.Pointer, ps int, out unsafe.Pointer, ds int, delta archsimd.Int16x8) {
-	lo := *(*uint64)(sp)
-	hi := *(*uint64)(unsafe.Add(sp, ps))
+func dcPairSignedRows2(src []byte, ps int, out []byte, ds int, delta archsimd.Int16x8) {
+	lo := binary.LittleEndian.Uint64(src)
+	hi := binary.LittleEndian.Uint64(src[ps:])
 	l := (archsimd.Uint64x2{}).SetElem(0, lo).ReshapeToUint8s().ExtendLo8ToUint16().BitsToInt16().AddSaturated(delta).SaturateToUint8().ReshapeToUint64s()
 	h := (archsimd.Uint64x2{}).SetElem(0, hi).ReshapeToUint8s().ExtendLo8ToUint16().BitsToInt16().AddSaturated(delta).SaturateToUint8().ReshapeToUint64s()
-	*(*uint64)(out) = l.GetElem(0)
-	*(*uint64)(unsafe.Add(out, ds)) = h.GetElem(0)
+	binary.LittleEndian.PutUint64(out, l.GetElem(0))
+	binary.LittleEndian.PutUint64(out[ds:], h.GetElem(0))
 }

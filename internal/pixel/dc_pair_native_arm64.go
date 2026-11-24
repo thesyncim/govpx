@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // DCPairNative selects the single-owner ARM implementation of libvpx
 // v1.16.0 idct_dequant_0_2x_neon, retaining the original signed product math.
@@ -23,16 +20,16 @@ fast:
 		if ps < 8 || ds < 8 || len(pred) < 8 || len(dst) < 8 || ps > (len(pred)-8)/3 || ds > (len(dst)-8)/3 {
 			break fast
 		}
-		pp, dp := uintptr(unsafe.Pointer(unsafe.SliceData(pred))), uintptr(unsafe.Pointer(unsafe.SliceData(dst)))
-		exact := pp == dp && ps == ds
-		disjoint := (pp <= dp && dp-pp >= uintptr(len(pred))) || (dp < pp && pp-dp >= uintptr(len(dst)))
-		if !exact && !disjoint {
+		if &pred[0] == &dst[0] {
+			if ps != ds {
+				break fast
+			}
+		} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
 			break fast
 		}
 		delta := dcPairSignedCoeff8(c0, c1)
-		sp, out := unsafe.Pointer(unsafe.SliceData(pred)), unsafe.Pointer(unsafe.SliceData(dst))
-		dcPairSignedRows2(sp, ps, out, ds, delta)
-		dcPairSignedRows2(unsafe.Add(sp, 2*ps), ps, unsafe.Add(out, 2*ds), ds, delta)
+		dcPairSignedRows2(pred, ps, dst, ds, delta)
+		dcPairSignedRows2(pred[2*ps:], ps, dst[2*ds:], ds, delta)
 		return
 	}
 	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)
@@ -59,10 +56,11 @@ func AddConstantPair4(pred []byte, ps int, dst []byte, ds int, d0, d1 int16) boo
 	if !Enabled || ps < 8 || ds < 8 || len(pred) < 8 || len(dst) < 8 || ps > (len(pred)-8)/3 || ds > (len(dst)-8)/3 || d0 < -255 || d0 > 255 || d1 < -255 || d1 > 255 {
 		return false
 	}
-	pp, dp := uintptr(unsafe.Pointer(unsafe.SliceData(pred))), uintptr(unsafe.Pointer(unsafe.SliceData(dst)))
-	exact := pp == dp && ps == ds
-	disjoint := (pp <= dp && dp-pp >= uintptr(len(pred))) || (dp < pp && pp-dp >= uintptr(len(dst)))
-	if !exact && !disjoint {
+	if &pred[0] == &dst[0] {
+		if ps != ds {
+			return false
+		}
+	} else if slicesOverlap(pred, dst, len(pred), len(dst)) {
 		return false
 	}
 	DCPairInt32Native(int32(d0)<<3, int32(d1)<<3, pred, ps, dst, ds)

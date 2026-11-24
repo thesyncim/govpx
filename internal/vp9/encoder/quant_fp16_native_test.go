@@ -3,21 +3,31 @@ package encoder
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"testing"
-	"unsafe"
 
 	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 var fp16NativeSink uint64
 
-// fp16NativeWindow aligns the actual data address, retaining both canaries.
-// Int16 windows use offset 2; byte classes use offset 1 in the unaligned mode.
-func fp16NativeWindow(n, offset int) ([]byte, []byte) {
+// fp16NativeInt16Window allocates an int16 buffer with canary elements before
+// and after the returned sub-slice.
+func fp16NativeInt16Window(n, offset int) ([]int16, []int16, int) {
+	backing := make([]int16, n+64)
+	for i := range backing {
+		backing[i] = -0x5859 // 0xa7a7
+	}
+	start := 16 + offset
+	return backing, backing[start : start+n : start+n], start
+}
+
+// fp16NativeByteWindow allocates a byte buffer with canary bytes before and
+// after the returned sub-slice.
+func fp16NativeByteWindow(n, offset int) ([]byte, []byte, int) {
 	backing := bytes.Repeat([]byte{0xa7}, n+128)
-	base := uintptr(unsafe.Pointer(unsafe.SliceData(backing)))
-	start := 32 + int((-base)&31) + offset
-	return backing, backing[start : start+n : start+n]
+	start := 32 + offset
+	return backing, backing[start : start+n : start+n], start
 }
 
 // fp16NativeReference is an independent integer implementation of the pinned
@@ -85,19 +95,16 @@ func BenchmarkVP9FP16Native(b *testing.B) {
 					}
 					b.Run(fmt.Sprintf("n%d/%s/%s/%s", size.n, mode, pattern, alignment), func(b *testing.B) {
 						n := size.n
-						offset := 0
+						int16Offset := 0
 						classOffset := 0
 						if unaligned {
-							offset = 2
+							int16Offset = 1
 							classOffset = 1
 						}
-						cb, cbytes := fp16NativeWindow(2*n, offset)
-						qb, qbytes := fp16NativeWindow(2*n, offset)
-						db, dbytes := fp16NativeWindow(2*n, offset)
-						lb, classes := fp16NativeWindow(n, classOffset)
-						coeff := unsafe.Slice((*int16)(unsafe.Pointer(unsafe.SliceData(cbytes))), n)
-						qo := unsafe.Slice((*int16)(unsafe.Pointer(unsafe.SliceData(qbytes))), n)
-						dq := unsafe.Slice((*int16)(unsafe.Pointer(unsafe.SliceData(dbytes))), n)
+						cb, coeff, _ := fp16NativeInt16Window(n, int16Offset)
+						qb, qo, qOffset := fp16NativeInt16Window(n, int16Offset)
+						db, dq, dOffset := fp16NativeInt16Window(n, int16Offset)
+						lb, classes, lOffset := fp16NativeByteWindow(n, classOffset)
 						for i := range coeff {
 							switch pattern {
 							case "zero":
@@ -111,27 +118,14 @@ func BenchmarkVP9FP16Native(b *testing.B) {
 								coeff[i] = int16((i*347)%65536 - 32768)
 							}
 						}
-						for label, p := range map[string]unsafe.Pointer{"coeff": unsafe.Pointer(unsafe.SliceData(coeff)), "q": unsafe.Pointer(unsafe.SliceData(qo)), "dq": unsafe.Pointer(unsafe.SliceData(dq)), "classes": unsafe.Pointer(unsafe.SliceData(classes))} {
-							want := uintptr(offset)
-							if label == "classes" {
-								want = uintptr(classOffset)
-							}
-							if uintptr(p)&31 != want {
-								b.Fatalf("%s alignment=%d want%d", label, uintptr(p)&31, want)
-							}
-						}
 						scan := &common.ScanOrders[size.tx][common.DctDct]
 						scanBefore, iscanBefore := append([]int16(nil), scan.Scan[:n]...), append([]int16(nil), scan.IScan[:n]...)
-						b.Logf("alignment coeff/q/dq=%d classes=%d actual-iscan-mod32=%d", offset, classOffset, uintptr(unsafe.Pointer(&scan.IScan[0]))&31)
 						dequant := [2]int16{23, 41}
 						tables := QuantizeFPTablesForDequant(dequant)
-						cbefore := bytes.Clone(cb)
-						qw, dw, lw := bytes.Clone(qb), bytes.Clone(db), bytes.Clone(lb)
-						qOffset := int(uintptr(unsafe.Pointer(unsafe.SliceData(qbytes))) - uintptr(unsafe.Pointer(unsafe.SliceData(qb))))
-						dOffset := int(uintptr(unsafe.Pointer(unsafe.SliceData(dbytes))) - uintptr(unsafe.Pointer(unsafe.SliceData(db))))
-						lOffset := int(uintptr(unsafe.Pointer(unsafe.SliceData(classes))) - uintptr(unsafe.Pointer(unsafe.SliceData(lb))))
-						qwant := unsafe.Slice((*int16)(unsafe.Pointer(&qw[qOffset])), n)
-						dwant := unsafe.Slice((*int16)(unsafe.Pointer(&dw[dOffset])), n)
+						cbefore := slices.Clone(cb)
+						qw, dw, lw := slices.Clone(qb), slices.Clone(db), bytes.Clone(lb)
+						qwant := qw[qOffset : qOffset+n : qOffset+n]
+						dwant := dw[dOffset : dOffset+n : dOffset+n]
 						var lwant []byte
 						if classesOn {
 							lwant = lw[lOffset : lOffset+n : lOffset+n]
@@ -140,7 +134,7 @@ func BenchmarkVP9FP16Native(b *testing.B) {
 						var eob int
 						check := func() {
 							b.Helper()
-							if eob != wantEOB || !bytes.Equal(cb, cbefore) || !bytes.Equal(qb, qw) || !bytes.Equal(db, dw) || !bytes.Equal(lb, lw) {
+							if eob != wantEOB || !slices.Equal(cb, cbefore) || !slices.Equal(qb, qw) || !slices.Equal(db, dw) || !bytes.Equal(lb, lw) {
 								b.Fatalf("full backing/EOB mismatch got%d want%d", eob, wantEOB)
 							}
 							for i := 0; i < n; i++ {

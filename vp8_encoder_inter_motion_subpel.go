@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"unsafe"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vp8/dsp"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
@@ -275,9 +273,8 @@ func (s *interFrameSubpixelSearch) centerMotionCost(row int, col int, errorPerBi
 // checks). R15-B precomputes the source row pointer + ref limit
 // thresholds once and folds them into a tight inline test.
 type subpelSearchCtx struct {
-	srcRowPtr  *byte // = &src.Y[baseY*src.YStride+baseX]
+	srcRow     []byte // = src.Y[baseY*src.YStride+baseX:]
 	refYFull   []byte
-	refYFullP  *byte
 	srcYStride int
 	refYStride int
 	refYOrigin int
@@ -310,9 +307,8 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 		baseX:      baseX,
 	}
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		ctx.srcRowPtr = (*byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(src.Y)), baseY*src.YStride+baseX))
+		ctx.srcRow = src.Y[baseY*src.YStride+baseX:]
 		ctx.srcYStride = src.YStride
-		ctx.refYFullP = unsafe.SliceData(ctx.refYFull)
 		return ctx, true
 	}
 	for row := range 16 {
@@ -324,7 +320,6 @@ func newSubpelSearchCtx(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int,
 	}
 	ctx.srcYStride = 16
 	ctx.srcPartial = true
-	ctx.refYFullP = unsafe.SliceData(ctx.refYFull)
 	return ctx, true
 }
 
@@ -348,12 +343,11 @@ func (c *subpelSearchCtx) subpelVarianceForQuarterMV(row int, col int) (int, int
 	}
 	xOffset := (col & 3) << 1
 	yOffset := (row & 3) << 1
-	srcRowPtr := c.srcRowPtr
+	srcRow := c.srcRow
 	if c.srcPartial {
-		srcRowPtr = unsafe.SliceData(c.srcScratch[:])
+		srcRow = c.srcScratch[:]
 	}
-	refPtr := (*byte)(unsafe.Add(unsafe.Pointer(c.refYFullP), start))
-	variance, sse := dsp.SubpelVariance16x16PtrFast(refPtr, c.refYStride, xOffset, yOffset, srcRowPtr, c.srcYStride)
+	variance, sse := dsp.SubpelVariance16x16Fast(c.refYFull[start:], c.refYStride, xOffset, yOffset, srcRow, c.srcYStride)
 	return variance, sse, true
 }
 
@@ -396,35 +390,6 @@ func (c *subpelEvalCache) put(row int, col int, eval subpelCandidateEval) {
 		}
 		index = (index + 1) & 63
 	}
-}
-
-func (s *interFrameSubpixelSearch) cachedCandidateEvalWithStats(stats *interFrameMotionSearchStats, cache *subpelEvalCache, subCtx *subpelSearchCtx, bounds vp8enc.InterFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
-	if eval, ok := cache.get(row, col); ok {
-		stats.recordSubpelCandidate()
-		stats.recordSubpelCacheHit()
-		return eval
-	}
-	eval := subpelCandidateEval{cost: maxInt()}
-	if !bounds.Contains(row, col) {
-		stats.recordSubpelCandidate()
-		stats.recordSubpelBoundsReject()
-	} else {
-		eval = s.candidateEvalWithStats(stats, subCtx, row, col, refRow4, refCol4, errorPerBit)
-	}
-	cache.put(row, col, eval)
-	return eval
-}
-
-func (s *interFrameSubpixelSearch) cachedCandidateEvalNoStats(cache *subpelEvalCache, subCtx *subpelSearchCtx, bounds vp8enc.InterFrameSubpelSearchBounds, row int, col int, refRow4 int, refCol4 int, errorPerBit int) subpelCandidateEval {
-	if eval, ok := cache.get(row, col); ok {
-		return eval
-	}
-	eval := subpelCandidateEval{cost: maxInt()}
-	if bounds.Contains(row, col) {
-		eval = s.candidateEvalNoStats(subCtx, row, col, refRow4, refCol4, errorPerBit)
-	}
-	cache.put(row, col, eval)
-	return eval
 }
 
 // boundedCandidateEvalWithStats mirrors libvpx's CHECK_BETTER/IFMVCV pair

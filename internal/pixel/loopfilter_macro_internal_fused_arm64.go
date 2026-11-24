@@ -9,8 +9,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, limit, thresh int) {
@@ -54,12 +54,12 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
 					np1, nq1 := p1c.AddSaturated(u).ToBits().Xor(bias), q1c.SubSaturated(u).ToBits().Xor(bias)
 					u = lfMacroCorrection(ff, 9)
 					np2, nq2 := p2.Xor(bias).BitsToInt8().AddSaturated(u).ToBits().Xor(bias), q2.Xor(bias).BitsToInt8().SubSaturated(u).ToBits().Xor(bias)
-					np2.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-3*step)))
-					np1.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-2*step)))
-					np0.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+-1*step)))
-					nq0.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+0*step)))
-					nq1.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+1*step)))
-					nq2.StoreArray((*[16]byte)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off+2*step)))
+					np2.Store(p[off-3*step:])
+					np1.Store(p[off-2*step:])
+					np0.Store(p[off-1*step:])
+					nq0.Store(p[off+0*step:])
+					nq1.Store(p[off+1*step:])
+					nq2.Store(p[off+2*step:])
 
 					q0, q1, q2 = nq0, nq1, nq2
 				}
@@ -124,36 +124,36 @@ func loopFilterMacroInternalFusedHorizontal(p []byte, pitch, mblimit, blimit, li
 
 				// The caller proves the complete 16x16 window. These stores touch exactly
 				// four filtered bytes at each position, including overlapping logical rows.
-				ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-2*step)
+				base := p[off-2*step:]
 				if outer == 1 {
-					np1.StoreArray((*[16]byte)(ptr))
-					np0.StoreArray((*[16]byte)(unsafe.Add(ptr, step)))
-					nq0.StoreArray((*[16]byte)(unsafe.Add(ptr, 2*step)))
-					nq1.StoreArray((*[16]byte)(unsafe.Add(ptr, 3*step)))
+					np1.Store(base)
+					np0.Store(base[step:])
+					nq0.Store(base[2*step:])
+					nq1.Store(base[3*step:])
 				} else {
 					{
 						ab, cd := zipBytesLo(np1, np0), zipBytesLo(nq0, nq1)
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
 					}
 					{
 						ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
 						lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-						*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 10*outer)) = lo.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 11*outer)) = lo.GetElem(3)
-						*(*uint32)(unsafe.Add(ptr, 12*outer)) = hi.GetElem(0)
-						*(*uint32)(unsafe.Add(ptr, 13*outer)) = hi.GetElem(1)
-						*(*uint32)(unsafe.Add(ptr, 14*outer)) = hi.GetElem(2)
-						*(*uint32)(unsafe.Add(ptr, 15*outer)) = hi.GetElem(3)
+						binary.LittleEndian.PutUint32(base[8*outer:], lo.GetElem(0))
+						binary.LittleEndian.PutUint32(base[9*outer:], lo.GetElem(1))
+						binary.LittleEndian.PutUint32(base[10*outer:], lo.GetElem(2))
+						binary.LittleEndian.PutUint32(base[11*outer:], lo.GetElem(3))
+						binary.LittleEndian.PutUint32(base[12*outer:], hi.GetElem(0))
+						binary.LittleEndian.PutUint32(base[13*outer:], hi.GetElem(1))
+						binary.LittleEndian.PutUint32(base[14*outer:], hi.GetElem(2))
+						binary.LittleEndian.PutUint32(base[15*outer:], hi.GetElem(3))
 					}
 				}
 
@@ -171,37 +171,36 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 	const kind, lanes, step = 4, 16, 1
 	outer := pitch
 	var p3, p2, p1, p0, q0, q1, q2, q3 archsimd.Uint8x16
-	ptr := unsafe.Pointer(unsafe.SliceData(p))
-	w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*outer))).ReshapeToUint64s()
-	w8 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*outer))).ReshapeToUint64s()
+	w0 := archsimd.LoadUint8x16(p[0*outer:]).ReshapeToUint64s()
+	w8 := archsimd.LoadUint8x16(p[8*outer:]).ReshapeToUint64s()
 	r0 := w0.InterleaveLo(w8).ReshapeToUint32s()
 	h0 := w0.InterleaveHi(w8).ReshapeToUint32s()
-	w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*outer))).ReshapeToUint64s()
-	w9 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*outer))).ReshapeToUint64s()
+	w1 := archsimd.LoadUint8x16(p[1*outer:]).ReshapeToUint64s()
+	w9 := archsimd.LoadUint8x16(p[9*outer:]).ReshapeToUint64s()
 	r1 := w1.InterleaveLo(w9).ReshapeToUint32s()
 	h1 := w1.InterleaveHi(w9).ReshapeToUint32s()
-	w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*outer))).ReshapeToUint64s()
-	w10 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*outer))).ReshapeToUint64s()
+	w2 := archsimd.LoadUint8x16(p[2*outer:]).ReshapeToUint64s()
+	w10 := archsimd.LoadUint8x16(p[10*outer:]).ReshapeToUint64s()
 	r2 := w2.InterleaveLo(w10).ReshapeToUint32s()
 	h2 := w2.InterleaveHi(w10).ReshapeToUint32s()
-	w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*outer))).ReshapeToUint64s()
-	w11 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*outer))).ReshapeToUint64s()
+	w3 := archsimd.LoadUint8x16(p[3*outer:]).ReshapeToUint64s()
+	w11 := archsimd.LoadUint8x16(p[11*outer:]).ReshapeToUint64s()
 	r3 := w3.InterleaveLo(w11).ReshapeToUint32s()
 	h3 := w3.InterleaveHi(w11).ReshapeToUint32s()
-	w4 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*outer))).ReshapeToUint64s()
-	w12 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*outer))).ReshapeToUint64s()
+	w4 := archsimd.LoadUint8x16(p[4*outer:]).ReshapeToUint64s()
+	w12 := archsimd.LoadUint8x16(p[12*outer:]).ReshapeToUint64s()
 	r4 := w4.InterleaveLo(w12).ReshapeToUint32s()
 	h4 := w4.InterleaveHi(w12).ReshapeToUint32s()
-	w5 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*outer))).ReshapeToUint64s()
-	w13 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*outer))).ReshapeToUint64s()
+	w5 := archsimd.LoadUint8x16(p[5*outer:]).ReshapeToUint64s()
+	w13 := archsimd.LoadUint8x16(p[13*outer:]).ReshapeToUint64s()
 	r5 := w5.InterleaveLo(w13).ReshapeToUint32s()
 	h5 := w5.InterleaveHi(w13).ReshapeToUint32s()
-	w6 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*outer))).ReshapeToUint64s()
-	w14 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*outer))).ReshapeToUint64s()
+	w6 := archsimd.LoadUint8x16(p[6*outer:]).ReshapeToUint64s()
+	w14 := archsimd.LoadUint8x16(p[14*outer:]).ReshapeToUint64s()
 	r6 := w6.InterleaveLo(w14).ReshapeToUint32s()
 	h6 := w6.InterleaveHi(w14).ReshapeToUint32s()
-	w7 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*outer))).ReshapeToUint64s()
-	w15 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*outer))).ReshapeToUint64s()
+	w7 := archsimd.LoadUint8x16(p[7*outer:]).ReshapeToUint64s()
+	w15 := archsimd.LoadUint8x16(p[15*outer:]).ReshapeToUint64s()
 	r7 := w7.InterleaveLo(w15).ReshapeToUint32s()
 	h7 := w7.InterleaveHi(w15).ReshapeToUint32s()
 	a0 := r0.InterleaveEven(r4).ReshapeToUint16s()
@@ -426,37 +425,37 @@ func loopFilterMacroInternalFusedVertical(p []byte, pitch, mblimit, blimit, limi
 		}
 		p3, p2, p1, p0 = q0, q1, q2, q3
 		// The wrapper proves all twenty columns, including the wide loads at column four.
-		ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), 4)
+		base := p[4:]
 		var r0, r1, r2, r3 archsimd.Uint16x8
 		{
-			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*outer))).ReshapeToUint32s()
-			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*outer))).ReshapeToUint32s()
-			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*outer))).ReshapeToUint32s()
-			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*outer))).ReshapeToUint32s()
+			w0 := archsimd.LoadUint8x16(base[0*outer:]).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16(base[4*outer:]).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16(base[8*outer:]).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16(base[12*outer:]).ReshapeToUint32s()
 			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
 			r0 = w01.InterleaveHi(w23).ReshapeToUint16s()
 		}
 		{
-			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*outer))).ReshapeToUint32s()
-			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*outer))).ReshapeToUint32s()
-			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*outer))).ReshapeToUint32s()
-			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*outer))).ReshapeToUint32s()
+			w0 := archsimd.LoadUint8x16(base[1*outer:]).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16(base[5*outer:]).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16(base[9*outer:]).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16(base[13*outer:]).ReshapeToUint32s()
 			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
 			r1 = w01.InterleaveHi(w23).ReshapeToUint16s()
 		}
 		{
-			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*outer))).ReshapeToUint32s()
-			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*outer))).ReshapeToUint32s()
-			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*outer))).ReshapeToUint32s()
-			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*outer))).ReshapeToUint32s()
+			w0 := archsimd.LoadUint8x16(base[2*outer:]).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16(base[6*outer:]).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16(base[10*outer:]).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16(base[14*outer:]).ReshapeToUint32s()
 			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
 			r2 = w01.InterleaveHi(w23).ReshapeToUint16s()
 		}
 		{
-			w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*outer))).ReshapeToUint32s()
-			w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*outer))).ReshapeToUint32s()
-			w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*outer))).ReshapeToUint32s()
-			w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*outer))).ReshapeToUint32s()
+			w0 := archsimd.LoadUint8x16(base[3*outer:]).ReshapeToUint32s()
+			w1 := archsimd.LoadUint8x16(base[7*outer:]).ReshapeToUint32s()
+			w2 := archsimd.LoadUint8x16(base[11*outer:]).ReshapeToUint32s()
+			w3 := archsimd.LoadUint8x16(base[15*outer:]).ReshapeToUint32s()
 			w01, w23 := w0.InterleaveOdd(w1).ReshapeToUint64s(), w2.InterleaveOdd(w3).ReshapeToUint64s()
 			r3 = w01.InterleaveHi(w23).ReshapeToUint16s()
 		}

@@ -1,9 +1,0 @@
-['/private/tmp/govpx-arm-round3-components/116.test', '-test.run=^$', '-test.bench=^BenchmarkR3Components/DirectCost', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/encoder
-cpu: Apple M4 Max
-BenchmarkR3Components/DirectCost/token1         	24178314	         1.991 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR3Components/DirectCost/token4         	21248734	         2.258 ns/op	       0 B/op	       0 allocs/op
-BenchmarkR3Components/DirectCost/token10        	21353499	         2.255 ns/op	       0 B/op	       0 allocs/op
-PASS

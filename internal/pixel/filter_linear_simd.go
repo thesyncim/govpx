@@ -5,7 +5,6 @@ package pixel
 import (
 	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // Nonnegative two-tap filters with total weight <=128 fit signed int16,
@@ -22,11 +21,10 @@ func filterLinear8(src []byte, ss int, dst []byte, ds, w, h, step int, taps []in
 	if w == 4 {
 		n = 4
 	}
-	sp := unsafe.Pointer(unsafe.SliceData(src))
 	for y := range h {
 		for x := 0; x < w; x += n {
-			p := unsafe.Add(sp, y*ss+x)
-			a, b := widen8(loadNPtr(p, n)), widen8(loadNPtr(unsafe.Add(p, step), n))
+			p := src[y*ss+x:]
+			a, b := widen8(loadN(p, n)), widen8(loadN(p[step:], n))
 			v := packBytes(filterShift7(mulAdd16(a.Mul(c0).Add(bias), b, c1)))
 			if n == 4 {
 				binary.LittleEndian.PutUint32(dst[y*ds+x:], v.ReshapeToUint32s().GetElem(0))

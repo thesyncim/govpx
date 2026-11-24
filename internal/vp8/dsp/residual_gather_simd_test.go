@@ -3,7 +3,6 @@ package dsp
 import (
 	"math/rand"
 	"testing"
-	"unsafe"
 )
 
 // scalarResidualGather is the independent reference used by the SIMD parity
@@ -47,10 +46,10 @@ func TestResidualGatherSIMDMatchesScalar(t *testing.T) {
 	cases := []struct {
 		name string
 		w, h int
-		fn   func(srcP *byte, srcStride int, predP *byte, predStride int, outP *int16)
+		fn   func(src []byte, srcStride int, pred []byte, predStride int, out []int16)
 	}{
-		{"16x16", 16, 16, ResidualGather16x16PtrFast},
-		{"8x8", 8, 8, ResidualGather8x8PtrFast},
+		{"16x16", 16, 16, ResidualGather16x16Fast},
+		{"8x8", 8, 8, ResidualGather8x8Fast},
 	}
 
 	for _, c := range cases {
@@ -67,11 +66,11 @@ func TestResidualGatherSIMDMatchesScalar(t *testing.T) {
 						outScalar[i] = 0x7777
 					}
 					c.fn(
-						(*byte)(unsafe.Pointer(&srcSlice[0])),
+						srcSlice,
 						planeStride,
-						(*byte)(unsafe.Pointer(&predSlice[0])),
+						predSlice,
 						planeStride,
-						(*int16)(unsafe.Pointer(&outSimd[0])),
+						outSimd,
 					)
 					scalarResidualGather(srcSlice, planeStride, predSlice, planeStride, outScalar, c.w, c.h)
 					for i := range outSimd {
@@ -112,16 +111,16 @@ func TestResidualGatherSIMDExtremeValues(t *testing.T) {
 			}
 			nBlocks := (c.w / 4) * (c.h / 4)
 			out := make([]int16, nBlocks*16)
-			fn := ResidualGather16x16PtrFast
+			fn := ResidualGather16x16Fast
 			if c.w == 8 {
-				fn = ResidualGather8x8PtrFast
+				fn = ResidualGather8x8Fast
 			}
 			fn(
-				(*byte)(unsafe.Pointer(&src[0])),
+				src,
 				stride,
-				(*byte)(unsafe.Pointer(&pred[0])),
+				pred,
 				stride,
-				(*int16)(unsafe.Pointer(&out[0])),
+				out,
 			)
 			for i, v := range out {
 				if v != c.expectVal {
@@ -142,12 +141,9 @@ func BenchmarkResidualGather16x16(b *testing.B) {
 		pred[i] = byte(r.Intn(256))
 	}
 	out := make([]int16, 16*16)
-	srcP := (*byte)(unsafe.Pointer(&src[0]))
-	predP := (*byte)(unsafe.Pointer(&pred[0]))
-	outP := (*int16)(unsafe.Pointer(&out[0]))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ResidualGather16x16PtrFast(srcP, stride, predP, stride, outP)
+		ResidualGather16x16Fast(src, stride, pred, stride, out)
 	}
 }
 
@@ -161,12 +157,9 @@ func BenchmarkResidualGather8x8(b *testing.B) {
 		pred[i] = byte(r.Intn(256))
 	}
 	out := make([]int16, 4*16)
-	srcP := (*byte)(unsafe.Pointer(&src[0]))
-	predP := (*byte)(unsafe.Pointer(&pred[0]))
-	outP := (*int16)(unsafe.Pointer(&out[0]))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ResidualGather8x8PtrFast(srcP, stride, predP, stride, outP)
+		ResidualGather8x8Fast(src, stride, pred, stride, out)
 	}
 }
 

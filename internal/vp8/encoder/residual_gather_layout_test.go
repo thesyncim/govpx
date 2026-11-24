@@ -37,7 +37,7 @@ func TestUVResidualGatherMatchesLibvpxBlockLayout(t *testing.T) {
 
 	// (1) Run the production fast-path gather.
 	var got [4 * 16]int16
-	dsp.ResidualGather8x8PtrFast(&src[0], srcStride, &pred[0], predStride, &got[0])
+	dsp.ResidualGather8x8Fast(src[:], srcStride, pred[:], predStride, got[:])
 
 	// (1') Reference: build the libvpx-style 8x8 plane-diff buffer with
 	// stride 8 (vpx_subtract_block_c semantics), then read out the 4
@@ -124,7 +124,7 @@ func TestUVResidualGatherMatchesLibvpxBlockLayout(t *testing.T) {
 		pred[i] = 0
 	}
 	var zeros [4 * 16]int16
-	dsp.ResidualGather8x8PtrFast(&src[0], srcStride, &pred[0], predStride, &zeros[0])
+	dsp.ResidualGather8x8Fast(src[:], srcStride, pred[:], predStride, zeros[:])
 	for i := range zeros {
 		if zeros[i] != 0 {
 			t.Fatalf("UV gather zero-input skew at i=%d: got=%d want=0", i, zeros[i])
@@ -139,7 +139,7 @@ func TestUVResidualGatherMatchesLibvpxBlockLayout(t *testing.T) {
 		pred[i] = 0
 	}
 	var posSat [4 * 16]int16
-	dsp.ResidualGather8x8PtrFast(&src[0], srcStride, &pred[0], predStride, &posSat[0])
+	dsp.ResidualGather8x8Fast(src[:], srcStride, pred[:], predStride, posSat[:])
 	for i := range posSat {
 		if posSat[i] != 255 {
 			t.Fatalf("UV gather +sat skew at i=%d: got=%d want=255", i, posSat[i])
@@ -154,7 +154,7 @@ func TestUVResidualGatherMatchesLibvpxBlockLayout(t *testing.T) {
 		pred[i] = 0xFF
 	}
 	var negSat [4 * 16]int16
-	dsp.ResidualGather8x8PtrFast(&src[0], srcStride, &pred[0], predStride, &negSat[0])
+	dsp.ResidualGather8x8Fast(src[:], srcStride, pred[:], predStride, negSat[:])
 	for i := range negSat {
 		if negSat[i] != -255 {
 			t.Fatalf("UV gather -sat skew at i=%d: got=%d want=-255", i, negSat[i])

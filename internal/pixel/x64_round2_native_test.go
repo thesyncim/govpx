@@ -288,7 +288,7 @@ func TestX64Round2SADLimit(t *testing.T) {
 					break
 				}
 			}
-			if got := SAD16Limit16Ptr(&a[0], 32, &c[0], 32, limit); got != want {
+			if got := SAD16Limit(a[:], 32, c[:], 32, 16, limit); got != want {
 				t.Fatalf("SAD mode%d limit%d got%d want%d", mode, limit, got, want)
 			}
 		}
@@ -304,7 +304,7 @@ func BenchmarkX64Round2SADLimit(b *testing.B) {
 			}
 			b.ReportAllocs()
 			for b.Loop() {
-				round2IntSink = SAD16Limit16Ptr(&a[0], 32, &c[0], 32, limit)
+				round2IntSink = SAD16Limit(a[:], 32, c[:], 32, 16, limit)
 			}
 		})
 	}

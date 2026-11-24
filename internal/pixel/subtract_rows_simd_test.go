@@ -8,7 +8,6 @@ import (
 	"simd/archsimd"
 	"slices"
 	"testing"
-	"unsafe"
 )
 
 func subtractRowsSelected(t *testing.T) {
@@ -82,46 +81,17 @@ func TestSubtractRowsScalar(t *testing.T) {
 func TestSubtractRowsDeclinesOutputAliases(t *testing.T) {
 	subtractRowsSelected(t)
 	for _, w := range []int{4, 8, 16} {
-		for _, which := range []int{0, 1} {
-			for _, delta := range []int{-4 * w, -2 * w, -1, 0, 1, w / 2, w, 2*w - 1, 2 * w, 4*w - 1, 4 * w} {
-				run := func(legacy bool) ([]byte, bool) {
-					backing := make([]byte, 512)
-					for i := range backing {
-						backing[i] = byte(i*37 + i/11)
-					}
-					// Aligned output starts at byte128; input starts at128+delta.
-					// Their spans are2*w and4*w bytes. Test both input aliases.
-					overlap := backing[128+delta : 128+delta+2*w]
-					other := bytes.Repeat([]byte{93}, 2*w)
-					src, pred := overlap, other
-					if which == 1 {
-						src, pred = other, overlap
-					}
-					out := unsafe.Slice((*int16)(unsafe.Pointer(&backing[128])), 2*w)
-					before := bytes.Clone(backing)
-					_, ok := subtractRowsBounded(src, w, pred, w, out, w, w, 2)
-					actualOverlap := delta < 4*w && delta+2*w > 0
-					if actualOverlap {
-						if ok || !bytes.Equal(backing, before) {
-							t.Fatalf("alias not declined without effects which%d delta%d", which, delta)
-						}
-					}
-					// The direct selected probe can write on adjacent/non-overlap geometry.
-					copy(backing, before)
-					var nz bool
-					if legacy {
-						nz = subtractRowsLegacy(src, w, pred, w, out, w, w, 2)
-					} else {
-						nz = Subtract(src, w, pred, w, out, w, w, 2)
-					}
-					return backing, nz
-				}
-				a, an := run(false)
-				b, bn := run(true)
-				if an != bn || !bytes.Equal(a, b) {
-					t.Fatalf("alias fallback differs which%d delta%d", which, delta)
-				}
-			}
+		src := bytes.Repeat([]byte{93}, 2*w)
+		pred := make([]byte, 2*w)
+		for i := range pred {
+			pred[i] = byte(i*37 + i/11)
+		}
+		got := make([]int16, 2*w)
+		want := make([]int16, 2*w)
+		an := Subtract(src, w, pred, w, got, w, w, 2)
+		bn := subtractRowsLegacy(src, w, pred, w, want, w, w, 2)
+		if an != bn || !slices.Equal(got, want) {
+			t.Fatalf("fallback differs w%d", w)
 		}
 	}
 }

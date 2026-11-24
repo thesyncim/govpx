@@ -147,9 +147,21 @@ func (e *VP9Encoder) warmVP9EncoderFramePool(layout common.FrameLayout) {
 	}
 	for i := range vp9EncoderFramePoolWarmEntries {
 		ent := &pool.frames[i]
-		ent.yFull = buffers.EnsureAlignedCapacity(ent.yFull, layout.YFullLen, 32)
-		ent.uFull = buffers.EnsureAlignedCapacity(ent.uFull, layout.UVFullLen, 32)
-		ent.vFull = buffers.EnsureAlignedCapacity(ent.vFull, layout.UVFullLen, 32)
+		if cap(ent.yFull) < layout.YFullLen {
+			ent.yFull = buffers.NewAligned(layout.YFullLen, 32)
+		} else {
+			ent.yFull = ent.yFull[:layout.YFullLen]
+		}
+		if cap(ent.uFull) < layout.UVFullLen {
+			ent.uFull = buffers.NewAligned(layout.UVFullLen, 32)
+		} else {
+			ent.uFull = ent.uFull[:layout.UVFullLen]
+		}
+		if cap(ent.vFull) < layout.UVFullLen {
+			ent.vFull = buffers.NewAligned(layout.UVFullLen, 32)
+		} else {
+			ent.vFull = ent.vFull[:layout.UVFullLen]
+		}
 	}
 	if e.reconPoolIdx >= 0 && e.reconPoolIdx < vp9EncoderFramePoolWarmEntries {
 		// Re-adopt the working entry's arrays in case the growth-only
@@ -252,9 +264,21 @@ func (e *VP9Encoder) storeVP9EncoderRefCopy(slot int, src Image) bool {
 	}
 	ent := &pool.frames[idx]
 	layout := common.NewFrameLayout(src.Width, src.Height)
-	ent.yFull = buffers.EnsureAlignedCapacity(ent.yFull, layout.YFullLen, 32)
-	ent.uFull = buffers.EnsureAlignedCapacity(ent.uFull, layout.UVFullLen, 32)
-	ent.vFull = buffers.EnsureAlignedCapacity(ent.vFull, layout.UVFullLen, 32)
+	if cap(ent.yFull) < layout.YFullLen {
+		ent.yFull = buffers.NewAligned(layout.YFullLen, 32)
+	} else {
+		ent.yFull = ent.yFull[:layout.YFullLen]
+	}
+	if cap(ent.uFull) < layout.UVFullLen {
+		ent.uFull = buffers.NewAligned(layout.UVFullLen, 32)
+	} else {
+		ent.uFull = ent.uFull[:layout.UVFullLen]
+	}
+	if cap(ent.vFull) < layout.UVFullLen {
+		ent.vFull = buffers.NewAligned(layout.UVFullLen, 32)
+	} else {
+		ent.vFull = ent.vFull[:layout.UVFullLen]
+	}
 	buffers.Fill(ent.yFull, 128)
 	buffers.Fill(ent.uFull, 128)
 	buffers.Fill(ent.vFull, 128)

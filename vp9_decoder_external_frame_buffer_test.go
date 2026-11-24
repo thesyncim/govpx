@@ -2,8 +2,8 @@ package govpx_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
-	"unsafe"
 
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
@@ -286,12 +286,12 @@ func (p *vp9ExternalFrameBufferPoolForTest) ownerID(plane []byte) (int, bool) {
 	if len(plane) == 0 {
 		return 0, false
 	}
-	ptr := uintptr(unsafe.Pointer(&plane[0]))
+	ptr := reflect.ValueOf(plane).Pointer()
 	for id, data := range p.buffers {
 		if len(data) == 0 {
 			continue
 		}
-		start := uintptr(unsafe.Pointer(&data[0]))
+		start := reflect.ValueOf(data).Pointer()
 		end := start + uintptr(len(data))
 		if ptr >= start && ptr < end {
 			return id, true

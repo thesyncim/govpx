@@ -329,7 +329,7 @@ func macroblockLumaVarianceSSEAgainstBuffer(src vp8enc.SourceImage, mbRow int, m
 	baseY := mbRow * 16
 	baseX := mbCol * 16
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, &pred[0], 16)
+		sum, sse := dsp.VarianceBlock16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, pred[:], 16)
 		return sse - ((sum * sum) >> 8), sse
 	}
 	return macroblockLumaVarianceSSEFromPredictor(src, mbRow, mbCol, pred)

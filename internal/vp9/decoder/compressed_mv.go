@@ -1,8 +1,6 @@
 package decoder
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 )
 
@@ -51,7 +49,7 @@ func ReadMvProbs(r *bitstream.Reader, ctx *NmvContext, allowHp bool) {
 
 	for i := range 2 {
 		cc := &ctx.Comps[i]
-		UpdateMvProbs(r, asSlice(&cc.Sign))
+		updateMvProb(r, &cc.Sign)
 		UpdateMvProbs(r, cc.Classes[:])
 		UpdateMvProbs(r, cc.Class0[:])
 		UpdateMvProbs(r, cc.Bits[:])
@@ -68,16 +66,14 @@ func ReadMvProbs(r *bitstream.Reader, ctx *NmvContext, allowHp bool) {
 	if allowHp {
 		for i := range 2 {
 			cc := &ctx.Comps[i]
-			UpdateMvProbs(r, asSlice(&cc.Class0Hp))
-			UpdateMvProbs(r, asSlice(&cc.Hp))
+			updateMvProb(r, &cc.Class0Hp)
+			updateMvProb(r, &cc.Hp)
 		}
 	}
 }
 
-// asSlice exposes a single uint8 as a 1-element slice so UpdateMvProbs
-// — which works on []uint8 — can address individual scalar probability
-// slots without an extra allocation. The slice aliases the caller's
-// storage; nothing is copied.
-func asSlice(p *uint8) []uint8 {
-	return unsafe.Slice(p, 1)
+func updateMvProb(r *bitstream.Reader, p *uint8) {
+	if r.Read(MvUpdateProb) != 0 {
+		*p = uint8((r.ReadLiteral(7) << 1) | 1)
+	}
 }

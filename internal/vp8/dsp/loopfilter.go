@@ -1,7 +1,5 @@
 package dsp
 
-import "unsafe"
-
 // Ported from libvpx v1.16.0 vp8/common/loopfilter_filters.c.
 
 const MaxLoopFilter = 63
@@ -19,13 +17,12 @@ func LoopFilterSimpleVerticalEdge(s []byte, stride int, blimit byte) {
 // when the SIMD dispatch can't take the fast path.
 func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[3*stride+15]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range 16 {
-		p1 := (*byte)(unsafe.Add(base, i))
-		p0 := (*byte)(unsafe.Add(base, i+stride))
-		q0 := (*byte)(unsafe.Add(base, i+2*stride))
-		q1 := (*byte)(unsafe.Add(base, i+3*stride))
+		p1 := &s[i]
+		p0 := &s[i+stride]
+		q0 := &s[i+2*stride]
+		q1 := &s[i+3*stride]
 		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
 		simpleFilter(mask, p1, p0, q0, q1)
 	}
@@ -33,14 +30,13 @@ func loopFilterSimpleHorizontalEdgeScalar(s []byte, stride int, blimit byte) {
 
 func loopFilterSimpleVerticalEdgeScalar(s []byte, stride int, blimit byte) {
 	_ = s[15*stride+3]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range 16 {
-		row := unsafe.Add(base, i*stride)
-		p1 := (*byte)(unsafe.Add(row, 0))
-		p0 := (*byte)(unsafe.Add(row, 1))
-		q0 := (*byte)(unsafe.Add(row, 2))
-		q1 := (*byte)(unsafe.Add(row, 3))
+		row := s[i*stride:]
+		p1 := &row[0]
+		p0 := &row[1]
+		q0 := &row[2]
+		q1 := &row[3]
 		mask := simpleFilterMask(blimit, *p1, *p0, *q0, *q1)
 		simpleFilter(mask, p1, p0, q0, q1)
 	}
@@ -97,19 +93,18 @@ func MBLoopFilterVerticalEdgeUV(u []byte, v []byte, stride int, blimit byte, lim
 func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	n := count * 8
 	_ = s[7*stride+n-1]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range n {
-		p3 := (*byte)(unsafe.Add(base, i))
-		p2 := (*byte)(unsafe.Add(base, i+stride))
-		p1 := (*byte)(unsafe.Add(base, i+2*stride))
-		p0 := (*byte)(unsafe.Add(base, i+3*stride))
-		q0 := (*byte)(unsafe.Add(base, i+4*stride))
-		q1 := (*byte)(unsafe.Add(base, i+5*stride))
-		q2 := (*byte)(unsafe.Add(base, i+6*stride))
-		q3 := (*byte)(unsafe.Add(base, i+7*stride))
-		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
-		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		p3v := s[i]
+		p2v := s[i+stride]
+		p1 := &s[i+2*stride]
+		p0 := &s[i+3*stride]
+		q0 := &s[i+4*stride]
+		q1 := &s[i+5*stride]
+		q2v := s[i+6*stride]
+		q3v := s[i+7*stride]
+		p1v, p0v := *p1, *p0
+		q0v, q1v := *q0, *q1
 		if absByteDiff(p3v, p2v) > limit ||
 			absByteDiff(p2v, p1v) > limit ||
 			absByteDiff(p1v, p0v) > limit ||
@@ -127,20 +122,15 @@ func loopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byt
 func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	n := count * 8
 	_ = s[(n-1)*stride+7]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range n {
-		row := unsafe.Add(base, i*stride)
-		p3 := (*byte)(unsafe.Add(row, 0))
-		p2 := (*byte)(unsafe.Add(row, 1))
-		p1 := (*byte)(unsafe.Add(row, 2))
-		p0 := (*byte)(unsafe.Add(row, 3))
-		q0 := (*byte)(unsafe.Add(row, 4))
-		q1 := (*byte)(unsafe.Add(row, 5))
-		q2 := (*byte)(unsafe.Add(row, 6))
-		q3 := (*byte)(unsafe.Add(row, 7))
-		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
-		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		row := s[i*stride:]
+		p3v, p2v := row[0], row[1]
+		p1, p0 := &row[2], &row[3]
+		q0, q1 := &row[4], &row[5]
+		q2v, q3v := row[6], row[7]
+		p1v, p0v := *p1, *p0
+		q0v, q1v := *q0, *q1
 		if absByteDiff(p3v, p2v) > limit ||
 			absByteDiff(p2v, p1v) > limit ||
 			absByteDiff(p1v, p0v) > limit ||
@@ -158,19 +148,18 @@ func loopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte,
 func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	n := count * 8
 	_ = s[7*stride+n-1]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range n {
-		p3 := (*byte)(unsafe.Add(base, i))
-		p2 := (*byte)(unsafe.Add(base, i+stride))
-		p1 := (*byte)(unsafe.Add(base, i+2*stride))
-		p0 := (*byte)(unsafe.Add(base, i+3*stride))
-		q0 := (*byte)(unsafe.Add(base, i+4*stride))
-		q1 := (*byte)(unsafe.Add(base, i+5*stride))
-		q2 := (*byte)(unsafe.Add(base, i+6*stride))
-		q3 := (*byte)(unsafe.Add(base, i+7*stride))
-		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
-		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		p3v := s[i]
+		p2 := &s[i+stride]
+		p1 := &s[i+2*stride]
+		p0 := &s[i+3*stride]
+		q0 := &s[i+4*stride]
+		q1 := &s[i+5*stride]
+		q2 := &s[i+6*stride]
+		q3v := s[i+7*stride]
+		p2v, p1v, p0v := *p2, *p1, *p0
+		q0v, q1v, q2v := *q0, *q1, *q2
 		if absByteDiff(p3v, p2v) > limit ||
 			absByteDiff(p2v, p1v) > limit ||
 			absByteDiff(p1v, p0v) > limit ||
@@ -188,20 +177,15 @@ func mbLoopFilterHorizontalEdgeScalar(s []byte, stride int, blimit byte, limit b
 func mbLoopFilterVerticalEdgeScalar(s []byte, stride int, blimit byte, limit byte, thresh byte, count int) {
 	n := count * 8
 	_ = s[(n-1)*stride+7]
-	base := unsafe.Pointer(&s[0])
 
 	for i := range n {
-		row := unsafe.Add(base, i*stride)
-		p3 := (*byte)(unsafe.Add(row, 0))
-		p2 := (*byte)(unsafe.Add(row, 1))
-		p1 := (*byte)(unsafe.Add(row, 2))
-		p0 := (*byte)(unsafe.Add(row, 3))
-		q0 := (*byte)(unsafe.Add(row, 4))
-		q1 := (*byte)(unsafe.Add(row, 5))
-		q2 := (*byte)(unsafe.Add(row, 6))
-		q3 := (*byte)(unsafe.Add(row, 7))
-		p3v, p2v, p1v, p0v := *p3, *p2, *p1, *p0
-		q0v, q1v, q2v, q3v := *q0, *q1, *q2, *q3
+		row := s[i*stride:]
+		p3v := row[0]
+		p2, p1, p0 := &row[1], &row[2], &row[3]
+		q0, q1, q2 := &row[4], &row[5], &row[6]
+		q3v := row[7]
+		p2v, p1v, p0v := *p2, *p1, *p0
+		q0v, q1v, q2v := *q0, *q1, *q2
 		if absByteDiff(p3v, p2v) > limit ||
 			absByteDiff(p2v, p1v) > limit ||
 			absByteDiff(p1v, p0v) > limit ||

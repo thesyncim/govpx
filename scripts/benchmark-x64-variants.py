@@ -99,7 +99,7 @@ def main():
         assert all(v['package'] in ('./internal/pixel', './internal/vp9/encoder', '.') for v in variants)
         run(['uname', '-a'], 'uname.txt')
         run(['lscpu'], 'lscpu.txt')
-        assert run([wrapper, 'env', 'GOVERSION'], 'goversion.txt').strip() == 'go1.27.2'
+        assert run([wrapper, 'env', 'GOVERSION'], 'goversion.txt').strip() == 'go1.27.4'
         assert '.codex/worktrees' not in run([wrapper, 'env', 'GOCACHE'], 'gocache.txt')
         fixtures = {str(relative(f)): blob(source) for f, source in manifest['fixtures'].items()}
         assert all(f.endswith('_test.go') for f in fixtures)

@@ -8,8 +8,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 func loopFilterInternalEdge(p []byte, off, step, outer, blimit, limit, thresh int) {
@@ -77,36 +77,36 @@ func loopFilterInternalEdge(p []byte, off, step, outer, blimit, limit, thresh in
 
 	// The caller proves the complete 16x16 window. These stores touch exactly
 	// four filtered bytes at each position, including overlapping logical rows.
-	ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off-2*step)
+	base := p[off-2*step:]
 	if outer == 1 {
-		np1.StoreArray((*[16]byte)(ptr))
-		np0.StoreArray((*[16]byte)(unsafe.Add(ptr, step)))
-		nq0.StoreArray((*[16]byte)(unsafe.Add(ptr, 2*step)))
-		nq1.StoreArray((*[16]byte)(unsafe.Add(ptr, 3*step)))
+		np1.Store(base)
+		np0.Store(base[step:])
+		nq0.Store(base[2*step:])
+		nq1.Store(base[3*step:])
 	} else {
 		{
 			ab, cd := zipBytesLo(np1, np0), zipBytesLo(nq0, nq1)
 			lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-			*(*uint32)(unsafe.Add(ptr, 0*outer)) = lo.GetElem(0)
-			*(*uint32)(unsafe.Add(ptr, 1*outer)) = lo.GetElem(1)
-			*(*uint32)(unsafe.Add(ptr, 2*outer)) = lo.GetElem(2)
-			*(*uint32)(unsafe.Add(ptr, 3*outer)) = lo.GetElem(3)
-			*(*uint32)(unsafe.Add(ptr, 4*outer)) = hi.GetElem(0)
-			*(*uint32)(unsafe.Add(ptr, 5*outer)) = hi.GetElem(1)
-			*(*uint32)(unsafe.Add(ptr, 6*outer)) = hi.GetElem(2)
-			*(*uint32)(unsafe.Add(ptr, 7*outer)) = hi.GetElem(3)
+			binary.LittleEndian.PutUint32(base[0*outer:], lo.GetElem(0))
+			binary.LittleEndian.PutUint32(base[1*outer:], lo.GetElem(1))
+			binary.LittleEndian.PutUint32(base[2*outer:], lo.GetElem(2))
+			binary.LittleEndian.PutUint32(base[3*outer:], lo.GetElem(3))
+			binary.LittleEndian.PutUint32(base[4*outer:], hi.GetElem(0))
+			binary.LittleEndian.PutUint32(base[5*outer:], hi.GetElem(1))
+			binary.LittleEndian.PutUint32(base[6*outer:], hi.GetElem(2))
+			binary.LittleEndian.PutUint32(base[7*outer:], hi.GetElem(3))
 		}
 		{
 			ab, cd := zipBytesLo(highBytes(np1), highBytes(np0)), zipBytesLo(highBytes(nq0), highBytes(nq1))
 			lo, hi := ab.InterleaveLo(cd).ReshapeToUint32s(), ab.InterleaveHi(cd).ReshapeToUint32s()
-			*(*uint32)(unsafe.Add(ptr, 8*outer)) = lo.GetElem(0)
-			*(*uint32)(unsafe.Add(ptr, 9*outer)) = lo.GetElem(1)
-			*(*uint32)(unsafe.Add(ptr, 10*outer)) = lo.GetElem(2)
-			*(*uint32)(unsafe.Add(ptr, 11*outer)) = lo.GetElem(3)
-			*(*uint32)(unsafe.Add(ptr, 12*outer)) = hi.GetElem(0)
-			*(*uint32)(unsafe.Add(ptr, 13*outer)) = hi.GetElem(1)
-			*(*uint32)(unsafe.Add(ptr, 14*outer)) = hi.GetElem(2)
-			*(*uint32)(unsafe.Add(ptr, 15*outer)) = hi.GetElem(3)
+			binary.LittleEndian.PutUint32(base[8*outer:], lo.GetElem(0))
+			binary.LittleEndian.PutUint32(base[9*outer:], lo.GetElem(1))
+			binary.LittleEndian.PutUint32(base[10*outer:], lo.GetElem(2))
+			binary.LittleEndian.PutUint32(base[11*outer:], lo.GetElem(3))
+			binary.LittleEndian.PutUint32(base[12*outer:], hi.GetElem(0))
+			binary.LittleEndian.PutUint32(base[13*outer:], hi.GetElem(1))
+			binary.LittleEndian.PutUint32(base[14*outer:], hi.GetElem(2))
+			binary.LittleEndian.PutUint32(base[15*outer:], hi.GetElem(3))
 		}
 	}
 

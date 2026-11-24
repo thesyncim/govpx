@@ -137,7 +137,7 @@ def main():
         run(["uname", "-a"], "uname.txt")
         run(["lscpu"], "lscpu.txt")
         version = run([wrapper, "env", "GOVERSION"], "goversion.txt").strip()
-        assert version == "go1.27.2", version
+        assert version == "go1.27.4", version
         cache = run([wrapper, "env", "GOCACHE"], "gocache.txt").strip()
         assert ".codex/worktrees" not in cache
         assert run(["objdump", "--version"], "objdump-version.txt").startswith("GNU objdump")

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"testing"
-	"unsafe"
 
 	vpxerrors "github.com/thesyncim/govpx/internal/vpx/errors"
 )
@@ -15,13 +14,8 @@ func TestNewAligned(t *testing.T) {
 		if len(buf) != 257 {
 			t.Fatalf("len(NewAligned(257, %d)) = %d, want 257", align, len(buf))
 		}
-		effectiveAlign := align
-		if effectiveAlign&(effectiveAlign-1) != 0 {
-			effectiveAlign = nextPowerOfTwo(effectiveAlign)
-		}
-		ptr := uintptr(unsafe.Pointer(&buf[0]))
-		if ptr%uintptr(effectiveAlign) != 0 {
-			t.Fatalf("ptr %% align = %d for align %d", ptr%uintptr(effectiveAlign), align)
+		if !ByteSliceAligned(buf, align) {
+			t.Fatalf("ByteSliceAligned(NewAligned(257, %d), %d) = false", align, align)
 		}
 	}
 }

@@ -1,7 +1,0 @@
-{
-  "outer_members_verified": 15,
-  "raw_members_verified": 233,
-  "all8_overlay_Go_bytes_equal_ROOT_integrated": true,
-  "initial_schema_assumption_failure": "Expected wrapped files/members dictionaries; actual flat dictionaries verified without changing data. Initial failure retained in tool history.",
-  "frozen_raw_sha256": "8d6a78900c0344d31a72f0fdc465efd12940fa604b7fd1c779da663ff001d3ea"
-}

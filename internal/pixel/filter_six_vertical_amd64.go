@@ -2,18 +2,14 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // Rolling rows require disjoint input/output and non-overlapping output rows.
 func filterVerticalRowsAllowed(src, dst []byte, ds, w, h int) bool {
-	if h < 2 || w%8 != 0 || ds < w {
+	if h < 2 || w%8 != 0 || ds < w || len(src) == 0 || len(dst) == 0 {
 		return false
 	}
-	sp, dp := uintptr(unsafe.Pointer(unsafe.SliceData(src))), uintptr(unsafe.Pointer(unsafe.SliceData(dst)))
-	return !((sp <= dp && dp-sp < uintptr(len(src))) || (dp < sp && sp-dp < uintptr(len(dst))))
+	return !slicesOverlap(src, dst, len(src), len(dst))
 }
 func filterVerticalSix8(src []byte, ss int, dst []byte, ds, w, h int, taps []int16) bool {
 	if !filterVerticalRowsAllowed(src, dst, ds, w, h) {

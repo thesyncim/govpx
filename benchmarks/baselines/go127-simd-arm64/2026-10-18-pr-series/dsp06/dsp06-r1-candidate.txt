@@ -1,9 +1,0 @@
-['/private/tmp/govpx-dsp-prs/dsp06.test', '-test.run=^$', '-test.bench=^BenchmarkDSPPRSparseDequant$', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx/internal/vp8/dsp
-cpu: Apple M4 Max
-BenchmarkDSPPRSparseDequant/zero         	 5868030	         8.259 ns/op	       0 B/op	       0 allocs/op
-BenchmarkDSPPRSparseDequant/dc           	 5819533	         8.164 ns/op	       0 B/op	       0 allocs/op
-BenchmarkDSPPRSparseDequant/dense        	 2495385	        19.26 ns/op	       0 B/op	       0 allocs/op
-PASS

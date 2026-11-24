@@ -1,4 +1,0 @@
-=== RUN   TestAlgo133Round3TM
---- PASS: TestAlgo133Round3TM (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/pixel	0.301s

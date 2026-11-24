@@ -2,47 +2,43 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // loadLFColumnsWide20 requires sixteen disjoint rows of twenty readable bytes.
 // It transposes the first sixteen columns once. The fused filter consumes the
 // upper eight columns after the preceding dependent edge has finished.
 func loadLFColumnsWide20(p []byte, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
 	var p3, p2, p1, p0, q0, q1, q2, q3 archsimd.Uint8x16
-	ptr := unsafe.Pointer(unsafe.SliceData(p))
-	w0 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 0*pitch))).ReshapeToUint64s()
-	w8 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 8*pitch))).ReshapeToUint64s()
+	w0 := archsimd.LoadUint8x16(p[0*pitch:]).ReshapeToUint64s()
+	w8 := archsimd.LoadUint8x16(p[8*pitch:]).ReshapeToUint64s()
 	r0 := w0.InterleaveLo(w8).ReshapeToUint32s()
 	h0 := w0.InterleaveHi(w8).ReshapeToUint32s()
-	w1 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 1*pitch))).ReshapeToUint64s()
-	w9 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 9*pitch))).ReshapeToUint64s()
+	w1 := archsimd.LoadUint8x16(p[1*pitch:]).ReshapeToUint64s()
+	w9 := archsimd.LoadUint8x16(p[9*pitch:]).ReshapeToUint64s()
 	r1 := w1.InterleaveLo(w9).ReshapeToUint32s()
 	h1 := w1.InterleaveHi(w9).ReshapeToUint32s()
-	w2 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 2*pitch))).ReshapeToUint64s()
-	w10 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 10*pitch))).ReshapeToUint64s()
+	w2 := archsimd.LoadUint8x16(p[2*pitch:]).ReshapeToUint64s()
+	w10 := archsimd.LoadUint8x16(p[10*pitch:]).ReshapeToUint64s()
 	r2 := w2.InterleaveLo(w10).ReshapeToUint32s()
 	h2 := w2.InterleaveHi(w10).ReshapeToUint32s()
-	w3 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 3*pitch))).ReshapeToUint64s()
-	w11 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 11*pitch))).ReshapeToUint64s()
+	w3 := archsimd.LoadUint8x16(p[3*pitch:]).ReshapeToUint64s()
+	w11 := archsimd.LoadUint8x16(p[11*pitch:]).ReshapeToUint64s()
 	r3 := w3.InterleaveLo(w11).ReshapeToUint32s()
 	h3 := w3.InterleaveHi(w11).ReshapeToUint32s()
-	w4 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 4*pitch))).ReshapeToUint64s()
-	w12 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 12*pitch))).ReshapeToUint64s()
+	w4 := archsimd.LoadUint8x16(p[4*pitch:]).ReshapeToUint64s()
+	w12 := archsimd.LoadUint8x16(p[12*pitch:]).ReshapeToUint64s()
 	r4 := w4.InterleaveLo(w12).ReshapeToUint32s()
 	h4 := w4.InterleaveHi(w12).ReshapeToUint32s()
-	w5 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 5*pitch))).ReshapeToUint64s()
-	w13 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 13*pitch))).ReshapeToUint64s()
+	w5 := archsimd.LoadUint8x16(p[5*pitch:]).ReshapeToUint64s()
+	w13 := archsimd.LoadUint8x16(p[13*pitch:]).ReshapeToUint64s()
 	r5 := w5.InterleaveLo(w13).ReshapeToUint32s()
 	h5 := w5.InterleaveHi(w13).ReshapeToUint32s()
-	w6 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 6*pitch))).ReshapeToUint64s()
-	w14 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 14*pitch))).ReshapeToUint64s()
+	w6 := archsimd.LoadUint8x16(p[6*pitch:]).ReshapeToUint64s()
+	w14 := archsimd.LoadUint8x16(p[14*pitch:]).ReshapeToUint64s()
 	r6 := w6.InterleaveLo(w14).ReshapeToUint32s()
 	h6 := w6.InterleaveHi(w14).ReshapeToUint32s()
-	w7 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 7*pitch))).ReshapeToUint64s()
-	w15 := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(ptr, 15*pitch))).ReshapeToUint64s()
+	w7 := archsimd.LoadUint8x16(p[7*pitch:]).ReshapeToUint64s()
+	w15 := archsimd.LoadUint8x16(p[15*pitch:]).ReshapeToUint64s()
 	r7 := w7.InterleaveLo(w15).ReshapeToUint32s()
 	h7 := w7.InterleaveHi(w15).ReshapeToUint32s()
 	a0 := r0.InterleaveEven(r4).ReshapeToUint16s()

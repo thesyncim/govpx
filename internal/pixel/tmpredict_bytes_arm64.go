@@ -2,8 +2,6 @@
 
 package pixel
 
-import "unsafe"
-
 // TMPredictBytes retains the checked direct-call contract of the libvpx
 // v1.16.0 vpx_dsp/intrapred.c true-motion byte path. Declines read no input and
 // write no output. TMPredictNative owns the single arithmetic implementation,
@@ -16,9 +14,7 @@ func TMPredictBytes(dst []byte, ds int, above, left []byte, top byte, w int) boo
 	if span > len(dst) || len(above) < w || len(left) < w {
 		return false
 	}
-	dp, ap := unsafe.Pointer(unsafe.SliceData(dst)), unsafe.Pointer(unsafe.SliceData(above))
-	d, a := uintptr(dp), uintptr(ap)
-	if (d <= a && a-d < uintptr(span)) || (a < d && d-a < uintptr(w)) {
+	if slicesOverlap(dst, above, span, w) {
 		return false
 	}
 	TMPredictNative(dst, ds, above, left, top, w)

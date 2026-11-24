@@ -1,8 +1,0 @@
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx
-cpu: Apple M4 Max
-BenchmarkAcceptedWholeIntraReuse/dc         	  237266	       193.2 ns/op	       0 B/op	       0 allocs/op
-BenchmarkAcceptedWholeIntraReuse/mixed      	  111216	       424.6 ns/op	       0 B/op	       0 allocs/op
-BenchmarkAcceptedWholeIntraReuse/skip       	  317119	       146.8 ns/op	       0 B/op	       0 allocs/op
-PASS

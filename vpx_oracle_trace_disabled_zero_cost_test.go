@@ -5,7 +5,6 @@ package govpx
 import (
 	"reflect"
 	"testing"
-	"unsafe"
 )
 
 var (
@@ -19,13 +18,13 @@ func TestVPxOracleTraceDisabledStateTypesHaveZeroSize(t *testing.T) {
 		name string
 		size uintptr
 	}{
-		{name: "vp8 oracle state", size: unsafe.Sizeof(oracleTraceState{})},
-		{name: "vp8 oracle holder", size: unsafe.Sizeof(oracleTraceHolder{})},
-		{name: "vp8 stale y2 snapshot", size: unsafe.Sizeof(staleY2Snapshot{})},
-		{name: "vp8 coefficient trace", size: unsafe.Sizeof(predictedMacroblockCoefficientTrace{})},
-		{name: "vp9 oracle state", size: unsafe.Sizeof(vp9OracleTraceState{})},
-		{name: "vp9 oracle holder", size: unsafe.Sizeof(vp9OracleTraceHolder{})},
-		{name: "vp9 frame summary", size: unsafe.Sizeof(vp9OracleFrameSummary{})},
+		{name: "vp8 oracle state", size: reflect.TypeFor[oracleTraceState]().Size()},
+		{name: "vp8 oracle holder", size: reflect.TypeFor[oracleTraceHolder]().Size()},
+		{name: "vp8 stale y2 snapshot", size: reflect.TypeFor[staleY2Snapshot]().Size()},
+		{name: "vp8 coefficient trace", size: reflect.TypeFor[predictedMacroblockCoefficientTrace]().Size()},
+		{name: "vp9 oracle state", size: reflect.TypeFor[vp9OracleTraceState]().Size()},
+		{name: "vp9 oracle holder", size: reflect.TypeFor[vp9OracleTraceHolder]().Size()},
+		{name: "vp9 frame summary", size: reflect.TypeFor[vp9OracleFrameSummary]().Size()},
 	}
 	for _, tc := range cases {
 		if tc.size != 0 {

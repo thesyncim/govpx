@@ -32,11 +32,11 @@ func BenchmarkGatherPointerNative(b *testing.B) {
 					for i := range out {
 						out[i] = 12345
 					}
-					fn := ResidualGather16x16PtrFast
+					fn := ResidualGather16x16Fast
 					if w == 8 {
-						fn = ResidualGather8x8PtrFast
+						fn = ResidualGather8x8Fast
 					}
-					a, p, o := &src[3], &pred[5], &out[8]
+					a, p, o := src[3:], pred[5:], out[8:]
 					b.ReportAllocs()
 					for b.Loop() {
 						fn(a, ss, p, ps, o)
@@ -89,11 +89,11 @@ func BenchmarkGatherPackedPredictionNative(b *testing.B) {
 					for i := range out {
 						out[i] = 12345
 					}
-					fn := ResidualGather16x16PtrFast
+					fn := ResidualGather16x16Fast
 					if w == 8 {
-						fn = ResidualGather8x8PtrFast
+						fn = ResidualGather8x8Fast
 					}
-					a, p, o := &src[3], &pred[5], &out[8]
+					a, p, o := src[3:], pred[5:], out[8:]
 					b.ReportAllocs()
 					for b.Loop() {
 						fn(a, ss, p, ps, o)

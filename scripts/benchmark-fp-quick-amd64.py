@@ -95,7 +95,7 @@ def main():
     try:
         run(["uname", "-a"], "uname.txt")
         run(["lscpu"], "lscpu.txt")
-        assert run([wrapper, "env", "GOVERSION"], "goversion.txt").strip() == "go1.27.2"
+        assert run([wrapper, "env", "GOVERSION"], "goversion.txt").strip() == "go1.27.4"
         assert ".codex/worktrees" not in run([wrapper, "env", "GOCACHE"], "gocache.txt")
         commits = {"parent": args.base_sha, "current": args.head_sha}
         for c in commits.values():

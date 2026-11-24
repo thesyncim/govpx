@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp9/bitstream"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
@@ -204,36 +202,8 @@ func stampCoefContexts(aboveCtx, leftCtx []uint8, v uint8) {
 }
 
 func stampCoefContextsAt(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, step int, v uint8) {
-	switch step {
-	case 8:
-		_ = aboveCtx[aboveOff+7]
-		_ = leftCtx[leftOff+7]
-		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 8, v)
-	case 4:
-		_ = aboveCtx[aboveOff+3]
-		_ = leftCtx[leftOff+3]
-		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 4, v)
-	case 2:
-		_ = aboveCtx[aboveOff+1]
-		_ = leftCtx[leftOff+1]
-		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 2, v)
-	case 1:
-		_ = aboveCtx[aboveOff]
-		_ = leftCtx[leftOff]
-		stampCoefContextBytes(aboveCtx, aboveOff, leftCtx, leftOff, 1, v)
-	default:
-		stampCoefContexts(aboveCtx[aboveOff:aboveOff+step],
-			leftCtx[leftOff:leftOff+step], v)
-	}
-}
-
-func stampCoefContextBytes(aboveCtx []uint8, aboveOff int, leftCtx []uint8, leftOff int, n int, v uint8) {
-	abovePtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(aboveCtx)), uintptr(aboveOff))
-	leftPtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(leftCtx)), uintptr(leftOff))
-	for i := range n {
-		*(*uint8)(unsafe.Add(abovePtr, uintptr(i))) = v
-		*(*uint8)(unsafe.Add(leftPtr, uintptr(i))) = v
-	}
+	stampCoefContexts(aboveCtx[aboveOff:aboveOff+step],
+		leftCtx[leftOff:leftOff+step], v)
 }
 
 // yModeForBlock mirrors libvpx's get_y_mode — picks the Y mode for
@@ -244,15 +214,6 @@ func yModeForBlock(mi *vp9dec.NeighborMi, block int) common.PredictionMode {
 		return mi.Bmi[block].AsMode
 	}
 	return mi.Mode
-}
-
-func compactCoefBlock(qcoeffs *[compactCoefSlots]int16,
-	eobs *[compactEOBSlots]int16, planeBsize common.BlockSize,
-	r, c int, txSize common.TxSize,
-) ([]int16, int, bool) {
-	span, eob, _, _, ok := compactCoefBlockOffsets(qcoeffs, eobs, planeBsize,
-		r, c, txSize)
-	return span, eob, ok
 }
 
 // compactCoefBlockOffsets additionally surfaces the derived coefficient-span

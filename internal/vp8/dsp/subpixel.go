@@ -3,7 +3,6 @@ package dsp
 import (
 	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp8/tables"
-	"unsafe"
 )
 
 // Ported from libvpx v1.16.0 vp8/common/filter.c prediction paths.
@@ -119,14 +118,9 @@ func SixTapPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst
 }
 
 func bilinearPredict(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int, width int, height int) {
-	// The small predictors used to stage both scalar axes even when one is identity.
-	// Keep staging for shared backing windows, where writes could change later reads.
 	if pixel.Enabled && srcStride >= width+1 && dstStride >= width && len(src) >= width+1 && srcStride <= (len(src)-width-1)/height && len(dst) >= width && dstStride <= (len(dst)-width)/(height-1) {
-		a, b := uintptr(unsafe.Pointer(&src[0])), uintptr(unsafe.Pointer(&dst[0]))
-		if a < b && b-a >= uintptr(len(src)) || b < a && a-b >= uintptr(len(dst)) {
-			bilinearPredictGo(src, srcStride, xoffset, yoffset, dst, dstStride, width, height)
-			return
-		}
+		bilinearPredictGo(src, srcStride, xoffset, yoffset, dst, dstStride, width, height)
+		return
 	}
 	hFilter := tables.BilinearFilters[xoffset]
 	vFilter := tables.BilinearFilters[yoffset]

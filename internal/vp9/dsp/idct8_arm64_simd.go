@@ -3,9 +3,10 @@
 package dsp
 
 import (
-	"github.com/thesyncim/govpx/internal/pixel"
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/pixel"
 )
 
 // Eight-line layout follows goav1's int16 transform pipeline; VP9's
@@ -39,8 +40,8 @@ func idct8Store16(dst []byte, v archsimd.Int16x8) {
 	_ = dst[7]
 	// Split the rounding bit so +16 never overflows signed int16.
 	v = v.Shift(idctRight5).Add(v.Shift(idctRight4).And(archsimd.BroadcastInt16x8(1)))
-	p := archsimd.Uint64x2{}.SetElem(0, *(*uint64)(unsafe.Pointer(unsafe.SliceData(dst)))).ReshapeToUint8s().ExtendLo8ToUint16().BitsToInt16()
-	*(*uint64)(unsafe.Pointer(unsafe.SliceData(dst))) = v.Add(p).SaturateToUint8().ReshapeToUint64s().GetElem(0)
+	p := archsimd.Uint64x2{}.SetElem(0, binary.LittleEndian.Uint64(dst)).ReshapeToUint8s().ExtendLo8ToUint16().BitsToInt16()
+	binary.LittleEndian.PutUint64(dst, v.Add(p).SaturateToUint8().ReshapeToUint64s().GetElem(0))
 }
 func inverseDCT8ARM(input []int16, dst []byte, stride, rows int) bool {
 	if (rows != 4 && rows != 8) || len(input) < 8*rows || stride < 8 || len(dst) < 7*stride+8 {

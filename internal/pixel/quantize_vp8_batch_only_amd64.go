@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // QuantizeVP8BatchOnly omits dequantized coefficients when the caller only
 // consumes quantized coefficients and EOBs. Store order and fallback guards
@@ -17,21 +14,8 @@ func QuantizeVP8BatchOnly(coeff []int16, round, quant *[16]int16, qcoeff []int16
 	// Validate element counts before multiplying; uintptr byte offsets also
 	// avoid signed overflow for large accepted counts.
 	n := count * 16
-
-	// A conservative span covers the shared encoder BlockQuant tables.
-	// Separately allocated tables may decline, preserving the general fallback.
-	overlap := func(a uintptr, an uintptr, b uintptr, bn uintptr) bool {
-		return (a <= b && b-a < an) || (b < a && a-b < bn)
-	}
-	rptr, qptr := uintptr(unsafe.Pointer(round)), uintptr(unsafe.Pointer(quant))
-	lo, hi := min(rptr, qptr), max(rptr, qptr)+32
-	scan := uintptr(unsafe.Pointer(iscan))
-	for k, p := range [2]uintptr{uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff))), uintptr(unsafe.Pointer(unsafe.SliceData(eobs)))} {
-		size := uintptr(n) * 2
-		if k == 1 {
-			size = uintptr(count)
-		}
-		if overlap(p, size, lo, hi-lo) || overlap(p, size, scan, 32) {
+	for _, table := range [3][]int16{round[:], quant[:], iscan[:]} {
+		if slicesOverlap(qcoeff, table, n, 16) {
 			return false
 		}
 	}
@@ -47,14 +31,13 @@ func QuantizeVP8BatchOnly(coeff []int16, round, quant *[16]int16, qcoeff []int16
 	}
 	positions := archsimd.LoadInt16x16Array(iscan)
 	z := archsimd.Int16x16{}
-	cp, qp := unsafe.Pointer(unsafe.SliceData(coeff)), unsafe.Pointer(unsafe.SliceData(qcoeff))
 	for i := range count {
-		off := uintptr(i) * 32
-		c := archsimd.LoadInt16x16Array((*[16]int16)(unsafe.Add(cp, off)))
+		off := i * 16
+		c := archsimd.LoadInt16x16(coeff[off:])
 		magnitude := c.Abs().ToBits().Add(r.ToBits()).MulHigh(q.ToBits()).BitsToInt16()
 		sign := c.ShiftAllRight(15)
 		t := magnitude.Xor(sign).Sub(sign)
-		t.StoreArray((*[16]int16)(unsafe.Add(qp, off)))
+		t.Store(qcoeff[off:])
 		last := positions.Masked(t.NotEqual(z))
 		eobs[i] = uint8(fpReduceMax16(last.GetLo().Max(last.GetHi())))
 	}

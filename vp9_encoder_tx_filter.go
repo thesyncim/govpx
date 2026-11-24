@@ -18,19 +18,6 @@ func vp9EncodeCountsForState(key *vp9KeyframeEncodeState,
 	return nil
 }
 
-func txModeForMi(mi vp9dec.NeighborMi) common.TxMode {
-	if mi.TxSize >= common.Tx32x32 {
-		return common.Allow32x32
-	}
-	if mi.TxSize >= common.Tx16x16 {
-		return common.Allow16x16
-	}
-	if mi.TxSize >= common.Tx8x8 {
-		return common.Allow8x8
-	}
-	return common.Only4x4
-}
-
 func vp9InterFrameTxMode(inter *vp9InterEncodeState) common.TxMode {
 	if inter == nil || inter.txMode >= common.TxModes {
 		return common.TxModeSelect

@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // loadLFColumns16 uses the 16x8 TRN schedule from libvpx v1.16.0's
@@ -14,15 +14,15 @@ import (
 // load reads exactly eight bytes, even at the last row and unaligned offsets.
 func loadLFColumns16(p []byte, off, pitch int) (archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16) {
 	var p3, p2, p1, p0, q0, q1, q2, q3 archsimd.Uint8x16
-	ptr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
-	r0 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 0*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 8*pitch))).ReshapeToUint32s()
-	r1 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 1*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 9*pitch))).ReshapeToUint32s()
-	r2 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 2*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 10*pitch))).ReshapeToUint32s()
-	r3 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 3*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 11*pitch))).ReshapeToUint32s()
-	r4 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 4*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 12*pitch))).ReshapeToUint32s()
-	r5 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 5*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 13*pitch))).ReshapeToUint32s()
-	r6 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 6*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 14*pitch))).ReshapeToUint32s()
-	r7 := archsimd.BroadcastUint64x2(*(*uint64)(unsafe.Add(ptr, 7*pitch))).SetElem(1, *(*uint64)(unsafe.Add(ptr, 15*pitch))).ReshapeToUint32s()
+	base := p[off:]
+	r0 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[0*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[8*pitch:])).ReshapeToUint32s()
+	r1 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[1*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[9*pitch:])).ReshapeToUint32s()
+	r2 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[2*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[10*pitch:])).ReshapeToUint32s()
+	r3 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[3*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[11*pitch:])).ReshapeToUint32s()
+	r4 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[4*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[12*pitch:])).ReshapeToUint32s()
+	r5 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[5*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[13*pitch:])).ReshapeToUint32s()
+	r6 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[6*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[14*pitch:])).ReshapeToUint32s()
+	r7 := archsimd.BroadcastUint64x2(binary.LittleEndian.Uint64(base[7*pitch:])).SetElem(1, binary.LittleEndian.Uint64(base[15*pitch:])).ReshapeToUint32s()
 	a0 := r0.InterleaveEven(r4).ReshapeToUint16s()
 	a1 := r0.InterleaveOdd(r4).ReshapeToUint16s()
 	a2 := r1.InterleaveEven(r5).ReshapeToUint16s()

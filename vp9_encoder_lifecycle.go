@@ -6,6 +6,7 @@ import (
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
 
 // VP9Encoder is the public entry point for VP9 profile 0 stream encoding.
@@ -874,5 +875,38 @@ func NewVP9Encoder(opts VP9EncoderOptions) (*VP9Encoder, error) {
 	// framesize-independent + framesize-dependent dispatch in setup before
 	// the first frame is encoded.
 	e.vp9ApplySpeedFeatures(e.vp9DefaultSpeedFrameContext())
+	e.prewarmVP9EncodeBuffers()
 	return e, nil
+}
+
+// prewarmVP9EncodeBuffers pre-allocates steady-state frame buffers at encoder
+// construction time so EncodeInto runs with zero allocations from frame 0.
+func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
+	if e == nil || e.opts.Width <= 0 || e.opts.Height <= 0 {
+		return
+	}
+	w, h := e.opts.Width, e.opts.Height
+	layout := common.NewFrameLayout(w, h)
+	e.warmVP9EncoderFramePool(layout)
+	miRows := (h + 7) >> 3
+	miCols := (w + 7) >> 3
+	e.ensureVP9EncoderModeBuffers(miRows, miCols)
+	e.prevFrameMvs = buffers.EnsureLenZeroed(e.prevFrameMvs, miRows*miCols)
+	e.vp9TokenFrame.Ensure(miRows, miCols)
+	if e.opts.NoiseSensitivity > 0 {
+		e.denoiser.sensitivity = e.opts.NoiseSensitivity
+		e.denoiser.ensure(w, h)
+	}
+	rect := image.Rect(0, 0, w, h)
+	e.lastSource = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
+	yPadW := w + 2*common.VP9EncBorderInPixels
+	yPadH := h + 2*common.VP9EncBorderInPixels
+	e.lastBordered.Pixels = buffers.EnsureCapacity(e.lastBordered.Pixels, yPadW*yPadH)
+	e.intProSrcBordered.Pixels = buffers.EnsureCapacity(e.intProSrcBordered.Pixels, yPadW*yPadH)
+	for i := range e.subpelRefBordered {
+		e.subpelRefBordered[i].Pixels = buffers.EnsureCapacity(e.subpelRefBordered[i].Pixels, yPadW*yPadH)
+	}
+	sbRows := (miRows + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	sbCols := (miCols + common.MiBlockSize - 1) >> common.MiBlockSizeLog2
+	e.vp9LoopFilterMasks = buffers.EnsureLenZeroed(e.vp9LoopFilterMasks, sbRows*sbCols)
 }

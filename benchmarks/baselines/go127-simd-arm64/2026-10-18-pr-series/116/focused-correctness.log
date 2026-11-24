@@ -1,4 +1,0 @@
-=== RUN   TestR3DirectCost
-    round3_components_test.go:584: 86016 dynamic cost comparisons
---- PASS: TestR3DirectCost (0.00s)
-PASS

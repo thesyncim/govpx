@@ -1,9 +1,0 @@
-=== RUN   TestCoeffTokenExtraCostTableMatchesSlowPath
---- PASS: TestCoeffTokenExtraCostTableMatchesSlowPath (0.00s)
-=== RUN   TestCoeffTokenExtraCostOutOfTableFallsBack
---- PASS: TestCoeffTokenExtraCostOutOfTableFallsBack (0.00s)
-=== RUN   TestCoeffTokenExtraCostQCoeffMatchesSlowPath
---- PASS: TestCoeffTokenExtraCostQCoeffMatchesSlowPath (0.00s)
-=== RUN   TestRound3ExtraCost
---- PASS: TestRound3ExtraCost (0.01s)
-PASS

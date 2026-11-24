@@ -1,4 +1,0 @@
-=== RUN   TestAlgo134Round3Variance4
---- PASS: TestAlgo134Round3Variance4 (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx/internal/vp9/encoder	0.319s

@@ -121,7 +121,7 @@ func LoopFilterLumaSSE(src SourceImage, img *vp8common.Image, rows int, cols int
 			}
 			for mbCol := range cols {
 				baseX := mbCol * 16
-				total += dsp.SSE16xNPtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride, height)
+				total += dsp.SSE16xNFast(srcY[srcRowOff+baseX:], srcStride, imgY[imgRowOff+baseX:], imgStride, height)
 			}
 			return total
 		}
@@ -135,14 +135,14 @@ func LoopFilterLumaSSE(src SourceImage, img *vp8common.Image, rows int, cols int
 			if colsAllAligned {
 				for mbCol := range cols {
 					baseX := mbCol * 16
-					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+					total += dsp.SSE16x16Fast(srcY[srcRowOff+baseX:], srcStride, imgY[imgRowOff+baseX:], imgStride)
 				}
 				continue
 			}
 			for mbCol := range cols {
 				baseX := mbCol * 16
 				if baseX+16 <= srcW && baseX+16 <= imgW {
-					total += dsp.SSE16x16PtrFast(&srcY[srcRowOff+baseX], srcStride, &imgY[imgRowOff+baseX], imgStride)
+					total += dsp.SSE16x16Fast(srcY[srcRowOff+baseX:], srcStride, imgY[imgRowOff+baseX:], imgStride)
 					continue
 				}
 				total += loopFilterLumaBlockSSE(src, img, baseY, baseX)

@@ -1,7 +1,5 @@
 package dsp
 
-import "unsafe"
-
 // Ported from libvpx v1.16.0 vp8/encoder/mcomp.c scalar SAD primitives.
 
 func SAD16x16(src []byte, srcStride int, ref []byte, refStride int) int {
@@ -53,16 +51,12 @@ func sadBlockScalarFallback(src []byte, srcStride int, ref []byte, refStride int
 	}
 	_ = src[(height-1)*srcStride+(width-1)]
 	_ = ref[(height-1)*refStride+(width-1)]
-	srcBase := unsafe.Pointer(&src[0])
-	refBase := unsafe.Pointer(&ref[0])
 	sad := 0
 	for y := range height {
-		srcRow := unsafe.Add(srcBase, y*srcStride)
-		refRow := unsafe.Add(refBase, y*refStride)
+		srcRow := src[y*srcStride : y*srcStride+width]
+		refRow := ref[y*refStride : y*refStride+width]
 		for x := range width {
-			a := int(*(*byte)(unsafe.Add(srcRow, x)))
-			b := int(*(*byte)(unsafe.Add(refRow, x)))
-			diff := a - b
+			diff := int(srcRow[x]) - int(refRow[x])
 			mask := diff >> signShift
 			sad += (diff ^ mask) - mask
 		}

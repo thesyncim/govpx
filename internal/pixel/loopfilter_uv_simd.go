@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // LoopFilterUV8 joins two disjoint eight-position chroma edges into one
@@ -21,8 +21,7 @@ func LoopFilterUV8(u, v []byte, step, outer, blimit, limit, thresh, kind int) bo
 	if min(len(u), len(v)) < 8 || max(step, outer) > (min(len(u), len(v))-8)/7 {
 		return false
 	}
-	up, vp := uintptr(unsafe.Pointer(unsafe.SliceData(u))), uintptr(unsafe.Pointer(unsafe.SliceData(v)))
-	if (up <= vp && vp-up < uintptr(len(u))) || (vp < up && up-vp < uintptr(len(v))) {
+	if slicesOverlap(u, v, len(u), len(v)) {
 		return false
 	}
 	loopFilterUVBytes(u, v, 4*step, step, outer, blimit, limit, thresh, kind)
@@ -38,11 +37,10 @@ func loadLFUVColumns(u, v []byte, off, pitch int) (archsimd.Uint8x16, archsimd.U
 }
 func storeLFUV(u, v []byte, off, step, outer, count int, a, b, c, d, e, f archsimd.Uint8x16) {
 	if outer == 1 {
-		up, vp := unsafe.Pointer(unsafe.SliceData(u)), unsafe.Pointer(unsafe.SliceData(v))
 		store := func(at int, x archsimd.Uint8x16) {
 			words := x.ReshapeToUint64s()
-			*(*uint64)(unsafe.Add(up, at)) = words.GetElem(0)
-			*(*uint64)(unsafe.Add(vp, at)) = words.GetElem(1)
+			binary.LittleEndian.PutUint64(u[at:], words.GetElem(0))
+			binary.LittleEndian.PutUint64(v[at:], words.GetElem(1))
 		}
 		store(off, a)
 		store(off+step, b)

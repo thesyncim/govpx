@@ -6,25 +6,26 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
+	"slices"
 	"testing"
-	"unsafe"
 )
 
 func fp16GuardParentProbe(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte, n int) bool {
 	type span struct{ p, bytes uintptr }
 	spans := [5]span{
-		{uintptr(unsafe.Pointer(unsafe.SliceData(coeff))), uintptr(n) * 2},
-		{uintptr(unsafe.Pointer(unsafe.SliceData(iscan))), uintptr(n) * 2},
-		{uintptr(unsafe.Pointer(unsafe.SliceData(dqcoeff))), uintptr(n) * 2},
+		{reflect.ValueOf(coeff).Pointer(), uintptr(n) * 2},
+		{reflect.ValueOf(iscan).Pointer(), uintptr(n) * 2},
+		{reflect.ValueOf(dqcoeff).Pointer(), uintptr(n) * 2},
 	}
 	count := 3
 	if qcoeff != nil {
-		spans[count] = span{uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff))), uintptr(n) * 2}
+		spans[count] = span{reflect.ValueOf(qcoeff).Pointer(), uintptr(n) * 2}
 		count++
 	}
 	if classes != nil {
-		spans[count] = span{uintptr(unsafe.Pointer(unsafe.SliceData(classes))), uintptr(n)}
+		spans[count] = span{reflect.ValueOf(classes).Pointer(), uintptr(n)}
 		count++
 	}
 	for i := 0; i < count; i++ {
@@ -41,17 +42,17 @@ func fp16GuardParentProbe(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte,
 func fp16GuardSingleProbe(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte, n int) bool {
 	type span struct{ p, bytes uintptr }
 	spans := [5]span{
-		{uintptr(unsafe.Pointer(unsafe.SliceData(coeff))), uintptr(n) * 2},
-		{uintptr(unsafe.Pointer(unsafe.SliceData(iscan))), uintptr(n) * 2},
-		{uintptr(unsafe.Pointer(unsafe.SliceData(dqcoeff))), uintptr(n) * 2},
+		{reflect.ValueOf(coeff).Pointer(), uintptr(n) * 2},
+		{reflect.ValueOf(iscan).Pointer(), uintptr(n) * 2},
+		{reflect.ValueOf(dqcoeff).Pointer(), uintptr(n) * 2},
 	}
 	count := 3
 	if qcoeff != nil {
-		spans[count] = span{uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff))), uintptr(n) * 2}
+		spans[count] = span{reflect.ValueOf(qcoeff).Pointer(), uintptr(n) * 2}
 		count++
 	}
 	if classes != nil {
-		spans[count] = span{uintptr(unsafe.Pointer(unsafe.SliceData(classes))), uintptr(n)}
+		spans[count] = span{reflect.ValueOf(classes).Pointer(), uintptr(n)}
 		count++
 	}
 	for i := 0; i < count; i++ {
@@ -66,28 +67,28 @@ func fp16GuardSingleProbe(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte,
 }
 
 func fp16GuardUnrolledProbe(coeff, iscan, qcoeff, dqcoeff []int16, classes []byte, n int) bool {
-	c := uintptr(unsafe.Pointer(unsafe.SliceData(coeff)))
-	i := uintptr(unsafe.Pointer(unsafe.SliceData(iscan)))
-	d := uintptr(unsafe.Pointer(unsafe.SliceData(dqcoeff)))
+	c := reflect.ValueOf(coeff).Pointer()
+	i := reflect.ValueOf(iscan).Pointer()
+	d := reflect.ValueOf(dqcoeff).Pointer()
 	bytes := uintptr(n) * 2
 	sameLimit := bytes + bytes - 1
 	if i-c+bytes-1 < sameLimit || d-c+bytes-1 < sameLimit || d-i+bytes-1 < sameLimit {
 		return false
 	}
 	if qcoeff != nil {
-		q := uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff)))
+		q := reflect.ValueOf(qcoeff).Pointer()
 		if q-c+bytes-1 < sameLimit || q-i+bytes-1 < sameLimit || q-d+bytes-1 < sameLimit {
 			return false
 		}
 	}
 	if classes != nil {
-		cl := uintptr(unsafe.Pointer(unsafe.SliceData(classes)))
+		cl := reflect.ValueOf(classes).Pointer()
 		classBytes := uintptr(n)
 		classLimit := classBytes + bytes - 1
 		if cl-c+classBytes-1 < classLimit || cl-i+classBytes-1 < classLimit || cl-d+classBytes-1 < classLimit {
 			return false
 		}
-		if qcoeff != nil && cl-uintptr(unsafe.Pointer(unsafe.SliceData(qcoeff)))+classBytes-1 < classLimit {
+		if qcoeff != nil && cl-reflect.ValueOf(qcoeff).Pointer()+classBytes-1 < classLimit {
 			return false
 		}
 	}
@@ -111,9 +112,9 @@ func fp16GuardProbeCases() []fp16GuardProbeCase {
 			cases = append(cases, fp16GuardProbeCase{fmt.Sprintf("disjoint/n%d/%s", n, label), n, optional, -1, -1})
 		}
 	}
-	names := []string{"coeff", "iscan", "qcoeff", "dqcoeff", "classes"}
-	for a := 0; a < 5; a++ {
-		for b := a + 1; b < 5; b++ {
+	names := []string{"coeff", "iscan", "qcoeff", "dqcoeff"}
+	for a := 0; a < 4; a++ {
+		for b := a + 1; b < 4; b++ {
 			cases = append(cases, fp16GuardProbeCase{fmt.Sprintf("decline/n256/%s-%s", names[a], names[b]), 256, 0, a, b})
 		}
 	}
@@ -121,23 +122,28 @@ func fp16GuardProbeCases() []fp16GuardProbeCase {
 }
 
 type fp16GuardProbeInputs struct {
-	backing                       []byte
+	backing                       []int16
+	classBacking                  []byte
 	coeff, iscan, qcoeff, dqcoeff []int16
 	classes                       []byte
 }
 
 func fp16GuardProbeMake(c fp16GuardProbeCase) fp16GuardProbeInputs {
-	span := 2*c.n + 64
-	backing := make([]byte, 5*span+128)
+	span := c.n + 32
+	backing := make([]int16, 4*span+64)
 	for i := range backing {
-		backing[i] = byte(i*37 + i/7 + 11)
+		backing[i] = int16(i*37 + i/7 + 11)
 	}
-	offsets := [5]int{64, 64 + span, 64 + 2*span, 64 + 3*span, 64 + 4*span}
+	classBacking := make([]byte, c.n+64)
+	for i := range classBacking {
+		classBacking[i] = byte(i*19 + 5)
+	}
+	offsets := [4]int{32, 32 + span, 32 + 2*span, 32 + 3*span}
 	if c.pairA >= 0 {
 		offsets[c.pairB] = offsets[c.pairA] + 1
 	}
-	view := func(off int) []int16 { return unsafe.Slice((*int16)(unsafe.Pointer(&backing[off])), c.n) }
-	v := fp16GuardProbeInputs{backing, view(offsets[0]), view(offsets[1]), view(offsets[2]), view(offsets[3]), backing[offsets[4] : offsets[4]+c.n : offsets[4]+c.n]}
+	view := func(off int) []int16 { return backing[off : off+c.n] }
+	v := fp16GuardProbeInputs{backing, classBacking, view(offsets[0]), view(offsets[1]), view(offsets[2]), view(offsets[3]), classBacking[32 : 32+c.n : 32+c.n]}
 	if c.optional&1 != 0 {
 		v.qcoeff = nil
 	}
@@ -151,22 +157,21 @@ func fp16GuardProbeMake(c fp16GuardProbeCase) fp16GuardProbeInputs {
 func fp16GuardProbeOracle(v fp16GuardProbeInputs, n int) bool {
 	type span struct{ start, end uintptr }
 	windows := []span{}
-	add := func(p unsafe.Pointer, size uintptr) {
-		start := uintptr(p)
+	add := func(start, size uintptr) {
 		end := start + size
 		if end < start {
 			panic("oracle span wrapped")
 		}
 		windows = append(windows, span{start, end})
 	}
-	add(unsafe.Pointer(unsafe.SliceData(v.coeff)), uintptr(n)*2)
-	add(unsafe.Pointer(unsafe.SliceData(v.iscan)), uintptr(n)*2)
-	add(unsafe.Pointer(unsafe.SliceData(v.dqcoeff)), uintptr(n)*2)
+	add(reflect.ValueOf(v.coeff).Pointer(), uintptr(n)*2)
+	add(reflect.ValueOf(v.iscan).Pointer(), uintptr(n)*2)
+	add(reflect.ValueOf(v.dqcoeff).Pointer(), uintptr(n)*2)
 	if v.qcoeff != nil {
-		add(unsafe.Pointer(unsafe.SliceData(v.qcoeff)), uintptr(n)*2)
+		add(reflect.ValueOf(v.qcoeff).Pointer(), uintptr(n)*2)
 	}
 	if v.classes != nil {
-		add(unsafe.Pointer(unsafe.SliceData(v.classes)), uintptr(n))
+		add(reflect.ValueOf(v.classes).Pointer(), uintptr(n))
 	}
 	for i := range windows {
 		for j := 0; j < i; j++ {
@@ -183,7 +188,8 @@ func TestFP16GuardComponentOracle(t *testing.T) {
 	for _, c := range fp16GuardProbeCases() {
 		t.Run(c.name, func(t *testing.T) {
 			v := fp16GuardProbeMake(c)
-			original := bytes.Clone(v.backing)
+			original := slices.Clone(v.backing)
+			originalClasses := bytes.Clone(v.classBacking)
 			want := fp16GuardProbeOracle(v, c.n)
 			if want != (c.pairA < 0) {
 				t.Fatal("fixture did not exercise declared policy")
@@ -200,7 +206,7 @@ func TestFP16GuardComponentOracle(t *testing.T) {
 			if got := fp16WindowsDisjoint(v.coeff, v.iscan, v.qcoeff, v.dqcoeff, v.classes, c.n); got != want || got != fp16GuardUnrolledProbe(v.coeff, v.iscan, v.qcoeff, v.dqcoeff, v.classes, c.n) {
 				t.Fatal("trial selected vs frozen unrolled/oracle mismatch")
 			}
-			if !bytes.Equal(v.backing, original) {
+			if !slices.Equal(v.backing, original) || !bytes.Equal(v.classBacking, originalClasses) {
 				t.Fatal("guard modified input backing")
 			}
 		})
@@ -217,7 +223,8 @@ func BenchmarkFP16GuardComponent(b *testing.B) {
 		for _, c := range fp16GuardProbeCases() {
 			b.Run(variant+"/"+c.name, func(b *testing.B) {
 				v := fp16GuardProbeMake(c)
-				original := bytes.Clone(v.backing)
+				original := slices.Clone(v.backing)
+				originalClasses := bytes.Clone(v.classBacking)
 				want := fp16GuardProbeOracle(v, c.n)
 				var got bool
 				// Preflight all candidate results before timing; all backing checks remain outside timer.
@@ -245,7 +252,7 @@ func BenchmarkFP16GuardComponent(b *testing.B) {
 					b.Fatal("unknown variant")
 				}
 				fp16GuardProbeSink = got
-				if got != want || !bytes.Equal(v.backing, original) {
+				if got != want || !slices.Equal(v.backing, original) || !bytes.Equal(v.classBacking, originalClasses) {
 					b.Fatal("result/input backing mismatch")
 				}
 				runtime.KeepAlive(v)

@@ -7,7 +7,6 @@ import (
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 	"math/bits"
 	"testing"
-	"unsafe"
 )
 
 func r3Frozen_writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.CoefficientProbs, records []CoefficientTokenRecord) error {
@@ -23,7 +22,16 @@ func r3Frozen_writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.
 	count := w.count
 	pos := w.pos
 	buf := w.buf
-	probBase := unsafe.Pointer(probs)
+	var flatProbs [tables.BlockTypes * tables.CoefBands * tables.PrevCoefContexts * tables.EntropyNodes]uint8
+	flatIdx := 0
+	for t := range tables.BlockTypes {
+		for b := range tables.CoefBands {
+			for c := range tables.PrevCoefContexts {
+				copy(flatProbs[flatIdx:flatIdx+tables.EntropyNodes], probs[t][b][c][:])
+				flatIdx += tables.EntropyNodes
+			}
+		}
+	}
 
 	// Records are validated at the producer (countBlockCoefficientTokensAndRecords)
 	// before being packed by appendTokenUnchecked. By the time we reach this
@@ -33,7 +41,7 @@ func r3Frozen_writePreparedCoefficientTokenRecords(w *BoolWriter, probs *tables.
 		raw := uint32(records[i])
 		token := int(raw & coefficientTokenRecordTokenMask)
 		probOffset := (raw >> coefficientTokenRecordProbOffsetShift) & coefficientTokenRecordProbOffsetMask
-		p := (*[tables.EntropyNodes]uint8)(unsafe.Add(probBase, uintptr(probOffset)))
+		p := (*[tables.EntropyNodes]uint8)(flatProbs[probOffset : probOffset+tables.EntropyNodes])
 
 		if token == tables.DCTEOBToken {
 			split := uint32(1 + (((rng - 1) * uint32(p[0])) >> 8))
@@ -504,33 +512,37 @@ func TestR3CostFill(t *testing.T) {
 func TestR3Contexts(t *testing.T) {
 	s := uint64(17)
 	n := 0
-	for _, ao := range []int{0, 1, 800, 825, 850, 880} {
-		for _, lo := range []int{0, 2, 805, 826, 860, 900} {
-			for _, is4 := range []bool{false, true} {
-				var a, b [128]uint64
-				rawA := unsafe.Slice((*byte)(unsafe.Pointer(&a[0])), 1024)
-				rawB := unsafe.Slice((*byte)(unsafe.Pointer(&b[0])), 1024)
-				for i := range rawA {
-					rawA[i] = byte(r3Rand(&s))
-					rawB[i] = rawA[i]
+	for _, same := range []bool{false, true} {
+		for _, is4 := range []bool{false, true} {
+			for range 16 {
+				var ca, cb MacroblockCoefficients
+				for i := range ca.EOB {
+					v := uint8(r3Rand(&s) % 17)
+					ca.EOB[i], cb.EOB[i] = v, v
 				}
-				ca := (*MacroblockCoefficients)(unsafe.Pointer(&a[0]))
-				cb := (*MacroblockCoefficients)(unsafe.Pointer(&b[0]))
-				aa := (*TokenContextPlanes)(unsafe.Pointer(&rawA[ao]))
-				ab := (*TokenContextPlanes)(unsafe.Pointer(&rawB[ao]))
-				la := (*TokenContextPlanes)(unsafe.Pointer(&rawA[lo]))
-				lb := (*TokenContextPlanes)(unsafe.Pointer(&rawB[lo]))
-				UpdateTokenContextPlanesFromCoefficients(aa, la, is4, ca)
-				r3Frozen_UpdateTokenContextPlanesFromCoefficients(ab, lb, is4, cb)
-				if a != b {
-					t.Fatalf("alias ao%d lo%d is4%v", ao, lo, is4)
+				var aa, ab, la, lb TokenContextPlanes
+				for i := range aa.Y1 {
+					v := uint8(r3Rand(&s) & 1)
+					aa.Y1[i], ab.Y1[i] = v, v
+					v2 := uint8(r3Rand(&s) & 1)
+					la.Y1[i], lb.Y1[i] = v2, v2
+				}
+				if same {
+					UpdateTokenContextPlanesFromCoefficients(&aa, &aa, is4, &ca)
+					r3Frozen_UpdateTokenContextPlanesFromCoefficients(&ab, &ab, is4, &cb)
+				} else {
+					UpdateTokenContextPlanesFromCoefficients(&aa, &la, is4, &ca)
+					r3Frozen_UpdateTokenContextPlanesFromCoefficients(&ab, &lb, is4, &cb)
+				}
+				if aa != ab || la != lb {
+					t.Fatalf("mismatch same=%v is4=%v", same, is4)
 				}
 				n++
 			}
 		}
 	}
 	UpdateTokenContextPlanesFromCoefficients(nil, nil, false, nil)
-	t.Logf("%d full backing alias scenarios", n)
+	t.Logf("%d context scenarios", n)
 }
 func TestR3Skippable(t *testing.T) {
 	s := uint64(19)

@@ -3,8 +3,8 @@
 package pixel
 
 import (
+	"encoding/binary"
 	"simd/archsimd"
-	"unsafe"
 )
 
 // DCPairInPlaceInt32Native retains the one-window ABI and exact fallback
@@ -16,10 +16,9 @@ func DCPairInPlaceInt32Native(c0, c1 int32, b []byte, stride int) {
 	}
 	if stride >= 8 && len(b) >= 8 && stride <= (len(b)-8)/3 {
 		plus, minus := dcPairCoeffBytes(c0, c1)
-		sp := unsafe.Pointer(unsafe.SliceData(b))
-		dcPairByteRows2(sp, stride, sp, stride, plus, minus)
-		sp2 := unsafe.Add(sp, 2*stride)
-		dcPairByteRows2(sp2, stride, sp2, stride, plus, minus)
+		dcPairByteRows2(b, stride, b, stride, plus, minus)
+		b2 := b[2*stride:]
+		dcPairByteRows2(b2, stride, b2, stride, plus, minus)
 		return
 	}
 	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)
@@ -56,10 +55,10 @@ func dcPairCoeffBytes(c0, c1 int32) (archsimd.Uint8x16, archsimd.Uint8x16) {
 
 // Both exact eight-byte rows are captured before the two ordered stores.
 // Callers prove complete windows and exact aliasing or mutually disjoint views.
-func dcPairByteRows2(sp unsafe.Pointer, ps int, out unsafe.Pointer, ds int, plus, minus archsimd.Uint8x16) {
-	v := (archsimd.Uint64x2{}).SetElem(0, *(*uint64)(sp)).SetElem(1, *(*uint64)(unsafe.Add(sp, ps))).ReshapeToUint8s()
+func dcPairByteRows2(src []byte, ps int, out []byte, ds int, plus, minus archsimd.Uint8x16) {
+	v := (archsimd.Uint64x2{}).SetElem(0, binary.LittleEndian.Uint64(src)).SetElem(1, binary.LittleEndian.Uint64(src[ps:])).ReshapeToUint8s()
 	v = v.AddSaturated(plus).SubSaturated(minus)
 	words := v.ReshapeToUint64s()
-	*(*uint64)(out) = words.GetElem(0)
-	*(*uint64)(unsafe.Add(out, ds)) = words.GetElem(1)
+	binary.LittleEndian.PutUint64(out, words.GetElem(0))
+	binary.LittleEndian.PutUint64(out[ds:], words.GetElem(1))
 }

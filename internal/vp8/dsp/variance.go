@@ -1,10 +1,7 @@
 package dsp
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/pixel"
-
 	"github.com/thesyncim/govpx/internal/vp8/tables"
 )
 
@@ -15,23 +12,14 @@ func SSE16x16(src []byte, srcStride int, ref []byte, refStride int) int {
 	return int(pixel.SSE16(src, srcStride, ref, refStride, 16))
 }
 
-// SSE16x16PtrFast is the SIMD-bypass entry point used by hot callers
-// (loop-filter SSE trial, mode-picker SSE walks) when the caller has
-// already validated that the 16x16 window is fully in-bounds.
-//
-//   - Skips the slice header construction + the bounds-check on &src[0]
-//     by taking *byte directly.
-//   - Skips the dispatch chain (varianceBlock width/height switch) by
-//     going straight to varianceBlock16x16's SIMD kernel.
-func SSE16x16PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
-	return sse16x16PtrFast(src, srcStride, ref, refStride)
+// SSE16x16Fast is the direct 16x16 SSE entry point.
+func SSE16x16Fast(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(pixel.SSE16(src, srcStride, ref, refStride, 16))
 }
 
-// SSE8x8PtrFast is the 8x8-SSE SIMD-bypass entry point used by hot
-// callers (chroma SSE walk in macroblockChromaSSE). The caller must
-// have already validated the 8x8 window is fully in-bounds.
-func SSE8x8PtrFast(src *byte, srcStride int, ref *byte, refStride int) int {
-	return sse8x8PtrFast(src, srcStride, ref, refStride)
+// SSE8x8Fast is the direct 8x8 SSE entry point.
+func SSE8x8Fast(src []byte, srcStride int, ref []byte, refStride int) int {
+	return int(pixel.SSE8(src, srcStride, ref, refStride, 8))
 }
 
 func SSE16x8(src []byte, srcStride int, ref []byte, refStride int) int {
@@ -105,21 +93,13 @@ func SubpelVariance16x16(src []byte, srcStride int, xOffset int, yOffset int, re
 	return subpelVariance(src, srcStride, xOffset, yOffset, ref, refStride, 16, 16)
 }
 
-// SubpelVariance16x16PtrFast is the trusted-pointer form of
-// SubpelVariance16x16 for hot motion-search callers that already validated
-// the 17x17 source window and 16x16 reference window.
-func SubpelVariance16x16PtrFast(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
-	return subpelVariance16x16PtrFast(src, srcStride, xOffset, yOffset, ref, refStride)
+// SubpelVariance16x16Fast computes 16x16 subpel variance and SSE directly.
+func SubpelVariance16x16Fast(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int) {
+	return subpelVariance16x16Fast(src, srcStride, xOffset, yOffset, ref, refStride)
 }
 
 func SubpelVariance16x8(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int) {
 	return subpelVariance(src, srcStride, xOffset, yOffset, ref, refStride, 16, 8)
-}
-
-func subpelVariance16x16PtrFastFallback(src *byte, srcStride int, xOffset int, yOffset int, ref *byte, refStride int) (int, int) {
-	srcLen := 16*srcStride + 17
-	refLen := 15*refStride + 16
-	return SubpelVariance16x16(unsafe.Slice(src, srcLen), srcStride, xOffset, yOffset, unsafe.Slice(ref, refLen), refStride)
 }
 
 func SubpelVariance8x16(src []byte, srcStride int, xOffset int, yOffset int, ref []byte, refStride int) (int, int) {

@@ -330,11 +330,6 @@ func (e *VP9Encoder) vp9InterRefSignBias(flags EncodeFlags) [3]uint8 {
 	return bias
 }
 
-func vp9EncoderTileInfo(miCols, threads int, log2TileRows int8) vp9dec.TileInfo {
-	return vp9EncoderTileInfoForTargetLevel(miCols, 0, 0, threads,
-		log2TileRows, VP9TargetLevelUnconstrained)
-}
-
 func vp9EncoderTileInfoForTargetLevel(miCols, width, height, threads int, log2TileRows int8, targetLevel int) vp9dec.TileInfo {
 	minLog2, maxLog2 := vp9dec.TileNBits(miCols)
 	log2Cols := minLog2
@@ -740,9 +735,21 @@ func (e *VP9Encoder) prepareVP9EncoderOutputFrame(width, height int) {
 	e.acquireVP9ReconFrameBuffer()
 	layout := common.NewFrameLayout(width, height)
 	e.warmVP9EncoderFramePool(layout)
-	e.reconYFull = buffers.EnsureAlignedCapacity(e.reconYFull, layout.YFullLen, 32)
-	e.reconUFull = buffers.EnsureAlignedCapacity(e.reconUFull, layout.UVFullLen, 32)
-	e.reconVFull = buffers.EnsureAlignedCapacity(e.reconVFull, layout.UVFullLen, 32)
+	if cap(e.reconYFull) < layout.YFullLen {
+		e.reconYFull = buffers.NewAligned(layout.YFullLen, 32)
+	} else {
+		e.reconYFull = e.reconYFull[:layout.YFullLen]
+	}
+	if cap(e.reconUFull) < layout.UVFullLen {
+		e.reconUFull = buffers.NewAligned(layout.UVFullLen, 32)
+	} else {
+		e.reconUFull = e.reconUFull[:layout.UVFullLen]
+	}
+	if cap(e.reconVFull) < layout.UVFullLen {
+		e.reconVFull = buffers.NewAligned(layout.UVFullLen, 32)
+	} else {
+		e.reconVFull = e.reconVFull[:layout.UVFullLen]
+	}
 	buffers.Fill(e.reconYFull, 128)
 	buffers.Fill(e.reconUFull, 128)
 	buffers.Fill(e.reconVFull, 128)

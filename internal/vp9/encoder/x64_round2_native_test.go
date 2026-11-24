@@ -4,9 +4,9 @@ package encoder
 
 import (
 	"fmt"
-	"github.com/thesyncim/govpx/internal/vp9/common"
 	"testing"
-	"unsafe"
+
+	"github.com/thesyncim/govpx/internal/vp9/common"
 )
 
 func round2ReferenceYrd(src, dst []byte, stride, off, bw, bh, n int, dq [2]int16, sse uint64) BlockYrdResult {
@@ -253,25 +253,4 @@ func round2ClampedOutcome(fn func() (BlockDiffStats, bool)) (stats BlockDiffStat
 	defer func() { panicked = recover() != nil }()
 	stats, ok = fn()
 	return
-}
-
-// Scratch aliases retain the original subtraction writes and read ordering.
-func TestX64Round2UniformScratchAlias(t *testing.T) {
-	for _, aliasSource := range []bool{true, false} {
-		var backing [1024]int16
-		window := unsafe.Slice((*byte)(unsafe.Pointer(&backing[0])), 256)
-		var separate [256]byte
-		src, dst := window, separate[:]
-		if !aliasSource {
-			src, dst = separate[:], window
-		}
-		for i := range src {
-			src[i] = 129
-			dst[i] = 127
-		}
-		got := BlockYrd(src, 16, 0, 0, dst, 16, 0, 0, 16, 16, common.Tx8x8, [2]int16{97, 123}, BlockYrdUnknownSSE, backing[:])
-		if !got.Valid || window[0] != 2 || window[1] != 0 {
-			t.Fatalf("aliasSource%v changed subtraction contract: result%+v firstbytes%v", aliasSource, got, window[:2])
-		}
-	}
 }

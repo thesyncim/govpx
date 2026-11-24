@@ -6,7 +6,6 @@ package encoder
 import (
 	"github.com/thesyncim/govpx/internal/pixel"
 	"simd/archsimd"
-	"unsafe"
 )
 
 var vp8BatchLeft3 = archsimd.BroadcastInt16x8(3)
@@ -21,11 +20,10 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 	if count > len(input)/16 || count > len(output)/16 {
 		return 0
 	}
-	ip, op := unsafe.SliceData(input), unsafe.SliceData(output)
 	i := 0
 	for ; i+2 <= count; i += 2 {
-		in, out := input[i*16:], output[i*16:]
-		r0, r1, r2, r3 := archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(unsafe.Pointer(ip), (i*16+0)*2))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(unsafe.Pointer(ip), (i*16+8)*2))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(unsafe.Pointer(ip), (i*16+16)*2))), archsimd.LoadInt16x8Array((*[8]int16)(unsafe.Add(unsafe.Pointer(ip), (i*16+24)*2)))
+		in, out := input[i*16:i*16+32], output[i*16:i*16+32]
+		r0, r1, r2, r3 := archsimd.LoadInt16x8Array((*[8]int16)(in[0:8])), archsimd.LoadInt16x8Array((*[8]int16)(in[8:16])), archsimd.LoadInt16x8Array((*[8]int16)(in[16:24])), archsimd.LoadInt16x8Array((*[8]int16)(in[24:32]))
 		magnitude := r0.Abs().ToBits().Max(r1.Abs().ToBits()).Max(r2.Abs().ToBits()).Max(r3.Abs().ToBits())
 		peak := uint32(magnitude.ReduceMax())
 		// One unsigned range check admits only nonzero residual packets.
@@ -35,10 +33,10 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 				// libvpx v1.16.0 rounding leaves raster coefficient 1 equal to 1.
 				v := archsimd.Int16x8{}.SetElem(1, 1)
 				z := archsimd.Int16x8{}
-				v.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+0)*2)))
-				z.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+8)*2)))
-				v.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+16)*2)))
-				z.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+24)*2)))
+				v.StoreArray((*[8]int16)(out[0:8]))
+				z.StoreArray((*[8]int16)(out[8:16]))
+				v.StoreArray((*[8]int16)(out[16:24]))
+				z.StoreArray((*[8]int16)(out[24:32]))
 			} else {
 				forwardDCT4x4Scalar(in, 4, (*[16]int16)(out))
 				forwardDCT4x4Scalar(in[16:], 4, (*[16]int16)(out[16:]))
@@ -54,10 +52,10 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 				v0 := archsimd.Int16x8{}.SetElem(0, dc0*8).SetElem(1, 1)
 				v1 := archsimd.Int16x8{}.SetElem(0, dc1*8).SetElem(1, 1)
 				z := archsimd.Int16x8{}
-				v0.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+0)*2)))
-				z.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+8)*2)))
-				v1.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+16)*2)))
-				z.StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+24)*2)))
+				v0.StoreArray((*[8]int16)(out[0:8]))
+				z.StoreArray((*[8]int16)(out[8:16]))
+				v1.StoreArray((*[8]int16)(out[16:24]))
+				z.StoreArray((*[8]int16)(out[24:32]))
 				continue
 			}
 
@@ -99,10 +97,10 @@ func forwardDCT4BatchGo(input, output []int16, count int) int {
 		v1 = o1.Add(w.NotEqual(archsimd.Int16x8{}).ToInt16x8().And(archsimd.BroadcastInt16x8(1)))
 		v3 = o3
 		a0, a1, a2, a3 := v0.ToBits().ReshapeToUint64s(), v1.ToBits().ReshapeToUint64s(), v2.ToBits().ReshapeToUint64s(), v3.ToBits().ReshapeToUint64s()
-		a0.InterleaveLo(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+0)*2)))
-		a2.InterleaveLo(a3).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+8)*2)))
-		a0.InterleaveHi(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+16)*2)))
-		a2.InterleaveHi(a3).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(unsafe.Add(unsafe.Pointer(op), (i*16+24)*2)))
+		a0.InterleaveLo(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[0:8]))
+		a2.InterleaveLo(a3).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[8:16]))
+		a0.InterleaveHi(a1).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[16:24]))
+		a2.InterleaveHi(a3).ReshapeToUint16s().BitsToInt16().StoreArray((*[8]int16)(out[24:32]))
 	}
 	return i
 }

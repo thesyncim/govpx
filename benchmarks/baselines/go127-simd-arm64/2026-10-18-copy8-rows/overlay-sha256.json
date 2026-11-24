@@ -1,9 +1,0 @@
-{
-  "internal/pixel/copy8_rows_arm64.go": "867a67bb972669ead20dc34dfbb8e278f2c08b99d96805992fe105f170feb899",
-  "internal/pixel/copy8_rows_other.go": "fc5499273b9ad1e0e72587991379b898ddbdbece5c116d99f9e88c9eb61d0401",
-  "internal/pixel/copy8_rows_arm64_test.go": "a1b862b0b1465143a395148b82be97fc78a55811b722d0565f3c761c49f6b26e",
-  "internal/vp8/dsp/recon.go": "0f47bdc83c2af47fb2c1b2569964415cfbbc7a772cc8de0a11fddec1d8a33ae8",
-  "vp8_encoder_denoiser.go": "4a606a495cc3f2dd9d6fd4bfc0103ec273dd967967940df25f1764fda9b9e49f",
-  "copy8_rows_native_test.go": "a13eb3c64d15dd676275eac70d9a573844a55d4e419f92f3beed17f95723c322",
-  "internal/vp8/dsp/copy8_rows_native_test.go": "00d3f318684a016d1ffbd3aa1e0636d1e4d0173df69f72a4a31fb7fa0db76362"
-}

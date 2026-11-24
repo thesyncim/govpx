@@ -1,9 +1,0 @@
-['/private/tmp/govpx-motion-prs/more/motion11.test', '-test.run=^$', '-test.bench=^BenchmarkMotionPR11$', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx
-cpu: Apple M4 Max
-BenchmarkMotionPR11/partition0         	   34400	      1382 ns/op	       0 B/op	       0 allocs/op
-BenchmarkMotionPR11/partition2         	   70873	       680.7 ns/op	       0 B/op	       0 allocs/op
-BenchmarkMotionPR11/partition3         	  213990	       222.2 ns/op	       0 B/op	       0 allocs/op
-PASS

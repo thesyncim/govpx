@@ -1,9 +1,0 @@
-{
-  "current-copy16_rows_arm64_test.go": "d8076ffa028844f274ad0483eacfdcb67e7cb211a7f66320f0272ffb52aecf60",
-  "govpx-copy16-pgo.log": "08332266d06c0715d2d29c076b6890b48f79c8436983d0d8c2880a3bd26341c7",
-  "govpx-copy16-gates.log": "e1ac3e39ac325b7cf4ef69f5d19ab490e7078c2b2f1b8bf0e6ed3fcce158e821",
-  "govpx-copy16-amd64-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "govpx-copy16-amd64-checkptr.log": "ce17cc8ab1d4a3ccd2d065bf539ea8351e1994f8cb2128505b7db829a6dc30f1",
-  "govpx-copy16-align-race.log": "11945621aa4f796cbb7196253246ea4d2133553dc026d08346d8125f20c3b478",
-  "govpx-root-copy16-proof.py": "ecb6cfd31cba465c79cc5d1c133c8487d12ceb3c1d955ed1bd8a0c771a2d50ab"
-}

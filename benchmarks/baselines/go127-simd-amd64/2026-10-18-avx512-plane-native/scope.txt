@@ -1,6 +1,0 @@
-PR40 head 34c4e4a17b231a24a3d3774c9621b7e5b80bac03 base c2d415fffead020022bd7bb6f40a7bd665795f44
-Native INTEL(R) XEON(R) PLATINUM 8573C; AVX512 executed ordinary+race, no skip.
-4 changed plane fixtures; 326 unchanged controls. 1088p regression and slower VP8 whole run retained.
-330x6x3 zeroalloc;16 exact source hashes; all22 semantic fields and all allocation samples match.
-95 median regressions/3 all-six-slower controls retained. C separate EPYC7763 fixed Go/libvpx time2.233204234486555x; matched measured quality/payload/counts, no bitstreamidentityclaim.
-All160 raw preserved. Reviewed and merged2905d810c8d075c283f259f7baa6f531c6ec4766; tested/merged tree1f55c9097fee5cc3c58380b1dfee6599a5c16f16. PR41retargeted to equal-tree main before exact40remote branch cleanup. Merge+independentroot proof included. No local Go/source/index/branch/README changes.

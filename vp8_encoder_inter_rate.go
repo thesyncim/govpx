@@ -136,8 +136,8 @@ func macroblockSAD(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, mbCo
 	refBaseX := baseX + (mvCol >> 3)
 	if (mvCol|mvRow)&7 == 0 &&
 		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			return dsp.SAD16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SAD16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride)
 		}
 	}
 	return macroblockSADLimited(src, ref, mbRow, mbCol, mv, maxInt())
@@ -169,8 +169,8 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 		}
 	}
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			return dsp.SSE16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SSE16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride)
 		}
 	}
 
@@ -179,10 +179,10 @@ func macroblockLumaSSE(src vp8enc.SourceImage, ref *vp8common.Image, mbRow int, 
 	if src.Height > 0 && src.Width > 0 &&
 		(baseY < 0 || baseX < 0 || baseY+16 > src.Height || baseX+16 > src.Width) &&
 		refBaseY >= 0 && refBaseX >= 0 && refBaseY <= ref.CodedHeight-16 && refBaseX <= ref.CodedWidth-16 {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
 			var scratch [256]byte
 			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, scratch[:], 16)
-			return dsp.SSE16x16PtrFast(&scratch[0], 16, refPtr, ref.YStride)
+			return dsp.SSE16x16Fast(scratch[:], 16, refSlice, ref.YStride)
 		}
 	}
 
@@ -225,8 +225,8 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 	// Uint range collapses (baseY/X >= 0) and (baseY/X+16 <= dim) into
 	// one compare each, matching the pattern in macroblockLumaSSE.
 	if uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			sum, sse := dsp.VarianceBlock16x16PtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			sum, sse := dsp.VarianceBlock16x16Fast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride)
 			return sse - ((sum * sum) >> 8), sse
 		}
 	}
@@ -236,10 +236,10 @@ func macroblockLumaMotionVarianceSSE(src vp8enc.SourceImage, ref *vp8common.Imag
 	if src.Height > 0 && src.Width > 0 &&
 		(baseY < 0 || baseX < 0 || baseY+16 > src.Height || baseX+16 > src.Width) &&
 		refBaseY >= 0 && refBaseX >= 0 && refBaseY <= ref.CodedHeight-16 && refBaseX <= ref.CodedWidth-16 {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
 			var scratch [256]byte
 			vp8enc.GatherClampedLumaBlock(src, baseY, baseX, 16, 16, scratch[:], 16)
-			sum, sse := dsp.VarianceBlock16x16PtrFast(&scratch[0], 16, refPtr, ref.YStride)
+			sum, sse := dsp.VarianceBlock16x16Fast(scratch[:], 16, refSlice, ref.YStride)
 			return sse - ((sum * sum) >> 8), sse
 		}
 	}
@@ -272,8 +272,8 @@ func macroblockSADLimited(src vp8enc.SourceImage, ref *vp8common.Image, mbRow in
 	refBaseX := baseX + (mvCol >> 3)
 	if (mvCol|mvRow)&7 == 0 &&
 		uint(baseY) <= uint(src.Height-16) && uint(baseX) <= uint(src.Width-16) {
-		if refPtr, ok := refFullPelYPtr(ref, refBaseY, refBaseX, 16, 16); ok {
-			return dsp.SAD16x16LimitPtrFast(&src.Y[baseY*src.YStride+baseX], src.YStride, refPtr, ref.YStride, limit)
+		if refSlice, ok := refFullPelYSlice(ref, refBaseY, refBaseX, 16, 16); ok {
+			return dsp.SAD16x16LimitFast(src.Y[baseY*src.YStride+baseX:], src.YStride, refSlice, ref.YStride, limit)
 		}
 	}
 	return macroblockSADLimitedSlow(src, ref, baseY, baseX, refBaseY, refBaseX, mvCol, mvRow, limit)

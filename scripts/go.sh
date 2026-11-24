@@ -2,7 +2,7 @@
 # Use the project-wide Codex cache wrapper when installed. CI and other
 # contributors get the same git-common-dir cache scope without Codex.
 set -eu
-export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.27.2}"
+export GOTOOLCHAIN="${GOTOOLCHAIN:-go1.27.4}"
 export GOEXPERIMENT="${GOEXPERIMENT-simd}"
 go_bin=${GO:-go}
 project_wrapper="${HOME}/.codex/bin/project-env"

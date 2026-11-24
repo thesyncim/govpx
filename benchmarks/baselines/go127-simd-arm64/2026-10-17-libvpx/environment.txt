@@ -1,7 +1,0 @@
-Apple M4 Max, native darwin/arm64
-Go 1.27.2, GOEXPERIMENT=simd, PGO=off, GOMAXPROCS=1, encoder threads=1
-Codec production sources: 211125e5
-Harness: new reference-first benchmark-order option in this checkpoint
-libvpx v1.16.0 peeled commit: 1024874c5919305883187e2953de8fcb4c3d7fa6
-Source identity independently checked across all 1250 pristine upstream files.
-No competing local Go builds/tests during native measurements.

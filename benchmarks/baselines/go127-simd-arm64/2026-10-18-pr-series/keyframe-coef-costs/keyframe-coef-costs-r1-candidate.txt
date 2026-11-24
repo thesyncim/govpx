@@ -1,9 +1,0 @@
-['/private/tmp/govpx-root-prs/keyframe-coef-costs.test', '-test.run=^$', '-test.bench=^BenchmarkVP8KeyframeCoefCosts', '-test.benchtime=40ms', '-test.cpu=1', '-test.count=1', '-test.benchmem']
-goos: darwin
-goarch: arm64
-pkg: github.com/thesyncim/govpx
-cpu: Apple M4 Max
-BenchmarkVP8KeyframeCoefCosts/0         	19651327	         2.489 ns/op	       0 B/op	       0 allocs/op
-BenchmarkVP8KeyframeCoefCosts/1         	 2115103	        22.79 ns/op	       0 B/op	       0 allocs/op
-BenchmarkVP8KeyframeCoefCosts/2         	 2077689	        22.99 ns/op	       0 B/op	       0 allocs/op
-PASS

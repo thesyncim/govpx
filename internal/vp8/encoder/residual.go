@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"unsafe"
-
 	"github.com/thesyncim/govpx/internal/vp8/common"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
 )
@@ -114,19 +112,13 @@ func buildNeutralPredictorMacroblockCoefficients(src SourceImage, mbRow int, mbC
 	ForwardWalsh4x4(y2Input[:], 4, &y2Coeff)
 	copy(dct[24*16:], y2Coeff[:])
 
-	// QCoeff is [25][16]int16 — contiguous in memory. Re-view as a
-	// single [25*16]int16 so the batched fast-quantize writes the
-	// per-block qcoeffs directly into the MacroblockCoefficients layout.
-	qAll := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[0][0])), 25*16)
+	var qAll [25 * 16]int16
 	FastQuantizeBlockBatch(dct[:16*16], &quant.Y1DC, qAll[:16*16], dqAll[:16*16], eobs[:16], 16)
 	FastQuantizeBlockBatch(dct[16*16:24*16], &quant.UV, qAll[16*16:24*16], dqAll[16*16:24*16], eobs[16:24], 8)
 	FastQuantizeBlockBatch(dct[24*16:25*16], &quant.Y2, qAll[24*16:25*16], dqAll[24*16:25*16], eobs[24:25], 1)
 
-	// Commit per-block EOBs into the coefficient layout. Using the
-	// loop variable bound to 25 lets the Go compiler hoist the
-	// SetBlockEOB bounds checks (eob slice and EOB array share the
-	// same length).
 	for i := range 25 {
+		copy(coeffs.QCoeff[i][:], qAll[i*16:])
 		coeffs.SetBlockEOB(i, int(eobs[i]))
 	}
 }

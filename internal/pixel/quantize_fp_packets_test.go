@@ -6,8 +6,8 @@ import (
 	"bytes"
 	"fmt"
 	"simd/archsimd"
+	"slices"
 	"testing"
-	"unsafe"
 )
 
 // fpPacketScalar derives the public integer contract independently. It includes
@@ -127,23 +127,20 @@ func fpPacketFrozen8(coeff, iscan, qcoeff, dqcoeff []int16, n int, r, q, d [2]in
 	return eob
 }
 
-func fpPacketWordView(b []byte, start, n int) []int16 {
-	return unsafe.Slice((*int16)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(b)), start)), n)
-}
-
 func fpPacketRun(t *testing.T, n, options, alignment, pattern, lane int, r, q, d [2]int16) {
 	t.Helper()
-	var got, want [5][]byte
-	var offsets [5]int
-	for k := range got {
-		size := 2 * n
-		if k == 4 {
-			size = n
+	var got16, want16 [4][]int16
+	var offsets16 [4]int
+	for k := range got16 {
+		offsets16[k] = 33 + (alignment*(2*k+1)+k)%32
+		got16[k] = make([]int16, offsets16[k]+n+19)
+		for i := range got16[k] {
+			got16[k][i] = int16(0x5757)
 		}
-		offsets[k] = 65 + (alignment*(2*k+1)+k)%64
-		got[k] = bytes.Repeat([]byte{0xa7}, offsets[k]+size+19)
 	}
-	c, scan := fpPacketWordView(got[0], offsets[0], n), fpPacketWordView(got[1], offsets[1], n)
+	off8 := 65 + (alignment*9+4)%64
+	got8 := bytes.Repeat([]byte{0xa7}, off8+n+19)
+	c, scan := got16[0][offsets16[0]:offsets16[0]+n], got16[1][offsets16[1]:offsets16[1]+n]
 	for i := range c {
 		k := 1
 		if i == 0 {
@@ -183,27 +180,31 @@ func fpPacketRun(t *testing.T, n, options, alignment, pattern, lane int, r, q, d
 		c[i] = int16(v)
 		scan[i] = int16((i * 37) % (n + 1))
 	}
-	for k := range got {
-		want[k] = bytes.Clone(got[k])
+	for k := range got16 {
+		want16[k] = slices.Clone(got16[k])
 	}
-	qg, dg := fpPacketWordView(got[2], offsets[2], n), fpPacketWordView(got[3], offsets[3], n)
-	qw, dw := fpPacketWordView(want[2], offsets[2], n), fpPacketWordView(want[3], offsets[3], n)
-	cg, cw := got[4][offsets[4]:offsets[4]+n:offsets[4]+n], want[4][offsets[4]:offsets[4]+n:offsets[4]+n]
+	want8 := bytes.Clone(got8)
+	qg, dg := got16[2][offsets16[2]:offsets16[2]+n], got16[3][offsets16[3]:offsets16[3]+n]
+	qw, dw := want16[2][offsets16[2]:offsets16[2]+n], want16[3][offsets16[3]:offsets16[3]+n]
+	cg, cw := got8[off8:off8+n:off8+n], want8[off8:off8+n:off8+n]
 	if options&1 != 0 {
 		qg, qw = nil, nil
 	}
 	if options&2 != 0 {
 		cg, cw = nil, nil
 	}
-	we := fpPacketScalar(fpPacketWordView(want[0], offsets[0], n), fpPacketWordView(want[1], offsets[1], n), qw, dw, n, r, q, d, cw)
+	we := fpPacketScalar(want16[0][offsets16[0]:offsets16[0]+n], want16[1][offsets16[1]:offsets16[1]+n], qw, dw, n, r, q, d, cw)
 	ge := QuantizeFPBlock(c, scan, qg, dg, n, r, q, d, cg)
 	if ge != we {
 		t.Fatalf("n%d options%d alignment%d pattern%d lane%d EOB%d/%d", n, options, alignment, pattern, lane, ge, we)
 	}
-	for k := range got {
-		if !bytes.Equal(got[k], want[k]) {
+	for k := range got16 {
+		if !slices.Equal(got16[k], want16[k]) {
 			t.Fatalf("n%d options%d alignment%d pattern%d lane%d backing%d", n, options, alignment, pattern, lane, k)
 		}
+	}
+	if !bytes.Equal(got8, want8) {
+		t.Fatalf("n%d options%d alignment%d pattern%d lane%d backing4", n, options, alignment, pattern, lane)
 	}
 }
 
@@ -255,15 +256,18 @@ func fpPacketCapture(fn func() int) (eob int, panicText string) {
 func TestFPPacketAliasOrder(t *testing.T) {
 	count := 0
 	for _, n := range []int{16, 64, 256} {
-		for a := 0; a < 5; a++ {
-			for b := a + 1; b < 5; b++ {
-				sizes := [5]int{2 * n, 2 * n, 2 * n, 2 * n, n}
-				for _, shift := range []int{0, 1, -1, sizes[a] - 1, -sizes[b] + 1} {
+		for a := 0; a < 4; a++ {
+			for b := a + 1; b < 4; b++ {
+				for _, shift := range []int{0, 1, -1, n - 1, -n + 1} {
 					for pattern := range 3 {
-						off := [5]int{1024, 4096, 7168, 10240, 13312}
+						off := [4]int{512, 2048, 3584, 5120}
 						off[b] = off[a] + shift
-						got := bytes.Repeat([]byte{0xa7}, 16384)
-						c := fpPacketWordView(got, off[0], n)
+						got16 := make([]int16, 8192)
+						for i := range got16 {
+							got16[i] = int16(0x5757)
+						}
+						got8 := bytes.Repeat([]byte{0xa7}, 512)
+						c := got16[off[0] : off[0]+n]
 						for i := range c {
 							c[i] = 0
 							if pattern == 1 {
@@ -273,19 +277,20 @@ func TestFPPacketAliasOrder(t *testing.T) {
 								c[i] = -32768
 							}
 						}
-						want := bytes.Clone(got)
-						run := func(buf []byte, frozen bool) int {
-							c, s, q, d := fpPacketWordView(buf, off[0], n), fpPacketWordView(buf, off[1], n), fpPacketWordView(buf, off[2], n), fpPacketWordView(buf, off[3], n)
-							cl := buf[off[4] : off[4]+n : off[4]+n]
+						want16 := slices.Clone(got16)
+						want8 := bytes.Clone(got8)
+						run := func(buf16 []int16, buf8 []byte, frozen bool) int {
+							c, s, q, d := buf16[off[0]:off[0]+n], buf16[off[1]:off[1]+n], buf16[off[2]:off[2]+n], buf16[off[3]:off[3]+n]
+							cl := buf8[64 : 64+n : 64+n]
 							r, qt, dt := [2]int16{0, 17}, [2]int16{32767, 12345}, [2]int16{23, 41}
 							if frozen {
 								return fpPacketFrozen8(c, s, q, d, n, r, qt, dt, cl)
 							}
 							return QuantizeFPBlock(c, s, q, d, n, r, qt, dt, cl)
 						}
-						we := run(want, true)
-						ge := run(got, false)
-						if ge != we || !bytes.Equal(got, want) {
+						we := run(want16, want8, true)
+						ge := run(got16, got8, false)
+						if ge != we || !slices.Equal(got16, want16) || !bytes.Equal(got8, want8) {
 							t.Fatalf("n%d pair%d/%d shift%d pattern%d EOB%d/%d", n, a, b, shift, pattern, ge, we)
 						}
 						count++

@@ -3,8 +3,8 @@ package govpx_test
 import (
 	"bytes"
 	"image"
+	"reflect"
 	"testing"
-	"unsafe"
 
 	"github.com/thesyncim/govpx"
 	"github.com/thesyncim/govpx/internal/testutil"
@@ -260,7 +260,7 @@ func assertVP9PlaneAlignedForTest(t testing.TB, name string, plane []byte,
 	if len(plane) == 0 {
 		t.Fatalf("%s plane is empty", name)
 	}
-	ptr := uintptr(unsafe.Pointer(&plane[0]))
+	ptr := reflect.ValueOf(plane).Pointer()
 	if ptr%uintptr(alignment) != 0 {
 		t.Fatalf("%s plane pointer %#x is not %d-byte aligned",
 			name, ptr, alignment)

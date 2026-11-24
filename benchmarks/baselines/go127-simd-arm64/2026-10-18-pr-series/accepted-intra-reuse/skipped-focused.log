@@ -1,4 +1,0 @@
-=== RUN   TestAcceptedWholeIntraReuseSkipped
---- PASS: TestAcceptedWholeIntraReuseSkipped (0.00s)
-PASS
-ok  	github.com/thesyncim/govpx	0.374s

@@ -1,8 +1,6 @@
 package encoder
 
 import (
-	"unsafe"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
 )
@@ -34,9 +32,9 @@ func ConvertInterFrameMode(src *InterFrameMacroblockMode, dst *vp8dec.Macroblock
 		MBSkipCoeff: src.MBSkipCoeff,
 		Partition:   src.Partition,
 	}
-	// MotionVector structs are layout-identical, so copy the full block-MV
-	// array at once instead of assigning each element on the reconstruction path.
-	dst.BlockMV = *(*[16]vp8dec.MotionVector)(unsafe.Pointer(&src.BlockMV))
+	for i := range 16 {
+		dst.BlockMV[i] = vp8dec.MotionVector{Row: src.BlockMV[i].Row, Col: src.BlockMV[i].Col}
+	}
 }
 
 func ConvertInterFrameReference(mode *InterFrameMacroblockMode) vp8common.MVReferenceFrame {

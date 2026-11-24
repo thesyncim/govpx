@@ -1,8 +1,6 @@
 package govpx
 
 import (
-	"unsafe"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
@@ -304,12 +302,16 @@ func buildPredictedMacroblockChromaCoefficientsInternal(args *predictedMacrobloc
 
 	if fastQuant {
 		var uvDQ [8 * 16]int16
+		var qUVBuf [8 * 16]int16
 		uvEOB := coeffs.EOB[16:24]
-		qUV := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[16][0])), 8*16)
+		qUV := qUVBuf[:]
 		if collectStats {
 			vp8enc.FastQuantizeBlockBatch(uvDcts[:], &quant.UV, qUV, uvDQ[:], uvEOB[:], 8)
 		} else {
 			vp8enc.FastQuantizeBlockBatchOnly(uvDcts[:], &quant.UV, qUV, uvEOB[:], 8)
+		}
+		for block := range 8 {
+			copy(coeffs.QCoeff[16+block][:], qUV[block*16:])
 		}
 		if needTokenContext {
 			for block := range 4 {
@@ -541,11 +543,15 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 				dct[0] = 0
 			}
 		}
-		qY := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[0][0])), 16*16)
+		var qYBuf [16 * 16]int16
+		qY := qYBuf[:]
 		if collectStats {
 			vp8enc.FastQuantizeBlockBatch(yDcts, yQuant, qY, yDQ[:], yEOB[:], 16)
 		} else {
 			vp8enc.FastQuantizeBlockBatchOnly(yDcts, yQuant, qY, yEOB[:], 16)
+		}
+		for block := range 16 {
+			copy(coeffs.QCoeff[block][:], qY[block*16:])
 		}
 		if needTokenContext {
 			for block := range 16 {
@@ -726,12 +732,16 @@ func buildPredictedMacroblockCoefficientsWork(args *predictedMacroblockCoefficie
 
 	if fastQuant {
 		var uvDQ [8 * 16]int16
+		var qUVBuf [8 * 16]int16
 		uvEOB := coeffs.EOB[16:24]
-		qUV := unsafe.Slice((*int16)(unsafe.Pointer(&coeffs.QCoeff[16][0])), 8*16)
+		qUV := qUVBuf[:]
 		if collectStats {
 			vp8enc.FastQuantizeBlockBatch(uvDcts[:], &quant.UV, qUV, uvDQ[:], uvEOB[:], 8)
 		} else {
 			vp8enc.FastQuantizeBlockBatchOnly(uvDcts[:], &quant.UV, qUV, uvEOB[:], 8)
+		}
+		for block := range 8 {
+			copy(coeffs.QCoeff[16+block][:], qUV[block*16:])
 		}
 		tracePickerUV := false
 		zbinExtra := 0

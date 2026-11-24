@@ -2,10 +2,7 @@
 
 package pixel
 
-import (
-	"simd/archsimd"
-	"unsafe"
-)
+import "simd/archsimd"
 
 // The public dispatcher proves the complete bilinear window and bounded
 // positive geometry before these exact read-only loads. Each one-axis
@@ -13,7 +10,6 @@ import (
 // With h<=64 each separate per-lane difference sum fits signed int16:
 // -511*64=-32704 and 255*64=16320. Widen before merging the two halves.
 func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	f0, f1, round := archsimd.BroadcastInt16x8(f[0]), archsimd.BroadcastInt16x8(f[1]), archsimd.BroadcastInt16x8(64)
 	var sum, sse0, sse1 archsimd.Int32x4
 	for x := 0; x < w; x += 16 {
@@ -22,9 +18,9 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 		y := 0
 		for ; y+1 < h; y += 2 {
 			{
-				a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-				b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-				r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+				a := archsimd.LoadUint8x16(src[so:])
+				b := archsimd.LoadUint8x16(src[so+1:])
+				r := archsimd.LoadUint8x16(ref[ro:])
 				v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 				v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 				d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))
@@ -36,9 +32,9 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 				ro += rs
 			}
 			{
-				a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-				b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-				r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+				a := archsimd.LoadUint8x16(src[so:])
+				b := archsimd.LoadUint8x16(src[so+1:])
+				r := archsimd.LoadUint8x16(ref[ro:])
 				v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 				v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 				d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))
@@ -51,9 +47,9 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 			}
 		}
 		if y < h {
-			a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so+1)))
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			a := archsimd.LoadUint8x16(src[so:])
+			b := archsimd.LoadUint8x16(src[so+1:])
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 			v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 			d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))
@@ -69,19 +65,18 @@ func subpelStatsAxisHorizontal16(src []byte, ss int, ref []byte, rs, w, h int, f
 	return int(sum32(sum)), uint32(sum32(sse0.Add(sse1)))
 }
 func subpelStatsAxisVertical16(src []byte, ss int, ref []byte, rs, w, h int, f [2]int16) (int, uint32) {
-	sp, rp := unsafe.Pointer(unsafe.SliceData(src)), unsafe.Pointer(unsafe.SliceData(ref))
 	f0, f1, round := archsimd.BroadcastInt16x8(f[0]), archsimd.BroadcastInt16x8(f[1]), archsimd.BroadcastInt16x8(64)
 	var sum, sse0, sse1 archsimd.Int32x4
 	for x := 0; x < w; x += 16 {
 		so, ro := x, x
 		var sum0, sum1 archsimd.Int16x8
-		a := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, x)))
+		a := archsimd.LoadUint8x16(src[x:])
 		so += ss
 		y := 0
 		for ; y+1 < h; y += 2 {
 			{
-				b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-				r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+				b := archsimd.LoadUint8x16(src[so:])
+				r := archsimd.LoadUint8x16(ref[ro:])
 				v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 				v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 				d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))
@@ -94,8 +89,8 @@ func subpelStatsAxisVertical16(src []byte, ss int, ref []byte, rs, w, h int, f [
 				ro += rs
 			}
 			{
-				b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-				r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+				b := archsimd.LoadUint8x16(src[so:])
+				r := archsimd.LoadUint8x16(ref[ro:])
 				v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 				v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 				d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))
@@ -109,8 +104,8 @@ func subpelStatsAxisVertical16(src []byte, ss int, ref []byte, rs, w, h int, f [
 			}
 		}
 		if y < h {
-			b := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(sp, so)))
-			r := archsimd.LoadUint8x16Array((*[16]byte)(unsafe.Add(rp, ro)))
+			b := archsimd.LoadUint8x16(src[so:])
+			r := archsimd.LoadUint8x16(ref[ro:])
 			v0 := filterShift7(mulAdd16(widen8(a).Mul(f0).Add(round), widen8(b), f1))
 			v1 := filterShift7(mulAdd16(widen8(highBytes(a)).Mul(f0).Add(round), widen8(highBytes(b)), f1))
 			d0, d1 := v0.Sub(widen8(r)), v1.Sub(widen8(highBytes(r)))

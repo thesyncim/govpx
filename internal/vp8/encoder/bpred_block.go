@@ -30,7 +30,7 @@ func BPredBlockSSE(src SourceImage, mbRow int, mbCol int, block int, pred []byte
 func FillBPredResidual4x4(src SourceImage, mbRow int, mbCol int, block int, pred []byte, out *[16]int16) {
 	baseY := mbRow*16 + (block>>2)*4
 	baseX := mbCol*16 + (block&3)*4
-	if src.Width >= 4 && src.Height >= 4 && uint(baseX) <= uint(src.Width-4) && uint(baseY) <= uint(src.Height-4) && src.YStride >= src.Width && len(src.Y) >= baseX+4 && len(pred) >= 16 && baseY+3 <= (len(src.Y)-baseX-4)/src.YStride && residualOutputDisjoint(src.Y, pred, out[:]) {
+	if src.Width >= 4 && src.Height >= 4 && uint(baseX) <= uint(src.Width-4) && uint(baseY) <= uint(src.Height-4) && src.YStride >= src.Width && len(src.Y) >= baseX+4 && len(pred) >= 16 && baseY+3 <= (len(src.Y)-baseX-4)/src.YStride {
 		pixel.Subtract(src.Y[baseY*src.YStride+baseX:], src.YStride, pred, 4, out[:], 4, 4, 4)
 		return
 	}

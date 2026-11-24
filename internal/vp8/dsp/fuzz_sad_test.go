@@ -13,7 +13,7 @@ import (
 // vp8/encoder/mcomp.c port), and asserts byte-exact equality.
 //
 // The limit kernel (SAD16x16Limit) and the 4-ref fused entry point
-// (SAD16x16x4PtrFast) are covered as additional op selectors because
+// (SAD16x16x4Fast) are covered as additional op selectors because
 // they have their own SIMD implementations (sse2 / neon / dotprod) that
 // can drift from the canonical sum even when the unlimited 1-ref kernel
 // stays in sync.
@@ -99,17 +99,17 @@ func FuzzVP8DSPSad(f *testing.F) {
 				t.Fatalf("SAD16x16Limit lim=%d simd=%d scalar=%d full=%d", lim, got, want, full)
 			}
 		case 6:
-			// SAD16x16x4PtrFast — four ref pointers at independent
+			// SAD16x16x4Fast — four ref slices at independent
 			// offsets, each must match the 1-ref scalar.
 			// Need at least four valid 16x16 windows; refOff is already
 			// constrained to [0,7] so all four windows fit in a
 			// 32x32 plane with stride 32.
-			ref0 := &ref[0]
-			ref1 := &ref[1]
-			ref2 := &ref[planeStride]
-			ref3 := &ref[planeStride+1]
+			ref0 := ref
+			ref1 := ref[1:]
+			ref2 := ref[planeStride:]
+			ref3 := ref[planeStride+1:]
 			var got [4]uint32
-			SAD16x16x4PtrFast(&src[0], planeStride, ref0, ref1, ref2, ref3, planeStride, &got)
+			SAD16x16x4Fast(src, planeStride, ref0, ref1, ref2, ref3, planeStride, &got)
 			refs := []int{
 				scalarSAD(src, planeStride, ref, planeStride, 16, 16),
 				scalarSAD(src, planeStride, ref[1:], planeStride, 16, 16),
@@ -118,7 +118,7 @@ func FuzzVP8DSPSad(f *testing.F) {
 			}
 			for i, want := range refs {
 				if int(got[i]) != want {
-					t.Fatalf("SAD16x16x4PtrFast[%d]: simd=%d scalar=%d", i, got[i], want)
+					t.Fatalf("SAD16x16x4Fast[%d]: simd=%d scalar=%d", i, got[i], want)
 				}
 			}
 		}
