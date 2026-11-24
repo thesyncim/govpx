@@ -246,8 +246,11 @@ func newRowWorkerPool(threads int, mbRows int, mbCols int) *rowWorkerPool {
 		workerErrors: make([]error, threads),
 		shutdown:     make(chan struct{}),
 	}
+	for i := range pool.workers {
+		pool.workers[i].dotArtifactChecked = make([]bool, mbRows*mbCols)
+	}
 	for i := 1; i < len(pool.workers); i++ {
-		start := make(chan struct{})
+		start := make(chan struct{}, 1)
 		pool.start[i] = start
 		pool.wg.Add(1)
 		go pool.workerLoop(i, start)

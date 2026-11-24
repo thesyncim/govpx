@@ -377,6 +377,9 @@ type VP9Encoder struct {
 	// int_pro-resolved MV. Mirrors libvpx's xd->plane[0].dst.buf at
 	// vp9_encodeframe.c:1487 (which writes a 64x64 dst with stride 64).
 	intProEstPred [64 * 64]uint8
+	// intProSrcScratch holds the edge-replicated 64x64 source block for
+	// frame-edge SBs in vp9IntProSrcWindow without heap allocation.
+	intProSrcScratch [64 * 64]uint8
 
 	prevFrameMvs      []vp9dec.MvRef
 	prevFrameMvRows   int
@@ -918,4 +921,22 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 	e.varPartSBContentState = buffers.EnsureLen(e.varPartSBContentState, sbCount)
 	e.varPartSBZeroTempSADSource = buffers.EnsureLen(e.varPartSBZeroTempSADSource, sbCount)
 	e.interPredictScratch = buffers.EnsureLen(e.interPredictScratch, 80*80)
+	if pool := e.vp9TilePool; pool != nil {
+		for i := range pool.workers {
+			pool.workers[i].prepareVP9CountWorker(e, w, h, miRows, miCols)
+			pool.countTokens[i].Ensure(miRows, miCols)
+		}
+		if e.opts.RowMT {
+			pool.ensureRowMTSync(sbRows)
+			pool.ensureRowWorkers(e.vp9EffectiveThreadHint(), pool.workerCount, sbRows)
+			for _, rw := range pool.rowWorkerPools {
+				if rw == nil {
+					continue
+				}
+				for j := range rw.workers {
+					rw.workers[j].resetCountWorker(e, w, h, miRows, miCols)
+				}
+			}
+		}
+	}
 }

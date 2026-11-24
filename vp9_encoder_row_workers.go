@@ -303,7 +303,7 @@ func newVP9RowWorkerPool(workers int) *vp9RowWorkerPool {
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
-		ch := make(chan struct{})
+		ch := make(chan struct{}, 1)
 		pool.start[i] = ch
 		pool.wg.Add(1)
 		go pool.workerLoop(i, ch)

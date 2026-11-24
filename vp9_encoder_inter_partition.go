@@ -819,6 +819,7 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 		// rather than hard-coding 1 so the threshold base scales with
 		// resolution the libvpx way.
 		VariancePartThreshMult: e.sf.VariancePartThreshMult,
+		Disable16x16PartNonkey: e.sf.Disable16x16PartNonKey != 0,
 		// libvpx vp9_encodeframe.c:1310 — use_4x4_partition is gated on
 		// !sf->nonrd_keyframe. At speed >= 8 the realtime configurator
 		// sets sf->nonrd_keyframe = 1 (vp9_speed_features.c:751-757),
@@ -923,34 +924,23 @@ func (e *VP9Encoder) vp9EnsureSBPartitionChosen(miRows, miCols, miRow, miCol int
 					paddedRef, paddedRefStride, refOriginX, refOriginY, _, _, refOK :=
 						e.vp9SubpelReferencePlane(vp9dec.LastFrame, &e.refFrames[refSlot])
 					if refOK {
-						// Build the per-frame border-padded source mirror
-						// once per frame; reuse across SBs.
-						if !e.intProSrcBorderedValid ||
-							e.intProSrcBordered.W != srcW ||
-							e.intProSrcBordered.H != srcH {
-							common.YV12BuildBorderedPlane(&e.intProSrcBordered,
-								src, srcStride, srcW, srcH,
-								common.VP9EncBorderInPixels)
-							e.intProSrcBorderedValid = true
-						}
-						// Wire int_pro motion search against the bordered
-						// LAST plane. The visible (mi_row, mi_col) origin
-						// inside the padded buffer is (Border+y0,
-						// Border+x0) so refOff - (bw>>1) stays inside the
-						// allocation for the selected sub-bsize; the
-						// BLOCK_64X64 worst case still fits inside the
-						// encoder border
-						// (libvpx vp9/encoder/vp9_mcomp.c:2317-2320).
-						srcOriginX := e.intProSrcBordered.OriginX()
-						srcOriginY := e.intProSrcBordered.OriginY()
-						srcStrideB := e.intProSrcBordered.Stride
+						// IntProEstimate only reads the visible sub-bsize
+						// rectangle from Src (motion offsets apply only to
+						// LastRef). Read directly from src for interior SBs
+						// and edge-replicate at most 64x64 into a stack
+						// scratch for frame-edge SBs, avoiding a 2.4 MB
+						// full-frame YV12BuildBorderedPlane copy every frame.
 						subBsize := encoder.GetEstimatedPredSubBsize(sbMiRow,
 							sbMiCol, miRows, miCols)
+						subW := 4 << uint(common.BWidthLog2Lookup[subBsize])
+						subH := 4 << uint(common.BHeightLog2Lookup[subBsize])
+						intProSrc, intProSrcOff, intProSrcStride := vp9IntProSrcWindow(
+							src, srcStride, srcW, srcH, x0, y0, subW, subH, &e.intProSrcScratch)
 						estIn := &encoder.GetEstimatedPredInterInput{
 							Bsize:                  subBsize,
-							Src:                    e.intProSrcBordered.Pixels,
-							SrcOff:                 (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
-							SrcStride:              srcStrideB,
+							Src:                    intProSrc,
+							SrcOff:                 intProSrcOff,
+							SrcStride:              intProSrcStride,
 							LastRef:                paddedRef,
 							LastRefOff:             (refOriginY+y0)*paddedRefStride + (refOriginX + x0),
 							LastRefStride:          paddedRefStride,
@@ -2199,4 +2189,29 @@ func (e *VP9Encoder) releaseVP9PartitionReconSnapshot(snap vp9PartitionReconSnap
 	if e.partitionReconScratchTop == snap.end {
 		e.partitionReconScratchTop = snap.top
 	}
+}
+
+// vp9IntProSrcWindow returns a direct slice view into src when the bw x bh
+// block at (x0, y0) lies strictly inside the visible frame, or edge-replicates
+// the partial border block into scratch otherwise.
+func vp9IntProSrcWindow(src []byte, srcStride, srcW, srcH, x0, y0, bw, bh int, scratch *[64 * 64]byte) ([]byte, int, int) {
+	if x0 >= 0 && y0 >= 0 && x0+bw <= srcW && y0+bh <= srcH {
+		return src, y0*srcStride + x0, srcStride
+	}
+	avail := min(bw, srcW-x0)
+	for r := range bh {
+		sy := min(y0+r, srcH-1)
+		srcRow := src[sy*srcStride:]
+		dstRow := scratch[r*bw : (r+1)*bw]
+		if avail > 0 {
+			copy(dstRow[:avail], srcRow[x0:x0+avail])
+		}
+		if avail < bw {
+			edge := srcRow[srcW-1]
+			for c := max(avail, 0); c < bw; c++ {
+				dstRow[c] = edge
+			}
+		}
+	}
+	return scratch[:], 0, bw
 }

@@ -210,28 +210,18 @@ func (e *VP9Encoder) vp9NonrdCBRIntProNewMV(inter *vp9InterEncodeState,
 	if x0 < 0 || y0 < 0 || x0+blockW > srcW || y0+blockH > srcH {
 		return vp9dec.MV{}, false
 	}
-	if !e.intProSrcBorderedValid ||
-		e.intProSrcBordered.W != srcW ||
-		e.intProSrcBordered.H != srcH {
-		common.YV12BuildBorderedPlane(&e.intProSrcBordered, src, srcStride,
-			srcW, srcH, common.VP9EncBorderInPixels)
-		e.intProSrcBorderedValid = true
-	}
 	ref, refStride, refOriginX, refOriginY, refW, refH, refOK :=
 		e.vp9SubpelReferencePlane(refFrame, inter.ref)
 	if !refOK || len(ref) == 0 || refStride <= 0 ||
 		x0+blockW > refW || y0+blockH > refH {
 		return vp9dec.MV{}, false
 	}
-	srcOriginX := e.intProSrcBordered.OriginX()
-	srcOriginY := e.intProSrcBordered.OriginY()
-	srcStrideB := e.intProSrcBordered.Stride
 	mvLimits := encoder.EncoderMvLimits(miRows, miCols, miRow, miCol, bsize)
 	tmpSad, mv := encoder.IntProEstimate(&encoder.IntProEstimateInput{
 		Bsize:     bsize,
-		Src:       e.intProSrcBordered.Pixels,
-		SrcOff:    (srcOriginY+y0)*srcStrideB + (srcOriginX + x0),
-		SrcStride: srcStrideB,
+		Src:       src,
+		SrcOff:    y0*srcStride + x0,
+		SrcStride: srcStride,
 		Ref:       ref,
 		RefOff:    (refOriginY+y0)*refStride + (refOriginX + x0),
 		RefStride: refStride,

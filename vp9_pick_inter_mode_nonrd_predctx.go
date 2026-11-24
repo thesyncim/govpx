@@ -478,10 +478,16 @@ func (e *VP9Encoder) vp9NonrdCtxUVVariancePlaneSSE(c *vp9NonrdPredBlockCtx,
 	if vp9PhaseStatsEnabled {
 		e.vp9PhaseIncInterPredictionBlock()
 	}
+	rp := &c.uvRef[refFrame][plane-1]
+	pp := &c.uvPlane[plane-1]
+	if mv == (vp9dec.MV{}) && (c.uvRefW&0x7) == 0 && (c.uvRefH&0x7) == 0 {
+		variance, sse = encoder.BlockDiffVarianceSSE(pp.src, pp.srcStride,
+			rp.ref, rp.refStride, c.uvX0, c.uvY0, c.uvX0, c.uvY0, c.uvBw, c.uvBh)
+		return variance, sse, true
+	}
 	if !e.vp9NonrdCtxPredictChromaPlaneInner(c, refFrame, plane, mv, filter) {
 		return 0, 0, false
 	}
-	pp := &c.uvPlane[plane-1]
 	variance, sse = encoder.BlockDiffVarianceSSE(pp.src, pp.srcStride,
 		pp.dst, pp.dstStride, c.uvX0, c.uvY0, c.uvX0, c.uvY0, c.uvBw, c.uvBh)
 	return variance, sse, true
@@ -594,4 +600,41 @@ func (e *VP9Encoder) vp9NonrdPredictVarianceSSETo(c *vp9NonrdPredBlockCtx,
 	}
 	return encoder.BlockDiffVarianceSSEClampedSource(c.src, c.srcStride,
 		c.srcW, c.srcH, dst, dstStride, c.x0, c.y0, 0, 0, c.blockW, c.blockH)
+}
+
+// vp9NonrdPredictVarianceSSEDirect scores a candidate luma prediction directly
+// against the padded reference plane with zero copy when mv is integer-pel,
+// falling back to vp9NonrdPredictVarianceSSETo into dst for subpel MVs.
+func (e *VP9Encoder) vp9NonrdPredictVarianceSSEDirect(c *vp9NonrdPredBlockCtx,
+	inter *vp9InterEncodeState, miRows, miCols, miRow, miCol int,
+	bsize common.BlockSize, mode common.PredictionMode, refFrame int8,
+	mv vp9dec.MV, filter vp9dec.InterpFilter, dst []byte, dstStride int,
+) (variance, sse uint64, pred []byte, predStride int, ok bool) {
+	if c != nil && refFrame >= 0 && int(refFrame) < len(c.ref) &&
+		c.ref[refFrame].valid && (mv.Row|mv.Col)&7 == 0 {
+		rp := &c.ref[refFrame]
+		var predOff int
+		if mv == (vp9dec.MV{}) && rp.dims8 {
+			predOff = rp.baseOff
+		} else {
+			mvQ4 := vp9dec.ClampMvToUmvBorderSb(c.edges, mv, c.blockW, c.blockH, 0, 0)
+			if (mvQ4.Col|mvQ4.Row)&(vp9dec.SubpelShifts-1) != 0 {
+				v, s, good := e.vp9NonrdPredictVarianceSSETo(c, inter, miRows, miCols,
+					miRow, miCol, bsize, mode, refFrame, mv, filter, dst, dstStride)
+				return v, s, dst, dstStride, good
+			}
+			predOff = rp.baseOff + (int(mvQ4.Row)>>vp9dec.SubpelBitsConst)*rp.preStride +
+				(int(mvQ4.Col) >> vp9dec.SubpelBitsConst)
+		}
+		if vp9PhaseStatsEnabled {
+			e.vp9PhaseIncInterPredictionVariance()
+		}
+		predSlice := rp.pre[predOff:]
+		v, s, good := encoder.BlockDiffVarianceSSEClampedSource(c.src, c.srcStride,
+			c.srcW, c.srcH, predSlice, rp.preStride, c.x0, c.y0, 0, 0, c.blockW, c.blockH)
+		return v, s, predSlice, rp.preStride, good
+	}
+	v, s, good := e.vp9NonrdPredictVarianceSSETo(c, inter, miRows, miCols,
+		miRow, miCol, bsize, mode, refFrame, mv, filter, dst, dstStride)
+	return v, s, dst, dstStride, good
 }

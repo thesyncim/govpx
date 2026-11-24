@@ -220,7 +220,7 @@ func (e *VP9Encoder) vp9NonrdEstimateIntraFallback(inter *vp9InterEncodeState,
 		TxSize: intraTxSize,
 	}
 	useSimpleIntraBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
-		bsize < common.Block32x32
+		(bsize < common.Block32x32 || e.vp9SpeedFeatureCPUUsed() >= 8)
 	dequantY := [2]int16{}
 	if inter.dq != nil {
 		dequantY = inter.dq.Y[segID]

@@ -744,7 +744,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// dst directly; later candidates take a free compact buffer, and the best
 	// predictor keeps ownership until commit. For ML partitioning tmp[3]
 	// points at the SB-local pickPred rect, matching that lane's live pd->dst.
-	usePredBufferPool := reuseInterPred
+	usePredBufferPool := reuseInterPred && e.sf.Mv.SubpelForceStop != FullPel
 	var predBuffers [4]vp9NonrdPredBuffer
 	thisModePredIdx := -1
 	bestModePredIdx := -1
@@ -831,7 +831,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 	// blocks (vp9_pickmode.c:747-759), returning sse=INT_MAX so the
 	// RDCOST(0, this_sse) skip comparison never wins.
 	useSimpleBlockYrd := e.sf.UseSimpleBlockYrd != 0 &&
-		bsize < common.Block32x32
+		(bsize < common.Block32x32 || speedFeatureCPUUsed >= 8)
 
 	// segId for dequant lookup — fixed for the block.
 	segID := pickSegID
@@ -858,6 +858,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 		thisMode := vp9RefModeSet[idx].predMode
 		refFrame := vp9RefModeSet[idx].refFrame
 
+		if speedFeatureCPUUsed >= 8 && bestSet &&
+			(thisMode == common.NearMv || (thisMode == common.NewMv && best.skipTxfm == encoder.SkipTxfmAcDc)) {
+			continue
+		}
 		// libvpx: vp9_pickmode.c:2084 if (ref_frame > usable_ref_frame) continue;
 		if refFrame > maxUsableRef {
 			continue
@@ -1565,11 +1569,10 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 					currentPred = buf.data
 					currentPredStride = buf.stride
 				} else {
-					varY, sseY, ok = e.vp9NonrdPredictVarianceSSETo(predCtx,
+					varY, sseY, currentPred, currentPredStride, ok = e.vp9NonrdPredictVarianceSSEDirect(predCtx,
 						inter, miRows,
 						miCols, miRow, miCol, bsize, thisMode, refFrame, mv, filter,
 						e.blockScratch[:compactPredLen], compactPredW)
-					currentPred = e.blockScratch[:compactPredLen]
 				}
 				if !ok {
 					continue
@@ -1699,7 +1702,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			finalDist := uint64(distY)
 			blockYrdFired := false
 			skipTxfm := modelSkipTxfm
-			runBlockYrd := !useSimpleBlockYrd || bsize >= common.Block32x32
+			runBlockYrd := !useSimpleBlockYrd || (bsize >= common.Block32x32 && speedFeatureCPUUsed < 8)
 			if runBlockYrd && !thisEarlyTerm {
 				txClamp := min(mrdTxSize, common.Tx16x16)
 				// libvpx block_yrd does the prediction-build via
@@ -1800,7 +1803,7 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 			// are built, mirroring the per-plane
 			// vp9_build_inter_predictors_sbp + flag_preduv_computed gating
 			// at vp9_pickmode.c:2392-2398.
-			if !thisEarlyTerm && colorSensitivityOK &&
+			if !thisEarlyTerm && speedFeatureCPUUsed < 8 && colorSensitivityOK &&
 				(colorSensitivity[0] || colorSensitivity[1]) {
 				uvAddOK := true
 				if colorSensitivity[0] && !uvOKU {
@@ -2101,6 +2104,9 @@ func (e *VP9Encoder) pickVP9InterReferenceModeNonRD(inter *vp9InterEncodeState,
 				break
 			}
 		}
+	}
+	if speedFeatureCPUUsed >= 8 && bestSet && best.skipTxfm == encoder.SkipTxfmAcDc {
+		xSkip = true
 	}
 	if intra, intraFires := e.vp9NonrdEstimateIntraFallback(inter, tile,
 		miRows, miCols, miRow, miCol, bsize, qindex, rdmult,

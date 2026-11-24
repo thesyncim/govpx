@@ -183,7 +183,10 @@ func (e *VP9Encoder) vp9CommitLastSource(img *image.YCbCr, showFrame, dropped bo
 		len(e.lastSource.Y) == 0 {
 		e.lastSource = *image.NewYCbCr(rect, image.YCbCrSubsampleRatio420)
 	}
-	copyVP9LookaheadImage(&e.lastSource, img, e.opts.Width, e.opts.Height)
+	// Only the luma plane of lastSource is ever read (by source-SAD,
+	// noise estimation, and scene-cut detection), so skip copying Cb/Cr.
+	copyVP9VisiblePlane(e.lastSource.Y, e.lastSource.YStride,
+		img.Y, img.YStride, e.opts.Width, e.opts.Height)
 	e.lastSourceValid = true
 }
 

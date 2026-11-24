@@ -2959,9 +2959,15 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		return sad + uint64(encoder.FullPelMVSADCost(dy, dx,
 			refFullDy, refFullDx, sadPerBit))
 	}
+	searchSadAt := sadAt
 	searchSadAt4 := sadAt4
 	if blockW < 16 {
 		searchSadAt4 = nil
+	} else if !opts.fullRD && e.vp9SpeedFeatureCPUUsed() >= 8 && blockH >= 16 {
+		// 2x row-skip SAD halves full-pel seed and diamond search cost on
+		// 16x16+ realtime blocks (already scaled to full-block SAD).
+		searchSadAt = sadSkipAt
+		searchSadAt4 = sadSkipAt4
 	}
 	var bestSad, bestScore uint64
 	bestDx, bestDy := 0, 0
@@ -2997,7 +3003,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 		seedDy := int(opts.seed.Row) >> 3
 		seedDy, seedDx = mvLimits.ClampFullpel(seedDy, seedDx)
 		fullPelSADSource = vp9FullPelSADSourceSeed
-		if sad, ok := sadAt(seedDx, seedDy); ok {
+		if sad, ok := searchSadAt(seedDx, seedDy); ok {
 			bestSad = sad
 			bestScore = scoreMv(seedDx, seedDy, bestSad)
 			bestDx = seedDx
@@ -3131,7 +3137,7 @@ func (e *VP9Encoder) pickVP9InterMvAllowZero(inter *vp9InterEncodeState,
 				fullPelSADSource = vp9FullPelSADSourcePattern
 				bestDx, bestDy, bestSad, bestScore = encoder.FastDiamondPatternSearchSADWithBatch(
 					bestDx, bestDy, bestSad, bestScore, e.sf.Mv.FullpelSearchStepParam,
-					&mvLimits, sadAt, searchSadAt4, scoreMv)
+					&mvLimits, searchSadAt, searchSadAt4, scoreMv)
 				fullPelSADSource = vp9FullPelSADSourceOther
 			} else if e.sf.Mv.SearchMethod == SearchMethodFastHex {
 				fullPelSADSource = vp9FullPelSADSourcePattern

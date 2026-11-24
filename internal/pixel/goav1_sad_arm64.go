@@ -37,10 +37,29 @@ func sad16ColsDualSlice(src []byte, srcStride int, ref []byte, refStride int, h 
 }
 
 func sad16ColsX4Slice(src, p0, p1, p2, p3 []byte, srcStride, refStride int, h int) (int, int, int, int) {
-	a0 := archsimd.BroadcastUint16x8(0)
-	a1 := archsimd.BroadcastUint16x8(0)
-	a2 := archsimd.BroadcastUint16x8(0)
-	a3 := archsimd.BroadcastUint16x8(0)
+	var a0, a1, a2, a3 archsimd.Uint16x8
+	if h > 0 && (uint(srcStride)|uint(refStride))>>57 == 0 &&
+		(h-1)*srcStride+16 <= len(src) &&
+		(h-1)*refStride+16 <= len(p0) &&
+		(h-1)*refStride+16 <= len(p1) &&
+		(h-1)*refStride+16 <= len(p2) &&
+		(h-1)*refStride+16 <= len(p3) {
+		for row := range h {
+			s := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			a0 = absAcc16(a0, s, archsimd.LoadUint8x16Array((*[16]byte)(p0[0:16])))
+			a1 = absAcc16(a1, s, archsimd.LoadUint8x16Array((*[16]byte)(p1[0:16])))
+			a2 = absAcc16(a2, s, archsimd.LoadUint8x16Array((*[16]byte)(p2[0:16])))
+			a3 = absAcc16(a3, s, archsimd.LoadUint8x16Array((*[16]byte)(p3[0:16])))
+			if row+1 < h {
+				src = src[srcStride:]
+				p0 = p0[refStride:]
+				p1 = p1[refStride:]
+				p2 = p2[refStride:]
+				p3 = p3[refStride:]
+			}
+		}
+		return sumU16(a0), sumU16(a1), sumU16(a2), sumU16(a3)
+	}
 	for row := 0; row < h; row++ {
 		o := row * refStride
 		s := archsimd.LoadUint8x16(src[row*srcStride:])

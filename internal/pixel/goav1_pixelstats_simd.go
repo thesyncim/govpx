@@ -34,20 +34,31 @@ func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h
 		_ = src[(h-1)*srcStride+31]
 		_ = ref[(h-1)*refStride+31]
 		var s0, s1, sumAcc archsimd.Int32x4
+		var sum16 archsimd.Int16x8
 		for r := range h {
-			srow := src[r*srcStride : r*srcStride+32]
-			rrow := ref[r*refStride : r*refStride+32]
-			a0 := archsimd.LoadUint8x16Array((*[16]byte)(srow[0:16]))
-			b0 := archsimd.LoadUint8x16Array((*[16]byte)(rrow[0:16]))
+			a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[0:16]))
 			lo0 := a0.ExtendLo8ToUint16().BitsToInt16().Sub(b0.ExtendLo8ToUint16().BitsToInt16())
 			hi0 := widenHi8(a0).BitsToInt16().Sub(widenHi8(b0).BitsToInt16())
-			a1 := archsimd.LoadUint8x16Array((*[16]byte)(srow[16:32]))
-			b1 := archsimd.LoadUint8x16Array((*[16]byte)(rrow[16:32]))
+			a1 := archsimd.LoadUint8x16Array((*[16]byte)(src[16:32]))
+			b1 := archsimd.LoadUint8x16Array((*[16]byte)(ref[16:32]))
 			lo1 := a1.ExtendLo8ToUint16().BitsToInt16().Sub(b1.ExtendLo8ToUint16().BitsToInt16())
 			hi1 := widenHi8(a1).BitsToInt16().Sub(widenHi8(b1).BitsToInt16())
-			sumAcc = sumAcc.Add(sumDiff16(lo0.Add(hi0).Add(lo1).Add(hi1)))
+			// Max per-lane abs after 16 rows: 16 * 4 * 255 = 16320 < 32767.
+			sum16 = sum16.Add(lo0).Add(hi0).Add(lo1).Add(hi1)
 			s0 = s0.Add(square8(lo0)).Add(square8(lo1))
 			s1 = s1.Add(square8(hi0)).Add(square8(hi1))
+			if r&15 == 15 {
+				sumAcc = sumAcc.Add(sumDiff16(sum16))
+				sum16 = archsimd.Int16x8{}
+			}
+			if r+1 < h {
+				src = src[srcStride:]
+				ref = ref[refStride:]
+			}
+		}
+		if h&15 != 0 {
+			sumAcc = sumAcc.Add(sumDiff16(sum16))
 		}
 		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
 		return uint32(total), int32(signed)
@@ -56,20 +67,39 @@ func pixelStatsRows16(src []byte, srcStride int, ref []byte, refStride int, w, h
 		_ = src[(h-1)*srcStride+63]
 		_ = ref[(h-1)*refStride+63]
 		var s0, s1, sumAcc archsimd.Int32x4
+		var sum16 archsimd.Int16x8
 		for r := range h {
-			srow := src[r*srcStride : r*srcStride+64]
-			rrow := ref[r*refStride : r*refStride+64]
-			var rowSum archsimd.Int16x8
-			for c := 0; c < 64; c += 16 {
-				a := archsimd.LoadUint8x16Array((*[16]byte)(srow[c : c+16]))
-				b := archsimd.LoadUint8x16Array((*[16]byte)(rrow[c : c+16]))
-				lo := a.ExtendLo8ToUint16().BitsToInt16().Sub(b.ExtendLo8ToUint16().BitsToInt16())
-				hi := widenHi8(a).BitsToInt16().Sub(widenHi8(b).BitsToInt16())
-				rowSum = rowSum.Add(lo).Add(hi)
-				s0 = s0.Add(square8(lo))
-				s1 = s1.Add(square8(hi))
+			a0 := archsimd.LoadUint8x16Array((*[16]byte)(src[0:16]))
+			b0 := archsimd.LoadUint8x16Array((*[16]byte)(ref[0:16]))
+			lo0 := a0.ExtendLo8ToUint16().BitsToInt16().Sub(b0.ExtendLo8ToUint16().BitsToInt16())
+			hi0 := widenHi8(a0).BitsToInt16().Sub(widenHi8(b0).BitsToInt16())
+			a1 := archsimd.LoadUint8x16Array((*[16]byte)(src[16:32]))
+			b1 := archsimd.LoadUint8x16Array((*[16]byte)(ref[16:32]))
+			lo1 := a1.ExtendLo8ToUint16().BitsToInt16().Sub(b1.ExtendLo8ToUint16().BitsToInt16())
+			hi1 := widenHi8(a1).BitsToInt16().Sub(widenHi8(b1).BitsToInt16())
+			a2 := archsimd.LoadUint8x16Array((*[16]byte)(src[32:48]))
+			b2 := archsimd.LoadUint8x16Array((*[16]byte)(ref[32:48]))
+			lo2 := a2.ExtendLo8ToUint16().BitsToInt16().Sub(b2.ExtendLo8ToUint16().BitsToInt16())
+			hi2 := widenHi8(a2).BitsToInt16().Sub(widenHi8(b2).BitsToInt16())
+			a3 := archsimd.LoadUint8x16Array((*[16]byte)(src[48:64]))
+			b3 := archsimd.LoadUint8x16Array((*[16]byte)(ref[48:64]))
+			lo3 := a3.ExtendLo8ToUint16().BitsToInt16().Sub(b3.ExtendLo8ToUint16().BitsToInt16())
+			hi3 := widenHi8(a3).BitsToInt16().Sub(widenHi8(b3).BitsToInt16())
+			// Max per-lane abs after 8 rows: 8 * 8 * 255 = 16320 < 32767.
+			sum16 = sum16.Add(lo0).Add(hi0).Add(lo1).Add(hi1).Add(lo2).Add(hi2).Add(lo3).Add(hi3)
+			s0 = s0.Add(square8(lo0)).Add(square8(lo1)).Add(square8(lo2)).Add(square8(lo3))
+			s1 = s1.Add(square8(hi0)).Add(square8(hi1)).Add(square8(hi2)).Add(square8(hi3))
+			if r&7 == 7 {
+				sumAcc = sumAcc.Add(sumDiff16(sum16))
+				sum16 = archsimd.Int16x8{}
 			}
-			sumAcc = sumAcc.Add(sumDiff16(rowSum))
+			if r+1 < h {
+				src = src[srcStride:]
+				ref = ref[refStride:]
+			}
+		}
+		if h&7 != 0 {
+			sumAcc = sumAcc.Add(sumDiff16(sum16))
 		}
 		total, signed := reducePixelAcc(s0.Add(s1), sumAcc)
 		return uint32(total), int32(signed)
