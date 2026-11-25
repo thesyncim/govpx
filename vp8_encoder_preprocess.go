@@ -17,23 +17,48 @@ func (e *VP8Encoder) initPreprocessFrames(width int, height int) error {
 	if err := e.preprocess.Resize(width, height, 32, 32); err != nil {
 		return ErrInvalidConfig
 	}
-	if err := e.arnrScratch.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	if e.opts.AutoAltRef || (e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled()) {
+		if err := e.ensureARNRBuffers(width, height); err != nil {
+			return err
+		}
 	}
-	if err := e.arnrLastSource.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	return nil
+}
+
+func (e *VP8Encoder) ensureARNRBuffers(width int, height int) error {
+	if e.arnrScratch.Img.Width != width || e.arnrScratch.Img.Height != height {
+		if err := e.arnrScratch.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
 	}
-	if err := e.firstPassLastRef.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	if e.arnrLastSource.Img.Width != width || e.arnrLastSource.Img.Height != height {
+		if err := e.arnrLastSource.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
 	}
-	if err := e.firstPassGoldenRef.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	return nil
+}
+
+func (e *VP8Encoder) ensureFirstPassBuffers(width int, height int) error {
+	if e.firstPassLastRef.Img.Width != width || e.firstPassLastRef.Img.Height != height {
+		if err := e.firstPassLastRef.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
 	}
-	if err := e.firstPassLastSource.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	if e.firstPassGoldenRef.Img.Width != width || e.firstPassGoldenRef.Img.Height != height {
+		if err := e.firstPassGoldenRef.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
 	}
-	if err := e.firstPassNewRef.Resize(width, height, 32, 32); err != nil {
-		return ErrInvalidConfig
+	if e.firstPassLastSource.Img.Width != width || e.firstPassLastSource.Img.Height != height {
+		if err := e.firstPassLastSource.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
+	}
+	if e.firstPassNewRef.Img.Width != width || e.firstPassNewRef.Img.Height != height {
+		if err := e.firstPassNewRef.Resize(width, height, 32, 32); err != nil {
+			return ErrInvalidConfig
+		}
 	}
 	return nil
 }
@@ -70,8 +95,12 @@ func (e *VP8Encoder) preprocessSource(source vp8enc.SourceImage, flags EncodeFla
 		}
 	}
 	if e.opts.ARNRMaxFrames > 1 && e.lookaheadEnabled() {
-		vp8enc.CopySourceToFrameBuffer(&e.arnrLastSource, source)
-		e.arnrLastReady = true
+		if err := e.ensureARNRBuffers(e.opts.Width, e.opts.Height); err == nil {
+			vp8enc.CopySourceToFrameBuffer(&e.arnrLastSource, source)
+			e.arnrLastReady = true
+		} else {
+			e.arnrLastReady = false
+		}
 	} else {
 		e.arnrLastReady = false
 	}

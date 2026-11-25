@@ -2,15 +2,14 @@ package govpx
 
 import (
 	"encoding/binary"
-	"image"
-	"runtime"
-	"testing"
-
 	"github.com/thesyncim/govpx/internal/testutil"
 	"github.com/thesyncim/govpx/internal/testutil/vp9test"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
+	"image"
+	"runtime"
+	"testing"
 )
 
 const (
@@ -455,4 +454,62 @@ func assertVP9EncoderTilePrefixForTest(t *testing.T, packet []byte, tileStart in
 		t.Fatalf("first tile consumes packet: start=%d size=%d len=%d",
 			tileStart, firstTileSize, len(packet))
 	}
+}
+
+func appendVP9I420(out []byte, img Image) []byte {
+	return testutil.AppendI420Planes(out, img.Width, img.Height,
+		img.Y, img.YStride,
+		img.U, img.UStride,
+		img.V, img.VStride)
+}
+
+func vp9SegmentCountsForGrid(grid []vp9dec.NeighborMi) [vp9dec.MaxSegments]int {
+	var counts [vp9dec.MaxSegments]int
+	for _, mi := range grid {
+		if mi.SegmentID < vp9dec.MaxSegments {
+			counts[mi.SegmentID]++
+		}
+	}
+	return counts
+}
+
+// newVP9TexturedYCbCrForLpfPickerTest synthesises a deterministically-
+// noisy YCbCr 4:2:0 frame for the LPF picker's PSNR-delta test. The
+// luma plane carries a high-frequency mixture of horizontal stripes,
+// vertical bars, and a per-pixel pseudo-random rotation so the
+// quadratic search over filter levels has a meaningful SSE landscape
+// (cf. libvpx vp9_picklpf.c:78-157 search_filter_level — the search
+// only diverges from the FROM_Q seed when the post-filter SSE
+// differs across candidate levels). The deterministic LCG seed pins
+// the frame for byte-stable reproduction.
+func newVP9TexturedYCbCrForLpfPickerTest(width, height int) *image.YCbCr {
+	img := image.NewYCbCr(image.Rect(0, 0, width, height), image.YCbCrSubsampleRatio420)
+	state := uint32(0xDEADBEEF)
+	for y := range height {
+		row := img.Y[y*img.YStride:]
+		for x := range width {
+			// Deterministic xorshift32 → 8-bit per-pixel noise.
+			state ^= state << 13
+			state ^= state >> 17
+			state ^= state << 5
+			noise := byte(state & 0xFF)
+			// Stripe pattern with diagonal contrast.
+			base := byte(((x + y*3) & 0x3F) + 64)
+			row[x] = base ^ (noise >> 2)
+		}
+	}
+	uvWidth := (width + 1) >> 1
+	uvHeight := (height + 1) >> 1
+	for y := range uvHeight {
+		cb := img.Cb[y*img.CStride:]
+		cr := img.Cr[y*img.CStride:]
+		for x := range uvWidth {
+			state ^= state << 13
+			state ^= state >> 17
+			state ^= state << 5
+			cb[x] = byte(96 + (state & 0x3F))
+			cr[x] = byte(160 + ((state >> 8) & 0x3F))
+		}
+	}
+	return img
 }

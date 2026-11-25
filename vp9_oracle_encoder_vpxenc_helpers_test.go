@@ -113,12 +113,12 @@ func decodeVP9PacketTxCoeffsForOracleTest(t *testing.T, packet []byte) []vp9Orac
 		if mi.Skip != 0 {
 			aboveOffsets, leftOffsets := d.vp9PlaneContextOffsets(miRow, miCol)
 			vp9dec.ResetSkipContext(d.planes[:], reconBsize, aboveOffsets[:], leftOffsets[:])
-			d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+			d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 			return
 		}
 		out = append(out, collectVP9PacketResidueCoeffsForOracleTest(t, d, &r,
 			&hdr, mi, modeOut.UvMode, miRow, miCol, reconBsize)...)
-		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, *mi)
+		d.fillVP9DecoderMiGrid(miRows, miCols, miRow, miCol, bsize, mi)
 	}
 	var walk func(miRow, miCol int, bsize common.BlockSize)
 	walk = func(miRow, miCol int, bsize common.BlockSize) {

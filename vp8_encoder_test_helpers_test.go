@@ -1,12 +1,12 @@
 package govpx
 
 import (
-	"testing"
-
 	vp8common "github.com/thesyncim/govpx/internal/vp8/common"
 	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
+	vp8enc "github.com/thesyncim/govpx/internal/vp8/encoder"
 	vp8tables "github.com/thesyncim/govpx/internal/vp8/tables"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
+	"testing"
 )
 
 func newTestEncoder(tb testing.TB) *VP8Encoder {
@@ -386,4 +386,111 @@ func planeBlockEqual(a []byte, aStride int, b []byte, bStride int, planeWidth in
 		}
 	}
 	return true
+}
+
+func TestFirstInterFrameRDProbsResetAfterKeyFrame(t *testing.T) {
+	e := &VP8Encoder{}
+	e.updateRefFrameProbsFromKeyFrame()
+	if !e.refProbUseDefaultOnNextInterRD {
+		t.Fatal("key frame did not arm default ref-prob reset for next inter RD pass")
+	}
+	e.resetRefFrameProbsToDefaultInterRD()
+	e.applyLibvpxRdRefFrameProbRefreshAdjustments(false)
+	if got, want := e.refProbIntra, uint8(63); got != want {
+		t.Fatalf("prob_intra after first-inter reset = %d, want %d", got, want)
+	}
+	if got, want := e.refProbLast, uint8(214); got != want {
+		t.Fatalf("prob_last after first-inter refresh adjustment = %d, want %d", got, want)
+	}
+	if got, want := e.refProbGolden, uint8(255); got != want {
+		t.Fatalf("prob_gf after first-inter refresh adjustment = %d, want %d", got, want)
+	}
+}
+
+func itoaSmall(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
+
+func TestRateControlSelectQuantizerUsesLibvpxBitsPerMBModel(t *testing.T) {
+	if got := vp8enc.LibvpxRegulatedQuantizer(false, 12000, 60, 4, 56, 1.0); got != 24 {
+		t.Fatalf("inter regulated quantizer = %d, want libvpx table q24", got)
+	}
+	if got := vp8enc.LibvpxRegulatedQuantizer(true, 72000, 60, 4, 56, 1.0); got != 4 {
+		t.Fatalf("key regulated quantizer = %d, want min-clamped q4", got)
+	}
+
+	rc := rateControlState{
+		mode:              RateControlCBR,
+		minQuantizer:      4,
+		maxQuantizer:      56,
+		currentQuantizer:  4,
+		bitsPerFrame:      12000,
+		frameTargetBits:   12000,
+		bufferOptimalBits: 60000,
+		bufferLevelBits:   48000,
+	}
+	rc.selectQuantizerForFrame(false, 60)
+	if rc.currentQuantizer != 24 {
+		t.Fatalf("selected quantizer = %d, want q24", rc.currentQuantizer)
+	}
+}
+
+// libvpxFormulaForRD returns the libvpx source-line citation for the
+// step_param formula expected on the RD vs picker path. Used for
+// regression-test error messages.
+func libvpxFormulaForRD(rd bool) string {
+	if rd {
+		return "rdopt.c:2076: step_param = max(first_step, sr) with no speed_adjust"
+	}
+	return "pickinter.c:932/971/973: step_param = max(first_step+speed_adjust, sr+speed_adjust)"
+}
+
+// libvpxFurtherFormulaForRD returns the libvpx source-line citation for
+// the further_steps formula expected on the RD vs picker path.
+func libvpxFurtherFormulaForRD(rd bool) string {
+	if rd {
+		return "rdopt.c:2086: further_steps = max_step-1-step_param (no Speed>=8 cap)"
+	}
+	return "pickinter.c:1005-1008: further_steps = (Speed>=8 ? 0 : max_step-1-step_param)"
+}
+
+// cpuUsedTag formats a subtest name from a signed cpu_used. Negative
+// values produce "cpu-neg-N" so the test output is greppable.
+func cpuUsedTag(cpuUsed int) string {
+	if cpuUsed < 0 {
+		return "cpu-neg-" + itoaPositive(-cpuUsed)
+	}
+	return "cpu-" + itoaPositive(cpuUsed)
+}
+
+func itoaPositive(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(buf[i:])
 }

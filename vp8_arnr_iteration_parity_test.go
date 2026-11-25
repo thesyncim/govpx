@@ -275,6 +275,9 @@ func TestVP8ARNRIterateByteExact(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = e.Close() })
 
+			if err := e.ensureARNRBuffers(width, height); err != nil {
+				t.Fatalf("ensureARNRBuffers: %v", err)
+			}
 			copyARNRIterationPlane(e.arnrScratch.Img.Y, e.arnrScratch.Img.YStride, cy, width, width, height)
 			copyARNRIterationPlane(e.arnrScratch.Img.U, e.arnrScratch.Img.UStride, cu, (width+1)>>1, (width+1)>>1, (height+1)>>1)
 			copyARNRIterationPlane(e.arnrScratch.Img.V, e.arnrScratch.Img.VStride, cv, (width+1)>>1, (width+1)>>1, (height+1)>>1)

@@ -52,6 +52,9 @@ func (e *VP8Encoder) applyARNRFilter(center vp8enc.SourceImage, distance int) bo
 		return false
 	}
 	strength := e.opts.ARNRStrength
+	if err := e.ensureARNRBuffers(center.Width, center.Height); err != nil {
+		return false
+	}
 	// The center frame is the alt-ref source. Copy it into the scratch
 	// buffer first so we have a stable read source and an output in the
 	// same place (libvpx writes filtered pixels into cpi->alt_ref_buffer).

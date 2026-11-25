@@ -405,9 +405,7 @@ type VP9Encoder struct {
 	// mutations are the committed single-walk state. While set, the tile walk
 	// must replay every cached leaf instead of applying the denoiser again.
 	vp9DenoiserCountStateReady bool
-	vp9HeaderScratch           vp9dec.UncompressedHeader
-	vp9InterIntraHdr           vp9dec.UncompressedHeader
-	vp9CountWorkers            []VP9Encoder
+	vp9CountWorkers            []*VP9Encoder
 	vp9CountCounts             []encoder.FrameCounts
 	vp9CountJobs               []vp9CountTileJob
 	vp9TilePool                *vp9TileWorkerPool
@@ -464,18 +462,6 @@ type VP9Encoder struct {
 	// vp9TileWorkerPool.rowMTSyncs and lives for the duration of the per-frame
 	// encode; writeVP9ModesTileBounds reads it to drive the wavefront primitive.
 	vp9RowMTSync *vp9RowMTSync
-	lfi          vp9dec.LoopFilterInfoN
-	lfRefDeltas  [vp9dec.MaxRefLfDeltas]int8
-	lfModeDeltas [vp9dec.MaxModeLfDeltas]int8
-
-	// vp9LastFiltLevel mirrors libvpx loopfilter::last_filt_level. The
-	// picker's quadratic search seeds filt_mid from the previous
-	// frame's chosen level (libvpx vp9_picklpf.c:90), and the
-	// LPF_PICK_MINIMAL_LPF branch reads it to decide whether to zero
-	// the filter (libvpx vp9_picklpf.c:166). Reset to 0 on the
-	// non-forced KEY_FRAME edge to match libvpx vp9_encoder.c:3444-3445
-	// (`lf->last_filt_level = 0`).
-	vp9LastFiltLevel uint8
 
 	// vp9LpfReconYBackup is the encoder-owned scratch that mirrors
 	// libvpx cpi->last_frame_uf.y_buffer. The full-image / sub-image
@@ -491,39 +477,6 @@ type VP9Encoder struct {
 	// libvpx's per-SB lfm storage and is reused so steady-state encode paths do
 	// not allocate while filtering.
 	vp9LoopFilterMasks []vp9LoopFilterMask
-
-	// vp9FilterThreshes / vp9FilterThreshesPrev mirror libvpx
-	// RD_OPT::filter_threshes[MAX_REF_FRAMES][SWITCHABLE_FILTER_CONTEXTS]
-	// and filter_threshes_prev (vp9/encoder/vp9_rd.h:123,126). They
-	// drive the per-frame SWITCHABLE -> concrete InterpFilter demotion
-	// at vp9_encodeframe.c:5876-5877 (`get_interp_filter`) and accumulate
-	// post-encode at vp9_encodeframe.c:5890-5891 via the per-block
-	// `best_filter_diff` RD signal aggregated into rdc->filter_diff.
-	//
-	// The _prev snapshot is the libvpx save_encode_params (vp9_encoder.c
-	// :3927-3946) / restore_encode_params (vp9_encodeframe.c:5798-5820)
-	// recode-loop guard: govpx does not currently re-encode a frame, but
-	// the snapshot pair is ported verbatim so the wiring is identical
-	// when recode lands. SwitchableFilterContexts is the libvpx
-	// SWITCHABLE_FILTER_CONTEXTS == 4 width; vp9dec.MaxRefFrames is the
-	// MAX_REF_FRAMES == 4 outer dimension.
-	vp9FilterThreshes     [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
-	vp9FilterThreshesPrev [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
-
-	// vp9FilterDiff is the per-frame accumulator for libvpx
-	// rdc->filter_diff[SWITCHABLE_FILTER_CONTEXTS] (vp9_encoder.h:383).
-	// Per-block RD picks deposit `best_rd - best_filter_rd[i]` here via
-	// vp9_encodeframe.c:1881 (`rdc->filter_diff[i] += ctx->best_filter_diff[i]`).
-	// Drained and merged into vp9FilterThreshes at the post-encode update
-	// (vp9_encodeframe.c:5890-5891).
-	vp9FilterDiff [vp9dec.SwitchableFilterContexts]int64
-
-	// vp9BlockFilterRDScores carries the current final leaf's full-RD
-	// interpolation-filter score table from the picker to the residue write
-	// site. It is transient and consumed before the decision enters the
-	// same-frame leaf cache.
-	vp9BlockFilterRDScores [vp9dec.SwitchableFilterContexts]uint64
-	vp9BlockFilterRDValid  bool
 
 	lookahead      []vp9LookaheadEntry
 	lookaheadRead  uint8
@@ -548,60 +501,9 @@ type VP9Encoder struct {
 	// It is nil unless FrameParallelEncoderThreads >= 2 has been requested.
 	frameParallel *vp9FrameParallelScheduler
 
-	// lastQuantizerInternal / lastQuantizerPublic / lastQuantizerValid mirror
-	// libvpx's VP9E_GET_LAST_QUANTIZER state for callers that don't own the
-	// VP9EncodeResult. They snapshot the qindex of the most recently
-	// committed encoded frame; dropped or buffered-by-lookahead inputs leave
-	// the value untouched.
-	lastQuantizerInternal int
-	lastQuantizerPublic   int
-	lastQuantizerValid    bool
-	lastLoopFilterLevel   uint8
-	lastLoopFilterValid   bool
-
 	// tpl carries the per-encoder TPL quality-pass state when EnableTPL
 	// is true.  Slabs are sized at construction or on resolution change.
 	tpl encoder.TPLState
-
-	// cbRdmult mirrors libvpx's MACROBLOCK::cb_rdmult.  Each per-SB mode
-	// picker (libvpx: vp9/encoder/vp9_encodeframe.c:4245-4248) writes
-	// this once from the base rdmult biased by the per-SB AQ/TPL deltas
-	// and candidate-scoring helpers read it directly. When zero, callers
-	// fall back to the per-frame rd.rdmult.
-	cbRdmult int
-
-	// fullRDPredMv mirrors libvpx's MACROBLOCK::pred_mv[MAX_REF_FRAMES]
-	// (vp9/encoder/vp9_block.h). The full-RD inter NEWMV single_motion_search
-	// tail stores its SUBPEL result here (vp9_rdopt.c:2750
-	// x->pred_mv[ref] = tmp_mv->as_mv); the next-smaller block's vp9_mv_pred
-	// (vp9_rd.c:613 pred_mv[2] = x->pred_mv[ref_frame]) reads it as the third
-	// motion-vector-predictor candidate to seed mvp_full. The depth-first
-	// rd_pick_partition recursion snapshots/restores it across partition arms
-	// (store_pred_mv/load_pred_mv, vp9_encodeframe.c:3913/3932) so each child
-	// arm seeds from the parent NONE block's NEWMV. Reset to the INT16_MAX
-	// sentinel (vp9InterPredMvSentinel) per-SB (vp9_encodeframe.c:4215-4218).
-	// Consumed ONLY when vp9InterUseDeepRDSub8x8 is active (the full deep-RD
-	// inter stack the production cpu0/cpu4 enable turns on together with the
-	// deep partition recursion + genuine this_rd); the deep-partition-only
-	// SEARCH->WRITE round-trip harness and production (flags off) keep
-	// candidate[2] sourced from the var-part cache, so those paths are
-	// byte-identical.
-	fullRDPredMv [vp9dec.MaxRefFrames]vp9dec.MV
-
-	// rdThresh carries libvpx's RD-thresh / per-tile thresh_freq_fact
-	// state. Lazily allocated by vp9EncoderInitializeRDConsts on first
-	// frame init. Mirrors:
-	//
-	//   - RD_OPT::thresh_mult[MAX_MODES]               (vp9_rd.h:116)
-	//   - RD_OPT::threshes[1][BLOCK_SIZES][MAX_MODES]  (vp9_rd.h:119)
-	//   - TileDataEnc::thresh_freq_fact[BLOCK_SIZES][MAX_MODES]
-	//                                                 (vp9_block.h)
-	//
-	// Single-tile collapse: govpx's current realtime encoder path is
-	// single-tile, so libvpx's per-tile state collapses to a single tile
-	// plane. Single-segment: segmentation is disabled for this path, so
-	// [MAX_SEGMENTS=8] collapses to segment_id=0.
-	rdThresh encoder.RDThreshState
 
 	// mvHints carries the per-SB64 motion-vector hint slab installed
 	// via importVP9MVHints. The multi-resolution encoder pipeline
@@ -612,14 +514,8 @@ type VP9Encoder struct {
 	// motion correlation can pick a hint-derived MV that the local
 	// 16-px search radius would miss. nil disables hint biasing.
 	mvHints *vp9MVHintMap
-
-	// sf carries libvpx's SPEED_FEATURES struct. It is refreshed by
-	// vp9ApplySpeedFeatures() whenever CpuUsed / Deadline / content options
-	// change, and at frame setup so the framesize-dependent dispatcher sees
-	// the actual per-frame state.
-	//
-	// libvpx: vp9_encoder.h cpi->sf + vp9_speed_features.{h,c}.
-	sf SpeedFeatures
+	// rdThresh carries rowBaseThreshFreqFact slice, so keep it above the pure-value tail.
+	rdThresh encoder.RDThreshState
 
 	// contentStateSbFd mirrors libvpx's cpi->content_state_sb_fd: a per-SB
 	// uint8 counter incremented on every SB whose tmp_sad reading falls
@@ -675,6 +571,25 @@ type VP9Encoder struct {
 	interPredictor VP9Decoder
 
 	// --- Pure value / pointer-free tail (beyond Go GC PtrBytes: 0 scan cost) ---
+	lfi                    vp9dec.LoopFilterInfoN
+	lfRefDeltas            [vp9dec.MaxRefLfDeltas]int8
+	lfModeDeltas           [vp9dec.MaxModeLfDeltas]int8
+	vp9LastFiltLevel       uint8
+	vp9FilterThreshes      [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+	vp9FilterThreshesPrev  [vp9dec.MaxRefFrames][vp9dec.SwitchableFilterContexts]int64
+	vp9FilterDiff          [vp9dec.SwitchableFilterContexts]int64
+	vp9BlockFilterRDScores [vp9dec.SwitchableFilterContexts]uint64
+	vp9BlockFilterRDValid  bool
+	lastQuantizerInternal  int
+	lastQuantizerPublic    int
+	lastQuantizerValid     bool
+	lastLoopFilterLevel    uint8
+	lastLoopFilterValid    bool
+	cbRdmult               int
+	fullRDPredMv           [vp9dec.MaxRefFrames]vp9dec.MV
+	sf                     SpeedFeatures
+	vp9HeaderScratch       vp9dec.UncompressedHeader
+	vp9InterIntraHdr       vp9dec.UncompressedHeader
 	frameContexts          [common.FrameContexts]vp9dec.FrameContext
 	fc                     vp9dec.FrameContext
 	vp9NonrdModeCostFc     vp9dec.FrameContext
@@ -863,7 +778,9 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 	miCols := (w + 7) >> 3
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
 	e.prevFrameMvs = buffers.EnsureLenZeroed(e.prevFrameMvs, miRows*miCols)
-	e.vp9TokenFrame.Ensure(miRows, miCols)
+	if e.vp9TilePool == nil {
+		e.vp9TokenFrame.Ensure(miRows, miCols)
+	}
 	if e.opts.NoiseSensitivity > 0 {
 		e.denoiser.sensitivity = e.opts.NoiseSensitivity
 		e.denoiser.ensure(w, h)
@@ -889,9 +806,16 @@ func (e *VP9Encoder) prewarmVP9EncodeBuffers() {
 	e.varPartSBZeroTempSADSource = buffers.EnsureLen(e.varPartSBZeroTempSADSource, sbCount)
 	e.interPredictScratch = buffers.EnsureLen(e.interPredictScratch, 80*80)
 	if pool := e.vp9TilePool; pool != nil {
+		tileInfo := vp9EncoderTileInfoForTargetLevel(miCols, w, h,
+			e.vp9EffectiveThreadHint(), e.opts.Log2TileRows, e.opts.TargetLevel)
 		for i := range pool.workers {
 			pool.workers[i].prepareVP9CountWorker(e, w, h, miRows, miCols)
-			pool.countTokens[i].Ensure(miRows, miCols)
+			tile := vp9EncoderTileBounds(0, i, miRows, miCols, tileInfo)
+			tileMiCols := tile.MiColEnd - tile.MiColStart
+			if tileMiCols <= 0 {
+				tileMiCols = miCols
+			}
+			pool.countTokens[i].EnsureForTile(miRows, tileMiCols, 0, i)
 		}
 		if e.opts.RowMT {
 			pool.ensureRowMTSync(sbRows)
