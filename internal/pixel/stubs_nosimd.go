@@ -58,6 +58,14 @@ func QuantizeVP8Batch(coeff []int16, round, quant, dequant *[16]int16, qcoeff, d
 	return false
 }
 
+// VP9DenoisePlane falls back to the scalar VP9 denoiser on non-SIMD builds.
+func VP9DenoisePlane(
+	_ []byte, _ int, _ []byte, _ int, _ []byte, _ int,
+	_, _, _, _, _, _, _, _, _ int,
+) (bool, bool) {
+	return false, false
+}
+
 // QuantizeVP8BatchOnly leaves unsupported builds to per-block quantization.
 func QuantizeVP8BatchOnly(coeff []int16, round, quant *[16]int16, qcoeff []int16, iscan *[16]int16, eobs []uint8, count int) bool {
 	return false

@@ -148,7 +148,7 @@ func transformMacroblockTokensLuma(tokens *MacroblockTokens, dequant *common.Mac
 		clearYResidualBlocks(out)
 		var y2 [16]int16
 		if tokens.EOB[24] > 1 {
-			dsp.DequantizeBlock(&tokens.QCoeff[24], &dequant.Y2, &y2)
+			dsp.DequantizeBlockDisjoint(&tokens.QCoeff[24], &dequant.Y2, &y2)
 			dsp.InverseWalsh4x4(&y2, out.DQCoeff[:])
 		} else {
 			y2[0] = tokens.QCoeff[24][0] * dequant.Y2[0]
@@ -294,7 +294,7 @@ func seedLumaDCFromY2(qcoeff *[25][16]int16, eob *[25]uint8, dequant *common.Mac
 	if eob[24] > 1 {
 		var y2 [16]int16
 		var flat [16 * 16]int16
-		dsp.DequantizeBlock(&qcoeff[24], &dequant.Y2, &y2)
+		dsp.DequantizeBlockDisjoint(&qcoeff[24], &dequant.Y2, &y2)
 		dsp.InverseWalsh4x4(&y2, flat[:])
 		for i := range 16 {
 			qcoeff[i][0] = flat[i*16]
@@ -319,25 +319,6 @@ func unseedLumaDC(qcoeff *[25][16]int16) {
 	}
 }
 
-// sanitizeDCOnlyBlock zeroes the coefficient slots an EOB <= 1 block does
-// not own before the block rides the fused pair kernel. The decoder's
-// dirty-clear contract already guarantees these slots are zero, but encoder
-// analysis callers reuse token buffers across macroblocks and only maintain
-// the first EOB coefficients (libvpx's own encoder never routes its analysis
-// reconstruction through the NEON pair kernels, and the pre-fusion
-// addOneChromaBlock explicitly rebuilt "a fresh DC-only block" for the same
-// reason). An EOB == 0 block owns nothing (unless the Y2 inverse Walsh
-// seeded its DC, which is real reconstruction data); an EOB == 1 block owns
-// only its DC.
-func sanitizeDCOnlyBlock(block *[16]int16, eob uint8, seeded bool) {
-	if eob == 0 && !seeded {
-		block[0] = 0
-	}
-	for i := 1; i < 16; i++ {
-		block[i] = 0
-	}
-}
-
 // dequantIDCTAddLumaBlocks mirrors vp8_dequant_idct_add_y_block_neon: the 16
 // luma blocks dispatch in horizontally adjacent pairs. A pair with any
 // EOB > 1 runs the full fused kernel (int16 wrapping dequant of both
@@ -357,13 +338,15 @@ func dequantIDCTAddLumaBlocks(qcoeff *[25][16]int16, eob *[25]uint8, eobFloor ui
 			off := rowOff + col*4
 			if eob0 > 1 || eob1 > 1 {
 				var pair [32]int16
-				copy(pair[:16], qcoeff[b][:])
-				copy(pair[16:], qcoeff[b+1][:])
-				if eob0 <= 1 {
-					sanitizeDCOnlyBlock((*[16]int16)(pair[:16]), eob0, seeded)
+				if eob0 > 1 {
+					copy(pair[:16], qcoeff[b][:])
+				} else if eob0 != 0 || seeded {
+					pair[0] = qcoeff[b][0]
 				}
-				if eob1 <= 1 {
-					sanitizeDCOnlyBlock((*[16]int16)(pair[16:32]), eob1, seeded)
+				if eob1 > 1 {
+					copy(pair[16:], qcoeff[b+1][:])
+				} else if eob1 != 0 || seeded {
+					pair[16] = qcoeff[b+1][0]
 				}
 				dsp.DequantIDCTAddFull2x(&pair, yDequant, y[off:], yStride)
 				continue
@@ -402,13 +385,15 @@ func dequantIDCTAddChromaPair(qcoeff *[25][16]int16, eob *[25]uint8, uvDequant *
 	}
 	if eob0 > 1 || eob1 > 1 {
 		var pair [32]int16
-		copy(pair[:16], qcoeff[b][:])
-		copy(pair[16:], qcoeff[b+1][:])
-		if eob0 <= 1 {
-			sanitizeDCOnlyBlock((*[16]int16)(pair[:16]), eob0, false)
+		if eob0 > 1 {
+			copy(pair[:16], qcoeff[b][:])
+		} else if eob0 != 0 {
+			pair[0] = qcoeff[b][0]
 		}
-		if eob1 <= 1 {
-			sanitizeDCOnlyBlock((*[16]int16)(pair[16:32]), eob1, false)
+		if eob1 > 1 {
+			copy(pair[16:], qcoeff[b+1][:])
+		} else if eob1 != 0 {
+			pair[16] = qcoeff[b+1][0]
 		}
 		dsp.DequantIDCTAddFull2x(&pair, uvDequant, dst, stride)
 		return

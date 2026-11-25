@@ -62,6 +62,10 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	if _, _, err := decodeBenchmarkPackets(dec, packets, make([]int64, 0, len(packets))); err != nil {
 		return decodeBenchReport{}, err
 	}
+	runtime.GC()
+	if _, _, err := decodeBenchmarkPackets(dec, packets, make([]int64, 0, len(packets))); err != nil {
+		return decodeBenchReport{}, err
+	}
 
 	runs := max(cfg.Runs, 1)
 	govpxSamples := make([]int64, 0, runs)
@@ -84,7 +88,6 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 			runRef = &reference
 		}
 
-		runtime.GC()
 		latencies := make([]int64, 0, len(packets))
 		var memBefore runtime.MemStats
 		var memAfter runtime.MemStats

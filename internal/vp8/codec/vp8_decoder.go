@@ -71,43 +71,48 @@ const (
 )
 
 // VP8Decoder decodes raw VP8 frame payloads.
+// Pointer-containing fields are grouped at the top of the struct to minimize
+// Go GC PtrBytes scanning overhead.
 type VP8Decoder struct {
 	opts            DecoderOptions
-	lifecycle       vp8DecoderState
 	lastFrame       Image
-	lastInfo        FrameInfo
-	currentPTS      uint64
-	visibleFrames   int
-	ecActive        bool
-	frameCorrupt    bool
-	frameSuppress   bool
-	modesCorrupt    int
-	residualCorrupt int
-
-	frameWidth  int
-	frameHeight int
-	current     vp8common.FrameBuffer
-	post        vp8common.FrameBuffer
-	lastRef     vp8common.FrameBuffer
-	goldenRef   vp8common.FrameBuffer
-	altRef      vp8common.FrameBuffer
-
+	refPool         [4]vp8common.FrameBuffer
+	post            vp8common.FrameBuffer
 	decryptedPacket []byte
+	modes           []vp8dec.MacroblockMode
+	prevModes       []vp8dec.MacroblockMode
+	ecOverlaps      []vp8dec.ErrorConcealmentOverlap
+	tokens          []vp8dec.MacroblockTokens
+	tokenAbove      []vp8dec.EntropyContextPlanes
+	segmentMap      []uint8
+	postprocScratch []byte
+	postprocState   vp8dec.PostProcessState
+	modeReader      boolcoder.Decoder
+	tokenReaders    [8]boolcoder.Decoder
+	partitions      vp8dec.PartitionLayout
 
+	// Pointer-free value fields below (never scanned by Go's GC).
+	lifecycle          vp8DecoderState
+	lastInfo           FrameInfo
+	currentPTS         uint64
+	visibleFrames      int
+	ecActive           bool
+	frameCorrupt       bool
+	frameSuppress      bool
+	modesCorrupt       int
+	residualCorrupt    int
+	frameWidth         int
+	frameHeight        int
+	curIdx             int
+	lastIdx            int
+	goldenIdx          int
+	altIdx             int
 	mbRows             int
 	mbCols             int
-	modes              []vp8dec.MacroblockMode
-	prevModes          []vp8dec.MacroblockMode
-	ecOverlaps         []vp8dec.ErrorConcealmentOverlap
-	tokens             []vp8dec.MacroblockTokens
-	tokenAbove         []vp8dec.EntropyContextPlanes
 	frameHeader        vp8dec.FrameHeader
 	previousQuant      vp8dec.QuantHeader
 	previousLoopFilter vp8dec.LoopFilterHeader
 	state              vp8dec.StateHeader
-	partitions         vp8dec.PartitionLayout
-	modeReader         boolcoder.Decoder
-	tokenReaders       [8]boolcoder.Decoder
 	coefProbs          vp8tables.CoefficientProbs
 	frameCoefProbs     vp8tables.CoefficientProbs
 	modeProbs          vp8dec.ModeProbs
@@ -116,10 +121,45 @@ type VP8Decoder struct {
 	dequantTables      vp8common.FrameDequantTables
 	dequants           [vp8common.MaxMBSegments]vp8common.MacroblockDequant
 	segmentationState  vp8dec.SegmentationHeader
-	segmentMap         []uint8
-	postprocScratch    []byte
-	postprocState      vp8dec.PostProcessState
 	reconstructScratch vp8dec.IntraReconstructionScratch
+}
+
+func (d *VP8Decoder) curBuf() *vp8common.FrameBuffer    { return &d.refPool[d.curIdx] }
+func (d *VP8Decoder) lastBuf() *vp8common.FrameBuffer   { return &d.refPool[d.lastIdx] }
+func (d *VP8Decoder) goldenBuf() *vp8common.FrameBuffer { return &d.refPool[d.goldenIdx] }
+func (d *VP8Decoder) altBuf() *vp8common.FrameBuffer    { return &d.refPool[d.altIdx] }
+
+func (d *VP8Decoder) selectFreeCurrentSlot() {
+	for i := range d.refPool {
+		if i != d.lastIdx && i != d.goldenIdx && i != d.altIdx {
+			d.curIdx = i
+			return
+		}
+	}
+}
+
+func (d *VP8Decoder) detachReferenceSlot(ref ReferenceFrame) (*vp8common.FrameBuffer, bool) {
+	var target *int
+	var otherA, otherB int
+	switch ref {
+	case ReferenceLast:
+		target, otherA, otherB = &d.lastIdx, d.goldenIdx, d.altIdx
+	case ReferenceGolden:
+		target, otherA, otherB = &d.goldenIdx, d.lastIdx, d.altIdx
+	case ReferenceAltRef:
+		target, otherA, otherB = &d.altIdx, d.lastIdx, d.goldenIdx
+	default:
+		return nil, false
+	}
+	if *target == otherA || *target == otherB || *target == d.curIdx {
+		for i := range d.refPool {
+			if i != otherA && i != otherB && i != d.curIdx {
+				*target = i
+				break
+			}
+		}
+	}
+	return &d.refPool[*target], true
 }
 
 func (d *VP8Decoder) isClosed() bool {
@@ -141,6 +181,10 @@ func NewVP8Decoder(opts DecoderOptions) (*VP8Decoder, error) {
 		opts:            opts,
 		lifecycle:       vp8DecoderNeedKey,
 		residualCorrupt: -1,
+		curIdx:          0,
+		lastIdx:         1,
+		goldenIdx:       2,
+		altIdx:          3,
 		coefProbs:       vp8tables.DefaultCoefProbs,
 		frameCoefProbs:  vp8tables.DefaultCoefProbs,
 	}
@@ -259,7 +303,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 			}
 			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.curBuf().Img)
 				if err != nil {
 					return err
 				}
@@ -281,7 +325,7 @@ func (d *VP8Decoder) DecodeWithPTS(packet []byte, pts uint64) error {
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.lastBuf().Img)
 				if err != nil {
 					return err
 				}
@@ -393,15 +437,25 @@ func (d *VP8Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	if d.isClosed() {
 		return ErrClosed
 	}
-	fb, ok := d.referenceFrameBuffer(ref)
-	if !ok || !d.referenceFramesInitialized() {
+	if err := d.setReferenceFrameCheck(ref, src); err != nil {
+		return err
+	}
+	fb, ok := d.detachReferenceSlot(ref)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	copyPublicImageToVP8(&fb.Img, src)
+	fb.ExtendBorders()
+	return nil
+}
+
+func (d *VP8Decoder) setReferenceFrameCheck(ref ReferenceFrame, src Image) error {
+	if _, ok := d.referenceFrameBuffer(ref); !ok || !d.referenceFramesInitialized() {
 		return ErrInvalidConfig
 	}
 	if !src.ValidForEncode(d.frameWidth, d.frameHeight) {
 		return ErrInvalidConfig
 	}
-	copyPublicImageToVP8(&fb.Img, src)
-	fb.ExtendBorders()
 	return nil
 }
 
@@ -461,7 +515,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 			}
 			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.current.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.curBuf().Img)
 				if err != nil {
 					return FrameInfo{}, err
 				}
@@ -486,7 +540,7 @@ func (d *VP8Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (F
 			frameInfo := d.finishConcealedFrame(info, pts)
 			d.lifecycle = vp8DecoderActive
 			if frameInfo.ShowFrame {
-				output, err := d.outputReferenceFrameImage(info, &d.lastRef.Img)
+				output, err := d.outputReferenceFrameImage(info, &d.lastBuf().Img)
 				if err != nil {
 					return FrameInfo{}, err
 				}
@@ -545,11 +599,14 @@ func (d *VP8Decoder) Reset() {
 	d.segmentationState = vp8dec.SegmentationHeader{}
 	d.frameHeader = vp8dec.FrameHeader{}
 	d.partitions = vp8dec.PartitionLayout{}
-	d.current.Reset()
+	for i := range d.refPool {
+		d.refPool[i].Reset()
+	}
+	d.curIdx = 0
+	d.lastIdx = 1
+	d.goldenIdx = 2
+	d.altIdx = 3
 	d.post.Reset()
-	d.lastRef.Reset()
-	d.goldenRef.Reset()
-	d.altRef.Reset()
 	d.postprocState.Reset()
 	d.coefProbs = vp8tables.DefaultCoefProbs
 	d.frameCoefProbs = vp8tables.DefaultCoefProbs
@@ -595,6 +652,7 @@ func (d *VP8Decoder) decodeFramePacket(packet []byte, frame vp8dec.FrameHeader, 
 	if err := d.ensureFrameBuffers(info); err != nil {
 		return err
 	}
+	d.selectFreeCurrentSlot()
 	if err := d.decodeModeGrid(info); err != nil {
 		return err
 	}
@@ -734,7 +792,7 @@ func (d *VP8Decoder) canConceal(info StreamInfo) bool {
 		!info.KeyFrame &&
 		d.frameWidth > 0 &&
 		d.frameHeight > 0 &&
-		d.lastRef.BufferLen() != 0
+		d.lastBuf().BufferLen() != 0
 }
 
 func (d *VP8Decoder) finishConcealedFrame(info StreamInfo, pts uint64) FrameInfo {
@@ -803,10 +861,11 @@ func (d *VP8Decoder) concealMissingInterFrame(info StreamInfo, pts uint64) (Fram
 	if err := vp8dec.EstimateMissingMotionVectorsWithScratch(d.modes, d.prevModes, d.mbRows, d.mbCols, 0, d.ecOverlaps); err != nil {
 		return FrameInfo{}, ErrInvalidData
 	}
+	d.selectFreeCurrentSlot()
 	if err := d.reconstructFrame(StreamInfo{Profile: 0}); err != nil {
 		return FrameInfo{}, err
 	}
-	vp8common.CopyExtendedImage(&d.lastRef.Img, &d.current.Img)
+	d.lastIdx = d.curIdx
 	d.saveErrorConcealmentModes()
 	return d.finishConcealedFrame(info, pts), nil
 }
@@ -820,7 +879,7 @@ func (d *VP8Decoder) saveErrorConcealmentModes() {
 }
 
 func (d *VP8Decoder) outputFrameImage(info StreamInfo) (*vp8common.Image, error) {
-	return d.outputReferenceFrameImage(info, &d.current.Img)
+	return d.outputReferenceFrameImage(info, &d.curBuf().Img)
 }
 
 func (d *VP8Decoder) outputReferenceFrameImage(info StreamInfo, src *vp8common.Image) (*vp8common.Image, error) {
@@ -862,26 +921,19 @@ func (d *VP8Decoder) ensureFrameBuffers(info StreamInfo) error {
 	if !info.KeyFrame {
 		return nil
 	}
-	if d.frameWidth == info.Width && d.frameHeight == info.Height && d.current.BufferLen() != 0 {
+	if d.frameWidth == info.Width && d.frameHeight == info.Height && d.refPool[0].BufferLen() != 0 {
 		return nil
 	}
-	if err := d.current.Resize(info.Width, info.Height, 32, 32); err != nil {
-		return ErrInvalidData
+	for i := range d.refPool {
+		if err := d.refPool[i].Resize(info.Width, info.Height, 32, 32); err != nil {
+			return ErrInvalidData
+		}
 	}
 	flags := d.opts.effectivePostProcessFlags()
 	if flags != 0 {
 		if err := d.post.Resize(info.Width, info.Height, 32, 32); err != nil {
 			return ErrInvalidData
 		}
-	}
-	if err := d.lastRef.Resize(info.Width, info.Height, 32, 32); err != nil {
-		return ErrInvalidData
-	}
-	if err := d.goldenRef.Resize(info.Width, info.Height, 32, 32); err != nil {
-		return ErrInvalidData
-	}
-	if err := d.altRef.Resize(info.Width, info.Height, 32, 32); err != nil {
-		return ErrInvalidData
 	}
 	if flags&PostProcessMFQE != 0 {
 		if err := d.postprocState.EnsureMFQE(info.Width, info.Height); err != nil {
@@ -1077,9 +1129,10 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 	// the serial path; see internal/vp8/decoder/threading.go for the
 	// dependency analysis. Tiny frames (rows <= 1) gain nothing from the
 	// pipeline so we keep the inline serial walk for them.
+	cur := d.curBuf()
 	if d.opts.Threads >= 2 && d.mbRows > 1 {
 		if err := vp8dec.ReconstructAndLoopFilterPipelined(
-			&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img,
+			&cur.Img, &d.lastBuf().Img, &d.goldenBuf().Img, &d.altBuf().Img,
 			d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg,
 			info.KeyFrame,
 			!skipLoopFilter,
@@ -1087,69 +1140,55 @@ func (d *VP8Decoder) reconstructFrame(info StreamInfo) error {
 		); err != nil {
 			return ErrInvalidData
 		}
-		d.current.ExtendBorders()
+		cur.ExtendBorders()
 		return nil
 	}
 
 	if info.KeyFrame {
-		if err := vp8dec.ReconstructKeyFrameIntraGrid(&d.current.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
+		if err := vp8dec.ReconstructKeyFrameIntraGrid(&cur.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch); err != nil {
 			return ErrInvalidData
 		}
 	} else {
-		if err := vp8dec.ReconstructInterFrameGridWithConfig(&d.current.Img, &d.lastRef.Img, &d.goldenRef.Img, &d.altRef.Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg); err != nil {
+		if err := vp8dec.ReconstructInterFrameGridWithConfig(&cur.Img, &d.lastBuf().Img, &d.goldenBuf().Img, &d.altBuf().Img, d.mbRows, d.mbCols, d.modes, d.tokens, &d.dequants, &d.reconstructScratch, cfg); err != nil {
 			return ErrInvalidData
 		}
 	}
 	if !skipLoopFilter {
-		vp8dec.ApplyLoopFilterUnchecked(&d.current.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo)
+		vp8dec.ApplyLoopFilterUnchecked(&cur.Img, d.mbRows, d.mbCols, d.modes, frameType, loopFilter, d.state.Segmentation, &d.loopInfo)
 	}
-	d.current.ExtendBorders()
+	cur.ExtendBorders()
 	return nil
 }
 
 // refreshReferences applies the per-frame reference buffer copy/refresh
-// flags parsed from the inter-frame header. Ported from libvpx v1.16.0
-// vp8/decoder/onyxd_if.c swap_frame_buffers (lines 213-268): the
-// CopyBufferToAltRef and CopyBufferToGolden fields are 2-bit literals
-// (range 0..3) but only values 0/1/2 are defined. Value 3 is invalid;
-// libvpx's swap_frame_buffers sets err=-1 in that case, which propagates
-// to vp8dx_receive_compressed_data (onyxd_if.c:339-342) — it sets
-// VPX_CODEC_ERROR and jumps to decode_exit *before* clearing
-// ready_for_new_data. The subsequent vp8dx_get_raw_frame (onyxd_if.c:380)
-// returns -1 because ready_for_new_data is still 1, so vp8_get_frame
-// yields no image: the frame is decoded but suppressed from output.
-//
-// refreshReferences returns true when the frame should be suppressed
-// (CopyBufferToAltRef or CopyBufferToGolden equals 3). Callers must skip
-// publishing the current frame via NextFrame/DecodeInto in that case.
-// Reference state remains unchanged for invalid copy values, mirroring
-// libvpx's behavior where the alias points at an unchanged buffer slot.
+// flags parsed from the inter-frame header using zero-copy reference pool
+// index swaps (mirroring libvpx's swap_frame_buffers).
 func (d *VP8Decoder) refreshReferences() bool {
 	suppress := false
 	switch d.state.Refresh.CopyBufferToAltRef {
 	case 1:
-		vp8common.CopyExtendedImage(&d.altRef.Img, &d.lastRef.Img)
+		d.altIdx = d.lastIdx
 	case 2:
-		vp8common.CopyExtendedImage(&d.altRef.Img, &d.goldenRef.Img)
+		d.altIdx = d.goldenIdx
 	case 3:
 		suppress = true
 	}
 	switch d.state.Refresh.CopyBufferToGolden {
 	case 1:
-		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.lastRef.Img)
+		d.goldenIdx = d.lastIdx
 	case 2:
-		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.altRef.Img)
+		d.goldenIdx = d.altIdx
 	case 3:
 		suppress = true
 	}
 	if d.state.Refresh.RefreshLast {
-		vp8common.CopyExtendedImage(&d.lastRef.Img, &d.current.Img)
+		d.lastIdx = d.curIdx
 	}
 	if d.state.Refresh.RefreshGolden {
-		vp8common.CopyExtendedImage(&d.goldenRef.Img, &d.current.Img)
+		d.goldenIdx = d.curIdx
 	}
 	if d.state.Refresh.RefreshAltRef {
-		vp8common.CopyExtendedImage(&d.altRef.Img, &d.current.Img)
+		d.altIdx = d.curIdx
 	}
 	return suppress
 }
@@ -1159,11 +1198,11 @@ func (d *VP8Decoder) refreshReferences() bool {
 func (d *VP8Decoder) referenceFrameBuffer(ref ReferenceFrame) (*vp8common.FrameBuffer, bool) {
 	switch ref {
 	case ReferenceLast:
-		return &d.lastRef, true
+		return d.lastBuf(), true
 	case ReferenceGolden:
-		return &d.goldenRef, true
+		return d.goldenBuf(), true
 	case ReferenceAltRef:
-		return &d.altRef, true
+		return d.altBuf(), true
 	default:
 		return nil, false
 	}
@@ -1176,7 +1215,7 @@ func (d *VP8Decoder) referenceFramesInitialized() bool {
 	return d.isActive() &&
 		d.frameWidth > 0 &&
 		d.frameHeight > 0 &&
-		d.lastRef.BufferLen() != 0
+		d.lastBuf().BufferLen() != 0
 }
 
 func copyVP8ImageToPublic(dst *Image, src *vp8common.Image) {
@@ -1202,13 +1241,8 @@ func (d *VP8Decoder) ensureWorkspace(width int, height int) {
 	rows := (height + 15) >> 4
 	count := rows * cols
 	d.modes = buffers.EnsureLen(d.modes, count)
-	d.prevModes = buffers.EnsureLen(d.prevModes, count)
-	// Persistent error-concealment overlap buffer (libvpx pbi->overlaps).
-	// Allocated only when error concealment is enabled so normal decoders
-	// avoid ~21 MiB of unused 720p overlap tables, while concealed inter frames
-	// still run with zero allocations per Decode call (see
-	// TestDecodeErrorConcealmentAllocatesZero).
 	if d.opts.ErrorConcealment {
+		d.prevModes = buffers.EnsureLen(d.prevModes, count)
 		d.ecOverlaps = buffers.EnsureLen(d.ecOverlaps, count)
 	}
 	d.tokens = buffers.EnsureLen(d.tokens, count)

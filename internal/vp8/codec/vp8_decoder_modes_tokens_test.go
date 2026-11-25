@@ -43,7 +43,7 @@ func TestDecodeParsesInterModeGrid(t *testing.T) {
 	if err := d.Decode(vp8test.KeyFramePacketWithPayload(16, 16, 200, 0, true)); err != nil {
 		t.Fatalf("keyframe Decode error = %v, want nil", err)
 	}
-	fillVP8Image(&d.lastRef.Img, 77)
+	fillVP8Image(&d.lastBuf().Img, 77)
 	packet := vp8test.InterFramePacketWithFirstPartition(vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.OnePartition, false, 0))
 
 	err = d.Decode(packet)
@@ -84,7 +84,7 @@ func TestDecodeErrorConcealmentClampsUnusedMalformedTokenPartition(t *testing.T)
 	if _, ok := d.NextFrame(); !ok {
 		t.Fatalf("keyframe NextFrame returned no frame")
 	}
-	fillVP8Image(&d.lastRef.Img, 77)
+	fillVP8Image(&d.lastBuf().Img, 77)
 	first := vp8test.InterFirstPartitionLastZeroMVWithConfig(vp8common.TwoPartition, true, 0)
 	packet := vp8test.InterFramePacketWithTokenPartitions(first, 10, []byte{0})
 
@@ -170,16 +170,16 @@ func TestDecodeReconstructsKeyFrameIntraGridInCurrent(t *testing.T) {
 		{row: 15, col: 15, want: 129},
 	}
 	for _, check := range yChecks {
-		if got := d.current.Img.Y[check.row*d.current.Img.YStride+check.col]; got != check.want {
+		if got := d.curBuf().Img.Y[check.row*d.curBuf().Img.YStride+check.col]; got != check.want {
 			t.Fatalf("Y[%d,%d] = %d, want %d", check.row, check.col, got, check.want)
 		}
 	}
 	for row := range 8 {
 		for col := range 8 {
-			if got := d.current.Img.U[row*d.current.Img.UStride+col]; got != 128 {
+			if got := d.curBuf().Img.U[row*d.curBuf().Img.UStride+col]; got != 128 {
 				t.Fatalf("U[%d,%d] = %d, want 128", row, col, got)
 			}
-			if got := d.current.Img.V[row*d.current.Img.VStride+col]; got != 128 {
+			if got := d.curBuf().Img.V[row*d.curBuf().Img.VStride+col]; got != 128 {
 				t.Fatalf("V[%d,%d] = %d, want 128", row, col, got)
 			}
 		}
@@ -197,10 +197,10 @@ func TestDecodeExtendsKeyFrameCodedBorders(t *testing.T) {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
-	assertCodedBordersExtended(t, &d.current.Img)
-	assertCodedBordersExtended(t, &d.lastRef.Img)
-	assertCodedBordersExtended(t, &d.goldenRef.Img)
-	assertCodedBordersExtended(t, &d.altRef.Img)
+	assertCodedBordersExtended(t, &d.curBuf().Img)
+	assertCodedBordersExtended(t, &d.lastBuf().Img)
+	assertCodedBordersExtended(t, &d.goldenBuf().Img)
+	assertCodedBordersExtended(t, &d.altBuf().Img)
 }
 
 func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {
@@ -214,10 +214,10 @@ func TestDecodeRefreshesKeyFrameReferences(t *testing.T) {
 		t.Fatalf("Decode error = %v, want nil", err)
 	}
 
-	if d.lastRef.Img.Y[0] != d.current.Img.Y[0] || d.goldenRef.Img.Y[0] != d.current.Img.Y[0] || d.altRef.Img.Y[0] != d.current.Img.Y[0] {
-		t.Fatalf("reference Y[0] values = %d/%d/%d, want current %d", d.lastRef.Img.Y[0], d.goldenRef.Img.Y[0], d.altRef.Img.Y[0], d.current.Img.Y[0])
+	if d.lastBuf().Img.Y[0] != d.curBuf().Img.Y[0] || d.goldenBuf().Img.Y[0] != d.curBuf().Img.Y[0] || d.altBuf().Img.Y[0] != d.curBuf().Img.Y[0] {
+		t.Fatalf("reference Y[0] values = %d/%d/%d, want current %d", d.lastBuf().Img.Y[0], d.goldenBuf().Img.Y[0], d.altBuf().Img.Y[0], d.curBuf().Img.Y[0])
 	}
-	if d.lastRef.Img.U[0] != d.current.Img.U[0] || d.goldenRef.Img.V[0] != d.current.Img.V[0] || d.altRef.Img.V[0] != d.current.Img.V[0] {
+	if d.lastBuf().Img.U[0] != d.curBuf().Img.U[0] || d.goldenBuf().Img.V[0] != d.curBuf().Img.V[0] || d.altBuf().Img.V[0] != d.curBuf().Img.V[0] {
 		t.Fatalf("reference chroma was not refreshed from current")
 	}
 }
@@ -230,10 +230,10 @@ func TestRefreshReferencesCopiesExistingBuffersInVP8Order(t *testing.T) {
 	if err := d.ensureFrameBuffers(StreamInfo{Width: 16, Height: 16, KeyFrame: true}); err != nil {
 		t.Fatalf("ensureFrameBuffers returned error: %v", err)
 	}
-	fillVP8Image(&d.current.Img, 40)
-	fillVP8Image(&d.lastRef.Img, 10)
-	fillVP8Image(&d.goldenRef.Img, 20)
-	fillVP8Image(&d.altRef.Img, 30)
+	fillVP8Image(&d.curBuf().Img, 40)
+	fillVP8Image(&d.lastBuf().Img, 10)
+	fillVP8Image(&d.goldenBuf().Img, 20)
+	fillVP8Image(&d.altBuf().Img, 30)
 	d.state.Refresh = vp8dec.RefreshHeader{
 		CopyBufferToAltRef: 2,
 		CopyBufferToGolden: 1,
@@ -241,13 +241,13 @@ func TestRefreshReferencesCopiesExistingBuffersInVP8Order(t *testing.T) {
 
 	d.refreshReferences()
 
-	if got := d.altRef.Img.Y[0]; got != 20 {
+	if got := d.altBuf().Img.Y[0]; got != 20 {
 		t.Fatalf("alt Y[0] = %d, want old golden 20", got)
 	}
-	if got := d.goldenRef.Img.Y[0]; got != 10 {
+	if got := d.goldenBuf().Img.Y[0]; got != 10 {
 		t.Fatalf("golden Y[0] = %d, want last 10", got)
 	}
-	if got := d.lastRef.Img.Y[0]; got != 10 {
+	if got := d.lastBuf().Img.Y[0]; got != 10 {
 		t.Fatalf("last Y[0] = %d, want unchanged 10", got)
 	}
 }
@@ -260,10 +260,10 @@ func TestRefreshReferencesCurrentFrameOverridesCopies(t *testing.T) {
 	if err := d.ensureFrameBuffers(StreamInfo{Width: 16, Height: 16, KeyFrame: true}); err != nil {
 		t.Fatalf("ensureFrameBuffers returned error: %v", err)
 	}
-	fillVP8Image(&d.current.Img, 40)
-	fillVP8Image(&d.lastRef.Img, 10)
-	fillVP8Image(&d.goldenRef.Img, 20)
-	fillVP8Image(&d.altRef.Img, 30)
+	fillVP8Image(&d.curBuf().Img, 40)
+	fillVP8Image(&d.lastBuf().Img, 10)
+	fillVP8Image(&d.goldenBuf().Img, 20)
+	fillVP8Image(&d.altBuf().Img, 30)
 	d.state.Refresh = vp8dec.RefreshHeader{
 		CopyBufferToGolden: 1,
 		RefreshGolden:      true,
@@ -273,7 +273,7 @@ func TestRefreshReferencesCurrentFrameOverridesCopies(t *testing.T) {
 
 	d.refreshReferences()
 
-	if d.goldenRef.Img.Y[0] != 40 || d.altRef.Img.Y[0] != 40 || d.lastRef.Img.Y[0] != 40 {
-		t.Fatalf("reference Y[0] = %d/%d/%d, want all current 40", d.goldenRef.Img.Y[0], d.altRef.Img.Y[0], d.lastRef.Img.Y[0])
+	if d.goldenBuf().Img.Y[0] != 40 || d.altBuf().Img.Y[0] != 40 || d.lastBuf().Img.Y[0] != 40 {
+		t.Fatalf("reference Y[0] = %d/%d/%d, want all current 40", d.goldenBuf().Img.Y[0], d.altBuf().Img.Y[0], d.lastBuf().Img.Y[0])
 	}
 }

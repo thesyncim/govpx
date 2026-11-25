@@ -3,6 +3,7 @@ package codec
 import (
 	"image"
 
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/common"
 	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
 	"github.com/thesyncim/govpx/internal/vp9/encoder"
@@ -451,6 +452,20 @@ func vp9DenoiserFilterPlane(sig []byte, sigStride int, mcAvg []byte, mcAvgStride
 		adj[2] += shiftInc
 	}
 
+	strongThresh := vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2, increase)
+	weakThresh := vp9DenoiserTotalAdjWeakThreshForPixels(numPelsLog2, increase)
+	if filterBlock, ok := pixel.VP9DenoisePlane(
+		sig, sigStride, mcAvg, mcAvgStride, avg, avgStride,
+		blockW, blockH, numPelsLog2,
+		adj[0], adj[1], adj[2], vp9DenoiserAbsdiffThresh(increase),
+		strongThresh, weakThresh,
+	); ok {
+		if filterBlock {
+			return vp9DenoiserFilterBlock
+		}
+		return vp9DenoiserCopyBlock
+	}
+
 	totalAdj := 0
 	for y := range blockH {
 		sigRow := sig[y*sigStride : y*sigStride+blockW : y*sigStride+blockW]
@@ -482,7 +497,6 @@ func vp9DenoiserFilterPlane(sig []byte, sigStride int, mcAvg []byte, mcAvgStride
 			}
 		}
 	}
-	strongThresh := vp9DenoiserTotalAdjStrongThreshForPixels(numPelsLog2, increase)
 	if vp9AbsInt(totalAdj) <= strongThresh {
 		return vp9DenoiserFilterBlock
 	}
@@ -509,7 +523,7 @@ func vp9DenoiserFilterPlane(sig []byte, sigStride int, mcAvg []byte, mcAvgStride
 			}
 		}
 	}
-	if vp9AbsInt(totalAdj) <= vp9DenoiserTotalAdjWeakThreshForPixels(numPelsLog2, increase) {
+	if vp9AbsInt(totalAdj) <= weakThresh {
 		return vp9DenoiserFilterBlock
 	}
 	return vp9DenoiserCopyBlock

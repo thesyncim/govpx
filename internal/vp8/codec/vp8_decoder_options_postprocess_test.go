@@ -76,13 +76,13 @@ func TestDecodePostProcessOutputsPostFrame(t *testing.T) {
 	if !ok {
 		t.Fatalf("NextFrame returned no frame")
 	}
-	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.current.Img.Y) == 0 {
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.curBuf().Img.Y) == 0 {
 		t.Fatalf("decoded frame buffers are empty")
 	}
 	if &frame.Y[0] != &d.post.Img.Y[0] {
 		t.Fatalf("NextFrame did not return decoder postprocess buffer")
 	}
-	if &frame.Y[0] == &d.current.Img.Y[0] {
+	if &frame.Y[0] == &d.curBuf().Img.Y[0] {
 		t.Fatalf("postprocessed output aliases reconstruction buffer")
 	}
 }
@@ -101,13 +101,13 @@ func TestDecodePostProcessFlagsOutputPostFrame(t *testing.T) {
 	if !ok {
 		t.Fatalf("NextFrame returned no frame")
 	}
-	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.current.Img.Y) == 0 {
+	if len(frame.Y) == 0 || len(d.post.Img.Y) == 0 || len(d.curBuf().Img.Y) == 0 {
 		t.Fatalf("decoded frame buffers are empty")
 	}
 	if &frame.Y[0] != &d.post.Img.Y[0] {
 		t.Fatalf("NextFrame did not return decoder postprocess buffer")
 	}
-	if &frame.Y[0] == &d.current.Img.Y[0] {
+	if &frame.Y[0] == &d.curBuf().Img.Y[0] {
 		t.Fatalf("postprocessed output aliases reconstruction buffer")
 	}
 }
@@ -145,7 +145,7 @@ func TestSetPostProcessUpdatesRuntimePostProcessConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("initial NextFrame returned no frame")
 	}
-	if len(frame.Y) == 0 || len(d.current.Img.Y) == 0 || &frame.Y[0] != &d.current.Img.Y[0] {
+	if len(frame.Y) == 0 || len(d.curBuf().Img.Y) == 0 || &frame.Y[0] != &d.curBuf().Img.Y[0] {
 		t.Fatalf("initial frame did not alias reconstruction buffer")
 	}
 
@@ -328,8 +328,8 @@ func TestDecodeAcceptsKeyFrameResolutionChangeByDefault(t *testing.T) {
 	if d.frameWidth != 32 || d.frameHeight != 16 || d.mbCols != 2 || d.mbRows != 1 {
 		t.Fatalf("decoder dimensions = frame %dx%d mb %dx%d, want 32x16 mb 2x1", d.frameWidth, d.frameHeight, d.mbCols, d.mbRows)
 	}
-	if d.current.Img.Width != 32 || d.lastRef.Img.Width != 32 || d.goldenRef.Img.Width != 32 || d.altRef.Img.Width != 32 {
-		t.Fatalf("reference widths = current:%d last:%d golden:%d alt:%d, want 32", d.current.Img.Width, d.lastRef.Img.Width, d.goldenRef.Img.Width, d.altRef.Img.Width)
+	if d.curBuf().Img.Width != 32 || d.lastBuf().Img.Width != 32 || d.goldenBuf().Img.Width != 32 || d.altBuf().Img.Width != 32 {
+		t.Fatalf("reference widths = current:%d last:%d golden:%d alt:%d, want 32", d.curBuf().Img.Width, d.lastBuf().Img.Width, d.goldenBuf().Img.Width, d.altBuf().Img.Width)
 	}
 	frame, ok := d.NextFrame()
 	if !ok {

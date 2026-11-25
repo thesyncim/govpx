@@ -192,7 +192,7 @@ func (e *VP9Encoder) predictVP9InterBlockLumaToScratch(inter *vp9InterEncodeStat
 		dst, dstStride) {
 		return true
 	}
-	predictor := &e.interPredictor
+	predictor := e.interPred()
 	predictor.planes = e.planes
 	predictor.frameY = e.reconY
 	predictor.frameU = e.reconU
@@ -339,7 +339,7 @@ func (e *VP9Encoder) predictVP9InterBlockLumaToScratchDirect(
 	srcY16 += int(scaledMV.Row)
 
 	srcOffset := srcY*srcStride + srcX
-	d := &e.interPredictor
+	d := e.interPred()
 	d.unsupportedReconstruct = false
 	d.interPredictScratch = e.interPredictScratch
 	if scaledMV.Col != 0 || scaledMV.Row != 0 ||
@@ -458,11 +458,18 @@ func (e *VP9Encoder) predictVP9InterBlockChromaPlane(inter *vp9InterEncodeState,
 		bsize, mi, plane) {
 		return true
 	}
-	e.interPredictor.predictChromaPlane = int8(plane)
+	e.interPred().predictChromaPlane = int8(plane)
 	ok := e.predictVP9InterBlockOpts(inter, miRows, miCols, miRow, miCol,
 		bsize, mi, false, true)
-	e.interPredictor.predictChromaPlane = 0
+	e.interPred().predictChromaPlane = 0
 	return ok
+}
+
+func (e *VP9Encoder) interPred() *VP9Decoder {
+	if e.interPredictor == nil {
+		e.interPredictor = new(VP9Decoder)
+	}
+	return e.interPredictor
 }
 
 func (e *VP9Encoder) predictVP9InterBlockChromaDirect(inter *vp9InterEncodeState,
@@ -595,7 +602,7 @@ func (e *VP9Encoder) predictVP9InterBlockPlaneDirectTo(
 	srcY16 += int(scaledMV.Row)
 
 	srcOffset := srcY*srcStride + srcX
-	d := &e.interPredictor
+	d := e.interPred()
 	d.unsupportedReconstruct = false
 	d.interPredictScratch = e.interPredictScratch
 	if scaledMV.Col != 0 || scaledMV.Row != 0 ||
@@ -667,7 +674,7 @@ func (e *VP9Encoder) predictVP9InterBlockOpts(inter *vp9InterEncodeState,
 	if mi == nil || mi.RefFrame[0] <= vp9dec.IntraFrame {
 		return false
 	}
-	predictor := &e.interPredictor
+	predictor := e.interPred()
 	predictor.planes = e.planes
 	predictor.frameY = e.reconY
 	predictor.frameU = e.reconU
