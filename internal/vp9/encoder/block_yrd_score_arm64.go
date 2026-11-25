@@ -2,7 +2,11 @@
 
 package encoder
 
-import "simd/archsimd"
+import (
+	"simd/archsimd"
+)
+
+func blockYrdQuantWideR2(_ []int16, _ int, _, _, _ [2]int16) (int, uint32, bool) { return 0, 0, false }
 
 func blockYrdMulHigh16(a, b archsimd.Int16x8) archsimd.Int16x8 {
 	lo := a.MulWidenLo(b).ToBits().ReshapeToUint16s()

@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func TestDCPairInPlaceDisabledState(t *testing.T) {
+	previous := pixel.Enabled
+	pixel.Enabled = false
+	defer func() { pixel.Enabled = previous }()
+	dcPairInPlaceRunStates(t)
+}
+
 func TestDCPairNativeDisabledState(t *testing.T) {
 	saved := pixel.Enabled
 	pixel.Enabled = false
