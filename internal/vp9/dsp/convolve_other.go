@@ -1,6 +1,7 @@
 package dsp
 
 import (
+	"github.com/thesyncim/govpx/internal/pixel"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 )
 
@@ -73,6 +74,16 @@ func VpxConvolve8WithScratch(src []byte, srcStride int, dst []byte, dstStride in
 	x0Q4, xStepQ4, y0Q4, yStepQ4, w, h, srcOffset int,
 	scratch *Convolve8Scratch,
 ) {
+	if xStepQ4 == tables.SubpelShifts && yStepQ4 == tables.SubpelShifts && srcOffset >= 0 && srcOffset < len(src) {
+		fx := &filter[x0Q4]
+		fy := &filter[y0Q4]
+		if (fx[0]|fx[1]|fx[2]|fx[5]|fx[6]|fx[7]|fy[0]|fy[1]|fy[2]|fy[5]|fy[6]|fy[7]) == 0 &&
+			fx[3] >= 0 && fx[4] >= 0 && fy[3] >= 0 && fy[4] >= 0 &&
+			pixel.FilterBilinear2D(src[srcOffset:], srcStride, dst, dstStride, w, h,
+				uint8(fx[3]), uint8(fx[4]), uint8(fy[3]), uint8(fy[4])) {
+			return
+		}
+	}
 	temp, tempBuf := convolve8TempForScratch(scratch)
 	intermediateHeight := (((h-1)*yStepQ4 + y0Q4) >> tables.SubpelBits) + tables.SubpelTaps
 	horizSrcOffset := srcOffset - srcStride*(tables.SubpelTaps/2-1)
