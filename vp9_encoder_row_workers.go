@@ -304,7 +304,7 @@ func newVP9RowWorkerPool(workers int) *vp9RowWorkerPool {
 		workerCount: workers,
 	}
 	for i := 1; i < workers; i++ {
-		pool.wakeSlots[i].init()
+		pool.wakeSlots[i].Init()
 		pool.wg.Add(1)
 		go pool.workerLoop(i)
 	}
@@ -317,7 +317,7 @@ func (p *vp9RowWorkerPool) workerLoop(workerIndex int) {
 	var seenEpoch uint64
 	for {
 		var ok bool
-		seenEpoch, ok = slot.wait(seenEpoch, vp9WorkerIdleSpinBudget)
+		seenEpoch, ok = slot.Wait(seenEpoch, vp9WorkerIdleSpinBudget)
 		if !ok {
 			return
 		}
@@ -384,7 +384,7 @@ func (p *vp9RowWorkerPool) dispatch(rows []int, job vp9RowWorkerJob) error {
 	p.dispatchEpoch++
 	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.wakeSlots[workerIndex].signal(epoch)
+		p.wakeSlots[workerIndex].Signal(epoch)
 	}
 	// Drive worker 0 on the dispatcher goroutine.
 	if p.workerCount > 0 {
@@ -469,7 +469,7 @@ func (p *vp9RowWorkerPool) shutdownPool() {
 	default:
 		close(p.shutdown)
 		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
-			p.wakeSlots[workerIndex].close()
+			p.wakeSlots[workerIndex].Close()
 		}
 	}
 	p.wg.Wait()

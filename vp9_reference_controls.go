@@ -12,7 +12,7 @@ func (e *VP9Encoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 		return ErrClosed
 	}
 	slot, ok := vp9PublicReferenceFrameSlot(ref)
-	if !ok || !src.validForEncode(e.opts.Width, e.opts.Height) {
+	if !ok || !src.ValidForEncode(e.opts.Width, e.opts.Height) {
 		return ErrInvalidConfig
 	}
 	// Copy the caller's pixels at the API boundary (libvpx
@@ -44,7 +44,7 @@ func (e *VP9Encoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 		return ErrInvalidConfig
 	}
 	slot, ok := vp9PublicReferenceFrameSlot(ref)
-	if !ok || !dst.validForEncode(e.opts.Width, e.opts.Height) ||
+	if !ok || !dst.ValidForEncode(e.opts.Width, e.opts.Height) ||
 		!e.refValid[slot] || !e.refFrames[slot].valid {
 		return ErrInvalidConfig
 	}
@@ -62,7 +62,7 @@ func (d *VP9Decoder) SetReferenceFrame(ref ReferenceFrame, src Image) error {
 	}
 	slot, ok := vp9PublicReferenceFrameSlot(ref)
 	if !ok || !d.vp9ReferenceFramesInitialized() ||
-		!src.validForEncode(d.width, d.height) {
+		!src.ValidForEncode(d.width, d.height) {
 		return ErrInvalidConfig
 	}
 	d.releaseVP9ReferenceFrame(slot)
@@ -82,7 +82,7 @@ func (d *VP9Decoder) CopyReferenceFrame(ref ReferenceFrame, dst *Image) error {
 	}
 	slot, ok := vp9PublicReferenceFrameSlot(ref)
 	if !ok || !d.vp9ReferenceFramesInitialized() ||
-		!dst.validForEncode(d.width, d.height) ||
+		!dst.ValidForEncode(d.width, d.height) ||
 		!d.refFrames[slot].valid {
 		return ErrInvalidConfig
 	}
@@ -99,7 +99,7 @@ func (d *VP9Decoder) CopyCurrentFrame(dst *Image) error {
 		return ErrClosed
 	}
 	if dst == nil || !d.lastInfoValid || !d.lastInfo.ShowFrame ||
-		!dst.validForEncode(d.lastFrame.Width, d.lastFrame.Height) {
+		!dst.ValidForEncode(d.lastFrame.Width, d.lastFrame.Height) {
 		return ErrInvalidConfig
 	}
 	copyVP9ImageToPublic(dst, d.lastFrame)

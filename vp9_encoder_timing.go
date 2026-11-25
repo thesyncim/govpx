@@ -28,26 +28,26 @@ func (e *VP9Encoder) vp9AdjustFrameRate(showFrame bool) {
 	if !showFrame || !e.rc.enabled {
 		return
 	}
-	if e.sourceTS.ratioNum <= 0 || e.sourceTS.ratioDen <= 0 {
+	if e.sourceTS.RatioNum <= 0 || e.sourceTS.RatioDen <= 0 {
 		return
 	}
 
-	start := e.sourceTS.timestampTicks(pts)
-	end := max(e.sourceTS.timestampTicks(saturatingAddUint64(pts, 1)), start)
+	start := e.sourceTS.TimestampTicks(pts)
+	end := max(e.sourceTS.TimestampTicks(saturatingAddUint64(pts, 1)), start)
 
-	if start < e.sourceTS.firstTimestampEver {
-		e.sourceTS.firstTimestampEver = start
-		e.sourceTS.lastEndSeen = start
+	if start < e.sourceTS.FirstTimestampEver {
+		e.sourceTS.FirstTimestampEver = start
+		e.sourceTS.LastEndSeen = start
 	}
 
 	var thisDuration int64
 	step := 0
-	if start == e.sourceTS.firstTimestampEver {
+	if start == e.sourceTS.FirstTimestampEver {
 		thisDuration = end - start
 		step = 1
 	} else {
-		thisDuration = end - e.sourceTS.lastEndSeen
-		lastDuration := e.sourceTS.lastEndSeen - e.sourceTS.lastTimestampSeen
+		thisDuration = end - e.sourceTS.LastEndSeen
+		lastDuration := e.sourceTS.LastEndSeen - e.sourceTS.LastTimestampSeen
 		if thisDuration > maxInt64Value/10 {
 			thisDuration = maxInt64Value / 10
 		}
@@ -58,24 +58,24 @@ func (e *VP9Encoder) vp9AdjustFrameRate(showFrame bool) {
 
 	if thisDuration != 0 {
 		if step != 0 {
-			e.sourceTS.refFrameRate = float64(libvpxTimestampTicksPerSecond) / float64(thisDuration)
+			e.sourceTS.RefFrameRate = float64(libvpxTimestampTicksPerSecond) / float64(thisDuration)
 		} else {
 			// Average this frame's rate into the last second's average frame
 			// rate (vp9_encoder.c:5776-5785).
-			interval := float64(end - e.sourceTS.firstTimestampEver)
+			interval := float64(end - e.sourceTS.FirstTimestampEver)
 			if interval > float64(libvpxTimestampTicksPerSecond) {
 				interval = float64(libvpxTimestampTicksPerSecond)
 			}
-			avgDuration := float64(libvpxTimestampTicksPerSecond) / e.sourceTS.refFrameRate
+			avgDuration := float64(libvpxTimestampTicksPerSecond) / e.sourceTS.RefFrameRate
 			avgDuration *= interval - avgDuration + float64(thisDuration)
 			avgDuration /= interval
-			e.sourceTS.refFrameRate = float64(libvpxTimestampTicksPerSecond) / avgDuration
+			e.sourceTS.RefFrameRate = float64(libvpxTimestampTicksPerSecond) / avgDuration
 		}
-		e.rc.vp9NewFramerate(e.sourceTS.refFrameRate)
+		e.rc.vp9NewFramerate(e.sourceTS.RefFrameRate)
 	}
 
-	e.sourceTS.lastTimestampSeen = start
-	e.sourceTS.lastEndSeen = end
+	e.sourceTS.LastTimestampSeen = start
+	e.sourceTS.LastEndSeen = end
 }
 
 // vp9RefreshSourceTimestampRatio recomputes the source-timestamp tick ratio
@@ -87,6 +87,6 @@ func (e *VP9Encoder) vp9AdjustFrameRate(showFrame bool) {
 // bookkeeping is preserved so the cadence EMA continues across the change.
 func (e *VP9Encoder) vp9RefreshSourceTimestampRatio(timing timingState) {
 	fresh := newEncoderSourceTimestampState(timing)
-	e.sourceTS.ratioNum = fresh.ratioNum
-	e.sourceTS.ratioDen = fresh.ratioDen
+	e.sourceTS.RatioNum = fresh.RatioNum
+	e.sourceTS.RatioDen = fresh.RatioDen
 }

@@ -1003,7 +1003,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 			}
 			info := d.lastInfo
 			if info.ShowFrame {
-				if !dst.validForEncode(info.Width, info.Height) {
+				if !dst.ValidForEncode(info.Width, info.Height) {
 					return VP9FrameInfo{}, ErrInvalidConfig
 				}
 				copyVP9ImageToPublic(dst, d.lastFrame)
@@ -1025,7 +1025,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 		}
 		d.frameReady = false
 		if info.ShowFrame {
-			if !dst.validForEncode(info.Width, info.Height) {
+			if !dst.ValidForEncode(info.Width, info.Height) {
 				return VP9FrameInfo{}, ErrInvalidConfig
 			}
 			copyVP9ImageToPublic(dst, d.lastFrame)
@@ -1040,7 +1040,7 @@ func (d *VP9Decoder) DecodeIntoWithPTS(packet []byte, dst *Image, pts uint64) (V
 	if err != nil {
 		return VP9FrameInfo{}, err
 	}
-	if !dst.validForEncode(info.Width, info.Height) {
+	if !dst.ValidForEncode(info.Width, info.Height) {
 		return VP9FrameInfo{}, ErrInvalidConfig
 	}
 	if err := d.decodeVP9PacketWithPTS(packet, pts); err != nil {

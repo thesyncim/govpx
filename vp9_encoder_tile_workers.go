@@ -453,7 +453,7 @@ func newVP9TileWorkerPool(workers int) *vp9TileWorkerPool {
 		pool.workers[i] = new(VP9Encoder)
 	}
 	for i := 1; i < workers; i++ {
-		pool.wakeSlots[i].init()
+		pool.wakeSlots[i].Init()
 		pool.wg.Add(1)
 		go pool.workerLoop(i)
 	}
@@ -490,7 +490,7 @@ func (p *vp9TileWorkerPool) workerLoop(workerIndex int) {
 	var seenEpoch uint64
 	for {
 		var ok bool
-		seenEpoch, ok = slot.wait(seenEpoch, vp9WorkerIdleSpinBudget)
+		seenEpoch, ok = slot.Wait(seenEpoch, vp9WorkerIdleSpinBudget)
 		if !ok {
 			return
 		}
@@ -576,7 +576,7 @@ func (p *vp9TileWorkerPool) startHelperWorkers(kind vp9TileWorkerJobKind) {
 	p.dispatchEpoch++
 	epoch := p.dispatchEpoch
 	for workerIndex := 1; workerIndex < p.workerCount; workerIndex++ {
-		p.wakeSlots[workerIndex].signal(epoch)
+		p.wakeSlots[workerIndex].Signal(epoch)
 	}
 }
 
@@ -611,7 +611,7 @@ func (p *vp9TileWorkerPool) shutdownPool() {
 	default:
 		close(p.shutdown)
 		for workerIndex := 1; workerIndex < len(p.wakeSlots); workerIndex++ {
-			p.wakeSlots[workerIndex].close()
+			p.wakeSlots[workerIndex].Close()
 		}
 	}
 	p.wg.Wait()

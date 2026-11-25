@@ -10,8 +10,59 @@ import (
 	vp9enc "github.com/thesyncim/govpx/internal/vp9/encoder"
 	"github.com/thesyncim/govpx/internal/vp9/tables"
 	"github.com/thesyncim/govpx/internal/vpx/buffers"
+	"math"
+	"strconv"
 	"testing"
 )
+
+func itoa(v int) string { return strconv.Itoa(v) }
+
+func clampEncodeCoord(v int, limit int) int {
+	return min(max(v, 0), limit-1)
+}
+
+func encoderValidationImagePSNR(src Image, dst Image) float64 {
+	sse, count := encoderValidationPlaneSSE(src.Y, src.YStride, dst.Y, dst.YStride, src.Width, src.Height)
+	uvWidth := (src.Width + 1) >> 1
+	uvHeight := (src.Height + 1) >> 1
+	uSSE, uCount := encoderValidationPlaneSSE(src.U, src.UStride, dst.U, dst.UStride, uvWidth, uvHeight)
+	vSSE, vCount := encoderValidationPlaneSSE(src.V, src.VStride, dst.V, dst.VStride, uvWidth, uvHeight)
+	sse += uSSE + vSSE
+	count += uCount + vCount
+	if sse == 0 {
+		return 100
+	}
+	mse := float64(sse) / float64(count)
+	return 10 * math.Log10((255*255)/mse)
+}
+
+func encoderValidationPlaneSSE(a []byte, aStride int, b []byte, bStride int, width int, height int) (int64, int) {
+	var sse int64
+	count := width * height
+	for row := range height {
+		ar := a[row*aStride : row*aStride+width]
+		br := b[row*bStride : row*bStride+width]
+		for col := range width {
+			d := int64(ar[col]) - int64(br[col])
+			sse += d * d
+		}
+	}
+	return sse, count
+}
+
+func newTestImage(width int, height int) Image {
+	uvWidth, uvHeight := buffers.Chroma420Dimensions(width, height)
+	return Image{
+		Width:   width,
+		Height:  height,
+		Y:       make([]byte, width*height),
+		U:       make([]byte, uvWidth*uvHeight),
+		V:       make([]byte, uvWidth*uvHeight),
+		YStride: width,
+		UStride: uvWidth,
+		VStride: uvWidth,
+	}
+}
 
 func assertVP9NeutralFrame(t *testing.T, got Image, width, height int) {
 	t.Helper()
