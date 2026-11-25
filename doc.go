@@ -1,6 +1,6 @@
-// Package govpx is a pure-Go VP8 and VP9 profile 0 codec package.
+// Package govpx is a pure-Go VP8 and VP9 (Profiles 0-3) codec package.
 //
-// It produces and consumes raw VP8 frame payloads and raw VP9 Profile 0
+// It produces and consumes raw VP8 frame payloads and raw VP9 Profiles 0-3
 // packets; VP9 packets may be superframes. RTP/WebRTC payload compatibility is
 // in scope for both VP8 and VP9. VP8 and VP9 RTP payload descriptor helpers and
 // MTU-aware payload packetizers and assemblers are provided; RTP headers, SRTP,
@@ -9,15 +9,14 @@
 // receiver-capability limits. VP9 SDP helpers cover RFC 9628 Profile 0
 // negotiation and optional max-fr/max-fs receiver-capability limits.
 //
-// VP9 scope is profile 0 only: 8-bit 4:2:0 raw packets and valid superframes.
-// VP9 profiles 1-3, alpha, high-bit-depth/deep-color, and non-4:2:0 chroma
-// variants are out of scope. Valid non-profile-0 VP9 packets return
-// [ErrVP9NotImplemented].
+// VP9 supports all four profiles: Profile 0 (8-bit 4:2:0), Profile 1 (8-bit
+// 4:2:2 / 4:4:0 / 4:4:4 / sRGB), Profile 2 (10/12-bit 4:2:0), and Profile 3
+// (10/12-bit 4:2:2 / 4:4:0 / 4:4:4 / sRGB), including superframes. Alpha
+// side-data and container muxing (IVF/WebM) remain out of scope.
 //
 // govpx targets two main consumers: low-latency realtime senders (WebRTC,
 // SFU edges, screen capture) and offline encoders that want a pure-Go
-// dependency. Behavior is validated against a pinned libvpx v1.16.0 oracle;
-// see [UpstreamLibvpxVersion]. VP9 oracle coverage is profile 0 only.
+// dependency. Behavior is validated against libvpx; see [UpstreamLibvpxVersion].
 //
 // # Decoding
 //

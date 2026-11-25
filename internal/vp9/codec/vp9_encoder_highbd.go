@@ -96,15 +96,16 @@ func (e *VP9Encoder) EncodeImageIntoWithFlagsResult(img *Image, dst []byte,
 		}
 		return e.EncodeIntoWithFlagsResult(&ycbcr, dst, flags)
 	}
-	return e.encodeVP9Profile2Frame(img, dst, flags)
+	return e.encodeVP9HighBDFrame(img, dst, flags)
 }
 
-func (e *VP9Encoder) ensureHighBDState(w, h int, bd uint8) *vp9HighBDEncoderState {
+func (e *VP9Encoder) ensureHighBDState(w, h int, bd uint8, sub ChromaSubsampling) *vp9HighBDEncoderState {
 	if e.highbd == nil {
 		e.highbd = &vp9HighBDEncoderState{}
 	}
 	st := e.highbd
-	layout := common.NewFrameLayoutSubsampled(w, h, 1, 1)
+	ssX, ssY := sub.Shifts()
+	layout := common.NewFrameLayoutSubsampled(w, h, uint8(ssX), uint8(ssY))
 	st.layout = layout
 	if cap(st.reconY16Full) < layout.YFullLen {
 		st.reconY16Full = make([]uint16, layout.YFullLen)
@@ -137,17 +138,17 @@ func (e *VP9Encoder) ensureHighBDState(w, h int, bd uint8) *vp9HighBDEncoderStat
 		YStride:     layout.YStride,
 		UStride:     layout.UVStride,
 		VStride:     layout.UVStride,
-		Subsampling: Subsampling420,
+		Subsampling: sub,
 		BitDepth:    bd,
 	}
 	return st
 }
 
-func (e *VP9Encoder) encodeVP9Profile2Frame(img *Image, dst []byte,
+func (e *VP9Encoder) encodeVP9HighBDFrame(img *Image, dst []byte,
 	flags EncodeFlags,
 ) (VP9EncodeResult, error) {
 	bd := e.opts.vp9BitDepth()
-	if img.EffectiveBitDepth() != bd || img.Subsampling != Subsampling420 ||
+	if img.EffectiveBitDepth() != bd || img.Subsampling != e.opts.Subsampling ||
 		!img.ValidForEncode(e.opts.Width, e.opts.Height) {
 		return VP9EncodeResult{}, ErrInvalidConfig
 	}
@@ -159,9 +160,10 @@ func (e *VP9Encoder) encodeVP9Profile2Frame(img *Image, dst []byte,
 	miRows := (h + 7) >> 3
 	miCols := (w + 7) >> 3
 	macroblocks := encoder.MacroblockCount(miRows, miCols)
-	vp9dec.SetupBlockPlanes(&e.planes, 1, 1)
+	ssX, ssY := e.opts.vp9SubsamplingShifts()
+	vp9dec.SetupBlockPlanes(&e.planes, ssX, ssY)
 	e.ensureVP9EncoderModeBuffers(miRows, miCols)
-	st := e.ensureHighBDState(w, h, bd)
+	st := e.ensureHighBDState(w, h, bd, e.opts.Subsampling)
 
 	isKey := e.vp9ShouldEncodeKeyFrame(flags)
 	intraOnly := false
@@ -204,7 +206,7 @@ func (e *VP9Encoder) encodeVP9Profile2Frame(img *Image, dst []byte,
 	}
 
 	hdr := vp9dec.UncompressedHeader{
-		Profile:               common.Profile2,
+		Profile:               e.opts.vp9Profile(),
 		FrameType:             common.InterFrame,
 		ShowFrame:             showFrame,
 		IntraOnly:             intraOnly,
@@ -219,8 +221,8 @@ func (e *VP9Encoder) encodeVP9Profile2Frame(img *Image, dst []byte,
 			BitDepth:     bd,
 			ColorSpace:   vp9CommonColorSpace(e.opts.ColorSpace),
 			ColorRange:   vp9CommonColorRange(e.opts.ColorRange),
-			SubsamplingX: 1,
-			SubsamplingY: 1,
+			SubsamplingX: ssX,
+			SubsamplingY: ssY,
 		},
 		Loopfilter: vp9dec.LoopfilterParams{
 			FilterLevel:    filterLevel,
@@ -659,13 +661,17 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 
 	uvMode := common.DcPred
 	if isInter == 0 {
-		var srcU [16]uint16
-		e.highbdCopySrcBlock(src, 1, miCol*4, miRow*4, 4, srcU[:])
-		aboveU, leftU, haveTopU, haveLeftU := e.highbdIntraEdges(st, 1, tile, miRow, miCol, 0, 0, 4, alignedW>>1, alignedH>>1, bd)
+		pdU := &e.planes[1]
+		uvTxSize := vp9dec.GetUvTxSize(common.Block8x8, txSizeY, pdU)
+		uvBs := 4 << uint(uvTxSize)
+		var srcU [64]uint16
+		e.highbdCopySrcBlock(src, 1, (miCol*8)>>pdU.SubsamplingX, (miRow*8)>>pdU.SubsamplingY, uvBs, srcU[:])
+		aboveU, leftU, haveTopU, haveLeftU := e.highbdIntraEdges(st, 1, tile, miRow, miCol, 0, 0, uvBs,
+			alignedW>>pdU.SubsamplingX, alignedH>>pdU.SubsamplingY, bd)
 		bestUVSAD := 1 << 30
 		for _, cand := range [...]common.PredictionMode{common.DcPred, common.VPred, common.HPred, common.TmPred} {
-			dsp.HighbdIntraPredict(st.pred[:], 0, 4, 4, cand, aboveU[:], leftU[:4], haveTopU, haveLeftU, bd)
-			sad := highbdSAD(srcU[:], st.pred[:], 16)
+			dsp.HighbdIntraPredict(st.pred[:], 0, uvBs, uvBs, cand, aboveU[:], leftU[:uvBs], haveTopU, haveLeftU, bd)
+			sad := highbdSAD(srcU[:], st.pred[:], uvBs*uvBs)
 			if sad < bestUVSAD {
 				bestUVSAD = sad
 				uvMode = cand
@@ -717,11 +723,12 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 		}
 		txSize := txSizeY
 		if plane > 0 {
-			txSize = common.Tx4x4
+			txSize = vp9dec.GetUvTxSize(common.Block8x8, txSizeY, pd)
 		}
 		bs := 4 << uint(txSize)
 		step := 1 << uint(txSize)
-		num4x4 := 2 >> pd.SubsamplingX
+		num4x4W := 2 >> pd.SubsamplingX
+		num4x4H := 2 >> pd.SubsamplingY
 		baseX := (miCol * 8) >> pd.SubsamplingX
 		baseY := (miRow * 8) >> pd.SubsamplingY
 		planeW := alignedW >> pd.SubsamplingX
@@ -741,8 +748,8 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 		so := common.GetScanPtr(txSize, planeType, isInter, hdr.Quant.Lossless, mode)
 
 		subIdx := 0
-		for rr := 0; rr < num4x4; rr += step {
-			for cc := 0; cc < num4x4; cc += step {
+		for rr := 0; rr < num4x4H; rr += step {
+			for cc := 0; cc < num4x4W; cc += step {
 				x0 := baseX + cc*4
 				y0 := baseY + rr*4
 				if isInter != 0 {
@@ -843,9 +850,12 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 	if skip {
 		for plane := range 3 {
 			pd := &e.planes[plane]
-			n := 2 >> pd.SubsamplingX
-			for i := range n {
+			nw := 2 >> pd.SubsamplingX
+			nh := 2 >> pd.SubsamplingY
+			for i := range nw {
 				pd.AboveContext[aboveOff[plane]+i] = 0
+			}
+			for i := range nh {
 				pd.LeftContext[leftOff[plane]+i] = 0
 			}
 		}
@@ -856,10 +866,11 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 		pd := &e.planes[plane]
 		txSize := txSizeY
 		if plane > 0 {
-			txSize = common.Tx4x4
+			txSize = vp9dec.GetUvTxSize(common.Block8x8, txSizeY, pd)
 		}
 		step := 1 << uint(txSize)
-		num4x4 := 2 >> pd.SubsamplingX
+		num4x4W := 2 >> pd.SubsamplingX
+		num4x4H := 2 >> pd.SubsamplingY
 		planeType := 0
 		if plane > 0 {
 			planeType = 1
@@ -871,8 +882,8 @@ func (e *VP9Encoder) encodeHighBDBlock8x8(w *bitstream.Writer, st *vp9HighBDEnco
 		so := common.GetScanPtr(txSize, planeType, isInter, hdr.Quant.Lossless, mode)
 
 		subIdx := 0
-		for rr := 0; rr < num4x4; rr += step {
-			for cc := 0; cc < num4x4; cc += step {
+		for rr := 0; rr < num4x4H; rr += step {
+			for cc := 0; cc < num4x4W; cc += step {
 				aboveCtx := pd.AboveContext[aboveOff[plane]+cc : aboveOff[plane]+cc+step]
 				leftCtx := pd.LeftContext[leftOff[plane]+rr : leftOff[plane]+rr+step]
 				initCtx := vp9dec.GetEntropyContextFull(txSize, aboveCtx, leftCtx)

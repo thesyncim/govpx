@@ -23,21 +23,25 @@ govpx is validated against pinned `libvpx v1.16.0` (see [UPSTREAM.md](../UPSTREA
 ## VP9
 
 **Supported:**
-- VP9 Profile 0 (8-bit 4:2:0) raw packet and superframe encode/decode.
-- Allocation-free caller-owned paths (`DecodeInto`, `EncodeInto`).
+- All four VP9 profiles:
+  - Profile 0: 8-bit 4:2:0 (`Y`/`U`/`V`).
+  - Profile 1: 8-bit 4:2:2, 4:4:0, 4:4:4, and sRGB (`Y`/`U`/`V`).
+  - Profile 2: 10-bit and 12-bit 4:2:0 (`Y16`/`U16`/`V16`, `BitDepth` 10 or 12).
+  - Profile 3: 10-bit and 12-bit 4:2:2, 4:4:0, 4:4:4, and sRGB (`Y16`/`U16`/`V16`).
+- Raw packet and superframe encode/decode, with allocation-free caller-owned
+  paths (`DecodeInto`, `EncodeInto`, `EncodeImageInto`).
 - RFC 9628 RTP payload descriptors, packetization, assembly, stateful
   `VP9WebRTCPacketizer`, and SDP Profile 0 checks.
 - Decoder tile filters, row-MT and threaded loop filter, external frame
   buffers, byte alignment, decryptor callback, postprocess flags, error
   concealment, and spatial-SVC superframe filtering.
-- Encoder Profile 0 flags, superframes, spatial-SVC (`NewVP9SpatialSVCEncoder`),
+- Encoder superframes, spatial-SVC (`NewVP9SpatialSVCEncoder`),
   tile-column + row-MT threading, target-level constraints, color/render
-  metadata, segmentation, lossless mode, AQ modes, two-pass stats,
-  show-existing frames, and intra-only packets.
+  metadata (including BT.2020 HDR and sRGB), segmentation, lossless mode,
+  AQ modes, two-pass stats, show-existing frames, and intra-only packets.
 
 **Out of scope:**
-- VP9 Profiles 1–3, high bit depth, non-4:2:0 chroma, alpha, IVF/WebM muxing,
-  RTP transport/SRTP, `libvpx` C ABI, and runtime dependency on `libvpx`.
+- Alpha side-data, IVF/WebM muxing, RTP transport/SRTP, `libvpx` C ABI, and
+  runtime dependency on `libvpx`.
 
-Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`; malformed VP9
-packets return `ErrInvalidVP9Data`.
+Malformed VP9 packets return `ErrInvalidVP9Data`.

@@ -5,15 +5,17 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/govpx)](https://goreportcard.com/report/github.com/thesyncim/govpx)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD--3--Clause-blue.svg)](LICENSE)
 
-**A memory-safe VP8 and VP9 Profile 0 encoder + decoder written in pure Go —
+**A memory-safe VP8 and VP9 (Profiles 0–3) encoder + decoder written in pure Go —
 zero `cgo`, zero `unsafe`, zero hand-written assembly, and competitive with
 `libvpx`.**
 
 govpx targets Go applications that need production VP8/VP9 support — WebRTC
 senders, SFUs, media servers, transcoders, and recorders — without linking C.
-It produces and consumes raw VP8 frame payloads and raw VP9 Profile 0 packets
-with CBR/VBR/CQ/two-pass rate control, frame dropping, temporal denoising,
-temporal and spatial SVC, ROI/active maps, and multithreaded encode/decode.
+It produces and consumes raw VP8 frame payloads and raw VP9 packets across all
+four VP9 profiles (8-bit, 10-bit, and 12-bit; 4:2:0, 4:2:2, 4:4:0, 4:4:4, and
+sRGB) with CBR/VBR/CQ/two-pass rate control, frame dropping, temporal
+denoising, temporal and spatial SVC, ROI/active maps, and multithreaded
+encode/decode.
 
 ## Why govpx
 
@@ -25,8 +27,9 @@ temporal and spatial SVC, ROI/active maps, and multithreaded encode/decode.
   tile-column + row-MT encode/decode.
 - **Oracle-validated.** Verified against pinned `libvpx v1.16.0`: VP8 encoder
   output is byte-identical on pinned non-HD parity matrices, the VP9 decoder
-  passes the official Profile 0 conformance corpus across thread counts, and
-  encode workloads are quality-gated (`-quality-gate`) against `libvpx`.
+  passes the official Profile 0 conformance corpus across thread counts and
+  matches `libvpx-vp9` byte-for-byte on Profiles 1–3, and encode workloads are
+  quality-gated (`-quality-gate`) against `libvpx`.
 - **WebRTC-ready.** Includes RFC 7741 (VP8) and RFC 9628 (VP9) RTP payload
   packetizers/assemblers, SDP profile/cap helpers, and `VP9WebRTCPacketizer`
   for stateful PictureID and dependency tracking across dropped frames.
@@ -88,11 +91,11 @@ if frame, ok := dec.NextFrame(); ok {
 }
 ```
 
-- `NextFrame` returns decoder-owned I420 storage valid until the next `Decode`,
-  `Reset`, or `Close`. Use `DecodeInto` / `DecodeIntoWithPTS` for caller-owned
-  buffers.
-- Use `NewVP9Decoder` for raw VP9 Profile 0 packets (including superframes).
-  Valid non-Profile-0 VP9 packets return `ErrVP9NotImplemented`.
+- `NextFrame` returns decoder-owned `Image` storage valid until the next
+  `Decode`, `Reset`, or `Close` (`Y`/`U`/`V` for 8-bit Profiles 0–1;
+  `Y16`/`U16`/`V16` with `BitDepth` 10 or 12 for Profiles 2–3). Use
+  `DecodeInto` / `DecodeIntoWithPTS` for caller-owned buffers.
+- Use `NewVP9Decoder` for raw VP9 Profiles 0–3 packets (including superframes).
 - Supported controls: threading, error concealment, postprocess flags, max
   dimensions, resolution-change rejection, decryptor callbacks, and reference
   buffer set/copy.
@@ -127,10 +130,12 @@ for i, src := range frames {
 }
 ```
 
-Inputs are planar 8-bit 4:2:0 (`Image{Y,U,V,*Stride}`). Outputs are raw VP8
-payloads or VP9 Profile 0 packets/superframes (not IVF or WebM). When lookahead
-or auto-alt-ref queues frames, `EncodeInto` returns `ErrFrameNotReady`; drain
-with `FlushInto` at end of stream.
+Inputs are planar 8-bit `Image{Y,U,V,*Stride}` (VP8 and VP9 Profiles 0–1) or
+10/12-bit `Image{Y16,U16,V16,*Stride,BitDepth}` via `EncodeImage` /
+`EncodeImageInto` (VP9 Profiles 2–3). Outputs are raw VP8 payloads or VP9
+packets/superframes (not IVF or WebM). When lookahead or auto-alt-ref queues
+frames, `EncodeInto` returns `ErrFrameNotReady`; drain with `FlushInto` at end
+of stream.
 
 | Area | Controls |
 | --- | --- |
