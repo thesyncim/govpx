@@ -51,7 +51,7 @@ func Idct8x8_1Add(input []int16, dest []uint8, stride int) {
 	if pixel.Enabled {
 		v := int16(dctConstRoundShift(int64(input[0]) * cospi16_64))
 		v = int16(dctConstRoundShift(int64(v) * cospi16_64))
-		pixel.AddConstant(dest, stride, dest, stride, 8, 8, int(roundPowerOfTwo(int32(v), 5)))
+		pixel.AddConstant8x8InPlace(dest, stride, int(roundPowerOfTwo(int32(v), 5)))
 		return
 	}
 

@@ -293,12 +293,8 @@ func DequantIDCTAddMacroblockCoefficients(qcoeff *[25][16]int16, eob *[25]uint8,
 func seedLumaDCFromY2(qcoeff *[25][16]int16, eob *[25]uint8, dequant *common.MacroblockDequant) {
 	if eob[24] > 1 {
 		var y2 [16]int16
-		var flat [16 * 16]int16
 		dsp.DequantizeBlockDisjoint(&qcoeff[24], &dequant.Y2, &y2)
-		dsp.InverseWalsh4x4(&y2, flat[:])
-		for i := range 16 {
-			qcoeff[i][0] = flat[i*16]
-		}
+		dsp.InverseWalsh4x4ToLumaDC(&y2, qcoeff)
 	} else {
 		dc := (qcoeff[24][0]*dequant.Y2[0] + 3) >> 3
 		for i := range 16 {
@@ -336,19 +332,24 @@ func dequantIDCTAddLumaBlocks(qcoeff *[25][16]int16, eob *[25]uint8, eobFloor ui
 				continue
 			}
 			off := rowOff + col*4
-			if eob0 > 1 || eob1 > 1 {
-				var pair [32]int16
-				if eob0 > 1 {
-					copy(pair[:16], qcoeff[b][:])
-				} else if eob0 != 0 || seeded {
-					pair[0] = qcoeff[b][0]
+			if eob0 > 1 && eob1 > 1 {
+				dsp.DequantIDCTAddFull2xBlocks(&qcoeff[b], &qcoeff[b+1], yDequant, y[off:], yStride)
+				continue
+			}
+			if eob0 > 1 {
+				dsp.DequantIDCTAddFull1x(&qcoeff[b], yDequant, y[off:], yStride)
+				if eob1 != 0 || seeded {
+					dc1 := int32(qcoeff[b+1][0]) * int32(yDequant[0])
+					dsp.DCOnlyIDCT4x4AddInt32(dc1, y[off+4:], yStride, y[off+4:], yStride)
 				}
-				if eob1 > 1 {
-					copy(pair[16:], qcoeff[b+1][:])
-				} else if eob1 != 0 || seeded {
-					pair[16] = qcoeff[b+1][0]
+				continue
+			}
+			if eob1 > 1 {
+				if eob0 != 0 || seeded {
+					dc0 := int32(qcoeff[b][0]) * int32(yDequant[0])
+					dsp.DCOnlyIDCT4x4AddInt32(dc0, y[off:], yStride, y[off:], yStride)
 				}
-				dsp.DequantIDCTAddFull2x(&pair, yDequant, y[off:], yStride)
+				dsp.DequantIDCTAddFull1x(&qcoeff[b+1], yDequant, y[off+4:], yStride)
 				continue
 			}
 			var dc0, dc1 int32
@@ -383,19 +384,24 @@ func dequantIDCTAddChromaPair(qcoeff *[25][16]int16, eob *[25]uint8, uvDequant *
 	if eob0 == 0 && eob1 == 0 {
 		return
 	}
-	if eob0 > 1 || eob1 > 1 {
-		var pair [32]int16
-		if eob0 > 1 {
-			copy(pair[:16], qcoeff[b][:])
-		} else if eob0 != 0 {
-			pair[0] = qcoeff[b][0]
+	if eob0 > 1 && eob1 > 1 {
+		dsp.DequantIDCTAddFull2xBlocks(&qcoeff[b], &qcoeff[b+1], uvDequant, dst, stride)
+		return
+	}
+	if eob0 > 1 {
+		dsp.DequantIDCTAddFull1x(&qcoeff[b], uvDequant, dst, stride)
+		if eob1 != 0 {
+			dc1 := int32(qcoeff[b+1][0]) * int32(uvDequant[0])
+			dsp.DCOnlyIDCT4x4AddInt32(dc1, dst[4:], stride, dst[4:], stride)
 		}
-		if eob1 > 1 {
-			copy(pair[16:], qcoeff[b+1][:])
-		} else if eob1 != 0 {
-			pair[16] = qcoeff[b+1][0]
+		return
+	}
+	if eob1 > 1 {
+		if eob0 != 0 {
+			dc0 := int32(qcoeff[b][0]) * int32(uvDequant[0])
+			dsp.DCOnlyIDCT4x4AddInt32(dc0, dst, stride, dst, stride)
 		}
-		dsp.DequantIDCTAddFull2x(&pair, uvDequant, dst, stride)
+		dsp.DequantIDCTAddFull1x(&qcoeff[b+1], uvDequant, dst[4:], stride)
 		return
 	}
 	var dc0, dc1 int32

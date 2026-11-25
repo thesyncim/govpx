@@ -1793,6 +1793,97 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			lCtx[rr] = lv
 		}
 	case common.Tx8x8:
+		if coefCounts == nil {
+			buf, _, _, pos := rs.BitView()
+			fastLimit := len(buf) - 8
+			value := rs.Value
+			rng := rs.Range
+			count := rs.Count
+			for rr := 0; rr < num4x4H; rr += 2 {
+				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
+				lv := lCtx[rr] | lCtx[rr+1]
+				for cc := 0; cc < num4x4W; cc += 2 {
+					initCtx := 0
+					if aCtx[cc]|aCtx[cc+1] != 0 {
+						initCtx++
+					}
+					if lv != 0 {
+						initCtx++
+					}
+					if count < 0 && pos <= fastLimit {
+						value, count, pos = bitstream.FillFast(buf, pos, value, count)
+					}
+					var eob int
+					if count >= 0 {
+						prob := uint32(dcProbs[initCtx][0])
+						split := (rng*prob + (256 - prob)) >> 8
+						bigsplit := uint64(split) << 56
+						if value < bigsplit {
+							shift := uint32(bits.LeadingZeros8(uint8(split))) & 7
+							rng = split << shift
+							value <<= shift
+							count -= int32(shift)
+							aCtx[cc] = 0
+							aCtx[cc+1] = 0
+							lv = 0
+							continue
+						}
+						nr := rng - split
+						nv := value - bigsplit
+						shift := uint32(bits.LeadingZeros8(uint8(nr))) & 7
+						rs.Range = nr << shift
+						rs.Value = nv << shift
+						rs.Count = count - int32(shift)
+						rs.CommitPos(pos)
+						eob = vp9dec.DecodeCoefsStateAfterEOB(rs, common.Tx8x8, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, &d.dqcoeff, &d.coefTokenCache)
+					} else {
+						rs.Value = value
+						rs.Range = rng
+						rs.Count = count
+						rs.CommitPos(pos)
+						eob = vp9dec.DecodeCoefsState(rs, common.Tx8x8, planeType, 1, dequant,
+							initCtx, so, &d.fc.CoefProbs, nil, &d.dqcoeff, &d.coefTokenCache)
+					}
+					value = rs.Value
+					rng = rs.Range
+					count = rs.Count
+					_, _, _, pos = rs.BitView()
+					eobTotal += eob
+					hasResidue := uint8(0)
+					if eob > 0 {
+						vp9dec.Idct8x8Add(coeffs, rowDst[cc*4:], dstStride, eob)
+						if eob == 1 {
+							coeffs[0] = 0
+						} else if eob <= 8 {
+							scan := so.Scan
+							for k := range eob {
+								coeffs[scan[k]] = 0
+							}
+						} else {
+							clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
+						}
+						hasResidue = 1
+					}
+					aCtx[cc] = hasResidue
+					aCtx[cc+1] = hasResidue
+					if hasResidue != 0 && cc+2 > num4x4W {
+						clear(aCtx[num4x4W : cc+2])
+					}
+					lv = hasResidue
+				}
+				lCtx[rr] = lv
+				lCtx[rr+1] = lv
+				if lv != 0 && rr+2 > num4x4H {
+					clear(lCtx[num4x4H : rr+2])
+				}
+			}
+			rs.Value = value
+			rs.Range = rng
+			rs.Count = count
+			rs.CommitPos(pos)
+			return eobTotal
+		}
 		for rr := 0; rr < num4x4H; rr += 2 {
 			rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 			lv := lCtx[rr] | lCtx[rr+1]

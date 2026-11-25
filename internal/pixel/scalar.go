@@ -31,6 +31,10 @@ func Temporal(src []byte, ss int, pred []byte, ps, w, strength, weight int, acc,
 	TemporalScalar(src, ss, pred, ps, w, strength, weight, acc, count)
 }
 func VP8Quant(c, r, q, d, qout, dout []int16) { VP8QuantScalar(c, r, q, d, qout, dout) }
+func AddConstant8x8InPlace(dst []byte, stride, delta int) {
+	AddConstantScalar(dst, stride, dst, stride, 8, 8, delta)
+}
+
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {
 	AddConstantScalar(pred, ps, dst, ds, w, h, delta)
 }
