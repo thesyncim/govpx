@@ -193,47 +193,88 @@ func planeSSIM(a []byte, aStride int, b []byte, bStride int, width int, height i
 	if count <= 0 {
 		return 0, 0
 	}
-	sumA := 0.0
-	sumB := 0.0
-	sumAA := 0.0
-	sumBB := 0.0
-	sumAB := 0.0
-	for row := range height {
-		aRow := a[row*aStride:]
-		bRow := b[row*bStride:]
-		for col := range width {
-			x := float64(aRow[col])
-			y := float64(bRow[col])
-			sumA += x
-			sumB += y
-			sumAA += x * x
-			sumBB += y * y
-			sumAB += x * y
-		}
-	}
-	n := float64(count)
-	meanA := sumA / n
-	meanB := sumB / n
-	varA := sumAA/n - meanA*meanA
-	varB := sumBB/n - meanB*meanB
-	cov := sumAB/n - meanA*meanB
 	const (
 		c1 = 6.5025
 		c2 = 58.5225
 	)
+	// Standard 8x8 block-windowed SSIM using integer accumulation per block
+	// (matching libvpx/ffmpeg block SSIM semantics) instead of a single
+	// whole-frame global window. Falls back to full-plane for tiny planes < 8x8.
+	blocksX := width / 8
+	blocksY := height / 8
+	if blocksX == 0 || blocksY == 0 {
+		var sumA, sumB, sumAA, sumBB, sumAB uint64
+		for row := range height {
+			aRow := a[row*aStride : row*aStride+width]
+			bRow := b[row*bStride : row*bStride+width]
+			for col := range width {
+				x := uint64(aRow[col])
+				y := uint64(bRow[col])
+				sumA += x
+				sumB += y
+				sumAA += x * x
+				sumBB += y * y
+				sumAB += x * y
+			}
+		}
+		return ssimFromSums(sumA, sumB, sumAA, sumBB, sumAB, count, c1, c2), count
+	}
+	ssimSum := 0.0
+	for by := range blocksY {
+		baseY := by * 8
+		for bx := range blocksX {
+			baseX := bx * 8
+			var sumA, sumB, sumAA, sumBB, sumAB uint32
+			for dy := range 8 {
+				aRow := a[(baseY+dy)*aStride+baseX:]
+				bRow := b[(baseY+dy)*bStride+baseX:]
+				_ = aRow[7]
+				_ = bRow[7]
+				for dx := range 8 {
+					x := uint32(aRow[dx])
+					y := uint32(bRow[dx])
+					sumA += x
+					sumB += y
+					sumAA += x * x
+					sumBB += y * y
+					sumAB += x * y
+				}
+			}
+			ssimSum += ssimFromSums(uint64(sumA), uint64(sumB), uint64(sumAA), uint64(sumBB), uint64(sumAB), 64, c1, c2)
+		}
+	}
+	return ssimSum / float64(blocksX*blocksY), count
+}
+
+func ssimFromSums(sumA, sumB, sumAA, sumBB, sumAB uint64, count int, c1, c2 float64) float64 {
+	n := float64(count)
+	meanA := float64(sumA) / n
+	meanB := float64(sumB) / n
+	varA := float64(sumAA)/n - meanA*meanA
+	varB := float64(sumBB)/n - meanB*meanB
+	cov := float64(sumAB)/n - meanA*meanB
+	if varA < 0 {
+		varA = 0
+	}
+	if varB < 0 {
+		varB = 0
+	}
 	num := (2*meanA*meanB + c1) * (2*cov + c2)
 	den := (meanA*meanA + meanB*meanB + c1) * (varA + varB + c2)
 	if den == 0 {
-		return 1, count
+		return 1
 	}
-	return num / den, count
+	return num / den
 }
 
 func planeSSE(a []byte, aStride int, b []byte, bStride int, width int, height int) (uint64, int) {
+	if width <= 0 || height <= 0 {
+		return 0, 0
+	}
 	var sse uint64
 	for row := range height {
-		aRow := a[row*aStride:]
-		bRow := b[row*bStride:]
+		aRow := a[row*aStride : row*aStride+width]
+		bRow := b[row*bStride : row*bStride+width]
 		for col := range width {
 			diff := int(aRow[col]) - int(bRow[col])
 			sse += uint64(diff * diff)

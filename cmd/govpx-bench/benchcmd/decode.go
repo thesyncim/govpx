@@ -12,22 +12,48 @@ import (
 
 func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 	codec := benchCodec(cfg)
-	if err := validateDecodeBenchmarkConfig(cfg, codec); err != nil {
-		return decodeBenchReport{}, err
-	}
 	deadline, deadlineName, err := benchmarkDeadline(cfg.Mode)
 	if err != nil {
 		return decodeBenchReport{}, err
 	}
-	frames := make([]govpx.Image, cfg.Frames)
-	for i := range frames {
-		frames[i] = makeBenchmarkFrame(cfg.Width, cfg.Height, i)
+	var (
+		packets [][]byte
+		ivf     []byte
+	)
+	if cfg.InputPath != "" {
+		stream, err := loadIVFInput(cfg.InputPath, cfg.Frames)
+		if err != nil {
+			return decodeBenchReport{}, err
+		}
+		codec = stream.codec
+		cfg.Codec = codec
+		cfg.Width = stream.width
+		cfg.Height = stream.height
+		cfg.FPS = stream.fps
+		cfg.Frames = len(stream.packets)
+		packets = stream.packets
+		ivf = stream.raw
+	} else {
+		if err := validateDecodeBenchmarkConfig(cfg, codec); err != nil {
+			return decodeBenchReport{}, err
+		}
+		frames, err := prepareEncodeFrames(&cfg, nil)
+		if err != nil {
+			return decodeBenchReport{}, err
+		}
+		// Disable frame dropping when synthesizing the decode corpus unless
+		// the caller explicitly requested -drop-frame, so -frames N decodes N frames.
+		encCfg := cfg
+		if !encCfg.DropFrameSet {
+			encCfg.DropFrameSet = true
+			encCfg.DropFrame = 0
+		}
+		packets, err = encodeDecodeBenchmarkPackets(encCfg, deadline, frames, codec)
+		if err != nil {
+			return decodeBenchReport{}, err
+		}
+		ivf = makeBenchmarkIVFForCodec(codec, cfg.Width, cfg.Height, cfg.FPS, packets)
 	}
-	packets, err := encodeDecodeBenchmarkPackets(cfg, deadline, frames, codec)
-	if err != nil {
-		return decodeBenchReport{}, err
-	}
-	ivf := makeBenchmarkIVFForCodec(codec, cfg.Width, cfg.Height, cfg.FPS, packets)
 	dec, err := newBenchmarkDecoder(codec, cfg)
 	if err != nil {
 		return decodeBenchReport{}, err
@@ -37,80 +63,131 @@ func runDecodeBenchmark(cfg benchConfig) (decodeBenchReport, error) {
 		return decodeBenchReport{}, err
 	}
 
-	runtime.GC()
-	latencies := make([]int64, 0, len(packets))
-	if _, latencies, err = decodeBenchmarkPackets(dec, packets, latencies); err != nil {
-		return decodeBenchReport{}, err
-	}
-	latencies = latencies[:0]
-	var memBefore runtime.MemStats
-	var memAfter runtime.MemStats
-	var decodeMallocs uint64
-	if cfg.CPUProfile != "" {
-		runtime.GC()
-		runtime.ReadMemStats(&memBefore)
-		if _, _, err := decodeBenchmarkPackets(dec, packets, latencies[:0]); err != nil {
-			return decodeBenchReport{}, err
+	runs := max(cfg.Runs, 1)
+	govpxSamples := make([]int64, 0, runs)
+	refSamples := make([]int64, 0, runs)
+	var lastReport decodeBenchReport
+	var lastRef *decodeReferenceReport
+
+	for runIdx := range runs {
+		runCfg := cfg
+		if runs > 1 {
+			runCfg.ReferenceFirst = runIdx%2 == 1
+			runCfg.libvpxWarmed = runIdx > 0
 		}
-		runtime.ReadMemStats(&memAfter)
-		decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
-		latencies = latencies[:0]
-	}
-	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
-	if err != nil {
-		return decodeBenchReport{}, err
-	}
-	defer stopCPUProfile()
-	if cfg.CPUProfile == "" {
-		runtime.ReadMemStats(&memBefore)
-	}
-	decodedFrames, latencies, err := decodeBenchmarkPackets(dec, packets, latencies)
-	stopCPUProfile()
-	if cfg.CPUProfile == "" {
-		runtime.ReadMemStats(&memAfter)
-		decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
-	}
-	if err != nil {
-		return decodeBenchReport{}, err
-	}
-	totalLatency := totalLatencyNS(latencies)
-	nsPerFrame := totalLatency / int64(len(latencies))
-	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
-	report := decodeBenchReport{
-		Codec:                codec,
-		Decoder:              decodeReportDecoderName(codec),
-		Operation:            "decode",
-		Mode:                 deadlineName,
-		Width:                cfg.Width,
-		Height:               cfg.Height,
-		Frames:               len(packets),
-		FPS:                  cfg.FPS,
-		InputBytes:           len(ivf),
-		DecodedFrames:        decodedFrames,
-		NSPerFrame:           nsPerFrame,
-		DecodeFPS:            1e9 / float64(nsPerFrame),
-		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
-		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), totalLatency),
-		AllocsPerFrame:       float64(decodeMallocs) / float64(len(packets)),
-		LatencyNS: latencyReport{
-			P50: percentileLatency(latencies, 50),
-			P95: percentileLatency(latencies, 95),
-			P99: percentileLatency(latencies, 99),
-		},
-		Options: benchSummary(deadlineName),
-	}
-	if cfg.LibvpxOracle != "" {
-		reference, err := runLibvpxDecodeBenchmark(cfg, ivf, deadlineName, len(packets))
+		var runRef *decodeReferenceReport
+		if runCfg.ReferenceFirst && runCfg.LibvpxOracle != "" {
+			reference, err := runLibvpxDecodeBenchmark(runCfg, ivf, deadlineName, len(packets))
+			if err != nil {
+				return decodeBenchReport{}, err
+			}
+			runRef = &reference
+		}
+
+		runtime.GC()
+		latencies := make([]int64, 0, len(packets))
+		var memBefore runtime.MemStats
+		var memAfter runtime.MemStats
+		var decodeMallocs uint64
+		if runCfg.CPUProfile != "" && runIdx == 0 {
+			runtime.GC()
+			runtime.ReadMemStats(&memBefore)
+			if _, _, err := decodeBenchmarkPackets(dec, packets, latencies[:0]); err != nil {
+				return decodeBenchReport{}, err
+			}
+			runtime.ReadMemStats(&memAfter)
+			decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+			latencies = latencies[:0]
+		}
+		profilePath := ""
+		if runIdx == 0 {
+			profilePath = runCfg.CPUProfile
+		}
+		stopCPUProfile, err := startBenchmarkCPUProfile(profilePath)
 		if err != nil {
 			return decodeBenchReport{}, err
 		}
-		report.Reference = &reference
-		report.Comparison = buildDecodeComparisonReport(report, reference)
-		if report.NSPerFrame > 0 {
-			report.RelativeSpeedVsReference = float64(reference.NSPerFrame) / float64(report.NSPerFrame)
+		if profilePath == "" {
+			runtime.ReadMemStats(&memBefore)
+		}
+		decodedFrames, latencies, err := decodeBenchmarkPackets(dec, packets, latencies)
+		stopCPUProfile()
+		if profilePath == "" {
+			runtime.ReadMemStats(&memAfter)
+			decodeMallocs = memAfter.Mallocs - memBefore.Mallocs
+		}
+		if err != nil {
+			return decodeBenchReport{}, err
+		}
+		totalLatency := totalLatencyNS(latencies)
+		nsPerFrame := totalLatency / int64(len(latencies))
+		macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
+		lastReport = decodeBenchReport{
+			Codec:                codec,
+			Decoder:              decodeReportDecoderName(codec),
+			Operation:            "decode",
+			Mode:                 deadlineName,
+			Width:                cfg.Width,
+			Height:               cfg.Height,
+			Frames:               len(packets),
+			FPS:                  cfg.FPS,
+			InputBytes:           len(ivf),
+			DecodedFrames:        decodedFrames,
+			NSPerFrame:           nsPerFrame,
+			DecodeFPS:            1e9 / float64(nsPerFrame),
+			MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
+			CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), totalLatency),
+			AllocsPerFrame:       float64(decodeMallocs) / float64(len(packets)),
+			LatencyNS: latencyReport{
+				P50: percentileLatency(latencies, 50),
+				P95: percentileLatency(latencies, 95),
+				P99: percentileLatency(latencies, 99),
+			},
+			Options: benchSummary(deadlineName),
+		}
+		govpxSamples = append(govpxSamples, nsPerFrame)
+
+		if runCfg.LibvpxOracle != "" {
+			if runRef == nil {
+				reference, err := runLibvpxDecodeBenchmark(runCfg, ivf, deadlineName, len(packets))
+				if err != nil {
+					return decodeBenchReport{}, err
+				}
+				runRef = &reference
+			}
+			lastRef = runRef
+			refSamples = append(refSamples, runRef.NSPerFrame)
 		}
 	}
-	return report, nil
+
+	if runs > 1 {
+		med, minNS, maxNS := medianMinMaxInt64(govpxSamples)
+		lastReport.Runs = runs
+		lastReport.NSPerFrame = med
+		lastReport.MinNSPerFrame = minNS
+		lastReport.MaxNSPerFrame = maxNS
+		lastReport.DecodeFPS = 1e9 / float64(med)
+		lastReport.MacroblocksPerSec = benchmarkMacroblocks(cfg.Width, cfg.Height) * 1e9 / float64(med)
+		lastReport.CodedMegabytesPerSec = codedMegabytesPerSecond(len(ivf), med*int64(len(packets)))
+	}
+	if lastRef != nil {
+		if runs > 1 && len(refSamples) > 0 {
+			med, minNS, maxNS := medianMinMaxInt64(refSamples)
+			lastRef.NSPerFrame = med
+			lastRef.MinNSPerFrame = minNS
+			lastRef.MaxNSPerFrame = maxNS
+			lastRef.DecodeFPS = 1e9 / float64(med)
+			lastRef.MacroblocksPerSec = benchmarkMacroblocks(cfg.Width, cfg.Height) * 1e9 / float64(med)
+			lastRef.CodedMegabytesPerSec = codedMegabytesPerSecond(len(ivf), med*int64(len(packets)))
+		}
+		lastReport.Reference = lastRef
+		lastReport.Comparison = buildDecodeComparisonReport(lastReport, *lastRef)
+		if lastReport.NSPerFrame > 0 {
+			lastReport.RelativeSpeedVsReference = float64(lastRef.NSPerFrame) / float64(lastReport.NSPerFrame)
+		}
+	}
+	lastReport.FairnessWarnings = collectDecodeFairnessWarnings(cfg, lastReport)
+	return lastReport, nil
 }
 
 func validateDecodeBenchmarkConfig(cfg benchConfig, codec string) error {

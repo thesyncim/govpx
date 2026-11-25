@@ -18,7 +18,7 @@ import (
 // It mirrors runBenchmark's reporting layout so downstream consumers can use
 // the same comparisonReport / quality-gate plumbing across both codecs.
 func runVP9Benchmark(cfg benchConfig) (benchReport, error) {
-	return runVP9BenchmarkInternal(cfg, makeBenchmarkFrame)
+	return runVP9BenchmarkInternal(cfg, nil)
 }
 
 // runVP9BenchmarkInternal is the shared implementation behind
@@ -27,7 +27,7 @@ func runVP9Benchmark(cfg benchConfig) (benchReport, error) {
 // return a govpx.Image with the visible dimensions matching cfg.Width /
 // cfg.Height.
 func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.Image) (benchReport, error) {
-	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Frames <= 0 || cfg.FPS <= 0 || cfg.BitrateKbps <= 0 {
+	if cfg.InputPath == "" && (cfg.Width <= 0 || cfg.Height <= 0 || cfg.Frames <= 0 || cfg.FPS <= 0 || cfg.BitrateKbps <= 0) {
 		return benchReport{}, errors.New("width, height, frames, fps, and bitrate must be positive")
 	}
 	// VP9 profile-0 max coded dimension is 65535 in each axis; bench
@@ -39,18 +39,20 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	if cfg.PhaseTiming && !phaseTimingEnabled {
 		return benchReport{}, errors.New("phase timing requires the govpx_phase_stats build tag")
 	}
-	if source == nil {
-		source = makeBenchmarkFrame
-	}
 	deadline, deadlineName, err := benchmarkDeadline(cfg.Mode)
 	if err != nil {
 		return benchReport{}, err
 	}
 
-	frames := make([]govpx.Image, cfg.Frames)
-	ycbcr := make([]*image.YCbCr, cfg.Frames)
+	frames, err := prepareEncodeFrames(&cfg, source)
+	if err != nil {
+		return benchReport{}, err
+	}
+	if cfg.Width > 65535 || cfg.Height > 65535 {
+		return benchReport{}, errors.New("dimensions exceed VP9 limits")
+	}
+	ycbcr := make([]*image.YCbCr, len(frames))
 	for i := range frames {
-		frames[i] = source(cfg.Width, cfg.Height, i)
 		ycbcr[i] = imageToYCbCr(frames[i])
 	}
 	var reference *referenceReport
@@ -67,15 +69,20 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	// Warmup pass with a throwaway encoder; VP9Encoder has no Reset, so a
 	// fresh encoder is the cleanest way to prime caches without polluting
 	// the measured pass.
+	warmupBytes := 0
 	{
 		warm, err := newVP9BenchmarkEncoder(cfg, deadline)
 		if err != nil {
 			return benchReport{}, err
 		}
 		for i := range frames {
-			if _, err := warm.EncodeIntoWithResult(ycbcr[i], packet); err != nil {
+			res, err := warm.EncodeIntoWithResult(ycbcr[i], packet)
+			if err != nil {
 				warm.Close()
 				return benchReport{}, fmt.Errorf("vp9 warmup encode frame %d: %w", i, err)
+			}
+			if !res.Dropped {
+				warmupBytes += len(res.Data)
 			}
 		}
 		warm.Close()
@@ -106,22 +113,28 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	interBytes := 0
 	interCount := 0
 
-	encodeMallocs, err := sampleVP9EncodeMallocs(enc, packet, ycbcr)
-	if err != nil {
-		return benchReport{}, err
-	}
-	enc.Close()
-	enc = nil
-	enc, err = govpx.NewVP9Encoder(encoderOpts)
-	if err != nil {
-		return benchReport{}, err
+	var encodeMallocs uint64
+	if cfg.CPUProfile != "" {
+		encodeMallocs, err = sampleVP9EncodeMallocs(enc, packet, ycbcr)
+		if err != nil {
+			return benchReport{}, err
+		}
+		enc.Close()
+		enc = nil
+		enc, err = govpx.NewVP9Encoder(encoderOpts)
+		if err != nil {
+			return benchReport{}, err
+		}
 	}
 
 	phaseStats.reset()
 	runtime.GC()
 	var measuredPackets []measuredEncodePacket
+	var packetArena []byte
+	arenaOff := 0
 	if !cfg.SkipQuality {
 		measuredPackets = make([]measuredEncodePacket, cfg.Frames)
+		packetArena = make([]byte, warmupBytes+64*1024)
 	}
 	measuredPacketCount := 0
 	stopCPUProfile, err := startBenchmarkCPUProfile(cfg.CPUProfile)
@@ -130,6 +143,11 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	}
 	defer stopCPUProfile()
 
+	var memBefore runtime.MemStats
+	var memAfter runtime.MemStats
+	if cfg.CPUProfile == "" {
+		runtime.ReadMemStats(&memBefore)
+	}
 	for i := range frames {
 		start := time.Now()
 		result, err := enc.EncodeIntoWithResult(ycbcr[i], packet)
@@ -148,7 +166,14 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 			continue
 		}
 		if !cfg.SkipQuality {
-			packetCopy := append([]byte(nil), result.Data...)
+			var packetCopy []byte
+			if arenaOff+len(result.Data) <= len(packetArena) {
+				packetCopy = packetArena[arenaOff : arenaOff+len(result.Data)]
+				copy(packetCopy, result.Data)
+				arenaOff += len(result.Data)
+			} else {
+				packetCopy = append([]byte(nil), result.Data...)
+			}
 			measuredPackets[measuredPacketCount] = measuredEncodePacket{
 				data:        packetCopy,
 				sourceIndex: i,
@@ -177,6 +202,10 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 			interBytes += result.SizeBytes
 			interCount++
 		}
+	}
+	if cfg.CPUProfile == "" {
+		runtime.ReadMemStats(&memAfter)
+		encodeMallocs = memAfter.Mallocs - memBefore.Mallocs
 	}
 	stopCPUProfile()
 
@@ -220,6 +249,10 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		mbps = macroblocksPerFrame * 1e9 / float64(nsPerFrame)
 	}
 
+	encodedNSPerFrame := int64(0)
+	if droppedFrames > 0 && encodedFrames > 0 {
+		encodedNSPerFrame = totalLatency / int64(encodedFrames)
+	}
 	report := benchReport{
 		Codec:             codecVP9,
 		Encoder:           "govpx-vp9",
@@ -232,6 +265,7 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 		OutputBitrateKbps: outputBitrate,
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        nsPerFrame,
+		EncodedNSPerFrame: encodedNSPerFrame,
 		EncodeFPS:         encodeFPS,
 		MacroblocksPerSec: mbps,
 		AllocsPerFrame:    float64(encodeMallocs) / float64(cfg.Frames),
@@ -272,6 +306,7 @@ func runVP9BenchmarkInternal(cfg benchConfig, source func(int, int, int) govpx.I
 	if stats := phaseStats.report(); stats != nil {
 		report.PhaseNS = stats
 	}
+	report.FairnessWarnings = collectEncodeFairnessWarnings(cfg, report)
 	return report, nil
 }
 

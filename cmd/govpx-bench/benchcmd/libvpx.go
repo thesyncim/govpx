@@ -1,11 +1,13 @@
 package benchcmd
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,20 +23,28 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	}
 	defer os.RemoveAll(tempDir)
 
-	rawPath := tempDir + string(os.PathSeparator) + "input.i420"
+	rawPath := cfg.prewrittenRawPath
 	outPath := tempDir + string(os.PathSeparator) + "output.ivf"
-	raw, err := os.Create(rawPath)
-	if err != nil {
-		return referenceReport{}, err
-	}
-	for _, frame := range frames {
-		if err := writeI420Frame(raw, frame); err != nil {
+	if rawPath == "" {
+		rawPath = tempDir + string(os.PathSeparator) + "input.i420"
+		raw, err := os.Create(rawPath)
+		if err != nil {
+			return referenceReport{}, err
+		}
+		bw := bufio.NewWriterSize(raw, 512*1024)
+		for _, frame := range frames {
+			if err := writeI420FrameBuf(bw, frame); err != nil {
+				raw.Close()
+				return referenceReport{}, err
+			}
+		}
+		if err := bw.Flush(); err != nil {
 			raw.Close()
 			return referenceReport{}, err
 		}
-	}
-	if err := raw.Close(); err != nil {
-		return referenceReport{}, err
+		if err := raw.Close(); err != nil {
+			return referenceReport{}, err
+		}
 	}
 
 	vpxDeadlineFlag := "--rt"
@@ -43,15 +53,32 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	}
 	parity := parityFor(cfg)
 	parityFlags := libvpxParityFlags(cfg, parity, vpxDeadlineFlag)
-	args := append([]string{
+	baseArgs := []string{
 		"--codec=vp8",
 		"--ivf",
 		"--i420",
 		fmt.Sprintf("--width=%d", cfg.Width),
 		fmt.Sprintf("--height=%d", cfg.Height),
 		fmt.Sprintf("--fps=%d/1", cfg.FPS),
-		fmt.Sprintf("--limit=%d", cfg.Frames),
-	}, parityFlags...)
+	}
+	// Warm up vpxenc binary pages, dyld, and input page cache before the
+	// measured run so libvpx does not pay cold-start page faults while govpx
+	// runs after an in-process warmup pass.
+	if !cfg.libvpxWarmed {
+		warmFrames := min(len(frames), 4)
+		if warmFrames > 0 {
+			warmArgs := append(append([]string{}, baseArgs...), fmt.Sprintf("--limit=%d", warmFrames))
+			warmArgs = append(warmArgs, parityFlags...)
+			warmArgs = append(warmArgs, cfg.LibvpxArgs...)
+			warmArgs = append(warmArgs, fmt.Sprintf("--output=%s", tempDir+string(os.PathSeparator)+"warm.ivf"), rawPath)
+			warm := exec.Command(cfg.LibvpxVpxenc, warmArgs...)
+			warm.Stdout = nil
+			warm.Stderr = nil
+			_ = warm.Run()
+		}
+	}
+	args := append(append([]string{}, baseArgs...), fmt.Sprintf("--limit=%d", cfg.Frames))
+	args = append(args, parityFlags...)
 	// User overrides come after parity defaults so the same-flag-wins
 	// behaviour of vpxenc lets callers tweak rate control if they need to.
 	args = append(args, cfg.LibvpxArgs...)
@@ -132,12 +159,17 @@ func runLibvpxBenchmark(cfg benchConfig, frames []govpx.Image, deadlineName stri
 	if wallPerFrame > 0 {
 		wallFPS = 1e9 / float64(wallPerFrame)
 	}
+	encodedPerFrame := int64(0)
+	if len(sizes) > 0 && len(sizes) < len(frames) {
+		encodedPerFrame = encodeNS / int64(len(sizes))
+	}
 	return referenceReport{
 		Encoder:           "libvpx-vp8",
 		Mode:              deadlineName,
 		OutputBitrateKbps: outputBitrate,
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        encodePerFrame,
+		EncodedNSPerFrame: encodedPerFrame,
 		EncodeFPS:         1e9 / float64(encodePerFrame),
 		MacroblocksPerSec: macroblocksPerFrame * 1e9 / float64(encodePerFrame),
 		PSNR:              psnr,
@@ -419,6 +451,12 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 	if benchCodec(cfg) == codecVP9 {
 		return runLibvpxVP9DecodeBenchmark(cfg, ivf, deadlineName, frames)
 	}
+	threads := effectiveBenchThreads(cfg)
+	if threads > 1 {
+		if vpxdecBin := findSiblingVpxdec(cfg.LibvpxOracle); vpxdecBin != "" {
+			return runLibvpxVpxdecDecodeBenchmark(cfg, vpxdecBin, codecVP8, ivf, deadlineName, frames)
+		}
+	}
 	tempDir, err := os.MkdirTemp("", "govpx-decode-bench-*")
 	if err != nil {
 		return decodeReferenceReport{}, err
@@ -433,10 +471,12 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 	// Warmup invocation primes the file cache and dyld so the measured run
 	// reflects steady-state subprocess overhead. We discard its output and
 	// timing.
-	warm := exec.Command(cfg.LibvpxOracle, "decode-bench", path)
-	warm.Stdout = nil
-	warm.Stderr = nil
-	_ = warm.Run()
+	if !cfg.libvpxWarmed {
+		warm := exec.Command(cfg.LibvpxOracle, "decode-bench", path)
+		warm.Stdout = nil
+		warm.Stderr = nil
+		_ = warm.Run()
+	}
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -508,11 +548,29 @@ func runLibvpxDecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, 
 		WallNSPerFrame:       wallPerFrame,
 		WallDecodeFPS:        wallFPS,
 		SubprocessOverheadNS: overheadNS,
+		ParityFlags:          []string{"-t", "1"},
 	}, nil
 }
 
+func findSiblingVpxdec(oraclePath string) string {
+	if oraclePath != "" {
+		candidate := filepath.Join(filepath.Dir(oraclePath), "vpxdec")
+		if isExecutable(candidate) {
+			return candidate
+		}
+	}
+	if path, err := exec.LookPath("vpxdec"); err == nil {
+		return path
+	}
+	return ""
+}
+
 func runLibvpxVP9DecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
-	tempDir, err := os.MkdirTemp("", "govpx-vp9-decode-bench-*")
+	return runLibvpxVpxdecDecodeBenchmark(cfg, cfg.LibvpxOracle, codecVP9, ivf, deadlineName, frames)
+}
+
+func runLibvpxVpxdecDecodeBenchmark(cfg benchConfig, bin string, codec string, ivf []byte, deadlineName string, frames int) (decodeReferenceReport, error) {
+	tempDir, err := os.MkdirTemp("", "govpx-vpxdec-bench-*")
 	if err != nil {
 		return decodeReferenceReport{}, err
 	}
@@ -523,63 +581,125 @@ func runLibvpxVP9DecodeBenchmark(cfg benchConfig, ivf []byte, deadlineName strin
 		return decodeReferenceReport{}, err
 	}
 
-	policy := vp9DecodeThreadPolicyForBench(cfg)
-	args := []string{"--codec=vp9", "--noblit", "--summary"}
-	if policy.Threads > 0 {
-		args = append(args, "-t", strconv.Itoa(policy.Threads))
-	}
-	if policy.RowMT {
-		args = append(args, "--row-mt=1")
+	args := []string{"--codec=" + codec, "--noblit", "--summary"}
+	if codec == codecVP9 {
+		policy := vp9DecodeThreadPolicyForBench(cfg)
+		if policy.Threads > 0 {
+			args = append(args, "-t", strconv.Itoa(policy.Threads))
+		}
+		if policy.RowMT {
+			args = append(args, "--row-mt=1")
+		} else {
+			args = append(args, "--row-mt=0")
+		}
+		if policy.LoopFilterOpt {
+			args = append(args, "--lpf-opt=1")
+		}
 	} else {
-		args = append(args, "--row-mt=0")
-	}
-	if policy.LoopFilterOpt {
-		args = append(args, "--lpf-opt=1")
+		threads := effectiveBenchThreads(cfg)
+		if threads > 0 {
+			args = append(args, "-t", strconv.Itoa(threads))
+		}
 	}
 	parityFlags := append([]string(nil), args...)
 	args = append(args, path)
-	warm := exec.Command(cfg.LibvpxOracle, args...)
-	warm.Stdout = nil
-	warm.Stderr = nil
-	_ = warm.Run()
+	if !cfg.libvpxWarmed {
+		warm := exec.Command(bin, args...)
+		warm.Stdout = nil
+		warm.Stderr = nil
+		_ = warm.Run()
+	}
 
 	var stderr bytes.Buffer
-	cmd := exec.Command(cfg.LibvpxOracle, args...)
+	cmd := exec.Command(bin, args...)
 	cmd.Stderr = &stderr
 	start := time.Now()
 	err = cmd.Run()
 	elapsed := time.Since(start)
 	if err != nil {
-		return decodeReferenceReport{}, fmt.Errorf("libvpx vpxdec-vp9 failed: %w\nstderr:\n%s", err, stderr.Bytes())
+		return decodeReferenceReport{}, fmt.Errorf("libvpx vpxdec (%s) failed: %w\nstderr:\n%s", codec, err, stderr.Bytes())
 	}
 	if frames <= 0 {
-		return decodeReferenceReport{}, errors.New("libvpx vpxdec-vp9 decoded zero frames")
+		return decodeReferenceReport{}, fmt.Errorf("libvpx vpxdec (%s) decoded zero frames", codec)
 	}
 	wallNS := elapsed.Nanoseconds()
-	nsPerFrame := wallNS / int64(frames)
-	if nsPerFrame <= 0 {
-		nsPerFrame = 1
+	wallPerFrame := wallNS / int64(frames)
+	if wallPerFrame <= 0 {
+		wallPerFrame = 1
 		wallNS = int64(frames)
 	}
+	decodeNS := wallNS
+	decodedFrames := frames
+	timingSource := "vpxdec-wall"
+	if parsed, ok := parseVpxdecSummary(stderr.Bytes()); ok && parsed.totalNS > 0 {
+		decodeNS = parsed.totalNS
+		timingSource = "vpxdec-summary"
+		if parsed.showed > 0 {
+			decodedFrames = parsed.showed
+		} else if parsed.decoded > 0 {
+			decodedFrames = parsed.decoded
+		}
+	}
+	nsPerFrame := decodeNS / int64(frames)
+	if nsPerFrame <= 0 {
+		nsPerFrame = wallPerFrame
+		decodeNS = wallNS
+		timingSource = "vpxdec-wall"
+	}
+	overheadNS := max(wallNS-decodeNS, 0)
 	macroblocksPerFrame := benchmarkMacroblocks(cfg.Width, cfg.Height)
 	return decodeReferenceReport{
-		Decoder:              "libvpx-vp9",
+		Decoder:              "libvpx-" + codec,
 		Mode:                 deadlineName,
-		DecodedFrames:        frames,
+		DecodedFrames:        decodedFrames,
 		NSPerFrame:           nsPerFrame,
 		DecodeFPS:            1e9 / float64(nsPerFrame),
 		MacroblocksPerSec:    macroblocksPerFrame * 1e9 / float64(nsPerFrame),
-		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), wallNS),
+		CodedMegabytesPerSec: codedMegabytesPerSecond(len(ivf), decodeNS),
 		LatencyNS: latencyReport{
 			P50: nsPerFrame,
 			P95: nsPerFrame,
 			P99: nsPerFrame,
 		},
-		TimingSource:   "vpxdec-wall",
-		WallNSPerFrame: nsPerFrame,
-		WallDecodeFPS:  1e9 / float64(nsPerFrame),
-		ParityFlags:    parityFlags,
+		TimingSource:         timingSource,
+		WallNSPerFrame:       wallPerFrame,
+		WallDecodeFPS:        1e9 / float64(wallPerFrame),
+		SubprocessOverheadNS: overheadNS,
+		ParityFlags:          parityFlags,
 	}, nil
+}
+
+type vpxdecSummary struct {
+	decoded int
+	showed  int
+	totalNS int64
+}
+
+// vpxdec --summary prints a line on stderr like:
+//
+//	48 decoded frames/48 showed frames in 42150 us (1138.79 fps)
+//
+// where the microsecond count is vpxdec's internal dx_time (vpx_codec_decode +
+// vpx_codec_get_frame), excluding subprocess startup and IVF file I/O.
+var vpxdecSummaryRE = regexp.MustCompile(`(\d+)\s+decoded frames/(\d+)\s+showed frames in\s+(\d+)\s+us`)
+
+func parseVpxdecSummary(stderr []byte) (vpxdecSummary, bool) {
+	matches := vpxdecSummaryRE.FindAllSubmatch(stderr, -1)
+	if len(matches) == 0 {
+		return vpxdecSummary{}, false
+	}
+	last := matches[len(matches)-1]
+	decoded, _ := strconv.Atoi(string(last[1]))
+	showed, _ := strconv.Atoi(string(last[2]))
+	us, _ := strconv.ParseInt(string(last[3]), 10, 64)
+	if decoded <= 0 || us <= 0 {
+		return vpxdecSummary{}, false
+	}
+	return vpxdecSummary{
+		decoded: decoded,
+		showed:  showed,
+		totalNS: us * int64(time.Microsecond),
+	}, true
 }
 
 type oracleBenchTiming struct {

@@ -37,24 +37,28 @@ encode/decode.
 ## Performance
 
 Measured on Apple M4 Max with Go 1.27.4 (`GOEXPERIMENT=simd`, checked-in PGO)
-against pinned `libvpx v1.16.0` (C + NEON assembly). All encode rows pass
-`-quality-gate` (PSNR within 2 dB, SSIM within 0.03 of `libvpx`):
+against pinned `libvpx v1.16.0` (C + NEON assembly) using `cmd/govpx-bench`
+(`-content panning`, `-drop-frame=0`, pinned VP8 `-cpu-used -8`, `-runs 3`
+alternating execution order, independent medians, codec-internal timers
+`vpxenc-stats` / `oracle-bench` / `vpxdec-summary`, and 8×8 windowed SSIM).
+Ratio is `govpx / libvpx` core time (`< 1.00×` = govpx faster):
 
 | Workload | govpx | libvpx (C + asm) | Ratio (core) | Notes |
 | --- | ---: | ---: | ---: | --- |
-| **Quick suite geomean** (`-suite quick -suite-runs 3`) | — | — | **0.83×** | 1.21× encode fps |
-| — VP8 realtime 720p, 1T (`rt-720p-2m-30f`) | **3.49 ms** (286.9 fps) | 4.93 ms (202.7 fps) | **0.71×** | PSNR +0.76 dB, SSIM +0.024 |
-| — VP8 good 1080p, 1T (`good-1080p-8m-30f`) | **9.65 ms** (103.6 fps) | 8.00 ms (125.0 fps) | **1.15×** | 0.92× rate, SSIM +0.005 |
-| VP8 realtime 720p, 4T (`-cpu-used -8`) | **0.98 ms** (1,019 fps) | 1.26 ms (793 fps) | **0.78×** | 0.20 allocs/frame |
-| VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **2.51 ms** (399.1 fps) | 2.51 ms (399.1 fps) | **1.00×** | 0.58× wall, 1.00× bytes |
-| VP9 good 720p, 1T (`-cpu-used 4`) | **35.28 ms** (28.3 fps) | 42.85 ms (23.3 fps) | **0.82×** | SSIM −0.004, 0.91× inter bytes |
-| VP9 realtime 720p, 1T (`-cpu-used 8`) | **5.75 ms** (174.0 fps) | 6.45 ms (155.0 fps) | **0.89×** | 0.71× wall, 1.00× bytes |
-| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **5.11 ms** (195.6 fps) | 7.54 ms (132.7 fps) | **0.68×** | 1.47× faster, 1.00× bytes |
-| VP8 decode 720p, 1T | **2.14 ms** (467.6 fps) | 2.28 ms (437.9 fps) | **0.94×** | 1.07× faster, 0.00 allocs/frame |
-| VP9 decode 720p, 1T (287 frames) | **1.14 ms** (878.8 fps) | 0.91 ms (1,095 fps) | **1.25×** | p50 1.10 ms, 0.00 allocs/frame |
+| **Standard suite geomean** (`-suite standard -suite-runs 3`) | — | — | **0.75×** | 1.33× encode fps, 0/0 drops |
+| — VP8 realtime 720p, 1T (`rt-720p-2m-60f`) | **7.09 ms** (141.0 fps) | 7.37 ms (135.7 fps) | **0.96×** | PSNR −0.13 dB, SSIM −0.0036 |
+| — VP8 good 1080p, 1T (`good-1080p-8m-60f`) | **8.20 ms** (121.9 fps) | 13.98 ms (71.5 fps) | **0.59×** | 0.58× rate, PSNR +1.91 dB |
+| VP8 realtime 720p, 4T (`-cpu-used -8`) | **1.96 ms** (511.5 fps) | 2.36 ms (424.5 fps) | **0.83×** | PSNR +0.24 dB, 0.07 allocs/frame |
+| VP8 realtime 720p, 1T (`-cpu-used -8`, denoise off) | **4.29 ms** (233.1 fps) | 4.17 ms (239.9 fps) | **1.03×** | PSNR +1.44 dB, 0.91× bytes |
+| VP9 good 720p, 1T (`-cpu-used 4`) | **17.45 ms** (57.3 fps) | 36.64 ms (27.3 fps) | **0.48×** | PSNR −0.28 dB, SSIM −0.0001 |
+| VP9 realtime 720p, 1T (`-cpu-used 8`) | **7.73 ms** (129.3 fps) | 7.30 ms (137.0 fps) | **1.06×** | PSNR −4.32 dB vs libvpx on panning |
+| VP9 realtime 720p, 4T `-row-mt` (`-cpu-used 8`, 4 Mbps) | **2.79 ms** (359.0 fps) | 2.34 ms (427.4 fps) | **1.19×** | PSNR −3.93 dB, 0.57 allocs/frame |
+| VP8 decode 720p, 1T (120 frames) | **1.77 ms** (565.1 fps) | 1.30 ms (769.9 fps) | **1.36×** | p50 1.81 ms (`oracle-bench`) |
+| VP9 decode 720p, 1T (120 frames) | **1.19 ms** (843.0 fps) | 0.85 ms (1,179.6 fps) | **1.40×** | p50 1.18 ms (`vpxdec-summary`) |
 
-Performance depends on CPU, resolution, bitrate, and mode — reproduce for your
-workload with `cmd/govpx-bench` (see [Benchmarking](#benchmarking)).
+Performance depends on CPU, content, resolution, bitrate, and mode — reproduce
+on synthetic patterns or your own `.y4m` / `.ivf` files with `cmd/govpx-bench`
+(see [Benchmarking](#benchmarking)).
 
 ## Install
 
@@ -172,15 +176,20 @@ See [examples/webrtc-vp8](examples/webrtc-vp8) and
 ## Benchmarking
 
 ```sh
-scripts/go.sh run ./cmd/govpx-bench -suite quick -suite-runs 3 -quality-gate
-scripts/go.sh run ./cmd/govpx-bench -codec vp9 -mode realtime -width 1280 -height 720 -frames 60 -bitrate 2500 -cpu-used 8 -threads 4 -row-mt -quality-gate
-scripts/go.sh run ./cmd/govpx-bench -decode -codec vp9 -width 1280 -height 720 -frames 300 -bitrate 2500 -threads 1
+scripts/go.sh run ./cmd/govpx-bench -suite standard -suite-runs 3 -quality-gate
+scripts/go.sh run ./cmd/govpx-bench -codec vp9 -mode realtime -content panning -width 1280 -height 720 -frames 60 -bitrate 4000 -cpu-used 8 -threads 4 -row-mt -drop-frame=0 -runs 3
+scripts/go.sh run ./cmd/govpx-bench -decode -codec vp9 -content panning -width 1280 -height 720 -frames 120 -bitrate 2500 -threads 1 -runs 3
+scripts/go.sh run ./cmd/govpx-bench -input clip.y4m -mode realtime -bitrate 2500 -cpu-used -8 -drop-frame=0 -runs 3
 ```
 
 By default, `govpx-bench` auto-locates `internal/coracle/build/vpxenc` or
 `vpxenc` on `PATH` (pass `-auto-libvpx=false` for govpx-only runs, or
-`-build-libvpx=true` to build the pinned libvpx tools). Optional VMAF/PSNR/SSIM
-plotting is available via `-plot` when `ffmpeg` includes `libvpx` and `libvmaf`.
+`-build-libvpx=true` to build the pinned libvpx tools). Pass `-content`
+(`panning`, `checker`, or `ramp`) for synthetic sources or `-input` for a real
+`.y4m` (encode) or `.ivf` (decode) file, `-runs N` for alternating-order
+median repeats, and `-drop-frame=0` for equal-work comparisons. Optional
+VMAF/PSNR/SSIM plotting is available via `-plot` when `ffmpeg` includes
+`libvpx` and `libvmaf`.
 
 `cmd/govpx-bench/default.pgo` is checked in for `-pgo=auto`. Refresh it after
 hot-path edits:

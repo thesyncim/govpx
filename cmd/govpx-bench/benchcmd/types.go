@@ -20,7 +20,13 @@ type benchConfig struct {
 	RowMT                bool
 	NoiseSensitivity     int
 	NoiseSensitivitySet  bool
+	DropFrame            int
+	DropFrameSet         bool
 	CpuUsed              int
+	CpuUsedSet           bool
+	Runs                 int
+	Content              string
+	InputPath            string
 	PhaseTiming          bool
 	CPUProfile           string
 	LibvpxVpxenc         string
@@ -29,6 +35,12 @@ type benchConfig struct {
 	LibvpxOracle         string
 	LibvpxArgs           []string
 	ReferenceFirst       bool
+
+	// Internal reuse fields for multi-run / suite execution so frames and
+	// temp raw files are prepared once per case instead of once per repeat.
+	preloadedFrames   []govpx.Image
+	prewrittenRawPath string
+	libvpxWarmed      bool
 
 	// QualityGate is consulted by runBenchmark/Main after the encode pass
 	// completes. When Enabled is true the bench exits non-zero on regression.
@@ -60,6 +72,10 @@ type benchReport struct {
 	OutputBitrateKbps float64                  `json:"output_bitrate_kbps"`
 	BitrateErrorPct   float64                  `json:"bitrate_error_pct"`
 	NSPerFrame        int64                    `json:"ns_per_frame"`
+	EncodedNSPerFrame int64                    `json:"encoded_ns_per_frame,omitempty"`
+	MinNSPerFrame     int64                    `json:"min_ns_per_frame,omitempty"`
+	MaxNSPerFrame     int64                    `json:"max_ns_per_frame,omitempty"`
+	Runs              int                      `json:"runs,omitempty"`
 	EncodeFPS         float64                  `json:"encode_fps"`
 	MacroblocksPerSec float64                  `json:"macroblocks_per_second"`
 	AllocsPerFrame    float64                  `json:"allocs_per_frame"`
@@ -79,6 +95,7 @@ type benchReport struct {
 	Reference         *referenceReport         `json:"reference,omitempty"`
 	ReferenceFirst    bool                     `json:"reference_first,omitempty"`
 	Comparison        *comparisonReport        `json:"comparison_vs_reference,omitempty"`
+	FairnessWarnings  []string                 `json:"fairness_warnings,omitempty"`
 	Options           benchConfigSummary       `json:"options"`
 }
 
@@ -113,6 +130,9 @@ type referenceReport struct {
 	OutputBitrateKbps    float64       `json:"output_bitrate_kbps"`
 	BitrateErrorPct      float64       `json:"bitrate_error_pct"`
 	NSPerFrame           int64         `json:"ns_per_frame"`
+	EncodedNSPerFrame    int64         `json:"encoded_ns_per_frame,omitempty"`
+	MinNSPerFrame        int64         `json:"min_ns_per_frame,omitempty"`
+	MaxNSPerFrame        int64         `json:"max_ns_per_frame,omitempty"`
 	EncodeFPS            float64       `json:"encode_fps"`
 	MacroblocksPerSec    float64       `json:"macroblocks_per_second"`
 	PSNR                 float64       `json:"psnr"`
@@ -241,6 +261,9 @@ type decodeBenchReport struct {
 	InputBytes               int                     `json:"input_bytes"`
 	DecodedFrames            int                     `json:"decoded_frames"`
 	NSPerFrame               int64                   `json:"ns_per_frame"`
+	MinNSPerFrame            int64                   `json:"min_ns_per_frame,omitempty"`
+	MaxNSPerFrame            int64                   `json:"max_ns_per_frame,omitempty"`
+	Runs                     int                     `json:"runs,omitempty"`
 	DecodeFPS                float64                 `json:"decode_fps"`
 	MacroblocksPerSec        float64                 `json:"macroblocks_per_second"`
 	CodedMegabytesPerSec     float64                 `json:"coded_megabytes_per_second"`
@@ -249,6 +272,7 @@ type decodeBenchReport struct {
 	Reference                *decodeReferenceReport  `json:"reference,omitempty"`
 	Comparison               *decodeComparisonReport `json:"comparison_vs_reference,omitempty"`
 	RelativeSpeedVsReference float64                 `json:"relative_speed_vs_reference,omitempty"`
+	FairnessWarnings         []string                `json:"fairness_warnings,omitempty"`
 	Options                  benchConfigSummary      `json:"options"`
 }
 
@@ -264,6 +288,8 @@ type decodeReferenceReport struct {
 	Mode                 string        `json:"mode"`
 	DecodedFrames        int           `json:"decoded_frames"`
 	NSPerFrame           int64         `json:"ns_per_frame"`
+	MinNSPerFrame        int64         `json:"min_ns_per_frame,omitempty"`
+	MaxNSPerFrame        int64         `json:"max_ns_per_frame,omitempty"`
 	DecodeFPS            float64       `json:"decode_fps"`
 	MacroblocksPerSec    float64       `json:"macroblocks_per_second"`
 	CodedMegabytesPerSec float64       `json:"coded_megabytes_per_second"`

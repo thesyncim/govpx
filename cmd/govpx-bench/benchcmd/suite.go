@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 )
 
 type encodeSuiteCase struct {
@@ -15,6 +14,8 @@ type encodeSuiteCase struct {
 	fps         int
 	bitrateKbps int
 	mode        string
+	content     string
+	noDrop      bool
 }
 
 func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, error) {
@@ -35,10 +36,14 @@ func runEncodeSuite(base benchConfig, suiteName string, runs int) (suiteReport, 
 	if err != nil {
 		return suiteReport{}, err
 	}
+	selector := "median (alternating order)"
+	if runs == 1 {
+		selector = "single-run"
+	}
 	report := suiteReport{
 		Name:         suiteName,
 		Runs:         runs,
-		Selector:     "median govpx ns/frame",
+		Selector:     selector,
 		LibvpxVpxenc: libvpxPath,
 		PhaseTiming:  base.PhaseTiming,
 		QualitySkip:  base.SkipQuality,
@@ -75,41 +80,45 @@ func suiteLibvpxReferencePath(cfg benchConfig) string {
 }
 
 func runEncodeSuiteCase(base benchConfig, tc encodeSuiteCase, runs int) (benchReport, error) {
-	results := make([]benchReport, 0, runs)
-	for range runs {
-		cfg := base
-		cfg.Width = tc.width
-		cfg.Height = tc.height
-		cfg.Frames = tc.frames
-		cfg.FPS = tc.fps
-		cfg.BitrateKbps = tc.bitrateKbps
-		cfg.Mode = tc.mode
-		cfg.Decode = false
-		var (
-			result benchReport
-			err    error
-		)
-		if benchCodec(cfg) == codecVP9 {
-			result, err = runVP9Benchmark(cfg)
-		} else {
-			result, err = runBenchmark(cfg)
-		}
-		if err != nil {
-			return benchReport{}, err
-		}
-		if result.Reference == nil || result.Comparison == nil {
-			return benchReport{}, errors.New("missing libvpx reference report")
-		}
-		results = append(results, result)
+	cfg := base
+	cfg.Width = tc.width
+	cfg.Height = tc.height
+	cfg.Frames = tc.frames
+	cfg.FPS = tc.fps
+	cfg.BitrateKbps = tc.bitrateKbps
+	cfg.Mode = tc.mode
+	cfg.Decode = false
+	if tc.content != "" && cfg.InputPath == "" && (cfg.Content == "" || cfg.Content == "ramp") {
+		cfg.Content = tc.content
 	}
-	sort.Slice(results, func(i int, j int) bool {
-		return results[i].NSPerFrame < results[j].NSPerFrame
-	})
-	return results[len(results)/2], nil
+	if tc.noDrop && !cfg.DropFrameSet {
+		cfg.DropFrameSet = true
+		cfg.DropFrame = 0
+	}
+	// Pin VP8 realtime speed when -cpu-used was not explicitly set by the
+	// caller, avoiding libvpx's non-deterministic adaptive CPU-speed ramp-up.
+	if benchCodec(cfg) == codecVP8 && cfg.Mode == "realtime" && !cfg.CpuUsedSet && cfg.CpuUsed > 0 {
+		cfg.CpuUsed = -cfg.CpuUsed
+	}
+	result, err := runRepeatedEncodeBenchmark(cfg, runs)
+	if err != nil {
+		return benchReport{}, err
+	}
+	if result.Reference == nil || result.Comparison == nil {
+		return benchReport{}, errors.New("missing libvpx reference report")
+	}
+	return result, nil
 }
 
 func encodeSuiteCases(name string) ([]encodeSuiteCase, error) {
 	switch name {
+	case "standard":
+		// Equal-work, pinned-speed suite on panning content with
+		// frame dropping disabled so both encoders encode 100% of frames.
+		return []encodeSuiteCase{
+			{name: "rt-720p-2m-60f", width: 1280, height: 720, frames: 60, fps: 30, bitrateKbps: 2000, mode: "realtime", content: "panning", noDrop: true},
+			{name: "good-1080p-8m-60f", width: 1920, height: 1080, frames: 60, fps: 30, bitrateKbps: 8000, mode: "good", content: "panning", noDrop: true},
+		}, nil
 	case "quick":
 		return []encodeSuiteCase{
 			{name: "rt-720p-2m-30f", width: 1280, height: 720, frames: 30, fps: 30, bitrateKbps: 2000, mode: "realtime"},
@@ -152,6 +161,6 @@ func encodeSuiteCases(name string) ([]encodeSuiteCase, error) {
 			{name: "good-2160p-15000k-30f", width: 3840, height: 2160, frames: 30, fps: 30, bitrateKbps: 15000, mode: "good"},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported suite %q (want quick, vp8, webrtc, vod, or stress)", name)
+		return nil, fmt.Errorf("unsupported suite %q (want standard, quick, vp8, webrtc, vod, or stress)", name)
 	}
 }

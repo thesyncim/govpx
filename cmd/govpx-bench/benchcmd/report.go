@@ -27,6 +27,22 @@ func formatEncodeReport(r benchReport) string {
 		fmt.Fprintln(tw, "------\t-----\t------\t-----")
 		fmt.Fprintf(tw, "ns/frame\t%s\t%s\t%s\n",
 			formatDuration(r.NSPerFrame), formatDuration(ref.NSPerFrame), formatRatio(cmp.NSPerFrameRatio, "x"))
+		if r.EncodedNSPerFrame > 0 || ref.EncodedNSPerFrame > 0 {
+			gEnc := r.EncodedNSPerFrame
+			if gEnc == 0 {
+				gEnc = r.NSPerFrame
+			}
+			rEnc := ref.EncodedNSPerFrame
+			if rEnc == 0 {
+				rEnc = ref.NSPerFrame
+			}
+			encRatio := 0.0
+			if rEnc > 0 {
+				encRatio = float64(gEnc) / float64(rEnc)
+			}
+			fmt.Fprintf(tw, "ns/encoded\t%s\t%s\t%s\n",
+				formatDuration(gEnc), formatDuration(rEnc), formatRatio(encRatio, "x"))
+		}
 		fmt.Fprintf(tw, "encode fps\t%s\t%s\t%s\n",
 			formatFloat(r.EncodeFPS, 1), formatFloat(ref.EncodeFPS, 1), formatRatio(cmp.EncodeFPSRatio, "x"))
 		fmt.Fprintf(tw, "MB/s (mblocks)\t%s\t%s\t-\n",
@@ -95,6 +111,18 @@ func formatEncodeReport(r benchReport) string {
 	}
 	if r.AllocsPerFrame > 0 {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
+	}
+	if r.Runs > 1 {
+		fmt.Fprintf(&b, "repeats         runs=%d  govpx=[%s..%s]",
+			r.Runs, formatDuration(r.MinNSPerFrame), formatDuration(r.MaxNSPerFrame))
+		if r.Reference != nil && r.Reference.MaxNSPerFrame > 0 {
+			fmt.Fprintf(&b, "  libvpx=[%s..%s]",
+				formatDuration(r.Reference.MinNSPerFrame), formatDuration(r.Reference.MaxNSPerFrame))
+		}
+		fmt.Fprintln(&b)
+	}
+	for _, w := range r.FairnessWarnings {
+		fmt.Fprintf(&b, "fairness warn   %s\n", w)
 	}
 	return b.String()
 }
@@ -417,6 +445,12 @@ func formatSuiteReport(r suiteReport) string {
 	}
 	tw.Flush()
 
+	for _, c := range r.Cases {
+		for _, w := range c.Report.FairnessWarnings {
+			fmt.Fprintf(&b, "fairness warn   [%s] %s\n", c.Name, w)
+		}
+	}
+
 	if r.PhaseTiming {
 		fmt.Fprintln(&b, "\ngovpx phase/frame")
 		tw = tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
@@ -544,6 +578,18 @@ func formatDecodeReport(r decodeBenchReport) string {
 	}
 	if r.AllocsPerFrame > 0 {
 		fmt.Fprintf(&b, "allocs/frame    %.2f\n", r.AllocsPerFrame)
+	}
+	if r.Runs > 1 {
+		fmt.Fprintf(&b, "repeats         runs=%d  govpx=[%s..%s]",
+			r.Runs, formatDuration(r.MinNSPerFrame), formatDuration(r.MaxNSPerFrame))
+		if r.Reference != nil && r.Reference.MaxNSPerFrame > 0 {
+			fmt.Fprintf(&b, "  libvpx=[%s..%s]",
+				formatDuration(r.Reference.MinNSPerFrame), formatDuration(r.Reference.MaxNSPerFrame))
+		}
+		fmt.Fprintln(&b)
+	}
+	for _, w := range r.FairnessWarnings {
+		fmt.Fprintf(&b, "fairness warn   %s\n", w)
 	}
 	return b.String()
 }

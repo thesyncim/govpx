@@ -42,6 +42,8 @@ func Main() {
 		report, err = runEncodeSuite(cfg, opts.suite, opts.suiteRuns)
 	case cfg.Decode:
 		report, err = runDecodeBenchmark(cfg)
+	case cfg.Runs > 1:
+		report, err = runRepeatedEncodeBenchmark(cfg, cfg.Runs)
 	case benchCodec(cfg) == codecVP9:
 		report, err = runVP9Benchmark(cfg)
 	default:

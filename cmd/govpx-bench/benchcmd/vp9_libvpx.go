@@ -1,6 +1,7 @@
 package benchcmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"errors"
@@ -26,20 +27,28 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 	}
 	defer os.RemoveAll(tempDir)
 
-	rawPath := tempDir + string(os.PathSeparator) + "input.i420"
+	rawPath := cfg.prewrittenRawPath
 	outPath := tempDir + string(os.PathSeparator) + "output.ivf"
-	raw, err := os.Create(rawPath)
-	if err != nil {
-		return referenceReport{}, err
-	}
-	for _, frame := range frames {
-		if err := writeI420Frame(raw, frame); err != nil {
+	if rawPath == "" {
+		rawPath = tempDir + string(os.PathSeparator) + "input.i420"
+		raw, err := os.Create(rawPath)
+		if err != nil {
+			return referenceReport{}, err
+		}
+		bw := bufio.NewWriterSize(raw, 512*1024)
+		for _, frame := range frames {
+			if err := writeI420FrameBuf(bw, frame); err != nil {
+				raw.Close()
+				return referenceReport{}, err
+			}
+		}
+		if err := bw.Flush(); err != nil {
 			raw.Close()
 			return referenceReport{}, err
 		}
-	}
-	if err := raw.Close(); err != nil {
-		return referenceReport{}, err
+		if err := raw.Close(); err != nil {
+			return referenceReport{}, err
+		}
 	}
 
 	vpxDeadlineFlag := "--rt"
@@ -48,22 +57,36 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 	}
 	parity := parityFor(cfg)
 	parityFlags := libvpxVP9ParityFlags(cfg, parity, vpxDeadlineFlag)
-	args := append([]string{
+	baseArgs := []string{
 		"--codec=vp9",
 		"--ivf",
 		"--i420",
 		fmt.Sprintf("--width=%d", cfg.Width),
 		fmt.Sprintf("--height=%d", cfg.Height),
 		fmt.Sprintf("--fps=%d/1", cfg.FPS),
-		fmt.Sprintf("--limit=%d", cfg.Frames),
-	}, parityFlags...)
-	args = append(args, cfg.LibvpxArgs...)
-	args = append(args, fmt.Sprintf("--output=%s", outPath), rawPath)
+	}
 
 	bin := vp9LibvpxEncoderPath(cfg)
 	if bin == "" {
 		return referenceReport{}, errors.New("libvpx vpxenc-vp9 reference not configured")
 	}
+	if !cfg.libvpxWarmed {
+		warmFrames := min(len(frames), 4)
+		if warmFrames > 0 {
+			warmArgs := append(append([]string{}, baseArgs...), fmt.Sprintf("--limit=%d", warmFrames))
+			warmArgs = append(warmArgs, parityFlags...)
+			warmArgs = append(warmArgs, cfg.LibvpxArgs...)
+			warmArgs = append(warmArgs, fmt.Sprintf("--output=%s", tempDir+string(os.PathSeparator)+"warm.ivf"), rawPath)
+			warm := exec.Command(bin, warmArgs...)
+			warm.Stdout = nil
+			warm.Stderr = nil
+			_ = warm.Run()
+		}
+	}
+	args := append(append([]string{}, baseArgs...), fmt.Sprintf("--limit=%d", cfg.Frames))
+	args = append(args, parityFlags...)
+	args = append(args, cfg.LibvpxArgs...)
+	args = append(args, fmt.Sprintf("--output=%s", outPath), rawPath)
 	var stderr bytes.Buffer
 	cmd := exec.Command(bin, args...)
 	cmd.Stderr = &stderr
@@ -148,12 +171,17 @@ func runLibvpxVP9Benchmark(cfg benchConfig, frames []govpx.Image, deadlineName s
 		encodeFPS = 1e9 / float64(encodePerFrame)
 		mbps = macroblocksPerFrame * 1e9 / float64(encodePerFrame)
 	}
+	encodedPerFrame := int64(0)
+	if len(framesInfo) > 0 && len(framesInfo) < len(frames) {
+		encodedPerFrame = encodeNS / int64(len(framesInfo))
+	}
 	return referenceReport{
 		Encoder:           "libvpx-vp9",
 		Mode:              deadlineName,
 		OutputBitrateKbps: outputBitrate,
 		BitrateErrorPct:   bitrateError,
 		NSPerFrame:        encodePerFrame,
+		EncodedNSPerFrame: encodedPerFrame,
 		EncodeFPS:         encodeFPS,
 		MacroblocksPerSec: mbps,
 		PSNR:              psnr,

@@ -50,14 +50,19 @@ func registerBenchFlags(fs *flag.FlagSet, cfg *benchConfig, opts *benchCLIOption
 	fs.IntVar(&cfg.BitrateKbps, "bitrate", 1200, "target bitrate in kbps")
 	fs.StringVar(&cfg.Mode, "mode", "realtime", "encoder mode: realtime or good")
 	fs.BoolVar(&cfg.Decode, "decode", false, "run decoder benchmark mode")
-	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: quick, vp8, webrtc, vod, or stress")
-	fs.IntVar(&opts.suiteRuns, "suite-runs", 1, "number of repeats per suite case; selects median govpx ns/frame")
+	fs.StringVar(&opts.suite, "suite", "", "run an encode comparison matrix instead of one case: standard, quick, vp8, webrtc, vod, or stress")
+	fs.IntVar(&opts.suiteRuns, "suite-runs", 1, "number of repeats per suite case; alternates order and selects independent medians")
+	fs.IntVar(&cfg.Runs, "runs", 1, "number of measured repeats for single encode/decode runs; alternates order and reports independent medians")
+	fs.StringVar(&cfg.Content, "content", "ramp", "synthetic source content: ramp, panning, or checker")
+	fs.StringVar(&cfg.InputPath, "input", "", "optional input file: .y4m for encode benchmarks or .ivf for decode benchmarks")
 	fs.BoolVar(&cfg.SkipQuality, "encode-only", false, "skip quality decode/PSNR/SSIM computation")
 	cfg.Threads = benchThreadsDefault
 	fs.Var(benchThreadsFlag{cfg: cfg}, "threads", "encoder thread count; default is VP9 realtime auto and 1 otherwise; 0 lets the encoder pick")
 	fs.BoolVar(&cfg.RowMT, "row-mt", false, "enable VP9 encoder row multithreading for govpx and libvpx")
 	fs.Var(benchNoiseSensitivityFlag{cfg: cfg}, "noise-sensitivity", "encoder noise sensitivity override, 0-6; default keeps realtime denoise, 0 enables VP9 tile-threaded no-denoise runs")
-	fs.IntVar(&cfg.CpuUsed, "cpu-used", 8, "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
+	fs.Var(benchDropFrameFlag{cfg: cfg}, "drop-frame", "CBR frame-drop watermark override (0-100); 0 disables frame dropping for equal-work comparisons")
+	cfg.CpuUsed = 8
+	fs.Var(benchCpuUsedFlag{cfg: cfg}, "cpu-used", "encoder CPU-used setting passed to govpx and optional libvpx comparison; negative realtime values pin libvpx Speed")
 	fs.BoolVar(&cfg.PhaseTiming, "phase-timing", false, "include opt-in govpx encoder phase timing in the report")
 	fs.StringVar(&cfg.LibvpxVpxenc, "libvpx-vpxenc", "", "optional libvpx vpxenc path for VP8 reference comparison")
 	fs.StringVar(&cfg.LibvpxVpxencVP9, "libvpx-vpxenc-vp9", "", "optional libvpx vpxenc-vp9 path for VP9 reference comparison")
@@ -121,6 +126,51 @@ func (f benchNoiseSensitivityFlag) Set(s string) error {
 	}
 	f.cfg.NoiseSensitivity = value
 	f.cfg.NoiseSensitivitySet = true
+	return nil
+}
+
+type benchDropFrameFlag struct {
+	cfg *benchConfig
+}
+
+func (f benchDropFrameFlag) String() string {
+	if f.cfg == nil || !f.cfg.DropFrameSet {
+		return "default"
+	}
+	return strconv.Itoa(f.cfg.DropFrame)
+}
+
+func (f benchDropFrameFlag) Set(s string) error {
+	value, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	if value < 0 || value > 100 {
+		return fmt.Errorf("drop-frame must be in [0,100]")
+	}
+	f.cfg.DropFrame = value
+	f.cfg.DropFrameSet = true
+	return nil
+}
+
+type benchCpuUsedFlag struct {
+	cfg *benchConfig
+}
+
+func (f benchCpuUsedFlag) String() string {
+	if f.cfg == nil {
+		return "8"
+	}
+	return strconv.Itoa(f.cfg.CpuUsed)
+}
+
+func (f benchCpuUsedFlag) Set(s string) error {
+	value, err := strconv.Atoi(s)
+	if err != nil {
+		return err
+	}
+	f.cfg.CpuUsed = value
+	f.cfg.CpuUsedSet = true
 	return nil
 }
 
@@ -301,6 +351,10 @@ func parityFor(cfg benchConfig) encoderParity {
 	}
 	if cfg.NoiseSensitivitySet {
 		p.NoiseSensitivity = cfg.NoiseSensitivity
+	}
+	if cfg.DropFrameSet {
+		p.DropFrameAllowed = cfg.DropFrame > 0
+		p.DropFrameWaterMark = cfg.DropFrame
 	}
 	return p
 }
