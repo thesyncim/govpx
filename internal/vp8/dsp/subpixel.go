@@ -22,6 +22,23 @@ func BilinearPredict8x8(src []byte, srcStride int, xoffset int, yoffset int, dst
 	bilinearPredict(src, srcStride, xoffset, yoffset, dst, dstStride, 8, 8)
 }
 
+func BilinearPredict8x8Pair(
+	src0 []byte, src0Stride int,
+	src1 []byte, src1Stride int,
+	xoffset int, yoffset int,
+	dst0 []byte, dst0Stride int,
+	dst1 []byte, dst1Stride int,
+) {
+	h := tables.BilinearFilters[xoffset]
+	v := tables.BilinearFilters[yoffset]
+	if pixel.FilterBilinear2DPair8x8(src0, src0Stride, src1, src1Stride, dst0, dst0Stride, dst1, dst1Stride,
+		uint8(h[0]), uint8(h[1]), uint8(v[0]), uint8(v[1])) {
+		return
+	}
+	BilinearPredict8x8(src0, src0Stride, xoffset, yoffset, dst0, dst0Stride)
+	BilinearPredict8x8(src1, src1Stride, xoffset, yoffset, dst1, dst1Stride)
+}
+
 func BilinearPredict16x16(src []byte, srcStride int, xoffset int, yoffset int, dst []byte, dstStride int) {
 	if bilinearPredict16x16Maybe(src, srcStride, xoffset, yoffset, dst, dstStride) {
 		return

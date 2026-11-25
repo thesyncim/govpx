@@ -48,7 +48,7 @@ func DecodeMacroblockTokens(br *boolcoder.Decoder, probs *tables.CoefficientProb
 		&above.Y1, &left.Y1, &above.U, &left.U, &above.V, &left.V,
 		&above.Y2, &left.Y2, &out.QCoeff, &out.EOB)
 
-	if dirtyMask != 0 || !is4x4 {
+	if dirtyMask != 0 {
 		dirtyMask |= macroblockTokensTrackedMask
 	}
 	out.dirtyMask = dirtyMask

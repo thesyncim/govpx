@@ -783,6 +783,113 @@ func (d *VP9Decoder) reconstructVP9InterPredictBlock(
 	if mi.RefFrame[1] > vp9dec.IntraFrame {
 		nrefs = 2
 	}
+	// Fast path for single-reference, unscaled, >=8x8 inter blocks (the 99% decode
+	// case): resolve the reference frame once instead of 3x per block and avoid
+	// 6 per-block integer divisions for dstRows/srcRows.
+	if nrefs == 1 && mi.SbType >= common.Block8x8 &&
+		!d.predictLumaOnly && !d.predictChromaOnly && d.predictChromaPlane == 0 {
+		refSlot, ok := vp9dec.InterReferenceSlot(hdr, mi.RefFrame[0])
+		if !ok {
+			return false
+		}
+		ref := d.vp9PredictRefFrame(refSlot)
+		if ref == nil || !ref.valid {
+			return false
+		}
+		if ref.img.Width == int(hdr.Width) && ref.img.Height == int(hdr.Height) {
+			mv := mi.Mv[0]
+			mvRow := int(mv.Row)
+			mvCol := int(mv.Col)
+			for plane := range vp9dec.MaxMbPlane {
+				pd := &d.planes[plane]
+				planeBsize := vp9dec.GetPlaneBlockSize(bsize, pd)
+				if planeBsize >= common.BlockSizes {
+					d.markVP9Unsupported()
+					return true
+				}
+				dst, dstStride := d.vp9OutputPlane(plane)
+				if dstStride <= 0 || len(dst) == 0 {
+					return false
+				}
+				subX := pd.SubsamplingX
+				subY := pd.SubsamplingY
+				x0 := (miCol * common.MiSize) >> subX
+				y0 := (miRow * common.MiSize) >> subY
+				if x0 >= dstStride || (y0+1)*dstStride > len(dst) {
+					continue
+				}
+				bw := int(common.Num4x4BlocksWideLookup[planeBsize]) * 4
+				bh := int(common.Num4x4BlocksHighLookup[planeBsize]) * 4
+				if x0+bw > dstStride || (y0+bh)*dstStride > len(dst) {
+					d.markVP9Unsupported()
+					return true
+				}
+				src, srcStride := vp9ReferencePlane(ref, plane)
+				if srcStride <= 0 || len(src) == 0 {
+					return false
+				}
+				if x0 >= srcStride || (y0+1)*srcStride > len(src) {
+					continue
+				}
+				srcWidth := (ref.img.Width + (1 << subX) - 1) >> subX
+				srcHeight := (ref.img.Height + (1 << subY) - 1) >> subY
+				if srcWidth <= 0 || srcHeight <= 0 {
+					return false
+				}
+				if (mvRow&((8<<subY)-1)) == 0 && (mvCol&((8<<subX)-1)) == 0 {
+					sx := x0 + (mvCol >> (3 + subX))
+					sy := y0 + (mvRow >> (3 + subY))
+					if sx >= 0 && sy >= 0 && sx+bw <= srcWidth && sy+bh <= srcHeight {
+						pixel.CopyBlock(src[sy*srcStride+sx:], srcStride,
+							dst[y0*dstStride+x0:], dstStride, bw, bh)
+						continue
+					}
+					srcFull, srcOrigin, srcBorderX, srcBorderY := vp9ReferencePlaneBorder(ref, plane)
+					if len(srcFull) > 0 &&
+						sx >= -srcBorderX && sy >= -srcBorderY &&
+						sx+bw <= srcWidth+srcBorderX && sy+bh <= srcHeight+srcBorderY {
+						srcOff := srcOrigin + sy*srcStride + sx
+						if srcOff >= 0 && srcOff+(bh-1)*srcStride+bw <= len(srcFull) {
+							pixel.CopyBlock(srcFull[srcOff:], srcStride,
+								dst[y0*dstStride+x0:], dstStride, bw, bh)
+							continue
+						}
+					}
+				}
+				srcFull, srcOrigin, srcBorderX, srcBorderY := vp9ReferencePlaneBorder(ref, plane)
+				params := vp9InterPredictPlaneParams{
+					hdr:        hdr,
+					pd:         pd,
+					mi:         mi,
+					dst:        dst,
+					src:        src,
+					srcFull:    srcFull,
+					bsize:      bsize,
+					miRow:      miRow,
+					miCol:      miCol,
+					srcBaseX:   x0,
+					srcBaseY:   y0,
+					dstBaseX:   x0,
+					dstBaseY:   y0,
+					bw:         bw,
+					bh:         bh,
+					dstStride:  dstStride,
+					dstRows:    len(dst) / dstStride,
+					srcStride:  srcStride,
+					srcRows:    len(src) / srcStride,
+					srcWidth:   srcWidth,
+					srcHeight:  srcHeight,
+					srcOrigin:  srcOrigin,
+					srcBorderX: srcBorderX,
+					srcBorderY: srcBorderY,
+				}
+				if !d.reconstructVP9InterPredictPlaneAt(&params, 0, 0, bw, bh, mv) {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	for plane := range vp9dec.MaxMbPlane {
 		// Encoder motion-search/distortion measurements only consult the
 		// luma plane; skip U/V to avoid two extra convolutions per
@@ -1536,6 +1643,21 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 
 		// Hoisted per-plane geometry for the inter residue destination
 		// (vp9InterTxDst inlined: only x0/y0 vary per tx block).
+		if isInter != 0 && !d.unsupportedReconstruct {
+			interPlane, interStride := d.vp9OutputPlane(plane)
+			if interStride > 0 && len(interPlane) > 0 {
+				interBaseX := (miCol * common.MiSize) >> pd.SubsamplingX
+				interBaseY := (miRow * common.MiSize) >> pd.SubsamplingY
+				if interBaseX+((num4x4W+step-1)&^(step-1))*4 <= interStride &&
+					(interBaseY+((num4x4H+step-1)&^(step-1))*4)*interStride <= len(interPlane) {
+					eobTotal += d.readVP9InterResiduePlane(&rs, pd, planeType, txSize,
+						dequant, planeScan, coefCounts, num4x4W, num4x4H, step,
+						aboveBase, leftBase, interPlane, interStride,
+						interBaseX, interBaseY, hdr.Quant.Lossless)
+					continue
+				}
+			}
+		}
 		interPlaneOK := false
 		var interPlane []byte
 		var interStride, interRows, interBaseX, interBaseY, interBS int
@@ -1548,20 +1670,6 @@ func (d *VP9Decoder) readVP9ResidueBlock(r *bitstream.Reader,
 				interBaseY = (miRow * common.MiSize) >> pd.SubsamplingY
 				interBS = 4 << uint(txSize)
 			}
-		}
-
-		// Inter blocks take a specialized loop: the scan order and tx
-		// type are plane constants and the residue destination window
-		// is validated once, so the per-block work reduces to context
-		// lookup + token decode + inverse transform.
-		if isInter != 0 && !d.unsupportedReconstruct && interPlaneOK &&
-			interBaseX+((num4x4W+step-1)&^(step-1))*4 <= interStride &&
-			interBaseY+((num4x4H+step-1)&^(step-1))*4 <= interRows {
-			eobTotal += d.readVP9InterResiduePlane(&rs, pd, planeType, txSize,
-				dequant, planeScan, coefCounts, num4x4W, num4x4H, step,
-				aboveBase, leftBase, interPlane, interStride,
-				interBaseX, interBaseY, hdr.Quant.Lossless)
-			continue
 		}
 
 		for rr := 0; rr < num4x4H; rr += step {
@@ -1779,54 +1887,55 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
-			planeCtx := vp9dec.FastCoefPlaneCtx{
-				R:                rs,
-				TxSize:           common.Tx4x4,
-				PlaneType:        planeType,
-				IsInter:          1,
-				Dequant:          dequant,
-				Scan:             so.Scan,
-				Neighbors:        so.Neighbors,
-				ScanArr:          so.ScanArr,
-				ScanNeighborsArr: so.ScanNeighborsArr,
-				FC:               &d.fc.CoefProbs,
-				PackedModel:      &d.coefProbsPacked[common.Tx4x4][planeType][1],
-				DQCoeff:          &d.dqcoeff,
-				TokenCache:       &d.coefTokenCache,
+			ctxInit := false
+			var planeCtx vp9dec.FastCoefPlaneCtx
+			if num4x4H > 0 && num4x4W > 0 {
+				aCtx = aCtx[:num4x4W:num4x4W]
+				lCtx = lCtx[:num4x4H:num4x4H]
 			}
 			for rr := 0; rr < num4x4H; rr++ {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr]
 				for cc := 0; cc < num4x4W; cc++ {
-					initCtx := 0
-					if aCtx[cc] != 0 {
-						initCtx++
-					}
-					if lv != 0 {
-						initCtx++
-					}
+					initCtx := int(aCtx[cc]&1) + int(lv&1)
 					if count < 0 && pos <= fastLimit {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
 					}
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						split := (rng*prob + (256 - prob)) >> 8
-						bigsplit := uint64(split) << 56
-						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split)))
-							rng = split << shift
-							value <<= shift
-							count -= int32(shift)
+						s := 1 + (((rng - 1) * prob) >> 8)
+						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
+						nr := s ^ (((rng - s) ^ s) & m)
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = (value - uint64(s&m)<<56) << sh
+						rng = nr << sh
+						count -= int32(sh)
+						if m == 0 {
 							aCtx[cc] = 0
 							lv = 0
 							continue
 						}
-						nr := rng - split
-						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						if !ctxInit {
+							planeCtx = vp9dec.FastCoefPlaneCtx{
+								R:                rs,
+								TxSize:           common.Tx4x4,
+								PlaneType:        planeType,
+								IsInter:          1,
+								Dequant:          dequant,
+								Scan:             so.Scan,
+								Neighbors:        so.Neighbors,
+								ScanArr:          so.ScanArr,
+								ScanNeighborsArr: so.ScanNeighborsArr,
+								FC:               &d.fc.CoefProbs,
+								PackedModel:      &d.coefProbsPacked[common.Tx4x4][planeType][1],
+								DQCoeff:          &d.dqcoeff,
+								TokenCache:       &d.coefTokenCache,
+							}
+							ctxInit = true
+						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
+							&planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -1933,55 +2042,58 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
-			planeCtx := vp9dec.FastCoefPlaneCtx{
-				R:                rs,
-				TxSize:           common.Tx8x8,
-				PlaneType:        planeType,
-				IsInter:          1,
-				Dequant:          dequant,
-				Scan:             so.Scan,
-				Neighbors:        so.Neighbors,
-				ScanArr:          so.ScanArr,
-				ScanNeighborsArr: so.ScanNeighborsArr,
-				FC:               &d.fc.CoefProbs,
-				PackedModel:      &d.coefProbsPacked[common.Tx8x8][planeType][1],
-				DQCoeff:          &d.dqcoeff,
-				TokenCache:       &d.coefTokenCache,
+			ctxInit := false
+			var planeCtx vp9dec.FastCoefPlaneCtx
+			if num4x4H > 0 && num4x4W > 0 {
+				aLim := (num4x4W + 1) &^ 1
+				lLim := (num4x4H + 1) &^ 1
+				aCtx = aCtx[:aLim:aLim]
+				lCtx = lCtx[:lLim:lLim]
 			}
 			for rr := 0; rr < num4x4H; rr += 2 {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1]
 				for cc := 0; cc < num4x4W; cc += 2 {
-					initCtx := 0
-					if aCtx[cc]|aCtx[cc+1] != 0 {
-						initCtx++
-					}
-					if lv != 0 {
-						initCtx++
-					}
+					initCtx := int((aCtx[cc]|aCtx[cc+1])&1) + int(lv&1)
 					if count < 0 && pos <= fastLimit {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
 					}
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						split := (rng*prob + (256 - prob)) >> 8
-						bigsplit := uint64(split) << 56
-						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split)))
-							rng = split << shift
-							value <<= shift
-							count -= int32(shift)
+						s := 1 + (((rng - 1) * prob) >> 8)
+						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
+						nr := s ^ (((rng - s) ^ s) & m)
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = (value - uint64(s&m)<<56) << sh
+						rng = nr << sh
+						count -= int32(sh)
+						if m == 0 {
 							aCtx[cc] = 0
 							aCtx[cc+1] = 0
 							lv = 0
 							continue
 						}
-						nr := rng - split
-						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						if !ctxInit {
+							planeCtx = vp9dec.FastCoefPlaneCtx{
+								R:                rs,
+								TxSize:           common.Tx8x8,
+								PlaneType:        planeType,
+								IsInter:          1,
+								Dequant:          dequant,
+								Scan:             so.Scan,
+								Neighbors:        so.Neighbors,
+								ScanArr:          so.ScanArr,
+								ScanNeighborsArr: so.ScanNeighborsArr,
+								FC:               &d.fc.CoefProbs,
+								PackedModel:      &d.coefProbsPacked[common.Tx8x8][planeType][1],
+								DQCoeff:          &d.dqcoeff,
+								TokenCache:       &d.coefTokenCache,
+							}
+							ctxInit = true
+						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
+							&planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -2001,9 +2113,9 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 						if eob == 1 {
 							coeffs[0] = 0
 						} else if eob <= 8 {
-							scan := so.Scan
+							scan := so.ScanArr
 							for k := range eob {
-								coeffs[scan[k]] = 0
+								d.dqcoeff[int(scan[k&1023])&1023] = 0
 							}
 						} else {
 							clearVP9DecodedDQCoeffs(coeffs, common.Tx8x8, common.DctDct, eob)
@@ -2097,45 +2209,27 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 			value := rs.Value
 			rng := rs.Range
 			count := rs.Count
-			planeCtx := vp9dec.FastCoefPlaneCtx{
-				R:                rs,
-				TxSize:           common.Tx16x16,
-				PlaneType:        planeType,
-				IsInter:          1,
-				Dequant:          dequant,
-				Scan:             so.Scan,
-				Neighbors:        so.Neighbors,
-				ScanArr:          so.ScanArr,
-				ScanNeighborsArr: so.ScanNeighborsArr,
-				FC:               &d.fc.CoefProbs,
-				PackedModel:      &d.coefProbsPacked[common.Tx16x16][planeType][1],
-				DQCoeff:          &d.dqcoeff,
-				TokenCache:       &d.coefTokenCache,
-			}
+			ctxInit := false
+			var planeCtx vp9dec.FastCoefPlaneCtx
 			for rr := 0; rr < num4x4H; rr += 4 {
 				rowDst := dst[(baseY+rr*4)*dstStride+baseX:]
 				lv := lCtx[rr] | lCtx[rr+1] | lCtx[rr+2] | lCtx[rr+3]
 				for cc := 0; cc < num4x4W; cc += 4 {
-					initCtx := 0
-					if aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3] != 0 {
-						initCtx++
-					}
-					if lv != 0 {
-						initCtx++
-					}
+					initCtx := int(aCtx[cc]|aCtx[cc+1]|aCtx[cc+2]|aCtx[cc+3]) + int(lv)
 					if count < 0 && pos <= fastLimit {
 						value, count, pos = bitstream.FillFast(buf, pos, value, count)
 					}
 					var eob int
 					if count >= 0 {
 						prob := uint32(dcProbs[initCtx][0])
-						split := (rng*prob + (256 - prob)) >> 8
-						bigsplit := uint64(split) << 56
-						if value < bigsplit {
-							shift := uint32(bits.LeadingZeros8(uint8(split)))
-							rng = split << shift
-							value <<= shift
-							count -= int32(shift)
+						s := 1 + (((rng - 1) * prob) >> 8)
+						m := ^uint32(int32(uint32(value>>56)-s) >> 31)
+						nr := s ^ (((rng - s) ^ s) & m)
+						sh := uint32(bits.LeadingZeros8(uint8(nr)))
+						value = (value - uint64(s&m)<<56) << sh
+						rng = nr << sh
+						count -= int32(sh)
+						if m == 0 {
 							aCtx[cc] = 0
 							aCtx[cc+1] = 0
 							aCtx[cc+2] = 0
@@ -2143,11 +2237,26 @@ func (d *VP9Decoder) readVP9InterResiduePlane(
 							lv = 0
 							continue
 						}
-						nr := rng - split
-						nv := value - bigsplit
-						shift := uint32(bits.LeadingZeros8(uint8(nr)))
+						if !ctxInit {
+							planeCtx = vp9dec.FastCoefPlaneCtx{
+								R:                rs,
+								TxSize:           common.Tx16x16,
+								PlaneType:        planeType,
+								IsInter:          1,
+								Dequant:          dequant,
+								Scan:             so.Scan,
+								Neighbors:        so.Neighbors,
+								ScanArr:          so.ScanArr,
+								ScanNeighborsArr: so.ScanNeighborsArr,
+								FC:               &d.fc.CoefProbs,
+								PackedModel:      &d.coefProbsPacked[common.Tx16x16][planeType][1],
+								DQCoeff:          &d.dqcoeff,
+								TokenCache:       &d.coefTokenCache,
+							}
+							ctxInit = true
+						}
 						eob, pos, value, rng, count = vp9dec.DecodeCoefsFastPlaneAfterEOB(
-							&planeCtx, buf, pos, nv<<shift, nr<<shift, count-int32(shift), initCtx)
+							&planeCtx, buf, pos, value, rng, count, initCtx)
 					} else {
 						rs.Value = value
 						rs.Range = rng
@@ -2560,7 +2669,12 @@ func (d *VP9Decoder) vp9PlaneContextOffsets(miRow, miCol int) (
 	for plane := range vp9dec.MaxMbPlane {
 		pd := &d.planes[plane]
 		above[plane] = (miCol * 2) >> pd.SubsamplingX
-		left[plane] = ((miRow * 2) >> pd.SubsamplingY) % len(pd.LeftContext)
+		n := len(pd.LeftContext)
+		if n&(n-1) == 0 {
+			left[plane] = ((miRow * 2) >> pd.SubsamplingY) & (n - 1)
+		} else {
+			left[plane] = ((miRow * 2) >> pd.SubsamplingY) % n
+		}
 	}
 	return above, left
 }

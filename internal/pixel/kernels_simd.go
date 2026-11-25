@@ -517,48 +517,40 @@ func AddLumaDC16x16InPlace(dst []byte, stride int, dcs *[16]int16) {
 		return
 	}
 	_ = dst[15*stride+15]
-	rowOff := 0
-	for br := range 4 {
-		base := br * 4
-		var pos, neg [4]uint32
-		any := false
-		for bc := range 4 {
-			delta := (int(dcs[base+bc]) + 4) >> 3
-			if delta > 0 {
-				any = true
-				m := uint32(255)
-				if delta < 255 {
-					m = uint32(delta)
-				}
-				pos[bc] = m * 0x01010101
-			} else if delta < 0 {
-				any = true
-				mag := -delta
-				m := uint32(255)
-				if mag < 255 {
-					m = uint32(mag)
-				}
-				neg[bc] = m * 0x01010101
-			}
-		}
-		if any {
-			pv := archsimd.LoadUint32x4Array(&pos).ReshapeToUint8s()
-			nv := archsimd.LoadUint32x4Array(&neg).ReshapeToUint8s()
-			o0 := rowOff
-			o1 := o0 + stride
-			o2 := o1 + stride
-			o3 := o2 + stride
-			p0 := (*[16]byte)(dst[o0 : o0+16])
-			p1 := (*[16]byte)(dst[o1 : o1+16])
-			p2 := (*[16]byte)(dst[o2 : o2+16])
-			p3 := (*[16]byte)(dst[o3 : o3+16])
-			archsimd.LoadUint8x16Array(p0).AddSaturated(pv).SubSaturated(nv).StoreArray(p0)
-			archsimd.LoadUint8x16Array(p1).AddSaturated(pv).SubSaturated(nv).StoreArray(p1)
-			archsimd.LoadUint8x16Array(p2).AddSaturated(pv).SubSaturated(nv).StoreArray(p2)
-			archsimd.LoadUint8x16Array(p3).AddSaturated(pv).SubSaturated(nv).StoreArray(p3)
-		}
-		rowOff += 4 * stride
+	c4 := archsimd.BroadcastInt16x8(4)
+	zero := archsimd.Int16x8{}
+	dLo := lfShift3(archsimd.LoadInt16x8Array((*[8]int16)(dcs[0:8])).Add(c4))
+	dHi := lfShift3(archsimd.LoadInt16x8Array((*[8]int16)(dcs[8:16])).Add(c4))
+
+	posLo := satInt16ToUint8(dLo)
+	posHi := satInt16ToUint8(dHi)
+	negLo := satInt16ToUint8(zero.Sub(dLo))
+	negHi := satInt16ToUint8(zero.Sub(dHi))
+
+	tpLo := zipBytesLo(posLo, posLo)
+	tpHi := zipBytesLo(posHi, posHi)
+	tnLo := zipBytesLo(negLo, negLo)
+	tnHi := zipBytesLo(negHi, negHi)
+
+	pv0, pv1 := tpLo.InterleaveLo(tpLo).ReshapeToUint8s(), tpLo.InterleaveHi(tpLo).ReshapeToUint8s()
+	pv2, pv3 := tpHi.InterleaveLo(tpHi).ReshapeToUint8s(), tpHi.InterleaveHi(tpHi).ReshapeToUint8s()
+	nv0, nv1 := tnLo.InterleaveLo(tnLo).ReshapeToUint8s(), tnLo.InterleaveHi(tnLo).ReshapeToUint8s()
+	nv2, nv3 := tnHi.InterleaveLo(tnHi).ReshapeToUint8s(), tnHi.InterleaveHi(tnHi).ReshapeToUint8s()
+
+	apply4 := func(off int, pv, nv archsimd.Uint8x16) {
+		p0 := (*[16]byte)(dst[off : off+16])
+		p1 := (*[16]byte)(dst[off+stride : off+stride+16])
+		p2 := (*[16]byte)(dst[off+2*stride : off+2*stride+16])
+		p3 := (*[16]byte)(dst[off+3*stride : off+3*stride+16])
+		archsimd.LoadUint8x16Array(p0).AddSaturated(pv).SubSaturated(nv).StoreArray(p0)
+		archsimd.LoadUint8x16Array(p1).AddSaturated(pv).SubSaturated(nv).StoreArray(p1)
+		archsimd.LoadUint8x16Array(p2).AddSaturated(pv).SubSaturated(nv).StoreArray(p2)
+		archsimd.LoadUint8x16Array(p3).AddSaturated(pv).SubSaturated(nv).StoreArray(p3)
 	}
+	apply4(0, pv0, nv0)
+	apply4(4*stride, pv1, nv1)
+	apply4(8*stride, pv2, nv2)
+	apply4(12*stride, pv3, nv3)
 }
 
 func AddConstant(pred []byte, ps int, dst []byte, ds, w, h, delta int) {

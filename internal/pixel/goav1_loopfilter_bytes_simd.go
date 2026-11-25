@@ -517,3 +517,169 @@ func LoopFilterSimpleVertical3Inner16(s []byte, stride int, blimit byte) bool {
 	}
 	return true
 }
+
+func transpose16x16Uint8(
+	r0, r1, r2, r3, r4, r5, r6, r7,
+	r8, r9, r10, r11, r12, r13, r14, r15 archsimd.Uint8x16,
+) (
+	archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16,
+	archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16,
+	archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16,
+	archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16, archsimd.Uint8x16,
+) {
+	// Pass 1: 8-bit interleave -> 16-bit pairs.
+	a0, a1 := zipBytesLo(r0, r1), zipBytesHi(r0, r1)
+	a2, a3 := zipBytesLo(r2, r3), zipBytesHi(r2, r3)
+	a4, a5 := zipBytesLo(r4, r5), zipBytesHi(r4, r5)
+	a6, a7 := zipBytesLo(r6, r7), zipBytesHi(r6, r7)
+	a8, a9 := zipBytesLo(r8, r9), zipBytesHi(r8, r9)
+	a10, a11 := zipBytesLo(r10, r11), zipBytesHi(r10, r11)
+	a12, a13 := zipBytesLo(r12, r13), zipBytesHi(r12, r13)
+	a14, a15 := zipBytesLo(r14, r15), zipBytesHi(r14, r15)
+
+	// Pass 2: 16-bit interleave -> 32-bit quads.
+	b0, b1 := a0.InterleaveLo(a2).ReshapeToUint32s(), a0.InterleaveHi(a2).ReshapeToUint32s()
+	b2, b3 := a1.InterleaveLo(a3).ReshapeToUint32s(), a1.InterleaveHi(a3).ReshapeToUint32s()
+	b4, b5 := a4.InterleaveLo(a6).ReshapeToUint32s(), a4.InterleaveHi(a6).ReshapeToUint32s()
+	b6, b7 := a5.InterleaveLo(a7).ReshapeToUint32s(), a5.InterleaveHi(a7).ReshapeToUint32s()
+	b8, b9 := a8.InterleaveLo(a10).ReshapeToUint32s(), a8.InterleaveHi(a10).ReshapeToUint32s()
+	b10, b11 := a9.InterleaveLo(a11).ReshapeToUint32s(), a9.InterleaveHi(a11).ReshapeToUint32s()
+	b12, b13 := a12.InterleaveLo(a14).ReshapeToUint32s(), a12.InterleaveHi(a14).ReshapeToUint32s()
+	b14, b15 := a13.InterleaveLo(a15).ReshapeToUint32s(), a13.InterleaveHi(a15).ReshapeToUint32s()
+
+	// Pass 3: 32-bit interleave -> 64-bit octets.
+	cl0, cl1 := b0.InterleaveLo(b4).ReshapeToUint64s(), b0.InterleaveHi(b4).ReshapeToUint64s()
+	cl2, cl3 := b1.InterleaveLo(b5).ReshapeToUint64s(), b1.InterleaveHi(b5).ReshapeToUint64s()
+	cl4, cl5 := b2.InterleaveLo(b6).ReshapeToUint64s(), b2.InterleaveHi(b6).ReshapeToUint64s()
+	cl6, cl7 := b3.InterleaveLo(b7).ReshapeToUint64s(), b3.InterleaveHi(b7).ReshapeToUint64s()
+	ch0, ch1 := b8.InterleaveLo(b12).ReshapeToUint64s(), b8.InterleaveHi(b12).ReshapeToUint64s()
+	ch2, ch3 := b9.InterleaveLo(b13).ReshapeToUint64s(), b9.InterleaveHi(b13).ReshapeToUint64s()
+	ch4, ch5 := b10.InterleaveLo(b14).ReshapeToUint64s(), b10.InterleaveHi(b14).ReshapeToUint64s()
+	ch6, ch7 := b11.InterleaveLo(b15).ReshapeToUint64s(), b11.InterleaveHi(b15).ReshapeToUint64s()
+
+	// Pass 4: 64-bit interleave -> 16-byte columns.
+	return cl0.InterleaveLo(ch0).ReshapeToUint8s(), cl0.InterleaveHi(ch0).ReshapeToUint8s(),
+		cl1.InterleaveLo(ch1).ReshapeToUint8s(), cl1.InterleaveHi(ch1).ReshapeToUint8s(),
+		cl2.InterleaveLo(ch2).ReshapeToUint8s(), cl2.InterleaveHi(ch2).ReshapeToUint8s(),
+		cl3.InterleaveLo(ch3).ReshapeToUint8s(), cl3.InterleaveHi(ch3).ReshapeToUint8s(),
+		cl4.InterleaveLo(ch4).ReshapeToUint8s(), cl4.InterleaveHi(ch4).ReshapeToUint8s(),
+		cl5.InterleaveLo(ch5).ReshapeToUint8s(), cl5.InterleaveHi(ch5).ReshapeToUint8s(),
+		cl6.InterleaveLo(ch6).ReshapeToUint8s(), cl6.InterleaveHi(ch6).ReshapeToUint8s(),
+		cl7.InterleaveLo(ch7).ReshapeToUint8s(), cl7.InterleaveHi(ch7).ReshapeToUint8s()
+}
+
+func lfSimpleEdge(p1, p0, q0, q1, blimV, bias archsimd.Uint8x16, c4, c3 archsimd.Int8x16) (archsimd.Uint8x16, archsimd.Uint8x16, uint64) {
+	d0, d3 := lfAbsByte(p0, q0), lfAbsByte(p1, q1)
+	need := lfByteLE(d0.AddSaturated(d0).AddSaturated(lfByteHalf(d3)), blimV)
+	bits := need.ToInt8x16().ToBits().ReshapeToUint64s()
+	changed := bits.GetElem(0) | bits.GetElem(1)
+	if changed == 0 {
+		return p0, q0, 0
+	}
+	p1c, p0c, q0c, q1c := p1.Xor(bias).BitsToInt8(), p0.Xor(bias).BitsToInt8(), q0.Xor(bias).BitsToInt8(), q1.Xor(bias).BitsToInt8()
+	f := lfFilterDelta(p1c.SubSaturated(q1c), p0c, q0c).Masked(need)
+	f1 := lfByteShift3(f.AddSaturated(c4))
+	f2 := lfByteShift3(f.AddSaturated(c3))
+	return p0c.AddSaturated(f2).ToBits().Xor(bias), q0c.SubSaturated(f1).ToBits().Xor(bias), changed
+}
+
+// LoopFilterSimpleVertical4All16 filters all 4 vertical edges of a 16x16
+// macroblock (MB left edge at cols 0..3 with mblimit, plus the 3 inner edges at
+// cols 4..7, 8..11, 12..15 with blimit) via a single 16x16 SIMD transpose.
+// s must point at yOff-2 (col -2 of the macroblock).
+func LoopFilterSimpleVertical4All16(s []byte, stride int, mblimit, blimit byte) bool {
+	if stride < 16 || mblimit >= 255 || blimit >= 255 || 15*stride+16 > len(s) {
+		return false
+	}
+	_ = s[15*stride+15]
+	o1 := stride
+	o2 := o1 + stride
+	o3 := o2 + stride
+	o4 := o3 + stride
+	o5 := o4 + stride
+	o6 := o5 + stride
+	o7 := o6 + stride
+	o8 := o7 + stride
+	o9 := o8 + stride
+	o10 := o9 + stride
+	o11 := o10 + stride
+	o12 := o11 + stride
+	o13 := o12 + stride
+	o14 := o13 + stride
+	o15 := o14 + stride
+
+	p0 := (*[16]byte)(s[0:16])
+	p1 := (*[16]byte)(s[o1 : o1+16])
+	p2 := (*[16]byte)(s[o2 : o2+16])
+	p3 := (*[16]byte)(s[o3 : o3+16])
+	p4 := (*[16]byte)(s[o4 : o4+16])
+	p5 := (*[16]byte)(s[o5 : o5+16])
+	p6 := (*[16]byte)(s[o6 : o6+16])
+	p7 := (*[16]byte)(s[o7 : o7+16])
+	p8 := (*[16]byte)(s[o8 : o8+16])
+	p9 := (*[16]byte)(s[o9 : o9+16])
+	p10 := (*[16]byte)(s[o10 : o10+16])
+	p11 := (*[16]byte)(s[o11 : o11+16])
+	p12 := (*[16]byte)(s[o12 : o12+16])
+	p13 := (*[16]byte)(s[o13 : o13+16])
+	p14 := (*[16]byte)(s[o14 : o14+16])
+	p15 := (*[16]byte)(s[o15 : o15+16])
+
+	r0 := archsimd.LoadUint8x16Array(p0)
+	r1 := archsimd.LoadUint8x16Array(p1)
+	r2 := archsimd.LoadUint8x16Array(p2)
+	r3 := archsimd.LoadUint8x16Array(p3)
+	r4 := archsimd.LoadUint8x16Array(p4)
+	r5 := archsimd.LoadUint8x16Array(p5)
+	r6 := archsimd.LoadUint8x16Array(p6)
+	r7 := archsimd.LoadUint8x16Array(p7)
+	r8 := archsimd.LoadUint8x16Array(p8)
+	r9 := archsimd.LoadUint8x16Array(p9)
+	r10 := archsimd.LoadUint8x16Array(p10)
+	r11 := archsimd.LoadUint8x16Array(p11)
+	r12 := archsimd.LoadUint8x16Array(p12)
+	r13 := archsimd.LoadUint8x16Array(p13)
+	r14 := archsimd.LoadUint8x16Array(p14)
+	r15 := archsimd.LoadUint8x16Array(p15)
+
+	c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15 := transpose16x16Uint8(
+		r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15,
+	)
+
+	mblimV := archsimd.BroadcastUint8x16(mblimit)
+	blimV := archsimd.BroadcastUint8x16(blimit)
+	bias := archsimd.BroadcastUint8x16(128)
+	c4v := archsimd.BroadcastInt8x16(4)
+	c3v := archsimd.BroadcastInt8x16(3)
+
+	var ch0, ch1, ch2, ch3 uint64
+	c1, c2, ch0 = lfSimpleEdge(c0, c1, c2, c3, mblimV, bias, c4v, c3v)
+	c5, c6, ch1 = lfSimpleEdge(c4, c5, c6, c7, blimV, bias, c4v, c3v)
+	c9, c10, ch2 = lfSimpleEdge(c8, c9, c10, c11, blimV, bias, c4v, c3v)
+	c13, c14, ch3 = lfSimpleEdge(c12, c13, c14, c15, blimV, bias, c4v, c3v)
+	if (ch0 | ch1 | ch2 | ch3) == 0 {
+		return true
+	}
+
+	r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, r13, r14, r15 = transpose16x16Uint8(
+		c0, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15,
+	)
+
+	r0.StoreArray(p0)
+	r1.StoreArray(p1)
+	r2.StoreArray(p2)
+	r3.StoreArray(p3)
+	r4.StoreArray(p4)
+	r5.StoreArray(p5)
+	r6.StoreArray(p6)
+	r7.StoreArray(p7)
+	r8.StoreArray(p8)
+	r9.StoreArray(p9)
+	r10.StoreArray(p10)
+	r11.StoreArray(p11)
+	r12.StoreArray(p12)
+	r13.StoreArray(p13)
+	r14.StoreArray(p14)
+	r15.StoreArray(p15)
+	return true
+}

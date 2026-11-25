@@ -103,6 +103,10 @@ func zipBytesLo(a, b archsimd.Uint8x16) archsimd.Uint16x8 {
 	return a.ExtendLo8ToUint16().Or(b.ExtendLo8ToUint16().ShiftAllLeft(8))
 }
 
+func zipBytesHi(a, b archsimd.Uint8x16) archsimd.Uint16x8 {
+	return zipBytesLo(highBytes(a), highBytes(b))
+}
+
 func square8(v archsimd.Int16x8) archsimd.Int32x4 { return v.DotProductPairs(v) }
 func sumDiff16(v archsimd.Int16x8) archsimd.Int32x4 {
 	return v.DotProductPairs(archsimd.BroadcastInt16x8(1))
@@ -117,6 +121,10 @@ func vp8MulHighU16(a, b archsimd.Uint16x8) archsimd.Uint16x8 { return a.MulHigh(
 // bytes are exact LUT indices; the general pixel clamp is unnecessary here.
 func fpClassIndices(v archsimd.Int16x8) archsimd.Uint8x16 {
 	return v.ToBits().ReshapeToUint8s().PermuteOrZero(archsimd.LoadInt8x16Array(&packByteIndices))
+}
+
+func satInt16ToUint8(v archsimd.Int16x8) archsimd.Uint8x16 {
+	return v.Max(archsimd.Int16x8{}).Min(archsimd.BroadcastInt16x8(255)).ToBits().ReshapeToUint8s().PermuteOrZero(archsimd.LoadInt8x16Array(&packByteIndices))
 }
 
 // These compile-time-disabled ARM specializations retain the ordinary

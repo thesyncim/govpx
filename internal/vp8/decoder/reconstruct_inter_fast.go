@@ -284,8 +284,13 @@ func reconstructWholeMVInterMacroblockFast(state *InterFrameRefState, mode *Macr
 			dsp.Copy8x8(uSrc, state.uStride, u, uStride)
 			dsp.Copy8x8(vSrc, state.vStride, v, vStride)
 		} else {
-			dsp.BilinearPredict8x8(uSrc, state.uStride, uvXOffset, uvYOffset, u, uStride)
-			dsp.BilinearPredict8x8(vSrc, state.vStride, uvXOffset, uvYOffset, v, vStride)
+			dsp.BilinearPredict8x8Pair(
+				uSrc, state.uStride,
+				vSrc, state.vStride,
+				uvXOffset, uvYOffset,
+				u, uStride,
+				v, vStride,
+			)
 		}
 	} else {
 		if (yXOffset | yYOffset) == 0 {

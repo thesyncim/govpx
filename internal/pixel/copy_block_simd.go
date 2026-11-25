@@ -27,64 +27,81 @@ func CopyBlock(src []byte, ss int, dst []byte, ds, w, h int) {
 			}
 			return
 		case 8:
+			ss2, ds2 := 2*ss, 2*ds
+			ss3, ds3 := 3*ss, 3*ds
+			ss4, ds4 := 4*ss, 4*ds
 			y := 0
-			for ; y+1 < h; y += 2 {
-				binary.LittleEndian.PutUint64(dst[do:], binary.LittleEndian.Uint64(src[so:]))
-				binary.LittleEndian.PutUint64(dst[do+ds:], binary.LittleEndian.Uint64(src[so+ss:]))
-				so += 2 * ss
-				do += 2 * ds
+			for ; y+3 < h; y += 4 {
+				v0 := *(*[8]byte)(src[so : so+8])
+				v1 := *(*[8]byte)(src[so+ss : so+ss+8])
+				v2 := *(*[8]byte)(src[so+ss2 : so+ss2+8])
+				v3 := *(*[8]byte)(src[so+ss3 : so+ss3+8])
+				*(*[8]byte)(dst[do : do+8]) = v0
+				*(*[8]byte)(dst[do+ds : do+ds+8]) = v1
+				*(*[8]byte)(dst[do+ds2 : do+ds2+8]) = v2
+				*(*[8]byte)(dst[do+ds3 : do+ds3+8]) = v3
+				so += ss4
+				do += ds4
 			}
-			if y < h {
-				binary.LittleEndian.PutUint64(dst[do:], binary.LittleEndian.Uint64(src[so:]))
+			for ; y < h; y++ {
+				*(*[8]byte)(dst[do : do+8]) = *(*[8]byte)(src[so : so+8])
+				so += ss
+				do += ds
 			}
 			return
 		case 16:
+			ss2, ds2 := 2*ss, 2*ds
+			ss3, ds3 := 3*ss, 3*ds
+			ss4, ds4 := 4*ss, 4*ds
 			y := 0
-			for ; y+1 < h; y += 2 {
-				archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16])).StoreArray((*[16]byte)(dst[do : do+16]))
-				archsimd.LoadUint8x16Array((*[16]byte)(src[so+ss : so+ss+16])).StoreArray((*[16]byte)(dst[do+ds : do+ds+16]))
-				so += 2 * ss
-				do += 2 * ds
+			for ; y+3 < h; y += 4 {
+				v0 := *(*[16]byte)(src[so : so+16])
+				v1 := *(*[16]byte)(src[so+ss : so+ss+16])
+				v2 := *(*[16]byte)(src[so+ss2 : so+ss2+16])
+				v3 := *(*[16]byte)(src[so+ss3 : so+ss3+16])
+				*(*[16]byte)(dst[do : do+16]) = v0
+				*(*[16]byte)(dst[do+ds : do+ds+16]) = v1
+				*(*[16]byte)(dst[do+ds2 : do+ds2+16]) = v2
+				*(*[16]byte)(dst[do+ds3 : do+ds3+16]) = v3
+				so += ss4
+				do += ds4
 			}
-			if y < h {
-				archsimd.LoadUint8x16Array((*[16]byte)(src[so : so+16])).StoreArray((*[16]byte)(dst[do : do+16]))
+			for ; y < h; y++ {
+				*(*[16]byte)(dst[do : do+16]) = *(*[16]byte)(src[so : so+16])
+				so += ss
+				do += ds
 			}
 			return
 		case 32:
+			ss2, ds2 := 2*ss, 2*ds
+			ss3, ds3 := 3*ss, 3*ds
+			ss4, ds4 := 4*ss, 4*ds
 			y := 0
-			for ; y+1 < h; y += 2 {
-				s0, d0 := src[so:so+32], dst[do:do+32]
-				s1, d1 := src[so+ss:so+ss+32], dst[do+ds:do+ds+32]
-				v0 := archsimd.LoadUint8x16Array((*[16]byte)(s0[0:16]))
-				v1 := archsimd.LoadUint8x16Array((*[16]byte)(s0[16:32]))
-				v2 := archsimd.LoadUint8x16Array((*[16]byte)(s1[0:16]))
-				v3 := archsimd.LoadUint8x16Array((*[16]byte)(s1[16:32]))
-				v0.StoreArray((*[16]byte)(d0[0:16]))
-				v1.StoreArray((*[16]byte)(d0[16:32]))
-				v2.StoreArray((*[16]byte)(d1[0:16]))
-				v3.StoreArray((*[16]byte)(d1[16:32]))
-				so += 2 * ss
-				do += 2 * ds
+			for ; y+3 < h; y += 4 {
+				*(*[32]byte)(dst[do : do+32]) = *(*[32]byte)(src[so : so+32])
+				*(*[32]byte)(dst[do+ds : do+ds+32]) = *(*[32]byte)(src[so+ss : so+ss+32])
+				*(*[32]byte)(dst[do+ds2 : do+ds2+32]) = *(*[32]byte)(src[so+ss2 : so+ss2+32])
+				*(*[32]byte)(dst[do+ds3 : do+ds3+32]) = *(*[32]byte)(src[so+ss3 : so+ss3+32])
+				so += ss4
+				do += ds4
 			}
-			if y < h {
-				s := src[so : so+32]
-				d := dst[do : do+32]
-				archsimd.LoadUint8x16Array((*[16]byte)(s[0:16])).StoreArray((*[16]byte)(d[0:16]))
-				archsimd.LoadUint8x16Array((*[16]byte)(s[16:32])).StoreArray((*[16]byte)(d[16:32]))
+			for ; y < h; y++ {
+				*(*[32]byte)(dst[do : do+32]) = *(*[32]byte)(src[so : so+32])
+				so += ss
+				do += ds
 			}
 			return
 		case 64:
-			for range h {
-				s := src[so : so+64]
-				d := dst[do : do+64]
-				v0 := archsimd.LoadUint8x16Array((*[16]byte)(s[0:16]))
-				v1 := archsimd.LoadUint8x16Array((*[16]byte)(s[16:32]))
-				v2 := archsimd.LoadUint8x16Array((*[16]byte)(s[32:48]))
-				v3 := archsimd.LoadUint8x16Array((*[16]byte)(s[48:64]))
-				v0.StoreArray((*[16]byte)(d[0:16]))
-				v1.StoreArray((*[16]byte)(d[16:32]))
-				v2.StoreArray((*[16]byte)(d[32:48]))
-				v3.StoreArray((*[16]byte)(d[48:64]))
+			ss2, ds2 := 2*ss, 2*ds
+			y := 0
+			for ; y+1 < h; y += 2 {
+				*(*[64]byte)(dst[do : do+64]) = *(*[64]byte)(src[so : so+64])
+				*(*[64]byte)(dst[do+ds : do+ds+64]) = *(*[64]byte)(src[so+ss : so+ss+64])
+				so += ss2
+				do += ds2
+			}
+			for ; y < h; y++ {
+				*(*[64]byte)(dst[do : do+64]) = *(*[64]byte)(src[so : so+64])
 				so += ss
 				do += ds
 			}

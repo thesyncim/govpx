@@ -174,6 +174,10 @@ func zipBytesLo(a, b archsimd.Uint8x16) archsimd.Uint16x8 {
 	return a.InterleaveLo(b).ReshapeToUint16s()
 }
 
+func zipBytesHi(a, b archsimd.Uint8x16) archsimd.Uint16x8 {
+	return a.InterleaveHi(b).ReshapeToUint16s()
+}
+
 func square8(v archsimd.Int16x8) archsimd.Int32x4 {
 	hi := v.HiToLo()
 	return v.MulWidenLo(v).Add(hi.MulWidenLo(hi))
@@ -196,3 +200,5 @@ func vp8MulHighU16(a, b archsimd.Uint16x8) archsimd.Uint16x8 {
 
 // ARM already narrows with one native saturated instruction.
 func fpClassIndices(v archsimd.Int16x8) archsimd.Uint8x16 { return v.SaturateToUint8() }
+
+func satInt16ToUint8(v archsimd.Int16x8) archsimd.Uint8x16 { return v.SaturateToUint8() }
