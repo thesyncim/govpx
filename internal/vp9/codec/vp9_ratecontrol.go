@@ -1,0 +1,1123 @@
+package codec
+
+import (
+	"github.com/thesyncim/govpx/internal/vp9/encoder"
+	"github.com/thesyncim/govpx/internal/vpx/arith"
+	vpxrc "github.com/thesyncim/govpx/internal/vpx/ratecontrol"
+)
+
+const (
+	// libvpx VP9 defaults these to 25 in vp9/vp9_cx_iface.c. VP8 defaults
+	// them to 100, so keep VP9's zero-value mapping codec-owned here.
+	defaultVP9RateControlUndershootPct = 25
+	defaultVP9RateControlOvershootPct  = 25
+)
+
+type vp9RateControlState struct {
+	enabled bool
+	mode    RateControlMode
+
+	targetBitrateKbps    int
+	effectiveBitrateKbps int
+	targetBandwidthBits  int
+	bitsPerFrame         int
+	frameTargetBits      int
+	minFrameBandwidth    int
+	maxFrameBandwidth    int
+	frameRateNum         int
+	frameRateDen         int
+
+	// framerate mirrors libvpx VP9_COMP::framerate, the dynamic frame rate
+	// driven by the source-timestamp deltas in adjust_frame_rate
+	// (vp9/encoder/vp9_encoder.c:5753). It is seeded from the configured
+	// timebase and then re-derived per show-frame; bitsPerFrame
+	// (rc->avg_frame_bandwidth) is recomputed from it in vp9_rc_update_framerate
+	// (vp9_ratectrl.c:2650). A mid-stream fps change does NOT snap
+	// bitsPerFrame to the new fps at config time — vp9_change_config keeps the
+	// old cpi->framerate (vp9_encoder.c:2135 passes the unchanged value); the
+	// new rate only takes effect once adjust_frame_rate observes the new
+	// timebase-derived source-timestamp delta on the next encoded frame.
+	framerate float64
+
+	bufferSizeMs        int
+	bufferInitialSizeMs int
+	bufferOptimalSizeMs int
+	bufferSizeBits      int
+	bufferInitialBits   int
+	bufferOptimalBits   int
+	bufferLevelBits     int
+	codedWidth          int
+	codedHeight         int
+
+	dropFrameAllowed    bool
+	dropFramesWaterMark uint8
+	decimationFactor    uint8
+	decimationCount     uint8
+
+	minBitrateKbps         int
+	maxBitrateKbps         int
+	undershootPct          uint8
+	configuredOvershootPct uint8
+	overshootPct           uint8
+	maxIntraBitratePct     int
+	maxInterBitratePct     int
+	gfCBRBoostPct          int
+	targetLevel            int
+
+	// minGFInterval and maxGFInterval mirror libvpx's
+	// VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL controls. Zero
+	// leaves the framerate-derived libvpx default in place.
+	minGFInterval uint8
+	maxGFInterval uint8
+
+	// resolvedMinGFInterval / resolvedMaxGFInterval mirror libvpx's
+	// rc->min_gf_interval / rc->max_gf_interval after
+	// vp9_rc_set_gf_interval_range applies the framerate-derived defaults and
+	// any control overrides. vp9_set_gf_update_one_pass_vbr reads them to
+	// re-derive the per-golden-group baseline interval.
+	resolvedMinGFInterval int
+	resolvedMaxGFInterval int
+
+	// framePeriodicBoost mirrors VP9E_SET_FRAME_PERIODIC_BOOST. When set,
+	// the active-best Q is reduced harder on periodic GF/ALTREF refreshes.
+	framePeriodicBoost bool
+	// altRefAQ mirrors VP9E_SET_ALT_REF_AQ. libvpx v1.16.0 wires the
+	// control but its VP9 alt-ref AQ implementation is a no-op.
+	altRefAQ bool
+	// postEncodeDrop mirrors VP9E_SET_POSTENCODE_DROP_CBR. When set,
+	// visible inter frames whose encoded size would underflow the CBR
+	// buffer are dropped after packing.
+	postEncodeDrop bool
+	// forceMaxQ mirrors RATE_CONTROL::force_max_q. The post-encode drop
+	// path sets it so the next CBR frame is encoded at worstQuality; the
+	// frame q picker consumes and clears it.
+	forceMaxQ bool
+	// lastPostEncodeDroppedSceneChange mirrors
+	// RATE_CONTROL::last_post_encode_dropped_scene_change.
+	lastPostEncodeDroppedSceneChange bool
+	// disableOvershootMaxQCBR mirrors
+	// VP9E_SET_DISABLE_OVERSHOOT_MAXQ_CBR. When set, the CBR active-worst
+	// promotion to worstQuality in the critical buffer region is
+	// suppressed.
+	disableOvershootMaxQCBR bool
+	// nextFrameQIndexSet / nextFrameQIndex mirror
+	// VP9E_SET_QUANTIZER_ONE_PASS. The qindex is consumed by the next
+	// encode call and then cleared.
+	nextFrameQIndexSet bool
+	nextFrameQIndex    uint8
+
+	bestQuality  uint8
+	worstQuality uint8
+	cqLevel      uint8
+
+	avgFrameQIndexKey   uint8
+	avgFrameQIndexInter uint8
+	lastQKey            uint8
+	lastQInter          uint8
+	lastBoostedQIndex   uint8
+
+	totalActualBits int64
+	totalTargetBits int64
+
+	rateCorrectionFactors [encoder.RateFactorLevels]float64
+	dampedAdjustment      [encoder.RateFactorLevels]bool
+	q1Frame               uint8
+	q2Frame               uint8
+	rc1Frame              int8
+	rc2Frame              int8
+
+	framesSinceKey uint16
+	// framesSinceGolden mirrors libvpx RATE_CONTROL::frames_since_golden.
+	// Realtime nonrd pickmode uses it to cap usable_ref_frame to LAST on
+	// the first frame after a golden/altref refresh.
+	framesSinceGolden uint16
+	framesTillGF      uint8
+	// framesTillGFUpdateDue mirrors libvpx RATE_CONTROL::frames_till_gf_update_due
+	// for one-pass CBR cyclic-refresh golden cadence.
+	framesTillGFUpdateDue int
+	// framesToKey mirrors libvpx RATE_CONTROL::frames_to_key.
+	framesToKey int
+	// avgFrameLowMotion mirrors libvpx RATE_CONTROL::avg_frame_low_motion (0-100).
+	avgFrameLowMotion int
+	// refreshGoldenFrame mirrors cpi->refresh_golden_frame for the current
+	// encode pass after vp9_rc_get_one_pass_cbr_params schedules a GF update.
+	refreshGoldenFrame bool
+	// altRefGFGroup mirrors libvpx RATE_CONTROL::alt_ref_gf_group.
+	// vp9_pick_inter_mode's usable_ref_frame and VBR/lag candidate gates
+	// read it to keep ARF groups from being treated like ordinary GF-only
+	// refresh intervals.
+	//
+	// libvpx: vp9_ratectrl.h:182 alt_ref_gf_group.
+	altRefGFGroup bool
+	// lastFrameIsSrcAltRef mirrors libvpx
+	// RATE_CONTROL::last_frame_is_src_altref, updated at one-pass
+	// postencode from is_src_frame_alt_ref.
+	//
+	// libvpx: vp9_ratectrl.h:183 last_frame_is_src_altref,
+	// vp9_ratectrl.c:1995 assignment.
+	lastFrameIsSrcAltRef bool
+
+	// avgSourceSAD / highSourceSAD / highNumBlocksWithMotion mirror the
+	// one-pass scene-detection state consumed by realtime partitioning,
+	// cyclic refresh, and drop gating.
+	//
+	// libvpx: vp9_ratectrl.h:178 avg_source_sad,
+	// vp9_ratectrl.h:181 high_num_blocks_with_motion,
+	// vp9_ratectrl.h:184 high_source_sad.
+	avgSourceSAD            [vp9MaxLookaheadFrames]uint64
+	highSourceSAD           bool
+	highNumBlocksWithMotion bool
+
+	afRatioOnePassVBR   uint8
+	baselineGFInterval  uint8
+	facActiveWorstInter uint16
+	facActiveWorstGF    uint16
+
+	// rollingTargetBits / rollingActualBits mirror libvpx
+	// RATE_CONTROL::rolling_target_bits / rolling_actual_bits: short rolling
+	// EMA monitors of per-frame target vs. coded size, seeded at
+	// avg_frame_bandwidth and updated only on inter frames
+	// (vp9_ratectrl.c:392-393, 1931-1934). vp9_set_gf_update_one_pass_vbr
+	// reads their ratio (rate_err) to adjust the one-pass-VBR golden interval
+	// and gf boost once current_video_frame > 30 (vp9_ratectrl.c:2090-2110).
+	rollingTargetBits int
+	rollingActualBits int
+
+	// gfuBoost mirrors libvpx's rc->gfu_boost, the cumulative ARF/GF group
+	// boost computed by define_gf_group via compute_arf_boost. govpx
+	// consumes it as the gating signal in adjust_arnr_filter for adaptive
+	// temporal-filter strength + frame-count selection.
+	//
+	// Feed sites:
+	//   - NewVP9Encoder seeds DEFAULT_GF_BOOST when LookaheadFrames>0
+	//     (vp9_encoder.go), mirroring libvpx vp9_ratectrl.c:2082.
+	//   - refreshVP9GFGroupIfDue (vp9_twopass.go) refreshes from
+	//     encoder.DefineGFGroup at each GF boundary when two-pass stats are
+	//     available, mirroring libvpx vp9_firstpass.c:2761 define_gf_group.
+	//
+	// libvpx: vp9/encoder/vp9_ratectrl.h RATE_CONTROL::gfu_boost
+	gfuBoost uint16
+
+	// rdmult / rddiv mirror libvpx's RD_OPT::RDMULT / RD_OPT::RDDIV.
+	// vp9_initialize_rd_consts populates them once at frame start from
+	// vp9_compute_rd_mult(base_qindex + y_dc_delta_q) and the constant
+	// RDDIV_BITS=7 (vp9/encoder/vp9_rd.c:396-407).  Per-block paths
+	// (mode pickers, AQ deltas) read rdmult here and optionally scale it
+	// per-SB via cbRdmult before invoking RDCOST.
+	rdmult int
+	rddiv  int
+
+	// percArfUsage mirrors libvpx's RATE_CONTROL::perc_arf_usage: a smoothed
+	// ARF-usage percentage that update_altref_usage refreshes from the
+	// per-SB count_arf_frame_usage / count_lastgolden_frame_usage slabs at
+	// the end of every non-overlay, non-refresh ARF-group frame. Consumed
+	// by the one-pass VBR ARF disable gate at vp9_ratectrl.c:3007-3010
+	// (`cpi->rc.perc_arf_usage < 15 && cpi->oxcf.speed >= 5`).
+	//
+	// libvpx: vp9_ratectrl.h:192 perc_arf_usage,
+	// vp9_ratectrl.c:1814-1815 update,
+	// vp9_ratectrl.c:3007-3010 consumer.
+	percArfUsage float64
+
+	// isSrcFrameAltRef mirrors libvpx's RATE_CONTROL::is_src_frame_alt_ref.
+	// Set by vp9_configure_buffer_updates (vp9_ratectrl.c:1655-1697) or
+	// check_src_altref (vp9_encoder.c:5810-5822) when the lookahead pops
+	// the frame that was scheduled as the ARF source. Read by the speed-5
+	// VBR VAR_BASED_PARTITION switch (vp9_speed_features.c:597-600), the
+	// altref-onepass FIXED_PARTITION BLOCK_64X64 override
+	// (vp9_speed_features.c:828-832), update_altref_usage
+	// (vp9_ratectrl.c:1802), and a long list of further rate-control /
+	// encoder consumers.
+	//
+	// libvpx: vp9_ratectrl.h:118 is_src_frame_alt_ref.
+	isSrcFrameAltRef bool
+}
+
+type vp9DropReason uint8
+
+const (
+	vp9DropNone vp9DropReason = iota
+	vp9DropNegativeBuffer
+	vp9DropWatermarkDecimation
+)
+
+func validateVP9RateControlOptions(opts VP9EncoderOptions) error {
+	if opts.BufferSizeMs < 0 || opts.BufferInitialSizeMs < 0 ||
+		opts.BufferOptimalSizeMs < 0 || opts.DropFrameWaterMark < 0 {
+		return ErrInvalidConfig
+	}
+	if err := validateVP9InterRateBound(opts.MaxInterBitratePct); err != nil {
+		return err
+	}
+	if err := validateVP9GFIntervalBounds(opts.MinGFInterval,
+		opts.MaxGFInterval); err != nil {
+		return err
+	}
+	if err := validateVP9NextFrameQIndex(opts.NextFrameQIndex,
+		opts.NextFrameQIndexSet, opts.AQMode); err != nil {
+		return err
+	}
+	if opts.PostEncodeDrop && opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	if opts.DisableOvershootMaxQCBR && opts.RateControlMode != RateControlCBR {
+		return ErrInvalidConfig
+	}
+	if !opts.RateControlModeSet {
+		if opts.BufferSizeMs != 0 || opts.BufferInitialSizeMs != 0 ||
+			opts.BufferOptimalSizeMs != 0 || opts.DropFrameAllowed ||
+			opts.DropFrameWaterMark != 0 {
+			return ErrInvalidConfig
+		}
+		return nil
+	}
+	if !validRateControlMode(opts.RateControlMode) {
+		return ErrInvalidConfig
+	}
+	if opts.TargetBitrateKbps <= 0 {
+		return ErrInvalidBitrate
+	}
+	if opts.RateControlMode != RateControlCBR &&
+		(opts.DropFrameAllowed || opts.DropFrameWaterMark != 0) {
+		return ErrInvalidConfig
+	}
+	if err := validateVP9RateControlBounds(opts.MinBitrateKbps, opts.MaxBitrateKbps,
+		opts.TargetBitrateKbps, opts.UndershootPct, opts.OvershootPct,
+		opts.MaxIntraBitratePct, opts.GFCBRBoostPct); err != nil {
+		return err
+	}
+	if err := validateVP9InterRateBound(opts.MaxInterBitratePct); err != nil {
+		return err
+	}
+	if opts.RateControlMode != RateControlCBR && opts.GFCBRBoostPct != 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func validateVP9RateControlConfig(cfg RateControlConfig) error {
+	if !validRateControlMode(cfg.Mode) {
+		return ErrInvalidConfig
+	}
+	if cfg.TargetBitrateKbps <= 0 {
+		return ErrInvalidBitrate
+	}
+	if err := validateVP9RateControlBounds(cfg.MinBitrateKbps, cfg.MaxBitrateKbps,
+		cfg.TargetBitrateKbps, cfg.UndershootPct, cfg.OvershootPct,
+		cfg.MaxIntraBitratePct, cfg.GFCBRBoostPct); err != nil {
+		return err
+	}
+	if cfg.BufferSizeMs < 0 || cfg.BufferInitialSizeMs < 0 ||
+		cfg.BufferOptimalSizeMs < 0 || cfg.DropFrameWaterMark < 0 {
+		return ErrInvalidConfig
+	}
+	if cfg.Mode != RateControlCBR &&
+		(cfg.DropFrameAllowed || cfg.DropFrameWaterMark != 0) {
+		return ErrInvalidConfig
+	}
+	if cfg.Mode != RateControlCBR && cfg.GFCBRBoostPct != 0 {
+		return ErrInvalidConfig
+	}
+	return validateVP9PublicQuantizerOptions(VP9EncoderOptions{
+		MinQuantizer: cfg.MinQuantizer,
+		MaxQuantizer: cfg.MaxQuantizer,
+		CQLevel:      cfg.CQLevel,
+	})
+}
+
+// validateVP9RateControlBounds enforces the libvpx VP9 rate-control bound
+// invariants shared by VP9EncoderOptions and the runtime RateControlConfig.
+func validateVP9RateControlBounds(minKbps, maxKbps, targetKbps, undershootPct,
+	overshootPct, maxIntraPct, gfBoostPct int) error {
+	if minKbps < 0 || maxKbps < 0 {
+		return ErrInvalidBitrate
+	}
+	if minKbps > 0 && maxKbps > 0 && minKbps > maxKbps {
+		return ErrInvalidBitrate
+	}
+	if targetKbps > 0 && targetKbps < minKbps {
+		return ErrInvalidBitrate
+	}
+	if maxKbps > 0 && targetKbps > maxKbps {
+		return ErrInvalidBitrate
+	}
+	if undershootPct < 0 || undershootPct > maxRateControlUndershootPct ||
+		overshootPct < 0 || overshootPct > maxRateControlOvershootPct {
+		return ErrInvalidConfig
+	}
+	if maxIntraPct < 0 || gfBoostPct < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9InterRateBound enforces the libvpx VP9 max_inter_bitrate_pct
+// invariant: non-negative.
+func validateVP9InterRateBound(maxInterPct int) error {
+	if maxInterPct < 0 {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+const vp9MaxGFIntervalControl = 24 // libvpx MAX_LAG_BUFFERS - 1
+
+// validateVP9GFIntervalBounds enforces the libvpx
+// VP9E_SET_MIN_GF_INTERVAL / VP9E_SET_MAX_GF_INTERVAL invariants. Both
+// values must lie in [0, MAX_LAG_BUFFERS-1]; a non-zero maximum must be at
+// least 2; when both bounds are non-zero, the minimum must not exceed the
+// maximum.
+func validateVP9GFIntervalBounds(minGF, maxGF int) error {
+	if minGF < 0 || maxGF < 0 {
+		return ErrInvalidConfig
+	}
+	if minGF > vp9MaxGFIntervalControl || maxGF > vp9MaxGFIntervalControl {
+		return ErrInvalidConfig
+	}
+	if maxGF > 0 && maxGF < 2 {
+		return ErrInvalidConfig
+	}
+	if minGF > 0 && maxGF > 0 && minGF > maxGF {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+// validateVP9NextFrameQIndex enforces the libvpx
+// VP9E_SET_QUANTIZER_ONE_PASS invariants. The qindex must lie in
+// [0, 255]; the override is mutually exclusive with cyclic-refresh and
+// perceptual AQ because both rewrite the qindex through segmentation.
+func validateVP9NextFrameQIndex(qindex int, set bool, aqMode VP9AQMode) error {
+	if !set {
+		if qindex != 0 {
+			return ErrInvalidQuantizer
+		}
+		return nil
+	}
+	if qindex < 0 || qindex > 255 {
+		return ErrInvalidQuantizer
+	}
+	if aqMode == VP9AQCyclicRefresh || aqMode == VP9AQPerceptual {
+		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func vp9RateControlOptionsFromConfig(opts VP9EncoderOptions, cfg RateControlConfig) (VP9EncoderOptions, error) {
+	if err := validateVP9RateControlConfig(cfg); err != nil {
+		return VP9EncoderOptions{}, err
+	}
+	opts.RateControlModeSet = true
+	opts.RateControlMode = cfg.Mode
+	opts.TargetBitrateKbps = cfg.TargetBitrateKbps
+	opts.MinBitrateKbps = cfg.MinBitrateKbps
+	opts.MaxBitrateKbps = cfg.MaxBitrateKbps
+	opts.UndershootPct = cfg.UndershootPct
+	opts.OvershootPct = cfg.OvershootPct
+	opts.MaxIntraBitratePct = cfg.MaxIntraBitratePct
+	opts.GFCBRBoostPct = cfg.GFCBRBoostPct
+	opts.MinQuantizer = cfg.MinQuantizer
+	opts.MaxQuantizer = cfg.MaxQuantizer
+	opts.CQLevel = cfg.CQLevel
+	opts.BufferSizeMs = cfg.BufferSizeMs
+	opts.BufferInitialSizeMs = cfg.BufferInitialSizeMs
+	opts.BufferOptimalSizeMs = cfg.BufferOptimalSizeMs
+	opts.DropFrameAllowed = cfg.DropFrameAllowed
+	opts.DropFrameWaterMark = cfg.DropFrameWaterMark
+	if err := validateVP9EncoderOptions(opts); err != nil {
+		return VP9EncoderOptions{}, err
+	}
+	return opts, nil
+}
+
+func (rc *vp9RateControlState) applyOptions(opts VP9EncoderOptions, timing timingState) error {
+	*rc = vp9RateControlState{}
+	if !opts.RateControlModeSet {
+		// NextFrameQIndex still applies to the public-Q (RC-off) path so
+		// callers can drive the next encode's qindex directly.
+		if opts.NextFrameQIndexSet {
+			rc.nextFrameQIndexSet = true
+			q := min(max(opts.NextFrameQIndex, 0), 255)
+			rc.nextFrameQIndex = uint8(q)
+		}
+		return nil
+	}
+	if !validRateControlMode(opts.RateControlMode) {
+		return ErrInvalidConfig
+	}
+	bufferSize := opts.BufferSizeMs
+	if bufferSize == 0 {
+		bufferSize = libvpxDefaultBufferSizeMs
+	}
+	bufferInitial := opts.BufferInitialSizeMs
+	if bufferInitial == 0 {
+		bufferInitial = libvpxDefaultBufferInitialMs
+	}
+	bufferOptimal := opts.BufferOptimalSizeMs
+	if bufferOptimal == 0 {
+		bufferOptimal = libvpxDefaultBufferOptimalMs
+	}
+	if bufferSize <= 0 || bufferInitial < 0 || bufferOptimal < 0 {
+		return ErrInvalidConfig
+	}
+	waterMark := opts.DropFrameWaterMark
+	if opts.DropFrameAllowed && waterMark <= 0 {
+		waterMark = defaultDropFramesWaterMark
+	}
+	if waterMark > 100 {
+		waterMark = 100
+	}
+
+	rc.enabled = true
+	rc.mode = opts.RateControlMode
+	rc.bufferSizeMs = bufferSize
+	rc.bufferInitialSizeMs = bufferInitial
+	rc.bufferOptimalSizeMs = bufferOptimal
+	if opts.RateControlMode == RateControlCBR {
+		rc.dropFrameAllowed = opts.DropFrameAllowed
+		rc.dropFramesWaterMark = uint8(waterMark)
+	}
+	rc.applyBitrateBoundsFromOptions(opts)
+	rc.setFrameSize(opts.Width, opts.Height)
+	rc.initQuantizerStateFromOptions(opts)
+	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
+		return err
+	}
+	rc.initOnePassVBRState(timing)
+	rc.bufferLevelBits = rc.bufferInitialBits
+	return nil
+}
+
+// applyBitrateBoundsFromOptions stores the libvpx VP9 rate-control bound
+// settings into rc. Zero undershoot/overshoot select libvpx's VP9 defaults.
+// GFCBRBoostPct is honored only in CBR mode to match libvpx's
+// VP9E_SET_GF_CBR_BOOST_PCT scope.
+func (rc *vp9RateControlState) applyBitrateBoundsFromOptions(opts VP9EncoderOptions) {
+	rc.minBitrateKbps = opts.MinBitrateKbps
+	rc.maxBitrateKbps = opts.MaxBitrateKbps
+	rc.undershootPct = uint8(vpxrc.NormalizePercent(opts.UndershootPct, defaultVP9RateControlUndershootPct))
+	rc.configuredOvershootPct = uint8(vpxrc.NormalizePercent(opts.OvershootPct, defaultVP9RateControlOvershootPct))
+	rc.overshootPct = rc.configuredOvershootPct
+	rc.maxIntraBitratePct = opts.MaxIntraBitratePct
+	rc.maxInterBitratePct = opts.MaxInterBitratePct
+	rc.targetLevel = opts.TargetLevel
+	rc.gfCBRBoostPct = 0
+	if rc.mode == RateControlCBR {
+		rc.gfCBRBoostPct = opts.GFCBRBoostPct
+	}
+	rc.setGFIntervalsFromOptions(opts)
+	rc.framePeriodicBoost = opts.FramePeriodicBoost
+	rc.altRefAQ = opts.AltRefAQ
+	rc.postEncodeDrop = opts.PostEncodeDrop && rc.mode == RateControlCBR
+	rc.disableOvershootMaxQCBR = opts.DisableOvershootMaxQCBR &&
+		rc.mode == RateControlCBR
+	if opts.NextFrameQIndexSet {
+		rc.nextFrameQIndexSet = true
+		q := min(max(opts.NextFrameQIndex, 0), 255)
+		rc.nextFrameQIndex = uint8(q)
+	}
+}
+
+func (rc *vp9RateControlState) applyRuntimeConfig(opts VP9EncoderOptions, timing timingState) error {
+	if !rc.enabled {
+		return rc.applyOptions(opts, timing)
+	}
+	if !opts.RateControlModeSet || !validRateControlMode(opts.RateControlMode) {
+		return ErrInvalidConfig
+	}
+	bufferSize := opts.BufferSizeMs
+	if bufferSize == 0 {
+		bufferSize = libvpxDefaultBufferSizeMs
+	}
+	bufferInitial := opts.BufferInitialSizeMs
+	if bufferInitial == 0 {
+		bufferInitial = libvpxDefaultBufferInitialMs
+	}
+	bufferOptimal := opts.BufferOptimalSizeMs
+	if bufferOptimal == 0 {
+		bufferOptimal = libvpxDefaultBufferOptimalMs
+	}
+	if bufferSize <= 0 || bufferInitial < 0 || bufferOptimal < 0 {
+		return ErrInvalidConfig
+	}
+	waterMark := opts.DropFrameWaterMark
+	if opts.DropFrameAllowed && waterMark <= 0 {
+		waterMark = defaultDropFramesWaterMark
+	}
+	if waterMark > 100 {
+		waterMark = 100
+	}
+
+	prev := *rc
+	rc.mode = opts.RateControlMode
+	rc.bufferSizeMs = bufferSize
+	rc.bufferInitialSizeMs = bufferInitial
+	rc.bufferOptimalSizeMs = bufferOptimal
+	rc.dropFrameAllowed = false
+	rc.dropFramesWaterMark = 0
+	if opts.RateControlMode == RateControlCBR {
+		rc.dropFrameAllowed = opts.DropFrameAllowed
+		rc.dropFramesWaterMark = uint8(waterMark)
+	}
+	rc.applyBitrateBoundsFromOptions(opts)
+	rc.setFrameSize(opts.Width, opts.Height)
+	rc.setQuantizerBoundsFromOptions(opts)
+	if err := rc.setBitrateKbps(opts.TargetBitrateKbps, timing); err != nil {
+		*rc = prev
+		return err
+	}
+	rc.setRuntimeOnePassVBRGoldenCadence(prev)
+	return nil
+}
+
+func (rc *vp9RateControlState) setBitrateKbps(kbps int, timing timingState) error {
+	if !rc.enabled {
+		return nil
+	}
+	if kbps <= 0 {
+		return ErrInvalidBitrate
+	}
+	kbps = rc.clampBitrateKbps(kbps)
+	effectiveKbps := rc.libvpxClampToRawTargetRate(kbps, timing)
+	effectiveKbps = vp9TargetLevelClampBitrateKbps(rc.targetLevel,
+		effectiveKbps)
+	targetBits, ok := arith.CheckedMul(effectiveKbps, 1000)
+	if !ok {
+		return ErrInvalidBitrate
+	}
+	// libvpx derives rc->avg_frame_bandwidth from cpi->framerate, not from the
+	// configured timebase, in vp9_rc_update_framerate (vp9_ratectrl.c:2655).
+	// Seed rc.framerate from the timebase on the first configuration and reuse
+	// the running dynamic value afterwards so a mid-stream fps change does not
+	// snap the per-frame bandwidth before adjust_frame_rate observes the new
+	// source-timestamp delta.
+	if rc.framerate <= 0 {
+		rc.framerate = vp9LibvpxFrameRate(timing)
+	}
+	bitsPerFrame := computeVP9BitsPerFrameAtRate(targetBits, rc.framerate)
+	if bitsPerFrame <= 0 {
+		return ErrInvalidBitrate
+	}
+	bufferSizeBits, ok := vp9MaximumBufferBitsForBitrate(effectiveKbps,
+		targetBits, rc.bufferSizeMs)
+	if !ok {
+		return ErrInvalidBitrate
+	}
+	bufferInitialBits, ok := arith.CheckedMul(effectiveKbps, rc.bufferInitialSizeMs)
+	if !ok {
+		return ErrInvalidBitrate
+	}
+	bufferOptimalBits, ok := vp9OptimalBufferBitsForBitrate(effectiveKbps,
+		targetBits, rc.bufferOptimalSizeMs)
+	if !ok {
+		return ErrInvalidBitrate
+	}
+	rc.targetBitrateKbps = kbps
+	rc.effectiveBitrateKbps = effectiveKbps
+	rc.targetBandwidthBits = targetBits
+	rc.overshootPct = vp9TargetLevelClampOvershootPct(rc.targetLevel,
+		effectiveKbps, rc.effectiveConfiguredOvershootPct())
+	rc.bitsPerFrame = bitsPerFrame
+	rc.frameTargetBits = bitsPerFrame
+	rc.setLibvpxFrameRate(timing)
+	rc.bufferSizeBits = bufferSizeBits
+	rc.bufferInitialBits = bufferInitialBits
+	rc.bufferOptimalBits = bufferOptimalBits
+	rc.updateFrameBandwidthBounds()
+	rc.initOnePassVBRState(timing)
+	rc.clampBuffer()
+	return nil
+}
+
+func computeVP9BitsPerFrame(targetBandwidthBits int, timing timingState) int {
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
+		return 0
+	}
+	return vpxrc.BitsPerFrame(targetBandwidthBits, fps, 0, 0, 0)
+}
+
+// computeVP9BitsPerFrameAtRate mirrors libvpx vp9_rc_update_framerate
+// (vp9_ratectrl.c:2655): avg_frame_bandwidth = round(target_bandwidth /
+// framerate). The framerate is the dynamic cpi->framerate, clamped to 30 only
+// for the degenerate framerate < 0.1 case handled by vp9LibvpxFrameRate.
+func computeVP9BitsPerFrameAtRate(targetBandwidthBits int, framerate float64) int {
+	if framerate <= 0 {
+		return 0
+	}
+	return vpxrc.BitsPerFrame(targetBandwidthBits, framerate, 0, 0, 0)
+}
+
+func (rc *vp9RateControlState) libvpxClampToRawTargetRate(kbps int, timing timingState) int {
+	if kbps <= 0 {
+		return kbps
+	}
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
+		return kbps
+	}
+	return vpxrc.ClampToRawTargetRateKbps(kbps, rc.codedWidth,
+		rc.codedHeight, 8, fps)
+}
+
+func (rc *vp9RateControlState) setLibvpxFrameRate(timing timingState) {
+	fps := vp9LibvpxFrameRate(timing)
+	if fps <= 0 {
+		rc.frameRateNum = 0
+		rc.frameRateDen = 0
+		return
+	}
+	if outputFrameRate(timing) > 180 {
+		rc.frameRateNum = 30
+		rc.frameRateDen = 1
+		return
+	}
+	if timing.timebaseNum > 0 && timing.timebaseDen > 0 &&
+		timing.frameDuration > 0 {
+		rc.frameRateNum = timing.timebaseDen
+		rc.frameRateDen = timing.timebaseNum * timing.frameDuration
+		return
+	}
+	rc.frameRateNum = int(fps*1_000_000 + 0.5)
+	rc.frameRateDen = 1_000_000
+}
+
+// vp9NewFramerate mirrors libvpx vp9_new_framerate (vp9/encoder/vp9_encoder.c:1410)
+// followed by vp9_rc_update_framerate (vp9_ratectrl.c:2650). It re-derives the
+// per-frame bandwidth (rc->avg_frame_bandwidth = bitsPerFrame), the min/max
+// frame bandwidths, and the framerate-derived GF interval range from the new
+// dynamic framerate. It deliberately does NOT touch buffer_level /
+// bits_off_target — those are recomputed only on a buffer-geometry change in
+// vp9_set_rc_buffer_sizes, not on a framerate change.
+func (rc *vp9RateControlState) vp9NewFramerate(framerate float64) {
+	if !rc.enabled {
+		return
+	}
+	if framerate < 0.1 {
+		framerate = 30
+	}
+	rc.framerate = framerate
+	bitsPerFrame := computeVP9BitsPerFrameAtRate(rc.targetBandwidthBits, framerate)
+	if bitsPerFrame <= 0 {
+		return
+	}
+	rc.bitsPerFrame = bitsPerFrame
+	rc.frameTargetBits = bitsPerFrame
+	rc.updateFrameBandwidthBounds()
+	rc.setGFIntervalRangeFromFramerate(framerate)
+}
+
+// setGFIntervalRangeFromFramerate re-derives the framerate-default GF interval
+// range, mirroring vp9_rc_set_gf_interval_range (vp9_ratectrl.c:2597) as called
+// from the tail of vp9_rc_update_framerate. Explicit VP9E_SET_*_GF_INTERVAL
+// overrides (rc.minGFInterval / rc.maxGFInterval) keep precedence, matching the
+// override handling in initOnePassVBRState.
+func (rc *vp9RateControlState) setGFIntervalRangeFromFramerate(framerate float64) {
+	minInterval := vp9DefaultMinGFIntervalAtRate(rc.codedWidth, rc.codedHeight, framerate)
+	maxInterval := vp9DefaultMaxGFIntervalAtRate(framerate, minInterval)
+	if rc.minGFInterval > 0 {
+		minInterval = int(rc.minGFInterval)
+	}
+	if rc.maxGFInterval > 0 {
+		maxInterval = max(int(rc.maxGFInterval), minInterval)
+	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
+		maxInterval = minInterval
+	}
+	rc.resolvedMinGFInterval = minInterval
+	rc.resolvedMaxGFInterval = maxInterval
+}
+
+func (rc *vp9RateControlState) effectiveConfiguredOvershootPct() uint8 {
+	if rc.configuredOvershootPct != 0 {
+		return rc.configuredOvershootPct
+	}
+	if rc.overshootPct != 0 {
+		return rc.overshootPct
+	}
+	return uint8(defaultVP9RateControlOvershootPct)
+}
+
+func vp9LibvpxFrameRate(timing timingState) float64 {
+	fps := outputFrameRate(timing)
+	if fps > 180 {
+		return 30
+	}
+	return fps
+}
+
+func vp9MaximumBufferBitsForBitrate(kbps int, targetBandwidthBits int, sizeMs int) (int, bool) {
+	if sizeMs == 0 {
+		return targetBandwidthBits / 8, true
+	}
+	return arith.CheckedMul(kbps, sizeMs)
+}
+
+func vp9OptimalBufferBitsForBitrate(kbps int, targetBandwidthBits int, optimalMs int) (int, bool) {
+	if optimalMs == 0 {
+		return targetBandwidthBits / 8, true
+	}
+	return arith.CheckedMul(kbps, optimalMs)
+}
+
+func (rc *vp9RateControlState) setBufferModel(sizeMs, initialMs, optimalMs int) error {
+	if !rc.enabled {
+		return nil
+	}
+	if sizeMs < 0 || initialMs < 0 || optimalMs < 0 {
+		return ErrInvalidConfig
+	}
+	sizeBits, ok := vp9MaximumBufferBitsForBitrate(rc.effectiveBitrateKbps,
+		rc.targetBandwidthBits, sizeMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	initialBits, ok := arith.CheckedMul(rc.effectiveBitrateKbps, initialMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	optimalBits, ok := vp9OptimalBufferBitsForBitrate(rc.effectiveBitrateKbps,
+		rc.targetBandwidthBits, optimalMs)
+	if !ok {
+		return ErrInvalidConfig
+	}
+	rc.bufferSizeMs = sizeMs
+	rc.bufferInitialSizeMs = initialMs
+	rc.bufferOptimalSizeMs = optimalMs
+	rc.bufferSizeBits = sizeBits
+	rc.bufferInitialBits = initialBits
+	rc.bufferOptimalBits = optimalBits
+	rc.clampBuffer()
+	return nil
+}
+
+func (rc *vp9RateControlState) initQuantizerStateFromOptions(opts VP9EncoderOptions) {
+	rc.setQuantizerBoundsFromOptions(opts)
+	if rc.mode == RateControlCBR {
+		rc.avgFrameQIndexKey = rc.worstQuality
+		rc.avgFrameQIndexInter = rc.worstQuality
+	} else {
+		mid := uint8((int(rc.bestQuality) + int(rc.worstQuality)) >> 1)
+		rc.avgFrameQIndexKey = mid
+		rc.avgFrameQIndexInter = mid
+	}
+	rc.lastQKey = rc.bestQuality
+	rc.lastQInter = rc.worstQuality
+	rc.lastBoostedQIndex = rc.worstQuality
+	rc.afRatioOnePassVBR = encoder.DefaultAFRatioOnePassVBR
+	rc.facActiveWorstInter = encoder.DefaultActiveWorstInterPct
+	rc.facActiveWorstGF = encoder.DefaultActiveWorstGFPct
+	for i := range rc.rateCorrectionFactors {
+		rc.rateCorrectionFactors[i] = 1
+	}
+	rc.q1Frame = 0
+	rc.q2Frame = 0
+	rc.rc1Frame = 0
+	rc.rc2Frame = 0
+	rc.framesSinceKey = 8
+}
+
+func (rc *vp9RateControlState) setQuantizerBoundsFromOptions(opts VP9EncoderOptions) {
+	minQ, maxQ, cqLevel := vp9NormalizedPublicQuantizers(opts)
+	best := encoder.PublicQuantizerToQIndex(minQ)
+	worst := encoder.PublicQuantizerToQIndex(maxQ)
+	worst = vp9TargetLevelWorstQuality(opts.TargetLevel, worst)
+	if best > worst {
+		best = worst
+	}
+	rc.bestQuality = uint8(best)
+	rc.worstQuality = uint8(worst)
+	rc.cqLevel = uint8(encoder.PublicQuantizerToQIndex(cqLevel))
+	rc.clampQuantizerHistory()
+}
+
+func (rc *vp9RateControlState) setGFIntervalsFromOptions(opts VP9EncoderOptions) {
+	minGF, maxGF := vp9TargetLevelGFIntervals(opts.TargetLevel,
+		opts.Width, opts.Height,
+		opts.MinGFInterval, opts.MaxGFInterval)
+	rc.minGFInterval = uint8(minGF)
+	rc.maxGFInterval = uint8(maxGF)
+}
+
+func (rc *vp9RateControlState) clampQuantizerHistory() {
+	best := rc.bestQuality
+	worst := rc.worstQuality
+	rc.avgFrameQIndexKey = clampUint8(rc.avgFrameQIndexKey, best, worst)
+	rc.avgFrameQIndexInter = clampUint8(rc.avgFrameQIndexInter, best, worst)
+	rc.lastQKey = clampUint8(rc.lastQKey, best, worst)
+	rc.lastQInter = clampUint8(rc.lastQInter, best, worst)
+	rc.lastBoostedQIndex = clampUint8(rc.lastBoostedQIndex, best, worst)
+	rc.cqLevel = clampUint8(rc.cqLevel, best, worst)
+	rc.q1Frame = clampUint8(rc.q1Frame, best, worst)
+	rc.q2Frame = clampUint8(rc.q2Frame, best, worst)
+}
+
+func (rc *vp9RateControlState) initOnePassVBRState(timing timingState) {
+	if !rc.enabled {
+		return
+	}
+	rc.afRatioOnePassVBR = encoder.DefaultAFRatioOnePassVBR
+	// libvpx vp9_rc_init (vp9/encoder/vp9_ratectrl.c:445) seeds
+	// rc->baseline_gf_interval = (min_gf_interval + max_gf_interval) / 2
+	// unconditionally for every rc_mode. The VPX_Q-only special case at
+	// vp9_ratectrl.c:446-447 assigns FIXED_GF_INTERVAL to
+	// rc->static_scene_max_gf_interval — a *different* field — not to
+	// baseline_gf_interval, so one-pass VPX_Q must derive baseline_gf_interval
+	// from the (min + max) midpoint exactly like the VBR path. The previous
+	// FixedGFInterval=8 short-circuit made the realtime golden-frame cadence
+	// fire at current_video_frame 8 instead of libvpx's 10, diverging the
+	// refresh_frame_flags (and downstream golden buffer) from frame 8 onward.
+	minInterval := vp9DefaultMinGFInterval(timing)
+	maxInterval := vp9DefaultMaxGFInterval(timing, minInterval)
+	if rc.minGFInterval > 0 {
+		minInterval = int(rc.minGFInterval)
+	}
+	if rc.maxGFInterval > 0 {
+		maxInterval = max(int(rc.maxGFInterval), minInterval)
+	} else if rc.minGFInterval > 0 && maxInterval < minInterval {
+		maxInterval = minInterval
+	}
+	rc.resolvedMinGFInterval = minInterval
+	rc.resolvedMaxGFInterval = maxInterval
+	rc.baselineGFInterval = uint8((minInterval + maxInterval) >> 1)
+	// libvpx seeds the rolling monitors at avg_frame_bandwidth in vp9_rc_init
+	// (vp9_ratectrl.c:392-393). Mirror that once the per-frame bandwidth is
+	// known; leave any non-zero (already-running) values untouched so a
+	// runtime config change does not reset the EMA mid-stream.
+	if rc.rollingTargetBits == 0 && rc.rollingActualBits == 0 &&
+		rc.bitsPerFrame > 0 {
+		rc.rollingTargetBits = rc.bitsPerFrame
+		rc.rollingActualBits = rc.bitsPerFrame
+	}
+}
+
+// beginFrameWithRefresh is the beginFrame variant that lets CBR mode apply
+// the libvpx VP9 GF CBR boost on golden-frame refreshes. Non-CBR modes route
+// through setOnePassVBRFrameTarget which already understands refresh flags.
+func (rc *vp9RateControlState) beginFrameWithRefresh(isKey bool, frameIndex int, refreshFlags uint8) {
+	if !rc.enabled {
+		return
+	}
+	if isKey {
+		rc.frameTargetBits = rc.keyFrameTargetBits(frameIndex)
+		return
+	}
+	if rc.mode == RateControlCBR {
+		rc.frameTargetBits = rc.onePassCBRInterFrameTargetBits(refreshFlags)
+		return
+	}
+	rc.frameTargetBits = rc.interFrameTargetBits()
+}
+
+func (rc *vp9RateControlState) preEncodeFrame(showFrame bool) {
+	if !rc.enabled || !showFrame {
+		return
+	}
+	rc.bufferLevelBits = arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	rc.clampBuffer()
+}
+
+// testDropInterFrame mirrors libvpx v1.16.0 vp9_test_drop for the non-SVC CBR
+// path. It mutates decimation state exactly like the source branch it models.
+func (rc *vp9RateControlState) testDropInterFrame() (vp9DropReason, bool) {
+	if !rc.enabled || rc.mode != RateControlCBR || !rc.dropFrameAllowed ||
+		rc.dropFramesWaterMark == 0 {
+		return vp9DropNone, false
+	}
+	if rc.bufferLevelBits < 0 {
+		return vp9DropNegativeBuffer, true
+	}
+	dropMark := int(rc.dropFramesWaterMark) * rc.bufferOptimalBits / 100
+	if rc.bufferLevelBits > dropMark && rc.decimationFactor > 0 {
+		rc.decimationFactor--
+	} else if rc.bufferLevelBits <= dropMark && rc.decimationFactor == 0 {
+		rc.decimationFactor = 1
+	}
+	if rc.decimationFactor > 0 {
+		if rc.decimationCount > 0 {
+			rc.decimationCount--
+			return vp9DropWatermarkDecimation, true
+		}
+		rc.decimationCount = rc.decimationFactor
+		return vp9DropNone, false
+	}
+	rc.decimationCount = 0
+	return vp9DropNone, false
+}
+
+func (rc *vp9RateControlState) postDropFrame() {
+	if !rc.enabled {
+		return
+	}
+	rc.rc2Frame = 0
+	rc.rc1Frame = 0
+	rc.lastQInter = rc.q1Frame
+	rc.incrementFramesSinceKey()
+	rc.decrementFramesToKey(true)
+}
+
+func vp9DropReasonString(reason vp9DropReason) string {
+	switch reason {
+	case vp9DropNegativeBuffer:
+		return "negative_buffer"
+	case vp9DropWatermarkDecimation:
+		return "watermark_decimation"
+	default:
+		return ""
+	}
+}
+
+func (rc *vp9RateControlState) postEncodeFrame(sizeBytes int, showFrame bool, qindex int, intraOnly bool, refreshFlags uint8, macroblocks int, altRefEnabled bool, cyclic *encoder.CyclicRefreshState, dampedRFLevel int) {
+	if !rc.enabled {
+		return
+	}
+	encodedBits := vpxrc.EncodedSizeBits(sizeBytes)
+	rc.updateRateCorrectionFactor(encodedBits, qindex, intraOnly, refreshFlags, macroblocks, cyclic, dampedRFLevel)
+	rc.updateQHistoryWithAltRef(qindex, intraOnly, refreshFlags, showFrame, altRefEnabled)
+	rc.lastFrameIsSrcAltRef = rc.isSrcFrameAltRef
+	rc.updateRollingBits(intraOnly, encodedBits)
+	rc.postOnePassVBRRefresh(refreshFlags)
+	rc.postOnePassCBRGoldenCadence(refreshFlags)
+	rc.decrementFramesToKey(showFrame)
+	rc.totalActualBits += int64(encodedBits)
+	if showFrame {
+		rc.totalTargetBits += int64(rc.bitsPerFrame)
+	}
+	rc.bufferLevelBits = vp9PostEncodeBufferLevel(rc.bufferLevelBits,
+		rc.bufferSizeBits, encodedBits)
+}
+
+// shouldPostEncodeDrop mirrors libvpx's CBR post-encode drop check. The
+// drop fires for visible inter frames when the packed frame would make
+// buffer_level + avg_frame_bandwidth - frame_size negative. libvpx gates
+// the call on base_qindex < worst_quality so the max-q recovery frame is
+// allowed to pass through.
+func (rc *vp9RateControlState) shouldPostEncodeDrop(intraOnly bool, showFrame bool, qindex int, encodedBits int) bool {
+	if rc == nil || !rc.enabled || !rc.postEncodeDrop || intraOnly || !showFrame {
+		return false
+	}
+	if rc.mode != RateControlCBR || qindex >= int(rc.worstQuality) {
+		return false
+	}
+	level := arith.SaturatingAdd(rc.bufferLevelBits, rc.bitsPerFrame)
+	level = arith.SaturatingSub(level, encodedBits)
+	return level < 0
+}
+
+// postEncodeDropFrame rolls rate-control state forward as if the
+// just-encoded frame had been dropped. The CBR buffer has already been
+// credited by preEncodeFrame, so the encoded bits are not charged and the
+// buffer is not credited a second time.
+func (rc *vp9RateControlState) postEncodeDropFrame(qindex int) {
+	if rc == nil || !rc.enabled {
+		return
+	}
+	rc.rc2Frame = 0
+	rc.rc1Frame = 0
+	rc.lastQInter = uint8(arith.ClampInt(qindex, int(rc.bestQuality), int(rc.worstQuality)))
+	rc.avgFrameQIndexInter = rc.worstQuality
+	rc.forceMaxQ = true
+	rc.lastPostEncodeDroppedSceneChange = rc.highSourceSAD
+	rc.incrementFramesSinceKey()
+	rc.decrementFramesToKey(true)
+}
+
+func (rc *vp9RateControlState) setFrameSize(width int, height int) {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	if width > maxVP9Dimension {
+		width = maxVP9Dimension
+	}
+	if height > maxVP9Dimension {
+		height = maxVP9Dimension
+	}
+	rc.codedWidth = width
+	rc.codedHeight = height
+	rc.updateFrameBandwidthBounds()
+}
+
+func (rc *vp9RateControlState) updateFrameBandwidthBounds() {
+	if !rc.enabled {
+		return
+	}
+	rc.minFrameBandwidth = encoder.FrameOverhead
+	if rc.bitsPerFrame > 0 && rc.bitsPerFrame>>5 > rc.minFrameBandwidth {
+		rc.minFrameBandwidth = rc.bitsPerFrame >> 5
+	}
+	miRows := (rc.codedHeight + 7) >> 3
+	miCols := (rc.codedWidth + 7) >> 3
+	mbs := encoder.MacroblockCount(miRows, miCols)
+	maxByMB := 0
+	if mbs > 0 {
+		if mbs > maxInt()/encoder.MaxMBRateBits {
+			maxByMB = maxInt()
+		} else {
+			maxByMB = mbs * encoder.MaxMBRateBits
+		}
+	}
+	maxBits := max(maxByMB, encoder.MaxRate1080PBits)
+	if rc.bitsPerFrame > 0 {
+		vbrMax := arith.PercentOf(rc.bitsPerFrame, encoder.DefaultVBRMaxSectionPct)
+		if vbrMax > maxBits {
+			maxBits = vbrMax
+		}
+	}
+	rc.maxFrameBandwidth = maxBits
+}
+
+func (rc *vp9RateControlState) setFrameDropAllowed(enabled bool, waterMark int) {
+	if !rc.enabled {
+		return
+	}
+	rc.dropFrameAllowed = enabled
+	if !enabled {
+		rc.dropFramesWaterMark = 0
+		rc.decimationFactor = 0
+		rc.decimationCount = 0
+		return
+	}
+	if waterMark <= 0 {
+		waterMark = int(rc.dropFramesWaterMark)
+	}
+	if waterMark <= 0 {
+		waterMark = defaultDropFramesWaterMark
+	}
+	if waterMark > 100 {
+		waterMark = 100
+	}
+	rc.dropFramesWaterMark = uint8(waterMark)
+}
+
+func (rc *vp9RateControlState) clampBuffer() {
+	if !rc.enabled {
+		return
+	}
+	if rc.bufferLevelBits > rc.bufferSizeBits {
+		rc.bufferLevelBits = rc.bufferSizeBits
+	}
+}
+
+func vp9PostEncodeBufferLevel(level, maxBits, encodedBits int) int {
+	next := int64(level)
+	next -= int64(encodedBits)
+	if next > int64(maxBits) {
+		return maxBits
+	}
+	if next < int64(-maxInt()) {
+		return -maxInt()
+	}
+	return int(next)
+}
+
+func clampUint8(v, lo, hi uint8) uint8 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}

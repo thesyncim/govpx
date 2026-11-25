@@ -180,10 +180,6 @@ func TestGCInvisibilityAudit(t *testing.T) {
 		}
 	}
 
-	if typeHasPointers(reflect.TypeFor[vp9MLPartitionContext]()) {
-		t.Fatal("vp9MLPartitionContext must contain zero pointers (GC noscan)")
-	}
-
 	// 1. VP8Encoder (1T & 4T)
 	vp8Enc, err := NewVP8Encoder(EncoderOptions{
 		Width:             w,

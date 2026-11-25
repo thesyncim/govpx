@@ -1,10 +1,6 @@
 package govpx
 
-import (
-	vp8dec "github.com/thesyncim/govpx/internal/vp8/decoder"
-	vp9dec "github.com/thesyncim/govpx/internal/vp9/decoder"
-	"github.com/thesyncim/govpx/internal/vpx/codecapi"
-)
+import "github.com/thesyncim/govpx/internal/vpx/codecapi"
 
 type StreamInfo = codecapi.StreamInfo
 type ReferenceFlags = codecapi.ReferenceFlags
@@ -21,18 +17,12 @@ const (
 	ReferenceAltRef     = codecapi.ReferenceAltRef
 )
 
+// PeekVP8StreamInfo parses VP8 frame-header metadata without decoding the frame.
 func PeekVP8StreamInfo(packet []byte) (StreamInfo, error) {
 	return codecapi.PeekVP8StreamInfo(packet)
 }
 
-func peekVP8FrameHeader(packet []byte) (vp8dec.FrameHeader, StreamInfo, error) {
-	return codecapi.PeekVP8FrameHeader(packet)
-}
-
+// PeekVP9StreamInfo parses VP9 uncompressed-header metadata without decoding the frame.
 func PeekVP9StreamInfo(packet []byte) (VP9StreamInfo, error) {
 	return codecapi.PeekVP9StreamInfo(packet)
-}
-
-func vp9StreamInfoFromInternal(info vp9dec.StreamInfo) VP9StreamInfo {
-	return codecapi.VP9StreamInfoFromInternal(info)
 }

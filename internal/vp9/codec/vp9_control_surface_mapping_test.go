@@ -1,0 +1,374 @@
+package codec_test
+
+import (
+	"testing"
+
+	govpx "github.com/thesyncim/govpx"
+	"github.com/thesyncim/govpx/internal/testutil/controlsurface"
+)
+
+func TestVP9EncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9Encoder)(nil))
+	want := map[string]controlsurface.Mapping{
+		"Close":                          {Kind: "lifecycle"},
+		"Codec":                          {Kind: "metadata-api"},
+		"CollectFirstPassStats":          {Kind: "libvpx-first-pass-oracle"},
+		"Encode":                         {Kind: "allocating-encode-api"},
+		"EncodeIntraOnlyFrame":           {Kind: "allocating-frame-flag-api"},
+		"EncodeIntraOnlyFrameInto":       {Kind: "frame-flag-api"},
+		"EncodeInto":                     {Kind: "encode-api"},
+		"EncodeIntoWithFlags":            {Kind: "frame-flag-api"},
+		"EncodeIntoWithFlagsResult":      {Kind: "frame-flag-api"},
+		"EncodeIntoWithResult":           {Kind: "encode-api"},
+		"EncodeShowExistingFrame":        {Kind: "allocating-vp9-show-existing-api"},
+		"EncodeShowExistingFrameInto":    {Kind: "vp9-show-existing-api"},
+		"EncodeWithFlags":                {Kind: "allocating-frame-flag-api"},
+		"FlushInto":                      {Kind: "vp9-lookahead-api"},
+		"FlushIntoWithResult":            {Kind: "vp9-lookahead-api"},
+		"ForceKeyFrame":                  {Kind: "frame-flag-api"},
+		"LastLoopFilterLevel":            {Kind: "libvpx-control"},
+		"IsKeyFrameNext":                 {Kind: "metadata-api"},
+		"LastQuantizer":                  {Kind: "metadata-api"},
+		"CopyReferenceFrame":             {Kind: "libvpx-control", HelperTokens: []string{"copyref:"}},
+		"SetAdaptiveKeyFrames":           {Kind: "vp9-scene-cut-control"},
+		"SetAQMode":                      {Kind: "libvpx-control", HelperTokens: []string{"aq:"}},
+		"SetARNR":                        {Kind: "libvpx-control", HelperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
+		"SetActiveMap":                   {Kind: "libvpx-control", HelperTokens: []string{"active:"}},
+		"SetAutoAltRef":                  {Kind: "libvpx-control", HelperTokens: []string{"autoaltref:"}},
+		"SetBitrateKbps":                 {Kind: "libvpx-config", HelperTokens: []string{"bitrate:"}},
+		"SetCPUUsed":                     {Kind: "libvpx-control", HelperTokens: []string{"cpu:"}},
+		"SetCQLevel":                     {Kind: "libvpx-control", HelperTokens: []string{"cq:"}},
+		"SetColorRange":                  {Kind: "libvpx-control", HelperTokens: []string{"colorrange:"}},
+		"SetColorSpace":                  {Kind: "libvpx-control", HelperTokens: []string{"colorspace:"}},
+		"SetDeadline":                    {Kind: "encode-deadline", HelperTokens: []string{"deadline:"}},
+		"SetAltRefAQ":                    {Kind: "libvpx-control", HelperTokens: []string{"altrefaq:"}},
+		"SetDeltaQUV":                    {Kind: "libvpx-control", HelperTokens: []string{"deltaquv:"}},
+		"SetDisableLoopfilter":           {Kind: "libvpx-control", HelperTokens: []string{"disableloopfilter:"}},
+		"SetDisableOvershootMaxQCBR":     {Kind: "libvpx-control", HelperTokens: []string{"disovershoot:"}},
+		"SetEnableTPL":                   {Kind: "libvpx-vp9-tpl-control"},
+		"SetEnableKeyFrameFiltering":     {Kind: "libvpx-control", HelperTokens: []string{"--enable-keyframe-filtering"}},
+		"GetActiveMap":                   {Kind: "libvpx-control", HelperTokens: []string{"active:"}},
+		"TPLFrameDelta":                  {Kind: "libvpx-vp9-tpl-control"},
+		"SetFrameDropAllowed":            {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
+		"SetFramePeriodicBoost":          {Kind: "libvpx-control", HelperTokens: []string{"periodicboost:"}},
+		"SetFrameParallelDecoding":       {Kind: "libvpx-control", HelperTokens: []string{"frame-parallel:"}},
+		"SetFrameParallelEncoderThreads": {Kind: "vp9-frame-parallel-encoder-threads"},
+		"SetGFCBRBoostPct":               {Kind: "libvpx-control", HelperTokens: []string{"gfboost:"}},
+		"SetKeyFrameInterval":            {Kind: "libvpx-config", HelperTokens: []string{"kfmax:"}},
+		"SetKeyFrameIntervalRange":       {Kind: "libvpx-config", HelperTokens: []string{"kfmin:", "kfmax:"}},
+		"SetMaxGFInterval":               {Kind: "libvpx-control", HelperTokens: []string{"maxgf:"}},
+		"SetMaxInterBitratePct":          {Kind: "libvpx-control", HelperTokens: []string{"maxinter:"}},
+		"SetMaxIntraBitratePct":          {Kind: "libvpx-control", HelperTokens: []string{"maxintra:"}},
+		"SetMinGFInterval":               {Kind: "libvpx-control", HelperTokens: []string{"mingf:"}},
+		"SetNextFrameQIndex":             {Kind: "libvpx-control", HelperTokens: []string{"qonepass:"}},
+		"SetPostEncodeDrop":              {Kind: "libvpx-control", HelperTokens: []string{"postdrop:"}},
+		"SetLossless":                    {Kind: "libvpx-control", HelperTokens: []string{"lossless:"}},
+		"SetNoiseSensitivity":            {Kind: "libvpx-control", HelperTokens: []string{"noise:"}},
+		"SetRateControl":                 {Kind: "libvpx-config", HelperTokens: []string{"endusage:", "bitrate:", "minq:", "maxq:", "bufsz:", "bufinit:", "bufopt:", "drop:", "cq:"}},
+		"SetRateControlBuffer":           {Kind: "libvpx-config", HelperTokens: []string{"bufsz:", "bufinit:", "bufopt:"}},
+		"SetRealtimeTarget":              {Kind: "libvpx-config", HelperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"}},
+		"SetRowMT":                       {Kind: "libvpx-control", HelperTokens: []string{"rowmt:"}},
+		"SetRTCExternalRateControl":      {Kind: "libvpx-control", HelperTokens: []string{"rtc:"}},
+		"SetReferenceFrame":              {Kind: "libvpx-control", HelperTokens: []string{"setref:"}},
+		"SetRenderSize":                  {Kind: "libvpx-control", HelperTokens: []string{"rendersize:"}},
+		"SetROIMap":                      {Kind: "libvpx-control", HelperTokens: []string{"roi:", "roicustom:"}},
+		"SetScreenContentMode":           {Kind: "libvpx-control", HelperTokens: []string{"screen:"}},
+		"SetSharpness":                   {Kind: "libvpx-control", HelperTokens: []string{"sharpness:"}},
+		"SetSpatialLayerID":              {Kind: "libvpx-vp9-svc-layer-control"},
+		"SetSpatialScalability":          {Kind: "libvpx-vp9-svc-control"},
+		"SetStaticThreshold":             {Kind: "libvpx-control", HelperTokens: []string{"static:"}},
+		"SetTemporalLayerID":             {Kind: "libvpx-control", HelperTokens: []string{"tlid:"}},
+		"SetTargetLevel":                 {Kind: "libvpx-control", HelperTokens: []string{"targetlevel:"}},
+		"SetTemporalScalability":         {Kind: "libvpx-config", HelperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
+		"SetTuning":                      {Kind: "libvpx-control", HelperTokens: []string{"tune:"}},
+		"SetTwoPassStats":                {Kind: "libvpx-two-pass"},
+	}
+	// SetOracleTraceWriter is compiled only under the govpx_oracle_trace build
+	// tag (vp9_oracle_trace_flag_enabled.go); it is a zero-cost diagnostic hook
+	// with no libvpx control mapping, mirroring VP8Encoder.SetOracleTraceWriter
+	// in vp8_control_surface_mapping_test.go. Register it conditionally so the
+	// mapping holds in both build configurations.
+	if _, ok := methods["SetOracleTraceWriter"]; ok {
+		want["SetOracleTraceWriter"] = controlsurface.Mapping{Kind: "oracle-trace"}
+	}
+	controlsurface.AssertPublicMethodMappings(t, "VP9Encoder", methods, want)
+	controlsurface.AssertVP9FrameFlagsDriverTokens(t, want)
+}
+
+func TestVP9EncoderOptionsHaveParityMapping(t *testing.T) {
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9EncoderOptions{})
+	want := map[string]controlsurface.Mapping{
+		"AdaptiveKeyFrames":   {Kind: "vp9-scene-cut-control"},
+		"AltRefAQ":            {Kind: "libvpx-control", HelperTokens: []string{"altrefaq:", "--alt-ref-aq"}},
+		"AQMode":              {Kind: "libvpx-vp9-aq-mode-trace"},
+		"ARNRMaxFrames":       {Kind: "libvpx-control", HelperTokens: []string{"arnrmax:", "--arnr-maxframes"}},
+		"ARNRStrength":        {Kind: "libvpx-control", HelperTokens: []string{"arnrstrength:", "--arnr-strength"}},
+		"ARNRType":            {Kind: "libvpx-control", HelperTokens: []string{"arnrtype:", "--arnr-type"}},
+		"AutoAltRef":          {Kind: "libvpx-control", HelperTokens: []string{"autoaltref:", "--auto-alt-ref"}},
+		"BufferInitialSizeMs": {Kind: "libvpx-config", HelperTokens: []string{"bufinit:", "--buf-initial-sz"}},
+		"BufferOptimalSizeMs": {Kind: "libvpx-config", HelperTokens: []string{"bufopt:", "--buf-optimal-sz"}},
+		"BufferSizeMs":        {Kind: "libvpx-config", HelperTokens: []string{"bufsz:", "--buf-sz"}},
+		"ColorRange":          {Kind: "libvpx-control", HelperTokens: []string{"colorrange:", "--color-range"}},
+		"ColorSpace":          {Kind: "libvpx-control", HelperTokens: []string{"colorspace:", "--color-space"}},
+		"CpuUsed":             {Kind: "libvpx-control", HelperTokens: []string{"cpu:", "--cpu-used"}},
+		"CQLevel":             {Kind: "libvpx-control", HelperTokens: []string{"cq:", "--cq-level"}},
+		"Deadline":            {Kind: "encode-deadline", HelperTokens: []string{"deadline:", "--deadline"}},
+		"DeltaQUV":            {Kind: "libvpx-control", HelperTokens: []string{"deltaquv:"}},
+		"DisableLoopfilter":   {Kind: "libvpx-control", HelperTokens: []string{"disableloopfilter:", "--disable-loopfilter"}},
+		"DisableOvershootMaxQCBR": {
+			Kind:         "libvpx-control",
+			HelperTokens: []string{"disovershoot:", "--disable-overshoot-maxq-cbr"},
+		},
+		"DropFrameAllowed":        {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
+		"DropFrameWaterMark":      {Kind: "libvpx-config", HelperTokens: []string{"drop:"}},
+		"EnableTPL":               {Kind: "libvpx-vp9-tpl-control"},
+		"EnableKeyFrameFiltering": {Kind: "libvpx-control", HelperTokens: []string{"--enable-keyframe-filtering"}},
+		"FramePeriodicBoost":      {Kind: "libvpx-control", HelperTokens: []string{"periodicboost:", "--frame-boost"}},
+		"ErrorResilient":          {Kind: "libvpx-config", HelperTokens: []string{"error:", "--error-resilient"}},
+		"FPS":                     {Kind: "libvpx-config", HelperTokens: []string{"fps:"}},
+		"FrameParallelDecoding": {
+			Kind:         "libvpx-control",
+			HelperTokens: []string{"frame-parallel:", "--frame-parallel"},
+		},
+		"FrameParallelDecodingSet":    {Kind: "local-default-selector"},
+		"FrameParallelEncoderThreads": {Kind: "vp9-frame-parallel-encoder-threads"},
+		"Height":                      {Kind: "libvpx-config-dimensions"},
+		"Log2TileRows":                {Kind: "libvpx-config", HelperTokens: []string{"--tile-rows"}},
+		"LookaheadFrames":             {Kind: "vp9-lookahead-api"},
+		"Lossless":                    {Kind: "libvpx-control", HelperTokens: []string{"lossless:", "--lossless"}},
+		"GFCBRBoostPct":               {Kind: "libvpx-control", HelperTokens: []string{"gfboost:", "--gf-cbr-boost"}},
+		"MaxBitrateKbps":              {Kind: "libvpx-config", HelperTokens: []string{"--max-bitrate"}},
+		"MaxGFInterval":               {Kind: "libvpx-control", HelperTokens: []string{"maxgf:", "--max-gf-interval"}},
+		"MaxInterBitratePct":          {Kind: "libvpx-control", HelperTokens: []string{"maxinter:"}},
+		"MaxIntraBitratePct":          {Kind: "libvpx-control", HelperTokens: []string{"maxintra:", "--max-intra-rate"}},
+		"RTCExternalRateControl":      {Kind: "libvpx-control", HelperTokens: []string{"rtc:"}},
+		"RenderHeight":                {Kind: "libvpx-control", HelperTokens: []string{"rendersize:", "--render-height"}},
+		"RenderWidth":                 {Kind: "libvpx-control", HelperTokens: []string{"rendersize:", "--render-width"}},
+		"TargetLevel":                 {Kind: "libvpx-control", HelperTokens: []string{"targetlevel:", "--target-level"}},
+		"MaxKeyframeInterval":         {Kind: "libvpx-config", HelperTokens: []string{"kfmax:", "--kf-max-dist"}},
+		"MinBitrateKbps":              {Kind: "libvpx-config", HelperTokens: []string{"--min-bitrate"}},
+		"MinGFInterval":               {Kind: "libvpx-control", HelperTokens: []string{"mingf:", "--min-gf-interval"}},
+		"MinKeyframeInterval":         {Kind: "libvpx-config", HelperTokens: []string{"kfmin:", "--kf-min-dist"}},
+		"NextFrameQIndex":             {Kind: "libvpx-control", HelperTokens: []string{"qonepass:"}},
+		"NextFrameQIndexSet":          {Kind: "local-default-selector"},
+		"PostEncodeDrop":              {Kind: "libvpx-control", HelperTokens: []string{"postdrop:", "--postencode-drop"}},
+		"MaxQuantizer":                {Kind: "libvpx-config", HelperTokens: []string{"maxq:", "--max-q"}},
+		"MinQuantizer":                {Kind: "libvpx-config", HelperTokens: []string{"minq:", "--min-q"}},
+		"OvershootPct":                {Kind: "libvpx-config", HelperTokens: []string{"overshoot:", "--overshoot-pct"}},
+		"UndershootPct":               {Kind: "libvpx-config", HelperTokens: []string{"undershoot:", "--undershoot-pct"}},
+		"NoiseSensitivity":            {Kind: "libvpx-control", HelperTokens: []string{"noise:", "--noise-sensitivity"}},
+		"Quantizer":                   {Kind: "local-low-level-qindex"},
+		"RateControlMode":             {Kind: "libvpx-config", HelperTokens: []string{"endusage:", "--end-usage"}},
+		"RateControlModeSet":          {Kind: "local-default-selector"},
+		"RowMT":                       {Kind: "libvpx-control", HelperTokens: []string{"rowmt:", "--row-mt"}},
+		"Segmentation":                {Kind: "vp9-segmentation-header-api"},
+		"ScreenContentMode":           {Kind: "libvpx-control", HelperTokens: []string{"screen:", "--tune-content"}},
+		"Sharpness":                   {Kind: "libvpx-control", HelperTokens: []string{"sharpness:", "--sharpness"}},
+		"SpatialScalability":          {Kind: "libvpx-vp9-svc-control"},
+		"StaticThreshold":             {Kind: "libvpx-control", HelperTokens: []string{"static:", "--static-thresh"}},
+		"TargetBitrateKbps":           {Kind: "libvpx-config", HelperTokens: []string{"bitrate:", "--target-bitrate"}},
+		"TemporalScalability":         {Kind: "libvpx-config", HelperTokens: []string{"tslayers:", "tsperiodicity:", "tsbitrates:", "tsdecimators:", "tsids:"}},
+		"Threads":                     {Kind: "libvpx-config", HelperTokens: []string{"--tile-columns"}},
+		"TimebaseDen":                 {Kind: "libvpx-config-timebase"},
+		"TimebaseNum":                 {Kind: "libvpx-config-timebase"},
+		"Tuning":                      {Kind: "libvpx-control", HelperTokens: []string{"tune:", "--tune"}},
+		"TwoPassMaxPct":               {Kind: "libvpx-two-pass"},
+		"TwoPassMinPct":               {Kind: "libvpx-two-pass"},
+		"TwoPassStats":                {Kind: "libvpx-two-pass"},
+		"TwoPassVBRBiasPct":           {Kind: "libvpx-two-pass"},
+		"VBRCorpusComplexity":         {Kind: "libvpx-two-pass"},
+		"Width":                       {Kind: "libvpx-config-dimensions"},
+	}
+	controlsurface.AssertOptionFieldMappings(t, "VP9EncoderOptions", fields, want)
+	controlsurface.AssertVP9FrameFlagsDriverTokens(t, want)
+}
+
+func TestVP9DecoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9Decoder)(nil))
+	want := map[string]controlsurface.Mapping{
+		"ClearSVCSpatialLayer":     {Kind: "libvpx-decoder-control"},
+		"Close":                    {Kind: "lifecycle"},
+		"Codec":                    {Kind: "metadata-api"},
+		"CopyCurrentFrame":         {Kind: "libvpx-decoder-control"},
+		"CopyReferenceFrame":       {Kind: "libvpx-decoder-control", HelperTokens: []string{"copyref:"}},
+		"Decode":                   {Kind: "libvpx-decode-oracle"},
+		"DecodeInto":               {Kind: "libvpx-decode-oracle"},
+		"DecodeIntoWithPTS":        {Kind: "local-pts-wrapper"},
+		"DecodeRTP":                {Kind: "rtp-api"},
+		"DecodeRTPInto":            {Kind: "rtp-api"},
+		"DecodeRTPIntoWithPTS":     {Kind: "rtp-api"},
+		"DecodeRTPWithPTS":         {Kind: "rtp-api"},
+		"DecodeWithPTS":            {Kind: "local-pts-wrapper"},
+		"LastBitDepth":             {Kind: "metadata-api"},
+		"LastDisplaySize":          {Kind: "metadata-api"},
+		"LastFrameCorrupted":       {Kind: "metadata-api"},
+		"LastFrameInfo":            {Kind: "metadata-api"},
+		"LastFrameSize":            {Kind: "metadata-api"},
+		"LastReferenceUpdates":     {Kind: "metadata-api"},
+		"NextFrame":                {Kind: "decode-api"},
+		"Reset":                    {Kind: "lifecycle"},
+		"SetByteAlignment":         {Kind: "libvpx-decoder-control"},
+		"SetDecodeTileCol":         {Kind: "libvpx-decoder-control"},
+		"SetDecodeTileRow":         {Kind: "libvpx-decoder-control"},
+		"SetFrameBufferFunctions":  {Kind: "libvpx-decoder-control"},
+		"SetInvertTileDecodeOrder": {Kind: "libvpx-decoder-control"},
+		"SetLoopFilterOpt":         {Kind: "libvpx-decoder-control"},
+		"SetReferenceFrame":        {Kind: "libvpx-decoder-control", HelperTokens: []string{"setref:"}},
+		"SetRowMT":                 {Kind: "libvpx-decoder-control"},
+		"SetSkipLoopFilter":        {Kind: "libvpx-decoder-control"},
+		"SetSVCSpatialLayer":       {Kind: "libvpx-decoder-control"},
+	}
+	controlsurface.AssertPublicMethodMappings(t, "VP9Decoder", methods, want)
+	controlsurface.AssertDecoderControlTokens(t, want)
+}
+
+func TestVP9DecoderOptionsHaveParityMapping(t *testing.T) {
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9DecoderOptions{})
+	want := map[string]controlsurface.Mapping{
+		"ByteAlignment":          {Kind: "libvpx-decoder-control"},
+		"DecodeTileCol":          {Kind: "libvpx-decoder-control"},
+		"DecodeTileColSet":       {Kind: "libvpx-decoder-control"},
+		"DecodeTileRow":          {Kind: "libvpx-decoder-control"},
+		"DecodeTileRowSet":       {Kind: "libvpx-decoder-control"},
+		"DecoderLoopFilterOpt":   {Kind: "libvpx-decoder-control"},
+		"DecoderRowMT":           {Kind: "libvpx-decoder-control"},
+		"Decryptor":              {Kind: "libvpx-decoder-control"},
+		"DecryptorState":         {Kind: "libvpx-decoder-control"},
+		"ErrorConcealment":       {Kind: "libvpx-decode-oracle"},
+		"GetFrameBuffer":         {Kind: "libvpx-decoder-control"},
+		"InvertTileDecodeOrder":  {Kind: "libvpx-decoder-control"},
+		"MaxHeight":              {Kind: "local-validation"},
+		"MaxWidth":               {Kind: "local-validation"},
+		"PostProcessFlags":       {Kind: "libvpx-decode-oracle"},
+		"PostProcessNoiseLevel":  {Kind: "libvpx-decode-oracle"},
+		"RejectResolutionChange": {Kind: "local-validation"},
+		"ReleaseFrameBuffer":     {Kind: "libvpx-decoder-control"},
+		"SkipLoopFilter":         {Kind: "libvpx-decoder-control"},
+		"SVCSpatialLayer":        {Kind: "libvpx-decoder-control"},
+		"SVCSpatialLayerSet":     {Kind: "libvpx-decoder-control"},
+		"Threads":                {Kind: "libvpx-decode-oracle"},
+	}
+	controlsurface.AssertOptionFieldMappings(t, "VP9DecoderOptions", fields, want)
+}
+
+func TestVP9SpatialSVCEncoderPublicControlSurfaceHasParityMapping(t *testing.T) {
+	methods := controlsurface.ExportedMethodSet(t, (*govpx.VP9SpatialSVCEncoder)(nil))
+	want := map[string]controlsurface.Mapping{
+		"Close":                            {Kind: "lifecycle"},
+		"EncodeActiveLayersIntoWithResult": {Kind: "vp9-spatial-svc-superframe-api"},
+		"EncodeInto":                       {Kind: "vp9-spatial-svc-superframe-api"},
+		"EncodeIntoWithResult":             {Kind: "vp9-spatial-svc-superframe-api"},
+		"ForceKeyFrame":                    {Kind: "frame-flag-api"},
+		"GetLayerActiveMap":                {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"active:"}},
+		"IsKeyFrameNext":                   {Kind: "metadata-api"},
+		"LastLayerQuantizers":              {Kind: "libvpx-vp9-svc-control"},
+		"LayerEncoder":                     {Kind: "vp9-spatial-svc-layer-control"},
+		"CopyLayerReferenceFrame": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"copyref:"},
+		},
+		"SetLayerAdaptiveKeyFrames": {Kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerAltRefAQ":          {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"altrefaq:"}},
+		"SetLayerAQMode":            {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"aq:"}},
+		"SetLayerAutoAltRef":        {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"autoaltref:"}},
+		"SetLayerBitrateKbps":       {Kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerActiveMap":         {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"active:"}},
+		"SetLayerARNR":              {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"arnrmax:", "arnrstrength:", "arnrtype:"}},
+		"SetLayerColorRange":        {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"colorrange:"}},
+		"SetLayerColorSpace":        {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"colorspace:"}},
+		"SetLayerCPUUsed":           {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"cpu:"}},
+		"SetLayerCQLevel":           {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"cq:"}},
+		"SetLayerDeadline":          {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"deadline:"}},
+		"SetLayerDeltaQUV":          {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"deltaquv:"}},
+		"SetLayerDisableOvershootMaxQCBR": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"disovershoot:"},
+		},
+		"SetLayerDisableLoopfilter": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"disableloopfilter:"}},
+		"SetLayerEnableKeyFrameFiltering": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"--enable-keyframe-filtering"},
+		},
+		"SetLayerFrameDropAllowed": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"drop:"},
+		},
+		"SetLayerFrameParallelDecoding": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"frame-parallel:"}},
+		"SetLayerFrameParallelEncoderThreads": {
+			Kind: "vp9-spatial-svc-layer-control",
+		},
+		"SetLayerFramePeriodicBoost": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"periodicboost:"}},
+		"SetLayerKeyFrameInterval": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"kfmax:"},
+		},
+		"SetLayerKeyFrameIntervalRange": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"kfmin:", "kfmax:"},
+		},
+		"SetLayerGFCBRBoostPct":      {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"gfboost:"}},
+		"SetLayerMaxGFInterval":      {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"maxgf:"}},
+		"SetLayerMaxInterBitratePct": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"maxinter:"}},
+		"SetLayerMaxIntraBitratePct": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"maxintra:"}},
+		"SetLayerMinGFInterval":      {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"mingf:"}},
+		"SetLayerLossless":           {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"lossless:"}},
+		"SetLayerNextFrameQIndex":    {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"qonepass:"}},
+		"SetLayerNoiseSensitivity": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"noise:"},
+		},
+		"SetLayerPostEncodeDrop": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"postdrop:"}},
+		"SetLayerRateControl":    {Kind: "vp9-spatial-svc-layer-control"},
+		"SetLayerRateControlBuffer": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"bufsz:", "bufinit:", "bufopt:"},
+		},
+		"SetLayerRenderSize":             {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"rendersize:"}},
+		"SetLayerRTCExternalRateControl": {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"rtc:"}},
+		"SetLayerRealtimeTarget": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"resize:", "bitrate:", "fps:", "minq:", "maxq:", "drop:"},
+		},
+		"SetLayerROIMap": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"roi:", "roicustom:"},
+		},
+		"SetLayerReferenceFrame": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"setref:"},
+		},
+		"SetLayerScreenContentMode": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"screen:"},
+		},
+		"SetLayerSharpness": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"sharpness:"},
+		},
+		"SetLayerStaticThreshold": {
+			Kind:         "vp9-spatial-svc-layer-control",
+			HelperTokens: []string{"static:"},
+		},
+		"SetLayerRowMT":           {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"rowmt:"}},
+		"SetLayerTargetLevel":     {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"targetlevel:"}},
+		"SetLayerEnableTPL":       {Kind: "vp9-spatial-svc-layer-control"},
+		"SetInterLayerPrediction": {Kind: "libvpx-vp9-svc-control", HelperTokens: []string{"inter-layer-pred:"}},
+		"SetLayerTuning":          {Kind: "vp9-spatial-svc-layer-control", HelperTokens: []string{"tune:"}},
+		"SetLayerTwoPassStats":    {Kind: "vp9-spatial-svc-layer-control"},
+		"SetTemporalLayerID":      {Kind: "vp9-spatial-temporal-svc-control"},
+		"SetTemporalScalability": {
+			Kind: "vp9-spatial-temporal-svc-control",
+		},
+	}
+	controlsurface.AssertPublicMethodMappings(t, "VP9SpatialSVCEncoder", methods, want)
+}
+
+func TestVP9SpatialSVCEncoderOptionsHaveParityMapping(t *testing.T) {
+	fields := controlsurface.ExportedFieldSet(t, govpx.VP9SpatialSVCEncoderOptions{})
+	want := map[string]controlsurface.Mapping{
+		"InterLayerPrediction": {Kind: "vp9-spatial-svc-layer-control"},
+		"LayerCount":           {Kind: "libvpx-vp9-svc-control"},
+		"Layers":               {Kind: "libvpx-vp9-svc-layer-config"},
+	}
+	controlsurface.AssertOptionFieldMappings(t, "VP9SpatialSVCEncoderOptions", fields, want)
+}
