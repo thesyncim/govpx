@@ -14,14 +14,50 @@ func DCPairInPlaceInt32Native(c0, c1 int32, b []byte, stride int) {
 		dcPairNativeScalar(c0, c1, b, stride, b, stride)
 		return
 	}
+	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)
 	if stride >= 8 && len(b) >= 8 && stride <= (len(b)-8)/3 {
-		delta := dcPairSignedCoeff8(c0, c1)
-		dcPairSignedRows2(b, stride, b, stride, delta)
+		if d0 == 0 && d1 == 0 {
+			return
+		}
+		_ = b[3*stride+7]
 		b2 := b[2*stride:]
-		dcPairSignedRows2(b2, stride, b2, stride, delta)
+		if d0 >= 0 && d1 >= 0 {
+			addV := dcPairByteMask(uint8(d0), uint8(d1))
+			v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b), binary.LittleEndian.Uint64(b[stride:])}).ReshapeToUint8s().AddSaturated(addV).ReshapeToUint64s()
+			v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b2), binary.LittleEndian.Uint64(b2[stride:])}).ReshapeToUint8s().AddSaturated(addV).ReshapeToUint64s()
+			binary.LittleEndian.PutUint64(b, v0.GetElem(0))
+			binary.LittleEndian.PutUint64(b[stride:], v0.GetElem(1))
+			binary.LittleEndian.PutUint64(b2, v1.GetElem(0))
+			binary.LittleEndian.PutUint64(b2[stride:], v1.GetElem(1))
+			return
+		}
+		if d0 <= 0 && d1 <= 0 {
+			subV := dcPairByteMask(uint8(-d0), uint8(-d1))
+			v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b), binary.LittleEndian.Uint64(b[stride:])}).ReshapeToUint8s().SubSaturated(subV).ReshapeToUint64s()
+			v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b2), binary.LittleEndian.Uint64(b2[stride:])}).ReshapeToUint8s().SubSaturated(subV).ReshapeToUint64s()
+			binary.LittleEndian.PutUint64(b, v0.GetElem(0))
+			binary.LittleEndian.PutUint64(b[stride:], v0.GetElem(1))
+			binary.LittleEndian.PutUint64(b2, v1.GetElem(0))
+			binary.LittleEndian.PutUint64(b2[stride:], v1.GetElem(1))
+			return
+		}
+		var a0, a1, s0, s1 uint8
+		if d0 > 0 {
+			a0 = uint8(d0)
+			s1 = uint8(-d1)
+		} else {
+			s0 = uint8(-d0)
+			a1 = uint8(d1)
+		}
+		addV, subV := dcPairByteMask(a0, a1), dcPairByteMask(s0, s1)
+		v0 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b), binary.LittleEndian.Uint64(b[stride:])}).ReshapeToUint8s().AddSaturated(addV).SubSaturated(subV).ReshapeToUint64s()
+		v1 := archsimd.LoadUint64x2Array(&[2]uint64{binary.LittleEndian.Uint64(b2), binary.LittleEndian.Uint64(b2[stride:])}).ReshapeToUint8s().AddSaturated(addV).SubSaturated(subV).ReshapeToUint64s()
+		binary.LittleEndian.PutUint64(b, v0.GetElem(0))
+		binary.LittleEndian.PutUint64(b[stride:], v0.GetElem(1))
+		binary.LittleEndian.PutUint64(b2, v1.GetElem(0))
+		binary.LittleEndian.PutUint64(b2[stride:], v1.GetElem(1))
 		return
 	}
-	d0, d1 := dcPairNativeDelta(c0), dcPairNativeDelta(c1)
 	// Exact original enabled fallback: complete block0 before slicing block1,
 	// and evaluate destination before capturing each four-byte prediction.
 	for block := range 2 {
@@ -36,6 +72,13 @@ func DCPairInPlaceInt32Native(c0, c1 int32, b []byte, stride int) {
 			StorePixels4(d[y*stride:], LoadPixels4(p[y*stride:]).Add(v))
 		}
 	}
+}
+
+func dcPairByteMask(b0, b1 uint8) archsimd.Uint8x16 {
+	w0 := uint32(b0) * 0x01010101
+	w1 := uint32(b1) * 0x01010101
+	q := uint64(w0) | (uint64(w1) << 32)
+	return archsimd.BroadcastUint64x2(q).ReshapeToUint8s()
 }
 
 // Saturating the rounded coefficients to int16 is sufficient when the pixel
